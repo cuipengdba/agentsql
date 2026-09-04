@@ -102,11 +102,122 @@ type QueryResult struct{ Columns []string; Rows [][]string; RowCount int; Trunca
 ```
 Agent/Datasource/Policy/Approval 等存储模型见 3.3。
 
-## 3.3 存储 Schema（store/migrations/0001_init.sql）
-七张表：agents、datasources、policies、rules、mask_rules、audit_logs、approvals（字段沿用 v1.0 作战文档第 5 节），要求：
-- 每表 created_at/updated_at；audit_logs 只追加，无 update/delete 接口；
-- 索引：agents.api_key_hash；audit_logs(ts)、(agent_id,ts)、(decision)；
-- API Key：`asql_` 前缀，仅存 sha256；数据源密码 AES-GCM 加密，密钥取环境变量 AGENTSQL_SECRET。
+## 3.3 存储 Schema（store/migrations/0001_init.sql，冻结，照此建表）
+SQLite（modernc.org/sqlite），迁移开头执行 `PRAGMA foreign_keys = ON;`。七张表完整 DDL 如下，T02 必须逐字段落地，不得增删改字段：
+```sql
+CREATE TABLE agents (
+  id           TEXT PRIMARY KEY,                 -- ag_xxx
+  name         TEXT NOT NULL,
+  owner        TEXT,                             -- 责任人（企业版关联员工）
+  status       TEXT NOT NULL DEFAULT 'active',   -- active/disabled
+  api_key_hash TEXT NOT NULL,                    -- asql_ 密钥的 sha256，只存哈希
+  level        TEXT NOT NULL DEFAULT 'readonly', -- readonly/dml/ddl
+  expires_at   TIMESTAMP,
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_agents_keyhash ON agents(api_key_hash);
+
+CREATE TABLE datasources (
+  id              TEXT PRIMARY KEY,              -- ds_xxx
+  name            TEXT NOT NULL,
+  db_type         TEXT NOT NULL,                 -- postgres/mysql
+  host            TEXT NOT NULL,
+  port            INTEGER NOT NULL,
+  database        TEXT NOT NULL,
+  username        TEXT NOT NULL,
+  password_enc    TEXT NOT NULL,                 -- AES-GCM 密文
+  conn_limit      INTEGER DEFAULT 5,
+  stmt_timeout_ms INTEGER DEFAULT 5000,
+  row_limit       INTEGER DEFAULT 1000,
+  created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE policies (
+  id            TEXT PRIMARY KEY,
+  agent_id      TEXT NOT NULL REFERENCES agents(id),
+  datasource_id TEXT NOT NULL REFERENCES datasources(id),
+  object_type   TEXT NOT NULL,                   -- database/schema/table/column
+  object_name   TEXT NOT NULL,                   -- 如 public.orders
+  columns       TEXT,                            -- 允许列逗号分隔，* 为全部
+  row_filter    TEXT,                            -- 行级条件，企业版启用
+  action        TEXT NOT NULL,                   -- allow/deny
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_policies_agent_ds ON policies(agent_id, datasource_id);
+
+CREATE TABLE rules (
+  id           TEXT PRIMARY KEY,                 -- R001...
+  db_type      TEXT NOT NULL,                    -- postgres/mysql/all
+  title        TEXT NOT NULL,
+  risk_level   INTEGER NOT NULL,                 -- 1拒绝 2审批 3告警 4提示
+  pattern_type TEXT NOT NULL,                    -- ast_match/cost/rate/blacklist
+  definition   TEXT NOT NULL,                    -- JSON 规则定义
+  enabled      INTEGER DEFAULT 1,                -- 0/1
+  builtin      INTEGER DEFAULT 0,
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE mask_rules (
+  id             TEXT PRIMARY KEY,
+  datasource_id  TEXT,
+  table_name     TEXT NOT NULL,
+  column_name    TEXT NOT NULL,
+  sensitive_type TEXT NOT NULL,                  -- phone/idcard/bankcard/email
+  algo           TEXT NOT NULL,                  -- mask/hash/range/block
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 审计日志（核心）：只追加，Repository 层不提供 UPDATE/DELETE 接口
+CREATE TABLE audit_logs (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  agent_id        TEXT,
+  datasource_id   TEXT,
+  session_id      TEXT,                          -- MCP 会话
+  conversation_id TEXT,                          -- 上游 AI 会话 ID（透传）
+  mcp_tool        TEXT,                          -- query/execute_write/list_schema...
+  db_type         TEXT,
+  sql_raw         TEXT,                          -- 原始 SQL
+  sql_norm        TEXT,                          -- 去字面量归一化
+  stmt_type       TEXT,                          -- SELECT/UPDATE/DDL...
+  objects         TEXT,                          -- 涉及对象 JSON
+  decision        TEXT NOT NULL,                 -- allow/deny/approve/error
+  rule_hits       TEXT,                          -- 命中规则 JSON
+  risk_level      INTEGER,
+  est_rows        INTEGER,                       -- EXPLAIN 预估扫描行
+  rows_returned   INTEGER,
+  latency_ms      INTEGER,
+  client_ip       TEXT,
+  model_name      TEXT,
+  error_msg       TEXT
+);
+CREATE INDEX idx_audit_ts ON audit_logs(ts);
+CREATE INDEX idx_audit_agent_ts ON audit_logs(agent_id, ts);
+CREATE INDEX idx_audit_decision ON audit_logs(decision);
+
+CREATE TABLE approvals (
+  id         TEXT PRIMARY KEY,
+  audit_id   INTEGER REFERENCES audit_logs(id),
+  agent_id   TEXT,
+  sql_raw    TEXT,
+  reason     TEXT,
+  status     TEXT DEFAULT 'pending',             -- pending/approved/rejected/expired
+  approver   TEXT,
+  decided_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_approvals_status ON approvals(status);
+```
+约束：
+- 每表含 created_at/updated_at；**audit_logs 只追加，无 update/delete 接口**；
+- API Key：`asql_` 前缀，仅存 sha256；数据源密码 AES-GCM 加密，密钥取环境变量 AGENTSQL_SECRET；
+- 重复执行迁移必须幂等（CREATE TABLE IF NOT EXISTS / schema_migrations 记录版本）。
 
 ## 3.4 MCP Tools 契约（对 AI 暴露，冻结）
 | tool | 入参 | 行为 |
