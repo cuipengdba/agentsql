@@ -1,0 +1,29 @@
+# AgentSQL .gitignore
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dist/
+bin/
+
+# Web
+web/node_modules/
+web/dist/
+
+# Env / secrets
+.env
+*.local
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
