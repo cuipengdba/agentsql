@@ -1,0 +1,90 @@
+// Command agentsql is the AgentSQL database security gateway.
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+)
+
+var version = "dev"
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	logger, err := newLogger(stderr)
+	if err != nil {
+		fallback := zerolog.New(stderr)
+		fallback.Error().Err(err).Msg("configure logger")
+		return 1
+	}
+
+	command := newRootCommand(logger)
+	command.SetArgs(args)
+	command.SetOut(stdout)
+	command.SetErr(stderr)
+	if err := command.Execute(); err != nil {
+		logger.Error().Err(err).Msg("command failed")
+		return 1
+	}
+
+	return 0
+}
+
+func newRootCommand(logger zerolog.Logger) *cobra.Command {
+	command := &cobra.Command{
+		Use:           "agentsql",
+		Short:         "AI-native database security gateway",
+		Version:       version,
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+
+	command.AddCommand(newVersionCommand())
+	command.AddCommand(newServeCommand(logger))
+	return command
+}
+
+func newVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the AgentSQL version",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if _, err := fmt.Fprintln(command.OutOrStdout(), version); err != nil {
+				return fmt.Errorf("write version: %w", err)
+			}
+			return nil
+		},
+	}
+}
+
+func newServeCommand(logger zerolog.Logger) *cobra.Command {
+	var configPath string
+
+	command := &cobra.Command{
+		Use:   "serve",
+		Short: "Validate configuration and initialize AgentSQL",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			loaded, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("load configuration: %w", err)
+			}
+
+			logger.Info().
+				Str("http_listen", loaded.Server.HTTPListen).
+				Bool("console_enabled", loaded.Server.ConsoleEnabled).
+				Msg("configuration validated")
+			return nil
+		},
+	}
+	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")
+	return command
+}

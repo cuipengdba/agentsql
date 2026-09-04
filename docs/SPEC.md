@@ -35,6 +35,7 @@ Web 控制台 ─REST→ adminapi ─┤  auth/policy/parser/engine/   │
 # 第 2 章 工程规范（冻结）
 
 ## 2.1 技术栈与指定依赖（不许替换，新增需先报批）
+> 下列是**允许使用的依赖白名单**；go.mod/go.sum 由 `go mod tidy` 按各任务**实际 import** 自然维护，**不要预先 require 未使用的依赖**（否则 go build 报 "updates to go.mod needed"）。每个任务收尾必须 `go mod tidy` 且 build/vet/test 全绿。
 - Go 1.23+，module `github.com/cuipengdba/agentsql`（定名后全局替换）
 - MCP：`github.com/modelcontextprotocol/go-sdk`
 - PG 解析：`github.com/pganalyze/pg_query_go/v5`（真实内核 parser，零绕过）
