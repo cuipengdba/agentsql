@@ -35,7 +35,7 @@ Web 控制台 ─REST→ adminapi ─┤  auth/policy/parser/engine/   │
 # 第 2 章 工程规范（冻结）
 
 ## 2.1 技术栈与指定依赖（不许替换，新增需先报批）
-- Go 1.23+，module `github.com/yourname/agentsql`（定名后全局替换）
+- Go 1.23+，module `github.com/cuipengdba/agentsql`（定名后全局替换）
 - MCP：`github.com/modelcontextprotocol/go-sdk`
 - PG 解析：`github.com/pganalyze/pg_query_go/v5`（真实内核 parser，零绕过）
 - MySQL 解析：T03 先写验证程序在 `github.com/xwb1989/sqlparser` 与 `vitess.io/vitess/go/vt/sqlparser` 间二选一并报告结论后锁定
