@@ -2,11 +2,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +78,13 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			loaded, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("load configuration: %w", err)
+			}
+			metadataStore, err := store.Open(context.Background(), loaded.Store.SQLitePath)
+			if err != nil {
+				return fmt.Errorf("open metadata store: %w", err)
+			}
+			if err := metadataStore.Close(); err != nil {
+				return fmt.Errorf("close metadata store: %w", err)
 			}
 
 			logger.Info().

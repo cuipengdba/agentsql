@@ -1,0 +1,131 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"github.com/cuipengdba/agentsql/internal/model"
+)
+
+// AgentRepository provides CRUD operations for agents.
+type AgentRepository struct {
+	db *sql.DB
+}
+
+// Create inserts an agent and returns the stored record.
+func (repository *AgentRepository) Create(ctx context.Context, agent model.Agent) (model.Agent, error) {
+	if err := validateAPIKeyHash(agent.APIKeyHash); err != nil {
+		return model.Agent{}, fmt.Errorf("create agent %q: %w", agent.ID, err)
+	}
+	_, err := repository.db.ExecContext(ctx, `
+INSERT INTO agents (id, name, owner, status, api_key_hash, level, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		agent.ID,
+		agent.Name,
+		optionalString(agent.Owner),
+		agent.Status,
+		agent.APIKeyHash,
+		agent.Level,
+		optionalTime(agent.ExpiresAt),
+	)
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("create agent %q: %w", agent.ID, err)
+	}
+	created, err := repository.Get(ctx, agent.ID)
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("read created agent %q: %w", agent.ID, err)
+	}
+	return created, nil
+}
+
+// Get returns an agent by ID.
+func (repository *AgentRepository) Get(ctx context.Context, id string) (model.Agent, error) {
+	agent, err := scanAgent(repository.db.QueryRowContext(ctx, `
+SELECT id, name, owner, status, api_key_hash, level, expires_at, created_at, updated_at
+FROM agents
+WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Agent{}, fmt.Errorf("get agent %q: %w", id, errors.Join(ErrNotFound, err))
+	}
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+	}
+	return agent, nil
+}
+
+// Update replaces mutable agent fields and returns the stored record.
+func (repository *AgentRepository) Update(ctx context.Context, agent model.Agent) (model.Agent, error) {
+	if err := validateAPIKeyHash(agent.APIKeyHash); err != nil {
+		return model.Agent{}, fmt.Errorf("update agent %q: %w", agent.ID, err)
+	}
+	result, err := repository.db.ExecContext(ctx, `
+UPDATE agents
+SET name = ?, owner = ?, status = ?, api_key_hash = ?, level = ?, expires_at = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`,
+		agent.Name,
+		optionalString(agent.Owner),
+		agent.Status,
+		agent.APIKeyHash,
+		agent.Level,
+		optionalTime(agent.ExpiresAt),
+		agent.ID,
+	)
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("update agent %q: %w", agent.ID, err)
+	}
+	if err := checkRowsAffected(result, "agent", agent.ID); err != nil {
+		return model.Agent{}, fmt.Errorf("update agent %q: %w", agent.ID, err)
+	}
+	updated, err := repository.Get(ctx, agent.ID)
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("read updated agent %q: %w", agent.ID, err)
+	}
+	return updated, nil
+}
+
+// Delete removes an agent by ID.
+func (repository *AgentRepository) Delete(ctx context.Context, id string) error {
+	result, err := repository.db.ExecContext(ctx, "DELETE FROM agents WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete agent %q: %w", id, err)
+	}
+	if err := checkRowsAffected(result, "agent", id); err != nil {
+		return fmt.Errorf("delete agent %q: %w", id, err)
+	}
+	return nil
+}
+
+func scanAgent(scanner rowScanner) (model.Agent, error) {
+	var agent model.Agent
+	var owner sql.NullString
+	var expiresAt, createdAt, updatedAt databaseTimestamp
+	if err := scanner.Scan(
+		&agent.ID,
+		&agent.Name,
+		&owner,
+		&agent.Status,
+		&agent.APIKeyHash,
+		&agent.Level,
+		&expiresAt,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return model.Agent{}, fmt.Errorf("scan agent: %w", err)
+	}
+
+	agent.Owner = stringPointer(owner)
+	agent.ExpiresAt = expiresAt.pointer()
+	var err error
+	agent.CreatedAt, err = createdAt.required("agents.created_at")
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("scan agent: %w", err)
+	}
+	agent.UpdatedAt, err = updatedAt.required("agents.updated_at")
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("scan agent: %w", err)
+	}
+	return agent, nil
+}

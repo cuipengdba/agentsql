@@ -216,7 +216,7 @@ CREATE TABLE approvals (
 CREATE INDEX idx_approvals_status ON approvals(status);
 ```
 约束：
-- 每表含 created_at/updated_at；**audit_logs 只追加，无 update/delete 接口**；
+- 除 audit_logs 仅含 `ts`（只追加、不更新，故无 created_at/updated_at）外，其余各表含 created_at/updated_at；**audit_logs 只追加，Repository 层无 Update/Delete 接口**；
 - API Key：`asql_` 前缀，仅存 sha256；数据源密码 AES-GCM 加密，密钥取环境变量 AGENTSQL_SECRET；
 - 重复执行迁移必须幂等（CREATE TABLE IF NOT EXISTS / schema_migrations 记录版本）。
 

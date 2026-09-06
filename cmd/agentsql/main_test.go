@@ -43,6 +43,7 @@ func TestVersionCommand(t *testing.T) {
 func TestServeExitCodes(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("LOG_FORMAT", "")
+	t.Setenv("AGENTSQL_SECRET", "0123456789abcdef0123456789abcdef")
 
 	tests := []struct {
 		name         string
