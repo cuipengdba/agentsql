@@ -36,10 +36,10 @@ Web 控制台 ─REST→ adminapi ─┤  auth/policy/parser/engine/   │
 
 ## 2.1 技术栈与指定依赖（不许替换，新增需先报批）
 > 下列是**允许使用的依赖白名单**；go.mod/go.sum 由 `go mod tidy` 按各任务**实际 import** 自然维护，**不要预先 require 未使用的依赖**（否则 go build 报 "updates to go.mod needed"）。每个任务收尾必须 `go mod tidy` 且 build/vet/test 全绿。
-- Go 1.23+，module `github.com/cuipengdba/agentsql`（定名后全局替换）
+- Go 1.23+，module `github.com/cuipengdba/agentsql`（定名后全局替换）；**go.mod 的 go 指令自 T03 起提升为 `1.23.10`**（vitess v0.21.6 最低要求，仍属 1.23，本机工具链 1.27 可编译）
 - MCP：`github.com/modelcontextprotocol/go-sdk`
 - PG 解析：`github.com/pganalyze/pg_query_go/v5`（真实内核 parser，零绕过）
-- MySQL 解析：T03 先写验证程序在 `github.com/xwb1989/sqlparser` 与 `vitess.io/vitess/go/vt/sqlparser` 间二选一并报告结论后锁定
+- MySQL 解析：**已锁定 `vitess.io/vitess/go/vt/sqlparser v0.21.6`**（T03 选型结论：xwb1989/sqlparser 停留在 2018、无 go.mod/tag、是 Vitess 旧分支，MySQL8 新语法会漏；Vitess 持续维护、有 ParseStrictDDL 严格模式契合 fail-closed、SplitStatements 处理多语句、Apache-2.0，依赖体积大可接受）。用返回 error 的 `sqlparser.New`+`ParseStrictDDL`，**禁用会 panic 的 NewTestParser**；选型 spike 程序不进正式仓库
 - PG 驱动 `github.com/jackc/pgx/v5`(pgxpool)；MySQL 驱动 `github.com/go-sql-driver/mysql`
 - 元数据库 `modernc.org/sqlite`（纯 Go，免 CGO，保证交叉编译）
 - Web：`github.com/gin-gonic/gin`；配置 `gopkg.in/yaml.v3`；日志 `github.com/rs/zerolog`；CLI `github.com/spf13/cobra`

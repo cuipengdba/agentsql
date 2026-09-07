@@ -1,0 +1,519 @@
+package parser
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/cuipengdba/agentsql/internal/model"
+	pg_query "github.com/pganalyze/pg_query_go/v5"
+)
+
+type postgresParser struct{}
+
+var _ Parser = (*postgresParser)(nil)
+
+type postgresDocument struct {
+	Statements []postgresRawStatement `json:"stmts"`
+}
+
+type postgresRawStatement struct {
+	Statement map[string]json.RawMessage `json:"stmt"`
+}
+
+func (parser *postgresParser) Parse(sql string) (ast *model.AST, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			ast = &model.AST{Dialect: postgresDialect, RawSQL: sql}
+			err = recoveredError(postgresDialect, recovered)
+		}
+	}()
+	return parser.parse(sql)
+}
+
+func (parser *postgresParser) parse(sql string) (*model.AST, error) {
+	if strings.TrimSpace(sql) == "" {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(
+			postgresDialect,
+			errors.New("SQL is empty"),
+		)
+	}
+	pieces, err := pg_query.SplitWithScanner(sql, true)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	if len(pieces) != 1 {
+		return &model.AST{
+			Dialect: postgresDialect,
+			RawSQL:  sql,
+			IsMulti: len(pieces) > 1,
+		}, unparseableError(postgresDialect, fmt.Errorf("expected one statement, got %d", len(pieces)))
+	}
+
+	parsedJSON, err := pg_query.ParseToJSON(sql)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	document, err := decodePostgresDocument(parsedJSON)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	if len(document.Statements) != 1 {
+		return &model.AST{
+			Dialect: postgresDialect,
+			RawSQL:  sql,
+			IsMulti: len(document.Statements) > 1,
+		}, unparseableError(postgresDialect, fmt.Errorf("expected one statement, got %d", len(document.Statements)))
+	}
+
+	nodeType, node, err := postgresRoot(document.Statements[0])
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	normalized, err := normalizePostgres(sql)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+
+	tables := make(objectSet)
+	columns := make(stringSet)
+	functions := make(stringSet)
+	commonTableExpressions := make(stringSet)
+	collectPostgresRangeVars(node, tables)
+	walkPostgresNode(node, func(key string, value any) {
+		if key != "CommonTableExpr" {
+			return
+		}
+		if name, ok := postgresStringField(value, "ctename"); ok {
+			commonTableExpressions.add(name)
+		}
+	})
+	walkPostgresNode(node, func(key string, value any) {
+		switch key {
+		case "ColumnRef":
+			if column, ok := postgresColumnRef(value); ok {
+				columns.add(column)
+			}
+		case "ColumnDef":
+			if column, ok := postgresStringField(value, "colname"); ok {
+				columns.add(column)
+			}
+		case "ResTarget":
+			if column, ok := postgresStringField(value, "name"); ok {
+				columns.add(column)
+			}
+		case "FuncCall":
+			if function, ok := postgresNameListField(value, "funcname"); ok {
+				functions.add(function)
+			}
+		}
+	})
+	tables.removeUnqualified(commonTableExpressions)
+	if nodeType == "DropStmt" {
+		for _, object := range postgresDropObjects(node) {
+			tables.add(object)
+		}
+	}
+
+	statementType := postgresStatementType(nodeType)
+	operations := make(stringSet)
+	operations.add(postgresOperation(nodeType, node))
+	hasComment, err := postgresHasComment(sql)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	if hasComment {
+		operations.add("COMMENT")
+	}
+	rootObject, rootIsObject := node.(map[string]any)
+	hasWhere := false
+	hasLimit := false
+	whereTautology := false
+	if rootIsObject {
+		switch statementType {
+		case model.StmtType("SELECT"):
+			where, exists := rootObject["whereClause"]
+			hasWhere = exists && where != nil
+			whereTautology = hasWhere && postgresExpressionTautology(where)
+			limit, exists := rootObject["limitCount"]
+			hasLimit = exists && limit != nil
+		case model.StmtType("UPDATE"), model.StmtType("DELETE"):
+			where, exists := rootObject["whereClause"]
+			hasWhere = exists && where != nil
+			whereTautology = hasWhere && postgresExpressionTautology(where)
+		}
+	}
+
+	return &model.AST{
+		Dialect:        postgresDialect,
+		RawSQL:         sql,
+		Normalized:     normalized,
+		StmtType:       statementType,
+		IsMulti:        false,
+		Tables:         tables.sorted(),
+		Columns:        columns.sorted(),
+		HasWhere:       hasWhere,
+		WhereTautology: whereTautology,
+		HasLimit:       hasLimit,
+		Functions:      functions.sorted(),
+		Operations:     operations.sorted(),
+		Explain:        nil,
+	}, nil
+}
+
+func normalizePostgres(sql string) (string, error) {
+	normalized, err := pg_query.Normalize(sql)
+	if err != nil {
+		return "", fmt.Errorf("normalize PostgreSQL SQL: %w", err)
+	}
+	redacted, err := redactPostgresStringConstants(normalized)
+	if err != nil {
+		return "", fmt.Errorf("redact PostgreSQL string constants: %w", err)
+	}
+	return redacted, nil
+}
+
+func redactPostgresStringConstants(sql string) (string, error) {
+	scanResult, err := pg_query.Scan(sql)
+	if err != nil {
+		return "", fmt.Errorf("scan normalized PostgreSQL SQL: %w", err)
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(sql))
+	cursor := 0
+	replaced := false
+	for _, token := range scanResult.GetTokens() {
+		switch token.GetToken().String() {
+		case "SCONST", "USCONST":
+		default:
+			continue
+		}
+
+		start := int(token.GetStart())
+		end := int(token.GetEnd())
+		if start < cursor || end < start || end > len(sql) {
+			return "", fmt.Errorf(
+				"invalid PostgreSQL string token range [%d,%d) for %d-byte SQL: %w",
+				start,
+				end,
+				len(sql),
+				errors.New("scanner token range is invalid"),
+			)
+		}
+		builder.WriteString(sql[cursor:start])
+		builder.WriteByte('?')
+		cursor = end
+		replaced = true
+	}
+	if !replaced {
+		return sql, nil
+	}
+	builder.WriteString(sql[cursor:])
+	return builder.String(), nil
+}
+
+func postgresHasComment(sql string) (bool, error) {
+	scanResult, err := pg_query.Scan(sql)
+	if err != nil {
+		return false, fmt.Errorf("scan PostgreSQL tokens: %w", err)
+	}
+	for _, token := range scanResult.GetTokens() {
+		switch token.GetToken().String() {
+		case "C_COMMENT", "SQL_COMMENT":
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func decodePostgresDocument(parsedJSON string) (postgresDocument, error) {
+	decoder := json.NewDecoder(bytes.NewBufferString(parsedJSON))
+	decoder.UseNumber()
+	var document postgresDocument
+	if err := decoder.Decode(&document); err != nil {
+		return postgresDocument{}, fmt.Errorf("decode PostgreSQL AST: %w", err)
+	}
+	return document, nil
+}
+
+func postgresRoot(statement postgresRawStatement) (string, any, error) {
+	if len(statement.Statement) != 1 {
+		return "", nil, fmt.Errorf("expected one PostgreSQL root node, got %d", len(statement.Statement))
+	}
+	for nodeType, raw := range statement.Statement {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var node any
+		if err := decoder.Decode(&node); err != nil {
+			return "", nil, fmt.Errorf("decode PostgreSQL %s node: %w", nodeType, err)
+		}
+		return nodeType, node, nil
+	}
+	return "", nil, errors.New("PostgreSQL statement has no root node")
+}
+
+func postgresStatementType(nodeType string) model.StmtType {
+	switch nodeType {
+	case "SelectStmt":
+		return model.StmtType("SELECT")
+	case "InsertStmt":
+		return model.StmtType("INSERT")
+	case "UpdateStmt":
+		return model.StmtType("UPDATE")
+	case "DeleteStmt":
+		return model.StmtType("DELETE")
+	case "CreateStmt", "CreateTableAsStmt", "AlterTableStmt", "AlterDomainStmt",
+		"AlterObjectSchemaStmt", "AlterOwnerStmt", "CompositeTypeStmt", "CreateEnumStmt",
+		"CreateFunctionStmt", "CreateSchemaStmt", "CreateSeqStmt", "CreateTrigStmt",
+		"DefineStmt", "DropStmt", "IndexStmt", "RenameStmt", "RuleStmt",
+		"TruncateStmt", "ViewStmt":
+		return model.StmtType("DDL")
+	case "CopyStmt", "DoStmt", "GrantStmt", "GrantRoleStmt", "ReindexStmt",
+		"TransactionStmt", "VacuumStmt", "VariableSetStmt":
+		return model.StmtType("ADMIN")
+	default:
+		return model.StmtType("UNKNOWN")
+	}
+}
+
+func postgresOperation(nodeType string, node any) string {
+	object, _ := node.(map[string]any)
+	switch nodeType {
+	case "SelectStmt":
+		return "SELECT"
+	case "InsertStmt":
+		return "INSERT"
+	case "UpdateStmt":
+		return "UPDATE"
+	case "DeleteStmt":
+		return "DELETE"
+	case "CreateStmt", "CreateTableAsStmt":
+		return "CREATE TABLE"
+	case "AlterTableStmt":
+		return "ALTER TABLE"
+	case "DropStmt":
+		removeType, _ := object["removeType"].(string)
+		return "DROP " + postgresObjectType(removeType)
+	case "TruncateStmt":
+		return "TRUNCATE TABLE"
+	case "VacuumStmt":
+		if postgresContainsDefElem(object["options"], "full") {
+			return "VACUUM FULL"
+		}
+		if isVacuum, ok := object["isVacuumcmd"].(bool); ok && !isVacuum {
+			return "ANALYZE"
+		}
+		return "VACUUM"
+	case "ReindexStmt":
+		return "REINDEX"
+	case "GrantStmt":
+		isGrant, found := object["is_grant"].(bool)
+		if !found {
+			isGrant, found = object["isGrant"].(bool)
+		}
+		if found && !isGrant {
+			return "REVOKE"
+		}
+		return "GRANT"
+	case "GrantRoleStmt":
+		isGrant, found := object["is_grant"].(bool)
+		if !found {
+			isGrant, found = object["isGrant"].(bool)
+		}
+		if found && !isGrant {
+			return "REVOKE ROLE"
+		}
+		return "GRANT ROLE"
+	case "CopyStmt":
+		if isProgram, ok := object["is_program"].(bool); ok && isProgram {
+			return "COPY PROGRAM"
+		}
+		if isProgram, ok := object["isProgram"].(bool); ok && isProgram {
+			return "COPY PROGRAM"
+		}
+		return "COPY"
+	case "VariableSetStmt":
+		return "SET"
+	case "TransactionStmt":
+		return "TRANSACTION"
+	default:
+		return strings.ToUpper(strings.TrimSuffix(nodeType, "Stmt"))
+	}
+}
+
+func postgresObjectType(removeType string) string {
+	value := strings.TrimPrefix(removeType, "OBJECT_")
+	value = strings.ReplaceAll(value, "_", " ")
+	if value == "" {
+		return "OBJECT"
+	}
+	return value
+}
+
+func walkPostgresNode(value any, visit func(key string, value any)) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			visit(key, child)
+			walkPostgresNode(child, visit)
+		}
+	case []any:
+		for _, child := range typed {
+			walkPostgresNode(child, visit)
+		}
+	}
+}
+
+func collectPostgresRangeVars(value any, tables objectSet) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if object, ok := postgresRangeVar(typed); ok {
+			tables.add(object)
+		}
+		for _, child := range typed {
+			collectPostgresRangeVars(child, tables)
+		}
+	case []any:
+		for _, child := range typed {
+			collectPostgresRangeVars(child, tables)
+		}
+	}
+}
+
+func postgresRangeVar(value any) (model.ObjectRef, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return model.ObjectRef{}, false
+	}
+	table, ok := object["relname"].(string)
+	if !ok || table == "" {
+		return model.ObjectRef{}, false
+	}
+	schema, _ := object["schemaname"].(string)
+	alias := ""
+	if aliasObject, ok := object["alias"].(map[string]any); ok {
+		if aliasName, exists := aliasObject["aliasname"].(string); exists {
+			alias = aliasName
+		}
+	}
+	return model.ObjectRef{Schema: schema, Table: table, Alias: alias}, true
+}
+
+func postgresColumnRef(value any) (string, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	fields, ok := object["fields"].([]any)
+	if !ok || len(fields) == 0 {
+		return "", false
+	}
+	for index := len(fields) - 1; index >= 0; index-- {
+		if name, ok := postgresStringNode(fields[index]); ok {
+			return name, true
+		}
+		if wrapper, ok := fields[index].(map[string]any); ok {
+			if _, isStar := wrapper["A_Star"]; isStar {
+				return "*", true
+			}
+		}
+	}
+	return "", false
+}
+
+func postgresStringField(value any, field string) (string, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	result, ok := object[field].(string)
+	return result, ok && result != ""
+}
+
+func postgresNameListField(value any, field string) (string, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	items, ok := object[field].([]any)
+	if !ok {
+		return "", false
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		if part, ok := postgresStringNode(item); ok {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	return strings.Join(parts, "."), true
+}
+
+func postgresStringNode(value any) (string, bool) {
+	wrapper, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	stringObject, ok := wrapper["String"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	valueString, ok := stringObject["sval"].(string)
+	return valueString, ok
+}
+
+func postgresDropObjects(node any) []model.ObjectRef {
+	root, ok := node.(map[string]any)
+	if !ok {
+		return nil
+	}
+	objects, ok := root["objects"].([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]model.ObjectRef, 0, len(objects))
+	for _, object := range objects {
+		wrapper, ok := object.(map[string]any)
+		if !ok {
+			continue
+		}
+		list, ok := wrapper["List"].(map[string]any)
+		if !ok {
+			continue
+		}
+		items, ok := list["items"].([]any)
+		if !ok || len(items) == 0 {
+			continue
+		}
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			if part, ok := postgresStringNode(item); ok {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) == 1 {
+			result = append(result, model.ObjectRef{Table: parts[0]})
+		} else if len(parts) >= 2 {
+			result = append(result, model.ObjectRef{Schema: parts[len(parts)-2], Table: parts[len(parts)-1]})
+		}
+	}
+	return result
+}
+
+func postgresContainsDefElem(value any, name string) bool {
+	found := false
+	walkPostgresNode(value, func(key string, child any) {
+		if found || key != "DefElem" {
+			return
+		}
+		if defname, ok := postgresStringField(child, "defname"); ok && strings.EqualFold(defname, name) {
+			found = true
+		}
+	})
+	return found
+}

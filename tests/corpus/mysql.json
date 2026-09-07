@@ -1,0 +1,218 @@
+[
+  {
+    "name": "basic select with limit",
+    "sql": "SELECT id, name FROM users WHERE id = 7 LIMIT 10",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "users"}],
+    "columns": ["id", "name"],
+    "has_where": true,
+    "where_tautology": false,
+    "has_limit": true,
+    "operations": ["SELECT"],
+    "normalized_excludes": ["7", "10"]
+  },
+  {
+    "name": "schema aliases join and function",
+    "sql": "SELECT u.id, lower(u.email), o.user_id FROM app.users AS u JOIN sales.orders AS o ON o.user_id = u.id WHERE o.status = 'open'",
+    "stmt_type": "SELECT",
+    "tables": [{"schema": "app", "table": "users", "alias": "u"}, {"schema": "sales", "table": "orders", "alias": "o"}],
+    "columns": ["id", "email", "user_id", "status"],
+    "has_where": true,
+    "where_tautology": false,
+    "has_limit": false,
+    "functions": ["lower"],
+    "operations": ["SELECT"],
+    "normalized_excludes": ["open"]
+  },
+  {
+    "name": "mixed case tautological update",
+    "sql": "uPdAte t set a=1 where 1=1 or 'a'='a'",
+    "stmt_type": "UPDATE",
+    "tables": [{"table": "t"}],
+    "require_tables": true,
+    "columns": ["a"],
+    "has_where": true,
+    "where_tautology": true,
+    "has_limit": false,
+    "operations": ["UPDATE"],
+    "normalized_excludes": ["'a'"]
+  },
+  {
+    "name": "delete without where",
+    "sql": "DELETE FROM app.sessions",
+    "stmt_type": "DELETE",
+    "tables": [{"schema": "app", "table": "sessions"}],
+    "require_tables": true,
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["DELETE"]
+  },
+  {
+    "name": "insert columns",
+    "sql": "INSERT INTO app.events (kind, payload) VALUES ('login', '{}')",
+    "stmt_type": "INSERT",
+    "tables": [{"schema": "app", "table": "events"}],
+    "require_tables": true,
+    "columns": ["kind", "payload"],
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["INSERT"],
+    "normalized_excludes": ["login", "{}"]
+  },
+  {
+    "name": "comment interleaved drop table",
+    "sql": "/**/ DROP/**/ TABLE x",
+    "stmt_type": "DDL",
+    "tables": [{"table": "x"}],
+    "require_tables": true,
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["COMMENT", "DROP TABLE"]
+  },
+  {
+    "name": "truncate table",
+    "sql": "TRUNCATE TABLE audit_stage",
+    "stmt_type": "DDL",
+    "tables": [{"table": "audit_stage"}],
+    "require_tables": true,
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["TRUNCATE TABLE"]
+  },
+  {
+    "name": "create table",
+    "sql": "CREATE TABLE app.items (id BIGINT, name VARCHAR(64))",
+    "stmt_type": "DDL",
+    "tables": [{"schema": "app", "table": "items"}],
+    "require_tables": true,
+    "columns": ["id", "name"],
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["CREATE TABLE"]
+  },
+  {
+    "name": "alter table",
+    "sql": "ALTER TABLE app.items ADD COLUMN enabled BOOLEAN",
+    "stmt_type": "DDL",
+    "tables": [{"schema": "app", "table": "items"}],
+    "require_tables": true,
+    "columns": ["enabled"],
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["ALTER TABLE"]
+  },
+  {
+    "name": "dangerous load file function",
+    "sql": "SELECT load_file('/etc/passwd')",
+    "stmt_type": "SELECT",
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "functions": ["load_file"],
+    "operations": ["LOAD_FILE", "SELECT"],
+    "normalized_excludes": ["/etc/passwd"]
+  },
+  {
+    "name": "into outfile operation",
+    "sql": "SELECT id FROM users INTO OUTFILE '/tmp/users.txt'",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "users"}],
+    "columns": ["id"],
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["SELECT", "INTO OUTFILE"],
+    "normalized_excludes": ["/tmp/users.txt"]
+  },
+  {
+    "name": "nested subquery with outer where",
+    "sql": "SELECT id FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 100)",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "users"}, {"table": "orders"}],
+    "columns": ["id", "user_id", "total"],
+    "has_where": true,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["SELECT"],
+    "normalized_excludes": ["100"]
+  },
+  {
+    "name": "cte name filtered and inner where does not protect outer select",
+    "sql": "WITH active_users AS (SELECT id FROM users WHERE active = true) SELECT id FROM active_users",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "users"}],
+    "columns": ["id", "active"],
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["SELECT"]
+  },
+  {
+    "name": "multiline select",
+    "sql": "SELECT\n  id,\n  email\nFROM users\nWHERE active = true\nLIMIT 25",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "users"}],
+    "columns": ["id", "email", "active"],
+    "has_where": true,
+    "where_tautology": false,
+    "has_limit": true,
+    "operations": ["SELECT"],
+    "normalized_excludes": ["25"]
+  },
+  {
+    "name": "hash comment before select",
+    "sql": "# audit lookup\nSELECT id FROM audit_logs WHERE decision = 'deny'",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "audit_logs"}],
+    "columns": ["id", "decision"],
+    "has_where": true,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["COMMENT", "SELECT"],
+    "normalized_excludes": ["deny"]
+  },
+  {
+    "name": "flush admin",
+    "sql": "FLUSH TABLES",
+    "stmt_type": "ADMIN",
+    "has_where": false,
+    "where_tautology": false,
+    "has_limit": false,
+    "operations": ["FLUSH"]
+  },
+  {
+    "name": "boolean true tautology",
+    "sql": "SELECT id FROM users WHERE TRUE",
+    "stmt_type": "SELECT",
+    "tables": [{"table": "users"}],
+    "columns": ["id"],
+    "has_where": true,
+    "where_tautology": true,
+    "has_limit": false,
+    "operations": ["SELECT"]
+  },
+  {
+    "name": "multiple statements",
+    "sql": "SELECT 1; DROP TABLE secrets",
+    "want_error": true,
+    "is_multi": true
+  },
+  {
+    "name": "comment separated stacked statements",
+    "sql": "SELECT 1;/**/SELECT FROM",
+    "want_error": true,
+    "is_multi": true
+  },
+  {
+    "name": "malformed sql",
+    "sql": "SELECT FROM",
+    "want_error": true,
+    "is_multi": false
+  }
+]
