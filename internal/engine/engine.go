@@ -351,6 +351,14 @@ func clonePolicyDecision(source *model.PolicyDecision) *model.PolicyDecision {
 		return nil
 	}
 	cloned := *source
+	cloned.AllowedTables = append([]string{}, source.AllowedTables...)
+	cloned.DeniedTables = append([]string{}, source.DeniedTables...)
+	if source.ColumnACL != nil {
+		cloned.ColumnACL = make(map[string][]string, len(source.ColumnACL))
+		for object, columns := range source.ColumnACL {
+			cloned.ColumnACL[object] = append([]string{}, columns...)
+		}
+	}
 	return &cloned
 }
 

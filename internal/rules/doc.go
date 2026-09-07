@@ -1,2 +1,2 @@
-// Package rules will contain generic and dialect-specific SQL rules.
+// Package rules contains AgentSQL's built-in SQL security rules.
 package rules

@@ -267,6 +267,8 @@ Rule 接口{ID,Dialect,Level,Enabled,Eval}；Engine 有序执行并聚合：有 
 ## T05 通用规则 R001-R010（internal/rules/generic.go）
 R001 多语句 deny；R002 UPDATE/DELETE 无 WHERE 或恒真 deny；R003 只读 Agent 非 SELECT deny；R004 EXPLAIN 扫描行超阈值(默认10万) approve；R005 无 LIMIT 大结果 warn+执行层强制 limit；R006 注释注入/堆叠/未知语句 deny；R007 危险函数黑名单(按方言) deny；R008 token-bucket QPS/并发限流 deny；R009 SQL 长度/嵌套层数/UNION 数超阈 approve；R010 越权表 deny。每条≥2 正例 3 反例，message 给 DBA、suggestion 中文教 AI 改。
 
+**R006 注释策略（v2.1 澄清）**：v0.1 对任何含注释的 SQL 一律 deny（parser 把注释标为 Operations 的 COMMENT），优先保证漏拦=0；AI Agent 生成的 SQL 本不应含注释，suggestion 指导其移除。已知保守点：PG/MySQL 优化器 hint（`/*+ ... */`）此时也会被拦，登记到 T23 误拦评估清单；若真实客户确有 hint 需求，再做“放行规范 hint、只拦危险注释模式”的精细化，v0.1 不设注释白名单。R008 限流器由 pipeline 在请求结束时 Release 占用，规则与限流判定都只走结构化 AST，不做 SQL 文本正则匹配（R009 长度除外，按字节计）。
+
 ## T06 PG 专项 R101-R107（postgres.go）
 R101 DROP DATABASE/TABLE deny；R102 VACUUM FULL/REINDEX approve；R103 pg_terminate_backend/pg_reload_conf/pg_read_file 等 deny；R104 COPY...PROGRAM deny；R105 无索引 UPDATE/DELETE（经 MetadataProvider 接口，先给接口+内存假实现）approve；R106 大表 ALTER（表行数元数据）approve；R107 长事务风险 warn。每条≥4 测试覆盖别名/大小写绕过。
 

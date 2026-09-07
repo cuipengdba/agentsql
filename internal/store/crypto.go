@@ -13,8 +13,8 @@ import (
 
 const (
 	secretEnvironmentVariable = "AGENTSQL_SECRET"
-	requiredSecretBytes        = 32
-	passwordAdditionalData     = "agentsql:datasource-password:v1"
+	requiredSecretBytes       = 32
+	passwordAdditionalData    = "agentsql:datasource-password:v1"
 )
 
 var (

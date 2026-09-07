@@ -1,4 +1,10 @@
 package model
 
-// PolicyDecision is an opaque T01 placeholder for the policy result defined in T08.
-type PolicyDecision struct{}
+// PolicyDecision carries the merged policy inputs consumed by guard rules.
+// Policy loading and merging remain the responsibility of T08.
+type PolicyDecision struct {
+	AllowedTables []string
+	DeniedTables  []string
+	ColumnACL     map[string][]string
+	Level         string
+}

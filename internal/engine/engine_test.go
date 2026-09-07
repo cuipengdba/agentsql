@@ -366,7 +366,12 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 	owner := "DBA"
 	agent := &model.Agent{Level: "readonly", Owner: &owner}
 	datasource := &model.Datasource{Name: "primary"}
-	policy := &model.PolicyDecision{}
+	policy := &model.PolicyDecision{
+		AllowedTables: []string{"public.orders"},
+		DeniedTables:  []string{"public.secrets"},
+		ColumnACL:     map[string][]string{"public.orders": {"id"}},
+		Level:         "readonly",
+	}
 	thresholds := map[string]float64{"scan_rows": 100}
 	rule := fakeRule{
 		id:      "mutating-fake",
@@ -378,6 +383,10 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 			context.Agent.Level = "ddl"
 			*context.Agent.Owner = "changed"
 			context.Datasource.Name = "changed"
+			context.Policy.AllowedTables[0] = "changed"
+			context.Policy.DeniedTables[0] = "changed"
+			context.Policy.ColumnACL["public.orders"][0] = "changed"
+			context.Policy.ColumnACL["changed"] = []string{"changed"}
 			context.Thresholds["scan_rows"] = 999
 			return nonAllowResult("mutating-fake", model.DecisionWarn), nil
 		},
@@ -399,6 +408,9 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 	require.Equal(t, "readonly", agent.Level)
 	require.Equal(t, "DBA", *agent.Owner)
 	require.Equal(t, "primary", datasource.Name)
+	require.Equal(t, []string{"public.orders"}, policy.AllowedTables)
+	require.Equal(t, []string{"public.secrets"}, policy.DeniedTables)
+	require.Equal(t, map[string][]string{"public.orders": {"id"}}, policy.ColumnACL)
 	require.Equal(t, float64(100), thresholds["scan_rows"])
 }
 
