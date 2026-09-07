@@ -254,6 +254,16 @@ Parser 接口 + NewParser(dialect)；PG 用 pg_query_go、MySQL 用锁定 parser
 ## T04 规则引擎框架
 Rule 接口{ID,Dialect,Level,Enabled,Eval}；Engine 有序执行并聚合：有 RiskDeny→deny，否则 RiskApprove→approve，否则 RiskWarn→allow 带告警，否则 allow；规则开关/阈值读 store.rules，缺省用默认值，可被数据源/Agent 覆盖；输出 Assessment（含 StageLatency）。测试聚合优先级/顺序/覆盖/空集。
 
+**四态语义（竞品对标硬约束 v2.1）**：Decision 固定四值且为一等公民——`deny` 拒绝执行、`approve` 转人工审批（不执行、进审批流）、`warn` 放行但在结果与审计中带告警标记、`allow` 放行；聚合优先级严格 `deny > approve > warn > allow`。市面草根安全 MCP 多为 allow/deny 两级，独立的 `approve`（转审批）是核心差异，禁止把引擎简化成布尔判断。
+
+**层叠覆盖与 fail-closed**：规则解析顺序 全局缺省 ← 数据源级 ← Agent 级（后者覆盖前者同名规则的开关/阈值）；但任意层级的显式 `deny` 不可被任何层级覆盖放行（显式拒绝优先且不可撤销）；规则缺失或解析异常时 fail-closed 返回 error，不得静默放行。
+
+**纯内聚、无副作用**：Engine 只做 `AST + EvalContext → Assessment`，不连数据库、不执行 SQL、不做网络/文件 IO；规则集与阈值由入参传入（读 store 发生在 Engine 之外），保证引擎可纯单测、结果确定、并发安全。
+
+**可解释输出**：Assessment 至少含 最终 Decision、按执行顺序排列的命中明细 Hits（每条含 规则 ID/级别/Decision/message/suggestion）、StageLatency，为 T21 拦截战报与审计提供“为什么被拦、被哪条规则判”的数据，禁止只返回一个最终结论。
+
+**规则与引擎分离**：T04 只实现 Engine、Rule 接口与内存假规则（用于测优先级/覆盖/空集），不得硬编码 R001–R204 业务规则（业务规则在 T05–T07）；空规则集 → allow 且 Hits 为空、Assessment 标注无命中。Rule.Eval 入参用 EvalContext 预留 Agent 级别、数据源、T08 策略决策、MetadataProvider 元数据等槽位，使 T05+ 货架规则（无 WHERE/恒真/堆叠/注释绕过/危险函数/COPY PROGRAM/OUTFILE/大扫描行转审批/限流/行数上限）无需改引擎签名即可挂载。
+
 ## T05 通用规则 R001-R010（internal/rules/generic.go）
 R001 多语句 deny；R002 UPDATE/DELETE 无 WHERE 或恒真 deny；R003 只读 Agent 非 SELECT deny；R004 EXPLAIN 扫描行超阈值(默认10万) approve；R005 无 LIMIT 大结果 warn+执行层强制 limit；R006 注释注入/堆叠/未知语句 deny；R007 危险函数黑名单(按方言) deny；R008 token-bucket QPS/并发限流 deny；R009 SQL 长度/嵌套层数/UNION 数超阈 approve；R010 越权表 deny。每条≥2 正例 3 反例，message 给 DBA、suggestion 中文教 AI 改。
 
