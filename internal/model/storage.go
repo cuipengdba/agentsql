@@ -17,19 +17,19 @@ type Agent struct {
 
 // Datasource is a protected PostgreSQL or MySQL connection target.
 type Datasource struct {
-	ID              string
-	Name            string
-	DBType          string
-	Host            string
-	Port            int
-	Database        string
-	Username        string
-	PasswordEnc     string
-	ConnLimit       int
-	StmtTimeoutMS   int
-	RowLimit        int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID            string
+	Name          string
+	DBType        string
+	Host          string
+	Port          int
+	Database      string
+	Username      string
+	PasswordEnc   string
+	ConnLimit     int
+	StmtTimeoutMS int
+	RowLimit      int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Policy grants or denies an agent access to a database object.
