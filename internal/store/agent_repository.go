@@ -9,6 +9,9 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
+// ErrAgentNotFound indicates that an Agent lookup returned no record.
+var ErrAgentNotFound = errors.New("agent not found")
+
 // AgentRepository provides CRUD operations for agents.
 type AgentRepository struct {
 	db *sql.DB
@@ -51,6 +54,30 @@ WHERE id = ?`, id))
 	}
 	if err != nil {
 		return model.Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+	}
+	return agent, nil
+}
+
+// GetByAPIKeyHash returns an Agent by an exact SHA-256 API key digest.
+func (repository *AgentRepository) GetByAPIKeyHash(
+	ctx context.Context,
+	hash string,
+) (model.Agent, error) {
+	if err := validateAPIKeyHash(hash); err != nil {
+		return model.Agent{}, fmt.Errorf("get agent by API key hash: %w", err)
+	}
+	agent, err := scanAgent(repository.db.QueryRowContext(ctx, `
+SELECT id, name, owner, status, api_key_hash, level, expires_at, created_at, updated_at
+FROM agents INDEXED BY idx_agents_keyhash
+WHERE api_key_hash = ?`, hash))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Agent{}, fmt.Errorf(
+			"get agent by API key hash: %w",
+			errors.Join(ErrAgentNotFound, ErrNotFound, err),
+		)
+	}
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("get agent by API key hash: %w", err)
 	}
 	return agent, nil
 }

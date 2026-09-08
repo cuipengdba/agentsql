@@ -10,7 +10,8 @@ import (
 	"io"
 )
 
-const apiKeyPrefix = "asql_"
+// APIKeyPrefix identifies AgentSQL plaintext API keys.
+const APIKeyPrefix = "asql_"
 
 var errInvalidAPIKeyHash = errors.New("api_key_hash must be a SHA-256 hexadecimal digest")
 
@@ -22,9 +23,14 @@ func GenerateAPIKey() (plaintext string, hash string, err error) {
 		return "", "", fmt.Errorf("generate API key randomness: %w", err)
 	}
 
-	plaintext = apiKeyPrefix + base64.RawURLEncoding.EncodeToString(randomBytes)
+	plaintext = APIKeyPrefix + base64.RawURLEncoding.EncodeToString(randomBytes)
+	return plaintext, HashAPIKey(plaintext), nil
+}
+
+// HashAPIKey returns the lowercase hexadecimal SHA-256 digest of plaintext.
+func HashAPIKey(plaintext string) string {
 	digest := sha256.Sum256([]byte(plaintext))
-	return plaintext, hex.EncodeToString(digest[:]), nil
+	return hex.EncodeToString(digest[:])
 }
 
 func validateAPIKeyHash(hash string) error {

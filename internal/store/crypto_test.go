@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -18,12 +16,12 @@ func TestGenerateAPIKey(t *testing.T) {
 	secondPlaintext, secondHash, err := GenerateAPIKey()
 	require.NoError(t, err)
 
-	require.True(t, strings.HasPrefix(firstPlaintext, apiKeyPrefix))
-	require.Len(t, firstHash, sha256.Size*2)
+	require.True(t, strings.HasPrefix(firstPlaintext, APIKeyPrefix))
+	require.Len(t, firstHash, 64)
+	require.Equal(t, strings.ToLower(firstHash), firstHash)
 	require.NotEqual(t, firstPlaintext, secondPlaintext)
 	require.NotEqual(t, firstHash, secondHash)
-	digest := sha256.Sum256([]byte(firstPlaintext))
-	require.Equal(t, hex.EncodeToString(digest[:]), firstHash)
+	require.Equal(t, HashAPIKey(firstPlaintext), firstHash)
 	require.NotContains(t, firstHash, firstPlaintext)
 }
 
