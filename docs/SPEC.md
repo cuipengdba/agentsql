@@ -301,8 +301,19 @@ R101 DROP DATABASE/TABLE deny；R102 VACUUM FULL/REINDEX approve；R103 pg_termi
 
 **统一约束**：每条规则 Dialect 固定 mysql + 编译期断言；复用 generic.go 的 requiredAST/isStatement/containsFold/denyResult/approveResult/warnResult/allowResult/normalizedDialect 等 helper；无 regexp/IO/panic；不新增依赖、不改 parser 与既有规则；每条规则正反例测试（用上述真实语句），并保证 T03/T05/T06/T06.1 全部测试零回归。
 
-## T08 权限策略引擎（policy）
-默认拒绝；加载 policies 得 PolicyDecision{AllowedTables,DeniedTables,ColumnACL,Level}；Authorize(ast)：越权表交 R010，select 未授权列 deny，list_schema 隐藏越权列。测试白/黑名单、列级、读写级、空策略=全拒绝。
+## T08 权限策略引擎（internal/policy + store 补查询）
+**边界**：表级越权判定已由 R010 实现（消费 PolicyDecision.AllowedTables/DeniedTables），本单不重写表级；policy 包负责"把多条存储策略记录合并成 PolicyDecision"和"R010 未覆盖的列级授权"。不连业务数据库、不碰 executor，也不在本单挂载引擎（统一在 T13 pipeline 编排）。
+
+1) store 补 `ListByAgentAndDatasource(ctx, agentID, datasourceID) ([]model.Policy, error)`，走索引 idx_policies_agent_ds、按 created_at 稳定排序，并补仓储测试。
+2) 新建 internal/policy：Resolver 把 []model.Policy（object_type∈database/schema/table/column、action∈allow/deny、object_name、columns）合并为 *model.PolicyDecision：
+   - action=deny 的 table/schema/database 对象进 DeniedTables，action=allow 进 AllowedTables；保留 schema.table 与 `*`/`schema.*` 通配，且通配语义必须与 R010 的 matchesAnyPolicyObject 一致（抽公共匹配函数复用，不允许两套通配）；
+   - object_type=column：ColumnACL[object_name]=该对象授权列集合（解析 columns、去重保序，标识符大小写按 SPEC 规范）；
+   - deny 优先于 allow（同对象冲突进 Denied）；
+   - **默认拒绝**：该 agent+数据源无任何策略记录时，返回字段为空但非 nil 的 PolicyDecision（R010 据此对所有表拒绝），绝不默认放行；
+   - Level 不由本包猜测：由 Resolve 入参显式传入（readonly/dml/ddl，调用方 T09/T13 从 Agent 记录带入）原样写入 PolicyDecision.Level，非法 Level 返回 error。
+3) 列级授权 `AuthorizeColumns(ast, decision)`：仅对 SELECT，逐列核对 ast.Columns 是否落在该表 ColumnACL；表级被 `*`/`schema.*` 全量授权、或该表 ColumnACL 含 `*` 时全列放行；返回未授权列供调用方 deny（message 点名 表.列）。另提供 `FilterColumnsForSchema(columns, decision)` 供 T14 list_schema 隐藏未授权列（只减不增）。某表无列级策略时按"表已授权即列不额外限制"处理，避免与表级白名单双重误伤，口径写进注释。
+4) policy 核心为纯函数、无正则判型；store 访问从 Resolver 外层注入，使合并/列级逻辑可离线单测；不新增依赖。
+**测试**：白名单命中与越权表、deny 黑名单优先、`*`/`schema.*` 通配、列级允许/未授权列 deny、list_schema 列裁剪、Level 透传与非法 Level error、空策略=全拒绝、多记录合并去重保序；并保证 T02/T05/T06/T06.1/T07 全部既有测试零回归。
 
 ## T09 API Key 认证（auth）
 请求头/handshake 取 asql_ key，hmac.Equal 常量时间比对，校验启用/过期，返回 Agent；失败 fail-closed；配合轮换。测试正确/错误/禁用/过期。
