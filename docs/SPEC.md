@@ -315,8 +315,21 @@ R101 DROP DATABASE/TABLE deny；R102 VACUUM FULL/REINDEX approve；R103 pg_termi
 4) policy 核心为纯函数、无正则判型；store 访问从 Resolver 外层注入，使合并/列级逻辑可离线单测；不新增依赖。
 **测试**：白名单命中与越权表、deny 黑名单优先、`*`/`schema.*` 通配、列级允许/未授权列 deny、list_schema 列裁剪、Level 透传与非法 Level error、空策略=全拒绝、多记录合并去重保序；并保证 T02/T05/T06/T06.1/T07 全部既有测试零回归。
 
-## T09 API Key 认证（auth）
-请求头/handshake 取 asql_ key，hmac.Equal 常量时间比对，校验启用/过期，返回 Agent；失败 fail-closed；配合轮换。测试正确/错误/禁用/过期。
+## T09 API Key 认证（internal/auth + store 补查询）
+**已有基础（复用，不重造）**：store/keys.go 的 GenerateAPIKey 已用 crypto/rand 32B + base64.RawURL、asql_ 前缀、sha256 hex 产出（明文,哈希）；agents 表有 api_key_hash、索引 idx_agents_keyhash、status(默认 active)、level、expires_at；model.Agent 字段齐备。数据源密码的 AES-GCM 与本单无关，不要混入。
+
+1) store：
+   - 从 GenerateAPIKey 抽出导出函数 `HashAPIKey(plaintext string) string`（sha256→小写 hex），GenerateAPIKey 内部改为调用它，保证哈希口径单一事实源；导出 APIKeyPrefix 常量（"asql_"）供前缀校验；validateAPIKeyHash 不变；补测试证明 HashAPIKey(GenerateAPIKey 明文) == GenerateAPIKey 返回的 hash。
+   - AgentRepository 补 `GetByAPIKeyHash(ctx, hash) (model.Agent, error)`，走 idx_agents_keyhash 精确查询、复用 scanAgent；查无记录返回可 errors.Is 判定的哨兵 ErrAgentNotFound；补仓储测试。
+2) 新建 internal/auth：定义最小读接口 AgentKeyReader（只含 GetByAPIKeyHash），*store.AgentRepository 天然实现，便于离线单测、auth 不直接写库。Authenticator.Authenticate(ctx, rawKey) (model.Agent, error) 严格按序：
+   - rawKey 为空、或前缀不是 asql_ → 哨兵 ErrInvalidCredentials（fail-closed，不查库）；
+   - actual=HashAPIKey(rawKey)，经 Reader 取记录；查询报错或查无 → 一律 ErrInvalidCredentials（对外不区分"不存在/密钥错"，防账号枚举）；
+   - 用 crypto/hmac.Equal 在库内 expected 与 actual 之间做常量时间比对，不等 → ErrInvalidCredentials；
+   - status != "active" → ErrAgentDisabled；expires_at 非 nil 且 now 到达/超过 → ErrKeyExpired；
+   - 全部通过才返回该 Agent。now 用可注入时钟（默认 time.Now）以便过期用例固定时间。
+3) fail-closed 铁律：依赖错误、空 status、任何异常都拒绝，绝不"查不到就匿名放行"。本单不签发 key（签发属管理侧 GenerateAPIKey）；轮换=Update 为新 hash，旧 hash 自然查不到而失效，补一条"旧 key 失效/新 key 通过"测试即可，不做专门轮换接口。
+4) 不连业务数据库、不碰 HTTP/MCP 传输（请求头提取归 T13/T16，本单入参就是已提取的 rawKey 字符串）；不新增第三方依赖（仅标准库 crypto/hmac、crypto/sha256）。
+**测试**：正确 key 返回 Agent；错误 key/空/错前缀/查无 全部 ErrInvalidCredentials；status 非 active→ErrAgentDisabled；未过期通过、已过期与恰好到期→ErrKeyExpired；覆盖 hmac 常量时间比对路径；轮换后旧 key 失败、新 key 通过；并保证 T02/T05/T06/T06.1/T07/T08 既有全部测试零回归。
 
 ## T10 受控执行器（executor）
 每数据源独立连接池；连通检查；强制 statement_timeout/MAX_EXECUTION_TIME、行数上限(Truncated)、只读会话/事务；Explain() 解析 PG EXPLAIN(FORMAT JSON)/MySQL EXPLAIN 回填 EstScanRows/UsesIndex/SeqScan；接上 T06 的 MetadataProvider。testcontainers 真实 PG16/MySQL8：超时中断、行数截断、只读写被拒、EXPLAIN 识别全表扫描。
