@@ -272,6 +272,22 @@ R001 多语句 deny；R002 UPDATE/DELETE 无 WHERE 或恒真 deny；R003 只读 
 ## T06 PG 专项 R101-R107（postgres.go）
 R101 DROP DATABASE/TABLE deny；R102 VACUUM FULL/REINDEX approve；R103 pg_terminate_backend/pg_reload_conf/pg_read_file 等 deny；R104 COPY...PROGRAM deny；R105 无索引 UPDATE/DELETE（经 MetadataProvider 接口，先给接口+内存假实现）approve；R106 大表 ALTER（表行数元数据）approve；R107 长事务风险 warn。每条≥4 测试覆盖别名/大小写绕过。
 
+## T06.1 PG parser utility 语句分类补强（internal/parser，插在 T07 前）
+**背景**：T03 parser 聚焦 DML 与核心 DDL，一批 PostgreSQL utility 被标成 StmtType=UNKNOWN，进而被 R006 一律 deny，产生过度拦截与信号错配（T06 端到端独立验证发现）。本单只补 parser 的语句分类与规范信号，不改规则判定语义。StmtType 仍只用 SELECT/INSERT/UPDATE/DELETE/DDL/ADMIN/UNKNOWN 七类。
+
+必须修正的行为：
+1. `CLUSTER [表 [USING 索引]]` → ADMIN、Operations 含 CLUSTER，使 R102 能 approve（不再被 R006 以 UNKNOWN deny 盖过）；
+2. `DROP DATABASE` → DDL、Operations 含 "DROP DATABASE"（当前是单 token DROPDB），使 R101 精准命中；`CREATE DATABASE` → DDL；
+3. `EXPLAIN` 按内层语句归类：`EXPLAIN SELECT...` 视为只读（StmtType=SELECT，不得 UNKNOWN）；`EXPLAIN ANALYZE` 在 Operations 标注其会真实执行，内层是写/DDL 时按内层类型归；
+4. **文本注释信号与 COMMENT ON 语句解耦**：SQL 文本中的 `/* */`、`--` 注释信号改名为 `SQL_COMMENT`（R006 改为匹配 SQL_COMMENT，同步更新 generic.go R006 与 T05 相关测试）；`COMMENT ON ... IS ...` → DDL、Operations="COMMENT ON"，不再被当作文本注释拦截。
+
+其余当前被标 UNKNOWN 的 utility 一次性补全：DDL 类＝CREATE/DROP/ALTER DATABASE、CREATE EXTENSION、ALTER SEQUENCE、REFRESH MATERIALIZED VIEW；ADMIN 类＝ALTER SYSTEM、ALTER ROLE、CREATE/DROP ROLE、CHECKPOINT、LOCK TABLE、LOAD（标高危，供后续规则）、DISCARD、PREPARE/EXECUTE/DEALLOCATE、CALL、NOTIFY/LISTEN/UNLISTEN。
+
+已正确分类的保持不动：DROP SCHEMA/SEQUENCE/FUNCTION/TRIGGER/TYPE/MATVIEW、CREATE SCHEMA/INDEX/SEQUENCE/FUNCTION/TRIGGER、ALTER INDEX、SET/RESET/GRANT/REVOKE、TRUNCATE、BEGIN/COMMIT/ROLLBACK/SAVEPOINT、SELECT INTO。
+
+**回归铁律**：T03 全部 corpus、T05/T06 全部测试必须仍全绿；每个新增映射≥1 条测试；不新增依赖、不动六段流水线其它段。
+**本机验收**：CLUSTER→R102 approve；DROP DATABASE→R101 精准 deny；EXPLAIN SELECT→不被 R006 拦且正常 allow；COMMENT ON TABLE→DDL 不被当注释拦，而含 `/* */` 的 SQL 仍被 R006 拦；补分类语句不再 UNKNOWN；T03/T05/T06 测试零回归。
+
 ## T07 MySQL 专项 R201-R204（mysql.go）
 R201 LOAD_FILE/INTO OUTFILE/DUMPFILE deny；R202 多表 DELETE、UPDATE 无 LIMIT approve；R203 FLUSH/RESET/GRANT/REVOKE/SHUTDOWN deny；R204 大事务 approve。正反例覆盖。
 
