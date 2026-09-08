@@ -288,8 +288,18 @@ R101 DROP DATABASE/TABLE deny；R102 VACUUM FULL/REINDEX approve；R103 pg_termi
 **回归铁律**：T03 全部 corpus、T05/T06 全部测试必须仍全绿；每个新增映射≥1 条测试；不新增依赖、不动六段流水线其它段。
 **本机验收**：CLUSTER→R102 approve；DROP DATABASE→R101 精准 deny；EXPLAIN SELECT→不被 R006 拦且正常 allow；COMMENT ON TABLE→DDL 不被当注释拦，而含 `/* */` 的 SQL 仍被 R006 拦；补分类语句不再 UNKNOWN；T03/T05/T06 测试零回归。
 
-## T07 MySQL 专项 R201-R204（mysql.go）
-R201 LOAD_FILE/INTO OUTFILE/DUMPFILE deny；R202 多表 DELETE、UPDATE 无 LIMIT approve；R203 FLUSH/RESET/GRANT/REVOKE/SHUTDOWN deny；R204 大事务 approve。正反例覆盖。
+## T07 MySQL 专项 R201-R204（internal/rules/mysql.go）
+对接 T05 引擎骨架（实现 engine.Rule 接口、Dialect()=model.DBDialect("mysql")、复用 generic.go 的 helper、加编译期断言），只对 MySQL AST 生效（引擎按方言过滤，PG AST 不调用）。下列 parser 信号已经主控端用 vitess 实测确认，按此匹配，不要凭空假设。
+
+**R201 文件读写 deny（信号在 ast.Operations）**：SELECT 含 LOAD_FILE()（Operations 含 LOAD_FILE）；SELECT ... INTO OUTFILE（含 INTO OUTFILE）/ INTO DUMPFILE（含 INTO DUMPFILE）；LOAD DATA [LOCAL] INFILE（StmtType=ADMIN、Operations=[LOAD]）。命中其一即 deny，防任意文件读写与服务端落盘。
+
+**R202 危险写 approve（用 ast.Tables 长度与 ast.HasLimit，均已由 parser 填充）**：DELETE/UPDATE 且 len(ast.Tables)>=2（多表/JOIN 写）→ approve；DELETE/UPDATE 且 !ast.HasLimit（无 LIMIT 的批量写）→ approve；单表且带 LIMIT 不命中、放行交后续规则。判型只走 AST 不用正则。注意与 PG R105（无索引）判据不同、勿混用；主键点更新无 LIMIT 也转人工属 v0.1 安全优先，误拦登记 T23。
+
+**R203 高危管理命令 deny（注意 vitess 可解析边界，已实测）**：能解析、会到规则层、应 deny 的＝Operations 为 FLUSH、KILL、PURGE（PURGE BINARY LOGS）；SET GLOBAL 仅当 parser 能区分 GLOBAL/SESSION 时对 GLOBAL deny、SESSION 放行，区分不了则本单不拦 SET 并登记 T23，不得硬猜。vitess 在 Parse 阶段即报错、到不了规则层的＝RESET *、GRANT、REVOKE、SHUTDOWN、CREATE/DROP USER、SET PASSWORD、ALTER INSTANCE、HANDLER，这些由第一段 Parse fail-closed 天然拒绝，R203 不写匹配不到的死代码，但要补测试证明这些语句在 parser 层即 error。USE、SET SESSION、LOCK TABLES/UNLOCK TABLES 不拦（业务可能用、非破坏）。
+
+**R204 大事务 approve（v0.1 立骨架，不硬编码拿不到的信息）**：parser 只暴露事务边界（BEGIN/START TRANSACTION→Operations=BEGIN，COMMIT/ROLLBACK），网关逐语句无状态、单条 AST 无法得知事务规模。v0.1 定义阈值键与事务元数据扩展接口（事务年龄/累计影响行数，思路对齐 R107 的 transactionMetadataProvider）：能拿到元数据且超阈值→approve；拿不到→不命中放行（不误拦），注释与交付说明标注"完整大事务判定依赖 T10 会话/连接元数据"。
+
+**统一约束**：每条规则 Dialect 固定 mysql + 编译期断言；复用 generic.go 的 requiredAST/isStatement/containsFold/denyResult/approveResult/warnResult/allowResult/normalizedDialect 等 helper；无 regexp/IO/panic；不新增依赖、不改 parser 与既有规则；每条规则正反例测试（用上述真实语句），并保证 T03/T05/T06/T06.1 全部测试零回归。
 
 ## T08 权限策略引擎（policy）
 默认拒绝；加载 policies 得 PolicyDecision{AllowedTables,DeniedTables,ColumnACL,Level}；Authorize(ast)：越权表交 R010，select 未授权列 deny，list_schema 隐藏越权列。测试白/黑名单、列级、读写级、空策略=全拒绝。
