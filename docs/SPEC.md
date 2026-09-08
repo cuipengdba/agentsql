@@ -331,8 +331,57 @@ R101 DROP DATABASE/TABLE deny；R102 VACUUM FULL/REINDEX approve；R103 pg_termi
 4) 不连业务数据库、不碰 HTTP/MCP 传输（请求头提取归 T13/T16，本单入参就是已提取的 rawKey 字符串）；不新增第三方依赖（仅标准库 crypto/hmac、crypto/sha256）。
 **测试**：正确 key 返回 Agent；错误 key/空/错前缀/查无 全部 ErrInvalidCredentials；status 非 active→ErrAgentDisabled；未过期通过、已过期与恰好到期→ErrKeyExpired；覆盖 hmac 常量时间比对路径；轮换后旧 key 失败、新 key 通过；并保证 T02/T05/T06/T06.1/T07/T08 既有全部测试零回归。
 
-## T10 受控执行器（executor）
-每数据源独立连接池；连通检查；强制 statement_timeout/MAX_EXECUTION_TIME、行数上限(Truncated)、只读会话/事务；Explain() 解析 PG EXPLAIN(FORMAT JSON)/MySQL EXPLAIN 回填 EstScanRows/UsesIndex/SeqScan；接上 T06 的 MetadataProvider。testcontainers 真实 PG16/MySQL8：超时中断、行数截断、只读写被拒、EXPLAIN 识别全表扫描。
+## T10 受控执行器（executor）★首个连真实库（重点单）
+
+### 目标与边界
+新增 `internal/executor` 包，负责"受控地连接并执行**单条已通过决策**的 SQL"，返回 `model.QueryResult` / `model.ExplainInfo`。**不做** Parse/规则/决策（属 engine，T13 才编排）、**不做** MCP/HTTP、**不做**脱敏（T11）。deny 在任何情况下都不触达 executor（T13 保证），executor 自身再做只读防御（纵深防御）。
+唯一允许的既有改动：把 rules 包 PG 的**非导出**接口 `transactionMetadataProvider` 导出为 `TransactionMetadataProvider`（postgres.go 内全部引用、postgres_test.go 的编译断言同步改名），**R101–R107 判定逻辑与既有测试一行不改、零回归**（MySQL 侧 `MysqlTransactionMetadataProvider` 已导出，无需动）。
+
+### 统一抽象（executor/executor.go）
+```go
+type Executor interface {
+    Dialect() string
+    Ping(ctx context.Context) error
+    Explain(ctx context.Context, sql string) (model.ExplainInfo, error)
+    Query(ctx context.Context, sql string, rowLimit int) (model.QueryResult, error) // 只读 SELECT 类，列值统一转字符串
+    Execute(ctx context.Context, sql string) (model.QueryResult, error)             // 写/DDL，RowCount=影响行数
+    Close() error
+}
+```
+`Manager`：`map[dsID]Executor`，**每数据源独立连接池**；`GetOrOpen(ds model.Datasource, secret []byte)(Executor,error)` 复用已开池、`sync.RWMutex` 并发安全、`Close(id)/CloseAll()`；ds.PasswordEnc 用既有 store 解密函数（AGENTSQL_SECRET）拿明文，**不另造加解密、错误与日志绝不带密码/DSN 凭据**。
+
+### PostgreSQL 实现（pgx/v5 pgxpool，版本 v5.7.6）
+- `pgxpool.New`：`MaxConns=ds.ConnLimit`（默认 5）；`ConnConfig.RuntimeParams` 设 `statement_timeout=<毫秒>`（默认 ds.StmtTimeoutMS，缺省 5000）；只读连接再设 `default_transaction_read_only=on`；建连后 Ping。
+- **超时三层**：连接级 `statement_timeout`（服务端中断，SQLSTATE `57014`）＋ `context.WithTimeout(StmtTimeoutMS+余量)` 兜底，识别为 `ErrQueryTimeout`。
+- **只读**：只读连接写操作由服务端报 SQLSTATE `25006`；executor 在 Query/Execute 入口再判"只读实例只走 Query"，双保险。
+- **行数截断（不改写 SQL、不下推 LIMIT，避免改变语义、不与 R005 重复）**：遍历 Rows 最多读 `rowLimit+1` 行，读到第 rowLimit+1 行即置 `Truncated=true` 并停止；Columns 取 FieldDescriptions.Name。
+- **Explain**：发 `EXPLAIN (FORMAT JSON) `+sql，得单行 JSON 文本，解析为 `[]struct{ Plan struct{ NodeType string \`json:"Node Type"\`; PlanRows float64 \`json:"Plan Rows"\`; TotalCost float64 \`json:"Total Cost"\`; IndexName string \`json:"Index Name"\` } }`，取 `[0].Plan` 根节点：`EstScanRows=int64(PlanRows)`、`EstCost=TotalCost`、`SeqScan = NodeType=="Seq Scan"`、`UsesIndex = IndexName!="" || NodeType 含 Index/Bitmap`；Raw 存原始 JSON；**解析失败返回 error（fail-closed 交决策层，不猜）**。把解析抽成纯函数 `parsePostgresExplainJSON([]byte)` 便于喂样本单测。
+- **真实 MetadataProvider（实现导出后的 rules.TransactionMetadataProvider）**：
+  - `TableHasIndex`：查 pg_index/pg_class/pg_namespace，存在 `indisvalid` 索引即 true；
+  - `TableRowCount`：`reltuples::bigint`（规划器估算，与 R106 口径一致）；
+  - `TransactionState()`：`pg_is_in_transaction()`＋`now()-xact_start`/`now()-state_change` 算 AgeMS/IdleMS；不在事务返回 InTransaction=false。
+
+### MySQL 实现（database/sql + go-sql-driver/mysql v1.9.3）
+- DSN 必须带 `parseTime=true&multiStatements=false`（**禁多语句，纵深防堆叠注入**，写断言守护）；`SetMaxOpenConns=ConnLimit`、`SetConnMaxLifetime`。
+- **超时**：仅 SELECT 在首个 SELECT 后注入 optimizer hint `/*+ MAX_EXECUTION_TIME(n) */`（n 毫秒、幂等不重复注入、抽纯函数单测）；非 SELECT 不支持该 hint，**所有语句统一 context.WithTimeout 兜底**，识别 ErrQueryTimeout。
+- **只读**：MySQL 普通账号无服务端只读事务开关（read_only 需高权限，不用），由 executor 入口防御（只读实例遇非 SELECT 返回 ErrReadOnlyViolated），与规则层 R003/R201 双保险。
+- **行数截断**：同 PG 读 N+1 判 Truncated；Columns 取 `rows.Columns()`，值统一字符串化。
+- **Explain**：发 `EXPLAIN `+sql 得结果集，列名大小写不敏感读 `type/key/rows`：多表 EstScanRows=各行 rows 之和（保守）；任一表 `type=ALL` 则 SeqScan=true；所有表 key 均 NULL/空 则 UsesIndex=false，否则 true；Raw 拼成可读文本。抽纯函数 `parseMysqlExplainRows(columns, values)` 单测。
+- **真实 MysqlTransactionMetadataProvider**：表行数/索引查 information_schema.tables.table_rows 与 statistics；事务态查会话状态/innodb_trx 算 AgeMS、AffectedRows；**取不到或不确定按 R204 既有"缺元数据 allow 不误拦"口径返回空快照，不因此阻断**。
+
+### 错误哨兵（executor/errors.go）
+`ErrQueryTimeout`、`ErrReadOnlyViolated`、`ErrDatasourceUnreachable`，全部支持 `errors.Is`；错误信息脱敏（不含凭据）。
+
+### 依赖白名单（锁定本机缓存已有版本，禁止超范围）
+`jackc/pgx/v5 v5.7.6`、`go-sql-driver/mysql v1.9.3`、`testcontainers-go v0.37.0` 及其 nested modules `modules/postgres`、`modules/mysql`（nested module 需各自 require）。**testcontainers 只允许出现在 `*_test.go`，生产代码禁止 import；除上述不新增任何第三方库。**
+
+### 测试（硬要求：无 Docker 必须 t.Skip，绝不 t.Fatal）
+- **纯单测（不连库）**：Manager 并发开池/复用/关闭与池隔离；行数截断 N+1（可控行源）；PG EXPLAIN JSON 解析（SeqScan/Index/畸形报错各一样本）；MySQL EXPLAIN 解析（ALL 无 key vs 走索引）；MAX_EXECUTION_TIME 只注入 SELECT 且幂等；DSN 断言含 multiStatements=false；只读防御；哨兵 errors.Is。
+- **E2E（executor_e2e_test.go，开头 helper 探测 Docker daemon，不可用/拉镜像失败即 `t.Skip("docker unavailable")` 打印原因）**：PG16 与 MySQL8 各四场景——①超时真中断（pg_sleep/SLEEP + 极小超时）②读超 rowLimit 截断 Truncated ③只读连接写被拒 ④无索引=全表扫描、建索引后 UsesIndex。
+- 单位无 Docker、不编译不运行：Codex 只做文本级静态自审，E2E 写全并注明"未本地运行，需主控端 Docker 实跑"，禁止在 PowerShell 跑 go/docker 命令。
+
+### 主控端验收（Docker 就绪后）
+build/vet/非容器 test 全绿；启动 Docker 后 E2E 真正跑通 PG16/MySQL8 各四场景；独立验证两数据源连接池互不串、超时真中断、截断、只读写拒、EXPLAIN 全表/索引识别、真实元数据喂给 R105/R106/R107/R204 判定正确。主控端会提前 `docker pull postgres:16 mysql:8` 预热镜像。
 
 ## T11 脱敏引擎（mask）
 Redactor 接口+配置实现；v0.1 实现手机号/邮箱 mask 并贯通"结果返回前脱敏"（按结果列名匹配，别名/表达式也生效）；身份证/银行卡/hash/区间留接口 TODO。测试正反例。
