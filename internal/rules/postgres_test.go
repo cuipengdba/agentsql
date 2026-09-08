@@ -8,6 +8,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +44,49 @@ func TestPostgresRulesAreFilteredForMySQL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, model.DecisionAllow, assessment.Decision)
 	require.Empty(t, assessment.Hits)
+}
+
+func TestT061ParserRuleIntegration(t *testing.T) {
+	approvedParser, err := parser.NewParser(model.DBDialect("postgres"))
+	require.NoError(t, err)
+	tests := []struct {
+		name   string
+		sql    string
+		ruleID string
+		want   model.Decision
+	}{
+		{name: "cluster reaches R102", sql: "CLUSTER public.orders USING idx_orders", ruleID: "R102", want: model.DecisionApprove},
+		{name: "drop database reaches R101", sql: "DROP DATABASE app", ruleID: "R101", want: model.DecisionDeny},
+		{name: "explain select passes R006", sql: "EXPLAIN SELECT id FROM public.orders", ruleID: "R006", want: model.DecisionAllow},
+		{name: "comment on passes R006", sql: "COMMENT ON TABLE public.orders IS 'orders'", ruleID: "R006", want: model.DecisionAllow},
+		{name: "block comment reaches R006", sql: "/* audit */ SELECT 1", ruleID: "R006", want: model.DecisionDeny},
+		{name: "line comment reaches R006", sql: "-- audit\nSELECT 1", ruleID: "R006", want: model.DecisionDeny},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ast, err := approvedParser.Parse(test.sql)
+			require.NoError(t, err)
+			var rule engine.Rule
+			switch test.ruleID {
+			case "R101", "R102":
+				rule = postgresRuleByID(t, test.ruleID, nil)
+			default:
+				rule = genericRuleByID(t, test.ruleID, nil)
+			}
+			assertPostgresRuleDecision(t, rule, engine.EvalContext{AST: ast}, test.want)
+		})
+	}
+}
+
+func TestT061MySQLTextCommentStillReachesR006(t *testing.T) {
+	approvedParser, err := parser.NewParser(model.DBDialect("mysql"))
+	require.NoError(t, err)
+	ast, err := approvedParser.Parse("/* audit */ SELECT 1")
+	require.NoError(t, err)
+
+	rule := genericRuleByID(t, "R006", nil)
+	assertPostgresRuleDecision(t, rule, engine.EvalContext{AST: ast}, model.DecisionDeny)
 }
 
 func TestR101DangerousDrop(t *testing.T) {

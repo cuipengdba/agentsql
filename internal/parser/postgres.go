@@ -117,15 +117,20 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 		}
 	}
 
-	statementType := postgresStatementType(nodeType)
+	statementType, statementOperations, err := postgresStatementSignals(nodeType, node)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
 	operations := make(stringSet)
-	operations.add(postgresOperation(nodeType, node))
+	for _, operation := range statementOperations {
+		operations.add(operation)
+	}
 	hasComment, err := postgresHasComment(sql)
 	if err != nil {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
 	}
 	if hasComment {
-		operations.add("COMMENT")
+		operations.add(sqlCommentOperation)
 	}
 	rootObject, rootIsObject := node.(map[string]any)
 	hasWhere := false
@@ -269,14 +274,58 @@ func postgresStatementType(nodeType string) model.StmtType {
 		"AlterObjectSchemaStmt", "AlterOwnerStmt", "CompositeTypeStmt", "CreateEnumStmt",
 		"CreateFunctionStmt", "CreateSchemaStmt", "CreateSeqStmt", "CreateTrigStmt",
 		"DefineStmt", "DropStmt", "IndexStmt", "RenameStmt", "RuleStmt",
-		"TruncateStmt", "ViewStmt":
+		"TruncateStmt", "ViewStmt", "CreatedbStmt", "DropdbStmt", "AlterDatabaseStmt",
+		"AlterDatabaseSetStmt", "AlterDatabaseRefreshCollStmt", "CreateExtensionStmt",
+		"AlterSeqStmt", "RefreshMatViewStmt", "CommentStmt":
 		return model.StmtType("DDL")
 	case "CopyStmt", "DoStmt", "GrantStmt", "GrantRoleStmt", "ReindexStmt",
-		"TransactionStmt", "VacuumStmt", "VariableSetStmt":
+		"TransactionStmt", "VacuumStmt", "VariableSetStmt", "ClusterStmt",
+		"AlterSystemStmt", "AlterRoleStmt", "AlterRoleSetStmt", "CreateRoleStmt",
+		"DropRoleStmt", "CheckPointStmt", "LockStmt", "LoadStmt", "DiscardStmt",
+		"PrepareStmt", "ExecuteStmt", "DeallocateStmt", "CallStmt", "NotifyStmt",
+		"ListenStmt", "UnlistenStmt":
 		return model.StmtType("ADMIN")
 	default:
 		return model.StmtType("UNKNOWN")
 	}
+}
+
+func postgresStatementSignals(
+	nodeType string,
+	node any,
+) (model.StmtType, []string, error) {
+	if nodeType != "ExplainStmt" {
+		return postgresStatementType(nodeType), []string{postgresOperation(nodeType, node)}, nil
+	}
+
+	innerType, innerNode, err := postgresExplainQuery(node)
+	if err != nil {
+		return model.StmtType("UNKNOWN"), nil, err
+	}
+	statementType, operations, err := postgresStatementSignals(innerType, innerNode)
+	if err != nil {
+		return model.StmtType("UNKNOWN"), nil, err
+	}
+	explainOperation := "EXPLAIN"
+	if root, ok := node.(map[string]any); ok && postgresDefElemEnabled(root["options"], "analyze") {
+		explainOperation = "EXPLAIN ANALYZE"
+	}
+	return statementType, append([]string{explainOperation}, operations...), nil
+}
+
+func postgresExplainQuery(node any) (string, any, error) {
+	root, ok := node.(map[string]any)
+	if !ok {
+		return "", nil, errors.New("PostgreSQL EXPLAIN node is not an object")
+	}
+	query, ok := root["query"].(map[string]any)
+	if !ok || len(query) != 1 {
+		return "", nil, errors.New("PostgreSQL EXPLAIN has no single inner statement")
+	}
+	for nodeType, innerNode := range query {
+		return nodeType, innerNode, nil
+	}
+	return "", nil, errors.New("PostgreSQL EXPLAIN inner statement is empty")
 }
 
 func postgresOperation(nodeType string, node any) string {
@@ -292,6 +341,20 @@ func postgresOperation(nodeType string, node any) string {
 		return "DELETE"
 	case "CreateStmt", "CreateTableAsStmt":
 		return "CREATE TABLE"
+	case "CreatedbStmt":
+		return "CREATE DATABASE"
+	case "DropdbStmt":
+		return "DROP DATABASE"
+	case "AlterDatabaseStmt", "AlterDatabaseSetStmt", "AlterDatabaseRefreshCollStmt":
+		return "ALTER DATABASE"
+	case "CreateExtensionStmt":
+		return "CREATE EXTENSION"
+	case "AlterSeqStmt":
+		return "ALTER SEQUENCE"
+	case "RefreshMatViewStmt":
+		return "REFRESH MATERIALIZED VIEW"
+	case "CommentStmt":
+		return "COMMENT ON"
 	case "AlterTableStmt":
 		return "ALTER TABLE"
 	case "DropStmt":
@@ -309,6 +372,8 @@ func postgresOperation(nodeType string, node any) string {
 		return "VACUUM"
 	case "ReindexStmt":
 		return "REINDEX"
+	case "ClusterStmt":
+		return "CLUSTER"
 	case "GrantStmt":
 		isGrant, found := object["is_grant"].(bool)
 		if !found {
@@ -339,6 +404,36 @@ func postgresOperation(nodeType string, node any) string {
 		return "SET"
 	case "TransactionStmt":
 		return "TRANSACTION"
+	case "AlterSystemStmt":
+		return "ALTER SYSTEM"
+	case "AlterRoleStmt", "AlterRoleSetStmt":
+		return "ALTER ROLE"
+	case "CreateRoleStmt":
+		return "CREATE ROLE"
+	case "DropRoleStmt":
+		return "DROP ROLE"
+	case "CheckPointStmt":
+		return "CHECKPOINT"
+	case "LockStmt":
+		return "LOCK TABLE"
+	case "LoadStmt":
+		return "LOAD"
+	case "DiscardStmt":
+		return "DISCARD"
+	case "PrepareStmt":
+		return "PREPARE"
+	case "ExecuteStmt":
+		return "EXECUTE"
+	case "DeallocateStmt":
+		return "DEALLOCATE"
+	case "CallStmt":
+		return "CALL"
+	case "NotifyStmt":
+		return "NOTIFY"
+	case "ListenStmt":
+		return "LISTEN"
+	case "UnlistenStmt":
+		return "UNLISTEN"
 	default:
 		return strings.ToUpper(strings.TrimSuffix(nodeType, "Stmt"))
 	}
@@ -516,4 +611,96 @@ func postgresContainsDefElem(value any, name string) bool {
 		}
 	})
 	return found
+}
+
+func postgresDefElemEnabled(value any, name string) bool {
+	found := false
+	enabled := false
+	walkPostgresNode(value, func(key string, child any) {
+		if found || key != "DefElem" {
+			return
+		}
+		defElem, ok := child.(map[string]any)
+		if !ok {
+			return
+		}
+		defname, ok := postgresStringField(defElem, "defname")
+		if !ok || !strings.EqualFold(defname, name) {
+			return
+		}
+		found = true
+		argument, hasArgument := defElem["arg"]
+		if !hasArgument || argument == nil {
+			enabled = true
+			return
+		}
+		if boolean, ok := postgresBooleanNode(argument); ok {
+			enabled = boolean
+			return
+		}
+		// Unknown option encodings are treated as enabled to avoid hiding execution.
+		enabled = true
+	})
+	return found && enabled
+}
+
+func postgresBooleanNode(value any) (bool, bool) {
+	wrapper, ok := value.(map[string]any)
+	if !ok {
+		return false, false
+	}
+	if boolean, exists := wrapper["Boolean"].(map[string]any); exists {
+		valueBool, hasValue := boolean["boolval"].(bool)
+		if !hasValue {
+			// Proto JSON omits the default false scalar.
+			return false, true
+		}
+		return valueBool, true
+	}
+	if stringNode, exists := wrapper["String"].(map[string]any); exists {
+		valueString, hasValue := stringNode["sval"].(string)
+		if !hasValue {
+			return false, false
+		}
+		switch strings.ToLower(strings.TrimSpace(valueString)) {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		default:
+			return false, false
+		}
+	}
+	if integer, exists := wrapper["Integer"].(map[string]any); exists {
+		valueInteger, hasValue := postgresIntegerValue(integer["ival"])
+		if !hasValue {
+			return false, false
+		}
+		switch valueInteger {
+		case 1:
+			return true, true
+		case 0:
+			return false, true
+		default:
+			return false, false
+		}
+	}
+	return false, false
+}
+
+func postgresIntegerValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case json.Number:
+		integer, err := typed.Int64()
+		return integer, err == nil
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case float64:
+		if typed == 0 || typed == 1 {
+			return int64(typed), true
+		}
+	}
+	return 0, false
 }

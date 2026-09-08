@@ -356,7 +356,7 @@ func (r006Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 			"请改写为受支持的 SELECT、INSERT、UPDATE、DELETE、DDL 或管理语句",
 		), nil
 	}
-	if containsFold(ast.Operations, "COMMENT") {
+	if containsFold(ast.Operations, "SQL_COMMENT") {
 		return denyResult(
 			"SQL 包含注释，存在注释穿插或截断绕过风险",
 			"请移除 SQL 注释并提交语义完整的单条语句",

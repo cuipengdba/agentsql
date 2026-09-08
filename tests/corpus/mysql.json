@@ -70,7 +70,7 @@
     "has_where": false,
     "where_tautology": false,
     "has_limit": false,
-    "operations": ["COMMENT", "DROP TABLE"]
+    "operations": ["DROP TABLE", "SQL_COMMENT"]
   },
   {
     "name": "truncate table",
@@ -174,7 +174,7 @@
     "has_where": true,
     "where_tautology": false,
     "has_limit": false,
-    "operations": ["COMMENT", "SELECT"],
+    "operations": ["SELECT", "SQL_COMMENT"],
     "normalized_excludes": ["deny"]
   },
   {

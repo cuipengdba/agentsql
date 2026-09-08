@@ -116,12 +116,13 @@ func TestR005UnlimitedLargeResult(t *testing.T) {
 func TestR006ParserBypassSignals(t *testing.T) {
 	rule := genericRuleByID(t, "R006", nil)
 	cases := []ruleCase{
-		{name: "comment injection", ast: astWith("postgres", "SELECT", "/**/ SELECT 1"), mutate: func(ast *model.AST) { ast.Operations = []string{"COMMENT"} }, want: model.DecisionDeny},
+		{name: "comment injection", ast: astWith("postgres", "SELECT", "/**/ SELECT 1"), mutate: func(ast *model.AST) { ast.Operations = []string{"SQL_COMMENT"} }, want: model.DecisionDeny},
 		{name: "stacked statement", ast: astWith("mysql", "SELECT", "SELECT 1; DROP TABLE t"), mutate: multi, want: model.DecisionDeny},
 		{name: "unknown statement", ast: astWith("postgres", "UNKNOWN", "unknown"), want: model.DecisionDeny},
 		{name: "normal select", ast: astWith("postgres", "SELECT", "SELECT 1"), want: model.DecisionAllow},
 		{name: "normal update", ast: astWith("mysql", "UPDATE", "UPDATE t SET a = 1 WHERE id = 2"), want: model.DecisionAllow},
 		{name: "known admin", ast: astWith("postgres", "ADMIN", "VACUUM t"), mutate: func(ast *model.AST) { ast.Operations = []string{"VACUUM"} }, want: model.DecisionAllow},
+		{name: "comment on is not a text comment", ast: astWith("postgres", "DDL", "COMMENT ON TABLE t IS 'description'"), mutate: func(ast *model.AST) { ast.Operations = []string{"COMMENT ON"} }, want: model.DecisionAllow},
 	}
 	runRuleCases(t, rule, cases)
 }

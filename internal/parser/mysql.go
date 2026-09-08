@@ -128,7 +128,7 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
 	if hasComment {
-		operations.add("COMMENT")
+		operations.add(sqlCommentOperation)
 	}
 	for function := range functions {
 		if strings.EqualFold(function, "load_file") {

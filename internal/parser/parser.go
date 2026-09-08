@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	postgresDialect model.DBDialect = "postgres"
-	mysqlDialect    model.DBDialect = "mysql"
+	postgresDialect     model.DBDialect = "postgres"
+	mysqlDialect        model.DBDialect = "mysql"
+	sqlCommentOperation                 = "SQL_COMMENT"
 )
 
 var (
