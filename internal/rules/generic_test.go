@@ -220,9 +220,12 @@ func TestR010UnauthorizedTables(t *testing.T) {
 	rule := genericRuleByID(t, "R010", nil)
 	cases := []ruleCase{
 		{name: "explicit deny overrides allow", ast: astWithTable("public", "salary"), context: policy([]string{"public.salary"}, []string{"public.salary"}), want: model.DecisionDeny},
+		{name: "schema deny overrides global allow", ast: astWithTable("public", "salary"), context: policy([]string{"*"}, []string{"public.*"}), want: model.DecisionDeny},
 		{name: "table absent from allow list", ast: astWithTable("public", "orders"), context: policy([]string{"public.customers"}, nil), want: model.DecisionDeny},
+		{name: "empty policy denies table", ast: astWithTable("public", "orders"), context: policy([]string{}, []string{}), want: model.DecisionDeny},
 		{name: "exact table allowed", ast: astWithTable("public", "orders"), context: policy([]string{"public.orders"}, nil), want: model.DecisionAllow},
 		{name: "schema wildcard allowed", ast: astWithTable("reporting", "daily"), context: policy([]string{"reporting.*"}, nil), want: model.DecisionAllow},
+		{name: "global wildcard allowed", ast: astWithTable("private", "daily"), context: policy([]string{"*"}, nil), want: model.DecisionAllow},
 		{name: "alias does not change authorization", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) { ast.Tables[0].Alias = "o" }), context: policy([]string{"public.orders"}, nil), want: model.DecisionAllow},
 		{name: "statement without table", ast: astWith("postgres", "SELECT", "SELECT 1"), context: policy(nil, nil), want: model.DecisionAllow},
 	}

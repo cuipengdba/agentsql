@@ -1,2 +1,2 @@
-// Package policy will enforce database object permissions.
+// Package policy resolves stored permissions and enforces column access.
 package policy

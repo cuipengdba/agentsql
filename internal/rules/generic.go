@@ -11,6 +11,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/model"
+	policyresolver "github.com/cuipengdba/agentsql/internal/policy"
 )
 
 const (
@@ -668,23 +669,9 @@ func operationComplexity(operations []string) (nestingDepth int, unionCount int,
 }
 
 func validatePolicyPatterns(policy *model.PolicyDecision) error {
-	for _, pattern := range appendSignals(policy.AllowedTables, policy.DeniedTables) {
-		trimmed := strings.TrimSpace(pattern)
-		if trimmed == "" {
-			return fmt.Errorf("policy contains an empty table pattern")
-		}
-		if trimmed != pattern {
-			return fmt.Errorf("policy table pattern %q contains surrounding whitespace", pattern)
-		}
-		parts := strings.Split(trimmed, ".")
-		if len(parts) > 2 || parts[0] == "" || (len(parts) == 2 && parts[1] == "") {
-			return fmt.Errorf("policy table pattern %q is not schema.table", pattern)
-		}
-		if len(parts) == 2 && parts[0] == "*" {
-			return fmt.Errorf("policy table pattern %q has an invalid schema wildcard", pattern)
-		}
-	}
-	return nil
+	return policyresolver.ValidateTablePatterns(
+		appendSignals(policy.AllowedTables, policy.DeniedTables),
+	)
 }
 
 func tableObjectName(table model.ObjectRef) (string, error) {
@@ -701,22 +688,7 @@ func tableObjectName(table model.ObjectRef) (string, error) {
 }
 
 func matchesAnyPolicyObject(patterns []string, table model.ObjectRef) bool {
-	object := table.Table
-	if table.Schema != "" {
-		object = table.Schema + "." + table.Table
-	}
-	for _, pattern := range patterns {
-		trimmed := strings.TrimSpace(pattern)
-		switch {
-		case trimmed == "*":
-			return true
-		case table.Schema != "" && trimmed == table.Schema+".*":
-			return true
-		case trimmed == object:
-			return true
-		}
-	}
-	return false
+	return policyresolver.MatchesAnyTable(patterns, table)
 }
 
 func isNilInterface(value any) bool {
