@@ -546,9 +546,83 @@ var ErrInvalidDecision = errors.New(...) // 支持 errors.Is；合法集合 allo
 ### 交付 / 主控验收
 单位无 Go/Docker：文本级静态自审（动态 SQL 全占位、rows.Close、错误透传、nil 防御），注明"未本地编译需主控验证"，不跑 go/docker；打 `agentsql-in-T12-日期.zip` 自证。主控：tidy（**go.mod/go.sum 无变化**）/gofmt/build/vet、store+audit 单测全过、全包零回归（**不起 Docker**）；独立 diag 开临时 SQLite 文件，Record 三类→FilteredPage 组合筛→ExportJSONL 落一个 .jsonl，逐行核对内容后删除。
 
-## T13 六段式流水线 ★（pipeline）
-编排 Parse→Auth→Policy→Engine(含 Explain)→Decision→Execute→Redact→Audit，记录每阶段耗时到 StageLatency；deny 不连库直接结构化拒绝并审计；approve(v0.1) 不执行、写 approvals+audit 返回单号；allow 执行→脱敏→审计→返回；全链路 context 超时。testcontainers 6 条 E2E：正常/无where更新拒/越权表拒/超扫描行审批/只读写拒/结果脱敏。
-验收（亲自）：deny 路径在任何情况下都不触达 executor。
+## T13 六段式流水线 ★（pipeline，编排核心）
+
+### 目标
+把已建好的 parser/auth/policy/engine/rules/executor/mask/audit/store 串成**一次受保护 SQL 请求的唯一入口**：API Key+数据源 ID+原始 SQL+会话元数据 → 认证 → 取数据源与策略 → 解析 → 两闸风险评估 → 四态决策 →（仅放行才）执行 → 脱敏 → 同步审计 → 结构化响应。本单只做编排与编排级测试；**不做** HTTP/MCP（T14/T15）、**不做** DB 规则开关与脱敏规则的仓储 List/装配（T16，本单一律走端口注入）。
+
+### 文件（internal/pipeline，替换 doc.go 占位）
+- types.go：Request/Response、阶段名常量、端口接口、错误哨兵
+- pipeline.go：Pipeline 结构、New、Process 主流程与逐段计时
+- rules.go：内置规则装配、静态/动态规则分轮、两轮 Assessment 合并
+- auditmap.go：Assessment+执行结果 → model.AuditLog（RuleHits 序列化）
+- pipeline_test.go：fake 端口+spy executor 纯单测（不起 Docker）
+- e2e_postgres_test.go：testcontainers 6 条 E2E，探测不到 Docker 必须 t.Skip
+- 更新 doc.go 包注释
+
+### 冻结契约
+```go
+type Request struct {
+    APIKey         string
+    DatasourceID   string
+    SQL            string
+    SessionID      string          // 空=无状态池路径;非空=OpenSession 绑定连接(支持事务)
+    ConversationID *string
+    MCPTool        string          // 来源工具名,写审计
+    ClientIP       *string
+    ModelName      *string
+}
+type Response struct {
+    Decision   model.Decision
+    Assessment model.Assessment  // Hits/Reason/Suggestion/StageLatency 完整
+    Result     *model.QueryResult // 仅 allow/warn 且实际执行才有
+    Redact     mask.RedactReport
+    ApprovalID string             // 仅 approve
+    AuditID    int64
+}
+// pipeline 只依赖这些最小端口,T16 的 server 用 store/executor 适配;单测用 fake
+type IdentityAuthenticator interface { Authenticate(ctx context.Context, rawKey string) (model.Agent, error) }
+type DatasourceReader interface { Get(ctx context.Context, id string) (model.Datasource, error) }
+type PolicyLoader interface { ListByAgentAndDatasource(ctx context.Context, agentID, datasourceID string) ([]model.Policy, error) }
+type ExecutorProvider interface { GetOrOpen(ds model.Datasource, secret []byte) (executor.Executor, error) }
+type ApprovalWriter interface { Create(ctx context.Context, a model.Approval) (model.Approval, error) }
+type AuditRecorder interface { Record(ctx context.Context, l model.AuditLog) (model.AuditLog, error) }
+type RedactorBuilder interface { RedactorFor(ctx context.Context, datasourceID string) (mask.Redactor, error) }
+```
+构造 `func New(ports Ports, secret []byte, opts ...Option) (*Pipeline, error)`：Ports 聚合上述七端口，**任一 nil 在 New 阶段报错**；内部持有 policy.NewResolver()、零值 engine.Engine{}、rules.NewDefaultTokenBucketLimiter() 单例。secret 是 AGENTSQL_SECRET 的 32 字节密钥、由上层注入（pipeline 不读环境变量），供 ExecutorProvider.GetOrOpen 解密数据源密码。
+
+### Process 八阶段（StageLatency 的 key 固定如下）
+- **S1 auth**：Authenticate(APIKey)→Agent；失败 fail-closed 拒绝，不解析、不连业务库，审计 decision="error"。
+- **S2 load**：DatasourceReader.Get 得 Datasource（DBType→dialect）；PolicyLoader 取策略行后 policy.Resolver.Resolve(rows, agent.Level)→*PolicyDecision；失败拒绝+审计 error，不连业务库。
+- **S3 parse**：parser.NewParser(dialect).Parse(SQL)→*AST；畸形/不可解析拒绝+审计 error，不连业务库。
+- **S4 guard_static**：第一闸，只跑不依赖连接的静态规则（见两闸）。结果为 deny → 直接跳 S8 审计返回，**全程不调 ExecutorProvider、不产生业务库连接**。
+- **S5 guard_dynamic**：仅静态非 deny 才进入——ExecutorProvider.GetOrOpen（唯一允许的首次业务库接触）；需要会话则 OpenSession；对原 SQL 跑**只读 Explain** 填 AST.Explain；以真实 session 为 MetadataProvider 装配动态规则做第二闸，与第一闸 Hits 合并后按 deny>approve>warn>allow 重算最终 Assessment。此阶段只允许只读 EXPLAIN/元数据/事务态探测，绝不执行用户 SQL。
+- **S6 execute**：deny 不执行（动态升级 deny 时也仅做过只读探测）；approve 在 v0.1 **不执行**，ApprovalWriter.Create 落 pending 审批单并回填 AuditID，Response.ApprovalID=单号；allow/warn 按 AST.StmtType 选 Query(SQL,rowLimit)（只读类）或 Execute(SQL)（其余），有 SessionID 走绑定 session 同名方法、无则走 executor 无状态方法，rowLimit=datasource.RowLimit（0 用默认 1000）；执行报错→审计 error 并返回错误、不脱敏。
+- **S7 redact**：仅实际返回结果集时 RedactorBuilder.RedactorFor(dsID) 取脱敏器 Apply(Result)，带出 Redact 报告；写操作/无结果集跳过；RedactorBuilder 出错 fail-closed+审计 error。
+- **S8 audit**：**所有分支**（allow/warn/deny/approve/error）返回前都 AuditRecorder.Record 同步落一条；审计返回错误则整个 Process 判失败（T12 语义）。
+
+### 两闸评估与"deny 不触库"硬保证
+- 规则装配：通用 rules.NewGenericRules(limiter)；PG 用 rules.NewPostgresRules(meta)、MySQL 用 rules.NewMysqlRules(meta)。
+- 动态规则集合（需连接元数据/EXPLAIN）：通用 **R004**（依赖 AST.Explain）、PG **R105/R106/R107**（构造注入 meta）、MySQL **R204**（事务态）。**必须逐条读 rules 源码最终确认集合完整**：第一闸只放静态规则并传"任一方法被调即 panic 的 metadataProvider 桩"，用单测断言第一闸全程零触该桩——若漏划某动态规则进静态组，该测试立即变红，以此自证划分无遗漏。
+- 第一闸 meta 传 nil 安全桩、不 Explain（AST.Explain=nil）；第二闸才用真实 session meta 且先 Explain。
+- mergeAssessment 为纯函数：合并两闸 Hits（保持规则 ID 顺序、同 ID 以第二闸为准），按 deny>approve>warn>allow 重算 Decision/Risk/Reason/Suggestion，EstScanRows 取第二闸 Explain 值。
+- 精确安全语义（写进注释与验收）：**deny/approve/error/静态拒绝路径下 Executor.Query/Execute 与 Session.Query/Execute 零调用**；"静态即 deny"时连 GetOrOpen/Explain/OpenSession 都零调用；仅"静态放行后被动态升级为 deny"时允许只读 Explain/元数据调用、仍零用户 SQL 执行。全部用 spy executor 计数断言。
+
+### 审计字段映射（auditmap.go）
+AgentID/DatasourceID/SessionID（非空才取指针）、ConversationID、MCPTool、DBType=datasource.DBType、SQLRaw=Request.SQL、SQLNorm=AST.Normalized、StmtType=string(AST.StmtType)、Objects=AST.Tables 规范化字符串、Decision=最终四态（解析/认证/内部错误用 "error"）、RuleHits=Hits 的 JSON、RiskLevel=int(Assessment.Risk)、EstRows=AST.Explain.EstScanRows、LatencyMS=总耗时、RowsReturned=结果行数、ClientIP/ModelName、ErrorMsg。approve 分支先 Record 拿 AuditID 再回填 Approval.AuditID。
+
+### 超时与并发
+透传调用方 ctx；S5/S6 用 datasource.StmtTimeoutMS（0 用默认 5000ms）派生子 ctx 用于 Explain/执行。Pipeline 无共享可变状态（limiter 自身并发安全），主控用 `go test -race` 验证 50 goroutine 并发无竞态。
+
+### 测试
+纯单测（fake 端口+spy executor，不起 Docker）至少覆盖：①认证失败拒绝且零业务库接触；②畸形 SQL 拒绝零接触；③无 WHERE UPDATE 静态 deny，断言 GetOrOpen/Explain/OpenSession/Query/Execute 全零；④越权表 deny 零接触；⑤readonly Agent 写（R003）deny；⑥静态 allow 但 Explain 超扫描行动态升级 approve，断言只调 Explain、未调 Query/Execute、生成审批单；⑦allow SELECT 走 Query 且结果被脱敏、审计 RowsReturned 正确；⑧warn 放行且审计 warn；⑨执行器报错→审计 error 并返回错误；⑩AuditRecorder 报错→Process 失败；⑪StageLatency 八 key 齐全非负；⑫mergeAssessment 四态优先级；⑬静态组 panic-provider 零触达自证；⑭有/无 SessionID 分别走 session 与无状态路径。
+E2E（e2e_postgres_test.go，testcontainers 用本地 postgres:16；探测不到 Docker 必须 t.Skip 而非失败）6 条：E1 正常 SELECT 放行；E2 无 WHERE 更新被拒且目标表数据未变；E3 未授权表被拒；E4 大表全表扫描超阈值转审批不执行；E5 readonly 写被拒；E6 命中脱敏列结果被打码。建表/造数/内置 Agent+数据源+策略在测试内完成。
+
+### 边界
+不新增第三方依赖（testcontainers 已在 go.mod，go.mod/go.sum 必须不变）；不改 store（不补 List）、不改 engine/parser/rules/executor/mask/audit/auth/policy 公开签名（确需小补充先在交付说明列出并论证，禁止静默改）；不做 HTTP/MCP/前端；不读环境变量（secret 构造注入）。
+
+### 交付 / 主控验收
+单位无 Go/Docker：文本级静态自审（两闸划分、deny 零用户 SQL、每分支必落审计、错误透传、nil 防御、ctx 透传），注明"未本地编译、E2E 需主控 Docker 验证"，不跑 go/docker；打 agentsql-in-T13-日期.zip 自证（文件数、zip 晚于源码、大小+SHA-256 前缀）。主控：tidy（go.mod/go.sum 无变化）/gofmt/build/vet、`go test -race ./internal/pipeline` 纯单测全过且全包零回归，再启动 Docker 跑 6 条 E2E 全绿，并用 spy 独立复核 deny 路径零执行。
 
 ## T14 MCP stdio（mcpserver）
 官方 go-sdk 暴露 7 tools，handler 全走 pipeline，list_schema 按列权限过滤；examples 给 Cursor/Claude Desktop 配置。用 Inspector 调通并在真实 Cursor 录屏。
