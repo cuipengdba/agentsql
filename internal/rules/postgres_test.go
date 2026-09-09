@@ -408,5 +408,5 @@ func metadataTableKey(schema, table string) string {
 
 var (
 	_ MetadataProvider            = (*fakeMetadataProvider)(nil)
-	_ transactionMetadataProvider = (*fakeMetadataProvider)(nil)
+	_ TransactionMetadataProvider = (*fakeMetadataProvider)(nil)
 )

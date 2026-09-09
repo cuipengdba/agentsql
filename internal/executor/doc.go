@@ -1,2 +1,2 @@
-// Package executor will run approved SQL under bounded resource limits.
+// Package executor runs approved SQL under bounded resource limits.
 package executor

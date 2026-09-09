@@ -1,0 +1,46 @@
+package executor
+
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	// ErrQueryTimeout indicates that a database or context deadline cancelled SQL.
+	ErrQueryTimeout = errors.New("query timeout")
+	// ErrReadOnlyViolated indicates that a write reached a read-only executor.
+	ErrReadOnlyViolated = errors.New("read-only executor violation")
+	// ErrDatasourceUnreachable indicates that a datasource could not be reached.
+	ErrDatasourceUnreachable = errors.New("datasource unreachable")
+)
+
+type redactedError struct {
+	message string
+	cause   error
+}
+
+func (err redactedError) Error() string {
+	return err.message
+}
+
+func (err redactedError) Unwrap() error {
+	return err.cause
+}
+
+func safeError(message string, sentinel error, cause error) error {
+	joined := sentinel
+	if cause != nil {
+		joined = errors.Join(sentinel, sanitizedCause(cause))
+	}
+	return redactedError{
+		message: fmt.Sprintf("%s: %s", message, sentinel),
+		cause:   joined,
+	}
+}
+
+func sanitizedCause(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return fmt.Errorf("redacted database error type %T", cause)
+}

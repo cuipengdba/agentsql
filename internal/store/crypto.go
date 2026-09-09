@@ -39,11 +39,15 @@ func NewPasswordCipherFromEnv() (*PasswordCipher, error) {
 	if !present || secret == "" {
 		return nil, fmt.Errorf("load encryption secret: %w", ErrSecretMissing)
 	}
-	if len([]byte(secret)) != requiredSecretBytes {
+	return NewPasswordCipher([]byte(secret))
+}
+
+// NewPasswordCipher constructs the repository cipher from an explicit secret.
+func NewPasswordCipher(secret []byte) (*PasswordCipher, error) {
+	if len(secret) != requiredSecretBytes {
 		return nil, fmt.Errorf("validate encryption secret: %w", ErrSecretLength)
 	}
-
-	block, err := aes.NewCipher([]byte(secret))
+	block, err := aes.NewCipher(secret)
 	if err != nil {
 		return nil, fmt.Errorf("create AES cipher: %w", err)
 	}

@@ -49,7 +49,8 @@ type MetadataProvider interface {
 	TableRowCount(schema, table string) (int64, error)
 }
 
-type transactionMetadataProvider interface {
+// TransactionMetadataProvider extends PostgreSQL table metadata with session state.
+type TransactionMetadataProvider interface {
 	MetadataProvider
 	TransactionState() (TransactionState, error)
 }
@@ -286,7 +287,7 @@ func (rule r107Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R107: %w", err)
 	}
-	provider, err := postgresTransactionMetadataProvider(context, rule.meta)
+	provider, err := postgresTransactionMetadataProviderForContext(context, rule.meta)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R107: %w", err)
 	}
@@ -389,12 +390,12 @@ func postgresMetadataProvider(
 	return fallback, nil
 }
 
-func postgresTransactionMetadataProvider(
+func postgresTransactionMetadataProviderForContext(
 	context engine.EvalContext,
 	fallback MetadataProvider,
-) (transactionMetadataProvider, error) {
+) (TransactionMetadataProvider, error) {
 	if context.MetadataProvider != nil {
-		provider, ok := context.MetadataProvider.(transactionMetadataProvider)
+		provider, ok := context.MetadataProvider.(TransactionMetadataProvider)
 		if !ok || isNilInterface(provider) {
 			return nil, fmt.Errorf(
 				"EvalContext.MetadataProvider does not provide PostgreSQL transaction state",
@@ -402,7 +403,7 @@ func postgresTransactionMetadataProvider(
 		}
 		return provider, nil
 	}
-	provider, ok := fallback.(transactionMetadataProvider)
+	provider, ok := fallback.(TransactionMetadataProvider)
 	if !ok || isNilInterface(provider) {
 		return nil, fmt.Errorf("PostgreSQL transaction metadata provider is unavailable")
 	}
