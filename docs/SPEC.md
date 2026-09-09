@@ -383,6 +383,50 @@ type Executor interface {
 ### 主控端验收（Docker 就绪后）
 build/vet/非容器 test 全绿；启动 Docker 后 E2E 真正跑通 PG16/MySQL8 各四场景；独立验证两数据源连接池互不串、超时真中断、截断、只读写拒、EXPLAIN 全表/索引识别、真实元数据喂给 R105/R106/R107/R204 判定正确。主控端会提前 `docker pull postgres:16 mysql:8` 预热镜像。
 
+> **T10 主控端真实库验收结论（2026-09-09）**：受控执行主干（连接池、语句超时、只读强制、N+1 行截断、EXPLAIN、表/索引元数据、错误脱敏、MySQL 多语句拦截）在真实 PG16/MySQL8 全部通过（E2E 8/8），已随 T10 合入（commit f44ab8a / tag t10）。**唯独"事务态检测"真实库下不合格，单列 T10.1 修复后才允许 T13 接线 R107/R204。** 验收另修两处测试夹具（已合入）：①无 Docker 时 testcontainers `NewDockerClient()` 在 Windows 直接 panic（rootless not supported），helper 必须 `recover` 后按不可用 Skip；②MySQL 超时禁用 `SLEEP()`（被 MAX_EXECUTION_TIME 中断时 SLEEP 返回 1、整条不报错），改用优化器无法用行数乘积化简的三表逐行聚合，稳定触发 3024。
+
+## T10.1 事务态检测修复：会话-绑定连接 + 执行器权威事务状态机（重点小单，T13 前置）
+
+### T10 事务态为何不合格（真实库实测，勿再走"查系统视图猜事务"老路）
+- **缺陷 A（根本，PG/MySQL 共有）：连接池无会话绑定。** T10 的 Executor 每次 Query/Execute/事务态查询各自从池借还物理连接。AI 会话的 `BEGIN; SQL; …; COMMIT` 会散到不同连接，连接归还时未提交事务还会被池回滚/重置；事务态探测落在另一条空闲连接上，必然失真。实测 MySQL：`Execute("BEGIN")`→`Query(触 InnoDB 表)`→`MysqlTransactionState()` 仍 `InTransaction=false`（探测换了连接）。
+- **缺陷 B（PG 判定 SQL 在 pgx 扩展协议下误报）。** T10 用 `xact_start < query_start` 区分显式/隐式事务；但 pgx 走 extended protocol，隐式探测语句的 `xact_start` 在 Parse/Bind 阶段建立、早于 Execute 阶段记录的 `query_start`（实测空闲语句 xact_start 比 query_start 早约 0.6ms、`state=active`），导致空闲/COMMIT 后**恒判 InTransaction=true**。`pg_is_in_transaction()` 是 PG17 才有、PG16 无此函数，不能依赖。
+- **MySQL 能力边界（实测）**：`information_schema.innodb_trx` 只登记已访问 InnoDB 表的事务；纯 `BEGIN` 空转或只 `SELECT 常量` 不登记（漏判），访问真实 InnoDB 表/写事务才可见；`@@session.autocommit` 在 `BEGIN` 后值并不变（只有显式 `SET autocommit=0` 才变 0）。单靠系统视图无法可靠判事务。
+
+### 目标与边界
+把"事务是否进行中、持续多久、是否空闲、累计改了多少行"的**权威来源从"查数据库系统视图"改为"执行器在绑定连接上自己维护的事务状态机"**；系统视图仅作可选交叉校验，不再决定 `InTransaction`。**只动 `internal/executor` 包（可新增文件），不改 parser/rules/engine/policy/auth/store/model 的既有对外契约与已绿测试；不新增第三方依赖（pgxpool.Conn、database/sql 的 sql.Conn 均为现有驱动自带）。** 不提前做 T13 的 Agent 编排，只提供"会话绑定 + 可靠事务态"的能力与完整测试。
+
+### 1) 会话-绑定连接（Session-bound connection）
+- Executor 新增会话能力（在现有无状态 Query/Execute 之外**增量**提供，无状态接口保留给自动提交场景）：
+  - `OpenSession(ctx, sessionID string) (Session, error)`：从该数据源池里**借一条物理连接并独占绑定**到 sessionID；PG 用 `pool.Acquire` 持有 `*pgxpool.Conn`，MySQL 用 `db.Conn(ctx)` 持有 `*sql.Conn`；同一 sessionID 重复 Open 返回同一绑定（或显式报错，二选一并写测试），不同 sessionID 绑定不同物理连接。
+  - `Session` 接口：`Query/Execute/Explain`（签名与 Executor 对齐，但**全程走这同一条绑定连接**）、`TransactionState()/MysqlTransactionState()`（返回状态机结果）、`Close() error`。
+  - `Close()`：**若状态机显示仍在事务中，先在该连接上 ROLLBACK 再归还池**（PG `conn.Release`、MySQL `conn.Close` 还池），杜绝带事务连接回池污染下一会话。
+- 抽取一个内部"单连接执行内核"（PG 基于已 Acquire 的 Conn、MySQL 基于已取出的 sql.Conn），让"池化无状态路径"与"绑定会话路径"复用同一套超时/只读/截断/EXPLAIN/脱敏逻辑，**禁止复制两份**。
+- Manager 增加 `map[sessionID]Session`（或在 Executor 内），`sync.RWMutex` 保护；`CloseAll` 一并释放所有会话。
+
+### 2) 执行器权威事务状态机（内存态，PG/MySQL 一致）
+- 每个绑定 Session 维护：`inTransaction bool`、`startedAt time.Time`、`lastStmtEnd time.Time`、`affectedRows int64`、`mu sync.RWMutex`（Session 可能并发查询，加锁）。
+- **每条经 Session 执行的 SQL，执行前先做"事务控制语句分类"**：优先复用 T03 parser 已暴露的语句/操作类型（若 parser 已能区分 BEGIN/COMMIT/ROLLBACK 等则直接用，**以新增导出 helper 方式取用，不改 parser 既有 AST/Evaluate 契约**）；若 parser 覆盖不全，在 executor 内对**封闭关键字集合**做规范化识别（去注释/空白/大小写、允许 `WORK/CHAIN` 等修饰）：
+  - 开启：`BEGIN`/`START TRANSACTION`/MySQL `SET autocommit=0`/`SET @@session.autocommit=0` → `inTransaction=true, startedAt=now, lastStmtEnd=now, affectedRows=0`（重复 BEGIN 幂等，不重置 startedAt）。
+  - 结束：`COMMIT`/`ROLLBACK`/`END`/`ABORT`/MySQL `SET autocommit=1` → `inTransaction=false`，清零时间与计数。
+  - `SAVEPOINT/RELEASE/ROLLBACK TO/SET TRANSACTION` 等事务内语句：不改 inTransaction，仅透传执行。
+  - 写语句（INSERT/UPDATE/DELETE/MERGE，经 parser 分类）在 `inTransaction` 时：用执行返回的 RowsAffected **累加 affectedRows**（不再依赖 innodb_trx.trx_rows_modified）。
+  - 每条语句结束（无论读写）刷新 `lastStmtEnd=now`。
+- `TransactionState()`/`MysqlTransactionState()` 直接读状态机：
+  - `InTransaction=inTransaction`；
+  - `AgeMS = inTransaction ? now-startedAt : 0`；
+  - PG `IdleMS = inTransaction ? now-lastStmtEnd : 0`（对应 R107 空闲事务）；MySQL `AffectedRows=affectedRows`（对应 R204 大事务）。
+  - 返回既有 `rules.TransactionState`/`rules.MysqlTransactionState` 结构，**不改 rules 包结构定义**。
+- **系统视图降级为可选交叉校验**：保留用 pg_stat_activity / innodb_trx 取"非经本网关开启的外部遗留事务"的辅助方法（命名如 `snapshotServerTransaction`），但**不参与** `InTransaction` 主判定；取不到按"缺元数据不阻断"返回，不报错。T10 那段 `xact_start<query_start`/`@@autocommit OR EXISTS(innodb_trx)` 不再作为权威依据。
+
+### 3) 测试（硬要求）
+- **纯单测（不连库）**：用可控假连接/假执行内核驱动状态机，覆盖状态转移全表——空闲 false；BEGIN→true 且 AgeMS 随 sleep 增长；事务内多次 UPDATE 的 affectedRows 正确累加；COMMIT/ROLLBACK→false 且清零；重复 BEGIN 幂等；SAVEPOINT 不改变状态；SET autocommit=0/1（MySQL）开关；Close 时仍在事务触发 ROLLBACK（用 spy 连接断言确实发了 ROLLBACK 且连接被归还）；事务控制关键字识别的大小写/注释/修饰变体。
+- **真实 E2E（沿用 T10 已修好的 Docker 探测 helper，无 Docker 必须 t.Skip、panic 也兜底 Skip）**：PG16 与 MySQL8 各覆盖——①OpenSession 后空闲 InTransaction=false（**回归缺陷 B：PG 不得再恒 true**）②Session 内 BEGIN→访问真实表→TransactionState.InTransaction=true、AgeMS≥指定 sleep ③事务内 UPDATE 后 AffectedRows 正确 ④COMMIT/ROLLBACK 后 false ⑤BEGIN+UPDATE+sleep 后 IdleMS>0 ⑥Close 于事务中，再开新 Session 查不到任何遗留事务/数据已回滚 ⑦**两个并发 Session 绑定不同连接、各自 BEGIN/UPDATE，事务状态与数据互不串**（回归缺陷 A）。
+- 既有 T10 全部单测/E2E 保持绿，零回归；覆盖率不低于 executor 现有水平。
+- 单位无 Docker：Codex 只做文本级静态自审并注明"未本地编译/运行，需主控端验证"，禁止在 PowerShell 跑 go/docker。
+
+### 4) 主控端验收
+build/vet/全包 test 绿、零回归；真实 PG16/MySQL8 跑通上述 E2E 全矩阵，重点复现并确认缺陷 A/B 不再出现（PG 空闲不再恒 true、MySQL 绑定会话内 BEGIN 后稳定 true、并发会话不串）；独立 diag 验证 Close 回滚清理。**T10.1 通过后 R107/R204 的事务元数据才算可信，T13 方可接线。**
+
 ## T11 脱敏引擎（mask）
 Redactor 接口+配置实现；v0.1 实现手机号/邮箱 mask 并贯通"结果返回前脱敏"（按结果列名匹配，别名/表达式也生效）；身份证/银行卡/hash/区间留接口 TODO。测试正反例。
 
