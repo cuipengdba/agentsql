@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 )
@@ -74,6 +75,22 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
 // Page returns audit logs ordered newest first.
 func (repository *AuditLogRepository) Page(ctx context.Context, page, pageSize int) (AuditPage, error) {
+	return repository.FilteredPage(ctx, model.AuditFilter{}, page, pageSize)
+}
+
+// FilteredPage returns matching audit logs ordered newest first.
+func (repository *AuditLogRepository) FilteredPage(
+	ctx context.Context,
+	filter model.AuditFilter,
+	page int,
+	pageSize int,
+) (AuditPage, error) {
+	if repository == nil || repository.db == nil {
+		return AuditPage{}, fmt.Errorf("page audit logs: repository is not initialized")
+	}
+	if ctx == nil {
+		return AuditPage{}, fmt.Errorf("page audit logs: %w", ErrNilContext)
+	}
 	if page < 1 {
 		return AuditPage{}, fmt.Errorf("page audit logs: %w", ErrInvalidPage)
 	}
@@ -81,19 +98,28 @@ func (repository *AuditLogRepository) Page(ctx context.Context, page, pageSize i
 		return AuditPage{}, fmt.Errorf("page audit logs: %w", ErrInvalidPageSize)
 	}
 
+	whereClause, filterArgs := buildAuditWhere(filter)
 	var total int64
-	if err := repository.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs").Scan(&total); err != nil {
+	if err := repository.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM audit_logs"+whereClause,
+		filterArgs...,
+	).Scan(&total); err != nil {
 		return AuditPage{}, fmt.Errorf("count audit logs: %w", err)
 	}
 
-	rows, err := repository.db.QueryContext(ctx, `
+	selectQuery := `
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg
-FROM audit_logs
+FROM audit_logs` + whereClause + `
 ORDER BY ts DESC, id DESC
-LIMIT ? OFFSET ?`, pageSize, (page-1)*pageSize)
+LIMIT ? OFFSET ?`
+	selectArgs := make([]any, 0, len(filterArgs)+2)
+	selectArgs = append(selectArgs, filterArgs...)
+	selectArgs = append(selectArgs, pageSize, int64(page-1)*int64(pageSize))
+	rows, err := repository.db.QueryContext(ctx, selectQuery, selectArgs...)
 	if err != nil {
 		return AuditPage{}, fmt.Errorf("query audit log page %d: %w", page, err)
 	}
@@ -117,6 +143,77 @@ LIMIT ? OFFSET ?`, pageSize, (page-1)*pageSize)
 	}
 
 	return AuditPage{Total: total, Page: page, PageSize: pageSize, List: list}, nil
+}
+
+func buildAuditWhere(filter model.AuditFilter) (clause string, args []any) {
+	conditions := make([]string, 0, 12)
+	args = make([]any, 0, 16)
+	appendCondition := func(condition string, values ...any) {
+		conditions = append(conditions, condition)
+		args = append(args, values...)
+	}
+	if filter.TimeStart != nil {
+		appendCondition("ts >= ?", *filter.TimeStart)
+	}
+	if filter.TimeEnd != nil {
+		appendCondition("ts <= ?", *filter.TimeEnd)
+	}
+	if filter.AgentID != nil {
+		appendCondition("agent_id = ?", *filter.AgentID)
+	}
+	if filter.DatasourceID != nil {
+		appendCondition("datasource_id = ?", *filter.DatasourceID)
+	}
+	if filter.SessionID != nil {
+		appendCondition("session_id = ?", *filter.SessionID)
+	}
+	if filter.MCPTool != nil {
+		appendCondition("mcp_tool = ?", *filter.MCPTool)
+	}
+	if len(filter.Decisions) > 0 {
+		appendCondition("decision IN ("+auditPlaceholders(len(filter.Decisions))+")", stringsToAny(filter.Decisions)...)
+	}
+	if len(filter.StmtTypes) > 0 {
+		appendCondition("stmt_type IN ("+auditPlaceholders(len(filter.StmtTypes))+")", stringsToAny(filter.StmtTypes)...)
+	}
+	if filter.RiskMin != nil {
+		appendCondition("risk_level >= ?", *filter.RiskMin)
+	}
+	if filter.RiskMax != nil {
+		appendCondition("risk_level <= ?", *filter.RiskMax)
+	}
+	if filter.Keyword != "" {
+		like := auditLikeArgument(filter.Keyword)
+		appendCondition("(sql_raw LIKE ? ESCAPE '!' OR sql_norm LIKE ? ESCAPE '!')", like, like)
+	}
+	if filter.ObjectLike != "" {
+		appendCondition("objects LIKE ? ESCAPE '!'", auditLikeArgument(filter.ObjectLike))
+	}
+	if len(conditions) == 0 {
+		return "", args
+	}
+	return " WHERE 1=1 AND " + strings.Join(conditions, " AND "), args
+}
+
+func auditPlaceholders(count int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
+}
+
+func stringsToAny(values []string) []any {
+	arguments := make([]any, len(values))
+	for index, value := range values {
+		arguments[index] = value
+	}
+	return arguments
+}
+
+func auditLikeArgument(value string) string {
+	escaped := strings.NewReplacer(
+		"!", "!!",
+		"%", "!%",
+		"_", "!_",
+	).Replace(value)
+	return "%" + escaped + "%"
 }
 
 func (repository *AuditLogRepository) getInserted(ctx context.Context, id int64) (model.AuditLog, error) {
