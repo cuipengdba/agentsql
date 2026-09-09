@@ -485,8 +485,66 @@ phone 11位/短号/带 +86/空值；email 标准/无@/多点域名；别名列 `
 ### 交付 / 主控验收
 单位无 Go/Docker：文本级静态自审、注明"未本地编译，需主控端验证"，不跑 go/docker；打 `agentsql-in-T11-日期.zip` 并自证（文件数一致、zip 晚于源码、大小+SHA 前缀）。主控：tidy（**go.mod/go.sum 应无变化**）/gofmt/build/vet、mask 纯单测全过、全包零回归（**本单无 E2E、不起 Docker**）；独立 diag 构造含 phone/email/普通列的 QueryResult 验证掩码结果与 report。
 
-## T12 审计（audit）
-响应前同步落库（落库失败则请求失败）；allow/deny/approve 都记；多条件分页 + JSONL 导出。测试三类记录、审计失败主请求失败、筛选导出。
+## T12 审计服务（audit）+ 仓储多条件筛选扩展
+
+### 定位与边界
+- 新增 `internal/audit` 服务层：**Recorder 同步落审计（落库失败原样上抛、绝不吞错）**、多条件分页查询、JSONL 导出。复用 `store.AuditLogRepository`，服务层不直接持有 `*sql.DB`、不写裸 SQL（SQL 只允许出现在 store）。
+- 小幅**扩展 store**：`AuditLogRepository` 增加 `FilteredPage`（动态 WHERE、全部占位符参数化）；原 `Page` 保留公开签名、内部改为委托"空 filter"，保证 T06 既有测试零回归。
+- `model` 新增 `AuditFilter`（放最底层共享，避免 store 反向依赖 audit）。
+- **只追加**硬约束：audit 与 store 都不得提供 audit_logs 的 update/delete 方法。
+- 不做 pipeline 编排（T13 才把 Recorder 接进六段式）、不做 HTTP/MCP、不改 executor/mask/rules/engine/policy/auth/parser。**不新增第三方依赖**（仅 encoding/json、bufio、strings、io 标准库；测试用现有 modernc 内存 SQLite）；**不起 Docker、无 PG/MySQL E2E**（审计写本地 SQLite）。
+
+### 冻结契约
+```go
+// model/audit_filter.go
+type AuditFilter struct {
+    TimeStart, TimeEnd          *time.Time
+    AgentID, DatasourceID       *string // 非 nil 即精确匹配
+    SessionID, MCPTool          *string
+    Decisions                   []string // 非空: decision IN (...)
+    StmtTypes                   []string // 非空: stmt_type IN (...)
+    RiskMin, RiskMax            *int
+    Keyword                     string // 非空: (sql_raw LIKE ? OR sql_norm LIKE ?)
+    ObjectLike                  string // 非空: objects LIKE ?
+}
+func (f AuditFilter) IsEmpty() bool
+
+// store：新增；原 Page(ctx,page,size) 改为 return r.FilteredPage(ctx, model.AuditFilter{}, page, size)
+func (r *AuditLogRepository) FilteredPage(ctx context.Context, f model.AuditFilter, page, pageSize int) (AuditPage, error)
+
+// audit
+type Sink interface { Insert(ctx context.Context, l model.AuditLog) (model.AuditLog, error) } // *store.AuditLogRepository 天然满足
+type Reader interface { FilteredPage(ctx context.Context, f model.AuditFilter, page, size int) (store.AuditPage, error) }
+func NewRecorder(sink Sink) Recorder
+type Recorder interface { Record(ctx context.Context, l model.AuditLog) (model.AuditLog, error) }
+func NewService(reader Reader, sink Sink) *Service
+func (s *Service) Record(ctx, model.AuditLog) (model.AuditLog, error)
+func (s *Service) Page(ctx, model.AuditFilter, page, size int) (store.AuditPage, error)
+func (s *Service) ExportJSONL(ctx context.Context, f model.AuditFilter, w io.Writer) (rows int, err error)
+var ErrInvalidDecision = errors.New(...) // 支持 errors.Is；合法集合 allow/deny/approve/warn/error
+```
+
+### Record 规则
+- ctx 为 nil 返回错误；`Decision` 必须属于 `{allow,deny,approve,warn,error}`，否则返回 `ErrInvalidDecision` 且**绝不调用 sink、不落库**。
+- 其余字段不做静默篡改；TS 由 SQLite DEFAULT 与 Insert 回填。sink.Insert 的任何 error **原样向上返回**（不吞、不只打日志降级），由 T13 据此让主请求失败——本单必须用失败型 fake sink 写测试证明该错误透传。
+
+### FilteredPage 动态 WHERE（参数化、防注入）
+- 抽私有 `buildAuditWhere(f) (clause string, args []any)`，count 与 select 复用：从 `WHERE 1=1` 起，按非空条件依次 `AND ...`，**值一律走占位符、按序进 args，禁止字符串拼接用户值**。
+- TimeStart `ts>=?`、TimeEnd `ts<=?`；AgentID/DatasourceID/SessionID/MCPTool 非 nil `col=?`；Decisions/StmtTypes 非空走 `IN (?,?...)`（占位符个数随长度）；RiskMin `risk_level>=?`、RiskMax `risk_level<=?`；Keyword `(sql_raw LIKE ? OR sql_norm LIKE ?)`、ObjectLike `objects LIKE ?`，LIKE 参数为 `%kw%` 并对 `% _` 做 ESCAPE 转义。
+- COUNT(*) 带同一 WHERE 得 Total；SELECT 同 WHERE `ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`；空 filter 无 WHERE，等价原全量分页；page<1 / pageSize 越界复用 `ErrInvalidPage/ErrInvalidPageSize`。
+
+### ExportJSONL
+- 按 filter 内部以 pageSize=500 流式翻页直到取完，**硬上限 100000 行**（超出返回明确 `ErrExportLimit`，不静默截断）；每行 `json.Marshal` 一条 AuditLog + `"\n"`（指针字段 omitempty、TS 输出 RFC3339），`bufio.Writer` 收尾 Flush；ctx 取消及时停；w 为 nil 返回错误。返回实际写出行数。
+
+### 文件
+`model/audit_filter.go`；`store/audit_log_repository.go`（加 FilteredPage+buildAuditWhere、Page 委托）+ `store/audit_filter_test.go`；`audit/recorder.go`、`audit/service.go`、`audit/export.go`、更新 `audit/doc.go`、`audit/*_test.go`。
+
+### 测试
+- **store（内存 SQLite，复用现有 T06 建库/AGENTSQL_SECRET helper）**：插入 8 条不同 agent/decision/时间/stmt_type/risk 的记录，逐一与组合验证：单 agent、decision IN、时间区间、risk 区间、keyword 命中 sql_raw、空 filter=全量、分页 Total 与倒序、非法 page 报错；把 `' OR 1=1--` 当 Keyword 总数不变（参数化防注入证明）；`Page` 与 `FilteredPage(空)` 结果一致（T06 回归）。
+- **audit（fake Sink/Reader 为主）**：allow/deny/approve 三类 Record 往返字段不丢；非法 decision 返回 ErrInvalidDecision 且 sink 零调用；失败型 sink 的 error 被 Record 原样透传；ExportJSONL 行数正确、每行能 Unmarshal 回 AuditLog、TS 为 RFC3339、filter 透传、nil writer 报错、达上限 ErrExportLimit。代码层确认无 audit update/delete。
+
+### 交付 / 主控验收
+单位无 Go/Docker：文本级静态自审（动态 SQL 全占位、rows.Close、错误透传、nil 防御），注明"未本地编译需主控验证"，不跑 go/docker；打 `agentsql-in-T12-日期.zip` 自证。主控：tidy（**go.mod/go.sum 无变化**）/gofmt/build/vet、store+audit 单测全过、全包零回归（**不起 Docker**）；独立 diag 开临时 SQLite 文件，Record 三类→FilteredPage 组合筛→ExportJSONL 落一个 .jsonl，逐行核对内容后删除。
 
 ## T13 六段式流水线 ★（pipeline）
 编排 Parse→Auth→Policy→Engine(含 Explain)→Decision→Execute→Redact→Audit，记录每阶段耗时到 StageLatency；deny 不连库直接结构化拒绝并审计；approve(v0.1) 不执行、写 approvals+audit 返回单号；allow 执行→脱敏→审计→返回；全链路 context 超时。testcontainers 6 条 E2E：正常/无where更新拒/越权表拒/超扫描行审批/只读写拒/结果脱敏。
