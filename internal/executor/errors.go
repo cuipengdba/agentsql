@@ -12,6 +12,10 @@ var (
 	ErrReadOnlyViolated = errors.New("read-only executor violation")
 	// ErrDatasourceUnreachable indicates that a datasource could not be reached.
 	ErrDatasourceUnreachable = errors.New("datasource unreachable")
+	// ErrSessionExists indicates that a session ID is already bound.
+	ErrSessionExists = errors.New("executor session already exists")
+	// ErrSessionClosed indicates that a bound session has been released.
+	ErrSessionClosed = errors.New("executor session is closed")
 )
 
 type redactedError struct {

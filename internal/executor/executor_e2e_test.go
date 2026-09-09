@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -121,6 +122,10 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 		rowCount, err := executor.TableRowCount("public", "executor_rows")
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, rowCount, int64(5000))
+	})
+
+	t.Run("bound session transaction state", func(t *testing.T) {
+		testPostgresBoundSessions(t, ctx, executor)
 	})
 }
 
@@ -240,6 +245,265 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		require.NoError(t, err)
 		require.Positive(t, rowCount)
 	})
+
+	t.Run("bound session transaction state", func(t *testing.T) {
+		testMySQLBoundSessions(t, ctx, executor)
+	})
+}
+
+func testPostgresBoundSessions(
+	t *testing.T,
+	ctx context.Context,
+	executor *PostgresExecutor,
+) {
+	t.Helper()
+	session, err := executor.OpenSession(ctx, "pg-state")
+	require.NoError(t, err)
+	_, err = executor.OpenSession(ctx, "pg-state")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrSessionExists))
+
+	initial, err := session.TransactionState()
+	require.NoError(t, err)
+	require.False(t, initial.InTransaction)
+	_, err = session.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = session.Query(ctx, "SELECT count(*) FROM executor_rows", 1)
+	require.NoError(t, err)
+	time.Sleep(25 * time.Millisecond)
+	active, err := session.TransactionState()
+	require.NoError(t, err)
+	require.True(t, active.InTransaction)
+	require.GreaterOrEqual(t, active.AgeMS, int64(20))
+	update, err := session.Execute(ctx, "UPDATE executor_rows SET value = value + 10 WHERE id = 1")
+	require.NoError(t, err)
+	require.Equal(t, 1, update.RowCount)
+	time.Sleep(25 * time.Millisecond)
+	idle, err := session.TransactionState()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, idle.IdleMS, int64(20))
+	_, err = session.Execute(ctx, "COMMIT")
+	require.NoError(t, err)
+	committed, err := session.TransactionState()
+	require.NoError(t, err)
+	require.False(t, committed.InTransaction)
+	require.NoError(t, session.Close())
+
+	rollbackSession, err := executor.OpenSession(ctx, "pg-state")
+	require.NoError(t, err)
+	_, err = rollbackSession.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = rollbackSession.Execute(ctx, "UPDATE executor_rows SET value = 999999 WHERE id = 2")
+	require.NoError(t, err)
+	require.NoError(t, rollbackSession.Close())
+	reopened, err := executor.OpenSession(ctx, "pg-state")
+	require.NoError(t, err)
+	reopenedState, err := reopened.TransactionState()
+	require.NoError(t, err)
+	require.False(t, reopenedState.InTransaction)
+	value, err := reopened.Query(ctx, "SELECT value FROM executor_rows WHERE id = 2", 1)
+	require.NoError(t, err)
+	require.Equal(t, "2", value.Rows[0][0])
+	require.NoError(t, reopened.Close())
+
+	left, err := executor.OpenSession(ctx, "pg-left")
+	require.NoError(t, err)
+	right, err := executor.OpenSession(ctx, "pg-right")
+	require.NoError(t, err)
+	leftID, err := left.Query(ctx, "SELECT pg_backend_pid()", 1)
+	require.NoError(t, err)
+	rightID, err := right.Query(ctx, "SELECT pg_backend_pid()", 1)
+	require.NoError(t, err)
+	require.NotEqual(t, leftID.Rows[0][0], rightID.Rows[0][0])
+	_, err = left.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = right.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	runConcurrentSessionUpdates(
+		t,
+		ctx,
+		left,
+		"UPDATE executor_rows SET value = 22002 WHERE id = 2",
+		right,
+		"UPDATE executor_rows SET value = 33003 WHERE id = 3",
+	)
+	leftState, err := left.TransactionState()
+	require.NoError(t, err)
+	rightState, err := right.TransactionState()
+	require.NoError(t, err)
+	require.True(t, leftState.InTransaction)
+	require.True(t, rightState.InTransaction)
+	leftValue, err := left.Query(ctx, "SELECT value FROM executor_rows WHERE id = 2", 1)
+	require.NoError(t, err)
+	rightValue, err := right.Query(ctx, "SELECT value FROM executor_rows WHERE id = 3", 1)
+	require.NoError(t, err)
+	require.Equal(t, "22002", leftValue.Rows[0][0])
+	require.Equal(t, "33003", rightValue.Rows[0][0])
+	leftSeesRight, err := left.Query(ctx, "SELECT value FROM executor_rows WHERE id = 3", 1)
+	require.NoError(t, err)
+	rightSeesLeft, err := right.Query(ctx, "SELECT value FROM executor_rows WHERE id = 2", 1)
+	require.NoError(t, err)
+	require.Equal(t, "3", leftSeesRight.Rows[0][0])
+	require.Equal(t, "2", rightSeesLeft.Rows[0][0])
+	_, err = left.Execute(ctx, "ROLLBACK")
+	require.NoError(t, err)
+	_, err = right.Execute(ctx, "ROLLBACK")
+	require.NoError(t, err)
+	leftRolledBack, err := left.TransactionState()
+	require.NoError(t, err)
+	rightRolledBack, err := right.TransactionState()
+	require.NoError(t, err)
+	require.False(t, leftRolledBack.InTransaction)
+	require.False(t, rightRolledBack.InTransaction)
+	require.NoError(t, left.Close())
+	require.NoError(t, right.Close())
+}
+
+func testMySQLBoundSessions(
+	t *testing.T,
+	ctx context.Context,
+	executor *MySQLExecutor,
+) {
+	t.Helper()
+	session, err := executor.OpenSession(ctx, "mysql-state")
+	require.NoError(t, err)
+	_, err = executor.OpenSession(ctx, "mysql-state")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrSessionExists))
+
+	initial, err := session.MysqlTransactionState()
+	require.NoError(t, err)
+	require.False(t, initial.InTransaction)
+	_, err = session.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = session.Query(ctx, "SELECT count(*) FROM executor_rows", 1)
+	require.NoError(t, err)
+	time.Sleep(25 * time.Millisecond)
+	active, err := session.MysqlTransactionState()
+	require.NoError(t, err)
+	require.True(t, active.InTransaction)
+	require.GreaterOrEqual(t, active.AgeMS, int64(20))
+	update, err := session.Execute(ctx, "UPDATE executor_rows SET value = value + 10 WHERE id = 1")
+	require.NoError(t, err)
+	require.Equal(t, 1, update.RowCount)
+	afterUpdate, err := session.MysqlTransactionState()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), afterUpdate.AffectedRows)
+	_, err = session.Execute(ctx, "COMMIT")
+	require.NoError(t, err)
+	committed, err := session.MysqlTransactionState()
+	require.NoError(t, err)
+	require.False(t, committed.InTransaction)
+	require.Zero(t, committed.AffectedRows)
+	require.NoError(t, session.Close())
+
+	rollbackSession, err := executor.OpenSession(ctx, "mysql-state")
+	require.NoError(t, err)
+	_, err = rollbackSession.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = rollbackSession.Execute(ctx, "UPDATE executor_rows SET value = 999999 WHERE id = 2")
+	require.NoError(t, err)
+	require.NoError(t, rollbackSession.Close())
+	reopened, err := executor.OpenSession(ctx, "mysql-state")
+	require.NoError(t, err)
+	reopenedState, err := reopened.MysqlTransactionState()
+	require.NoError(t, err)
+	require.False(t, reopenedState.InTransaction)
+	value, err := reopened.Query(ctx, "SELECT value FROM executor_rows WHERE id = 2", 1)
+	require.NoError(t, err)
+	require.Equal(t, "2", value.Rows[0][0])
+	require.NoError(t, reopened.Close())
+
+	left, err := executor.OpenSession(ctx, "mysql-left")
+	require.NoError(t, err)
+	right, err := executor.OpenSession(ctx, "mysql-right")
+	require.NoError(t, err)
+	leftID, err := left.Query(ctx, "SELECT CONNECTION_ID()", 1)
+	require.NoError(t, err)
+	rightID, err := right.Query(ctx, "SELECT CONNECTION_ID()", 1)
+	require.NoError(t, err)
+	require.NotEqual(t, leftID.Rows[0][0], rightID.Rows[0][0])
+	_, err = left.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = right.Execute(ctx, "BEGIN")
+	require.NoError(t, err)
+	runConcurrentSessionUpdates(
+		t,
+		ctx,
+		left,
+		"UPDATE executor_rows SET value = 22002 WHERE id = 2",
+		right,
+		"UPDATE executor_rows SET value = 33003 WHERE id = 3",
+	)
+	leftState, err := left.MysqlTransactionState()
+	require.NoError(t, err)
+	rightState, err := right.MysqlTransactionState()
+	require.NoError(t, err)
+	require.True(t, leftState.InTransaction)
+	require.True(t, rightState.InTransaction)
+	require.Equal(t, int64(1), leftState.AffectedRows)
+	require.Equal(t, int64(1), rightState.AffectedRows)
+	leftValue, err := left.Query(ctx, "SELECT value FROM executor_rows WHERE id = 2", 1)
+	require.NoError(t, err)
+	rightValue, err := right.Query(ctx, "SELECT value FROM executor_rows WHERE id = 3", 1)
+	require.NoError(t, err)
+	require.Equal(t, "22002", leftValue.Rows[0][0])
+	require.Equal(t, "33003", rightValue.Rows[0][0])
+	leftSeesRight, err := left.Query(ctx, "SELECT value FROM executor_rows WHERE id = 3", 1)
+	require.NoError(t, err)
+	rightSeesLeft, err := right.Query(ctx, "SELECT value FROM executor_rows WHERE id = 2", 1)
+	require.NoError(t, err)
+	require.Equal(t, "3", leftSeesRight.Rows[0][0])
+	require.Equal(t, "2", rightSeesLeft.Rows[0][0])
+	_, err = left.Execute(ctx, "ROLLBACK")
+	require.NoError(t, err)
+	_, err = right.Execute(ctx, "ROLLBACK")
+	require.NoError(t, err)
+	leftRolledBack, err := left.MysqlTransactionState()
+	require.NoError(t, err)
+	rightRolledBack, err := right.MysqlTransactionState()
+	require.NoError(t, err)
+	require.False(t, leftRolledBack.InTransaction)
+	require.False(t, rightRolledBack.InTransaction)
+	require.Zero(t, leftRolledBack.AffectedRows)
+	require.Zero(t, rightRolledBack.AffectedRows)
+	require.NoError(t, left.Close())
+	require.NoError(t, right.Close())
+}
+
+func runConcurrentSessionUpdates(
+	t *testing.T,
+	ctx context.Context,
+	left Session,
+	leftSQL string,
+	right Session,
+	rightSQL string,
+) {
+	t.Helper()
+	var wait sync.WaitGroup
+	errorsChannel := make(chan error, 2)
+	for _, operation := range []struct {
+		session Session
+		sql     string
+	}{
+		{session: left, sql: leftSQL},
+		{session: right, sql: rightSQL},
+	} {
+		wait.Add(1)
+		go func(session Session, sqlText string) {
+			defer wait.Done()
+			result, err := session.Execute(ctx, sqlText)
+			if err == nil && result.RowCount != 1 {
+				err = fmt.Errorf("unexpected affected rows %d", result.RowCount)
+			}
+			errorsChannel <- err
+		}(operation.session, operation.sql)
+	}
+	wait.Wait()
+	close(errorsChannel)
+	for err := range errorsChannel {
+		require.NoError(t, err)
+	}
 }
 
 func dockerTestContext(t *testing.T) context.Context {

@@ -3,12 +3,14 @@ package executor
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -22,9 +24,19 @@ const mysqlConnectionMaxLifetime = 5 * time.Minute
 
 // MySQLExecutor controls one MySQL database/sql connection pool.
 type MySQLExecutor struct {
-	database *sql.DB
-	timeout  time.Duration
-	readOnly bool
+	database   *sql.DB
+	timeout    time.Duration
+	readOnly   bool
+	clock      sessionClock
+	sessionsMu sync.RWMutex
+	sessions   map[string]Session
+	closed     bool
+}
+
+type mysqlRunner interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // NewMySQLExecutor opens and verifies a MySQL datasource.
@@ -63,6 +75,8 @@ func NewMySQLExecutor(
 		database: database,
 		timeout:  time.Duration(timeoutMS) * time.Millisecond,
 		readOnly: readOnly,
+		clock:    wallClock{},
+		sessions: make(map[string]Session),
 	}
 	if err := executor.Ping(ctx); err != nil {
 		if closeError := database.Close(); closeError != nil {
@@ -91,6 +105,50 @@ func (executor *MySQLExecutor) Ping(ctx context.Context) error {
 	return nil
 }
 
+// OpenSession binds one acquired MySQL connection to sessionID.
+// Duplicate session IDs are rejected with ErrSessionExists.
+func (executor *MySQLExecutor) OpenSession(
+	ctx context.Context,
+	sessionID string,
+) (Session, error) {
+	if executor == nil || executor.database == nil || ctx == nil {
+		return nil, fmt.Errorf("open MySQL session: executor or context is unavailable")
+	}
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(sessionID) != sessionID {
+		return nil, fmt.Errorf("open MySQL session: invalid session ID")
+	}
+	executor.sessionsMu.Lock()
+	defer executor.sessionsMu.Unlock()
+	if executor.closed {
+		return nil, fmt.Errorf("open MySQL session: %w", ErrSessionClosed)
+	}
+	if _, exists := executor.sessions[sessionID]; exists {
+		return nil, fmt.Errorf("open MySQL session %q: %w", sessionID, ErrSessionExists)
+	}
+	connection, err := executor.database.Conn(ctx)
+	if err != nil {
+		return nil, mysqlDatabaseError("acquire MySQL session connection", err)
+	}
+	session := &mysqlSession{
+		id:       sessionID,
+		executor: executor,
+		runner:   connection,
+		state:    newTransactionStateMachine(executor.clock),
+		release:  connection.Close,
+		discard: func() error {
+			rawError := connection.Raw(func(any) error {
+				return driver.ErrBadConn
+			})
+			if errors.Is(rawError, driver.ErrBadConn) {
+				rawError = nil
+			}
+			return errors.Join(rawError, connection.Close())
+		},
+	}
+	executor.sessions[sessionID] = session
+	return session, nil
+}
+
 // Query executes a bounded MySQL row query with a SELECT timeout hint.
 func (executor *MySQLExecutor) Query(
 	ctx context.Context,
@@ -106,6 +164,15 @@ func (executor *MySQLExecutor) Query(
 	if executor.readOnly && !isMySQLSelect(sqlText) {
 		return model.QueryResult{}, fmt.Errorf("query MySQL non-SELECT: %w", ErrReadOnlyViolated)
 	}
+	return executor.queryWithRunner(ctx, executor.database, sqlText, rowLimit)
+}
+
+func (executor *MySQLExecutor) queryWithRunner(
+	ctx context.Context,
+	runner mysqlRunner,
+	sqlText string,
+	rowLimit int,
+) (model.QueryResult, error) {
 	timeoutMS := int(executor.timeout / time.Millisecond)
 	hintedSQL, _, err := injectMySQLMaxExecutionTime(sqlText, timeoutMS)
 	if err != nil {
@@ -114,7 +181,7 @@ func (executor *MySQLExecutor) Query(
 	started := time.Now()
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
-	rows, err := executor.database.QueryContext(timedContext, hintedSQL)
+	rows, err := runner.QueryContext(timedContext, hintedSQL)
 	if err != nil {
 		return model.QueryResult{}, mysqlDatabaseError("query MySQL datasource", err)
 	}
@@ -137,10 +204,18 @@ func (executor *MySQLExecutor) Execute(
 	if err := executor.validateOperation(ctx, sqlText); err != nil {
 		return model.QueryResult{}, err
 	}
+	return executor.executeWithRunner(ctx, executor.database, sqlText)
+}
+
+func (executor *MySQLExecutor) executeWithRunner(
+	ctx context.Context,
+	runner mysqlRunner,
+	sqlText string,
+) (model.QueryResult, error) {
 	started := time.Now()
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
-	result, err := executor.database.ExecContext(timedContext, sqlText)
+	result, err := runner.ExecContext(timedContext, sqlText)
 	if err != nil {
 		return model.QueryResult{}, mysqlDatabaseError("execute MySQL statement", err)
 	}
@@ -165,9 +240,17 @@ func (executor *MySQLExecutor) Explain(
 	if err := executor.validateOperation(ctx, sqlText); err != nil {
 		return model.ExplainInfo{}, err
 	}
+	return executor.explainWithRunner(ctx, executor.database, sqlText)
+}
+
+func (executor *MySQLExecutor) explainWithRunner(
+	ctx context.Context,
+	runner mysqlRunner,
+	sqlText string,
+) (model.ExplainInfo, error) {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
-	rows, err := executor.database.QueryContext(timedContext, "EXPLAIN "+sqlText)
+	rows, err := runner.QueryContext(timedContext, "EXPLAIN "+sqlText)
 	if err != nil {
 		return model.ExplainInfo{}, mysqlDatabaseError("explain MySQL statement", err)
 	}
@@ -187,8 +270,29 @@ func (executor *MySQLExecutor) Close() error {
 	if executor == nil || executor.database == nil {
 		return nil
 	}
+	executor.sessionsMu.Lock()
+	if executor.closed {
+		executor.sessionsMu.Unlock()
+		return nil
+	}
+	executor.closed = true
+	sessions := make([]Session, 0, len(executor.sessions))
+	for _, session := range executor.sessions {
+		sessions = append(sessions, session)
+	}
+	executor.sessions = make(map[string]Session)
+	executor.sessionsMu.Unlock()
+	closeErrors := make([]error, 0)
+	for _, session := range sessions {
+		if err := session.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	if err := executor.database.Close(); err != nil {
-		return safeDatabaseError("close MySQL connection pool", err)
+		closeErrors = append(closeErrors, safeDatabaseError("close MySQL connection pool", err))
+	}
+	if len(closeErrors) > 0 {
+		return fmt.Errorf("close MySQL executor: %w", errors.Join(closeErrors...))
 	}
 	return nil
 }
@@ -234,11 +338,15 @@ WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE())
 	return rows, nil
 }
 
-// MysqlTransactionState implements rules.MysqlTransactionMetadataProvider.
-// Missing or inaccessible session metadata is an empty snapshot for R204.
+// MysqlTransactionState returns no authoritative state for unbound pooled calls.
+// Call OpenSession and read its state machine for transaction-aware workflows.
 func (executor *MySQLExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return rules.MysqlTransactionState{}, nil
+}
+
+func (executor *MySQLExecutor) snapshotServerTransaction() (rules.MysqlTransactionState, bool) {
 	if executor == nil || executor.database == nil {
-		return rules.MysqlTransactionState{}, nil
+		return rules.MysqlTransactionState{}, false
 	}
 	ctx, cancel := executor.timeoutContext(context.Background())
 	defer cancel()
@@ -264,12 +372,12 @@ SELECT @@session.autocommit = 0 OR EXISTS (
 		&state.AffectedRows,
 	)
 	if err != nil {
-		return rules.MysqlTransactionState{}, nil
+		return rules.MysqlTransactionState{}, false
 	}
 	if state.AgeMS < 0 || state.AffectedRows < 0 {
-		return rules.MysqlTransactionState{}, nil
+		return rules.MysqlTransactionState{}, false
 	}
-	return state, nil
+	return state, true
 }
 
 func (executor *MySQLExecutor) timeoutContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -539,7 +647,198 @@ func mysqlDatabaseError(message string, cause error) error {
 	return safeDatabaseError(message, cause)
 }
 
+type mysqlSession struct {
+	id          string
+	executor    *MySQLExecutor
+	runner      mysqlRunner
+	state       *transactionStateMachine
+	release     func() error
+	discard     func() error
+	operationMu sync.Mutex
+	closed      bool
+}
+
+func (session *mysqlSession) Query(
+	ctx context.Context,
+	sqlText string,
+	rowLimit int,
+) (model.QueryResult, error) {
+	if session == nil {
+		return model.QueryResult{}, fmt.Errorf("query MySQL session: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if err := session.validateOperation(ctx, sqlText); err != nil {
+		return model.QueryResult{}, err
+	}
+	if rowLimit <= 0 {
+		return model.QueryResult{}, fmt.Errorf("query MySQL session: row limit must be positive")
+	}
+	if session.executor.readOnly && !isMySQLSelect(sqlText) {
+		return model.QueryResult{}, fmt.Errorf("query MySQL session non-SELECT: %w", ErrReadOnlyViolated)
+	}
+	classification, err := classifySessionStatement(sqlText, "mysql")
+	if err != nil {
+		return model.QueryResult{}, fmt.Errorf("classify MySQL session statement: %w", err)
+	}
+	started := session.state.clock.Now()
+	result, executionError := session.executor.queryWithRunner(
+		ctx,
+		session.runner,
+		sqlText,
+		rowLimit,
+	)
+	session.state.finishStatement(
+		classification,
+		started,
+		int64(result.RowCount),
+		executionError == nil,
+	)
+	return result, executionError
+}
+
+func (session *mysqlSession) Execute(
+	ctx context.Context,
+	sqlText string,
+) (model.QueryResult, error) {
+	if session == nil {
+		return model.QueryResult{}, fmt.Errorf("execute MySQL session: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if err := session.validateOperation(ctx, sqlText); err != nil {
+		return model.QueryResult{}, err
+	}
+	if session.executor.readOnly {
+		return model.QueryResult{}, fmt.Errorf("execute MySQL session write: %w", ErrReadOnlyViolated)
+	}
+	classification, err := classifySessionStatement(sqlText, "mysql")
+	if err != nil {
+		return model.QueryResult{}, fmt.Errorf("classify MySQL session statement: %w", err)
+	}
+	started := session.state.clock.Now()
+	result, executionError := session.executor.executeWithRunner(ctx, session.runner, sqlText)
+	session.state.finishStatement(
+		classification,
+		started,
+		int64(result.RowCount),
+		executionError == nil,
+	)
+	return result, executionError
+}
+
+func (session *mysqlSession) Explain(
+	ctx context.Context,
+	sqlText string,
+) (model.ExplainInfo, error) {
+	if session == nil {
+		return model.ExplainInfo{}, fmt.Errorf("explain MySQL session: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if err := session.validateOperation(ctx, sqlText); err != nil {
+		return model.ExplainInfo{}, err
+	}
+	result, err := session.executor.explainWithRunner(ctx, session.runner, sqlText)
+	session.state.touchStatementEnd()
+	return result, err
+}
+
+func (*mysqlSession) TransactionState() (rules.TransactionState, error) {
+	return rules.TransactionState{}, fmt.Errorf(
+		"PostgreSQL transaction state is unavailable for MySQL session",
+	)
+}
+
+func (session *mysqlSession) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	if session == nil {
+		return rules.MysqlTransactionState{}, fmt.Errorf("read MySQL session state: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if session.closed {
+		return rules.MysqlTransactionState{}, fmt.Errorf("read MySQL session state: %w", ErrSessionClosed)
+	}
+	inTransaction, ageMS, _, affectedRows, err := session.state.snapshot()
+	if err != nil {
+		return rules.MysqlTransactionState{}, fmt.Errorf("read MySQL session state: %w", err)
+	}
+	return rules.MysqlTransactionState{
+		InTransaction: inTransaction,
+		AgeMS:         ageMS,
+		AffectedRows:  affectedRows,
+	}, nil
+}
+
+func (session *mysqlSession) Close() error {
+	if session == nil {
+		return nil
+	}
+	session.operationMu.Lock()
+	if session.closed {
+		session.operationMu.Unlock()
+		return nil
+	}
+	session.closed = true
+	defer session.operationMu.Unlock()
+	if session.executor != nil {
+		defer session.executor.removeSession(session.id, session)
+	}
+
+	var rollbackError error
+	if session.state.active() {
+		_, rollbackError = session.executor.executeWithRunner(
+			context.Background(),
+			session.runner,
+			"ROLLBACK",
+		)
+		if rollbackError == nil {
+			session.state.clear()
+		}
+	}
+	if rollbackError != nil {
+		var discardError error
+		if session.discard != nil {
+			discardError = session.discard()
+		}
+		return fmt.Errorf(
+			"close MySQL session %q after rollback failure: %w",
+			session.id,
+			errors.Join(rollbackError, discardError),
+		)
+	}
+	if session.release != nil {
+		if err := session.release(); err != nil {
+			return safeDatabaseError("release MySQL session connection", err)
+		}
+	}
+	return nil
+}
+
+func (session *mysqlSession) validateOperation(ctx context.Context, sqlText string) error {
+	if session.closed || session.executor == nil || isNilValue(session.runner) {
+		return fmt.Errorf("MySQL session operation: %w", ErrSessionClosed)
+	}
+	if ctx == nil {
+		return fmt.Errorf("MySQL session operation context is nil")
+	}
+	if strings.TrimSpace(sqlText) == "" {
+		return fmt.Errorf("MySQL session SQL is empty")
+	}
+	return nil
+}
+
+func (executor *MySQLExecutor) removeSession(id string, session Session) {
+	executor.sessionsMu.Lock()
+	defer executor.sessionsMu.Unlock()
+	if current, exists := executor.sessions[id]; exists && current == session {
+		delete(executor.sessions, id)
+	}
+}
+
 var (
 	_ Executor                               = (*MySQLExecutor)(nil)
 	_ rules.MysqlTransactionMetadataProvider = (*MySQLExecutor)(nil)
+	_ Session                                = (*mysqlSession)(nil)
+	_ rules.MysqlTransactionMetadataProvider = (*mysqlSession)(nil)
 )

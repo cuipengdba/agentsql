@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
 )
 
@@ -21,9 +22,21 @@ const (
 type Executor interface {
 	Dialect() string
 	Ping(ctx context.Context) error
+	OpenSession(ctx context.Context, sessionID string) (Session, error)
 	Explain(ctx context.Context, sql string) (model.ExplainInfo, error)
 	Query(ctx context.Context, sql string, rowLimit int) (model.QueryResult, error)
 	Execute(ctx context.Context, sql string) (model.QueryResult, error)
+	Close() error
+}
+
+// Session is one physical database connection bound to an AgentSQL session.
+// The non-matching dialect transaction-state method returns an error.
+type Session interface {
+	Query(ctx context.Context, sql string, rowLimit int) (model.QueryResult, error)
+	Execute(ctx context.Context, sql string) (model.QueryResult, error)
+	Explain(ctx context.Context, sql string) (model.ExplainInfo, error)
+	TransactionState() (rules.TransactionState, error)
+	MysqlTransactionState() (rules.MysqlTransactionState, error)
 	Close() error
 }
 

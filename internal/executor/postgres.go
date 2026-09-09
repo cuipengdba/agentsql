@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -23,9 +24,19 @@ const executionTimeoutMargin = 250 * time.Millisecond
 
 // PostgresExecutor controls one PostgreSQL connection pool.
 type PostgresExecutor struct {
-	pool     *pgxpool.Pool
-	timeout  time.Duration
-	readOnly bool
+	pool       *pgxpool.Pool
+	timeout    time.Duration
+	readOnly   bool
+	clock      sessionClock
+	sessionsMu sync.RWMutex
+	sessions   map[string]Session
+	closed     bool
+}
+
+type postgresRunner interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // NewPostgresExecutor opens and verifies a PostgreSQL datasource.
@@ -81,6 +92,8 @@ func NewPostgresExecutor(
 		pool:     pool,
 		timeout:  time.Duration(timeoutMS) * time.Millisecond,
 		readOnly: readOnly,
+		clock:    wallClock{},
+		sessions: make(map[string]Session),
 	}
 	if err := executor.Ping(ctx); err != nil {
 		pool.Close()
@@ -107,6 +120,47 @@ func (executor *PostgresExecutor) Ping(ctx context.Context) error {
 	return nil
 }
 
+// OpenSession binds one acquired PostgreSQL connection to sessionID.
+// Duplicate session IDs are rejected with ErrSessionExists.
+func (executor *PostgresExecutor) OpenSession(
+	ctx context.Context,
+	sessionID string,
+) (Session, error) {
+	if executor == nil || executor.pool == nil || ctx == nil {
+		return nil, fmt.Errorf("open PostgreSQL session: executor or context is unavailable")
+	}
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(sessionID) != sessionID {
+		return nil, fmt.Errorf("open PostgreSQL session: invalid session ID")
+	}
+	executor.sessionsMu.Lock()
+	defer executor.sessionsMu.Unlock()
+	if executor.closed {
+		return nil, fmt.Errorf("open PostgreSQL session: %w", ErrSessionClosed)
+	}
+	if _, exists := executor.sessions[sessionID]; exists {
+		return nil, fmt.Errorf("open PostgreSQL session %q: %w", sessionID, ErrSessionExists)
+	}
+	connection, err := executor.pool.Acquire(ctx)
+	if err != nil {
+		return nil, postgresDatabaseError("acquire PostgreSQL session connection", err)
+	}
+	session := &postgresSession{
+		id:       sessionID,
+		executor: executor,
+		runner:   connection,
+		state:    newTransactionStateMachine(executor.clock),
+		release:  connection.Release,
+		discard: func() error {
+			physical := connection.Hijack()
+			closeContext, cancel := executor.timeoutContext(context.Background())
+			defer cancel()
+			return physical.Close(closeContext)
+		},
+	}
+	executor.sessions[sessionID] = session
+	return session, nil
+}
+
 // Query executes a bounded PostgreSQL row query without rewriting SQL.
 func (executor *PostgresExecutor) Query(
 	ctx context.Context,
@@ -119,10 +173,19 @@ func (executor *PostgresExecutor) Query(
 	if rowLimit <= 0 {
 		return model.QueryResult{}, fmt.Errorf("query PostgreSQL datasource: row limit must be positive")
 	}
+	return executor.queryWithRunner(ctx, executor.pool, sql, rowLimit)
+}
+
+func (executor *PostgresExecutor) queryWithRunner(
+	ctx context.Context,
+	runner postgresRunner,
+	sql string,
+	rowLimit int,
+) (model.QueryResult, error) {
 	started := time.Now()
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
-	rows, err := executor.pool.Query(timedContext, sql)
+	rows, err := runner.Query(timedContext, sql)
 	if err != nil {
 		return model.QueryResult{}, postgresDatabaseError("query PostgreSQL datasource", err)
 	}
@@ -145,10 +208,18 @@ func (executor *PostgresExecutor) Execute(
 	if err := executor.validateOperation(ctx, sql); err != nil {
 		return model.QueryResult{}, err
 	}
+	return executor.executeWithRunner(ctx, executor.pool, sql)
+}
+
+func (executor *PostgresExecutor) executeWithRunner(
+	ctx context.Context,
+	runner postgresRunner,
+	sql string,
+) (model.QueryResult, error) {
 	started := time.Now()
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
-	commandTag, err := executor.pool.Exec(timedContext, sql)
+	commandTag, err := runner.Exec(timedContext, sql)
 	if err != nil {
 		return model.QueryResult{}, postgresDatabaseError("execute PostgreSQL statement", err)
 	}
@@ -170,10 +241,18 @@ func (executor *PostgresExecutor) Explain(
 	if err := executor.validateOperation(ctx, sql); err != nil {
 		return model.ExplainInfo{}, err
 	}
+	return executor.explainWithRunner(ctx, executor.pool, sql)
+}
+
+func (executor *PostgresExecutor) explainWithRunner(
+	ctx context.Context,
+	runner postgresRunner,
+	sql string,
+) (model.ExplainInfo, error) {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	var raw []byte
-	if err := executor.pool.QueryRow(
+	if err := runner.QueryRow(
 		timedContext,
 		"EXPLAIN (FORMAT JSON) "+sql,
 	).Scan(&raw); err != nil {
@@ -191,7 +270,28 @@ func (executor *PostgresExecutor) Close() error {
 	if executor == nil || executor.pool == nil {
 		return nil
 	}
+	executor.sessionsMu.Lock()
+	if executor.closed {
+		executor.sessionsMu.Unlock()
+		return nil
+	}
+	executor.closed = true
+	sessions := make([]Session, 0, len(executor.sessions))
+	for _, session := range executor.sessions {
+		sessions = append(sessions, session)
+	}
+	executor.sessions = make(map[string]Session)
+	executor.sessionsMu.Unlock()
+	closeErrors := make([]error, 0)
+	for _, session := range sessions {
+		if err := session.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	executor.pool.Close()
+	if len(closeErrors) > 0 {
+		return fmt.Errorf("close PostgreSQL sessions: %w", errors.Join(closeErrors...))
+	}
 	return nil
 }
 
@@ -248,10 +348,15 @@ WHERE n.nspname = COALESCE(NULLIF($1, ''), current_schema())
 	return rows, nil
 }
 
-// TransactionState implements rules.TransactionMetadataProvider.
+// TransactionState returns no authoritative state for unbound pooled calls.
+// Call OpenSession and read its state machine for transaction-aware workflows.
 func (executor *PostgresExecutor) TransactionState() (rules.TransactionState, error) {
+	return rules.TransactionState{}, nil
+}
+
+func (executor *PostgresExecutor) snapshotServerTransaction() (rules.TransactionState, bool) {
 	if executor == nil || executor.pool == nil {
-		return rules.TransactionState{}, fmt.Errorf("read PostgreSQL transaction state: executor is closed")
+		return rules.TransactionState{}, false
 	}
 	ctx, cancel := executor.timeoutContext(context.Background())
 	defer cancel()
@@ -268,9 +373,9 @@ SELECT xact_start IS NOT NULL AND xact_start < query_start,
 FROM pg_stat_activity
 WHERE pid = pg_backend_pid()`).Scan(&state.InTransaction, &state.AgeMS, &state.IdleMS)
 	if err != nil {
-		return rules.TransactionState{}, postgresDatabaseError("read PostgreSQL transaction state", err)
+		return rules.TransactionState{}, false
 	}
-	return state, nil
+	return state, true
 }
 
 func (executor *PostgresExecutor) timeoutContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -394,8 +499,213 @@ func maxInt() int {
 	return int(^uint(0) >> 1)
 }
 
+type postgresSession struct {
+	id          string
+	executor    *PostgresExecutor
+	runner      postgresRunner
+	state       *transactionStateMachine
+	release     func()
+	discard     func() error
+	operationMu sync.Mutex
+	closed      bool
+}
+
+func (session *postgresSession) Query(
+	ctx context.Context,
+	sql string,
+	rowLimit int,
+) (model.QueryResult, error) {
+	if session == nil {
+		return model.QueryResult{}, fmt.Errorf("query PostgreSQL session: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if err := session.validateOperation(ctx, sql); err != nil {
+		return model.QueryResult{}, err
+	}
+	if rowLimit <= 0 {
+		return model.QueryResult{}, fmt.Errorf("query PostgreSQL session: row limit must be positive")
+	}
+	classification, err := classifySessionStatement(sql, "postgres")
+	if err != nil {
+		return model.QueryResult{}, fmt.Errorf("classify PostgreSQL session statement: %w", err)
+	}
+	started := session.state.clock.Now()
+	result, executionError := session.executor.queryWithRunner(ctx, session.runner, sql, rowLimit)
+	session.state.finishStatement(
+		classification,
+		started,
+		int64(result.RowCount),
+		executionError == nil,
+	)
+	return result, executionError
+}
+
+func (session *postgresSession) Execute(
+	ctx context.Context,
+	sql string,
+) (model.QueryResult, error) {
+	if session == nil {
+		return model.QueryResult{}, fmt.Errorf("execute PostgreSQL session: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if err := session.validateOperation(ctx, sql); err != nil {
+		return model.QueryResult{}, err
+	}
+	if session.executor.readOnly {
+		return model.QueryResult{}, fmt.Errorf("execute PostgreSQL session write: %w", ErrReadOnlyViolated)
+	}
+	classification, err := classifySessionStatement(sql, "postgres")
+	if err != nil {
+		return model.QueryResult{}, fmt.Errorf("classify PostgreSQL session statement: %w", err)
+	}
+	started := session.state.clock.Now()
+	result, executionError := session.executor.executeWithRunner(ctx, session.runner, sql)
+	session.state.finishStatement(
+		classification,
+		started,
+		int64(result.RowCount),
+		executionError == nil,
+	)
+	return result, executionError
+}
+
+func (session *postgresSession) Explain(
+	ctx context.Context,
+	sql string,
+) (model.ExplainInfo, error) {
+	if session == nil {
+		return model.ExplainInfo{}, fmt.Errorf("explain PostgreSQL session: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if err := session.validateOperation(ctx, sql); err != nil {
+		return model.ExplainInfo{}, err
+	}
+	result, err := session.executor.explainWithRunner(ctx, session.runner, sql)
+	session.state.touchStatementEnd()
+	return result, err
+}
+
+func (session *postgresSession) TransactionState() (rules.TransactionState, error) {
+	if session == nil {
+		return rules.TransactionState{}, fmt.Errorf("read PostgreSQL session state: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if session.closed {
+		return rules.TransactionState{}, fmt.Errorf("read PostgreSQL session state: %w", ErrSessionClosed)
+	}
+	inTransaction, ageMS, idleMS, _, err := session.state.snapshot()
+	if err != nil {
+		return rules.TransactionState{}, fmt.Errorf("read PostgreSQL session state: %w", err)
+	}
+	return rules.TransactionState{
+		InTransaction: inTransaction,
+		AgeMS:         ageMS,
+		IdleMS:        idleMS,
+	}, nil
+}
+
+func (*postgresSession) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return rules.MysqlTransactionState{}, fmt.Errorf(
+		"MySQL transaction state is unavailable for PostgreSQL session",
+	)
+}
+
+func (session *postgresSession) TableHasIndex(schema, table string) (bool, error) {
+	if session == nil {
+		return false, fmt.Errorf("check PostgreSQL session table index: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if session.closed || session.executor == nil {
+		return false, fmt.Errorf("check PostgreSQL session table index: %w", ErrSessionClosed)
+	}
+	return session.executor.TableHasIndex(schema, table)
+}
+
+func (session *postgresSession) TableRowCount(schema, table string) (int64, error) {
+	if session == nil {
+		return 0, fmt.Errorf("read PostgreSQL session table rows: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	defer session.operationMu.Unlock()
+	if session.closed || session.executor == nil {
+		return 0, fmt.Errorf("read PostgreSQL session table rows: %w", ErrSessionClosed)
+	}
+	return session.executor.TableRowCount(schema, table)
+}
+
+func (session *postgresSession) Close() error {
+	if session == nil {
+		return nil
+	}
+	session.operationMu.Lock()
+	if session.closed {
+		session.operationMu.Unlock()
+		return nil
+	}
+	session.closed = true
+	defer session.operationMu.Unlock()
+	if session.executor != nil {
+		defer session.executor.removeSession(session.id, session)
+	}
+
+	var rollbackError error
+	if session.state.active() {
+		_, rollbackError = session.executor.executeWithRunner(
+			context.Background(),
+			session.runner,
+			"ROLLBACK",
+		)
+		if rollbackError == nil {
+			session.state.clear()
+		}
+	}
+	if rollbackError != nil {
+		var discardError error
+		if session.discard != nil {
+			discardError = session.discard()
+		}
+		return fmt.Errorf(
+			"close PostgreSQL session %q after rollback failure: %w",
+			session.id,
+			errors.Join(rollbackError, discardError),
+		)
+	}
+	if session.release != nil {
+		session.release()
+	}
+	return nil
+}
+
+func (session *postgresSession) validateOperation(ctx context.Context, sql string) error {
+	if session.closed || session.executor == nil || isNilValue(session.runner) {
+		return fmt.Errorf("PostgreSQL session operation: %w", ErrSessionClosed)
+	}
+	if ctx == nil {
+		return fmt.Errorf("PostgreSQL session operation context is nil")
+	}
+	if strings.TrimSpace(sql) == "" {
+		return fmt.Errorf("PostgreSQL session SQL is empty")
+	}
+	return nil
+}
+
+func (executor *PostgresExecutor) removeSession(id string, session Session) {
+	executor.sessionsMu.Lock()
+	defer executor.sessionsMu.Unlock()
+	if current, exists := executor.sessions[id]; exists && current == session {
+		delete(executor.sessions, id)
+	}
+}
+
 var (
 	_ Executor                          = (*PostgresExecutor)(nil)
 	_ rules.MetadataProvider            = (*PostgresExecutor)(nil)
 	_ rules.TransactionMetadataProvider = (*PostgresExecutor)(nil)
+	_ Session                           = (*postgresSession)(nil)
+	_ rules.TransactionMetadataProvider = (*postgresSession)(nil)
 )
