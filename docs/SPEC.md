@@ -428,7 +428,62 @@ build/vet/非容器 test 全绿；启动 Docker 后 E2E 真正跑通 PG16/MySQL8
 build/vet/全包 test 绿、零回归；真实 PG16/MySQL8 跑通上述 E2E 全矩阵，重点复现并确认缺陷 A/B 不再出现（PG 空闲不再恒 true、MySQL 绑定会话内 BEGIN 后稳定 true、并发会话不串）；独立 diag 验证 Close 回滚清理。**T10.1 通过后 R107/R204 的事务元数据才算可信，T13 方可接线。**
 
 ## T11 脱敏引擎（mask）
-Redactor 接口+配置实现；v0.1 实现手机号/邮箱 mask 并贯通"结果返回前脱敏"（按结果列名匹配，别名/表达式也生效）；身份证/银行卡/hash/区间留接口 TODO。测试正反例。
+
+### 定位与边界
+新增 `internal/mask`，纯函数式"结果集脱敏引擎"：executor 拿到 `model.QueryResult` 之后、返回 Agent 之前，对敏感列单元格打码。**不连数据库、不读 store、不做 pipeline 编排**（规则由 T13 从 `mask_rules`/Agent 配置加载后以 `[]mask.Rule` 注入，T11 只对入参负责）；不做 MCP/HTTP；**不新增第三方依赖**（仅标准库 regexp/strings）。v0.1 只实现 phone/email 两类 + mask 一种算法；idcard/bankcard 类型与 hash/range/block 算法只保留常量与"New 阶段明确报错"的扩展点，**绝不静默放行**（安全产品不能配了规则却不脱敏）。
+
+### 冻结契约
+```go
+type SensitiveType string
+const (
+    TypePhone SensitiveType = "phone"
+    TypeEmail SensitiveType = "email"
+    // 预留 v0.2+：TypeIDCard="idcard"、TypeBankCard="bankcard"，v0.1 New 阶段报 ErrUnsupportedType
+)
+type Algorithm string
+const (
+    AlgoMask Algorithm = "mask"
+    // 预留：AlgoHash="hash"、AlgoRange="range"、AlgoBlock="block"，v0.1 New 阶段报 ErrUnsupportedAlgorithm
+)
+type Rule struct {
+    Column        string        // 结果集列名（别名/表达式列名），非空
+    SensitiveType SensitiveType
+    Algorithm     Algorithm
+}
+type RedactReport struct {
+    TouchedColumns map[int]SensitiveType // 结果列下标 -> 命中类型（全空值列也记录）
+    MaskedCells    int                   // 实际被改写的非空单元格数
+}
+type Redactor interface {
+    Apply(result model.QueryResult) (model.QueryResult, RedactReport)
+}
+func NewRedactor(rules []Rule) (Redactor, error) // 重复列 / 未实现类型或算法 -> error
+```
+
+### 列名匹配（别名/表达式同样生效）
+- 只依据**结果集列名** `QueryResult.Columns` 匹配，不依赖物理表列名：`SELECT phone AS p`、`SELECT concat(...) AS mobile`、视图/子查询列都按"最终结果列名"命中。
+- 规范化：去首尾空白、去成对包裹引号（`"`/`` ` ``/`[]`）、统一小写后，与 `Rule.Column` 的同样规范化结果做**精确相等**；v0.1 不做下划线/拼音模糊（确定性优先、零误脱敏）。
+- 一个结果列最多命中一条；NewRedactor 发现规范化后重复列名直接 error（fail-fast，不静默后覆盖）。
+
+### 掩码算法（逐格、可复算）
+- **maskPhone**：trim 后允许单个前导 `+` 与国家码 86（剥 86 后仍按 11 位）。标准 11 位 → 前3 + `****` + 后4（`13812345678→138****5678`）；长度 7–10 → 前3 + `*` + 后4；3–6 位 → 保留首字符其余 `*`；空串原样。
+- **maskEmail**：按**最后一个** `@` 分 local/domain；local 非空 → 首字符 + `***`，`@domain` 原样（`ZhangSan@x.com→Z***@x.com`）；无 `@` 的非空值 → 首字符 + `***`。
+- 空串 / 字面 `NULL` / `<nil>` 视为空值，原样不动、不计 MaskedCells。
+- 只改字符串内容，不改列数、行数、列名，`RowCount/Truncated/LatencyMS` 原样复制。
+
+### Apply 行为
+- **深拷贝**入参 Rows/Columns 后再改，入参 `QueryResult` 及其底层切片不得被修改。
+- 未命中列逐字节不变；命中列逐格套算法，累计 MaskedCells、记 TouchedColumns（整列空值也记命中类型，但不计格数）。
+- rules 为空合法：返回等价深拷贝、report 零值。
+
+### 文件
+`types.go`（常量/Rule/Report/ErrUnsupported*）、`algorithm.go`（normalize 列名、maskPhone/maskEmail）、`redactor.go`（接口+实现+NewRedactor）、`redactor_test.go`、更新 `doc.go`。
+
+### 测试（纯单测，不连库、不起 Docker）
+phone 11位/短号/带 +86/空值；email 标准/无@/多点域名；别名列 `p`、表达式列、带引号列名命中；非敏感列与未命中格逐字节不变、行列数与 RowCount 不变；**入参不被修改**；重复列 New 报错；idcard/bankcard、hash/range/block 在 New 阶段返回明确 ErrUnsupported*；空 rules 返回等价副本；report 命中列与格数计数正确。既有全包零回归。
+
+### 交付 / 主控验收
+单位无 Go/Docker：文本级静态自审、注明"未本地编译，需主控端验证"，不跑 go/docker；打 `agentsql-in-T11-日期.zip` 并自证（文件数一致、zip 晚于源码、大小+SHA 前缀）。主控：tidy（**go.mod/go.sum 应无变化**）/gofmt/build/vet、mask 纯单测全过、全包零回归（**本单无 E2E、不起 Docker**）；独立 diag 构造含 phone/email/普通列的 QueryResult 验证掩码结果与 report。
 
 ## T12 审计（audit）
 响应前同步落库（落库失败则请求失败）；allow/deny/approve 都记；多条件分页 + JSONL 导出。测试三类记录、审计失败主请求失败、筛选导出。
