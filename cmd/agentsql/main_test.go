@@ -38,6 +38,31 @@ func TestVersionCommand(t *testing.T) {
 	exitCode := run([]string{"version"}, output, io.Discard)
 	require.Equal(t, 0, exitCode)
 	require.Equal(t, version+"\n", output.String())
+	command = newRootCommand(zerologForTest(t))
+	_, _, err = command.Find([]string{"mcp"})
+	require.NoError(t, err)
+}
+
+func TestMCPCommandKeepsStdoutCleanOnStartupFailure(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("LOG_FORMAT", "")
+	t.Setenv("AGENTSQL_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AGENTSQL_API_KEY", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := fmt.Sprintf(
+		commandConfig,
+		"127.0.0.1:7780",
+		filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db")),
+		5000,
+	)
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	var stdout strings.Builder
+	var stderr strings.Builder
+	exitCode := run([]string{"mcp", "--config", path}, &stdout, &stderr)
+	require.Equal(t, 1, exitCode)
+	require.Empty(t, stdout.String())
+	require.NotEmpty(t, stderr.String())
+	require.NotContains(t, stderr.String(), "0123456789abcdef0123456789abcdef")
 }
 
 func TestServeExitCodes(t *testing.T) {

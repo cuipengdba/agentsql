@@ -146,6 +146,50 @@ func TestPipelineUsesDefaultRowLimit(t *testing.T) {
 	require.Equal(t, defaultRowLimit, limit)
 }
 
+func TestPipelineExplainOnlyEvaluatesWithoutExecution(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	request := defaultRequest()
+	request.ExplainOnly = true
+	request.MCPTool = "explain_query"
+	response, err := fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, response.Decision)
+	require.Nil(t, response.Result)
+	require.Equal(t, int64(1), response.Assessment.EstScanRows)
+	calls := fixture.executor.callsSnapshot()
+	require.Equal(t, 1, calls.explain)
+	require.Zero(t, calls.query+calls.execute+calls.sessionQuery+calls.sessionExecute)
+	require.Equal(t, "explain_query", *fixture.audit.last().MCPTool)
+}
+
+func TestPipelineRequireApprovalOnlyRaisesNonDeny(t *testing.T) {
+	t.Run("allow becomes approve", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		request := defaultRequest()
+		request.RequireApproval = true
+		request.MCPTool = "request_approval"
+		response, err := fixture.pipeline.Process(context.Background(), request)
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionApprove, response.Decision)
+		require.NotEmpty(t, response.ApprovalID)
+		calls := fixture.executor.callsSnapshot()
+		require.Equal(t, 1, calls.explain)
+		require.Zero(t, calls.query+calls.execute+calls.sessionQuery+calls.sessionExecute)
+		require.Equal(t, 1, fixture.approvals.calls())
+	})
+	t.Run("deny remains deny", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		request := requestWithSQLAndSession("UPDATE public.orders SET total = 1")
+		request.RequireApproval = true
+		response, err := fixture.pipeline.Process(context.Background(), request)
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Empty(t, response.ApprovalID)
+		require.Zero(t, fixture.executors.calls())
+		require.Zero(t, fixture.approvals.calls())
+	})
+}
+
 func TestPipelineAllowedWriteUsesExecuteWithoutRedactor(t *testing.T) {
 	fixture := newPipelineFixture(t)
 	response, err := fixture.pipeline.Process(

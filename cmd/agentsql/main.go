@@ -3,11 +3,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
+	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -50,6 +56,57 @@ func newRootCommand(logger zerolog.Logger) *cobra.Command {
 
 	command.AddCommand(newVersionCommand())
 	command.AddCommand(newServeCommand(logger))
+	command.AddCommand(newMCPCommand(logger))
+	return command
+}
+
+func newMCPCommand(logger zerolog.Logger) *cobra.Command {
+	var configPath string
+	var apiKey string
+	command := &cobra.Command{
+		Use:   "mcp",
+		Short: "Run the authenticated AgentSQL MCP stdio server",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			loaded, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("load MCP configuration: %w", err)
+			}
+			secret := os.Getenv("AGENTSQL_SECRET")
+			if len(secret) != 32 {
+				return fmt.Errorf("AGENTSQL_SECRET must contain exactly 32 bytes")
+			}
+			boundKey := strings.TrimSpace(apiKey)
+			if boundKey == "" {
+				boundKey = strings.TrimSpace(os.Getenv("AGENTSQL_API_KEY"))
+			}
+			if boundKey == "" {
+				return fmt.Errorf("MCP API key is required via --api-key or AGENTSQL_API_KEY")
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			runtime, err := bootstrap.Assemble(ctx, loaded, []byte(secret))
+			if err != nil {
+				return fmt.Errorf("assemble MCP runtime: %w", err)
+			}
+			runError := mcpserver.RunStdio(ctx, mcpserver.Options{
+				APIKey:  boundKey,
+				Runtime: runtime,
+				Logger:  logger,
+				Version: version,
+			})
+			if errors.Is(runError, context.Canceled) {
+				runError = nil
+			}
+			closeError := runtime.Close()
+			if runError != nil || closeError != nil {
+				return errors.Join(runError, closeError)
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")
+	command.Flags().StringVar(&apiKey, "api-key", "", "bind this stdio server to one Agent API key")
 	return command
 }
 

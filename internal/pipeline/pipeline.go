@@ -259,6 +259,28 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 	}); err != nil {
 		return run.finish(ctx, err)
 	}
+	if request.RequireApproval &&
+		run.response.Decision != model.DecisionDeny &&
+		run.response.Decision != model.DecisionApprove {
+		run.response.Assessment.Hits = append(
+			run.response.Assessment.Hits,
+			model.RuleHit{
+				RuleID:     "REQUEST_APPROVAL",
+				Risk:       model.RiskApprove,
+				Decision:   model.DecisionApprove,
+				Message:    "调用方要求本次 SQL 进入人工审批",
+				Suggestion: "请等待 DBA 完成审批后再继续，不要绕过审批重复提交",
+			},
+		)
+		recomputeAssessmentDecision(&run.response.Assessment)
+		run.response.Decision = run.response.Assessment.Decision
+	}
+	if request.ExplainOnly {
+		if err := run.closeUnusedSession(); err != nil {
+			return run.finish(ctx, err)
+		}
+		return run.finish(ctx, nil)
+	}
 
 	switch run.response.Decision {
 	case model.DecisionDeny:

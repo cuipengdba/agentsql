@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agentsql": {
+      "command": "/absolute/path/to/agentsql",
+      "args": ["mcp", "-c", "/absolute/path/to/config.yaml"],
+      "env": {
+        "AGENTSQL_SECRET": "REPLACE_WITH_32_BYTE_SECRET_DO_NOT_COMMIT",
+        "AGENTSQL_API_KEY": "asql_REPLACE_WITH_AGENT_KEY_DO_NOT_COMMIT"
+      }
+    }
+  }
+}

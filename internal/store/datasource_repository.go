@@ -69,6 +69,36 @@ WHERE id = ?`, id))
 	return datasource, nil
 }
 
+// List returns every datasource ordered by ID. PasswordEnc is returned only
+// for trusted internal use and must never be exposed by an external API.
+func (repository *DatasourceRepository) List(ctx context.Context) ([]model.Datasource, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("list datasources: %w", ErrNilContext)
+	}
+	rows, err := repository.db.QueryContext(ctx, `
+SELECT id, name, db_type, host, port, database, username, password_enc,
+       conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
+FROM datasources
+ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list datasources: %w", err)
+	}
+	datasources := make([]model.Datasource, 0)
+	for rows.Next() {
+		datasource, err := scanDatasource(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan datasource list: %w", closeDatasourceRowsAfterError(rows, err))
+		}
+		datasources = append(datasources, datasource)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return nil, fmt.Errorf("finish datasource list: %w", errors.Join(iterationError, closeError))
+	}
+	return datasources, nil
+}
+
 // Update encrypts plaintextPassword, replaces mutable fields, and returns the datasource.
 func (repository *DatasourceRepository) Update(
 	ctx context.Context,
@@ -162,4 +192,11 @@ func scanDatasource(scanner rowScanner) (model.Datasource, error) {
 		return model.Datasource{}, fmt.Errorf("scan datasource: %w", err)
 	}
 	return datasource, nil
+}
+
+func closeDatasourceRowsAfterError(rows *sql.Rows, cause error) error {
+	if err := rows.Close(); err != nil {
+		return errors.Join(cause, fmt.Errorf("close datasource rows: %w", err))
+	}
+	return cause
 }

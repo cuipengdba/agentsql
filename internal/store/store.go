@@ -29,18 +29,30 @@ type Store struct {
 // Open connects to SQLite, validates the encryption secret, and applies all
 // embedded migrations before returning.
 func Open(ctx context.Context, path string) (*Store, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("open store: %w", ErrNilContext)
+	if err := validateOpenInput(ctx, path); err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("open store: %w", ErrInvalidStorePath)
-	}
-
 	passwordCipher, err := NewPasswordCipherFromEnv()
 	if err != nil {
 		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
 	}
+	return openWithCipher(ctx, path, passwordCipher)
+}
 
+// OpenWithSecret opens the metadata store with an explicitly injected
+// encryption key. It avoids process-global environment mutation in bootstrap.
+func OpenWithSecret(ctx context.Context, path string, secret []byte) (*Store, error) {
+	if err := validateOpenInput(ctx, path); err != nil {
+		return nil, err
+	}
+	passwordCipher, err := NewPasswordCipher(secret)
+	if err != nil {
+		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
+	}
+	return openWithCipher(ctx, path, passwordCipher)
+}
+
+func openWithCipher(ctx context.Context, path string, passwordCipher *PasswordCipher) (*Store, error) {
 	database, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite database %q: %w", path, err)
@@ -56,6 +68,16 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 
 	return &Store{db: database, cipher: passwordCipher}, nil
+}
+
+func validateOpenInput(ctx context.Context, path string) error {
+	if ctx == nil {
+		return fmt.Errorf("open store: %w", ErrNilContext)
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("open store: %w", ErrInvalidStorePath)
+	}
+	return nil
 }
 
 // Close releases the SQLite connection.

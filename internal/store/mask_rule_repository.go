@@ -54,6 +54,48 @@ WHERE id = ?`, id))
 	return rule, nil
 }
 
+// ListByDatasource returns datasource-specific and global mask rules in stable
+// table and column order.
+func (repository *MaskRuleRepository) ListByDatasource(
+	ctx context.Context,
+	datasourceID string,
+) ([]model.MaskRule, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
+	}
+	rows, err := repository.db.QueryContext(ctx, `
+SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+       created_at, updated_at
+FROM mask_rules
+WHERE datasource_id = ? OR datasource_id IS NULL
+ORDER BY table_name ASC, column_name ASC, id ASC`, datasourceID)
+	if err != nil {
+		return nil, fmt.Errorf("list mask rules for datasource %q: %w", datasourceID, err)
+	}
+	rules := make([]model.MaskRule, 0)
+	for rows.Next() {
+		rule, err := scanMaskRule(rows)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"scan mask rules for datasource %q: %w",
+				datasourceID,
+				closeMaskRuleRowsAfterError(rows, err),
+			)
+		}
+		rules = append(rules, rule)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return nil, fmt.Errorf(
+			"finish mask rules for datasource %q: %w",
+			datasourceID,
+			errors.Join(iterationError, closeError),
+		)
+	}
+	return rules, nil
+}
+
 // Update replaces mutable mask-rule fields and returns the stored record.
 func (repository *MaskRuleRepository) Update(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
 	result, err := repository.db.ExecContext(ctx, `
@@ -121,4 +163,11 @@ func scanMaskRule(scanner rowScanner) (model.MaskRule, error) {
 		return model.MaskRule{}, fmt.Errorf("scan mask rule: %w", err)
 	}
 	return rule, nil
+}
+
+func closeMaskRuleRowsAfterError(rows *sql.Rows, cause error) error {
+	if err := rows.Close(); err != nil {
+		return errors.Join(cause, fmt.Errorf("close mask rule rows: %w", err))
+	}
+	return cause
 }

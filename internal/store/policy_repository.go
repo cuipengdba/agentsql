@@ -103,6 +103,48 @@ ORDER BY created_at ASC, id ASC`, agentID, datasourceID)
 	return policies, nil
 }
 
+// ListByAgent returns all policy rows for one Agent in stable datasource and
+// object order.
+func (repository *PolicyRepository) ListByAgent(
+	ctx context.Context,
+	agentID string,
+) ([]model.Policy, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("list policies by Agent: %w", ErrNilContext)
+	}
+	rows, err := repository.db.QueryContext(ctx, `
+SELECT id, agent_id, datasource_id, object_type, object_name, columns, row_filter,
+       action, created_at, updated_at
+FROM policies
+WHERE agent_id = ?
+ORDER BY datasource_id ASC, object_name ASC, id ASC`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("list policies for agent %q: %w", agentID, err)
+	}
+	policies := make([]model.Policy, 0)
+	for rows.Next() {
+		stored, err := scanPolicy(rows)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"scan policies for agent %q: %w",
+				agentID,
+				closePolicyRowsAfterError(rows, err),
+			)
+		}
+		policies = append(policies, stored)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return nil, fmt.Errorf(
+			"finish policies for agent %q: %w",
+			agentID,
+			errors.Join(iterationError, closeError),
+		)
+	}
+	return policies, nil
+}
+
 // Update replaces mutable policy fields and returns the stored record.
 func (repository *PolicyRepository) Update(ctx context.Context, policy model.Policy) (model.Policy, error) {
 	result, err := repository.db.ExecContext(ctx, `
