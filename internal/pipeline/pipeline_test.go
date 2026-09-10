@@ -1,0 +1,946 @@
+package pipeline
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/cuipengdba/agentsql/internal/engine"
+	"github.com/cuipengdba/agentsql/internal/executor"
+	"github.com/cuipengdba/agentsql/internal/mask"
+	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rules"
+	"github.com/stretchr/testify/require"
+)
+
+var testPipelineSecret = []byte("0123456789abcdef0123456789abcdef")
+
+func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*pipelineFixture)
+		request   Request
+		decision  model.Decision
+	}{
+		{
+			name: "authentication failure",
+			configure: func(fixture *pipelineFixture) {
+				fixture.authenticator.err = errors.New("bad API key")
+			},
+			request:  defaultRequest(),
+			decision: model.DecisionDeny,
+		},
+		{
+			name:      "malformed SQL",
+			configure: func(*pipelineFixture) {},
+			request:   requestWithSQL("SELECT ("),
+			decision:  model.DecisionDeny,
+		},
+		{
+			name:      "update without where",
+			configure: func(*pipelineFixture) {},
+			request:   requestWithSQLAndSession("UPDATE public.orders SET total = 1"),
+			decision:  model.DecisionDeny,
+		},
+		{
+			name:      "unauthorized table",
+			configure: func(*pipelineFixture) {},
+			request:   requestWithSQL("SELECT id FROM public.secrets LIMIT 1"),
+			decision:  model.DecisionDeny,
+		},
+		{
+			name: "readonly agent write",
+			configure: func(fixture *pipelineFixture) {
+				fixture.authenticator.agent.Level = "readonly"
+			},
+			request:  requestWithSQL("UPDATE public.orders SET total = 1 WHERE id = 1"),
+			decision: model.DecisionDeny,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPipelineFixture(t)
+			test.configure(fixture)
+			response, err := fixture.pipeline.Process(context.Background(), test.request)
+			if test.name == "authentication failure" || test.name == "malformed SQL" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.decision, response.Decision)
+			calls := fixture.executor.callsSnapshot()
+			require.Zero(t, fixture.executors.calls())
+			require.Zero(t, calls.explain+calls.query+calls.execute+calls.openSession)
+			require.Zero(t, calls.sessionExplain+calls.sessionQuery+calls.sessionExecute)
+			require.Equal(t, 1, fixture.audit.calls())
+			if err != nil {
+				require.Equal(t, "error", fixture.audit.last().Decision)
+			} else {
+				require.Equal(t, "deny", fixture.audit.last().Decision)
+			}
+		})
+	}
+}
+
+func TestPipelineDynamicApproveAuditsBeforeCreatingApproval(t *testing.T) {
+	fixture := newPipelineFixture(t, WithRuleLayers(engine.RuleLayers{
+		Agent: engine.RuleLayer{
+			"R004": {Thresholds: map[string]float64{rules.ThresholdMaxScanRows: 10}},
+		},
+	}))
+	fixture.executor.explain = model.ExplainInfo{EstScanRows: 11, SeqScan: true}
+	fixture.approvals.audit = fixture.audit
+	request := defaultRequest()
+	request.SessionID = "approve-session"
+	response, err := fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionApprove, response.Decision)
+	require.NotEmpty(t, response.ApprovalID)
+	require.Positive(t, response.AuditID)
+	require.Equal(t, 1, fixture.approvals.calls())
+	require.Equal(t, response.AuditID, *fixture.approvals.last().AuditID)
+	require.True(t, fixture.approvals.auditWasPresent)
+	calls := fixture.executor.callsSnapshot()
+	require.Equal(t, 1, calls.openSession)
+	require.Equal(t, 1, calls.sessionExplain)
+	require.Zero(t, calls.explain)
+	require.Zero(t, calls.query+calls.execute+calls.sessionQuery+calls.sessionExecute)
+	require.Equal(t, 1, calls.sessionClose)
+	require.Equal(t, "approve", fixture.audit.last().Decision)
+}
+
+func TestPipelineAllowSelectQueriesRedactsAndAudits(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, response.Decision)
+	require.NotNil(t, response.Result)
+	require.Equal(t, "138****5678", response.Result.Rows[0][0])
+	require.Equal(t, 1, response.Redact.MaskedCells)
+	calls := fixture.executor.callsSnapshot()
+	require.Equal(t, 1, calls.explain)
+	require.Equal(t, 1, calls.query)
+	require.Zero(t, calls.execute+calls.openSession+calls.sessionQuery+calls.sessionExecute)
+	limit, explainDeadline, queryDeadline := fixture.executor.executionSettings()
+	require.Equal(t, 2, limit)
+	require.True(t, explainDeadline)
+	require.True(t, queryDeadline)
+	log := fixture.audit.last()
+	require.Equal(t, "allow", log.Decision)
+	require.NotNil(t, log.RowsReturned)
+	require.Equal(t, 1, *log.RowsReturned)
+	require.Equal(t, "agent-1", *log.AgentID)
+	require.Equal(t, "public.customers", *log.Objects)
+	require.Equal(t, "SELECT", *log.StmtType)
+}
+
+func TestPipelineUsesDefaultRowLimit(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	fixture.datasources.datasource.RowLimit = 0
+	_, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	limit, _, _ := fixture.executor.executionSettings()
+	require.Equal(t, defaultRowLimit, limit)
+}
+
+func TestPipelineAllowedWriteUsesExecuteWithoutRedactor(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	response, err := fixture.pipeline.Process(
+		context.Background(),
+		requestWithSQL("UPDATE public.orders SET total = 1 WHERE id = 1"),
+	)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, response.Decision)
+	require.NotNil(t, response.Result)
+	require.Equal(t, 1, response.Result.RowCount)
+	calls := fixture.executor.callsSnapshot()
+	require.Equal(t, 1, calls.explain)
+	require.Equal(t, 1, calls.execute)
+	require.Zero(t, calls.query+calls.sessionQuery+calls.sessionExecute)
+	require.Zero(t, fixture.redactors.calls())
+	require.Equal(t, 1, *fixture.audit.last().RowsReturned)
+}
+
+func TestPipelineColumnPolicyDenyDoesNotTouchDatabase(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	columns := "id"
+	fixture.policies.policies = append(fixture.policies.policies, model.Policy{
+		ID:           "column-policy",
+		AgentID:      "agent-1",
+		DatasourceID: "datasource-1",
+		ObjectType:   "column",
+		ObjectName:   "public.customers",
+		Columns:      &columns,
+		Action:       "allow",
+	})
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Contains(t, response.Assessment.Reason, "public.customers.phone")
+	require.Zero(t, fixture.executors.calls())
+	require.Equal(t, "deny", fixture.audit.last().Decision)
+}
+
+func TestPipelineWarnExecutesAndAuditsWarn(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	fixture.executor.transaction = rules.TransactionState{
+		InTransaction: true,
+		AgeMS:         6_000,
+		IdleMS:        6_000,
+	}
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionWarn, response.Decision)
+	require.Equal(t, "warn", fixture.audit.last().Decision)
+	require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+}
+
+func TestPipelineExecutionErrorIsAuditedAsError(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	expected := errors.New("query failed")
+	fixture.executor.queryErr = expected
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.ErrorIs(t, err, expected)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Nil(t, response.Result)
+	log := fixture.audit.last()
+	require.Equal(t, "error", log.Decision)
+	require.NotNil(t, log.ErrorMsg)
+	require.Contains(t, *log.ErrorMsg, expected.Error())
+}
+
+func TestPipelineDynamicAndRedactionErrorsNeverReturnData(t *testing.T) {
+	t.Run("explain error", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		expected := errors.New("explain failed")
+		fixture.executor.explainErr = expected
+		response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.ErrorIs(t, err, expected)
+		require.Nil(t, response.Result)
+		calls := fixture.executor.callsSnapshot()
+		require.Equal(t, 1, calls.explain)
+		require.Zero(t, calls.query+calls.execute+calls.sessionQuery+calls.sessionExecute)
+		require.Equal(t, "error", fixture.audit.last().Decision)
+	})
+	t.Run("redactor builder error", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		expected := errors.New("mask rules unavailable")
+		fixture.redactors.err = expected
+		response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.ErrorIs(t, err, expected)
+		require.Nil(t, response.Result)
+		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+		log := fixture.audit.last()
+		require.Equal(t, "error", log.Decision)
+		require.Equal(t, 1, *log.RowsReturned)
+	})
+}
+
+func TestPipelineAuditErrorFailsRequest(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	expected := errors.New("audit unavailable")
+	fixture.audit.err = expected
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.True(t, err == expected)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+}
+
+func TestPipelineNilContextIsAuditedWithoutTouchingDatabase(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	response, err := fixture.pipeline.Process(nil, defaultRequest())
+	require.ErrorIs(t, err, ErrInvalidRequest)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Zero(t, fixture.executors.calls())
+	require.Equal(t, 1, fixture.audit.calls())
+	require.Equal(t, "error", fixture.audit.last().Decision)
+}
+
+func TestPipelineStageLatencyHasEightNonNegativeKeys(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	stages := pipelineStageNames()
+	require.Len(t, response.Assessment.StageLatency, len(stages))
+	for _, stage := range stages {
+		latency, exists := response.Assessment.StageLatency[stage]
+		require.True(t, exists, stage)
+		require.GreaterOrEqual(t, latency, int64(0), stage)
+	}
+}
+
+func TestAuditMappingIncludesFrozenFields(t *testing.T) {
+	conversation := "conversation-1"
+	clientIP := "127.0.0.1"
+	modelName := "test-model"
+	request := Request{
+		DatasourceID:   "datasource-1",
+		SQL:            "SELECT phone FROM public.customers",
+		SessionID:      "session-1",
+		ConversationID: &conversation,
+		MCPTool:        "query",
+		ClientIP:       &clientIP,
+		ModelName:      &modelName,
+	}
+	agent := &model.Agent{ID: "agent-1"}
+	datasource := &model.Datasource{ID: "datasource-1", DBType: "postgres"}
+	ast := &model.AST{
+		StmtType:   "SELECT",
+		Normalized: "SELECT phone FROM public.customers",
+		Tables:     []model.ObjectRef{{Schema: "public", Table: "customers"}},
+		Explain:    &model.ExplainInfo{EstScanRows: 12},
+	}
+	response := Response{
+		Assessment: model.Assessment{
+			Risk: model.RiskWarn,
+			Hits: []model.RuleHit{{
+				RuleID: "R005", Risk: model.RiskWarn, Decision: model.DecisionWarn,
+				Message: "warning", Suggestion: "limit rows",
+			}},
+		},
+	}
+	result := &model.QueryResult{RowCount: 3}
+	operationError := errors.New("sample error")
+	log, err := mapAuditLog(
+		request,
+		agent,
+		datasource,
+		ast,
+		response,
+		result,
+		"error",
+		operationError,
+		time.Now().Add(-time.Millisecond),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "agent-1", *log.AgentID)
+	require.Equal(t, "datasource-1", *log.DatasourceID)
+	require.Equal(t, "session-1", *log.SessionID)
+	require.Equal(t, conversation, *log.ConversationID)
+	require.Equal(t, "query", *log.MCPTool)
+	require.Equal(t, "postgres", *log.DBType)
+	require.Equal(t, request.SQL, *log.SQLRaw)
+	require.Equal(t, ast.Normalized, *log.SQLNorm)
+	require.Equal(t, "SELECT", *log.StmtType)
+	require.Equal(t, "public.customers", *log.Objects)
+	require.Equal(t, "error", log.Decision)
+	require.Equal(t, int(model.RiskWarn), *log.RiskLevel)
+	require.Equal(t, int64(12), *log.EstRows)
+	require.Equal(t, 3, *log.RowsReturned)
+	require.GreaterOrEqual(t, *log.LatencyMS, int64(0))
+	require.Equal(t, clientIP, *log.ClientIP)
+	require.Equal(t, modelName, *log.ModelName)
+	require.Equal(t, operationError.Error(), *log.ErrorMsg)
+	var hits []model.RuleHit
+	require.NoError(t, json.Unmarshal([]byte(*log.RuleHits), &hits))
+	require.Equal(t, response.Assessment.Hits, hits)
+}
+
+func TestMergeAssessmentFourStatePriorityAndReplacement(t *testing.T) {
+	first := model.Assessment{Hits: []model.RuleHit{
+		{RuleID: "R003", Decision: model.DecisionDeny, Risk: model.RiskDeny, Message: "deny", Suggestion: "fix deny"},
+		{RuleID: "R005", Decision: model.DecisionWarn, Risk: model.RiskWarn, Message: "old warn", Suggestion: "old"},
+	}}
+	second := model.Assessment{
+		EstScanRows: 50,
+		Hits: []model.RuleHit{
+			{RuleID: "R004", Decision: model.DecisionApprove, Risk: model.RiskApprove, Message: "approve", Suggestion: "fix approve"},
+			{RuleID: "R005", Decision: model.DecisionWarn, Risk: model.RiskWarn, Message: "new warn", Suggestion: "new"},
+		},
+	}
+	merged := mergeAssessment(first, second)
+	require.Equal(t, model.DecisionDeny, merged.Decision)
+	require.Equal(t, model.RiskDeny, merged.Risk)
+	require.Equal(t, "deny", merged.Reason)
+	require.Equal(t, []string{"R003", "R004", "R005"}, ruleHitIDs(merged.Hits))
+	require.Equal(t, "new warn", merged.Hits[2].Message)
+	require.Equal(t, int64(50), merged.EstScanRows)
+}
+
+func TestStaticRuleSetCannotTouchPanicMetadataProvider(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, response.Decision)
+	all, err := assembleRules("postgres", &validationLimiter{}, panicMetadataProvider{})
+	require.NoError(t, err)
+	static, dynamic := splitRules(all)
+	require.Equal(t, []string{"R004", "R105", "R106", "R107"}, ruleIDs(dynamic))
+	for _, id := range ruleIDs(static) {
+		require.False(t, isDynamicRuleID(id), id)
+	}
+	all, err = assembleRules("mysql", &validationLimiter{}, panicMetadataProvider{})
+	require.NoError(t, err)
+	_, dynamic = splitRules(all)
+	require.Equal(t, []string{"R004", "R204"}, ruleIDs(dynamic))
+}
+
+func TestPipelineUsesBoundSessionOnlyWhenRequested(t *testing.T) {
+	t.Run("stateless", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		_, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.NoError(t, err)
+		calls := fixture.executor.callsSnapshot()
+		require.Zero(t, calls.openSession+calls.sessionExplain+calls.sessionQuery+calls.sessionExecute)
+		require.Equal(t, 1, calls.explain)
+		require.Equal(t, 1, calls.query)
+	})
+	t.Run("bound session", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		request := defaultRequest()
+		request.SessionID = "session-1"
+		_, err := fixture.pipeline.Process(context.Background(), request)
+		require.NoError(t, err)
+		calls := fixture.executor.callsSnapshot()
+		require.Equal(t, 1, calls.openSession)
+		require.Equal(t, 1, calls.sessionExplain)
+		require.Equal(t, 1, calls.sessionQuery)
+		require.Zero(t, calls.sessionClose)
+		require.Zero(t, calls.explain+calls.query+calls.execute+calls.sessionExecute)
+	})
+}
+
+func TestPipelineDynamicExplicitDenyOnlyReadsExplain(t *testing.T) {
+	fixture := newPipelineFixture(t, WithRuleLayers(engine.RuleLayers{
+		Agent: engine.RuleLayer{"R004": {ExplicitDeny: true}},
+	}))
+	request := defaultRequest()
+	request.SessionID = "deny-session"
+	response, err := fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	calls := fixture.executor.callsSnapshot()
+	require.Equal(t, 1, fixture.executors.calls())
+	require.Equal(t, 1, calls.openSession)
+	require.Equal(t, 1, calls.sessionExplain)
+	require.Zero(t, calls.explain)
+	require.Zero(t, calls.query+calls.execute+calls.sessionQuery+calls.sessionExecute)
+	require.Equal(t, 1, calls.sessionClose)
+	require.Equal(t, "deny", fixture.audit.last().Decision)
+}
+
+func TestPipelineReleasesR008ReservationOnEveryFinishedRequest(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	limiter := &spyRateLimiter{}
+	fixture.pipeline.limiter = limiter
+	for index := 0; index < 2; index++ {
+		_, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.NoError(t, err)
+	}
+	allowed, released, inFlight := limiter.snapshot()
+	require.Equal(t, 2, allowed)
+	require.Equal(t, 2, released)
+	require.Zero(t, inFlight)
+	fixture.audit.err = errors.New("audit unavailable")
+	_, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.Error(t, err)
+	allowed, released, inFlight = limiter.snapshot()
+	require.Equal(t, 3, allowed)
+	require.Equal(t, 3, released)
+	require.Zero(t, inFlight)
+}
+
+func TestPipelineConcurrentRequestsAreRaceSafe(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	const requests = 50
+	var wait sync.WaitGroup
+	errorsChannel := make(chan error, requests)
+	for index := 0; index < requests; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			_, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+			errorsChannel <- err
+		}()
+	}
+	wait.Wait()
+	close(errorsChannel)
+	for err := range errorsChannel {
+		require.NoError(t, err)
+	}
+	require.Equal(t, requests, fixture.audit.calls())
+}
+
+func TestPipelineNewRejectsNilPortsAndInvalidSecret(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	var nilAuthenticator *fakeAuthenticator
+	var nilDatasourceReader *fakeDatasourceReader
+	var nilPolicyLoader *fakePolicyLoader
+	var nilExecutorProvider *fakeExecutorProvider
+	var nilApprovalWriter *fakeApprovalWriter
+	var nilAuditRecorder *fakeAuditRecorder
+	var nilRedactorBuilder *fakeRedactorBuilder
+	tests := []struct {
+		name   string
+		mutate func(*Ports)
+	}{
+		{name: "authenticator", mutate: func(ports *Ports) { ports.Authenticator = nilAuthenticator }},
+		{name: "datasource reader", mutate: func(ports *Ports) { ports.Datasources = nilDatasourceReader }},
+		{name: "policy loader", mutate: func(ports *Ports) { ports.Policies = nilPolicyLoader }},
+		{name: "executor provider", mutate: func(ports *Ports) { ports.Executors = nilExecutorProvider }},
+		{name: "approval writer", mutate: func(ports *Ports) { ports.Approvals = nilApprovalWriter }},
+		{name: "audit recorder", mutate: func(ports *Ports) { ports.Audit = nilAuditRecorder }},
+		{name: "redactor builder", mutate: func(ports *Ports) { ports.Redactors = nilRedactorBuilder }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ports := fixture.ports()
+			test.mutate(&ports)
+			_, err := New(ports, testPipelineSecret)
+			require.ErrorIs(t, err, ErrInvalidPorts)
+		})
+	}
+	_, err := New(fixture.ports(), []byte("short"))
+	require.ErrorIs(t, err, ErrInvalidSecret)
+}
+
+type pipelineFixture struct {
+	pipeline      *Pipeline
+	authenticator *fakeAuthenticator
+	datasources   *fakeDatasourceReader
+	policies      *fakePolicyLoader
+	executors     *fakeExecutorProvider
+	approvals     *fakeApprovalWriter
+	audit         *fakeAuditRecorder
+	redactors     *fakeRedactorBuilder
+	executor      *spyExecutor
+}
+
+func newPipelineFixture(t *testing.T, options ...Option) *pipelineFixture {
+	t.Helper()
+	redactor, err := mask.NewRedactor([]mask.Rule{{
+		Column:        "phone",
+		SensitiveType: mask.TypePhone,
+		Algorithm:     mask.AlgoMask,
+	}})
+	require.NoError(t, err)
+	spy := &spyExecutor{
+		dialect:     "postgres",
+		explain:     model.ExplainInfo{EstScanRows: 1, UsesIndex: true},
+		queryResult: model.QueryResult{Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1},
+		execResult:  model.QueryResult{RowCount: 1},
+		hasIndex:    true,
+	}
+	fixture := &pipelineFixture{
+		authenticator: &fakeAuthenticator{agent: model.Agent{ID: "agent-1", Status: "active", Level: "dml"}},
+		datasources: &fakeDatasourceReader{datasource: model.Datasource{
+			ID: "datasource-1", DBType: "postgres", RowLimit: 2, StmtTimeoutMS: 5_000,
+		}},
+		policies: &fakePolicyLoader{policies: []model.Policy{
+			{ID: "p1", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "table", ObjectName: "public.orders", Action: "allow"},
+			{ID: "p2", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "table", ObjectName: "public.customers", Action: "allow"},
+		}},
+		executors: &fakeExecutorProvider{executor: spy},
+		approvals: &fakeApprovalWriter{},
+		audit:     &fakeAuditRecorder{},
+		redactors: &fakeRedactorBuilder{redactor: redactor},
+		executor:  spy,
+	}
+	constructed, err := New(fixture.ports(), testPipelineSecret, options...)
+	require.NoError(t, err)
+	fixture.pipeline = constructed
+	return fixture
+}
+
+func (fixture *pipelineFixture) ports() Ports {
+	return Ports{
+		Authenticator: fixture.authenticator,
+		Datasources:   fixture.datasources,
+		Policies:      fixture.policies,
+		Executors:     fixture.executors,
+		Approvals:     fixture.approvals,
+		Audit:         fixture.audit,
+		Redactors:     fixture.redactors,
+	}
+}
+
+func defaultRequest() Request {
+	return Request{
+		APIKey:       "asql_test",
+		DatasourceID: "datasource-1",
+		SQL:          "SELECT phone FROM public.customers WHERE id = 1 LIMIT 1",
+		MCPTool:      "query",
+	}
+}
+
+func requestWithSQL(sql string) Request {
+	request := defaultRequest()
+	request.SQL = sql
+	return request
+}
+
+func requestWithSQLAndSession(sql string) Request {
+	request := requestWithSQL(sql)
+	request.SessionID = "must-not-open"
+	return request
+}
+
+type fakeAuthenticator struct {
+	mu    sync.Mutex
+	agent model.Agent
+	err   error
+}
+
+func (fake *fakeAuthenticator) Authenticate(context.Context, string) (model.Agent, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.agent, fake.err
+}
+
+type fakeDatasourceReader struct {
+	mu         sync.Mutex
+	datasource model.Datasource
+	err        error
+}
+
+func (fake *fakeDatasourceReader) Get(context.Context, string) (model.Datasource, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.datasource, fake.err
+}
+
+type fakePolicyLoader struct {
+	mu       sync.Mutex
+	policies []model.Policy
+	err      error
+}
+
+func (fake *fakePolicyLoader) ListByAgentAndDatasource(
+	context.Context,
+	string,
+	string,
+) ([]model.Policy, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return append([]model.Policy(nil), fake.policies...), fake.err
+}
+
+type fakeExecutorProvider struct {
+	mu       sync.Mutex
+	executor executor.Executor
+	err      error
+	count    int
+}
+
+func (fake *fakeExecutorProvider) GetOrOpen(model.Datasource, []byte) (executor.Executor, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fake.count++
+	return fake.executor, fake.err
+}
+
+func (fake *fakeExecutorProvider) calls() int {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.count
+}
+
+type fakeApprovalWriter struct {
+	mu              sync.Mutex
+	created         []model.Approval
+	err             error
+	audit           *fakeAuditRecorder
+	auditWasPresent bool
+}
+
+func (fake *fakeApprovalWriter) Create(
+	_ context.Context,
+	approval model.Approval,
+) (model.Approval, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.audit != nil {
+		fake.auditWasPresent = fake.audit.calls() > 0
+	}
+	if fake.err != nil {
+		return model.Approval{}, fake.err
+	}
+	fake.created = append(fake.created, approval)
+	return approval, nil
+}
+
+func (fake *fakeApprovalWriter) calls() int {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return len(fake.created)
+}
+
+func (fake *fakeApprovalWriter) last() model.Approval {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.created[len(fake.created)-1]
+}
+
+type fakeAuditRecorder struct {
+	mu   sync.Mutex
+	logs []model.AuditLog
+	err  error
+	next int64
+}
+
+func (fake *fakeAuditRecorder) Record(
+	_ context.Context,
+	log model.AuditLog,
+) (model.AuditLog, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.err != nil {
+		return model.AuditLog{}, fake.err
+	}
+	fake.next++
+	log.ID = fake.next
+	fake.logs = append(fake.logs, log)
+	return log, nil
+}
+
+func (fake *fakeAuditRecorder) calls() int {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return len(fake.logs)
+}
+
+func (fake *fakeAuditRecorder) last() model.AuditLog {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.logs[len(fake.logs)-1]
+}
+
+type fakeRedactorBuilder struct {
+	mu       sync.Mutex
+	redactor mask.Redactor
+	err      error
+	count    int
+}
+
+func (fake *fakeRedactorBuilder) calls() int {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return fake.count
+}
+
+func (fake *fakeRedactorBuilder) RedactorFor(context.Context, string) (mask.Redactor, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fake.count++
+	return fake.redactor, fake.err
+}
+
+type executorCalls struct {
+	openSession    int
+	explain        int
+	query          int
+	execute        int
+	sessionExplain int
+	sessionQuery   int
+	sessionExecute int
+	sessionClose   int
+}
+
+type spyExecutor struct {
+	mu               sync.Mutex
+	dialect          string
+	calls            executorCalls
+	explain          model.ExplainInfo
+	explainErr       error
+	queryResult      model.QueryResult
+	queryErr         error
+	execResult       model.QueryResult
+	executeErr       error
+	hasIndex         bool
+	tableRows        int64
+	transaction      rules.TransactionState
+	mysqlTransaction rules.MysqlTransactionState
+	lastQueryLimit   int
+	explainDeadline  bool
+	queryDeadline    bool
+}
+
+func (spy *spyExecutor) Dialect() string        { return spy.dialect }
+func (*spyExecutor) Ping(context.Context) error { return nil }
+
+func (spy *spyExecutor) OpenSession(context.Context, string) (executor.Session, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.calls.openSession++
+	return &spySession{parent: spy}, nil
+}
+
+func (spy *spyExecutor) Explain(ctx context.Context, _ string) (model.ExplainInfo, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.calls.explain++
+	_, spy.explainDeadline = ctx.Deadline()
+	return spy.explain, spy.explainErr
+}
+
+func (spy *spyExecutor) Query(ctx context.Context, _ string, limit int) (model.QueryResult, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.calls.query++
+	spy.lastQueryLimit = limit
+	_, spy.queryDeadline = ctx.Deadline()
+	return spy.queryResult, spy.queryErr
+}
+
+func (spy *spyExecutor) Execute(context.Context, string) (model.QueryResult, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.calls.execute++
+	return spy.execResult, spy.executeErr
+}
+
+func (*spyExecutor) Close() error { return nil }
+
+func (spy *spyExecutor) TableHasIndex(string, string) (bool, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return spy.hasIndex, nil
+}
+
+func (spy *spyExecutor) TableRowCount(string, string) (int64, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return spy.tableRows, nil
+}
+
+func (spy *spyExecutor) TransactionState() (rules.TransactionState, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return spy.transaction, nil
+}
+
+func (spy *spyExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return spy.mysqlTransaction, nil
+}
+
+func (spy *spyExecutor) callsSnapshot() executorCalls {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return spy.calls
+}
+
+func (spy *spyExecutor) executionSettings() (int, bool, bool) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return spy.lastQueryLimit, spy.explainDeadline, spy.queryDeadline
+}
+
+type spySession struct {
+	parent *spyExecutor
+}
+
+func (session *spySession) Query(ctx context.Context, sql string, limit int) (model.QueryResult, error) {
+	session.parent.mu.Lock()
+	defer session.parent.mu.Unlock()
+	session.parent.calls.sessionQuery++
+	session.parent.lastQueryLimit = limit
+	_, session.parent.queryDeadline = ctx.Deadline()
+	return session.parent.queryResult, session.parent.queryErr
+}
+
+func (session *spySession) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
+	session.parent.mu.Lock()
+	defer session.parent.mu.Unlock()
+	session.parent.calls.sessionExecute++
+	return session.parent.execResult, session.parent.executeErr
+}
+
+func (session *spySession) Explain(ctx context.Context, sql string) (model.ExplainInfo, error) {
+	session.parent.mu.Lock()
+	defer session.parent.mu.Unlock()
+	session.parent.calls.sessionExplain++
+	_, session.parent.explainDeadline = ctx.Deadline()
+	return session.parent.explain, session.parent.explainErr
+}
+
+func (session *spySession) TransactionState() (rules.TransactionState, error) {
+	return session.parent.TransactionState()
+}
+
+func (session *spySession) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return session.parent.MysqlTransactionState()
+}
+
+func (session *spySession) Close() error {
+	session.parent.mu.Lock()
+	defer session.parent.mu.Unlock()
+	session.parent.calls.sessionClose++
+	return nil
+}
+
+func (session *spySession) TableHasIndex(schema, table string) (bool, error) {
+	return session.parent.TableHasIndex(schema, table)
+}
+
+func (session *spySession) TableRowCount(schema, table string) (int64, error) {
+	return session.parent.TableRowCount(schema, table)
+}
+
+func ruleIDs(input []engine.Rule) []string {
+	ids := make([]string, 0, len(input))
+	for _, rule := range input {
+		ids = append(ids, rule.ID())
+	}
+	return ids
+}
+
+func ruleHitIDs(input []model.RuleHit) []string {
+	ids := make([]string, 0, len(input))
+	for _, hit := range input {
+		ids = append(ids, hit.RuleID)
+	}
+	return ids
+}
+
+type spyRateLimiter struct {
+	mu       sync.Mutex
+	allowed  int
+	released int
+	inFlight int
+}
+
+func (limiter *spyRateLimiter) Allow(string, float64, int) (rules.RateLimitResult, error) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	limiter.allowed++
+	limiter.inFlight++
+	return rules.RateLimitResult{Allowed: true}, nil
+}
+
+func (limiter *spyRateLimiter) Release(string) error {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if limiter.inFlight == 0 {
+		return errors.New("release without reservation")
+	}
+	limiter.inFlight--
+	limiter.released++
+	return nil
+}
+
+func (limiter *spyRateLimiter) snapshot() (allowed, released, inFlight int) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	return limiter.allowed, limiter.released, limiter.inFlight
+}
+
+var (
+	_ IdentityAuthenticator                  = (*fakeAuthenticator)(nil)
+	_ DatasourceReader                       = (*fakeDatasourceReader)(nil)
+	_ PolicyLoader                           = (*fakePolicyLoader)(nil)
+	_ ExecutorProvider                       = (*fakeExecutorProvider)(nil)
+	_ ApprovalWriter                         = (*fakeApprovalWriter)(nil)
+	_ AuditRecorder                          = (*fakeAuditRecorder)(nil)
+	_ RedactorBuilder                        = (*fakeRedactorBuilder)(nil)
+	_ executor.Executor                      = (*spyExecutor)(nil)
+	_ executor.Session                       = (*spySession)(nil)
+	_ rules.TransactionMetadataProvider      = (*spyExecutor)(nil)
+	_ rules.TransactionMetadataProvider      = (*spySession)(nil)
+	_ rules.MysqlTransactionMetadataProvider = (*spyExecutor)(nil)
+	_ rules.MysqlTransactionMetadataProvider = (*spySession)(nil)
+	_ rules.RateLimiter                      = (*spyRateLimiter)(nil)
+)
