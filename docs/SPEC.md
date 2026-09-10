@@ -624,8 +624,63 @@ E2E（e2e_postgres_test.go，testcontainers 用本地 postgres:16；探测不到
 ### 交付 / 主控验收
 单位无 Go/Docker：文本级静态自审（两闸划分、deny 零用户 SQL、每分支必落审计、错误透传、nil 防御、ctx 透传），注明"未本地编译、E2E 需主控 Docker 验证"，不跑 go/docker；打 agentsql-in-T13-日期.zip 自证（文件数、zip 晚于源码、大小+SHA-256 前缀）。主控：tidy（go.mod/go.sum 无变化）/gofmt/build/vet、`go test -race ./internal/pipeline` 纯单测全过且全包零回归，再启动 Docker 跑 6 条 E2E 全绿，并用 spy 独立复核 deny 路径零执行。
 
-## T14 MCP stdio（mcpserver）
-官方 go-sdk 暴露 7 tools，handler 全走 pipeline，list_schema 按列权限过滤；examples 给 Cursor/Claude Desktop 配置。用 Inspector 调通并在真实 Cursor 录屏。
+## T14 MCP stdio（internal/mcpserver + internal/bootstrap + cmd mcp，首个对外可用单）
+
+### 目标与形态
+用官方 `github.com/modelcontextprotocol/go-sdk` 实现 **stdio MCP Server**：AI 客户端（Cursor / Claude Desktop / Cherry Studio 等）以本地子进程方式拉起 `agentsql mcp`，经 JSON-RPC over stdio 完成 initialize / tools/list / tools/call，对 AI 暴露 3.4 冻结的 7 个工具；**每个执行类工具的 handler 都把请求交给 T13 的 pipeline.Process，网关自身不得存在任何"绕过流水线直接执行用户 SQL"的旁路**。本单完成后产品第一次能被真实 AI 客户端端到端调用。不做 Streamable HTTP（T15）、不做管理 REST（T16）、不做前端。
+
+### 依赖（已获授权新增）
+- 新增且**仅**新增一个直接依赖 `github.com/modelcontextprotocol/go-sdk`：`go get github.com/modelcontextprotocol/go-sdk@latest` 取当时最新稳定版，**确切版本号写进交付说明**，go.mod/go.sum 一并提交；除它及其传递依赖外不得引入其他第三方库。SDK 的具体类型/函数名以实际下载版本的 API 为准（不要凭记忆写签名），交付说明列出本单实际用到的 SDK 类型与函数；主控 tidy 后以主控 go.mod/go.sum 为最终准。
+
+### 新增 / 改动清单
+1) **internal/store 补 3 个只读方法**（纯新增、不改既有、全部占位符参数化、各配单测）
+   - `DatasourceRepository.List(ctx) ([]model.Datasource, error)`：按 id 排序返回全部数据源；注释写明密文字段 PasswordEnc 不得对外泄漏（裁剪在 mcpserver 层做）。
+   - `PolicyRepository.ListByAgent(ctx, agentID string) ([]model.Policy, error)`：返回该 Agent 全部策略行，按 datasource_id/object_name 排序，agentID 走占位符。
+   - `MaskRuleRepository.ListByDatasource(ctx, datasourceID string) ([]model.MaskRule, error)`：条件 `datasource_id = ? OR datasource_id IS NULL`（数据源专属 + 全局规则），占位符参数化，按 table_name/column_name 排序。
+   - 三者空结果返回非 nil 空切片；nil ctx 口径与既有仓储一致（ErrNilContext）；保证 store 既有测试零回归。
+
+2) **pipeline 小幅向后兼容扩展**（改 internal/pipeline，T13 全部测试必须零回归）
+   - `Request` 新增两个**零值不改变现状**的可选布尔字段：`ExplainOnly bool`、`RequireApproval bool`（默认 false 时行为与 T13 完全一致）。
+   - ExplainOnly：两闸评估完成、进入 S6 执行**前**短路——不 Query/Execute、Result 保持 nil，照常走 S7（无结果则 RedactReport 空）与 S8 审计（MCPTool=explain_query），返回 Decision/Assessment（含 EstScanRows、Hits、StageLatency），实现"只评估不落地"。
+   - RequireApproval：两闸聚合出最终决策后做**单向抬升**——deny 仍 deny（最高优先，不得被审批请求覆盖）；allow/warn 抬为 approve 并走既有 approve 分支（不执行、先审计后建审批单回填 AuditID）；本来就是 approve 的不变。
+   - 各配单测：ExplainOnly 下 spy executor 的 Query/Execute 零调用但有审计；RequireApproval 把 allow 抬成 approve 且零执行、deny 不被抬升；默认 false 时既有纯单测与 6 条 E2E 全绿。
+
+3) **新增 internal/bootstrap 装配包**（T15/T16 复用，一次写对）
+   - 提供 `Assemble(ctx, cfg config.Config, secret []byte) (*Runtime, error)` 与 `Runtime{ Pipeline *pipeline.Pipeline; Executors *executor.Manager; Store *store.Store; Close() error }`（命名可微调，语义如此）：打开 metadata store；`executor.NewManager(false)`（**非全局只读**，读写交给 pipeline 的 Agent 级别与规则裁决）；`auth.NewAuthenticator(store.Agents())`；把七端口接到真实实现——Authenticator=认证器、Datasources=store.Datasources()、Policies=store.Policies()、Executors=Manager、Approvals=store.Approvals()、Audit=store.AuditLogs()。
+   - Redactors 为本包新建 redactorBuilder：`RedactorFor(ctx, dsID)` 调 MaskRuleRepository.ListByDatasource → model.MaskRule 映射为 mask.Rule（字符串转 mask 常量；遇到 v0.1 不支持的 idcard/bankcard 或非 mask 算法**返回错误而非静默放行**）→ mask.NewRedactor；无规则用 NewRedactor(nil)（不脱敏、不报错）。
+   - fail-closed：secret 非恰好 32 字节、store 打不开、任一依赖为 nil 都返回错误。用内存 SQLite 写装配单测（构造 Agent/数据源/策略/脱敏规则，Assemble 后跑一条 allow SELECT 验证脱敏生效），并覆盖三类构造失败。
+
+4) **新增 internal/mcpserver（本单主体）**
+   - `server.go`：用 go-sdk 构造 MCP server（名 agentsql、版本取自 cmd 的 version），`RunStdio(ctx, opts)` 以 SDK stdio transport 把 os.Stdin/os.Stdout 作为协议通道阻塞服务；opts 含绑定 APIKey、*Runtime、logger。
+   - **stdio 红线**：stdout 只允许写 MCP JSON-RPC 帧；zerolog 与一切诊断/错误/调试输出**一律 stderr**；该路径禁止 fmt.Print 到 stdout，并用测试钉死"日志不落 stdout"。
+   - **身份绑定 fail-closed**：stdio 为本地单连接单租户，APIKey 来自 `--api-key` 或环境变量 `AGENTSQL_API_KEY`；server 启动先 Authenticator.Authenticate 一次拿到 Agent，缺失/失效/过期/禁用即返回错误退出，不允许匿名、不允许逐工具匿名调用；认证所得 Agent 在 7 个 handler 内复用。
+   - `tools.go`：按 3.4 冻结表注册 7 个工具，各自声明严格 JSON input schema（字段名、required、类型、中文 description，说明用途与"可能被拦截/转审批"的预期以引导模型正确选工具）与统一输出结构；**绝不注册 execute_raw_sql 类万能工具**。
+   - `handlers.go`：入参校验（缺参/类型错返回 isError + 结构化中文错误，不 panic），7 个 handler 语义如下——
+     * list_datasources{}：ListByAgent 得授权 datasource_id 集合，与 DatasourceRepository.List 取交集，只回 `{id,name,db_type}`（剔除 host/账号/PasswordEnc 等连接细节）。
+     * list_schema{datasource_id, table?}：先校验数据源在授权集合内（不在→deny 结构化错误）；经 Executors.GetOrOpen 取连接，用**内置常量 SQL** 查 information_schema（PG 与 MySQL 各一段方言）；table 非空加表过滤；**table/schema 标识符只允许 `[A-Za-z0-9_]`（必要时含点），正则白名单校验后再绑定/安全拼接，杜绝注入**；列清单经 policy.FilterColumnsForSchema 按列权限**只减不增**；用完归还连接。
+     * explain_query{datasource_id,sql}：pipeline.Request{ExplainOnly:true,MCPTool:"explain_query"}，回四态决策、命中规则、EstScanRows、suggestion，不回结果集。
+     * query{datasource_id,sql}：handler 先用 parser 做工具语义门禁，StmtType 必须 SELECT（否则回 `{decision:"deny",reason:"query 仅用于查询，写操作请改用 execute_write",suggestion}`，不进执行）；通过则 Request{MCPTool:"query"} 全流程，回脱敏结果集 + 决策/告警。
+     * execute_write{datasource_id,sql,reason}：reason **必填非空**（强制 AI 说明写理由，空则引导补全）；门禁 StmtType∈{INSERT,UPDATE,DELETE,DDL}（SELECT 误用引导去 query）；Request{MCPTool:"execute_write"} 全流程，readonly Agent 由 pipeline 拒（T13 已保证），reason 写 stderr 结构化日志。
+     * request_approval{datasource_id,sql,reason}：reason 必填；Request{RequireApproval:true,MCPTool:"request_approval"}，回 approval_id 与 pending。
+     * get_approval_result{approval_id}：ApprovalRepository.Get，且**只能查本 Agent 的审批单**（AgentID 不匹配按 not found 处理，防越权枚举），回 status/decided_at/approver。
+   - `schema.go`：list_schema 的两方言 introspection 与标识符白名单单独成文件、纯函数可测。
+   - **统一返回契约**：所有工具返回体统一 `{decision, reason, suggestion, data?}`，decision∈allow/warn/approve/deny/error；suggestion 一律中文、教 AI 自我改写；pipeline 的 error 映射 decision=error，**不得向模型泄漏内部堆栈、连接串或密钥**。
+   - 并发：SDK 可能并发回调，handler 无共享可变态，只依赖 Runtime 的线程安全组件；`go test -race` 必须干净。
+
+5) **cmd/agentsql 新增 `mcp` 子命令**
+   - flags：`-c/--config`（同 serve，默认 config.yaml）、`--api-key`（缺省读 AGENTSQL_API_KEY）；secret **只从环境变量 AGENTSQL_SECRET 读，不放进命令行参数**（避免进进程列表）；流程 config.Load → bootstrap.Assemble → mcpserver.RunStdio 阻塞，SIGINT/SIGTERM 优雅 Close（关连接池与 store）；启动信息只走 stderr。version/serve 行为与其测试不变、零回归。
+
+6) **examples/mcp/**：`cursor_mcp.json`、`claude_desktop_config.json` 两份可直接改路径的样例（command 指向 agentsql、args 含 `mcp -c`、env 放 AGENTSQL_SECRET/AGENTSQL_API_KEY 占位），注释提醒真实密钥不得提交。
+
+### 测试（不起 Docker；用 SDK in-process/内存 transport + 内存 SQLite）
+- store 三新方法（空结果非 nil、参数化、排序、全局规则 OR IS NULL）；pipeline 两新字段 + T13 全量零回归；bootstrap 装配（内存 SQLite 端到端一条脱敏 SELECT、三类 fail-closed）。
+- mcpserver：用 SDK 内存 channel/in-process client 直调 7 工具，覆盖未授权数据源拒、list_schema 列裁剪、query 只 SELECT 门禁、execute_write 的 reason 必填与 readonly 拒、request_approval 抬升且零执行、get_approval_result 越权 not found、ExplainOnly 无结果集、错误体不含密钥/连接串、stdout 纯净、并发 `-race`；这些测试不依赖 npx 或真实 Cursor。
+
+### 边界
+不做 Streamable HTTP（T15）、不做管理 REST 与 DB 规则开关装配（T16：本单 pipeline 不传 WithRuleLayers，规则用代码默认 21 条）、不做前端；不改 7 张表结构；除 pipeline.Request 新增两个可选字段外不改既有公开签名（确需小补充先在交付说明列出论证，禁止静默改）；除 go-sdk 外不新增第三方依赖。
+
+### 交付 / 主控验收
+单位无 Go/Docker：文本级静态自审（stdout 纯净、fail-closed、执行类全走 pipeline 无旁路、标识符白名单、错误不泄密、零值字段不改变 T13 行为、ctx 透传、并发无共享可变态），注明"未本地编译，需主控 go test -race 与 SDK in-process 走查 7 工具"，不跑 go/docker；打 agentsql-in-T14-日期.zip 自证（文件数、zip 晚于源码、大小+SHA-256 前缀），交付说明写明 go-sdk 确切版本与实际用到的 SDK 类型清单。主控：go mod tidy（审查新增直接/间接依赖清单）、gofmt/build/vet、`go test -race ./...` 全过零回归、SDK in-process 走通 7 工具；人工用 `npx @modelcontextprotocol/inspector` 连一遍，并在真实 Cursor 完成一次只读成功 + 一次被拒、录屏存档。
 
 ## T15 MCP Streamable HTTP
 /mcp 与 adminapi 共用端口；Bearer Key；会话隔离与限流。测试端到端、401、50 并发不串数据。
