@@ -123,6 +123,11 @@ func (store *Store) Approvals() *ApprovalRepository {
 	return &ApprovalRepository{db: store.db}
 }
 
+// Dashboard returns read-only aggregate queries for the admin dashboard.
+func (store *Store) Dashboard() *DashboardRepository {
+	return &DashboardRepository{db: store.db}
+}
+
 func closeDatabaseAfterError(database *sql.DB, cause error) error {
 	if err := database.Close(); err != nil {
 		return fmt.Errorf("close SQLite database after failure: %w", errors.Join(cause, err))

@@ -56,6 +56,41 @@ WHERE id = ?`, id))
 	return rule, nil
 }
 
+// List returns rules for one database type, or all rules when dbType is empty.
+func (repository *RuleRepository) List(ctx context.Context, dbType string) ([]model.Rule, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("list rules: %w", ErrNilContext)
+	}
+	query := `
+SELECT id, db_type, title, risk_level, pattern_type, definition, enabled, builtin,
+       created_at, updated_at
+FROM rules`
+	args := make([]any, 0, 1)
+	if dbType != "" {
+		query += " WHERE db_type = ?"
+		args = append(args, dbType)
+	}
+	query += " ORDER BY id ASC"
+	rows, err := repository.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list rules: %w", err)
+	}
+	rules := make([]model.Rule, 0)
+	for rows.Next() {
+		rule, err := scanRule(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan rules: %w", closeRowsAfterError(rows, err))
+		}
+		rules = append(rules, rule)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return nil, fmt.Errorf("finish rules: %w", errors.Join(iterationError, closeError))
+	}
+	return rules, nil
+}
+
 // Update replaces mutable rule fields and returns the stored record.
 func (repository *RuleRepository) Update(ctx context.Context, rule model.Rule) (model.Rule, error) {
 	result, err := repository.db.ExecContext(ctx, `

@@ -126,6 +126,17 @@ func TestServeExitCodes(t *testing.T) {
 	}
 }
 
+func TestServeConsoleRequiresAdminPassword(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("LOG_FORMAT", "")
+	t.Setenv("AGENTSQL_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AGENTSQL_ADMIN_PASSWORD", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := fmt.Sprintf(commandConfig, "127.0.0.1:7780", filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db")), 5000)
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	require.Equal(t, 1, run([]string{"serve", "--config", path}, io.Discard, io.Discard))
+}
+
 func zerologForTest(t *testing.T) zerolog.Logger {
 	t.Helper()
 	logger, err := newLogger(io.Discard)

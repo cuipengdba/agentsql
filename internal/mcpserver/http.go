@@ -141,15 +141,29 @@ func NewHTTPHandler(
 	runtime *bootstrap.Runtime,
 	cfg config.Config,
 	logger zerolog.Logger,
+	options ...HTTPOption,
 ) (http.Handler, error) {
-	handler, _, err := newHTTPHandlerWithRegistry(runtime, cfg, logger)
+	handler, _, err := newHTTPHandlerWithRegistry(runtime, cfg, logger, options...)
 	return handler, err
+}
+
+// HTTPOption extends the T15 mux without changing its default routes.
+type HTTPOption func(*http.ServeMux)
+
+// WithAdminAPI mounts the T16 management API below /api/v1/.
+func WithAdminAPI(handler http.Handler) HTTPOption {
+	return func(mux *http.ServeMux) {
+		if handler != nil {
+			mux.Handle("/api/v1/", handler)
+		}
+	}
 }
 
 func newHTTPHandlerWithRegistry(
 	runtime *bootstrap.Runtime,
 	cfg config.Config,
 	logger zerolog.Logger,
+	options ...HTTPOption,
 ) (http.Handler, *agentServerRegistry, error) {
 	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil || runtime.Executors == nil {
 		return nil, nil, fmt.Errorf("create MCP HTTP handler: runtime is incomplete")
@@ -203,6 +217,11 @@ func newHTTPHandlerWithRegistry(
 	mux.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
 		writeHTTPError(writer, http.StatusNotFound, "not found")
 	})
+	for _, option := range options {
+		if option != nil {
+			option(mux)
+		}
+	}
 	return mux, registry, nil
 }
 

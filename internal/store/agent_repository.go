@@ -58,6 +58,35 @@ WHERE id = ?`, id))
 	return agent, nil
 }
 
+// List returns all agents ordered by creation time and ID.
+func (repository *AgentRepository) List(ctx context.Context) ([]model.Agent, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("list agents: %w", ErrNilContext)
+	}
+	rows, err := repository.db.QueryContext(ctx, `
+SELECT id, name, owner, status, api_key_hash, level, expires_at,
+       created_at, updated_at
+FROM agents
+ORDER BY created_at ASC, id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	agents := make([]model.Agent, 0)
+	for rows.Next() {
+		agent, err := scanAgent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agents: %w", closeRowsAfterError(rows, err))
+		}
+		agents = append(agents, agent)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return nil, fmt.Errorf("finish agents: %w", errors.Join(iterationError, closeError))
+	}
+	return agents, nil
+}
+
 // GetByAPIKeyHash returns an Agent by an exact SHA-256 API key digest.
 func (repository *AgentRepository) GetByAPIKeyHash(
 	ctx context.Context,

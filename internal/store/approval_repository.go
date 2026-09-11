@@ -14,6 +14,66 @@ type ApprovalRepository struct {
 	db *sql.DB
 }
 
+type ApprovalPage struct {
+	Total    int64
+	Page     int
+	PageSize int
+	List     []model.Approval
+}
+
+// ListPage returns approvals ordered newest first, optionally filtered by status.
+func (repository *ApprovalRepository) ListPage(
+	ctx context.Context,
+	status string,
+	page int,
+	pageSize int,
+) (ApprovalPage, error) {
+	if ctx == nil {
+		return ApprovalPage{}, fmt.Errorf("list approvals: %w", ErrNilContext)
+	}
+	if page < 1 {
+		return ApprovalPage{}, fmt.Errorf("list approvals: %w", ErrInvalidPage)
+	}
+	if pageSize < 1 || pageSize > 100 {
+		return ApprovalPage{}, fmt.Errorf("list approvals: %w", ErrInvalidPageSize)
+	}
+	where := ""
+	args := make([]any, 0, 1)
+	if status != "" {
+		where = " WHERE status = ?"
+		args = append(args, status)
+	}
+	var total int64
+	if err := repository.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM approvals"+where, args...).Scan(&total); err != nil {
+		return ApprovalPage{}, fmt.Errorf("count approvals: %w", err)
+	}
+	query := `
+SELECT id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
+       created_at, updated_at
+FROM approvals` + where + `
+ORDER BY created_at DESC, id DESC
+LIMIT ? OFFSET ?`
+	selectArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
+	rows, err := repository.db.QueryContext(ctx, query, selectArgs...)
+	if err != nil {
+		return ApprovalPage{}, fmt.Errorf("query approvals: %w", err)
+	}
+	list := make([]model.Approval, 0, pageSize)
+	for rows.Next() {
+		approval, err := scanApproval(rows)
+		if err != nil {
+			return ApprovalPage{}, fmt.Errorf("scan approvals: %w", closeRowsAfterError(rows, err))
+		}
+		list = append(list, approval)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return ApprovalPage{}, fmt.Errorf("finish approvals: %w", errors.Join(iterationError, closeError))
+	}
+	return ApprovalPage{Total: total, Page: page, PageSize: pageSize, List: list}, nil
+}
+
 // Create inserts an approval and returns the stored record.
 func (repository *ApprovalRepository) Create(ctx context.Context, approval model.Approval) (model.Approval, error) {
 	_, err := repository.db.ExecContext(ctx, `

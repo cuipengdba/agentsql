@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/adminapi"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
@@ -147,7 +148,25 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("assemble HTTP runtime: %w", err)
 			}
-			handler, err := mcpserver.NewHTTPHandler(runtime, loaded, logger)
+			var httpOptions []mcpserver.HTTPOption
+			if loaded.Server.ConsoleEnabled {
+				adminUser, adminPassword, credentialError := adminapi.AdminCredentialsFromEnv()
+				if credentialError != nil {
+					return errors.Join(credentialError, runtime.Close())
+				}
+				adminHandler, adminError := adminapi.NewHandler(adminapi.Deps{
+					Runtime:       runtime,
+					Config:        loaded,
+					AdminUsername: adminUser,
+					AdminPassword: adminPassword,
+					TokenKey:      adminapi.DeriveTokenKey([]byte(secret)),
+				}, logger)
+				if adminError != nil {
+					return errors.Join(adminError, runtime.Close())
+				}
+				httpOptions = append(httpOptions, mcpserver.WithAdminAPI(adminHandler))
+			}
+			handler, err := mcpserver.NewHTTPHandler(runtime, loaded, logger, httpOptions...)
 			if err != nil {
 				return errors.Join(err, runtime.Close())
 			}

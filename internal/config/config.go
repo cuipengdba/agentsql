@@ -89,6 +89,9 @@ func Load(path string) (Config, error) {
 	if err := loaded.Validate(); err != nil {
 		return Config{}, fmt.Errorf("validate config %q: %w", path, err)
 	}
+	if !serverConsoleEnabledConfigured(contents) {
+		loaded.Server.ConsoleEnabled = true
+	}
 
 	loaded.Store.SQLitePath = filepath.Clean(loaded.Store.SQLitePath)
 	if err := os.MkdirAll(filepath.Dir(loaded.Store.SQLitePath), 0o750); err != nil {
@@ -96,6 +99,17 @@ func Load(path string) (Config, error) {
 	}
 
 	return loaded, nil
+}
+
+func serverConsoleEnabledConfigured(contents []byte) bool {
+	var document struct {
+		Server map[string]yaml.Node `yaml:"server"`
+	}
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return true
+	}
+	_, configured := document.Server["console_enabled"]
+	return configured
 }
 
 // Validate checks every T01 startup invariant and fails closed on invalid input.

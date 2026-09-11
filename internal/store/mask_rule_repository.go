@@ -96,6 +96,35 @@ ORDER BY table_name ASC, column_name ASC, id ASC`, datasourceID)
 	return rules, nil
 }
 
+// List returns all mask rules ordered by table and column.
+func (repository *MaskRuleRepository) List(ctx context.Context) ([]model.MaskRule, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
+	}
+	rows, err := repository.db.QueryContext(ctx, `
+SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+       created_at, updated_at
+FROM mask_rules
+ORDER BY table_name ASC, column_name ASC, id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list mask rules: %w", err)
+	}
+	rules := make([]model.MaskRule, 0)
+	for rows.Next() {
+		rule, err := scanMaskRule(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan mask rules: %w", closeMaskRuleRowsAfterError(rows, err))
+		}
+		rules = append(rules, rule)
+	}
+	iterationError := rows.Err()
+	closeError := rows.Close()
+	if iterationError != nil || closeError != nil {
+		return nil, fmt.Errorf("finish mask rules: %w", errors.Join(iterationError, closeError))
+	}
+	return rules, nil
+}
+
 // Update replaces mutable mask-rule fields and returns the stored record.
 func (repository *MaskRuleRepository) Update(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
 	result, err := repository.db.ExecContext(ctx, `
