@@ -6,15 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
-	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
@@ -129,26 +130,60 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 
 	command := &cobra.Command{
 		Use:   "serve",
-		Short: "Validate configuration and initialize AgentSQL",
+		Short: "Run the AgentSQL MCP Streamable HTTP server",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			loaded, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("load configuration: %w", err)
 			}
-			metadataStore, err := store.Open(context.Background(), loaded.Store.SQLitePath)
+			secret := os.Getenv("AGENTSQL_SECRET")
+			if len(secret) != 32 {
+				return fmt.Errorf("AGENTSQL_SECRET must contain exactly 32 bytes")
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			runtime, err := bootstrap.Assemble(ctx, loaded, []byte(secret))
 			if err != nil {
-				return fmt.Errorf("open metadata store: %w", err)
+				return fmt.Errorf("assemble HTTP runtime: %w", err)
 			}
-			if err := metadataStore.Close(); err != nil {
-				return fmt.Errorf("close metadata store: %w", err)
+			handler, err := mcpserver.NewHTTPHandler(runtime, loaded, logger)
+			if err != nil {
+				return errors.Join(err, runtime.Close())
 			}
-
+			httpServer := &http.Server{
+				Addr:              loaded.Server.HTTPListen,
+				Handler:           handler,
+				ReadHeaderTimeout: 10 * time.Second,
+			}
 			logger.Info().
 				Str("http_listen", loaded.Server.HTTPListen).
-				Bool("console_enabled", loaded.Server.ConsoleEnabled).
-				Msg("configuration validated")
-			return nil
+				Msg("MCP Streamable HTTP server starting")
+			serveErrors := make(chan error, 1)
+			go func() {
+				serveErrors <- httpServer.ListenAndServe()
+			}()
+			select {
+			case serveError := <-serveErrors:
+				if errors.Is(serveError, http.ErrServerClosed) {
+					serveError = nil
+				}
+				return errors.Join(serveError, runtime.Close())
+			case <-ctx.Done():
+				shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				shutdownError := httpServer.Shutdown(shutdownContext)
+				cancel()
+				var forcedCloseError error
+				if shutdownError != nil {
+					forcedCloseError = httpServer.Close()
+				}
+				serveError := <-serveErrors
+				if errors.Is(serveError, http.ErrServerClosed) {
+					serveError = nil
+				}
+				logger.Info().Msg("MCP Streamable HTTP server stopped")
+				return errors.Join(shutdownError, forcedCloseError, serveError, runtime.Close())
+			}
 		},
 	}
 	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")

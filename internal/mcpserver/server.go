@@ -34,30 +34,63 @@ func NewServer(ctx context.Context, options Options) (*Server, error) {
 	if strings.TrimSpace(options.APIKey) == "" {
 		return nil, fmt.Errorf("create MCP server: API key is required")
 	}
-	if options.Runtime == nil || options.Runtime.Store == nil ||
-		options.Runtime.Pipeline == nil || options.Runtime.Executors == nil {
+	if options.Runtime == nil || options.Runtime.Store == nil {
 		return nil, fmt.Errorf("create MCP server: runtime is incomplete")
 	}
 	agent, err := auth.NewAuthenticator(options.Runtime.Store.Agents()).Authenticate(ctx, options.APIKey)
 	if err != nil {
 		return nil, fmt.Errorf("create MCP server: authentication failed")
 	}
-	switch agent.Level {
-	case "readonly", "dml", "ddl":
-	default:
-		return nil, fmt.Errorf("create MCP server: authenticated Agent has invalid level")
-	}
 	version := strings.TrimSpace(options.Version)
 	if version == "" {
 		version = "dev"
 	}
+	return buildBoundServerWithVersion(
+		agent,
+		options.APIKey,
+		options.Runtime,
+		options.Logger,
+		version,
+	)
+}
+
+func buildBoundServer(
+	agent model.Agent,
+	plainKey string,
+	runtime *bootstrap.Runtime,
+	logger zerolog.Logger,
+) (*Server, error) {
+	return buildBoundServerWithVersion(agent, plainKey, runtime, logger, "dev")
+}
+
+func buildBoundServerWithVersion(
+	agent model.Agent,
+	plainKey string,
+	runtime *bootstrap.Runtime,
+	logger zerolog.Logger,
+	version string,
+) (*Server, error) {
+	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil || runtime.Executors == nil {
+		return nil, fmt.Errorf("build bound MCP server: runtime is incomplete")
+	}
+	if strings.TrimSpace(agent.ID) == "" || agent.Status != "active" {
+		return nil, fmt.Errorf("build bound MCP server: Agent is invalid or inactive")
+	}
+	switch agent.Level {
+	case "readonly", "dml", "ddl":
+	default:
+		return nil, fmt.Errorf("build bound MCP server: Agent level is invalid")
+	}
+	if strings.TrimSpace(plainKey) == "" {
+		return nil, fmt.Errorf("build bound MCP server: API key is required")
+	}
 	sdkServer := mcp.NewServer(&mcp.Implementation{Name: "agentsql", Version: version}, nil)
 	handlers := &toolHandlers{
-		runtime:     options.Runtime,
+		runtime:     runtime,
 		agent:       cloneAgent(agent),
-		apiKey:      options.APIKey,
-		logger:      options.Logger,
-		executorFor: options.Runtime.ExecutorFor,
+		apiKey:      plainKey,
+		logger:      logger,
+		executorFor: runtime.ExecutorFor,
 	}
 	registerTools(sdkServer, handlers)
 	return &Server{sdk: sdkServer, handlers: handlers}, nil

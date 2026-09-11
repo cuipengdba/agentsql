@@ -41,6 +41,9 @@ func TestVersionCommand(t *testing.T) {
 	command = newRootCommand(zerologForTest(t))
 	_, _, err = command.Find([]string{"mcp"})
 	require.NoError(t, err)
+	serve, _, err := command.Find([]string{"serve"})
+	require.NoError(t, err)
+	require.Nil(t, serve.Flags().Lookup("api-key"))
 }
 
 func TestMCPCommandKeepsStdoutCleanOnStartupFailure(t *testing.T) {
@@ -68,27 +71,28 @@ func TestMCPCommandKeepsStdoutCleanOnStartupFailure(t *testing.T) {
 func TestServeExitCodes(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("LOG_FORMAT", "")
-	t.Setenv("AGENTSQL_SECRET", "0123456789abcdef0123456789abcdef")
-
 	tests := []struct {
 		name         string
 		httpListen   string
 		sqlitePath   string
 		timeoutMS    int
+		secret       string
 		expectedExit int
 	}{
 		{
-			name:         "valid configuration",
+			name:         "valid configuration requires secret",
 			httpListen:   "127.0.0.1:7780",
 			sqlitePath:   filepath.ToSlash(filepath.Join(t.TempDir(), "data", "agentsql.db")),
 			timeoutMS:    5000,
-			expectedExit: 0,
+			secret:       "",
+			expectedExit: 1,
 		},
 		{
 			name:         "missing sqlite path",
 			httpListen:   "127.0.0.1:7780",
 			sqlitePath:   "",
 			timeoutMS:    5000,
+			secret:       "0123456789abcdef0123456789abcdef",
 			expectedExit: 1,
 		},
 		{
@@ -96,6 +100,7 @@ func TestServeExitCodes(t *testing.T) {
 			httpListen:   "127.0.0.1:70000",
 			sqlitePath:   filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db")),
 			timeoutMS:    5000,
+			secret:       "0123456789abcdef0123456789abcdef",
 			expectedExit: 1,
 		},
 		{
@@ -103,12 +108,14 @@ func TestServeExitCodes(t *testing.T) {
 			httpListen:   "127.0.0.1:7780",
 			sqlitePath:   filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db")),
 			timeoutMS:    -1,
+			secret:       "0123456789abcdef0123456789abcdef",
 			expectedExit: 1,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("AGENTSQL_SECRET", test.secret)
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			contents := fmt.Sprintf(commandConfig, test.httpListen, test.sqlitePath, test.timeoutMS)
 			require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
