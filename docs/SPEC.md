@@ -725,8 +725,50 @@ stdio 是启动时认证一次、把单个 Agent 绑死在 toolHandlers 字段�
 ### 交付 / 主控验收
 单位无 Go：文本级静态自审（认证与限流都在进 SDK 之前、每 Agent 独立 bound server 且 handler 不共享 Agent 态、context key 不导出不泄漏、401/429/405/400/413/500 路径、secret 只走环境变量、日志全 stderr、stdio 路径零改动语义），注明"未本地编译，需主控 go test -race、httptest 端到端与 50 并发不串号验证"，不跑 go/docker；打 agentsql-in-T15-日期.zip 自证（文件数、zip 晚于源码、大小+SHA-256 前缀），交付说明列出实际用到的 go-sdk Streamable HTTP API 与 x/time 的引用位置。主控：go mod tidy（确认仅 x/time 由 indirect 转 direct、无其他新增）、gofmt/build/vet、`go test -race ./...` 全过且 T14 零回归、httptest 端到端与 50 并发交错不串号、用 curl 真实打一次 HTTP MCP（正确 key 成功、错 key 401、超频 429）。
 
-## T16 管理 REST API（adminapi）
-实现 3.5 全部端点；httptest 覆盖 200/401/400；dashboard.summary 返回前端所需全部聚合（含拦截战报统计）。
+## T16 管理 REST API（internal/adminapi，标准库 net/http，零新增第三方依赖）
+只做本单，不做前端（T17+）。技术选型已定死：**只用 Go 标准库 net/http，不引 gin/echo 等任何框架**；用 Go 1.22+ ServeMux 的方法路由（`mux.HandleFunc("GET /api/v1/agents", h)`）与路径参数（`r.PathValue("id")`）。先读真实签名再写：internal/store 各 Repository、internal/model（storage.go/audit_filter.go）、internal/bootstrap.Runtime、internal/mcpserver/http.go（T15 装配）、internal/config/config.go、cmd/agentsql/main.go 的 newServeCommand。不得凭名字猜字段。
+
+### 16.1 管理端认证（与 /mcp 的 Agent Key 完全两套，互不影响）
+- 凭证只走环境变量，不写进 yaml、不落库：`AGENTSQL_ADMIN_USER`（缺省 `admin`）、`AGENTSQL_ADMIN_PASSWORD`（非空）。比对用 `crypto/subtle.ConstantTimeCompare`，防时序侧信道。
+- `POST /api/v1/auth/login`，请求体 `{username,password}`，成功签发**无状态**管理员 token（不建 sessions 表、不服务端存会话，追求最高性能与最简部署）。token 形态 `base64url(payload).base64url(sig)`：payload=JSON `{iat,exp,jti}`，签名 HMAC-SHA256，签名密钥由 `HMAC-SHA256(AGENTSQL_SECRET, []byte("agentsql-admin-token-v1"))` 派生（不直接用主密钥）；有效期 12 小时；响应 `{token,expires_at}`。用标准库 crypto/hmac、crypto/sha256、encoding/json 实现，禁止引入 jwt 第三方库。
+- `adminAuthMiddleware`：除 `POST /api/v1/auth/login` 外，每个 /api/v1 请求校验 `Authorization: Bearer <admin-token>`：拆分精确（参照 T15 bearerKey 的严格风格，异常空格拒绝）、验签、校验 exp，任一失败统一 401 `{code:401,msg:"unauthorized"}`，不区分原因、不泄漏内部。注意：/mcp 用 T15 的 Agent key 中间件，/api/v1 用本中间件，前缀隔离，绝不能互相放行。
+- `GET /api/v1/auth/me` 返回当前管理员用户名；`POST /api/v1/auth/logout` 无状态下直接返回 ok（客户端丢弃 token；服务端黑名单 v0.1 不做，注释说明留企业版）。
+
+### 16.2 统一响应、分页、入参与安全
+- 成功统一 `{code:0,msg:"ok",data:...}`；失败 `{code:<非0>,msg:<面向用户的安全信息>,data:null}`，HTTP 状态语义化：400 参数格式/分页越界/未知字段、401 未认证、403 不允许（如删内置规则）、404 不存在、409 状态或引用冲突、422 业务校验失败、500 内部错误。
+- 列表分页统一 `{total,page,page_size,list}`；page 默认 1、page_size 默认 20、最大 100，越界 400。
+- 所有 JSON 入参用 `json.Decoder` + `DisallowUnknownFields()`，请求体上限 1 MiB；统一 recover 中间件回 500、堆栈只进 stderr 日志；访问日志走 stderr（method/path/status/耗时/管理员，不记密码/token/SQL）。
+- **出参脱敏铁律**：datasource 任何响应都不含 password_enc 与解密密码，只给 `has_password bool`；agent 响应不含 api_key_hash，明文 key 只在"创建/轮换"当次响应出现一次；任何响应/日志不得出现 AGENTSQL_SECRET、管理员密码、Agent 明文 key（当次新建除外）。
+
+### 16.3 端点全清单（对齐 3.5，全部在 /api/v1 前缀下，除 login 外都要 admin token）
+- agents（先补 `AgentRepository.List(ctx)`，按 created_at 稳定排序）：`GET /agents`、`POST /agents`（level∈readonly/dml/ddl 否则 422，创建即 GenerateAPIKey，明文仅当次返回）、`GET /agents/{id}`、`PUT /agents/{id}`（只改 name/owner/level/status/expires_at，不动 key）、`DELETE /agents/{id}`（该 agent 仍有 policies 时 409、提示先清理，禁止静默级联）、`POST /agents/{id}/rotate-key`（重生成 hash 并返回明文一次，旧 key 立即失效）。
+- datasources（复用现有 CRUD 与 DecryptPassword）：`GET /datasources`、`POST`、`GET/{id}`、`PUT/{id}`、`DELETE/{id}`（仍被 policy 引用时 409）、`POST /datasources/{id}/ping`（只做一次轻量探活 `SELECT 1`，经 bootstrap.Runtime.ExecutorFor 取连接，返回 `{ok,latency_ms}` 或安全错误，不回显 DSN/密码；探活接口以可注入的接口形式声明，测试用 fake，不连真实业务库）。
+- policies：`GET /policies?agent_id=&datasource_id=`（补 `PolicyRepository.List(ctx)` 全量；带 agent 时复用 ListByAgent、带两者复用 ListByAgentAndDatasource）、`POST /policies`、`PUT /policies/{id}`、`DELETE /policies/{id}`；object_type/action/columns 入参校验对齐 T08 口径。
+- rules（补 `RuleRepository.List(ctx, dbType string)`）：`GET /rules?db_type=`、`PUT /rules/{id}`（builtin=1 只允许改 enabled 与 definition 内阈值，禁止改 id/pattern_type）、`POST /rules` 与 `DELETE /rules/{id}` 仅对 builtin=0 开放，对内置规则 403。
+- mask_rules（复用现有 CRUD，补一个全量/按数据源 List，ListByDatasource 已有）：`GET /mask_rules?datasource_id=`、`POST`、`PUT/{id}`、`DELETE/{id}`，algo/sensitive_type 走 mask 包合法值校验。
+- audit（复用 AuditLogRepository.FilteredPage，query 映射 model.AuditFilter：time_start/time_end/agent_id/datasource_id/session_id/mcp_tool/decisions(逗号分隔多值)/stmt_types(多值)/risk_min/risk_max/keyword/object + page/page_size）：`GET /audit` 分页；`GET /audit/export` 同筛选导出 JSONL（Content-Type application/x-ndjson、Content-Disposition attachment、上限 10000 条，超出用 page_size 分批拉取拼接，及时关 rows）。
+- approvals（补 `ApprovalRepository.ListPage(ctx, status string, page, pageSize int)`，按 created_at DESC）：`GET /approvals?status=`、`POST /approvals/{id}/decide`（body `{decision: approve|reject, comment}`，仅 status=pending 可决策否则 409；写入 status/approver(=管理员名)/decided_at；MCP 侧 get_approval_result 轮询自然读到新状态，本单不做主动推送）。
+
+### 16.4 GET /dashboard/summary（严格对齐前端 T18 四区，一次返回快照）
+新增只读聚合（在 store 新建 `dashboard_repository.go`，或给 AuditLogRepository 增加聚合方法；**注意 store 的 SQLite SetMaxOpenConns(1)，每个聚合独立查询、遍历完立即 Close rows，严禁 rows 未关再发起第二个查询**）：
+- `kpi`：total_requests、blocked(decision=deny)、pending_approvals(approvals.status=pending)、active_agents(agents.status=active)、datasources_total（v0.1 无心跳，online=已配置，字段名注明），以及每个计数相对"上一等长窗口"的环比百分比（无前序数据给 null）。
+- `trend_14d`：长度固定 14，每天 `{date(YYYY-MM-DD),total,deny,warn,approve,allow}`，SQL 用 date(ts) 聚合，**无数据的日期由 Go 补 0**，保证前端折线/柱不断点。
+- `decision_distribution`：四态 `[{decision,count}]`，和应等于窗口 total。
+- `risk_top`：按 rule_hits 展开统计高危规则/SQL 类型 Top5（v0.1 对 rule_hits 文本做拆分计数，注释说明口径局限）。
+- `agent_ranking`：被拦次数 Top（agent_id、name、blocked_count，按 blocked 降序）。
+- `battle_report`：`{blocked_count, est_rows_saved=SUM(est_rows) WHERE decision='deny'}`，供前端文案"已拦截 N 次，避免约 X 万行风险"。
+- 聚合全部只读、不依赖真实业务库；窗口默认近 14 天，可被 ?days= 覆盖（限定 1–90）。
+
+### 16.5 装配：与 T15 共存同一端口（对 T15 最小增量、保证零回归）
+- 新建 `internal/adminapi`：handler.go（NewHandler + 路由注册 + 中间件）、auth_token.go（签发/校验）、dto.go（请求/响应结构与脱敏）、dashboard.go（调 store 聚合拼装 summary）、各资源 handler 与 `*_test.go`，doc.go 补包说明。
+- `adminapi.NewHandler(deps Deps, logger) (http.Handler,error)`，Deps 含 *bootstrap.Runtime、config.Config、管理员用户名、token 签名密钥派生结果、以及可注入的 datasource 探活接口（默认实现走 Runtime.ExecutorFor）。
+- **用 functional option 扩展 T15，不改其既有调用方式**：给 mcpserver 增加 `NewHTTPHandler(rt,cfg,logger,opts ...HTTPOption)` 与 `WithAdminAPI(h http.Handler)`，在 T15 的 mux 上 `mux.Handle("/api/v1/", adminHandler)`；不传 option 时 T15 行为、路由与全部测试保持不变（T15 现有 NewHTTPHandler 三参调用与测试零改动，靠变长参数兼容）。/api/v1/* 走 admin，其余仍由 T15 mux 处理（/mcp、/ 404）。
+- cmd serve：从环境读 AGENTSQL_ADMIN_USER/PASSWORD；当 `server.console_enabled=true`（默认 true）时构建 adminHandler 并以 WithAdminAPI 注入；console_enabled=false 时不挂 /api/v1（/mcp 不受影响）。**console 启用但缺 AGENTSQL_ADMIN_PASSWORD 时 serve 必须启动失败、退出码 1（fail-closed）**，并在测试覆盖。
+
+### 16.6 测试（httptest + 内存 SQLite，全部 go test -race 干净；不起真实 PG/MySQL，探活用 fake）
+登录正确 200 拿 token、错密码/缺密码环境 401 或启动失败；无/错/过期 admin token →401，且 /mcp 的 Agent key 不能用来访问 /api/v1、反之亦然；统一响应与分页结构、page_size 越界与未知字段 400；agents CRUD 往返、创建/轮换当次返回明文、之后 GET 不含 hash/明文、非法 level 422、删有策略 agent 409；datasources 响应无密码字段、ping fake 成功/失败两条路径；policies/rules/mask_rules CRUD、内置规则不可删 403；audit 多条件筛选分页与 export 的内容类型/行数上限；approvals decide 状态机（pending→approved/rejected、重复决策 409）；dashboard 灌入构造审计数据后断言 KPI 计数正确、trend_14d 长度恒为 14 且缺日补 0、四态分布之和=total、ranking 降序、est_rows_saved 求和正确。**回归铁律：T15 全部 HTTP/stdio 测试与全包既有测试零回归，`go test -race ./...` 零 FAIL、零 DATA RACE；gofmt/vet 为 0。**
+### 16.7 边界
+不做前端、不做 token 刷新/黑名单/多管理员 RBAC（企业版）、不做 WebSocket 实时推送（T27）、不新增 migration/不改七表 schema、不改 MCP 七工具语义、除标准库外不新增任何第三方依赖、dashboard 与所有 GET 只读。
 
 # 第 5 章 前端与界面（T17-T22，演示驱动设计）
 
