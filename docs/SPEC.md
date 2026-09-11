@@ -682,8 +682,48 @@ E2E（e2e_postgres_test.go，testcontainers 用本地 postgres:16；探测不到
 ### 交付 / 主控验收
 单位无 Go/Docker：文本级静态自审（stdout 纯净、fail-closed、执行类全走 pipeline 无旁路、标识符白名单、错误不泄密、零值字段不改变 T13 行为、ctx 透传、并发无共享可变态），注明"未本地编译，需主控 go test -race 与 SDK in-process 走查 7 工具"，不跑 go/docker；打 agentsql-in-T14-日期.zip 自证（文件数、zip 晚于源码、大小+SHA-256 前缀），交付说明写明 go-sdk 确切版本与实际用到的 SDK 类型清单。主控：go mod tidy（审查新增直接/间接依赖清单）、gofmt/build/vet、`go test -race ./...` 全过零回归、SDK in-process 走通 7 工具；人工用 `npx @modelcontextprotocol/inspector` 连一遍，并在真实 Cursor 完成一次只读成功 + 一次被拒、录屏存档。
 
-## T15 MCP Streamable HTTP
-/mcp 与 adminapi 共用端口；Bearer Key；会话隔离与限流。测试端到端、401、50 并发不串数据。
+## T15 MCP Streamable HTTP（internal/mcpserver/http.go + cmd serve，多租户网关入口）
+
+### 目标与形态
+在 T14 stdio（本地单连接单租户）之外，提供 **MCP Streamable HTTP 传输**：远程 AI 客户端/Agent 平台经 `POST http://host:port/mcp`、带 `Authorization: Bearer asql_xxx` 调用同一套 7 工具。HTTP 是**多租户**的：一个进程同时服务多个 Agent，每个请求携带不同 Key，必须**逐请求实时认证**、身份彼此隔离。本单只做无状态 HTTP MCP 与认证/限流/共用端口骨架；不做管理 REST（T16 挂 /api/v1）、不做前端、不做有状态 SSE 会话与服务端推送。**T14 stdio 的对外行为与全部测试必须零回归。**
+
+### 传输选型（用 go-sdk v1.7.0 已验证的真实 API，不要凭记忆写签名）
+- `mcp.NewStreamableHTTPHandler(getServer func(*http.Request) *mcp.Server, opts *mcp.StreamableHTTPOptions) *mcp.StreamableHTTPHandler`，返回值实现 `http.Handler`。
+- opts 固定：`Stateless: true`（不读写 Mcp-Session-Id、每请求独立临时会话、GET/DELETE 由 SDK 回 405）、`JSONResponse: true`（直接回 application/json，不建立 text/event-stream 长连，最简且利于限流/反代）、`MaxRequestBodyBytes: 4<<20`（4MiB，超限 SDK 回 413）、`PropagateRequestCancellation: true`、`Logger` 传一个丢弃或转 stderr 的 slog（SDK 自身日志不得写 HTTP 响应体之外的业务通道）。
+- SDK 文档明确 "It is OK for getServer to return the same server multiple times"——这是本单"每 Agent 缓存一个 *mcp.Server"方案的依据。
+
+### 多租户身份模型（本单灵魂，必须严格按此实现）
+stdio 是启动时认证一次、把单个 Agent 绑死在 toolHandlers 字段上；HTTP 不能这样做（否则并发请求会串身份）。采用**中间件逐请求认证 + 每 Agent 缓存绑定身份的 Server**：
+1) **抽出可复用构造**：把 T14 `NewServer` 中"认证成功后，按一个已知 Agent 构造 *mcp.Server、注册 7 工具、其 toolHandlers 绑定该 Agent 与明文 key"的部分，重构为包内函数 `buildBoundServer(agent model.Agent, plainKey string, rt *bootstrap.Runtime, logger zerolog.Logger) (*Server, error)`（命名可微调，语义如此），做 level∈{readonly,dml,ddl} 与 runtime 完整性校验、cloneAgent 深拷贝。T14 的 `NewServer` 改为：入参校验 → Authenticator.Authenticate 一次 → buildBoundServer，**行为与 T14 完全一致**；`RunStdio` 不变。
+2) **authMiddleware（标准库 http.Handler 包装，认证在进 SDK 之前）**：从 `Authorization` 头取 `Bearer <key>`（精确匹配前缀，首尾空格 Trim）；无头/方案非 Bearer/key 空/Authenticate 失败/Agent.Status!="active"/level 非法，一律回 `401`、JSON `{"error":"unauthorized"}`，**不区分具体原因、不回内部信息**，且直接 return、不调用下一层（因此不产生审计、不触达任何 executor）。认证通过则把"该 Agent 值 + 明文 key"用**包内不导出的 context key 类型**经 `req = req.WithContext(...)` 注入后再调下一层。
+3) **agentServerRegistry（每 Agent 一个 Server，结构上隔离）**：内部 `sync.RWMutex` + `map[string]*mcp.Server`；键 = `agent.ID + "|" + strconv.FormatInt(agent.UpdatedAt.UnixNano(),10)`（级别/状态/Key 轮换导致 UpdatedAt 变化即自然重建，杜绝快照过期；UpdatedAt 为零值时退化为 agent.ID）。`getOrCreate(agent, plainKey)` 双检锁：命中直接返回，未命中调 buildBoundServer 建并缓存。设缓存条目上限 256，达到上限时清空整张缓存后重建（v0.1 简单策略，注释写明；被清的 Server 由 GC 回收，正在处理的请求因持有自己的引用不受影响）。
+4) **getServer 回调**：`func(r *http.Request)*mcp.Server` 从 `r.Context()` 取中间件注入的 Agent/key（middleware 已保证存在；若缺失属编程错误，返回 nil，由 SDK 回 400，并在 stderr 记 error），调 registry.getOrCreate。**不同 Agent 拿到不同 Server 实例、其 toolHandlers.agent 互不共享，从根上杜绝并发串号；同一 Agent 的同一 Server 被并发回调是安全的（T14 已 -race 验证 handler 无共享可变态）。**
+5) **限流中间件（认证之后、进 SDK 之前）**：每 Agent 一个 `golang.org/x/time/rate.Limiter`，速率取 `cfg.Defaults.QPSPerAgent`（burst 取相同值或 2 倍，注释说明），limiter 随 registry 同生命周期管理（同锁、同键、同清）。`Allow()` 为 false 时回 `429`、JSON `{"error":"rate limited"}`，不进 SDK。`golang.org/x/time` 已是 go-sdk 的传递依赖（go.sum 在 T14 已含 v0.15.0），本单 tidy 后它从 indirect 转 direct，**不属于新增第三方库**；除此之外不得引入任何新依赖（不引 gin 等 web 框架，只用标准库 net/http）。
+6) **其他中间件**：①recover 兜底——defer recover 捕获 panic，回 `500 {"error":"internal error"}`、stderr 记堆栈，**绝不让单个请求 panic 拖垮进程或把堆栈写进响应体**；②访问日志走 stderr（method、path、agent_id、状态码、耗时 ms，不记 SQL 正文与密钥）；③可选 CORS 仅在配置显式开启时加，默认不加。
+
+### 新增 / 改动清单
+1) **internal/mcpserver/http.go（新增）**：
+   - `NewHTTPHandler(rt *bootstrap.Runtime, cfg config.Config, logger zerolog.Logger) (http.Handler, error)`：fail-closed（rt/cfg 不合法返回错误）。内部用 `http.NewServeMux()`：`mux.Handle("/mcp", chain(authMiddleware, rateMiddleware, recoverMiddleware, logMiddleware, sdkHandler))`，其中 sdkHandler = NewStreamableHTTPHandler(getServer, opts)。**预留 `/api/v1` 的挂载位置与注释（T16 实现，本单不挂任何业务）**。非 /mcp 路径回 404 JSON。
+   - 同文件实现 context key、agentServerRegistry、两（或三）个中间件，全部纯函数/小类型、可单测；认证器用 `auth.NewAuthenticator(rt.Store.Agents())`。
+2) **internal/mcpserver/server.go（重构，非重写）**：按上节抽出 buildBoundServer，NewServer/RunStdio 保持 T14 语义；新增代码不改变 stdio 路径。tools.go/handlers.go/schema.go **不改**（HTTP 与 stdio 共用同一套 7 工具 handler，这正是抽出 buildBoundServer 的目的）。
+3) **cmd/agentsql 的 `serve` 子命令（扩展为真正起 HTTP 服务）**：保留既有 config.Load/Validate 语义；secret **只从环境变量 AGENTSQL_SECRET 读、必须恰好 32 字节**（缺/错即报错退出，不进命令行参数）；流程 Load→Assemble→mcpserver.NewHTTPHandler→构造 `&http.Server{Addr: cfg.Server.HTTPListen, Handler: h, ReadHeaderTimeout: 10s}` 并 ListenAndServe；`signal.NotifyContext(Interrupt,SIGTERM)` 触发时先 `httpServer.Shutdown(ctx 10s 超时)` 再 `runtime.Close()` 优雅退出；启动监听地址/停止信息只走 stderr。**serve 不接收 --api-key**（HTTP 每请求自带 Bearer）。version/mcp 子命令与其测试不变。
+4) **examples/mcp/**：新增一份 Streamable HTTP 客户端配置样例（如 `cursor_http_mcp.json`），url 指向 `http://127.0.0.1:8650/mcp`、headers 放 `Authorization: Bearer asql_xxx` 占位，注释提醒生产经 HTTPS 反向代理暴露、真实密钥不得提交。
+5) 不改 7 张表结构；config 复用既有 server.http_listen 与 defaults.qps_per_agent，不新增配置项（CORS 默认关即可，不暴露开关）。
+
+### 测试（httptest + 内存 SQLite，不起 Docker；全部 `go test -race` 干净）
+- 端到端：httptest.NewServer 起 NewHTTPHandler，用裸 HTTP 依次 POST initialize / tools/list / tools/call(list_datasources)（Content-Type: application/json，Accept 含 application/json,text/event-stream，带正确 Bearer），断言 200、tools/list 恰好 7 工具且无 execute_raw_sql、list_datasources 返回本 Agent 授权源的结构化 JSON。
+- 401 矩阵：无 Authorization 头、scheme 非 Bearer、key 错误、Agent 禁用(status 非 active) 四种各回 401、body 恰为 {"error":"unauthorized"} 且无内部信息；用 spy 断言这些请求**零审计写入、executor 零触达**。
+- **多租户不串号（核心验收）**：建 agentA/agentB，分别只授权 ds-a / ds-b；起 50 个 goroutine、用两 key 高并发交替各发多次 list_datasources，-race 下断言每个响应严格只含调用方自己的数据源、A/B 全程零交叉、无 DATA RACE；并断言 registry 最终只建了 2 个 bound server（同 Agent 复用）。
+- 429：把 cfg qps 调到极小，打满 burst 后下一请求 429；405：GET /mcp 回 405；400：畸形 JSON 体回 400；413：超过 4MiB 回 413；非 /mcp 路径 404。
+- 缓存失效：构造 UpdatedAt 不同的同 ID Agent，断言第二次 getOrCreate 新建 server（键变化）；达到上限后清空重建逻辑可测。
+- recover：用一个测试用注入 handler 触发 panic，断言回 500、进程不崩、响应体无堆栈。
+- 回归：T14 stdio 全部用例（含 sdk_inprocess_test、stdout 纯净、fail-closed）与既有全包零回归。
+
+### 边界
+不做管理 REST 与"从库加载规则开关/阈值"（T16：本单 pipeline 仍不传 WithRuleLayers，用代码默认 21 规则）；不做有状态会话/SSE 长连/服务端主动通知（选 stateless）；不做 TLS 终止与证书（由 Nginx/Caddy 等反代负责，样例注释注明生产必须 HTTPS）；不做前端、不改表结构、不改 7 工具语义；除把已在依赖图的 golang.org/x/time 转为直接依赖外，不新增任何第三方库。
+
+### 交付 / 主控验收
+单位无 Go：文本级静态自审（认证与限流都在进 SDK 之前、每 Agent 独立 bound server 且 handler 不共享 Agent 态、context key 不导出不泄漏、401/429/405/400/413/500 路径、secret 只走环境变量、日志全 stderr、stdio 路径零改动语义），注明"未本地编译，需主控 go test -race、httptest 端到端与 50 并发不串号验证"，不跑 go/docker；打 agentsql-in-T15-日期.zip 自证（文件数、zip 晚于源码、大小+SHA-256 前缀），交付说明列出实际用到的 go-sdk Streamable HTTP API 与 x/time 的引用位置。主控：go mod tidy（确认仅 x/time 由 indirect 转 direct、无其他新增）、gofmt/build/vet、`go test -race ./...` 全过且 T14 零回归、httptest 端到端与 50 并发交错不串号、用 curl 真实打一次 HTTP MCP（正确 key 成功、错 key 401、超频 429）。
 
 ## T16 管理 REST API（adminapi）
 实现 3.5 全部端点；httptest 覆盖 200/401/400；dashboard.summary 返回前端所需全部聚合（含拦截战报统计）。
