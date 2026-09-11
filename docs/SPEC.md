@@ -780,7 +780,88 @@ stdio 是启动时认证一次、把单个 Agent 绑死在 toolHandlers 字段�
 - 统一封装组件：PageContainer、StatCard、DecisionTag、RiskTag、SQLBlock、FilterBar、EmptyState、StageFlow(六段流)。
 
 ## T17 前端骨架 + 双主题
-Vite+React18+TS+AntD5+ECharts+framer-motion+axios+zustand+router；登录页（深色居中+slogan+subtle 网格背景，禁用 AntD 默认页）；左侧深色导航+顶栏布局与路由；axios 拦截器带 token/统一报错；主题变量与切换器（dark/light，持久化）；web/dist 由后端 go:embed。验收 npm run build、登录进空总览、刷新不掉线。
+
+### 17.1 目标与边界
+搭起控制台的"可运行骨架"并由后端单端口内嵌：能登录、能看到左侧导航+顶栏布局、能在各菜单页之间切换、刷新不掉线、深/浅主题可切换并持久化；为 T18-T22 预留好路由、菜单、API 层、统一组件与主题令牌。**本单只做骨架与登录闭环，不实现 T18 大屏图表、T19 StageFlow、T20 审计表格、T21 演示台、T22 配置业务逻辑**（这些页面本单只建"占位页"）。后端只新增"内嵌静态资源 + SPA 回退"，**T14 stdio、T15 HTTP MCP、T16 管理 API 的行为与全部测试零回归**。
+
+### 17.2 工程与版本（钉死，禁止浮动升级大版本）
+- 位置：前端源码全部在仓库根 `web/`；构建产物输出到 `internal/webui/dist` 由 Go 内嵌（go:embed 不能跨 `..`，故产物必须落在 embed.go 同级 dist）。
+- 技术栈：Vite5 + React18 + TypeScript 严格模式 + Ant Design 5 + react-router-dom v6 + axios + zustand v4；ECharts5、framer-motion、@ant-design/icons 本单装进 package.json 但**不实际使用**（T18/T19 才用，本单只需保证装得上、build 得过）。**禁止引入 Tailwind、styled-components、redux、react-query、@reduxjs、dayjs 之外的日期库等任何额外依赖。**
+- 固定版本（package.json 一律写死精确版本，**不许用 `^`/`~` 浮动**，避免主控端 npm install 解析到 React19/antd6/router7/zustand5 等不兼容大版本）：
+  - dependencies：`react@18.3.1` `react-dom@18.3.1` `antd@5.21.6` `@ant-design/icons@5.5.1` `react-router-dom@6.26.2` `axios@1.7.7` `zustand@4.5.5` `echarts@5.5.1` `framer-motion@11.5.4`（antd 自带 dayjs，不另装）
+  - devDependencies：`vite@5.4.8` `@vitejs/plugin-react@4.3.1` `typescript@5.6.2` `@types/react@18.3.5` `@types/react-dom@18.3.0`
+- scripts：`dev`(vite)、`build`(`tsc --noEmit && vite build`)、`preview`、`typecheck`(`tsc --noEmit`)。
+- `vite.config.ts`：`@vitejs/plugin-react`；`base:'/'`；`build.outDir='../internal/webui/dist'`、`emptyOutDir:true`；`server.port=5173`，`server.proxy` 把 `/api` 与 `/mcp` 反代到 `http://127.0.0.1:7780`（changeOrigin:true），实现 `npm run dev` 前后端联调。
+- `tsconfig.json` 开 `strict`、`noUnusedLocals`、`noUnusedParameters`、`noImplicitReturns`，`moduleResolution:'bundler'`、`jsx:'react-jsx'`、`target:'ES2021'`、路径别名 `@ -> web/src`（同时配 vite alias 与 tsconfig paths）。
+- index.html：`<html lang="zh-CN">`、`<title>AgentSQL 智盾控制台</title>`、挂载点 `#root`，不引任何 CDN（内网/离线可用）。
+
+### 17.3 目录与文件清单（按此创建，命名固定）
+```
+web/
+  package.json  tsconfig.json  tsconfig.node.json  vite.config.ts  index.html
+  src/
+    main.tsx                 # 挂载 React、包 ConfigProvider(主题) + RouterProvider
+    App.tsx                  # 路由表：/login 与受保护布局路由
+    vite-env.d.ts
+    routes/menu.tsx          # 菜单+路由单一配置源(key/path/label/icon/element)
+    theme/tokens.ts          # 5.1 色板/字号/圆角等设计令牌(深+浅两套)
+    theme/useThemeStore.ts   # zustand persist：'dark'|'light'，默认 dark，写 localStorage
+    store/authStore.ts       # zustand persist：token/expires_at/username + login/logout
+    api/client.ts            # axios 实例 + 请求/响应拦截器 + 泛型 request
+    api/types.ts             # ApiResponse<T>、PageResp<T>（snake_case，对齐 T16 出参）
+    api/{auth,agents,datasources,policies,rules,maskRules,audit,approvals,dashboard}.ts
+    layouts/MainLayout.tsx   # 左侧深色 Sider + 顶栏 + <Outlet/>
+    layouts/AuthGuard.tsx    # 路由守卫：无有效 token -> /login
+    components/PageContainer.tsx       # 统一页容器(标题/副标题/内容区)
+    components/PlaceholderPage.tsx     # T18-T22 占位页("本模块 Txx 交付")
+    pages/Login.tsx
+    pages/{Overview,Audit,Playground,Agents,Datasources,Policies,Rules,Approvals,MaskRules,NotFound}.tsx
+internal/webui/
+  embed.go                   # //go:embed all:dist + SPA Handler
+  dist/index.html            # 手写最小占位(保证未 npm build 时 go build 也能过)，主控 build 后覆盖
+```
+
+### 17.4 主题系统（默认深色作战主题）
+- `theme/tokens.ts` 固化 5.1 色板：深色背景 `#0d1421/#142033/#1c2b42`、描边 `#2a3b55`；品牌青蓝 浅 `#1677ff`/深 `#3b9eff`；语义 放行`#52c41a` 告警`#faad14` 审批`#fa8c16` 拦截`#f5222d`；字体 中文系统黑体栈、SQL/数字等宽 `JetBrains Mono, Consolas, monospace`。
+- 用 AntD5 `ConfigProvider` + `theme.darkAlgorithm/defaultAlgorithm` 切换；同时把品牌色/语义色注入 `:root` CSS 变量供自定义组件用。`useThemeStore` 用 zustand `persist` 存 localStorage key `agentsql.theme`，**默认 dark**；顶栏放切换器（图标按钮 Moon/Sun），切换即时生效、刷新保持。
+- 全局做一层背景：深色时整页 `#0d1421`、内容卡片 `#142033`+1px `#2a3b55` 描边、克制无重阴影；浅色 `#f5f7fa`。
+
+### 17.5 登录页与认证态（门面第一印象，禁用 AntD 默认登录页）
+- 路由 `/login`，**深色居中卡片**：居中产品标识"AgentSQL 智盾"、slogan"AI 原生数据库安全网关 · 让每一次模型访问都可控、可审计"、用户名/密码输入框、登录按钮（loading 态）、整页 subtle 网格背景（**纯 CSS 渐变/linear-gradient 网格线实现，不引图片、不引 Lottie**）。
+- 提交调 `POST /api/v1/auth/login`（body `{username,password}`）；成功后把 `data.token`、`data.expires_at` 存 authStore，并调一次 `GET /api/v1/auth/me` 取 username 存档，跳 `/`；失败用 antd message 显示后端 msg，不弹原生 alert。
+- authStore（zustand+persist，localStorage key `agentsql.auth`）暴露 `token/username/expiresAt/isAuthenticated/login()/logout()/clear()`；**token 只存 localStorage，不写 cookie、不打 console.log、不放 URL**。
+
+### 17.6 布局、路由与守卫
+- MainLayout：左侧深色 Sider（可折叠，logo 区"AgentSQL 智盾"，菜单由 `routes/menu.tsx` 单一配置驱动，图标用 @ant-design/icons），菜单项与路由**一次性铺齐 T18-T22**：总览 `/`(DashboardOutlined)、审计 `/audit`(FileSearchOutlined)、演示台 `/playground`(ExperimentOutlined)、Agent `/agents`(RobotOutlined)、数据源 `/datasources`(DatabaseOutlined)、权限 `/policies`(SafetyOutlined)、规则 `/rules`(FilterOutlined)、审批 `/approvals`(AuditOutlined)、脱敏 `/mask-rules`(EyeInvisibleOutlined)。
+- 顶栏：左侧折叠按钮+当前页面名，右侧主题切换器、当前管理员 username（来自 authStore/me）、退出按钮（调 `POST /api/v1/auth/logout`，无论成败都清本地登录态并回 /login）。
+- AuthGuard：受保护路由包在 MainLayout 下；`!isAuthenticated`（无 token 或已过 expires_at）重定向 `/login`；已登录访问 `/login` 重定向 `/`；`*` 回 NotFound。**刷新页面从 localStorage 恢复登录态不掉线**；应用启动时若有 token 则静默 GET /auth/me 校验，401 即 clear 并跳登录。
+- T17 除 Login/Overview 外，其余 9 个页面统一用 PlaceholderPage（显示页面名+"建设中，将在 T18-T22 交付"），保证菜单可点、路由可达、不报错；Overview 放一张欢迎卡 + 调 /auth/me 显示"当前管理员：xxx"，证明鉴权链路通。
+
+### 17.7 axios 客户端与 API 层
+- `api/client.ts`：`axios.create({baseURL:'/api/v1', timeout:15000})`；请求拦截器自动加 `Authorization: Bearer <token>`；响应拦截器统一解包——后端体形如 `{code,msg,data}`，HTTP 2xx 且 `code===0` 返回 `data`，否则 reject 一个带 msg 的 Error；HTTP 401 一律清登录态并跳 `/login`；其余非 2xx/业务错误用 antd `message.error(msg)` 统一提示（返回 422 校验错误时透传 msg）。导出泛型 `request<T>(...)`，所有 api 模块强类型返回 `Promise<T>`。
+- `api/types.ts` 按 T16 出参定义 `ApiResponse<T>`、`PageResp<T>{total:number;page:number;page_size:number;list:T[]}` 及各 View 的 **snake_case** TS 接口（AgentView 含 api_key 仅创建时、DatasourceView 用 has_password 无密码、AuditView/ApprovalView/PolicyView/RuleView/MaskRuleView/DashboardSummary 字段对齐 internal/adminapi/dto.go 与 internal/store/dashboard_repository.go 的 json tag——**先读这些 Go 文件照抄 json 名，禁止凭空造字段**）。
+- 本单只把 `auth.ts`（login/me/logout）接到真实后端；agents/datasources/policies/rules/maskRules/audit/approvals/dashboard 这 8 个模块**只定义函数签名、入参/返回类型和正确路径（路径严格照抄 17.8 后端 32 路由），函数体写好 request 调用但页面暂不调用**，保证 tsc 零错误，留给 T18/T22 联调。
+
+### 17.8 后端内嵌（go:embed + SPA 回退，对 T14/T15/T16 零回归）
+- 新增 `internal/webui/embed.go`：`//go:embed all:dist` 嵌入 `dist` 子树；导出 `func Handler() (http.Handler, error)`，用 `http.FS` 提供静态文件，并实现 **SPA 回退**：请求路径在 dist 中存在对应文件（如 `/assets/index-xxx.js`）则返回该文件；不存在的非 API 路径（前端路由如 `/audit`）一律 200 返回 `dist/index.html`，交给 react-router。给 index.html 加 `Cache-Control: no-cache`、带哈希的 `/assets/*` 加长缓存（T17 可简化，T24 精修）。
+- **embed 铁律**：`//go:embed all:dist` 要求编译时 `internal/webui/dist` 目录存在且非空，否则 `go build ./...` 直接失败。因此必须随代码**手写提交一个最小 `internal/webui/dist/index.html` 占位页**（"AgentSQL console building…"），主控端 `npm run build` 会用真实产物覆盖它。
+- `internal/mcpserver/http.go` 仿 T16 的 `WithAdminAPI` 再加一个 functional option `WithWebConsole(handler http.Handler) HTTPOption`，在 newHTTPHandlerWithRegistry 里 `mux.Handle("/", webHandler)`（仅当 option 非 nil）。Go1.22 ServeMux 中 `/mcp`、`/api/v1/` 比 `/` 更具体、优先匹配，因此**前端兜底绝不拦截 MCP 与管理 API**；不传 option 时（如测试）行为与现在完全一致。
+- `cmd/agentsql/main.go` 的 serve：构建 webui.Handler 并追加 `mcpserver.WithWebConsole(...)` 到 httpOptions（与 WithAdminAPI 并列；console_enabled 关闭时不挂管理 API，但静态控制台是否挂载跟随同一开关或单独常量——本单统一为：console_enabled=true 时同时挂管理 API 与控制台静态资源）。stdio 命令 `agentsql mcp` 不起 HTTP、不涉及前端，保持不变。
+- 给 webui 写单元测试：命中存在资源返回 200 且 Content-Type 正确；前端路由路径回退到 index.html(200)；不与 /api、/mcp 冲突的判断由 mcpserver 既有测试保证。
+
+### 17.9 单位端（Codex）硬约束——无 Node 环境
+- 单位机**没有 Node/npm/npx/tsc，严禁运行 `npm install`、`npm run build`、`npx create-vite`、`tsc` 等任何命令**（必失败，不要反复重试、不要因此改设计）；也**不要生成 package-lock.json**（锁文件由主控端 npm install 后生成提交）。
+- 只交付：全部前端源码文本、package.json（版本写死）、配置文件、Go 的 embed.go/option/cmd 改动、手写占位 `internal/webui/dist/index.html`。
+- 必须做**严格文本级静态自审**：TS 类型闭合、import 路径与别名一致、AntD5/v6 Router/zustand4/axios 的 API 用法正确（注意 antd5 不再需要 import 'antd/dist/xxx.css'、RouterProvider/createBrowserRouter 或 `<BrowserRouter>` 二选一并自洽、zustand4 persist 写法），交付说明里明确写"**未本地构建，需主控端执行 npm install + npm run build 验证**"。
+
+### 17.10 主控端验收门（豆包本机执行，Codex 不做）
+1. `cd web && npm install`（首次生成并提交 package-lock.json）→ `npm run typecheck` 0 错 → `npm run build` 成功，产物确实落到 `internal/webui/dist`（index.html + assets/，占位被覆盖）。
+2. 后端 `gofmt -l` 空、`go vet ./...`=0、`go build ./...`=0；`go test -race ./...` 全绿，T14/T15/T16 零回归，新增 webui 测试通过。
+3. 真实 serve 黑盒：`GET /` 返回构建后 index.html(200)；`GET /assets/<hash>.js` 200；`GET /audit` 这类前端深链也回 index.html(200)；`GET /api/v1/auth/me` 无 token 仍 401、`POST /mcp` 不受 `/` 兜底影响。
+4. 浏览器手测（用户肉眼确认门面）：登录页深色网格质感；admin/Admin@12345 登录进总览并显示当前管理员；左侧菜单逐页可切；F5 刷新不掉线；深/浅主题切换后刷新仍保持；退出回登录页；未登录直接访问 /agents 被重定向到 /login。
+
+### 17.11 本单明确不做
+不做任何 ECharts 图表/动画（只装依赖）；不接 agents/datasources 等业务数据渲染（只留强类型 API 函数）；不做 StageFlow；不做登录页以外的精致视觉（T18/T20 精修）；不做用户/多管理员/RBAC/SSO；不引任何 17.2 之外的依赖；不改七表、不改 MCP 七工具语义、不改 T16 已冻结的响应契约。
 
 ## T18 总览大屏（深色作战中心，门面，精做）
 四区：①顶部 5 张 KPI（总请求/拦截(红)/待审批/活跃 Agent/在线数据源，数字滚动+环比）；②左 2/3 近14天请求柱+拦截红线双轴 ECharts，右 1/3 决策占比环图；③实时风险事件流（30s 轮询，新事件顶部滑入，拦截红色高亮 2s）；④拦截战报卡片（"已拦截 N 次，避免约 X 万行风险"，数据来自 summary）+ Agent 被拦排行 + 高危 SQL 类型 Top5。控件：时间范围、自动刷新开关、主题切换、全屏。空/载/错三态齐全。
