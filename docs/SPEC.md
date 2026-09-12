@@ -924,8 +924,90 @@ internal/webui/
 ### 18.13 本单明确不做
 不做 T19 StageFlow、不改审计/配置等其它页面（仍保持 T17 占位）；不做自定义日期区间选择器（只 7/14/30 快捷段）；不做 WebSocket/SSE 全局推送（T27+）；不做导出/PDF；不新增依赖、不改 Go、不改七表与 T16 契约；不向后端写数据（总览是只读页）。
 
-## T19 六段安检流组件 StageFlow（灵魂，先做单条播放版）
-横向六节点 Parse→Auth→Guard→Decide→Execute→Audit，发光点沿连线移动，逐节点亮起显示结论与耗时（数据来自 Assessment.StageLatency/Hits）；放行最终变绿显示行数，拦截在问题节点变红、流动中断、轻微震动并弹出判词与 suggestion。SVG/framer-motion 轻量实现，不引重型库；导出为可复用组件，供 T20 详情与 T21 演示台调用。v0.1 不做全局 WebSocket 流（T27 后置）。
+## T19 六段安检流组件 StageFlow（灵魂组件·单条受控播放版）
+
+### 19.1 目标与定位
+做一个**可复用、受控、零后端依赖**的"一条 SQL 如何被层层把关"动画组件 StageFlow：发光点沿六段流水线从左向右推进，逐段点亮、显示结论与耗时，最终按四态+错误收束。它是 T20 审计详情抽屉、T21 拦截演示台共同复用的核心叙事组件，也是给客户/同行讲产品价值最直观的一块。本单**只做前端组件 + 一个静态样例自测区**，不联任何后端接口（"只校验不执行返回 Assessment"的 HTTP 接口 T21 才由后端补，本单不碰 Go）。
+
+### 19.2 六节点与后端八阶段映射（顺序钉死，必须与 T13 真实执行顺序一致）
+后端 T13 Process 是八阶段、StageLatency 的 key 固定为 `auth/load/parse/guard_static/guard_dynamic/execute/redact/audit`（见 internal/pipeline/types.go）。**安全语义是"先鉴权后解析"（认证失败不解析、不连库），因此前端节点顺序绝不能写成 Parse→Auth**。统一收敛为六节点，展示顺序与映射如下，组件内写死、不允许调用方乱序：
+
+| # | StageKey | 中文 | 图标语义 | 合并的后端 StageLatency | 含义 |
+|---|---|---|---|---|---|
+| 1 | `auth` | 鉴权 | 钥匙/盾牌 | `auth`+`load` | 校验 Agent API Key、加载数据源与权限策略 |
+| 2 | `parse` | 解析 | 代码/括号 | `parse` | SQL→AST，畸形/多语句在此 fail-closed |
+| 3 | `guard` | 安检 | 滤网 | `guard_static`+`guard_dynamic` | 静态规则第一闸 + 只读 EXPLAIN 动态第二闸 |
+| 4 | `decide` | 决策 | 天平 | 无（逻辑节点，耗时记 0、显示"—"） | 按 deny>approve>warn>allow 定最终四态 |
+| 5 | `execute` | 执行 | 闪电/圆柱 | `execute` | 仅 allow/warn 受控执行；deny/approve 绝不触库 |
+| 6 | `audit` | 留痕 | 文档/对勾 | `redact`+`audit` | 结果集脱敏、同步审计落库（**拦截/报错也照样留痕**） |
+
+节点耗时为所合并 key 之和，缺 key 按 0；`decide` 不显示耗时。提供纯函数 `adaptAssessment` 把未来后端 Assessment（Decision/Hits/StageLatency/EstScanRows）映射成本组件数据，T21 直接复用。
+
+### 19.3 受控数据契约（components/stageflow/types.ts，严格 TS、禁 any）
+```ts
+export type StageKey = 'auth'|'parse'|'guard'|'decide'|'execute'|'audit';
+export type StageStatus = 'pending'|'active'|'pass'|'warn'|'block'|'skip'|'locked';
+export type FlowDecision = 'allow'|'warn'|'approve'|'deny'|'error';
+export interface StageStep { key: StageKey; label: string; status: StageStatus;
+  latencyMs?: number; note?: string; }
+export interface StageVerdictData { ruleId?: string; title?: string;
+  message: string; suggestion?: string; risk?: number; }
+export interface StageFlowData {
+  decision: FlowDecision;
+  steps: StageStep[];          // 必须且仅 6 个,顺序同 19.2
+  blockAt?: StageKey;          // 拦截/错误中止节点
+  verdict?: StageVerdictData;  // 拦截/审批判词
+  rowsReturned?: number;       // 放行返回行数
+  totalLatencyMs?: number;
+  errorMsg?: string;
+}
+export interface StageFlowProps {
+  data: StageFlowData;
+  autoPlay?: boolean;          // 默认 true
+  replayKey?: number|string;   // 变化即从头重播
+  dense?: boolean;             // T20 抽屉紧凑态
+  onStepChange?: (key: StageKey, index: number) => void;
+  onFinish?: (decision: FlowDecision) => void;
+}
+```
+
+### 19.4 节点状态机与视觉（颜色一律取 theme/tokens 与 constants/labels，禁散落硬编码色值）
+- `pending` 未到：灰、低饱和、连线未点亮；`active` 进行中：品牌色描边脉冲发光、流动点恰好到达；`pass` 通过：绿勾；`warn` 告警通过：黄/橙感叹号；`block` 命中拦截/错误：红叉 + 轻微左右震动；`skip` 未执行：灰虚线 + "未执行"；`locked` 待审批解锁：橙虚线 + 小锁。
+- 每个节点：圆形/圆角图标 + 中文节点名 + 一行 `note` 小字 + 耗时（`1.2ms`，decide 与无耗时显示"—"）。节点间用 SVG 连线，已走过段着色、未走段灰。
+
+### 19.5 播放时序与动画（framer-motion + 轻量 SVG，禁 lottie/gsap/d3 等重型库）
+- autoPlay 后从 steps[0] 起：节点先 active，一个发光圆点沿该节点到下一节点的连线移动；单段停留时长 `clamp(round(latencyMs),300,900)`，无 latency 用 360ms，保证总时长可控、不被真实耗时拖慢。
+- 走到 `blockAt`：该节点 active→block、震动一次（x 方向 3 次小幅位移、0.25s 内结束）、流动点停在此处不再前进；其后节点**不再播放流动动画**，直接按 steps 给定终态渲染（见 19.6）。
+- 全部 pass：末端汇总"返回 N 行 · 总耗时 X ms"。提供"重播"按钮（也可由 replayKey 触发）；组件卸载必须清理所有 rAF/setTimeout/订阅，切走页面无残留定时器、无 setState after unmount。
+
+### 19.6 五种终态表现（stageSamples 各做一个，全部要能播）
+- **allow 放行**：六节点依次转绿，末端绿色"已放行 · 返回 128 行"。
+- **deny 拦截（静态规则命中，blockAt=guard）**：auth/parse 绿 → guard 变红震动、流动中断 → decide 静态标红"拦截" → execute=skip 灰锁（**零触库**）→ audit 仍 pass（留痕这次拦截，体现"拦截也审计"）；下方 StageVerdict 显示 R002 中文名+判词+改写建议。
+- **approve 转人工审批（blockAt=decide）**：guard 黄 → decide 橙"转人工审批" → execute=locked 橙锁（待审批后才执行）→ audit pass（已落审批待办）；verdict 显示 R004 大范围扫描审批。
+- **warn 告警放行**：整条走完，guard/decide 为 warn 黄，execute/audit 绿，末端"已放行，请注意结果集规模"。
+- **error 错误（blockAt=parse）**：auth 绿 → parse 红震动显示 errorMsg，其后全部 skip，audit 记录该错误。
+
+### 19.7 判词卡 StageVerdict
+独立组件，输入 StageVerdictData：顶部风险色条 + 规则徽标（ruleId 经 `getRuleMeta` 出中文名，查不到回退原 id）+ 判词 message + "改写建议" suggestion（有则展示、前置灯泡图标）；deny 红、approve 橙、error 灰红三色系，供 T20/T21 复用。
+
+### 19.8 响应式 / 主题 / 无障碍
+- 宽屏横向六节点一条线；容器宽度不足（断点可参考 lg）自动转纵向时间线（节点在上、连线竖向），不得横向溢出或重叠；用 ResizeObserver 跟随侧栏折叠与窗口变化重排。
+- 监听 useThemeStore.mode，深/浅主题下节点、连线、文字都清晰、对比度足够。
+- 读取 `prefers-reduced-motion: reduce`，命中则关闭流动与震动、直接按终态顺序呈现（无障碍降级）；图标同时配合文字与颜色，不只靠颜色区分状态。
+
+### 19.9 文件清单（只在 web/src 内新增/修改）
+- 新增 `components/stageflow/types.ts`、`stageNodes.tsx`（六节点元数据与固定顺序、图标）、`adaptAssessment.ts`（八阶段→六节点纯映射 + Hits→verdict + 终态推断，导出可被 T21 直接调用的纯函数并在文件内给少量断言性注释样例）、`StageFlow.tsx`（主组件，含 SVG 连线/流动点）、`StageVerdict.tsx`、`stageSamples.ts`（19.6 五个静态样例，数据要真实可信、SQL 与判词贴合内置规则语义）。
+- 修改 `pages/Playground.tsx`：把 T17 占位替换为"StageFlow 组件预览（自测）"区——顶部样例切换（放行/拦截/审批/告警/错误五个按钮或 Segmented）+ 重播，中间渲染 `<StageFlow data={sample}/>`，下方展示该样例对应的 StageFlowData JSON（折叠 `<details>`，便于主控核对）；**页面顶部用 Alert 注明"组件预览·T21 将接入真实模拟 AI 请求"**。
+- 复用 `constants/ruleMeta.ts`、`constants/labels.ts`、`theme/tokens`、`components/PageContainer`；其余 8 个页面与 T18 大屏一律不动。
+
+### 19.10 静态自审铁律（单位无 Node/Go，同 T17/T18）
+严禁 npm/npx/tsc/build/go 命令（必失败、勿重试、不改设计）；不改 package.json、不新增任何依赖（framer-motion 11.5.4 已装、图标用 @ant-design/icons）；不改任何 Go、不改七表。TS strict 零 any、零未用变量、`@/` 别名导入；所有动画定时器/监听器/Observers 卸载清理；null/undefined/缺 latency/缺 verdict 全部兜底不崩。交付开头注明"未本地构建，需主控 typecheck+build 验证"。
+
+### 19.11 主控验收门
+npm typecheck/build 0 错且产物落 internal/webui/dist；Go 零改动、`go test -race ./...` 零回归；起 serve 在浏览器"演示台"菜单（Playground 预览区）逐个播放五个样例：放行全绿显行数、deny 在 guard 红震中断且 execute 灰锁、approve 在 decide 橙锁、warn 黄、error 在 parse 红；重播可用、切样例不串状态、窄屏转纵向、深浅主题清晰、开 reduced-motion 直接呈终态；卸载无泄漏、控制台零报错；动效达到"给客户讲一条 SQL 怎么被层层拦下"的演示级质感（用户肉眼拍板）。
+
+### 19.12 本单明确不做
+不改 Go、不加后端校验/explain 接口（T21）、不持久化 StageLatency 到七表（v1.x 再议）；不做 T20 审计表格与详情抽屉、不做 T21 的 SQL 输入框/6 剧本真实业务/调接口（本单 Playground 仅静态样例预览，T21 重构该页）；不做 WebSocket/SSE 全局实时流（T27+）；不引 lottie/gsap/d3 等新依赖；不动其余 8 个页面与 T18 大屏；不做多条请求并发流或全局拓扑图。
 
 ## T20 审计页 + 证据链时间线（门面，精做）
 多条件筛选栏（时间/Agent/数据源/决策/风险/语句类型/对象/关键词，可折叠）+ 虚拟滚动表格（时间|Agent|数据源|类型|决策Tag|风险|SQL摘要|预估行|行数|耗时|会话）；右侧详情抽屉按"调查报告"排：基本信息、StageFlow 时间线（复用 T19）、SQL 原文/归一化双栏高亮、命中规则判词卡片、EXPLAIN 可视化（扫描行/索引/成本徽标）、脱敏样例；导出 JSONL；PDF 合规报告按钮先占位(T27)。验收灌入 1 万行流畅、字段完整、可导出。
