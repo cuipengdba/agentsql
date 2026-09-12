@@ -864,7 +864,65 @@ internal/webui/
 不做任何 ECharts 图表/动画（只装依赖）；不接 agents/datasources 等业务数据渲染（只留强类型 API 函数）；不做 StageFlow；不做登录页以外的精致视觉（T18/T20 精修）；不做用户/多管理员/RBAC/SSO；不引任何 17.2 之外的依赖；不改七表、不改 MCP 七工具语义、不改 T16 已冻结的响应契约。
 
 ## T18 总览大屏（深色作战中心，门面，精做）
-四区：①顶部 5 张 KPI（总请求/拦截(红)/待审批/活跃 Agent/在线数据源，数字滚动+环比）；②左 2/3 近14天请求柱+拦截红线双轴 ECharts，右 1/3 决策占比环图；③实时风险事件流（30s 轮询，新事件顶部滑入，拦截红色高亮 2s）；④拦截战报卡片（"已拦截 N 次，避免约 X 万行风险"，数据来自 summary）+ Agent 被拦排行 + 高危 SQL 类型 Top5。控件：时间范围、自动刷新开关、主题切换、全屏。空/载/错三态齐全。
+
+### 18.1 目标与边界
+把 T17 的 Overview 占位页替换为"深色作战中心"总览大屏，这是产品截图、宣讲、Demo 的第一门面，视觉必须达到"可直接截图发技术群/放进 PPT"的水准。**纯前端单：只改 `web/src`，不改任何 Go 代码、不改七表、不改 T16 已冻结响应契约、不动其它 8 个页面**。ECharts 与 framer-motion 在 T17 已装好，本单第一次真正使用，**禁止新增任何 npm 依赖**（不引 echarts-for-react、recharts、dayjs、number-animated 等，数字滚动用 framer-motion 或原生 requestAnimationFrame 自写 hook）。
+
+### 18.2 数据来源（严格对齐 T16，字段名照抄 web/src/api/types.ts，禁止臆造）
+- 主快照：`getDashboardSummary(days)` → `GET /api/v1/dashboard/summary?days=N`（N∈{7,14,30}，默认 14，后端合法区间 1–90），返回 `DashboardSummary{kpi,trend_14d,decision_distribution,risk_top,agent_ranking,battle_report}`。**注意 trend_14d 是历史命名，实际长度=days（后端已按天补零、日期升序），直接按返回数组渲染，不要写死 14 个槽位。**
+- 实时事件流：`listAudit({page:1,page_size:20})` → `GET /api/v1/audit?...`，返回 `PageResp<AuditView>`，取 `list`（后端已按 created/id 倒序）。
+- 字段口径：KPI 环比 `total_requests_change_pct/blocked_change_pct` 为 `number|null`（前值为 0 时后端给 null，UI 显示"—"而非 Infinity/NaN）；`decision_distribution` 固定顺序 allow/deny/approve/warn；`risk_top/agent_ranking` 最多 5 条、可能为空数组；`battle_report.est_rows_saved` 是被拦截语句的预估扫描行合计。
+
+### 18.3 整体布局（复用 T17 的 PageContainer 外壳与主题令牌，深色）
+自上而下、栅格自适应（AntD Row/Col，xl 断点多列、窄屏自动堆叠，禁止写死列数）：
+1. **控件条**（PageContainer 的 extra 区或页面顶部一条）：时间范围 Segmented（近7天/近14天/近30天，对应 days=7/14/30）、自动刷新 Switch（默认开，30s）、"立即刷新"按钮（带 loading）、全屏按钮（Fullscreen API 对大屏根容器切换，兼容退出）。
+2. **第一行 5 张 KPI 卡**（见 18.4）。
+3. **第二行**：左 Col(xl=16) 趋势双轴图（18.5），右 Col(xl=8) 决策占比环图（18.6）。
+4. **第三行**：左 Col(xl=16) 实时风险事件流（18.7），右 Col(xl=8) 上下叠放"拦截战报卡 + Agent 被拦排行 + 高危规则 Top5"（18.8）。
+卡片统一用 T17 tokens 的深色 surface `#142033`、1px `#2a3b55` 描边、圆角 8–12、克制阴影；卡内标题 13–14px 次要文本色，内容主文本色；数字与 SQL 用等宽字体。
+
+### 18.4 五张 KPI 卡（数字滚动 + 环比）
+依次：总请求(total_requests)、拦截(blocked，**红色语义**)、待审批(pending_approvals，橙色)、活跃 Agent(active_agents)、在线数据源(datasources_total)。每卡：图标 + 中文标签 + 大号数值（进入与切换 days 时用自写 useCountUp 从旧值缓动到新值，600–800ms，千分位 toLocaleString）+ 环比小标（总请求/拦截各带 change_pct：正升红/绿按语义——拦截上升用红色↑、总请求上升用品牌色↑；null 显示"环比 —"；下降↓）。数值为 0 也要正常显示，不出 NaN。
+
+### 18.5 近 N 天趋势图（ECharts 双轴：四态堆叠柱 + 拦截折线）
+- x 轴 = trend_14d[].date（MM-DD）；左轴柱：按 allow/warn/approve/deny **堆叠柱状**，四态颜色严格用 tokens 语义（allow `#52c41a`、warn `#faad14`、approve `#fa8c16`、deny `#f5222d`，深色下适当提亮保证对比）；右轴叠加一条 deny 拦截红色折线（突出拦截趋势）。堆叠顺序固定 allow→warn→approve→deny，legend 中文（放行/告警/待审批/拦截 + 拦截趋势线）。
+- tooltip 十字准星、深色底、显示当日总数与各态数值；grid 紧凑防标签溢出；**容器用 ResizeObserver 跟随侧栏折叠/窗口变化 resize，组件卸载必须 dispose() 释放实例**。
+- 全部为 0 时不报错，显示"暂无数据"空态柱区。
+
+### 18.6 决策占比环图（ECharts donut）
+用 decision_distribution 四态做环形图，中心显示总次数；右侧或下方 legend 带中文标签 + 次数 + 百分比；颜色与 18.5 完全一致；总和为 0 时环图区显示 Empty 空态（"当前区间暂无决策记录"），不画满一圈、不显示 NaN%。
+
+### 18.7 实时风险事件流（轮询，不做 WebSocket）
+- 首次进入立即拉一次 `listAudit({page:1,page_size:20})`；自动刷新开启时每 30s 拉一次，**用"上一次请求未返回就不发下一次"的守卫避免堆叠**；切走页面（unmount）必须清掉定时器与在途请求（AbortController/忽略过期响应）。
+- 列表按时间倒序，每条一行：时间(HH:mm:ss)、Agent（agent_id 截短或 name，缺省"—"）、决策 Tag（四态中文+语义色，**deny 整行左侧红色边条/浅红底，新出现的 deny 用 framer-motion 从顶部滑入并红色高亮 2s 后回归常态**）、语句类型 stmt_type、SQL 摘要（sql_raw 单行截断 + ellipsis，鼠标 Tooltip 看全，等宽小字）。最多保留 20 条 DOM。
+- 自动刷新 Switch 关闭则停止轮询但保留当前列表；手动刷新按钮立即拉取并给顶部按钮 loading。轮询失败只在角落 message 轻提示，不清空已有列表（错态不白屏）。
+
+### 18.8 战报卡 / Agent 被拦排行 / 高危规则 Top5
+- **拦截战报卡**：突出展示"已拦截 **{battle_report.blocked_count}** 次 · 避免约 **{格式化 est_rows_saved}** 行风险扫描"，行数 ≥10000 显示"x.x 万行"（如 123456→12.3 万），用强对比数字 + 盾牌图标，做成全页最有"讲故事"张力的一张卡。
+- **Agent 被拦排行**：agent_ranking 横向条形（名称 + blocked_count），name 为空时回退显示 agent_id 短码；空数组显示"暂无被拦截 Agent"。
+- **高危规则 Top5**：risk_top 显示规则中文名 + 次数。**新增 `web/src/constants/ruleMeta.ts`：通读 internal/rules/generic.go、postgres.go、mysql.go，把全部内置规则（R0xx 通用 / R1xx PostgreSQL / R2xx MySQL）的 ID 整理成 `{id,title(简短中文),risk}` 映射**（规则没有内建 title，依据各规则 Eval 语义与 Message 概括，交付说明必须列出整张 id→中文对照表供主控逐条核对）；运行时查不到映射就回退显示原始 rule_id，绝不显示 undefined。
+- 同时新增 `web/src/constants/labels.ts`：导出 decisionMeta（allow/deny/warn/approve → {中文label,主题色token名,AntD Tag color}）与 stmtType 中文映射，供本单与 T20 复用，颜色统一从 tokens 取，不在组件里散落硬编码色值。
+
+### 18.9 三态、主题与健壮性（硬指标）
+- 三态齐全：首次加载用 Skeleton/Spin 骨架；接口或数组为空用 AntD Empty 且文案友好（新部署空库也必须好看）；请求失败显示错误态 + "重试"按钮，不白屏、不把异常对象直接打印给用户。
+- 全程跟随 T17 全局深/浅主题：ECharts 轴/图例/tooltip/坐标线文字色、分割线色随主题切换（监听 useThemeStore 的 mode 变化重新 setOption），浅色下文字仍清晰；不在 ECharts 里写死白底。
+- 所有数字、百分比做容错（null/undefined/NaN/Infinity 全部兜底）；时间用原生或 antd 自带 dayjs 格式化，不另装库；列表 key 用稳定 id。
+
+### 18.10 ECharts 使用约束
+从已装的 `echarts@5.5.1` 引入（可用 `import * as echarts from 'echarts'` 全量以降低本单复杂度，bundle 体积 warning 已知、T24 再做按需/路由懒加载优化）；每个图封装成独立组件（如 TrendChart、DecisionDonut），用 useRef 拿 DOM、useEffect 里 init/setOption、窗口或容器尺寸变化 resize、卸载 dispose；**禁止**用 setInterval 无脑重 init（只在数据/主题变化时 setOption）。
+
+### 18.11 单位端（Codex）硬约束——同 T17，无 Node
+单位机没有 Node/npm/npx/tsc，**严禁运行 npm install/build/npx/tsc，不要改 package.json、不要生成 lock**；也不运行 go 命令（本单不改 Go）。只产出/修改 web/src 下源码文本，做严格文本级静态自审（TS strict 零 any、零未用变量、import 路径用 @ 别名、ECharts option 类型闭合、hooks 依赖与清理正确），交付开头注明"未本地构建，需主控端 npm run typecheck + build 验证"。
+
+### 18.12 主控端验收门（豆包本机）
+1. `cd web && npm run typecheck` 0 错、`npm run build` 成功且产物仍落 internal/webui/dist（Go 侧零改动，无需重新写 Go，但要确认 go:embed 仍能 build、`go test -race ./...` 零回归）。
+2. 真实 serve：主控向元数据库注入一批覆盖四态、跨 7/14/30 天、含不同 rule_hits/agent 的演示 audit_logs（或经管理 API 造数），验证 5 KPI 数字滚动与环比、趋势堆叠+红线、环图、事件流轮询与 deny 滑入高亮、战报/排行/Top5 中文规则名全部正确渲染。
+3. 空库场景：清空 audit_logs 后各区块为友好空态、无报错/NaN。
+4. 交互：7/14/30 切换数据随之变化；自动刷新开关/手动刷新/全屏可用；折叠侧栏图表自适应；深/浅主题切换图表配色同步；F5 正常。
+5. 视觉达到可截图发群水准（用户肉眼最终拍板）。
+
+### 18.13 本单明确不做
+不做 T19 StageFlow、不改审计/配置等其它页面（仍保持 T17 占位）；不做自定义日期区间选择器（只 7/14/30 快捷段）；不做 WebSocket/SSE 全局推送（T27+）；不做导出/PDF；不新增依赖、不改 Go、不改七表与 T16 契约；不向后端写数据（总览是只读页）。
 
 ## T19 六段安检流组件 StageFlow（灵魂，先做单条播放版）
 横向六节点 Parse→Auth→Guard→Decide→Execute→Audit，发光点沿连线移动，逐节点亮起显示结论与耗时（数据来自 Assessment.StageLatency/Hits）；放行最终变绿显示行数，拦截在问题节点变红、流动中断、轻微震动并弹出判词与 suggestion。SVG/framer-motion 轻量实现，不引重型库；导出为可复用组件，供 T20 详情与 T21 演示台调用。v0.1 不做全局 WebSocket 流（T27 后置）。
