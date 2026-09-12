@@ -11,12 +11,14 @@ data/
 *.dll
 *.so
 *.dylib
-dist/
 bin/
 
 # Web
 web/node_modules/
 web/dist/
+# 前端构建产物由 internal/webui 的 go:embed 内嵌、必须随仓库发布,显式放行
+!internal/webui/dist/
+!internal/webui/dist/**
 
 # Env / secrets
 .env

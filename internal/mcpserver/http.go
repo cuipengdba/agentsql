@@ -147,14 +147,28 @@ func NewHTTPHandler(
 	return handler, err
 }
 
+type httpHandlerOptions struct {
+	adminAPI   http.Handler
+	webConsole http.Handler
+}
+
 // HTTPOption extends the T15 mux without changing its default routes.
-type HTTPOption func(*http.ServeMux)
+type HTTPOption func(*httpHandlerOptions)
 
 // WithAdminAPI mounts the T16 management API below /api/v1/.
 func WithAdminAPI(handler http.Handler) HTTPOption {
-	return func(mux *http.ServeMux) {
+	return func(options *httpHandlerOptions) {
 		if handler != nil {
-			mux.Handle("/api/v1/", handler)
+			options.adminAPI = handler
+		}
+	}
+}
+
+// WithWebConsole mounts the embedded T17 single-page application at /.
+func WithWebConsole(handler http.Handler) HTTPOption {
+	return func(options *httpHandlerOptions) {
+		if handler != nil {
+			options.webConsole = handler
 		}
 	}
 }
@@ -211,16 +225,23 @@ func newHTTPHandlerWithRegistry(
 			),
 		),
 	)
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpHandler)
-	// T16 mounts the management API under /api/v1. No route is exposed here.
-	mux.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
-		writeHTTPError(writer, http.StatusNotFound, "not found")
-	})
+	resolvedOptions := &httpHandlerOptions{}
 	for _, option := range options {
 		if option != nil {
-			option(mux)
+			option(resolvedOptions)
 		}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpHandler)
+	if resolvedOptions.adminAPI != nil {
+		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
+	}
+	if resolvedOptions.webConsole != nil {
+		mux.Handle("/", resolvedOptions.webConsole)
+	} else {
+		mux.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
+			writeHTTPError(writer, http.StatusNotFound, "not found")
+		})
 	}
 	return mux, registry, nil
 }

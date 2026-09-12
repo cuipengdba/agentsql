@@ -1,0 +1,106 @@
+import {
+  LogoutOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  MoonOutlined,
+  SafetyCertificateFilled,
+  SunOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
+import { Avatar, Button, Layout, Menu, Space, Tooltip, Typography } from "antd";
+import { useState } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+
+import { logout as logoutRequest } from "@/api/auth";
+import { menuRoutes } from "@/routes/menu";
+import { useAuthStore } from "@/store/authStore";
+import { useThemeStore } from "@/theme/useThemeStore";
+
+const { Header, Sider, Content } = Layout;
+
+export function MainLayout() {
+  const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const username = useAuthStore((state) => state.username);
+  const clear = useAuthStore((state) => state.clear);
+  const themeMode = useThemeStore((state) => state.mode);
+  const toggleTheme = useThemeStore((state) => state.toggle);
+  const currentRoute = menuRoutes.find((route) => route.path === location.pathname);
+
+  const handleLogout = async () => {
+    try {
+      await logoutRequest();
+    } finally {
+      clear();
+      navigate("/login", { replace: true });
+    }
+  };
+
+  return (
+    <Layout className="app-shell">
+      <Sider className="app-sider" theme="dark" width={224} collapsedWidth={72} collapsed={collapsed}>
+        <button className="brand" type="button" onClick={() => navigate("/")} aria-label="返回总览">
+          <SafetyCertificateFilled className="brand-icon" />
+          {!collapsed ? <span>AgentSQL 智盾</span> : null}
+        </button>
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[currentRoute?.key || ""]}
+          items={menuRoutes.map(({ key, label, icon }) => ({ key, label, icon }))}
+          onClick={({ key }) => {
+            const target = menuRoutes.find((route) => route.key === key);
+            if (target) {
+              navigate(target.path);
+            }
+          }}
+        />
+      </Sider>
+      <Layout>
+        <Header className="app-header">
+          <Space size={12}>
+            <Tooltip title={collapsed ? "展开导航" : "收起导航"}>
+              <Button
+                type="text"
+                className="header-icon-button"
+                icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                onClick={() => setCollapsed((value) => !value)}
+                aria-label={collapsed ? "展开导航" : "收起导航"}
+              />
+            </Tooltip>
+            <Typography.Text className="current-page-title">{currentRoute?.label || "AgentSQL"}</Typography.Text>
+          </Space>
+          <Space size={12}>
+            <Tooltip title={themeMode === "dark" ? "切换浅色主题" : "切换深色主题"}>
+              <Button
+                type="text"
+                className="header-icon-button"
+                icon={themeMode === "dark" ? <SunOutlined /> : <MoonOutlined />}
+                onClick={toggleTheme}
+                aria-label="切换主题"
+              />
+            </Tooltip>
+            <span className="admin-identity">
+              <Avatar size={28} icon={<UserOutlined />} />
+              <span>{username || "admin"}</span>
+            </span>
+            <Tooltip title="退出登录">
+              <Button
+                type="text"
+                danger
+                className="header-icon-button"
+                icon={<LogoutOutlined />}
+                onClick={() => void handleLogout()}
+                aria-label="退出登录"
+              />
+            </Tooltip>
+          </Space>
+        </Header>
+        <Content className="app-content">
+          <Outlet />
+        </Content>
+      </Layout>
+    </Layout>
+  );
+}

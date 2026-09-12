@@ -17,6 +17,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
+	"github.com/cuipengdba/agentsql/internal/webui"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
@@ -165,6 +166,11 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 					return errors.Join(adminError, runtime.Close())
 				}
 				httpOptions = append(httpOptions, mcpserver.WithAdminAPI(adminHandler))
+				webHandler, webError := webui.Handler()
+				if webError != nil {
+					return errors.Join(webError, runtime.Close())
+				}
+				httpOptions = append(httpOptions, mcpserver.WithWebConsole(webHandler))
 			}
 			handler, err := mcpserver.NewHTTPHandler(runtime, loaded, logger, httpOptions...)
 			if err != nil {
