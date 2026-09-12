@@ -963,3 +963,298 @@ pre {
     transition: none !important;
   }
 }
+
+.audit-filters {
+  padding: 16px 18px 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.audit-filters .ant-form-item {
+  margin-bottom: 14px;
+}
+
+.audit-filters .ant-form-item-label > label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.audit-filter-control {
+  width: 100%;
+}
+
+.audit-filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+.audit-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+}
+
+.audit-toolbar strong {
+  color: var(--color-brand);
+}
+
+.audit-inline-error {
+  margin-bottom: 12px;
+}
+
+.audit-table-wrap {
+  min-height: 400px;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.audit-table-wrap .ant-table {
+  background: transparent;
+}
+
+.audit-table-wrap .ant-table-cell {
+  height: 52px;
+  white-space: nowrap;
+}
+
+.audit-table-wrap .ant-table-thead > tr > th {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  background: var(--color-elevated);
+  border-bottom-color: var(--color-border);
+}
+
+.audit-table-wrap .ant-table-tbody > tr > td {
+  border-bottom-color: color-mix(in srgb, var(--color-border) 62%, transparent);
+}
+
+.audit-table-wrap .ant-table-row:hover > td {
+  background: color-mix(in srgb, var(--color-brand) 6%, var(--color-surface)) !important;
+}
+
+.audit-decision-unknown {
+  color: var(--color-deny);
+  background: color-mix(in srgb, var(--color-deny) 7%, var(--color-elevated));
+  border-color: color-mix(in srgb, var(--color-deny) 34%, var(--color-border));
+}
+
+.audit-risk {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--color-text);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.audit-risk i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.audit-table-sql {
+  display: inline-block;
+  width: 100%;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.audit-table-sql-risk {
+  color: color-mix(in srgb, var(--color-deny) 78%, var(--color-text));
+}
+
+.audit-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0 2px;
+}
+
+.audit-detail-drawer .ant-drawer-header {
+  border-bottom-color: var(--color-border);
+}
+
+.audit-detail-drawer .ant-drawer-body {
+  padding: 18px 20px 28px;
+}
+
+.audit-conclusion {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--audit-decision-surface);
+  border: 1px solid color-mix(in srgb, var(--audit-decision-color) 46%, var(--color-border));
+  border-radius: 6px;
+}
+
+.audit-conclusion-bar {
+  background: var(--audit-decision-color);
+}
+
+.audit-conclusion-content {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 10px 14px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.audit-conclusion-content time {
+  margin-left: auto;
+}
+
+.audit-detail-section {
+  margin-top: 24px;
+}
+
+.audit-detail-section > h3 {
+  margin: 0 0 12px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.audit-detail-section .stage-flow {
+  border-color: color-mix(in srgb, var(--color-border) 76%, transparent);
+}
+
+.audit-sql-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.audit-sql-block {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.audit-sql-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 0 8px 0 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.audit-sql-block pre {
+  min-height: 128px;
+  max-height: 280px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.audit-sql-keyword {
+  color: var(--color-brand);
+  font-weight: 650;
+}
+
+.audit-sql-string {
+  color: var(--color-warn);
+}
+
+.audit-sql-number {
+  color: var(--color-approve);
+}
+
+.audit-sql-comment {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.audit-verdict-list .stage-verdict:first-child {
+  margin-top: 0;
+}
+
+.audit-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.audit-metric {
+  min-width: 0;
+  padding: 11px 12px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.audit-metric span {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.audit-metric strong {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.audit-plan-note {
+  margin: 10px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .audit-toolbar,
+  .audit-filter-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .audit-toolbar > .ant-space,
+  .audit-filter-actions > .ant-space {
+    flex-wrap: wrap;
+  }
+
+  .audit-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .audit-conclusion-content {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .audit-conclusion-content time {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .audit-sql-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

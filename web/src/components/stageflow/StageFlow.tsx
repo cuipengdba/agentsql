@@ -196,15 +196,14 @@ export function StageFlow({ data, autoPlay = true, replayKey = 0, dense = false,
     };
 
     if (!autoPlay || reduceMotion) {
-      frame = window.requestAnimationFrame(() => {
-        if (cancelled) return;
-        normalizedSteps.forEach((step, index) => stepCallbackRef.current?.(step.key, index));
-        setCompletedThrough(normalizedSteps.length - 1);
-        finish();
-      });
+      // 静态/降级模式：同步直接呈现终态，不依赖 rAF（后台标签页、省电节流、无窗口环境下 rAF 可能被挂起导致卡在“等待”）
+      normalizedSteps.forEach((step, index) => stepCallbackRef.current?.(step.key, index));
+      setActiveIndex(-1);
+      setCompletedThrough(normalizedSteps.length - 1);
+      setFinished(true);
+      finishCallbackRef.current?.(data.decision);
       return () => {
         cancelled = true;
-        window.cancelAnimationFrame(frame);
       };
     }
 
