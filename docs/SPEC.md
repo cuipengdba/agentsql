@@ -1071,8 +1071,85 @@ PageContainer 包裹，自上而下：①可折叠筛选栏 AuditFilters；②�
 ### 20.12 本单明确不做
 不改 Go/七表/接口；不做前端一次性拉全量的假虚拟列表；audit 表没有 EXPLAIN 索引/成本、没有脱敏后结果样本，**一律不编造展示**（详细计划留存/脱敏样本留存列入后续版本）；不实现 PDF（仅占位）；不做 WebSocket 实时推送(T27+)；不引任何新依赖/语法高亮库；不动其余 8 个页面与 T18 大屏、T19 组件内部逻辑（只复用）。
 
-## T21 拦截演示台 Playground（讲故事专用）
-SQL 输入框 + 6 个剧本按钮（正常查询/无WHERE全表更新/越权查薪资/全表扫描风险/敏感字段脱敏/危险函数）；点"模拟 AI 请求"后用 StageFlow 播放逐段判定（调用 explain/校验接口，**不触达真实生产数据**），拦截时展示判词与改写建议。纯前端+现有校验接口，演示零风险。
+## T21 拦截演示台 Playground（讲故事专用，前后端都改，零触库）
+
+### 21.1 目标与核心约束（为什么不能直接复用 pipeline.Process）
+把 T19 的"StageFlow 静态样例自测区"升级为**真实跑安检引擎**的拦截演示台：输入 SQL 或点剧本 → 后端只做"解析 + 静态规则安检" → 前端用 T19 StageFlow 播放六段判定与判词/改写建议。演示**零风险三不：不认证 Agent APIKey、不连接任何真实数据库（不 EXPLAIN、不执行）、不写 audit_logs、不建审批**。
+- 现有 `pipeline.Process` 即使 `ExplainOnly=true`，仍会走 auth（验 APIKey）、load（取真实数据源+策略）、guard_dynamic（`Executors.GetOrOpen` 连真实库跑 EXPLAIN）、finish（写一条审计）。**严禁直接拿 Process 做演示**。本单在 pipeline 包新增一个纯静态评估导出函数 `StaticAssess`，只跑 parse + 静态规则门，且与真实网关静态门**复用同一套 assembleRules / splitRules / engine.Evaluate**（保证"演示即真实静态判定"，禁止另写一套规则）；动态规则 R004/R105/R106/R107/R204（依赖 EXPLAIN/索引/事务态）由既有 splitRules 自然剔除。
+
+### 21.2 后端：pipeline 新增 `static_assess.go`
+导出签名（SQL 自身语法错误走 parseError 而非 Go error，以便 HTTP 200 呈现 error 终态；err 只表示入参非法或引擎内部异常）：
+```go
+type StaticAssessInput struct {
+    SQL        string          // 必填，TrimSpace 后非空
+    Dialect    model.DBDialect // 仅 "postgres" / "mysql"
+    AgentLevel string          // readonly|dml|ddl，空串按 readonly
+}
+func StaticAssess(in StaticAssessInput) (assessment model.Assessment, parseError string, err error)
+```
+执行步骤与硬性要求：
+1. `SQL=strings.TrimSpace(in.SQL)`，为空返回 err；Dialect 非 postgres/mysql 返回 err；AgentLevel 空置 readonly，且必须 ∈{readonly,dml,ddl}，否则 err。
+2. 初始化 StageLatency，8 个键 auth/load/parse/guard_static/guard_dynamic/execute/redact/audit 全置 0（与 pipelineStageNames 一致）。
+3. 计时 parse：`parser.NewParser(in.Dialect)` 后 `Parse(in.SQL)`。**Parse 失败**：记录 parse 耗时；组装 assessment（Decision=DecisionDeny、Risk=RiskDeny、Hits 放一条 `{RuleID:"PARSE",Risk:RiskDeny,Decision:DecisionDeny,Message:<parser 原始错误文本>,Suggestion:"请检查 SQL 语法；解析失败时不进入规则安检、更不会执行"}`、Reason=该错误、StageLatency 已填），返回 `(assessment, 错误文本, nil)`——注意是 nil err。
+4. parse 成功记录 parse 耗时；`assembleRules(in.Dialect, validationLimiter{}, panicMetadataProvider{})`（**复用包内现成 validationLimiter 恒允许、panicMetadataProvider 保证静态规则一旦触元数据立即 panic 暴露问题**），再 `splitRules` 只取 static，dynamic 丢弃。
+5. 构造 engine.EvalContext：AST=ast；AgentLevel=level；`Agent=&model.Agent{ID:"playground-demo",Name:"演示 Agent",Status:"active",Level:level}`（**R008 要求 Agent.ID 非空，否则 Evaluate 报错**）；`Datasource=&model.Datasource{ID:"playground-demo-ds",Name:"演示数据源",DBType:string(in.Dialect)}`；`Policy=&model.PolicyDecision{AllowedTables:[]string{"*"},DeniedTables:[]string{},ColumnACL:map[string][]string{},Level:level}`（**R010 要求 Policy 非 nil；给全局通配 "*" 使其对任意表放行，演示不体现表/列授权拦截**）；MetadataProvider=panicMetadataProvider{}；Thresholds=nil（全用规则内置默认阈值）。
+6. 计时 guard_static：`(engine.Engine{}).Evaluate(ast, evalCtx, staticRules, engine.RuleLayers{})`；Evaluate 返回 error 必须作为内部 err 上抛（handler 500），不得吞；记录 guard_static 耗时并把整张 StageLatency 挂回 assessment.StageLatency。
+7. 静态评估 EstScanRows 恒 0（无 EXPLAIN），**不得伪造扫描行/节点耗时/结果行数**。函数体内不得出现 ExecutorProvider/Store/Audit/Approvals 任何依赖（编译期保证零触库、零写库）。
+8. 纯函数、无包级可变状态、可被并发安全调用。
+
+### 21.3 后端：adminapi 新增 `playground.go` 并注册路由
+- 在 NewHandler 的 mux 上、`return handler.recover(...)` 之前注册 `mux.HandleFunc("POST /api/v1/playground/assess", handler.playgroundAssess)`（自动被 adminAuth 包裹，需登录 Bearer，与其它业务接口一致）。
+- 请求体 `{ "sql": string, "db_type": "postgres"|"mysql", "agent_level"?: "readonly"|"dml"|"ddl" }`，用既有 decodeJSON 解码；sql 空 / db_type 非法 → 422（handler.fail）。
+- 调 `pipeline.StaticAssess`：入参 err 按 422/500 返回；成功用 handler.ok 返回下列 view。
+- **响应 view 字段名刻意用 PascalCase，逐字对齐前端 adaptAssessment 的 AssessmentLike，不要转 snake_case（与 audit 的 snake_case auditView 不同）**：
+  - `Decision`(allow|deny|warn|approve|error)、`Risk`(1-4 int)、`StmtType`、`Hits:[{RuleID,Risk:int,Decision,Message,Suggestion}]`、`EstScanRows`(恒 0)、`Reason`、`Suggestion`、`Normalized`、`Objects:[{Schema,Table,Alias}]`（直接复用 model.ObjectRef，其字段无 json tag，默认即 PascalCase）、`StageLatency:{auth,load,parse,guard_static,guard_dynamic,execute,redact,audit}`（只 parse/guard_static 可能非零）。
+  - 附加元信息：`ParseError`(string，非空即解析失败)、`StaticOnly`(恒 true)、`DBType`、`AgentLevel`、`SQL`(回显 Trim 后文本)。
+  - 正常评估 Decision 取 assessment.Decision；**parse 失败时 view.Decision 固定输出字符串 "error"**（model.Decision 无 error 常量，故在 view 层表达），Hits 用 StaticAssess 给的 PARSE 判词，ParseError=错误文本。
+  - 新增 playgroundAssessView / playgroundHitView 两个结构体并按上述名字写 json tag。
+- 该 handler 不访问 Store、不经过 Runtime.ExecutorFor；Deps 无需新增字段（StaticAssess 是纯函数）。
+
+### 21.4 后端测试（必写，新增 static_assess_test.go 并在 adminapi_test 补用例）
+- pipeline 表驱动用例，逐条断言 Decision 与"命中 RuleID 集合"（顺序无关）：正常点查=allow 且无 hit；UPDATE 无 WHERE=deny 含 R002；堆叠多语句=deny 含 R001、R006；pg_sleep=deny 含 R007；PG DROP TABLE=deny 含 R101；MySQL KILL=deny 含 R203；"有 WHERE 无 LIMIT 的 MySQL UPDATE 且 dml"=approve 含 R202、不含 R002；readonly 跑 UPDATE=deny 含 R003；含 `--` 或 `/* */` 注释=deny 含 R006；残缺 SQL=parseError 非空且 err==nil；空 SQL/坏方言/坏 level=err 非空。再补并发用例：50 goroutine 并发 StaticAssess，主控 `-race` 无 data race。
+- adminapi：未带 token POST assess=401；坏 body=422；正常 body=200 且 code=0、data.StaticOnly===true、Decision 正确；**断言一次 assess 前后 audit_logs 行数不变**（证明不写审计）。
+
+### 21.5 前端 API 与类型
+- `api/types.ts` 增：`PlaygroundAssessRequest{sql:string;db_type:'postgres'|'mysql';agent_level?:'readonly'|'dml'|'ddl'}`、`PlaygroundHitView{RuleID:string;Risk:number;Decision:string;Message:string;Suggestion:string}`、`PlaygroundAssessView`（按 21.3 PascalCase 声明全部字段，且结构上满足 stageflow `adaptAssessment` 的 AssessmentLike：含 Decision/Hits?/StageLatency?/EstScanRows?）。
+- 新增 `api/playground.ts`：`assessPlayground(body: PlaygroundAssessRequest, signal?: AbortSignal) => request<PlaygroundAssessView>({ method:'POST', url:'/playground/assess', data:body, signal })`。
+
+### 21.6 六个演示剧本（钉死，必须真实命中；交付前逐条对照 rules 源码静态核对，主控会真实点击回归）
+新增常量 `playgroundScenarios`，每项 `{key,label,dbType,agentLevel,sql,expect}`：
+1. **正常点查** / postgres / readonly / `SELECT id, name FROM public.customers WHERE id = 42 LIMIT 10` / allow（无判词，六节点全 pass）。
+2. **无 WHERE 全表更新** / mysql / dml / `UPDATE orders SET status = 'closed'` / deny，命中 R002（用 dml 避开只读 R003，聚焦"缺 WHERE 改全表"）。
+3. **堆叠注入夹带删除** / mysql / dml / `SELECT * FROM users WHERE id = 1; DELETE FROM users` / deny，命中 R001、R006（展示"合法查询后夹带破坏语句被整体拒绝"；可能同时命中 R002，允许多判词）。
+4. **危险函数慢查询** / postgres / readonly / `SELECT * FROM public.orders WHERE id = 1 OR pg_sleep(10) IS NULL` / deny，命中 R007（讲 AI 写出阻塞函数/时间盲注）。
+5. **无 LIMIT 批量写转人工** / mysql / dml / `UPDATE accounts SET balance = balance + 1 WHERE level = 'vip'` / approve（有 WHERE 故 R002 不拦，无 LIMIT 经 R202 转人工，execute 节点 locked）。
+6. **残缺 SQL 解析失败** / postgres / readonly / `SELECT FROM WHERE (((` / error（解析层 fail-closed，parse 节点 block、其后 skip、零触库）。
+- 结局覆盖 allow×1 / deny×3 / approve×1 / error×1，PG 与 MySQL 各 3 条。**刻意不凑 warn**：纯静态层没有 warn 规则（R005 无 LIMIT 大结果、R107 长事务都要连库 EXPLAIN/会话态，属动态门），页面如实说明，禁止为凑 warn 造假。页面小字附"可自行尝试"：DROP TABLE x(R101)、KILL 12(R203)、COPY ... PROGRAM(R104)、带注释 SQL(R006)。
+
+### 21.7 前端 Playground.tsx 重构（替换 T19 静态预览）
+PageContainer title="拦截演示台" subtitle="输入 SQL，看一次 AI 请求如何被六段安全网关逐段判定"。自上而下：
+1. **顶部 Alert（info 常驻）**："零风险演示：仅做 SQL 解析与静态规则安检，不连接真实数据库、不执行 SQL、不写审计；依赖执行计划/索引/事务态的动态规则与表/列级授权，在真实网关连库并配置策略(T22)后生效。"
+2. **控制区 Card**：方言 Segmented（PostgreSQL/MySQL 受控）；Agent 级别 Segmented（只读 readonly / 读写 dml / DDL ddl，默认 readonly，tooltip 说明 R003 只读写拦截）；SQL 用 Input.TextArea（等宽字体、autoSize {minRows:3,maxRows:10}、spellCheck=false）；按钮行：主按钮"模拟 AI 请求"（ThunderboltOutlined、loading、Ctrl/⌘+Enter 触发）、"重置"。
+3. **剧本区**：6 个剧本按钮横向 wrap，按 expect 用语义色描边（allow 绿/deny 红/approve 橙/error 灰红）；点击=一次性设置方言+级别+填入 SQL **并立即自动评估**（无需再点主按钮）。
+4. **结果区**（评估成功后渲染，自增 replayKey 触发 StageFlow 重播）：
+   - 一行：决策 Tag（getDecisionMeta；error 用与 T20 一致的灰红兜底）+ 语句类型 + 方言 + 回显 SQL（等宽、可复制）。
+   - `<StageFlow data={flowData} autoPlay replayKey={replayKey} />`，其中 `flowData = adaptAssessment(view)`（**直接复用 T19 adaptAssessment，view 已满足 AssessmentLike，不得另写映射**）；判词与改写建议由 StageFlow 内部 StageVerdict 渲染，不重复造。
+   - parse 失败（view.ParseError 非空或 Decision==='error'）时，在 StageFlow 上方再加红色 Alert 显示 view.ParseError 原文。
+   - 折叠 `<details>`"查看评估原始 JSON"展示 JSON.stringify(view,null,2)，供主控核对。
+5. **三态**：评估前 Empty 引导；请求中结果区 Spin；请求失败 message.error 且保留已输入 SQL 不丢。
+6. **竞态/卸载**：AbortController 随每次请求携带，新请求/切剧本/卸载 abort 旧请求，只认最后一次，无 setState after unmount。
+
+### 21.8 样式 / 主题 / 依赖
+styles.css 仅追加 `.playground-*` 独立前缀，不改 T18/T19/T20 既有选择器（T19 的 .stage-preview-* 即便本页不再引用也保留不删）。颜色一律走 theme/tokens、constants/labels、ruleMeta，禁硬编码色值。**不新增任何 npm 依赖、不改 package.json/lock**，不引语法高亮库（SQL 回显等宽即可）。
+
+### 21.9 静态自审铁律（单位无 Node/Go）
+严禁 npm/npx/tsc/build/go（必失败、勿重试、不改设计）；TS strict 零 any、零未用变量/未用 import、统一 `@/` 别名；后端 view 的 json tag 与 21.3 逐字一致；Hits/Objects/StageLatency 缺失也要兜底不崩；交付开头注明"未本地编译/构建，需主控端 go build/vet/-race、npm typecheck/build 验证"，并附"6 剧本 × 预期命中规则"自检对照表。
+
+### 21.10 主控验收门
+后端：go build/vet 0、`go test ./... -race` 全绿（含 21.4 新测试，T14/T15/T16/T18-T20 零回归）；curl 对 6 剧本逐一打 /playground/assess，Decision 与命中 RuleID 与 21.6 完全一致、StageLatency 仅 parse/guard_static 非零、StaticOnly=true；残缺 SQL 返回 200 且 data.Decision="error"；空 SQL 422、无 token 401；评估前后 audit_logs 条数不变（零写审计）；全程不启动真实 PG/MySQL。前端：typecheck/build 0 错；真实浏览器逐一点 6 剧本——allow 六节点全 pass；三个 deny 在 guard/decide block、execute skip 零触库；approve 在 decide 转人工、execute locked；error 在 parse block、其后 skip 并显红色解析错误；判词中文名/改写建议正确、重播流畅、控制台零报错；手输 DROP TABLE/KILL/注释 SQL 也能正确判；深浅主题、窄屏、F5、卸载正常。
+
+### 21.11 本单明确不做
+不改 pipeline.Process 与 MCP 七工具语义、不改七表/迁移；不连真实数据库、不演示 EXPLAIN/索引/事务态等动态规则（动态门只在真实网关生效）；不做表级/列级授权拦截演示（需 T22 配策略，本单 Policy 用全局通配仅为让引擎不报错）；不做脱敏结果演示（redact 在执行后，演示不执行）；不硬凑 warn、不伪造扫描行/耗时/结果行；不做在线 Live Demo(T26)/WebSocket；不引新依赖；不动 T18 大屏、T19 组件内部（只复用调用）、T20 审计页与其余配置页。
 
 ## T22 四个配置页（规范高效）
 Agent 管理（列表+步骤条新建向导：级别→数据源→表权限→生成 Key，Key 明文仅展示一次做成凭证卡片；禁用/轮换/删除二次确认）；数据源（表单+测试连接，删除需输名称）；权限矩阵（Agent×表：查/写/DDL 开关+列勾选+deny 列表，提交前 diff 预览）；规则配置（按通用/PG/MySQL 分组，开关+阈值抽屉+"防什么"说明+恢复默认）。验收与后端联调全通、Key 轮换即时生效。
