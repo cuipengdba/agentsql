@@ -1009,8 +1009,67 @@ npm typecheck/build 0 错且产物落 internal/webui/dist；Go 零改动、`go t
 ### 19.12 本单明确不做
 不改 Go、不加后端校验/explain 接口（T21）、不持久化 StageLatency 到七表（v1.x 再议）；不做 T20 审计表格与详情抽屉、不做 T21 的 SQL 输入框/6 剧本真实业务/调接口（本单 Playground 仅静态样例预览，T21 重构该页）；不做 WebSocket/SSE 全局实时流（T27+）；不引 lottie/gsap/d3 等新依赖；不动其余 8 个页面与 T18 大屏；不做多条请求并发流或全局拓扑图。
 
-## T20 审计页 + 证据链时间线（门面，精做）
-多条件筛选栏（时间/Agent/数据源/决策/风险/语句类型/对象/关键词，可折叠）+ 虚拟滚动表格（时间|Agent|数据源|类型|决策Tag|风险|SQL摘要|预估行|行数|耗时|会话）；右侧详情抽屉按"调查报告"排：基本信息、StageFlow 时间线（复用 T19）、SQL 原文/归一化双栏高亮、命中规则判词卡片、EXPLAIN 可视化（扫描行/索引/成本徽标）、脱敏样例；导出 JSONL；PDF 合规报告按钮先占位(T27)。验收灌入 1 万行流畅、字段完整、可导出。
+## T20 审计页 + 证据链时间线（门面，精做，纯前端不改 Go）
+
+### 20.1 目标与数据来源（后端 T16 已全部就绪，本单只做前端）
+把 T17 占位的"审计"页做成可截图、可给客户讲"每一次模型访问都追得回"的门面页：顶部多条件筛选、中间高吞吐表格、右侧"调查报告式"详情抽屉（复用 T19 StageFlow）、按筛选导出 JSONL。**不新增/不改任何 Go 接口、不加 package.json 依赖**（dayjs 是 antd 自带依赖，直接 import，不写进 package.json）。全部走现成接口：
+- 列表 `GET /api/v1/audit`，query 见 `AuditQuery`（page、page_size、time_start、time_end、agent_id、datasource_id、session_id、mcp_tool、decisions、stmt_types、risk_min、risk_max、keyword、object），返回 `PageResp<AuditView>`（`{total,page,page_size,list}`，已按 ts DESC,id DESC 倒序）；**page_size 后端硬上限 100**。
+- 导出 `GET /api/v1/audit/export`（同样筛选、不带分页），返回 `application/x-ndjson` 附件，**后端上限 10000 行，超出返回 422**，前端用既有 `exportAudit()` 拿 Blob 下载。
+- 下拉来源：`listAgents({page_size:100})`、`listDatasources({page_size:100})`（均 PageResp，取 list 的 id+name，数据源可带 db_type）。
+- 行结构 `AuditView`（snake_case）：id/ts/agent_id/datasource_id/session_id/conversation_id/mcp_tool/db_type/sql_raw/sql_norm/stmt_type/objects/decision/rule_hits(**JSON 字符串**)/risk_level/est_rows/rows_returned/latency_ms/client_ip/model_name/error_msg。
+
+### 20.2 页面整体布局
+PageContainer 包裹，自上而下：①可折叠筛选栏 AuditFilters；②工具条（左侧"共 N 条"+手动刷新，右侧"导出 JSONL""导出 PDF(占位)"）；③AuditTable 表格区（固定表头、固定操作列、纵向虚拟滚动，高度自适应剩余视口）；④分页条（总数、每页条数 20/50/100、上下页与跳页，服务端分页）；⑤右侧 AuditDetailDrawer 详情抽屉。深/浅主题同步 tokens，加载/空/错误三态齐全。
+
+### 20.3 筛选栏（字段→query 映射钉死，值为空就不传该参数）
+- 时间范围：antd DatePicker.RangePicker（showTime，dayjs）；确认查询时 time_start=起始.toISOString()、time_end=结束.toISOString()（RFC3339，UTC，后端 time.Parse(time.RFC3339)）。
+- Agent：Select（options 来自 listAgents，显示 name、值为 id，可清空、支持搜索）；数据源同理（listDatasources）。
+- 决策：多选 allow/deny/warn/approve/error，提交时 join(",") 赋给 decisions（**注意 decisionMeta 只定义了前四态，error 用 20.4 的兜底色**）。
+- 语句类型：多选，选项取 constants/labels 的 stmtTypeLabels 九类（SELECT/INSERT/UPDATE/DELETE/MERGE/DDL/ADMIN/TRANSACTION/UNKNOWN），join(",") 给 stmt_types。
+- 风险等级：区间选择 1–5（两个 Select 或 Slider range），分别给 risk_min/risk_max，做 min≤max 校验。
+- 对象 object：输入框（模糊匹配 objects）；关键词 keyword：输入框（匹配 SQL 文本，后端已占位符防注入）。
+- 按钮：查询（应用筛选并回到第 1 页）、重置（清空全部条件并重新拉第 1 页）、折叠/展开"更多条件"。筛选项变化到点击查询前不自动发请求（避免抖动），但分页/每页条数变化立即按当前已应用条件请求。
+
+### 20.4 表格列与渲染（服务端分页 + 单页虚拟滚动，不一次性拉一万行）
+列：时间(ts 本地时区 `MM-DD HH:mm:ss.SSS`，可悬浮看完整)、Agent(agent_id，缺失显"—")、数据源(datasource_id)、类型(stmt_type 用 statementLabel 中文 Tag)、决策(decision 用 getDecisionMeta 出彩色 Tag；**allow/deny/warn/approve 之外的值（含 error）兜底为中性灰红 Tag、文字取原值、绝不报错**)、风险(risk_level 用 1–5 小徽标/星点，空显"—")、SQL 摘要(sql_raw 单行截断+省略号，title 悬浮全文，deny/error 行 SQL 用语义色弱高亮)、预估行(est_rows 千分位)、行数(rows_returned)、耗时(latency_ms 带 ms)、会话(session_id 短码)、操作("查看"打开抽屉)。
+- **性能策略（专业做法，照此实现，不要走偏）**：后端单页最多 100 行，故采用**服务端分页**（数据库 idx_audit_ts/agent/decision 索引支撑，1 万行乃至 10 万行都不占前端内存），表格在当前页内开 antd Table 虚拟滚动（`virtual` + 固定 `scroll.y` + 固定行高/ellipsis）保证单页 100 行滚动不掉帧。**禁止**前端循环拉全部 1 万行再做"假全量虚拟列表"。
+- 翻页/切每页条数/重查都带 AbortController，旧请求作废（参考 T18 EventStream 的 controller 守卫，竞态时只认最后一次）；行 key 用 id。
+
+### 20.5 详情抽屉（"调查报告"式分区，antd Drawer，宽 600–720、窄屏自适应）
+按以下顺序排，分区标题清晰、信息密度专业：
+1. **结论条**：顶部一条决策色横条 + 决策中文 Tag + 风险等级 + 时间 + 记录 id。
+2. **基本信息**：Descriptions 两列——Agent、数据源、数据库类型(db_type)、MCP 工具(mcp_tool)、会话 session_id、对话 conversation_id、客户端 IP、模型 model_name（缺项显"—"）。
+3. **六段安检时间线**：复用 T19 `<StageFlow data={...} dense />`（适配见 20.6），呈现该请求六节点终态；审计记录无逐阶段耗时，节点耗时统一显示"—"，不编造数字。
+4. **SQL 原文 / 归一化双栏（上下两块也行，窄屏堆叠）**：等宽字体，左/上 sql_raw、右/下 sql_norm；做**轻量手写语法着色**（关键字/字符串/数字/注释上不同色），**禁止引 prism/highlight.js/d3 等任何库**；提供"复制原文/复制归一化"小按钮（navigator.clipboard 带降级）。
+5. **命中规则判词**：rule_hits 解析后**逐条**用 T19 `<StageVerdict>` 渲染（Rxxx 徽标+中文名+判词+改写建议）；无命中显"未命中规则，正常放行"。
+6. **执行评估（据实，不造假）**：用徽标/统计块展示真实存在的 est_rows 预估扫描行、rows_returned 实际返回、latency_ms 总耗时、stmt_type、objects 涉及对象；**audit 表没有 EXPLAIN 成本/索引明细，本单不展示索引/成本，不允许编造**，可在该块底部小字标注"详细 EXPLAIN 计划留存规划于 v1.1"。
+7. **错误信息**：仅当 error_msg 非空时，红色 Alert 展示。
+
+### 20.6 审计记录 → StageFlowData 轻量适配（新增纯函数 auditToFlow）
+新增 `pages/audit/auditToFlow.ts`：输入 AuditView，输出 T19 的 StageFlowData。要点：decision 归一到 allow/warn/approve/deny/error（未知按 error）；`rule_hits` 是 JSON 字符串，**try/catch 解析**为 RuleHit[]（字段 RuleID/Risk/Decision/Message/Suggestion），非法/空时回退为空数组且不崩；构造 T19 adaptAssessment 需要的 AssessmentLike `{Decision, Hits, EstScanRows}`（**不传 StageLatency，使其耗时全 0**），再补 totalLatencyMs=latency_ms、rowsReturned=rows_returned、errorMsg；这样直接复用 T19 的节点状态机与五终态，保证审计页与演示台口径一致。
+
+### 20.7 导出
+- "导出 JSONL"按**当前已应用筛选**（不含分页）调 exportAudit，请求中按钮 loading；拿到 Blob 后用临时 `<a download>` 触发，文件名 `agentsql-audit-YYYYMMDD-HHmm.jsonl`。
+- 后端 422（超 1 万行）时 message.warning 提示"导出上限 1 万行，请缩小时间范围或增加筛选"；其它失败 message.error。
+- "导出 PDF"为占位按钮，点击 message.info("合规 PDF 报告将在后续版本提供")，不实现。
+
+### 20.8 三态 / 主题 / 响应式 / 卸载
+首次加载自动查第 1 页；加载中 Table skeleton/Spin、无数据友好空态（含"去接入 Agent/调整筛选"引导文案）、请求失败可点重试。颜色全部走 theme/tokens 与 constants/labels、ruleMeta，禁硬编码色值。表格区用 ResizeObserver 跟随侧栏折叠/窗口变化重算 scroll.y。所有请求 AbortController、定时器/监听器/Observer 卸载清理，关闭页面或切换菜单无 setState after unmount、无残留请求。
+
+### 20.9 文件清单（只在 web/src 内新增/修改）
+- 改 `pages/Audit.tsx`（占位替换为完整页，承担数据获取/分页/筛选状态/抽屉开关编排）。
+- 新增 `pages/audit/AuditFilters.tsx`、`pages/audit/AuditTable.tsx`、`pages/audit/AuditDetailDrawer.tsx`、`pages/audit/auditToFlow.ts`、`pages/audit/sqlHighlight.tsx`（轻量着色纯函数/组件）。
+- 复用：`api/audit.ts`(listAudit/exportAudit 直接用，不改)、`api/agents.ts`、`api/datasources.ts`、`components/stageflow/*`(T19)、`constants/labels.ts`、`constants/ruleMeta.ts`、`components/PageContainer`、`theme/*`。
+- `styles.css` 仅追加 `.audit-*` 独立前缀样式，不得改动 T18/T19 既有选择器；其余 8 个页面一律不动。
+
+### 20.10 静态自审铁律（单位无 Node/Go）
+严禁 npm/npx/tsc/build/go（必失败、勿重试、不改设计）；不改 package.json/lock、不新增依赖（dayjs 随 antd 已有）；不改任何 Go、不改七表。TS strict 零 any、零未用变量、`@/` 别名；rule_hits 解析、缺失字段、空数组、未知 decision/stmt_type 全部兜底；请求竞态与卸载清理完备。交付开头注明"未本地构建，需主控 typecheck+build 验证"。
+
+### 20.11 主控验收门
+主控灌入 1 万条跨多天、覆盖五态/多 Agent/多数据源/多语句类型/不同风险与 rule_hits 的审计数据后：typecheck/build 0 错、Go 零改动 -race 零回归；total=10000、按 20/50/100 翻页正确且倒序、单页虚拟滚动流畅不卡；各筛选条件（含多选 decisions/stmt_types、风险区间、时间范围、关键词）结果计数正确、可重置；行渲染决策/类型/风险中文与颜色正确、未知值不崩；点开抽屉五个终态各验一条——StageFlow 节点状态正确且耗时显"—"、SQL 双栏着色、多条判词卡、执行评估只显真实字段、error 条显示错误；导出 JSONL 内容与筛选一致且可解析、超量有 422 提示、PDF 占位提示正确；深浅主题、窄屏、侧栏折叠、F5、卸载均正常，控制台零报错（用户肉眼拍板）。
+
+### 20.12 本单明确不做
+不改 Go/七表/接口；不做前端一次性拉全量的假虚拟列表；audit 表没有 EXPLAIN 索引/成本、没有脱敏后结果样本，**一律不编造展示**（详细计划留存/脱敏样本留存列入后续版本）；不实现 PDF（仅占位）；不做 WebSocket 实时推送(T27+)；不引任何新依赖/语法高亮库；不动其余 8 个页面与 T18 大屏、T19 组件内部逻辑（只复用）。
 
 ## T21 拦截演示台 Playground（讲故事专用）
 SQL 输入框 + 6 个剧本按钮（正常查询/无WHERE全表更新/越权查薪资/全表扫描风险/敏感字段脱敏/危险函数）；点"模拟 AI 请求"后用 StageFlow 播放逐段判定（调用 explain/校验接口，**不触达真实生产数据**），拦截时展示判词与改写建议。纯前端+现有校验接口，演示零风险。
