@@ -1151,8 +1151,91 @@ styles.css 仅追加 `.playground-*` 独立前缀，不改 T18/T19/T20 既有选
 ### 21.11 本单明确不做
 不改 pipeline.Process 与 MCP 七工具语义、不改七表/迁移；不连真实数据库、不演示 EXPLAIN/索引/事务态等动态规则（动态门只在真实网关生效）；不做表级/列级授权拦截演示（需 T22 配策略，本单 Policy 用全局通配仅为让引擎不报错）；不做脱敏结果演示（redact 在执行后，演示不执行）；不硬凑 warn、不伪造扫描行/耗时/结果行；不做在线 Live Demo(T26)/WebSocket；不引新依赖；不动 T18 大屏、T19 组件内部（只复用调用）、T20 审计页与其余配置页。
 
-## T22 四个配置页（规范高效）
-Agent 管理（列表+步骤条新建向导：级别→数据源→表权限→生成 Key，Key 明文仅展示一次做成凭证卡片；禁用/轮换/删除二次确认）；数据源（表单+测试连接，删除需输名称）；权限矩阵（Agent×表：查/写/DDL 开关+列勾选+deny 列表，提交前 diff 预览）；规则配置（按通用/PG/MySQL 分组，开关+阈值抽屉+"防什么"说明+恢复默认）。验收与后端联调全通、Key 轮换即时生效。
+## T22 四个配置页 + 规则运行时接线（规范高效，前后端都改）
+
+### 22.1 目标、范围与一个必须补的后端缺口
+把 T17 的四个占位页（Agent `/agents`、数据源 `/datasources`、权限 `/policies`、规则 `/rules`）替换为与 T16 管理 API 全联通的真实配置页，做到"能增删改查、操作有反馈、危险动作二次确认、保存即生效"。探查源码后有一个必须在本单补齐的缺口：**`rules` 表目前只被 adminapi 增删改查，生产 pipeline 从未加载它**（`pipeline.layers` 仅由构造选项 `WithRuleLayers` 注入，而 `bootstrap.Assemble` 没有传，规则引擎实际永远跑代码内置默认规则）。若只做前端，规则页的"启用/禁用"保存后对真实网关不生效，等于玩具页。因此本单 = 四个前端页面 + 一处最小后端接线（只接"启用/禁用"开关，立即生效、无需重启）。与之对照，`policies` 表已通过 `Ports.Policies` 在 Process 的 load 阶段读取并生效，权限页保存即生效无需后端改动。
+
+职责边界（务必纠正旧版"查/写/DDL 矩阵"的误解）：**Agent 的 `level`（readonly/dml/ddl）决定"能力档位"（只读 / 可读写 DML / 可 DDL），在 Agent 页配置；权限页只决定"能碰哪些对象"（object_type=database/schema/table/column，action=allow/deny）以及列级白名单。权限页不出现查/写/DDL 三态开关。**
+
+### 22.2 后端：把 rules 覆盖接进运行时（只做 Enabled，立即生效）
+现状：`internal/engine` 的 `resolveRuleConfig` 已支持 Global/Datasource/Agent 三层 `RuleConfig{Enabled *bool; Thresholds map[string]float64; ExplicitDeny bool}` 覆盖，机制完备，缺的只是生产侧把 `rules` 表读出来喂进去。v0.1 只实现 Global 层的"启用/禁用"，不做阈值编辑、不做数据源/Agent 级分层。
+
+1. `internal/pipeline/types.go`：`Ports` 新增一个端口（`store.RuleRepository` 已天然满足，勿新增 store 方法）：
+   ```go
+   // RuleOverrideReader 读取管理员在控制台维护的规则覆盖（rules 表）。
+   type RuleOverrideReader interface {
+       List(ctx context.Context, dbType string) ([]model.Rule, error)
+   }
+   ```
+   并在 `Ports` 中加字段 `RuleOverrides RuleOverrideReader`。允许为 nil（nil 时视为无覆盖，保证既有测试/StaticAssess 不被破坏）。
+2. 新增 `internal/pipeline/rule_overrides.go`：
+   - `func ruleOverridesToLayer(rules []model.Rule, dialect string) engine.RuleLayer`：只保留 `r.DBType == "all" || r.DBType == dialect` 的记录；逐条映射 `layer[r.ID] = engine.RuleConfig{Enabled: &r.Enabled}`。同 ID 重复时后值覆盖前值。非法/空 ID 跳过且不 panic。
+   - `func mergeGlobalLayers(base engine.RuleLayers, extra engine.RuleLayer) engine.RuleLayers`：返回新 layers，其中 Global = base.Global 与 extra 合并、**extra（本次请求从 rules 表读到的覆盖）优先级更高**，Datasource/Agent 原样保留。不得修改入参。
+3. `internal/pipeline/pipeline.go`：
+   - StageLoad（已取到 `run.datasource` 之后）：若 `pipeline.ports.RuleOverrides != nil`，调用 `List(ctx, "")` 取全量（store 的 List 仅支持单值精确匹配，故取全量在内存按 all/dialect 过滤，不改 store），经 `ruleOverridesToLayer(..., run.datasource.DBType)` 得到本次请求层，存入 `pipelineRun`（newPipelineRun 的结构体加一个字段，如 `ruleLayer engine.RuleLayer`）；读取失败按 load 阶段错误走 finish（与读 policy 失败同处理）。
+   - GuardStatic 与 GuardDynamic 两处 `Evaluate(...)` 当前都用 `projectRuleLayers(pipeline.layers, xxx)`，统一改为先 `layers := mergeGlobalLayers(pipeline.layers, run.ruleLayer)` 再 `projectRuleLayers(layers, xxx)`，保证静态/动态规则都受开关控制。
+4. `internal/bootstrap/bootstrap.go`：`pipeline.Ports{...}` 增加 `RuleOverrides: metadataStore.Rules()`。
+5. **T21 的 `StaticAssess` 刻意不接覆盖层**（它是零连库、零读表的纯静态演示，继续传 `engine.RuleLayers{}`）；规则开关效果只在真实网关 `Process` 体现，这一点在规则页 UI 文案上写明。
+
+### 22.3 后端测试（必写，单位无法运行，主控会 -race 全量回归）
+- `rule_overrides_test.go`：方言过滤（all 两方言都生效、postgres 记录不进 mysql）、Enabled 真假映射、nil/空切片返回空层、同 ID 后者覆盖、mergeGlobalLayers 覆盖优先级且不改入参；
+- 在 pipeline 测试补：注入一条 `R002` 的 `enabled=false` Global 覆盖后，原本命中 R002 拦截的无 WHERE UPDATE 不再被 R002 命中；恢复 enabled=true 后重新拦截；mysql 覆盖不影响 postgres；`RuleOverrides=nil` 时行为与现在完全一致（回归保护）；
+- `bootstrap` 装配测试断言 Ports.RuleOverrides 非 nil。
+
+### 22.4 前端共用：中文映射、目录与交互通则
+- `constants/labels.ts` 追加配置域映射并导出对应 label 函数/常量（不改动已有 decision/stmt 内容）：
+  - agentLevel：`readonly=只读`、`dml=读写(DML)`、`ddl=结构(DDL)`；
+  - agentStatus：`active=启用`(success Tag)、`disabled=禁用`(default Tag)；
+  - dbType：`postgres=PostgreSQL`、`mysql=MySQL`、`all=通用`；
+  - policyAction：`allow=允许`(success)、`deny=拒绝`(error)；objectType：`database=库`、`schema=模式`、`table=表`、`column=列(列级白名单)`；
+  - riskLevel：1–5 数字，风险越高色越重（参考 semantic 色，5 红、4 橙、3 黄、1–2 绿/蓝）。
+- 四个页面统一用 `PageContainer`（title/subtitle/extra）；列表用 antd `Table`，服务端分页（默认 page_size=20，与后端 `paginate` 对齐；下拉"取全部"用 page_size=100）；所有异步按钮进 loading、结束用 `message.success/error` 反馈并刷新列表；危险操作（删除/轮换）用 `Popconfirm` 或二次确认 Modal；错误体取拦截器抛出的后端 `msg` 展示（client 已剥到 data，错误消息沿用现有 reject 形态）。
+- 表单受控、卸载时丢弃未完成请求（沿用 T20/T21 的 AbortController 范式；判断请求取消只用 `error.code==='ERR_CANCELED'`，禁止 axios.isCancel 类型谓词）。不新增任何依赖。
+
+### 22.5 Agent 页 `/agents`（agents.ts 已齐）
+- 列表列：ID、名称、负责人(owner，空显 -)、级别(中文 Tag)、状态(中文 Tag)、过期时间(expires_at，空显"永不过期")、创建时间、操作（编辑 / 轮换密钥 / 删除）。extra 放"新建 Agent"主按钮。
+- **新建用 antd Steps 两步向导（Modal 或 Drawer 内）**：第 1 步填 ID（必填，小写字母/数字/下划线/连字符，前端给规则提示）、名称（必填）、负责人（可选）、级别（Radio/Segmented 三选，默认 readonly，旁注中文解释三档能力）、过期时间（DatePicker 可选，可清空=永不过期，提交时转 RFC3339 或 null）；第 2 步提交成功后展示**凭证卡片**：`api_key` 仅此次返回（`asql_` 前缀），等宽字体 + 一键复制按钮（navigator.clipboard，失败回退选中文本）+ 醒目警示"密钥仅展示这一次，关闭后无法再查看，请立即妥善保存"。级别非法/缺字段时后端 422，前端按 msg 红字提示；ID 重复后端 409，提示"Agent 已存在"。
+- 编辑 Drawer：名称/负责人/级别/状态/过期，**ID 只读、不显示密钥**；按 `AgentUpdateInput` 只传被改动字段（PATCH 语义）。
+- 轮换密钥：Popconfirm"轮换后旧密钥立即失效，确认？"→ `rotateAgentKey` → 弹同款凭证卡片展示新 Key（仅一次）。
+- 删除：先 Popconfirm；后端在该 Agent 仍有策略时返回 409 `agent has policies; remove them first`，前端捕获并 message.error"该 Agent 仍配置了权限策略，请先在权限页移除后再删除"。
+
+### 22.6 数据源页 `/datasources`（datasources.ts 已齐，含 ping）
+- 列表列：ID、名称、类型(中文 Tag)、主机:端口、数据库(database)、用户名、连接上限(conn_limit)、语句超时 ms(stmt_timeout_ms)、行数上限(row_limit)、密码(has_password ? "已配置" : "未配置")、操作（编辑 / 测试连接 / 删除）。
+- 新建表单(Modal/Drawer)：ID、名称、类型 Select(postgres/mysql，切换时端口自动填默认 5432/3306，用户可改)、host、port(InputNumber 1–65535)、database、username、**password 新建必填（后端空则 422 password is required）**、conn_limit/stmt_timeout_ms/row_limit（默认 5 / 5000 / 1000，正整数）。
+- 编辑：回显除密码外全部字段；密码框留空并 placeholder"留空表示不修改密码"（后端空则沿用旧密文，见 datasourcesUpdate）；其余字段空值后端会回退当前值，但前端仍回显以保证所见即所得。
+- **测试连接**：行内按钮调 `pingDatasource(id)`，按钮 loading；成功 message.success(`连接成功，延迟 {latency_ms} ms`)；失败（连接不通时后端返回非 2xx，PingView 只在成功时返回 ok=true）用 message.error 展示后端 msg，页面不崩。注意：未配置真实库时失败是正常态，样式上要让"失败原因可读"。
+- 删除：数据源仍被策略引用时后端 409 `datasource has policies; remove them first`，提示先清策略；确认方式为**输入数据源名称匹配后才可点删除**（Modal 内一个 Input，与当前名称完全一致才启用"确认删除"按钮），防误删生产源。
+
+### 22.7 权限页 `/policies`（policies.ts 已齐；对象 ACL 形态）
+- 顶部筛选：Agent 下拉（listAgents page_size=100）、数据源下拉（listDatasources page_size=100）；两者都选中后 `listPolicies({agent_id,datasource_id,page_size:100})` 拉该 Agent×数据源组合的策略；未选时给空状态引导"先选择 Agent 与数据源"。
+- 策略表列：对象类型(中文 Tag)、对象名(object_name，等宽)、动作(allow 绿/deny 红 Tag)、列(columns，仅 column 类型有，逗号展示)、行过滤(row_filter，空显 -)、操作（编辑/删除）。
+- 新增/编辑 Drawer 字段：Agent、数据源（编辑时锁定不可改）；object_type Select(database/schema/table/column)；object_name Input；action Radio(allow/deny)；**object_type=column 时**：object_name 必须精确到单表（前端禁止 `*` 与 `xxx.*`）、action 锁定为 allow（后端不支持 column deny，选 column 时禁用 deny 并旁注原因）、columns 用 `Select mode="tags"` 录入列名（至少 1 个，提交时 join 成逗号串，去空白/去重，对应后端 policyColumns）；row_filter 可选文本（透传字符串）。
+- **对象名前端预校验（照抄后端 policy.ValidateTablePatterns / validateColumnObject，把 422 挡在前端）**：非空且首尾不得有空格；以 `.` 分隔最多 2 段，任一段非空；禁止 `*.x`（schema 段不能是 *）；database/schema/table 允许 `*`、`schema.*`、精确 `schema.table` 或裸表名；column 必须精确单表。不通过则红字提示并禁止提交。
+- **提交前 diff 预览**：一个编辑会话内对该组合的新增/修改/删除先收集为待提交清单，弹层逐条展示"动作(新增/修改/删除) + 对象 + 变更前→变更后"，用户确认后再按顺序串行调用 create/update/delete；任一失败即停，message 报出失败对象与后端 msg，并显示已成功条数，列表回拉到最新。策略 ID 由前端生成：`pol_` + 小写字母数字（可用时间戳 base36 + 短随机），全局唯一、不含空格点号。
+- 后端约束兜底：缺 id/agent_id/datasource_id/object_name 或 resolver 判非法返回 422 invalid policy、重复 409，前端都要展示 msg。
+
+### 22.8 规则页 `/rules`（扩展 ruleMeta + rules.ts；内置目录左连接覆盖记录）
+- 先扩展 `constants/ruleMeta.ts`：为 21 条补 `dbType`（R001–R010 = all；R101–R107 = postgres；R201–R204 = mysql）、`group`（通用防护 / PostgreSQL 专属 / MySQL 专属）、`dynamic`（仅 R004/R105/R106/R107/R204 为 true）、`builtin:true`、`patternType:'ast'`；保留现有 id/title/risk，不改 getRuleMeta 签名（只扩字段，兼容现有调用）。
+- 顶部：方言 Segmented（全部/通用/PostgreSQL/MySQL）+ 关键字搜索（按 id/标题）。进入页面 `listRules({page_size:100})` 取覆盖记录建 map；**展示列表 = ruleMeta 的 21 条内置目录左连接覆盖 map**：有覆盖取覆盖.enabled，无覆盖视为默认启用。其后再追加覆盖记录里 `builtin=false` 的自定义规则。
+- 每行：规则 ID、中文名、风险等级(1–5 Tag)、静态/动态(dynamic 标"动态·依赖执行计划/运行态"Tooltip)、启用 `Switch`、来源徽标(内置/自定义)、操作。
+- **内置规则开关即点即存（无需批量保存按钮）**：无覆盖记录→`createRule({id,db_type:dbType,title,risk_level:risk,pattern_type:'ast',definition:'',enabled,builtin:true})`；已有→`updateRule(id,{enabled})`；成功 message 轻提示并更新本地 map。**"恢复默认"不调用 DELETE（后端对 builtin 返回 403 builtin rules cannot be deleted），而是 `updateRule(id,{enabled:true})` 回到内置默认启用态。** 内置规则的标题/风险/类型/定义只读展示（后端 builtin update 只接受 enabled/definition，v0.1 不开放 definition 编辑）。
+- 自定义规则："新建自定义规则"Drawer（id、db_type Select all/postgres/mysql、title、risk_level 1–5 InputNumber、pattern_type 固定 ast、definition 文本域、enabled Switch）；列表中自定义规则可全字段编辑、可 Popconfirm 删除（DELETE）。内置行不显示删除按钮。
+- 页面顶部一条 info Alert 说明："开关保存后对真实网关的下一次 SQL 请求立即生效、无需重启；拦截演示台(T21)为零连库纯静态演示，不读取此处开关。动态规则需真实连库执行 EXPLAIN/读取运行态才会触发。"
+
+### 22.9 文件清单与样式
+- 后端改：`internal/pipeline/types.go`（Ports 加 RuleOverrideReader/字段）、新增 `internal/pipeline/rule_overrides.go` 与 `rule_overrides_test.go`、`internal/pipeline/pipeline.go`（load 读取 + run 字段 + 两处 Evaluate 的 layer 合并）、pipeline 既有测试补用例、`internal/bootstrap/bootstrap.go`（接线 metadataStore.Rules()）。**不改七表/迁移、不改 engine、不改 T21 StaticAssess、不改 MCP 七工具。**
+- 前端改：`constants/labels.ts`、`constants/ruleMeta.ts`、整体重写 `pages/Agents.tsx`、`pages/Datasources.tsx`、`pages/Policies.tsx`、`pages/Rules.tsx`（复杂页可在各自 `pages/<域>/` 子目录拆表单/表格组件，参照 T20 audit 子目录拆法）、`styles.css` 纯追加配置页类名；四个 api 模块与 types 已齐备原则上不改（如确需少量纯展示类型可在 types.ts 末尾追加，不得改动已有字段）。
+- 样式沿用 tokens 深色主题、控件尺寸/圆角/间距与 T18–T21 一致；凭证卡片、矩阵 diff、开关行等新增类名统一前缀（如 `.cfg-`），不覆盖全局样式；浅/深主题都要可读。
+
+### 22.10 静态自审铁律（单位无 Node/Go，无法编译）
+- 交付前逐文件自查：TS 无未用导入/变量（TS6133 零容忍）、所有受控输入用原生 value setter 思路由 antd Form 托管即可、不给后端发多余/未知字段（后端 decodeJSON 开了 DisallowUnknownFields，**请求体只能含 DTO 已声明字段**）；Go 侧 gofmt 风格、接口为 nil 的分支齐全、不改坏既有测试。每个改动文件头不需要版权。必须在交付说明里注明"未本地编译/构建，需主控端验证"。
+
+### 22.11 主控验收门
+后端：gofmt、build/vet=0；新增单测 + 全量 `go test -race ./...` 全 ok；专项验证"禁用 R002 覆盖后无 WHERE UPDATE 不再被 R002 拦、恢复后重新拦截、方言隔离、nil 端口回归"。前端：npm typecheck 0 错、build 通过；起本地服务 + 全新 sqlite 做真实浏览器黑盒，逐页走通：建 Agent 拿到一次性 Key 并能复制/编辑/轮换/删除 409 路径；建数据源、测试连接失败态可读、编辑留空密码不丢密、删除需名称匹配；权限页选 Agent×数据源后增/改/删策略、对象名非法被前端拦、提交前 diff 可见、保存后用该 Agent 走一次网关验证策略生效；规则页内置开关 upsert、恢复默认走 enabled=true、内置无删除按钮、自定义规则可增删改，并实测"关掉某规则→真实网关该规则不再拦、打开即恢复"。控制台零有效报错。
+
+### 22.12 本单明确不做
+不做规则阈值（R004 扫描行数/R005 结果集/R008 QPS 等）的可视化编辑（留 T24/企业版）；不做数据源级/Agent 级规则分层（v0.1 只 Global）；不做策略模板/导入导出/批量授权向导；不给 T21 StaticAssess 接规则覆盖；不改路由与左侧菜单（T17 已注册）；不引新前端依赖、不改 go.mod/package.json；不动 T18 总览、T19 StageFlow 组件内部、T20 审计、T21 演示台的既有行为。
 
 # 第 6 章 收尾任务单 T23-T25
 
