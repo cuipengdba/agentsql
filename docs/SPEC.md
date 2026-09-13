@@ -1239,8 +1239,64 @@ styles.css 仅追加 `.playground-*` 独立前缀，不改 T18/T19/T20 既有选
 
 # 第 6 章 收尾任务单 T23-T25
 
-## T23 绕过语料回归与 fuzz ★
-tests/corpus 扩到 ≥200 条(50危险/50慢查询风险/100正常)，批量回归出命中率/误拦率报表：**危险漏拦=0、误拦率<2%**；fuzz 随机畸形 SQL 喂 parser 跑 30 分钟不 panic、全 fail-closed。亲自补刁钻 SQL 考它。不达标不许开源。
+## T23 绕过语料决策回归与 fuzz ★（开源前红线质量门）
+
+### 23.1 目标与既有资产
+- 本单做**端到端安检终态判定**的批量回归（喂 SQL→走完 Parse+全部静态/动态规则→比对最终 Decision 与命中规则），产出命中率/漏拦/误拦报表，并用 fuzz 保证畸形输入不 panic、永远 fail-closed。
+- 主控已交付语料数据 `tests/corpus/decision_cases.json`（**245 条，Codex 只消费、不增删改期望**）：danger 77（全 deny）、risk 56（approve 41/warn 15）、normal 112（全 allow）；`dialects` 决定在哪个方言跑（`all` 已展开为 postgres+mysql，共 353 次判定）。
+- 注意区分：既有 `tests/corpus/postgres.json|mysql.json` 是 **parser 层 AST 断言**语料（`internal/parser/corpus_test.go` 消费），**不要改动、不要混淆**；本单新增的是**决策层**语料与测试。
+- R008 限流依赖运行态 QPS/并发，**不进**静态决策语料，仍由既有并发测试覆盖，语料中无 R008 用例属正常。
+
+### 23.2 decision_cases.json 结构（DisallowUnknownFields，严格解码）
+每条字段：
+- `id`：Dxxx/Sxxx/Nxxx 唯一编号；`dialects`：运行方言子集 `["postgres"]|["mysql"]|["postgres","mysql"]`；
+- `category`：`danger|risk|normal`；`agent_level`：`readonly|dml|ddl`；`sql`：原始 SQL（原样、不 trim 内部空白）；
+- `expect`：终态 `deny|approve|warn|allow`；`expect_rules`：应当命中的规则 ID 数组（解析失败为 `["PARSE"]`；纯 allow 正常用例为 `[]`）；
+- `point` 考点、`note` 上下文人类说明、`tag`（误拦候选/缺口待确认，可空）；
+- `meta`：**确定性假元数据/策略注入**（不连真实库也能让动态规则确定触发）：
+  - `est_scan_rows`：>0 时 harness 在 Parse 后设置 `ast.Explain=&model.ExplainInfo{EstScanRows:该值}`，模拟 T10 执行 EXPLAIN 回填的计划信号，驱动 R004（>10 万→approve）/R005（无 LIMIT 且 >1000→warn）；为 0 时 `ast.Explain` 保持 nil（R004/R005 不触发，正常聚合/无 LIMIT 点查因此 allow，用于反误杀）；
+  - `no_index`：true 时假元数据对目标写表 `TableHasIndex` 返回 false（驱动 R105）；`large_table`：true 时 `TableRowCount` 返回 1000 万（驱动 R106），否则返回 100、有索引；
+  - `pg_tx`：R107 用，映射 `rules.TransactionState{InTransaction,AgeMS,IdleMS}`；`mysql_tx`：R204 用，映射 `rules.MysqlTransactionState{InTransaction,AgeMS,AffectedRows}`；默认均为不在事务；
+  - `policy`：`{"mode":"allow_all"}` → `model.PolicyDecision{AllowedTables:["*"], DeniedTables:[] , ColumnACL:map[string][]string{}, Level:agent_level}`；`{"mode":"acl","allowed_tables":[...],"column_acl":{...}}` → 按值构造，用于 R010 越权正反例（仅授权 orders 的 id/name/amount）。
+
+### 23.3 决策回归 harness：新增 `internal/pipeline/decision_corpus_test.go`（`package pipeline`）
+- 必须是包内测试（`package pipeline`），以便直接复用未导出的 `assembleRules`、`validationLimiter`；加载方式照搬 `internal/parser/corpus_test.go` 的 `loadCorpus`：`runtime.Caller(0)` 定位到 `../../tests/corpus/decision_cases.json`，`json.Decoder` + `DisallowUnknownFields()`，单 JSON 数组，解码后再 Decode 一次必须 `io.EOF`（拒绝尾部多余内容/多 JSON）。
+- 实现一个测试内假元数据 `decisionFakeMeta`，**同时实现** `rules.MetadataProvider`、`rules.TransactionMetadataProvider`、`rules.MysqlTransactionMetadataProvider`：`TableHasIndex` 按 `no_index` 返回、`TableRowCount` 按 `large_table` 返回、`TransactionState()`/`MysqlTransactionState()` 回射 case.meta；不允许 panic、不允许访问网络/真实库。
+- 单条判定函数 `assessDecisionCase(t, c, dialect) (got model.Decision, hitIDs map[string]struct{})`，步骤严格对齐生产 `StaticAssess`：
+  1. `parser.NewParser(dialect).Parse(c.sql)`；
+  2. 若 `parseErr != nil && ast!=nil && ast.IsMulti && ast.StmtType==""`：把 `ast.StmtType="UNKNOWN"`（与 static_assess.go 一致，让 R001/R006 吃结构化堆叠信号）；若 `parseErr!=nil && (ast==nil || !ast.IsMulti)`：按 fail-closed 直接得到 `Decision=deny`、命中 `PARSE`（复刻 static_assess.go 的 PARSE 分支），进入比对；
+  3. 解析成功后，若 `meta.est_scan_rows>0` 则设置 `ast.Explain`；`assembleRules(dialect, &validationLimiter{}, fake)` 取**全部规则（不 split、静态+动态都跑）**；
+  4. 构造 `engine.EvalContext{AST:ast, AgentLevel:c.agent_level, Agent:&model.Agent{Level:c.agent_level,Status:"active"}, Datasource:&model.Datasource{DBType:dialect}, Policy:按meta构造, MetadataProvider:fake, Thresholds:nil}`；`(engine.Engine{}).Evaluate(ast, ctx, allRules, engine.RuleLayers{})` 得 Assessment，取 `Decision` 与 `Hits[].RuleID` 集合。
+- 顶层 `TestDecisionCorpus` 用 `t.Run(dialect).Run(c.id)` 展开 353 个子测，逐条比对并累计统计（见 23.4），**不得**用 t.Parallel（保持确定性输出顺序）。
+
+### 23.4 判定口径与硬门槛（计数以"方言展开后的判定次数"为分母）
+- **漏拦 miss（红线）**：`category=danger` 且 `got!="deny"`。必须为 **0**，出现任意一条即 `t.Fatalf` 并打印全部漏拦 id/sql/got/hits。
+- **误拦 false-positive**：`category=normal` 且 `got!="allow"`。误拦率 = 误拦次数 / normal 判定次数，门槛 **<2%**，超过即 `t.Fatalf`；目标为 0。
+- **风险不符 risk-mismatch**：`category=risk` 且 `got!=c.expect`（approve/warn 精确匹配，不允许互相折算）。v0.1 要求**全部相符**，不符即 `t.Fatalf` 并列明细。
+- **规则缺失 missing-rule**：`c.expect_rules` 中任一 ID 不在 hitIDs 即记一条（防止"终态蒙对、却不是靠预期规则拦住"），逐条 `t.Errorf`；`PARSE` 用例要求 hitIDs 含 `PARSE`。
+- 决策优先级以生产 `recomputeAssessmentDecision` 为准（deny>approve>warn>allow），测试不自行重算优先级，只消费 Assessment.Decision。
+
+### 23.5 回归报表（`go test ./internal/pipeline -run TestDecisionCorpus -v`）
+- 测试末尾用 `t.Logf` 打印：①总判定数/通过数；②category×decision 交叉表；③漏拦/误拦/风险不符/规则缺失四类明细 id 列表；④按规则 ID 的命中次数（R001…R204、PARSE）；⑤按方言计数与误拦率百分比。报表为纯文本日志，确定性、可重复、无随机顺序，便于主控与历史结果 diff。
+
+### 23.6 fuzz fail-closed：新增 `internal/pipeline/decision_fuzz_test.go`
+- `FuzzAssessFailClosed(f *testing.F)`：种子语料 = decision_cases 全部 sql（两方言各 Add 一遍）+ 畸形种子（`"\x00\xffSELECT FROM"`、`"))((("`、超长重复 `(`/`;`/`UNION ALL`、嵌套/未闭合注释、混合大小写、emoji/多字节、`/*!*/`、NUL 截断）。
+- fuzz 体对任意 `(sql, dialect)` 跑完整 Parse+规则评估，断言：**绝不 panic**（含 nil 解引用、切片越界、整数溢出、正则回溯失控等）；**只要 Parse 返回 error，终态必须是 deny（fail-closed）**，绝不能在解析失败时得到 allow/approve/warn；评估过程不得访问网络/文件/真实库。
+- 主控验收命令（实跑）：`go test -run=^$ -fuzz=FuzzAssessFailClosed -fuzztime=30m ./internal/pipeline/`，要求 30 分钟无 panic、无 fail-closed 违例；普通 `go test ./...` 时 fuzz target 只跑种子（不进入持续 fuzz）。
+
+### 23.7 文件清单与边界
+- 新增：`internal/pipeline/decision_corpus_test.go`、`internal/pipeline/decision_fuzz_test.go`；数据 `tests/corpus/decision_cases.json` 主控已给。
+- **默认不改生产代码**。若回归暴露真实漏拦/误拦，允许对 `internal/rules/*`、`internal/pipeline/*`、`internal/parser/*` 做**最小**修复，但必须在交付说明单列"为通过语料改动的生产文件 + 对应失败用例 id + 原因"；**严禁反向修改语料期望去迁就代码缺陷**（确属语料标注错误的，列清单交主控确认后由主控改数据，Codex 不自行改 json）。
+- 不改七表/迁移、不改 adminapi/MCP 协议、不改前端、不改 go.mod 依赖、不改既有 parser corpus 与其测试。
+
+### 23.8 静态自审铁律（单位无法 go test）
+逐文件文本级自审：导入均被使用、接口方法集与 `rules` 三个 provider 接口完全匹配（否则编译不过）、`assembleRules` 第二参传 `&validationLimiter{}`、metadata 任何分支不 panic、计数分母不为 0、断言门槛数值（漏拦 0、误拦 2%）写对。交付说明注明"未本地编译/构建/跑测，需主控端验证"。
+
+### 23.9 主控验收门
+gofmt、build/vet=0；`go test -race ./...` 全 ok；`-run TestDecisionCorpus -v` 报表满足漏拦 0、误拦率<2%、risk 全相符、无 missing-rule；fuzz 连续 30 分钟无 panic 且违例 0；不达标不许进入 T24、不许开源。
+
+### 23.10 本单明确不做
+不接真实数据库 EXPLAIN/真实元数据（沿用 T10 链路，本单只用确定性假元数据）；不做规则阈值可视化编辑；不改变 21 条规则既定语义（修 bug 除外且需报备）；不做语料在线管理/导入界面；不把 R008 纳入静态语料；不补 T24/T25 的打包与指标。
 
 ## T24 打包部署
 go:embed 内嵌 web/dist；交叉编译 linux amd64/arm64、darwin 单二进制；多阶段 Dockerfile + docker-compose(含示例 PG/MySQL)；systemd unit；agentsqlctl init。验收干净环境 compose up 后 5 分钟走完"加数据源→建 Agent→Cursor 连上→看到审计"。
@@ -1250,7 +1306,7 @@ go:embed 内嵌 web/dist；交叉编译 linux amd64/arm64、darwin 单二进制�
 
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PG14/16/18 与 MySQL8 E2E 通过；
-- 200 条语料危险漏拦 0、误拦 <2%、fuzz 无 panic；
+- 决策语料 245 条（≥200，danger77/risk56/normal112）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟无 panic 且 fail-closed；
 - Cursor/Claude 各录屏：只读成功/越权拒/无WHERE更新拒/审计可查；
 - 控制台 6 类页面（总览/审计/演示台/Agent/数据源/权限/规则）全部联调并打进单二进制；
 - 干净环境 5 分钟跑通；性能达标。
