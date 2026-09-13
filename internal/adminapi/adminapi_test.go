@@ -165,6 +165,49 @@ func TestAdminJSONBodyAndPaginationGuards(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, status)
 }
 
+func TestAdminPlaygroundStaticAssessmentIsAuthenticatedAndDoesNotAudit(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(
+		http.MethodPost,
+		"/api/v1/playground/assess",
+		"",
+		`{"sql":"SELECT 1","db_type":"postgres"}`,
+	)
+	require.Equal(t, http.StatusUnauthorized, status)
+	require.Contains(t, body, "unauthorized")
+
+	status, _ = fixture.request(
+		http.MethodPost,
+		"/api/v1/playground/assess",
+		fixture.adminToken,
+		`{"sql":`,
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, status)
+
+	before, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	status, body = fixture.request(
+		http.MethodPost,
+		"/api/v1/playground/assess",
+		fixture.adminToken,
+		`{"sql":"SELECT id FROM public.customers WHERE id = 42 LIMIT 10","db_type":"postgres","agent_level":"readonly"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	var response struct {
+		Code int                  `json:"code"`
+		Data playgroundAssessView `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &response))
+	require.Zero(t, response.Code)
+	require.True(t, response.Data.StaticOnly)
+	require.Equal(t, "allow", response.Data.Decision)
+	require.Equal(t, "postgres", response.Data.DBType)
+	require.Equal(t, "readonly", response.Data.AgentLevel)
+	after, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, before.Total, after.Total)
+}
+
 type adminFixture struct {
 	store      *store.Store
 	handler    http.Handler

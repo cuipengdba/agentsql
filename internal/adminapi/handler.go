@@ -116,6 +116,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/approvals", handler.approvalsList)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)
+	mux.HandleFunc("POST /api/v1/playground/assess", handler.playgroundAssess)
 	return handler.recover(handler.adminAuth(mux)), nil
 }
 

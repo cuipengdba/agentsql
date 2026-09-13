@@ -269,3 +269,52 @@ export interface DashboardSummary {
 export interface DeleteView {
   deleted: boolean;
 }
+
+export interface PlaygroundAssessRequest {
+  sql: string;
+  db_type: "postgres" | "mysql";
+  agent_level?: "readonly" | "dml" | "ddl";
+}
+
+export interface PlaygroundHitView {
+  RuleID: string;
+  Risk: number;
+  Decision: string;
+  Message: string;
+  Suggestion: string;
+}
+
+export interface PlaygroundObjectView {
+  Schema: string;
+  Table: string;
+  Alias: string;
+}
+
+export interface PlaygroundStageLatency {
+  auth: number;
+  load: number;
+  parse: number;
+  guard_static: number;
+  guard_dynamic: number;
+  execute: number;
+  redact: number;
+  audit: number;
+}
+
+export interface PlaygroundAssessView {
+  Decision: string;
+  Risk: number;
+  StmtType: string;
+  Hits: PlaygroundHitView[];
+  EstScanRows: number;
+  Reason: string;
+  Suggestion: string;
+  Normalized: string;
+  Objects: PlaygroundObjectView[];
+  StageLatency: PlaygroundStageLatency;
+  ParseError: string;
+  StaticOnly: boolean;
+  DBType: string;
+  AgentLevel: string;
+  SQL: string;
+}

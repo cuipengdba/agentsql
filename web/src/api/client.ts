@@ -39,6 +39,12 @@ function isApiResponse(value: unknown): value is ApiResponse<unknown> {
 }
 
 function rejectHTTPError(error: AxiosError<ApiResponse<unknown>>): Promise<never> {
+  // AbortController 取消（切换剧本/新请求/卸载）时静默 reject，不弹全局错误提示。
+  // 用 code 判断而非 axios.isCancel：isCancel 是类型谓词，会把 AxiosError 形参在
+  // 否定分支收窄成 never（AxiosError 结构兼容带索引签名的 Cancel），导致后续访问报错。
+  if (error.code === "ERR_CANCELED") {
+    return Promise.reject(error);
+  }
   const status = error.response?.status;
   const errorMessage = error.response?.data?.msg || "请求失败，请稍后重试";
   if (status === 401) {

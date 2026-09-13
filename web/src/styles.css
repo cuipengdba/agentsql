@@ -316,6 +316,208 @@ pre {
   }
 }
 
+.playground-notice {
+  margin-bottom: 16px;
+}
+
+.playground-control,
+.playground-scenarios,
+.playground-result {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.playground-control .ant-card-body {
+  padding: 18px;
+}
+
+.playground-control-row {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.playground-control-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.playground-control-field > span,
+.playground-sql-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.playground-sql-label {
+  display: block;
+  margin-bottom: 7px;
+}
+
+.playground-sql-input {
+  resize: vertical;
+  color: var(--color-text);
+  background: var(--color-elevated);
+  border-color: var(--color-border);
+  line-height: 1.65;
+}
+
+.playground-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.playground-scenarios,
+.playground-result {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.playground-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.playground-section-heading strong {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.playground-section-heading span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.playground-scenario-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.playground-scenario {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--playground-scenario-color) 6%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--playground-scenario-color) 72%, var(--color-border));
+}
+
+.playground-scenario:hover,
+.playground-scenario:focus-visible {
+  color: var(--playground-scenario-color) !important;
+  border-color: var(--playground-scenario-color) !important;
+}
+
+.playground-scenario-error {
+  color: var(--color-deny);
+  background: color-mix(in srgb, var(--color-deny) 5%, var(--color-surface));
+}
+
+.playground-try-more {
+  margin: 13px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.playground-result {
+  min-height: 280px;
+}
+
+.playground-loading {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+}
+
+.playground-parse-error {
+  margin-bottom: 14px;
+}
+
+.playground-result-meta {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.playground-result-meta .ant-tag {
+  margin-inline-end: 0;
+}
+
+.playground-result-meta code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playground-decision-error {
+  color: var(--color-deny);
+  background: color-mix(in srgb, var(--color-deny) 7%, var(--color-elevated));
+  border-color: color-mix(in srgb, var(--color-deny) 34%, var(--color-border));
+}
+
+.playground-raw-json {
+  margin-top: 16px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.playground-raw-json summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.playground-raw-json pre {
+  max-height: 360px;
+  margin-bottom: 0;
+  padding: 14px;
+  overflow: auto;
+  color: var(--color-text);
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .playground-control-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .playground-control-field .ant-segmented {
+    overflow-x: auto;
+  }
+
+  .playground-actions {
+    flex-wrap: wrap;
+  }
+
+  .playground-result-meta {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+  }
+
+  .playground-result-meta code {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 .overview-dashboard:fullscreen {
   overflow: auto;
   background: var(--color-page);
