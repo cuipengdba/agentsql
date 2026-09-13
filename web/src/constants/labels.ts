@@ -42,3 +42,44 @@ export function getDecisionMeta(decision: string | null | undefined): DecisionMe
     tagColor: "error",
   };
 }
+
+export const agentLevelMeta = {
+  readonly: { label: "只读", color: "blue" },
+  dml: { label: "读写(DML)", color: "cyan" },
+  ddl: { label: "结构(DDL)", color: "orange" },
+} as const;
+
+export const agentStatusMeta = {
+  active: { label: "启用", color: "success" },
+  disabled: { label: "禁用", color: "default" },
+} as const;
+
+export const dbTypeMeta = {
+  postgres: { label: "PostgreSQL", color: "blue" },
+  mysql: { label: "MySQL", color: "gold" },
+  all: { label: "通用", color: "default" },
+} as const;
+
+export const policyActionMeta = {
+  allow: { label: "允许", color: "success" },
+  deny: { label: "拒绝", color: "error" },
+} as const;
+
+export const objectTypeMeta = {
+  database: { label: "库", color: "purple" },
+  schema: { label: "模式", color: "geekblue" },
+  table: { label: "表", color: "cyan" },
+  column: { label: "列(列级白名单)", color: "orange" },
+} as const;
+
+export const riskLevelMeta = {
+  1: { label: "1 · 低", color: palette.semantic.allow },
+  2: { label: "2 · 关注", color: palette.light.brand },
+  3: { label: "3 · 告警", color: palette.semantic.warn },
+  4: { label: "4 · 高", color: palette.semantic.approve },
+  5: { label: "5 · 严重", color: palette.semantic.deny },
+} as const;
+
+export function configLabel(meta: Readonly<Record<string, Readonly<{ label: string }>>>, value: string): string {
+  return meta[value]?.label || value || "—";
+}

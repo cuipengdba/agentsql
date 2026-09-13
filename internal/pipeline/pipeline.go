@@ -97,6 +97,13 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
+		if !isNilInterface(pipeline.ports.RuleOverrides) {
+			storedRules, err := pipeline.ports.RuleOverrides.List(ctx, "")
+			if err != nil {
+				return fmt.Errorf("load rule overrides: %w", err)
+			}
+			run.ruleLayer = ruleOverridesToLayer(storedRules, datasource.DBType)
+		}
 		storedPolicies, err := pipeline.ports.Policies.ListByAgentAndDatasource(
 			ctx,
 			run.agent.ID,
@@ -142,11 +149,12 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 			return err
 		}
 		staticRules, _ := splitRules(allRules)
+		requestLayers := mergeGlobalLayers(pipeline.layers, run.ruleLayer)
 		assessment, err := pipeline.engine.Evaluate(
 			run.ast,
 			run.evalContext(panicMetadataProvider{}),
 			staticRules,
-			projectRuleLayers(pipeline.layers, staticRules),
+			projectRuleLayers(requestLayers, staticRules),
 		)
 		run.setAssessment(assessment)
 		if err != nil {
@@ -245,11 +253,12 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 			return err
 		}
 		_, dynamicRules := splitRules(allRules)
+		requestLayers := mergeGlobalLayers(pipeline.layers, run.ruleLayer)
 		dynamicAssessment, err := pipeline.engine.Evaluate(
 			run.ast,
 			run.evalContext(metadata),
 			dynamicRules,
-			projectRuleLayers(pipeline.layers, dynamicRules),
+			projectRuleLayers(requestLayers, dynamicRules),
 		)
 		if err != nil {
 			return err
@@ -373,6 +382,7 @@ type pipelineRun struct {
 	agent           *model.Agent
 	datasource      *model.Datasource
 	policy          *model.PolicyDecision
+	ruleLayer       engine.RuleLayer
 	ast             *model.AST
 	executor        executor.Executor
 	session         executor.Session

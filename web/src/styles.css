@@ -518,6 +518,202 @@ pre {
   }
 }
 
+.cfg-inline-alert {
+  margin-bottom: 14px;
+}
+
+.cfg-table {
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cfg-table .ant-table {
+  background: transparent;
+}
+
+.cfg-table .ant-table-thead > tr > th {
+  color: var(--color-text-secondary);
+  background: var(--color-elevated);
+  border-bottom-color: var(--color-border);
+}
+
+.cfg-table .ant-table-tbody > tr > td {
+  border-bottom-color: color-mix(in srgb, var(--color-border) 62%, transparent);
+}
+
+.cfg-table code {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.cfg-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
+
+.cfg-form {
+  margin-top: 22px;
+}
+
+.cfg-full-width {
+  width: 100%;
+}
+
+.cfg-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr);
+  gap: 12px;
+}
+
+.cfg-form-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cfg-form-note {
+  margin-bottom: 16px;
+}
+
+.cfg-form-help {
+  margin: -10px 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.cfg-credential {
+  margin-top: 22px;
+}
+
+.cfg-credential-value {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cfg-credential-value code {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  color: var(--color-text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cfg-confirm-input {
+  margin-top: 16px;
+}
+
+.cfg-scope-filter,
+.cfg-rule-filter {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cfg-scope-select {
+  width: min(320px, 100%);
+}
+
+.cfg-scope-summary {
+  margin-bottom: 18px;
+}
+
+.cfg-empty {
+  display: grid;
+  min-height: 360px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  place-items: center;
+}
+
+.cfg-diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.cfg-diff {
+  display: grid;
+  grid-template-columns: auto minmax(100px, auto) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cfg-diff > code {
+  padding-top: 4px;
+  color: var(--color-text);
+  font-size: 11px;
+}
+
+.cfg-diff > div > span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.cfg-diff p {
+  margin: 4px 0 0;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cfg-rule-search {
+  width: min(340px, 100%);
+  margin-left: auto;
+}
+
+@media (max-width: 760px) {
+  .cfg-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .cfg-form-grid,
+  .cfg-form-grid-three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cfg-scope-filter,
+  .cfg-rule-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cfg-scope-select,
+  .cfg-rule-search {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .cfg-diff {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cfg-diff > div {
+    grid-column: 1 / -1;
+  }
+}
+
 .overview-dashboard:fullscreen {
   overflow: auto;
   background: var(--color-page);

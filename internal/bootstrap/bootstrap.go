@@ -30,7 +30,8 @@ type Runtime struct {
 	closed    bool
 }
 
-// Assemble validates configuration and wires all seven pipeline ports.
+// Assemble validates configuration and wires the required pipeline ports and
+// the optional store-backed runtime rule overrides.
 func Assemble(ctx context.Context, cfg config.Config, secret []byte) (*Runtime, error) {
 	return assembleWithExecutorProvider(ctx, cfg, secret, nil)
 }
@@ -68,6 +69,7 @@ func assembleWithExecutorProvider(
 		Approvals:     metadataStore.Approvals(),
 		Audit:         audit.NewRecorder(metadataStore.AuditLogs()),
 		Redactors:     redactors,
+		RuleOverrides: metadataStore.Rules(),
 	}, secret)
 	if err != nil {
 		return nil, closeAfterAssemblyError(manager, metadataStore, err)
@@ -178,6 +180,7 @@ func isNilBootstrapDependency(value any) bool {
 }
 
 var (
-	_ pipeline.RedactorBuilder = (*redactorBuilder)(nil)
-	_ maskRuleReader           = (*store.MaskRuleRepository)(nil)
+	_ pipeline.RedactorBuilder    = (*redactorBuilder)(nil)
+	_ maskRuleReader              = (*store.MaskRuleRepository)(nil)
+	_ pipeline.RuleOverrideReader = (*store.RuleRepository)(nil)
 )

@@ -549,6 +549,7 @@ type pipelineFixture struct {
 	approvals     *fakeApprovalWriter
 	audit         *fakeAuditRecorder
 	redactors     *fakeRedactorBuilder
+	ruleOverrides *fakeRuleOverrideReader
 	executor      *spyExecutor
 }
 
@@ -576,11 +577,12 @@ func newPipelineFixture(t *testing.T, options ...Option) *pipelineFixture {
 			{ID: "p1", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "table", ObjectName: "public.orders", Action: "allow"},
 			{ID: "p2", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "table", ObjectName: "public.customers", Action: "allow"},
 		}},
-		executors: &fakeExecutorProvider{executor: spy},
-		approvals: &fakeApprovalWriter{},
-		audit:     &fakeAuditRecorder{},
-		redactors: &fakeRedactorBuilder{redactor: redactor},
-		executor:  spy,
+		executors:     &fakeExecutorProvider{executor: spy},
+		approvals:     &fakeApprovalWriter{},
+		audit:         &fakeAuditRecorder{},
+		redactors:     &fakeRedactorBuilder{redactor: redactor},
+		ruleOverrides: nil,
+		executor:      spy,
 	}
 	constructed, err := New(fixture.ports(), testPipelineSecret, options...)
 	require.NoError(t, err)
@@ -597,6 +599,7 @@ func (fixture *pipelineFixture) ports() Ports {
 		Approvals:     fixture.approvals,
 		Audit:         fixture.audit,
 		Redactors:     fixture.redactors,
+		RuleOverrides: fixture.ruleOverrides,
 	}
 }
 
@@ -649,6 +652,26 @@ type fakePolicyLoader struct {
 	mu       sync.Mutex
 	policies []model.Policy
 	err      error
+}
+
+type fakeRuleOverrideReader struct {
+	mu    sync.Mutex
+	rules []model.Rule
+	err   error
+	calls int
+}
+
+func (fake *fakeRuleOverrideReader) List(context.Context, string) ([]model.Rule, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fake.calls++
+	return append([]model.Rule(nil), fake.rules...), fake.err
+}
+
+func (fake *fakeRuleOverrideReader) setEnabled(id, dbType string, enabled bool) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fake.rules = []model.Rule{{ID: id, DBType: dbType, Enabled: enabled}}
 }
 
 func (fake *fakePolicyLoader) ListByAgentAndDatasource(

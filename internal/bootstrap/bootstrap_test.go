@@ -32,6 +32,9 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NotNil(t, runtime.Pipeline)
 	require.NotNil(t, runtime.Executors)
 	require.NotNil(t, runtime.Store)
+	require.NotNil(t, runtime.Store.Rules())
+	var overrideReader pipeline.RuleOverrideReader = runtime.Store.Rules()
+	require.NotNil(t, overrideReader)
 
 	plaintext, hash, err := store.GenerateAPIKey()
 	require.NoError(t, err)

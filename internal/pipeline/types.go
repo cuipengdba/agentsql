@@ -90,7 +90,13 @@ type RedactorBuilder interface {
 	RedactorFor(ctx context.Context, datasourceID string) (mask.Redactor, error)
 }
 
-// Ports contains exactly the external dependencies used by Pipeline.
+// RuleOverrideReader reads administrator-maintained global rule overrides.
+type RuleOverrideReader interface {
+	List(ctx context.Context, dbType string) ([]model.Rule, error)
+}
+
+// Ports contains the seven required pipeline dependencies plus the optional
+// runtime rule-override reader. A nil RuleOverrides preserves built-in rules.
 type Ports struct {
 	Authenticator IdentityAuthenticator
 	Datasources   DatasourceReader
@@ -99,6 +105,7 @@ type Ports struct {
 	Approvals     ApprovalWriter
 	Audit         AuditRecorder
 	Redactors     RedactorBuilder
+	RuleOverrides RuleOverrideReader
 }
 
 // Option configures immutable pipeline behavior at construction time.
