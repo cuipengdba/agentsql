@@ -1298,6 +1298,22 @@ gofmt、build/vet=0；`go test -race ./...` 全 ok；`-run TestDecisionCorpus -v
 ### 23.10 本单明确不做
 不接真实数据库 EXPLAIN/真实元数据（沿用 T10 链路，本单只用确定性假元数据）；不做规则阈值可视化编辑；不改变 21 条规则既定语义（修 bug 除外且需报备）；不做语料在线管理/导入界面；不把 R008 纳入静态语料；不补 T24/T25 的打包与指标。
 
+### 23.11 T23.1 决策回归缺陷修复（首跑质量门逼出的 10 项，最小改动）
+首跑 `TestDecisionCorpus` 后，语料侧标注问题已由主控修正（现 246 条 / 353 次，PG192 / MySQL161），剩余失败全部是解析器/规则的真实缺陷，逐项修复到决策回归全绿。先给 `internal/model.AST` 增加两个字段并由两个 parser 填充：`HasGroupBy bool`（最外层含 GROUP BY）、`IsPureAggregate bool`（最外层投影全是聚合函数 count/sum/avg/min/max/stddev/string_agg 等、无 GROUP BY、无普通非聚合列）。
+
+- **F1 方言规则对堆叠/UNKNOWN 健壮性**（rules/postgres.go `requiredPostgresAST`、rules/mysql.go `requiredMysqlAST`）：现状是 PG 多语句堆叠解析为 IsMulti+UNKNOWN+Operations 空，`requiredPostgresAST` 对空 Operations 返回 error，而 engine 任一规则 error 即整体 failedAssessment，导致 R101 先报错、R001/R006 的拦截记录不上（D001/D002/D004/D005/D006/D008 中断，347≠353）。目标：方言专属规则对 IsMulti 或 UNKNOWN 或 Operations 空一律 allowResult 跳过、不返回 error，堆叠/未知统一交 R001/R006；保留"Operations 含空串元素才报错"。验证：上述 6 条 PG 终态 deny 命中 R001（D004 含 R104、D005 含 R003），Total=353，且不跳过真实结构化语句。
+- **F2 恒真条件补两类**（parser/postgres_tautology.go、parser/mysql.go `mysqlExpressionTautology`）：现状只认常量=常量/布尔/数字/AND/OR，漏 ①同列=同列（左右列引用归一后相同，如 id=id、col=col）②无相关子查询的 `EXISTS(SELECT 常量)`。命中即 WhereTautology=true，由 R002 deny。验证 D015/D016/D017 双方言 deny 命中 R002，D011–D014 保持 deny，`id=1` 与相关 EXISTS 不误判。
+- **F3 R007 剥 schema 前缀**（rules/generic.go）：比对黑名单前取最后一个 '.' 之后的标识符。验证 D041 `pg_catalog.pg_sleep` 命中 R007，D042 嵌套仍拦，普通函数不误伤。
+- **F4 R010 列级 ACL**（rules/generic.go，消费 PolicyDecision.ColumnACL 与 ast.Columns）：表级通过后，对配置了列白名单的表，明确引用到白名单外列即 deny；SELECT *（N104）/未配置该表列 ACL/列归属无法判定时不做列级硬拦（避免误杀）。验证 D054 选未授权列 secret 双方言 deny 命中 R010，D049–D053 表级越权仍 deny，N103/N106/N108/N109/N104 全 allow。
+- **F5 R101 覆盖全部危险 DROP**（parser/postgres.go `postgresObjectType`、rules/postgres.go）：补齐 SCHEMA/SEQUENCE/FUNCTION(PROCEDURE)/VIEW/MATERIALIZED VIEW 的 DROP 信号，R101 对这些与 DATABASE/TABLE 一并 deny。验证 D059 DROP SCHEMA 命中 R101。
+- **F6 R106 覆盖非在线 CREATE INDEX**（parser 增加 IndexStmt 信号区分 `CREATE INDEX` 与 `CREATE INDEX CONCURRENTLY`，读 concurrent 标志；rules/postgres.go）：大表普通 CREATE INDEX 转人工，CONCURRENTLY 不拦。验证 S035 approve 命中 R106，S032–S034/S036 ALTER 行为不变。
+- **F7 parser 产出 NESTING_DEPTH/UNION_COUNT**（双方言；R009 已会读，判定不改）：Operations 追加 `NESTING_DEPTH:<n>`（最深派生表/子查询层数）、`UNION_COUNT:<n>`（UNION/UNION ALL 连接符个数，k 分支=k-1），命名对齐 rules 常量。验证 S014（18 层）、S015（19 分支=18 连接符）双方言 approve 命中 R009（默认阈值 16），浅查询不命中，并补 parser 单测锁定计数。
+- **F8 R005 豁免纯聚合**（rules/generic.go + 新 AST 字段）：IsPureAggregate 且无 GROUP BY 时 R005 直接放行；HasGroupBy 维持原 warn。验证 N107 count(*)（注入 est=50000、无 LIMIT）双方言 allow 不命中 R005，S055 GROUP BY 仍 warn。
+- **F9 MySQL 条件注释**（parser/mysql.go `mysqlHasComment`）：原始 SQL 出现 `/*!` 版本条件注释即判含注释交 R006 deny；`/*+` optimizer hint 不算（D034 放行）；--/#/普通块注释维持现状。验证 D031 命中 R006。
+- **F10 SET 作用域 + R203**（parser/mysql.go、rules/mysql.go）：SET 语句区分 `SET GLOBAL`（含 @@global.）与 `SET SESSION`（SESSION/LOCAL/普通用户变量）并写入 Operations；R203 拦 SET GLOBAL，放 SET SESSION/USE/LOCK。验证 D076 deny 命中 R203，N072 SESSION allow，FLUSH/KILL/PURGE 仍 deny。
+
+统一约束：只改 internal/parser、internal/rules、internal/model（加两字段）；不动决策 harness、语料 json、前端、API、存储；不重构、不改规则 ID 与默认阈值（嵌套/UNION 维持 16）；新增分支补 parser/rules 单元测试。单位无法编译，逐文件文本级静态自审（类型/字段名/import/switch 穷尽/nil 安全），交付注明"未本地编译/测试，需主控端验证"。完成标准（主控端）：`go test ./internal/pipeline -run TestDecisionCorpus -count=1` 全绿（246 条/353 次，danger miss=0、normal 误拦率<2%、risk 全匹配、无 missing-rule、Total=353），`go test ./...` 全绿，gofmt/vet 为 0。
+
 ## T24 打包部署
 go:embed 内嵌 web/dist；交叉编译 linux amd64/arm64、darwin 单二进制；多阶段 Dockerfile + docker-compose(含示例 PG/MySQL)；systemd unit；agentsqlctl init。验收干净环境 compose up 后 5 分钟走完"加数据源→建 Agent→Cursor 连上→看到审计"。
 
