@@ -1422,7 +1422,7 @@ T23.1 合入后 F1–F10 目标用例全绿、双方言 normal 误拦率 0%、da
 - 验收口径：只读路径网关额外开销 P99 < 5ms / 请求（fake executor 口径，主控实测为准）；Prometheus 能抓 /metrics、Grafana 六面板出图由主控用 observability compose 验证。
 
 ### T25 白名单（白名单外一律不动）
-新增：internal/metrics/{metrics.go,doc.go,metrics_test.go}、internal/executor/pool_stats.go、internal/pipeline/{observer.go,t25_observer_test.go,t25_bench_test.go}、examples/observability/{prometheus.yml,grafana_dashboard.json,docker-compose.observability.yml,README.md}、docs/perf/README.md。
+新增：internal/metrics/{metrics.go,doc.go,metrics_test.go}、internal/executor/{pool_stats.go,pool_stats_test.go}、internal/pipeline/{observer.go,t25_observer_test.go,t25_bench_test.go}、internal/mcpserver/t25_metrics_test.go、examples/observability/{prometheus.yml,grafana_dashboard.json,docker-compose.observability.yml,README.md}、docs/perf/README.md。
 修改：go.mod（仅 require 增 prometheus/client_golang v1.22.0 一行）、internal/pipeline/{types.go,pipeline.go}、internal/bootstrap/bootstrap.go、internal/mcpserver/http.go、internal/executor/{postgres.go,mysql.go}。
 **受保护零改动**：tests/corpus/decision_cases.json 与 ExpectedCases=252/ExpectedRuns=353、所有规则与判定逻辑、web/ 前端源码与 internal/webui/dist、go.sum（主控补）、其余文件。单位无网无 Go，禁止 go get/tidy/build，只做文本级静态自审并在回传说明里注明“未本地构建/运行，需主控端验证”，gofmt 由主控执行。
 
