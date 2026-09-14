@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func TestVersionCommand(t *testing.T) {
 	output := new(strings.Builder)
 	exitCode := run([]string{"version"}, output, io.Discard)
 	require.Equal(t, 0, exitCode)
-	require.Equal(t, version+"\n", output.String())
+	require.Equal(t, version.Version+"\n", output.String())
 	command = newRootCommand(zerologForTest(t))
 	_, _, err = command.Find([]string{"mcp"})
 	require.NoError(t, err)

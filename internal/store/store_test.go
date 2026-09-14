@@ -22,6 +22,15 @@ func openTestStore(t *testing.T) *Store {
 	return opened
 }
 
+func TestStorePing(t *testing.T) {
+	opened := openTestStore(t)
+	require.NoError(t, opened.Ping(context.Background()))
+
+	var nilStore *Store
+	require.Error(t, nilStore.Ping(context.Background()))
+	require.Error(t, opened.Ping(nil))
+}
+
 func createPolicyDependencies(t *testing.T, opened *Store) (model.Agent, model.Datasource) {
 	t.Helper()
 	_, apiKeyHash, err := GenerateAPIKey()

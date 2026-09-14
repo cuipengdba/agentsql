@@ -26,6 +26,20 @@ type Store struct {
 	cipher *PasswordCipher
 }
 
+// Ping verifies that the metadata SQLite connection is reachable.
+func (store *Store) Ping(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("ping store: %w", ErrNilContext)
+	}
+	if store == nil || store.db == nil {
+		return fmt.Errorf("ping store: database is unavailable")
+	}
+	if err := store.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping store: %w", err)
+	}
+	return nil
+}
+
 // Open connects to SQLite, validates the encryption secret, and applies all
 // embedded migrations before returning.
 func Open(ctx context.Context, path string) (*Store, error) {

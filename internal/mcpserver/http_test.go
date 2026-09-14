@@ -15,6 +15,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
+	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,49 @@ const (
 	listToolsRequest   = `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
 	listSourcesRequest = `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_datasources","arguments":{}}}`
 )
+
+func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	webCalls := 0
+	webConsole := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		webCalls++
+		writer.WriteHeader(http.StatusTeapot)
+	})
+	handler, err := NewHTTPHandler(
+		fixture.runtime,
+		httpTestConfig(100),
+		zerolog.Nop(),
+		WithWebConsole(webConsole),
+	)
+	require.NoError(t, err)
+
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.Equal(t, http.StatusOK, health.Code)
+	require.Equal(t, "application/json", health.Header().Get("Content-Type"))
+	require.JSONEq(t, fmt.Sprintf(`{"status":"ok","version":%q}`, version.Version), health.Body.String())
+	require.Zero(t, webCalls)
+
+	ready := httptest.NewRecorder()
+	handler.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, ready.Code)
+	require.JSONEq(t, `{"status":"ready"}`, ready.Body.String())
+	require.Zero(t, webCalls)
+
+	unauthorized := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	handler.ServeHTTP(unauthorized, request)
+	require.Equal(t, http.StatusUnauthorized, unauthorized.Code)
+	require.JSONEq(t, `{"error":"unauthorized"}`, unauthorized.Body.String())
+	require.Zero(t, webCalls)
+}
+
+func TestT241ReadinessFailsClosedWithoutStore(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	readinessHandler(nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.JSONEq(t, `{"status":"not ready"}`, recorder.Body.String())
+}
 
 func TestStreamableHTTPEndToEndSevenTools(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")

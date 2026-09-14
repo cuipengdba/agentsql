@@ -62,6 +62,34 @@ type ThemeConfig struct {
 	Default string `yaml:"default"`
 }
 
+// Parse decodes and validates exactly one YAML configuration document without
+// reading or changing the filesystem.
+func Parse(contents []byte) (Config, error) {
+	var loaded Config
+	decoder := yaml.NewDecoder(bytes.NewReader(contents))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&loaded); err != nil {
+		return Config{}, fmt.Errorf("decode config: %w", err)
+	}
+
+	var trailing any
+	err := decoder.Decode(&trailing)
+	if err == nil {
+		return Config{}, fmt.Errorf("decode config: %w", ErrMultipleYAMLDocuments)
+	}
+	if !errors.Is(err, io.EOF) {
+		return Config{}, fmt.Errorf("decode trailing config data: %w", err)
+	}
+
+	if err := loaded.Validate(); err != nil {
+		return Config{}, fmt.Errorf("validate config: %w", err)
+	}
+	if !serverConsoleEnabledConfigured(contents) {
+		loaded.Server.ConsoleEnabled = true
+	}
+	return loaded, nil
+}
+
 // Load reads one YAML document, validates all startup settings, and creates the
 // parent directory for the SQLite database.
 func Load(path string) (Config, error) {
@@ -69,28 +97,9 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read config %q: %w", path, err)
 	}
-
-	var loaded Config
-	decoder := yaml.NewDecoder(bytes.NewReader(contents))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&loaded); err != nil {
-		return Config{}, fmt.Errorf("decode config %q: %w", path, err)
-	}
-
-	var trailing any
-	err = decoder.Decode(&trailing)
-	if err == nil {
-		return Config{}, fmt.Errorf("decode config %q: %w", path, ErrMultipleYAMLDocuments)
-	}
-	if !errors.Is(err, io.EOF) {
-		return Config{}, fmt.Errorf("decode trailing config data %q: %w", path, err)
-	}
-
-	if err := loaded.Validate(); err != nil {
-		return Config{}, fmt.Errorf("validate config %q: %w", path, err)
-	}
-	if !serverConsoleEnabledConfigured(contents) {
-		loaded.Server.ConsoleEnabled = true
+	loaded, err := Parse(contents)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 
 	loaded.Store.SQLitePath = filepath.Clean(loaded.Store.SQLitePath)

@@ -17,12 +17,11 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
+	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/cuipengdba/agentsql/internal/webui"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
-
-var version = "dev"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -52,7 +51,7 @@ func newRootCommand(logger zerolog.Logger) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "agentsql",
 		Short:         "AI-native database security gateway",
-		Version:       version,
+		Version:       version.Version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
@@ -96,7 +95,7 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 				APIKey:  boundKey,
 				Runtime: runtime,
 				Logger:  logger,
-				Version: version,
+				Version: version.Version,
 			})
 			if errors.Is(runError, context.Canceled) {
 				runError = nil
@@ -119,7 +118,7 @@ func newVersionCommand() *cobra.Command {
 		Short: "Print the AgentSQL version",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if _, err := fmt.Fprintln(command.OutOrStdout(), version); err != nil {
+			if _, err := fmt.Fprintln(command.OutOrStdout(), version.Version); err != nil {
 				return fmt.Errorf("write version: %w", err)
 			}
 			return nil

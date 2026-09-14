@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
@@ -232,6 +234,8 @@ func newHTTPHandlerWithRegistry(
 		}
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
 	mux.Handle("/mcp", mcpHandler)
 	if resolvedOptions.adminAPI != nil {
 		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
@@ -244,6 +248,45 @@ func newHTTPHandlerWithRegistry(
 		})
 	}
 	return mux, registry, nil
+}
+
+type probeResponse struct {
+	Status  string `json:"status"`
+	Version string `json:"version,omitempty"`
+}
+
+func healthHandler(writer http.ResponseWriter, _ *http.Request) {
+	writeProbeResponse(writer, http.StatusOK, probeResponse{
+		Status:  "ok",
+		Version: version.Version,
+	})
+}
+
+func readinessHandler(runtime *bootstrap.Runtime) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if runtime == nil || runtime.Store == nil {
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), time.Second)
+		defer cancel()
+		if err := runtime.Store.Ping(ctx); err != nil {
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready"})
+			return
+		}
+		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready"})
+	}
+}
+
+func writeProbeResponse(writer http.ResponseWriter, status int, response probeResponse) {
+	contents, err := json.Marshal(response)
+	if err != nil {
+		writeHTTPError(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_, _ = writer.Write(contents)
 }
 
 type identityAuthenticator interface {
