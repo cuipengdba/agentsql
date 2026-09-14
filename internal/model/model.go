@@ -38,19 +38,21 @@ const (
 
 // AST is the normalized SQL representation shared by parsers and guards.
 type AST struct {
-	Dialect        DBDialect
-	RawSQL         string
-	Normalized     string
-	StmtType       StmtType
-	IsMulti        bool
-	Tables         []ObjectRef
-	Columns        []string
-	HasWhere       bool
-	WhereTautology bool
-	HasLimit       bool
-	Functions      []string
-	Operations     []string
-	Explain        *ExplainInfo
+	Dialect         DBDialect
+	RawSQL          string
+	Normalized      string
+	StmtType        StmtType
+	IsMulti         bool
+	Tables          []ObjectRef
+	Columns         []string
+	HasWhere        bool
+	WhereTautology  bool
+	HasLimit        bool
+	HasGroupBy      bool
+	IsPureAggregate bool
+	Functions       []string
+	Operations      []string
+	Explain         *ExplainInfo
 }
 
 // ObjectRef identifies a database object and its optional alias.

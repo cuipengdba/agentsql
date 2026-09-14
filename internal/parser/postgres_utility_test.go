@@ -59,7 +59,7 @@ func TestPostgresUtilityClassification(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, test.stmtType, ast.StmtType)
 			require.NotEqual(t, model.StmtType("UNKNOWN"), ast.StmtType)
-			require.Equal(t, sortedStrings(test.operations), sortedStrings(ast.Operations))
+			require.Equal(t, sortedStrings(test.operations), sortedStrings(legacyCorpusOperations(ast.Operations)))
 		})
 	}
 }
@@ -171,7 +171,7 @@ func TestPostgresTextCommentSignalIsDistinctFromCommentOn(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ast, err := approvedParser.Parse(test.sql)
 			require.NoError(t, err)
-			require.Equal(t, sortedStrings(test.operations), sortedStrings(ast.Operations))
+			require.Equal(t, sortedStrings(test.operations), sortedStrings(legacyCorpusOperations(ast.Operations)))
 		})
 	}
 }

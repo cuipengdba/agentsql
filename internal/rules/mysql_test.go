@@ -87,12 +87,51 @@ func TestR203MysqlHighRiskAdministration(t *testing.T) {
 		{name: "purge binary logs", sql: "PURGE BINARY LOGS TO 'bin.000001'", want: model.DecisionDeny},
 		{name: "use database", sql: "USE app", want: model.DecisionAllow},
 		{name: "set session", sql: "SET SESSION sql_mode = ''", want: model.DecisionAllow},
-		{name: "set global scope unavailable", sql: "SET GLOBAL max_connections = 100", want: model.DecisionAllow},
+		{name: "set global", sql: "SET GLOBAL max_connections = 100", want: model.DecisionDeny},
+		{name: "set global qualified variable", sql: "SET @@global.max_connections = 100", want: model.DecisionDeny},
 		{name: "lock tables", sql: "LOCK TABLES users READ", want: model.DecisionAllow},
 		{name: "unlock tables", sql: "UNLOCK TABLES", want: model.DecisionAllow},
 		{name: "normal select", sql: "SELECT id FROM users LIMIT 1", want: model.DecisionAllow},
 	}
 	runMysqlSQLRuleCases(t, mysqlRuleByID(t, "R203", nil), tests)
+}
+
+func TestT231MySQLCommentSignalsReachR006(t *testing.T) {
+	approvedParser, err := parser.NewParser(model.DBDialect("mysql"))
+	require.NoError(t, err)
+	tests := []struct {
+		name string
+		sql  string
+		want model.Decision
+	}{
+		{name: "version conditional comment", sql: "SELECT /*!50000 id*/ FROM users", want: model.DecisionDeny},
+		{name: "ordinary block comment", sql: "SELECT /* audit */ id FROM users", want: model.DecisionDeny},
+		{name: "optimizer hint", sql: "SELECT /*+ INDEX(users idx_users_id) */ id FROM users", want: model.DecisionAllow},
+	}
+	rule := genericRuleByID(t, "R006", nil)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ast, err := approvedParser.Parse(test.sql)
+			require.NoError(t, err)
+			assertMysqlRuleDecision(t, rule, engine.EvalContext{AST: ast}, test.want)
+		})
+	}
+}
+
+func TestMysqlRulesSkipUnstructuredMultiAndUnknown(t *testing.T) {
+	for _, ruleID := range []string{"R201", "R202", "R203", "R204"} {
+		for _, ast := range []*model.AST{
+			{Dialect: "mysql", StmtType: "UNKNOWN", IsMulti: true},
+			{Dialect: "mysql", StmtType: "UNKNOWN", Operations: []string{"UNKNOWN"}},
+			{Dialect: "mysql", StmtType: "ADMIN"},
+		} {
+			rule := mysqlRuleByID(t, ruleID, nil)
+			assertMysqlRuleDecision(t, rule, engine.EvalContext{AST: ast}, model.DecisionAllow)
+		}
+	}
+	rule := mysqlRuleByID(t, "R203", nil)
+	_, err := rule.Eval(engine.EvalContext{AST: &model.AST{Dialect: "mysql", StmtType: "ADMIN", Operations: []string{""}}})
+	require.Error(t, err)
 }
 
 func TestR204MysqlLargeTransaction(t *testing.T) {

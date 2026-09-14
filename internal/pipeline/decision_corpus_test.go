@@ -22,7 +22,7 @@ import (
 
 const (
 	decisionCorpusFilename      = "decision_cases.json"
-	decisionCorpusExpectedCases = 246
+	decisionCorpusExpectedCases = 252
 	decisionCorpusExpectedRuns  = 353
 	decisionFalsePositiveLimit  = 0.02
 )
@@ -391,9 +391,9 @@ func validateDecisionCorpusShape(t *testing.T, cases []decisionCorpusCase) {
 			model.DecisionDeny, model.DecisionApprove, model.DecisionWarn, model.DecisionAllow,
 		}, corpus.Expect, corpus.ID)
 	}
-	require.Equal(t, 77, categoryCases["danger"])
-	require.Equal(t, 56, categoryCases["risk"])
-	require.Equal(t, 113, categoryCases["normal"])
+	require.Equal(t, 76, categoryCases["danger"])
+	require.Equal(t, 61, categoryCases["risk"])
+	require.Equal(t, 115, categoryCases["normal"])
 	require.Equal(t, 192, dialectRuns["postgres"])
 	require.Equal(t, 161, dialectRuns["mysql"])
 	require.Equal(t, decisionCorpusExpectedRuns, runs)

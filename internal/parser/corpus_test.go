@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -78,7 +79,7 @@ func TestCorpus(t *testing.T) {
 					require.Equal(t, sortedObjects(corpus.Tables), sortedObjects(ast.Tables))
 					require.Equal(t, sortedStrings(corpus.Columns), sortedStrings(ast.Columns))
 					require.Equal(t, sortedStrings(corpus.Functions), sortedStrings(ast.Functions))
-					require.Equal(t, sortedStrings(corpus.Operations), sortedStrings(ast.Operations))
+					require.Equal(t, sortedStrings(corpus.Operations), sortedStrings(legacyCorpusOperations(ast.Operations)))
 					require.Equal(t, requiresTargetTable(corpus.Operations), corpus.RequireTables)
 					if corpus.RequireTables {
 						require.NotEmpty(t, corpus.Tables)
@@ -94,6 +95,18 @@ func TestCorpus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func legacyCorpusOperations(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		name, _, found := strings.Cut(value, ":")
+		if found && (name == nestingDepthOperation || name == unionCountOperation || name == selectColumnOperation) {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
 }
 
 func requiresTargetTable(operations []string) bool {

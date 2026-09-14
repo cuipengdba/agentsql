@@ -34,6 +34,8 @@ const (
 	OperationNestingDepth = "NESTING_DEPTH"
 	// OperationUnionCount prefixes the parser's structured UNION signal.
 	OperationUnionCount = "UNION_COUNT"
+	// OperationSelectColumn prefixes a parser-reported outer projection column.
+	OperationSelectColumn = "SELECT_COLUMN"
 
 	defaultMaxScanRows   = 100_000
 	defaultRowLimit      = 1_000
@@ -322,7 +324,8 @@ func (r005Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R005: %w", err)
 	}
-	if !isStatement(ast, "SELECT") || ast.HasLimit || ast.Explain == nil {
+	if !isStatement(ast, "SELECT") || ast.HasLimit || ast.Explain == nil ||
+		(ast.IsPureAggregate && !ast.HasGroupBy) {
 		return allowResult(), nil
 	}
 	if ast.Explain.EstScanRows < 0 {
@@ -380,6 +383,9 @@ func (r007Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	}
 	for _, signal := range appendSignals(ast.Functions, ast.Operations) {
 		name := strings.ToLower(strings.TrimSpace(signal))
+		if separator := strings.LastIndex(name, "."); separator >= 0 {
+			name = name[separator+1:]
+		}
 		if _, blocked := blacklist[name]; blocked {
 			return denyResult(
 				fmt.Sprintf("检测到危险函数 %s，可能造成连接阻塞或资源耗尽", signal),
@@ -529,7 +535,67 @@ func (r010Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 			), nil
 		}
 	}
+	if isStatement(ast, "SELECT") && len(ast.Tables) == 1 {
+		if policyresolver.HasBroadTableGrant(context.Policy.AllowedTables, ast.Tables[0]) {
+			return allowResult(), nil
+		}
+		object, err := tableObjectName(ast.Tables[0])
+		if err != nil {
+			return engine.RuleResult{}, fmt.Errorf("R010: %w", err)
+		}
+		allowedColumns, constrained := context.Policy.ColumnACL[object]
+		if constrained && !containsExactIdentifier(allowedColumns, "*") {
+			projectedColumns, err := r010ProjectedColumns(ast)
+			if err != nil {
+				return engine.RuleResult{}, fmt.Errorf("R010: %w", err)
+			}
+			if !containsExactIdentifier(projectedColumns, "*") {
+				for _, column := range projectedColumns {
+					if containsExactIdentifier(allowedColumns, column) {
+						continue
+					}
+					return denyResult(
+						fmt.Sprintf("列 %s.%s 不在 Agent 的列级白名单内", object, column),
+						"请仅查询策略允许的列，或联系管理员补充列级授权",
+					), nil
+				}
+			}
+		}
+	}
 	return allowResult(), nil
+}
+
+func r010ProjectedColumns(ast *model.AST) ([]string, error) {
+	columns := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, operation := range ast.Operations {
+		name, rawValue, found := strings.Cut(strings.TrimSpace(operation), ":")
+		if !found || !strings.EqualFold(name, OperationSelectColumn) {
+			continue
+		}
+		column := strings.TrimSpace(rawValue)
+		if column == "" {
+			return nil, fmt.Errorf("empty %s operation", OperationSelectColumn)
+		}
+		if _, exists := seen[column]; exists {
+			continue
+		}
+		seen[column] = struct{}{}
+		columns = append(columns, column)
+	}
+	if len(columns) > 0 {
+		return columns, nil
+	}
+	return append([]string{}, ast.Columns...), nil
+}
+
+func containsExactIdentifier(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func requiredAST(context engine.EvalContext) (*model.AST, error) {

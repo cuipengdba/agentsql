@@ -68,7 +68,7 @@ func NewPostgresRules(meta MetadataProvider) []engine.Rule {
 	}
 }
 
-// 攻击场景：删除 PostgreSQL 数据库或数据表造成不可逆的数据丢失。
+// 攻击场景：删除 PostgreSQL 数据库、表或关键模式对象造成不可逆的数据丢失。
 type r101Rule struct{ genericRule }
 
 func (r101Rule) Dialect() model.DBDialect {
@@ -80,9 +80,22 @@ func (r101Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R101: %w", err)
 	}
-	if containsPostgresOperation(ast.Operations, "DROP DATABASE", "DROP TABLE") {
+	if skipPostgresDialectRule(ast) {
+		return allowResult(), nil
+	}
+	if containsPostgresOperation(
+		ast.Operations,
+		"DROP DATABASE",
+		"DROP TABLE",
+		"DROP SCHEMA",
+		"DROP SEQUENCE",
+		"DROP FUNCTION",
+		"DROP PROCEDURE",
+		"DROP VIEW",
+		"DROP MATERIALIZED VIEW",
+	) {
 		return denyResult(
-			"检测到 DROP DATABASE/TABLE，执行后可能造成不可逆的数据丢失",
+			"检测到高危 DROP 对象操作，执行后可能造成不可逆的数据或结构丢失",
 			"请移除 DROP 操作；如需清理对象，请由 DBA 在受控变更流程中处理",
 		), nil
 	}
@@ -100,6 +113,9 @@ func (r102Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	ast, err := requiredPostgresAST(context)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R102: %w", err)
+	}
+	if skipPostgresDialectRule(ast) {
+		return allowResult(), nil
 	}
 	if containsPostgresOperation(ast.Operations, "VACUUM FULL", "REINDEX", "CLUSTER") {
 		return approveResult(
@@ -121,6 +137,9 @@ func (r103Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	ast, err := requiredPostgresAST(context)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R103: %w", err)
+	}
+	if skipPostgresDialectRule(ast) {
+		return allowResult(), nil
 	}
 	for _, signal := range ast.Functions {
 		schema, function, ok := postgresFunctionName(signal)
@@ -152,6 +171,9 @@ func (r104Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R104: %w", err)
 	}
+	if skipPostgresDialectRule(ast) {
+		return allowResult(), nil
+	}
 	if containsPostgresOperation(ast.Operations, "COPY PROGRAM") {
 		return denyResult(
 			"检测到 COPY PROGRAM，可能在数据库服务器上执行外部命令",
@@ -175,6 +197,9 @@ func (rule r105Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 	ast, err := requiredPostgresAST(context)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R105: %w", err)
+	}
+	if skipPostgresDialectRule(ast) {
+		return allowResult(), nil
 	}
 	if !isStatement(ast, "UPDATE", "DELETE") {
 		return allowResult(), nil
@@ -205,7 +230,7 @@ func (rule r105Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 	return allowResult(), nil
 }
 
-// 攻击场景：在大表上执行 ALTER 长时间持锁、重写表并占用大量磁盘空间。
+// 攻击场景：在大表上执行 ALTER 或非并发建索引，长时间持锁并占用大量资源。
 type r106Rule struct {
 	genericRule
 	meta MetadataProvider
@@ -220,7 +245,13 @@ func (rule r106Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R106: %w", err)
 	}
-	if !containsPostgresOperation(ast.Operations, "ALTER TABLE") {
+	if skipPostgresDialectRule(ast) {
+		return allowResult(), nil
+	}
+	if containsPostgresOperation(ast.Operations, "CREATE INDEX CONCURRENTLY") {
+		return allowResult(), nil
+	}
+	if !containsPostgresOperation(ast.Operations, "ALTER TABLE", "CREATE INDEX") {
 		return allowResult(), nil
 	}
 	threshold, err := positiveThreshold(context, ThresholdLargeTableRows, defaultLargeTableRows)
@@ -228,7 +259,7 @@ func (rule r106Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 		return engine.RuleResult{}, fmt.Errorf("R106: %w", err)
 	}
 	if len(ast.Tables) == 0 {
-		return r106Uncertain("AST 未提供 ALTER TABLE 目标表"), nil
+		return r106Uncertain("AST 未提供结构变更目标表"), nil
 	}
 	provider, err := postgresMetadataProvider(context, rule.meta)
 	if err != nil {
@@ -248,7 +279,7 @@ func (rule r106Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 		}
 		if float64(rowCount) > threshold {
 			return approveResult(
-				fmt.Sprintf("大表 %s 约有 %d 行，超过 ALTER 阈值 %.0f 行", object, rowCount, threshold),
+				fmt.Sprintf("大表 %s 约有 %d 行，超过结构变更阈值 %.0f 行", object, rowCount, threshold),
 				"请评估锁表和表重写影响，优先采用在线变更方案，并提交 DBA 人工审批",
 			), nil
 		}
@@ -270,6 +301,9 @@ func (rule r107Rule) Eval(context engine.EvalContext) (engine.RuleResult, error)
 	_, err := requiredPostgresAST(context)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R107: %w", err)
+	}
+	if skipPostgresDialectRule(context.AST) {
+		return allowResult(), nil
 	}
 	longThreshold, err := positiveThreshold(
 		context,
@@ -328,15 +362,25 @@ func requiredPostgresAST(context engine.EvalContext) (*model.AST, error) {
 	if normalizedDialect(ast.Dialect) != "postgres" {
 		return nil, fmt.Errorf("PostgreSQL rule received dialect %q", ast.Dialect)
 	}
-	if len(ast.Operations) == 0 {
-		return nil, fmt.Errorf("PostgreSQL AST has no structured operation")
-	}
 	for _, operation := range ast.Operations {
 		if normalizePostgresSignal(operation) == "" {
 			return nil, fmt.Errorf("PostgreSQL AST contains an empty structured operation")
 		}
 	}
 	return ast, nil
+}
+
+func skipPostgresDialectRule(ast *model.AST) bool {
+	if ast == nil {
+		return true
+	}
+	if len(ast.Operations) == 0 {
+		return true
+	}
+	if isStatement(ast, "UNKNOWN") && !ast.IsMulti {
+		return true
+	}
+	return false
 }
 
 func containsPostgresOperation(operations []string, candidates ...string) bool {
@@ -419,7 +463,7 @@ func r105Uncertain(reason string) engine.RuleResult {
 
 func r106Uncertain(reason string) engine.RuleResult {
 	return approveResult(
-		"无法确认 ALTER TABLE 的目标表规模: "+reason,
+		"无法确认结构变更目标表的规模: "+reason,
 		"请补充可靠的表行数元数据并评估锁表影响；在确认前提交 DBA 人工审批",
 	)
 }

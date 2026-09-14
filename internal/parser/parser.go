@@ -10,9 +10,12 @@ import (
 )
 
 const (
-	postgresDialect     model.DBDialect = "postgres"
-	mysqlDialect        model.DBDialect = "mysql"
-	sqlCommentOperation                 = "SQL_COMMENT"
+	postgresDialect       model.DBDialect = "postgres"
+	mysqlDialect          model.DBDialect = "mysql"
+	sqlCommentOperation                   = "SQL_COMMENT"
+	nestingDepthOperation                 = "NESTING_DEPTH"
+	unionCountOperation                   = "UNION_COUNT"
+	selectColumnOperation                 = "SELECT_COLUMN"
 )
 
 var (

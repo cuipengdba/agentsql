@@ -36,18 +36,21 @@ func TestMySQLUnsupportedAdministrationFailsInParse(t *testing.T) {
 	}
 }
 
-func TestMySQLSetScopeIsNotExposedInOperations(t *testing.T) {
-	tests := []string{
-		"SET GLOBAL max_connections = 100",
-		"SET SESSION sql_mode = ''",
+func TestMySQLSetScopeIsExposedInOperations(t *testing.T) {
+	tests := map[string]string{
+		"SET GLOBAL max_connections = 100":   "SET GLOBAL",
+		"SET @@global.max_connections = 100": "SET GLOBAL",
+		"SET SESSION sql_mode = ''":          "SET SESSION",
+		"SET LOCAL sql_mode = ''":            "SET SESSION",
+		"SET @application_flag = 1":          "SET SESSION",
 	}
 
 	approvedParser, err := NewParser(model.DBDialect("mysql"))
 	require.NoError(t, err)
-	for _, sql := range tests {
+	for sql, operation := range tests {
 		ast, err := approvedParser.Parse(sql)
 		require.NoError(t, err)
 		require.Equal(t, model.StmtType("ADMIN"), ast.StmtType)
-		require.Equal(t, []string{"SET"}, ast.Operations)
+		require.Equal(t, []string{operation}, legacyCorpusOperations(ast.Operations))
 	}
 }

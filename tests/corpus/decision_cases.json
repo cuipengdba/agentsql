@@ -1087,16 +1087,14 @@
     "dialects": [
       "mysql"
     ],
-    "category": "danger",
+    "category": "normal",
     "agent_level": "readonly",
     "sql": "SELECT /*+ INDEX(users idx) */ id FROM users WHERE id=1 LIMIT 5",
-    "expect": "deny",
-    "expect_rules": [
-      "R006"
-    ],
-    "point": "MySQL优化器hint",
-    "note": "v0.1保守拦截",
-    "tag": "误拦候选",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "MySQL规范optimizer hint非可执行注释,F9予以放行(对比/*! */条件注释D031仍deny)",
+    "note": "",
+    "tag": "",
     "meta": {
       "est_scan_rows": 0,
       "no_index": false,
@@ -3988,11 +3986,12 @@
     "category": "risk",
     "agent_level": "dml",
     "sql": "UPDATE big SET x=1 FROM generate_series(1,1000000) g(n)",
-    "expect": "warn",
+    "expect": "deny",
     "expect_rules": [
+      "R002",
       "R107"
     ],
-    "point": "单事务巨量写",
+    "point": "UPDATE...FROM漏WHERE,与from表笛卡尔积=全表更新,R002 deny",
     "note": "",
     "tag": "",
     "meta": {
@@ -4022,11 +4021,11 @@
     "category": "risk",
     "agent_level": "dml",
     "sql": "START TRANSACTION",
-    "expect": "warn",
+    "expect": "approve",
     "expect_rules": [
       "R204"
     ],
-    "point": "同S037场景",
+    "point": "事务开启,MySQL R204大事务为approve级",
     "note": "",
     "tag": "",
     "meta": {
@@ -6038,17 +6037,18 @@
   {
     "id": "N044",
     "dialects": [
-      "postgres",
       "mysql"
     ],
-    "category": "normal",
+    "category": "risk",
     "agent_level": "dml",
     "sql": "UPDATE accounts SET balance=balance-10 WHERE account_id=8801",
-    "expect": "allow",
-    "expect_rules": [],
-    "point": "主键点更新",
-    "note": "",
-    "tag": "",
+    "expect": "approve",
+    "expect_rules": [
+      "R202"
+    ],
+    "point": "主键点更新但无LIMIT,v0.1静态无主键元数据,R202保守转人工",
+    "note": "PG等价单点写见N115;v0.2结合主键元数据降级",
+    "tag": "v0.1已知边界",
     "meta": {
       "est_scan_rows": 0,
       "no_index": false,
@@ -6071,17 +6071,18 @@
   {
     "id": "N045",
     "dialects": [
-      "postgres",
       "mysql"
     ],
-    "category": "normal",
+    "category": "risk",
     "agent_level": "dml",
     "sql": "UPDATE orders SET status='shipped' WHERE order_id=10023 AND status='paid'",
-    "expect": "allow",
-    "expect_rules": [],
-    "point": "主键+状态前置条件",
-    "note": "",
-    "tag": "",
+    "expect": "approve",
+    "expect_rules": [
+      "R202"
+    ],
+    "point": "主键+状态前置但无LIMIT,R202保守转人工",
+    "note": "PG等价见N116;v0.2降级",
+    "tag": "v0.1已知边界",
     "meta": {
       "est_scan_rows": 0,
       "no_index": false,
@@ -6136,17 +6137,18 @@
   {
     "id": "N047",
     "dialects": [
-      "postgres",
       "mysql"
     ],
-    "category": "normal",
+    "category": "risk",
     "agent_level": "dml",
     "sql": "DELETE FROM sessions WHERE sid='abc123'",
-    "expect": "allow",
-    "expect_rules": [],
-    "point": "唯一键点删",
-    "note": "",
-    "tag": "",
+    "expect": "approve",
+    "expect_rules": [
+      "R202"
+    ],
+    "point": "唯一键点删但无LIMIT,R202保守转人工",
+    "note": "PG等价见N117;v0.2降级",
+    "tag": "v0.1已知边界",
     "meta": {
       "est_scan_rows": 0,
       "no_index": false,
@@ -6201,17 +6203,18 @@
   {
     "id": "N049",
     "dialects": [
-      "postgres",
       "mysql"
     ],
-    "category": "normal",
+    "category": "risk",
     "agent_level": "dml",
     "sql": "UPDATE users SET login_at='2026-09-13 10:00' WHERE id=42",
-    "expect": "allow",
-    "expect_rules": [],
-    "point": "主键更新时间",
-    "note": "",
-    "tag": "",
+    "expect": "approve",
+    "expect_rules": [
+      "R202"
+    ],
+    "point": "主键更新时间但无LIMIT,R202保守转人工",
+    "note": "PG等价见N118;v0.2降级",
+    "tag": "v0.1已知边界",
     "meta": {
       "est_scan_rows": 0,
       "no_index": false,
@@ -6234,17 +6237,18 @@
   {
     "id": "N050",
     "dialects": [
-      "postgres",
       "mysql"
     ],
-    "category": "normal",
+    "category": "risk",
     "agent_level": "dml",
     "sql": "UPDATE t SET a=(SELECT max(ver) FROM v WHERE v.tid=t.id) WHERE id=7",
-    "expect": "allow",
-    "expect_rules": [],
-    "point": "相关子查询赋值但主键定位",
-    "note": "",
-    "tag": "",
+    "expect": "approve",
+    "expect_rules": [
+      "R202"
+    ],
+    "point": "相关子查询赋值、主键定位但无LIMIT,R202保守转人工",
+    "note": "PG等价见N119;v0.2降级",
+    "tag": "v0.1已知边界",
     "meta": {
       "est_scan_rows": 0,
       "no_index": false,
@@ -7397,15 +7401,206 @@
   {
     "id": "N086",
     "dialects": [
-      "postgres",
-      "mysql"
+      "postgres"
     ],
     "category": "normal",
     "agent_level": "readonly",
     "sql": "SELECT id FROM \"UserTable\" WHERE id=1 LIMIT 5",
     "expect": "allow",
     "expect_rules": [],
-    "point": "双引号驼峰表名",
+    "point": "PG双引号驼峰标识符(MySQL反引号形式见N114)",
+    "note": "",
+    "tag": "",
+    "meta": {
+      "est_scan_rows": 0,
+      "no_index": false,
+      "large_table": false,
+      "pg_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "idle_ms": 0
+      },
+      "mysql_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "affected_rows": 0
+      },
+      "policy": {
+        "mode": "allow_all"
+      }
+    }
+  },
+  {
+    "id": "N114",
+    "dialects": [
+      "mysql"
+    ],
+    "category": "normal",
+    "agent_level": "readonly",
+    "sql": "SELECT id FROM `UserTable` WHERE id=1 LIMIT 5",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "MySQL反引号驼峰标识符(MySQL双引号是字符串字面量,会解析fail-closed)",
+    "note": "",
+    "tag": "",
+    "meta": {
+      "est_scan_rows": 0,
+      "no_index": false,
+      "large_table": false,
+      "pg_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "idle_ms": 0
+      },
+      "mysql_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "affected_rows": 0
+      },
+      "policy": {
+        "mode": "allow_all"
+      }
+    }
+  },
+  {
+    "id": "N115",
+    "dialects": [
+      "postgres"
+    ],
+    "category": "normal",
+    "agent_level": "dml",
+    "sql": "UPDATE accounts SET balance=balance-10 WHERE account_id=8801",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "PG主键点更新(对照MySQL被R202转人工的N044)",
+    "note": "",
+    "tag": "",
+    "meta": {
+      "est_scan_rows": 0,
+      "no_index": false,
+      "large_table": false,
+      "pg_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "idle_ms": 0
+      },
+      "mysql_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "affected_rows": 0
+      },
+      "policy": {
+        "mode": "allow_all"
+      }
+    }
+  },
+  {
+    "id": "N116",
+    "dialects": [
+      "postgres"
+    ],
+    "category": "normal",
+    "agent_level": "dml",
+    "sql": "UPDATE orders SET status='shipped' WHERE order_id=10023 AND status='paid'",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "PG主键+状态点更新(对照N045)",
+    "note": "",
+    "tag": "",
+    "meta": {
+      "est_scan_rows": 0,
+      "no_index": false,
+      "large_table": false,
+      "pg_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "idle_ms": 0
+      },
+      "mysql_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "affected_rows": 0
+      },
+      "policy": {
+        "mode": "allow_all"
+      }
+    }
+  },
+  {
+    "id": "N117",
+    "dialects": [
+      "postgres"
+    ],
+    "category": "normal",
+    "agent_level": "dml",
+    "sql": "DELETE FROM sessions WHERE sid='abc123'",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "PG唯一键点删(对照N047)",
+    "note": "",
+    "tag": "",
+    "meta": {
+      "est_scan_rows": 0,
+      "no_index": false,
+      "large_table": false,
+      "pg_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "idle_ms": 0
+      },
+      "mysql_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "affected_rows": 0
+      },
+      "policy": {
+        "mode": "allow_all"
+      }
+    }
+  },
+  {
+    "id": "N118",
+    "dialects": [
+      "postgres"
+    ],
+    "category": "normal",
+    "agent_level": "dml",
+    "sql": "UPDATE users SET login_at='2026-09-13 10:00' WHERE id=42",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "PG主键更新时间(对照N049)",
+    "note": "",
+    "tag": "",
+    "meta": {
+      "est_scan_rows": 0,
+      "no_index": false,
+      "large_table": false,
+      "pg_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "idle_ms": 0
+      },
+      "mysql_tx": {
+        "in_transaction": false,
+        "age_ms": 0,
+        "affected_rows": 0
+      },
+      "policy": {
+        "mode": "allow_all"
+      }
+    }
+  },
+  {
+    "id": "N119",
+    "dialects": [
+      "postgres"
+    ],
+    "category": "normal",
+    "agent_level": "dml",
+    "sql": "UPDATE t SET a=(SELECT max(ver) FROM v WHERE v.tid=t.id) WHERE id=7",
+    "expect": "allow",
+    "expect_rules": [],
+    "point": "PG相关子查询主键定位写(对照N050)",
     "note": "",
     "tag": "",
     "meta": {

@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type postgresConstant struct {
@@ -19,7 +20,15 @@ func postgresExpressionTautology(value any) bool {
 		operator, operatorOK := postgresNameListField(expression, "name")
 		left, leftOK := postgresConstantValue(expression["lexpr"])
 		right, rightOK := postgresConstantValue(expression["rexpr"])
-		return operatorOK && operator == "=" && leftOK && rightOK && left == right
+		if operatorOK && operator == "=" && leftOK && rightOK && left == right {
+			return true
+		}
+		leftColumn, leftColumnOK := postgresColumnReference(expression["lexpr"])
+		rightColumn, rightColumnOK := postgresColumnReference(expression["rexpr"])
+		return operatorOK && operator == "=" && leftColumnOK && rightColumnOK && leftColumn == rightColumn
+	}
+	if sublink, ok := wrapper["SubLink"].(map[string]any); ok {
+		return postgresExistsConstantSelect(sublink)
 	}
 	if expression, ok := wrapper["BoolExpr"].(map[string]any); ok {
 		operator, _ := expression["boolop"].(string)
@@ -47,6 +56,87 @@ func postgresExpressionTautology(value any) bool {
 		return constant.kind == "bool" && constant.value == "true"
 	}
 	return false
+}
+
+func postgresColumnReference(value any) (string, bool) {
+	wrapper, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	column, ok := wrapper["ColumnRef"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	fields, ok := column["fields"].([]any)
+	if !ok || len(fields) == 0 {
+		return "", false
+	}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		part, ok := postgresStringNode(field)
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "."), true
+}
+
+func postgresExistsConstantSelect(sublink map[string]any) bool {
+	if linkType, _ := sublink["subLinkType"].(string); linkType != "EXISTS_SUBLINK" {
+		return false
+	}
+	query, ok := sublink["subselect"].(map[string]any)
+	if !ok {
+		return false
+	}
+	selectNode, ok := query["SelectStmt"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if from, ok := selectNode["fromClause"].([]any); ok && len(from) > 0 {
+		return false
+	}
+	for _, field := range []string{"whereClause", "havingClause", "groupClause"} {
+		if value, exists := selectNode[field]; exists && value != nil {
+			if list, isList := value.([]any); !isList || len(list) > 0 {
+				return false
+			}
+		}
+	}
+	targets, ok := selectNode["targetList"].([]any)
+	if !ok || len(targets) == 0 {
+		return false
+	}
+	for _, target := range targets {
+		wrapper, ok := target.(map[string]any)
+		if !ok {
+			return false
+		}
+		result, ok := wrapper["ResTarget"].(map[string]any)
+		if !ok {
+			return false
+		}
+		if !postgresExistsConstantValue(result["val"]) {
+			return false
+		}
+	}
+	return true
+}
+
+func postgresExistsConstantValue(value any) bool {
+	wrapper, ok := value.(map[string]any)
+	if !ok || len(wrapper) != 1 {
+		return false
+	}
+	if typeCast, ok := wrapper["TypeCast"].(map[string]any); ok {
+		return postgresExistsConstantValue(typeCast["arg"])
+	}
+	if constant, ok := wrapper["A_Const"].(map[string]any); ok && constant["isnull"] == true {
+		return true
+	}
+	_, constant := postgresConstantValue(value)
+	return constant
 }
 
 func postgresConstantValue(value any) (postgresConstant, bool) {

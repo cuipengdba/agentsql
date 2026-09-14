@@ -107,6 +107,8 @@ func TestR005UnlimitedLargeResult(t *testing.T) {
 		{name: "default large result", ast: astWithExplain(1_001), want: model.DecisionWarn},
 		{name: "custom large result", ast: astWithExplain(11), context: thresholds(ThresholdRowLimit, 10), want: model.DecisionWarn},
 		{name: "query has limit", ast: astWithExplain(50_000), mutate: func(ast *model.AST) { ast.HasLimit = true }, want: model.DecisionAllow},
+		{name: "pure aggregate without group", ast: astWithExplain(50_000), mutate: func(ast *model.AST) { ast.IsPureAggregate = true }, want: model.DecisionAllow},
+		{name: "grouped aggregate remains warning", ast: astWithExplain(50_000), mutate: func(ast *model.AST) { ast.IsPureAggregate, ast.HasGroupBy = false, true }, want: model.DecisionWarn},
 		{name: "result at threshold", ast: astWithExplain(1_000), want: model.DecisionAllow},
 		{name: "write statement", ast: astWith("postgres", "UPDATE", "UPDATE t SET a = 1 WHERE id = 2"), mutate: func(ast *model.AST) { ast.Explain = &model.ExplainInfo{EstScanRows: 50_000} }, want: model.DecisionAllow},
 	}
@@ -131,6 +133,7 @@ func TestR007DangerousFunctions(t *testing.T) {
 	rule := genericRuleByID(t, "R007", nil)
 	cases := []ruleCase{
 		{name: "postgres pg sleep function", ast: astWith("postgres", "SELECT", "SELECT pg_sleep(5)"), mutate: func(ast *model.AST) { ast.Functions = []string{"PG_SLEEP"} }, want: model.DecisionDeny},
+		{name: "postgres catalog pg sleep function", ast: astWith("postgres", "SELECT", "SELECT pg_catalog.pg_sleep(5)"), mutate: func(ast *model.AST) { ast.Functions = []string{"pg_catalog.pg_sleep"} }, want: model.DecisionDeny},
 		{name: "mysql benchmark operation", ast: astWith("mysql", "SELECT", "SELECT BENCHMARK(10, 1 + 1)"), mutate: func(ast *model.AST) { ast.Operations = []string{"benchmark"} }, want: model.DecisionDeny},
 		{name: "postgres normal function", ast: astWith("postgres", "SELECT", "SELECT count(*) FROM t"), mutate: func(ast *model.AST) { ast.Functions = []string{"count"} }, want: model.DecisionAllow},
 		{name: "mysql normal function", ast: astWith("mysql", "SELECT", "SELECT now()"), mutate: func(ast *model.AST) { ast.Functions = []string{"now"} }, want: model.DecisionAllow},
@@ -228,6 +231,26 @@ func TestR010UnauthorizedTables(t *testing.T) {
 		{name: "global wildcard allowed", ast: astWithTable("private", "daily"), context: policy([]string{"*"}, nil), want: model.DecisionAllow},
 		{name: "alias does not change authorization", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) { ast.Tables[0].Alias = "o" }), context: policy([]string{"public.orders"}, nil), want: model.DecisionAllow},
 		{name: "statement without table", ast: astWith("postgres", "SELECT", "SELECT 1"), context: policy(nil, nil), want: model.DecisionAllow},
+		{name: "column ACL rejects projected secret", ast: mutateAST(astWithTable("", "orders"), func(ast *model.AST) {
+			ast.Columns = []string{"id", "secret"}
+			ast.Operations = []string{OperationSelectColumn + ":id", OperationSelectColumn + ":secret"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"orders"}, ColumnACL: map[string][]string{"orders": {"id", "name"}}}}, want: model.DecisionDeny},
+		{name: "column ACL allows projected columns", ast: mutateAST(astWithTable("", "orders"), func(ast *model.AST) {
+			ast.Columns = []string{"id", "name", "predicate_only"}
+			ast.Operations = []string{OperationSelectColumn + ":id", OperationSelectColumn + ":name"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"orders"}, ColumnACL: map[string][]string{"orders": {"id", "name"}}}}, want: model.DecisionAllow},
+		{name: "select star does not hard block", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
+			ast.Columns = []string{"*", "id"}
+			ast.Operations = []string{OperationSelectColumn + ":*"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"public.orders"}, ColumnACL: map[string][]string{"public.orders": {"id"}}}}, want: model.DecisionAllow},
+		{name: "schema wildcard is a broad column grant", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
+			ast.Columns = []string{"secret"}
+			ast.Operations = []string{OperationSelectColumn + ":secret"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"public.*"}, ColumnACL: map[string][]string{"public.orders": {"id"}}}}, want: model.DecisionAllow},
+		{name: "table without column ACL is unchanged", ast: mutateAST(astWithTable("", "orders"), func(ast *model.AST) {
+			ast.Columns = []string{"secret"}
+			ast.Operations = []string{OperationSelectColumn + ":secret"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"orders"}, ColumnACL: map[string][]string{}}}, want: model.DecisionAllow},
 	}
 	runRuleCases(t, rule, cases)
 }

@@ -96,7 +96,12 @@ func TestR101DangerousDrop(t *testing.T) {
 		{name: "mixed case drop database", ast: postgresOperationAST("DDL", "dRoP\nDaTaBaSe app", "dRoP DaTaBaSe"), want: model.DecisionDeny},
 		{name: "structured whitespace bypass", ast: postgresOperationAST("DDL", "DROP  \n TABLE public.orders", "  DROP \n TABLE  "), want: model.DecisionDeny},
 		{name: "drop index allowed", ast: postgresOperationAST("DDL", "DROP INDEX public.idx_orders", "DROP INDEX"), want: model.DecisionAllow},
-		{name: "drop view allowed", ast: postgresOperationAST("DDL", "DROP VIEW public.order_view", "DROP VIEW"), want: model.DecisionAllow},
+		{name: "drop schema", ast: postgresOperationAST("DDL", "DROP SCHEMA secret", "DROP SCHEMA"), want: model.DecisionDeny},
+		{name: "drop sequence", ast: postgresOperationAST("DDL", "DROP SEQUENCE seq_demo", "DROP SEQUENCE"), want: model.DecisionDeny},
+		{name: "drop function", ast: postgresOperationAST("DDL", "DROP FUNCTION f()", "DROP FUNCTION"), want: model.DecisionDeny},
+		{name: "drop procedure", ast: postgresOperationAST("DDL", "DROP PROCEDURE p()", "DROP PROCEDURE"), want: model.DecisionDeny},
+		{name: "drop view", ast: postgresOperationAST("DDL", "DROP VIEW public.order_view", "DROP VIEW"), want: model.DecisionDeny},
+		{name: "drop materialized view", ast: postgresOperationAST("DDL", "DROP MATERIALIZED VIEW public.mv", "DROP MATERIALIZED VIEW"), want: model.DecisionDeny},
 		{name: "drop column allowed", ast: postgresOperationAST("DDL", "ALTER TABLE orders DROP COLUMN note", "ALTER TABLE", pgTable("public", "orders", "")), want: model.DecisionAllow},
 	}
 	runPostgresRuleCases(t, rule, cases)
@@ -141,6 +146,18 @@ func TestR104CopyProgram(t *testing.T) {
 		{name: "select allowed", ast: postgresOperationAST("SELECT", "SELECT * FROM public.orders", "SELECT", pgTable("public", "orders", "")), want: model.DecisionAllow},
 	}
 	runPostgresRuleCases(t, rule, cases)
+}
+
+func TestT231StackedCopyProgramStillReachesR104(t *testing.T) {
+	approvedParser, err := parser.NewParser(model.DBDialect("postgres"))
+	require.NoError(t, err)
+	ast, err := approvedParser.Parse("SELECT 1; COPY users TO PROGRAM 'cat /etc/passwd'")
+	require.Error(t, err)
+	require.NotNil(t, ast)
+	require.True(t, ast.IsMulti)
+
+	rule := postgresRuleByID(t, "R104", nil)
+	assertPostgresRuleDecision(t, rule, engine.EvalContext{AST: ast}, model.DecisionDeny)
 }
 
 func TestR105UnindexedWrites(t *testing.T) {
@@ -203,6 +220,8 @@ func TestR106LargeTableAlter(t *testing.T) {
 		{name: "small table allowed", ast: postgresOperationAST("DDL", "ALTER TABLE public.small ADD COLUMN note text", "ALTER TABLE", pgTable("public", "small", "")), context: engine.EvalContext{MetadataProvider: provider}, want: model.DecisionAllow},
 		{name: "equal threshold allowed", ast: postgresOperationAST("DDL", "ALTER TABLE audit.events ADD COLUMN note text", "ALTER TABLE", pgTable("audit", "events", "")), context: engine.EvalContext{MetadataProvider: provider}, want: model.DecisionAllow},
 		{name: "create large table signal allowed", ast: postgresOperationAST("DDL", "CREATE TABLE public.orders(id bigint)", "CREATE TABLE", pgTable("public", "orders", "")), want: model.DecisionAllow},
+		{name: "create index on large table", ast: postgresOperationAST("DDL", "CREATE INDEX idx_orders_id ON public.orders(id)", "CREATE INDEX", pgTable("public", "orders", "")), context: engine.EvalContext{MetadataProvider: provider}, want: model.DecisionApprove},
+		{name: "concurrent index on large table allowed", ast: postgresOperationAST("DDL", "CREATE INDEX CONCURRENTLY idx_orders_id ON public.orders(id)", "CREATE INDEX CONCURRENTLY", pgTable("public", "orders", "")), context: engine.EvalContext{MetadataProvider: provider}, want: model.DecisionAllow},
 	}
 	runPostgresRuleCases(t, postgresRuleByID(t, "R106", nil), cases)
 }
@@ -228,7 +247,6 @@ func TestPostgresRulesFailClosed(t *testing.T) {
 		context engine.EvalContext
 	}{
 		{name: "missing ast", ruleID: "R101", context: engine.EvalContext{}},
-		{name: "missing structured operation", ruleID: "R101", context: engine.EvalContext{AST: astWith("postgres", "DDL", "DROP TABLE t")}},
 		{name: "direct mysql evaluation", ruleID: "R102", context: engine.EvalContext{AST: astWith("mysql", "ADMIN", "REINDEX TABLE t")}},
 		{name: "invalid function signal", ruleID: "R103", context: engine.EvalContext{AST: postgresFunctionAST("SELECT 1", "pg_catalog..pg_read_file")}},
 		{name: "invalid large table threshold", ruleID: "R106", context: engine.EvalContext{AST: postgresOperationAST("DDL", "ALTER TABLE t ADD COLUMN a int", "ALTER TABLE", pgTable("", "t", "")), MetadataProvider: &fakeMetadataProvider{rows: map[string]int64{"t": 1}}, Thresholds: map[string]float64{ThresholdLargeTableRows: -1}}},
@@ -245,6 +263,22 @@ func TestPostgresRulesFailClosed(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestPostgresRulesSkipUnstructuredMultiAndUnknown(t *testing.T) {
+	for _, ruleID := range []string{"R101", "R102", "R103", "R104", "R105", "R106", "R107"} {
+		for _, ast := range []*model.AST{
+			{Dialect: "postgres", StmtType: "UNKNOWN", IsMulti: true},
+			{Dialect: "postgres", StmtType: "UNKNOWN", Operations: []string{"UNKNOWN"}},
+			{Dialect: "postgres", StmtType: "DDL"},
+		} {
+			rule := postgresRuleByID(t, ruleID, nil)
+			assertPostgresRuleDecision(t, rule, engine.EvalContext{AST: ast}, model.DecisionAllow)
+		}
+	}
+	rule := postgresRuleByID(t, "R101", nil)
+	_, err := rule.Eval(engine.EvalContext{AST: &model.AST{Dialect: "postgres", StmtType: "DDL", Operations: []string{""}}})
+	require.Error(t, err)
 }
 
 func TestPostgresTypedNilMetadataFailsClosed(t *testing.T) {

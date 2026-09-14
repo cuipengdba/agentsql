@@ -47,11 +47,10 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
 	if len(pieces) != 1 {
-		return &model.AST{
-			Dialect: mysqlDialect,
-			RawSQL:  sql,
-			IsMulti: len(pieces) > 1,
-		}, unparseableError(mysqlDialect, fmt.Errorf("expected one statement, got %d", len(pieces)))
+		return parser.mysqlMultiAST(sql, pieces), unparseableError(
+			mysqlDialect,
+			fmt.Errorf("expected one statement, got %d", len(pieces)),
+		)
 	}
 
 	statement, err := parser.parser.ParseStrictDDL(sql)
@@ -123,6 +122,13 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
 	operations.add(operation)
+	nestingDepth, unionCount := mysqlQueryComplexity(statement)
+	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
+	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
+	hasGroupBy, isPureAggregate := mysqlAggregateShape(statement)
+	for _, column := range mysqlProjectedColumns(statement) {
+		operations.add(selectColumnOperation + ":" + column)
+	}
 	hasComment, err := mysqlHasComment(parser.parser, sql)
 	if err != nil {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
@@ -154,27 +160,72 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 
 	hasWhere, whereExpression := mysqlRootWhere(statement)
 	return &model.AST{
-		Dialect:        mysqlDialect,
-		RawSQL:         sql,
-		Normalized:     normalized,
-		StmtType:       statementType,
-		IsMulti:        false,
-		Tables:         tables.sorted(),
-		Columns:        columns.sorted(),
-		HasWhere:       hasWhere,
-		WhereTautology: hasWhere && mysqlExpressionTautology(whereExpression),
-		HasLimit:       mysqlHasLimit(statement),
-		Functions:      functions.sorted(),
-		Operations:     operations.sorted(),
-		Explain:        nil,
+		Dialect:         mysqlDialect,
+		RawSQL:          sql,
+		Normalized:      normalized,
+		StmtType:        statementType,
+		IsMulti:         false,
+		Tables:          tables.sorted(),
+		Columns:         columns.sorted(),
+		HasWhere:        hasWhere,
+		WhereTautology:  hasWhere && mysqlExpressionTautology(whereExpression),
+		HasLimit:        mysqlHasLimit(statement),
+		HasGroupBy:      hasGroupBy,
+		IsPureAggregate: isPureAggregate,
+		Functions:       functions.sorted(),
+		Operations:      operations.sorted(),
+		Explain:         nil,
 	}, nil
 }
 
+func (parser *mysqlParser) mysqlMultiAST(sql string, pieces []string) *model.AST {
+	tables := make(objectSet)
+	columns := make(stringSet)
+	functions := make(stringSet)
+	operations := make(stringSet)
+	for _, piece := range pieces {
+		parsed, err := parser.parse(piece)
+		if err != nil || parsed == nil {
+			continue
+		}
+		for _, table := range parsed.Tables {
+			tables.add(table)
+		}
+		for _, column := range parsed.Columns {
+			columns.add(column)
+		}
+		for _, function := range parsed.Functions {
+			functions.add(function)
+		}
+		for _, operation := range parsed.Operations {
+			operations.add(operation)
+		}
+	}
+	return &model.AST{
+		Dialect:    mysqlDialect,
+		RawSQL:     sql,
+		StmtType:   model.StmtType("UNKNOWN"),
+		IsMulti:    len(pieces) > 1,
+		Tables:     tables.sorted(),
+		Columns:    columns.sorted(),
+		Functions:  functions.sorted(),
+		Operations: operations.sorted(),
+	}
+}
+
 func mysqlHasComment(parser *sqlparser.Parser, sql string) (bool, error) {
+	// Vitess expands MySQL version comments before exposing tokens, so retain
+	// the raw conditional-comment signal for R006 before scanning the stream.
+	if strings.Contains(sql, "/*!") {
+		return true, nil
+	}
 	tokenizer := parser.NewStringTokenizer(sql)
 	for {
-		token, _ := tokenizer.Scan()
+		token, value := tokenizer.Scan()
 		if token == sqlparser.COMMENT {
+			if strings.HasPrefix(strings.TrimSpace(value), "/*+") {
+				continue
+			}
 			return true, nil
 		}
 		if token == sqlparser.LEX_ERROR {
@@ -274,7 +325,7 @@ func mysqlOperation(parser *sqlparser.Parser, statement sqlparser.Statement, sql
 	case sqlparser.DDLStatement:
 		return strings.ToUpper(typed.GetAction().ToString()), nil
 	case *sqlparser.Set:
-		return "SET", nil
+		return mysqlSetOperation(typed), nil
 	case *sqlparser.Flush:
 		return "FLUSH", nil
 	case *sqlparser.Show:
@@ -298,6 +349,17 @@ func mysqlOperation(parser *sqlparser.Parser, statement sqlparser.Statement, sql
 	default:
 		return mysqlFirstKeyword(parser, sql)
 	}
+}
+
+func mysqlSetOperation(statement *sqlparser.Set) string {
+	if statement != nil {
+		for _, expression := range statement.Exprs {
+			if expression != nil && expression.Var != nil && expression.Var.Scope == sqlparser.GlobalScope {
+				return "SET GLOBAL"
+			}
+		}
+	}
+	return "SET SESSION"
 }
 
 func mysqlFirstKeyword(parser *sqlparser.Parser, sql string) (string, error) {
@@ -400,9 +462,15 @@ func mysqlExpressionTautology(expression sqlparser.Expr) bool {
 		if typed.Operator != sqlparser.EqualOp && typed.Operator != sqlparser.NullSafeEqualOp {
 			return false
 		}
+		if left, leftOK := typed.Left.(*sqlparser.ColName); leftOK {
+			right, rightOK := typed.Right.(*sqlparser.ColName)
+			return rightOK && left.Equal(right)
+		}
 		left, leftOK := mysqlConstantValue(typed.Left)
 		right, rightOK := mysqlConstantValue(typed.Right)
 		return leftOK && rightOK && left == right
+	case *sqlparser.ExistsExpr:
+		return mysqlExistsConstantSelect(typed.Subquery)
 	case *sqlparser.OrExpr:
 		return mysqlExpressionTautology(typed.Left) || mysqlExpressionTautology(typed.Right)
 	case *sqlparser.AndExpr:
@@ -410,6 +478,125 @@ func mysqlExpressionTautology(expression sqlparser.Expr) bool {
 	default:
 		return false
 	}
+}
+
+func mysqlExistsConstantSelect(subquery *sqlparser.Subquery) bool {
+	if subquery == nil {
+		return false
+	}
+	selectNode, ok := subquery.Select.(*sqlparser.Select)
+	if !ok || selectNode.Where != nil || selectNode.Having != nil || selectNode.GroupBy != nil || selectNode.Limit != nil {
+		return false
+	}
+	if !mysqlFromIsOnlyDual(selectNode.From) || len(selectNode.SelectExprs) == 0 {
+		return false
+	}
+	for _, expression := range selectNode.SelectExprs {
+		aliased, ok := expression.(*sqlparser.AliasedExpr)
+		if !ok || !mysqlConstantExpression(aliased.Expr) {
+			return false
+		}
+	}
+	return true
+}
+
+func mysqlFromIsOnlyDual(from []sqlparser.TableExpr) bool {
+	if len(from) == 0 {
+		return true
+	}
+	if len(from) != 1 {
+		return false
+	}
+	aliased, ok := from[0].(*sqlparser.AliasedTableExpr)
+	if !ok {
+		return false
+	}
+	table, ok := aliased.Expr.(sqlparser.TableName)
+	return ok && table.Qualifier.String() == "" && strings.EqualFold(table.Name.String(), "dual")
+}
+
+func mysqlConstantExpression(expression sqlparser.Expr) bool {
+	switch expression.(type) {
+	case sqlparser.BoolVal, *sqlparser.Literal, *sqlparser.NullVal:
+		return true
+	default:
+		return false
+	}
+}
+
+func mysqlQueryComplexity(statement sqlparser.Statement) (int, int) {
+	depth := 0
+	maximumDepth := 0
+	unionCount := 0
+	sqlparser.Rewrite(
+		statement,
+		func(cursor *sqlparser.Cursor) bool {
+			switch cursor.Node().(type) {
+			case *sqlparser.Subquery, *sqlparser.DerivedTable, *sqlparser.CommonTableExpr:
+				depth++
+				if depth > maximumDepth {
+					maximumDepth = depth
+				}
+			case *sqlparser.Union:
+				unionCount++
+			}
+			return true
+		},
+		func(cursor *sqlparser.Cursor) bool {
+			switch cursor.Node().(type) {
+			case *sqlparser.Subquery, *sqlparser.DerivedTable, *sqlparser.CommonTableExpr:
+				depth--
+			}
+			return true
+		},
+	)
+	return maximumDepth, unionCount
+}
+
+func mysqlAggregateShape(statement sqlparser.Statement) (bool, bool) {
+	selectNode, ok := statement.(*sqlparser.Select)
+	if !ok {
+		return false, false
+	}
+	hasGroupBy := selectNode.GroupBy != nil && len(selectNode.GroupBy.Exprs) > 0
+	if hasGroupBy || len(selectNode.SelectExprs) == 0 {
+		return hasGroupBy, false
+	}
+	for _, expression := range selectNode.SelectExprs {
+		aliased, ok := expression.(*sqlparser.AliasedExpr)
+		if !ok {
+			return false, false
+		}
+		if _, aggregate := aliased.Expr.(sqlparser.AggrFunc); !aggregate {
+			return false, false
+		}
+	}
+	return false, true
+}
+
+func mysqlProjectedColumns(statement sqlparser.Statement) []string {
+	selectNode, ok := statement.(*sqlparser.Select)
+	if !ok {
+		return nil
+	}
+	columns := make(stringSet)
+	for _, expression := range selectNode.SelectExprs {
+		switch typed := expression.(type) {
+		case *sqlparser.StarExpr:
+			columns.add("*")
+		case *sqlparser.AliasedExpr:
+			_ = sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+				if _, isSubquery := node.(*sqlparser.Subquery); isSubquery {
+					return false, nil
+				}
+				if column, isColumn := node.(*sqlparser.ColName); isColumn {
+					columns.add(column.Name.String())
+				}
+				return true, nil
+			}, typed.Expr)
+		}
+	}
+	return columns.sorted()
 }
 
 func mysqlConstantValue(expression sqlparser.Expr) (mysqlConstant, bool) {

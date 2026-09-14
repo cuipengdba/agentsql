@@ -45,11 +45,10 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
 	}
 	if len(pieces) != 1 {
-		return &model.AST{
-			Dialect: postgresDialect,
-			RawSQL:  sql,
-			IsMulti: len(pieces) > 1,
-		}, unparseableError(postgresDialect, fmt.Errorf("expected one statement, got %d", len(pieces)))
+		return parser.postgresMultiAST(sql, pieces), unparseableError(
+			postgresDialect,
+			fmt.Errorf("expected one statement, got %d", len(pieces)),
+		)
 	}
 
 	parsedJSON, err := pg_query.ParseToJSON(sql)
@@ -125,6 +124,17 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	for _, operation := range statementOperations {
 		operations.add(operation)
 	}
+	analysisType, analysisNode, err := postgresAnalysisRoot(nodeType, node)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	nestingDepth, unionCount := postgresQueryComplexity(analysisType, analysisNode)
+	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
+	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
+	hasGroupBy, isPureAggregate := postgresAggregateShape(analysisType, analysisNode)
+	for _, column := range postgresProjectedColumns(analysisType, analysisNode) {
+		operations.add(selectColumnOperation + ":" + column)
+	}
 	hasComment, err := postgresHasComment(sql)
 	if err != nil {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
@@ -152,20 +162,214 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	}
 
 	return &model.AST{
-		Dialect:        postgresDialect,
-		RawSQL:         sql,
-		Normalized:     normalized,
-		StmtType:       statementType,
-		IsMulti:        false,
-		Tables:         tables.sorted(),
-		Columns:        columns.sorted(),
-		HasWhere:       hasWhere,
-		WhereTautology: whereTautology,
-		HasLimit:       hasLimit,
-		Functions:      functions.sorted(),
-		Operations:     operations.sorted(),
-		Explain:        nil,
+		Dialect:         postgresDialect,
+		RawSQL:          sql,
+		Normalized:      normalized,
+		StmtType:        statementType,
+		IsMulti:         false,
+		Tables:          tables.sorted(),
+		Columns:         columns.sorted(),
+		HasWhere:        hasWhere,
+		WhereTautology:  whereTautology,
+		HasLimit:        hasLimit,
+		HasGroupBy:      hasGroupBy,
+		IsPureAggregate: isPureAggregate,
+		Functions:       functions.sorted(),
+		Operations:      operations.sorted(),
+		Explain:         nil,
 	}, nil
+}
+
+func (parser *postgresParser) postgresMultiAST(sql string, pieces []string) *model.AST {
+	tables := make(objectSet)
+	columns := make(stringSet)
+	functions := make(stringSet)
+	operations := make(stringSet)
+	for _, piece := range pieces {
+		parsed, err := parser.parse(piece)
+		if err != nil || parsed == nil {
+			continue
+		}
+		for _, table := range parsed.Tables {
+			tables.add(table)
+		}
+		for _, column := range parsed.Columns {
+			columns.add(column)
+		}
+		for _, function := range parsed.Functions {
+			functions.add(function)
+		}
+		for _, operation := range parsed.Operations {
+			operations.add(operation)
+		}
+	}
+	return &model.AST{
+		Dialect:    postgresDialect,
+		RawSQL:     sql,
+		StmtType:   model.StmtType("UNKNOWN"),
+		IsMulti:    len(pieces) > 1,
+		Tables:     tables.sorted(),
+		Columns:    columns.sorted(),
+		Functions:  functions.sorted(),
+		Operations: operations.sorted(),
+	}
+}
+
+func postgresAnalysisRoot(nodeType string, node any) (string, any, error) {
+	if nodeType != "ExplainStmt" {
+		return nodeType, node, nil
+	}
+	return postgresExplainQuery(node)
+}
+
+func postgresQueryComplexity(nodeType string, node any) (int, int) {
+	if nodeType != "SelectStmt" {
+		return 0, 0
+	}
+	return postgresSelectComplexity(node, 0)
+}
+
+func postgresSelectComplexity(node any, depth int) (int, int) {
+	maximumDepth := depth
+	unionCount := 0
+	object, _ := node.(map[string]any)
+	if operation, _ := object["op"].(string); operation == "SETOP_UNION" {
+		unionCount++
+	}
+	var walk func(any, bool)
+	walk = func(value any, nestedSelect bool) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if key == "SelectStmt" {
+					childStartDepth := depth
+					if nestedSelect {
+						childStartDepth++
+					}
+					childDepth, childUnions := postgresSelectComplexity(child, childStartDepth)
+					if childDepth > maximumDepth {
+						maximumDepth = childDepth
+					}
+					unionCount += childUnions
+					continue
+				}
+				walk(child, key == "subquery" || key == "subselect" || key == "ctequery")
+			}
+		case []any:
+			for _, child := range typed {
+				walk(child, nestedSelect)
+			}
+		}
+	}
+	walk(node, false)
+	return maximumDepth, unionCount
+}
+
+func postgresAggregateShape(nodeType string, node any) (bool, bool) {
+	if nodeType != "SelectStmt" {
+		return false, false
+	}
+	object, ok := node.(map[string]any)
+	if !ok {
+		return false, false
+	}
+	groupClause, _ := object["groupClause"].([]any)
+	hasGroupBy := len(groupClause) > 0
+	targets, _ := object["targetList"].([]any)
+	if hasGroupBy || len(targets) == 0 {
+		return hasGroupBy, false
+	}
+	for _, target := range targets {
+		if !postgresTargetIsAggregate(target) {
+			return false, false
+		}
+	}
+	return false, true
+}
+
+func postgresTargetIsAggregate(value any) bool {
+	wrapper, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	target, ok := wrapper["ResTarget"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return postgresExpressionIsAggregate(target["val"])
+}
+
+func postgresExpressionIsAggregate(value any) bool {
+	wrapper, ok := value.(map[string]any)
+	if !ok || len(wrapper) != 1 {
+		return false
+	}
+	if typeCast, ok := wrapper["TypeCast"].(map[string]any); ok {
+		return postgresExpressionIsAggregate(typeCast["arg"])
+	}
+	function, ok := wrapper["FuncCall"].(map[string]any)
+	if !ok {
+		return false
+	}
+	name, ok := postgresNameListField(function, "funcname")
+	if !ok {
+		return false
+	}
+	parts := strings.Split(strings.ToLower(name), ".")
+	name = parts[len(parts)-1]
+	_, ok = postgresAggregateFunctions[name]
+	return ok
+}
+
+var postgresAggregateFunctions = map[string]struct{}{
+	"array_agg": {}, "avg": {}, "bit_and": {}, "bit_or": {}, "bool_and": {},
+	"bool_or": {}, "count": {}, "every": {}, "json_agg": {}, "jsonb_agg": {},
+	"max": {}, "min": {}, "stddev": {}, "stddev_pop": {}, "stddev_samp": {},
+	"string_agg": {}, "sum": {}, "var_pop": {}, "var_samp": {}, "variance": {},
+}
+
+func postgresProjectedColumns(nodeType string, node any) []string {
+	if nodeType != "SelectStmt" {
+		return nil
+	}
+	object, ok := node.(map[string]any)
+	if !ok {
+		return nil
+	}
+	targets, _ := object["targetList"].([]any)
+	columns := make(stringSet)
+	for _, target := range targets {
+		wrapper, _ := target.(map[string]any)
+		result, _ := wrapper["ResTarget"].(map[string]any)
+		postgresWalkProjection(result["val"], columns)
+	}
+	return columns.sorted()
+}
+
+func postgresWalkProjection(value any, columns stringSet) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if column, exists := typed["ColumnRef"]; exists {
+			if name, ok := postgresColumnRef(column); ok {
+				columns.add(name)
+			}
+			return
+		}
+		if _, isStar := typed["A_Star"]; isStar {
+			columns.add("*")
+			return
+		}
+		if _, isSubquery := typed["SelectStmt"]; isSubquery {
+			return
+		}
+		for _, child := range typed {
+			postgresWalkProjection(child, columns)
+		}
+	case []any:
+		for _, child := range typed {
+			postgresWalkProjection(child, columns)
+		}
+	}
 }
 
 func normalizePostgres(sql string) (string, error) {
@@ -357,6 +561,11 @@ func postgresOperation(nodeType string, node any) string {
 		return "COMMENT ON"
 	case "AlterTableStmt":
 		return "ALTER TABLE"
+	case "IndexStmt":
+		if concurrent, _ := object["concurrent"].(bool); concurrent {
+			return "CREATE INDEX CONCURRENTLY"
+		}
+		return "CREATE INDEX"
 	case "DropStmt":
 		removeType, _ := object["removeType"].(string)
 		return "DROP " + postgresObjectType(removeType)
@@ -440,6 +649,20 @@ func postgresOperation(nodeType string, node any) string {
 }
 
 func postgresObjectType(removeType string) string {
+	switch removeType {
+	case "OBJECT_SCHEMA":
+		return "SCHEMA"
+	case "OBJECT_SEQUENCE":
+		return "SEQUENCE"
+	case "OBJECT_FUNCTION":
+		return "FUNCTION"
+	case "OBJECT_PROCEDURE":
+		return "PROCEDURE"
+	case "OBJECT_VIEW":
+		return "VIEW"
+	case "OBJECT_MATVIEW":
+		return "MATERIALIZED VIEW"
+	}
 	value := strings.TrimPrefix(removeType, "OBJECT_")
 	value = strings.ReplaceAll(value, "_", " ")
 	if value == "" {

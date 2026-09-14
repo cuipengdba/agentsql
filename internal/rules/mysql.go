@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -52,6 +53,9 @@ func (r201Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R201: %w", err)
 	}
+	if skipMysqlDialectRule(ast) {
+		return allowResult(), nil
+	}
 	if containsFold(ast.Operations, "LOAD_FILE") ||
 		containsFold(ast.Operations, "INTO OUTFILE") ||
 		containsFold(ast.Operations, "INTO DUMPFILE") ||
@@ -76,6 +80,9 @@ func (r202Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R202: %w", err)
 	}
+	if skipMysqlDialectRule(ast) {
+		return allowResult(), nil
+	}
 	if !isStatement(ast, "UPDATE", "DELETE") {
 		return allowResult(), nil
 	}
@@ -94,7 +101,7 @@ func (r202Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	return allowResult(), nil
 }
 
-// 攻击场景：刷新、终止连接或清理二进制日志影响数据库可用性与恢复能力。
+// 攻击场景：全局配置、刷新、终止连接或清理二进制日志影响数据库可用性与恢复能力。
 type r203Rule struct{ genericRule }
 
 func (r203Rule) Dialect() model.DBDialect {
@@ -106,14 +113,16 @@ func (r203Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R203: %w", err)
 	}
-	// T23: parser currently collapses SET GLOBAL and SET SESSION to SET.
-	// Do not infer scope from RawSQL; no SET form is blocked until scope is structured.
+	if skipMysqlDialectRule(ast) {
+		return allowResult(), nil
+	}
 	if containsFold(ast.Operations, "FLUSH") ||
 		containsFold(ast.Operations, "KILL") ||
-		containsFold(ast.Operations, "PURGE") {
+		containsFold(ast.Operations, "PURGE") ||
+		containsFold(ast.Operations, "SET GLOBAL") {
 		return denyResult(
 			"检测到 MySQL 高危管理命令，可能影响连接、缓存或二进制日志",
-			"请移除该管理命令；FLUSH、KILL 和 PURGE 应由 DBA 在受控运维流程中执行",
+			"请移除该管理命令；SET GLOBAL、FLUSH、KILL 和 PURGE 应由 DBA 在受控运维流程中执行",
 		), nil
 	}
 	return allowResult(), nil
@@ -131,9 +140,12 @@ func (r204Rule) Dialect() model.DBDialect {
 }
 
 func (rule r204Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
-	_, err := requiredMysqlAST(context)
+	ast, err := requiredMysqlAST(context)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R204: %w", err)
+	}
+	if skipMysqlDialectRule(ast) {
+		return allowResult(), nil
 	}
 	provider, ok := mysqlTransactionMetadataProvider(context, rule.meta)
 	if !ok {
@@ -182,7 +194,22 @@ func requiredMysqlAST(context engine.EvalContext) (*model.AST, error) {
 	if normalizedDialect(ast.Dialect) != "mysql" {
 		return nil, fmt.Errorf("MySQL rule received dialect %q", ast.Dialect)
 	}
+	for _, operation := range ast.Operations {
+		if strings.TrimSpace(operation) == "" {
+			return nil, fmt.Errorf("MySQL AST contains an empty structured operation")
+		}
+	}
 	return ast, nil
+}
+
+func skipMysqlDialectRule(ast *model.AST) bool {
+	if ast == nil || len(ast.Operations) == 0 {
+		return true
+	}
+	if isStatement(ast, "UNKNOWN") && !ast.IsMulti {
+		return true
+	}
+	return false
 }
 
 func mysqlTransactionMetadataProvider(

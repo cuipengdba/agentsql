@@ -1314,6 +1314,15 @@ gofmt、build/vet=0；`go test -race ./...` 全 ok；`-run TestDecisionCorpus -v
 
 统一约束：只改 internal/parser、internal/rules、internal/model（加两字段）；不动决策 harness、语料 json、前端、API、存储；不重构、不改规则 ID 与默认阈值（嵌套/UNION 维持 16）；新增分支补 parser/rules 单元测试。单位无法编译，逐文件文本级静态自审（类型/字段名/import/switch 穷尽/nil 安全），交付注明"未本地编译/测试，需主控端验证"。完成标准（主控端）：`go test ./internal/pipeline -run TestDecisionCorpus -count=1` 全绿（246 条/353 次，danger miss=0、normal 误拦率<2%、risk 全匹配、无 missing-rule、Total=353），`go test ./...` 全绿，gofmt/vet 为 0。
 
+### 23.12 T23.2 二轮回归缺陷修复（4 项，全部在 parser 层，规则语义不动）
+T23.1 合入后 F1–F10 目标用例全绿、双方言 normal 误拦率 0%、danger 零漏拦；语料口径由主控二次校准为 252 条/353 次（PG192/MySQL161，danger76/risk61/normal115）。剩余 4 条 risk mismatch 全是 parser 结构缺陷，逐项修复；internal/rules 与 21 条规则语义一律不动。
+
+- **G1 PostgreSQL UNION 计数**（parser/postgres.go `postgresSelectComplexity`）：现状递归只对 map key 恰为 "SelectStmt" 的子节点下钻，而 PG SetOperation 的左右分支键名是 `larg`/`rarg`，链式 UNION 只在最顶层计一次、深层漏计（S015 19 分支应 UNION_COUNT=18，实测不触发 R009）。目标：递归识别所有 SelectStmt 节点（含 larg/rarg 嵌套、valuesClause 等），每个 op=SETOP_UNION 节点计 1；嵌套深度仍只在 subquery/subselect/ctequery 边界递增（S014 不得回退）。补 parser 单测锁定：19 分支 UNION→UNION_COUNT=18、NESTING_DEPTH=0；18 层派生表→NESTING_DEPTH=18、UNION_COUNT=0；UNION 套派生表混合用例两者分别正确。
+- **G2/G3 MySQL 多表 DML 连接条件**（parser/mysql.go `mysqlRootWhere`）：现状 Update/Delete 只看 typed.Where，而 `DELETE a FROM t1 a JOIN t2 b ON a.id=b.id`、`UPDATE t1 JOIN t2 ON … SET …` 的行限定在表连接 ON 上、Where 为 nil，被误判"无 WHERE"交 R002 deny（应交给 R202 按多表 JOIN 写 approve）。目标：Update/Delete 且 Where 为 nil 时，若表表达式存在带 ON 条件的 JOIN（非 cross/无约束连接），则 HasWhere=true、WhereTautology 按该 ON 表达式判定；单表无 WHERE（DELETE FROM t、UPDATE t SET x=1）与无 ON 的笛卡尔多表仍 HasWhere=false（R002 继续拦）。补单测：S040/S041 HasWhere=true，单表全删/全改仍 false。
+- **G4 MySQL EXPLAIN 透传**（parser/mysql.go `mysqlStatementType`/`mysqlOperation`）：现状 `*sqlparser.ExplainStmt`/`ExplainTab` 被归为 ADMIN，致 `EXPLAIN SELECT…` 在只读档被 R003 当非 SELECT deny（S003；PG 侧 EXPLAIN 已正确透传）。目标：ExplainStmt 解引用其内部 Statement——内部为 Select/Union 时 StmtType=SELECT、Operation=SELECT（保留 EXPLAIN 信号，不影响 R004 大扫描判定）；ExplainTab（EXPLAIN 表名/列）维持 ADMIN。补单测：EXPLAIN SELECT→SELECT；EXPLAIN UPDATE 等仍非 SELECT 被拦；EXPLAIN tbl 维持 ADMIN。
+
+统一约束：只改 internal/parser 与其测试（G 组无需新增 model 字段则不改 model）；不动 internal/rules、internal/pipeline 决策测试、tests/corpus 语料、前端/API/存储；不加依赖、不改阈值与规则 ID。逐文件文本级静态自审，注明"未本地编译/测试，需主控端验证"。完成标准：`go test ./internal/pipeline -run TestDecisionCorpus -count=1` 全绿（252 条/353 次，danger miss=0、normal 误拦率当前为 0 且必须 <2%、risk 全匹配、无 missing-rule、Total=353），`go test ./...` 全绿，gofmt/vet=0。
+
 ## T24 打包部署
 go:embed 内嵌 web/dist；交叉编译 linux amd64/arm64、darwin 单二进制；多阶段 Dockerfile + docker-compose(含示例 PG/MySQL)；systemd unit；agentsqlctl init。验收干净环境 compose up 后 5 分钟走完"加数据源→建 Agent→Cursor 连上→看到审计"。
 
