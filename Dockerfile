@@ -1,29 +1,46 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-bookworm AS build
 
 ARG VERSION=dev
 WORKDIR /src
 
-COPY go.mod ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY go.mod go.sum ./
 RUN go mod download
 
+# The repository includes internal/webui/dist; frontend tooling is not run here.
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/agentsql ./cmd/agentsql
+RUN mkdir -p /out \
+    && CGO_ENABLED=1 go build -trimpath \
+        -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
+        -o /out/agentsql ./cmd/agentsql \
+    && CGO_ENABLED=1 go build -trimpath \
+        -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
+        -o /out/agentsqlctl ./cmd/agentsqlctl
 
-FROM alpine:3.21
+FROM debian:bookworm-slim AS runtime
 
-RUN addgroup -S agentsql \
-    && adduser -S -G agentsql agentsql \
-    && mkdir -p /var/lib/agentsql \
-    && chown -R agentsql:agentsql /var/lib/agentsql
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system agentsql \
+    && useradd --system --gid agentsql --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql \
+    && mkdir -p /var/lib/agentsql /etc/agentsql \
+    && chown -R agentsql:agentsql /var/lib/agentsql /etc/agentsql
 
 COPY --from=build /out/agentsql /usr/local/bin/agentsql
-COPY examples/config.example.yaml /etc/agentsql/config.yaml
+COPY --from=build /out/agentsqlctl /usr/local/bin/agentsqlctl
+COPY examples/docker/config.yaml /etc/agentsql/config.yaml
 
 USER agentsql
 WORKDIR /var/lib/agentsql
 EXPOSE 7780
+
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD ["agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
 
 ENTRYPOINT ["agentsql"]
 CMD ["serve", "--config", "/etc/agentsql/config.yaml"]

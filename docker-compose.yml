@@ -1,2 +1,60 @@
-# Runtime services and example databases are intentionally deferred to T24.
-services: {}
+services:
+  agentsql:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-v0.1}
+    image: agentsql:${VERSION:-v0.1}
+    ports:
+      - "7780:7780"
+    environment:
+      AGENTSQL_SECRET: "${AGENTSQL_SECRET:?must set AGENTSQL_SECRET in .env}"
+      AGENTSQL_ADMIN_USER: "${AGENTSQL_ADMIN_USER:-admin}"
+      AGENTSQL_ADMIN_PASSWORD: "${AGENTSQL_ADMIN_PASSWORD:?must set AGENTSQL_ADMIN_PASSWORD in .env}"
+    volumes:
+      - ./data:/var/lib/agentsql
+      - ./examples/docker/config.yaml:/etc/agentsql/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # Optional PostgreSQL demo database. Start with: docker compose --profile demo up
+  postgres:
+    image: postgres:16
+    profiles: ["demo"]
+    environment:
+      POSTGRES_DB: agentsql_demo
+      POSTGRES_USER: agentsql
+      POSTGRES_PASSWORD: agentsql_demo_password
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentsql -d agentsql_demo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Optional MySQL demo database. Start with: docker compose --profile demo up
+  mysql:
+    image: mysql:8
+    profiles: ["demo"]
+    environment:
+      MYSQL_DATABASE: agentsql_demo
+      MYSQL_USER: agentsql
+      MYSQL_PASSWORD: agentsql_demo_password
+      MYSQL_ROOT_PASSWORD: agentsql_demo_root_password
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uagentsql -pagentsql_demo_password --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

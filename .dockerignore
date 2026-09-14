@@ -1,0 +1,22 @@
+.git
+bin
+data
+*.db
+*.db-*
+*.db.*
+node_modules
+**/node_modules
+transfer
+*.log
+*.diag
+*.zip
+coverage.out
+*.coverprofile
+*.test
+.testcache
+**/.testcache
+**/.cache
+
+# The embedded console is a required Go build input.
+!internal/webui/dist/
+!internal/webui/dist/**

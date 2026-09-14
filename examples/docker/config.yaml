@@ -1,0 +1,16 @@
+# AgentSQL container configuration. The listener must bind all container interfaces.
+server:
+  http_listen: "0.0.0.0:7780"
+  console_enabled: true
+
+store:
+  sqlite_path: "/var/lib/agentsql/agentsql.db"
+
+defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: 20
+
+theme:
+  default: "dark"

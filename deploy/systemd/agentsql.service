@@ -1,0 +1,20 @@
+[Unit]
+Description=AgentSQL AI-native database security gateway
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=agentsql
+Group=agentsql
+EnvironmentFile=-/etc/agentsql/agentsql.env
+ExecStart=/usr/local/bin/agentsql serve -c /etc/agentsql/config.yaml
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/agentsql
+
+[Install]
+WantedBy=multi-user.target
