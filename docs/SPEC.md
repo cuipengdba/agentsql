@@ -1323,15 +1323,55 @@ T23.1 合入后 F1–F10 目标用例全绿、双方言 normal 误拦率 0%、da
 
 统一约束：只改 internal/parser 与其测试（G 组无需新增 model 字段则不改 model）；不动 internal/rules、internal/pipeline 决策测试、tests/corpus 语料、前端/API/存储；不加依赖、不改阈值与规则 ID。逐文件文本级静态自审，注明"未本地编译/测试，需主控端验证"。完成标准：`go test ./internal/pipeline -run TestDecisionCorpus -count=1` 全绿（252 条/353 次，danger miss=0、normal 误拦率当前为 0 且必须 <2%、risk 全匹配、无 missing-rule、Total=353），`go test ./...` 全绿，gofmt/vet=0。
 
-## T24 打包部署
-go:embed 内嵌 web/dist；交叉编译 linux amd64/arm64、darwin 单二进制；多阶段 Dockerfile + docker-compose(含示例 PG/MySQL)；systemd unit；agentsqlctl init。验收干净环境 compose up 后 5 分钟走完"加数据源→建 Agent→Cursor 连上→看到审计"。
+## T24 打包部署（拆 T24.1 代码 / T24.2 交付，顺序执行）
+
+**现状基线（开工前先读，勿重复造轮子）**
+- `cmd/agentsql/main.go`：cobra，已有 `version/serve/mcp`；serve 已做 signal 优雅停机（10s Shutdown）、`AGENTSQL_SECRET` 恰好 32 字节校验、admin 账号从 env、webui 走 go:embed。
+- `cmd/agentsqlctl/main.go`：**空壳**（仅 `package main` + 空 `main()`），本单填充。
+- `internal/config/config.go`：`Load(path)` 读**单文档 YAML**、`KnownFields(true)` 严格、`Validate()` fail-closed、会 `MkdirAll` sqlite 父目录；**不支持环境变量覆盖**（本单不改这一行为，容器用挂载配置解决监听地址）。
+- `internal/store/migrate.go`：`Migrate(ctx,*sql.DB)` 按 embed 的 `migrations/*.sql` 版本号**幂等**迁移；`bootstrap.Assemble`→`store.OpenWithSecret` 启动时已自动迁移。
+- `internal/mcpserver/http.go` `NewHTTPHandler`：`http.NewServeMux`，已挂 `/mcp`、`/api/v1/`、`/`(webconsole)，中间件链含 auth/rate/recover/accessLog；**当前无健康端点**。
+- **硬约束：`github.com/pganalyze/pg_query_go/v5` 在本项目必须 cgo**（实测 `CGO_ENABLED=0` 时 `pg_query.ParseToJSON/SplitWithScanner/Normalize/Scan` 全部 undefined）。因此：禁用纯静态 `CGO_ENABLED=0` 构建；容器构建镜像与运行镜像都走 glibc（debian bookworm），**不得用 alpine/musl**；go 版本以 go.mod 的 **1.25** 为准（现 Dockerfile 写的 golang:1.23 错误）。
+- 前端产物 `internal/webui/dist` 已随仓提交（.gitignore 显式放行），**镜像内不构建前端**，直接 COPY 仓内 dist。
+
+### T24.1 运维 CLI + 探活端点（纯 Go；先做，主控可直接编译/测试验收）
+
+- **H1 配置只校验不落盘**：给 `internal/config` 新增 `Parse(contents []byte) (Config, error)`，逻辑=现有 Load 的「单文档 Decode + KnownFields + 尾部文档检测 + Validate + console_enabled 默认值」，但**不做 MkdirAll、不读文件**；重构 `Load(path)` 为「读文件 → Parse → Clean 路径 → MkdirAll」，行为与现有 config_test 完全一致（不得改坏既有断言）。
+- **H2 统一版本包**：新增 `internal/version/version.go`，`var Version = "dev"`；`cmd/agentsql` 与 `cmd/agentsqlctl` 的 version 都引用它，Makefile/Dockerfile 统一用 `-X github.com/cuipengdba/agentsql/internal/version.Version=$(VERSION)` 注入；删除 cmd/agentsql 内重复的 `var version`。
+- **H3 agentsqlctl（cobra，SilenceErrors/SilenceUsage=true，子命令各自返回错误、main 统一非 0 退出）**：
+  - `version`：打印 version.Version。
+  - `init-config --output <path> [--force]`：把与 `examples/config.example.yaml` 同值的内置默认模板写到目标（内嵌字符串常量，不依赖运行目录）；父目录不存在则 0o750 创建；目标已存在且无 --force 则报错退出，不覆盖。
+  - `check-config -c <path>`：读字节后调 `config.Parse`（**不建目录、不碰库**），通过打印 `config ok: <listen> sqlite=<path>` 并退出 0；失败打印具体校验错误、退出 1。
+  - `migrate -c <path>`：要求 `AGENTSQL_SECRET` 恰好 32 字节，`config.Load`→`store.OpenWithSecret`→显式 `store.Migrate` 到最新，打印当前/最新 migration 版本后关闭；serve 本就自动迁移，此命令仅用于初始化与排障。
+  - `health --url <default http://127.0.0.1:7780/healthz> [--timeout 3s]`：标准库 http.Client 发 GET，状态 200 且响应 JSON `status=="ok"` 退出 0 并回显 body，否则退出 1（供 Docker HEALTHCHECK / systemd 探活，不能引第三方依赖）。
+  - 每个子命令补单测：init-config 产物能被 `config.Parse` 通过、重复写拒绝/--force 覆盖；check-config 对坏 YAML/非法端口/非正默认值非 0；health 用 `httptest.Server` 覆盖 200/503/超时。
+- **H4 存活/就绪端点（改 `internal/mcpserver/http.go`）**：
+  - 新增 `/healthz`（liveness）：**注册在 auth/rate 中间件之外、免鉴权**，恒返回 200 `{"status":"ok","version":"<version.Version>"}`。
+  - 新增 `/readyz`（readiness）：免鉴权；通过 runtime 的 store 对 sqlite 做一次 1s 内 `PingContext`，成功 200 `{"status":"ready"}`，失败 503 `{"status":"not ready"}`；若该进程未装配 store（纯 MCP stdio 不挂 HTTP 时不涉及），HTTP 模式下应能拿到 store，拿不到按 503 fail-closed。为此允许在 `internal/store` 暴露一个 `Ping(ctx) error`（内部 `db.PingContext`），不要在 mcpserver 里直接摸驱动。
+  - Go1.25 ServeMux 按最长前缀匹配，`/healthz`、`/readyz` 精确优先于 webconsole 的 `/`，不得被 SPA 回退吞掉。
+  - 补 `http_test.go` 用例锁定：**不带 token** GET /healthz=200 且含 version、GET /readyz 在装配可用 store 时 200；不带 token GET /mcp 仍 401（证明探活没在鉴权上开口子）；/healthz 不命中 webconsole。
+- **T24.1 统一约束**：只动 cmd/agentsql、cmd/agentsqlctl、internal/config、internal/version(新增)、internal/store(仅加 Ping)、internal/mcpserver/http.go 及其测试；不改六段流水线、21 规则、parser、前端、go.mod（**不新增第三方依赖**，health/CLI 全用标准库 + 已有 cobra/yaml）。单位无法编译，逐文件文本级静态自审，注明「未本地编译/测试，需主控端验证」。
+- **T24.1 完成标准（主控端）**：gofmt/vet=0；`go test -race ./...` 全绿且既有 config/http/store 测试零回归；`go build ./cmd/...` 产出两二进制；手测 `agentsqlctl init-config/check-config/version/health` 链路；起 serve 后无 token /healthz=200、/readyz=200，/mcp 无 token 仍 401。
+
+### T24.2 构建/容器/编排/部署交付（T24.1 合入后再做；以脚本、配置、文档为主）
+
+- **I1 Makefile 修复**：两二进制都用 `-X .../internal/version.Version`；`build` 走平台原生 cgo（不再写 CGO_ENABLED=0）；新增 `webui`（cd internal/webui && npm ci && npm run build，仅发布前手动用，默认 build 不依赖）、`race`（go test -race ./...）、`release`（构建后对 bin 生成 SHA256SUMS）；**删除现有编不过的 `CGO_ENABLED=0` 四平台 cross**，改为单一 `docker-linux-amd64`（在 golang:1.25-bookworm 容器内 cgo 编 linux/amd64）并注释说明 pg_query 需要 cgo、跨平台交叉编译留 v0.2。
+- **I2 Dockerfile 多阶段重写**：build 用 `golang:1.25-bookworm`（glibc+gcc；显式 `apt-get install -y --no-install-recommends gcc libc6-dev ca-certificates` 保险）；**COPY go.mod 和 go.sum** 再 `go mod download`（修当前漏 go.sum）；COPY . .（带仓内 dist，不跑 npm）；`CGO_ENABLED=1` 分别 build agentsql、agentsqlctl，`-trimpath -ldflags "-s -w -X .../version.Version=$VERSION"`。runtime 用 `debian:bookworm-slim`（**禁止 alpine**），装 ca-certificates、tzdata，建非root用户 agentsql 与 /var/lib/agentsql、/etc/agentsql，chown；拷两二进制与示例配置；`USER agentsql`、WORKDIR /var/lib/agentsql、EXPOSE 7780；`HEALTHCHECK --interval=15s --timeout=3s CMD ["agentsqlctl","health","--url","http://127.0.0.1:7780/healthz"]`；ENTRYPOINT ["agentsql"]，CMD ["serve","--config","/etc/agentsql/config.yaml"]。
+- **I3 新增 .dockerignore**：排除 .git、bin、data、*.db*、node_modules（含 internal/webui/node_modules）、transfer、*.log、.diag、测试缓存；**显式保留 internal/webui/dist**。
+- **I4 docker-compose.yml 重写（现为空 `services:{}`）**：服务 `agentsql`：build .（image agentsql:${VERSION:-v0.1}）、`ports: 7780:7780`、environment 读 `.env` 的 `AGENTSQL_SECRET`（缺失则 `${AGENTSQL_SECRET:?must set AGENTSQL_SECRET}` 直接报错）与 `AGENTSQL_ADMIN_USER/PASSWORD`；volumes 挂 `./data:/var/lib/agentsql` 与 `./examples/docker/config.yaml:/etc/agentsql/config.yaml:ro`；healthcheck 同 I2、`restart: unless-stopped`、`security_opt: [no-new-privileges:true]`。另用 `profiles: [demo]` 给**默认不启动**的示例 postgres:16 / mysql:8（带健康检查与示例库环境变量），`docker compose --profile demo up` 才起，供 Playground 连真库。
+- **I5 配置样例**：新增 `examples/docker/config.yaml`（`http_listen: 0.0.0.0:7780`、console_enabled true、sqlite_path `/var/lib/agentsql/agentsql.db`、defaults 与示例一致）与 `examples/docker/.env.example`（32 字节 SECRET 占位、admin 账号）；补全 `examples/config.example.yaml` 字段注释（各默认值含义、env 名、容器内需 0.0.0.0、SECRET 丢失则数据源密码不可解密）。
+- **I6 deploy/systemd/agentsql.service + docs/DEPLOY.md**：unit 用 Type=simple、User=agentsql、EnvironmentFile=-/etc/agentsql/agentsql.env、ExecStart=/usr/local/bin/agentsql serve -c /etc/agentsql/config.yaml、Restart=on-failure、NoNewPrivileges=true、ProtectSystem=strict + ReadWritePaths=/var/lib/agentsql、WantedBy=multi-user.target。DEPLOY.md 写清三种安装（docker compose 推荐 / 二进制 / systemd）、目录约定、**升级=换二进制后自动幂等迁移与回滚**、**备份=agentsql.db + AGENTSQL_SECRET 二者缺一不可**、探活、常见问题（127.0.0.1 容器不通要改 0.0.0.0、cgo/glibc、端口占用）。
+- **I7 README 快速开始重写**：方式一 compose 三步（复制 .env 填 SECRET → `docker compose up -d` → 浏览器开 127.0.0.1:7780，用 env 里 admin 登录）；方式二二进制（make build → agentsqlctl init-config → export AGENTSQL_SECRET → agentsql serve）；附 examples/mcp 三个客户端接入链接。
+- **T24.2 完成标准（主控端）**：Makefile 目标可跑、`make build` 出两二进制；本机 Docker daemon 可用时 `docker build` 成功且 `docker compose up -d` 健康转 healthy、浏览器能登录并 5 分钟内走完「加数据源→建 Agent→MCP 连上→看到审计」；Docker 不可用时对 compose/unit 做 YAML 与 `bash -n`/字段静态校验并注明容器实跑待补；文档命令逐条可执行。
+
+**T24 统一不做**：不在镜像内构建前端、不做 buildx 多架构/镜像签名/Helm/K8s operator（留 v0.2 企业版）；不做配置热加载（改完重启）；不支持外部 PostgreSQL 当元数据库（v0.1 仅内嵌 sqlite）；不做在线自动升级；不改六段流水线与 21 规则语义；T24.1 不新增任何第三方 Go 依赖；Prometheus 指标属 T25，不在本单。
 
 ## T25 可观测性
-/metrics（请求总量、decision 分布、规则命中、耗时直方图、限流数、连接池）、/healthz、/readyz；examples 给 Grafana dashboard JSON。验收 Prometheus 可抓；只读转发 ≥1000 QPS、网关 P99 额外开销 <5ms。
+`/healthz`、`/readyz` 已在 T24.1 落地，T25 只做指标：`/metrics`（请求总量、decision 分布、规则命中、耗时直方图、限流数、连接池占用），examples 给 Grafana dashboard JSON 与一份 prometheus.yml 抓取样例。**前置卡点：引入 `github.com/prometheus/client_golang` 属于新增第三方依赖，必须先经用户明确授权再动手，未授权不得改 go.mod。** 验收：Prometheus 能抓、Grafana 出图；只读转发压测 ≥1000 QPS 时网关 P99 额外开销 <5ms（压测脚本与结果存档）。
 
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PG14/16/18 与 MySQL8 E2E 通过；
-- 决策语料 245 条（≥200，danger77/risk56/normal112）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟无 panic 且 fail-closed；
+- 决策语料 252 条（353 次方言运行：PG192/MySQL161；danger76/risk61/normal115；判定 deny77/allow121/approve42/warn12）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟（4298 万次变异）无 panic 且 fail-closed；
 - Cursor/Claude 各录屏：只读成功/越权拒/无WHERE更新拒/审计可查；
 - 控制台 6 类页面（总览/审计/演示台/Agent/数据源/权限/规则）全部联调并打进单二进制；
 - 干净环境 5 分钟跑通；性能达标。
