@@ -232,37 +232,40 @@ func postgresQueryComplexity(nodeType string, node any) (int, int) {
 func postgresSelectComplexity(node any, depth int) (int, int) {
 	maximumDepth := depth
 	unionCount := 0
-	object, _ := node.(map[string]any)
-	if operation, _ := object["op"].(string); operation == "SETOP_UNION" {
-		unionCount++
-	}
-	var walk func(any, bool)
-	walk = func(value any, nestedSelect bool) {
+	var walk func(any, int)
+	walk = func(value any, currentDepth int) {
 		switch typed := value.(type) {
 		case map[string]any:
+			if operation, _ := typed["op"].(string); operation == "SETOP_UNION" {
+				unionCount++
+			}
 			for key, child := range typed {
-				if key == "SelectStmt" {
-					childStartDepth := depth
-					if nestedSelect {
-						childStartDepth++
-					}
-					childDepth, childUnions := postgresSelectComplexity(child, childStartDepth)
+				childDepth := currentDepth
+				if postgresNestedQueryBoundary(key) {
+					childDepth++
 					if childDepth > maximumDepth {
 						maximumDepth = childDepth
 					}
-					unionCount += childUnions
-					continue
 				}
-				walk(child, key == "subquery" || key == "subselect" || key == "ctequery")
+				walk(child, childDepth)
 			}
 		case []any:
 			for _, child := range typed {
-				walk(child, nestedSelect)
+				walk(child, currentDepth)
 			}
 		}
 	}
-	walk(node, false)
+	walk(node, depth)
 	return maximumDepth, unionCount
+}
+
+func postgresNestedQueryBoundary(key string) bool {
+	switch key {
+	case "subquery", "subselect", "ctequery":
+		return true
+	default:
+		return false
+	}
 }
 
 func postgresAggregateShape(nodeType string, node any) (bool, bool) {

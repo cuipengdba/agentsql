@@ -122,6 +122,9 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
 	operations.add(operation)
+	if _, explained := statement.(*sqlparser.ExplainStmt); explained {
+		operations.add("EXPLAIN")
+	}
 	nestingDepth, unionCount := mysqlQueryComplexity(statement)
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
 	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
@@ -276,7 +279,7 @@ func redactMySQLSelectInto(into *sqlparser.SelectInto) {
 }
 
 func mysqlStatementType(statement sqlparser.Statement) model.StmtType {
-	switch statement.(type) {
+	switch typed := statement.(type) {
 	case *sqlparser.Select, *sqlparser.Union:
 		return model.StmtType("SELECT")
 	case *sqlparser.Insert:
@@ -287,10 +290,15 @@ func mysqlStatementType(statement sqlparser.Statement) model.StmtType {
 		return model.StmtType("DELETE")
 	case sqlparser.DDLStatement, sqlparser.DBDDLStatement:
 		return model.StmtType("DDL")
+	case *sqlparser.ExplainStmt:
+		if typed == nil || typed.Statement == nil {
+			return model.StmtType("UNKNOWN")
+		}
+		return mysqlStatementType(typed.Statement)
 	case *sqlparser.Set, *sqlparser.Flush, *sqlparser.Show, *sqlparser.Use,
 		*sqlparser.Begin, *sqlparser.Commit, *sqlparser.Rollback, *sqlparser.SRollback,
 		*sqlparser.Savepoint, *sqlparser.Release, *sqlparser.CallProc, *sqlparser.LockTables,
-		*sqlparser.UnlockTables, *sqlparser.ExplainStmt, *sqlparser.ExplainTab,
+		*sqlparser.UnlockTables, *sqlparser.ExplainTab,
 		*sqlparser.PrepareStmt, *sqlparser.ExecuteStmt, *sqlparser.DeallocateStmt,
 		*sqlparser.Analyze, *sqlparser.OtherAdmin, *sqlparser.Load,
 		*sqlparser.PurgeBinaryLogs, *sqlparser.Kill:
@@ -324,6 +332,13 @@ func mysqlOperation(parser *sqlparser.Parser, statement sqlparser.Statement, sql
 		return "CREATE DATABASE", nil
 	case sqlparser.DDLStatement:
 		return strings.ToUpper(typed.GetAction().ToString()), nil
+	case *sqlparser.ExplainStmt:
+		if typed == nil || typed.Statement == nil {
+			return "", errors.New("MySQL EXPLAIN has no inner statement")
+		}
+		return mysqlOperation(parser, typed.Statement, sql)
+	case *sqlparser.ExplainTab:
+		return "EXPLAIN", nil
 	case *sqlparser.Set:
 		return mysqlSetOperation(typed), nil
 	case *sqlparser.Flush:
@@ -398,10 +413,12 @@ func mysqlRootWhere(statement sqlparser.Statement) (bool, sqlparser.Expr) {
 		if typed.Where != nil {
 			return true, typed.Where.Expr
 		}
+		return mysqlJoinWhere(typed.TableExprs)
 	case *sqlparser.Delete:
 		if typed.Where != nil {
 			return true, typed.Where.Expr
 		}
+		return mysqlJoinWhere(typed.TableExprs)
 	case *sqlparser.Union:
 		leftHasWhere, leftExpression := mysqlSelectWhere(typed.Left)
 		if leftHasWhere {
@@ -410,6 +427,45 @@ func mysqlRootWhere(statement sqlparser.Statement) (bool, sqlparser.Expr) {
 		return mysqlSelectWhere(typed.Right)
 	}
 	return false, nil
+}
+
+func mysqlJoinWhere(tableExpressions []sqlparser.TableExpr) (bool, sqlparser.Expr) {
+	conditions := make([]sqlparser.Expr, 0)
+	for _, tableExpression := range tableExpressions {
+		mysqlCollectJoinConditions(tableExpression, &conditions)
+	}
+	if len(conditions) == 0 {
+		return false, nil
+	}
+	combined := conditions[0]
+	for _, condition := range conditions[1:] {
+		combined = &sqlparser.AndExpr{Left: combined, Right: condition}
+	}
+	return true, combined
+}
+
+func mysqlCollectJoinConditions(tableExpression sqlparser.TableExpr, conditions *[]sqlparser.Expr) {
+	if conditions == nil {
+		return
+	}
+	switch typed := tableExpression.(type) {
+	case *sqlparser.JoinTableExpr:
+		if typed == nil {
+			return
+		}
+		mysqlCollectJoinConditions(typed.LeftExpr, conditions)
+		mysqlCollectJoinConditions(typed.RightExpr, conditions)
+		if typed.Condition != nil && typed.Condition.On != nil {
+			*conditions = append(*conditions, typed.Condition.On)
+		}
+	case *sqlparser.ParenTableExpr:
+		if typed == nil {
+			return
+		}
+		for _, expression := range typed.Exprs {
+			mysqlCollectJoinConditions(expression, conditions)
+		}
+	}
 }
 
 func mysqlSelectWhere(statement sqlparser.SelectStatement) (bool, sqlparser.Expr) {
