@@ -1366,8 +1366,65 @@ T23.1 合入后 F1–F10 目标用例全绿、双方言 normal 误拦率 0%、da
 
 **T24 统一不做**：不在镜像内构建前端、不做 buildx 多架构/镜像签名/Helm/K8s operator（留 v0.2 企业版）；不做配置热加载（改完重启）；不支持外部 PostgreSQL 当元数据库（v0.1 仅内嵌 sqlite）；不做在线自动升级；不改六段流水线与 21 规则语义；T24.1 不新增任何第三方 Go 依赖；Prometheus 指标属 T25，不在本单。
 
-## T25 可观测性
-`/healthz`、`/readyz` 已在 T24.1 落地，T25 只做指标：`/metrics`（请求总量、decision 分布、规则命中、耗时直方图、限流数、连接池占用），examples 给 Grafana dashboard JSON 与一份 prometheus.yml 抓取样例。**前置卡点：引入 `github.com/prometheus/client_golang` 属于新增第三方依赖，必须先经用户明确授权再动手，未授权不得改 go.mod。** 验收：Prometheus 能抓、Grafana 出图；只读转发压测 ≥1000 QPS 时网关 P99 额外开销 <5ms（压测脚本与结果存档）。
+## T25 可观测性（/metrics + Grafana + 网关开销基线）
+`/healthz`、`/readyz` 已在 T24.1 落地，T25 只做指标，不改任何判定、不碰 252 语料与前端。**依赖授权：用户已于 2026-09-15 明确授权新增 `github.com/prometheus/client_golang v1.22.0`；单位无网，Codex 只在 go.mod require 块手写这一行，禁止 go get / go mod tidy，go.sum 由主控联网补全并编译。**
+
+### T25.0 设计原则（必须遵守）
+- pipeline 包**不得 import prometheus**：只在 `internal/pipeline` 定义最小本地观察者接口，metrics 包用同签名方法隐式实现，依赖方向只允许 metrics→model、bootstrap 同时持有二者，杜绝包循环。
+- 指标采集**绝不能影响主流程**：所有观察者调用必须 nil 安全 + panic 安全（metrics 指针接收者先判 nil；pipeline 侧再包一层 recover 双保险）。
+- label 低基数：不得把 SQL 文本、Agent ID、数据源 ID 之外的高基数值塞进 label；HTTP 路由必须归一化（见 I5）。连接池是唯一允许 datasource label 的指标（数据源数量有界）。
+- 不新增 config 字段：v0.1 的 `/metrics` 与 `/healthz` 同级、免鉴权、默认开放；stdio `mcp` 模式下 metrics 对象空转无副作用。
+
+### I1 新增 internal/metrics 包（metrics.go / doc.go / metrics_test.go）
+- `type PoolStat struct { DatasourceID, Dialect string; MaxOpen, InUse, Idle int }`。
+- `func New(poolSnapshot func() []PoolStat) *Metrics`：创建**私有** `*prometheus.Registry`，注册内置 `NewGoCollector`、`NewProcessCollector` 与下列指标；poolSnapshot 可为 nil（此时连接池指标无样本）。
+- 指标（命名、类型、label 固定如下）：
+  1. `agentsql_http_requests_total` CounterVec[method,route,status]
+  2. `agentsql_http_request_duration_seconds` HistogramVec[route]，自定义桶 `0.001,0.0025,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5`
+  3. `agentsql_decisions_total` CounterVec[decision,dialect,stmt_type]
+  4. `agentsql_rule_hits_total` CounterVec[rule_id,decision,risk]
+  5. `agentsql_pipeline_stage_duration_seconds` HistogramVec[stage]，桶 `0.0005,0.001,0.0025,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2`
+  6. `agentsql_rejected_total` CounterVec[reason]
+  7. `agentsql_pool_connections` GaugeVec[datasource,dialect,state]（state∈max/inuse/idle），由自定义 `poolCollector` 在每次 Collect 时调用 poolSnapshot 即时采集，不做后台定时 Set。
+- 方法（全部指针接收者、nil 接收者直接 return）：`ObserveHTTP(method,route,status string, seconds float64)`（同时加 counter 与 histogram）、`ObserveDecision(decision,dialect,stmtType string)`、`ObserveRuleHit(ruleID,decision,risk string)`、`ObserveStage(stage string, latencyMS int64)`（ms→s）、`IncRejected(reason string)`、`Handler() http.Handler`（`promhttp.HandlerFor(registry, HandlerOpts{ErrorHandling: promhttp.ContinueOnError})`）。
+- metrics_test.go：注册无重复；各 Observe 后 `registry.Gather` 能取到对应样本且值正确；nil *Metrics 调用全部方法不 panic；poolCollector 按快照产出三个 state 的 gauge。
+
+### I2 pipeline 观察者解耦（新增 internal/pipeline/observer.go，小改 types.go、pipeline.go）
+- observer.go：定义 `type DecisionObserver interface { ObserveDecision(decision,dialect,stmtType string); ObserveRuleHit(ruleID,decision,risk string); ObserveStage(stage string, latencyMS int64) }` 与 `func WithObserver(observer DecisionObserver) Option`（传 nil 等价不观察，不报错）；`pipelineOptions` 增字段 `observer DecisionObserver`，`Pipeline` 结构增同名字段，`New` 赋值。
+- pipeline.go 唯一打点位置在 `(*pipelineRun).finish`（现 473 行）内、`run.audit(...)` 完成、StageLatency 最终化之后、return 之前：dialect 取 `run.datasource.DBType`（datasource 为 nil 时用空串），stmtType 取 `string(run.response.Assessment.StmtType)`；依次回调 decision 一次、遍历 `Assessment.Hits` 回调每个 RuleHit（risk 用 `strconv.Itoa(int(hit.Risk))`）、遍历最终 stageLatency 回调每阶段；整段用 `func(){defer recover();...}()` 包住，观察者异常绝不改变返回的 Response/error。error 路径（decision=deny）也必须被统计（finish 是唯一汇聚出口，天然覆盖）。
+- 新增 t25_observer_test.go：用 fake observer 分别跑一条 allow、一条 deny，断言三个回调被调用且 label 值正确；再构造一个会 panic 的 observer，断言 `Process` 结果与不装 observer 时完全一致。
+
+### I3 executor 连接池快照（新增 internal/executor/pool_stats.go，小改 postgres.go/mysql.go）
+- pool_stats.go：`type PoolStat struct { DatasourceID,Dialect string; MaxOpen,InUse,Idle int }`；包内可选接口 `type poolStatser interface { poolSnapshot() PoolStat }`；`func (m *Manager) SnapshotPools() []PoolStat`：RLock 遍历 executors，map key 作 DatasourceID、`Executor.Dialect()` 作 Dialect，对实现了 poolStatser 的执行器取快照，未实现的（如测试 fake）跳过，不得因此报错。
+- postgres.go：结构体增 `maxConns int32`，构造时把归一化后的连接上限存入；`poolSnapshot()` 用 `pool.Stat()`：MaxOpen=int(s.maxConns)、InUse=int(stat.AcquiredConns())、Idle=int(stat.IdleConns())。
+- mysql.go：结构体增 `maxConns int`（用 normalizedConnectionLimit 的结果，现 SetMaxOpenConns 处同步保存）；`poolSnapshot()` 用 `database.Stats()`：MaxOpen=s.maxConns、InUse=stats.InUse、Idle=stats.Idle。
+- 单测：用一个实现/不实现 poolStatser 的 stub 验证 SnapshotPools 的收集与跳过逻辑。
+
+### I4 bootstrap 装配（小改 bootstrap.go）
+- `Assemble`（assembleWithExecutorProvider）在 NewManager 之后创建 hub：`metricsHub := metrics.New(func() []metrics.PoolStat { 把 manager.SnapshotPools() 的每条逐字段转成 metrics.PoolStat })`；`pipeline.New(...)` 追加 option `pipeline.WithObserver(metricsHub)`；`Runtime` 增字段 `Metrics *metrics.Metrics` 并返回。stdio 与 HTTP 两条装配路径都经过 Assemble，行为一致。
+
+### I5 HTTP 暴露与中间件（小改 internal/mcpserver/http.go）
+- mux 在 healthz/readyz 旁注册 `mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))`：runtime.Metrics 非 nil 用其 Handler()，nil 返回 503 文本；该端点**免鉴权**（注册在 authMiddleware 之外）。
+- 新增 `metricsMiddleware(hub, next)` 并在 newHTTPHandlerWithRegistry 返回前包住整个 mux：复用 `statusResponseWriter` 取 status，记录 method、归一化 route、秒级耗时并调 `ObserveHTTP`。
+- route 归一化算法固定（写成纯函数 `classifyRoute(path string) string`，便于单测）：`/mcp`→`/mcp`；`/healthz`/`/readyz`/`/metrics` 原样；前缀 `/api/v1/` 时取段：集合类返回 `/api/v1/<资源>`（如 `/api/v1/agents`），带 ID 的归并为同一路由（`/api/v1/agents/{id}`、子动作 `/api/v1/agents/{id}/rotate-key`），ID 段（UUID、`asql_` 前缀、纯数字/长 hex）一律折叠为 `{id}`，**禁止透传真实 ID**；其余归 `/other`。
+- 限流计数：rateMiddleware 中 `!registry.allow(...)` 分支在写 429 前调 `registry.runtime.Metrics.IncRejected("rate_limited")`（nil 安全）。
+- 单测：无 token GET /metrics=200 且正文含 `agentsql_` 前缀；打一次 /mcp（无 token 401）后 http_requests_total 出现对应样本；classifyRoute 表驱动覆盖集合/详情/子动作/UUID/asql_/探测路径。
+
+### I6 examples/observability 交付物
+- `prometheus.yml`：global scrape_interval 15s；job_name=agentsql，metrics_path=/metrics，static_configs target `agentsql:7780`。
+- `grafana_dashboard.json`：可直接 Import 的合法 dashboard（templating 数据源变量），6 个面板——①QPS by route：`sum(rate(agentsql_http_requests_total[1m])) by(route)`；②Decision 分布：`sum(rate(agentsql_decisions_total[1m])) by(decision)`；③规则命中 Top10：`topk(10, sum by(rule_id)(increase(agentsql_rule_hits_total[1h])))`；④HTTP P99：`histogram_quantile(0.99, sum(rate(agentsql_http_request_duration_seconds_bucket[5m])) by(le,route))`；⑤限流速率：`sum(rate(agentsql_rejected_total[5m])) by(reason)`；⑥连接池占用：`agentsql_pool_connections` by(datasource,state)。
+- `docker-compose.observability.yml`：profile=`observability`，起 prometheus（挂 prometheus.yml）、grafana（挂 dashboard 到 provisioning/dashboards），与主网关 compose 网络互通；不并入默认 profile。
+- `README.md`：抓样、导入面板、独立观测栈三步命令。
+
+### I7 网关自身开销基线（新增 internal/pipeline/t25_bench_test.go + docs/perf/README.md）
+- 用**内存 fake executor**（不连真实数据库，剥离真实 DB 耗时）构造只读 SELECT 的完整 pipeline，`BenchmarkPipelineReadOnlyParallel` 用 `b.RunParallel` 跑并发只读决策，b.ReportAllocs；另写一个默认 `Skip` 的真实库 benchmark（未设 AGENTSQL_BENCH_DSN 时跳过）。
+- docs/perf/README.md 写清复现实验命令 `go test ./internal/pipeline -run '^$' -bench BenchmarkPipelineReadOnlyParallel -benchtime=2s -count=5` 与口径（这是六段流水线纯额外开销，不含真实 DB 时间）；**结果数值由主控在本机实跑后写入 docs/perf/t25_bench_result.md 存档，Codex 不得编造数字**。
+- 验收口径：只读路径网关额外开销 P99 < 5ms / 请求（fake executor 口径，主控实测为准）；Prometheus 能抓 /metrics、Grafana 六面板出图由主控用 observability compose 验证。
+
+### T25 白名单（白名单外一律不动）
+新增：internal/metrics/{metrics.go,doc.go,metrics_test.go}、internal/executor/pool_stats.go、internal/pipeline/{observer.go,t25_observer_test.go,t25_bench_test.go}、examples/observability/{prometheus.yml,grafana_dashboard.json,docker-compose.observability.yml,README.md}、docs/perf/README.md。
+修改：go.mod（仅 require 增 prometheus/client_golang v1.22.0 一行）、internal/pipeline/{types.go,pipeline.go}、internal/bootstrap/bootstrap.go、internal/mcpserver/http.go、internal/executor/{postgres.go,mysql.go}。
+**受保护零改动**：tests/corpus/decision_cases.json 与 ExpectedCases=252/ExpectedRuns=353、所有规则与判定逻辑、web/ 前端源码与 internal/webui/dist、go.sum（主控补）、其余文件。单位无网无 Go，禁止 go get/tidy/build，只做文本级静态自审并在回传说明里注明“未本地构建/运行，需主控端验证”，gofmt 由主控执行。
 
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PG14/16/18 与 MySQL8 E2E 通过；
