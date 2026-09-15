@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type Pipeline struct {
 	engine   engine.Engine
 	limiter  rules.RateLimiter
 	layers   engine.RuleLayers
+	observer DecisionObserver
 }
 
 // New validates all seven ports and constructs the shared guard components.
@@ -58,6 +60,7 @@ func New(ports Ports, secret []byte, options ...Option) (*Pipeline, error) {
 		engine:   engine.Engine{},
 		limiter:  rules.NewDefaultTokenBucketLimiter(),
 		layers:   configuration.ruleLayers,
+		observer: configuration.observer,
 	}, nil
 }
 
@@ -476,8 +479,41 @@ func (run *pipelineRun) finish(ctx context.Context, operationError error) (Respo
 		run.setFailure(operationError)
 		auditDecision = "error"
 	}
-	finalError := run.audit(ctx, auditDecision, operationError)
+	finalError := operationError
+	if !run.audited {
+		finalError = run.audit(ctx, auditDecision, operationError)
+	}
+	run.observe()
 	return run.response, finalError
+}
+
+func (run *pipelineRun) observe() {
+	if run == nil || run.pipeline == nil || run.pipeline.observer == nil {
+		return
+	}
+	defer func() {
+		_ = recover()
+	}()
+	dialect := ""
+	if run.datasource != nil {
+		dialect = run.datasource.DBType
+	}
+	assessment := run.response.Assessment
+	run.pipeline.observer.ObserveDecision(
+		string(run.response.Decision),
+		dialect,
+		string(assessment.StmtType),
+	)
+	for _, hit := range assessment.Hits {
+		run.pipeline.observer.ObserveRuleHit(
+			hit.RuleID,
+			string(hit.Decision),
+			strconv.Itoa(int(hit.Risk)),
+		)
+	}
+	for stage, latencyMS := range assessment.StageLatency {
+		run.pipeline.observer.ObserveStage(stage, latencyMS)
+	}
 }
 
 func (run *pipelineRun) audit(
@@ -551,7 +587,7 @@ func (run *pipelineRun) approve(ctx context.Context) (Response, error) {
 		return run.finish(ctx, err)
 	}
 	if err := run.audit(ctx, string(model.DecisionApprove), nil); err != nil {
-		return run.response, err
+		return run.finish(ctx, err)
 	}
 	approval.AuditID = int64Pointer(run.response.AuditID)
 	var created model.Approval
@@ -566,16 +602,14 @@ func (run *pipelineRun) approve(ctx context.Context) (Response, error) {
 	})
 	run.response.Assessment.StageLatency = cloneStageLatency(run.stageLatency)
 	if err != nil {
-		run.setFailure(err)
-		return run.response, err
+		return run.finish(ctx, err)
 	}
 	if strings.TrimSpace(created.ID) == "" {
 		err = fmt.Errorf("approval writer returned an empty approval ID")
-		run.setFailure(err)
-		return run.response, err
+		return run.finish(ctx, err)
 	}
 	run.response.ApprovalID = created.ID
-	return run.response, nil
+	return run.finish(ctx, nil)
 }
 
 func validatePorts(ports Ports) error {

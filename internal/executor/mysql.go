@@ -25,6 +25,7 @@ const mysqlConnectionMaxLifetime = 5 * time.Minute
 // MySQLExecutor controls one MySQL database/sql connection pool.
 type MySQLExecutor struct {
 	database   *sql.DB
+	maxConns   int
 	timeout    time.Duration
 	readOnly   bool
 	clock      sessionClock
@@ -73,6 +74,7 @@ func NewMySQLExecutor(
 	database.SetConnMaxLifetime(mysqlConnectionMaxLifetime)
 	executor := &MySQLExecutor{
 		database: database,
+		maxConns: connectionLimit,
 		timeout:  time.Duration(timeoutMS) * time.Millisecond,
 		readOnly: readOnly,
 		clock:    wallClock{},
@@ -85,6 +87,20 @@ func NewMySQLExecutor(
 		return nil, err
 	}
 	return executor, nil
+}
+
+func (executor *MySQLExecutor) poolSnapshot() PoolStat {
+	if executor == nil {
+		return PoolStat{}
+	}
+	result := PoolStat{MaxOpen: executor.maxConns}
+	if executor.database == nil {
+		return result
+	}
+	stat := executor.database.Stats()
+	result.InUse = stat.InUse
+	result.Idle = stat.Idle
+	return result
 }
 
 // Dialect returns mysql.

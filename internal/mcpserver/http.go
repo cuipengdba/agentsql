@@ -16,6 +16,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -236,6 +237,7 @@ func newHTTPHandlerWithRegistry(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler)
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
+	mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))
 	mux.Handle("/mcp", mcpHandler)
 	if resolvedOptions.adminAPI != nil {
 		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
@@ -247,7 +249,7 @@ func newHTTPHandlerWithRegistry(
 			writeHTTPError(writer, http.StatusNotFound, "not found")
 		})
 	}
-	return mux, registry, nil
+	return metricsMiddleware(runtime.Metrics, mux), registry, nil
 }
 
 type probeResponse struct {
@@ -275,6 +277,112 @@ func readinessHandler(runtime *bootstrap.Runtime) http.HandlerFunc {
 			return
 		}
 		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready"})
+	}
+}
+
+func metricsEndpoint(runtime *bootstrap.Runtime) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if runtime == nil || runtime.Metrics == nil {
+			http.Error(writer, "metrics unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		handler := runtime.Metrics.Handler()
+		if handler == nil {
+			http.Error(writer, "metrics unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		handler.ServeHTTP(writer, request)
+	}
+}
+
+func metricsMiddleware(hub *metrics.Metrics, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		started := time.Now()
+		statusWriter := &statusResponseWriter{ResponseWriter: writer, status: http.StatusOK}
+		defer func() {
+			seconds := time.Since(started).Seconds()
+			if seconds < 0 {
+				seconds = 0
+			}
+			hub.ObserveHTTP(
+				request.Method,
+				classifyRoute(request.URL.Path),
+				strconv.Itoa(statusWriter.status),
+				seconds,
+			)
+		}()
+		next.ServeHTTP(statusWriter, request)
+	})
+}
+
+func classifyRoute(requestPath string) string {
+	switch requestPath {
+	case "/mcp", "/healthz", "/readyz", "/metrics":
+		return requestPath
+	}
+	const prefix = "/api/v1/"
+	if !strings.HasPrefix(requestPath, prefix) {
+		return "/other"
+	}
+	segments := strings.Split(strings.Trim(strings.TrimPrefix(requestPath, prefix), "/"), "/")
+	if len(segments) == 0 || segments[0] == "" || !knownAPIResource(segments[0]) {
+		return "/other"
+	}
+	base := prefix + segments[0]
+	if len(segments) == 1 {
+		return base
+	}
+	if action, ok := staticAPIAction(segments[0], segments[1]); ok {
+		if len(segments) == 2 {
+			return base + "/" + action
+		}
+		return "/other"
+	}
+	classified := base + "/{id}"
+	if len(segments) == 2 {
+		return classified
+	}
+	if len(segments) == 3 && knownIDAction(segments[0], segments[2]) {
+		return classified + "/" + segments[2]
+	}
+	return "/other"
+}
+
+func knownAPIResource(resource string) bool {
+	switch resource {
+	case "auth", "agents", "datasources", "policies", "rules", "mask_rules",
+		"audit", "approvals", "dashboard", "playground":
+		return true
+	default:
+		return false
+	}
+}
+
+func staticAPIAction(resource, segment string) (string, bool) {
+	switch resource {
+	case "auth":
+		return segment, segment == "login" || segment == "me" || segment == "logout"
+	case "audit":
+		return segment, segment == "export"
+	case "dashboard":
+		return segment, segment == "summary"
+	case "playground":
+		return segment, segment == "assess"
+	default:
+		return "", false
+	}
+}
+
+func knownIDAction(resource, action string) bool {
+	switch resource {
+	case "agents":
+		return action == "rotate-key"
+	case "datasources":
+		return action == "ping"
+	case "approvals":
+		return action == "decide"
+	default:
+		return false
 	}
 }
 
@@ -319,6 +427,9 @@ func rateMiddleware(registry *agentServerRegistry, next http.Handler) http.Handl
 			return
 		}
 		if !registry.allow(identity.agent) {
+			if registry != nil && registry.runtime != nil {
+				registry.runtime.Metrics.IncRejected("rate_limited")
+			}
 			writeHTTPError(writer, http.StatusTooManyRequests, "rate limited")
 			return
 		}

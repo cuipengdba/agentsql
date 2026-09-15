@@ -25,6 +25,7 @@ const executionTimeoutMargin = 250 * time.Millisecond
 // PostgresExecutor controls one PostgreSQL connection pool.
 type PostgresExecutor struct {
 	pool       *pgxpool.Pool
+	maxConns   int32
 	timeout    time.Duration
 	readOnly   bool
 	clock      sessionClock
@@ -90,6 +91,7 @@ func NewPostgresExecutor(
 	}
 	executor := &PostgresExecutor{
 		pool:     pool,
+		maxConns: int32(connectionLimit),
 		timeout:  time.Duration(timeoutMS) * time.Millisecond,
 		readOnly: readOnly,
 		clock:    wallClock{},
@@ -100,6 +102,20 @@ func NewPostgresExecutor(
 		return nil, err
 	}
 	return executor, nil
+}
+
+func (executor *PostgresExecutor) poolSnapshot() PoolStat {
+	if executor == nil {
+		return PoolStat{}
+	}
+	result := PoolStat{MaxOpen: int(executor.maxConns)}
+	if executor.pool == nil {
+		return result
+	}
+	stat := executor.pool.Stat()
+	result.InUse = int(stat.AcquiredConns())
+	result.Idle = int(stat.IdleConns())
+	return result
 }
 
 // Dialect returns postgres.

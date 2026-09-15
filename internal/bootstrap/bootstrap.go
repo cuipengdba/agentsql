@@ -12,6 +12,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
+	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -23,6 +24,7 @@ type Runtime struct {
 	Pipeline  *pipeline.Pipeline
 	Executors *executor.Manager
 	Store     *store.Store
+	Metrics   *metrics.Metrics
 
 	mu        sync.Mutex
 	secret    []byte
@@ -56,6 +58,20 @@ func assembleWithExecutorProvider(
 		return nil, fmt.Errorf("assemble metadata store: %w", err)
 	}
 	manager := executor.NewManager(false)
+	metricsHub := metrics.New(func() []metrics.PoolStat {
+		snapshots := manager.SnapshotPools()
+		result := make([]metrics.PoolStat, 0, len(snapshots))
+		for _, snapshot := range snapshots {
+			result = append(result, metrics.PoolStat{
+				DatasourceID: snapshot.DatasourceID,
+				Dialect:      snapshot.Dialect,
+				MaxOpen:      snapshot.MaxOpen,
+				InUse:        snapshot.InUse,
+				Idle:         snapshot.Idle,
+			})
+		}
+		return result
+	})
 	executorPort := pipeline.ExecutorProvider(manager)
 	if executorOverride != nil {
 		executorPort = executorOverride
@@ -70,7 +86,7 @@ func assembleWithExecutorProvider(
 		Audit:         audit.NewRecorder(metadataStore.AuditLogs()),
 		Redactors:     redactors,
 		RuleOverrides: metadataStore.Rules(),
-	}, secret)
+	}, secret, pipeline.WithObserver(metricsHub))
 	if err != nil {
 		return nil, closeAfterAssemblyError(manager, metadataStore, err)
 	}
@@ -78,6 +94,7 @@ func assembleWithExecutorProvider(
 		Pipeline:  flow,
 		Executors: manager,
 		Store:     metadataStore,
+		Metrics:   metricsHub,
 		secret:    append([]byte(nil), secret...),
 		redactors: redactors,
 	}, nil
@@ -183,4 +200,5 @@ var (
 	_ pipeline.RedactorBuilder    = (*redactorBuilder)(nil)
 	_ maskRuleReader              = (*store.MaskRuleRepository)(nil)
 	_ pipeline.RuleOverrideReader = (*store.RuleRepository)(nil)
+	_ pipeline.DecisionObserver   = (*metrics.Metrics)(nil)
 )

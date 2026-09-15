@@ -113,6 +113,7 @@ type Option func(*pipelineOptions) error
 
 type pipelineOptions struct {
 	ruleLayers engine.RuleLayers
+	observer   DecisionObserver
 }
 
 // WithRuleLayers supplies global, datasource, and Agent rule overrides.
