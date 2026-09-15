@@ -1656,3 +1656,170 @@ pre {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* T25.1 approvals */
+.apv-toolbar,
+.msk-toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.apv-status-filter {
+  width: 132px;
+}
+
+.apv-inline-error,
+.msk-inline-error {
+  margin-bottom: 12px;
+}
+
+.apv-table,
+.msk-table {
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.apv-table .ant-table-thead > tr > th,
+.msk-table .ant-table-thead > tr > th {
+  color: var(--color-text-secondary);
+  background: var(--color-elevated);
+  border-bottom-color: var(--color-border);
+}
+
+.apv-table .ant-table-tbody > tr > td,
+.msk-table .ant-table-tbody > tr > td {
+  border-bottom-color: color-mix(in srgb, var(--color-border) 62%, transparent);
+}
+
+.apv-clickable-row {
+  cursor: pointer;
+}
+
+.apv-id,
+.msk-id {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.apv-table-sql {
+  display: inline-block;
+  width: 100%;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.apv-tooltip-sql {
+  max-width: min(640px, 70vw);
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  color: inherit;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.apv-pagination,
+.msk-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0 2px;
+}
+
+.apv-boundary-alert,
+.msk-info-alert {
+  margin-bottom: 14px;
+}
+
+.apv-detail-drawer .ant-drawer-header,
+.apv-detail-drawer .ant-drawer-body,
+.msk-form-drawer .ant-drawer-header,
+.msk-form-drawer .ant-drawer-body {
+  border-color: var(--color-border);
+}
+
+.apv-detail-section {
+  margin-top: 22px;
+}
+
+.apv-detail-section > h3 {
+  margin: 0 0 10px;
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.apv-sql-block {
+  max-height: 360px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: var(--color-text);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.apv-sql-block-compact {
+  max-height: 240px;
+}
+
+.apv-decide-content {
+  display: grid;
+  gap: 16px;
+}
+
+.apv-comment-label {
+  margin-bottom: -10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+/* T25.1 mask rules */
+.msk-datasource-filter {
+  width: min(320px, 62vw);
+}
+
+.msk-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .apv-toolbar,
+  .msk-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .apv-pagination,
+  .msk-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .msk-datasource-filter {
+    width: min(100%, 320px);
+  }
+}

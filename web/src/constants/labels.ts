@@ -83,3 +83,19 @@ export const riskLevelMeta = {
 export function configLabel(meta: Readonly<Record<string, Readonly<{ label: string }>>>, value: string): string {
   return meta[value]?.label || value || "—";
 }
+
+export const approvalStatusMeta = {
+  pending: { label: "待审批", color: "orange" },
+  approved: { label: "已通过", color: "success" },
+  rejected: { label: "已拒绝", color: "error" },
+  expired: { label: "已过期", color: "default" },
+} as const;
+
+export const sensitiveTypeMeta = {
+  phone: { label: "手机号", color: "blue" },
+  email: { label: "邮箱", color: "cyan" },
+} as const;
+
+export const maskAlgoMeta = {
+  mask: { label: "打码", color: "blue" },
+} as const;
