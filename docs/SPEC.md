@@ -1426,6 +1426,55 @@ T23.1 合入后 F1–F10 目标用例全绿、双方言 normal 误拦率 0%、da
 修改：go.mod（仅 require 增 prometheus/client_golang v1.22.0 一行）、internal/pipeline/{types.go,pipeline.go}、internal/bootstrap/bootstrap.go、internal/mcpserver/http.go、internal/executor/{postgres.go,mysql.go}。
 **受保护零改动**：tests/corpus/decision_cases.json 与 ExpectedCases=252/ExpectedRuns=353、所有规则与判定逻辑、web/ 前端源码与 internal/webui/dist、go.sum（主控补）、其余文件。单位无网无 Go，禁止 go get/tidy/build，只做文本级静态自审并在回传说明里注明“未本地构建/运行，需主控端验证”，gofmt 由主控执行。
 
+## T25.1 审批页 + 脱敏页前端补齐（纯前端，不改 Go；补 T17 菜单占位遗留）
+
+### 25.1.1 背景、定位与编号避让
+T17 给 `/approvals`、`/mask-rules` 挂了 PlaceholderPage（ticket 误标 T22），而 T22 只交付 Agent/数据源/权限/规则四个配置页，这两页一直遗留为"建设中"占位。**后端 T16 接口、前端 api 层、types、左侧菜单均已就绪，本单只写两个页面 UI 并接线，不碰任何 Go 代码。** 编号避让：本单为 **T25.1**，不占用第 8 章 v0.2 的 T26（在线 Live Demo）/T27。
+两条语义边界必须写进页面文案、不得过度承诺：①审批 decide 只改变审批单状态并留痕，**v0.1 点"通过"后不会自动重放该条 SQL**（自动重放/完整审批流属 v0.2）；②脱敏 v0.1 仅支持 `sensitive_type=phone/email`、`algo=mask`，其余枚举后端 `mask.NewRedactor` 直接返回错误，前端不得提供这些可选项。
+
+### 25.1.2 改动文件白名单（白名单外一律不动）
+- 修改：`web/src/constants/labels.ts`（**只追加**三个 meta，不改任何已有条目）、`web/src/pages/Approvals.tsx`（整体替换 4 行占位）、`web/src/pages/MaskRules.tsx`（整体替换 4 行占位）、`web/src/styles.css`（**只纯追加**类名，不改既有规则）。
+- 新增（按需，可合并进页面文件；若拆则参照 `pages/audit/` 子目录）：`web/src/pages/approvals/ApprovalDetailDrawer.tsx`、`web/src/pages/approvals/ApprovalDecideModal.tsx`、`web/src/pages/maskrules/MaskRuleFormDrawer.tsx`。
+- **禁止改动**：`routes/menu.tsx`（菜单/路由 T17 已注册好）、`api/approvals.ts`、`api/maskRules.ts`、`api/types.ts`（字段已齐，确需纯展示类型只允许文件末尾追加、不得改既有字段）、所有 Go 文件、`package.json`（不引任何依赖）、其余任何页面。
+
+### 25.1.3 labels.ts 追加（形态对齐既有 agentLevelMeta，`as const`；取标签统一用既有 `configLabel`）
+- `approvalStatusMeta`：`pending {label:"待审批",color:"orange"}`、`approved {label:"已通过",color:"success"}`、`rejected {label:"已拒绝",color:"error"}`、`expired {label:"已过期",color:"default"}`。
+- `sensitiveTypeMeta`：`phone {label:"手机号",color:"blue"}`、`email {label:"邮箱",color:"cyan"}`。
+- `maskAlgoMeta`：`mask {label:"打码",color:"blue"}`。
+
+### 25.1.4 审批页 Approvals.tsx
+数据：`listApprovals({status?,page,page_size})` → `PageResp<ApprovalView>`；`decideApproval(id,{decision:"approve"|"reject",comment?})`。ApprovalView 字段照抄 types：`id/audit_id?/agent_id?/sql_raw?/reason?/status/approver?/decided_at?/created_at/updated_at`。
+- `PageContainer title="审批"`，subtitle="模型触发的转人工审批单；v0.1 记录审批结论与留痕，通过后不会自动重放 SQL（完整审批流在后续版本）"。
+- 工具条：状态筛选 Segmented/Select（全部 "" / pending 待审批 / approved 已通过 / rejected 已拒绝 / expired 已过期），切换重置到第 1 页；"共 N 条"；刷新按钮（loading 时禁用）。
+- **服务端分页**：默认 page_size=20，可选 20/50/100；严格照 `Audit.tsx` 的 mountedRef + AbortController + 自增 sequence 防竞态、卸载即取消（取消判定用 `pages/config/utils` 的 `isCanceled`，禁用 axios.isCancel）；失败显示 Alert + 重试并保留旧数据；Table 走 loading。
+- 列（rowKey="id"）：①审批单号 id，等宽 `<code>`，可用 `copyText` 复制；②Agent=agent_id，空显 —；③状态 Tag（color/text 取 approvalStatusMeta + configLabel）；④待审 SQL=sql_raw，ellipsis+Tooltip 全文（等宽、保留换行），空 —；⑤原因/备注 reason，ellipsis，空 —；⑥审批人 approver，空 —；⑦创建时间 created_at 用 `formatDateTime`；⑧决定时间 decided_at 用 formatDateTime，空 —；⑨操作：**仅 status==="pending"** 显示 link「通过」(primary) 与「拒绝」(danger)，其余显 —。
+- 通过/拒绝 Modal：Descriptions 显示单号/Agent/状态；SQL 只读滚动块（等宽 pre-wrap、最高 240px 滚动）；TextArea 审批意见 comment 可选；提交 `decideApproval(id,{decision: 通过?"approve":"reject", comment})`，按钮 loading；成功 message.success 并关闭、重拉当前页；后端 409 `approval is no longer pending` 用 `apiErrorMessage` 提示并刷新；非 pending 行不渲染按钮（纵深防重复）。
+- 详情 Drawer（宽 600–720）：Descriptions 展示全部字段（含 audit_id、updated_at）+ SQL 全文 pre-wrap，只读。空态 Empty"暂无审批单"。
+
+### 25.1.5 脱敏页 MaskRules.tsx
+数据：`listMaskRules({datasource_id?,page,page_size})`/`createMaskRule`/`updateMaskRule(id,input)`/`deleteMaskRule(id)`；数据源下拉 `listDatasources({page:1,page_size:100})`。MaskRuleView/Input 照抄 types：`id/datasource_id?(可空=全局)/table_name/column_name/sensitive_type/algo`(+created_at/updated_at 只读展示)。
+- `PageContainer title="脱敏"` subtitle="结果集敏感列打码规则：查询返回前对命中列打码（v0.1 支持手机号/邮箱）"，extra 主按钮「新增脱敏规则」(PlusOutlined)。
+- 顶部 info Alert："规则按 数据源(留空=全局) + 表名 + 列名 精确匹配；v0.1 仅支持手机号、邮箱与打码算法；保存后对该数据源下一次查询生效。"
+- 筛选：数据源 Select（allowClear、showSearch，optionFilterProp=label，label=`name · db_type`，清空=查全部含全局），切换重置第 1 页；刷新。
+- 服务端分页（同审批页范式，20/50/100、防竞态、失败重试、loading）。列：规则 ID(等宽)、数据源 datasource_id（空显"全局" default Tag）、表名 table_name(`<code>`)、列名 column_name(`<code>`)、敏感类型 Tag(sensitiveTypeMeta)、算法 Tag(maskAlgoMeta)、更新时间 updated_at(formatDateTime)、操作（编辑/删除）。
+- 新增/编辑 Drawer（宽 520，Form layout=vertical，destroyOnClose）：数据源 Select allowClear（placeholder"留空表示全局规则"）；规则 ID——新增必填、前端默认建议 `msk_`+时间戳 base36+6 位随机（可改，提示小写字母/数字/下划线/连字符），编辑只读回显；表名 table_name 必填（placeholder 精确表名如 users）；列名 column_name 必填（placeholder 命中列名如 phone，按列名精确匹配不做模糊）；敏感类型 Select 必填，**仅 phone 手机号/email 邮箱**，默认 phone；算法 Select 必填，**仅 mask 打码**，默认 mask，旁注"哈希/区间等算法在后续版本"。
+- 前端预校验：id/table_name/column_name 必填且首尾无空格（违则 form.setFields 红字）；sensitive_type/algo 必须在枚举内。提交组装 MaskRuleInput **只含这 6 个字段、禁止多发**（后端 DisallowUnknownFields；datasource_id 为空传 null/省略）；成功 message、关 Drawer、刷新；422/409 用 apiErrorMessage 展示。
+- 删除走 Popconfirm"删除后该列将不再脱敏，确认删除？"，成功刷新。空态 Empty"暂无脱敏规则，点右上角新增"。
+
+### 25.1.6 样式 / 主题 / 健壮性
+复用 PageContainer、tokens 深色主题与既有 `.cfg-`/`.audit-` 类；新类名统一前缀 `.apv-`（审批）、`.msk-`（脱敏），纯追加、不覆盖全局、不硬编码色值（取 theme/tokens 或 antd Tag 语义色）；深浅主题都可读；SQL 块等宽可换行不撑破；窄屏 Table `scroll={{x}}`。所有异步按钮进 loading；卸载丢弃未完成请求；取消只用 `error.code==='ERR_CANCELED'`；不新增依赖。
+
+### 25.1.7 静态自审铁律（单位无 Node/Go）
+TS6133 零容忍（无未用 import/变量）；请求体严格对齐 DTO、无多余字段；不改 Go、不跑 go/npm 构建；回传说明注明"未本地编译/构建，需主控端验证"。
+
+### 25.1.8 主控验收门（豆包本机）
+- web 目录 `npm typecheck`（或 tsc）0 错、`npm run build` 通过，dist 由主控重新构建后 go:embed 进单二进制；
+- 起服务 + 全新 sqlite 浏览器黑盒：审批页——空态；主控向 sqlite `approvals` 造 pending/approved/rejected/expired 各一条，列表/状态 Tag/状态筛选/分页正确；通过一条 pending→approved 且 approver=当前管理员、decided_at 有值、操作按钮消失；拒绝→rejected；对已决单重复 decide 被 409 拦并友好提示；详情 Drawer 字段齐全。脱敏页——新增 phone 全局规则与 email 绑源规则各一条、列表正确；编辑改类型/列；Popconfirm 删除；留空=全局；非法枚举被前端拦下；刷新后持久。
+- 两页不再出现"建设中/T22"占位；其余 7 个页面零回归；浏览器控制台无有效报错。
+
+### 25.1.9 本单不做
+审批通过后自动重放 SQL、多级/会签审批流、审批通知催办；身份证/银行卡与 hash/range/block 脱敏；脱敏正则/阈值自定义；任何 Go 后端改动；在线 Live Demo（第 8 章 T26）。
+
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PG14/16/18 与 MySQL8 E2E 通过；
 - 决策语料 252 条（353 次方言运行：PG192/MySQL161；danger76/risk61/normal115；判定 deny77/allow121/approve42/warn12）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟（4298 万次变异）无 panic 且 fail-closed；
