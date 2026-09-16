@@ -38,21 +38,30 @@ const (
 
 // AST is the normalized SQL representation shared by parsers and guards.
 type AST struct {
-	Dialect         DBDialect
-	RawSQL          string
-	Normalized      string
-	StmtType        StmtType
-	IsMulti         bool
-	Tables          []ObjectRef
-	Columns         []string
-	HasWhere        bool
-	WhereTautology  bool
-	HasLimit        bool
-	HasGroupBy      bool
-	IsPureAggregate bool
-	Functions       []string
-	Operations      []string
-	Explain         *ExplainInfo
+	Dialect           DBDialect
+	RawSQL            string
+	Normalized        string
+	StmtType          StmtType
+	IsMulti           bool
+	Tables            []ObjectRef
+	Columns           []string
+	DirectProjections []DirectProjectionRef
+	HasWhere          bool
+	WhereTautology    bool
+	HasLimit          bool
+	HasGroupBy        bool
+	IsPureAggregate   bool
+	Functions         []string
+	Operations        []string
+	Explain           *ExplainInfo
+}
+
+// DirectProjectionRef identifies a top-level direct column projection and its
+// position relative to the beginning or end of the result set.
+type DirectProjectionRef struct {
+	Column  string
+	Offset  int
+	FromEnd bool
 }
 
 // ObjectRef identifies a database object and its optional alias.

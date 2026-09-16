@@ -132,6 +132,7 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
 	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
 	hasGroupBy, isPureAggregate := postgresAggregateShape(analysisType, analysisNode)
+	directProjections := postgresDirectProjections(nodeType, node)
 	for _, column := range postgresProjectedColumns(analysisType, analysisNode) {
 		operations.add(selectColumnOperation + ":" + column)
 	}
@@ -162,21 +163,22 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	}
 
 	return &model.AST{
-		Dialect:         postgresDialect,
-		RawSQL:          sql,
-		Normalized:      normalized,
-		StmtType:        statementType,
-		IsMulti:         false,
-		Tables:          tables.sorted(),
-		Columns:         columns.sorted(),
-		HasWhere:        hasWhere,
-		WhereTautology:  whereTautology,
-		HasLimit:        hasLimit,
-		HasGroupBy:      hasGroupBy,
-		IsPureAggregate: isPureAggregate,
-		Functions:       functions.sorted(),
-		Operations:      operations.sorted(),
-		Explain:         nil,
+		Dialect:           postgresDialect,
+		RawSQL:            sql,
+		Normalized:        normalized,
+		StmtType:          statementType,
+		IsMulti:           false,
+		Tables:            tables.sorted(),
+		Columns:           columns.sorted(),
+		DirectProjections: directProjections,
+		HasWhere:          hasWhere,
+		WhereTautology:    whereTautology,
+		HasLimit:          hasLimit,
+		HasGroupBy:        hasGroupBy,
+		IsPureAggregate:   isPureAggregate,
+		Functions:         functions.sorted(),
+		Operations:        operations.sorted(),
+		Explain:           nil,
 	}, nil
 }
 
@@ -358,6 +360,51 @@ func postgresProjectedColumns(nodeType string, node any) []string {
 		postgresWalkProjection(result["val"], columns)
 	}
 	return columns.sorted()
+}
+
+func postgresDirectProjections(nodeType string, node any) []model.DirectProjectionRef {
+	if nodeType != "SelectStmt" {
+		return nil
+	}
+	selectNode, ok := node.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if operation, _ := selectNode["op"].(string); operation != "" && operation != "SETOP_NONE" {
+		return nil
+	}
+	targets, _ := selectNode["targetList"].([]any)
+	items := make([]directProjectionItem, len(targets))
+	for index, target := range targets {
+		wrapper, _ := target.(map[string]any)
+		result, _ := wrapper["ResTarget"].(map[string]any)
+		valueWrapper, ok := result["val"].(map[string]any)
+		if !ok || len(valueWrapper) != 1 {
+			continue
+		}
+		column, ok := valueWrapper["ColumnRef"].(map[string]any)
+		if !ok {
+			continue
+		}
+		name, star := postgresDirectColumnName(column)
+		items[index] = directProjectionItem{column: name, star: star}
+	}
+	return positionDirectProjections(items)
+}
+
+func postgresDirectColumnName(column map[string]any) (string, bool) {
+	fields, ok := column["fields"].([]any)
+	if !ok || len(fields) == 0 {
+		return "", false
+	}
+	last := fields[len(fields)-1]
+	if wrapper, ok := last.(map[string]any); ok {
+		if _, star := wrapper["A_Star"]; star {
+			return "", true
+		}
+	}
+	name, _ := postgresStringNode(last)
+	return name, false
 }
 
 func postgresDirectStarProjection(value any) bool {

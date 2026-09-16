@@ -111,6 +111,109 @@ func TestRedactorMatchesFinalColumnNames(t *testing.T) {
 	require.Equal(t, 3, report.MaskedCells)
 }
 
+func TestRedactorMatchesDirectSourceColumns(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Column:        "phone",
+		SensitiveType: TypePhone,
+		Algorithm:     AlgoMask,
+	}})
+	require.NoError(t, err)
+	sourceAware, ok := redactor.(SourceAwareRedactor)
+	require.True(t, ok)
+
+	input := model.QueryResult{
+		Columns: []string{"mobile", "ordinary"},
+		Rows:    [][]string{{"13812345678", "byte-for-byte"}},
+	}
+	output, report := sourceAware.ApplyWithSourceColumns(input, []string{"phone", ""})
+
+	require.Equal(t, "138****5678", output.Rows[0][0])
+	require.Equal(t, "byte-for-byte", output.Rows[0][1])
+	require.Equal(t, map[int]SensitiveType{0: TypePhone}, report.TouchedColumns)
+	require.Equal(t, 1, report.MaskedCells)
+	require.Equal(t, "13812345678", input.Rows[0][0])
+	require.Equal(t, "byte-for-byte", input.Rows[0][1])
+	output.Columns[0] = "changed"
+	output.Rows[0][0] = "changed"
+	require.Equal(t, "mobile", input.Columns[0])
+	require.Equal(t, "13812345678", input.Rows[0][0])
+}
+
+func TestRedactorFinalColumnTakesPriorityOverSourceColumn(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{
+		{Column: "email", SensitiveType: TypeEmail, Algorithm: AlgoMask},
+		{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
+	})
+	require.NoError(t, err)
+	sourceAware := redactor.(SourceAwareRedactor)
+
+	output, report := sourceAware.ApplyWithSourceColumns(model.QueryResult{
+		Columns: []string{"email", "phone"},
+		Rows:    [][]string{{"13812345678", "13912345678"}},
+	}, []string{"phone", "email"})
+
+	require.Equal(t, []string{"1***", "139****5678"}, output.Rows[0])
+	require.Equal(t, map[int]SensitiveType{0: TypeEmail, 1: TypePhone}, report.TouchedColumns)
+	require.Equal(t, 2, report.MaskedCells)
+}
+
+func TestRedactorInvalidOrEmptySourcesFallBackToFinalNames(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{
+		{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		{Column: "email", SensitiveType: TypeEmail, Algorithm: AlgoMask},
+	})
+	require.NoError(t, err)
+	sourceAware := redactor.(SourceAwareRedactor)
+	input := model.QueryResult{
+		Columns: []string{"ordinary", "email"},
+		Rows:    [][]string{{"13812345678", "user@example.com"}},
+	}
+
+	tests := []struct {
+		name    string
+		sources []string
+	}{
+		{name: "nil", sources: nil},
+		{name: "too short", sources: []string{"phone"}},
+		{name: "too long", sources: []string{"phone", "", "email"}},
+		{name: "empty source slot", sources: []string{"", ""}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output, report := sourceAware.ApplyWithSourceColumns(input, test.sources)
+			require.Equal(t, "13812345678", output.Rows[0][0])
+			require.Equal(t, "u***@example.com", output.Rows[0][1])
+			require.Equal(t, map[int]SensitiveType{1: TypeEmail}, report.TouchedColumns)
+			require.Equal(t, 1, report.MaskedCells)
+		})
+	}
+}
+
+func TestRedactorLegacyApplyBehaviorAndReportRemainUnchanged(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Column:        "phone",
+		SensitiveType: TypePhone,
+		Algorithm:     AlgoMask,
+	}})
+	require.NoError(t, err)
+	input := model.QueryResult{
+		Columns: []string{"phone", "mobile"},
+		Rows: [][]string{
+			{"13812345678", "13912345678"},
+			{"NULL", "unchanged"},
+		},
+	}
+
+	output, report := redactor.Apply(input)
+
+	require.Equal(t, "138****5678", output.Rows[0][0])
+	require.Equal(t, "13912345678", output.Rows[0][1])
+	require.Equal(t, "NULL", output.Rows[1][0])
+	require.Equal(t, "unchanged", output.Rows[1][1])
+	require.Equal(t, map[int]SensitiveType{0: TypePhone}, report.TouchedColumns)
+	require.Equal(t, 1, report.MaskedCells)
+}
+
 func TestRedactorDeepCopiesResultAndPreservesMetadata(t *testing.T) {
 	input := model.QueryResult{
 		Columns:   []string{"phone", "ordinary"},

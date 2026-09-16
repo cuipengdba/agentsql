@@ -464,6 +464,7 @@ func NewRedactor(rules []Rule) (Redactor, error) // 重复列 / 未实现类型�
 - 只依据**结果集列名** `QueryResult.Columns` 匹配，不依赖物理表列名：`SELECT phone AS p`、`SELECT concat(...) AS mobile`、视图/子查询列都按"最终结果列名"命中。
 - 规范化：去首尾空白、去成对包裹引号（`"`/`` ` ``/`[]`）、统一小写后，与 `Rule.Column` 的同样规范化结果做**精确相等**；v0.1 不做下划线/拼音模糊（确定性优先、零误脱敏）。
 - 一个结果列最多命中一条；NewRedactor 发现规范化后重复列名直接 error（fail-fast，不静默后覆盖）。
+- **源列兜底（v0.1-RC 收紧，详见 25.5.2）**：在上述“最终结果列名”匹配之外，对顶层 SELECT 的**直接列引用 / 直接别名**（`phone`、`c.phone AS mobile`、`schema.t.phone AS x`），若去限定后的裸源列名命中规则，也对该输出列整列打码；匹配优先级为“最终列名命中优先，未命中再查源列名”的“或”扩充，不改变本段既有行为。函数/表达式/聚合/CAST、UNION 分支、跨子查询/CTE/视图的血缘**不在 v0.1 兜底**，见 25.5.2 边界。
 
 ### 掩码算法（逐格、可复算）
 - **maskPhone**：trim 后允许单个前导 `+` 与国家码 86（剥 86 后仍按 11 位）。标准 11 位 → 前3 + `****` + 后4（`13812345678→138****5678`）；长度 7–10 → 前3 + `*` + 后4；3–6 位 → 保留首字符其余 `*`；空串原样。
@@ -1614,6 +1615,58 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
 4. **物料**：按评审提纲重写开源 `README.md`（徽章/特性/5 分钟 compose+SQLite/首凭据 Bash+PowerShell 生成与登录/stdio+HTTP(7780) 两例 MCP 配置/功能矩阵/兼容矩阵 MySQL8 与 PG14–18、元数据库 v0.1 仅 SQLite/v0.1 已知限制含 JOIN 投影口径与会话事务在 v0.2/截图位 `docs/screenshots/`/AGPL+商业双授权+商标）；新增 `CHANGELOG.md`（Keep a Changelog：Unreleased、v0.1.0 的 Added/Security/Deployment/Compatibility、已知限制、密钥保管提示、后置路线；T29–T31 明确标为企业版后置，不承诺进 v0.2 首批）。许可证正文（LICENSE/COMMERCIAL-LICENSE.md）主控已定，Codex 不得改写，只在 README 引用。
 5. **白名单**：新增 `internal/config/security.go`/`security_test.go`；可改 `cmd/agentsql/main.go`、`cmd/agentsqlctl/main.go` 及对应 `main_test.go`、`internal/mcpserver/server.go`（及必要测试）、`internal/version/version.go`、`Makefile`、`Dockerfile`、`docker-compose.yml`、`examples/docker/.env.example`、`examples/docker/config.yaml`（仅注释/保持绑定）、`examples/config.example.yaml`、`docs/DEPLOY.md`、`README.md`，新增 `CHANGELOG.md`、可选 `docs/screenshots/.gitkeep`。**禁改红线**：`internal/rules|parser|pipeline|model|executor|mask`、`tests/corpus/*`（353 语料逐字不变）、`migrations/*`、`web/**` 与 `internal/webui/dist/**`、`go.mod/go.sum`、`LICENSE`、`COMMERCIAL-LICENSE.md`。
 6. **验收门**：gofmt clean、`go vet ./...`、`go test -race ./...` 全绿且 `git diff --exit-code -- tests/corpus` 无变化、双构建；启动矩阵（缺 SECRET/错长度/公开值拒、强随机 SECRET+强口令过、弱口令拒、INSECURE 仅放行长度正确的公开 SECRET 与非空弱口令但不放空/错长度、console=false 无口令过、错误与日志不含凭据明文）；版本七处一致；`docker compose config` 通过。主控独立复跑上述项并用强随机 SECRET+强口令起实例做浏览器黑盒（登录与 9 页正常），通过后合 main、tag `t25.4`。
+
+## T25.5 门2（G1）v0.1 动态总验与 RC 收口（tag v0.1-rc1 前）
+> 前置：T25.4 已合并（tag t25.4）。依据 Codex 只读盘点评审（`transfer/reviews/M5-G1-design-review.md`）与 G1-a0 只读评审（`transfer/reviews/G1-a0-design-review.md`），主控裁决如下。除 G1-a0/G1-d 含明确授权的小生产/部署改动外，门2 以补测试与可观测物料为主，**不改规则引擎、判定语义、353 语料、migrations、web/dist、go.mod/go.sum**。
+
+### 25.5.1 门2 盘点结论与主控裁决
+1. **覆盖率口径**：核心安全链 parser/engine/rules/policy/pipeline/executor/mask **每包 ≥80%（留 2–3% 裕量）**。主控 2026-09-16 实测（`transfer/logs/cover-v01.out`）total 77.4%；engine 93.7、rules 90.5、policy 92.6、pipeline 84.9、mask 96.2、mcpserver 83.8、auth 96.9、metrics 95.5 已达标；**parser 79.4、executor 72.3 必须补到 ≥80%**。外围 adminapi(54.3)/webui(63.6)/store(74.0)/audit(79.7)/bootstrap(76.3)/cmd 补关键 fail-closed 与错误路径，不强行每包 80，整体 total 尽量贴近 80；model 为纯结构体 0% 不计。
+2. **真实库矩阵**：被防护业务库 **PostgreSQL 14/15/16/17/18（必测 PG18）+ MySQL8**；v0.1 元数据/审计库仅 SQLite（PG 元库为 v0.2 T28）。testcontainers 仅出现在 `*_test.go`、不新增第三方依赖、无 Docker `t.Skip`；**Docker 探测仅在 daemon/socket 不可用时 Skip，镜像拉取/等待/配置错误必须 Fail（不得假绿）**。矩阵成本控制：连接/SELECT/截断/只读拒写/Explain/元数据全版本跑；pipeline 全版本跑“放行 / Explain 动态门 / 结果脱敏”；静态拒绝类与完整事务状态机仅 PG14+PG18；MySQL8 新增完整 pipeline E2E（放行、Explain、只读拒写、脱敏 JOIN）。
+3. **MCP HTTP 加固（纯测试）**：现有 `internal/mcpserver/http_test.go` 已覆盖 401/50 并发/429/413/畸形 JSON/Key 轮换；加固为 N=10 个独立 Agent/Key/数据源、每个并发 5 次同步起跑；逐响应解码 JSON-RPC 断言 `id` 严格等于本请求 id、数据源集合严格等于自身单元素集合且不含任何他租户 `ds-*`、registry `serverCount/buildCount==N` 且第二轮不增；畸形 JSON/413 后断言 executor、audit **零触达**，再发合法请求证明未污染；补“恰好 4MiB 合法通过 / 4MiB+1 返回 413”边界。
+4. **429 / 连接限流口径裁决**：v0.1 “连接限流” = 每 Agent QPS token bucket（HTTP 429，已实现）+ 业务库连接池 `max_conns_per_datasource`（护后端）；**HTTP in-flight 全局并发连接硬上限列入 v0.2**，不阻塞 RC（T15/SPEC 701 仅要求 QPS）。
+5. **脱敏 E2E**：门2 JOIN/列别名/表别名作用域 E2E 按现契约（最终列名）验证；**别名换名绕过另由 G1-a0 收紧契约（见 25.5.2）**。
+6. **指标 / Grafana**：代码恰七项指标 `agentsql_http_requests_total`、`agentsql_http_request_duration_seconds`、`agentsql_decisions_total`、`agentsql_rule_hits_total`、`agentsql_pipeline_stage_duration_seconds`、`agentsql_rejected_total`、`agentsql_pool_connections`；扩 `t25_metrics_test.go` 驱动一次 allow、一次 deny(R002)、一次 429 并装入 pool snapshot，抓 `/metrics` 断言七 family、关键 label、非零值。Grafana 六面板 JSON/prometheus.yml/compose 已有，**补 provisioning（`provisioning/dashboards/agentsql.yml` provider + `provisioning/datasources/prometheus.yml` 自动数据源）并在 compose 只读挂载**，实现一键出图。
+7. **部署物料**：compose 的 SQLite 数据卷由 bind mount(`./data`) 改为**命名 volume（agentsql-data）**，规避 Linux 宿主目录被 root 创建、容器内非 root `agentsql` 用户不可写；DEPLOY/README 同步；systemd unit 已非 root。干净环境 5 分钟计时、Linux 真机 systemd/UID 演练、Cursor/Claude 四场景录屏为**人工/环境门**（主控用本机 Docker Desktop 尽量覆盖 compose/Grafana，Linux systemd 与录屏由用户完成）。
+8. **fuzz**：主控实跑 `go test -run=^$ -fuzz=FuzzAssessFailClosed -fuzztime=30m ./internal/pipeline/`，连续 30 分钟无 panic、解析失败必 deny。
+9. **串行拆单（一次在途一单，不并行 subagent，稳定优先）**：
+   - **G1-a0**：结果脱敏“直接列引用/别名”源列兜底（含授权的小生产改动，规格见 25.5.2）；
+   - **G1-a1**：PG14–18+MySQL8 真实库矩阵 + JOIN/列别名/表别名脱敏 E2E（含 a0 的直接别名真实库用例）+ Docker 探测收紧（纯 `*_test.go`）；
+   - **G1-b**：MCP HTTP 边界与多租户隔离加固（纯 `internal/mcpserver/*_test.go`）；
+   - **G1-c**：覆盖率补齐（纯 `*_test.go`，以 G1-a1 后 coverage 为输入，核心包到 ≥80% 并留裕量）；
+   - **G1-d**：metrics 七指标 HTTP 断言 + Grafana provisioning + 命名 volume（`*_test.go` + `examples/observability/**` + compose/DEPLOY 小改）。
+   全部合入后主控统一跑 gofmt/vet/`go test -race ./...`、353 语料逐字不变、Docker 矩阵、coverage 复核、30 分钟 fuzz、compose/Grafana 演练，再交人工门，全绿才 tag `v0.1-rc1`。
+
+### 25.5.2 G1-a0 规格：结果脱敏“直接列引用/别名”源列兜底（T11 契约收紧）
+**定性**：T11 原契约“只按最终结果列名、不依赖物理列名”是刻意设计（确定性、零误脱敏）。本单是**契约收紧**而非修 bug：堵住安全网关最易被 PoC 一眼看穿的 `SELECT phone AS mobile` 直接换名绕过；复杂血缘明确留 v0.2。评审确认工作量 M、零新增误判、不改规则/语料。
+
+**匹配语义（fail-closed 但零误判）**：
+- 某输出列命中规则当且仅当：其**最终结果列名**规范化命中（现状，优先）**或**其对应的**顶层直接列引用源裸列名**（去 schema/表别名限定、按现有 normalizeColumnName 规范化）命中；两者为“或”扩充。
+- 仅当投影项表达式**根节点就是列引用**时才建立源映射：裸列 `phone`、限定列 `c.phone` / `schema.t.phone`、以及它们直接加别名 `… AS x`。
+- 函数/运算/CAST/聚合/字面量/常量、UNION 分支、子查询/CTE/视图跨层、`*`/`t.*` 展开、多星号中间无法定位的槽位：**不做源兜底**，回退最终列名匹配（v0.2 血缘项）。
+
+**数据结构与挂载**：
+- `internal/model` 新增 `type DirectProjectionRef struct { Column string; Offset int; FromEnd bool }`，在 AST 增加字段 `DirectProjections []DirectProjectionRef`（parser 输出原始 identifier，规范化仍由 mask 层做，parser 不得反向依赖 mask）。
+- 星号对齐：无星号全部从左 Offset；恰一个星号时，星号前显式项从左定位、星号后从右定位（`SELECT *, phone AS mobile` 的 mobile 安全定位到末列）；多星号仅首星号前/末星号后可定位，中间槽位置空；任何越界/重叠/长度与 `len(QueryResult.Columns)` 不符，**整份源映射作废，回退最终列名**，绝不猜位置。
+
+**方言提取（严格根节点判定）**：
+- PostgreSQL（pg_query JSON）：顶层 targetList 每项 ResTarget，仅当 `val` 根节点为 ColumnRef 才记录，裸名取 fields 最后一个 String；FuncCall/A_Expr/A_Const/CAST/聚合/下标等不记录；`A_Star` 记星号不记源；**从原始根 node 提取，不从解包 EXPLAIN 的 analysis root 提取**（避免 `EXPLAIN SELECT phone` 误映射）；不得复用会递归进表达式的 `postgresWalkProjection`，新增严格 helper。
+- MySQL（vitess）：仅普通 `*sqlparser.Select`（排除 Union/EXPLAIN 包装），投影项为 `*sqlparser.AliasedExpr` 且 `Expr` 动态类型**恰为** `*sqlparser.ColName` 才记录，裸名取 `ColName.Name.String()`、忽略 Qualifier；`*sqlparser.StarExpr` 记星号；不复用递归 Walk 的 `mysqlProjectedColumns`。
+
+**接口与接线（向后兼容）**：
+- mask 新增可选接口 `SourceAwareRedactor interface { Redactor; ApplyWithSourceColumns(result model.QueryResult, sources []string) (model.QueryResult, RedactReport) }`；旧 `Apply(result)` 委托 `ApplyWithSourceColumns(result, nil)`；**不修改基础 Redactor 接口签名**，pipeline 做类型断言、不支持则走旧 Apply（既有 fake/builder/handler 无需批量改）。
+- 最终列名优先、源列兜底；命中后 report 仍按实际结果列下标记录 `TouchedColumns/MaskedCells`，深拷贝与“未命中逐字节不变”契约不变。
+- pipeline（pipeline.go 329-345）：据 `run.ast.DirectProjections` 与实际结果列数解析位置化 `sources []string`，redactor 实现新接口则调用之，否则旧 Apply；`engine.cloneAST` 复制新 slice。
+
+**白名单（仅这些文件）**：`internal/model/model.go`、`internal/parser/postgres.go`、`internal/parser/mysql.go`、`internal/mask/redactor.go`（可含 doc.go 注释）、`internal/pipeline/pipeline.go`、`internal/engine/engine.go`；测试 `internal/parser/*_test.go`、`internal/mask/redactor_test.go`、`internal/pipeline/pipeline_test.go`、`internal/engine/engine_test.go`；文档 `docs/SPEC.md`（本节）、`README.md`（边界说明，**不得宣称“任何别名/完整血缘 DLP 不可绕过”**）。不改 go.mod/go.sum、rules、tests/corpus、migrations、web/dist。
+
+**测试（先写预期失败再实现）**：
+- parser 双方言表驱动：`phone`、`c.phone AS mobile`、三段限定；literal/function/operator/aggregate/CAST 不产生直引；`*`、`t.*`、`*, phone AS mobile`、多星号中间槽为空；UNION、EXPLAIN 不产生错误映射。
+- mask：最终名不命中但源 phone 命中→打码；最终名规则仍先生效；最终名与源名冲突时最终名优先；映射长度错/空槽/越界仅回退最终名；入参仍深拷贝、未命中列逐字节不变。
+- pipeline：SQL `SELECT phone AS mobile …`、fake executor 返回 `Columns:["mobile"]`、规则仅 phone，断言被打码。
+- engine：cloneAST 新 slice 不共享。
+- 验收门：gofmt clean、`go vet ./...`、`go test -race ./...` 全绿、**353 语料逐字不变且 FP 0.00%**、`TestRedactorMatchesFinalColumnNames` 原样通过、双构建；合 main、打存档 tag。
+
+**v0.1 已知边界（写入 README/DEPLOY 与发布话术）**：脱敏优先按最终结果列名，对可确定位置的顶层直接列引用额外按源裸列名兜底；函数/运算/聚合/CAST、UNION、跨子查询/CTE/视图的内部重命名、无法定位的多星号投影不做血缘兜底；v0.1 脱敏不是完整 DLP，防绕行需结合只读数据库账号、列级权限、安全视图与审批。**完整表达式数据流/视图/UNION/CTE 血缘列入 v0.2（需 catalog 元数据、逐槽位血缘图、敏感度传播与 schema 版本缓存）。**
 
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PostgreSQL（兼容矩阵 PG14/15/16/17/18，必测最新 PG18）与 MySQL8 作为**被防护业务库** E2E 通过；v0.1 元数据/审计库仅 SQLite（外部 PG 元库为 v0.2 开源任务 T28）；

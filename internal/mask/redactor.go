@@ -18,6 +18,13 @@ type Redactor interface {
 	Apply(result model.QueryResult) (model.QueryResult, RedactReport)
 }
 
+// SourceAwareRedactor optionally matches positional top-level direct source
+// columns after the final result-column name has failed to match.
+type SourceAwareRedactor interface {
+	Redactor
+	ApplyWithSourceColumns(result model.QueryResult, sources []string) (model.QueryResult, RedactReport)
+}
+
 type redactorRule struct {
 	column        string
 	sensitiveType SensitiveType
@@ -80,6 +87,13 @@ func sensitiveTypePriority(sensitiveType SensitiveType) int {
 }
 
 func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResult, RedactReport) {
+	return redactor.ApplyWithSourceColumns(result, nil)
+}
+
+func (redactor *resultRedactor) ApplyWithSourceColumns(
+	result model.QueryResult,
+	sources []string,
+) (model.QueryResult, RedactReport) {
 	copyResult := cloneQueryResult(result)
 	report := RedactReport{}
 	if redactor == nil || len(redactor.rules) == 0 || len(copyResult.Columns) == 0 {
@@ -89,8 +103,12 @@ func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResu
 	for _, rule := range redactor.rules {
 		rulesByColumn[rule.column] = rule
 	}
+	useSources := sources != nil && len(sources) == len(copyResult.Columns)
 	for columnIndex, columnName := range copyResult.Columns {
 		rule, matched := rulesByColumn[normalizeColumnName(columnName)]
+		if !matched && useSources && sources[columnIndex] != "" {
+			rule, matched = rulesByColumn[normalizeColumnName(sources[columnIndex])]
+		}
 		if !matched {
 			continue
 		}
@@ -147,3 +165,4 @@ func cloneQueryResult(result model.QueryResult) model.QueryResult {
 }
 
 var _ Redactor = (*resultRedactor)(nil)
+var _ SourceAwareRedactor = (*resultRedactor)(nil)
