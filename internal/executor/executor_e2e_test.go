@@ -162,6 +162,76 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 			testPostgresBoundSessions(t, ctx, executor)
 		})
 	}
+
+	if image == "postgres:18" {
+		t.Run("bound session fail closed after cancellation and close", func(t *testing.T) {
+			sessionValue, err := executor.OpenSession(ctx, "pg-fail-closed")
+			require.NoError(t, err)
+			session := sessionValue.(*postgresSession)
+
+			_, err = session.Query(ctx, " ", 1)
+			require.ErrorContains(t, err, "SQL is empty")
+			_, err = session.Execute(ctx, "")
+			require.ErrorContains(t, err, "SQL is empty")
+			_, err = session.Explain(ctx, "\t")
+			require.ErrorContains(t, err, "SQL is empty")
+
+			canceled, cancel := context.WithCancel(ctx)
+			cancel()
+			_, err = session.Query(canceled, "SELECT 1", 1)
+			require.ErrorIs(t, err, ErrQueryTimeout)
+			_, err = session.Execute(canceled, "SELECT 1")
+			require.ErrorIs(t, err, ErrQueryTimeout)
+			_, err = session.Explain(canceled, "SELECT 1")
+			require.ErrorIs(t, err, ErrQueryTimeout)
+
+			hasIndex, err := session.TableHasIndex("public", "executor_rows")
+			require.NoError(t, err)
+			require.True(t, hasIndex)
+			rows, err := session.TableRowCount("public", "executor_rows")
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, rows, int64(5000))
+
+			require.NoError(t, session.Close())
+			_, err = session.Query(ctx, "SELECT 1", 1)
+			require.ErrorIs(t, err, ErrSessionClosed)
+			_, err = session.Execute(ctx, "SELECT 1")
+			require.ErrorIs(t, err, ErrSessionClosed)
+			_, err = session.Explain(ctx, "SELECT 1")
+			require.ErrorIs(t, err, ErrSessionClosed)
+			_, err = session.TransactionState()
+			require.ErrorIs(t, err, ErrSessionClosed)
+			_, err = session.TableHasIndex("public", "executor_rows")
+			require.ErrorIs(t, err, ErrSessionClosed)
+			_, err = session.TableRowCount("public", "executor_rows")
+			require.ErrorIs(t, err, ErrSessionClosed)
+		})
+
+		t.Run("pool limit blocks a second bound connection", func(t *testing.T) {
+			limitedDatasource := datasource
+			limitedDatasource.ID += "_pool_limit"
+			limitedDatasource.ConnLimit = 1
+			limited, err := NewPostgresExecutor(ctx, limitedDatasource, password, false)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, limited.Close()) }()
+			first, err := limited.OpenSession(ctx, "first")
+			require.NoError(t, err)
+			defer func() { require.NoError(t, first.Close()) }()
+			acquireCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+			defer cancel()
+			_, err = limited.OpenSession(acquireCtx, "second")
+			require.ErrorIs(t, err, ErrQueryTimeout)
+		})
+
+		t.Run("wrong database ping is redacted", func(t *testing.T) {
+			bad := datasource
+			bad.ID += "_wrong_database"
+			bad.Database = "agentsql_missing_database"
+			_, err := NewPostgresExecutor(ctx, bad, password, false)
+			require.ErrorIs(t, err, ErrDatasourceUnreachable)
+			require.NotContains(t, err.Error(), password)
+		})
+	}
 }
 
 func TestMySQLExecutorE2E(t *testing.T) {
@@ -283,6 +353,72 @@ func TestMySQLExecutorE2E(t *testing.T) {
 
 	t.Run("bound session transaction state", func(t *testing.T) {
 		testMySQLBoundSessions(t, ctx, executor)
+	})
+
+	t.Run("bound session fail closed after cancellation and close", func(t *testing.T) {
+		session, err := executor.OpenSession(ctx, "mysql-fail-closed")
+		require.NoError(t, err)
+		_, err = session.Query(ctx, " ", 1)
+		require.ErrorContains(t, err, "SQL is empty")
+		_, err = session.Execute(ctx, "")
+		require.ErrorContains(t, err, "SQL is empty")
+		_, err = session.Explain(ctx, "\t")
+		require.ErrorContains(t, err, "SQL is empty")
+
+		_, err = session.Execute(ctx, "SET autocommit = 0")
+		require.NoError(t, err)
+		state, err := session.MysqlTransactionState()
+		require.NoError(t, err)
+		require.True(t, state.InTransaction)
+		_, err = session.Execute(ctx, "SET autocommit = 1")
+		require.NoError(t, err)
+		state, err = session.MysqlTransactionState()
+		require.NoError(t, err)
+		require.False(t, state.InTransaction)
+
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		_, err = session.Query(canceled, "SELECT 1", 1)
+		require.ErrorIs(t, err, ErrQueryTimeout)
+		_, err = session.Execute(canceled, "SELECT 1")
+		require.ErrorIs(t, err, ErrQueryTimeout)
+		_, err = session.Explain(canceled, "SELECT 1")
+		require.ErrorIs(t, err, ErrQueryTimeout)
+
+		require.NoError(t, session.Close())
+		_, err = session.Query(ctx, "SELECT 1", 1)
+		require.ErrorIs(t, err, ErrSessionClosed)
+		_, err = session.Execute(ctx, "SELECT 1")
+		require.ErrorIs(t, err, ErrSessionClosed)
+		_, err = session.Explain(ctx, "SELECT 1")
+		require.ErrorIs(t, err, ErrSessionClosed)
+		_, err = session.MysqlTransactionState()
+		require.ErrorIs(t, err, ErrSessionClosed)
+	})
+
+	t.Run("pool limit blocks a second bound connection", func(t *testing.T) {
+		limitedDatasource := datasource
+		limitedDatasource.ID = "ds_mysql_pool_limit"
+		limitedDatasource.ConnLimit = 1
+		limited, err := NewMySQLExecutor(ctx, limitedDatasource, password, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, limited.Close()) }()
+		first, err := limited.OpenSession(ctx, "first")
+		require.NoError(t, err)
+		defer func() { require.NoError(t, first.Close()) }()
+		acquireCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+		defer cancel()
+		_, err = limited.OpenSession(acquireCtx, "second")
+		require.ErrorIs(t, err, ErrQueryTimeout)
+	})
+
+	t.Run("wrong database ping is redacted", func(t *testing.T) {
+		bad := datasource
+		bad.ID = "ds_mysql_wrong_database"
+		bad.Database = "agentsql_missing_database"
+		_, err := NewMySQLExecutor(ctx, bad, password, false)
+		require.ErrorIs(t, err, ErrDatasourceUnreachable)
+		require.NotContains(t, err.Error(), password)
 	})
 }
 

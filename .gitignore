@@ -12,6 +12,7 @@ data/
 *.so
 *.dylib
 bin/
+.gocache/
 
 # Web
 web/node_modules/
