@@ -17,7 +17,9 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/spf13/cobra"
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -33,6 +35,16 @@ const defaultConfigTemplate = `server:
   event_stream_max_connections: 100
 store:
   sqlite_path: "./data/agentsql.db"
+  # The v0.1 shorthand above and metadata below are mutually exclusive.
+  # metadata:
+  #   driver: sqlite                 # sqlite or postgres; defaults to sqlite
+  #   sqlite_path: "./data/agentsql.db"
+  #   dsn: ""                       # for postgres; AGENTSQL_STORE_METADATA_DSN overrides this value
+  #   max_open_conns: 10
+  #   max_idle_conns: 5
+  #   conn_max_lifetime: "30m"      # Go duration syntax with a unit, for example 30m or 1h
+  # audit:
+  #   separate: false               # true is not supported until T28b-1
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000
@@ -157,12 +169,15 @@ func newCheckConfigCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("check config %q: %w", configPath, err)
 			}
-			if _, err := fmt.Fprintf(
-				command.OutOrStdout(),
-				"config ok: %s sqlite=%s\n",
-				loaded.Server.HTTPListen,
-				loaded.Store.SQLitePath,
-			); err != nil {
+			resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
+			if err != nil {
+				return fmt.Errorf("check config %q: %w", configPath, err)
+			}
+			message := fmt.Sprintf("config ok: driver=%s", resolved.Driver)
+			if resolved.Driver == store.DialectSQLite {
+				message += " sqlite_path=" + resolved.SQLitePath
+			}
+			if _, err := fmt.Fprintln(command.OutOrStdout(), message); err != nil {
 				return fmt.Errorf("write check-config result: %w", err)
 			}
 			return nil
@@ -179,24 +194,11 @@ func newMigrateCommand() *cobra.Command {
 		Short: "Apply metadata-store migrations",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			insecure, err := config.InsecureModeFromEnv()
+			current, latest, driver, err := migrate(command.Context(), configPath)
 			if err != nil {
 				return err
 			}
-			if insecure {
-				if _, err := fmt.Fprintln(command.ErrOrStderr(), "WARNING: AGENTSQL_INSECURE=1 enabled: publicly known test credentials are permitted; never use in production"); err != nil {
-					return fmt.Errorf("write insecure-mode warning: %w", err)
-				}
-			}
-			secret := os.Getenv("AGENTSQL_SECRET")
-			if err := config.ValidateStartupSecret(secret, insecure); err != nil {
-				return err
-			}
-			current, latest, err := migrate(command.Context(), configPath, []byte(secret))
-			if err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(command.OutOrStdout(), "migration current=%d latest=%d\n", current, latest); err != nil {
+			if _, err := fmt.Fprintf(command.OutOrStdout(), "migration driver=%s current=%d latest=%d\n", driver, current, latest); err != nil {
 				return fmt.Errorf("write migration result: %w", err)
 			}
 			return nil
@@ -206,46 +208,43 @@ func newMigrateCommand() *cobra.Command {
 	return command
 }
 
-func migrate(ctx context.Context, configPath string, secret []byte) (current int, latest int, resultErr error) {
+func migrate(ctx context.Context, configPath string) (current int, latest int, driver store.Dialect, resultErr error) {
 	loaded, err := config.Load(configPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("load migration configuration: %w", err)
+		return 0, 0, "", fmt.Errorf("load migration configuration: %w", err)
 	}
-	metadataStore, err := store.OpenWithSecret(ctx, loaded.Store.SQLitePath, secret)
+	resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
 	if err != nil {
-		return 0, 0, fmt.Errorf("open metadata store for migration: %w", err)
+		return 0, 0, "", fmt.Errorf("resolve migration configuration: %w", err)
+	}
+	database, err := openResolvedDatabase(resolved)
+	if err != nil {
+		return 0, 0, resolved.Driver, safeStoreError("open migration connection", resolved, err)
 	}
 	defer func() {
-		resultErr = errors.Join(resultErr, metadataStore.Close())
-	}()
-
-	database, err := sql.Open("sqlite", loaded.Store.SQLitePath)
-	if err != nil {
-		return 0, 0, fmt.Errorf("open SQLite migration connection: %w", err)
-	}
-	database.SetMaxOpenConns(1)
-	database.SetMaxIdleConns(1)
-	defer func() {
-		resultErr = errors.Join(resultErr, database.Close())
+		if closeErr := database.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, safeStoreError("close migration connection", resolved, closeErr))
+		}
 	}()
 	if err := database.PingContext(ctx); err != nil {
-		return 0, 0, fmt.Errorf("ping SQLite migration connection: %w", err)
+		return 0, 0, resolved.Driver, safeStoreError("ping migration connection", resolved, err)
 	}
-	if err := store.Migrate(ctx, database, store.DialectSQLite); err != nil {
-		return 0, 0, fmt.Errorf("migrate metadata store: %w", err)
+	if err := store.Migrate(ctx, database, resolved.Driver); err != nil {
+		return 0, 0, resolved.Driver, safeStoreError("migrate metadata store", resolved, err)
 	}
 	if err := database.QueryRowContext(
 		ctx,
 		"SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
 	).Scan(&current); err != nil {
-		return 0, 0, fmt.Errorf("read current migration version: %w", err)
+		return 0, 0, resolved.Driver, safeStoreError("read current migration version", resolved, err)
 	}
 	// Migrate applies every embedded migration, so current equals latest here.
-	return current, current, nil
+	return current, current, resolved.Driver, nil
 }
 
 func newHealthCommand() *cobra.Command {
 	var url string
+	var configPath string
 	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "health",
@@ -254,6 +253,22 @@ func newHealthCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			if timeout <= 0 {
 				return fmt.Errorf("health timeout must be positive")
+			}
+			if command.Flags().Changed("url") && command.Flags().Changed("config") {
+				return fmt.Errorf("health --url and --config are mutually exclusive")
+			}
+			if command.Flags().Changed("config") {
+				resolved, err := resolveConfigFile(configPath)
+				if err != nil {
+					return fmt.Errorf("load health configuration: %w", err)
+				}
+				if err := checkStoreHealth(command.Context(), resolved); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(command.OutOrStdout(), "health ok: driver=%s\n", resolved.Driver); err != nil {
+					return fmt.Errorf("write health result: %w", err)
+				}
+				return nil
 			}
 			body, err := checkHealth(command.Context(), url, timeout)
 			if err != nil {
@@ -266,8 +281,82 @@ func newHealthCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&url, "url", defaultHealthURL, "liveness endpoint URL")
+	command.Flags().StringVarP(&configPath, "config", "c", "", "path to a metadata-store configuration file")
 	command.Flags().DurationVar(&timeout, "timeout", 3*time.Second, "health request timeout")
 	return command
+}
+
+func resolveConfigFile(configPath string) (*config.ResolvedStore, error) {
+	if strings.TrimSpace(configPath) == "" {
+		return nil, fmt.Errorf("configuration path is required")
+	}
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("read config %q: %w", configPath, err)
+	}
+	loaded, err := config.Parse(contents)
+	if err != nil {
+		return nil, fmt.Errorf("parse config %q: %w", configPath, err)
+	}
+	resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
+	if err != nil {
+		return nil, fmt.Errorf("resolve config %q: %w", configPath, err)
+	}
+	return resolved, nil
+}
+
+func openResolvedDatabase(resolved *config.ResolvedStore) (*sql.DB, error) {
+	driverName, target := "sqlite", resolved.SQLitePath
+	if resolved.Driver == store.DialectPostgres {
+		driverName, target = "pgx", resolved.PostgresDSN
+	}
+	database, err := sql.Open(driverName, target)
+	if err != nil {
+		return nil, err
+	}
+	if resolved.Driver == store.DialectSQLite {
+		database.SetMaxOpenConns(1)
+		database.SetMaxIdleConns(1)
+	} else {
+		database.SetMaxOpenConns(resolved.MaxOpenConns)
+		database.SetMaxIdleConns(resolved.MaxIdleConns)
+		database.SetConnMaxLifetime(time.Duration(resolved.ConnMaxLifetime))
+	}
+	return database, nil
+}
+
+func checkStoreHealth(ctx context.Context, resolved *config.ResolvedStore) (resultErr error) {
+	if resolved.Driver == store.DialectSQLite {
+		info, err := os.Stat(resolved.SQLitePath)
+		if err != nil {
+			return safeStoreError("inspect health target", resolved, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("inspect health target: driver=sqlite target is not a database file")
+		}
+	}
+	database, err := openResolvedDatabase(resolved)
+	if err != nil {
+		return safeStoreError("open health connection", resolved, err)
+	}
+	defer func() {
+		if closeErr := database.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, safeStoreError("close health connection", resolved, closeErr))
+		}
+	}()
+	if err := database.PingContext(ctx); err != nil {
+		return safeStoreError("ping health connection", resolved, err)
+	}
+	return nil
+}
+
+func safeStoreError(action string, resolved *config.ResolvedStore, err error) error {
+	if resolved.Driver == store.DialectPostgres {
+		// Driver errors are intentionally not wrapped because third-party error
+		// text is not contractually guaranteed to omit DSNs or passwords.
+		return fmt.Errorf("%s: driver=postgres", action)
+	}
+	return fmt.Errorf("%s: driver=sqlite sqlite_path=%s: %w", action, resolved.SQLitePath, err)
 }
 
 func checkHealth(ctx context.Context, url string, timeout time.Duration) ([]byte, error) {
