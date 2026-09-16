@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -60,6 +62,8 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 		Algo:          string(mask.AlgoMask),
 	})
 	require.NoError(t, err)
+	events, cancelEvents := runtime.Events.Subscribe()
+	defer cancelEvents()
 	response, err := runtime.Pipeline.Process(context.Background(), pipeline.Request{
 		APIKey: plaintext, DatasourceID: "ds-1",
 		SQL: "SELECT phone FROM public.customers WHERE id=1 LIMIT 1", MCPTool: "query",
@@ -69,7 +73,81 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.Equal(t, "138****5678", response.Result.Rows[0][0])
 	require.Equal(t, 1, response.Redact.MaskedCells)
 	require.Equal(t, 1, provider.calls())
+	require.Equal(t, "allow", receiveBootstrapEvent(t, events).Audit.Decision)
+
+	denied, err := runtime.Pipeline.Process(context.Background(), pipeline.Request{
+		APIKey: plaintext, DatasourceID: "ds-1", SQL: "UPDATE public.orders SET total = 1",
+		MCPTool: "execute_write", SessionID: "deny-session",
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, denied.Decision)
+	require.Equal(t, "deny", receiveBootstrapEvent(t, events).Audit.Decision)
+
+	approved, err := runtime.Pipeline.Process(context.Background(), pipeline.Request{
+		APIKey: plaintext, DatasourceID: "ds-1",
+		SQL: "SELECT phone FROM public.customers WHERE id=1 LIMIT 1", MCPTool: "request_approval",
+		RequireApproval: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionApprove, approved.Decision)
+	require.Equal(t, "approve", receiveBootstrapEvent(t, events).Audit.Decision)
+	select {
+	case duplicate := <-events:
+		t.Fatalf("unexpected duplicate event for audit %d", duplicate.Audit.ID)
+	case <-time.After(20 * time.Millisecond):
+	}
 	require.NoError(t, runtime.Close())
+}
+
+func TestAssembleDisablesEventsWithConsoleOrStreamSwitch(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		console bool
+		stream  bool
+	}{
+		{name: "console disabled", console: false, stream: true},
+		{name: "stream disabled", console: true, stream: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := bootstrapTestConfig(filepath.Join(t.TempDir(), "agentsql.db"))
+			cfg.Server.ConsoleEnabled = test.console
+			cfg.Server.EventStream = test.stream
+			runtime, err := Assemble(context.Background(), cfg, bootstrapTestSecret)
+			require.NoError(t, err)
+			require.Nil(t, runtime.Events)
+			require.NoError(t, runtime.Close())
+		})
+	}
+}
+
+func TestAssembleDoesNotPublishWhenAuditPersistenceFails(t *testing.T) {
+	runtime, err := Assemble(context.Background(), bootstrapTestConfig(filepath.Join(t.TempDir(), "agentsql.db")), bootstrapTestSecret)
+	require.NoError(t, err)
+	events, cancel := runtime.Events.Subscribe()
+	defer cancel()
+	require.NoError(t, runtime.Store.Close())
+	response, processErr := runtime.Pipeline.Process(context.Background(), pipeline.Request{
+		APIKey: "asql_missing", DatasourceID: "missing", SQL: "SELECT 1", MCPTool: "query",
+	})
+	require.Error(t, processErr)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	select {
+	case event := <-events:
+		t.Fatalf("unexpected event after failed audit persistence: %+v", event)
+	case <-time.After(20 * time.Millisecond):
+	}
+	require.NoError(t, runtime.Close())
+}
+
+func receiveBootstrapEvent(t *testing.T, events <-chan eventbus.Event) eventbus.Event {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for persisted audit event")
+		return eventbus.Event{}
+	}
 }
 
 type bootstrapExecutorProvider struct {
@@ -199,7 +277,7 @@ func TestRuntimeCloseIsIdempotent(t *testing.T) {
 
 func bootstrapTestConfig(path string) config.Config {
 	return config.Config{
-		Server: config.ServerConfig{HTTPListen: "127.0.0.1:7780"},
+		Server: config.ServerConfig{HTTPListen: "127.0.0.1:7780", ConsoleEnabled: true, EventStream: true, EventStreamMaxConnections: 100},
 		Store:  config.StoreConfig{SQLitePath: path},
 		Defaults: config.DefaultsConfig{
 			StatementTimeoutMS:    5_000,

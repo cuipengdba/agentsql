@@ -30,6 +30,9 @@ type Deps struct {
 	AdminPassword    string
 	TokenKey         []byte
 	DatasourcePinger DatasourcePinger
+	// EventStreamHeartbeatInterval is injectable for deterministic stream tests.
+	// Zero uses the production interval.
+	EventStreamHeartbeatInterval time.Duration
 }
 
 type DatasourcePinger interface {
@@ -60,6 +63,8 @@ type Handler struct {
 	adminUser     string
 	adminPassword string
 	tokenKey      []byte
+	streamSlots   chan struct{}
+	heartbeat     time.Duration
 }
 
 func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
@@ -78,11 +83,22 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	if len(deps.TokenKey) == 0 {
 		return nil, fmt.Errorf("create admin handler: token key is required")
 	}
+	streamEnabled := deps.Config.Server.ConsoleEnabled && deps.Config.Server.EventStream
+	if streamEnabled && deps.Runtime.Events == nil {
+		return nil, fmt.Errorf("create admin handler: event stream is enabled but runtime hub is unavailable")
+	}
 	if deps.DatasourcePinger == nil {
 		deps.DatasourcePinger = runtimePinger{runtime: deps.Runtime}
 	}
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
 		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...)}
+	if streamEnabled {
+		handler.streamSlots = make(chan struct{}, deps.Config.Server.EventStreamMaxConnections)
+		handler.heartbeat = deps.EventStreamHeartbeatInterval
+		if handler.heartbeat <= 0 {
+			handler.heartbeat = 25 * time.Second
+		}
+	}
 	mux := http.NewServeMux()
 	handler.mux = mux
 	mux.HandleFunc("POST /api/v1/auth/login", handler.login)
@@ -118,6 +134,9 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)
 	mux.HandleFunc("POST /api/v1/playground/assess", handler.playgroundAssess)
+	if streamEnabled {
+		mux.HandleFunc("GET /api/v1/stream", handler.stream)
+	}
 	return handler.recover(handler.adminAuth(mux)), nil
 }
 
@@ -176,6 +195,10 @@ func (writer *statusRecorder) Write(body []byte) (int, error) {
 		writer.WriteHeader(http.StatusOK)
 	}
 	return writer.ResponseWriter.Write(body)
+}
+
+func (writer *statusRecorder) Unwrap() http.ResponseWriter {
+	return writer.ResponseWriter
 }
 
 func (handler *Handler) login(writer http.ResponseWriter, request *http.Request) {

@@ -147,6 +147,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 | 手机号/邮箱打码 | 支持 | v0.1 仅 `mask` 算法 |
 | SQLite 审计、导出与仪表盘 | 支持 | `/metrics`、`/healthz`、`/readyz` 可用于运维 |
 | Web 管理控制台 | 支持 | 可用 `console_enabled: false` 完全不挂载管理面 |
+| 大屏实时事件流 | 支持 | SSE，默认开启，最多 100 条并发管理端连接 |
 
 ## 数据库兼容矩阵
 

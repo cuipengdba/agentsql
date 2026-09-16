@@ -70,7 +70,7 @@ agentsql/
 
 ## 3.1 config.yaml
 ```yaml
-server: { http_listen: "127.0.0.1:7780", console_enabled: true }
+server: { http_listen: "127.0.0.1:7780", console_enabled: true, event_stream: true, event_stream_max_connections: 100 }
 store:  { sqlite_path: "./data/agentsql.db" }
 defaults: { statement_timeout_ms: 5000, row_limit: 1000, max_conns_per_datasource: 5, qps_per_agent: 20 }
 theme: { default: "dark" }   # light/dark
@@ -1731,7 +1731,7 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
 - 响应头：`Content-Type: text/event-stream`、`Cache-Control: no-cache, no-store, no-transform`、`Connection: keep-alive`（仅 HTTP/1.1 有意义）、`X-Accel-Buffering: no`；该路由**排除任何 gzip/brotli 压缩**（压缩会攒帧使 Flush 失效）。**不要设置会杀死长连接的固定短 `http.Server.WriteTimeout`**；改为每帧写之前 `ResponseController.SetWriteDeadline(now+5s)`，写/Flush 失败即回收半开连接（心跳也用于触发半开 TCP 的写失败）。
 - 帧协议（`data:` 必须是 `json.Marshal` 一次生成的**单行 JSON**，JSON 内换行自然转义）：握手 `event: hello` + `data: {"version":"...","demo":false}`；审计帧为 `event: audit`、`id: <audit.id>`、`data: <单行 JSON>`；心跳帧 `: ping`（间隔 25s，间隔须可注入以便确定性测试，**禁止测试里真等 25 秒**）。
 - **事件体用显式安全 allow-list 投影 `auditToStreamView`（设计评审修正），不得原样发送完整 `auditView`**：后者含 `sql_raw/sql_norm/error_msg/client_ip/session_id/conversation_id`，原始 SQL 可能带口令、错误信息可能带 DSN/主机/驱动细节。SSE 只发安全摘要：`id, ts, agent_id, datasource_id, mcp_tool, db_type, stmt_type, objects, decision, rule_hits, risk_level, est_rows, rows_returned, latency_ms, model_name`（字段命名与 auditView 一致）；**不发** `sql_raw, sql_norm, error_msg, client_ip, session_id, conversation_id`，更不得含口令/DSN/SECRET/堆栈。审计页、审计导出与审计表仍保留完整数据，不因 SSE 删减。
-- 配置：`server.event_stream`（bool，默认 true，显式 false 必须生效）与 `server.event_stream_max_connections`（int，默认 100，校验范围 1–1000）；`Parse` 用 `KnownFields(true)`，新字段必须进结构体，默认值在解码后、Validate 前按"YAML 是否显式给出"设置，避免零值覆盖显式 `false`/`0`；同步更新 `agentsqlctl init-config` 模板、示例 YAML 与配置测试。心跳 25s、缓冲 64、历史 200 本单不开放配置。`console_enabled=false`、`event_stream=false` 或 stdio（`mcp` 子命令）时不创建装饰器、不注册路由；但**启用流而 `Runtime.EventHub==nil` 时 `NewHandler` 应直接报错（fail-fast），不得静默漏事件**。
+- 配置：`server.event_stream`（bool，默认 true，显式 false 必须生效）与 `server.event_stream_max_connections`（int，默认 100，校验范围 1–1000）；`Parse` 用 `KnownFields(true)`，新字段必须进结构体，默认值在解码后、Validate 前按"YAML 是否显式给出"设置，避免零值覆盖显式 `false`/`0`；同步更新 `agentsqlctl init-config` 模板、示例 YAML 与配置测试。心跳 25s、缓冲 64、历史 200 本单不开放配置。`console_enabled=false`、`event_stream=false` 或 stdio（`mcp` 子命令）时不创建装饰器、不注册路由；但**启用流而 `Runtime.Events==nil` 时 `NewHandler` 应直接报错（fail-fast），不得静默漏事件**。
 - 指标（可选、不阻塞）：`agentsql_eventstream_connections` gauge、`agentsql_eventstream_events_total`、慢消费者断开计数。
 - 测试（全部 httptest/fake/临时 SQLite，**本单不依赖 Docker**）：
   - Hub：单/多订阅者扇出；只保留最近 200 条且顺序正确；历史之后实时事件无漏无重；幂等 cancel；`Close` 与 `Publish/Subscribe` 并发；慢消费者填满实时余量后被摘除、健康订阅者不受影响、`Publish` 在限定时间内返回。

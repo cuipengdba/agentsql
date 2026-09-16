@@ -65,12 +65,31 @@ theme:
 	loaded, err := Parse([]byte(withoutConsole))
 	require.NoError(t, err)
 	require.True(t, loaded.Server.ConsoleEnabled)
+	require.True(t, loaded.Server.EventStream)
+	require.Equal(t, 100, loaded.Server.EventStreamMaxConnections)
 
 	_, err = Parse([]byte(withoutConsole + "unknown_field: true\n"))
 	require.Error(t, err)
 	_, err = Parse([]byte(withoutConsole + "---\nserver: {}\n"))
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrMultipleYAMLDocuments))
+}
+
+func TestParsePreservesEventStreamSettingsAndRejectsInvalidConnectionLimits(t *testing.T) {
+	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
+	contents := fmt.Sprintf(validConfig, databasePath)
+	contents = strings.Replace(contents, "console_enabled: true", "console_enabled: true\n  event_stream: false\n  event_stream_max_connections: 1", 1)
+
+	loaded, err := Parse([]byte(contents))
+	require.NoError(t, err)
+	require.False(t, loaded.Server.EventStream)
+	require.Equal(t, 1, loaded.Server.EventStreamMaxConnections)
+
+	for _, limit := range []int{0, 1001} {
+		invalid := strings.Replace(contents, "event_stream_max_connections: 1", fmt.Sprintf("event_stream_max_connections: %d", limit), 1)
+		_, err = Parse([]byte(invalid))
+		require.ErrorIs(t, err, ErrInvalidEventStreamMaxConnections)
+	}
 }
 
 func TestParsePreservesExplicitConsoleDisabled(t *testing.T) {
@@ -116,6 +135,15 @@ defaults: {statement_timeout_ms: -1, row_limit: 1000, max_conns_per_datasource: 
 theme: {default: dark}
 `, databasePath),
 			targetError: ErrNegativeStatementTimeout,
+		},
+		{
+			name: "too many event stream connections",
+			contents: fmt.Sprintf(`server: {http_listen: "127.0.0.1:7780", console_enabled: true, event_stream: true, event_stream_max_connections: 1001}
+store: {sqlite_path: %q}
+defaults: {statement_timeout_ms: 5000, row_limit: 1000, max_conns_per_datasource: 5, qps_per_agent: 20}
+theme: {default: dark}
+`, databasePath),
+			targetError: ErrInvalidEventStreamMaxConnections,
 		},
 	}
 

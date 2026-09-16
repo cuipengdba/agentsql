@@ -37,6 +37,8 @@ func TestInitConfigCreatesValidConfigAndProtectsExistingFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "127.0.0.1:7780", loaded.Server.HTTPListen)
 	require.True(t, loaded.Server.ConsoleEnabled)
+	require.True(t, loaded.Server.EventStream)
+	require.Equal(t, 100, loaded.Server.EventStreamMaxConnections)
 	require.Equal(t, "./data/agentsql.db", loaded.Store.SQLitePath)
 	require.Equal(t, 5_000, loaded.Defaults.StatementTimeoutMS)
 	require.Equal(t, 1_000, loaded.Defaults.RowLimit)
