@@ -1676,6 +1676,9 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
   1. JSON-RPC `id:null` 被 MCP go-sdk v1.7.0 折叠为“缺失 id”，HTTP 返回 400 `missing id`（即 null id 请求被拒绝，安全方向正确）；RC 接受“null id 被拒”，是否规范化回显 null 留 v0.2。
   2. 传输层错误（截断/非法 JSON、错误 Content-Type 等）当前经 go-sdk `http.Error` 返回 `text/plain` 而非统一 `application/json` 错误信封；状态码正确、不泄漏堆栈/口令/内部主机已断言，统一 JSON 错误体留 v0.2。
 - **流程备注**：G1-b 的 Codex 进程在测试全部落盘后、生成收尾报告阶段异常中断（无 go/compile 进程、日志停更、无 IMPLEMENT_DONE）；主控经独立 gofmt/vet/`go test -race ./internal/mcpserver/`（全绿）+ 全量 run-acceptance（ALL_GREEN）接管验收，确认代码完整、白名单干净（仅 3 个 `*_test.go`）、go.mod/go.sum/语料零改动。
+- **G1-c 已合入**（tag `g1-c`，merge `f5ad8aa`）：纯测试覆盖率补齐（5 文件 +1430 行，零生产改动、go.mod/go.sum/语料未动）。带 Docker 实测 **executor 72.3%→89.8%、parser 80.5%→87.9%**；至此核心安全链 parser/engine/rules/policy/pipeline/executor/mask 全部 ≥80% 且裕量充足。run-acceptance **ALL_GREEN**（gofmt/vet/`-race` 全包含容器矩阵、353 语料逐字不变 FP 0.00%、双构建）。executor 补：manager/open/配置校验/脱敏/rows 类型/连接池/超时/事务状态机的离线分支，以及 testcontainers PG18+MySQL8 bound session、关闭后/context 取消、错误路径与凭证脱敏；parser 补：panic recover、MySQL CTE/嵌套 JOIN/关键字/常量、PG 整数/节点/tautology/EXPLAIN 失败分支。`.gitignore` 新增忽略 `.gocache/`。
+- **UNION INTO OUTFILE/DUMPFILE 调查结论（G1-c Codex 报 POSSIBLE_BUG，主控实测证伪 fail-open）**：当前 Vitess 把 `SELECT ... UNION SELECT ... INTO OUTFILE 'x'`（含 `(SELECT ... UNION SELECT ...) INTO OUTFILE` 括号形态）的 `Into` 挂在 `Union.Into`（左右子 Select.Into 均为 nil），产品 `Operations` 正确包含 `INTO OUTFILE`/`INTO DUMPFILE`，**R201 必拦，不存在漏拦**；已新增 `internal/parser/union_into_regression_test.go` 锁定“信号必在 + 文件名不进 normalized”。
+- **第三条非阻塞已知项（v0.2 规范化 polish，非 fail-open、不泄漏敏感信息）**：UNION 形态的 `Normalized` 文本会丢弃整个 INTO 子句（顶层单 SELECT 正常渲染为 `into outfile ?`）；决策不依赖 normalized、文件名不残留，故拦截与敏感串脱敏均正确，仅审计 SQL 文本不完整。v0.2 与前述两条协议 polish 一并统一规范化处理。
 
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PostgreSQL（兼容矩阵 PG14/15/16/17/18，必测最新 PG18）与 MySQL8 作为**被防护业务库** E2E 通过；v0.1 元数据/审计库仅 SQLite（外部 PG 元库为 v0.2 开源任务 T28）；
