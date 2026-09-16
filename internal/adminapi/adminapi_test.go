@@ -91,6 +91,43 @@ func TestAdminAgentCRUDAndKeyRedaction(t *testing.T) {
 	require.Contains(t, body, "policies")
 }
 
+func TestAdminAgentUpdateExpiresAtThreeStates(t *testing.T) {
+	fixture := newAdminFixture(t)
+	original := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+	agent := fixture.agent
+	agent.ExpiresAt = &original
+	_, err := fixture.store.Agents().Update(context.Background(), agent)
+	require.NoError(t, err)
+
+	status, body := fixture.request(http.MethodPut, "/api/v1/agents/agent-1", fixture.adminToken, `{}`)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err := fixture.store.Agents().Get(context.Background(), agent.ID)
+	require.NoError(t, err)
+	require.NotNil(t, stored.ExpiresAt)
+	require.True(t, original.Equal(*stored.ExpiresAt))
+
+	status, body = fixture.request(http.MethodPut, "/api/v1/agents/agent-1", fixture.adminToken, `{"expires_at":null}`)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err = fixture.store.Agents().Get(context.Background(), agent.ID)
+	require.NoError(t, err)
+	require.Nil(t, stored.ExpiresAt)
+
+	updated := time.Date(2031, time.February, 3, 4, 5, 6, 0, time.FixedZone("UTC+8", 8*60*60))
+	status, body = fixture.request(http.MethodPut, "/api/v1/agents/agent-1", fixture.adminToken, `{"expires_at":"`+updated.Format(time.RFC3339)+`"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err = fixture.store.Agents().Get(context.Background(), agent.ID)
+	require.NoError(t, err)
+	require.NotNil(t, stored.ExpiresAt)
+	require.True(t, updated.Equal(*stored.ExpiresAt))
+
+	status, body = fixture.request(http.MethodPut, "/api/v1/agents/agent-1", fixture.adminToken, `{"expires_at":"not-a-time"}`)
+	require.Equal(t, http.StatusBadRequest, status, body)
+	afterInvalid, err := fixture.store.Agents().Get(context.Background(), agent.ID)
+	require.NoError(t, err)
+	require.NotNil(t, afterInvalid.ExpiresAt)
+	require.True(t, stored.ExpiresAt.Equal(*afterInvalid.ExpiresAt))
+}
+
 func TestAdminDatasourcesAndPing(t *testing.T) {
 	fixture := newAdminFixture(t)
 	status, body := fixture.request(http.MethodGet, "/api/v1/datasources", fixture.adminToken, "")

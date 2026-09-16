@@ -5,8 +5,8 @@ export interface ApprovalQuery extends PageQuery {
   status?: string;
 }
 
-export function listApprovals(params: ApprovalQuery = {}): Promise<PageResp<ApprovalView>> {
-  return request<PageResp<ApprovalView>>({ method: "GET", url: "/approvals", params });
+export function listApprovals(params: ApprovalQuery = {}, signal?: AbortSignal): Promise<PageResp<ApprovalView>> {
+  return request<PageResp<ApprovalView>>({ method: "GET", url: "/approvals", params, signal });
 }
 
 export function decideApproval(id: string, input: ApprovalDecisionInput): Promise<ApprovalView> {

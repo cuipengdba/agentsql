@@ -91,7 +91,7 @@ export function Rules() {
     setLoading(true);
     setFailed(false);
     try {
-      const response = await listRules({ page: 1, page_size: 100 });
+      const response = await listRules({ page: 1, page_size: 100 }, controller.signal);
       if (!mountedRef.current || controller.signal.aborted || sequence !== requestRef.current) return;
       setStoredRules(response.list || []);
     } catch (error: unknown) {

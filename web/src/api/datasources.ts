@@ -1,8 +1,8 @@
 import { request } from "./client";
 import type { DatasourceInput, DatasourceView, DeleteView, PageQuery, PageResp, PingView } from "./types";
 
-export function listDatasources(params: PageQuery = {}): Promise<PageResp<DatasourceView>> {
-  return request<PageResp<DatasourceView>>({ method: "GET", url: "/datasources", params });
+export function listDatasources(params: PageQuery = {}, signal?: AbortSignal): Promise<PageResp<DatasourceView>> {
+  return request<PageResp<DatasourceView>>({ method: "GET", url: "/datasources", params, signal });
 }
 
 export function getDatasource(id: string): Promise<DatasourceView> {

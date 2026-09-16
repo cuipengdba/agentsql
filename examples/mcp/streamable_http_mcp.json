@@ -2,7 +2,7 @@
   "_security_note": "Production must use an HTTPS reverse proxy. Never commit a real AgentSQL API key.",
   "mcpServers": {
     "agentsql-http": {
-      "url": "http://127.0.0.1:8650/mcp",
+      "url": "http://127.0.0.1:7780/mcp",
       "headers": {
         "Authorization": "Bearer asql_REPLACE_WITH_AGENT_KEY_DO_NOT_COMMIT"
       }

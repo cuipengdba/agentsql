@@ -49,7 +49,7 @@ export function Datasources() {
     setLoading(true);
     setFailed(false);
     try {
-      const response = await listDatasources({ page, page_size: pageSize });
+      const response = await listDatasources({ page, page_size: pageSize }, controller.signal);
       if (!mountedRef.current || controller.signal.aborted || sequence !== requestRef.current) return;
       setList(response.list || []);
       setTotal(Number.isFinite(response.total) ? Math.max(0, response.total) : 0);

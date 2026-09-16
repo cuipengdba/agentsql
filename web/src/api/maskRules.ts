@@ -5,8 +5,8 @@ export interface MaskRuleQuery extends PageQuery {
   datasource_id?: string;
 }
 
-export function listMaskRules(params: MaskRuleQuery = {}): Promise<PageResp<MaskRuleView>> {
-  return request<PageResp<MaskRuleView>>({ method: "GET", url: "/mask_rules", params });
+export function listMaskRules(params: MaskRuleQuery = {}, signal?: AbortSignal): Promise<PageResp<MaskRuleView>> {
+  return request<PageResp<MaskRuleView>>({ method: "GET", url: "/mask_rules", params, signal });
 }
 
 export function createMaskRule(input: MaskRuleInput): Promise<MaskRuleView> {

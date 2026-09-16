@@ -15,8 +15,11 @@ import (
 
 // DashboardRepository executes read-only dashboard aggregates.
 type DashboardRepository struct {
-	db *sql.DB
+	db  *sql.DB
+	now func() time.Time
 }
+
+const dashboardTimestampLayout = "2006-01-02 15:04:05"
 
 type DashboardSummary struct {
 	KPI                  DashboardKPI       `json:"kpi"`
@@ -78,11 +81,19 @@ func (repository *DashboardRepository) Summary(ctx context.Context, days int) (D
 	if days < 1 || days > 90 {
 		return DashboardSummary{}, fmt.Errorf("dashboard summary days must be between 1 and 90")
 	}
-	now := time.Now().UTC()
-	start := now.AddDate(0, 0, -days)
-	previousStart := start.AddDate(0, 0, -days)
+	now := time.Now()
+	if repository.now != nil {
+		now = repository.now()
+	}
+	now = now.UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	startTime := today.AddDate(0, 0, -(days - 1))
+	endTime := today.AddDate(0, 0, 1)
+	start := startTime.Format(dashboardTimestampLayout)
+	end := endTime.Format(dashboardTimestampLayout)
+	previousStart := startTime.AddDate(0, 0, -days).Format(dashboardTimestampLayout)
 	previousEnd := start
-	total, blocked, err := repository.auditCounts(ctx, start, now)
+	total, blocked, err := repository.auditCounts(ctx, start, end)
 	if err != nil {
 		return DashboardSummary{}, err
 	}
@@ -102,23 +113,23 @@ func (repository *DashboardRepository) Summary(ctx context.Context, days int) (D
 	if err != nil {
 		return DashboardSummary{}, fmt.Errorf("dashboard datasources: %w", err)
 	}
-	trend, err := repository.trend(ctx, start, now, days)
+	trend, err := repository.trend(ctx, startTime, start, end, days)
 	if err != nil {
 		return DashboardSummary{}, err
 	}
-	distribution, err := repository.decisionDistribution(ctx, start, now)
+	distribution, err := repository.decisionDistribution(ctx, start, end)
 	if err != nil {
 		return DashboardSummary{}, err
 	}
-	riskTop, err := repository.riskTop(ctx, start, now)
+	riskTop, err := repository.riskTop(ctx, start, end)
 	if err != nil {
 		return DashboardSummary{}, err
 	}
-	ranking, err := repository.agentRanking(ctx, start, now)
+	ranking, err := repository.agentRanking(ctx, start, end)
 	if err != nil {
 		return DashboardSummary{}, err
 	}
-	blockedCount, savedRows, err := repository.battleReport(ctx, start, now)
+	blockedCount, savedRows, err := repository.battleReport(ctx, start, end)
 	if err != nil {
 		return DashboardSummary{}, err
 	}
@@ -142,7 +153,7 @@ func (repository *DashboardRepository) count(ctx context.Context, query string, 
 	return result, nil
 }
 
-func (repository *DashboardRepository) auditCounts(ctx context.Context, start, end time.Time) (int64, int64, error) {
+func (repository *DashboardRepository) auditCounts(ctx context.Context, start, end string) (int64, int64, error) {
 	var total, blocked int64
 	if err := repository.db.QueryRowContext(ctx, `
 SELECT COUNT(*), COALESCE(SUM(CASE WHEN decision = 'deny' THEN 1 ELSE 0 END), 0)
@@ -152,7 +163,7 @@ FROM audit_logs WHERE ts >= ? AND ts < ?`, start, end).Scan(&total, &blocked); e
 	return total, blocked, nil
 }
 
-func (repository *DashboardRepository) trend(ctx context.Context, start, end time.Time, days int) ([]TrendDay, error) {
+func (repository *DashboardRepository) trend(ctx context.Context, startTime time.Time, start, end string, days int) ([]TrendDay, error) {
 	// substr(ts,1,19) trims fractional seconds/timezone so SQLite date() does not
 	// return NULL for RFC3339Nano values written via a parameterized time.Time;
 	// CURRENT_TIMESTAMP text is normalized identically.
@@ -188,7 +199,7 @@ FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY `+dayExpression+` ORDER BY `+d
 		return nil, fmt.Errorf("finish dashboard trend: %w", errors.Join(iterationError, closeError))
 	}
 	result := make([]TrendDay, 0, days)
-	first := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	first := time.Date(startTime.Year(), startTime.Month(), startTime.Day(), 0, 0, 0, 0, time.UTC)
 	for index := 0; index < days; index++ {
 		date := first.AddDate(0, 0, index).Format("2006-01-02")
 		day := byDate[date]
@@ -198,7 +209,7 @@ FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY `+dayExpression+` ORDER BY `+d
 	return result, nil
 }
 
-func (repository *DashboardRepository) decisionDistribution(ctx context.Context, start, end time.Time) ([]DecisionCount, error) {
+func (repository *DashboardRepository) decisionDistribution(ctx context.Context, start, end string) ([]DecisionCount, error) {
 	counts := map[string]int64{"allow": 0, "warn": 0, "approve": 0, "deny": 0}
 	rows, err := repository.db.QueryContext(ctx, `
 SELECT decision, COUNT(*) FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY decision`, start, end)
@@ -228,7 +239,7 @@ SELECT decision, COUNT(*) FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY deci
 	}, nil
 }
 
-func (repository *DashboardRepository) riskTop(ctx context.Context, start, end time.Time) ([]RiskTopEntry, error) {
+func (repository *DashboardRepository) riskTop(ctx context.Context, start, end string) ([]RiskTopEntry, error) {
 	rows, err := repository.db.QueryContext(ctx, `
 SELECT rule_hits FROM audit_logs WHERE ts >= ? AND ts < ? AND rule_hits IS NOT NULL`, start, end)
 	if err != nil {
@@ -271,7 +282,7 @@ SELECT rule_hits FROM audit_logs WHERE ts >= ? AND ts < ? AND rule_hits IS NOT N
 	return result, nil
 }
 
-func (repository *DashboardRepository) agentRanking(ctx context.Context, start, end time.Time) ([]AgentRankingItem, error) {
+func (repository *DashboardRepository) agentRanking(ctx context.Context, start, end string) ([]AgentRankingItem, error) {
 	rows, err := repository.db.QueryContext(ctx, `
 SELECT agent_id, COUNT(*) FROM audit_logs
 WHERE ts >= ? AND ts < ? AND decision = 'deny' AND agent_id IS NOT NULL
@@ -310,7 +321,7 @@ GROUP BY agent_id ORDER BY COUNT(*) DESC, agent_id ASC LIMIT 5`, start, end)
 	return result, nil
 }
 
-func (repository *DashboardRepository) battleReport(ctx context.Context, start, end time.Time) (int64, int64, error) {
+func (repository *DashboardRepository) battleReport(ctx context.Context, start, end string) (int64, int64, error) {
 	var blocked, rowsSaved int64
 	if err := repository.db.QueryRowContext(ctx, `
 SELECT COUNT(*), COALESCE(SUM(COALESCE(est_rows, 0)), 0)

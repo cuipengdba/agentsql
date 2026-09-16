@@ -75,7 +75,11 @@ export function Policies() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([listAgents({ page: 1, page_size: 100 }), listDatasources({ page: 1, page_size: 100 })])
+    const controller = new AbortController();
+    void Promise.all([
+      listAgents({ page: 1, page_size: 100 }, controller.signal),
+      listDatasources({ page: 1, page_size: 100 }, controller.signal),
+    ])
       .then(([agentPage, datasourcePage]) => {
         if (!active) return;
         setAgents(agentPage.list || []);
@@ -84,7 +88,10 @@ export function Policies() {
       .catch((error: unknown) => {
         if (active && !isCanceled(error)) void message.error(apiErrorMessage(error, "加载 Agent 与数据源失败"));
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   const load = useCallback(async () => {
@@ -100,7 +107,7 @@ export function Policies() {
     setLoading(true);
     setFailed(false);
     try {
-      const response = await listPolicies({ agent_id: agentID, datasource_id: datasourceID, page: 1, page_size: 100 });
+      const response = await listPolicies({ agent_id: agentID, datasource_id: datasourceID, page: 1, page_size: 100 }, controller.signal);
       if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current) return;
       setList(response.list || []);
     } catch (error: unknown) {

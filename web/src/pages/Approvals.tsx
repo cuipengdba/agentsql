@@ -50,7 +50,7 @@ export function Approvals() {
         status: status || undefined,
         page,
         page_size: pageSize,
-      });
+      }, controller.signal);
       if (!mountedRef.current || controller.signal.aborted || requestSequenceRef.current !== sequence) return;
       setList((response.list || []).slice(0, pageSize));
       setTotal(safeTotal(response.total));
