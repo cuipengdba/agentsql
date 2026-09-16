@@ -15,6 +15,24 @@ store:
   # 元数据与审计 SQLite 文件；启动时自动创建父目录并执行幂等迁移。
   sqlite_path: "./data/agentsql.db"
 
+  # 上面的 v0.1 SQLite 简写与 metadata 配置互斥，只能启用一种。
+  # metadata:
+  #   driver: sqlite                # 缺省为 sqlite
+  #   sqlite_path: "./data/agentsql.db"
+  #   max_open_conns: 10            # 连接池零值也归一为 10/5/30m
+  #   max_idle_conns: 5
+  #   conn_max_lifetime: "30m"      # 必须使用 Go duration 单位，如 30m、1h
+  # metadata:
+  #   driver: postgres
+  #   dsn: "postgres://agentsql:***@host:5432/agentsql?sslmode=disable&TimeZone=Asia/Shanghai"
+  #   max_open_conns: 10
+  #   max_idle_conns: 5
+  #   conn_max_lifetime: "30m"
+  # AGENTSQL_STORE_METADATA_DSN 存在时（即使为空）优先覆盖 metadata.dsn。
+  # 配置文件不支持 ${VAR} 插值；DSN 请通过明确的环境变量覆盖注入。
+  # audit:
+  #   separate: false               # true 要到 T28b-1 才支持
+
 # 全局安全默认值，可被数据源或 Agent 的有效配置覆盖。
 defaults:
   statement_timeout_ms: 5000       # 单条 SQL 默认超时，单位毫秒

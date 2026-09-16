@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -55,10 +56,11 @@ func assembleWithExecutorProvider(
 	if len(secret) != 32 {
 		return nil, fmt.Errorf("assemble runtime: secret must contain exactly 32 bytes")
 	}
-	if err := cfg.Validate(); err != nil {
+	resolvedStore, err := config.ResolveStore(&cfg, os.LookupEnv)
+	if err != nil {
 		return nil, fmt.Errorf("assemble runtime configuration: %w", err)
 	}
-	metadataStore, err := store.OpenWithSecret(ctx, cfg.Store.SQLitePath, secret)
+	metadataStore, err := store.OpenMetadata(ctx, resolvedStore.MetadataOptions(), secret)
 	if err != nil {
 		return nil, fmt.Errorf("assemble metadata store: %w", err)
 	}

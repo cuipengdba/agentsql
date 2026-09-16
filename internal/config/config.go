@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cuipengdba/agentsql/internal/store"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,11 +47,6 @@ type ServerConfig struct {
 	ConsoleEnabled            bool   `yaml:"console_enabled"`
 	EventStream               bool   `yaml:"event_stream"`
 	EventStreamMaxConnections int    `yaml:"event_stream_max_connections"`
-}
-
-// StoreConfig controls the local metadata store path.
-type StoreConfig struct {
-	SQLitePath string `yaml:"sqlite_path"`
 }
 
 // DefaultsConfig contains global execution and capacity limits.
@@ -95,7 +91,9 @@ func Parse(contents []byte) (Config, error) {
 	if !configured["event_stream_max_connections"] {
 		loaded.Server.EventStreamMaxConnections = 100
 	}
-	if err := loaded.Validate(); err != nil {
+	storeFields := configuredStoreFields(contents)
+	loaded.Store.legacySQLitePathSet = storeFields["sqlite_path"]
+	if err := loaded.validateNonStore(); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
 	return loaded, nil
@@ -113,12 +111,33 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 
-	loaded.Store.SQLitePath = filepath.Clean(loaded.Store.SQLitePath)
-	if err := os.MkdirAll(filepath.Dir(loaded.Store.SQLitePath), 0o750); err != nil {
-		return Config{}, fmt.Errorf("create SQLite directory for %q: %w", loaded.Store.SQLitePath, err)
+	resolved, err := ResolveStore(&loaded, os.LookupEnv)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve config %q: %w", path, err)
 	}
+	if resolved.Driver == store.DialectSQLite {
+		resolved.SQLitePath = filepath.Clean(resolved.SQLitePath)
+		if err := os.MkdirAll(filepath.Dir(resolved.SQLitePath), 0o750); err != nil {
+			return Config{}, fmt.Errorf("create SQLite directory for %q: %w", resolved.SQLitePath, err)
+		}
+	}
+	applyResolvedStore(&loaded, resolved)
 
 	return loaded, nil
+}
+
+func configuredStoreFields(contents []byte) map[string]bool {
+	var document struct {
+		Store map[string]yaml.Node `yaml:"store"`
+	}
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return map[string]bool{}
+	}
+	configured := make(map[string]bool, len(document.Store))
+	for field := range document.Store {
+		configured[field] = true
+	}
+	return configured
 }
 
 func configuredServerFields(contents []byte) map[string]bool {
@@ -137,10 +156,16 @@ func configuredServerFields(contents []byte) map[string]bool {
 
 // Validate checks every T01 startup invariant and fails closed on invalid input.
 func (config Config) Validate() error {
-	if strings.TrimSpace(config.Store.SQLitePath) == "" {
-		return fmt.Errorf("validate store: %w", ErrMissingSQLitePath)
+	if err := config.validateNonStore(); err != nil {
+		return err
 	}
+	if _, err := ResolveStore(&config, func(string) (string, bool) { return "", false }); err != nil {
+		return err
+	}
+	return nil
+}
 
+func (config Config) validateNonStore() error {
 	listen := strings.TrimSpace(config.Server.HTTPListen)
 	_, portText, err := net.SplitHostPort(listen)
 	if err != nil {

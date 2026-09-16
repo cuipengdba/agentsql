@@ -1,0 +1,25 @@
+# AgentSQL container configuration using an external PostgreSQL metadata store.
+server:
+  http_listen: "0.0.0.0:7780"
+  console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
+
+store:
+  metadata:
+    driver: postgres
+    dsn: "postgres://agentsql:***@host:5432/agentsql?sslmode=disable&TimeZone=Asia/Shanghai"
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: "30m"
+  audit:
+    separate: false
+
+defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: 20
+
+theme:
+  default: "dark"

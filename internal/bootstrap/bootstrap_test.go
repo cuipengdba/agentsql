@@ -120,6 +120,18 @@ func TestAssembleDisablesEventsWithConsoleOrStreamSwitch(t *testing.T) {
 	}
 }
 
+func TestAssembleMetadataSQLiteConfiguration(t *testing.T) {
+	cfg := bootstrapTestConfig("")
+	cfg.Store.Metadata = &config.MetadataStoreConfig{
+		Driver:     "sqlite",
+		SQLitePath: filepath.Join(t.TempDir(), "agentsql.db"),
+	}
+	runtime, err := Assemble(context.Background(), cfg, bootstrapTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	require.NoError(t, runtime.Store.Ping(context.Background()))
+}
+
 func TestAssembleDoesNotPublishWhenAuditPersistenceFails(t *testing.T) {
 	runtime, err := Assemble(context.Background(), bootstrapTestConfig(filepath.Join(t.TempDir(), "agentsql.db")), bootstrapTestSecret)
 	require.NoError(t, err)
@@ -258,6 +270,19 @@ func TestAssembleFailsClosed(t *testing.T) {
 		cfg.Store.SQLitePath = ""
 		_, err := Assemble(context.Background(), cfg, bootstrapTestSecret)
 		require.Error(t, err)
+	})
+	t.Run("invalid metadata driver", func(t *testing.T) {
+		cfg := bootstrapTestConfig("")
+		cfg.Store.Metadata = &config.MetadataStoreConfig{Driver: "mysql"}
+		_, err := Assemble(context.Background(), cfg, bootstrapTestSecret)
+		require.ErrorContains(t, err, "unsupported dialect")
+	})
+	t.Run("postgres dsn missing", func(t *testing.T) {
+		t.Setenv("AGENTSQL_STORE_METADATA_DSN", "")
+		cfg := bootstrapTestConfig("")
+		cfg.Store.Metadata = &config.MetadataStoreConfig{Driver: "postgres"}
+		_, err := Assemble(context.Background(), cfg, bootstrapTestSecret)
+		require.ErrorIs(t, err, config.ErrMissingPostgresDSN)
 	})
 	t.Run("store path is directory", func(t *testing.T) {
 		_, err := Assemble(context.Background(), bootstrapTestConfig(t.TempDir()), bootstrapTestSecret)
