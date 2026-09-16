@@ -11,7 +11,9 @@ import (
 )
 
 func TestMetricsObserveAndGather(t *testing.T) {
-	hub := New(nil)
+	hub := New(func() []PoolStat {
+		return []PoolStat{{DatasourceID: "ds-1", Dialect: "postgres", MaxOpen: 5, InUse: 2, Idle: 3}}
+	})
 	hub.ObserveHTTP("GET", "/healthz", "200", 0.004)
 	hub.ObserveDecision("deny", "postgres", "UPDATE")
 	hub.ObserveRuleHit("R002", "deny", "1")
@@ -49,6 +51,7 @@ func TestMetricsObserveAndGather(t *testing.T) {
 		"agentsql_rule_hits_total",
 		"agentsql_pipeline_stage_duration_seconds",
 		"agentsql_rejected_total",
+		"agentsql_pool_connections",
 	} {
 		_, exists := names[name]
 		require.True(t, exists, name)
@@ -80,32 +83,15 @@ func TestMetricsBucketsMatchSpecification(t *testing.T) {
 
 func TestPoolCollectorEmitsAllStates(t *testing.T) {
 	hub := New(func() []PoolStat {
-		return []PoolStat{{
-			DatasourceID: "ds-1",
-			Dialect:      "postgres",
-			MaxOpen:      5,
-			InUse:        2,
-			Idle:         3,
-		}}
+		return []PoolStat{
+			{DatasourceID: "ds-pg", Dialect: "postgres", MaxOpen: 5, InUse: 2, Idle: 3},
+			{DatasourceID: "ds-my", Dialect: "mysql", MaxOpen: 9, InUse: 4, Idle: 5},
+		}
 	})
-	families, err := hub.registry.Gather()
-	require.NoError(t, err)
-	values := make(map[string]float64)
-	for _, family := range families {
-		if family.GetName() != "agentsql_pool_connections" {
-			continue
-		}
-		for _, metric := range family.Metric {
-			state := ""
-			for _, label := range metric.Label {
-				if label.GetName() == "state" {
-					state = label.GetValue()
-				}
-			}
-			values[state] = metric.GetGauge().GetValue()
-		}
-	}
-	require.Equal(t, map[string]float64{"idle": 3, "inuse": 2, "max": 5}, values)
+	require.Equal(t, map[string]float64{
+		"ds-my/mysql/idle": 5, "ds-my/mysql/inuse": 4, "ds-my/mysql/max": 9,
+		"ds-pg/postgres/idle": 3, "ds-pg/postgres/inuse": 2, "ds-pg/postgres/max": 5,
+	}, gatherPoolValues(t, hub))
 }
 
 func TestMetricsNilReceiverAndSnapshotPanicAreSafe(t *testing.T) {
@@ -119,10 +105,33 @@ func TestMetricsNilReceiverAndSnapshotPanicAreSafe(t *testing.T) {
 		require.Nil(t, hub.Handler())
 	})
 
-	panicking := New(func() []PoolStat { panic("snapshot unavailable") })
+	for _, test := range []struct {
+		name     string
+		snapshot func() []PoolStat
+	}{
+		{name: "nil callback"},
+		{name: "nil snapshot", snapshot: func() []PoolStat { return nil }},
+		{name: "panic", snapshot: func() []PoolStat { panic("snapshot unavailable") }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshotHub := New(test.snapshot)
+			require.NotPanics(t, func() {
+				require.Empty(t, gatherPoolValues(t, snapshotHub))
+			})
+		})
+	}
+
+	panics := false
+	panickingAfterSuccess := New(func() []PoolStat {
+		if panics {
+			panic("snapshot unavailable")
+		}
+		return []PoolStat{{DatasourceID: "stale", Dialect: "postgres", MaxOpen: 1}}
+	})
+	require.NotEmpty(t, gatherPoolValues(t, panickingAfterSuccess))
+	panics = true
 	require.NotPanics(t, func() {
-		_, err := panicking.registry.Gather()
-		require.NoError(t, err)
+		require.Empty(t, gatherPoolValues(t, panickingAfterSuccess), "panic must not leak stale gauge series")
 	})
 }
 
@@ -136,4 +145,25 @@ func TestNewUsesPrivateRegistryWithoutDuplicateCollectors(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, firstFamilies)
 	require.NotEmpty(t, secondFamilies)
+}
+
+func gatherPoolValues(t *testing.T, hub *Metrics) map[string]float64 {
+	t.Helper()
+	families, err := hub.registry.Gather()
+	require.NoError(t, err)
+	values := make(map[string]float64)
+	for _, family := range families {
+		if family.GetName() != "agentsql_pool_connections" {
+			continue
+		}
+		for _, metric := range family.Metric {
+			labels := make(map[string]string, len(metric.Label))
+			for _, label := range metric.Label {
+				labels[label.GetName()] = label.GetValue()
+			}
+			key := labels["datasource"] + "/" + labels["dialect"] + "/" + labels["state"]
+			values[key] = metric.GetGauge().GetValue()
+		}
+	}
+	return values
 }

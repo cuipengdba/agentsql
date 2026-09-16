@@ -15,6 +15,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
+	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -238,6 +239,12 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		},
 	}
 	provider := &mcpExecutorProvider{executor: spy}
+	metricsHub := metrics.New(func() []metrics.PoolStat {
+		return []metrics.PoolStat{
+			{DatasourceID: "ds-allowed", Dialect: "postgres", MaxOpen: 5, InUse: 2, Idle: 3},
+			{DatasourceID: "ds-hidden", Dialect: "postgres", MaxOpen: 4, InUse: 1, Idle: 3},
+		}
+	})
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
@@ -246,9 +253,11 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		Approvals:     metadataStore.Approvals(),
 		Audit:         audit.NewRecorder(metadataStore.AuditLogs()),
 		Redactors:     staticRedactorBuilder{redactor: redactor},
-	}, mcpTestSecret)
+	}, mcpTestSecret, pipeline.WithObserver(metricsHub))
 	require.NoError(t, err)
-	runtime := &bootstrap.Runtime{Pipeline: flow, Executors: executor.NewManager(false), Store: metadataStore}
+	runtime := &bootstrap.Runtime{
+		Pipeline: flow, Executors: executor.NewManager(false), Store: metadataStore, Metrics: metricsHub,
+	}
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	handlers := &toolHandlers{
 		runtime:     runtime,

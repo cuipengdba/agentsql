@@ -12,7 +12,7 @@ services:
       AGENTSQL_ADMIN_USER: "${AGENTSQL_ADMIN_USER:-admin}"
       AGENTSQL_ADMIN_PASSWORD: "${AGENTSQL_ADMIN_PASSWORD:?must set AGENTSQL_ADMIN_PASSWORD in .env}"
     volumes:
-      - ./data:/var/lib/agentsql
+      - agentsql-data:/var/lib/agentsql
       - ./examples/docker/config.yaml:/etc/agentsql/config.yaml:ro
     healthcheck:
       test: ["CMD", "agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
@@ -23,6 +23,34 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./examples/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: agentsql_observability
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/agentsql.json
+    volumes:
+      - ./examples/observability/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./examples/observability/provisioning/dashboards/agentsql.yml:/etc/grafana/provisioning/dashboards/agentsql.yml:ro
+      - ./examples/observability/grafana_dashboard.json:/var/lib/grafana/dashboards/agentsql.json:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 
   # Optional PostgreSQL demo database. 仅限本地 demo，切勿用于生产。
   postgres:
@@ -58,3 +86,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+volumes:
+  agentsql-data:

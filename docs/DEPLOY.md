@@ -12,7 +12,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关和生产级 MCP Server。�
 | `/etc/agentsql/agentsql.env` | 密钥与管理员凭证，权限应为 `0600` |
 | `/var/lib/agentsql/agentsql.db` | SQLite 元数据与审计库 |
 
-容器部署使用同样的 `/etc/agentsql` 与 `/var/lib/agentsql` 路径。仓库的 `./data` 目录挂载到容器数据目录。
+容器部署使用同样的 `/etc/agentsql` 与 `/var/lib/agentsql` 路径。Compose 使用命名卷 `agentsql-data` 持久化容器数据，避免 Linux 宿主 bind mount 生成 root 权限文件。
 
 ## 方式一：Docker Compose（推荐）
 
@@ -45,6 +45,16 @@ docker compose ps
 ```bash
 docker compose --profile demo up -d --build
 ```
+
+需要同时启动 AgentSQL、Prometheus 与自动 provisioning 的 Grafana 六面板时使用：
+
+```bash
+AGENTSQL_SECRET='N7vK2mQ9xR4tY8pL6cW3sD5fH1jB0zUa' \
+AGENTSQL_ADMIN_PASSWORD='S9afe-Admin-Passphrase-2026' \
+docker compose --profile observability up -d --build
+```
+
+以上值仅是满足校验规则的本地示例，实际部署请按前文生成并妥善保存随机值。Prometheus 与 Grafana 和 AgentSQL 一样仅绑定宿主回环地址。命名卷可用 `docker compose down -v` 显式删除；该命令会永久清除 SQLite 元数据与审计记录。
 
 ## 方式二：本机二进制
 
