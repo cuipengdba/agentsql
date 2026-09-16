@@ -364,7 +364,7 @@ func idAPIResource(resource string) bool {
 func knownAPIResource(resource string) bool {
 	switch resource {
 	case "auth", "agents", "datasources", "policies", "rules", "mask_rules",
-		"audit", "approvals", "dashboard", "playground":
+		"audit", "approvals", "dashboard", "playground", "stream":
 		return true
 	default:
 		return false
@@ -506,6 +506,10 @@ func (writer *statusResponseWriter) Write(body []byte) (int, error) {
 		writer.WriteHeader(http.StatusOK)
 	}
 	return writer.ResponseWriter.Write(body)
+}
+
+func (writer *statusResponseWriter) Unwrap() http.ResponseWriter {
+	return writer.ResponseWriter
 }
 
 func bearerKey(header string) (string, bool) {

@@ -6,6 +6,10 @@ server:
   http_listen: "127.0.0.1:7780"
   # Web 管理控制台开关。启用时必须设置 AGENTSQL_ADMIN_PASSWORD。
   console_enabled: true
+  # 大屏 SSE 实时审计流；仅在控制台启用时生效。
+  event_stream: true
+  # 同时在线的 SSE 连接上限，合法范围 1-1000。
+  event_stream_max_connections: 100
 
 store:
   # 元数据与审计 SQLite 文件；启动时自动创建父目录并执行幂等迁移。

@@ -430,7 +430,7 @@ func (pinger *fakePinger) Ping(context.Context, model.Datasource) (PingResult, e
 }
 
 func adminTestConfig(path string) config.Config {
-	return config.Config{Server: config.ServerConfig{HTTPListen: "127.0.0.1:7780"}, Store: config.StoreConfig{SQLitePath: path}, Defaults: config.DefaultsConfig{StatementTimeoutMS: 5000, RowLimit: 1000, MaxConnsPerDatasource: 5, QPSPerAgent: 20}, Theme: config.ThemeConfig{Default: "dark"}}
+	return config.Config{Server: config.ServerConfig{HTTPListen: "127.0.0.1:7780", ConsoleEnabled: true, EventStream: false, EventStreamMaxConnections: 100}, Store: config.StoreConfig{SQLitePath: path}, Defaults: config.DefaultsConfig{StatementTimeoutMS: 5000, RowLimit: 1000, MaxConnsPerDatasource: 5, QPSPerAgent: 20}, Theme: config.ThemeConfig{Default: "dark"}}
 }
 func stringPointerAdmin(value string) *string { return &value }
 func intPointerAdmin(value int) *int          { return &value }

@@ -29,6 +29,8 @@ const (
 const defaultConfigTemplate = `server:
   http_listen: "127.0.0.1:7780"
   console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
 store:
   sqlite_path: "./data/agentsql.db"
 defaults:

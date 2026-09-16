@@ -94,6 +94,13 @@ func TestAdminRecoverBeforeAndAfterCommittedHeader(t *testing.T) {
 	}
 }
 
+func TestStatusRecorderUnwrapsForResponseController(t *testing.T) {
+	underlying := httptest.NewRecorder()
+	wrapper := &statusRecorder{ResponseWriter: underlying, status: http.StatusOK}
+	require.Same(t, underlying, wrapper.Unwrap())
+	require.NoError(t, http.NewResponseController(wrapper).Flush())
+}
+
 func lastAdminLogEntry(t *testing.T, encoded string) map[string]any {
 	t.Helper()
 	lines := strings.Split(strings.TrimSpace(encoded), "\n")

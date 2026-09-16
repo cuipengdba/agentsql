@@ -2,6 +2,8 @@
 server:
   http_listen: "0.0.0.0:7780"
   console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
 
 store:
   sqlite_path: "/var/lib/agentsql/agentsql.db"

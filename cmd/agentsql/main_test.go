@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,19 @@ func TestVersionCommand(t *testing.T) {
 	serve, _, err := command.Find([]string{"serve"})
 	require.NoError(t, err)
 	require.Nil(t, serve.Flags().Lookup("api-key"))
+}
+
+func TestPrepareStdioConfigDisablesHTTPEventStream(t *testing.T) {
+	loaded := config.Config{Server: config.ServerConfig{
+		ConsoleEnabled:            true,
+		EventStream:               true,
+		EventStreamMaxConnections: 100,
+	}}
+	prepared := prepareStdioConfig(loaded)
+	require.False(t, prepared.Server.ConsoleEnabled)
+	require.False(t, prepared.Server.EventStream)
+	require.True(t, loaded.Server.ConsoleEnabled)
+	require.True(t, loaded.Server.EventStream)
 }
 
 func TestMCPCommandKeepsStdoutCleanOnStartupFailure(t *testing.T) {

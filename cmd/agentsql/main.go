@@ -79,6 +79,9 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load MCP configuration: %w", err)
 			}
+			// The stdio command has no HTTP console, so it must not allocate or
+			// decorate audit paths for an event stream that cannot be consumed.
+			loaded = prepareStdioConfig(loaded)
 			boundKey := strings.TrimSpace(apiKey)
 			if boundKey == "" {
 				boundKey = strings.TrimSpace(os.Getenv("AGENTSQL_API_KEY"))
@@ -111,6 +114,12 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")
 	command.Flags().StringVar(&apiKey, "api-key", "", "bind this stdio server to one Agent API key")
 	return command
+}
+
+func prepareStdioConfig(loaded config.Config) config.Config {
+	loaded.Server.ConsoleEnabled = false
+	loaded.Server.EventStream = false
+	return loaded
 }
 
 func newVersionCommand() *cobra.Command {

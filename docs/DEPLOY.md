@@ -46,6 +46,10 @@ docker compose ps
 docker compose --profile demo up -d --build
 ```
 
+控制台实时事件流默认通过 `server.event_stream: true` 启用，并允许最多
+`server.event_stream_max_connections: 100` 条并发 SSE 连接（有效范围 1–1000）。
+反向代理该路径时应关闭缓存、响应压缩和 buffering，并把空闲超时设为大于 25 秒。
+
 需要同时启动 AgentSQL、Prometheus 与自动 provisioning 的 Grafana 六面板时使用：
 
 ```bash

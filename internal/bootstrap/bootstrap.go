@@ -12,6 +12,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/metrics"
@@ -27,6 +28,8 @@ type Runtime struct {
 	Executors *executor.Manager
 	Store     *store.Store
 	Metrics   *metrics.Metrics
+	// Events is the in-process stream of successfully persisted audits.
+	Events *eventbus.Hub
 
 	mu        sync.Mutex
 	secret    []byte
@@ -79,17 +82,29 @@ func assembleWithExecutorProvider(
 		executorPort = executorOverride
 	}
 	redactors := &redactorBuilder{repository: metadataStore.MaskRules()}
+	var events *eventbus.Hub
+	auditSink := audit.Sink(metadataStore.AuditLogs())
+	approvals := pipeline.ApprovalWriter(metadataStore.Approvals())
+	if cfg.Server.ConsoleEnabled && cfg.Server.EventStream {
+		events, err = eventbus.New(eventbus.Options{HistorySize: 200, SubscriberBuffer: 64})
+		if err != nil {
+			return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("assemble event stream: %w", err))
+		}
+		auditSink = &publishingAuditSink{inner: auditSink, publisher: events}
+		approvals = &publishingApprovalWorkflow{inner: metadataStore.Approvals(), publisher: events}
+	}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
 		Policies:      metadataStore.Policies(),
 		Executors:     executorPort,
-		Approvals:     metadataStore.Approvals(),
-		Audit:         audit.NewRecorder(metadataStore.AuditLogs()),
+		Approvals:     approvals,
+		Audit:         audit.NewRecorder(auditSink),
 		Redactors:     redactors,
 		RuleOverrides: metadataStore.Rules(),
 	}, secret, pipeline.WithObserver(metricsHub))
 	if err != nil {
+		events.Close()
 		return nil, closeAfterAssemblyError(manager, metadataStore, err)
 	}
 	return &Runtime{
@@ -97,6 +112,7 @@ func assembleWithExecutorProvider(
 		Executors: manager,
 		Store:     metadataStore,
 		Metrics:   metricsHub,
+		Events:    events,
 		secret:    append([]byte(nil), secret...),
 		redactors: redactors,
 	}, nil
@@ -131,6 +147,9 @@ func (runtime *Runtime) Close() error {
 		if err := runtime.Executors.CloseAll(); err != nil {
 			closeErrors = append(closeErrors, err)
 		}
+	}
+	if runtime.Events != nil {
+		runtime.Events.Close()
 	}
 	if runtime.Store != nil {
 		if err := runtime.Store.Close(); err != nil {

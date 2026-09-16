@@ -435,7 +435,7 @@ func doMCPRequest(
 
 func httpTestConfig(qps int) config.Config {
 	return config.Config{
-		Server: config.ServerConfig{HTTPListen: "127.0.0.1:8650"},
+		Server: config.ServerConfig{HTTPListen: "127.0.0.1:8650", EventStreamMaxConnections: 100},
 		Store:  config.StoreConfig{SQLitePath: "test.db"},
 		Defaults: config.DefaultsConfig{
 			StatementTimeoutMS:    5_000,
@@ -457,6 +457,7 @@ func TestClassifyRoute(t *testing.T) {
 		{name: "audit action", path: "/api/v1/audit/export", want: "/api/v1/audit/export"},
 		{name: "dashboard action", path: "/api/v1/dashboard/summary", want: "/api/v1/dashboard/summary"},
 		{name: "playground action", path: "/api/v1/playground/assess", want: "/api/v1/playground/assess"},
+		{name: "event stream", path: "/api/v1/stream", want: "/api/v1/stream"},
 		{name: "unknown auth action", path: "/api/v1/auth/unknown", want: "/other"},
 		{name: "unknown audit action", path: "/api/v1/audit/unknown", want: "/other"},
 		{name: "unknown dashboard action", path: "/api/v1/dashboard/unknown", want: "/other"},
@@ -480,4 +481,11 @@ func TestClassifyRoute(t *testing.T) {
 			require.Equal(t, test.want, classifyRoute(test.path))
 		})
 	}
+}
+
+func TestStatusResponseWriterUnwrapsForResponseController(t *testing.T) {
+	underlying := httptest.NewRecorder()
+	wrapped := &statusResponseWriter{ResponseWriter: underlying, status: http.StatusOK}
+	require.Same(t, underlying, wrapped.Unwrap())
+	require.NoError(t, http.NewResponseController(wrapped).Flush())
 }

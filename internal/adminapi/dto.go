@@ -281,6 +281,35 @@ func auditToViews(logs []model.AuditLog) []auditView {
 	return views
 }
 
+// auditStreamView is the explicit safe allow-list for realtime events.
+type auditStreamView struct {
+	ID           int64     `json:"id"`
+	TS           time.Time `json:"ts"`
+	AgentID      *string   `json:"agent_id,omitempty"`
+	DatasourceID *string   `json:"datasource_id,omitempty"`
+	MCPTool      *string   `json:"mcp_tool,omitempty"`
+	DBType       *string   `json:"db_type,omitempty"`
+	StmtType     *string   `json:"stmt_type,omitempty"`
+	Objects      *string   `json:"objects,omitempty"`
+	Decision     string    `json:"decision"`
+	RuleHits     *string   `json:"rule_hits,omitempty"`
+	RiskLevel    *int      `json:"risk_level,omitempty"`
+	EstRows      *int64    `json:"est_rows,omitempty"`
+	RowsReturned *int      `json:"rows_returned,omitempty"`
+	LatencyMS    *int64    `json:"latency_ms,omitempty"`
+	ModelName    *string   `json:"model_name,omitempty"`
+}
+
+func auditToStreamView(log model.AuditLog) auditStreamView {
+	return auditStreamView{
+		ID: log.ID, TS: log.TS, AgentID: log.AgentID, DatasourceID: log.DatasourceID,
+		MCPTool: log.MCPTool, DBType: log.DBType, StmtType: log.StmtType, Objects: log.Objects,
+		Decision: log.Decision, RuleHits: log.RuleHits, RiskLevel: log.RiskLevel,
+		EstRows: log.EstRows, RowsReturned: log.RowsReturned, LatencyMS: log.LatencyMS,
+		ModelName: log.ModelName,
+	}
+}
+
 type approvalView struct {
 	ID        string     `json:"id"`
 	AuditID   *int64     `json:"audit_id,omitempty"`

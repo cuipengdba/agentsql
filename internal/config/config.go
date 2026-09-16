@@ -28,6 +28,8 @@ var (
 	ErrInvalidTheme = errors.New("theme.default must be light or dark")
 	// ErrMultipleYAMLDocuments indicates that a configuration file contains trailing YAML documents.
 	ErrMultipleYAMLDocuments = errors.New("configuration must contain exactly one YAML document")
+	// ErrInvalidEventStreamMaxConnections indicates an SSE connection limit outside 1-1000.
+	ErrInvalidEventStreamMaxConnections = errors.New("server.event_stream_max_connections must be between 1 and 1000")
 )
 
 // Config is the root AgentSQL configuration.
@@ -40,8 +42,10 @@ type Config struct {
 
 // ServerConfig controls the shared HTTP listener and console availability.
 type ServerConfig struct {
-	HTTPListen     string `yaml:"http_listen"`
-	ConsoleEnabled bool   `yaml:"console_enabled"`
+	HTTPListen                string `yaml:"http_listen"`
+	ConsoleEnabled            bool   `yaml:"console_enabled"`
+	EventStream               bool   `yaml:"event_stream"`
+	EventStreamMaxConnections int    `yaml:"event_stream_max_connections"`
 }
 
 // StoreConfig controls the local metadata store path.
@@ -81,11 +85,18 @@ func Parse(contents []byte) (Config, error) {
 		return Config{}, fmt.Errorf("decode trailing config data: %w", err)
 	}
 
+	configured := configuredServerFields(contents)
+	if !configured["console_enabled"] {
+		loaded.Server.ConsoleEnabled = true
+	}
+	if !configured["event_stream"] {
+		loaded.Server.EventStream = true
+	}
+	if !configured["event_stream_max_connections"] {
+		loaded.Server.EventStreamMaxConnections = 100
+	}
 	if err := loaded.Validate(); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
-	}
-	if !serverConsoleEnabledConfigured(contents) {
-		loaded.Server.ConsoleEnabled = true
 	}
 	return loaded, nil
 }
@@ -110,14 +121,17 @@ func Load(path string) (Config, error) {
 	return loaded, nil
 }
 
-func serverConsoleEnabledConfigured(contents []byte) bool {
+func configuredServerFields(contents []byte) map[string]bool {
 	var document struct {
 		Server map[string]yaml.Node `yaml:"server"`
 	}
 	if err := yaml.Unmarshal(contents, &document); err != nil {
-		return true
+		return map[string]bool{}
 	}
-	_, configured := document.Server["console_enabled"]
+	configured := make(map[string]bool, len(document.Server))
+	for field := range document.Server {
+		configured[field] = true
+	}
 	return configured
 }
 
@@ -138,6 +152,9 @@ func (config Config) Validate() error {
 	}
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("validate server.http_listen port %d: %w", port, ErrInvalidHTTPListen)
+	}
+	if config.Server.EventStreamMaxConnections < 1 || config.Server.EventStreamMaxConnections > 1000 {
+		return fmt.Errorf("validate server event stream connections: %w", ErrInvalidEventStreamMaxConnections)
 	}
 
 	if config.Defaults.StatementTimeoutMS < 0 {
