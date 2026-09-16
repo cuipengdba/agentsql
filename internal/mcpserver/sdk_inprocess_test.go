@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 	require.NoError(t, err)
 	server, err := NewServer(context.Background(), Options{
 		APIKey: fixture.handlers.apiKey, Runtime: fixture.runtime,
-		Logger: zerolog.Nop(), Version: "test",
+		Logger: zerolog.Nop(), Version: version.Version,
 	})
 	require.NoError(t, err)
 	server.handlers.executorFor = fixture.handlers.executorFor
@@ -36,6 +37,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 	client := mcp.NewClient(&mcp.Implementation{Name: "agentsql-test", Version: "test"}, nil)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
+	require.Equal(t, version.Version, session.InitializeResult().ServerInfo.Version)
 	t.Cleanup(func() {
 		_ = session.Close()
 		cancel()

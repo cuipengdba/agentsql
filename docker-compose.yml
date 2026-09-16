@@ -3,10 +3,10 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v0.1}
-    image: agentsql:${VERSION:-v0.1}
+        VERSION: ${VERSION:-v0.1.0}
+    image: agentsql:${VERSION:-v0.1.0}
     ports:
-      - "7780:7780"
+      - "127.0.0.1:7780:7780"
     environment:
       AGENTSQL_SECRET: "${AGENTSQL_SECRET:?must set AGENTSQL_SECRET in .env}"
       AGENTSQL_ADMIN_USER: "${AGENTSQL_ADMIN_USER:-admin}"
@@ -24,7 +24,7 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # Optional PostgreSQL demo database. Start with: docker compose --profile demo up
+  # Optional PostgreSQL demo database. 仅限本地 demo，切勿用于生产。
   postgres:
     image: postgres:16
     profiles: ["demo"]
@@ -33,7 +33,7 @@ services:
       POSTGRES_USER: agentsql
       POSTGRES_PASSWORD: agentsql_demo_password
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agentsql -d agentsql_demo"]
       interval: 10s
@@ -41,7 +41,7 @@ services:
       retries: 5
       start_period: 10s
 
-  # Optional MySQL demo database. Start with: docker compose --profile demo up
+  # Optional MySQL demo database. 仅限本地 demo，切勿用于生产。
   mysql:
     image: mysql:8
     profiles: ["demo"]
@@ -51,7 +51,7 @@ services:
       MYSQL_PASSWORD: agentsql_demo_password
       MYSQL_ROOT_PASSWORD: agentsql_demo_root_password
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uagentsql -pagentsql_demo_password --silent"]
       interval: 10s

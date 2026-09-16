@@ -89,6 +89,9 @@ func TestStreamableHTTPEndToEndSevenTools(t *testing.T) {
 			}
 			require.NotContains(t, responseBody, "execute_raw_sql")
 		}
+		if body == initializeRequest {
+			require.Contains(t, responseBody, `"version":"`+version.Version+`"`)
+		}
 		if body == listSourcesRequest {
 			require.Contains(t, responseBody, "ds-allowed")
 			require.NotContains(t, responseBody, "ds-hidden")

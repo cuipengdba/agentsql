@@ -22,6 +22,19 @@ cp examples/docker/.env.example .env
 
 编辑 `.env`，替换 `AGENTSQL_SECRET` 和 `AGENTSQL_ADMIN_PASSWORD`。`AGENTSQL_SECRET` 必须恰好 32 字节，且后续不得随意变更。
 
+生成你自己的随机值；不要复制文档中的值，也不要把生成结果提交到仓库：
+
+```bash
+openssl rand -base64 24                    # AGENTSQL_SECRET：输出恰好 32 个 ASCII 字节
+openssl rand -base64 24                    # 可作为强管理员口令
+```
+
+```powershell
+$bytes = [byte[]]::new(24); $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); [Convert]::ToBase64String($bytes); $rng.Dispose()
+```
+
+PowerShell 命令使用密码学 RNG 生成 24 个随机字节，再编码为恰好 32 个 ASCII 字节。分别运行两次，填写 SECRET 与管理员口令。
+
 ```bash
 docker compose up -d --build
 docker compose ps
@@ -38,15 +51,25 @@ docker compose --profile demo up -d --build
 构建依赖 Go 1.25、C 编译器与 glibc 兼容环境。`pg_query_go` 必须启用 cgo。
 
 ```bash
-make build VERSION=v0.1
+make build VERSION=v0.1.0
 ./bin/agentsqlctl init-config -o config.yaml
-export AGENTSQL_SECRET='0123456789abcdef0123456789abcdef'
+export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
-export AGENTSQL_ADMIN_PASSWORD='CHANGE_ME_AgentSQL_Admin_2026!'
+export AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 24)"
 ./bin/agentsql serve -c config.yaml
 ```
 
-上述密钥只是长度正确的示例，生产环境必须替换。仓库已经包含嵌入式控制台产物；只有前端源码变化时才需先运行 `make webui`。
+上述命令会为当前进程生成你自己的随机值；请通过密码管理器或受保护的环境文件持久保存。仓库已经包含嵌入式控制台产物；只有前端源码变化时才需先运行 `make webui`。
+
+PowerShell 本机启动示例：
+
+```powershell
+./bin/agentsqlctl.exe init-config -o config.yaml
+$bytes = [byte[]]::new(24); $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); $env:AGENTSQL_SECRET = [Convert]::ToBase64String($bytes); $rng.Dispose()
+$env:AGENTSQL_ADMIN_USER = 'admin'
+$passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $passwordRng.GetBytes($passwordBytes); $env:AGENTSQL_ADMIN_PASSWORD = [Convert]::ToBase64String($passwordBytes); $passwordRng.Dispose()
+./bin/agentsql.exe serve -c config.yaml
+```
 
 ## 方式三：systemd
 
@@ -64,9 +87,9 @@ sudo install -o root -g agentsql -m 0640 examples/docker/config.yaml /etc/agents
 
 ```bash
 sudo sh -c 'cat > /etc/agentsql/agentsql.env <<EOF
-AGENTSQL_SECRET=0123456789abcdef0123456789abcdef
+AGENTSQL_SECRET=<GENERATE_YOUR_OWN_32_BYTE_SECRET>
 AGENTSQL_ADMIN_USER=admin
-AGENTSQL_ADMIN_PASSWORD=CHANGE_ME_AgentSQL_Admin_2026!
+AGENTSQL_ADMIN_PASSWORD=<GENERATE_YOUR_OWN_STRONG_PASSPHRASE>
 EOF'
 sudo chmod 0600 /etc/agentsql/agentsql.env
 sudo systemctl daemon-reload
@@ -74,7 +97,7 @@ sudo systemctl enable --now agentsql
 sudo systemctl status agentsql
 ```
 
-生产环境必须替换示例密钥和密码。
+先用本节前面的随机生成命令替换两个占位符，再启动服务。占位符本身不能用于启动。
 
 ## 探活
 
@@ -101,6 +124,12 @@ curl --fail http://127.0.0.1:7780/readyz
 2. 与该数据库对应的 `AGENTSQL_SECRET`。
 
 二者缺一不可。密钥丢失后，SQLite 中已经加密的数据源密码无法解密。复制 SQLite 文件前应停止写入或使用 SQLite 一致性备份机制；不要只复制正在写入的主文件。
+
+更换 `AGENTSQL_SECRET` 会使既有数据源密码无法解密，这不是无损密钥轮换。v0.1 没有在线重加密流程；需要更换时，必须先规划数据源凭据重新录入与可回滚的 SQLite 备份。
+
+## 本地测试模式
+
+只有本地开发或测试需要兼容仓库历史公开测试凭据时，才可设置 `AGENTSQL_INSECURE=1`。它只放行“长度正确的公开测试 SECRET”和“非空弱管理员口令”；SECRET 缺失或不是 32 字节、管理员口令为空仍会拒绝启动。该开关不会、也不得关闭认证、安全规则或 fail-closed 行为，生产环境禁止设置。
 
 ## 常见问题
 

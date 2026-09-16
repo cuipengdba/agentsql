@@ -19,6 +19,9 @@ func TestVersionCommand(t *testing.T) {
 	var output strings.Builder
 	require.Equal(t, 0, run([]string{"version"}, &output, io.Discard))
 	require.Equal(t, version.Version+"\n", output.String())
+	output.Reset()
+	require.Equal(t, 0, run([]string{"--version"}, &output, io.Discard))
+	require.Equal(t, version.Version+"\n", output.String())
 
 	root := newRootCommand()
 	require.True(t, root.SilenceErrors)
@@ -81,6 +84,7 @@ func TestCheckConfigOnlyValidates(t *testing.T) {
 }
 
 func TestMigrateRequiresSecretAndPrintsVersions(t *testing.T) {
+	t.Setenv("AGENTSQL_INSECURE", "")
 	databasePath := filepath.Join(t.TempDir(), "metadata", "agentsql.db")
 	configPath := writeControlConfig(t, strings.Replace(
 		defaultConfigTemplate,
@@ -92,11 +96,56 @@ func TestMigrateRequiresSecretAndPrintsVersions(t *testing.T) {
 	require.Equal(t, 1, run([]string{"migrate", "-c", configPath}, io.Discard, io.Discard))
 
 	t.Setenv("AGENTSQL_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AGENTSQL_INSECURE", "1")
 	var output strings.Builder
 	require.Equal(t, 0, run([]string{"migrate", "-c", configPath}, &output, io.Discard))
 	require.Contains(t, output.String(), "migration current=1 latest=1")
 	_, err := os.Stat(databasePath)
 	require.NoError(t, err)
+}
+
+func TestMigrateStartupSecurityMatrix(t *testing.T) {
+	const (
+		publicSecret = "0123456789abcdef0123456789abcdef"
+		strongSecret = "a7f3c91e5b2d4806af15ce9034d77b21"
+	)
+	tests := []struct {
+		name     string
+		secret   string
+		insecure string
+		wantExit int
+		want     string
+	}{
+		{name: "public secret refused", secret: publicSecret, wantExit: 1, want: "publicly known example value"},
+		{name: "invalid insecure rejected", secret: strongSecret, insecure: "yes", wantExit: 1, want: `AGENTSQL_INSECURE must be unset or exactly "1"`},
+		{name: "insecure wrong length rejected", secret: "short", insecure: "1", wantExit: 1, want: "must be exactly 32 bytes"},
+		{name: "strong secret accepted", secret: strongSecret},
+		{name: "insecure public secret accepted", secret: publicSecret, insecure: "1", want: "AGENTSQL_INSECURE=1 enabled"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("AGENTSQL_SECRET", test.secret)
+			t.Setenv("AGENTSQL_INSECURE", test.insecure)
+			databasePath := filepath.Join(t.TempDir(), "metadata", "agentsql.db")
+			configPath := writeControlConfig(t, strings.Replace(defaultConfigTemplate, "./data/agentsql.db", filepath.ToSlash(databasePath), 1))
+			var stdout strings.Builder
+			var stderr strings.Builder
+			exitCode := run([]string{"migrate", "-c", configPath}, &stdout, &stderr)
+			require.Equal(t, test.wantExit, exitCode, stderr.String())
+			combined := stdout.String() + stderr.String()
+			if test.want != "" {
+				require.Contains(t, combined, test.want)
+			}
+			require.NotContains(t, combined, test.secret)
+			if test.wantExit == 0 {
+				require.FileExists(t, databasePath)
+				require.Contains(t, stdout.String(), "migration current=1 latest=1")
+			} else {
+				_, err := os.Stat(databasePath)
+				require.True(t, os.IsNotExist(err))
+			}
+		})
+	}
 }
 
 func TestHealthCommand(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 )
@@ -41,16 +42,16 @@ func NewServer(ctx context.Context, options Options) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create MCP server: authentication failed")
 	}
-	version := strings.TrimSpace(options.Version)
-	if version == "" {
-		version = "dev"
+	serverVersion := strings.TrimSpace(options.Version)
+	if serverVersion == "" {
+		serverVersion = version.Version
 	}
 	return buildBoundServerWithVersion(
 		agent,
 		options.APIKey,
 		options.Runtime,
 		options.Logger,
-		version,
+		serverVersion,
 	)
 }
 
@@ -60,7 +61,7 @@ func buildBoundServer(
 	runtime *bootstrap.Runtime,
 	logger zerolog.Logger,
 ) (*Server, error) {
-	return buildBoundServerWithVersion(agent, plainKey, runtime, logger, "dev")
+	return buildBoundServerWithVersion(agent, plainKey, runtime, logger, version.Version)
 }
 
 func buildBoundServerWithVersion(
@@ -103,7 +104,14 @@ func RunStdio(ctx context.Context, options Options) error {
 	if err != nil {
 		return err
 	}
-	options.Logger.Info().Str("agent_id", server.handlers.agent.ID).Msg("MCP stdio server started")
+	serverVersion := strings.TrimSpace(options.Version)
+	if serverVersion == "" {
+		serverVersion = version.Version
+	}
+	options.Logger.Info().
+		Str("agent_id", server.handlers.agent.ID).
+		Str("version", serverVersion).
+		Msg("MCP stdio server started")
 	if err := server.sdk.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		return fmt.Errorf("run MCP stdio server: %w", err)
 	}
