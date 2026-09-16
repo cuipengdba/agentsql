@@ -15,22 +15,22 @@ func TestDashboardSummaryUsesUTCNaturalDayWindow(t *testing.T) {
 		return time.Date(2026, time.September, 16, 18, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 	}
 
-	insertDashboardAudit := func(timestamp, decision, ruleHits string, estimatedRows int) {
+	insertDashboardAudit := func(timestamp time.Time, decision, ruleHits string, estimatedRows int) {
 		t.Helper()
-		_, err := opened.db.ExecContext(context.Background(), `
+		_, err := opened.db.ExecContext(context.Background(), repository.bind(`
 INSERT INTO audit_logs (ts, agent_id, decision, rule_hits, est_rows)
-VALUES (?, ?, ?, ?, ?)`, timestamp, "agent-boundary", decision, ruleHits, estimatedRows)
+VALUES (?, ?, ?, ?, ?)`), timestamp, "agent-boundary", decision, ruleHits, estimatedRows)
 		require.NoError(t, err)
 	}
 
 	// days=3 produces current [Sep 14, Sep 17) and comparison [Sep 11, Sep 14).
-	insertDashboardAudit("2026-09-11 00:00:00", "allow", `[]`, 1)
-	insertDashboardAudit("2026-09-13 23:59:59", "deny", `[{"RuleID":"R-PREV","Decision":"deny"}]`, 2)
-	insertDashboardAudit("2026-09-14 00:00:00", "allow", `[]`, 3)
-	insertDashboardAudit("2026-09-14 23:59:59", "deny", `[{"RuleID":"R-CURRENT","Decision":"deny"}]`, 5)
-	insertDashboardAudit("2026-09-16 12:00:00", "warn", `[]`, 7)
-	insertDashboardAudit("2026-09-16 23:59:59", "deny", `[{"RuleID":"R-CURRENT","Decision":"deny"}]`, 11)
-	insertDashboardAudit("2026-09-17 00:00:00", "deny", `[{"RuleID":"R-END","Decision":"deny"}]`, 13)
+	insertDashboardAudit(time.Date(2026, time.September, 11, 0, 0, 0, 0, time.UTC), "allow", `[]`, 1)
+	insertDashboardAudit(time.Date(2026, time.September, 13, 23, 59, 59, 0, time.UTC), "deny", `[{"RuleID":"R-PREV","Decision":"deny"}]`, 2)
+	insertDashboardAudit(time.Date(2026, time.September, 14, 0, 0, 0, 0, time.UTC), "allow", `[]`, 3)
+	insertDashboardAudit(time.Date(2026, time.September, 14, 23, 59, 59, 0, time.UTC), "deny", `[{"RuleID":"R-CURRENT","Decision":"deny"}]`, 5)
+	insertDashboardAudit(time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC), "warn", `[]`, 7)
+	insertDashboardAudit(time.Date(2026, time.September, 16, 23, 59, 59, 0, time.UTC), "deny", `[{"RuleID":"R-CURRENT","Decision":"deny"}]`, 11)
+	insertDashboardAudit(time.Date(2026, time.September, 17, 0, 0, 0, 0, time.UTC), "deny", `[{"RuleID":"R-END","Decision":"deny"}]`, 13)
 
 	summary, err := repository.Summary(context.Background(), 3)
 	require.NoError(t, err)

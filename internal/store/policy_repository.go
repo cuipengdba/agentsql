@@ -11,16 +11,16 @@ import (
 
 // PolicyRepository provides CRUD operations for policies.
 type PolicyRepository struct {
-	db *sql.DB
+	repositoryBase
 }
 
 // Create inserts a policy and returns the stored record.
 func (repository *PolicyRepository) Create(ctx context.Context, policy model.Policy) (model.Policy, error) {
-	_, err := repository.db.ExecContext(ctx, `
+	_, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO policies (
   id, agent_id, datasource_id, object_type, object_name, columns, row_filter, action
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
 		policy.ID,
 		policy.AgentID,
 		policy.DatasourceID,
@@ -42,11 +42,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 
 // Get returns a policy by ID.
 func (repository *PolicyRepository) Get(ctx context.Context, id string) (model.Policy, error) {
-	policy, err := scanPolicy(repository.db.QueryRowContext(ctx, `
+	policy, err := scanPolicy(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, agent_id, datasource_id, object_type, object_name, columns, row_filter,
        action, created_at, updated_at
 FROM policies
-WHERE id = ?`, id))
+WHERE id = ?`), id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Policy{}, fmt.Errorf("get policy %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -62,12 +62,13 @@ func (repository *PolicyRepository) ListByAgentAndDatasource(
 	agentID string,
 	datasourceID string,
 ) ([]model.Policy, error) {
-	rows, err := repository.db.QueryContext(ctx, `
+	query := `
 SELECT id, agent_id, datasource_id, object_type, object_name, columns, row_filter,
        action, created_at, updated_at
-FROM policies INDEXED BY idx_policies_agent_ds
+FROM policies` + indexHint(repository.dialect, " INDEXED BY idx_policies_agent_ds") + `
 WHERE agent_id = ? AND datasource_id = ?
-ORDER BY created_at ASC, id ASC`, agentID, datasourceID)
+ORDER BY created_at ASC, id ASC`
+	rows, err := repository.db.QueryContext(ctx, repository.bind(query), agentID, datasourceID)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"list policies for agent %q and datasource %q: %w",
@@ -108,11 +109,11 @@ func (repository *PolicyRepository) List(ctx context.Context) ([]model.Policy, e
 	if ctx == nil {
 		return nil, fmt.Errorf("list policies: %w", ErrNilContext)
 	}
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, agent_id, datasource_id, object_type, object_name, columns, row_filter,
        action, created_at, updated_at
 FROM policies
-ORDER BY agent_id ASC, datasource_id ASC, object_name ASC, id ASC`)
+ORDER BY agent_id ASC, datasource_id ASC, object_name ASC, id ASC`))
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
@@ -141,12 +142,12 @@ func (repository *PolicyRepository) ListByAgent(
 	if ctx == nil {
 		return nil, fmt.Errorf("list policies by Agent: %w", ErrNilContext)
 	}
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, agent_id, datasource_id, object_type, object_name, columns, row_filter,
        action, created_at, updated_at
 FROM policies
 WHERE agent_id = ?
-ORDER BY datasource_id ASC, object_name ASC, id ASC`, agentID)
+ORDER BY datasource_id ASC, object_name ASC, id ASC`), agentID)
 	if err != nil {
 		return nil, fmt.Errorf("list policies for agent %q: %w", agentID, err)
 	}
@@ -176,11 +177,11 @@ ORDER BY datasource_id ASC, object_name ASC, id ASC`, agentID)
 
 // Update replaces mutable policy fields and returns the stored record.
 func (repository *PolicyRepository) Update(ctx context.Context, policy model.Policy) (model.Policy, error) {
-	result, err := repository.db.ExecContext(ctx, `
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE policies
 SET agent_id = ?, datasource_id = ?, object_type = ?, object_name = ?,
     columns = ?, row_filter = ?, action = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`,
+WHERE id = ?`),
 		policy.AgentID,
 		policy.DatasourceID,
 		policy.ObjectType,
@@ -205,7 +206,7 @@ WHERE id = ?`,
 
 // Delete removes a policy by ID.
 func (repository *PolicyRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, "DELETE FROM policies WHERE id = ?", id)
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM policies WHERE id = ?"), id)
 	if err != nil {
 		return fmt.Errorf("delete policy %q: %w", id, err)
 	}

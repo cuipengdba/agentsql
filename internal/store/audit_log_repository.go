@@ -27,12 +27,7 @@ type AuditPage struct {
 
 // AuditLogRepository provides append and paginated read operations only.
 type AuditLogRepository struct {
-	db *sql.DB
-}
-
-type auditLogExecutor interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
+	repositoryBase
 }
 
 // Insert appends an audit log and returns the record with generated ID and timestamp.
@@ -43,15 +38,16 @@ func (repository *AuditLogRepository) Insert(ctx context.Context, auditLog model
 	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
 		return model.AuditLog{}, err
 	}
-	return insertAuditLog(ctx, repository.db, auditLog)
+	return insertAuditLog(ctx, repository.db, repository.dialect, auditLog)
 }
 
 func insertAuditLog(
 	ctx context.Context,
-	executor auditLogExecutor,
+	executor sqlExecutor,
+	dialect Dialect,
 	auditLog model.AuditLog,
 ) (model.AuditLog, error) {
-	result, err := executor.ExecContext(ctx, `
+	id, err := insertReturningID(ctx, executor, dialect, `
 INSERT INTO audit_logs (
   agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
@@ -81,14 +77,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("insert audit log: %w", err)
 	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return model.AuditLog{}, fmt.Errorf("read inserted audit log ID: %w", err)
-	}
 	if id <= 0 {
 		return model.AuditLog{}, fmt.Errorf("read inserted audit log ID: invalid ID %d", id)
 	}
-	inserted, err := getInsertedAuditLog(ctx, executor, id)
+	inserted, err := getInsertedAuditLog(ctx, executor, dialect, id)
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("read inserted audit log %d: %w", id, err)
 	}
@@ -132,11 +124,12 @@ func (repository *AuditLogRepository) FilteredPage(
 		return AuditPage{}, fmt.Errorf("page audit logs: %w", ErrInvalidPageSize)
 	}
 
-	whereClause, filterArgs := buildAuditWhere(filter)
+	whereClause, filterArgs := buildAuditWhereForDialect(repository.dialect, filter)
 	var total int64
+	countQuery := "SELECT COUNT(*) FROM audit_logs" + whereClause
 	if err := repository.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(*) FROM audit_logs"+whereClause,
+		repository.bind(countQuery),
 		filterArgs...,
 	).Scan(&total); err != nil {
 		return AuditPage{}, fmt.Errorf("count audit logs: %w", err)
@@ -153,7 +146,7 @@ LIMIT ? OFFSET ?`
 	selectArgs := make([]any, 0, len(filterArgs)+2)
 	selectArgs = append(selectArgs, filterArgs...)
 	selectArgs = append(selectArgs, pageSize, int64(page-1)*int64(pageSize))
-	rows, err := repository.db.QueryContext(ctx, selectQuery, selectArgs...)
+	rows, err := repository.db.QueryContext(ctx, repository.bind(selectQuery), selectArgs...)
 	if err != nil {
 		return AuditPage{}, fmt.Errorf("query audit log page %d: %w", page, err)
 	}
@@ -180,6 +173,10 @@ LIMIT ? OFFSET ?`
 }
 
 func buildAuditWhere(filter model.AuditFilter) (clause string, args []any) {
+	return buildAuditWhereForDialect(DialectSQLite, filter)
+}
+
+func buildAuditWhereForDialect(dialect Dialect, filter model.AuditFilter) (clause string, args []any) {
 	conditions := make([]string, 0, 12)
 	args = make([]any, 0, 16)
 	appendCondition := func(condition string, values ...any) {
@@ -218,10 +215,11 @@ func buildAuditWhere(filter model.AuditFilter) (clause string, args []any) {
 	}
 	if filter.Keyword != "" {
 		like := auditLikeArgument(filter.Keyword)
-		appendCondition("(sql_raw LIKE ? ESCAPE '!' OR sql_norm LIKE ? ESCAPE '!')", like, like)
+		operator := likeOperator(dialect)
+		appendCondition("(sql_raw "+operator+" ? ESCAPE '!' OR sql_norm "+operator+" ? ESCAPE '!')", like, like)
 	}
 	if filter.ObjectLike != "" {
-		appendCondition("objects LIKE ? ESCAPE '!'", auditLikeArgument(filter.ObjectLike))
+		appendCondition("objects "+likeOperator(dialect)+" ? ESCAPE '!'", auditLikeArgument(filter.ObjectLike))
 	}
 	if len(conditions) == 0 {
 		return "", args
@@ -251,17 +249,25 @@ func auditLikeArgument(value string) string {
 }
 
 func (repository *AuditLogRepository) getInserted(ctx context.Context, id int64) (model.AuditLog, error) {
-	return getInsertedAuditLog(ctx, repository.db, id)
+	return getInsertedAuditLog(ctx, repository.db, repository.dialect, id)
 }
 
-func getInsertedAuditLog(ctx context.Context, executor auditLogExecutor, id int64) (model.AuditLog, error) {
-	auditLog, err := scanAuditLog(executor.QueryRowContext(ctx, `
+func getInsertedAuditLog(
+	ctx context.Context,
+	executor sqlExecutor,
+	dialect Dialect,
+	id int64,
+) (model.AuditLog, error) {
+	query := `
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg
 FROM audit_logs
-WHERE id = ?`, id))
+WHERE id = ?`
+	auditLog, err := scanAuditLog(executor.QueryRowContext(
+		ctx, repositoryBase{dialect: dialect}.bind(query), id,
+	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.AuditLog{}, fmt.Errorf("get inserted audit log %d: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -315,14 +321,20 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 	auditLog.StmtType = stringPointer(statementType)
 	auditLog.Objects = stringPointer(objects)
 	auditLog.RuleHits = stringPointer(ruleHits)
-	auditLog.RiskLevel = intPointer(riskLevel)
+	var err error
+	auditLog.RiskLevel, err = intPointer(riskLevel)
+	if err != nil {
+		return model.AuditLog{}, fmt.Errorf("scan audit log risk_level: %w", err)
+	}
 	auditLog.EstRows = int64Pointer(estimatedRows)
-	auditLog.RowsReturned = intPointer(rowsReturned)
+	auditLog.RowsReturned, err = intPointer(rowsReturned)
+	if err != nil {
+		return model.AuditLog{}, fmt.Errorf("scan audit log rows_returned: %w", err)
+	}
 	auditLog.LatencyMS = int64Pointer(latencyMS)
 	auditLog.ClientIP = stringPointer(clientIP)
 	auditLog.ModelName = stringPointer(modelName)
 	auditLog.ErrorMsg = stringPointer(errorMessage)
-	var err error
 	auditLog.TS, err = timestamp.required("audit_logs.ts")
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("scan audit log: %w", err)

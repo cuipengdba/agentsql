@@ -11,16 +11,16 @@ import (
 
 // MaskRuleRepository provides CRUD operations for mask rules.
 type MaskRuleRepository struct {
-	db *sql.DB
+	repositoryBase
 }
 
 // Create inserts a mask rule and returns the stored record.
 func (repository *MaskRuleRepository) Create(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
-	_, err := repository.db.ExecContext(ctx, `
+	_, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO mask_rules (
   id, datasource_id, table_name, column_name, sensitive_type, algo
 )
-VALUES (?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?)`),
 		rule.ID,
 		optionalString(rule.DatasourceID),
 		rule.TableName,
@@ -40,11 +40,11 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 
 // Get returns a mask rule by ID.
 func (repository *MaskRuleRepository) Get(ctx context.Context, id string) (model.MaskRule, error) {
-	rule, err := scanMaskRule(repository.db.QueryRowContext(ctx, `
+	rule, err := scanMaskRule(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
        created_at, updated_at
 FROM mask_rules
-WHERE id = ?`, id))
+WHERE id = ?`), id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.MaskRule{}, fmt.Errorf("get mask rule %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -63,12 +63,12 @@ func (repository *MaskRuleRepository) ListByDatasource(
 	if ctx == nil {
 		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
 	}
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
        created_at, updated_at
 FROM mask_rules
 WHERE datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = ''
-ORDER BY table_name ASC, column_name ASC, id ASC`, datasourceID)
+ORDER BY table_name ASC, column_name ASC, id ASC`), datasourceID)
 	if err != nil {
 		return nil, fmt.Errorf("list mask rules for datasource %q: %w", datasourceID, err)
 	}
@@ -101,11 +101,11 @@ func (repository *MaskRuleRepository) List(ctx context.Context) ([]model.MaskRul
 	if ctx == nil {
 		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
 	}
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
        created_at, updated_at
 FROM mask_rules
-ORDER BY table_name ASC, column_name ASC, id ASC`)
+ORDER BY table_name ASC, column_name ASC, id ASC`))
 	if err != nil {
 		return nil, fmt.Errorf("list mask rules: %w", err)
 	}
@@ -127,11 +127,11 @@ ORDER BY table_name ASC, column_name ASC, id ASC`)
 
 // Update replaces mutable mask-rule fields and returns the stored record.
 func (repository *MaskRuleRepository) Update(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
-	result, err := repository.db.ExecContext(ctx, `
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE mask_rules
 SET datasource_id = ?, table_name = ?, column_name = ?, sensitive_type = ?,
     algo = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`,
+WHERE id = ?`),
 		optionalString(rule.DatasourceID),
 		rule.TableName,
 		rule.ColumnName,
@@ -154,7 +154,7 @@ WHERE id = ?`,
 
 // Delete removes a mask rule by ID.
 func (repository *MaskRuleRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, "DELETE FROM mask_rules WHERE id = ?", id)
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM mask_rules WHERE id = ?"), id)
 	if err != nil {
 		return fmt.Errorf("delete mask rule %q: %w", id, err)
 	}

@@ -14,7 +14,7 @@ var ErrAgentNotFound = errors.New("agent not found")
 
 // AgentRepository provides CRUD operations for agents.
 type AgentRepository struct {
-	db *sql.DB
+	repositoryBase
 }
 
 // Create inserts an agent and returns the stored record.
@@ -22,9 +22,9 @@ func (repository *AgentRepository) Create(ctx context.Context, agent model.Agent
 	if err := validateAPIKeyHash(agent.APIKeyHash); err != nil {
 		return model.Agent{}, fmt.Errorf("create agent %q: %w", agent.ID, err)
 	}
-	_, err := repository.db.ExecContext(ctx, `
+	_, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO agents (id, name, owner, status, api_key_hash, level, expires_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?)`),
 		agent.ID,
 		agent.Name,
 		optionalString(agent.Owner),
@@ -45,10 +45,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 
 // Get returns an agent by ID.
 func (repository *AgentRepository) Get(ctx context.Context, id string) (model.Agent, error) {
-	agent, err := scanAgent(repository.db.QueryRowContext(ctx, `
+	agent, err := scanAgent(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, name, owner, status, api_key_hash, level, expires_at, created_at, updated_at
 FROM agents
-WHERE id = ?`, id))
+WHERE id = ?`), id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Agent{}, fmt.Errorf("get agent %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -63,11 +63,11 @@ func (repository *AgentRepository) List(ctx context.Context) ([]model.Agent, err
 	if ctx == nil {
 		return nil, fmt.Errorf("list agents: %w", ErrNilContext)
 	}
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, name, owner, status, api_key_hash, level, expires_at,
        created_at, updated_at
 FROM agents
-ORDER BY created_at ASC, id ASC`)
+ORDER BY created_at ASC, id ASC`))
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
@@ -95,10 +95,11 @@ func (repository *AgentRepository) GetByAPIKeyHash(
 	if err := validateAPIKeyHash(hash); err != nil {
 		return model.Agent{}, fmt.Errorf("get agent by API key hash: %w", err)
 	}
-	agent, err := scanAgent(repository.db.QueryRowContext(ctx, `
+	query := `
 SELECT id, name, owner, status, api_key_hash, level, expires_at, created_at, updated_at
-FROM agents INDEXED BY idx_agents_keyhash
-WHERE api_key_hash = ?`, hash))
+FROM agents` + indexHint(repository.dialect, " INDEXED BY idx_agents_keyhash") + `
+WHERE api_key_hash = ?`
+	agent, err := scanAgent(repository.db.QueryRowContext(ctx, repository.bind(query), hash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Agent{}, fmt.Errorf(
 			"get agent by API key hash: %w",
@@ -116,11 +117,11 @@ func (repository *AgentRepository) Update(ctx context.Context, agent model.Agent
 	if err := validateAPIKeyHash(agent.APIKeyHash); err != nil {
 		return model.Agent{}, fmt.Errorf("update agent %q: %w", agent.ID, err)
 	}
-	result, err := repository.db.ExecContext(ctx, `
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE agents
 SET name = ?, owner = ?, status = ?, api_key_hash = ?, level = ?, expires_at = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`,
+WHERE id = ?`),
 		agent.Name,
 		optionalString(agent.Owner),
 		agent.Status,
@@ -144,7 +145,7 @@ WHERE id = ?`,
 
 // Delete removes an agent by ID.
 func (repository *AgentRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, "DELETE FROM agents WHERE id = ?", id)
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM agents WHERE id = ?"), id)
 	if err != nil {
 		return fmt.Errorf("delete agent %q: %w", id, err)
 	}

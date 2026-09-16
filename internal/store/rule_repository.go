@@ -11,16 +11,16 @@ import (
 
 // RuleRepository provides CRUD operations for persisted rule definitions.
 type RuleRepository struct {
-	db *sql.DB
+	repositoryBase
 }
 
 // Create inserts a rule and returns the stored record.
 func (repository *RuleRepository) Create(ctx context.Context, rule model.Rule) (model.Rule, error) {
-	_, err := repository.db.ExecContext(ctx, `
+	_, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO rules (
   id, db_type, title, risk_level, pattern_type, definition, enabled, builtin
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
 		rule.ID,
 		rule.DBType,
 		rule.Title,
@@ -42,11 +42,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 
 // Get returns a rule by ID.
 func (repository *RuleRepository) Get(ctx context.Context, id string) (model.Rule, error) {
-	rule, err := scanRule(repository.db.QueryRowContext(ctx, `
+	rule, err := scanRule(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, db_type, title, risk_level, pattern_type, definition, enabled, builtin,
        created_at, updated_at
 FROM rules
-WHERE id = ?`, id))
+WHERE id = ?`), id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Rule{}, fmt.Errorf("get rule %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -71,7 +71,7 @@ FROM rules`
 		args = append(args, dbType)
 	}
 	query += " ORDER BY id ASC"
-	rows, err := repository.db.QueryContext(ctx, query, args...)
+	rows, err := repository.db.QueryContext(ctx, repository.bind(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
 	}
@@ -93,11 +93,11 @@ FROM rules`
 
 // Update replaces mutable rule fields and returns the stored record.
 func (repository *RuleRepository) Update(ctx context.Context, rule model.Rule) (model.Rule, error) {
-	result, err := repository.db.ExecContext(ctx, `
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE rules
 SET db_type = ?, title = ?, risk_level = ?, pattern_type = ?, definition = ?,
     enabled = ?, builtin = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`,
+WHERE id = ?`),
 		rule.DBType,
 		rule.Title,
 		rule.RiskLevel,
@@ -122,7 +122,7 @@ WHERE id = ?`,
 
 // Delete removes a rule by ID.
 func (repository *RuleRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, "DELETE FROM rules WHERE id = ?", id)
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM rules WHERE id = ?"), id)
 	if err != nil {
 		return fmt.Errorf("delete rule %q: %w", id, err)
 	}
@@ -135,6 +135,7 @@ func (repository *RuleRepository) Delete(ctx context.Context, id string) error {
 func scanRule(scanner rowScanner) (model.Rule, error) {
 	var rule model.Rule
 	var createdAt, updatedAt databaseTimestamp
+	var enabled, builtin databaseBool
 	if err := scanner.Scan(
 		&rule.ID,
 		&rule.DBType,
@@ -142,13 +143,15 @@ func scanRule(scanner rowScanner) (model.Rule, error) {
 		&rule.RiskLevel,
 		&rule.PatternType,
 		&rule.Definition,
-		&rule.Enabled,
-		&rule.Builtin,
+		&enabled,
+		&builtin,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
 		return model.Rule{}, fmt.Errorf("scan rule: %w", err)
 	}
+	rule.Enabled = enabled.value
+	rule.Builtin = builtin.value
 
 	var err error
 	rule.CreatedAt, err = createdAt.required("rules.created_at")

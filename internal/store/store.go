@@ -213,42 +213,45 @@ func (store *Store) Close() error {
 
 // Agents returns the agent repository.
 func (store *Store) Agents() *AgentRepository {
-	return &AgentRepository{db: store.db}
+	return &AgentRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 // Datasources returns the datasource repository.
 func (store *Store) Datasources() *DatasourceRepository {
-	return &DatasourceRepository{db: store.db, cipher: store.cipher}
+	return &DatasourceRepository{
+		repositoryBase: repositoryBase{db: store.db, dialect: store.driver},
+		cipher:         store.cipher,
+	}
 }
 
 // Policies returns the policy repository.
 func (store *Store) Policies() *PolicyRepository {
-	return &PolicyRepository{db: store.db}
+	return &PolicyRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 // Rules returns the rule repository.
 func (store *Store) Rules() *RuleRepository {
-	return &RuleRepository{db: store.db}
+	return &RuleRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 // MaskRules returns the mask-rule repository.
 func (store *Store) MaskRules() *MaskRuleRepository {
-	return &MaskRuleRepository{db: store.db}
+	return &MaskRuleRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 // AuditLogs returns the append-only audit-log repository.
 func (store *Store) AuditLogs() *AuditLogRepository {
-	return &AuditLogRepository{db: store.db}
+	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 // Approvals returns the approval repository.
 func (store *Store) Approvals() *ApprovalRepository {
-	return &ApprovalRepository{db: store.db}
+	return &ApprovalRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 // Dashboard returns read-only aggregate queries for the admin dashboard.
 func (store *Store) Dashboard() *DashboardRepository {
-	return &DashboardRepository{db: store.db}
+	return &DashboardRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
 }
 
 func closeDatabaseAfterError(database *sql.DB, driver Dialect, cause error) error {

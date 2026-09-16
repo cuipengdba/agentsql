@@ -11,7 +11,7 @@ import (
 
 // DatasourceRepository provides encrypted CRUD operations for datasources.
 type DatasourceRepository struct {
-	db     *sql.DB
+	repositoryBase
 	cipher *PasswordCipher
 }
 
@@ -25,12 +25,12 @@ func (repository *DatasourceRepository) Create(
 	if err != nil {
 		return model.Datasource{}, fmt.Errorf("encrypt password for datasource %q: %w", datasource.ID, err)
 	}
-	_, err = repository.db.ExecContext(ctx, `
+	_, err = repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO datasources (
   id, name, db_type, host, port, database, username, password_enc,
   conn_limit, stmt_timeout_ms, row_limit
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		datasource.ID,
 		datasource.Name,
 		datasource.DBType,
@@ -55,11 +55,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
 // Get returns a datasource by ID with its encrypted password.
 func (repository *DatasourceRepository) Get(ctx context.Context, id string) (model.Datasource, error) {
-	datasource, err := scanDatasource(repository.db.QueryRowContext(ctx, `
+	datasource, err := scanDatasource(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, name, db_type, host, port, database, username, password_enc,
        conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
 FROM datasources
-WHERE id = ?`, id))
+WHERE id = ?`), id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Datasource{}, fmt.Errorf("get datasource %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -75,11 +75,11 @@ func (repository *DatasourceRepository) List(ctx context.Context) ([]model.Datas
 	if ctx == nil {
 		return nil, fmt.Errorf("list datasources: %w", ErrNilContext)
 	}
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, name, db_type, host, port, database, username, password_enc,
        conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
 FROM datasources
-ORDER BY id ASC`)
+ORDER BY id ASC`))
 	if err != nil {
 		return nil, fmt.Errorf("list datasources: %w", err)
 	}
@@ -109,12 +109,12 @@ func (repository *DatasourceRepository) Update(
 	if err != nil {
 		return model.Datasource{}, fmt.Errorf("encrypt password for datasource %q: %w", datasource.ID, err)
 	}
-	result, err := repository.db.ExecContext(ctx, `
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE datasources
 SET name = ?, db_type = ?, host = ?, port = ?, database = ?, username = ?,
     password_enc = ?, conn_limit = ?, stmt_timeout_ms = ?, row_limit = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`,
+WHERE id = ?`),
 		datasource.Name,
 		datasource.DBType,
 		datasource.Host,
@@ -142,7 +142,7 @@ WHERE id = ?`,
 
 // Delete removes a datasource by ID.
 func (repository *DatasourceRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, "DELETE FROM datasources WHERE id = ?", id)
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM datasources WHERE id = ?"), id)
 	if err != nil {
 		return fmt.Errorf("delete datasource %q: %w", id, err)
 	}
