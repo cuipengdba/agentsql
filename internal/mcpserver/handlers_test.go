@@ -267,16 +267,29 @@ func (builder staticRedactorBuilder) RedactorFor(context.Context, string) (mask.
 }
 
 type mcpExecutorProvider struct {
-	mu       sync.Mutex
-	executor executor.Executor
-	err      error
-	count    int
+	mu                    sync.Mutex
+	executor              executor.Executor
+	executorsByDatasource map[string]executor.Executor
+	err                   error
+	count                 int
+	callsByDatasource     map[string]int
 }
 
-func (provider *mcpExecutorProvider) GetOrOpen(model.Datasource, []byte) (executor.Executor, error) {
+func (provider *mcpExecutorProvider) GetOrOpen(datasource model.Datasource, _ []byte) (executor.Executor, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	provider.count++
+	if provider.callsByDatasource == nil {
+		provider.callsByDatasource = make(map[string]int)
+	}
+	provider.callsByDatasource[datasource.ID]++
+	if provider.executorsByDatasource != nil {
+		selected, exists := provider.executorsByDatasource[datasource.ID]
+		if !exists {
+			return nil, errors.New("test executor not configured for datasource")
+		}
+		return selected, provider.err
+	}
 	return provider.executor, provider.err
 }
 
@@ -284,6 +297,12 @@ func (provider *mcpExecutorProvider) calls() int {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	return provider.count
+}
+
+func (provider *mcpExecutorProvider) datasourceCalls(datasourceID string) int {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return provider.callsByDatasource[datasourceID]
 }
 
 type mcpExecutorCalls struct {

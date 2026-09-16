@@ -104,15 +104,17 @@ func TestStreamableHTTPEndToEndSevenTools(t *testing.T) {
 
 func TestHTTPAuthenticationFailuresStopBeforeSDK(t *testing.T) {
 	tests := []struct {
-		name          string
-		authorization string
-		disableAgent  bool
-		invalidLevel  bool
+		name              string
+		authorization     string
+		wellFormedUnknown bool
+		disableAgent      bool
+		invalidLevel      bool
 	}{
 		{name: "missing header"},
 		{name: "wrong scheme", authorization: "Basic abc"},
 		{name: "non exact Bearer spacing", authorization: "Bearer  asql_wrong"},
-		{name: "wrong key", authorization: "Bearer asql_wrong"},
+		{name: "illegal key", authorization: "Bearer not-an-agentsql-key"},
+		{name: "well formed unknown key", wellFormedUnknown: true},
 		{name: "disabled Agent", disableAgent: true},
 		{name: "invalid Agent level", invalidLevel: true},
 	}
@@ -120,6 +122,12 @@ func TestHTTPAuthenticationFailuresStopBeforeSDK(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newMCPFixture(t, "dml")
 			key := fixture.handlers.apiKey
+			authorization := test.authorization
+			if test.wellFormedUnknown {
+				unknownKey, _, err := store.GenerateAPIKey()
+				require.NoError(t, err)
+				authorization = "Bearer " + unknownKey
+			}
 			if test.disableAgent || test.invalidLevel {
 				agent, err := fixture.runtime.Store.Agents().Get(context.Background(), fixture.agent.ID)
 				require.NoError(t, err)
@@ -131,16 +139,16 @@ func TestHTTPAuthenticationFailuresStopBeforeSDK(t *testing.T) {
 				}
 				_, err = fixture.runtime.Store.Agents().Update(context.Background(), agent)
 				require.NoError(t, err)
-			} else if test.authorization != "" {
-				key = strings.TrimPrefix(test.authorization, "Bearer ")
+			} else if authorization != "" {
+				key = strings.TrimPrefix(authorization, "Bearer ")
 			}
 			handler, registry, err := newHTTPHandlerWithRegistry(fixture.runtime, httpTestConfig(100), zerolog.Nop())
 			require.NoError(t, err)
 			request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initializeRequest))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Accept", "application/json, text/event-stream")
-			if test.authorization != "" {
-				request.Header.Set("Authorization", test.authorization)
+			if authorization != "" {
+				request.Header.Set("Authorization", authorization)
 			} else if test.disableAgent || test.invalidLevel {
 				request.Header.Set("Authorization", "Bearer "+key)
 			}
@@ -225,6 +233,12 @@ func TestHTTPStatusMatrix(t *testing.T) {
 		handler.ServeHTTP(second, authorizedRequest(http.MethodPost, listToolsRequest, fixture.handlers.apiKey))
 		require.Equal(t, http.StatusTooManyRequests, second.Code)
 		require.Equal(t, `{"error":"rate limited"}`, second.Body.String())
+
+		require.Eventually(t, func() bool {
+			recovered := httptest.NewRecorder()
+			handler.ServeHTTP(recovered, authorizedRequest(http.MethodPost, listToolsRequest, fixture.handlers.apiKey))
+			return recovered.Code == http.StatusOK
+		}, 2*time.Second, 25*time.Millisecond, "the per-Agent token bucket must recover")
 	})
 	t.Run("method not allowed", func(t *testing.T) {
 		fixture := newMCPFixture(t, "dml")
