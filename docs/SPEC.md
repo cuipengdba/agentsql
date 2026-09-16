@@ -1767,7 +1767,7 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
 **总原则（裁决）**：
 1. **SQLite 仍是默认、零配置上手路径不变**；PG 是新增的可选生产控制面。SQLite 口径下 353 语料、全量测试、黑盒行为必须零回归。
 2. T28 是**严格的存储方言对等**：两套 schema 语义/约束/索引完全等价，只做类型与占位符/自增键/日期函数的翻译；**不夹带任何行为增强**。v0.1 刻意未建的 `mask_rules (datasource_id,column_name)` 唯一索引（允许重复、运行时确定性归并）本单**不在 PG 侧新增**（`NULLS NOT DISTINCT` 唯一索引 + 历史重复数据清理另开一个小单，避免方言迁移夹带行为变更、也避免存量重复行导致 PG 迁移失败）。
-3. 允许新增唯一第三方依赖 **`github.com/jackc/pgx/v5`（纯 Go、database/sql 兼容，注册驱动名 `pgx`）**；除 pgx 外不新增其它依赖。继续 `GOTOOLCHAIN=local`、Windows 可编译（pgx 纯 Go 不破坏 cgo 现状）。
+3. **依赖不新增**：`github.com/jackc/pgx/v5`（v5.7.6，业务库执行器已用）与 testcontainers core/postgres/mysql（v0.37.0，门2 G1-a1 已用）**均已在 go.mod**；控制面基于 `database/sql`，PG 控制面通过 blank-import `github.com/jackc/pgx/v5/stdlib` 以驱动名 `pgx` 打开（不用业务库执行器的原生 pgxpool）。本批 T28 不新增第三方依赖、不引入 dockertest 等替代品。继续 `GOTOOLCHAIN=local`（本机 Go ≥1.25.0）、Windows 可编译（pgx 纯 Go 不破坏既有 cgo 现状）。
 4. 兼容口径：**声明兼容 PostgreSQL 15+，基准与主推、CI 必测 PostgreSQL 18**；元数据库与审计库都支持 PG18（不使用 PG16 作为基准镜像）。
 
 **配置（向后兼容）**：扩展 `store` 段，同时保留现有 `store.sqlite_path` 作为简写（老配置不改即可跑）：
@@ -1790,10 +1790,26 @@ store:
 ```
 `config.Validate()` 改为**按驱动条件校验**（KnownFields 同步放开新字段）：sqlite 必须有 path；postgres 必须有非空 dsn；`audit.separate=true` 必须有 audit.dsn；非法 driver 报错 fail-closed。`agentsqlctl check-config` 覆盖新分支。
 
-**T28a-1 方言骨架与迁移**：
-- 在 `internal/store` 引入 `Dialect`（`sqlite|postgres`）与统一 `rebind(query)`（按 `?` 出现顺序替换为 `$1,$2,…`；sqlite 原样）、迁移目录选择、自增键策略、日期表达式。
-- 迁移按方言拆 embed：`internal/store/migrations/sqlite/0001_init.sql`（现内容，含 `PRAGMA foreign_keys=ON`、`AUTOINCREMENT`、`INTEGER` 布尔、字符串 `TIMESTAMP`）与 `internal/store/migrations/postgres/0001_init.sql`（**语义等价翻译**：`schema_migrations(version BIGINT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`；`audit_logs.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`；`ts TIMESTAMPTZ NOT NULL DEFAULT now()`；`enabled/builtin BOOLEAN DEFAULT TRUE`；其余文本列 `TEXT`、数值 `INTEGER/BIGINT`；外键/索引同名等价；不含 PRAGMA、无 `?`）。`Migrate(ctx,db,dialect)` 按方言选 FS 与 DDL，PG 不执行 PRAGMA；迁移记录表与"每版本恰好一次、事务包裹"行为两方言一致。**SQLite 的 0001 仅移动目录、内容保持等价，不改已发布语义。**
-- 存储工厂：新增 `OpenMetadata(ctx, opts MetadataOptions, secret)`（driver/sqlite path 或 pg dsn/连接池参数/cipher）；sqlite 维持 `SetMaxOpenConns(1)/SetMaxIdleConns(1)`（写串行），**PG 去掉单连接限制**、按配置设池；保留 `Open/OpenWithSecret` 薄封装供既有调用与测试过渡。testcontainers 拉 `postgres:18`，断言两方言都能从零建表、迁移幂等（重复 Migrate 不报错/不重复建）、外键生效、schema_migrations 记录正确（Docker daemon 不可达 Skip，镜像/等待错误硬失败，沿用门2口径）。
+**T28a-1 方言骨架与迁移（只读评审 APPROVE_WITH_CHANGES，6 项裁决已并入）**：
+
+依赖现状（已核实，不再新增）：`go 1.25.0`；`github.com/jackc/pgx/v5 v5.7.6` 与 testcontainers core/postgres/mysql `v0.37.0` **均已在 go.mod**（分别由业务库执行器与门2 G1-a1 引入），本单**不改 go.mod/go.sum、不引入 dockertest 等新依赖**。业务库执行器用原生 pgxpool，但**控制面仓储/事务全部基于 `database/sql`**，故控制面 PG 一律 blank-import `github.com/jackc/pgx/v5/stdlib` 后 `sql.Open("pgx", dsn)`，**不使用 pgxpool**；pgx 纯 Go，不新增 Windows/cgo 负担。
+
+- Dialect/rebind（新增 `internal/store/dialect.go`）：`type Dialect string`，常量 `DialectSQLite="sqlite"`、`DialectPostgres="postgres"`，`ParseDialect(string) (Dialect,error)`；`rebind(d Dialect, q string) (string,error)`：sqlite **逐字返回**；postgres 按 `?` 出现顺序替换为 `$1,$2,…`，但必须**词法感知**——跳过单引号字符串字面量、双引号标识符、行/块注释、PostgreSQL dollar-quoted（`$$…$$`/`$tag…$tag`）内容，只替换 SQL 代码区占位符；未知方言返回错误。rebind 本单交付并配纯函数单测（仓储全面启用在 a-2）。
+- 迁移双 embed：`//go:embed migrations/sqlite/*.sql migrations/postgres/*.sql`，运行期 `fs.Sub(fs, "migrations/"+string(dialect))` 枚举排序。现有 `migrations/0001_init.sql` **纯移动**到 `migrations/sqlite/0001_init.sql`（内容逐字等价、不改已发布语义），新增 `migrations/postgres/0001_init.sql`。
+  - 权威签名 `Migrate(ctx, db *sql.DB, dialect Dialect) error`；所有现有调用点（含 `cmd/agentsqlctl/main.go` 的 migrate）机械传入 `DialectSQLite` 保持编译，不用变长参数掩盖未知方言，不夹带 a-3 的 config 分支。
+  - sqlite 继续在事务外 `PRAGMA foreign_keys=ON` 并校验=1；PG 不执行任何 PRAGMA（外键默认强制）。
+  - **原子认领版本（修复并发"每版本恰好一次"）**：每个版本在**同一事务**内先认领再执行——PG 用 `INSERT INTO schema_migrations(version) VALUES($1) ON CONFLICT (version) DO NOTHING RETURNING version`，仅认领成功（返回 1 行）才在该事务执行该版本 DDL，未认领则回滚跳过；sqlite 用 `INSERT OR IGNORE INTO schema_migrations(version) VALUES(?)` 并以 `Result.RowsAffected==1` 判定认领；DDL 或记账失败整体回滚（版本记录与业务表同生共死），并发 Migrate 不重复执行、不因版本主键冲突报错。
+  - `schema_migrations`：sqlite 维持现状；PG 为 `version BIGINT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now()`（内部记账表）。
+- PG 0001 严格语义等价翻译（以 sqlite 基线为准，七张业务表）：
+  - 一律 `CREATE TABLE IF NOT EXISTS`；索引/外键**原名等价**，共 **6 个索引**（idx_agents_keyhash、idx_policies_agent_ds、idx_audit_ts、idx_audit_agent_ts、idx_audit_decision、idx_approvals_status）与 **3 条外键**（policies.agent_id→agents(id)、policies.datasource_id→datasources(id)、approvals.audit_id→audit_logs(id)，均默认 NO ACTION、**不新增级联**）；无 PRAGMA、无 AUTOINCREMENT、DDL 内无 `?`；表/列名均小写无需引号；**不新增** mask_rules 的 (datasource_id,column_name) 唯一约束或 NULLS NOT DISTINCT。
+  - 自增：`audit_logs.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`；`approvals.audit_id BIGINT REFERENCES audit_logs(id)`（与 identity 对齐）。
+  - 布尔：`rules.enabled BOOLEAN DEFAULT TRUE`、`rules.builtin BOOLEAN DEFAULT FALSE`（基线分别 DEFAULT 1 / DEFAULT 0），**两列均不加 NOT NULL**（沿用基线可空性）。
+  - 时间：除 schema_migrations.applied_at 外**逐列继承基线可空性、不收紧**——业务表所有 created_at/updated_at 与 `audit_logs.ts` 用 `TIMESTAMPTZ DEFAULT now()`（**无 NOT NULL**）；`agents.expires_at`、`approvals.decided_at` 用可空 `TIMESTAMPTZ`。
+  - 数值：datasources.port/conn_limit/stmt_timeout_ms/row_limit、rules.risk_level、audit_logs.risk_level/rows_returned 用 `INTEGER`（默认值 5/5000/1000 保留）；audit_logs.est_rows/latency_ms 用 `BIGINT`（对齐 SQLite 64 位 INTEGER、避免溢出）；其余业务字段 TEXT。
+  - PG 严格类型不再容忍布尔整数/任意时间文本/隐式文本→数字，测试须显式覆盖默认值与类型，不依赖 sqlite 宽松转换。
+- 连接工厂（`internal/store/store.go`）：`MetadataOptions{Driver Dialect; SQLitePath, PostgresDSN string; MaxOpenConns, MaxIdleConns int; ConnMaxLifetime time.Duration}`；`OpenMetadata(ctx, opts, secret []byte) (*Store, error)`（内部可有接受 `*PasswordCipher` 的变体）。sqlite 维持 `SetMaxOpenConns(1)/SetMaxIdleConns(1)`；PG 去掉单连接限制、按 opts 设 `SetMaxOpenConns/SetMaxIdleConns/SetConnMaxLifetime`。`Open/OpenWithSecret` 保留为薄封装、内部以 sqlite options 调工厂，**现有调用与测试零改动**；工厂不依赖 config（config→opts 是 a-3），本单即可用 opts 直连 PG18 测试。
+- 测试：`internal/store` 新增 PG18 从零迁移 E2E（testcontainers `postgres:18`，import 仅出现在 `*_test.go`），两方言都断言 ①空库首次迁移后七业务表+schema_migrations+6 索引+3 外键齐备；②连续两次与并发两次 Migrate 均成功且 schema_migrations 中 version=1 恰好一行；③外键生效（非法 policy/approval 写入失败，sqlite PRAGMA 同样生效）；④identity 连续生成、approvals.audit_id 可引用；⑤rules.enabled 默认 true、builtin 默认 false；⑥时间列默认值/类型 timestamptz；⑦模拟 DDL 中途失败时业务表与版本记录同时回滚。跨包 `*_test.go` helper 不可复用，store 包内保留与门2**同口径**的 Docker 探测（daemon/socket 明确不可达 Skip；探测成功后的镜像拉取/启动/等待/清理错误硬失败），不把 testcontainers import 移入普通 `.go`。
+- 边界：本单后 PG 库可 Ping/建表，但仓储仍含 `?`、`LastInsertId`、`INDEXED BY`（agent_repository）、sqlite 日期表达式，故 PG 暂不承载业务 CRUD（属 a-2）；config/bootstrap 仍走 sqlite 薄封装，`go build ./...`、既有 sqlite 测试与 run-acceptance 必须全程绿、353 语料零变化。
 
 **T28a-2 仓储方言适配与双跑**：
 - 全部仓储（agents/datasources/policies/rules/mask_rules/audit_logs/approvals/dashboard）SQL 经 `rebind`；`audit_logs` 插入的 `result.LastInsertId()` 改为 `INSERT … RETURNING id` + `QueryRow().Scan(&id)`（联动 `approvals.audit_id` 的取数路径）；审批状态 CAS 的 `UPDATE … WHERE status='pending'` 统一为 `… RETURNING id` 判定命中（不依赖 RowsAffected 方言差异）。
