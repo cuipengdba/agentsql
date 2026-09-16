@@ -111,7 +111,7 @@ func TestApprovalRepositoryCreatePendingWithAuditTransaction(t *testing.T) {
 
 	t.Run("audit failure rolls back pending approval", func(t *testing.T) {
 		opened := openTestStore(t)
-		_, err := opened.db.ExecContext(context.Background(), `
+		_, err := opened.metaDB.ExecContext(context.Background(), `
 CREATE TRIGGER fail_approve_audit BEFORE INSERT ON audit_logs
 WHEN NEW.decision = 'approve'
 BEGIN
@@ -133,7 +133,7 @@ END`)
 
 	t.Run("backfill failure rolls back approval and audit", func(t *testing.T) {
 		opened := openTestStore(t)
-		_, err := opened.db.ExecContext(context.Background(), `
+		_, err := opened.metaDB.ExecContext(context.Background(), `
 CREATE TRIGGER fail_approval_backfill BEFORE UPDATE OF audit_id ON approvals
 BEGIN
   SELECT RAISE(ABORT, 'forced backfill failure');

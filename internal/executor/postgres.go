@@ -172,9 +172,29 @@ func (executor *PostgresExecutor) OpenSession(
 			defer cancel()
 			return physical.Close(closeContext)
 		},
+		beginTx: func(ctx context.Context) (pgx.Tx, error) {
+			return connection.BeginTx(ctx, pgx.TxOptions{})
+		},
 	}
 	executor.sessions[sessionID] = session
 	return session, nil
+}
+
+// BeginWriteTx starts a PostgreSQL write transaction on a pooled connection.
+// The caller's request context is bound to BeginTx; statement timeouts are
+// applied separately by Execute.
+func (executor *PostgresExecutor) BeginWriteTx(ctx context.Context) (WriteTx, error) {
+	if executor == nil || executor.pool == nil || ctx == nil {
+		return nil, fmt.Errorf("begin PostgreSQL write transaction: executor or context is unavailable")
+	}
+	if executor.readOnly {
+		return nil, fmt.Errorf("begin PostgreSQL write transaction: %w", ErrReadOnlyViolated)
+	}
+	tx, err := executor.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, postgresDatabaseError("begin PostgreSQL write transaction", err)
+	}
+	return &postgresWriteTx{executor: executor, tx: tx}, nil
 }
 
 // Query executes a bounded PostgreSQL row query without rewriting SQL.
@@ -522,8 +542,107 @@ type postgresSession struct {
 	state       *transactionStateMachine
 	release     func()
 	discard     func() error
+	beginTx     func(context.Context) (pgx.Tx, error)
 	operationMu sync.Mutex
 	closed      bool
+}
+
+func (session *postgresSession) BeginWriteTx(ctx context.Context) (WriteTx, error) {
+	if session == nil {
+		return nil, fmt.Errorf("begin PostgreSQL session write transaction: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	if session.closed || session.executor == nil || ctx == nil {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin PostgreSQL session write transaction: session or context is unavailable")
+	}
+	if session.executor.readOnly {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin PostgreSQL session write transaction: %w", ErrReadOnlyViolated)
+	}
+	if session.state != nil && session.state.active() {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin PostgreSQL session write transaction: %w", ErrSessionTransactionActive)
+	}
+	if session.beginTx == nil {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin PostgreSQL session write transaction: transaction starter is unavailable")
+	}
+	tx, err := session.beginTx(ctx)
+	if err != nil {
+		session.operationMu.Unlock()
+		return nil, postgresDatabaseError("begin PostgreSQL session write transaction", err)
+	}
+	return &postgresWriteTx{
+		executor: session.executor,
+		tx:       tx,
+		terminal: session.operationMu.Unlock,
+	}, nil
+}
+
+type postgresWriteTx struct {
+	mu       sync.Mutex
+	executor *PostgresExecutor
+	tx       pgx.Tx
+	done     bool
+	terminal func()
+}
+
+func (tx *postgresWriteTx) Execute(ctx context.Context, sqlText string) (model.QueryResult, error) {
+	if tx == nil {
+		return model.QueryResult{}, fmt.Errorf("execute PostgreSQL write transaction: %w", ErrTransactionDone)
+	}
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	if tx.done || tx.tx == nil || tx.executor == nil {
+		return model.QueryResult{}, fmt.Errorf("execute PostgreSQL write transaction: %w", ErrTransactionDone)
+	}
+	if err := tx.executor.validateOperation(ctx, sqlText); err != nil {
+		return model.QueryResult{}, err
+	}
+	return tx.executor.executeWithRunner(ctx, tx.tx, sqlText)
+}
+
+func (tx *postgresWriteTx) Commit(ctx context.Context) error {
+	return tx.finish(ctx, true)
+}
+
+func (tx *postgresWriteTx) Rollback(ctx context.Context) error {
+	return tx.finish(ctx, false)
+}
+
+func (tx *postgresWriteTx) finish(ctx context.Context, commit bool) error {
+	if tx == nil {
+		return nil
+	}
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	if tx.done {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("finish PostgreSQL write transaction: context is nil")
+	}
+	var err error
+	if commit {
+		err = tx.tx.Commit(ctx)
+	} else {
+		err = tx.tx.Rollback(ctx)
+	}
+	tx.done = true
+	tx.tx = nil
+	if tx.terminal != nil {
+		tx.terminal()
+		tx.terminal = nil
+	}
+	if err != nil {
+		action := "rollback"
+		if commit {
+			action = "commit"
+		}
+		return postgresDatabaseError(action+" PostgreSQL write transaction", err)
+	}
+	return nil
 }
 
 func (session *postgresSession) Query(

@@ -188,6 +188,9 @@ func (*bootstrapExecutor) Ping(context.Context) error { return nil }
 func (*bootstrapExecutor) OpenSession(context.Context, string) (executor.Session, error) {
 	return nil, errors.New("session not configured")
 }
+func (delegate *bootstrapExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+	return bootstrapWriteTx{delegate: delegate}, nil
+}
 func (*bootstrapExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }
@@ -203,6 +206,14 @@ func (*bootstrapExecutor) TableRowCount(string, string) (int64, error) { return 
 func (*bootstrapExecutor) TransactionState() (rules.TransactionState, error) {
 	return rules.TransactionState{}, nil
 }
+
+type bootstrapWriteTx struct{ delegate *bootstrapExecutor }
+
+func (tx bootstrapWriteTx) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
+	return tx.delegate.Execute(ctx, sql)
+}
+func (bootstrapWriteTx) Commit(context.Context) error   { return nil }
+func (bootstrapWriteTx) Rollback(context.Context) error { return nil }
 
 var (
 	_ pipeline.ExecutorProvider         = (*bootstrapExecutorProvider)(nil)

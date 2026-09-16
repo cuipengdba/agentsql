@@ -37,7 +37,7 @@ func TestAgentRepositoryGetByAPIKeyHash(t *testing.T) {
 	require.True(t, errors.Is(err, ErrAgentNotFound))
 	require.True(t, errors.Is(err, ErrNotFound))
 
-	planRows, err := opened.db.QueryContext(context.Background(), `
+	planRows, err := opened.metaDB.QueryContext(context.Background(), `
 EXPLAIN QUERY PLAN
 SELECT id
 FROM agents INDEXED BY idx_agents_keyhash

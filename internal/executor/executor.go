@@ -23,6 +23,7 @@ type Executor interface {
 	Dialect() string
 	Ping(ctx context.Context) error
 	OpenSession(ctx context.Context, sessionID string) (Session, error)
+	BeginWriteTx(ctx context.Context) (WriteTx, error)
 	Explain(ctx context.Context, sql string) (model.ExplainInfo, error)
 	Query(ctx context.Context, sql string, rowLimit int) (model.QueryResult, error)
 	Execute(ctx context.Context, sql string) (model.QueryResult, error)
@@ -32,12 +33,21 @@ type Executor interface {
 // Session is one physical database connection bound to an AgentSQL session.
 // The non-matching dialect transaction-state method returns an error.
 type Session interface {
+	BeginWriteTx(ctx context.Context) (WriteTx, error)
 	Query(ctx context.Context, sql string, rowLimit int) (model.QueryResult, error)
 	Execute(ctx context.Context, sql string) (model.QueryResult, error)
 	Explain(ctx context.Context, sql string) (model.ExplainInfo, error)
 	TransactionState() (rules.TransactionState, error)
 	MysqlTransactionState() (rules.MysqlTransactionState, error)
 	Close() error
+}
+
+// WriteTx is a dialect-independent business write transaction. Implementations
+// retain ownership of their native transaction and connection handles.
+type WriteTx interface {
+	Execute(ctx context.Context, sql string) (model.QueryResult, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
 }
 
 type executorOpener func(

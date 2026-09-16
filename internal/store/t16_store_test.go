@@ -56,14 +56,14 @@ func TestDashboardSummaryHasFixedTrendAndFourStateCounts(t *testing.T) {
 	now := time.Now().UTC()
 	for index, decision := range []string{"allow", "deny", "warn", "approve", "deny"} {
 		timestamp := now.Add(-time.Duration(index) * 24 * time.Hour)
-		_, err := opened.db.ExecContext(context.Background(), `
+		_, err := opened.metaDB.ExecContext(context.Background(), `
 INSERT INTO audit_logs (ts, agent_id, decision, rule_hits, est_rows)
 VALUES (?, ?, ?, ?, ?)`, timestamp, "agent-a", decision, "[]", index+1)
 		require.NoError(t, err)
 	}
-	_, err := opened.db.ExecContext(context.Background(), `INSERT INTO agents (id,name,status,api_key_hash,level) VALUES (?,?,?,?,?)`, "agent-a", "Agent A", "active", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dml")
+	_, err := opened.metaDB.ExecContext(context.Background(), `INSERT INTO agents (id,name,status,api_key_hash,level) VALUES (?,?,?,?,?)`, "agent-a", "Agent A", "active", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dml")
 	require.NoError(t, err)
-	_, err = opened.db.ExecContext(context.Background(), `INSERT INTO datasources (id,name,db_type,host,port,database,username,password_enc) VALUES (?,?,?,?,?,?,?,?)`, "ds-a", "DB", "postgres", "db", 5432, "app", "u", "cipher")
+	_, err = opened.metaDB.ExecContext(context.Background(), `INSERT INTO datasources (id,name,db_type,host,port,database,username,password_enc) VALUES (?,?,?,?,?,?,?,?)`, "ds-a", "DB", "postgres", "db", 5432, "app", "u", "cipher")
 	require.NoError(t, err)
 	summary, err := opened.Dashboard().Summary(context.Background(), 14)
 	require.NoError(t, err)

@@ -9,12 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 func TestPostgres18MetadataMigrationE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("postgres:18 metadata migration E2E is an integration test")
+	}
 	ctx := dockerTestContext(t)
 	const (
 		databaseName = "agentsql"
@@ -57,17 +61,18 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		MaxOpenConns:    4,
 		MaxIdleConns:    2,
 		ConnMaxLifetime: time.Minute,
+		AutoMigrate:     true,
 	}, []byte(testSecret))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
 
-	assertPostgresMigrationSchema(t, ctx, opened.db)
+	assertPostgresMigrationSchema(t, ctx, opened.metaDB)
 
-	require.NoError(t, Migrate(ctx, opened.db, DialectPostgres))
+	require.NoError(t, Migrate(ctx, opened.metaDB, DialectPostgres))
 	migrationErrors := make(chan error, 2)
 	for range 2 {
 		go func() {
-			migrationErrors <- Migrate(ctx, opened.db, DialectPostgres)
+			migrationErrors <- Migrate(ctx, opened.metaDB, DialectPostgres)
 		}()
 	}
 	for range 2 {
@@ -75,13 +80,282 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 	}
 
 	var migrationCount int
-	require.NoError(t, opened.db.QueryRowContext(
+	require.NoError(t, opened.metaDB.QueryRowContext(
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
 	require.Equal(t, 1, migrationCount)
 
-	assertPostgresMigrationBehavior(t, ctx, opened.db)
+	assertPostgresMigrationBehavior(t, ctx, opened.metaDB)
+}
+
+func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("dual postgres:18 separated-store E2E is an integration test")
+	}
+	ctx := dockerTestContext(t)
+	metadataDSN := startPostgres18StoreContainer(t, ctx, "agentsql_meta", "metadata-password")
+	auditDSN := startPostgres18StoreContainer(t, ctx, "agentsql_audit", "audit-password")
+	options := MetadataOptions{
+		Driver:          DialectPostgres,
+		PostgresDSN:     metadataDSN,
+		MaxOpenConns:    6,
+		MaxIdleConns:    3,
+		ConnMaxLifetime: time.Minute,
+		AutoMigrate:     true,
+		Audit: AuditOptions{
+			Separate:     true,
+			Driver:       DialectPostgres,
+			PostgresDSN:  auditDSN,
+			MaxOpenConns: 4,
+			MaxIdleConns: 2,
+			AutoMigrate:  true,
+		},
+	}
+	opened, err := OpenMetadata(ctx, options, []byte(testSecret))
+	require.NoError(t, err)
+	require.NotSame(t, opened.metaDB, opened.auditDB)
+	require.True(t, opened.auditSeparate)
+	require.Equal(t, 6, opened.metaDB.Stats().MaxOpenConnections)
+	require.Equal(t, 4, opened.auditDB.Stats().MaxOpenConnections)
+	require.Same(t, opened.metaDB, opened.Agents().db)
+	require.Same(t, opened.auditDB, opened.AuditLogs().db)
+
+	require.Equal(t, []string{
+		"agents", "approvals", "datasources", "mask_rules", "policies", "rules", "schema_migrations",
+	}, postgresTableNames(t, ctx, opened.metaDB))
+	require.Equal(t, []string{"audit_logs", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
+	require.Equal(t, []string{
+		"idx_agents_keyhash", "idx_approvals_status", "idx_policies_agent_ds",
+	}, postgresNamedIndexes(t, ctx, opened.metaDB))
+	require.Equal(t, []string{
+		"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts",
+	}, postgresNamedIndexes(t, ctx, opened.auditDB))
+	require.Equal(t, []string{
+		"policies.agent_id->agents.id", "policies.datasource_id->datasources.id",
+	}, postgresForeignKeys(t, ctx, opened.metaDB))
+	require.NoError(t, opened.Ping(ctx))
+	require.NoError(t, opened.Close())
+
+	auditDatabase, err := sql.Open("pgx", auditDSN)
+	require.NoError(t, err)
+	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=2 WHERE version=1")
+	require.NoError(t, err)
+	require.NoError(t, auditDatabase.Close())
+	options.AutoMigrate = false
+	options.Audit.AutoMigrate = false
+	_, err = OpenMetadata(ctx, options, []byte(testSecret))
+	require.ErrorContains(t, err, "current=2 latest=1")
+}
+
+func TestPostgres18SeparatedDashboardAndAuditReadsE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("dual postgres:18 dashboard and audit routing E2E is an integration test")
+	}
+	ctx := dockerTestContext(t)
+	metadataDSN := startPostgres18StoreContainer(t, ctx, "agentsql_dashboard_meta", "metadata-password")
+	auditDSN := startPostgres18StoreContainer(t, ctx, "agentsql_dashboard_audit", "audit-password")
+	opened, err := OpenMetadata(ctx, MetadataOptions{
+		Driver:          DialectPostgres,
+		PostgresDSN:     metadataDSN,
+		MaxOpenConns:    6,
+		MaxIdleConns:    3,
+		ConnMaxLifetime: time.Minute,
+		AutoMigrate:     true,
+		Audit: AuditOptions{
+			Separate: true, Driver: DialectPostgres,
+			PostgresDSN:  auditDSN + "&TimeZone=Asia%2FShanghai",
+			MaxOpenConns: 4, MaxIdleConns: 2, AutoMigrate: true,
+		},
+	}, []byte(testSecret))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, opened.Close()) })
+
+	_, hash, err := GenerateAPIKey()
+	require.NoError(t, err)
+	_, err = opened.Agents().Create(ctx, model.Agent{
+		ID: "agent-known", Name: "Known Agent", Status: "active", APIKeyHash: hash, Level: "readonly",
+	})
+	require.NoError(t, err)
+	_, err = opened.Datasources().Create(ctx, model.Datasource{
+		ID: "dashboard-ds", Name: "Dashboard DB", DBType: "postgres", Host: "127.0.0.1",
+		Port: 5432, Database: "app", Username: "gateway", ConnLimit: 5,
+		StmtTimeoutMS: 5000, RowLimit: 1000,
+	}, "password")
+	require.NoError(t, err)
+	_, err = opened.Approvals().Create(ctx, model.Approval{ID: "dashboard-pending", Status: "pending"})
+	require.NoError(t, err)
+
+	referenceNow := time.Date(2027, time.January, 2, 20, 0, 0, 0, time.UTC)
+	entries := []struct {
+		timestamp time.Time
+		agentID   string
+		decision  string
+		ruleHits  string
+		estRows   int64
+		sqlRaw    string
+	}{
+		{referenceNow.AddDate(0, 0, -1).Truncate(24 * time.Hour).Add(time.Hour), "agent-known", "allow", `[]`, 0, "SELECT allowed"},
+		{referenceNow.Truncate(24 * time.Hour).Add(time.Hour), "agent-known", "deny", `[{"RuleID":"R-HIGH","Decision":"deny"}]`, 10, "SELECT blocked known"},
+		{referenceNow.Truncate(24 * time.Hour).Add(2 * time.Hour), "agent-removed", "deny", `[{"RuleID":"R-HIGH","Decision":"deny"}]`, 20, "SELECT blocked removed"},
+		{referenceNow.Truncate(24 * time.Hour).Add(3 * time.Hour), "agent-known", "approve", `[]`, 0, "UPDATE awaiting approval"},
+	}
+	insertedIDs := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		agentID, ruleHits, estimatedRows, sqlRaw := entry.agentID, entry.ruleHits, entry.estRows, entry.sqlRaw
+		inserted, insertErr := opened.AuditLogs().Insert(ctx, model.AuditLog{
+			AgentID: &agentID, Decision: entry.decision, RuleHits: &ruleHits,
+			EstRows: &estimatedRows, SQLRaw: &sqlRaw,
+		})
+		require.NoError(t, insertErr)
+		insertedIDs = append(insertedIDs, inserted.ID)
+		_, updateErr := opened.auditDB.ExecContext(
+			ctx, "UPDATE audit_logs SET ts = $1 WHERE id = $2", entry.timestamp, inserted.ID,
+		)
+		require.NoError(t, updateErr)
+	}
+
+	var metadataAuditTable sql.NullString
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, "SELECT to_regclass('public.audit_logs')").Scan(&metadataAuditTable))
+	require.False(t, metadataAuditTable.Valid)
+	var auditCount int64
+	require.NoError(t, opened.auditDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs").Scan(&auditCount))
+	require.Equal(t, int64(len(entries)), auditCount)
+
+	dashboard := opened.Dashboard()
+	dashboard.now = func() time.Time { return referenceNow }
+	summary, err := dashboard.Summary(ctx, 2)
+	require.NoError(t, err)
+	require.Equal(t, DashboardKPI{
+		TotalRequests: 4, Blocked: 2, PendingApprovals: 1, ActiveAgents: 1, DatasourcesTotal: 1,
+	}, summary.KPI)
+	require.Equal(t, []TrendDay{
+		{Date: "2027-01-01", Total: 1, Allow: 1},
+		{Date: "2027-01-02", Total: 3, Deny: 2, Approve: 1},
+	}, summary.Trend14D)
+	require.Equal(t, []DecisionCount{
+		{Decision: "allow", Count: 1},
+		{Decision: "deny", Count: 2},
+		{Decision: "approve", Count: 1},
+		{Decision: "warn", Count: 0},
+	}, summary.DecisionDistribution)
+	require.Equal(t, []RiskTopEntry{{RuleID: "R-HIGH", Count: 2}}, summary.RiskTop)
+	require.Equal(t, []AgentRankingItem{
+		{AgentID: "agent-known", Name: "Known Agent", BlockedCount: 1},
+		{AgentID: "agent-removed", Name: "", BlockedCount: 1},
+	}, summary.AgentRanking)
+	require.Equal(t, BattleReport{BlockedCount: 2, EstRowsSaved: 30}, summary.BattleReport)
+
+	denies := model.AuditFilter{Decisions: []string{"deny"}, Keyword: "blocked"}
+	firstPage, err := opened.AuditLogs().FilteredPage(ctx, denies, 1, 1)
+	require.NoError(t, err)
+	secondPage, err := opened.AuditLogs().FilteredPage(ctx, denies, 2, 1)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), firstPage.Total)
+	require.Equal(t, int64(2), secondPage.Total)
+	require.Len(t, firstPage.List, 1)
+	require.Len(t, secondPage.List, 1)
+	require.NotEqual(t, firstPage.List[0].ID, secondPage.List[0].ID)
+
+	// The audit export service consumes this same Reader contract page by page.
+	var exportReader interface {
+		FilteredPage(context.Context, model.AuditFilter, int, int) (AuditPage, error)
+	} = opened.AuditLogs()
+	exportedIDs := make([]int64, 0, len(entries))
+	for page := 1; ; page++ {
+		listed, pageErr := exportReader.FilteredPage(ctx, model.AuditFilter{}, page, 2)
+		require.NoError(t, pageErr)
+		for _, auditLog := range listed.List {
+			exportedIDs = append(exportedIDs, auditLog.ID)
+		}
+		if len(listed.List) < 2 || int64(len(exportedIDs)) >= listed.Total {
+			break
+		}
+	}
+	require.ElementsMatch(t, insertedIDs, exportedIDs)
+
+	require.NoError(t, opened.Ping(ctx))
+	require.NoError(t, opened.auditDB.Close())
+	require.ErrorContains(t, opened.Ping(ctx), "ping audit store")
+}
+
+func startPostgres18StoreContainer(t *testing.T, ctx context.Context, databaseName, password string) string {
+	t.Helper()
+	const username = "agentsql"
+	container, err := postgrescontainer.Run(
+		ctx,
+		"postgres:18",
+		postgrescontainer.WithDatabase(databaseName),
+		postgrescontainer.WithUsername(username),
+		postgrescontainer.WithPassword(password),
+		postgrescontainer.BasicWaitStrategies(),
+	)
+	if err != nil {
+		if container != nil {
+			testcontainers.CleanupContainer(t, container)
+		}
+		require.NoError(t, err, "start postgres:18 (Docker daemon probe already succeeded)")
+	}
+	testcontainers.CleanupContainer(t, container)
+	host, err := container.Host(ctx)
+	require.NoError(t, err)
+	port, err := container.MappedPort(ctx, "5432/tcp")
+	require.NoError(t, err)
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		username, password, host, port.Port(), databaseName,
+	)
+}
+
+func postgresTableNames(t *testing.T, ctx context.Context, database *sql.DB) []string {
+	t.Helper()
+	rows, err := database.QueryContext(ctx, `
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+ORDER BY table_name`)
+	require.NoError(t, err)
+	return scanSingleStringColumn(t, rows)
+}
+
+func postgresNamedIndexes(t *testing.T, ctx context.Context, database *sql.DB) []string {
+	t.Helper()
+	rows, err := database.QueryContext(ctx, `
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'public' AND indexname LIKE 'idx_%'
+ORDER BY indexname`)
+	require.NoError(t, err)
+	return scanSingleStringColumn(t, rows)
+}
+
+func postgresForeignKeys(t *testing.T, ctx context.Context, database *sql.DB) []string {
+	t.Helper()
+	rows, err := database.QueryContext(ctx, `
+SELECT tc.table_name, kcu.column_name, ccu.table_name, ccu.column_name
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_catalog = kcu.constraint_catalog
+ AND tc.constraint_schema = kcu.constraint_schema
+ AND tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage AS ccu
+  ON tc.constraint_catalog = ccu.constraint_catalog
+ AND tc.constraint_schema = ccu.constraint_schema
+ AND tc.constraint_name = ccu.constraint_name
+WHERE tc.constraint_schema = 'public' AND tc.constraint_type = 'FOREIGN KEY'`)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+	var foreignKeys []string
+	for rows.Next() {
+		var tableName, columnName, referencedTable, referencedColumn string
+		require.NoError(t, rows.Scan(&tableName, &columnName, &referencedTable, &referencedColumn))
+		foreignKeys = append(foreignKeys, fmt.Sprintf(
+			"%s.%s->%s.%s", tableName, columnName, referencedTable, referencedColumn,
+		))
+	}
+	require.NoError(t, rows.Err())
+	sort.Strings(foreignKeys)
+	return foreignKeys
 }
 
 func assertPostgresMigrationSchema(t *testing.T, ctx context.Context, database *sql.DB) {

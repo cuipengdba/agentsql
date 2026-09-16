@@ -641,6 +641,7 @@ type closeErrorExecutor struct {
 func (*closeErrorExecutor) Dialect() string                                      { return "test" }
 func (*closeErrorExecutor) Ping(context.Context) error                           { return nil }
 func (*closeErrorExecutor) OpenSession(context.Context, string) (Session, error) { return nil, nil }
+func (*closeErrorExecutor) BeginWriteTx(context.Context) (WriteTx, error)        { return nil, nil }
 func (*closeErrorExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
 	return model.ExplainInfo{}, nil
 }

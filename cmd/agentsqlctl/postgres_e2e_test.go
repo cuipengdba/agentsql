@@ -73,7 +73,7 @@ theme:
 
 	var checkOutput, checkError strings.Builder
 	require.Equal(t, 0, run([]string{"check-config", "--config", configPath}, &checkOutput, &checkError), checkError.String())
-	require.Contains(t, checkOutput.String(), "config ok: driver=postgres")
+	require.Contains(t, checkOutput.String(), "config ok: metadata_driver=postgres audit_driver=postgres audit_separate=false")
 	assertCommandOutputHasNoPostgresSecret(t, checkOutput.String()+checkError.String(), dsn, password, yamlDSN, yamlPassword)
 
 	var migrateOutput, migrateError strings.Builder
@@ -102,13 +102,153 @@ ORDER BY table_name`)
 
 	var healthOutput, healthError strings.Builder
 	require.Equal(t, 0, run([]string{"health", "--config", configPath}, &healthOutput, &healthError), healthError.String())
-	require.Contains(t, healthOutput.String(), "health ok: driver=postgres")
+	require.Contains(t, healthOutput.String(), "health ok: metadata_driver=postgres audit_driver=postgres audit_separate=false")
 	assertCommandOutputHasNoPostgresSecret(t, healthOutput.String()+healthError.String(), dsn, password, yamlDSN, yamlPassword)
 
 	var conflictError strings.Builder
 	require.Equal(t, 1, run([]string{"health", "--url", "http://127.0.0.1:1/healthz", "--config", configPath}, io.Discard, &conflictError))
 	require.Contains(t, conflictError.String(), "health --url and --config are mutually exclusive")
 	assertCommandOutputHasNoPostgresSecret(t, conflictError.String(), dsn, password, yamlDSN, yamlPassword)
+}
+
+func TestPostgres18SeparatedCommandLifecycleE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("dual postgres:18 agentsqlctl E2E is an integration test")
+	}
+	ctx := commandDockerTestContext(t)
+	metadataDSN := startCommandPostgres18Container(t, ctx, "agentsql_meta", "metadata-command-password")
+	auditDSN := startCommandPostgres18Container(t, ctx, "agentsql_audit", "audit-command-password")
+	const (
+		yamlMetadataPassword = "yaml-metadata-password-must-not-appear"
+		yamlAuditPassword    = "yaml-audit-password-must-not-appear"
+	)
+	yamlMetadataDSN := "postgres://yaml:" + yamlMetadataPassword + "@example.invalid/meta"
+	yamlAuditDSN := "postgres://yaml:" + yamlAuditPassword + "@example.invalid/audit"
+	t.Setenv("AGENTSQL_STORE_METADATA_DSN", metadataDSN)
+	t.Setenv("AGENTSQL_STORE_AUDIT_DSN", auditDSN)
+	configPath := writeControlConfig(t, fmt.Sprintf(`server:
+  http_listen: "127.0.0.1:7780"
+  console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
+store:
+  auto_migrate: false
+  metadata:
+    driver: postgres
+    dsn: %q
+    max_open_conns: 4
+    max_idle_conns: 2
+    conn_max_lifetime: 1m
+  audit:
+    separate: true
+    driver: postgres
+    dsn: %q
+    max_open_conns: 3
+    max_idle_conns: 1
+defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: 20
+theme:
+  default: dark
+`, yamlMetadataDSN, yamlAuditDSN))
+
+	var output, stderr strings.Builder
+	require.Equal(t, 0, run([]string{"check-config", "--config", configPath}, &output, &stderr), stderr.String())
+	require.Contains(t, output.String(), "config ok: metadata_driver=postgres audit_driver=postgres audit_separate=true")
+	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
+
+	output.Reset()
+	stderr.Reset()
+	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &output, &stderr), stderr.String())
+	require.Contains(t, output.String(), "metadata migration driver=postgres current=1 latest=1")
+	require.Contains(t, output.String(), "audit migration driver=postgres current=1 latest=1")
+	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
+
+	metadataDB, err := sql.Open("pgx", metadataDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, metadataDB.Close()) })
+	auditDB, err := sql.Open("pgx", auditDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, auditDB.Close()) })
+	require.Equal(t, []string{
+		"agents", "approvals", "datasources", "mask_rules", "policies", "rules", "schema_migrations",
+	}, commandPostgresTableNames(t, ctx, metadataDB))
+	require.Equal(t, []string{"audit_logs", "schema_migrations"}, commandPostgresTableNames(t, ctx, auditDB))
+	require.Equal(t, []string{"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts"}, commandPostgresIndexNames(t, ctx, auditDB))
+	var approvalForeignKeys int
+	require.NoError(t, metadataDB.QueryRowContext(ctx, `
+SELECT count(*)
+FROM information_schema.table_constraints
+WHERE constraint_schema='public' AND table_name='approvals' AND constraint_type='FOREIGN KEY'`).Scan(&approvalForeignKeys))
+	require.Zero(t, approvalForeignKeys)
+
+	output.Reset()
+	stderr.Reset()
+	require.Equal(t, 0, run([]string{"health", "--config", configPath}, &output, &stderr), stderr.String())
+	require.Contains(t, output.String(), "health ok: metadata_driver=postgres audit_driver=postgres audit_separate=true")
+	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
+}
+
+func startCommandPostgres18Container(t *testing.T, ctx context.Context, databaseName, password string) string {
+	t.Helper()
+	const username = "agentsql"
+	container, err := postgrescontainer.Run(
+		ctx,
+		"postgres:18",
+		postgrescontainer.WithDatabase(databaseName),
+		postgrescontainer.WithUsername(username),
+		postgrescontainer.WithPassword(password),
+		postgrescontainer.BasicWaitStrategies(),
+	)
+	if err != nil {
+		if container != nil {
+			testcontainers.CleanupContainer(t, container)
+		}
+		require.NoError(t, err, "start postgres:18 (Docker daemon probe already succeeded)")
+	}
+	testcontainers.CleanupContainer(t, container)
+	host, err := container.Host(ctx)
+	require.NoError(t, err)
+	port, err := container.MappedPort(ctx, "5432/tcp")
+	require.NoError(t, err)
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", username, password, host, port.Port(), databaseName)
+}
+
+func commandPostgresTableNames(t *testing.T, ctx context.Context, database *sql.DB) []string {
+	t.Helper()
+	rows, err := database.QueryContext(ctx, `
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema='public' AND table_type='BASE TABLE'
+ORDER BY table_name`)
+	require.NoError(t, err)
+	return commandScanStrings(t, rows)
+}
+
+func commandPostgresIndexNames(t *testing.T, ctx context.Context, database *sql.DB) []string {
+	t.Helper()
+	rows, err := database.QueryContext(ctx, `
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname='public' AND indexname LIKE 'idx_%'
+ORDER BY indexname`)
+	require.NoError(t, err)
+	return commandScanStrings(t, rows)
+}
+
+func commandScanStrings(t *testing.T, rows *sql.Rows) []string {
+	t.Helper()
+	defer func() { require.NoError(t, rows.Close()) }()
+	var values []string
+	for rows.Next() {
+		var value string
+		require.NoError(t, rows.Scan(&value))
+		values = append(values, value)
+	}
+	require.NoError(t, rows.Err())
+	return values
 }
 
 func assertCommandOutputHasNoPostgresSecret(t *testing.T, output string, sensitive ...string) {

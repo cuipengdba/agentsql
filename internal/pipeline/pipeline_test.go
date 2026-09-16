@@ -525,11 +525,15 @@ func TestPipelineDynamicAndRedactionErrorsNeverReturnData(t *testing.T) {
 
 func TestPipelineAuditErrorFailsRequest(t *testing.T) {
 	fixture := newPipelineFixture(t)
-	expected := errors.New("audit unavailable")
+	expected := errors.New("pq: password authentication failed for postgres://secret@audit")
 	fixture.audit.err = expected
 	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
-	require.True(t, err == expected)
+	require.ErrorIs(t, err, ErrAuditUnavailable)
 	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Nil(t, response.Result)
+	require.NotContains(t, err.Error(), expected.Error())
+	require.NotContains(t, response.Assessment.Reason, "postgres://")
+	require.NotContains(t, response.Assessment.Reason, "password authentication")
 }
 
 func TestPipelineNilContextIsAuditedWithoutTouchingDatabase(t *testing.T) {
@@ -1014,18 +1018,27 @@ func (fake *fakeApprovalWriter) last() model.Approval {
 }
 
 type fakeAuditRecorder struct {
-	mu   sync.Mutex
-	logs []model.AuditLog
-	err  error
-	next int64
+	mu                sync.Mutex
+	logs              []model.AuditLog
+	err               error
+	next              int64
+	onRecord          func()
+	waitForContextEnd bool
 }
 
 func (fake *fakeAuditRecorder) Record(
-	_ context.Context,
+	ctx context.Context,
 	log model.AuditLog,
 ) (model.AuditLog, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
+	if fake.onRecord != nil {
+		fake.onRecord()
+	}
+	if fake.waitForContextEnd {
+		<-ctx.Done()
+		return model.AuditLog{}, ctx.Err()
+	}
 	if fake.err != nil {
 		return model.AuditLog{}, fake.err
 	}
@@ -1105,6 +1118,10 @@ type spyExecutor struct {
 	lastQueryLimit   int
 	explainDeadline  bool
 	queryDeadline    bool
+	beginErr         error
+	commitErr        error
+	rollbackErr      error
+	events           []string
 }
 
 func (spy *spyExecutor) Dialect() string        { return spy.dialect }
@@ -1115,6 +1132,16 @@ func (spy *spyExecutor) OpenSession(context.Context, string) (executor.Session, 
 	defer spy.mu.Unlock()
 	spy.calls.openSession++
 	return &spySession{parent: spy}, nil
+}
+
+func (spy *spyExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.events = append(spy.events, "begin")
+	if spy.beginErr != nil {
+		return nil, spy.beginErr
+	}
+	return &spyWriteTx{parent: spy, execute: spy.Execute}, nil
 }
 
 func (spy *spyExecutor) Explain(ctx context.Context, _ string) (model.ExplainInfo, error) {
@@ -1138,6 +1165,7 @@ func (spy *spyExecutor) Execute(context.Context, string) (model.QueryResult, err
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
 	spy.calls.execute++
+	spy.events = append(spy.events, "execute")
 	return spy.execResult, spy.executeErr
 }
 
@@ -1179,8 +1207,30 @@ func (spy *spyExecutor) executionSettings() (int, bool, bool) {
 	return spy.lastQueryLimit, spy.explainDeadline, spy.queryDeadline
 }
 
+func (spy *spyExecutor) appendEvent(event string) {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	spy.events = append(spy.events, event)
+}
+
+func (spy *spyExecutor) eventSnapshot() []string {
+	spy.mu.Lock()
+	defer spy.mu.Unlock()
+	return append([]string(nil), spy.events...)
+}
+
 type spySession struct {
 	parent *spyExecutor
+}
+
+func (session *spySession) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+	session.parent.mu.Lock()
+	defer session.parent.mu.Unlock()
+	session.parent.events = append(session.parent.events, "begin")
+	if session.parent.beginErr != nil {
+		return nil, session.parent.beginErr
+	}
+	return &spyWriteTx{parent: session.parent, execute: session.Execute}, nil
 }
 
 func (session *spySession) Query(ctx context.Context, sql string, limit int) (model.QueryResult, error) {
@@ -1196,6 +1246,7 @@ func (session *spySession) Execute(ctx context.Context, sql string) (model.Query
 	session.parent.mu.Lock()
 	defer session.parent.mu.Unlock()
 	session.parent.calls.sessionExecute++
+	session.parent.events = append(session.parent.events, "execute")
 	return session.parent.execResult, session.parent.executeErr
 }
 
@@ -1228,6 +1279,37 @@ func (session *spySession) TableHasIndex(schema, table string) (bool, error) {
 
 func (session *spySession) TableRowCount(schema, table string) (int64, error) {
 	return session.parent.TableRowCount(schema, table)
+}
+
+type spyWriteTx struct {
+	mu      sync.Mutex
+	parent  *spyExecutor
+	execute func(context.Context, string) (model.QueryResult, error)
+	done    bool
+}
+
+func (tx *spyWriteTx) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
+	return tx.execute(ctx, sql)
+}
+func (tx *spyWriteTx) Commit(context.Context) error {
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	if tx.done {
+		return nil
+	}
+	tx.done = true
+	tx.parent.appendEvent("commit")
+	return tx.parent.commitErr
+}
+func (tx *spyWriteTx) Rollback(context.Context) error {
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	if tx.done {
+		return nil
+	}
+	tx.done = true
+	tx.parent.appendEvent("rollback")
+	return tx.parent.rollbackErr
 }
 
 func ruleIDs(input []engine.Rule) []string {

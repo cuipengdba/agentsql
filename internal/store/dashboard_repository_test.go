@@ -17,7 +17,7 @@ func TestDashboardSummaryUsesUTCNaturalDayWindow(t *testing.T) {
 
 	insertDashboardAudit := func(timestamp time.Time, decision, ruleHits string, estimatedRows int) {
 		t.Helper()
-		_, err := opened.db.ExecContext(context.Background(), repository.bind(`
+		_, err := opened.metaDB.ExecContext(context.Background(), repository.meta.bind(`
 INSERT INTO audit_logs (ts, agent_id, decision, rule_hits, est_rows)
 VALUES (?, ?, ?, ?, ?)`), timestamp, "agent-boundary", decision, ruleHits, estimatedRows)
 		require.NoError(t, err)

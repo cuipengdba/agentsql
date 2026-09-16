@@ -35,6 +35,7 @@ const defaultConfigTemplate = `server:
   event_stream_max_connections: 100
 store:
   sqlite_path: "./data/agentsql.db"
+  auto_migrate: true              # false verifies schema versions without DDL
   # The v0.1 shorthand above and metadata below are mutually exclusive.
   # metadata:
   #   driver: sqlite                 # sqlite or postgres; defaults to sqlite
@@ -44,7 +45,11 @@ store:
   #   max_idle_conns: 5
   #   conn_max_lifetime: "30m"      # Go duration syntax with a unit, for example 30m or 1h
   # audit:
-  #   separate: false               # true is not supported until T28b-1
+  #   separate: false
+  #   driver: postgres               # independent audit stores support postgres only
+  #   dsn: ""                       # AGENTSQL_STORE_AUDIT_DSN overrides this value
+  #   max_open_conns: 10
+  #   max_idle_conns: 5
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000
@@ -173,9 +178,14 @@ func newCheckConfigCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("check config %q: %w", configPath, err)
 			}
-			message := fmt.Sprintf("config ok: driver=%s", resolved.Driver)
-			if resolved.Driver == store.DialectSQLite {
-				message += " sqlite_path=" + resolved.SQLitePath
+			message := fmt.Sprintf(
+				"config ok: metadata_driver=%s audit_driver=%s audit_separate=%t",
+				resolved.Metadata.Driver,
+				resolved.Audit.Driver,
+				!resolved.Audit.ReuseMetadata,
+			)
+			if resolved.Metadata.Driver == store.DialectSQLite {
+				message += " sqlite_path=" + resolved.Metadata.SQLitePath
 			}
 			if _, err := fmt.Fprintln(command.OutOrStdout(), message); err != nil {
 				return fmt.Errorf("write check-config result: %w", err)
@@ -194,12 +204,19 @@ func newMigrateCommand() *cobra.Command {
 		Short: "Apply metadata-store migrations",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			current, latest, driver, err := migrate(command.Context(), configPath)
+			results, err := migrate(command.Context(), configPath)
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(command.OutOrStdout(), "migration driver=%s current=%d latest=%d\n", driver, current, latest); err != nil {
-				return fmt.Errorf("write migration result: %w", err)
+			for _, result := range results {
+				format := "migration driver=%s current=%d latest=%d\n"
+				arguments := []any{result.driver, result.current, result.latest}
+				if len(results) > 1 {
+					format = result.role + " migration driver=%s current=%d latest=%d\n"
+				}
+				if _, err := fmt.Fprintf(command.OutOrStdout(), format, arguments...); err != nil {
+					return fmt.Errorf("write migration result: %w", err)
+				}
 			}
 			return nil
 		},
@@ -208,38 +225,72 @@ func newMigrateCommand() *cobra.Command {
 	return command
 }
 
-func migrate(ctx context.Context, configPath string) (current int, latest int, driver store.Dialect, resultErr error) {
+type migrationResult struct {
+	role            string
+	driver          store.Dialect
+	current, latest int
+}
+
+func migrate(ctx context.Context, configPath string) ([]migrationResult, error) {
 	loaded, err := config.Load(configPath)
 	if err != nil {
-		return 0, 0, "", fmt.Errorf("load migration configuration: %w", err)
+		return nil, fmt.Errorf("load migration configuration: %w", err)
 	}
 	resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
 	if err != nil {
-		return 0, 0, "", fmt.Errorf("resolve migration configuration: %w", err)
+		return nil, fmt.Errorf("resolve migration configuration: %w", err)
 	}
-	database, err := openResolvedDatabase(resolved)
+	separate := !resolved.Audit.ReuseMetadata
+	metadataResult, err := migrateResolvedTarget(ctx, "metadata", resolved.Metadata, func(database *sql.DB) error {
+		return store.MigrateMetadata(ctx, database, resolved.Metadata.Driver, separate)
+	}, func(database *sql.DB) (int, int, error) {
+		return store.MetadataMigrationVersions(ctx, database, resolved.Metadata.Driver, separate)
+	})
 	if err != nil {
-		return 0, 0, resolved.Driver, safeStoreError("open migration connection", resolved, err)
+		return nil, err
+	}
+	if !separate {
+		return []migrationResult{metadataResult}, nil
+	}
+	auditResult, err := migrateResolvedTarget(ctx, "audit", resolved.Audit, func(database *sql.DB) error {
+		return store.MigrateAudit(ctx, database, resolved.Audit.Driver)
+	}, func(database *sql.DB) (int, int, error) {
+		return store.AuditMigrationVersions(ctx, database, resolved.Audit.Driver)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []migrationResult{metadataResult, auditResult}, nil
+}
+
+func migrateResolvedTarget(
+	ctx context.Context,
+	role string,
+	target config.ResolvedStoreTarget,
+	apply func(*sql.DB) error,
+	versions func(*sql.DB) (int, int, error),
+) (result migrationResult, resultErr error) {
+	result.role, result.driver = role, target.Driver
+	database, err := openResolvedDatabase(target)
+	if err != nil {
+		return result, safeStoreError("open "+role+" migration connection", target, err)
 	}
 	defer func() {
 		if closeErr := database.Close(); closeErr != nil {
-			resultErr = errors.Join(resultErr, safeStoreError("close migration connection", resolved, closeErr))
+			resultErr = errors.Join(resultErr, safeStoreError("close "+role+" migration connection", target, closeErr))
 		}
 	}()
 	if err := database.PingContext(ctx); err != nil {
-		return 0, 0, resolved.Driver, safeStoreError("ping migration connection", resolved, err)
+		return result, safeStoreError("ping "+role+" migration connection", target, err)
 	}
-	if err := store.Migrate(ctx, database, resolved.Driver); err != nil {
-		return 0, 0, resolved.Driver, safeStoreError("migrate metadata store", resolved, err)
+	if err := apply(database); err != nil {
+		return result, safeStoreError("migrate "+role+" store", target, err)
 	}
-	if err := database.QueryRowContext(
-		ctx,
-		"SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
-	).Scan(&current); err != nil {
-		return 0, 0, resolved.Driver, safeStoreError("read current migration version", resolved, err)
+	result.current, result.latest, err = versions(database)
+	if err != nil {
+		return result, safeStoreError("read "+role+" migration version", target, err)
 	}
-	// Migrate applies every embedded migration, so current equals latest here.
-	return current, current, resolved.Driver, nil
+	return result, nil
 }
 
 func newHealthCommand() *cobra.Command {
@@ -265,7 +316,13 @@ func newHealthCommand() *cobra.Command {
 				if err := checkStoreHealth(command.Context(), resolved); err != nil {
 					return err
 				}
-				if _, err := fmt.Fprintf(command.OutOrStdout(), "health ok: driver=%s\n", resolved.Driver); err != nil {
+				if _, err := fmt.Fprintf(
+					command.OutOrStdout(),
+					"health ok: metadata_driver=%s audit_driver=%s audit_separate=%t\n",
+					resolved.Metadata.Driver,
+					resolved.Audit.Driver,
+					!resolved.Audit.ReuseMetadata,
+				); err != nil {
 					return fmt.Errorf("write health result: %w", err)
 				}
 				return nil
@@ -305,7 +362,7 @@ func resolveConfigFile(configPath string) (*config.ResolvedStore, error) {
 	return resolved, nil
 }
 
-func openResolvedDatabase(resolved *config.ResolvedStore) (*sql.DB, error) {
+func openResolvedDatabase(resolved config.ResolvedStoreTarget) (*sql.DB, error) {
 	driverName, target := "sqlite", resolved.SQLitePath
 	if resolved.Driver == store.DialectPostgres {
 		driverName, target = "pgx", resolved.PostgresDSN
@@ -326,31 +383,46 @@ func openResolvedDatabase(resolved *config.ResolvedStore) (*sql.DB, error) {
 }
 
 func checkStoreHealth(ctx context.Context, resolved *config.ResolvedStore) (resultErr error) {
-	if resolved.Driver == store.DialectSQLite {
-		info, err := os.Stat(resolved.SQLitePath)
+	if resolved.Metadata.Driver == store.DialectSQLite {
+		info, err := os.Stat(resolved.Metadata.SQLitePath)
 		if err != nil {
-			return safeStoreError("inspect health target", resolved, err)
+			return safeStoreError("inspect metadata health target", resolved.Metadata, err)
 		}
 		if info.IsDir() {
 			return fmt.Errorf("inspect health target: driver=sqlite target is not a database file")
 		}
 	}
-	database, err := openResolvedDatabase(resolved)
+	metadataDB, err := openResolvedDatabase(resolved.Metadata)
 	if err != nil {
-		return safeStoreError("open health connection", resolved, err)
+		return safeStoreError("open metadata health connection", resolved.Metadata, err)
 	}
 	defer func() {
-		if closeErr := database.Close(); closeErr != nil {
-			resultErr = errors.Join(resultErr, safeStoreError("close health connection", resolved, closeErr))
+		if closeErr := metadataDB.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, safeStoreError("close metadata health connection", resolved.Metadata, closeErr))
 		}
 	}()
-	if err := database.PingContext(ctx); err != nil {
-		return safeStoreError("ping health connection", resolved, err)
+	if err := metadataDB.PingContext(ctx); err != nil {
+		return safeStoreError("ping metadata health connection", resolved.Metadata, err)
+	}
+	if resolved.Audit.ReuseMetadata {
+		return nil
+	}
+	auditDB, err := openResolvedDatabase(resolved.Audit)
+	if err != nil {
+		return safeStoreError("open audit health connection", resolved.Audit, err)
+	}
+	defer func() {
+		if closeErr := auditDB.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, safeStoreError("close audit health connection", resolved.Audit, closeErr))
+		}
+	}()
+	if err := auditDB.PingContext(ctx); err != nil {
+		return safeStoreError("ping audit health connection", resolved.Audit, err)
 	}
 	return nil
 }
 
-func safeStoreError(action string, resolved *config.ResolvedStore, err error) error {
+func safeStoreError(action string, resolved config.ResolvedStoreTarget, err error) error {
 	if resolved.Driver == store.DialectPostgres {
 		// Driver errors are intentionally not wrapped because third-party error
 		// text is not contractually guaranteed to omit DSNs or passwords.

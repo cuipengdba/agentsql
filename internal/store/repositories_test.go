@@ -35,7 +35,7 @@ func TestAgentRepositoryCRUDAndHashedKeyStorage(t *testing.T) {
 	require.False(t, created.UpdatedAt.IsZero())
 
 	var storedKey string
-	require.NoError(t, opened.db.QueryRow(
+	require.NoError(t, opened.metaDB.QueryRow(
 		"SELECT api_key_hash FROM agents WHERE id = ?",
 		created.ID,
 	).Scan(&storedKey))
@@ -50,7 +50,7 @@ func TestAgentRepositoryCRUDAndHashedKeyStorage(t *testing.T) {
 	})
 	require.True(t, errors.Is(err, errInvalidAPIKeyHash))
 	var plaintextCount int
-	require.NoError(t, opened.db.QueryRow(
+	require.NoError(t, opened.metaDB.QueryRow(
 		"SELECT COUNT(*) FROM agents WHERE api_key_hash = ?",
 		plaintext,
 	).Scan(&plaintextCount))
@@ -104,7 +104,7 @@ func TestDatasourceRepositoryCRUDAndEncryptedPasswordStorage(t *testing.T) {
 	require.Equal(t, firstPassword, decrypted)
 
 	var storedPassword string
-	require.NoError(t, opened.db.QueryRow(
+	require.NoError(t, opened.metaDB.QueryRow(
 		"SELECT password_enc FROM datasources WHERE id = ?",
 		created.ID,
 	).Scan(&storedPassword))

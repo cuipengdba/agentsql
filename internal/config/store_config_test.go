@@ -80,12 +80,13 @@ func TestResolveStoreConfigurationMatrix(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, test.wantDriver, resolved.Driver)
-			require.Equal(t, test.wantPath, resolved.SQLitePath)
-			require.Equal(t, test.wantDSN, resolved.PostgresDSN)
-			require.Equal(t, 10, resolved.MaxOpenConns)
-			require.Equal(t, 5, resolved.MaxIdleConns)
-			require.Equal(t, ConfigDuration(30*time.Minute), resolved.ConnMaxLifetime)
+			require.Equal(t, test.wantDriver, resolved.Metadata.Driver)
+			require.Equal(t, test.wantPath, resolved.Metadata.SQLitePath)
+			require.Equal(t, test.wantDSN, resolved.Metadata.PostgresDSN)
+			require.Equal(t, 10, resolved.Metadata.MaxOpenConns)
+			require.Equal(t, 5, resolved.Metadata.MaxIdleConns)
+			require.Equal(t, ConfigDuration(30*time.Minute), resolved.Metadata.ConnMaxLifetime)
+			require.True(t, resolved.AutoMigrate)
 		})
 	}
 }
@@ -147,9 +148,9 @@ func TestResolveStorePoolValidation(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, test.wantOpen, resolved.MaxOpenConns)
-			require.Equal(t, test.wantIdle, resolved.MaxIdleConns)
-			require.Equal(t, test.wantMaxAge, resolved.ConnMaxLifetime)
+			require.Equal(t, test.wantOpen, resolved.Metadata.MaxOpenConns)
+			require.Equal(t, test.wantIdle, resolved.Metadata.MaxIdleConns)
+			require.Equal(t, test.wantMaxAge, resolved.Metadata.ConnMaxLifetime)
 		})
 	}
 
@@ -164,19 +165,89 @@ func TestResolveStorePoolValidation(t *testing.T) {
 
 func TestResolveStoreAuditConfiguration(t *testing.T) {
 	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
-	for _, auditYAML := range []string{"", "  audit:\n    separate: false\n"} {
-		parsed, err := Parse([]byte(configWithStore(fmt.Sprintf("  sqlite_path: %q\n%s", databasePath, auditYAML))))
-		require.NoError(t, err)
-		resolved, err := ResolveStore(&parsed, nil)
-		require.NoError(t, err)
-		require.False(t, resolved.AuditSeparate)
+	lookup := func(values map[string]string) func(string) (string, bool) {
+		return func(key string) (string, bool) {
+			value, ok := values[key]
+			return value, ok
+		}
 	}
+	tests := []struct {
+		name        string
+		auditYAML   string
+		environment map[string]string
+		wantReuse   bool
+		wantDSN     string
+		wantOpen    int
+		wantIdle    int
+		wantError   error
+		contains    string
+	}{
+		{name: "audit omitted reuses metadata", wantReuse: true},
+		{name: "separate false reuses metadata", auditYAML: "  audit:\n    separate: false\n", wantReuse: true},
+		{name: "separate postgres", auditYAML: "  audit:\n    separate: true\n    driver: postgres\n    dsn: postgres://audit:secret@example/audit\n", wantDSN: "postgres://audit:secret@example/audit", wantOpen: 10, wantIdle: 5},
+		{name: "separate defaults driver", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://audit:secret@example/audit\n", wantDSN: "postgres://audit:secret@example/audit", wantOpen: 10, wantIdle: 5},
+		{name: "separate missing dsn", auditYAML: "  audit:\n    separate: true\n", wantError: ErrMissingAuditDSN},
+		{name: "separate sqlite rejected", auditYAML: "  audit:\n    separate: true\n    driver: sqlite\n    dsn: ignored\n", contains: "only postgres is supported"},
+		{name: "false with dsn rejected", auditYAML: "  audit:\n    separate: false\n    dsn: postgres://audit:secret@example/audit\n", contains: "require separate=true"},
+		{name: "false with explicit empty dsn rejected", auditYAML: "  audit:\n    separate: false\n    dsn: \"\"\n", contains: "require separate=true"},
+		{name: "environment overrides yaml", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://yaml:secret@example/audit\n", environment: map[string]string{AuditDSNEnv: "  postgres://env:secret@example/audit  "}, wantDSN: "postgres://env:secret@example/audit", wantOpen: 10, wantIdle: 5},
+		{name: "empty environment overrides yaml", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://yaml:secret@example/audit\n", environment: map[string]string{AuditDSNEnv: ""}, wantError: ErrMissingAuditDSN},
+		{name: "explicit pool", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://audit:secret@example/audit\n    max_open_conns: 8\n    max_idle_conns: 3\n", wantDSN: "postgres://audit:secret@example/audit", wantOpen: 8, wantIdle: 3},
+		{name: "negative open", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://audit:secret@example/audit\n    max_open_conns: -1\n", contains: "must not be negative"},
+		{name: "negative idle", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://audit:secret@example/audit\n    max_idle_conns: -1\n", contains: "must not be negative"},
+		{name: "idle exceeds open", auditYAML: "  audit:\n    separate: true\n    dsn: postgres://audit:secret@example/audit\n    max_open_conns: 2\n    max_idle_conns: 3\n", contains: "must not exceed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := Parse([]byte(configWithStore(fmt.Sprintf("  sqlite_path: %q\n%s", databasePath, test.auditYAML))))
+			require.NoError(t, err)
+			resolved, err := ResolveStore(&parsed, lookup(test.environment))
+			if test.wantError != nil || test.contains != "" {
+				require.Error(t, err)
+				if test.wantError != nil {
+					require.ErrorIs(t, err, test.wantError)
+				}
+				if test.contains != "" {
+					require.ErrorContains(t, err, test.contains)
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.wantReuse, resolved.Audit.ReuseMetadata)
+			if test.wantReuse {
+				require.Equal(t, store.DialectSQLite, resolved.Audit.Driver)
+				require.Empty(t, resolved.Audit.PostgresDSN)
+				return
+			}
+			require.Equal(t, store.DialectPostgres, resolved.Audit.Driver)
+			require.Equal(t, test.wantDSN, resolved.Audit.PostgresDSN)
+			require.Equal(t, test.wantOpen, resolved.Audit.MaxOpenConns)
+			require.Equal(t, test.wantIdle, resolved.Audit.MaxIdleConns)
+		})
+	}
+}
 
-	parsed, err := Parse([]byte(configWithStore(fmt.Sprintf("  sqlite_path: %q\n  audit:\n    separate: true\n", databasePath))))
-	require.NoError(t, err)
-	_, err = ResolveStore(&parsed, nil)
-	require.ErrorIs(t, err, ErrUnsupportedAuditStore)
-	require.ErrorContains(t, err, "not supported until T28b-1")
+func TestResolveStoreAutoMigrateDefaultAndExplicitFalse(t *testing.T) {
+	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
+	for _, test := range []struct {
+		name      string
+		field     string
+		wantValue bool
+	}{
+		{name: "default true", wantValue: true},
+		{name: "explicit true", field: "  auto_migrate: true\n", wantValue: true},
+		{name: "explicit false", field: "  auto_migrate: false\n", wantValue: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := Parse([]byte(configWithStore(fmt.Sprintf("  sqlite_path: %q\n%s", databasePath, test.field))))
+			require.NoError(t, err)
+			resolved, err := ResolveStore(&parsed, nil)
+			require.NoError(t, err)
+			require.Equal(t, test.wantValue, resolved.AutoMigrate)
+			require.Equal(t, test.wantValue, resolved.MetadataOptions().AutoMigrate)
+			require.Equal(t, test.wantValue, resolved.MetadataOptions().Audit.AutoMigrate)
+		})
+	}
 }
 
 func TestLoadStoreFilesystemEffectsDependOnDriver(t *testing.T) {

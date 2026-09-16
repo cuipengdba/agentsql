@@ -66,6 +66,7 @@ type ThemeConfig struct {
 // reading or changing the filesystem.
 func Parse(contents []byte) (Config, error) {
 	var loaded Config
+	loaded.Store.AutoMigrate = true
 	decoder := yaml.NewDecoder(bytes.NewReader(contents))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&loaded); err != nil {
@@ -93,6 +94,10 @@ func Parse(contents []byte) (Config, error) {
 	}
 	storeFields := configuredStoreFields(contents)
 	loaded.Store.legacySQLitePathSet = storeFields["sqlite_path"]
+	loaded.Store.autoMigrateSet = storeFields["auto_migrate"]
+	if loaded.Store.Audit != nil {
+		loaded.Store.Audit.configuredFields = configuredAuditFields(contents)
+	}
 	if err := loaded.validateNonStore(); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
@@ -115,15 +120,31 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("resolve config %q: %w", path, err)
 	}
-	if resolved.Driver == store.DialectSQLite {
-		resolved.SQLitePath = filepath.Clean(resolved.SQLitePath)
-		if err := os.MkdirAll(filepath.Dir(resolved.SQLitePath), 0o750); err != nil {
-			return Config{}, fmt.Errorf("create SQLite directory for %q: %w", resolved.SQLitePath, err)
+	if resolved.Metadata.Driver == store.DialectSQLite {
+		resolved.Metadata.SQLitePath = filepath.Clean(resolved.Metadata.SQLitePath)
+		if err := os.MkdirAll(filepath.Dir(resolved.Metadata.SQLitePath), 0o750); err != nil {
+			return Config{}, fmt.Errorf("create SQLite directory for %q: %w", resolved.Metadata.SQLitePath, err)
 		}
 	}
 	applyResolvedStore(&loaded, resolved)
 
 	return loaded, nil
+}
+
+func configuredAuditFields(contents []byte) map[string]bool {
+	var document struct {
+		Store struct {
+			Audit map[string]yaml.Node `yaml:"audit"`
+		} `yaml:"store"`
+	}
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return map[string]bool{}
+	}
+	configured := make(map[string]bool, len(document.Store.Audit))
+	for field := range document.Store.Audit {
+		configured[field] = true
+	}
+	return configured
 }
 
 func configuredStoreFields(contents []byte) map[string]bool {
