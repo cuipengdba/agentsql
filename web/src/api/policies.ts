@@ -6,8 +6,8 @@ export interface PolicyQuery extends PageQuery {
   datasource_id?: string;
 }
 
-export function listPolicies(params: PolicyQuery = {}): Promise<PageResp<PolicyView>> {
-  return request<PageResp<PolicyView>>({ method: "GET", url: "/policies", params });
+export function listPolicies(params: PolicyQuery = {}, signal?: AbortSignal): Promise<PageResp<PolicyView>> {
+  return request<PageResp<PolicyView>>({ method: "GET", url: "/policies", params, signal });
 }
 
 export function createPolicy(input: PolicyInput): Promise<PolicyView> {

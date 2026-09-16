@@ -48,12 +48,35 @@ type agentCreateInput struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
+type nullableTime struct {
+	Present bool
+	Value   *time.Time
+}
+
+func (value *nullableTime) UnmarshalJSON(data []byte) error {
+	value.Present = true
+	value.Value = nil
+	if string(data) == "null" {
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return err
+	}
+	parsed, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return err
+	}
+	value.Value = &parsed
+	return nil
+}
+
 type agentUpdateInput struct {
-	Name      *string    `json:"name,omitempty"`
-	Owner     *string    `json:"owner,omitempty"`
-	Status    *string    `json:"status,omitempty"`
-	Level     *string    `json:"level,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Name      *string      `json:"name,omitempty"`
+	Owner     *string      `json:"owner,omitempty"`
+	Status    *string      `json:"status,omitempty"`
+	Level     *string      `json:"level,omitempty"`
+	ExpiresAt nullableTime `json:"expires_at,omitempty"`
 }
 
 type datasourceView struct {

@@ -8,7 +8,7 @@ import { createMaskRule, deleteMaskRule, listMaskRules, updateMaskRule } from "@
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { configLabel, maskAlgoMeta, sensitiveTypeMeta } from "@/constants/labels";
-import { apiErrorMessage, formatDateTime, isCanceled } from "@/pages/config/utils";
+import { apiErrorMessage, formatDateTime, httpStatus, isCanceled } from "@/pages/config/utils";
 import { MaskRuleFormDrawer } from "@/pages/maskrules/MaskRuleFormDrawer";
 
 function safeTotal(value: number): number {
@@ -36,7 +36,8 @@ export function MaskRules() {
 
   useEffect(() => {
     let active = true;
-    void listDatasources({ page: 1, page_size: 100 })
+    const controller = new AbortController();
+    void listDatasources({ page: 1, page_size: 100 }, controller.signal)
       .then((response) => {
         if (active && mountedRef.current) setDatasources(response.list || []);
       })
@@ -45,7 +46,10 @@ export function MaskRules() {
           void message.error(apiErrorMessage(error, "数据源列表加载失败"));
         }
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   const loadPage = useCallback(async () => {
@@ -60,7 +64,7 @@ export function MaskRules() {
         datasource_id: datasourceID || undefined,
         page,
         page_size: pageSize,
-      });
+      }, controller.signal);
       if (!mountedRef.current || controller.signal.aborted || requestSequenceRef.current !== sequence) return;
       setList((response.list || []).slice(0, pageSize));
       setTotal(safeTotal(response.total));
@@ -143,7 +147,8 @@ export function MaskRules() {
       refresh();
     } catch (error: unknown) {
       if (!mountedRef.current || mutationSequenceRef.current !== sequence || isCanceled(error)) return;
-      void message.error(apiErrorMessage(error, editing ? "更新脱敏规则失败" : "创建脱敏规则失败"));
+      if (httpStatus(error) === 409) void message.error("该数据源/全局范围下此列名已有规则");
+      else void message.error(apiErrorMessage(error, editing ? "更新脱敏规则失败" : "创建脱敏规则失败"));
     } finally {
       if (mountedRef.current && mutationSequenceRef.current === sequence) setSaving(false);
     }
@@ -177,7 +182,7 @@ export function MaskRules() {
         <Tooltip title={value}><span>{datasourceNames.get(value) || value}</span></Tooltip>
       ) : <Tag color="default">全局</Tag>,
     },
-    { title: "表名", dataIndex: "table_name", width: 170, render: (value: string) => <code>{value}</code> },
+    { title: "表名（预留）", dataIndex: "table_name", width: 170, render: (value: string) => value ? <code>{value}</code> : "—" },
     { title: "列名", dataIndex: "column_name", width: 170, render: (value: string) => <code>{value}</code> },
     {
       title: "敏感类型",
@@ -223,14 +228,14 @@ export function MaskRules() {
   return (
     <PageContainer
       title="脱敏"
-      subtitle="结果集敏感列打码规则：查询返回前对命中列打码（v0.1 支持手机号/邮箱）"
+      subtitle="数据源（留空=全局）+ 列名；v0.1 仅手机号/邮箱 + 打码；表+列精确匹配在 v0.2 提供"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增脱敏规则</Button>}
     >
       <Alert
         className="msk-info-alert"
         type="info"
         showIcon
-        message="规则按 数据源(留空=全局) + 表名 + 列名 精确匹配；v0.1 仅支持手机号、邮箱与打码算法；保存后对该数据源下一次查询生效。"
+        message="数据源（留空=全局）+ 列名；v0.1 仅手机号/邮箱 + 打码；表+列精确匹配在 v0.2 提供"
       />
       <div className="msk-toolbar">
         <Space wrap>

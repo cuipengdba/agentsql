@@ -45,6 +45,8 @@ export AGENTSQL_ADMIN_PASSWORD='CHANGE_ME_AgentSQL_Admin_2026!'
 - [Cursor stdio](examples/mcp/cursor_mcp.json)
 - [Streamable HTTP](examples/mcp/streamable_http_mcp.json)
 
+v0.1 的 MCP 不暴露跨请求会话或事务参数，`SessionID` 仅为内部预留；多语句事务随受控写能力在 v0.2 提供。
+
 ## 文档
 
 - [部署、升级、备份与 systemd](docs/DEPLOY.md)

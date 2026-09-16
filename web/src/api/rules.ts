@@ -5,8 +5,8 @@ export interface RuleQuery extends PageQuery {
   db_type?: string;
 }
 
-export function listRules(params: RuleQuery = {}): Promise<PageResp<RuleView>> {
-  return request<PageResp<RuleView>>({ method: "GET", url: "/rules", params });
+export function listRules(params: RuleQuery = {}, signal?: AbortSignal): Promise<PageResp<RuleView>> {
+  return request<PageResp<RuleView>>({ method: "GET", url: "/rules", params, signal });
 }
 
 export function createRule(input: RuleInput): Promise<RuleView> {

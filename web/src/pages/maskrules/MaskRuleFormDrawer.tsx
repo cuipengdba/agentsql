@@ -16,7 +16,6 @@ interface MaskRuleFormDrawerProps {
 interface MaskRuleFormValues {
   id: string;
   datasource_id?: string;
-  table_name: string;
   column_name: string;
   sensitive_type: string;
   algo: string;
@@ -53,14 +52,12 @@ export function MaskRuleFormDrawer({
     form.setFieldsValue(record ? {
       id: record.id,
       datasource_id: record.datasource_id || undefined,
-      table_name: record.table_name,
       column_name: record.column_name,
       sensitive_type: record.sensitive_type,
       algo: record.algo,
     } : {
       id: generateMaskRuleID(),
       datasource_id: undefined,
-      table_name: "",
       column_name: "",
       sensitive_type: "phone",
       algo: "mask",
@@ -79,7 +76,7 @@ export function MaskRuleFormDrawer({
     const input: MaskRuleInput = {
       id: values.id,
       datasource_id: values.datasource_id || null,
-      table_name: values.table_name,
+      table_name: record ? record.table_name : "",
       column_name: values.column_name,
       sensitive_type: values.sensitive_type,
       algo: values.algo,
@@ -128,9 +125,9 @@ export function MaskRuleFormDrawer({
         >
           <Input readOnly={record !== null} />
         </Form.Item>
-        <Form.Item name="table_name" label="表名" rules={[trimmedRule("表名")]}>
-          <Input placeholder="精确表名，如 users" />
-        </Form.Item>
+        <Typography.Paragraph type="secondary">
+          表名为预留字段，v0.1 按列名匹配、不参与表+列匹配；编辑时会保留历史表名。
+        </Typography.Paragraph>
         <Form.Item
           name="column_name"
           label="列名"

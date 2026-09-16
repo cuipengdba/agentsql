@@ -1,8 +1,8 @@
 import { request } from "./client";
 import type { AgentCreateInput, AgentUpdateInput, AgentView, DeleteView, PageQuery, PageResp } from "./types";
 
-export function listAgents(params: PageQuery = {}): Promise<PageResp<AgentView>> {
-  return request<PageResp<AgentView>>({ method: "GET", url: "/agents", params });
+export function listAgents(params: PageQuery = {}, signal?: AbortSignal): Promise<PageResp<AgentView>> {
+  return request<PageResp<AgentView>>({ method: "GET", url: "/agents", params, signal });
 }
 
 export function getAgent(id: string): Promise<AgentView> {

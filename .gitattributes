@@ -1,0 +1,40 @@
+# 统一行尾：仓库内文本一律以 LF 存储与检出，
+# 避免 Windows 上 core.autocrlf 把源码转成 CRLF 导致 gofmt/构建失败。
+* text=auto eol=lf
+
+# Go 源码与模块文件
+*.go   text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+
+# 前端与 Web 源码
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.svg  text eol=lf
+
+# 文档与配置
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.toml     text eol=lf
+*.sh       text eol=lf
+Dockerfile text eol=lf
+
+# 生成的内嵌前端产物：不做文本/行尾转换，保持字节稳定
+internal/webui/dist/** -text
+
+# 二进制与字体/图片
+*.exe  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary

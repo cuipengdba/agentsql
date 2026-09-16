@@ -139,19 +139,43 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 func (handler *Handler) recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		started := time.Now()
+		statusWriter := &statusRecorder{ResponseWriter: writer, status: http.StatusOK}
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				handler.logger.Error().Bytes("stack", debug.Stack()).Str("panic_type", fmt.Sprintf("%T", recovered)).Msg("admin API panic recovered")
-				// A panic may occur after headers; the contract still avoids exposing
-				// stack details to the client.
-				handler.fail(writer, http.StatusInternalServerError, "internal error")
+				if !statusWriter.wroteHeader {
+					handler.fail(statusWriter, http.StatusInternalServerError, "internal error")
+				}
 			}
 			handler.logger.Info().Str("method", request.Method).Str("path", request.URL.Path).
 				Str("admin_user", handler.adminUser).
+				Int("status", statusWriter.status).
 				Int64("latency_ms", time.Since(started).Milliseconds()).Msg("admin API request")
 		}()
-		next.ServeHTTP(writer, request)
+		next.ServeHTTP(statusWriter, request)
 	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (writer *statusRecorder) WriteHeader(status int) {
+	if writer.wroteHeader {
+		return
+	}
+	writer.status = status
+	writer.wroteHeader = true
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+func (writer *statusRecorder) Write(body []byte) (int, error) {
+	if !writer.wroteHeader {
+		writer.WriteHeader(http.StatusOK)
+	}
+	return writer.ResponseWriter.Write(body)
 }
 
 func (handler *Handler) login(writer http.ResponseWriter, request *http.Request) {
@@ -284,8 +308,8 @@ func (handler *Handler) agentsUpdate(writer http.ResponseWriter, request *http.R
 		}
 		agent.Level = *input.Level
 	}
-	if input.ExpiresAt != nil {
-		agent.ExpiresAt = input.ExpiresAt
+	if input.ExpiresAt.Present {
+		agent.ExpiresAt = input.ExpiresAt.Value
 	}
 	updated, err := handler.deps.Runtime.Store.Agents().Update(request.Context(), agent)
 	if err != nil {

@@ -339,6 +339,9 @@ func classifyRoute(requestPath string) string {
 		}
 		return "/other"
 	}
+	if !idAPIResource(segments[0]) {
+		return "/other"
+	}
 	classified := base + "/{id}"
 	if len(segments) == 2 {
 		return classified
@@ -347,6 +350,15 @@ func classifyRoute(requestPath string) string {
 		return classified + "/" + segments[2]
 	}
 	return "/other"
+}
+
+func idAPIResource(resource string) bool {
+	switch resource {
+	case "agents", "datasources", "policies", "rules", "mask_rules", "approvals":
+		return true
+	default:
+		return false
+	}
 }
 
 func knownAPIResource(resource string) bool {

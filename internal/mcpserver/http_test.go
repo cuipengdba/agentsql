@@ -429,3 +429,38 @@ func httpTestConfig(qps int) config.Config {
 		Theme: config.ThemeConfig{Default: "dark"},
 	}
 }
+
+func TestClassifyRoute(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "auth action", path: "/api/v1/auth/login", want: "/api/v1/auth/login"},
+		{name: "audit action", path: "/api/v1/audit/export", want: "/api/v1/audit/export"},
+		{name: "dashboard action", path: "/api/v1/dashboard/summary", want: "/api/v1/dashboard/summary"},
+		{name: "playground action", path: "/api/v1/playground/assess", want: "/api/v1/playground/assess"},
+		{name: "unknown auth action", path: "/api/v1/auth/unknown", want: "/other"},
+		{name: "unknown audit action", path: "/api/v1/audit/unknown", want: "/other"},
+		{name: "unknown dashboard action", path: "/api/v1/dashboard/unknown", want: "/other"},
+		{name: "unknown playground action", path: "/api/v1/playground/unknown", want: "/other"},
+		{name: "action with extra segment", path: "/api/v1/audit/export/extra", want: "/other"},
+		{name: "agent id", path: "/api/v1/agents/ag-1", want: "/api/v1/agents/{id}"},
+		{name: "datasource id", path: "/api/v1/datasources/ds-1", want: "/api/v1/datasources/{id}"},
+		{name: "policy id", path: "/api/v1/policies/p-1", want: "/api/v1/policies/{id}"},
+		{name: "rule id", path: "/api/v1/rules/r-1", want: "/api/v1/rules/{id}"},
+		{name: "mask rule id", path: "/api/v1/mask_rules/m-1", want: "/api/v1/mask_rules/{id}"},
+		{name: "approval id", path: "/api/v1/approvals/a-1", want: "/api/v1/approvals/{id}"},
+		{name: "agent action", path: "/api/v1/agents/ag-1/rotate-key", want: "/api/v1/agents/{id}/rotate-key"},
+		{name: "datasource action", path: "/api/v1/datasources/ds-1/ping", want: "/api/v1/datasources/{id}/ping"},
+		{name: "approval action", path: "/api/v1/approvals/a-1/decide", want: "/api/v1/approvals/{id}/decide"},
+		{name: "unknown id action", path: "/api/v1/agents/ag-1/unknown", want: "/other"},
+		{name: "unknown resource", path: "/api/v1/widgets/widget-1", want: "/other"},
+		{name: "non api path", path: "/not-api", want: "/other"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, classifyRoute(test.path))
+		})
+	}
+}
