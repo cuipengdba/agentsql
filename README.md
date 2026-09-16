@@ -1,6 +1,6 @@
 # AgentSQL
 
-[![Release](https://img.shields.io/badge/Release-v0.1.0-blue)](#)
+[![Release](https://img.shields.io/badge/Release-v0.2.0-blue)](#)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -75,7 +75,7 @@ docker compose --profile observability up -d --build
 构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
-make build VERSION=v0.1.0
+make build VERSION=v0.2.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -193,7 +193,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.1.0
+make build VERSION=v0.2.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

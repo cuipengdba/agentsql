@@ -220,7 +220,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 构建依赖 Go 1.25、C 编译器与 glibc 兼容环境。`pg_query_go` 必须启用 cgo。
 
 ```bash
-make build VERSION=v0.1.0
+make build VERSION=v0.2.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
