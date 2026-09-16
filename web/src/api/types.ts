@@ -184,6 +184,31 @@ export interface AuditView {
   error_msg?: string | null;
 }
 
+export type StreamStatus = "live" | "reconnecting" | "polling-fallback";
+
+export interface StreamHello {
+  version: string;
+  demo: boolean;
+}
+
+export interface AuditStreamEvent {
+  id: number;
+  ts: string;
+  decision: string;
+  agent_id?: string | null;
+  datasource_id?: string | null;
+  mcp_tool?: string | null;
+  db_type?: string | null;
+  stmt_type?: string | null;
+  objects?: string | null;
+  rule_hits?: string | null;
+  risk_level?: number | null;
+  est_rows?: number | null;
+  rows_returned?: number | null;
+  latency_ms?: number | null;
+  model_name?: string | null;
+}
+
 export interface AuditQuery extends PageQuery {
   time_start?: string;
   time_end?: string;
