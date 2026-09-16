@@ -24,7 +24,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 
 ## 5 分钟快速开始：Docker Compose + SQLite
 
-前置条件：Docker 与 Docker Compose；默认只启动 AgentSQL，元数据和审计写入挂载的 `./data/agentsql.db`。
+前置条件：Docker 与 Docker Compose；默认只启动 AgentSQL，元数据和审计写入命名卷 `agentsql-data` 中的 `/var/lib/agentsql/agentsql.db`，避免 Linux 宿主 bind mount 产生 root 权限文件。
 
 1. 创建本地环境文件。
 
@@ -55,6 +55,16 @@ docker compose ps
 ```
 
 访问 <http://127.0.0.1:7780>，用 `.env` 中的 `AGENTSQL_ADMIN_USER` 和 `AGENTSQL_ADMIN_PASSWORD` 登录。Compose 只在宿主机回环地址暴露端口。
+
+需要同时启动 Prometheus 与零手工配置的 Grafana 六面板时，可从仓库根目录一条命令起栈（实际部署请换成自行生成并保存的随机值）：
+
+```bash
+AGENTSQL_SECRET='N7vK2mQ9xR4tY8pL6cW3sD5fH1jB0zUa' \
+AGENTSQL_ADMIN_PASSWORD='S9afe-Admin-Passphrase-2026' \
+docker compose --profile observability up -d --build
+```
+
+完整说明见 [可观测性示例](examples/observability/README.md)。
 
 > `AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份。直接更换 SECRET 会让既有数据源口令无法解密，不是无损轮换。
 

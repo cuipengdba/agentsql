@@ -110,7 +110,11 @@
   "templating": {
     "list": [
       {
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
         "label": "Prometheus",
         "name": "DS_PROMETHEUS",
         "options": [],
