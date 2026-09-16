@@ -1559,13 +1559,38 @@ t25.1 全量快照经 Codex 只读交叉评审产出 `VERIFY_REPORT.md`（无 P0
 ### 25.2.8 本单明确不做
 跨请求会话/多语句事务的 get-or-create 会话池（P1-01，随 v0.2 受控写）；谓词敏感列推断、JOIN 表带归属的列授权；脱敏表 + 列精确匹配、hash/range/block 算法与更多敏感类型；前端自动化测试框架（P2-05）；SSO/HA/国产库/审批自动重放等第 8 章 v0.2 项。
 
+## T25.4 开源发布硬化（门 2 全绿后，GA 候选；Codex 单 + 主控安全扫描）
+> 前置：T25.2 A/B 合入、门 2 动态总验全绿（条件单 T25.3 的 RC 修复清零）。本单只做"对外发布"所需的授权、安全默认值、版本、物料、容器，**不改安全引擎、规则、252 语料、冻结契约**。
+- **授权定稿（AGPLv3 双授权）**：`LICENSE` 由 Apache-2.0 换为 GNU AGPLv3 标准全文（官方文本由主控放入，Codex 不得自行缩写或改写许可证正文）；新增 `COMMERCIAL-LICENSE.md` 说明商业双授权（闭源集成、SaaS 商用、企业模块、保修与 SLA 需商业授权）与**商标保留**（可 fork 源码，但不得用 AgentSQL 名称/Logo 对外发行）；README 许可章节与徽章同步。
+- **安全默认值（开源头号事故点）**：禁止内置固定 `AGENTSQL_SECRET` 与弱管理员口令；密钥缺失或为文档示例值时拒绝启动并打印明确指引（或首启生成随机密钥仅提示一次）；管理员口令未通过环境变量/首启设置时不得开箱即用（最小实现：无默认口令、首启必须设置）；examples/README/compose 不得出现可用真实凭据。
+- **版本与物料**：版本号 dev→`v0.1.0`（`--version`、启动横幅、version/health 输出一致，保留 `-X` 注入能力）；新增 `CHANGELOG.md` 与 Release Notes（功能、限制、已知问题、v0.2 路线、会话事务在 v0.2 的说明）；开源 README（徽章、特性、5 分钟 docker compose 起 SQLite 版、首次登录引导、MCP 7780 接入 json、功能与数据库兼容矩阵、截图位、文档/社区链接、AGPL 说明）。
+- **容器/部署**：Dockerfile 非 root、管理面不默认绑定 0.0.0.0、SQLite 持久化 volume、health/readiness；`examples/config.example.yaml` 默认端口与 7780 一致。
+- **发布前检查（主控执行）**：git 历史密钥/内部信息扫描、`.gitignore` 复核；仓库由私有转公开须负责人确认；干净环境 5 分钟从零跑通复跑；Cursor/Claude 真实接入录屏；正式 tag `v0.1.0` + GitHub Release（源码 zip/tar + 校验和，容器镜像可选）。
+
 # 第 7 章 v0.1 总验收（开源前全绿）
-- go test 核心包覆盖率 ≥80%；真实 PG14/16/18 与 MySQL8 E2E 通过；
+- go test 核心包覆盖率 ≥80%；真实 PostgreSQL（兼容矩阵 PG14/15/16/17/18，必测最新 PG18）与 MySQL8 作为**被防护业务库** E2E 通过；v0.1 元数据/审计库仅 SQLite（外部 PG 元库为 v0.2 开源任务 T28）；
 - 决策语料 252 条（353 次方言运行：PG192/MySQL161；danger76/risk61/normal115；判定 deny77/allow121/approve42/warn12）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟（4298 万次变异）无 panic 且 fail-closed；
 - Cursor/Claude 各录屏：只读成功/越权拒/无WHERE更新拒/审计可查；
 - 控制台 6 类页面（总览/审计/演示台/Agent/数据源/权限/规则）全部联调并打进单二进制；
 - 干净环境 5 分钟跑通；性能达标。
 
-# 第 8 章 后置任务（开源后，v0.2，不在 v0.1）
-- T26 在线 Live Demo：演示只读账号、30 天假数据种子、每日重置、演示横幅、6 剧本引导；
-- T27 大屏全局 WebSocket 实时流 + 审计 PDF 合规报告（等保话术）+ 行级权限/完整脱敏/SSO/国产库（企业版）。
+# 第 8 章 后置任务（v0.1 GA 之后）
+
+## 8.1 版本分层与商业模式（开源 vs 企业；授权 = AGPLv3 + 商业双授权 + 商标保留）
+- **授权**：开源代码采用 GNU AGPLv3；内部使用、自托管、PoC、改码免费；凡对外提供网络服务（SaaS/云）或第三方分发的衍生作品，须按 AGPL 网络条款同样开源；闭源集成、SaaS 商用、企业模块、保修与 SLA 走商业授权。商标（AgentSQL 名称/Logo）保留，fork 不得冒用。
+- **开源版（免费、可独立生产）**：MCP 双承载/认证/限流；完整 SQL 安全引擎（规则/评分/只读/拦截/审批/Explain/N+1）；被防护业务库 MySQL + PostgreSQL 14~18；基础脱敏、审计闭环、9 页控制台、实时大屏 WebSocket（T27）；元数据/审计库 SQLite（默认）与 PostgreSQL 15~18（基准 PG18、含审计独立 DSN，T28）；单节点部署、Prometheus、5 分钟上手。
+- **企业版（商业 License + 私有化交付 + 年订阅/SLA）**：T29 国产/商业业务库矩阵、T30 合规与身份管控包、T31 HA/集中管控与规模交付，以及 T26 延伸的托管 Cloud/SaaS（后置）。
+- **分界原则**：通用 MySQL/PG 场景与 PG18 控制面不收费（做事实标准、做传播）；政企信创、等保合规、规模化生产所需能力收费。
+
+## 8.2 开源任务
+- **T26 在线 Live Demo**：演示只读账号、30 天假数据种子、每日重置、演示横幅、6 剧本引导（开源演示；托管化/Cloud 商业化另计）。
+- **T27 大屏全局 WebSocket 实时流**（开源，替代轮询，利于演示传播）。
+- **T28 控制面 PostgreSQL18（开源，v0.2 第一批）**：
+  - T28a 存储后端抽象：config 增 `metadata.driver=sqlite|postgres` + PG DSN/连接池，SQLite 仍默认；`store.Open` 工厂按驱动注册 sqlite/pgx，PG 去掉 `SetMaxOpenConns(1)`；迁移按方言拆 `migrations/sqlite`、`migrations/postgres`，PG 去 PRAGMA、占位符 `?→$1`；PG DDL 用 `BIGINT GENERATED ALWAYS AS IDENTITY`、`TIMESTAMPTZ DEFAULT now()`、`BOOLEAN`，数据源+列名唯一索引用 `NULLS NOT DISTINCT`；仓储统一 rebind，`audit_logs` 插入 `LastInsertId` 改 `RETURNING id`（联动 `approvals.audit_id`）；大屏 `date(substr(ts,1,19))` 改 `::date/date_trunc`；审批 CAS 改 `… RETURNING`。
+  - T28b 审计独立 PG18（开源）：审计可配独立 DSN 指向另一 PG18，独立账号仅 `INSERT/SELECT`（无 UPDATE/DELETE），不配则同库；testcontainers 拉 `postgres:18` 让全套 store/仓储/大屏/审批/脱敏测试在 sqlite 与 pg18 双跑（含并发 CAS/审计/限流）；提供 SQLite→PG18 迁移命令（含不可变 `audit_logs`）；compose 增 `postgres:18`（元数据/审计可分服务）、健康检查/depends_on/volume/非 root、`pg_dump` 备份文档；声明兼容 PG15+、主推 PG18。
+
+## 8.3 企业版任务（商业）
+- **T29 国产/商业业务库矩阵**：达梦 DM、人大金仓 KingbaseES、瀚高 HighGo、GaussDB、OceanBase、TiDB、Oracle、SQL Server 的方言解析、驱动适配、脱敏/规则方言与兼容矩阵（信创/政企进场壁垒）。
+- **T30 合规与身份管控包**：审计 PDF 等保/数据安全法报告、审计防篡改（哈希链/签名/WORM）、外置 SIEM（syslog/Kafka/ES）、长期归档、操作水印；行级权限(RLS)、完整/动态脱敏与自定义算法、敏感数据自动发现与分类分级；SSO(OIDC/SAML)、LDAP/AD、MFA、多租户、RBAC/ABAC、多级会签审批、飞书/钉钉/企微/Jira 工单集成、告警 Webhook。
+- **T31 HA/集中管控与规模交付**：多副本 HA、K8s Operator、水平扩展、多网关/多环境集中策略统管、备份恢复、容量/性能报表、Agent 行为异常分析(UEBA)；私有化安装包、等保合规模板、实施/培训、SLA。
+- **后置**：AgentSQL Cloud 托管 SaaS（T26 延伸，按 Agent/数据源/审计量订阅）。
