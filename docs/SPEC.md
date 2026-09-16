@@ -1714,6 +1714,103 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
   - T28a 存储后端抽象：config 增 `metadata.driver=sqlite|postgres` + PG DSN/连接池，SQLite 仍默认；`store.Open` 工厂按驱动注册 sqlite/pgx，PG 去掉 `SetMaxOpenConns(1)`；迁移按方言拆 `migrations/sqlite`、`migrations/postgres`，PG 去 PRAGMA、占位符 `?→$1`；PG DDL 用 `BIGINT GENERATED ALWAYS AS IDENTITY`、`TIMESTAMPTZ DEFAULT now()`、`BOOLEAN`，数据源+列名唯一索引用 `NULLS NOT DISTINCT`；仓储统一 rebind，`audit_logs` 插入 `LastInsertId` 改 `RETURNING id`（联动 `approvals.audit_id`）；大屏 `date(substr(ts,1,19))` 改 `::date/date_trunc`；审批 CAS 改 `… RETURNING`。
   - T28b 审计独立 PG18（开源）：审计可配独立 DSN 指向另一 PG18，独立账号仅 `INSERT/SELECT`（无 UPDATE/DELETE），不配则同库；testcontainers 拉 `postgres:18` 让全套 store/仓储/大屏/审批/脱敏测试在 sqlite 与 pg18 双跑（含并发 CAS/审计/限流）；提供 SQLite→PG18 迁移命令（含不可变 `audit_logs`）；compose 增 `postgres:18`（元数据/审计可分服务）、健康检查/depends_on/volume/非 root、`pg_dump` 备份文档；声明兼容 PG15+、主推 PG18。
 
+### 8.2.1 T27 大屏实时事件流（开源；实现选型 = SSE，达成原"WebSocket 实时流"目标）
+
+**目标**：控制台总览大屏在网关产生决策的瞬间自动出现新事件、今日计数/分布即时跳动，无需手动刷新，用于演示传播与值守。替代 T18/T19 的纯轮询。
+
+**协议裁决（主控技术裁决，纯工程选型）**：采用 **SSE（Server-Sent Events，`text/event-stream`，HTTP 长连接，服务端单向推送）**，不引入 WebSocket 第三方库。理由：本需求是严格单向（服务器→浏览器）的事件广播，SSE 用标准库 `net/http` 即可、天然走现有 HTTP 路由与管理端 **Bearer 鉴权中间件**、浏览器断线自动重连语义简单；WebSocket 双向能力本单用不到，却要新增依赖并自行处理鉴权/心跳/协议升级。未来若需要服务端主动下发（如多租户实时推送、审批在线会签）再升级 WS，SSE 事件契约保持不变。SPEC 早期文字称"WebSocket"为泛称，以本节 SSE 实现为准。
+
+**事件源裁决**：以**成功落库后的审计记录 `model.AuditLog` 作为唯一实时事件**（不另造事件、不重复 pipeline 回调）。审计是流水线最终、最完整、且已持久化的事实（含 agent/datasource/tool/原始与归一 SQL/对象/decision/rule_hits/risk/est_rows/rows/latency/ts），只有成功写入审计才广播，保证"大屏看到的 = 审计可查的"。
+
+**后端范围（单 T27-1）**：
+- 新增 `internal/eventbus`：进程内 fan-out Hub。`Subscribe() (<-chan Event, unsubscribe func())`；`Publish(Event)` **必须完全非阻塞**（每订阅者带容量缓冲，如 64；满则立即断开该慢消费者，绝不阻塞审计/流水线）；维护最近 N=200 条事件的环形缓冲，新连接连上即补发最近事件（仅内存、重启清空，更早历史走审计页）；后台无 goroutine 泄漏（unsubscribe 关 channel、注销）。
+- 用 Hub 装饰审计 Sink：在 `bootstrap` 装配处把 `audit.NewRecorder(metadataStore.AuditLogs())` 包一层"先 `Insert` 成功、再 `hub.Publish(auditLog)`"的 sink（eventbus 提供该装饰器或在装配处组合）；Insert 失败不广播、广播失败不影响审计（审计优先）。
+- 管理端新增 **`GET /api/v1/stream`**：挂在已鉴权管理路由（与其它 `/api/v1/*` 同一 Bearer 中间件，未登录 401）；返回 `text/event-stream`；`Cache-Control: no-cache`、`Connection: keep-alive`；心跳 `:ping\n\n` 每 25s 一次防代理断连；连接建立先推 `event: hello`（含服务版本与 demo 标志）再补发环形缓冲，随后逐条推送 `event: audit`（JSON 与审计页视图 DTO 同构，字段命名对齐前端既有 types，不泄露口令/内部主机）。客户端断开即注销。
+- 配置：`server.event_stream`（默认 true；console_enabled=false 时不挂）；单实例最大 SSE 连接数上限（默认 100，超出对新连接返回 503，防连接耗尽）。
+- 指标（可选、不阻塞）：`agentsql_eventstream_connections` gauge、`agentsql_eventstream_events_total`、慢消费者断开计数。
+- 测试：hub 扇出/慢消费者不阻塞发布者/环形缓冲/订阅注销无泄漏/并发 publish 不 data race（`-race`）；SSE 端点 401、握手、hello+补发、收到一条真实决策后客户端读到事件、心跳、连接上限 503、事件体不含敏感字段；stdio（`mcp` 子命令，无控制台）不挂 stream。
+
+**前端范围（单 T27-2，React+antd+echarts，沿用现有依赖，不引新库）**：
+- 新增 `useEventStream` hook：**用 `fetch` + `ReadableStream` 手动解析 SSE 帧**（不用浏览器原生 `EventSource`——它不能携带 `Authorization` 请求头；也**不接受 `?token=` 查询参数降级**，避免令牌进入 URL/代理/浏览器历史）；带管理端 Bearer；指数退避自动重连；页面 `visibilitychange` 回前台立即重连；暴露连接状态 `live | reconnecting | polling-fallback`。
+- 总览页：`EventStream` 改为实时 prepend（上限 100 条，字段/样式与现有事件流一致）；今日 KPI、决策分布环图对新事件做**乐观增量**；趋势图（历史按天聚合）维持接口数据，事件到达时即时更新"今天"那个点；**每 30 秒拉一次汇总接口做校准（同时作为 SSE 不可用时的降级轮询）**，杜绝长时间漂移。
+- 顶部/大屏角标显示连接状态（实时=绿点"实时"、重连中=黄点、降级=灰点"轮询"）。
+- 不做：服务端下发/双向控制、跨实例广播（多副本属 T31）、超长历史回放、其它 8 个页面改造（只动总览与必要的 api/hook/types）。
+- 验收：主控黑盒（起栈→登录打开总览→经真实 `/mcp` 制造 allow 与 R002 deny→大屏 1–2 秒内出现事件且计数/环图变化、审计页一致；断开后端再恢复，状态黄→绿并补发；带 `-race` 后端测试全绿；gofmt/vet/353/双构建全绿；SQLite 行为零回归）。
+
+### 8.2.2 T28 控制面 PostgreSQL 18（开源，v0.2 地基；开源与企业同等支持，**不得据此收费**）
+
+**总原则（裁决）**：
+1. **SQLite 仍是默认、零配置上手路径不变**；PG 是新增的可选生产控制面。SQLite 口径下 353 语料、全量测试、黑盒行为必须零回归。
+2. T28 是**严格的存储方言对等**：两套 schema 语义/约束/索引完全等价，只做类型与占位符/自增键/日期函数的翻译；**不夹带任何行为增强**。v0.1 刻意未建的 `mask_rules (datasource_id,column_name)` 唯一索引（允许重复、运行时确定性归并）本单**不在 PG 侧新增**（`NULLS NOT DISTINCT` 唯一索引 + 历史重复数据清理另开一个小单，避免方言迁移夹带行为变更、也避免存量重复行导致 PG 迁移失败）。
+3. 允许新增唯一第三方依赖 **`github.com/jackc/pgx/v5`（纯 Go、database/sql 兼容，注册驱动名 `pgx`）**；除 pgx 外不新增其它依赖。继续 `GOTOOLCHAIN=local`、Windows 可编译（pgx 纯 Go 不破坏 cgo 现状）。
+4. 兼容口径：**声明兼容 PostgreSQL 15+，基准与主推、CI 必测 PostgreSQL 18**；元数据库与审计库都支持 PG18（不使用 PG16 作为基准镜像）。
+
+**配置（向后兼容）**：扩展 `store` 段，同时保留现有 `store.sqlite_path` 作为简写（老配置不改即可跑）：
+```yaml
+store:
+  sqlite_path: /var/lib/agentsql/agentsql.db   # 兼容 v0.1；等价 metadata.driver=sqlite
+  metadata:
+    driver: sqlite          # sqlite | postgres，默认 sqlite
+    sqlite_path: /var/lib/agentsql/agentsql.db  # driver=sqlite 必填
+    dsn: ""                 # driver=postgres 必填，例 postgres://agentsql:***@host:5432/agentsql?sslmode=disable&TimeZone=Asia/Shanghai
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 30m
+  audit:
+    separate: false         # true 时审计写入独立库
+    driver: postgres        # 独立审计库驱动（v0.2 仅 postgres；false 时忽略，随元数据库）
+    dsn: ""                 # 独立审计库 DSN（建议仅 GRANT SELECT,INSERT ON audit_logs 的运行账号）
+    max_open_conns: 10
+    max_idle_conns: 5
+```
+`config.Validate()` 改为**按驱动条件校验**（KnownFields 同步放开新字段）：sqlite 必须有 path；postgres 必须有非空 dsn；`audit.separate=true` 必须有 audit.dsn；非法 driver 报错 fail-closed。`agentsqlctl check-config` 覆盖新分支。
+
+**T28a-1 方言骨架与迁移**：
+- 在 `internal/store` 引入 `Dialect`（`sqlite|postgres`）与统一 `rebind(query)`（按 `?` 出现顺序替换为 `$1,$2,…`；sqlite 原样）、迁移目录选择、自增键策略、日期表达式。
+- 迁移按方言拆 embed：`internal/store/migrations/sqlite/0001_init.sql`（现内容，含 `PRAGMA foreign_keys=ON`、`AUTOINCREMENT`、`INTEGER` 布尔、字符串 `TIMESTAMP`）与 `internal/store/migrations/postgres/0001_init.sql`（**语义等价翻译**：`schema_migrations(version BIGINT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`；`audit_logs.id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`；`ts TIMESTAMPTZ NOT NULL DEFAULT now()`；`enabled/builtin BOOLEAN DEFAULT TRUE`；其余文本列 `TEXT`、数值 `INTEGER/BIGINT`；外键/索引同名等价；不含 PRAGMA、无 `?`）。`Migrate(ctx,db,dialect)` 按方言选 FS 与 DDL，PG 不执行 PRAGMA；迁移记录表与"每版本恰好一次、事务包裹"行为两方言一致。**SQLite 的 0001 仅移动目录、内容保持等价，不改已发布语义。**
+- 存储工厂：新增 `OpenMetadata(ctx, opts MetadataOptions, secret)`（driver/sqlite path 或 pg dsn/连接池参数/cipher）；sqlite 维持 `SetMaxOpenConns(1)/SetMaxIdleConns(1)`（写串行），**PG 去掉单连接限制**、按配置设池；保留 `Open/OpenWithSecret` 薄封装供既有调用与测试过渡。testcontainers 拉 `postgres:18`，断言两方言都能从零建表、迁移幂等（重复 Migrate 不报错/不重复建）、外键生效、schema_migrations 记录正确（Docker daemon 不可达 Skip，镜像/等待错误硬失败，沿用门2口径）。
+
+**T28a-2 仓储方言适配与双跑**：
+- 全部仓储（agents/datasources/policies/rules/mask_rules/audit_logs/approvals/dashboard）SQL 经 `rebind`；`audit_logs` 插入的 `result.LastInsertId()` 改为 `INSERT … RETURNING id` + `QueryRow().Scan(&id)`（联动 `approvals.audit_id` 的取数路径）；审批状态 CAS 的 `UPDATE … WHERE status='pending'` 统一为 `… RETURNING id` 判定命中（不依赖 RowsAffected 方言差异）。
+- `scan.go`/各 `scanXxx` 兼容两方言返回类型：PG 的 `time.Time`（ts/时间戳）、`bool`（enabled/builtin）、`int64`，与 SQLite 的字符串时间/`int64` 布尔都能正确还原到 `model`（时间统一转 UTC/约定时区，布尔归一）。
+- 大屏方言：`date(substr(ts,1,19))`（SQLite）按 dialect 切换为 PG 按配置时区的日期截断（`(ts AT TIME ZONE 'Asia/Shanghai')::date`，时区取 DSN/配置，默认 Asia/Shanghai）；趋势/分布/排行/战果聚合在 PG 结果与 SQLite 逐字段一致。
+- 把现有 store/审批/脱敏/dashboard/限流/审计过滤等测试改造为 **sqlite 与 postgres:18 双跑**（table-driven，同一组用例跑两驱动；含并发审批 CAS、并发审计写入、QPS/连接限流、分页/过滤/LIKE 转义、30 天聚合边界）。SQLite 侧结果必须与改造前逐字一致。
+
+**T28a-3 配置/装配/CLI 接线**：
+- `bootstrap.Assemble` 改用存储工厂按 `cfg.Store.Metadata.Driver` 打开元数据库；`agentsqlctl init-config/check-config/migrate/health/version` 适配 driver/dsn（`migrate` 可对指定 driver+DSN 仅执行迁移，供部署期用高权限账号建表）；新增 `examples/docker/config.postgres.yaml` 与保留 sqlite 示例；`Dockerfile`/compose 不破坏默认 sqlite 路径；双构建（agentsql/agentsqlctl）通过。
+- 验收：SQLite 默认路径全量 run-acceptance ALL_GREEN、353 语料零变化；PG18 元数据库下黑盒走完登录→建数据源/Agent/policy/mask→真实 `/mcp` allow/deny/脱敏→审计页/大屏聚合→审批，全部与 SQLite 等价。
+
+**T28b-1 审计独立 PG18 DSN（开源）**：
+- `Store` 持有 `metaDB` 与 `auditDB` 两个 `*sql.DB`（`audit.separate=false` 时 auditDB=metaDB；Close 各自关闭，同库不重复关）。`AuditLogs()` 仓储绑 auditDB；`DashboardRepository` 拆成两个 querier——审计聚合（总量/拦截/趋势/分布/规则 Top/Agent 排行/战果）走 auditDB，元数据计数（active agents、datasources、pending approvals、agent id→name）走 metaDB，应用层合并；审计分页/导出（`audit/export.go`）走 auditDB。
+- 独立审计库迁移只建 `schema_migrations` + `audit_logs` 及其索引；文档给出最小权限运行账号（建表迁移用一次性高权限账号；运行账号 `GRANT SELECT,INSERT ON audit_logs`，无 UPDATE/DELETE/DDL，契合审计不可变）。
+- E2E：testcontainers 起**两个** `postgres:18`（元数据库 + 独立审计库），断言审计写入审计库、元数据库无 audit_logs 数据、控制台审计页/大屏/导出仍正确、停掉审计库时网关 fail-closed 并明确报错（不静默丢审计）；含并发 CAS/审计/限流双跑。
+
+**T28b-2 迁移命令、部署与版本**：
+- `agentsqlctl` 增 **SQLite→PostgreSQL 迁移**子命令：一次性把元数据七表 + 不可变 `audit_logs` 从 SQLite 拷到 PG（含自增 ID 序列 `SELECT setval(...)` 对齐、审计原 ID 不变、approvals.audit_id 关系保持）；**幂等可重跑**（目标已有数据时校验/拒绝覆盖，审计表只增不改）；结束打印每表行数与校验摘要（行数、audit 区间、可选 hash），并给"迁移后切换 config 重启"步骤。
+- `docker-compose.yml` 增 `postgres:18` 控制面服务（profile `controlplane`；元数据/审计可分 `metadata-db`、`audit-db` 两服务）：命名卷、`pg_isready` 健康检查、`depends_on: service_healthy`、非 root、仅绑回环；agentsql 通过环境变量注入 DSN/SECRET；`docs/DEPLOY.md` 增 PG 控制面部署、最小权限账号、`pg_dump` 备份与恢复、PG15+ 兼容说明（基准 PG18）。
+- 版本与物料：v0.2 发布单统一把版本七处抬到 **v0.2.0**，`CHANGELOG.md` 增 v0.2.0（Added：实时事件流 SSE、PG18 元数据/审计库、SQLite→PG 迁移、Live Demo；Compatibility：PG15+/基准 PG18、SQLite 仍默认）。开发过程用存档 tag `t27-*`/`t28-*`，不提前对外宣称 GA。
+
+### 8.2.3 T26 在线 Live Demo（开源演示套件；托管 SaaS 商业化后置）
+
+**目标**：访客零安装、零配置，在一个**只读、安全、每日重置**的公开演示里点 6 个剧本，直观看到"自然语言/AI 生成 SQL → 网关放行/拦截/脱敏 → 审计与大屏实时可查"，用于官网/GitHub 转化与朋友圈传播。本单交付**可自托管的开源演示套件**（compose 一键起）；多租户托管 Cloud 属 T26 商业化延伸，不在本单。
+
+**安全边界（fail-closed，最高优先）**：
+- 硬开关 `demo.enabled=true`（或 `AGENTSQL_DEMO=1`），默认关闭；仅演示构建/部署显式开启。开启后：全局固定横幅"演示环境·数据每日重置·禁止接入真实数据与真实数据库"；登录页与总览显著提示；不提供注册。
+- 演示只连**预置的演示数据源**（白名单 ID），后端持有演示 Agent 的 API key，**前端任何时候拿不到 `asql_` key**；演示业务库账号只读；演示写操作一律在静态/动态门被拦截、**绝不触达真实业务库执行**；对演示通道单独收紧速率（复用 QPS 限流并给更小额度）。
+- 演示环境的 SECRET/管理员口令由部署时注入（compose 示例只给绑回环的本地演示值；公开部署文档要求替换），不内置真实凭据。
+
+**T26-1 演示数据与一键环境**：
+- 演示业务库（沿用 `demo` profile 的 postgres + mysql，展示"被防护库可跨方言/跨版本"）：建贴近场景的表（如 `customers`(含 phone/email 敏感列)、`orders`、`products`），灌**确定性的近 30 天**数据（固定种子、可重复生成，含足够行数演示截断与脱敏）。
+- 控制面种子（幂等 seed）：1 个演示数据源（MySQL 与 PG 各一）、1 个只读演示 Agent + 1 个 dml 演示 Agent、最小放权的几条 policy（含明确不放权的表用于"越权拒"剧本）、phone/email 脱敏规则；并预置**近 30 天 `audit_logs` 演示决策**（allow/deny/warn/approve 分布、各规则命中、延迟/行数），让大屏趋势/分布/Top/排行/审计页开箱即有内容。种子走与生产一致的仓储接口（不绕过校验直接拼库），敏感列密码等按正常加密路径写。
+- 交付 `docker-compose.demo.yml`（或 demo profile 组合）一键起：业务库 + 控制面（默认 SQLite 控制面即可，PG18 控制面是 T28 可选项）+ 种子 + 可选 observability；幂等 `demo/seed.*` 与 `demo/reset.sh`（`down -v` → `up` → reseed），附宿主 cron 每日重置示例；**不做应用内定时重置**（交给 cron/编排，简单可靠）。
+
+**T26-2 演示通道与 6 剧本引导**：
+- demo 模式下把 Playground 从 T21 的"纯静态 assess 旁路"接成**受控真实通道**：仅对演示白名单数据源、以预置演示 Agent 身份走完整八阶段流水线并写审计（这样大屏 T27 实时流会点亮）；只读 SELECT 真实执行并经脱敏返回（受 row_limit）；写/DDL 走到拦截即返回 deny 与命中规则、不触库；非 demo 模式下 Playground 维持原静态旁路不变（生产面零改动）。
+- 前端新增"6 个演示剧本"引导卡（可一键填入 SQL 并运行、显示"预期结果"）：①只读查询正常放行并返回数据；②无 WHERE 的 UPDATE/DELETE 被 R002 拦截；③查询含 phone/email 的表结果被打码脱敏；④`EXPLAIN` 全表扫描/高风险被动态门告警或拦截；⑤访问未授权表被越权拒绝；⑥跳转审计页/总览大屏，回看刚才每一次决策与规则命中（配合 T27 实时出现）。
+- 横幅、演示模式徽标、剧本卡仅在 demo 标志下出现（前端经 `/healthz` 或启动配置接口只读获取 `demo.enabled` 与版本，不暴露敏感配置）。
+- 物料：README 增"在线 Live Demo / 5 分钟本地演示（一条命令）"与 6 剧本 GIF/截图位；`docs/` 增演示部署与每日重置说明。
+- 验收：干净环境一条命令起演示；6 剧本逐一得到预期（放行/拦截/脱敏/告警/越权拒/审计实时可查）；重置脚本能恢复到完全一致的初始态（行数/关键计数固定）；尝试访问白名单外数据源、尝试拿 key、尝试真实写库均失败（fail-closed）；非 demo 模式回归全绿。
+
 ## 8.3 企业版任务（商业）
 - **T29 国产/商业业务库矩阵**：达梦 DM、人大金仓 KingbaseES、瀚高 HighGo、GaussDB、OceanBase、TiDB、Oracle、SQL Server 的方言解析、驱动适配、脱敏/规则方言与兼容矩阵（信创/政企进场壁垒）。
 - **T30 合规与身份管控包**：审计 PDF 等保/数据安全法报告、审计防篡改（哈希链/签名/WORM）、外置 SIEM（syslog/Kafka/ES）、长期归档、操作水印；行级权限(RLS)、完整/动态脱敏与自定义算法、敏感数据自动发现与分类分级；SSO(OIDC/SAML)、LDAP/AD、MFA、多租户、RBAC/ABAC、多级会签审批、飞书/钉钉/企微/Jira 工单集成、告警 Webhook。
