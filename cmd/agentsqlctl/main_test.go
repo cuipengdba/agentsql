@@ -106,6 +106,21 @@ func TestCheckConfigOnlyValidates(t *testing.T) {
 	}
 }
 
+func TestCheckConfigUsesStrictDemoEnvironmentParsing(t *testing.T) {
+	t.Setenv("AGENTSQL_STORE_METADATA_DSN", "")
+	configPath := writeControlConfig(t, defaultConfigTemplate)
+
+	t.Setenv("AGENTSQL_DEMO", "true")
+	var invalidError strings.Builder
+	require.Equal(t, 1, run([]string{"check-config", "-c", configPath}, io.Discard, &invalidError))
+	require.Contains(t, invalidError.String(), `AGENTSQL_DEMO must be unset, empty, or exactly "1"`)
+
+	t.Setenv("AGENTSQL_DEMO", "1")
+	var output, commandError strings.Builder
+	require.Equal(t, 0, run([]string{"check-config", "-c", configPath}, &output, &commandError), commandError.String())
+	require.Contains(t, output.String(), "config ok:")
+}
+
 func TestMigratePrintsVersionsAndIsIdempotentWithoutSecret(t *testing.T) {
 	t.Setenv("AGENTSQL_STORE_METADATA_DSN", "")
 	databasePath := filepath.Join(t.TempDir(), "metadata", "agentsql.db")

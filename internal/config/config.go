@@ -39,6 +39,7 @@ type Config struct {
 	Store    StoreConfig    `yaml:"store"`
 	Defaults DefaultsConfig `yaml:"defaults"`
 	Theme    ThemeConfig    `yaml:"theme"`
+	Demo     DemoConfig     `yaml:"demo"`
 }
 
 // ServerConfig controls the shared HTTP listener and console availability.
@@ -62,8 +63,8 @@ type ThemeConfig struct {
 	Default string `yaml:"default"`
 }
 
-// Parse decodes and validates exactly one YAML configuration document without
-// reading or changing the filesystem.
+// Parse decodes exactly one YAML configuration document, applies strict
+// environment switches, and validates it without changing the filesystem.
 func Parse(contents []byte) (Config, error) {
 	var loaded Config
 	loaded.Store.AutoMigrate = true
@@ -97,6 +98,12 @@ func Parse(contents []byte) (Config, error) {
 	loaded.Store.autoMigrateSet = storeFields["auto_migrate"]
 	if loaded.Store.Audit != nil {
 		loaded.Store.Audit.configuredFields = configuredAuditFields(contents)
+	}
+	if err := applyDemoEnvironment(&loaded, os.LookupEnv); err != nil {
+		return Config{}, fmt.Errorf("resolve demo config: %w", err)
+	}
+	if err := defaultAndValidateDemo(&loaded.Demo); err != nil {
+		return Config{}, fmt.Errorf("validate demo config: %w", err)
 	}
 	if err := loaded.validateNonStore(); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
@@ -187,6 +194,11 @@ func (config Config) Validate() error {
 }
 
 func (config Config) validateNonStore() error {
+	demo := config.Demo
+	if err := defaultAndValidateDemo(&demo); err != nil {
+		return fmt.Errorf("validate demo config: %w", err)
+	}
+
 	listen := strings.TrimSpace(config.Server.HTTPListen)
 	_, portText, err := net.SplitHostPort(listen)
 	if err != nil {

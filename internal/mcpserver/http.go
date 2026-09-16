@@ -236,7 +236,7 @@ func newHTTPHandlerWithRegistry(
 		}
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("GET /healthz", healthHandler(cfg))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
 	mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))
 	mux.Handle("/mcp", mcpHandler)
@@ -254,15 +254,32 @@ func newHTTPHandlerWithRegistry(
 }
 
 type probeResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version,omitempty"`
+	Status  string             `json:"status"`
+	Version string             `json:"version,omitempty"`
+	Demo    *demoProbeResponse `json:"demo,omitempty"`
 }
 
-func healthHandler(writer http.ResponseWriter, _ *http.Request) {
-	writeProbeResponse(writer, http.StatusOK, probeResponse{
-		Status:  "ok",
-		Version: version.Version,
-	})
+type demoProbeResponse struct {
+	Enabled bool   `json:"enabled"`
+	Banner  string `json:"banner"`
+}
+
+func healthHandler(cfg config.Config) http.HandlerFunc {
+	return func(writer http.ResponseWriter, _ *http.Request) {
+		response := probeResponse{
+			Status:  "ok",
+			Version: version.Version,
+		}
+		if cfg.DemoEnabled() {
+			banner := cfg.Demo.Banner
+			if banner == "" {
+				banner = config.DemoDefaultBanner
+			}
+			response.Demo = &demoProbeResponse{Enabled: true, Banner: banner}
+		}
+		writer.Header().Set("Cache-Control", "no-store")
+		writeProbeResponse(writer, http.StatusOK, response)
+	}
 }
 
 func readinessHandler(runtime *bootstrap.Runtime) http.HandlerFunc {

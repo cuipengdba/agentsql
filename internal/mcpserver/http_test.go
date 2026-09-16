@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,7 +46,8 @@ func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
 	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	require.Equal(t, http.StatusOK, health.Code)
 	require.Equal(t, "application/json", health.Header().Get("Content-Type"))
-	require.JSONEq(t, fmt.Sprintf(`{"status":"ok","version":%q}`, version.Version), health.Body.String())
+	require.Equal(t, "no-store", health.Header().Get("Cache-Control"))
+	require.Equal(t, fmt.Sprintf(`{"status":"ok","version":%q}`, version.Version), health.Body.String())
 	require.Zero(t, webCalls)
 
 	ready := httptest.NewRecorder()
@@ -60,6 +62,88 @@ func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, unauthorized.Code)
 	require.JSONEq(t, `{"error":"unauthorized"}`, unauthorized.Body.String())
 	require.Zero(t, webCalls)
+}
+
+func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
+	const (
+		secretCanary   = "health-secret-canary-32-bytes!!!"
+		dsnCanary      = "health-dsn-password-canary"
+		passwordCanary = "health-datasource-password-canary"
+		keyCanary      = "asql_health-demo-key-canary"
+		hostCanary     = "health-private-host-canary.invalid"
+		usernameCanary = "health-admin-username-canary"
+	)
+	keyHashCanary := strings.Repeat("ab", 32)
+	t.Setenv("AGENTSQL_SECRET", secretCanary)
+	t.Setenv("AGENTSQL_DEMO_RO_KEY", keyCanary)
+	t.Setenv("AGENTSQL_ADMIN_USER", usernameCanary)
+
+	fixture := newMCPFixture(t, "dml")
+	storedAgent, err := fixture.runtime.Store.Agents().Get(context.Background(), fixture.agent.ID)
+	require.NoError(t, err)
+	storedAgent.APIKeyHash = keyHashCanary
+	_, err = fixture.runtime.Store.Agents().Update(context.Background(), storedAgent)
+	require.NoError(t, err)
+	_, err = fixture.runtime.Store.Datasources().Create(context.Background(), model.Datasource{
+		ID: "ds-health-canary", Name: "Health Canary", DBType: "postgres",
+		Host: hostCanary, Port: 5432, Database: "health", Username: usernameCanary,
+		ConnLimit: 2, StmtTimeoutMS: 1_500, RowLimit: 20,
+	}, passwordCanary)
+	require.NoError(t, err)
+
+	cfg := httpTestConfig(100)
+	cfg.Store.SQLitePath = ""
+	cfg.Store.Metadata = &config.MetadataStoreConfig{
+		Driver: "postgres",
+		DSN:    "postgres://demo:" + dsnCanary + "@" + hostCanary + "/agentsql",
+	}
+	cfg.Demo = config.DemoConfig{
+		Enabled:              true,
+		Banner:               config.DemoDefaultBanner,
+		AllowedDatasourceIDs: []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL},
+		QPSPerAgent:          config.DemoDefaultQPSPerAgent,
+	}
+	handler, err := NewHTTPHandler(fixture.runtime, cfg, zerolog.Nop())
+	require.NoError(t, err)
+
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.Equal(t, http.StatusOK, health.Code)
+	require.Equal(t, "no-store", health.Header().Get("Cache-Control"))
+	require.Equal(t, fmt.Sprintf(
+		`{"status":"ok","version":%q,"demo":{"enabled":true,"banner":%q}}`,
+		version.Version,
+		config.DemoDefaultBanner,
+	), health.Body.String())
+
+	var projection map[string]any
+	require.NoError(t, json.Unmarshal(health.Body.Bytes(), &projection))
+	require.ElementsMatch(t, []string{"status", "version", "demo"}, mapKeys(projection))
+	demoProjection, ok := projection["demo"].(map[string]any)
+	require.True(t, ok)
+	require.ElementsMatch(t, []string{"enabled", "banner"}, mapKeys(demoProjection))
+
+	responseText := health.Body.String() + fmt.Sprint(health.Header())
+	for _, canary := range []string{
+		secretCanary,
+		dsnCanary,
+		passwordCanary,
+		keyCanary,
+		keyHashCanary,
+		hostCanary,
+		usernameCanary,
+		"password_enc",
+		config.DemoDatasourcePG,
+		config.DemoDatasourceMySQL,
+	} {
+		require.NotContains(t, responseText, canary)
+	}
+
+	ready := httptest.NewRecorder()
+	handler.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, ready.Code)
+	require.Equal(t, `{"status":"ready"}`, ready.Body.String())
+	require.Empty(t, ready.Header().Get("Cache-Control"))
 }
 
 func TestT241ReadinessFailsClosedWithoutStore(t *testing.T) {
@@ -488,4 +572,12 @@ func TestStatusResponseWriterUnwrapsForResponseController(t *testing.T) {
 	wrapped := &statusResponseWriter{ResponseWriter: underlying, status: http.StatusOK}
 	require.Same(t, underlying, wrapped.Unwrap())
 	require.NoError(t, http.NewResponseController(wrapped).Flush())
+}
+
+func mapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	return keys
 }
