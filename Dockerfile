@@ -2,7 +2,7 @@
 
 FROM golang:1.25-bookworm AS build
 
-ARG VERSION=dev
+ARG VERSION=v0.1.0
 WORKDIR /src
 
 RUN apt-get update \

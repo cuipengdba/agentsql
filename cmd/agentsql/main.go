@@ -55,6 +55,7 @@ func newRootCommand(logger zerolog.Logger) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	command.SetVersionTemplate("{{.Version}}\n")
 
 	command.AddCommand(newVersionCommand())
 	command.AddCommand(newServeCommand(logger))
@@ -70,13 +71,13 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 		Short: "Run the authenticated AgentSQL MCP stdio server",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			secret, _, err := validateStartupSecurity(logger)
+			if err != nil {
+				return err
+			}
 			loaded, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("load MCP configuration: %w", err)
-			}
-			secret := os.Getenv("AGENTSQL_SECRET")
-			if len(secret) != 32 {
-				return fmt.Errorf("AGENTSQL_SECRET must contain exactly 32 bytes")
 			}
 			boundKey := strings.TrimSpace(apiKey)
 			if boundKey == "" {
@@ -134,13 +135,24 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 		Short: "Run the AgentSQL MCP Streamable HTTP server",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			secret, insecure, err := validateStartupSecurity(logger)
+			if err != nil {
+				return err
+			}
 			loaded, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("load configuration: %w", err)
 			}
-			secret := os.Getenv("AGENTSQL_SECRET")
-			if len(secret) != 32 {
-				return fmt.Errorf("AGENTSQL_SECRET must contain exactly 32 bytes")
+			var adminUser string
+			var adminPassword string
+			if loaded.Server.ConsoleEnabled {
+				adminUser, adminPassword, err = adminapi.AdminCredentialsFromEnv()
+				if err != nil {
+					return err
+				}
+				if err := config.ValidateAdminPassword(adminUser, adminPassword, insecure); err != nil {
+					return err
+				}
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -150,10 +162,6 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			}
 			var httpOptions []mcpserver.HTTPOption
 			if loaded.Server.ConsoleEnabled {
-				adminUser, adminPassword, credentialError := adminapi.AdminCredentialsFromEnv()
-				if credentialError != nil {
-					return errors.Join(credentialError, runtime.Close())
-				}
 				adminHandler, adminError := adminapi.NewHandler(adminapi.Deps{
 					Runtime:       runtime,
 					Config:        loaded,
@@ -182,6 +190,7 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			}
 			logger.Info().
 				Str("http_listen", loaded.Server.HTTPListen).
+				Str("version", version.Version).
 				Msg("MCP Streamable HTTP server starting")
 			serveErrors := make(chan error, 1)
 			go func() {
@@ -212,4 +221,19 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 	}
 	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")
 	return command
+}
+
+func validateStartupSecurity(logger zerolog.Logger) (secret string, insecure bool, err error) {
+	insecure, err = config.InsecureModeFromEnv()
+	if err != nil {
+		return "", false, err
+	}
+	if insecure {
+		logger.Warn().Msg("AGENTSQL_INSECURE=1 enabled: publicly known test credentials are permitted; never use in production")
+	}
+	secret = os.Getenv("AGENTSQL_SECRET")
+	if err := config.ValidateStartupSecret(secret, insecure); err != nil {
+		return "", insecure, err
+	}
+	return secret, insecure, nil
 }

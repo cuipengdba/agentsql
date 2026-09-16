@@ -66,6 +66,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	command.SetVersionTemplate("{{.Version}}\n")
 	command.AddCommand(newVersionCommand())
 	command.AddCommand(newInitConfigCommand())
 	command.AddCommand(newCheckConfigCommand())
@@ -176,9 +177,18 @@ func newMigrateCommand() *cobra.Command {
 		Short: "Apply metadata-store migrations",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			insecure, err := config.InsecureModeFromEnv()
+			if err != nil {
+				return err
+			}
+			if insecure {
+				if _, err := fmt.Fprintln(command.ErrOrStderr(), "WARNING: AGENTSQL_INSECURE=1 enabled: publicly known test credentials are permitted; never use in production"); err != nil {
+					return fmt.Errorf("write insecure-mode warning: %w", err)
+				}
+			}
 			secret := os.Getenv("AGENTSQL_SECRET")
-			if len(secret) != 32 {
-				return fmt.Errorf("AGENTSQL_SECRET must contain exactly 32 bytes")
+			if err := config.ValidateStartupSecret(secret, insecure); err != nil {
+				return err
 			}
 			current, latest, err := migrate(command.Context(), configPath, []byte(secret))
 			if err != nil {
