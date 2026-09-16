@@ -1,17 +1,22 @@
 import { ReloadOutlined } from "@ant-design/icons";
 import { Button, Empty, List, Skeleton, Tag, Tooltip, message } from "antd";
 import { motion } from "framer-motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { listAudit } from "@/api/audit";
-import type { AuditView } from "@/api/types";
+import type { AuditStreamEvent, AuditView, StreamStatus } from "@/api/types";
 import { getDecisionMeta, statementLabel } from "@/constants/labels";
 
 interface EventStreamProps {
-  autoRefresh: boolean;
+  liveEvents: AuditStreamEvent[];
+  streamStatus: StreamStatus;
+  pollEnabled: boolean;
+  realtimeDenyIDs: ReadonlySet<number>;
   refreshToken: number;
   onRefreshingChange: (refreshing: boolean) => void;
 }
+
+type DisplayEvent = AuditStreamEvent & Partial<AuditView>;
 
 function formatTime(value: string): string {
   const timestamp = Date.parse(value);
@@ -38,15 +43,48 @@ function sqlSummary(value: string | null | undefined): string {
   return (value || "").replace(/\s+/g, " ").trim() || "—";
 }
 
-export function EventStream({ autoRefresh, refreshToken, onRefreshingChange }: EventStreamProps) {
-  const [events, setEvents] = useState<AuditView[]>([]);
+function meaningfulText(value: string | null | undefined): string | undefined {
+  return value && value.trim() ? value : undefined;
+}
+
+function compareEvents(left: { id: number; ts: string }, right: { id: number; ts: string }): number {
+  const leftTime = Date.parse(left.ts);
+  const rightTime = Date.parse(right.ts);
+  const safeLeftTime = Number.isFinite(leftTime) ? leftTime : Number.NEGATIVE_INFINITY;
+  const safeRightTime = Number.isFinite(rightTime) ? rightTime : Number.NEGATIVE_INFINITY;
+  return safeRightTime - safeLeftTime || right.id - left.id;
+}
+
+function mergePolledEvents(current: AuditView[], incoming: AuditView[]): AuditView[] {
+  const byID = new Map<number, AuditView>();
+  current.forEach((event) => byID.set(event.id, event));
+  incoming.forEach((event) => byID.set(event.id, event));
+  return [...byID.values()].sort(compareEvents).slice(0, 100);
+}
+
+export function EventStream({ liveEvents, streamStatus, pollEnabled, realtimeDenyIDs, refreshToken, onRefreshingChange }: EventStreamProps) {
+  const [polledEvents, setPolledEvents] = useState<AuditView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [newDenyIDs, setNewDenyIDs] = useState<Set<number>>(new Set());
-  const eventsRef = useRef<AuditView[]>([]);
+  const polledEventsRef = useRef<AuditView[]>([]);
+  const liveEventsRef = useRef(liveEvents);
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
   const highlightTimersRef = useRef<Map<number, number>>(new Map());
+  const highlightedDenyIDsRef = useRef<Set<number>>(new Set());
+
+  liveEventsRef.current = liveEvents;
+
+  const events = useMemo<DisplayEvent[]>(() => {
+    const byID = new Map<number, DisplayEvent>();
+    liveEvents.forEach((event) => byID.set(event.id, event));
+    polledEvents.forEach((event) => {
+      const realtime = byID.get(event.id);
+      byID.set(event.id, realtime ? { ...realtime, ...event } : event);
+    });
+    return [...byID.values()].sort(compareEvents).slice(0, 100);
+  }, [liveEvents, polledEvents]);
 
   const refresh = useCallback(async () => {
     if (controllerRef.current !== null || !mountedRef.current) {
@@ -56,40 +94,19 @@ export function EventStream({ autoRefresh, refreshToken, onRefreshingChange }: E
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const page = await listAudit({ page: 1, page_size: 20 }, controller.signal);
+      const page = await listAudit({ page: 1, page_size: 100 }, controller.signal);
       if (!mountedRef.current || controller.signal.aborted) {
         return;
       }
-      const incoming = page.list.slice(0, 20);
-      const previousIDs = new Set(eventsRef.current.map((event) => event.id));
-      const freshDenyIDs = new Set(
-        incoming
-          .filter((event) => event.decision.toLowerCase() === "deny" && !previousIDs.has(event.id))
-          .map((event) => event.id),
-      );
-      setEvents(incoming);
-      eventsRef.current = incoming;
+      const incoming = page.list.slice(0, 100);
+      const merged = mergePolledEvents(polledEventsRef.current, incoming);
+      polledEventsRef.current = merged;
+      setPolledEvents(merged);
       setError(false);
-      if (freshDenyIDs.size > 0) {
-        setNewDenyIDs((current) => new Set([...current, ...freshDenyIDs]));
-        freshDenyIDs.forEach((id) => {
-          const timer = window.setTimeout(() => {
-            highlightTimersRef.current.delete(id);
-            if (mountedRef.current) {
-              setNewDenyIDs((current) => {
-                const next = new Set(current);
-                next.delete(id);
-                return next;
-              });
-            }
-          }, 2_000);
-          highlightTimersRef.current.set(id, timer);
-        });
-      }
     } catch {
       if (!controller.signal.aborted && mountedRef.current) {
         setError(true);
-        if (eventsRef.current.length > 0) {
+        if (polledEventsRef.current.length > 0 || liveEventsRef.current.length > 0) {
           void message.warning("风险事件刷新失败，已保留上次结果");
         }
       }
@@ -117,18 +134,48 @@ export function EventStream({ autoRefresh, refreshToken, onRefreshingChange }: E
   }, [refresh]);
 
   useEffect(() => {
-    if (!autoRefresh) {
+    if (!pollEnabled) {
       return;
     }
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
-  }, [autoRefresh, refresh]);
+  }, [pollEnabled, refresh]);
+
+  useEffect(() => {
+    if (streamStatus !== "polling-fallback" || !pollEnabled) return;
+    void refresh();
+  }, [pollEnabled, refresh, streamStatus]);
 
   useEffect(() => {
     if (refreshToken > 0) {
       void refresh();
     }
   }, [refresh, refreshToken]);
+
+  useEffect(() => {
+    const freshDenyIDs = liveEvents
+      .filter((event) => event.decision.trim().toLowerCase() === "deny"
+        && realtimeDenyIDs.has(event.id)
+        && !highlightedDenyIDsRef.current.has(event.id))
+      .map((event) => event.id);
+    if (freshDenyIDs.length === 0) return;
+
+    freshDenyIDs.forEach((id) => highlightedDenyIDsRef.current.add(id));
+    setNewDenyIDs((current) => new Set([...current, ...freshDenyIDs]));
+    freshDenyIDs.forEach((id) => {
+      const timer = window.setTimeout(() => {
+        highlightTimersRef.current.delete(id);
+        if (mountedRef.current) {
+          setNewDenyIDs((current) => {
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          });
+        }
+      }, 2_000);
+      highlightTimersRef.current.set(id, timer);
+    });
+  }, [liveEvents, realtimeDenyIDs]);
 
   return (
     <div className="event-stream">
@@ -157,23 +204,27 @@ export function EventStream({ autoRefresh, refreshToken, onRefreshingChange }: E
           split={false}
           renderItem={(event) => {
             const meta = getDecisionMeta(event.decision);
-            const deny = event.decision.toLowerCase() === "deny";
+            const deny = event.decision.trim().toLowerCase() === "deny";
+            const isNewDeny = newDenyIDs.has(event.id);
+            const rawSQL = meaningfulText(event.sql_raw);
+            const summary = rawSQL
+              ? sqlSummary(rawSQL)
+              : sqlSummary(meaningfulText(event.objects) || meaningfulText(event.stmt_type));
+            const sqlCell = <span className="event-sql mono-text">{summary}</span>;
             const row = (
-              <div className={`event-row${deny ? " event-row-deny" : ""}${newDenyIDs.has(event.id) ? " event-row-new" : ""}`}>
+              <div className={`event-row${deny ? " event-row-deny" : ""}${isNewDeny ? " event-row-new" : ""}`}>
                 <span className="event-time mono-text">{formatTime(event.ts)}</span>
                 <span className="event-agent mono-text">{shortAgent(event.agent_id)}</span>
                 <Tag color={meta.tagColor}>{meta.label}</Tag>
                 <span className="event-stmt">{statementLabel(event.stmt_type)}</span>
-                <Tooltip title={event.sql_raw || "—"}>
-                  <span className="event-sql mono-text">{sqlSummary(event.sql_raw)}</span>
-                </Tooltip>
+                {rawSQL ? <Tooltip title={rawSQL}>{sqlCell}</Tooltip> : sqlCell}
               </div>
             );
             return deny ? (
               <motion.div
-                key={event.id}
+                key={`${event.id}-${isNewDeny ? "new" : "steady"}`}
                 layout
-                initial={{ opacity: 0, y: -18 }}
+                initial={isNewDeny ? { opacity: 0, y: -18 } : false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25 }}
               >
