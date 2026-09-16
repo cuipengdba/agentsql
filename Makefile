@@ -1,5 +1,5 @@
 BINARY_DIR := bin
-VERSION ?= v0.1.0
+VERSION ?= v0.2.0
 GO ?= go
 GOFLAGS ?=
 VERSION_PACKAGE := github.com/cuipengdba/agentsql/internal/version

@@ -1,6 +1,6 @@
 # AgentSQL
 
-[![Release](https://img.shields.io/badge/Release-v0.1.0-blue)](#)
+[![Release](https://img.shields.io/badge/Release-v0.2.0-blue)](#)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -19,7 +19,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 默认拒绝的安全链路：API Key 认证、Agent 能力档位、对象/列授权、SQL AST 规则与 fail-closed 错误处理。
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
 - 基础数据保护：v0.1 支持手机号、邮箱按列确定性打码；数据源口令使用 32 字节 SECRET 加密保存。
-- 可追溯运维：SQLite 元数据与审计库、审计导出、审批闭环、Prometheus 指标、健康/就绪探针。
+- 可追溯运维：默认零配置 SQLite、可选 PostgreSQL 15+ 元数据/审计控制面、审计导出、审批闭环、Prometheus 指标与健康/就绪探针。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
 
 ## 5 分钟快速开始：Docker Compose + SQLite
@@ -68,12 +68,14 @@ docker compose --profile observability up -d --build
 
 > `AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份。直接更换 SECRET 会让既有数据源口令无法解密，不是无损轮换。
 
+生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库（开发、Compose 与 CI 基准为 PostgreSQL 18），并用 `agentsqlctl migrate-sqlite-to-postgres` 从默认 combined SQLite 搬迁。Compose 的 `controlplane` profile、一次性迁移账号、最小权限运行账号和备份/回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
+
 ## 二进制方式
 
 构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
-make build VERSION=v0.1.0
+make build VERSION=v0.2.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -135,7 +137,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 
 ## 功能矩阵
 
-| 能力 | v0.1.0 | 说明 |
+| 能力 | 当前代码 | 说明 |
 | --- | --- | --- |
 | MCP stdio / Streamable HTTP | 支持 | HTTP 使用 Bearer API Key；stdio 绑定单个 Agent Key |
 | Agent 与数据源管理 | 支持 | API Key 仅创建/轮换时返回明文，库内保存哈希 |
@@ -145,18 +147,19 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 | 受控查询与写入 | 支持 | 超时、连接上限、结果截断与错误脱敏 |
 | 人工审批 | 支持 | 建单、管理员决定、Agent 查询结果 |
 | 手机号/邮箱打码 | 支持 | v0.1 仅 `mask` 算法 |
-| SQLite 审计、导出与仪表盘 | 支持 | `/metrics`、`/healthz`、`/readyz` 可用于运维 |
+| SQLite / PostgreSQL 控制面、审计导出与仪表盘 | 支持 | SQLite 默认零配置；PostgreSQL 可使用独立 metadata/audit 库 |
 | Web 管理控制台 | 支持 | 可用 `console_enabled: false` 完全不挂载管理面 |
 | 大屏实时事件流 | 支持 | SSE，默认开启，最多 100 条并发管理端连接 |
 
 ## 数据库兼容矩阵
 
-| 用途 | 数据库 | v0.1.0 |
+| 用途 | 数据库 | 当前代码 |
 | --- | --- | --- |
 | 被防护业务库 | MySQL 8 | 支持 |
 | 被防护业务库 | PostgreSQL 14 / 15 / 16 / 17 / 18 | 支持 |
-| 元数据与审计库 | SQLite | 唯一支持的 v0.1 后端 |
-| 元数据与审计库 | PostgreSQL 18（兼容目标 15+） | v0.2 的 T28 路线，v0.1 不支持 |
+| 元数据与审计库 | SQLite | 支持，默认零配置，可 combined 存储 |
+| 元数据与审计库 | PostgreSQL 15+ | 支持；PG18 为基准，可 combined 或独立 metadata/audit 库 |
+| 控制面迁移 | SQLite → PostgreSQL | `agentsqlctl migrate-sqlite-to-postgres`，支持迁往单库或独立双库 |
 
 ## v0.1 已知限制
 
@@ -165,7 +168,6 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 - `AllowedTables` 中的 `*` 或 `schema.*` 表示管理员显式授予匹配表的全部列；此时精确列白名单不再收紧。单表使用精确列白名单时，应显式列出投影列。
 - MCP 不暴露跨请求会话或事务参数，内部 `SessionID` 不是公开协议能力。
 - 多语句事务和受控的跨请求事务能力计划在 v0.2 提供。
-- v0.1 的元数据/审计库只支持单节点 SQLite；PostgreSQL 元库属于 T28。
 
 ## 本地测试模式
 
@@ -177,7 +179,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 
 ## 文档与社区
 
-- [部署、升级、备份与 systemd](docs/DEPLOY.md)
+- [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
 - [产品与工程规范](docs/SPEC.md)
 - [版本变更](CHANGELOG.md)
 - [Issue（公开仓库链接占位）](#)
@@ -191,7 +193,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.1.0
+make build VERSION=v0.2.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

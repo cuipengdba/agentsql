@@ -2,9 +2,24 @@
 
 本项目的重要变化记录于此，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## Unreleased
+## [v0.2.0] - Unreleased
 
-尚无已排期的发布内容；后置路线不等同于 v0.2 首批承诺。
+### Added
+
+- 控制台总览新增经 Bearer 鉴权的 SSE 实时事件流，并在连接中断时降级为既有刷新路径。
+- 元数据与审计控制面新增 PostgreSQL 支持（兼容 15+，基准与 CI 为 PostgreSQL 18），并支持独立 metadata/audit 数据库。
+- 新增 SQLite 到 PostgreSQL 的数据迁移、校验与序列对齐命令 `agentsqlctl migrate-sqlite-to-postgres`。
+- 规划新增可自托管的开源 Live Demo 套件，提供只读、安全、每日重置的在线演示路径。
+
+### Changed
+
+- 生产 PostgreSQL 部署采用一次性 migration 账号、最小权限运行账号与 `store.auto_migrate:false`。
+- 独立审计库布局保留不可变审计 ID，以及 `approvals.audit_id` 与审计记录的应用级关系。
+
+### Compatibility
+
+- PostgreSQL 控制面兼容 15+，基准与 CI 使用 PostgreSQL 18。
+- SQLite 仍是默认零配置控制面，现有 SQLite 起手路径保持不变。
 
 ## [v0.1.0] - 2026-09-16
 

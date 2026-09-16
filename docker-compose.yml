@@ -3,8 +3,9 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v0.1.0}
-    image: agentsql:${VERSION:-v0.1.0}
+        VERSION: ${VERSION:-v0.2.0}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: agentsql:${VERSION:-v0.2.0}
     ports:
       - "127.0.0.1:7780:7780"
     environment:
@@ -14,6 +15,85 @@ services:
     volumes:
       - agentsql-data:/var/lib/agentsql
       - ./examples/docker/config.yaml:/etc/agentsql/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  metadata-db:
+    image: postgres:18
+    profiles: ["controlplane"]
+    user: postgres
+    environment:
+      POSTGRES_DB: "${AGENTSQL_METADATA_DB:-agentsql_metadata}"
+      POSTGRES_USER: "${AGENTSQL_METADATA_MIGRATION_USER:-agentsql_meta_migrator}"
+      POSTGRES_PASSWORD: "${AGENTSQL_METADATA_MIGRATION_PASSWORD:?must set AGENTSQL_METADATA_MIGRATION_PASSWORD in .env}"
+    volumes:
+      - agentsql-metadata-pgdata:/var/lib/postgresql
+    # The host port is only needed by a host-side migration CLI; remove ports otherwise.
+    ports:
+      - "127.0.0.1:${AGENTSQL_METADATA_DB_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username \"$${POSTGRES_USER}\" --dbname \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  audit-db:
+    image: postgres:18
+    profiles: ["controlplane"]
+    user: postgres
+    environment:
+      POSTGRES_DB: "${AGENTSQL_AUDIT_DB:-agentsql_audit}"
+      POSTGRES_USER: "${AGENTSQL_AUDIT_MIGRATION_USER:-agentsql_audit_migrator}"
+      POSTGRES_PASSWORD: "${AGENTSQL_AUDIT_MIGRATION_PASSWORD:?must set AGENTSQL_AUDIT_MIGRATION_PASSWORD in .env}"
+    volumes:
+      - agentsql-audit-pgdata:/var/lib/postgresql
+    # The host port is only needed by a host-side migration CLI; remove ports otherwise.
+    ports:
+      - "127.0.0.1:${AGENTSQL_AUDIT_DB_PORT:-55433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username \"$${POSTGRES_USER}\" --dbname \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  agentsql-controlplane:
+    profiles: ["controlplane"]
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-v0.2.0}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: agentsql:${VERSION:-v0.2.0}
+    ports:
+      - "127.0.0.1:7780:7780"
+    environment:
+      AGENTSQL_SECRET: "${AGENTSQL_SECRET:?must set AGENTSQL_SECRET in .env}"
+      AGENTSQL_ADMIN_USER: "${AGENTSQL_ADMIN_USER:-admin}"
+      AGENTSQL_ADMIN_PASSWORD: "${AGENTSQL_ADMIN_PASSWORD:?must set AGENTSQL_ADMIN_PASSWORD in .env}"
+      AGENTSQL_STORE_METADATA_DSN: "${AGENTSQL_STORE_METADATA_DSN:?must set AGENTSQL_STORE_METADATA_DSN in .env}"
+      AGENTSQL_STORE_AUDIT_DSN: "${AGENTSQL_STORE_AUDIT_DSN:?must set AGENTSQL_STORE_AUDIT_DSN in .env}"
+    volumes:
+      - ./examples/docker/config.controlplane.yaml:/etc/agentsql/config.yaml:ro
+    depends_on:
+      metadata-db:
+        condition: service_healthy
+      audit-db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
       interval: 15s
@@ -89,3 +169,5 @@ services:
 
 volumes:
   agentsql-data:
+  agentsql-metadata-pgdata:
+  agentsql-audit-pgdata:

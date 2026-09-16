@@ -2,7 +2,11 @@
 
 FROM golang:1.25-bookworm AS build
 
-ARG VERSION=v0.1.0
+ARG VERSION=v0.2.0
+# Overridable module proxy for restricted networks, e.g.
+# `docker build --build-arg GOPROXY=https://goproxy.cn,direct`.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 
 RUN apt-get update \
