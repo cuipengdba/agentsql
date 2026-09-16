@@ -231,7 +231,7 @@ func migrate(ctx context.Context, configPath string, secret []byte) (current int
 	if err := database.PingContext(ctx); err != nil {
 		return 0, 0, fmt.Errorf("ping SQLite migration connection: %w", err)
 	}
-	if err := store.Migrate(ctx, database); err != nil {
+	if err := store.Migrate(ctx, database, store.DialectSQLite); err != nil {
 		return 0, 0, fmt.Errorf("migrate metadata store: %w", err)
 	}
 	if err := database.QueryRowContext(
