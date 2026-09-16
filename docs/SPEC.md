@@ -1750,6 +1750,18 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
 - 不做：服务端下发/双向控制、跨实例广播（多副本属 T31）、超长历史回放、其它 8 个页面改造（只动总览与必要的 api/hook/types）。
 - 验收：主控黑盒（起栈→登录打开总览→经真实 `/mcp` 制造 allow 与 R002 deny→大屏 1–2 秒内出现事件且计数/环图变化、审计页一致；断开后端再恢复，状态黄→绿并补发；带 `-race` 后端测试全绿；gofmt/vet/353/双构建全绿；SQLite 行为零回归）。
 
+**前端实现约束（T27-2 只读评审结论 APPROVE_WITH_CHANGES，全部必须遵守）**：
+- 连接所有与生命周期：总览页是 SSE 唯一连接所有者；hook 用 `startedRef + generationRef + disposed` 守卫，React.StrictMode 双 effect（启动→清理→再启动）下清理须复位 started、递增 generation、清退避定时器、`abort()` 并 `reader.cancel()`；所有异步分支在 setState/安排重连前校验 generation/disposed；`onAudit/onHello` 回调存入 ref、不进连接 effect 依赖（避免每次渲染重建连接）；离开总览彻底清理，返回时由新实例重建连接。
+- 分帧：`TextDecoder({stream:true})` 增量解码，按行并以空行分帧，兼容 CRLF、`data:` 后有无单个空格、多行 data（按 `\n` 拼接）、跨 chunk 半事件与多字节；`: ping` 是 SSE 注释，不做业务分发、仅刷新 lastActivity；audit 帧 `JSON.parse` 后做最小运行时校验（id 为安全整数、ts/decision 为字符串、frame `id` 与 body `id` 一致），坏帧/坏 JSON 跳过且**不断流**。
+- 鉴权与重连：每次连接前从 `useAuthStore.getState().token` 取最新 token；401 立即停止重连、`clear()` 并跳 `/login`（只处理一次）；退避 `min(30s, 1s·2^attempt)`（1/2/4/8/16/30s）再乘 0.8–1.2 抖动；503/5xx/网络错误/意外 EOF 计一次失败并退避，连续 6 次未稳定连接→`polling-fallback`；200 无 body、Content-Type 非 `text/event-stream`、404 等协议不匹配**立即 fallback 不重试**；连接稳定满一个心跳周期（约 30s）才清零失败计数；fallback 下页面重新可见或手动刷新允许单次 SSE 探测，成功回 live。
+- 去重与回放：挂载期维护 `seenStreamIds`，以 SSE `id:`（并核对 body id）去重；**新连接回放的最近 200 条历史只进事件列表，绝不累加 KPI/环图/趋势**（以本次连接建立时刻为乐观增量门槛，更早事件不做聚合增量）；当前协议无"回放结束"标记，聚合为 best-effort，偏差由 30s summary 校准兜底；未来若需严格区分回放/实时，再增 `replay_end` 事件或 summary 水位（列入后续，不在本单）。
+- 合并：EventStream 不得用轮询结果整体 `setEvents` 覆盖实时行；实时摘要行与 `listAudit` 完整行按数值 id merge（保留已补全的 `sql_raw` 等字段），按 ts、id 降序稳定排序并截断 100；轮询 `page_size` 提至 100；仅真正新到的实时 deny 进高亮集合且只高亮一次，历史/回放/补全不闪（framer-motion 对非新增项 `initial={false}`）；实时行无 `sql_raw` 时 SQL 列显示 `objects`→`stmt_type`→"—"，Tooltip 仅在轮询补全原文后显示。
+- 乐观增量范围：仅对当前 summary 的"今天"趋势行、`kpi.total_requests`、deny→`kpi.blocked`、approve→`kpi.pending_approvals`、`decision_distribution` 做增量；切换 7/14/30 天递增代次，旧代次的事件/请求不得写入新窗口；**不**乐观修改环比、活跃 Agent、数据源数、排行、规则 Top5、战报（单条摘要无法可靠推导）。校准：每次拉 summary 前记事件序号 cut，服务端结果整体覆盖后仅重放 cut 之后的增量，避免请求窗内丢事件，瞬时双计数由下一次校准消除。
+- 降级轮询：fallback 时必须真正开启轮询，`pollEnabled = autoRefresh || status==='polling-fallback'`，避免关闭自动刷新后显示"轮询"却不更新。
+- 未知 decision：事件照常显示，但不塞入趋势四桶、不伪装成 allow/warn/approve/deny，分布环以服务端校准为准。
+- 类型与组织：`api/types.ts` 新增独立 `AuditStreamEvent`（必填 `id:number/ts:string/decision:string`，其余可空，**不得含** sql_raw/sql_norm/error_msg/client_ip/session_id/conversation_id）、`StreamHello`、`StreamStatus`；不使用 Context，由 Overview 持有 hook、经 props 向 EventStream 传有界 `liveEvents` 与 `streamStatus`；连接状态徽标置于总览 `pageExtra`（自动刷新开关与"立即刷新"按钮之间）。
+- 构建：前端改完在 `web/` 跑 `npm run build`（`tsc --noEmit && vite build`）生成新 dist，再重新 `go build` 经 go:embed 打包并重启后端，否则控制台仍是旧前端；不新增依赖、不改后端与其它页面。
+
 ### 8.2.2 T28 控制面 PostgreSQL 18（开源，v0.2 地基；开源与企业同等支持，**不得据此收费**）
 
 **总原则（裁决）**：
