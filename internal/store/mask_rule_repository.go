@@ -67,7 +67,7 @@ func (repository *MaskRuleRepository) ListByDatasource(
 SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
        created_at, updated_at
 FROM mask_rules
-WHERE datasource_id = ? OR datasource_id IS NULL
+WHERE datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = ''
 ORDER BY table_name ASC, column_name ASC, id ASC`, datasourceID)
 	if err != nil {
 		return nil, fmt.Errorf("list mask rules for datasource %q: %w", datasourceID, err)

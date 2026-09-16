@@ -85,14 +85,13 @@ func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
 	}
 }
 
-func TestPipelineDynamicApproveAuditsBeforeCreatingApproval(t *testing.T) {
+func TestPipelineDynamicApproveCreatesApprovalAndAuditAtomically(t *testing.T) {
 	fixture := newPipelineFixture(t, WithRuleLayers(engine.RuleLayers{
 		Agent: engine.RuleLayer{
 			"R004": {Thresholds: map[string]float64{rules.ThresholdMaxScanRows: 10}},
 		},
 	}))
 	fixture.executor.explain = model.ExplainInfo{EstScanRows: 11, SeqScan: true}
-	fixture.approvals.audit = fixture.audit
 	request := defaultRequest()
 	request.SessionID = "approve-session"
 	response, err := fixture.pipeline.Process(context.Background(), request)
@@ -102,7 +101,6 @@ func TestPipelineDynamicApproveAuditsBeforeCreatingApproval(t *testing.T) {
 	require.Positive(t, response.AuditID)
 	require.Equal(t, 1, fixture.approvals.calls())
 	require.Equal(t, response.AuditID, *fixture.approvals.last().AuditID)
-	require.True(t, fixture.approvals.auditWasPresent)
 	calls := fixture.executor.callsSnapshot()
 	require.Equal(t, 1, calls.openSession)
 	require.Equal(t, 1, calls.sessionExplain)
@@ -110,6 +108,56 @@ func TestPipelineDynamicApproveAuditsBeforeCreatingApproval(t *testing.T) {
 	require.Zero(t, calls.query+calls.execute+calls.sessionQuery+calls.sessionExecute)
 	require.Equal(t, 1, calls.sessionClose)
 	require.Equal(t, "approve", fixture.audit.last().Decision)
+}
+
+func TestPipelineApprovalWorkflowFailuresCloseAsError(t *testing.T) {
+	tests := []struct {
+		name          string
+		workflowError error
+		emptyApproval bool
+		emptyAudit    bool
+	}{
+		{name: "create failure", workflowError: errors.New("create pending failed")},
+		{name: "empty approval ID", emptyApproval: true},
+		{name: "audit insert failure", workflowError: errors.New("insert audit failed")},
+		{name: "audit backfill failure", workflowError: errors.New("backfill audit failed")},
+		{name: "commit failure", workflowError: errors.New("commit failed")},
+		{name: "empty audit ID", emptyAudit: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observer := &recordingDecisionObserver{}
+			fixture := newPipelineFixture(t, WithObserver(observer), WithRuleLayers(engine.RuleLayers{
+				Agent: engine.RuleLayer{
+					"R004": {Thresholds: map[string]float64{rules.ThresholdMaxScanRows: 10}},
+				},
+			}))
+			fixture.executor.explain = model.ExplainInfo{EstScanRows: 11, SeqScan: true}
+			fixture.approvals.workflowErr = test.workflowError
+			fixture.approvals.emptyApprovalID = test.emptyApproval
+			fixture.approvals.emptyAuditID = test.emptyAudit
+			limiter := &spyRateLimiter{}
+			fixture.pipeline.limiter = limiter
+
+			response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+
+			require.Error(t, err)
+			require.Equal(t, model.DecisionDeny, response.Decision)
+			require.Empty(t, response.ApprovalID)
+			require.Positive(t, response.AuditID)
+			require.Zero(t, fixture.approvals.calls())
+			require.Equal(t, 1, fixture.audit.calls())
+			require.Equal(t, "error", fixture.audit.last().Decision)
+			allowed, released, inFlight := limiter.snapshot()
+			require.Equal(t, 1, allowed)
+			require.Equal(t, 1, released)
+			require.Zero(t, inFlight)
+			decisions, _, stages := observer.snapshot()
+			require.Len(t, decisions, 1)
+			require.Equal(t, string(model.DecisionDeny), decisions[0].decision)
+			require.GreaterOrEqual(t, stages[StageAudit], int64(0))
+		})
+	}
 }
 
 func TestPipelineAllowSelectQueriesRedactsAndAudits(t *testing.T) {
@@ -226,6 +274,97 @@ func TestPipelineColumnPolicyDenyDoesNotTouchDatabase(t *testing.T) {
 	require.Contains(t, response.Assessment.Reason, "public.customers.phone")
 	require.Zero(t, fixture.executors.calls())
 	require.Equal(t, "deny", fixture.audit.last().Decision)
+}
+
+func TestPipelineProjectionColumnAuthorization(t *testing.T) {
+	t.Run("predicate-only N106 column is allowed", func(t *testing.T) {
+		fixture := newPipelineFixture(t, WithRuleLayers(engine.RuleLayers{
+			Agent: engine.RuleLayer{
+				"R008": {Thresholds: map[string]float64{
+					rules.ThresholdQPS:           10_000,
+					rules.ThresholdMaxConcurrent: 100,
+				}},
+			},
+		}))
+		columns := "id,name,amount"
+		fixture.policies.policies = append(fixture.policies.policies, model.Policy{
+			ID: "orders-columns", AgentID: "agent-1", DatasourceID: "datasource-1",
+			ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "allow",
+		})
+		response, err := fixture.pipeline.Process(
+			context.Background(),
+			requestWithSQL("SELECT id,name,amount FROM public.orders WHERE user_id=1 LIMIT 10"),
+		)
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionAllow, response.Decision)
+		for _, hit := range response.Assessment.Hits {
+			require.NotEqual(t, "POLICY_COLUMN", hit.RuleID)
+		}
+		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+	})
+
+	t.Run("unauthorized projection is denied before query", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		fixture.policies.policies = append(fixture.policies.policies,
+			model.Policy{ID: "employees-table", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "table", ObjectName: "public.employees", Action: "allow"},
+			model.Policy{ID: "employees-columns", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "column", ObjectName: "public.employees", Columns: stringPointer("id"), Action: "allow"},
+		)
+		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT salary FROM public.employees"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Contains(t, response.Assessment.Reason, "salary")
+		require.Zero(t, fixture.executor.callsSnapshot().query)
+	})
+
+	t.Run("star projection is denied by exact column ACL", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		columns := "id"
+		fixture.policies.policies = append(fixture.policies.policies, model.Policy{
+			ID: "orders-columns", AgentID: "agent-1", DatasourceID: "datasource-1",
+			ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "allow",
+		})
+		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT public.orders.* FROM public.orders"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Contains(t, response.Assessment.Reason, "SELECT *")
+		require.Zero(t, fixture.executors.calls())
+	})
+
+	t.Run("star projection is allowed with table-only grant", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT * FROM public.orders LIMIT 1"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionAllow, response.Decision)
+		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+	})
+
+	t.Run("wildcard table grant keeps broad column semantics", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		columns := "id"
+		fixture.policies.policies = append(fixture.policies.policies,
+			model.Policy{ID: "schema-grant", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "schema", ObjectName: "public.*", Action: "allow"},
+			model.Policy{ID: "orders-columns", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "allow"},
+		)
+		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT * FROM public.orders LIMIT 1"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionAllow, response.Decision)
+		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+	})
+
+	t.Run("join keeps v0.1 table-only behavior", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		ordersColumns, customerColumns := "id", "id"
+		fixture.policies.policies = append(fixture.policies.policies,
+			model.Policy{ID: "orders-columns", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "column", ObjectName: "public.orders", Columns: &ordersColumns, Action: "allow"},
+			model.Policy{ID: "customer-columns", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "column", ObjectName: "public.customers", Columns: &customerColumns, Action: "allow"},
+		)
+		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(
+			"SELECT o.total,c.phone FROM public.orders o JOIN public.customers c ON c.id=o.customer_id LIMIT 1",
+		))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionAllow, response.Decision)
+		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+	})
 }
 
 func TestPipelineWarnExecutesAndAuditsWarn(t *testing.T) {
@@ -584,6 +723,7 @@ func newPipelineFixture(t *testing.T, options ...Option) *pipelineFixture {
 		ruleOverrides: nil,
 		executor:      spy,
 	}
+	fixture.approvals.audit = fixture.audit
 	constructed, err := New(fixture.ports(), testPipelineSecret, options...)
 	require.NoError(t, err)
 	fixture.pipeline = constructed
@@ -708,8 +848,43 @@ type fakeApprovalWriter struct {
 	mu              sync.Mutex
 	created         []model.Approval
 	err             error
+	workflowErr     error
+	emptyApprovalID bool
+	emptyAuditID    bool
 	audit           *fakeAuditRecorder
-	auditWasPresent bool
+}
+
+func (fake *fakeApprovalWriter) CreatePendingWithAudit(
+	ctx context.Context,
+	approval model.Approval,
+	log model.AuditLog,
+) (model.Approval, model.AuditLog, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.workflowErr != nil {
+		return model.Approval{}, model.AuditLog{}, fake.workflowErr
+	}
+	if fake.emptyApprovalID || fake.emptyAuditID {
+		if fake.emptyApprovalID {
+			approval.ID = ""
+		}
+		if fake.emptyAuditID {
+			log.ID = 0
+		} else {
+			log.ID = 1
+		}
+		return approval, log, nil
+	}
+	if fake.audit == nil {
+		return model.Approval{}, model.AuditLog{}, errors.New("audit recorder is unavailable")
+	}
+	recorded, err := fake.audit.Record(ctx, log)
+	if err != nil {
+		return model.Approval{}, model.AuditLog{}, err
+	}
+	approval.AuditID = int64Pointer(recorded.ID)
+	fake.created = append(fake.created, approval)
+	return approval, recorded, nil
 }
 
 func (fake *fakeApprovalWriter) Create(
@@ -718,9 +893,6 @@ func (fake *fakeApprovalWriter) Create(
 ) (model.Approval, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	if fake.audit != nil {
-		fake.auditWasPresent = fake.audit.calls() > 0
-	}
 	if fake.err != nil {
 		return model.Approval{}, fake.err
 	}

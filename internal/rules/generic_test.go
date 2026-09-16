@@ -9,6 +9,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -239,10 +240,17 @@ func TestR010UnauthorizedTables(t *testing.T) {
 			ast.Columns = []string{"id", "name", "predicate_only"}
 			ast.Operations = []string{OperationSelectColumn + ":id", OperationSelectColumn + ":name"}
 		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"orders"}, ColumnACL: map[string][]string{"orders": {"id", "name"}}}}, want: model.DecisionAllow},
-		{name: "select star does not hard block", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
+		{name: "select star is denied by exact column ACL", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
 			ast.Columns = []string{"*", "id"}
 			ast.Operations = []string{OperationSelectColumn + ":*"}
-		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"public.orders"}, ColumnACL: map[string][]string{"public.orders": {"id"}}}}, want: model.DecisionAllow},
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"public.orders"}, ColumnACL: map[string][]string{"public.orders": {"id"}}}}, want: model.DecisionDeny},
+		{name: "qualified star is denied by exact column ACL", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
+			ast.Operations = []string{OperationSelectColumn + ":orders.*"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"public.orders"}, ColumnACL: map[string][]string{"public.orders": {"id"}}}}, want: model.DecisionDeny},
+		{name: "missing projection signal does not fall back to predicate columns", ast: mutateAST(astWithTable("", "orders"), func(ast *model.AST) {
+			ast.Columns = []string{"predicate_only"}
+			ast.Operations = nil
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"orders"}, ColumnACL: map[string][]string{"orders": {"id"}}}}, want: model.DecisionAllow},
 		{name: "schema wildcard is a broad column grant", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
 			ast.Columns = []string{"secret"}
 			ast.Operations = []string{OperationSelectColumn + ":secret"}
@@ -251,8 +259,54 @@ func TestR010UnauthorizedTables(t *testing.T) {
 			ast.Columns = []string{"secret"}
 			ast.Operations = []string{OperationSelectColumn + ":secret"}
 		}), context: engine.EvalContext{Policy: &model.PolicyDecision{AllowedTables: []string{"orders"}, ColumnACL: map[string][]string{}}}, want: model.DecisionAllow},
+		{name: "join keeps v0.1 table-only authorization", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
+			ast.Tables = append(ast.Tables, model.ObjectRef{Schema: "public", Table: "customers"})
+			ast.Operations = []string{OperationSelectColumn + ":secret"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{
+			AllowedTables: []string{"public.orders", "public.customers"},
+			ColumnACL:     map[string][]string{"public.orders": {"id"}, "public.customers": {"id"}},
+		}}, want: model.DecisionAllow},
+		{name: "self join keeps v0.1 table-only authorization", ast: mutateAST(astWithTable("public", "orders"), func(ast *model.AST) {
+			ast.Tables[0].Alias = "left_orders"
+			ast.Tables = append(ast.Tables, model.ObjectRef{Schema: "public", Table: "orders", Alias: "right_orders"})
+			ast.Operations = []string{OperationSelectColumn + ":secret"}
+		}), context: engine.EvalContext{Policy: &model.PolicyDecision{
+			AllowedTables: []string{"public.orders"},
+			ColumnACL:     map[string][]string{"public.orders": {"id"}},
+		}}, want: model.DecisionAllow},
 	}
 	runRuleCases(t, rule, cases)
+}
+
+func TestR010ParserProjectionSignalsKeepSafeCTEStar(t *testing.T) {
+	rule := genericRuleByID(t, "R010", nil)
+	for _, dialect := range []model.DBDialect{"postgres", "mysql"} {
+		t.Run(string(dialect), func(t *testing.T) {
+			approved, err := parser.NewParser(dialect)
+			require.NoError(t, err)
+			policy := &model.PolicyDecision{
+				AllowedTables: []string{"orders", "public.orders"},
+				ColumnACL:     map[string][]string{"orders": {"id", "name", "amount"}},
+			}
+			for _, test := range []struct {
+				name string
+				sql  string
+				want model.Decision
+			}{
+				{name: "explicit CTE projection expanded by outer star", sql: "WITH o AS (SELECT id FROM orders WHERE id=1) SELECT * FROM o LIMIT 1", want: model.DecisionAllow},
+				{name: "CTE inner star remains blocked", sql: "WITH o AS (SELECT * FROM orders WHERE id=1) SELECT * FROM o LIMIT 1", want: model.DecisionDeny},
+				{name: "aggregate star is not row expansion", sql: "SELECT count(*) FROM orders", want: model.DecisionAllow},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					ast, err := approved.Parse(test.sql)
+					require.NoError(t, err)
+					result, err := rule.Eval(engine.EvalContext{AST: ast, Policy: policy})
+					require.NoError(t, err)
+					require.Equal(t, test.want, result.Decision, ast.Operations)
+				})
+			}
+		})
+	}
 }
 
 func TestGenericRulesFailClosed(t *testing.T) {

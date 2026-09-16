@@ -173,14 +173,6 @@ func TestNewRedactorValidation(t *testing.T) {
 		err   error
 	}{
 		{
-			name: "duplicate normalized column",
-			rules: []Rule{
-				{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
-				{Column: `"PHONE"`, SensitiveType: TypePhone, Algorithm: AlgoMask},
-			},
-			err: ErrDuplicateMaskColumn,
-		},
-		{
 			name:  "idcard is unsupported",
 			rules: []Rule{{Column: "id", SensitiveType: TypeIDCard, Algorithm: AlgoMask}},
 			err:   ErrUnsupportedType,
@@ -222,6 +214,29 @@ func TestNewRedactorValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewRedactorDeterministicallyMergesSameColumn(t *testing.T) {
+	for _, rules := range [][]Rule{
+		{
+			{Column: "contact", SensitiveType: TypeEmail, Algorithm: AlgoMask},
+			{Column: `"CONTACT"`, SensitiveType: TypePhone, Algorithm: AlgoMask},
+			{Column: " contact ", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		},
+		{
+			{Column: "contact", SensitiveType: TypePhone, Algorithm: AlgoMask},
+			{Column: "CONTACT", SensitiveType: TypeEmail, Algorithm: AlgoMask},
+		},
+	} {
+		redactor, err := NewRedactor(rules)
+		require.NoError(t, err)
+		result, report := redactor.Apply(model.QueryResult{
+			Columns: []string{"CONTACT"}, Rows: [][]string{{"13812345678"}},
+		})
+		require.Equal(t, "138****5678", result.Rows[0][0])
+		require.Equal(t, TypePhone, report.TouchedColumns[0])
+	}
+	require.Equal(t, "phone", NormalizeColumnName(` "PHONE" `))
 }
 
 func TestEmptyRulesReturnIndependentEquivalentCopy(t *testing.T) {

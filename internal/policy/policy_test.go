@@ -111,45 +111,6 @@ func TestValidateTablePatterns(t *testing.T) {
 	}
 }
 
-func TestAuthorizeColumns(t *testing.T) {
-	baseAST := &model.AST{
-		StmtType: model.StmtType("SELECT"),
-		Tables:   []model.ObjectRef{{Schema: "public", Table: "orders", Alias: "o"}},
-		Columns:  []string{"id", "total"},
-	}
-	tests := []struct {
-		name         string
-		ast          *model.AST
-		decision     *model.PolicyDecision
-		unauthorized []string
-	}{
-		{name: "allowed columns", ast: baseAST, decision: decisionWithColumns([]string{"public.orders"}, "public.orders", []string{"id", "total"})},
-		{name: "unauthorized column", ast: clonePolicyAST(baseAST, "id", "secret"), decision: decisionWithColumns([]string{"public.orders"}, "public.orders", []string{"id"}), unauthorized: []string{"public.orders.secret"}},
-		{name: "column wildcard", ast: clonePolicyAST(baseAST, "id", "secret"), decision: decisionWithColumns([]string{"public.orders"}, "public.orders", []string{"*"})},
-		{name: "global table wildcard", ast: clonePolicyAST(baseAST, "id", "secret"), decision: decisionWithColumns([]string{"*"}, "public.orders", []string{"id"})},
-		{name: "schema table wildcard", ast: clonePolicyAST(baseAST, "id", "secret"), decision: decisionWithColumns([]string{"public.*"}, "public.orders", []string{"id"})},
-		{name: "no column policy adds no restriction", ast: clonePolicyAST(baseAST, "id", "secret"), decision: &model.PolicyDecision{AllowedTables: []string{"public.orders"}, DeniedTables: []string{}, ColumnACL: map[string][]string{}}},
-		{name: "non select ignored", ast: &model.AST{StmtType: "UPDATE", Tables: baseAST.Tables, Columns: []string{"secret"}}, decision: decisionWithColumns([]string{"public.orders"}, "public.orders", []string{"id"})},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			unauthorized, err := AuthorizeColumns(test.ast, test.decision)
-			require.NoError(t, err)
-			require.NotNil(t, unauthorized)
-			expected := test.unauthorized
-			if expected == nil {
-				expected = []string{}
-			}
-			require.Equal(t, expected, unauthorized)
-		})
-	}
-
-	_, err := AuthorizeColumns(nil, &model.PolicyDecision{})
-	require.Error(t, err)
-	_, err = AuthorizeColumns(baseAST, nil)
-	require.Error(t, err)
-}
-
 func TestFilterColumnsForSchemaOnlyRemoves(t *testing.T) {
 	input := []SchemaColumn{
 		{Schema: "public", Table: "orders", Column: "id"},
@@ -199,25 +160,6 @@ func TestFilterColumnsForSchemaBroadGrant(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, input, filtered)
-}
-
-func decisionWithColumns(
-	allowedTables []string,
-	object string,
-	columns []string,
-) *model.PolicyDecision {
-	return &model.PolicyDecision{
-		AllowedTables: allowedTables,
-		DeniedTables:  []string{},
-		ColumnACL:     map[string][]string{object: columns},
-	}
-}
-
-func clonePolicyAST(source *model.AST, columns ...string) *model.AST {
-	cloned := *source
-	cloned.Tables = append([]model.ObjectRef{}, source.Tables...)
-	cloned.Columns = append([]string{}, columns...)
-	return &cloned
 }
 
 func stringPointer(value string) *string {

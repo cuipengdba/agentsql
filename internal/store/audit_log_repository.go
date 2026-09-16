@@ -30,9 +30,28 @@ type AuditLogRepository struct {
 	db *sql.DB
 }
 
+type auditLogExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 // Insert appends an audit log and returns the record with generated ID and timestamp.
 func (repository *AuditLogRepository) Insert(ctx context.Context, auditLog model.AuditLog) (model.AuditLog, error) {
-	result, err := repository.db.ExecContext(ctx, `
+	if repository == nil || repository.db == nil {
+		return model.AuditLog{}, fmt.Errorf("insert audit log: repository is not initialized")
+	}
+	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
+		return model.AuditLog{}, err
+	}
+	return insertAuditLog(ctx, repository.db, auditLog)
+}
+
+func insertAuditLog(
+	ctx context.Context,
+	executor auditLogExecutor,
+	auditLog model.AuditLog,
+) (model.AuditLog, error) {
+	result, err := executor.ExecContext(ctx, `
 INSERT INTO audit_logs (
   agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
@@ -66,11 +85,26 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("read inserted audit log ID: %w", err)
 	}
-	inserted, err := repository.getInserted(ctx, id)
+	if id <= 0 {
+		return model.AuditLog{}, fmt.Errorf("read inserted audit log ID: invalid ID %d", id)
+	}
+	inserted, err := getInsertedAuditLog(ctx, executor, id)
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("read inserted audit log %d: %w", id, err)
 	}
 	return inserted, nil
+}
+
+func validateAuditLogInsert(ctx context.Context, auditLog model.AuditLog) error {
+	if ctx == nil {
+		return fmt.Errorf("insert audit log: %w", ErrNilContext)
+	}
+	switch auditLog.Decision {
+	case "allow", "deny", "approve", "warn", "error":
+		return nil
+	default:
+		return fmt.Errorf("insert audit log: invalid decision %q", auditLog.Decision)
+	}
 }
 
 // Page returns audit logs ordered newest first.
@@ -217,7 +251,11 @@ func auditLikeArgument(value string) string {
 }
 
 func (repository *AuditLogRepository) getInserted(ctx context.Context, id int64) (model.AuditLog, error) {
-	auditLog, err := scanAuditLog(repository.db.QueryRowContext(ctx, `
+	return getInsertedAuditLog(ctx, repository.db, id)
+}
+
+func getInsertedAuditLog(ctx context.Context, executor auditLogExecutor, id int64) (model.AuditLog, error) {
+	auditLog, err := scanAuditLog(executor.QueryRowContext(ctx, `
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,

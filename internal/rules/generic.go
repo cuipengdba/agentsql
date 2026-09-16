@@ -536,6 +536,8 @@ func (r010Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 		}
 	}
 	if isStatement(ast, "SELECT") && len(ast.Tables) == 1 {
+		// v0.1 intentionally treats wildcard table grants as granting every
+		// column of matching tables. Narrowing wildcard grants needs metadata.
 		if policyresolver.HasBroadTableGrant(context.Policy.AllowedTables, ast.Tables[0]) {
 			return allowResult(), nil
 		}
@@ -549,19 +551,25 @@ func (r010Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 			if err != nil {
 				return engine.RuleResult{}, fmt.Errorf("R010: %w", err)
 			}
-			if !containsExactIdentifier(projectedColumns, "*") {
-				for _, column := range projectedColumns {
-					if containsExactIdentifier(allowedColumns, column) {
-						continue
-					}
+			for _, column := range projectedColumns {
+				if column == "*" || strings.HasSuffix(column, ".*") {
 					return denyResult(
-						fmt.Sprintf("列 %s.%s 不在 Agent 的列级白名单内", object, column),
-						"请仅查询策略允许的列，或联系管理员补充列级授权",
+						fmt.Sprintf("表 %s 已启用列级白名单，不允许 SELECT *", object),
+						"请显式列出已授权投影列，或联系管理员调整列级授权",
 					), nil
 				}
+				if containsExactIdentifier(allowedColumns, column) {
+					continue
+				}
+				return denyResult(
+					fmt.Sprintf("列 %s.%s 不在 Agent 的列级白名单内", object, column),
+					"请仅查询策略允许的列，或联系管理员补充列级授权",
+				), nil
 			}
 		}
 	}
+	// v0.1 known limitation: JOINs and self-joins have no reliable projection
+	// ownership, so column ACLs are not applied once table authorization passes.
 	return allowResult(), nil
 }
 
@@ -583,10 +591,7 @@ func r010ProjectedColumns(ast *model.AST) ([]string, error) {
 		seen[column] = struct{}{}
 		columns = append(columns, column)
 	}
-	if len(columns) > 0 {
-		return columns, nil
-	}
-	return append([]string{}, ast.Columns...), nil
+	return columns, nil
 }
 
 func containsExactIdentifier(values []string, target string) bool {

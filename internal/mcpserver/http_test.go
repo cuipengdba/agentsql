@@ -263,13 +263,13 @@ func TestAgentServerRegistryCacheKeyAndCapacity(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	registry := newAgentServerRegistry(fixture.runtime, zerolog.Nop(), 10)
 	agent := fixture.agent
-	agent.UpdatedAt = time.Time{}
+	agent.UpdatedAt = time.Date(2026, time.September, 16, 8, 0, 0, 0, time.UTC)
 	first, err := registry.getOrCreate(agent, fixture.handlers.apiKey)
 	require.NoError(t, err)
 	reused, err := registry.getOrCreate(agent, fixture.handlers.apiKey)
 	require.NoError(t, err)
 	require.True(t, first == reused)
-	agent.UpdatedAt = time.Now().UTC()
+	agent.APIKeyHash = "rotated-hash"
 	rebuilt, err := registry.getOrCreate(agent, fixture.handlers.apiKey)
 	require.NoError(t, err)
 	require.False(t, first == rebuilt)
@@ -279,12 +279,58 @@ func TestAgentServerRegistryCacheKeyAndCapacity(t *testing.T) {
 	for index := 0; index <= agentServerRegistryLimit; index++ {
 		candidate := fixture.agent
 		candidate.ID = fmt.Sprintf("agent-%03d", index)
-		candidate.UpdatedAt = time.Time{}
+		candidate.UpdatedAt = agent.UpdatedAt
 		_, err := registry.getOrCreate(candidate, fixture.handlers.apiKey)
 		require.NoError(t, err)
 	}
 	require.Equal(t, 1, registry.serverCount())
 	require.Equal(t, agentServerRegistryLimit+1, registry.buildCount())
+}
+
+func TestHTTPAgentKeyRotationRebuildsServerWithoutResettingLimiter(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	oldPlaintext := fixture.handlers.apiKey
+	newPlaintext, newHash, err := store.GenerateAPIKey()
+	require.NoError(t, err)
+	fixedUpdatedAt := time.Date(2026, time.September, 16, 8, 0, 0, 0, time.UTC)
+	oldSnapshot := fixture.agent
+	oldSnapshot.UpdatedAt = fixedUpdatedAt
+	newSnapshot := oldSnapshot
+	newSnapshot.APIKeyHash = newHash
+	otherSnapshot := newSnapshot
+	otherSnapshot.ID = "agent-other"
+	require.NotEqual(t, agentServerKey(oldSnapshot), agentServerKey(newSnapshot))
+	require.NotEqual(t, agentServerKey(newSnapshot), agentServerKey(otherSnapshot))
+
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs)
+	handler, registry, err := newHTTPHandlerWithRegistry(fixture.runtime, httpTestConfig(100), logger)
+	require.NoError(t, err)
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, authorizedRequest(http.MethodPost, listSourcesRequest, oldPlaintext))
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+	require.Equal(t, 1, registry.buildCount())
+
+	stored, err := fixture.runtime.Store.Agents().Get(context.Background(), fixture.agent.ID)
+	require.NoError(t, err)
+	stored.APIKeyHash = newHash
+	_, err = fixture.runtime.Store.Agents().Update(context.Background(), stored)
+	require.NoError(t, err)
+
+	oldRequest := httptest.NewRecorder()
+	handler.ServeHTTP(oldRequest, authorizedRequest(http.MethodPost, listSourcesRequest, oldPlaintext))
+	require.Equal(t, http.StatusUnauthorized, oldRequest.Code)
+	newRequest := httptest.NewRecorder()
+	handler.ServeHTTP(newRequest, authorizedRequest(http.MethodPost, listSourcesRequest, newPlaintext))
+	require.Equal(t, http.StatusOK, newRequest.Code, newRequest.Body.String())
+	require.Equal(t, 2, registry.buildCount())
+	require.Equal(t, 2, registry.serverCount())
+	require.NotContains(t, logs.String(), oldPlaintext)
+	require.NotContains(t, logs.String(), newPlaintext)
+
+	limiterRegistry := newAgentServerRegistry(fixture.runtime, zerolog.Nop(), 1)
+	require.True(t, limiterRegistry.allow(oldSnapshot))
+	require.False(t, limiterRegistry.allow(newSnapshot), "API key rotation must not create a fresh per-Agent bucket")
 }
 
 func TestRecoverMiddlewareReturnsSafe500(t *testing.T) {

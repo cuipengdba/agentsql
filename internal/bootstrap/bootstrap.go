@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
@@ -168,10 +170,53 @@ func (builder *redactorBuilder) RedactorFor(
 	if err != nil {
 		return nil, fmt.Errorf("load mask rules for datasource %q: %w", datasourceID, err)
 	}
-	rules := make([]mask.Rule, 0, len(storedRules))
+	allRules := make([]mask.Rule, 0, len(storedRules))
 	for _, stored := range storedRules {
-		rules = append(rules, mask.Rule{
+		allRules = append(allRules, mask.Rule{
 			Column:        stored.ColumnName,
+			SensitiveType: mask.SensitiveType(stored.SensitiveType),
+			Algorithm:     mask.Algorithm(stored.Algo),
+		})
+	}
+	// Validate every raw rule before precedence can hide it. This preserves the
+	// fail-closed contract for malformed persisted configuration.
+	if _, err := mask.NewRedactor(allRules); err != nil {
+		return nil, fmt.Errorf("compile mask rules for datasource %q: %w", datasourceID, err)
+	}
+	sort.SliceStable(storedRules, func(left, right int) bool {
+		leftColumn := mask.NormalizeColumnName(storedRules[left].ColumnName)
+		rightColumn := mask.NormalizeColumnName(storedRules[right].ColumnName)
+		if leftColumn != rightColumn {
+			return leftColumn < rightColumn
+		}
+		leftBound := maskRuleBoundToDatasource(storedRules[left], datasourceID)
+		rightBound := maskRuleBoundToDatasource(storedRules[right], datasourceID)
+		if leftBound != rightBound {
+			return leftBound
+		}
+		leftPhone := storedRules[left].SensitiveType == string(mask.TypePhone)
+		rightPhone := storedRules[right].SensitiveType == string(mask.TypePhone)
+		if leftPhone != rightPhone {
+			return leftPhone
+		}
+		if storedRules[left].SensitiveType != storedRules[right].SensitiveType {
+			return storedRules[left].SensitiveType < storedRules[right].SensitiveType
+		}
+		if storedRules[left].Algo != storedRules[right].Algo {
+			return storedRules[left].Algo < storedRules[right].Algo
+		}
+		return storedRules[left].ID < storedRules[right].ID
+	})
+	rules := make([]mask.Rule, 0, len(storedRules))
+	seenColumns := make(map[string]struct{}, len(storedRules))
+	for _, stored := range storedRules {
+		column := mask.NormalizeColumnName(stored.ColumnName)
+		if _, exists := seenColumns[column]; exists {
+			continue
+		}
+		seenColumns[column] = struct{}{}
+		rules = append(rules, mask.Rule{
+			Column:        column,
 			SensitiveType: mask.SensitiveType(stored.SensitiveType),
 			Algorithm:     mask.Algorithm(stored.Algo),
 		})
@@ -181,6 +226,11 @@ func (builder *redactorBuilder) RedactorFor(
 		return nil, fmt.Errorf("compile mask rules for datasource %q: %w", datasourceID, err)
 	}
 	return redactor, nil
+}
+
+func maskRuleBoundToDatasource(rule model.MaskRule, datasourceID string) bool {
+	return rule.DatasourceID != nil && strings.TrimSpace(*rule.DatasourceID) != "" &&
+		*rule.DatasourceID == datasourceID
 }
 
 func isNilBootstrapDependency(value any) bool {

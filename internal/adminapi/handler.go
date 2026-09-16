@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -659,11 +660,57 @@ func (handler *Handler) rulesDelete(writer http.ResponseWriter, request *http.Re
 }
 
 func validateMaskInput(input maskRuleInput) error {
-	if input.ID == "" || input.TableName == "" || input.ColumnName == "" {
+	if input.ID == "" || input.ColumnName == "" {
 		return fmt.Errorf("mask rule identity fields are required")
 	}
 	_, err := mask.NewRedactor([]mask.Rule{{Column: input.ColumnName, SensitiveType: mask.SensitiveType(input.SensitiveType), Algorithm: mask.Algorithm(input.Algo)}})
 	return err
+}
+
+func normalizeMaskInput(input maskRuleInput) maskRuleInput {
+	input.ColumnName = mask.NormalizeColumnName(input.ColumnName)
+	if input.DatasourceID != nil {
+		trimmed := strings.TrimSpace(*input.DatasourceID)
+		if trimmed == "" {
+			input.DatasourceID = nil
+		} else {
+			input.DatasourceID = stringPointer(trimmed)
+		}
+	}
+	return input
+}
+
+func (handler *Handler) maskRuleConflict(
+	ctx context.Context,
+	datasourceID *string,
+	columnName string,
+	excludeID string,
+) (bool, error) {
+	rules, err := handler.deps.Runtime.Store.MaskRules().List(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, rule := range rules {
+		if rule.ID == excludeID || !sameMaskScope(rule.DatasourceID, datasourceID) {
+			continue
+		}
+		if mask.NormalizeColumnName(rule.ColumnName) == columnName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func sameMaskScope(left, right *string) bool {
+	leftScope := ""
+	if left != nil {
+		leftScope = strings.TrimSpace(*left)
+	}
+	rightScope := ""
+	if right != nil {
+		rightScope = strings.TrimSpace(*right)
+	}
+	return leftScope == rightScope
 }
 func (handler *Handler) maskRulesList(writer http.ResponseWriter, request *http.Request) {
 	var listed []model.MaskRule
@@ -693,8 +740,18 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 		handler.fail(writer, 400, "invalid request body")
 		return
 	}
+	input = normalizeMaskInput(input)
 	if err := validateMaskInput(input); err != nil {
 		handler.fail(writer, 422, "invalid mask rule")
+		return
+	}
+	conflict, err := handler.maskRuleConflict(request.Context(), input.DatasourceID, input.ColumnName, "")
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	if conflict {
+		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
 		return
 	}
 	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo})
@@ -711,8 +768,22 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 		return
 	}
 	input.ID = request.PathValue("id")
+	input = normalizeMaskInput(input)
 	if err := validateMaskInput(input); err != nil {
 		handler.fail(writer, 422, "invalid mask rule")
+		return
+	}
+	if _, err := handler.deps.Runtime.Store.MaskRules().Get(request.Context(), input.ID); err != nil {
+		handler.notFound(writer)
+		return
+	}
+	conflict, err := handler.maskRuleConflict(request.Context(), input.DatasourceID, input.ColumnName, input.ID)
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	if conflict {
+		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
 		return
 	}
 	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo})
@@ -860,15 +931,6 @@ func (handler *Handler) approvalsList(writer http.ResponseWriter, request *http.
 }
 func (handler *Handler) approvalsDecide(writer http.ResponseWriter, request *http.Request) {
 	id := request.PathValue("id")
-	approval, err := handler.deps.Runtime.Store.Approvals().Get(request.Context(), id)
-	if err != nil {
-		handler.notFound(writer)
-		return
-	}
-	if approval.Status != "pending" {
-		handler.fail(writer, 409, "approval is no longer pending")
-		return
-	}
 	var input decideInput
 	if err := decodeJSON(writer, request, &input); err != nil {
 		handler.fail(writer, 400, "invalid request body")
@@ -882,15 +944,23 @@ func (handler *Handler) approvalsDecide(writer http.ResponseWriter, request *htt
 	if input.Decision == "reject" {
 		status = "rejected"
 	}
-	approval.Status = status
-	approval.Approver = stringPointer(handler.adminUser)
 	now := time.Now().UTC()
-	approval.DecidedAt = &now
+	var reason *string
 	if strings.TrimSpace(input.Comment) != "" {
-		approval.Reason = stringPointer(input.Comment)
+		reason = stringPointer(input.Comment)
 	}
-	updated, err := handler.deps.Runtime.Store.Approvals().Update(request.Context(), approval)
+	updated, err := handler.deps.Runtime.Store.Approvals().DecidePending(
+		request.Context(), id, status, handler.adminUser, reason, now,
+	)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			handler.notFound(writer)
+			return
+		}
+		if errors.Is(err, store.ErrApprovalNotPending) {
+			handler.fail(writer, 409, "approval is no longer pending")
+			return
+		}
 		handler.internal(writer, err)
 		return
 	}

@@ -82,6 +82,16 @@ type ApprovalWriter interface {
 	Create(ctx context.Context, approval model.Approval) (model.Approval, error)
 }
 
+// ApprovalWorkflow atomically persists a pending approval and its approve
+// audit event. Implementations must not leave either record behind on error.
+type ApprovalWorkflow interface {
+	CreatePendingWithAudit(
+		ctx context.Context,
+		approval model.Approval,
+		log model.AuditLog,
+	) (model.Approval, model.AuditLog, error)
+}
+
 type AuditRecorder interface {
 	Record(ctx context.Context, log model.AuditLog) (model.AuditLog, error)
 }
