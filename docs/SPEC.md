@@ -1475,6 +1475,90 @@ TS6133 零容忍（无未用 import/变量）；请求体严格对齐 DTO、无�
 ### 25.1.9 本单不做
 审批通过后自动重放 SQL、多级/会签审批流、审批通知催办；身份证/银行卡与 hash/range/block 脱敏；脱敏正则/阈值自定义；任何 Go 后端改动；在线 Live Demo（第 8 章 T26）。
 
+## T25.2 v0.1-RC1 静态评审问题修复（Codex 整体验证 VERIFY_REPORT 收口；分 A/B 两单串行）
+
+### 25.2.1 背景、裁决与交付方式
+t25.1 全量快照经 Codex 只读交叉评审产出 `VERIFY_REPORT.md`（无 P0，8 项 P1、5 项 P2）。主控已逐条对照源码裁决（非照单全收）。本单 **T25.2** 为 v0.1 发布候选（RC1）收口，**分 A、B 两组串行交付**：A 组为安全核心（纯 Go + 测试），先做、先验收合入；B 组为管理/展示/文档（Go 小改 + 前端 + 示例），在 A 合入后的代码上做。两组均沿用既定流程：Codex 只写文件 + 文本级静态自审（单位无 Go/Node/网络，必须注明"未本地构建/运行，需主控端验证"），主控本机编译、`go test -race`、252 语料回归、浏览器黑盒后合入。除本单明确改动外，不得改动任何冻结契约、规则判定、252 语料与前端依赖。
+
+裁决总表：
+
+| 报告编号 | 裁决 | 归属 | 一句话 |
+|---|---|---|---|
+| P1-01 会话跨请求复用 | **降级 v0.2**（v0.1 生产路径不可达：MCP/演示台均不暴露 SessionID/事务参数） | 仅文档澄清（B 组 README） | v0.1 不支持跨请求事务，SessionID 为内部预留 |
+| P1-02 同秒轮换 Key 缓存 | 必修 | A5 | bound server 缓存键加入 API Key 哈希 |
+| P1-03 列授权双口径 | 必修 | A1 | 列授权统一为 R010 投影列口径，删除旧 AuthorizeColumns |
+| P1-04 脱敏丢表维度/同列挡死 | 必修（口径已定：v0.1 按列名） | A2 后端 + B7 前端 | 运行时按列名归并、不再 fail-closed；表维度 v0.2 |
+| P1-05 审批并发非原子 | 必修 | A3 | 审批决定改原子 CAS，竞争方返回 409 |
+| P1-06 过期时间无法清空 | 必修 | B1 | DTO 三态（缺失/显式 null/有值） |
+| P1-07 大屏日界错位 | 必修 | B2 | 统一按 UTC 自然日 00:00 切窗 |
+| P1-08 审批审计/建单非原子 | 必修 | A4 | 建单失败时审计/响应/指标口径一致 |
+| P2-01 AbortSignal 未透传 | 修 | B6 | list API 接收并透传 axios signal |
+| P2-02 访问日志缺 status | 修 | B3 | 管理 API 访问日志记录最终 HTTP 状态码 |
+| P2-03 classifyRoute 误归类 | 修 | B4 | 无 ID 资源的未知 action 归 `/other` |
+| P2-04 示例端口 8650 | 必修（影响接入） | B5 | 面向用户示例/文档统一默认 7780 |
+| P2-05 前端无自动化测试 | 后置 v0.2 | 不做 | v0.1 以主控浏览器黑盒矩阵覆盖 |
+
+### 25.2.2 全局口径冻结（A、B 都必须遵守）
+1. **列授权口径（P1-03）**：v0.1 列级白名单**只约束最终返回给调用方的投影列（SELECT 目标列）**；WHERE/JOIN/ON/GROUP BY/ORDER BY 等谓词与关联引用列**不参与** v0.1 列级拦截。"借谓词推断敏感列"属 v0.2。多表 JOIN 的列级白名单 v0.1 不做（表级授权通过即放行投影），v0.2 再表带归属。
+2. **脱敏口径（P1-04）**：v0.1 运行时匹配维度 = **数据源作用域（全局 + 本数据源合并）+ 结果集列名**；`table_name` 字段在 v0.1 **存储但不参与匹配**，表 + 列精确匹配属 v0.2。任何情况下脱敏编译失败都**不得让正常查询失败**（除"空列名/非法枚举"这类本应在保存期拦下的配置硬错误外）。
+3. 不新增第三方依赖、不改 `go.mod`/`web/package.json`、不改 252 语料与既有规则判定结果。
+
+### 25.2.3 A 组规格（安全核心，纯 Go + 测试）
+
+**A1（P1-03）列授权统一为投影列口径**
+- 现状：`internal/pipeline/pipeline.go` 静态闸（约 166–183 行）在引擎评估之外，又调用 `policy.AuthorizeColumns(run.ast, run.policy)`；该函数遍历 `ast.Columns`（含 WHERE/JOIN 全部引用、无表归属），并对 `ast.Tables` 每张表逐一套用，导致谓词列被当返回列误拦、JOIN 必误伤。列授权在 R010（`internal/rules/generic.go`，消费 `ast.Operations` 的 `SELECT_COLUMN:*` 投影列信号，仅单表约束生效）已正确实现，旧调用是冗余且口径错误的第二套。
+- 目标：①删除 pipeline 静态闸中 `AuthorizeColumns` 调用及其追加 `POLICY_COLUMN` Hit 的整段逻辑（删除后不再 import 仅因此使用的符号）；②删除 `internal/policy/columns.go` 中的 `AuthorizeColumns` 函数；`FilterColumnsForSchema`（动态元数据 schema 裁剪用）及其仍被使用的辅助函数保留；③删除 `internal/policy/policy_test.go` 中仅针对 `AuthorizeColumns` 的测试用例（`TestAuthorizeColumns` 及其专用数据），不得删 `FilterColumnsForSchema` 的测试。
+- 验收断言（新增 `internal/pipeline` 集成测试，走完整 `Pipeline.Process`，配单表列级 ACL）：N106 `SELECT id,name,amount FROM orders WHERE user_id=1` 在 id/name/amount 已授权时**必须 allow**（user_id 为谓词列不拦）；`SELECT salary FROM employees`（salary 未在投影白名单）必须被 R010 判 deny；两表 JOIN 在两表均有表级授权时不因列误拦；252 语料回归结果不变。
+
+**A2（P1-04）脱敏按列名确定性归并、消除同列挡死 + 保存期唯一性**
+- 运行时归并（`internal/bootstrap/bootstrap.go` 的 `redactorBuilder.RedactorFor` 与 `internal/mask/redactor.go`）：①最终生效规则按键 = 归一化列名（沿用 `normalizeColumnName`）；同一数据源加载到的"全局规则 + 绑源规则"中，**绑源规则覆盖同列全局规则**；同列同 `sensitive_type/algo` 多条去重；同列 type 冲突（phone 与 email）时绑源优先、同为一级时按确定性格式（稳定排序后取其一，建议 phone 优先），**任何情形都不得返回 `ErrDuplicateMaskColumn` 让查询失败**。②`NewRedactor` 对同列名改为确定性归并而非报错；"空列名 / 非 phone|email / 非 mask"仍 fail-closed（这些是保存期就该拦下的硬错误）。③`table_name` 不传入、不参与匹配。
+- 保存期唯一约束（`internal/adminapi/handler.go` 的 `maskRulesCreate/maskRulesUpdate` + `validateMaskInput`）：v0.1 唯一性键 = **数据源作用域（全局记为空串）+ column_name**（忽略 table_name）。新增/编辑后若同作用域已存在同列名的另一条规则，返回 **409** 与明确中文提示（如"该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则"）。
+- 验收断言（`internal/mask` + `internal/bootstrap` + adminapi 测试）：全局 `phone` 与绑源 `phone` 共存时编译成功且绑源生效；同列 phone/email 两条不报错、结果确定；历史遗留的 users.phone/orders.phone（同列不同表）不再让 RedactorFor 报错；新增同列第二条被 409；非法枚举仍 fail-closed。
+
+**A3（P1-05）审批决定原子化（CAS）**
+- `internal/store/approval_repository.go` 新增原子决定方法（如 `DecidePending(ctx, id, status, approver, comment, decidedAt)`）：单条 `UPDATE approvals SET status=?, approver=?, decided_at=?, reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'`，以 `RowsAffected` 判定：=1 时回读返回更新后记录；=0 时返回可映射 409 的冲突错误（区分"记录不存在 404"与"已非 pending 409"，可先 Get 判存在再据 RowsAffected 判 409）。
+- `internal/adminapi/handler.go` 的 `approvalsDecide` 改为调用该原子方法，删除"先 Get 判 pending 再无条件 Update"的读改写；`RowsAffected=0` 且单据存在 → **409 `approval is no longer pending`**；不存在 → 404；decision 非 approve/reject → 422 保持不变。
+- 验收断言：两个并发决定同一 pending 单，**恰好一个 200、一个 409**，最终 status/approver 唯一确定（`-race` 下跑）；重复决定稳定 409。
+
+**A4（P1-08）审批分支审计/建单口径一致**
+- 现状（`internal/pipeline/pipeline.go` 的 `approve`）：先写一条 decision=approve 审计（`run.audited=true`），再 `Approvals.Create`；Create 失败或返回空 ID 时 `finish` 把响应改成 deny/error，但因 audited 短路不再补记，导致"响应/指标=deny、库里唯一审计=approve、且无审批单"。
+- 目标（Codex 可在两种实现中择一，须满足行为契约）：①推荐调换顺序——先创建 pending 审批单（audit_id 暂空），成功后再写 approve 审计并把 audit_id 回填审批单；或②保留现顺序但 Create 失败/空 ID 时显式追加一条关联的 error 审计事件，使最终事实=error。
+- 行为契约（测试必须断言）：当 `Approvals.Create` 返回错误或空 ID 时，最终 `Response.Decision` 非 approve、Prometheus 不记 approve、审计中**不存在**与响应矛盾的"唯一 approve 成功"记录（应为 error，或 approve 后紧跟可关联的 error 事件）；正常成功路径仍为"审批单 pending + approve 审计 + 返回 ApprovalID"。
+
+**A5（P1-02）bound MCP server 缓存键加入 API Key 哈希**
+- `internal/mcpserver/http.go` 的 `agentServerKey` 不得只依赖秒级 `UpdatedAt.UnixNano()`：改为键中包含 `agent.APIKeyHash`（只含哈希、绝不含明文 Key），推荐 `agent.ID + "|" + agent.APIKeyHash`（可再拼 UpdatedAt，但 APIKeyHash 必须在键中）。`servers` 与 `limiters` 两个 map 使用同一新键。轮换 Key 后新哈希 → 缓存未命中 → 用新明文 Key 重建 bound server；旧 server 随容量/淘汰自然回收。
+- 验收断言（`internal/mcpserver/http_test.go`）：首次调用建 server；**同一 SQLite 秒内**轮换 Key（UpdatedAt 不变）后，新 Key 调工具成功、旧 Key 在认证层 401，且不复用绑定旧明文 Key 的 server；明文 Key 不出现在日志（沿用现有断言）。
+
+### 25.2.4 A 组改动文件白名单（白名单外一律不动）
+- 改：`internal/pipeline/pipeline.go`、`internal/policy/columns.go`、`internal/mask/redactor.go`、`internal/bootstrap/bootstrap.go`、`internal/adminapi/handler.go`、`internal/store/approval_repository.go`、`internal/mcpserver/http.go`。
+- 测试（按需新增/修改）：`internal/pipeline/pipeline_test.go`、`internal/policy/policy_test.go`（仅删 AuthorizeColumns 用例）、`internal/mask/redactor_test.go`、`internal/bootstrap/*_test.go`、`internal/store/*approval*_test.go`、`internal/adminapi/*_test.go`、`internal/mcpserver/http_test.go`。
+- 禁改：model 冻结结构（A5 复用已有 `Agent.APIKeyHash`，不新增字段）、规则引擎与 252 语料、parser、executor、所有前端、`go.mod`、examples、README（README 归 B 组）。
+
+### 25.2.5 B 组规格（管理/展示/文档；A 合入后再做）
+- **B1（P1-06）过期时间三态**：在 `internal/adminapi/dto.go` 为 `agentUpdateInput.ExpiresAt` 引入可区分三态的可空时间类型（如 `nullableTime`，实现 `UnmarshalJSON`：字段缺失 `Present=false`；显式 `null` → `Present=true, Value=nil`；RFC3339 有值 → `Present=true, Value=&t`，非法时间返回错误）。`handler.go` Agent 更新改为仅当 `Present` 时赋值（显式 null → 写 SQL NULL，复用仓储已支持的置空）；字段缺失保持原值。补"设过过期→编辑清空→永不过期"回归。`agentCreateInput` 维持现状。
+- **B2（P1-07）大屏自然日日界**：`internal/store/dashboard_repository.go` 统一锚定 **UTC 今日 00:00**，窗口起点 = today−(days−1) 天 00:00、终点 = today+1 天 00:00（半开区间），趋势补零输出从起点到 today 共 days 个日期（含今天）；上一对比窗口按相同日界整体平移。断言：`sum(trend 各 decision)==KPI 对应计数`、当天数据进入趋势末柱、首日为完整自然日。
+- **B3（P2-02）访问日志补 status**：管理 API 访问日志（`internal/adminapi/handler.go` 中间件，约 138–150 行）用 statusRecorder 包装 ResponseWriter 记录最终状态码，日志字段含 method/path/**status**/耗时/管理员；注意 panic/recover 路径不重复写 header。
+- **B4（P2-03）classifyRoute**：`internal/mcpserver/http.go` 中 auth/audit/dashboard/playground 等无 `{id}` 资源，静态 action 不匹配时归 `/other`，不得归 `/{id}`；补表驱动用例。
+- **B5（P2-04）默认端口统一 7780**：改 `examples/mcp/streamable_http_mcp.json` 的 url 为 `http://127.0.0.1:7780/mcp`；核对 `examples/config.example.yaml`、`README.md` 中面向用户的默认端口/接入示例，凡与最终默认 7780 不一致处统一（或明确要求同步改 `http_listen`）。**不改** SPEC 第 4 章 T15 的历史描述文本、**不改** `http_test.go` 中测试自选的监听端口。
+- **B6（P2-01）请求取消透传**：`web/src/api/*.ts` 的各 list 函数增加可选 `signal?: AbortSignal` 并传入 axios config；`Agents/Datasources/Policies/Rules/Approvals/MaskRules.tsx` 调用时传 `controller.signal`（取消判定仍统一用 `isCanceled`）。
+- **B7（P1-04 前端对齐列名口径）**：脱敏页与 `MaskRuleFormDrawer`：顶部 Alert/subtitle 文案改为"按 **数据源(留空=全局) + 列名** 匹配；v0.1 仅手机号/邮箱 + 打码；表 + 列精确匹配在后续版本"；表单中"表名"输入框 v0.1 **移除或置灰并标注"后续版本生效，v0.1 按列名匹配"**，提交体不再强造 table_name（历史值列表可只读展示并标"预留"）；其余字段/枚举/校验不变。
+- **P1-01 文档澄清**：README 增加一句明确"v0.1 的 MCP 不暴露跨请求会话/事务参数，`SessionID` 为内部预留；多语句事务随受控写在 v0.2 提供"。
+
+### 25.2.6 B 组改动文件白名单
+- Go：`internal/adminapi/dto.go`、`internal/adminapi/handler.go`、`internal/store/dashboard_repository.go` 及其 `_test.go`、`internal/mcpserver/http.go`（仅 classifyRoute）及其测试。
+- 文档/示例：`examples/mcp/streamable_http_mcp.json`、必要时 `examples/config.example.yaml`、`README.md`。
+- 前端：`web/src/api/*.ts`（仅 list 签名加 signal）、`web/src/pages/{Agents,Datasources,Policies,Rules,Approvals,MaskRules}.tsx`、`web/src/pages/maskrules/MaskRuleFormDrawer.tsx`；不新增依赖、不改 types 既有字段（table_name 字段定义保留）。
+
+### 25.2.7 主控验收门（A、B 分别过，最后 RC 总验）
+- Go：`gofmt` 干净、`go vet ./...`、`go test -race -count=1 ./...` 全绿、双 cmd 可构建；252/353 决策语料结果与 t25.1 完全一致（危险漏拦 0、误拦不增）。
+- A 组专项：本规格 A1–A5 所列新增测试全部通过（N106 完整流水线 allow、投影越权 deny、JOIN 不误拦；脱敏同列归并不挡查询 + 409；审批并发恰一 200 一 409；审批建单失败审计=error；同秒 Key 轮换新 Key 成功旧 Key 401）。
+- B 组专项：过期可清空；大屏趋势合计=KPI 且含当天；访问日志含 status；未知 action 归 /other；示例端口 7780 可直接接入；切换列表/卸载无网络竞态覆盖；脱敏表单与文案为列名口径。
+- 前端：`npm run typecheck` 0 错、`npm run build` 通过，主控重建 dist 并 go:embed；浏览器 9 页黑盒零回归、控制台无有效报错。
+- RC 总验补做 VERIFY_REPORT 第 4 节剩余动态项：真实 PG16/MySQL8 E2E（超时/只读/截断/Explain，会话事务项除外）、MCP 双承载 + 50 并发不串号 + 401/429/4MiB/畸形 JSON、脱敏 JOIN/别名作用域、docker compose/systemd 部署演练、/metrics 七指标与 Grafana。全绿后打 tag `v0.1-rc1`。
+
+### 25.2.8 本单明确不做
+跨请求会话/多语句事务的 get-or-create 会话池（P1-01，随 v0.2 受控写）；谓词敏感列推断、JOIN 表带归属的列授权；脱敏表 + 列精确匹配、hash/range/block 算法与更多敏感类型；前端自动化测试框架（P2-05）；SSO/HA/国产库/审批自动重放等第 8 章 v0.2 项。
+
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PG14/16/18 与 MySQL8 E2E 通过；
 - 决策语料 252 条（353 次方言运行：PG192/MySQL161；danger76/risk61/normal115；判定 deny77/allow121/approve42/warn12）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟（4298 万次变异）无 panic 且 fail-closed；
