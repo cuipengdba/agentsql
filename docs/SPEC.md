@@ -1811,11 +1811,29 @@ store:
 - 测试：`internal/store` 新增 PG18 从零迁移 E2E（testcontainers `postgres:18`，import 仅出现在 `*_test.go`），两方言都断言 ①空库首次迁移后七业务表+schema_migrations+6 索引+3 外键齐备；②连续两次与并发两次 Migrate 均成功且 schema_migrations 中 version=1 恰好一行；③外键生效（非法 policy/approval 写入失败，sqlite PRAGMA 同样生效）；④identity 连续生成、approvals.audit_id 可引用；⑤rules.enabled 默认 true、builtin 默认 false；⑥时间列默认值/类型 timestamptz；⑦模拟 DDL 中途失败时业务表与版本记录同时回滚。跨包 `*_test.go` helper 不可复用，store 包内保留与门2**同口径**的 Docker 探测（daemon/socket 明确不可达 Skip；探测成功后的镜像拉取/启动/等待/清理错误硬失败），不把 testcontainers import 移入普通 `.go`。
 - 边界：本单后 PG 库可 Ping/建表，但仓储仍含 `?`、`LastInsertId`、`INDEXED BY`（agent_repository）、sqlite 日期表达式，故 PG 暂不承载业务 CRUD（属 a-2）；config/bootstrap 仍走 sqlite 薄封装，`go build ./...`、既有 sqlite 测试与 run-acceptance 必须全程绿、353 语料零变化。
 
-**T28a-2 仓储方言适配与双跑**：
-- 全部仓储（agents/datasources/policies/rules/mask_rules/audit_logs/approvals/dashboard）SQL 经 `rebind`；`audit_logs` 插入的 `result.LastInsertId()` 改为 `INSERT … RETURNING id` + `QueryRow().Scan(&id)`（联动 `approvals.audit_id` 的取数路径）；审批状态 CAS 的 `UPDATE … WHERE status='pending'` 统一为 `… RETURNING id` 判定命中（不依赖 RowsAffected 方言差异）。
-- `scan.go`/各 `scanXxx` 兼容两方言返回类型：PG 的 `time.Time`（ts/时间戳）、`bool`（enabled/builtin）、`int64`，与 SQLite 的字符串时间/`int64` 布尔都能正确还原到 `model`（时间统一转 UTC/约定时区，布尔归一）。
-- 大屏方言：`date(substr(ts,1,19))`（SQLite）按 dialect 切换为 PG 按配置时区的日期截断（`(ts AT TIME ZONE 'Asia/Shanghai')::date`，时区取 DSN/配置，默认 Asia/Shanghai）；趋势/分布/排行/战果聚合在 PG 结果与 SQLite 逐字段一致。
-- 把现有 store/审批/脱敏/dashboard/限流/审计过滤等测试改造为 **sqlite 与 postgres:18 双跑**（table-driven，同一组用例跑两驱动；含并发审批 CAS、并发审计写入、QPS/连接限流、分页/过滤/LIKE 转义、30 天聚合边界）。SQLite 侧结果必须与改造前逐字一致。
+**T28a-2 仓储方言适配与双跑（只读评审 APPROVE_WITH_CHANGES，阻断裁决已并入）**：
+
+总原则（硬约束）：
+- SQLite 是行为基准：**SQLite 分支 SQL 文本逐字不变**（保留 `INDEXED BY`、`LastInsertId`、`RowsAffected`、`date(substr(ts,1,19))` 原样），PostgreSQL 另写模板；不靠"把 SQLite 也改成 RETURNING"求统一，避免已执行 SQL 与错误时序漂移。
+- 方言下沉到仓储：各 repository 内嵌 `repositoryBase{db *sql.DB; dialect Dialect}`，`Store` 构造仓储时传入 `store.driver`；提供 `bind(q)`（即 rebind）与执行/取 id/CAS/日期/LIKE helper；**不得只在 Store 外层 rebind**（事务 `*sql.Tx` 内 SQL 同样要 bind）。
+- 每条 SQL 在动态 WHERE/IN 列表/分页片段**全部拼接完成后恰好 rebind 一次**，禁止对子片段重复 rebind（否则 PG 占位符从 $1 重复编号）。
+- 本单**不改 `internal/model`**（不把时间改指针、不把 bool 改三态），类型兼容只在 store 内 scanner 完成；不新增依赖。config/bootstrap/CLI 接线=a-3，metaDB/auditDB 拆分=b-1，数据搬迁=b-2。
+
+1. 占位符与普通 CRUD：agents/datasources/policies/rules/mask_rules 的 INSERT/UPDATE/DELETE/SELECT 全部经 bind（`?`→`$n`）。两处 `INDEXED BY`（agent 按 api_key_hash、policy 按 agent+datasource）仅出现在 SQLite 模板，PG 模板删除该提示（PG 自选同名索引）。`updated_at=CURRENT_TIMESTAMP`、`TRIM/COALESCE/ORDER BY/LIMIT ? OFFSET ?` 两方言兼容。
+2. 审计自增 ID：新增 `insertReturningID(ctx, exec, dialect, insertSQL, args...) (int64,error)`——SQLite 维持 `ExecContext`+`LastInsertId()`（SQL 文本不变）；PostgreSQL 对 INSERT 追加 `RETURNING id` 并 `QueryRowContext().Scan(&id)`（pgx/stdlib 的 LastInsertId 不可用）。覆盖 `insertAuditLog` 与 `CreatePendingWithAudit` 事务内插审计取 id、回填 `approvals.audit_id` 全链路。并发插入测试只断言 id 全为正、唯一、排序后严格递增，不要求连续、不按 goroutine 返回顺序比较。
+3. 审批 CAS：`DecidePending` 条件 UPDATE 与 `CreatePendingWithAudit` 回填 UPDATE 抽 `approvalCAS(...) (matched bool,error)`——SQLite 保留 `UPDATE ... WHERE id=? AND status='pending'`+`RowsAffected`（0 时再 SELECT 区分不存在/已决定，错误分类维持现状）；PostgreSQL 用同一条件 UPDATE 加 `RETURNING id`，`sql.ErrNoRows` 即未命中再走存在性检查。注：pgx/stdlib **支持** RowsAffected，PG 用 RETURNING 是为把命中判定绑定到语句结果，而非驱动不支持。两方言业务错误分类（404/409）必须一致；并发下仅一个事务命中（PG 行锁释放后重检 status）。
+4. scanner 归一（store 内，不改 model）：
+   - 时间：`databaseTimestamp.Scan` 已兼容 PG time.Time 与 SQLite string/[]byte；time.Time 分支出口统一 `.UTC()`；错误信息去掉写死的 "SQLite" 字样。可空时间继续 `optionalTime`；默认时间列在 DB 为 NULL 时按现状 `required()` 报错（手工写 NULL 视为无效元数据），不静默归零。
+   - 布尔：新增内部 `databaseBool` scanner，接受原生 bool、整数 0/1、字符串 "0"/"1"/"true"/"false"，其余报错；用于 rules.enabled/builtin（PG 原生 bool、SQLite 0/1）。
+   - 整数：id/audit_id/est_rows/latency_ms 走 int64/sql.NullInt64；INTEGER→*int 转换补溢出检查；`COUNT(*)`/`SUM(CASE...)` 扫 int64。
+   - 战果 `SUM(COALESCE(est_rows,0))`：PG 的 SUM(BIGINT) 返回 NUMERIC，PG 模板写 `CAST(COALESCE(SUM(est_rows),0) AS BIGINT)`、SQLite 模板原样，并测大值。
+   - JSON/文本列（policies.columns/row_filter、rules.definition、audit_logs.objects/rule_hits）PG 仍 TEXT，string/NullString 即可，riskTop 仍在 Go json.Unmarshal。
+5. 大屏/审计日期与时区（**阻断裁决：本单两方言都维持 UTC 自然日**）：现状 SQLite 以 `now.UTC()` 构造 `[start,end)`、用 `date(substr(ts,1,19))` 分组（UTC 日界线）。为同时满足"SQLite 行为不变 + 两方言逐字段一致"，本单 **PG 也按 UTC 分组**：分组键 `(ts AT TIME ZONE 'UTC')::date`，SELECT/GROUP/ORDER 同一表达式，并 `to_char((ts AT TIME ZONE 'UTC')::date,'YYYY-MM-DD')` 输出与 SQLite 一致的文本（或新增兼容 time.Time/string 的 databaseDate scanner）；时间范围参数两方言都传 time.Time。**可配置时区（如 Asia/Shanghai）日界线延后 a-3，届时两方言同步切换，本单绝不只给 PG 换日界线。** 趋势/决策分布/风险 Top/Agent 排行/战果/空日补零在 PG 与 SQLite 逐字段一致；覆盖月末、年末、start 含/end 排、恰等于边界记录。
+6. LIKE 契约（**裁决：以 SQLite 现状 ASCII 大小写不敏感为准**）：审计模糊过滤 SQLite 保留 `LIKE ? ESCAPE '!'`，PostgreSQL 改用 `ILIKE ? ESCAPE '!'`；补 `%`、`_`、`!` 转义与 ASCII 大小写用例；Unicode 大小写折叠两库均不保证（已知限制，写入注释）。
+7. 限流口径澄清：QPS/in-flight 限流是**内存令牌桶**（rules 通用限流、mcpserver HTTP registry），数据库只存 datasource 的 conn_limit/stmt_timeout_ms/row_limit 阈值、**无限流 SQL**。双跑只验证"两仓储读出相同阈值并驱动同一套内存限流"，不新增库级限流。
+8. 测试双跑（sqlite 始终跑；postgres:18 复用 a-1 Docker 探测，daemon 明确不可达仅 Skip PG 子测试，探测成功后拉取/启动/迁移/清理失败硬失败；每组用例隔离库状态）：新增同包矩阵 helper（storeVariant + forEachStore，SQLite 用 t.TempDir()，PG 起 postgres:18 经 OpenMetadata），把 store/审批/脱敏/dashboard/审计过滤测试改 table-driven 双跑，至少覆盖：五类实体全 CRUD/List/GetByKeyHash 与两处 INDEXED BY 路径；rule 布尔 true/false 与默认；时间字段往返（UTC、truncate 比较）；audit 并发写 id 唯一严格递增；audit 分页/组合过滤/动态 IN/时间区间/LIKE 大小写与通配符转义/导出跨页与上限；approval 全 CRUD、pending CAS 并发仅一成、404/409；CreatePendingWithAudit 成功与审计失败/回填失败回滚；dashboard 趋势/分布/Top/排行/战果/缺名补空/30 天边界/SUM NUMERIC；datasource 三阈值往返；mask 数据源专属 + 全局/NULL 源列兜底。SQLite 侧结果与改造前逐字一致。
+
+边界：本单完成后 PG 库可承载完整业务 CRUD/审批/大屏，但 driver/dsn 仍由测试直连（config/bootstrap 未接线，默认运行仍 SQLite）；a-3 才接通配置与装配，且不得在本单双跑门禁全绿前接通 PG 业务流量。
 
 **T28a-3 配置/装配/CLI 接线**：
 - `bootstrap.Assemble` 改用存储工厂按 `cfg.Store.Metadata.Driver` 打开元数据库；`agentsqlctl init-config/check-config/migrate/health/version` 适配 driver/dsn（`migrate` 可对指定 driver+DSN 仅执行迁移，供部署期用高权限账号建表）；新增 `examples/docker/config.postgres.yaml` 与保留 sqlite 示例；`Dockerfile`/compose 不破坏默认 sqlite 路径；双构建（agentsql/agentsqlctl）通过。
