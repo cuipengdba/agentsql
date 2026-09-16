@@ -1835,9 +1835,38 @@ store:
 
 边界：本单完成后 PG 库可承载完整业务 CRUD/审批/大屏，但 driver/dsn 仍由测试直连（config/bootstrap 未接线，默认运行仍 SQLite）；a-3 才接通配置与装配，且不得在本单双跑门禁全绿前接通 PG 业务流量。
 
-**T28a-3 配置/装配/CLI 接线**：
-- `bootstrap.Assemble` 改用存储工厂按 `cfg.Store.Metadata.Driver` 打开元数据库；`agentsqlctl init-config/check-config/migrate/health/version` 适配 driver/dsn（`migrate` 可对指定 driver+DSN 仅执行迁移，供部署期用高权限账号建表）；新增 `examples/docker/config.postgres.yaml` 与保留 sqlite 示例；`Dockerfile`/compose 不破坏默认 sqlite 路径；双构建（agentsql/agentsqlctl）通过。
-- 验收：SQLite 默认路径全量 run-acceptance ALL_GREEN、353 语料零变化；PG18 元数据库下黑盒走完登录→建数据源/Agent/policy/mask→真实 `/mcp` allow/deny/脱敏→审计页/大屏聚合→审批，全部与 SQLite 等价。
+**T28a-3 配置/装配/CLI 接线（只读评审 APPROVE_WITH_CHANGES，裁决已并入；不拆单，按 config→bootstrap→CLI/示例 纵向切片）**：
+
+配置结构（`internal/config`，严格 `KnownFields(true)` 不变）：
+- `StoreConfig` 保留 v0.1 字段 `SQLitePath string yaml:"sqlite_path"`（**不删不改**，大量程序化配置与测试直接构造它），新增指针字段 `Metadata *MetadataStoreConfig yaml:"metadata"` 与 `Audit *AuditStoreConfig yaml:"audit"`。用指针区分"旧简写"与"新配置"，避免静默二选一。
+- `MetadataStoreConfig{ Driver string; SQLitePath string; DSN string; MaxOpenConns,MaxIdleConns int; ConnMaxLifetime ConfigDuration }`（yaml tag 分别 `driver/sqlite_path/dsn/max_open_conns/max_idle_conns/conn_max_lifetime`）。`ConfigDuration` 用 `time.ParseDuration` 解码字符串，只接受 Go duration 文法（`30m/1h`），不接受无单位整数；现有 `statement_timeout_ms` 仍是整数毫秒，不混用。
+- `AuditStoreConfig{ Separate bool yaml:"separate" }`：本单**最小落地**，缺省或显式 `false` 接受，`true` 必须明确报错 `separate audit store is not supported until T28b-1`；audit 的 driver/dsn 等未来字段本单不接受（KnownFields 拒绝），b-1 再扩 struct 并解除 `true` 拒绝，不二次破坏 `separate:false` 配置。
+
+解析/优先级/校验（拆为"严格 YAML Parse → 默认值归一 → env 覆盖 → 交叉校验"，提供可注入 `LookupEnv` 的 resolver 供 `Load` 与 `check-config` 共用，测试不依赖全局环境；**不得在 env 覆盖前校验**）：
+1. 顶层 `store.sqlite_path`（v0.1 简写）与 `store.metadata` **互斥**，同时出现直接报冲突错误（即使两路径相同也不接受，避免两个事实源）；二者皆无则按"driver 缺省 sqlite、缺 path"报错。
+2. `metadata.driver` trim/lower 后交 `store.ParseDialect`，缺省 `sqlite`，仅允许 `sqlite|postgres`，非法值在配置阶段 fail-closed（不等到 `sql.Open`）。
+3. sqlite：必须有非空 `sqlite_path`、不得配 `dsn`；池字段可解析但运行时仍固定单连接（`SetMaxOpenConns/IdleConns=1`）。postgres：`dsn` trim 后必须非空、不得配 `sqlite_path`，**不产生任何本地文件系统副作用**（不 Clean、不 MkdirAll）。
+4. 池零值归一为 `max_open_conns=10 / max_idle_conns=5 / conn_max_lifetime=30m`；负值、归一后 `max_idle_conns>max_open_conns`、非法/无单位 duration 一律拒绝；本单不让"缺省"与"显式零"语义漂移。
+5. 环境变量仅新增显式覆盖 `AGENTSQL_STORE_METADATA_DSN`：`LookupEnv` 命中即覆盖 YAML dsn（**变量存在但为空串也视为覆盖**并导致 postgres 校验失败）；不做 `${VAR}` 插值、不自动扫描任意 `AGENTSQL_*`，沿用现有显式 env 风格（AGENTSQL_SECRET/API_KEY/INSECURE/LOG_*）。
+6. **DSN 机密性**：配置、错误包装、日志、check-config/health/migrate 的 stdout 一律不得回显 DSN 或其中密码，只输出 `driver=sqlite|postgres`（sqlite 可输出路径）。
+7. `config.Load` 仅在有效驱动为 sqlite 时清理路径并创建父目录（保留 v0.1 行为）；PG 配置不建目录。
+
+装配（`internal/bootstrap/bootstrap.go`）：`Assemble` 把 resolver 归一后的有效 metadata 配置映射为 `store.MetadataOptions{Driver: ParseDialect(driver), SQLitePath, PostgresDSN: DSN, MaxOpenConns, MaxIdleConns, ConnMaxLifetime}`，改调 `store.OpenMetadata(ctx, opts, secret)`（替换固定 sqlite 的 `OpenWithSecret`）；secret 仍来自 `AGENTSQL_SECRET`、cipher 仍在 OpenMetadata 内构造，Store 注入各仓储/pipeline/dashboard/audit 的方式不变。`serve` 与 `mcp` 都已走 `config.Load→Assemble`，不新增第二套接线。`store.Open/OpenWithSecret` 保留为 sqlite 薄封装，现有 SQLite 测试零改动。
+
+agentsqlctl 逐命令：
+- `init-config`：生成模板默认仍是活动的 v0.1 简写 `store.sqlite_path: ./data/agentsql.db`（与 v0.1 完全兼容），追加**注释化**的 `metadata`（sqlite/postgres 两种）PG 示例、池默认、duration 单位、env 优先级、`audit.separate` 需 b-1 的说明；不同时生成两个活动配置源。
+- `check-config`：改用含 env 覆盖的统一 resolver（不建目录、不连库），覆盖 sqlite/postgres/非法 driver/池参数/duration/audit 分支；输出 `driver=...`（postgres 不输出 DSN）。
+- `migrate`（**修复现状双迁移**）：当前实现先 `OpenWithSecret`（已自动迁移一次）又 `sql.Open("sqlite")` 再 `Migrate` 一次，且无谓要求 `AGENTSQL_SECRET/AGENTSQL_INSECURE`。改为：解析有效 driver/target → sqlite 用驱动名 `sqlite`+path、postgres 用 `pgx`+DSN（blank-import pgx stdlib），按配置设池（sqlite 仍 1/1）→ `PingContext` → **只调用一次** `store.Migrate(ctx,db,dialect)` → 查询迁移版本后关闭；**不调 OpenMetadata、不要求 secret**（DDL 不碰加密的数据源密码）；PG 部署期可用高权限账号经 `AGENTSQL_STORE_METADATA_DSN` 注入，迁完即关；错误只含 driver 不回显 DSN。
+- `health`：保留 `--url` 的 HTTP 探测（Dockerfile/compose 已显式用，不破坏；`/healthz` 表存活、`/readyz` 才反映 Store），新增 `health --config <file>`：按有效 driver/DSN 直连 `PingContext`，不迁移、不要 secret；`--url` 与 `--config` 显式同用时报互斥错误；sqlite 配置库模式先确认目标文件存在，避免一次 health 探测创建空库却误报健康；输出 driver 不输出 DSN。
+- `version` 不变。
+
+示例/部署物：新增 `examples/docker/config.postgres.yaml`（`server.http_listen: 0.0.0.0:7780`、console_enabled/event_stream 开、`store.metadata.driver: postgres` + dsn 占位 `postgres://agentsql:***@host:5432/agentsql?sslmode=disable&TimeZone=Asia/Shanghai` + 池 10/5/30m、`store.audit.separate: false`，并保留 defaults/theme）；`examples/docker/.env.example` 保留 `AGENTSQL_SECRET`（保护业务数据源密码，与 PG DSN 密码是两个秘密）并加注释化 `AGENTSQL_STORE_METADATA_DSN=`，注明 b-2 前 compose 不自动建控制面 PG 服务、该变量适用于外部 PG/直跑容器；`examples/config.example.yaml` 保留活动 sqlite 简写并加注释化 metadata 两驱动/池默认/duration/env 优先级/不支持 `${}` 插值/audit.separate 需 b-1。**本单不改 Dockerfile 与默认 docker-compose**（已双构建 agentsql/agentsqlctl、默认复制 sqlite 配置；compose 现有 PG16 是业务 demo 库非控制面；PG18 控制面服务/卷/健康依赖/最小权限/DEPLOY 留 b-2）。
+
+时区契约澄清：DSN 的 `TimeZone=Asia/Shanghai` 只影响 session 对无时区文本的解释与显示；`TIMESTAMPTZ` 存的是时间点，大屏已显式 `(ts AT TIME ZONE 'UTC')::date` 分组（见 a-2 第 5 条），**日界线不随 session TimeZone 改变**；可配置统计时区仍需后续单且 sqlite/PG 同步切换。
+
+测试：①config 表驱动矩阵（旧简写→sqlite；metadata 缺省 driver+sqlite_path→sqlite；两写法等价；简写与 metadata 同现→冲突；皆无→缺 path；postgres 缺 dsn→错；dsn 仅来自 env→成功且 env 覆盖 yaml；env 显式空串覆盖→错；非法 driver/大小写空白归一；未知根/metadata/audit 字段仍被 KnownFields 拒；池默认 10/5/30m；负数、idle>open、非法/无单位 duration→错；audit.separate false 接受/true 报不支持；sqlite Load 建目录、PG Load 不建目录）。②bootstrap：保留旧 `StoreConfig{SQLitePath}` 程序化用例，新增 metadata sqlite 装配，PG18 下经 metadata 配置 `Assemble` 并断言 `Store.Ping` 与至少一个仓储 CRUD；secret 长度/非法 driver/缺 dsn 仍 fail-closed。③CLI/PG18 E2E（testcontainers `postgres:18`，沿用 store 包 Docker 探测：daemon 明确不可达 Skip、之后拉取/启动/迁移/断言/清理失败硬失败）：DSN 密码走 env 覆盖 → `check-config` 成功且输出不含 DSN/密码 → `migrate` 成功 → 直查 8 张表（七业务表+schema_migrations）→ `health --config` 成功 → 同配置装配后 `/readyz` 或 Store Ping 通。④SQLite 回归：默认 `init-config→check-config→migrate→health/启动` 全链路、原 Open/OpenWithSecret 测试不改。
+
+验收（硬门禁）：SQLite 默认路径全量 run-acceptance ALL_GREEN、353 语料零变化；PG18 元数据库下黑盒走完登录→建数据源/Agent/policy/mask→真实 `/mcp` allow/deny/脱敏→审计页/大屏聚合→审批，全部与 SQLite 等价（主控在宿主机实跑，Codex 沙箱 Docker 不可达仅 Skip）。边界：本单不做 metaDB/auditDB 拆分（b-1）、不做 SQLite→PG 搬迁与控制面 compose/DEPLOY/版本抬升（b-2）。
 
 **T28b-1 审计独立 PG18 DSN（开源）**：
 - `Store` 持有 `metaDB` 与 `auditDB` 两个 `*sql.DB`（`audit.separate=false` 时 auditDB=metaDB；Close 各自关闭，同库不重复关）。`AuditLogs()` 仓储绑 auditDB；`DashboardRepository` 拆成两个 querier——审计聚合（总量/拦截/趋势/分布/规则 Top/Agent 排行/战果）走 auditDB，元数据计数（active agents、datasources、pending approvals、agent id→name）走 metaDB，应用层合并；审计分页/导出（`audit/export.go`）走 auditDB。
