@@ -18,6 +18,16 @@ import (
 )
 
 func TestPostgresExecutorE2E(t *testing.T) {
+	for _, version := range []string{"14", "15", "16", "17", "18"} {
+		version := version
+		t.Run("pg"+version, func(t *testing.T) {
+			runPostgresExecutorScenarios(t, "postgres:"+version)
+		})
+	}
+}
+
+func runPostgresExecutorScenarios(t *testing.T, image string) {
+	t.Helper()
 	ctx := dockerTestContext(t)
 	const (
 		database = "agentsql"
@@ -26,7 +36,7 @@ func TestPostgresExecutorE2E(t *testing.T) {
 	)
 	container, err := postgrescontainer.Run(
 		ctx,
-		"postgres:16",
+		image,
 		postgrescontainer.WithDatabase(database),
 		postgrescontainer.WithUsername(username),
 		postgrescontainer.WithPassword(password),
@@ -36,7 +46,7 @@ func TestPostgresExecutorE2E(t *testing.T) {
 		if container != nil {
 			testcontainers.CleanupContainer(t, container)
 		}
-		skipDockerUnavailable(t, err)
+		require.NoError(t, err, "start %s (Docker daemon probe already succeeded)", image)
 	}
 	testcontainers.CleanupContainer(t, container)
 	host, err := container.Host(ctx)
@@ -44,7 +54,7 @@ func TestPostgresExecutorE2E(t *testing.T) {
 	port, err := container.MappedPort(ctx, "5432/tcp")
 	require.NoError(t, err)
 	datasource := model.Datasource{
-		ID:            "ds_postgres_e2e",
+		ID:            "ds_postgres_e2e_" + strings.TrimPrefix(image, "postgres:"),
 		DBType:        "postgres",
 		Host:          host,
 		Port:          port.Int(),
@@ -71,19 +81,15 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 	_, err = executor.Execute(ctx, "ANALYZE executor_rows")
 	require.NoError(t, err)
 
-	t.Run("timeout interrupts query", func(t *testing.T) {
-		shortDatasource := datasource
-		shortDatasource.ID = "ds_postgres_timeout"
-		shortDatasource.StmtTimeoutMS = 25
-		shortExecutor, err := NewPostgresExecutor(ctx, shortDatasource, password, false)
+	t.Run("connection and select", func(t *testing.T) {
+		require.NoError(t, executor.Ping(ctx))
+		result, err := executor.Query(ctx, "SELECT value FROM executor_rows WHERE id = 1", 1)
 		require.NoError(t, err)
-		defer func() { require.NoError(t, shortExecutor.Close()) }()
-		_, err = shortExecutor.Query(ctx, "SELECT pg_sleep(1)", 1)
-		require.Error(t, err)
-		require.True(t, errors.Is(err, ErrQueryTimeout))
+		require.Equal(t, 1, result.RowCount)
+		require.Equal(t, "1", result.Rows[0][0])
 	})
 
-	t.Run("row limit truncates", func(t *testing.T) {
+	t.Run("N+1 fetch detects row limit truncation", func(t *testing.T) {
 		result, err := executor.Query(ctx, "SELECT id FROM executor_rows ORDER BY id", 2)
 		require.NoError(t, err)
 		require.Equal(t, 2, result.RowCount)
@@ -124,9 +130,38 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 		require.GreaterOrEqual(t, rowCount, int64(5000))
 	})
 
-	t.Run("bound session transaction state", func(t *testing.T) {
-		testPostgresBoundSessions(t, ctx, executor)
+	t.Run("bound session basic read write", func(t *testing.T) {
+		session, err := executor.OpenSession(ctx, "pg-basic")
+		require.NoError(t, err)
+		result, err := session.Query(ctx, "SELECT value FROM executor_rows WHERE id = 4", 1)
+		require.NoError(t, err)
+		require.Equal(t, "4", result.Rows[0][0])
+		updated, err := session.Execute(ctx, "UPDATE executor_rows SET value = value + 1 WHERE id = 4")
+		require.NoError(t, err)
+		require.Equal(t, 1, updated.RowCount)
+		result, err = session.Query(ctx, "SELECT value FROM executor_rows WHERE id = 4", 1)
+		require.NoError(t, err)
+		require.Equal(t, "5", result.Rows[0][0])
+		require.NoError(t, session.Close())
 	})
+
+	if image == "postgres:14" || image == "postgres:18" {
+		t.Run("timeout interrupts query", func(t *testing.T) {
+			shortDatasource := datasource
+			shortDatasource.ID += "_timeout"
+			shortDatasource.StmtTimeoutMS = 25
+			shortExecutor, err := NewPostgresExecutor(ctx, shortDatasource, password, false)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, shortExecutor.Close()) }()
+			_, err = shortExecutor.Query(ctx, "SELECT pg_sleep(1)", 1)
+			require.Error(t, err)
+			require.True(t, errors.Is(err, ErrQueryTimeout))
+		})
+
+		t.Run("bound session transaction state", func(t *testing.T) {
+			testPostgresBoundSessions(t, ctx, executor)
+		})
+	}
 }
 
 func TestMySQLExecutorE2E(t *testing.T) {
@@ -147,7 +182,7 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		if container != nil {
 			testcontainers.CleanupContainer(t, container)
 		}
-		skipDockerUnavailable(t, err)
+		require.NoError(t, err, "start mysql:8 (Docker daemon probe already succeeded)")
 	}
 	testcontainers.CleanupContainer(t, container)
 	host, err := container.Host(ctx)
@@ -210,7 +245,7 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		require.True(t, errors.Is(err, ErrQueryTimeout))
 	})
 
-	t.Run("row limit truncates", func(t *testing.T) {
+	t.Run("N+1 fetch detects row limit truncation", func(t *testing.T) {
 		result, err := executor.Query(ctx, "SELECT id FROM executor_rows ORDER BY id", 2)
 		require.NoError(t, err)
 		require.Equal(t, 2, result.RowCount)
@@ -508,41 +543,59 @@ func runConcurrentSessionUpdates(
 
 func dockerTestContext(t *testing.T) context.Context {
 	t.Helper()
-	// testcontainers v0.37 在 Windows 上探测不到 Docker（或 DOCKER_HOST 指向
-	// rootless/unix socket）时，NewDockerClient 内部可能直接 panic 而非返回 error，
-	// 这里统一兜底：panic 与 error 都按"Docker 不可用"Skip，绝不让测试进程崩溃。
-	if err := probeDockerAvailable(); err != nil {
-		skipDockerUnavailable(t, err)
+	unavailable, err := probeDockerAvailable()
+	if unavailable {
+		t.Logf("docker daemon unavailable: %v", err)
+		t.Skip("docker daemon unavailable")
 	}
+	require.NoError(t, err, "Docker probe failed after the client connected")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 	return ctx
 }
 
-// probeDockerAvailable 探测本机 Docker 是否可用（NewDockerClient + Ping）。
-// 把 testcontainers 内部 panic（Windows 无 Docker / rootless 不支持等）也转成
-// 普通 error，供上层决定 t.Skip；client 具体类型在内部用短变量推断，不外泄。
-func probeDockerAvailable() (err error) {
+// probeDockerAvailable only classifies client construction failures and an
+// unmistakably unreachable daemon/socket as skippable. Once Ping succeeds,
+// cleanup and every subsequent testcontainers error are test failures.
+func probeDockerAvailable() (unavailable bool, err error) {
+	clientConstructed := false
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("docker probe panic, treat as unavailable: %v", recovered)
+			err = fmt.Errorf("docker probe panic: %v", recovered)
+			unavailable = !clientConstructed
 		}
 	}()
 	probeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	dockerClient, err := testcontainers.NewDockerClient()
 	if err != nil {
-		return err
+		return true, err
 	}
+	clientConstructed = true
 	if _, err := dockerClient.Ping(probeContext); err != nil {
 		_ = dockerClient.Close()
-		return err
+		return isDockerDaemonUnavailable(err), err
 	}
-	return dockerClient.Close()
+	return false, dockerClient.Close()
 }
 
-func skipDockerUnavailable(t *testing.T, err error) {
-	t.Helper()
-	t.Logf("docker unavailable: %v", err)
-	t.Skip("docker unavailable")
+func isDockerDaemonUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"cannot connect to the docker daemon",
+		"docker daemon is not running",
+		"connection refused",
+		"no such file or directory",
+		"the system cannot find the file specified",
+		"open //./pipe/docker_engine",
+		"open \\\\.\\pipe\\docker_engine",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
