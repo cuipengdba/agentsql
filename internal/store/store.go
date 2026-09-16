@@ -22,11 +22,23 @@ var (
 	ErrInvalidPostgresDSN = errors.New("PostgreSQL DSN is required")
 	// ErrInvalidMetadataDriver indicates an unsupported metadata-store driver.
 	ErrInvalidMetadataDriver = errors.New("unsupported metadata store driver")
+	// ErrInvalidAuditDriver indicates an unsupported independent audit driver.
+	ErrInvalidAuditDriver = errors.New("unsupported audit store driver")
 	// ErrNilContext indicates that a store operation received no context.
 	ErrNilContext = errors.New("context is required")
 )
 
-// MetadataOptions configures a metadata-store connection.
+// AuditOptions configures the optional independent audit connection.
+type AuditOptions struct {
+	Separate     bool
+	Driver       Dialect
+	PostgresDSN  string
+	MaxOpenConns int
+	MaxIdleConns int
+	AutoMigrate  bool
+}
+
+// MetadataOptions configures the metadata connection and its audit target.
 type MetadataOptions struct {
 	Driver          Dialect
 	SQLitePath      string
@@ -34,25 +46,38 @@ type MetadataOptions struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	AutoMigrate     bool
+	Audit           AuditOptions
 }
 
-// Store owns the metadata connection and repository encryption state.
+// Store owns the metadata and audit connections plus metadata-side encryption.
 type Store struct {
-	db     *sql.DB
-	cipher *PasswordCipher
-	driver Dialect
+	metaDB        *sql.DB
+	auditDB       *sql.DB
+	metaDriver    Dialect
+	auditDriver   Dialect
+	auditSeparate bool
+	cipher        *PasswordCipher
 }
 
-// Ping verifies that the metadata connection is reachable.
+// Ping verifies both targets. A shared connection is pinged exactly once.
 func (store *Store) Ping(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("ping store: %w", ErrNilContext)
 	}
-	if store == nil || store.db == nil {
-		return fmt.Errorf("ping store: database is unavailable")
+	if store == nil || store.metaDB == nil {
+		return fmt.Errorf("ping store: metadata database is unavailable")
 	}
-	if err := store.db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping store: %w", err)
+	if err := store.metaDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping metadata store: %w", err)
+	}
+	if store.auditDB == nil {
+		return fmt.Errorf("ping store: audit database is unavailable")
+	}
+	if store.auditDB != store.metaDB {
+		if err := store.auditDB.PingContext(ctx); err != nil {
+			return fmt.Errorf("ping audit store: %w", err)
+		}
 	}
 	return nil
 }
@@ -68,8 +93,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
 	}
 	return openMetadataWithCipher(ctx, MetadataOptions{
-		Driver:     DialectSQLite,
-		SQLitePath: path,
+		Driver:      DialectSQLite,
+		SQLitePath:  path,
+		AutoMigrate: true,
 	}, passwordCipher)
 }
 
@@ -84,12 +110,13 @@ func OpenWithSecret(ctx context.Context, path string, secret []byte) (*Store, er
 		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
 	}
 	return openMetadataWithCipher(ctx, MetadataOptions{
-		Driver:     DialectSQLite,
-		SQLitePath: path,
+		Driver:      DialectSQLite,
+		SQLitePath:  path,
+		AutoMigrate: true,
 	}, passwordCipher)
 }
 
-// OpenMetadata opens, verifies, and migrates the configured metadata store.
+// OpenMetadata opens, verifies, and optionally migrates both configured stores.
 func OpenMetadata(ctx context.Context, options MetadataOptions, secret []byte) (*Store, error) {
 	if err := validateMetadataOptions(ctx, options); err != nil {
 		return nil, err
@@ -113,62 +140,94 @@ func openMetadataWithCipher(
 		return nil, fmt.Errorf("open metadata store: %w", ErrCipherUnavailable)
 	}
 
-	driverName, target := "", ""
-	switch options.Driver {
-	case DialectSQLite:
-		driverName = "sqlite"
-		target = options.SQLitePath
-	case DialectPostgres:
-		driverName = "pgx"
-		target = options.PostgresDSN
-	}
-
-	database, err := sql.Open(driverName, target)
+	metadataDB, err := openDatabase(options.Driver, options.SQLitePath, options.PostgresDSN, options.MaxOpenConns, options.MaxIdleConns, options.ConnMaxLifetime)
 	if err != nil {
-		if options.Driver == DialectSQLite {
-			return nil, fmt.Errorf("open SQLite database %q: %w", options.SQLitePath, err)
-		}
 		return nil, fmt.Errorf("open %s metadata database: %w", options.Driver, err)
 	}
-	if options.Driver == DialectSQLite {
+	if err := metadataDB.PingContext(ctx); err != nil {
+		return nil, closeDatabasesAfterError(nil, metadataDB, fmt.Errorf("ping %s metadata database: %w", options.Driver, err))
+	}
+	if options.AutoMigrate {
+		err = MigrateMetadata(ctx, metadataDB, options.Driver, options.Audit.Separate)
+	} else {
+		err = VerifyMetadataSchema(ctx, metadataDB, options.Driver, options.Audit.Separate)
+	}
+	if err != nil {
+		return nil, closeDatabasesAfterError(nil, metadataDB, fmt.Errorf("prepare %s metadata database: %w", options.Driver, err))
+	}
+
+	opened := &Store{
+		metaDB:      metadataDB,
+		auditDB:     metadataDB,
+		metaDriver:  options.Driver,
+		auditDriver: options.Driver,
+		cipher:      passwordCipher,
+	}
+	if !options.Audit.Separate {
+		return opened, nil
+	}
+
+	auditDB, err := openDatabase(
+		options.Audit.Driver,
+		"",
+		options.Audit.PostgresDSN,
+		options.Audit.MaxOpenConns,
+		options.Audit.MaxIdleConns,
+		0,
+	)
+	if err != nil {
+		return nil, closeDatabasesAfterError(nil, metadataDB, fmt.Errorf("open %s audit database: %w", options.Audit.Driver, err))
+	}
+	if err := auditDB.PingContext(ctx); err != nil {
+		return nil, closeDatabasesAfterError(auditDB, metadataDB, fmt.Errorf("ping %s audit database: %w", options.Audit.Driver, err))
+	}
+	if options.Audit.AutoMigrate {
+		err = MigrateAudit(ctx, auditDB, options.Audit.Driver)
+	} else {
+		err = VerifyAuditSchema(ctx, auditDB, options.Audit.Driver)
+	}
+	if err != nil {
+		return nil, closeDatabasesAfterError(auditDB, metadataDB, fmt.Errorf("prepare %s audit database: %w", options.Audit.Driver, err))
+	}
+	opened.auditDB = auditDB
+	opened.auditDriver = options.Audit.Driver
+	opened.auditSeparate = true
+	return opened, nil
+}
+
+func openDatabase(
+	dialect Dialect,
+	sqlitePath string,
+	postgresDSN string,
+	maxOpenConns int,
+	maxIdleConns int,
+	connMaxLifetime time.Duration,
+) (*sql.DB, error) {
+	driverName, target := "sqlite", sqlitePath
+	if dialect == DialectPostgres {
+		driverName, target = "pgx", postgresDSN
+	}
+	database, err := sql.Open(driverName, target)
+	if err != nil {
+		return nil, err
+	}
+	if dialect == DialectSQLite {
 		database.SetMaxOpenConns(1)
 		database.SetMaxIdleConns(1)
-	} else if options.MaxOpenConns > 0 {
-		database.SetMaxOpenConns(options.MaxOpenConns)
-		database.SetMaxIdleConns(options.MaxIdleConns)
-		database.SetConnMaxLifetime(options.ConnMaxLifetime)
+		return database, nil
 	}
-
-	if err := database.PingContext(ctx); err != nil {
-		if options.Driver == DialectSQLite {
-			return nil, closeDatabaseAfterError(
-				database,
-				options.Driver,
-				fmt.Errorf("ping SQLite database %q: %w", options.SQLitePath, err),
-			)
-		}
-		return nil, closeDatabaseAfterError(
-			database,
-			options.Driver,
-			fmt.Errorf("ping %s metadata database: %w", options.Driver, err),
-		)
+	if maxOpenConns == 0 {
+		maxOpenConns = 10
 	}
-	if err := Migrate(ctx, database, options.Driver); err != nil {
-		if options.Driver == DialectSQLite {
-			return nil, closeDatabaseAfterError(
-				database,
-				options.Driver,
-				fmt.Errorf("migrate SQLite database %q: %w", options.SQLitePath, err),
-			)
-		}
-		return nil, closeDatabaseAfterError(
-			database,
-			options.Driver,
-			fmt.Errorf("migrate %s metadata database: %w", options.Driver, err),
-		)
+	if maxIdleConns == 0 {
+		maxIdleConns = 5
 	}
-
-	return &Store{db: database, cipher: passwordCipher, driver: options.Driver}, nil
+	database.SetMaxOpenConns(maxOpenConns)
+	database.SetMaxIdleConns(maxIdleConns)
+	if connMaxLifetime > 0 {
+		database.SetConnMaxLifetime(connMaxLifetime)
+	}
+	return database, nil
 }
 
 func validateMetadataOptions(ctx context.Context, options MetadataOptions) error {
@@ -187,6 +246,35 @@ func validateMetadataOptions(ctx context.Context, options MetadataOptions) error
 	default:
 		return fmt.Errorf("open metadata store with driver %q: %w", options.Driver, ErrInvalidMetadataDriver)
 	}
+	if err := validatePool(options.MaxOpenConns, options.MaxIdleConns); err != nil {
+		return fmt.Errorf("open metadata store: %w", err)
+	}
+	if !options.Audit.Separate {
+		if options.Audit.Driver != "" || strings.TrimSpace(options.Audit.PostgresDSN) != "" ||
+			options.Audit.MaxOpenConns != 0 || options.Audit.MaxIdleConns != 0 {
+			return fmt.Errorf("open audit store: connection settings require separate=true")
+		}
+		return nil
+	}
+	if options.Audit.Driver != DialectPostgres {
+		return fmt.Errorf("open audit store with driver %q: %w", options.Audit.Driver, ErrInvalidAuditDriver)
+	}
+	if strings.TrimSpace(options.Audit.PostgresDSN) == "" {
+		return fmt.Errorf("open audit store: %w", ErrInvalidPostgresDSN)
+	}
+	if err := validatePool(options.Audit.MaxOpenConns, options.Audit.MaxIdleConns); err != nil {
+		return fmt.Errorf("open audit store: %w", err)
+	}
+	return nil
+}
+
+func validatePool(maxOpenConns, maxIdleConns int) error {
+	if maxOpenConns < 0 || maxIdleConns < 0 {
+		return errors.New("connection pool values must not be negative")
+	}
+	if maxOpenConns > 0 && maxIdleConns > maxOpenConns {
+		return errors.New("max_idle_conns must not exceed max_open_conns")
+	}
 	return nil
 }
 
@@ -200,68 +288,84 @@ func validateOpenInput(ctx context.Context, path string) error {
 	return nil
 }
 
-// Close releases the metadata connection.
+// Close releases the independent audit connection first, then metadata. Pointer
+// identity is the only criterion used to avoid double-closing a shared pool.
 func (store *Store) Close() error {
-	if err := store.db.Close(); err != nil {
-		if store.driver == DialectSQLite {
-			return fmt.Errorf("close SQLite database: %w", err)
-		}
-		return fmt.Errorf("close %s metadata database: %w", store.driver, err)
+	if store == nil {
+		return nil
 	}
-	return nil
+	var auditErr, metadataErr error
+	if store.auditDB != nil && store.auditDB != store.metaDB {
+		if err := store.auditDB.Close(); err != nil {
+			auditErr = fmt.Errorf("close %s audit database: %w", store.auditDriver, err)
+		}
+	}
+	if store.metaDB != nil {
+		if err := store.metaDB.Close(); err != nil {
+			metadataErr = fmt.Errorf("close %s metadata database: %w", store.metaDriver, err)
+		}
+	}
+	return errors.Join(auditErr, metadataErr)
 }
 
 // Agents returns the agent repository.
 func (store *Store) Agents() *AgentRepository {
-	return &AgentRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
+	return &AgentRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
 // Datasources returns the datasource repository.
 func (store *Store) Datasources() *DatasourceRepository {
 	return &DatasourceRepository{
-		repositoryBase: repositoryBase{db: store.db, dialect: store.driver},
+		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
 		cipher:         store.cipher,
 	}
 }
 
 // Policies returns the policy repository.
 func (store *Store) Policies() *PolicyRepository {
-	return &PolicyRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
+	return &PolicyRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
 // Rules returns the rule repository.
 func (store *Store) Rules() *RuleRepository {
-	return &RuleRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
+	return &RuleRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
 // MaskRules returns the mask-rule repository.
 func (store *Store) MaskRules() *MaskRuleRepository {
-	return &MaskRuleRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
+	return &MaskRuleRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
-// AuditLogs returns the append-only audit-log repository.
+// AuditLogs returns the append-only repository bound to the audit target.
 func (store *Store) AuditLogs() *AuditLogRepository {
-	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
+	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.auditDB, dialect: store.auditDriver}}
 }
 
-// Approvals returns the approval repository.
+// Approvals uses metadata for approval rows and the configured audit target for
+// the audit-first saga when those targets are separate.
 func (store *Store) Approvals() *ApprovalRepository {
-	return &ApprovalRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
-}
-
-// Dashboard returns read-only aggregate queries for the admin dashboard.
-func (store *Store) Dashboard() *DashboardRepository {
-	return &DashboardRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.driver}}
-}
-
-func closeDatabaseAfterError(database *sql.DB, driver Dialect, cause error) error {
-	if err := database.Close(); err != nil {
-		if driver == DialectSQLite {
-			return fmt.Errorf("close SQLite database after failure: %w", errors.Join(cause, err))
-		}
-		return fmt.Errorf("close %s metadata database after failure: %w", driver, errors.Join(cause, err))
+	return &ApprovalRepository{
+		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
+		auditDB:        store.auditDB,
+		auditDialect:   store.auditDriver,
+		auditSeparate:  store.auditSeparate,
 	}
-	return cause
+}
+
+// Dashboard returns aggregates composed from the metadata and audit targets.
+func (store *Store) Dashboard() *DashboardRepository {
+	return NewDashboardRepository(store.metaDB, store.auditDB, store.metaDriver, store.auditDriver)
+}
+
+func closeDatabasesAfterError(auditDB, metadataDB *sql.DB, cause error) error {
+	var auditErr, metadataErr error
+	if auditDB != nil && auditDB != metadataDB {
+		auditErr = auditDB.Close()
+	}
+	if metadataDB != nil {
+		metadataErr = metadataDB.Close()
+	}
+	return errors.Join(cause, auditErr, metadataErr)
 }
 
 func checkRowsAffected(result sql.Result, entity, id string) error {

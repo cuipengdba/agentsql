@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -13,9 +14,16 @@ import (
 
 var ErrApprovalNotPending = errors.New("approval is no longer pending")
 
+// ErrApprovalReplayConflict indicates that a separated-store saga found an
+// approval with the same ID but different immutable pending-request fields.
+var ErrApprovalReplayConflict = errors.New("approval replay conflicts with persisted record")
+
 // ApprovalRepository provides CRUD operations for approval records.
 type ApprovalRepository struct {
 	repositoryBase
+	auditDB       *sql.DB
+	auditDialect  Dialect
+	auditSeparate bool
 }
 
 type ApprovalPage struct {
@@ -213,8 +221,10 @@ WHERE id = ? AND status = 'pending'`,
 	return updated, nil
 }
 
-// CreatePendingWithAudit atomically inserts a pending approval, its approve
-// audit event, and the approval-to-audit link.
+// CreatePendingWithAudit atomically inserts both records when metadata and
+// audit share a database. With separate databases it writes the immutable
+// audit record first, then inserts the linked approval in a metadata
+// transaction; a metadata failure therefore leaves a valid orphan audit.
 func (repository *ApprovalRepository) CreatePendingWithAudit(
 	ctx context.Context,
 	approval model.Approval,
@@ -232,9 +242,31 @@ func (repository *ApprovalRepository) CreatePendingWithAudit(
 	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: %w", err)
 	}
-	if auditLog.Decision != "approve" || auditLog.ID != 0 {
+	if auditLog.Decision != "approve" || auditLog.ID < 0 {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: invalid audit input")
 	}
+	if repository.auditSeparate {
+		if repository.auditDB == nil {
+			return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: audit repository is not initialized")
+		}
+		if approval.Approver != nil || approval.DecidedAt != nil {
+			return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: invalid approval input")
+		}
+		return repository.createPendingWithAuditSaga(ctx, approval, auditLog)
+	}
+	if auditLog.ID != 0 {
+		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: invalid audit input")
+	}
+	return repository.createPendingWithAuditTransaction(ctx, approval, auditLog)
+}
+
+// createPendingWithAuditTransaction is the original shared-database path. It
+// intentionally keeps the insert-audit-backfill sequence in one transaction.
+func (repository *ApprovalRepository) createPendingWithAuditTransaction(
+	ctx context.Context,
+	approval model.Approval,
+	auditLog model.AuditLog,
+) (created model.Approval, recorded model.AuditLog, err error) {
 
 	tx, err := repository.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -286,6 +318,136 @@ WHERE id = ? AND status = 'pending'`, recorded.ID, approval.ID)
 	}
 	committed = true
 	return created, recorded, nil
+}
+
+func (repository *ApprovalRepository) createPendingWithAuditSaga(
+	ctx context.Context,
+	approval model.Approval,
+	auditLog model.AuditLog,
+) (model.Approval, model.AuditLog, error) {
+	recorded, err := repository.recordOrReadApprovalAudit(ctx, auditLog)
+	if err != nil {
+		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval %q: persist audit: %w", approval.ID, err)
+	}
+
+	approval.AuditID = &recorded.ID
+	created, err := repository.insertPendingApprovalSaga(ctx, approval)
+	if err != nil {
+		// The approve audit is an immutable fact and deliberately remains in the
+		// audit store as an orphan when the metadata step fails.
+		return model.Approval{}, model.AuditLog{}, err
+	}
+	return created, recorded, nil
+}
+
+// recordOrReadApprovalAudit supports an in-process retry after the audit step:
+// an ID of zero appends once, while a positive ID reuses and verifies the
+// already-recorded immutable audit instead of inserting another row.
+func (repository *ApprovalRepository) recordOrReadApprovalAudit(
+	ctx context.Context,
+	auditLog model.AuditLog,
+) (model.AuditLog, error) {
+	if auditLog.ID == 0 {
+		return insertAuditLog(ctx, repository.auditDB, repository.auditDialect, auditLog)
+	}
+	recorded, err := getInsertedAuditLog(ctx, repository.auditDB, repository.auditDialect, auditLog.ID)
+	if err != nil {
+		return model.AuditLog{}, err
+	}
+	if !sameAuditInsertIntent(auditLog, recorded) {
+		return model.AuditLog{}, fmt.Errorf("reuse approval audit %d: persisted audit differs", auditLog.ID)
+	}
+	return recorded, nil
+}
+
+func (repository *ApprovalRepository) insertPendingApprovalSaga(
+	ctx context.Context,
+	expected model.Approval,
+) (model.Approval, error) {
+	tx, err := repository.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.Approval{}, fmt.Errorf("create pending approval %q: begin metadata transaction: %w", expected.ID, err)
+	}
+
+	if err := insertApproval(ctx, tx, repository.dialect, expected); err != nil {
+		rollbackErr := rollbackApprovalSaga(tx, expected.ID)
+		if replayed, replayErr := repository.readMatchingApprovalReplay(ctx, expected); replayErr == nil {
+			return replayed, nil
+		} else if errors.Is(replayErr, ErrApprovalReplayConflict) {
+			return model.Approval{}, replayErr
+		}
+		return model.Approval{}, errors.Join(err, rollbackErr)
+	}
+
+	created, err := getApproval(ctx, tx, repository.dialect, expected.ID)
+	if err != nil {
+		return model.Approval{}, errors.Join(
+			fmt.Errorf("read pending approval %q: %w", expected.ID, err),
+			rollbackApprovalSaga(tx, expected.ID),
+		)
+	}
+	if !samePendingApprovalReplay(expected, created) {
+		return model.Approval{}, errors.Join(
+			fmt.Errorf("create pending approval %q: %w", expected.ID, ErrApprovalReplayConflict),
+			rollbackApprovalSaga(tx, expected.ID),
+		)
+	}
+	if err := tx.Commit(); err != nil {
+		// Commit may have reached PostgreSQL even when its acknowledgement was
+		// lost. A read-back of the exact same request makes that retry safe.
+		if replayed, replayErr := repository.readMatchingApprovalReplay(ctx, expected); replayErr == nil {
+			return replayed, nil
+		} else if errors.Is(replayErr, ErrApprovalReplayConflict) {
+			return model.Approval{}, replayErr
+		}
+		return model.Approval{}, fmt.Errorf("create pending approval %q: commit metadata transaction: %w", expected.ID, err)
+	}
+	return created, nil
+}
+
+func (repository *ApprovalRepository) readMatchingApprovalReplay(
+	ctx context.Context,
+	expected model.Approval,
+) (model.Approval, error) {
+	stored, err := getApproval(ctx, repository.db, repository.dialect, expected.ID)
+	if err != nil {
+		return model.Approval{}, err
+	}
+	if !samePendingApprovalReplay(expected, stored) {
+		return model.Approval{}, fmt.Errorf("create pending approval %q: %w", expected.ID, ErrApprovalReplayConflict)
+	}
+	return stored, nil
+}
+
+func rollbackApprovalSaga(tx *sql.Tx, approvalID string) error {
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+		return fmt.Errorf("rollback pending approval %q: %w", approvalID, err)
+	}
+	return nil
+}
+
+func samePendingApprovalReplay(expected, stored model.Approval) bool {
+	return stored.ID == expected.ID &&
+		equalInt64Pointers(stored.AuditID, expected.AuditID) &&
+		stored.Status == "pending" &&
+		equalStringPointers(stored.AgentID, expected.AgentID) &&
+		equalStringPointers(stored.SQLRaw, expected.SQLRaw) &&
+		equalStringPointers(stored.Reason, expected.Reason) &&
+		stored.Approver == nil && stored.DecidedAt == nil
+}
+
+func sameAuditInsertIntent(expected, stored model.AuditLog) bool {
+	expected.ID = stored.ID
+	expected.TS = stored.TS
+	return reflect.DeepEqual(expected, stored)
+}
+
+func equalInt64Pointers(left, right *int64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+
+func equalStringPointers(left, right *string) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 // Update replaces mutable approval fields and returns the stored record.

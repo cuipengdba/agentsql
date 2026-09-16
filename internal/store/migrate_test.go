@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -14,13 +15,13 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, Migrate(ctx, opened.db, DialectSQLite))
-	require.NoError(t, Migrate(ctx, opened.db, DialectSQLite))
+	require.NoError(t, Migrate(ctx, opened.metaDB, DialectSQLite))
+	require.NoError(t, Migrate(ctx, opened.metaDB, DialectSQLite))
 
 	migrationErrors := make(chan error, 2)
 	for range 2 {
 		go func() {
-			migrationErrors <- Migrate(ctx, opened.db, DialectSQLite)
+			migrationErrors <- Migrate(ctx, opened.metaDB, DialectSQLite)
 		}()
 	}
 	for range 2 {
@@ -28,14 +29,14 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 	}
 
 	var migrationCount int
-	require.NoError(t, opened.db.QueryRowContext(
+	require.NoError(t, opened.metaDB.QueryRowContext(
 		ctx,
 		"SELECT COUNT(*) FROM schema_migrations WHERE version = 1",
 	).Scan(&migrationCount))
 	require.Equal(t, 1, migrationCount)
 
 	var foreignKeysEnabled int
-	require.NoError(t, opened.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeysEnabled))
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeysEnabled))
 	require.Equal(t, 1, foreignKeysEnabled)
 
 	expectedColumns := map[string][]string{
@@ -72,7 +73,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		},
 	}
 
-	actualTables := businessTableNames(t, opened.db)
+	actualTables := businessTableNames(t, opened.metaDB)
 	expectedTables := make([]string, 0, len(expectedColumns))
 	for table := range expectedColumns {
 		expectedTables = append(expectedTables, table)
@@ -82,7 +83,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 
 	for table, columns := range expectedColumns {
 		t.Run(table+" columns", func(t *testing.T) {
-			require.Equal(t, columns, tableColumnNames(t, opened.db, table))
+			require.Equal(t, columns, tableColumnNames(t, opened.metaDB, table))
 		})
 	}
 
@@ -93,31 +94,60 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_audit_decision",
 		"idx_audit_ts",
 		"idx_policies_agent_ds",
-	}, businessIndexNames(t, opened.db))
+	}, businessIndexNames(t, opened.metaDB))
 }
 
 func TestSQLiteMigrationClaimRollsBackWithDDL(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
 
-	err := applyMigration(ctx, opened.db, DialectSQLite, 999, `
+	err := applyMigration(ctx, opened.metaDB, DialectSQLite, 999, `
 CREATE TABLE migration_should_rollback (id INTEGER PRIMARY KEY);
 CREATE TABL invalid_syntax (id INTEGER PRIMARY KEY);`)
 	require.Error(t, err)
 
 	var tableCount int
-	require.NoError(t, opened.db.QueryRowContext(
+	require.NoError(t, opened.metaDB.QueryRowContext(
 		ctx,
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_should_rollback'",
 	).Scan(&tableCount))
 	require.Zero(t, tableCount)
 
 	var migrationCount int
-	require.NoError(t, opened.db.QueryRowContext(
+	require.NoError(t, opened.metaDB.QueryRowContext(
 		ctx,
 		"SELECT COUNT(*) FROM schema_migrations WHERE version = 999",
 	).Scan(&migrationCount))
 	require.Zero(t, migrationCount)
+}
+
+func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *testing.T) {
+	ctx := context.Background()
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "metadata.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+
+	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
+	require.Equal(t, []string{
+		"agents", "approvals", "datasources", "mask_rules", "policies", "rules",
+	}, businessTableNames(t, database))
+	require.Equal(t, []string{
+		"idx_agents_keyhash", "idx_approvals_status", "idx_policies_agent_ds",
+	}, businessIndexNames(t, database))
+
+	rows, err := database.QueryContext(ctx, "PRAGMA foreign_key_list(approvals)")
+	require.NoError(t, err)
+	require.False(t, rows.Next())
+	require.NoError(t, rows.Err())
+	require.NoError(t, rows.Close())
+
+	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, current)
+	require.Equal(t, 1, latest)
+	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
 func businessTableNames(t *testing.T, database *sql.DB) []string {

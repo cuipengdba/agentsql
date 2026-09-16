@@ -225,6 +225,10 @@ func (*fakeExecutor) OpenSession(context.Context, string) (Session, error) {
 	return nil, nil
 }
 
+func (*fakeExecutor) BeginWriteTx(context.Context) (WriteTx, error) {
+	return nil, nil
+}
+
 func (*fakeExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
 	return model.ExplainInfo{}, nil
 }

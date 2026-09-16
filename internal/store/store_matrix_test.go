@@ -90,6 +90,7 @@ func openPostgres18TestStore(t *testing.T) *Store {
 		MaxOpenConns:    8,
 		MaxIdleConns:    4,
 		ConnMaxLifetime: time.Minute,
+		AutoMigrate:     true,
 	}, []byte(testSecret))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
@@ -98,9 +99,9 @@ func openPostgres18TestStore(t *testing.T) *Store {
 
 func execStoreSQL(t *testing.T, opened *Store, query string, args ...any) {
 	t.Helper()
-	_, err := opened.db.ExecContext(
+	_, err := opened.metaDB.ExecContext(
 		context.Background(),
-		repositoryBase{dialect: opened.driver}.bind(query),
+		repositoryBase{dialect: opened.metaDriver}.bind(query),
 		args...,
 	)
 	require.NoError(t, err)

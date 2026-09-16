@@ -326,6 +326,10 @@ func (counted *countingDatabaseExecutor) OpenSession(ctx context.Context, sessio
 	return counted.delegate.OpenSession(ctx, sessionID)
 }
 
+func (counted *countingDatabaseExecutor) BeginWriteTx(ctx context.Context) (executor.WriteTx, error) {
+	return counted.delegate.BeginWriteTx(ctx)
+}
+
 func (counted *countingDatabaseExecutor) Explain(ctx context.Context, sql string) (model.ExplainInfo, error) {
 	counted.mu.Lock()
 	counted.calls.explain++

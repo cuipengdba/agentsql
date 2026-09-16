@@ -102,6 +102,21 @@ INSERT INTO audit_logs (
 				require.Greater(t, id, concurrentIDs[index-1])
 			}
 		}
+		seen := make(map[int64]struct{}, len(fixtures)+concurrentInserts)
+		for pageNumber := 1; ; pageNumber++ {
+			page, pageErr := opened.AuditLogs().FilteredPage(ctx, model.AuditFilter{}, pageNumber, 3)
+			require.NoError(t, pageErr)
+			for _, log := range page.List {
+				_, duplicate := seen[log.ID]
+				require.False(t, duplicate, "audit ID %d appeared on more than one stable page", log.ID)
+				seen[log.ID] = struct{}{}
+			}
+			if int64(len(seen)) == page.Total {
+				require.Equal(t, int64(len(fixtures)+concurrentInserts), page.Total)
+				break
+			}
+			require.NotEmpty(t, page.List)
+		}
 
 		auditLog, err := opened.AuditLogs().Insert(ctx, model.AuditLog{Decision: "approve"})
 		require.NoError(t, err)
@@ -193,7 +208,7 @@ INSERT INTO audit_logs (
 
 func installApprovalFailureTriggers(t *testing.T, opened *Store) {
 	t.Helper()
-	if opened.driver == DialectSQLite {
+	if opened.metaDriver == DialectSQLite {
 		execStoreSQL(t, opened, `
 CREATE TRIGGER fail_matrix_approve_audit BEFORE INSERT ON audit_logs
 WHEN NEW.decision = 'approve' AND NEW.sql_raw = 'force-audit'

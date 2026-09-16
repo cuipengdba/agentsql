@@ -253,6 +253,17 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 	}); err != nil {
 		return run.finish(ctx, err)
 	}
+	barrier := classifyExecutionBarrier(run.ast)
+	if barrier == barrierDeny {
+		run.response.Decision = model.DecisionDeny
+		run.response.Assessment.Decision = model.DecisionDeny
+		run.response.Assessment.Risk = model.RiskDeny
+		run.response.Assessment.Reason = "statement is not eligible for guarded execution"
+		if err := run.closeUnusedSession(); err != nil {
+			return run.finish(ctx, err)
+		}
+		return run.finish(ctx, nil)
+	}
 	if request.RequireApproval &&
 		run.response.Decision != model.DecisionDeny &&
 		run.response.Decision != model.DecisionApprove {
@@ -292,7 +303,14 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		return run.finish(ctx, fmt.Errorf("unsupported pipeline decision %q", run.response.Decision))
 	}
 
-	returnsRows := run.ast.StmtType == model.StmtType("SELECT")
+	if barrier == barrierTransactionalWrite {
+		return run.executeTransactionalWrite(ctx)
+	}
+	if barrier == barrierPreIntent {
+		return run.executeAfterIntent(ctx)
+	}
+
+	returnsRows := barrier == barrierRead
 	if err := run.measure(StageExecute, func() error {
 		executionContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
 		if err != nil {
@@ -351,6 +369,92 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		}
 	}
 	return run.finish(ctx, nil)
+}
+
+func (run *pipelineRun) executeTransactionalWrite(ctx context.Context) (Response, error) {
+	var tx executor.WriteTx
+	if err := run.measure(StageExecute, func() error {
+		var err error
+		if run.session != nil {
+			tx, err = run.session.BeginWriteTx(ctx)
+		} else {
+			tx, err = run.executor.BeginWriteTx(ctx)
+		}
+		if err != nil {
+			return err
+		}
+		if isNilInterface(tx) {
+			return fmt.Errorf("executor returned nil write transaction")
+		}
+		executionContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		result, err := tx.Execute(executionContext, run.request.SQL)
+		if err != nil {
+			return err
+		}
+		run.executionResult = &result
+		return nil
+	}); err != nil {
+		if tx != nil {
+			run.rollbackWriteTx(tx)
+		}
+		return run.finish(ctx, err)
+	}
+	defer run.rollbackWriteTx(tx)
+
+	if err := run.audit(ctx, string(run.response.Decision), nil); err != nil {
+		run.rollbackWriteTx(tx)
+		return run.finish(ctx, ErrAuditUnavailable)
+	}
+
+	if err := run.measure(StageExecute, func() error { return tx.Commit(ctx) }); err != nil {
+		run.response.Result = nil
+		return run.finish(ctx, ErrBusinessCommitUncertain)
+	}
+	result := *run.executionResult
+	run.response.Result = &result
+	return run.finish(ctx, nil)
+}
+
+func (run *pipelineRun) executeAfterIntent(ctx context.Context) (Response, error) {
+	if err := run.audit(ctx, string(run.response.Decision), nil); err != nil {
+		return run.finish(ctx, ErrAuditUnavailable)
+	}
+	if err := run.measure(StageExecute, func() error {
+		executionContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		var result model.QueryResult
+		if run.session != nil {
+			result, err = run.session.Execute(executionContext, run.request.SQL)
+		} else {
+			result, err = run.executor.Execute(executionContext, run.request.SQL)
+		}
+		if err != nil {
+			return err
+		}
+		run.executionResult = &result
+		responseResult := result
+		run.response.Result = &responseResult
+		return nil
+	}); err != nil {
+		return run.finish(ctx, err)
+	}
+	return run.finish(ctx, nil)
+}
+
+func (run *pipelineRun) rollbackWriteTx(tx executor.WriteTx) {
+	if isNilInterface(tx) {
+		return
+	}
+	cleanupContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = tx.Rollback(cleanupContext)
 }
 
 func resolveSourceColumns(refs []model.DirectProjectionRef, columnCount int) []string {
@@ -555,12 +659,17 @@ func (run *pipelineRun) audit(
 		run.started,
 	)
 	if err != nil {
-		combined := errors.Join(operationError, err)
-		run.setFailure(combined)
-		return combined
+		run.setFailure(ErrAuditUnavailable)
+		return ErrAuditUnavailable
 	}
 	auditStarted := time.Now()
-	recorded, auditError := run.pipeline.ports.Audit.Record(ctx, log)
+	auditContext, cancel, contextError := statementContext(ctx, auditTimeoutMS(run.datasource))
+	if contextError != nil {
+		run.setFailure(ErrAuditUnavailable)
+		return ErrAuditUnavailable
+	}
+	recorded, auditError := run.pipeline.ports.Audit.Record(auditContext, log)
+	cancel()
 	auditLatency := time.Since(auditStarted).Milliseconds()
 	if auditLatency < 0 {
 		auditLatency = 0
@@ -568,16 +677,18 @@ func (run *pipelineRun) audit(
 	run.stageLatency[StageAudit] += auditLatency
 	run.response.Assessment.StageLatency = cloneStageLatency(run.stageLatency)
 	if auditError != nil {
-		if operationError == nil {
-			run.setFailure(auditError)
-			return auditError
-		}
-		combined := errors.Join(operationError, auditError)
-		run.setFailure(combined)
-		return combined
+		run.setFailure(ErrAuditUnavailable)
+		return ErrAuditUnavailable
 	}
 	run.response.AuditID = recorded.ID
 	return operationError
+}
+
+func auditTimeoutMS(datasource *model.Datasource) int {
+	if datasource == nil || datasource.StmtTimeoutMS == 0 {
+		return defaultStatementTimeout
+	}
+	return datasource.StmtTimeoutMS
 }
 
 func (run *pipelineRun) approve(ctx context.Context) (Response, error) {

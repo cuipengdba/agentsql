@@ -286,6 +286,7 @@ type adminE2EPage[T any] struct {
 
 type adminE2EMCPResponse struct {
 	Decision string
+	Reason   string
 	Data     json.RawMessage
 }
 
@@ -370,6 +371,7 @@ func adminE2EMCPCall(
 		Result struct {
 			StructuredContent struct {
 				Decision string          `json:"decision"`
+				Reason   string          `json:"reason"`
 				Data     json.RawMessage `json:"data"`
 			} `json:"structuredContent"`
 		} `json:"result"`
@@ -383,6 +385,7 @@ func adminE2EMCPCall(
 	require.NotEmpty(t, decoded.Result.StructuredContent.Decision, string(contents))
 	return adminE2EMCPResponse{
 		Decision: decoded.Result.StructuredContent.Decision,
+		Reason:   decoded.Result.StructuredContent.Reason,
 		Data:     decoded.Result.StructuredContent.Data,
 	}
 }

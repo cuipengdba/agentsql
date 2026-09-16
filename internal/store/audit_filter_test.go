@@ -37,7 +37,7 @@ func TestAuditLogRepositoryFilteredPage(t *testing.T) {
 		{agent: "agent-b", datasource: "ds-2", session: "s-7", tool: "query", decision: "approve", statement: "SELECT", risk: 2, raw: "SELECT secret FROM vault", normalized: "SELECT secret FROM vault", objects: "secure.vault", timestamp: base.Add(6 * time.Minute)},
 	}
 	for _, fixture := range fixtures {
-		_, err := opened.db.ExecContext(
+		_, err := opened.metaDB.ExecContext(
 			context.Background(),
 			`INSERT INTO audit_logs (
   ts, agent_id, datasource_id, session_id, mcp_tool, sql_raw, sql_norm,

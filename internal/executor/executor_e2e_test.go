@@ -164,6 +164,60 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 	}
 
 	if image == "postgres:18" {
+		t.Run("write transaction commit rollback and session lock", func(t *testing.T) {
+			tx, err := executor.BeginWriteTx(ctx)
+			require.NoError(t, err)
+			result, err := tx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (6001,6001)")
+			require.NoError(t, err)
+			require.Equal(t, 1, result.RowCount)
+			assertPostgresRowCount(t, ctx, executor, 6001, "0")
+			require.NoError(t, tx.Commit(ctx))
+			require.NoError(t, tx.Commit(ctx))
+			require.NoError(t, tx.Rollback(ctx))
+			assertPostgresRowCount(t, ctx, executor, 6001, "1")
+
+			tx, err = executor.BeginWriteTx(ctx)
+			require.NoError(t, err)
+			result, err = tx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (6002,6002)")
+			require.NoError(t, err)
+			require.Equal(t, 1, result.RowCount)
+			require.NoError(t, tx.Rollback(ctx))
+			require.NoError(t, tx.Rollback(ctx))
+			require.NoError(t, tx.Commit(ctx))
+			assertPostgresRowCount(t, ctx, executor, 6002, "0")
+			tx, err = executor.BeginWriteTx(ctx)
+			require.NoError(t, err)
+			_, err = tx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (1,1)")
+			require.ErrorContains(t, err, "database operation failed")
+			require.NotContains(t, err.Error(), password)
+			require.NoError(t, tx.Rollback(ctx))
+
+			session, err := executor.OpenSession(ctx, "pg-write-tx-lock")
+			require.NoError(t, err)
+			sessionTx, err := session.BeginWriteTx(ctx)
+			require.NoError(t, err)
+			_, err = sessionTx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (6003,6003)")
+			require.NoError(t, err)
+			closed := make(chan error, 1)
+			go func() { closed <- session.Close() }()
+			select {
+			case err := <-closed:
+				require.Failf(t, "session close did not wait for write transaction", "close returned %v", err)
+			case <-time.After(25 * time.Millisecond):
+			}
+			require.NoError(t, sessionTx.Rollback(ctx))
+			require.NoError(t, <-closed)
+			assertPostgresRowCount(t, ctx, executor, 6003, "0")
+
+			session, err = executor.OpenSession(ctx, "pg-write-tx-explicit")
+			require.NoError(t, err)
+			_, err = session.Execute(ctx, "BEGIN")
+			require.NoError(t, err)
+			_, err = session.BeginWriteTx(ctx)
+			require.ErrorIs(t, err, ErrSessionTransactionActive)
+			require.NoError(t, session.Close())
+		})
+
 		t.Run("bound session fail closed after cancellation and close", func(t *testing.T) {
 			sessionValue, err := executor.OpenSession(ctx, "pg-fail-closed")
 			require.NoError(t, err)
@@ -355,6 +409,60 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		testMySQLBoundSessions(t, ctx, executor)
 	})
 
+	t.Run("write transaction commit rollback and session lock", func(t *testing.T) {
+		tx, err := executor.BeginWriteTx(ctx)
+		require.NoError(t, err)
+		result, err := tx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (3001,3001)")
+		require.NoError(t, err)
+		require.Equal(t, 1, result.RowCount)
+		assertMySQLRowCount(t, ctx, executor, 3001, "0")
+		require.NoError(t, tx.Commit(ctx))
+		require.NoError(t, tx.Commit(ctx))
+		require.NoError(t, tx.Rollback(ctx))
+		assertMySQLRowCount(t, ctx, executor, 3001, "1")
+
+		tx, err = executor.BeginWriteTx(ctx)
+		require.NoError(t, err)
+		result, err = tx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (3002,3002)")
+		require.NoError(t, err)
+		require.Equal(t, 1, result.RowCount)
+		require.NoError(t, tx.Rollback(ctx))
+		require.NoError(t, tx.Rollback(ctx))
+		require.NoError(t, tx.Commit(ctx))
+		assertMySQLRowCount(t, ctx, executor, 3002, "0")
+		tx, err = executor.BeginWriteTx(ctx)
+		require.NoError(t, err)
+		_, err = tx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (1,1)")
+		require.ErrorContains(t, err, "database operation failed")
+		require.NotContains(t, err.Error(), password)
+		require.NoError(t, tx.Rollback(ctx))
+
+		session, err := executor.OpenSession(ctx, "mysql-write-tx-lock")
+		require.NoError(t, err)
+		sessionTx, err := session.BeginWriteTx(ctx)
+		require.NoError(t, err)
+		_, err = sessionTx.Execute(ctx, "INSERT INTO executor_rows(id,value) VALUES (3003,3003)")
+		require.NoError(t, err)
+		closed := make(chan error, 1)
+		go func() { closed <- session.Close() }()
+		select {
+		case err := <-closed:
+			require.Failf(t, "session close did not wait for write transaction", "close returned %v", err)
+		case <-time.After(25 * time.Millisecond):
+		}
+		require.NoError(t, sessionTx.Rollback(ctx))
+		require.NoError(t, <-closed)
+		assertMySQLRowCount(t, ctx, executor, 3003, "0")
+
+		session, err = executor.OpenSession(ctx, "mysql-write-tx-explicit")
+		require.NoError(t, err)
+		_, err = session.Execute(ctx, "START TRANSACTION")
+		require.NoError(t, err)
+		_, err = session.BeginWriteTx(ctx)
+		require.ErrorIs(t, err, ErrSessionTransactionActive)
+		require.NoError(t, session.Close())
+	})
+
 	t.Run("bound session fail closed after cancellation and close", func(t *testing.T) {
 		session, err := executor.OpenSession(ctx, "mysql-fail-closed")
 		require.NoError(t, err)
@@ -420,6 +528,20 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		require.ErrorIs(t, err, ErrDatasourceUnreachable)
 		require.NotContains(t, err.Error(), password)
 	})
+}
+
+func assertPostgresRowCount(t *testing.T, ctx context.Context, executor *PostgresExecutor, id int, want string) {
+	t.Helper()
+	result, err := executor.Query(ctx, "SELECT COUNT(*) FROM executor_rows WHERE id = "+strconv.Itoa(id), 1)
+	require.NoError(t, err)
+	require.Equal(t, want, result.Rows[0][0])
+}
+
+func assertMySQLRowCount(t *testing.T, ctx context.Context, executor *MySQLExecutor, id int, want string) {
+	t.Helper()
+	result, err := executor.Query(ctx, "SELECT COUNT(*) FROM executor_rows WHERE id = "+strconv.Itoa(id), 1)
+	require.NoError(t, err)
+	require.Equal(t, want, result.Rows[0][0])
 }
 
 func testPostgresBoundSessions(

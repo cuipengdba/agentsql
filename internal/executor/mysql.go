@@ -160,9 +160,25 @@ func (executor *MySQLExecutor) OpenSession(
 			}
 			return errors.Join(rawError, connection.Close())
 		},
+		beginTx: connection.BeginTx,
 	}
 	executor.sessions[sessionID] = session
 	return session, nil
+}
+
+// BeginWriteTx starts a MySQL write transaction on a pooled connection.
+func (executor *MySQLExecutor) BeginWriteTx(ctx context.Context) (WriteTx, error) {
+	if executor == nil || executor.database == nil || ctx == nil {
+		return nil, fmt.Errorf("begin MySQL write transaction: executor or context is unavailable")
+	}
+	if executor.readOnly {
+		return nil, fmt.Errorf("begin MySQL write transaction: %w", ErrReadOnlyViolated)
+	}
+	tx, err := executor.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, mysqlDatabaseError("begin MySQL write transaction", err)
+	}
+	return &mysqlWriteTx{executor: executor, tx: tx}, nil
 }
 
 // Query executes a bounded MySQL row query with a SELECT timeout hint.
@@ -670,8 +686,107 @@ type mysqlSession struct {
 	state       *transactionStateMachine
 	release     func() error
 	discard     func() error
+	beginTx     func(context.Context, *sql.TxOptions) (*sql.Tx, error)
 	operationMu sync.Mutex
 	closed      bool
+}
+
+func (session *mysqlSession) BeginWriteTx(ctx context.Context) (WriteTx, error) {
+	if session == nil {
+		return nil, fmt.Errorf("begin MySQL session write transaction: %w", ErrSessionClosed)
+	}
+	session.operationMu.Lock()
+	if session.closed || session.executor == nil || ctx == nil {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin MySQL session write transaction: session or context is unavailable")
+	}
+	if session.executor.readOnly {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin MySQL session write transaction: %w", ErrReadOnlyViolated)
+	}
+	if session.state != nil && session.state.active() {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin MySQL session write transaction: %w", ErrSessionTransactionActive)
+	}
+	if session.beginTx == nil {
+		session.operationMu.Unlock()
+		return nil, fmt.Errorf("begin MySQL session write transaction: transaction starter is unavailable")
+	}
+	tx, err := session.beginTx(ctx, nil)
+	if err != nil {
+		session.operationMu.Unlock()
+		return nil, mysqlDatabaseError("begin MySQL session write transaction", err)
+	}
+	return &mysqlWriteTx{
+		executor: session.executor,
+		tx:       tx,
+		terminal: session.operationMu.Unlock,
+	}, nil
+}
+
+type mysqlWriteTx struct {
+	mu       sync.Mutex
+	executor *MySQLExecutor
+	tx       *sql.Tx
+	done     bool
+	terminal func()
+}
+
+func (tx *mysqlWriteTx) Execute(ctx context.Context, sqlText string) (model.QueryResult, error) {
+	if tx == nil {
+		return model.QueryResult{}, fmt.Errorf("execute MySQL write transaction: %w", ErrTransactionDone)
+	}
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	if tx.done || tx.tx == nil || tx.executor == nil {
+		return model.QueryResult{}, fmt.Errorf("execute MySQL write transaction: %w", ErrTransactionDone)
+	}
+	if err := tx.executor.validateOperation(ctx, sqlText); err != nil {
+		return model.QueryResult{}, err
+	}
+	return tx.executor.executeWithRunner(ctx, tx.tx, sqlText)
+}
+
+func (tx *mysqlWriteTx) Commit(ctx context.Context) error {
+	return tx.finish(ctx, true)
+}
+
+func (tx *mysqlWriteTx) Rollback(ctx context.Context) error {
+	return tx.finish(ctx, false)
+}
+
+func (tx *mysqlWriteTx) finish(ctx context.Context, commit bool) error {
+	if tx == nil {
+		return nil
+	}
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	if tx.done {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("finish MySQL write transaction: context is nil")
+	}
+	var err error
+	if commit {
+		err = tx.tx.Commit()
+	} else {
+		err = tx.tx.Rollback()
+	}
+	tx.done = true
+	tx.tx = nil
+	if tx.terminal != nil {
+		tx.terminal()
+		tx.terminal = nil
+	}
+	if err != nil {
+		action := "rollback"
+		if commit {
+			action = "commit"
+		}
+		return mysqlDatabaseError(action+" MySQL write transaction", err)
+	}
+	return nil
 }
 
 func (session *mysqlSession) Query(

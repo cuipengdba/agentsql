@@ -224,6 +224,9 @@ func (*t25BenchmarkExecutor) Ping(context.Context) error { return nil }
 func (*t25BenchmarkExecutor) OpenSession(context.Context, string) (executor.Session, error) {
 	return nil, fmt.Errorf("benchmark does not use sessions")
 }
+func (*t25BenchmarkExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+	return nil, fmt.Errorf("benchmark executor is read-only")
+}
 func (*t25BenchmarkExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }

@@ -16,6 +16,10 @@ var (
 	ErrSessionExists = errors.New("executor session already exists")
 	// ErrSessionClosed indicates that a bound session has been released.
 	ErrSessionClosed = errors.New("executor session is closed")
+	// ErrTransactionDone indicates that a write transaction is already terminal.
+	ErrTransactionDone = errors.New("write transaction is done")
+	// ErrSessionTransactionActive rejects nesting the audit barrier transaction.
+	ErrSessionTransactionActive = errors.New("session already has an active transaction")
 )
 
 type redactedError struct {

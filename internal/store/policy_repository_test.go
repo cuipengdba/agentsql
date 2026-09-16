@@ -45,7 +45,7 @@ func TestPolicyRepositoryListByAgentAndDatasource(t *testing.T) {
 		rowFilter any,
 	) {
 		t.Helper()
-		_, err := opened.db.ExecContext(context.Background(), `
+		_, err := opened.metaDB.ExecContext(context.Background(), `
 INSERT INTO policies (
   id, agent_id, datasource_id, object_type, object_name, columns, row_filter,
   action, created_at, updated_at
@@ -88,7 +88,7 @@ VALUES (?, ?, ?, 'table', ?, ?, ?, 'allow', ?, ?)`,
 	require.NotNil(t, empty)
 	require.Empty(t, empty)
 
-	planRows, err := opened.db.QueryContext(context.Background(), `
+	planRows, err := opened.metaDB.QueryContext(context.Background(), `
 EXPLAIN QUERY PLAN
 SELECT id
 FROM policies INDEXED BY idx_policies_agent_ds

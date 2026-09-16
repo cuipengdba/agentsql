@@ -28,10 +28,12 @@ const (
 )
 
 var (
-	ErrInvalidPorts   = errors.New("invalid pipeline ports")
-	ErrInvalidSecret  = errors.New("invalid pipeline secret")
-	ErrInvalidOption  = errors.New("invalid pipeline option")
-	ErrInvalidRequest = errors.New("invalid pipeline request")
+	ErrInvalidPorts            = errors.New("invalid pipeline ports")
+	ErrInvalidSecret           = errors.New("invalid pipeline secret")
+	ErrInvalidOption           = errors.New("invalid pipeline option")
+	ErrInvalidRequest          = errors.New("invalid pipeline request")
+	ErrAuditUnavailable        = errors.New("audit unavailable")
+	ErrBusinessCommitUncertain = errors.New("business commit result uncertain")
 )
 
 // Request is one protected SQL operation.
@@ -82,8 +84,10 @@ type ApprovalWriter interface {
 	Create(ctx context.Context, approval model.Approval) (model.Approval, error)
 }
 
-// ApprovalWorkflow atomically persists a pending approval and its approve
-// audit event. Implementations must not leave either record behind on error.
+// ApprovalWorkflow persists a pending approval and its approve audit event.
+// A shared metadata/audit store provides all-or-nothing transaction semantics.
+// With separate stores, implementations write audit first; metadata failure may
+// therefore leave a valid immutable orphan audit and must return no approval.
 type ApprovalWorkflow interface {
 	CreatePendingWithAudit(
 		ctx context.Context,

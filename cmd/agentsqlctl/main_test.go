@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,6 +41,7 @@ func TestInitConfigCreatesValidConfigAndProtectsExistingFile(t *testing.T) {
 	require.True(t, loaded.Server.EventStream)
 	require.Equal(t, 100, loaded.Server.EventStreamMaxConnections)
 	require.Equal(t, "./data/agentsql.db", loaded.Store.SQLitePath)
+	require.True(t, loaded.Store.AutoMigrate)
 	require.Equal(t, 5_000, loaded.Defaults.StatementTimeoutMS)
 	require.Equal(t, 1_000, loaded.Defaults.RowLimit)
 	require.Equal(t, 5, loaded.Defaults.MaxConnsPerDatasource)
@@ -70,10 +72,25 @@ func TestCheckConfigOnlyValidates(t *testing.T) {
 	))
 	var output strings.Builder
 	require.Equal(t, 0, run([]string{"check-config", "-c", configPath}, &output, io.Discard))
-	require.Contains(t, output.String(), "config ok: driver=sqlite")
+	require.Contains(t, output.String(), "config ok: metadata_driver=sqlite audit_driver=sqlite audit_separate=false")
 	require.Contains(t, output.String(), filepath.ToSlash(databasePath))
 	_, err := os.Stat(filepath.Dir(databasePath))
 	require.True(t, os.IsNotExist(err))
+
+	auditPassword := "audit-password-must-not-appear"
+	auditDSN := "postgres://audit:" + auditPassword + "@example.invalid/audit"
+	separateConfig := strings.Replace(
+		defaultConfigTemplate,
+		"  # audit:\n",
+		fmt.Sprintf("  audit:\n    separate: true\n    driver: postgres\n    dsn: %q\n", auditDSN),
+		1,
+	)
+	separatePath := writeControlConfig(t, separateConfig)
+	var separateOutput, separateError strings.Builder
+	require.Equal(t, 0, run([]string{"check-config", "-c", separatePath}, &separateOutput, &separateError), separateError.String())
+	require.Contains(t, separateOutput.String(), "metadata_driver=sqlite audit_driver=postgres audit_separate=true")
+	require.NotContains(t, separateOutput.String()+separateError.String(), auditDSN)
+	require.NotContains(t, separateOutput.String()+separateError.String(), auditPassword)
 
 	invalid := []string{
 		"not: [valid",

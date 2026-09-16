@@ -25,11 +25,69 @@ const postgresSchemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migration
 
 var errForeignKeysDisabled = errors.New("SQLite foreign key enforcement is disabled")
 
-//go:embed migrations/sqlite/*.sql migrations/postgres/*.sql
+//go:embed migrations/sqlite/*.sql migrations/postgres/*.sql migrations/metadata/sqlite/*.sql migrations/metadata/postgres/*.sql migrations/audit/postgres/*.sql
 var migrationFiles embed.FS
 
 // Migrate applies each embedded migration exactly once in version order.
 func Migrate(ctx context.Context, database *sql.DB, dialect Dialect) error {
+	return migrateDirectory(ctx, database, dialect, "migrations/"+string(dialect))
+}
+
+// MigrateMetadata applies the metadata migration stream for the requested
+// layout. The combined stream remains byte-for-byte unchanged when audit data
+// shares the metadata database.
+func MigrateMetadata(ctx context.Context, database *sql.DB, dialect Dialect, auditSeparate bool) error {
+	directory := "migrations/" + string(dialect)
+	if auditSeparate {
+		directory = "migrations/metadata/" + string(dialect)
+	}
+	return migrateDirectory(ctx, database, dialect, directory)
+}
+
+// MigrateAudit applies the independent audit-only migration stream.
+func MigrateAudit(ctx context.Context, database *sql.DB, dialect Dialect) error {
+	if dialect != DialectPostgres {
+		return fmt.Errorf("migrate audit store: unsupported audit dialect %q", dialect)
+	}
+	return migrateDirectory(ctx, database, dialect, "migrations/audit/"+string(dialect))
+}
+
+// VerifyMetadataSchema checks the deployed metadata schema without executing
+// DDL. It is the fail-closed startup path used when auto_migrate is disabled.
+func VerifyMetadataSchema(ctx context.Context, database *sql.DB, dialect Dialect, auditSeparate bool) error {
+	directory := "migrations/" + string(dialect)
+	if auditSeparate {
+		directory = "migrations/metadata/" + string(dialect)
+	}
+	return verifyMigrationDirectory(ctx, database, dialect, directory, "metadata")
+}
+
+// VerifyAuditSchema checks the deployed independent audit schema without DDL.
+func VerifyAuditSchema(ctx context.Context, database *sql.DB, dialect Dialect) error {
+	if dialect != DialectPostgres {
+		return fmt.Errorf("verify audit store: unsupported audit dialect %q", dialect)
+	}
+	return verifyMigrationDirectory(ctx, database, dialect, "migrations/audit/"+string(dialect), "audit")
+}
+
+// MetadataMigrationVersions returns current and code-latest metadata versions.
+func MetadataMigrationVersions(ctx context.Context, database *sql.DB, dialect Dialect, auditSeparate bool) (int, int, error) {
+	directory := "migrations/" + string(dialect)
+	if auditSeparate {
+		directory = "migrations/metadata/" + string(dialect)
+	}
+	return migrationVersions(ctx, database, directory)
+}
+
+// AuditMigrationVersions returns current and code-latest audit versions.
+func AuditMigrationVersions(ctx context.Context, database *sql.DB, dialect Dialect) (int, int, error) {
+	if dialect != DialectPostgres {
+		return 0, 0, fmt.Errorf("read audit migration versions: unsupported audit dialect %q", dialect)
+	}
+	return migrationVersions(ctx, database, "migrations/audit/"+string(dialect))
+}
+
+func migrateDirectory(ctx context.Context, database *sql.DB, dialect Dialect, directory string) error {
 	if ctx == nil {
 		return fmt.Errorf("migrate store: %w", ErrNilContext)
 	}
@@ -51,7 +109,7 @@ func Migrate(ctx context.Context, database *sql.DB, dialect Dialect) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	dialectMigrations, err := fs.Sub(migrationFiles, "migrations/"+string(dialect))
+	dialectMigrations, err := fs.Sub(migrationFiles, directory)
 	if err != nil {
 		return fmt.Errorf("select %s migrations: %w", dialect, err)
 	}
@@ -75,6 +133,80 @@ func Migrate(ctx context.Context, database *sql.DB, dialect Dialect) error {
 	}
 
 	return nil
+}
+
+func verifyMigrationDirectory(
+	ctx context.Context,
+	database *sql.DB,
+	dialect Dialect,
+	directory string,
+	label string,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("verify %s schema: %w", label, ErrNilContext)
+	}
+	if database == nil {
+		return fmt.Errorf("verify %s schema: database is required", label)
+	}
+	if _, err := schemaMigrationsDDLFor(dialect); err != nil {
+		return err
+	}
+	if dialect == DialectSQLite {
+		if err := enableSQLiteForeignKeys(ctx, database); err != nil {
+			return err
+		}
+	}
+	current, latest, err := migrationVersions(ctx, database, directory)
+	if err != nil {
+		return fmt.Errorf("verify %s schema version: %w", label, err)
+	}
+	if current != latest {
+		return fmt.Errorf("verify %s schema version: current=%d latest=%d", label, current, latest)
+	}
+	return nil
+}
+
+func migrationVersions(ctx context.Context, database *sql.DB, directory string) (int, int, error) {
+	if ctx == nil {
+		return 0, 0, fmt.Errorf("read migration versions: %w", ErrNilContext)
+	}
+	if database == nil {
+		return 0, 0, fmt.Errorf("read migration versions: database is required")
+	}
+	latest, err := latestMigrationVersion(directory)
+	if err != nil {
+		return 0, 0, err
+	}
+	var current int
+	if err := database.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&current); err != nil {
+		return 0, latest, fmt.Errorf("read schema_migrations: %w", err)
+	}
+	return current, latest, nil
+}
+
+func latestMigrationVersion(directory string) (int, error) {
+	dialectMigrations, err := fs.Sub(migrationFiles, directory)
+	if err != nil {
+		return 0, fmt.Errorf("select migrations: %w", err)
+	}
+	filenames, err := fs.Glob(dialectMigrations, "*.sql")
+	if err != nil {
+		return 0, fmt.Errorf("list embedded migrations: %w", err)
+	}
+	latest := 0
+	for _, filename := range filenames {
+		version, err := migrationVersion(filename)
+		if err != nil {
+			return 0, fmt.Errorf("parse migration %q: %w", filename, err)
+		}
+		if version > latest {
+			latest = version
+		}
+	}
+	if latest == 0 {
+		return 0, fmt.Errorf("no embedded migrations in %q", directory)
+	}
+	return latest, nil
 }
 
 func schemaMigrationsDDLFor(dialect Dialect) (string, error) {

@@ -333,6 +333,9 @@ func (*mcpSpyExecutor) Ping(context.Context) error { return nil }
 func (*mcpSpyExecutor) OpenSession(context.Context, string) (executor.Session, error) {
 	return nil, errors.New("sessions are not used by MCP tests")
 }
+func (delegate *mcpSpyExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+	return mcpSpyWriteTx{delegate: delegate}, nil
+}
 func (executor *mcpSpyExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
@@ -374,6 +377,14 @@ func (executor *mcpSpyExecutor) lastQuery() string {
 	defer executor.mu.Unlock()
 	return executor.lastSQL
 }
+
+type mcpSpyWriteTx struct{ delegate *mcpSpyExecutor }
+
+func (tx mcpSpyWriteTx) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
+	return tx.delegate.Execute(ctx, sql)
+}
+func (mcpSpyWriteTx) Commit(context.Context) error   { return nil }
+func (mcpSpyWriteTx) Rollback(context.Context) error { return nil }
 
 func stringPointerForMCP(value string) *string { return &value }
 
