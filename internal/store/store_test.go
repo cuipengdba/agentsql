@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -29,6 +30,32 @@ func TestStorePing(t *testing.T) {
 	var nilStore *Store
 	require.Error(t, nilStore.Ping(context.Background()))
 	require.Error(t, opened.Ping(nil))
+}
+
+func TestOpenMetadataSQLiteAndValidation(t *testing.T) {
+	ctx := context.Background()
+	opened, err := OpenMetadata(ctx, MetadataOptions{
+		Driver:     DialectSQLite,
+		SQLitePath: filepath.Join(t.TempDir(), "metadata.db"),
+	}, []byte(testSecret))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, opened.Close()) })
+	require.Equal(t, 1, opened.db.Stats().MaxOpenConnections)
+
+	_, err = OpenMetadata(ctx, MetadataOptions{Driver: Dialect("mysql")}, []byte(testSecret))
+	require.ErrorIs(t, err, ErrInvalidMetadataDriver)
+
+	_, err = OpenMetadata(ctx, MetadataOptions{Driver: DialectSQLite}, []byte(testSecret))
+	require.ErrorIs(t, err, ErrInvalidStorePath)
+
+	_, err = OpenMetadata(ctx, MetadataOptions{Driver: DialectPostgres}, []byte(testSecret))
+	require.ErrorIs(t, err, ErrInvalidPostgresDSN)
+
+	_, err = OpenMetadata(nil, MetadataOptions{
+		Driver:     DialectSQLite,
+		SQLitePath: "unused.db",
+	}, []byte(testSecret))
+	require.True(t, errors.Is(err, ErrNilContext))
 }
 
 func createPolicyDependencies(t *testing.T, opened *Store) (model.Agent, model.Datasource) {

@@ -13,18 +13,23 @@ import (
 	"strings"
 )
 
-const schemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
+const sqliteSchemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
   version    INTEGER PRIMARY KEY,
   applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );`
 
+const postgresSchemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
+  version    BIGINT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);`
+
 var errForeignKeysDisabled = errors.New("SQLite foreign key enforcement is disabled")
 
-//go:embed migrations/*.sql
+//go:embed migrations/sqlite/*.sql migrations/postgres/*.sql
 var migrationFiles embed.FS
 
 // Migrate applies each embedded migration exactly once in version order.
-func Migrate(ctx context.Context, database *sql.DB) error {
+func Migrate(ctx context.Context, database *sql.DB, dialect Dialect) error {
 	if ctx == nil {
 		return fmt.Errorf("migrate store: %w", ErrNilContext)
 	}
@@ -32,6 +37,58 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 		return fmt.Errorf("migrate store: %w", errors.New("database is required"))
 	}
 
+	schemaDDL, err := schemaMigrationsDDLFor(dialect)
+	if err != nil {
+		return err
+	}
+	if dialect == DialectSQLite {
+		if err := enableSQLiteForeignKeys(ctx, database); err != nil {
+			return err
+		}
+	}
+
+	if _, err := database.ExecContext(ctx, schemaDDL); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
+	dialectMigrations, err := fs.Sub(migrationFiles, "migrations/"+string(dialect))
+	if err != nil {
+		return fmt.Errorf("select %s migrations: %w", dialect, err)
+	}
+	filenames, err := fs.Glob(dialectMigrations, "*.sql")
+	if err != nil {
+		return fmt.Errorf("list embedded migrations: %w", err)
+	}
+	sort.Strings(filenames)
+	for _, filename := range filenames {
+		version, err := migrationVersion(filename)
+		if err != nil {
+			return fmt.Errorf("parse migration %q: %w", filename, err)
+		}
+		contents, err := fs.ReadFile(dialectMigrations, filename)
+		if err != nil {
+			return fmt.Errorf("read migration %q: %w", filename, err)
+		}
+		if err := applyMigration(ctx, database, dialect, version, string(contents)); err != nil {
+			return fmt.Errorf("apply migration %d: %w", version, err)
+		}
+	}
+
+	return nil
+}
+
+func schemaMigrationsDDLFor(dialect Dialect) (string, error) {
+	switch dialect {
+	case DialectSQLite:
+		return sqliteSchemaMigrationsDDL, nil
+	case DialectPostgres:
+		return postgresSchemaMigrationsDDL, nil
+	default:
+		return "", fmt.Errorf("migrate store: unsupported metadata dialect %q", dialect)
+	}
+}
+
+func enableSQLiteForeignKeys(ctx context.Context, database *sql.DB) error {
 	if _, err := database.ExecContext(ctx, "PRAGMA foreign_keys = ON;"); err != nil {
 		return fmt.Errorf("enable SQLite foreign keys: %w", err)
 	}
@@ -42,38 +99,6 @@ func Migrate(ctx context.Context, database *sql.DB) error {
 	if foreignKeysEnabled != 1 {
 		return fmt.Errorf("verify SQLite foreign keys: %w", errForeignKeysDisabled)
 	}
-
-	if _, err := database.ExecContext(ctx, schemaMigrationsDDL); err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
-	}
-
-	filenames, err := fs.Glob(migrationFiles, "migrations/*.sql")
-	if err != nil {
-		return fmt.Errorf("list embedded migrations: %w", err)
-	}
-	sort.Strings(filenames)
-	for _, filename := range filenames {
-		version, err := migrationVersion(filename)
-		if err != nil {
-			return fmt.Errorf("parse migration %q: %w", filename, err)
-		}
-		applied, err := isMigrationApplied(ctx, database, version)
-		if err != nil {
-			return fmt.Errorf("check migration %d: %w", version, err)
-		}
-		if applied {
-			continue
-		}
-
-		contents, err := migrationFiles.ReadFile(filename)
-		if err != nil {
-			return fmt.Errorf("read migration %q: %w", filename, err)
-		}
-		if err := applyMigration(ctx, database, version, string(contents)); err != nil {
-			return fmt.Errorf("apply migration %d: %w", version, err)
-		}
-	}
-
 	return nil
 }
 
@@ -93,38 +118,68 @@ func migrationVersion(filename string) (int, error) {
 	return version, nil
 }
 
-func isMigrationApplied(ctx context.Context, database *sql.DB, version int) (bool, error) {
-	var count int
-	if err := database.QueryRowContext(
-		ctx,
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
-		version,
-	).Scan(&count); err != nil {
-		return false, fmt.Errorf("query schema_migrations version %d: %w", version, err)
-	}
-	return count == 1, nil
-}
-
-func applyMigration(ctx context.Context, database *sql.DB, version int, contents string) error {
+func applyMigration(ctx context.Context, database *sql.DB, dialect Dialect, version int, contents string) error {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration %d: %w", version, err)
 	}
 
+	claimed, err := claimMigration(ctx, transaction, dialect, version)
+	if err != nil {
+		return fmt.Errorf("claim migration %d: %w", version, rollbackMigration(transaction, err))
+	}
+	if !claimed {
+		if err := transaction.Rollback(); err != nil {
+			return fmt.Errorf("rollback skipped migration %d: %w", version, err)
+		}
+		return nil
+	}
+
 	if _, err := transaction.ExecContext(ctx, contents); err != nil {
 		return fmt.Errorf("execute migration %d: %w", version, rollbackMigration(transaction, err))
-	}
-	if _, err := transaction.ExecContext(
-		ctx,
-		"INSERT INTO schema_migrations (version) VALUES (?)",
-		version,
-	); err != nil {
-		return fmt.Errorf("record migration %d: %w", version, rollbackMigration(transaction, err))
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit migration %d: %w", version, err)
 	}
 	return nil
+}
+
+func claimMigration(ctx context.Context, transaction *sql.Tx, dialect Dialect, version int) (bool, error) {
+	switch dialect {
+	case DialectSQLite:
+		result, err := transaction.ExecContext(
+			ctx,
+			"INSERT OR IGNORE INTO schema_migrations(version) VALUES(?)",
+			version,
+		)
+		if err != nil {
+			return false, fmt.Errorf("insert SQLite migration claim: %w", err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return false, fmt.Errorf("read SQLite migration claim result: %w", err)
+		}
+		return rowsAffected == 1, nil
+	case DialectPostgres:
+		var claimedVersion int
+		err := transaction.QueryRowContext(
+			ctx,
+			`INSERT INTO schema_migrations(version, applied_at)
+VALUES($1, now())
+ON CONFLICT (version) DO NOTHING
+RETURNING version`,
+			version,
+		).Scan(&claimedVersion)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("insert PostgreSQL migration claim: %w", err)
+		}
+		return claimedVersion == version, nil
+	default:
+		return false, fmt.Errorf("claim migration: unsupported metadata dialect %q", dialect)
+	}
 }
 
 func rollbackMigration(transaction *sql.Tx, cause error) error {

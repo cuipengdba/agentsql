@@ -14,8 +14,18 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, Migrate(ctx, opened.db))
-	require.NoError(t, Migrate(ctx, opened.db))
+	require.NoError(t, Migrate(ctx, opened.db, DialectSQLite))
+	require.NoError(t, Migrate(ctx, opened.db, DialectSQLite))
+
+	migrationErrors := make(chan error, 2)
+	for range 2 {
+		go func() {
+			migrationErrors <- Migrate(ctx, opened.db, DialectSQLite)
+		}()
+	}
+	for range 2 {
+		require.NoError(t, <-migrationErrors)
+	}
 
 	var migrationCount int
 	require.NoError(t, opened.db.QueryRowContext(
@@ -84,6 +94,30 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_audit_ts",
 		"idx_policies_agent_ds",
 	}, businessIndexNames(t, opened.db))
+}
+
+func TestSQLiteMigrationClaimRollsBackWithDDL(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+
+	err := applyMigration(ctx, opened.db, DialectSQLite, 999, `
+CREATE TABLE migration_should_rollback (id INTEGER PRIMARY KEY);
+CREATE TABL invalid_syntax (id INTEGER PRIMARY KEY);`)
+	require.Error(t, err)
+
+	var tableCount int
+	require.NoError(t, opened.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'migration_should_rollback'",
+	).Scan(&tableCount))
+	require.Zero(t, tableCount)
+
+	var migrationCount int
+	require.NoError(t, opened.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM schema_migrations WHERE version = 999",
+	).Scan(&migrationCount))
+	require.Zero(t, migrationCount)
 }
 
 func businessTableNames(t *testing.T, database *sql.DB) []string {

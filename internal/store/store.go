@@ -1,4 +1,4 @@
-// Package store persists AgentSQL metadata and immutable audit records in SQLite.
+// Package store persists AgentSQL metadata and immutable audit records.
 package store
 
 import (
@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -16,17 +18,32 @@ var (
 	ErrNotFound = errors.New("store entity not found")
 	// ErrInvalidStorePath indicates that the SQLite path is empty.
 	ErrInvalidStorePath = errors.New("SQLite path is required")
+	// ErrInvalidPostgresDSN indicates that the PostgreSQL DSN is empty.
+	ErrInvalidPostgresDSN = errors.New("PostgreSQL DSN is required")
+	// ErrInvalidMetadataDriver indicates an unsupported metadata-store driver.
+	ErrInvalidMetadataDriver = errors.New("unsupported metadata store driver")
 	// ErrNilContext indicates that a store operation received no context.
 	ErrNilContext = errors.New("context is required")
 )
 
-// Store owns the SQLite connection and repository encryption state.
+// MetadataOptions configures a metadata-store connection.
+type MetadataOptions struct {
+	Driver          Dialect
+	SQLitePath      string
+	PostgresDSN     string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
+// Store owns the metadata connection and repository encryption state.
 type Store struct {
 	db     *sql.DB
 	cipher *PasswordCipher
+	driver Dialect
 }
 
-// Ping verifies that the metadata SQLite connection is reachable.
+// Ping verifies that the metadata connection is reachable.
 func (store *Store) Ping(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("ping store: %w", ErrNilContext)
@@ -50,7 +67,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
 	}
-	return openWithCipher(ctx, path, passwordCipher)
+	return openMetadataWithCipher(ctx, MetadataOptions{
+		Driver:     DialectSQLite,
+		SQLitePath: path,
+	}, passwordCipher)
 }
 
 // OpenWithSecret opens the metadata store with an explicitly injected
@@ -63,25 +83,111 @@ func OpenWithSecret(ctx context.Context, path string, secret []byte) (*Store, er
 	if err != nil {
 		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
 	}
-	return openWithCipher(ctx, path, passwordCipher)
+	return openMetadataWithCipher(ctx, MetadataOptions{
+		Driver:     DialectSQLite,
+		SQLitePath: path,
+	}, passwordCipher)
 }
 
-func openWithCipher(ctx context.Context, path string, passwordCipher *PasswordCipher) (*Store, error) {
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, fmt.Errorf("open SQLite database %q: %w", path, err)
+// OpenMetadata opens, verifies, and migrates the configured metadata store.
+func OpenMetadata(ctx context.Context, options MetadataOptions, secret []byte) (*Store, error) {
+	if err := validateMetadataOptions(ctx, options); err != nil {
+		return nil, err
 	}
-	database.SetMaxOpenConns(1)
-	database.SetMaxIdleConns(1)
+	passwordCipher, err := NewPasswordCipher(secret)
+	if err != nil {
+		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
+	}
+	return openMetadataWithCipher(ctx, options, passwordCipher)
+}
+
+func openMetadataWithCipher(
+	ctx context.Context,
+	options MetadataOptions,
+	passwordCipher *PasswordCipher,
+) (*Store, error) {
+	if err := validateMetadataOptions(ctx, options); err != nil {
+		return nil, err
+	}
+	if passwordCipher == nil {
+		return nil, fmt.Errorf("open metadata store: %w", ErrCipherUnavailable)
+	}
+
+	driverName, target := "", ""
+	switch options.Driver {
+	case DialectSQLite:
+		driverName = "sqlite"
+		target = options.SQLitePath
+	case DialectPostgres:
+		driverName = "pgx"
+		target = options.PostgresDSN
+	}
+
+	database, err := sql.Open(driverName, target)
+	if err != nil {
+		if options.Driver == DialectSQLite {
+			return nil, fmt.Errorf("open SQLite database %q: %w", options.SQLitePath, err)
+		}
+		return nil, fmt.Errorf("open %s metadata database: %w", options.Driver, err)
+	}
+	if options.Driver == DialectSQLite {
+		database.SetMaxOpenConns(1)
+		database.SetMaxIdleConns(1)
+	} else if options.MaxOpenConns > 0 {
+		database.SetMaxOpenConns(options.MaxOpenConns)
+		database.SetMaxIdleConns(options.MaxIdleConns)
+		database.SetConnMaxLifetime(options.ConnMaxLifetime)
+	}
 
 	if err := database.PingContext(ctx); err != nil {
-		return nil, closeDatabaseAfterError(database, fmt.Errorf("ping SQLite database %q: %w", path, err))
+		if options.Driver == DialectSQLite {
+			return nil, closeDatabaseAfterError(
+				database,
+				options.Driver,
+				fmt.Errorf("ping SQLite database %q: %w", options.SQLitePath, err),
+			)
+		}
+		return nil, closeDatabaseAfterError(
+			database,
+			options.Driver,
+			fmt.Errorf("ping %s metadata database: %w", options.Driver, err),
+		)
 	}
-	if err := Migrate(ctx, database); err != nil {
-		return nil, closeDatabaseAfterError(database, fmt.Errorf("migrate SQLite database %q: %w", path, err))
+	if err := Migrate(ctx, database, options.Driver); err != nil {
+		if options.Driver == DialectSQLite {
+			return nil, closeDatabaseAfterError(
+				database,
+				options.Driver,
+				fmt.Errorf("migrate SQLite database %q: %w", options.SQLitePath, err),
+			)
+		}
+		return nil, closeDatabaseAfterError(
+			database,
+			options.Driver,
+			fmt.Errorf("migrate %s metadata database: %w", options.Driver, err),
+		)
 	}
 
-	return &Store{db: database, cipher: passwordCipher}, nil
+	return &Store{db: database, cipher: passwordCipher, driver: options.Driver}, nil
+}
+
+func validateMetadataOptions(ctx context.Context, options MetadataOptions) error {
+	if ctx == nil {
+		return fmt.Errorf("open metadata store: %w", ErrNilContext)
+	}
+	switch options.Driver {
+	case DialectSQLite:
+		if strings.TrimSpace(options.SQLitePath) == "" {
+			return fmt.Errorf("open metadata store: %w", ErrInvalidStorePath)
+		}
+	case DialectPostgres:
+		if strings.TrimSpace(options.PostgresDSN) == "" {
+			return fmt.Errorf("open metadata store: %w", ErrInvalidPostgresDSN)
+		}
+	default:
+		return fmt.Errorf("open metadata store with driver %q: %w", options.Driver, ErrInvalidMetadataDriver)
+	}
+	return nil
 }
 
 func validateOpenInput(ctx context.Context, path string) error {
@@ -94,10 +200,13 @@ func validateOpenInput(ctx context.Context, path string) error {
 	return nil
 }
 
-// Close releases the SQLite connection.
+// Close releases the metadata connection.
 func (store *Store) Close() error {
 	if err := store.db.Close(); err != nil {
-		return fmt.Errorf("close SQLite database: %w", err)
+		if store.driver == DialectSQLite {
+			return fmt.Errorf("close SQLite database: %w", err)
+		}
+		return fmt.Errorf("close %s metadata database: %w", store.driver, err)
 	}
 	return nil
 }
@@ -142,9 +251,12 @@ func (store *Store) Dashboard() *DashboardRepository {
 	return &DashboardRepository{db: store.db}
 }
 
-func closeDatabaseAfterError(database *sql.DB, cause error) error {
+func closeDatabaseAfterError(database *sql.DB, driver Dialect, cause error) error {
 	if err := database.Close(); err != nil {
-		return fmt.Errorf("close SQLite database after failure: %w", errors.Join(cause, err))
+		if driver == DialectSQLite {
+			return fmt.Errorf("close SQLite database after failure: %w", errors.Join(cause, err))
+		}
+		return fmt.Errorf("close %s metadata database after failure: %w", driver, errors.Join(cause, err))
 	}
 	return cause
 }
