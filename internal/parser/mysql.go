@@ -639,7 +639,13 @@ func mysqlProjectedColumns(statement sqlparser.Statement) []string {
 	for _, expression := range selectNode.SelectExprs {
 		switch typed := expression.(type) {
 		case *sqlparser.StarExpr:
-			columns.add("*")
+			if cteColumns, ok := mysqlSingleCTEProjectedColumns(selectNode, typed); ok {
+				for _, column := range cteColumns {
+					columns.add(column)
+				}
+			} else {
+				columns.add("*")
+			}
 		case *sqlparser.AliasedExpr:
 			_ = sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
 				if _, isSubquery := node.(*sqlparser.Subquery); isSubquery {
@@ -653,6 +659,38 @@ func mysqlProjectedColumns(statement sqlparser.Statement) []string {
 		}
 	}
 	return columns.sorted()
+}
+
+func mysqlSingleCTEProjectedColumns(selectNode *sqlparser.Select, star *sqlparser.StarExpr) ([]string, bool) {
+	if selectNode == nil || star == nil || selectNode.With == nil || len(selectNode.From) != 1 {
+		return nil, false
+	}
+	aliased, ok := selectNode.From[0].(*sqlparser.AliasedTableExpr)
+	if !ok {
+		return nil, false
+	}
+	table, ok := aliased.Expr.(sqlparser.TableName)
+	if !ok || !table.Qualifier.IsEmpty() {
+		return nil, false
+	}
+	source := table.Name.String()
+	starSource := star.TableName.Name.String()
+	if !star.TableName.Qualifier.IsEmpty() ||
+		(starSource != "" && !strings.EqualFold(starSource, source) &&
+			!strings.EqualFold(starSource, aliased.As.String())) {
+		return nil, false
+	}
+	for _, cte := range selectNode.With.CTEs {
+		if cte == nil || !strings.EqualFold(cte.ID.String(), source) {
+			continue
+		}
+		columns := mysqlProjectedColumns(cte.Subquery)
+		if len(columns) == 0 {
+			return nil, false
+		}
+		return columns, true
+	}
+	return nil, false
 }
 
 func mysqlConstantValue(expression sqlparser.Expr) (mysqlConstant, bool) {

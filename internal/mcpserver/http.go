@@ -77,7 +77,7 @@ func (registry *agentServerRegistry) getOrCreate(
 	if server = registry.servers[key]; server != nil {
 		return server, nil
 	}
-	registry.resetAtCapacityLocked(key)
+	registry.resetServersAtCapacityLocked(key)
 	bound, err := buildBoundServer(agent, plainKey, registry.runtime, registry.logger)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (registry *agentServerRegistry) getOrCreate(
 }
 
 func (registry *agentServerRegistry) allow(agent model.Agent) bool {
-	key := agentServerKey(agent)
+	key := agent.ID
 	registry.mu.RLock()
 	limiter := registry.limiters[key]
 	registry.mu.RUnlock()
@@ -99,7 +99,7 @@ func (registry *agentServerRegistry) allow(agent model.Agent) bool {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	if limiter = registry.limiters[key]; limiter == nil {
-		registry.resetAtCapacityLocked(key)
+		registry.resetLimitersAtCapacityLocked(key)
 		// v0.1 uses QPS as both steady-state rate and burst capacity.
 		limiter = rate.NewLimiter(rate.Limit(registry.qps), registry.qps)
 		registry.limiters[key] = limiter
@@ -107,16 +107,20 @@ func (registry *agentServerRegistry) allow(agent model.Agent) bool {
 	return limiter.Allow()
 }
 
-func (registry *agentServerRegistry) resetAtCapacityLocked(incomingKey string) {
-	_, serverExists := registry.servers[incomingKey]
-	_, limiterExists := registry.limiters[incomingKey]
-	if (serverExists || len(registry.servers) < agentServerRegistryLimit) &&
-		(limiterExists || len(registry.limiters) < agentServerRegistryLimit) {
+func (registry *agentServerRegistry) resetServersAtCapacityLocked(incomingKey string) {
+	if _, exists := registry.servers[incomingKey]; exists || len(registry.servers) < agentServerRegistryLimit {
 		return
 	}
-	// v0.1 deliberately clears the bounded cache wholesale. Requests already
-	// holding a server pointer continue safely; later requests rebuild entries.
+	// v0.1 uses bounded, batch eviction. Requests already holding a server
+	// pointer continue safely; later requests rebuild entries.
 	registry.servers = make(map[string]*mcp.Server)
+}
+
+func (registry *agentServerRegistry) resetLimitersAtCapacityLocked(incomingKey string) {
+	if _, exists := registry.limiters[incomingKey]; exists || len(registry.limiters) < agentServerRegistryLimit {
+		return
+	}
+	// Limiters use the same bounded, batch eviction strategy as server entries.
 	registry.limiters = make(map[string]*rate.Limiter)
 }
 
@@ -133,10 +137,7 @@ func (registry *agentServerRegistry) buildCount() int {
 }
 
 func agentServerKey(agent model.Agent) string {
-	if agent.UpdatedAt.IsZero() {
-		return agent.ID
-	}
-	return agent.ID + "|" + strconv.FormatInt(agent.UpdatedAt.UnixNano(), 10)
+	return agent.ID + "|" + agent.APIKeyHash
 }
 
 // NewHTTPHandler creates the stateless multi-tenant Streamable HTTP endpoint.

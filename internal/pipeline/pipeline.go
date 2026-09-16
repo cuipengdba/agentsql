@@ -163,24 +163,6 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		if err != nil {
 			return err
 		}
-		unauthorized, err := policy.AuthorizeColumns(run.ast, run.policy)
-		if err != nil {
-			return err
-		}
-		if len(unauthorized) > 0 {
-			run.response.Assessment.Hits = append(
-				run.response.Assessment.Hits,
-				model.RuleHit{
-					RuleID:     "POLICY_COLUMN",
-					Risk:       model.RiskDeny,
-					Decision:   model.DecisionDeny,
-					Message:    "查询包含未授权列: " + strings.Join(unauthorized, ", "),
-					Suggestion: "请仅查询策略允许的列，或联系管理员补充列级授权",
-				},
-			)
-			recomputeAssessmentDecision(&run.response.Assessment)
-			run.response.Decision = run.response.Assessment.Decision
-		}
 		return nil
 	}); err != nil {
 		return run.finish(ctx, err)
@@ -586,29 +568,50 @@ func (run *pipelineRun) approve(ctx context.Context) (Response, error) {
 	}); err != nil {
 		return run.finish(ctx, err)
 	}
-	if err := run.audit(ctx, string(model.DecisionApprove), nil); err != nil {
+	if err := run.reservation.release(); err != nil {
 		return run.finish(ctx, err)
 	}
-	approval.AuditID = int64Pointer(run.response.AuditID)
+	run.response.Assessment.StageLatency = cloneStageLatency(run.stageLatency)
+	log, err := mapAuditLog(
+		run.request,
+		run.agent,
+		run.datasource,
+		run.ast,
+		run.response,
+		run.executionResult,
+		string(model.DecisionApprove),
+		nil,
+		run.started,
+	)
+	if err != nil {
+		return run.finish(ctx, err)
+	}
+	workflow, ok := run.pipeline.ports.Approvals.(ApprovalWorkflow)
+	if !ok || isNilInterface(workflow) {
+		return run.finish(ctx, fmt.Errorf("approval writer does not support atomic audit workflow"))
+	}
 	var created model.Approval
-	err := run.measure(StageExecute, func() error {
+	var recorded model.AuditLog
+	err = run.measure(StageAudit, func() error {
 		approvalContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
 		if err != nil {
 			return err
 		}
 		defer cancel()
-		created, err = run.pipeline.ports.Approvals.Create(approvalContext, approval)
+		created, recorded, err = workflow.CreatePendingWithAudit(approvalContext, approval, log)
 		return err
 	})
 	run.response.Assessment.StageLatency = cloneStageLatency(run.stageLatency)
 	if err != nil {
 		return run.finish(ctx, err)
 	}
-	if strings.TrimSpace(created.ID) == "" {
-		err = fmt.Errorf("approval writer returned an empty approval ID")
+	if strings.TrimSpace(created.ID) == "" || recorded.ID <= 0 {
+		err = fmt.Errorf("approval workflow returned an empty persisted identity")
 		return run.finish(ctx, err)
 	}
+	run.audited = true
 	run.response.ApprovalID = created.ID
+	run.response.AuditID = recorded.ID
 	return run.finish(ctx, nil)
 }
 

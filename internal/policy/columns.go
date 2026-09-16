@@ -14,59 +14,6 @@ type SchemaColumn struct {
 	Column string
 }
 
-// AuthorizeColumns returns qualified unauthorized columns for SELECT only.
-// If an exactly authorized table has no ColumnACL entry, its columns receive
-// no additional restriction; table authorization remains R010's responsibility.
-func AuthorizeColumns(
-	ast *model.AST,
-	decision *model.PolicyDecision,
-) ([]string, error) {
-	if ast == nil {
-		return nil, fmt.Errorf("authorize columns: nil AST")
-	}
-	if decision == nil {
-		return nil, fmt.Errorf("authorize columns: nil policy decision")
-	}
-	if err := validateDecision(decision); err != nil {
-		return nil, fmt.Errorf("authorize columns: %w", err)
-	}
-	unauthorized := make([]string, 0)
-	if ast.StmtType != model.StmtType("SELECT") {
-		return unauthorized, nil
-	}
-	for _, column := range ast.Columns {
-		if strings.TrimSpace(column) == "" || strings.TrimSpace(column) != column {
-			return nil, fmt.Errorf("authorize columns: invalid column name %q", column)
-		}
-	}
-	seen := make(map[string]struct{})
-	for _, table := range ast.Tables {
-		object, err := tableName(table)
-		if err != nil {
-			return nil, fmt.Errorf("authorize columns: %w", err)
-		}
-		if HasBroadTableGrant(decision.AllowedTables, table) {
-			continue
-		}
-		allowedColumns, constrained := decision.ColumnACL[object]
-		if !constrained || containsIdentifier(allowedColumns, "*") {
-			continue
-		}
-		for _, column := range ast.Columns {
-			if containsIdentifier(allowedColumns, column) {
-				continue
-			}
-			qualified := object + "." + column
-			if _, exists := seen[qualified]; exists {
-				continue
-			}
-			seen[qualified] = struct{}{}
-			unauthorized = append(unauthorized, qualified)
-		}
-	}
-	return unauthorized, nil
-}
-
 // FilterColumnsForSchema removes unauthorized schema columns while preserving
 // input order. It never synthesizes columns. A table without a ColumnACL entry
 // receives no extra column restriction once its table authorization succeeds.

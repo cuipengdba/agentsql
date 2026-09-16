@@ -2,9 +2,16 @@ package mask
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 )
+
+// NormalizeColumnName returns the canonical result-column key used by masking.
+// It does not mutate the supplied string or any stored rule.
+func NormalizeColumnName(name string) string {
+	return normalizeColumnName(name)
+}
 
 // Redactor applies configured masking rules to a query result.
 type Redactor interface {
@@ -23,30 +30,53 @@ type resultRedactor struct {
 
 // NewRedactor validates and freezes the supplied rules for deterministic use.
 func NewRedactor(rules []Rule) (Redactor, error) {
-	compiled := make([]redactorRule, 0, len(rules))
-	seenColumns := make(map[string]struct{}, len(rules))
+	validated := make([]redactorRule, 0, len(rules))
 	for index, rule := range rules {
 		column := normalizeColumnName(rule.Column)
 		if column == "" {
 			return nil, fmt.Errorf("mask rule %d: column is required", index)
 		}
-		if _, exists := seenColumns[column]; exists {
-			return nil, fmt.Errorf("mask rule %q: %w", rule.Column, ErrDuplicateMaskColumn)
-		}
-		seenColumns[column] = struct{}{}
 		if rule.SensitiveType != TypePhone && rule.SensitiveType != TypeEmail {
 			return nil, fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
 		}
 		if rule.Algorithm != AlgoMask {
 			return nil, fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedAlgorithm)
 		}
-		compiled = append(compiled, redactorRule{
+		validated = append(validated, redactorRule{
 			column:        column,
 			sensitiveType: rule.SensitiveType,
 			algorithm:     rule.Algorithm,
 		})
 	}
+	sort.SliceStable(validated, func(left, right int) bool {
+		if validated[left].column != validated[right].column {
+			return validated[left].column < validated[right].column
+		}
+		leftPriority := sensitiveTypePriority(validated[left].sensitiveType)
+		rightPriority := sensitiveTypePriority(validated[right].sensitiveType)
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		if validated[left].sensitiveType != validated[right].sensitiveType {
+			return validated[left].sensitiveType < validated[right].sensitiveType
+		}
+		return validated[left].algorithm < validated[right].algorithm
+	})
+	compiled := make([]redactorRule, 0, len(validated))
+	for _, rule := range validated {
+		if len(compiled) > 0 && compiled[len(compiled)-1].column == rule.column {
+			continue
+		}
+		compiled = append(compiled, rule)
+	}
 	return &resultRedactor{rules: compiled}, nil
+}
+
+func sensitiveTypePriority(sensitiveType SensitiveType) int {
+	if sensitiveType == TypePhone {
+		return 0
+	}
+	return 1
 }
 
 func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResult, RedactReport) {

@@ -340,13 +340,74 @@ func postgresProjectedColumns(nodeType string, node any) []string {
 		return nil
 	}
 	targets, _ := object["targetList"].([]any)
+	cteColumns, expandsCTEStar := postgresSingleCTEProjectedColumns(object)
 	columns := make(stringSet)
 	for _, target := range targets {
 		wrapper, _ := target.(map[string]any)
 		result, _ := wrapper["ResTarget"].(map[string]any)
+		if postgresDirectStarProjection(result["val"]) {
+			if expandsCTEStar {
+				for _, column := range cteColumns {
+					columns.add(column)
+				}
+			} else {
+				columns.add("*")
+			}
+			continue
+		}
 		postgresWalkProjection(result["val"], columns)
 	}
 	return columns.sorted()
+}
+
+func postgresDirectStarProjection(value any) bool {
+	wrapper, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	column, ok := wrapper["ColumnRef"]
+	if !ok {
+		return false
+	}
+	name, ok := postgresColumnRef(column)
+	return ok && name == "*"
+}
+
+func postgresSingleCTEProjectedColumns(selectNode map[string]any) ([]string, bool) {
+	from, _ := selectNode["fromClause"].([]any)
+	if len(from) != 1 {
+		return nil, false
+	}
+	fromWrapper, _ := from[0].(map[string]any)
+	rangeVar, _ := fromWrapper["RangeVar"].(map[string]any)
+	source, ok := postgresStringField(rangeVar, "relname")
+	if !ok {
+		return nil, false
+	}
+	if schema, _ := rangeVar["schemaname"].(string); schema != "" {
+		return nil, false
+	}
+	withClause, _ := selectNode["withClause"].(map[string]any)
+	ctes, _ := withClause["ctes"].([]any)
+	for _, item := range ctes {
+		itemWrapper, _ := item.(map[string]any)
+		cte, _ := itemWrapper["CommonTableExpr"].(map[string]any)
+		name, ok := postgresStringField(cte, "ctename")
+		if !ok || name != source {
+			continue
+		}
+		queryWrapper, _ := cte["ctequery"].(map[string]any)
+		query, ok := queryWrapper["SelectStmt"]
+		if !ok {
+			return nil, false
+		}
+		columns := postgresProjectedColumns("SelectStmt", query)
+		if len(columns) == 0 {
+			return nil, false
+		}
+		return columns, true
+	}
+	return nil, false
 }
 
 func postgresWalkProjection(value any, columns stringSet) {
@@ -356,10 +417,6 @@ func postgresWalkProjection(value any, columns stringSet) {
 			if name, ok := postgresColumnRef(column); ok {
 				columns.add(name)
 			}
-			return
-		}
-		if _, isStar := typed["A_Star"]; isStar {
-			columns.add("*")
 			return
 		}
 		if _, isSubquery := typed["SelectStmt"]; isSubquery {

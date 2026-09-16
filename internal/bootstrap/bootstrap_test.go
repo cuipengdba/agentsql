@@ -125,13 +125,46 @@ func TestRedactorBuilderFailsClosedForUnsupportedRules(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	_, err = runtime.Store.MaskRules().Create(context.Background(), model.MaskRule{
-		ID: "unsupported", TableName: "customers", ColumnName: "identity",
+		ID: "valid-global", TableName: "customers", ColumnName: "identity",
+		SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask),
+	})
+	require.NoError(t, err)
+	_, err = runtime.Store.MaskRules().Create(context.Background(), model.MaskRule{
+		ID: "unsupported", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "customers", ColumnName: "identity",
 		SensitiveType: string(mask.TypeIDCard), Algo: string(mask.AlgoMask),
 	})
 	require.NoError(t, err)
 	_, err = runtime.redactors.RedactorFor(context.Background(), "ds-1")
 	require.ErrorIs(t, err, mask.ErrUnsupportedType)
 }
+
+func TestRedactorBuilderMergesScopeAndLegacyDuplicates(t *testing.T) {
+	runtime, err := Assemble(context.Background(), bootstrapTestConfig(filepath.Join(t.TempDir(), "agentsql.db")), bootstrapTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	rules := []model.MaskRule{
+		{ID: "global-contact", TableName: "users", ColumnName: "contact", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask)},
+		{ID: "bound-contact", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "customers", ColumnName: `"CONTACT"`, SensitiveType: string(mask.TypeEmail), Algo: string(mask.AlgoMask)},
+		{ID: "legacy-email", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "users", ColumnName: "legacy", SensitiveType: string(mask.TypeEmail), Algo: string(mask.AlgoMask)},
+		{ID: "legacy-phone", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "orders", ColumnName: "LEGACY", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask)},
+	}
+	for _, rule := range rules {
+		_, err := runtime.Store.MaskRules().Create(context.Background(), rule)
+		require.NoError(t, err)
+	}
+
+	redactor, err := runtime.redactors.RedactorFor(context.Background(), "ds-1")
+	require.NoError(t, err)
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"contact", "legacy"},
+		Rows:    [][]string{{"user@example.com", "13812345678"}},
+	})
+	require.Equal(t, []string{"u***@example.com", "138****5678"}, result.Rows[0])
+	require.Equal(t, mask.TypeEmail, report.TouchedColumns[0])
+	require.Equal(t, mask.TypePhone, report.TouchedColumns[1])
+}
+
+func stringPointerBootstrap(value string) *string { return &value }
 
 func TestAssembleFailsClosed(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {

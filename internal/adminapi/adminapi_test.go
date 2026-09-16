@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -124,6 +125,69 @@ func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, status)
 }
 
+func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"global-phone","datasource_id":"   ","column_name":" \"PHONE\" ","sensitive_type":"phone","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err := fixture.store.MaskRules().Get(context.Background(), "global-phone")
+	require.NoError(t, err)
+	require.Nil(t, stored.DatasourceID)
+	require.Empty(t, stored.TableName)
+	require.Equal(t, "phone", stored.ColumnName)
+
+	status, body = fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"duplicate-global","table_name":"other","column_name":"[Phone]","sensitive_type":"email","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusConflict, status, body)
+	require.Contains(t, body, "同列仅支持一条规则")
+
+	status, body = fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"bound-phone","datasource_id":"ds-1","column_name":"phone","sensitive_type":"email","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	status, body = fixture.request(
+		http.MethodPut,
+		"/api/v1/mask_rules/bound-phone",
+		fixture.adminToken,
+		`{"datasource_id":"ds-1","column_name":" PHONE ","sensitive_type":"email","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	status, body = fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"bound-other","datasource_id":"ds-1","column_name":"email","sensitive_type":"email","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	status, body = fixture.request(
+		http.MethodPut,
+		"/api/v1/mask_rules/bound-other",
+		fixture.adminToken,
+		`{"datasource_id":"ds-1","column_name":"phone","sensitive_type":"email","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusConflict, status, body)
+	require.Contains(t, body, "同列仅支持一条规则")
+
+	status, _ = fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"invalid-mask","column_name":"phone2","sensitive_type":"phone","algo":"hash"}`,
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, status)
+}
+
 func TestAdminApprovalAuditExportAndDashboard(t *testing.T) {
 	fixture := newAdminFixture(t)
 	approval, err := fixture.store.Approvals().Create(context.Background(), model.Approval{ID: "approval", AgentID: stringPointerAdmin("agent-1"), Status: "pending"})
@@ -151,6 +215,69 @@ func TestAdminApprovalAuditExportAndDashboard(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Contains(t, body, "trend_14d")
 	require.Contains(t, body, "decision_distribution")
+}
+
+func TestAdminApprovalConcurrentDecideReturnsOneSuccessOneConflict(t *testing.T) {
+	fixture := newAdminFixture(t)
+	_, err := fixture.store.Approvals().Create(context.Background(), model.Approval{
+		ID: "approval-concurrent", Status: "pending",
+	})
+	require.NoError(t, err)
+
+	type result struct {
+		status int
+		body   string
+	}
+	ready := sync.WaitGroup{}
+	ready.Add(2)
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, body := range []string{
+		`{"decision":"approve","comment":"admin-a"}`,
+		`{"decision":"reject","comment":"admin-b"}`,
+	} {
+		body := body
+		go func() {
+			ready.Done()
+			<-start
+			status, responseBody := fixture.request(
+				http.MethodPost,
+				"/api/v1/approvals/approval-concurrent/decide",
+				fixture.adminToken,
+				body,
+			)
+			results <- result{status: status, body: responseBody}
+		}()
+	}
+	ready.Wait()
+	close(start)
+	first, second := <-results, <-results
+	statuses := []int{first.status, second.status}
+	require.ElementsMatch(t, []int{http.StatusOK, http.StatusConflict}, statuses)
+	for _, outcome := range []result{first, second} {
+		if outcome.status == http.StatusConflict {
+			require.Contains(t, outcome.body, "approval is no longer pending")
+		}
+	}
+	stored, err := fixture.store.Approvals().Get(context.Background(), "approval-concurrent")
+	require.NoError(t, err)
+	require.Contains(t, []string{"approved", "rejected"}, stored.Status)
+	require.Contains(t, []string{"admin-a", "admin-b"}, *stored.Reason)
+
+	status, _ := fixture.request(
+		http.MethodPost,
+		"/api/v1/approvals/missing/decide",
+		fixture.adminToken,
+		`{"decision":"approve"}`,
+	)
+	require.Equal(t, http.StatusNotFound, status)
+	status, _ = fixture.request(
+		http.MethodPost,
+		"/api/v1/approvals/approval-concurrent/decide",
+		fixture.adminToken,
+		`{"decision":"invalid"}`,
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, status)
 }
 
 func TestAdminJSONBodyAndPaginationGuards(t *testing.T) {
