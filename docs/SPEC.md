@@ -1684,6 +1684,13 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
   - 测试：`t25_metrics_test.go` 扩真实 HTTP 指标断言（无 WHERE 更新 `R002` deny、429 `rate_limited`、401、标签有界不含 key/SQL），`metrics_test.go` 补 pool 采集器 max/inuse/idle 与 nil/panic 安全；测试 fixture 统一注入 metrics observer。run-acceptance **ALL_GREEN**、353 语料不变、零生产 Go/go.mod 改动。
   - 主控 Docker 动态实测（`down -v` 后干净环境）：冷构建 + 起栈 **238.7 秒（<5 分钟，含 go mod 下载）**；agentsql `healthy` 且**非 root（uid=999 agentsql）**；prometheus target **UP**；经真实 MCP Streamable HTTP（`Accept: application/json, text/event-stream`）验证 `SELECT 1` allow 真实执行、无 WHERE `UPDATE` 被 **R002 deny 且不触库**、突发流量触发 **429**；`/metrics` 七类指标齐全并全部入库 Prometheus（decisions allow=4/deny=1、rule_hits R002=1、8 个 pipeline 阶段、rejected rate_limited=41、pool max=5/idle=1）；Grafana 数据源与 6 面板自动装配成功。
   - 演示建数/喂数脚本与临时数据不入库（在仓库外 `transfer/smoke/`）；验证用容器栈与命名卷在验收机保留供录屏/观感，正式发布前 `docker compose --profile observability --profile demo down -v` 清理。
+- **门2（G1）自动化门全部通过 → tag `v0.1-rc1`（私有仓发布候选，非正式 GA）**：
+  - 五个串行单 g1-a0 / g1-a1 / g1-b / g1-c / g1-d 已全部合入 main 并分别打 tag（见上各条）。
+  - **fuzz 失败闭环（清单⑤）**：`go test -run=^$ -fuzz=FuzzAssessFailClosed -fuzztime=30m ./internal/pipeline/` 跑满 30 分钟 **PASS**（exit 0，1801.6s）：48,147,748 次变异执行、2364 个扩展语料，**无 panic、无崩溃、无 fail-open**；任何解析失败/异常输入均回到 deny/error 闭环。
+  - **最终全量独立验收**（主控 run-acceptance，记录 tag `G1-rc1`）**ALL_GREEN**：gofmt clean、`go vet`、`go test -race -count=1 ./...`、353 语料逐字不变（FP 0.00%）、`go test -short -count=1 ./...`、独占 P99 门禁、双 `go build` 全部 EXIT=0。
+  - **P99 微基准测试编排修复（纯测试、零生产 Go 改动）**：`TestT25LatencyPercentile` 是 GOMAXPROCS 个 worker、约 20 万样本的 CPU 抢占型**独占**微基准；混在跨包并行的全量 `go test ./...` 中会与重测试/`-race` 余热争用 CPU 而偶发误报（实测独占 P99≈1.83ms、67k ops/s；全量并行时可飙到 7ms+、吞吐跌到 36k）。改为函数开头 `testing.Short()` 跳过：常规全量统一 `go test -short ./...`，性能门禁由验收脚本在收尾阶段对 `./internal/pipeline/` **独占、非 -short、非 -race** 运行（对主机瞬时负载最多冷却重试一次，两次独占皆失败才算失败）。修复后独占口径 **P99=1.83ms，为 5ms 预算的 2.7 倍裕量**。
+  - **动态部署/可观测门（清单⑥⑦）**见 G1-d：干净环境 238.7 秒从零起栈、agentsql healthy 且非 root(uid=999)、命名卷 `agentsql-data`、Prometheus target UP、七类指标经真实 MCP 流量全部入库、Grafana 数据源+6 面板零手工自动装配；`down -v --remove-orphans` 卷/网络清理路径已实测。
+  - **剩余仅人工/环境门（主控无法代做）**：第 7 章清单⑧ Cursor 与 Claude 桌面端四场景（只读成功 / 越权拒 / 无 WHERE 更新拒 / 审计可查）真实接入**录屏**；Linux 真机 systemd + 非 root UID 演练。人工门全绿后，方可由用户亲口下令 tag `v0.1.0`、生成 GitHub Release（zip/tar + 校验和）、私有仓转公开与对外宣传发布。
 
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PostgreSQL（兼容矩阵 PG14/15/16/17/18，必测最新 PG18）与 MySQL8 作为**被防护业务库** E2E 通过；v0.1 元数据/审计库仅 SQLite（外部 PG 元库为 v0.2 开源任务 T28）；
