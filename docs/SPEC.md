@@ -1668,6 +1668,15 @@ Codex 只读评审确认方案可实施，且发现 4 个必须补的真实缺�
 
 **v0.1 已知边界（写入 README/DEPLOY 与发布话术）**：脱敏优先按最终结果列名，对可确定位置的顶层直接列引用额外按源裸列名兜底；函数/运算/聚合/CAST、UNION、跨子查询/CTE/视图的内部重命名、无法定位的多星号投影不做血缘兜底；v0.1 脱敏不是完整 DLP，防绕行需结合只读数据库账号、列级权限、安全视图与审批。**完整表达式数据流/视图/UNION/CTE 血缘列入 v0.2（需 catalog 元数据、逐槽位血缘图、敏感度传播与 schema 版本缓存）。**
 
+### 25.5.3 门2各单验收结论与非阻塞已知项（主控台账）
+- **G1-a0 已合入**（tag `g1-a0`，merge `dd3876e`）：源列兜底上线，run-acceptance **ALL_GREEN**、353 语料逐字不变 FP 0.00%、双构建通过。
+- **G1-a1 已合入**（tag `g1-a1`，merge `9262bfe`）：主控实跑 Docker 矩阵，executor 与 pipeline 的 PostgreSQL 14/15/16/17/18（PG14/18 含超时与完整事务状态机）+ MySQL8 **全部真实通过**；JOIN/列别名/表别名作用域脱敏、a0 `phone AS mobile` 源兜底真实库回归、表达式不兜底的 v0.1 边界均断言；Docker 探测收紧为“仅 daemon 不可达 Skip，镜像/容器/等待错误硬失败”。主控修正一处**测试断言**（短/长表别名一致性深比较误把非确定性 `LatencyMS` 纳入，比较前归零；非生产改动）。
+- **G1-b 已合入**（tag `g1-b`，merge `539e174`）：门2清单③全部覆盖且 `go test -race` 全绿——无/错/旧 key（轮换后旧 key 立即 401 且不重置限流桶）、10 租户×5 请求并发隔离（JSON-RPC id 数字/字符串/负数严格相等、数据源集合严格、不泄漏他租户、越权在 executor 查询前拒绝且不增构建/审计、registry buildCount/serverCount 符合缓存语义）、429 与窗口恢复、请求体恰好 4MiB 通过/4MiB+1 返 413 且零触达、畸形输入 fail-closed 与单连接污染后自愈、错误体不含堆栈/口令/内部主机。
+- **G1-b 两条非阻塞已知项（均为 fail-closed 现状，不改变 RC 安全结论；响应规范化留 v0.2 polish，属小生产改动，不进门2纯测试单）**：
+  1. JSON-RPC `id:null` 被 MCP go-sdk v1.7.0 折叠为“缺失 id”，HTTP 返回 400 `missing id`（即 null id 请求被拒绝，安全方向正确）；RC 接受“null id 被拒”，是否规范化回显 null 留 v0.2。
+  2. 传输层错误（截断/非法 JSON、错误 Content-Type 等）当前经 go-sdk `http.Error` 返回 `text/plain` 而非统一 `application/json` 错误信封；状态码正确、不泄漏堆栈/口令/内部主机已断言，统一 JSON 错误体留 v0.2。
+- **流程备注**：G1-b 的 Codex 进程在测试全部落盘后、生成收尾报告阶段异常中断（无 go/compile 进程、日志停更、无 IMPLEMENT_DONE）；主控经独立 gofmt/vet/`go test -race ./internal/mcpserver/`（全绿）+ 全量 run-acceptance（ALL_GREEN）接管验收，确认代码完整、白名单干净（仅 3 个 `*_test.go`）、go.mod/go.sum/语料零改动。
+
 # 第 7 章 v0.1 总验收（开源前全绿）
 - go test 核心包覆盖率 ≥80%；真实 PostgreSQL（兼容矩阵 PG14/15/16/17/18，必测最新 PG18）与 MySQL8 作为**被防护业务库** E2E 通过；v0.1 元数据/审计库仅 SQLite（外部 PG 元库为 v0.2 开源任务 T28）；
 - 决策语料 252 条（353 次方言运行：PG192/MySQL161；danger76/risk61/normal115；判定 deny77/allow121/approve42/warn12）危险漏拦 0、误拦 <2%、fuzz 连续 30 分钟（4298 万次变异）无 panic 且 fail-closed；
