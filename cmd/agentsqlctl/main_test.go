@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/stretchr/testify/require"
 )
@@ -121,6 +124,116 @@ func TestMigratePrintsVersionsAndIsIdempotentWithoutSecret(t *testing.T) {
 	}
 	_, err := os.Stat(databasePath)
 	require.NoError(t, err)
+}
+
+func TestSQLiteToPostgresCommandValidationAndRedaction(t *testing.T) {
+	t.Run("required flags", func(t *testing.T) {
+		var stderr strings.Builder
+		require.Equal(t, 1, run([]string{"migrate-sqlite-to-postgres"}, io.Discard, &stderr))
+		require.Contains(t, stderr.String(), "required flag")
+	})
+
+	t.Run("SQLite target and same file", func(t *testing.T) {
+		t.Setenv(config.MetadataDSNEnv, "")
+		source := filepath.Join(t.TempDir(), "source.db")
+		require.NoError(t, os.WriteFile(source, nil, 0o600))
+		sameConfig := writeControlConfig(t, strings.Replace(defaultConfigTemplate, "./data/agentsql.db", filepath.ToSlash(source), 1))
+		var stderr strings.Builder
+		require.Equal(t, 1, run([]string{
+			"migrate-sqlite-to-postgres", "--source", source, "--target-config", sameConfig,
+		}, io.Discard, &stderr))
+		require.Contains(t, stderr.String(), "same SQLite file")
+
+		other := filepath.Join(t.TempDir(), "other.db")
+		otherConfig := writeControlConfig(t, strings.Replace(defaultConfigTemplate, "./data/agentsql.db", filepath.ToSlash(other), 1))
+		stderr.Reset()
+		require.Equal(t, 1, run([]string{
+			"migrate-sqlite-to-postgres", "--source", source, "--target-config", otherConfig,
+		}, io.Discard, &stderr))
+		require.Contains(t, stderr.String(), "must be postgres")
+	})
+
+	t.Run("non-latest source is rejected before connecting and secrets stay redacted", func(t *testing.T) {
+		source := filepath.Join(t.TempDir(), "old.db")
+		database, err := sql.Open("sqlite", source)
+		require.NoError(t, err)
+		require.NoError(t, database.Ping())
+		require.NoError(t, database.Close())
+		password := "migration-password-must-not-appear"
+		dsn := "postgres://migration:" + password + "@127.0.0.1:1/agentsql?sslmode=disable"
+		t.Setenv(config.MetadataDSNEnv, dsn)
+		configPath := writeControlConfig(t, postgresTargetConfig(false))
+		var stdout, stderr strings.Builder
+		require.Equal(t, 1, run([]string{
+			"migrate-sqlite-to-postgres", "--source", source, "--target-config", configPath, "--verify-hash",
+		}, &stdout, &stderr))
+		combined := stdout.String() + stderr.String()
+		require.Contains(t, combined, "schema_migrations")
+		require.NotContains(t, combined, dsn)
+		require.NotContains(t, combined, password)
+	})
+
+	t.Run("PostgreSQL connection errors stay redacted", func(t *testing.T) {
+		source := filepath.Join(t.TempDir(), "latest.db")
+		database, err := sql.Open("sqlite", source)
+		require.NoError(t, err)
+		require.NoError(t, store.Migrate(context.Background(), database, store.DialectSQLite))
+		require.NoError(t, database.Close())
+		password := "target-password-must-not-appear"
+		dsn := "postgres://migration:" + password + "@127.0.0.1:1/agentsql?sslmode=disable&connect_timeout=1"
+		t.Setenv(config.MetadataDSNEnv, dsn)
+		configPath := writeControlConfig(t, postgresTargetConfig(false))
+		var stdout, stderr strings.Builder
+		require.Equal(t, 1, run([]string{
+			"migrate-sqlite-to-postgres", "--source", source, "--target-config", configPath,
+		}, &stdout, &stderr))
+		combined := stdout.String() + stderr.String()
+		require.Contains(t, combined, "driver=postgres")
+		require.NotContains(t, combined, dsn)
+		require.NotContains(t, combined, password)
+	})
+}
+
+func TestSQLiteToPostgresSummaryIsMachineParseableAndHasNineSwitchSteps(t *testing.T) {
+	minimum, maximum := int64(10), int64(12)
+	summary := store.SQLiteToPostgresSummary{
+		Tables: []store.SQLiteToPostgresTableSummary{
+			{Table: "agents", SourceRows: 1, TargetRows: 1, SHA256: strings.Repeat("a", 64)},
+			{Table: "audit_logs", SourceRows: 2, TargetRows: 2, SHA256: strings.Repeat("b", 64), MinID: &minimum, MaxID: &maximum},
+		},
+		Sequence:     store.SQLiteToPostgresSequenceSummary{LastValue: 12, IsCalled: true, ExpectedNext: 13},
+		Approvals:    store.SQLiteToPostgresApprovalSummary{SourceNonNullAuditIDs: 1, TargetNonNullAuditIDs: 1},
+		Verification: "ok",
+		VerifyHash:   true,
+	}
+	var output strings.Builder
+	require.NoError(t, writeSQLiteToPostgresSummary(&output, summary))
+	require.Contains(t, output.String(), "table=audit_logs source_rows=2 target_rows=2")
+	require.Contains(t, output.String(), "min_id=10 max_id=12")
+	require.Contains(t, output.String(), "last_value=12 is_called=true expected_next=13")
+	require.Contains(t, output.String(), "verification=ok verify_hash=true")
+	require.Equal(t, 9, strings.Count(output.String(), "switch_step="))
+}
+
+func postgresTargetConfig(separate bool) string {
+	audit := "  audit:\n    separate: false\n"
+	if separate {
+		audit = "  audit:\n    separate: true\n    driver: postgres\n    dsn: \"\"\n"
+	}
+	return `server:
+  http_listen: "127.0.0.1:7780"
+store:
+  metadata:
+    driver: postgres
+    dsn: ""
+` + audit + `defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: 20
+theme:
+  default: dark
+`
 }
 
 func TestHealthCommand(t *testing.T) {

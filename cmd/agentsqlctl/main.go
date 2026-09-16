@@ -90,8 +90,148 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newInitConfigCommand())
 	command.AddCommand(newCheckConfigCommand())
 	command.AddCommand(newMigrateCommand())
+	command.AddCommand(newSQLiteToPostgresCommand())
 	command.AddCommand(newHealthCommand())
 	return command
+}
+
+func newSQLiteToPostgresCommand() *cobra.Command {
+	var sourcePath, targetConfigPath string
+	var verifyHash bool
+	command := &cobra.Command{
+		Use:   "migrate-sqlite-to-postgres",
+		Short: "Copy a combined SQLite store into PostgreSQL",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if _, err := fmt.Fprintln(command.ErrOrStderr(), "notice=stop-gateway-writes-during-migration"); err != nil {
+				return fmt.Errorf("write migration notice: %w", err)
+			}
+			summary, err := migrateSQLiteToPostgres(command.Context(), sourcePath, targetConfigPath, verifyHash)
+			if err != nil {
+				return err
+			}
+			return writeSQLiteToPostgresSummary(command.OutOrStdout(), summary)
+		},
+	}
+	command.Flags().StringVar(&sourcePath, "source", "", "path to the combined SQLite database")
+	command.Flags().StringVar(&targetConfigPath, "target-config", "", "path to the PostgreSQL target configuration")
+	command.Flags().BoolVar(&verifyHash, "verify-hash", false, "request canonical streaming SHA-256 verification")
+	_ = command.MarkFlagRequired("source")
+	_ = command.MarkFlagRequired("target-config")
+	return command
+}
+
+func migrateSQLiteToPostgres(ctx context.Context, sourcePath, targetConfigPath string, verifyHash bool) (summary store.SQLiteToPostgresSummary, resultErr error) {
+	resolved, err := resolveConfigFile(targetConfigPath)
+	if err != nil {
+		return summary, fmt.Errorf("load PostgreSQL migration target: %w", err)
+	}
+	if resolved.Metadata.Driver != store.DialectPostgres {
+		if resolved.Metadata.Driver == store.DialectSQLite && sameFilePath(sourcePath, resolved.Metadata.SQLitePath) {
+			return summary, errors.New("migration source and target refer to the same SQLite file")
+		}
+		return summary, errors.New("migration target metadata driver must be postgres")
+	}
+	if !resolved.Audit.ReuseMetadata && resolved.Audit.Driver != store.DialectPostgres {
+		return summary, errors.New("migration target audit driver must be postgres")
+	}
+
+	metadataDB, err := openResolvedDatabase(resolved.Metadata)
+	if err != nil {
+		return summary, safeStoreError("open metadata migration target", resolved.Metadata, err)
+	}
+	defer func() {
+		if err := metadataDB.Close(); err != nil && resultErr == nil {
+			resultErr = safeStoreError("close metadata migration target", resolved.Metadata, err)
+		}
+	}()
+	auditDB := metadataDB
+	if !resolved.Audit.ReuseMetadata {
+		auditDB, err = openResolvedDatabase(resolved.Audit)
+		if err != nil {
+			return summary, safeStoreError("open audit migration target", resolved.Audit, err)
+		}
+		defer func() {
+			if err := auditDB.Close(); err != nil && resultErr == nil {
+				resultErr = safeStoreError("close audit migration target", resolved.Audit, err)
+			}
+		}()
+	}
+
+	summary, err = store.MigrateSQLiteToPostgres(ctx, store.SQLiteToPostgresOptions{
+		SourcePath: sourcePath,
+		MetadataDB: metadataDB,
+		AuditDB:    auditDB,
+		Separate:   !resolved.Audit.ReuseMetadata,
+		VerifyHash: verifyHash,
+	})
+	if err != nil {
+		return summary, err
+	}
+	return summary, nil
+}
+
+func sameFilePath(left, right string) bool {
+	leftAbsolute, leftErr := filepath.Abs(strings.TrimSpace(left))
+	rightAbsolute, rightErr := filepath.Abs(strings.TrimSpace(right))
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	leftInfo, leftStatErr := os.Stat(leftAbsolute)
+	rightInfo, rightStatErr := os.Stat(rightAbsolute)
+	if leftStatErr == nil && rightStatErr == nil {
+		return os.SameFile(leftInfo, rightInfo)
+	}
+	return strings.EqualFold(filepath.Clean(leftAbsolute), filepath.Clean(rightAbsolute))
+}
+
+func writeSQLiteToPostgresSummary(writer io.Writer, summary store.SQLiteToPostgresSummary) error {
+	for _, table := range summary.Tables {
+		if _, err := fmt.Fprintf(writer, "table=%s source_rows=%d target_rows=%d hash=%s", table.Table, table.SourceRows, table.TargetRows, table.SHA256); err != nil {
+			return fmt.Errorf("write SQLite-to-PostgreSQL summary: %w", err)
+		}
+		if table.Table == "audit_logs" {
+			minID, maxID := "null", "null"
+			if table.MinID != nil {
+				minID = fmt.Sprint(*table.MinID)
+			}
+			if table.MaxID != nil {
+				maxID = fmt.Sprint(*table.MaxID)
+			}
+			if _, err := fmt.Fprintf(writer, " min_id=%s max_id=%s", minID, maxID); err != nil {
+				return fmt.Errorf("write SQLite-to-PostgreSQL summary: %w", err)
+			}
+		}
+		if _, err := fmt.Fprintln(writer); err != nil {
+			return fmt.Errorf("write SQLite-to-PostgreSQL summary: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintf(writer, "sequence=public.audit_logs_id_seq last_value=%d is_called=%t expected_next=%d\n", summary.Sequence.LastValue, summary.Sequence.IsCalled, summary.Sequence.ExpectedNext); err != nil {
+		return fmt.Errorf("write SQLite-to-PostgreSQL summary: %w", err)
+	}
+	if _, err := fmt.Fprintf(writer, "approvals non_null_audit_id_source=%d non_null_audit_id_target=%d source_orphans=%d target_orphans=%d\n", summary.Approvals.SourceNonNullAuditIDs, summary.Approvals.TargetNonNullAuditIDs, summary.Approvals.SourceOrphans, summary.Approvals.TargetOrphans); err != nil {
+		return fmt.Errorf("write SQLite-to-PostgreSQL summary: %w", err)
+	}
+	if _, err := fmt.Fprintf(writer, "verification=%s verify_hash=%t\n", summary.Verification, summary.VerifyHash); err != nil {
+		return fmt.Errorf("write SQLite-to-PostgreSQL summary: %w", err)
+	}
+	steps := []string{
+		"stop-old-service-and-back-up-sqlite-and-secret",
+		"switch-config-to-postgres-layout",
+		"replace-migration-dsns-with-runtime-accounts",
+		"set-auto-migrate-false",
+		"keep-original-agentsql-secret",
+		"run-check-config-and-health",
+		"restart-and-confirm-readyz-200",
+		"verify-read-deny-approve-and-new-audit-id-above-old-max",
+		"retain-sqlite-through-validation-period",
+	}
+	for index, step := range steps {
+		if _, err := fmt.Fprintf(writer, "switch_step=%d action=%s\n", index+1, step); err != nil {
+			return fmt.Errorf("write SQLite-to-PostgreSQL switch steps: %w", err)
+		}
+	}
+	return nil
 }
 
 func newVersionCommand() *cobra.Command {

@@ -79,6 +79,13 @@ func MetadataMigrationVersions(ctx context.Context, database *sql.DB, dialect Di
 	return migrationVersions(ctx, database, directory)
 }
 
+// LatestCombinedSQLiteMigrationVersion returns the schema version required of
+// a source database accepted by the SQLite-to-PostgreSQL搬迁器. The source is
+// deliberately limited to the combined SQLite migration stream.
+func LatestCombinedSQLiteMigrationVersion() (int, error) {
+	return latestMigrationVersion("migrations/sqlite")
+}
+
 // AuditMigrationVersions returns current and code-latest audit versions.
 func AuditMigrationVersions(ctx context.Context, database *sql.DB, dialect Dialect) (int, int, error) {
 	if dialect != DialectPostgres {
