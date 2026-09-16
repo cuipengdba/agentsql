@@ -129,6 +129,7 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
 	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
 	hasGroupBy, isPureAggregate := mysqlAggregateShape(statement)
+	directProjections := mysqlDirectProjections(statement)
 	for _, column := range mysqlProjectedColumns(statement) {
 		operations.add(selectColumnOperation + ":" + column)
 	}
@@ -163,21 +164,22 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 
 	hasWhere, whereExpression := mysqlRootWhere(statement)
 	return &model.AST{
-		Dialect:         mysqlDialect,
-		RawSQL:          sql,
-		Normalized:      normalized,
-		StmtType:        statementType,
-		IsMulti:         false,
-		Tables:          tables.sorted(),
-		Columns:         columns.sorted(),
-		HasWhere:        hasWhere,
-		WhereTautology:  hasWhere && mysqlExpressionTautology(whereExpression),
-		HasLimit:        mysqlHasLimit(statement),
-		HasGroupBy:      hasGroupBy,
-		IsPureAggregate: isPureAggregate,
-		Functions:       functions.sorted(),
-		Operations:      operations.sorted(),
-		Explain:         nil,
+		Dialect:           mysqlDialect,
+		RawSQL:            sql,
+		Normalized:        normalized,
+		StmtType:          statementType,
+		IsMulti:           false,
+		Tables:            tables.sorted(),
+		Columns:           columns.sorted(),
+		DirectProjections: directProjections,
+		HasWhere:          hasWhere,
+		WhereTautology:    hasWhere && mysqlExpressionTautology(whereExpression),
+		HasLimit:          mysqlHasLimit(statement),
+		HasGroupBy:        hasGroupBy,
+		IsPureAggregate:   isPureAggregate,
+		Functions:         functions.sorted(),
+		Operations:        operations.sorted(),
+		Explain:           nil,
 	}, nil
 }
 
@@ -659,6 +661,74 @@ func mysqlProjectedColumns(statement sqlparser.Statement) []string {
 		}
 	}
 	return columns.sorted()
+}
+
+type directProjectionItem struct {
+	column string
+	star   bool
+}
+
+func mysqlDirectProjections(statement sqlparser.Statement) []model.DirectProjectionRef {
+	selectNode, ok := statement.(*sqlparser.Select)
+	if !ok {
+		return nil
+	}
+	items := make([]directProjectionItem, len(selectNode.SelectExprs))
+	for index, expression := range selectNode.SelectExprs {
+		switch typed := expression.(type) {
+		case *sqlparser.AliasedExpr:
+			column, direct := typed.Expr.(*sqlparser.ColName)
+			if direct {
+				items[index].column = column.Name.String()
+			}
+		case *sqlparser.StarExpr:
+			items[index].star = true
+		}
+	}
+	return positionDirectProjections(items)
+}
+
+func positionDirectProjections(items []directProjectionItem) []model.DirectProjectionRef {
+	firstStar := -1
+	lastStar := -1
+	starCount := 0
+	for index, item := range items {
+		if !item.star {
+			continue
+		}
+		if firstStar < 0 {
+			firstStar = index
+		}
+		lastStar = index
+		starCount++
+	}
+
+	projections := make([]model.DirectProjectionRef, 0, len(items)-starCount)
+	for index, item := range items {
+		if item.column == "" {
+			continue
+		}
+		switch {
+		case starCount == 0:
+			projections = append(projections, model.DirectProjectionRef{Column: item.column, Offset: index})
+		case starCount == 1 && index < firstStar:
+			projections = append(projections, model.DirectProjectionRef{Column: item.column, Offset: index})
+		case starCount == 1 && index > firstStar:
+			projections = append(projections, model.DirectProjectionRef{
+				Column: item.column, Offset: len(items) - 1 - index, FromEnd: true,
+			})
+		case starCount > 1 && index < firstStar:
+			projections = append(projections, model.DirectProjectionRef{Column: item.column, Offset: index})
+		case starCount > 1 && index > lastStar:
+			projections = append(projections, model.DirectProjectionRef{
+				Column: item.column, Offset: len(items) - 1 - index, FromEnd: true,
+			})
+		}
+	}
+	if len(projections) == 0 {
+		return nil
+	}
+	return projections
 }
 
 func mysqlSingleCTEProjectedColumns(selectNode *sqlparser.Select, star *sqlparser.StarExpr) ([]string, bool) {

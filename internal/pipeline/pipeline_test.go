@@ -185,6 +185,107 @@ func TestPipelineAllowSelectQueriesRedactsAndAudits(t *testing.T) {
 	require.Equal(t, "SELECT", *log.StmtType)
 }
 
+func TestPipelineRedactsDirectAliasedSourceColumn(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	fixture.executor.queryResult = model.QueryResult{
+		Columns:  []string{"mobile"},
+		Rows:     [][]string{{"13812345678"}},
+		RowCount: 1,
+	}
+
+	response, err := fixture.pipeline.Process(
+		context.Background(),
+		requestWithSQL("SELECT phone AS mobile FROM public.customers WHERE id = 1 LIMIT 1"),
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, response.Decision)
+	require.NotNil(t, response.Result)
+	require.Equal(t, "138****5678", response.Result.Rows[0][0])
+	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.TouchedColumns)
+	require.Equal(t, 1, response.Redact.MaskedCells)
+}
+
+func TestPipelineFallsBackToLegacyRedactor(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	legacy := &legacyRedactor{}
+	fixture.redactors.redactor = legacy
+	fixture.executor.queryResult = model.QueryResult{
+		Columns:  []string{"mobile"},
+		Rows:     [][]string{{"unchanged"}},
+		RowCount: 1,
+	}
+
+	response, err := fixture.pipeline.Process(
+		context.Background(),
+		requestWithSQL("SELECT phone AS mobile FROM public.customers WHERE id = 1 LIMIT 1"),
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, legacy.calls)
+	require.Equal(t, "legacy", response.Result.Rows[0][0])
+	require.Equal(t, 1, response.Redact.MaskedCells)
+}
+
+func TestResolveSourceColumnsRejectsUnsafeAlignment(t *testing.T) {
+	tests := []struct {
+		name        string
+		refs        []model.DirectProjectionRef
+		columnCount int
+		expected    []string
+	}{
+		{
+			name: "single star suffix resolves from end",
+			refs: []model.DirectProjectionRef{
+				{Column: "phone", Offset: 0, FromEnd: true},
+			},
+			columnCount: 4,
+			expected:    []string{"", "", "", "phone"},
+		},
+		{
+			name: "multiple stars preserve only safe edges",
+			refs: []model.DirectProjectionRef{
+				{Column: "id", Offset: 0},
+				{Column: "email", Offset: 0, FromEnd: true},
+			},
+			columnCount: 5,
+			expected:    []string{"id", "", "", "", "email"},
+		},
+		{
+			name:        "offset beyond result columns invalidates all sources",
+			refs:        []model.DirectProjectionRef{{Column: "phone", Offset: 1}},
+			columnCount: 1,
+			expected:    nil,
+		},
+		{
+			name: "left and right overlap invalidates all sources",
+			refs: []model.DirectProjectionRef{
+				{Column: "phone", Offset: 0},
+				{Column: "email", Offset: 0, FromEnd: true},
+			},
+			columnCount: 1,
+			expected:    nil,
+		},
+		{
+			name:        "empty reference invalidates all sources",
+			refs:        []model.DirectProjectionRef{{Offset: 0}},
+			columnCount: 1,
+			expected:    nil,
+		},
+		{
+			name:        "empty result invalidates all sources",
+			refs:        []model.DirectProjectionRef{{Column: "phone", Offset: 0}},
+			columnCount: 0,
+			expected:    nil,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.expected, resolveSourceColumns(test.refs, test.columnCount))
+		})
+	}
+}
+
 func TestPipelineUsesDefaultRowLimit(t *testing.T) {
 	fixture := newPipelineFixture(t)
 	fixture.datasources.datasource.RowLimit = 0
@@ -951,6 +1052,16 @@ type fakeRedactorBuilder struct {
 	redactor mask.Redactor
 	err      error
 	count    int
+}
+
+type legacyRedactor struct {
+	calls int
+}
+
+func (redactor *legacyRedactor) Apply(result model.QueryResult) (model.QueryResult, mask.RedactReport) {
+	redactor.calls++
+	result.Rows[0][0] = "legacy"
+	return result, mask.RedactReport{MaskedCells: 1}
 }
 
 func (fake *fakeRedactorBuilder) calls() int {

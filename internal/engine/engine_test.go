@@ -493,3 +493,16 @@ func testAST() *model.AST {
 		Explain:    &model.ExplainInfo{EstScanRows: 25},
 	}
 }
+
+func TestCloneASTDeepCopiesDirectProjections(t *testing.T) {
+	original := &model.AST{
+		DirectProjections: []model.DirectProjectionRef{
+			{Column: "phone", Offset: 0},
+		},
+	}
+
+	cloned := cloneAST(original)
+	cloned.DirectProjections[0].Column = "changed"
+
+	require.Equal(t, "phone", original.DirectProjections[0].Column)
+}

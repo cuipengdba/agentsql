@@ -369,6 +369,7 @@ func cloneAST(source *model.AST) *model.AST {
 	cloned := *source
 	cloned.Tables = append([]model.ObjectRef{}, source.Tables...)
 	cloned.Columns = append([]string{}, source.Columns...)
+	cloned.DirectProjections = append([]model.DirectProjectionRef{}, source.DirectProjections...)
 	cloned.Functions = append([]string{}, source.Functions...)
 	cloned.Operations = append([]string{}, source.Operations...)
 	if source.Explain != nil {

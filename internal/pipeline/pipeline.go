@@ -335,7 +335,14 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 			if isNilInterface(redactor) {
 				return fmt.Errorf("redactor builder returned nil redactor")
 			}
-			redacted, report := redactor.Apply(*run.response.Result)
+			var redacted model.QueryResult
+			var report mask.RedactReport
+			if sourceAware, ok := redactor.(mask.SourceAwareRedactor); ok {
+				sources := resolveSourceColumns(run.ast.DirectProjections, len(run.response.Result.Columns))
+				redacted, report = sourceAware.ApplyWithSourceColumns(*run.response.Result, sources)
+			} else {
+				redacted, report = redactor.Apply(*run.response.Result)
+			}
 			run.response.Result = &redacted
 			run.response.Redact = report
 			return nil
@@ -344,6 +351,29 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		}
 	}
 	return run.finish(ctx, nil)
+}
+
+func resolveSourceColumns(refs []model.DirectProjectionRef, columnCount int) []string {
+	if len(refs) == 0 || columnCount <= 0 {
+		return nil
+	}
+	sources := make([]string, columnCount)
+	occupied := make([]bool, columnCount)
+	for _, ref := range refs {
+		if ref.Column == "" || ref.Offset < 0 || ref.Offset >= columnCount {
+			return nil
+		}
+		index := ref.Offset
+		if ref.FromEnd {
+			index = columnCount - 1 - ref.Offset
+		}
+		if index < 0 || index >= columnCount || occupied[index] {
+			return nil
+		}
+		occupied[index] = true
+		sources[index] = ref.Column
+	}
+	return sources
 }
 
 func (run *pipelineRun) closeUnusedSession() error {
