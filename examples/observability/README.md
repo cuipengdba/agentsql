@@ -12,7 +12,7 @@ docker compose --profile observability up -d --build
 
 - AgentSQL：<http://127.0.0.1:7780>
 - Prometheus targets：<http://127.0.0.1:9090/targets>，其中 `agentsql` 应为 `UP`
-- Grafana：<http://127.0.0.1:3000>，登录 `admin` / `agentsql_observability` 后首页直接显示 AgentSQL 六面板
+- Grafana：<http://127.0.0.1:3000>，登录 `admin` / `agentsql_observability` 后首页直接显示 AgentSQL 六面板（这是 compose 中 `GF_SECURITY_ADMIN_PASSWORD` 设定的本地演示默认口令，端口仅绑定回环；若要让 Grafana 对外可达，必须先改成强口令）
 
 Prometheus 数据源和 AgentSQL dashboard 已自动 provisioning，无需手工添加数据源或导入 JSON。六面板分别展示 QPS、决策分布、规则命中 Top10、HTTP P99、限流速率和连接池占用。`/metrics` 与 `/healthz` 同级且免鉴权，可直接检查：
 
