@@ -51,3 +51,25 @@ func mergeGlobalLayers(base engine.RuleLayers, extra engine.RuleLayer) engine.Ru
 		Agent:      cloneRuleLayer(base.Agent),
 	}
 }
+
+func forceAgentRuleConfig(
+	layers engine.RuleLayers,
+	ruleID string,
+	thresholds map[string]float64,
+) engine.RuleLayers {
+	forced := cloneRuleLayers(layers)
+	if forced.Agent == nil {
+		forced.Agent = make(engine.RuleLayer)
+	}
+	config := cloneRuleConfig(forced.Agent[ruleID])
+	enabled := true
+	config.Enabled = &enabled
+	if config.Thresholds == nil {
+		config.Thresholds = make(map[string]float64)
+	}
+	for name, value := range thresholds {
+		config.Thresholds[name] = value
+	}
+	forced.Agent[ruleID] = config
+	return forced
+}

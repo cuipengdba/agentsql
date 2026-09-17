@@ -1023,6 +1023,7 @@ type fakeAuditRecorder struct {
 	err               error
 	next              int64
 	onRecord          func()
+	onRecorded        func(model.AuditLog)
 	waitForContextEnd bool
 }
 
@@ -1045,6 +1046,9 @@ func (fake *fakeAuditRecorder) Record(
 	fake.next++
 	log.ID = fake.next
 	fake.logs = append(fake.logs, log)
+	if fake.onRecorded != nil {
+		fake.onRecorded(log)
+	}
 	return log, nil
 }
 
@@ -1092,6 +1096,7 @@ func (fake *fakeRedactorBuilder) RedactorFor(context.Context, string) (mask.Reda
 
 type executorCalls struct {
 	openSession    int
+	beginWriteTx   int
 	explain        int
 	query          int
 	execute        int
@@ -1137,6 +1142,7 @@ func (spy *spyExecutor) OpenSession(context.Context, string) (executor.Session, 
 func (spy *spyExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
+	spy.calls.beginWriteTx++
 	spy.events = append(spy.events, "begin")
 	if spy.beginErr != nil {
 		return nil, spy.beginErr
@@ -1226,6 +1232,7 @@ type spySession struct {
 func (session *spySession) BeginWriteTx(context.Context) (executor.WriteTx, error) {
 	session.parent.mu.Lock()
 	defer session.parent.mu.Unlock()
+	session.parent.calls.beginWriteTx++
 	session.parent.events = append(session.parent.events, "begin")
 	if session.parent.beginErr != nil {
 		return nil, session.parent.beginErr

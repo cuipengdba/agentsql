@@ -90,6 +90,15 @@ func TestCoverageMySQLSecurityShapes(t *testing.T) {
 	}
 }
 
+func TestMySQLExplainAnalyzeCarriesSideEffectOperation(t *testing.T) {
+	approved, err := NewParser(mysqlDialect)
+	require.NoError(t, err)
+	ast, err := approved.Parse("EXPLAIN ANALYZE SELECT id FROM orders")
+	require.NoError(t, err)
+	require.Equal(t, model.StmtType("SELECT"), ast.StmtType)
+	require.Contains(t, ast.Operations, "EXPLAIN ANALYZE")
+}
+
 func TestCoverageMySQLKeywordAndConstantHelpers(t *testing.T) {
 	vitessParser, err := sqlparser.New(sqlparser.Options{})
 	require.NoError(t, err)

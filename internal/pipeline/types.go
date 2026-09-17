@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -128,6 +129,7 @@ type Option func(*pipelineOptions) error
 type pipelineOptions struct {
 	ruleLayers engine.RuleLayers
 	observer   DecisionObserver
+	demo       config.DemoConfig
 }
 
 // WithRuleLayers supplies global, datasource, and Agent rule overrides.

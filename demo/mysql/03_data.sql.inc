@@ -73,4 +73,7 @@ FROM seq WHERE id <= 16;
 
 COMMIT;
 
+ANALYZE TABLE customers;
+ANALYZE TABLE products;
+ANALYZE TABLE orders;
 

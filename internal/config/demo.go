@@ -8,6 +8,8 @@ import (
 const (
 	DemoDatasourcePG        = "ds-demo-pg"
 	DemoDatasourceMySQL     = "ds-demo-mysql"
+	DemoAgentRO             = "agent-demo-ro"
+	DemoAgentDML            = "agent-demo-dml"
 	DemoDefaultQPSPerAgent  = 2
 	DemoDefaultBanner       = "演示环境·数据每日重置·禁止接入真实数据与真实数据库"
 	demoEnvironmentVariable = "AGENTSQL_DEMO"
