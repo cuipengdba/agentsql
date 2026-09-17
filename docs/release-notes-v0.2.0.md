@@ -1,6 +1,8 @@
 # AgentSQL v0.2.0
 
 > 面向 AI Agent 的数据库安全网关 / 生产级 MCP Server。让模型发出的每一条 PostgreSQL/MySQL 请求，在到达数据库前先过一道「鉴权 → 解析 → 授权 → 规则 → 审批 → 执行 → 脱敏 → 审计」的安全闸。
+>
+> 中文品牌名：智盾（控制台显示为「AgentSQL 智盾控制台」）。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -29,7 +31,7 @@ v0.2.0 在 v0.1 的安全网关核心之上，补齐了三件让产品「可在�
 
 Live 通道的演示密钥只保存在服务端、不下发浏览器；非 SELECT 语句由结构性硬屏障在触库前拦截，且不可被规则配置覆盖；数据源白名单、严格字段校验、demo 限流（QPS=2）与不含密钥/DSN 的白名单响应共同保证演示环境安全。
 
-> 截图位：`docs/images/demo-scenario-1.png` … `demo-scenario-6.png`（GA 前补真实截图）。
+> 六张真实运行截图随仓库提供，见 README 与 `docs/images/demo-scenario-1.png` … `demo-scenario-6.png`。
 
 ### 2. 控制台实时安全大屏（T27）
 
@@ -100,7 +102,7 @@ AgentSQL 是**网关层**的安全管控，不是银弹，本版明确不承诺�
 
 开源版本采用 **GNU AGPLv3**；闭源集成分发、对外 SaaS/托管且不希望按网络条款开源、需要企业模块或 SLA/保修的场景，需要商业授权。AgentSQL 名称与 Logo 商标保留，fork 不得冒充官方版本。详见 [LICENSE](LICENSE) 与 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)。
 
-商业授权、企业版与私有化合作：**[联系邮箱 / 官网，GA 前填写]**
+商业授权、企业版与私有化合作：**邮箱 87326549@qq.com ｜ 官网 https://agentsql.cn**
 
 ## 资产校验和
 

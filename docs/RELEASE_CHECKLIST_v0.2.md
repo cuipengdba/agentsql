@@ -11,7 +11,7 @@
 
 | 项 | 值 |
 |---|---|
-| main HEAD | `03d7ea0`（Merge T26-2c），与 `origin/main` 一致，工作区干净 |
+| main HEAD | `4a96e8c`（官网部署回写），与 `origin/main` 一致，工作区干净 |
 | 最新存档 tag | `t26-2c`（annotated，已推送） |
 | v0.2 范围 | T27 大屏 SSE、T28 控制面/审计 PostgreSQL18、T26 在线 Live Demo，全部闭环 |
 | 许可证 | `LICENSE` = GNU AGPLv3；`COMMERCIAL-LICENSE.md` = AGPLv3 + 商业双授权 + 商标保留 |
@@ -60,12 +60,9 @@
 
 ## 2. GA 前必补物料（BLOCKING，主控可代做但需你给信息或确认）
 
-- [ ] **2.1 商业授权联系信息（法务/商务门面）**：`COMMERCIAL-LICENSE.md` 有两处占位必须填：
-  - 第 27 行 `[联系邮箱 / 官网 待填写]`；
-  - 第 32 行 `[版权主体待填写]`（个人公司全称或你的署名）。
-  - 决定后由主控统一替换 README / COMMERCIAL-LICENSE / Release Notes 中所有联系点。
-- [ ] **2.2 品牌决策**：前端硬编码中文名「AgentSQL 智盾」是否保留（总览/登录/页签）。保留则在 README/Release Notes 统一使用；不保留则主控批量替换为「AgentSQL」。
-- [ ] **2.3 真实截图（修复 README 死链）**：README 第 93–98 行引用 `docs/images/demo-scenario-1..6.png`，但 `docs/images/` 目录尚不存在（公开后会裂图）。需在最终 v0.2.0 演示环境正式导出 6 张：
+- [x] **2.1 商业授权联系信息（法务/商务门面）**：已定稿——版权主体 **崔鹏**，联系邮箱 **87326549@qq.com**，官网 **https://agentsql.cn**；已统一替换 COMMERCIAL-LICENSE、README、Release Notes 中的联系点。
+- [x] **2.2 品牌决策**：**保留中文名「智盾」**（控制台仍为「AgentSQL 智盾控制台」，前端零改动、无需重建/重截图）；README、Release Notes、SPEC 已统一标注中文品牌名。
+- [x] **2.3 真实截图（修复 README 死链）**：已完成（commit `c9b5508`），README 引用的 `docs/images/demo-scenario-1..6.png` 六张均已存在且为 Live Demo 真实截图、无死链。原计划要点（留档）：
   1. 正常放行（5 行 + audit_id）；2. 无 WHERE 写拦截（红色、无底层报错）；3. phone/email 脱敏；4. 大结果告警（金额 22.74 + 截断 20）；5. 越权表拒绝；6. 审计证据链 / 总览实时大屏。
   - 主控可在你确认后用浏览器一次性截齐并落到 `docs/images/`，同时把 `docs/screenshots/` 补 1–2 张控制台总览/审计图。**不允许用合成图冒充真实截图。**
 - [ ] **2.4 CHANGELOG 日期定稿**：当前 v0.2.0 标注 2026-09-17（准备日）。若 GA 延后，发布日统一更新 `CHANGELOG.md` 本行与 Release 标题日期。

@@ -5,7 +5,7 @@
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
-AgentSQL 是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
+AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -247,4 +247,4 @@ make build VERSION=v0.2.0
 
 ## 许可、商业授权与商标
 
-开源版本依据 [GNU AGPLv3](LICENSE) 授权。需要闭源集成、SaaS 商用、企业模块、保修或 SLA 时，请参阅 [商业授权说明](COMMERCIAL-LICENSE.md)。AgentSQL 名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL 名称或 Logo 冒充官方版本对外发行。
+开源版本依据 [GNU AGPLv3](LICENSE) 授权。需要闭源集成、SaaS 商用、企业模块、保修或 SLA 时，请参阅 [商业授权说明](COMMERCIAL-LICENSE.md)。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。
