@@ -99,10 +99,14 @@ func assembleRules(
 }
 
 func splitRules(all []engine.Rule) (static []engine.Rule, dynamic []engine.Rule) {
+	return splitRulesForRun(all, false)
+}
+
+func splitRulesForRun(all []engine.Rule, demo bool) (static []engine.Rule, dynamic []engine.Rule) {
 	static = make([]engine.Rule, 0, len(all))
-	dynamic = make([]engine.Rule, 0, 5)
+	dynamic = make([]engine.Rule, 0, 6)
 	for _, rule := range all {
-		if isDynamicRuleID(rule.ID()) {
+		if isDynamicRuleID(rule.ID()) || demo && rule.ID() == "R005" {
 			dynamic = append(dynamic, rule)
 			continue
 		}

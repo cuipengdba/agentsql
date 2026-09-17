@@ -122,8 +122,12 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
 	operations.add(operation)
-	if _, explained := statement.(*sqlparser.ExplainStmt); explained {
-		operations.add("EXPLAIN")
+	if explained, ok := statement.(*sqlparser.ExplainStmt); ok {
+		if explained.Type == sqlparser.AnalyzeType {
+			operations.add("EXPLAIN ANALYZE")
+		} else {
+			operations.add("EXPLAIN")
+		}
 	}
 	nestingDepth, unionCount := mysqlQueryComplexity(statement)
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))

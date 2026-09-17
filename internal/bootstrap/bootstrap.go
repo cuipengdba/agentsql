@@ -104,7 +104,7 @@ func assembleWithExecutorProvider(
 		Audit:         audit.NewRecorder(auditSink),
 		Redactors:     redactors,
 		RuleOverrides: metadataStore.Rules(),
-	}, secret, pipeline.WithObserver(metricsHub))
+	}, secret, pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo))
 	if err != nil {
 		events.Close()
 		return nil, closeAfterAssemblyError(manager, metadataStore, err)

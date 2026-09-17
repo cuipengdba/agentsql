@@ -606,6 +606,13 @@ func postgresStatementSignals(
 	node any,
 ) (model.StmtType, []string, error) {
 	if nodeType != "ExplainStmt" {
+		if nodeType == "SelectStmt" {
+			if root, ok := node.(map[string]any); ok {
+				if into, exists := root["intoClause"]; exists && into != nil {
+					return model.StmtType("SELECT"), []string{"SELECT", "SELECT INTO"}, nil
+				}
+			}
+		}
 		return postgresStatementType(nodeType), []string{postgresOperation(nodeType, node)}, nil
 	}
 

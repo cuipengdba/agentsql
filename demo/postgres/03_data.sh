@@ -65,4 +65,8 @@ SELECT id,
 FROM generate_series(1, 16) AS series(id);
 
 COMMIT;
+
+ANALYZE customers;
+ANALYZE products;
+ANALYZE orders;
 SQL

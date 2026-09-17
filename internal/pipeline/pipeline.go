@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -30,6 +31,7 @@ type Pipeline struct {
 	limiter  rules.RateLimiter
 	layers   engine.RuleLayers
 	observer DecisionObserver
+	demo     config.DemoConfig
 }
 
 // New validates all seven ports and constructs the shared guard components.
@@ -50,6 +52,7 @@ func New(ports Ports, secret []byte, options ...Option) (*Pipeline, error) {
 		}
 	}
 	configuration.ruleLayers = cloneRuleLayers(configuration.ruleLayers)
+	configuration.demo = cloneDemoConfig(configuration.demo)
 	if err := validatePipelineRuleLayers(configuration.ruleLayers); err != nil {
 		return nil, fmt.Errorf("construct pipeline rule layers: %w", errors.Join(ErrInvalidOption, err))
 	}
@@ -61,15 +64,24 @@ func New(ports Ports, secret []byte, options ...Option) (*Pipeline, error) {
 		limiter:  rules.NewDefaultTokenBucketLimiter(),
 		layers:   configuration.ruleLayers,
 		observer: configuration.observer,
+		demo:     configuration.demo,
 	}, nil
 }
 
 // Process runs auth, load, parse, two guard gates, execute, redact, and audit.
 func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Response, error) {
+	return pipeline.process(ctx, request, runModeProduction)
+}
+
+func (pipeline *Pipeline) process(
+	ctx context.Context,
+	request Request,
+	mode pipelineRunMode,
+) (Response, error) {
 	if pipeline == nil {
 		return Response{}, fmt.Errorf("process SQL request: %w", ErrInvalidRequest)
 	}
-	run := newPipelineRun(pipeline, request)
+	run := newPipelineRun(pipeline, request, mode)
 	if ctx == nil {
 		return run.finish(
 			context.Background(),
@@ -100,6 +112,12 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
+		if run.isDemo() {
+			if hit, denied := run.demoScopeDeny(); denied {
+				run.appendStructuralHit(hit)
+				return nil
+			}
+		}
 		if !isNilInterface(pipeline.ports.RuleOverrides) {
 			storedRules, err := pipeline.ports.RuleOverrides.List(ctx, "")
 			if err != nil {
@@ -127,6 +145,9 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 	}); err != nil {
 		return run.finish(ctx, err)
 	}
+	if run.response.Decision == model.DecisionDeny {
+		return run.finish(ctx, nil)
+	}
 
 	if err := run.measure(StageParse, func() error {
 		sqlParser, err := parser.NewParser(model.DBDialect(run.datasource.DBType))
@@ -134,15 +155,34 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 			return err
 		}
 		ast, err := sqlParser.Parse(request.SQL)
+		run.ast = ast
 		if err != nil {
+			if run.isDemo() && ast != nil && ast.IsMulti {
+				if ast.StmtType == "" {
+					ast.StmtType = model.StmtType("UNKNOWN")
+				}
+				return nil
+			}
 			return err
 		}
 		if ast == nil {
 			return fmt.Errorf("parser returned nil AST")
 		}
-		run.ast = ast
 		return nil
 	}); err != nil {
+		if run.isDemo() {
+			if run.ast == nil {
+				run.ast = &model.AST{
+					Dialect:  model.DBDialect(run.datasource.DBType),
+					RawSQL:   request.SQL,
+					StmtType: model.StmtType("UNKNOWN"),
+				}
+			} else if run.ast.StmtType == "" {
+				run.ast.StmtType = model.StmtType("UNKNOWN")
+			}
+			run.appendStructuralHit(demoParseHit(err))
+			return run.finish(ctx, nil)
+		}
 		return run.finish(ctx, err)
 	}
 
@@ -151,8 +191,11 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		if err != nil {
 			return err
 		}
-		staticRules, _ := splitRules(allRules)
-		requestLayers := mergeGlobalLayers(pipeline.layers, run.ruleLayer)
+		staticRules, _ := splitRulesForRun(allRules, run.isDemo())
+		requestLayers, err := run.requestRuleLayers()
+		if err != nil {
+			return err
+		}
 		assessment, err := pipeline.engine.Evaluate(
 			run.ast,
 			run.evalContext(panicMetadataProvider{}),
@@ -168,6 +211,10 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		return run.finish(ctx, err)
 	}
 	staticAssessment := run.response.Assessment
+	if run.isDemo() && !isDemoSemanticReadOnly(run.ast) {
+		run.appendStructuralHit(demoNonSelectHit())
+		staticAssessment = run.response.Assessment
+	}
 	if staticAssessment.Decision == model.DecisionDeny {
 		return run.finish(ctx, nil)
 	}
@@ -237,8 +284,11 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 		if err != nil {
 			return err
 		}
-		_, dynamicRules := splitRules(allRules)
-		requestLayers := mergeGlobalLayers(pipeline.layers, run.ruleLayer)
+		_, dynamicRules := splitRulesForRun(allRules, run.isDemo())
+		requestLayers, err := run.requestRuleLayers()
+		if err != nil {
+			return err
+		}
 		dynamicAssessment, err := pipeline.engine.Evaluate(
 			run.ast,
 			run.evalContext(metadata),
@@ -508,9 +558,10 @@ type pipelineRun struct {
 	executionResult *model.QueryResult
 	reservation     *requestLimiter
 	audited         bool
+	mode            pipelineRunMode
 }
 
-func newPipelineRun(pipeline *Pipeline, request Request) *pipelineRun {
+func newPipelineRun(pipeline *Pipeline, request Request, mode pipelineRunMode) *pipelineRun {
 	stages := pipelineStageNames()
 	latency := make(map[string]int64, len(stages))
 	for _, stage := range stages {
@@ -533,6 +584,7 @@ func newPipelineRun(pipeline *Pipeline, request Request) *pipelineRun {
 			Assessment: assessment,
 		},
 		reservation: &requestLimiter{delegate: pipeline.limiter},
+		mode:        mode,
 	}
 }
 

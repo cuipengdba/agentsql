@@ -155,6 +155,13 @@ func TestPostgresExistingClassificationRegression(t *testing.T) {
 	}
 }
 
+func TestPostgresSelectIntoCarriesSideEffectOperation(t *testing.T) {
+	ast, err := (&postgresParser{}).Parse("SELECT id INTO public.order_copy FROM public.orders")
+	require.NoError(t, err)
+	require.Equal(t, model.StmtType("SELECT"), ast.StmtType)
+	require.Contains(t, ast.Operations, "SELECT INTO")
+}
+
 func TestPostgresTextCommentSignalIsDistinctFromCommentOn(t *testing.T) {
 	tests := []struct {
 		name       string
