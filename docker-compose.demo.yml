@@ -1,0 +1,160 @@
+services:
+  demo-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: agentsql_demo
+      POSTGRES_USER: "${DEMO_PG_OWNER_USER:-agentsql_demo_owner}"
+      POSTGRES_PASSWORD: "${DEMO_PG_OWNER_PASSWORD:?set DEMO_PG_OWNER_PASSWORD in the demo env file}"
+      DEMO_ANCHOR_DATE: "${DEMO_ANCHOR_DATE:?set DEMO_ANCHOR_DATE or use demo/reset}"
+      DEMO_PG_RO_PASSWORD: "${AGENTSQL_DEMO_PG_PASSWORD:?set AGENTSQL_DEMO_PG_PASSWORD in the demo env file}"
+    volumes:
+      - demo-postgres-data:/var/lib/postgresql/data
+      - ./demo/postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${DEMO_PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username \"$${POSTGRES_USER}\" --dbname \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  demo-mysql:
+    image: mysql:8
+    environment:
+      MYSQL_DATABASE: agentsql_demo
+      MYSQL_ROOT_PASSWORD: "${DEMO_MYSQL_ROOT_PASSWORD:?set DEMO_MYSQL_ROOT_PASSWORD in the demo env file}"
+      DEMO_ANCHOR_DATE: "${DEMO_ANCHOR_DATE:?set DEMO_ANCHOR_DATE or use demo/reset}"
+      DEMO_MYSQL_RO_PASSWORD: "${AGENTSQL_DEMO_MYSQL_PASSWORD:?set AGENTSQL_DEMO_MYSQL_PASSWORD in the demo env file}"
+    volumes:
+      - demo-mysql-data:/var/lib/mysql
+      - ./demo/mysql:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${DEMO_MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --host=127.0.0.1 --user=root --password=\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  demo-seed:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-v0.2.0}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: agentsql:${VERSION:-v0.2.0}
+    user: agentsql
+    entrypoint: ["/usr/local/bin/agentsqlctl"]
+    command:
+      - demo-seed
+      - --config
+      - /etc/agentsql/config.demo.yaml
+      - --manifest
+      - /etc/agentsql/demo-seed.yaml
+      - --anchor-date
+      - "${DEMO_ANCHOR_DATE:?set DEMO_ANCHOR_DATE or use demo/reset}"
+    environment:
+      AGENTSQL_DEMO: "1"
+      AGENTSQL_SECRET: "${AGENTSQL_SECRET:?set AGENTSQL_SECRET in the demo env file}"
+      AGENTSQL_DEMO_PG_PASSWORD: "${AGENTSQL_DEMO_PG_PASSWORD:?set AGENTSQL_DEMO_PG_PASSWORD in the demo env file}"
+      AGENTSQL_DEMO_MYSQL_PASSWORD: "${AGENTSQL_DEMO_MYSQL_PASSWORD:?set AGENTSQL_DEMO_MYSQL_PASSWORD in the demo env file}"
+      AGENTSQL_DEMO_RO_KEY: "${AGENTSQL_DEMO_RO_KEY:?set AGENTSQL_DEMO_RO_KEY in the demo env file}"
+      AGENTSQL_DEMO_DML_KEY: "${AGENTSQL_DEMO_DML_KEY:?set AGENTSQL_DEMO_DML_KEY in the demo env file}"
+    volumes:
+      - demo-agentsql-data:/var/lib/agentsql
+      - ./examples/docker/config.demo.yaml:/etc/agentsql/config.demo.yaml:ro
+      - ./examples/docker/demo-seed.yaml:/etc/agentsql/demo-seed.yaml:ro
+    depends_on:
+      demo-postgres:
+        condition: service_healthy
+      demo-mysql:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  agentsql-demo:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-v0.2.0}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: agentsql:${VERSION:-v0.2.0}
+    user: agentsql
+    command: ["serve", "--config", "/etc/agentsql/config.demo.yaml"]
+    environment:
+      AGENTSQL_DEMO: "1"
+      AGENTSQL_SECRET: "${AGENTSQL_SECRET:?set AGENTSQL_SECRET in the demo env file}"
+      AGENTSQL_ADMIN_USER: "${AGENTSQL_ADMIN_USER:-admin}"
+      AGENTSQL_ADMIN_PASSWORD: "${AGENTSQL_ADMIN_PASSWORD:?set AGENTSQL_ADMIN_PASSWORD in the demo env file}"
+      AGENTSQL_DEMO_PG_PASSWORD: "${AGENTSQL_DEMO_PG_PASSWORD:?set AGENTSQL_DEMO_PG_PASSWORD in the demo env file}"
+      AGENTSQL_DEMO_MYSQL_PASSWORD: "${AGENTSQL_DEMO_MYSQL_PASSWORD:?set AGENTSQL_DEMO_MYSQL_PASSWORD in the demo env file}"
+      AGENTSQL_DEMO_RO_KEY: "${AGENTSQL_DEMO_RO_KEY:?set AGENTSQL_DEMO_RO_KEY in the demo env file}"
+      AGENTSQL_DEMO_DML_KEY: "${AGENTSQL_DEMO_DML_KEY:?set AGENTSQL_DEMO_DML_KEY in the demo env file}"
+    volumes:
+      - demo-agentsql-data:/var/lib/agentsql
+      - ./examples/docker/config.demo.yaml:/etc/agentsql/config.demo.yaml:ro
+    ports:
+      - "127.0.0.1:${DEMO_GATEWAY_PORT:-17880}:7780"
+    depends_on:
+      demo-seed:
+        condition: service_completed_successfully
+    healthcheck:
+      # `health --config` uses the same Store ping as /readyz. The HTTP health
+      # subcommand intentionally accepts only /healthz's status="ok" schema.
+      test: ["CMD", "/usr/local/bin/agentsqlctl", "health", "--config", "/etc/agentsql/config.demo.yaml"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - agentsql
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./examples/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      agentsql-demo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: agentsql_observability
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/agentsql.json
+    volumes:
+      - ./examples/observability/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./examples/observability/provisioning/dashboards/agentsql.yml:/etc/grafana/provisioning/dashboards/agentsql.yml:ro
+      - ./examples/observability/grafana_dashboard.json:/var/lib/grafana/dashboards/agentsql.json:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  demo-postgres-data:
+  demo-mysql-data:
+  demo-agentsql-data:

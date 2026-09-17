@@ -23,6 +23,7 @@ web/dist/
 
 # Env / secrets
 .env
+demo/demo.env
 *.local
 
 # IDE / OS

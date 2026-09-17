@@ -70,6 +70,28 @@ docker compose --profile observability up -d --build
 
 生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库（开发、Compose 与 CI 基准为 PostgreSQL 18），并用 `agentsqlctl migrate-sqlite-to-postgres` 从默认 combined SQLite 搬迁。Compose 的 `controlplane` profile、一次性迁移账号、最小权限运行账号和备份/回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
 
+## 5 分钟本地 Live Demo（一条命令）
+
+这套独立环境只连接仓库生成的 PostgreSQL/MySQL 合成数据，不连接真实数据库。先复制环境样例并替换其中全部公开凭据：
+
+```bash
+cp examples/docker/demo.env.example demo/demo.env
+bash ./demo/reset.sh
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item examples/docker/demo.env.example demo/demo.env
+.\demo\reset.ps1
+```
+
+打开 <http://127.0.0.1:17880>。业务库确定性数据、只读账号和 30 天控制面历史已经就绪；6 个引导剧本及 GIF/截图将在 T26-2 补充。
+
+> GIF/截图占位：T26-2 补充六剧本操作录屏与结果截图。
+
+凭据替换、手工 Compose 命令、每日 UTC 重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
+
 ## 二进制方式
 
 构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
@@ -180,6 +202,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 ## 文档与社区
 
 - [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
+- [本地 Live Demo、每日重置与公开部署安全清单](docs/DEMO.md)
 - [产品与工程规范](docs/SPEC.md)
 - [版本变更](CHANGELOG.md)
 - [Issue（公开仓库链接占位）](#)
