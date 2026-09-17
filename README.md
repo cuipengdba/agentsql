@@ -88,14 +88,31 @@ Copy-Item examples/docker/demo.env.example demo/demo.env
 
 打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、phone/email 脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
 
-六剧本截图占位（主控完成浏览器验收后替换对应文件，不在仓库中伪造截图）：
+六剧本真实运行截图（Live Demo 走真实网关链路，数据每日重置）：
 
-1. [正常放行截图占位](docs/images/demo-scenario-1.png)
-2. [无 WHERE 写拦截截图占位](docs/images/demo-scenario-2.png)
-3. [phone/email 脱敏截图占位](docs/images/demo-scenario-3.png)
-4. [大结果扫描告警截图占位](docs/images/demo-scenario-4.png)
-5. [越权表拒绝截图占位](docs/images/demo-scenario-5.png)
-6. [审计/大屏回看截图占位](docs/images/demo-scenario-6.png)
+1. **正常放行（allow）**：只读点查真实返回 5 行，生成 `audit_id` 并留痕。
+
+   ![正常放行](docs/images/demo-scenario-1.png)
+
+2. **无 WHERE 写拦截（deny）**：命中 R002 / R010 / R202 / DEMO_NON_SELECT，在触达数据库前拦截，不执行语句，也不暴露底层数据库报错。
+
+   ![无 WHERE 写拦截](docs/images/demo-scenario-2.png)
+
+3. **结果脱敏（allow）**：`phone` / `email` 列在结果层打码（如 `138****0001`），表格与原始 JSON 中均看不到完整手机号 / 邮箱。
+
+   ![结果脱敏](docs/images/demo-scenario-3.png)
+
+4. **大结果告警（warn）**：命中 R005，预估扫描 600 行超出行数阈值，仅返回前 20 行并标记 `truncated=true`。
+
+   ![大结果告警](docs/images/demo-scenario-4.png)
+
+5. **越权表拒绝（deny）**：命中 R010，`internal_notes` 被策略显式拒绝访问，不返回该表任何内容。
+
+   ![越权表拒绝](docs/images/demo-scenario-5.png)
+
+6. **审计证据链**：六段安检时间线（鉴权 / 解析 / 安检 / 决策 / 执行 / 留痕），被拦截语句标记为“未执行”，留存 SQL 原文、归一化 SQL 与命中规则判词。
+
+   ![审计证据链](docs/images/demo-scenario-6.png)
 
 凭据替换、手工 Compose 命令、每日 UTC 重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
 
