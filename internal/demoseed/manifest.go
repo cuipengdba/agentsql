@@ -1,0 +1,306 @@
+// Package demoseed implements the fail-closed Live Demo seed plan.
+package demoseed
+
+import (
+	"bytes"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/mask"
+	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/policy"
+	"github.com/cuipengdba/agentsql/internal/rules"
+	"github.com/cuipengdba/agentsql/internal/store"
+	"gopkg.in/yaml.v3"
+)
+
+const manifestVersion = 1
+
+var envNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// Manifest contains only public connection metadata and environment-variable
+// references. It intentionally has no plaintext secret, key, or DSN fields.
+type Manifest struct {
+	Version     int                  `yaml:"version"`
+	Banner      string               `yaml:"banner"`
+	QPSPerAgent int                  `yaml:"qps_per_agent"`
+	Datasources []DatasourceManifest `yaml:"datasources"`
+	Agents      []AgentManifest      `yaml:"agents"`
+	MaskRules   []MaskRuleManifest   `yaml:"mask_rules"`
+	Policies    []PolicyManifest     `yaml:"policies"`
+	Rules       []RuleManifest       `yaml:"rules"`
+}
+
+type DatasourceManifest struct {
+	ID            string `yaml:"id"`
+	Name          string `yaml:"name"`
+	DBType        string `yaml:"db_type"`
+	Host          string `yaml:"host"`
+	Port          int    `yaml:"port"`
+	Database      string `yaml:"database"`
+	Username      string `yaml:"username"`
+	PasswordEnv   string `yaml:"password_env"`
+	ConnLimit     int    `yaml:"conn_limit"`
+	StmtTimeoutMS int    `yaml:"stmt_timeout_ms"`
+	RowLimit      int    `yaml:"row_limit"`
+}
+
+type AgentManifest struct {
+	ID        string `yaml:"id"`
+	Name      string `yaml:"name"`
+	Level     string `yaml:"level"`
+	APIKeyEnv string `yaml:"api_key_env"`
+}
+
+type MaskRuleManifest struct {
+	ID            string `yaml:"id"`
+	DatasourceID  string `yaml:"datasource_id"`
+	TableName     string `yaml:"table_name"`
+	ColumnName    string `yaml:"column_name"`
+	SensitiveType string `yaml:"sensitive_type"`
+	Algo          string `yaml:"algo"`
+}
+
+type PolicyManifest struct {
+	ID           string `yaml:"id"`
+	AgentID      string `yaml:"agent_id"`
+	DatasourceID string `yaml:"datasource_id"`
+	ObjectType   string `yaml:"object_type"`
+	ObjectName   string `yaml:"object_name"`
+	Action       string `yaml:"action"`
+}
+
+type RuleManifest struct {
+	ID      string `yaml:"id"`
+	Enabled bool   `yaml:"enabled"`
+}
+
+// ParseManifest strictly decodes exactly one YAML document.
+func ParseManifest(contents []byte) (Manifest, error) {
+	var manifest Manifest
+	decoder := yaml.NewDecoder(bytes.NewReader(contents))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&manifest); err != nil {
+		return Manifest{}, fmt.Errorf("decode demo seed manifest: %w", err)
+	}
+	var trailing any
+	err := decoder.Decode(&trailing)
+	if err == nil {
+		return Manifest{}, errors.New("decode demo seed manifest: exactly one YAML document is required")
+	}
+	if !errors.Is(err, io.EOF) {
+		return Manifest{}, fmt.Errorf("decode trailing demo seed manifest data: %w", err)
+	}
+	return manifest, nil
+}
+
+// Validate checks the manifest's fixed Live Demo contract against config and
+// the executable built-in rule catalog.
+func (manifest Manifest) Validate(cfg config.Config) error {
+	if manifest.Version != manifestVersion {
+		return fmt.Errorf("manifest version must be %d", manifestVersion)
+	}
+	if manifest.Banner != cfg.Demo.Banner {
+		return errors.New("manifest banner differs from demo configuration")
+	}
+	if manifest.QPSPerAgent != cfg.Demo.EffectiveQPS() {
+		return errors.New("manifest qps_per_agent differs from demo configuration")
+	}
+	if err := validateDatasources(manifest.Datasources); err != nil {
+		return err
+	}
+	if err := validateAgents(manifest.Agents); err != nil {
+		return err
+	}
+	if err := validateMaskRules(manifest.MaskRules); err != nil {
+		return err
+	}
+	if err := validatePolicies(manifest.Policies); err != nil {
+		return err
+	}
+	if err := validateRules(manifest.Rules); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateDatasources(items []DatasourceManifest) error {
+	if len(items) != 2 {
+		return fmt.Errorf("manifest must contain exactly 2 datasources, got %d", len(items))
+	}
+	expected := map[string]string{config.DemoDatasourcePG: "postgres", config.DemoDatasourceMySQL: "mysql"}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		dbType, ok := expected[item.ID]
+		if !ok || seen[item.ID] {
+			return fmt.Errorf("manifest contains unsupported or duplicate datasource id %q", item.ID)
+		}
+		seen[item.ID] = true
+		if item.DBType != dbType || strings.TrimSpace(item.Name) == "" || strings.TrimSpace(item.Host) == "" ||
+			item.Port < 1 || item.Port > 65535 || strings.TrimSpace(item.Database) == "" ||
+			item.Username != "agentsql_demo_ro" || !envNamePattern.MatchString(item.PasswordEnv) {
+			return fmt.Errorf("manifest datasource %q has invalid fixed or connection fields", item.ID)
+		}
+		if item.RowLimit != 20 || item.StmtTimeoutMS != 1500 || item.ConnLimit != 2 {
+			return fmt.Errorf("manifest datasource %q must use row_limit=20, stmt_timeout_ms=1500, conn_limit=2", item.ID)
+		}
+	}
+	return nil
+}
+
+func validateAgents(items []AgentManifest) error {
+	if len(items) != 2 {
+		return fmt.Errorf("manifest must contain exactly 2 agents, got %d", len(items))
+	}
+	expected := map[string]struct {
+		level, env string
+	}{
+		"agent-demo-ro":  {level: "readonly", env: "AGENTSQL_DEMO_RO_KEY"},
+		"agent-demo-dml": {level: "dml", env: "AGENTSQL_DEMO_DML_KEY"},
+	}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		want, ok := expected[item.ID]
+		if !ok || seen[item.ID] || item.Level != want.level || item.APIKeyEnv != want.env || strings.TrimSpace(item.Name) == "" {
+			return fmt.Errorf("manifest agent %q differs from the fixed demo agent contract", item.ID)
+		}
+		seen[item.ID] = true
+	}
+	return nil
+}
+
+func validateMaskRules(items []MaskRuleManifest) error {
+	if len(items) != 4 {
+		return fmt.Errorf("manifest must contain exactly 4 mask rules, got %d", len(items))
+	}
+	expected := make(map[string]struct{}, 4)
+	for _, datasourceID := range []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL} {
+		for _, column := range []string{"phone", "email"} {
+			expected[datasourceID+"\x00"+column] = struct{}{}
+		}
+	}
+	ids := make(map[string]struct{}, len(items))
+	scopes := make(map[string]struct{}, len(items))
+	compiled := make([]mask.Rule, 0, len(items))
+	for _, item := range items {
+		column := mask.NormalizeColumnName(item.ColumnName)
+		key := item.DatasourceID + "\x00" + column
+		if _, ok := expected[key]; !ok || item.TableName != "customers" || item.SensitiveType != column || item.Algo != string(mask.AlgoMask) {
+			return fmt.Errorf("manifest mask rule %q differs from the fixed demo mask contract", item.ID)
+		}
+		if strings.TrimSpace(item.ID) == "" {
+			return errors.New("manifest mask rule id is required")
+		}
+		if _, exists := ids[item.ID]; exists {
+			return fmt.Errorf("manifest contains duplicate mask rule id %q", item.ID)
+		}
+		ids[item.ID] = struct{}{}
+		if _, exists := scopes[key]; exists {
+			return fmt.Errorf("manifest contains conflicting mask scope/column for %q", item.ID)
+		}
+		scopes[key] = struct{}{}
+		compiled = append(compiled, mask.Rule{Column: column, SensitiveType: mask.SensitiveType(item.SensitiveType), Algorithm: mask.Algorithm(item.Algo)})
+	}
+	if _, err := mask.NewRedactor(compiled); err != nil {
+		return fmt.Errorf("validate manifest mask rules: %w", err)
+	}
+	return nil
+}
+
+func validatePolicies(items []PolicyManifest) error {
+	if len(items) != 10 {
+		return fmt.Errorf("manifest must contain exactly 10 policies, got %d", len(items))
+	}
+	wanted := make(map[string]struct{}, 10)
+	for _, datasourceID := range []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL} {
+		for _, object := range []string{"customers", "orders", "products"} {
+			wanted[policyKey("agent-demo-ro", datasourceID, object, "allow")] = struct{}{}
+		}
+		wanted[policyKey("agent-demo-ro", datasourceID, "internal_notes", "deny")] = struct{}{}
+		wanted[policyKey("agent-demo-dml", datasourceID, "*", "deny")] = struct{}{}
+	}
+	ids := make(map[string]struct{}, len(items))
+	groups := make(map[string][]model.Policy)
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == "" || item.ObjectType != "table" {
+			return fmt.Errorf("manifest policy %q has invalid id or object_type", item.ID)
+		}
+		if _, exists := ids[item.ID]; exists {
+			return fmt.Errorf("manifest contains duplicate policy id %q", item.ID)
+		}
+		ids[item.ID] = struct{}{}
+		key := policyKey(item.AgentID, item.DatasourceID, item.ObjectName, item.Action)
+		if _, ok := wanted[key]; !ok {
+			return fmt.Errorf("manifest policy %q differs from the fixed demo policy contract", item.ID)
+		}
+		delete(wanted, key)
+		groups[item.AgentID+"\x00"+item.DatasourceID] = append(groups[item.AgentID+"\x00"+item.DatasourceID], model.Policy{
+			ID: item.ID, AgentID: item.AgentID, DatasourceID: item.DatasourceID,
+			ObjectType: item.ObjectType, ObjectName: item.ObjectName, Action: item.Action,
+		})
+	}
+	if len(wanted) != 0 {
+		return errors.New("manifest policy list is incomplete")
+	}
+	resolver := policy.NewResolver()
+	for group, policies := range groups {
+		level := "readonly"
+		if strings.HasPrefix(group, "agent-demo-dml\x00") {
+			level = "dml"
+		}
+		if _, err := resolver.Resolve(policies, level); err != nil {
+			return fmt.Errorf("validate manifest policy group: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateRules(items []RuleManifest) error {
+	wanted := make(map[string]struct{})
+	for _, rule := range rules.BuiltinRuleOverrides() {
+		wanted[rule.ID] = struct{}{}
+	}
+	if len(items) != len(wanted) {
+		return fmt.Errorf("manifest must contain exactly %d executable built-in rules, got %d", len(wanted), len(items))
+	}
+	for _, item := range items {
+		if !item.Enabled {
+			return fmt.Errorf("manifest built-in rule %q must be enabled", item.ID)
+		}
+		if _, ok := wanted[item.ID]; !ok {
+			return fmt.Errorf("manifest rule %q is not an executable built-in rule", item.ID)
+		}
+		delete(wanted, item.ID)
+	}
+	if len(wanted) != 0 {
+		missing := make([]string, 0, len(wanted))
+		for id := range wanted {
+			missing = append(missing, id)
+		}
+		sort.Strings(missing)
+		return fmt.Errorf("manifest is missing built-in rules: %s", strings.Join(missing, ","))
+	}
+	return nil
+}
+
+func policyKey(agentID, datasourceID, objectName, action string) string {
+	return strings.Join([]string{agentID, datasourceID, objectName, action}, "\x00")
+}
+
+// ValidateAPIKey accepts only the exact format emitted by store.GenerateAPIKey.
+func ValidateAPIKey(value string) error {
+	if !strings.HasPrefix(value, store.APIKeyPrefix) {
+		return errors.New("API key must use the asql_ prefix")
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, store.APIKeyPrefix))
+	if err != nil || len(decoded) != 32 {
+		return errors.New("API key must use the generated AgentSQL key format")
+	}
+	return nil
+}
