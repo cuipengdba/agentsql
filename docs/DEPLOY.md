@@ -246,6 +246,12 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 构建依赖 Go 1.25、C 编译器与 glibc 兼容环境。`pg_query_go` 必须启用 cgo。
 
+### 预编译二进制系统要求
+
+官方 linux/amd64 预编译二进制在 RHEL/Rocky/AlmaLinux 8（glibc 2.28）工具链中构建，适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本。已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；不宣称已在 CentOS 7（glibc 2.17）验证。
+
+预编译二进制不支持 musl（Alpine）或非 x86_64 架构。这些环境请使用基于 Debian bookworm、内含 glibc 的容器镜像，或在目标机运行 `make build` 本机编译。可用 `make docker-linux-amd64 VERSION=v0.2.0` 复现官方二进制；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。
+
 ```bash
 make build VERSION=v0.2.0
 ./bin/agentsqlctl init-config -o config.yaml
@@ -273,13 +279,14 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 
 ```bash
 sudo useradd --system --user-group --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql
-sudo install -d -o agentsql -g agentsql -m 0750 /etc/agentsql /var/lib/agentsql
+sudo install -d -o root -g agentsql -m 0750 /etc/agentsql
+sudo install -d -o agentsql -g agentsql -m 0750 /var/lib/agentsql
 sudo install -m 0755 bin/agentsql bin/agentsqlctl /usr/local/bin/
 sudo install -m 0644 deploy/systemd/agentsql.service /etc/systemd/system/agentsql.service
-sudo install -o root -g agentsql -m 0640 examples/docker/config.yaml /etc/agentsql/config.yaml
+sudo install -o root -g agentsql -m 0640 deploy/systemd/config.yaml /etc/agentsql/config.yaml
 ```
 
-如果系统已经存在 `agentsql` 用户，跳过 `useradd`。将 `/etc/agentsql/config.yaml` 的 `sqlite_path` 保持为 `/var/lib/agentsql/agentsql.db`。创建仅 root 可读的环境文件：
+如果系统已经存在 `agentsql` 用户，跳过 `useradd`。systemd 专用配置模板已固定仅监听 `127.0.0.1:7780`，并将 SQLite 数据写入 `/var/lib/agentsql/agentsql.db`，无需再手工修改 `sqlite_path`。裸机默认只监听 `127.0.0.1`；如需远程访问，应使用 SSH 本地转发或受控反向代理（TLS/鉴权），不要直接把 `http_listen` 改成 `0.0.0.0` 暴露公网。创建仅 root 可读的环境文件：
 
 ```bash
 sudo sh -c 'cat > /etc/agentsql/agentsql.env <<EOF
@@ -294,6 +301,18 @@ sudo systemctl status agentsql
 ```
 
 先用本节前面的随机生成命令替换两个占位符，再启动服务。占位符本身不能用于启动。
+
+### 裸机使用 PostgreSQL 控制面
+
+SQLite 是默认的零配置起步方式。若要把 metadata 与 audit 放到 PostgreSQL 独立审计库，先按本文档前面的「PostgreSQL 控制面部署」准备数据库、一次性 migration owner 和最小权限运行账号。在 `/etc/agentsql/agentsql.env` 中追加 `AGENTSQL_STORE_METADATA_DSN`、`AGENTSQL_STORE_AUDIT_DSN`；DSN 只通过环境变量提供，不要写入配置文件。再把 `/etc/agentsql/config.yaml` 的 `store` 改为等价的 `metadata` / `audit` 形式，可参考 `examples/docker/config.postgres.yaml` 与 `examples/docker/config.controlplane.yaml`，但裸机的 `server.http_listen` 必须保持为 `127.0.0.1:7780`。
+
+首次启动前，在已安全加载上述环境变量的 root 或等价受控环境中运行：
+
+```bash
+agentsqlctl migrate --config /etc/agentsql/config.yaml
+```
+
+systemd 随后以 `agentsql` 用户运行服务；迁移账号与最小权限运行账号的权限边界、迁移完成后的账号处置方式均与前文一致。
 
 ## 探活
 
@@ -335,7 +354,7 @@ curl --fail http://127.0.0.1:7780/readyz
 
 ### 为什么不能设置 `CGO_ENABLED=0` 或使用 Alpine
 
-项目的 `pg_query_go` 解析器依赖 cgo。纯 Go 构建会缺少必要符号；Alpine 使用 musl，也不符合当前 glibc 构建与运行约束。构建和运行镜像必须使用 Debian bookworm 系列。
+项目的 `pg_query_go` 解析器依赖 cgo。纯 Go 构建会缺少必要符号；Alpine 使用 musl，也不符合当前 glibc 构建与运行约束。官方容器镜像基于 Debian bookworm；官方 linux/amd64 预编译二进制则使用 Rocky Linux 8（glibc 2.28）工具链构建。
 
 ### 7780 端口被占用
 

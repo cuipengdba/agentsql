@@ -1,5 +1,7 @@
 BINARY_DIR := bin
 VERSION ?= v0.2.0
+GO_VERSION ?= 1.25.14
+GOPROXY ?= https://goproxy.cn,direct
 GO ?= go
 GOFLAGS ?=
 VERSION_PACKAGE := github.com/cuipengdba/agentsql/internal/version
@@ -38,7 +40,8 @@ release: build
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) -t agentsql:$(VERSION) .
 
-# pg_query_go requires cgo. Portable cross-compilation remains a v0.2 task;
-# v0.1 produces glibc linux/amd64 artifacts inside the official Go container.
+# pg_query_go requires cgo. Build release linux/amd64 binaries with the
+# RHEL/Rocky 8 (glibc 2.28) toolchain for RHEL 8 family, Alibaba Cloud Linux 3,
+# Kylin V10, UnionTech UOS, and other compatible systems.
 docker-linux-amd64:
-	docker run --rm --platform linux/amd64 -v "$(CURDIR):/src" -w /src -e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=amd64 golang:1.25-bookworm sh -c 'mkdir -p $(BINARY_DIR) && go build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY_DIR)/agentsql-linux-amd64 ./cmd/agentsql && go build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY_DIR)/agentsqlctl-linux-amd64 ./cmd/agentsqlctl'
+	docker run --rm --platform linux/amd64 -e VERSION=$(VERSION) -e GO_VERSION=$(GO_VERSION) -e GOPROXY=$(GOPROXY) -v "$(CURDIR):/src" -w /src -v "$(CURDIR)/scripts:/buildscripts:ro" rockylinux:8 sh -c "tr -d '\r' < /buildscripts/build-release-linux.sh | sh"

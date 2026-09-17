@@ -1,0 +1,19 @@
+# AgentSQL systemd 裸机部署配置：默认仅监听回环，数据写入 /var/lib/agentsql。
+# 容器部署请改用 examples/docker/ 下的配置（容器内监听 0.0.0.0，由端口映射收敛到回环）。
+server:
+  http_listen: "127.0.0.1:7780"
+  console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
+
+store:
+  sqlite_path: "/var/lib/agentsql/agentsql.db"
+
+defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: 20
+
+theme:
+  default: "dark"
