@@ -106,8 +106,8 @@ AgentSQL 是**网关层**的安全管控，不是银弹，本版明确不承诺�
 
 ## 资产校验和
 
-发布时在此附上 `agentsql-v0.2.0.tar.gz` / `.zip` 的 SHA-256（见发布检查清单 §4.3）。
+发布时在此附上 `agentsql-v0.2.0.tar.gz` / `.zip` 的 SHA-256（随 GitHub Release 资产一并提供）。
 
 ---
 
-**相关链接**：[README](README.md) · [部署指南](docs/DEPLOY.md) · [Live Demo 指南](docs/DEMO.md) · [变更记录](CHANGELOG.md) · [发布检查清单](docs/RELEASE_CHECKLIST_v0.2.md)
+**相关链接**：[README](README.md) · [部署指南](docs/DEPLOY.md) · [Live Demo 指南](docs/DEMO.md) · [架构与工程规格](docs/SPEC.md) · [变更记录](CHANGELOG.md)

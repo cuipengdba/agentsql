@@ -1,6 +1,6 @@
 # T25 网关开销基线
 
-本目录只定义可重复的测量方法，不记录未经主控端实测的性能数字。
+本目录只定义可重复的测量方法，不记录未经实测复现的性能数字。
 
 ## 内存执行器基线
 
@@ -10,7 +10,7 @@
 go test ./internal/pipeline -run '^$' -bench BenchmarkPipelineReadOnlyParallel -benchtime=2s -count=5
 ```
 
-benchmark 使用 `b.RunParallel` 并开启 `ReportAllocs`。主控端应保存每次运行的 Go 版本、CPU、操作系统、并发度、`ns/op`、`B/op` 与 `allocs/op`。验收口径是只读路径的网关额外开销 P99 小于 5ms/请求，最终数字以主控环境实测为准。
+benchmark 使用 `b.RunParallel` 并开启 `ReportAllocs`。报告应记录每次运行的 Go 版本、CPU、操作系统、并发度、`ns/op`、`B/op` 与 `allocs/op`。验收口径是只读路径的网关额外开销 P99 小于 5ms/请求，最终数字以实测环境为准。
 
 ## 可选真实 PostgreSQL 对照
 
@@ -25,4 +25,4 @@ go test ./internal/pipeline -run '^$' -bench BenchmarkPipelineReadOnlyRealDataba
 
 ## 结果归档
 
-主控端完成实测后再创建 `docs/perf/t25_bench_result.md`，记录环境、原始命令、五次样本和 P99 结论。Codex 交付不创建该文件，也不预填任何性能数字。
+实测完成后在 `docs/perf/t25_bench_result.md` 记录环境、原始命令、五次样本和 P99 结论；未在真实环境跑通前不得预填性能数字。

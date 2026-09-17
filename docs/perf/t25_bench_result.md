@@ -1,6 +1,6 @@
-# T25 网关只读路径开销基线（主控端实测存档）
+# T25 网关只读路径开销基线（实测存档）
 
-> 本文件由主控端在合入后实测生成，Codex 交付不预填任何性能数字。测量口径为**内存 fake executor**：跑完整 AgentSQL 八阶段流水线（鉴权、数据源/策略装载、SQL parse、静态/动态规则、受控 Query、脱敏、审计映射），但剥离真实数据库的网络与执行耗时，因此数值代表**网关自身的纯额外开销**，不含数据库执行时间。
+> 本文件为合入后的实测存档，未实测不预填性能数字。测量口径为**内存 fake executor**：跑完整 AgentSQL 八阶段流水线（鉴权、数据源/策略装载、SQL parse、静态/动态规则、受控 Query、脱敏、审计映射），但剥离真实数据库的网络与执行耗时，因此数值代表**网关自身的纯额外开销**，不含数据库执行时间。
 
 ## 1. 测试环境
 
@@ -32,7 +32,7 @@ go test ./internal/pipeline -run '^$' -bench 'BenchmarkPipelineReadOnlyParallel$
 
 ## 3. 并发延迟百分位（20 万样本）
 
-标准 benchmark 只给均值，另用主控补充的 `internal/pipeline/t25_latency_percentile_test.go` 在 20 worker 下各跑 10000 次、共 200000 次完整只读决策，逐次计时后排序取分位。
+标准 benchmark 只给均值，另用 `internal/pipeline/t25_latency_percentile_test.go` 在 20 worker 下各跑 10000 次、共 200000 次完整只读决策，逐次计时后排序取分位。
 
 命令：
 

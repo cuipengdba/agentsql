@@ -81,7 +81,7 @@ docker compose -p agentsql-demo -f docker-compose.demo.yml --env-file demo/demo.
 5. PostgreSQL 访问未授权 internal_notes，被 R010 拒绝且不返回内容。
 6. 使用本会话最近的 `audit_id` 打开审计详情，并可跳到总览实时流回看。
 
-截图占位：`docs/images/demo-scenario-1.png` 至 `docs/images/demo-scenario-6.png`。这些路径由主控在真实浏览器验收后补充，本任务不生成占位图片。
+六个剧本的真实演示截图见 `docs/images/demo-scenario-1.png` 至 `docs/images/demo-scenario-6.png`（另见 `docs/images/demo-scenario-cards.png` 与控制台总览、审计页截图）。
 
 ## 每日 04:00 重置
 
@@ -129,4 +129,4 @@ docker compose -p agentsql-demo -f docker-compose.demo.yml --env-file demo/demo.
 
 ### 验证健康与只读权限
 
-reset 会检查 `/healthz` 中 `demo.enabled=true`、`/readyz`、seed 固定分布和两库四张表的固定计数，任一步失败都会报告阶段并非零退出。Docker 可用的主控验收还应分别以 `agentsql_demo_ro` 登录两库，确认 SELECT 成功且所有写入和 DDL 被数据库拒绝。
+reset 会检查 `/healthz` 中 `demo.enabled=true`、`/readyz`、seed 固定分布和两库四张表的固定计数，任一步失败都会报告阶段并非零退出。部署后还应分别以 `agentsql_demo_ro` 登录两库，确认 SELECT 成功且所有写入和 DDL 被数据库拒绝。
