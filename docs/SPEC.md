@@ -1950,6 +1950,29 @@ agentsqlctl 逐命令：
 - 物料：README 增"在线 Live Demo / 5 分钟本地演示（一条命令）"与 6 剧本 GIF/截图位；`docs/` 增演示部署与每日重置说明。
 - 验收：干净环境一条命令起演示；6 剧本逐一得到预期（放行/拦截/脱敏/告警/越权拒/审计实时可查）；重置脚本能恢复到完全一致的初始态（行数/关键计数固定）；尝试访问白名单外数据源、尝试拿 key、尝试真实写库均失败（fail-closed）；非 demo 模式回归全绿。
 
+#### T26-2 只读评审裁决（Codex session 01a0aceb，APPROVE_WITH_CHANGES，主控已裁决，纯技术意见全部采纳）
+
+**事实基线（评审证据）**：静态旁路 `POST /api/v1/playground/assess`→adminAuth→`Handler.playgroundAssess`→`pipeline.StaticAssess`（虚拟 agent/ds、allow*、仅 parse+guard_static、StaticOnly=true、不触库不审计）。真实链路 MCP `query`/`execute_write`→agent key 认证→`Pipeline.Process` 八阶段 auth→load→parse→guard_static→guard_dynamic→execute→redact→audit；动态门（`pipeline.go` ~175-255）会先 `GetOrOpen` executor 并可能 EXPLAIN（~192-234），SELECT 在 ~313-330 Query、脱敏 ~347-369、finish 写审计并发 SSE。缺口：R003 仅对 readonly 拦非 SELECT（dml/ddl 放行）；R010 只遍历 `ast.Tables`（Tables 为空的 DDL/ADMIN 漏网）；R002 不覆盖 DDL/ADMIN；policy resolver 只看表对象不区分语句类型；`classifyExecutionBarrier` 在动态门结束后才检查（此前已 GetOrOpen/EXPLAIN）。**R005 现状不读 `Explain.SeqScan`、且不在动态规则集（动态仅 R004/R105/R106/R107/R204），真实 pipeline 当前不可命中。** PG `SELECT ... INTO` 被 parser 归类 SELECT（语义写库）。前端源码在 `web/src`（`internal/webui` 仅 embed+dist）。
+
+**片划分（串行三片，不并行）**：
+- **T26-2a pipeline demo 安全边界**：`ProcessDemo`、双层 demo 约束、非 SELECT/语义非只读硬屏障、demo R008=2、demo-only 动态 R005（阈值绑数据源 row_limit）、initdb ANALYZE、fake executor 零调用测试。
+- **T26-2b admin run 端点**：条件注册 `/playground/run`、profile 固定映射、启动期 key 校验、白名单、安全 DTO、泄密负向测试。
+- **T26-2c 前端六剧本**：health 投影 store、runPlayground、6 卡、LiveResultTable、banner/badge、Audit `?focus`。
+
+**端点契约（2b）**：新增 `POST /api/v1/playground/run`，仅 `Config.DemoEnabled()` 时在 adminAuth 之后注册（紧邻 assess 注册行）；demo 关闭不注册→有效管理员 token 得 404、无 token 得 401；`/playground/assess` 与生产 MCP 路径零改动。请求体仅 `{sql, datasource_id, agent_profile:"ro"|"dml"}`，**禁止**接收 api_key/任意 agent_id/agent_level/db_type。响应为显式白名单 DTO：`decision`、`assessment{decision,risk,stmt_type,hits,est_scan_rows,reason,suggestion,normalized,objects,stage_latency}`、`result{columns,rows,row_count,truncated,latency_ms}`、`redact`、`audit_id`、`datasource_id`、`agent_profile`；任何成功/deny/错误/日志响应不得含 key、`asql_`、DSN、口令。
+
+**身份（2b）**：`ro`→env `AGENTSQL_DEMO_RO_KEY`（必须认证为 agent-demo-ro/readonly），`dml`→`AGENTSQL_DEMO_DML_KEY`（agent-demo-dml/dml）；config 增常量 `DemoAgentRO`/`DemoAgentDML`。demo 开启时启动期读两 env 并经现有 `Authenticator.Authenticate` 校验存在且 id/level/status 与预期完全一致，缺失/错 key/错绑→启动失败；key 只经 Deps 私有字段传入，不落地 YAML/DOM/响应/存储/日志。handler 把映射后 key 放入 `pipeline.Request.APIKey` 由 ProcessDemo 的 auth 阶段再认证，禁止直接构造 Agent。剧本②用 dml 身份让 R002 主导（ro 会被 R003 抢先）。
+
+**ProcessDemo 与硬屏障（2a，最高优先）**：新增 pipeline 受信任入口 `ProcessDemo`（置 demo run mode 后复用同一私有八阶段编排，不复制执行/审计/脱敏代码）；生产 `Process` 行为不变。双层约束：端点层校验 demo 开关+白名单；pipeline 层在 auth/load 取得 agent/datasource 元数据后、parser/任何 executor 调用前，再次断言 agent∈两固定 demo agent、datasource∈白名单、profile key 未错配——绕过端点直调 ProcessDemo 也 fail-closed。**硬屏障位置：静态门结果保存后（~170）、现有"静态 deny 即 finish"与动态门开始（~175）之间**：先跑静态规则（保留 R002/R003/R010 业务解释），再执行 demo 屏障，再统一 deny/finish；保证在 GetOrOpen/OpenSession/Explain/Query/Execute/BeginWriteTx 任一之前。语义：demo 模式下非"语义只读 SELECT"一律 deny，追加结构性命中 `DEMO_NON_SELECT`（不是第 22 条可开关普通规则、不进 catalog 计数、不可被规则 enable/override 关闭）；放行谓词要求 StmtType==SELECT 且排除 `SELECT INTO`、`EXPLAIN ANALYZE` 及 operations 标记副作用的变体；UNKNOWN/多语句/parse error 转结构化 deny（`DEMO_PARSE`）并写审计（生产 Process 错误语义不变）。deny 经 finish 写一条含 agent/datasource/stmt_type/hits 的 deny 审计并发 SSE，但零触库。**验收"未触库"以 fake executor 的 GetOrOpen/OpenSession/Explain/Query/Execute/BeginWriteTx 零调用为准，不得用数据库 permission denied 充当证据。**
+
+**QPS（2a）**：demo run 追加最高优先级、前端不可控的规则层 R008.Enabled=true、`thresholds[qps_per_agent]=Demo.EffectiveQPS()`（=2），限流键为认证后 agent ID；超限经 finish 写 R008 deny 审计（不做无审计的 HTTP 429 旁路）。新 admin 端点不经 MCP rateMiddleware，故必须在 pipeline 内落地。
+
+**R005 动态化（2a）**：仅 ProcessDemo 把 R005 加入动态规则集；demo 请求层将 R005 阈值绑定当前 datasource.RowLimit（=20），不新增配置项、不灌十万行、不调低 R004；initdb 数据脚本末尾 PG `ANALYZE orders`、MySQL `ANALYZE TABLE orders` 以稳定计划。剧本④ `SELECT id,status,amount FROM orders WHERE status='paid'`（无 LIMIT），E2E 断言 PG SeqScan=true / MySQL type=ALL、EstScanRows>20、命中 R005、decision=warn、返回≤20 行 truncated=true 且写审计。
+
+**前端（2c，web/src；React18/antd5/echarts/zustand/react-router，不加测试框架）**：新增 `api/health.ts`（原生 `fetch('/healthz',{cache:'no-store'})`，严格 `demo.enabled===true` 且 banner 为 string，失败/缺字段一律按非 demo）、`store/demoStore.ts`（非持久化、不写 localStorage）、`api/playground.ts` 增 `runPlayground`；Playground 保留静态评估并新增"真实试运行（demo）"，数据源限两项、身份仅"只读演示/DML 拦截演示"，新增 `DemoScenarioCards`、`LiveResultTable`（脱敏结果集+truncated+audit_id+跳转）；MainLayout 渲染全局 banner 与 Live Demo 徽标（仅 demo）；Audit 支持 `/audit?focus=<audit_id>` 自动展开；非 demo 不渲染任何 live UI、只调 assess。六卡：①PG ro `SELECT id,full_name,region FROM customers ORDER BY id LIMIT 5`→allow 真实≤5 行；②MySQL dml `UPDATE orders SET status='cancelled'`→deny 命中 R002+DEMO_NON_SELECT（可能 R010/R202）、executor 零调用、orders 不变；③MySQL ro `SELECT id,full_name,phone,email FROM customers ORDER BY id LIMIT 5`→allow 且 phone/email 全掩码无完整值；④PG ro 见上 R005 warn；⑤PG ro `SELECT id,note FROM internal_notes LIMIT 5`→R010 deny 无内容；⑥用最近 audit_id 跳 `/audit?focus=<id>` 自动展开，并可在 `/` T27 实时流回看。
+
+**质量门与验收**：后端 gofmt/vet/-race、353 零变化；新增测试覆盖 assess 非 demo 回归（StaticOnly、executor/audit 不调用）、run 非 demo 404/不要求 key env、demo 缺 key/错 key/错绑启动失败、未登录 401、白名单端点拒+直调 ProcessDemo 拒、SELECT ≤20 行/Truncated/1500ms/脱敏/AuditID、**非 SELECT 零触库矩阵**（INSERT、UPDATE/DELETE 有无 WHERE、DROP/ALTER/TRUNCATE TABLE、DROP DATABASE/ROLE 等 Tables 空 DDL/ADMIN、SET/SHOW/KILL、多语句、注释夹带、parse error、SELECT INTO、EXPLAIN ANALYZE）全部 fake executor 零调用且写 deny 审计+eventbus 同 ID、R008 第三请求 deny 审计、全响应/日志无 key/`asql_`/DSN。前端仅 `tsc --noEmit && vite build`（不加 vitest/jest）。主控真实 compose demo E2E（不能只靠 fake）：两库 SELECT 真执行/真脱敏/row_limit/超时/动态 EXPLAIN/Seq Scan·type=ALL/R005 稳定、写与 DDL 前后表行数校验和不变、审计落 SQLite 且 SSE 实时、browser-use 六卡全链路、白名单篡改 403/422、QPS、DOM/响应/localStorage 无 `asql_`、非 demo 全回归。
+
 #### T26-1 只读评审裁决（Codex session 01a0ac88，APPROVE_WITH_CHANGES，主控已裁决）
 
 **片划分（一次一片，不并行）**：
