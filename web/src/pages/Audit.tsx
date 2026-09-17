@@ -1,7 +1,8 @@
-import { DownloadOutlined, FilePdfOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DownloadOutlined, FilePdfOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Pagination, Space, Tooltip, Typography, message } from "antd";
 import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { exportAudit, listAudit } from "@/api/audit";
 import type { AuditView } from "@/api/types";
@@ -36,6 +37,9 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 export function Audit() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const focusParam = searchParams.get("focus");
   const [appliedFilters, setAppliedFilters] = useState<AppliedAuditQuery>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -46,9 +50,12 @@ export function Audit() {
   const [queryVersion, setQueryVersion] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<AuditView | null>(null);
+  const [focusStatus, setFocusStatus] = useState<"idle" | "searching" | "invalid" | "not-found" | "failed" | "found">("idle");
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
   const requestSequenceRef = useRef(0);
+  const focusControllerRef = useRef<AbortController | null>(null);
+  const focusSequenceRef = useRef(0);
 
   const loadPage = useCallback(async () => {
     controllerRef.current?.abort();
@@ -80,6 +87,9 @@ export function Audit() {
       controllerRef.current?.abort();
       controllerRef.current = null;
       requestSequenceRef.current += 1;
+      focusControllerRef.current?.abort();
+      focusControllerRef.current = null;
+      focusSequenceRef.current += 1;
     };
   }, []);
 
@@ -87,6 +97,68 @@ export function Audit() {
     void loadPage();
     return () => controllerRef.current?.abort();
   }, [loadPage]);
+
+  useEffect(() => {
+    focusControllerRef.current?.abort();
+    focusControllerRef.current = null;
+    focusSequenceRef.current += 1;
+
+    if (focusParam === null) {
+      setFocusStatus("idle");
+      return;
+    }
+    if (!/^[1-9]\d*$/.test(focusParam)) {
+      setFocusStatus("invalid");
+      return;
+    }
+
+    const focusID = Number(focusParam);
+    if (!Number.isSafeInteger(focusID)) {
+      setFocusStatus("invalid");
+      return;
+    }
+
+    const controller = new AbortController();
+    const sequence = focusSequenceRef.current + 1;
+    focusSequenceRef.current = sequence;
+    focusControllerRef.current = controller;
+    setFocusStatus("searching");
+
+    const locateFocusedAudit = async () => {
+      const scanPageSize = 100;
+      let scanPage = 1;
+      let scanPages = 1;
+      try {
+        while (scanPage <= scanPages) {
+          const response = await listAudit({ page: scanPage, page_size: scanPageSize }, controller.signal);
+          if (!mountedRef.current || controller.signal.aborted || focusSequenceRef.current !== sequence) return;
+
+          const records = Array.isArray(response.list) ? response.list : [];
+          const recordIndex = records.findIndex((record) => record.id === focusID);
+          if (recordIndex >= 0) {
+            const targetPage = Math.floor(((scanPage - 1) * scanPageSize + recordIndex) / pageSize) + 1;
+            setPage(targetPage);
+            setSelected(records[recordIndex]);
+            setFocusStatus("found");
+            return;
+          }
+
+          scanPages = Math.max(1, Math.ceil(safeTotal(response.total) / scanPageSize));
+          scanPage += 1;
+        }
+        setFocusStatus("not-found");
+      } catch {
+        if (!controller.signal.aborted && mountedRef.current && focusSequenceRef.current === sequence) {
+          setFocusStatus("failed");
+        }
+      } finally {
+        if (focusControllerRef.current === controller) focusControllerRef.current = null;
+      }
+    };
+
+    void locateFocusedAudit();
+    return () => controller.abort();
+  }, [focusParam, pageSize]);
 
   const applyFilters = useCallback((query: AppliedAuditQuery) => {
     setAppliedFilters(query);
@@ -143,8 +215,23 @@ export function Audit() {
   );
 
   return (
-    <PageContainer title="审计" subtitle="追溯每一次模型数据库访问的完整证据链">
+    <PageContainer
+      title="审计"
+      subtitle="追溯每一次模型数据库访问的完整证据链"
+      extra={focusParam !== null ? (
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/playground")}>返回演示台</Button>
+      ) : undefined}
+    >
       <AuditFilters onApply={applyFilters} />
+      {focusStatus === "searching" ? (
+        <Alert className="audit-focus-alert" type="info" showIcon message={`正在定位审计记录 #${focusParam}…`} />
+      ) : focusStatus === "invalid" ? (
+        <Alert className="audit-focus-alert" type="warning" showIcon message="审计定位参数无效" description="focus 必须是正整数审计 ID，已显示默认审计列表。" />
+      ) : focusStatus === "not-found" ? (
+        <Alert className="audit-focus-alert" type="warning" showIcon message={`未找到审计记录 #${focusParam}`} description="该记录可能已不在当前审计数据中，你仍可浏览或筛选下方列表。" />
+      ) : focusStatus === "failed" ? (
+        <Alert className="audit-focus-alert" type="warning" showIcon message={`暂时无法定位审计记录 #${focusParam}`} description="审计列表仍可正常使用，请稍后刷新重试。" />
+      ) : null}
       {toolbar}
       {failed && list.length > 0 ? (
         <Alert className="audit-inline-error" type="error" showIcon message="当前页刷新失败，已保留上次结果" action={<Button size="small" onClick={refresh}>重试</Button>} />

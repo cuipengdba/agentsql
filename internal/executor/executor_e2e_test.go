@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
@@ -80,6 +81,36 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 	require.NoError(t, err)
 	_, err = executor.Execute(ctx, "ANALYZE executor_rows")
 	require.NoError(t, err)
+	_, err = executor.Execute(ctx, "CREATE TYPE executor_order_state AS ENUM ('paid', 'pending')")
+	require.NoError(t, err)
+	_, err = executor.Execute(ctx, `CREATE TABLE executor_value_types (
+  id integer PRIMARY KEY,
+  amount numeric(10, 2) NOT NULL,
+  discount decimal(10, 2),
+  ratio double precision NOT NULL,
+  item_count bigint NOT NULL,
+  active boolean NOT NULL,
+  event_date date NOT NULL,
+  created_at timestamp NOT NULL,
+  note text NOT NULL,
+  external_id uuid NOT NULL,
+  elapsed interval NOT NULL,
+  metadata jsonb NOT NULL,
+  labels text[] NOT NULL,
+  state executor_order_state NOT NULL,
+  payload bytea NOT NULL
+)`)
+	require.NoError(t, err)
+	_, err = executor.Execute(ctx, `INSERT INTO executor_value_types (
+  id, amount, discount, ratio, item_count, active, event_date, created_at, note,
+  external_id, elapsed, metadata, labels, state, payload
+) VALUES (
+  1, 22.74, NULL, 1.25, 9000000000, true, DATE '2026-09-17',
+  TIMESTAMP '2026-09-17 08:09:10.123456', 'paid order',
+  '12345678-1234-5678-90ab-cdef12345678', INTERVAL '1 day 02:03:04.005',
+  '{"paid": true}'::jsonb, ARRAY['paid', 'priority'], 'paid', decode('68656c6c6f', 'hex')
+)`)
+	require.NoError(t, err)
 
 	t.Run("connection and select", func(t *testing.T) {
 		require.NoError(t, executor.Ping(ctx))
@@ -87,6 +118,67 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
 		require.NoError(t, err)
 		require.Equal(t, 1, result.RowCount)
 		require.Equal(t, "1", result.Rows[0][0])
+	})
+
+	t.Run("common result values are human readable", func(t *testing.T) {
+		result, err := executor.Query(ctx, `SELECT
+  id, amount, discount, ratio, item_count, active, event_date, created_at, note
+FROM executor_value_types WHERE id = 1`, 1)
+		require.NoError(t, err)
+		require.Equal(t, []string{
+			"1", "22.74", "", "1.25", "9000000000", "true",
+			"2026-09-17T00:00:00Z", "2026-09-17T08:09:10.123456Z", "paid order",
+		}, result.Rows[0])
+		for _, cell := range result.Rows[0] {
+			require.NotContains(t, cell, "{")
+			require.NotContains(t, cell, "finite")
+		}
+	})
+
+	t.Run("structured result values are human readable", func(t *testing.T) {
+		result, err := executor.Query(ctx, `SELECT
+  external_id, elapsed, metadata, labels, state, payload
+FROM executor_value_types WHERE id = 1`, 1)
+		require.NoError(t, err)
+		require.Equal(t, []string{
+			"12345678-1234-5678-90ab-cdef12345678",
+			"1 day 02:03:04.005000",
+			`{"paid":true}`,
+			`["paid","priority"]`,
+			"paid",
+			"hello",
+		}, result.Rows[0])
+		for _, cell := range result.Rows[0] {
+			require.NotContains(t, cell, "finite")
+			require.NotContains(t, cell, "{2274")
+		}
+	})
+
+	t.Run("pgx default decoded value types", func(t *testing.T) {
+		rows, err := executor.pool.Query(ctx, `SELECT
+  amount, active, id, item_count, ratio, external_id, event_date, created_at,
+  elapsed, metadata, payload, labels, state
+FROM executor_value_types WHERE id = 1`)
+		require.NoError(t, err)
+		defer rows.Close()
+		require.True(t, rows.Next())
+		values, err := rows.Values()
+		require.NoError(t, err)
+		require.IsType(t, pgtype.Numeric{}, values[0])
+		require.IsType(t, false, values[1])
+		require.IsType(t, int32(0), values[2])
+		require.IsType(t, int64(0), values[3])
+		require.IsType(t, float64(0), values[4])
+		require.IsType(t, [16]byte{}, values[5])
+		require.IsType(t, time.Time{}, values[6])
+		require.IsType(t, time.Time{}, values[7])
+		require.IsType(t, pgtype.Interval{}, values[8])
+		require.IsType(t, map[string]any{}, values[9])
+		require.IsType(t, []byte{}, values[10])
+		require.IsType(t, []any{}, values[11])
+		require.IsType(t, "", values[12])
+		require.False(t, rows.Next())
+		require.NoError(t, rows.Err())
 	})
 
 	t.Run("N+1 fetch detects row limit truncation", func(t *testing.T) {
@@ -349,6 +441,12 @@ func TestMySQLExecutorE2E(t *testing.T) {
 	require.NoError(t, err)
 	_, err = executor.Execute(ctx, "ANALYZE TABLE executor_rows")
 	require.NoError(t, err)
+
+	t.Run("decimal result is human readable", func(t *testing.T) {
+		result, err := executor.Query(ctx, "SELECT CAST(22.74 AS DECIMAL(10, 2)) AS amount", 1)
+		require.NoError(t, err)
+		require.Equal(t, [][]string{{"22.74"}}, result.Rows)
+	})
 
 	t.Run("timeout interrupts query", func(t *testing.T) {
 		shortDatasource := datasource

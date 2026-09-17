@@ -86,9 +86,16 @@ Copy-Item examples/docker/demo.env.example demo/demo.env
 .\demo\reset.ps1
 ```
 
-打开 <http://127.0.0.1:17880>。业务库确定性数据、只读账号和 30 天控制面历史已经就绪；6 个引导剧本及 GIF/截图将在 T26-2 补充。
+打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、phone/email 脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
 
-> GIF/截图占位：T26-2 补充六剧本操作录屏与结果截图。
+六剧本截图占位（主控完成浏览器验收后替换对应文件，不在仓库中伪造截图）：
+
+1. [正常放行截图占位](docs/images/demo-scenario-1.png)
+2. [无 WHERE 写拦截截图占位](docs/images/demo-scenario-2.png)
+3. [phone/email 脱敏截图占位](docs/images/demo-scenario-3.png)
+4. [大结果扫描告警截图占位](docs/images/demo-scenario-4.png)
+5. [越权表拒绝截图占位](docs/images/demo-scenario-5.png)
+6. [审计/大屏回看截图占位](docs/images/demo-scenario-6.png)
 
 凭据替换、手工 Compose 命令、每日 UTC 重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
 

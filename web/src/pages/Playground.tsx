@@ -1,22 +1,38 @@
-import { CopyOutlined, ThunderboltOutlined, UndoOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Empty, Input, Segmented, Spin, Tag, Tooltip, message } from "antd";
+import { CopyOutlined, PlayCircleOutlined, ThunderboltOutlined, UndoOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Empty, Input, Segmented, Select, Spin, Tag, Tooltip, message } from "antd";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { assessPlayground } from "@/api/playground";
-import type { PlaygroundAssessRequest, PlaygroundAssessView } from "@/api/types";
+import {
+  assessPlayground,
+  isPlaygroundRequestCanceled,
+  playgroundRunErrorMessage,
+  runPlayground,
+} from "@/api/playground";
+import type {
+  PlaygroundAssessRequest,
+  PlaygroundAssessView,
+  PlaygroundDemoAgentProfile,
+  PlaygroundDemoDatasourceID,
+  PlaygroundRunRequest,
+  PlaygroundRunResponse,
+} from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { StageFlow } from "@/components/stageflow/StageFlow";
 import { adaptAssessment } from "@/components/stageflow/adaptAssessment";
 import { decisionMeta, getDecisionMeta, statementLabel } from "@/constants/labels";
+import { selectIsDemo, useDemoStore } from "@/store/demoStore";
 import { palette } from "@/theme/tokens";
 import { useThemeStore } from "@/theme/useThemeStore";
 
+import { DemoScenarioCards, type DemoRunScenario } from "./playground/DemoScenarioCards";
+import { LiveResultTable } from "./playground/LiveResultTable";
 import { playgroundScenarios, type PlaygroundScenario } from "./playground/scenarios";
 
 const { TextArea } = Input;
 type Dialect = PlaygroundAssessRequest["db_type"];
 type AgentLevel = NonNullable<PlaygroundAssessRequest["agent_level"]>;
+type PlaygroundMode = "static" | "live";
 
 interface ScenarioStyle extends CSSProperties {
   "--playground-scenario-color": string;
@@ -56,6 +72,8 @@ async function copyText(value: string): Promise<void> {
 
 export function Playground() {
   const mode = useThemeStore((state) => state.mode);
+  const isDemo = useDemoStore(selectIsDemo);
+  const [playgroundMode, setPlaygroundMode] = useState<PlaygroundMode>("static");
   const [dialect, setDialect] = useState<Dialect>("postgres");
   const [agentLevel, setAgentLevel] = useState<AgentLevel>("readonly");
   const [sql, setSQL] = useState("");
@@ -65,6 +83,16 @@ export function Playground() {
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
   const requestSequenceRef = useRef(0);
+  const [liveDatasourceID, setLiveDatasourceID] = useState<PlaygroundDemoDatasourceID>("ds-demo-pg");
+  const [liveAgentProfile, setLiveAgentProfile] = useState<PlaygroundDemoAgentProfile>("ro");
+  const [liveSQL, setLiveSQL] = useState("");
+  const [liveResult, setLiveResult] = useState<PlaygroundRunResponse | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [activeDemoScenario, setActiveDemoScenario] = useState<string | null>(null);
+  const [latestAuditID, setLatestAuditID] = useState<number | null>(null);
+  const liveControllerRef = useRef<AbortController | null>(null);
+  const liveRequestSequenceRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -73,8 +101,22 @@ export function Playground() {
       controllerRef.current?.abort();
       controllerRef.current = null;
       requestSequenceRef.current += 1;
+      liveControllerRef.current?.abort();
+      liveControllerRef.current = null;
+      liveRequestSequenceRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (isDemo) return;
+    liveControllerRef.current?.abort();
+    liveControllerRef.current = null;
+    liveRequestSequenceRef.current += 1;
+    setLiveLoading(false);
+    setLiveResult(null);
+    setLiveError(null);
+    setPlaygroundMode("static");
+  }, [isDemo]);
 
   const runAssessment = useCallback(async (request: PlaygroundAssessRequest) => {
     controllerRef.current?.abort();
@@ -108,6 +150,71 @@ export function Playground() {
     }
     void runAssessment({ sql: statement, db_type: dialect, agent_level: agentLevel });
   }, [agentLevel, dialect, runAssessment, sql]);
+
+  const executeLiveRun = useCallback(async (request: PlaygroundRunRequest) => {
+    // The store is checked again at call time so a non-demo projection can
+    // never trigger the demo-only endpoint, even through a stale callback.
+    if (!useDemoStore.getState().enabled) return;
+
+    liveControllerRef.current?.abort();
+    const controller = new AbortController();
+    const sequence = liveRequestSequenceRef.current + 1;
+    liveRequestSequenceRef.current = sequence;
+    liveControllerRef.current = controller;
+    setLiveLoading(true);
+    setLiveError(null);
+    setLiveResult(null);
+    try {
+      const response = await runPlayground(request, controller.signal);
+      if (!mountedRef.current || controller.signal.aborted || liveRequestSequenceRef.current !== sequence) return;
+      setLiveResult(response);
+      if (Number.isSafeInteger(response.audit_id) && response.audit_id > 0) setLatestAuditID(response.audit_id);
+    } catch (error: unknown) {
+      if (!isPlaygroundRequestCanceled(error) && mountedRef.current && liveRequestSequenceRef.current === sequence) {
+        setLiveError(playgroundRunErrorMessage(error));
+      }
+    } finally {
+      if (liveControllerRef.current === controller) {
+        liveControllerRef.current = null;
+        if (mountedRef.current) setLiveLoading(false);
+      }
+    }
+  }, []);
+
+  const submitLiveRun = useCallback(() => {
+    const statement = liveSQL.trim();
+    if (!statement) {
+      void message.warning("请输入要真实试运行的 SQL");
+      return;
+    }
+    setActiveDemoScenario(null);
+    void executeLiveRun({ sql: statement, datasource_id: liveDatasourceID, agent_profile: liveAgentProfile });
+  }, [executeLiveRun, liveAgentProfile, liveDatasourceID, liveSQL]);
+
+  const runDemoScenario = useCallback((scenario: DemoRunScenario) => {
+    setLiveDatasourceID(scenario.datasourceID);
+    setLiveAgentProfile(scenario.agentProfile);
+    setLiveSQL(scenario.sql);
+    setActiveDemoScenario(scenario.key);
+    void executeLiveRun({
+      sql: scenario.sql,
+      datasource_id: scenario.datasourceID,
+      agent_profile: scenario.agentProfile,
+    });
+  }, [executeLiveRun]);
+
+  const resetLiveRun = useCallback(() => {
+    liveControllerRef.current?.abort();
+    liveControllerRef.current = null;
+    liveRequestSequenceRef.current += 1;
+    setLiveDatasourceID("ds-demo-pg");
+    setLiveAgentProfile("ro");
+    setLiveSQL("");
+    setLiveResult(null);
+    setLiveError(null);
+    setLiveLoading(false);
+    setActiveDemoScenario(null);
+  }, []);
 
   const selectScenario = (scenario: PlaygroundScenario) => {
     setDialect(scenario.dbType);
@@ -149,7 +256,22 @@ export function Playground() {
   };
 
   return (
-    <PageContainer title="拦截演示台" subtitle="输入 SQL，看一次 AI 请求如何被六段安全网关逐段判定">
+    <PageContainer
+      title="拦截演示台"
+      subtitle="输入 SQL，看一次 AI 请求如何被六段安全网关逐段判定"
+      extra={isDemo ? (
+        <Segmented<PlaygroundMode>
+          value={playgroundMode}
+          options={[
+            { label: "静态评估", value: "static" },
+            { label: "真实试运行（Live）", value: "live" },
+          ]}
+          onChange={setPlaygroundMode}
+        />
+      ) : undefined}
+    >
+      {!isDemo || playgroundMode === "static" ? (
+        <>
       <Alert
         className="playground-notice"
         type="info"
@@ -241,6 +363,105 @@ export function Playground() {
           </>
         )}
       </section>
+        </>
+      ) : null}
+
+      {isDemo && playgroundMode === "live" ? (
+        <section className="playground-live" aria-label="真实试运行 Live Demo">
+          <div className="live-demo-heading">
+            <div>
+              <Tag color="processing">Live Demo</Tag>
+              <h2>真实试运行</h2>
+              <p>通过受限演示身份连接演示数据库，执行、脱敏与审计均走真实网关链路。</p>
+            </div>
+            <Tag color="warning">仅允许固定演示数据源</Tag>
+          </div>
+
+          <Card className="playground-live-control" bordered>
+            <div className="playground-control-row">
+              <div className="playground-control-field live-control-field">
+                <span>演示数据源</span>
+                <Select<PlaygroundDemoDatasourceID>
+                  value={liveDatasourceID}
+                  options={[
+                    { label: "PostgreSQL（ds-demo-pg）", value: "ds-demo-pg" },
+                    { label: "MySQL（ds-demo-mysql）", value: "ds-demo-mysql" },
+                  ]}
+                  onChange={(value) => {
+                    setLiveDatasourceID(value);
+                    setActiveDemoScenario(null);
+                  }}
+                />
+              </div>
+              <div className="playground-control-field live-control-field">
+                <span>固定演示身份</span>
+                <Select<PlaygroundDemoAgentProfile>
+                  value={liveAgentProfile}
+                  options={[
+                    { label: "只读演示（ro）", value: "ro" },
+                    { label: "DML 拦截演示（dml）", value: "dml" },
+                  ]}
+                  onChange={(value) => {
+                    setLiveAgentProfile(value);
+                    setActiveDemoScenario(null);
+                  }}
+                />
+              </div>
+            </div>
+            <label className="playground-sql-label" htmlFor="playground-live-sql">SQL</label>
+            <TextArea
+              id="playground-live-sql"
+              className="playground-sql-input mono-text"
+              value={liveSQL}
+              onChange={(event) => {
+                setLiveSQL(event.target.value);
+                setActiveDemoScenario(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  submitLiveRun();
+                }
+              }}
+              autoSize={{ minRows: 3, maxRows: 10 }}
+              spellCheck={false}
+              placeholder="输入要在受限演示数据库中试运行的 SQL"
+            />
+            <div className="playground-actions">
+              <Button icon={<UndoOutlined />} onClick={resetLiveRun}>重置</Button>
+              <Tooltip title="Ctrl/⌘ + Enter">
+                <Button type="primary" icon={<PlayCircleOutlined />} loading={liveLoading} onClick={submitLiveRun}>真实试运行</Button>
+              </Tooltip>
+            </div>
+          </Card>
+
+          <DemoScenarioCards
+            activeKey={activeDemoScenario}
+            loading={liveLoading}
+            latestAuditID={latestAuditID}
+            onRun={runDemoScenario}
+          />
+
+          <section className="playground-live-result" aria-live="polite">
+            <div className="playground-section-heading"><strong>试运行结果</strong><span>真实执行 · 脱敏 · 审计</span></div>
+            {liveLoading ? (
+              <div className="playground-loading"><Spin size="large" tip="正在通过真实安全链路试运行" /></div>
+            ) : liveError ? (
+              <Alert
+                type="error"
+                showIcon
+                message="真实试运行失败"
+                description={liveError}
+                action={<Button size="small" onClick={submitLiveRun}>重试</Button>}
+              />
+            ) : liveResult ? (
+              <LiveResultTable result={liveResult} />
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入 SQL，或点击上方剧本卡开始真实试运行" />
+            )}
+          </section>
+        </section>
+      ) : null}
     </PageContainer>
   );
 }

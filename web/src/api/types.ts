@@ -343,3 +343,62 @@ export interface PlaygroundAssessView {
   AgentLevel: string;
   SQL: string;
 }
+
+export type PlaygroundDemoDatasourceID = "ds-demo-pg" | "ds-demo-mysql";
+export type PlaygroundDemoAgentProfile = "ro" | "dml";
+
+export interface PlaygroundRunRequest {
+  sql: string;
+  datasource_id: PlaygroundDemoDatasourceID;
+  agent_profile: PlaygroundDemoAgentProfile;
+}
+
+export interface PlaygroundRunHitView {
+  rule_id: string;
+  risk: number;
+  decision: string;
+  message: string;
+  suggestion: string;
+}
+
+export interface PlaygroundRunObjectView {
+  schema: string;
+  table: string;
+  alias: string;
+}
+
+export interface PlaygroundRunAssessmentView {
+  decision: string;
+  risk: number;
+  stmt_type: string;
+  hits: PlaygroundRunHitView[];
+  est_scan_rows: number;
+  reason: string;
+  suggestion: string;
+  normalized: string;
+  objects: PlaygroundRunObjectView[];
+  stage_latency: Record<string, number>;
+}
+
+export interface PlaygroundRunResultView {
+  columns: string[];
+  rows: string[][];
+  row_count: number;
+  truncated: boolean;
+  latency_ms: number;
+}
+
+export interface PlaygroundRunRedactView {
+  touched_columns: Record<string, string>;
+  masked_cells: number;
+}
+
+export interface PlaygroundRunResponse {
+  decision: string;
+  assessment: PlaygroundRunAssessmentView;
+  result: PlaygroundRunResultView;
+  redact: PlaygroundRunRedactView;
+  audit_id: number;
+  datasource_id: PlaygroundDemoDatasourceID;
+  agent_profile: PlaygroundDemoAgentProfile;
+}
