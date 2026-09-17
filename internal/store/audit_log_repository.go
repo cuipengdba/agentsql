@@ -87,6 +87,63 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	return inserted, nil
 }
 
+// insertHistoricalAuditLog is the demo-seed-only counterpart to
+// insertAuditLog. It deliberately persists the supplied timestamp while still
+// leaving the database responsible for allocating the audit identity.
+func insertHistoricalAuditLog(
+	ctx context.Context,
+	executor sqlExecutor,
+	dialect Dialect,
+	auditLog model.AuditLog,
+) (model.AuditLog, error) {
+	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
+		return model.AuditLog{}, err
+	}
+	if auditLog.TS.IsZero() {
+		return model.AuditLog{}, fmt.Errorf("insert historical audit log: timestamp is required")
+	}
+
+	id, err := insertReturningID(ctx, executor, dialect, `
+INSERT INTO audit_logs (
+  ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
+  sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
+  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		auditLog.TS,
+		optionalString(auditLog.AgentID),
+		optionalString(auditLog.DatasourceID),
+		optionalString(auditLog.SessionID),
+		optionalString(auditLog.ConversationID),
+		optionalString(auditLog.MCPTool),
+		optionalString(auditLog.DBType),
+		optionalString(auditLog.SQLRaw),
+		optionalString(auditLog.SQLNorm),
+		optionalString(auditLog.StmtType),
+		optionalString(auditLog.Objects),
+		auditLog.Decision,
+		optionalString(auditLog.RuleHits),
+		optionalInt(auditLog.RiskLevel),
+		optionalInt64(auditLog.EstRows),
+		optionalInt(auditLog.RowsReturned),
+		optionalInt64(auditLog.LatencyMS),
+		optionalString(auditLog.ClientIP),
+		optionalString(auditLog.ModelName),
+		optionalString(auditLog.ErrorMsg),
+	)
+	if err != nil {
+		return model.AuditLog{}, fmt.Errorf("insert historical audit log: %w", err)
+	}
+	if id <= 0 {
+		return model.AuditLog{}, fmt.Errorf("read inserted historical audit log ID: invalid ID %d", id)
+	}
+	inserted, err := getInsertedAuditLog(ctx, executor, dialect, id)
+	if err != nil {
+		return model.AuditLog{}, fmt.Errorf("read inserted historical audit log %d: %w", id, err)
+	}
+	return inserted, nil
+}
+
 func validateAuditLogInsert(ctx context.Context, auditLog model.AuditLog) error {
 	if ctx == nil {
 		return fmt.Errorf("insert audit log: %w", ErrNilContext)
