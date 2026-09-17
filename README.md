@@ -68,7 +68,7 @@ docker compose --profile observability up -d --build
 
 > `AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份。直接更换 SECRET 会让既有数据源口令无法解密，不是无损轮换。
 
-生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库（开发、Compose 与 CI 基准为 PostgreSQL 18），并用 `agentsqlctl migrate-sqlite-to-postgres` 从默认 combined SQLite 搬迁。Compose 的 `controlplane` profile、一次性迁移账号、最小权限运行账号和备份/回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
+生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库（开发、Compose 与 CI 基准为 PostgreSQL 18），并用 `agentsqlctl migrate-sqlite-to-postgres` 从默认 combined SQLite 搬迁。PostgreSQL 控制面定义在需显式叠加的 `docker-compose.controlplane.yml` 中，其中服务仍带 `controlplane` profile；默认 `docker compose up` 只启动 SQLite 网关。完整命令、一次性迁移账号、最小权限运行账号和备份/回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
 
 ## 5 分钟本地 Live Demo（一条命令）
 

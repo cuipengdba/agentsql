@@ -66,29 +66,53 @@ PostgreSQL 控制面兼容 PostgreSQL 15+，开发、Compose 与 CI 的基准版
 
 ### Compose 快速起停
 
-复制 `.env` 示例并填写所有必填密码、原 `AGENTSQL_SECRET` 以及两个 DSN。`${VAR:?message}` 表示变量未设置或为空时 Compose 会直接报错。三个控制面服务都属于 `controlplane` profile；默认 `docker compose up -d` 仍只启动使用 SQLite 的 `agentsql`。
+复制 `.env` 示例并填写所有必填密码、原 `AGENTSQL_SECRET` 以及两个 DSN。默认只加载主文件 `docker-compose.yml`，因此不会读取或解析控制面变量，只会启动使用 SQLite 的 `agentsql`。PostgreSQL 控制面定义在 `docker-compose.controlplane.yml`，其中三个服务仍属于 `controlplane` profile；所有控制面操作都必须先加载主文件、再加载控制面文件，并保持两个 `-f` 的顺序不变。加载控制面文件后，保留的 `${VAR:?message}` 会在创建任何容器前对未设置或空的必填变量给出清晰错误。
 
 首次切换必须分阶段执行，不能直接启动整个 profile：
 
 ```bash
-# 1. 只启动两个 PostgreSQL 18 数据库。
-docker compose --profile controlplane up -d metadata-db audit-db
+# 1. 纯解析预检，不创建容器。
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane config --quiet
 
-# 2. 按下文完成迁移、创建运行账号并授权。
+# 2. 切换前先停止可能占用 7780 的默认 SQLite 网关，然后只启动两个 PostgreSQL 18 数据库。
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane stop agentsql
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane up -d --wait metadata-db audit-db
 
-# 3. 把 .env 中两个 STORE DSN 换成运行账号后，只启动控制面服务。
-docker compose --profile controlplane up -d --build agentsql-controlplane
+# 3. 按下文完成迁移、创建运行账号并授权。
+
+# 4. 把 .env 中两个 STORE DSN 换成运行账号后，只启动控制面服务。
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane up -d --build --wait agentsql-controlplane
 ```
 
-`agentsql-controlplane` 会等待两个数据库健康后再启动。宿主端口仅监听 `127.0.0.1:7780`、`127.0.0.1:55432` 和 `127.0.0.1:55433`；若迁移 CLI 不在宿主机运行，可删除两个数据库的 `ports` 映射。不要无服务名执行整个 profile，否则无 profile 的默认 `agentsql` 也会启动并与控制面实例争用 7780。
+`agentsql-controlplane` 会等待两个数据库健康后再启动。宿主端口仅监听 `127.0.0.1:7780`、`127.0.0.1:55432` 和 `127.0.0.1:55433`；若迁移 CLI 不在宿主机运行，可删除两个数据库的 `ports` 映射。不要执行没有服务名的整个 profile `up`，否则无 profile 的默认 `agentsql` 也会进入合并模型，并与 `agentsql-controlplane` 争用 7780。切换控制面前务必先停止默认 `agentsql`。
+
+`ps`、`logs`、`stop`、`down` 等后续控制面管理命令也必须带上相同、同序的两个 `-f`，否则 Compose 可能把控制面容器视为 orphan，或根本看不到这些服务。例如：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane ps
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane logs agentsql-controlplane
+```
 
 停止服务但保留命名卷：
 
 ```bash
-docker compose --profile controlplane stop agentsql-controlplane metadata-db audit-db
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane stop agentsql-controlplane metadata-db audit-db
 ```
 
-不要对仍需保留的数据执行 `docker compose down -v`；`-v` 会删除 SQLite 和两个 PostgreSQL 命名卷。
+不要对仍需保留的数据执行 `docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane down -v`；合并模型中的 `-v` 会同时删除 `agentsql-data`、`agentsql-metadata-pgdata` 和 `agentsql-audit-pgdata`，有任何数据需要保留时都禁用该命令。
+
+可运行 `sh scripts/compose-smoke.sh` 做纯 `config` 解析的 Compose 回归检查；该脚本不会启动容器。
+
+为避免宿主机无法解析 Compose 网络内的 `metadata-db` / `audit-db`，可在控制面镜像内使用仓库实际提供的 `agentsqlctl` 子命令。源码构建首次执行前先构建镜像；配置校验、存储健康检查和空库初始化迁移分别使用：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane build agentsql-controlplane
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane run --rm --no-deps --entrypoint agentsqlctl agentsql-controlplane check-config --config /etc/agentsql/config.yaml
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane run --rm --no-deps --entrypoint agentsqlctl agentsql-controlplane health --config /etc/agentsql/config.yaml
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane run --rm --no-deps --entrypoint agentsqlctl agentsql-controlplane migrate --config /etc/agentsql/config.yaml
+```
+
+`migrate` 适用于初始化空控制面或升级 schema；从既有 SQLite 搬迁时按下一节使用 `migrate-sqlite-to-postgres`，不要把两种流程混为一谈。
 
 ### 从 SQLite 切换
 
@@ -111,9 +135,12 @@ ALTER SCHEMA public OWNER TO agentsql_audit_migrator;
 
 2. 停止旧 AgentSQL，确保 SQLite 不再写入。备份 `agentsql.db`，并在同一受保护的备份集中保存与它配对的 `AGENTSQL_SECRET`。丢失原 SECRET 会导致迁移后的 `password_enc` 无法解密。
 
-3. 让 `AGENTSQL_STORE_METADATA_DSN` 和 `AGENTSQL_STORE_AUDIT_DSN` 暂时指向两个 migration owner，运行迁移。宿主机 CLI 连接 Compose 时使用 `127.0.0.1:55432` 和 `127.0.0.1:55433`；DSN 只通过环境变量注入，不要放在命令参数或提交到配置文件：
+3. 让 `AGENTSQL_STORE_METADATA_DSN` 和 `AGENTSQL_STORE_AUDIT_DSN` 暂时指向两个 migration owner，运行迁移。宿主机 CLI 不会自动读取 Compose 的 `.env`；调用者必须自行把原 `AGENTSQL_SECRET` 以及使用宿主地址的两个 DSN 导出到当前 shell。宿主机 CLI 连接 Compose 时使用 `127.0.0.1:55432` 和 `127.0.0.1:55433`；DSN 只通过环境变量注入，不要放在命令参数或提交到配置文件。Bash/zsh 使用 `export NAME=...`，PowerShell 使用 `$env:NAME = '...'`：
 
 ```bash
+export AGENTSQL_SECRET='<与 SQLite 备份配对的原值>'
+export AGENTSQL_STORE_METADATA_DSN='<指向 127.0.0.1:55432 的 migration-owner DSN>'
+export AGENTSQL_STORE_AUDIT_DSN='<指向 127.0.0.1:55433 的 migration-owner DSN>'
 agentsqlctl migrate-sqlite-to-postgres \
   --source /var/lib/agentsql/agentsql.db \
   --target-config examples/docker/config.controlplane.yaml \
@@ -127,14 +154,14 @@ agentsqlctl migrate-sqlite-to-postgres \
 5. 切换前先检查配置和两个数据库连接，再启动：
 
 ```bash
-agentsqlctl check-config --config examples/docker/config.controlplane.yaml
-agentsqlctl health --config examples/docker/config.controlplane.yaml
-docker compose --profile controlplane up -d --build agentsql-controlplane
-agentsqlctl health --url http://127.0.0.1:7780/healthz
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane run --rm --no-deps --entrypoint agentsqlctl agentsql-controlplane check-config --config /etc/agentsql/config.yaml
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane run --rm --no-deps --entrypoint agentsqlctl agentsql-controlplane health --config /etc/agentsql/config.yaml
+docker compose -f docker-compose.yml -f docker-compose.controlplane.yml --profile controlplane up -d --build --wait agentsql-controlplane
+curl --fail http://127.0.0.1:7780/healthz
 curl --fail http://127.0.0.1:7780/readyz
 ```
 
-6. 验收 `/readyz` 返回 HTTP 200，并完成一次只读 allow、一次 deny 和一次 approve 流程。确认 metadata 变更只进入 metadata 库，新审计只进入 audit 库，新 `audit_logs.id` 大于迁移前最大 ID，且审计写入失败时请求按设计 fail-closed。验证期内保留原 SQLite 与 SECRET 备份。
+6. 同时验收两个不等价的探针：`/healthz` 应返回 HTTP 200、`status: "ok"` 和 `version: "v0.2.0"`，仅表示进程存活；`/readyz` 应返回 HTTP 200 和 `status: "ready"`，表示配置的 metadata 与 audit 两个存储均已通过就绪检查。随后完成一次只读 allow、一次 deny 和一次 approve 流程。确认 metadata 变更只进入 metadata 库，新审计只进入 audit 库，新 `audit_logs.id` 大于迁移前最大 ID，且审计写入失败时请求按设计 fail-closed。验证期内保留原 SQLite 与 SECRET 备份。
 
 ### 运行账号最小权限
 
