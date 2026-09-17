@@ -1,0 +1,7 @@
+# 阶段 A：与 Caddyfile.common 一起安装到 /etc/caddy/；仅通过 SSH 隧道预览。
+# 引用方式：import /etc/caddy/Caddyfile.common，然后在站点块 import agentsql_static。
+import /etc/caddy/Caddyfile.common
+
+http://127.0.0.1:8080 {
+	import agentsql_static
+}

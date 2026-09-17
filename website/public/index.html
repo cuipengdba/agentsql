@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentSQL｜AI Agent 的数据库安全网关</title>
+  <meta name="description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://agentsql.cn/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="AgentSQL｜AI Agent 的数据库安全网关">
+  <meta property="og:description" content="在模型与数据库之间建立默认拒绝、受控执行、结果脱敏与应用层审计的安全闸门。">
+  <meta property="og:url" content="https://agentsql.cn/">
+  <!-- 待主控补 1200×630 og-cover.png 与 apple-touch-icon.png 后启用对应 og:image meta 与 apple-touch-icon link。 -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-header">
+    <div class="container nav-shell">
+      <a class="brand" href="#top" aria-label="AgentSQL 首页">
+        <img src="/favicon.svg" width="36" height="36" loading="eager" decoding="async" alt="" aria-hidden="true">
+        <span>AgentSQL</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-controls="primary-nav" aria-expanded="false">
+        <span class="sr-only">打开导航</span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <nav id="primary-nav" class="primary-nav" aria-label="主导航">
+        <a href="#product">产品</a>
+        <a href="#demo">演示</a>
+        <a href="#features">特性</a>
+        <a href="#compatibility">兼容性</a>
+        <a href="#quickstart">快速开始</a>
+        <a href="#security">安全边界</a>
+        <a href="#licensing">授权</a>
+        <a href="#faq">FAQ</a>
+        <a class="button button-small button-ghost" href="https://github.com/cuipengdba/agentsql-gateway" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.56 4.93.36.31.68.92.68 1.86V21c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="top" class="hero section">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v0.2.0-rc · 即将发布</div>
+          <h1>AI Agent 的数据库安全网关</h1>
+          <p class="hero-lead">AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并同步写入应用层审计。</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/cuipengdba/agentsql-gateway" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
+            <a class="button button-secondary" href="#quickstart">快速开始</a>
+          </div>
+          <p class="badge-line">AGPLv3 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
+          <p class="positioning">它不是 BI，也不是 ORM 或 Text2SQL，而是模型与数据库之间一道默认拒绝的安全闸门。</p>
+        </div>
+        <div class="gateway-visual" aria-label="请求经过 AgentSQL 网关的处理链路">
+          <svg viewBox="0 0 720 430" role="img" aria-labelledby="flow-title flow-desc">
+            <title id="flow-title">AgentSQL 请求链路</title>
+            <desc id="flow-desc">AI Agent 通过 LLM 或 MCP Client 连接 AgentSQL 网关，再访问 PostgreSQL 或 MySQL；网关包含鉴权、解析、安检、决策、执行脱敏和留痕六段。</desc>
+            <g class="flow-line"><path d="M133 96h72M330 96h65M520 96h67M458 144v56"/><path class="arrow-head" d="m197 91 8 5-8 5Zm190 0 8 5-8 5Zm192 0 8 5-8 5Zm-5 101 5 8 5-8Z"/></g>
+            <g class="flow-node"><rect x="24" y="61" width="110" height="70" rx="12"/><text x="79" y="90">AI Agent</text><text class="flow-sub" x="79" y="112">发出请求</text></g>
+            <g class="flow-node"><rect x="206" y="61" width="125" height="70" rx="12"/><text x="268" y="88">LLM / MCP</text><text class="flow-sub" x="268" y="112">Client</text></g>
+            <g class="flow-node flow-node-accent"><rect x="396" y="48" width="126" height="96" rx="14"/><text x="459" y="86">AgentSQL</text><text class="flow-sub" x="459" y="112">默认拒绝网关</text></g>
+            <g class="flow-node"><rect x="588" y="61" width="108" height="70" rx="12"/><text x="642" y="88">PostgreSQL</text><text class="flow-sub" x="642" y="112">/ MySQL</text></g>
+            <g class="stage-box">
+              <rect x="83" y="205" width="554" height="172" rx="18"/>
+              <text class="stage-label" x="115" y="250">01 鉴权</text><text class="stage-label" x="278" y="250">02 解析</text><text class="stage-label" x="441" y="250">03 安检</text>
+              <text class="stage-label" x="115" y="318">04 决策</text><text class="stage-label" x="278" y="318">05 执行与脱敏</text><text class="stage-label" x="491" y="318">06 留痕</text>
+              <path d="M115 270h490"/>
+            </g>
+          </svg>
+          <div class="visual-note"><span class="pulse" aria-hidden="true"></span> 请求只在策略允许时进入执行阶段</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="product" class="section section-muted">
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">为什么需要安全闸门</p>
+          <h2>让模型的数据库访问可约束、可解释、可追溯</h2>
+          <p>模型生成的 SQL 具有不确定性。AgentSQL 把身份、权限、语法、风险与执行控制放在一次请求链路里，降低以下常见风险。</p>
+        </div>
+        <div class="risk-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>危险语句</h3><p>幻觉可能产生缺少 WHERE 的 UPDATE / DELETE 等危险写法；是否拦截取决于启用的规则、策略与 Agent 能力配置。</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>越权访问</h3><p>模型可能查询未授权表或列，需要在执行前按 Agent、数据源、对象与列权限做判断。</p></article>
+          <article class="risk-card"><span class="risk-index">03</span><h3>敏感数据返回</h3><p>手机号、邮箱等字段可能以明文进入模型上下文，需要在结果返回前按配置做基础打码。</p></article>
+          <article class="risk-card"><span class="risk-index">04</span><h3>事后难以定责</h3><p>缺少请求身份、SQL、规则命中与决策记录时，难以还原一次访问为何被放行或拒绝。</p></article>
+        </div>
+        <div class="boundary-note"><strong>共同防线：</strong>安全网关不能替代数据库侧的最小权限、只读账号、安全视图与网络隔离。</div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="pipeline-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">六段链路</p><h2 id="pipeline-title">从身份到留痕，逐段收紧访问</h2><p>QPS / 连接数限制属于入口与规则控制。</p></div>
+        <ol class="pipeline">
+          <li><span class="step-number">01</span><div><h3>鉴权</h3><p>验证 API Key，加载 Agent、数据源与策略，失败即关闭。</p></div></li>
+          <li><span class="step-number">02</span><div><h3>解析</h3><p>按 PostgreSQL/MySQL 方言构建 AST，畸形 / 多语句等异常按规则拒绝。</p></div></li>
+          <li><span class="step-number">03</span><div><h3>安检</h3><p>先做不触库的静态检查，静态未拒绝时才建立受控连接做只读 EXPLAIN / 元数据等动态检查。</p></div></li>
+          <li><span class="step-number">04</span><div><h3>决策</h3><p>按 deny &gt; approve &gt; warn &gt; allow 聚合为放行 / 告警 / 拦截 / 转人工。</p></div></li>
+          <li><span class="step-number">05</span><div><h3>执行与脱敏</h3><p>仅 allow/warn 执行，限制连接、超时与结果行数，结果返回前按列打码。</p></div></li>
+          <li><span class="step-number">06</span><div><h3>留痕</h3><p>allow/warn/deny/approve/error 各分支均尝试同步写入应用层审计，审计失败按设计 fail-closed。</p></div></li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="demo" class="section section-muted">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">可复现演示</p><h2>演示与真实运行截图</h2><p>可通过 Docker Compose 在本机启动仅连接合成演示库、数据每日重置的 Live Demo；公网实例尚未开放。</p><p class="quiet-line">公网在线 Demo 计划于域名备案完成后开放。</p></div>
+        <div class="demo-overview media-frame">
+          <a href="/assets/screenshots/demo-scenarios.png" target="_blank" rel="noopener noreferrer" aria-label="在新标签查看 Live Demo 六个受控剧本卡片总览原图">
+            <img src="/assets/screenshots/demo-scenarios.png" width="924" height="872" loading="lazy" decoding="async" alt="Live Demo 六个受控剧本卡片总览">
+          </a>
+        </div>
+        <div class="demo-grid">
+          <details><summary><span>场景 1</span>只读查询放行</summary><div class="detail-body"><p>受控只读查询返回 5 行，并生成审计编号。</p><a class="media-frame" href="/assets/screenshots/scenario-allow.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-allow.png" width="1265" height="960" loading="lazy" decoding="async" alt="只读查询放行，返回 5 行并生成审计编号"></a></div></details>
+          <details><summary><span>场景 2</span>无 WHERE 写请求拒绝</summary><div class="detail-body"><p>无 WHERE 写请求最终被拒绝；命中项包括 deny 级 R002、R010、DEMO_NON_SELECT 与 approve 级 R202（R202 本身不是 deny 规则）。</p><a class="media-frame" href="/assets/screenshots/scenario-deny-no-where.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-deny-no-where.png" width="924" height="857" loading="lazy" decoding="async" alt="无 WHERE 更新在触库前被多条规则拒绝，语句未执行"></a></div></details>
+          <details><summary><span>场景 3</span>敏感结果打码</summary><div class="detail-body"><p>手机号与邮箱按最终结果列名匹配，在返回前执行基础打码。</p><a class="media-frame" href="/assets/screenshots/scenario-mask.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-mask.png" width="939" height="857" loading="lazy" decoding="async" alt="手机号和邮箱结果列被打码，共 10 个单元格"></a></div></details>
+          <details><summary><span>场景 4</span>大结果风险告警</summary><div class="detail-body"><p>R005 对预估约 600 行的无 LIMIT 查询给出告警，并仅返回前 20 行。</p><a class="media-frame" href="/assets/screenshots/scenario-warn-large-result.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-warn-large-result.png" width="939" height="872" loading="lazy" decoding="async" alt="R005 对预估约 600 行的无 LIMIT 查询告警，仅返回前 20 行"></a></div></details>
+          <details><summary><span>场景 5</span>未授权对象拒绝</summary><div class="detail-body"><p>查询未获授权的 internal_notes，被 R010 拒绝且未执行。</p><a class="media-frame" href="/assets/screenshots/scenario-deny-unauthorized.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-deny-unauthorized.png" width="939" height="857" loading="lazy" decoding="async" alt="查询未授权 internal_notes 被 R010 拒绝且未执行"></a></div></details>
+          <details><summary><span>场景 6</span>审计证据链</summary><div class="detail-body"><p>审计详情记录基本信息、六段时间线、SQL 原文、归一化 SQL、命中规则，并明确标记被拦语句未执行。</p><div class="evidence-pair"><a class="media-frame" href="/assets/screenshots/audit-detail-top.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-top.png" width="939" height="872" loading="lazy" decoding="async" alt="审计详情基本信息与六段时间线上半"></a><a class="media-frame" href="/assets/screenshots/audit-detail-bottom.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-bottom.png" width="939" height="872" loading="lazy" decoding="async" alt="被拦语句标记未执行，留存 SQL 原文、归一化 SQL 与命中规则"></a></div></div></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="dashboard-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">实时大屏</p><h2 id="dashboard-title">把风险变化放进可观测视图</h2><p>最近风险事件经带鉴权的 SSE（/api/v1/stream）实时推送，断线降级轮询；KPI、趋势与分布支持手动与约 30 秒自动刷新；Prometheus 指标可接入现有监控。</p></div>
+        <div class="screenshot-grid">
+          <a class="media-frame" href="/assets/screenshots/dashboard-kpi-trend.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/dashboard-kpi-trend.png" width="924" height="872" loading="lazy" decoding="async" alt="总请求、拦截、待审批等 KPI 与近阶段请求趋势"></a>
+          <a class="media-frame" href="/assets/screenshots/dashboard-decisions-events.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/dashboard-decisions-events.png" width="924" height="872" loading="lazy" decoding="async" alt="决策分布环图与最近风险事件流"></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-muted" aria-labelledby="audit-title">
+      <div class="container audit-layout">
+        <div class="section-heading"><p class="kicker">审计与留痕</p><h2 id="audit-title">从决策列表回看完整证据链</h2><p>提供应用层审计列表、组合筛选、证据链查看与 JSONL 导出，便于追溯与安全分析；PDF 合规报告在路线图中。它不是法规级 WORM，也不能阻止数据库 owner/superuser 直接改底层数据。</p></div>
+        <div class="audit-gallery">
+          <a class="media-frame media-featured" href="/assets/screenshots/audit-list.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-list.png" width="924" height="872" loading="lazy" decoding="async" alt="审计列表组合筛选与 JSONL 导出界面；界面中的 PDF 按钮对应路线图功能"></a>
+          <div class="audit-stack"><a class="media-frame" href="/assets/screenshots/audit-detail-top.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-top.png" width="939" height="872" loading="lazy" decoding="async" alt="审计详情基本信息与六段时间线上半"></a><a class="media-frame" href="/assets/screenshots/audit-detail-bottom.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-bottom.png" width="939" height="872" loading="lazy" decoding="async" alt="被拦语句未执行的证据链下半，包含 SQL 与规则命中"></a></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">核心特性</p><h2>面向受控数据库访问的完整路径</h2></div>
+        <div class="feature-grid">
+          <article class="feature-card"><div class="icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10M7 12h10M7 16h6M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg></div><h3>双 MCP 承载</h3><p>支持 stdio 与 Streamable HTTP <code>/mcp</code>；HTTP 为无状态 JSON 响应，已验证 MCP 2025-06-18，并提供 7 个受控工具。</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7l8-4Z"/><path d="m9 12 2 2 4-5"/></svg></div><h3>默认拒绝</h3><p>组合 API Key、Agent 能力档位、对象/列授权与 AST 规则；异常或关键依赖失败时按设计 fail-closed。</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 11h14v9H5z"/><path d="M9 15h6"/></svg></div><h3>受控读写</h3><p>提供只读保护、危险 SQL 拦截、EXPLAIN 风险、超时、连接/QPS/结果行数上限与人工审批。</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/><path d="m4 4 16 16"/></svg></div><h3>结果脱敏</h3><p>手机号 / 邮箱按列名匹配做基础打码，并非完整 DLP；数据源口令用 32 字节密钥做 AES-256-GCM 加密存储。</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></svg></div><h3>控制面</h3><p>默认零配置 SQLite，可选 PostgreSQL 15+；PG18 为基准。支持单库或独立元数据/审计双库及 SQLite→PG 迁移，独立审计库为可选布局而非默认。</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="M2 19h22"/></svg></div><h3>可观测与控制台</h3><p>提供 Prometheus 指标、健康/就绪探针、Grafana 面板，以及内嵌 Web 控制台。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="compatibility" class="section section-muted">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>当前支持矩阵</h2><p>版本与协议支持以发布候选代码和仓库文档为准。</p></div>
+        <div class="table-wrap">
+          <table>
+            <caption>AgentSQL v0.2.0-rc 兼容范围</caption>
+            <thead><tr><th scope="col">类别</th><th scope="col">当前支持</th><th scope="col">边界与说明</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">被防护业务库</th><td>MySQL 8.x；PostgreSQL 14 / 15 / 16 / 17 / 18</td><td>按对应方言解析并执行受控检查。</td></tr>
+              <tr><th scope="row">元数据 / 审计控制面</th><td>内置 SQLite（默认）；PostgreSQL 15+</td><td>PG18 为开发 / Compose / CI 基准，开源与企业版均支持。</td></tr>
+              <tr><th scope="row">MCP 传输</th><td>stdio；Streamable HTTP <code>/mcp</code></td><td>HTTP 无状态、JSON 响应；MCP 2025-06-18。</td></tr>
+              <tr><th scope="row">控制台实时事件</th><td>Bearer 鉴权 SSE <code>/api/v1/stream</code></td><td>断线降级轮询。</td></tr>
+              <tr><th scope="row">MCP 宿主</th><td>支持相应 transport 与协议版本的 MCP 宿主</td><td>不承诺所有 Claude Desktop / Cursor 版本都支持 HTTP transport。</td></tr>
+              <tr><th scope="row">七个 MCP 工具</th><td colspan="2"><code>list_datasources</code>、<code>list_schema</code>、<code>explain_query</code>、<code>query</code>（只读）、<code>execute_write</code>（受控写 / 审批）、<code>request_approval</code>、<code>get_approval_result</code></td></tr>
+              <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
+              <tr><th scope="row">部署 / 构建</th><td>Docker / Compose；Linux systemd 单二进制；Go 1.25</td><td>构建需 cgo 与 C 编译器，运行需 glibc 兼容环境。</td></tr>
+              <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="quickstart" class="section">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker、镜像与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。以下命令在仓库根目录执行，细节以仓库 README 为准。</p></div>
+        <div class="quick-grid">
+          <article class="terminal-card"><div class="terminal-head"><span>Docker Compose</span><span>默认环境</span></div><pre><code><span class="comment"># 1. 复制配置样例</span>
+cp examples/docker/.env.example .env
+
+<span class="comment"># 2. 分别运行两次并填入 .env</span>
+openssl rand -base64 24
+openssl rand -base64 24
+
+<span class="comment"># 3. 构建并启动</span>
+docker compose up -d --build</code></pre><div class="terminal-foot">访问 <code>http://127.0.0.1:7780</code></div></article>
+          <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>合成数据</span></div><pre><code><span class="comment"># 复制演示环境样例并替换占位凭据</span>
+cp examples/docker/demo.env.example demo/demo.env
+
+<span class="comment"># 启动或重置演示环境</span>
+bash ./demo/reset.sh
+
+<span class="comment"># Windows PowerShell</span>
+.\demo\reset.ps1</code></pre><div class="terminal-foot">使用 <code>docker-compose.demo.yml</code>，访问 <code>http://127.0.0.1:17880</code></div></article>
+        </div>
+        <div class="callout callout-warning"><strong>部署提示：</strong>默认仅绑定回环；不要提交 <code>.env</code>；SECRET 与数据库要成对备份；不要把 7780、17880 或数据库端口暴露公网。</div>
+      </div>
+    </section>
+
+    <section id="security" class="section section-muted">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">安全边界</p><h2>明确能力范围，再设计纵深防御</h2><p>以下限制应与数据库权限、网络策略、备份与运维控制一起评估。</p></div>
+        <ul class="boundary-grid">
+          <li><strong>连接范围</strong><span>只防护经过网关的连接，直连的 owner/superuser/DBA 不在范围内。</span></li>
+          <li><strong>结果脱敏</strong><span>脱敏为结果层按列打码、非完整 DLP，不承诺任何别名 / 写法都不可绕过。</span></li>
+          <li><strong>应用审计</strong><span>审计为应用层留痕、非法规级 WORM，不防高权限 DBA。</span></li>
+          <li><strong>JOIN 授权</strong><span>JOIN / 自连接仅做表级授权，不推断投影列归属。</span></li>
+          <li><strong>通配权限</strong><span><code>*</code> / <code>schema.*</code> 代表整表全列权限。</span></li>
+          <li><strong>列名回溯</strong><span>脱敏按最终结果列名匹配，表达式 / 聚合 / CAST / UNION / 复杂 CTE / 视图重命名可能无法回溯源列。</span></li>
+          <li><strong>事务边界</strong><span>MCP 不应用作通用跨请求事务代理。</span></li>
+          <li><strong>演示环境</strong><span>公网 Demo 仅只读合成数据，不接真实库。</span></li>
+          <li><strong>规划能力</strong><span>HA / 集中管控 / 企业身份在规划方向。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="roadmap-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">技术路线</p><h2 id="roadmap-title">路线图</h2><p>以下均为规划方向，不构成版本或交付承诺。</p></div>
+        <ol class="roadmap">
+          <li class="complete"><span>v0.1</span><strong>核心网关</strong></li>
+          <li class="current"><span>v0.2</span><strong>实时大屏 / PostgreSQL 控制面 / 一键 Live Demo</strong><small>当前，发布候选</small></li>
+          <li><span>下一阶段</span><strong>国产与商业数据库适配</strong></li>
+          <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
+          <li><span>后续方向</span><strong>高可用与集中管控</strong></li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="licensing" class="section section-muted">
+      <div class="container license-panel">
+        <div><p class="kicker">授权模式</p><h2>开源核心与商业双授权</h2><p>AgentSQL 开源核心采用 GNU AGPLv3，并保留商标权利。开源版本依据 GNU AGPLv3 提供；具体义务取决于你的修改、分发与网络服务方式。不希望承担相应开源义务，或需要面向团队 / 大规模部署的能力，可邮件咨询商业授权：<a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p><p class="commercial-note">需要闭源商用或商业授权，请邮件联系 87326549@qq.com</p></div>
+        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql-gateway/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">查看 GNU AGPLv3</a><a class="button button-ghost" href="https://github.com/cuipengdba/agentsql-gateway/blob/main/COMMERCIAL-LICENSE.md" target="_blank" rel="noopener noreferrer">查看商业授权说明</a></div>
+      </div>
+    </section>
+
+    <section id="faq" class="section">
+      <div class="container narrow">
+        <div class="section-heading"><p class="kicker">常见问题</p><h2>FAQ</h2></div>
+        <div class="faq-list">
+          <details><summary>它和 MCP 是什么关系？</summary><p>它本身是一个 MCP Server；MCP 是模型与外部工具 / 数据通信的标准协议。</p></details>
+          <details><summary>不用 MCP，模型就不能连数据库吗？</summary><p>可以，应用也可用自研 API、数据库代理或服务端托管凭据连接；AgentSQL 提供的是面向 MCP 的统一身份、策略、受控执行与审计入口，而非唯一连接方式。</p></details>
+          <details><summary>它是 BI / ORM / Text2SQL 吗？</summary><p>都不是；不负责自然语言生成 SQL 的业务体验，也不替代 ORM，负责安全执行与留痕。</p></details>
+          <details><summary>性能如何？</summary><p>静态判定在毫秒级；在内存 fake executor、20 worker / 20 万样本、剥离真实库网络与执行时间的基准中，网关 CPU 路径 P99 约 1.81 ms，该数字不是端到端查询延迟，真实延迟取决于连接、EXPLAIN、数据库执行与审计存储。</p></details>
+          <details><summary>个人 / 公司能免费用吗？</summary><p>按 AGPLv3 条款；通过网络对外提供服务时需遵守 AGPL 对应源码义务；闭源集成或需要企业能力请邮件咨询商业授权。</p></details>
+          <details><summary>支持哪些数据库 / 客户端？</summary><p>请查看上方<a href="#compatibility">兼容矩阵</a>，其中列出业务库、控制面、MCP 传输、宿主与部署范围。</p></details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div><a class="brand" href="#top"><img src="/favicon.svg" width="34" height="34" loading="lazy" decoding="async" alt="" aria-hidden="true"><span>AgentSQL</span></a><p>模型与数据库之间默认拒绝的安全闸门。</p></div>
+      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="#demo">演示</a><a href="#features">特性</a><a href="#compatibility">兼容性</a><a href="#security">安全边界</a><a href="#faq">FAQ</a></nav>
+      <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql-gateway" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
+    </div>
+    <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志默认保留 30 天，联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>
+    <div class="container footer-bottom"><span>© <span data-current-year>2026</span> 崔鹏 · 本站为个人开源技术项目，仅用于技术交流</span><!-- ICP/公安备案号：下号后在此渲染，ICP 链接 https://beian.miit.gov.cn ，公安联网备案链接以上线时官方平台返回为准 --></div>
+  </footer>
+</body>
+</html>

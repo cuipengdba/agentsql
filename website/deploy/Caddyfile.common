@@ -1,0 +1,35 @@
+# 两阶段共用片段。部署时复制到 /etc/caddy/Caddyfile.common，
+# Caddyfile.stage-a 与 Caddyfile.stage-b 均通过绝对路径 import。
+(agentsql_static) {
+	root * /var/www/agentsql/current/public
+	encode zstd gzip
+
+	@private path_regexp private (?i)(^|/)\.(git|env|svn|hg)(/|$)|(^|/)deploy(?:/|$)
+	respond @private 404
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	log {
+		output file /var/log/caddy/agentsql-access.json {
+			roll_size 10MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+	}
+
+	file_server
+
+	handle_errors {
+		@not_found expression {http.error.status_code} == 404
+		rewrite @not_found /404.html
+		file_server
+	}
+}

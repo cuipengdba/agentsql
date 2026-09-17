@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">AgentSQL</title>
+  <desc id="desc">盾牌与数据库图形</desc>
+  <rect width="64" height="64" rx="14" fill="#0b1220"/>
+  <path d="M32 8 52 17v13c0 13-7.9 22.2-20 26C19.9 52.2 12 43 12 30V17L32 8Z" fill="none" stroke="#35b9e9" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="32" cy="24" rx="11" ry="4.5" fill="none" stroke="#e9f7ff" stroke-width="3"/>
+  <path d="M21 24v13c0 2.5 4.9 4.5 11 4.5s11-2 11-4.5V24M21 30.5c0 2.5 4.9 4.5 11 4.5s11-2 11-4.5" fill="none" stroke="#e9f7ff" stroke-width="3" stroke-linecap="round"/>
+</svg>
