@@ -1,0 +1,35 @@
+CREATE TABLE customers (
+    id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    full_name VARCHAR(128) NOT NULL,
+    phone VARCHAR(11) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    region VARCHAR(32) NOT NULL,
+    created_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE products (
+    id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    sku VARCHAR(32) NOT NULL UNIQUE,
+    name VARCHAR(128) NOT NULL,
+    price DECIMAL(12,2) NOT NULL,
+    stock INT UNSIGNED NOT NULL,
+    created_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE orders (
+    id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    customer_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    quantity INT UNSIGNED NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    ordered_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
+    CONSTRAINT fk_orders_product FOREIGN KEY (product_id) REFERENCES products(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE internal_notes (
+    id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    note VARCHAR(255) NOT NULL,
+    created_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -1,0 +1,28 @@
+# Dedicated local Live Demo configuration. Secrets are injected by environment.
+server:
+  http_listen: "0.0.0.0:7780"
+  console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
+
+store:
+  sqlite_path: "/var/lib/agentsql/agentsql.db"
+  auto_migrate: false
+
+defaults:
+  statement_timeout_ms: 1500
+  row_limit: 20
+  max_conns_per_datasource: 2
+  qps_per_agent: 2
+
+theme:
+  default: "dark"
+
+demo:
+  enabled: true
+  # This must exactly equal examples/docker/demo-seed.yaml's banner value.
+  banner: "Live Demo · data resets daily · never connect real data or databases"
+  allowed_datasource_ids:
+    - ds-demo-pg
+    - ds-demo-mysql
+  qps_per_agent: 2
