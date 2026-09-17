@@ -33,6 +33,9 @@ type Deps struct {
 	// EventStreamHeartbeatInterval is injectable for deterministic stream tests.
 	// Zero uses the production interval.
 	EventStreamHeartbeatInterval time.Duration
+
+	demoRunner DemoRunner
+	demoKeys   demoProfileKeys
 }
 
 type DatasourcePinger interface {
@@ -82,6 +85,14 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	}
 	if len(deps.TokenKey) == 0 {
 		return nil, fmt.Errorf("create admin handler: token key is required")
+	}
+	if deps.Config.DemoEnabled() {
+		if deps.demoRunner == nil {
+			return nil, fmt.Errorf("create admin handler: demo pipeline is unavailable")
+		}
+		if !deps.demoKeys.valid() {
+			return nil, fmt.Errorf("create admin handler: demo credentials were not validated")
+		}
 	}
 	streamEnabled := deps.Config.Server.ConsoleEnabled && deps.Config.Server.EventStream
 	if streamEnabled && deps.Runtime.Events == nil {
@@ -134,6 +145,9 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)
 	mux.HandleFunc("POST /api/v1/playground/assess", handler.playgroundAssess)
+	if deps.Config.DemoEnabled() {
+		mux.HandleFunc("POST /api/v1/playground/run", handler.playgroundRun)
+	}
 	if streamEnabled {
 		mux.HandleFunc("GET /api/v1/stream", handler.stream)
 	}

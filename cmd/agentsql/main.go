@@ -169,15 +169,19 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("assemble HTTP runtime: %w", err)
 			}
+			adminDeps, err := adminapi.PrepareDemoDeps(ctx, adminapi.Deps{
+				Runtime:       runtime,
+				Config:        loaded,
+				AdminUsername: adminUser,
+				AdminPassword: adminPassword,
+				TokenKey:      adminapi.DeriveTokenKey([]byte(secret)),
+			})
+			if err != nil {
+				return errors.Join(err, runtime.Close())
+			}
 			var httpOptions []mcpserver.HTTPOption
 			if loaded.Server.ConsoleEnabled {
-				adminHandler, adminError := adminapi.NewHandler(adminapi.Deps{
-					Runtime:       runtime,
-					Config:        loaded,
-					AdminUsername: adminUser,
-					AdminPassword: adminPassword,
-					TokenKey:      adminapi.DeriveTokenKey([]byte(secret)),
-				}, logger)
+				adminHandler, adminError := adminapi.NewHandler(adminDeps, logger)
 				if adminError != nil {
 					return errors.Join(adminError, runtime.Close())
 				}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -9,7 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/adminapi"
+	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -243,6 +248,168 @@ func TestServeStartupSecurityMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServeDemoCredentialStartupMatrix(t *testing.T) {
+	const (
+		secret = "0123456789abcdef0123456789abcdef"
+		roKey  = "asql_serve-demo-ro-canary"
+		dmlKey = "asql_serve-demo-dml-canary"
+		badKey = "asql_serve-demo-invalid-canary"
+	)
+	tests := []struct {
+		name     string
+		roEnv    string
+		dmlEnv   string
+		roAgent  model.Agent
+		dmlAgent model.Agent
+		wantErr  bool
+	}{
+		{
+			name: "missing readonly key", dmlEnv: dmlKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "missing dml key", roEnv: roKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "authentication failure", roEnv: badKey, dmlEnv: dmlKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "readonly key bound to dml agent", roEnv: dmlKey, dmlEnv: dmlKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "readonly level mismatch", roEnv: roKey, dmlEnv: dmlKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "dml"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "readonly status not active", roEnv: roKey, dmlEnv: dmlKey,
+			roAgent: func() model.Agent {
+				agent := validDemoAgent(config.DemoAgentRO, "readonly")
+				agent.Status = "disabled"
+				return agent
+			}(),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "dml key bound to readonly agent", roEnv: roKey, dmlEnv: roKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"), wantErr: true,
+		},
+		{
+			name: "dml level mismatch", roEnv: roKey, dmlEnv: dmlKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "readonly"), wantErr: true,
+		},
+		{
+			name: "dml status not active", roEnv: roKey, dmlEnv: dmlKey,
+			roAgent: validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: func() model.Agent {
+				agent := validDemoAgent(config.DemoAgentDML, "dml")
+				agent.Status = "disabled"
+				return agent
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "both identities valid", roEnv: roKey, dmlEnv: dmlKey,
+			roAgent:  validDemoAgent(config.DemoAgentRO, "readonly"),
+			dmlAgent: validDemoAgent(config.DemoAgentDML, "dml"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("AGENTSQL_DEMO_RO_KEY", test.roEnv)
+			t.Setenv("AGENTSQL_DEMO_DML_KEY", test.dmlEnv)
+			cfg, runtime := newDemoStartupRuntime(t, true, secret)
+			createDemoStartupAgent(t, runtime, test.roAgent, roKey)
+			createDemoStartupAgent(t, runtime, test.dmlAgent, dmlKey)
+
+			prepared, err := adminapi.PrepareDemoDeps(context.Background(), adminapi.Deps{
+				Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: "password",
+				TokenKey: adminapi.DeriveTokenKey([]byte(secret)),
+			})
+			if test.wantErr {
+				require.Error(t, err)
+				for _, forbidden := range []string{roKey, dmlKey, badKey, "asql_", "postgres://", "password@"} {
+					require.NotContains(t, err.Error(), forbidden)
+				}
+				return
+			}
+			require.NoError(t, err)
+			_, err = adminapi.NewHandler(prepared, zerolog.Nop())
+			require.NoError(t, err, "successful handler construction proves the private demo keys and runner were attached")
+		})
+	}
+}
+
+func TestServeDemoDisabledDoesNotRequireDemoKeys(t *testing.T) {
+	const secret = "0123456789abcdef0123456789abcdef"
+	t.Setenv("AGENTSQL_DEMO_RO_KEY", "")
+	t.Setenv("AGENTSQL_DEMO_DML_KEY", "")
+	cfg, runtime := newDemoStartupRuntime(t, false, secret)
+	prepared, err := adminapi.PrepareDemoDeps(context.Background(), adminapi.Deps{
+		Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: "password",
+		TokenKey: adminapi.DeriveTokenKey([]byte(secret)),
+	})
+	require.NoError(t, err)
+	_, err = adminapi.NewHandler(prepared, zerolog.Nop())
+	require.NoError(t, err)
+}
+
+func newDemoStartupRuntime(
+	t *testing.T,
+	enabled bool,
+	secret string,
+) (config.Config, *bootstrap.Runtime) {
+	t.Helper()
+	cfg := config.Config{
+		Server: config.ServerConfig{
+			HTTPListen: "127.0.0.1:7780", ConsoleEnabled: true,
+			EventStream: false, EventStreamMaxConnections: 100,
+		},
+		Store: config.StoreConfig{SQLitePath: filepath.Join(t.TempDir(), "startup.db")},
+		Defaults: config.DefaultsConfig{
+			StatementTimeoutMS: 5000, RowLimit: 1000, MaxConnsPerDatasource: 5, QPSPerAgent: 20,
+		},
+		Theme: config.ThemeConfig{Default: "dark"},
+		Demo: config.DemoConfig{
+			Enabled: enabled,
+			AllowedDatasourceIDs: []string{
+				config.DemoDatasourcePG,
+				config.DemoDatasourceMySQL,
+			},
+		},
+	}
+	runtime, err := bootstrap.Assemble(context.Background(), cfg, []byte(secret))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	return cfg, runtime
+}
+
+func createDemoStartupAgent(
+	t *testing.T,
+	runtime *bootstrap.Runtime,
+	agent model.Agent,
+	rawKey string,
+) {
+	t.Helper()
+	agent.Name = agent.ID
+	agent.APIKeyHash = store.HashAPIKey(rawKey)
+	_, err := runtime.Store.Agents().Create(context.Background(), agent)
+	require.NoError(t, err)
+}
+
+func validDemoAgent(id, level string) model.Agent {
+	return model.Agent{ID: id, Level: level, Status: "active"}
 }
 
 func writeCommandConfig(t *testing.T, databasePath, listen string, console bool) string {
