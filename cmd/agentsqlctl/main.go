@@ -92,6 +92,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newMigrateCommand())
 	command.AddCommand(newSQLiteToPostgresCommand())
 	command.AddCommand(newHealthCommand())
+	command.AddCommand(newDemoSeedCommand(defaultDemoSeedDependencies()))
 	return command
 }
 
