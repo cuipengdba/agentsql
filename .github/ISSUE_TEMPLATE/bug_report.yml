@@ -1,0 +1,85 @@
+name: Bug 报告
+description: 报告可复现的 AgentSQL 缺陷
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你帮助改进 AgentSQL。安全漏洞请勿在此提交，请改用 [SECURITY.md](https://github.com/cuipengdba/agentsql-gateway/security/policy) 中的私密渠道。
+        提交前请移除日志中的 API Key、密码、DSN、个人信息和业务数据。
+  - type: input
+    id: version
+    attributes:
+      label: AgentSQL 版本
+      description: 请填写版本号；如为源码构建，请同时填写提交号。
+      placeholder: v0.2.0 / commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 运行方式
+      options:
+        - binary
+        - docker
+        - systemd
+        - 其他
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: 被防护数据库
+      options:
+        - PostgreSQL
+        - MySQL
+        - 同时使用 PostgreSQL 与 MySQL
+    validations:
+      required: true
+  - type: input
+    id: database_version
+    attributes:
+      label: 被防护数据库版本
+      placeholder: PostgreSQL 18 / MySQL 8.4
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象
+      description: 请描述实际发生了什么、发生频率及影响范围。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 请提供最小化、可重复的步骤和已脱敏配置。
+      placeholder: |
+        1. 使用配置……
+        2. 发送请求……
+        3. 观察到……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 请说明你认为正确的结果。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 请粘贴必要的已脱敏日志或错误信息；没有时填写“无”。
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 其他环境信息
+      description: 可补充操作系统、架构、MCP 传输方式、配置差异等。

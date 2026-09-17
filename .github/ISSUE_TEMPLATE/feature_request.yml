@@ -1,0 +1,50 @@
+name: 功能建议
+description: 提议符合数据库安全网关主线的新能力
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        AgentSQL 坚持“窄而深”：只做 AI Agent 的数据库安全网关与 MCP Server，不泛化为 BI、ORM 或通用 Text2SQL 平台。
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景与问题
+      description: 谁在什么环境下遇到了什么问题？现有能力为何不足？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 请描述期望行为、输入输出、安全边界和可接受的取舍。
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 是否符合“窄而深”的项目范围
+      description: 该建议是否直接增强数据库安全网关，而不是引入 BI、ORM 或通用 Text2SQL 能力？
+      options:
+        - 是，直接增强数据库安全网关
+        - 不确定，希望先讨论边界
+        - 否，但希望说明相邻需求
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考虑的替代方案
+      description: 请说明现有配置、外部组件或更小范围改动能否解决问题。
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: 是否愿意贡献实现
+      options:
+        - 愿意，在范围确认后提交 Pull Request
+        - 可以协助设计或测试
+        - 暂时无法贡献实现
+    validations:
+      required: true
