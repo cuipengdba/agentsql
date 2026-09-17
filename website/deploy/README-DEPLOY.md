@@ -10,21 +10,67 @@
 - 上传整个 `website/` 目录或一个只含 `public/` 的发布目录；部署脚本只会复制公开白名单内容。
 - 示例服务器地址统一使用文档地址 `203.0.113.10`，实际执行时替换为自己的 ECS 地址。
 
-官方 COPR 可访问时，部署脚本会依次执行：
+### 安装 Caddy：EPEL 优先、COPR 兜底
+
+Alibaba Cloud Linux 3 启用 EPEL 后可直接安装 EPEL 提供的 Caddy 2.6.4，这是首选路径：
 
 ```bash
-dnf install -y 'dnf-command(copr)'
-dnf copr enable -y @caddy/caddy
 dnf install -y caddy
 ```
 
-如果国内网络无法访问 COPR，应在可信联网环境从 Caddy 官方仓库取得并核验一个固定版本 RPM，再传到服务器，以本地文件安装；不要使用 `curl | sh`：
+部署脚本具有幂等安装判断：已存在 `caddy` 命令时跳过安装；未安装时先尝试 EPEL，只有该路径失败或没有可用包时，才自动回退到 `dnf-command(copr)`、`@caddy/caddy` 和 COPR 安装流程。这样在国内网络无法访问 COPR 时，不会无故依赖 COPR。
+
+离线环境应在可信联网环境取得并核验固定版本 RPM，再传到服务器，以本地文件安装；禁止使用 `curl | sh`：
 
 ```bash
-dnf install -y ./caddy-fixed-version.x86_64.rpm
+dnf install -y ./caddy-*.rpm
 ```
 
-## 2. 阶段 A：回环预览
+## 2. 镜像市场模板机清理（仅当 80/443 被占用时的可选前置）
+
+普通干净镜像不需要本节。部分镜像市场模板机会预装 Harbor、Nginx Proxy Manager、Portainer 等 Docker Compose 环境，并在开机后占用 80/443。清理前先记录容器、镜像、卷和端口现状，确认这些业务确实无用：
+
+```bash
+ss -tlnp
+docker ps -a
+docker images
+docker volume ls
+```
+
+结合监听进程和容器端口映射确认占用者；常见模板目录包括 `/clouddream/harbor` 和 `/clouddream/nginx-proxy-manage`。只对已确认无用的对应项目执行清理：
+
+```bash
+cd /clouddream/harbor
+docker compose down -v
+
+cd /clouddream/nginx-proxy-manage
+docker compose down -v
+
+docker stop portainer
+docker rm portainer
+```
+
+若独立 Portainer 容器不叫 `portainer`，用 `docker ps -a` 中记录的实际容器名或 ID 替换上述参数。
+
+再次确认没有需要保留的容器、镜像和卷后，才执行全局回收：
+
+```bash
+docker system prune -af --volumes
+```
+
+若模板附带 enabled 的 Harbor systemd unit，还需停用并删除它，防止重启后重新拉起 Compose 项目：
+
+```bash
+systemctl disable --now harbor.service
+rm -f /etc/systemd/system/harbor.service
+systemctl daemon-reload
+```
+
+> **警告：阿里云 `remote-manage.service`（监听 5000）、aegis、cloudmonitor 等实例管控/安全组件必须保留，绝不能停用或删除。** 它们不是上述模板业务环境的一部分；不要仅凭端口或进程不熟悉就清理。
+
+完成后再次运行 `ss -tlnp` 和 `docker ps`，确认 80/443 已释放，再继续部署。
+
+## 3. 阶段 A：回环预览
 
 假设已经把 `website/` 上传到 `/root/website-release/`：
 
@@ -37,6 +83,14 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 
 脚本会创建 `/var/www/agentsql/releases/<UTC时间戳>/`，仅复制 `public/` 白名单内容，把 `current` 更新为 root 拥有的符号链接，安装阶段 A 配置和 systemd drop-in，执行 SELinux 标记、Caddy 配置校验并 reload-or-restart。
 
+部署后必须核验监听地址：
+
+```bash
+ss -tlnp | grep 8080
+```
+
+结果必须只显示 `127.0.0.1:8080`，不能是 `*:8080` 或 `0.0.0.0:8080`；公网主机的 8080 不应可连。阶段 A 只能通过下面的 SSH 隧道预览。
+
 从管理电脑建立 SSH 隧道：
 
 ```bash
@@ -45,7 +99,7 @@ ssh -L 8080:127.0.0.1:8080 root@203.0.113.10
 
 保持隧道连接，在本地浏览器打开 `http://127.0.0.1:8080/`。此阶段不改 DNS、不开放 8080，也不申请证书。
 
-## 3. 阶段 B：备案后切换
+## 4. 阶段 B：备案后切换
 
 按顺序完成以下清单：
 
@@ -85,7 +139,7 @@ ssh -L 8080:127.0.0.1:8080 root@203.0.113.10
 
 不要在 DNS 尚未指向正确主机、80/443 不通或备案前反复切换阶段 B，以免无意义触发 ACME 失败与频率限制。
 
-## 4. SELinux 与 firewalld 排查
+## 5. SELinux 与 firewalld 排查
 
 部署脚本为 `/var/www/agentsql(/.*)?` 设置 `httpd_sys_content_t` 并运行 `restorecon`。遇到 403、文件不可读或服务启动失败时，不要执行 `setenforce 0`，而应检查：
 
@@ -107,7 +161,7 @@ restorecon -Rv /var/www/agentsql
 
 systemd 加固将站点设为只读，仅允许 Caddy 写 `/var/lib/caddy` 与 `/var/log/caddy`。如果日志或证书存储报权限错误，检查这两个目录是否为 `caddy:caddy`，不要扩大整棵文件系统的写权限。
 
-## 5. 版本化发布与回滚
+## 6. 版本化发布与回滚
 
 每次执行部署脚本都会新建一个 UTC 时间戳目录，旧版本保留。查看版本：
 
@@ -127,7 +181,7 @@ systemctl reload caddy
 
 默认脚本创建 `<时间戳>/public/index.html`，与 Caddy 的 `current/public` 文档根保持一致。不要删除 `/var/lib/caddy`，其中包含自动 HTTPS 所需状态；回滚站点文件不等于回滚证书存储。
 
-## 6. 日志与轮转
+## 7. 日志与轮转
 
 - 访问日志：`/var/log/caddy/agentsql-access.json`，JSON 格式。
 - 应用配置轮转：单文件 10 MiB、保留 10 个、最长 720 小时。
@@ -142,7 +196,7 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy
 ```
 
-## 7. 常见故障
+## 8. 常见故障
 
 ### 阶段 A 从公网打不开
 

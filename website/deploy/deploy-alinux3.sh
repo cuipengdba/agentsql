@@ -35,10 +35,18 @@ done
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
-# Alibaba Cloud Linux 3 / RHEL 8 compatible Caddy package flow.
-dnf install -y 'dnf-command(copr)'
-dnf copr enable -y @caddy/caddy
-dnf install -y caddy
+# Alibaba Cloud Linux 3 / RHEL 8: prefer EPEL and use COPR only as a fallback.
+if command -v caddy >/dev/null 2>&1; then
+  echo "Caddy 已安装，跳过软件包安装。"
+else
+  if ! dnf install -y caddy; then
+    echo "EPEL 未能安装 Caddy，回退到官方 COPR。"
+    dnf install -y 'dnf-command(copr)'
+    dnf copr enable -y @caddy/caddy
+    dnf install -y caddy
+  fi
+fi
+caddy version
 
 install -d -o root -g root -m 0755 "$SITE_DIR" "$SITE_DIR/releases"
 release_stamp=$(date -u +%Y%m%dT%H%M%SZ)
