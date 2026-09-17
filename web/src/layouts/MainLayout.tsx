@@ -7,25 +7,29 @@ import {
   SunOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Layout, Menu, Space, Tooltip, Typography } from "antd";
+import { Alert, Avatar, Button, Layout, Menu, Space, Tag, Tooltip, Typography } from "antd";
 import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { logout as logoutRequest } from "@/api/auth";
 import { menuRoutes } from "@/routes/menu";
 import { useAuthStore } from "@/store/authStore";
+import { selectIsDemo, useDemoStore } from "@/store/demoStore";
 import { useThemeStore } from "@/theme/useThemeStore";
 
 const { Header, Sider, Content } = Layout;
 
 export function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [bannerVisible, setBannerVisible] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
   const username = useAuthStore((state) => state.username);
   const clear = useAuthStore((state) => state.clear);
   const themeMode = useThemeStore((state) => state.mode);
   const toggleTheme = useThemeStore((state) => state.toggle);
+  const demoEnabled = useDemoStore(selectIsDemo);
+  const demoBanner = useDemoStore((state) => state.banner);
   const currentRoute = menuRoutes.find((route) => route.path === location.pathname);
 
   const handleLogout = async () => {
@@ -48,7 +52,13 @@ export function MainLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[currentRoute?.key || ""]}
-          items={menuRoutes.map(({ key, label, icon }) => ({ key, label, icon }))}
+          items={menuRoutes.map(({ key, label, icon }) => ({
+            key,
+            icon,
+            label: key === "playground" && demoEnabled
+              ? <span className="demo-menu-label"><span>{label}</span><Tag color="processing">Live Demo</Tag></span>
+              : label,
+          }))}
           onClick={({ key }) => {
             const target = menuRoutes.find((route) => route.key === key);
             if (target) {
@@ -70,6 +80,7 @@ export function MainLayout() {
               />
             </Tooltip>
             <Typography.Text className="current-page-title">{currentRoute?.label || "AgentSQL"}</Typography.Text>
+            {demoEnabled ? <Tag color="processing" className="live-demo-tag">Live Demo</Tag> : null}
           </Space>
           <Space size={12}>
             <Tooltip title={themeMode === "dark" ? "切换浅色主题" : "切换深色主题"}>
@@ -97,6 +108,17 @@ export function MainLayout() {
             </Tooltip>
           </Space>
         </Header>
+        {demoEnabled && bannerVisible ? (
+          <Alert
+            className="live-demo-banner"
+            banner
+            showIcon
+            closable
+            type="warning"
+            message={demoBanner}
+            onClose={() => setBannerVisible(false)}
+          />
+        ) : null}
         <Content className="app-content">
           <Outlet />
         </Content>

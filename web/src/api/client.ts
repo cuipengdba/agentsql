@@ -19,6 +19,14 @@ const rawClient = axios.create({
   timeout: 15_000,
 });
 
+export interface ApiRequestConfig extends AxiosRequestConfig {
+  suppressErrorMessage?: boolean;
+}
+
+function suppressesErrorMessage(config: AxiosRequestConfig | undefined): boolean {
+  return Boolean((config as ApiRequestConfig | undefined)?.suppressErrorMessage);
+}
+
 function attachAuthorization(request: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
   const token = useAuthStore.getState().token;
   if (token) {
@@ -52,7 +60,7 @@ function rejectHTTPError(error: AxiosError<ApiResponse<unknown>>): Promise<never
       window.location.assign("/login");
     }
   }
-  void message.error(errorMessage);
+  if (!suppressesErrorMessage(error.config)) void message.error(errorMessage);
   return Promise.reject(error);
 }
 
@@ -60,11 +68,11 @@ apiClient.interceptors.response.use(
   (response) => {
     const payload: unknown = response.data;
     if (!isApiResponse(payload)) {
-      void message.error("服务响应格式无效");
+      if (!suppressesErrorMessage(response.config)) void message.error("服务响应格式无效");
       return Promise.reject(new Error("invalid API response"));
     }
     if (payload.code !== 0) {
-      void message.error(payload.msg || "请求失败，请稍后重试");
+      if (!suppressesErrorMessage(response.config)) void message.error(payload.msg || "请求失败，请稍后重试");
       return Promise.reject(new Error(payload.msg || "request failed"));
     }
     response.data = payload.data;
@@ -74,12 +82,12 @@ apiClient.interceptors.response.use(
 );
 rawClient.interceptors.response.use((response) => response, rejectHTTPError);
 
-export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+export async function request<T>(config: ApiRequestConfig): Promise<T> {
   const response = await apiClient.request<T>(config);
   return response.data;
 }
 
-export async function requestRaw<T>(config: AxiosRequestConfig): Promise<T> {
+export async function requestRaw<T>(config: ApiRequestConfig): Promise<T> {
   const response = await rawClient.request<T>(config);
   return response.data;
 }

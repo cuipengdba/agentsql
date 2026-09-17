@@ -66,7 +66,22 @@ docker compose -p agentsql-demo -f docker-compose.demo.yml --env-file demo/demo.
 - PostgreSQL：`127.0.0.1:5432`；MySQL：`127.0.0.1:3306`。它们只供本地检查，可在环境文件中改端口。
 - 可选 Prometheus：<http://127.0.0.1:9090>；Grafana：<http://127.0.0.1:3000>。
 
-两套业务库各有 128 个 customers、64 个 products、2400 个 orders、16 个 internal_notes。控制面包含 2 个数据源、2 个 Agent、10 条策略、4 条脱敏规则、300 条近 30 天审计和 24 条审批。只读、写入拦截、敏感列、低基数扫描、未授权表和审计回看所需数据均已就绪；一键剧本卡与 GIF/截图属于 T26-2，本片不宣称演示通道已经可以连接真实库或执行完整六剧本。
+两套业务库各有 128 个 customers、64 个 products、2400 个 orders、16 个 internal_notes。控制面包含 2 个数据源、2 个 Agent、10 条策略、4 条脱敏规则、300 条近 30 天审计和 24 条审批。只读、写入拦截、敏感列、低基数扫描、未授权表和审计回看所需数据均已就绪。
+
+## 真实试运行与六个剧本
+
+控制台仅在 `/healthz` 严格返回 `demo.enabled=true` 和字符串 `demo.banner` 时显示 Live Demo UI。真实试运行调用 `POST /api/v1/playground/run`；该端点仅在 demo 模式注册，数据源固定为 `ds-demo-pg`/`ds-demo-mysql`，身份固定为 `ro`/`dml`。前端不接收、不缓存也不允许输入演示 Agent key。非 demo 部署没有该端点与 Live 控件，Playground 继续使用静态评估。
+
+六个引导卡分别演示：
+
+1. PostgreSQL 只读查询正常放行，返回最多 5 行并写审计。
+2. MySQL 无 WHERE 的 UPDATE 被 R002 与演示只读屏障拦截，不触达业务库。
+3. MySQL 查询 customers 的 phone/email，返回值全部掩码。
+4. PostgreSQL 大结果扫描命中 R005，最多显示 20 行并标记截断。
+5. PostgreSQL 访问未授权 internal_notes，被 R010 拒绝且不返回内容。
+6. 使用本会话最近的 `audit_id` 打开审计详情，并可跳到总览实时流回看。
+
+截图占位：`docs/images/demo-scenario-1.png` 至 `docs/images/demo-scenario-6.png`。这些路径由主控在真实浏览器验收后补充，本任务不生成占位图片。
 
 ## 每日 04:00 重置
 
