@@ -110,6 +110,10 @@ type auditJSONLine struct {
 	ClientIP       *string `json:"ClientIP,omitempty"`
 	ModelName      *string `json:"ModelName,omitempty"`
 	ErrorMsg       *string `json:"ErrorMsg,omitempty"`
+	Action         *string `json:"Action,omitempty"`
+	ActorType      *string `json:"ActorType,omitempty"`
+	ActorID        *string `json:"ActorID,omitempty"`
+	DetailsJSON    *string `json:"DetailsJSON,omitempty"`
 }
 
 func newAuditJSONLine(log model.AuditLog) auditJSONLine {
@@ -135,5 +139,9 @@ func newAuditJSONLine(log model.AuditLog) auditJSONLine {
 		ClientIP:       log.ClientIP,
 		ModelName:      log.ModelName,
 		ErrorMsg:       log.ErrorMsg,
+		Action:         log.Action,
+		ActorType:      log.ActorType,
+		ActorID:        log.ActorID,
+		DetailsJSON:    log.DetailsJSON,
 	}
 }

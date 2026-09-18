@@ -85,11 +85,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 2, migrationCount)
+	require.Equal(t, 3, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 2, current)
-	require.Equal(t, 2, latest)
+	require.Equal(t, 3, current)
+	require.Equal(t, 3, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -137,18 +137,19 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Equal(t, []string{"audit_logs", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 2, metadataCurrent)
-	require.Equal(t, 2, metadataLatest)
+	require.Equal(t, 3, metadataCurrent)
+	require.Equal(t, 3, metadataLatest)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
-	require.Equal(t, 1, auditCurrent)
-	require.Equal(t, 1, auditLatest)
+	require.Equal(t, 2, auditCurrent)
+	require.Equal(t, 2, auditLatest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
 	require.Equal(t, completeNotificationConfig(), storedNotifications)
 	require.Equal(t, []string{
 		"idx_agents_keyhash", "idx_approvals_status", "idx_policies_agent_ds",
+		"ux_mask_rules_scope_column",
 	}, postgresNamedIndexes(t, ctx, opened.metaDB))
 	require.Equal(t, []string{
 		"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts",
@@ -161,13 +162,13 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 
 	auditDatabase, err := sql.Open("pgx", auditDSN)
 	require.NoError(t, err)
-	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=2 WHERE version=1")
+	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=3 WHERE version=2")
 	require.NoError(t, err)
 	require.NoError(t, auditDatabase.Close())
 	options.AutoMigrate = false
 	options.Audit.AutoMigrate = false
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=2 latest=1")
+	require.ErrorContains(t, err, "current=3 latest=2")
 }
 
 func TestPostgres18SeparatedDashboardAndAuditReadsE2E(t *testing.T) {
@@ -345,7 +346,8 @@ func postgresNamedIndexes(t *testing.T, ctx context.Context, database *sql.DB) [
 	rows, err := database.QueryContext(ctx, `
 SELECT indexname
 FROM pg_indexes
-WHERE schemaname = 'public' AND indexname LIKE 'idx_%'
+WHERE schemaname = 'public'
+  AND (indexname LIKE 'idx_%' OR indexname = 'ux_mask_rules_scope_column')
 ORDER BY indexname`)
 	require.NoError(t, err)
 	return scanSingleStringColumn(t, rows)
@@ -413,7 +415,8 @@ WHERE schemaname = 'public'
     'idx_audit_ts',
     'idx_audit_agent_ts',
     'idx_audit_decision',
-    'idx_approvals_status'
+    'idx_approvals_status',
+    'ux_mask_rules_scope_column'
   )
 ORDER BY indexname`)
 	require.NoError(t, err)
@@ -424,6 +427,7 @@ ORDER BY indexname`)
 		"idx_audit_decision",
 		"idx_audit_ts",
 		"idx_policies_agent_ds",
+		"ux_mask_rules_scope_column",
 	}, scanSingleStringColumn(t, rows))
 
 	rows, err = database.QueryContext(ctx, `
@@ -509,8 +513,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 2, current)
-	require.Equal(t, 2, latest)
+	require.Equal(t, 3, current)
+	require.Equal(t, 3, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

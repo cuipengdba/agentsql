@@ -212,6 +212,7 @@ func TestMaskRuleRepositoryCRUD(t *testing.T) {
 		ColumnName:    "phone",
 		SensitiveType: "phone",
 		Algo:          "mask",
+		Enabled:       true,
 	}
 
 	created, err := repository.Create(context.Background(), rule)
@@ -220,18 +221,48 @@ func TestMaskRuleRepositoryCRUD(t *testing.T) {
 	read, err := repository.Get(context.Background(), created.ID)
 	require.NoError(t, err)
 	require.Equal(t, "phone", read.SensitiveType)
+	require.True(t, read.Enabled)
 
 	read.DatasourceID = nil
 	read.ColumnName = "email"
 	read.SensitiveType = "email"
+	read.Enabled = false
 	updated, err := repository.Update(context.Background(), read)
 	require.NoError(t, err)
 	require.Nil(t, updated.DatasourceID)
 	require.Equal(t, "email", updated.ColumnName)
+	require.False(t, updated.Enabled)
 
 	require.NoError(t, repository.Delete(context.Background(), created.ID))
 	_, err = repository.Get(context.Background(), created.ID)
 	require.True(t, errors.Is(err, ErrNotFound))
+}
+
+func TestMaskRuleRepositoryClassifiesNormalizedKeyConflict(t *testing.T) {
+	opened := openTestStore(t)
+	repository := opened.MaskRules()
+	_, err := repository.Create(context.Background(), model.MaskRule{
+		ID: "first", DatasourceID: pointer(" ds-1 "), TableName: "users",
+		ColumnName: " Email ", SensitiveType: "email", Algo: "mask", Enabled: true,
+	})
+	require.NoError(t, err)
+	_, err = repository.Create(context.Background(), model.MaskRule{
+		ID: "second", DatasourceID: pointer("ds-1"), TableName: "customers",
+		ColumnName: "email", SensitiveType: "email", Algo: "mask", Enabled: false,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrMaskRuleConflict)
+	require.True(t, IsMaskRuleConflict(err))
+	require.ErrorContains(t, err, `scope="ds-1" column="email"`)
+
+	third, err := repository.Create(context.Background(), model.MaskRule{
+		ID: "third", DatasourceID: pointer("ds-1"), TableName: "customers",
+		ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: true,
+	})
+	require.NoError(t, err)
+	third.ColumnName = " EMAIL "
+	_, err = repository.Update(context.Background(), third)
+	require.ErrorIs(t, err, ErrMaskRuleConflict)
 }
 
 func TestAuditLogRepositoryInsertAndPageOnly(t *testing.T) {
@@ -248,10 +279,19 @@ func TestAuditLogRepositoryInsertAndPageOnly(t *testing.T) {
 		RiskLevel:    pointer(4),
 		RowsReturned: pointer(1),
 		LatencyMS:    pointer(int64(5)),
+		Action:       pointer("discover"),
+		ActorType:    pointer("admin"),
+		ActorID:      pointer(""),
+		DetailsJSON:  pointer(`{"findings_count":2}`),
 	})
 	require.NoError(t, err)
 	require.Positive(t, first.ID)
 	require.False(t, first.TS.IsZero())
+	require.Equal(t, "discover", *first.Action)
+	require.Equal(t, "admin", *first.ActorType)
+	require.NotNil(t, first.ActorID)
+	require.Empty(t, *first.ActorID)
+	require.Equal(t, `{"findings_count":2}`, *first.DetailsJSON)
 
 	second, err := repository.Insert(context.Background(), model.AuditLog{
 		Decision: "deny",
@@ -259,6 +299,10 @@ func TestAuditLogRepositoryInsertAndPageOnly(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Greater(t, second.ID, first.ID)
+	require.Nil(t, second.Action)
+	require.Nil(t, second.ActorType)
+	require.Nil(t, second.ActorID)
+	require.Nil(t, second.DetailsJSON)
 
 	page, err := repository.Page(context.Background(), 1, 1)
 	require.NoError(t, err)

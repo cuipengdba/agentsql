@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,13 +61,14 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		},
 		"mask_rules": {
 			"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
-			"created_at", "updated_at",
+			"created_at", "updated_at", "enabled",
 		},
 		"audit_logs": {
 			"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
 			"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",
 			"decision", "rule_hits", "risk_level", "est_rows", "rows_returned",
 			"latency_ms", "client_ip", "model_name", "error_msg",
+			"action", "actor_type", "actor_id", "details_json",
 		},
 		"approvals": {
 			"id", "audit_id", "agent_id", "sql_raw", "reason", "status", "approver",
@@ -104,6 +107,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_audit_decision",
 		"idx_audit_ts",
 		"idx_policies_agent_ds",
+		"ux_mask_rules_scope_column",
 	}, businessIndexNames(t, opened.metaDB))
 }
 
@@ -146,6 +150,7 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{
 		"idx_agents_keyhash", "idx_approvals_status", "idx_policies_agent_ds",
+		"ux_mask_rules_scope_column",
 	}, businessIndexNames(t, database))
 
 	rows, err := database.QueryContext(ctx, "PRAGMA foreign_key_list(approvals)")
@@ -156,9 +161,141 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 2, current)
-	require.Equal(t, 2, latest)
+	require.Equal(t, 3, current)
+	require.Equal(t, 3, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
+}
+
+func TestSQLiteDiscoveryDraftMigrationFromV2(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		directory string
+		hasAudit  bool
+		migrate   func(context.Context, *sql.DB) error
+	}{
+		{name: "combined", directory: "migrations/sqlite", hasAudit: true, migrate: func(ctx context.Context, db *sql.DB) error {
+			return Migrate(ctx, db, DialectSQLite)
+		}},
+		{name: "metadata", directory: "migrations/metadata/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
+			return MigrateMetadata(ctx, db, DialectSQLite, true)
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			database := openSQLiteMigrationTestDB(t)
+			migrateSQLiteThroughVersion(t, ctx, database, testCase.directory, 2)
+			_, err := database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo)
+VALUES('legacy','ds-1','users',' Email ','email','mask')`)
+			require.NoError(t, err)
+			if testCase.hasAudit {
+				_, err = database.ExecContext(ctx, `INSERT INTO audit_logs(decision) VALUES('allow')`)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, testCase.migrate(ctx, database))
+			var current, enabled int
+			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
+			require.Equal(t, 3, current)
+			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
+			require.Equal(t, 1, enabled)
+			_, err = database.ExecContext(ctx, "UPDATE mask_rules SET enabled=2 WHERE id='legacy'")
+			require.Error(t, err)
+			var indexSQL string
+			require.NoError(t, database.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='index' AND name='ux_mask_rules_scope_column'`).Scan(&indexSQL))
+			require.Contains(t, strings.ToUpper(indexSQL), "UNIQUE INDEX")
+			_, err = database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo)
+VALUES('duplicate',' ds-1 ','other','email','email','mask')`)
+			require.Error(t, err)
+			if testCase.hasAudit {
+				var action, actorType, actorID, detailsJSON sql.NullString
+				require.NoError(t, database.QueryRowContext(ctx, `
+SELECT action, actor_type, actor_id, details_json FROM audit_logs LIMIT 1`).Scan(
+					&action, &actorType, &actorID, &detailsJSON,
+				))
+				require.False(t, action.Valid)
+				require.False(t, actorType.Valid)
+				require.False(t, actorID.Valid)
+				require.False(t, detailsJSON.Valid)
+			}
+		})
+	}
+}
+
+func TestSQLiteDiscoveryDraftMigrationRejectsDuplicateNormalizedKeys(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		directory string
+		migrate   func(context.Context, *sql.DB) error
+	}{
+		{name: "combined", directory: "migrations/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
+			return Migrate(ctx, db, DialectSQLite)
+		}},
+		{name: "metadata", directory: "migrations/metadata/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
+			return MigrateMetadata(ctx, db, DialectSQLite, true)
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			database := openSQLiteMigrationTestDB(t)
+			migrateSQLiteThroughVersion(t, ctx, database, testCase.directory, 2)
+			for _, values := range [][]any{
+				{"dup-a", "ds-1", " Email "},
+				{"dup-b", " ds-1 ", "email"},
+			} {
+				_, err := database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo)
+VALUES(?,?, 'users', ?, 'email', 'mask')`, values...)
+				require.NoError(t, err)
+			}
+
+			err := testCase.migrate(ctx, database)
+			require.ErrorContains(t, err, `scope="ds-1" column="email" row_ids=[dup-a,dup-b]`)
+			var current int
+			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
+			require.Equal(t, 2, current)
+			require.NotContains(t, tableColumnNames(t, database, "mask_rules"), "enabled")
+		})
+	}
+}
+
+func openSQLiteMigrationTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "migration.db"))
+	require.NoError(t, err)
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	return database
+}
+
+func migrateSQLiteThroughVersion(
+	t *testing.T,
+	ctx context.Context,
+	database *sql.DB,
+	directory string,
+	maximum int,
+) {
+	t.Helper()
+	require.NoError(t, enableSQLiteForeignKeys(ctx, database))
+	_, err := database.ExecContext(ctx, sqliteSchemaMigrationsDDL)
+	require.NoError(t, err)
+	directoryFS, err := fs.Sub(migrationFiles, directory)
+	require.NoError(t, err)
+	filenames, err := fs.Glob(directoryFS, "*.sql")
+	require.NoError(t, err)
+	sort.Strings(filenames)
+	for _, filename := range filenames {
+		version, err := migrationVersion(filename)
+		require.NoError(t, err)
+		if version > maximum {
+			continue
+		}
+		contents, err := fs.ReadFile(directoryFS, filename)
+		require.NoError(t, err)
+		require.NoError(t, applyMigration(ctx, database, DialectSQLite, version, string(contents)))
+	}
 }
 
 func businessTableNames(t *testing.T, database *sql.DB) []string {

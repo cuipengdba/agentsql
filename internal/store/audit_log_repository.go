@@ -51,9 +51,10 @@ func insertAuditLog(
 INSERT INTO audit_logs (
   agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
-  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg
+  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg,
+  action, actor_type, actor_id, details_json
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		optionalString(auditLog.AgentID),
 		optionalString(auditLog.DatasourceID),
 		optionalString(auditLog.SessionID),
@@ -73,6 +74,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		optionalString(auditLog.ClientIP),
 		optionalString(auditLog.ModelName),
 		optionalString(auditLog.ErrorMsg),
+		optionalString(auditLog.Action),
+		optionalString(auditLog.ActorType),
+		optionalString(auditLog.ActorID),
+		optionalString(auditLog.DetailsJSON),
 	)
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("insert audit log: %w", err)
@@ -107,9 +112,10 @@ func insertHistoricalAuditLog(
 INSERT INTO audit_logs (
   ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
-  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg
+  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg,
+  action, actor_type, actor_id, details_json
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		auditLog.TS,
 		optionalString(auditLog.AgentID),
 		optionalString(auditLog.DatasourceID),
@@ -130,6 +136,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		optionalString(auditLog.ClientIP),
 		optionalString(auditLog.ModelName),
 		optionalString(auditLog.ErrorMsg),
+		optionalString(auditLog.Action),
+		optionalString(auditLog.ActorType),
+		optionalString(auditLog.ActorID),
+		optionalString(auditLog.DetailsJSON),
 	)
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("insert historical audit log: %w", err)
@@ -196,7 +206,7 @@ func (repository *AuditLogRepository) FilteredPage(
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
-       error_msg
+       error_msg, action, actor_type, actor_id, details_json
 FROM audit_logs` + whereClause + `
 ORDER BY ts DESC, id DESC
 LIMIT ? OFFSET ?`
@@ -319,7 +329,7 @@ func getInsertedAuditLog(
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
-       error_msg
+       error_msg, action, actor_type, actor_id, details_json
 FROM audit_logs
 WHERE id = ?`
 	auditLog, err := scanAuditLog(executor.QueryRowContext(
@@ -340,6 +350,7 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 	var agentID, datasourceID, sessionID, conversationID sql.NullString
 	var mcpTool, databaseType, sqlRaw, sqlNormalized, statementType sql.NullString
 	var objects, ruleHits, clientIP, modelName, errorMessage sql.NullString
+	var action, actorType, actorID, detailsJSON sql.NullString
 	var riskLevel, estimatedRows, rowsReturned, latencyMS sql.NullInt64
 	if err := scanner.Scan(
 		&auditLog.ID,
@@ -363,6 +374,10 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 		&clientIP,
 		&modelName,
 		&errorMessage,
+		&action,
+		&actorType,
+		&actorID,
+		&detailsJSON,
 	); err != nil {
 		return model.AuditLog{}, fmt.Errorf("scan audit log: %w", err)
 	}
@@ -392,6 +407,10 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 	auditLog.ClientIP = stringPointer(clientIP)
 	auditLog.ModelName = stringPointer(modelName)
 	auditLog.ErrorMsg = stringPointer(errorMessage)
+	auditLog.Action = stringPointer(action)
+	auditLog.ActorType = stringPointer(actorType)
+	auditLog.ActorID = stringPointer(actorID)
+	auditLog.DetailsJSON = stringPointer(detailsJSON)
 	auditLog.TS, err = timestamp.required("audit_logs.ts")
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("scan audit log: %w", err)

@@ -204,7 +204,7 @@ func closeAfterAssemblyError(
 }
 
 type maskRuleReader interface {
-	ListByDatasource(ctx context.Context, datasourceID string) ([]model.MaskRule, error)
+	ListEnabledByDatasource(ctx context.Context, datasourceID string) ([]model.MaskRule, error)
 }
 
 type redactorBuilder struct {
@@ -218,7 +218,7 @@ func (builder *redactorBuilder) RedactorFor(
 	if builder == nil || isNilBootstrapDependency(builder.repository) || ctx == nil {
 		return nil, fmt.Errorf("build redactor: dependency or context is unavailable")
 	}
-	storedRules, err := builder.repository.ListByDatasource(ctx, datasourceID)
+	storedRules, err := builder.repository.ListEnabledByDatasource(ctx, datasourceID)
 	if err != nil {
 		return nil, fmt.Errorf("load mask rules for datasource %q: %w", datasourceID, err)
 	}

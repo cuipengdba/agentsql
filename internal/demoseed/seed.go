@@ -354,7 +354,7 @@ func agentModel(item AgentManifest, apiKey string) model.Agent {
 func maskRuleModel(item MaskRuleManifest) model.MaskRule {
 	datasourceID := item.DatasourceID
 	return model.MaskRule{ID: item.ID, DatasourceID: &datasourceID, TableName: item.TableName,
-		ColumnName: item.ColumnName, SensitiveType: item.SensitiveType, Algo: item.Algo}
+		ColumnName: item.ColumnName, SensitiveType: item.SensitiveType, Algo: item.Algo, Enabled: true}
 }
 
 func policyModel(item PolicyManifest) model.Policy {

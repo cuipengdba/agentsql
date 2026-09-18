@@ -94,11 +94,11 @@ SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migration
 
 	raw, err = sql.Open("sqlite", path)
 	require.NoError(t, err)
-	_, err = raw.ExecContext(ctx, "UPDATE schema_migrations SET version=3 WHERE version=2")
+	_, err = raw.ExecContext(ctx, "UPDATE schema_migrations SET version=4 WHERE version=3")
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=3 latest=2")
+	require.ErrorContains(t, err, "current=4 latest=3")
 }
 
 func TestStorePingAndCloseUseConnectionIdentity(t *testing.T) {

@@ -260,6 +260,10 @@ type auditView struct {
 	ClientIP       *string   `json:"client_ip,omitempty"`
 	ModelName      *string   `json:"model_name,omitempty"`
 	ErrorMsg       *string   `json:"error_msg,omitempty"`
+	Action         *string   `json:"action,omitempty"`
+	ActorType      *string   `json:"actor_type,omitempty"`
+	ActorID        *string   `json:"actor_id,omitempty"`
+	DetailsJSON    *string   `json:"details_json,omitempty"`
 }
 
 func auditToView(log model.AuditLog) auditView {
@@ -270,6 +274,7 @@ func auditToView(log model.AuditLog) auditView {
 		Objects: log.Objects, Decision: log.Decision, RuleHits: log.RuleHits, RiskLevel: log.RiskLevel,
 		EstRows: log.EstRows, RowsReturned: log.RowsReturned, LatencyMS: log.LatencyMS,
 		ClientIP: log.ClientIP, ModelName: log.ModelName, ErrorMsg: log.ErrorMsg,
+		Action: log.Action, ActorType: log.ActorType, ActorID: log.ActorID, DetailsJSON: log.DetailsJSON,
 	}
 }
 
@@ -298,6 +303,10 @@ type auditStreamView struct {
 	RowsReturned *int      `json:"rows_returned,omitempty"`
 	LatencyMS    *int64    `json:"latency_ms,omitempty"`
 	ModelName    *string   `json:"model_name,omitempty"`
+	Action       *string   `json:"action,omitempty"`
+	ActorType    *string   `json:"actor_type,omitempty"`
+	ActorID      *string   `json:"actor_id,omitempty"`
+	DetailsJSON  *string   `json:"details_json,omitempty"`
 }
 
 func auditToStreamView(log model.AuditLog) auditStreamView {
@@ -307,6 +316,7 @@ func auditToStreamView(log model.AuditLog) auditStreamView {
 		Decision: log.Decision, RuleHits: log.RuleHits, RiskLevel: log.RiskLevel,
 		EstRows: log.EstRows, RowsReturned: log.RowsReturned, LatencyMS: log.LatencyMS,
 		ModelName: log.ModelName,
+		Action:    log.Action, ActorType: log.ActorType, ActorID: log.ActorID, DetailsJSON: log.DetailsJSON,
 	}
 }
 
@@ -404,6 +414,7 @@ type maskRuleView struct {
 	ColumnName    string    `json:"column_name"`
 	SensitiveType string    `json:"sensitive_type"`
 	Algo          string    `json:"algo"`
+	Enabled       bool      `json:"enabled"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -411,7 +422,8 @@ type maskRuleView struct {
 func maskRuleToView(rule model.MaskRule) maskRuleView {
 	return maskRuleView{
 		ID: rule.ID, DatasourceID: rule.DatasourceID, TableName: rule.TableName, ColumnName: rule.ColumnName,
-		SensitiveType: rule.SensitiveType, Algo: rule.Algo, CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
+		SensitiveType: rule.SensitiveType, Algo: rule.Algo, Enabled: rule.Enabled,
+		CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
 	}
 }
 

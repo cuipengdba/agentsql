@@ -122,6 +122,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "table_name", kind: migrationText}, {name: "column_name", kind: migrationText},
 		{name: "sensitive_type", kind: migrationText}, {name: "algo", kind: migrationText},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "enabled", kind: migrationBool},
 	}},
 	{name: "policies", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "agent_id", kind: migrationText},
@@ -141,7 +142,9 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "risk_level", kind: migrationInt32}, {name: "est_rows", kind: migrationInt64},
 		{name: "rows_returned", kind: migrationInt32}, {name: "latency_ms", kind: migrationInt64},
 		{name: "client_ip", kind: migrationText}, {name: "model_name", kind: migrationText},
-		{name: "error_msg", kind: migrationText},
+		{name: "error_msg", kind: migrationText}, {name: "action", kind: migrationText},
+		{name: "actor_type", kind: migrationText}, {name: "actor_id", kind: migrationText},
+		{name: "details_json", kind: migrationText},
 	}},
 	{name: "approvals", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "audit_id", kind: migrationInt64},

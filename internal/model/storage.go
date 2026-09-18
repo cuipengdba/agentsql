@@ -68,6 +68,7 @@ type MaskRule struct {
 	ColumnName    string
 	SensitiveType string
 	Algo          string
+	Enabled       bool
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -95,6 +96,10 @@ type AuditLog struct {
 	ClientIP       *string
 	ModelName      *string
 	ErrorMsg       *string
+	Action         *string
+	ActorType      *string
+	ActorID        *string
+	DetailsJSON    *string
 }
 
 // Approval is a persisted decision request associated with an audit record.

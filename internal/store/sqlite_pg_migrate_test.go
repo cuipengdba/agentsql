@@ -23,6 +23,27 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 	}, names)
 }
 
+func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
+	require.Equal(t, []string{
+		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
+		"created_at", "updated_at", "enabled",
+	}, migrationColumnNames(sqliteToPostgresTableByName(t, "mask_rules")))
+	require.Equal(t, []string{
+		"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
+		"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",
+		"decision", "rule_hits", "risk_level", "est_rows", "rows_returned", "latency_ms",
+		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json",
+	}, migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs")))
+}
+
+func migrationColumnNames(table migrationTable) []string {
+	names := make([]string, len(table.columns))
+	for index, column := range table.columns {
+		names[index] = column.name
+	}
+	return names
+}
+
 func TestNormalizeMigrationCell(t *testing.T) {
 	t.Run("boolean", func(t *testing.T) {
 		zero, err := normalizeMigrationCell(migrationBool, int64(0))

@@ -134,7 +134,10 @@ func migrateDirectory(ctx context.Context, database *sql.DB, dialect Dialect, di
 		if err != nil {
 			return fmt.Errorf("read migration %q: %w", filename, err)
 		}
-		if err := applyMigration(ctx, database, dialect, version, string(contents)); err != nil {
+		preflightMaskRuleDuplicates := filename == "0003_discovery_drafts.sql"
+		if err := applyMigrationWithOptions(
+			ctx, database, dialect, version, string(contents), preflightMaskRuleDuplicates,
+		); err != nil {
 			return fmt.Errorf("apply migration %d: %w", version, err)
 		}
 	}
@@ -258,6 +261,17 @@ func migrationVersion(filename string) (int, error) {
 }
 
 func applyMigration(ctx context.Context, database *sql.DB, dialect Dialect, version int, contents string) error {
+	return applyMigrationWithOptions(ctx, database, dialect, version, contents, false)
+}
+
+func applyMigrationWithOptions(
+	ctx context.Context,
+	database *sql.DB,
+	dialect Dialect,
+	version int,
+	contents string,
+	preflightMaskRuleDuplicates bool,
+) error {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration %d: %w", version, err)
@@ -273,12 +287,68 @@ func applyMigration(ctx context.Context, database *sql.DB, dialect Dialect, vers
 		}
 		return nil
 	}
+	if preflightMaskRuleDuplicates {
+		if err := rejectDuplicateMaskRuleKeys(ctx, transaction, dialect); err != nil {
+			return fmt.Errorf("preflight mask_rules uniqueness: %w", rollbackMigration(transaction, err))
+		}
+	}
 
 	if _, err := transaction.ExecContext(ctx, contents); err != nil {
 		return fmt.Errorf("execute migration %d: %w", version, rollbackMigration(transaction, err))
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit migration %d: %w", version, err)
+	}
+	return nil
+}
+
+func rejectDuplicateMaskRuleKeys(ctx context.Context, transaction *sql.Tx, dialect Dialect) error {
+	var query string
+	switch dialect {
+	case DialectSQLite:
+		query = `
+SELECT scope_key, column_key, GROUP_CONCAT(id, ',')
+FROM (
+  SELECT COALESCE(NULLIF(TRIM(datasource_id),''), '') AS scope_key,
+         LOWER(TRIM(column_name)) AS column_key,
+         id
+  FROM mask_rules
+  ORDER BY id
+)
+GROUP BY scope_key, column_key
+HAVING COUNT(*) > 1
+ORDER BY scope_key, column_key`
+	case DialectPostgres:
+		query = `
+SELECT COALESCE(NULLIF(BTRIM(datasource_id),''), '') AS scope_key,
+       LOWER(BTRIM(column_name)) AS column_key,
+       STRING_AGG(id, ',' ORDER BY id)
+FROM mask_rules
+GROUP BY scope_key, column_key
+HAVING COUNT(*) > 1
+ORDER BY scope_key, column_key`
+	default:
+		return fmt.Errorf("unsupported metadata dialect %q", dialect)
+	}
+
+	rows, err := transaction.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("query duplicate normalized keys: %w", err)
+	}
+	defer rows.Close()
+	conflicts := make([]string, 0)
+	for rows.Next() {
+		var scope, column, ids string
+		if err := rows.Scan(&scope, &column, &ids); err != nil {
+			return fmt.Errorf("scan duplicate normalized key: %w", err)
+		}
+		conflicts = append(conflicts, fmt.Sprintf("scope=%q column=%q row_ids=[%s]", scope, column, ids))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate duplicate normalized keys: %w", err)
+	}
+	if len(conflicts) != 0 {
+		return fmt.Errorf("duplicate normalized mask rule keys: %s", strings.Join(conflicts, "; "))
 	}
 	return nil
 }

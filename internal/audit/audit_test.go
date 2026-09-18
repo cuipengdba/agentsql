@@ -292,6 +292,10 @@ func completeAuditLog(decision string) model.AuditLog {
 		ClientIP:       stringPointer("127.0.0.1"),
 		ModelName:      stringPointer("model"),
 		ErrorMsg:       stringPointer(""),
+		Action:         stringPointer(ActionDiscover),
+		ActorType:      stringPointer("admin"),
+		ActorID:        stringPointer("root"),
+		DetailsJSON:    stringPointer(`{"findings_count":2}`),
 	}
 }
 
