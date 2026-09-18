@@ -18,7 +18,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 双 MCP 承载：本机 `stdio` 与 Streamable HTTP `/mcp`，提供 7 个受控数据库工具。
 - 默认拒绝的安全链路：API Key 认证、Agent 能力档位、对象/列授权、SQL AST 规则与 fail-closed 错误处理。
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
-- 基础数据保护：支持手机号、邮箱按列确定性打码；数据源口令使用 32 字节 SECRET 加密保存。
+- 基础数据保护：支持手机号、邮箱、身份证、银行卡、IP、出生日期六类按列确定性打码；数据源口令使用 32 字节 SECRET 加密保存。
 - 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
@@ -73,7 +73,7 @@ Windows PowerShell：
 Copy-Item examples/docker/demo.env.example demo/demo.env; .\demo\reset.ps1
 ```
 
-打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、phone/email 脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
+打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、以 phone/email 为演示数据的脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
 
 六剧本真实运行截图（Live Demo 走真实网关链路；演示数据可由重置脚本或外部计划任务定期重建）：
 
@@ -85,7 +85,7 @@ Copy-Item examples/docker/demo.env.example demo/demo.env; .\demo\reset.ps1
 
    ![无 WHERE 写拦截](docs/images/demo-scenario-2.png)
 
-3. **结果脱敏（allow）**：`phone` / `email` 列在结果层打码（如 `138****0001`），表格与原始 JSON 中均看不到完整手机号 / 邮箱。
+3. **结果脱敏（allow）**：该演示剧本覆盖 `phone` / `email` 列（如 `138****0001`），表格与原始 JSON 中均看不到完整手机号 / 邮箱；产品能力还支持身份证、银行卡、IP 和出生日期，六类说明见[敏感列发现指南](docs/DISCOVERY.md)。
 
    ![结果脱敏](docs/images/demo-scenario-3.png)
 
@@ -203,7 +203,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 | 只读、危险语句、限流与 Explain 风险规则 | 支持 | 四态结果：allow / deny / approve / warn |
 | 受控查询与写入 | 支持 | 超时、连接上限、结果截断与错误脱敏 |
 | 人工审批 | 支持 | 建单、管理员决定、Agent 查询结果 |
-| 手机号/邮箱打码 | 支持 | 当前仅支持 `mask` 算法（`phone`/`email`，结果层打码） |
+| 六类敏感数据打码 | 支持 | 手机号、邮箱、身份证、银行卡、IP、出生日期；当前可运行算法仅 `mask`，在结果层打码 |
 | SQLite / PostgreSQL 控制面、审计导出与仪表盘 | 支持 | SQLite 默认零配置；PostgreSQL 可使用独立 metadata/audit 库 |
 | Webhook / Syslog 通知外发 | 支持 | live-only、best-effort；默认仅 deny/error，审计库仍是权威记录 |
 | Web 管理控制台 | 支持 | 可用 `console_enabled: false` 完全不挂载管理面 |
