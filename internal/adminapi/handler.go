@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
@@ -60,14 +61,15 @@ func (pinger runtimePinger) Ping(ctx context.Context, datasource model.Datasourc
 }
 
 type Handler struct {
-	deps          Deps
-	logger        zerolog.Logger
-	mux           *http.ServeMux
-	adminUser     string
-	adminPassword string
-	tokenKey      []byte
-	streamSlots   chan struct{}
-	heartbeat     time.Duration
+	deps           Deps
+	logger         zerolog.Logger
+	mux            *http.ServeMux
+	adminUser      string
+	adminPassword  string
+	tokenKey       []byte
+	streamSlots    chan struct{}
+	heartbeat      time.Duration
+	notificationMu sync.Mutex
 }
 
 func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
@@ -144,6 +146,10 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/approvals", handler.approvalsList)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)
+	mux.HandleFunc("GET /api/v1/integrations/notifications", handler.notificationsGet)
+	mux.HandleFunc("PUT /api/v1/integrations/notifications", handler.notificationsPut)
+	mux.HandleFunc("POST /api/v1/integrations/notifications/test", handler.notificationsTest)
+	mux.HandleFunc("GET /api/v1/integrations/notifications/health", handler.notificationsHealth)
 	mux.HandleFunc("POST /api/v1/playground/assess", handler.playgroundAssess)
 	if deps.Config.DemoEnabled() {
 		mux.HandleFunc("POST /api/v1/playground/run", handler.playgroundRun)
@@ -306,6 +312,7 @@ func (handler *Handler) agentsCreate(writer http.ResponseWriter, request *http.R
 		handler.fail(writer, http.StatusConflict, "agent already exists or is invalid")
 		return
 	}
+	handler.refreshNotificationNames(request.Context())
 	handler.ok(writer, agentToView(agent, plain))
 }
 
@@ -353,6 +360,7 @@ func (handler *Handler) agentsUpdate(writer http.ResponseWriter, request *http.R
 		handler.internal(writer, err)
 		return
 	}
+	handler.refreshNotificationNames(request.Context())
 	handler.ok(writer, agentToView(updated, ""))
 }
 
@@ -375,6 +383,7 @@ func (handler *Handler) agentsDelete(writer http.ResponseWriter, request *http.R
 		handler.internal(writer, err)
 		return
 	}
+	handler.refreshNotificationNames(request.Context())
 	handler.ok(writer, map[string]bool{"deleted": true})
 }
 
@@ -432,6 +441,7 @@ func (handler *Handler) datasourcesCreate(writer http.ResponseWriter, request *h
 		handler.fail(writer, http.StatusConflict, "datasource already exists or is invalid")
 		return
 	}
+	handler.refreshNotificationNames(request.Context())
 	handler.ok(writer, datasourceToView(created))
 }
 
@@ -498,6 +508,7 @@ func (handler *Handler) datasourcesUpdate(writer http.ResponseWriter, request *h
 		handler.internal(writer, err)
 		return
 	}
+	handler.refreshNotificationNames(request.Context())
 	handler.ok(writer, datasourceToView(updated))
 }
 
@@ -522,6 +533,7 @@ func (handler *Handler) datasourcesDelete(writer http.ResponseWriter, request *h
 		handler.internal(writer, err)
 		return
 	}
+	handler.refreshNotificationNames(request.Context())
 	handler.ok(writer, map[string]bool{"deleted": true})
 }
 
@@ -1058,6 +1070,12 @@ func (handler *Handler) notFound(writer http.ResponseWriter) {
 func (handler *Handler) internal(writer http.ResponseWriter, err error) {
 	handler.logger.Error().Str("error_type", fmt.Sprintf("%T", err)).Msg("admin API internal error")
 	handler.fail(writer, http.StatusInternalServerError, "internal error")
+}
+func (handler *Handler) refreshNotificationNames(ctx context.Context) {
+	if err := handler.deps.Runtime.RefreshNotificationNames(ctx); err != nil {
+		handler.logger.Warn().Str("error_type", fmt.Sprintf("%T", err)).
+			Msg("notification name cache refresh failed; retaining previous snapshot")
+	}
 }
 func (handler *Handler) write(writer http.ResponseWriter, status, code int, msg string, data any) {
 	writer.Header().Set("Content-Type", "application/json")

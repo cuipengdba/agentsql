@@ -2,7 +2,10 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -13,6 +16,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -99,7 +103,7 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NoError(t, runtime.Close())
 }
 
-func TestAssembleDisablesEventsWithConsoleOrStreamSwitch(t *testing.T) {
+func TestAssembleKeepsInternalEventsWithoutSSESubscription(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		console bool
@@ -114,7 +118,8 @@ func TestAssembleDisablesEventsWithConsoleOrStreamSwitch(t *testing.T) {
 			cfg.Server.EventStream = test.stream
 			runtime, err := Assemble(context.Background(), cfg, bootstrapTestSecret)
 			require.NoError(t, err)
-			require.Nil(t, runtime.Events)
+			require.NotNil(t, runtime.Events)
+			require.Zero(t, runtime.Events.SubscriberCount())
 			require.NoError(t, runtime.Close())
 		})
 	}
@@ -130,6 +135,67 @@ func TestAssembleMetadataSQLiteConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	require.NoError(t, runtime.Store.Ping(context.Background()))
+}
+
+func TestAssembleLoadsNotificationsAndDeliversPersistedDeny(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agentsql.db")
+	received := make(chan notify.Payload, 1)
+	receiver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload notify.Payload
+		if json.NewDecoder(request.Body).Decode(&payload) == nil {
+			received <- payload
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(receiver.Close)
+
+	seed, err := store.OpenWithSecret(context.Background(), path, bootstrapTestSecret)
+	require.NoError(t, err)
+	plaintext, hash, err := store.GenerateAPIKey()
+	require.NoError(t, err)
+	_, err = seed.Agents().Create(context.Background(), model.Agent{
+		ID: "notify-agent", Name: "Notification Agent", Status: "active", APIKeyHash: hash, Level: "dml",
+	})
+	require.NoError(t, err)
+	_, err = seed.Datasources().Create(context.Background(), model.Datasource{
+		ID: "notify-ds", Name: "Notification Database", DBType: "postgres", Host: "db.internal",
+		Port: 5432, Database: "app", Username: "user", ConnLimit: 5, StmtTimeoutMS: 5000, RowLimit: 100,
+	}, "database-password")
+	require.NoError(t, err)
+	require.NoError(t, seed.Notifications().Replace(context.Background(), notify.Config{
+		Enabled: true, QueueSize: 4,
+		Channels: []notify.ChannelConfig{{
+			ID: "startup", Enabled: true, Kind: notify.ChannelWebhook,
+			Decisions: []string{"deny"}, AllowPrivateEndpoints: true,
+			Webhook: &notify.WebhookConfig{Template: notify.WebhookGeneric, URL: receiver.URL},
+		}},
+	}))
+	require.NoError(t, seed.Close())
+
+	runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	response, _ := runtime.Pipeline.Process(context.Background(), pipeline.Request{
+		APIKey: plaintext, DatasourceID: "notify-ds", SQL: "SELECT secret FROM private_table", MCPTool: "query",
+	})
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	select {
+	case payload := <-received:
+		require.Equal(t, "deny", payload.Decision)
+		require.Equal(t, "notify-agent", payload.Agent.ID)
+		require.Equal(t, "Notification Agent", payload.Agent.Name)
+		require.Equal(t, "notify-ds", payload.Datasource.ID)
+		require.Equal(t, "Notification Database", payload.Datasource.Name)
+		require.Nil(t, payload.SQLNorm)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for startup notification")
+	}
+	require.Eventually(t, func() bool {
+		return runtime.Notifications.Status()["startup"].Sent == 1
+	}, time.Second, 10*time.Millisecond)
+	require.NoError(t, runtime.Close())
+	require.NoError(t, runtime.Close())
+	require.Zero(t, runtime.Events.SubscriberCount())
 }
 
 func TestAssembleDoesNotPublishWhenAuditPersistenceFails(t *testing.T) {

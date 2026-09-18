@@ -18,6 +18,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/store"
 )
@@ -31,10 +32,13 @@ type Runtime struct {
 	Metrics   *metrics.Metrics
 	// Events is the in-process stream of successfully persisted audits.
 	Events *eventbus.Hub
+	// Notifications is the process-local best-effort notification manager.
+	Notifications *notify.Manager
 
 	mu        sync.Mutex
 	secret    []byte
 	redactors *redactorBuilder
+	names     *notificationNameResolver
 	closed    bool
 }
 
@@ -84,17 +88,14 @@ func assembleWithExecutorProvider(
 		executorPort = executorOverride
 	}
 	redactors := &redactorBuilder{repository: metadataStore.MaskRules()}
-	var events *eventbus.Hub
+	events, err := eventbus.New(eventbus.Options{HistorySize: 200, SubscriberBuffer: 64})
+	if err != nil {
+		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("assemble event stream: %w", err))
+	}
 	auditSink := audit.Sink(metadataStore.AuditLogs())
 	approvals := pipeline.ApprovalWriter(metadataStore.Approvals())
-	if cfg.Server.ConsoleEnabled && cfg.Server.EventStream {
-		events, err = eventbus.New(eventbus.Options{HistorySize: 200, SubscriberBuffer: 64})
-		if err != nil {
-			return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("assemble event stream: %w", err))
-		}
-		auditSink = &publishingAuditSink{inner: auditSink, publisher: events}
-		approvals = &publishingApprovalWorkflow{inner: metadataStore.Approvals(), publisher: events}
-	}
+	auditSink = &publishingAuditSink{inner: auditSink, publisher: events}
+	approvals = &publishingApprovalWorkflow{inner: metadataStore.Approvals(), publisher: events}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
@@ -109,15 +110,40 @@ func assembleWithExecutorProvider(
 		events.Close()
 		return nil, closeAfterAssemblyError(manager, metadataStore, err)
 	}
+	names := newNotificationNameResolver(metadataStore)
+	// Name enrichment is best effort. A failed warm-up leaves an empty cache and
+	// must not stop the SQL control plane or notification delivery.
+	_ = names.Refresh(ctx)
+	notificationConfig, err := metadataStore.Notifications().Get(ctx)
+	if err != nil {
+		events.Close()
+		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("load notification configuration: %w", err))
+	}
+	notifications := notify.NewManager(events, notify.WithMetrics(metricsHub), notify.WithNameResolver(names))
+	if err := notifications.Start(ctx, notificationConfig); err != nil {
+		events.Close()
+		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("start notification manager: %w", err))
+	}
 	return &Runtime{
-		Pipeline:  flow,
-		Executors: manager,
-		Store:     metadataStore,
-		Metrics:   metricsHub,
-		Events:    events,
-		secret:    append([]byte(nil), secret...),
-		redactors: redactors,
+		Pipeline:      flow,
+		Executors:     manager,
+		Store:         metadataStore,
+		Metrics:       metricsHub,
+		Events:        events,
+		Notifications: notifications,
+		secret:        append([]byte(nil), secret...),
+		redactors:     redactors,
+		names:         names,
 	}, nil
+}
+
+// RefreshNotificationNames atomically refreshes the notification display-name
+// cache. Delivery keeps using the previous snapshot if refresh fails.
+func (runtime *Runtime) RefreshNotificationNames(ctx context.Context) error {
+	if runtime == nil || runtime.names == nil {
+		return nil
+	}
+	return runtime.names.Refresh(ctx)
 }
 
 // ExecutorFor returns the managed executor for trusted metadata operations.
@@ -145,6 +171,11 @@ func (runtime *Runtime) Close() error {
 	}
 	runtime.closed = true
 	var closeErrors []error
+	if runtime.Notifications != nil {
+		if err := runtime.Notifications.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	if runtime.Executors != nil {
 		if err := runtime.Executors.CloseAll(); err != nil {
 			closeErrors = append(closeErrors, err)

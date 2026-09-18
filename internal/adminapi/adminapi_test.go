@@ -14,7 +14,9 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -374,6 +376,7 @@ func TestAdminPlaygroundStaticAssessmentIsAuthenticatedAndDoesNotAudit(t *testin
 
 type adminFixture struct {
 	store      *store.Store
+	runtime    *bootstrap.Runtime
 	handler    http.Handler
 	adminToken string
 	agentKey   string
@@ -394,15 +397,19 @@ func newAdminFixture(t *testing.T) *adminFixture {
 	require.NoError(t, err)
 	_, err = opened.Policies().Create(context.Background(), model.Policy{ID: "policy-1", AgentID: agent.ID, DatasourceID: datasource.ID, ObjectType: "table", ObjectName: "public.customers", Action: "allow"})
 	require.NoError(t, err)
-	runtime := &bootstrap.Runtime{Store: opened}
+	hub, err := eventbus.New(eventbus.Options{})
+	require.NoError(t, err)
+	notifications := notify.NewManager(hub)
+	require.NoError(t, notifications.Start(context.Background(), notify.Config{}))
+	runtime := &bootstrap.Runtime{Store: opened, Events: hub, Notifications: notifications}
 	pinger := &fakePinger{}
 	cfg := adminTestConfig(filepath.Join(t.TempDir(), "unused.db"))
 	handler, err := NewHandler(Deps{Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: "password", TokenKey: DeriveTokenKey([]byte(adminTestSecret)), DatasourcePinger: pinger}, zerolog.Nop())
 	require.NoError(t, err)
 	token, _, err := issueAdminToken(DeriveTokenKey([]byte(adminTestSecret)), time.Now(), "test-jti")
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, opened.Close()) })
-	return &adminFixture{store: opened, handler: handler, adminToken: "Bearer " + token, agentKey: plaintext, agent: agent, datasource: datasource, pinger: pinger}
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	return &adminFixture{store: opened, runtime: runtime, handler: handler, adminToken: "Bearer " + token, agentKey: plaintext, agent: agent, datasource: datasource, pinger: pinger}
 }
 
 func (fixture *adminFixture) request(method, path, authorization, body string) (int, string) {

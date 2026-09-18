@@ -14,6 +14,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -123,6 +124,31 @@ VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
 	require.Zero(t, login.Code)
 	require.NotEmpty(t, login.Data.Token)
 	adminAuthorization := "Bearer " + login.Data.Token
+
+	notificationDelivered := make(chan struct{}, 16)
+	notificationReceiver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		select {
+		case notificationDelivered <- struct{}{}:
+		default:
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(notificationReceiver.Close)
+	adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPut,
+		"/api/v1/integrations/notifications", adminAuthorization, map[string]any{
+			"enabled": true, "queue_size": 8,
+			"channels": []map[string]any{{
+				"id": "pg18-webhook", "enabled": true, "kind": "webhook",
+				"decisions": []string{"deny"}, "allow_private_endpoints": true,
+				"webhook": map[string]any{"template": "generic", "url": notificationReceiver.URL},
+			}},
+		})
+	runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{ID: 3702, TS: time.Now().UTC(), Decision: "deny"}})
+	select {
+	case <-notificationDelivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("postgres:18 combined notification configuration did not deliver")
+	}
 
 	datasourceInput := map[string]any{
 		"id": "pg-demo", "name": "PostgreSQL 18 Demo", "db_type": "postgres",
