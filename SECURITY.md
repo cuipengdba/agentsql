@@ -18,7 +18,7 @@ AgentSQL 尚处于首个正式版本发布阶段。我们通常只为当前维�
 请使用以下任一私密渠道：
 
 - 发送邮件至 [87326549@qq.com](mailto:87326549@qq.com)；
-- 使用仓库的 [GitHub Security Advisories 私密报告](https://github.com/cuipengdba/agentsql-gateway/security/advisories/new)。
+- 使用仓库的 [GitHub Security Advisories 私密报告](https://github.com/cuipengdba/agentsql/security/advisories/new)。
 
 报告中请尽量包含：
 

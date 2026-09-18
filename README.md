@@ -1,6 +1,6 @@
 # AgentSQL
 
-[![Release](https://img.shields.io/badge/Release-v0.2.0-blue)](#)
+![Release](https://img.shields.io/badge/Release-v0.2.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -18,8 +18,8 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 双 MCP 承载：本机 `stdio` 与 Streamable HTTP `/mcp`，提供 7 个受控数据库工具。
 - 默认拒绝的安全链路：API Key 认证、Agent 能力档位、对象/列授权、SQL AST 规则与 fail-closed 错误处理。
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
-- 基础数据保护：v0.1 支持手机号、邮箱按列确定性打码；数据源口令使用 32 字节 SECRET 加密保存。
-- 可追溯运维：默认零配置 SQLite、可选 PostgreSQL 15+ 元数据/审计控制面、审计导出、审批闭环、Prometheus 指标与健康/就绪探针。
+- 基础数据保护：支持手机号、邮箱按列确定性打码；数据源口令使用 32 字节 SECRET 加密保存。
+- 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
 
 ## 5 分钟快速开始
@@ -74,7 +74,7 @@ Copy-Item examples/docker/demo.env.example demo/demo.env; .\demo\reset.ps1
 
 打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、phone/email 脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
 
-六剧本真实运行截图（Live Demo 走真实网关链路，数据每日重置）：
+六剧本真实运行截图（Live Demo 走真实网关链路；演示数据可由重置脚本或外部计划任务定期重建）：
 
 1. **正常放行（allow）**：只读点查真实返回 5 行，生成 `audit_id` 并留痕。
 
@@ -100,7 +100,7 @@ Copy-Item examples/docker/demo.env.example demo/demo.env; .\demo\reset.ps1
 
    ![审计证据链](docs/images/demo-scenario-6.png)
 
-凭据替换、手工 Compose 命令、每日 UTC 重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
+凭据替换、手工 Compose 命令、通过外部计划任务定期重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
 
 ## 其他安装方式（源码构建、离线与审计环境）
 
@@ -189,7 +189,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 }
 ```
 
-v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`、`query`、`execute_write`、`request_approval`、`get_approval_result`。
+网关提供 7 个 MCP 工具：`list_datasources`、`list_schema`、`explain_query`、`query`、`execute_write`、`request_approval`、`get_approval_result`。
 
 ## 功能矩阵
 
@@ -202,7 +202,7 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 | 只读、危险语句、限流与 Explain 风险规则 | 支持 | 四态结果：allow / deny / approve / warn |
 | 受控查询与写入 | 支持 | 超时、连接上限、结果截断与错误脱敏 |
 | 人工审批 | 支持 | 建单、管理员决定、Agent 查询结果 |
-| 手机号/邮箱打码 | 支持 | v0.1 仅 `mask` 算法 |
+| 手机号/邮箱打码 | 支持 | 当前仅支持 `mask` 算法（`phone`/`email`，结果层打码） |
 | SQLite / PostgreSQL 控制面、审计导出与仪表盘 | 支持 | SQLite 默认零配置；PostgreSQL 可使用独立 metadata/audit 库 |
 | Web 管理控制台 | 支持 | 可用 `console_enabled: false` 完全不挂载管理面 |
 | 大屏实时事件流 | 支持 | SSE，默认开启，最多 100 条并发管理端连接 |
@@ -217,33 +217,32 @@ v0.1 的 MCP 工具包括 `list_datasources`、`list_schema`、`explain_query`�
 | 元数据与审计库 | PostgreSQL 15+ | 支持；PG18 为基准，可 combined 或独立 metadata/audit 库 |
 | 控制面迁移 | SQLite → PostgreSQL | `agentsqlctl migrate-sqlite-to-postgres`，支持迁往单库或独立双库 |
 
-## v0.1 已知限制
+## 已知限制与安全边界
 
-- 脱敏优先按最终结果列名匹配，并对位置可确定的顶层直接列引用按源裸列名兜底。函数/表达式/聚合/CAST、UNION、跨子查询/CTE/视图的内部重命名，以及多星号之间无法定位的投影槽不做 v0.1 血缘兜底。该能力不是完整 DLP；防绕行还需结合只读数据库账号、列级权限、安全视图与审批。
-- 多表 JOIN 与自连接只做表级授权；v0.1 不推断投影列归属。两个表的表级授权通过后，不再按投影列归属收紧。
+- 脱敏优先按最终结果列名匹配，并对位置可确定的顶层直接列引用按源裸列名兜底。函数/表达式/聚合/CAST、UNION、跨子查询/CTE/视图的内部重命名，以及多星号之间无法定位的投影槽当前不做完整血缘兜底。该能力不是完整 DLP；防绕行还需结合只读数据库账号、列级权限、安全视图与审批。
+- 多表 JOIN 与自连接只做表级授权；当前不推断投影列归属。两个表的表级授权通过后，不再按投影列归属收紧。
 - `AllowedTables` 中的 `*` 或 `schema.*` 表示管理员显式授予匹配表的全部列；此时精确列白名单不再收紧。单表使用精确列白名单时，应显式列出投影列。
-- MCP 不暴露跨请求会话或事务参数，内部 `SessionID` 不是公开协议能力。
-- 多语句事务和受控的跨请求事务能力计划在 v0.2 提供。
+- 当前版本每个 MCP 请求独立处理，只接受单条 SQL、不允许语句堆叠，也不暴露跨请求会话或事务参数；内部 `SessionID` 不是公开协议能力。
+- 多语句事务和受控跨请求事务不在 v0.2.0 能力范围内，留待后续版本评估。
 
 ## 本地测试模式
 
 `AGENTSQL_INSECURE=1` 永久只表示“允许公开测试凭据”：它可在本地开发/测试中放行长度正确的公开示例 SECRET 和非空弱管理员口令，但仍拒绝空 SECRET、非 32 字节 SECRET 与空管理员口令。它不会关闭认证、安全规则或 fail-closed 行为，生产环境不得设置。
 
-## 截图
-
-截图将放在 [`docs/screenshots/`](docs/screenshots/)；发布前可补充控制台总览、安全判定链路、审计与审批页面截图。
-
 ## 文档与社区
 
+- [五分钟快速上手](docs/GETTING_STARTED.md)
+- [使用手册](docs/USER_GUIDE.md)
+- [MCP 接入指南](docs/INTEGRATIONS.md)
 - [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
-- [本地 Live Demo、每日重置与公开部署安全清单](docs/DEMO.md)
+- [本地 Live Demo、定期重置与公开部署安全清单](docs/DEMO.md)
 - [产品与工程规范](docs/SPEC.md)
-- [版本变更](CHANGELOG.md)
-- [Issue（公开仓库链接占位）](#)
-- [Discussions（社区链接占位）](#)
-- [安全报告（私密报告渠道占位）](#)
+- [安全策略与私密漏洞报告](SECURITY.md)
+- [变更记录](CHANGELOG.md)
+- [Issue 反馈](https://github.com/cuipengdba/agentsql/issues)
+- [商业授权与企业版合作](COMMERCIAL-LICENSE.md)
 
-请不要在公开 Issue 中提交真实密钥、口令、连接串或未修复漏洞细节。
+请不要在公开 Issue 中提交真实密钥、口令、连接串或未修复漏洞细节；未修复漏洞请按 [SECURITY.md](SECURITY.md) 走私密渠道。
 
 ## 构建与贡献
 

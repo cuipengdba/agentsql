@@ -18,10 +18,10 @@ v0.2.0 在 v0.1 的安全网关核心之上，补齐了三件让产品「可在�
 
 ### 1. 一键自托管 Live Demo：六个真实受控剧本（T26）
 
-一条命令拉起只含合成数据的 PostgreSQL/MySQL 演示库与网关（端口仅绑回环、数据每日重置、绝不连接真实数据）。演示台提供两种模式：
+一条命令拉起只含合成数据的 PostgreSQL/MySQL 演示库与网关（端口仅绑回环、可通过外部计划任务定期重置、不连接真实数据）。演示台提供两种模式：
 
-- **静态评估**：只做 SQL 解析与静态规则安检，不连库、不执行、不写审计，零风险；
-- **真实试运行（Live）**：通过仅在 demo 模式注册的 `POST /api/v1/playground/run`，复用与生产完全相同的八段安检管线，内置六个剧本，一眼看懂网关到底拦了什么、放了什么：
+- **静态评估**：只做 SQL 解析与静态规则安检，不连接业务库、不执行 SQL、不写审计，不产生业务数据库读写；
+- **真实试运行（Live）**：通过仅在 demo 模式注册的 `POST /api/v1/playground/run`，复用生产八段安检管线，并叠加 Demo 专用身份/数据源白名单、只读硬屏障与限流约束，内置六个剧本，一眼看懂网关到底拦了什么、放了什么：
   1. 正常放行（真实返回 5 行，带回 audit_id）；
   2. 无 WHERE 全表更新 → 触达数据库前硬拦截，不显示任何数据库底层报错；
   3. phone/email 列结果层脱敏（`138****0001`、`u***@example.test`）；
@@ -70,7 +70,7 @@ docker compose up -d --build
 # 打开 http://127.0.0.1:7780
 ```
 
-完整部署、PostgreSQL 控制面、systemd、备份与升级见 [`docs/DEPLOY.md`](docs/DEPLOY.md)，Live Demo 说明见 [`docs/DEMO.md`](docs/DEMO.md)。
+完整部署、PostgreSQL 控制面、systemd、备份与升级见 [部署文档](DEPLOY.md)，Live Demo 说明见 [Live Demo 文档](DEMO.md)。
 
 ## MCP 接入
 
@@ -100,14 +100,14 @@ AgentSQL 是**网关层**的安全管控，不是银弹，本版明确不承诺�
 
 ## 许可与商业授权
 
-开源版本采用 **GNU AGPLv3**；闭源集成分发、对外 SaaS/托管且不希望按网络条款开源、需要企业模块或 SLA/保修的场景，需要商业授权。AgentSQL 名称与 Logo 商标保留，fork 不得冒充官方版本。详见 [LICENSE](LICENSE) 与 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)。
+开源版本采用 **GNU AGPLv3**；闭源集成分发、对外 SaaS/托管且不希望按网络条款开源、需要企业模块或 SLA/保修的场景，需要商业授权。AgentSQL 名称与 Logo 商标保留，fork 不得冒充官方版本。详见 [LICENSE](../LICENSE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。
 
 商业授权、企业版与私有化合作：**邮箱 87326549@qq.com ｜ 官网 https://agentsql.cn**
 
 ## 资产校验和
 
-发布时在此附上 `agentsql-v0.2.0.tar.gz` / `.zip` 的 SHA-256（随 GitHub Release 资产一并提供）。
+发布时在此附上外层二进制包 `agentsql-v0.2.0-linux-amd64.tar.gz` 与同名 `.sha256` 的 SHA-256（固定名 `install.sh` 随 GitHub Release 资产一并提供）。GitHub 自动生成的 Source code（zip/tar.gz）为平台源码快照，不以上述 SHA-256 校验。
 
 ---
 
-**相关链接**：[README](README.md) · [部署指南](docs/DEPLOY.md) · [Live Demo 指南](docs/DEMO.md) · [架构与工程规格](docs/SPEC.md) · [变更记录](CHANGELOG.md)
+**相关链接**：[README](../README.md) · [快速上手](GETTING_STARTED.md) · [使用手册](USER_GUIDE.md) · [MCP 接入指南](INTEGRATIONS.md) · [部署指南](DEPLOY.md) · [Live Demo 指南](DEMO.md) · [架构与工程规格](SPEC.md) · [变更记录](../CHANGELOG.md)
