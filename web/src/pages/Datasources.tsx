@@ -1,4 +1,4 @@
-import { ApiOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { ApiOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
 import { Alert, Button, Drawer, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tag, message } from "antd";
 import type { TableProps } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,6 +7,7 @@ import { createDatasource, deleteDatasource, listDatasources, pingDatasource, up
 import type { DatasourceInput, DatasourceView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { configLabel, dbTypeMeta } from "@/constants/labels";
+import { DiscoveryDrawer } from "@/pages/datasources/DiscoveryDrawer";
 
 import { apiErrorMessage, httpStatus, isCanceled } from "./config/utils";
 
@@ -37,6 +38,7 @@ export function Datasources() {
   const [deleteTarget, setDeleteTarget] = useState<DatasourceView | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [discoveryTarget, setDiscoveryTarget] = useState<DatasourceView | null>(null);
   const mountedRef = useRef(true);
   const requestRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
@@ -176,10 +178,11 @@ export function Datasources() {
     { title: "行数上限", dataIndex: "row_limit", width: 100, align: "right" },
     { title: "密码", dataIndex: "has_password", width: 90, render: (value: boolean) => <Tag color={value ? "success" : "default"}>{value ? "已配置" : "未配置"}</Tag> },
     {
-      title: "操作", key: "action", fixed: "right", width: 220,
+      title: "操作", key: "action", fixed: "right", width: 300,
       render: (_: unknown, row: DatasourceView) => <Space size={4}>
         <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>
         <Button type="link" size="small" icon={<ApiOutlined />} loading={pingingID === row.id} onClick={() => void ping(row)}>测试</Button>
+        <Button type="link" size="small" icon={<SafetyCertificateOutlined />} onClick={() => setDiscoveryTarget(row)}>敏感发现</Button>
         <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => { setDeleteTarget(row); setDeleteConfirmation(""); }}>删除</Button>
       </Space>,
     },
@@ -188,7 +191,7 @@ export function Datasources() {
   return (
     <PageContainer title="数据源" subtitle="配置受控数据库连接与执行限额" extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建数据源</Button>}>
       {failed ? <Alert className="cfg-inline-alert" type="error" showIcon message="数据源列表加载失败" action={<Button size="small" onClick={() => void load()}>重试</Button>} /> : null}
-      <div className="cfg-table"><Table<DatasourceView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_520 }} /></div>
+      <div className="cfg-table"><Table<DatasourceView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_600 }} /></div>
       <div className="cfg-pagination"><Pagination current={page} pageSize={pageSize} total={total} pageSizeOptions={[20, 50, 100]} showSizeChanger onChange={(next, size) => { setPageSize(size); setPage(size !== pageSize ? 1 : next); }} /></div>
 
       <Drawer open={drawerOpen} title={editing ? "编辑数据源" : "新建数据源"} width={560} destroyOnClose onClose={() => setDrawerOpen(false)} extra={<Button type="primary" loading={saving} onClick={() => void submit()}>保存</Button>}>
@@ -222,6 +225,8 @@ export function Datasources() {
         <Alert type="warning" showIcon message="删除前请输入数据源名称，已关联策略的数据源无法删除" />
         <Input className="cfg-confirm-input" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder={deleteTarget?.name} />
       </Modal>
+
+      <DiscoveryDrawer open={discoveryTarget !== null} datasource={discoveryTarget} onClose={() => setDiscoveryTarget(null)} />
     </PageContainer>
   );
 }

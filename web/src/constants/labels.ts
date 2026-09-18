@@ -99,3 +99,26 @@ export const sensitiveTypeMeta = {
 export const maskAlgoMeta = {
   mask: { label: "打码", color: "blue" },
 } as const;
+
+export const discoveryCategoryMeta = {
+  phone: { label: "手机号", color: "blue" },
+  email: { label: "邮箱", color: "cyan" },
+  idcard: { label: "身份证号", color: "gold" },
+  bankcard: { label: "银行卡号", color: "orange" },
+  ip: { label: "IP 地址", color: "green" },
+  birthdate: { label: "出生日期", color: "default" },
+} as const;
+
+export const discoveryConfidenceMeta = {
+  high: { label: "高", color: "success" },
+  medium: { label: "中", color: "warning" },
+  low: { label: "低", color: "default" },
+} as const;
+
+export const discoveryApplyStatusMeta = {
+  created: { label: "已生成草稿", color: "success" },
+  existing: { label: "已有草稿", color: "blue" },
+  covered_by_global: { label: "已被全局规则覆盖", color: "cyan" },
+  conflict: { label: "同名列草稿冲突", color: "orange" },
+  ambiguous: { label: "多表同名列需确认", color: "gold" },
+} as const;

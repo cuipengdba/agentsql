@@ -1,5 +1,5 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
-import { Alert, Button, Empty, Pagination, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Empty, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { TableProps } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -29,6 +29,7 @@ export function MaskRules() {
   const [editing, setEditing] = useState<MaskRuleView | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingID, setDeletingID] = useState("");
+  const [togglingID, setTogglingID] = useState("");
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
   const requestSequenceRef = useRef(0);
@@ -171,6 +172,31 @@ export function MaskRules() {
     }
   };
 
+  const toggleRule = async (record: MaskRuleView, enabled: boolean) => {
+    if (togglingID) return;
+    setTogglingID(record.id);
+    try {
+      const updated = await updateMaskRule(record.id, {
+        id: record.id,
+        datasource_id: record.datasource_id,
+        table_name: record.table_name,
+        column_name: record.column_name,
+        sensitive_type: record.sensitive_type,
+        algo: record.algo,
+        enabled,
+      });
+      if (!mountedRef.current) return;
+      setList((current) => current.map((item) => item.id === record.id ? updated : item));
+      void message.success(enabled ? "脱敏规则已启用" : "脱敏规则已停用");
+    } catch (error: unknown) {
+      if (!mountedRef.current || isCanceled(error)) return;
+      if (httpStatus(error) === 409) void message.warning("同名列存在规则冲突，请刷新后核对");
+      else void message.error(apiErrorMessage(error, enabled ? "启用脱敏规则失败" : "停用脱敏规则失败"));
+    } finally {
+      if (mountedRef.current) setTogglingID("");
+    }
+  };
+
   const datasourceNames = new Map(datasources.map((datasource) => [datasource.id, datasource.name]));
   const columns: TableProps<MaskRuleView>["columns"] = [
     { title: "规则 ID", dataIndex: "id", width: 190, render: (value: string) => <code className="msk-id">{value}</code> },
@@ -182,7 +208,7 @@ export function MaskRules() {
         <Tooltip title={value}><span>{datasourceNames.get(value) || value}</span></Tooltip>
       ) : <Tag color="default">全局</Tag>,
     },
-    { title: "表名（预留）", dataIndex: "table_name", width: 170, render: (value: string) => value ? <code>{value}</code> : "—" },
+    { title: "表名（预留）", dataIndex: "table_name", width: 170, render: (value: string) => value ? <code>{value}</code> : <Typography.Text type="secondary">留空（正常）</Typography.Text> },
     { title: "列名", dataIndex: "column_name", width: 170, render: (value: string) => <code>{value}</code> },
     {
       title: "敏感类型",
@@ -201,6 +227,24 @@ export function MaskRules() {
         const meta = maskAlgoMeta[value as keyof typeof maskAlgoMeta];
         return <Tag color={meta?.color || "default"}>{configLabel(maskAlgoMeta, value)}</Tag>;
       },
+    },
+    {
+      title: "生效状态",
+      dataIndex: "enabled",
+      width: 190,
+      render: (enabled: boolean, record) => (
+        <Space size={8}>
+          <Switch
+            size="small"
+            checked={enabled}
+            loading={togglingID === record.id}
+            disabled={Boolean(togglingID) || Boolean(deletingID)}
+            aria-label={`${enabled ? "停用" : "启用"}规则 ${record.column_name}`}
+            onChange={(checked) => void toggleRule(record, checked)}
+          />
+          {enabled ? <Tag color="success">已启用</Tag> : <Tag color="warning">草稿·未生效</Tag>}
+        </Space>
+      ),
     },
     { title: "更新时间", dataIndex: "updated_at", width: 180, render: (value: string) => formatDateTime(value) },
     {
@@ -228,14 +272,15 @@ export function MaskRules() {
   return (
     <PageContainer
       title="脱敏"
-      subtitle="数据源（留空=全局）+ 列名；v0.1 仅手机号/邮箱 + 打码；表+列精确匹配在 v0.2 提供"
+      subtitle="按数据源 + 规范化列名匹配；发现草稿需人工核对并启用"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增脱敏规则</Button>}
     >
       <Alert
         className="msk-info-alert"
         type="info"
         showIcon
-        message="数据源（留空=全局）+ 列名；v0.1 仅手机号/邮箱 + 打码；表+列精确匹配在 v0.2 提供"
+        message="脱敏按 数据源 + 列名 匹配，同名列统一生效；首版不支持 表.列 级规则"
+        description="敏感发现生成的规则 table_name 留空属于正常行为。标记为“草稿·未生效”的规则不会参与运行时脱敏，请核对数据源、列名、类型与算法后再启用。"
       />
       <div className="msk-toolbar">
         <Space wrap>
@@ -275,7 +320,7 @@ export function MaskRules() {
         dataSource={list}
         loading={loading}
         pagination={false}
-        scroll={{ x: 1260 }}
+        scroll={{ x: 1450 }}
         locale={{ emptyText: <Empty description="暂无脱敏规则，点右上角新增" /> }}
       />
       <div className="msk-pagination">

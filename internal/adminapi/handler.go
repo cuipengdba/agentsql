@@ -838,7 +838,11 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
 		return
 	}
-	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: true})
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: enabled})
 	if err != nil {
 		handler.fail(writer, 409, "mask rule already exists or is invalid")
 		return
@@ -871,7 +875,11 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
 		return
 	}
-	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: current.Enabled})
+	enabled := current.Enabled
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: enabled})
 	if err != nil {
 		handler.notFound(writer)
 		return

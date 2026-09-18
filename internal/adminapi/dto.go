@@ -189,6 +189,7 @@ type maskRuleInput struct {
 	ColumnName    string  `json:"column_name"`
 	SensitiveType string  `json:"sensitive_type"`
 	Algo          string  `json:"algo"`
+	Enabled       *bool   `json:"enabled,omitempty"`
 }
 
 type decideInput struct {

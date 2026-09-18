@@ -147,6 +147,7 @@ export interface MaskRuleView {
   column_name: string;
   sensitive_type: string;
   algo: string;
+  enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -158,6 +159,7 @@ export interface MaskRuleInput {
   column_name: string;
   sensitive_type: string;
   algo: string;
+  enabled?: boolean;
 }
 
 export interface AuditView {

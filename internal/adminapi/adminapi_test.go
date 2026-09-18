@@ -229,6 +229,53 @@ func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, status)
 }
 
+func TestAdminMaskRuleEnabledIsOptionalAndMutable(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"default-enabled","datasource_id":"ds-1","column_name":"phone","sensitive_type":"phone","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err := fixture.store.MaskRules().Get(context.Background(), "default-enabled")
+	require.NoError(t, err)
+	require.True(t, stored.Enabled, "omitting enabled on create must preserve the existing enabled-by-default behavior")
+
+	status, body = fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"disabled-draft","datasource_id":"ds-1","column_name":"email","sensitive_type":"email","algo":"mask","enabled":false}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err = fixture.store.MaskRules().Get(context.Background(), "disabled-draft")
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+
+	status, body = fixture.request(
+		http.MethodPut,
+		"/api/v1/mask_rules/disabled-draft",
+		fixture.adminToken,
+		`{"datasource_id":"ds-1","column_name":"email","sensitive_type":"email","algo":"mask"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err = fixture.store.MaskRules().Get(context.Background(), "disabled-draft")
+	require.NoError(t, err)
+	require.False(t, stored.Enabled, "omitting enabled on update must preserve the stored state")
+
+	status, body = fixture.request(
+		http.MethodPut,
+		"/api/v1/mask_rules/disabled-draft",
+		fixture.adminToken,
+		`{"datasource_id":"ds-1","column_name":"email","sensitive_type":"email","algo":"mask","enabled":true}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	stored, err = fixture.store.MaskRules().Get(context.Background(), "disabled-draft")
+	require.NoError(t, err)
+	require.True(t, stored.Enabled)
+}
+
 func TestAdminApprovalAuditExportAndDashboard(t *testing.T) {
 	fixture := newAdminFixture(t)
 	approval, err := fixture.store.Approvals().Create(context.Background(), model.Approval{ID: "approval", AgentID: stringPointerAdmin("agent-1"), Status: "pending"})
