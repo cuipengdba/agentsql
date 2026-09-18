@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢你帮助改进 AgentSQL。安全漏洞请勿在此提交，请改用 [SECURITY.md](https://github.com/cuipengdba/agentsql-gateway/security/policy) 中的私密渠道。
+        感谢你帮助改进 AgentSQL。安全漏洞请勿在此提交，请改用 [SECURITY.md](https://github.com/cuipengdba/agentsql/security/policy) 中的私密渠道。
         提交前请移除日志中的 API Key、密码、DSN、个人信息和业务数据。
   - type: input
     id: version

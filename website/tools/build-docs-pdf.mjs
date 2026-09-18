@@ -17,12 +17,14 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const VERSION = 'v0.2.0';
-const REPOSITORY_BLOB = 'https://github.com/cuipengdba/agentsql-gateway/blob/main';
+const REPOSITORY_BLOB = 'https://github.com/cuipengdba/agentsql/blob/main';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIR, '..', '..');
 const DOCS_ROOT = resolve(REPOSITORY_ROOT, 'docs');
 const OUTPUT_DIR = resolve(REPOSITORY_ROOT, 'website', 'public', 'assets', 'docs');
 const MINIMUM_PDF_BYTES = 20_000;
+// Fixed at the v0.2.0 release-candidate build date so repeated builds are byte-reproducible.
+const FIXED_PDF_DATE = "D:20260918000000+00'00'";
 
 const DOCUMENTS = [
   {
@@ -603,7 +605,7 @@ function validateHtml(html, document, rendered, temporaryDirectory) {
     throw new Error(`Relative Markdown link remains in ${document.output}`);
   }
   if (navigationTargets.some((target) => /^https:\/\/github\.com\/cuipengdba\//i.test(target)
-    && !/^https:\/\/github\.com\/cuipengdba\/agentsql-gateway(?:\/|$)/i.test(target))) {
+    && !/^https:\/\/github\.com\/cuipengdba\/agentsql(?:\/|$)/i.test(target))) {
     throw new Error(`Unexpected GitHub repository name in ${document.output}`);
   }
   if (document.slug === 'getting-started' && !/src="data:image\/png;base64,/.test(html)) {
@@ -677,6 +679,27 @@ async function validatePdf(pdfPath) {
   return details.size;
 }
 
+async function normalizePdfMetadata(pdfPath) {
+  const bytes = await readFile(pdfPath);
+  const source = bytes.toString('latin1');
+  const metadataPattern = /\/(CreationDate|ModDate) \((D:\d{14}\+00'00')\)/g;
+  const matches = [...source.matchAll(metadataPattern)];
+  const fields = matches.map((match) => match[1]).sort();
+  if (JSON.stringify(fields) !== JSON.stringify(['CreationDate', 'ModDate'])) {
+    throw new Error(`Unexpected Edge PDF date metadata in ${pdfPath}: ${fields.join(', ') || 'none'}`);
+  }
+  for (const match of matches) {
+    const originalDate = match[2];
+    if (originalDate.length !== FIXED_PDF_DATE.length) {
+      throw new Error(`Edge PDF date length changed in ${pdfPath}: ${originalDate}`);
+    }
+    const dateOffset = match.index + match[0].indexOf(originalDate);
+    bytes.write(FIXED_PDF_DATE, dateOffset, FIXED_PDF_DATE.length, 'ascii');
+  }
+  await writeFile(pdfPath, bytes);
+  return validatePdf(pdfPath);
+}
+
 async function waitForPdf(pdfPath) {
   let lastError;
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -722,7 +745,8 @@ async function main() {
         pathToFileURL(htmlPath).href,
       ];
       await runEdge(edgePath, edgeArguments);
-      const size = await waitForPdf(temporaryPdf);
+      await waitForPdf(temporaryPdf);
+      const size = await normalizePdfMetadata(temporaryPdf);
       generated.push({ document, temporaryPdf, size });
     }
 

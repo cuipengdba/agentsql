@@ -1,5 +1,5 @@
 Contact: mailto:87326549@qq.com
 Preferred-Languages: zh-CN
 Expires: 2027-09-17T00:00:00Z
-Policy: https://github.com/cuipengdba/agentsql-gateway/security/policy
+Policy: https://github.com/cuipengdba/agentsql/security/policy
 Canonical: https://agentsql.cn/.well-known/security.txt

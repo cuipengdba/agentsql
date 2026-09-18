@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 使用讨论与问答
-    url: https://github.com/cuipengdba/agentsql-gateway/discussions
+    url: https://github.com/cuipengdba/agentsql/discussions
     about: 使用问题、方案讨论和范围确认请前往 Discussions。
   - name: 安全漏洞报告
-    url: https://github.com/cuipengdba/agentsql-gateway/security/policy
+    url: https://github.com/cuipengdba/agentsql/security/policy
     about: 不要公开提交漏洞；请按安全政策使用私密渠道。
