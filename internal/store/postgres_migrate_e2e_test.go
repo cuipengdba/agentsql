@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"testing"
@@ -84,7 +85,15 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 1, migrationCount)
+	require.Equal(t, 2, migrationCount)
+	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
+	require.NoError(t, err)
+	require.Equal(t, 2, current)
+	require.Equal(t, 2, latest)
+	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
+	storedNotifications, err := opened.Notifications().Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, completeNotificationConfig(), storedNotifications)
 
 	assertPostgresMigrationBehavior(t, ctx, opened.metaDB)
 }
@@ -122,9 +131,22 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Same(t, opened.auditDB, opened.AuditLogs().db)
 
 	require.Equal(t, []string{
-		"agents", "approvals", "datasources", "mask_rules", "policies", "rules", "schema_migrations",
+		"agents", "approvals", "datasources", "mask_rules", "notification_channels",
+		"notification_settings", "policies", "rules", "schema_migrations",
 	}, postgresTableNames(t, ctx, opened.metaDB))
 	require.Equal(t, []string{"audit_logs", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
+	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
+	require.NoError(t, err)
+	require.Equal(t, 2, metadataCurrent)
+	require.Equal(t, 2, metadataLatest)
+	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
+	require.NoError(t, err)
+	require.Equal(t, 1, auditCurrent)
+	require.Equal(t, 1, auditLatest)
+	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
+	storedNotifications, err := opened.Notifications().Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, completeNotificationConfig(), storedNotifications)
 	require.Equal(t, []string{
 		"idx_agents_keyhash", "idx_approvals_status", "idx_policies_agent_ds",
 	}, postgresNamedIndexes(t, ctx, opened.metaDB))
@@ -374,6 +396,8 @@ ORDER BY table_name`)
 		"audit_logs",
 		"datasources",
 		"mask_rules",
+		"notification_channels",
+		"notification_settings",
 		"policies",
 		"rules",
 		"schema_migrations",
@@ -462,6 +486,33 @@ ORDER BY table_name, ordinal_position`)
 		require.True(t, defaultValue.Valid, name)
 		require.Contains(t, strings.ToLower(defaultValue.String), "now()", name)
 	}
+}
+
+func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("postgres:18 version-one metadata upgrade E2E is an integration test")
+	}
+	ctx := dockerTestContext(t)
+	dsn := startPostgres18StoreContainer(t, ctx, "agentsql_upgrade_v1", "upgrade-password")
+	database, err := sql.Open("pgx", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	_, err = database.ExecContext(ctx, postgresSchemaMigrationsDDL)
+	require.NoError(t, err)
+	versionOne, err := fs.ReadFile(migrationFiles, "migrations/postgres/0001_init.sql")
+	require.NoError(t, err)
+	require.NoError(t, applyMigration(ctx, database, DialectPostgres, 1, string(versionOne)))
+	var before int
+	require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&before))
+	require.Equal(t, 1, before)
+
+	require.NoError(t, Migrate(ctx, database, DialectPostgres))
+	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
+	require.NoError(t, err)
+	require.Equal(t, 2, current)
+	require.Equal(t, 2, latest)
+	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
+	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }
 
 func assertPostgresMigrationBehavior(t *testing.T, ctx context.Context, database *sql.DB) {

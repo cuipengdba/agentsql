@@ -71,6 +71,16 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"id", "audit_id", "agent_id", "sql_raw", "reason", "status", "approver",
 			"decided_at", "created_at", "updated_at",
 		},
+		"notification_settings": {
+			"id", "enabled", "queue_size", "created_at", "updated_at",
+		},
+		"notification_channels": {
+			"id", "position", "enabled", "kind", "decisions", "include_sql",
+			"allow_private_endpoints", "webhook_present", "webhook_template",
+			"webhook_url_enc", "webhook_bearer_token_enc", "webhook_headers_enc",
+			"webhook_secret_enc", "syslog_present", "syslog_host", "syslog_port",
+			"syslog_transport", "syslog_facility", "created_at", "updated_at",
+		},
 	}
 
 	actualTables := businessTableNames(t, opened.metaDB)
@@ -131,7 +141,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.Equal(t, []string{
-		"agents", "approvals", "datasources", "mask_rules", "policies", "rules",
+		"agents", "approvals", "datasources", "mask_rules", "notification_channels",
+		"notification_settings", "policies", "rules",
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{
 		"idx_agents_keyhash", "idx_approvals_status", "idx_policies_agent_ds",
@@ -145,8 +156,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 1, current)
-	require.Equal(t, 1, latest)
+	require.Equal(t, 2, current)
+	require.Equal(t, 2, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 

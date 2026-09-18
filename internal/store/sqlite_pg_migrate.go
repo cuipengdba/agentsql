@@ -83,17 +83,25 @@ type migrationTable struct {
 	name    string
 	columns []migrationColumn
 	pkIndex int
+	target  migrationTableTarget
 }
 
+type migrationTableTarget byte
+
+const (
+	migrationTargetMetadata migrationTableTarget = 'M'
+	migrationTargetAudit    migrationTableTarget = 'A'
+)
+
 var sqliteToPostgresTables = []migrationTable{
-	{name: "agents", pkIndex: 0, columns: []migrationColumn{
+	{name: "agents", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "name", kind: migrationText},
 		{name: "owner", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "api_key_hash", kind: migrationText}, {name: "level", kind: migrationText},
 		{name: "expires_at", kind: migrationTime}, {name: "created_at", kind: migrationTime},
 		{name: "updated_at", kind: migrationTime},
 	}},
-	{name: "datasources", pkIndex: 0, columns: []migrationColumn{
+	{name: "datasources", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "name", kind: migrationText},
 		{name: "db_type", kind: migrationText}, {name: "host", kind: migrationText},
 		{name: "port", kind: migrationInt32}, {name: "database", kind: migrationText},
@@ -102,27 +110,27 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "row_limit", kind: migrationInt32}, {name: "created_at", kind: migrationTime},
 		{name: "updated_at", kind: migrationTime},
 	}},
-	{name: "rules", pkIndex: 0, columns: []migrationColumn{
+	{name: "rules", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "db_type", kind: migrationText},
 		{name: "title", kind: migrationText}, {name: "risk_level", kind: migrationInt32},
 		{name: "pattern_type", kind: migrationText}, {name: "definition", kind: migrationText},
 		{name: "enabled", kind: migrationBool}, {name: "builtin", kind: migrationBool},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
-	{name: "mask_rules", pkIndex: 0, columns: []migrationColumn{
+	{name: "mask_rules", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
 		{name: "table_name", kind: migrationText}, {name: "column_name", kind: migrationText},
 		{name: "sensitive_type", kind: migrationText}, {name: "algo", kind: migrationText},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
-	{name: "policies", pkIndex: 0, columns: []migrationColumn{
+	{name: "policies", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "agent_id", kind: migrationText},
 		{name: "datasource_id", kind: migrationText}, {name: "object_type", kind: migrationText},
 		{name: "object_name", kind: migrationText}, {name: "columns", kind: migrationText},
 		{name: "row_filter", kind: migrationText}, {name: "action", kind: migrationText},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
-	{name: "audit_logs", pkIndex: 0, columns: []migrationColumn{
+	{name: "audit_logs", pkIndex: 0, target: migrationTargetAudit, columns: []migrationColumn{
 		{name: "id", kind: migrationInt64}, {name: "ts", kind: migrationTime},
 		{name: "agent_id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
 		{name: "session_id", kind: migrationText}, {name: "conversation_id", kind: migrationText},
@@ -135,11 +143,28 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "client_ip", kind: migrationText}, {name: "model_name", kind: migrationText},
 		{name: "error_msg", kind: migrationText},
 	}},
-	{name: "approvals", pkIndex: 0, columns: []migrationColumn{
+	{name: "approvals", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "audit_id", kind: migrationInt64},
 		{name: "agent_id", kind: migrationText}, {name: "sql_raw", kind: migrationText},
 		{name: "reason", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "approver", kind: migrationText}, {name: "decided_at", kind: migrationTime},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "notification_settings", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationInt32}, {name: "enabled", kind: migrationBool},
+		{name: "queue_size", kind: migrationInt32}, {name: "created_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime},
+	}},
+	{name: "notification_channels", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "position", kind: migrationInt32},
+		{name: "enabled", kind: migrationBool}, {name: "kind", kind: migrationText},
+		{name: "decisions", kind: migrationText}, {name: "include_sql", kind: migrationBool},
+		{name: "allow_private_endpoints", kind: migrationBool}, {name: "webhook_present", kind: migrationBool},
+		{name: "webhook_template", kind: migrationText}, {name: "webhook_url_enc", kind: migrationText},
+		{name: "webhook_bearer_token_enc", kind: migrationText}, {name: "webhook_headers_enc", kind: migrationText},
+		{name: "webhook_secret_enc", kind: migrationText}, {name: "syslog_present", kind: migrationBool},
+		{name: "syslog_host", kind: migrationText}, {name: "syslog_port", kind: migrationInt32},
+		{name: "syslog_transport", kind: migrationText}, {name: "syslog_facility", kind: migrationInt32},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
 }
@@ -369,6 +394,41 @@ func verifyMigrationSourceTables(ctx context.Context, source *sql.Tx) error {
 			return fmt.Errorf("verify SQLite source schema: columns differ for table=%s", table.name)
 		}
 	}
+	return verifyMigrationManifestCoverage(ctx, source)
+}
+
+// verifyMigrationManifestCoverage makes a schema addition fail closed until it
+// is assigned column types and a target in sqliteToPostgresTables. This avoids
+// the historical failure mode where a new metadata table was silently skipped.
+func verifyMigrationManifestCoverage(ctx context.Context, source *sql.Tx) error {
+	rows, err := source.QueryContext(ctx, `
+SELECT name
+FROM sqlite_master
+WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'schema_migrations'
+ORDER BY name COLLATE BINARY`)
+	if err != nil {
+		return errors.New("verify SQLite source migration manifest: database error")
+	}
+	defer rows.Close()
+	actual := make(map[string]struct{}, len(sqliteToPostgresTables))
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return errors.New("verify SQLite source migration manifest: database error")
+		}
+		actual[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return errors.New("verify SQLite source migration manifest: database error")
+	}
+	if len(actual) != len(sqliteToPostgresTables) {
+		return errors.New("verify SQLite source migration manifest: business table list differs")
+	}
+	for _, table := range sqliteToPostgresTables {
+		if _, exists := actual[table.name]; !exists {
+			return fmt.Errorf("verify SQLite source migration manifest: required table=%s is unavailable", table.name)
+		}
+	}
 	return nil
 }
 
@@ -484,8 +544,8 @@ func migrateCombinedTarget(ctx context.Context, lock *migrationLock, source *sql
 }
 
 func migrateSeparatedTargets(ctx context.Context, metadataLock, auditLock *migrationLock, source *sql.Tx, sourceDigests map[string]migrationDigest, summary SQLiteToPostgresSummary) (SQLiteToPostgresSummary, error) {
-	metadataTables := tablesExcept("audit_logs")
-	auditTables := tablesOnly("audit_logs")
+	metadataTables := migrationTablesForTarget(migrationTargetMetadata)
+	auditTables := migrationTablesForTarget(migrationTargetAudit)
 	metadataTx, err := metadataLock.connection.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return summary, targetMigrationError("begin metadata target transaction")
@@ -524,20 +584,17 @@ func migrateSeparatedTargets(ctx context.Context, metadataLock, auditLock *migra
 		return summary, errors.New("classify audit target: conflict (target business tables are non-empty and not exact)")
 	}
 	if metadataState == migrationEmpty {
-		for _, table := range sqliteToPostgresTables[:5] {
+		for _, table := range metadataTables {
 			if err := copyMigrationTable(ctx, source, metadataTx, table); err != nil {
 				return summary, err
 			}
 		}
 	}
 	if auditState == migrationEmpty {
-		if err := copyMigrationTable(ctx, source, auditTx, sqliteToPostgresTables[5]); err != nil {
-			return summary, err
-		}
-	}
-	if metadataState == migrationEmpty {
-		if err := copyMigrationTable(ctx, source, metadataTx, sqliteToPostgresTables[6]); err != nil {
-			return summary, err
+		for _, table := range auditTables {
+			if err := copyMigrationTable(ctx, source, auditTx, table); err != nil {
+				return summary, err
+			}
 		}
 	}
 	verifiedMetadata, err := digestTables(ctx, metadataTx, metadataTables, true)
@@ -913,28 +970,10 @@ func digestsEqual(tables []migrationTable, left, right map[string]migrationDiges
 	return true
 }
 
-func tablesOnly(names ...string) []migrationTable {
-	wanted := make(map[string]bool, len(names))
-	for _, name := range names {
-		wanted[name] = true
-	}
+func migrationTablesForTarget(target migrationTableTarget) []migrationTable {
 	var result []migrationTable
 	for _, table := range sqliteToPostgresTables {
-		if wanted[table.name] {
-			result = append(result, table)
-		}
-	}
-	return result
-}
-
-func tablesExcept(names ...string) []migrationTable {
-	excluded := make(map[string]bool, len(names))
-	for _, name := range names {
-		excluded[name] = true
-	}
-	var result []migrationTable
-	for _, table := range sqliteToPostgresTables {
-		if !excluded[table.name] {
+		if table.target == target {
 			result = append(result, table)
 		}
 	}

@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	secretEnvironmentVariable = "AGENTSQL_SECRET"
-	requiredSecretBytes       = 32
-	passwordAdditionalData    = "agentsql:datasource-password:v1"
+	secretEnvironmentVariable  = "AGENTSQL_SECRET"
+	requiredSecretBytes        = 32
+	passwordAdditionalData     = "agentsql:datasource-password:v1"
+	notificationAdditionalData = "agentsql:notification-secret:v1"
 )
 
 var (
@@ -60,39 +61,55 @@ func NewPasswordCipher(secret []byte) (*PasswordCipher, error) {
 
 // Encrypt encrypts a plaintext datasource password with a fresh random nonce.
 func (passwordCipher *PasswordCipher) Encrypt(plaintext string) (string, error) {
+	return passwordCipher.encrypt(plaintext, passwordAdditionalData, "datasource password")
+}
+
+func (passwordCipher *PasswordCipher) encryptNotification(plaintext string) (string, error) {
+	return passwordCipher.encrypt(plaintext, notificationAdditionalData, "notification value")
+}
+
+func (passwordCipher *PasswordCipher) encrypt(plaintext, additionalData, subject string) (string, error) {
 	if passwordCipher == nil || passwordCipher.aead == nil {
-		return "", fmt.Errorf("encrypt datasource password: %w", ErrCipherUnavailable)
+		return "", fmt.Errorf("encrypt %s: %w", subject, ErrCipherUnavailable)
 	}
 	nonce := make([]byte, passwordCipher.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", fmt.Errorf("generate AES-GCM nonce: %w", err)
 	}
-	sealed := passwordCipher.aead.Seal(nonce, nonce, []byte(plaintext), []byte(passwordAdditionalData))
+	sealed := passwordCipher.aead.Seal(nonce, nonce, []byte(plaintext), []byte(additionalData))
 	return base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
 // Decrypt authenticates and decrypts a datasource password.
 func (passwordCipher *PasswordCipher) Decrypt(encoded string) (string, error) {
+	return passwordCipher.decrypt(encoded, passwordAdditionalData, "datasource password")
+}
+
+func (passwordCipher *PasswordCipher) decryptNotification(encoded string) (string, error) {
+	return passwordCipher.decrypt(encoded, notificationAdditionalData, "notification value")
+}
+
+func (passwordCipher *PasswordCipher) decrypt(encoded, additionalData, subject string) (string, error) {
 	if passwordCipher == nil || passwordCipher.aead == nil {
-		return "", fmt.Errorf("decrypt datasource password: %w", ErrCipherUnavailable)
+		return "", fmt.Errorf("decrypt %s: %w", subject, ErrCipherUnavailable)
 	}
 	sealed, err := base64.RawStdEncoding.DecodeString(encoded)
 	if err != nil {
-		return "", fmt.Errorf("decode datasource password: %w", errors.Join(ErrInvalidCiphertext, err))
+		return "", fmt.Errorf("decode %s: %w", subject, errors.Join(ErrInvalidCiphertext, err))
 	}
 	nonceSize := passwordCipher.aead.NonceSize()
 	if len(sealed) < nonceSize+passwordCipher.aead.Overhead() {
-		return "", fmt.Errorf("validate datasource password ciphertext: %w", ErrInvalidCiphertext)
+		return "", fmt.Errorf("validate %s ciphertext: %w", subject, ErrInvalidCiphertext)
 	}
 
 	plaintext, err := passwordCipher.aead.Open(
 		nil,
 		sealed[:nonceSize],
 		sealed[nonceSize:],
-		[]byte(passwordAdditionalData),
+		[]byte(additionalData),
 	)
 	if err != nil {
-		return "", fmt.Errorf("decrypt datasource password: %w", errors.Join(ErrInvalidCiphertext, err))
+		return "", fmt.Errorf("decrypt %s: %w", subject, errors.Join(ErrInvalidCiphertext, err))
 	}
 	return string(plaintext), nil
 }

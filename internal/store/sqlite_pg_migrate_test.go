@@ -19,6 +19,7 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 	}
 	require.Equal(t, []string{
 		"agents", "datasources", "rules", "mask_rules", "policies", "audit_logs", "approvals",
+		"notification_settings", "notification_channels",
 	}, names)
 }
 
@@ -95,7 +96,10 @@ func TestCanonicalMigrationEncodingIsDeterministicAndUnambiguous(t *testing.T) {
 }
 
 func TestClassifyMigrationGroup(t *testing.T) {
-	tables := sqliteToPostgresTables[:2]
+	tables := []migrationTable{
+		sqliteToPostgresTableByName(t, "agents"),
+		sqliteToPostgresTableByName(t, "datasources"),
+	}
 	source := map[string]migrationDigest{
 		"agents":      {rows: 1, hash: [32]byte{1}, primaryKey: [32]byte{2}},
 		"datasources": {rows: 1, hash: [32]byte{3}, primaryKey: [32]byte{4}},
@@ -106,6 +110,52 @@ func TestClassifyMigrationGroup(t *testing.T) {
 	require.Equal(t, migrationExact, classifyMigrationGroup(tables, source, exact))
 	conflict := map[string]migrationDigest{"agents": source["agents"], "datasources": {rows: 1, hash: [32]byte{9}}}
 	require.Equal(t, migrationConflict, classifyMigrationGroup(tables, source, conflict))
+}
+
+func TestSQLiteToPostgresMigrationManifestCoversMetadataTables(t *testing.T) {
+	metadataTables := migrationTablesForTarget(migrationTargetMetadata)
+	auditTables := migrationTablesForTarget(migrationTargetAudit)
+	require.NotEmpty(t, metadataTables)
+	require.Equal(t, []migrationTable{sqliteToPostgresTableByName(t, "audit_logs")}, auditTables)
+	require.Contains(t, migrationTableNames(metadataTables), "notification_settings")
+	require.Contains(t, migrationTableNames(metadataTables), "notification_channels")
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "manifest.db")
+	database, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	require.NoError(t, Migrate(ctx, database, DialectSQLite))
+	transaction, err := database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	require.NoError(t, err)
+	require.NoError(t, verifyMigrationSourceTables(ctx, transaction))
+	require.NoError(t, transaction.Rollback())
+
+	_, err = database.ExecContext(ctx, "CREATE TABLE future_metadata_table (id TEXT PRIMARY KEY)")
+	require.NoError(t, err)
+	transaction, err = database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	require.NoError(t, err)
+	require.ErrorContains(t, verifyMigrationSourceTables(ctx, transaction), "business table list differs")
+	require.NoError(t, transaction.Rollback())
+	require.NoError(t, database.Close())
+}
+
+func sqliteToPostgresTableByName(t *testing.T, name string) migrationTable {
+	t.Helper()
+	for _, table := range sqliteToPostgresTables {
+		if table.name == name {
+			return table
+		}
+	}
+	t.Fatalf("migration table %q is missing", name)
+	return migrationTable{}
+}
+
+func migrationTableNames(tables []migrationTable) []string {
+	names := make([]string, len(tables))
+	for index, table := range tables {
+		names[index] = table.name
+	}
+	return names
 }
 
 func TestExpectedSequenceNext(t *testing.T) {

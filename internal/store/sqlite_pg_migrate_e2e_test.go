@@ -122,6 +122,13 @@ func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql
 	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
 	require.Equal(t, []int64{10, 12}, auditIDs)
+	cipher, err := NewPasswordCipher([]byte(testSecret))
+	require.NoError(t, err)
+	notifications, err := (&NotificationRepository{
+		repositoryBase: repositoryBase{db: target, dialect: DialectPostgres}, cipher: cipher,
+	}).Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, completeNotificationConfig(), notifications)
 }
 
 func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
@@ -148,6 +155,11 @@ func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
 		_, err := database.ExecContext(ctx, statement.query, statement.args...)
 		require.NoError(t, err)
 	}
+	cipher, err := NewPasswordCipher([]byte(testSecret))
+	require.NoError(t, err)
+	require.NoError(t, (&NotificationRepository{
+		repositoryBase: repositoryBase{db: database, dialect: DialectSQLite}, cipher: cipher,
+	}).Replace(ctx, completeNotificationConfig()))
 	require.NoError(t, database.Close())
 	return path
 }
@@ -170,7 +182,18 @@ func assertMigrationSummary(t *testing.T, summary SQLiteToPostgresSummary) {
 		require.Equal(t, table.SourceRows, table.TargetRows, table.Table)
 		require.Len(t, table.SHA256, 64, table.Table)
 	}
-	audit := summary.Tables[5]
+	var audit SQLiteToPostgresTableSummary
+	seen := make(map[string]SQLiteToPostgresTableSummary, len(summary.Tables))
+	for _, table := range summary.Tables {
+		seen[table.Table] = table
+		if table.Table == "audit_logs" {
+			audit = table
+		}
+	}
+	require.Contains(t, seen, "notification_settings")
+	require.Contains(t, seen, "notification_channels")
+	require.Equal(t, int64(1), seen["notification_settings"].SourceRows)
+	require.Equal(t, int64(6), seen["notification_channels"].SourceRows)
 	require.Equal(t, int64(10), *audit.MinID)
 	require.Equal(t, int64(12), *audit.MaxID)
 	require.Equal(t, int64(12), summary.Sequence.LastValue)

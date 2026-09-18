@@ -321,6 +321,14 @@ func (store *Store) Datasources() *DatasourceRepository {
 	}
 }
 
+// Notifications returns the notification configuration repository.
+func (store *Store) Notifications() *NotificationRepository {
+	return &NotificationRepository{
+		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
+		cipher:         store.cipher,
+	}
+}
+
 // Policies returns the policy repository.
 func (store *Store) Policies() *PolicyRepository {
 	return &PolicyRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
