@@ -8,6 +8,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { Alert, Avatar, Button, Layout, Menu, Space, Tag, Tooltip, Typography } from "antd";
+import type { MenuProps } from "antd";
 import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -31,6 +32,23 @@ export function MainLayout() {
   const demoEnabled = useDemoStore(selectIsDemo);
   const demoBanner = useDemoStore((state) => state.banner);
   const currentRoute = menuRoutes.find((route) => route.path === location.pathname);
+  const menuItem = ({ key, label, icon }: (typeof menuRoutes)[number]): NonNullable<MenuProps["items"]>[number] => ({
+    key,
+    icon,
+    label: key === "playground" && demoEnabled
+      ? <span className="demo-menu-label"><span>{label}</span><Tag color="processing">Live Demo</Tag></span>
+      : label,
+  });
+  const primaryRoutes = menuRoutes.filter((route) => route.group !== "settings");
+  const settingsRoutes = menuRoutes.filter((route) => route.group === "settings");
+  const menuItems: MenuProps["items"] = [
+    ...primaryRoutes.map(menuItem),
+    ...(settingsRoutes.length > 0 ? [{
+      type: "group" as const,
+      label: "设置与集成",
+      children: settingsRoutes.map(menuItem),
+    }] : []),
+  ];
 
   const handleLogout = async () => {
     try {
@@ -52,13 +70,7 @@ export function MainLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[currentRoute?.key || ""]}
-          items={menuRoutes.map(({ key, label, icon }) => ({
-            key,
-            icon,
-            label: key === "playground" && demoEnabled
-              ? <span className="demo-menu-label"><span>{label}</span><Tag color="processing">Live Demo</Tag></span>
-              : label,
-          }))}
+          items={menuItems}
           onClick={({ key }) => {
             const target = menuRoutes.find((route) => route.key === key);
             if (target) {

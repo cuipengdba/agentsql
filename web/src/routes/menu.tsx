@@ -1,5 +1,6 @@
 import {
   AuditOutlined,
+  BellOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
@@ -16,6 +17,7 @@ import { Approvals } from "@/pages/Approvals";
 import { Audit } from "@/pages/Audit";
 import { Datasources } from "@/pages/Datasources";
 import { MaskRules } from "@/pages/MaskRules";
+import { Notifications } from "@/pages/Notifications";
 import { Overview } from "@/pages/Overview";
 import { Playground } from "@/pages/Playground";
 import { Policies } from "@/pages/Policies";
@@ -27,6 +29,7 @@ export interface MenuRoute {
   label: string;
   icon: ReactNode;
   element: ReactNode;
+  group?: "settings";
 }
 
 export const menuRoutes: MenuRoute[] = [
@@ -62,5 +65,13 @@ export const menuRoutes: MenuRoute[] = [
     label: "脱敏",
     icon: <EyeInvisibleOutlined />,
     element: <MaskRules />,
+  },
+  {
+    key: "notifications",
+    path: "/settings/notifications",
+    label: "通知设置",
+    icon: <BellOutlined />,
+    element: <Notifications />,
+    group: "settings",
   },
 ];

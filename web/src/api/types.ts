@@ -295,6 +295,66 @@ export interface DeleteView {
   deleted: boolean;
 }
 
+export type NotificationChannelKind = "webhook" | "syslog";
+export type NotificationDecision = "deny" | "error" | "warn" | "allow" | "approve";
+export type NotificationWebhookTemplate = "generic" | "feishu" | "dingtalk" | "wecom" | "slack";
+export type NotificationSyslogTransport = "udp" | "tcp";
+
+export interface NotificationWebhook {
+  template: NotificationWebhookTemplate;
+  url: string;
+  url_configured: boolean;
+  bearer_token: string;
+  bearer_token_configured: boolean;
+  headers: Record<string, string>;
+  headers_configured: boolean;
+  secret: string;
+  secret_configured: boolean;
+}
+
+export interface NotificationSyslog {
+  host: string;
+  port: number;
+  transport: NotificationSyslogTransport;
+  facility: number;
+}
+
+export interface NotificationChannel {
+  id: string;
+  enabled: boolean;
+  kind: NotificationChannelKind;
+  decisions: NotificationDecision[];
+  include_sql: boolean;
+  allow_private_endpoints: boolean;
+  webhook?: NotificationWebhook;
+  syslog?: NotificationSyslog;
+}
+
+export interface NotificationConfig {
+  enabled: boolean;
+  queue_size: number;
+  channels: NotificationChannel[];
+}
+
+export interface NotificationTestResult {
+  channel_id: string;
+  success: boolean;
+  category: string;
+}
+
+export interface NotificationHealthChannel {
+  id: string;
+  sent: number;
+  failed: number;
+  dropped: number;
+  last_error?: string;
+  last_success_at?: string;
+}
+
+export interface NotificationHealth {
+  channels: NotificationHealthChannel[];
+}
+
 export interface PlaygroundAssessRequest {
   sql: string;
   db_type: "postgres" | "mysql";
