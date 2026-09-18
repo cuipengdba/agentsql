@@ -25,17 +25,16 @@ import {
   discoveryApplyResponseFromError,
   type DiscoveryApplyResponse,
   type DiscoveryApplyStatus,
-  type DiscoveryCategory,
   type DiscoveryResponse,
   type DiscoveryTableRef,
 } from "@/api/discovery";
 import type { DatasourceView } from "@/api/types";
 import { discoveryApplyStatusMeta } from "@/constants/labels";
+import { sensitiveTypes } from "@/constants/sensitiveTypes";
 import { httpStatus, isCanceled } from "@/pages/config/utils";
 
 import { DiscoveryResults, discoveryFindingKey } from "./DiscoveryResults";
 
-const ALL_CATEGORIES: DiscoveryCategory[] = ["phone", "email", "idcard", "bankcard", "ip", "birthdate"];
 const MAX_TABLES = 20;
 
 interface EditableTableRef extends DiscoveryTableRef {
@@ -58,7 +57,7 @@ function friendlyDiscoveryError(error: unknown, phase: "discover" | "apply"): st
   if (status === 429) return "敏感发现请求已限流，请稍后重试";
   if (status === 413) return "请求范围超限，请减少表数量后重试";
   if (status === 422) return phase === "apply"
-    ? "该类别暂不支持一键脱敏，请仅选择手机号或邮箱"
+    ? "所选列暂不支持一键生成脱敏规则，请按提示选择可应用的发现项"
     : "发现范围或参数超限，请检查表范围与采样行数";
   if (status === 504 || status === 408 || requestTimedOut(error)) return "敏感发现超时，建议缩小表范围或关闭采样后重试";
   if (status === 503) return "受控读服务未就绪，请稍后重试";
@@ -177,7 +176,7 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
         tables: normalized,
         sampling,
         ...(sampling ? { sample_rows: sampleRows } : {}),
-        categories: ALL_CATEGORIES,
+        categories: [...sensitiveTypes],
       }, controller.signal);
       if (controller.signal.aborted) return;
       setResult(response);

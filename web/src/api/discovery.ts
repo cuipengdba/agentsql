@@ -1,7 +1,8 @@
 import type { ApiResponse } from "./types";
 import { request } from "./client";
+import type { MaskAlgorithm, SensitiveType } from "@/constants/sensitiveTypes";
 
-export type DiscoveryCategory = "phone" | "email" | "idcard" | "bankcard" | "ip" | "birthdate";
+export type DiscoveryCategory = SensitiveType;
 export type DiscoveryConfidence = "high" | "medium" | "low";
 export type DiscoveryApplyStatus = "created" | "existing" | "covered_by_global" | "conflict" | "ambiguous";
 
@@ -23,8 +24,8 @@ export interface DiscoverySignal {
 }
 
 export interface DiscoveryRecommendedRule {
-  sensitive_type: "phone" | "email";
-  algo: "mask";
+  sensitive_type: SensitiveType;
+  algo: MaskAlgorithm;
 }
 
 export interface DiscoveryFinding {
@@ -84,9 +85,9 @@ export interface DiscoveryApplyItem {
   schema: string;
   table: string;
   column: string;
-  category: string;
-  sensitive_type: string;
-  algo: string;
+  category: DiscoveryCategory;
+  sensitive_type: SensitiveType;
+  algo: MaskAlgorithm;
 }
 
 export interface DiscoveryApplyRequest {
@@ -97,9 +98,9 @@ export interface DiscoveryApplyItemView {
   schema?: string;
   table?: string;
   column: string;
-  category?: string;
-  sensitive_type: string;
-  algo: string;
+  category?: DiscoveryCategory;
+  sensitive_type: SensitiveType;
+  algo: MaskAlgorithm;
   rule_id?: string;
 }
 

@@ -216,7 +216,8 @@ export function MaskRules() {
       width: 120,
       render: (value: string) => {
         const meta = sensitiveTypeMeta[value as keyof typeof sensitiveTypeMeta];
-        return <Tag color={meta?.color || "default"}>{configLabel(sensitiveTypeMeta, value)}</Tag>;
+        const tag = <Tag color={meta?.color || "default"}>{configLabel(sensitiveTypeMeta, value)}</Tag>;
+        return meta ? <Tooltip title={`脱敏后示例：${meta.example}`}>{tag}</Tooltip> : tag;
       },
     },
     {

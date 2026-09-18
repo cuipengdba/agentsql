@@ -13,8 +13,6 @@ import {
   discoveryConfidenceMeta,
 } from "@/constants/labels";
 
-const NOT_APPLICABLE_TEXT = "仅发现，首版暂不支持一键脱敏";
-
 export function discoveryFindingKey(finding: DiscoveryFinding): string {
   return [finding.schema, finding.table, finding.column, finding.category].join("\u0000");
 }
@@ -84,7 +82,7 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
           return <Tag color={meta.color}>{meta.label}</Tag>;
         }
         if (finding.applicable) return finding.existing_rule ? <Tag color="blue">可选 · 已有规则</Tag> : <Tag color="success">可选</Tag>;
-        return <Tooltip title={NOT_APPLICABLE_TEXT}><Tag>仅发现</Tag></Tooltip>;
+        return <Tooltip title={finding.reason}><Tag>仅发现</Tag></Tooltip>;
       },
     },
   ];
@@ -111,7 +109,7 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
             onChange: (keys) => onSelectionChange(keys.map(String)),
             getCheckboxProps: (finding) => ({
               disabled: !finding.applicable,
-              title: finding.applicable ? undefined : NOT_APPLICABLE_TEXT,
+              title: finding.applicable ? undefined : finding.reason,
             }),
           }}
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未发现候选敏感列" /> }}
@@ -129,7 +127,7 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
                 <Checkbox
                   checked={selectedKeys.includes(key)}
                   disabled={!finding.applicable}
-                  title={finding.applicable ? undefined : NOT_APPLICABLE_TEXT}
+                  title={finding.applicable ? undefined : finding.reason}
                   onChange={(event) => onSelectionChange(event.target.checked
                     ? [...selectedKeys, key]
                     : selectedKeys.filter((selected) => selected !== key))}
@@ -145,7 +143,7 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
                 {status ? <Tag color={discoveryApplyStatusMeta[status].color}>{configLabel(discoveryApplyStatusMeta, status)}</Tag> : null}
               </div>
               <p>{evidenceText(finding)}</p>
-              {!finding.applicable ? <small className="dsc-unavailable">{NOT_APPLICABLE_TEXT}</small> : null}
+              {!finding.applicable && finding.reason ? <small className="dsc-unavailable">{finding.reason}</small> : null}
             </article>
           );
         })}

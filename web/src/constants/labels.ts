@@ -1,4 +1,7 @@
 import { palette } from "@/theme/tokens";
+import { maskAlgorithmMeta, sensitiveTypeMeta } from "@/constants/sensitiveTypes";
+
+export { sensitiveTypeMeta } from "@/constants/sensitiveTypes";
 
 export type Decision = "allow" | "deny" | "warn" | "approve";
 
@@ -91,23 +94,9 @@ export const approvalStatusMeta = {
   expired: { label: "已过期", color: "default" },
 } as const;
 
-export const sensitiveTypeMeta = {
-  phone: { label: "手机号", color: "blue" },
-  email: { label: "邮箱", color: "cyan" },
-} as const;
+export const maskAlgoMeta = maskAlgorithmMeta;
 
-export const maskAlgoMeta = {
-  mask: { label: "打码", color: "blue" },
-} as const;
-
-export const discoveryCategoryMeta = {
-  phone: { label: "手机号", color: "blue" },
-  email: { label: "邮箱", color: "cyan" },
-  idcard: { label: "身份证号", color: "gold" },
-  bankcard: { label: "银行卡号", color: "orange" },
-  ip: { label: "IP 地址", color: "green" },
-  birthdate: { label: "出生日期", color: "default" },
-} as const;
+export const discoveryCategoryMeta = sensitiveTypeMeta;
 
 export const discoveryConfidenceMeta = {
   high: { label: "高", color: "success" },

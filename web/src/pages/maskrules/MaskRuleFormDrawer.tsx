@@ -3,6 +3,14 @@ import { Button, Drawer, Form, Input, Select, Space, Typography } from "antd";
 import { useEffect } from "react";
 
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
+import {
+  MASK_ALGORITHM,
+  isMaskAlgorithm,
+  isSensitiveType,
+  maskAlgorithmOptions,
+  sensitiveTypeOptions,
+  sensitiveTypes,
+} from "@/constants/sensitiveTypes";
 
 interface MaskRuleFormDrawerProps {
   open: boolean;
@@ -59,18 +67,18 @@ export function MaskRuleFormDrawer({
       id: generateMaskRuleID(),
       datasource_id: undefined,
       column_name: "",
-      sensitive_type: "phone",
-      algo: "mask",
+      sensitive_type: sensitiveTypes[0],
+      algo: MASK_ALGORITHM,
     });
   }, [form, open, record]);
 
   const submit = (values: MaskRuleFormValues) => {
-    if (values.sensitive_type !== "phone" && values.sensitive_type !== "email") {
-      form.setFields([{ name: "sensitive_type", errors: ["仅支持手机号或邮箱"] }]);
+    if (!isSensitiveType(values.sensitive_type)) {
+      form.setFields([{ name: "sensitive_type", errors: ["请选择支持的敏感类型"] }]);
       return;
     }
-    if (values.algo !== "mask") {
-      form.setFields([{ name: "algo", errors: ["v0.1 仅支持打码算法"] }]);
+    if (!isMaskAlgorithm(values.algo)) {
+      form.setFields([{ name: "algo", errors: ["仅支持打码（mask）算法"] }]);
       return;
     }
     const input: MaskRuleInput = {
@@ -137,13 +145,10 @@ export function MaskRuleFormDrawer({
           <Input placeholder="命中列名，如 phone" />
         </Form.Item>
         <Form.Item name="sensitive_type" label="敏感类型" rules={[{ required: true, message: "请选择敏感类型" }]}>
-          <Select options={[
-            { label: "手机号", value: "phone" },
-            { label: "邮箱", value: "email" },
-          ]} />
+          <Select options={sensitiveTypeOptions} />
         </Form.Item>
         <Form.Item name="algo" label="算法" rules={[{ required: true, message: "请选择算法" }]}>
-          <Select options={[{ label: "打码", value: "mask" }]} />
+          <Select options={maskAlgorithmOptions} />
         </Form.Item>
         <Typography.Text type="secondary">哈希、区间等算法将在后续版本提供。</Typography.Text>
       </Form>

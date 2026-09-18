@@ -1,3 +1,5 @@
+import type { MaskAlgorithm, SensitiveType } from "@/constants/sensitiveTypes";
+
 export interface ApiResponse<T> {
   code: number;
   msg: string;
@@ -145,8 +147,8 @@ export interface MaskRuleView {
   datasource_id?: string | null;
   table_name: string;
   column_name: string;
-  sensitive_type: string;
-  algo: string;
+  sensitive_type: SensitiveType;
+  algo: MaskAlgorithm;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -157,8 +159,8 @@ export interface MaskRuleInput {
   datasource_id?: string | null;
   table_name?: string;
   column_name: string;
-  sensitive_type: string;
-  algo: string;
+  sensitive_type: SensitiveType;
+  algo: MaskAlgorithm;
   enabled?: boolean;
 }
 
