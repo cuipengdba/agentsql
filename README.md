@@ -20,6 +20,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
 - 基础数据保护：支持手机号、邮箱按列确定性打码；数据源口令使用 32 字节 SECRET 加密保存。
 - 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出、审批决策闭环、Prometheus 指标与健康/就绪探针。
+- 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
 
 ## 5 分钟快速开始
@@ -204,6 +205,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 | 人工审批 | 支持 | 建单、管理员决定、Agent 查询结果 |
 | 手机号/邮箱打码 | 支持 | 当前仅支持 `mask` 算法（`phone`/`email`，结果层打码） |
 | SQLite / PostgreSQL 控制面、审计导出与仪表盘 | 支持 | SQLite 默认零配置；PostgreSQL 可使用独立 metadata/audit 库 |
+| Webhook / Syslog 通知外发 | 支持 | live-only、best-effort；默认仅 deny/error，审计库仍是权威记录 |
 | Web 管理控制台 | 支持 | 可用 `console_enabled: false` 完全不挂载管理面 |
 | 大屏实时事件流 | 支持 | SSE，默认开启，最多 100 条并发管理端连接 |
 
@@ -234,6 +236,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 - [五分钟快速上手](docs/GETTING_STARTED.md)
 - [使用手册](docs/USER_GUIDE.md)
 - [MCP 接入指南](docs/INTEGRATIONS.md)
+- [Webhook / Syslog 通知外发与安全配置](docs/NOTIFICATIONS.md)
 - [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
 - [本地 Live Demo、定期重置与公开部署安全清单](docs/DEMO.md)
 - [产品与工程规范](docs/SPEC.md)

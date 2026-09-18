@@ -2,7 +2,7 @@
 
 > 发布状态：AgentSQL v0.2.0 即将发布。一键安装命令与 `ghcr.io/cuipengdba/agentsql` 镜像将在发布日可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台真实菜单顺序说明 AgentSQL v0.2.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)。
+本手册按控制台真实菜单顺序说明 AgentSQL v0.2.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 ## 1. 总览 `/`
 
