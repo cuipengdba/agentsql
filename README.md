@@ -236,6 +236,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 - [五分钟快速上手](docs/GETTING_STARTED.md)
 - [使用手册](docs/USER_GUIDE.md)
 - [MCP 接入指南](docs/INTEGRATIONS.md)
+- [敏感列发现与脱敏草稿](docs/DISCOVERY.md)
 - [Webhook / Syslog 通知外发与安全配置](docs/NOTIFICATIONS.md)
 - [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
 - [本地 Live Demo、定期重置与公开部署安全清单](docs/DEMO.md)

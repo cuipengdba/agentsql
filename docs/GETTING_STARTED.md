@@ -158,6 +158,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 ## 下一步
 
 - [使用手册](USER_GUIDE.md)：按控制台菜单学习每项能力及边界。
+- [敏感列发现指南](DISCOVERY.md)：显式表范围、采样安全、置信度与脱敏草稿边界。
 - [MCP 接入指南](INTEGRATIONS.md)：两种传输、七工具、调用时序和客户端配置。
 - [部署指南](DEPLOY.md)：源码、Compose、systemd、升级、备份和控制面迁移。
 - [本地 Live Demo](DEMO.md)：完整演示凭据、重置脚本与安全清单。
