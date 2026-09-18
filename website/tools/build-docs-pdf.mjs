@@ -529,7 +529,7 @@ function htmlDocument(document, rendered) {
     @page {
       size: A4;
       margin: 17mm 16mm 20mm;
-      @bottom-center { content: "AgentSQL · agentsql.cn · v0.2.0"; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; color: #64748b; }
+      @bottom-center { content: "AgentSQL · agentsql.cn（备案中 / 即将上线） · v0.2.0"; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; color: #64748b; }
     }
     * { box-sizing: border-box; }
     html { color: #172033; background: #fff; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 10.5pt; }
@@ -579,7 +579,7 @@ function htmlDocument(document, rendered) {
     <p class="brand-cn">智盾</p>
     <h1>${escapeHtml(document.title)}</h1>
     <p class="cover-meta">${VERSION}</p>
-    <p class="cover-meta">https://agentsql.cn</p>
+    <p class="cover-meta">agentsql.cn（备案中 / 即将上线）</p>
     <span class="release-candidate">发布候选</span>
   </section>
   <nav class="toc" aria-label="目录">

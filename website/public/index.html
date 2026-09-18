@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL｜AI Agent 的数据库安全网关</title>
+  <title>AgentSQL（中文名：智盾）｜AI Agent 的数据库安全网关</title>
   <meta name="description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/">
@@ -15,12 +15,14 @@
   <meta property="og:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
   <meta property="og:url" content="https://agentsql.cn/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png">
+  <meta property="og:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AgentSQL · AI Agent 的数据库安全网关">
   <meta name="twitter:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png">
+  <meta name="twitter:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/app.js" defer></script>
@@ -62,7 +64,7 @@
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v0.2.0-rc · 即将发布</div>
           <h1>AI Agent 的数据库安全网关</h1>
-          <p class="hero-lead">AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并同步写入应用层审计。</p>
+          <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并同步写入应用层审计。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
@@ -199,13 +201,14 @@
             <thead><tr><th scope="col">类别</th><th scope="col">当前支持</th><th scope="col">边界与说明</th></tr></thead>
             <tbody>
               <tr><th scope="row">被防护业务库</th><td>MySQL 8.x；PostgreSQL 14 / 15 / 16 / 17 / 18</td><td>按对应方言解析并执行受控检查。</td></tr>
-              <tr><th scope="row">元数据 / 审计控制面</th><td>内置 SQLite（默认）；PostgreSQL 15+</td><td>PG18 为开发 / Compose / CI 基准，开源与企业版均支持。</td></tr>
-              <tr><th scope="row">MCP 传输</th><td>stdio；Streamable HTTP <code>/mcp</code></td><td>HTTP 无状态、JSON 响应；MCP 2025-06-18。</td></tr>
+              <tr><th scope="row">元数据 / 审计控制面</th><td>纯 Go 嵌入式 SQLite（默认）；PostgreSQL 15+</td><td>PG18 为开发 / Compose / CI 基准；可用 <code>agentsqlctl migrate-sqlite-to-postgres</code> 迁移单库或独立元数据 / 审计双库。</td></tr>
+              <tr><th scope="row">MCP 传输</th><td>stdio；Streamable HTTP <code>/mcp</code></td><td>HTTP 使用 Bearer Agent API Key；无状态 JSON 响应；MCP 2025-06-18。</td></tr>
               <tr><th scope="row">控制台实时事件</th><td>Bearer 鉴权 SSE <code>/api/v1/stream</code></td><td>断线降级轮询。</td></tr>
               <tr><th scope="row">MCP 宿主</th><td>支持相应 transport 与协议版本的 MCP 宿主</td><td>不承诺所有 Claude Desktop / Cursor 版本都支持 HTTP transport。</td></tr>
               <tr><th scope="row">七个 MCP 工具</th><td colspan="2"><code>list_datasources</code>、<code>list_schema</code>、<code>explain_query</code>、<code>query</code>（只读）、<code>execute_write</code>（受控写 / 审批）、<code>request_approval</code>、<code>get_approval_result</code></td></tr>
               <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
-              <tr><th scope="row">部署 / 构建</th><td>Docker / Compose；Linux systemd 单二进制；Go 1.25</td><td>构建需 cgo 与 C 编译器，运行需 glibc 兼容环境。</td></tr>
+              <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>、glibc 2.28+、systemd</td><td>不提供 musl / Alpine、CentOS 7、ARM 原生包。</td></tr>
+              <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；musl / Alpine、CentOS 7、ARM 只能自行源码 / 容器构建，不构成交付承诺。</td></tr>
               <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
             </tbody>
           </table>
@@ -249,7 +252,8 @@ bash ./demo/reset.sh
           <li><strong>JOIN 授权</strong><span>JOIN / 自连接仅做表级授权，不推断投影列归属。</span></li>
           <li><strong>通配权限</strong><span><code>*</code> / <code>schema.*</code> 代表整表全列权限。</span></li>
           <li><strong>列名回溯</strong><span>脱敏按最终结果列名匹配，表达式 / 聚合 / CAST / UNION / 复杂 CTE / 视图重命名可能无法回溯源列。</span></li>
-          <li><strong>事务边界</strong><span>MCP 不应用作通用跨请求事务代理。</span></li>
+          <li><strong>SQL / 事务边界</strong><span>每个 MCP 请求只接受单条 SQL，不提供通用跨请求事务代理，拒绝多语句堆叠。</span></li>
+          <li><strong>审批边界</strong><span>审批通过只是一条人工决策记录，不会自动执行原 SQL，也不是后续执行的豁免票据；获准后仍需由库外流程重新发起受控请求。</span></li>
           <li><strong>演示环境</strong><span>公网 Demo 仅只读合成数据，不接真实库。</span></li>
           <li><strong>规划能力</strong><span>HA / 集中管控 / 企业身份在规划方向。</span></li>
         </ul>
@@ -297,7 +301,7 @@ bash ./demo/reset.sh
       <nav aria-label="页脚导航"><a href="#product">产品</a><a href="#demo">演示</a><a href="#features">特性</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#security">安全边界</a><a href="#faq">FAQ</a></nav>
       <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
     </div>
-    <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志默认保留 30 天，联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>
+    <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志最长保留 30 天，并受单文件 10 MiB、最多 10 个轮转文件上限约束（高流量时可能提前淘汰），联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>
     <div class="container footer-bottom"><span>© <span data-current-year>2026</span> 崔鹏 · 本站为个人开源技术项目，仅用于技术交流</span><!-- ICP/公安备案号：下号后在此渲染，ICP 链接 https://beian.miit.gov.cn ，公安联网备案链接以上线时官方平台返回为准 --></div>
   </footer>
 </body>

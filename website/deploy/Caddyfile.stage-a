@@ -6,4 +6,13 @@ import /etc/caddy/Caddyfile.common
 http://127.0.0.1:8080 {
 	bind 127.0.0.1
 	import agentsql_static
+
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	@mutable path /assets/app.js /assets/app.css /assets/og-cover.png /favicon.svg /apple-touch-icon.png /assets/apple-touch-icon.png /assets/screenshots/*.png
+	header @mutable Cache-Control "public, max-age=0, must-revalidate"
+
+	@versioned_docs path /assets/docs/*.pdf
+	header @versioned_docs Cache-Control "public, max-age=31536000, immutable"
 }

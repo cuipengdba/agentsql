@@ -76,12 +76,12 @@ systemctl daemon-reload
 
 ```bash
 cd /root/website-release
-bash ./deploy/deploy-alinux3.sh .
+bash ./deploy/deploy-alinux3.sh --stage a --src .
 curl -I http://127.0.0.1:8080/
 bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 ```
 
-脚本会创建 `/var/www/agentsql/releases/<UTC时间戳>/`，仅复制 `public/` 白名单内容，把 `current` 更新为 root 拥有的符号链接，安装阶段 A 配置和 systemd drop-in，执行 SELinux 标记、Caddy 配置校验并 reload-or-restart。
+`--stage` 为必填参数，脚本不会猜测当前阶段。阶段 A 首次流程会创建 `/var/www/agentsql/releases/<UTC时间戳>/`，仅复制 `public/` 白名单内容，把 `current` 更新为 root 拥有的符号链接，安装阶段 A 配置和 systemd drop-in，执行静态校验、SELinux 标记、Caddy 配置校验并 reload-or-restart。
 
 部署后必须核验监听地址：
 
@@ -114,13 +114,10 @@ ssh -L 8080:127.0.0.1:8080 root@203.0.113.10
    firewall-cmd --reload
    ```
 
-5. 安装阶段 B 配置并在 reload 前校验：
+5. 使用部署脚本完成阶段 B 首次切换；它会明确安装 `Caddyfile.stage-b`，在 reload 前执行静态与 Caddy 配置校验：
 
    ```bash
-   install -o root -g root -m 0644 ./deploy/Caddyfile.common /etc/caddy/Caddyfile.common
-   install -o root -g root -m 0644 ./deploy/Caddyfile.stage-b /etc/caddy/Caddyfile
-   caddy validate --config /etc/caddy/Caddyfile
-   systemctl reload caddy
+   bash ./deploy/deploy-alinux3.sh --stage b --src .
    ```
 
 6. 观察日志，确认 DNS 解析正确且 ACME 证书签发成功：
@@ -138,6 +135,16 @@ ssh -L 8080:127.0.0.1:8080 root@203.0.113.10
 8. 验证后确认阶段 A 的 8080 监听已消失；如曾临时添加相关防火墙或安全组规则，应删除。HSTS 初始只使用 `max-age=300`，稳定运行并确认所有资源都可经 HTTPS 获取、没有紧急回退需求后，再评估逐步提高；当前不启用 `includeSubDomains` 或 `preload`。
 
 不要在 DNS 尚未指向正确主机、80/443 不通或备案前反复切换阶段 B，以免无意义触发 ACME 失败与频率限制。
+
+### 阶段 B 日常内容发布
+
+阶段 B 已首次切换并稳定运行后，日常发布必须使用内容模式：
+
+```bash
+bash ./deploy/deploy-alinux3.sh --stage b --src . --content-only
+```
+
+该模式只把公开白名单静态文件同步到新的 `releases/` 目录、执行静态校验、更新 `current` 软链、校验现有 Caddy 配置并 reload；它不会安装软件、systemd drop-in 或任何 Caddyfile，尤其不会覆盖 `/etc/caddy/Caddyfile`，因此不会把阶段 B 回退到阶段 A。`--content-only` 与 `--stage a` 组合会被拒绝。
 
 ## 5. SELinux 与 firewalld 排查
 
@@ -163,7 +170,7 @@ systemd 加固将站点设为只读，仅允许 Caddy 写 `/var/lib/caddy` 与 `
 
 ## 6. 版本化发布与回滚
 
-每次执行部署脚本都会新建一个 UTC 时间戳目录，旧版本保留。查看版本：
+每次执行部署脚本（包括阶段 B 的 `--content-only`）都会新建一个 UTC 时间戳目录，旧版本保留。查看版本：
 
 ```bash
 readlink -f /var/www/agentsql/current

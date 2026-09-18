@@ -93,7 +93,7 @@ h3 { margin-bottom: 9px; font-size: 1.13rem; line-height: 1.42; }
 .risk-card:nth-child(2)::after { background: var(--amber); }
 .risk-card:nth-child(3)::after { background: var(--blue); }
 .risk-card:nth-child(4)::after { background: var(--accent); }
-.risk-index { display: block; margin-bottom: 25px; color: #6d87a7; font-family: var(--font-mono); font-size: .85rem; }
+.risk-index { display: block; margin-bottom: 25px; color: #7892b2; font-family: var(--font-mono); font-size: .85rem; }
 .risk-card p, .feature-card p { margin-bottom: 0; color: var(--muted); }
 .boundary-note, .callout { margin-top: 22px; padding: 17px 20px; border: 1px solid #36536f; border-radius: 12px; background: #0d1a2d; color: #c6d5e6; }
 .boundary-note strong { color: var(--blue); }
