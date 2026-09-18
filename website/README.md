@@ -17,6 +17,8 @@
 
 本目录不需要 Node.js、包管理器或前端构建工具。请选择任意已有的静态文件服务器，将文档根目录指向 `website/public/`。不要双击 HTML 作为最终验收方式，因为以 `/` 开头的资源路径需要 HTTP 文档根。
 
+官网为纯静态站，无运行时构建；仅在需要重新生成手册 PDF 时运行 `node website/tools/build-docs-pdf.mjs`（需本机 Node 与 Microsoft Edge）。`website/public/assets`（含 `assets/docs/*.pdf`）由部署脚本递归复制，无需改部署白名单。
+
 部署后在服务器上执行静态验收脚本（示例为阶段 A 的回环地址）：
 
 ```bash
