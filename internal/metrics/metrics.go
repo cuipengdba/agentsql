@@ -3,6 +3,7 @@ package metrics
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -30,14 +31,21 @@ type PoolStat struct {
 
 // Metrics owns the process-local AgentSQL Prometheus registry.
 type Metrics struct {
-	registry        *prometheus.Registry
-	httpRequests    *prometheus.CounterVec
-	httpDuration    *prometheus.HistogramVec
-	decisions       *prometheus.CounterVec
-	ruleHits        *prometheus.CounterVec
-	stageDuration   *prometheus.HistogramVec
-	rejected        *prometheus.CounterVec
-	poolConnections *prometheus.GaugeVec
+	registry                *prometheus.Registry
+	httpRequests            *prometheus.CounterVec
+	httpDuration            *prometheus.HistogramVec
+	decisions               *prometheus.CounterVec
+	ruleHits                *prometheus.CounterVec
+	stageDuration           *prometheus.HistogramVec
+	rejected                *prometheus.CounterVec
+	poolConnections         *prometheus.GaugeVec
+	notificationSent        *prometheus.CounterVec
+	notificationFailed      *prometheus.CounterVec
+	notificationDropped     *prometheus.CounterVec
+	notificationLastError   *prometheus.GaugeVec
+	notificationLastSuccess *prometheus.GaugeVec
+	notificationMu          sync.Mutex
+	notificationError       map[string]string
 }
 
 // New creates an isolated registry and all AgentSQL collectors.
@@ -74,6 +82,27 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 			Name: "agentsql_pool_connections",
 			Help: "Current AgentSQL datasource pool connections.",
 		}, []string{"datasource", "dialect", "state"}),
+		notificationSent: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "agentsql_notification_sent_total",
+			Help: "Total AgentSQL notifications successfully sent.",
+		}, []string{"channel"}),
+		notificationFailed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "agentsql_notification_failed_total",
+			Help: "Total AgentSQL notifications that exhausted delivery attempts.",
+		}, []string{"channel", "reason"}),
+		notificationDropped: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "agentsql_notification_dropped_total",
+			Help: "Total AgentSQL notifications dropped because a channel queue was full.",
+		}, []string{"channel"}),
+		notificationLastError: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_notification_last_error_info",
+			Help: "Last bounded AgentSQL notification error category (1 for current category).",
+		}, []string{"channel", "reason"}),
+		notificationLastSuccess: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_notification_last_success_timestamp_seconds",
+			Help: "Unix timestamp of the last successful AgentSQL notification.",
+		}, []string{"channel"}),
+		notificationError: make(map[string]string),
 	}
 	metrics.registry.MustRegister(
 		collectors.NewGoCollector(),
@@ -84,12 +113,56 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		metrics.ruleHits,
 		metrics.stageDuration,
 		metrics.rejected,
+		metrics.notificationSent,
+		metrics.notificationFailed,
+		metrics.notificationDropped,
+		metrics.notificationLastError,
+		metrics.notificationLastSuccess,
 		&poolCollector{
 			gauge:    metrics.poolConnections,
 			snapshot: poolSnapshot,
 		},
 	)
 	return metrics
+}
+
+// RecordNotificationSent records a completed delivery and clears last_error.
+func (metrics *Metrics) RecordNotificationSent(channel string, at time.Time) {
+	if metrics == nil {
+		return
+	}
+	metrics.notificationSent.WithLabelValues(channel).Inc()
+	metrics.notificationLastSuccess.WithLabelValues(channel).Set(float64(at.Unix()))
+	metrics.notificationMu.Lock()
+	if previous := metrics.notificationError[channel]; previous != "" {
+		metrics.notificationLastError.DeleteLabelValues(channel, previous)
+		delete(metrics.notificationError, channel)
+	}
+	metrics.notificationMu.Unlock()
+}
+
+// RecordNotificationFailed records a terminal delivery failure. reason is a
+// bounded category supplied by notify and never contains a URL or payload.
+func (metrics *Metrics) RecordNotificationFailed(channel, reason string) {
+	if metrics == nil {
+		return
+	}
+	metrics.notificationFailed.WithLabelValues(channel, reason).Inc()
+	metrics.notificationMu.Lock()
+	if previous := metrics.notificationError[channel]; previous != "" && previous != reason {
+		metrics.notificationLastError.DeleteLabelValues(channel, previous)
+	}
+	metrics.notificationError[channel] = reason
+	metrics.notificationLastError.WithLabelValues(channel, reason).Set(1)
+	metrics.notificationMu.Unlock()
+}
+
+// RecordNotificationDropped records one queue-full best-effort drop.
+func (metrics *Metrics) RecordNotificationDropped(channel string) {
+	if metrics == nil {
+		return
+	}
+	metrics.notificationDropped.WithLabelValues(channel).Inc()
 }
 
 // ObserveHTTP records one normalized HTTP request and its duration.

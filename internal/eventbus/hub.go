@@ -95,6 +95,43 @@ func (hub *Hub) Subscribe() (<-chan Event, func()) {
 	return channel, cancel
 }
 
+// SubscribeLive returns only events published after the subscription is
+// registered. Like Subscribe, delivery is best effort: a subscriber whose
+// buffer fills is removed without blocking publishers. The returned cancel
+// function is idempotent.
+func (hub *Hub) SubscribeLive() (<-chan Event, func()) {
+	if hub == nil {
+		closed := make(chan Event)
+		close(closed)
+		return closed, func() {}
+	}
+	hub.mu.Lock()
+	if hub.closed {
+		hub.mu.Unlock()
+		closed := make(chan Event)
+		close(closed)
+		return closed, func() {}
+	}
+	channel := make(chan Event, hub.subscriberBuffer)
+	hub.nextSubscriberID++
+	id := hub.nextSubscriberID
+	hub.subscribers[id] = channel
+	hub.mu.Unlock()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			hub.mu.Lock()
+			if registered, exists := hub.subscribers[id]; exists {
+				delete(hub.subscribers, id)
+				close(registered)
+			}
+			hub.mu.Unlock()
+		})
+	}
+	return channel, cancel
+}
+
 // Publish retains and broadcasts event without waiting for subscriber reads.
 func (hub *Hub) Publish(event Event) {
 	if hub == nil {

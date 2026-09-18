@@ -47,6 +47,54 @@ func TestHubDefaultsKeepLatestTwoHundredEvents(t *testing.T) {
 	}
 }
 
+func TestHubSubscribeLiveDoesNotReplayHistory(t *testing.T) {
+	hub, err := New(Options{HistorySize: 3, SubscriberBuffer: 2})
+	require.NoError(t, err)
+	hub.Publish(eventWithID(1))
+	hub.Publish(eventWithID(2))
+
+	events, cancel := hub.SubscribeLive()
+	defer cancel()
+	select {
+	case event := <-events:
+		t.Fatalf("SubscribeLive replayed historical event %d", event.Audit.ID)
+	default:
+	}
+	hub.Publish(eventWithID(3))
+	require.Equal(t, int64(3), requireReceive(t, events).Audit.ID)
+}
+
+func TestHubSubscribeLiveCancelIsIdempotent(t *testing.T) {
+	hub, err := New(Options{HistorySize: 1, SubscriberBuffer: 1})
+	require.NoError(t, err)
+	events, cancel := hub.SubscribeLive()
+	require.NotPanics(t, func() {
+		cancel()
+		cancel()
+	})
+	_, open := <-events
+	require.False(t, open)
+	require.Zero(t, hub.SubscriberCount())
+}
+
+func TestHubSlowLiveSubscriberUsesHubRemovalSemantics(t *testing.T) {
+	hub, err := New(Options{HistorySize: 1, SubscriberBuffer: 2})
+	require.NoError(t, err)
+	slow, cancel := hub.SubscribeLive()
+	defer cancel()
+
+	start := time.Now()
+	hub.Publish(eventWithID(1))
+	hub.Publish(eventWithID(2))
+	hub.Publish(eventWithID(3))
+	require.Less(t, time.Since(start), time.Second)
+	require.Zero(t, hub.SubscriberCount())
+	require.Equal(t, int64(1), (<-slow).Audit.ID)
+	require.Equal(t, int64(2), (<-slow).Audit.ID)
+	_, open := <-slow
+	require.False(t, open)
+}
+
 func TestHubSlowSubscriberIsRemovedWithoutBlockingPublish(t *testing.T) {
 	hub, err := New(Options{HistorySize: 1, SubscriberBuffer: 2})
 	require.NoError(t, err)

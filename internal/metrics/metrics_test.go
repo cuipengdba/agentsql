@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
@@ -19,11 +20,19 @@ func TestMetricsObserveAndGather(t *testing.T) {
 	hub.ObserveRuleHit("R002", "deny", "1")
 	hub.ObserveStage("guard_static", 7)
 	hub.IncRejected("rate_limited")
+	hub.RecordNotificationSent("hook", time.Unix(123, 0))
+	hub.RecordNotificationFailed("hook", "timeout")
+	hub.RecordNotificationDropped("hook")
 
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.httpRequests.WithLabelValues("GET", "/healthz", "200")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.decisions.WithLabelValues("deny", "postgres", "UPDATE")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.ruleHits.WithLabelValues("R002", "deny", "1")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.rejected.WithLabelValues("rate_limited")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationSent.WithLabelValues("hook")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationFailed.WithLabelValues("hook", "timeout")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationDropped.WithLabelValues("hook")))
+	require.Equal(t, float64(123), testutil.ToFloat64(hub.notificationLastSuccess.WithLabelValues("hook")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationLastError.WithLabelValues("hook", "timeout")))
 
 	families, err := hub.registry.Gather()
 	require.NoError(t, err)
@@ -52,6 +61,11 @@ func TestMetricsObserveAndGather(t *testing.T) {
 		"agentsql_pipeline_stage_duration_seconds",
 		"agentsql_rejected_total",
 		"agentsql_pool_connections",
+		"agentsql_notification_sent_total",
+		"agentsql_notification_failed_total",
+		"agentsql_notification_dropped_total",
+		"agentsql_notification_last_error_info",
+		"agentsql_notification_last_success_timestamp_seconds",
 	} {
 		_, exists := names[name]
 		require.True(t, exists, name)
@@ -102,6 +116,9 @@ func TestMetricsNilReceiverAndSnapshotPanicAreSafe(t *testing.T) {
 		hub.ObserveRuleHit("R001", "deny", "1")
 		hub.ObserveStage("audit", 1)
 		hub.IncRejected("rate_limited")
+		hub.RecordNotificationSent("hook", time.Now())
+		hub.RecordNotificationFailed("hook", "timeout")
+		hub.RecordNotificationDropped("hook")
 		require.Nil(t, hub.Handler())
 	})
 
