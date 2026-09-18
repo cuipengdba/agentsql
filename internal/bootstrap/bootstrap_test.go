@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -299,11 +300,38 @@ func TestRedactorBuilderFailsClosedForUnsupportedRules(t *testing.T) {
 	require.NoError(t, err)
 	_, err = runtime.Store.MaskRules().Create(context.Background(), model.MaskRule{
 		ID: "unsupported", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "customers", ColumnName: "identity",
-		SensitiveType: string(mask.TypeIDCard), Algo: string(mask.AlgoMask), Enabled: true,
+		SensitiveType: "future", Algo: string(mask.AlgoMask), Enabled: true,
 	})
 	require.NoError(t, err)
 	_, err = runtime.redactors.RedactorFor(context.Background(), "ds-1")
 	require.ErrorIs(t, err, mask.ErrUnsupportedType)
+}
+
+type staticMaskRuleReader struct {
+	rules []model.MaskRule
+}
+
+func (reader staticMaskRuleReader) ListEnabledByDatasource(context.Context, string) ([]model.MaskRule, error) {
+	return append([]model.MaskRule(nil), reader.rules...), nil
+}
+
+func TestRedactorBuilderUsesMaskSensitiveTypeOrder(t *testing.T) {
+	types := []mask.SensitiveType{mask.TypeBirthDate, mask.TypeIP, mask.TypeBankCard, mask.TypeIDCard, mask.TypeEmail, mask.TypePhone}
+	stored := make([]model.MaskRule, 0, len(types))
+	directRules := make([]mask.Rule, 0, len(types))
+	for index, sensitiveType := range types {
+		stored = append(stored, model.MaskRule{ID: fmt.Sprintf("rule-%d", index), ColumnName: "shared", SensitiveType: string(sensitiveType), Algo: string(mask.AlgoMask), Enabled: true})
+		directRules = append(directRules, mask.Rule{Column: "shared", SensitiveType: sensitiveType, Algorithm: mask.AlgoMask})
+	}
+	built, err := (&redactorBuilder{repository: staticMaskRuleReader{rules: stored}}).RedactorFor(context.Background(), "ds-1")
+	require.NoError(t, err)
+	direct, err := mask.NewRedactor(directRules)
+	require.NoError(t, err)
+	result := model.QueryResult{Columns: []string{"shared"}, Rows: [][]string{{"value"}}}
+	_, builtReport := built.Apply(result)
+	_, directReport := direct.Apply(result)
+	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, directReport.TouchedColumns)
+	require.Equal(t, directReport.TouchedColumns, builtReport.TouchedColumns)
 }
 
 func TestRedactorBuilderPrefersDatasourceScope(t *testing.T) {

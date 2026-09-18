@@ -32,9 +32,15 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 	t.Cleanup(func() { require.NoError(t, metadata.Close()) })
 
 	provider := &playgroundPipelineExecutorProvider{executor: &playgroundPipelineExecutor{}}
-	redactor, err := mask.NewRedactor([]mask.Rule{{
-		Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask,
-	}})
+	redactor, err := mask.NewRedactor([]mask.Rule{
+		{Column: "id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
+		{Column: "legacy_id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
+		{Column: "pan_plain", SensitiveType: mask.TypeBankCard, Algorithm: mask.AlgoMask},
+		{Column: "pan_formatted", SensitiveType: mask.TypeBankCard, Algorithm: mask.AlgoMask},
+		{Column: "client_ip", SensitiveType: mask.TypeIP, Algorithm: mask.AlgoMask},
+		{Column: "ip_network", SensitiveType: mask.TypeIP, Algorithm: mask.AlgoMask},
+		{Column: "birth_date", SensitiveType: mask.TypeBirthDate, Algorithm: mask.AlgoMask},
+	})
 	require.NoError(t, err)
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: &playgroundPipelineAuthenticator{},
@@ -63,20 +69,28 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 	fixture := &adminFixture{store: metadata, handler: handler, adminToken: newAdminTestToken(t)}
 
 	status, body := fixture.request(http.MethodPost, "/api/v1/playground/run", fixture.adminToken,
-		`{"sql":"SELECT phone FROM public.customers WHERE id = 1 LIMIT 5","datasource_id":"ds-demo-pg","agent_profile":"ro"}`)
+		`{"sql":"SELECT id_card, legacy_id_card, pan_plain, pan_formatted, client_ip, ip_network, birth_date FROM public.customers WHERE id = 1 LIMIT 5","datasource_id":"ds-demo-pg","agent_profile":"ro"}`)
 	require.Equal(t, http.StatusOK, status, body)
 	var selected struct {
 		Data playgroundRunView `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &selected))
 	require.Equal(t, "allow", selected.Data.Decision)
-	require.Equal(t, [][]string{{"138****5678"}}, selected.Data.Result.Rows)
+	require.Equal(t, [][]string{{"110105********002X", "130503******001", "411111******1111", "411111******1111", "192.0.*.*", "198.51.*.*", "2000-**-**"}}, selected.Data.Result.Rows)
 	require.True(t, selected.Data.Result.Truncated)
-	require.Equal(t, 1, selected.Data.Redact.MaskedCells)
+	require.Equal(t, 7, selected.Data.Redact.MaskedCells)
+	require.Equal(t, map[int]string{0: string(mask.TypeIDCard), 1: string(mask.TypeIDCard), 2: string(mask.TypeBankCard), 3: string(mask.TypeBankCard), 4: string(mask.TypeIP), 5: string(mask.TypeIP), 6: string(mask.TypeBirthDate)}, selected.Data.Redact.TouchedColumns)
 	require.Positive(t, selected.Data.AuditID)
 	require.Equal(t, 2, provider.executor.(*playgroundPipelineExecutor).lastRowLimit())
 	selectAudit := latestPlaygroundPipelineAudit(t, metadata)
 	require.Equal(t, config.DemoAgentRO, requirePlaygroundAuditAgent(t, selectAudit))
+	selectAuditJSON, err := json.Marshal(selectAudit)
+	require.NoError(t, err)
+	for _, raw := range []string{"11010519491231002X", "130503670401001", "4111111111111111", "4111 1111-1111 1111", "192.0.2.10/32", "198.51.100.0/24", "2000-02-29T00:00:00Z"} {
+		require.NotContains(t, body, raw)
+		require.NotContains(t, string(selectAuditJSON), raw)
+		require.NotContains(t, logs.String(), raw)
+	}
 	assertPlaygroundBodyHasNoSecrets(t, body)
 
 	beforeDenyExecutorCalls := provider.calls()
@@ -193,7 +207,11 @@ func (demoExecutor *playgroundPipelineExecutor) Query(
 	demoExecutor.rowLimit = rowLimit
 	demoExecutor.mu.Unlock()
 	return model.QueryResult{
-		Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}},
+		Columns: []string{"id_card", "legacy_id_card", "pan_plain", "pan_formatted", "client_ip", "ip_network", "birth_date"},
+		Rows: [][]string{{
+			"11010519491231002X", "130503670401001", "4111111111111111", "4111 1111-1111 1111",
+			"192.0.2.10/32", "198.51.100.0/24", "2000-02-29T00:00:00Z",
+		}},
 		RowCount: 1, Truncated: true, LatencyMS: 1,
 	}, nil
 }

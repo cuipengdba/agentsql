@@ -144,7 +144,7 @@ func TestDiscoveryApplyDisabledIdempotentConflictAndStrictDTO(t *testing.T) {
 
 	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, strings.Replace(requestBody, `"algo":"mask"`, `"algo":"mask","enabled":true`, 1))
 	require.Equal(t, http.StatusBadRequest, status, body)
-	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, strings.Replace(requestBody, `"phone","sensitive_type":"phone"`, `"idcard","sensitive_type":"idcard"`, 1))
+	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, strings.Replace(requestBody, `"phone","sensitive_type":"phone"`, `"future","sensitive_type":"future"`, 1))
 	require.Equal(t, http.StatusUnprocessableEntity, status, body)
 
 	current := rules[0]
@@ -154,6 +154,33 @@ func TestDiscoveryApplyDisabledIdempotentConflictAndStrictDTO(t *testing.T) {
 	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, requestBody)
 	require.Equal(t, http.StatusConflict, status, body)
 	require.Contains(t, body, `"conflicts":1`)
+}
+
+func TestDiscoveryApplyAcceptsAllSixRunnableCategories(t *testing.T) {
+	fixture := newAdminFixture(t)
+	body := `{"items":[` +
+		`{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"mask"},` +
+		`{"schema":"public","table":"customers","column":"email","category":"email","sensitive_type":"email","algo":"mask"},` +
+		`{"schema":"public","table":"customers","column":"idcard","category":"idcard","sensitive_type":"idcard","algo":"mask"},` +
+		`{"schema":"public","table":"customers","column":"bankcard","category":"bankcard","sensitive_type":"bankcard","algo":"mask"},` +
+		`{"schema":"public","table":"customers","column":"ip","category":"ip","sensitive_type":"ip","algo":"mask"},` +
+		`{"schema":"public","table":"customers","column":"birthdate","category":"birthdate","sensitive_type":"birthdate","algo":"mask"}` +
+		`]}`
+	status, response := fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, body)
+	require.Equal(t, http.StatusOK, status, response)
+	require.Contains(t, response, `"created":6`)
+	rules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+	require.NoError(t, err)
+	require.Len(t, rules, 6)
+	for _, rule := range rules {
+		require.False(t, rule.Enabled)
+		require.Empty(t, rule.TableName)
+	}
+
+	status, response = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken,
+		`{"items":[{"schema":"public","table":"customers","column":"bad","category":"phone","sensitive_type":"email","algo":"mask"}]}`)
+	require.Equal(t, http.StatusUnprocessableEntity, status, response)
+	require.Contains(t, response, "DISCOVERY_NOT_APPLICABLE")
 }
 
 func TestDiscoveryApplyGlobalCoverageAndAmbiguousAggregation(t *testing.T) {

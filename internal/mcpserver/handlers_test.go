@@ -127,6 +127,40 @@ func TestHandlersExplainOnlyAndQuery(t *testing.T) {
 	require.Equal(t, "138****5678", queryData.Result.Rows[0][0])
 }
 
+func TestHandlersFourCategoryResponseAuditAndLogsDoNotLeak(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	rawValues := []string{
+		"11010519491231002X", "130503670401001", "4111111111111111",
+		"4111 1111-1111 1111", "192.0.2.10/32", "198.51.100.0/24", "2000-02-29T00:00:00Z",
+	}
+	fixture.executor.mu.Lock()
+	fixture.executor.queryResult = model.QueryResult{
+		Columns: []string{"id_card", "legacy_id_card", "pan_plain", "pan_formatted", "client_ip", "ip_network", "birth_date"},
+		Rows:    [][]string{rawValues}, RowCount: 1,
+	}
+	fixture.executor.mu.Unlock()
+	var logs bytes.Buffer
+	fixture.handlers.logger = zerolog.New(&logs)
+	response := fixture.handlers.query(context.Background(), "ds-allowed",
+		"SELECT id_card, legacy_id_card, pan_plain, pan_formatted, client_ip, ip_network, birth_date FROM public.customers WHERE id=1 LIMIT 1")
+	require.Equal(t, "allow", response.Decision)
+	data := response.Data.(pipelineData)
+	require.Equal(t, []string{"110105********002X", "130503******001", "411111******1111", "411111******1111", "192.0.*.*", "198.51.*.*", "2000-**-**"}, data.Result.Rows[0])
+	require.Equal(t, 7, data.Redact.MaskedCells)
+	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypeIDCard, 1: mask.TypeIDCard, 2: mask.TypeBankCard, 3: mask.TypeBankCard, 4: mask.TypeIP, 5: mask.TypeIP, 6: mask.TypeBirthDate}, data.Redact.TouchedColumns)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	audits, err := fixture.runtime.Store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	auditJSON, err := json.Marshal(audits.List)
+	require.NoError(t, err)
+	for _, raw := range rawValues {
+		require.NotContains(t, string(encoded), raw)
+		require.NotContains(t, string(auditJSON), raw)
+		require.NotContains(t, logs.String(), raw)
+	}
+}
+
 func TestHandlersApprovalOwnershipAndErrorRedaction(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	owned, err := fixture.runtime.Store.Approvals().Create(context.Background(), model.Approval{
@@ -216,7 +250,7 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		_, err = metadataStore.Datasources().Create(context.Background(), datasource, "database-password")
 		require.NoError(t, err)
 	}
-	columns := "id,phone"
+	columns := "id,phone,id_card,legacy_id_card,pan_plain,pan_formatted,client_ip,ip_network,birth_date"
 	for _, stored := range []model.Policy{
 		{ID: "table", AgentID: agent.ID, DatasourceID: "ds-allowed", ObjectType: "table", ObjectName: "public.customers", Action: "allow"},
 		{ID: "columns", AgentID: agent.ID, DatasourceID: "ds-allowed", ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow"},
@@ -224,7 +258,16 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		_, err = metadataStore.Policies().Create(context.Background(), stored)
 		require.NoError(t, err)
 	}
-	redactor, err := mask.NewRedactor([]mask.Rule{{Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask}})
+	redactor, err := mask.NewRedactor([]mask.Rule{
+		{Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
+		{Column: "id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
+		{Column: "legacy_id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
+		{Column: "pan_plain", SensitiveType: mask.TypeBankCard, Algorithm: mask.AlgoMask},
+		{Column: "pan_formatted", SensitiveType: mask.TypeBankCard, Algorithm: mask.AlgoMask},
+		{Column: "client_ip", SensitiveType: mask.TypeIP, Algorithm: mask.AlgoMask},
+		{Column: "ip_network", SensitiveType: mask.TypeIP, Algorithm: mask.AlgoMask},
+		{Column: "birth_date", SensitiveType: mask.TypeBirthDate, Algorithm: mask.AlgoMask},
+	})
 	require.NoError(t, err)
 	spy := &mcpSpyExecutor{
 		queryResult: model.QueryResult{Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1},

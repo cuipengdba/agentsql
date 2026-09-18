@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -160,10 +161,20 @@ func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
 	require.NoError(t, err)
 	status, _ = fixture.request(http.MethodDelete, "/api/v1/rules/builtin", fixture.adminToken, "")
 	require.Equal(t, http.StatusForbidden, status)
-	status, _ = fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, `{"id":"mask","table_name":"customers","column_name":"phone","sensitive_type":"phone","algo":"mask"}`)
-	require.Equal(t, http.StatusOK, status)
-	status, _ = fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, `{"id":"bad-mask","table_name":"customers","column_name":"id","sensitive_type":"idcard","algo":"mask"}`)
-	require.Equal(t, http.StatusUnprocessableEntity, status)
+	for _, sensitiveType := range []string{"phone", "email", "idcard", "bankcard", "ip", "birthdate"} {
+		id := "mask-" + sensitiveType
+		body := fmt.Sprintf(`{"id":%q,"table_name":"customers","column_name":%q,"sensitive_type":%q,"algo":"mask"}`, id, sensitiveType, sensitiveType)
+		status, response := fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, body)
+		require.Equal(t, http.StatusOK, status, response)
+		update := fmt.Sprintf(`{"table_name":"customers","column_name":%q,"sensitive_type":%q,"algo":"mask"}`, sensitiveType, sensitiveType)
+		status, response = fixture.request(http.MethodPut, "/api/v1/mask_rules/"+id, fixture.adminToken, update)
+		require.Equal(t, http.StatusOK, status, response)
+	}
+	for _, algorithm := range []string{"hash", "range", "block"} {
+		body := fmt.Sprintf(`{"id":"bad-%s","column_name":"bad_%s","sensitive_type":"idcard","algo":%q}`, algorithm, algorithm, algorithm)
+		status, response := fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, body)
+		require.Equal(t, http.StatusUnprocessableEntity, status, response)
+	}
 }
 
 func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {

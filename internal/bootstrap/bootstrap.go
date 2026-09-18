@@ -280,10 +280,10 @@ func (builder *redactorBuilder) RedactorFor(
 		if leftBound != rightBound {
 			return leftBound
 		}
-		leftPhone := storedRules[left].SensitiveType == string(mask.TypePhone)
-		rightPhone := storedRules[right].SensitiveType == string(mask.TypePhone)
-		if leftPhone != rightPhone {
-			return leftPhone
+		leftTypeOrder := mask.SensitiveTypeOrder(mask.SensitiveType(storedRules[left].SensitiveType))
+		rightTypeOrder := mask.SensitiveTypeOrder(mask.SensitiveType(storedRules[right].SensitiveType))
+		if leftTypeOrder != rightTypeOrder {
+			return leftTypeOrder < rightTypeOrder
 		}
 		if storedRules[left].SensitiveType != storedRules[right].SensitiveType {
 			return storedRules[left].SensitiveType < storedRules[right].SensitiveType

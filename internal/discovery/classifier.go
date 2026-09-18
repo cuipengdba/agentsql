@@ -1,7 +1,7 @@
 package discovery
 
 import (
-	"net"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -220,7 +220,7 @@ func ValidateSample(category Category, value string, referenceDate time.Time) bo
 	case CategoryBankCard:
 		return validBankCard(value)
 	case CategoryIP:
-		return net.ParseIP(value) != nil
+		return validIP(value)
 	case CategoryBirthdate:
 		_, ok := parseBirthdate(value, referenceDate)
 		return ok
@@ -253,6 +253,17 @@ func validMainlandPhone(value string) bool {
 
 func validMainlandIDCard(value string, referenceDate time.Time) bool {
 	value = strings.ToUpper(value)
+	if len(value) == 15 {
+		if !allASCIIDigits(value) {
+			return false
+		}
+		birthdate, err := time.ParseInLocation("20060102", "19"+value[6:12], time.UTC)
+		if err != nil {
+			return false
+		}
+		today := time.Date(referenceDate.Year(), referenceDate.Month(), referenceDate.Day(), 0, 0, 0, 0, time.UTC)
+		return !birthdate.After(today)
+	}
 	if len(value) != 18 || !allASCIIDigits(value[:17]) {
 		return false
 	}
@@ -277,13 +288,14 @@ func validMainlandIDCard(value string, referenceDate time.Time) bool {
 }
 
 func validBankCard(value string) bool {
-	if len(value) < 13 || len(value) > 19 || !allASCIIDigits(value) {
+	digits, ok := normalizeBankCard(value)
+	if !ok || len(digits) < 13 || len(digits) > 19 {
 		return false
 	}
 	sum := 0
 	double := false
-	for index := len(value) - 1; index >= 0; index-- {
-		digit := int(value[index] - '0')
+	for index := len(digits) - 1; index >= 0; index-- {
+		digit := int(digits[index] - '0')
 		if double {
 			digit *= 2
 			if digit > 9 {
@@ -296,10 +308,51 @@ func validBankCard(value string) bool {
 	return sum%10 == 0
 }
 
+func normalizeBankCard(value string) (string, bool) {
+	var digits strings.Builder
+	digits.Grow(len(value))
+	for index := 0; index < len(value); index++ {
+		switch character := value[index]; {
+		case character >= '0' && character <= '9':
+			digits.WriteByte(character)
+		case character == ' ' || character == '-':
+		default:
+			return "", false
+		}
+	}
+	return digits.String(), true
+}
+
+func validIP(value string) bool {
+	address, err := netip.ParseAddr(value)
+	if err != nil {
+		prefix, prefixErr := netip.ParsePrefix(value)
+		if prefixErr != nil {
+			return false
+		}
+		address = prefix.Addr()
+	}
+	if address.Zone() != "" {
+		return false
+	}
+	address = address.Unmap()
+	return address.Is4() || address.Is6()
+}
+
 func parseBirthdate(value string, referenceDate time.Time) (time.Time, bool) {
 	for _, layout := range []string{"2006-01-02", "2006/01/02", "2006.01.02", "20060102"} {
 		if date, ok := parseDateWithLayout(value, layout, referenceDate); ok {
 			return date, true
+		}
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+		date, err := time.Parse(layout, value)
+		if err != nil {
+			continue
+		}
+		calendarDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+		if validBirthdateRange(calendarDate, referenceDate) {
+			return calendarDate, true
 		}
 	}
 	return time.Time{}, false
@@ -310,16 +363,23 @@ func parseDateWithLayout(value, layout string, referenceDate time.Time) (time.Ti
 	if err != nil {
 		return time.Time{}, false
 	}
+	if !validBirthdateRange(date, referenceDate) {
+		return time.Time{}, false
+	}
+	return date, true
+}
+
+func validBirthdateRange(date, referenceDate time.Time) bool {
 	today := time.Date(referenceDate.Year(), referenceDate.Month(), referenceDate.Day(), 0, 0, 0, 0, time.UTC)
 	if date.After(today) {
-		return time.Time{}, false
+		return false
 	}
 	age := today.Year() - date.Year()
 	anniversary := time.Date(today.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 	if today.Before(anniversary) {
 		age--
 	}
-	return date, age >= 0 && age <= 120
+	return age >= 0 && age <= 120
 }
 
 func allASCIIDigits(value string) bool {

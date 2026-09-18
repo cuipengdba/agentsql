@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/jackc/pgx/v5/pgconn"
 	modernsqlite "modernc.org/sqlite"
@@ -128,8 +129,15 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 	outcome := DiscoveryApplyOutcome{Created: []model.MaskRule{}, Existing: []model.MaskRule{}, CoveredByGlobal: []model.MaskRule{}, Conflicts: []model.MaskRule{}}
 	for _, draft := range drafts {
 		column := strings.ToLower(strings.TrimSpace(draft.ColumnName))
-		if column == "" || draft.ID == "" || (draft.SensitiveType != "phone" && draft.SensitiveType != "email") || draft.Algo != "mask" {
+		if column == "" || draft.ID == "" {
 			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: invalid draft")
+		}
+		if _, validationErr := mask.NewRedactor([]mask.Rule{{
+			Column:        column,
+			SensitiveType: mask.SensitiveType(draft.SensitiveType),
+			Algorithm:     mask.Algorithm(draft.Algo),
+		}}); validationErr != nil {
+			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: invalid draft: %w", validationErr)
 		}
 		var scoped *model.MaskRule
 		var global *model.MaskRule

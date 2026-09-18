@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -76,6 +77,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		"public.big_rows",
 		"public.customers",
 		"public.orders",
+		"public.sensitive_rows",
 	}
 
 	t.Run("E1 normal select allow", func(t *testing.T) {
@@ -118,6 +120,23 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.TouchedColumns)
 	})
 
+	t.Run("four category real driver values are redacted without audit leakage", func(t *testing.T) {
+		flow, ports := newDatabaseE2EPipelineWithRules(t, datasource, counted, "dml", allowedTables, sensitiveE2ERules(true))
+		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"SELECT id_card, legacy_id_card, pan_plain, pan_formatted, client_ip, ip_network, birth_date FROM public.sensitive_rows WHERE id = 1 LIMIT 1"))
+		require.NoError(t, err)
+		require.Equal(t, []string{"110105********002X", "130503******001", "411111******1111", "411111******1111", "192.0.*.*", "198.51.*.*", "2000-**-**"}, response.Result.Rows[0])
+		require.Equal(t, 7, response.Redact.MaskedCells)
+		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypeIDCard, 1: mask.TypeIDCard, 2: mask.TypeBankCard, 3: mask.TypeBankCard, 4: mask.TypeIP, 5: mask.TypeIP, 6: mask.TypeBirthDate}, response.Redact.TouchedColumns)
+		assertSensitiveE2ENotPresent(t, response, ports.audit.last(), []string{"11010519491231002X", "130503670401001", "4111111111111111", "4111 1111-1111 1111", "192.0.2.10/32", "198.51.100.0/24", "2000-02-29T00:00:00Z"})
+
+		fallback, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"SELECT id_card FROM public.sensitive_rows WHERE id = 2 LIMIT 1"))
+		require.NoError(t, err)
+		require.Equal(t, mask.RedactedFallback, fallback.Result.Rows[0][0])
+		require.NotContains(t, fmt.Sprintf("%v", fallback), "PG_INVALID_ID_SENTINEL_8f31")
+	})
+
 	runMaskScopeScenarios(t, ctx, "postgres", datasource, databaseExecutor, counted, allowedTables)
 	runDirectSourceFallbackScenario(t, ctx, "postgres", datasource, counted, allowedTables)
 
@@ -145,10 +164,15 @@ func setupPostgresPipelineSchema(t *testing.T, ctx context.Context, databaseExec
 		`CREATE TABLE orders (id integer PRIMARY KEY, customer_id integer NOT NULL, note text NOT NULL)`,
 		`INSERT INTO orders (id, customer_id, note) VALUES
  (10, 1, 'first note'), (20, 2, 'second note')`,
+		`CREATE TABLE sensitive_rows (id integer PRIMARY KEY, id_card text NOT NULL, legacy_id_card text NOT NULL, pan_plain text NOT NULL, pan_formatted text NOT NULL, client_ip inet NOT NULL, ip_network cidr NOT NULL, birth_date date NOT NULL)`,
+		`INSERT INTO sensitive_rows VALUES
+ (1, '11010519491231002X', '130503670401001', '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29'),
+ (2, 'PG_INVALID_ID_SENTINEL_8f31', '130503670401001', '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29')`,
 		"ANALYZE allowed_rows",
 		"ANALYZE big_rows",
 		"ANALYZE customers",
 		"ANALYZE orders",
+		"ANALYZE sensitive_rows",
 	}
 	for _, statement := range statements {
 		_, err := databaseExecutor.Execute(ctx, statement)
@@ -264,11 +288,24 @@ func newDatabaseE2EPipeline(
 	options ...Option,
 ) (*Pipeline, pipelineE2EPorts) {
 	t.Helper()
-	redactor, err := mask.NewRedactor([]mask.Rule{{
+	return newDatabaseE2EPipelineWithRules(t, datasource, databaseExecutor, agentLevel, allowedTables, []mask.Rule{{
 		Column:        "phone",
 		SensitiveType: mask.TypePhone,
 		Algorithm:     mask.AlgoMask,
-	}})
+	}}, options...)
+}
+
+func newDatabaseE2EPipelineWithRules(
+	t *testing.T,
+	datasource model.Datasource,
+	databaseExecutor executor.Executor,
+	agentLevel string,
+	allowedTables []string,
+	rules []mask.Rule,
+	options ...Option,
+) (*Pipeline, pipelineE2EPorts) {
+	t.Helper()
+	redactor, err := mask.NewRedactor(rules)
 	require.NoError(t, err)
 	agentID := "e2e-" + datasource.DBType + "-" + agentLevel
 	policies := make([]model.Policy, 0, len(allowedTables))
@@ -296,6 +333,33 @@ func newDatabaseE2EPipeline(
 	flow, err := New(ports, testPipelineSecret, options...)
 	require.NoError(t, err)
 	return flow, pipelineE2EPorts{audit: auditRecorder, approvals: approvalWriter}
+}
+
+func sensitiveE2ERules(includePGCIDR bool) []mask.Rule {
+	rules := []mask.Rule{
+		{Column: "id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
+		{Column: "legacy_id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
+		{Column: "pan_plain", SensitiveType: mask.TypeBankCard, Algorithm: mask.AlgoMask},
+		{Column: "pan_formatted", SensitiveType: mask.TypeBankCard, Algorithm: mask.AlgoMask},
+		{Column: "client_ip", SensitiveType: mask.TypeIP, Algorithm: mask.AlgoMask},
+		{Column: "birth_date", SensitiveType: mask.TypeBirthDate, Algorithm: mask.AlgoMask},
+	}
+	if includePGCIDR {
+		rules = append(rules, mask.Rule{Column: "ip_network", SensitiveType: mask.TypeIP, Algorithm: mask.AlgoMask})
+	}
+	return rules
+}
+
+func assertSensitiveE2ENotPresent(t *testing.T, response Response, auditLog model.AuditLog, rawValues []string) {
+	t.Helper()
+	responseJSON, err := json.Marshal(response)
+	require.NoError(t, err)
+	auditJSON, err := json.Marshal(auditLog)
+	require.NoError(t, err)
+	for _, raw := range rawValues {
+		require.NotContains(t, string(responseJSON), raw)
+		require.NotContains(t, string(auditJSON), raw)
+	}
 }
 
 func databaseE2ERequest(datasourceID, sql string) Request {

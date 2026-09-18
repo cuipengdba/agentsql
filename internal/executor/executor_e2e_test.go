@@ -98,17 +98,20 @@ SELECT value, value FROM generate_series(1, 5000) AS value`)
   metadata jsonb NOT NULL,
   labels text[] NOT NULL,
   state executor_order_state NOT NULL,
-  payload bytea NOT NULL
+  payload bytea NOT NULL,
+  client_inet inet NOT NULL,
+  network_cidr cidr NOT NULL
 )`)
 	require.NoError(t, err)
 	_, err = executor.Execute(ctx, `INSERT INTO executor_value_types (
   id, amount, discount, ratio, item_count, active, event_date, created_at, note,
-  external_id, elapsed, metadata, labels, state, payload
+  external_id, elapsed, metadata, labels, state, payload, client_inet, network_cidr
 ) VALUES (
   1, 22.74, NULL, 1.25, 9000000000, true, DATE '2026-09-17',
   TIMESTAMP '2026-09-17 08:09:10.123456', 'paid order',
   '12345678-1234-5678-90ab-cdef12345678', INTERVAL '1 day 02:03:04.005',
-  '{"paid": true}'::jsonb, ARRAY['paid', 'priority'], 'paid', decode('68656c6c6f', 'hex')
+  '{"paid": true}'::jsonb, ARRAY['paid', 'priority'], 'paid', decode('68656c6c6f', 'hex'),
+  '192.0.2.10'::inet, '198.51.100.0/24'::cidr
 )`)
 	require.NoError(t, err)
 
@@ -133,6 +136,13 @@ FROM executor_value_types WHERE id = 1`, 1)
 			require.NotContains(t, cell, "{")
 			require.NotContains(t, cell, "finite")
 		}
+	})
+
+	t.Run("inet cidr and date preserve driver string shapes", func(t *testing.T) {
+		result, err := executor.Query(ctx, `SELECT client_inet, network_cidr, event_date
+FROM executor_value_types WHERE id = 1`, 1)
+		require.NoError(t, err)
+		require.Equal(t, [][]string{{"192.0.2.10/32", "198.51.100.0/24", "2026-09-17T00:00:00Z"}}, result.Rows)
 	})
 
 	t.Run("structured result values are human readable", func(t *testing.T) {
@@ -441,6 +451,19 @@ func TestMySQLExecutorE2E(t *testing.T) {
 	require.NoError(t, err)
 	_, err = executor.Execute(ctx, "ANALYZE TABLE executor_rows")
 	require.NoError(t, err)
+	_, err = executor.Execute(ctx, `CREATE TABLE executor_date_types (
+  id integer PRIMARY KEY,
+  event_date date NOT NULL
+)`)
+	require.NoError(t, err)
+	_, err = executor.Execute(ctx, `INSERT INTO executor_date_types (id, event_date) VALUES (1, DATE '2026-09-17')`)
+	require.NoError(t, err)
+
+	t.Run("date result uses RFC3339Nano string shape", func(t *testing.T) {
+		result, err := executor.Query(ctx, "SELECT event_date FROM executor_date_types WHERE id = 1", 1)
+		require.NoError(t, err)
+		require.Equal(t, [][]string{{"2026-09-17T00:00:00Z"}}, result.Rows)
+	})
 
 	t.Run("decimal result is human readable", func(t *testing.T) {
 		result, err := executor.Query(ctx, "SELECT CAST(22.74 AS DECIMAL(10, 2)) AS amount", 1)

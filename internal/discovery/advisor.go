@@ -7,22 +7,24 @@ const ManualDispositionReason = "当前版本无可用脱敏算法，请人工�
 // Advise maps only combinations that are actually executable by the current
 // mask package. It never uses reserved sensitive types or algorithms.
 func Advise(category Category) (*RecommendedRule, bool, string, error) {
+	var sensitiveType mask.SensitiveType
 	switch category {
 	case CategoryPhone:
-		return &RecommendedRule{
-			SensitiveType: mask.TypePhone,
-			Algo:          mask.AlgoMask,
-		}, true, "", nil
+		sensitiveType = mask.TypePhone
 	case CategoryEmail:
-		return &RecommendedRule{
-			SensitiveType: mask.TypeEmail,
-			Algo:          mask.AlgoMask,
-		}, true, "", nil
-	case CategoryIDCard, CategoryBankCard, CategoryIP, CategoryBirthdate:
-		return nil, false, ManualDispositionReason, nil
+		sensitiveType = mask.TypeEmail
+	case CategoryIDCard:
+		sensitiveType = mask.TypeIDCard
+	case CategoryBankCard:
+		sensitiveType = mask.TypeBankCard
+	case CategoryIP:
+		sensitiveType = mask.TypeIP
+	case CategoryBirthdate:
+		sensitiveType = mask.TypeBirthDate
 	default:
 		return nil, false, "", classified(CodeUnknownCategory, ErrUnknownCategory)
 	}
+	return &RecommendedRule{SensitiveType: sensitiveType, Algo: mask.AlgoMask}, true, "", nil
 }
 
 // ValidateApplicable rejects any category/rule pair that cannot run today.

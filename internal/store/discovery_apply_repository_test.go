@@ -4,9 +4,38 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	repository := opened.MaskRules()
+	drafts := []DiscoveryDraft{
+		{ID: "phone", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+		{ID: "email", ColumnName: "email", SensitiveType: "email", Algo: "mask"},
+		{ID: "idcard", ColumnName: "idcard", SensitiveType: "idcard", Algo: "mask"},
+		{ID: "bankcard", ColumnName: "bankcard", SensitiveType: "bankcard", Algo: "mask"},
+		{ID: "ip", ColumnName: "ip", SensitiveType: "ip", Algo: "mask"},
+		{ID: "birthdate", ColumnName: "birthdate", SensitiveType: "birthdate", Algo: "mask"},
+	}
+	outcome, err := repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", drafts)
+	require.NoError(t, err)
+	require.Len(t, outcome.Created, len(drafts))
+	for _, created := range outcome.Created {
+		require.False(t, created.Enabled)
+		require.Empty(t, created.TableName)
+		require.NotNil(t, created.DatasourceID)
+		require.Equal(t, "ds-1", *created.DatasourceID)
+	}
+
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "unknown", ColumnName: "secret", SensitiveType: "future", Algo: "mask"}})
+	require.ErrorIs(t, err, mask.ErrUnsupportedType)
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "hash", ColumnName: "secret", SensitiveType: "phone", Algo: "hash"}})
+	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+}
 
 func TestApplyDiscoveryDraftsSharedStoreRollsBackWhenAuditFails(t *testing.T) {
 	opened := openTestStore(t)

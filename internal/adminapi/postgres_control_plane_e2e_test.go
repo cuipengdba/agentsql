@@ -14,6 +14,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/discovery"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
@@ -80,12 +81,28 @@ func TestPostgres18ControlPlaneEndToEndE2E(t *testing.T) {
 CREATE TABLE public.customers (
   id integer NOT NULL,
   email text NOT NULL,
-  balance integer NOT NULL
+  balance integer NOT NULL,
+  id_card text NOT NULL,
+  legacy_id_card text NOT NULL,
+  bank_card_plain text NOT NULL,
+  bank_card_formatted text NOT NULL,
+  client_ip inet NOT NULL,
+  ip_network cidr NOT NULL,
+  birth_date date NOT NULL
 )`)
 	require.NoError(t, err)
 	_, err = businessPool.Exec(ctx, `
-INSERT INTO public.customers (id, email, balance)
-VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
+INSERT INTO public.customers (
+  id, email, balance, id_card, legacy_id_card, bank_card_plain, bank_card_formatted,
+  client_ip, ip_network, birth_date
+)
+VALUES
+ (1, 'alice@example.com', 100, '11010519491231002X', '130503670401001',
+  '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29'),
+ (2, 'bob@example.com', 200, '11010519491231002X', '130503670401001',
+  '5555555555554444', '5555-5555-5555-4444', '2001:db8::1', '2001:db8::/48', DATE '1990-01-02'),
+ (3, 'carol@example.com', 300, 'PG_CONTROL_INVALID_ID_SENTINEL_1c93', '130503670401001',
+  '378282246310005', '3782 822463 10005', '203.0.113.9', '203.0.113.0/24', DATE '1988-12-31')`)
 	require.NoError(t, err)
 
 	t.Setenv("AGENTSQL_STORE_METADATA_DSN", metadataDSN)
@@ -103,13 +120,15 @@ VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	require.NoError(t, runtime.Store.Ping(ctx))
 
+	var handlerLogs bytes.Buffer
+	logger := zerolog.New(&handlerLogs)
 	adminHandler, err := NewHandler(Deps{
 		Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: adminPassword,
 		TokenKey: DeriveTokenKey([]byte(adminTestSecret)),
-	}, zerolog.Nop())
+	}, logger)
 	require.NoError(t, err)
 	handler, err := mcpserver.NewHTTPHandler(
-		runtime, cfg, zerolog.Nop(), mcpserver.WithAdminAPI(adminHandler),
+		runtime, cfg, logger, mcpserver.WithAdminAPI(adminHandler),
 	)
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
@@ -126,7 +145,13 @@ VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
 	adminAuthorization := "Bearer " + login.Data.Token
 
 	notificationDelivered := make(chan struct{}, 16)
-	notificationReceiver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	notificationBodies := make(chan []byte, 32)
+	notificationReceiver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		select {
+		case notificationBodies <- body:
+		default:
+		}
 		select {
 		case notificationDelivered <- struct{}{}:
 		default:
@@ -139,7 +164,7 @@ VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
 			"enabled": true, "queue_size": 8,
 			"channels": []map[string]any{{
 				"id": "pg18-webhook", "enabled": true, "kind": "webhook",
-				"decisions": []string{"deny"}, "allow_private_endpoints": true,
+				"decisions": []string{"deny", "allow"}, "allow_private_endpoints": true,
 				"webhook": map[string]any{"template": "generic", "url": notificationReceiver.URL},
 			}},
 		})
@@ -201,8 +226,12 @@ VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
 	queryData := decodeAdminE2EPipelineData(t, queryResponse.Data)
 	require.NotNil(t, queryData.Result)
 	require.Equal(t, []string{"id", "email", "balance"}, queryData.Result.Columns)
-	require.Equal(t, [][]string{{"1", "a***@example.com", "100"}, {"2", "b***@example.com", "200"}}, queryData.Result.Rows)
-	require.Equal(t, 2, queryData.Redact.MaskedCells)
+	require.Equal(t, [][]string{
+		{"1", "a***@example.com", "100"},
+		{"2", "b***@example.com", "200"},
+		{"3", "c***@example.com", "300"},
+	}, queryData.Result.Rows)
+	require.Equal(t, 3, queryData.Redact.MaskedCells)
 	require.Positive(t, queryData.AuditID)
 
 	before := adminE2EBusinessRows(t, ctx, businessPool)
@@ -295,6 +324,177 @@ VALUES (1, 'alice@example.com', 100), (2, 'bob@example.com', 200)`)
 		adminE2EDecisionCounts(dashboard.Data.DecisionDistribution))
 	require.Len(t, dashboard.Data.Trend14D, 1)
 	require.Equal(t, int64(4), dashboard.Data.Trend14D[0].Total)
+
+	// T40-b: the same database-row sentinels cross discovery, disabled draft
+	// persistence, explicit enablement, MCP query redaction, audit/event/SSE
+	// projection, handler logging, and notification projection.
+	rawSentinels := []string{
+		"11010519491231002X", "130503670401001", "4111111111111111", "4111 1111-1111 1111",
+		"192.0.2.10", "192.0.2.10/32", "198.51.100.0/24", "2000-02-29", "2000-02-29T00:00:00Z",
+	}
+	discoverBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
+		"/api/v1/datasources/pg-demo/discover", adminAuthorization, map[string]any{
+			"tables":      []map[string]string{{"schema": "public", "table": "customers"}},
+			"categories":  []string{"idcard", "bankcard", "ip", "birthdate"},
+			"sample_rows": 3,
+		})
+	var discovered adminE2EEnvelope[discovery.ScanResult]
+	require.NoError(t, json.Unmarshal(discoverBody, &discovered))
+	require.Zero(t, discovered.Code)
+	wantedColumns := map[string]bool{
+		"id_card": true, "legacy_id_card": true, "bank_card_plain": true, "bank_card_formatted": true,
+		"client_ip": true, "ip_network": true, "birth_date": true,
+	}
+	applyItems := make([]map[string]any, 0, len(wantedColumns))
+	for _, finding := range discovered.Data.Findings {
+		if !wantedColumns[finding.Column] {
+			continue
+		}
+		require.True(t, finding.Applicable, finding.Column)
+		require.NotNil(t, finding.RecommendedRule, finding.Column)
+		applyItems = append(applyItems, map[string]any{
+			"schema": finding.Schema, "table": finding.Table, "column": finding.Column,
+			"category":       string(finding.Category),
+			"sensitive_type": string(finding.RecommendedRule.SensitiveType),
+			"algo":           string(finding.RecommendedRule.Algo),
+		})
+	}
+	require.Len(t, applyItems, len(wantedColumns), string(discoverBody))
+	managementEvents, cancelManagementEvents := runtime.Events.SubscribeLive()
+	applyBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
+		"/api/v1/datasources/pg-demo/discover/apply", adminAuthorization, map[string]any{"items": applyItems})
+	var applyEvent eventbus.Event
+	select {
+	case applyEvent = <-managementEvents:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for discovery apply management event")
+	}
+	cancelManagementEvents()
+	require.NotNil(t, applyEvent.Audit.Action)
+	require.Equal(t, "discover.apply", *applyEvent.Audit.Action)
+	applyEventJSON, err := json.Marshal(applyEvent)
+	require.NoError(t, err)
+	applyStreamJSON, err := json.Marshal(auditToStreamView(applyEvent.Audit))
+	require.NoError(t, err)
+	applyStreamFrame := fmt.Sprintf("event: audit\nid: %d\ndata:%s\n\n", applyEvent.Audit.ID, applyStreamJSON)
+	for _, raw := range rawSentinels {
+		require.NotContains(t, string(applyEventJSON), raw)
+		require.NotContains(t, applyStreamFrame, raw)
+	}
+	var applied adminE2EEnvelope[discoveryApplyResponse]
+	require.NoError(t, json.Unmarshal(applyBody, &applied))
+	require.Equal(t, len(wantedColumns), applied.Data.Counts.Created)
+
+	storedRules, err := runtime.Store.MaskRules().ListByDatasource(ctx, "pg-demo")
+	require.NoError(t, err)
+	enabledCount := 0
+	for _, storedRule := range storedRules {
+		if !wantedColumns[storedRule.ColumnName] {
+			continue
+		}
+		require.False(t, storedRule.Enabled, storedRule.ColumnName)
+		require.Empty(t, storedRule.TableName)
+		adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPut,
+			"/api/v1/mask_rules/"+storedRule.ID, adminAuthorization, map[string]any{
+				"datasource_id": "pg-demo", "table_name": "", "column_name": storedRule.ColumnName,
+				"sensitive_type": storedRule.SensitiveType, "algo": storedRule.Algo, "enabled": true,
+			})
+		enabledCount++
+	}
+	require.Equal(t, len(wantedColumns), enabledCount)
+
+	for {
+		select {
+		case <-notificationBodies:
+		default:
+			goto notificationsDrained
+		}
+	}
+
+notificationsDrained:
+	events, cancelEvents := runtime.Events.SubscribeLive()
+	defer cancelEvents()
+	sensitiveResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 40,
+		"query", map[string]any{
+			"datasource_id": "pg-demo",
+			"sql":           "SELECT id_card, legacy_id_card, bank_card_plain, bank_card_formatted, client_ip, ip_network, birth_date FROM public.customers WHERE id = 1 LIMIT 1",
+		})
+	require.Equal(t, "allow", sensitiveResponse.Decision)
+	sensitiveData := decodeAdminE2EPipelineData(t, sensitiveResponse.Data)
+	require.NotNil(t, sensitiveData.Result)
+	require.Equal(t, [][]string{{"110105********002X", "130503******001", "411111******1111", "411111******1111", "192.0.*.*", "198.51.*.*", "2000-**-**"}}, sensitiveData.Result.Rows)
+	require.Equal(t, 7, sensitiveData.Redact.MaskedCells)
+	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypeIDCard, 1: mask.TypeIDCard, 2: mask.TypeBankCard, 3: mask.TypeBankCard, 4: mask.TypeIP, 5: mask.TypeIP, 6: mask.TypeBirthDate}, sensitiveData.Redact.TouchedColumns)
+
+	sensitiveResponseJSON, err := json.Marshal(sensitiveResponse)
+	require.NoError(t, err)
+	page, err := runtime.Store.AuditLogs().Page(ctx, 1, 100)
+	require.NoError(t, err)
+	var persistedAudit model.AuditLog
+	for _, candidate := range page.List {
+		if candidate.ID == sensitiveData.AuditID {
+			persistedAudit = candidate
+			break
+		}
+	}
+	require.Equal(t, sensitiveData.AuditID, persistedAudit.ID)
+	persistedAuditJSON, err := json.Marshal(persistedAudit)
+	require.NoError(t, err)
+	var queryEvent eventbus.Event
+	select {
+	case queryEvent = <-events:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sensitive query audit event")
+	}
+	require.Equal(t, sensitiveData.AuditID, queryEvent.Audit.ID)
+	eventJSON, err := json.Marshal(queryEvent)
+	require.NoError(t, err)
+	streamFrameJSON, err := json.Marshal(auditToStreamView(queryEvent.Audit))
+	require.NoError(t, err)
+	streamFrame := fmt.Sprintf("event: audit\nid: %d\ndata:%s\n\n", queryEvent.Audit.ID, streamFrameJSON)
+	for _, raw := range rawSentinels {
+		require.NotContains(t, string(discoverBody), raw)
+		require.NotContains(t, string(applyBody), raw)
+		require.NotContains(t, string(sensitiveResponseJSON), raw)
+		require.NotContains(t, string(persistedAuditJSON), raw)
+		require.NotContains(t, string(eventJSON), raw)
+		require.NotContains(t, streamFrame, raw)
+		require.NotContains(t, handlerLogs.String(), raw)
+	}
+
+	notificationDeadline := time.NewTimer(2 * time.Second)
+	defer notificationDeadline.Stop()
+	for {
+		select {
+		case notificationBody := <-notificationBodies:
+			var projected map[string]any
+			require.NoError(t, json.Unmarshal(notificationBody, &projected))
+			if projected["audit_id"] != float64(sensitiveData.AuditID) {
+				continue
+			}
+			for _, raw := range rawSentinels {
+				require.NotContains(t, string(notificationBody), raw)
+			}
+			require.NotContains(t, projected, "result")
+			require.NotContains(t, projected, "redact")
+			goto notificationVerified
+		case <-notificationDeadline.C:
+			t.Fatal("timed out waiting for sensitive query notification")
+		}
+	}
+
+notificationVerified:
+
+	fallbackResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 41,
+		"query", map[string]any{
+			"datasource_id": "pg-demo",
+			"sql":           "SELECT id_card FROM public.customers WHERE id = 3 LIMIT 1",
+		})
+	fallbackData := decodeAdminE2EPipelineData(t, fallbackResponse.Data)
+	require.Equal(t, [][]string{{mask.RedactedFallback}}, fallbackData.Result.Rows)
+	fallbackJSON, err := json.Marshal(fallbackResponse)
+	require.NoError(t, err)
+	require.NotContains(t, string(fallbackJSON), "PG_CONTROL_INVALID_ID_SENTINEL_1c93")
 }
 
 type adminE2EEnvelope[T any] struct {

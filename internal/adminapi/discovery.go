@@ -311,24 +311,24 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 		if !safeExternalIdentifier(raw.Schema) || !safeExternalIdentifier(raw.Table) || !safeExternalIdentifier(raw.Column) {
 			return nil, nil, "DISCOVERY_INVALID_IDENTIFIER"
 		}
-		category := strings.ToLower(strings.TrimSpace(raw.Category))
-		sensitiveType := strings.ToLower(strings.TrimSpace(raw.SensitiveType))
-		algo := strings.ToLower(strings.TrimSpace(raw.Algo))
-		if (category != "phone" && category != "email") || sensitiveType != category || algo != "mask" {
+		category := discovery.Category(strings.ToLower(strings.TrimSpace(raw.Category)))
+		sensitiveType := mask.SensitiveType(strings.ToLower(strings.TrimSpace(raw.SensitiveType)))
+		algo := mask.Algorithm(strings.ToLower(strings.TrimSpace(raw.Algo)))
+		if sensitiveType != mask.SensitiveType(category) || discovery.ValidateApplicable(category, discovery.RecommendedRule{SensitiveType: sensitiveType, Algo: algo}) != nil {
 			return nil, nil, "DISCOVERY_NOT_APPLICABLE"
 		}
 		column := mask.NormalizeColumnName(raw.Column)
 		if column == "" {
 			return nil, nil, "DISCOVERY_INVALID_IDENTIFIER"
 		}
-		view := discoveryApplyItemView{Schema: raw.Schema, Table: raw.Table, Column: column, Category: category, SensitiveType: sensitiveType, Algo: algo}
+		view := discoveryApplyItemView{Schema: raw.Schema, Table: raw.Table, Column: column, Category: string(category), SensitiveType: string(sensitiveType), Algo: string(algo)}
 		current := byColumn[column]
 		if current == nil {
 			byColumn[column] = &aggregate{group: canonicalApplyGroup{item: view, key: column}}
 			order = append(order, column)
 			continue
 		}
-		if current.group.item.Category != category || current.group.item.SensitiveType != sensitiveType || current.group.item.Algo != algo {
+		if current.group.item.Category != string(category) || current.group.item.SensitiveType != string(sensitiveType) || current.group.item.Algo != string(algo) {
 			current.ambiguous = true
 		}
 	}
