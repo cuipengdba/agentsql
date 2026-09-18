@@ -248,7 +248,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ### 预编译二进制系统要求
 
-官方 linux/amd64 预编译二进制在 RHEL/Rocky/AlmaLinux 8（glibc 2.28）工具链中构建，适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本。已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；不宣称已在 CentOS 7（glibc 2.17）验证。
+官方 linux/amd64 预编译二进制在 RHEL/Rocky/AlmaLinux 8（glibc 2.28）工具链中构建，适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本。已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；CentOS 7（glibc 2.17）明确不支持。
 
 预编译二进制不支持 musl（Alpine）或非 x86_64 架构。这些环境请使用基于 Debian bookworm、内含 glibc 的容器镜像，或在目标机运行 `make build` 本机编译。可用 `make docker-linux-amd64 VERSION=v0.2.0` 复现官方二进制；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。
 
@@ -272,6 +272,44 @@ $env:AGENTSQL_ADMIN_USER = 'admin'
 $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $passwordRng.GetBytes($passwordBytes); $env:AGENTSQL_ADMIN_PASSWORD = [Convert]::ToBase64String($passwordBytes); $passwordRng.Dispose()
 ./bin/agentsql.exe serve -c config.yaml
 ```
+
+## 一键安装（推荐）
+
+一键安装器只支持 Linux x86_64、glibc 2.28+。普通安装还要求 systemd 为 PID 1；Alpine/musl、CentOS 7、ARM64 和其他非 x86_64 主机不会进入下载、解压或系统变更阶段。ARM 主机即使运行 x86 容器，也需要宿主正确配置仿真。推荐命令：
+
+```bash
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
+```
+
+安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。
+
+常用生命周期命令：
+
+```bash
+sudo ./install.sh install --version v0.2.0
+sudo ./install.sh upgrade --version v0.2.1
+sudo ./install.sh uninstall
+sudo ./install.sh uninstall --purge --yes
+```
+
+默认卸载只删除两个二进制和 unit，保留 `/etc/agentsql`、`/var/lib/agentsql` 及系统账号。升级快照保存在 root 专用的 `/var/backups/agentsql`，即使 `--purge` 也会保留，确认不再需要后应由管理员单独归档或清理。`--purge` 只删除前述配置和数据两个固定目录，不跟随配置中的外部数据库、证书或其他路径；非交互环境必须同时传 `--yes`。只有账号确由安装器创建且已无其他文件归属时，额外的 `--remove-user` 才会删除它。失败升级留下的快照中，`agentsql.db` 等文件保留了 agentsql 属主（用于原样回滚），因此 `uninstall --purge --remove-user` 会据此拒绝删账号并点名残留文件；确认快照不再需要后，先执行 `sudo chown -R root:root /var/backups/agentsql`（或归档后删除该目录）再重跑卸载命令，即可连同系统账号一并删除。全新安装、从未发生过失败升级的主机不存在该快照，`uninstall --purge --yes --remove-user` 可一次清空二进制、unit、配置、数据和账号。
+
+离线安装可把已解压包目录传给 `--from`，或传入 tarball；传 tarball 时同目录必须有 `<tarball>.sha256`。从发布包根执行 `sudo ./install.sh install` 会自动使用当前已校验的包，不访问网络：
+
+```bash
+sudo ./install.sh install --from /srv/releases/agentsql-v0.2.0-linux-amd64
+sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.2.1-linux-amd64.tar.gz
+```
+
+`--no-start` 只用于 chroot 或镜像预安装：允许在 systemd 不是 PID 1 时写入文件，但不会启动或健康检查，安装结果在 systemd 成功启动前不可用。升级默认只自动备份 `/var/lib/agentsql/agentsql.db` 及其 `-wal`、`-shm`；使用 PostgreSQL 控制面或自定义 SQLite 路径时，必须先完成外部一致性备份并明确传 `--external-backup-done`，安装器不会声称已备份外部数据库。若外部数据库升级后的健康检查失败，安装器会恢复二进制、unit、配置和环境文件，但会让旧服务保持停止；操作者必须先恢复外部数据库快照，再启动旧版本。
+
+下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-amd64.tar.gz[.sha256]` 提供同源文件。建议同时明确 `--version`，例如：
+
+```bash
+sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.2.0
+```
+
+安装器若发现 `restorecon` 会恢复二进制、unit、配置和数据目录的 SELinux 默认上下文，不调用 `chcon`、不关闭 enforcing；遇到拒绝时用 `ausearch -m AVC` 调查。发布 tarball 的许可证位于包根 `LICENSE`，容器镜像内位于 `/usr/share/licenses/agentsql/LICENSE`。
 
 ## 方式三：systemd
 
@@ -330,6 +368,33 @@ curl --fail http://127.0.0.1:7780/readyz
 升级前先执行完整备份，然后停止当前实例、替换两个二进制或容器镜像并重新启动。AgentSQL 启动时会自动、幂等地执行尚未应用的 SQLite migration。
 
 回滚不是只替换二进制：停止服务，将二进制或镜像恢复到旧版本，同时恢复升级前的 SQLite 备份，再启动服务。不要让旧版本直接读取已被新版本迁移且不兼容的数据库。
+
+## 发布与分发
+
+发布者应按以下顺序构建、验证并分发同一版本。正式发布建议把 `ROCKY_IMAGE` 固定到审核过的 `rockylinux:8@sha256:...`，默认值仍为 `rockylinux:8`：
+
+```bash
+make docker-linux-amd64 VERSION=v0.2.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
+make package-release VERSION=v0.2.0
+sh scripts/push-release-image.sh v0.2.0
+```
+
+发布镜像脚本要求操作者先执行 `docker login ghcr.io`，默认只推精确版本 tag；只有显式加 `--latest` 才会移动 latest。之后必须按顺序完成：
+
+1. 在 GHCR 将 `ghcr.io/cuipengdba/agentsql` package 设为 public。
+2. 在没有 GHCR 登录状态的干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.2.0`，核对架构为 amd64，并以回环端口启动、等待 health 为 healthy。
+3. 把 `dist/agentsql-v0.2.0-linux-amd64.tar.gz`、同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。
+4. 再次下载 Release 资产，校验外层 SHA-256、包内 `SHA256SUMS` 和两个二进制版本，全部通过后发布 Release。
+
+`scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。
+
+| 环境 | 原生发布包 | Docker 快速启动 |
+| --- | --- | --- |
+| x86_64 + glibc 2.28+ + systemd PID 1 | 支持 | 支持 |
+| x86_64 + glibc 2.28+，无 systemd PID 1 | 仅 `--no-start` 预安装 | 支持 |
+| CentOS 7 / glibc 2.17 | 不支持 | 使用 Debian/glibc 镜像 |
+| Alpine / musl | 不支持 | 使用 Debian/glibc 镜像 |
+| ARM64 或其他非 x86_64 | 无原生包 | 本快速脚本不支持；自行配置 x86 仿真 |
 
 ## 备份铁律
 

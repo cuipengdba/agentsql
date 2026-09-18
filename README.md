@@ -22,68 +22,54 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 可追溯运维：默认零配置 SQLite、可选 PostgreSQL 15+ 元数据/审计控制面、审计导出、审批闭环、Prometheus 指标与健康/就绪探针。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
 
-## 5 分钟快速开始：Docker Compose + SQLite
+## 5 分钟快速开始
 
-前置条件：Docker 与 Docker Compose；默认只启动 AgentSQL，元数据和审计写入命名卷 `agentsql-data` 中的 `/var/lib/agentsql/agentsql.db`，避免 Linux 宿主 bind mount 产生 root 权限文件。
+以下三条路径都默认只在宿主机回环地址监听。自动安装器生成的是持久使用的**管理员密码**，不是一次性口令；远程访问请使用 SSH 本地转发，例如 `ssh -L 7780:127.0.0.1:7780 user@server`，不要直接向公网暴露 7780。
 
-1. 创建本地环境文件。
+### 1. Linux 裸机一行安装（推荐）
 
-```bash
-cp examples/docker/.env.example .env
-```
-
-2. 生成自己的 SECRET 与强管理员口令并填入 `.env`。不要提交 `.env` 或任何真实凭据。
-
-Bash：
+要求 x86_64、glibc 2.28+ 且 systemd 为 PID 1；安装器会校验发布包外层与包内哈希，并安装为 systemd 服务：
 
 ```bash
-openssl rand -base64 24   # 填入 AGENTSQL_SECRET，输出恰好 32 个 ASCII 字节
-openssl rand -base64 24   # 填入 AGENTSQL_ADMIN_PASSWORD
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-PowerShell（分别执行两次并填写两个变量）：
-
-```powershell
-$bytes = [byte[]]::new(24); $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); [Convert]::ToBase64String($bytes); $rng.Dispose()
-```
-
-3. 启动并打开控制台。
+管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
 ```bash
-docker compose up -d --build
-docker compose ps
+sha256sum -c agentsql-v0.2.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.2.0-linux-amd64.tar.gz
+cd agentsql-v0.2.0-linux-amd64
+sudo ./install.sh install
 ```
 
-访问 <http://127.0.0.1:7780>，用 `.env` 中的 `AGENTSQL_ADMIN_USER` 和 `AGENTSQL_ADMIN_PASSWORD` 登录。Compose 只在宿主机回环地址暴露端口。
+### 2. Docker 一行启动
 
-需要同时启动 Prometheus 与零手工配置的 Grafana 六面板时，可从仓库根目录一条命令起栈（实际部署请换成自行生成并保存的随机值）：
+脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag，生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
-AGENTSQL_SECRET='N7vK2mQ9xR4tY8pL6cW3sD5fH1jB0zUa' \
-AGENTSQL_ADMIN_PASSWORD='S9afe-Admin-Passphrase-2026' \
-docker compose --profile observability up -d --build
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh
 ```
 
-完整说明见 [可观测性示例](examples/observability/README.md)。
-
-> `AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份。直接更换 SECRET 会让既有数据源口令无法解密，不是无损轮换。
-
-生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库（开发、Compose 与 CI 基准为 PostgreSQL 18），并用 `agentsqlctl migrate-sqlite-to-postgres` 从默认 combined SQLite 搬迁。PostgreSQL 控制面定义在需显式叠加的 `docker-compose.controlplane.yml` 中，其中服务仍带 `controlplane` profile；默认 `docker compose up` 只启动 SQLite 网关。完整命令、一次性迁移账号、最小权限运行账号和备份/回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
-
-## 5 分钟本地 Live Demo（一条命令）
-
-这套独立环境只连接仓库生成的 PostgreSQL/MySQL 合成数据，不连接真实数据库。先复制环境样例并替换其中全部公开凭据：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
-cp examples/docker/demo.env.example demo/demo.env
-bash ./demo/reset.sh
+export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.2.0
+```
+
+### 3. 本地 Live Demo（一条命令）
+
+这套独立环境只连接仓库生成的 PostgreSQL/MySQL 合成数据，不连接真实数据库。复制环境样例、替换其中全部公开凭据后运行：
+
+```bash
+cp examples/docker/demo.env.example demo/demo.env && bash ./demo/reset.sh
 ```
 
 Windows PowerShell：
 
 ```powershell
-Copy-Item examples/docker/demo.env.example demo/demo.env
-.\demo\reset.ps1
+Copy-Item examples/docker/demo.env.example demo/demo.env; .\demo\reset.ps1
 ```
 
 打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、phone/email 脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
@@ -116,9 +102,33 @@ Copy-Item examples/docker/demo.env.example demo/demo.env
 
 凭据替换、手工 Compose 命令、每日 UTC 重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
 
-## 二进制方式
+## 其他安装方式（源码构建、离线与审计环境）
 
-构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
+需要审计每一步、修改 Compose 配置或从源码构建时，可继续使用原有流程。Docker Compose 默认只启动 AgentSQL，元数据和审计写入命名卷 `agentsql-data` 中的 `/var/lib/agentsql/agentsql.db`：
+
+```bash
+cp examples/docker/.env.example .env
+openssl rand -base64 24   # 填入 AGENTSQL_SECRET，输出恰好 32 个 ASCII 字节
+openssl rand -base64 24   # 填入 AGENTSQL_ADMIN_PASSWORD
+docker compose up -d --build
+docker compose ps
+```
+
+PowerShell 可分别执行两次以下命令并填写两个变量：
+
+```powershell
+$bytes = [byte[]]::new(24); $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); [Convert]::ToBase64String($bytes); $rng.Dispose()
+```
+
+访问 <http://127.0.0.1:7780>。Compose 也只在宿主机回环地址暴露端口。需要可观测性栈时，先在环境中设置自行生成并保存的随机值，再运行：
+
+```bash
+docker compose --profile observability up -d --build
+```
+
+完整说明见 [可观测性示例](examples/observability/README.md)。`AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份；直接更换 SECRET 会让既有数据源口令无法解密。生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库，完整迁移、最小权限和回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
+
+源码二进制构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
 make build VERSION=v0.2.0

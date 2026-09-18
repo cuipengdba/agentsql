@@ -28,6 +28,12 @@ RUN mkdir -p /out \
 
 FROM debian:bookworm-slim AS runtime
 
+ARG VERSION=v0.2.0
+LABEL org.opencontainers.image.title="AgentSQL" \
+      org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}"
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
@@ -39,6 +45,7 @@ RUN apt-get update \
 COPY --from=build /out/agentsql /usr/local/bin/agentsql
 COPY --from=build /out/agentsqlctl /usr/local/bin/agentsqlctl
 COPY examples/docker/config.yaml /etc/agentsql/config.yaml
+COPY LICENSE /usr/share/licenses/agentsql/LICENSE
 
 USER agentsql
 WORKDIR /var/lib/agentsql

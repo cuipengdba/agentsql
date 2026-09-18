@@ -12,6 +12,7 @@ data/
 *.so
 *.dylib
 bin/
+dist/
 .gocache/
 
 # Web
