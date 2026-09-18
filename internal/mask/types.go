@@ -8,17 +8,27 @@ type SensitiveType string
 const (
 	TypePhone SensitiveType = "phone"
 	TypeEmail SensitiveType = "email"
-	// Reserved for a future release. NewRedactor rejects these in v0.1.
-	TypeIDCard   SensitiveType = "idcard"
+	// TypeIDCard masks recognized 15-digit and 18-digit identity-card text.
+	TypeIDCard SensitiveType = "idcard"
+	// TypeBankCard masks recognized 13-to-19-digit payment-card text.
 	TypeBankCard SensitiveType = "bankcard"
+	// TypeIP masks recognized IPv4, IPv6, inet, and CIDR text.
+	TypeIP SensitiveType = "ip"
+	// TypeBirthDate masks recognized calendar dates and supported timestamps.
+	TypeBirthDate SensitiveType = "birthdate"
 )
+
+// RedactedFallback is the fail-closed output for a non-empty value whose
+// representation cannot be recognized by its configured masking rule.
+const RedactedFallback = "[REDACTED]"
 
 // Algorithm identifies the redaction algorithm applied to a value.
 type Algorithm string
 
 const (
 	AlgoMask Algorithm = "mask"
-	// Reserved for a future release. NewRedactor rejects these in v0.1.
+	// These algorithms are reserved capabilities. NewRedactor currently
+	// accepts only AlgoMask for execution.
 	AlgoHash  Algorithm = "hash"
 	AlgoRange Algorithm = "range"
 	AlgoBlock Algorithm = "block"
@@ -40,9 +50,9 @@ type RedactReport struct {
 }
 
 var (
-	// ErrUnsupportedType indicates a sensitive type not implemented in v0.1.
+	// ErrUnsupportedType indicates a sensitive type not supported by masking.
 	ErrUnsupportedType = errors.New("unsupported sensitive type")
-	// ErrUnsupportedAlgorithm indicates an algorithm not implemented in v0.1.
+	// ErrUnsupportedAlgorithm indicates an algorithm not available for execution.
 	ErrUnsupportedAlgorithm = errors.New("unsupported masking algorithm")
 	// ErrDuplicateMaskColumn indicates duplicate normalized rule columns.
 	ErrDuplicateMaskColumn = errors.New("duplicate mask column")

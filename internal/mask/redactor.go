@@ -43,7 +43,7 @@ func NewRedactor(rules []Rule) (Redactor, error) {
 		if column == "" {
 			return nil, fmt.Errorf("mask rule %d: column is required", index)
 		}
-		if rule.SensitiveType != TypePhone && rule.SensitiveType != TypeEmail {
+		if !isSupportedSensitiveType(rule.SensitiveType) {
 			return nil, fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
 		}
 		if rule.Algorithm != AlgoMask {
@@ -59,8 +59,8 @@ func NewRedactor(rules []Rule) (Redactor, error) {
 		if validated[left].column != validated[right].column {
 			return validated[left].column < validated[right].column
 		}
-		leftPriority := sensitiveTypePriority(validated[left].sensitiveType)
-		rightPriority := sensitiveTypePriority(validated[right].sensitiveType)
+		leftPriority := SensitiveTypeOrder(validated[left].sensitiveType)
+		rightPriority := SensitiveTypeOrder(validated[right].sensitiveType)
 		if leftPriority != rightPriority {
 			return leftPriority < rightPriority
 		}
@@ -79,11 +79,34 @@ func NewRedactor(rules []Rule) (Redactor, error) {
 	return &resultRedactor{rules: compiled}, nil
 }
 
-func sensitiveTypePriority(sensitiveType SensitiveType) int {
-	if sensitiveType == TypePhone {
+// SensitiveTypeOrder returns the shared deterministic sort key: phone, email,
+// idcard, bankcard, ip, then birthdate. Unknown types sort after them.
+func SensitiveTypeOrder(sensitiveType SensitiveType) int {
+	switch sensitiveType {
+	case TypePhone:
 		return 0
+	case TypeEmail:
+		return 1
+	case TypeIDCard:
+		return 2
+	case TypeBankCard:
+		return 3
+	case TypeIP:
+		return 4
+	case TypeBirthDate:
+		return 5
+	default:
+		return 6
 	}
-	return 1
+}
+
+func isSupportedSensitiveType(sensitiveType SensitiveType) bool {
+	switch sensitiveType {
+	case TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate:
+		return true
+	default:
+		return false
+	}
 }
 
 func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResult, RedactReport) {
@@ -140,6 +163,14 @@ func applyRule(rule redactorRule, value string) (string, bool) {
 		return maskPhone(value)
 	case TypeEmail:
 		return maskEmail(value)
+	case TypeIDCard:
+		return maskIDCard(value)
+	case TypeBankCard:
+		return maskBankCard(value)
+	case TypeIP:
+		return maskIP(value)
+	case TypeBirthDate:
+		return maskBirthDate(value)
 	default:
 		return value, false
 	}

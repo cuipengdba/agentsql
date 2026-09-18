@@ -276,13 +276,8 @@ func TestNewRedactorValidation(t *testing.T) {
 		err   error
 	}{
 		{
-			name:  "idcard is unsupported",
-			rules: []Rule{{Column: "id", SensitiveType: TypeIDCard, Algorithm: AlgoMask}},
-			err:   ErrUnsupportedType,
-		},
-		{
-			name:  "bankcard is unsupported",
-			rules: []Rule{{Column: "card", SensitiveType: TypeBankCard, Algorithm: AlgoMask}},
+			name:  "unknown type is unsupported",
+			rules: []Rule{{Column: "value", SensitiveType: SensitiveType("unknown"), Algorithm: AlgoMask}},
 			err:   ErrUnsupportedType,
 		},
 		{
@@ -319,6 +314,20 @@ func TestNewRedactorValidation(t *testing.T) {
 	}
 }
 
+func TestNewRedactorAcceptsAllSupportedTypes(t *testing.T) {
+	types := []SensitiveType{TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate}
+	for _, sensitiveType := range types {
+		t.Run(string(sensitiveType), func(t *testing.T) {
+			_, err := NewRedactor([]Rule{{
+				Column:        "value",
+				SensitiveType: sensitiveType,
+				Algorithm:     AlgoMask,
+			}})
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestNewRedactorDeterministicallyMergesSameColumn(t *testing.T) {
 	for _, rules := range [][]Rule{
 		{
@@ -340,6 +349,94 @@ func TestNewRedactorDeterministicallyMergesSameColumn(t *testing.T) {
 		require.Equal(t, TypePhone, report.TouchedColumns[0])
 	}
 	require.Equal(t, "phone", NormalizeColumnName(` "PHONE" `))
+}
+
+func TestSensitiveTypeOrderAndSameColumnDeduplication(t *testing.T) {
+	tests := []struct {
+		name     string
+		rules    []SensitiveType
+		input    string
+		expected string
+		selected SensitiveType
+	}{
+		{name: "phone before every type", rules: []SensitiveType{TypeBirthDate, TypeIP, TypeBankCard, TypeIDCard, TypeEmail, TypePhone}, input: "13812345678", expected: "138****5678", selected: TypePhone},
+		{name: "email before later types", rules: []SensitiveType{TypeBirthDate, TypeIP, TypeBankCard, TypeIDCard, TypeEmail}, input: "user@example.com", expected: "u***@example.com", selected: TypeEmail},
+		{name: "idcard before later types", rules: []SensitiveType{TypeBirthDate, TypeIP, TypeBankCard, TypeIDCard}, input: "11010519491231002X", expected: "110105********002X", selected: TypeIDCard},
+		{name: "bankcard before later types", rules: []SensitiveType{TypeBirthDate, TypeIP, TypeBankCard}, input: "4111111111111111", expected: "411111******1111", selected: TypeBankCard},
+		{name: "ip before birthdate", rules: []SensitiveType{TypeBirthDate, TypeIP}, input: "192.168.1.20", expected: "192.168.*.*", selected: TypeIP},
+		{name: "birthdate last", rules: []SensitiveType{TypeBirthDate}, input: "2000-02-29", expected: "2000-**-**", selected: TypeBirthDate},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rules := make([]Rule, 0, len(test.rules))
+			for _, sensitiveType := range test.rules {
+				rules = append(rules, Rule{Column: "shared", SensitiveType: sensitiveType, Algorithm: AlgoMask})
+			}
+			redactor, err := NewRedactor(rules)
+			require.NoError(t, err)
+			result, report := redactor.Apply(model.QueryResult{Columns: []string{"shared"}, Rows: [][]string{{test.input}}})
+			require.Equal(t, test.expected, result.Rows[0][0])
+			require.Equal(t, map[int]SensitiveType{0: test.selected}, report.TouchedColumns)
+			require.Equal(t, 1, report.MaskedCells)
+		})
+	}
+
+	require.Equal(t, []int{0, 1, 2, 3, 4, 5}, []int{
+		SensitiveTypeOrder(TypePhone),
+		SensitiveTypeOrder(TypeEmail),
+		SensitiveTypeOrder(TypeIDCard),
+		SensitiveTypeOrder(TypeBankCard),
+		SensitiveTypeOrder(TypeIP),
+		SensitiveTypeOrder(TypeBirthDate),
+	})
+	require.Equal(t, 6, SensitiveTypeOrder(SensitiveType("unknown")))
+}
+
+func TestAdditionalTypesReportAndFailClosedBehavior(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{
+		{Column: "id", SensitiveType: TypeIDCard, Algorithm: AlgoMask},
+		{Column: "card", SensitiveType: TypeBankCard, Algorithm: AlgoMask},
+		{Column: "address", SensitiveType: TypeIP, Algorithm: AlgoMask},
+		{Column: "birthday", SensitiveType: TypeBirthDate, Algorithm: AlgoMask},
+	})
+	require.NoError(t, err)
+	input := model.QueryResult{
+		Columns: []string{"id", "card", "address", "birthday"},
+		Rows: [][]string{
+			{"11010519491231002x", "4111 1111-1111 1111", "2001:db8::1", "2000-02-29T08:09:10.123+08:00"},
+			{"invalid-id", "invalid-card", "host:443", "2001-02-29"},
+			{"NULL", "", "<nil>", " null "},
+		},
+	}
+
+	result, report := redactor.Apply(input)
+	require.Equal(t, []string{"110105********002X", "411111******1111", "2001:0db8:****", "2000-**-**"}, result.Rows[0])
+	require.Equal(t, []string{RedactedFallback, RedactedFallback, RedactedFallback, RedactedFallback}, result.Rows[1])
+	require.Equal(t, input.Rows[2], result.Rows[2])
+	require.Equal(t, map[int]SensitiveType{
+		0: TypeIDCard,
+		1: TypeBankCard,
+		2: TypeIP,
+		3: TypeBirthDate,
+	}, report.TouchedColumns)
+	require.Equal(t, 8, report.MaskedCells)
+	require.Equal(t, "11010519491231002x", input.Rows[0][0])
+	result.Rows[0][0] = "changed"
+	require.Equal(t, "11010519491231002x", input.Rows[0][0])
+}
+
+func TestAdditionalTypesPreserveSourceAwareMatching(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{Column: "identity", SensitiveType: TypeIDCard, Algorithm: AlgoMask}})
+	require.NoError(t, err)
+	sourceAware := redactor.(SourceAwareRedactor)
+	input := model.QueryResult{Columns: []string{"alias"}, Rows: [][]string{{"11010519491231002X"}}}
+
+	output, report := sourceAware.ApplyWithSourceColumns(input, []string{"identity"})
+
+	require.Equal(t, "110105********002X", output.Rows[0][0])
+	require.Equal(t, map[int]SensitiveType{0: TypeIDCard}, report.TouchedColumns)
+	require.Equal(t, 1, report.MaskedCells)
+	require.Equal(t, "11010519491231002X", input.Rows[0][0])
 }
 
 func TestEmptyRulesReturnIndependentEquivalentCopy(t *testing.T) {
@@ -376,6 +473,6 @@ func TestRedactorHandlesShortRowsAndTypedNil(t *testing.T) {
 func TestUnsupportedErrorsAreErrorsIsCompatible(t *testing.T) {
 	_, err := NewRedactor([]Rule{{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoHash}})
 	require.True(t, errors.Is(err, ErrUnsupportedAlgorithm))
-	_, err = NewRedactor([]Rule{{Column: "id", SensitiveType: TypeIDCard, Algorithm: AlgoMask}})
+	_, err = NewRedactor([]Rule{{Column: "value", SensitiveType: SensitiveType("unknown"), Algorithm: AlgoMask}})
 	require.True(t, errors.Is(err, ErrUnsupportedType))
 }
