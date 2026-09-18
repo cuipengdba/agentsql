@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -58,6 +59,7 @@ type Store struct {
 	auditDriver   Dialect
 	auditSeparate bool
 	cipher        *PasswordCipher
+	applyMu       sync.Mutex
 }
 
 // Ping verifies both targets. A shared connection is pinged exactly once.
@@ -341,7 +343,11 @@ func (store *Store) Rules() *RuleRepository {
 
 // MaskRules returns the mask-rule repository.
 func (store *Store) MaskRules() *MaskRuleRepository {
-	return &MaskRuleRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+	return &MaskRuleRepository{
+		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
+		auditDB:        store.auditDB, auditDialect: store.auditDriver,
+		auditSeparate: store.auditSeparate, applyMu: &store.applyMu,
+	}
 }
 
 // AuditLogs returns the append-only repository bound to the audit target.

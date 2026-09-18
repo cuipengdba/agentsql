@@ -1,0 +1,233 @@
+package controlledread
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cuipengdba/agentsql/internal/discovery"
+	"github.com/cuipengdba/agentsql/internal/executor"
+	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rules"
+	"github.com/cuipengdba/agentsql/internal/store"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
+	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
+)
+
+func TestDiscoveryMySQL8EndToEndE2E(t *testing.T) {
+	ctx := controlledReadDockerContext(t)
+	const database, username, password = "agentsql_discovery", "root", "agentsql-password"
+	container, err := mysqlcontainer.Run(ctx, "mysql:8", mysqlcontainer.WithDatabase(database), mysqlcontainer.WithUsername(username), mysqlcontainer.WithPassword(password))
+	if err != nil {
+		if container != nil {
+			testcontainers.CleanupContainer(t, container)
+		}
+		require.NoError(t, err, "start mysql:8 after successful Docker probe")
+	}
+	testcontainers.CleanupContainer(t, container)
+	host, err := container.Host(ctx)
+	require.NoError(t, err)
+	port, err := container.MappedPort(ctx, "3306/tcp")
+	require.NoError(t, err)
+	datasource := model.Datasource{ID: "discovery-mysql8", DBType: "mysql", Host: host, Port: port.Int(), Database: database, Username: username, ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}
+	writer, err := executor.NewMySQLExecutor(ctx, datasource, password, false)
+	require.NoError(t, err)
+	defer writer.Close()
+	for _, statement := range []string{
+		"CREATE TABLE customers (id INT PRIMARY KEY, phone VARCHAR(32), email VARCHAR(128), description TEXT)",
+		"INSERT INTO customers VALUES (1,'13812345678','a@example.com','" + discoveryE2ESentinel + "'),(2,'13987654321','b@example.com','ordinary'),(3,'13711112222','c@example.com','ordinary')",
+	} {
+		_, err = writer.Execute(ctx, statement)
+		require.NoError(t, err)
+	}
+
+	t.Run("information_schema backticks LIMIT and discovery", func(t *testing.T) {
+		service := newDatabaseDiscoveryService(t, datasource, password)
+		result, err := service.Discover(ctx, "mysql-admin", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: database, Table: "customers"}}, SampleRows: 3})
+		require.NoError(t, err)
+		require.Equal(t, 4, result.Stats.ColumnsSeen)
+		require.Equal(t, 2, result.Stats.CandidateColumns)
+		require.NotEmpty(t, result.Findings)
+		require.NotContains(t, fmt.Sprintf("%v", result), discoveryE2ESentinel)
+	})
+	t.Run("sampling false performs zero sample reads", func(t *testing.T) {
+		service := newDatabaseDiscoveryService(t, datasource, password)
+		no := false
+		result, err := service.Discover(ctx, "mysql-no-sample", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: database, Table: "customers"}}, Sampling: &no})
+		require.NoError(t, err)
+		require.Zero(t, result.Stats.SampledColumns)
+		require.Zero(t, result.Stats.SampledValuesCount)
+	})
+	t.Run("1142 permission sentinel", func(t *testing.T) {
+		err := mysqlDatabasePermissionProbe(ctx, datasource, password)
+		require.ErrorIs(t, err, executor.ErrPermissionDenied)
+		require.NotContains(t, err.Error(), discoveryE2ESentinel)
+	})
+}
+
+func TestDiscoveryPostgres18EndToEndE2E(t *testing.T) {
+	ctx := controlledReadDockerContext(t)
+	const database, username, password = "agentsql_discovery", "agentsql", "agentsql-password"
+	container, err := postgrescontainer.Run(ctx, "postgres:18", postgrescontainer.WithDatabase(database), postgrescontainer.WithUsername(username), postgrescontainer.WithPassword(password), postgrescontainer.BasicWaitStrategies())
+	if err != nil {
+		if container != nil {
+			testcontainers.CleanupContainer(t, container)
+		}
+		require.NoError(t, err, "start postgres:18 after successful Docker probe")
+	}
+	testcontainers.CleanupContainer(t, container)
+	host, err := container.Host(ctx)
+	require.NoError(t, err)
+	port, err := container.MappedPort(ctx, "5432/tcp")
+	require.NoError(t, err)
+	datasource := model.Datasource{ID: "discovery-pg18", DBType: "postgres", Host: host, Port: port.Int(), Database: database, Username: username, ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}
+	writer, err := executor.NewPostgresExecutor(ctx, datasource, password, false)
+	require.NoError(t, err)
+	defer writer.Close()
+	for _, statement := range []string{
+		"CREATE SCHEMA tenant_a",
+		"CREATE SCHEMA tenant_b",
+		"CREATE TABLE tenant_a.customers (id integer primary key, phone text, description text)",
+		"CREATE TABLE tenant_b.customers (id integer primary key, email text)",
+		"INSERT INTO tenant_a.customers VALUES (1,'13812345678','" + discoveryE2ESentinel + "'),(2,'13987654321','ordinary'),(3,'13711112222','ordinary')",
+		"INSERT INTO tenant_b.customers VALUES (1,'a@example.com'),(2,'b@example.com'),(3,'c@example.com')",
+	} {
+		_, err = writer.Execute(ctx, statement)
+		require.NoError(t, err)
+	}
+
+	t.Run("multiple schemas double quotes LIMIT and discovery", func(t *testing.T) {
+		service := newDatabaseDiscoveryService(t, datasource, password)
+		result, err := service.Discover(ctx, "pg-admin", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: "tenant_a", Table: "customers"}, {Schema: "tenant_b", Table: "customers"}}, SampleRows: 3})
+		require.NoError(t, err)
+		require.Equal(t, 2, result.Stats.TablesScanned)
+		require.Equal(t, 2, result.Stats.CandidateColumns)
+		require.NotContains(t, fmt.Sprintf("%v", result), discoveryE2ESentinel)
+	})
+	t.Run("invisible table fails whole scope", func(t *testing.T) {
+		service := newDatabaseDiscoveryService(t, datasource, password)
+		_, err := service.Discover(ctx, "pg-invisible", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: "tenant_a", Table: "missing"}}})
+		require.ErrorIs(t, err, discovery.ErrScopeNotVisible)
+	})
+	t.Run("42501 permission sentinel", func(t *testing.T) {
+		_, err := writer.Execute(ctx, "CREATE ROLE discovery_limited LOGIN PASSWORD 'limited-password'")
+		require.NoError(t, err)
+		limited := datasource
+		limited.ID = "discovery-pg18-limited"
+		limited.Username = "discovery_limited"
+		reader, err := executor.NewPostgresExecutor(ctx, limited, "limited-password", true)
+		require.NoError(t, err)
+		defer reader.Close()
+		_, err = reader.Query(ctx, "SELECT phone FROM tenant_a.customers LIMIT 1", 1)
+		require.ErrorIs(t, err, executor.ErrPermissionDenied)
+		require.NotContains(t, err.Error(), discoveryE2ESentinel)
+	})
+}
+
+const discoveryE2ESentinel = "T38_E2E_SENTINEL_DO_NOT_LEAK_90d1"
+
+func newDatabaseDiscoveryService(t *testing.T, datasource model.Datasource, password string) *Service {
+	t.Helper()
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	cipher, err := store.NewPasswordCipher(secret)
+	require.NoError(t, err)
+	datasource.PasswordEnc, err = cipher.Encrypt(password)
+	require.NoError(t, err)
+	service, err := NewService(fakeDatasourceReader{datasource: datasource}, executor.NewManager(true), secret, rules.NewDefaultTokenBucketLimiter())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, service.Close()) })
+	return service
+}
+
+func mysqlDatabasePermissionProbe(ctx context.Context, datasource model.Datasource, password string) error {
+	admin, err := executor.NewMySQLExecutor(ctx, datasource, password, false)
+	if err != nil {
+		return err
+	}
+	defer admin.Close()
+	if _, err = admin.Execute(ctx, "CREATE USER 'discovery_limited'@'%' IDENTIFIED BY 'limited-password'"); err != nil {
+		return err
+	}
+	database, err := quoteIdentifier("mysql", datasource.Database)
+	if err != nil {
+		return err
+	}
+	// A MySQL account with no privilege on the configured schema is rejected at
+	// COM_INIT_DB with 1044, a connection-stage failure reported as datasource
+	// unreachable. Model the realistic "can attach to the schema but cannot read
+	// the target table" account: grant SELECT on a throwaway marker table so
+	// COM_INIT_DB succeeds, then querying customers fails at query time with
+	// table-level 1142 -> executor.ErrPermissionDenied (verified on mysql:8).
+	if _, err = admin.Execute(ctx, "CREATE TABLE IF NOT EXISTS "+database+".`discovery_connect_marker` (id INT)"); err != nil {
+		return err
+	}
+	if _, err = admin.Execute(ctx, "GRANT SELECT ON "+database+".`discovery_connect_marker` TO 'discovery_limited'@'%'"); err != nil {
+		return err
+	}
+	limited := datasource
+	limited.ID = "discovery-mysql8-limited"
+	limited.Username = "discovery_limited"
+	reader, err := executor.NewMySQLExecutor(ctx, limited, "limited-password", true)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	_, err = reader.Query(ctx, "SELECT phone FROM `"+datasource.Database+"`.`customers` LIMIT 1", 1)
+	return err
+}
+
+func controlledReadDockerContext(t *testing.T) context.Context {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("discovery database E2E is an integration test")
+	}
+	unavailable, err := probeControlledDocker()
+	if unavailable {
+		t.Logf("docker daemon unavailable: %v", err)
+		t.Skip("docker daemon unavailable")
+	}
+	require.NoError(t, err, "Docker probe failed after client construction")
+	ctx, stop := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(stop)
+	return ctx
+}
+
+func probeControlledDocker() (unavailable bool, err error) {
+	clientConstructed := false
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("docker probe panic: %v", recovered)
+			unavailable = !clientConstructed || dockerUnavailableError(err)
+		}
+	}()
+	probe, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, err := testcontainers.NewDockerClient()
+	if err != nil {
+		return true, err
+	}
+	clientConstructed = true
+	if _, err = client.Ping(probe); err != nil {
+		_ = client.Close()
+		return dockerUnavailableError(err), err
+	}
+	return false, client.Close()
+}
+
+func dockerUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{"cannot connect", "daemon is not running", "connection refused", "no such file", "cannot find the file", "permission denied", "access is denied", "dockerdesktoplinuxengine", "docker_engine"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}

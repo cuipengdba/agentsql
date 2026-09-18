@@ -17,6 +17,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/discovery"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/policy"
@@ -31,12 +32,17 @@ type Deps struct {
 	AdminPassword    string
 	TokenKey         []byte
 	DatasourcePinger DatasourcePinger
+	Discovery        DiscoveryRunner
 	// EventStreamHeartbeatInterval is injectable for deterministic stream tests.
 	// Zero uses the production interval.
 	EventStreamHeartbeatInterval time.Duration
 
 	demoRunner DemoRunner
 	demoKeys   demoProfileKeys
+}
+
+type DiscoveryRunner interface {
+	Discover(context.Context, string, string, discovery.ScanRequest) (discovery.ScanResult, error)
 }
 
 type DatasourcePinger interface {
@@ -103,6 +109,9 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	if deps.DatasourcePinger == nil {
 		deps.DatasourcePinger = runtimePinger{runtime: deps.Runtime}
 	}
+	if deps.Discovery == nil {
+		deps.Discovery = deps.Runtime.ControlledRead
+	}
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
 		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...)}
 	if streamEnabled {
@@ -129,6 +138,8 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("PUT /api/v1/datasources/{id}", handler.datasourcesUpdate)
 	mux.HandleFunc("DELETE /api/v1/datasources/{id}", handler.datasourcesDelete)
 	mux.HandleFunc("POST /api/v1/datasources/{id}/ping", handler.datasourcesPing)
+	mux.HandleFunc("POST /api/v1/datasources/{id}/discover", handler.datasourcesDiscover)
+	mux.HandleFunc("POST /api/v1/datasources/{id}/discover/apply", handler.datasourcesDiscoverApply)
 	mux.HandleFunc("GET /api/v1/policies", handler.policiesList)
 	mux.HandleFunc("POST /api/v1/policies", handler.policiesCreate)
 	mux.HandleFunc("PUT /api/v1/policies/{id}", handler.policiesUpdate)

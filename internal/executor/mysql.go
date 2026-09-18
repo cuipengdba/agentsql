@@ -67,7 +67,7 @@ func NewMySQLExecutor(
 	}
 	database, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, safeError("create MySQL connection pool", ErrDatasourceUnreachable, err)
+		return nil, mysqlConnectionError("create MySQL connection pool", err)
 	}
 	database.SetMaxOpenConns(connectionLimit)
 	database.SetMaxIdleConns(connectionLimit)
@@ -116,7 +116,7 @@ func (executor *MySQLExecutor) Ping(ctx context.Context) error {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	if err := executor.database.PingContext(timedContext); err != nil {
-		return safeError("ping MySQL datasource", ErrDatasourceUnreachable, err)
+		return mysqlConnectionError("ping MySQL datasource", err)
 	}
 	return nil
 }
@@ -672,11 +672,31 @@ func mysqlDatabaseError(message string, cause error) error {
 	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, context.Canceled) {
 		return safeError(message, ErrQueryTimeout, cause)
 	}
+	if classifyMySQLPermission(cause) {
+		return safeError(message, ErrPermissionDenied, cause)
+	}
 	var mysqlError *mysqldriver.MySQLError
 	if errors.As(cause, &mysqlError) && mysqlError.Number == 3024 {
 		return safeError(message, ErrQueryTimeout, cause)
 	}
 	return safeDatabaseError(message, cause)
+}
+
+func classifyMySQLPermission(cause error) bool {
+	var mysqlError *mysqldriver.MySQLError
+	if !errors.As(cause, &mysqlError) {
+		return false
+	}
+	switch mysqlError.Number {
+	case 1044, 1142, 1143, 1227:
+		return true
+	default:
+		return false
+	}
+}
+
+func mysqlConnectionError(message string, cause error) error {
+	return safeError(message, ErrDatasourceUnreachable, cause)
 }
 
 type mysqlSession struct {

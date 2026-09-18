@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDiscoveryDraftPostgresMigrationsE2E(t *testing.T) {
+func TestDiscoveryPostgresMetadataMigrationE2E(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string
 		directory string

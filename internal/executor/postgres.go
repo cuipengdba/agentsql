@@ -87,7 +87,7 @@ func NewPostgresExecutor(
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return nil, safeError("create PostgreSQL connection pool", ErrDatasourceUnreachable, err)
+		return nil, postgresConnectionError("create PostgreSQL connection pool", err)
 	}
 	executor := &PostgresExecutor{
 		pool:     pool,
@@ -131,7 +131,7 @@ func (executor *PostgresExecutor) Ping(ctx context.Context) error {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	if err := executor.pool.Ping(timedContext); err != nil {
-		return safeError("ping PostgreSQL datasource", ErrDatasourceUnreachable, err)
+		return postgresConnectionError("ping PostgreSQL datasource", err)
 	}
 	return nil
 }
@@ -504,6 +504,9 @@ func postgresDatabaseError(message string, cause error) error {
 	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, context.Canceled) {
 		return safeError(message, ErrQueryTimeout, cause)
 	}
+	if classifyPostgresPermission(cause) {
+		return safeError(message, ErrPermissionDenied, cause)
+	}
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
 		switch postgresError.Code {
@@ -514,6 +517,15 @@ func postgresDatabaseError(message string, cause error) error {
 		}
 	}
 	return safeDatabaseError(message, cause)
+}
+
+func classifyPostgresPermission(cause error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(cause, &postgresError) && postgresError.Code == "42501"
+}
+
+func postgresConnectionError(message string, cause error) error {
+	return safeError(message, ErrDatasourceUnreachable, cause)
 }
 
 func safeDatabaseError(message string, cause error) error {

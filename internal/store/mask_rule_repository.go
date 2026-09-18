@@ -21,6 +21,13 @@ func IsMaskRuleConflict(err error) bool {
 // MaskRuleRepository provides CRUD operations for mask rules.
 type MaskRuleRepository struct {
 	repositoryBase
+	auditDB       *sql.DB
+	auditDialect  Dialect
+	auditSeparate bool
+	applyMu       interface {
+		Lock()
+		Unlock()
+	}
 }
 
 // Create inserts a mask rule and returns the stored record.

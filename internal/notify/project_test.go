@@ -28,7 +28,7 @@ func TestProjectionAndFiveWebhookTemplatesUseOutboundWhitelist(t *testing.T) {
 			for _, expected := range []string{"deny", "R001", "R002", "ds-1", "primary", "agent-1", "agent one", "permission_denied"} {
 				require.Contains(t, text, expected)
 			}
-			for _, forbidden := range []string{"SELECT credit_card", "raw SQL secret", "top-secret rule message", "never send this suggestion", "secret_table", "ErrorMsg", "SQLRaw", "Objects", "ClientIP"} {
+			for _, forbidden := range []string{"SELECT credit_card", "raw SQL secret", "top-secret rule message", "never send this suggestion", "secret_table", "T38_RAW_SAMPLE_SENTINEL_7b19", "ErrorMsg", "SQLRaw", "Objects", "ClientIP", "DetailsJSON"} {
 				require.NotContains(t, text, forbidden)
 			}
 			var document map[string]any
@@ -133,12 +133,13 @@ func sensitiveAudit() model.AuditLog {
 	latency := int64(12)
 	clientIP := "192.168.1.2"
 	errorMessage := "permission denied for secret_table while running SELECT credit_card"
+	detailsJSON := `{"forbidden_sample":"T38_RAW_SAMPLE_SENTINEL_7b19"}`
 	return model.AuditLog{
 		ID: 42, TS: time.Date(2026, 9, 19, 1, 2, 3, 4, time.UTC), AgentID: &agentID,
 		DatasourceID: &datasourceID, MCPTool: &mcpTool, SQLRaw: &sqlRaw, SQLNorm: &sqlNorm,
 		StmtType: &statementType, Objects: &objects, Decision: "deny", RuleHits: &ruleHits,
 		RiskLevel: &risk, EstRows: &estRows, RowsReturned: &rowsReturned, LatencyMS: &latency,
-		ClientIP: &clientIP, ErrorMsg: &errorMessage,
+		ClientIP: &clientIP, ErrorMsg: &errorMessage, DetailsJSON: &detailsJSON,
 	}
 }
 

@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
@@ -383,9 +385,31 @@ type adminFixture struct {
 	agent      model.Agent
 	datasource model.Datasource
 	pinger     *fakePinger
+	logs       *lockedBuffer
+}
+
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (buffer *lockedBuffer) Write(data []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.Write(data)
+}
+
+func (buffer *lockedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.String()
 }
 
 func newAdminFixture(t *testing.T) *adminFixture {
+	return newAdminFixtureWithDiscovery(t, nil)
+}
+
+func newAdminFixtureWithDiscovery(t *testing.T, discoveryRunner DiscoveryRunner) *adminFixture {
 	t.Helper()
 	opened, err := store.OpenWithSecret(context.Background(), filepath.Join(t.TempDir(), "admin.db"), []byte(adminTestSecret))
 	require.NoError(t, err)
@@ -401,15 +425,16 @@ func newAdminFixture(t *testing.T) *adminFixture {
 	require.NoError(t, err)
 	notifications := notify.NewManager(hub)
 	require.NoError(t, notifications.Start(context.Background(), notify.Config{}))
-	runtime := &bootstrap.Runtime{Store: opened, Events: hub, Notifications: notifications}
+	runtime := &bootstrap.Runtime{Store: opened, Events: hub, Notifications: notifications, ManagementAudit: audit.NewRecorder(opened.AuditLogs())}
 	pinger := &fakePinger{}
+	logs := &lockedBuffer{}
 	cfg := adminTestConfig(filepath.Join(t.TempDir(), "unused.db"))
-	handler, err := NewHandler(Deps{Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: "password", TokenKey: DeriveTokenKey([]byte(adminTestSecret)), DatasourcePinger: pinger}, zerolog.Nop())
+	handler, err := NewHandler(Deps{Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: "password", TokenKey: DeriveTokenKey([]byte(adminTestSecret)), DatasourcePinger: pinger, Discovery: discoveryRunner}, zerolog.New(logs))
 	require.NoError(t, err)
 	token, _, err := issueAdminToken(DeriveTokenKey([]byte(adminTestSecret)), time.Now(), "test-jti")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
-	return &adminFixture{store: opened, runtime: runtime, handler: handler, adminToken: "Bearer " + token, agentKey: plaintext, agent: agent, datasource: datasource, pinger: pinger}
+	return &adminFixture{store: opened, runtime: runtime, handler: handler, adminToken: "Bearer " + token, agentKey: plaintext, agent: agent, datasource: datasource, pinger: pinger, logs: logs}
 }
 
 func (fixture *adminFixture) request(method, path, authorization, body string) (int, string) {

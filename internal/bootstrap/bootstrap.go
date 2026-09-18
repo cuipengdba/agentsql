@@ -13,6 +13,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/controlledread"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -20,16 +21,19 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
+	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
 )
 
 // Runtime owns the production pipeline, business connection manager, and
 // metadata store for one AgentSQL process.
 type Runtime struct {
-	Pipeline  *pipeline.Pipeline
-	Executors *executor.Manager
-	Store     *store.Store
-	Metrics   *metrics.Metrics
+	Pipeline        *pipeline.Pipeline
+	Executors       *executor.Manager
+	ControlledRead  *controlledread.Service
+	ManagementAudit audit.Recorder
+	Store           *store.Store
+	Metrics         *metrics.Metrics
 	// Events is the in-process stream of successfully persisted audits.
 	Events *eventbus.Hub
 	// Notifications is the process-local best-effort notification manager.
@@ -69,6 +73,7 @@ func assembleWithExecutorProvider(
 		return nil, fmt.Errorf("assemble metadata store: %w", err)
 	}
 	manager := executor.NewManager(false)
+	readOnlyManager := executor.NewManager(true)
 	metricsHub := metrics.New(func() []metrics.PoolStat {
 		snapshots := manager.SnapshotPools()
 		result := make([]metrics.PoolStat, 0, len(snapshots))
@@ -90,24 +95,35 @@ func assembleWithExecutorProvider(
 	redactors := &redactorBuilder{repository: metadataStore.MaskRules()}
 	events, err := eventbus.New(eventbus.Options{HistorySize: 200, SubscriberBuffer: 64})
 	if err != nil {
+		_ = readOnlyManager.CloseAll()
 		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("assemble event stream: %w", err))
 	}
 	auditSink := audit.Sink(metadataStore.AuditLogs())
 	approvals := pipeline.ApprovalWriter(metadataStore.Approvals())
 	auditSink = &publishingAuditSink{inner: auditSink, publisher: events}
 	approvals = &publishingApprovalWorkflow{inner: metadataStore.Approvals(), publisher: events}
+	auditRecorder := audit.NewRecorder(auditSink)
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
 		Policies:      metadataStore.Policies(),
 		Executors:     executorPort,
 		Approvals:     approvals,
-		Audit:         audit.NewRecorder(auditSink),
+		Audit:         auditRecorder,
 		Redactors:     redactors,
 		RuleOverrides: metadataStore.Rules(),
 	}, secret, pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo))
 	if err != nil {
 		events.Close()
+		_ = readOnlyManager.CloseAll()
+		return nil, closeAfterAssemblyError(manager, metadataStore, err)
+	}
+	controlled, err := controlledread.NewService(
+		metadataStore.Datasources(), readOnlyManager, secret, rules.NewDefaultTokenBucketLimiter(),
+	)
+	if err != nil {
+		events.Close()
+		_ = readOnlyManager.CloseAll()
 		return nil, closeAfterAssemblyError(manager, metadataStore, err)
 	}
 	names := newNotificationNameResolver(metadataStore)
@@ -117,23 +133,27 @@ func assembleWithExecutorProvider(
 	notificationConfig, err := metadataStore.Notifications().Get(ctx)
 	if err != nil {
 		events.Close()
+		_ = controlled.Close()
 		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("load notification configuration: %w", err))
 	}
 	notifications := notify.NewManager(events, notify.WithMetrics(metricsHub), notify.WithNameResolver(names))
 	if err := notifications.Start(ctx, notificationConfig); err != nil {
 		events.Close()
+		_ = controlled.Close()
 		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("start notification manager: %w", err))
 	}
 	return &Runtime{
-		Pipeline:      flow,
-		Executors:     manager,
-		Store:         metadataStore,
-		Metrics:       metricsHub,
-		Events:        events,
-		Notifications: notifications,
-		secret:        append([]byte(nil), secret...),
-		redactors:     redactors,
-		names:         names,
+		Pipeline:        flow,
+		Executors:       manager,
+		ControlledRead:  controlled,
+		ManagementAudit: auditRecorder,
+		Store:           metadataStore,
+		Metrics:         metricsHub,
+		Events:          events,
+		Notifications:   notifications,
+		secret:          append([]byte(nil), secret...),
+		redactors:       redactors,
+		names:           names,
 	}, nil
 }
 
@@ -144,6 +164,15 @@ func (runtime *Runtime) RefreshNotificationNames(ctx context.Context) error {
 		return nil
 	}
 	return runtime.names.Refresh(ctx)
+}
+
+// PublishManagementAudit emits an already-persisted management audit. It is
+// best effort and intentionally does not affect the committed operation.
+func (runtime *Runtime) PublishManagementAudit(recorded model.AuditLog) {
+	if runtime == nil {
+		return
+	}
+	bestEffortPublish(runtime.Events, recorded)
 }
 
 // ExecutorFor returns the managed executor for trusted metadata operations.
@@ -178,6 +207,11 @@ func (runtime *Runtime) Close() error {
 	}
 	if runtime.Executors != nil {
 		if err := runtime.Executors.CloseAll(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
+	if runtime.ControlledRead != nil {
+		if err := runtime.ControlledRead.Close(); err != nil {
 			closeErrors = append(closeErrors, err)
 		}
 	}

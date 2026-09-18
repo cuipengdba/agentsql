@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func (scanner *Scanner) Scan(
 
 	metadata, listErr := scanner.lister.ListColumns(ctx, datasourceID, append([]TableRef(nil), scope.Tables...))
 	if listErr != nil {
-		return ScanResult{}, classified(CodeInternal, ErrInternal)
+		return ScanResult{}, safePortError(listErr)
 	}
 	if len(metadata) > MaxMetadataColumns {
 		return ScanResult{}, classified(CodeScopeLimit, ErrScopeLimitExceeded)
@@ -243,7 +244,7 @@ func (scanner *Scanner) sampleCandidates(
 			}
 			batch, err := scanner.querier.QueryColumns(ctx, datasourceID, table, append([]ColumnRef(nil), columns...), limit)
 			if err != nil {
-				return classified(CodeInternal, ErrInternal)
+				return safePortError(err)
 			}
 			if !sameColumns(columns, batch.columns) || len(batch.rows) > limit {
 				return classified(CodeInternal, ErrInternal)
@@ -272,6 +273,14 @@ func (scanner *Scanner) sampleCandidates(
 		start = tableEnd
 	}
 	return nil
+}
+
+func safePortError(err error) error {
+	var classifiedError *ClassifiedError
+	if errors.As(err, &classifiedError) {
+		return classifiedError
+	}
+	return classified(CodeInternal, ErrInternal)
 }
 
 func sameColumns(expected, actual []ColumnRef) bool {

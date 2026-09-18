@@ -107,6 +107,59 @@ type datasourceInput struct {
 	RowLimit      int    `json:"row_limit"`
 }
 
+type discoveryTableInput struct {
+	Schema string `json:"schema"`
+	Table  string `json:"table"`
+}
+
+type discoveryInput struct {
+	Tables     []discoveryTableInput `json:"tables"`
+	Sampling   *bool                 `json:"sampling,omitempty"`
+	SampleRows *int                  `json:"sample_rows,omitempty"`
+	Categories []string              `json:"categories,omitempty"`
+}
+
+type discoveryApplyItemInput struct {
+	Schema        string `json:"schema"`
+	Table         string `json:"table"`
+	Column        string `json:"column"`
+	Category      string `json:"category"`
+	SensitiveType string `json:"sensitive_type"`
+	Algo          string `json:"algo"`
+}
+
+type discoveryApplyInput struct {
+	Items []discoveryApplyItemInput `json:"items"`
+}
+
+type discoveryApplyItemView struct {
+	Schema        string `json:"schema,omitempty"`
+	Table         string `json:"table,omitempty"`
+	Column        string `json:"column"`
+	Category      string `json:"category,omitempty"`
+	SensitiveType string `json:"sensitive_type"`
+	Algo          string `json:"algo"`
+	RuleID        string `json:"rule_id,omitempty"`
+}
+
+type discoveryApplyCounts struct {
+	Requested       int `json:"requested"`
+	Created         int `json:"created"`
+	Existing        int `json:"existing"`
+	CoveredByGlobal int `json:"covered_by_global"`
+	Conflicts       int `json:"conflicts"`
+	Ambiguous       int `json:"ambiguous"`
+}
+
+type discoveryApplyResponse struct {
+	Created         []discoveryApplyItemView `json:"created"`
+	Existing        []discoveryApplyItemView `json:"existing"`
+	CoveredByGlobal []discoveryApplyItemView `json:"covered_by_global"`
+	Conflicts       []discoveryApplyItemView `json:"conflicts"`
+	Ambiguous       []discoveryApplyItemView `json:"ambiguous"`
+	Counts          discoveryApplyCounts     `json:"counts"`
+}
+
 type policyInput struct {
 	ID           string  `json:"id"`
 	AgentID      string  `json:"agent_id"`
