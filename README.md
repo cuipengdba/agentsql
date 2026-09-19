@@ -19,7 +19,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 默认拒绝的安全链路：API Key 认证、Agent 能力档位、对象/列授权、SQL AST 规则与 fail-closed 错误处理。
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
 - 基础数据保护：列级脱敏提供三级梯度——六类 `mask` 部分遮蔽、六类及 `generic` 的带专用密钥 HMAC 哈希指纹，以及无需密钥、把非空值统一替换为 `***` 的 `block` 整值阻断。数据源口令另由 32 字节 `AGENTSQL_SECRET` 加密保存。
-- 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出、审批决策闭环、Prometheus 指标与健康/就绪探针。
+- 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出（面向机器的 JSONL，以及 Excel/WPS 可直接打开、带公式注入防护的中文 CSV）、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
 
