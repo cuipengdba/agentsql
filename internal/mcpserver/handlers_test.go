@@ -115,6 +115,38 @@ func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
 	require.NotContains(t, logs.String(), raw)
 }
 
+func TestHandlersBlockResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
+	const raw = "T42_MCP_BLOCK_RAW_SENTINEL_6d19"
+	fixture := newMCPFixture(t, "dml")
+	redactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "name", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoBlock,
+	}})
+	require.NoError(t, err)
+	fixture.redactors.redactor = redactor
+	fixture.executor.queryResult = model.QueryResult{
+		Columns: []string{"name"}, Rows: [][]string{{raw}}, RowCount: 1,
+	}
+	var logs bytes.Buffer
+	fixture.handlers.logger = zerolog.New(&logs)
+
+	response := fixture.handlers.query(context.Background(), "ds-allowed", "SELECT name FROM public.customers WHERE id=1 LIMIT 1")
+	require.Equal(t, "allow", response.Decision)
+	data := response.Data.(pipelineData)
+	require.Equal(t, mask.BlockPlaceholder, data.Result.Rows[0][0])
+	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypeGeneric}, data.Redact.TouchedColumns)
+	require.Equal(t, 1, data.Redact.MaskedCells)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), raw)
+
+	audits, err := fixture.runtime.Store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	auditJSON, err := json.Marshal(audits.List)
+	require.NoError(t, err)
+	require.NotContains(t, string(auditJSON), raw)
+	require.NotContains(t, logs.String(), raw)
+}
+
 func TestHandlersRequestApprovalRaisesWithoutExecuting(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	response := fixture.handlers.requestApproval(

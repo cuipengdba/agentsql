@@ -16,7 +16,8 @@ const (
 	TypeIP SensitiveType = "ip"
 	// TypeBirthDate masks recognized calendar dates and supported timestamps.
 	TypeBirthDate SensitiveType = "birthdate"
-	// TypeGeneric identifies a general sensitive value supported by hashing.
+	// TypeGeneric identifies a general sensitive value supported by whole-value
+	// hash and block algorithms.
 	TypeGeneric SensitiveType = "generic"
 )
 
@@ -24,14 +25,19 @@ const (
 // representation cannot be recognized by its configured masking rule.
 const RedactedFallback = "[REDACTED]"
 
+// BlockPlaceholder is the fixed output for every non-empty value processed by
+// the block algorithm.
+const BlockPlaceholder = "***"
+
 // Algorithm identifies the redaction algorithm applied to a value.
 type Algorithm string
 
 const (
 	AlgoMask Algorithm = "mask"
 	AlgoHash Algorithm = "hash"
-	// These algorithms are reserved capabilities and are not executable.
+	// AlgoRange is a reserved capability and is not executable.
 	AlgoRange Algorithm = "range"
+	// AlgoBlock replaces every non-empty value with BlockPlaceholder.
 	AlgoBlock Algorithm = "block"
 )
 

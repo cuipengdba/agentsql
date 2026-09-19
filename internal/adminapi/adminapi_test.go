@@ -170,7 +170,7 @@ func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
 		status, response = fixture.request(http.MethodPut, "/api/v1/mask_rules/"+id, fixture.adminToken, update)
 		require.Equal(t, http.StatusOK, status, response)
 	}
-	for _, algorithm := range []string{"range", "block"} {
+	for _, algorithm := range []string{"range", "future"} {
 		body := fmt.Sprintf(`{"id":"bad-%s","column_name":"bad_%s","sensitive_type":"idcard","algo":%q}`, algorithm, algorithm, algorithm)
 		status, response := fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, body)
 		require.Equal(t, http.StatusUnprocessableEntity, status, response)
@@ -187,6 +187,83 @@ func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
 
 	status, response = fixture.request(http.MethodPut, "/api/v1/mask_rules/missing-hash", fixture.adminToken, `{"column_name":"","sensitive_type":"future","algo":"future","enabled":true}`)
 	require.Equal(t, http.StatusNotFound, status, response, "update must load the old rule before validating the replacement")
+}
+
+func TestAdminMaskRuleBlockCRUDWithoutHashKey(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"block-secret","datasource_id":"ds-1","table_name":"customers","column_name":"secret","sensitive_type":"generic","algo":"block"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	require.NotContains(t, body, "HASH_REDACTION_UNAVAILABLE")
+	stored, err := fixture.store.MaskRules().Get(context.Background(), "block-secret")
+	require.NoError(t, err)
+	require.Equal(t, string("block"), stored.Algo)
+	require.Equal(t, "generic", stored.SensitiveType)
+	require.True(t, stored.Enabled)
+
+	status, body = fixture.request(
+		http.MethodPut,
+		"/api/v1/mask_rules/block-secret",
+		fixture.adminToken,
+		`{"datasource_id":"ds-1","table_name":"customers_v2","column_name":"secret","sensitive_type":"generic","algo":"block"}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	require.NotContains(t, body, "HASH_REDACTION_UNAVAILABLE")
+	stored, err = fixture.store.MaskRules().Get(context.Background(), "block-secret")
+	require.NoError(t, err)
+	require.Equal(t, "customers_v2", stored.TableName)
+	require.Equal(t, "block", stored.Algo)
+	require.True(t, stored.Enabled)
+
+	for _, enabled := range []bool{false, true} {
+		payload := fmt.Sprintf(`{"datasource_id":"ds-1","table_name":"customers_v2","column_name":"secret","sensitive_type":"generic","algo":"block","enabled":%t}`, enabled)
+		status, body = fixture.request(http.MethodPut, "/api/v1/mask_rules/block-secret", fixture.adminToken, payload)
+		require.Equal(t, http.StatusOK, status, body)
+		require.NotContains(t, body, "HASH_REDACTION_UNAVAILABLE")
+		stored, err = fixture.store.MaskRules().Get(context.Background(), "block-secret")
+		require.NoError(t, err)
+		require.Equal(t, enabled, stored.Enabled)
+		require.Equal(t, "block", stored.Algo)
+	}
+
+	invalidRules := []string{
+		`{"id":"bad-generic-mask-block-crud","column_name":"mask_generic","sensitive_type":"generic","algo":"mask"}`,
+		`{"id":"bad-range-block-crud","column_name":"range_value","sensitive_type":"generic","algo":"range"}`,
+		`{"id":"bad-future-block-crud","column_name":"future_value","sensitive_type":"generic","algo":"future"}`,
+	}
+	for _, payload := range invalidRules {
+		status, body = fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, payload)
+		require.Equal(t, http.StatusUnprocessableEntity, status, body)
+		require.Contains(t, body, "INVALID_MASK_RULE")
+		require.NotContains(t, body, "HASH_REDACTION_UNAVAILABLE")
+	}
+}
+
+func TestDiscoveryApplyRejectsBlockWithoutWriteOrAudit(t *testing.T) {
+	fixture := newAdminFixture(t)
+	beforeRules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+	require.NoError(t, err)
+	beforeAudits, err := fixture.store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+
+	status, body := fixture.request(
+		http.MethodPost,
+		"/api/v1/datasources/ds-1/discover/apply",
+		fixture.adminToken,
+		`{"items":[{"schema":"public","table":"customers","column":"secret","category":"generic","sensitive_type":"generic","algo":"block"}]}`,
+	)
+	require.Equal(t, http.StatusUnprocessableEntity, status, body)
+	require.Contains(t, body, "DISCOVERY_NOT_APPLICABLE")
+	afterRules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+	require.NoError(t, err)
+	require.Equal(t, beforeRules, afterRules)
+	afterAudits, err := fixture.store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.Equal(t, beforeAudits.Total, afterAudits.Total)
 }
 
 func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {

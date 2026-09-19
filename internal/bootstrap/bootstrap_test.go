@@ -369,6 +369,50 @@ func TestRedactorBuilderDatasourceMaskOverridesGlobalHash(t *testing.T) {
 	require.Equal(t, mask.TypeEmail, report.TouchedColumns[0])
 }
 
+func TestRedactorBuilderBlockDoesNotRequireHashKey(t *testing.T) {
+	t.Run("request compile succeeds without key", func(t *testing.T) {
+		builder := &redactorBuilder{repository: staticMaskRuleReader{rules: []model.MaskRule{{
+			ID: "block", ColumnName: "secret", SensitiveType: string(mask.TypeGeneric),
+			Algo: string(mask.AlgoBlock), Enabled: true,
+		}}}}
+		redactor, err := builder.RedactorFor(context.Background(), "ds-1")
+		require.NoError(t, err)
+		result, report := redactor.Apply(model.QueryResult{
+			Columns: []string{"secret"}, Rows: [][]string{{"raw-secret"}},
+		})
+		require.Equal(t, mask.BlockPlaceholder, result.Rows[0][0])
+		require.Equal(t, 1, report.MaskedCells)
+	})
+
+	t.Run("startup scan succeeds without key", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "")
+		path := filepath.Join(t.TempDir(), "block.db")
+		seedBootstrapMaskRule(t, path, model.MaskRule{
+			ID: "block", ColumnName: "secret", SensitiveType: string(mask.TypeGeneric),
+			Algo: string(mask.AlgoBlock), Enabled: true,
+		})
+		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
+		require.NoError(t, err)
+		require.NoError(t, runtime.Close())
+	})
+
+	t.Run("enabled hash still requires key when mixed with block", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "")
+		path := filepath.Join(t.TempDir(), "block-hash.db")
+		seedBootstrapMaskRule(t, path, model.MaskRule{
+			ID: "block", ColumnName: "secret", SensitiveType: string(mask.TypeGeneric),
+			Algo: string(mask.AlgoBlock), Enabled: true,
+		})
+		seedBootstrapMaskRule(t, path, model.MaskRule{
+			ID: "hash", ColumnName: "name", SensitiveType: string(mask.TypeGeneric),
+			Algo: string(mask.AlgoHash), Enabled: true,
+		})
+		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
+		require.Nil(t, runtime)
+		require.ErrorIs(t, err, mask.ErrHashKeyRequired)
+	})
+}
+
 func TestAssembleRedactionStartupMatrixSQLite(t *testing.T) {
 	t.Run("enabled hash without key fails and closes store", func(t *testing.T) {
 		t.Setenv(config.RedactionHashKeyEnv, "")

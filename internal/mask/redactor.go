@@ -63,8 +63,8 @@ func ValidateRule(rule Rule) error {
 		if !isMaskSensitiveType(rule.SensitiveType) {
 			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
 		}
-	case AlgoHash:
-		if !isHashSensitiveType(rule.SensitiveType) {
+	case AlgoHash, AlgoBlock:
+		if !isKnownSensitiveType(rule.SensitiveType) {
 			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
 		}
 	default:
@@ -154,7 +154,7 @@ func isMaskSensitiveType(sensitiveType SensitiveType) bool {
 	}
 }
 
-func isHashSensitiveType(sensitiveType SensitiveType) bool {
+func isKnownSensitiveType(sensitiveType SensitiveType) bool {
 	return isMaskSensitiveType(sensitiveType) || sensitiveType == TypeGeneric
 }
 
@@ -209,6 +209,12 @@ func applyRule(rule redactorRule, value string, hash *hasher) (string, bool) {
 			return value, false
 		}
 		return hash.fingerprint(value), true
+	}
+	if rule.algorithm == AlgoBlock {
+		if isEmptySensitiveValue(value) {
+			return value, false
+		}
+		return BlockPlaceholder, true
 	}
 	if rule.algorithm != AlgoMask {
 		return value, false

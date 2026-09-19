@@ -79,6 +79,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		"public.orders",
 		"public.sensitive_rows",
 		"public.hash_rows",
+		"public.block_rows",
 	}
 
 	t.Run("E1 normal select allow", func(t *testing.T) {
@@ -138,6 +139,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		require.NotContains(t, fmt.Sprintf("%v", fallback), "PG_INVALID_ID_SENTINEL_8f31")
 	})
 	runHashE2EScenarios(t, ctx, "public.hash_rows", datasource, counted, allowedTables)
+	runBlockE2EScenarios(t, ctx, "public.block_rows", datasource, counted, allowedTables)
 
 	runMaskScopeScenarios(t, ctx, "postgres", datasource, databaseExecutor, counted, allowedTables)
 	runDirectSourceFallbackScenario(t, ctx, "postgres", datasource, counted, allowedTables)
@@ -173,12 +175,18 @@ func setupPostgresPipelineSchema(t *testing.T, ctx context.Context, databaseExec
 		`CREATE TABLE hash_rows (id integer PRIMARY KEY, secret text NULL)`,
 		`INSERT INTO hash_rows VALUES
  (1, 'Ordinary Alice'), (2, 'Ordinary Alice'), (3, ' Ordinary Alice '), (4, ''), (5, NULL), (6, 'T41_E2E_RAW_SENTINEL_b7a3')`,
+		`CREATE TABLE block_rows (id integer PRIMARY KEY, phone text NULL, hash_secret text NULL, blocked_secret text NULL)`,
+		`INSERT INTO block_rows VALUES
+ (1, '13812345678', 'T42_E2E_HASH_RAW_2f64', 'T42_E2E_BLOCK_RAW_6d19'),
+ (2, '', '', ''),
+ (3, NULL, NULL, NULL)`,
 		"ANALYZE allowed_rows",
 		"ANALYZE big_rows",
 		"ANALYZE customers",
 		"ANALYZE orders",
 		"ANALYZE sensitive_rows",
 		"ANALYZE hash_rows",
+		"ANALYZE block_rows",
 	}
 	for _, statement := range statements {
 		_, err := databaseExecutor.Execute(ctx, statement)
@@ -394,6 +402,44 @@ func runHashE2EScenarios(
 	require.NoError(t, marshalErr)
 	require.Equal(t, "error", missingKeyPorts.audit.last().Decision)
 	require.NotContains(t, string(failedAuditJSON), rawSentinel)
+}
+
+func runBlockE2EScenarios(
+	t *testing.T,
+	ctx context.Context,
+	table string,
+	datasource model.Datasource,
+	databaseExecutor executor.Executor,
+	allowedTables []string,
+) {
+	t.Helper()
+	const (
+		hashRaw  = "T42_E2E_HASH_RAW_2f64"
+		blockRaw = "T42_E2E_BLOCK_RAW_6d19"
+	)
+	rules := []mask.Rule{
+		{Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
+		{Column: "hash_secret", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash},
+		{Column: "blocked_secret", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoBlock},
+	}
+	flow, ports := newDatabaseE2EPipelineWithRules(
+		t, datasource, databaseExecutor, "dml", allowedTables, rules,
+		[]mask.Option{mask.WithHashKey([]byte("pipeline-block-e2e-key-0123456789ab"))},
+	)
+	response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+		"SELECT phone, hash_secret, blocked_secret FROM "+table+" ORDER BY id"))
+	require.NoError(t, err)
+	require.Len(t, response.Result.Rows, 3)
+	require.Equal(t, "138****5678", response.Result.Rows[0][0])
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, response.Result.Rows[0][1])
+	require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][2])
+	require.Equal(t, []string{"", "", ""}, response.Result.Rows[1])
+	require.Equal(t, []string{"", "", ""}, response.Result.Rows[2])
+	require.Equal(t, 3, response.Redact.MaskedCells)
+	require.Equal(t, map[int]mask.SensitiveType{
+		0: mask.TypePhone, 1: mask.TypeGeneric, 2: mask.TypeGeneric,
+	}, response.Redact.TouchedColumns)
+	assertSensitiveE2ENotPresent(t, response, ports.audit.last(), []string{hashRaw, blockRaw, "13812345678"})
 }
 
 func sensitiveE2ERules(includePGCIDR bool) []mask.Rule {

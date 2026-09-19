@@ -37,6 +37,9 @@ func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
 	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "hash", ColumnName: "secret", SensitiveType: "phone", Algo: "hash"}})
 	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
 	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "block", ColumnName: "secret", SensitiveType: "generic", Algo: "block"}})
+	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
 }
 
 func TestApplyDiscoveryDraftsRejectsHashBeforeAuditOrRuleWrite(t *testing.T) {
@@ -58,6 +61,31 @@ func TestApplyDiscoveryDraftsRejectsHashBeforeAuditOrRuleWrite(t *testing.T) {
 	require.Zero(t, recorded.ID)
 	require.Zero(t, auditCalls)
 	_, getErr := opened.MaskRules().Get(ctx, "hash-draft")
+	require.ErrorIs(t, getErr, ErrNotFound)
+	page, pageErr := opened.AuditLogs().Page(ctx, 1, 10)
+	require.NoError(t, pageErr)
+	require.Zero(t, page.Total)
+}
+
+func TestDiscoveryApplyRejectsBlockWithoutWriteOrAudit(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	auditCalls := 0
+	outcome, recorded, err := opened.MaskRules().ApplyDiscoveryDraftsWithAudit(
+		ctx,
+		"ds-1",
+		[]DiscoveryDraft{{ID: "block-draft", ColumnName: "secret", SensitiveType: "generic", Algo: "block"}},
+		func(DiscoveryApplyOutcome) (model.AuditLog, error) {
+			auditCalls++
+			return model.AuditLog{}, errors.New("must not be called")
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+	require.Empty(t, outcome.Created)
+	require.Zero(t, recorded.ID)
+	require.Zero(t, auditCalls)
+	_, getErr := opened.MaskRules().Get(ctx, "block-draft")
 	require.ErrorIs(t, getErr, ErrNotFound)
 	page, pageErr := opened.AuditLogs().Page(ctx, 1, 10)
 	require.NoError(t, pageErr)

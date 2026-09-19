@@ -66,6 +66,7 @@ func TestValidateApplicableAcceptsSixAndRejectsMismatchAndUnknown(t *testing.T) 
 	for _, rule := range []RecommendedRule{
 		{SensitiveType: mask.TypeEmail, Algo: mask.AlgoMask},
 		{SensitiveType: mask.TypePhone, Algo: mask.AlgoHash},
+		{SensitiveType: mask.TypePhone, Algo: mask.AlgoBlock},
 	} {
 		if err := ValidateApplicable(CategoryPhone, rule); !isError(err, ErrNotApplicable) {
 			t.Fatalf("ValidateApplicable mismatch error = %v, want ErrNotApplicable", err)

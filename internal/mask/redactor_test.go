@@ -303,11 +303,6 @@ func TestNewRedactorValidation(t *testing.T) {
 			err:   ErrUnsupportedAlgorithm,
 		},
 		{
-			name:  "block is unsupported",
-			rules: []Rule{{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoBlock}},
-			err:   ErrUnsupportedAlgorithm,
-		},
-		{
 			name:  "blank column is invalid",
 			rules: []Rule{{Column: "   ", SensitiveType: TypePhone, Algorithm: AlgoMask}},
 			err:   nil,
@@ -331,6 +326,8 @@ func TestValidateRuleChecksStructureWithoutHashKey(t *testing.T) {
 		{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
 		{Column: "phone_hash", SensitiveType: TypePhone, Algorithm: AlgoHash},
 		{Column: "anything", SensitiveType: TypeGeneric, Algorithm: AlgoHash},
+		{Column: "phone_block", SensitiveType: TypePhone, Algorithm: AlgoBlock},
+		{Column: "anything_block", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
 	}
 	for _, rule := range valid {
 		require.NoError(t, ValidateRule(rule))
@@ -339,7 +336,6 @@ func TestValidateRuleChecksStructureWithoutHashKey(t *testing.T) {
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypeGeneric, Algorithm: AlgoMask}), ErrUnsupportedType)
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: SensitiveType("unknown"), Algorithm: AlgoHash}), ErrUnsupportedType)
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypePhone, Algorithm: AlgoRange}), ErrUnsupportedAlgorithm)
-	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypePhone, Algorithm: AlgoBlock}), ErrUnsupportedAlgorithm)
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypePhone, Algorithm: Algorithm("unknown")}), ErrUnsupportedAlgorithm)
 	require.Error(t, ValidateRule(Rule{Column: " ` ` ", SensitiveType: TypePhone, Algorithm: AlgoMask}))
 }
@@ -365,6 +361,14 @@ func TestNewRedactorAcceptsAllSupportedTypes(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+	for _, sensitiveType := range hashTypes {
+		t.Run("block/"+string(sensitiveType), func(t *testing.T) {
+			_, err := NewRedactor([]Rule{{
+				Column: "value", SensitiveType: sensitiveType, Algorithm: AlgoBlock,
+			}})
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestNewRedactorRejectsNormalizedDuplicateColumns(t *testing.T) {
@@ -382,6 +386,14 @@ func TestNewRedactorRejectsNormalizedDuplicateColumns(t *testing.T) {
 			{Column: "contact", SensitiveType: TypePhone, Algorithm: AlgoMask},
 			{Column: "CONTACT", SensitiveType: TypeGeneric, Algorithm: AlgoHash},
 		},
+		{
+			{Column: "contact", SensitiveType: TypePhone, Algorithm: AlgoMask},
+			{Column: "CONTACT", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+		},
+		{
+			{Column: "contact", SensitiveType: TypeGeneric, Algorithm: AlgoHash},
+			{Column: "CONTACT", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+		},
 	} {
 		_, err := NewRedactor(rules)
 		require.ErrorIs(t, err, ErrDuplicateMaskColumn)
@@ -396,6 +408,165 @@ func TestMaskOnlyRedactorDoesNotRequireOrValidateHashKey(t *testing.T) {
 		Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask,
 	}}, WithHashKey([]byte("short")))
 	require.NoError(t, err)
+}
+
+func TestValidateRuleBlockSupportsAllKnownTypesAndRejectsUnknown(t *testing.T) {
+	knownTypes := []SensitiveType{
+		TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate, TypeGeneric,
+	}
+	for _, sensitiveType := range knownTypes {
+		require.NoError(t, ValidateRule(Rule{
+			Column: "value", SensitiveType: sensitiveType, Algorithm: AlgoBlock,
+		}), sensitiveType)
+	}
+	require.ErrorIs(t, ValidateRule(Rule{
+		Column: "value", SensitiveType: SensitiveType("future"), Algorithm: AlgoBlock,
+	}), ErrUnsupportedType)
+}
+
+func TestBlockReplacesAllNonEmptyValuesWithFixedPlaceholder(t *testing.T) {
+	types := []SensitiveType{
+		TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate, TypeGeneric,
+	}
+	rules := make([]Rule, 0, len(types))
+	columns := make([]string, 0, len(types))
+	values := make([]string, 0, len(types))
+	wantTouched := make(map[int]SensitiveType, len(types))
+	for index, sensitiveType := range types {
+		column := string(sensitiveType)
+		rules = append(rules, Rule{Column: column, SensitiveType: sensitiveType, Algorithm: AlgoBlock})
+		columns = append(columns, column)
+		values = append(values, "raw-"+column)
+		wantTouched[index] = sensitiveType
+	}
+	redactor, err := NewRedactor(rules)
+	require.NoError(t, err)
+
+	result, report := redactor.Apply(model.QueryResult{Columns: columns, Rows: [][]string{values}})
+	require.Equal(t, []string{
+		BlockPlaceholder, BlockPlaceholder, BlockPlaceholder, BlockPlaceholder,
+		BlockPlaceholder, BlockPlaceholder, BlockPlaceholder,
+	}, result.Rows[0])
+	require.Equal(t, wantTouched, report.TouchedColumns)
+	require.Equal(t, len(types), report.MaskedCells)
+}
+
+func TestBlockPreservesEmptySentinelsAndCountsOnlyNonEmptyCells(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock,
+	}})
+	require.NoError(t, err)
+	values := []string{"", " ", "\t\r\n", "NULL", " null ", "<nil>", " <NIL> ", " NULL value ", " <nil>x "}
+	rows := make([][]string, len(values))
+	for index, value := range values {
+		rows[index] = []string{value}
+	}
+
+	result, report := redactor.Apply(model.QueryResult{Columns: []string{"secret"}, Rows: rows})
+	for index := 0; index < 7; index++ {
+		require.Equal(t, values[index], result.Rows[index][0])
+	}
+	require.Equal(t, BlockPlaceholder, result.Rows[7][0])
+	require.Equal(t, BlockPlaceholder, result.Rows[8][0])
+	require.Equal(t, map[int]SensitiveType{0: TypeGeneric}, report.TouchedColumns)
+	require.Equal(t, 2, report.MaskedCells)
+}
+
+func TestBlockDoesNotDependOnValueFormat(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoBlock,
+	}})
+	require.NoError(t, err)
+	values := []string{"not-a-phone", "12", "任意 Unicode 🚀", " 13812345678 ", " null value "}
+	rows := make([][]string, len(values))
+	for index, value := range values {
+		rows[index] = []string{value}
+	}
+
+	result, report := redactor.Apply(model.QueryResult{Columns: []string{"phone"}, Rows: rows})
+	for _, row := range result.Rows {
+		require.Equal(t, BlockPlaceholder, row[0])
+	}
+	require.Equal(t, len(values), report.MaskedCells)
+}
+
+func TestBlockPlaceholderInputStillCountsAsChanged(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock,
+	}})
+	require.NoError(t, err)
+
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"secret"}, Rows: [][]string{{BlockPlaceholder}},
+	})
+	require.Equal(t, BlockPlaceholder, result.Rows[0][0])
+	require.Equal(t, 1, report.MaskedCells)
+}
+
+func TestNewRedactorMixedMaskHashBlock(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	redactor, err := NewRedactor([]Rule{
+		{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		{Column: "name", SensitiveType: TypeGeneric, Algorithm: AlgoHash},
+		{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+	}, WithHashKey(key))
+	require.NoError(t, err)
+
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"phone", "name", "secret"},
+		Rows:    [][]string{{"13812345678", "Alice Zhang", "top-secret"}},
+	})
+	require.Equal(t, "138****5678", result.Rows[0][0])
+	require.Equal(t, "h.d119be750b2bb0be4dd7e2fc9fdae30f", result.Rows[0][1])
+	require.Equal(t, BlockPlaceholder, result.Rows[0][2])
+	require.Equal(t, map[int]SensitiveType{0: TypePhone, 1: TypeGeneric, 2: TypeGeneric}, report.TouchedColumns)
+	require.Equal(t, 3, report.MaskedCells)
+}
+
+func TestNewRedactorRejectsDuplicateColumnsAcrossBlockMaskHash(t *testing.T) {
+	for _, other := range []Rule{
+		{Column: "SECRET", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		{Column: "SECRET", SensitiveType: TypeGeneric, Algorithm: AlgoHash},
+		{Column: "SECRET", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+	} {
+		_, err := NewRedactor([]Rule{
+			{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+			other,
+		}, WithHashKey([]byte("0123456789abcdef0123456789abcdef")))
+		require.ErrorIs(t, err, ErrDuplicateMaskColumn)
+	}
+}
+
+func TestRangeAndUnknownAlgorithmsRemainUnsupported(t *testing.T) {
+	for _, algorithm := range []Algorithm{AlgoRange, Algorithm("future")} {
+		require.ErrorIs(t, ValidateRule(Rule{
+			Column: "value", SensitiveType: TypeGeneric, Algorithm: algorithm,
+		}), ErrUnsupportedAlgorithm)
+		_, err := NewRedactor([]Rule{{
+			Column: "value", SensitiveType: TypeGeneric, Algorithm: algorithm,
+		}})
+		require.ErrorIs(t, err, ErrUnsupportedAlgorithm)
+	}
+}
+
+func TestBlockOnlyRedactorDoesNotRequireOrValidateHashKey(t *testing.T) {
+	for _, options := range [][]Option{nil, {WithHashKey([]byte("short"))}} {
+		redactor, err := NewRedactor([]Rule{{
+			Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock,
+		}}, options...)
+		require.NoError(t, err)
+		result, report := redactor.Apply(model.QueryResult{
+			Columns: []string{"secret"}, Rows: [][]string{{"raw"}},
+		})
+		require.Equal(t, BlockPlaceholder, result.Rows[0][0])
+		require.Equal(t, 1, report.MaskedCells)
+	}
+
+	_, err := NewRedactor([]Rule{
+		{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+		{Column: "name", SensitiveType: TypeGeneric, Algorithm: AlgoHash},
+	})
+	require.ErrorIs(t, err, ErrHashKeyRequired)
 }
 
 func TestSensitiveTypeOrder(t *testing.T) {

@@ -266,6 +266,32 @@ VALUES
 			"id": "pg-name-hash", "datasource_id": "pg-demo", "table_name": "customers",
 			"column_name": "name", "sensitive_type": "generic", "algo": "hash",
 		})
+	blockRuleBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
+		"/api/v1/mask_rules", adminAuthorization, map[string]any{
+			"id": "pg-secret-block", "datasource_id": "pg-demo", "table_name": "customers",
+			"column_name": "blocked_secret", "sensitive_type": "generic", "algo": "block",
+		})
+	var blockRule adminE2EEnvelope[maskRuleView]
+	require.NoError(t, json.Unmarshal(blockRuleBody, &blockRule))
+	require.Equal(t, "block", blockRule.Data.Algo)
+	require.Equal(t, "generic", blockRule.Data.SensitiveType)
+	require.True(t, blockRule.Data.Enabled)
+	for _, enabled := range []bool{false, true} {
+		updatedBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPut,
+			"/api/v1/mask_rules/pg-secret-block", adminAuthorization, map[string]any{
+				"datasource_id": "pg-demo", "table_name": "customers", "column_name": "blocked_secret",
+				"sensitive_type": "generic", "algo": "block", "enabled": enabled,
+			})
+		var updated adminE2EEnvelope[maskRuleView]
+		require.NoError(t, json.Unmarshal(updatedBody, &updated))
+		require.Equal(t, enabled, updated.Data.Enabled)
+		require.Equal(t, "block", updated.Data.Algo)
+	}
+	storedBlockRule, err := runtime.Store.MaskRules().Get(ctx, "pg-secret-block")
+	require.NoError(t, err)
+	require.Equal(t, "block", storedBlockRule.Algo)
+	require.Equal(t, "generic", storedBlockRule.SensitiveType)
+	require.True(t, storedBlockRule.Enabled)
 	ruleBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
 		"/api/v1/rules", adminAuthorization, map[string]any{
 			"id": "R105", "db_type": "postgres", "title": "Approve unindexed writes",

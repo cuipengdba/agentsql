@@ -140,6 +140,65 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 	assertPlaygroundBodyHasNoSecrets(t, logs.String())
 }
 
+func TestPlaygroundRunBlockResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
+	const blockRaw = "T42_PLAYGROUND_BLOCK_RAW_SENTINEL_6d19"
+	metadata, err := store.OpenWithSecret(
+		context.Background(), filepath.Join(t.TempDir(), "playground-block.db"), []byte(adminTestSecret),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, metadata.Close()) })
+
+	provider := &playgroundPipelineExecutorProvider{executor: &playgroundPipelineExecutor{}}
+	provider.executor.(*playgroundPipelineExecutor).setResult(model.QueryResult{
+		Columns: []string{"secret"}, Rows: [][]string{{blockRaw}}, RowCount: 1,
+	})
+	blockRedactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "secret", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoBlock,
+	}})
+	require.NoError(t, err)
+	flow, err := pipeline.New(pipeline.Ports{
+		Authenticator: &playgroundPipelineAuthenticator{},
+		Datasources:   playgroundPipelineDatasourceReader{},
+		Policies:      playgroundPipelinePolicyLoader{},
+		Executors:     provider,
+		Approvals:     playgroundPipelineApprovalWriter{},
+		Audit:         audit.NewRecorder(metadata.AuditLogs()),
+		Redactors:     &playgroundPipelineRedactorBuilder{redactor: blockRedactor},
+	}, []byte(adminTestSecret), pipeline.WithDemoConfig(config.DemoConfig{
+		Enabled: true, AllowedDatasourceIDs: []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL}, QPSPerAgent: 5,
+	}))
+	require.NoError(t, err)
+
+	cfg := adminTestConfig(filepath.Join(t.TempDir(), "unused.db"))
+	cfg.Demo = config.DemoConfig{
+		Enabled: true, AllowedDatasourceIDs: []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL}, QPSPerAgent: 5,
+	}
+	var logs bytes.Buffer
+	handler, err := NewHandler(Deps{
+		Runtime: &bootstrap.Runtime{Pipeline: flow, Store: metadata}, Config: cfg,
+		AdminUsername: "admin", AdminPassword: "password", TokenKey: DeriveTokenKey([]byte(adminTestSecret)),
+		demoRunner: flow, demoKeys: demoProfileKeys{ro: demoROKeyCanary, dml: demoDMLKeyCanary},
+	}, zerolog.New(&logs))
+	require.NoError(t, err)
+	fixture := &adminFixture{store: metadata, handler: handler, adminToken: newAdminTestToken(t)}
+
+	status, body := fixture.request(http.MethodPost, "/api/v1/playground/run", fixture.adminToken,
+		`{"sql":"SELECT secret FROM public.customers WHERE id = 1 LIMIT 1","datasource_id":"ds-demo-pg","agent_profile":"ro"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	var blocked struct {
+		Data playgroundRunView `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &blocked))
+	require.Equal(t, [][]string{{mask.BlockPlaceholder}}, blocked.Data.Result.Rows)
+	require.Equal(t, map[int]string{0: string(mask.TypeGeneric)}, blocked.Data.Redact.TouchedColumns)
+	require.Equal(t, 1, blocked.Data.Redact.MaskedCells)
+	require.NotContains(t, body, blockRaw)
+	blockAuditJSON, err := json.Marshal(latestPlaygroundPipelineAudit(t, metadata))
+	require.NoError(t, err)
+	require.NotContains(t, string(blockAuditJSON), blockRaw)
+	require.NotContains(t, logs.String(), blockRaw)
+}
+
 func newAdminTestToken(t *testing.T) string {
 	t.Helper()
 	token, _, err := issueAdminToken(DeriveTokenKey([]byte(adminTestSecret)), time.Now(), "playground-pipeline")
