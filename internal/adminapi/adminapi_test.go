@@ -288,7 +288,7 @@ func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
 		`{"id":"duplicate-global","table_name":"other","column_name":"[Phone]","sensitive_type":"email","algo":"mask"}`,
 	)
 	require.Equal(t, http.StatusConflict, status, body)
-	require.Contains(t, body, "同列仅支持一条规则")
+	require.Contains(t, body, "MASK_RULE_CONFLICT")
 
 	status, body = fixture.request(
 		http.MethodPost,
@@ -318,7 +318,7 @@ func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
 		`{"datasource_id":"ds-1","column_name":"phone","sensitive_type":"email","algo":"mask"}`,
 	)
 	require.Equal(t, http.StatusConflict, status, body)
-	require.Contains(t, body, "同列仅支持一条规则")
+	require.Contains(t, body, "MASK_RULE_CONFLICT")
 
 	status, _ = fixture.request(
 		http.MethodPost,

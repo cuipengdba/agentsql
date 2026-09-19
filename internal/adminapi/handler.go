@@ -759,7 +759,54 @@ func maskRuleFromInput(input maskRuleInput) mask.Rule {
 		Column:        input.ColumnName,
 		SensitiveType: mask.SensitiveType(input.SensitiveType),
 		Algorithm:     mask.Algorithm(input.Algo),
+		Range:         rangeParamsFromInput(input),
 	}
+}
+
+func rangeParamsFromInput(input maskRuleInput) *mask.RangeParams {
+	if input.Algo != string(mask.AlgoRange) && input.RangeBucketWidth == nil &&
+		input.RangeBucketOffset == nil && input.RangeGranularity == nil {
+		return nil
+	}
+	params := &mask.RangeParams{}
+	if input.RangeBucketWidth != nil {
+		value := *input.RangeBucketWidth
+		params.BucketWidth = &value
+	}
+	if input.RangeBucketOffset != nil {
+		value := *input.RangeBucketOffset
+		params.BucketOffset = &value
+	}
+	if input.RangeGranularity != nil {
+		value := mask.RangeGranularity(*input.RangeGranularity)
+		params.Granularity = &value
+	}
+	return params
+}
+
+func maskRuleModelFromInput(input maskRuleInput, enabled bool) model.MaskRule {
+	rule := model.MaskRule{
+		ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName,
+		ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo,
+		Enabled: enabled,
+	}
+	params := rangeParamsFromInput(input)
+	if params == nil {
+		return rule
+	}
+	if params.BucketWidth != nil {
+		value := *params.BucketWidth
+		rule.RangeBucketWidth = &value
+	}
+	if params.BucketOffset != nil {
+		value := *params.BucketOffset
+		rule.RangeBucketOffset = &value
+	}
+	if params.Granularity != nil {
+		value := string(*params.Granularity)
+		rule.RangeGranularity = &value
+	}
+	return rule
 }
 
 func normalizeMaskInput(input maskRuleInput) maskRuleInput {
@@ -772,7 +819,34 @@ func normalizeMaskInput(input maskRuleInput) maskRuleInput {
 			input.DatasourceID = stringPointer(trimmed)
 		}
 	}
+	if input.Algo == string(mask.AlgoRange) {
+		switch mask.SensitiveType(input.SensitiveType) {
+		case mask.TypeNumber:
+			if input.RangeBucketOffset == nil {
+				value := int64(0)
+				input.RangeBucketOffset = &value
+			}
+		case mask.TypeDate:
+			if input.RangeGranularity == nil {
+				value := string(mask.RangeYear)
+				input.RangeGranularity = &value
+			}
+		}
+	}
 	return input
+}
+
+func (handler *Handler) validateMaskActivation(writer http.ResponseWriter, rule mask.Rule) bool {
+	err := handler.deps.Runtime.ValidateRedactionActivation(rule)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, mask.ErrHashKeyRequired) {
+		handler.maskRuleFailure(writer, http.StatusServiceUnavailable, "HASH_REDACTION_UNAVAILABLE", "hash redaction is unavailable")
+		return false
+	}
+	handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", "invalid mask rule")
+	return false
 }
 
 func (handler *Handler) maskRuleConflict(
@@ -845,8 +919,7 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 		enabled = *input.Enabled
 	}
 	if enabled {
-		if err := handler.deps.Runtime.ValidateRedactionActivation(maskRuleFromInput(input)); err != nil {
-			handler.maskRuleFailure(writer, http.StatusServiceUnavailable, "HASH_REDACTION_UNAVAILABLE", "hash redaction is unavailable")
+		if !handler.validateMaskActivation(writer, maskRuleFromInput(input)) {
 			return
 		}
 	}
@@ -856,11 +929,15 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 		return
 	}
 	if conflict {
-		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
+		handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
 		return
 	}
-	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: enabled})
+	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), maskRuleModelFromInput(input, enabled))
 	if err != nil {
+		if store.IsMaskRuleConflict(err) {
+			handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
+			return
+		}
 		handler.fail(writer, 409, "mask rule already exists or is invalid")
 		return
 	}
@@ -888,8 +965,7 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 		enabled = *input.Enabled
 	}
 	if enabled {
-		if err := handler.deps.Runtime.ValidateRedactionActivation(maskRuleFromInput(input)); err != nil {
-			handler.maskRuleFailure(writer, http.StatusServiceUnavailable, "HASH_REDACTION_UNAVAILABLE", "hash redaction is unavailable")
+		if !handler.validateMaskActivation(writer, maskRuleFromInput(input)) {
 			return
 		}
 	}
@@ -899,11 +975,15 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 		return
 	}
 	if conflict {
-		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
+		handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
 		return
 	}
-	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: enabled})
+	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), maskRuleModelFromInput(input, enabled))
 	if err != nil {
+		if store.IsMaskRuleConflict(err) {
+			handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
+			return
+		}
 		handler.notFound(writer)
 		return
 	}

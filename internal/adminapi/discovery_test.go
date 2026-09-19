@@ -191,6 +191,29 @@ func TestDiscoveryApplyAcceptsAllSixRunnableCategories(t *testing.T) {
 	require.Contains(t, response, "DISCOVERY_NOT_APPLICABLE")
 }
 
+func TestDiscoveryApplyRejectsRangeNumberAndDate(t *testing.T) {
+	tests := []struct {
+		name string
+		item string
+	}{
+		{name: "range algorithm", item: `{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"range"}`},
+		{name: "number sensitive type", item: `{"schema":"public","table":"customers","column":"amount","category":"phone","sensitive_type":"number","algo":"mask"}`},
+		{name: "date sensitive type", item: `{"schema":"public","table":"customers","column":"created_at","category":"birthdate","sensitive_type":"date","algo":"mask"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAdminFixture(t)
+			status, body := fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken,
+				`{"items":[`+test.item+`]}`)
+			require.Equal(t, http.StatusUnprocessableEntity, status, body)
+			require.Contains(t, body, "DISCOVERY_NOT_APPLICABLE")
+			rules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+			require.NoError(t, err)
+			require.Empty(t, rules)
+		})
+	}
+}
+
 func TestDiscoveryApplyTypedStoreErrorsMapTo422(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler := &Handler{}

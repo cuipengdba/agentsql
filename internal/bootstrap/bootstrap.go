@@ -347,6 +347,7 @@ func (builder *redactorBuilder) compile(storedRules []model.MaskRule, datasource
 			Column:        stored.ColumnName,
 			SensitiveType: mask.SensitiveType(stored.SensitiveType),
 			Algorithm:     mask.Algorithm(stored.Algo),
+			Range:         rangeParamsFromStored(stored),
 		}
 		if err := mask.ValidateRule(rule); err != nil {
 			return nil, err
@@ -379,6 +380,27 @@ func (builder *redactorBuilder) compile(storedRules []model.MaskRule, datasource
 		rules = append(rules, global[column])
 	}
 	return mask.NewRedactor(rules, builder.options...)
+}
+
+func rangeParamsFromStored(stored model.MaskRule) *mask.RangeParams {
+	if stored.Algo != string(mask.AlgoRange) && stored.RangeBucketWidth == nil &&
+		stored.RangeBucketOffset == nil && stored.RangeGranularity == nil {
+		return nil
+	}
+	params := &mask.RangeParams{}
+	if stored.RangeBucketWidth != nil {
+		value := *stored.RangeBucketWidth
+		params.BucketWidth = &value
+	}
+	if stored.RangeBucketOffset != nil {
+		value := *stored.RangeBucketOffset
+		params.BucketOffset = &value
+	}
+	if stored.RangeGranularity != nil {
+		value := mask.RangeGranularity(*stored.RangeGranularity)
+		params.Granularity = &value
+	}
+	return params
 }
 
 func maskRuleScope(rule model.MaskRule) string {
