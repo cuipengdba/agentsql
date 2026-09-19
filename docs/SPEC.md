@@ -31,7 +31,8 @@ Parse(解析 AST) → Auth(身份与权限) → Guard(静态规则 + 动态 EXPL
 AgentSQL 是**网关层**防护，必须如实理解其边界：
 
 - 只约束**经过网关的运行账号**；不阻止使用数据库 owner / superuser / DBA 凭据**绕过网关直连**的行为，也不取代数据库账号体系。生产部署应为网关配置最小权限的专用账号。
-- 脱敏是**结果集按列打码**，不是完整 DLP。复杂表达式、聚合、`CAST`、`UNION`、CTE、视图重命名等场景可能无法回溯到源列；JOIN / 自连接为表级授权；不宣称「任何别名都不可绕过」。
+- 脱敏是**结果集按列处理**，不是完整 DLP。复杂表达式、聚合、`CAST`、`UNION`、CTE、视图重命名等场景可能无法回溯到源列；JOIN / 自连接为表级授权；不宣称「任何别名都不可绕过」。
+- `hash` 是带专用密钥的 HMAC 不可逆指纹，不是加密。它在业务数据库返回结果后计算，不下推到数据库内的 JOIN/WHERE/GROUP BY。确定性指纹会暴露相等关系和频率；共享 key 会带来跨库关联风险，不可逆也不等于匿名。
 - 审计是**应用层只追加（append-only）记录**，不是法规级 WORM，不防 DBA 直接改库；审计哈希链 / 签名 / WORM 保留锁属企业版路线图。
 - MCP 层不提供通用的跨请求事务代理；多副本高可用、跨实例事件广播属企业版路线图。
 - 安全默认 **fail-closed**：无法解析、无法判定、或审计 / 数据库等依赖不可用时，**拒绝执行**，而不是放行。
@@ -147,9 +148,13 @@ defaults:
   qps_per_agent: 20
 theme: { default: "dark" }           # dark / light
 demo: { enabled: false }             # 在线演示模式，默认关闭
+redaction:
+  hash_key: ""                       # 可选；非空时至少 32 字节
 ```
 
-- 密钥通过环境变量注入：`AGENTSQL_SECRET`（数据源密码 AES-GCM 主密钥）、控制面 DSN 可用 `AGENTSQL_STORE_METADATA_DSN` / `AGENTSQL_STORE_AUDIT_DSN` 注入；配置、日志、错误与探针输出**不回显 DSN 或密码**。
+- `AGENTSQL_SECRET` 是数据源密码 AES-GCM 与控制台/JWT 等用途的主密钥，只从环境变量注入。脱敏哈希指纹使用独立的可选密钥，可来自 YAML `redaction.hash_key` 或 `AGENTSQL_REDACTION_HASH_KEY`；环境变量只要存在（包括空串）即覆盖 YAML，不得与 `AGENTSQL_SECRET` 复用或派生。非空 hash key 按字节计至少 32 字节，推荐由 secret manager/受限环境注入；配置、日志、错误、探针、响应、审计、metrics 与 panic **不得回显密钥、DSN 或密码**。
+- 哈希能力 fail-fast 契约：无 enabled `hash` 时无 key 可正常启动（包括仅有 disabled 草稿）；存在 enabled `hash` 而无有效 key 时，在对外服务前启动失败；显式非空但不足 32 字节时无论规则状态都装配失败。运行期无 key 新建或启用 `hash` 返回 HTTP `503` + `HASH_REDACTION_UNAVAILABLE` 且零写入；非法类型/算法组合返回 HTTP `422` + `INVALID_MASK_RULE`。
+- 首版进程只有单一 hash key，没有 key version、双写、多版本验证或在线轮换/重算。换 key 后历史指纹不会自动重算，旧、新指纹不再相等；轮换必须在维护窗口完成存量盘点、下游回填与回滚准备。
 - 配置解析为严格模式（未知字段拒绝），非法配置启动即失败（fail-closed）。
 
 ### 6.2 核心枚举与模型
@@ -223,6 +228,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | 部署 | Docker / Docker Compose、Linux systemd 单二进制 |
 | 可观测 | Prometheus 指标 + Grafana 面板 + 健康 / 就绪探针 |
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
+| 列级脱敏 | 六类 `mask` 部分遮蔽；六类 + `generic` 支持不可逆 HMAC 哈希指纹；discovery 只推荐六类 `mask` |
 
 **路线图中暂不支持**：Oracle、SQL Server，以及达梦 / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等国产 / 商业数据库（企业版 T29）；企业 SSO / RBAC / 法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
 

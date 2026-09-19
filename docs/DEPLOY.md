@@ -60,6 +60,42 @@ docker compose --profile observability up -d --build
 
 以上值仅是满足校验规则的本地示例，实际部署请按前文生成并妥善保存随机值。Prometheus 与 Grafana 和 AgentSQL 一样仅绑定宿主回环地址。命名卷可用 `docker compose down -v` 显式删除；该命令会永久清除 SQLite 元数据与审计记录。
 
+## 脱敏哈希密钥管理
+
+`hash` 使用专用 HMAC 密钥生成不可逆哈希指纹；它不是加密，没有解密或还原原文的能力。该密钥与用于数据源密码、控制台/JWT 等用途的 `AGENTSQL_SECRET` 相互独立，不得复用或派生。密钥可来自 YAML `redaction.hash_key` 或环境变量 `AGENTSQL_REDACTION_HASH_KEY`；环境变量只要存在（包括空串）就覆盖 YAML。非空密钥按 UTF-8 字节计数，至少 32 字节，不会自动 trim。
+
+生产环境应从 secret manager、编排平台 Secret 或权限受控的环境文件注入，不要写进容器镜像、Dockerfile、Git 或命令行参数，也不要把真实值留在示例配置中。可生成一把随机密钥：
+
+```bash
+openssl rand -base64 32
+```
+
+Compose 已将 `AGENTSQL_REDACTION_HASH_KEY` 作为可选变量传入默认服务和 controlplane profile；未配置时传入空串，纯 `mask` 部署仍可正常启动。由于空串也属于“环境变量存在”，Compose 部署若要启用 `hash`，应在受保护的 `.env` 或外部 Secret 中设置 `AGENTSQL_REDACTION_HASH_KEY`，不要只在 YAML 中填写 `redaction.hash_key`。本机二进制或 systemd 环境未声明该变量时，才会使用 YAML 值。
+
+启动和管理面的能力矩阵如下：
+
+| 密钥与规则状态 | 行为 |
+| --- | --- |
+| 无 key，且没有 enabled `hash` 规则 | 正常启动；`mask`、敏感发现和 Demo 不受影响 |
+| 无 key，仅有 disabled `hash` 草稿 | 正常启动；允许以 `enabled=false` 保存和编辑 |
+| 无 key，存在 enabled `hash` 规则 | 对外提供服务前启动失败（fail-fast），不会退化成返回原文或整列 `[REDACTED]` |
+| 有至少 32 字节的 key | 可正常加载并执行合法的 enabled `hash` 规则 |
+| 显式配置非空但不足 32 字节 | 无论当前是否有 `hash` 规则，配置装配立即失败且错误不回显密钥 |
+
+服务运行期间，在无 key 的实例中新建默认启用的 `hash` 规则，或把现有规则改为 enabled，管理 API 返回 HTTP `503`、机器码 `HASH_REDACTION_UNAVAILABLE`，并在写库前拒绝，保证零写入。可以先保存为 disabled；配置密钥并重启服务后再启用。敏感类型与算法组合非法时返回 HTTP `422`、机器码 `INVALID_MASK_RULE`。
+
+### 哈希指纹的安全边界
+
+1. AgentSQL 使用带专用密钥的 HMAC-SHA256，而不是裸 SHA-256。手机号、身份证、邮箱和生日等低熵值可枚举；裸 SHA 容易被离线穷举或彩虹表反查，HMAC 只是把验证候选值的能力绑定到秘密 key。
+2. HMAC 不是匿名化证明。攻击者拿到 key，或能够把自选候选值送入同一 hash oracle 时，仍可能字典化低熵输入；“不可逆”只表示没有解密函数，不等于绝对匿名，最小查询权限和密钥保护仍不可少。
+3. 确定性指纹必然暴露相等关系与频率：同一 key 下的同值会得到同指纹，可供下游等值关联、去重和分组，也会暴露重复值、热点和分布。全局共享 key 还会形成跨数据源、跨表的关联追踪风险；互不应关联的环境或租户必须使用不同 key。
+4. 更换 key 会改变全部指纹并断裂旧、新结果的等值关联。首版仅支持单密钥，没有 key version、双写、多版本验证或在线轮换/重算；只能在维护窗口统一切换。历史指纹不会自动重算，轮换前必须盘点 enabled `hash` 规则和依赖这些指纹的存量数据，制定下游回填、全量重算和回滚方案，并把旧 key 作为受控回滚材料保留到验收完成。
+5. 跨库等值只对“到达 HMAC 的字符串字节完全相同”成立。日期、时区、decimal、首尾空白、大小写或 Unicode 表示不同都会产生不同指纹；系统不为等值关联做 trim 或格式正规化。
+6. `hash` 在业务数据库把结果返回 AgentSQL 后、响应调用方之前计算，不会下推到业务数据库的 `JOIN`、`WHERE` 或 `GROUP BY`，也不改变数据库内部比较语义。它只能供拿到返回指纹的下游系统做等值关联。
+7. 密钥不得进入响应、审计、日志、metrics、panic 或配置回显。YAML 仅适用于文件权限受控的部署；密钥也不写入 metadata/audit 数据库或脱敏规则。
+
+升级到支持 `hash` 的版本前，应通过控制台、管理 API 或受控查询盘点 `mask_rules` 中 `algo=hash` 的存量，重点核对所有 enabled 规则。没有可用 key 时，必须先停用这些规则或在升级启动前安全注入原 key；否则新版本会按上述矩阵 fail-fast。disabled 草稿不会阻止启动。
+
 ## PostgreSQL 控制面部署
 
 PostgreSQL 控制面兼容 PostgreSQL 15+，开发、Compose 与 CI 的基准版本为 PostgreSQL 18。SQLite 仍是默认零配置后端；本节使用两个独立数据库分别保存六张 metadata 表和不可变的 `audit_logs`。迁移期间必须停止 AgentSQL 写入。
@@ -365,7 +401,7 @@ curl --fail http://127.0.0.1:7780/readyz
 
 ## 升级与回滚
 
-升级前先执行完整备份，然后停止当前实例、替换两个二进制或容器镜像并重新启动。AgentSQL 启动时会自动、幂等地执行尚未应用的 SQLite migration。
+升级前先执行完整备份，盘点 enabled `hash` 规则并确认对应 `AGENTSQL_REDACTION_HASH_KEY` 已安全注入，然后停止当前实例、替换两个二进制或容器镜像并重新启动。AgentSQL 启动时会自动、幂等地执行尚未应用的 SQLite migration；enabled `hash` 无 key 会在对外服务前拒绝启动。
 
 回滚不是只替换二进制：停止服务，将二进制或镜像恢复到旧版本，同时恢复升级前的 SQLite 备份，再启动服务。不要让旧版本直接读取已被新版本迁移且不兼容的数据库。
 

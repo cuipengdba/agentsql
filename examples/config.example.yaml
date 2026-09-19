@@ -1,5 +1,6 @@
 # AgentSQL（智盾）本机示例配置 —— 复制为 config.yaml 后修改
-# 配置文件不做环境变量展开；管理员凭证与加密密钥只从进程环境读取。
+# 配置文件不做环境变量展开。管理员凭证和 AGENTSQL_SECRET 主密钥只从进程环境读取；
+# 可选的脱敏哈希指纹密钥既可配置在 redaction.hash_key，也可由环境变量覆盖。
 
 server:
   # 管理控制台、管理 API 与 /mcp 共用监听地址。容器内必须改为 0.0.0.0:7780。
@@ -33,6 +34,13 @@ store:
   # audit:
   #   separate: false               # true 要到 T28b-1 才支持
 
+redaction:
+  # Optional HMAC fingerprint key / 可选的 HMAC 哈希指纹密钥。为空或不配置时只能使用
+  # mask；此时 enabled 的 hash 规则会导致启动失败，运行期启用 hash 也会被拒绝。
+  # 非空值至少 32 字节；生产环境优先通过 AGENTSQL_REDACTION_HASH_KEY 注入。
+  # 环境变量只要存在（包括空串）就覆盖此 YAML 值。不要提交真实密钥。
+  hash_key: ""
+
 # 全局安全默认值，可被数据源或 Agent 的有效配置覆盖。
 defaults:
   statement_timeout_ms: 5000       # 单条 SQL 默认超时，单位毫秒
@@ -43,9 +51,11 @@ defaults:
 theme:
   default: "dark"                  # 控制台初始主题：dark 或 light
 
-# 必需环境变量：AGENTSQL_SECRET，值必须恰好 32 字节。生产环境禁止使用文档公开
-# 示例值；请随机生成，并与 SQLite 文件成对备份。密钥丢失或改变后，已经存储的
-# 数据源密码将永久无法解密。AGENTSQL_INSECURE=1 仅允许本地开发/测试使用公开测试凭据。
+# 必需环境变量：AGENTSQL_SECRET，值必须恰好 32 字节，用于数据源密码与控制台/JWT
+# 等主密钥用途；它与可选的 redaction.hash_key 是两把独立密钥，不得复用或相互派生。
+# 生产环境禁止使用文档公开示例值；请随机生成，并与 SQLite 文件成对备份。
+# AGENTSQL_SECRET 丢失或改变后，已经存储的数据源密码将永久无法解密。
+# AGENTSQL_INSECURE=1 仅允许本地开发/测试使用公开测试凭据。
 # 控制台启用时：AGENTSQL_ADMIN_USER 缺省为 admin，AGENTSQL_ADMIN_PASSWORD 必须是
 # 至少 12 个字符的唯一强口令。
 # API Key 以 asql_ 开头，系统只持久化其 SHA-256 哈希。
