@@ -61,6 +61,7 @@ type AgentManifest struct {
 type MaskRuleManifest struct {
 	ID            string `yaml:"id"`
 	DatasourceID  string `yaml:"datasource_id"`
+	SchemaName    string `yaml:"schema_name"`
 	TableName     string `yaml:"table_name"`
 	ColumnName    string `yaml:"column_name"`
 	SensitiveType string `yaml:"sensitive_type"`
@@ -190,7 +191,7 @@ func validateMaskRules(items []MaskRuleManifest) error {
 	for _, item := range items {
 		column := mask.NormalizeColumnName(item.ColumnName)
 		key := item.DatasourceID + "\x00" + column
-		if _, ok := expected[key]; !ok || item.TableName != "customers" || item.SensitiveType != column || item.Algo != string(mask.AlgoMask) {
+		if _, ok := expected[key]; !ok || item.SchemaName != "" || item.TableName != "" || item.SensitiveType != column || item.Algo != string(mask.AlgoMask) {
 			return fmt.Errorf("manifest mask rule %q differs from the fixed demo mask contract", item.ID)
 		}
 		if strings.TrimSpace(item.ID) == "" {

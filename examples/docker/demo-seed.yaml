@@ -37,10 +37,10 @@ agents:
     api_key_env: AGENTSQL_DEMO_DML_KEY
 
 mask_rules:
-  - {id: mask-demo-pg-phone, datasource_id: ds-demo-pg, table_name: customers, column_name: phone, sensitive_type: phone, algo: mask}
-  - {id: mask-demo-pg-email, datasource_id: ds-demo-pg, table_name: customers, column_name: email, sensitive_type: email, algo: mask}
-  - {id: mask-demo-mysql-phone, datasource_id: ds-demo-mysql, table_name: customers, column_name: phone, sensitive_type: phone, algo: mask}
-  - {id: mask-demo-mysql-email, datasource_id: ds-demo-mysql, table_name: customers, column_name: email, sensitive_type: email, algo: mask}
+  - {id: mask-demo-pg-phone, datasource_id: ds-demo-pg, table_name: "", column_name: phone, sensitive_type: phone, algo: mask}
+  - {id: mask-demo-pg-email, datasource_id: ds-demo-pg, table_name: "", column_name: email, sensitive_type: email, algo: mask}
+  - {id: mask-demo-mysql-phone, datasource_id: ds-demo-mysql, table_name: "", column_name: phone, sensitive_type: phone, algo: mask}
+  - {id: mask-demo-mysql-email, datasource_id: ds-demo-mysql, table_name: "", column_name: email, sensitive_type: email, algo: mask}
 
 policies:
   - {id: policy-demo-ro-pg-customers, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: customers, action: allow}

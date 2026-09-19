@@ -185,6 +185,7 @@ type ruleInput struct {
 type maskRuleInput struct {
 	ID                string  `json:"id"`
 	DatasourceID      *string `json:"datasource_id,omitempty"`
+	SchemaName        string  `json:"schema_name"`
 	TableName         string  `json:"table_name"`
 	ColumnName        string  `json:"column_name"`
 	SensitiveType     string  `json:"sensitive_type"`
@@ -467,6 +468,7 @@ func ruleToViews(items []model.Rule) []ruleView {
 type maskRuleView struct {
 	ID                string    `json:"id"`
 	DatasourceID      *string   `json:"datasource_id,omitempty"`
+	SchemaName        string    `json:"schema_name"`
 	TableName         string    `json:"table_name"`
 	ColumnName        string    `json:"column_name"`
 	SensitiveType     string    `json:"sensitive_type"`
@@ -481,7 +483,7 @@ type maskRuleView struct {
 
 func maskRuleToView(rule model.MaskRule) maskRuleView {
 	return maskRuleView{
-		ID: rule.ID, DatasourceID: rule.DatasourceID, TableName: rule.TableName, ColumnName: rule.ColumnName,
+		ID: rule.ID, DatasourceID: rule.DatasourceID, SchemaName: rule.SchemaName, TableName: rule.TableName, ColumnName: rule.ColumnName,
 		SensitiveType: rule.SensitiveType, Algo: rule.Algo, Enabled: rule.Enabled,
 		RangeBucketWidth: rule.RangeBucketWidth, RangeBucketOffset: rule.RangeBucketOffset,
 		RangeGranularity: rule.RangeGranularity,

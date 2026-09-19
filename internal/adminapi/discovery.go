@@ -17,7 +17,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxDiscoveryApplyItems = 50
+const (
+	maxDiscoveryApplyItems     = 50
+	maxExternalIdentifierRunes = 128
+)
 
 type discoverAuditDetails struct {
 	CanonicalTables    []string `json:"canonical_tables"`
@@ -35,12 +38,13 @@ type discoverAuditDetails struct {
 }
 
 type applyAuditDetails struct {
-	Requested  int      `json:"requested"`
-	Created    int      `json:"created"`
-	Existing   int      `json:"existing"`
-	Conflict   int      `json:"conflict"`
-	Ambiguous  int      `json:"ambiguous"`
-	ColumnKeys []string `json:"column_keys"`
+	Requested       int      `json:"requested"`
+	Created         int      `json:"created"`
+	Existing        int      `json:"existing"`
+	CoveredByGlobal int      `json:"covered_by_global"`
+	Conflict        int      `json:"conflict"`
+	Ambiguous       int      `json:"ambiguous"`
+	ColumnKeys      []string `json:"column_keys"`
 }
 
 func (handler *Handler) datasourcesDiscover(writer http.ResponseWriter, request *http.Request) {
@@ -123,7 +127,11 @@ func discoveryScanRequest(input discoveryInput) (discovery.ScanRequest, string) 
 }
 
 func safeExternalIdentifier(value string) bool {
-	if value == "" || value != strings.TrimSpace(value) {
+	return value != "" && safeOptionalExternalIdentifier(value)
+}
+
+func safeOptionalExternalIdentifier(value string) bool {
+	if value != strings.TrimSpace(value) || len([]rune(value)) > maxExternalIdentifierRunes {
 		return false
 	}
 	for _, character := range value {
@@ -132,6 +140,10 @@ func safeExternalIdentifier(value string) bool {
 		}
 	}
 	return true
+}
+
+func safeMaskScopeIdentifier(value string) bool {
+	return safeOptionalExternalIdentifier(value) && !strings.ContainsAny(value, "*.%")
 }
 
 func discoverDetails(request discovery.ScanRequest, result discovery.ScanResult, duration time.Duration, errorCode string) discoverAuditDetails {
@@ -261,11 +273,11 @@ func (handler *Handler) datasourcesDiscoverApply(writer http.ResponseWriter, req
 	drafts := make([]store.DiscoveryDraft, 0, len(groups))
 	keys := make([]string, 0, len(groups)+len(ambiguous))
 	for _, group := range groups {
-		drafts = append(drafts, store.DiscoveryDraft{ID: uuid.NewString(), ColumnName: group.item.Column, SensitiveType: group.item.SensitiveType, Algo: group.item.Algo})
+		drafts = append(drafts, store.DiscoveryDraft{ID: uuid.NewString(), SchemaName: "", TableName: group.item.Table, ColumnName: group.item.Column, SensitiveType: group.item.SensitiveType, Algo: group.item.Algo})
 		keys = append(keys, group.key)
 	}
 	for _, item := range ambiguous {
-		keys = append(keys, strings.ToLower(item.Column))
+		keys = append(keys, item.Table+"."+strings.ToLower(item.Column))
 	}
 	sort.Strings(keys)
 	if len(drafts) == 0 {
@@ -280,7 +292,7 @@ func (handler *Handler) datasourcesDiscoverApply(writer http.ResponseWriter, req
 	}
 	repository := handler.deps.Runtime.Store.MaskRules()
 	outcome, recorded, err := repository.ApplyDiscoveryDraftsWithAudit(request.Context(), datasourceID, drafts, func(outcome store.DiscoveryApplyOutcome) (model.AuditLog, error) {
-		details := applyAuditDetails{Requested: len(input.Items), Created: len(outcome.Created), Existing: len(outcome.Existing), Conflict: len(outcome.Conflicts), Ambiguous: len(ambiguous), ColumnKeys: keys}
+		details := applyAuditDetails{Requested: len(input.Items), Created: len(outcome.Created), Existing: len(outcome.Existing), CoveredByGlobal: len(outcome.CoveredByGlobal), Conflict: len(outcome.Conflicts), Ambiguous: len(ambiguous), ColumnKeys: keys}
 		return handler.applyAuditLog(datasourceID, details)
 	})
 	if err != nil {
@@ -313,10 +325,10 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 		group     canonicalApplyGroup
 		ambiguous bool
 	}
-	byColumn := make(map[string]*aggregate)
+	byPhysicalKey := make(map[string]*aggregate)
 	order := make([]string, 0)
 	for _, raw := range items {
-		if !safeExternalIdentifier(raw.Schema) || !safeExternalIdentifier(raw.Table) || !safeExternalIdentifier(raw.Column) {
+		if !safeOptionalExternalIdentifier(raw.Schema) || !safeMaskScopeIdentifier(raw.Table) || raw.Table == "" || !safeExternalIdentifier(raw.Column) {
 			return nil, nil, "DISCOVERY_INVALID_IDENTIFIER"
 		}
 		category := discovery.Category(strings.ToLower(strings.TrimSpace(raw.Category)))
@@ -329,11 +341,12 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 		if column == "" {
 			return nil, nil, "DISCOVERY_INVALID_IDENTIFIER"
 		}
-		view := discoveryApplyItemView{Schema: raw.Schema, Table: raw.Table, Column: column, Category: string(category), SensitiveType: string(sensitiveType), Algo: string(algo)}
-		current := byColumn[column]
+		view := discoveryApplyItemView{Schema: "", Table: raw.Table, Column: column, Category: string(category), SensitiveType: string(sensitiveType), Algo: string(algo)}
+		physicalKey := raw.Table + "\x00" + column
+		current := byPhysicalKey[physicalKey]
 		if current == nil {
-			byColumn[column] = &aggregate{group: canonicalApplyGroup{item: view, key: column}}
-			order = append(order, column)
+			byPhysicalKey[physicalKey] = &aggregate{group: canonicalApplyGroup{item: view, key: raw.Table + "." + column}}
+			order = append(order, physicalKey)
 			continue
 		}
 		if current.group.item.Category != string(category) || current.group.item.SensitiveType != string(sensitiveType) || current.group.item.Algo != string(algo) {
@@ -342,8 +355,8 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 	}
 	groups := make([]canonicalApplyGroup, 0, len(order))
 	ambiguous := make([]discoveryApplyItemView, 0)
-	for _, column := range order {
-		value := byColumn[column]
+	for _, physicalKey := range order {
+		value := byPhysicalKey[physicalKey]
 		if value.ambiguous {
 			ambiguous = append(ambiguous, value.group.item)
 		} else {
@@ -354,20 +367,33 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 }
 
 func applyResponse(groups []canonicalApplyGroup, ambiguous []discoveryApplyItemView, outcome store.DiscoveryApplyOutcome, requested int) discoveryApplyResponse {
-	byColumn := make(map[string]discoveryApplyItemView, len(groups))
+	byPhysicalKey := make(map[string]discoveryApplyItemView, len(groups))
+	byColumn := make(map[string][]discoveryApplyItemView, len(groups))
 	for _, group := range groups {
-		byColumn[group.item.Column] = group.item
+		physicalKey := group.item.Table + "\x00" + group.item.Column
+		byPhysicalKey[physicalKey] = group.item
+		byColumn[group.item.Column] = append(byColumn[group.item.Column], group.item)
 	}
-	convert := func(rules []model.MaskRule) []discoveryApplyItemView {
+	convert := func(rules []model.MaskRule, coveredByGlobal bool) []discoveryApplyItemView {
 		views := make([]discoveryApplyItemView, 0, len(rules))
+		columnOffsets := make(map[string]int)
 		for _, rule := range rules {
-			view := byColumn[mask.NormalizeColumnName(rule.ColumnName)]
+			column := mask.NormalizeColumnName(rule.ColumnName)
+			view := byPhysicalKey[rule.TableName+"\x00"+column]
+			if coveredByGlobal {
+				candidates := byColumn[column]
+				offset := columnOffsets[column]
+				if offset < len(candidates) {
+					view = candidates[offset]
+					columnOffsets[column] = offset + 1
+				}
+			}
 			view.Column, view.SensitiveType, view.Algo, view.RuleID = mask.NormalizeColumnName(rule.ColumnName), rule.SensitiveType, rule.Algo, rule.ID
 			views = append(views, view)
 		}
 		return views
 	}
-	return discoveryApplyResponse{Created: convert(outcome.Created), Existing: convert(outcome.Existing), CoveredByGlobal: convert(outcome.CoveredByGlobal), Conflicts: convert(outcome.Conflicts), Ambiguous: ambiguous,
+	return discoveryApplyResponse{Created: convert(outcome.Created, false), Existing: convert(outcome.Existing, false), CoveredByGlobal: convert(outcome.CoveredByGlobal, true), Conflicts: convert(outcome.Conflicts, false), Ambiguous: ambiguous,
 		Counts: discoveryApplyCounts{Requested: requested, Created: len(outcome.Created), Existing: len(outcome.Existing), CoveredByGlobal: len(outcome.CoveredByGlobal), Conflicts: len(outcome.Conflicts), Ambiguous: len(ambiguous)}}
 }
 

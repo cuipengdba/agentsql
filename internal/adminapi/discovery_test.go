@@ -134,7 +134,8 @@ func TestDiscoveryApplyDisabledIdempotentConflictAndStrictDTO(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rules, 1)
 	require.False(t, rules[0].Enabled)
-	require.Empty(t, rules[0].TableName)
+	require.Empty(t, rules[0].SchemaName)
+	require.Equal(t, "customers", rules[0].TableName)
 	require.Equal(t, "phone", rules[0].ColumnName)
 	enabled, err := fixture.store.MaskRules().ListEnabledByDatasource(context.Background(), "ds-1")
 	require.NoError(t, err)
@@ -177,7 +178,8 @@ func TestDiscoveryApplyAcceptsAllSixRunnableCategories(t *testing.T) {
 	require.Len(t, rules, 6)
 	for _, rule := range rules {
 		require.False(t, rule.Enabled)
-		require.Empty(t, rule.TableName)
+		require.Empty(t, rule.SchemaName)
+		require.Equal(t, "customers", rule.TableName)
 	}
 
 	status, response = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken,
@@ -245,7 +247,69 @@ func TestDiscoveryApplyGlobalCoverageAndAmbiguousAggregation(t *testing.T) {
 	require.Equal(t, audit.ActionDiscoverApply, *page.List[0].Action)
 	var details map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal([]byte(*page.List[0].DetailsJSON), &details))
-	require.Equal(t, []string{"ambiguous", "column_keys", "conflict", "created", "existing", "requested"}, sortedJSONKeys(details))
+	require.Equal(t, []string{"ambiguous", "column_keys", "conflict", "covered_by_global", "created", "existing", "requested"}, sortedJSONKeys(details))
+}
+
+func TestDiscoveryApplyUsesTableOnlyPhysicalKeys(t *testing.T) {
+	fixture := newAdminFixture(t)
+	body := `{"items":[` +
+		`{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"mask"},` +
+		`{"schema":"archive","table":"suppliers","column":"PHONE","category":"phone","sensitive_type":"phone","algo":"mask"}` +
+		`]}`
+	status, response := fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, body)
+	require.Equal(t, http.StatusOK, status, response)
+	require.Contains(t, response, `"created":2`)
+
+	rules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+	require.NoError(t, err)
+	require.Len(t, rules, 2)
+	require.Equal(t, []string{"customers", "suppliers"}, []string{rules[0].TableName, rules[1].TableName})
+	for _, rule := range rules {
+		require.Empty(t, rule.SchemaName, "PostgreSQL/MySQL discovery drafts must be table-only")
+		require.Equal(t, "phone", rule.ColumnName)
+		require.Equal(t, "mask", rule.Algo)
+		require.False(t, rule.Enabled)
+	}
+}
+
+func TestDiscoveryApplyEnabledGlobalCoverageAndDisabledGlobalDoesNotBlock(t *testing.T) {
+	fixture := newAdminFixture(t)
+	datasourceID := "ds-1"
+	_, err := fixture.store.MaskRules().Create(context.Background(), model.MaskRule{
+		ID: "enabled-global-phone", DatasourceID: &datasourceID, ColumnName: "phone",
+		SensitiveType: "phone", Algo: "mask", Enabled: true,
+	})
+	require.NoError(t, err)
+	_, err = fixture.store.MaskRules().Create(context.Background(), model.MaskRule{
+		ID: "disabled-global-email", DatasourceID: &datasourceID, ColumnName: "email",
+		SensitiveType: "email", Algo: "mask", Enabled: false,
+	})
+	require.NoError(t, err)
+
+	body := `{"items":[` +
+		`{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"mask"},` +
+		`{"schema":"public","table":"suppliers","column":"phone","category":"phone","sensitive_type":"phone","algo":"mask"},` +
+		`{"schema":"public","table":"customers","column":"email","category":"email","sensitive_type":"email","algo":"mask"}` +
+		`]}`
+	status, response := fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, body)
+	require.Equal(t, http.StatusOK, status, response)
+	require.Contains(t, response, `"covered_by_global":2`)
+	require.Contains(t, response, `"created":1`)
+
+	rules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+	require.NoError(t, err)
+	var tableEmail *model.MaskRule
+	for index := range rules {
+		if rules[index].TableName == "customers" && rules[index].ColumnName == "email" {
+			tableEmail = &rules[index]
+		}
+	}
+	require.NotNil(t, tableEmail, "a disabled global draft must not cover a new table-only draft")
+	require.False(t, tableEmail.Enabled)
+
+	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	require.Contains(t, *page.List[0].DetailsJSON, `"covered_by_global":2`)
 }
 
 func TestDiscoveryApplyConcurrentSameKeyCreatesExactlyOne(t *testing.T) {

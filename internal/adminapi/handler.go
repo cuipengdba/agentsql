@@ -751,6 +751,12 @@ func validateMaskInput(input maskRuleInput) error {
 	if input.ID == "" || input.ColumnName == "" {
 		return fmt.Errorf("mask rule identity fields are required")
 	}
+	if !safeMaskScopeIdentifier(input.SchemaName) || !safeMaskScopeIdentifier(input.TableName) {
+		return fmt.Errorf("schema_name or table_name is not a valid external identifier")
+	}
+	if input.SchemaName != "" && input.TableName == "" {
+		return fmt.Errorf("schema_name must be provided together with table_name")
+	}
 	return mask.ValidateRule(maskRuleFromInput(input))
 }
 
@@ -786,7 +792,7 @@ func rangeParamsFromInput(input maskRuleInput) *mask.RangeParams {
 
 func maskRuleModelFromInput(input maskRuleInput, enabled bool) model.MaskRule {
 	rule := model.MaskRule{
-		ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName,
+		ID: input.ID, DatasourceID: input.DatasourceID, SchemaName: input.SchemaName, TableName: input.TableName,
 		ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo,
 		Enabled: enabled,
 	}
@@ -849,37 +855,109 @@ func (handler *Handler) validateMaskActivation(writer http.ResponseWriter, rule 
 	return false
 }
 
+type maskRuleConflictKind uint8
+
+const (
+	maskRuleNoConflict maskRuleConflictKind = iota
+	maskRulePhysicalConflict
+	maskRuleAlgorithmScopeConflict
+)
+
 func (handler *Handler) maskRuleConflict(
 	ctx context.Context,
-	datasourceID *string,
-	columnName string,
+	candidate model.MaskRule,
 	excludeID string,
-) (bool, error) {
+) (maskRuleConflictKind, error) {
 	rules, err := handler.deps.Runtime.Store.MaskRules().List(ctx)
 	if err != nil {
-		return false, err
+		return maskRuleNoConflict, err
 	}
 	for _, rule := range rules {
-		if rule.ID == excludeID || !sameMaskScope(rule.DatasourceID, datasourceID) {
+		if rule.ID == excludeID || !sameMaskScope(rule.DatasourceID, candidate.DatasourceID) {
 			continue
 		}
-		if mask.NormalizeColumnName(rule.ColumnName) == columnName {
-			return true, nil
+		if mask.NormalizeColumnName(rule.ColumnName) != mask.NormalizeColumnName(candidate.ColumnName) {
+			continue
+		}
+		if rule.SchemaName == candidate.SchemaName && rule.TableName == candidate.TableName {
+			return maskRulePhysicalConflict, nil
 		}
 	}
-	return false, nil
+	if !candidate.Enabled {
+		return maskRuleNoConflict, nil
+	}
+	for _, rule := range rules {
+		if rule.ID == excludeID || !rule.Enabled || !maskScopesOverlap(rule.DatasourceID, candidate.DatasourceID) ||
+			mask.NormalizeColumnName(rule.ColumnName) != mask.NormalizeColumnName(candidate.ColumnName) {
+			continue
+		}
+		oneGlobalOneTable := isGlobalColumnMaskRule(rule) != isGlobalColumnMaskRule(candidate) &&
+			(isGlobalColumnMaskRule(rule) || isGlobalColumnMaskRule(candidate))
+		if oneGlobalOneTable && !sameMaskAlgorithm(rule, candidate) {
+			return maskRuleAlgorithmScopeConflict, nil
+		}
+	}
+	return maskRuleNoConflict, nil
+}
+
+func isGlobalColumnMaskRule(rule model.MaskRule) bool {
+	return rule.SchemaName == "" && rule.TableName == ""
+}
+
+func sameMaskAlgorithm(left, right model.MaskRule) bool {
+	if left.Algo != right.Algo {
+		return false
+	}
+	if left.Algo != string(mask.AlgoRange) {
+		return true
+	}
+	if left.SensitiveType != right.SensitiveType {
+		return false
+	}
+	switch mask.SensitiveType(left.SensitiveType) {
+	case mask.TypeNumber:
+		return equalOptionalInt64(left.RangeBucketWidth, right.RangeBucketWidth) &&
+			optionalInt64(left.RangeBucketOffset, 0) == optionalInt64(right.RangeBucketOffset, 0)
+	case mask.TypeDate:
+		return optionalString(left.RangeGranularity, string(mask.RangeYear)) ==
+			optionalString(right.RangeGranularity, string(mask.RangeYear))
+	default:
+		return false
+	}
+}
+
+func equalOptionalInt64(left, right *int64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+
+func optionalInt64(value *int64, fallback int64) int64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func optionalString(value *string, fallback string) string {
+	if value == nil {
+		return fallback
+	}
+	return *value
 }
 
 func sameMaskScope(left, right *string) bool {
-	leftScope := ""
-	if left != nil {
-		leftScope = strings.TrimSpace(*left)
+	return normalizedMaskScope(left) == normalizedMaskScope(right)
+}
+
+func maskScopesOverlap(left, right *string) bool {
+	leftScope, rightScope := normalizedMaskScope(left), normalizedMaskScope(right)
+	return leftScope == "" || rightScope == "" || leftScope == rightScope
+}
+
+func normalizedMaskScope(scope *string) string {
+	if scope == nil {
+		return ""
 	}
-	rightScope := ""
-	if right != nil {
-		rightScope = strings.TrimSpace(*right)
-	}
-	return leftScope == rightScope
+	return strings.TrimSpace(*scope)
 }
 func (handler *Handler) maskRulesList(writer http.ResponseWriter, request *http.Request) {
 	var listed []model.MaskRule
@@ -911,7 +989,7 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 	}
 	input = normalizeMaskInput(input)
 	if err := validateMaskInput(input); err != nil {
-		handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", "invalid mask rule")
+		handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", err.Error())
 		return
 	}
 	enabled := true
@@ -923,16 +1001,21 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 			return
 		}
 	}
-	conflict, err := handler.maskRuleConflict(request.Context(), input.DatasourceID, input.ColumnName, "")
+	candidate := maskRuleModelFromInput(input, enabled)
+	conflict, err := handler.maskRuleConflict(request.Context(), candidate, "")
 	if err != nil {
 		handler.internal(writer, err)
 		return
 	}
-	if conflict {
+	if conflict == maskRulePhysicalConflict {
 		handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
 		return
 	}
-	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), maskRuleModelFromInput(input, enabled))
+	if conflict == maskRuleAlgorithmScopeConflict {
+		handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_SCOPE_CONFLICT", "global and table-level mask rules for this column use different algorithms; align the algorithms or delete one rule")
+		return
+	}
+	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), candidate)
 	if err != nil {
 		if store.IsMaskRuleConflict(err) {
 			handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
@@ -957,7 +1040,7 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 		return
 	}
 	if err := validateMaskInput(input); err != nil {
-		handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", "invalid mask rule")
+		handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", err.Error())
 		return
 	}
 	enabled := current.Enabled
@@ -969,16 +1052,21 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 			return
 		}
 	}
-	conflict, err := handler.maskRuleConflict(request.Context(), input.DatasourceID, input.ColumnName, input.ID)
+	candidate := maskRuleModelFromInput(input, enabled)
+	conflict, err := handler.maskRuleConflict(request.Context(), candidate, input.ID)
 	if err != nil {
 		handler.internal(writer, err)
 		return
 	}
-	if conflict {
+	if conflict == maskRulePhysicalConflict {
 		handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")
 		return
 	}
-	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), maskRuleModelFromInput(input, enabled))
+	if conflict == maskRuleAlgorithmScopeConflict {
+		handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_SCOPE_CONFLICT", "global and table-level mask rules for this column use different algorithms; align the algorithms or delete one rule")
+		return
+	}
+	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), candidate)
 	if err != nil {
 		if store.IsMaskRuleConflict(err) {
 			handler.maskRuleFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "mask rule conflicts with an existing scope and column")

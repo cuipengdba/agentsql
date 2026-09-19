@@ -64,7 +64,8 @@ func LoadSecrets(manifest Manifest, lookup LookupEnv) (Secrets, error) {
 }
 
 // Run creates or verifies the complete fixed demo seed. Existing rows are
-// always compared and are never updated or rotated.
+// compared and are never rotated; fixed-ID mask rules are updated to the
+// current manifest so an upgraded demo database remains restart-safe.
 func Run(
 	ctx context.Context,
 	metadataStore *store.Store,
@@ -208,7 +209,12 @@ func ensureMaskRule(ctx context.Context, opened *store.Store, expected model.Mas
 		return fmt.Errorf("read demo mask rule %q: operation failed", expected.ID)
 	}
 	if !sameMaskRule(expected, stored) {
-		return fmt.Errorf("demo seed conflict: mask rule %q differs", expected.ID)
+		if verify {
+			return fmt.Errorf("demo seed verify: mask rule %q differs", expected.ID)
+		}
+		if _, updateErr := opened.MaskRules().Update(ctx, expected); updateErr != nil {
+			return fmt.Errorf("update demo mask rule %q: operation failed", expected.ID)
+		}
 	}
 	return nil
 }
@@ -353,7 +359,7 @@ func agentModel(item AgentManifest, apiKey string) model.Agent {
 
 func maskRuleModel(item MaskRuleManifest) model.MaskRule {
 	datasourceID := item.DatasourceID
-	return model.MaskRule{ID: item.ID, DatasourceID: &datasourceID, TableName: item.TableName,
+	return model.MaskRule{ID: item.ID, DatasourceID: &datasourceID, SchemaName: item.SchemaName, TableName: item.TableName,
 		ColumnName: item.ColumnName, SensitiveType: item.SensitiveType, Algo: item.Algo, Enabled: true}
 }
 
@@ -377,8 +383,12 @@ func sameAgent(expected, stored model.Agent) bool {
 
 func sameMaskRule(expected, stored model.MaskRule) bool {
 	return expected.ID == stored.ID && equalString(expected.DatasourceID, stored.DatasourceID) &&
-		expected.TableName == stored.TableName && expected.ColumnName == stored.ColumnName &&
-		expected.SensitiveType == stored.SensitiveType && expected.Algo == stored.Algo
+		expected.SchemaName == stored.SchemaName && expected.TableName == stored.TableName &&
+		expected.ColumnName == stored.ColumnName && expected.SensitiveType == stored.SensitiveType &&
+		expected.Algo == stored.Algo && expected.Enabled == stored.Enabled &&
+		equalInt64(expected.RangeBucketWidth, stored.RangeBucketWidth) &&
+		equalInt64(expected.RangeBucketOffset, stored.RangeBucketOffset) &&
+		equalString(expected.RangeGranularity, stored.RangeGranularity)
 }
 
 func samePolicy(expected, stored model.Policy) bool {

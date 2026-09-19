@@ -168,8 +168,11 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 				scoped = rule
 				break
 			}
-			if (rule.DatasourceID == nil || strings.TrimSpace(*rule.DatasourceID) == "") &&
-				rule.SchemaName == "" && rule.TableName == "" && rule.Enabled {
+			ruleScope := ""
+			if rule.DatasourceID != nil {
+				ruleScope = strings.TrimSpace(*rule.DatasourceID)
+			}
+			if (ruleScope == "" || ruleScope == datasourceID) && rule.SchemaName == "" && rule.TableName == "" && rule.Enabled {
 				global = rule
 			}
 		}
@@ -187,6 +190,7 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 		}
 		scope := datasourceID
 		outcome.Created = append(outcome.Created, model.MaskRule{ID: draft.ID, DatasourceID: &scope, SchemaName: draft.SchemaName, TableName: draft.TableName, ColumnName: column, SensitiveType: draft.SensitiveType, Algo: draft.Algo, Enabled: false})
+		listed = append(listed, outcome.Created[len(outcome.Created)-1])
 	}
 	if len(outcome.Conflicts) != 0 {
 		outcome.Created = []model.MaskRule{}

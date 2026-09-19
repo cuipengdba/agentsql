@@ -285,7 +285,7 @@ func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
 		http.MethodPost,
 		"/api/v1/mask_rules",
 		fixture.adminToken,
-		`{"id":"duplicate-global","table_name":"other","column_name":"[Phone]","sensitive_type":"email","algo":"mask"}`,
+		`{"id":"duplicate-global","column_name":"[Phone]","sensitive_type":"email","algo":"mask"}`,
 	)
 	require.Equal(t, http.StatusConflict, status, body)
 	require.Contains(t, body, "MASK_RULE_CONFLICT")

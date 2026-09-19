@@ -124,12 +124,12 @@ VALUES
 	}, []byte(adminTestSecret))
 	require.NoError(t, err)
 	_, err = seed.MaskRules().Create(ctx, model.MaskRule{
-		ID: "pg-global-name-hash", ColumnName: "name", SensitiveType: string(mask.TypeGeneric),
+		ID: "pg-hash-gate-probe-a", ColumnName: "hash_gate_probe_a", SensitiveType: string(mask.TypeGeneric),
 		Algo: string(mask.AlgoHash), Enabled: true,
 	})
 	require.NoError(t, err)
 	_, err = seed.MaskRules().Create(ctx, model.MaskRule{
-		ID: "pg-global-email-hash", ColumnName: "email", SensitiveType: string(mask.TypeGeneric),
+		ID: "pg-hash-gate-probe-b", ColumnName: "hash_gate_probe_b", SensitiveType: string(mask.TypeGeneric),
 		Algo: string(mask.AlgoHash), Enabled: true,
 	})
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ VALUES
 		MaxOpenConns: 4, MaxIdleConns: 2, AutoMigrate: true,
 	}, []byte(adminTestSecret))
 	require.NoError(t, err)
-	for _, id := range []string{"pg-global-name-hash", "pg-global-email-hash"} {
+	for _, id := range []string{"pg-hash-gate-probe-a", "pg-hash-gate-probe-b"} {
 		rule, getErr := staging.MaskRules().Get(ctx, id)
 		require.NoError(t, getErr)
 		rule.Enabled = false
@@ -159,7 +159,7 @@ VALUES
 		MaxOpenConns: 4, MaxIdleConns: 2, AutoMigrate: true,
 	}, []byte(adminTestSecret))
 	require.NoError(t, err)
-	for _, id := range []string{"pg-global-name-hash", "pg-global-email-hash"} {
+	for _, id := range []string{"pg-hash-gate-probe-a", "pg-hash-gate-probe-b"} {
 		rule, getErr := staging.MaskRules().Get(ctx, id)
 		require.NoError(t, getErr)
 		rule.Enabled = true
@@ -563,10 +563,12 @@ hashNotificationVerified:
 			continue
 		}
 		require.False(t, storedRule.Enabled, storedRule.ColumnName)
-		require.Empty(t, storedRule.TableName)
+		require.Empty(t, storedRule.SchemaName)
+		require.Equal(t, "customers", storedRule.TableName)
 		adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPut,
 			"/api/v1/mask_rules/"+storedRule.ID, adminAuthorization, map[string]any{
-				"datasource_id": "pg-demo", "table_name": "", "column_name": storedRule.ColumnName,
+				"datasource_id": "pg-demo", "schema_name": storedRule.SchemaName,
+				"table_name": storedRule.TableName, "column_name": storedRule.ColumnName,
 				"sensitive_type": storedRule.SensitiveType, "algo": storedRule.Algo, "enabled": true,
 			})
 		enabledCount++

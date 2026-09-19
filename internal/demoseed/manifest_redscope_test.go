@@ -25,9 +25,9 @@ func TestValidateMaskRulesRejectsDuplicateColumnWithinDatasource(t *testing.T) {
 
 func fixedDemoMaskRules() []MaskRuleManifest {
 	return []MaskRuleManifest{
-		{ID: "mask-demo-pg-phone", DatasourceID: config.DemoDatasourcePG, TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
-		{ID: "mask-demo-pg-email", DatasourceID: config.DemoDatasourcePG, TableName: "customers", ColumnName: "email", SensitiveType: "email", Algo: "mask"},
-		{ID: "mask-demo-mysql-phone", DatasourceID: config.DemoDatasourceMySQL, TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
-		{ID: "mask-demo-mysql-email", DatasourceID: config.DemoDatasourceMySQL, TableName: "customers", ColumnName: "email", SensitiveType: "email", Algo: "mask"},
+		{ID: "mask-demo-pg-phone", DatasourceID: config.DemoDatasourcePG, ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+		{ID: "mask-demo-pg-email", DatasourceID: config.DemoDatasourcePG, ColumnName: "email", SensitiveType: "email", Algo: "mask"},
+		{ID: "mask-demo-mysql-phone", DatasourceID: config.DemoDatasourceMySQL, ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+		{ID: "mask-demo-mysql-email", DatasourceID: config.DemoDatasourceMySQL, ColumnName: "email", SensitiveType: "email", Algo: "mask"},
 	}
 }

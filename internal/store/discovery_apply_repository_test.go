@@ -15,19 +15,20 @@ func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
 	ctx := context.Background()
 	repository := opened.MaskRules()
 	drafts := []DiscoveryDraft{
-		{ID: "phone", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
-		{ID: "email", ColumnName: "email", SensitiveType: "email", Algo: "mask"},
-		{ID: "idcard", ColumnName: "idcard", SensitiveType: "idcard", Algo: "mask"},
-		{ID: "bankcard", ColumnName: "bankcard", SensitiveType: "bankcard", Algo: "mask"},
-		{ID: "ip", ColumnName: "ip", SensitiveType: "ip", Algo: "mask"},
-		{ID: "birthdate", ColumnName: "birthdate", SensitiveType: "birthdate", Algo: "mask"},
+		{ID: "phone", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+		{ID: "email", TableName: "customers", ColumnName: "email", SensitiveType: "email", Algo: "mask"},
+		{ID: "idcard", TableName: "customers", ColumnName: "idcard", SensitiveType: "idcard", Algo: "mask"},
+		{ID: "bankcard", TableName: "customers", ColumnName: "bankcard", SensitiveType: "bankcard", Algo: "mask"},
+		{ID: "ip", TableName: "customers", ColumnName: "ip", SensitiveType: "ip", Algo: "mask"},
+		{ID: "birthdate", TableName: "customers", ColumnName: "birthdate", SensitiveType: "birthdate", Algo: "mask"},
 	}
 	outcome, err := repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", drafts)
 	require.NoError(t, err)
 	require.Len(t, outcome.Created, len(drafts))
 	for _, created := range outcome.Created {
 		require.False(t, created.Enabled)
-		require.Empty(t, created.TableName)
+		require.Empty(t, created.SchemaName)
+		require.Equal(t, "customers", created.TableName)
 		require.NotNil(t, created.DatasourceID)
 		require.Equal(t, "ds-1", *created.DatasourceID)
 	}
