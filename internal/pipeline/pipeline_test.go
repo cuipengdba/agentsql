@@ -510,8 +510,10 @@ func TestPipelineDynamicAndRedactionErrorsNeverReturnData(t *testing.T) {
 		require.Equal(t, "error", fixture.audit.last().Decision)
 	})
 	t.Run("redactor builder error", func(t *testing.T) {
+		const raw = "T41_PIPELINE_RAW_SENTINEL_b7a3"
 		fixture := newPipelineFixture(t)
-		expected := errors.New("mask rules unavailable")
+		fixture.executor.queryResult = model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{raw}}, RowCount: 1}
+		expected := mask.ErrHashKeyRequired
 		fixture.redactors.err = expected
 		response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
 		require.ErrorIs(t, err, expected)
@@ -520,6 +522,9 @@ func TestPipelineDynamicAndRedactionErrorsNeverReturnData(t *testing.T) {
 		log := fixture.audit.last()
 		require.Equal(t, "error", log.Decision)
 		require.Equal(t, 1, *log.RowsReturned)
+		encoded, marshalErr := json.Marshal(log)
+		require.NoError(t, marshalErr)
+		require.NotContains(t, string(encoded), raw)
 	})
 }
 

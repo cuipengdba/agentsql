@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
@@ -315,23 +317,14 @@ func (reader staticMaskRuleReader) ListEnabledByDatasource(context.Context, stri
 	return append([]model.MaskRule(nil), reader.rules...), nil
 }
 
-func TestRedactorBuilderUsesMaskSensitiveTypeOrder(t *testing.T) {
+func TestRedactorBuilderRejectsDuplicateColumnsWithinOneScope(t *testing.T) {
 	types := []mask.SensitiveType{mask.TypeBirthDate, mask.TypeIP, mask.TypeBankCard, mask.TypeIDCard, mask.TypeEmail, mask.TypePhone}
 	stored := make([]model.MaskRule, 0, len(types))
-	directRules := make([]mask.Rule, 0, len(types))
 	for index, sensitiveType := range types {
 		stored = append(stored, model.MaskRule{ID: fmt.Sprintf("rule-%d", index), ColumnName: "shared", SensitiveType: string(sensitiveType), Algo: string(mask.AlgoMask), Enabled: true})
-		directRules = append(directRules, mask.Rule{Column: "shared", SensitiveType: sensitiveType, Algorithm: mask.AlgoMask})
 	}
-	built, err := (&redactorBuilder{repository: staticMaskRuleReader{rules: stored}}).RedactorFor(context.Background(), "ds-1")
-	require.NoError(t, err)
-	direct, err := mask.NewRedactor(directRules)
-	require.NoError(t, err)
-	result := model.QueryResult{Columns: []string{"shared"}, Rows: [][]string{{"value"}}}
-	_, builtReport := built.Apply(result)
-	_, directReport := direct.Apply(result)
-	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, directReport.TouchedColumns)
-	require.Equal(t, directReport.TouchedColumns, builtReport.TouchedColumns)
+	_, err := (&redactorBuilder{repository: staticMaskRuleReader{rules: stored}}).RedactorFor(context.Background(), "ds-1")
+	require.ErrorIs(t, err, mask.ErrDuplicateMaskColumn)
 }
 
 func TestRedactorBuilderPrefersDatasourceScope(t *testing.T) {
@@ -357,6 +350,101 @@ func TestRedactorBuilderPrefersDatasourceScope(t *testing.T) {
 	require.Equal(t, []string{"u***@example.com", "138****5678"}, result.Rows[0])
 	require.Equal(t, mask.TypeEmail, report.TouchedColumns[0])
 	require.Equal(t, mask.TypePhone, report.TouchedColumns[1])
+}
+
+func TestRedactorBuilderDatasourceMaskOverridesGlobalHash(t *testing.T) {
+	key := []byte("hash-key-0123456789abcdef01234567")
+	builder := &redactorBuilder{
+		repository: staticMaskRuleReader{rules: []model.MaskRule{
+			{ID: "global", ColumnName: "contact", SensitiveType: string(mask.TypeGeneric), Algo: string(mask.AlgoHash), Enabled: true},
+			{ID: "scoped", DatasourceID: stringPointerBootstrap("ds-1"), ColumnName: "contact", SensitiveType: string(mask.TypeEmail), Algo: string(mask.AlgoMask), Enabled: true},
+		}},
+		options:       []mask.Option{mask.WithHashKey(key)},
+		hashAvailable: true,
+	}
+	redactor, err := builder.RedactorFor(context.Background(), "ds-1")
+	require.NoError(t, err)
+	result, report := redactor.Apply(model.QueryResult{Columns: []string{"contact"}, Rows: [][]string{{"user@example.com"}}})
+	require.Equal(t, "u***@example.com", result.Rows[0][0])
+	require.Equal(t, mask.TypeEmail, report.TouchedColumns[0])
+}
+
+func TestAssembleRedactionStartupMatrixSQLite(t *testing.T) {
+	t.Run("enabled hash without key fails and closes store", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "")
+		path := filepath.Join(t.TempDir(), "enabled.db")
+		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "hash", ColumnName: "phone", SensitiveType: string(mask.TypeGeneric), Algo: string(mask.AlgoHash), Enabled: true})
+		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
+		require.Nil(t, runtime)
+		require.ErrorIs(t, err, mask.ErrHashKeyRequired)
+		require.ErrorContains(t, err, "set AGENTSQL_REDACTION_HASH_KEY or redaction.hash_key")
+		renamed := path + ".closed"
+		require.NoError(t, os.Rename(path, renamed), "failed assembly must close the opened SQLite store")
+	})
+
+	t.Run("disabled hash without key starts", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "")
+		path := filepath.Join(t.TempDir(), "disabled.db")
+		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "hash", ColumnName: "phone", SensitiveType: string(mask.TypeGeneric), Algo: string(mask.AlgoHash), Enabled: false})
+		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
+		require.NoError(t, err)
+		require.NoError(t, runtime.Close())
+	})
+
+	t.Run("same normalized column in different datasource scopes starts", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "")
+		path := filepath.Join(t.TempDir(), "scopes.db")
+		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "ds-1-phone", DatasourceID: stringPointerBootstrap("ds-1"), ColumnName: "phone", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true})
+		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "ds-2-phone", DatasourceID: stringPointerBootstrap("ds-2"), ColumnName: "PHONE", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true})
+		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
+		require.NoError(t, err)
+		require.NoError(t, runtime.Close())
+	})
+
+	t.Run("short key fails without hash rules", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "tiny-secret-T41")
+		runtime, err := Assemble(context.Background(), bootstrapTestConfig(filepath.Join(t.TempDir(), "short.db")), bootstrapTestSecret)
+		require.Nil(t, runtime)
+		require.ErrorIs(t, err, config.ErrInvalidRedactionHashKey)
+		require.NotContains(t, err.Error(), "tiny-secret-T41")
+	})
+
+	t.Run("valid key starts and hashes query result", func(t *testing.T) {
+		t.Setenv(config.RedactionHashKeyEnv, "hash-key-0123456789abcdef01234567")
+		path := filepath.Join(t.TempDir(), "valid.db")
+		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "hash", ColumnName: "phone", SensitiveType: string(mask.TypeGeneric), Algo: string(mask.AlgoHash), Enabled: true})
+		provider := &bootstrapExecutorProvider{executor: &bootstrapExecutor{}}
+		runtime, err := assembleWithExecutorProvider(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret, provider)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+		seedBootstrapPipelineIdentity(t, runtime)
+		response, err := runtime.Pipeline.Process(context.Background(), pipeline.Request{APIKey: bootstrapPipelineAPIKey, DatasourceID: "ds-1", SQL: "SELECT phone FROM public.customers WHERE id=1 LIMIT 1", MCPTool: "query"})
+		require.NoError(t, err)
+		require.Regexp(t, regexp.MustCompile(`^h\.[0-9a-f]{32}$`), response.Result.Rows[0][0])
+		require.NotEqual(t, "13812345678", response.Result.Rows[0][0])
+	})
+}
+
+const bootstrapPipelineAPIKey = "asql_bootstrap_hash"
+
+func seedBootstrapMaskRule(t *testing.T, path string, rule model.MaskRule) {
+	t.Helper()
+	opened, err := store.OpenWithSecret(context.Background(), path, bootstrapTestSecret)
+	require.NoError(t, err)
+	_, err = opened.MaskRules().Create(context.Background(), rule)
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+}
+
+func seedBootstrapPipelineIdentity(t *testing.T, runtime *Runtime) {
+	t.Helper()
+	hash := store.HashAPIKey(bootstrapPipelineAPIKey)
+	_, err := runtime.Store.Agents().Create(context.Background(), model.Agent{ID: "agent-hash", Name: "Agent", Status: "active", APIKeyHash: hash, Level: "dml"})
+	require.NoError(t, err)
+	_, err = runtime.Store.Datasources().Create(context.Background(), model.Datasource{ID: "ds-1", Name: "DB", DBType: "postgres", Host: "127.0.0.1", Port: 5432, Database: "app", Username: "agentsql", ConnLimit: 5, StmtTimeoutMS: 5_000, RowLimit: 100}, "password")
+	require.NoError(t, err)
+	_, err = runtime.Store.Policies().Create(context.Background(), model.Policy{ID: "policy-hash", AgentID: "agent-hash", DatasourceID: "ds-1", ObjectType: "table", ObjectName: "public.customers", Action: "allow"})
+	require.NoError(t, err)
 }
 
 func TestRedactorBuilderIgnoresDisabledDraftsButManagementListsThem(t *testing.T) {

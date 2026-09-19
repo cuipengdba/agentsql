@@ -75,6 +75,17 @@ theme:
 	require.True(t, errors.Is(err, ErrMultipleYAMLDocuments))
 }
 
+func TestParseRegistersStrictRedactionFields(t *testing.T) {
+	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
+	contents := fmt.Sprintf(validConfig, databasePath) + "redaction:\n  hash_key: 12345678901234567890123456789012\n"
+	loaded, err := Parse([]byte(contents))
+	require.NoError(t, err)
+	require.Equal(t, "12345678901234567890123456789012", loaded.Redaction.HashKey)
+
+	_, err = Parse([]byte(contents + "  unknown: true\n"))
+	require.Error(t, err)
+}
+
 func TestParsePreservesEventStreamSettingsAndRejectsInvalidConnectionLimits(t *testing.T) {
 	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
 	contents := fmt.Sprintf(validConfig, databasePath)

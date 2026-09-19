@@ -42,6 +42,7 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 		{Column: "birth_date", SensitiveType: mask.TypeBirthDate, Algorithm: mask.AlgoMask},
 	})
 	require.NoError(t, err)
+	redactorBuilder := &playgroundPipelineRedactorBuilder{redactor: redactor}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: &playgroundPipelineAuthenticator{},
 		Datasources:   playgroundPipelineDatasourceReader{},
@@ -49,7 +50,7 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 		Executors:     provider,
 		Approvals:     playgroundPipelineApprovalWriter{},
 		Audit:         audit.NewRecorder(metadata.AuditLogs()),
-		Redactors:     playgroundPipelineRedactorBuilder{redactor: redactor},
+		Redactors:     redactorBuilder,
 	}, []byte(adminTestSecret), pipeline.WithDemoConfig(config.DemoConfig{
 		Enabled: true, AllowedDatasourceIDs: []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL}, QPSPerAgent: 5,
 	}))
@@ -92,6 +93,31 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 		require.NotContains(t, logs.String(), raw)
 	}
 	assertPlaygroundBodyHasNoSecrets(t, body)
+
+	const hashRaw = "T41_PLAYGROUND_RAW_SENTINEL_b7a3"
+	hashRedactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "customer_name", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash,
+	}}, mask.WithHashKey([]byte("playground-hash-key-0123456789abcdef")))
+	require.NoError(t, err)
+	redactorBuilder.redactor = hashRedactor
+	provider.executor.(*playgroundPipelineExecutor).setResult(model.QueryResult{
+		Columns: []string{"customer_name"}, Rows: [][]string{{hashRaw}}, RowCount: 1,
+	})
+	status, body = fixture.request(http.MethodPost, "/api/v1/playground/run", fixture.adminToken,
+		`{"sql":"SELECT customer_name FROM public.customers WHERE id = 1 LIMIT 1","datasource_id":"ds-demo-pg","agent_profile":"ro"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	var hashed struct {
+		Data playgroundRunView `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &hashed))
+	expectedHash, _ := hashRedactor.Apply(model.QueryResult{Columns: []string{"customer_name"}, Rows: [][]string{{hashRaw}}})
+	require.Equal(t, expectedHash.Rows[0][0], hashed.Data.Result.Rows[0][0])
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, hashed.Data.Result.Rows[0][0])
+	require.NotContains(t, body, hashRaw)
+	hashAuditJSON, err := json.Marshal(latestPlaygroundPipelineAudit(t, metadata))
+	require.NoError(t, err)
+	require.NotContains(t, string(hashAuditJSON), hashRaw)
+	require.NotContains(t, logs.String(), hashRaw)
 
 	beforeDenyExecutorCalls := provider.calls()
 	status, body = fixture.request(http.MethodPost, "/api/v1/playground/run", fixture.adminToken,
@@ -180,6 +206,7 @@ func (provider *playgroundPipelineExecutorProvider) calls() int {
 type playgroundPipelineExecutor struct {
 	mu       sync.Mutex
 	rowLimit int
+	result   *model.QueryResult
 }
 
 func (*playgroundPipelineExecutor) Dialect() string            { return "postgres" }
@@ -205,6 +232,16 @@ func (demoExecutor *playgroundPipelineExecutor) Query(
 ) (model.QueryResult, error) {
 	demoExecutor.mu.Lock()
 	demoExecutor.rowLimit = rowLimit
+	if demoExecutor.result != nil {
+		result := *demoExecutor.result
+		result.Columns = append([]string(nil), demoExecutor.result.Columns...)
+		result.Rows = make([][]string, len(demoExecutor.result.Rows))
+		for index := range demoExecutor.result.Rows {
+			result.Rows[index] = append([]string(nil), demoExecutor.result.Rows[index]...)
+		}
+		demoExecutor.mu.Unlock()
+		return result, nil
+	}
 	demoExecutor.mu.Unlock()
 	return model.QueryResult{
 		Columns: []string{"id_card", "legacy_id_card", "pan_plain", "pan_formatted", "client_ip", "ip_network", "birth_date"},
@@ -225,6 +262,12 @@ func (demoExecutor *playgroundPipelineExecutor) lastRowLimit() int {
 	return demoExecutor.rowLimit
 }
 
+func (demoExecutor *playgroundPipelineExecutor) setResult(result model.QueryResult) {
+	demoExecutor.mu.Lock()
+	defer demoExecutor.mu.Unlock()
+	demoExecutor.result = &result
+}
+
 type playgroundPipelineApprovalWriter struct{}
 
 func (playgroundPipelineApprovalWriter) Create(_ context.Context, approval model.Approval) (model.Approval, error) {
@@ -233,7 +276,7 @@ func (playgroundPipelineApprovalWriter) Create(_ context.Context, approval model
 
 type playgroundPipelineRedactorBuilder struct{ redactor mask.Redactor }
 
-func (builder playgroundPipelineRedactorBuilder) RedactorFor(context.Context, string) (mask.Redactor, error) {
+func (builder *playgroundPipelineRedactorBuilder) RedactorFor(context.Context, string) (mask.Redactor, error) {
 	return builder.redactor, nil
 }
 
@@ -258,4 +301,4 @@ var _ pipeline.ExecutorProvider = (*playgroundPipelineExecutorProvider)(nil)
 var _ executor.Executor = (*playgroundPipelineExecutor)(nil)
 var _ rules.TransactionMetadataProvider = (*playgroundPipelineExecutor)(nil)
 var _ pipeline.ApprovalWriter = playgroundPipelineApprovalWriter{}
-var _ pipeline.RedactorBuilder = playgroundPipelineRedactorBuilder{}
+var _ pipeline.RedactorBuilder = (*playgroundPipelineRedactorBuilder)(nil)

@@ -3,7 +3,9 @@ package adminapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/discovery"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -181,6 +184,20 @@ func TestDiscoveryApplyAcceptsAllSixRunnableCategories(t *testing.T) {
 		`{"items":[{"schema":"public","table":"customers","column":"bad","category":"phone","sensitive_type":"email","algo":"mask"}]}`)
 	require.Equal(t, http.StatusUnprocessableEntity, status, response)
 	require.Contains(t, response, "DISCOVERY_NOT_APPLICABLE")
+
+	status, response = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken,
+		`{"items":[{"schema":"public","table":"customers","column":"name","category":"phone","sensitive_type":"phone","algo":"hash"}]}`)
+	require.Equal(t, http.StatusUnprocessableEntity, status, response)
+	require.Contains(t, response, "DISCOVERY_NOT_APPLICABLE")
+}
+
+func TestDiscoveryApplyTypedStoreErrorsMapTo422(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handler := &Handler{}
+	handler.writeDiscoveryApplyError(recorder, errors.Join(store.ErrInvalidDiscoveryDraft, errors.New("internal draft detail")))
+	require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "DISCOVERY_NOT_APPLICABLE")
+	require.NotContains(t, recorder.Body.String(), "internal draft detail")
 }
 
 func TestDiscoveryApplyGlobalCoverageAndAmbiguousAggregation(t *testing.T) {

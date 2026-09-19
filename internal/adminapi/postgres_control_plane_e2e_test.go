@@ -38,6 +38,8 @@ func TestPostgres18ControlPlaneEndToEndE2E(t *testing.T) {
 		username         = "agentsql"
 		password         = "agentsql-pg18-password"
 		adminPassword    = "postgres-e2e-admin-password"
+		hashKey          = "pg18-redaction-hash-key-0123456789ab"
+		hashRaw          = "T41_PG18_RAW_SENTINEL_b7a3"
 	)
 
 	container, err := postgrescontainer.Run(
@@ -80,6 +82,7 @@ func TestPostgres18ControlPlaneEndToEndE2E(t *testing.T) {
 	_, err = businessPool.Exec(ctx, `
 CREATE TABLE public.customers (
   id integer NOT NULL,
+  name text NOT NULL,
   email text NOT NULL,
   balance integer NOT NULL,
   id_card text NOT NULL,
@@ -93,15 +96,15 @@ CREATE TABLE public.customers (
 	require.NoError(t, err)
 	_, err = businessPool.Exec(ctx, `
 INSERT INTO public.customers (
-  id, email, balance, id_card, legacy_id_card, bank_card_plain, bank_card_formatted,
+  id, name, email, balance, id_card, legacy_id_card, bank_card_plain, bank_card_formatted,
   client_ip, ip_network, birth_date
 )
 VALUES
- (1, 'alice@example.com', 100, '11010519491231002X', '130503670401001',
+ (1, '`+hashRaw+`', 'alice@example.com', 100, '11010519491231002X', '130503670401001',
   '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29'),
- (2, 'bob@example.com', 200, '11010519491231002X', '130503670401001',
+ (2, 'Ordinary Bob', 'bob@example.com', 200, '11010519491231002X', '130503670401001',
   '5555555555554444', '5555-5555-5555-4444', '2001:db8::1', '2001:db8::/48', DATE '1990-01-02'),
- (3, 'carol@example.com', 300, 'PG_CONTROL_INVALID_ID_SENTINEL_1c93', '130503670401001',
+ (3, 'Ordinary Carol', 'carol@example.com', 300, 'PG_CONTROL_INVALID_ID_SENTINEL_1c93', '130503670401001',
   '378282246310005', '3782 822463 10005', '203.0.113.9', '203.0.113.0/24', DATE '1988-12-31')`)
 	require.NoError(t, err)
 
@@ -115,6 +118,56 @@ VALUES
 		MaxIdleConns:    4,
 		ConnMaxLifetime: config.ConfigDuration(time.Minute),
 	}
+	seed, err := store.OpenMetadata(ctx, store.MetadataOptions{
+		Driver: store.DialectPostgres, PostgresDSN: metadataDSN,
+		MaxOpenConns: 4, MaxIdleConns: 2, AutoMigrate: true,
+	}, []byte(adminTestSecret))
+	require.NoError(t, err)
+	_, err = seed.MaskRules().Create(ctx, model.MaskRule{
+		ID: "pg-global-name-hash", ColumnName: "name", SensitiveType: string(mask.TypeGeneric),
+		Algo: string(mask.AlgoHash), Enabled: true,
+	})
+	require.NoError(t, err)
+	_, err = seed.MaskRules().Create(ctx, model.MaskRule{
+		ID: "pg-global-email-hash", ColumnName: "email", SensitiveType: string(mask.TypeGeneric),
+		Algo: string(mask.AlgoHash), Enabled: true,
+	})
+	require.NoError(t, err)
+	require.NoError(t, seed.Close())
+	t.Setenv(config.RedactionHashKeyEnv, "")
+	failedRuntime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
+	require.Nil(t, failedRuntime)
+	require.ErrorIs(t, err, mask.ErrHashKeyRequired)
+	staging, err := store.OpenMetadata(ctx, store.MetadataOptions{
+		Driver: store.DialectPostgres, PostgresDSN: metadataDSN,
+		MaxOpenConns: 4, MaxIdleConns: 2, AutoMigrate: true,
+	}, []byte(adminTestSecret))
+	require.NoError(t, err)
+	for _, id := range []string{"pg-global-name-hash", "pg-global-email-hash"} {
+		rule, getErr := staging.MaskRules().Get(ctx, id)
+		require.NoError(t, getErr)
+		rule.Enabled = false
+		_, updateErr := staging.MaskRules().Update(ctx, rule)
+		require.NoError(t, updateErr)
+	}
+	require.NoError(t, staging.Close())
+	disabledRuntime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
+	require.NoError(t, err, "disabled hash drafts must not require a key")
+	require.NoError(t, disabledRuntime.Close())
+	staging, err = store.OpenMetadata(ctx, store.MetadataOptions{
+		Driver: store.DialectPostgres, PostgresDSN: metadataDSN,
+		MaxOpenConns: 4, MaxIdleConns: 2, AutoMigrate: true,
+	}, []byte(adminTestSecret))
+	require.NoError(t, err)
+	for _, id := range []string{"pg-global-name-hash", "pg-global-email-hash"} {
+		rule, getErr := staging.MaskRules().Get(ctx, id)
+		require.NoError(t, getErr)
+		rule.Enabled = true
+		_, updateErr := staging.MaskRules().Update(ctx, rule)
+		require.NoError(t, updateErr)
+	}
+	require.NoError(t, staging.Close())
+	t.Setenv(config.RedactionHashKeyEnv, hashKey)
 	runtime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
@@ -208,6 +261,11 @@ VALUES
 			"id": "pg-email-mask", "datasource_id": "pg-demo", "table_name": "customers",
 			"column_name": "email", "sensitive_type": "email", "algo": "mask",
 		})
+	adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
+		"/api/v1/mask_rules", adminAuthorization, map[string]any{
+			"id": "pg-name-hash", "datasource_id": "pg-demo", "table_name": "customers",
+			"column_name": "name", "sensitive_type": "generic", "algo": "hash",
+		})
 	ruleBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
 		"/api/v1/rules", adminAuthorization, map[string]any{
 			"id": "R105", "db_type": "postgres", "title": "Approve unindexed writes",
@@ -233,6 +291,72 @@ VALUES
 	}, queryData.Result.Rows)
 	require.Equal(t, 3, queryData.Redact.MaskedCells)
 	require.Positive(t, queryData.AuditID)
+
+	hashEvents, cancelHashEvents := runtime.Events.SubscribeLive()
+	hashResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 2,
+		"query", map[string]any{
+			"datasource_id": "pg-demo",
+			"sql":           "SELECT name FROM public.customers WHERE id = 1 LIMIT 1",
+		})
+	require.Equal(t, "allow", hashResponse.Decision)
+	hashData := decodeAdminE2EPipelineData(t, hashResponse.Data)
+	require.NotNil(t, hashData.Result)
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, hashData.Result.Rows[0][0])
+	expectedHashRedactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "name", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash,
+	}}, mask.WithHashKey([]byte(hashKey)))
+	require.NoError(t, err)
+	expectedHashResult, _ := expectedHashRedactor.Apply(model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{hashRaw}}})
+	require.Equal(t, expectedHashResult.Rows[0][0], hashData.Result.Rows[0][0])
+	hashResponseJSON, err := json.Marshal(hashResponse)
+	require.NoError(t, err)
+	require.NotContains(t, string(hashResponseJSON), hashRaw)
+	hashPage, err := runtime.Store.AuditLogs().Page(ctx, 1, 20)
+	require.NoError(t, err)
+	var hashAudit model.AuditLog
+	for _, candidate := range hashPage.List {
+		if candidate.ID == hashData.AuditID {
+			hashAudit = candidate
+			break
+		}
+	}
+	require.Equal(t, hashData.AuditID, hashAudit.ID)
+	hashAuditJSON, err := json.Marshal(hashAudit)
+	require.NoError(t, err)
+	require.NotContains(t, string(hashAuditJSON), hashRaw)
+	select {
+	case hashEvent := <-hashEvents:
+		hashEventJSON, marshalErr := json.Marshal(hashEvent)
+		require.NoError(t, marshalErr)
+		require.NotContains(t, string(hashEventJSON), hashRaw)
+		hashStreamJSON, marshalErr := json.Marshal(auditToStreamView(hashEvent.Audit))
+		require.NoError(t, marshalErr)
+		require.NotContains(t, string(hashStreamJSON), hashRaw)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for hash audit event")
+	}
+	cancelHashEvents()
+	require.NotContains(t, handlerLogs.String(), hashRaw)
+	hashNotificationDeadline := time.NewTimer(2 * time.Second)
+	defer hashNotificationDeadline.Stop()
+	for {
+		select {
+		case notificationBody := <-notificationBodies:
+			var projected map[string]any
+			require.NoError(t, json.Unmarshal(notificationBody, &projected))
+			if projected["audit_id"] != float64(hashData.AuditID) {
+				continue
+			}
+			require.NotContains(t, string(notificationBody), hashRaw)
+			require.NotContains(t, projected, "result")
+			require.NotContains(t, projected, "redact")
+			goto hashNotificationVerified
+		case <-hashNotificationDeadline.C:
+			t.Fatal("timed out waiting for hash query notification")
+		}
+	}
+
+hashNotificationVerified:
 
 	before := adminE2EBusinessRows(t, ctx, businessPool)
 	deniedAuditIDs := make([]int64, 0, 2)
@@ -296,10 +420,11 @@ VALUES
 		"/api/v1/audit?agent_id=pg-agent&page_size=100", adminAuthorization, nil)
 	var audits adminE2EEnvelope[adminE2EPage[auditView]]
 	require.NoError(t, json.Unmarshal(auditBody, &audits))
-	require.EqualValues(t, 4, audits.Data.Total)
-	require.Len(t, audits.Data.List, 4)
+	require.EqualValues(t, 5, audits.Data.Total)
+	require.Len(t, audits.Data.List, 5)
 	wantAudits := map[int64]string{
 		queryData.AuditID:    "allow",
+		hashData.AuditID:     "allow",
 		deniedAuditIDs[0]:    "deny",
 		deniedAuditIDs[1]:    "deny",
 		approvalData.AuditID: "approve",
@@ -315,20 +440,21 @@ VALUES
 		"/api/v1/dashboard/summary?days=1", adminAuthorization, nil)
 	var dashboard adminE2EEnvelope[store.DashboardSummary]
 	require.NoError(t, json.Unmarshal(dashboardBody, &dashboard))
-	require.Equal(t, int64(4), dashboard.Data.KPI.TotalRequests)
+	require.Equal(t, int64(5), dashboard.Data.KPI.TotalRequests)
 	require.Equal(t, int64(2), dashboard.Data.KPI.Blocked)
 	require.Zero(t, dashboard.Data.KPI.PendingApprovals)
 	require.Equal(t, int64(1), dashboard.Data.KPI.ActiveAgents)
 	require.Equal(t, int64(1), dashboard.Data.KPI.DatasourcesTotal)
-	require.Equal(t, map[string]int64{"allow": 1, "deny": 2, "approve": 1, "warn": 0},
+	require.Equal(t, map[string]int64{"allow": 2, "deny": 2, "approve": 1, "warn": 0},
 		adminE2EDecisionCounts(dashboard.Data.DecisionDistribution))
 	require.Len(t, dashboard.Data.Trend14D, 1)
-	require.Equal(t, int64(4), dashboard.Data.Trend14D[0].Total)
+	require.Equal(t, int64(5), dashboard.Data.Trend14D[0].Total)
 
 	// T40-b: the same database-row sentinels cross discovery, disabled draft
 	// persistence, explicit enablement, MCP query redaction, audit/event/SSE
 	// projection, handler logging, and notification projection.
 	rawSentinels := []string{
+		hashRaw,
 		"11010519491231002X", "130503670401001", "4111111111111111", "4111 1111-1111 1111",
 		"192.0.2.10", "192.0.2.10/32", "198.51.100.0/24", "2000-02-29", "2000-02-29T00:00:00Z",
 	}

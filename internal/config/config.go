@@ -35,11 +35,12 @@ var (
 
 // Config is the root AgentSQL configuration.
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Store    StoreConfig    `yaml:"store"`
-	Defaults DefaultsConfig `yaml:"defaults"`
-	Theme    ThemeConfig    `yaml:"theme"`
-	Demo     DemoConfig     `yaml:"demo"`
+	Server    ServerConfig    `yaml:"server"`
+	Store     StoreConfig     `yaml:"store"`
+	Defaults  DefaultsConfig  `yaml:"defaults"`
+	Theme     ThemeConfig     `yaml:"theme"`
+	Demo      DemoConfig      `yaml:"demo"`
+	Redaction RedactionConfig `yaml:"redaction"`
 }
 
 // ServerConfig controls the shared HTTP listener and console availability.

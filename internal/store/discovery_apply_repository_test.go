@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -35,6 +36,32 @@ func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
 	require.ErrorIs(t, err, mask.ErrUnsupportedType)
 	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "hash", ColumnName: "secret", SensitiveType: "phone", Algo: "hash"}})
 	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+}
+
+func TestApplyDiscoveryDraftsRejectsHashBeforeAuditOrRuleWrite(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	auditCalls := 0
+	outcome, recorded, err := opened.MaskRules().ApplyDiscoveryDraftsWithAudit(
+		ctx,
+		"ds-1",
+		[]DiscoveryDraft{{ID: "hash-draft", ColumnName: "secret", SensitiveType: "generic", Algo: "hash"}},
+		func(DiscoveryApplyOutcome) (model.AuditLog, error) {
+			auditCalls++
+			return model.AuditLog{}, errors.New("must not be called")
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+	require.Empty(t, outcome.Created)
+	require.Zero(t, recorded.ID)
+	require.Zero(t, auditCalls)
+	_, getErr := opened.MaskRules().Get(ctx, "hash-draft")
+	require.ErrorIs(t, getErr, ErrNotFound)
+	page, pageErr := opened.AuditLogs().Page(ctx, 1, 10)
+	require.NoError(t, pageErr)
+	require.Zero(t, page.Total)
 }
 
 func TestApplyDiscoveryDraftsSharedStoreRollsBackWhenAuditFails(t *testing.T) {

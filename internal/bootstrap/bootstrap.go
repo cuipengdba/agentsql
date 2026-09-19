@@ -68,9 +68,25 @@ func assembleWithExecutorProvider(
 	if err != nil {
 		return nil, fmt.Errorf("assemble runtime configuration: %w", err)
 	}
+	resolvedRedaction, err := config.ResolveRedaction(&cfg, os.LookupEnv)
+	if err != nil {
+		return nil, fmt.Errorf("assemble runtime configuration: %w", err)
+	}
 	metadataStore, err := store.OpenMetadata(ctx, resolvedStore.MetadataOptions(), secret)
 	if err != nil {
 		return nil, fmt.Errorf("assemble metadata store: %w", err)
+	}
+	redactors := &redactorBuilder{repository: metadataStore.MaskRules()}
+	if resolvedRedaction.HashKey != "" {
+		redactors.options = []mask.Option{mask.WithHashKey([]byte(resolvedRedaction.HashKey))}
+		redactors.hashAvailable = true
+	}
+	if err := redactors.validateEnabledRules(ctx, metadataStore.MaskRules()); err != nil {
+		cause := fmt.Errorf(
+			"assemble runtime: validate enabled redaction rules: %w; set AGENTSQL_REDACTION_HASH_KEY or redaction.hash_key",
+			err,
+		)
+		return nil, errors.Join(cause, metadataStore.Close())
 	}
 	manager := executor.NewManager(false)
 	readOnlyManager := executor.NewManager(true)
@@ -92,7 +108,6 @@ func assembleWithExecutorProvider(
 	if executorOverride != nil {
 		executorPort = executorOverride
 	}
-	redactors := &redactorBuilder{repository: metadataStore.MaskRules()}
 	events, err := eventbus.New(eventbus.Options{HistorySize: 200, SubscriberBuffer: 64})
 	if err != nil {
 		_ = readOnlyManager.CloseAll()
@@ -155,6 +170,21 @@ func assembleWithExecutorProvider(
 		redactors:       redactors,
 		names:           names,
 	}, nil
+}
+
+// ValidateRedactionActivation checks whether this process can execute an
+// enabled rule without exposing the configured hash key to API handlers.
+func (runtime *Runtime) ValidateRedactionActivation(rule mask.Rule) error {
+	if runtime == nil || runtime.redactors == nil {
+		if err := mask.ValidateRule(rule); err != nil {
+			return err
+		}
+		if rule.Algorithm == mask.AlgoHash {
+			return mask.ErrHashKeyRequired
+		}
+		return nil
+	}
+	return runtime.redactors.ValidateRedactionActivation(rule)
 }
 
 // RefreshNotificationNames atomically refreshes the notification display-name
@@ -242,7 +272,9 @@ type maskRuleReader interface {
 }
 
 type redactorBuilder struct {
-	repository maskRuleReader
+	repository    maskRuleReader
+	options       []mask.Option
+	hashAvailable bool
 }
 
 func (builder *redactorBuilder) RedactorFor(
@@ -256,67 +288,104 @@ func (builder *redactorBuilder) RedactorFor(
 	if err != nil {
 		return nil, fmt.Errorf("load mask rules for datasource %q: %w", datasourceID, err)
 	}
-	allRules := make([]mask.Rule, 0, len(storedRules))
-	for _, stored := range storedRules {
-		allRules = append(allRules, mask.Rule{
-			Column:        stored.ColumnName,
-			SensitiveType: mask.SensitiveType(stored.SensitiveType),
-			Algorithm:     mask.Algorithm(stored.Algo),
-		})
-	}
-	// Validate every raw rule before precedence can hide it. This preserves the
-	// fail-closed contract for malformed persisted configuration.
-	if _, err := mask.NewRedactor(allRules); err != nil {
-		return nil, fmt.Errorf("compile mask rules for datasource %q: %w", datasourceID, err)
-	}
-	sort.SliceStable(storedRules, func(left, right int) bool {
-		leftColumn := mask.NormalizeColumnName(storedRules[left].ColumnName)
-		rightColumn := mask.NormalizeColumnName(storedRules[right].ColumnName)
-		if leftColumn != rightColumn {
-			return leftColumn < rightColumn
-		}
-		leftBound := maskRuleBoundToDatasource(storedRules[left], datasourceID)
-		rightBound := maskRuleBoundToDatasource(storedRules[right], datasourceID)
-		if leftBound != rightBound {
-			return leftBound
-		}
-		leftTypeOrder := mask.SensitiveTypeOrder(mask.SensitiveType(storedRules[left].SensitiveType))
-		rightTypeOrder := mask.SensitiveTypeOrder(mask.SensitiveType(storedRules[right].SensitiveType))
-		if leftTypeOrder != rightTypeOrder {
-			return leftTypeOrder < rightTypeOrder
-		}
-		if storedRules[left].SensitiveType != storedRules[right].SensitiveType {
-			return storedRules[left].SensitiveType < storedRules[right].SensitiveType
-		}
-		if storedRules[left].Algo != storedRules[right].Algo {
-			return storedRules[left].Algo < storedRules[right].Algo
-		}
-		return storedRules[left].ID < storedRules[right].ID
-	})
-	rules := make([]mask.Rule, 0, len(storedRules))
-	seenColumns := make(map[string]struct{}, len(storedRules))
-	for _, stored := range storedRules {
-		column := mask.NormalizeColumnName(stored.ColumnName)
-		if _, exists := seenColumns[column]; exists {
-			continue
-		}
-		seenColumns[column] = struct{}{}
-		rules = append(rules, mask.Rule{
-			Column:        column,
-			SensitiveType: mask.SensitiveType(stored.SensitiveType),
-			Algorithm:     mask.Algorithm(stored.Algo),
-		})
-	}
-	redactor, err := mask.NewRedactor(rules)
+	redactor, err := builder.compile(storedRules, datasourceID)
 	if err != nil {
 		return nil, fmt.Errorf("compile mask rules for datasource %q: %w", datasourceID, err)
 	}
 	return redactor, nil
 }
 
-func maskRuleBoundToDatasource(rule model.MaskRule, datasourceID string) bool {
-	return rule.DatasourceID != nil && strings.TrimSpace(*rule.DatasourceID) != "" &&
-		*rule.DatasourceID == datasourceID
+func (builder *redactorBuilder) ValidateRedactionActivation(rule mask.Rule) error {
+	if err := mask.ValidateRule(rule); err != nil {
+		return err
+	}
+	if rule.Algorithm == mask.AlgoHash && !builder.hashAvailable {
+		return mask.ErrHashKeyRequired
+	}
+	return nil
+}
+
+func (builder *redactorBuilder) validateEnabledRules(ctx context.Context, repository *store.MaskRuleRepository) error {
+	storedRules, err := repository.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list mask rules: %w", err)
+	}
+	byScope := make(map[string][]model.MaskRule)
+	for _, stored := range storedRules {
+		if !stored.Enabled {
+			continue
+		}
+		scope := maskRuleScope(stored)
+		byScope[scope] = append(byScope[scope], stored)
+	}
+	scopes := make([]string, 0, len(byScope))
+	for scope := range byScope {
+		scopes = append(scopes, scope)
+	}
+	if _, exists := byScope[""]; !exists {
+		scopes = append(scopes, "")
+	}
+	sort.Strings(scopes)
+	global := byScope[""]
+	for _, scope := range scopes {
+		rules := append([]model.MaskRule(nil), global...)
+		if scope != "" {
+			rules = append(rules, byScope[scope]...)
+		}
+		if _, err := builder.compile(rules, scope); err != nil {
+			return fmt.Errorf("compile scope %q: %w", scope, err)
+		}
+	}
+	return nil
+}
+
+func (builder *redactorBuilder) compile(storedRules []model.MaskRule, datasourceID string) (mask.Redactor, error) {
+	global := make(map[string]mask.Rule)
+	scoped := make(map[string]mask.Rule)
+	for _, stored := range storedRules {
+		rule := mask.Rule{
+			Column:        stored.ColumnName,
+			SensitiveType: mask.SensitiveType(stored.SensitiveType),
+			Algorithm:     mask.Algorithm(stored.Algo),
+		}
+		if err := mask.ValidateRule(rule); err != nil {
+			return nil, err
+		}
+		scope := maskRuleScope(stored)
+		if scope != "" && scope != datasourceID {
+			continue
+		}
+		column := mask.NormalizeColumnName(rule.Column)
+		target := global
+		if scope != "" {
+			target = scoped
+		}
+		if _, duplicate := target[column]; duplicate {
+			return nil, fmt.Errorf("mask rule %q: %w", column, mask.ErrDuplicateMaskColumn)
+		}
+		rule.Column = column
+		target[column] = rule
+	}
+	for column, rule := range scoped {
+		global[column] = rule
+	}
+	columns := make([]string, 0, len(global))
+	for column := range global {
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
+	rules := make([]mask.Rule, 0, len(columns))
+	for _, column := range columns {
+		rules = append(rules, global[column])
+	}
+	return mask.NewRedactor(rules, builder.options...)
+}
+
+func maskRuleScope(rule model.MaskRule) string {
+	if rule.DatasourceID == nil {
+		return ""
+	}
+	return strings.TrimSpace(*rule.DatasourceID)
 }
 
 func isNilBootstrapDependency(value any) bool {

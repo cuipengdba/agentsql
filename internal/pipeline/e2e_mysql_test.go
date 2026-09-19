@@ -64,6 +64,7 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		database + ".customers",
 		database + ".orders",
 		database + ".sensitive_rows",
+		database + ".hash_rows",
 	}
 
 	t.Run("normal select allow", func(t *testing.T) {
@@ -130,7 +131,7 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 	})
 
 	t.Run("four category real driver values are redacted without audit leakage", func(t *testing.T) {
-		flow, ports := newDatabaseE2EPipelineWithRules(t, datasource, counted, "dml", allowedTables, sensitiveE2ERules(false))
+		flow, ports := newDatabaseE2EPipelineWithRules(t, datasource, counted, "dml", allowedTables, sensitiveE2ERules(false), nil)
 		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
 			"SELECT id_card, legacy_id_card, pan_plain, pan_formatted, client_ip, birth_date FROM agentsql.sensitive_rows WHERE id = 1 LIMIT 1"))
 		require.NoError(t, err)
@@ -145,6 +146,7 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		require.Equal(t, mask.RedactedFallback, fallback.Result.Rows[0][0])
 		require.NotContains(t, strings.Join(fallback.Result.Rows[0], ""), "MYSQL_INVALID_ID_SENTINEL_4d72")
 	})
+	runHashE2EScenarios(t, ctx, "agentsql.hash_rows", datasource, counted, allowedTables)
 
 	runMaskScopeScenarios(t, ctx, "mysql", datasource, databaseExecutor, counted, allowedTables)
 	runDirectSourceFallbackScenario(t, ctx, "mysql", datasource, counted, allowedTables)
@@ -167,6 +169,9 @@ func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecuto
 		`INSERT INTO sensitive_rows VALUES
  (1, '11010519491231002X', '130503670401001', '4111111111111111', '4111 1111-1111 1111', '192.168.10.20', '2000-02-29'),
  (2, 'MYSQL_INVALID_ID_SENTINEL_4d72', '130503670401001', '4111111111111111', '4111 1111-1111 1111', '192.168.10.20', '2000-02-29')`,
+		`CREATE TABLE hash_rows (id integer PRIMARY KEY, secret text NULL)`,
+		`INSERT INTO hash_rows VALUES
+ (1, 'Ordinary Alice'), (2, 'Ordinary Alice'), (3, ' Ordinary Alice '), (4, ''), (5, NULL), (6, 'T41_E2E_RAW_SENTINEL_b7a3')`,
 	}
 	for _, statement := range statements {
 		_, err := databaseExecutor.Execute(ctx, statement)
@@ -186,7 +191,7 @@ func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecuto
 	}
 	_, err := databaseExecutor.Execute(ctx, insert.String())
 	require.NoError(t, err)
-	for _, table := range []string{"allowed_rows", "big_rows", "customers", "orders", "sensitive_rows"} {
+	for _, table := range []string{"allowed_rows", "big_rows", "customers", "orders", "sensitive_rows", "hash_rows"} {
 		_, err := databaseExecutor.Execute(ctx, "ANALYZE TABLE "+table)
 		require.NoError(t, err)
 	}

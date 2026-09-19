@@ -78,6 +78,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		"public.customers",
 		"public.orders",
 		"public.sensitive_rows",
+		"public.hash_rows",
 	}
 
 	t.Run("E1 normal select allow", func(t *testing.T) {
@@ -121,7 +122,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 	})
 
 	t.Run("four category real driver values are redacted without audit leakage", func(t *testing.T) {
-		flow, ports := newDatabaseE2EPipelineWithRules(t, datasource, counted, "dml", allowedTables, sensitiveE2ERules(true))
+		flow, ports := newDatabaseE2EPipelineWithRules(t, datasource, counted, "dml", allowedTables, sensitiveE2ERules(true), nil)
 		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
 			"SELECT id_card, legacy_id_card, pan_plain, pan_formatted, client_ip, ip_network, birth_date FROM public.sensitive_rows WHERE id = 1 LIMIT 1"))
 		require.NoError(t, err)
@@ -136,6 +137,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		require.Equal(t, mask.RedactedFallback, fallback.Result.Rows[0][0])
 		require.NotContains(t, fmt.Sprintf("%v", fallback), "PG_INVALID_ID_SENTINEL_8f31")
 	})
+	runHashE2EScenarios(t, ctx, "public.hash_rows", datasource, counted, allowedTables)
 
 	runMaskScopeScenarios(t, ctx, "postgres", datasource, databaseExecutor, counted, allowedTables)
 	runDirectSourceFallbackScenario(t, ctx, "postgres", datasource, counted, allowedTables)
@@ -168,11 +170,15 @@ func setupPostgresPipelineSchema(t *testing.T, ctx context.Context, databaseExec
 		`INSERT INTO sensitive_rows VALUES
  (1, '11010519491231002X', '130503670401001', '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29'),
  (2, 'PG_INVALID_ID_SENTINEL_8f31', '130503670401001', '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29')`,
+		`CREATE TABLE hash_rows (id integer PRIMARY KEY, secret text NULL)`,
+		`INSERT INTO hash_rows VALUES
+ (1, 'Ordinary Alice'), (2, 'Ordinary Alice'), (3, ' Ordinary Alice '), (4, ''), (5, NULL), (6, 'T41_E2E_RAW_SENTINEL_b7a3')`,
 		"ANALYZE allowed_rows",
 		"ANALYZE big_rows",
 		"ANALYZE customers",
 		"ANALYZE orders",
 		"ANALYZE sensitive_rows",
+		"ANALYZE hash_rows",
 	}
 	for _, statement := range statements {
 		_, err := databaseExecutor.Execute(ctx, statement)
@@ -292,7 +298,7 @@ func newDatabaseE2EPipeline(
 		Column:        "phone",
 		SensitiveType: mask.TypePhone,
 		Algorithm:     mask.AlgoMask,
-	}}, options...)
+	}}, nil, options...)
 }
 
 func newDatabaseE2EPipelineWithRules(
@@ -302,10 +308,11 @@ func newDatabaseE2EPipelineWithRules(
 	agentLevel string,
 	allowedTables []string,
 	rules []mask.Rule,
+	redactorOptions []mask.Option,
 	options ...Option,
 ) (*Pipeline, pipelineE2EPorts) {
 	t.Helper()
-	redactor, err := mask.NewRedactor(rules)
+	redactor, err := mask.NewRedactor(rules, redactorOptions...)
 	require.NoError(t, err)
 	agentID := "e2e-" + datasource.DBType + "-" + agentLevel
 	policies := make([]model.Policy, 0, len(allowedTables))
@@ -333,6 +340,60 @@ func newDatabaseE2EPipelineWithRules(
 	flow, err := New(ports, testPipelineSecret, options...)
 	require.NoError(t, err)
 	return flow, pipelineE2EPorts{audit: auditRecorder, approvals: approvalWriter}
+}
+
+func runHashE2EScenarios(
+	t *testing.T,
+	ctx context.Context,
+	table string,
+	datasource model.Datasource,
+	databaseExecutor executor.Executor,
+	allowedTables []string,
+) {
+	t.Helper()
+	const rawSentinel = "T41_E2E_RAW_SENTINEL_b7a3"
+	keyA := []byte("pipeline-hash-key-A-0123456789abcdef")
+	keyB := []byte("pipeline-hash-key-B-0123456789abcdef")
+	rules := []mask.Rule{{Column: "secret", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash}}
+	flowA, portsA := newDatabaseE2EPipelineWithRules(t, datasource, databaseExecutor, "dml", allowedTables, rules, []mask.Option{mask.WithHashKey(keyA)})
+	query := "SELECT secret FROM " + table + " ORDER BY id"
+	response, err := flowA.Process(ctx, databaseE2ERequest(datasource.ID, query))
+	require.NoError(t, err)
+	require.Len(t, response.Result.Rows, 6)
+	require.Equal(t, response.Result.Rows[0][0], response.Result.Rows[1][0], "same value across rows must have one deterministic fingerprint")
+	require.NotEqual(t, response.Result.Rows[0][0], response.Result.Rows[2][0], "leading/trailing spaces must participate in HMAC")
+	require.Empty(t, response.Result.Rows[3][0])
+	require.Empty(t, response.Result.Rows[4][0])
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, response.Result.Rows[0][0])
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, response.Result.Rows[5][0])
+	require.Equal(t, 4, response.Redact.MaskedCells)
+	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypeGeneric}, response.Redact.TouchedColumns)
+	assertSensitiveE2ENotPresent(t, response, portsA.audit.last(), []string{rawSentinel})
+
+	repeated, err := flowA.Process(ctx, databaseE2ERequest(datasource.ID, "SELECT secret FROM "+table+" WHERE id = 1 LIMIT 1"))
+	require.NoError(t, err)
+	require.Equal(t, response.Result.Rows[0][0], repeated.Result.Rows[0][0], "fingerprint must remain stable across results")
+
+	flowB, _ := newDatabaseE2EPipelineWithRules(t, datasource, databaseExecutor, "dml", allowedTables, rules, []mask.Option{mask.WithHashKey(keyB)})
+	differentKey, err := flowB.Process(ctx, databaseE2ERequest(datasource.ID, "SELECT secret FROM "+table+" WHERE id = 1 LIMIT 1"))
+	require.NoError(t, err)
+	require.NotEqual(t, repeated.Result.Rows[0][0], differentKey.Result.Rows[0][0])
+
+	direct, err := mask.NewRedactor(rules, mask.WithHashKey(keyA))
+	require.NoError(t, err)
+	expected, _ := direct.Apply(model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{rawSentinel}}})
+	require.Equal(t, expected.Rows[0][0], response.Result.Rows[5][0])
+
+	missingKeyFlow, missingKeyPorts := newDatabaseE2EPipeline(t, datasource, databaseExecutor, "dml", allowedTables)
+	missingKeyFlow.ports.Redactors = &fakeRedactorBuilder{err: mask.ErrHashKeyRequired}
+	failed, err := missingKeyFlow.Process(ctx, databaseE2ERequest(datasource.ID, "SELECT secret FROM "+table+" WHERE id = 6 LIMIT 1"))
+	require.ErrorIs(t, err, mask.ErrHashKeyRequired)
+	require.Nil(t, failed.Result, "redactor construction failure must clear the executed result")
+	require.Equal(t, model.DecisionDeny, failed.Decision)
+	failedAuditJSON, marshalErr := json.Marshal(missingKeyPorts.audit.last())
+	require.NoError(t, marshalErr)
+	require.Equal(t, "error", missingKeyPorts.audit.last().Decision)
+	require.NotContains(t, string(failedAuditJSON), rawSentinel)
 }
 
 func sensitiveE2ERules(includePGCIDR bool) []mask.Rule {

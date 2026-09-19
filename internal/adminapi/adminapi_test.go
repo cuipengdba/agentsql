@@ -170,11 +170,23 @@ func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
 		status, response = fixture.request(http.MethodPut, "/api/v1/mask_rules/"+id, fixture.adminToken, update)
 		require.Equal(t, http.StatusOK, status, response)
 	}
-	for _, algorithm := range []string{"hash", "range", "block"} {
+	for _, algorithm := range []string{"range", "block"} {
 		body := fmt.Sprintf(`{"id":"bad-%s","column_name":"bad_%s","sensitive_type":"idcard","algo":%q}`, algorithm, algorithm, algorithm)
 		status, response := fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, body)
 		require.Equal(t, http.StatusUnprocessableEntity, status, response)
+		require.Contains(t, response, "INVALID_MASK_RULE")
 	}
+	status, response := fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, `{"id":"bad-generic-mask","column_name":"name","sensitive_type":"generic","algo":"mask"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, status, response)
+	require.Contains(t, response, "INVALID_MASK_RULE")
+	status, response = fixture.request(http.MethodPost, "/api/v1/mask_rules", fixture.adminToken, `{"id":"hash-unavailable","column_name":"name","sensitive_type":"generic","algo":"hash"}`)
+	require.Equal(t, http.StatusServiceUnavailable, status, response)
+	require.Contains(t, response, "HASH_REDACTION_UNAVAILABLE")
+	_, err = fixture.store.MaskRules().Get(context.Background(), "hash-unavailable")
+	require.ErrorIs(t, err, store.ErrNotFound)
+
+	status, response = fixture.request(http.MethodPut, "/api/v1/mask_rules/missing-hash", fixture.adminToken, `{"column_name":"","sensitive_type":"future","algo":"future","enabled":true}`)
+	require.Equal(t, http.StatusNotFound, status, response, "update must load the old rule before validating the replacement")
 }
 
 func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
@@ -237,7 +249,30 @@ func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {
 		fixture.adminToken,
 		`{"id":"invalid-mask","column_name":"phone2","sensitive_type":"phone","algo":"hash"}`,
 	)
-	require.Equal(t, http.StatusUnprocessableEntity, status)
+	require.Equal(t, http.StatusServiceUnavailable, status)
+
+	status, body = fixture.request(
+		http.MethodPost,
+		"/api/v1/mask_rules",
+		fixture.adminToken,
+		`{"id":"disabled-hash","column_name":"customer_name","sensitive_type":"generic","algo":"hash","enabled":false}`,
+	)
+	require.Equal(t, http.StatusOK, status, body)
+	disabledHash, err := fixture.store.MaskRules().Get(context.Background(), "disabled-hash")
+	require.NoError(t, err)
+	require.False(t, disabledHash.Enabled)
+
+	status, body = fixture.request(
+		http.MethodPut,
+		"/api/v1/mask_rules/disabled-hash",
+		fixture.adminToken,
+		`{"column_name":"customer_name","sensitive_type":"generic","algo":"hash","enabled":true}`,
+	)
+	require.Equal(t, http.StatusServiceUnavailable, status, body)
+	require.Contains(t, body, "HASH_REDACTION_UNAVAILABLE")
+	afterRejectedUpdate, err := fixture.store.MaskRules().Get(context.Background(), "disabled-hash")
+	require.NoError(t, err)
+	require.False(t, afterRejectedUpdate.Enabled, "capability rejection must happen before repository update")
 }
 
 func TestAdminMaskRuleEnabledIsOptionalAndMutable(t *testing.T) {

@@ -85,6 +85,9 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	if err := deps.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("create admin handler: invalid configuration: %w", err)
 	}
+	// The runtime owns redaction capability. The HTTP layer must never retain
+	// the configured hash key merely because it needs the rest of Config.
+	deps.Config.Redaction.HashKey = ""
 	if strings.TrimSpace(deps.AdminUsername) == "" {
 		deps.AdminUsername = "admin"
 	}
@@ -747,8 +750,15 @@ func validateMaskInput(input maskRuleInput) error {
 	if input.ID == "" || input.ColumnName == "" {
 		return fmt.Errorf("mask rule identity fields are required")
 	}
-	_, err := mask.NewRedactor([]mask.Rule{{Column: input.ColumnName, SensitiveType: mask.SensitiveType(input.SensitiveType), Algorithm: mask.Algorithm(input.Algo)}})
-	return err
+	return mask.ValidateRule(maskRuleFromInput(input))
+}
+
+func maskRuleFromInput(input maskRuleInput) mask.Rule {
+	return mask.Rule{
+		Column:        input.ColumnName,
+		SensitiveType: mask.SensitiveType(input.SensitiveType),
+		Algorithm:     mask.Algorithm(input.Algo),
+	}
 }
 
 func normalizeMaskInput(input maskRuleInput) maskRuleInput {
@@ -826,8 +836,18 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 	}
 	input = normalizeMaskInput(input)
 	if err := validateMaskInput(input); err != nil {
-		handler.fail(writer, 422, "invalid mask rule")
+		handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", "invalid mask rule")
 		return
+	}
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	if enabled {
+		if err := handler.deps.Runtime.ValidateRedactionActivation(maskRuleFromInput(input)); err != nil {
+			handler.maskRuleFailure(writer, http.StatusServiceUnavailable, "HASH_REDACTION_UNAVAILABLE", "hash redaction is unavailable")
+			return
+		}
 	}
 	conflict, err := handler.maskRuleConflict(request.Context(), input.DatasourceID, input.ColumnName, "")
 	if err != nil {
@@ -837,10 +857,6 @@ func (handler *Handler) maskRulesCreate(writer http.ResponseWriter, request *htt
 	if conflict {
 		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
 		return
-	}
-	enabled := true
-	if input.Enabled != nil {
-		enabled = *input.Enabled
 	}
 	created, err := handler.deps.Runtime.Store.MaskRules().Create(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: enabled})
 	if err != nil {
@@ -857,14 +873,24 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 	}
 	input.ID = request.PathValue("id")
 	input = normalizeMaskInput(input)
-	if err := validateMaskInput(input); err != nil {
-		handler.fail(writer, 422, "invalid mask rule")
-		return
-	}
 	current, err := handler.deps.Runtime.Store.MaskRules().Get(request.Context(), input.ID)
 	if err != nil {
 		handler.notFound(writer)
 		return
+	}
+	if err := validateMaskInput(input); err != nil {
+		handler.maskRuleFailure(writer, http.StatusUnprocessableEntity, "INVALID_MASK_RULE", "invalid mask rule")
+		return
+	}
+	enabled := current.Enabled
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	if enabled {
+		if err := handler.deps.Runtime.ValidateRedactionActivation(maskRuleFromInput(input)); err != nil {
+			handler.maskRuleFailure(writer, http.StatusServiceUnavailable, "HASH_REDACTION_UNAVAILABLE", "hash redaction is unavailable")
+			return
+		}
 	}
 	conflict, err := handler.maskRuleConflict(request.Context(), input.DatasourceID, input.ColumnName, input.ID)
 	if err != nil {
@@ -874,10 +900,6 @@ func (handler *Handler) maskRulesUpdate(writer http.ResponseWriter, request *htt
 	if conflict {
 		handler.fail(writer, 409, "该数据源下此列名已存在脱敏规则，v0.1 同列仅支持一条规则")
 		return
-	}
-	enabled := current.Enabled
-	if input.Enabled != nil {
-		enabled = *input.Enabled
 	}
 	updated, err := handler.deps.Runtime.Store.MaskRules().Update(request.Context(), model.MaskRule{ID: input.ID, DatasourceID: input.DatasourceID, TableName: input.TableName, ColumnName: input.ColumnName, SensitiveType: input.SensitiveType, Algo: input.Algo, Enabled: enabled})
 	if err != nil {
@@ -1083,6 +1105,11 @@ func (handler *Handler) ok(writer http.ResponseWriter, data any) {
 }
 func (handler *Handler) fail(writer http.ResponseWriter, status int, msg string) {
 	handler.write(writer, status, status, msg, nil)
+}
+func (handler *Handler) maskRuleFailure(writer http.ResponseWriter, status int, code, message string) {
+	handler.write(writer, status, status, message, struct {
+		ErrorCode string `json:"error_code"`
+	}{ErrorCode: code})
 }
 func (handler *Handler) notFound(writer http.ResponseWriter) {
 	handler.fail(writer, http.StatusNotFound, "not found")

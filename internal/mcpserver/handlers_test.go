@@ -84,6 +84,37 @@ func TestHandlersReadonlyWriteIsRejectedByPipeline(t *testing.T) {
 	require.Zero(t, fixture.executor.snapshot().execute)
 }
 
+func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
+	const raw = "T41_MCP_RAW_SENTINEL_b7a3"
+	key := []byte("mcp-hash-key-0123456789abcdef0123")
+	fixture := newMCPFixture(t, "dml")
+	redactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "name", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash,
+	}}, mask.WithHashKey(key))
+	require.NoError(t, err)
+	fixture.redactors.redactor = redactor
+	fixture.executor.queryResult = model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{raw}}, RowCount: 1}
+	var logs bytes.Buffer
+	fixture.handlers.logger = zerolog.New(&logs)
+
+	response := fixture.handlers.query(context.Background(), "ds-allowed", "SELECT name FROM public.customers WHERE id=1 LIMIT 1")
+	require.Equal(t, "allow", response.Decision)
+	data := response.Data.(pipelineData)
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, data.Result.Rows[0][0])
+	expectedResult, _ := redactor.Apply(model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{raw}}})
+	require.Equal(t, expectedResult.Rows[0][0], data.Result.Rows[0][0])
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), raw)
+
+	audits, err := fixture.runtime.Store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	auditJSON, err := json.Marshal(audits.List)
+	require.NoError(t, err)
+	require.NotContains(t, string(auditJSON), raw)
+	require.NotContains(t, logs.String(), raw)
+}
+
 func TestHandlersRequestApprovalRaisesWithoutExecuting(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	response := fixture.handlers.requestApproval(
@@ -226,11 +257,12 @@ func TestHandlersAreRaceSafe(t *testing.T) {
 }
 
 type mcpFixture struct {
-	runtime  *bootstrap.Runtime
-	handlers *toolHandlers
-	agent    model.Agent
-	executor *mcpSpyExecutor
-	provider *mcpExecutorProvider
+	runtime   *bootstrap.Runtime
+	handlers  *toolHandlers
+	agent     model.Agent
+	executor  *mcpSpyExecutor
+	provider  *mcpExecutorProvider
+	redactors *staticRedactorBuilder
 }
 
 func newMCPFixture(t *testing.T, level string) *mcpFixture {
@@ -250,7 +282,7 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		_, err = metadataStore.Datasources().Create(context.Background(), datasource, "database-password")
 		require.NoError(t, err)
 	}
-	columns := "id,phone,id_card,legacy_id_card,pan_plain,pan_formatted,client_ip,ip_network,birth_date"
+	columns := "id,phone,name,id_card,legacy_id_card,pan_plain,pan_formatted,client_ip,ip_network,birth_date"
 	for _, stored := range []model.Policy{
 		{ID: "table", AgentID: agent.ID, DatasourceID: "ds-allowed", ObjectType: "table", ObjectName: "public.customers", Action: "allow"},
 		{ID: "columns", AgentID: agent.ID, DatasourceID: "ds-allowed", ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow"},
@@ -288,6 +320,7 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 			{DatasourceID: "ds-hidden", Dialect: "postgres", MaxOpen: 4, InUse: 1, Idle: 3},
 		}
 	})
+	redactors := &staticRedactorBuilder{redactor: redactor}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
@@ -295,7 +328,7 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		Executors:     provider,
 		Approvals:     metadataStore.Approvals(),
 		Audit:         audit.NewRecorder(metadataStore.AuditLogs()),
-		Redactors:     staticRedactorBuilder{redactor: redactor},
+		Redactors:     redactors,
 	}, mcpTestSecret, pipeline.WithObserver(metricsHub))
 	require.NoError(t, err)
 	runtime := &bootstrap.Runtime{
@@ -309,7 +342,7 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		logger:      zerolog.Nop(),
 		executorFor: func(model.Datasource) (executor.Executor, error) { return spy, nil },
 	}
-	return &mcpFixture{runtime: runtime, handlers: handlers, agent: agent, executor: spy, provider: provider}
+	return &mcpFixture{runtime: runtime, handlers: handlers, agent: agent, executor: spy, provider: provider, redactors: redactors}
 }
 
 type staticRedactorBuilder struct{ redactor mask.Redactor }
@@ -433,7 +466,7 @@ func stringPointerForMCP(value string) *string { return &value }
 
 var (
 	_ pipeline.ExecutorProvider              = (*mcpExecutorProvider)(nil)
-	_ pipeline.RedactorBuilder               = staticRedactorBuilder{}
+	_ pipeline.RedactorBuilder               = (*staticRedactorBuilder)(nil)
 	_ executor.Executor                      = (*mcpSpyExecutor)(nil)
 	_ rules.TransactionMetadataProvider      = (*mcpSpyExecutor)(nil)
 	_ rules.MysqlTransactionMetadataProvider = (*mcpSpyExecutor)(nil)

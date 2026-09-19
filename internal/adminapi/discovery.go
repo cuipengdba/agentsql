@@ -284,11 +284,7 @@ func (handler *Handler) datasourcesDiscoverApply(writer http.ResponseWriter, req
 		return handler.applyAuditLog(datasourceID, details)
 	})
 	if err != nil {
-		if store.IsMaskRuleConflict(err) {
-			handler.discoveryFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "同名列已存在不同脱敏规则")
-			return
-		}
-		handler.discoveryFailure(writer, http.StatusServiceUnavailable, "AUDIT_UNAVAILABLE", "审计或草稿持久化不可用")
+		handler.writeDiscoveryApplyError(writer, err)
 		return
 	}
 	handler.deps.Runtime.PublishManagementAudit(recorded)
@@ -298,6 +294,18 @@ func (handler *Handler) datasourcesDiscoverApply(writer http.ResponseWriter, req
 		return
 	}
 	handler.ok(writer, response)
+}
+
+func (handler *Handler) writeDiscoveryApplyError(writer http.ResponseWriter, err error) {
+	if store.IsMaskRuleConflict(err) {
+		handler.discoveryFailure(writer, http.StatusConflict, "MASK_RULE_CONFLICT", "同名列已存在不同脱敏规则")
+		return
+	}
+	if store.IsInvalidDiscoveryDraft(err) {
+		handler.discoveryFailure(writer, http.StatusUnprocessableEntity, "DISCOVERY_NOT_APPLICABLE", "脱敏草稿不适用于发现流程")
+		return
+	}
+	handler.discoveryFailure(writer, http.StatusServiceUnavailable, "AUDIT_UNAVAILABLE", "审计或草稿持久化不可用")
 }
 
 func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup, []discoveryApplyItemView, string) {

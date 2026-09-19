@@ -13,6 +13,13 @@ import (
 	modernsqlite "modernc.org/sqlite"
 )
 
+var ErrInvalidDiscoveryDraft = errors.New("invalid discovery draft")
+
+// IsInvalidDiscoveryDraft reports a structurally invalid or non-mask draft.
+func IsInvalidDiscoveryDraft(err error) bool {
+	return errors.Is(err, ErrInvalidDiscoveryDraft)
+}
+
 // DiscoveryDraft is one canonical datasource-scoped disabled mask-rule
 // request. ID must be unique and ColumnName must already be normalized.
 type DiscoveryDraft struct {
@@ -130,14 +137,22 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 	for _, draft := range drafts {
 		column := strings.ToLower(strings.TrimSpace(draft.ColumnName))
 		if column == "" || draft.ID == "" {
-			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: invalid draft")
+			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: %w", ErrInvalidDiscoveryDraft)
 		}
-		if _, validationErr := mask.NewRedactor([]mask.Rule{{
+		rule := mask.Rule{
 			Column:        column,
 			SensitiveType: mask.SensitiveType(draft.SensitiveType),
 			Algorithm:     mask.Algorithm(draft.Algo),
-		}}); validationErr != nil {
-			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: invalid draft: %w", validationErr)
+		}
+		if validationErr := mask.ValidateRule(rule); validationErr != nil {
+			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: %w: %w", ErrInvalidDiscoveryDraft, validationErr)
+		}
+		if rule.Algorithm != mask.AlgoMask {
+			return DiscoveryApplyOutcome{}, fmt.Errorf(
+				"apply discovery drafts: %w: %w",
+				ErrInvalidDiscoveryDraft,
+				mask.ErrUnsupportedAlgorithm,
+			)
 		}
 		var scoped *model.MaskRule
 		var global *model.MaskRule

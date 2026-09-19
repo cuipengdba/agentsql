@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
@@ -56,6 +57,32 @@ func TestProjectionIncludeSQLOnlyAddsNormalizedSQL(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "sql_norm")
 	require.NotContains(t, string(raw), "raw SQL secret")
+}
+
+func TestHashResultDoesNotExpandNotificationPayload(t *testing.T) {
+	const raw = "T41_NOTIFY_RAW_SENTINEL_b7a3"
+	redactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "name", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash,
+	}}, mask.WithHashKey([]byte("notify-hash-key-0123456789abcdef012")))
+	require.NoError(t, err)
+	redacted, report := redactor.Apply(model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{raw}}})
+	require.Equal(t, 1, report.MaskedCells)
+	require.Regexp(t, `^h\.[0-9a-f]{32}$`, redacted.Rows[0][0])
+
+	audit := sensitiveAudit()
+	details := `{"raw_result":"` + raw + `","fingerprint":"` + redacted.Rows[0][0] + `"}`
+	audit.DetailsJSON = &details
+	payload := project(context.Background(), audit, false, nil)
+	webhook, err := renderWebhook(WebhookGeneric, payload)
+	require.NoError(t, err)
+	syslog, err := renderSyslog(16, payload, time.Unix(1, 0))
+	require.NoError(t, err)
+	for _, output := range []string{string(webhook), string(syslog), payloadText(payload)} {
+		require.NotContains(t, output, raw)
+		require.NotContains(t, output, redacted.Rows[0][0])
+		require.NotContains(t, output, "raw_result")
+		require.NotContains(t, output, "fingerprint")
+	}
 }
 
 func TestDecisionFilterDefaultsAndValidation(t *testing.T) {

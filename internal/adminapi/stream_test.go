@@ -50,10 +50,11 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	sentinelSQL := "PASSWORD_SENTINEL"
 	sentinelError := "postgres://SECRET_SENTINEL@db/stack"
 	sentinelIP := "CLIENT_SECRET_SENTINEL"
+	hashRawSentinel := "T41_STREAM_RAW_SENTINEL_b7a3"
 	for id := int64(1); id <= 2; id++ {
 		runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{
 			ID: id, TS: time.Unix(id, 0).UTC(), Decision: "deny", SQLRaw: &sentinelSQL,
-			ErrorMsg: &sentinelError, ClientIP: &sentinelIP,
+			ErrorMsg: &sentinelError, ClientIP: &sentinelIP, SessionID: &hashRawSentinel,
 		}})
 	}
 
@@ -82,6 +83,7 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	require.NotContains(t, combined, sentinelSQL)
 	require.NotContains(t, combined, sentinelError)
 	require.NotContains(t, combined, sentinelIP)
+	require.NotContains(t, combined, hashRawSentinel)
 	require.NotContains(t, combined, "sql_raw")
 	require.NotContains(t, combined, "error_msg")
 
