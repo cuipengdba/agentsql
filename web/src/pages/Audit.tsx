@@ -1,10 +1,10 @@
-import { ArrowLeftOutlined, DownloadOutlined, FilePdfOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DownloadOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Pagination, Space, Tooltip, Typography, message } from "antd";
 import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { exportAudit, listAudit } from "@/api/audit";
+import { exportAudit, listAudit, type AuditExportFormat } from "@/api/audit";
 import type { AuditView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 
@@ -16,9 +16,29 @@ function safeTotal(value: number): number {
   return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
-function exportFilename(now = new Date()): string {
-  const part = (value: number) => String(value).padStart(2, "0");
-  return `agentsql-audit-${now.getFullYear()}${part(now.getMonth() + 1)}${part(now.getDate())}-${part(now.getHours())}${part(now.getMinutes())}.jsonl`;
+function exportFilename(format: AuditExportFormat): string {
+  return `agentsql-audit.${format}`;
+}
+
+async function exportErrorMessage(error: unknown): Promise<string> {
+  if (!axios.isAxiosError(error)) return "";
+  const data: unknown = error.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const payload: unknown = JSON.parse(await data.text());
+      if (typeof payload === "object" && payload !== null) {
+        const msg = (payload as Record<string, unknown>).msg;
+        return typeof msg === "string" ? msg : "";
+      }
+    } catch {
+      return "";
+    }
+  }
+  if (typeof data === "object" && data !== null) {
+    const msg = (data as Record<string, unknown>).msg;
+    return typeof msg === "string" ? msg : "";
+  }
+  return "";
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -48,7 +68,7 @@ export function Audit() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [queryVersion, setQueryVersion] = useState(0);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<AuditExportFormat | null>(null);
   const [selected, setSelected] = useState<AuditView | null>(null);
   const [focusStatus, setFocusStatus] = useState<"idle" | "searching" | "invalid" | "not-found" | "failed" | "found">("idle");
   const mountedRef = useRef(true);
@@ -179,23 +199,27 @@ export function Audit() {
     setPage(nextPage);
   };
 
-  const handleExport = async () => {
-    if (exporting) return;
-    setExporting(true);
+  const handleExport = async (format: AuditExportFormat) => {
+    if (exporting !== null) return;
+    setExporting(format);
     try {
-      const blob = await exportAudit(appliedFilters);
+      const blob = await exportAudit(appliedFilters, format);
       if (!mountedRef.current) return;
-      downloadBlob(blob, exportFilename());
-      void message.success("审计 JSONL 已开始下载");
+      downloadBlob(blob, exportFilename(format));
+      void message.success(`审计 ${format.toUpperCase()} 已开始下载`);
     } catch (error: unknown) {
       if (!mountedRef.current) return;
-      if (axios.isAxiosError(error) && error.response?.status === 422) {
-        void message.warning("导出上限 1 万行，请缩小时间范围或增加筛选");
+      const errorMessage = await exportErrorMessage(error);
+      const exceedsLimit = axios.isAxiosError(error) && (
+        error.response?.status === 422 || /(?:exceeds?|limit).*10000|10000.*(?:exceeds?|limit)/i.test(errorMessage)
+      );
+      if (exceedsLimit) {
+        void message.warning("导出上限 1 万行，请缩小时间范围或增加筛选条件");
       } else {
-        void message.error("审计导出失败，请稍后重试");
+        void message.error("导出失败，请稍后重试");
       }
     } finally {
-      if (mountedRef.current) setExporting(false);
+      if (mountedRef.current) setExporting(null);
     }
   };
 
@@ -208,7 +232,22 @@ export function Audit() {
         </Tooltip>
       </Space>
       <Space>
-        <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void handleExport()}>导出 JSONL</Button>
+        <Button
+          icon={<DownloadOutlined />}
+          loading={exporting === "jsonl"}
+          disabled={exporting !== null}
+          onClick={() => void handleExport("jsonl")}
+        >
+          导出 JSONL
+        </Button>
+        <Button
+          icon={<FileExcelOutlined />}
+          loading={exporting === "csv"}
+          disabled={exporting !== null}
+          onClick={() => void handleExport("csv")}
+        >
+          导出 CSV
+        </Button>
         <Button icon={<FilePdfOutlined />} onClick={() => void message.info("合规 PDF 报告将在后续版本提供")}>导出 PDF</Button>
       </Space>
     </div>
