@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
 
+	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
@@ -25,6 +31,113 @@ var (
 		"动作", "执行者类型", "执行者ID", "错误信息", "详情JSON",
 	}
 )
+
+type exportAuditFilters struct {
+	TimeStart    string `json:"time_start,omitempty"`
+	TimeEnd      string `json:"time_end,omitempty"`
+	AgentID      string `json:"agent_id,omitempty"`
+	DatasourceID string `json:"datasource_id,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	MCPTool      string `json:"mcp_tool,omitempty"`
+	Decisions    string `json:"decisions,omitempty"`
+	StmtTypes    string `json:"stmt_types,omitempty"`
+	RiskMin      string `json:"risk_min,omitempty"`
+	RiskMax      string `json:"risk_max,omitempty"`
+	Object       string `json:"object,omitempty"`
+	HasKeyword   bool   `json:"has_keyword"`
+}
+
+type exportAuditDetails struct {
+	Format  string             `json:"format"`
+	Rows    int                `json:"rows"`
+	Filters exportAuditFilters `json:"filters"`
+}
+
+func buildExportAuditFilters(filter model.AuditFilter) exportAuditFilters {
+	result := exportAuditFilters{
+		Decisions:  strings.Join(filter.Decisions, ","),
+		StmtTypes:  strings.Join(filter.StmtTypes, ","),
+		Object:     filter.ObjectLike,
+		HasKeyword: strings.TrimSpace(filter.Keyword) != "",
+	}
+	if filter.TimeStart != nil {
+		result.TimeStart = filter.TimeStart.UTC().Format(time.RFC3339)
+	}
+	if filter.TimeEnd != nil {
+		result.TimeEnd = filter.TimeEnd.UTC().Format(time.RFC3339)
+	}
+	if filter.AgentID != nil && *filter.AgentID != "" {
+		result.AgentID = *filter.AgentID
+	}
+	if filter.DatasourceID != nil && *filter.DatasourceID != "" {
+		result.DatasourceID = *filter.DatasourceID
+	}
+	if filter.SessionID != nil && *filter.SessionID != "" {
+		result.SessionID = *filter.SessionID
+	}
+	if filter.MCPTool != nil && *filter.MCPTool != "" {
+		result.MCPTool = *filter.MCPTool
+	}
+	if filter.RiskMin != nil {
+		result.RiskMin = strconv.Itoa(*filter.RiskMin)
+	}
+	if filter.RiskMax != nil {
+		result.RiskMax = strconv.Itoa(*filter.RiskMax)
+	}
+	return result
+}
+
+func auditPeerIP(remoteAddr string) *string {
+	value := strings.TrimSpace(remoteAddr)
+	if value == "" {
+		return nil
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	return &value
+}
+
+func normalizedAuditExportFormat(format string) string {
+	if format == "" {
+		return "jsonl"
+	}
+	return format
+}
+
+func (handler *Handler) recordAuditExportTrail(request *http.Request, format string, rows int, filter model.AuditFilter) {
+	recorder := handler.deps.Runtime.ManagementAudit
+	if recorder == nil {
+		handler.logger.Warn().Str("action", audit.ActionAuditExport).
+			Msg("audit export trail recorder unavailable")
+		return
+	}
+	payload := exportAuditDetails{Format: format, Rows: rows, Filters: buildExportAuditFilters(filter)}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		handler.logger.Warn().Str("action", audit.ActionAuditExport).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Msg("audit export trail recording failed")
+		return
+	}
+	action, actorType, actorID := audit.ActionAuditExport, "admin", handler.adminUser
+	details := string(encoded)
+	log := model.AuditLog{
+		Decision:    "allow",
+		Action:      &action,
+		ActorType:   &actorType,
+		ActorID:     &actorID,
+		ClientIP:    auditPeerIP(request.RemoteAddr),
+		DetailsJSON: &details,
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(request.Context()), 5*time.Second)
+	defer cancel()
+	if _, err := recorder.Record(ctx, log); err != nil {
+		handler.logger.Warn().Str("action", audit.ActionAuditExport).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Msg("audit export trail recording failed")
+	}
+}
 
 func (handler *Handler) collectAuditExportLogs(ctx context.Context, filter model.AuditFilter) ([]model.AuditLog, error) {
 	logs := make([]model.AuditLog, 0, auditExportPageSize)

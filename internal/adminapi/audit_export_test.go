@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
@@ -53,14 +55,54 @@ func readAuditCSV(t *testing.T, body []byte) [][]string {
 	return records
 }
 
+func latestAdminAuditTrail(t *testing.T, fixture *adminFixture) model.AuditLog {
+	t.Helper()
+	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	require.NotEmpty(t, page.List)
+	return page.List[0]
+}
+
+func exportDetailsFromTrail(t *testing.T, trail model.AuditLog) exportAuditDetails {
+	t.Helper()
+	require.NotNil(t, trail.DetailsJSON)
+	var details exportAuditDetails
+	require.NoError(t, json.Unmarshal([]byte(*trail.DetailsJSON), &details))
+	return details
+}
+
+type failingAuditExportRecorder struct{}
+
+func (failingAuditExportRecorder) Record(context.Context, model.AuditLog) (model.AuditLog, error) {
+	return model.AuditLog{}, errors.New("sentinel recorder failure")
+}
+
+type auditExportWriteFailure struct {
+	header http.Header
+	short  bool
+}
+
+func (writer *auditExportWriteFailure) Header() http.Header {
+	return writer.header
+}
+
+func (*auditExportWriteFailure) WriteHeader(int) {}
+
+func (writer *auditExportWriteFailure) Write(body []byte) (int, error) {
+	if writer.short {
+		return len(body) - 1, nil
+	}
+	return 0, errors.New("sentinel write failure")
+}
+
 func TestAdminAuditExportJSONLBackwardCompatibility(t *testing.T) {
 	fixture := newAdminFixture(t)
 	insertAdminAuditLog(t, fixture, model.AuditLog{
 		AgentID: stringPointerAdmin("jsonl-agent"), SQLRaw: stringPointerAdmin("SELECT 1"), Decision: "allow",
 	})
 
-	defaultResponse := requestAdminAuditExport(t, fixture, "/api/v1/audit/export", fixture.adminToken)
-	explicitResponse := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=jsonl", fixture.adminToken)
+	defaultResponse := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?agent_id=jsonl-agent", fixture.adminToken)
+	explicitResponse := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=jsonl&agent_id=jsonl-agent", fixture.adminToken)
 	for _, response := range []*httptest.ResponseRecorder{defaultResponse, explicitResponse} {
 		require.Equal(t, http.StatusOK, response.Code)
 		require.Equal(t, "application/x-ndjson", response.Header().Get("Content-Type"))
@@ -235,7 +277,7 @@ func TestAdminAuditExportRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
-func TestAdminAuditExportRejectsMoreThan10000Rows(t *testing.T) {
+func TestAdminAuditExportTrailNotRecordedOnLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires 10001 real SQLite audit inserts")
 	}
@@ -243,12 +285,17 @@ func TestAdminAuditExportRejectsMoreThan10000Rows(t *testing.T) {
 	for index := 0; index < auditExportRowLimit+1; index++ {
 		insertAdminAuditLog(t, fixture, model.AuditLog{AgentID: stringPointerAdmin("limit-agent")})
 	}
+	before, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
 	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=csv&agent_id=limit-agent", fixture.adminToken)
 	require.Equal(t, http.StatusUnprocessableEntity, response.Code)
 	require.Contains(t, response.Body.String(), errAuditExportLimit.Error())
 	require.Empty(t, response.Header().Get("Content-Disposition"))
 	require.NotEqual(t, "text/csv; charset=utf-8", response.Header().Get("Content-Type"))
 	require.False(t, bytes.HasPrefix(response.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF}))
+	after, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, before.Total, after.Total)
 }
 
 func TestAdminAuditExportCSVRequiresAdminAuthentication(t *testing.T) {
@@ -259,4 +306,202 @@ func TestAdminAuditExportCSVRequiresAdminAuthentication(t *testing.T) {
 	require.False(t, bytes.HasPrefix(response.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF}))
 	var envelope map[string]any
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+}
+
+func TestAdminAuditExportTrailCSV(t *testing.T) {
+	fixture := newAdminFixture(t)
+	insertAdminAuditLog(t, fixture, model.AuditLog{AgentID: stringPointerAdmin("first")})
+	insertAdminAuditLog(t, fixture, model.AuditLog{AgentID: stringPointerAdmin("second")})
+	now := time.Now()
+
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=csv", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Len(t, readAuditCSV(t, response.Body.Bytes()), 3)
+
+	trail := latestAdminAuditTrail(t, fixture)
+	require.NotNil(t, trail.Action)
+	require.Equal(t, audit.ActionAuditExport, *trail.Action)
+	require.Equal(t, "allow", trail.Decision)
+	require.NotNil(t, trail.ActorType)
+	require.Equal(t, "admin", *trail.ActorType)
+	require.NotNil(t, trail.ActorID)
+	require.Equal(t, "admin", *trail.ActorID)
+	require.NotNil(t, trail.ClientIP)
+	require.NotEmpty(t, *trail.ClientIP)
+	require.False(t, trail.TS.IsZero())
+	require.WithinDuration(t, now, trail.TS, 5*time.Second)
+	details := exportDetailsFromTrail(t, trail)
+	require.Equal(t, "csv", details.Format)
+	require.Equal(t, 2, details.Rows)
+	require.Nil(t, trail.AgentID)
+	require.Nil(t, trail.DatasourceID)
+	require.Nil(t, trail.SessionID)
+	require.Nil(t, trail.ConversationID)
+	require.Nil(t, trail.MCPTool)
+	require.Nil(t, trail.DBType)
+	require.Nil(t, trail.SQLRaw)
+	require.Nil(t, trail.SQLNorm)
+	require.Nil(t, trail.StmtType)
+	require.Nil(t, trail.Objects)
+	require.Nil(t, trail.RuleHits)
+	require.Nil(t, trail.RiskLevel)
+	require.Nil(t, trail.EstRows)
+	require.Nil(t, trail.RowsReturned)
+	require.Nil(t, trail.LatencyMS)
+	require.Nil(t, trail.ModelName)
+	require.Nil(t, trail.ErrorMsg)
+}
+
+func TestAdminAuditExportTrailJSONLDefault(t *testing.T) {
+	fixture := newAdminFixture(t)
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	details := exportDetailsFromTrail(t, latestAdminAuditTrail(t, fixture))
+	require.Equal(t, "jsonl", details.Format)
+}
+
+func TestAdminAuditExportTrailExcludesBusinessSQL(t *testing.T) {
+	fixture := newAdminFixture(t)
+	const sentinel = "T45_SECRET_SQL_SENTINEL"
+	insertAdminAuditLog(t, fixture, model.AuditLog{SQLRaw: stringPointerAdmin(sentinel)})
+
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+	trail := latestAdminAuditTrail(t, fixture)
+	require.Nil(t, trail.SQLRaw)
+	require.Nil(t, trail.SQLNorm)
+	require.NotNil(t, trail.DetailsJSON)
+	require.NotContains(t, *trail.DetailsJSON, sentinel)
+}
+
+func TestAdminAuditExportTrailDetailsKeyWhitelist(t *testing.T) {
+	fixture := newAdminFixture(t)
+	path := "/api/v1/audit/export?keyword=TopSecretValue&page=99&page_size=999&unknown=x&decisions=deny&object=users&risk_min=20"
+	response := requestAdminAuditExport(t, fixture, path, fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	trail := latestAdminAuditTrail(t, fixture)
+	details := exportDetailsFromTrail(t, trail)
+	require.True(t, details.Filters.HasKeyword)
+	require.Equal(t, "deny", details.Filters.Decisions)
+	require.Equal(t, "users", details.Filters.Object)
+	require.Equal(t, "20", details.Filters.RiskMin)
+	require.NotNil(t, trail.DetailsJSON)
+	for _, forbidden := range []string{"TopSecretValue", `"keyword"`, `"page"`, `"page_size"`, `"unknown"`} {
+		require.NotContains(t, *trail.DetailsJSON, forbidden)
+	}
+}
+
+func TestAdminAuditExportTrailEmptyFilters(t *testing.T) {
+	fixture := newAdminFixture(t)
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	trail := latestAdminAuditTrail(t, fixture)
+	var raw struct {
+		Filters map[string]json.RawMessage `json:"filters"`
+	}
+	require.NotNil(t, trail.DetailsJSON)
+	require.NoError(t, json.Unmarshal([]byte(*trail.DetailsJSON), &raw))
+	require.Len(t, raw.Filters, 1)
+	require.JSONEq(t, "false", string(raw.Filters["has_keyword"]))
+}
+
+func TestAdminAuditExportTrailRowsSemantics(t *testing.T) {
+	fixture := newAdminFixture(t)
+	first := requestAdminAuditExport(t, fixture, "/api/v1/audit/export", fixture.adminToken)
+	require.Equal(t, http.StatusOK, first.Code)
+	require.Equal(t, 0, exportDetailsFromTrail(t, latestAdminAuditTrail(t, fixture)).Rows)
+
+	second := requestAdminAuditExport(t, fixture, "/api/v1/audit/export", fixture.adminToken)
+	require.Equal(t, http.StatusOK, second.Code)
+	require.Equal(t, 1, exportDetailsFromTrail(t, latestAdminAuditTrail(t, fixture)).Rows)
+
+	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, page.Total)
+	require.Len(t, page.List, 2)
+	for _, trail := range page.List {
+		require.NotNil(t, trail.Action)
+		require.Equal(t, audit.ActionAuditExport, *trail.Action)
+	}
+}
+
+func TestAdminAuditExportTrailNilRecorder(t *testing.T) {
+	fixture := newAdminFixture(t)
+	insertAdminAuditLog(t, fixture, model.AuditLog{AgentID: stringPointerAdmin("nil-recorder")})
+	fixture.runtime.ManagementAudit = nil
+
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=csv", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Len(t, readAuditCSV(t, response.Body.Bytes()), 2)
+}
+
+func TestAdminAuditExportTrailRecorderErrorBestEffort(t *testing.T) {
+	fixture := newAdminFixture(t)
+	insertAdminAuditLog(t, fixture, model.AuditLog{AgentID: stringPointerAdmin("failing-recorder")})
+	fixture.runtime.ManagementAudit = failingAuditExportRecorder{}
+
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=csv", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Len(t, readAuditCSV(t, response.Body.Bytes()), 2)
+	require.NotContains(t, fixture.logs.String(), "sentinel recorder failure")
+}
+
+func TestAdminAuditExportTrailNotRecordedOnBadFormat(t *testing.T) {
+	fixture := newAdminFixture(t)
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=pdf", fixture.adminToken)
+	require.Equal(t, http.StatusBadRequest, response.Code)
+
+	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+	require.NoError(t, err)
+	require.Zero(t, page.Total)
+	require.Empty(t, page.List)
+}
+
+func TestAuditPeerIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		want       *string
+	}{
+		{name: "IPv4 with port", remoteAddr: "192.0.2.1:1234", want: stringPointerAdmin("192.0.2.1")},
+		{name: "IPv6 with port", remoteAddr: "[2001:db8::1]:1234", want: stringPointerAdmin("2001:db8::1")},
+		{name: "IPv4 without port", remoteAddr: "192.0.2.1", want: stringPointerAdmin("192.0.2.1")},
+		{name: "IPv6 without port", remoteAddr: "2001:db8::1", want: stringPointerAdmin("2001:db8::1")},
+		{name: "empty", remoteAddr: "", want: nil},
+		{name: "whitespace", remoteAddr: " \t\r\n", want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, auditPeerIP(test.remoteAddr))
+		})
+	}
+}
+
+func TestAdminAuditExportTrailNotRecordedOnWriteFailure(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		short bool
+	}{
+		{name: "write error"},
+		{name: "short write", short: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAdminFixture(t)
+			insertAdminAuditLog(t, fixture, model.AuditLog{AgentID: stringPointerAdmin("write-failure")})
+			before, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+			require.NoError(t, err)
+
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/audit/export?format=csv", nil)
+			request.Header.Set("Authorization", fixture.adminToken)
+			writer := &auditExportWriteFailure{header: make(http.Header), short: test.short}
+			fixture.handler.ServeHTTP(writer, request)
+
+			after, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)
+			require.NoError(t, err)
+			require.Equal(t, before.Total, after.Total)
+		})
+	}
 }

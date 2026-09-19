@@ -1045,9 +1045,11 @@ func (handler *Handler) auditExport(writer http.ResponseWriter, request *http.Re
 	writer.Header().Set("Content-Type", contentType)
 	writer.Header().Set("Content-Disposition", contentDisposition)
 	writer.Header().Set("Cache-Control", "no-store")
-	if _, err := writer.Write(body); err != nil {
+	written, writeErr := writer.Write(body)
+	if writeErr != nil || written != len(body) {
 		return
 	}
+	handler.recordAuditExportTrail(request, normalizedAuditExportFormat(format), len(logs), filter)
 }
 
 func (handler *Handler) approvalsList(writer http.ResponseWriter, request *http.Request) {
