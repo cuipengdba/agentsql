@@ -261,38 +261,109 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ## 9. 脱敏 `/mask-rules`
 
-脱敏按列在查询结果层执行，不修改数据库原值。当前有三种可运行算法，形成从保留可读片段到整值阻断的三级梯度：
+脱敏按列在查询结果层执行，不修改数据库原值。当前有四种可运行算法，分别面向保留可读片段、生成可关联指纹、整值阻断和保留粗粒度分布：
 
 | 算法 | 支持类型 | 保留原文片段 | 可等值关联 | 需要密钥 | 典型场景 |
 | --- | --- | --- | --- | --- | --- |
 | 打码 `mask` | 手机号 `phone`、邮箱 `email`、身份证 `idcard`、银行卡 `bankcard`、IP 地址 `ip`、出生日期 `birthdate` 六类 | 是，按格式部分遮蔽 | 否 | 否 | 客服核对、运维排障等需要保留少量可读信息的列 |
-| 哈希指纹 `hash` | 六类 + 通用敏感值 `generic` | 否，输出固定 34 字符的 `h.` HMAC 指纹 | 是；同一密钥下相同字符串字节得到相同指纹 | 是；`AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 至少 32 字节 | 下游等值关联、去重和分组 |
-| 阻断 `block` | 六类 + `generic` | 否；每个非空值固定输出 `***`，不保留原文长度 | 否 | 否 | 完整证件、密码/密钥、薪资、健康或违法细节等最高敏感列 |
+| 哈希指纹 `hash` | 九类 | 否，输出固定 34 字符的 `h.` HMAC 指纹 | 是；同一密钥下相同字符串字节得到相同指纹 | 是；`AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 至少 32 字节 | 下游等值关联、去重和分组 |
+| 阻断 `block` | 九类 | 否；每个非空值固定输出 `***`，不保留原文长度 | 否 | 否 | 完整证件、密码/密钥、薪资、健康或违法细节等最高敏感列 |
+| 分桶/截断 `range` | 数值 `number`、日期 `date` | 否；输出数值区间或年/季/月 | 是；同桶值可关联 | 否；使用类型专属参数 | 年龄分段、金额区间，以及出生日期按年/季/月统计 |
+
+选择算法时，可读性核对优先使用 `mask`，需要稳定关联且不能返回原文时使用 `hash`，不应返回任何非空原值片段时使用 `block`，需要观察数值或日期的粗粒度分布时使用 `range`。`range` 不是匿名化：同桶值仍可关联，敏感场景应改用 `block` 或纳入审批。
+
+### 类型与算法能力矩阵
+
+| 敏感类型 | `mask` | `hash` | `block` | `range` |
+| --- | ---: | ---: | ---: | ---: |
+| 手机号 `phone` | ✅ | ✅ | ✅ | ❌ |
+| 邮箱 `email` | ✅ | ✅ | ✅ | ❌ |
+| 身份证 `idcard` | ✅ | ✅ | ✅ | ❌ |
+| 银行卡 `bankcard` | ✅ | ✅ | ✅ | ❌ |
+| IP 地址 `ip` | ✅ | ✅ | ✅ | ❌ |
+| 出生日期 `birthdate` | ✅ | ✅ | ✅ | ❌ |
+| 通用敏感值 `generic` | ❌ | ✅ | ✅ | ❌ |
+| 数值 `number` | ❌ | ✅ | ✅ | ✅ |
+| 日期 `date` | ❌ | ✅ | ✅ | ✅ |
+
+`number` / `date` 表示列语义，`range` 只对这两类开放。`birthdate` 仍使用生日专用 `mask`，即使原值可解析为日期也不能选择 `range`；手机、邮箱、身份证、银行卡、IP、生日六类以及 `generic` 同样不能选择 `range`。`hash` / `block` 可处理九类，管理员在 `range`、`hash`、`block` 之间切换时不需要把 `number` / `date` 改标为 `generic`。
 
 `generic` 不依赖手机号、邮箱等格式识别，可对命中列的完整原始字符串做 `hash` 或 `block`；它不能搭配 `mask`，`mask+generic` 属于非法组合。除空值哨兵外，哈希前不会 trim，也不会做大小写、Unicode、日期、时区或 decimal 正规化，因此表示不同的值会得到不同指纹。`block` 同样不识别格式且没有参数，任何非空值（包括畸形值、首尾带空格的值和原值恰为 `***` 的值）都输出固定 `***`。
 
-> `***` 是 `block` 的正常成功输出；`[REDACTED]` 是 `mask` 无法识别非空值格式时的 fail-closed 兜底。两者的字面量和算法语义不同。规则管理界面和规则配置可通过 `algo=block` 识别算法，但查询审计、SSE、通知不记录具体脱敏算法，结果投影本身也不能可靠反推出 `***` 的产生原因；本版不扩展审计协议。
+> `***` 是 `block` 的正常成功输出；`[REDACTED]` 是 `mask` 或 `range` 无法安全处理非空值时的 fail-closed 兜底。两者的字面量和算法语义不同。规则管理界面和规则配置可通过 `algo=block` 识别算法，但查询审计、SSE、通知不记录具体脱敏算法，结果投影本身也不能可靠反推出 `***` 的产生原因；本版不扩展审计协议。
 
 空字符串、trim 后为空的字符串，以及忽略大小写的 `NULL` / `<nil>` 哨兵会原样返回且不计入 `MaskedCells`；因此 `block` 会暴露该结果单元为空/NULL 的状态。SQL NULL 与数据库空字符串在进入脱敏前都已字符串化为 `""`，当前结果模型无法区分。
 
-敏感列发现始终只识别上述六类并生成 `algo=mask` 的 disabled 草稿；它不会推荐或应用 `hash`、`block`，也不会发现 `generic`。这三者只能在「脱敏规则」页手工配置；向 discovery apply 提交 `block` 或 `generic` 会被拒绝。六类 `mask` 的完整样式、作用域和升级注意事项见[《敏感列发现指南》](DISCOVERY.md)。
+敏感列发现始终只识别前六类并生成 `algo=mask` 的 disabled 草稿；它不会产出 `hash`、`block` 或 `range` 规则，也不会发现 `generic`、`number` 或 `date`。`number` / `date` 的 `range` 规则需要在「脱敏规则」页手工新建；发现流程的完整说明见[《敏感列发现指南》](DISCOVERY.md)。
 
-控制台的算法下拉有「打码（mask）」「哈希指纹（hash）」「阻断（block）」三项。配置 `block` 时：
+控制台的算法下拉有「打码（mask）」「哈希指纹（hash）」「阻断（block）」「分桶/截断（range）」四项。配置 `block` 时：
 
 1. 进入「脱敏规则」并新建或编辑规则，算法选择「阻断（block）」。
-2. 选择六类之一或 `generic`，填写目标结果列和作用域；页面说明和示例固定显示 `***`，不显示哈希密钥警示。
+2. 选择九类中的任一支持类型，填写目标结果列和作用域；页面说明和示例固定显示 `***`，不显示哈希密钥警示。
 3. 保存并启用规则；`block` 不需要密钥或其他参数，不参与 hash key 启动 fail-fast，也不会返回 `HASH_REDACTION_UNAVAILABLE` / HTTP `503`。
 
-未配置哈希密钥时，`mask` 与 `block` 可正常创建、启用和运行；只有 `hash` 受密钥门禁约束。此时 `hash` 可保存为停用规则，但默认启用的新建规则或启用操作会被拒绝，页面对应的服务端响应为 HTTP `503`、`HASH_REDACTION_UNAVAILABLE`，且规则不会写入。通过 `AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 配置至少 32 字节密钥并重启后，再启用 `hash`。类型/算法组合不合法时服务端返回 HTTP `422`、`INVALID_MASK_RULE`。
+未配置哈希密钥时，`mask`、`block` 与 `range` 可正常创建、启用和运行；只有 `hash` 受密钥门禁约束。此时 `hash` 可保存为停用规则，但默认启用的新建规则或启用操作会被拒绝，页面对应的服务端响应为 HTTP `503`、`HASH_REDACTION_UNAVAILABLE`，且规则不会写入。通过 `AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 配置至少 32 字节密钥并重启后，再启用 `hash`。类型/算法组合不合法时服务端返回 HTTP `422`、`INVALID_MASK_RULE`。
 
 - 匹配键是最终结果列名的精确规范化值。
 - `table_name` 是预留字段，当前不参与匹配。
 - 全局规则可以不选择数据源；选择数据源时只在该数据源范围生效。
 - 同一作用域与列名只能有一条规则。
 
+### 配置 `range` 数值分桶
+
+数值规则选择敏感类型 `number` 和算法 `range`。控制台表单会显示「桶宽」与「偏移」两个整数输入：
+
+- `range_bucket_width`：桶宽，必填，必须是 `1..1,000,000,000` 的整数。
+- `range_bucket_offset`：偏移，可留空，默认 `0`，必须是 `-1,000,000,000..1,000,000,000` 的整数。
+
+直观上，偏移决定桶边界的起点，桶宽决定每段覆盖多少数值。公式为 `lower = floor((v - offset) / width) * width + offset`、`upper = lower + width`，其中 `floor` 向负无穷取整。结果使用左闭右开的 `[lower,upper)`：`width=10`、`offset=0` 时，`42` 输出 `[40,50)`，`-3` 输出 `[-10,0)`。
+
+### 配置 `range` 日期截断
+
+日期规则选择敏感类型 `date` 和算法 `range`，不使用桶宽或偏移。`range_granularity` 可留空，默认 `year`；显式值只能是年 `year`、季 `quarter` 或月 `month`。例如 `1990-08-21` 按年输出 `1990`，按季输出 `1990Q3`，按月输出 `1990-08`。
+
+完整日期、日期时间、RFC3339 以及 `YYYY` / `YYYY-MM` 等常见日期写法均可处理；输入精度不足以生成所选粒度、日期非法或无法识别时，会安全地显示 `[REDACTED]`。
+
+### API 字段与完整更新语义
+
+在脱敏规则创建/更新 JSON 中，`range` 额外使用 `range_bucket_width`、`range_bucket_offset`、`range_granularity`。数值规则不能携带 `range_granularity`，日期规则不能携带 `range_bucket_width` 或 `range_bucket_offset`。一个最小数值规则请求体如下：
+
+```json
+{
+  "id": "amount-range",
+  "column_name": "amount",
+  "sensitive_type": "number",
+  "algo": "range",
+  "range_bucket_width": 10,
+  "range_bucket_offset": 0
+}
+```
+
+一个最小日期规则请求体如下：
+
+```json
+{
+  "id": "birth-date-range",
+  "column_name": "birth_date",
+  "sensitive_type": "date",
+  "algo": "range",
+  "range_granularity": "month"
+}
+```
+
+规则创建和更新采用完整 PUT 语义：请求中缺失的 `range` 参数会写回 `NULL`；从 `range` 切换到其他算法，或在 `number` / `date` 之间切换时，不适用的参数会被清空。数值偏移 `0` 是合法值，API 会保留它；省略偏移时则规范化为 `0`。
+
+### `range` 行为与边界
+
+- `range` 无需配置密钥；即使服务没有 hash 密钥也可创建、启用和运行。
+- 空串、trim 后为空、忽略大小写的 `NULL` / `<nil>` 等空值哨兵原样返回且不计入 `MaskedCells`；其他非空值无论成功泛化还是输出 `[REDACTED]` 都计入。
+- 泛化在网关取回查询结果后于内存中完成，不改写数据库数据、不减少数据库查询，也不阻止数据库按原值执行 `WHERE`、`JOIN` 或 `GROUP BY`。
+- 泛化结果是字符串，不保证兼容原数值或日期 schema，消费方应按文本处理。
+- `range` 不承诺 k-匿名；同桶值仍可关联，数值区间、日期时段和空值状态仍然可见。小桶、月粒度、小样本、多偏移或辅助查询都可能增加重识别风险，敏感场景应使用 `block` 或审批。
+
 确定性哈希指纹会暴露相等关系与频率，也可能在共享同一 key 的库或表之间形成关联追踪。不可逆不等于匿名：key 泄漏、hash oracle、低熵字典猜测或辅助数据仍可能重识别原值。互不应关联的环境或租户应使用不同 key；密钥轮换会改变全部指纹并断裂旧、新关联。完整密钥管理与轮换限制见[部署指南的“脱敏哈希密钥管理”](DEPLOY.md#脱敏哈希密钥管理)。
 
-`block` 不输出原值字符、长度或等值关系，但仍保留结果集行列形状、行数、列名和是否有结果，并泄漏上述空值状态；这与 `mask` / `hash` 的结果层泄漏等级一致，不是匿名化或“零信息”。三种算法都在数据库执行、结果返回 AgentSQL 后处理，不减少数据库读取，也不阻止数据库侧按原值执行 `WHERE`、`JOIN` 或 `GROUP BY`。被 `block` 的列是不透明字符串；固定 `***` 不保证数值、日期、JSON、UUID 等下游 schema 兼容，消费方应按不透明文本处理。
+`block` 不输出原值字符、长度或等值关系，但仍保留结果集行列形状、行数、列名和是否有结果，并泄漏上述空值状态；这与 `mask` / `hash` / `range` 的结果层泄漏等级一致，不是匿名化或“零信息”。四种算法都在数据库执行、结果返回 AgentSQL 后处理，不减少数据库读取，也不阻止数据库侧按原值执行 `WHERE`、`JOIN` 或 `GROUP BY`。被 `block` 的列是不透明字符串；固定 `***` 不保证数值、日期、JSON、UUID 等下游 schema 兼容，消费方应按不透明文本处理。
 
 复杂表达式、聚合、CAST、UNION、CTE、视图重命名等可能无法追溯源列。不要宣称任何别名都不可绕过；完整边界见末章。
 
@@ -362,7 +433,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 | 字段 | 说明 |
 | --- | --- |
-| `hash_key` | 可选的 HMAC 哈希指纹密钥，非空时至少 32 字节；为空或未配置时 `mask` 与 `block` 仍可运行，enabled `hash` 会导致启动 fail-fast |
+| `hash_key` | 可选的 HMAC 哈希指纹密钥，非空时至少 32 字节；为空或未配置时 `mask`、`block` 与 `range` 仍可运行，enabled `hash` 会导致启动 fail-fast |
 
 推荐通过环境变量注入。`AGENTSQL_REDACTION_HASH_KEY` 只要存在（包括空串）就覆盖 YAML `redaction.hash_key`；密钥不得与 `AGENTSQL_SECRET` 复用或相互派生，也不得进入 Git、镜像、日志、审计或配置回显。
 
@@ -371,7 +442,7 @@ Agent 是调用 AgentSQL 的独立身份。
 | 变量 | 用途 |
 | --- | --- |
 | `AGENTSQL_SECRET` | 必填，恰好 32 字节；加密数据源密码并派生管理员 token 签名密钥 |
-| `AGENTSQL_REDACTION_HASH_KEY` | 可选，至少 32 字节；仅供 `hash` 生成不可逆 HMAC 指纹，存在即覆盖 YAML（含空串）；未配置时仍可使用 `mask` 与 `block` |
+| `AGENTSQL_REDACTION_HASH_KEY` | 可选，至少 32 字节；仅供 `hash` 生成不可逆 HMAC 指纹，存在即覆盖 YAML（含空串）；未配置时仍可使用 `mask`、`block` 与 `range` |
 | `AGENTSQL_ADMIN_USER` | 管理员用户名，默认 `admin` |
 | `AGENTSQL_ADMIN_PASSWORD` | 控制台启用时必填，至少 12 字符且不能使用弱口令/公开示例 |
 | `AGENTSQL_API_KEY` | stdio 的 `--api-key` 替代；优先用环境变量，避免进入进程参数 |
@@ -443,6 +514,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - 脱敏是结果层按最终列名匹配，不是完整 DLP。复杂表达式、聚合、CAST、UNION、CTE、视图重命名可能无法溯源；JOIN/自连接仅表级授权；`*`/`schema.*` 是整表全列授权；不承诺任何别名不可绕过。
 - `hash` 只处理业务库返回后的结果值，不参与数据库内的 JOIN/WHERE；确定性指纹泄漏相等关系和频率，且首版只有单 key，没有 key version、双写或在线轮换/重算。
 - `block` 同样只处理数据库返回后的结果值；它以不透明字符串 `***` 阻止结果单元外发原文，但保留结果形状、行数、列名、结果存在性和空值状态，且不保证下游 schema 兼容。它不是匿名化，也不限制数据库侧按原值过滤、关联或分组。
+- `range` 只对 `number` / `date` 开放并在结果层输出字符串；同桶值仍可关联，不承诺 k-匿名，也不减少数据库读取或限制数据库侧按原值过滤、关联和分组。
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - MCP 不是跨请求事务代理；一次请求只接受单条 SQL，不允许堆叠。
 - 当前业务库仅支持 PostgreSQL 14–18 与 MySQL 8。不支持 Oracle、SQL Server、达梦、金仓、瀚高、GaussDB、OceanBase、TiDB。
