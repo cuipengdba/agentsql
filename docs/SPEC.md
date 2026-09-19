@@ -34,7 +34,8 @@ AgentSQL 是**网关层**防护，必须如实理解其边界：
 - 脱敏是**结果集按列处理**，不是完整 DLP。复杂表达式、聚合、`CAST`、`UNION`、CTE、视图重命名等场景可能无法回溯到源列；JOIN / 自连接为表级授权；不宣称「任何别名都不可绕过」。
 - `hash` 是带专用密钥的 HMAC 不可逆指纹，不是加密。它在业务数据库返回结果后计算，不下推到数据库内的 JOIN/WHERE/GROUP BY。确定性指纹会暴露相等关系和频率；共享 key 会带来跨库关联风险，不可逆也不等于匿名。
 - `block` 把命中列的每个非空结果值替换为固定 `***`，不输出原值字符、长度或等值关系，但仍保留行列形状、行数、列名、是否有结果，并因空值原样返回而泄漏该格为空/NULL。它与 `mask` / `hash` 的结果层泄漏等级一致，不是匿名化；输出是不保证数值、日期或 JSON schema 兼容的不透明字符串。
-- 三种脱敏都在数据库执行后处理，不减少数据库读取，也不阻止数据库侧使用原值执行 WHERE/JOIN/GROUP BY；它们只改变向调用方返回的结果单元。
+- `range` 把数值泛化为等宽区间、把日期截断到年/季/月，以保留粗粒度分布；它不是匿名化，同一桶内的值仍可关联，也不承诺 k-匿名。数值区间、日期时段与空值状态仍然可见，小桶、细粒度、小样本、多 offset 或辅助查询可能带来重识别风险，敏感场景应配合 `block` 或审批。
+- 四种脱敏都在数据库执行后处理，不减少数据库读取，也不阻止数据库侧使用原值执行 WHERE/JOIN/GROUP BY；它们只改变向调用方返回的结果单元。
 - 审计是**应用层只追加（append-only）记录**，不是法规级 WORM，不防 DBA 直接改库；审计哈希链 / 签名 / WORM 保留锁属企业版路线图。
 - MCP 层不提供通用的跨请求事务代理；多副本高可用、跨实例事件广播属企业版路线图。
 - 安全默认 **fail-closed**：无法解析、无法判定、或审计 / 数据库等依赖不可用时，**拒绝执行**，而不是放行。
@@ -155,7 +156,7 @@ redaction:
 ```
 
 - `AGENTSQL_SECRET` 是数据源密码 AES-GCM 与控制台/JWT 等用途的主密钥，只从环境变量注入。脱敏哈希指纹使用独立的可选密钥，可来自 YAML `redaction.hash_key` 或 `AGENTSQL_REDACTION_HASH_KEY`；环境变量只要存在（包括空串）即覆盖 YAML，不得与 `AGENTSQL_SECRET` 复用或派生。非空 hash key 按字节计至少 32 字节，推荐由 secret manager/受限环境注入；配置、日志、错误、探针、响应、审计、metrics 与 panic **不得回显密钥、DSN 或密码**。
-- 哈希能力 fail-fast 契约只约束 `hash`：无 enabled `hash` 时无 key 可正常启动（包括仅有 `mask` / `block` 或 disabled hash 草稿）；存在 enabled `hash` 而无有效 key 时，在对外服务前启动失败；显式非空但不足 32 字节时无论规则状态都装配失败。运行期无 key 新建或启用 `hash` 返回 HTTP `503` + `HASH_REDACTION_UNAVAILABLE` 且零写入；`block` 无密钥、无参数，不参与该门禁，启用时不会返回此 503。非法类型/算法组合返回 HTTP `422` + `INVALID_MASK_RULE`。
+- 哈希能力 fail-fast 契约只约束 `hash`：无 enabled `hash` 时无 key 可正常启动（包括仅有 `mask` / `block` / `range` 或 disabled hash 草稿）；存在 enabled `hash` 而无有效 key 时，在对外服务前启动失败；显式非空但不足 32 字节时无论规则状态都装配失败。运行期无 key 新建或启用 `hash` 返回 HTTP `503` + `HASH_REDACTION_UNAVAILABLE` 且零写入；`block` 无密钥、无参数，`range` 无密钥但有类型专属参数，二者都不参与该门禁，启用时不会返回此 503。非法类型/算法组合返回 HTTP `422` + `INVALID_MASK_RULE`。
 - 首版进程只有单一 hash key，没有 key version、双写、多版本验证或在线轮换/重算。换 key 后历史指纹不会自动重算，旧、新指纹不再相等；轮换必须在维护窗口完成存量盘点、下游回填与回滚准备。
 - 配置解析为严格模式（未知字段拒绝），非法配置启动即失败（fail-closed）。
 
@@ -166,20 +167,70 @@ type DBDialect string // "postgres" | "mysql"
 type StmtType  string // SELECT / INSERT / UPDATE / DELETE / DDL / ADMIN / UNKNOWN
 type Decision  string // allow / warn / approve / deny
 type RiskLevel int    // 1 拒绝 / 2 审批 / 3 告警 / 4 提示
-type SensitiveType string // phone | email | idcard | bankcard | ip | birthdate | generic
-type Algorithm string // mask | hash | block；range 仅预留、当前不可执行
+type SensitiveType string // phone | email | idcard | bankcard | ip | birthdate | generic | number | date
+type Algorithm string // mask | hash | block | range
 ```
 
 `AST` 携带方言、原始 / 归一化 SQL、语句类型、多语句标记、表对象、列、是否含 WHERE / WHERE 永真 / LIMIT、函数与操作、EXPLAIN 信息；`Assessment` 携带决策、风险等级、命中规则、预估扫描行数、中文理由与改写建议、各阶段耗时；`QueryResult` 为列、字符串化行、行数与截断标记（金额等定点十进制按定点渲染，不使用浮点）。
 
-脱敏算法契约与能力矩阵：
+脱敏算法的维度区别：
 
-| 算法 | 类型 | 输出契约 | 等值关联 | 密钥 / 参数 |
+| 算法 | 处理维度 | 输出契约 | 等值关联 | 密钥 / 参数 |
 |---|---|---|---|---|
-| `mask` | 仅六类格式类型 | 按格式部分遮蔽；无法识别的非空值 fail-closed 为 `[REDACTED]` | 不支持 | 无 |
-| `hash` | 六类 + `generic` | HMAC 不可逆定长指纹；同一 key 下相同字符串字节结果一致 | 支持等值关联、去重、分组 | 专用 key 至少 32 字节；无其他规则参数 |
-| `block` | 六类 + `generic` | 不识别格式；每个非空值固定为 `***`，不保留原文片段或长度 | 不支持 | 无密钥、无参数 |
-| `range` | — | 预留枚举，当前不可执行 | — | — |
+| `mask` | 保留可读前缀或格式的部分遮蔽 | 按六类格式处理；无法识别的非空值 fail-closed 为 `[REDACTED]` | 不支持 | 无 |
+| `hash` | 不可逆 HMAC 指纹 | 同一 key 下相同字符串字节生成相同定长指纹 | 支持等值关联、去重、分组 | 专用 key 至少 32 字节；无其他规则参数 |
+| `block` | 整值阻断 | 不识别格式；每个非空值固定为 `***`，不保留原文片段或长度 | 不支持 | 无密钥、无参数 |
+| `range` | 粗粒度泛化 | 数值分桶为 `[lower,upper)`；日期截断为年/季/月；保留粗粒度分布但不是匿名化 | 同桶值可关联 | 无密钥；使用类型专属参数 |
+
+九种敏感类型的算法能力矩阵：
+
+| 敏感类型 | `mask` | `hash` | `block` | `range` |
+|---|---:|---:|---:|---:|
+| `phone` | ✅ | ✅ | ✅ | ❌ |
+| `email` | ✅ | ✅ | ✅ | ❌ |
+| `idcard` | ✅ | ✅ | ✅ | ❌ |
+| `bankcard` | ✅ | ✅ | ✅ | ❌ |
+| `ip` | ✅ | ✅ | ✅ | ❌ |
+| `birthdate` | ✅ | ✅ | ✅ | ❌ |
+| `generic`（通用敏感值） | ❌ | ✅ | ✅ | ❌ |
+| `number`（数值） | ❌ | ✅ | ✅ | ✅ |
+| `date`（日期） | ❌ | ✅ | ✅ | ✅ |
+
+`number` / `date` 表示列语义，与前六类格式语义正交；`range` 仅对这两类开放。`birthdate` 仍使用生日专用 `mask`，不因可解析为日期而开放 `range`。`hash` / `block` 可处理九种类型中的任意非空字节串；管理员在 `range`、`hash`、`block` 间切换时无需把 `number` / `date` 改标为 `generic`。
+
+#### 6.2.1 `range` 数值分桶契约
+
+`number` 使用以下参数，不能携带 `granularity`：
+
+- `bucket_width` 必填，必须是 `1..1_000_000_000` 的正整数。
+- `bucket_offset` 可省略；省略时规范化为 `0`，必须是 `-1_000_000_000..1_000_000_000` 的整数。
+
+分桶公式为 `lower = floor((v - offset)/width)*width + offset`、`upper = lower + width`。其中 `floor` 是数学意义上的向负无穷取整，不能用整数向零截断；例如 `width=10, offset=0` 时，`42` 输出 `[40,50)`、`10` 输出 `[10,20)`、`-3` 输出 `[-10,0)`。
+
+数值必须用 `math/big.Rat` 做精确十进制有理数解析和计算，禁止使用 `float64`、`strconv.ParseFloat` 或 `big.Float` 再转回整数。非空输入在 `strings.TrimSpace` 后仅接受 ASCII 语法 `[+-]?(digits(.digits?)?|.digits)([eE][+-]?digits)?`，例如 `42`、`-3.5`、`.5`、`1.`、`1e3`；拒绝 `NaN` / `Inf` / `Infinity`、`0x1p2` 等十六进制、下划线、分数、千分位、货币符号和任何尾随字符。trim 后长度超过 128 字节，或科学计数法指数绝对值超过 1000，一律 fail-closed 为 `[REDACTED]`。
+
+计算完成后先用 `big.Int` 比较 `lower`、`upper` 与 int64 上下限，禁止先强转再判断；任一中间值或结果边界溢出 int64 时输出 `[REDACTED]`。成功结果固定为无空格、无 `+`、无千分位、无指数的 ASCII 左闭右开字符串 `[lower,upper)`。
+
+#### 6.2.2 `range` 日期截断契约
+
+`date` 禁止携带 `bucket_width` 或 `bucket_offset`。`granularity` 可省略，省略时规范化为 `year`；显式值只能是 `year`、`quarter`、`month`，显式空串非法。
+
+可解析输入如下：
+
+- 完整日期：`2006-01-02`、`2006/01/02`、`2006.01.02`、`20060102`。
+- 本地时间戳：`2006-01-02 15:04:05`，以及同布局带 1–9 位小数秒的形式。
+- RFC3339 / RFC3339Nano 时间戳。
+- 部分日期：`YYYY-MM` 可截断为年、季或月；`YYYY` 仅可截断为年。精度不足以生成所选粒度时 fail-closed，禁止凭空补 1 日或 1 月。
+
+月、日必须真实有效（包括闰日校验），年份范围为 `0001..9999`。RFC3339 时间戳按输入**原始 offset 下的日历日**截断，禁止调用 `.UTC()` 或转换到服务器时区后换日；时分秒被忽略。输出固定为：`year` → `2006`，`quarter` → `2006Qn`（大写 `Q`、无连字符，`n=(month-1)/3+1`），`month` → `2006-01`。非空但布局不支持、日期非法或精度不足时输出 `[REDACTED]`。
+
+#### 6.2.3 通用执行、计数与隐私契约
+
+- 空值哨兵包括空串、trim 后为空、忽略大小写的 `NULL` / `<nil>`；它们保留原字符串原样返回，不计入 `MaskedCells`。非空值无论成功泛化还是 fail-closed 为 `[REDACTED]`，都计入 processed（即 `MaskedCells`），即使输出字面量与输入相同。
+- `range` 无密钥、无盐、无独立配置或环境变量，不进入 hash 密钥的启动门禁，运行期不会返回 `503 HASH_REDACTION_UNAVAILABLE`；混合规则集只有在包含 `hash` 且无有效 key 时才不可用。
+- 泛化结果是字符串，输出列不再保证兼容原数值或日期 schema。`range` 不下推为数据库 SQL；网关取回数据库结果后在内存中泛化，因此数据库仍使用原值执行 WHERE/JOIN/GROUP BY，也不会减少数据库读取。
+- `RedactReport`、`AuditLog`、SSE 与通知载荷不新增算法专属字段；`TouchedColumns` 可以出现 `number` / `date`。
+- 泛化不是匿名化：同桶值确定性相同、仍可关联，不承诺 k-匿名；数值区间、日期时段和空值状态仍可见。小桶、`month` 粒度、小样本、多 offset 或辅助查询可能导致重识别，敏感场景应配合 `block` 或审批。
 
 `mask+generic` 非法。`block` 的空值判定沿用统一哨兵：空串、trim 后为空、忽略大小写的 `NULL` / `<nil>` 原样返回且不计入 `MaskedCells`；其他值即使原文恰为 `***` 或带首尾空格，也输出 `***` 并计数。固定 `***` 可能与真实原值碰撞且不自描述，不能根据输出是否变化判断是否执行了阻断。
 
@@ -200,6 +251,8 @@ type Algorithm string // mask | hash | block；range 仅预留、当前不可执
 | `approvals` | 审批单（pending/approved/rejected/expired），关联审计 ID |
 
 SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类型、占位符按方言翻译）；审计 ID 在 PG 上为 `BIGINT GENERATED ALWAYS AS IDENTITY`，数据迁移保留原审计 ID。
+
+`mask_rules` 为 `range` 增加三个相互独立的可空列，不使用 JSON：`range_bucket_width INTEGER`、`range_bucket_offset INTEGER`、`range_granularity TEXT`；三列均无 `NOT NULL` 和数据库默认值，旧规则自然为 NULL。`algo=range` 或任一参数列非 NULL，都视为携带 range 参数并进入完整校验。创建与更新采用完整 PUT 语义；更新时请求中缺失的 range 参数写回 NULL，从 `range` 切换到其他算法或在 `number` / `date` 间切换时不得残留无关参数。数值规则省略 `bucket_offset` 时由 API 规范化为非 NULL 的 `0` 后持久化；存储层必须保留 NULL 与 0 的区别。
 
 ### 6.4 MCP 工具（对 AI 暴露，共七个）
 
@@ -245,7 +298,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | 部署 | Docker / Docker Compose、Linux systemd 单二进制 |
 | 可观测 | Prometheus 指标 + Grafana 面板 + 健康 / 就绪探针 |
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
-| 列级脱敏 | 六类 `mask` 部分遮蔽；六类 + `generic` 可选不可逆 HMAC 哈希指纹或固定 `***` 的 `block` 整值阻断；无 key 时 `mask` / `block` 正常运行；discovery 只推荐并应用六类 `mask` |
+| 列级脱敏 | 九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；`range` 提供数值分桶与日期截断、无需密钥；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只推荐并应用六类 `mask` |
 
 **路线图中暂不支持**：Oracle、SQL Server，以及达梦 / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等国产 / 商业数据库（企业版 T29）；企业 SSO / RBAC / 法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
 
