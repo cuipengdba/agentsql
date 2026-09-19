@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -998,34 +999,54 @@ func (handler *Handler) auditList(writer http.ResponseWriter, request *http.Requ
 	})
 }
 func (handler *Handler) auditExport(writer http.ResponseWriter, request *http.Request) {
-	filter, err := auditFilterFromRequest(request)
-	if err != nil {
-		handler.fail(writer, 400, err.Error())
+	format := request.URL.Query().Get("format")
+	if format != "" && format != "jsonl" && format != "csv" {
+		handler.fail(writer, http.StatusBadRequest, "format must be csv or jsonl")
 		return
 	}
-	buffer := make([]model.AuditLog, 0, 10000)
-	for page := 1; ; page++ {
-		listed, err := handler.deps.Runtime.Store.AuditLogs().FilteredPage(request.Context(), filter, page, 100)
-		if err != nil {
-			handler.internal(writer, err)
-			return
-		}
-		buffer = append(buffer, listed.List...)
-		if len(buffer) > 10000 {
-			handler.fail(writer, 422, "audit export exceeds 10000 rows")
-			return
-		}
-		if len(listed.List) < 100 {
-			break
-		}
+	filter, err := auditFilterFromRequest(request)
+	if err != nil {
+		handler.fail(writer, http.StatusBadRequest, err.Error())
+		return
 	}
-	writer.Header().Set("Content-Type", "application/x-ndjson")
-	writer.Header().Set("Content-Disposition", "attachment; filename=agentsql-audit.jsonl")
-	encoder := json.NewEncoder(writer)
-	for _, log := range buffer {
-		if err := encoder.Encode(auditToView(log)); err != nil {
+	logs, err := handler.collectAuditExportLogs(request.Context(), filter)
+	if err != nil {
+		if errors.Is(err, errAuditExportLimit) {
+			handler.fail(writer, http.StatusUnprocessableEntity, errAuditExportLimit.Error())
 			return
 		}
+		handler.internal(writer, err)
+		return
+	}
+
+	var body []byte
+	contentType := "application/x-ndjson"
+	contentDisposition := "attachment; filename=agentsql-audit.jsonl"
+	if format == "csv" {
+		body, err = renderAuditCSV(logs)
+		contentType = "text/csv; charset=utf-8"
+		contentDisposition = "attachment; filename=agentsql-audit.csv"
+	} else {
+		var buffer bytes.Buffer
+		encoder := json.NewEncoder(&buffer)
+		for _, log := range logs {
+			if encodeErr := encoder.Encode(auditToView(log)); encodeErr != nil {
+				err = encodeErr
+				break
+			}
+		}
+		body = buffer.Bytes()
+	}
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+
+	writer.Header().Set("Content-Type", contentType)
+	writer.Header().Set("Content-Disposition", contentDisposition)
+	writer.Header().Set("Cache-Control", "no-store")
+	if _, err := writer.Write(body); err != nil {
+		return
 	}
 }
 
