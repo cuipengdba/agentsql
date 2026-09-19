@@ -56,12 +56,13 @@ type AST struct {
 	Explain           *ExplainInfo
 }
 
-// DirectProjectionRef identifies a top-level direct column projection and its
-// position relative to the beginning or end of the result set.
+// DirectProjectionRef identifies a top-level direct column projection, its
+// position in the result set, and its uniquely resolved physical source.
 type DirectProjectionRef struct {
 	Column  string
 	Offset  int
 	FromEnd bool
+	Source  ObjectRef
 }
 
 // ObjectRef identifies a database object and its optional alias.

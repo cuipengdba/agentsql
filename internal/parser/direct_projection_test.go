@@ -17,28 +17,28 @@ func TestDirectProjectionRefs(t *testing.T) {
 			name: "bare column",
 			sql:  "SELECT phone FROM customers",
 			expected: []model.DirectProjectionRef{
-				{Column: "phone", Offset: 0},
+				{Column: "phone", Offset: 0, Source: model.ObjectRef{Table: "customers"}},
 			},
 		},
 		{
 			name: "qualified column with alias",
 			sql:  "SELECT c.phone AS mobile FROM customers AS c",
 			expected: []model.DirectProjectionRef{
-				{Column: "phone", Offset: 0},
+				{Column: "phone", Offset: 0, Source: model.ObjectRef{Table: "customers"}},
 			},
 		},
 		{
 			name: "three part qualified column",
 			sql:  "SELECT sales.customers.phone AS mobile FROM sales.customers",
 			expected: []model.DirectProjectionRef{
-				{Column: "phone", Offset: 0},
+				{Column: "phone", Offset: 0, Source: model.ObjectRef{Schema: "sales", Table: "customers"}},
 			},
 		},
 		{
 			name: "direct column retains left offset among expressions",
 			sql:  "SELECT 1, phone, upper(email) FROM customers",
 			expected: []model.DirectProjectionRef{
-				{Column: "phone", Offset: 1},
+				{Column: "phone", Offset: 1, Source: model.ObjectRef{Table: "customers"}},
 			},
 		},
 		{
@@ -80,24 +80,24 @@ func TestDirectProjectionRefs(t *testing.T) {
 			name: "column after one star is located from end",
 			sql:  "SELECT *, phone AS mobile FROM customers",
 			expected: []model.DirectProjectionRef{
-				{Column: "phone", Offset: 0, FromEnd: true},
+				{Column: "phone", Offset: 0, FromEnd: true, Source: model.ObjectRef{Table: "customers"}},
 			},
 		},
 		{
 			name: "columns around one star retain safe positions",
 			sql:  "SELECT id, *, phone AS mobile, email FROM customers",
 			expected: []model.DirectProjectionRef{
-				{Column: "id", Offset: 0},
-				{Column: "phone", Offset: 1, FromEnd: true},
-				{Column: "email", Offset: 0, FromEnd: true},
+				{Column: "id", Offset: 0, Source: model.ObjectRef{Table: "customers"}},
+				{Column: "phone", Offset: 1, FromEnd: true, Source: model.ObjectRef{Table: "customers"}},
+				{Column: "email", Offset: 0, FromEnd: true, Source: model.ObjectRef{Table: "customers"}},
 			},
 		},
 		{
 			name: "multiple stars leave middle direct slot unmapped",
 			sql:  "SELECT id, *, phone AS mobile, c.*, email FROM customers AS c",
 			expected: []model.DirectProjectionRef{
-				{Column: "id", Offset: 0},
-				{Column: "email", Offset: 0, FromEnd: true},
+				{Column: "id", Offset: 0, Source: model.ObjectRef{Table: "customers"}},
+				{Column: "email", Offset: 0, FromEnd: true, Source: model.ObjectRef{Table: "customers"}},
 			},
 		},
 		{

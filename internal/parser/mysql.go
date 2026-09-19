@@ -670,6 +670,7 @@ func mysqlProjectedColumns(statement sqlparser.Statement) []string {
 type directProjectionItem struct {
 	column string
 	star   bool
+	source model.ObjectRef
 }
 
 func mysqlDirectProjections(statement sqlparser.Statement) []model.DirectProjectionRef {
@@ -677,6 +678,7 @@ func mysqlDirectProjections(statement sqlparser.Statement) []model.DirectProject
 	if !ok {
 		return nil
 	}
+	bindings := mysqlTopBindings(selectNode)
 	items := make([]directProjectionItem, len(selectNode.SelectExprs))
 	for index, expression := range selectNode.SelectExprs {
 		switch typed := expression.(type) {
@@ -684,12 +686,99 @@ func mysqlDirectProjections(statement sqlparser.Statement) []model.DirectProject
 			column, direct := typed.Expr.(*sqlparser.ColName)
 			if direct {
 				items[index].column = column.Name.String()
+				items[index].source = resolveDirectProjectionSource(mysqlColumnQualifiers(column), bindings)
 			}
 		case *sqlparser.StarExpr:
 			items[index].star = true
 		}
 	}
 	return positionDirectProjections(items)
+}
+
+func mysqlColumnQualifiers(column *sqlparser.ColName) []string {
+	if column == nil || column.Qualifier.Name.IsEmpty() {
+		return nil
+	}
+	if column.Qualifier.Qualifier.IsEmpty() {
+		return []string{column.Qualifier.Name.String()}
+	}
+	return []string{column.Qualifier.Qualifier.String(), column.Qualifier.Name.String()}
+}
+
+func mysqlTopBindings(selectNode *sqlparser.Select) []topRelationBinding {
+	if selectNode == nil {
+		return nil
+	}
+	cteNames := make(stringSet)
+	if selectNode.With != nil {
+		for _, cte := range selectNode.With.CTEs {
+			if cte != nil {
+				cteNames.add(cte.ID.String())
+			}
+		}
+	}
+	bindings := make([]topRelationBinding, 0, len(selectNode.From))
+	for _, expression := range selectNode.From {
+		mysqlAppendTopBindings(expression, cteNames, &bindings)
+	}
+	return bindings
+}
+
+func mysqlAppendTopBindings(
+	expression sqlparser.TableExpr,
+	cteNames stringSet,
+	bindings *[]topRelationBinding,
+) {
+	switch typed := expression.(type) {
+	case *sqlparser.AliasedTableExpr:
+		if typed == nil {
+			return
+		}
+		alias := typed.As.String()
+		switch source := typed.Expr.(type) {
+		case sqlparser.TableName:
+			name := source.Name.String()
+			if source.Qualifier.IsEmpty() && (mysqlNameInSet(name, cteNames) || strings.EqualFold(name, "dual")) {
+				*bindings = append(*bindings, nonPhysicalTopBinding(name, alias))
+				return
+			}
+			*bindings = append(*bindings, physicalTopBinding(model.ObjectRef{
+				Schema: source.Qualifier.String(), Table: name, Alias: alias,
+			}))
+		default:
+			*bindings = append(*bindings, nonPhysicalTopBinding("", alias))
+		}
+	case *sqlparser.JoinTableExpr:
+		if typed == nil {
+			return
+		}
+		mysqlAppendTopBindings(typed.LeftExpr, cteNames, bindings)
+		mysqlAppendTopBindings(typed.RightExpr, cteNames, bindings)
+	case *sqlparser.ParenTableExpr:
+		if typed == nil {
+			return
+		}
+		for _, child := range typed.Exprs {
+			mysqlAppendTopBindings(child, cteNames, bindings)
+		}
+	case *sqlparser.JSONTableExpr:
+		if typed != nil {
+			*bindings = append(*bindings, nonPhysicalTopBinding("", typed.Alias.String()))
+		}
+	default:
+		// An unknown FROM item must still count as a visible non-physical
+		// source so that a bare column cannot be attributed optimistically.
+		*bindings = append(*bindings, nonPhysicalTopBinding("", ""))
+	}
+}
+
+func mysqlNameInSet(name string, names stringSet) bool {
+	for candidate := range names {
+		if strings.EqualFold(name, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func positionDirectProjections(items []directProjectionItem) []model.DirectProjectionRef {
@@ -714,18 +803,24 @@ func positionDirectProjections(items []directProjectionItem) []model.DirectProje
 		}
 		switch {
 		case starCount == 0:
-			projections = append(projections, model.DirectProjectionRef{Column: item.column, Offset: index})
+			projections = append(projections, model.DirectProjectionRef{
+				Column: item.column, Offset: index, Source: item.source,
+			})
 		case starCount == 1 && index < firstStar:
-			projections = append(projections, model.DirectProjectionRef{Column: item.column, Offset: index})
+			projections = append(projections, model.DirectProjectionRef{
+				Column: item.column, Offset: index, Source: item.source,
+			})
 		case starCount == 1 && index > firstStar:
 			projections = append(projections, model.DirectProjectionRef{
-				Column: item.column, Offset: len(items) - 1 - index, FromEnd: true,
+				Column: item.column, Offset: len(items) - 1 - index, FromEnd: true, Source: item.source,
 			})
 		case starCount > 1 && index < firstStar:
-			projections = append(projections, model.DirectProjectionRef{Column: item.column, Offset: index})
+			projections = append(projections, model.DirectProjectionRef{
+				Column: item.column, Offset: index, Source: item.source,
+			})
 		case starCount > 1 && index > lastStar:
 			projections = append(projections, model.DirectProjectionRef{
-				Column: item.column, Offset: len(items) - 1 - index, FromEnd: true,
+				Column: item.column, Offset: len(items) - 1 - index, FromEnd: true, Source: item.source,
 			})
 		}
 	}

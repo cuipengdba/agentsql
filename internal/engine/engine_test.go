@@ -497,12 +497,14 @@ func testAST() *model.AST {
 func TestCloneASTDeepCopiesDirectProjections(t *testing.T) {
 	original := &model.AST{
 		DirectProjections: []model.DirectProjectionRef{
-			{Column: "phone", Offset: 0},
+			{Column: "phone", Offset: 0, Source: model.ObjectRef{Schema: "crm", Table: "customers"}},
 		},
 	}
 
 	cloned := cloneAST(original)
 	cloned.DirectProjections[0].Column = "changed"
+	cloned.DirectProjections[0].Source.Table = "changed"
 
 	require.Equal(t, "phone", original.DirectProjections[0].Column)
+	require.Equal(t, model.ObjectRef{Schema: "crm", Table: "customers"}, original.DirectProjections[0].Source)
 }

@@ -77,6 +77,80 @@ func (set stringSet) sorted() []string {
 
 type objectSet map[string]model.ObjectRef
 
+// topRelationBinding describes one source visible in the root SELECT's FROM
+// scope. Non-physical sources deliberately have an empty object.
+type topRelationBinding struct {
+	object   model.ObjectRef
+	name     string
+	alias    string
+	physical bool
+}
+
+func physicalTopBinding(object model.ObjectRef) topRelationBinding {
+	return topRelationBinding{
+		object: model.ObjectRef{Schema: object.Schema, Table: object.Table},
+		name:   object.Table, alias: object.Alias, physical: true,
+	}
+}
+
+func nonPhysicalTopBinding(name, alias string) topRelationBinding {
+	return topRelationBinding{name: name, alias: alias}
+}
+
+// resolveDirectProjectionSource resolves only against the bindings visible in
+// the root SELECT. It intentionally never consults AST.Tables, which includes
+// relations from nested queries and unused CTEs.
+func resolveDirectProjectionSource(qualifiers []string, bindings []topRelationBinding) model.ObjectRef {
+	switch len(qualifiers) {
+	case 0:
+		if len(bindings) == 1 && bindings[0].physical {
+			return bindings[0].object
+		}
+	case 1:
+		// An explicit alias hides the underlying relation name and takes
+		// precedence over an unaliased relation with the same name.
+		if matched, count := matchingTopBinding(bindings, func(binding topRelationBinding) bool {
+			return binding.alias != "" && binding.alias == qualifiers[0]
+		}); count != 0 {
+			if count == 1 && matched.physical {
+				return matched.object
+			}
+			return model.ObjectRef{}
+		}
+		if matched, count := matchingTopBinding(bindings, func(binding topRelationBinding) bool {
+			return binding.alias == "" && binding.name == qualifiers[0]
+		}); count == 1 && matched.physical {
+			return matched.object
+		}
+	case 2:
+		if matched, count := matchingTopBinding(bindings, func(binding topRelationBinding) bool {
+			return binding.physical && binding.alias == "" &&
+				binding.object.Schema == qualifiers[0] && binding.object.Table == qualifiers[1]
+		}); count == 1 {
+			return matched.object
+		}
+	}
+	return model.ObjectRef{}
+}
+
+func matchingTopBinding(
+	bindings []topRelationBinding,
+	matches func(topRelationBinding) bool,
+) (topRelationBinding, int) {
+	var matched topRelationBinding
+	count := 0
+	for _, binding := range bindings {
+		if !matches(binding) {
+			continue
+		}
+		count++
+		if count == 1 {
+			matched = binding
+		}
+	}
+	return matched, count
+}
+
 func (set objectSet) add(object model.ObjectRef) {
 	if object.Table == "" {
 		return

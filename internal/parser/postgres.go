@@ -373,6 +373,7 @@ func postgresDirectProjections(nodeType string, node any) []model.DirectProjecti
 	if operation, _ := selectNode["op"].(string); operation != "" && operation != "SETOP_NONE" {
 		return nil
 	}
+	bindings := postgresTopBindings(selectNode)
 	targets, _ := selectNode["targetList"].([]any)
 	items := make([]directProjectionItem, len(targets))
 	for index, target := range targets {
@@ -386,25 +387,111 @@ func postgresDirectProjections(nodeType string, node any) []model.DirectProjecti
 		if !ok {
 			continue
 		}
-		name, star := postgresDirectColumnName(column)
-		items[index] = directProjectionItem{column: name, star: star}
+		name, qualifiers, star := postgresDirectColumn(column)
+		items[index] = directProjectionItem{
+			column: name,
+			star:   star,
+			source: resolveDirectProjectionSource(qualifiers, bindings),
+		}
 	}
 	return positionDirectProjections(items)
 }
 
-func postgresDirectColumnName(column map[string]any) (string, bool) {
+func postgresDirectColumn(column map[string]any) (string, []string, bool) {
 	fields, ok := column["fields"].([]any)
 	if !ok || len(fields) == 0 {
-		return "", false
+		return "", nil, false
 	}
 	last := fields[len(fields)-1]
 	if wrapper, ok := last.(map[string]any); ok {
 		if _, star := wrapper["A_Star"]; star {
-			return "", true
+			return "", nil, true
 		}
 	}
-	name, _ := postgresStringNode(last)
-	return name, false
+	name, ok := postgresStringNode(last)
+	if !ok {
+		return "", nil, false
+	}
+	qualifiers := make([]string, 0, len(fields)-1)
+	for _, field := range fields[:len(fields)-1] {
+		qualifier, ok := postgresStringNode(field)
+		if !ok {
+			return name, nil, false
+		}
+		qualifiers = append(qualifiers, qualifier)
+	}
+	return name, qualifiers, false
+}
+
+func postgresTopBindings(selectNode map[string]any) []topRelationBinding {
+	cteNames := make(stringSet)
+	if withClause, ok := selectNode["withClause"].(map[string]any); ok {
+		if ctes, ok := withClause["ctes"].([]any); ok {
+			for _, item := range ctes {
+				wrapper, _ := item.(map[string]any)
+				if cte, ok := wrapper["CommonTableExpr"].(map[string]any); ok {
+					if name, ok := postgresStringField(cte, "ctename"); ok {
+						cteNames.add(name)
+					}
+				}
+			}
+		}
+	}
+	fromClause, _ := selectNode["fromClause"].([]any)
+	bindings := make([]topRelationBinding, 0, len(fromClause))
+	for _, expression := range fromClause {
+		postgresAppendTopBindings(expression, cteNames, &bindings)
+	}
+	return bindings
+}
+
+func postgresAppendTopBindings(value any, cteNames stringSet, bindings *[]topRelationBinding) {
+	wrapper, ok := value.(map[string]any)
+	if !ok || len(wrapper) == 0 {
+		*bindings = append(*bindings, nonPhysicalTopBinding("", ""))
+		return
+	}
+	if rangeVar, ok := wrapper["RangeVar"].(map[string]any); ok {
+		object, valid := postgresRangeVar(rangeVar)
+		if !valid {
+			*bindings = append(*bindings, nonPhysicalTopBinding("", ""))
+			return
+		}
+		if object.Schema == "" {
+			if _, isCTE := cteNames[object.Table]; isCTE {
+				*bindings = append(*bindings, nonPhysicalTopBinding(object.Table, object.Alias))
+				return
+			}
+		}
+		*bindings = append(*bindings, physicalTopBinding(object))
+		return
+	}
+	if join, ok := wrapper["JoinExpr"].(map[string]any); ok {
+		if alias := postgresAliasName(join); alias != "" {
+			*bindings = append(*bindings, nonPhysicalTopBinding("", alias))
+			return
+		}
+		postgresAppendTopBindings(join["larg"], cteNames, bindings)
+		postgresAppendTopBindings(join["rarg"], cteNames, bindings)
+		return
+	}
+	for _, kind := range []string{"RangeSubselect", "RangeFunction", "RangeTableFunc"} {
+		if source, ok := wrapper[kind].(map[string]any); ok {
+			*bindings = append(*bindings, nonPhysicalTopBinding("", postgresAliasName(source)))
+			return
+		}
+	}
+	if sample, ok := wrapper["RangeTableSample"].(map[string]any); ok {
+		postgresAppendTopBindings(sample["relation"], cteNames, bindings)
+		return
+	}
+	*bindings = append(*bindings, nonPhysicalTopBinding("", postgresAliasName(wrapper)))
+}
+
+func postgresAliasName(value map[string]any) string {
+	alias, _ := value["alias"].(map[string]any)
+	name, _ := alias["aliasname"].(string)
+	return name
 }
 
 func postgresDirectStarProjection(value any) bool {
