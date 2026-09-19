@@ -344,6 +344,8 @@ func (builder *redactorBuilder) compile(storedRules []model.MaskRule, datasource
 	scoped := make(map[string]mask.Rule)
 	for _, stored := range storedRules {
 		rule := mask.Rule{
+			Schema:        stored.SchemaName,
+			Table:         stored.TableName,
 			Column:        stored.ColumnName,
 			SensitiveType: mask.SensitiveType(stored.SensitiveType),
 			Algorithm:     mask.Algorithm(stored.Algo),
@@ -357,29 +359,34 @@ func (builder *redactorBuilder) compile(storedRules []model.MaskRule, datasource
 			continue
 		}
 		column := mask.NormalizeColumnName(rule.Column)
+		key := maskRuleCompileKey(rule.Schema, rule.Table, column)
 		target := global
 		if scope != "" {
 			target = scoped
 		}
-		if _, duplicate := target[column]; duplicate {
+		if _, duplicate := target[key]; duplicate {
 			return nil, fmt.Errorf("mask rule %q: %w", column, mask.ErrDuplicateMaskColumn)
 		}
 		rule.Column = column
-		target[column] = rule
+		target[key] = rule
 	}
-	for column, rule := range scoped {
-		global[column] = rule
+	for key, rule := range scoped {
+		global[key] = rule
 	}
-	columns := make([]string, 0, len(global))
-	for column := range global {
-		columns = append(columns, column)
+	keys := make([]string, 0, len(global))
+	for key := range global {
+		keys = append(keys, key)
 	}
-	sort.Strings(columns)
-	rules := make([]mask.Rule, 0, len(columns))
-	for _, column := range columns {
-		rules = append(rules, global[column])
+	sort.Strings(keys)
+	rules := make([]mask.Rule, 0, len(keys))
+	for _, key := range keys {
+		rules = append(rules, global[key])
 	}
 	return mask.NewRedactor(rules, builder.options...)
+}
+
+func maskRuleCompileKey(schema, table, column string) string {
+	return schema + "\x00" + table + "\x00" + column
 }
 
 func rangeParamsFromStored(stored model.MaskRule) *mask.RangeParams {

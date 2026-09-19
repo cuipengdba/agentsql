@@ -405,9 +405,11 @@ func (pipeline *Pipeline) process(
 			}
 			var redacted model.QueryResult
 			var report mask.RedactReport
-			if sourceAware, ok := redactor.(mask.SourceAwareRedactor); ok {
-				sources := resolveSourceColumns(run.ast.DirectProjections, len(run.response.Result.Columns))
-				redacted, report = sourceAware.ApplyWithSourceColumns(*run.response.Result, sources)
+			columnSources := resolveColumnSources(run.ast.DirectProjections, len(run.response.Result.Columns))
+			if relationAware, ok := redactor.(mask.RelationSourceAwareRedactor); ok {
+				redacted, report = relationAware.ApplyWithColumnSources(*run.response.Result, columnSources, run.ast.Tables)
+			} else if sourceAware, ok := redactor.(mask.SourceAwareRedactor); ok {
+				redacted, report = sourceAware.ApplyWithSourceColumns(*run.response.Result, legacySourceNames(columnSources))
 			} else {
 				redacted, report = redactor.Apply(*run.response.Result)
 			}
@@ -507,11 +509,11 @@ func (run *pipelineRun) rollbackWriteTx(tx executor.WriteTx) {
 	_ = tx.Rollback(cleanupContext)
 }
 
-func resolveSourceColumns(refs []model.DirectProjectionRef, columnCount int) []string {
+func resolveColumnSources(refs []model.DirectProjectionRef, columnCount int) []mask.ColumnSource {
 	if len(refs) == 0 || columnCount <= 0 {
 		return nil
 	}
-	sources := make([]string, columnCount)
+	sources := make([]mask.ColumnSource, columnCount)
 	occupied := make([]bool, columnCount)
 	for _, ref := range refs {
 		if ref.Column == "" || ref.Offset < 0 || ref.Offset >= columnCount {
@@ -525,9 +527,20 @@ func resolveSourceColumns(refs []model.DirectProjectionRef, columnCount int) []s
 			return nil
 		}
 		occupied[index] = true
-		sources[index] = ref.Column
+		sources[index] = mask.ColumnSource{Column: ref.Column, Source: ref.Source}
 	}
 	return sources
+}
+
+func legacySourceNames(sources []mask.ColumnSource) []string {
+	if sources == nil {
+		return nil
+	}
+	names := make([]string, len(sources))
+	for index, source := range sources {
+		names[index] = source.Column
+	}
+	return names
 }
 
 func (run *pipelineRun) closeUnusedSession() error {

@@ -227,20 +227,22 @@ func TestPipelineFallsBackToLegacyRedactor(t *testing.T) {
 	require.Equal(t, 1, response.Redact.MaskedCells)
 }
 
-func TestResolveSourceColumnsRejectsUnsafeAlignment(t *testing.T) {
+func TestResolveColumnSourcesRejectsUnsafeAlignment(t *testing.T) {
 	tests := []struct {
 		name        string
 		refs        []model.DirectProjectionRef
 		columnCount int
-		expected    []string
+		expected    []mask.ColumnSource
 	}{
 		{
 			name: "single star suffix resolves from end",
 			refs: []model.DirectProjectionRef{
-				{Column: "phone", Offset: 0, FromEnd: true},
+				{Column: "phone", Offset: 0, FromEnd: true, Source: model.ObjectRef{Table: "customers"}},
 			},
 			columnCount: 4,
-			expected:    []string{"", "", "", "phone"},
+			expected: []mask.ColumnSource{
+				{}, {}, {}, {Column: "phone", Source: model.ObjectRef{Table: "customers"}},
+			},
 		},
 		{
 			name: "multiple stars preserve only safe edges",
@@ -249,7 +251,9 @@ func TestResolveSourceColumnsRejectsUnsafeAlignment(t *testing.T) {
 				{Column: "email", Offset: 0, FromEnd: true},
 			},
 			columnCount: 5,
-			expected:    []string{"id", "", "", "", "email"},
+			expected: []mask.ColumnSource{
+				{Column: "id"}, {}, {}, {}, {Column: "email"},
+			},
 		},
 		{
 			name:        "offset beyond result columns invalidates all sources",
@@ -281,7 +285,7 @@ func TestResolveSourceColumnsRejectsUnsafeAlignment(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			require.Equal(t, test.expected, resolveSourceColumns(test.refs, test.columnCount))
+			require.Equal(t, test.expected, resolveColumnSources(test.refs, test.columnCount))
 		})
 	}
 }

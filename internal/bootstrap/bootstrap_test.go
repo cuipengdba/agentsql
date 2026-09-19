@@ -332,7 +332,7 @@ func TestRedactorBuilderPrefersDatasourceScope(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	rules := []model.MaskRule{
-		{ID: "global-contact", TableName: "users", ColumnName: "contact", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true},
+		{ID: "global-contact", TableName: "customers", ColumnName: "contact", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true},
 		{ID: "bound-contact", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "customers", ColumnName: `"CONTACT"`, SensitiveType: string(mask.TypeEmail), Algo: string(mask.AlgoMask), Enabled: true},
 		{ID: "bound-legacy", DatasourceID: stringPointerBootstrap("ds-1"), TableName: "users", ColumnName: "legacy", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true},
 	}
@@ -343,10 +343,15 @@ func TestRedactorBuilderPrefersDatasourceScope(t *testing.T) {
 
 	redactor, err := runtime.redactors.RedactorFor(context.Background(), "ds-1")
 	require.NoError(t, err)
-	result, report := redactor.Apply(model.QueryResult{
+	relationAware, ok := redactor.(mask.RelationSourceAwareRedactor)
+	require.True(t, ok)
+	result, report := relationAware.ApplyWithColumnSources(model.QueryResult{
 		Columns: []string{"contact", "legacy"},
 		Rows:    [][]string{{"user@example.com", "13812345678"}},
-	})
+	}, []mask.ColumnSource{
+		{Column: "contact", Source: model.ObjectRef{Table: "customers"}},
+		{Column: "legacy", Source: model.ObjectRef{Table: "users"}},
+	}, []model.ObjectRef{{Table: "customers"}, {Table: "users"}})
 	require.Equal(t, []string{"u***@example.com", "138****5678"}, result.Rows[0])
 	require.Equal(t, mask.TypeEmail, report.TouchedColumns[0])
 	require.Equal(t, mask.TypePhone, report.TouchedColumns[1])
@@ -510,10 +515,15 @@ func TestRedactorBuilderIgnoresDisabledDraftsButManagementListsThem(t *testing.T
 
 	redactor, err := runtime.redactors.RedactorFor(context.Background(), "ds-1")
 	require.NoError(t, err)
-	result, report := redactor.Apply(model.QueryResult{
+	relationAware, ok := redactor.(mask.RelationSourceAwareRedactor)
+	require.True(t, ok)
+	result, report := relationAware.ApplyWithColumnSources(model.QueryResult{
 		Columns: []string{"phone", "email"},
 		Rows:    [][]string{{"13812345678", "user@example.com"}},
-	})
+	}, []mask.ColumnSource{
+		{Column: "phone", Source: model.ObjectRef{Table: "users"}},
+		{Column: "email", Source: model.ObjectRef{Table: "users"}},
+	}, []model.ObjectRef{{Table: "users"}})
 	require.Equal(t, []string{"138****5678", "user@example.com"}, result.Rows[0])
 	require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, report.TouchedColumns)
 }
