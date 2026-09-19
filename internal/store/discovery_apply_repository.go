@@ -192,8 +192,8 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 
 func listDiscoveryScopeRules(ctx context.Context, executor sqlExecutor, dialect Dialect, datasourceID string) ([]model.MaskRule, error) {
 	query := repositoryBase{dialect: dialect}.bind(`
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo, enabled,
-       created_at, updated_at
+SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+       created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 WHERE datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = ''
 ORDER BY id`)

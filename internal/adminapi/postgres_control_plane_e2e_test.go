@@ -266,6 +266,24 @@ VALUES
 			"id": "pg-name-hash", "datasource_id": "pg-demo", "table_name": "customers",
 			"column_name": "name", "sensitive_type": "generic", "algo": "hash",
 		})
+	rangeRuleBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
+		"/api/v1/mask_rules", adminAuthorization, map[string]any{
+			"id": "pg-balance-range", "datasource_id": "pg-demo", "table_name": "customers",
+			"column_name": "balance_range_probe", "sensitive_type": "number", "algo": "range",
+			"range_bucket_width": 100,
+		})
+	var rangeRule adminE2EEnvelope[maskRuleView]
+	require.NoError(t, json.Unmarshal(rangeRuleBody, &rangeRule))
+	require.Zero(t, rangeRule.Code)
+	require.Equal(t, "range", rangeRule.Data.Algo)
+	require.Equal(t, "number", rangeRule.Data.SensitiveType)
+	require.Equal(t, int64(100), *rangeRule.Data.RangeBucketWidth)
+	require.Zero(t, *rangeRule.Data.RangeBucketOffset)
+	require.Nil(t, rangeRule.Data.RangeGranularity)
+	storedRangeRule, err := runtime.Store.MaskRules().Get(ctx, "pg-balance-range")
+	require.NoError(t, err)
+	require.Equal(t, int64(100), *storedRangeRule.RangeBucketWidth)
+	require.Zero(t, *storedRangeRule.RangeBucketOffset)
 	blockRuleBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
 		"/api/v1/mask_rules", adminAuthorization, map[string]any{
 			"id": "pg-secret-block", "datasource_id": "pg-demo", "table_name": "customers",

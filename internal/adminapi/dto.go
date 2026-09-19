@@ -183,13 +183,16 @@ type ruleInput struct {
 }
 
 type maskRuleInput struct {
-	ID            string  `json:"id"`
-	DatasourceID  *string `json:"datasource_id,omitempty"`
-	TableName     string  `json:"table_name"`
-	ColumnName    string  `json:"column_name"`
-	SensitiveType string  `json:"sensitive_type"`
-	Algo          string  `json:"algo"`
-	Enabled       *bool   `json:"enabled,omitempty"`
+	ID                string  `json:"id"`
+	DatasourceID      *string `json:"datasource_id,omitempty"`
+	TableName         string  `json:"table_name"`
+	ColumnName        string  `json:"column_name"`
+	SensitiveType     string  `json:"sensitive_type"`
+	Algo              string  `json:"algo"`
+	Enabled           *bool   `json:"enabled,omitempty"`
+	RangeBucketWidth  *int64  `json:"range_bucket_width,omitempty"`
+	RangeBucketOffset *int64  `json:"range_bucket_offset,omitempty"`
+	RangeGranularity  *string `json:"range_granularity,omitempty"`
 }
 
 type decideInput struct {
@@ -462,22 +465,27 @@ func ruleToViews(items []model.Rule) []ruleView {
 }
 
 type maskRuleView struct {
-	ID            string    `json:"id"`
-	DatasourceID  *string   `json:"datasource_id,omitempty"`
-	TableName     string    `json:"table_name"`
-	ColumnName    string    `json:"column_name"`
-	SensitiveType string    `json:"sensitive_type"`
-	Algo          string    `json:"algo"`
-	Enabled       bool      `json:"enabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                string    `json:"id"`
+	DatasourceID      *string   `json:"datasource_id,omitempty"`
+	TableName         string    `json:"table_name"`
+	ColumnName        string    `json:"column_name"`
+	SensitiveType     string    `json:"sensitive_type"`
+	Algo              string    `json:"algo"`
+	Enabled           bool      `json:"enabled"`
+	RangeBucketWidth  *int64    `json:"range_bucket_width,omitempty"`
+	RangeBucketOffset *int64    `json:"range_bucket_offset,omitempty"`
+	RangeGranularity  *string   `json:"range_granularity,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 func maskRuleToView(rule model.MaskRule) maskRuleView {
 	return maskRuleView{
 		ID: rule.ID, DatasourceID: rule.DatasourceID, TableName: rule.TableName, ColumnName: rule.ColumnName,
 		SensitiveType: rule.SensitiveType, Algo: rule.Algo, Enabled: rule.Enabled,
-		CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
+		RangeBucketWidth: rule.RangeBucketWidth, RangeBucketOffset: rule.RangeBucketOffset,
+		RangeGranularity: rule.RangeGranularity,
+		CreatedAt:        rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
 	}
 }
 

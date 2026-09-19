@@ -9,8 +9,12 @@ import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { maskAlgoMeta, sensitiveTypeMeta } from "@/constants/labels";
 import {
+  DATE_SENSITIVE_TYPE,
   HASH_ALGORITHM,
   HASH_REDACTION_UNAVAILABLE_MESSAGE,
+  NUMBER_SENSITIVE_TYPE,
+  RANGE_ALGORITHM,
+  rangeExample,
   sensitiveTypePresentationForAlgorithm,
 } from "@/constants/sensitiveTypes";
 import { apiErrorMessage, formatDateTime, httpStatus, isCanceled } from "@/pages/config/utils";
@@ -36,6 +40,28 @@ function maskRuleSubmitFailure(error: unknown, fallback: string): MaskRuleSubmit
 
 function safeTotal(value: number): number {
   return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function completeMaskRuleInput(record: MaskRuleView, enabled: boolean): MaskRuleInput {
+  const input: MaskRuleInput = {
+    id: record.id,
+    datasource_id: record.datasource_id,
+    table_name: record.table_name,
+    column_name: record.column_name,
+    sensitive_type: record.sensitive_type,
+    algo: record.algo,
+    enabled,
+  };
+  if (record.algo === RANGE_ALGORITHM) {
+    input.range_bucket_width = record.range_bucket_width ?? null;
+    input.range_bucket_offset = record.sensitive_type === NUMBER_SENSITIVE_TYPE
+      ? record.range_bucket_offset ?? 0
+      : record.range_bucket_offset ?? null;
+    input.range_granularity = record.sensitive_type === DATE_SENSITIVE_TYPE
+      ? record.range_granularity ?? "year"
+      : record.range_granularity ?? null;
+  }
+  return input;
 }
 
 export function MaskRules() {
@@ -201,15 +227,7 @@ export function MaskRules() {
     if (togglingID) return;
     setTogglingID(record.id);
     try {
-      const updated = await updateMaskRule(record.id, {
-        id: record.id,
-        datasource_id: record.datasource_id,
-        table_name: record.table_name,
-        column_name: record.column_name,
-        sensitive_type: record.sensitive_type,
-        algo: record.algo,
-        enabled,
-      });
+      const updated = await updateMaskRule(record.id, completeMaskRuleInput(record, enabled));
       if (!mountedRef.current) return;
       setList((current) => current.map((item) => item.id === record.id ? updated : item));
       void message.success(enabled ? "脱敏规则已启用" : "脱敏规则已停用");
@@ -249,16 +267,52 @@ export function MaskRules() {
         const tag = <Tag color={meta?.color || "default"}>{meta?.label || "未知类型"}</Tag>;
         if (!meta) return tag;
         const presentation = sensitiveTypePresentationForAlgorithm(record.sensitive_type, record.algo);
-        const title = `${presentation.description} 脱敏后示例：${presentation.example}`;
+        const example = record.algo === RANGE_ALGORITHM
+          ? rangeExample(record.sensitive_type, {
+            range_bucket_width: record.range_bucket_width,
+            range_bucket_offset: record.range_bucket_offset,
+            range_granularity: record.range_granularity,
+          })
+          : presentation.example;
+        const title = `${presentation.description} 脱敏后示例：${example}`;
         return <Tooltip title={title}>{tag}</Tooltip>;
       },
     },
     {
       title: "算法",
       dataIndex: "algo",
-      width: 100,
-      render: (value: string) => {
+      width: 170,
+      render: (value: string, record) => {
         const meta = maskAlgoMeta[value as keyof typeof maskAlgoMeta];
+        if (value === RANGE_ALGORITHM && meta) {
+          const example = rangeExample(record.sensitive_type, {
+            range_bucket_width: record.range_bucket_width,
+            range_bucket_offset: record.range_bucket_offset,
+            range_granularity: record.range_granularity,
+          });
+          if (record.sensitive_type === NUMBER_SENSITIVE_TYPE) {
+            const width = record.range_bucket_width ?? "—";
+            const offset = record.range_bucket_offset;
+            const offsetDetail = typeof offset === "number" && offset !== 0 ? `；offset=${offset}` : "";
+            return (
+              <Tooltip title={`${meta.description}；示例 ${example}${offsetDetail}`}>
+                <Tag color={meta.color}>range · 宽 {width}</Tag>
+              </Tooltip>
+            );
+          }
+          if (record.sensitive_type === DATE_SENSITIVE_TYPE) {
+            const granularityLabels = { year: "年", quarter: "季", month: "月" } as const;
+            const granularity = record.range_granularity;
+            const label = granularity === "year" || granularity === "quarter" || granularity === "month"
+              ? granularityLabels[granularity]
+              : "未配置";
+            return (
+              <Tooltip title={`${meta.description}；示例 ${example}`}>
+                <Tag color={meta.color}>range · {label}</Tag>
+              </Tooltip>
+            );
+          }
+        }
         const tag = <Tag color={meta?.color || "default"}>{meta?.label || "未知算法"}</Tag>;
         return meta ? <Tooltip title={meta.description}>{tag}</Tooltip> : tag;
       },

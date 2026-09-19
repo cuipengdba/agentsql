@@ -186,8 +186,7 @@ func validateMaskRules(items []MaskRuleManifest) error {
 		}
 	}
 	ids := make(map[string]struct{}, len(items))
-	scopes := make(map[string]struct{}, len(items))
-	compiled := make([]mask.Rule, 0, len(items))
+	compiledByDatasource := make(map[string][]mask.Rule, 2)
 	for _, item := range items {
 		column := mask.NormalizeColumnName(item.ColumnName)
 		key := item.DatasourceID + "\x00" + column
@@ -201,14 +200,15 @@ func validateMaskRules(items []MaskRuleManifest) error {
 			return fmt.Errorf("manifest contains duplicate mask rule id %q", item.ID)
 		}
 		ids[item.ID] = struct{}{}
-		if _, exists := scopes[key]; exists {
-			return fmt.Errorf("manifest contains conflicting mask scope/column for %q", item.ID)
-		}
-		scopes[key] = struct{}{}
-		compiled = append(compiled, mask.Rule{Column: column, SensitiveType: mask.SensitiveType(item.SensitiveType), Algorithm: mask.Algorithm(item.Algo)})
+		compiledByDatasource[item.DatasourceID] = append(compiledByDatasource[item.DatasourceID], mask.Rule{
+			Column: column, SensitiveType: mask.SensitiveType(item.SensitiveType), Algorithm: mask.Algorithm(item.Algo),
+		})
 	}
-	if _, err := mask.NewRedactor(compiled); err != nil {
-		return fmt.Errorf("validate manifest mask rules: %w", err)
+	// NewRedactor enforces normalized-column uniqueness within one datasource.
+	for _, rules := range compiledByDatasource {
+		if _, err := mask.NewRedactor(rules); err != nil {
+			return fmt.Errorf("validate manifest mask rules: %w", err)
+		}
 	}
 	return nil
 }

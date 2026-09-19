@@ -149,6 +149,9 @@ export interface MaskRuleView {
   column_name: string;
   sensitive_type: SensitiveType;
   algo: MaskAlgorithm;
+  range_bucket_width?: number | null;
+  range_bucket_offset?: number | null;
+  range_granularity?: "year" | "quarter" | "month" | null;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -161,6 +164,9 @@ export interface MaskRuleInput {
   column_name: string;
   sensitive_type: SensitiveType;
   algo: MaskAlgorithm;
+  range_bucket_width?: number | null;
+  range_bucket_offset?: number | null;
+  range_granularity?: "year" | "quarter" | "month" | null;
   enabled?: boolean;
 }
 

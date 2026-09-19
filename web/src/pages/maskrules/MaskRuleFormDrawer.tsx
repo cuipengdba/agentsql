@@ -1,23 +1,27 @@
 import { SaveOutlined } from "@ant-design/icons";
-import { Alert, Button, Drawer, Form, Input, Select, Space, Switch, Typography, message } from "antd";
+import { Alert, Button, Drawer, Form, Input, InputNumber, Select, Space, Switch, Typography, message } from "antd";
 import { useEffect } from "react";
 
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import {
   BLOCK_ALGORITHM,
-  GENERIC_SENSITIVE_TYPE,
+  DATE_SENSITIVE_TYPE,
   HASH_ALGORITHM,
   HASH_REDACTION_UNAVAILABLE_MESSAGE,
   MASK_ALGORITHM,
+  NUMBER_SENSITIVE_TYPE,
+  RANGE_ALGORITHM,
   isMaskAlgorithm,
   isSensitiveType,
   isSensitiveTypeAllowedForAlgorithm,
   maskAlgorithmMeta,
   maskAlgorithmOptions,
+  rangeExample,
   sensitiveTypeOptionsForAlgorithm,
   sensitiveTypePresentationForAlgorithm,
   sensitiveTypes,
 } from "@/constants/sensitiveTypes";
+import type { RangeGranularity } from "@/constants/sensitiveTypes";
 
 export interface MaskRuleSubmitFailure {
   status?: number;
@@ -40,7 +44,18 @@ interface MaskRuleFormValues {
   column_name: string;
   sensitive_type: string;
   algo: string;
+  range_bucket_width?: number | null;
+  range_bucket_offset?: number | null;
+  range_granularity?: RangeGranularity | null;
   enabled: boolean;
+}
+
+function isIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+}
+
+function isRangeGranularity(value: unknown): value is RangeGranularity {
+  return value === "year" || value === "quarter" || value === "month";
 }
 
 function generateMaskRuleID(): string {
@@ -70,18 +85,30 @@ export function MaskRuleFormDrawer({
   const [form] = Form.useForm<MaskRuleFormValues>();
   const selectedAlgorithm = Form.useWatch("algo", form);
   const selectedSensitiveType = Form.useWatch("sensitive_type", form);
+  const selectedBucketWidth = Form.useWatch("range_bucket_width", form);
+  const selectedBucketOffset = Form.useWatch("range_bucket_offset", form);
+  const selectedGranularity = Form.useWatch("range_granularity", form);
 
   useEffect(() => {
     if (!open) return;
     form.resetFields();
     form.setFieldsValue(record ? {
       id: record.id,
-      datasource_id: record.datasource_id || undefined,
+      datasource_id: record.datasource_id ?? undefined,
       column_name: record.column_name,
-      sensitive_type: record.algo === MASK_ALGORITHM && record.sensitive_type === GENERIC_SENSITIVE_TYPE
-        ? sensitiveTypes[0]
-        : record.sensitive_type,
+      sensitive_type: isSensitiveTypeAllowedForAlgorithm(record.sensitive_type, record.algo)
+        ? record.sensitive_type
+        : record.algo === RANGE_ALGORITHM ? NUMBER_SENSITIVE_TYPE : sensitiveTypes[0],
       algo: record.algo,
+      range_bucket_width: record.algo === RANGE_ALGORITHM && record.sensitive_type === NUMBER_SENSITIVE_TYPE
+        ? record.range_bucket_width ?? 10
+        : undefined,
+      range_bucket_offset: record.algo === RANGE_ALGORITHM && record.sensitive_type === NUMBER_SENSITIVE_TYPE
+        ? record.range_bucket_offset ?? 0
+        : undefined,
+      range_granularity: record.algo === RANGE_ALGORITHM && record.sensitive_type === DATE_SENSITIVE_TYPE
+        ? record.range_granularity ?? "year"
+        : undefined,
       enabled: record.enabled,
     } : {
       id: generateMaskRuleID(),
@@ -94,12 +121,67 @@ export function MaskRuleFormDrawer({
   }, [form, open, record]);
 
   const changeAlgorithm = (value: string) => {
-    if (value === MASK_ALGORITHM && form.getFieldValue("sensitive_type") === GENERIC_SENSITIVE_TYPE) {
-      form.setFieldValue("sensitive_type", sensitiveTypes[0]);
+    if (!isMaskAlgorithm(value)) return;
+    const currentTypeValue: unknown = form.getFieldValue("sensitive_type");
+    const currentType = isSensitiveType(currentTypeValue) ? currentTypeValue : sensitiveTypes[0];
+    if (value === RANGE_ALGORITHM) {
+      const nextType = isSensitiveTypeAllowedForAlgorithm(currentType, value)
+        ? currentType
+        : NUMBER_SENSITIVE_TYPE;
+      if (nextType === NUMBER_SENSITIVE_TYPE) {
+        form.setFieldsValue({
+          sensitive_type: nextType,
+          range_bucket_width: form.getFieldValue("range_bucket_width") ?? 10,
+          range_bucket_offset: form.getFieldValue("range_bucket_offset") ?? 0,
+          range_granularity: undefined,
+        });
+      } else {
+        form.setFieldsValue({
+          sensitive_type: nextType,
+          range_bucket_width: undefined,
+          range_bucket_offset: undefined,
+          range_granularity: form.getFieldValue("range_granularity") ?? "year",
+        });
+      }
+    } else {
+      form.setFieldsValue({
+        sensitive_type: value === MASK_ALGORITHM && !isSensitiveTypeAllowedForAlgorithm(currentType, value)
+          ? sensitiveTypes[0]
+          : currentType,
+        range_bucket_width: undefined,
+        range_bucket_offset: undefined,
+        range_granularity: undefined,
+      });
     }
     form.setFields([
       { name: "algo", errors: [] },
       { name: "sensitive_type", errors: [] },
+      { name: "range_bucket_width", errors: [] },
+      { name: "range_bucket_offset", errors: [] },
+      { name: "range_granularity", errors: [] },
+    ]);
+  };
+
+  const changeSensitiveType = (value: string) => {
+    if (!isSensitiveType(value) || selectedAlgorithm !== RANGE_ALGORITHM) return;
+    if (value === NUMBER_SENSITIVE_TYPE) {
+      form.setFieldsValue({
+        range_bucket_width: form.getFieldValue("range_bucket_width") ?? 10,
+        range_bucket_offset: form.getFieldValue("range_bucket_offset") ?? 0,
+        range_granularity: undefined,
+      });
+    } else if (value === DATE_SENSITIVE_TYPE) {
+      form.setFieldsValue({
+        range_bucket_width: undefined,
+        range_bucket_offset: undefined,
+        range_granularity: form.getFieldValue("range_granularity") ?? "year",
+      });
+    }
+    form.setFields([
+      { name: "sensitive_type", errors: [] },
+      { name: "range_bucket_width", errors: [] },
+      { name: "range_bucket_offset", errors: [] },
+      { name: "range_granularity", errors: [] },
     ]);
   };
 
@@ -114,20 +196,43 @@ export function MaskRuleFormDrawer({
     }
     if (!isSensitiveTypeAllowedForAlgorithm(values.sensitive_type, values.algo)) {
       form.setFields([
-        { name: "algo", errors: ["打码（mask）不支持通用敏感值"] },
-        { name: "sensitive_type", errors: ["通用敏感值仅支持 hash/block"] },
+        { name: "algo", errors: ["算法与敏感类型组合不受支持"] },
+        { name: "sensitive_type", errors: ["请按能力矩阵选择敏感类型"] },
       ]);
       return;
     }
     const input: MaskRuleInput = {
       id: values.id,
-      datasource_id: values.datasource_id || null,
+      datasource_id: values.datasource_id ?? null,
       table_name: record ? record.table_name : "",
       column_name: values.column_name,
       sensitive_type: values.sensitive_type,
       algo: values.algo,
       enabled: values.enabled,
     };
+    if (values.algo === RANGE_ALGORITHM && values.sensitive_type === NUMBER_SENSITIVE_TYPE) {
+      if (
+        !isIntegerInRange(values.range_bucket_width, 1, 1_000_000_000)
+        || !isIntegerInRange(values.range_bucket_offset, -1_000_000_000, 1_000_000_000)
+      ) {
+        form.setFields([
+          { name: "range_bucket_width", errors: ["桶宽必须是 1..1000000000 的整数"] },
+          { name: "range_bucket_offset", errors: ["偏移必须是 -1000000000..1000000000 的整数"] },
+        ]);
+        return;
+      }
+      input.range_bucket_width = values.range_bucket_width;
+      input.range_bucket_offset = values.range_bucket_offset;
+      input.range_granularity = null;
+    } else if (values.algo === RANGE_ALGORITHM && values.sensitive_type === DATE_SENSITIVE_TYPE) {
+      if (!isRangeGranularity(values.range_granularity)) {
+        form.setFields([{ name: "range_granularity", errors: ["请选择年、季或月"] }]);
+        return;
+      }
+      input.range_bucket_width = null;
+      input.range_bucket_offset = null;
+      input.range_granularity = values.range_granularity;
+    }
     const failure = await onSubmit(input);
     if (!failure) return;
     if (failure.status === 503 && failure.errorCode === "HASH_REDACTION_UNAVAILABLE") {
@@ -141,6 +246,15 @@ export function MaskRuleFormDrawer({
       form.setFields([
         { name: "algo", errors: [backendMessage] },
         { name: "sensitive_type", errors: [backendMessage] },
+        ...(values.algo === RANGE_ALGORITHM && values.sensitive_type === NUMBER_SENSITIVE_TYPE
+          ? [
+            { name: "range_bucket_width" as const, errors: [backendMessage] },
+            { name: "range_bucket_offset" as const, errors: [backendMessage] },
+          ]
+          : []),
+        ...(values.algo === RANGE_ALGORITHM && values.sensitive_type === DATE_SENSITIVE_TYPE
+          ? [{ name: "range_granularity" as const, errors: [backendMessage] }]
+          : []),
       ]);
       void message.error(backendMessage);
       return;
@@ -149,10 +263,25 @@ export function MaskRuleFormDrawer({
   };
 
   const algorithm = isMaskAlgorithm(selectedAlgorithm) ? selectedAlgorithm : MASK_ALGORITHM;
-  const type = isSensitiveType(selectedSensitiveType) ? selectedSensitiveType : sensitiveTypes[0];
+  const watchedType = isSensitiveType(selectedSensitiveType) ? selectedSensitiveType : sensitiveTypes[0];
+  const type = isSensitiveTypeAllowedForAlgorithm(watchedType, algorithm)
+    ? watchedType
+    : algorithm === RANGE_ALGORITHM ? NUMBER_SENSITIVE_TYPE : sensitiveTypes[0];
   const typePresentation = sensitiveTypePresentationForAlgorithm(type, algorithm);
   const isHash = algorithm === HASH_ALGORITHM;
   const isBlock = algorithm === BLOCK_ALGORITHM;
+  const isRange = algorithm === RANGE_ALGORITHM;
+  const rangeParamsValid = type === NUMBER_SENSITIVE_TYPE
+    ? isIntegerInRange(selectedBucketWidth, 1, 1_000_000_000)
+      && isIntegerInRange(selectedBucketOffset, -1_000_000_000, 1_000_000_000)
+    : type === DATE_SENSITIVE_TYPE && isRangeGranularity(selectedGranularity);
+  const example = isRange
+    ? rangeExample(type, {
+      range_bucket_width: selectedBucketWidth,
+      range_bucket_offset: selectedBucketOffset,
+      range_granularity: selectedGranularity,
+    })
+    : typePresentation.example;
 
   return (
     <Drawer
@@ -166,7 +295,13 @@ export function MaskRuleFormDrawer({
         <div className="msk-drawer-footer">
           <Space>
             <Button onClick={onClose}>取消</Button>
-            <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={() => form.submit()}>保存</Button>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              loading={loading}
+              disabled={isRange && !rangeParamsValid}
+              onClick={() => form.submit()}
+            >保存</Button>
           </Space>
         </div>
       )}
@@ -230,17 +365,56 @@ export function MaskRuleFormDrawer({
             description="命中列的每个非空值都会统一替换为固定 ***，无需配置密钥，不可还原也不可关联。"
           />
         ) : null}
+        {isRange ? (
+          <Alert
+            showIcon
+            type="info"
+            message="按粗粒度分桶或截断，无需密钥"
+            description="range 会保留粗粒度分布，但不是匿名化；同一桶内的值仍可能被关联。"
+          />
+        ) : null}
         <Form.Item
           name="sensitive_type"
           label="敏感类型"
           extra={typePresentation.description}
           rules={[{ required: true, message: "请选择敏感类型" }]}
         >
-          <Select options={sensitiveTypeOptionsForAlgorithm(algorithm)} />
+          <Select options={sensitiveTypeOptionsForAlgorithm(algorithm)} onChange={changeSensitiveType} />
         </Form.Item>
+        {isRange && type === NUMBER_SENSITIVE_TYPE ? (
+          <>
+            <Form.Item
+              name="range_bucket_width"
+              label="桶宽"
+              rules={[{ required: true, message: "请输入桶宽" }]}
+            >
+              <InputNumber min={1} max={1_000_000_000} step={1} precision={0} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="range_bucket_offset"
+              label="桶偏移"
+              rules={[{ required: true, message: "请输入桶偏移" }]}
+            >
+              <InputNumber min={-1_000_000_000} max={1_000_000_000} step={1} precision={0} style={{ width: "100%" }} />
+            </Form.Item>
+          </>
+        ) : null}
+        {isRange && type === DATE_SENSITIVE_TYPE ? (
+          <Form.Item
+            name="range_granularity"
+            label="截断粒度"
+            rules={[{ required: true, message: "请选择截断粒度" }]}
+          >
+            <Select options={[
+              { value: "year", label: "年（year）" },
+              { value: "quarter", label: "季（quarter）" },
+              { value: "month", label: "月（month）" },
+            ]} />
+          </Form.Item>
+        ) : null}
         <Typography.Paragraph type="secondary">
           <Typography.Text strong>脱敏示例：</Typography.Text>{" "}
-          <code>{typePresentation.example}</code>
+          <code>{example}</code>
           {isHash ? "（定长、不可逆）" : null}
         </Typography.Paragraph>
         <Form.Item

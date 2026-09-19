@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
@@ -32,11 +33,13 @@ type MaskRuleRepository struct {
 
 // Create inserts a mask rule and returns the stored record.
 func (repository *MaskRuleRepository) Create(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
+	rule = normalizeMaskRuleRangeFields(rule)
 	_, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO mask_rules (
-  id, datasource_id, table_name, column_name, sensitive_type, algo, enabled
+  id, datasource_id, table_name, column_name, sensitive_type, algo, enabled,
+  range_bucket_width, range_bucket_offset, range_granularity
 )
-VALUES (?, ?, ?, ?, ?, ?, ?)`),
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		rule.ID,
 		optionalString(rule.DatasourceID),
 		rule.TableName,
@@ -44,6 +47,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`),
 		rule.SensitiveType,
 		rule.Algo,
 		rule.Enabled,
+		rule.RangeBucketWidth,
+		rule.RangeBucketOffset,
+		rule.RangeGranularity,
 	)
 	if err != nil {
 		if repository.hasNormalizedKeyConflict(ctx, rule.DatasourceID, rule.ColumnName, "") {
@@ -61,8 +67,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`),
 // Get returns a mask rule by ID.
 func (repository *MaskRuleRepository) Get(ctx context.Context, id string) (model.MaskRule, error) {
 	rule, err := scanMaskRule(repository.db.QueryRowContext(ctx, repository.bind(`
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo, enabled,
-       created_at, updated_at
+SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+       created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 WHERE id = ?`), id))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -107,8 +113,8 @@ func (repository *MaskRuleRepository) listByDatasource(
 		enabledClause = " AND enabled = ?"
 	}
 	query := `
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo, enabled,
-       created_at, updated_at
+SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+       created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 WHERE (datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = '')` + enabledClause + `
 ORDER BY table_name ASC, column_name ASC, id ASC`
@@ -150,8 +156,8 @@ func (repository *MaskRuleRepository) List(ctx context.Context) ([]model.MaskRul
 		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
 	}
 	rows, err := repository.db.QueryContext(ctx, repository.bind(`
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo, enabled,
-       created_at, updated_at
+SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+       created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 ORDER BY table_name ASC, column_name ASC, id ASC`))
 	if err != nil {
@@ -175,10 +181,12 @@ ORDER BY table_name ASC, column_name ASC, id ASC`))
 
 // Update replaces mutable mask-rule fields and returns the stored record.
 func (repository *MaskRuleRepository) Update(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
+	rule = normalizeMaskRuleRangeFields(rule)
 	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE mask_rules
 SET datasource_id = ?, table_name = ?, column_name = ?, sensitive_type = ?,
-    algo = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+    algo = ?, enabled = ?, range_bucket_width = ?, range_bucket_offset = ?,
+    range_granularity = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?`),
 		optionalString(rule.DatasourceID),
 		rule.TableName,
@@ -186,6 +194,9 @@ WHERE id = ?`),
 		rule.SensitiveType,
 		rule.Algo,
 		rule.Enabled,
+		rule.RangeBucketWidth,
+		rule.RangeBucketOffset,
+		rule.RangeGranularity,
 		rule.ID,
 	)
 	if err != nil {
@@ -219,6 +230,8 @@ func (repository *MaskRuleRepository) Delete(ctx context.Context, id string) err
 func scanMaskRule(scanner rowScanner) (model.MaskRule, error) {
 	var rule model.MaskRule
 	var datasourceID sql.NullString
+	var rangeBucketWidth, rangeBucketOffset sql.NullInt64
+	var rangeGranularity sql.NullString
 	var createdAt, updatedAt databaseTimestamp
 	if err := scanner.Scan(
 		&rule.ID,
@@ -227,14 +240,20 @@ func scanMaskRule(scanner rowScanner) (model.MaskRule, error) {
 		&rule.ColumnName,
 		&rule.SensitiveType,
 		&rule.Algo,
-		&rule.Enabled,
 		&createdAt,
 		&updatedAt,
+		&rule.Enabled,
+		&rangeBucketWidth,
+		&rangeBucketOffset,
+		&rangeGranularity,
 	); err != nil {
 		return model.MaskRule{}, fmt.Errorf("scan mask rule: %w", err)
 	}
 
 	rule.DatasourceID = stringPointer(datasourceID)
+	rule.RangeBucketWidth = int64Pointer(rangeBucketWidth)
+	rule.RangeBucketOffset = int64Pointer(rangeBucketOffset)
+	rule.RangeGranularity = stringPointer(rangeGranularity)
 	var err error
 	rule.CreatedAt, err = createdAt.required("mask_rules.created_at")
 	if err != nil {
@@ -245,6 +264,23 @@ func scanMaskRule(scanner rowScanner) (model.MaskRule, error) {
 		return model.MaskRule{}, fmt.Errorf("scan mask rule: %w", err)
 	}
 	return rule, nil
+}
+
+func normalizeMaskRuleRangeFields(rule model.MaskRule) model.MaskRule {
+	if rule.Algo != string(mask.AlgoRange) {
+		rule.RangeBucketWidth = nil
+		rule.RangeBucketOffset = nil
+		rule.RangeGranularity = nil
+		return rule
+	}
+	switch mask.SensitiveType(rule.SensitiveType) {
+	case mask.TypeNumber:
+		rule.RangeGranularity = nil
+	case mask.TypeDate:
+		rule.RangeBucketWidth = nil
+		rule.RangeBucketOffset = nil
+	}
+	return rule
 }
 
 func (repository *MaskRuleRepository) hasNormalizedKeyConflict(

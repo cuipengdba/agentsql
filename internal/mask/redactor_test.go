@@ -298,9 +298,9 @@ func TestNewRedactorValidation(t *testing.T) {
 			err:   ErrHashKeyTooShort,
 		},
 		{
-			name:  "range is unsupported",
+			name:  "range rejects unsupported type",
 			rules: []Rule{{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoRange}},
-			err:   ErrUnsupportedAlgorithm,
+			err:   ErrUnsupportedType,
 		},
 		{
 			name:  "blank column is invalid",
@@ -335,7 +335,7 @@ func TestValidateRuleChecksStructureWithoutHashKey(t *testing.T) {
 
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypeGeneric, Algorithm: AlgoMask}), ErrUnsupportedType)
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: SensitiveType("unknown"), Algorithm: AlgoHash}), ErrUnsupportedType)
-	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypePhone, Algorithm: AlgoRange}), ErrUnsupportedAlgorithm)
+	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypePhone, Algorithm: AlgoRange}), ErrUnsupportedType)
 	require.ErrorIs(t, ValidateRule(Rule{Column: "value", SensitiveType: TypePhone, Algorithm: Algorithm("unknown")}), ErrUnsupportedAlgorithm)
 	require.Error(t, ValidateRule(Rule{Column: " ` ` ", SensitiveType: TypePhone, Algorithm: AlgoMask}))
 }
@@ -352,7 +352,7 @@ func TestNewRedactorAcceptsAllSupportedTypes(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
-	hashTypes := append(append([]SensitiveType(nil), maskTypes...), TypeGeneric)
+	hashTypes := append(append([]SensitiveType(nil), maskTypes...), TypeGeneric, TypeNumber, TypeDate)
 	for _, sensitiveType := range hashTypes {
 		t.Run("hash/"+string(sensitiveType), func(t *testing.T) {
 			_, err := NewRedactor([]Rule{{
@@ -412,7 +412,7 @@ func TestMaskOnlyRedactorDoesNotRequireOrValidateHashKey(t *testing.T) {
 
 func TestValidateRuleBlockSupportsAllKnownTypesAndRejectsUnknown(t *testing.T) {
 	knownTypes := []SensitiveType{
-		TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate, TypeGeneric,
+		TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate, TypeGeneric, TypeNumber, TypeDate,
 	}
 	for _, sensitiveType := range knownTypes {
 		require.NoError(t, ValidateRule(Rule{
@@ -426,7 +426,7 @@ func TestValidateRuleBlockSupportsAllKnownTypesAndRejectsUnknown(t *testing.T) {
 
 func TestBlockReplacesAllNonEmptyValuesWithFixedPlaceholder(t *testing.T) {
 	types := []SensitiveType{
-		TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate, TypeGeneric,
+		TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate, TypeGeneric, TypeNumber, TypeDate,
 	}
 	rules := make([]Rule, 0, len(types))
 	columns := make([]string, 0, len(types))
@@ -445,7 +445,8 @@ func TestBlockReplacesAllNonEmptyValuesWithFixedPlaceholder(t *testing.T) {
 	result, report := redactor.Apply(model.QueryResult{Columns: columns, Rows: [][]string{values}})
 	require.Equal(t, []string{
 		BlockPlaceholder, BlockPlaceholder, BlockPlaceholder, BlockPlaceholder,
-		BlockPlaceholder, BlockPlaceholder, BlockPlaceholder,
+		BlockPlaceholder, BlockPlaceholder, BlockPlaceholder, BlockPlaceholder,
+		BlockPlaceholder,
 	}, result.Rows[0])
 	require.Equal(t, wantTouched, report.TouchedColumns)
 	require.Equal(t, len(types), report.MaskedCells)
@@ -537,16 +538,13 @@ func TestNewRedactorRejectsDuplicateColumnsAcrossBlockMaskHash(t *testing.T) {
 	}
 }
 
-func TestRangeAndUnknownAlgorithmsRemainUnsupported(t *testing.T) {
-	for _, algorithm := range []Algorithm{AlgoRange, Algorithm("future")} {
-		require.ErrorIs(t, ValidateRule(Rule{
-			Column: "value", SensitiveType: TypeGeneric, Algorithm: algorithm,
-		}), ErrUnsupportedAlgorithm)
-		_, err := NewRedactor([]Rule{{
-			Column: "value", SensitiveType: TypeGeneric, Algorithm: algorithm,
-		}})
-		require.ErrorIs(t, err, ErrUnsupportedAlgorithm)
-	}
+func TestRangeRejectsUnsupportedTypeAndUnknownAlgorithm(t *testing.T) {
+	require.ErrorIs(t, ValidateRule(Rule{
+		Column: "value", SensitiveType: TypeGeneric, Algorithm: AlgoRange,
+	}), ErrUnsupportedType)
+	require.ErrorIs(t, ValidateRule(Rule{
+		Column: "value", SensitiveType: TypeGeneric, Algorithm: Algorithm("future"),
+	}), ErrUnsupportedAlgorithm)
 }
 
 func TestBlockOnlyRedactorDoesNotRequireOrValidateHashKey(t *testing.T) {
@@ -570,7 +568,7 @@ func TestBlockOnlyRedactorDoesNotRequireOrValidateHashKey(t *testing.T) {
 }
 
 func TestSensitiveTypeOrder(t *testing.T) {
-	require.Equal(t, []int{0, 1, 2, 3, 4, 5, 6}, []int{
+	require.Equal(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8}, []int{
 		SensitiveTypeOrder(TypePhone),
 		SensitiveTypeOrder(TypeEmail),
 		SensitiveTypeOrder(TypeIDCard),
@@ -578,8 +576,10 @@ func TestSensitiveTypeOrder(t *testing.T) {
 		SensitiveTypeOrder(TypeIP),
 		SensitiveTypeOrder(TypeBirthDate),
 		SensitiveTypeOrder(TypeGeneric),
+		SensitiveTypeOrder(TypeNumber),
+		SensitiveTypeOrder(TypeDate),
 	})
-	require.Equal(t, 7, SensitiveTypeOrder(SensitiveType("unknown")))
+	require.Equal(t, 9, SensitiveTypeOrder(SensitiveType("unknown")))
 }
 
 func TestHashAllSensitiveTypesAndReport(t *testing.T) {
@@ -719,7 +719,7 @@ func TestRedactorHandlesShortRowsAndTypedNil(t *testing.T) {
 
 func TestUnsupportedErrorsAreErrorsIsCompatible(t *testing.T) {
 	_, err := NewRedactor([]Rule{{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoRange}})
-	require.True(t, errors.Is(err, ErrUnsupportedAlgorithm))
+	require.True(t, errors.Is(err, ErrUnsupportedType))
 	_, err = NewRedactor([]Rule{{Column: "value", SensitiveType: SensitiveType("unknown"), Algorithm: AlgoMask}})
 	require.True(t, errors.Is(err, ErrUnsupportedType))
 	_, err = NewRedactor([]Rule{{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoHash}})

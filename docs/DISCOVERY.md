@@ -10,12 +10,12 @@ AgentSQL 的敏感列发现面向 DBA 和安全管理员。它对管理员明确
 
 - 读取明确指定表的列元数据，只对列名命中的候选列做可选采样。
 - 发现请求同步返回，不创建异步任务，也不持久化一份可反复查询的发现结果。
-- 六类发现项都可以一键生成 `enabled=false` 的 `mask` 规则草稿；草稿不会自动参与运行时脱敏。
+- 发现始终只识别手机号、邮箱、身份证、银行卡、IP 地址、出生日期六类，并且只生成 `algo=mask`、`enabled=false` 的规则草稿；草稿不会自动参与运行时脱敏。
 - 发现使用数据源中已经保存的数据库账号，不要求为 MCP Agent 增加权限，也不新增 MCP 工具。
 
 它不是自动脱敏、完整 DLP 或合规判定工具，不会修改业务表中的数据，不会自动启用规则，也不提供“留空即扫描全库/全部表”的模式。它不会从自然语言推导或生成业务 SQL；受控只读服务只生成固定的元数据查询和形如 `SELECT <候选列> FROM <限定表> LIMIT <上限>` 的采样语句，并在执行前校验只读语句结构。
 
-普通脱敏规则还支持管理员手工配置 `hash`、`block`，以及仅搭配这两种算法的通用敏感值 `generic`；它们都不进入发现流程。discovery/advisor 始终只产出六类 `mask` 推荐，apply 也只接受这些推荐组合；提交 `hash`、`block` 或 `generic` 会被拒绝。
+管理员可以在「脱敏规则」页手工创建 `hash`、`block`、`range` 规则；`generic`、`number`、`date` 均不是发现类别。它们都不进入发现流程。discovery/advisor 始终只产出前述六类 `mask` 推荐，apply 也只接受这些推荐组合；提交 `range`、`number`、`date`、`hash`、`block` 或 `generic` 会被拒绝。
 
 ## 发现类别与识别依据
 
@@ -30,7 +30,9 @@ AgentSQL 的敏感列发现面向 DBA 和安全管理员。它对管理员明确
 | IP 地址 | `ip` | `ip`、`ip_address`、`client_ip` | 用 `net/netip` 校验 IPv4、IPv6、`inet` 或 `cidr` | 是 | `ip` + `mask` |
 | 出生日期 | `birthdate` | `birth_date`、`date_of_birth`、`dob`、`birthday`；中等信号 `birth` | 校验真实日历、非未来日期且年龄为 0–120 岁 | 是 | `birthdate` + `mask` |
 
-六类发现项都会返回同类别的推荐规则和 `algo=mask`，正常情况下 `applicable=true`，可在控制台勾选后生成草稿。姓名和地址当前不发现，裸 `name`、`address`、`username` 也不会成为候选。
+六类发现项都会返回同类别的推荐规则和 `algo=mask`，正常情况下 `applicable=true`，可在控制台勾选后生成 `enabled=false` 草稿。发现不会识别或标注 `number` / `date`，不会推荐或应用 `range`，也不会生成 `generic`、`hash`、`block` 草稿。需要数值分桶或日期截断时，必须到「脱敏规则」页手工新建 `number` / `date` 的 `range` 规则。
+
+这个边界是有意设计的：自动发现依据列名和样本格式做分类，而数值桶宽、桶偏移与日期截断粒度取决于报表口径、重识别风险和下游用途，是业务决策，不应由采样自动决定。姓名和地址当前也不发现，裸 `name`、`address`、`username` 不会成为候选。
 
 ## 六类 `mask` 运行时遮蔽样式
 
@@ -49,7 +51,7 @@ AgentSQL 的敏感列发现面向 DBA 和安全管理员。它对管理员明确
 
 出生日期还接受 `1990/01/02`、`19900102`、RFC3339/RFC3339Nano 及 SQL timestamp；例如 `1990-01-02T00:00:00Z` 也输出 `1990-**-**`，时间和时区后缀不会保留。银行卡仅做形态正规化，不在遮蔽阶段执行 Luhn 校验；长度须为 13–19 位。PostgreSQL `inet`/`cidr` 返回的 `/32`、`/128`、`/24` 等前缀会在遮蔽前去除；带 zone 的 IPv6、域名和 `host:port` 不作为 IP 地址接受。
 
-> **风险提示：部分遮蔽不等于匿名化。** 手机号仍保留前 3 后 4，身份证仍保留前 6 后 4，银行卡仍保留 BIN 与后 4，IP 保留网段，出生日期仍保留年份。这些取舍服务于运维可读性、统计和排障，不构成不可逆匿名化，也不替代存储层保护。需要不可逆哈希指纹或固定 `***` 的整值阻断时，可在「脱敏规则」页手工配置 `hash` 或 `block`；二者都不会由发现流程推荐。只有 `range` 仍是规划中、当前不可执行的算法。
+> **风险提示：部分遮蔽不等于匿名化。** 手机号仍保留前 3 后 4，身份证仍保留前 6 后 4，银行卡仍保留 BIN 与后 4，IP 保留网段，出生日期仍保留年份。这些取舍服务于运维可读性、统计和排障，不构成不可逆匿名化，也不替代存储层保护。需要不可逆哈希指纹、固定 `***` 的整值阻断、数值分桶或日期截断时，可在「脱敏规则」页手工配置 `hash`、`block` 或 `range`；这些算法都不会由发现流程推荐。
 
 ## 严格发现、宽松遮蔽
 
@@ -127,7 +129,7 @@ Go 字符串和数据库驱动缓冲区不提供密码学级安全擦除，因�
 
 ## 生成草稿与规则作用域
 
-apply 只接受六类发现类别各自对应的 `mask` 组合，例如 `idcard/idcard/mask`；类别与敏感类型必须相同。提交 `algo=hash`、`algo=block`、`sensitive_type=generic` 或其他非推荐组合会以 HTTP `422`、`DISCOVERY_NOT_APPLICABLE` 拒绝且不创建草稿。新建规则由服务端强制设置：
+apply 只接受六类发现类别各自对应的 `mask` 组合，例如 `idcard/idcard/mask`；类别与敏感类型必须相同。提交 `algo=range`、`sensitive_type=number`、`sensitive_type=date`，或 `algo=hash`、`algo=block`、`sensitive_type=generic` 等非推荐组合，会以 HTTP `422`、`DISCOVERY_NOT_APPLICABLE` 拒绝且不创建草稿。admin HTTP 层会拒绝这些组合；绕过 HTTP 直接调用 store 的草稿应用入口也会拒绝，不能借此生成非发现草稿。新建规则由服务端强制设置：
 
 - `enabled=false`：草稿默认不生效。
 - `table_name=""`：发现结果中的 schema 和表名只是来源，不是运行时匹配范围。
@@ -210,7 +212,7 @@ apply 是幂等的，响应将项目分入以下数组：
 }
 ```
 
-`items` 必须为 1–50 项。六类均可提交，但 `category` 与 `sensitive_type` 必须相同，`algo` 必须为 `mask`；例如 `birthdate/birthdate/mask`。`hash`、`block` 与 `generic` 只能在普通脱敏规则中手工配置，提交到 apply 会返回 `422 DISCOVERY_NOT_APPLICABLE`。请求 DTO 不接受 `enabled`、样本值或自由信号字段。成功响应的 `data` 包含 `created`、`existing`、`covered_by_global`、`conflicts`、`ambiguous` 五个数组及 `counts` 汇总。
+`items` 必须为 1–50 项。六类均可提交，但 `category` 与 `sensitive_type` 必须相同，`algo` 必须为 `mask`；例如 `birthdate/birthdate/mask`。`range`、`number`、`date`、`hash`、`block` 与 `generic` 不适用于 discovery apply，提交后返回 `422 DISCOVERY_NOT_APPLICABLE`；需要时应在「脱敏规则」页手工新建普通规则。请求 DTO 不接受 `enabled`、样本值或自由信号字段。成功响应的 `data` 包含 `created`、`existing`、`covered_by_global`、`conflicts`、`ambiguous` 五个数组及 `counts` 汇总。
 
 ### HTTP 状态码
 
@@ -225,7 +227,7 @@ apply 是幂等的，响应将项目分入以下数组：
 | `409` | `MASK_RULE_CONFLICT` | 同名列已有不同类型或算法的规则 | 到「脱敏规则」页处理冲突；响应可含分组结果 |
 | `413` | `REQUEST_TOO_LARGE` | JSON 请求体超过 `1 MiB`；不是“21 个表”的逻辑范围码 | 缩小请求体；表数、列数等逻辑超限见 `422` |
 | `422` | `DISCOVERY_SCOPE_LIMIT`、`DISCOVERY_CANDIDATE_LIMIT`、`DISCOVERY_SAMPLE_LIMIT` 等 | 空范围、表/列/候选/采样超限，或参数、类别非法 | 拆分表范围、减少采样行数或修正参数 |
-| `422` | `DISCOVERY_NOT_APPLICABLE` | 类别、敏感类型或算法不是当前 discovery apply 可接受的组合 | 提交同类别的六类敏感类型，并使用 `mask` |
+| `422` | `DISCOVERY_NOT_APPLICABLE` | 类别、敏感类型或算法不是当前 discovery apply 可接受的组合，包括 `range` / `number` / `date` 与 `hash` / `block` / `generic` | 提交同类别的六类敏感类型，并使用 `mask`；其他规则到「脱敏规则」页手工新建 |
 | `429` | `DISCOVERY_RATE_LIMITED` | 1 QPS 或并发配额被占用 | 等待当前请求完成后重试 |
 | `500` | `DISCOVERY_INTERNAL` | 包括当前 API 未进一步区分的连接/Ping“数据源不可达”等内部失败 | 先测试连接；再检查服务端日志和数据源配置 |
 | `503` | `DISCOVERY_UNAVAILABLE` | 受控发现服务未就绪 | 检查服务启动和依赖注入状态后重试 |
@@ -252,9 +254,9 @@ apply 是幂等的，响应将项目分入以下数组：
 
 ## 限制与后续规划
 
-以下能力均为规划中，当前版本不支持：
+以下发现能力均为规划中，当前版本不支持：
 
-- `range` 算法。`hash` 与 `block` 已可在普通脱敏规则中手工配置，但发现流程不会推荐、生成或应用它们。
+- 自动发现 `number` / `date` 并推荐 `range` 参数；`range` 已可在普通脱敏规则中手工配置，但发现流程不会推荐、生成或应用它，`hash`、`block` 与 `generic` 也同样不进入发现流程。
 - “表.列”级规则和表感知脱敏优先级。
 - 姓名、地址等更多敏感类型的发现与遮蔽。
 - 异步、定时或大范围发现任务，以及跨请求进度、取消和重试。
@@ -267,7 +269,7 @@ apply 是幂等的，响应将项目分入以下数组：
 - 一次请求最多读取 500 个元数据列、识别 50 个候选列、处理 1,000 个采样单元格；超限整体失败，不返回部分结果。
 - 识别依赖固定列名与格式启发式，可能误报或漏报；数据库类型当前只供展示，不参与分类。
 - 关闭采样时只看列名，置信度最高为中；开启采样也只抽取表中无排序保证的前若干行。
-- 六类均可发现并生成 `mask` 草稿；姓名和地址当前不发现。`hash`、`block` 与 `generic` 仅能在普通脱敏规则中手工配置；`block` 已可运行，只有 `range` 仍不可执行。
+- 只发现前述六类并生成 `enabled=false` 的 `mask` 草稿；姓名、地址、`number`、`date` 当前不发现。`range`、`hash`、`block` 与 `generic` 只能在「脱敏规则」页手工配置，不会由发现流程推荐、生成或应用。
 - 草稿默认不生效，必须人工核对并启用；发现不会自动修改业务数据。
 - 规则按“数据源 + 规范化列名”匹配，同名列统一生效；不支持“表.列”级规则。
 - 样本不持久化、不返回、不进入审计正文或通知，但进程内存不做密码学级安全擦除。

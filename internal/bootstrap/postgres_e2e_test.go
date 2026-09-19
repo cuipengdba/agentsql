@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -72,6 +73,27 @@ func TestAssemblePostgres18MetadataE2E(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, created.ID, loaded.ID)
 	require.Equal(t, created.Name, loaded.Name)
+
+	width, offset := int64(25), int64(0)
+	_, err = runtime.Store.MaskRules().Create(ctx, model.MaskRule{
+		ID: "bootstrap-pg-range", ColumnName: "amount", SensitiveType: string(mask.TypeNumber),
+		Algo: string(mask.AlgoRange), Enabled: true,
+		RangeBucketWidth: &width, RangeBucketOffset: &offset,
+	})
+	require.NoError(t, err)
+	require.NoError(t, runtime.Close())
+
+	t.Setenv(config.RedactionHashKeyEnv, "")
+	rangeRuntime, err := Assemble(ctx, cfg, bootstrapTestSecret)
+	require.NoError(t, err, "a PostgreSQL-backed range-only rule set must activate without a hash key")
+	t.Cleanup(func() { require.NoError(t, rangeRuntime.Close()) })
+	redactor, err := rangeRuntime.redactors.RedactorFor(ctx, "pg-datasource")
+	require.NoError(t, err)
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"amount"}, Rows: [][]string{{"42"}},
+	})
+	require.Equal(t, "[25,50)", result.Rows[0][0])
+	require.Equal(t, mask.TypeNumber, report.TouchedColumns[0])
 }
 
 func bootstrapDockerTestContext(t *testing.T) context.Context {

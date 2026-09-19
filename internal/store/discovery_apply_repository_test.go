@@ -40,6 +40,12 @@ func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
 	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "block", ColumnName: "secret", SensitiveType: "generic", Algo: "block"}})
 	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
 	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "range-number", ColumnName: "amount", SensitiveType: "number", Algo: "range"}})
+	require.ErrorIs(t, err, mask.ErrInvalidRangeParams)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "range-date", ColumnName: "created", SensitiveType: "date", Algo: "range"}})
+	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
 }
 
 func TestApplyDiscoveryDraftsRejectsHashBeforeAuditOrRuleWrite(t *testing.T) {
@@ -90,6 +96,39 @@ func TestDiscoveryApplyRejectsBlockWithoutWriteOrAudit(t *testing.T) {
 	page, pageErr := opened.AuditLogs().Page(ctx, 1, 10)
 	require.NoError(t, pageErr)
 	require.Zero(t, page.Total)
+}
+
+func TestDiscoveryApplyRejectsRangeNumberAndDateWithoutWriteOrAudit(t *testing.T) {
+	tests := []DiscoveryDraft{
+		{ID: "range-draft", ColumnName: "phone", SensitiveType: "phone", Algo: "range"},
+		{ID: "number-draft", ColumnName: "amount", SensitiveType: "number", Algo: "mask"},
+		{ID: "date-draft", ColumnName: "created_at", SensitiveType: "date", Algo: "mask"},
+	}
+	for _, draft := range tests {
+		t.Run(draft.ID, func(t *testing.T) {
+			opened := openTestStore(t)
+			ctx := context.Background()
+			auditCalls := 0
+			outcome, recorded, err := opened.MaskRules().ApplyDiscoveryDraftsWithAudit(
+				ctx,
+				"ds-1",
+				[]DiscoveryDraft{draft},
+				func(DiscoveryApplyOutcome) (model.AuditLog, error) {
+					auditCalls++
+					return model.AuditLog{}, errors.New("must not be called")
+				},
+			)
+			require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+			require.Empty(t, outcome.Created)
+			require.Zero(t, recorded.ID)
+			require.Zero(t, auditCalls)
+			_, getErr := opened.MaskRules().Get(ctx, draft.ID)
+			require.ErrorIs(t, getErr, ErrNotFound)
+			page, pageErr := opened.AuditLogs().Page(ctx, 1, 10)
+			require.NoError(t, pageErr)
+			require.Zero(t, page.Total)
+		})
+	}
 }
 
 func TestApplyDiscoveryDraftsSharedStoreRollsBackWhenAuditFails(t *testing.T) {
