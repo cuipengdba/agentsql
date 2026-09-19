@@ -405,7 +405,178 @@ curl --fail http://127.0.0.1:7780/readyz
 
 升级前先执行完整备份，盘点 enabled `hash` 规则并确认对应 `AGENTSQL_REDACTION_HASH_KEY` 已安全注入，然后停止当前实例、替换两个二进制或容器镜像并重新启动。AgentSQL 启动时会自动、幂等地执行尚未应用的 SQLite migration；enabled `hash` 无 key 会在对外服务前拒绝启动。
 
-回滚不是只替换二进制：停止服务，将二进制或镜像恢复到旧版本，同时恢复升级前的 SQLite 备份，再启动服务。不要让旧版本直接读取已被新版本迁移且不兼容的数据库。
+### v0.3 `range` 控制面迁移
+
+v0.3 为保存数值分桶和日期截断参数，在 `mask_rules` 增加 `range_bucket_width INTEGER`、`range_bucket_offset INTEGER`、`range_granularity TEXT` 三个可空列。三列都没有 `NOT NULL`、没有数据库默认值，迁移不回填，既有规则的三列自然为 `NULL`。四份 `0004` 的作用和真实 DDL 如下。
+
+- `internal/store/migrations/sqlite/0004_range_redaction.sql`：默认合并式 SQLite 控制面。
+
+```sqlite
+ALTER TABLE mask_rules ADD COLUMN range_bucket_width INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_bucket_offset INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_granularity TEXT;
+```
+
+- `internal/store/migrations/postgres/0004_range_redaction.sql`：默认合并式 PostgreSQL 控制面。
+
+```postgres
+ALTER TABLE mask_rules ADD COLUMN range_bucket_width INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_bucket_offset INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_granularity TEXT;
+```
+
+- `internal/store/migrations/metadata/sqlite/0004_range_redaction.sql`：分库部署的独立 SQLite metadata 库。
+
+```sqlite
+ALTER TABLE mask_rules ADD COLUMN range_bucket_width INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_bucket_offset INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_granularity TEXT;
+```
+
+- `internal/store/migrations/metadata/postgres/0004_range_redaction.sql`：分库部署的独立 PostgreSQL metadata 库。
+
+```postgres
+ALTER TABLE mask_rules ADD COLUMN range_bucket_width INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_bucket_offset INTEGER;
+ALTER TABLE mask_rules ADD COLUMN range_granularity TEXT;
+```
+
+audit-only 库没有 `mask_rules`，因此 `internal/store/migrations/audit` 不增加这三列，也没有对应的 `0004_range_redaction.sql`。
+
+#### PostgreSQL 升级影响与操作顺序
+
+PostgreSQL 中这三条 `ADD COLUMN` 都增加可空且无默认值的列，通常只更新系统目录，不重写 `mask_rules` 表；但 `ALTER TABLE` 仍会取得 `ACCESS EXCLUSIVE` 锁，可能等待现有事务并在执行期间短暂阻塞并发访问。不要把它描述为“无锁升级”。即使表很小，也建议在低峰或维护窗口执行，并按变更流程设置合适的锁等待上限。
+
+推荐顺序是：停止 AgentSQL 写入；备份 SQLite 文件，或按前文分别备份 PostgreSQL metadata/audit 库；应用迁移（PostgreSQL 使用 migration owner）；执行下一节只读预检并处理返回行；最后换回最小权限运行账号，启动服务并检查 `/readyz`。分库部署只有 metadata 库发生本次 DDL，但仍应保留成对控制面备份和对应的 `AGENTSQL_SECRET`。
+
+回滚不是只替换二进制。先停止服务，并在回到旧版本前停用或移除旧版本无法识别的 `range` 规则；schema 回滚应移除这三列，或直接恢复升级前备份。仅从列结构看，这三列可空、无默认且不改变旧列，对使用显式列清单的旧版本无害，但旧版本不识别 `range` 算法及其参数，不能据此假定 enabled `range` 规则也可兼容运行。恢复备份是需要完整回到升级前状态时的首选。
+
+#### enabled `range` 规则启动前预检
+
+在 `0004` 已应用、重启新版本前执行以下只读查询。只有 `algo='range'` 或任一 range 参数非 `NULL` 的规则才进入这组校验；查询只返回 enabled 脏规则，不修改数据。结果必须为空，否则 `validateEnabledRules` 会在启动装配时 fail-fast。disabled 脏草稿不会阻止启动，可在服务恢复后经管理 API 修复。
+
+`number` 规则要求 `range_bucket_width` 为 `1..1,000,000,000` 的整数；`range_bucket_offset` 可为 `NULL`（规范化为 `0`），显式值须为 `-1,000,000,000..1,000,000,000` 的整数，且不得带 `range_granularity`。`date` 规则不得带 width/offset；`range_granularity` 可为 `NULL`（规范化为 `year`），显式值只允许 `year`、`quarter`、`month`，空串也会被查出。非 `range` 算法携带任一 range 参数同样是脏数据。
+
+SQLite：
+
+```sqlite
+SELECT id,
+       datasource_id,
+       column_name,
+       sensitive_type,
+       algo,
+       range_bucket_width,
+       range_bucket_offset,
+       range_granularity
+FROM mask_rules
+WHERE enabled = 1
+  AND (
+    (
+      algo = 'range'
+      AND (
+        sensitive_type NOT IN ('number', 'date')
+        OR (
+          sensitive_type = 'number'
+          AND (
+            range_bucket_width IS NULL
+            OR typeof(range_bucket_width) <> 'integer'
+            OR range_bucket_width < 1
+            OR range_bucket_width > 1000000000
+            OR (
+              range_bucket_offset IS NOT NULL
+              AND (
+                typeof(range_bucket_offset) <> 'integer'
+                OR range_bucket_offset < -1000000000
+                OR range_bucket_offset > 1000000000
+              )
+            )
+            OR range_granularity IS NOT NULL
+          )
+        )
+        OR (
+          sensitive_type = 'date'
+          AND (
+            range_bucket_width IS NOT NULL
+            OR range_bucket_offset IS NOT NULL
+            OR (
+              range_granularity IS NOT NULL
+              AND range_granularity NOT IN ('year', 'quarter', 'month')
+            )
+          )
+        )
+      )
+    )
+    OR (
+      algo <> 'range'
+      AND (
+        range_bucket_width IS NOT NULL
+        OR range_bucket_offset IS NOT NULL
+        OR range_granularity IS NOT NULL
+      )
+    )
+  )
+ORDER BY id;
+```
+
+PostgreSQL 的 `INTEGER` 列本身只保存整数，因此不需要 SQLite 的存储类型检查：
+
+```postgres
+SELECT id,
+       datasource_id,
+       column_name,
+       sensitive_type,
+       algo,
+       range_bucket_width,
+       range_bucket_offset,
+       range_granularity
+FROM mask_rules
+WHERE enabled IS TRUE
+  AND (
+    (
+      algo = 'range'
+      AND (
+        sensitive_type NOT IN ('number', 'date')
+        OR (
+          sensitive_type = 'number'
+          AND (
+            range_bucket_width IS NULL
+            OR range_bucket_width < 1
+            OR range_bucket_width > 1000000000
+            OR range_bucket_offset < -1000000000
+            OR range_bucket_offset > 1000000000
+            OR range_granularity IS NOT NULL
+          )
+        )
+        OR (
+          sensitive_type = 'date'
+          AND (
+            range_bucket_width IS NOT NULL
+            OR range_bucket_offset IS NOT NULL
+            OR (
+              range_granularity IS NOT NULL
+              AND range_granularity NOT IN ('year', 'quarter', 'month')
+            )
+          )
+        )
+      )
+    )
+    OR (
+      algo <> 'range'
+      AND (
+        range_bucket_width IS NOT NULL
+        OR range_bucket_offset IS NOT NULL
+        OR range_granularity IS NOT NULL
+      )
+    )
+  )
+ORDER BY id;
+```
+
+#### SQLite → PostgreSQL 搬迁
+
+`migrate-sqlite-to-postgres` 的 `mask_rules` manifest 已在 `enabled` 后纳入 `range_bucket_width`、`range_bucket_offset`、`range_granularity`，由同一 manifest 生成源端 `SELECT` 与目标端写入。搬迁逐值保真：SQL `NULL` 与显式 `range_bucket_offset=0` 不会混淆，`range_bucket_width=25`、`range_granularity='quarter'` 等值也会原样携带，无需手工补列、补默认值或另行转换。
+
+一般回滚同样不是只替换二进制：停止服务，将二进制或镜像恢复到旧版本，同时恢复升级前的 SQLite 或 PostgreSQL 备份，再启动服务。不要让旧版本直接读取包含其不识别规则的数据。
 
 ## 发布与分发
 
