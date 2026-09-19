@@ -59,6 +59,12 @@ func ValidateRule(rule Rule) error {
 		return fmt.Errorf("mask rule column is required")
 	}
 	switch rule.Algorithm {
+	case AlgoMask, AlgoHash, AlgoBlock:
+		if rule.Range != nil {
+			return fmt.Errorf("mask rule %q has range parameters for %q algorithm: %w", rule.Column, rule.Algorithm, ErrInvalidRangeParams)
+		}
+	}
+	switch rule.Algorithm {
 	case AlgoMask:
 		if !isMaskSensitiveType(rule.SensitiveType) {
 			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
@@ -67,8 +73,52 @@ func ValidateRule(rule Rule) error {
 		if !isKnownSensitiveType(rule.SensitiveType) {
 			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
 		}
+	case AlgoRange:
+		if !isRangeSensitiveType(rule.SensitiveType) {
+			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
+		}
+		if err := validateRangeParams(rule); err != nil {
+			return fmt.Errorf("mask rule %q: %w", rule.Column, err)
+		}
 	default:
 		return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedAlgorithm)
+	}
+	return nil
+}
+
+func validateRangeParams(rule Rule) error {
+	switch rule.SensitiveType {
+	case TypeNumber:
+		if rule.Range == nil || rule.Range.BucketWidth == nil {
+			return fmt.Errorf("number range bucket width is required: %w", ErrInvalidRangeParams)
+		}
+		if width := *rule.Range.BucketWidth; width < 1 || width > 1_000_000_000 {
+			return fmt.Errorf("number range bucket width is out of bounds: %w", ErrInvalidRangeParams)
+		}
+		if rule.Range.BucketOffset != nil {
+			if offset := *rule.Range.BucketOffset; offset < -1_000_000_000 || offset > 1_000_000_000 {
+				return fmt.Errorf("number range bucket offset is out of bounds: %w", ErrInvalidRangeParams)
+			}
+		}
+		if rule.Range.Granularity != nil {
+			return fmt.Errorf("number range granularity is not allowed: %w", ErrInvalidRangeParams)
+		}
+	case TypeDate:
+		if rule.Range == nil {
+			return nil
+		}
+		if rule.Range.BucketWidth != nil || rule.Range.BucketOffset != nil {
+			return fmt.Errorf("date range bucket parameters are not allowed: %w", ErrInvalidRangeParams)
+		}
+		if rule.Range.Granularity != nil {
+			switch *rule.Range.Granularity {
+			case RangeYear, RangeQuarter, RangeMonth:
+			default:
+				return fmt.Errorf("date range granularity is invalid: %w", ErrInvalidRangeParams)
+			}
+		}
+	default:
+		return fmt.Errorf("range rule type %q: %w", rule.SensitiveType, ErrUnsupportedType)
 	}
 	return nil
 }
@@ -123,7 +173,8 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 }
 
 // SensitiveTypeOrder returns the shared deterministic sort key: phone, email,
-// idcard, bankcard, ip, birthdate, then generic. Unknown types sort after them.
+// idcard, bankcard, ip, birthdate, generic, number, then date. Unknown types
+// sort after them.
 func SensitiveTypeOrder(sensitiveType SensitiveType) int {
 	switch sensitiveType {
 	case TypePhone:
@@ -140,8 +191,12 @@ func SensitiveTypeOrder(sensitiveType SensitiveType) int {
 		return 5
 	case TypeGeneric:
 		return 6
-	default:
+	case TypeNumber:
 		return 7
+	case TypeDate:
+		return 8
+	default:
+		return 9
 	}
 }
 
@@ -155,7 +210,11 @@ func isMaskSensitiveType(sensitiveType SensitiveType) bool {
 }
 
 func isKnownSensitiveType(sensitiveType SensitiveType) bool {
-	return isMaskSensitiveType(sensitiveType) || sensitiveType == TypeGeneric
+	return isMaskSensitiveType(sensitiveType) || sensitiveType == TypeGeneric || isRangeSensitiveType(sensitiveType)
+}
+
+func isRangeSensitiveType(sensitiveType SensitiveType) bool {
+	return sensitiveType == TypeNumber || sensitiveType == TypeDate
 }
 
 func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResult, RedactReport) {

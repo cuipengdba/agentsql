@@ -19,6 +19,8 @@ const (
 	// TypeGeneric identifies a general sensitive value supported by whole-value
 	// hash and block algorithms.
 	TypeGeneric SensitiveType = "generic"
+	TypeNumber  SensitiveType = "number"
+	TypeDate    SensitiveType = "date"
 )
 
 // RedactedFallback is the fail-closed output for a non-empty value whose
@@ -35,25 +37,44 @@ type Algorithm string
 const (
 	AlgoMask Algorithm = "mask"
 	AlgoHash Algorithm = "hash"
-	// AlgoRange is a reserved capability and is not executable.
+	// AlgoRange buckets numeric values or truncates date values.
 	AlgoRange Algorithm = "range"
 	// AlgoBlock replaces every non-empty value with BlockPlaceholder.
 	AlgoBlock Algorithm = "block"
 )
+
+// RangeGranularity controls date truncation for range rules.
+type RangeGranularity string
+
+const (
+	RangeYear    RangeGranularity = "year"
+	RangeQuarter RangeGranularity = "quarter"
+	RangeMonth   RangeGranularity = "month"
+)
+
+// RangeParams configures numeric bucketing or date truncation. Pointer fields
+// distinguish omitted values from explicitly supplied zero values.
+type RangeParams struct {
+	BucketWidth  *int64
+	BucketOffset *int64
+	Granularity  *RangeGranularity
+}
 
 // Rule configures redaction for one result-set column.
 type Rule struct {
 	Column        string
 	SensitiveType SensitiveType
 	Algorithm     Algorithm
+	Range         *RangeParams
 }
 
-// RedactReport records which result columns were matched and how many cells
-// actually changed. TouchedColumns includes columns whose values are all
-// empty/null sentinels.
+// RedactReport records redaction activity for a result.
 type RedactReport struct {
+	// TouchedColumns includes columns whose values are all empty/null sentinels.
 	TouchedColumns map[int]SensitiveType
-	MaskedCells    int
+	// MaskedCells is the number of non-empty cells successfully processed or
+	// replaced fail-closed.
+	MaskedCells int
 }
 
 var (
@@ -61,6 +82,8 @@ var (
 	ErrUnsupportedType = errors.New("unsupported sensitive type")
 	// ErrUnsupportedAlgorithm indicates an algorithm not available for execution.
 	ErrUnsupportedAlgorithm = errors.New("unsupported masking algorithm")
+	// ErrInvalidRangeParams indicates invalid or mismatched range parameters.
+	ErrInvalidRangeParams = errors.New("invalid range parameters")
 	// ErrDuplicateMaskColumn indicates duplicate normalized rule columns.
 	ErrDuplicateMaskColumn = errors.New("duplicate mask column")
 	// ErrHashKeyRequired indicates that hash redaction has no configured key.
