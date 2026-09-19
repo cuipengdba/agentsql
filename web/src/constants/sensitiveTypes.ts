@@ -8,6 +8,8 @@ export const maskSensitiveTypeDefinitions = [
 ] as const;
 
 export const GENERIC_SENSITIVE_TYPE = "generic" as const;
+export const NUMBER_SENSITIVE_TYPE = "number" as const;
+export const DATE_SENSITIVE_TYPE = "date" as const;
 
 export const genericSensitiveTypeDefinition = {
   value: GENERIC_SENSITIVE_TYPE,
@@ -17,16 +19,36 @@ export const genericSensitiveTypeDefinition = {
   description: "不依赖手机号/证件等格式，对整列原值整体哈希或阻断；仅支持 hash/block 算法",
 } as const;
 
+export const rangeSensitiveTypeDefinitions = [
+  {
+    value: NUMBER_SENSITIVE_TYPE,
+    label: "数值",
+    color: "geekblue",
+    example: "[40,50)",
+    description: "将数值按固定宽度分桶，保留粗粒度分布",
+  },
+  {
+    value: DATE_SENSITIVE_TYPE,
+    label: "日期",
+    color: "lime",
+    example: "1990 / 1990Q3 / 1990-08",
+    description: "将日期截断到年、季度或月份粒度",
+  },
+] as const;
+
 export const sensitiveTypeDefinitions = [
   ...maskSensitiveTypeDefinitions,
   genericSensitiveTypeDefinition,
+  ...rangeSensitiveTypeDefinitions,
 ] as const;
 
 export type SensitiveType = (typeof sensitiveTypeDefinitions)[number]["value"];
 export type MaskSensitiveType = (typeof maskSensitiveTypeDefinitions)[number]["value"];
+export type RangeSensitiveType = (typeof rangeSensitiveTypeDefinitions)[number]["value"];
 
 // 兼容 discovery 的既有导入面：发现流程永远只使用六类，不包含 generic。
 export const sensitiveTypes: readonly MaskSensitiveType[] = maskSensitiveTypeDefinitions.map(({ value }) => value);
+export const rangeSensitiveTypes: readonly RangeSensitiveType[] = rangeSensitiveTypeDefinitions.map(({ value }) => value);
 export const allSensitiveTypes: readonly SensitiveType[] = sensitiveTypeDefinitions.map(({ value }) => value);
 
 export const sensitiveTypeMeta = Object.fromEntries(
@@ -45,6 +67,7 @@ export function isSensitiveType(value: unknown): value is SensitiveType {
 export const MASK_ALGORITHM = "mask" as const;
 export const HASH_ALGORITHM = "hash" as const;
 export const BLOCK_ALGORITHM = "block" as const;
+export const RANGE_ALGORITHM = "range" as const;
 export const HASH_REDACTION_UNAVAILABLE_MESSAGE = "服务端尚未配置脱敏哈希密钥 AGENTSQL_REDACTION_HASH_KEY，无法启用哈希规则；可先保存为停用状态，配置密钥并重启后再启用";
 
 export const maskAlgorithmDefinitions = [
@@ -69,6 +92,13 @@ export const maskAlgorithmDefinitions = [
     description: "命中列的每个非空值统一替换为固定 ***，不保留任何原文片段、长度或等值关系，适用于最高敏感列",
     example: "***",
   },
+  {
+    value: RANGE_ALGORITHM,
+    label: "分桶/截断（range）",
+    color: "cyan",
+    description: "保留粗粒度分布、无需密钥、不是匿名化",
+    example: "[40,50) / 1990Q3",
+  },
 ] as const;
 
 export type MaskAlgorithm = (typeof maskAlgorithmDefinitions)[number]["value"];
@@ -87,7 +117,7 @@ export function isMaskAlgorithm(value: unknown): value is MaskAlgorithm {
 
 export function sensitiveTypeOptionsForAlgorithm(algorithm: MaskAlgorithm) {
   return sensitiveTypeDefinitions
-    .filter(({ value }) => algorithm !== MASK_ALGORITHM || value !== GENERIC_SENSITIVE_TYPE)
+    .filter(({ value }) => isSensitiveTypeAllowedForAlgorithm(value, algorithm))
     .map(({ value, label }) => ({
       value,
       label: `${label} · ${sensitiveTypePresentationForAlgorithm(value, algorithm).optionDetail}`,
@@ -95,7 +125,46 @@ export function sensitiveTypeOptionsForAlgorithm(algorithm: MaskAlgorithm) {
 }
 
 export function isSensitiveTypeAllowedForAlgorithm(type: SensitiveType, algorithm: MaskAlgorithm): boolean {
-  return algorithm !== MASK_ALGORITHM || type !== GENERIC_SENSITIVE_TYPE;
+  if (algorithm === MASK_ALGORITHM) return sensitiveTypes.some((candidate) => candidate === type);
+  if (algorithm === RANGE_ALGORITHM) return rangeSensitiveTypes.some((candidate) => candidate === type);
+  return algorithm === HASH_ALGORITHM || algorithm === BLOCK_ALGORITHM;
+}
+
+export type RangeGranularity = "year" | "quarter" | "month";
+
+export interface RangePresentationParams {
+  range_bucket_width?: number | null;
+  range_bucket_offset?: number | null;
+  range_granularity?: RangeGranularity | null;
+}
+
+export const INVALID_RANGE_EXAMPLE = "请先填写合法参数";
+
+export function rangeExample(type: SensitiveType, params: RangePresentationParams): string {
+  if (type === NUMBER_SENSITIVE_TYPE) {
+    const width = params.range_bucket_width;
+    const offset = params.range_bucket_offset;
+    if (
+      !Number.isInteger(width)
+      || width === null
+      || width === undefined
+      || width < 1
+      || width > 1_000_000_000
+      || !Number.isInteger(offset)
+      || offset === null
+      || offset === undefined
+      || offset < -1_000_000_000
+      || offset > 1_000_000_000
+    ) return INVALID_RANGE_EXAMPLE;
+    const lower = Math.floor((42 - offset) / width) * width + offset;
+    return `[${lower},${lower + width})`;
+  }
+  if (type === DATE_SENSITIVE_TYPE) {
+    if (params.range_granularity === "year") return "1990";
+    if (params.range_granularity === "quarter") return "1990Q3";
+    if (params.range_granularity === "month") return "1990-08";
+  }
+  return INVALID_RANGE_EXAMPLE;
 }
 
 export function sensitiveTypePresentationForAlgorithm(type: SensitiveType, algorithm: MaskAlgorithm) {
@@ -112,6 +181,13 @@ export function sensitiveTypePresentationForAlgorithm(type: SensitiveType, algor
       optionDetail: "原值整体阻断为 ***",
       description: `按“${meta.label}”记录敏感类型，对该列原值整体阻断为固定 ***，不保留原文片段、长度或等值关系。`,
       example: maskAlgorithmMeta[BLOCK_ALGORITHM].example,
+    };
+  }
+  if (algorithm === RANGE_ALGORITHM) {
+    return {
+      optionDetail: type === NUMBER_SENSITIVE_TYPE ? "按宽度分桶" : "按日期粒度截断",
+      description: `按“${meta.label}”保留粗粒度分布，无需密钥；同桶值仍可能被关联，不属于匿名化。`,
+      example: INVALID_RANGE_EXAMPLE,
     };
   }
   return {
