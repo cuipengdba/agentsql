@@ -7,9 +7,28 @@ import { listDatasources } from "@/api/datasources";
 import { createMaskRule, deleteMaskRule, listMaskRules, updateMaskRule } from "@/api/maskRules";
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
-import { configLabel, maskAlgoMeta, sensitiveTypeMeta } from "@/constants/labels";
+import { maskAlgoMeta, sensitiveTypeMeta } from "@/constants/labels";
+import { HASH_REDACTION_UNAVAILABLE_MESSAGE } from "@/constants/sensitiveTypes";
 import { apiErrorMessage, formatDateTime, httpStatus, isCanceled } from "@/pages/config/utils";
 import { MaskRuleFormDrawer } from "@/pages/maskrules/MaskRuleFormDrawer";
+import type { MaskRuleSubmitFailure } from "@/pages/maskrules/MaskRuleFormDrawer";
+
+function maskRuleSubmitFailure(error: unknown, fallback: string): MaskRuleSubmitFailure {
+  const responseData = typeof error === "object" && error !== null
+    ? (error as { response?: { data?: unknown } }).response?.data
+    : undefined;
+  const envelope = typeof responseData === "object" && responseData !== null
+    ? responseData as { data?: unknown }
+    : undefined;
+  const detail = typeof envelope?.data === "object" && envelope.data !== null
+    ? envelope.data as { error_code?: unknown }
+    : undefined;
+  return {
+    status: httpStatus(error),
+    errorCode: typeof detail?.error_code === "string" ? detail.error_code : undefined,
+    message: apiErrorMessage(error, fallback),
+  };
+}
 
 function safeTotal(value: number): number {
   return Number.isFinite(value) && value >= 0 ? value : 0;
@@ -131,8 +150,8 @@ export function MaskRules() {
     setEditing(null);
   };
 
-  const saveRule = async (input: MaskRuleInput) => {
-    if (saving) return;
+  const saveRule = async (input: MaskRuleInput): Promise<MaskRuleSubmitFailure | null> => {
+    if (saving) return null;
     const sequence = ++mutationSequenceRef.current;
     setSaving(true);
     try {
@@ -141,15 +160,17 @@ export function MaskRules() {
       } else {
         await createMaskRule(input);
       }
-      if (!mountedRef.current || mutationSequenceRef.current !== sequence) return;
+      if (!mountedRef.current || mutationSequenceRef.current !== sequence) return null;
       void message.success(editing ? "脱敏规则已更新" : "脱敏规则已创建");
       setDrawerOpen(false);
       setEditing(null);
       refresh();
+      return null;
     } catch (error: unknown) {
-      if (!mountedRef.current || mutationSequenceRef.current !== sequence || isCanceled(error)) return;
-      if (httpStatus(error) === 409) void message.error("该数据源/全局范围下此列名已有规则");
-      else void message.error(apiErrorMessage(error, editing ? "更新脱敏规则失败" : "创建脱敏规则失败"));
+      if (!mountedRef.current || mutationSequenceRef.current !== sequence || isCanceled(error)) return null;
+      const failure = maskRuleSubmitFailure(error, editing ? "更新脱敏规则失败" : "创建脱敏规则失败");
+      if (failure.status === 409) failure.message = "该数据源/全局范围下此列名已有规则";
+      return failure;
     } finally {
       if (mountedRef.current && mutationSequenceRef.current === sequence) setSaving(false);
     }
@@ -190,8 +211,10 @@ export function MaskRules() {
       void message.success(enabled ? "脱敏规则已启用" : "脱敏规则已停用");
     } catch (error: unknown) {
       if (!mountedRef.current || isCanceled(error)) return;
-      if (httpStatus(error) === 409) void message.warning("同名列存在规则冲突，请刷新后核对");
-      else void message.error(apiErrorMessage(error, enabled ? "启用脱敏规则失败" : "停用脱敏规则失败"));
+      const failure = maskRuleSubmitFailure(error, enabled ? "启用脱敏规则失败" : "停用脱敏规则失败");
+      if (failure.status === 503 && failure.errorCode === "HASH_REDACTION_UNAVAILABLE") void message.error(HASH_REDACTION_UNAVAILABLE_MESSAGE);
+      else if (failure.status === 409) void message.warning("同名列存在规则冲突，请刷新后核对");
+      else void message.error(failure.message);
     } finally {
       if (mountedRef.current) setTogglingID("");
     }
@@ -214,10 +237,14 @@ export function MaskRules() {
       title: "敏感类型",
       dataIndex: "sensitive_type",
       width: 120,
-      render: (value: string) => {
+      render: (value: string, record) => {
         const meta = sensitiveTypeMeta[value as keyof typeof sensitiveTypeMeta];
-        const tag = <Tag color={meta?.color || "default"}>{configLabel(sensitiveTypeMeta, value)}</Tag>;
-        return meta ? <Tooltip title={`脱敏后示例：${meta.example}`}>{tag}</Tooltip> : tag;
+        const tag = <Tag color={meta?.color || "default"}>{meta?.label || "未知类型"}</Tag>;
+        if (!meta) return tag;
+        const title = record.algo === "hash"
+          ? "对该列原值整体生成定长、不可逆的 HMAC 指纹"
+          : `脱敏后示例：${meta.example}`;
+        return <Tooltip title={title}>{tag}</Tooltip>;
       },
     },
     {
@@ -226,7 +253,8 @@ export function MaskRules() {
       width: 100,
       render: (value: string) => {
         const meta = maskAlgoMeta[value as keyof typeof maskAlgoMeta];
-        return <Tag color={meta?.color || "default"}>{configLabel(maskAlgoMeta, value)}</Tag>;
+        const tag = <Tag color={meta?.color || "default"}>{meta?.label || "未知算法"}</Tag>;
+        return meta ? <Tooltip title={meta.description}>{tag}</Tooltip> : tag;
       },
     },
     {
@@ -342,7 +370,7 @@ export function MaskRules() {
         datasources={datasources}
         loading={saving}
         onClose={closeDrawer}
-        onSubmit={(input) => void saveRule(input)}
+        onSubmit={saveRule}
       />
     </PageContainer>
   );
