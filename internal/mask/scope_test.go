@@ -210,6 +210,58 @@ func TestRelationSourceAwareUnresolvedScopedFallbackScenarios(t *testing.T) {
 	}
 }
 
+func TestRelationSourceAwareFallbackRequiresUnresolvedSource(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Table: "employees", Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask,
+	}})
+	require.NoError(t, err)
+	v2 := relationAware(t, redactor)
+	input := model.QueryResult{
+		Columns: []string{"phone"},
+		Rows:    [][]string{{"13812345678"}, {"13987654321"}},
+	}
+	possibleRelations := []model.ObjectRef{{Table: "customers"}, {Table: "employees"}}
+
+	t.Run("resolved to unrelated table stays unchanged", func(t *testing.T) {
+		result, report := v2.ApplyWithColumnSources(
+			input,
+			[]ColumnSource{{Column: "phone", Source: model.ObjectRef{Table: "customers"}}},
+			possibleRelations,
+		)
+
+		require.Equal(t, input.Rows, result.Rows)
+		require.Zero(t, report.MaskedCells)
+		require.Empty(t, report.TouchedColumns)
+		require.Nil(t, report.UnresolvedScopedColumns)
+	})
+
+	t.Run("unresolved source remains fail closed", func(t *testing.T) {
+		result, report := v2.ApplyWithColumnSources(
+			input,
+			[]ColumnSource{{Column: "phone"}},
+			possibleRelations,
+		)
+
+		require.Equal(t, [][]string{{BlockPlaceholder}, {BlockPlaceholder}}, result.Rows)
+		require.Equal(t, 2, report.MaskedCells)
+		require.Equal(t, map[int]SensitiveType{0: TypePhone}, report.TouchedColumns)
+		require.Equal(t, map[int]SensitiveType{0: TypePhone}, report.UnresolvedScopedColumns)
+	})
+
+	t.Run("resolved to protected table uses scoped algorithm", func(t *testing.T) {
+		result, report := v2.ApplyWithColumnSources(
+			input,
+			[]ColumnSource{{Column: "phone", Source: model.ObjectRef{Table: "employees"}}},
+			possibleRelations,
+		)
+
+		require.Equal(t, [][]string{{"138****5678"}, {"139****4321"}}, result.Rows)
+		require.Equal(t, 2, report.MaskedCells)
+		require.Equal(t, map[int]SensitiveType{0: TypePhone}, report.TouchedColumns)
+		require.Nil(t, report.UnresolvedScopedColumns)
+	})
+}
+
 func TestRelationSourceAwareSelfJoinAndExplicitSchema(t *testing.T) {
 	t.Run("self join aliases resolve to same physical table", func(t *testing.T) {
 		redactor, err := NewRedactor([]Rule{{

@@ -328,6 +328,9 @@ func (redactor *resultRedactor) ApplyWithColumnSources(
 			continue
 		}
 
+		if source.Source.Table != "" {
+			continue
+		}
 		fallbackType, fallback := redactor.unresolvedScopedType(columnName, source.Column, possibleRelations)
 		if !fallback {
 			continue
