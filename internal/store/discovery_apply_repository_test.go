@@ -40,6 +40,12 @@ func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
 	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "block", ColumnName: "secret", SensitiveType: "generic", Algo: "block"}})
 	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
 	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "range-number", ColumnName: "amount", SensitiveType: "number", Algo: "range"}})
+	require.ErrorIs(t, err, mask.ErrInvalidRangeParams)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
+	_, err = repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{{ID: "range-date", ColumnName: "created", SensitiveType: "date", Algo: "range"}})
+	require.ErrorIs(t, err, mask.ErrUnsupportedAlgorithm)
+	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
 }
 
 func TestApplyDiscoveryDraftsRejectsHashBeforeAuditOrRuleWrite(t *testing.T) {

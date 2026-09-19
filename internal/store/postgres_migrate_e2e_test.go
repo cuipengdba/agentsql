@@ -85,11 +85,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 3, migrationCount)
+	require.Equal(t, 4, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 3, current)
-	require.Equal(t, 3, latest)
+	require.Equal(t, 4, current)
+	require.Equal(t, 4, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -137,8 +137,9 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Equal(t, []string{"audit_logs", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 3, metadataCurrent)
-	require.Equal(t, 3, metadataLatest)
+	require.Equal(t, 4, metadataCurrent)
+	require.Equal(t, 4, metadataLatest)
+	assertPostgresMaskRuleRangeColumns(t, ctx, opened.metaDB)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
 	require.Equal(t, 2, auditCurrent)
@@ -404,6 +405,7 @@ ORDER BY table_name`)
 		"rules",
 		"schema_migrations",
 	}, scanSingleStringColumn(t, rows))
+	assertPostgresMaskRuleRangeColumns(t, ctx, database)
 
 	rows, err = database.QueryContext(ctx, `
 SELECT indexname
@@ -492,6 +494,84 @@ ORDER BY table_name, ordinal_position`)
 	}
 }
 
+func assertPostgresMaskRuleRangeColumns(t *testing.T, ctx context.Context, database *sql.DB) {
+	t.Helper()
+	rows, err := database.QueryContext(ctx, `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'mask_rules'
+ORDER BY ordinal_position`)
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
+		"created_at", "updated_at", "enabled", "range_bucket_width", "range_bucket_offset",
+		"range_granularity",
+	}, scanSingleStringColumn(t, rows))
+
+	rows, err = database.QueryContext(ctx, `
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'mask_rules'
+  AND column_name IN ('range_bucket_width', 'range_bucket_offset', 'range_granularity')
+ORDER BY ordinal_position`)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+	wantTypes := []string{"integer", "integer", "text"}
+	index := 0
+	for rows.Next() {
+		var name, dataType, nullable string
+		var defaultValue sql.NullString
+		require.NoError(t, rows.Scan(&name, &dataType, &nullable, &defaultValue))
+		require.Less(t, index, len(wantTypes))
+		require.Equal(t, wantTypes[index], dataType, name)
+		require.Equal(t, "YES", nullable, name)
+		require.False(t, defaultValue.Valid, name)
+		index++
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, len(wantTypes), index)
+}
+
+func TestPostgres18RangeMigrationFromV3E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("postgres:18 range v3-to-v4 migration E2E is an integration test")
+	}
+	ctx := dockerTestContext(t)
+	for _, testCase := range []struct {
+		name      string
+		directory string
+		separated bool
+	}{
+		{name: "combined", directory: "migrations/postgres"},
+		{name: "separated metadata", directory: "migrations/metadata/postgres", separated: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			dsn := startPostgres18StoreContainer(t, ctx, "agentsql_range_v3_"+strings.ReplaceAll(testCase.name, " ", "_"), "range-password")
+			database, err := sql.Open("pgx", dsn)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, database.Close()) })
+			migratePostgresThroughVersion(t, ctx, database, testCase.directory, 3)
+			_, err = database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo,enabled)
+VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
+			require.NoError(t, err)
+
+			require.NoError(t, MigrateMetadata(ctx, database, DialectPostgres, testCase.separated))
+			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
+			require.NoError(t, err)
+			require.Equal(t, 4, current)
+			require.Equal(t, 4, latest)
+			assertPostgresMaskRuleRangeColumns(t, ctx, database)
+			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
+			stored, err := repository.Get(ctx, "legacy-v3")
+			require.NoError(t, err)
+			require.Nil(t, stored.RangeBucketWidth)
+			require.Nil(t, stored.RangeBucketOffset)
+			require.Nil(t, stored.RangeGranularity)
+		})
+	}
+}
+
 func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("postgres:18 version-one metadata upgrade E2E is an integration test")
@@ -513,8 +593,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 3, current)
-	require.Equal(t, 3, latest)
+	require.Equal(t, 4, current)
+	require.Equal(t, 4, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

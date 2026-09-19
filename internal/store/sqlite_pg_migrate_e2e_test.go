@@ -80,6 +80,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		summary, err := MigrateSQLiteToPostgres(ctx, options)
 		require.NoError(t, err)
 		assertMigrationSummary(t, summary)
+		assertMigratedMaskRuleRanges(t, ctx, metadata)
 		rerun, err := MigrateSQLiteToPostgres(ctx, options)
 		require.NoError(t, err)
 		require.Equal(t, summary.Tables, rerun.Tables)
@@ -129,6 +130,47 @@ func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql
 	}).Get(ctx)
 	require.NoError(t, err)
 	require.Equal(t, completeNotificationConfig(), notifications)
+	assertMigratedMaskRuleRanges(t, ctx, target)
+}
+
+// assertMigratedMaskRuleRanges verifies that mask_rules range parameters survive
+// a SQLite-to-PostgreSQL migration. It only touches metadata tables, so it is safe
+// in the separated layout (audit_logs lives in the audit database).
+func assertMigratedMaskRuleRanges(t *testing.T, ctx context.Context, target *sql.DB) {
+	t.Helper()
+	rows, err := target.QueryContext(ctx, `
+SELECT "id", "range_bucket_width", "range_bucket_offset", "range_granularity"
+FROM "public"."mask_rules"
+ORDER BY "id"`)
+	require.NoError(t, err)
+	type rangeValues struct {
+		id            string
+		width, offset sql.NullInt64
+		granularity   sql.NullString
+	}
+	var ranges []rangeValues
+	for rows.Next() {
+		var values rangeValues
+		require.NoError(t, rows.Scan(&values.id, &values.width, &values.offset, &values.granularity))
+		ranges = append(ranges, values)
+	}
+	require.NoError(t, rows.Err())
+	require.NoError(t, rows.Close())
+	require.Len(t, ranges, 3)
+	require.Equal(t, "mask-1", ranges[0].id)
+	require.False(t, ranges[0].width.Valid)
+	require.False(t, ranges[0].offset.Valid)
+	require.False(t, ranges[0].granularity.Valid)
+	require.Equal(t, "range-date", ranges[1].id)
+	require.False(t, ranges[1].width.Valid)
+	require.False(t, ranges[1].offset.Valid)
+	require.Equal(t, "quarter", ranges[1].granularity.String)
+	require.Equal(t, "range-number", ranges[2].id)
+	require.Equal(t, int64(25), ranges[2].width.Int64)
+	require.True(t, ranges[2].width.Valid)
+	require.Equal(t, int64(0), ranges[2].offset.Int64)
+	require.True(t, ranges[2].offset.Valid)
+	require.False(t, ranges[2].granularity.Valid)
 }
 
 func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
@@ -146,6 +188,8 @@ func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
 		{`INSERT INTO rules(id,db_type,title,risk_level,pattern_type,definition,enabled,builtin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"rule-1", "postgres", "Rule", 3, "ast_match", `{"shape":"text"}`, 1, 0, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO rules(id,db_type,title,risk_level,pattern_type,definition,enabled,builtin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"rule-2", "postgres", "Nullable", 1, "ast_match", "not-json", nil, nil, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, []any{"mask-1", nil, "users", "email", "email", "partial", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo,range_bucket_width,range_bucket_offset) VALUES(?,?,?,?,?,?,?,?)`, []any{"range-number", "ds-1", "orders", "amount", "number", "range", 25, 0}},
+		{`INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo,range_granularity) VALUES(?,?,?,?,?,?,?)`, []any{"range-date", "ds-1", "orders", "created_at", "date", "range", "quarter"}},
 		{`INSERT INTO policies(id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"policy-1", "agent-1", "ds-1", "table", "public.users", "", `{"tenant":1}`, "allow", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO audit_logs(id,ts,agent_id,datasource_id,sql_raw,sql_norm,objects,decision,rule_hits,risk_level,est_rows,rows_returned,latency_ms,error_msg) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{int64(10), "2026-09-17 12:00:00.123456789", "agent-1", "ds-1", strings.Repeat("S", 1<<20), strings.Repeat("N", 1<<20), `[{"table":"users"}]`, "deny", "[]", 3, int64(1 << 40), 0, int64(25), ""}},
 		{`INSERT INTO audit_logs(id,ts,decision,objects,rule_hits,error_msg) VALUES(?,?,?,?,?,?)`, []any{int64(12), "2026-09-17T20:00:00.999999999+08:00", "approve", "not-json", nil, nil}},

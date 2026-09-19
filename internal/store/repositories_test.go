@@ -238,6 +238,68 @@ func TestMaskRuleRepositoryCRUD(t *testing.T) {
 	require.True(t, errors.Is(err, ErrNotFound))
 }
 
+func TestMaskRuleRepositoryRangeFieldsRoundTripAndClear(t *testing.T) {
+	opened := openTestStore(t)
+	repository := opened.MaskRules()
+	ctx := context.Background()
+	width, zero := int64(10), int64(0)
+	month := "month"
+
+	numberRule, err := repository.Create(ctx, model.MaskRule{
+		ID: "range-number", DatasourceID: pointer("ds-range"), TableName: "orders",
+		ColumnName: "amount", SensitiveType: "number", Algo: "range", Enabled: true,
+		RangeBucketWidth: &width, RangeBucketOffset: &zero,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(10), *numberRule.RangeBucketWidth)
+	require.NotNil(t, numberRule.RangeBucketOffset)
+	require.Zero(t, *numberRule.RangeBucketOffset)
+	require.Nil(t, numberRule.RangeGranularity)
+
+	dateRule, err := repository.Create(ctx, model.MaskRule{
+		ID: "range-date", DatasourceID: pointer("ds-range"), TableName: "orders",
+		ColumnName: "created_at", SensitiveType: "date", Algo: "range", Enabled: true,
+		RangeGranularity: &month,
+	})
+	require.NoError(t, err)
+	require.Nil(t, dateRule.RangeBucketWidth)
+	require.Nil(t, dateRule.RangeBucketOffset)
+	require.Equal(t, "month", *dateRule.RangeGranularity)
+
+	readNumber, err := repository.Get(ctx, numberRule.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), *readNumber.RangeBucketWidth)
+	require.NotNil(t, readNumber.RangeBucketOffset)
+	require.Zero(t, *readNumber.RangeBucketOffset)
+	listed, err := repository.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	require.Equal(t, "range-number", listed[0].ID)
+	require.Zero(t, *listed[0].RangeBucketOffset)
+	require.Equal(t, "range-date", listed[1].ID)
+	require.Equal(t, "month", *listed[1].RangeGranularity)
+
+	quarter := "quarter"
+	readNumber.SensitiveType = "date"
+	readNumber.RangeGranularity = &quarter
+	switched, err := repository.Update(ctx, readNumber)
+	require.NoError(t, err)
+	require.Nil(t, switched.RangeBucketWidth)
+	require.Nil(t, switched.RangeBucketOffset)
+	require.Equal(t, "quarter", *switched.RangeGranularity)
+
+	switched.Algo = "block"
+	switched.SensitiveType = "generic"
+	switched.RangeBucketWidth = &width
+	switched.RangeBucketOffset = &zero
+	switched.RangeGranularity = &month
+	blocked, err := repository.Update(ctx, switched)
+	require.NoError(t, err)
+	require.Nil(t, blocked.RangeBucketWidth)
+	require.Nil(t, blocked.RangeBucketOffset)
+	require.Nil(t, blocked.RangeGranularity)
+}
+
 func TestMaskRuleRepositoryClassifiesNormalizedKeyConflict(t *testing.T) {
 	opened := openTestStore(t)
 	repository := opened.MaskRules()

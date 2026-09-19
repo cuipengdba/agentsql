@@ -61,7 +61,8 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		},
 		"mask_rules": {
 			"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
-			"created_at", "updated_at", "enabled",
+			"created_at", "updated_at", "enabled", "range_bucket_width",
+			"range_bucket_offset", "range_granularity",
 		},
 		"audit_logs": {
 			"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
@@ -161,8 +162,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 3, current)
-	require.Equal(t, 3, latest)
+	require.Equal(t, 4, current)
+	require.Equal(t, 4, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -196,7 +197,7 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			require.NoError(t, testCase.migrate(ctx, database))
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
-			require.Equal(t, 3, current)
+			require.Equal(t, 4, current)
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
 			_, err = database.ExecContext(ctx, "UPDATE mask_rules SET enabled=2 WHERE id='legacy'")
@@ -220,6 +221,65 @@ SELECT action, actor_type, actor_id, details_json FROM audit_logs LIMIT 1`).Scan
 				require.False(t, detailsJSON.Valid)
 			}
 		})
+	}
+}
+
+func TestSQLiteRangeMigrationFromV3SupportsRepositoryScan(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		directory string
+		migrate   func(context.Context, *sql.DB) error
+	}{
+		{name: "combined", directory: "migrations/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
+			return Migrate(ctx, db, DialectSQLite)
+		}},
+		{name: "metadata", directory: "migrations/metadata/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
+			return MigrateMetadata(ctx, db, DialectSQLite, true)
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			database := openSQLiteMigrationTestDB(t)
+			migrateSQLiteThroughVersion(t, ctx, database, testCase.directory, 3)
+			_, err := database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo,enabled)
+VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
+			require.NoError(t, err)
+
+			require.NoError(t, testCase.migrate(ctx, database))
+			var current int
+			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
+			require.Equal(t, 4, current)
+			require.Equal(t, []string{
+				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
+				"created_at", "updated_at", "enabled", "range_bucket_width",
+				"range_bucket_offset", "range_granularity",
+			}, tableColumnNames(t, database, "mask_rules"))
+
+			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectSQLite}}
+			stored, err := repository.Get(ctx, "legacy-v3")
+			require.NoError(t, err)
+			require.Nil(t, stored.RangeBucketWidth)
+			require.Nil(t, stored.RangeBucketOffset)
+			require.Nil(t, stored.RangeGranularity)
+		})
+	}
+}
+
+func TestRangeMigrationFilesAreByteIdentical(t *testing.T) {
+	paths := []string{
+		"migrations/sqlite/0004_range_redaction.sql",
+		"migrations/postgres/0004_range_redaction.sql",
+		"migrations/metadata/sqlite/0004_range_redaction.sql",
+		"migrations/metadata/postgres/0004_range_redaction.sql",
+	}
+	want := "ALTER TABLE mask_rules ADD COLUMN range_bucket_width INTEGER;\n" +
+		"ALTER TABLE mask_rules ADD COLUMN range_bucket_offset INTEGER;\n" +
+		"ALTER TABLE mask_rules ADD COLUMN range_granularity TEXT;"
+	for _, name := range paths {
+		contents, err := fs.ReadFile(migrationFiles, name)
+		require.NoError(t, err)
+		require.Equal(t, want, strings.TrimSuffix(string(contents), "\n"), name)
 	}
 }
 

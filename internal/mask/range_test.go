@@ -2,8 +2,11 @@ package mask
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/cuipengdba/agentsql/internal/model"
 )
 
 func TestBucketNumericExactDecimalBoundaries(t *testing.T) {
@@ -311,5 +314,74 @@ func TestRangeSentinelsReturnOriginalAndNotProcessed(t *testing.T) {
 		if got, processed := truncateDate(input, RangeYear); got != input || processed {
 			t.Errorf("truncateDate(%q) = (%q, %v), want original and false", input, got, processed)
 		}
+	}
+}
+
+func TestRedactorAppliesRangeWithoutHashKey(t *testing.T) {
+	width := int64(10)
+	redactor, err := NewRedactor([]Rule{
+		{Column: "amount", SensitiveType: TypeNumber, Algorithm: AlgoRange, Range: &RangeParams{BucketWidth: &width}},
+		{Column: "created", SensitiveType: TypeDate, Algorithm: AlgoRange},
+		{Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock},
+	})
+	if err != nil {
+		t.Fatalf("NewRedactor() error = %v", err)
+	}
+
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"amount", "created", "phone", "secret"},
+		Rows: [][]string{
+			{"27.5", "2020", "13800138000", "value"},
+			{"NULL", "<nil>", "", " "},
+			{"not-a-number", "not-a-date", "invalid", "value"},
+		},
+	})
+	if got, want := result.Rows, [][]string{
+		{"[20,30)", "2020", "138****8000", BlockPlaceholder},
+		{"NULL", "<nil>", "", " "},
+		{RedactedFallback, RedactedFallback, "inv*alid", BlockPlaceholder},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Apply() rows = %#v, want %#v", got, want)
+	}
+	if report.MaskedCells != 8 {
+		t.Fatalf("MaskedCells = %d, want 8", report.MaskedCells)
+	}
+	wantTouched := map[int]SensitiveType{0: TypeNumber, 1: TypeDate, 2: TypePhone, 3: TypeGeneric}
+	if !reflect.DeepEqual(report.TouchedColumns, wantTouched) {
+		t.Fatalf("TouchedColumns = %#v, want %#v", report.TouchedColumns, wantTouched)
+	}
+}
+
+func TestRedactorFreezesRangePointerValues(t *testing.T) {
+	width, offset := int64(10), int64(5)
+	granularity := RangeQuarter
+	numericParams := &RangeParams{BucketWidth: &width, BucketOffset: &offset}
+	dateParams := &RangeParams{Granularity: &granularity}
+	rules := []Rule{
+		{Column: "amount", SensitiveType: TypeNumber, Algorithm: AlgoRange, Range: numericParams},
+		{Column: "created", SensitiveType: TypeDate, Algorithm: AlgoRange, Range: dateParams},
+	}
+	redactor, err := NewRedactor(rules)
+	if err != nil {
+		t.Fatalf("NewRedactor() error = %v", err)
+	}
+
+	width, offset, granularity = 100, -100, RangeMonth
+	numericParams.BucketWidth = nil
+	numericParams.BucketOffset = nil
+	dateParams.Granularity = nil
+	rules[0].Range = nil
+	rules[1].Range = nil
+
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"amount", "created"},
+		Rows:    [][]string{{"27", "2020-05-17"}},
+	})
+	if got, want := result.Rows[0], []string{"[25,35)", "2020Q2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Apply() row = %#v, want %#v", got, want)
+	}
+	if report.MaskedCells != 2 {
+		t.Fatalf("MaskedCells = %d, want 2", report.MaskedCells)
 	}
 }

@@ -62,15 +62,18 @@ type Rule struct {
 
 // MaskRule configures redaction for one result column.
 type MaskRule struct {
-	ID            string
-	DatasourceID  *string
-	TableName     string
-	ColumnName    string
-	SensitiveType string
-	Algo          string
-	Enabled       bool
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                string
+	DatasourceID      *string
+	TableName         string
+	ColumnName        string
+	SensitiveType     string
+	Algo              string
+	Enabled           bool
+	RangeBucketWidth  *int64
+	RangeBucketOffset *int64
+	RangeGranularity  *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // AuditLog is an immutable record of one AgentSQL operation.

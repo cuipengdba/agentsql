@@ -26,9 +26,12 @@ type SourceAwareRedactor interface {
 }
 
 type redactorRule struct {
-	column        string
-	sensitiveType SensitiveType
-	algorithm     Algorithm
+	column           string
+	sensitiveType    SensitiveType
+	algorithm        Algorithm
+	rangeWidth       int64
+	rangeOffset      int64
+	rangeGranularity RangeGranularity
 }
 
 type resultRedactor struct {
@@ -131,11 +134,26 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 		if err := ValidateRule(rule); err != nil {
 			return nil, fmt.Errorf("mask rule %d: %w", index, err)
 		}
-		validated = append(validated, redactorRule{
+		compiled := redactorRule{
 			column:        normalizeColumnName(rule.Column),
 			sensitiveType: rule.SensitiveType,
 			algorithm:     rule.Algorithm,
-		})
+		}
+		if rule.Algorithm == AlgoRange {
+			switch rule.SensitiveType {
+			case TypeNumber:
+				compiled.rangeWidth = *rule.Range.BucketWidth
+				if rule.Range.BucketOffset != nil {
+					compiled.rangeOffset = *rule.Range.BucketOffset
+				}
+			case TypeDate:
+				compiled.rangeGranularity = RangeYear
+				if rule.Range != nil && rule.Range.Granularity != nil {
+					compiled.rangeGranularity = *rule.Range.Granularity
+				}
+			}
+		}
+		validated = append(validated, compiled)
 		hasHashRule = hasHashRule || rule.Algorithm == AlgoHash
 	}
 	sort.SliceStable(validated, func(left, right int) bool {
@@ -263,6 +281,16 @@ func (redactor *resultRedactor) ApplyWithSourceColumns(
 }
 
 func applyRule(rule redactorRule, value string, hash *hasher) (string, bool) {
+	if rule.algorithm == AlgoRange {
+		switch rule.sensitiveType {
+		case TypeNumber:
+			return bucketNumeric(value, rule.rangeWidth, rule.rangeOffset)
+		case TypeDate:
+			return truncateDate(value, rule.rangeGranularity)
+		default:
+			return RedactedFallback, true
+		}
+	}
 	if rule.algorithm == AlgoHash {
 		if isEmptySensitiveValue(value) || hash == nil {
 			return value, false
