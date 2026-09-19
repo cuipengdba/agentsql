@@ -1,6 +1,6 @@
 # AgentSQL 架构与工程规格
 
-> 版本：v0.2 ｜ 本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
+> 版本：v0.3 ｜ 本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
 > 完整可运行的配置样例见 `examples/`，完整建表 DDL 见 `internal/store/migrations/`；当本文与源码出现分歧时，以源码与测试为准并提 issue 修正本文。
 
 ---
@@ -31,7 +31,8 @@ Parse(解析 AST) → Auth(身份与权限) → Guard(静态规则 + 动态 EXPL
 AgentSQL 是**网关层**防护，必须如实理解其边界：
 
 - 只约束**经过网关的运行账号**；不阻止使用数据库 owner / superuser / DBA 凭据**绕过网关直连**的行为，也不取代数据库账号体系。生产部署应为网关配置最小权限的专用账号。
-- 脱敏是**结果集按列处理**，不是完整 DLP。复杂表达式、聚合、`CAST`、`UNION`、CTE、视图重命名等场景可能无法回溯到源列；JOIN / 自连接为表级授权；不宣称「任何别名都不可绕过」。
+- 脱敏是**结果集按列处理**，不是完整 DLP。v0.3 能把顶层直接投影列精确归属到 `[schema.]table.column`；JOIN 裸列、`SELECT *`、CTE 外层等无法唯一归属但可能涉及受保护表的结果列，使用不可关闭的 fail-closed 安全兜底，将非空值固定阻断为 `***`。视图只按 SQL 中的引用名匹配，不展开视图、派生表或函数表的列血缘。
+- 对敏感列做函数包裹并改名（如 `CONCAT(phone,'') AS x` 或 `lower(phone) AS y`）会绕过全局与表级列名脱敏；这是列名脱敏的固有边界，需配合 SQL 策略禁止相关函数，或对可预见的输出列使用 `block`。`INSERT` / `UPDATE` / DDL / `RETURNING` 不进入结果脱敏；`RETURNING` 走写屏障并只返回 `RowCount`。
 - `hash` 是带专用密钥的 HMAC 不可逆指纹，不是加密。它在业务数据库返回结果后计算，不下推到数据库内的 JOIN/WHERE/GROUP BY。确定性指纹会暴露相等关系和频率；共享 key 会带来跨库关联风险，不可逆也不等于匿名。
 - `block` 把命中列的每个非空结果值替换为固定 `***`，不输出原值字符、长度或等值关系，但仍保留行列形状、行数、列名、是否有结果，并因空值原样返回而泄漏该格为空/NULL。它与 `mask` / `hash` 的结果层泄漏等级一致，不是匿名化；输出是不保证数值、日期或 JSON schema 兼容的不透明字符串。
 - `range` 把数值泛化为等宽区间、把日期截断到年/季/月，以保留粗粒度分布；它不是匿名化，同一桶内的值仍可关联，也不承诺 k-匿名。数值区间、日期时段与空值状态仍然可见，小桶、细粒度、小样本、多 offset 或辅助查询可能带来重识别风险，敏感场景应配合 `block` 或审批。
@@ -236,6 +237,45 @@ type Algorithm string // mask | hash | block | range
 
 规则管理 API / UI 原样展示 `algo=block`；MCP / Playground 的结果投影以及持久审计、SSE、通知不新增算法字段。`***` 与 mask 失败兜底 `[REDACTED]` 是不同字面量、不同算法语义，但结果投影本身不能可靠反推算法，本版不扩展结果或审计协议。
 
+#### 6.2.4 表.列感知脱敏契约
+
+脱敏规则有三档作用域，存储值与语义如下：
+
+| 作用域 | `schema_name` | `table_name` | 语义 |
+|---|---|---|---|
+| 全局列规则 | `""` | `""` | 保持历史行为：按列名在对应数据源范围内统一保护 |
+| 表.列规则 | `""` | 非空 | 保护该表的列；schema 通配 |
+| 模式.表.列规则 | 非空 | 非空 | 仅保护该 `schema.table` 的列 |
+
+`schema_name` 非空而 `table_name` 为空非法，管理 API 返回 HTTP `422`。应用路径把作用域空值保存为空串，不使用 SQL `NULL`。v0.3 的 `0005_mask_rule_scope.sql` 是一次性语义迁移：升级前的存量规则统一将 `schema_name` 和 `table_name` 固化为空串，显式保留升级前“全局列规则”的实际行为。
+
+来源分析使用两个不可混用的表集合：
+
+- **顶层 SELECT 关系绑定**：仅包含根 SELECT 的 `FROM` / `JOIN` 作用域中可见的物理关系和非物理来源，只用于精确归属顶层直接投影列。
+- **`AST.Tables` 全语句物理表并集**：递归包含 CTE 和子查询内部的物理表，只用于未解析列的“可能关系”安全兜底，不得用来猜测精确归属。
+
+顶层投影的来源状态为 Resolved 或未解析。显式限定列只在限定符唯一命中顶层物理绑定时 Resolved；裸列只在顶层 `FROM` 可见来源总数恰好为 1，且该来源是物理关系时 Resolved。JOIN 裸列、`SELECT *`、CTE 外层列、派生表或函数表的列均按未解析处理。关系起别名后，原表名被遮蔽；`schema.table` 两段限定只认未起别名的关系。视图按 SQL 中的关系引用名处理，不向视图定义、派生表或函数表内部展开列血缘。
+
+对每个结果列，严格按以下六档顺序匹配，取第一条命中且每列只处理一次：
+
+1. 若用户显式改名，且改名后的结果列名命中全局列规则，应用该规则。
+2. 若来源为 Resolved，按来源列名查表级规则：先查 schema 精确规则，再查 `schema_name=""` 的 schema 通配规则。
+3. 按结果列名查全局列规则。
+4. 按来源列名查全局列规则。
+5. 若来源未解析，且结果列名或非空的来源列名命中某条表级规则，并且该规则的表出现在 `AST.Tables` 可能关系集合中，执行 fail-closed 安全兜底：将该列的所有非空单元格固定阻断为 `***`，并记录 `RedactReport.UnresolvedScopedColumns`。
+6. 均未命中时返回原文。
+
+第 5 档不使用任一张表的业务算法，因为来源尚未确定。它也不“回退全局后放行”：那会使 JOIN 裸列、`SELECT *` 和 CTE 外层绕过仅为某表配置的规则。系统也不因此直接拒绝整条查询，以保持透明网关对 ORM 和工具生成 SQL 的可用性。该兜底不可关闭；误伤通过给投影列加表限定符，或把该列改为全局列规则消除。
+
+标识符语义按方言区分：
+
+- 列名沿用 `NormalizeColumnName`：去除首尾空白和单层引号、反引号或方括号，再统一小写。这是宽松归一；同表内的 `"Phone"` 与 `phone` 不单独区分。
+- schema 和表名精确比较，不做 `ToLower` / `EqualFold`；因此 `customers` 与 `"Customers"` 是不同的表键。
+- PostgreSQL 只保留 SQL 显式写出的 schema，未限定关系不硬填 `public`，不对规则键二次统一小写。发现生成的 PostgreSQL 草稿保持 `schema_name=""`。
+- MySQL 首版按表名字符串精确比较，列名仍按上述宽松归一；`schema_name=""` 表示不比较库名，即当前库的 table-only 语义。
+
+`RedactReport.UnresolvedScopedColumns` 是按结果列索引记录敏感类型的加法字段，仅在兜底实际替换了至少一个非空单元格时记录。MCP `query` 的 `redact.unresolved_scoped_columns` 会透出该报告；当前 Playground REST 投影只返回 `touched_columns` 和 `masked_cells`，Playground 与审计控制台均不展示该字段，首版也不增加独立指标管线或大屏面板。
+
 ### 6.3 控制面数据模型
 
 七张业务表加迁移账本 `schema_migrations`：
@@ -246,13 +286,19 @@ type Algorithm string // mask | hash | block | range
 | `datasources` | 业务库连接；密码以 AES-GCM 密文存储（主密钥 `AGENTSQL_SECRET`）；含连接数 / 超时 / 行数上限 |
 | `policies` | 库 / 表 / 列三级授权策略（allow/deny），关联 Agent 与数据源 |
 | `rules` | 内置规则目录与运行时启用覆盖（不在此写入任意自定义规则语义） |
-| `mask_rules` | 按数据源 / 表 / 列的脱敏规则与算法 |
+| `mask_rules` | 按数据源 / schema / 表 / 列的三档作用域脱敏规则与算法 |
 | `audit_logs` | **审计核心，只追加**；仓储层不提供 UPDATE / DELETE 接口；独立审计库中仅此表与索引 |
 | `approvals` | 审批单（pending/approved/rejected/expired），关联审计 ID |
 
 SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类型、占位符按方言翻译）；审计 ID 在 PG 上为 `BIGINT GENERATED ALWAYS AS IDENTITY`，数据迁移保留原审计 ID。
 
+`mask_rules` 的 v0.3 物理唯一键为 `(datasource_scope, schema_name, table_name, LOWER(TRIM(column_name)))`；其中 schema / table 保留原值精确区分，column 按归一化值判重。该约束包括 disabled 行，同物理键重复由管理 API 返回 HTTP `409` + `MASK_RULE_CONFLICT`。四套 metadata 迁移目录（SQLite / PostgreSQL 及其 metadata 布局）均使用 `0005_mask_rule_scope.sql`：新增 `schema_name`、将存量 schema / table 清为空串，并把旧按数据源+列名唯一索引重建为上述新键。audit 库不执行该迁移。
+
+同一 datasource 有效范围内，启用的全局列规则与表级规则若列名相同但算法不一致，创建或更新返回 HTTP `409` + `MASK_RULE_SCOPE_CONFLICT`。`range` 除算法名外还比较敏感类型，以及数值规则的桶宽/规范化偏移或日期规则的规范化截断粒度。disabled 草稿豁免作用域算法冲突校验，但不豁免物理键唯一约束。
+
 `mask_rules` 为 `range` 增加三个相互独立的可空列，不使用 JSON：`range_bucket_width INTEGER`、`range_bucket_offset INTEGER`、`range_granularity TEXT`；三列均无 `NOT NULL` 和数据库默认值，旧规则自然为 NULL。`algo=range` 或任一参数列非 NULL，都视为携带 range 参数并进入完整校验。创建与更新采用完整 PUT 语义；更新时请求中缺失的 range 参数写回 NULL，从 `range` 切换到其他算法或在 `number` / `date` 间切换时不得残留无关参数。数值规则省略 `bucket_offset` 时由 API 规范化为非 NULL 的 `0` 后持久化；存储层必须保留 NULL 与 0 的区别。
+
+敏感发现以物理来源键 `(datasource, schema, table, column)` 识别候选列。应用候选时，PostgreSQL 和 MySQL 均生成 `schema_name=""`、`table_name=<真实表名>`、`algo=mask`、`enabled=false` 的 table-only 草稿；不同表的同名列是多条独立草稿。若候选列已被启用的全局列规则覆盖，结果标为 `CoveredByGlobal` 并跳过创建；disabled 全局草稿不阻挡新的 table-only 草稿。
 
 ### 6.4 MCP 工具（对 AI 暴露，共七个）
 
@@ -271,7 +317,8 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 ### 6.5 管理 REST API
 
 - 前缀 `/api/v1`，除 `POST /api/v1/auth/login` 外均需管理端 Bearer 令牌；统一响应信封 `{code,msg,data}`，分页为 `{total,page,page_size,list}`。
-- 端点族：认证（login）、agents（含 rotate-key）、datasources（含连通性 ping）、policies、rules、audit（分页 / 筛选 / JSONL 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。
+- 端点族：认证（login）、agents（含 rotate-key）、datasources（含连通性 ping 与敏感发现）、policies、rules、mask_rules（三档作用域 CRUD）、audit（分页 / 筛选 / JSONL 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。
+- 脱敏规则 `POST /api/v1/mask_rules` 与 `PUT /api/v1/mask_rules/{id}` 接受 `schema_name`、`table_name`、`column_name`、`sensitive_type`、`algo`、`enabled` 及可选 `datasource_id` / `range_*` 字段。作用域字段禁止首尾空白、NUL / 控制字符、`*`、`%` 和单字段内的 `.`，最长 128 个 Unicode 字符；保留原始大小写并允许中文等合法引号标识符。
 - 探针：`/healthz`（存活）、`/readyz`（存储就绪，控制面与审计库双 Ping）、`/metrics`（Prometheus）。
 
 ---
@@ -286,7 +333,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 ---
 
-## 8. 兼容矩阵（v0.2）
+## 8. 兼容矩阵（v0.3）
 
 | 维度 | 支持情况 |
 |---|---|
@@ -298,7 +345,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | 部署 | Docker / Docker Compose、Linux systemd 单二进制 |
 | 可观测 | Prometheus 指标 + Grafana 面板 + 健康 / 就绪探针 |
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
-| 列级脱敏 | 九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；`range` 提供数值分桶与日期截断、无需密钥；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只推荐并应用六类 `mask` |
+| 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
 
 **路线图中暂不支持**：Oracle、SQL Server，以及达梦 / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等国产 / 商业数据库（企业版 T29）；企业 SSO / RBAC / 法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
 

@@ -1,8 +1,8 @@
 # AgentSQL 使用手册
 
-> 发布状态：AgentSQL v0.2.0 即将发布。一键安装命令与 `ghcr.io/cuipengdba/agentsql` 镜像将在发布日可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
+> 发布状态：AgentSQL v0.3.0 即将发布。一键安装命令与 `ghcr.io/cuipengdba/agentsql` 镜像将在发布日可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台真实菜单顺序说明 AgentSQL v0.2.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台真实菜单顺序说明 AgentSQL v0.3.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 ## 1. 总览 `/`
 
@@ -306,10 +306,37 @@ Agent 是调用 AgentSQL 的独立身份。
 
 未配置哈希密钥时，`mask`、`block` 与 `range` 可正常创建、启用和运行；只有 `hash` 受密钥门禁约束。此时 `hash` 可保存为停用规则，但默认启用的新建规则或启用操作会被拒绝，页面对应的服务端响应为 HTTP `503`、`HASH_REDACTION_UNAVAILABLE`，且规则不会写入。通过 `AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 配置至少 32 字节密钥并重启后，再启用 `hash`。类型/算法组合不合法时服务端返回 HTTP `422`、`INVALID_MASK_RULE`。
 
-- 匹配键是最终结果列名的精确规范化值。
-- `table_name` 是预留字段，当前不参与匹配。
-- 全局规则可以不选择数据源；选择数据源时只在该数据源范围生效。
-- 同一作用域与列名只能有一条规则。
+### 三档作用域与选择建议
+
+| 作用域 | `schema_name` | `table_name` | 何时使用 |
+| --- | --- | --- | --- |
+| 全局列规则 | `""` | `""` | 同名列需要跨所有表统一保护时；例如任何查询结果中的 `phone` 都应打码 |
+| 表.列规则 | `""` | 真实表名 | 仅保护某张表的列；**默认推荐**，敏感发现生成的 table-only 草稿即此档 |
+| 模式.表.列规则 | 真实模式名 | 真实表名 | PostgreSQL 等场景中，跨模式存在同名表且必须区分时 |
+
+这三档是列规则的关系作用域，与数据源作用域正交。不选数据源时，规则对所有数据源生效；选择数据源时，只在该数据源中生效。`schema_name` 不能脱离 `table_name` 单独填写。
+
+**配置全局列规则**
+
+1. 进入「脱敏规则」，选择「新建规则」。
+2. 按需选择数据源；「模式 Schema」和「表名」均留空。
+3. 填写列名，选择敏感类型、算法和启用状态后保存。
+
+**配置表.列规则**
+
+1. 进入「脱敏规则」，选择「新建规则」并选定数据源。
+2. 「模式 Schema」留空，「表名」填写真实表名，例如 `customers`。
+3. 填写列名、敏感类型与算法；手工新建可直接启用，发现生成的草稿则应先审阅再启用。
+
+**配置模式.表.列规则**
+
+1. 进入「脱敏规则」，选择「新建规则」并选定数据源。
+2. 同时填写「模式 Schema」与「表名」，例如 `tenant_a` 和 `customers`。
+3. 填写列名、敏感类型、算法和启用状态后保存。查询中只有显式写出且精确匹配的 schema 才能命中此档。
+
+PostgreSQL 的表.列规则留空 schema 时匹配任意模式，不会自动填入 `public`。MySQL 的表名按大小写敏感的精确字符串比较，列名大小写不敏感；留空 schema 即当前库的 table-only 语义。PostgreSQL 的 `customers` 与 `"Customers"` 也是两个不同的表键。
+
+列名会去除首尾空白和单层引号、反引号或方括号，再统一小写；表名与 schema 则保留原始大小写并精确比较。同一物理作用域与归一化列名只能有一条规则，disabled 草稿也占用该唯一键。
 
 ### 配置 `range` 数值分桶
 
@@ -328,16 +355,85 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ### API 字段与完整更新语义
 
+新建三档规则均使用 `POST /api/v1/mask_rules`。以下是一条全局列规则：
+
+```json
+{
+  "id": "global-phone-mask",
+  "datasource_id": "ds-pg",
+  "schema_name": "",
+  "table_name": "",
+  "column_name": "phone",
+  "sensitive_type": "phone",
+  "algo": "mask",
+  "enabled": true
+}
+```
+
+表.列规则的 `schema_name` 留空，例如只保护 `customers.phone`：
+
+```json
+{
+  "id": "customers-phone-mask",
+  "datasource_id": "ds-mysql",
+  "schema_name": "",
+  "table_name": "customers",
+  "column_name": "phone",
+  "sensitive_type": "phone",
+  "algo": "mask",
+  "enabled": true
+}
+```
+
+模式.表.列规则同时填写两个作用域字段：
+
+```json
+{
+  "id": "tenant-a-customers-phone",
+  "datasource_id": "ds-pg",
+  "schema_name": "tenant_a",
+  "table_name": "customers",
+  "column_name": "phone",
+  "sensitive_type": "phone",
+  "algo": "mask",
+  "enabled": true
+}
+```
+
+更新使用 `PUT /api/v1/mask_rules/{id}`。PUT 是完整更新，应每次发送希望保留的 `datasource_id`、`schema_name`、`table_name`、`column_name`、`sensitive_type`、`algo` 和 `enabled`；路径中的 `{id}` 是目标规则 ID，请求体不需重复传 `id`。例如：
+
+```http
+PUT /api/v1/mask_rules/customers-phone-mask
+Content-Type: application/json
+```
+
+```json
+{
+  "datasource_id": "ds-mysql",
+  "schema_name": "",
+  "table_name": "customers",
+  "column_name": "phone",
+  "sensitive_type": "phone",
+  "algo": "block",
+  "enabled": false
+}
+```
+
+对 `schema_name` 和 `table_name` 这两个作用域字段，缺省、JSON `null` 与空串都按空值处理；为避免 PUT 时意外改变作用域，建议始终显式传空串。`datasource_id` 缺省、`null` 或空串表示所有数据源。
+
 在脱敏规则创建/更新 JSON 中，`range` 额外使用 `range_bucket_width`、`range_bucket_offset`、`range_granularity`。数值规则不能携带 `range_granularity`，日期规则不能携带 `range_bucket_width` 或 `range_bucket_offset`。一个最小数值规则请求体如下：
 
 ```json
 {
   "id": "amount-range",
+  "schema_name": "",
+  "table_name": "orders",
   "column_name": "amount",
   "sensitive_type": "number",
   "algo": "range",
   "range_bucket_width": 10,
-  "range_bucket_offset": 0
+  "range_bucket_offset": 0,
+  "enabled": true
 }
 ```
 
@@ -346,14 +442,86 @@ Agent 是调用 AgentSQL 的独立身份。
 ```json
 {
   "id": "birth-date-range",
+  "schema_name": "",
+  "table_name": "customers",
   "column_name": "birth_date",
   "sensitive_type": "date",
   "algo": "range",
-  "range_granularity": "month"
+  "range_granularity": "month",
+  "enabled": true
 }
 ```
 
 规则创建和更新采用完整 PUT 语义：请求中缺失的 `range` 参数会写回 `NULL`；从 `range` 切换到其他算法，或在 `number` / `date` 之间切换时，不适用的参数会被清空。数值偏移 `0` 是合法值，API 会保留它；省略偏移时则规范化为 `0`。
+
+### 精确匹配与 fail-closed 安全兜底
+
+顶层直接投影列能唯一归属到物理关系时，表级规则按来源表和来源列精确匹配；有 schema 精确规则时先用精确规则，再尝试 `schema_name=""` 的表.列规则。裸列只在顶层 `FROM` 作用域恰好有一个可见来源，且该来源是物理关系时才能唯一归属。表起了别名后必须使用别名限定；原表名已被遮蔽。
+
+JOIN 裸列、`SELECT *` 和 CTE 外层列可能无法确定物理来源。如果某个未解析结果列命中表级规则，且该受保护表出现在整条语句的可能关系集合中，AgentSQL 不会因“无法证明来源”而返回原文，也不会拒绝整条查询；它会对该列执行不可关闭的 fail-closed 安全兜底，将所有非空单元格固定阻断为 `***`。这个兜底不使用某张表配置的 `mask` / `hash` / `range` 业务算法，因为来源尚未确定。
+
+消除误伤的首选方式是精确化 SQL：为列加上表名或表别名限定符，并避免使用 `SELECT *` 投影受保护列。如果同名列本来就应跨所有表统一保护，可把该列改配为全局列规则。
+
+PostgreSQL JOIN 示例（假设 `orders` 没有 `phone` 列，SQL 在数据库中合法，但 parser 不查询 schema 来猜列归属）：
+
+```sql
+-- 修改前：多来源裸列无法唯一归属，可能触发 *** 兜底
+SELECT phone
+FROM public.customers AS c
+JOIN public.orders AS o ON o.customer_id = c.id;
+
+-- 修改后：用表别名限定，精确归属到 public.customers.phone
+SELECT c.phone
+FROM public.customers AS c
+JOIN public.orders AS o ON o.customer_id = c.id;
+```
+
+MySQL `SELECT *` 示例：
+
+```sql
+-- 修改前：star 不产生可精确归属的顶层直接投影
+SELECT *
+FROM customers;
+
+-- 修改后：显式投影并限定受保护列
+SELECT customers.id, customers.full_name, customers.phone
+FROM customers;
+```
+
+PostgreSQL CTE 示例：
+
+```sql
+-- 修改前：外层只看到非物理来源 x，phone 可能触发 *** 兜底
+WITH x AS (
+  SELECT phone FROM public.customers
+)
+SELECT phone FROM x;
+
+-- 修改后：直接限定物理关系
+SELECT customers.phone
+FROM public.customers;
+```
+
+在 MCP `query` 响应中，实际改变了非空单元格的兜底列会记入 `redact.unresolved_scoped_columns`。当前 Playground REST 响应只投影 `touched_columns` 和 `masked_cells`，Playground 与审计 UI 都不展示 `unresolved_scoped_columns` 计数。在这些页面看到结果为 `***` 时，先检查查询是否使用了 JOIN 裸列、`SELECT *` 或 CTE 外层列，再按上述方式精确化 SQL。
+
+### 敏感发现工作流
+
+1. 在「数据源」页进入敏感发现，一次选择 1–20 张可见基础表，按需开启每列 1–20 行的受控样本扫描。
+2. 审阅候选列、类型、置信度与证据计数；发现只识别手机、邮箱、身份证、银行卡、IP 和出生日期六类。
+3. 选中后应用候选。系统按物理来源 `(datasource, schema, table, column)` 识别候选，并生成 `schema_name=""`、`table_name=<真实表名>`、`algo=mask`、`enabled=false` 的 table-only 草稿。
+4. 前往「脱敏规则」页，逐条核对表名、列名、敏感类型与算法，确认后再启用。草稿默认停用，创建后不会立即影响查询。
+
+不同表中的同名列会生成多条独立的 table-only 草稿。如果某候选列已被启用的全局列规则覆盖，应用结果会标记 `CoveredByGlobal` 并跳过新建；disabled 全局草稿不会阻挡新的 table-only 草稿。
+
+### 校验与冲突报错
+
+| HTTP / 错误码 | 含义 | 处理方式 |
+| --- | --- | --- |
+| `422 INVALID_MASK_RULE` | `schema_name` 非空但 `table_name` 为空，作用域标识符非法，或类型/算法/参数组合非法 | 同时填写 schema 和 table，去除首尾空白、通配符、控制字符或单字段内的 `.`，并核对类型与算法 |
+| `409 MASK_RULE_CONFLICT` | 同一物理键 `(datasource_scope,schema_name,table_name,归一化 column_name)` 已存在；disabled 行也算冲突 | 编辑既有规则或删除其一；仅停用无法释放物理唯一键 |
+| `409 MASK_RULE_SCOPE_CONFLICT` | 同一 datasource 有效范围内，同列名的启用全局列规则与表级规则算法不一致 | 对齐算法或删除其一；可先停用待调整规则，再修改另一条并按顺序重新启用 |
+
+`MASK_RULE_SCOPE_CONFLICT` 只比较启用规则，disabled 草稿豁免。对 `range` 规则，“算法一致”还要求敏感类型相同；数值规则比较桶宽和规范化后的偏移，日期规则比较规范化后的截断粒度。
 
 ### `range` 行为与边界
 
@@ -367,7 +535,11 @@ Agent 是调用 AgentSQL 的独立身份。
 
 `block` 不输出原值字符、长度或等值关系，但仍保留结果集行列形状、行数、列名和是否有结果，并泄漏上述空值状态；这与 `mask` / `hash` / `range` 的结果层泄漏等级一致，不是匿名化或“零信息”。四种算法都在数据库执行、结果返回 AgentSQL 后处理，不减少数据库读取，也不阻止数据库侧按原值执行 `WHERE`、`JOIN` 或 `GROUP BY`。被 `block` 的列是不透明字符串；固定 `***` 不保证数值、日期、JSON、UUID 等下游 schema 兼容，消费方应按不透明文本处理。
 
-复杂表达式、聚合、CAST、UNION、CTE、视图重命名等可能无法追溯源列。不要宣称任何别名都不可绕过；完整边界见末章。
+### 已知限制与建议
+
+- 对敏感列做函数包裹并改名，例如 `CONCAT(phone,'') AS x` 或 `lower(phone) AS y`，会同时绕过全局与表级列名脱敏。这是列名脱敏的固有边界，不是表.列感知的实现缺陷。建议通过 SQL 策略禁止相关函数，或对可预见的输出列配置 `block`；仅把 `phone` 规则的算法改为 `block` 并不能修复 `AS x` 造成的列名变化。
+- `RETURNING` 走写屏障，只返回 `RowCount`，不进入查询结果脱敏。不得把它当作一条可返回脱敏后行数据的通道。
+- 视图按 SQL 中的引用名匹配，不展开视图、派生表或函数表内部的列血缘。复杂表达式、聚合、`CAST`、`UNION` 和视图重命名等仍可能无法追溯源列，不要宣称任何别名都不可绕过。
 
 ## 10. 配置参考
 
@@ -513,7 +685,8 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - 数据源没有 SSL mode、CA、客户端证书、连接超时或 DSN 附加参数字段。
 - R005 的生产动态告警待修；普通生产只保证执行层 `row_limit` 截断，Live Demo 告警不能外推。
 - 审批不会自动执行 SQL，也不是后续执行的豁免票据。
-- 脱敏是结果层按最终列名匹配，不是完整 DLP。复杂表达式、聚合、CAST、UNION、CTE、视图重命名可能无法溯源；JOIN/自连接仅表级授权；`*`/`schema.*` 是整表全列授权；不承诺任何别名不可绕过。
+- 脱敏是结果层按列名与可唯一解析的物理来源匹配，不是完整 DLP。全局列、表.列、模式.表.列规则均已支持；JOIN 裸列、`SELECT *` 和 CTE 外层等未解析投影在可能涉及受保护表时会 fail-closed 固定阻断为 `***`。函数包裹并改名、聚合、`CAST`、`UNION` 和视图重命名仍可能无法溯源；JOIN / 自连接的授权仍只到表级；`*` / `schema.*` 是整表全列授权。
+- `RETURNING` 走写屏障并只返回 `RowCount`，不经过结果脱敏。
 - `hash` 只处理业务库返回后的结果值，不参与数据库内的 JOIN/WHERE；确定性指纹泄漏相等关系和频率，且首版只有单 key，没有 key version、双写或在线轮换/重算。
 - `block` 同样只处理数据库返回后的结果值；它以不透明字符串 `***` 阻止结果单元外发原文，但保留结果形状、行数、列名、结果存在性和空值状态，且不保证下游 schema 兼容。它不是匿名化，也不限制数据库侧按原值过滤、关联或分组。
 - `range` 只对 `number` / `date` 开放并在结果层输出字符串；同桶值仍可关联，不承诺 k-匿名，也不减少数据库读取或限制数据库侧按原值过滤、关联和分组。
