@@ -252,16 +252,29 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ## 9. 脱敏 `/mask-rules`
 
-脱敏按列在查询结果层执行，不修改数据库原值。当前有两种可运行算法：
+脱敏按列在查询结果层执行，不修改数据库原值。当前有三种可运行算法，形成从保留可读片段到整值阻断的三级梯度：
 
-- `mask`：适用于手机号 `phone`、邮箱 `email`、身份证 `idcard`、银行卡 `bankcard`、IP 地址 `ip`、出生日期 `birthdate` 六类，保留部分可读信息并遮蔽其余部分。例如 `13812345678 → 138****5678`。
-- `hash`：六类以及通用敏感值 `generic` 都可使用。它以服务端专用密钥生成不可逆、固定 34 字符的 `h.` 哈希指纹，例如 `h.9f8e7d6c…`（省略显示）；没有解密或还原原文的能力。同一密钥下，字符串字节完全相同的非空值会得到相同指纹，可供下游等值关联、去重和分组。
+| 算法 | 支持类型 | 保留原文片段 | 可等值关联 | 需要密钥 | 典型场景 |
+| --- | --- | --- | --- | --- | --- |
+| 打码 `mask` | 手机号 `phone`、邮箱 `email`、身份证 `idcard`、银行卡 `bankcard`、IP 地址 `ip`、出生日期 `birthdate` 六类 | 是，按格式部分遮蔽 | 否 | 否 | 客服核对、运维排障等需要保留少量可读信息的列 |
+| 哈希指纹 `hash` | 六类 + 通用敏感值 `generic` | 否，输出固定 34 字符的 `h.` HMAC 指纹 | 是；同一密钥下相同字符串字节得到相同指纹 | 是；`AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 至少 32 字节 | 下游等值关联、去重和分组 |
+| 阻断 `block` | 六类 + `generic` | 否；每个非空值固定输出 `***`，不保留原文长度 | 否 | 否 | 完整证件、密码/密钥、薪资、健康或违法细节等最高敏感列 |
 
-`generic` 不依赖手机号、邮箱等格式识别，始终对命中列的完整原始字符串做 `hash`；它不能搭配 `mask`。除空值哨兵外，哈希前不会 trim，也不会做大小写、Unicode、日期、时区或 decimal 正规化，因此表示不同的值会得到不同指纹。`hash` 在业务数据库返回结果给 AgentSQL 后、响应调用方之前计算，不会下推或改变数据库内的 `JOIN`、`WHERE`、`GROUP BY`。
+`generic` 不依赖手机号、邮箱等格式识别，可对命中列的完整原始字符串做 `hash` 或 `block`；它不能搭配 `mask`，`mask+generic` 属于非法组合。除空值哨兵外，哈希前不会 trim，也不会做大小写、Unicode、日期、时区或 decimal 正规化，因此表示不同的值会得到不同指纹。`block` 同样不识别格式且没有参数，任何非空值（包括畸形值、首尾带空格的值和原值恰为 `***` 的值）都输出固定 `***`。
 
-敏感列发现仍然只识别上述六类并生成 `algo=mask` 的 disabled 草稿；它不会推荐或生成 `hash`，也不会发现 `generic`。`hash` 和 `generic` 必须由管理员在「脱敏规则」页手工配置。六类 `mask` 的完整样式、严格发现与运行时 fail-closed `[REDACTED]` 的区别、作用域和升级注意事项见[《敏感列发现指南》](DISCOVERY.md)。
+> `***` 是 `block` 的正常成功输出；`[REDACTED]` 是 `mask` 无法识别非空值格式时的 fail-closed 兜底。两者的字面量和算法语义不同。规则管理界面和规则配置可通过 `algo=block` 识别算法，但查询审计、SSE、通知不记录具体脱敏算法，结果投影本身也不能可靠反推出 `***` 的产生原因；本版不扩展审计协议。
 
-控制台操作时先选择算法，再选择该算法允许的敏感类型。没有配置哈希密钥时，可以把 `hash` 规则保存为停用；默认启用的新建规则或启用操作会被拒绝，页面对应的服务端响应为 HTTP `503`、`HASH_REDACTION_UNAVAILABLE`，且规则不会写入。通过 `AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 配置至少 32 字节密钥并重启后，再启用该规则。类型/算法组合不合法时服务端返回 HTTP `422`、`INVALID_MASK_RULE`。
+空字符串、trim 后为空的字符串，以及忽略大小写的 `NULL` / `<nil>` 哨兵会原样返回且不计入 `MaskedCells`；因此 `block` 会暴露该结果单元为空/NULL 的状态。SQL NULL 与数据库空字符串在进入脱敏前都已字符串化为 `""`，当前结果模型无法区分。
+
+敏感列发现始终只识别上述六类并生成 `algo=mask` 的 disabled 草稿；它不会推荐或应用 `hash`、`block`，也不会发现 `generic`。这三者只能在「脱敏规则」页手工配置；向 discovery apply 提交 `block` 或 `generic` 会被拒绝。六类 `mask` 的完整样式、作用域和升级注意事项见[《敏感列发现指南》](DISCOVERY.md)。
+
+控制台的算法下拉有「打码（mask）」「哈希指纹（hash）」「阻断（block）」三项。配置 `block` 时：
+
+1. 进入「脱敏规则」并新建或编辑规则，算法选择「阻断（block）」。
+2. 选择六类之一或 `generic`，填写目标结果列和作用域；页面说明和示例固定显示 `***`，不显示哈希密钥警示。
+3. 保存并启用规则；`block` 不需要密钥或其他参数，不参与 hash key 启动 fail-fast，也不会返回 `HASH_REDACTION_UNAVAILABLE` / HTTP `503`。
+
+未配置哈希密钥时，`mask` 与 `block` 可正常创建、启用和运行；只有 `hash` 受密钥门禁约束。此时 `hash` 可保存为停用规则，但默认启用的新建规则或启用操作会被拒绝，页面对应的服务端响应为 HTTP `503`、`HASH_REDACTION_UNAVAILABLE`，且规则不会写入。通过 `AGENTSQL_REDACTION_HASH_KEY` 或 `redaction.hash_key` 配置至少 32 字节密钥并重启后，再启用 `hash`。类型/算法组合不合法时服务端返回 HTTP `422`、`INVALID_MASK_RULE`。
 
 - 匹配键是最终结果列名的精确规范化值。
 - `table_name` 是预留字段，当前不参与匹配。
@@ -269,6 +282,8 @@ Agent 是调用 AgentSQL 的独立身份。
 - 同一作用域与列名只能有一条规则。
 
 确定性哈希指纹会暴露相等关系与频率，也可能在共享同一 key 的库或表之间形成关联追踪。不可逆不等于匿名：key 泄漏、hash oracle、低熵字典猜测或辅助数据仍可能重识别原值。互不应关联的环境或租户应使用不同 key；密钥轮换会改变全部指纹并断裂旧、新关联。完整密钥管理与轮换限制见[部署指南的“脱敏哈希密钥管理”](DEPLOY.md#脱敏哈希密钥管理)。
+
+`block` 不输出原值字符、长度或等值关系，但仍保留结果集行列形状、行数、列名和是否有结果，并泄漏上述空值状态；这与 `mask` / `hash` 的结果层泄漏等级一致，不是匿名化或“零信息”。三种算法都在数据库执行、结果返回 AgentSQL 后处理，不减少数据库读取，也不阻止数据库侧按原值执行 `WHERE`、`JOIN` 或 `GROUP BY`。被 `block` 的列是不透明字符串；固定 `***` 不保证数值、日期、JSON、UUID 等下游 schema 兼容，消费方应按不透明文本处理。
 
 复杂表达式、聚合、CAST、UNION、CTE、视图重命名等可能无法追溯源列。不要宣称任何别名都不可绕过；完整边界见末章。
 
@@ -338,7 +353,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 | 字段 | 说明 |
 | --- | --- |
-| `hash_key` | 可选的 HMAC 哈希指纹密钥，非空时至少 32 字节；为空或未配置时只能运行 `mask`，enabled `hash` 会导致启动 fail-fast |
+| `hash_key` | 可选的 HMAC 哈希指纹密钥，非空时至少 32 字节；为空或未配置时 `mask` 与 `block` 仍可运行，enabled `hash` 会导致启动 fail-fast |
 
 推荐通过环境变量注入。`AGENTSQL_REDACTION_HASH_KEY` 只要存在（包括空串）就覆盖 YAML `redaction.hash_key`；密钥不得与 `AGENTSQL_SECRET` 复用或相互派生，也不得进入 Git、镜像、日志、审计或配置回显。
 
@@ -347,7 +362,7 @@ Agent 是调用 AgentSQL 的独立身份。
 | 变量 | 用途 |
 | --- | --- |
 | `AGENTSQL_SECRET` | 必填，恰好 32 字节；加密数据源密码并派生管理员 token 签名密钥 |
-| `AGENTSQL_REDACTION_HASH_KEY` | 可选，至少 32 字节；生成不可逆 HMAC 哈希指纹，存在即覆盖 YAML（含空串）；未配置时仅可使用 `mask` |
+| `AGENTSQL_REDACTION_HASH_KEY` | 可选，至少 32 字节；仅供 `hash` 生成不可逆 HMAC 指纹，存在即覆盖 YAML（含空串）；未配置时仍可使用 `mask` 与 `block` |
 | `AGENTSQL_ADMIN_USER` | 管理员用户名，默认 `admin` |
 | `AGENTSQL_ADMIN_PASSWORD` | 控制台启用时必填，至少 12 字符且不能使用弱口令/公开示例 |
 | `AGENTSQL_API_KEY` | stdio 的 `--api-key` 替代；优先用环境变量，避免进入进程参数 |
@@ -418,6 +433,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - 审批不会自动执行 SQL，也不是后续执行的豁免票据。
 - 脱敏是结果层按最终列名匹配，不是完整 DLP。复杂表达式、聚合、CAST、UNION、CTE、视图重命名可能无法溯源；JOIN/自连接仅表级授权；`*`/`schema.*` 是整表全列授权；不承诺任何别名不可绕过。
 - `hash` 只处理业务库返回后的结果值，不参与数据库内的 JOIN/WHERE；确定性指纹泄漏相等关系和频率，且首版只有单 key，没有 key version、双写或在线轮换/重算。
+- `block` 同样只处理数据库返回后的结果值；它以不透明字符串 `***` 阻止结果单元外发原文，但保留结果形状、行数、列名、结果存在性和空值状态，且不保证下游 schema 兼容。它不是匿名化，也不限制数据库侧按原值过滤、关联或分组。
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - MCP 不是跨请求事务代理；一次请求只接受单条 SQL，不允许堆叠。
 - 当前业务库仅支持 PostgreSQL 14–18 与 MySQL 8。不支持 Oracle、SQL Server、达梦、金仓、瀚高、GaussDB、OceanBase、TiDB。

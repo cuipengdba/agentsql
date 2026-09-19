@@ -64,25 +64,27 @@ docker compose --profile observability up -d --build
 
 `hash` 使用专用 HMAC 密钥生成不可逆哈希指纹；它不是加密，没有解密或还原原文的能力。该密钥与用于数据源密码、控制台/JWT 等用途的 `AGENTSQL_SECRET` 相互独立，不得复用或派生。密钥可来自 YAML `redaction.hash_key` 或环境变量 `AGENTSQL_REDACTION_HASH_KEY`；环境变量只要存在（包括空串）就覆盖 YAML。非空密钥按 UTF-8 字节计数，至少 32 字节，不会自动 trim。
 
+`block` 不使用任何密钥、盐或算法参数，也没有新增配置项；它不参与 hash key 启动 fail-fast。无 key 时 `mask` 与 `block` 都可正常运行，只有 `hash` 需要上述专用密钥。
+
 生产环境应从 secret manager、编排平台 Secret 或权限受控的环境文件注入，不要写进容器镜像、Dockerfile、Git 或命令行参数，也不要把真实值留在示例配置中。可生成一把随机密钥：
 
 ```bash
 openssl rand -base64 32
 ```
 
-Compose 已将 `AGENTSQL_REDACTION_HASH_KEY` 作为可选变量传入默认服务和 controlplane profile；未配置时传入空串，纯 `mask` 部署仍可正常启动。由于空串也属于“环境变量存在”，Compose 部署若要启用 `hash`，应在受保护的 `.env` 或外部 Secret 中设置 `AGENTSQL_REDACTION_HASH_KEY`，不要只在 YAML 中填写 `redaction.hash_key`。本机二进制或 systemd 环境未声明该变量时，才会使用 YAML 值。
+Compose 已将 `AGENTSQL_REDACTION_HASH_KEY` 作为可选变量传入默认服务和 controlplane profile；未配置时传入空串，仅使用 `mask` / `block` 的部署仍可正常启动。由于空串也属于“环境变量存在”，Compose 部署若要启用 `hash`，应在受保护的 `.env` 或外部 Secret 中设置 `AGENTSQL_REDACTION_HASH_KEY`，不要只在 YAML 中填写 `redaction.hash_key`。本机二进制或 systemd 环境未声明该变量时，才会使用 YAML 值。
 
 启动和管理面的能力矩阵如下：
 
-| 密钥与规则状态 | 行为 |
-| --- | --- |
-| 无 key，且没有 enabled `hash` 规则 | 正常启动；`mask`、敏感发现和 Demo 不受影响 |
-| 无 key，仅有 disabled `hash` 草稿 | 正常启动；允许以 `enabled=false` 保存和编辑 |
-| 无 key，存在 enabled `hash` 规则 | 对外提供服务前启动失败（fail-fast），不会退化成返回原文或整列 `[REDACTED]` |
-| 有至少 32 字节的 key | 可正常加载并执行合法的 enabled `hash` 规则 |
-| 显式配置非空但不足 32 字节 | 无论当前是否有 `hash` 规则，配置装配立即失败且错误不回显密钥 |
+| enabled 规则集合 | hash key 状态 | 启动与运行结果 |
+| --- | --- | --- |
+| 仅 `mask` / `block`（可混合） | 未配置或为空 | 正常启动并执行；`block` 不进入密钥门禁 |
+| 仅 `mask` / `block`，另有 disabled `hash` 草稿 | 未配置或为空 | 正常启动；disabled hash 可保存和编辑，不参与执行 |
+| 包含 enabled `hash`（可同时含 `mask` / `block`） | 未配置或为空 | 对外提供服务前启动失败（fail-fast），不会退化成返回原文、`***` 或整列 `[REDACTED]` |
+| 任意合法 enabled 规则集合 | 至少 32 字节 | 正常启动并执行全部合法规则；密钥只供 `hash` 使用 |
+| 任意规则集合 | 显式配置非空但不足 32 字节 | 配置装配立即失败，错误不回显密钥 |
 
-服务运行期间，在无 key 的实例中新建默认启用的 `hash` 规则，或把现有规则改为 enabled，管理 API 返回 HTTP `503`、机器码 `HASH_REDACTION_UNAVAILABLE`，并在写库前拒绝，保证零写入。可以先保存为 disabled；配置密钥并重启服务后再启用。敏感类型与算法组合非法时返回 HTTP `422`、机器码 `INVALID_MASK_RULE`。
+服务运行期间，在无 key 的实例中新建默认启用的 `hash` 规则，或把现有 hash 规则改为 enabled，管理 API 返回 HTTP `503`、机器码 `HASH_REDACTION_UNAVAILABLE`，并在写库前拒绝，保证零写入。可以先保存为 disabled；配置密钥并重启服务后再启用。新建或启用 `block` 永远不会因为缺少 hash key 返回该错误。敏感类型与算法组合非法时返回 HTTP `422`、机器码 `INVALID_MASK_RULE`。
 
 ### 哈希指纹的安全边界
 

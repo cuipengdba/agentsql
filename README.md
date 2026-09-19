@@ -18,7 +18,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 双 MCP 承载：本机 `stdio` 与 Streamable HTTP `/mcp`，提供 7 个受控数据库工具。
 - 默认拒绝的安全链路：API Key 认证、Agent 能力档位、对象/列授权、SQL AST 规则与 fail-closed 错误处理。
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
-- 基础数据保护：列级脱敏支持六类 `mask` 部分遮蔽，以及带专用密钥的不可逆 HMAC 哈希指纹；`generic` 可对通用敏感值做 `hash`。数据源口令另由 32 字节 `AGENTSQL_SECRET` 加密保存。
+- 基础数据保护：列级脱敏提供三级梯度——六类 `mask` 部分遮蔽、六类及 `generic` 的带专用密钥 HMAC 哈希指纹，以及无需密钥、把非空值统一替换为 `***` 的 `block` 整值阻断。数据源口令另由 32 字节 `AGENTSQL_SECRET` 加密保存。
 - 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
@@ -203,7 +203,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 | 只读、危险语句、限流与 Explain 风险规则 | 支持 | 四态结果：allow / deny / approve / warn |
 | 受控查询与写入 | 支持 | 超时、连接上限、结果截断与错误脱敏 |
 | 人工审批 | 支持 | 建单、管理员决定、Agent 查询结果 |
-| 列级脱敏 | 支持 | 六类 `mask` 部分遮蔽；六类及 `generic` 可生成不可逆、定长的 HMAC 哈希指纹 |
+| 列级脱敏 | 支持 | 六类 `mask` 部分遮蔽；六类及 `generic` 可生成不可逆、定长的 HMAC 哈希指纹，或无需密钥地把非空值 `block` 为固定 `***` |
 | SQLite / PostgreSQL 控制面、审计导出与仪表盘 | 支持 | SQLite 默认零配置；PostgreSQL 可使用独立 metadata/audit 库 |
 | Webhook / Syslog 通知外发 | 支持 | live-only、best-effort；默认仅 deny/error，审计库仍是权威记录 |
 | Web 管理控制台 | 支持 | 可用 `console_enabled: false` 完全不挂载管理面 |
@@ -223,6 +223,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 
 - 脱敏优先按最终结果列名匹配，并对位置可确定的顶层直接列引用按源裸列名兜底。函数/表达式/聚合/CAST、UNION、跨子查询/CTE/视图的内部重命名，以及多星号之间无法定位的投影槽当前不做完整血缘兜底。该能力不是完整 DLP；防绕行还需结合只读数据库账号、列级权限、安全视图与审批。
 - `hash` 是不可逆指纹，不是加密，也不能解密还原。它在业务数据库返回结果后计算，不下推到数据库内的 JOIN/WHERE；确定性会暴露相等关系和频率，共享同一 key 还会带来跨库关联风险。
+- `block` 不输出原值字符、长度或等值关系，但仍保留结果集行列形状、行数、列名、是否有结果，并因空值原样返回而暴露该格为空/NULL；它不是匿名化。`block` 在数据库执行后处理，不减少数据库读取，也不阻止数据库侧使用原值做 WHERE/JOIN/GROUP BY，只阻止结果单元对外返回。其固定 `***` 是不透明字符串，不保证数值、日期或 JSON 的 schema 兼容。
 - 多表 JOIN 与自连接只做表级授权；当前不推断投影列归属。两个表的表级授权通过后，不再按投影列归属收紧。
 - `AllowedTables` 中的 `*` 或 `schema.*` 表示管理员显式授予匹配表的全部列；此时精确列白名单不再收紧。单表使用精确列白名单时，应显式列出投影列。
 - 当前版本每个 MCP 请求独立处理，只接受单条 SQL、不允许语句堆叠，也不暴露跨请求会话或事务参数；内部 `SessionID` 不是公开协议能力。

@@ -15,7 +15,7 @@ AgentSQL 的敏感列发现面向 DBA 和安全管理员。它对管理员明确
 
 它不是自动脱敏、完整 DLP 或合规判定工具，不会修改业务表中的数据，不会自动启用规则，也不提供“留空即扫描全库/全部表”的模式。它不会从自然语言推导或生成业务 SQL；受控只读服务只生成固定的元数据查询和形如 `SELECT <候选列> FROM <限定表> LIMIT <上限>` 的采样语句，并在执行前校验只读语句结构。
 
-脱敏规则本身还支持管理员手工配置 `hash`，以及仅搭配 `hash` 的通用敏感值 `generic`；两者都不进入发现流程。discovery/advisor 只产出六类 `mask` 推荐，apply 也只接受这些推荐组合。
+普通脱敏规则还支持管理员手工配置 `hash`、`block`，以及仅搭配这两种算法的通用敏感值 `generic`；它们都不进入发现流程。discovery/advisor 始终只产出六类 `mask` 推荐，apply 也只接受这些推荐组合；提交 `hash`、`block` 或 `generic` 会被拒绝。
 
 ## 发现类别与识别依据
 
@@ -49,7 +49,7 @@ AgentSQL 的敏感列发现面向 DBA 和安全管理员。它对管理员明确
 
 出生日期还接受 `1990/01/02`、`19900102`、RFC3339/RFC3339Nano 及 SQL timestamp；例如 `1990-01-02T00:00:00Z` 也输出 `1990-**-**`，时间和时区后缀不会保留。银行卡仅做形态正规化，不在遮蔽阶段执行 Luhn 校验；长度须为 13–19 位。PostgreSQL `inet`/`cidr` 返回的 `/32`、`/128`、`/24` 等前缀会在遮蔽前去除；带 zone 的 IPv6、域名和 `host:port` 不作为 IP 地址接受。
 
-> **风险提示：部分遮蔽不等于匿名化。** 手机号仍保留前 3 后 4，身份证仍保留前 6 后 4，银行卡仍保留 BIN 与后 4，IP 保留网段，出生日期仍保留年份。这些取舍服务于运维可读性、统计和排障，不构成不可逆匿名化，也不替代存储层保护。需要不可逆哈希指纹时，可在「脱敏规则」页手工配置 `hash`；它不会由发现流程推荐。`range`、`block` 仍是后续规划。
+> **风险提示：部分遮蔽不等于匿名化。** 手机号仍保留前 3 后 4，身份证仍保留前 6 后 4，银行卡仍保留 BIN 与后 4，IP 保留网段，出生日期仍保留年份。这些取舍服务于运维可读性、统计和排障，不构成不可逆匿名化，也不替代存储层保护。需要不可逆哈希指纹或固定 `***` 的整值阻断时，可在「脱敏规则」页手工配置 `hash` 或 `block`；二者都不会由发现流程推荐。只有 `range` 仍是规划中、当前不可执行的算法。
 
 ## 严格发现、宽松遮蔽
 
@@ -127,7 +127,7 @@ Go 字符串和数据库驱动缓冲区不提供密码学级安全擦除，因�
 
 ## 生成草稿与规则作用域
 
-apply 只接受六类发现类别各自对应的 `mask` 组合，例如 `idcard/idcard/mask`；类别与敏感类型必须相同。提交 `algo=hash`、`sensitive_type=generic` 或其他非推荐组合会以 HTTP `422`、`DISCOVERY_NOT_APPLICABLE` 拒绝且不创建草稿。新建规则由服务端强制设置：
+apply 只接受六类发现类别各自对应的 `mask` 组合，例如 `idcard/idcard/mask`；类别与敏感类型必须相同。提交 `algo=hash`、`algo=block`、`sensitive_type=generic` 或其他非推荐组合会以 HTTP `422`、`DISCOVERY_NOT_APPLICABLE` 拒绝且不创建草稿。新建规则由服务端强制设置：
 
 - `enabled=false`：草稿默认不生效。
 - `table_name=""`：发现结果中的 schema 和表名只是来源，不是运行时匹配范围。
@@ -210,7 +210,7 @@ apply 是幂等的，响应将项目分入以下数组：
 }
 ```
 
-`items` 必须为 1–50 项。六类均可提交，但 `category` 与 `sensitive_type` 必须相同，`algo` 必须为 `mask`；例如 `birthdate/birthdate/mask`。`hash` 与 `generic` 只能在普通脱敏规则中手工配置，提交到 apply 会返回 `422 DISCOVERY_NOT_APPLICABLE`。请求 DTO 不接受 `enabled`、样本值或自由信号字段。成功响应的 `data` 包含 `created`、`existing`、`covered_by_global`、`conflicts`、`ambiguous` 五个数组及 `counts` 汇总。
+`items` 必须为 1–50 项。六类均可提交，但 `category` 与 `sensitive_type` 必须相同，`algo` 必须为 `mask`；例如 `birthdate/birthdate/mask`。`hash`、`block` 与 `generic` 只能在普通脱敏规则中手工配置，提交到 apply 会返回 `422 DISCOVERY_NOT_APPLICABLE`。请求 DTO 不接受 `enabled`、样本值或自由信号字段。成功响应的 `data` 包含 `created`、`existing`、`covered_by_global`、`conflicts`、`ambiguous` 五个数组及 `counts` 汇总。
 
 ### HTTP 状态码
 
@@ -225,7 +225,7 @@ apply 是幂等的，响应将项目分入以下数组：
 | `409` | `MASK_RULE_CONFLICT` | 同名列已有不同类型或算法的规则 | 到「脱敏规则」页处理冲突；响应可含分组结果 |
 | `413` | `REQUEST_TOO_LARGE` | JSON 请求体超过 `1 MiB`；不是“21 个表”的逻辑范围码 | 缩小请求体；表数、列数等逻辑超限见 `422` |
 | `422` | `DISCOVERY_SCOPE_LIMIT`、`DISCOVERY_CANDIDATE_LIMIT`、`DISCOVERY_SAMPLE_LIMIT` 等 | 空范围、表/列/候选/采样超限，或参数、类别非法 | 拆分表范围、减少采样行数或修正参数 |
-| `422` | `DISCOVERY_NOT_APPLICABLE` | 类别、敏感类型或算法不是当前可运行组合 | 提交同类别的六类敏感类型，并使用 `mask` |
+| `422` | `DISCOVERY_NOT_APPLICABLE` | 类别、敏感类型或算法不是当前 discovery apply 可接受的组合 | 提交同类别的六类敏感类型，并使用 `mask` |
 | `429` | `DISCOVERY_RATE_LIMITED` | 1 QPS 或并发配额被占用 | 等待当前请求完成后重试 |
 | `500` | `DISCOVERY_INTERNAL` | 包括当前 API 未进一步区分的连接/Ping“数据源不可达”等内部失败 | 先测试连接；再检查服务端日志和数据源配置 |
 | `503` | `DISCOVERY_UNAVAILABLE` | 受控发现服务未就绪 | 检查服务启动和依赖注入状态后重试 |
@@ -238,7 +238,7 @@ apply 是幂等的，响应将项目分入以下数组：
 
 ## 配置与部署
 
-敏感列发现本身没有新增 YAML 配置项或环境变量。它沿用现有管理员鉴权、`AGENTSQL_SECRET` 解密后的数据源凭据、metadata/audit 控制面和数据源 `stmt_timeout_ms`，但会把发现单语句超时收紧到不超过 2 秒。手工配置 `hash` 规则所需的 `redaction.hash_key` / `AGENTSQL_REDACTION_HASH_KEY` 不属于发现流程，见[部署指南](DEPLOY.md#脱敏哈希密钥管理)。控制面迁移和备份要求仍以部署指南为准。
+敏感列发现本身没有新增 YAML 配置项或环境变量。它沿用现有管理员鉴权、`AGENTSQL_SECRET` 解密后的数据源凭据、metadata/audit 控制面和数据源 `stmt_timeout_ms`，但会把发现单语句超时收紧到不超过 2 秒。手工配置 `hash` 规则所需的 `redaction.hash_key` / `AGENTSQL_REDACTION_HASH_KEY` 不属于发现流程，见[部署指南](DEPLOY.md#脱敏哈希密钥管理)；`block` 无需任何密钥或配置。控制面迁移和备份要求仍以部署指南为准。
 
 若管理审计不可用，发现不会把结果返回给调用方；apply 也不会把“未审计的成功”当作正常完成。metadata 与 audit 分库时采用审计优先的 fail-closed 流程，极端情况下可能留下已写审计但元数据草稿未创建的记录，重试时应以 apply 响应和「脱敏规则」页为准。
 
@@ -248,13 +248,13 @@ apply 是幂等的，响应将项目分入以下数组：
 
 兼容性行为有一处需要升级前核对：如果曾绕过管理 API，直接向 `mask_rules` 写入 `sensitive_type` 为 `idcard`、`bankcard`、`ip` 或 `birthdate` 且已启用的规则，这些规则在早期版本中不受支持、加载会失败；升级后它们会被正常加载并立即参与运行时脱敏。请在升级前查询并复核这四类历史直写规则的 `datasource_id`、规范化列名、类型、算法和 `enabled` 状态。`phone`、`email` 的既有行为不变。
 
-同时盘点存量 `algo=hash` 规则：若其中存在 enabled 规则，升级启动前必须安全注入至少 32 字节的哈希密钥，否则服务会 fail-fast；只有 disabled `hash` 草稿时可无 key 启动。密钥轮换会改变全部指纹，详情见部署指南。
+同时盘点存量 `algo=hash` 规则：若其中存在 enabled 规则，升级启动前必须安全注入至少 32 字节的哈希密钥，否则服务会 fail-fast；只有 disabled `hash` 草稿时可无 key 启动。`block` 不参与该启动门禁，无 key 也可正常运行。密钥轮换会改变全部指纹，详情见部署指南。
 
 ## 限制与后续规划
 
 以下能力均为规划中，当前版本不支持：
 
-- `range`、`block` 算法；`hash` 已可在普通脱敏规则中手工配置，但发现流程不会生成它。
+- `range` 算法。`hash` 与 `block` 已可在普通脱敏规则中手工配置，但发现流程不会推荐、生成或应用它们。
 - “表.列”级规则和表感知脱敏优先级。
 - 姓名、地址等更多敏感类型的发现与遮蔽。
 - 异步、定时或大范围发现任务，以及跨请求进度、取消和重试。
@@ -267,7 +267,7 @@ apply 是幂等的，响应将项目分入以下数组：
 - 一次请求最多读取 500 个元数据列、识别 50 个候选列、处理 1,000 个采样单元格；超限整体失败，不返回部分结果。
 - 识别依赖固定列名与格式启发式，可能误报或漏报；数据库类型当前只供展示，不参与分类。
 - 关闭采样时只看列名，置信度最高为中；开启采样也只抽取表中无排序保证的前若干行。
-- 六类均可发现并生成 `mask` 草稿；姓名和地址当前不发现，`hash` 与 `generic` 仅能在普通脱敏规则中手工配置，`range`、`block` 仍不可运行。
+- 六类均可发现并生成 `mask` 草稿；姓名和地址当前不发现。`hash`、`block` 与 `generic` 仅能在普通脱敏规则中手工配置；`block` 已可运行，只有 `range` 仍不可执行。
 - 草稿默认不生效，必须人工核对并启用；发现不会自动修改业务数据。
 - 规则按“数据源 + 规范化列名”匹配，同名列统一生效；不支持“表.列”级规则。
 - 样本不持久化、不返回、不进入审计正文或通知，但进程内存不做密码学级安全擦除。

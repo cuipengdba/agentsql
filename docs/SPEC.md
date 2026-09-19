@@ -33,6 +33,8 @@ AgentSQL 是**网关层**防护，必须如实理解其边界：
 - 只约束**经过网关的运行账号**；不阻止使用数据库 owner / superuser / DBA 凭据**绕过网关直连**的行为，也不取代数据库账号体系。生产部署应为网关配置最小权限的专用账号。
 - 脱敏是**结果集按列处理**，不是完整 DLP。复杂表达式、聚合、`CAST`、`UNION`、CTE、视图重命名等场景可能无法回溯到源列；JOIN / 自连接为表级授权；不宣称「任何别名都不可绕过」。
 - `hash` 是带专用密钥的 HMAC 不可逆指纹，不是加密。它在业务数据库返回结果后计算，不下推到数据库内的 JOIN/WHERE/GROUP BY。确定性指纹会暴露相等关系和频率；共享 key 会带来跨库关联风险，不可逆也不等于匿名。
+- `block` 把命中列的每个非空结果值替换为固定 `***`，不输出原值字符、长度或等值关系，但仍保留行列形状、行数、列名、是否有结果，并因空值原样返回而泄漏该格为空/NULL。它与 `mask` / `hash` 的结果层泄漏等级一致，不是匿名化；输出是不保证数值、日期或 JSON schema 兼容的不透明字符串。
+- 三种脱敏都在数据库执行后处理，不减少数据库读取，也不阻止数据库侧使用原值执行 WHERE/JOIN/GROUP BY；它们只改变向调用方返回的结果单元。
 - 审计是**应用层只追加（append-only）记录**，不是法规级 WORM，不防 DBA 直接改库；审计哈希链 / 签名 / WORM 保留锁属企业版路线图。
 - MCP 层不提供通用的跨请求事务代理；多副本高可用、跨实例事件广播属企业版路线图。
 - 安全默认 **fail-closed**：无法解析、无法判定、或审计 / 数据库等依赖不可用时，**拒绝执行**，而不是放行。
@@ -153,7 +155,7 @@ redaction:
 ```
 
 - `AGENTSQL_SECRET` 是数据源密码 AES-GCM 与控制台/JWT 等用途的主密钥，只从环境变量注入。脱敏哈希指纹使用独立的可选密钥，可来自 YAML `redaction.hash_key` 或 `AGENTSQL_REDACTION_HASH_KEY`；环境变量只要存在（包括空串）即覆盖 YAML，不得与 `AGENTSQL_SECRET` 复用或派生。非空 hash key 按字节计至少 32 字节，推荐由 secret manager/受限环境注入；配置、日志、错误、探针、响应、审计、metrics 与 panic **不得回显密钥、DSN 或密码**。
-- 哈希能力 fail-fast 契约：无 enabled `hash` 时无 key 可正常启动（包括仅有 disabled 草稿）；存在 enabled `hash` 而无有效 key 时，在对外服务前启动失败；显式非空但不足 32 字节时无论规则状态都装配失败。运行期无 key 新建或启用 `hash` 返回 HTTP `503` + `HASH_REDACTION_UNAVAILABLE` 且零写入；非法类型/算法组合返回 HTTP `422` + `INVALID_MASK_RULE`。
+- 哈希能力 fail-fast 契约只约束 `hash`：无 enabled `hash` 时无 key 可正常启动（包括仅有 `mask` / `block` 或 disabled hash 草稿）；存在 enabled `hash` 而无有效 key 时，在对外服务前启动失败；显式非空但不足 32 字节时无论规则状态都装配失败。运行期无 key 新建或启用 `hash` 返回 HTTP `503` + `HASH_REDACTION_UNAVAILABLE` 且零写入；`block` 无密钥、无参数，不参与该门禁，启用时不会返回此 503。非法类型/算法组合返回 HTTP `422` + `INVALID_MASK_RULE`。
 - 首版进程只有单一 hash key，没有 key version、双写、多版本验证或在线轮换/重算。换 key 后历史指纹不会自动重算，旧、新指纹不再相等；轮换必须在维护窗口完成存量盘点、下游回填与回滚准备。
 - 配置解析为严格模式（未知字段拒绝），非法配置启动即失败（fail-closed）。
 
@@ -164,9 +166,24 @@ type DBDialect string // "postgres" | "mysql"
 type StmtType  string // SELECT / INSERT / UPDATE / DELETE / DDL / ADMIN / UNKNOWN
 type Decision  string // allow / warn / approve / deny
 type RiskLevel int    // 1 拒绝 / 2 审批 / 3 告警 / 4 提示
+type SensitiveType string // phone | email | idcard | bankcard | ip | birthdate | generic
+type Algorithm string // mask | hash | block；range 仅预留、当前不可执行
 ```
 
 `AST` 携带方言、原始 / 归一化 SQL、语句类型、多语句标记、表对象、列、是否含 WHERE / WHERE 永真 / LIMIT、函数与操作、EXPLAIN 信息；`Assessment` 携带决策、风险等级、命中规则、预估扫描行数、中文理由与改写建议、各阶段耗时；`QueryResult` 为列、字符串化行、行数与截断标记（金额等定点十进制按定点渲染，不使用浮点）。
+
+脱敏算法契约与能力矩阵：
+
+| 算法 | 类型 | 输出契约 | 等值关联 | 密钥 / 参数 |
+|---|---|---|---|---|
+| `mask` | 仅六类格式类型 | 按格式部分遮蔽；无法识别的非空值 fail-closed 为 `[REDACTED]` | 不支持 | 无 |
+| `hash` | 六类 + `generic` | HMAC 不可逆定长指纹；同一 key 下相同字符串字节结果一致 | 支持等值关联、去重、分组 | 专用 key 至少 32 字节；无其他规则参数 |
+| `block` | 六类 + `generic` | 不识别格式；每个非空值固定为 `***`，不保留原文片段或长度 | 不支持 | 无密钥、无参数 |
+| `range` | — | 预留枚举，当前不可执行 | — | — |
+
+`mask+generic` 非法。`block` 的空值判定沿用统一哨兵：空串、trim 后为空、忽略大小写的 `NULL` / `<nil>` 原样返回且不计入 `MaskedCells`；其他值即使原文恰为 `***` 或带首尾空格，也输出 `***` 并计数。固定 `***` 可能与真实原值碰撞且不自描述，不能根据输出是否变化判断是否执行了阻断。
+
+规则管理 API / UI 原样展示 `algo=block`；MCP / Playground 的结果投影以及持久审计、SSE、通知不新增算法字段。`***` 与 mask 失败兜底 `[REDACTED]` 是不同字面量、不同算法语义，但结果投影本身不能可靠反推算法，本版不扩展结果或审计协议。
 
 ### 6.3 控制面数据模型
 
@@ -228,7 +245,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | 部署 | Docker / Docker Compose、Linux systemd 单二进制 |
 | 可观测 | Prometheus 指标 + Grafana 面板 + 健康 / 就绪探针 |
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
-| 列级脱敏 | 六类 `mask` 部分遮蔽；六类 + `generic` 支持不可逆 HMAC 哈希指纹；discovery 只推荐六类 `mask` |
+| 列级脱敏 | 六类 `mask` 部分遮蔽；六类 + `generic` 可选不可逆 HMAC 哈希指纹或固定 `***` 的 `block` 整值阻断；无 key 时 `mask` / `block` 正常运行；discovery 只推荐并应用六类 `mask` |
 
 **路线图中暂不支持**：Oracle、SQL Server，以及达梦 / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等国产 / 商业数据库（企业版 T29）；企业 SSO / RBAC / 法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
 
