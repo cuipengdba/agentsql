@@ -32,28 +32,61 @@ type redactorRule struct {
 }
 
 type resultRedactor struct {
-	rules []redactorRule
+	rules  []redactorRule
+	hasher *hasher
+}
+
+type redactorOptions struct {
+	hashKey []byte
+}
+
+// Option configures a Redactor without changing the frozen rule set.
+type Option func(*redactorOptions)
+
+// WithHashKey supplies the dedicated HMAC key used by hash rules. The key is
+// copied immediately so later caller mutations cannot affect the option.
+func WithHashKey(key []byte) Option {
+	copiedKey := append([]byte(nil), key...)
+	return func(options *redactorOptions) {
+		options.hashKey = append([]byte(nil), copiedKey...)
+	}
+}
+
+// ValidateRule validates the column, sensitive type, and algorithm combination.
+// Hash key availability is intentionally a NewRedactor construction concern.
+func ValidateRule(rule Rule) error {
+	if normalizeColumnName(rule.Column) == "" {
+		return fmt.Errorf("mask rule column is required")
+	}
+	switch rule.Algorithm {
+	case AlgoMask:
+		if !isMaskSensitiveType(rule.SensitiveType) {
+			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
+		}
+	case AlgoHash:
+		if !isHashSensitiveType(rule.SensitiveType) {
+			return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
+		}
+	default:
+		return fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedAlgorithm)
+	}
+	return nil
 }
 
 // NewRedactor validates and freezes the supplied rules for deterministic use.
-func NewRedactor(rules []Rule) (Redactor, error) {
+func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 	validated := make([]redactorRule, 0, len(rules))
+	hasHashRule := false
 	for index, rule := range rules {
-		column := normalizeColumnName(rule.Column)
-		if column == "" {
-			return nil, fmt.Errorf("mask rule %d: column is required", index)
-		}
-		if !isSupportedSensitiveType(rule.SensitiveType) {
-			return nil, fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedType)
-		}
-		if rule.Algorithm != AlgoMask {
-			return nil, fmt.Errorf("mask rule %q: %w", rule.Column, ErrUnsupportedAlgorithm)
+		if err := ValidateRule(rule); err != nil {
+			return nil, fmt.Errorf("mask rule %d: %w", index, err)
 		}
 		validated = append(validated, redactorRule{
-			column:        column,
+			column:        normalizeColumnName(rule.Column),
 			sensitiveType: rule.SensitiveType,
 			algorithm:     rule.Algorithm,
 		})
+		hasHashRule = hasHashRule || rule.Algorithm == AlgoHash
 	}
 	sort.SliceStable(validated, func(left, right int) bool {
 		if validated[left].column != validated[right].column {
@@ -64,23 +97,33 @@ func NewRedactor(rules []Rule) (Redactor, error) {
 		if leftPriority != rightPriority {
 			return leftPriority < rightPriority
 		}
-		if validated[left].sensitiveType != validated[right].sensitiveType {
-			return validated[left].sensitiveType < validated[right].sensitiveType
-		}
-		return validated[left].algorithm < validated[right].algorithm
+		return false
 	})
-	compiled := make([]redactorRule, 0, len(validated))
-	for _, rule := range validated {
-		if len(compiled) > 0 && compiled[len(compiled)-1].column == rule.column {
-			continue
+	for index := 1; index < len(validated); index++ {
+		if validated[index-1].column == validated[index].column {
+			return nil, fmt.Errorf("mask rule %q: %w", validated[index].column, ErrDuplicateMaskColumn)
 		}
-		compiled = append(compiled, rule)
 	}
-	return &resultRedactor{rules: compiled}, nil
+
+	options := redactorOptions{}
+	for _, option := range opts {
+		if option != nil {
+			option(&options)
+		}
+	}
+	var hash *hasher
+	if hasHashRule {
+		var err error
+		hash, err = newHasher(options.hashKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &resultRedactor{rules: validated, hasher: hash}, nil
 }
 
 // SensitiveTypeOrder returns the shared deterministic sort key: phone, email,
-// idcard, bankcard, ip, then birthdate. Unknown types sort after them.
+// idcard, bankcard, ip, birthdate, then generic. Unknown types sort after them.
 func SensitiveTypeOrder(sensitiveType SensitiveType) int {
 	switch sensitiveType {
 	case TypePhone:
@@ -95,18 +138,24 @@ func SensitiveTypeOrder(sensitiveType SensitiveType) int {
 		return 4
 	case TypeBirthDate:
 		return 5
-	default:
+	case TypeGeneric:
 		return 6
+	default:
+		return 7
 	}
 }
 
-func isSupportedSensitiveType(sensitiveType SensitiveType) bool {
+func isMaskSensitiveType(sensitiveType SensitiveType) bool {
 	switch sensitiveType {
 	case TypePhone, TypeEmail, TypeIDCard, TypeBankCard, TypeIP, TypeBirthDate:
 		return true
 	default:
 		return false
 	}
+}
+
+func isHashSensitiveType(sensitiveType SensitiveType) bool {
+	return isMaskSensitiveType(sensitiveType) || sensitiveType == TypeGeneric
 }
 
 func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResult, RedactReport) {
@@ -144,7 +193,7 @@ func (redactor *resultRedactor) ApplyWithSourceColumns(
 				continue
 			}
 			value := copyResult.Rows[rowIndex][columnIndex]
-			masked, changed := applyRule(rule, value)
+			masked, changed := applyRule(rule, value, redactor.hasher)
 			if changed {
 				copyResult.Rows[rowIndex][columnIndex] = masked
 				report.MaskedCells++
@@ -154,7 +203,13 @@ func (redactor *resultRedactor) ApplyWithSourceColumns(
 	return copyResult, report
 }
 
-func applyRule(rule redactorRule, value string) (string, bool) {
+func applyRule(rule redactorRule, value string, hash *hasher) (string, bool) {
+	if rule.algorithm == AlgoHash {
+		if isEmptySensitiveValue(value) || hash == nil {
+			return value, false
+		}
+		return hash.fingerprint(value), true
+	}
 	if rule.algorithm != AlgoMask {
 		return value, false
 	}

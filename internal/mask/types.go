@@ -16,6 +16,8 @@ const (
 	TypeIP SensitiveType = "ip"
 	// TypeBirthDate masks recognized calendar dates and supported timestamps.
 	TypeBirthDate SensitiveType = "birthdate"
+	// TypeGeneric identifies a general sensitive value supported by hashing.
+	TypeGeneric SensitiveType = "generic"
 )
 
 // RedactedFallback is the fail-closed output for a non-empty value whose
@@ -27,9 +29,8 @@ type Algorithm string
 
 const (
 	AlgoMask Algorithm = "mask"
-	// These algorithms are reserved capabilities. NewRedactor currently
-	// accepts only AlgoMask for execution.
-	AlgoHash  Algorithm = "hash"
+	AlgoHash Algorithm = "hash"
+	// These algorithms are reserved capabilities and are not executable.
 	AlgoRange Algorithm = "range"
 	AlgoBlock Algorithm = "block"
 )
@@ -56,4 +57,8 @@ var (
 	ErrUnsupportedAlgorithm = errors.New("unsupported masking algorithm")
 	// ErrDuplicateMaskColumn indicates duplicate normalized rule columns.
 	ErrDuplicateMaskColumn = errors.New("duplicate mask column")
+	// ErrHashKeyRequired indicates that hash redaction has no configured key.
+	ErrHashKeyRequired = errors.New("hash redaction key is required")
+	// ErrHashKeyTooShort indicates that the hash key is shorter than 32 bytes.
+	ErrHashKeyTooShort = errors.New("hash redaction key must be at least 32 bytes")
 )

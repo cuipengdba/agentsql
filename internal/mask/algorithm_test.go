@@ -22,6 +22,15 @@ func runMaskTests(t *testing.T, mask func(string) (string, bool), tests []maskTe
 	}
 }
 
+func TestIsEmptySensitiveValueTrimsOnlyForSentinelDetection(t *testing.T) {
+	for _, value := range []string{"", " ", "\t\r\n", "NULL", " null ", "<nil>", " <NIL> "} {
+		require.True(t, isEmptySensitiveValue(value), value)
+	}
+	for _, value := range []string{"0", " alice ", "NULL value", "<nil>x"} {
+		require.False(t, isEmptySensitiveValue(value), value)
+	}
+}
+
 func TestMaskIDCard(t *testing.T) {
 	runMaskTests(t, maskIDCard, []maskTestCase{
 		{name: "18 digit uppercase X", input: "11010519491231002X", expected: "110105********002X", changed: true},

@@ -176,5 +176,6 @@ func isASCIIDigit(character byte) bool {
 }
 
 func isEmptySensitiveValue(value string) bool {
-	return value == "" || strings.EqualFold(value, "NULL") || strings.EqualFold(value, "<nil>")
+	trimmed := strings.TrimSpace(value)
+	return trimmed == "" || strings.EqualFold(trimmed, "NULL") || strings.EqualFold(trimmed, "<nil>")
 }
