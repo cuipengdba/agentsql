@@ -14,7 +14,7 @@ export const genericSensitiveTypeDefinition = {
   label: "通用敏感值",
   color: "purple",
   example: "h.9f8e7d6c…",
-  description: "不依赖手机号/证件等格式，对整列原值统一哈希；仅支持 hash 算法",
+  description: "不依赖手机号/证件等格式，对整列原值整体哈希或阻断；仅支持 hash/block 算法",
 } as const;
 
 export const sensitiveTypeDefinitions = [
@@ -44,6 +44,7 @@ export function isSensitiveType(value: unknown): value is SensitiveType {
 
 export const MASK_ALGORITHM = "mask" as const;
 export const HASH_ALGORITHM = "hash" as const;
+export const BLOCK_ALGORITHM = "block" as const;
 export const HASH_REDACTION_UNAVAILABLE_MESSAGE = "服务端尚未配置脱敏哈希密钥 AGENTSQL_REDACTION_HASH_KEY，无法启用哈希规则；可先保存为停用状态，配置密钥并重启后再启用";
 
 export const maskAlgorithmDefinitions = [
@@ -52,12 +53,21 @@ export const maskAlgorithmDefinitions = [
     label: "打码（mask）",
     color: "blue",
     description: "确定性部分遮蔽，保留可读片段，如 138****5678",
+    example: "138****5678",
   },
   {
     value: HASH_ALGORITHM,
     label: "哈希指纹（hash）",
     color: "purple",
     description: "不可逆 HMAC 指纹；相同原值结果一致，可用于跨表等值关联/去重，但无法还原原文；需在服务端配置 AGENTSQL_REDACTION_HASH_KEY，否则启用会被拒绝",
+    example: "h.9f8e7d6c…",
+  },
+  {
+    value: BLOCK_ALGORITHM,
+    label: "阻断（block）",
+    color: "red",
+    description: "命中列的每个非空值统一替换为固定 ***，不保留任何原文片段、长度或等值关系，适用于最高敏感列",
+    example: "***",
   },
 ] as const;
 
@@ -77,13 +87,36 @@ export function isMaskAlgorithm(value: unknown): value is MaskAlgorithm {
 
 export function sensitiveTypeOptionsForAlgorithm(algorithm: MaskAlgorithm) {
   return sensitiveTypeDefinitions
-    .filter(({ value }) => algorithm === HASH_ALGORITHM || value !== GENERIC_SENSITIVE_TYPE)
-    .map(({ value, label, example }) => ({
+    .filter(({ value }) => algorithm !== MASK_ALGORITHM || value !== GENERIC_SENSITIVE_TYPE)
+    .map(({ value, label }) => ({
       value,
-      label: algorithm === HASH_ALGORITHM ? `${label} · 原值整体哈希` : `${label} · ${example}`,
+      label: `${label} · ${sensitiveTypePresentationForAlgorithm(value, algorithm).optionDetail}`,
     }));
 }
 
 export function isSensitiveTypeAllowedForAlgorithm(type: SensitiveType, algorithm: MaskAlgorithm): boolean {
-  return algorithm === HASH_ALGORITHM || type !== GENERIC_SENSITIVE_TYPE;
+  return algorithm !== MASK_ALGORITHM || type !== GENERIC_SENSITIVE_TYPE;
+}
+
+export function sensitiveTypePresentationForAlgorithm(type: SensitiveType, algorithm: MaskAlgorithm) {
+  const meta = sensitiveTypeMeta[type];
+  if (algorithm === HASH_ALGORITHM) {
+    return {
+      optionDetail: "原值整体哈希",
+      description: `按“${meta.label}”记录敏感类型，对该列原值整体哈希。`,
+      example: maskAlgorithmMeta[HASH_ALGORITHM].example,
+    };
+  }
+  if (algorithm === BLOCK_ALGORITHM) {
+    return {
+      optionDetail: "原值整体阻断为 ***",
+      description: `按“${meta.label}”记录敏感类型，对该列原值整体阻断为固定 ***，不保留原文片段、长度或等值关系。`,
+      example: maskAlgorithmMeta[BLOCK_ALGORITHM].example,
+    };
+  }
+  return {
+    optionDetail: meta.example,
+    description: meta.description,
+    example: meta.example,
+  };
 }

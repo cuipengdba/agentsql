@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import {
+  BLOCK_ALGORITHM,
   GENERIC_SENSITIVE_TYPE,
   HASH_ALGORITHM,
   HASH_REDACTION_UNAVAILABLE_MESSAGE,
@@ -13,8 +14,8 @@ import {
   isSensitiveTypeAllowedForAlgorithm,
   maskAlgorithmMeta,
   maskAlgorithmOptions,
-  sensitiveTypeMeta,
   sensitiveTypeOptionsForAlgorithm,
+  sensitiveTypePresentationForAlgorithm,
   sensitiveTypes,
 } from "@/constants/sensitiveTypes";
 
@@ -114,7 +115,7 @@ export function MaskRuleFormDrawer({
     if (!isSensitiveTypeAllowedForAlgorithm(values.sensitive_type, values.algo)) {
       form.setFields([
         { name: "algo", errors: ["打码（mask）不支持通用敏感值"] },
-        { name: "sensitive_type", errors: ["通用敏感值仅支持 hash 算法"] },
+        { name: "sensitive_type", errors: ["通用敏感值仅支持 hash/block"] },
       ]);
       return;
     }
@@ -130,7 +131,9 @@ export function MaskRuleFormDrawer({
     const failure = await onSubmit(input);
     if (!failure) return;
     if (failure.status === 503 && failure.errorCode === "HASH_REDACTION_UNAVAILABLE") {
-      void message.error(HASH_REDACTION_UNAVAILABLE_MESSAGE);
+      void message.error(values.algo === HASH_ALGORITHM
+        ? HASH_REDACTION_UNAVAILABLE_MESSAGE
+        : "服务端拒绝当前脱敏规则操作，请刷新后重试");
       return;
     }
     if (failure.status === 422 && failure.errorCode === "INVALID_MASK_RULE") {
@@ -147,8 +150,9 @@ export function MaskRuleFormDrawer({
 
   const algorithm = isMaskAlgorithm(selectedAlgorithm) ? selectedAlgorithm : MASK_ALGORITHM;
   const type = isSensitiveType(selectedSensitiveType) ? selectedSensitiveType : sensitiveTypes[0];
-  const typeMeta = sensitiveTypeMeta[type];
+  const typePresentation = sensitiveTypePresentationForAlgorithm(type, algorithm);
   const isHash = algorithm === HASH_ALGORITHM;
+  const isBlock = algorithm === BLOCK_ALGORITHM;
 
   return (
     <Drawer
@@ -218,19 +222,26 @@ export function MaskRuleFormDrawer({
             description="相同原值会得到相同指纹，可用于跨表等值关联和去重，也会暴露相等关系；指纹无法还原原文。启用前必须在服务端配置 AGENTSQL_REDACTION_HASH_KEY。"
           />
         ) : null}
+        {isBlock ? (
+          <Alert
+            showIcon
+            type="info"
+            message="整值阻断为固定 ***"
+            description="命中列的每个非空值都会统一替换为固定 ***，无需配置密钥，不可还原也不可关联。"
+          />
+        ) : null}
         <Form.Item
           name="sensitive_type"
           label="敏感类型"
-          extra={isHash && type !== GENERIC_SENSITIVE_TYPE
-            ? `按“${typeMeta.label}”记录敏感类型，对该列原值整体哈希。`
-            : typeMeta.description}
+          extra={typePresentation.description}
           rules={[{ required: true, message: "请选择敏感类型" }]}
         >
           <Select options={sensitiveTypeOptionsForAlgorithm(algorithm)} />
         </Form.Item>
         <Typography.Paragraph type="secondary">
           <Typography.Text strong>脱敏示例：</Typography.Text>{" "}
-          {isHash ? <><code>h.9f8e7d6c…</code>（定长、不可逆）</> : <code>{typeMeta.example}</code>}
+          <code>{typePresentation.example}</code>
+          {isHash ? "（定长、不可逆）" : null}
         </Typography.Paragraph>
         <Form.Item
           name="enabled"

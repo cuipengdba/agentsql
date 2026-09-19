@@ -8,7 +8,11 @@ import { createMaskRule, deleteMaskRule, listMaskRules, updateMaskRule } from "@
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { maskAlgoMeta, sensitiveTypeMeta } from "@/constants/labels";
-import { HASH_REDACTION_UNAVAILABLE_MESSAGE } from "@/constants/sensitiveTypes";
+import {
+  HASH_ALGORITHM,
+  HASH_REDACTION_UNAVAILABLE_MESSAGE,
+  sensitiveTypePresentationForAlgorithm,
+} from "@/constants/sensitiveTypes";
 import { apiErrorMessage, formatDateTime, httpStatus, isCanceled } from "@/pages/config/utils";
 import { MaskRuleFormDrawer } from "@/pages/maskrules/MaskRuleFormDrawer";
 import type { MaskRuleSubmitFailure } from "@/pages/maskrules/MaskRuleFormDrawer";
@@ -212,8 +216,11 @@ export function MaskRules() {
     } catch (error: unknown) {
       if (!mountedRef.current || isCanceled(error)) return;
       const failure = maskRuleSubmitFailure(error, enabled ? "启用脱敏规则失败" : "停用脱敏规则失败");
-      if (failure.status === 503 && failure.errorCode === "HASH_REDACTION_UNAVAILABLE") void message.error(HASH_REDACTION_UNAVAILABLE_MESSAGE);
-      else if (failure.status === 409) void message.warning("同名列存在规则冲突，请刷新后核对");
+      if (failure.status === 503 && failure.errorCode === "HASH_REDACTION_UNAVAILABLE") {
+        void message.error(record.algo === HASH_ALGORITHM
+          ? HASH_REDACTION_UNAVAILABLE_MESSAGE
+          : "服务端拒绝当前脱敏规则操作，请刷新后重试");
+      } else if (failure.status === 409) void message.warning("同名列存在规则冲突，请刷新后核对");
       else void message.error(failure.message);
     } finally {
       if (mountedRef.current) setTogglingID("");
@@ -241,9 +248,8 @@ export function MaskRules() {
         const meta = sensitiveTypeMeta[value as keyof typeof sensitiveTypeMeta];
         const tag = <Tag color={meta?.color || "default"}>{meta?.label || "未知类型"}</Tag>;
         if (!meta) return tag;
-        const title = record.algo === "hash"
-          ? "对该列原值整体生成定长、不可逆的 HMAC 指纹"
-          : `脱敏后示例：${meta.example}`;
+        const presentation = sensitiveTypePresentationForAlgorithm(record.sensitive_type, record.algo);
+        const title = `${presentation.description} 脱敏后示例：${presentation.example}`;
         return <Tooltip title={title}>{tag}</Tooltip>;
       },
     },
