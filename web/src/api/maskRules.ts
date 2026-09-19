@@ -21,7 +21,10 @@ export function createMaskRule(input: MaskRuleInput): Promise<MaskRuleView> {
   return request<MaskRuleView>({
     method: "POST",
     url: "/mask_rules",
-    data: input,
+    data: {
+      ...input,
+      schema_name: input.schema_name ?? "",
+    },
     suppressErrorMessage: true,
   });
 }
@@ -30,7 +33,10 @@ export function updateMaskRule(id: string, input: MaskRuleInput): Promise<MaskRu
   return request<MaskRuleView>({
     method: "PUT",
     url: `/mask_rules/${encodeURIComponent(id)}`,
-    data: input,
+    data: {
+      ...input,
+      schema_name: input.schema_name ?? "",
+    },
     suppressErrorMessage: true,
   });
 }

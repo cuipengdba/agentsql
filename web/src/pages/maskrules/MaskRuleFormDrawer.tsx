@@ -1,6 +1,6 @@
 import { SaveOutlined } from "@ant-design/icons";
 import { Alert, Button, Drawer, Form, Input, InputNumber, Select, Space, Switch, Typography, message } from "antd";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import {
@@ -41,6 +41,8 @@ interface MaskRuleFormDrawerProps {
 interface MaskRuleFormValues {
   id: string;
   datasource_id?: string;
+  schema_name?: string;
+  table_name?: string;
   column_name: string;
   sensitive_type: string;
   algo: string;
@@ -83,6 +85,10 @@ export function MaskRuleFormDrawer({
   onSubmit,
 }: MaskRuleFormDrawerProps) {
   const [form] = Form.useForm<MaskRuleFormValues>();
+  const [scopeConflict, setScopeConflict] = useState<MaskRuleSubmitFailure | null>(null);
+  const selectedDatasourceID = Form.useWatch("datasource_id", form);
+  const selectedSchemaName = Form.useWatch("schema_name", form);
+  const selectedTableName = Form.useWatch("table_name", form);
   const selectedAlgorithm = Form.useWatch("algo", form);
   const selectedSensitiveType = Form.useWatch("sensitive_type", form);
   const selectedBucketWidth = Form.useWatch("range_bucket_width", form);
@@ -91,10 +97,13 @@ export function MaskRuleFormDrawer({
 
   useEffect(() => {
     if (!open) return;
+    setScopeConflict(null);
     form.resetFields();
     form.setFieldsValue(record ? {
       id: record.id,
       datasource_id: record.datasource_id ?? undefined,
+      schema_name: record.schema_name ?? "",
+      table_name: record.table_name ?? "",
       column_name: record.column_name,
       sensitive_type: isSensitiveTypeAllowedForAlgorithm(record.sensitive_type, record.algo)
         ? record.sensitive_type
@@ -113,6 +122,8 @@ export function MaskRuleFormDrawer({
     } : {
       id: generateMaskRuleID(),
       datasource_id: undefined,
+      schema_name: "",
+      table_name: "",
       column_name: "",
       sensitive_type: sensitiveTypes[0],
       algo: MASK_ALGORITHM,
@@ -204,7 +215,8 @@ export function MaskRuleFormDrawer({
     const input: MaskRuleInput = {
       id: values.id,
       datasource_id: values.datasource_id ?? null,
-      table_name: record ? record.table_name : "",
+      schema_name: values.schema_name ?? "",
+      table_name: values.table_name ?? "",
       column_name: values.column_name,
       sensitive_type: values.sensitive_type,
       algo: values.algo,
@@ -259,6 +271,10 @@ export function MaskRuleFormDrawer({
       void message.error(backendMessage);
       return;
     }
+    if (failure.status === 409 && failure.errorCode === "MASK_RULE_SCOPE_CONFLICT") {
+      setScopeConflict(failure);
+      return;
+    }
     void message.error(failure.message);
   };
 
@@ -271,6 +287,14 @@ export function MaskRuleFormDrawer({
   const isHash = algorithm === HASH_ALGORITHM;
   const isBlock = algorithm === BLOCK_ALGORITHM;
   const isRange = algorithm === RANGE_ALGORITHM;
+  const scopeInvalid = Boolean(selectedSchemaName?.trim()) && !selectedTableName?.trim();
+  const selectedDatasource = datasources.find((datasource) => datasource.id === selectedDatasourceID);
+  const datasourceType = selectedDatasource?.db_type.trim().toLowerCase() || "";
+  const schemaHelp = datasourceType === "mysql"
+    ? "可选，留空即当前库"
+    : datasourceType === "postgres" || datasourceType === "postgresql"
+      ? "可选，留空匹配任意模式，通常无需填写"
+      : "可选；留空时按表名匹配，填写后精确限定模式";
   const rangeParamsValid = type === NUMBER_SENSITIVE_TYPE
     ? isIntegerInRange(selectedBucketWidth, 1, 1_000_000_000)
       && isIntegerInRange(selectedBucketOffset, -1_000_000_000, 1_000_000_000)
@@ -299,14 +323,28 @@ export function MaskRuleFormDrawer({
               type="primary"
               icon={<SaveOutlined />}
               loading={loading}
-              disabled={isRange && !rangeParamsValid}
+              disabled={scopeInvalid || (isRange && !rangeParamsValid)}
               onClick={() => form.submit()}
             >保存</Button>
           </Space>
         </div>
       )}
     >
-      <Form form={form} layout="vertical" requiredMark="optional" onFinish={submit}>
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark="optional"
+        onFinish={submit}
+        onValuesChange={() => setScopeConflict(null)}
+      >
+        {scopeConflict ? (
+          <Alert
+            showIcon
+            type="error"
+            message={scopeConflict.message}
+            description="该列已存在不同算法的全局/表级规则，请把两者算法改成一致，或删除其中一条"
+          />
+        ) : null}
         <Form.Item name="datasource_id" label="数据源">
           <Select
             allowClear
@@ -330,9 +368,53 @@ export function MaskRuleFormDrawer({
         >
           <Input readOnly={record !== null} />
         </Form.Item>
-        <Typography.Paragraph type="secondary">
-          表名为预留字段，v0.1 按列名匹配、不参与表+列匹配；编辑时会保留历史表名。
-        </Typography.Paragraph>
+        <Alert
+          showIcon
+          type="info"
+          message="三档作用域"
+          description="模式和表都留空为全局列规则；只填写表名为表.列规则；模式和表都填写为模式.表.列规则。模式不能脱离表名单独填写。"
+        />
+        <Form.Item
+          name="schema_name"
+          label="模式 Schema（可选）"
+          dependencies={["table_name"]}
+          extra={schemaHelp}
+          rules={[
+            {
+              validator: (_rule, value: string | undefined) => {
+                if (value && value.trim() !== value) return Promise.reject(new Error("模式 Schema 首尾不能包含空格"));
+                const tableName: unknown = form.getFieldValue("table_name");
+                if (value?.trim() && (typeof tableName !== "string" || !tableName.trim())) {
+                  return Promise.reject(new Error("填写模式 Schema 时必须同时填写表名"));
+                }
+                return Promise.resolve();
+              },
+            },
+          ]}
+        >
+          <Input placeholder={schemaHelp} />
+        </Form.Item>
+        <Form.Item
+          name="table_name"
+          label="表名（可选）"
+          extra="留空时为全局列规则；填写后按表.列作用域精确保护"
+          rules={[
+            {
+              validator: (_rule, value: string | undefined) => {
+                if (value && value.trim() !== value) return Promise.reject(new Error("表名首尾不能包含空格"));
+                return Promise.resolve();
+              },
+            },
+          ]}
+        >
+          <Input placeholder="留空为全局列规则，如 customers" />
+        </Form.Item>
+        <Alert
+          showIcon
+          type="warning"
+          message="表级规则启用安全兜底"
+          description="在多表 JOIN、SELECT * 或无法确定列归属时，命中表级规则的同名列会被安全阻断（结果显示 ***）；请给列加表限定符（如 customers.phone）以精确匹配。"
+        />
         <Form.Item
           name="column_name"
           label="列名"

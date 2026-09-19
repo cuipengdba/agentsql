@@ -13,6 +13,7 @@ import {
   Space,
   Statistic,
   Switch,
+  Tag,
   Typography,
   message,
 } from "antd";
@@ -24,6 +25,7 @@ import {
   discoverSensitiveColumns,
   discoveryApplyResponseFromError,
   type DiscoveryApplyResponse,
+  type DiscoveryApplyItemView,
   type DiscoveryApplyStatus,
   type DiscoveryResponse,
   type DiscoveryTableRef,
@@ -69,7 +71,7 @@ function statusMapFromOutcome(outcome: DiscoveryApplyResponse): Map<string, Disc
   const statuses = new Map<string, DiscoveryApplyStatus>();
   const add = (status: DiscoveryApplyStatus, items: DiscoveryApplyResponse[keyof Pick<DiscoveryApplyResponse,
     "created" | "existing" | "covered_by_global" | "conflicts" | "ambiguous">]) => {
-    items.forEach((item) => statuses.set(item.column.trim().toLowerCase(), status));
+    items.forEach((item) => statuses.set(discoveryApplyScopeKey(item), status));
   };
   add("created", outcome.created);
   add("existing", outcome.existing);
@@ -77,6 +79,16 @@ function statusMapFromOutcome(outcome: DiscoveryApplyResponse): Map<string, Disc
   add("conflict", outcome.conflicts);
   add("ambiguous", outcome.ambiguous);
   return statuses;
+}
+
+function discoveryApplyScopeKey(item: Pick<DiscoveryApplyItemView, "table" | "column">): string {
+  return `${item.table?.trim() || ""}\u0000${item.column.trim().toLowerCase()}`;
+}
+
+function discoveryApplyScopeLabel(item: DiscoveryApplyItemView): string {
+  const schema = item.schema?.trim() || "";
+  const table = item.table?.trim() || "未指定表";
+  return schema ? `${schema}.${table}` : table;
 }
 
 function applySummary(outcome: DiscoveryApplyResponse): string {
@@ -334,7 +346,17 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
           message={applySummary(outcome) || "未生成新草稿"}
           description={(
             <div className="dsc-outcome-copy">
-              <p>新草稿默认 enabled=false，不会生效。作用域为“数据源 + 列名”，table_name 留空，同名列会统一生效；请到“脱敏规则”页核对后手动启用。</p>
+              <p>按 数据源 + 表.列 精确作用域生成 table-only 草稿（模式留空、表名为实际表，默认禁用，人工确认后启用）；已有启用全局规则覆盖的列将跳过。</p>
+              {outcome.created.length > 0 ? (
+                <div>
+                  <Typography.Text type="secondary">新建草稿：</Typography.Text>
+                  {outcome.created.map((item, index) => (
+                    <Tag key={`${discoveryApplyScopeKey(item)}-${index}`}>
+                      {discoveryApplyScopeLabel(item)} · {item.column}
+                    </Tag>
+                  ))}
+                </div>
+              ) : null}
               {outcome.counts.conflicts > 0 ? <p>冲突项：同名列已存在不同规则，请先在脱敏规则页比较类型与算法。</p> : null}
               {outcome.counts.ambiguous > 0 ? <p>待确认项：多个表的同名列识别为不同类别，请缩小到单表重新发现并人工确认。</p> : null}
               <Button size="small" type="primary" onClick={() => navigate("/mask-rules")}>前往脱敏规则</Button>

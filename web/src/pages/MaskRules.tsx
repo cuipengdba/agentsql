@@ -46,6 +46,7 @@ function completeMaskRuleInput(record: MaskRuleView, enabled: boolean): MaskRule
   const input: MaskRuleInput = {
     id: record.id,
     datasource_id: record.datasource_id,
+    schema_name: record.schema_name ?? "",
     table_name: record.table_name,
     column_name: record.column_name,
     sensitive_type: record.sensitive_type,
@@ -199,7 +200,9 @@ export function MaskRules() {
     } catch (error: unknown) {
       if (!mountedRef.current || mutationSequenceRef.current !== sequence || isCanceled(error)) return null;
       const failure = maskRuleSubmitFailure(error, editing ? "更新脱敏规则失败" : "创建脱敏规则失败");
-      if (failure.status === 409) failure.message = "该数据源/全局范围下此列名已有规则";
+      if (failure.status === 409 && failure.errorCode === "MASK_RULE_CONFLICT") {
+        failure.message = "相同数据源、模式、表和列下已有规则";
+      }
       return failure;
     } finally {
       if (mountedRef.current && mutationSequenceRef.current === sequence) setSaving(false);
@@ -256,7 +259,22 @@ export function MaskRules() {
         <Tooltip title={value}><span>{datasourceNames.get(value) || value}</span></Tooltip>
       ) : <Tag color="default">全局</Tag>,
     },
-    { title: "表名（预留）", dataIndex: "table_name", width: 170, render: (value: string) => value ? <code>{value}</code> : <Typography.Text type="secondary">留空（正常）</Typography.Text> },
+    {
+      title: "模式 / 表",
+      key: "scope",
+      width: 190,
+      render: (_, record) => {
+        const schemaName = record.schema_name?.trim() || "";
+        const tableName = record.table_name?.trim() || "";
+        if (!schemaName && !tableName) return <Tag color="processing">全局</Tag>;
+        const scope = schemaName ? `${schemaName}.${tableName}` : tableName;
+        return (
+          <Tooltip title="无法定位表归属的受保护同名列将被阻断为 ***">
+            <code>{scope}</code>
+          </Tooltip>
+        );
+      },
+    },
     { title: "列名", dataIndex: "column_name", width: 170, render: (value: string) => <code>{value}</code> },
     {
       title: "敏感类型",
@@ -361,15 +379,15 @@ export function MaskRules() {
   return (
     <PageContainer
       title="脱敏"
-      subtitle="按数据源 + 规范化列名匹配；发现草稿需人工核对并启用"
+      subtitle="支持全局列、表.列与模式.表.列三档作用域；发现草稿需人工核对并启用"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增脱敏规则</Button>}
     >
       <Alert
         className="msk-info-alert"
         type="info"
         showIcon
-        message="脱敏按 数据源 + 列名 匹配，同名列统一生效；首版不支持 表.列 级规则"
-        description="敏感发现生成的规则 table_name 留空属于正常行为。标记为“草稿·未生效”的规则不会参与运行时脱敏，请核对数据源、列名、类型与算法后再启用。"
+        message="脱敏规则支持全局列、表.列与模式.表.列作用域"
+        description="模式和表都留空时按全局列名匹配；填写表名后按表.列匹配，模式可进一步限定。无法定位表归属的受保护同名列会安全阻断为 ***。敏感发现生成 table-only 草稿，默认不生效，需人工核对后启用。"
       />
       <div className="msk-toolbar">
         <Space wrap>

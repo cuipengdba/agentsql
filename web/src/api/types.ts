@@ -145,6 +145,7 @@ export interface RuleInput {
 export interface MaskRuleView {
   id: string;
   datasource_id?: string | null;
+  schema_name?: string;
   table_name: string;
   column_name: string;
   sensitive_type: SensitiveType;
@@ -160,6 +161,7 @@ export interface MaskRuleView {
 export interface MaskRuleInput {
   id: string;
   datasource_id?: string | null;
+  schema_name?: string;
   table_name?: string;
   column_name: string;
   sensitive_type: SensitiveType;

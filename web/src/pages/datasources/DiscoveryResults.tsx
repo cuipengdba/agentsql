@@ -34,7 +34,9 @@ interface DiscoveryResultsProps {
 }
 
 export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionChange }: DiscoveryResultsProps) {
-  const statusFor = (finding: DiscoveryFinding) => statuses.get(finding.column.trim().toLowerCase());
+  const statusFor = (finding: DiscoveryFinding) => statuses.get(
+    `${finding.table.trim()}\u0000${finding.column.trim().toLowerCase()}`,
+  );
   const columns: TableProps<DiscoveryFinding>["columns"] = [
     {
       title: "表",
@@ -92,7 +94,7 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
       <div className="dsc-results-heading">
         <div>
           <h3>发现结果</h3>
-          <p>启发式识别可能存在误报或漏报，生成草稿前请核对列用途。</p>
+          <p>启发式识别可能存在误报或漏报；列表保留实际 schema.table 来源，生成草稿前请核对列用途。</p>
         </div>
         <Typography.Text type="secondary">已选 {selectedKeys.length} 项</Typography.Text>
       </div>
