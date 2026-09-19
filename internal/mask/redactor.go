@@ -2,7 +2,6 @@ package mask
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 )
@@ -25,7 +24,23 @@ type SourceAwareRedactor interface {
 	ApplyWithSourceColumns(result model.QueryResult, sources []string) (model.QueryResult, RedactReport)
 }
 
+// ColumnSource identifies a result column's physical source column and its
+// uniquely resolved physical relation. Source.Table is empty when unresolved.
+type ColumnSource struct {
+	Column string
+	Source model.ObjectRef
+}
+
+// RelationSourceAwareRedactor applies rules using both physical column sources
+// and all physical relations that may contribute to the statement.
+type RelationSourceAwareRedactor interface {
+	Redactor
+	ApplyWithColumnSources(result model.QueryResult, sources []ColumnSource, possibleRelations []model.ObjectRef) (model.QueryResult, RedactReport)
+}
+
 type redactorRule struct {
+	schema           string
+	table            string
 	column           string
 	sensitiveType    SensitiveType
 	algorithm        Algorithm
@@ -35,8 +50,11 @@ type redactorRule struct {
 }
 
 type resultRedactor struct {
-	rules  []redactorRule
-	hasher *hasher
+	globalRules         map[string]redactorRule
+	exactScopedRules    map[string]redactorRule
+	wildcardScopedRules map[string]redactorRule
+	scopedRulesByColumn map[string][]redactorRule
+	hasher              *hasher
 }
 
 type redactorOptions struct {
@@ -128,13 +146,21 @@ func validateRangeParams(rule Rule) error {
 
 // NewRedactor validates and freezes the supplied rules for deterministic use.
 func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
-	validated := make([]redactorRule, 0, len(rules))
+	globalRules := make(map[string]redactorRule)
+	exactScopedRules := make(map[string]redactorRule)
+	wildcardScopedRules := make(map[string]redactorRule)
+	scopedRulesByColumn := make(map[string][]redactorRule)
 	hasHashRule := false
 	for index, rule := range rules {
 		if err := ValidateRule(rule); err != nil {
 			return nil, fmt.Errorf("mask rule %d: %w", index, err)
 		}
+		if rule.Schema != "" && rule.Table == "" {
+			return nil, fmt.Errorf("mask rule %d: schema requires table", index)
+		}
 		compiled := redactorRule{
+			schema:        rule.Schema,
+			table:         rule.Table,
 			column:        normalizeColumnName(rule.Column),
 			sensitiveType: rule.SensitiveType,
 			algorithm:     rule.Algorithm,
@@ -153,24 +179,27 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 				}
 			}
 		}
-		validated = append(validated, compiled)
+		if compiled.table == "" {
+			if _, exists := globalRules[compiled.column]; exists {
+				return nil, fmt.Errorf("mask rule %q: %w", compiled.column, ErrDuplicateMaskColumn)
+			}
+			globalRules[compiled.column] = compiled
+		} else if compiled.schema == "" {
+			key := wildcardScopedRuleKey(compiled.table, compiled.column)
+			if _, exists := wildcardScopedRules[key]; exists {
+				return nil, fmt.Errorf("mask rule %q: %w", compiled.column, ErrDuplicateMaskColumn)
+			}
+			wildcardScopedRules[key] = compiled
+			scopedRulesByColumn[compiled.column] = append(scopedRulesByColumn[compiled.column], compiled)
+		} else {
+			key := exactScopedRuleKey(compiled.schema, compiled.table, compiled.column)
+			if _, exists := exactScopedRules[key]; exists {
+				return nil, fmt.Errorf("mask rule %q: %w", compiled.column, ErrDuplicateMaskColumn)
+			}
+			exactScopedRules[key] = compiled
+			scopedRulesByColumn[compiled.column] = append(scopedRulesByColumn[compiled.column], compiled)
+		}
 		hasHashRule = hasHashRule || rule.Algorithm == AlgoHash
-	}
-	sort.SliceStable(validated, func(left, right int) bool {
-		if validated[left].column != validated[right].column {
-			return validated[left].column < validated[right].column
-		}
-		leftPriority := SensitiveTypeOrder(validated[left].sensitiveType)
-		rightPriority := SensitiveTypeOrder(validated[right].sensitiveType)
-		if leftPriority != rightPriority {
-			return leftPriority < rightPriority
-		}
-		return false
-	})
-	for index := 1; index < len(validated); index++ {
-		if validated[index-1].column == validated[index].column {
-			return nil, fmt.Errorf("mask rule %q: %w", validated[index].column, ErrDuplicateMaskColumn)
-		}
 	}
 
 	options := redactorOptions{}
@@ -187,7 +216,21 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 			return nil, err
 		}
 	}
-	return &resultRedactor{rules: validated, hasher: hash}, nil
+	return &resultRedactor{
+		globalRules:         globalRules,
+		exactScopedRules:    exactScopedRules,
+		wildcardScopedRules: wildcardScopedRules,
+		scopedRulesByColumn: scopedRulesByColumn,
+		hasher:              hash,
+	}, nil
+}
+
+func exactScopedRuleKey(schema, table, column string) string {
+	return schema + "\x00" + table + "\x00" + column
+}
+
+func wildcardScopedRuleKey(table, column string) string {
+	return table + "\x00" + column
 }
 
 // SensitiveTypeOrder returns the shared deterministic sort key: phone, email,
@@ -236,48 +279,180 @@ func isRangeSensitiveType(sensitiveType SensitiveType) bool {
 }
 
 func (redactor *resultRedactor) Apply(result model.QueryResult) (model.QueryResult, RedactReport) {
-	return redactor.ApplyWithSourceColumns(result, nil)
+	return redactor.ApplyWithColumnSources(result, nil, nil)
 }
 
 func (redactor *resultRedactor) ApplyWithSourceColumns(
 	result model.QueryResult,
 	sources []string,
 ) (model.QueryResult, RedactReport) {
+	var columnSources []ColumnSource
+	if sources != nil && len(sources) == len(result.Columns) {
+		columnSources = make([]ColumnSource, len(sources))
+		for index, source := range sources {
+			columnSources[index].Column = source
+		}
+	}
+	return redactor.ApplyWithColumnSources(result, columnSources, nil)
+}
+
+func (redactor *resultRedactor) ApplyWithColumnSources(
+	result model.QueryResult,
+	sources []ColumnSource,
+	possibleRelations []model.ObjectRef,
+) (model.QueryResult, RedactReport) {
 	copyResult := cloneQueryResult(result)
 	report := RedactReport{}
-	if redactor == nil || len(redactor.rules) == 0 || len(copyResult.Columns) == 0 {
+	if redactor == nil || !redactor.hasRules() || len(copyResult.Columns) == 0 {
 		return copyResult, report
 	}
-	rulesByColumn := make(map[string]redactorRule, len(redactor.rules))
-	for _, rule := range redactor.rules {
-		rulesByColumn[rule.column] = rule
-	}
-	useSources := sources != nil && len(sources) == len(copyResult.Columns)
 	for columnIndex, columnName := range copyResult.Columns {
-		rule, matched := rulesByColumn[normalizeColumnName(columnName)]
-		if !matched && useSources && sources[columnIndex] != "" {
-			rule, matched = rulesByColumn[normalizeColumnName(sources[columnIndex])]
+		var source ColumnSource
+		if columnIndex < len(sources) {
+			source = sources[columnIndex]
 		}
-		if !matched {
+		rule, matched := redactor.matchRule(columnName, source)
+		if matched {
+			report.touchColumn(columnIndex, rule.sensitiveType)
+			for rowIndex := range copyResult.Rows {
+				if columnIndex >= len(copyResult.Rows[rowIndex]) {
+					continue
+				}
+				value := copyResult.Rows[rowIndex][columnIndex]
+				masked, changed := applyRule(rule, value, redactor.hasher)
+				if changed {
+					copyResult.Rows[rowIndex][columnIndex] = masked
+					report.MaskedCells++
+				}
+			}
 			continue
 		}
-		if report.TouchedColumns == nil {
-			report.TouchedColumns = make(map[int]SensitiveType)
+
+		fallbackType, fallback := redactor.unresolvedScopedType(columnName, source.Column, possibleRelations)
+		if !fallback {
+			continue
 		}
-		report.TouchedColumns[columnIndex] = rule.sensitiveType
+		report.touchColumn(columnIndex, fallbackType)
+		maskedCells := 0
 		for rowIndex := range copyResult.Rows {
 			if columnIndex >= len(copyResult.Rows[rowIndex]) {
 				continue
 			}
 			value := copyResult.Rows[rowIndex][columnIndex]
-			masked, changed := applyRule(rule, value, redactor.hasher)
+			masked, changed := applyUnresolvedScopedBlock(value)
 			if changed {
 				copyResult.Rows[rowIndex][columnIndex] = masked
 				report.MaskedCells++
+				maskedCells++
 			}
+		}
+		if maskedCells > 0 {
+			if report.UnresolvedScopedColumns == nil {
+				report.UnresolvedScopedColumns = make(map[int]SensitiveType)
+			}
+			report.UnresolvedScopedColumns[columnIndex] = fallbackType
 		}
 	}
 	return copyResult, report
+}
+
+func (redactor *resultRedactor) hasRules() bool {
+	return len(redactor.globalRules) != 0 || len(redactor.exactScopedRules) != 0 || len(redactor.wildcardScopedRules) != 0
+}
+
+func (redactor *resultRedactor) matchRule(resultName string, source ColumnSource) (redactorRule, bool) {
+	resultColumn := normalizeColumnName(resultName)
+	sourceColumn := normalizeColumnName(source.Column)
+
+	// Tier 1: an explicitly renamed result keeps a global result-name rule's
+	// protection ahead of any weaker scoped source rule.
+	if source.Column != "" && resultName != source.Column {
+		if rule, matched := redactor.globalRules[resultColumn]; matched {
+			return rule, true
+		}
+	}
+
+	// Tier 2: a resolved relation first tries its exact schema, then the
+	// schema-wildcard rule. A source without a schema never guesses one.
+	if source.Source.Table != "" {
+		if source.Source.Schema != "" {
+			if rule, matched := redactor.exactScopedRules[exactScopedRuleKey(source.Source.Schema, source.Source.Table, sourceColumn)]; matched {
+				return rule, true
+			}
+		}
+		if rule, matched := redactor.wildcardScopedRules[wildcardScopedRuleKey(source.Source.Table, sourceColumn)]; matched {
+			return rule, true
+		}
+	}
+
+	// Tiers 3 and 4 preserve the legacy result-name then source-name order.
+	if rule, matched := redactor.globalRules[resultColumn]; matched {
+		return rule, true
+	}
+	if source.Column != "" {
+		if rule, matched := redactor.globalRules[sourceColumn]; matched {
+			return rule, true
+		}
+	}
+	return redactorRule{}, false
+}
+
+func (redactor *resultRedactor) unresolvedScopedType(
+	resultName string,
+	sourceColumnName string,
+	possibleRelations []model.ObjectRef,
+) (SensitiveType, bool) {
+	if len(possibleRelations) == 0 {
+		return "", false
+	}
+	resultColumn := normalizeColumnName(resultName)
+	sourceColumn := normalizeColumnName(sourceColumnName)
+	matched := false
+	var selected SensitiveType
+	consider := func(rule redactorRule) {
+		if !scopedRuleRelationPossible(rule, possibleRelations) {
+			return
+		}
+		if !matched || SensitiveTypeOrder(rule.sensitiveType) < SensitiveTypeOrder(selected) {
+			selected = rule.sensitiveType
+			matched = true
+		}
+	}
+	for _, rule := range redactor.scopedRulesByColumn[resultColumn] {
+		consider(rule)
+	}
+	if sourceColumnName != "" && sourceColumn != resultColumn {
+		for _, rule := range redactor.scopedRulesByColumn[sourceColumn] {
+			consider(rule)
+		}
+	}
+	return selected, matched
+}
+
+func scopedRuleRelationPossible(rule redactorRule, possibleRelations []model.ObjectRef) bool {
+	for _, relation := range possibleRelations {
+		if relation.Table != rule.table {
+			continue
+		}
+		if rule.schema == "" || relation.Schema == rule.schema {
+			return true
+		}
+	}
+	return false
+}
+
+func (report *RedactReport) touchColumn(columnIndex int, sensitiveType SensitiveType) {
+	if report.TouchedColumns == nil {
+		report.TouchedColumns = make(map[int]SensitiveType)
+	}
+	report.TouchedColumns[columnIndex] = sensitiveType
+}
+
+func applyUnresolvedScopedBlock(value string) (string, bool) {
+	if isEmptySensitiveValue(value) {
+		return value, false
+	}
+	return BlockPlaceholder, true
 }
 
 func applyRule(rule redactorRule, value string, hash *hasher) (string, bool) {
@@ -345,3 +520,4 @@ func cloneQueryResult(result model.QueryResult) model.QueryResult {
 
 var _ Redactor = (*resultRedactor)(nil)
 var _ SourceAwareRedactor = (*resultRedactor)(nil)
+var _ RelationSourceAwareRedactor = (*resultRedactor)(nil)

@@ -62,6 +62,8 @@ type RangeParams struct {
 
 // Rule configures redaction for one result-set column.
 type Rule struct {
+	Schema        string
+	Table         string
 	Column        string
 	SensitiveType SensitiveType
 	Algorithm     Algorithm
@@ -75,6 +77,10 @@ type RedactReport struct {
 	// MaskedCells is the number of non-empty cells successfully processed or
 	// replaced fail-closed.
 	MaskedCells int
+	// UnresolvedScopedColumns records scoped-rule columns that were protected
+	// by the fixed block fallback because their physical source was unresolved.
+	// A column is included only when at least one non-empty cell was replaced.
+	UnresolvedScopedColumns map[int]SensitiveType `json:"unresolved_scoped_columns,omitempty"`
 }
 
 var (
