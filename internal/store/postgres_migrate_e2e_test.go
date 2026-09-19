@@ -85,11 +85,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 4, migrationCount)
+	require.Equal(t, 5, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 4, current)
-	require.Equal(t, 4, latest)
+	require.Equal(t, 5, current)
+	require.Equal(t, 5, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -137,8 +137,8 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Equal(t, []string{"audit_logs", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 4, metadataCurrent)
-	require.Equal(t, 4, metadataLatest)
+	require.Equal(t, 5, metadataCurrent)
+	require.Equal(t, 5, metadataLatest)
 	assertPostgresMaskRuleRangeColumns(t, ctx, opened.metaDB)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
@@ -505,18 +505,18 @@ ORDER BY ordinal_position`)
 	require.Equal(t, []string{
 		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 		"created_at", "updated_at", "enabled", "range_bucket_width", "range_bucket_offset",
-		"range_granularity",
+		"range_granularity", "schema_name",
 	}, scanSingleStringColumn(t, rows))
 
 	rows, err = database.QueryContext(ctx, `
 SELECT column_name, data_type, is_nullable, column_default
 FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'mask_rules'
-  AND column_name IN ('range_bucket_width', 'range_bucket_offset', 'range_granularity')
+  AND column_name IN ('range_bucket_width', 'range_bucket_offset', 'range_granularity', 'schema_name')
 ORDER BY ordinal_position`)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rows.Close()) }()
-	wantTypes := []string{"integer", "integer", "text"}
+	wantTypes := []string{"integer", "integer", "text", "text"}
 	index := 0
 	for rows.Next() {
 		var name, dataType, nullable string
@@ -559,8 +559,8 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			require.NoError(t, MigrateMetadata(ctx, database, DialectPostgres, testCase.separated))
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
 			require.NoError(t, err)
-			require.Equal(t, 4, current)
-			require.Equal(t, 4, latest)
+			require.Equal(t, 5, current)
+			require.Equal(t, 5, latest)
 			assertPostgresMaskRuleRangeColumns(t, ctx, database)
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
 			stored, err := repository.Get(ctx, "legacy-v3")
@@ -568,6 +568,8 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			require.Nil(t, stored.RangeBucketWidth)
 			require.Nil(t, stored.RangeBucketOffset)
 			require.Nil(t, stored.RangeGranularity)
+			require.Empty(t, stored.SchemaName)
+			require.Empty(t, stored.TableName)
 		})
 	}
 }
@@ -593,8 +595,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 4, current)
-	require.Equal(t, 4, latest)
+	require.Equal(t, 5, current)
+	require.Equal(t, 5, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }
@@ -688,6 +690,17 @@ RETURNING created_at, updated_at`,
 	).Scan(&createdAt, &updatedAt))
 	require.False(t, createdAt.IsZero())
 	require.False(t, updatedAt.IsZero())
+
+	_, err = database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo)
+VALUES
+  ('scope-users','ds_pg_migration','','users','email','email','mask'),
+  ('scope-customers','ds_pg_migration','','customers','email','email','mask')`)
+	require.NoError(t, err, "different tables may use the same normalized column")
+	_, err = database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo)
+VALUES('scope-duplicate',' ds_pg_migration ','','users',' Email ','email','mask')`)
+	require.Error(t, err, "the full datasource/schema/table/column key remains unique")
 }
 
 func scanSingleStringColumn(t *testing.T, rows *sql.Rows) []string {

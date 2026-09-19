@@ -105,7 +105,7 @@ VALUES (?, ?, ?, ?, ?, ?)`, "R_DEFAULT", "postgres", "Defaults", 3, "ast_match",
 		require.False(t, defaultRule.Builtin)
 
 		for _, maskRule := range []model.MaskRule{
-			{ID: "mask_specific", DatasourceID: pointer(datasource.ID), TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+			{ID: "mask_specific", DatasourceID: pointer(datasource.ID), SchemaName: "public", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
 			{ID: "mask_global_null", TableName: "customers", ColumnName: "email", SensitiveType: "email", Algo: "mask"},
 			{ID: "mask_global_empty", DatasourceID: pointer(""), TableName: "customers", ColumnName: "card", SensitiveType: "bankcard", Algo: "mask"},
 			{ID: "mask_other", DatasourceID: pointer("ds_other"), TableName: "customers", ColumnName: "secret", SensitiveType: "block", Algo: "block"},
@@ -118,6 +118,8 @@ VALUES (?, ?, ?, ?, ?, ?)`, "R_DEFAULT", "postgres", "Defaults", 3, "ast_match",
 		require.Len(t, effective, 3)
 		maskSpecific, err := opened.MaskRules().Get(ctx, "mask_specific")
 		require.NoError(t, err)
+		require.Equal(t, "public", maskSpecific.SchemaName)
+		require.Equal(t, "customers", maskSpecific.TableName)
 		maskSpecific.ColumnName = "mobile"
 		maskSpecific, err = opened.MaskRules().Update(ctx, maskSpecific)
 		require.NoError(t, err)

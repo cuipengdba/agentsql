@@ -62,7 +62,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"mask_rules": {
 			"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 			"created_at", "updated_at", "enabled", "range_bucket_width",
-			"range_bucket_offset", "range_granularity",
+			"range_bucket_offset", "range_granularity", "schema_name",
 		},
 		"audit_logs": {
 			"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
@@ -162,8 +162,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 4, current)
-	require.Equal(t, 4, latest)
+	require.Equal(t, 5, current)
+	require.Equal(t, 5, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -197,18 +197,28 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			require.NoError(t, testCase.migrate(ctx, database))
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
-			require.Equal(t, 4, current)
+			require.Equal(t, 5, current)
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
+			var schemaName, tableName string
+			require.NoError(t, database.QueryRowContext(ctx, "SELECT schema_name, table_name FROM mask_rules WHERE id='legacy'").Scan(&schemaName, &tableName))
+			require.Empty(t, schemaName)
+			require.Empty(t, tableName, "0005 preserves the pre-upgrade global-column runtime semantics")
 			_, err = database.ExecContext(ctx, "UPDATE mask_rules SET enabled=2 WHERE id='legacy'")
 			require.Error(t, err)
 			var indexSQL string
 			require.NoError(t, database.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='index' AND name='ux_mask_rules_scope_column'`).Scan(&indexSQL))
 			require.Contains(t, strings.ToUpper(indexSQL), "UNIQUE INDEX")
+			require.Contains(t, indexSQL, "schema_name")
+			require.Contains(t, indexSQL, "table_name")
 			_, err = database.ExecContext(ctx, `
-INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo)
-VALUES('duplicate',' ds-1 ','other','email','email','mask')`)
+INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo)
+VALUES('duplicate',' ds-1 ','','','email','email','mask')`)
 			require.Error(t, err)
+			_, err = database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo)
+VALUES('different-table',' ds-1 ','','other','email','email','mask')`)
+			require.NoError(t, err)
 			if testCase.hasAudit {
 				var action, actorType, actorID, detailsJSON sql.NullString
 				require.NoError(t, database.QueryRowContext(ctx, `
@@ -249,11 +259,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			require.NoError(t, testCase.migrate(ctx, database))
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
-			require.Equal(t, 4, current)
+			require.Equal(t, 5, current)
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 				"created_at", "updated_at", "enabled", "range_bucket_width",
-				"range_bucket_offset", "range_granularity",
+				"range_bucket_offset", "range_granularity", "schema_name",
 			}, tableColumnNames(t, database, "mask_rules"))
 
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectSQLite}}
@@ -262,6 +272,8 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			require.Nil(t, stored.RangeBucketWidth)
 			require.Nil(t, stored.RangeBucketOffset)
 			require.Nil(t, stored.RangeGranularity)
+			require.Empty(t, stored.SchemaName)
+			require.Empty(t, stored.TableName)
 		})
 	}
 }
@@ -280,6 +292,19 @@ func TestRangeMigrationFilesAreByteIdentical(t *testing.T) {
 		contents, err := fs.ReadFile(migrationFiles, name)
 		require.NoError(t, err)
 		require.Equal(t, want, strings.TrimSuffix(string(contents), "\n"), name)
+	}
+}
+
+func TestMaskRuleScopeMigrationFilesMatchEachDialect(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"migrations/sqlite/0005_mask_rule_scope.sql", "migrations/metadata/sqlite/0005_mask_rule_scope.sql"},
+		{"migrations/postgres/0005_mask_rule_scope.sql", "migrations/metadata/postgres/0005_mask_rule_scope.sql"},
+	} {
+		combined, err := fs.ReadFile(migrationFiles, pair[0])
+		require.NoError(t, err)
+		metadata, err := fs.ReadFile(migrationFiles, pair[1])
+		require.NoError(t, err)
+		require.Equal(t, string(combined), string(metadata), pair)
 	}
 }
 

@@ -309,22 +309,67 @@ func TestMaskRuleRepositoryClassifiesNormalizedKeyConflict(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = repository.Create(context.Background(), model.MaskRule{
-		ID: "second", DatasourceID: pointer("ds-1"), TableName: "customers",
+		ID: "different-table", DatasourceID: pointer("ds-1"), TableName: "customers",
+		ColumnName: "email", SensitiveType: "email", Algo: "mask", Enabled: false,
+	})
+	require.NoError(t, err)
+	_, err = repository.Create(context.Background(), model.MaskRule{
+		ID: "second", DatasourceID: pointer("ds-1"), TableName: "users",
 		ColumnName: "email", SensitiveType: "email", Algo: "mask", Enabled: false,
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrMaskRuleConflict)
 	require.True(t, IsMaskRuleConflict(err))
-	require.ErrorContains(t, err, `scope="ds-1" column="email"`)
+	require.ErrorContains(t, err, `scope="ds-1" schema="" table="users" column="email"`)
 
 	third, err := repository.Create(context.Background(), model.MaskRule{
 		ID: "third", DatasourceID: pointer("ds-1"), TableName: "customers",
 		ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: true,
 	})
 	require.NoError(t, err)
+	third.TableName = "users"
 	third.ColumnName = " EMAIL "
 	_, err = repository.Update(context.Background(), third)
 	require.ErrorIs(t, err, ErrMaskRuleConflict)
+}
+
+func TestMaskRuleRepositoryPersistsPhysicalScopeAndCoalescesNullScope(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	repository := opened.MaskRules()
+	scope := pointer("ds-physical")
+
+	first, err := repository.Create(ctx, model.MaskRule{
+		ID: "physical-a", DatasourceID: scope, SchemaName: "Tenant", TableName: "customers",
+		ColumnName: " Email ", SensitiveType: "email", Algo: "mask", Enabled: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Tenant", first.SchemaName)
+	require.Equal(t, "customers", first.TableName)
+
+	_, err = repository.Create(ctx, model.MaskRule{
+		ID: "physical-b", DatasourceID: scope, SchemaName: "tenant", TableName: "customers",
+		ColumnName: "email", SensitiveType: "email", Algo: "mask", Enabled: true,
+	})
+	require.NoError(t, err, "schema comparison is exact and case-sensitive")
+	_, err = repository.Create(ctx, model.MaskRule{
+		ID: "physical-c", DatasourceID: scope, SchemaName: "Tenant", TableName: "accounts",
+		ColumnName: "email", SensitiveType: "email", Algo: "mask", Enabled: true,
+	})
+	require.NoError(t, err, "different tables may use the same normalized column")
+
+	_, err = opened.metaDB.ExecContext(ctx, `UPDATE mask_rules SET schema_name=NULL WHERE id='physical-a'`)
+	require.NoError(t, err)
+	first, err = repository.Get(ctx, "physical-a")
+	require.NoError(t, err)
+	require.Empty(t, first.SchemaName, "repository scans legacy NULL scope safely")
+	first, err = repository.Update(ctx, first)
+	require.NoError(t, err)
+	var schemaIsNull, tableIsNull bool
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `
+SELECT schema_name IS NULL, table_name IS NULL FROM mask_rules WHERE id='physical-a'`).Scan(&schemaIsNull, &tableIsNull))
+	require.False(t, schemaIsNull)
+	require.False(t, tableIsNull)
 }
 
 func TestAuditLogRepositoryInsertAndPageOnly(t *testing.T) {

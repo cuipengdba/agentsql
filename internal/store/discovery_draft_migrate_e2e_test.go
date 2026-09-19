@@ -41,6 +41,10 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var enabled bool
 			require.NoError(t, database.QueryRowContext(ctx, `SELECT enabled FROM mask_rules WHERE id='legacy'`).Scan(&enabled))
 			require.True(t, enabled)
+			var schemaName, tableName string
+			require.NoError(t, database.QueryRowContext(ctx, `SELECT schema_name, table_name FROM mask_rules WHERE id='legacy'`).Scan(&schemaName, &tableName))
+			require.Empty(t, schemaName)
+			require.Empty(t, tableName)
 			var managementAuditColumns int
 			require.NoError(t, database.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM information_schema.columns
@@ -52,9 +56,13 @@ WHERE table_schema='public' AND table_name='audit_logs'
 				require.Zero(t, managementAuditColumns)
 			}
 			_, err = database.ExecContext(ctx, `
-INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo)
-VALUES('duplicate',' ds-1 ','other','email','email','mask')`)
+INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo)
+VALUES('duplicate',' ds-1 ','','','email','email','mask')`)
 			require.Error(t, err)
+			_, err = database.ExecContext(ctx, `
+INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo)
+VALUES('different-table',' ds-1 ','','other','email','email','mask')`)
+			require.NoError(t, err)
 
 			resetPostgresPublicSchema(t, ctx, database)
 			migratePostgresThroughVersion(t, ctx, database, testCase.directory, 2)
@@ -113,8 +121,8 @@ SELECT action, actor_type, actor_id, details_json FROM audit_logs LIMIT 1`).Scan
 		t.Cleanup(func() { require.NoError(t, opened.Close()) })
 		metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 		require.NoError(t, err)
-		require.Equal(t, 4, metadataCurrent)
-		require.Equal(t, 4, metadataLatest)
+		require.Equal(t, 5, metadataCurrent)
+		require.Equal(t, 5, metadataLatest)
 		auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 		require.NoError(t, err)
 		require.Equal(t, 2, auditCurrent)

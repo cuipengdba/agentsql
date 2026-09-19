@@ -126,6 +126,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "range_bucket_width", kind: migrationInt32},
 		{name: "range_bucket_offset", kind: migrationInt32},
 		{name: "range_granularity", kind: migrationText},
+		{name: "schema_name", kind: migrationText},
 	}},
 	{name: "policies", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "agent_id", kind: migrationText},

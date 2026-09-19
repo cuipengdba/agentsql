@@ -64,6 +64,7 @@ type Rule struct {
 type MaskRule struct {
 	ID                string
 	DatasourceID      *string
+	SchemaName        string
 	TableName         string
 	ColumnName        string
 	SensitiveType     string

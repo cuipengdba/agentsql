@@ -14,7 +14,7 @@ import (
 var ErrMaskRuleConflict = errors.New("mask rule normalized scope and column conflict")
 
 // IsMaskRuleConflict reports whether a repository write collided with the
-// database-enforced normalized (datasource scope, column name) key.
+// database-enforced normalized (datasource, schema, table, column) key.
 func IsMaskRuleConflict(err error) bool {
 	return errors.Is(err, ErrMaskRuleConflict)
 }
@@ -36,12 +36,13 @@ func (repository *MaskRuleRepository) Create(ctx context.Context, rule model.Mas
 	rule = normalizeMaskRuleRangeFields(rule)
 	_, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO mask_rules (
-  id, datasource_id, table_name, column_name, sensitive_type, algo, enabled,
+  id, datasource_id, schema_name, table_name, column_name, sensitive_type, algo, enabled,
   range_bucket_width, range_bucket_offset, range_granularity
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+VALUES (?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?, ?, ?, ?)`),
 		rule.ID,
 		optionalString(rule.DatasourceID),
+		rule.SchemaName,
 		rule.TableName,
 		rule.ColumnName,
 		rule.SensitiveType,
@@ -52,7 +53,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		rule.RangeGranularity,
 	)
 	if err != nil {
-		if repository.hasNormalizedKeyConflict(ctx, rule.DatasourceID, rule.ColumnName, "") {
+		if repository.hasNormalizedKeyConflict(ctx, rule.DatasourceID, rule.SchemaName, rule.TableName, rule.ColumnName, "") {
 			return model.MaskRule{}, maskRuleConflictError("create", rule, err)
 		}
 		return model.MaskRule{}, fmt.Errorf("create mask rule %q: %w", rule.ID, err)
@@ -67,7 +68,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 // Get returns a mask rule by ID.
 func (repository *MaskRuleRepository) Get(ctx context.Context, id string) (model.MaskRule, error) {
 	rule, err := scanMaskRule(repository.db.QueryRowContext(ctx, repository.bind(`
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 WHERE id = ?`), id))
@@ -113,11 +114,11 @@ func (repository *MaskRuleRepository) listByDatasource(
 		enabledClause = " AND enabled = ?"
 	}
 	query := `
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 WHERE (datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = '')` + enabledClause + `
-ORDER BY table_name ASC, column_name ASC, id ASC`
+ORDER BY schema_name ASC, table_name ASC, column_name ASC, id ASC`
 	args := []any{datasourceID}
 	if enabledOnly {
 		args = append(args, true)
@@ -156,10 +157,10 @@ func (repository *MaskRuleRepository) List(ctx context.Context) ([]model.MaskRul
 		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
 	}
 	rows, err := repository.db.QueryContext(ctx, repository.bind(`
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
-ORDER BY table_name ASC, column_name ASC, id ASC`))
+ORDER BY schema_name ASC, table_name ASC, column_name ASC, id ASC`))
 	if err != nil {
 		return nil, fmt.Errorf("list mask rules: %w", err)
 	}
@@ -184,11 +185,12 @@ func (repository *MaskRuleRepository) Update(ctx context.Context, rule model.Mas
 	rule = normalizeMaskRuleRangeFields(rule)
 	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE mask_rules
-SET datasource_id = ?, table_name = ?, column_name = ?, sensitive_type = ?,
+SET datasource_id = ?, schema_name = COALESCE(?, ''), table_name = COALESCE(?, ''), column_name = ?, sensitive_type = ?,
     algo = ?, enabled = ?, range_bucket_width = ?, range_bucket_offset = ?,
     range_granularity = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?`),
 		optionalString(rule.DatasourceID),
+		rule.SchemaName,
 		rule.TableName,
 		rule.ColumnName,
 		rule.SensitiveType,
@@ -200,7 +202,7 @@ WHERE id = ?`),
 		rule.ID,
 	)
 	if err != nil {
-		if repository.hasNormalizedKeyConflict(ctx, rule.DatasourceID, rule.ColumnName, rule.ID) {
+		if repository.hasNormalizedKeyConflict(ctx, rule.DatasourceID, rule.SchemaName, rule.TableName, rule.ColumnName, rule.ID) {
 			return model.MaskRule{}, maskRuleConflictError("update", rule, err)
 		}
 		return model.MaskRule{}, fmt.Errorf("update mask rule %q: %w", rule.ID, err)
@@ -236,6 +238,7 @@ func scanMaskRule(scanner rowScanner) (model.MaskRule, error) {
 	if err := scanner.Scan(
 		&rule.ID,
 		&datasourceID,
+		&rule.SchemaName,
 		&rule.TableName,
 		&rule.ColumnName,
 		&rule.SensitiveType,
@@ -286,6 +289,8 @@ func normalizeMaskRuleRangeFields(rule model.MaskRule) model.MaskRule {
 func (repository *MaskRuleRepository) hasNormalizedKeyConflict(
 	ctx context.Context,
 	datasourceID *string,
+	schemaName string,
+	tableName string,
 	columnName string,
 	excludeID string,
 ) bool {
@@ -297,6 +302,8 @@ func (repository *MaskRuleRepository) hasNormalizedKeyConflict(
 SELECT COUNT(*)
 FROM mask_rules
 WHERE COALESCE(NULLIF(%[1]s(datasource_id),''),'') = ?
+  AND schema_name = ?
+  AND table_name = ?
   AND LOWER(%[1]s(column_name)) = LOWER(%[1]s(?))
   AND id <> ?`, trimFunction)
 	scope := ""
@@ -305,7 +312,7 @@ WHERE COALESCE(NULLIF(%[1]s(datasource_id),''),'') = ?
 	}
 	var count int
 	err := repository.db.QueryRowContext(
-		ctx, repository.bind(query), scope, columnName, excludeID,
+		ctx, repository.bind(query), scope, schemaName, tableName, columnName, excludeID,
 	).Scan(&count)
 	return err == nil && count != 0
 }
@@ -316,11 +323,13 @@ func maskRuleConflictError(operation string, rule model.MaskRule, cause error) e
 		scope = strings.TrimSpace(*rule.DatasourceID)
 	}
 	return fmt.Errorf(
-		"%s mask rule %q: %w: scope=%q column=%q: %v",
+		"%s mask rule %q: %w: scope=%q schema=%q table=%q column=%q: %v",
 		operation,
 		rule.ID,
 		ErrMaskRuleConflict,
 		scope,
+		rule.SchemaName,
+		rule.TableName,
 		strings.ToLower(strings.TrimSpace(rule.ColumnName)),
 		cause,
 	)

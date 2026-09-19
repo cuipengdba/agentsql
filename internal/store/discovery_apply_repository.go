@@ -24,6 +24,8 @@ func IsInvalidDiscoveryDraft(err error) bool {
 // request. ID must be unique and ColumnName must already be normalized.
 type DiscoveryDraft struct {
 	ID            string
+	SchemaName    string
+	TableName     string
 	ColumnName    string
 	SensitiveType string
 	Algo          string
@@ -161,11 +163,13 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 			if strings.ToLower(strings.TrimSpace(rule.ColumnName)) != column {
 				continue
 			}
-			if rule.DatasourceID != nil && strings.TrimSpace(*rule.DatasourceID) == datasourceID {
+			if rule.DatasourceID != nil && strings.TrimSpace(*rule.DatasourceID) == datasourceID &&
+				rule.SchemaName == draft.SchemaName && rule.TableName == draft.TableName {
 				scoped = rule
 				break
 			}
-			if (rule.DatasourceID == nil || strings.TrimSpace(*rule.DatasourceID) == "") && rule.Enabled {
+			if (rule.DatasourceID == nil || strings.TrimSpace(*rule.DatasourceID) == "") &&
+				rule.SchemaName == "" && rule.TableName == "" && rule.Enabled {
 				global = rule
 			}
 		}
@@ -182,7 +186,7 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 			continue
 		}
 		scope := datasourceID
-		outcome.Created = append(outcome.Created, model.MaskRule{ID: draft.ID, DatasourceID: &scope, TableName: "", ColumnName: column, SensitiveType: draft.SensitiveType, Algo: draft.Algo, Enabled: false})
+		outcome.Created = append(outcome.Created, model.MaskRule{ID: draft.ID, DatasourceID: &scope, SchemaName: draft.SchemaName, TableName: draft.TableName, ColumnName: column, SensitiveType: draft.SensitiveType, Algo: draft.Algo, Enabled: false})
 	}
 	if len(outcome.Conflicts) != 0 {
 		outcome.Created = []model.MaskRule{}
@@ -192,7 +196,7 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 
 func listDiscoveryScopeRules(ctx context.Context, executor sqlExecutor, dialect Dialect, datasourceID string) ([]model.MaskRule, error) {
 	query := repositoryBase{dialect: dialect}.bind(`
-SELECT id, datasource_id, table_name, column_name, sensitive_type, algo,
+SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
 WHERE datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = ''
@@ -218,8 +222,8 @@ ORDER BY id`)
 
 func insertDiscoveryDraft(ctx context.Context, executor sqlExecutor, dialect Dialect, rule model.MaskRule) error {
 	_, err := executor.ExecContext(ctx, repositoryBase{dialect: dialect}.bind(`
-INSERT INTO mask_rules (id, datasource_id, table_name, column_name, sensitive_type, algo, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?)`), rule.ID, optionalString(rule.DatasourceID), "", rule.ColumnName, rule.SensitiveType, rule.Algo, false)
+INSERT INTO mask_rules (id, datasource_id, schema_name, table_name, column_name, sensitive_type, algo, enabled)
+VALUES (?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?)`), rule.ID, optionalString(rule.DatasourceID), rule.SchemaName, rule.TableName, rule.ColumnName, rule.SensitiveType, rule.Algo, false)
 	if err != nil {
 		if isMaskScopeUniqueViolation(err) {
 			return maskRuleConflictError("apply discovery draft", rule, err)

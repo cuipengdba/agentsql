@@ -28,11 +28,12 @@ func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
 	require.Equal(t, []string{
 		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 		"created_at", "updated_at", "enabled", "range_bucket_width", "range_bucket_offset",
-		"range_granularity",
+		"range_granularity", "schema_name",
 	}, migrationColumnNames(maskRuleTable))
 	require.Equal(t, migrationInt32, maskRuleTable.columns[9].kind)
 	require.Equal(t, migrationInt32, maskRuleTable.columns[10].kind)
 	require.Equal(t, migrationText, maskRuleTable.columns[11].kind)
+	require.Equal(t, migrationText, maskRuleTable.columns[12].kind)
 	require.Equal(t, []string{
 		"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
 		"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",

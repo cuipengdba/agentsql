@@ -48,6 +48,35 @@ func TestPlanDiscoveryDraftsUsesMaskRuntimeValidation(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidDiscoveryDraft)
 }
 
+func TestPlanDiscoveryDraftsUsesPhysicalScopeKey(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	repository := opened.MaskRules()
+	scope := pointer("ds-1")
+	_, err := repository.Create(ctx, model.MaskRule{
+		ID: "existing", DatasourceID: scope, SchemaName: "sales", TableName: "customers",
+		ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false,
+	})
+	require.NoError(t, err)
+
+	outcome, err := repository.planDiscoveryDrafts(ctx, opened.metaDB, "ds-1", []DiscoveryDraft{
+		{ID: "same", SchemaName: "sales", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+		{ID: "other-schema", SchemaName: "Sales", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+		{ID: "other-table", SchemaName: "sales", TableName: "accounts", ColumnName: "phone", SensitiveType: "phone", Algo: "mask"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"existing"}, []string{outcome.Existing[0].ID})
+	require.Equal(t, []model.MaskRule{
+		{ID: "other-schema", DatasourceID: scope, SchemaName: "Sales", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false},
+		{ID: "other-table", DatasourceID: scope, SchemaName: "sales", TableName: "accounts", ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false},
+	}, outcome.Created)
+	require.NoError(t, insertDiscoveryDraft(ctx, opened.metaDB, DialectSQLite, outcome.Created[1]))
+	stored, err := repository.Get(ctx, "other-table")
+	require.NoError(t, err)
+	require.Equal(t, "sales", stored.SchemaName)
+	require.Equal(t, "accounts", stored.TableName)
+}
+
 func TestApplyDiscoveryDraftsRejectsHashBeforeAuditOrRuleWrite(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
