@@ -403,7 +403,7 @@ curl --fail http://127.0.0.1:7780/readyz
 
 ## 升级与回滚
 
-升级前先执行完整备份，盘点 enabled `hash` 规则并确认对应 `AGENTSQL_REDACTION_HASH_KEY` 已安全注入，然后停止当前实例、替换两个二进制或容器镜像并重新启动。AgentSQL 启动时会自动、幂等地执行尚未应用的 SQLite migration；enabled `hash` 无 key 会在对外服务前拒绝启动。
+升级前先执行完整备份，盘点 enabled `hash` 规则并确认对应 `AGENTSQL_REDACTION_HASH_KEY` 已安全注入，然后停止当前实例、替换两个二进制或容器镜像并重新启动。`store.auto_migrate: true`（默认值）时，AgentSQL 启动会对当前配置的 SQLite 或 PostgreSQL metadata 存储自动、幂等地执行尚未应用的 migration；分库部署的 audit-only PostgreSQL 走独立迁移流。`auto_migrate: false` 时启动只核对版本、不执行 DDL，必须先由 migration owner 运行 `agentsqlctl migrate`。enabled `hash` 无 key 会在对外服务前拒绝启动。
 
 ### v0.3 `range` 控制面迁移
 
@@ -577,6 +577,269 @@ ORDER BY id;
 `migrate-sqlite-to-postgres` 的 `mask_rules` manifest 已在 `enabled` 后纳入 `range_bucket_width`、`range_bucket_offset`、`range_granularity`，由同一 manifest 生成源端 `SELECT` 与目标端写入。搬迁逐值保真：SQL `NULL` 与显式 `range_bucket_offset=0` 不会混淆，`range_bucket_width=25`、`range_granularity='quarter'` 等值也会原样携带，无需手工补列、补默认值或另行转换。
 
 一般回滚同样不是只替换二进制：停止服务，将二进制或镜像恢复到旧版本，同时恢复升级前的 SQLite 或 PostgreSQL 备份，再启动服务。不要让旧版本直接读取包含其不识别规则的数据。
+
+### v0.3 表.列感知脱敏控制面迁移（0005）
+
+`0005_mask_rule_scope.sql` 只修改 AgentSQL 控制面中的 `mask_rules`，不会对受保护的 PostgreSQL/MySQL 业务库执行 DDL。它存在于四条含 metadata 的迁移流中；audit-only 库没有 `mask_rules`，因此没有 `0005`：
+
+| 部署形态 | 实际迁移文件 | SHA-256 |
+| --- | --- | --- |
+| 默认合并式 SQLite（metadata + audit） | `internal/store/migrations/sqlite/0005_mask_rule_scope.sql` | `ea43d52616b75fcb3385d021b25a5bfbea08866ff46236026ba0413180c2784f` |
+| 独立 metadata SQLite | `internal/store/migrations/metadata/sqlite/0005_mask_rule_scope.sql` | `ea43d52616b75fcb3385d021b25a5bfbea08866ff46236026ba0413180c2784f` |
+| 默认合并式 PostgreSQL（metadata + audit） | `internal/store/migrations/postgres/0005_mask_rule_scope.sql` | `eb7946179a70742d6d19a1c45d4c2901c846d201a9f1a52764bca123b6eea848` |
+| 独立 metadata PostgreSQL | `internal/store/migrations/metadata/postgres/0005_mask_rule_scope.sql` | `eb7946179a70742d6d19a1c45d4c2901c846d201a9f1a52764bca123b6eea848` |
+
+#### 实际 DDL、执行顺序与存量语义
+
+两份 SQLite 文件逐字相同，按以下顺序在一个 migration 事务中执行：
+
+```sqlite
+ALTER TABLE mask_rules ADD COLUMN schema_name TEXT;
+
+UPDATE mask_rules SET schema_name = '', table_name = '';
+
+DROP INDEX IF EXISTS ux_mask_rules_scope_column;
+
+CREATE UNIQUE INDEX ux_mask_rules_scope_column
+ON mask_rules (
+  COALESCE(NULLIF(TRIM(datasource_id),''),''),
+  schema_name,
+  table_name,
+  LOWER(TRIM(column_name))
+);
+```
+
+两份 PostgreSQL 文件也逐字相同，唯一的方言差异是使用 `BTRIM`：
+
+```postgres
+ALTER TABLE mask_rules ADD COLUMN schema_name TEXT;
+
+UPDATE mask_rules SET schema_name = '', table_name = '';
+
+DROP INDEX IF EXISTS ux_mask_rules_scope_column;
+
+CREATE UNIQUE INDEX ux_mask_rules_scope_column
+ON mask_rules (
+  COALESCE(NULLIF(BTRIM(datasource_id),''),''),
+  schema_name,
+  table_name,
+  LOWER(BTRIM(column_name))
+);
+```
+
+`schema_name` 在 DDL 层是可空 `TEXT`，没有默认值；应用的 INSERT/UPDATE 路径会把 `schema_name`、`table_name` 的空作用域写成空串。迁移中的 `UPDATE` 会把所有存量行的两列同时置为 `''`，不是保留旧 `table_name`：v0.3 之前运行时丢弃 `table_name`，所以这次一次性固化为“全局列规则”，保持升级前的实际生效语义。新唯一键中的 datasource 仍把 `NULL`、空串和纯空白归为同一作用域，schema/table 按原值精确区分，只有 `column_name` 做 trim 后小写归一化。
+
+三档存储语义如下：
+
+| `schema_name` | `table_name` | 作用域 |
+| --- | --- | --- |
+| `''` | `''` | 全局列规则 |
+| `''` | 非空 | table-only 规则；PostgreSQL 匹配任意 schema，MySQL 表示当前库中的该表 |
+| 非空 | 非空 | 精确 `schema.table.column` 规则 |
+
+`schema_name` 非空而 `table_name` 为空不是合法作用域。schema/table 比较保留大小写并精确匹配；column 继续使用宽松的归一化列名。
+
+#### 执行方式与版本核对
+
+`auto_migrate: true` 时，默认合并式 SQLite、独立 metadata SQLite、默认合并式 PostgreSQL、独立 metadata PostgreSQL 都会在启动准备 metadata 存储时执行各自的 `0005`。生产 PostgreSQL 建议继续使用 `auto_migrate: false`：先停止写入，以 migration owner 显式执行迁移，再换回最小权限运行账号。
+
+```bash
+agentsqlctl migrate --config /etc/agentsql/config.yaml
+```
+
+合并式存储的成功输出应为对应 driver 的版本 5：
+
+```text
+migration driver=sqlite current=5 latest=5
+```
+
+或：
+
+```text
+migration driver=postgres current=5 latest=5
+```
+
+metadata/audit 分库时 metadata 行应为 `current=5 latest=5`；独立 audit PostgreSQL 的迁移流仍是 `current=2 latest=2`：
+
+```text
+metadata migration driver=postgres current=5 latest=5
+audit migration driver=postgres current=2 latest=2
+```
+
+#### PostgreSQL 锁、耗时与升级前预检
+
+PostgreSQL 的 `ALTER TABLE ... ADD COLUMN` 会取得 `ACCESS EXCLUSIVE` 锁；随后 `UPDATE` 会改写所有 `mask_rules` 存量行，普通 `DROP INDEX` / `CREATE UNIQUE INDEX` 也不是并发版本，新索引需要扫描并排序表数据，且 migration 事务提交前相关锁不会提前释放。`mask_rules` 通常很小，但大表、长事务、慢存储或锁等待仍可能延长维护窗口并阻塞并发读写。应先在预发用生产规模副本演练，记录耗时和锁等待，在低峰或维护窗口停止 AgentSQL 写入后升级，并按平台规范设置锁等待/语句超时。
+
+升级前必须备份实际承载 metadata 的数据库；分库部署仍应按前文保留成对控制面备份与对应的 `AGENTSQL_SECRET`。例如 PostgreSQL：
+
+```bash
+pg_dump -Fc --dbname "$AGENTSQL_STORE_METADATA_DSN" --file agentsql-metadata-before-0005.dump
+```
+
+SQLite 应在停止写入后使用一致性备份；使用 `sqlite3` CLI 时可执行：
+
+```bash
+sqlite3 /var/lib/agentsql/agentsql.db ".backup 'agentsql-before-0005.db'"
+```
+
+PostgreSQL 升级前先记录规则数、旧 `table_name` 使用情况，并确认没有空列名、NULL 作用域或绕过约束造成的旧键重复。`legacy_nonempty_table_names` 只用于评估影响：这些值会被 `0005` 清空。
+
+```postgres
+SELECT COUNT(*) AS total_rules,
+       COUNT(*) FILTER (WHERE COALESCE(table_name, '') <> '') AS legacy_nonempty_table_names,
+       COUNT(*) FILTER (
+         WHERE table_name IS NULL OR column_name IS NULL OR BTRIM(column_name) = ''
+       ) AS invalid_rows
+FROM mask_rules;
+
+SELECT COALESCE(NULLIF(BTRIM(datasource_id),''),'') AS datasource_scope,
+       LOWER(BTRIM(column_name)) AS column_key,
+       COUNT(*) AS duplicate_count
+FROM mask_rules
+GROUP BY 1, 2
+HAVING COUNT(*) > 1;
+```
+
+SQLite 等价预检：
+
+```sqlite
+SELECT COUNT(*) AS total_rules,
+       SUM(CASE WHEN COALESCE(table_name, '') <> '' THEN 1 ELSE 0 END) AS legacy_nonempty_table_names,
+       SUM(CASE
+             WHEN table_name IS NULL OR column_name IS NULL OR TRIM(column_name) = '' THEN 1
+             ELSE 0
+           END) AS invalid_rows
+FROM mask_rules;
+
+SELECT COALESCE(NULLIF(TRIM(datasource_id),''),'') AS datasource_scope,
+       LOWER(TRIM(column_name)) AS column_key,
+       COUNT(*) AS duplicate_count
+FROM mask_rules
+GROUP BY 1, 2
+HAVING COUNT(*) > 1;
+```
+
+`invalid_rows` 和重复查询都应返回零；否则先停止升级并通过受支持的管理 API 或经审计的人工变更修复。不要用删除重复行的通用脚本替代逐条确认规则意图。
+
+#### 迁移后、启动前核对
+
+PostgreSQL 用以下只读查询确认列、索引定义和新键唯一性。列查询应看到 `schema_name`、`table_name`；索引定义应包含 datasource、schema、table 和归一化 column 四部分；后两条异常查询应返回零行。
+
+```postgres
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'mask_rules'
+  AND column_name IN ('schema_name', 'table_name')
+ORDER BY ordinal_position;
+
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename = 'mask_rules'
+  AND indexname = 'ux_mask_rules_scope_column';
+
+SELECT id, datasource_id, schema_name, table_name, column_name
+FROM mask_rules
+WHERE schema_name IS NULL
+   OR table_name IS NULL
+   OR (schema_name <> '' AND table_name = '')
+   OR column_name IS NULL
+   OR BTRIM(column_name) = '';
+
+SELECT COALESCE(NULLIF(BTRIM(datasource_id),''),'') AS datasource_scope,
+       schema_name,
+       table_name,
+       LOWER(BTRIM(column_name)) AS column_key,
+       COUNT(*) AS duplicate_count
+FROM mask_rules
+GROUP BY 1, 2, 3, 4
+HAVING COUNT(*) > 1;
+```
+
+SQLite 可用 `PRAGMA` 与 `sqlite_master` 做同样核对：
+
+```sqlite
+PRAGMA table_info(mask_rules);
+
+SELECT name, sql
+FROM sqlite_master
+WHERE type = 'index'
+  AND tbl_name = 'mask_rules'
+  AND name = 'ux_mask_rules_scope_column';
+
+SELECT id, datasource_id, schema_name, table_name, column_name
+FROM mask_rules
+WHERE schema_name IS NULL
+   OR table_name IS NULL
+   OR (schema_name <> '' AND table_name = '')
+   OR column_name IS NULL
+   OR TRIM(column_name) = '';
+
+SELECT COALESCE(NULLIF(TRIM(datasource_id),''),'') AS datasource_scope,
+       schema_name,
+       table_name,
+       LOWER(TRIM(column_name)) AS column_key,
+       COUNT(*) AS duplicate_count
+FROM mask_rules
+GROUP BY 1, 2, 3, 4
+HAVING COUNT(*) > 1;
+```
+
+最后再次运行 `agentsqlctl migrate`，断言 metadata `current=5 latest=5`，换回运行账号，以 `auto_migrate:false` 启动并检查 `/readyz`。
+
+#### 回滚与手工 down
+
+首选回滚路径是停止服务，恢复升级前备份及与其配对的 `AGENTSQL_SECRET`，再启动旧版本。仓库没有自动 down migration，不能只替换二进制并假定自动降级。
+
+代码可确认：旧版本使用显式列清单，因此单独多出一个可空 `schema_name` 列不会让旧 SQL 立即报“列数不匹配”；但旧版本不理解 schema/table 作用域，且旧唯一键只允许每个 datasource 作用域中存在一条归一化同名列规则。新索引允许不同表各有一条同名列规则，旧版本加载多条 enabled 同名规则时会以重复列规则拒绝启动；即使只有一条 scoped 规则，旧版本也会忽略 `table_name`，把它按全局列规则执行。另有版本门禁差异：旧版本在 `auto_migrate:false` 时会因数据库 `current=5`、代码 `latest=4` 拒绝启动。由此，保留 `0005` schema 只回滚代码不属于受支持路径。
+
+若无法恢复备份，必须在仍运行新版本且服务已停止写入时人工 down。先导出全部规则，逐条删除、合并或改写 `schema_name <> '' OR table_name <> ''` 的规则，使每个旧键只剩一条，并明确接受其在旧版本中变成全局列规则；不能无损保留 table-only 或 schema.table 语义。以下重复查询必须返回零行后才能继续：
+
+```postgres
+SELECT COALESCE(NULLIF(BTRIM(datasource_id),''),'') AS datasource_scope,
+       LOWER(BTRIM(column_name)) AS column_key,
+       STRING_AGG(id, ',' ORDER BY id) AS rule_ids
+FROM mask_rules
+GROUP BY 1, 2
+HAVING COUNT(*) > 1;
+```
+
+PostgreSQL 手工 down 的结构步骤如下；应先在预发验证，并由 migration owner 在事务中执行：
+
+```postgres
+BEGIN;
+DROP INDEX IF EXISTS ux_mask_rules_scope_column;
+ALTER TABLE mask_rules DROP COLUMN schema_name;
+CREATE UNIQUE INDEX ux_mask_rules_scope_column
+ON mask_rules (
+  COALESCE(NULLIF(BTRIM(datasource_id),''),''),
+  LOWER(BTRIM(column_name))
+);
+DELETE FROM schema_migrations WHERE version = 5;
+COMMIT;
+```
+
+SQLite 先用上文等价的 `TRIM` 重复查询确认旧键唯一，再执行：
+
+```sqlite
+BEGIN IMMEDIATE;
+DROP INDEX IF EXISTS ux_mask_rules_scope_column;
+ALTER TABLE mask_rules DROP COLUMN schema_name;
+CREATE UNIQUE INDEX ux_mask_rules_scope_column
+ON mask_rules (
+  COALESCE(NULLIF(TRIM(datasource_id),''),''),
+  LOWER(TRIM(column_name))
+);
+DELETE FROM schema_migrations WHERE version = 5;
+COMMIT;
+```
+
+若运维环境的 SQLite CLI 不支持 `DROP COLUMN`，不要临时拼装未验证的重建表脚本；恢复升级前备份，或在预发验证“新建旧结构表、显式列复制、重建索引、原子换表”的等价流程。手工 down 完成后，以旧版 `agentsqlctl migrate` 核对 `current=latest=4`，再启动旧服务。
+
+#### SQLite → PostgreSQL 搬迁
+
+`migrate-sqlite-to-postgres` 的 `mask_rules` manifest 同时包含 `table_name` 和 `schema_name`，源端 `SELECT`、目标端 INSERT 与摘要哈希由同一列清单生成。搬迁逐值保留两列，SQL `NULL` 与空串不会混淆；目标 PostgreSQL 会先执行到 metadata 版本 5，再由目标端 `0005` 建立同构的 `(datasource, schema, table, normalized column)` 唯一索引。也就是说，规则数据逐值复制，索引语义由目标端 migration 重建，而不是复制 SQLite 的 `sqlite_master` 定义。搬迁前后都应执行本节的新键重复查询，并核对规则行数及 scope 分布。
 
 ## 发布与分发
 

@@ -132,22 +132,25 @@ Go 字符串和数据库驱动缓冲区不提供密码学级安全擦除，因�
 apply 只接受六类发现类别各自对应的 `mask` 组合，例如 `idcard/idcard/mask`；类别与敏感类型必须相同。提交 `algo=range`、`sensitive_type=number`、`sensitive_type=date`，或 `algo=hash`、`algo=block`、`sensitive_type=generic` 等非推荐组合，会以 HTTP `422`、`DISCOVERY_NOT_APPLICABLE` 拒绝且不创建草稿。admin HTTP 层会拒绝这些组合；绕过 HTTP 直接调用 store 的草稿应用入口也会拒绝，不能借此生成非发现草稿。新建规则由服务端强制设置：
 
 - `enabled=false`：草稿默认不生效。
-- `table_name=""`：发现结果中的 schema 和表名只是来源，不是运行时匹配范围。
-- 唯一作用域为“数据源 + 规范化列名”，即具体 `datasource_id` 加去除首尾空白并转为小写的 `column_name`。
+- `schema_name=""`：发现一律生成 table-only 草稿，不把发现元数据中的 schema 写成精确作用域。PostgreSQL 不会硬填 `public`；空 schema 匹配任意模式下的该表。MySQL 空 schema 表示当前数据源所连接数据库中的该表。
+- `table_name=<发现到的真实表名>`：表名保留原始大小写，作为运行时匹配范围。
+- `column_name=<规范化列名>`、`algo=mask`：列名去除首尾空白并转为小写，算法固定为 `mask`。
 
-这意味着启用 `phone` 列的草稿后，同一数据源查询结果中的同名列会统一匹配，不区分 schema 或表。当前不支持“表.列”级脱敏规则。必须进入「脱敏规则」页，核对数据源、规范化列名、敏感类型、算法和同名列影响范围后再手动启用。`enabled=false` 草稿本身不会脱敏任何结果。
+草稿必须进入「脱敏规则」页人工核对数据源、表、规范化列名、敏感类型和算法后再手动启用。`enabled=false` 草稿本身不会脱敏任何结果。需要精确限定 PostgreSQL schema 或显式 MySQL database 时，应在脱敏页手工填写 `schema_name`；发现流程不会代填。
+
+发现项的物理身份是 `(datasource, schema, table, column)`；生成 table-only 草稿后，持久化唯一键为 `(datasource_id, schema_name='', table_name, normalized column_name)`。因此 `customers.phone` 与 `suppliers.phone` 会生成两条独立草稿，不会再按列名合并；两张不同表的同名列必须分别核对、分别启用。由于草稿有意清空 `schema_name`，同一数据源中“不同 schema、相同 table_name、相同 column_name”的发现项会落到同一个 table-only 目标键，不能靠自动草稿区分；这类场景应在脱敏页手工建立 schema-qualified 规则。
 
 apply 是幂等的，响应将项目分入以下数组：
 
 | 结果 | 含义 | 处理建议 |
 | --- | --- | --- |
-| `created` | 新建了一条数据源级、未启用的草稿 | 到「脱敏规则」页核对后启用 |
-| `existing` | 同一数据源和规范化列名已有相同类型、相同算法的规则，不重复创建；已有规则可启用或未启用 | 查看现有规则状态和内容 |
-| `covered_by_global` | 已有启用的全局同名列规则，默认不创建数据源级覆盖 | 核对全局规则的类型、算法和影响范围 |
-| `conflicts` | 同一数据源和规范化列名已有不同类型或算法的规则 | 返回 `409 MASK_RULE_CONFLICT`；先处理现有规则。批次中出现冲突时不创建该批次计划的新草稿 |
-| `ambiguous` | 同一请求中多个表的同名列被归为不同类别 | 不创建该列草稿；缩小到单表重新发现并人工确认 |
+| `created` | 新建一条 table-only、未启用的草稿 | 到「脱敏规则」页核对表.列后启用 |
+| `existing` | 同一 datasource/table/column 目标键已有相同类型、相同算法的规则，不重复创建；已有规则可启用或未启用 | 查看现有规则状态和内容 |
+| `covered_by_global` | 同名列已存在启用的全局列规则（`schema_name=''`、`table_name=''`），不再创建 table-only 草稿 | 核对全局规则的类型、算法和影响范围 |
+| `conflicts` | 同一 datasource/table/column 目标键已有不同类型或算法的规则 | 返回 `409 MASK_RULE_CONFLICT`；先处理现有规则。批次中出现冲突时不创建该批次计划的新草稿 |
+| `ambiguous` | 同一请求对同一个 table/column 目标键提交了互相矛盾的类别、类型或算法 | 不创建该目标键草稿；核对请求来源后重试 |
 
-一次 apply 最多 50 个项目。不同表的同名列若类别、类型和算法一致，会聚合为一条规则；不能把多张表的来源误解为多条表级规则。
+只有**启用的**全局列规则才会进入 `covered_by_global`。disabled 的全局草稿不阻挡发现，目标表仍可创建自己的 table-only 草稿。一次 apply 最多 50 个项目；同一请求中完全相同的目标键会幂等聚合，不同 `table_name` 的同名列各自处理。
 
 ## 控制台操作步骤
 
@@ -155,10 +158,10 @@ apply 是幂等的，响应将项目分入以下数组：
 2. 在目标数据源的操作中打开「敏感发现」。
 3. 点击「添加表」，填写 1–20 个完整的 schema 和基础表名。
 4. 按环境决定是否开启“样本校验”；开启时选择 1–20 行，默认 10 行。高敏环境关闭采样。
-5. 点击「开始发现」，查看类别、置信度、证据和是否可一键脱敏。
+5. 点击「开始发现」，查看类别、置信度、信号以及 `matched_samples / eligible_samples` 样本支持度；原始样本不会返回页面。
 6. 人工核对列用途与推荐类型；手机号、邮箱、身份证、银行卡、IP 地址、出生日期六类均可勾选。
-7. 点击「生成脱敏草稿」。遇到冲突或歧义时按页面提示缩小范围或核对现有规则。
-8. 前往「脱敏规则」页，再次核对数据源、规范化列名、类型、算法和同名列影响范围，确认后手动启用。
+7. 点击「生成脱敏草稿」。每个不同的表.列生成各自的 table-only 草稿；遇到冲突或歧义时按页面提示缩小范围或核对现有规则。
+8. 前往「脱敏规则」页，再次核对数据源、`schema_name`、`table_name`、规范化列名、类型和算法，确认后手动启用。
 
 该流程是管理面操作，复用数据源账号，不要求修改 MCP 客户端、Agent API Key 或 Agent 授权策略。发现能力本身也不会作为 MCP 工具暴露。
 
@@ -214,6 +217,8 @@ apply 是幂等的，响应将项目分入以下数组：
 
 `items` 必须为 1–50 项。六类均可提交，但 `category` 与 `sensitive_type` 必须相同，`algo` 必须为 `mask`；例如 `birthdate/birthdate/mask`。`range`、`number`、`date`、`hash`、`block` 与 `generic` 不适用于 discovery apply，提交后返回 `422 DISCOVERY_NOT_APPLICABLE`；需要时应在「脱敏规则」页手工新建普通规则。请求 DTO 不接受 `enabled`、样本值或自由信号字段。成功响应的 `data` 包含 `created`、`existing`、`covered_by_global`、`conflicts`、`ambiguous` 五个数组及 `counts` 汇总。
 
+apply 请求中的 `schema` 是发现来源字段，不等于最终规则的 `schema_name`。服务端生成的规则固定为 `schema_name:""`、`table_name:<真实表名>`、`enabled:false`。随后通过 `GET /api/v1/mask_rules` 读取规则时会回显 `schema_name`；通过 `POST /api/v1/mask_rules` 或完整 `PUT /api/v1/mask_rules/{id}` 手工维护普通规则时，也使用独立的 `schema_name` 与 `table_name` 字段。若要把 table-only 草稿收紧为精确 schema，应在启用前通过脱敏页或完整 PUT 明确填写 `schema_name`。
+
 ### HTTP 状态码
 
 | HTTP 状态码 | 稳定错误码或场景 | 含义 | 处理建议 |
@@ -224,7 +229,7 @@ apply 是幂等的，响应将项目分入以下数组：
 | `403` | `DISCOVERY_PERMISSION_DENIED` | 连接成功，但元数据或采样查询权限不足 | 为数据源只读账号补最小必要权限 |
 | `403` | `DISCOVERY_SCOPE_NOT_VISIBLE` | 指定表缺失或对账号不可见，整体 fail-closed | 核对 schema、表名和可见性，不会静默跳过 |
 | `404` | 数据源不存在 | 路径中的数据源 ID 无效 | 刷新数据源列表并核对 ID |
-| `409` | `MASK_RULE_CONFLICT` | 同名列已有不同类型或算法的规则 | 到「脱敏规则」页处理冲突；响应可含分组结果 |
+| `409` | `MASK_RULE_CONFLICT` | 同一 datasource/table/column 目标键已有不同类型或算法的规则 | 到「脱敏规则」页处理冲突；响应可含分组结果 |
 | `413` | `REQUEST_TOO_LARGE` | JSON 请求体超过 `1 MiB`；不是“21 个表”的逻辑范围码 | 缩小请求体；表数、列数等逻辑超限见 `422` |
 | `422` | `DISCOVERY_SCOPE_LIMIT`、`DISCOVERY_CANDIDATE_LIMIT`、`DISCOVERY_SAMPLE_LIMIT` 等 | 空范围、表/列/候选/采样超限，或参数、类别非法 | 拆分表范围、减少采样行数或修正参数 |
 | `422` | `DISCOVERY_NOT_APPLICABLE` | 类别、敏感类型或算法不是当前 discovery apply 可接受的组合，包括 `range` / `number` / `date` 与 `hash` / `block` / `generic` | 提交同类别的六类敏感类型，并使用 `mask`；其他规则到「脱敏规则」页手工新建 |
@@ -236,7 +241,7 @@ apply 是幂等的，响应将项目分入以下数组：
 
 服务端当前不主动返回 `408`。控制台会把反向代理的 `408`、客户端 15 秒超时和 `504` 统一显示为超时，并给出相同的缩小范围建议。
 
-发现审计只写固定白名单统计，不写样本。apply 审计记录请求数、`created`、`existing`、`conflict`、`ambiguous` 计数和规范化列 key；通知投影不外发这些管理详情。
+发现审计只写固定白名单统计，不写样本。apply 审计记录请求数、`created`、`existing`、`covered_by_global`、`conflict`、`ambiguous` 计数和规范化表.列 key；通知投影不外发这些管理详情。
 
 ## 配置与部署
 
@@ -246,7 +251,7 @@ apply 是幂等的，响应将项目分入以下数组：
 
 ## 从早期版本升级
 
-六类脱敏不引入新的数据库迁移。`mask_rules.sensitive_type` 与 `mask_rules.algo` 原本就是自由文本字段；早前版本提供的 `0003_discovery_drafts.sql` 已增加 `enabled` 列和作用域唯一索引，本次无需新增或重跑专用迁移。
+表.列感知脱敏由控制面迁移 `0005_mask_rule_scope.sql` 增加 `schema_name`，把存量规则固化为全局列规则，并把唯一键升级为 datasource/schema/table/归一化 column。默认合并式与独立 metadata 的 SQLite/PostgreSQL 四条迁移流都会执行；升级、预检、备份、回滚与 `current=latest=5` 核对见[部署指南](DEPLOY.md#v03-表列感知脱敏控制面迁移0005)。
 
 兼容性行为有一处需要升级前核对：如果曾绕过管理 API，直接向 `mask_rules` 写入 `sensitive_type` 为 `idcard`、`bankcard`、`ip` 或 `birthdate` 且已启用的规则，这些规则在早期版本中不受支持、加载会失败；升级后它们会被正常加载并立即参与运行时脱敏。请在升级前查询并复核这四类历史直写规则的 `datasource_id`、规范化列名、类型、算法和 `enabled` 状态。`phone`、`email` 的既有行为不变。
 
@@ -257,7 +262,7 @@ apply 是幂等的，响应将项目分入以下数组：
 以下发现能力均为规划中，当前版本不支持：
 
 - 自动发现 `number` / `date` 并推荐 `range` 参数；`range` 已可在普通脱敏规则中手工配置，但发现流程不会推荐、生成或应用它，`hash`、`block` 与 `generic` 也同样不进入发现流程。
-- “表.列”级规则和表感知脱敏优先级。
+- 自动从发现结果推导并填写精确 PostgreSQL schema；当前发现有意只生成 table-only 草稿，需要 schema-qualified 时人工收紧。
 - 姓名、地址等更多敏感类型的发现与遮蔽。
 - 异步、定时或大范围发现任务，以及跨请求进度、取消和重试。
 - 发现结果导出。
@@ -271,7 +276,7 @@ apply 是幂等的，响应将项目分入以下数组：
 - 关闭采样时只看列名，置信度最高为中；开启采样也只抽取表中无排序保证的前若干行。
 - 只发现前述六类并生成 `enabled=false` 的 `mask` 草稿；姓名、地址、`number`、`date` 当前不发现。`range`、`hash`、`block` 与 `generic` 只能在「脱敏规则」页手工配置，不会由发现流程推荐、生成或应用。
 - 草稿默认不生效，必须人工核对并启用；发现不会自动修改业务数据。
-- 规则按“数据源 + 规范化列名”匹配，同名列统一生效；不支持“表.列”级规则。
+- 草稿按 table-only 目标键处理；不同表的同名列分别生成规则。发现不会自动填写精确 schema，同一数据源跨 schema 的同名 table/column 需要人工建立 schema-qualified 规则。
 - 样本不持久化、不返回、不进入审计正文或通知，但进程内存不做密码学级安全擦除。
 - 功能仅在管理 API/控制台提供，不是 MCP 工具，也不受 MCP Agent 授权策略限制。
 - 发现是同步操作，整体 deadline 为 12 秒；不支持异步任务、结果导出或合规结论。
