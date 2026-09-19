@@ -25,6 +25,7 @@
 - 通知通道默认关闭、默认不含 SQL，Webhook SSRF fail-closed 并校验签名；敏感列发现样本不落盘、不作为 MCP 工具暴露。
 - 表.列脱敏对无法确定归属的敏感列默认 fail-closed 阻断且不提供放行开关；`hash` 为不可逆指纹而非加密，`range`/`block` 在数据库执行后处理，不替代只读账号、列级权限与安全视图。
 - v0.3 全部新增提交通过全历史密钥/凭据扫描，未发现真实密钥、私钥、云访问密钥或被跟踪的 `.env`。
+- 发布前完成 govulncheck 与 npm audit 双扫描并加固：修复核心 PG 驱动 pgx 的 SQL 注入类公告 GO-2026-5004（pgx/v5 升级 v5.9.2，调用点为 PostgreSQL 执行器），间接依赖 grpc、edwards25519 升至含修复的补丁版本；前端清除全部会进入生产产物的 high 级公告（axios 升至 1.20.0、react-router-dom 升至 6.30.6）。残留 vitess GO-2026-4567 仅静态链接其 SQL 解析器、不运行任何 vitess 服务端，漏洞 sink 不可达（修复版本 v0.22.4 与 Go 1.27 构建不兼容，于后续版本跟进）；vite/esbuild 公告仅存在于本地开发服务器、不随生产静态产物交付，echarts 与 react-router 残留 moderate 在本产品纯 CSR、无 HTML 富文本渲染、无用户可控外部跳转的架构下不可达。
 
 ### Fixed
 
