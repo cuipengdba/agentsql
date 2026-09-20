@@ -85,6 +85,35 @@ func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
 	}
 }
 
+func TestPipelineRejectsMySQLValuesBeforeExecutor(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "union values right", sql: "SELECT 1 UNION VALUES ROW(2)"},
+		{name: "union values left", sql: "VALUES ROW(1) UNION SELECT 2"},
+		{name: "nested union values", sql: "SELECT 1 UNION (SELECT 2 UNION VALUES ROW(3))"},
+		{name: "root values", sql: "VALUES ROW(1)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPipelineFixture(t)
+			fixture.datasources.datasource.DBType = "mysql"
+			fixture.executor.dialect = "mysql"
+
+			response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(test.sql))
+
+			require.Error(t, err)
+			require.Equal(t, model.DecisionDeny, response.Decision)
+			require.Zero(t, fixture.executors.calls(), "executor provider must not be reached")
+			calls := fixture.executor.callsSnapshot()
+			require.Zero(t, calls.explain+calls.query+calls.execute+calls.openSession)
+			require.Zero(t, calls.sessionExplain+calls.sessionQuery+calls.sessionExecute)
+			require.Equal(t, 1, fixture.audit.calls())
+			require.Equal(t, "error", fixture.audit.last().Decision)
+		})
+	}
+}
+
 func TestPipelineDynamicApproveCreatesApprovalAndAuditAtomically(t *testing.T) {
 	fixture := newPipelineFixture(t, WithRuleLayers(engine.RuleLayers{
 		Agent: engine.RuleLayer{

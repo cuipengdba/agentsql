@@ -17,7 +17,7 @@ type mysqlParser struct {
 var _ Parser = (*mysqlParser)(nil)
 
 func newMySQLParser() (Parser, error) {
-	approvedParser, err := sqlparser.New(sqlparser.Options{})
+	approvedParser, err := sqlparser.New(sqlparser.Options{MySQLServerVersion: "8.0.30"})
 	if err != nil {
 		return nil, fmt.Errorf("create Vitess MySQL parser: %w", err)
 	}
@@ -56,6 +56,13 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 	statement, err := parser.parser.ParseStrictDDL(sql)
 	if err != nil {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
+	}
+	switch statement.(type) {
+	case *sqlparser.CreateProcedure, *sqlparser.DropProcedure:
+		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(
+			mysqlDialect,
+			errors.New("MySQL stored procedure statements are unsupported"),
+		)
 	}
 	normalized, err := normalizeMySQL(parser.parser, statement, sql)
 	if err != nil {
@@ -166,7 +173,10 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		}
 	}
 
-	hasWhere, whereExpression := mysqlRootWhere(statement)
+	hasWhere, whereExpression, err := mysqlRootWhere(statement)
+	if err != nil {
+		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
+	}
 	return &model.AST{
 		Dialect:           mysqlDialect,
 		RawSQL:            sql,
@@ -409,30 +419,30 @@ func mysqlFirstKeyword(parser *sqlparser.Parser, sql string) (string, error) {
 	return strings.ToUpper(keyword), nil
 }
 
-func mysqlRootWhere(statement sqlparser.Statement) (bool, sqlparser.Expr) {
+func mysqlRootWhere(statement sqlparser.Statement) (bool, sqlparser.Expr, error) {
 	switch typed := statement.(type) {
 	case *sqlparser.Select:
-		if typed.Where != nil {
-			return true, typed.Where.Expr
-		}
+		return mysqlTableStatementWhere(typed)
 	case *sqlparser.Update:
 		if typed.Where != nil {
-			return true, typed.Where.Expr
+			return true, typed.Where.Expr, nil
 		}
-		return mysqlJoinWhere(typed.TableExprs)
+		hasWhere, expression := mysqlJoinWhere(typed.TableExprs)
+		return hasWhere, expression, nil
 	case *sqlparser.Delete:
 		if typed.Where != nil {
-			return true, typed.Where.Expr
+			return true, typed.Where.Expr, nil
 		}
-		return mysqlJoinWhere(typed.TableExprs)
+		hasWhere, expression := mysqlJoinWhere(typed.TableExprs)
+		return hasWhere, expression, nil
 	case *sqlparser.Union:
-		leftHasWhere, leftExpression := mysqlSelectWhere(typed.Left)
-		if leftHasWhere {
-			return true, leftExpression
-		}
-		return mysqlSelectWhere(typed.Right)
+		return mysqlTableStatementWhere(typed)
+	case *sqlparser.ValuesStatement:
+		return mysqlTableStatementWhere(typed)
+	case nil:
+		return false, nil, errors.New("MySQL statement is nil")
 	}
-	return false, nil
+	return false, nil, nil
 }
 
 func mysqlJoinWhere(tableExpressions []sqlparser.TableExpr) (bool, sqlparser.Expr) {
@@ -474,20 +484,39 @@ func mysqlCollectJoinConditions(tableExpression sqlparser.TableExpr, conditions 
 	}
 }
 
-func mysqlSelectWhere(statement sqlparser.SelectStatement) (bool, sqlparser.Expr) {
+func mysqlTableStatementWhere(statement sqlparser.TableStatement) (bool, sqlparser.Expr, error) {
 	switch typed := statement.(type) {
 	case *sqlparser.Select:
+		if typed == nil {
+			return false, nil, errors.New("MySQL SELECT table statement is nil")
+		}
 		if typed.Where != nil {
-			return true, typed.Where.Expr
+			return true, typed.Where.Expr, nil
 		}
+		return false, nil, nil
 	case *sqlparser.Union:
-		leftHasWhere, leftExpression := mysqlSelectWhere(typed.Left)
-		if leftHasWhere {
-			return true, leftExpression
+		if typed == nil {
+			return false, nil, errors.New("MySQL UNION table statement is nil")
 		}
-		return mysqlSelectWhere(typed.Right)
+		leftHasWhere, leftExpression, err := mysqlTableStatementWhere(typed.Left)
+		if err != nil {
+			return false, nil, err
+		}
+		rightHasWhere, rightExpression, err := mysqlTableStatementWhere(typed.Right)
+		if err != nil {
+			return false, nil, err
+		}
+		if leftHasWhere {
+			return true, leftExpression, nil
+		}
+		return rightHasWhere, rightExpression, nil
+	case *sqlparser.ValuesStatement:
+		return false, nil, errors.New("MySQL VALUES table statement is unsupported")
+	case nil:
+		return false, nil, errors.New("MySQL table statement is nil")
+	default:
+		return false, nil, fmt.Errorf("unsupported MySQL table statement %T", statement)
 	}
-	return false, nil
 }
 
 func mysqlHasLimit(statement sqlparser.Statement) bool {
@@ -550,10 +579,11 @@ func mysqlExistsConstantSelect(subquery *sqlparser.Subquery) bool {
 	if !ok || selectNode.Where != nil || selectNode.Having != nil || selectNode.GroupBy != nil || selectNode.Limit != nil {
 		return false
 	}
-	if !mysqlFromIsOnlyDual(selectNode.From) || len(selectNode.SelectExprs) == 0 {
+	selectExprs := selectNode.GetColumns()
+	if !mysqlFromIsOnlyDual(selectNode.From) || len(selectExprs) == 0 {
 		return false
 	}
-	for _, expression := range selectNode.SelectExprs {
+	for _, expression := range selectExprs {
 		aliased, ok := expression.(*sqlparser.AliasedExpr)
 		if !ok || !mysqlConstantExpression(aliased.Expr) {
 			return false
@@ -621,10 +651,11 @@ func mysqlAggregateShape(statement sqlparser.Statement) (bool, bool) {
 		return false, false
 	}
 	hasGroupBy := selectNode.GroupBy != nil && len(selectNode.GroupBy.Exprs) > 0
-	if hasGroupBy || len(selectNode.SelectExprs) == 0 {
+	selectExprs := selectNode.GetColumns()
+	if hasGroupBy || len(selectExprs) == 0 {
 		return hasGroupBy, false
 	}
-	for _, expression := range selectNode.SelectExprs {
+	for _, expression := range selectExprs {
 		aliased, ok := expression.(*sqlparser.AliasedExpr)
 		if !ok {
 			return false, false
@@ -641,8 +672,9 @@ func mysqlProjectedColumns(statement sqlparser.Statement) []string {
 	if !ok {
 		return nil
 	}
+	selectExprs := selectNode.GetColumns()
 	columns := make(stringSet)
-	for _, expression := range selectNode.SelectExprs {
+	for _, expression := range selectExprs {
 		switch typed := expression.(type) {
 		case *sqlparser.StarExpr:
 			if cteColumns, ok := mysqlSingleCTEProjectedColumns(selectNode, typed); ok {
@@ -678,9 +710,10 @@ func mysqlDirectProjections(statement sqlparser.Statement) []model.DirectProject
 	if !ok {
 		return nil
 	}
+	selectExprs := selectNode.GetColumns()
 	bindings := mysqlTopBindings(selectNode)
-	items := make([]directProjectionItem, len(selectNode.SelectExprs))
-	for index, expression := range selectNode.SelectExprs {
+	items := make([]directProjectionItem, len(selectExprs))
+	for index, expression := range selectExprs {
 		switch typed := expression.(type) {
 		case *sqlparser.AliasedExpr:
 			column, direct := typed.Expr.(*sqlparser.ColName)

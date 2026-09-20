@@ -100,7 +100,7 @@ func TestMySQLExplainAnalyzeCarriesSideEffectOperation(t *testing.T) {
 }
 
 func TestCoverageMySQLKeywordAndConstantHelpers(t *testing.T) {
-	vitessParser, err := sqlparser.New(sqlparser.Options{})
+	vitessParser, err := sqlparser.New(sqlparser.Options{MySQLServerVersion: "8.0.30"})
 	require.NoError(t, err)
 
 	for _, test := range []struct {

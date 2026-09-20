@@ -27,6 +27,8 @@ func TestStaticAssessScenarios(t *testing.T) {
 		{name: "readonly update", input: StaticAssessInput{SQL: "UPDATE orders SET status = 'closed' WHERE id = 1 LIMIT 1", Dialect: "mysql", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"R003"}},
 		{name: "SQL comment", input: StaticAssessInput{SQL: "SELECT /* guarded */ id FROM public.orders WHERE id = 1 LIMIT 1", Dialect: "postgres", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"R006"}},
 		{name: "malformed SQL", input: StaticAssessInput{SQL: "SELECT FROM WHERE (((", Dialect: "postgres", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
+		{name: "mysql union values", input: StaticAssessInput{SQL: "SELECT 1 UNION VALUES ROW(2)", Dialect: "mysql", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
+		{name: "mysql root values", input: StaticAssessInput{SQL: "VALUES ROW(1)", Dialect: "mysql", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

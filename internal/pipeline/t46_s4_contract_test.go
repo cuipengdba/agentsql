@@ -78,6 +78,28 @@ func TestT46S4PipelineScopedRuleContracts(t *testing.T) {
 		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
 	})
 
+	t.Run("derived outer projection fails closed", func(t *testing.T) {
+		fixture := newT46S4Fixture(t, []mask.Rule{
+			{Table: "customers", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
+		})
+		response := runT46S4Query(t, fixture, "SELECT phone FROM (SELECT phone FROM customers) x", model.QueryResult{
+			Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
+		})
+		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
+		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+	})
+
+	t.Run("union projection fails closed", func(t *testing.T) {
+		fixture := newT46S4Fixture(t, []mask.Rule{
+			{Table: "customers", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
+		})
+		response := runT46S4Query(t, fixture, "SELECT phone FROM customers UNION SELECT phone FROM orders", model.QueryResult{
+			Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
+		})
+		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
+		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+	})
+
 	t.Run("unrelated derived table is not affected", func(t *testing.T) {
 		fixture := newT46S4Fixture(t, []mask.Rule{
 			{Table: "customers", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
