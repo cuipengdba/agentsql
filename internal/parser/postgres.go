@@ -132,7 +132,11 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
 	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
 	hasGroupBy, isPureAggregate := postgresAggregateShape(analysisType, analysisNode)
-	directProjections := postgresDirectProjections(nodeType, node)
+	projectionLineages, err := postgresProjectionLineages(nodeType, node)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	}
+	directProjections := deriveDirectProjections(projectionLineages)
 	for _, column := range postgresProjectedColumns(analysisType, analysisNode) {
 		operations.add(selectColumnOperation + ":" + column)
 	}
@@ -163,22 +167,23 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	}
 
 	return &model.AST{
-		Dialect:           postgresDialect,
-		RawSQL:            sql,
-		Normalized:        normalized,
-		StmtType:          statementType,
-		IsMulti:           false,
-		Tables:            tables.sorted(),
-		Columns:           columns.sorted(),
-		DirectProjections: directProjections,
-		HasWhere:          hasWhere,
-		WhereTautology:    whereTautology,
-		HasLimit:          hasLimit,
-		HasGroupBy:        hasGroupBy,
-		IsPureAggregate:   isPureAggregate,
-		Functions:         functions.sorted(),
-		Operations:        operations.sorted(),
-		Explain:           nil,
+		Dialect:            postgresDialect,
+		RawSQL:             sql,
+		Normalized:         normalized,
+		StmtType:           statementType,
+		IsMulti:            false,
+		Tables:             tables.sorted(),
+		Columns:            columns.sorted(),
+		DirectProjections:  directProjections,
+		ProjectionLineages: projectionLineages,
+		HasWhere:           hasWhere,
+		WhereTautology:     whereTautology,
+		HasLimit:           hasLimit,
+		HasGroupBy:         hasGroupBy,
+		IsPureAggregate:    isPureAggregate,
+		Functions:          functions.sorted(),
+		Operations:         operations.sorted(),
+		Explain:            nil,
 	}, nil
 }
 

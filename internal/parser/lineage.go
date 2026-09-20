@@ -32,6 +32,7 @@ type namedLineage struct {
 
 type derivedRelation struct {
 	outputs     map[string][]model.LineageArm
+	outputCount map[string]int
 	outputOrder []namedLineage
 	complete    bool
 	opaque      model.LineageArm
@@ -43,6 +44,7 @@ type relationBinding struct {
 	kind        bindingKind
 	object      model.ObjectRef
 	outputs     map[string][]model.LineageArm
+	outputCount map[string]int
 	outputOrder []namedLineage
 	complete    bool
 	opaque      model.LineageArm
@@ -251,7 +253,7 @@ func addLineageRoute(arms []model.LineageArm, route model.LineageRoute) []model.
 
 func relationFromLineages(lineages []model.ProjectionLineage) derivedRelation {
 	relation := derivedRelation{
-		outputs: make(map[string][]model.LineageArm), complete: true,
+		outputs: make(map[string][]model.LineageArm), outputCount: make(map[string]int), complete: true,
 	}
 	allRelations := make([]model.ObjectRef, 0)
 	for index, lineage := range lineages {
@@ -263,6 +265,7 @@ func relationFromLineages(lineages []model.ProjectionLineage) derivedRelation {
 		if lineage.OutputName != "" && !lineage.Variadic {
 			key := lineageIdentifierKey(lineage.OutputName)
 			relation.outputs[key] = append(relation.outputs[key], lineage.Arms...)
+			relation.outputCount[key]++
 		}
 		for _, arm := range lineage.Arms {
 			allRelations = append(allRelations, arm.PossibleRelations...)
@@ -281,10 +284,12 @@ func overrideDerivedColumns(relation derivedRelation, columns []string) derivedR
 	if len(columns) != len(relation.outputOrder) {
 		relation.complete = false
 		relation.outputs = make(map[string][]model.LineageArm)
+		relation.outputCount = make(map[string]int)
 		relation.opaque.Operation = "derived_column_count_mismatch"
 		return relation
 	}
 	relation.outputs = make(map[string][]model.LineageArm, len(columns))
+	relation.outputCount = make(map[string]int, len(columns))
 	for index, column := range columns {
 		entry := relation.outputOrder[index]
 		entry.name = column
@@ -293,6 +298,7 @@ func overrideDerivedColumns(relation derivedRelation, columns []string) derivedR
 		relation.outputs[lineageIdentifierKey(column)] = append(
 			relation.outputs[lineageIdentifierKey(column)], entry.lineage.Arms...,
 		)
+		relation.outputCount[lineageIdentifierKey(column)]++
 	}
 	return relation
 }
@@ -311,7 +317,14 @@ func deriveDirectProjections(lineages []model.ProjectionLineage) []model.DirectP
 			continue
 		}
 		arm := lineage.Arms[0]
-		if arm.Kind != model.LineageDirect || arm.Status == model.LineageSourceFree {
+		opaqueDirectCompatibility := arm.Kind == model.LineageOpaque &&
+			(arm.Operation == "joined_merged_column" || arm.Operation == "range_function" ||
+				arm.Operation == "range_table_function")
+		if (arm.Kind != model.LineageDirect && !opaqueDirectCompatibility) || arm.Status == model.LineageSourceFree {
+			continue
+		}
+		if opaqueDirectCompatibility {
+			items[index].column = lineage.OutputName
 			continue
 		}
 		if len(arm.Dependencies) == 0 {
