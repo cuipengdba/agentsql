@@ -94,6 +94,7 @@ export function TrendChart({ data, mode }: TrendChartProps) {
         },
         tooltip: {
           trigger: "axis",
+          renderMode: "richText",
           axisPointer: { type: "cross" },
           backgroundColor: colors.elevated,
           borderColor: colors.border,
@@ -118,7 +119,7 @@ export function TrendChart({ data, mode }: TrendChartProps) {
               `告警：${finiteCount(row.warn).toLocaleString("zh-CN")}`,
               `待审批：${finiteCount(row.approve).toLocaleString("zh-CN")}`,
               `拦截：${finiteCount(row.deny).toLocaleString("zh-CN")}`,
-            ].join("<br/>");
+            ].join("\n");
           },
         },
         xAxis: {

@@ -61,12 +61,13 @@ export function DecisionDonut({ data, mode }: DecisionDonutProps) {
         },
         tooltip: {
           trigger: "item",
+          renderMode: "richText",
           backgroundColor: colors.elevated,
           borderColor: colors.border,
           textStyle: { color: colors.text },
           formatter: (item: unknown) => {
             const candidate = item as { name?: string; value?: number; percent?: number };
-            return `${candidate.name || "未知"}<br/>${safeCount(candidate.value).toLocaleString("zh-CN")}（${Number.isFinite(candidate.percent) ? candidate.percent : 0}%）`;
+            return `${candidate.name || "未知"}\n${safeCount(candidate.value).toLocaleString("zh-CN")}（${Number.isFinite(candidate.percent) ? candidate.percent : 0}%）`;
           },
         },
         legend: {

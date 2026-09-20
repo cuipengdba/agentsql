@@ -10,28 +10,33 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
+    dedupe: ["react", "react-dom"],
   },
   build: {
     outDir: "../internal/webui/dist",
     emptyOutDir: true,
-    rollupOptions: {
+    target: "baseline-widely-available",
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) {
-            return undefined;
-          }
-
-          const moduleId = id.replaceAll("\\", "/");
-          if (/\/node_modules\/(?:react|react-dom|react-router|react-router-dom|scheduler|@remix-run\/router)\//.test(moduleId)) {
-            return "react-vendor";
-          }
-          if (/\/node_modules\/(?:antd|rc-[^/]+|@ant-design\/[^/]+|@rc-component\/[^/]+)\//.test(moduleId)) {
-            return "antd-vendor";
-          }
-          if (/\/node_modules\/(?:echarts|zrender)\//.test(moduleId)) {
-            return "echarts-vendor";
-          }
-          return "utility-vendor";
+        codeSplitting: {
+          groups: [
+            {
+              test: /[\\/]node_modules[\\/]/,
+              name(moduleId) {
+                const normalizedId = moduleId.replaceAll("\\", "/");
+                if (/\/node_modules\/(?:react|react-dom|react-router|react-router-dom|scheduler)\//.test(normalizedId)) {
+                  return "react-vendor";
+                }
+                if (/\/node_modules\/(?:antd|rc-[^/]+|@ant-design\/[^/]+|@rc-component\/[^/]+)\//.test(normalizedId)) {
+                  return "antd-vendor";
+                }
+                if (/\/node_modules\/(?:echarts|zrender)\//.test(normalizedId)) {
+                  return "echarts-vendor";
+                }
+                return "utility-vendor";
+              },
+            },
+          ],
         },
       },
     },
