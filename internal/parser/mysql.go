@@ -57,6 +57,9 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 	if err != nil {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
+	if err := mysqlValidateLineageStructure(statement); err != nil {
+		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
+	}
 	switch statement.(type) {
 	case *sqlparser.CreateProcedure, *sqlparser.DropProcedure:
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(
@@ -140,7 +143,11 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
 	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
 	hasGroupBy, isPureAggregate := mysqlAggregateShape(statement)
-	directProjections := mysqlDirectProjections(statement)
+	projectionLineages, err := mysqlProjectionLineages(statement)
+	if err != nil {
+		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
+	}
+	directProjections := deriveDirectProjections(projectionLineages)
 	for _, column := range mysqlProjectedColumns(statement) {
 		operations.add(selectColumnOperation + ":" + column)
 	}
@@ -178,22 +185,23 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
 	return &model.AST{
-		Dialect:           mysqlDialect,
-		RawSQL:            sql,
-		Normalized:        normalized,
-		StmtType:          statementType,
-		IsMulti:           false,
-		Tables:            tables.sorted(),
-		Columns:           columns.sorted(),
-		DirectProjections: directProjections,
-		HasWhere:          hasWhere,
-		WhereTautology:    hasWhere && mysqlExpressionTautology(whereExpression),
-		HasLimit:          mysqlHasLimit(statement),
-		HasGroupBy:        hasGroupBy,
-		IsPureAggregate:   isPureAggregate,
-		Functions:         functions.sorted(),
-		Operations:        operations.sorted(),
-		Explain:           nil,
+		Dialect:            mysqlDialect,
+		RawSQL:             sql,
+		Normalized:         normalized,
+		StmtType:           statementType,
+		IsMulti:            false,
+		Tables:             tables.sorted(),
+		Columns:            columns.sorted(),
+		DirectProjections:  directProjections,
+		ProjectionLineages: projectionLineages,
+		HasWhere:           hasWhere,
+		WhereTautology:     hasWhere && mysqlExpressionTautology(whereExpression),
+		HasLimit:           mysqlHasLimit(statement),
+		HasGroupBy:         hasGroupBy,
+		IsPureAggregate:    isPureAggregate,
+		Functions:          functions.sorted(),
+		Operations:         operations.sorted(),
+		Explain:            nil,
 	}, nil
 }
 
