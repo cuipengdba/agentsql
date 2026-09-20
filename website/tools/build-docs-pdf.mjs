@@ -16,32 +16,32 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v0.2.0';
+const VERSION = 'v0.3.0';
 const REPOSITORY_BLOB = 'https://github.com/cuipengdba/agentsql/blob/main';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIR, '..', '..');
 const DOCS_ROOT = resolve(REPOSITORY_ROOT, 'docs');
 const OUTPUT_DIR = resolve(REPOSITORY_ROOT, 'website', 'public', 'assets', 'docs');
 const MINIMUM_PDF_BYTES = 20_000;
-// Fixed at the v0.2.0 release-candidate build date so repeated builds are byte-reproducible.
-const FIXED_PDF_DATE = "D:20260918000000+00'00'";
+// Fixed at the v0.3.0 target GA date so repeated builds are byte-reproducible.
+const FIXED_PDF_DATE = "D:20260929000000+00'00'";
 
 const DOCUMENTS = [
   {
     source: resolve(DOCS_ROOT, 'GETTING_STARTED.md'),
-    output: 'agentsql-getting-started-v0.2.0.pdf',
+    output: 'agentsql-getting-started-v0.3.0.pdf',
     title: '快速上手',
     slug: 'getting-started',
   },
   {
     source: resolve(DOCS_ROOT, 'USER_GUIDE.md'),
-    output: 'agentsql-user-guide-v0.2.0.pdf',
+    output: 'agentsql-user-guide-v0.3.0.pdf',
     title: '使用手册',
     slug: 'user-guide',
   },
   {
     source: resolve(DOCS_ROOT, 'INTEGRATIONS.md'),
-    output: 'agentsql-mcp-integrations-v0.2.0.pdf',
+    output: 'agentsql-mcp-integrations-v0.3.0.pdf',
     title: 'MCP 接入指南',
     slug: 'mcp-integrations',
   },
@@ -529,7 +529,7 @@ function htmlDocument(document, rendered) {
     @page {
       size: A4;
       margin: 17mm 16mm 20mm;
-      @bottom-center { content: "AgentSQL · agentsql.cn（备案中 / 即将上线） · v0.2.0"; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; color: #64748b; }
+      @bottom-center { content: "AgentSQL · agentsql.cn（备案中 / 即将上线） · v0.3.0"; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 8pt; color: #64748b; }
     }
     * { box-sizing: border-box; }
     html { color: #172033; background: #fff; font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 10.5pt; }
@@ -580,7 +580,7 @@ function htmlDocument(document, rendered) {
     <h1>${escapeHtml(document.title)}</h1>
     <p class="cover-meta">${VERSION}</p>
     <p class="cover-meta">agentsql.cn（备案中 / 即将上线）</p>
-    <span class="release-candidate">发布候选</span>
+    <span class="release-candidate">${VERSION} 发布候选</span>
   </section>
   <nav class="toc" aria-label="目录">
     <h1>目录</h1>

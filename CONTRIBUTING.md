@@ -23,7 +23,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关和 MCP Server，专注于�
 常用 Makefile 目标如下：
 
 ```bash
-make build VERSION=v0.2.0
+make build VERSION=v0.3.0
 make test
 make race
 make vet

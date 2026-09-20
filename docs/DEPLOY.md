@@ -199,7 +199,7 @@ curl --fail http://127.0.0.1:7780/healthz
 curl --fail http://127.0.0.1:7780/readyz
 ```
 
-6. 同时验收两个不等价的探针：`/healthz` 应返回 HTTP 200、`status: "ok"` 和 `version: "v0.2.0"`，仅表示进程存活；`/readyz` 应返回 HTTP 200 和 `status: "ready"`，表示配置的 metadata 与 audit 两个存储均已通过就绪检查。随后完成一次只读 allow、一次 deny 和一次 approve 流程。确认 metadata 变更只进入 metadata 库，新审计只进入 audit 库，新 `audit_logs.id` 大于迁移前最大 ID，且审计写入失败时请求按设计 fail-closed。验证期内保留原 SQLite 与 SECRET 备份。
+6. 同时验收两个不等价的探针：`/healthz` 应返回 HTTP 200、`status: "ok"` 和 `version: "v0.3.0"`，仅表示进程存活；`/readyz` 应返回 HTTP 200 和 `status: "ready"`，表示配置的 metadata 与 audit 两个存储均已通过就绪检查。随后完成一次只读 allow、一次 deny 和一次 approve 流程。确认 metadata 变更只进入 metadata 库，新审计只进入 audit 库，新 `audit_logs.id` 大于迁移前最大 ID，且审计写入失败时请求按设计 fail-closed。验证期内保留原 SQLite 与 SECRET 备份。
 
 ### 运行账号最小权限
 
@@ -288,10 +288,10 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 官方 linux/amd64 预编译二进制在 RHEL/Rocky/AlmaLinux 8（glibc 2.28）工具链中构建，适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本。已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；CentOS 7（glibc 2.17）明确不支持。
 
-预编译二进制不支持 musl（Alpine）或非 x86_64 架构。这些环境请使用基于 Debian bookworm、内含 glibc 的容器镜像，或在目标机运行 `make build` 本机编译。可用 `make docker-linux-amd64 VERSION=v0.2.0` 复现官方二进制；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。
+预编译二进制不支持 musl（Alpine）或非 x86_64 架构。这些环境请使用基于 Debian bookworm、内含 glibc 的容器镜像，或在目标机运行 `make build` 本机编译。可用 `make docker-linux-amd64 VERSION=v0.3.0` 复现官方二进制；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。
 
 ```bash
-make build VERSION=v0.2.0
+make build VERSION=v0.3.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -324,8 +324,8 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 常用生命周期命令：
 
 ```bash
-sudo ./install.sh install --version v0.2.0
-sudo ./install.sh upgrade --version v0.2.1
+sudo ./install.sh install --version v0.3.0
+sudo ./install.sh upgrade --version v0.3.1
 sudo ./install.sh uninstall
 sudo ./install.sh uninstall --purge --yes
 ```
@@ -335,8 +335,8 @@ sudo ./install.sh uninstall --purge --yes
 离线安装可把已解压包目录传给 `--from`，或传入 tarball；传 tarball 时同目录必须有 `<tarball>.sha256`。从发布包根执行 `sudo ./install.sh install` 会自动使用当前已校验的包，不访问网络：
 
 ```bash
-sudo ./install.sh install --from /srv/releases/agentsql-v0.2.0-linux-amd64
-sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.2.1-linux-amd64.tar.gz
+sudo ./install.sh install --from /srv/releases/agentsql-v0.3.0-linux-amd64
+sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.3.1-linux-amd64.tar.gz
 ```
 
 `--no-start` 只用于 chroot 或镜像预安装：允许在 systemd 不是 PID 1 时写入文件，但不会启动或健康检查，安装结果在 systemd 成功启动前不可用。升级默认只自动备份 `/var/lib/agentsql/agentsql.db` 及其 `-wal`、`-shm`；使用 PostgreSQL 控制面或自定义 SQLite 路径时，必须先完成外部一致性备份并明确传 `--external-backup-done`，安装器不会声称已备份外部数据库。若外部数据库升级后的健康检查失败，安装器会恢复二进制、unit、配置和环境文件，但会让旧服务保持停止；操作者必须先恢复外部数据库快照，再启动旧版本。
@@ -344,7 +344,7 @@ sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.2.1-linux-amd64.tar.g
 下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-amd64.tar.gz[.sha256]` 提供同源文件。建议同时明确 `--version`，例如：
 
 ```bash
-sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.2.0
+sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.3.0
 ```
 
 安装器若发现 `restorecon` 会恢复二进制、unit、配置和数据目录的 SELinux 默认上下文，不调用 `chcon`、不关闭 enforcing；遇到拒绝时用 `ausearch -m AVC` 调查。发布 tarball 的许可证位于包根 `LICENSE`，容器镜像内位于 `/usr/share/licenses/agentsql/LICENSE`。
@@ -846,16 +846,16 @@ COMMIT;
 发布者应按以下顺序构建、验证并分发同一版本。正式发布建议把 `ROCKY_IMAGE` 固定到审核过的 `rockylinux:8@sha256:...`，默认值仍为 `rockylinux:8`：
 
 ```bash
-make docker-linux-amd64 VERSION=v0.2.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
-make package-release VERSION=v0.2.0
-sh scripts/push-release-image.sh v0.2.0
+make docker-linux-amd64 VERSION=v0.3.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
+make package-release VERSION=v0.3.0
+sh scripts/push-release-image.sh v0.3.0
 ```
 
 发布镜像脚本要求操作者先执行 `docker login ghcr.io`，默认只推精确版本 tag；只有显式加 `--latest` 才会移动 latest。之后必须按顺序完成：
 
 1. 在 GHCR 将 `ghcr.io/cuipengdba/agentsql` package 设为 public。
-2. 在没有 GHCR 登录状态的干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.2.0`，核对架构为 amd64，并以回环端口启动、等待 health 为 healthy。
-3. 把 `dist/agentsql-v0.2.0-linux-amd64.tar.gz`、同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。
+2. 在没有 GHCR 登录状态的干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.3.0`，核对架构为 amd64，并以回环端口启动、等待 health 为 healthy。
+3. 把 `dist/agentsql-v0.3.0-linux-amd64.tar.gz`、同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。
 4. 再次下载 Release 资产，校验外层 SHA-256、包内 `SHA256SUMS` 和两个二进制版本，全部通过后发布 Release。
 
 `scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。

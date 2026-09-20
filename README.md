@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Release](https://img.shields.io/badge/Release-v0.2.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.3.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -38,9 +38,9 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
 ```bash
-sha256sum -c agentsql-v0.2.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v0.2.0-linux-amd64.tar.gz
-cd agentsql-v0.2.0-linux-amd64
+sha256sum -c agentsql-v0.3.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.3.0-linux-amd64.tar.gz
+cd agentsql-v0.3.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -56,7 +56,7 @@ GHCR 包必须由发布者设为 public，以上命令才能在未登录环境�
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.2.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.3.0
 ```
 
 ### 3. 本地 Live Demo（一条命令）
@@ -132,7 +132,7 @@ docker compose --profile observability up -d --build
 源码二进制构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
-make build VERSION=v0.2.0
+make build VERSION=v0.3.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -228,7 +228,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 - 多表 JOIN 与自连接的授权只做表级，列级白名单不随投影列归属收紧；脱敏层则可对已用表名或别名限定的 JOIN 投影列精确归属，未限定的裸列按 fail-closed 兜底处理。
 - `AllowedTables` 中的 `*` 或 `schema.*` 表示管理员显式授予匹配表的全部列；此时精确列白名单不再收紧。单表使用精确列白名单时，应显式列出投影列。
 - 当前版本每个 MCP 请求独立处理，只接受单条 SQL、不允许语句堆叠，也不暴露跨请求会话或事务参数；内部 `SessionID` 不是公开协议能力。
-- 多语句事务和受控跨请求事务不在 v0.2.0 能力范围内，留待后续版本评估。
+- 多语句事务和受控跨请求事务不在当前版本能力范围内，留待后续版本评估。
 
 ## 本地测试模式
 
@@ -256,7 +256,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.2.0
+make build VERSION=v0.3.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

@@ -52,9 +52,9 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v0.2.0}
+        VERSION: ${VERSION:-v0.3.0}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: agentsql:${VERSION:-v0.2.0}
+    image: agentsql:${VERSION:-v0.3.0}
     ports:
       - "127.0.0.1:7780:7780"
     environment:

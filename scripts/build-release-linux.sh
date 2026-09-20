@@ -2,7 +2,7 @@
 
 set -eu
 
-VERSION=${VERSION:-v0.2.0}
+VERSION=${VERSION:-v0.3.0}
 GO_VERSION=${GO_VERSION:-1.25.14}
 GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
 
