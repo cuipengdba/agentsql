@@ -572,6 +572,13 @@ func postgresWalkProjection(value any, columns stringSet) {
 }
 
 func normalizePostgres(sql string) (string, error) {
+	scanResult, err := pg_query.Scan(sql)
+	if err != nil {
+		return "", fmt.Errorf("scan PostgreSQL SQL before normalization: %w", err)
+	}
+	if !postgresScanContainsLiteral(scanResult) {
+		return sql, nil
+	}
 	normalized, err := pg_query.Normalize(sql)
 	if err != nil {
 		return "", fmt.Errorf("normalize PostgreSQL SQL: %w", err)
@@ -581,6 +588,19 @@ func normalizePostgres(sql string) (string, error) {
 		return "", fmt.Errorf("redact PostgreSQL string constants: %w", err)
 	}
 	return redacted, nil
+}
+
+func postgresScanContainsLiteral(scanResult *pg_query.ScanResult) bool {
+	if scanResult == nil {
+		return false
+	}
+	for _, token := range scanResult.GetTokens() {
+		switch token.GetToken().String() {
+		case "ICONST", "FCONST", "SCONST", "BCONST", "XCONST", "USCONST":
+			return true
+		}
+	}
+	return false
 }
 
 func redactPostgresStringConstants(sql string) (string, error) {
