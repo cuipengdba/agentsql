@@ -30,8 +30,8 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 
 | 范围 | 当前支持 | 说明 |
 | --- | --- | --- |
-| 一键安装宿主 | `linux/amd64`、glibc 2.28+、systemd | v0.3.0 发布后可用 |
-| 其他宿主 | Docker / Docker Compose | musl、CentOS 7、ARM 请使用容器或自行构建；无 ARM 原生发布包 |
+| 一键安装宿主 | `linux/amd64`、`linux/arm64`；glibc 2.28+、systemd | v0.4.0 起提供 linux/arm64 原生 glibc 包；`x86_64` / `amd64` 对应 amd64，`aarch64` / `arm64` 对应 arm64 |
+| 其他宿主 | Docker / Docker Compose | musl / Alpine、CentOS 7 与上述两种架构之外的平台不提供原生包；发布容器镜像仍为 amd64 |
 | 业务数据库 | MySQL 8；PostgreSQL 14–18 | 为 AgentSQL 创建独立、最小权限运行账号 |
 | 控制面存储 | SQLite；PostgreSQL 15+ | SQLite 为默认；PostgreSQL 可分离 metadata 与 audit |
 | 浏览器控制台 | `http://127.0.0.1:7780` | 默认绑定回环地址 |
@@ -73,10 +73,10 @@ bash ./demo/reset.sh        # Windows PowerShell 用：.\demo\reset.ps1
 
 ### 1. 安装并启动
 
-**v0.3.0 发布后可用：**一键安装仅支持 `linux/amd64`、glibc 2.28+、systemd；命令需要 root 权限：
+**v0.4.0 起提供 linux/arm64 原生 glibc 包：**一键安装支持 `linux/amd64`（`uname -m` 为 `x86_64` / `amd64`）和 `linux/arm64`（`aarch64` / `arm64`），均要求 glibc 2.28+、systemd，且命令需要 root 权限：
 
 ```bash
-# 适用前提：v0.3.0 正式发布后；linux/amd64 + glibc 2.28+ + systemd
+# 适用前提：v0.4.0 起；linux/amd64 或 linux/arm64 + glibc 2.28+ + systemd
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 

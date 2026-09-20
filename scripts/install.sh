@@ -47,6 +47,7 @@ BACKUP_WAL_PRESENT=0
 BACKUP_SHM_PRESENT=0
 EXTERNAL_DB_MODE=0
 SERVICE_GUARD=0
+PLATFORM_ARCH=
 
 say() {
   printf '%s\n' "$*"
@@ -201,8 +202,9 @@ detect_platform() {
   [ "$(uname -s)" = Linux ] || die "Only Linux is supported by this installer."
   dp_arch=$(uname -m)
   case "$dp_arch" in
-    x86_64|amd64) ;;
-    *) die "Native packages are available only for x86_64/amd64. ARM64 and other hosts must use an x86 container with emulation or a supported amd64 host." ;;
+    x86_64|amd64) PLATFORM_ARCH=amd64 ;;
+    aarch64|arm64) PLATFORM_ARCH=arm64 ;;
+    *) die "Native packages are available only for x86_64/amd64 and aarch64/arm64 hosts." ;;
   esac
 
   dp_musl=0
@@ -392,11 +394,15 @@ inspect_tarball() {
     fi
   done < "$it_names"
   case "$it_top" in
-    agentsql-v*-linux-amd64) ;;
+    agentsql-v*-linux-amd64|agentsql-v*-linux-arm64) ;;
     *) die "The release tarball top-level directory has an unexpected name." ;;
   esac
+  case "$it_top" in
+    *-linux-"$PLATFORM_ARCH") ;;
+    *) die "The release tarball architecture does not match this host ($PLATFORM_ARCH)." ;;
+  esac
   it_inferred=${it_top#agentsql-}
-  it_inferred=${it_inferred%-linux-amd64}
+  it_inferred=${it_inferred%-linux-$PLATFORM_ARCH}
   validate_version "$it_inferred"
   if [ -n "$VERSION" ] && [ "$VERSION" != "$it_inferred" ]; then
     die "The tarball version $it_inferred does not match requested version $VERSION."
@@ -417,7 +423,7 @@ verify_package_root() {
   vpr_root=$1
   [ -d "$vpr_root" ] || die "Package root is not a directory: $vpr_root"
   [ ! -L "$vpr_root" ] || die "Package root must not be a symbolic link."
-  [ "$(basename "$vpr_root")" = "agentsql-${VERSION}-linux-amd64" ] || die "Package directory name does not match its VERSION."
+  [ "$(basename "$vpr_root")" = "agentsql-${VERSION}-linux-${PLATFORM_ARCH}" ] || die "Package directory name does not match its VERSION or host architecture."
   for vpr_expected in agentsql agentsqlctl install.sh deploy/systemd/agentsql.service deploy/systemd/config.yaml LICENSE VERSION SHA256SUMS; do
     [ -f "$vpr_root/$vpr_expected" ] || die "Release package is missing $vpr_expected."
     [ ! -L "$vpr_root/$vpr_expected" ] || die "Release package file must not be a symbolic link: $vpr_expected"
@@ -458,12 +464,21 @@ verify_package_root() {
 
   for vpr_binary in agentsql agentsqlctl; do
     if command -v file >/dev/null 2>&1; then
-      vpr_file_output=$(file "$vpr_root/$vpr_binary")
-      printf '%s\n' "$vpr_file_output" | grep -E 'ELF 64-bit.*x86-64' >/dev/null 2>&1 || die "$vpr_binary is not an ELF64 x86-64 binary."
+      vpr_file_output=$(LC_ALL=C file "$vpr_root/$vpr_binary")
+      case "$PLATFORM_ARCH" in
+        amd64) vpr_file_pattern='ELF 64-bit.*x86-64' ;;
+        arm64) vpr_file_pattern='ELF 64-bit.*(ARM aarch64|aarch64)' ;;
+      esac
+      printf '%s\n' "$vpr_file_output" | grep -E "$vpr_file_pattern" >/dev/null 2>&1 || die "$vpr_binary is not an ELF64 $PLATFORM_ARCH binary."
     fi
     if command -v readelf >/dev/null 2>&1; then
-      readelf -h "$vpr_root/$vpr_binary" 2>/dev/null | grep -E 'Class:[[:space:]]+ELF64' >/dev/null 2>&1 || die "$vpr_binary is not ELF64."
-      readelf -h "$vpr_root/$vpr_binary" 2>/dev/null | grep -E 'Machine:[[:space:]]+(Advanced Micro Devices X86-64|AMD x86-64)' >/dev/null 2>&1 || die "$vpr_binary is not x86-64."
+      vpr_readelf_output=$(LC_ALL=C readelf -h "$vpr_root/$vpr_binary" 2>/dev/null)
+      printf '%s\n' "$vpr_readelf_output" | grep -E 'Class:[[:space:]]+ELF64' >/dev/null 2>&1 || die "$vpr_binary is not ELF64."
+      case "$PLATFORM_ARCH" in
+        amd64) vpr_machine_pattern='Machine:[[:space:]]+(Advanced Micro Devices X86-64|AMD x86-64)' ;;
+        arm64) vpr_machine_pattern='Machine:[[:space:]]+AArch64' ;;
+      esac
+      printf '%s\n' "$vpr_readelf_output" | grep -E "$vpr_machine_pattern" >/dev/null 2>&1 || die "$vpr_binary ELF machine does not match this $PLATFORM_ARCH host."
     fi
   done
   PKG_ROOT=$vpr_root
@@ -500,7 +515,7 @@ acquire_release() {
     *) die "AGENTSQL_DOWNLOAD_BASE must use HTTPS." ;;
   esac
   ar_base=${ar_base%/}
-  ar_asset="agentsql-${VERSION}-linux-amd64.tar.gz"
+  ar_asset="agentsql-${VERSION}-linux-${PLATFORM_ARCH}.tar.gz"
   ar_tar="$TMP_DIR/$ar_asset"
   ar_sidecar="${ar_tar}.sha256"
   ar_url="${ar_base}/${VERSION}/${ar_asset}"
@@ -812,7 +827,7 @@ write_install_state() {
   {
     printf 'INSTALLER_VERSION=%s\n' "$INSTALLER_VERSION"
     printf 'SOFTWARE_VERSION=%s\n' "$VERSION"
-    printf 'PLATFORM=linux-amd64-glibc\n'
+    printf 'PLATFORM=linux-%s-glibc\n' "$PLATFORM_ARCH"
     printf 'CREATED_USER=%s\n' "$CREATED_USER"
     printf 'CREATED_GROUP=%s\n' "$CREATED_GROUP"
     printf 'NOLOGIN_SHELL=%s\n' "$NOLOGIN_SHELL"

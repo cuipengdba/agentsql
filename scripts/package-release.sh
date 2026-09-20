@@ -4,6 +4,7 @@ set -eu
 umask 022
 
 VERSION=${VERSION:-v0.3.0}
+ARCH=${ARCH:-amd64}
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
 
 die() {
@@ -11,20 +12,24 @@ die() {
   exit 1
 }
 
+case "$ARCH" in
+  amd64|arm64) ;;
+  *) die "ARCH must be amd64 or arm64 (got '$ARCH')." ;;
+esac
 printf '%s\n' "$VERSION" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null 2>&1 || die "VERSION must match vX.Y.Z exactly."
 printf '%s\n' "$SOURCE_DATE_EPOCH" | grep -E '^[0-9]+$' >/dev/null 2>&1 || die "SOURCE_DATE_EPOCH must be a non-negative integer."
 
-for pr_cmd in tar gzip sort find awk sed grep chmod cp mv mkdir mktemp basename rm; do
+for pr_cmd in tar gzip sort find awk sed grep chmod cp mv mkdir mktemp basename rm file readelf; do
   command -v "$pr_cmd" >/dev/null 2>&1 || die "Required command '$pr_cmd' is missing."
 done
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
   die "A SHA-256 checker is required (sha256sum or shasum)."
 fi
 
-AGENTSQL_BINARY=bin/agentsql-linux-amd64
-CTL_BINARY=bin/agentsqlctl-linux-amd64
-[ -f "$AGENTSQL_BINARY" ] && [ -x "$AGENTSQL_BINARY" ] || die "Missing $AGENTSQL_BINARY. Run 'make docker-linux-amd64 VERSION=$VERSION' first."
-[ -f "$CTL_BINARY" ] && [ -x "$CTL_BINARY" ] || die "Missing $CTL_BINARY. Run 'make docker-linux-amd64 VERSION=$VERSION' first."
+AGENTSQL_BINARY="bin/agentsql-linux-${ARCH}"
+CTL_BINARY="bin/agentsqlctl-linux-${ARCH}"
+[ -f "$AGENTSQL_BINARY" ] && [ -x "$AGENTSQL_BINARY" ] || die "Missing $AGENTSQL_BINARY. Run 'make docker-linux-${ARCH} VERSION=$VERSION' first."
+[ -f "$CTL_BINARY" ] && [ -x "$CTL_BINARY" ] || die "Missing $CTL_BINARY. Run 'make docker-linux-${ARCH} VERSION=$VERSION' first."
 [ -f scripts/install.sh ] || die "Missing scripts/install.sh."
 [ -f deploy/systemd/agentsql.service ] || die "Missing deploy/systemd/agentsql.service."
 [ -f deploy/systemd/config.yaml ] || die "Missing deploy/systemd/config.yaml."
@@ -37,11 +42,17 @@ pr_ctl_version=$("$CTL_BINARY" version 2>/dev/null) || die "Could not execute $C
 
 check_elf() {
   ce_binary=$1
-  if command -v file >/dev/null 2>&1; then
-    ce_output=$(file "$ce_binary")
-    printf '%s\n' "$ce_output" | grep -E 'ELF 64-bit.*x86-64' >/dev/null 2>&1 || die "$ce_binary is not an ELF64 x86-64 binary."
-    printf '%s\n' "$ce_output"
-  fi
+  ce_output=$(LC_ALL=C file "$ce_binary")
+  case "$ARCH" in
+    amd64) ce_file_pattern='ELF 64-bit.*x86-64'; ce_machine_pattern='Machine:[[:space:]]+(Advanced Micro Devices X86-64|AMD x86-64)' ;;
+    arm64) ce_file_pattern='ELF 64-bit.*(ARM aarch64|aarch64)'; ce_machine_pattern='Machine:[[:space:]]+AArch64' ;;
+  esac
+  printf '%s\n' "$ce_output" | grep -E "$ce_file_pattern" >/dev/null 2>&1 || die "$ce_binary is not an ELF64 $ARCH binary."
+  printf '%s\n' "$ce_output"
+  ce_readelf=$(LC_ALL=C readelf -h "$ce_binary")
+  printf '%s\n' "$ce_readelf" | grep -E 'Class:[[:space:]]+ELF64' >/dev/null 2>&1 || die "$ce_binary is not ELF64."
+  printf '%s\n' "$ce_readelf" | grep -E "$ce_machine_pattern" >/dev/null 2>&1 || die "$ce_binary ELF machine does not match ARCH=$ARCH."
+  printf '%s\n' "$ce_readelf"
 }
 
 check_glibc_version() {
@@ -117,7 +128,7 @@ for pr_binary in "$AGENTSQL_BINARY" "$CTL_BINARY"; do
   check_dependencies "$pr_binary"
 done
 
-ROOT_NAME="agentsql-${VERSION}-linux-amd64"
+ROOT_NAME="agentsql-${VERSION}-linux-${ARCH}"
 STAGE="$TMP_DIR/$ROOT_NAME"
 mkdir -p "$STAGE/deploy/systemd"
 cp "$AGENTSQL_BINARY" "$STAGE/agentsql"

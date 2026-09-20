@@ -186,7 +186,7 @@
           <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>选择 Streamable HTTP 或 stdio，配置七个工具的调用与返回处理。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v0.3.0.pdf" download="AgentSQL-MCP接入指南-v0.3.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="#demo">在线演示说明</a></p><p>v0.3.0 发布日将开放一键安装与容器镜像；公网 Live Demo 尚未开放。</p><h4>一键安装（Linux x86_64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install</code></pre><p class="install-conditions">v0.3.0 正式发布后可用（当前为发布候选） · Linux x86_64 / amd64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="#demo">在线演示说明</a></p><p>v0.3.0 发布日将开放一键安装与容器镜像；公网 Live Demo 尚未开放。</p><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
           <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases（v0.3.0 即将发布）</a></div>
         </div>
       </div>
@@ -207,8 +207,8 @@
               <tr><th scope="row">MCP 宿主</th><td>支持相应 transport 与协议版本的 MCP 宿主</td><td>不承诺所有 Claude Desktop / Cursor 版本都支持 HTTP transport。</td></tr>
               <tr><th scope="row">七个 MCP 工具</th><td colspan="2"><code>list_datasources</code>、<code>list_schema</code>、<code>explain_query</code>、<code>query</code>（只读）、<code>execute_write</code>（受控写 / 审批）、<code>request_approval</code>、<code>get_approval_result</code></td></tr>
               <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
-              <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>、glibc 2.28+、systemd</td><td>不提供 musl / Alpine、CentOS 7、ARM 原生包。</td></tr>
-              <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；musl / Alpine、CentOS 7、ARM 只能自行源码 / 容器构建，不构成交付承诺。</td></tr>
+              <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>（<code>x86_64</code> / <code>amd64</code>）与 <code>linux/arm64</code>（<code>aarch64</code> / <code>arm64</code>）、glibc 2.28+、systemd</td><td>v0.4.0 起提供 linux/arm64 原生 glibc 包；不提供 musl / Alpine 或 CentOS 7 原生包。</td></tr>
+              <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；发布容器镜像仍为 amd64，不提供 arm64 镜像或 multi-arch manifest。</td></tr>
               <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
             </tbody>
           </table>

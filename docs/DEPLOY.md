@@ -286,9 +286,9 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ### 预编译二进制系统要求
 
-官方 linux/amd64 预编译二进制在 RHEL/Rocky/AlmaLinux 8（glibc 2.28）工具链中构建，适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本。已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；CentOS 7（glibc 2.17）明确不支持。
+官方原生包在对应架构的 Rocky Linux 8（glibc 2.28）工具链中构建。`linux/amd64` 对应 `uname -m` 的 `x86_64` / `amd64`；v0.4.0 起提供 `linux/arm64` 原生 glibc 包，对应 `aarch64` / `arm64`。amd64 包适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本，并已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；CentOS 7（glibc 2.17）明确不支持。
 
-预编译二进制不支持 musl（Alpine）或非 x86_64 架构。这些环境请使用基于 Debian bookworm、内含 glibc 的容器镜像，或在目标机运行 `make build` 本机编译。可用 `make docker-linux-amd64 VERSION=v0.3.0` 复现官方二进制；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。
+预编译二进制不支持 musl（Alpine）或 amd64 / arm64 之外的架构。这些环境请使用基于 Debian bookworm、内含 glibc 的 amd64 容器镜像，或在目标机运行 `make build` 本机编译。可用 `make release-linux-amd64 VERSION=v0.3.0` 或 `make release-linux-arm64 VERSION=v0.3.0` 在同架构容器内构建、测试并打包；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。正式发布时 `ROCKY_IMAGE` 必须固定为审核过的 `@sha256` digest。
 
 ```bash
 make build VERSION=v0.3.0
@@ -313,7 +313,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 
 ## 一键安装（推荐）
 
-一键安装器只支持 Linux x86_64、glibc 2.28+。普通安装还要求 systemd 为 PID 1；Alpine/musl、CentOS 7、ARM64 和其他非 x86_64 主机不会进入下载、解压或系统变更阶段。ARM 主机即使运行 x86 容器，也需要宿主正确配置仿真。推荐命令：
+一键安装器支持 Linux amd64（`uname -m` 为 `x86_64` / `amd64`）与 arm64（`aarch64` / `arm64`）原生 glibc 包；v0.4.0 起提供 linux/arm64 原生 glibc 包。两者均要求 glibc 2.28+，普通安装还要求 systemd 为 PID 1；Alpine / musl、CentOS 7 和其他架构不会进入下载、解压或系统变更阶段。推荐命令：
 
 ```bash
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
@@ -341,7 +341,7 @@ sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.3.1-linux-amd64.tar.g
 
 `--no-start` 只用于 chroot 或镜像预安装：允许在 systemd 不是 PID 1 时写入文件，但不会启动或健康检查，安装结果在 systemd 成功启动前不可用。升级默认只自动备份 `/var/lib/agentsql/agentsql.db` 及其 `-wal`、`-shm`；使用 PostgreSQL 控制面或自定义 SQLite 路径时，必须先完成外部一致性备份并明确传 `--external-backup-done`，安装器不会声称已备份外部数据库。若外部数据库升级后的健康检查失败，安装器会恢复二进制、unit、配置和环境文件，但会让旧服务保持停止；操作者必须先恢复外部数据库快照，再启动旧版本。
 
-下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-amd64.tar.gz[.sha256]` 提供同源文件。建议同时明确 `--version`，例如：
+下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-<amd64|arm64>.tar.gz[.sha256]` 提供同源文件，安装器按本机架构选择。建议同时明确 `--version`，例如：
 
 ```bash
 sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.3.0
@@ -846,8 +846,8 @@ COMMIT;
 发布者应按以下顺序构建、验证并分发同一版本。正式发布建议把 `ROCKY_IMAGE` 固定到审核过的 `rockylinux:8@sha256:...`，默认值仍为 `rockylinux:8`：
 
 ```bash
-make docker-linux-amd64 VERSION=v0.3.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
-make package-release VERSION=v0.3.0
+make release-linux-amd64 VERSION=v0.3.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
+make release-linux-arm64 VERSION=v0.3.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
 sh scripts/push-release-image.sh v0.3.0
 ```
 
@@ -855,7 +855,7 @@ sh scripts/push-release-image.sh v0.3.0
 
 1. 在 GHCR 将 `ghcr.io/cuipengdba/agentsql` package 设为 public。
 2. 在没有 GHCR 登录状态的干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.3.0`，核对架构为 amd64，并以回环端口启动、等待 health 为 healthy。
-3. 把 `dist/agentsql-v0.3.0-linux-amd64.tar.gz`、同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。
+3. 把 `dist/agentsql-v0.3.0-linux-amd64.tar.gz`、`dist/agentsql-v0.3.0-linux-arm64.tar.gz`、各自同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。v0.4.0 起提供 linux/arm64 原生 glibc 包；正式封板前版本号仍按发布流程统一确定。
 4. 再次下载 Release 资产，校验外层 SHA-256、包内 `SHA256SUMS` 和两个二进制版本，全部通过后发布 Release。
 
 `scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。
@@ -864,9 +864,11 @@ sh scripts/push-release-image.sh v0.3.0
 | --- | --- | --- |
 | x86_64 + glibc 2.28+ + systemd PID 1 | 支持 | 支持 |
 | x86_64 + glibc 2.28+，无 systemd PID 1 | 仅 `--no-start` 预安装 | 支持 |
+| aarch64 / arm64 + glibc 2.28+ + systemd PID 1 | v0.4.0 起支持 | 不支持（发布镜像仍为 amd64） |
+| aarch64 / arm64 + glibc 2.28+，无 systemd PID 1 | v0.4.0 起仅 `--no-start` 预安装 | 不支持（发布镜像仍为 amd64） |
 | CentOS 7 / glibc 2.17 | 不支持 | 使用 Debian/glibc 镜像 |
 | Alpine / musl | 不支持 | 使用 Debian/glibc 镜像 |
-| ARM64 或其他非 x86_64 | 无原生包 | 本快速脚本不支持；自行配置 x86 仿真 |
+| amd64 / arm64 之外的架构 | 无原生包 | 本快速脚本不支持 |
 
 ## 备份铁律
 
@@ -891,7 +893,7 @@ sh scripts/push-release-image.sh v0.3.0
 
 ### 为什么不能设置 `CGO_ENABLED=0` 或使用 Alpine
 
-项目的 `pg_query_go` 解析器依赖 cgo。纯 Go 构建会缺少必要符号；Alpine 使用 musl，也不符合当前 glibc 构建与运行约束。官方容器镜像基于 Debian bookworm；官方 linux/amd64 预编译二进制则使用 Rocky Linux 8（glibc 2.28）工具链构建。
+项目的 `pg_query_go` 解析器依赖 cgo。纯 Go 构建会缺少必要符号；Alpine 使用 musl，也不符合当前 glibc 构建与运行约束。官方容器镜像基于 Debian bookworm 且仍为 amd64；官方 linux/amd64 与 v0.4.0 起提供的 linux/arm64 原生 glibc 包分别使用对应架构的 Rocky Linux 8（glibc 2.28）工具链构建。
 
 ### 7780 端口被占用
 

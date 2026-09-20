@@ -693,4 +693,4 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - MCP 不是跨请求事务代理；一次请求只接受单条 SQL，不允许堆叠。
 - 当前业务库仅支持 PostgreSQL 14–18 与 MySQL 8。不支持 Oracle、SQL Server、达梦、金仓、瀚高、GaussDB、OceanBase、TiDB。
-- 当前不支持 SSO、LDAP、MFA、RBAC、WORM、SIEM、HA、Kubernetes、ARM 原生发布包、musl 或 CentOS 7 原生一键安装；这些均为后续路线。
+- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；当前仍不支持 SSO、LDAP、MFA、RBAC、WORM、SIEM、HA、Kubernetes、musl / Alpine、CentOS 7 原生一键安装或 arm64 容器镜像，这些均为后续路线。
