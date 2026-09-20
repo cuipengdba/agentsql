@@ -370,6 +370,7 @@ func cloneAST(source *model.AST) *model.AST {
 	cloned.Tables = append([]model.ObjectRef{}, source.Tables...)
 	cloned.Columns = append([]string{}, source.Columns...)
 	cloned.DirectProjections = append([]model.DirectProjectionRef{}, source.DirectProjections...)
+	cloned.ProjectionLineages = cloneProjectionLineages(source.ProjectionLineages)
 	cloned.Functions = append([]string{}, source.Functions...)
 	cloned.Operations = append([]string{}, source.Operations...)
 	if source.Explain != nil {
@@ -377,6 +378,32 @@ func cloneAST(source *model.AST) *model.AST {
 		cloned.Explain = &explain
 	}
 	return &cloned
+}
+
+func cloneProjectionLineages(source []model.ProjectionLineage) []model.ProjectionLineage {
+	if source == nil {
+		return nil
+	}
+	cloned := make([]model.ProjectionLineage, len(source))
+	for lineageIndex := range source {
+		cloned[lineageIndex] = source[lineageIndex]
+		if source[lineageIndex].Arms == nil {
+			continue
+		}
+		cloned[lineageIndex].Arms = make([]model.LineageArm, len(source[lineageIndex].Arms))
+		for armIndex := range source[lineageIndex].Arms {
+			cloned[lineageIndex].Arms[armIndex] = source[lineageIndex].Arms[armIndex]
+			cloned[lineageIndex].Arms[armIndex].Dependencies = append(
+				[]model.ColumnDependency(nil),
+				source[lineageIndex].Arms[armIndex].Dependencies...,
+			)
+			cloned[lineageIndex].Arms[armIndex].PossibleRelations = append(
+				[]model.ObjectRef(nil),
+				source[lineageIndex].Arms[armIndex].PossibleRelations...,
+			)
+		}
+	}
+	return cloned
 }
 
 func cloneThresholds(source map[string]float64) map[string]float64 {

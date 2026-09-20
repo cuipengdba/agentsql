@@ -508,3 +508,37 @@ func TestCloneASTDeepCopiesDirectProjections(t *testing.T) {
 	require.Equal(t, "phone", original.DirectProjections[0].Column)
 	require.Equal(t, model.ObjectRef{Schema: "crm", Table: "customers"}, original.DirectProjections[0].Source)
 }
+
+func TestCloneASTDeepCopiesProjectionLineages(t *testing.T) {
+	original := &model.AST{
+		ProjectionLineages: []model.ProjectionLineage{{
+			SelectIndex: 0,
+			OutputName:  "mobile",
+			Arms: []model.LineageArm{{
+				Kind:   model.LineageDirect,
+				Status: model.LineageResolved,
+				Dependencies: []model.ColumnDependency{{
+					Origin: model.ColumnOrigin{
+						Relation: model.ObjectRef{Schema: "crm", Table: "customers"},
+						Column:   "phone",
+					},
+					Role: model.DependencyValue,
+				}},
+				PossibleRelations: []model.ObjectRef{{Schema: "crm", Table: "customers"}},
+			}},
+		}},
+	}
+
+	cloned := cloneAST(original)
+	cloned.ProjectionLineages[0].OutputName = "changed"
+	cloned.ProjectionLineages[0].Arms[0].Operation = "changed"
+	cloned.ProjectionLineages[0].Arms[0].Dependencies[0].Origin.Column = "changed"
+	cloned.ProjectionLineages[0].Arms[0].Dependencies[0].Origin.Relation.Table = "changed"
+	cloned.ProjectionLineages[0].Arms[0].PossibleRelations[0].Table = "changed"
+
+	require.Equal(t, "mobile", original.ProjectionLineages[0].OutputName)
+	require.Empty(t, original.ProjectionLineages[0].Arms[0].Operation)
+	require.Equal(t, "phone", original.ProjectionLineages[0].Arms[0].Dependencies[0].Origin.Column)
+	require.Equal(t, "customers", original.ProjectionLineages[0].Arms[0].Dependencies[0].Origin.Relation.Table)
+	require.Equal(t, "customers", original.ProjectionLineages[0].Arms[0].PossibleRelations[0].Table)
+}

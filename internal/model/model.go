@@ -38,23 +38,107 @@ const (
 
 // AST is the normalized SQL representation shared by parsers and guards.
 type AST struct {
-	Dialect           DBDialect
-	RawSQL            string
-	Normalized        string
-	StmtType          StmtType
-	IsMulti           bool
-	Tables            []ObjectRef
-	Columns           []string
-	DirectProjections []DirectProjectionRef
-	HasWhere          bool
-	WhereTautology    bool
-	HasLimit          bool
-	HasGroupBy        bool
-	IsPureAggregate   bool
-	Functions         []string
-	Operations        []string
-	Explain           *ExplainInfo
+	Dialect            DBDialect
+	RawSQL             string
+	Normalized         string
+	StmtType           StmtType
+	IsMulti            bool
+	Tables             []ObjectRef
+	Columns            []string
+	DirectProjections  []DirectProjectionRef
+	ProjectionLineages []ProjectionLineage
+	HasWhere           bool
+	WhereTautology     bool
+	HasLimit           bool
+	HasGroupBy         bool
+	IsPureAggregate    bool
+	Functions          []string
+	Operations         []string
+	Explain            *ExplainInfo
 }
+
+// ProjectionLineage describes one SQL target-list item. Variadic items may
+// occupy more than one result position; set operations retain every branch in
+// Arms so a downstream redactor can make a fail-closed decision.
+type ProjectionLineage struct {
+	SelectIndex int
+	OutputName  string
+	Variadic    bool
+	SetOp       string
+	Arms        []LineageArm
+}
+
+// LineageArm describes one ordinary projection or one leaf of a set
+// operation. PossibleRelations is restricted to relations that can actually
+// contribute to this projection.
+type LineageArm struct {
+	Kind              LineageKind
+	Operation         string
+	Status            LineageStatus
+	Dependencies      []ColumnDependency
+	PossibleRelations []ObjectRef
+}
+
+// ColumnDependency records both the physical origin and how it influences the
+// result. Relation.Alias is not part of physical identity and must be empty.
+type ColumnDependency struct {
+	Origin ColumnOrigin
+	Role   DependencyRole
+}
+
+// ColumnOrigin identifies a physical column and the route used to reach it.
+type ColumnOrigin struct {
+	Relation ObjectRef
+	Column   string
+	Route    LineageRoute
+}
+
+// LineageKind classifies the value-shaping SQL construct.
+type LineageKind string
+
+const (
+	LineageDirect      LineageKind = "direct"
+	LineageTransparent LineageKind = "transparent"
+	LineageComposite   LineageKind = "composite"
+	LineageAggregate   LineageKind = "aggregate"
+	LineageWindow      LineageKind = "window"
+	LineageConstant    LineageKind = "constant"
+	LineageWildcard    LineageKind = "wildcard"
+	LineageOpaque      LineageKind = "opaque"
+)
+
+// LineageStatus describes how conclusively an arm was resolved.
+type LineageStatus string
+
+const (
+	LineageResolved    LineageStatus = "resolved"
+	LineageSourceFree  LineageStatus = "source_free"
+	LineageAmbiguous   LineageStatus = "ambiguous"
+	LineageOpaqueState LineageStatus = "opaque"
+	LineageUnsupported LineageStatus = "unsupported"
+)
+
+// DependencyRole distinguishes value sources from side-channel and control
+// inputs that also require protection.
+type DependencyRole string
+
+const (
+	DependencyValue   DependencyRole = "value"
+	DependencyControl DependencyRole = "control"
+	DependencyGroup   DependencyRole = "group"
+	DependencyOrder   DependencyRole = "order"
+	DependencyFilter  DependencyRole = "filter"
+)
+
+// LineageRoute is a bit set describing transparent relation boundaries.
+type LineageRoute uint8
+
+const (
+	RouteCTE LineageRoute = 1 << iota
+	RouteDerived
+	RouteScalarSubquery
+	RouteLateral
+)
 
 // DirectProjectionRef identifies a top-level direct column projection, its
 // position in the result set, and its uniquely resolved physical source.

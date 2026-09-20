@@ -17,6 +17,15 @@ type Redactor interface {
 	Apply(result model.QueryResult) (model.QueryResult, RedactReport)
 }
 
+// ProjectionLineageAwareRedactor applies rules using projection lineage that
+// has already been aligned to result positions. For a one-column result the
+// slice contains every set-operation arm for that position; otherwise each
+// entry represents the single arm for the corresponding result position.
+type ProjectionLineageAwareRedactor interface {
+	Redactor
+	ApplyWithProjectionLineages(result model.QueryResult, lineages []model.LineageArm) (model.QueryResult, RedactReport)
+}
+
 // SourceAwareRedactor optionally matches positional top-level direct source
 // columns after the final result-column name has failed to match.
 type SourceAwareRedactor interface {
@@ -522,5 +531,6 @@ func cloneQueryResult(result model.QueryResult) model.QueryResult {
 }
 
 var _ Redactor = (*resultRedactor)(nil)
+var _ ProjectionLineageAwareRedactor = (*resultRedactor)(nil)
 var _ SourceAwareRedactor = (*resultRedactor)(nil)
 var _ RelationSourceAwareRedactor = (*resultRedactor)(nil)
