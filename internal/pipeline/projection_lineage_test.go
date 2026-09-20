@@ -220,7 +220,7 @@ func assertOpaqueCandidateBlocks(t *testing.T, arms []model.LineageArm) {
 	require.True(t, ok)
 	result, report := lineageAware.ApplyWithProjectionLineages(
 		model.QueryResult{Columns: []string{"mobile"}, Rows: [][]string{{"13812345678"}}},
-		arms,
+		[][]model.LineageArm{arms},
 	)
 	require.Equal(t, mask.BlockPlaceholder, result.Rows[0][0])
 	require.Equal(t, 1, report.MaskedCells)

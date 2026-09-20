@@ -146,7 +146,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 
 	if image == "postgres:14" || image == "postgres:18" {
 		runPostgresStaticAndApprovalScenarios(t, ctx, datasource, databaseExecutor, counted, allowedTables)
-		runExpressionLineageKnownLimitScenario(t, ctx, "postgres", datasource, counted, allowedTables)
+		runExpressionLineageNowMaskedScenario(t, ctx, "postgres", datasource, counted, allowedTables)
 	}
 	if image == "postgres:18" {
 		runPostgresSchemaQualifiedFallbackScenario(t, ctx, datasource, counted, allowedTables)

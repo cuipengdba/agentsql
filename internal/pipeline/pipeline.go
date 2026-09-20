@@ -396,6 +396,9 @@ func (pipeline *Pipeline) process(
 
 	if returnsRows {
 		if err := run.measure(StageRedact, func() error {
+			if err := validateResultRectangle(*run.response.Result); err != nil {
+				return err
+			}
 			redactor, err := pipeline.ports.Redactors.RedactorFor(ctx, run.datasource.ID)
 			if err != nil {
 				return err
@@ -405,13 +408,18 @@ func (pipeline *Pipeline) process(
 			}
 			var redacted model.QueryResult
 			var report mask.RedactReport
-			columnSources := resolveColumnSources(run.ast.DirectProjections, len(run.response.Result.Columns))
-			if relationAware, ok := redactor.(mask.RelationSourceAwareRedactor); ok {
-				redacted, report = relationAware.ApplyWithColumnSources(*run.response.Result, columnSources, run.ast.Tables)
-			} else if sourceAware, ok := redactor.(mask.SourceAwareRedactor); ok {
-				redacted, report = sourceAware.ApplyWithSourceColumns(*run.response.Result, legacySourceNames(columnSources))
+			if lineageAware, ok := redactor.(mask.ProjectionLineageAwareRedactor); ok && len(run.ast.ProjectionLineages) > 0 {
+				aligned := resolveProjectionLineages(run.ast.ProjectionLineages, run.response.Result.Columns)
+				redacted, report = lineageAware.ApplyWithProjectionLineages(*run.response.Result, aligned)
 			} else {
-				redacted, report = redactor.Apply(*run.response.Result)
+				columnSources := resolveColumnSources(run.ast.DirectProjections, len(run.response.Result.Columns))
+				if relationAware, ok := redactor.(mask.RelationSourceAwareRedactor); ok {
+					redacted, report = relationAware.ApplyWithColumnSources(*run.response.Result, columnSources, run.ast.Tables)
+				} else if sourceAware, ok := redactor.(mask.SourceAwareRedactor); ok {
+					redacted, report = sourceAware.ApplyWithSourceColumns(*run.response.Result, legacySourceNames(columnSources))
+				} else {
+					redacted, report = redactor.Apply(*run.response.Result)
+				}
 			}
 			run.response.Result = &redacted
 			run.response.Redact = report

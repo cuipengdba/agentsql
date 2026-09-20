@@ -559,6 +559,28 @@ func TestPipelineDynamicAndRedactionErrorsNeverReturnData(t *testing.T) {
 		require.NoError(t, marshalErr)
 		require.NotContains(t, string(encoded), raw)
 	})
+	for _, test := range []struct {
+		name string
+		rows [][]string
+	}{
+		{name: "short result row", rows: [][]string{{"secret"}}},
+		{name: "long result row", rows: [][]string{{"secret", "extra", "cell"}}},
+		{name: "nil result row", rows: [][]string{nil}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPipelineFixture(t)
+			fixture.executor.queryResult = model.QueryResult{
+				Columns: []string{"a", "b"}, Rows: test.rows, RowCount: 1,
+			}
+			response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+			require.ErrorIs(t, err, errNonRectangularResult)
+			require.Equal(t, model.DecisionDeny, response.Decision)
+			require.Nil(t, response.Result)
+			require.Empty(t, response.Redact)
+			require.Zero(t, fixture.redactors.calls(), "rectangle validation must precede redactor construction")
+			require.Equal(t, "error", fixture.audit.last().Decision)
+		})
+	}
 }
 
 func TestPipelineAuditErrorFailsRequest(t *testing.T) {

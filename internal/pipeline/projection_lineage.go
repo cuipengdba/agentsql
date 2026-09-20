@@ -299,9 +299,8 @@ func cloneObjectRefs(relations []model.ObjectRef) []model.ObjectRef {
 	return append([]model.ObjectRef(nil), relations...)
 }
 
-// validateResultRectangle is provided now so the production switch can reject
-// ragged rows before redaction. It is intentionally not wired into Process in
-// this implementation step.
+// validateResultRectangle rejects ragged rows before any result can enter a
+// redactor. Pipeline error handling then clears the entire executed result.
 func validateResultRectangle(result model.QueryResult) error {
 	for rowIndex, row := range result.Rows {
 		if len(row) != len(result.Columns) {

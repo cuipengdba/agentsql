@@ -152,7 +152,7 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 
 	runMaskScopeScenarios(t, ctx, "mysql", datasource, databaseExecutor, counted, allowedTables)
 	runDirectSourceFallbackScenario(t, ctx, "mysql", datasource, counted, allowedTables)
-	runExpressionLineageKnownLimitScenario(t, ctx, "mysql", datasource, counted, allowedTables)
+	runExpressionLineageNowMaskedScenario(t, ctx, "mysql", datasource, counted, allowedTables)
 }
 
 func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecutor *executor.MySQLExecutor) {

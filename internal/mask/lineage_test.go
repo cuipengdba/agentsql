@@ -62,7 +62,7 @@ func TestProjectionLineageDirectAndTransparentExecuteEveryAlgorithm(t *testing.T
 			} {
 				result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 					model.QueryResult{Columns: []string{"output"}, Rows: [][]string{{test.value}}},
-					[]model.LineageArm{arm},
+					alignedLineage(arm),
 				)
 				require.Equal(t, test.expected, result.Rows[0][0])
 				require.Equal(t, 1, report.MaskedCells)
@@ -114,7 +114,7 @@ func TestProjectionLineageEmptyConcatWhitelistAndRangeException(t *testing.T) {
 			require.NoError(t, err)
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"output"}, Rows: [][]string{{test.value}}},
-				[]model.LineageArm{transparentLineageArm("", "customers", test.rule.Column, "concat_empty")},
+				alignedLineage(transparentLineageArm("", "customers", test.rule.Column, "concat_empty")),
 			)
 			require.Equal(t, test.expected, result.Rows[0][0])
 			require.Equal(t, 1, report.MaskedCells)
@@ -138,7 +138,7 @@ func TestProjectionLineageUnsafeTransformsAlwaysBlock(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"mobile"}, Rows: [][]string{{"13812345678"}}},
-				[]model.LineageArm{transparentLineageArm("", "customers", "phone", operation)},
+				alignedLineage(transparentLineageArm("", "customers", "phone", operation)),
 			)
 			require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 			require.Equal(t, 1, report.MaskedCells)
@@ -199,7 +199,7 @@ func TestProjectionLineageCompositeControlWindowAndAggregateBlock(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"output"}, Rows: [][]string{{"13812345678"}}},
-				[]model.LineageArm{test.arm},
+				alignedLineage(test.arm),
 			)
 			require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 			require.Equal(t, 1, report.MaskedCells)
@@ -217,7 +217,7 @@ func TestProjectionLineageRuleConflictsBlock(t *testing.T) {
 
 	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		model.QueryResult{Columns: []string{"mobile"}, Rows: [][]string{{"13812345678"}}},
-		[]model.LineageArm{directLineageArm("", "customers", "phone")},
+		alignedLineage(directLineageArm("", "customers", "phone")),
 	)
 	require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 	require.Equal(t, TypePhone, report.TouchedColumns[0])
@@ -261,7 +261,7 @@ func TestProjectionLineageSetOperationClosure(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"mobile"}, Rows: [][]string{{"13812345678"}}},
-				test.arms,
+				alignedLineage(test.arms...),
 			)
 			require.Equal(t, test.expected, result.Rows[0][0])
 			require.Equal(t, 1, report.MaskedCells)
@@ -272,6 +272,72 @@ func TestProjectionLineageSetOperationClosure(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProjectionLineageAlignedMultiColumnUnionMasksExactly(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{
+		{Table: "customers", Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		{Table: "customers", Column: "email", SensitiveType: TypeEmail, Algorithm: AlgoMask},
+	})
+	require.NoError(t, err)
+
+	phone := directLineageArm("", "customers", "phone")
+	email := directLineageArm("", "customers", "email")
+	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
+		model.QueryResult{
+			Columns: []string{"mobile", "contact"},
+			Rows:    [][]string{{"13812345678", "user@example.com"}},
+		},
+		[][]model.LineageArm{{phone, phone}, {email, email}},
+	)
+
+	require.Equal(t, [][]string{{"138****5678", "u***@example.com"}}, result.Rows)
+	require.Equal(t, 2, report.MaskedCells)
+	require.Equal(t, map[int]SensitiveType{0: TypePhone, 1: TypeEmail}, report.TouchedColumns)
+	require.Nil(t, report.UnresolvedScopedColumns)
+}
+
+func TestProjectionLineageAlignedSingleArmPerPosition(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{
+		{Table: "customers", Column: "phone", SensitiveType: TypePhone, Algorithm: AlgoMask},
+		{Table: "customers", Column: "email", SensitiveType: TypeEmail, Algorithm: AlgoMask},
+	})
+	require.NoError(t, err)
+
+	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
+		model.QueryResult{
+			Columns: []string{"mobile", "contact"},
+			Rows:    [][]string{{"13812345678", "user@example.com"}},
+		},
+		[][]model.LineageArm{
+			{directLineageArm("", "customers", "phone")},
+			{directLineageArm("", "customers", "email")},
+		},
+	)
+
+	require.Equal(t, [][]string{{"138****5678", "u***@example.com"}}, result.Rows)
+	require.Equal(t, 2, report.MaskedCells)
+	require.Nil(t, report.UnresolvedScopedColumns)
+}
+
+func TestProjectionLineageMissingAlignedPositionFallsBackToOpaque(t *testing.T) {
+	redactor, err := NewRedactor([]Rule{{
+		Table: "customers", Column: "email", SensitiveType: TypeEmail, Algorithm: AlgoMask,
+	}})
+	require.NoError(t, err)
+
+	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
+		model.QueryResult{
+			Columns: []string{"nickname", "contact"},
+			Rows:    [][]string{{"unchanged", "user@example.com"}},
+		},
+		[][]model.LineageArm{{directLineageArm("", "customers", "nickname")}},
+	)
+
+	require.Equal(t, [][]string{{"unchanged", BlockPlaceholder}}, result.Rows)
+	require.Equal(t, 1, report.MaskedCells)
+	require.Equal(t, map[int]SensitiveType{1: TypeEmail}, report.TouchedColumns)
+	require.Equal(t, map[int]SensitiveType{1: TypeEmail}, report.UnresolvedScopedColumns)
 }
 
 func TestProjectionLineageAggregateCountRules(t *testing.T) {
@@ -321,7 +387,7 @@ func TestProjectionLineageAggregateCountRules(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"count"}, Rows: [][]string{{test.input}}},
-				[]model.LineageArm{test.arm},
+				alignedLineage(test.arm),
 			)
 			require.Equal(t, test.expected, result.Rows[0][0])
 			if test.touched {
@@ -354,7 +420,7 @@ func TestProjectionLineageSensitiveAggregateCatalogAlwaysBlocks(t *testing.T) {
 			}
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"aggregate"}, Rows: [][]string{{"sensitive-derived-value"}}},
-				[]model.LineageArm{arm},
+				alignedLineage(arm),
 			)
 			require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 			require.Equal(t, 1, report.MaskedCells)
@@ -374,10 +440,10 @@ func TestProjectionLineageRangeSumAndAverageAlwaysBlock(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 				model.QueryResult{Columns: []string{"total"}, Rows: [][]string{{"117"}}},
-				[]model.LineageArm{{
+				alignedLineage(model.LineageArm{
 					Kind: model.LineageAggregate, Operation: operation, Status: model.LineageResolved,
 					Dependencies: []model.ColumnDependency{valueDependency("", "orders", "amount")},
-				}},
+				}),
 			)
 			require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 			require.Equal(t, 1, report.MaskedCells)
@@ -396,7 +462,7 @@ func TestProjectionLineageSourceFreeResultNameRuleStillProtects(t *testing.T) {
 	} {
 		result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 			model.QueryResult{Columns: []string{"declared_secret"}, Rows: [][]string{{"value"}}},
-			[]model.LineageArm{arm},
+			alignedLineage(arm),
 		)
 		require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 		require.Equal(t, 1, report.MaskedCells)
@@ -417,7 +483,7 @@ func TestProjectionLineageEmptyAndUnresolvedReportSemantics(t *testing.T) {
 
 	emptyResult, emptyReport := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		model.QueryResult{Columns: []string{"unknown"}, Rows: [][]string{{""}, {"  "}, {"NULL"}, {" <NIL> "}}},
-		[]model.LineageArm{opaque},
+		alignedLineage(opaque),
 	)
 	require.Equal(t, [][]string{{""}, {"  "}, {"NULL"}, {" <NIL> "}}, emptyResult.Rows)
 	require.Equal(t, map[int]SensitiveType{0: TypePhone}, emptyReport.TouchedColumns)
@@ -426,7 +492,7 @@ func TestProjectionLineageEmptyAndUnresolvedReportSemantics(t *testing.T) {
 
 	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		model.QueryResult{Columns: []string{"unknown"}, Rows: [][]string{{"secret-1"}, {""}, {"secret-2"}}},
-		[]model.LineageArm{opaque},
+		alignedLineage(opaque),
 	)
 	require.Equal(t, [][]string{{BlockPlaceholder}, {""}, {BlockPlaceholder}}, result.Rows)
 	require.Equal(t, map[int]SensitiveType{0: TypePhone}, report.TouchedColumns)
@@ -442,7 +508,7 @@ func TestProjectionLineageResolvedWithoutRulePreservesValue(t *testing.T) {
 	input := model.QueryResult{Columns: []string{"nickname"}, Rows: [][]string{{"byte-for-byte"}}}
 	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		input,
-		[]model.LineageArm{directLineageArm("", "customers", "nickname")},
+		alignedLineage(directLineageArm("", "customers", "nickname")),
 	)
 	require.Equal(t, input.Rows, result.Rows)
 	require.Nil(t, report.TouchedColumns)
@@ -458,10 +524,10 @@ func TestProjectionLineageOpaqueCandidateCanProveScopedRuleIrrelevant(t *testing
 	input := model.QueryResult{Columns: []string{"unknown"}, Rows: [][]string{{"byte-for-byte"}}}
 	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		input,
-		[]model.LineageArm{{
+		alignedLineage(model.LineageArm{
 			Kind: model.LineageOpaque, Status: model.LineageOpaqueState,
 			PossibleRelations: []model.ObjectRef{{Table: "orders"}},
-		}},
+		}),
 	)
 	require.Equal(t, input.Rows, result.Rows)
 	require.Nil(t, report.TouchedColumns)
@@ -476,7 +542,7 @@ func TestProjectionLineageOpaqueWithoutCandidatesDoesNotTreatMissingInformationA
 	require.NoError(t, err)
 	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		model.QueryResult{Columns: []string{"unknown"}, Rows: [][]string{{"secret"}}},
-		[]model.LineageArm{{Kind: model.LineageOpaque, Status: model.LineageOpaqueState}},
+		alignedLineage(model.LineageArm{Kind: model.LineageOpaque, Status: model.LineageOpaqueState}),
 	)
 	require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 	require.Equal(t, 1, report.MaskedCells)
@@ -490,10 +556,10 @@ func TestProjectionLineageResolvedUnknownNodeStillUsesSensitiveCandidates(t *tes
 	require.NoError(t, err)
 	result, report := lineageAware(t, redactor).ApplyWithProjectionLineages(
 		model.QueryResult{Columns: []string{"unknown"}, Rows: [][]string{{"secret"}}},
-		[]model.LineageArm{{
+		alignedLineage(model.LineageArm{
 			Kind: model.LineageOpaque, Status: model.LineageResolved,
 			PossibleRelations: []model.ObjectRef{{Table: "customers"}},
-		}},
+		}),
 	)
 	require.Equal(t, BlockPlaceholder, result.Rows[0][0])
 	require.Equal(t, 1, report.MaskedCells)
@@ -505,6 +571,10 @@ func lineageAware(t *testing.T, redactor Redactor) ProjectionLineageAwareRedacto
 	aware, ok := redactor.(ProjectionLineageAwareRedactor)
 	require.True(t, ok)
 	return aware
+}
+
+func alignedLineage(arms ...model.LineageArm) [][]model.LineageArm {
+	return [][]model.LineageArm{arms}
 }
 
 func directLineageArm(schema, table, column string) model.LineageArm {

@@ -56,37 +56,37 @@ func TestT46S4PipelineScopedRuleContracts(t *testing.T) {
 		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
 	})
 
-	t.Run("star without direct projections fails closed", func(t *testing.T) {
+	t.Run("single relation star resolves runtime column exactly", func(t *testing.T) {
 		fixture := newT46S4Fixture(t, []mask.Rule{
 			{Table: "customers", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
 		})
 		response := runT46S4Query(t, fixture, "SELECT * FROM customers", model.QueryResult{
 			Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
 		})
-		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
-		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+		require.Equal(t, "138****5678", response.Result.Rows[0][0])
+		require.Empty(t, response.Redact.UnresolvedScopedColumns)
 	})
 
-	t.Run("cte outer projection fails closed from physical table union", func(t *testing.T) {
+	t.Run("cte direct projection is exact", func(t *testing.T) {
 		fixture := newT46S4Fixture(t, []mask.Rule{
 			{Table: "customers", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
 		})
 		response := runT46S4Query(t, fixture, "WITH x AS (SELECT phone FROM customers) SELECT phone FROM x", model.QueryResult{
 			Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
 		})
-		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
-		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+		require.Equal(t, "138****5678", response.Result.Rows[0][0])
+		require.Empty(t, response.Redact.UnresolvedScopedColumns)
 	})
 
-	t.Run("derived outer projection fails closed", func(t *testing.T) {
+	t.Run("derived direct projection is exact", func(t *testing.T) {
 		fixture := newT46S4Fixture(t, []mask.Rule{
 			{Table: "customers", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
 		})
 		response := runT46S4Query(t, fixture, "SELECT phone FROM (SELECT phone FROM customers) x", model.QueryResult{
 			Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
 		})
-		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
-		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+		require.Equal(t, "138****5678", response.Result.Rows[0][0])
+		require.Empty(t, response.Redact.UnresolvedScopedColumns)
 	})
 
 	t.Run("union projection fails closed", func(t *testing.T) {
@@ -97,7 +97,7 @@ func TestT46S4PipelineScopedRuleContracts(t *testing.T) {
 			Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
 		})
 		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
-		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+		require.Empty(t, response.Redact.UnresolvedScopedColumns)
 	})
 
 	t.Run("unrelated derived table is not affected", func(t *testing.T) {
@@ -119,7 +119,6 @@ func TestT46S4PipelineGlobalRuleRegression(t *testing.T) {
 		sql  string
 	}{
 		{name: "single table", sql: "SELECT phone FROM customers"},
-		{name: "unresolved join", sql: "SELECT phone FROM customers JOIN orders ON customers.id = orders.id"},
 		{name: "star", sql: "SELECT * FROM customers"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -134,6 +133,18 @@ func TestT46S4PipelineGlobalRuleRegression(t *testing.T) {
 		})
 	}
 
+	t.Run("ambiguous join column blocks", func(t *testing.T) {
+		fixture := newT46S4Fixture(t, []mask.Rule{
+			{Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
+		})
+		response := runT46S4Query(t, fixture,
+			"SELECT phone FROM customers JOIN orders ON customers.id = orders.id",
+			model.QueryResult{Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1},
+		)
+		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
+		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.UnresolvedScopedColumns)
+	})
+
 	t.Run("renamed global block is not weakened by scoped mask", func(t *testing.T) {
 		fixture := newT46S4Fixture(t, []mask.Rule{
 			{Column: "mobile", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoBlock},
@@ -143,7 +154,7 @@ func TestT46S4PipelineGlobalRuleRegression(t *testing.T) {
 			Columns: []string{"mobile"}, Rows: [][]string{{"13812345678"}}, RowCount: 1,
 		})
 		require.Equal(t, mask.BlockPlaceholder, response.Result.Rows[0][0])
-		require.Equal(t, mask.TypeGeneric, response.Redact.TouchedColumns[0])
+		require.Equal(t, mask.TypePhone, response.Redact.TouchedColumns[0])
 		require.Empty(t, response.Redact.UnresolvedScopedColumns)
 	})
 }
@@ -184,8 +195,38 @@ func TestT46S4PipelineFallsBackToSourceAwareV1(t *testing.T) {
 	require.Equal(t, "source-aware-v1", response.Result.Rows[0][0])
 }
 
+func TestT46S4PipelineLegacyFallbackPrefersRelationAware(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	legacy := &legacyRelationAwareRedactor{}
+	fixture.redactors.redactor = legacy
+	fixture.executor.queryResult = model.QueryResult{
+		Columns: []string{"mobile"}, Rows: [][]string{{"unchanged"}}, RowCount: 1,
+	}
+
+	response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(
+		"SELECT phone AS mobile FROM public.customers WHERE id = 1 LIMIT 1",
+	))
+	require.NoError(t, err)
+	require.Equal(t, 1, legacy.relationCalls)
+	require.Zero(t, legacy.sourceCalls)
+	require.Zero(t, legacy.applyCalls)
+	require.Equal(t, []mask.ColumnSource{{
+		Column: "phone", Source: model.ObjectRef{Schema: "public", Table: "customers"},
+	}}, legacy.sources)
+	require.Equal(t, []model.ObjectRef{{Schema: "public", Table: "customers"}}, legacy.relations)
+	require.Equal(t, "relation-aware", response.Result.Rows[0][0])
+}
+
 type legacySourceAwareRedactor struct {
 	sources []string
+}
+
+type legacyRelationAwareRedactor struct {
+	applyCalls    int
+	sourceCalls   int
+	relationCalls int
+	sources       []mask.ColumnSource
+	relations     []model.ObjectRef
 }
 
 func (redactor *legacySourceAwareRedactor) Apply(result model.QueryResult) (model.QueryResult, mask.RedactReport) {
@@ -195,6 +236,28 @@ func (redactor *legacySourceAwareRedactor) Apply(result model.QueryResult) (mode
 func (redactor *legacySourceAwareRedactor) ApplyWithSourceColumns(result model.QueryResult, sources []string) (model.QueryResult, mask.RedactReport) {
 	redactor.sources = append([]string(nil), sources...)
 	result.Rows[0][0] = "source-aware-v1"
+	return result, mask.RedactReport{MaskedCells: 1}
+}
+
+func (redactor *legacyRelationAwareRedactor) Apply(result model.QueryResult) (model.QueryResult, mask.RedactReport) {
+	redactor.applyCalls++
+	return result, mask.RedactReport{}
+}
+
+func (redactor *legacyRelationAwareRedactor) ApplyWithSourceColumns(result model.QueryResult, _ []string) (model.QueryResult, mask.RedactReport) {
+	redactor.sourceCalls++
+	return result, mask.RedactReport{}
+}
+
+func (redactor *legacyRelationAwareRedactor) ApplyWithColumnSources(
+	result model.QueryResult,
+	sources []mask.ColumnSource,
+	possibleRelations []model.ObjectRef,
+) (model.QueryResult, mask.RedactReport) {
+	redactor.relationCalls++
+	redactor.sources = append([]mask.ColumnSource(nil), sources...)
+	redactor.relations = append([]model.ObjectRef(nil), possibleRelations...)
+	result.Rows[0][0] = "relation-aware"
 	return result, mask.RedactReport{MaskedCells: 1}
 }
 

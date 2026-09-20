@@ -33,7 +33,7 @@ type lineageColumnDecision struct {
 // dialects emit complete lineage.
 func (redactor *resultRedactor) ApplyWithProjectionLineages(
 	result model.QueryResult,
-	lineages []model.LineageArm,
+	aligned [][]model.LineageArm,
 ) (model.QueryResult, RedactReport) {
 	copyResult := cloneQueryResult(result)
 	report := RedactReport{}
@@ -41,28 +41,19 @@ func (redactor *resultRedactor) ApplyWithProjectionLineages(
 		return copyResult, report
 	}
 
-	aligned := make([][]model.LineageArm, len(copyResult.Columns))
-	switch {
-	case len(copyResult.Columns) == 1 && len(lineages) > 0:
-		aligned[0] = lineages
-	case len(lineages) == len(copyResult.Columns):
-		for index := range lineages {
-			aligned[index] = []model.LineageArm{lineages[index]}
+	for columnIndex, columnName := range copyResult.Columns {
+		arms := []model.LineageArm(nil)
+		if columnIndex < len(aligned) {
+			arms = aligned[columnIndex]
 		}
-	default:
-		possibleRelations := possibleRelationsFromArms(lineages)
-		for index := range aligned {
-			aligned[index] = []model.LineageArm{{
-				Kind:              model.LineageOpaque,
-				Operation:         "alignment_failure",
-				Status:            model.LineageOpaqueState,
-				PossibleRelations: possibleRelations,
+		if len(arms) == 0 {
+			arms = []model.LineageArm{{
+				Kind:      model.LineageOpaque,
+				Operation: "alignment_failure",
+				Status:    model.LineageOpaqueState,
 			}}
 		}
-	}
-
-	for columnIndex, columnName := range copyResult.Columns {
-		decision := redactor.decideProjectionColumn(columnName, aligned[columnIndex])
+		decision := redactor.decideProjectionColumn(columnName, arms)
 		if !decision.matched {
 			continue
 		}
@@ -376,30 +367,4 @@ func isSourceFreeCount(operation string) bool {
 	default:
 		return false
 	}
-}
-
-func possibleRelationsFromArms(arms []model.LineageArm) []model.ObjectRef {
-	seen := make(map[string]struct{})
-	relations := make([]model.ObjectRef, 0)
-	add := func(relation model.ObjectRef) {
-		relation.Alias = ""
-		if relation.Table == "" {
-			return
-		}
-		key := relation.Schema + "\x00" + relation.Table
-		if _, exists := seen[key]; exists {
-			return
-		}
-		seen[key] = struct{}{}
-		relations = append(relations, relation)
-	}
-	for _, arm := range arms {
-		for _, relation := range arm.PossibleRelations {
-			add(relation)
-		}
-		for _, dependency := range arm.Dependencies {
-			add(dependency.Origin.Relation)
-		}
-	}
-	return relations
 }

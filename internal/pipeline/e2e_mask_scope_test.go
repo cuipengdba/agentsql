@@ -109,7 +109,7 @@ func runDirectSourceFallbackScenario(
 	})
 }
 
-func runExpressionLineageKnownLimitScenario(
+func runExpressionLineageNowMaskedScenario(
 	t *testing.T,
 	ctx context.Context,
 	dialect string,
@@ -119,10 +119,7 @@ func runExpressionLineageKnownLimitScenario(
 ) {
 	t.Helper()
 	customers, _ := pipelineE2ETableNames(dialect, datasource.Database)
-	t.Run("v0.1 known limit expression source lineage deferred to v0.2", func(t *testing.T) {
-		// v0.1 known limit: source lineage for expressions is intentionally
-		// deferred to v0.2 (SPEC 25.5.2 layer 2). This assertion documents the
-		// current behavior and must not be read as a security guarantee.
+	t.Run("expression lineage now masked", func(t *testing.T) {
 		var query string
 		if dialect == "postgres" {
 			query = fmt.Sprintf("SELECT phone || '' AS p FROM %s ORDER BY id", customers)
@@ -134,9 +131,10 @@ func runExpressionLineageKnownLimitScenario(
 		require.NoError(t, err)
 		require.Equal(t, model.DecisionAllow, response.Decision)
 		require.Equal(t, []string{"p"}, response.Result.Columns)
-		require.Equal(t, [][]string{{"13812345678"}, {"13987654321"}}, response.Result.Rows)
-		require.Zero(t, response.Redact.MaskedCells)
-		require.Empty(t, response.Redact.TouchedColumns)
+		require.Equal(t, [][]string{{"138****5678"}, {"139****4321"}}, response.Result.Rows)
+		require.Equal(t, 2, response.Redact.MaskedCells)
+		require.Equal(t, map[int]mask.SensitiveType{0: mask.TypePhone}, response.Redact.TouchedColumns)
+		require.Empty(t, response.Redact.UnresolvedScopedColumns)
 	})
 }
 

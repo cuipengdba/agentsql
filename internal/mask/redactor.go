@@ -18,12 +18,11 @@ type Redactor interface {
 }
 
 // ProjectionLineageAwareRedactor applies rules using projection lineage that
-// has already been aligned to result positions. For a one-column result the
-// slice contains every set-operation arm for that position; otherwise each
-// entry represents the single arm for the corresponding result position.
+// has already been aligned to result positions. Each outer entry corresponds
+// to one result column and contains all set-operation arms for that position.
 type ProjectionLineageAwareRedactor interface {
 	Redactor
-	ApplyWithProjectionLineages(result model.QueryResult, lineages []model.LineageArm) (model.QueryResult, RedactReport)
+	ApplyWithProjectionLineages(result model.QueryResult, aligned [][]model.LineageArm) (model.QueryResult, RedactReport)
 }
 
 // SourceAwareRedactor optionally matches positional top-level direct source
