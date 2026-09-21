@@ -87,7 +87,7 @@ func NewPostgresExecutor(
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return nil, postgresConnectionError("create PostgreSQL connection pool", err)
+		return nil, postgresConnectionError(ctx, DBStageConnect, "create PostgreSQL connection pool", err)
 	}
 	executor := &PostgresExecutor{
 		pool:     pool,
@@ -131,7 +131,7 @@ func (executor *PostgresExecutor) Ping(ctx context.Context) error {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	if err := executor.pool.Ping(timedContext); err != nil {
-		return postgresConnectionError("ping PostgreSQL datasource", err)
+		return postgresConnectionError(timedContext, DBStagePing, "ping PostgreSQL datasource", err)
 	}
 	return nil
 }
@@ -158,7 +158,7 @@ func (executor *PostgresExecutor) OpenSession(
 	}
 	connection, err := executor.pool.Acquire(ctx)
 	if err != nil {
-		return nil, postgresDatabaseError("acquire PostgreSQL session connection", err)
+		return nil, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL session connection", err)
 	}
 	session := &postgresSession{
 		id:       sessionID,
@@ -188,11 +188,17 @@ func (executor *PostgresExecutor) BeginWriteTx(ctx context.Context) (WriteTx, er
 		return nil, fmt.Errorf("begin PostgreSQL write transaction: executor or context is unavailable")
 	}
 	if executor.readOnly {
-		return nil, fmt.Errorf("begin PostgreSQL write transaction: %w", ErrReadOnlyViolated)
+		return nil, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageBeginTx,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	tx, err := executor.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, postgresDatabaseError("begin PostgreSQL write transaction", err)
+		return nil, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL write transaction", err)
 	}
 	return &postgresWriteTx{executor: executor, tx: tx}, nil
 }
@@ -223,11 +229,11 @@ func (executor *PostgresExecutor) queryWithRunner(
 	defer cancel()
 	rows, err := runner.Query(timedContext, sql)
 	if err != nil {
-		return model.QueryResult{}, postgresDatabaseError("query PostgreSQL datasource", err)
+		return model.QueryResult{}, postgresDatabaseError(timedContext, DBStageQuery, "query PostgreSQL datasource", err)
 	}
 	result, err := collectRows(&postgresRowSource{rows: rows}, rowLimit)
 	if err != nil {
-		return model.QueryResult{}, postgresDatabaseError("read PostgreSQL query result", err)
+		return model.QueryResult{}, postgresDatabaseError(timedContext, DBStageReadRows, "read PostgreSQL query result", err)
 	}
 	result.LatencyMS = time.Since(started).Milliseconds()
 	return result, nil
@@ -239,7 +245,13 @@ func (executor *PostgresExecutor) Execute(
 	sql string,
 ) (model.QueryResult, error) {
 	if executor != nil && executor.readOnly {
-		return model.QueryResult{}, fmt.Errorf("execute PostgreSQL write: %w", ErrReadOnlyViolated)
+		return model.QueryResult{}, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageExecute,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	if err := executor.validateOperation(ctx, sql); err != nil {
 		return model.QueryResult{}, err
@@ -252,12 +264,21 @@ func (executor *PostgresExecutor) executeWithRunner(
 	runner postgresRunner,
 	sql string,
 ) (model.QueryResult, error) {
+	return executor.executeWithRunnerAtStage(ctx, runner, sql, DBStageExecute)
+}
+
+func (executor *PostgresExecutor) executeWithRunnerAtStage(
+	ctx context.Context,
+	runner postgresRunner,
+	sql string,
+	stage DBStage,
+) (model.QueryResult, error) {
 	started := time.Now()
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	commandTag, err := runner.Exec(timedContext, sql)
 	if err != nil {
-		return model.QueryResult{}, postgresDatabaseError("execute PostgreSQL statement", err)
+		return model.QueryResult{}, postgresDatabaseError(timedContext, stage, "execute PostgreSQL statement", err)
 	}
 	rowsAffected := commandTag.RowsAffected()
 	if rowsAffected > int64(maxInt()) {
@@ -292,7 +313,7 @@ func (executor *PostgresExecutor) explainWithRunner(
 		timedContext,
 		"EXPLAIN (FORMAT JSON) "+sql,
 	).Scan(&raw); err != nil {
-		return model.ExplainInfo{}, postgresDatabaseError("explain PostgreSQL statement", err)
+		return model.ExplainInfo{}, postgresDatabaseError(timedContext, DBStageExplain, "explain PostgreSQL statement", err)
 	}
 	info, err := parsePostgresExplainJSON(raw)
 	if err != nil {
@@ -353,7 +374,7 @@ SELECT EXISTS (
     AND i.indisvalid
 )`, schema, table).Scan(&exists)
 	if err != nil {
-		return false, postgresDatabaseError("read PostgreSQL index metadata", err)
+		return false, postgresDatabaseError(ctx, DBStageMetadata, "read PostgreSQL index metadata", err)
 	}
 	return exists, nil
 }
@@ -376,7 +397,7 @@ JOIN pg_namespace AS n ON n.oid = c.relnamespace
 WHERE n.nspname = COALESCE(NULLIF($1, ''), current_schema())
   AND c.relname = $2`, schema, table).Scan(&rows)
 	if err != nil {
-		return 0, postgresDatabaseError("read PostgreSQL table row metadata", err)
+		return 0, postgresDatabaseError(ctx, DBStageMetadata, "read PostgreSQL table row metadata", err)
 	}
 	if rows < 0 {
 		return 0, fmt.Errorf("read PostgreSQL table row metadata: negative estimate")
@@ -500,23 +521,83 @@ func (source *postgresRowSource) Close() error {
 	return nil
 }
 
-func postgresDatabaseError(message string, cause error) error {
-	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, context.Canceled) {
-		return safeError(message, ErrQueryTimeout, cause)
-	}
-	if classifyPostgresPermission(cause) {
-		return safeError(message, ErrPermissionDenied, cause)
-	}
-	var postgresError *pgconn.PgError
-	if errors.As(cause, &postgresError) {
-		switch postgresError.Code {
-		case "57014":
-			return safeError(message, ErrQueryTimeout, cause)
-		case "25006":
-			return safeError(message, ErrReadOnlyViolated, cause)
-		}
+func postgresDatabaseError(ctx context.Context, stage DBStage, message string, cause error) error {
+	if classified, ok := classifyPostgresError(ctx, stage, cause); ok {
+		return classified
 	}
 	return safeDatabaseError(message, cause)
+}
+
+func classifyPostgresError(ctx context.Context, stage DBStage, cause error) (error, bool) {
+	if classified, ok := classifyContextError(ctx, stage, cause); ok {
+		return classified, true
+	}
+
+	var postgresError *pgconn.PgError
+	if errors.As(cause, &postgresError) {
+		kind, code, compat := postgresErrorCode(postgresError.Code)
+		return newDBError(kind, code, stage, postgresError.Code, compat), true
+	}
+
+	var connectError *pgconn.ConnectError
+	if errors.As(cause, &connectError) || isNetworkConnectionError(cause) {
+		return newDBError(
+			DBErrorKindConnection,
+			DBErrorCodeConnection,
+			stage,
+			"",
+			ErrDatasourceUnreachable,
+		), true
+	}
+	return nil, false
+}
+
+func postgresErrorCode(driverCode string) (DBErrorKind, DBErrorCode, error) {
+	switch driverCode {
+	case "42P01", "42704", "42883", "3F000":
+		return DBErrorKindObjectNotFound, DBErrorCodeObjectNotFound, nil
+	case "42703":
+		return DBErrorKindColumnNotFound, DBErrorCodeColumnNotFound, nil
+	case "42P04", "42P06", "42P07", "42710", "42723":
+		return DBErrorKindAlreadyExists, DBErrorCodeAlreadyExists, nil
+	case "42601":
+		return DBErrorKindSyntax, DBErrorCodeSyntax, nil
+	case "44000":
+		return DBErrorKindConstraint, DBErrorCodeConstraint, nil
+	case "40001", "40P01", "55P03":
+		return DBErrorKindRetryable, DBErrorCodeRetryable, nil
+	case "2D000":
+		return DBErrorKindTransaction, DBErrorCodeTransaction, nil
+	case "57014":
+		return DBErrorKindInterrupted, DBErrorCodeInterrupted, ErrQueryTimeout
+	case "42501":
+		return DBErrorKindPermission, DBErrorCodePermission, ErrPermissionDenied
+	case "25006":
+		return DBErrorKindReadOnly, DBErrorCodeReadOnly, ErrReadOnlyViolated
+	case "28000", "28P01":
+		return DBErrorKindAuthentication, DBErrorCodeAuthentication, nil
+	case "3D000":
+		return DBErrorKindDatabaseNotFound, DBErrorCodeDatabaseNotFound, nil
+	case "57P01", "57P02", "57P03", "57P04", "57P05":
+		return DBErrorKindConnection, DBErrorCodeConnection, ErrDatasourceUnreachable
+	}
+
+	switch {
+	case strings.HasPrefix(driverCode, "42"):
+		return DBErrorKindSemantic, DBErrorCodeSemantic, nil
+	case strings.HasPrefix(driverCode, "22"):
+		return DBErrorKindData, DBErrorCodeData, nil
+	case strings.HasPrefix(driverCode, "23"):
+		return DBErrorKindConstraint, DBErrorCodeConstraint, nil
+	case strings.HasPrefix(driverCode, "25"):
+		return DBErrorKindTransaction, DBErrorCodeTransaction, nil
+	case strings.HasPrefix(driverCode, "53"), strings.HasPrefix(driverCode, "54"):
+		return DBErrorKindResource, DBErrorCodeResource, nil
+	case strings.HasPrefix(driverCode, "08"):
+		return DBErrorKindConnection, DBErrorCodeConnection, ErrDatasourceUnreachable
+	default:
+		return DBErrorKindExecution, DBErrorCodeExecution, nil
+	}
 }
 
 func classifyPostgresPermission(cause error) bool {
@@ -524,7 +605,15 @@ func classifyPostgresPermission(cause error) bool {
 	return errors.As(cause, &postgresError) && postgresError.Code == "42501"
 }
 
-func postgresConnectionError(message string, cause error) error {
+func postgresConnectionError(
+	ctx context.Context,
+	stage DBStage,
+	message string,
+	cause error,
+) error {
+	if classified, ok := classifyPostgresError(ctx, stage, cause); ok {
+		return addDBErrorCompat(classified, ErrDatasourceUnreachable)
+	}
 	return safeError(message, ErrDatasourceUnreachable, cause)
 }
 
@@ -570,7 +659,13 @@ func (session *postgresSession) BeginWriteTx(ctx context.Context) (WriteTx, erro
 	}
 	if session.executor.readOnly {
 		session.operationMu.Unlock()
-		return nil, fmt.Errorf("begin PostgreSQL session write transaction: %w", ErrReadOnlyViolated)
+		return nil, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageBeginTx,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	if session.state != nil && session.state.active() {
 		session.operationMu.Unlock()
@@ -583,7 +678,7 @@ func (session *postgresSession) BeginWriteTx(ctx context.Context) (WriteTx, erro
 	tx, err := session.beginTx(ctx)
 	if err != nil {
 		session.operationMu.Unlock()
-		return nil, postgresDatabaseError("begin PostgreSQL session write transaction", err)
+		return nil, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL session write transaction", err)
 	}
 	return &postgresWriteTx{
 		executor: session.executor,
@@ -649,10 +744,12 @@ func (tx *postgresWriteTx) finish(ctx context.Context, commit bool) error {
 	}
 	if err != nil {
 		action := "rollback"
+		stage := DBStageRollback
 		if commit {
 			action = "commit"
+			stage = DBStageCommit
 		}
-		return postgresDatabaseError(action+" PostgreSQL write transaction", err)
+		return postgresDatabaseError(ctx, stage, action+" PostgreSQL write transaction", err)
 	}
 	return nil
 }
@@ -701,7 +798,13 @@ func (session *postgresSession) Execute(
 		return model.QueryResult{}, err
 	}
 	if session.executor.readOnly {
-		return model.QueryResult{}, fmt.Errorf("execute PostgreSQL session write: %w", ErrReadOnlyViolated)
+		return model.QueryResult{}, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageExecute,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	classification, err := classifySessionStatement(sql, "postgres")
 	if err != nil {
@@ -802,10 +905,11 @@ func (session *postgresSession) Close() error {
 
 	var rollbackError error
 	if session.state.active() {
-		_, rollbackError = session.executor.executeWithRunner(
+		_, rollbackError = session.executor.executeWithRunnerAtStage(
 			context.Background(),
 			session.runner,
 			"ROLLBACK",
+			DBStageRollback,
 		)
 		if rollbackError == nil {
 			session.state.clear()

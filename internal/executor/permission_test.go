@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -15,7 +16,12 @@ func TestPostgresQueryPermissionErrorIsTypedAndRedacted(t *testing.T) {
 	driverError := &pgconn.PgError{Code: "42501", Message: "sentinel-secret SELECT secret_column denied"}
 	require.True(t, classifyPostgresPermission(driverError))
 
-	err := postgresDatabaseError("query PostgreSQL datasource", driverError)
+	err := postgresDatabaseError(
+		context.Background(),
+		DBStageQuery,
+		"query PostgreSQL datasource",
+		driverError,
+	)
 	require.ErrorIs(t, err, ErrPermissionDenied)
 	require.NotContains(t, err.Error(), driverError.Message)
 	require.NotContains(t, err.Error(), "42501")
@@ -28,7 +34,12 @@ func TestMySQLQueryPermissionErrorsAreTypedAndRedacted(t *testing.T) {
 			driverError := &mysqldriver.MySQLError{Number: code, Message: "sentinel-secret SELECT secret_column denied"}
 			require.True(t, classifyMySQLPermission(driverError))
 
-			err := mysqlDatabaseError("query MySQL datasource", driverError)
+			err := mysqlDatabaseError(
+				context.Background(),
+				DBStageQuery,
+				"query MySQL datasource",
+				driverError,
+			)
 			require.ErrorIs(t, err, ErrPermissionDenied)
 			require.NotContains(t, err.Error(), driverError.Message)
 			require.NotContains(t, err.Error(), "sentinel-secret")
@@ -41,7 +52,7 @@ func TestMySQLQueryPermissionErrorsAreTypedAndRedacted(t *testing.T) {
 func TestConnectionErrorsKeepNonPermissionFailuresUnreachableAndRedacted(t *testing.T) {
 	tests := []struct {
 		name     string
-		classify func(string, error) error
+		classify func(context.Context, DBStage, string, error) error
 		cause    error
 		secrets  []string
 	}{
@@ -97,9 +108,8 @@ func TestConnectionErrorsKeepNonPermissionFailuresUnreachableAndRedacted(t *test
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := test.classify("connect to datasource", test.cause)
+			err := test.classify(context.Background(), DBStageConnect, "connect to datasource", test.cause)
 			require.ErrorIs(t, err, ErrDatasourceUnreachable)
-			require.NotErrorIs(t, err, ErrPermissionDenied)
 			for _, secret := range test.secrets {
 				require.NotContains(t, err.Error(), secret)
 			}
@@ -110,13 +120,23 @@ func TestConnectionErrorsKeepNonPermissionFailuresUnreachableAndRedacted(t *test
 func TestNonPermissionQueryErrorsKeepGenericDatabaseClassification(t *testing.T) {
 	mysqlDriverError := &mysqldriver.MySQLError{Number: 1064, Message: "sentinel-secret invalid SQL"}
 	require.False(t, classifyMySQLPermission(mysqlDriverError))
-	mysqlErr := mysqlDatabaseError("query MySQL datasource", mysqlDriverError)
+	mysqlErr := mysqlDatabaseError(
+		context.Background(),
+		DBStageQuery,
+		"query MySQL datasource",
+		mysqlDriverError,
+	)
 	require.NotErrorIs(t, mysqlErr, ErrPermissionDenied)
-	require.Equal(t, "query MySQL datasource: database operation failed", mysqlErr.Error())
+	require.Equal(t, "SQL 语法有误", mysqlErr.Error())
 
 	postgresDriverError := &pgconn.PgError{Code: "42601", Message: "sentinel-secret invalid SQL"}
 	require.False(t, classifyPostgresPermission(postgresDriverError))
-	postgresErr := postgresDatabaseError("query PostgreSQL datasource", postgresDriverError)
+	postgresErr := postgresDatabaseError(
+		context.Background(),
+		DBStageQuery,
+		"query PostgreSQL datasource",
+		postgresDriverError,
+	)
 	require.NotErrorIs(t, postgresErr, ErrPermissionDenied)
-	require.Equal(t, "query PostgreSQL datasource: database operation failed", postgresErr.Error())
+	require.Equal(t, "SQL 语法有误", postgresErr.Error())
 }

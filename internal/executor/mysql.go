@@ -67,7 +67,7 @@ func NewMySQLExecutor(
 	}
 	database, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, mysqlConnectionError("create MySQL connection pool", err)
+		return nil, mysqlConnectionError(ctx, DBStageConnect, "create MySQL connection pool", err)
 	}
 	database.SetMaxOpenConns(connectionLimit)
 	database.SetMaxIdleConns(connectionLimit)
@@ -116,7 +116,7 @@ func (executor *MySQLExecutor) Ping(ctx context.Context) error {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	if err := executor.database.PingContext(timedContext); err != nil {
-		return mysqlConnectionError("ping MySQL datasource", err)
+		return mysqlConnectionError(timedContext, DBStagePing, "ping MySQL datasource", err)
 	}
 	return nil
 }
@@ -143,7 +143,7 @@ func (executor *MySQLExecutor) OpenSession(
 	}
 	connection, err := executor.database.Conn(ctx)
 	if err != nil {
-		return nil, mysqlDatabaseError("acquire MySQL session connection", err)
+		return nil, mysqlDatabaseError(ctx, DBStageAcquire, "acquire MySQL session connection", err)
 	}
 	session := &mysqlSession{
 		id:       sessionID,
@@ -172,11 +172,17 @@ func (executor *MySQLExecutor) BeginWriteTx(ctx context.Context) (WriteTx, error
 		return nil, fmt.Errorf("begin MySQL write transaction: executor or context is unavailable")
 	}
 	if executor.readOnly {
-		return nil, fmt.Errorf("begin MySQL write transaction: %w", ErrReadOnlyViolated)
+		return nil, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageBeginTx,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	tx, err := executor.database.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, mysqlDatabaseError("begin MySQL write transaction", err)
+		return nil, mysqlDatabaseError(ctx, DBStageBeginTx, "begin MySQL write transaction", err)
 	}
 	return &mysqlWriteTx{executor: executor, tx: tx}, nil
 }
@@ -194,7 +200,13 @@ func (executor *MySQLExecutor) Query(
 		return model.QueryResult{}, fmt.Errorf("query MySQL datasource: row limit must be positive")
 	}
 	if executor.readOnly && !isMySQLSelect(sqlText) {
-		return model.QueryResult{}, fmt.Errorf("query MySQL non-SELECT: %w", ErrReadOnlyViolated)
+		return model.QueryResult{}, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageQuery,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	return executor.queryWithRunner(ctx, executor.database, sqlText, rowLimit)
 }
@@ -215,11 +227,11 @@ func (executor *MySQLExecutor) queryWithRunner(
 	defer cancel()
 	rows, err := runner.QueryContext(timedContext, hintedSQL)
 	if err != nil {
-		return model.QueryResult{}, mysqlDatabaseError("query MySQL datasource", err)
+		return model.QueryResult{}, mysqlDatabaseError(timedContext, DBStageQuery, "query MySQL datasource", err)
 	}
 	result, err := collectRows(&mysqlRowSource{rows: rows}, rowLimit)
 	if err != nil {
-		return model.QueryResult{}, mysqlDatabaseError("read MySQL query result", err)
+		return model.QueryResult{}, mysqlDatabaseError(timedContext, DBStageReadRows, "read MySQL query result", err)
 	}
 	result.LatencyMS = time.Since(started).Milliseconds()
 	return result, nil
@@ -231,7 +243,13 @@ func (executor *MySQLExecutor) Execute(
 	sqlText string,
 ) (model.QueryResult, error) {
 	if executor != nil && executor.readOnly {
-		return model.QueryResult{}, fmt.Errorf("execute MySQL write: %w", ErrReadOnlyViolated)
+		return model.QueryResult{}, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageExecute,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	if err := executor.validateOperation(ctx, sqlText); err != nil {
 		return model.QueryResult{}, err
@@ -244,16 +262,25 @@ func (executor *MySQLExecutor) executeWithRunner(
 	runner mysqlRunner,
 	sqlText string,
 ) (model.QueryResult, error) {
+	return executor.executeWithRunnerAtStage(ctx, runner, sqlText, DBStageExecute)
+}
+
+func (executor *MySQLExecutor) executeWithRunnerAtStage(
+	ctx context.Context,
+	runner mysqlRunner,
+	sqlText string,
+	stage DBStage,
+) (model.QueryResult, error) {
 	started := time.Now()
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	result, err := runner.ExecContext(timedContext, sqlText)
 	if err != nil {
-		return model.QueryResult{}, mysqlDatabaseError("execute MySQL statement", err)
+		return model.QueryResult{}, mysqlDatabaseError(timedContext, stage, "execute MySQL statement", err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return model.QueryResult{}, safeDatabaseError("read MySQL affected rows", err)
+		return model.QueryResult{}, mysqlDatabaseError(timedContext, stage, "read MySQL affected rows", err)
 	}
 	if rowsAffected > int64(maxInt()) {
 		return model.QueryResult{}, fmt.Errorf("execute MySQL statement: affected row count overflows int")
@@ -284,11 +311,11 @@ func (executor *MySQLExecutor) explainWithRunner(
 	defer cancel()
 	rows, err := runner.QueryContext(timedContext, "EXPLAIN "+sqlText)
 	if err != nil {
-		return model.ExplainInfo{}, mysqlDatabaseError("explain MySQL statement", err)
+		return model.ExplainInfo{}, mysqlDatabaseError(timedContext, DBStageExplain, "explain MySQL statement", err)
 	}
 	columns, values, err := readMySQLExplainRows(rows)
 	if err != nil {
-		return model.ExplainInfo{}, mysqlDatabaseError("read MySQL explain result", err)
+		return model.ExplainInfo{}, mysqlDatabaseError(timedContext, DBStageExplain, "read MySQL explain result", err)
 	}
 	info, err := parseMysqlExplainRows(columns, values)
 	if err != nil {
@@ -343,7 +370,7 @@ FROM information_schema.statistics
 WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE())
   AND table_name = ?`, schema, table).Scan(&count)
 	if err != nil {
-		return false, mysqlDatabaseError("read MySQL index metadata", err)
+		return false, mysqlDatabaseError(ctx, DBStageMetadata, "read MySQL index metadata", err)
 	}
 	return count > 0, nil
 }
@@ -362,7 +389,7 @@ FROM information_schema.tables
 WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE())
   AND table_name = ?`, schema, table).Scan(&rows)
 	if err != nil {
-		return 0, mysqlDatabaseError("read MySQL table row metadata", err)
+		return 0, mysqlDatabaseError(ctx, DBStageMetadata, "read MySQL table row metadata", err)
 	}
 	if rows < 0 {
 		return 0, fmt.Errorf("read MySQL table row metadata: negative estimate")
@@ -668,18 +695,89 @@ func closeSQLRowsAfterError(rows *sql.Rows, cause error) error {
 	return cause
 }
 
-func mysqlDatabaseError(message string, cause error) error {
-	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, context.Canceled) {
-		return safeError(message, ErrQueryTimeout, cause)
-	}
-	if classifyMySQLPermission(cause) {
-		return safeError(message, ErrPermissionDenied, cause)
-	}
-	var mysqlError *mysqldriver.MySQLError
-	if errors.As(cause, &mysqlError) && mysqlError.Number == 3024 {
-		return safeError(message, ErrQueryTimeout, cause)
+func mysqlDatabaseError(ctx context.Context, stage DBStage, message string, cause error) error {
+	if classified, ok := classifyMySQLError(ctx, stage, cause); ok {
+		return classified
 	}
 	return safeDatabaseError(message, cause)
+}
+
+func classifyMySQLError(ctx context.Context, stage DBStage, cause error) (error, bool) {
+	if classified, ok := classifyContextError(ctx, stage, cause); ok {
+		return classified, true
+	}
+
+	var mysqlError *mysqldriver.MySQLError
+	if errors.As(cause, &mysqlError) {
+		kind, code, compat := mysqlErrorCode(mysqlError.Number)
+		return newDBError(
+			kind,
+			code,
+			stage,
+			strconv.FormatUint(uint64(mysqlError.Number), 10),
+			compat,
+		), true
+	}
+
+	if errors.Is(cause, mysqldriver.ErrInvalidConn) || isNetworkConnectionError(cause) {
+		return newDBError(
+			DBErrorKindConnection,
+			DBErrorCodeConnection,
+			stage,
+			"",
+			ErrDatasourceUnreachable,
+		), true
+	}
+	return nil, false
+}
+
+func mysqlErrorCode(driverCode uint16) (DBErrorKind, DBErrorCode, error) {
+	switch driverCode {
+	case 1146, 1051, 1305:
+		return DBErrorKindObjectNotFound, DBErrorCodeObjectNotFound, nil
+	case 1054:
+		return DBErrorKindColumnNotFound, DBErrorCodeColumnNotFound, nil
+	case 1050, 1304:
+		return DBErrorKindAlreadyExists, DBErrorCodeAlreadyExists, nil
+	case 1064, 1149:
+		return DBErrorKindSyntax, DBErrorCodeSyntax, nil
+	case 1055, 1056, 1058, 1060, 1066, 1113, 1222, 1318:
+		return DBErrorKindSemantic, DBErrorCodeSemantic, nil
+	case 1264, 1265, 1292, 1365, 1366, 1406:
+		return DBErrorKindData, DBErrorCodeData, nil
+	case 1048, 1062, 1364, 1451, 1452, 3819:
+		return DBErrorKindConstraint, DBErrorCodeConstraint, nil
+	case 1205, 1213:
+		return DBErrorKindRetryable, DBErrorCodeRetryable, nil
+	// 3572 remains an execution fallback until its MySQL 8 behavior is
+	// confirmed against a real server.
+	case 1192, 1568:
+		return DBErrorKindTransaction, DBErrorCodeTransaction, nil
+	// 1180 remains an execution fallback until transaction behavior is
+	// confirmed against a real MySQL 8 server.
+	case 1021, 1037, 1038, 1040, 1114, 1203, 1206, 1226, 1390, 1461, 1473,
+		4025:
+		// MySQL 8 error 4025 is an InnoDB autoextend size limit, not the
+		// MariaDB CHECK-constraint error with the same number.
+		return DBErrorKindResource, DBErrorCodeResource, nil
+	case 3024:
+		return DBErrorKindTimeout, DBErrorCodeTimeout, ErrQueryTimeout
+	case 1317:
+		return DBErrorKindInterrupted, DBErrorCodeInterrupted, ErrQueryTimeout
+	case 1044, 1142, 1143, 1227, 1370:
+		return DBErrorKindPermission, DBErrorCodePermission, ErrPermissionDenied
+	case 1792:
+		return DBErrorKindReadOnly, DBErrorCodeReadOnly, ErrReadOnlyViolated
+	case 1045:
+		return DBErrorKindAuthentication, DBErrorCodeAuthentication, nil
+	case 1049:
+		return DBErrorKindDatabaseNotFound, DBErrorCodeDatabaseNotFound, nil
+	default:
+		// This intentionally includes 1290 and client-number lookalikes
+		// 2003/2006/2013. A confirmed MySQLError is a server error; network
+		// failures are recognized by their Go error types below instead.
+		return DBErrorKindExecution, DBErrorCodeExecution, nil
+	}
 }
 
 func classifyMySQLPermission(cause error) bool {
@@ -688,14 +786,17 @@ func classifyMySQLPermission(cause error) bool {
 		return false
 	}
 	switch mysqlError.Number {
-	case 1044, 1142, 1143, 1227:
+	case 1044, 1142, 1143, 1227, 1370:
 		return true
 	default:
 		return false
 	}
 }
 
-func mysqlConnectionError(message string, cause error) error {
+func mysqlConnectionError(ctx context.Context, stage DBStage, message string, cause error) error {
+	if classified, ok := classifyMySQLError(ctx, stage, cause); ok {
+		return addDBErrorCompat(classified, ErrDatasourceUnreachable)
+	}
 	return safeError(message, ErrDatasourceUnreachable, cause)
 }
 
@@ -722,7 +823,13 @@ func (session *mysqlSession) BeginWriteTx(ctx context.Context) (WriteTx, error) 
 	}
 	if session.executor.readOnly {
 		session.operationMu.Unlock()
-		return nil, fmt.Errorf("begin MySQL session write transaction: %w", ErrReadOnlyViolated)
+		return nil, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageBeginTx,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	if session.state != nil && session.state.active() {
 		session.operationMu.Unlock()
@@ -735,7 +842,7 @@ func (session *mysqlSession) BeginWriteTx(ctx context.Context) (WriteTx, error) 
 	tx, err := session.beginTx(ctx, nil)
 	if err != nil {
 		session.operationMu.Unlock()
-		return nil, mysqlDatabaseError("begin MySQL session write transaction", err)
+		return nil, mysqlDatabaseError(ctx, DBStageBeginTx, "begin MySQL session write transaction", err)
 	}
 	return &mysqlWriteTx{
 		executor: session.executor,
@@ -801,10 +908,12 @@ func (tx *mysqlWriteTx) finish(ctx context.Context, commit bool) error {
 	}
 	if err != nil {
 		action := "rollback"
+		stage := DBStageRollback
 		if commit {
 			action = "commit"
+			stage = DBStageCommit
 		}
-		return mysqlDatabaseError(action+" MySQL write transaction", err)
+		return mysqlDatabaseError(ctx, stage, action+" MySQL write transaction", err)
 	}
 	return nil
 }
@@ -826,7 +935,13 @@ func (session *mysqlSession) Query(
 		return model.QueryResult{}, fmt.Errorf("query MySQL session: row limit must be positive")
 	}
 	if session.executor.readOnly && !isMySQLSelect(sqlText) {
-		return model.QueryResult{}, fmt.Errorf("query MySQL session non-SELECT: %w", ErrReadOnlyViolated)
+		return model.QueryResult{}, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageQuery,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	classification, err := classifySessionStatement(sqlText, "mysql")
 	if err != nil {
@@ -861,7 +976,13 @@ func (session *mysqlSession) Execute(
 		return model.QueryResult{}, err
 	}
 	if session.executor.readOnly {
-		return model.QueryResult{}, fmt.Errorf("execute MySQL session write: %w", ErrReadOnlyViolated)
+		return model.QueryResult{}, newDBError(
+			DBErrorKindReadOnly,
+			DBErrorCodeReadOnly,
+			DBStageExecute,
+			"",
+			ErrReadOnlyViolated,
+		)
 	}
 	classification, err := classifySessionStatement(sqlText, "mysql")
 	if err != nil {
@@ -938,10 +1059,11 @@ func (session *mysqlSession) Close() error {
 
 	var rollbackError error
 	if session.state.active() {
-		_, rollbackError = session.executor.executeWithRunner(
+		_, rollbackError = session.executor.executeWithRunnerAtStage(
 			context.Background(),
 			session.runner,
 			"ROLLBACK",
+			DBStageRollback,
 		)
 		if rollbackError == nil {
 			session.state.clear()

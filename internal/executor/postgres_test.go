@@ -78,7 +78,7 @@ func TestPostgresDatabaseErrorClassification(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := postgresDatabaseError("query", test.cause)
+			err := postgresDatabaseError(context.Background(), DBStageQuery, "query", test.cause)
 			require.True(t, errors.Is(err, test.sentinel))
 		})
 	}

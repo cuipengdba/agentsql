@@ -110,7 +110,7 @@ func TestMySQLDatabaseErrorClassification(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := mysqlDatabaseError("query", test.cause)
+			err := mysqlDatabaseError(context.Background(), DBStageQuery, "query", test.cause)
 			require.True(t, errors.Is(err, ErrQueryTimeout))
 		})
 	}

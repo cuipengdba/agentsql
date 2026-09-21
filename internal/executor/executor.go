@@ -115,6 +115,10 @@ func (manager *Manager) GetOrOpen(
 	}
 	executor, err := manager.opener(datasource, password, manager.readOnly)
 	if err != nil {
+		var databaseError *DBError
+		if errors.As(err, &databaseError) {
+			return nil, err
+		}
 		return nil, safeError("open datasource", ErrDatasourceUnreachable, err)
 	}
 	if isNilExecutor(executor) {
