@@ -6,7 +6,6 @@ import {
   FullscreenOutlined,
   ReloadOutlined,
   RobotOutlined,
-  SafetyCertificateFilled,
   WarningOutlined,
 } from "@ant-design/icons";
 import { Alert, Badge, Button, Card, Col, Empty, Row, Segmented, Skeleton, Space, Statistic, Switch, Tooltip, message } from "antd";
@@ -16,13 +15,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDashboardSummary } from "@/api/dashboard";
 import type { AuditStreamEvent, DashboardKPI, DashboardSummary, StreamStatus, TrendDay } from "@/api/types";
 import type { Decision } from "@/constants/labels";
-import { getRuleMeta } from "@/constants/ruleMeta";
 import { PageContainer } from "@/components/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useAuthStore } from "@/store/authStore";
 import { palette, type ThemeMode } from "@/theme/tokens";
 import { useThemeStore } from "@/theme/useThemeStore";
 
+import { BattlePanel } from "./overview/BattlePanel";
 import { DecisionDonut } from "./overview/DecisionDonut";
 import { EventStream } from "./overview/EventStream";
 import { TrendChart } from "./overview/TrendChart";
@@ -57,11 +56,6 @@ function formatChange(value: number | null | undefined): string {
   }
   const direction = value > 0 ? "↑" : value < 0 ? "↓" : "→";
   return `环比 ${direction} ${Math.abs(value).toFixed(1)}%`;
-}
-
-function formatRows(value: number | null | undefined): string {
-  const rows = finiteNumber(value);
-  return rows >= 10_000 ? `${(rows / 10_000).toFixed(1)} 万` : rows.toLocaleString("zh-CN");
 }
 
 function hasTrendData(data: TrendDay[]): boolean {
@@ -171,48 +165,6 @@ function DecisionPanel({ data, mode }: { data: DashboardSummary["decision_distri
     <Card className="overview-panel chart-panel" title="决策分布" bordered>
       {data.length === 0 || total <= 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前区间暂无决策记录" /> : <DecisionDonut data={data} mode={mode} />}
     </Card>
-  );
-}
-
-function BattlePanel({ summary }: { summary: DashboardSummary | null }) {
-  const report = summary?.battle_report;
-  const ranking = summary?.agent_ranking || [];
-  const risks = summary?.risk_top || [];
-  const maxBlocked = Math.max(1, ...ranking.map((item) => finiteNumber(item.blocked_count)));
-  return (
-    <div className="battle-stack">
-      <Card className="battle-card" bordered>
-        <div className="battle-heading"><SafetyCertificateFilled /><span>拦截战报</span></div>
-        <div className="battle-number">{finiteNumber(report?.blocked_count).toLocaleString("zh-CN")}</div>
-        <div className="battle-copy">已拦截次数 · 避免约 {formatRows(report?.est_rows_saved)} 行风险扫描</div>
-      </Card>
-      <Card className="overview-panel ranking-card" title="Agent 被拦排行" bordered>
-        {ranking.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无被拦截 Agent" /> : (
-          <div className="ranking-list">
-            {ranking.slice(0, 5).map((item) => {
-              const name = item.name?.trim() || item.agent_id?.slice(0, 12) || "—";
-              const blocked = finiteNumber(item.blocked_count);
-              return (
-                <div className="ranking-item" key={item.agent_id}>
-                  <div className="ranking-line"><span title={item.agent_id}>{name}</span><span className="mono-text">{blocked.toLocaleString("zh-CN")}</span></div>
-                  <div className="ranking-track"><span style={{ width: `${Math.min(100, (blocked / maxBlocked) * 100)}%` }} /></div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-      <Card className="overview-panel risk-card" title="高危规则 Top5" bordered>
-        {risks.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无高危规则命中" /> : (
-          <div className="risk-list">
-            {risks.slice(0, 5).map((item) => {
-              const meta = getRuleMeta(item.rule_id);
-              return <div className="risk-item" key={item.rule_id}><span className="risk-id mono-text">{meta.id}</span><span className="risk-title" title={meta.title}>{meta.title}</span><span className="risk-count mono-text">{finiteNumber(item.count).toLocaleString("zh-CN")}</span></div>;
-            })}
-          </div>
-        )}
-      </Card>
-    </div>
   );
 }
 
