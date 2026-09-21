@@ -100,6 +100,7 @@ type AuditLog struct {
 	ClientIP       *string
 	ModelName      *string
 	ErrorMsg       *string
+	ErrorCode      *string `json:"error_code,omitempty"`
 	Action         *string
 	ActorType      *string
 	ActorID        *string

@@ -138,6 +138,8 @@ func TestPipelineClassifiedDatabaseErrorsBecomeBusinessResponses(t *testing.T) {
 			require.NotNil(t, log.ErrorMsg)
 			require.Equal(t, test.database.Error(), *log.ErrorMsg)
 			require.NotContains(t, *log.ErrorMsg, test.database.DriverCode)
+			require.NotNil(t, log.ErrorCode)
+			require.Equal(t, string(test.database.Code), *log.ErrorCode)
 		})
 	}
 }
@@ -225,6 +227,7 @@ func TestPipelineDatabaseErrorDoesNotHideAuditOrReservationFailure(t *testing.T)
 		require.Equal(t, "网关内部错误", response.ErrorMessage)
 		require.Nil(t, response.Result)
 		require.Equal(t, "网关内部错误", *fixture.audit.last().ErrorMsg)
+		require.Equal(t, string(executor.DBErrorCodeGatewayInternal), *fixture.audit.last().ErrorCode)
 	})
 }
 

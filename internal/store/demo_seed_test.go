@@ -108,8 +108,9 @@ func TestSeedHistoricalAuditsSQLiteRejectsPartialAuditBatch(t *testing.T) {
 	ctx := context.Background()
 	opened := openTestStore(t)
 	audits, approvals := demoHistoricalSeedFixture()
-	_, err := insertHistoricalAuditLog(ctx, opened.auditDB, opened.auditDriver, audits[0])
+	inserted, err := insertHistoricalAuditLog(ctx, opened.auditDB, opened.auditDriver, audits[0])
 	require.NoError(t, err)
+	require.Nil(t, inserted.ErrorCode)
 
 	_, _, err = opened.SeedHistoricalAudits(ctx, audits, approvals)
 	require.ErrorIs(t, err, ErrDemoSeedConflict)

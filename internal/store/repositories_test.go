@@ -401,11 +401,13 @@ func TestAuditLogRepositoryInsertAndPageOnly(t *testing.T) {
 	require.Equal(t, `{"findings_count":2}`, *first.DetailsJSON)
 
 	second, err := repository.Insert(context.Background(), model.AuditLog{
-		Decision: "deny",
-		ErrorMsg: pointer("blocked"),
+		Decision:  "error",
+		ErrorMsg:  pointer("blocked"),
+		ErrorCode: pointer("DB_PERMISSION_DENIED"),
 	})
 	require.NoError(t, err)
 	require.Greater(t, second.ID, first.ID)
+	require.Equal(t, "DB_PERMISSION_DENIED", *second.ErrorCode)
 	require.Nil(t, second.Action)
 	require.Nil(t, second.ActorType)
 	require.Nil(t, second.ActorID)
@@ -418,12 +420,32 @@ func TestAuditLogRepositoryInsertAndPageOnly(t *testing.T) {
 	require.Equal(t, 1, page.PageSize)
 	require.Len(t, page.List, 1)
 	require.Equal(t, second.ID, page.List[0].ID)
+	require.Equal(t, "DB_PERMISSION_DENIED", *page.List[0].ErrorCode)
+	require.Nil(t, first.ErrorCode)
 
 	repositoryType := reflect.TypeOf(repository)
 	_, hasUpdate := repositoryType.MethodByName("Update")
 	_, hasDelete := repositoryType.MethodByName("Delete")
 	require.False(t, hasUpdate)
 	require.False(t, hasDelete)
+}
+
+func TestAuditLogRepositoryRejectsUnsafeOrMisplacedErrorCode(t *testing.T) {
+	repository := openTestStore(t).AuditLogs()
+	for _, test := range []struct {
+		name string
+		log  model.AuditLog
+	}{
+		{name: "driver code", log: model.AuditLog{Decision: "error", ErrorCode: pointer("42P01")}},
+		{name: "driver message", log: model.AuditLog{Decision: "error", ErrorCode: pointer("relation secret_table does not exist")}},
+		{name: "non-error decision", log: model.AuditLog{Decision: "allow", ErrorCode: pointer("DB_EXECUTION_FAILED")}},
+		{name: "empty code", log: model.AuditLog{Decision: "error", ErrorCode: pointer("")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := repository.Insert(context.Background(), test.log)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestApprovalRepositoryCRUD(t *testing.T) {

@@ -644,6 +644,7 @@ func TestAuditMappingIncludesFrozenFields(t *testing.T) {
 		Explain:    &model.ExplainInfo{EstScanRows: 12},
 	}
 	response := Response{
+		ErrorCode: string(executor.DBErrorCodeGatewayInternal),
 		Assessment: model.Assessment{
 			Risk: model.RiskWarn,
 			Hits: []model.RuleHit{{
@@ -684,9 +685,40 @@ func TestAuditMappingIncludesFrozenFields(t *testing.T) {
 	require.Equal(t, clientIP, *log.ClientIP)
 	require.Equal(t, modelName, *log.ModelName)
 	require.Equal(t, "网关内部错误", *log.ErrorMsg)
+	require.Equal(t, string(executor.DBErrorCodeGatewayInternal), *log.ErrorCode)
 	var hits []model.RuleHit
 	require.NoError(t, json.Unmarshal([]byte(*log.RuleHits), &hits))
 	require.Equal(t, response.Assessment.Hits, hits)
+}
+
+func TestMapAuditLogPersistsOnlyStableErrorCodesForErrorDecisions(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		decision      string
+		code          string
+		wantErrorCode bool
+	}{
+		{name: "error with stable code", decision: "error", code: string(executor.DBErrorCodeTimeout), wantErrorCode: true},
+		{name: "commit outcome unknown", decision: "error", code: string(executor.DBErrorCodeCommitOutcomeUnknown), wantErrorCode: true},
+		{name: "audit unavailable", decision: "error", code: string(executor.DBErrorCodeAuditUnavailable), wantErrorCode: true},
+		{name: "allow", decision: "allow", code: string(executor.DBErrorCodeTimeout)},
+		{name: "deny", decision: "deny", code: string(executor.DBErrorCodeTimeout)},
+		{name: "driver code rejected", decision: "error", code: "42P01"},
+		{name: "empty", decision: "error"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			log, err := mapAuditLog(
+				Request{}, nil, nil, nil, Response{ErrorCode: test.code}, nil,
+				test.decision, nil, time.Now(),
+			)
+			require.NoError(t, err)
+			if test.wantErrorCode {
+				require.Equal(t, test.code, *log.ErrorCode)
+			} else {
+				require.Nil(t, log.ErrorCode)
+			}
+		})
+	}
 }
 
 func TestMergeAssessmentFourStatePriorityAndReplacement(t *testing.T) {

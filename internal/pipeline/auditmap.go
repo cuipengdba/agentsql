@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
@@ -62,7 +63,39 @@ func mapAuditLog(
 	if operationError != nil {
 		log.ErrorMsg = stringPointer(safeAuditErrorMessage(operationError))
 	}
+	if auditDecision == string(model.DecisionError) && isStableAuditErrorCode(response.ErrorCode) {
+		log.ErrorCode = stringPointer(response.ErrorCode)
+	}
 	return log, nil
+}
+
+func isStableAuditErrorCode(code string) bool {
+	switch executor.DBErrorCode(code) {
+	case executor.DBErrorCodeObjectNotFound,
+		executor.DBErrorCodeColumnNotFound,
+		executor.DBErrorCodeAlreadyExists,
+		executor.DBErrorCodeSyntax,
+		executor.DBErrorCodeSemantic,
+		executor.DBErrorCodeData,
+		executor.DBErrorCodeConstraint,
+		executor.DBErrorCodeRetryable,
+		executor.DBErrorCodeTransaction,
+		executor.DBErrorCodeResource,
+		executor.DBErrorCodeTimeout,
+		executor.DBErrorCodeInterrupted,
+		executor.DBErrorCodePermission,
+		executor.DBErrorCodeReadOnly,
+		executor.DBErrorCodeAuthentication,
+		executor.DBErrorCodeDatabaseNotFound,
+		executor.DBErrorCodeConnection,
+		executor.DBErrorCodeExecution,
+		executor.DBErrorCodeGatewayInternal,
+		executor.DBErrorCodeAuditUnavailable,
+		executor.DBErrorCodeCommitOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 func safeAuditErrorMessage(operationError error) string {

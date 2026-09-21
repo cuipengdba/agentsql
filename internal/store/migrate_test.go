@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,7 +70,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",
 			"decision", "rule_hits", "risk_level", "est_rows", "rows_returned",
 			"latency_ms", "client_ip", "model_name", "error_msg",
-			"action", "actor_type", "actor_id", "details_json",
+			"action", "actor_type", "actor_id", "details_json", "error_code",
 		},
 		"approvals": {
 			"id", "audit_id", "agent_id", "sql_raw", "reason", "status", "approver",
@@ -136,6 +137,36 @@ CREATE TABL invalid_syntax (id INTEGER PRIMARY KEY);`)
 	require.Zero(t, migrationCount)
 }
 
+func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
+	ctx := context.Background()
+	database := openSQLiteMigrationTestDB(t)
+	migrateSQLiteThroughVersion(t, ctx, database, "migrations/sqlite", 5)
+	_, err := database.ExecContext(ctx, `INSERT INTO audit_logs(decision, error_msg) VALUES('error', 'safe legacy message')`)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, database, DialectSQLite))
+	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
+	require.NoError(t, err)
+	require.Equal(t, 6, current)
+	require.Equal(t, 6, latest)
+	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
+
+	var legacyCode sql.NullString
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT error_code FROM audit_logs LIMIT 1`).Scan(&legacyCode))
+	require.False(t, legacyCode.Valid)
+	repository := &AuditLogRepository{repositoryBase: repositoryBase{db: database, dialect: DialectSQLite}}
+	inserted, err := repository.Insert(ctx, model.AuditLog{
+		Decision: "error", ErrorCode: stringPointerStoreTest("DB_OBJECT_NOT_FOUND"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "DB_OBJECT_NOT_FOUND", *inserted.ErrorCode)
+	page, err := repository.Page(ctx, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, page.List, 2)
+	require.Equal(t, "DB_OBJECT_NOT_FOUND", *page.List[0].ErrorCode)
+	require.Nil(t, page.List[1].ErrorCode)
+}
+
 func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *testing.T) {
 	ctx := context.Background()
 	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "metadata.db"))
@@ -197,7 +228,11 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			require.NoError(t, testCase.migrate(ctx, database))
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
-			require.Equal(t, 5, current)
+			if testCase.hasAudit {
+				require.Equal(t, 6, current)
+			} else {
+				require.Equal(t, 5, current)
+			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
 			var schemaName, tableName string
@@ -238,9 +273,10 @@ func TestSQLiteRangeMigrationFromV3SupportsRepositoryScan(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string
 		directory string
+		hasAudit  bool
 		migrate   func(context.Context, *sql.DB) error
 	}{
-		{name: "combined", directory: "migrations/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
+		{name: "combined", directory: "migrations/sqlite", hasAudit: true, migrate: func(ctx context.Context, db *sql.DB) error {
 			return Migrate(ctx, db, DialectSQLite)
 		}},
 		{name: "metadata", directory: "migrations/metadata/sqlite", migrate: func(ctx context.Context, db *sql.DB) error {
@@ -259,7 +295,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			require.NoError(t, testCase.migrate(ctx, database))
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
-			require.Equal(t, 5, current)
+			if testCase.hasAudit {
+				require.Equal(t, 6, current)
+			} else {
+				require.Equal(t, 5, current)
+			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 				"created_at", "updated_at", "enabled", "range_bucket_width",

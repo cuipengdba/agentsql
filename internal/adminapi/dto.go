@@ -318,6 +318,7 @@ type auditView struct {
 	ClientIP       *string   `json:"client_ip,omitempty"`
 	ModelName      *string   `json:"model_name,omitempty"`
 	ErrorMsg       *string   `json:"error_msg,omitempty"`
+	ErrorCode      *string   `json:"error_code,omitempty"`
 	Action         *string   `json:"action,omitempty"`
 	ActorType      *string   `json:"actor_type,omitempty"`
 	ActorID        *string   `json:"actor_id,omitempty"`
@@ -331,7 +332,7 @@ func auditToView(log model.AuditLog) auditView {
 		DBType: log.DBType, SQLRaw: log.SQLRaw, SQLNorm: log.SQLNorm, StmtType: log.StmtType,
 		Objects: log.Objects, Decision: log.Decision, RuleHits: log.RuleHits, RiskLevel: log.RiskLevel,
 		EstRows: log.EstRows, RowsReturned: log.RowsReturned, LatencyMS: log.LatencyMS,
-		ClientIP: log.ClientIP, ModelName: log.ModelName, ErrorMsg: log.ErrorMsg,
+		ClientIP: log.ClientIP, ModelName: log.ModelName, ErrorMsg: log.ErrorMsg, ErrorCode: log.ErrorCode,
 		Action: log.Action, ActorType: log.ActorType, ActorID: log.ActorID, DetailsJSON: log.DetailsJSON,
 	}
 }

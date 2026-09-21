@@ -34,6 +34,7 @@ func TestGenerateHistoryExactDeterministicContract(t *testing.T) {
 		require.Equal(t, int64(8+(ordinal*17)%193), *auditLog.LatencyMS)
 		require.Equal(t, "demo-model", *auditLog.ModelName)
 		require.Equal(t, "", *auditLog.ErrorMsg)
+		require.Nil(t, auditLog.ErrorCode)
 		require.Contains(t, []string{"query", "execute_write", "request_approval"}, *auditLog.MCPTool)
 		days[auditLog.TS.Format("2006-01-02")]++
 		decisions[auditLog.Decision]++

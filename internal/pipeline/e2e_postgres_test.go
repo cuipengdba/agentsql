@@ -111,6 +111,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		require.Empty(t, response.Redact)
 		require.Equal(t, "error", ports.audit.last().Decision)
 		require.Equal(t, response.ErrorMessage, *ports.audit.last().ErrorMsg)
+		require.Equal(t, response.ErrorCode, *ports.audit.last().ErrorCode)
 	})
 
 	t.Run("E4 real explain dynamic gate", func(t *testing.T) {

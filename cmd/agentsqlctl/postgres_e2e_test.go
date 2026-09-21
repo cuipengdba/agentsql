@@ -78,7 +78,7 @@ theme:
 
 	var migrateOutput, migrateError strings.Builder
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &migrateOutput, &migrateError), migrateError.String())
-	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=5 latest=5")
+	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=6 latest=6")
 	assertCommandOutputHasNoPostgresSecret(t, migrateOutput.String()+migrateError.String(), dsn, password, yamlDSN, yamlPassword)
 
 	database, err := sql.Open("pgx", dsn)

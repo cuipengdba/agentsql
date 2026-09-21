@@ -265,7 +265,7 @@ func demoAuditBySession(
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
-       error_msg, action, actor_type, actor_id, details_json
+       error_msg, error_code, action, actor_type, actor_id, details_json
 FROM audit_logs
 WHERE session_id = ?
 ORDER BY id`), sessionID)

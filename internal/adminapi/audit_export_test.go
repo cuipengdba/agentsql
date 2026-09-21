@@ -23,7 +23,7 @@ import (
 var auditCSVExpectedHeader = []string{
 	"时间", "审计ID", "决策", "风险等级", "Agent ID", "数据源", "数据库类型", "会话ID", "对话ID", "MCP工具",
 	"语句类型", "命中对象", "命中规则", "原始SQL", "归一化SQL", "预估行数", "返回行数", "耗时毫秒", "客户端IP", "模型",
-	"动作", "执行者类型", "执行者ID", "错误信息", "详情JSON",
+	"动作", "执行者类型", "执行者ID", "错误信息", "error_code", "详情JSON",
 }
 
 func insertAdminAuditLog(t *testing.T, fixture *adminFixture, log model.AuditLog) model.AuditLog {
@@ -97,8 +97,13 @@ func (writer *auditExportWriteFailure) Write(body []byte) (int, error) {
 
 func TestAdminAuditExportJSONLBackwardCompatibility(t *testing.T) {
 	fixture := newAdminFixture(t)
+	errorCode := "DB_OBJECT_NOT_FOUND"
 	insertAdminAuditLog(t, fixture, model.AuditLog{
-		AgentID: stringPointerAdmin("jsonl-agent"), SQLRaw: stringPointerAdmin("SELECT 1"), Decision: "allow",
+		AgentID: stringPointerAdmin("jsonl-agent"), SQLRaw: stringPointerAdmin("SELECT 1"),
+		Decision: "error", ErrorCode: &errorCode,
+	})
+	insertAdminAuditLog(t, fixture, model.AuditLog{
+		AgentID: stringPointerAdmin("jsonl-agent"), SQLRaw: stringPointerAdmin("SELECT 2"), Decision: "allow",
 	})
 
 	defaultResponse := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?agent_id=jsonl-agent", fixture.adminToken)
@@ -124,9 +129,14 @@ func TestAdminAuditExportJSONLBackwardCompatibility(t *testing.T) {
 		require.Contains(t, row, "agent_id")
 		require.Contains(t, row, "sql_raw")
 		require.NotContains(t, row, "AgentID")
+		if decoded == 0 {
+			require.NotContains(t, row, "error_code")
+		} else {
+			require.JSONEq(t, `"DB_OBJECT_NOT_FOUND"`, string(row["error_code"]))
+		}
 		decoded++
 	}
-	require.Equal(t, 1, decoded)
+	require.Equal(t, 2, decoded)
 }
 
 func TestAdminAuditExportCSVContract(t *testing.T) {
@@ -141,7 +151,7 @@ func TestAdminAuditExportCSVContract(t *testing.T) {
 	records := readAuditCSV(t, response.Body.Bytes())
 	require.Len(t, records, 2)
 	require.Equal(t, auditCSVExpectedHeader, records[0])
-	require.Len(t, records[0], 25)
+	require.Len(t, records[0], 26)
 }
 
 func TestAdminAuditExportCSVFormatsNilAndNumbers(t *testing.T) {
@@ -162,12 +172,27 @@ func TestAdminAuditExportCSVFormatsNilAndNumbers(t *testing.T) {
 	require.Equal(t, "-4", row[15])
 	require.Equal(t, "5", row[16])
 	require.Equal(t, "-6", row[17])
+	require.Empty(t, row[24])
 	for _, index := range []int{1, 3, 15, 16, 17} {
 		require.False(t, strings.HasPrefix(row[index], "'"))
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, row[0])
 	require.NoError(t, err)
 	require.Equal(t, time.UTC, parsed.Location())
+}
+
+func TestAdminAuditExportCSVIncludesErrorCode(t *testing.T) {
+	fixture := newAdminFixture(t)
+	errorCode := "DB_COLUMN_NOT_FOUND"
+	insertAdminAuditLog(t, fixture, model.AuditLog{
+		AgentID: stringPointerAdmin("coded-error"), Decision: "error", ErrorCode: &errorCode,
+	})
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=csv&agent_id=coded-error", fixture.adminToken)
+	require.Equal(t, http.StatusOK, response.Code)
+	records := readAuditCSV(t, response.Body.Bytes())
+	require.Equal(t, "error_code", records[0][24])
+	require.Equal(t, errorCode, records[1][24])
+	require.Len(t, records[1], len(records[0]))
 }
 
 func TestAdminAuditExportCSVEscapesSpecialCharacters(t *testing.T) {
@@ -218,18 +243,20 @@ func TestSanitizeAuditCSVText(t *testing.T) {
 func TestAdminAuditExportCSVNeutralizesEveryTextColumn(t *testing.T) {
 	fixture := newAdminFixture(t)
 	dangerous := "=cmd"
+	stableCode := "DB_EXECUTION_FAILED"
 	insertAdminAuditLog(t, fixture, model.AuditLog{
 		AgentID: &dangerous, DatasourceID: &dangerous, SessionID: &dangerous, ConversationID: &dangerous,
 		MCPTool: &dangerous, DBType: &dangerous, SQLRaw: &dangerous, SQLNorm: &dangerous, StmtType: &dangerous,
-		Objects: &dangerous, RuleHits: &dangerous, Decision: "allow", ClientIP: &dangerous, ModelName: &dangerous,
-		ErrorMsg: &dangerous, Action: &dangerous, ActorType: &dangerous, ActorID: &dangerous, DetailsJSON: &dangerous,
+		Objects: &dangerous, RuleHits: &dangerous, Decision: "error", ClientIP: &dangerous, ModelName: &dangerous,
+		ErrorMsg: &dangerous, ErrorCode: &stableCode, Action: &dangerous, ActorType: &dangerous, ActorID: &dangerous, DetailsJSON: &dangerous,
 	})
 	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=csv&agent_id="+url.QueryEscape(dangerous), fixture.adminToken)
 	require.Equal(t, http.StatusOK, response.Code)
 	row := readAuditCSV(t, response.Body.Bytes())[1]
-	for _, index := range []int{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24} {
+	for _, index := range []int{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20, 21, 22, 23, 25} {
 		require.Equalf(t, "'=cmd", row[index], "column %d was not neutralized", index)
 	}
+	require.Equal(t, stableCode, row[24])
 	require.Equal(t, "'=cmd", auditCSVRow(auditView{Decision: dangerous})[2])
 }
 
@@ -350,6 +377,7 @@ func TestAdminAuditExportTrailCSV(t *testing.T) {
 	require.Nil(t, trail.LatencyMS)
 	require.Nil(t, trail.ModelName)
 	require.Nil(t, trail.ErrorMsg)
+	require.Nil(t, trail.ErrorCode)
 }
 
 func TestAdminAuditExportTrailJSONLDefault(t *testing.T) {

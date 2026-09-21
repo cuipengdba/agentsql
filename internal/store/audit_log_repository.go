@@ -51,10 +51,10 @@ func insertAuditLog(
 INSERT INTO audit_logs (
   agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
-  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg,
+  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg, error_code,
   action, actor_type, actor_id, details_json
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		optionalString(auditLog.AgentID),
 		optionalString(auditLog.DatasourceID),
 		optionalString(auditLog.SessionID),
@@ -74,6 +74,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		optionalString(auditLog.ClientIP),
 		optionalString(auditLog.ModelName),
 		optionalString(auditLog.ErrorMsg),
+		optionalString(auditLog.ErrorCode),
 		optionalString(auditLog.Action),
 		optionalString(auditLog.ActorType),
 		optionalString(auditLog.ActorID),
@@ -112,10 +113,10 @@ func insertHistoricalAuditLog(
 INSERT INTO audit_logs (
   ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
-  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg,
+  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg, error_code,
   action, actor_type, actor_id, details_json
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		auditLog.TS,
 		optionalString(auditLog.AgentID),
 		optionalString(auditLog.DatasourceID),
@@ -136,6 +137,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		optionalString(auditLog.ClientIP),
 		optionalString(auditLog.ModelName),
 		optionalString(auditLog.ErrorMsg),
+		optionalString(auditLog.ErrorCode),
 		optionalString(auditLog.Action),
 		optionalString(auditLog.ActorType),
 		optionalString(auditLog.ActorID),
@@ -160,9 +162,47 @@ func validateAuditLogInsert(ctx context.Context, auditLog model.AuditLog) error 
 	}
 	switch auditLog.Decision {
 	case "allow", "deny", "approve", "warn", "error":
-		return nil
 	default:
 		return fmt.Errorf("insert audit log: invalid decision %q", auditLog.Decision)
+	}
+	if auditLog.ErrorCode == nil {
+		return nil
+	}
+	if auditLog.Decision != "error" {
+		return fmt.Errorf("insert audit log: error_code requires decision error")
+	}
+	if !stableAuditErrorCode(*auditLog.ErrorCode) {
+		return fmt.Errorf("insert audit log: invalid error_code %q", *auditLog.ErrorCode)
+	}
+	return nil
+}
+
+func stableAuditErrorCode(code string) bool {
+	switch code {
+	case "DB_OBJECT_NOT_FOUND",
+		"DB_COLUMN_NOT_FOUND",
+		"DB_OBJECT_ALREADY_EXISTS",
+		"DB_SYNTAX_ERROR",
+		"DB_SEMANTIC_ERROR",
+		"DB_DATA_EXCEPTION",
+		"DB_CONSTRAINT_VIOLATION",
+		"DB_RETRYABLE_CONFLICT",
+		"DB_TRANSACTION_STATE",
+		"DB_RESOURCE_EXHAUSTED",
+		"DB_QUERY_TIMEOUT",
+		"DB_QUERY_INTERRUPTED",
+		"DB_PERMISSION_DENIED",
+		"DB_READ_ONLY_VIOLATION",
+		"DB_AUTHENTICATION_FAILED",
+		"DB_DATABASE_NOT_FOUND",
+		"DB_DATASOURCE_UNREACHABLE",
+		"DB_EXECUTION_FAILED",
+		"GATEWAY_INTERNAL",
+		"AUDIT_UNAVAILABLE",
+		"COMMIT_OUTCOME_UNKNOWN":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -206,7 +246,7 @@ func (repository *AuditLogRepository) FilteredPage(
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
-       error_msg, action, actor_type, actor_id, details_json
+       error_msg, error_code, action, actor_type, actor_id, details_json
 FROM audit_logs` + whereClause + `
 ORDER BY ts DESC, id DESC
 LIMIT ? OFFSET ?`
@@ -329,7 +369,7 @@ func getInsertedAuditLog(
 SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
-       error_msg, action, actor_type, actor_id, details_json
+       error_msg, error_code, action, actor_type, actor_id, details_json
 FROM audit_logs
 WHERE id = ?`
 	auditLog, err := scanAuditLog(executor.QueryRowContext(
@@ -349,7 +389,7 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 	var timestamp databaseTimestamp
 	var agentID, datasourceID, sessionID, conversationID sql.NullString
 	var mcpTool, databaseType, sqlRaw, sqlNormalized, statementType sql.NullString
-	var objects, ruleHits, clientIP, modelName, errorMessage sql.NullString
+	var objects, ruleHits, clientIP, modelName, errorMessage, errorCode sql.NullString
 	var action, actorType, actorID, detailsJSON sql.NullString
 	var riskLevel, estimatedRows, rowsReturned, latencyMS sql.NullInt64
 	if err := scanner.Scan(
@@ -374,6 +414,7 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 		&clientIP,
 		&modelName,
 		&errorMessage,
+		&errorCode,
 		&action,
 		&actorType,
 		&actorID,
@@ -407,6 +448,7 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 	auditLog.ClientIP = stringPointer(clientIP)
 	auditLog.ModelName = stringPointer(modelName)
 	auditLog.ErrorMsg = stringPointer(errorMessage)
+	auditLog.ErrorCode = stringPointer(errorCode)
 	auditLog.Action = stringPointer(action)
 	auditLog.ActorType = stringPointer(actorType)
 	auditLog.ActorID = stringPointer(actorID)

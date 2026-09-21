@@ -148,7 +148,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "client_ip", kind: migrationText}, {name: "model_name", kind: migrationText},
 		{name: "error_msg", kind: migrationText}, {name: "action", kind: migrationText},
 		{name: "actor_type", kind: migrationText}, {name: "actor_id", kind: migrationText},
-		{name: "details_json", kind: migrationText},
+		{name: "details_json", kind: migrationText}, {name: "error_code", kind: migrationText},
 	}},
 	{name: "approvals", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "audit_id", kind: migrationInt64},

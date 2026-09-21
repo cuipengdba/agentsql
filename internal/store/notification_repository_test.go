@@ -83,8 +83,13 @@ func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 			require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, separated))
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, separated)
 			require.NoError(t, err)
-			require.Equal(t, 5, current)
-			require.Equal(t, 5, latest)
+			if separated {
+				require.Equal(t, 5, current)
+				require.Equal(t, 5, latest)
+			} else {
+				require.Equal(t, 6, current)
+				require.Equal(t, 6, latest)
+			}
 			assertSQLiteNotificationTables(t, ctx, database)
 			require.NoError(t, database.Close())
 		}
@@ -106,7 +111,7 @@ func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 		require.NoError(t, Migrate(ctx, database, DialectSQLite))
 		var after int
 		require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&after))
-		require.Equal(t, 5, after)
+		require.Equal(t, 6, after)
 		assertSQLiteNotificationTables(t, ctx, database)
 		require.NoError(t, database.Close())
 	})

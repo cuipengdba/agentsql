@@ -28,7 +28,7 @@ var (
 	auditCSVHeader      = []string{
 		"时间", "审计ID", "决策", "风险等级", "Agent ID", "数据源", "数据库类型", "会话ID", "对话ID", "MCP工具",
 		"语句类型", "命中对象", "命中规则", "原始SQL", "归一化SQL", "预估行数", "返回行数", "耗时毫秒", "客户端IP", "模型",
-		"动作", "执行者类型", "执行者ID", "错误信息", "详情JSON",
+		"动作", "执行者类型", "执行者ID", "错误信息", "error_code", "详情JSON",
 	}
 )
 
@@ -201,6 +201,7 @@ func auditCSVRow(view auditView) []string {
 		csvText(view.ActorType),
 		csvText(view.ActorID),
 		csvText(view.ErrorMsg),
+		csvText(view.ErrorCode),
 		csvText(view.DetailsJSON),
 	}
 }

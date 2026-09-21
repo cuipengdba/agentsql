@@ -38,7 +38,7 @@ func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
 		"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
 		"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",
 		"decision", "rule_hits", "risk_level", "est_rows", "rows_returned", "latency_ms",
-		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json",
+		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json", "error_code",
 	}, migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs")))
 }
 
@@ -230,6 +230,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "audit_logs")
+		require.ErrorContains(t, err, "current=5 latest=6")
 	})
 }

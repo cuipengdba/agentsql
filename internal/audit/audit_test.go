@@ -73,11 +73,12 @@ func TestServicePagePassesFilterThrough(t *testing.T) {
 func TestExportJSONL(t *testing.T) {
 	logs := make([]model.AuditLog, 0, 501)
 	for index := 0; index < 501; index++ {
-		log := completeAuditLog("allow")
+		log := completeAuditLog("error")
 		log.ID = int64(index + 1)
 		log.TS = log.TS.Add(time.Duration(index) * time.Second)
 		if index == 0 {
 			log.ErrorMsg = nil
+			log.ErrorCode = nil
 		}
 		logs = append(logs, log)
 	}
@@ -104,6 +105,9 @@ func TestExportJSONL(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(line), &raw))
 		if index == 0 {
 			require.NotContains(t, raw, "ErrorMsg")
+			require.NotContains(t, raw, "error_code")
+		} else {
+			require.Equal(t, "DB_OBJECT_NOT_FOUND", raw["error_code"])
 		}
 		timestamp, ok := raw["TS"].(string)
 		require.True(t, ok)
@@ -270,7 +274,7 @@ func (failingWriter) Write([]byte) (int, error) {
 }
 
 func completeAuditLog(decision string) model.AuditLog {
-	return model.AuditLog{
+	log := model.AuditLog{
 		ID:             7,
 		TS:             time.Date(2026, time.September, 9, 12, 34, 56, 0, time.UTC),
 		AgentID:        stringPointer("agent-1"),
@@ -297,6 +301,10 @@ func completeAuditLog(decision string) model.AuditLog {
 		ActorID:        stringPointer("root"),
 		DetailsJSON:    stringPointer(`{"findings_count":2}`),
 	}
+	if decision == "error" {
+		log.ErrorCode = stringPointer("DB_OBJECT_NOT_FOUND")
+	}
+	return log
 }
 
 func stringPointer(value string) *string {
