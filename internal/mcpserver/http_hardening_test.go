@@ -25,14 +25,51 @@ type hardeningRPCResponse struct {
 		Content           json.RawMessage `json:"content"`
 		IsError           bool            `json:"isError"`
 		StructuredContent struct {
-			Decision string          `json:"decision"`
-			Data     json.RawMessage `json:"data"`
+			Decision   string          `json:"decision"`
+			ErrorCode  string          `json:"error_code"`
+			Reason     string          `json:"reason"`
+			Suggestion string          `json:"suggestion"`
+			Data       json.RawMessage `json:"data"`
 		} `json:"structuredContent"`
 	} `json:"result"`
 	Error *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+func TestHTTPClassifiedDatabaseErrorUsesToolErrorContract(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	fixture.executor.explainErr = classifiedMCPError(
+		executor.DBErrorKindObjectNotFound,
+		executor.DBErrorCodeObjectNotFound,
+		executor.DBStageExplain,
+	)
+	handler, _, err := newHTTPHandlerWithRegistry(fixture.runtime, httpTestConfig(100), zerolog.Nop())
+	require.NoError(t, err)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	status, body, err := doMCPRequest(
+		server.Client(), server.URL+"/mcp", fixture.handlers.apiKey, http.MethodPost,
+		queryCall(`"db-error"`, "ds-allowed"),
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status, body)
+	response := decodeHardeningRPCResponse(t, body)
+	require.Nil(t, response.Error)
+	require.True(t, response.Result.IsError)
+	require.Equal(t, "error", response.Result.StructuredContent.Decision)
+	require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.Result.StructuredContent.ErrorCode)
+	require.Equal(t, (&executor.DBError{Code: executor.DBErrorCodeObjectNotFound}).Error(), response.Result.StructuredContent.Reason)
+	require.Equal(t, executor.Suggestion(executor.DBErrorCodeObjectNotFound), response.Result.StructuredContent.Suggestion)
+	require.Empty(t, response.Result.StructuredContent.Data)
+	for _, secret := range []string{
+		"DRIVER_SECRET", "driver message", "detail", "hint", "InternalQuery",
+		"postgres://", "db.internal", "5432", "admin", "password", "SELECT_secret", "param=value",
+	} {
+		require.NotContains(t, body, secret)
+	}
 }
 
 func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing.T) {

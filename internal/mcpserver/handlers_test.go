@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,6 +63,10 @@ func TestHandlersToolStatementGates(t *testing.T) {
 	before := fixture.provider.calls()
 	response := fixture.handlers.query(context.Background(), "ds-allowed", "UPDATE public.customers SET phone='x' WHERE id=1")
 	require.Equal(t, "deny", response.Decision)
+	require.NotEmpty(t, response.Reason)
+	require.NotEmpty(t, response.Suggestion)
+	require.Empty(t, response.ErrorCode)
+	require.False(t, protocolResult(response).IsError)
 	require.Equal(t, before, fixture.provider.calls())
 	response = fixture.handlers.executeWrite(context.Background(), "ds-allowed", "SELECT phone FROM public.customers", "read")
 	require.Equal(t, "deny", response.Decision)
@@ -82,6 +87,75 @@ func TestHandlersReadonlyWriteIsRejectedByPipeline(t *testing.T) {
 	require.Equal(t, "deny", response.Decision)
 	require.Zero(t, fixture.provider.calls())
 	require.Zero(t, fixture.executor.snapshot().execute)
+}
+
+func TestHandlersClassifiedDatabaseErrorsAreStableAndRedacted(t *testing.T) {
+	tests := []struct {
+		name string
+		code executor.DBErrorCode
+		kind executor.DBErrorKind
+		run  func(*mcpFixture) ToolResponse
+	}{
+		{
+			name: "query object not found", code: executor.DBErrorCodeObjectNotFound,
+			kind: executor.DBErrorKindObjectNotFound,
+			run: func(fixture *mcpFixture) ToolResponse {
+				fixture.executor.explainErr = classifiedMCPError(executor.DBErrorKindObjectNotFound, executor.DBErrorCodeObjectNotFound, executor.DBStageExplain)
+				return fixture.handlers.query(context.Background(), "ds-allowed", "SELECT phone FROM public.customers LIMIT 1")
+			},
+		},
+		{
+			name: "execute write constraint", code: executor.DBErrorCodeConstraint,
+			kind: executor.DBErrorKindConstraint,
+			run: func(fixture *mcpFixture) ToolResponse {
+				fixture.executor.executeErr = classifiedMCPError(executor.DBErrorKindConstraint, executor.DBErrorCodeConstraint, executor.DBStageExecute)
+				return fixture.handlers.executeWrite(context.Background(), "ds-allowed", "UPDATE public.customers SET phone='x' WHERE id=1", "test constraint")
+			},
+		},
+		{
+			name: "execute write read only", code: executor.DBErrorCodeReadOnly,
+			kind: executor.DBErrorKindReadOnly,
+			run: func(fixture *mcpFixture) ToolResponse {
+				fixture.executor.executeErr = classifiedMCPError(executor.DBErrorKindReadOnly, executor.DBErrorCodeReadOnly, executor.DBStageExecute)
+				return fixture.handlers.executeWrite(context.Background(), "ds-allowed", "UPDATE public.customers SET phone='x' WHERE id=1", "test read only")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newMCPFixture(t, "dml")
+			response := test.run(fixture)
+			assertMCPDatabaseErrorResponse(t, response, test.kind, test.code)
+		})
+	}
+}
+
+func TestHandlersListSchemaClassifiedDatabaseErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		kind executor.DBErrorKind
+		code executor.DBErrorCode
+	}{
+		{name: "object not found", kind: executor.DBErrorKindObjectNotFound, code: executor.DBErrorCodeObjectNotFound},
+		{name: "datasource unreachable", kind: executor.DBErrorKindConnection, code: executor.DBErrorCodeConnection},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newMCPFixture(t, "dml")
+			fixture.executor.queryErr = classifiedMCPError(test.kind, test.code, executor.DBStageMetadata)
+			response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "public.customers")
+			assertMCPDatabaseErrorResponse(t, response, test.kind, test.code)
+		})
+	}
+}
+
+func TestHandlersInternalErrorDefensivelyMapsDBError(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	response := fixture.handlers.internalError(
+		"future_tool",
+		classifiedMCPError(executor.DBErrorKindTimeout, executor.DBErrorCodeTimeout, executor.DBStageQuery),
+	)
+	assertMCPDatabaseErrorResponse(t, response, executor.DBErrorKindTimeout, executor.DBErrorCodeTimeout)
 }
 
 func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
@@ -248,6 +322,9 @@ func TestHandlersApprovalOwnershipAndErrorRedaction(t *testing.T) {
 	encoded, err := json.Marshal(response)
 	require.NoError(t, err)
 	require.Equal(t, "error", response.Decision)
+	require.Equal(t, "AgentSQL 内部处理失败", response.Reason)
+	require.Empty(t, response.ErrorCode)
+	require.Nil(t, response.Data)
 	require.NotContains(t, string(encoded), "database-password")
 	require.NotContains(t, string(encoded), "db.internal")
 	require.NotContains(t, string(encoded), "asql_secret")
@@ -433,6 +510,9 @@ type mcpSpyExecutor struct {
 	calls        mcpExecutorCalls
 	queryResult  model.QueryResult
 	schemaResult model.QueryResult
+	explainErr   error
+	queryErr     error
+	executeErr   error
 	lastSQL      string
 }
 
@@ -448,6 +528,9 @@ func (executor *mcpSpyExecutor) Explain(context.Context, string) (model.ExplainI
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.calls.explain++
+	if executor.explainErr != nil {
+		return model.ExplainInfo{}, executor.explainErr
+	}
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }
 func (executor *mcpSpyExecutor) Query(_ context.Context, sql string, _ int) (model.QueryResult, error) {
@@ -455,6 +538,9 @@ func (executor *mcpSpyExecutor) Query(_ context.Context, sql string, _ int) (mod
 	defer executor.mu.Unlock()
 	executor.calls.query++
 	executor.lastSQL = sql
+	if executor.queryErr != nil {
+		return model.QueryResult{}, executor.queryErr
+	}
 	if strings.Contains(sql, "information_schema.columns") {
 		return executor.schemaResult, nil
 	}
@@ -464,6 +550,9 @@ func (executor *mcpSpyExecutor) Execute(context.Context, string) (model.QueryRes
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.calls.execute++
+	if executor.executeErr != nil {
+		return model.QueryResult{}, executor.executeErr
+	}
 	return model.QueryResult{RowCount: 1}, nil
 }
 func (*mcpSpyExecutor) Close() error                                { return nil }
@@ -495,6 +584,35 @@ func (mcpSpyWriteTx) Commit(context.Context) error   { return nil }
 func (mcpSpyWriteTx) Rollback(context.Context) error { return nil }
 
 func stringPointerForMCP(value string) *string { return &value }
+
+func classifiedMCPError(kind executor.DBErrorKind, code executor.DBErrorCode, stage executor.DBStage) error {
+	databaseError := &executor.DBError{Kind: kind, Code: code, DriverCode: "DRIVER_SECRET", Stage: stage}
+	return fmt.Errorf("driver message detail hint InternalQuery postgres://admin:password@db.internal:5432/app SQL=SELECT_secret param=value: %w", databaseError)
+}
+
+func assertMCPDatabaseErrorResponse(
+	t *testing.T,
+	response ToolResponse,
+	kind executor.DBErrorKind,
+	code executor.DBErrorCode,
+) {
+	t.Helper()
+	databaseError := &executor.DBError{Kind: kind, Code: code}
+	require.Equal(t, "error", response.Decision)
+	require.Equal(t, string(code), response.ErrorCode)
+	require.Equal(t, databaseError.Error(), response.Reason)
+	require.Equal(t, executor.Suggestion(code), response.Suggestion)
+	require.Nil(t, response.Data)
+	require.True(t, protocolResult(response).IsError)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	for _, secret := range []string{
+		"DRIVER_SECRET", "driver message", "detail", "hint", "InternalQuery",
+		"postgres://", "db.internal", "5432", "admin", "password", "SELECT_secret", "param=value",
+	} {
+		require.NotContains(t, string(encoded), secret)
+	}
+}
 
 var (
 	_ pipeline.ExecutorProvider              = (*mcpExecutorProvider)(nil)

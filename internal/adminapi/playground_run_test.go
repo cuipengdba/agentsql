@@ -11,6 +11,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
@@ -202,6 +203,37 @@ func TestPlaygroundRunDenyAndInternalErrorAreSafe(t *testing.T) {
 	require.Empty(t, envelope.Data.Result.Columns)
 	require.Empty(t, envelope.Data.Result.Rows)
 	require.Zero(t, envelope.Data.Result.RowCount)
+	require.Empty(t, envelope.Data.Suggestion, "top-level suggestion is reserved for execution errors")
+
+	runner.response = pipeline.Response{
+		Decision:     model.DecisionError,
+		ErrorCode:    string(executor.DBErrorCodeObjectNotFound),
+		ErrorMessage: "表或对象不存在",
+		Suggestion:   "请检查对象名称和当前数据库",
+		Assessment: model.Assessment{
+			Decision: model.DecisionError, Reason: "表或对象不存在",
+			Suggestion: "请检查对象名称和当前数据库",
+		},
+		AuditID: 93,
+	}
+	status, body = fixture.request(http.MethodPost, "/api/v1/playground/run", fixture.adminToken,
+		`{"sql":"SELECT * FROM missing_table","datasource_id":"ds-demo-pg","agent_profile":"ro"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	var failed struct {
+		Code int               `json:"code"`
+		Data playgroundRunView `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &failed))
+	require.Zero(t, failed.Code)
+	require.Equal(t, "error", failed.Data.Decision)
+	require.Equal(t, string(executor.DBErrorCodeObjectNotFound), failed.Data.ErrorCode)
+	require.Equal(t, "表或对象不存在", failed.Data.ErrorMessage)
+	require.Equal(t, "请检查对象名称和当前数据库", failed.Data.Suggestion)
+	require.Empty(t, failed.Data.Result.Columns)
+	require.Empty(t, failed.Data.Result.Rows)
+	for _, leaked := range []string{"missing_table", "42P01", "driver"} {
+		require.NotContains(t, body, leaked)
+	}
 
 	runner.err = errors.New("backend failed: " + demoROKeyCanary + " " + demoDSNCanary)
 	status, body = fixture.request(http.MethodPost, "/api/v1/playground/run", fixture.adminToken,

@@ -18,6 +18,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
+	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -143,10 +144,45 @@ func TestAdminDatasourcesAndPing(t *testing.T) {
 	status, _ = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/ping", fixture.adminToken, "")
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, 1, fixture.pinger.calls)
-	fixture.pinger.err = errors.New("connection refused")
+	tests := []struct {
+		name string
+		kind executor.DBErrorKind
+		code executor.DBErrorCode
+	}{
+		{name: "object not found", kind: executor.DBErrorKindObjectNotFound, code: executor.DBErrorCodeObjectNotFound},
+		{name: "authentication failed", kind: executor.DBErrorKindAuthentication, code: executor.DBErrorCodeAuthentication},
+		{name: "datasource unreachable", kind: executor.DBErrorKindConnection, code: executor.DBErrorCodeConnection},
+		{name: "query timeout", kind: executor.DBErrorKindTimeout, code: executor.DBErrorCodeTimeout},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			databaseError := &executor.DBError{Kind: test.kind, Code: test.code, Stage: executor.DBStagePing}
+			fixture.pinger.err = fmt.Errorf("driver-secret host.internal:5432 user=admin: %w", databaseError)
+			status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/ping", fixture.adminToken, "")
+			require.Equal(t, http.StatusOK, status, body)
+			var envelope struct {
+				Code int        `json:"code"`
+				Data PingResult `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(body), &envelope))
+			require.Zero(t, envelope.Code)
+			require.False(t, envelope.Data.OK)
+			require.Equal(t, int64(7), envelope.Data.LatencyMS)
+			require.NotNil(t, envelope.Data.ErrorCode)
+			require.NotNil(t, envelope.Data.ErrorMessage)
+			require.Equal(t, string(test.code), *envelope.Data.ErrorCode)
+			require.Equal(t, databaseError.Error(), *envelope.Data.ErrorMessage)
+			require.NotContains(t, body, "driver-secret")
+			require.NotContains(t, body, "host.internal")
+		})
+	}
+
+	fixture.pinger.err = errors.New("connection refused host.internal:5432 user=admin")
 	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/ping", fixture.adminToken, "")
-	require.Equal(t, http.StatusInternalServerError, status)
+	require.Equal(t, http.StatusInternalServerError, status, body)
 	require.NotContains(t, body, "connection refused")
+	require.NotContains(t, body, "host.internal")
+	require.NotContains(t, body, "error_code")
 }
 
 func TestAdminValidationPoliciesRulesMasks(t *testing.T) {
@@ -626,7 +662,7 @@ type fakePinger struct {
 func (pinger *fakePinger) Ping(context.Context, model.Datasource) (PingResult, error) {
 	pinger.calls++
 	if pinger.err != nil {
-		return PingResult{}, pinger.err
+		return PingResult{LatencyMS: 7}, pinger.err
 	}
 	return PingResult{OK: true, LatencyMS: 1}, nil
 }

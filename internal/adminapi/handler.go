@@ -19,6 +19,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/discovery"
+	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/policy"
@@ -51,20 +52,32 @@ type DatasourcePinger interface {
 }
 
 type PingResult struct {
-	OK        bool  `json:"ok"`
-	LatencyMS int64 `json:"latency_ms"`
+	OK           bool    `json:"ok"`
+	LatencyMS    int64   `json:"latency_ms"`
+	ErrorCode    *string `json:"error_code,omitempty"`
+	ErrorMessage *string `json:"error_message,omitempty"`
 }
 
 type runtimePinger struct{ runtime *bootstrap.Runtime }
 
 func (pinger runtimePinger) Ping(ctx context.Context, datasource model.Datasource) (PingResult, error) {
 	started := time.Now()
-	executor, err := pinger.runtime.ExecutorFor(datasource)
+	databaseExecutor, err := pinger.runtime.ExecutorFor(datasource)
 	if err != nil {
-		return PingResult{}, err
+		return pingResult(started, err), err
 	}
-	_, err = executor.Query(ctx, "SELECT 1", 1)
-	return PingResult{OK: err == nil, LatencyMS: time.Since(started).Milliseconds()}, err
+	_, err = databaseExecutor.Query(ctx, "SELECT 1", 1)
+	return pingResult(started, err), err
+}
+
+func pingResult(started time.Time, err error) PingResult {
+	result := PingResult{OK: err == nil, LatencyMS: time.Since(started).Milliseconds()}
+	var databaseError *executor.DBError
+	if errors.As(err, &databaseError) {
+		code, message := string(databaseError.Code), databaseError.Error()
+		result.ErrorCode, result.ErrorMessage = &code, &message
+	}
+	return result
 }
 
 type Handler struct {
@@ -560,8 +573,14 @@ func (handler *Handler) datasourcesPing(writer http.ResponseWriter, request *htt
 	}
 	result, err := handler.deps.DatasourcePinger.Ping(request.Context(), datasource)
 	if err != nil {
-		handler.internal(writer, err)
-		return
+		var databaseError *executor.DBError
+		if !errors.As(err, &databaseError) {
+			handler.internal(writer, err)
+			return
+		}
+		result.OK = false
+		code, message := string(databaseError.Code), databaseError.Error()
+		result.ErrorCode, result.ErrorMessage = &code, &message
 	}
 	handler.ok(writer, result)
 }

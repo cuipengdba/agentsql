@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -21,6 +22,7 @@ const schemaRowLimit = 10_000
 
 type ToolResponse struct {
 	Decision   string `json:"decision"`
+	ErrorCode  string `json:"error_code,omitempty"`
 	Reason     string `json:"reason"`
 	Suggestion string `json:"suggestion"`
 	Data       any    `json:"data,omitempty"`
@@ -109,6 +111,10 @@ func (handlers *toolHandlers) listSchema(
 	}
 	result, err := databaseExecutor.Query(ctx, query, schemaRowLimit)
 	if err != nil {
+		var databaseError *executor.DBError
+		if errors.As(err, &databaseError) {
+			return databaseErrorToolResponse(databaseError)
+		}
 		return handlers.internalError("list_schema", err)
 	}
 	if result.Truncated {
@@ -250,6 +256,16 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 	if err != nil {
 		return handlers.internalError(request.MCPTool, err)
 	}
+	if response.Decision == model.DecisionError {
+		reason := response.ErrorMessage
+		if reason == "" {
+			reason = response.Assessment.Reason
+		}
+		return ToolResponse{
+			Decision: string(model.DecisionError), ErrorCode: response.ErrorCode,
+			Reason: reason, Suggestion: response.Suggestion,
+		}
+	}
 	suggestion := response.Assessment.Suggestion
 	if suggestion == "" {
 		suggestion = "当前请求无需改写；请继续遵守最小权限和有界查询原则"
@@ -336,11 +352,22 @@ func parseForTool(dialect, sql string) (*model.AST, *ToolResponse) {
 }
 
 func (handlers *toolHandlers) internalError(tool string, err error) ToolResponse {
+	var databaseError *executor.DBError
+	if errors.As(err, &databaseError) {
+		return databaseErrorToolResponse(databaseError)
+	}
 	handlers.logger.Error().
 		Str("tool", tool).
 		Str("error_type", fmt.Sprintf("%T", err)).
 		Msg("MCP tool failed")
 	return errorToolResponse("AgentSQL 内部处理失败", "请稍后重试；若持续失败，请联系管理员并提供工具名")
+}
+
+func databaseErrorToolResponse(err *executor.DBError) ToolResponse {
+	return ToolResponse{
+		Decision: "error", ErrorCode: string(err.Code), Reason: err.Error(),
+		Suggestion: executor.Suggestion(err.Code),
+	}
 }
 
 func allowToolResponse(reason string, data any) ToolResponse {

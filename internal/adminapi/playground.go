@@ -96,6 +96,9 @@ type playgroundRedactView struct {
 
 type playgroundRunView struct {
 	Decision     string                      `json:"decision"`
+	ErrorCode    string                      `json:"error_code,omitempty"`
+	ErrorMessage string                      `json:"error_message,omitempty"`
+	Suggestion   string                      `json:"suggestion,omitempty"`
 	Assessment   playgroundRunAssessmentView `json:"assessment"`
 	Result       playgroundResultView        `json:"result"`
 	Redact       playgroundRedactView        `json:"redact"`
@@ -210,8 +213,9 @@ func playgroundRunResponseView(response pipeline.Response, input playgroundRunIn
 	for index, sensitiveType := range response.Redact.TouchedColumns {
 		touchedColumns[index] = string(sensitiveType)
 	}
-	return playgroundRunView{
-		Decision: string(response.Decision),
+	view := playgroundRunView{
+		Decision: string(response.Decision), ErrorCode: response.ErrorCode,
+		ErrorMessage: response.ErrorMessage,
 		Assessment: playgroundRunAssessmentView{
 			Decision: string(response.Assessment.Decision), Risk: int(response.Assessment.Risk),
 			StmtType: string(response.Assessment.StmtType), Hits: hits,
@@ -223,6 +227,10 @@ func playgroundRunResponseView(response pipeline.Response, input playgroundRunIn
 		Redact:  playgroundRedactView{TouchedColumns: touchedColumns, MaskedCells: response.Redact.MaskedCells},
 		AuditID: response.AuditID, DatasourceID: input.DatasourceID, AgentProfile: input.AgentProfile,
 	}
+	if response.Decision == model.DecisionError {
+		view.Suggestion = response.Suggestion
+	}
+	return view
 }
 
 func clonePlaygroundRows(rows [][]string) [][]string {
