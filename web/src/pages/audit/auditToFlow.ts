@@ -1,6 +1,7 @@
 import type { AuditView } from "@/api/types";
 import { adaptAssessment, type AssessmentHit } from "@/components/stageflow/adaptAssessment";
 import type { FlowDecision, StageFlowData } from "@/components/stageflow/types";
+import { safeBackendMessage } from "@/utils/safeBackendMessage";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -59,11 +60,12 @@ export function auditToFlow(record: AuditView): StageFlowData {
     Decision: decision,
     Hits: hits,
     EstScanRows: optionalNonNegative(record.est_rows),
+    ErrorMessage: safeBackendMessage(record.error_msg),
   });
   return {
     ...flow,
     totalLatencyMs: optionalNonNegative(record.latency_ms),
     rowsReturned: optionalNonNegative(record.rows_returned),
-    errorMsg: record.error_msg?.trim() || flow.errorMsg,
+    errorMsg: safeBackendMessage(record.error_msg) || flow.errorMsg,
   };
 }

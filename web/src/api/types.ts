@@ -194,6 +194,11 @@ export interface AuditView {
   client_ip?: string | null;
   model_name?: string | null;
   error_msg?: string | null;
+  error_code?: string | null;
+  action?: string | null;
+  actor_type?: string | null;
+  actor_id?: string | null;
+  details_json?: string | null;
 }
 
 export type StreamStatus = "live" | "reconnecting" | "polling-fallback";
@@ -219,6 +224,11 @@ export interface AuditStreamEvent {
   rows_returned?: number | null;
   latency_ms?: number | null;
   model_name?: string | null;
+  error_code?: string | null;
+  action?: string | null;
+  actor_type?: string | null;
+  actor_id?: string | null;
+  details_json?: string | null;
 }
 
 export interface AuditQuery extends PageQuery {
@@ -467,6 +477,10 @@ export interface PlaygroundRunRedactView {
 
 export interface PlaygroundRunResponse {
   decision: string;
+  error_code?: string;
+  error_stage?: string;
+  error_message?: string;
+  suggestion?: string;
   assessment: PlaygroundRunAssessmentView;
   result: PlaygroundRunResultView;
   redact: PlaygroundRunRedactView;

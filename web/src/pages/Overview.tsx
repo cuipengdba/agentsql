@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getDashboardSummary } from "@/api/dashboard";
 import type { AuditStreamEvent, DashboardKPI, DashboardSummary, StreamStatus, TrendDay } from "@/api/types";
+import type { Decision } from "@/constants/labels";
 import { getRuleMeta } from "@/constants/ruleMeta";
 import { PageContainer } from "@/components/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -28,7 +29,7 @@ import { TrendChart } from "./overview/TrendChart";
 import { useCountUp } from "./overview/useCountUp";
 
 type Days = 7 | 14 | 30;
-type KnownDecision = "allow" | "warn" | "approve" | "deny";
+type KnownDecision = Decision;
 
 interface AppliedStreamEvent {
   seq: number;
@@ -76,7 +77,7 @@ function localDateKey(date = new Date()): string {
 
 function knownDecision(value: string): KnownDecision | null {
   const normalized = value.trim().toLowerCase();
-  return normalized === "allow" || normalized === "warn" || normalized === "approve" || normalized === "deny"
+  return normalized === "allow" || normalized === "warn" || normalized === "approve" || normalized === "deny" || normalized === "error"
     ? normalized
     : null;
 }
@@ -86,9 +87,11 @@ function incrementSummary(current: DashboardSummary, event: AuditStreamEvent): D
   if (!decision) return current;
 
   const today = localDateKey();
-  const trend = current.trend_14d.map((item) => item.date === today
-    ? { ...item, total: finiteNumber(item.total) + 1, [decision]: finiteNumber(item[decision]) + 1 }
-    : item);
+  const trend = current.trend_14d.map((item) => {
+    if (item.date !== today) return item;
+    if (decision === "error") return { ...item, total: finiteNumber(item.total) + 1 };
+    return { ...item, total: finiteNumber(item.total) + 1, [decision]: finiteNumber(item[decision]) + 1 };
+  });
   let matchedDistribution = false;
   const distribution = current.decision_distribution.map((item) => {
     if (item.decision.trim().toLowerCase() !== decision) return item;

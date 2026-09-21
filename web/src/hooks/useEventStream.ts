@@ -110,6 +110,11 @@ const optionalStringFields = [
   "objects",
   "rule_hits",
   "model_name",
+  "error_code",
+  "action",
+  "actor_type",
+  "actor_id",
+  "details_json",
 ] as const;
 
 const optionalNumberFields = ["risk_level", "est_rows", "rows_returned", "latency_ms"] as const;

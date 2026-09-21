@@ -6,10 +6,12 @@ import type { AuditView } from "@/api/types";
 import { StageFlow } from "@/components/stageflow/StageFlow";
 import { StageVerdict } from "@/components/stageflow/StageVerdict";
 import type { StageVerdictData } from "@/components/stageflow/types";
+import { getErrorCodeMeta } from "@/constants/errorCodes";
 import { decisionMeta, getDecisionMeta, statementLabel } from "@/constants/labels";
 import { getRuleMeta } from "@/constants/ruleMeta";
 import { palette } from "@/theme/tokens";
 import { useThemeStore } from "@/theme/useThemeStore";
+import { safeBackendMessage } from "@/utils/safeBackendMessage";
 
 import { auditToFlow, normalizeAuditDecision, parseAuditRuleHits } from "./auditToFlow";
 import { SQLHighlight } from "./sqlHighlight";
@@ -59,6 +61,27 @@ interface MetricItem {
   value: ReactNode;
 }
 
+interface AuditPhase {
+  phase: "intent" | "outcome";
+  relatedAuditID?: number;
+}
+
+function parseAuditPhase(encoded: string | null | undefined): AuditPhase | undefined {
+  if (!encoded?.trim()) return undefined;
+  try {
+    const value: unknown = JSON.parse(encoded);
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const fields = value as Record<string, unknown>;
+    if (fields.audit_phase !== "intent" && fields.audit_phase !== "outcome") return undefined;
+    const relatedAuditID = Number.isSafeInteger(fields.related_audit_id) && Number(fields.related_audit_id) > 0
+      ? Number(fields.related_audit_id)
+      : undefined;
+    return { phase: fields.audit_phase, relatedAuditID };
+  } catch {
+    return undefined;
+  }
+}
+
 export function AuditDetailDrawer({ record, open, onClose }: AuditDetailDrawerProps) {
   const mode = useThemeStore((state) => state.mode);
   const flow = useMemo(() => record ? auditToFlow(record) : null, [record]);
@@ -76,7 +99,11 @@ export function AuditDetailDrawer({ record, open, onClose }: AuditDetailDrawerPr
 
   if (!record || !flow) return null;
   const rawDecision = record.decision?.trim() || "error";
+  const normalizedDecision = rawDecision.toLowerCase();
   const decisionInfo = getDecisionMeta(rawDecision);
+  const errorCode = normalizedDecision === "error" ? getErrorCodeMeta(record.error_code) : undefined;
+  const errorMessage = safeBackendMessage(record.error_msg);
+  const auditPhase = parseAuditPhase(record.details_json);
   const colors = palette[mode];
   const conclusionStyle: ConclusionStyle = {
     "--audit-decision-color": knownDecision(rawDecision) ? decisionInfo.color : palette.semantic.deny,
@@ -92,6 +119,12 @@ export function AuditDetailDrawer({ record, open, onClose }: AuditDetailDrawerPr
           <span>风险 {numberText(record.risk_level)}</span>
           <time>{dateTime(record.ts)}</time>
           <span className="mono-text">#{record.id}</span>
+          {auditPhase ? (
+            <Tag color={auditPhase.phase === "intent" ? "blue" : "cyan"}>
+              {auditPhase.phase === "intent" ? "意图" : "结果"}
+              {auditPhase.phase === "outcome" && auditPhase.relatedAuditID ? ` · 关联 #${auditPhase.relatedAuditID}` : ""}
+            </Tag>
+          ) : null}
         </div>
       </section>
 
@@ -141,10 +174,20 @@ export function AuditDetailDrawer({ record, open, onClose }: AuditDetailDrawerPr
         <p className="audit-plan-note">详细 EXPLAIN 计划留存规划于 v1.1</p>
       </section>
 
-      {record.error_msg?.trim() ? (
+      {errorCode || errorMessage ? (
         <section className="audit-detail-section">
           <h3>错误信息</h3>
-          <Alert type="error" showIcon message={record.error_msg} />
+          <Alert
+            type="error"
+            showIcon
+            message={errorCode ? (
+              <span className="audit-error-heading">
+                <Tag color="volcano">{errorCode.label} <code>{errorCode.code}</code></Tag>
+                <span>{errorMessage || errorCode.label}</span>
+              </span>
+            ) : errorMessage}
+            description={auditPhase ? `审计阶段：${auditPhase.phase === "intent" ? "意图" : "结果"}${auditPhase.relatedAuditID ? `，关联审计 #${auditPhase.relatedAuditID}` : ""}` : undefined}
+          />
         </section>
       ) : null}
     </Drawer>

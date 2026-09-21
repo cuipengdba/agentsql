@@ -11,7 +11,7 @@ interface DecisionDonutProps {
   mode: ThemeMode;
 }
 
-const decisionOrder: Decision[] = ["allow", "warn", "approve", "deny"];
+const decisionOrder: Decision[] = ["allow", "warn", "approve", "deny", "error"];
 
 function safeCount(value: number | undefined): number {
   return Number.isFinite(value) && value !== undefined ? Math.max(0, value) : 0;

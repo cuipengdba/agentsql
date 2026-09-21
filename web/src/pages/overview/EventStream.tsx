@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { listAudit } from "@/api/audit";
 import type { AuditStreamEvent, AuditView, StreamStatus } from "@/api/types";
+import { getErrorCodeMeta } from "@/constants/errorCodes";
 import { getDecisionMeta, statementLabel } from "@/constants/labels";
 
 interface EventStreamProps {
@@ -204,6 +205,9 @@ export function EventStream({ liveEvents, streamStatus, pollEnabled, realtimeDen
           split={false}
           renderItem={(event) => {
             const meta = getDecisionMeta(event.decision);
+            const errorCode = event.decision.trim().toLowerCase() === "error"
+              ? getErrorCodeMeta(event.error_code)
+              : undefined;
             const deny = event.decision.trim().toLowerCase() === "deny";
             const isNewDeny = newDenyIDs.has(event.id);
             const rawSQL = meaningfulText(event.sql_raw);
@@ -215,7 +219,10 @@ export function EventStream({ liveEvents, streamStatus, pollEnabled, realtimeDen
               <div className={`event-row${deny ? " event-row-deny" : ""}${isNewDeny ? " event-row-new" : ""}`}>
                 <span className="event-time mono-text">{formatTime(event.ts)}</span>
                 <span className="event-agent mono-text">{shortAgent(event.agent_id)}</span>
-                <Tag color={meta.tagColor}>{meta.label}</Tag>
+                <span className="event-tags">
+                  <Tag color={meta.tagColor}>{meta.label}</Tag>
+                  {errorCode ? <Tag color="volcano">{errorCode.label}</Tag> : null}
+                </span>
                 <span className="event-stmt">{statementLabel(event.stmt_type)}</span>
                 {rawSQL ? <Tooltip title={rawSQL}>{sqlCell}</Tooltip> : sqlCell}
               </div>

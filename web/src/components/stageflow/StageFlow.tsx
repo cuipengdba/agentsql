@@ -55,6 +55,7 @@ function statusLabel(status: StageStatus): string {
 
 function nodeStatusLabel(status: StageStatus, decision: StageFlowData["decision"], key: StageKey): string {
   if (decision === "approve" && key === "decide" && status === "warn") return "转人工";
+  if (decision === "error" && status === "block") return "失败";
   return statusLabel(status);
 }
 
@@ -70,12 +71,12 @@ function statusIcon(status: StageStatus, fallback: ReactNode): ReactNode {
   }
 }
 
-function statusColor(status: StageStatus, mode: "dark" | "light"): string {
+function statusColor(status: StageStatus, mode: "dark" | "light", decision?: StageFlowData["decision"]): string {
   switch (status) {
     case "active": return palette[mode].brand;
     case "pass": return decisionMeta.allow.color;
     case "warn": return decisionMeta.warn.color;
-    case "block": return decisionMeta.deny.color;
+    case "block": return decision === "error" ? decisionMeta.error.color : decisionMeta.deny.color;
     case "locked": return decisionMeta.approve.color;
     case "skip":
     case "pending":
@@ -105,7 +106,7 @@ function finalSummary(data: StageFlowData): string {
     case "warn": return `已放行，请注意结果集规模 · 返回 ${rows} 行${latency}`;
     case "approve": return `已转人工审批 · 用户 SQL 未执行${latency}`;
     case "deny": return `已拦截 · 用户 SQL 未执行${latency}`;
-    case "error": return `处理失败 · 错误已留痕${latency}`;
+    case "error": return `数据库执行失败 · 错误已留痕${latency}`;
   }
 }
 
@@ -242,7 +243,9 @@ export function StageFlow({ data, autoPlay = true, replayKey = 0, dense = false,
       ? decisionMeta.warn.color
       : data.decision === "allow"
         ? decisionMeta.allow.color
-        : decisionMeta.deny.color;
+        : data.decision === "error"
+          ? decisionMeta.error.color
+          : decisionMeta.deny.color;
 
   return (
     <section className={`stage-flow${dense ? " stage-flow-dense" : ""}`} ref={containerRef} aria-label="SQL 六段安检流">
@@ -257,13 +260,13 @@ export function StageFlow({ data, autoPlay = true, replayKey = 0, dense = false,
                 : "pending";
           const color = data.decision === "approve" && step.key === "decide" && visualStatus === "warn"
             ? decisionMeta.approve.color
-            : statusColor(visualStatus, mode);
+            : statusColor(visualStatus, mode, data.decision);
           const visualLabel = nodeStatusLabel(visualStatus, data.decision, step.key);
           const style: StageStyle = { "--stage-color": color, "--stage-surface": colors.surface, "--stage-border": colors.border };
           const shouldShake = blockedStage === step.key && !reduceMotion && (data.decision === "deny" || data.decision === "error");
           const connectorComplete = completedThrough > index && (!data.blockAt || stageNodes.findIndex((node) => node.key === data.blockAt) > index);
           const connectorActive = activeIndex === index && data.blockAt !== step.key;
-          const note = data.decision === "error" && step.key === "parse" ? data.errorMsg?.trim() || step.note : step.note;
+          const note = step.note;
           return (
             <div className="stage-flow-segment" key={step.key}>
               <motion.div
@@ -294,7 +297,7 @@ export function StageFlow({ data, autoPlay = true, replayKey = 0, dense = false,
               {index < normalizedSteps.length - 1 ? (
                 <Connector
                   orientation={orientation}
-                  color={statusColor(step.status, mode)}
+                  color={statusColor(step.status, mode, data.decision)}
                   activeColor={colors.brand}
                   pendingColor={colors.border}
                   complete={connectorComplete}

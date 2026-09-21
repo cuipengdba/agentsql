@@ -21,6 +21,14 @@ function finiteCount(value: number | undefined): number {
   return Number.isFinite(value) && value !== undefined ? Math.max(0, value) : 0;
 }
 
+function errorCount(item: TrendDay): number {
+  return Math.max(0, finiteCount(item.total)
+    - finiteCount(item.allow)
+    - finiteCount(item.warn)
+    - finiteCount(item.approve)
+    - finiteCount(item.deny));
+}
+
 export function TrendChart({ data, mode }: TrendChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -65,6 +73,15 @@ export function TrendChart({ data, mode }: TrendChartProps) {
         data: data.map((item) => finiteCount(item[meta.key])),
       })),
       {
+        name: "执行错误",
+        type: "bar" as const,
+        stack: "decisions",
+        barMaxWidth: 22,
+        itemStyle: { color: palette.semantic.error },
+        emphasis: { focus: "series" as const },
+        data: data.map(errorCount),
+      },
+      {
         name: "拦截趋势",
         type: "line" as const,
         yAxisIndex: 1,
@@ -84,13 +101,14 @@ export function TrendChart({ data, mode }: TrendChartProps) {
           palette.semantic.warn,
           palette.semantic.approve,
           palette.semantic.deny,
+          palette.semantic.error,
         ],
         grid: { left: 42, right: 42, top: 48, bottom: 30, containLabel: true },
         legend: {
           top: 6,
           left: 0,
           textStyle: { color: colors.textSecondary },
-          data: ["放行", "告警", "待审批", "拦截", "拦截趋势"],
+          data: ["放行", "告警", "待审批", "拦截", "执行错误", "拦截趋势"],
         },
         tooltip: {
           trigger: "axis",
@@ -119,6 +137,7 @@ export function TrendChart({ data, mode }: TrendChartProps) {
               `告警：${finiteCount(row.warn).toLocaleString("zh-CN")}`,
               `待审批：${finiteCount(row.approve).toLocaleString("zh-CN")}`,
               `拦截：${finiteCount(row.deny).toLocaleString("zh-CN")}`,
+              `执行错误：${errorCount(row).toLocaleString("zh-CN")}`,
             ].join("\n");
           },
         },

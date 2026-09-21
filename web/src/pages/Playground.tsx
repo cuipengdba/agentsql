@@ -24,6 +24,7 @@ import { decisionMeta, getDecisionMeta, statementLabel } from "@/constants/label
 import { selectIsDemo, useDemoStore } from "@/store/demoStore";
 import { palette } from "@/theme/tokens";
 import { useThemeStore } from "@/theme/useThemeStore";
+import { safeBackendMessage } from "@/utils/safeBackendMessage";
 
 import { DemoScenarioCards, type DemoRunScenario } from "./playground/DemoScenarioCards";
 import { LiveResultTable } from "./playground/LiveResultTable";
@@ -241,7 +242,30 @@ export function Playground() {
     }
   };
 
-  const flowData = useMemo(() => result ? adaptAssessment(result) : null, [result]);
+  const flowData = useMemo(() => result ? adaptAssessment(result, result.ParseError ? "parse" : undefined) : null, [result]);
+  const liveFlowData = useMemo(() => {
+    if (!liveResult) return null;
+    const assessment = liveResult.assessment;
+    const flow = adaptAssessment({
+      Decision: liveResult.decision || assessment?.decision || "error",
+      Hits: (assessment?.hits || []).map((hit) => ({
+        RuleID: hit.rule_id,
+        Risk: hit.risk,
+        Decision: hit.decision,
+        Message: hit.message,
+        Suggestion: hit.suggestion,
+      })),
+      StageLatency: assessment?.stage_latency,
+      EstScanRows: assessment?.est_scan_rows,
+      Reason: safeBackendMessage(assessment?.reason),
+      ErrorMessage: safeBackendMessage(liveResult.error_message),
+      Suggestion: safeBackendMessage(liveResult.suggestion),
+    }, liveResult.error_stage);
+    return {
+      ...flow,
+      rowsReturned: Number.isFinite(liveResult.result?.row_count) ? liveResult.result.row_count : undefined,
+    };
+  }, [liveResult]);
   const rawJSON = useMemo(() => result ? JSON.stringify(result, null, 2) : "", [result]);
   const resultDecision = result ? getDecisionMeta(result.Decision) : null;
 
@@ -454,8 +478,13 @@ export function Playground() {
                 description={liveError}
                 action={<Button size="small" onClick={submitLiveRun}>重试</Button>}
               />
-            ) : liveResult ? (
-              <LiveResultTable result={liveResult} />
+            ) : liveResult && liveFlowData ? (
+              <>
+                <div className="playground-live-flow">
+                  <StageFlow data={liveFlowData} autoPlay replayKey={`live-${liveResult.audit_id}`} />
+                </div>
+                <LiveResultTable result={liveResult} />
+              </>
             ) : (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入 SQL，或点击上方剧本卡开始真实试运行" />
             )}

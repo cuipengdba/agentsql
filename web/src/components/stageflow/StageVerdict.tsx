@@ -24,6 +24,7 @@ function verdictColor(decision: FlowDecision): string {
   if (decision === "approve") return decisionMeta.approve.color;
   if (decision === "warn") return decisionMeta.warn.color;
   if (decision === "allow") return decisionMeta.allow.color;
+  if (decision === "error") return decisionMeta.error.color;
   return decisionMeta.deny.color;
 }
 
@@ -44,7 +45,7 @@ export function StageVerdict({ data, decision = "deny", dense = false }: StageVe
       <div className="stage-verdict-body">
         <div className="stage-verdict-heading">
           <span className="stage-verdict-icon" aria-hidden="true"><ExclamationCircleFilled /></span>
-          <Tag color={decision === "approve" ? "orange" : decision === "warn" ? "warning" : "error"}>{ruleID}</Tag>
+          <Tag color={decision === "approve" ? "orange" : decision === "warn" ? "warning" : decision === "error" ? "volcano" : "error"}>{ruleID}</Tag>
           <strong>{title}</strong>
           {data.risk !== undefined && Number.isFinite(data.risk) ? <span className="stage-verdict-risk">风险 {data.risk}</span> : null}
         </div>

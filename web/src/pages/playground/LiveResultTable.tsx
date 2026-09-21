@@ -1,6 +1,7 @@
 import {
   AuditOutlined,
   CheckCircleFilled,
+  CloseCircleFilled,
   DashboardOutlined,
   EyeInvisibleOutlined,
   StopFilled,
@@ -12,7 +13,10 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { PlaygroundRunHitView, PlaygroundRunResponse } from "@/api/types";
+import { normalizeErrorStage } from "@/components/stageflow/adaptAssessment";
+import { getErrorCodeMeta } from "@/constants/errorCodes";
 import { getDecisionMeta, statementLabel } from "@/constants/labels";
+import { safeBackendMessage } from "@/utils/safeBackendMessage";
 
 interface LiveResultTableProps {
   result: PlaygroundRunResponse;
@@ -53,10 +57,17 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
   const navigate = useNavigate();
   const responseDecision = (result.decision || "").trim().toLowerCase();
   const assessmentDecision = (result.assessment?.decision || "").trim().toLowerCase();
-  const decision = responseDecision === "deny" || assessmentDecision === "deny"
-    ? "deny"
-    : responseDecision || assessmentDecision;
+  const decision = responseDecision === "error" || assessmentDecision === "error"
+    ? "error"
+    : responseDecision === "deny" || assessmentDecision === "deny"
+      ? "deny"
+      : responseDecision || assessmentDecision;
   const decisionInfo = getDecisionMeta(decision);
+  const errorCode = getErrorCodeMeta(result.error_code);
+  const errorMessage = safeBackendMessage(result.error_message)
+    || safeBackendMessage(result.assessment?.reason)
+    || "请求执行失败";
+  const errorSuggestion = safeBackendMessage(result.suggestion);
   const columns = Array.isArray(result.result?.columns) ? result.result.columns : [];
   const rows = Array.isArray(result.result?.rows) ? result.result.rows : [];
   const hits = safeHits(result.assessment?.hits);
@@ -82,6 +93,20 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
 
   const displayJSON = useMemo(() => JSON.stringify({
     ...result,
+    error_code: errorCode?.code,
+    error_stage: normalizeErrorStage(result.error_stage),
+    error_message: safeBackendMessage(result.error_message) || undefined,
+    suggestion: safeBackendMessage(result.suggestion) || undefined,
+    assessment: {
+      ...result.assessment,
+      reason: safeBackendMessage(result.assessment?.reason) || undefined,
+      suggestion: safeBackendMessage(result.assessment?.suggestion) || undefined,
+      hits: safeHits(result.assessment?.hits).map((hit) => ({
+        ...hit,
+        message: safeBackendMessage(hit.message) || undefined,
+        suggestion: safeBackendMessage(hit.suggestion) || undefined,
+      })),
+    },
     result: {
       ...result.result,
       columns,
@@ -89,13 +114,15 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
         ? row.map((value, index) => displayCell(columns[index] ?? "", index, typeof value === "string" ? value : String(value ?? ""), touchedColumnMap))
         : []),
     },
-  }, null, 2), [columns, result, rows, touchedColumnMap]);
+  }, null, 2), [columns, errorCode?.code, result, rows, touchedColumnMap]);
 
   const decisionIcon = decision === "allow"
     ? <CheckCircleFilled />
     : decision === "warn"
       ? <WarningFilled />
-      : <StopFilled />;
+      : decision === "error"
+        ? <CloseCircleFilled />
+        : <StopFilled />;
 
   return (
     <div className={`live-result live-result-${decision || "unknown"}`}>
@@ -104,7 +131,7 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
         <Tag>{statementLabel(result.assessment?.stmt_type)}</Tag>
         <span>风险 <strong>{finiteNumber(result.assessment?.risk)}</strong></span>
         <span>预估扫描 <strong>{finiteNumber(result.assessment?.est_scan_rows).toLocaleString("zh-CN")}</strong> 行</span>
-        <span>执行耗时 <strong>{finiteNumber(result.result?.latency_ms).toLocaleString("zh-CN")}</strong> ms</span>
+        {decision !== "error" ? <span>执行耗时 <strong>{finiteNumber(result.result?.latency_ms).toLocaleString("zh-CN")}</strong> ms</span> : null}
         <span className="live-result-audit mono-text">audit_id：{auditID ?? "—"}</span>
         <Button
           size="small"
@@ -137,7 +164,30 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
         </section>
       ) : null}
 
-      {decision === "deny" ? (
+      {decision === "error" ? (
+        <section className="live-error-panel" aria-label="数据库或执行阶段出错">
+          <Alert
+            type="error"
+            showIcon
+            message={(
+              <span className="live-error-heading">
+                <strong>执行出错</strong>
+                {errorCode ? (
+                  <Tag color="volcano">
+                    {errorCode.label} <code>{errorCode.code}</code>
+                  </Tag>
+                ) : null}
+              </span>
+            )}
+            description={(
+              <div className="live-error-description">
+                <span>{errorMessage}</span>
+                {errorSuggestion ? <span>建议：{errorSuggestion}</span> : null}
+              </div>
+            )}
+          />
+        </section>
+      ) : decision === "deny" ? (
         <section className="live-deny-panel" aria-label="请求已被安全网关拦截">
           <Alert
             type="error"

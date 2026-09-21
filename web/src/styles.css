@@ -12,6 +12,7 @@
   --color-warn: #faad14;
   --color-approve: #fa8c16;
   --color-deny: #f5222d;
+  --color-error: #ff7a45;
   background: var(--color-page);
 }
 
@@ -1031,6 +1032,10 @@ pre {
   min-height: 280px;
 }
 
+.playground-live-flow {
+  margin-bottom: 16px;
+}
+
 .live-result {
   --live-result-color: var(--color-deny);
 }
@@ -1045,6 +1050,10 @@ pre {
 
 .live-result-deny {
   --live-result-color: var(--color-deny);
+}
+
+.live-result-error {
+  --live-result-color: var(--color-error);
 }
 
 .live-result-summary {
@@ -1157,6 +1166,38 @@ pre {
   background: color-mix(in srgb, var(--color-deny) 5%, var(--color-elevated));
   border: 1px solid color-mix(in srgb, var(--color-deny) 48%, var(--color-border));
   border-radius: 6px;
+}
+
+.live-error-panel {
+  padding: 14px;
+  background: color-mix(in srgb, var(--color-error) 5%, var(--color-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-error) 48%, var(--color-border));
+  border-radius: 6px;
+}
+
+.live-error-heading,
+.live-error-description {
+  display: flex;
+  gap: 8px;
+}
+
+.live-error-heading {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.live-error-heading .ant-tag {
+  margin-inline-end: 0;
+}
+
+.live-error-heading code {
+  margin-left: 4px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.live-error-description {
+  flex-direction: column;
 }
 
 .live-hit-list {
@@ -1573,7 +1614,7 @@ pre {
 
 .event-row {
   display: grid;
-  grid-template-columns: 76px minmax(78px, 0.8fr) 62px 76px minmax(0, 3fr);
+  grid-template-columns: 76px minmax(78px, 0.8fr) minmax(76px, 142px) 76px minmax(0, 3fr);
   gap: 10px;
   align-items: center;
   min-height: 44px;
@@ -1606,6 +1647,13 @@ pre {
 .event-row .ant-tag {
   width: fit-content;
   margin-inline-end: 0;
+}
+
+.event-tags {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .event-sql {
@@ -2349,6 +2397,23 @@ pre {
 .audit-plan-note {
   margin: 10px 0 0;
   color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.audit-error-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.audit-error-heading .ant-tag {
+  margin-inline-end: 0;
+}
+
+.audit-error-heading code {
+  margin-left: 4px;
+  font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 11px;
 }
 

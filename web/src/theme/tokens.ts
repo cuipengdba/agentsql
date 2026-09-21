@@ -26,6 +26,7 @@ export const palette = {
     warn: "#faad14",
     approve: "#fa8c16",
     deny: "#f5222d",
+    error: "#ff7a45",
   },
 } as const;
 

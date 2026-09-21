@@ -3,13 +3,13 @@ import { maskAlgorithmMeta, sensitiveTypeMeta } from "@/constants/sensitiveTypes
 
 export { sensitiveTypeMeta } from "@/constants/sensitiveTypes";
 
-export type Decision = "allow" | "deny" | "warn" | "approve";
+export type Decision = "allow" | "deny" | "warn" | "approve" | "error";
 
 export interface DecisionMeta {
   label: string;
-  tokenName: "allow" | "deny" | "warn" | "approve";
+  tokenName: Decision;
   color: string;
-  tagColor: "success" | "error" | "warning" | "orange";
+  tagColor: "success" | "error" | "warning" | "orange" | "volcano";
 }
 
 export const decisionMeta: Record<Decision, DecisionMeta> = {
@@ -17,6 +17,7 @@ export const decisionMeta: Record<Decision, DecisionMeta> = {
   deny: { label: "拦截", tokenName: "deny", color: palette.semantic.deny, tagColor: "error" },
   warn: { label: "告警", tokenName: "warn", color: palette.semantic.warn, tagColor: "warning" },
   approve: { label: "待审批", tokenName: "approve", color: palette.semantic.approve, tagColor: "orange" },
+  error: { label: "执行错误", tokenName: "error", color: palette.semantic.error, tagColor: "volcano" },
 };
 
 export const stmtTypeLabels: Record<string, string> = {
