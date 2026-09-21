@@ -23,6 +23,7 @@ const schemaRowLimit = 10_000
 type ToolResponse struct {
 	Decision   string `json:"decision"`
 	ErrorCode  string `json:"error_code,omitempty"`
+	ErrorStage string `json:"error_stage,omitempty"`
 	Reason     string `json:"reason"`
 	Suggestion string `json:"suggestion"`
 	Data       any    `json:"data,omitempty"`
@@ -263,7 +264,8 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 		}
 		return ToolResponse{
 			Decision: string(model.DecisionError), ErrorCode: response.ErrorCode,
-			Reason: reason, Suggestion: response.Suggestion,
+			ErrorStage: response.ErrorStage,
+			Reason:     reason, Suggestion: response.Suggestion,
 		}
 	}
 	suggestion := response.Assessment.Suggestion
@@ -365,7 +367,7 @@ func (handlers *toolHandlers) internalError(tool string, err error) ToolResponse
 
 func databaseErrorToolResponse(err *executor.DBError) ToolResponse {
 	return ToolResponse{
-		Decision: "error", ErrorCode: string(err.Code), Reason: err.Error(),
+		Decision: "error", ErrorCode: string(err.Code), ErrorStage: string(err.Stage), Reason: err.Error(),
 		Suggestion: executor.Suggestion(err.Code),
 	}
 }

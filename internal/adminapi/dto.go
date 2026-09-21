@@ -362,6 +362,7 @@ type auditStreamView struct {
 	RowsReturned *int      `json:"rows_returned,omitempty"`
 	LatencyMS    *int64    `json:"latency_ms,omitempty"`
 	ModelName    *string   `json:"model_name,omitempty"`
+	ErrorCode    *string   `json:"error_code,omitempty"`
 	Action       *string   `json:"action,omitempty"`
 	ActorType    *string   `json:"actor_type,omitempty"`
 	ActorID      *string   `json:"actor_id,omitempty"`
@@ -374,8 +375,8 @@ func auditToStreamView(log model.AuditLog) auditStreamView {
 		MCPTool: log.MCPTool, DBType: log.DBType, StmtType: log.StmtType, Objects: log.Objects,
 		Decision: log.Decision, RuleHits: log.RuleHits, RiskLevel: log.RiskLevel,
 		EstRows: log.EstRows, RowsReturned: log.RowsReturned, LatencyMS: log.LatencyMS,
-		ModelName: log.ModelName,
-		Action:    log.Action, ActorType: log.ActorType, ActorID: log.ActorID, DetailsJSON: log.DetailsJSON,
+		ModelName: log.ModelName, ErrorCode: log.ErrorCode,
+		Action: log.Action, ActorType: log.ActorType, ActorID: log.ActorID, DetailsJSON: log.DetailsJSON,
 	}
 }
 

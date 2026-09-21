@@ -59,6 +59,7 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 
 	counted := &countingDatabaseExecutor{delegate: databaseExecutor}
 	allowedTables := []string{
+		database + ".a4_missing_ddl",
 		database + ".allowed_rows",
 		database + ".big_rows",
 		database + ".customers",
@@ -81,6 +82,25 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		require.Equal(t, 1, delta.query)
 		require.Zero(t, delta.execute)
 		require.Equal(t, "allow", ports.audit.last().Decision)
+	})
+
+	t.Run("A4 failed DDL persists related intent and error outcome", func(t *testing.T) {
+		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "ddl", allowedTables)
+		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"DROP TABLE agentsql.a4_missing_ddl"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionError, response.Decision, "%+v", response)
+		require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.ErrorCode)
+		require.Equal(t, string(executor.DBStageExecute), response.ErrorStage)
+		require.Nil(t, response.Result)
+		logs := ports.audit.snapshot()
+		require.Len(t, logs, 2)
+		require.Equal(t, "allow", logs[0].Decision)
+		require.Equal(t, "error", logs[1].Decision)
+		require.Equal(t, response.ErrorCode, requireStringPointer(t, logs[1].ErrorCode))
+		require.Nil(t, logs[1].RowsReturned)
+		assertAuditPhase(t, logs[0], "intent", 0)
+		assertAuditPhase(t, logs[1], "outcome", logs[0].ID)
 	})
 
 	t.Run("real explain dynamic gate creates approval", func(t *testing.T) {

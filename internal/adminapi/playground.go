@@ -97,6 +97,7 @@ type playgroundRedactView struct {
 type playgroundRunView struct {
 	Decision     string                      `json:"decision"`
 	ErrorCode    string                      `json:"error_code,omitempty"`
+	ErrorStage   string                      `json:"error_stage,omitempty"`
 	ErrorMessage string                      `json:"error_message,omitempty"`
 	Suggestion   string                      `json:"suggestion,omitempty"`
 	Assessment   playgroundRunAssessmentView `json:"assessment"`
@@ -214,7 +215,7 @@ func playgroundRunResponseView(response pipeline.Response, input playgroundRunIn
 		touchedColumns[index] = string(sensitiveType)
 	}
 	view := playgroundRunView{
-		Decision: string(response.Decision), ErrorCode: response.ErrorCode,
+		Decision: string(response.Decision), ErrorCode: response.ErrorCode, ErrorStage: response.ErrorStage,
 		ErrorMessage: response.ErrorMessage,
 		Assessment: playgroundRunAssessmentView{
 			Decision: string(response.Assessment.Decision), Risk: int(response.Assessment.Risk),

@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -50,6 +51,43 @@ func TestDisabledAndEmptyConfigRemainInert(t *testing.T) {
 	require.Zero(t, hub.SubscriberCount())
 	hub.Publish(eventbus.Event{Audit: sensitiveAudit()})
 	require.Empty(t, manager.Status())
+}
+
+func TestManagerSuppressesIntentButDeliversRelatedOutcomeOnce(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	hub := newHub(t)
+	manager := NewManager(hub, WithRetryPolicy(0, time.Millisecond, time.Millisecond))
+	config := webhookManagerConfig(server.URL, WebhookGeneric, true, 4)
+	config.Channels[0].Decisions = []string{"allow", "error"}
+	require.NoError(t, manager.Start(context.Background(), config))
+	defer manager.Close()
+
+	intent := sensitiveAudit()
+	intent.Decision = "allow"
+	intent.ID = 70
+	intentDetails, err := json.Marshal(map[string]any{"audit_phase": "intent"})
+	require.NoError(t, err)
+	intentText := string(intentDetails)
+	intent.DetailsJSON = &intentText
+	hub.Publish(eventbus.Event{Audit: intent})
+
+	outcome := sensitiveAudit()
+	outcome.Decision = "error"
+	outcome.ID = 71
+	outcomeDetails, err := json.Marshal(map[string]any{"audit_phase": "outcome", "related_audit_id": 70})
+	require.NoError(t, err)
+	outcomeText := string(outcomeDetails)
+	outcome.DetailsJSON = &outcomeText
+	hub.Publish(eventbus.Event{Audit: outcome})
+
+	require.Eventually(t, func() bool { return requests.Load() == 1 }, time.Second, time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	require.Equal(t, int32(1), requests.Load())
 }
 
 func TestCloseIsIdempotentAndConcurrentSafe(t *testing.T) {

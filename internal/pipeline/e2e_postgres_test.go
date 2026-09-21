@@ -74,6 +74,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 	counted := &countingDatabaseExecutor{delegate: databaseExecutor}
 	allowedTables := []string{
 		"public.a4_missing_table",
+		"public.a4_missing_ddl",
 		"public.allowed_rows",
 		"public.big_rows",
 		"public.customers",
@@ -103,7 +104,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
 			"SELECT * FROM public.a4_missing_table LIMIT 1"))
 		require.NoError(t, err)
-		require.Equal(t, model.DecisionError, response.Decision)
+		require.Equal(t, model.DecisionError, response.Decision, "%+v", response)
 		require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.ErrorCode)
 		require.Equal(t, "表或对象不存在", response.ErrorMessage)
 		require.Equal(t, executor.Suggestion(executor.DBErrorCodeObjectNotFound), response.Suggestion)
@@ -112,6 +113,25 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		require.Equal(t, "error", ports.audit.last().Decision)
 		require.Equal(t, response.ErrorMessage, *ports.audit.last().ErrorMsg)
 		require.Equal(t, response.ErrorCode, *ports.audit.last().ErrorCode)
+	})
+
+	t.Run("A4 failed DDL persists related intent and error outcome", func(t *testing.T) {
+		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "ddl", allowedTables)
+		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"DROP INDEX public.a4_missing_ddl"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionError, response.Decision, "%+v", response)
+		require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.ErrorCode)
+		require.Equal(t, string(executor.DBStageExecute), response.ErrorStage)
+		require.Nil(t, response.Result)
+		logs := ports.audit.snapshot()
+		require.Len(t, logs, 2)
+		require.Equal(t, "allow", logs[0].Decision)
+		require.Equal(t, "error", logs[1].Decision)
+		require.Equal(t, response.ErrorCode, requireStringPointer(t, logs[1].ErrorCode))
+		require.Nil(t, logs[1].RowsReturned)
+		assertAuditPhase(t, logs[0], "intent", 0)
+		assertAuditPhase(t, logs[1], "outcome", logs[0].ID)
 	})
 
 	t.Run("E4 real explain dynamic gate", func(t *testing.T) {

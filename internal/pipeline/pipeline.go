@@ -465,14 +465,14 @@ func (run *pipelineRun) executeTransactionalWrite(ctx context.Context) (Response
 	}
 	defer run.rollbackWriteTx(tx)
 
-	if err := run.audit(ctx, string(run.response.Decision), nil); err != nil {
+	if err := run.audit(ctx, string(run.response.Decision), nil, auditPhaseSingle); err != nil {
 		run.rollbackWriteTx(tx)
 		return run.finish(ctx, ErrAuditUnavailable)
 	}
 
 	if err := run.measure(StageExecute, func() error { return tx.Commit(ctx) }); err != nil {
 		run.response.Result = nil
-		return run.finish(ctx, ErrBusinessCommitUncertain)
+		return run.finishOutcome(ctx, ErrBusinessCommitUncertain)
 	}
 	result := *run.executionResult
 	run.response.Result = &result
@@ -480,7 +480,7 @@ func (run *pipelineRun) executeTransactionalWrite(ctx context.Context) (Response
 }
 
 func (run *pipelineRun) executeAfterIntent(ctx context.Context) (Response, error) {
-	if err := run.audit(ctx, string(run.response.Decision), nil); err != nil {
+	if err := run.audit(ctx, string(run.response.Decision), nil, auditPhaseIntent); err != nil {
 		return run.finish(ctx, ErrAuditUnavailable)
 	}
 	if err := run.measure(StageExecute, func() error {
@@ -503,9 +503,9 @@ func (run *pipelineRun) executeAfterIntent(ctx context.Context) (Response, error
 		run.response.Result = &responseResult
 		return nil
 	}); err != nil {
-		return run.finish(ctx, err)
+		return run.finishOutcome(ctx, err)
 	}
-	return run.finish(ctx, nil)
+	return run.finishOutcome(ctx, nil)
 }
 
 func (run *pipelineRun) rollbackWriteTx(tx executor.WriteTx) {
@@ -578,9 +578,18 @@ type pipelineRun struct {
 	session         executor.Session
 	executionResult *model.QueryResult
 	reservation     *requestLimiter
-	audited         bool
+	auditAttempts   int
+	auditAnchorID   int64
 	mode            pipelineRunMode
 }
+
+type auditPhase string
+
+const (
+	auditPhaseSingle  auditPhase = ""
+	auditPhaseIntent  auditPhase = "intent"
+	auditPhaseOutcome auditPhase = "outcome"
+)
 
 func newPipelineRun(pipeline *Pipeline, request Request, mode pipelineRunMode) *pipelineRun {
 	stages := pipelineStageNames()
@@ -657,6 +666,7 @@ func (run *pipelineRun) setFailure(cause error) {
 	run.response.Redact = mask.RedactReport{}
 	run.response.ApprovalID = ""
 	run.response.ErrorCode = string(code)
+	run.response.ErrorStage = internalFailureStage(cause)
 	run.response.ErrorMessage = message
 	run.response.Suggestion = suggestion
 	run.response.Assessment.Decision = model.DecisionDeny
@@ -667,6 +677,19 @@ func (run *pipelineRun) setFailure(cause error) {
 }
 
 func (run *pipelineRun) finish(ctx context.Context, operationError error) (Response, error) {
+	return run.finishWithAudit(ctx, operationError, auditPhaseSingle, false)
+}
+
+func (run *pipelineRun) finishOutcome(ctx context.Context, operationError error) (Response, error) {
+	return run.finishWithAudit(ctx, operationError, auditPhaseOutcome, true)
+}
+
+func (run *pipelineRun) finishWithAudit(
+	ctx context.Context,
+	operationError error,
+	phase auditPhase,
+	forceAudit bool,
+) (Response, error) {
 	auditDecision := string(run.response.Decision)
 	_, databaseFailure := businessDatabaseError(operationError)
 	if operationError != nil {
@@ -679,8 +702,15 @@ func (run *pipelineRun) finish(ctx context.Context, operationError error) (Respo
 		}
 	}
 	finalError := operationError
-	if !run.audited {
-		finalError = run.audit(ctx, auditDecision, operationError)
+	if forceAudit || run.auditAttempts == 0 {
+		finalError = run.audit(ctx, auditDecision, operationError, phase)
+	}
+	if errors.Is(operationError, ErrBusinessCommitUncertain) &&
+		errors.Is(finalError, ErrAuditUnavailable) {
+		// Never let an outcome-audit outage erase the commit-unknown warning:
+		// callers must still see the explicit do-not-retry contract.
+		run.setFailure(ErrBusinessCommitUncertain)
+		finalError = errors.Join(ErrBusinessCommitUncertain, ErrAuditUnavailable)
 	}
 	if databaseFailure {
 		if _, ok := businessDatabaseError(finalError); ok {
@@ -699,6 +729,7 @@ func (run *pipelineRun) setDatabaseFailure(databaseError *executor.DBError) {
 	run.response.Redact = mask.RedactReport{}
 	run.response.ApprovalID = ""
 	run.response.ErrorCode = string(databaseError.Code)
+	run.response.ErrorStage = string(databaseError.Stage)
 	run.response.ErrorMessage = message
 	run.response.Suggestion = suggestion
 	run.response.Assessment.Decision = model.DecisionError
@@ -771,6 +802,17 @@ func internalFailurePresentation(cause error) (executor.DBErrorCode, string, str
 	}
 }
 
+func internalFailureStage(cause error) string {
+	switch {
+	case errors.Is(cause, ErrBusinessCommitUncertain):
+		return string(executor.DBStageCommit)
+	case errors.Is(cause, ErrAuditUnavailable):
+		return StageAudit
+	default:
+		return ""
+	}
+}
+
 func (run *pipelineRun) observe() {
 	if run == nil || run.pipeline == nil || run.pipeline.observer == nil {
 		return
@@ -804,11 +846,11 @@ func (run *pipelineRun) audit(
 	ctx context.Context,
 	auditDecision string,
 	operationError error,
+	phase auditPhase,
 ) error {
-	if run.audited {
-		return fmt.Errorf("pipeline attempted to audit one request more than once")
+	if err := run.beginAuditAttempt(phase); err != nil {
+		return err
 	}
-	run.audited = true
 	if releaseError := run.reservation.release(); releaseError != nil {
 		operationError = errors.Join(operationError, releaseError)
 		auditDecision = "error"
@@ -829,6 +871,15 @@ func (run *pipelineRun) audit(
 	if err != nil {
 		run.setFailure(ErrAuditUnavailable)
 		return ErrAuditUnavailable
+	}
+	details, err := auditEventDetailsJSON(phase, run.auditAnchorID)
+	if err != nil {
+		run.setFailure(ErrAuditUnavailable)
+		return ErrAuditUnavailable
+	}
+	log.DetailsJSON = details
+	if phase == auditPhaseOutcome && auditDecision == string(model.DecisionError) {
+		log.RowsReturned = nil
 	}
 	auditStarted := time.Now()
 	auditParent := ctx
@@ -855,8 +906,35 @@ func (run *pipelineRun) audit(
 		run.setFailure(ErrAuditUnavailable)
 		return ErrAuditUnavailable
 	}
+	if run.auditAttempts == 1 {
+		run.auditAnchorID = recorded.ID
+	}
 	run.response.AuditID = recorded.ID
 	return operationError
+}
+
+func (run *pipelineRun) beginAuditAttempt(phase auditPhase) error {
+	switch phase {
+	case auditPhaseSingle, auditPhaseIntent:
+		if run.auditAttempts != 0 {
+			return fmt.Errorf("pipeline attempted an unexpected additional %s audit", auditPhaseLabel(phase))
+		}
+	case auditPhaseOutcome:
+		if run.auditAttempts != 1 || run.auditAnchorID <= 0 {
+			return fmt.Errorf("pipeline attempted outcome audit without exactly one persisted anchor audit")
+		}
+	default:
+		return fmt.Errorf("pipeline attempted audit with unsupported phase %q", phase)
+	}
+	run.auditAttempts++
+	return nil
+}
+
+func auditPhaseLabel(phase auditPhase) string {
+	if phase == auditPhaseSingle {
+		return "single"
+	}
+	return string(phase)
 }
 
 func auditTimeoutMS(datasource *model.Datasource) int {
@@ -925,7 +1003,8 @@ func (run *pipelineRun) approve(ctx context.Context) (Response, error) {
 		err = fmt.Errorf("approval workflow returned an empty persisted identity")
 		return run.finish(ctx, err)
 	}
-	run.audited = true
+	run.auditAttempts = 1
+	run.auditAnchorID = recorded.ID
 	run.response.ApprovalID = created.ID
 	run.response.AuditID = recorded.ID
 	return run.finish(ctx, nil)

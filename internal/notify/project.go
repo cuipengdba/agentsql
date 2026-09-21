@@ -68,11 +68,61 @@ func project(ctx context.Context, audit model.AuditLog, includeSQL bool, resolve
 	if includeSQL && audit.SQLNorm != nil {
 		payload.SQLNorm = clone(audit.SQLNorm)
 	}
-	if audit.ErrorMsg != nil && strings.TrimSpace(*audit.ErrorMsg) != "" || payload.Decision == "error" {
+	if stored := strings.TrimSpace(value(audit.ErrorCode)); stored != "" {
+		payload.ErrorCode = stableErrorCode(stored)
+	} else if audit.ErrorMsg != nil && strings.TrimSpace(*audit.ErrorMsg) != "" || payload.Decision == "error" {
+		// Text inference is retained only for audit rows created before error_code
+		// was persisted. New rows must use the stable stored enumeration above.
 		payload.ErrorCode = mapErrorCode(value(audit.ErrorMsg))
 	}
 	return payload
 }
+
+func stableErrorCode(code string) string {
+	switch code {
+	case "DB_OBJECT_NOT_FOUND",
+		"DB_COLUMN_NOT_FOUND",
+		"DB_OBJECT_ALREADY_EXISTS",
+		"DB_SYNTAX_ERROR",
+		"DB_SEMANTIC_ERROR",
+		"DB_DATA_EXCEPTION",
+		"DB_CONSTRAINT_VIOLATION",
+		"DB_RETRYABLE_CONFLICT",
+		"DB_TRANSACTION_STATE",
+		"DB_RESOURCE_EXHAUSTED",
+		"DB_QUERY_TIMEOUT",
+		"DB_QUERY_INTERRUPTED",
+		"DB_PERMISSION_DENIED",
+		"DB_READ_ONLY_VIOLATION",
+		"DB_AUTHENTICATION_FAILED",
+		"DB_DATABASE_NOT_FOUND",
+		"DB_DATASOURCE_UNREACHABLE",
+		"DB_EXECUTION_FAILED",
+		"GATEWAY_INTERNAL",
+		"AUDIT_UNAVAILABLE",
+		"COMMIT_OUTCOME_UNKNOWN":
+		return code
+	default:
+		return "unknown"
+	}
+}
+
+func isIntentAudit(audit model.AuditLog) bool {
+	if audit.DetailsJSON == nil || strings.TrimSpace(*audit.DetailsJSON) == "" {
+		return false
+	}
+	var details struct {
+		AuditPhase string `json:"audit_phase"`
+	}
+	if json.Unmarshal([]byte(*audit.DetailsJSON), &details) != nil {
+		return false
+	}
+	return details.AuditPhase == string(auditPhaseIntentValue)
+}
+
+type auditPhaseValue string
+
+const auditPhaseIntentValue auditPhaseValue = "intent"
 
 func matchesDecision(config ChannelConfig, decision string) bool {
 	decision = strings.ToLower(strings.TrimSpace(decision))

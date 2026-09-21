@@ -276,6 +276,7 @@ func TestPipelineClassifiedDatabaseErrorIsObservedAsError(t *testing.T) {
 func TestPipelineResponseErrorFieldsUseStableJSONNames(t *testing.T) {
 	response := Response{
 		ErrorCode:    string(executor.DBErrorCodeObjectNotFound),
+		ErrorStage:   string(executor.DBStageExplain),
 		ErrorMessage: "表或对象不存在",
 		Suggestion:   "请检查对象名称和当前数据库",
 	}
@@ -284,6 +285,7 @@ func TestPipelineResponseErrorFieldsUseStableJSONNames(t *testing.T) {
 	var fields map[string]any
 	require.NoError(t, json.Unmarshal(encoded, &fields))
 	require.Equal(t, response.ErrorCode, fields["error_code"])
+	require.Equal(t, response.ErrorStage, fields["error_stage"])
 	require.Equal(t, response.ErrorMessage, fields["error_message"])
 	require.Equal(t, response.Suggestion, fields["suggestion"])
 }
@@ -310,6 +312,7 @@ func assertClassifiedDatabaseResponse(
 	require.Equal(t, model.DecisionError, response.Decision)
 	require.Equal(t, model.DecisionError, response.Assessment.Decision)
 	require.Equal(t, string(databaseError.Code), response.ErrorCode)
+	require.Equal(t, string(databaseError.Stage), response.ErrorStage)
 	require.Equal(t, databaseError.Error(), response.ErrorMessage)
 	require.Equal(t, executor.Suggestion(databaseError.Code), response.Suggestion)
 	require.Equal(t, databaseError.Error(), response.Assessment.Reason)

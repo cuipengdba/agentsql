@@ -51,11 +51,17 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	sentinelError := "postgres://SECRET_SENTINEL@db/stack"
 	sentinelIP := "CLIENT_SECRET_SENTINEL"
 	hashRawSentinel := "T41_STREAM_RAW_SENTINEL_b7a3"
+	errorCode := "DB_OBJECT_NOT_FOUND"
 	for id := int64(1); id <= 2; id++ {
-		runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{
+		log := model.AuditLog{
 			ID: id, TS: time.Unix(id, 0).UTC(), Decision: "deny", SQLRaw: &sentinelSQL,
 			ErrorMsg: &sentinelError, ClientIP: &sentinelIP, SessionID: &hashRawSentinel,
-		}})
+		}
+		if id == 1 {
+			log.Decision = "error"
+			log.ErrorCode = &errorCode
+		}
+		runtime.Events.Publish(eventbus.Event{Audit: log})
 	}
 
 	server := httptest.NewServer(handler)
@@ -79,6 +85,8 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	second := readSSEFrame(t, reader)
 	require.Contains(t, first, "id: 1\n")
 	require.Contains(t, second, "id: 2\n")
+	require.Contains(t, first, `"error_code":"DB_OBJECT_NOT_FOUND"`)
+	require.NotContains(t, second, "error_code")
 	combined := hello + first + second
 	require.NotContains(t, combined, sentinelSQL)
 	require.NotContains(t, combined, sentinelError)
@@ -91,6 +99,7 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	live := readSSEFrame(t, reader)
 	require.Contains(t, live, "event: audit\n")
 	require.Contains(t, live, "id: 3\n")
+	require.NotContains(t, live, "error_code")
 }
 
 func TestStreamHeartbeatConnectionLimitAndSlotReuse(t *testing.T) {

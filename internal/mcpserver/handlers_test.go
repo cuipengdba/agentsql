@@ -600,12 +600,14 @@ func assertMCPDatabaseErrorResponse(
 	databaseError := &executor.DBError{Kind: kind, Code: code}
 	require.Equal(t, "error", response.Decision)
 	require.Equal(t, string(code), response.ErrorCode)
+	require.NotEmpty(t, response.ErrorStage)
 	require.Equal(t, databaseError.Error(), response.Reason)
 	require.Equal(t, executor.Suggestion(code), response.Suggestion)
 	require.Nil(t, response.Data)
 	require.True(t, protocolResult(response).IsError)
 	encoded, err := json.Marshal(response)
 	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"error_stage"`)
 	for _, secret := range []string{
 		"DRIVER_SECRET", "driver message", "detail", "hint", "InternalQuery",
 		"postgres://", "db.internal", "5432", "admin", "password", "SELECT_secret", "param=value",

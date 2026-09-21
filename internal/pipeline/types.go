@@ -60,6 +60,7 @@ type Response struct {
 	ApprovalID   string
 	AuditID      int64
 	ErrorCode    string `json:"error_code,omitempty"`
+	ErrorStage   string `json:"error_stage,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
 	Suggestion   string `json:"suggestion,omitempty"`
 }

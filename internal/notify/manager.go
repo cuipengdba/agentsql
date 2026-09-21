@@ -244,6 +244,11 @@ func (generation *generation) dispatch(metrics MetricRecorder) {
 			if !open {
 				return
 			}
+			// Intent events stay visible in the audit stream, but only the final
+			// outcome is eligible for external notification delivery.
+			if isIntentAudit(event.Audit) {
+				continue
+			}
 			for _, runtime := range generation.runtimes {
 				if !matchesDecision(runtime.config, event.Audit.Decision) {
 					continue

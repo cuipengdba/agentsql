@@ -98,6 +98,25 @@ func isStableAuditErrorCode(code string) bool {
 	}
 }
 
+type auditEventDetails struct {
+	AuditPhase     string `json:"audit_phase"`
+	RelatedAuditID int64  `json:"related_audit_id,omitempty"`
+}
+
+func auditEventDetailsJSON(phase auditPhase, relatedAuditID int64) (*string, error) {
+	if phase == auditPhaseSingle {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(auditEventDetails{
+		AuditPhase:     string(phase),
+		RelatedAuditID: relatedAuditID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal audit event details: %w", err)
+	}
+	return stringPointer(string(encoded)), nil
+}
+
 func safeAuditErrorMessage(operationError error) string {
 	if databaseError, ok := businessDatabaseError(operationError); ok {
 		return databaseError.Error()

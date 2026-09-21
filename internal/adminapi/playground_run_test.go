@@ -208,6 +208,7 @@ func TestPlaygroundRunDenyAndInternalErrorAreSafe(t *testing.T) {
 	runner.response = pipeline.Response{
 		Decision:     model.DecisionError,
 		ErrorCode:    string(executor.DBErrorCodeObjectNotFound),
+		ErrorStage:   string(executor.DBStageExplain),
 		ErrorMessage: "表或对象不存在",
 		Suggestion:   "请检查对象名称和当前数据库",
 		Assessment: model.Assessment{
@@ -227,6 +228,7 @@ func TestPlaygroundRunDenyAndInternalErrorAreSafe(t *testing.T) {
 	require.Zero(t, failed.Code)
 	require.Equal(t, "error", failed.Data.Decision)
 	require.Equal(t, string(executor.DBErrorCodeObjectNotFound), failed.Data.ErrorCode)
+	require.Equal(t, string(executor.DBStageExplain), failed.Data.ErrorStage)
 	require.Equal(t, "表或对象不存在", failed.Data.ErrorMessage)
 	require.Equal(t, "请检查对象名称和当前数据库", failed.Data.Suggestion)
 	require.Empty(t, failed.Data.Result.Columns)

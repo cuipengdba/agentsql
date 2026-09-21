@@ -129,6 +129,27 @@ func TestErrorCodeMappingAlwaysUsesFixedEnumeration(t *testing.T) {
 	}
 }
 
+func TestProjectionPrefersPersistedStableErrorCodeAndValidatesIt(t *testing.T) {
+	audit := sensitiveAudit()
+	persisted := "DB_OBJECT_NOT_FOUND"
+	audit.ErrorCode = &persisted
+	payload := project(context.Background(), audit, false, nil)
+	require.Equal(t, persisted, payload.ErrorCode, "stored code must win over legacy message inference")
+
+	invalid := "SECRET_VENDOR_CODE: table=customers"
+	audit.ErrorCode = &invalid
+	payload = project(context.Background(), audit, false, nil)
+	require.Equal(t, "unknown", payload.ErrorCode)
+	encoded, err := json.Marshal(payload)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), invalid)
+	require.NotContains(t, payloadText(payload), invalid)
+
+	audit.ErrorCode = nil
+	payload = project(context.Background(), audit, false, nil)
+	require.Equal(t, "permission_denied", payload.ErrorCode, "historical rows still use text fallback")
+}
+
 type staticNames struct{}
 
 func (staticNames) AgentName(_ context.Context, id string) string {

@@ -27,6 +27,7 @@ type hardeningRPCResponse struct {
 		StructuredContent struct {
 			Decision   string          `json:"decision"`
 			ErrorCode  string          `json:"error_code"`
+			ErrorStage string          `json:"error_stage"`
 			Reason     string          `json:"reason"`
 			Suggestion string          `json:"suggestion"`
 			Data       json.RawMessage `json:"data"`
@@ -61,9 +62,21 @@ func TestHTTPClassifiedDatabaseErrorUsesToolErrorContract(t *testing.T) {
 	require.True(t, response.Result.IsError)
 	require.Equal(t, "error", response.Result.StructuredContent.Decision)
 	require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.Result.StructuredContent.ErrorCode)
+	require.Equal(t, string(executor.DBStageExplain), response.Result.StructuredContent.ErrorStage)
 	require.Equal(t, (&executor.DBError{Code: executor.DBErrorCodeObjectNotFound}).Error(), response.Result.StructuredContent.Reason)
 	require.Equal(t, executor.Suggestion(executor.DBErrorCodeObjectNotFound), response.Result.StructuredContent.Suggestion)
 	require.Empty(t, response.Result.StructuredContent.Data)
+	var content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(response.Result.Content, &content))
+	require.NotEmpty(t, content)
+	var textResponse ToolResponse
+	require.NoError(t, json.Unmarshal([]byte(content[0].Text), &textResponse))
+	require.Equal(t, response.Result.StructuredContent.ErrorCode, textResponse.ErrorCode)
+	require.Equal(t, response.Result.StructuredContent.ErrorStage, textResponse.ErrorStage)
+	require.Equal(t, response.Result.StructuredContent.Decision, textResponse.Decision)
 	for _, secret := range []string{
 		"DRIVER_SECRET", "driver message", "detail", "hint", "InternalQuery",
 		"postgres://", "db.internal", "5432", "admin", "password", "SELECT_secret", "param=value",

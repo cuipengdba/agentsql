@@ -1116,6 +1116,8 @@ type fakeAuditRecorder struct {
 	mu                sync.Mutex
 	logs              []model.AuditLog
 	err               error
+	errAtAttempt      int
+	attempts          int
 	next              int64
 	onRecord          func()
 	onRecorded        func(model.AuditLog)
@@ -1128,6 +1130,7 @@ func (fake *fakeAuditRecorder) Record(
 ) (model.AuditLog, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
+	fake.attempts++
 	if fake.onRecord != nil {
 		fake.onRecord()
 	}
@@ -1135,7 +1138,7 @@ func (fake *fakeAuditRecorder) Record(
 		<-ctx.Done()
 		return model.AuditLog{}, ctx.Err()
 	}
-	if fake.err != nil {
+	if fake.err != nil && (fake.errAtAttempt == 0 || fake.attempts == fake.errAtAttempt) {
 		return model.AuditLog{}, fake.err
 	}
 	fake.next++
@@ -1157,6 +1160,12 @@ func (fake *fakeAuditRecorder) last() model.AuditLog {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	return fake.logs[len(fake.logs)-1]
+}
+
+func (fake *fakeAuditRecorder) snapshot() []model.AuditLog {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	return append([]model.AuditLog(nil), fake.logs...)
 }
 
 type fakeRedactorBuilder struct {
