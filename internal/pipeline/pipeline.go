@@ -149,6 +149,7 @@ func (pipeline *Pipeline) process(
 		return run.finish(ctx, nil)
 	}
 
+	parseFailure := false
 	if err := run.measure(StageParse, func() error {
 		sqlParser, err := parser.NewParser(model.DBDialect(run.datasource.DBType))
 		if err != nil {
@@ -157,6 +158,7 @@ func (pipeline *Pipeline) process(
 		ast, err := sqlParser.Parse(request.SQL)
 		run.ast = ast
 		if err != nil {
+			parseFailure = true
 			if run.isDemo() && ast != nil && ast.IsMulti {
 				if ast.StmtType == "" {
 					ast.StmtType = model.StmtType("UNKNOWN")
@@ -182,6 +184,13 @@ func (pipeline *Pipeline) process(
 			}
 			run.appendStructuralHit(demoParseHit(err))
 			return run.finish(ctx, nil)
+		}
+		if parseFailure {
+			return run.finish(ctx, executor.NewDBError(
+				executor.DBErrorKindSyntax,
+				executor.DBErrorCodeSyntax,
+				executor.DBStageParse,
+			))
 		}
 		return run.finish(ctx, err)
 	}

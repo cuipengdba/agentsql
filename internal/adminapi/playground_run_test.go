@@ -297,6 +297,30 @@ func playgroundRunHitIDs(hits []playgroundRunHitView) []string {
 	return ids
 }
 
+func TestPlaygroundRunResponseViewPassesThroughParseStage(t *testing.T) {
+	response := pipeline.Response{
+		Decision:   model.DecisionError,
+		ErrorCode:  string(executor.DBErrorCodeSyntax),
+		ErrorStage: string(executor.DBStageParse),
+		ErrorMessage: executor.NewDBError(
+			executor.DBErrorKindSyntax,
+			executor.DBErrorCodeSyntax,
+			executor.DBStageParse,
+		).Error(),
+		Suggestion: executor.Suggestion(executor.DBErrorCodeSyntax),
+		Assessment: model.Assessment{Decision: model.DecisionError},
+	}
+
+	view := playgroundRunResponseView(response, playgroundRunInput{
+		DatasourceID: config.DemoDatasourcePG,
+		AgentProfile: "ro",
+	})
+	encoded, err := json.Marshal(view)
+	require.NoError(t, err)
+	require.Equal(t, string(executor.DBStageParse), view.ErrorStage)
+	require.Contains(t, string(encoded), `"error_stage":"parse"`)
+}
+
 func auditCount(t *testing.T, fixture *adminFixture) int64 {
 	t.Helper()
 	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)

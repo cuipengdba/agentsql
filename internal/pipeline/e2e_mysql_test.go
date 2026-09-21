@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/engine"
 	"github.com/cuipengdba/agentsql/internal/executor"
@@ -67,6 +69,10 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		database + ".sensitive_rows",
 		database + ".hash_rows",
 		database + ".block_rows",
+		database + ".insert_rows",
+		database + ".unique_rows",
+		database + ".strict_rows",
+		database + ".lock_rows",
 	}
 
 	t.Run("normal select allow", func(t *testing.T) {
@@ -140,6 +146,82 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		require.Equal(t, "deny", ports.audit.last().Decision)
 	})
 
+	t.Run("insert values write path and classified failures", func(t *testing.T) {
+		t.Run("successful insert", func(t *testing.T) {
+			flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+			response, err := flow.Process(ctx, databaseE2ERequest(
+				datasource.ID,
+				"INSERT INTO agentsql.insert_rows (id, v) VALUES (1, 7)",
+			))
+			require.NoError(t, err)
+			require.Equal(t, model.DecisionAllow, response.Decision)
+			require.NotNil(t, response.Result)
+			require.Equal(t, 1, response.Result.RowCount)
+			require.Equal(t, "allow", ports.audit.last().Decision)
+
+			stored, err := databaseExecutor.Query(
+				ctx,
+				"SELECT v FROM agentsql.insert_rows WHERE id = 1",
+				1,
+			)
+			require.NoError(t, err)
+			require.Equal(t, [][]string{{"7"}}, stored.Rows)
+		})
+
+		t.Run("duplicate key 1062", func(t *testing.T) {
+			flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+			response, err := flow.Process(ctx, databaseE2ERequest(
+				datasource.ID,
+				"INSERT INTO agentsql.unique_rows (id, name) VALUES (1, 'dup')",
+			))
+			assertMySQLPipelineDBError(
+				t, response, err, ports.audit.last(),
+				executor.DBErrorCodeConstraint, executor.DBStageExecute,
+				[]string{"1062", "Duplicate entry"},
+			)
+		})
+
+		t.Run("strict mode 1366", func(t *testing.T) {
+			flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+			response, err := flow.Process(ctx, databaseE2ERequest(
+				datasource.ID,
+				"INSERT INTO agentsql.strict_rows (id, v) VALUES (9, '')",
+			))
+			assertMySQLPipelineDBError(
+				t, response, err, ports.audit.last(),
+				executor.DBErrorCodeData, executor.DBStageExecute,
+				[]string{"1366", "Incorrect integer value"},
+			)
+		})
+	})
+
+	t.Run("select for update nowait 3572 is retryable", func(t *testing.T) {
+		holder, err := databaseExecutor.OpenSession(ctx, "pipeline-mysql-nowait-holder")
+		require.NoError(t, err)
+		holderTx, err := holder.BeginWriteTx(ctx)
+		require.NoError(t, err)
+		_, err = holderTx.Execute(ctx, "SELECT v FROM agentsql.lock_rows WHERE id = 1 FOR UPDATE")
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			require.NoError(t, holderTx.Rollback(cleanupCtx))
+			require.NoError(t, holder.Close())
+		})
+
+		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+		response, err := flow.Process(ctx, databaseE2ERequest(
+			datasource.ID,
+			"SELECT v FROM agentsql.lock_rows WHERE id = 1 FOR UPDATE NOWAIT",
+		))
+		assertMySQLPipelineDBError(
+			t, response, err, ports.audit.last(),
+			executor.DBErrorCodeRetryable, executor.DBStageQuery,
+			[]string{"3572", "NOWAIT", "Do not wait for lock"},
+		)
+		require.Equal(t, executor.Suggestion(executor.DBErrorCodeRetryable), response.Suggestion)
+	})
+
 	t.Run("sensitive result is redacted", func(t *testing.T) {
 		flow, _ := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
 		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
@@ -199,6 +281,12 @@ func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecuto
  (1, '13812345678', 'T42_E2E_HASH_RAW_2f64', 'T42_E2E_BLOCK_RAW_6d19'),
  (2, '', '', ''),
  (3, NULL, NULL, NULL)`,
+		`CREATE TABLE insert_rows (id integer PRIMARY KEY, v integer NOT NULL)`,
+		`CREATE TABLE unique_rows (id integer PRIMARY KEY, name varchar(32) UNIQUE)`,
+		`INSERT INTO unique_rows (id, name) VALUES (1, 'dup')`,
+		`CREATE TABLE strict_rows (id integer PRIMARY KEY, v integer NOT NULL)`,
+		`CREATE TABLE lock_rows (id integer PRIMARY KEY, v integer NOT NULL)`,
+		`INSERT INTO lock_rows (id, v) VALUES (1, 1)`,
 	}
 	for _, statement := range statements {
 		_, err := databaseExecutor.Execute(ctx, statement)
@@ -218,8 +306,39 @@ func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecuto
 	}
 	_, err := databaseExecutor.Execute(ctx, insert.String())
 	require.NoError(t, err)
-	for _, table := range []string{"allowed_rows", "big_rows", "customers", "orders", "sensitive_rows", "hash_rows", "block_rows"} {
+	for _, table := range []string{
+		"allowed_rows", "big_rows", "customers", "orders", "sensitive_rows", "hash_rows", "block_rows",
+		"insert_rows", "unique_rows", "strict_rows", "lock_rows",
+	} {
 		_, err := databaseExecutor.Execute(ctx, "ANALYZE TABLE "+table)
 		require.NoError(t, err)
+	}
+}
+
+func assertMySQLPipelineDBError(
+	t *testing.T,
+	response Response,
+	processErr error,
+	auditLog model.AuditLog,
+	code executor.DBErrorCode,
+	stage executor.DBStage,
+	leaks []string,
+) {
+	t.Helper()
+	require.NoError(t, processErr)
+	require.Equal(t, model.DecisionError, response.Decision)
+	require.Equal(t, string(code), response.ErrorCode)
+	require.Equal(t, string(stage), response.ErrorStage)
+	require.Nil(t, response.Result)
+	require.Equal(t, "error", auditLog.Decision)
+	require.NotNil(t, auditLog.ErrorCode)
+	require.Equal(t, string(code), *auditLog.ErrorCode)
+	require.NotNil(t, auditLog.ErrorMsg)
+	require.Equal(t, response.ErrorMessage, *auditLog.ErrorMsg)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	for _, leak := range leaks {
+		require.NotContains(t, string(encoded), leak)
+		require.NotContains(t, *auditLog.ErrorMsg, leak)
 	}
 }

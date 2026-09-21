@@ -587,7 +587,11 @@ func parseMysqlExplainRows(columns []string, values [][]any) (model.ExplainInfo,
 		if len(row) != len(columns) {
 			return model.ExplainInfo{}, fmt.Errorf("MySQL EXPLAIN row width mismatch")
 		}
-		estimatedRows, err := mysqlExplainInteger(row[rowsIndex])
+		estimatedRows := int64(0)
+		var err error
+		if row[rowsIndex] != nil {
+			estimatedRows, err = mysqlExplainInteger(row[rowsIndex])
+		}
 		if err != nil || estimatedRows < 0 || info.EstScanRows > math.MaxInt64-estimatedRows {
 			return model.ExplainInfo{}, fmt.Errorf("MySQL EXPLAIN has invalid rows estimate")
 		}
@@ -747,10 +751,8 @@ func mysqlErrorCode(driverCode uint16) (DBErrorKind, DBErrorCode, error) {
 		return DBErrorKindData, DBErrorCodeData, nil
 	case 1048, 1062, 1364, 1451, 1452, 3819:
 		return DBErrorKindConstraint, DBErrorCodeConstraint, nil
-	case 1205, 1213:
+	case 1205, 1213, 3572:
 		return DBErrorKindRetryable, DBErrorCodeRetryable, nil
-	// 3572 remains an execution fallback until its MySQL 8 behavior is
-	// confirmed against a real server.
 	case 1192, 1568:
 		return DBErrorKindTransaction, DBErrorCodeTransaction, nil
 	// 1180 remains an execution fallback until transaction behavior is

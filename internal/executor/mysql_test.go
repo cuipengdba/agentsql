@@ -88,6 +88,32 @@ func TestParseMySQLExplainRows(t *testing.T) {
 		require.False(t, info.SeqScan)
 		require.True(t, info.UsesIndex)
 	})
+
+	t.Run("insert values null estimate", func(t *testing.T) {
+		insertColumns := []string{
+			"id", "select_type", "table", "partitions", "type", "possible_keys",
+			"key", "key_len", "ref", "rows", "filtered", "Extra",
+		}
+		info, err := parseMysqlExplainRows(insertColumns, [][]any{{
+			int64(1), "INSERT", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		}})
+		require.NoError(t, err)
+		require.Zero(t, info.EstScanRows)
+		require.False(t, info.SeqScan)
+		require.False(t, info.UsesIndex)
+		require.NotEmpty(t, info.Raw)
+	})
+
+	t.Run("all null plan row", func(t *testing.T) {
+		info, err := parseMysqlExplainRows(
+			[]string{"id", "type", "key", "rows"},
+			[][]any{{nil, nil, nil, nil}},
+		)
+		require.NoError(t, err)
+		require.Zero(t, info.EstScanRows)
+		require.False(t, info.SeqScan)
+		require.False(t, info.UsesIndex)
+	})
 }
 
 func TestParseMySQLExplainRowsRejectsInvalidInput(t *testing.T) {
@@ -96,6 +122,11 @@ func TestParseMySQLExplainRowsRejectsInvalidInput(t *testing.T) {
 	_, err = parseMysqlExplainRows(
 		[]string{"type", "key", "rows"},
 		[][]any{{"ALL", nil, "not-a-number"}},
+	)
+	require.Error(t, err)
+	_, err = parseMysqlExplainRows(
+		[]string{"type", "key", "rows"},
+		[][]any{{"ALL", nil, "-1"}},
 	)
 	require.Error(t, err)
 }

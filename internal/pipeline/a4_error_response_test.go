@@ -144,6 +144,55 @@ func TestPipelineClassifiedDatabaseErrorsBecomeBusinessResponses(t *testing.T) {
 	}
 }
 
+func TestPipelineParserFailuresBecomeSyntaxBusinessResponses(t *testing.T) {
+	tests := []struct {
+		dialect string
+		sql     string
+		leak    string
+	}{
+		{dialect: "postgres", sql: "SELECT FROM WHERE", leak: "syntax error at or near"},
+		{dialect: "mysql", sql: "SELEC * FROM agentsql.allowed_rows", leak: "syntax error at position"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.dialect, func(t *testing.T) {
+			fixture := newPipelineFixture(t)
+			fixture.datasources.datasource.DBType = test.dialect
+			fixture.executor.dialect = test.dialect
+
+			response, err := fixture.pipeline.Process(
+				context.Background(),
+				requestWithSQL(test.sql),
+			)
+
+			require.NoError(t, err)
+			require.Equal(t, model.DecisionError, response.Decision)
+			require.Equal(t, model.DecisionError, response.Assessment.Decision)
+			require.Equal(t, string(executor.DBErrorCodeSyntax), response.ErrorCode)
+			require.Equal(t, string(executor.DBStageParse), response.ErrorStage)
+			require.Equal(t, executor.NewDBError(
+				executor.DBErrorKindSyntax,
+				executor.DBErrorCodeSyntax,
+				executor.DBStageParse,
+			).Error(), response.ErrorMessage)
+			require.Equal(t, executor.Suggestion(executor.DBErrorCodeSyntax), response.Suggestion)
+			require.Nil(t, response.Result)
+			require.Zero(t, fixture.executors.calls())
+			require.NotContains(t, response.ErrorMessage, test.leak)
+			require.NotContains(t, response.Suggestion, test.leak)
+
+			require.Equal(t, 1, fixture.audit.calls())
+			log := fixture.audit.last()
+			require.Equal(t, string(model.DecisionError), log.Decision)
+			require.NotNil(t, log.ErrorCode)
+			require.Equal(t, string(executor.DBErrorCodeSyntax), *log.ErrorCode)
+			require.NotNil(t, log.ErrorMsg)
+			require.Equal(t, response.ErrorMessage, *log.ErrorMsg)
+			require.NotContains(t, *log.ErrorMsg, test.leak)
+		})
+	}
+}
+
 func TestPipelineDatabaseErrorPreservesStaticAuthorizationAndDynamicRuleResults(t *testing.T) {
 	fixture := newPipelineFixture(t)
 	fixture.executor.transaction = rules.TransactionState{

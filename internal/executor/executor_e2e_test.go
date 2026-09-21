@@ -496,6 +496,33 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		_, err = shortExecutor.Query(ctx, slowQuery, 1)
 		require.Error(t, err)
 		require.True(t, errors.Is(err, ErrQueryTimeout))
+		var databaseError *DBError
+		require.ErrorAs(t, err, &databaseError)
+		require.Equal(t, DBErrorKindTimeout, databaseError.Kind)
+		require.Equal(t, DBErrorCodeTimeout, databaseError.Code)
+		require.Contains(t, []DBStage{DBStageQuery, DBStageReadRows}, databaseError.Stage)
+		driverCode, _ := databaseError.DriverCodeForLog()
+		t.Logf("timeout classification: code=%s stage=%s driver_code=%s", databaseError.Code, databaseError.Stage, driverCode)
+	})
+
+	t.Run("client cancellation interrupts an in flight query", func(t *testing.T) {
+		queryContext, cancel := context.WithCancel(ctx)
+		errChannel := make(chan error, 1)
+		go func() {
+			_, queryErr := executor.Query(queryContext, "SELECT SLEEP(30)", 1)
+			errChannel <- queryErr
+		}()
+		time.Sleep(250 * time.Millisecond)
+		cancel()
+		err := <-errChannel
+		var databaseError *DBError
+		require.ErrorAs(t, err, &databaseError)
+		require.Equal(t, DBErrorKindInterrupted, databaseError.Kind)
+		require.Equal(t, DBErrorCodeInterrupted, databaseError.Code)
+		require.Contains(t, []DBStage{DBStageQuery, DBStageReadRows}, databaseError.Stage)
+		driverCode, _ := databaseError.DriverCodeForLog()
+		t.Logf("cancellation classification: code=%s stage=%s driver_code=%s", databaseError.Code, databaseError.Stage, driverCode)
+		require.NotContains(t, err.Error(), "Query execution was interrupted")
 	})
 
 	t.Run("N+1 fetch detects row limit truncation", func(t *testing.T) {
@@ -532,6 +559,31 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		rowCount, err := executor.TableRowCount(database, "executor_rows")
 		require.NoError(t, err)
 		require.Positive(t, rowCount)
+	})
+
+	t.Run("explain write statements accepts MySQL plan shapes", func(t *testing.T) {
+		insertInfo, err := executor.Explain(
+			ctx,
+			"INSERT INTO executor_rows (id, value) VALUES (4001, 4001)",
+		)
+		require.NoError(t, err)
+		require.Zero(t, insertInfo.EstScanRows)
+		require.NotEmpty(t, insertInfo.Raw)
+		t.Logf("INSERT EXPLAIN: seq_scan=%t uses_index=%t raw=%q", insertInfo.SeqScan, insertInfo.UsesIndex, insertInfo.Raw)
+
+		updateInfo, err := executor.Explain(
+			ctx,
+			"UPDATE executor_rows SET value = value + 1 WHERE id = 1",
+		)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, updateInfo.EstScanRows, int64(0))
+
+		deleteInfo, err := executor.Explain(
+			ctx,
+			"DELETE FROM executor_rows WHERE id = 2000",
+		)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, deleteInfo.EstScanRows, int64(0))
 	})
 
 	t.Run("bound session transaction state", func(t *testing.T) {
@@ -598,6 +650,34 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		_, err = session.BeginWriteTx(ctx)
 		require.ErrorIs(t, err, ErrSessionTransactionActive)
 		require.NoError(t, session.Close())
+	})
+
+	t.Run("select for update lock wait 1205 is retryable at query stage", func(t *testing.T) {
+		holder, err := executor.OpenSession(ctx, "mysql-lock-wait-holder")
+		require.NoError(t, err)
+		holderTx, err := holder.BeginWriteTx(ctx)
+		require.NoError(t, err)
+		_, err = holderTx.Execute(ctx, "SELECT value FROM executor_rows WHERE id = 1 FOR UPDATE")
+		require.NoError(t, err)
+
+		waiter, err := executor.OpenSession(ctx, "mysql-lock-wait-waiter")
+		require.NoError(t, err)
+		_, err = waiter.Execute(ctx, "SET SESSION innodb_lock_wait_timeout = 1")
+		require.NoError(t, err)
+		_, err = waiter.Query(ctx, "SELECT value FROM executor_rows WHERE id = 1 FOR UPDATE", 1)
+		databaseError := requireDBError(
+			t,
+			err,
+			DBErrorKindRetryable,
+			DBErrorCodeRetryable,
+			DBStageQuery,
+		)
+		require.Equal(t, "1205", mustDriverCodeForLog(t, databaseError))
+		require.NotContains(t, err.Error(), "Lock wait timeout")
+
+		require.NoError(t, waiter.Close())
+		require.NoError(t, holderTx.Rollback(ctx))
+		require.NoError(t, holder.Close())
 	})
 
 	t.Run("bound session fail closed after cancellation and close", func(t *testing.T) {

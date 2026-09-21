@@ -130,6 +130,45 @@ func TestHandlersClassifiedDatabaseErrorsAreStableAndRedacted(t *testing.T) {
 	}
 }
 
+func TestHandlersQuerySyntaxErrorUsesPipelineEnvelopeAndAudit(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+
+	response := fixture.handlers.query(
+		context.Background(),
+		"ds-allowed",
+		"SELECT FROM WHERE",
+	)
+
+	require.Equal(t, string(model.DecisionError), response.Decision)
+	require.Equal(t, string(executor.DBErrorCodeSyntax), response.ErrorCode)
+	require.Equal(t, string(executor.DBStageParse), response.ErrorStage)
+	require.Equal(t, executor.NewDBError(
+		executor.DBErrorKindSyntax,
+		executor.DBErrorCodeSyntax,
+		executor.DBStageParse,
+	).Error(), response.Reason)
+	require.Equal(t, executor.Suggestion(executor.DBErrorCodeSyntax), response.Suggestion)
+	require.Nil(t, response.Data)
+	require.Zero(t, fixture.provider.calls())
+
+	page, err := fixture.runtime.Store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, page.Total)
+	require.Len(t, page.List, 1)
+	log := page.List[0]
+	require.Equal(t, string(model.DecisionError), log.Decision)
+	require.NotNil(t, log.ErrorCode)
+	require.Equal(t, string(executor.DBErrorCodeSyntax), *log.ErrorCode)
+	require.NotNil(t, log.ErrorMsg)
+	require.Equal(t, response.Reason, *log.ErrorMsg)
+	for _, leak := range []string{"syntax error at or near", "not one parseable statement"} {
+		encoded, marshalErr := json.Marshal(response)
+		require.NoError(t, marshalErr)
+		require.NotContains(t, string(encoded), leak)
+		require.NotContains(t, *log.ErrorMsg, leak)
+	}
+}
+
 func TestHandlersListSchemaClassifiedDatabaseErrors(t *testing.T) {
 	tests := []struct {
 		name string

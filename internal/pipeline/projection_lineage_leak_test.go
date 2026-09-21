@@ -11,7 +11,6 @@ import (
 	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
-	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/stretchr/testify/require"
 )
@@ -81,10 +80,15 @@ func runProjectionLineageLeakCase(t *testing.T, dialect string, test lineageLeak
 	)
 	response, err := flow.Process(context.Background(), databaseE2ERequest(datasource.ID, test.sql))
 	if test.expect == lineageLeakParseError {
-		require.Error(t, err, "%s sentinel=%s", test.name, test.sentinel)
-		require.True(t, errors.Is(err, parser.ErrUnparseable), "%s: %v", test.name, err)
+		require.NoError(t, err, "%s sentinel=%s", test.name, test.sentinel)
+		require.Equal(t, model.DecisionError, response.Decision)
+		require.Equal(t, string(executor.DBErrorCodeSyntax), response.ErrorCode)
+		require.Equal(t, string(executor.DBStageParse), response.ErrorStage)
 		require.Nil(t, response.Result, "%s sentinel=%s", test.name, test.sentinel)
 		require.Zero(t, delegate.queryCalls, "%s must fail before execution", test.name)
+		require.Equal(t, "error", ports.audit.last().Decision)
+		require.NotNil(t, ports.audit.last().ErrorCode)
+		require.Equal(t, string(executor.DBErrorCodeSyntax), *ports.audit.last().ErrorCode)
 		assertLineageSentinelAbsent(t, test.name, test.sentinel, response, ports.audit)
 		return
 	}

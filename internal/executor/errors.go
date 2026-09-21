@@ -63,6 +63,7 @@ const (
 type DBStage string
 
 const (
+	DBStageParse    DBStage = "parse"
 	DBStageConnect  DBStage = "connect"
 	DBStagePing     DBStage = "ping"
 	DBStageAcquire  DBStage = "acquire"
@@ -176,6 +177,13 @@ func newDBError(
 		Stage:      stage,
 		compat:     compat,
 	}
+}
+
+// NewDBError constructs a safe classified error for non-driver failures that
+// must use the same public database error envelope. It deliberately accepts no
+// underlying cause, so parser or driver details cannot enter an unwrap chain.
+func NewDBError(kind DBErrorKind, code DBErrorCode, stage DBStage) *DBError {
+	return newDBError(kind, code, stage, "", nil)
 }
 
 func addDBErrorCompat(err error, sentinel error) error {

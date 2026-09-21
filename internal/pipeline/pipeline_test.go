@@ -37,7 +37,7 @@ func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
 			name:      "malformed SQL",
 			configure: func(*pipelineFixture) {},
 			request:   requestWithSQL("SELECT ("),
-			decision:  model.DecisionDeny,
+			decision:  model.DecisionError,
 		},
 		{
 			name:      "update without where",
@@ -65,18 +65,23 @@ func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
 			fixture := newPipelineFixture(t)
 			test.configure(fixture)
 			response, err := fixture.pipeline.Process(context.Background(), test.request)
-			if test.name == "authentication failure" || test.name == "malformed SQL" {
+			if test.name == "authentication failure" {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
 			require.Equal(t, test.decision, response.Decision)
+			if test.name == "malformed SQL" {
+				require.Equal(t, string(executor.DBErrorCodeSyntax), response.ErrorCode)
+				require.Equal(t, string(executor.DBStageParse), response.ErrorStage)
+				require.Nil(t, response.Result)
+			}
 			calls := fixture.executor.callsSnapshot()
 			require.Zero(t, fixture.executors.calls())
 			require.Zero(t, calls.explain+calls.query+calls.execute+calls.openSession)
 			require.Zero(t, calls.sessionExplain+calls.sessionQuery+calls.sessionExecute)
 			require.Equal(t, 1, fixture.audit.calls())
-			if err != nil {
+			if err != nil || test.name == "malformed SQL" {
 				require.Equal(t, "error", fixture.audit.last().Decision)
 			} else {
 				require.Equal(t, "deny", fixture.audit.last().Decision)
@@ -102,14 +107,19 @@ func TestPipelineRejectsMySQLValuesBeforeExecutor(t *testing.T) {
 
 			response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(test.sql))
 
-			require.Error(t, err)
-			require.Equal(t, model.DecisionDeny, response.Decision)
+			require.NoError(t, err)
+			require.Equal(t, model.DecisionError, response.Decision)
+			require.Equal(t, string(executor.DBErrorCodeSyntax), response.ErrorCode)
+			require.Equal(t, string(executor.DBStageParse), response.ErrorStage)
+			require.Nil(t, response.Result)
 			require.Zero(t, fixture.executors.calls(), "executor provider must not be reached")
 			calls := fixture.executor.callsSnapshot()
 			require.Zero(t, calls.explain+calls.query+calls.execute+calls.openSession)
 			require.Zero(t, calls.sessionExplain+calls.sessionQuery+calls.sessionExecute)
 			require.Equal(t, 1, fixture.audit.calls())
 			require.Equal(t, "error", fixture.audit.last().Decision)
+			require.NotNil(t, fixture.audit.last().ErrorCode)
+			require.Equal(t, string(executor.DBErrorCodeSyntax), *fixture.audit.last().ErrorCode)
 		})
 	}
 }

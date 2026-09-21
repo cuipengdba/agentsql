@@ -85,6 +85,47 @@ func TestHTTPClassifiedDatabaseErrorUsesToolErrorContract(t *testing.T) {
 	}
 }
 
+func TestHTTPQuerySyntaxErrorUsesToolErrorContract(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	handler, _, err := newHTTPHandlerWithRegistry(fixture.runtime, httpTestConfig(100), zerolog.Nop())
+	require.NoError(t, err)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	body := `{"jsonrpc":"2.0","id":"syntax","method":"tools/call","params":{"name":"query","arguments":{"datasource_id":"ds-allowed","sql":"SELECT FROM WHERE"}}}`
+
+	status, responseBody, err := doMCPRequest(
+		server.Client(), server.URL+"/mcp", fixture.handlers.apiKey, http.MethodPost, body,
+	)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status, responseBody)
+	response := decodeHardeningRPCResponse(t, responseBody)
+	require.Nil(t, response.Error)
+	require.True(t, response.Result.IsError)
+	require.Equal(t, string(model.DecisionError), response.Result.StructuredContent.Decision)
+	require.Equal(t, string(executor.DBErrorCodeSyntax), response.Result.StructuredContent.ErrorCode)
+	require.Equal(t, string(executor.DBStageParse), response.Result.StructuredContent.ErrorStage)
+	require.Equal(t, executor.NewDBError(
+		executor.DBErrorKindSyntax,
+		executor.DBErrorCodeSyntax,
+		executor.DBStageParse,
+	).Error(), response.Result.StructuredContent.Reason)
+	require.Equal(t, executor.Suggestion(executor.DBErrorCodeSyntax), response.Result.StructuredContent.Suggestion)
+	require.Empty(t, response.Result.StructuredContent.Data)
+	for _, leak := range []string{"syntax error at or near", "not one parseable statement"} {
+		require.NotContains(t, responseBody, leak)
+	}
+
+	page, err := fixture.runtime.Store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, page.Total)
+	require.Len(t, page.List, 1)
+	require.NotNil(t, page.List[0].ErrorCode)
+	require.Equal(t, string(executor.DBErrorCodeSyntax), *page.List[0].ErrorCode)
+	require.NotNil(t, page.List[0].ErrorMsg)
+	require.Equal(t, response.Result.StructuredContent.Reason, *page.List[0].ErrorMsg)
+	require.NotContains(t, *page.List[0].ErrorMsg, "syntax error at or near")
+}
+
 func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing.T) {
 	const (
 		agentCount       = 10

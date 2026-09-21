@@ -172,6 +172,11 @@ func (handlers *toolHandlers) query(
 	}
 	ast, response := parseForTool(datasource.DBType, sql)
 	if response != nil {
+		if response.ErrorCode == string(executor.DBErrorCodeSyntax) {
+			return handlers.process(ctx, pipeline.Request{
+				APIKey: handlers.apiKey, DatasourceID: datasourceID, SQL: sql, MCPTool: "query",
+			})
+		}
 		return *response
 	}
 	if ast.StmtType != model.StmtType("SELECT") {
@@ -347,7 +352,11 @@ func parseForTool(dialect, sql string) (*model.AST, *ToolResponse) {
 	}
 	ast, err := sqlParser.Parse(sql)
 	if err != nil {
-		response := errorToolResponse("SQL 无法安全解析", "请改写为一条语法完整、无堆叠语句的 SQL")
+		response := databaseErrorToolResponse(executor.NewDBError(
+			executor.DBErrorKindSyntax,
+			executor.DBErrorCodeSyntax,
+			executor.DBStageParse,
+		))
 		return nil, &response
 	}
 	return ast, nil
