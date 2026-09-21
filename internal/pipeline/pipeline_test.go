@@ -522,11 +522,14 @@ func TestPipelineExecutionErrorIsAuditedAsError(t *testing.T) {
 	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
 	require.ErrorIs(t, err, expected)
 	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Equal(t, string(executor.DBErrorCodeGatewayInternal), response.ErrorCode)
+	require.Equal(t, "网关内部错误", response.ErrorMessage)
 	require.Nil(t, response.Result)
 	log := fixture.audit.last()
 	require.Equal(t, "error", log.Decision)
 	require.NotNil(t, log.ErrorMsg)
-	require.Contains(t, *log.ErrorMsg, expected.Error())
+	require.Equal(t, "网关内部错误", *log.ErrorMsg)
+	require.NotContains(t, *log.ErrorMsg, expected.Error())
 }
 
 func TestPipelineDynamicAndRedactionErrorsNeverReturnData(t *testing.T) {
@@ -680,7 +683,7 @@ func TestAuditMappingIncludesFrozenFields(t *testing.T) {
 	require.GreaterOrEqual(t, *log.LatencyMS, int64(0))
 	require.Equal(t, clientIP, *log.ClientIP)
 	require.Equal(t, modelName, *log.ModelName)
-	require.Equal(t, operationError.Error(), *log.ErrorMsg)
+	require.Equal(t, "网关内部错误", *log.ErrorMsg)
 	var hits []model.RuleHit
 	require.NoError(t, json.Unmarshal([]byte(*log.RuleHits), &hits))
 	require.Equal(t, response.Assessment.Hits, hits)
@@ -1172,6 +1175,7 @@ type spyExecutor struct {
 	calls            executorCalls
 	explain          model.ExplainInfo
 	explainErr       error
+	openSessionErr   error
 	queryResult      model.QueryResult
 	queryErr         error
 	execResult       model.QueryResult
@@ -1179,6 +1183,7 @@ type spyExecutor struct {
 	hasIndex         bool
 	tableRows        int64
 	transaction      rules.TransactionState
+	transactionErr   error
 	mysqlTransaction rules.MysqlTransactionState
 	lastQueryLimit   int
 	explainDeadline  bool
@@ -1196,6 +1201,9 @@ func (spy *spyExecutor) OpenSession(context.Context, string) (executor.Session, 
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
 	spy.calls.openSession++
+	if spy.openSessionErr != nil {
+		return nil, spy.openSessionErr
+	}
 	return &spySession{parent: spy}, nil
 }
 
@@ -1252,7 +1260,7 @@ func (spy *spyExecutor) TableRowCount(string, string) (int64, error) {
 func (spy *spyExecutor) TransactionState() (rules.TransactionState, error) {
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
-	return spy.transaction, nil
+	return spy.transaction, spy.transactionErr
 }
 
 func (spy *spyExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
@@ -1396,10 +1404,11 @@ func ruleHitIDs(input []model.RuleHit) []string {
 }
 
 type spyRateLimiter struct {
-	mu       sync.Mutex
-	allowed  int
-	released int
-	inFlight int
+	mu         sync.Mutex
+	allowed    int
+	released   int
+	inFlight   int
+	releaseErr error
 }
 
 func (limiter *spyRateLimiter) Allow(string, float64, int) (rules.RateLimitResult, error) {
@@ -1418,7 +1427,7 @@ func (limiter *spyRateLimiter) Release(string) error {
 	}
 	limiter.inFlight--
 	limiter.released++
-	return nil
+	return limiter.releaseErr
 }
 
 func (limiter *spyRateLimiter) snapshot() (allowed, released, inFlight int) {

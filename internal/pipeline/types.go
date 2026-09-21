@@ -53,12 +53,15 @@ type Request struct {
 
 // Response is the complete guarded SQL outcome.
 type Response struct {
-	Decision   model.Decision
-	Assessment model.Assessment
-	Result     *model.QueryResult
-	Redact     mask.RedactReport
-	ApprovalID string
-	AuditID    int64
+	Decision     model.Decision
+	Assessment   model.Assessment
+	Result       *model.QueryResult
+	Redact       mask.RedactReport
+	ApprovalID   string
+	AuditID      int64
+	ErrorCode    string `json:"error_code,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	Suggestion   string `json:"suggestion,omitempty"`
 }
 
 type IdentityAuthenticator interface {

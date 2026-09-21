@@ -651,29 +651,124 @@ func (run *pipelineRun) measure(stage string, operation func() error) error {
 }
 
 func (run *pipelineRun) setFailure(cause error) {
+	code, message, suggestion := internalFailurePresentation(cause)
 	run.response.Decision = model.DecisionDeny
 	run.response.Result = nil
 	run.response.Redact = mask.RedactReport{}
 	run.response.ApprovalID = ""
+	run.response.ErrorCode = string(code)
+	run.response.ErrorMessage = message
+	run.response.Suggestion = suggestion
 	run.response.Assessment.Decision = model.DecisionDeny
 	run.response.Assessment.Risk = model.RiskDeny
-	run.response.Assessment.Reason = cause.Error()
-	run.response.Assessment.Suggestion = "请修正请求或内部错误后重试"
+	run.response.Assessment.Reason = message
+	run.response.Assessment.Suggestion = suggestion
 	run.response.Assessment.StageLatency = run.stageLatency
 }
 
 func (run *pipelineRun) finish(ctx context.Context, operationError error) (Response, error) {
 	auditDecision := string(run.response.Decision)
+	_, databaseFailure := businessDatabaseError(operationError)
 	if operationError != nil {
-		run.setFailure(operationError)
-		auditDecision = "error"
+		if databaseError, ok := businessDatabaseError(operationError); ok {
+			run.setDatabaseFailure(databaseError)
+			auditDecision = string(model.DecisionError)
+		} else {
+			run.setFailure(operationError)
+			auditDecision = string(model.DecisionError)
+		}
 	}
 	finalError := operationError
 	if !run.audited {
 		finalError = run.audit(ctx, auditDecision, operationError)
 	}
+	if databaseFailure {
+		if _, ok := businessDatabaseError(finalError); ok {
+			finalError = nil
+		}
+	}
 	run.observe()
 	return run.response, finalError
+}
+
+func (run *pipelineRun) setDatabaseFailure(databaseError *executor.DBError) {
+	message := databaseError.Error()
+	suggestion := executor.Suggestion(databaseError.Code)
+	run.response.Decision = model.DecisionError
+	run.response.Result = nil
+	run.response.Redact = mask.RedactReport{}
+	run.response.ApprovalID = ""
+	run.response.ErrorCode = string(databaseError.Code)
+	run.response.ErrorMessage = message
+	run.response.Suggestion = suggestion
+	run.response.Assessment.Decision = model.DecisionError
+	run.response.Assessment.Reason = message
+	run.response.Assessment.Suggestion = suggestion
+	run.response.Assessment.StageLatency = run.stageLatency
+}
+
+// businessDatabaseError accepts DBErrors through ordinary wrappers and the
+// rule engine's classification sentinel. Any other leaf in a multi-error chain
+// rejects conversion so a DBError cannot hide a session-close,
+// reservation-release, or other internal failure.
+func businessDatabaseError(operationError error) (*executor.DBError, bool) {
+	if operationError == nil ||
+		errors.Is(operationError, ErrAuditUnavailable) ||
+		errors.Is(operationError, ErrBusinessCommitUncertain) {
+		return nil, false
+	}
+	var found *executor.DBError
+	valid := true
+	var visit func(error)
+	visit = func(current error) {
+		if current == nil || !valid {
+			return
+		}
+		if databaseError, ok := current.(*executor.DBError); ok {
+			if found != nil && found != databaseError {
+				valid = false
+				return
+			}
+			found = databaseError
+			return
+		}
+		if current == engine.ErrRuleEvaluation {
+			return
+		}
+		if joined, ok := current.(interface{ Unwrap() []error }); ok {
+			for _, child := range joined.Unwrap() {
+				visit(child)
+			}
+			return
+		}
+		if wrapped, ok := current.(interface{ Unwrap() error }); ok {
+			visit(wrapped.Unwrap())
+			return
+		}
+		valid = false
+	}
+	visit(operationError)
+	if !valid || found == nil {
+		return nil, false
+	}
+	return found, true
+}
+
+func internalFailurePresentation(cause error) (executor.DBErrorCode, string, string) {
+	switch {
+	case errors.Is(cause, ErrBusinessCommitUncertain):
+		return executor.DBErrorCodeCommitOutcomeUnknown,
+			"数据库提交结果未知",
+			"请勿自动重试；请先核对业务数据与审计记录"
+	case errors.Is(cause, ErrAuditUnavailable):
+		return executor.DBErrorCodeAuditUnavailable,
+			"审计服务不可用",
+			"请联系管理员恢复审计服务后重试"
+	default:
+		return executor.DBErrorCodeGatewayInternal,
+			"网关内部错误",
+			"请联系管理员并提供审计标识"
+	}
 }
 
 func (run *pipelineRun) observe() {
@@ -736,7 +831,14 @@ func (run *pipelineRun) audit(
 		return ErrAuditUnavailable
 	}
 	auditStarted := time.Now()
-	auditContext, cancel, contextError := statementContext(ctx, auditTimeoutMS(run.datasource))
+	auditParent := ctx
+	if ctx.Err() != nil {
+		auditParent = context.Background()
+	}
+	auditContext, cancel, contextError := statementContext(
+		auditParent,
+		auditTimeoutMS(run.datasource),
+	)
 	if contextError != nil {
 		run.setFailure(ErrAuditUnavailable)
 		return ErrAuditUnavailable

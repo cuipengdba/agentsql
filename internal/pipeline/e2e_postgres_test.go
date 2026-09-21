@@ -73,6 +73,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 
 	counted := &countingDatabaseExecutor{delegate: databaseExecutor}
 	allowedTables := []string{
+		"public.a4_missing_table",
 		"public.allowed_rows",
 		"public.big_rows",
 		"public.customers",
@@ -95,6 +96,21 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		require.Equal(t, 1, delta.query)
 		require.Zero(t, delta.execute)
 		require.Equal(t, "allow", ports.audit.last().Decision)
+	})
+
+	t.Run("A4 missing object is a business error", func(t *testing.T) {
+		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"SELECT * FROM public.a4_missing_table LIMIT 1"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionError, response.Decision)
+		require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.ErrorCode)
+		require.Equal(t, "表或对象不存在", response.ErrorMessage)
+		require.Equal(t, executor.Suggestion(executor.DBErrorCodeObjectNotFound), response.Suggestion)
+		require.Nil(t, response.Result)
+		require.Empty(t, response.Redact)
+		require.Equal(t, "error", ports.audit.last().Decision)
+		require.Equal(t, response.ErrorMessage, *ports.audit.last().ErrorMsg)
 	})
 
 	t.Run("E4 real explain dynamic gate", func(t *testing.T) {

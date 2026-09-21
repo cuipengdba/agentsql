@@ -8,13 +8,17 @@ type DBDialect string
 // ADMIN, or UNKNOWN.
 type StmtType string
 
-// Decision is a deny, approve, warn, or allow pipeline result.
+// Decision is a pipeline outcome. Deny, approve, warn, and allow are rule or
+// authorization outcomes; error is reserved for execution/database failures
+// and must never be emitted by the rule engine.
 type Decision string
 
 // RiskLevel ranks a result as deny (1), approve (2), warn (3), or info (4).
 type RiskLevel int
 
 const (
+	// DecisionError reports a classified execution/database failure.
+	DecisionError Decision = "error"
 	// DecisionDeny rejects execution.
 	DecisionDeny Decision = "deny"
 	// DecisionApprove requires human approval and does not execute immediately.

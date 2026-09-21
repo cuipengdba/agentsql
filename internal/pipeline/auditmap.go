@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -59,9 +60,23 @@ func mapAuditLog(
 		log.RowsReturned = intPointer(executionResult.RowCount)
 	}
 	if operationError != nil {
-		log.ErrorMsg = stringPointer(operationError.Error())
+		log.ErrorMsg = stringPointer(safeAuditErrorMessage(operationError))
 	}
 	return log, nil
+}
+
+func safeAuditErrorMessage(operationError error) string {
+	if databaseError, ok := businessDatabaseError(operationError); ok {
+		return databaseError.Error()
+	}
+	switch {
+	case errors.Is(operationError, ErrBusinessCommitUncertain):
+		return "数据库提交结果未知，请勿自动重试"
+	case errors.Is(operationError, ErrAuditUnavailable):
+		return "审计服务不可用"
+	default:
+		return "网关内部错误"
+	}
 }
 
 func normalizedAuditObjects(objects []model.ObjectRef) string {
