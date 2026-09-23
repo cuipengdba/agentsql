@@ -150,7 +150,7 @@ func TestScannerConfidenceStateMachine(t *testing.T) {
 func TestScannerNegativeColumnsAreNotSampledOrReported(t *testing.T) {
 	t.Parallel()
 	table := TableRef{Schema: "public", Table: "products"}
-	columns := []string{"description", "remark", "created_at", "uuid", "price"}
+	columns := []string{"processing_time_ms", "response_time", "total_pages", "product_code", "uuid"}
 	metadata := make([]ColumnMeta, len(columns))
 	for index, column := range columns {
 		metadata[index] = ColumnMeta{Schema: table.Schema, Table: table.Table, Column: column, Ordinal: index + 1}
@@ -167,28 +167,58 @@ func TestScannerNegativeColumnsAreNotSampledOrReported(t *testing.T) {
 	}
 }
 
-func TestScannerEnhancedGateProducesNoNewFindings(t *testing.T) {
+func TestScannerEnhancedGateProducesNewFindings(t *testing.T) {
 	t.Parallel()
 	table := TableRef{Schema: "public", Table: "enhanced_columns"}
-	columns := []string{
-		"birthdate", "username", "created_at", "risk_score", "product_name", "comment_count", "total_pages",
-	}
+	columns := []string{"price", "stock", "amount", "created_at", "ordered_at", "full_name", "name"}
 	metadata := make([]ColumnMeta, len(columns))
 	for index, column := range columns {
 		metadata[index] = ColumnMeta{
 			Schema: table.Schema, Table: table.Table, Column: column, DataType: "text", Ordinal: index + 1,
 		}
 	}
-	querier := &fakeLimitedQuerier{}
+	values := make(map[ColumnRef][]*string)
+	for _, column := range []string{"price", "stock", "amount"} {
+		values[ColumnRef{Schema: table.Schema, Table: table.Table, Column: column}] = stringPointers("42", "43", "44")
+	}
+	for _, column := range []string{"created_at", "ordered_at"} {
+		values[ColumnRef{Schema: table.Schema, Table: table.Table, Column: column}] = stringPointers("2026-09-01", "2026-09-02", "2026-09-03")
+	}
+	querier := &fakeLimitedQuerier{values: values}
 	result, err := NewScanner(&fakeSchemaLister{columns: metadata}, querier).Scan(
 		context.Background(), "ds-1", ScanRequest{Tables: []TableRef{table}},
 	)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
-	if result.Stats.CandidateColumns != 0 || result.Stats.SampledColumns != 0 ||
-		result.Stats.FindingsCount != 0 || len(result.Findings) != 0 || len(querier.calls) != 0 {
-		t.Fatalf("enhanced behavior leaked through disabled gate: stats=%#v findings=%#v calls=%#v", result.Stats, result.Findings, querier.calls)
+	if result.Stats.CandidateColumns != 7 || result.Stats.SampledColumns != 5 ||
+		result.Stats.FindingsCount != 7 || len(result.Findings) != 7 || len(querier.calls) != 1 {
+		t.Fatalf("enhanced scan stats/findings/calls = %#v %#v %d", result.Stats, result.Findings, len(querier.calls))
+	}
+	want := map[string]struct {
+		category Category
+		algo     mask.Algorithm
+	}{
+		"price":      {CategoryNumber, mask.AlgoBlock},
+		"stock":      {CategoryNumber, mask.AlgoBlock},
+		"amount":     {CategoryNumber, mask.AlgoBlock},
+		"created_at": {CategoryDate, mask.AlgoRange},
+		"ordered_at": {CategoryDate, mask.AlgoRange},
+		"full_name":  {CategoryGeneric, mask.AlgoBlock},
+		"name":       {CategoryGeneric, ""},
+	}
+	for _, finding := range result.Findings {
+		expected := want[finding.Column]
+		if finding.Category != expected.category {
+			t.Fatalf("%s category = %q, want %q", finding.Column, finding.Category, expected.category)
+		}
+		if expected.algo == "" {
+			if finding.Applicable || finding.RecommendedRule != nil || finding.Reason != GenericReviewReason {
+				t.Fatalf("broad generic finding = %#v", finding)
+			}
+		} else if !finding.Applicable || finding.RecommendedRule == nil || finding.RecommendedRule.Algo != expected.algo {
+			t.Fatalf("applicable finding = %#v, want algo %q", finding, expected.algo)
+		}
 	}
 }
 
@@ -390,7 +420,7 @@ func TestScannerBoundaryLimitsSucceedAtTwentyFiveHundredAndOneThousand(t *testin
 	metadata := make([]ColumnMeta, 0, MaxMetadataColumns)
 	for tableIndex, table := range tables {
 		for columnIndex := 0; columnIndex < MaxMetadataColumns/MaxTables; columnIndex++ {
-			prefix := "description"
+			prefix := "product_code"
 			if tableIndex < 2 {
 				prefix = "phone"
 			}

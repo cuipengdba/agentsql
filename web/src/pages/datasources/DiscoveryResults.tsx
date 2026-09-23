@@ -12,6 +12,7 @@ import {
   discoveryCategoryMeta,
   discoveryConfidenceMeta,
 } from "@/constants/labels";
+import { maskAlgorithmMeta } from "@/constants/sensitiveTypes";
 
 export function discoveryFindingKey(finding: DiscoveryFinding): string {
   return [finding.schema, finding.table, finding.column, finding.category].join("\u0000");
@@ -24,6 +25,18 @@ function evidenceText(finding: DiscoveryFinding): string {
   if (finding.eligible_samples === 0) return `${nameEvidence}；无有效样本`;
   const support = Math.round((finding.matched_samples / finding.eligible_samples) * 100);
   return `${nameEvidence}；样本支持 ${finding.matched_samples}/${finding.eligible_samples}（${support}%）`;
+}
+
+function recommendedRuleTag(finding: DiscoveryFinding) {
+  if (!finding.applicable || !finding.recommended_rule) return <Tag>仅发现</Tag>;
+  const rule = finding.recommended_rule;
+  const meta = maskAlgorithmMeta[rule.algo];
+  let summary = "";
+  if (rule.algo === "range" && rule.range) {
+    if (rule.range.bucket_width !== undefined) summary = ` · width=${rule.range.bucket_width}`;
+    else if (rule.range.granularity) summary = ` · granularity=${rule.range.granularity}`;
+  }
+  return <Tag color={meta?.color}>{meta?.label || rule.algo}{summary}</Tag>;
 }
 
 interface DiscoveryResultsProps {
@@ -73,6 +86,11 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
       title: "证据",
       key: "evidence",
       render: (_, finding) => <span className="dsc-evidence">{evidenceText(finding)}</span>,
+    },
+    {
+      title: "建议算法",
+      key: "recommended_rule",
+      render: (_, finding) => recommendedRuleTag(finding),
     },
     {
       title: "一键脱敏",
@@ -142,6 +160,7 @@ export function DiscoveryResults({ result, selectedKeys, statuses, onSelectionCh
               <div className="dsc-card-tags">
                 <Tag color={discoveryCategoryMeta[finding.category].color}>{configLabel(discoveryCategoryMeta, finding.category)}</Tag>
                 <Tag color={discoveryConfidenceMeta[finding.confidence].color}>置信度 {configLabel(discoveryConfidenceMeta, finding.confidence)}</Tag>
+                {recommendedRuleTag(finding)}
                 {status ? <Tag color={discoveryApplyStatusMeta[status].color}>{configLabel(discoveryApplyStatusMeta, status)}</Tag> : null}
               </div>
               <p>{evidenceText(finding)}</p>

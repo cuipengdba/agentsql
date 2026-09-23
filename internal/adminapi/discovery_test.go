@@ -78,8 +78,7 @@ func TestDiscoveryRouteBearerDTOAuditAndSentinel(t *testing.T) {
 	for _, category := range []string{"number", "date", "generic"} {
 		status, response = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover", fixture.adminToken,
 			`{"tables":[{"schema":"public","table":"customers"}],"categories":["`+category+`"]}`)
-		require.Equal(t, http.StatusUnprocessableEntity, status, response)
-		require.Contains(t, response, "DISCOVERY_UNKNOWN_CATEGORY")
+		require.Equal(t, http.StatusOK, status, response)
 	}
 }
 
@@ -200,7 +199,7 @@ func TestDiscoveryApplyAcceptsAllSixRunnableCategories(t *testing.T) {
 	require.Contains(t, response, "DISCOVERY_NOT_APPLICABLE")
 }
 
-func TestDiscoveryApplyRejectsRangeNumberAndDate(t *testing.T) {
+func TestDiscoveryApplyRejectsNonRecommendedShapes(t *testing.T) {
 	tests := []struct {
 		name string
 		item string
@@ -210,9 +209,9 @@ func TestDiscoveryApplyRejectsRangeNumberAndDate(t *testing.T) {
 		{name: "hash algorithm", item: `{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"hash"}`},
 		{name: "number sensitive type", item: `{"schema":"public","table":"customers","column":"amount","category":"phone","sensitive_type":"number","algo":"mask"}`},
 		{name: "date sensitive type", item: `{"schema":"public","table":"customers","column":"created_at","category":"birthdate","sensitive_type":"date","algo":"mask"}`},
-		{name: "gated number range", item: `{"schema":"public","table":"customers","column":"amount","category":"number","sensitive_type":"number","algo":"range","range":{"bucket_width":10}}`},
-		{name: "gated date range", item: `{"schema":"public","table":"customers","column":"created_at","category":"date","sensitive_type":"date","algo":"range","range":{"granularity":"month"}}`},
-		{name: "gated generic block", item: `{"schema":"public","table":"customers","column":"username","category":"generic","sensitive_type":"generic","algo":"block"}`},
+		{name: "number range missing width", item: `{"schema":"public","table":"customers","column":"amount","category":"number","sensitive_type":"number","algo":"range"}`},
+		{name: "date wrong granularity", item: `{"schema":"public","table":"customers","column":"created_at","category":"date","sensitive_type":"date","algo":"range","range":{"granularity":"year"}}`},
+		{name: "generic mask", item: `{"schema":"public","table":"customers","column":"username","category":"generic","sensitive_type":"generic","algo":"mask"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -226,6 +225,31 @@ func TestDiscoveryApplyRejectsRangeNumberAndDate(t *testing.T) {
 			require.Empty(t, rules)
 		})
 	}
+}
+
+func TestDiscoveryApplyAcceptsEnhancedDisabledDrafts(t *testing.T) {
+	fixture := newAdminFixture(t)
+	body := `{"items":[` +
+		`{"schema":"public","table":"orders","column":"price","category":"number","sensitive_type":"number","algo":"block"},` +
+		`{"schema":"public","table":"orders","column":"stock","category":"number","sensitive_type":"number","algo":"range","range":{"bucket_width":50}},` +
+		`{"schema":"public","table":"orders","column":"created_at","category":"date","sensitive_type":"date","algo":"range","range":{"granularity":"month"}},` +
+		`{"schema":"public","table":"customers","column":"full_name","category":"generic","sensitive_type":"generic","algo":"block"}` +
+		`]}`
+	status, response := fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, body)
+	require.Equal(t, http.StatusOK, status, response)
+	require.Contains(t, response, `"created":4`)
+	rules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
+	require.NoError(t, err)
+	require.Len(t, rules, 4)
+	byColumn := make(map[string]model.MaskRule, len(rules))
+	for _, rule := range rules {
+		require.False(t, rule.Enabled)
+		byColumn[rule.ColumnName] = rule
+	}
+	require.Equal(t, "block", byColumn["price"].Algo)
+	require.Equal(t, int64(50), *byColumn["stock"].RangeBucketWidth)
+	require.Equal(t, "month", *byColumn["created_at"].RangeGranularity)
+	require.Equal(t, "block", byColumn["full_name"].Algo)
 }
 
 func TestDiscoveryApplyTypedStoreErrorsMapTo422(t *testing.T) {

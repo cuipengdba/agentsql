@@ -51,7 +51,10 @@ func TestDiscoveryMySQL8EndToEndE2E(t *testing.T) {
 
 	t.Run("information_schema backticks LIMIT and discovery", func(t *testing.T) {
 		service := newDatabaseDiscoveryService(t, datasource, password)
-		result, err := service.Discover(ctx, "mysql-admin", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: database, Table: "customers"}}, SampleRows: 3})
+		result, err := service.Discover(ctx, "mysql-admin", datasource.ID, discovery.ScanRequest{
+			Tables: []discovery.TableRef{{Schema: database, Table: "customers"}}, SampleRows: 3,
+			Categories: legacyDiscoveryCategories(),
+		})
 		require.NoError(t, err)
 		require.Equal(t, 9, result.Stats.ColumnsSeen)
 		require.Equal(t, 7, result.Stats.CandidateColumns)
@@ -64,7 +67,10 @@ func TestDiscoveryMySQL8EndToEndE2E(t *testing.T) {
 	t.Run("sampling false performs zero sample reads", func(t *testing.T) {
 		service := newDatabaseDiscoveryService(t, datasource, password)
 		no := false
-		result, err := service.Discover(ctx, "mysql-no-sample", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: database, Table: "customers"}}, Sampling: &no})
+		result, err := service.Discover(ctx, "mysql-no-sample", datasource.ID, discovery.ScanRequest{
+			Tables: []discovery.TableRef{{Schema: database, Table: "customers"}}, Sampling: &no,
+			Categories: legacyDiscoveryCategories(),
+		})
 		require.NoError(t, err)
 		require.Zero(t, result.Stats.SampledColumns)
 		require.Zero(t, result.Stats.SampledValuesCount)
@@ -98,12 +104,12 @@ func TestDiscoveryPostgres18EndToEndE2E(t *testing.T) {
 	for _, statement := range []string{
 		"CREATE SCHEMA tenant_a",
 		"CREATE SCHEMA tenant_b",
-		"CREATE TABLE tenant_a.customers (id integer primary key, phone text, id_card text, legacy_id_card text, bank_card text, client_ip inet, ip_network cidr, birth_date date, description text)",
+		"CREATE TABLE tenant_a.customers (id integer primary key, phone text, id_card text, legacy_id_card text, bank_card text, client_ip inet, ip_network cidr, birth_date date, description text, price numeric, stock integer, amount numeric, created_at timestamp, ordered_at date, full_name text, name text)",
 		"CREATE TABLE tenant_b.customers (id integer primary key, email text)",
 		"INSERT INTO tenant_a.customers VALUES " +
-			"(1,'13812345678','11010519491231002X','130503670401001','4111 1111-1111 1111','192.0.2.10','198.51.100.0/24','2000-02-29','" + discoveryE2ESentinel + "')," +
-			"(2,'13987654321','11010519491231002X','130503670401001','4111111111111111','2001:db8::1','2001:db8::/48','1990-01-02','ordinary')," +
-			"(3,'13711112222','11010519491231002X','130503670401001','4111-1111-1111-1111','203.0.113.9','203.0.113.0/24','1988-12-31','ordinary')",
+			"(1,'13812345678','11010519491231002X','130503670401001','4111 1111-1111 1111','192.0.2.10','198.51.100.0/24','2000-02-29','" + discoveryE2ESentinel + "',19.99,10,49.99,'2026-09-01 08:30:00','2026-09-02','Alice Example','Alice')," +
+			"(2,'13987654321','11010519491231002X','130503670401001','4111111111111111','2001:db8::1','2001:db8::/48','1990-01-02','ordinary',29.99,20,59.99,'2026-09-03 09:30:00','2026-09-04','Bob Example','Bob')," +
+			"(3,'13711112222','11010519491231002X','130503670401001','4111-1111-1111-1111','203.0.113.9','203.0.113.0/24','1988-12-31','ordinary',39.99,30,69.99,'2026-09-05 10:30:00','2026-09-06','Carol Example','Carol')",
 		"INSERT INTO tenant_b.customers VALUES (1,'a@example.com'),(2,'b@example.com'),(3,'c@example.com')",
 	} {
 		_, err = writer.Execute(ctx, statement)
@@ -115,10 +121,11 @@ func TestDiscoveryPostgres18EndToEndE2E(t *testing.T) {
 		result, err := service.Discover(ctx, "pg-admin", datasource.ID, discovery.ScanRequest{Tables: []discovery.TableRef{{Schema: "tenant_a", Table: "customers"}, {Schema: "tenant_b", Table: "customers"}}, SampleRows: 3})
 		require.NoError(t, err)
 		require.Equal(t, 2, result.Stats.TablesScanned)
-		require.Equal(t, 8, result.Stats.CandidateColumns)
+		require.Equal(t, 16, result.Stats.CandidateColumns)
 		requireDiscoveryCategories(t, result, map[discovery.Category]int{
 			discovery.CategoryPhone: 1, discovery.CategoryEmail: 1, discovery.CategoryIDCard: 2,
 			discovery.CategoryBankCard: 1, discovery.CategoryIP: 2, discovery.CategoryBirthdate: 1,
+			discovery.CategoryNumber: 3, discovery.CategoryDate: 2, discovery.CategoryGeneric: 3,
 		})
 		require.NotContains(t, fmt.Sprintf("%v", result), discoveryE2ESentinel)
 	})
@@ -149,12 +156,49 @@ func requireDiscoveryCategories(t *testing.T, result discovery.ScanResult, expec
 	actual := make(map[discovery.Category]int)
 	for _, finding := range result.Findings {
 		actual[finding.Category]++
-		require.True(t, finding.Applicable, finding.Column)
-		require.NotNil(t, finding.RecommendedRule, finding.Column)
-		require.Equal(t, string(finding.Category), string(finding.RecommendedRule.SensitiveType), finding.Column)
-		require.Equal(t, "mask", string(finding.RecommendedRule.Algo), finding.Column)
+		switch finding.Category {
+		case discovery.CategoryNumber:
+			require.True(t, finding.Applicable, finding.Column)
+			require.NotNil(t, finding.RecommendedRule, finding.Column)
+			require.Equal(t, "number", string(finding.RecommendedRule.SensitiveType), finding.Column)
+			require.Equal(t, "block", string(finding.RecommendedRule.Algo), finding.Column)
+			require.Nil(t, finding.RecommendedRule.Range, finding.Column)
+		case discovery.CategoryDate:
+			require.True(t, finding.Applicable, finding.Column)
+			require.NotNil(t, finding.RecommendedRule, finding.Column)
+			require.Equal(t, "date", string(finding.RecommendedRule.SensitiveType), finding.Column)
+			require.Equal(t, "range", string(finding.RecommendedRule.Algo), finding.Column)
+			require.NotNil(t, finding.RecommendedRule.Range, finding.Column)
+			require.Equal(t, "month", finding.RecommendedRule.Range.Granularity, finding.Column)
+		case discovery.CategoryGeneric:
+			if finding.Column == "full_name" {
+				require.True(t, finding.Applicable, finding.Column)
+				require.NotNil(t, finding.RecommendedRule, finding.Column)
+				require.Equal(t, "block", string(finding.RecommendedRule.Algo), finding.Column)
+			} else {
+				require.False(t, finding.Applicable, finding.Column)
+				require.Nil(t, finding.RecommendedRule, finding.Column)
+				require.Equal(t, discovery.GenericReviewReason, finding.Reason, finding.Column)
+			}
+		default:
+			require.True(t, finding.Applicable, finding.Column)
+			require.NotNil(t, finding.RecommendedRule, finding.Column)
+			require.Equal(t, string(finding.Category), string(finding.RecommendedRule.SensitiveType), finding.Column)
+			require.Equal(t, "mask", string(finding.RecommendedRule.Algo), finding.Column)
+		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func legacyDiscoveryCategories() []discovery.Category {
+	return []discovery.Category{
+		discovery.CategoryPhone,
+		discovery.CategoryEmail,
+		discovery.CategoryIDCard,
+		discovery.CategoryBankCard,
+		discovery.CategoryIP,
+		discovery.CategoryBirthdate,
+	}
 }
 
 func newDatabaseDiscoveryService(t *testing.T, datasource model.Datasource, password string) *Service {

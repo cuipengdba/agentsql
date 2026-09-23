@@ -16,8 +16,8 @@ const (
 	MaxSampleValues          = 1000
 
 	// discoveryEnhancedEnabled is the single rollout gate for the nine-category
-	// discovery behavior. S1 deliberately leaves it disabled.
-	discoveryEnhancedEnabled = false
+	// discovery behavior. B4/S3 enables the completed end-to-end path.
+	discoveryEnhancedEnabled = true
 )
 
 // TableRef is a metadata-confirmed table identity. It is deliberately not a

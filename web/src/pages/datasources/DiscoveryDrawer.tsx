@@ -23,6 +23,7 @@ import { useNavigate } from "react-router-dom";
 import {
   applyDiscoveryDrafts,
   discoverSensitiveColumns,
+  discoveryApplyItemFromFinding,
   discoveryApplyResponseFromError,
   type DiscoveryApplyResponse,
   type DiscoveryApplyItemView,
@@ -32,7 +33,7 @@ import {
 } from "@/api/discovery";
 import type { DatasourceView } from "@/api/types";
 import { discoveryApplyStatusMeta } from "@/constants/labels";
-import { sensitiveTypes } from "@/constants/sensitiveTypes";
+import { discoverySensitiveTypes } from "@/constants/sensitiveTypes";
 import { httpStatus, isCanceled } from "@/pages/config/utils";
 
 import { DiscoveryResults, discoveryFindingKey } from "./DiscoveryResults";
@@ -188,7 +189,7 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
         tables: normalized,
         sampling,
         ...(sampling ? { sample_rows: sampleRows } : {}),
-        categories: [...sensitiveTypes],
+        categories: [...discoverySensitiveTypes],
       }, controller.signal);
       if (controller.signal.aborted) return;
       setResult(response);
@@ -218,14 +219,7 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
     setErrorText("");
     try {
       const response = await applyDiscoveryDrafts(datasource.id, {
-        items: selectedFindings.map((finding) => ({
-          schema: finding.schema,
-          table: finding.table,
-          column: finding.column,
-          category: finding.category,
-          sensitive_type: finding.recommended_rule!.sensitive_type,
-          algo: finding.recommended_rule!.algo,
-        })),
+        items: selectedFindings.map(discoveryApplyItemFromFinding),
       }, controller.signal);
       if (!controller.signal.aborted) acceptOutcome(response);
     } catch (error: unknown) {

@@ -14,7 +14,7 @@ export const DATE_SENSITIVE_TYPE = "date" as const;
 export const genericSensitiveTypeDefinition = {
   value: GENERIC_SENSITIVE_TYPE,
   label: "通用敏感值",
-  color: "purple",
+  color: "#5B7A9D",
   example: "h.9f8e7d6c…",
   description: "不依赖手机号/证件等格式，对整列原值整体哈希或阻断；仅支持 hash/block 算法",
 } as const;
@@ -23,14 +23,14 @@ export const rangeSensitiveTypeDefinitions = [
   {
     value: NUMBER_SENSITIVE_TYPE,
     label: "数值",
-    color: "geekblue",
+    color: "#D48806",
     example: "[40,50)",
     description: "将数值按固定宽度分桶，保留粗粒度分布",
   },
   {
     value: DATE_SENSITIVE_TYPE,
     label: "日期",
-    color: "lime",
+    color: "#13A8A8",
     example: "1990 / 1990Q3 / 1990-08",
     description: "将日期截断到年、季度或月份粒度",
   },
@@ -46,10 +46,16 @@ export type SensitiveType = (typeof sensitiveTypeDefinitions)[number]["value"];
 export type MaskSensitiveType = (typeof maskSensitiveTypeDefinitions)[number]["value"];
 export type RangeSensitiveType = (typeof rangeSensitiveTypeDefinitions)[number]["value"];
 
-// 兼容 discovery 的既有导入面：发现流程永远只使用六类，不包含 generic。
+// Mask is format-aware for the original six types. Discovery scans all nine
+// categories, including the block/range-capable enhanced types.
 export const sensitiveTypes: readonly MaskSensitiveType[] = maskSensitiveTypeDefinitions.map(({ value }) => value);
 export const rangeSensitiveTypes: readonly RangeSensitiveType[] = rangeSensitiveTypeDefinitions.map(({ value }) => value);
 export const allSensitiveTypes: readonly SensitiveType[] = sensitiveTypeDefinitions.map(({ value }) => value);
+export const discoverySensitiveTypes: readonly SensitiveType[] = [
+  ...sensitiveTypes,
+  ...rangeSensitiveTypes,
+  GENERIC_SENSITIVE_TYPE,
+];
 
 export const sensitiveTypeMeta = Object.fromEntries(
   sensitiveTypeDefinitions.map(({ value, ...meta }) => [value, meta]),

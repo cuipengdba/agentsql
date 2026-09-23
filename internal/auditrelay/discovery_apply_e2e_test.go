@@ -30,24 +30,38 @@ func TestDiscoveryApplySeparateStoreRelaysIdempotentlyPostgres18(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
 
 	width := int64(50)
-	outcome, recorded, err := opened.MaskRules().ApplyDiscoveryDraftsWithAudit(ctx, "ds-1", []store.DiscoveryDraft{{
-		ID: "relay-range", TableName: "orders", ColumnName: "amount",
-		SensitiveType: "number", Algo: "range", RangeBucketWidth: &width,
-	}}, func(outcome store.DiscoveryApplyOutcome) (model.AuditLog, error) {
+	outcome, recorded, err := opened.MaskRules().ApplyDiscoveryDraftsWithAudit(ctx, "ds-1", []store.DiscoveryDraft{
+		{ID: "relay-number-block", TableName: "orders", ColumnName: "price", SensitiveType: "number", Algo: "block"},
+		{ID: "relay-number-range", TableName: "orders", ColumnName: "stock", SensitiveType: "number", Algo: "range", RangeBucketWidth: &width},
+		{ID: "relay-date-range", TableName: "orders", ColumnName: "created_at", SensitiveType: "date", Algo: "range", RangeGranularity: "month"},
+		{ID: "relay-generic-block", TableName: "customers", ColumnName: "full_name", SensitiveType: "generic", Algo: "block"},
+	}, func(outcome store.DiscoveryApplyOutcome) (model.AuditLog, error) {
 		action, actorType, actorID, datasource := "discover_apply", "admin", "admin", "ds-1"
-		details := `{"operation_id":"relay-operation","created":1,"rules":[{"table":"orders","column":"amount","sensitive_type":"number","algo":"range","range":{"bucket_width":50}}]}`
+		details := `{"operation_id":"relay-operation","created":4,"rules":[{"table":"orders","column":"price","sensitive_type":"number","algo":"block"},{"table":"orders","column":"stock","sensitive_type":"number","algo":"range","range":{"bucket_width":50}},{"table":"orders","column":"created_at","sensitive_type":"date","algo":"range","range":{"granularity":"month"}},{"table":"customers","column":"full_name","sensitive_type":"generic","algo":"block"}]}`
 		return model.AuditLog{
 			DatasourceID: &datasource, Decision: "allow", Action: &action,
 			ActorType: &actorType, ActorID: &actorID, DetailsJSON: &details,
 		}, nil
 	})
 	require.NoError(t, err)
-	require.Len(t, outcome.Created, 1)
+	require.Len(t, outcome.Created, 4)
 	require.Zero(t, recorded.ID, "separate apply must report queued audit, not synchronous delivery")
-	stored, err := opened.MaskRules().Get(ctx, "relay-range")
+	stored, err := opened.MaskRules().Get(ctx, "relay-number-range")
 	require.NoError(t, err)
 	require.False(t, stored.Enabled)
 	require.Equal(t, int64(50), *stored.RangeBucketWidth)
+	stored, err = opened.MaskRules().Get(ctx, "relay-number-block")
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+	require.Equal(t, "block", stored.Algo)
+	stored, err = opened.MaskRules().Get(ctx, "relay-date-range")
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+	require.Equal(t, "month", *stored.RangeGranularity)
+	stored, err = opened.MaskRules().Get(ctx, "relay-generic-block")
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+	require.Equal(t, "block", stored.Algo)
 
 	page, err := opened.AuditLogs().Page(ctx, 1, 10)
 	require.NoError(t, err)
@@ -64,6 +78,7 @@ func TestDiscoveryApplySeparateStoreRelaysIdempotentlyPostgres18(t *testing.T) {
 	require.Equal(t, "discover_apply", *page.List[0].Action)
 	require.NotNil(t, page.List[0].EventUUID)
 	require.Contains(t, *page.List[0].DetailsJSON, `"bucket_width":50`)
+	require.Contains(t, *page.List[0].DetailsJSON, `"granularity":"month"`)
 	done, err := opened.Outbox().Delivered(ctx, *page.List[0].EventUUID)
 	require.NoError(t, err)
 	require.True(t, done)

@@ -256,7 +256,7 @@ func TestCanonicalizerAllowsHashCapabilityButAutomaticAdviceNeverUsesIt(t *testi
 	}
 }
 
-func TestLegacyGateAdviseAndValidateRemainSixMaskOnly(t *testing.T) {
+func TestEnabledGateAdvisePreservesSixMaskDefaultsAndAddsEnhancedDefaults(t *testing.T) {
 	t.Parallel()
 	for _, category := range legacyCategories {
 		rule, applicable, reason, err := Advise(category)
@@ -267,9 +267,15 @@ func TestLegacyGateAdviseAndValidateRemainSixMaskOnly(t *testing.T) {
 			t.Fatalf("ValidateApplicable(%q) error = %v", category, err)
 		}
 	}
-	for _, category := range []Category{CategoryNumber, CategoryDate, CategoryGeneric} {
-		if rule, applicable, _, err := Advise(category); rule != nil || applicable || !isError(err, ErrUnknownCategory) {
-			t.Fatalf("enhanced Advise(%q) leaked through gate: %#v %v %v", category, rule, applicable, err)
+	wants := map[Category]mask.Algorithm{
+		CategoryNumber:  mask.AlgoBlock,
+		CategoryDate:    mask.AlgoRange,
+		CategoryGeneric: mask.AlgoBlock,
+	}
+	for category, want := range wants {
+		rule, applicable, reason, err := Advise(category)
+		if err != nil || !applicable || reason != "" || rule == nil || rule.Algo != want {
+			t.Fatalf("Advise(%q) = %#v %v %q %v; want algo %q", category, rule, applicable, reason, err, want)
 		}
 	}
 	for _, rule := range []RecommendedRule{

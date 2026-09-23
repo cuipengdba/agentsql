@@ -279,7 +279,7 @@ func TestAdminMaskRuleBlockCRUDWithoutHashKey(t *testing.T) {
 	}
 }
 
-func TestDiscoveryApplyRejectsBlockWithoutWriteOrAudit(t *testing.T) {
+func TestDiscoveryApplyGenericBlockCreatesDisabledDraft(t *testing.T) {
 	fixture := newAdminFixture(t)
 	beforeRules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
 	require.NoError(t, err)
@@ -292,14 +292,24 @@ func TestDiscoveryApplyRejectsBlockWithoutWriteOrAudit(t *testing.T) {
 		fixture.adminToken,
 		`{"items":[{"schema":"public","table":"customers","column":"secret","category":"generic","sensitive_type":"generic","algo":"block"}]}`,
 	)
-	require.Equal(t, http.StatusUnprocessableEntity, status, body)
-	require.Contains(t, body, "DISCOVERY_NOT_APPLICABLE")
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, `"algo":"block"`)
 	afterRules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
 	require.NoError(t, err)
-	require.Equal(t, beforeRules, afterRules)
+	require.Len(t, afterRules, len(beforeRules)+1)
+	var created *model.MaskRule
+	for index := range afterRules {
+		if afterRules[index].ColumnName == "secret" {
+			created = &afterRules[index]
+		}
+	}
+	require.NotNil(t, created, "generic block draft must be persisted")
+	require.Equal(t, "generic", string(created.SensitiveType))
+	require.Equal(t, "block", string(created.Algo))
+	require.False(t, created.Enabled, "discovery drafts must remain disabled until a human enables them")
 	afterAudits, err := fixture.store.AuditLogs().Page(context.Background(), 1, 10)
 	require.NoError(t, err)
-	require.Equal(t, beforeAudits.Total, afterAudits.Total)
+	require.Equal(t, beforeAudits.Total+1, afterAudits.Total)
 }
 
 func TestAdminMaskRuleCanonicalScopeAndConflict(t *testing.T) {

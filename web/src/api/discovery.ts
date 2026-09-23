@@ -36,6 +36,8 @@ export interface DiscoveryRecommendedRule {
   };
 }
 
+export type DiscoveryRange = NonNullable<DiscoveryRecommendedRule["range"]>;
+
 export interface DiscoveryFinding {
   schema: string;
   table: string;
@@ -96,6 +98,7 @@ export interface DiscoveryApplyItem {
   category: DiscoveryCategory;
   sensitive_type: SensitiveType;
   algo: DiscoveryAlgorithm;
+  range?: DiscoveryRange;
 }
 
 export interface DiscoveryApplyRequest {
@@ -109,6 +112,7 @@ export interface DiscoveryApplyItemView {
   category?: DiscoveryCategory;
   sensitive_type: SensitiveType;
   algo: DiscoveryAlgorithm;
+  range?: DiscoveryRange;
   rule_id?: string;
 }
 
@@ -128,6 +132,21 @@ export interface DiscoveryApplyResponse {
   conflicts: DiscoveryApplyItemView[];
   ambiguous: DiscoveryApplyItemView[];
   counts: DiscoveryApplyCounts;
+}
+
+export function discoveryApplyItemFromFinding(finding: DiscoveryFinding): DiscoveryApplyItem {
+  if (!finding.applicable || !finding.recommended_rule) {
+    throw new Error("Discovery finding is not applicable");
+  }
+  return {
+    schema: finding.schema,
+    table: finding.table,
+    column: finding.column,
+    category: finding.category,
+    sensitive_type: finding.recommended_rule.sensitive_type,
+    algo: finding.recommended_rule.algo,
+    ...(finding.recommended_rule.range ? { range: { ...finding.recommended_rule.range } } : {}),
+  };
 }
 
 export function discoverSensitiveColumns(

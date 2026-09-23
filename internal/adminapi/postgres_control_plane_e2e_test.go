@@ -85,7 +85,14 @@ CREATE TABLE public.customers (
   id integer NOT NULL,
   name text NOT NULL,
   email text NOT NULL,
+  phone text NOT NULL,
   balance integer NOT NULL,
+  price numeric NOT NULL,
+  stock integer NOT NULL,
+  amount numeric NOT NULL,
+  created_at timestamp NOT NULL,
+  ordered_at date NOT NULL,
+  full_name text NOT NULL,
   id_card text NOT NULL,
   legacy_id_card text NOT NULL,
   bank_card_plain text NOT NULL,
@@ -97,15 +104,16 @@ CREATE TABLE public.customers (
 	require.NoError(t, err)
 	_, err = businessPool.Exec(ctx, `
 INSERT INTO public.customers (
-  id, name, email, balance, id_card, legacy_id_card, bank_card_plain, bank_card_formatted,
+  id, name, email, phone, balance, price, stock, amount, created_at, ordered_at, full_name,
+  id_card, legacy_id_card, bank_card_plain, bank_card_formatted,
   client_ip, ip_network, birth_date
 )
 VALUES
- (1, '`+hashRaw+`', 'alice@example.com', 100, '11010519491231002X', '130503670401001',
+ (1, '`+hashRaw+`', 'alice@example.com', '13812345678', 100, 19.99, 10, 49.99, TIMESTAMP '2026-09-01 08:30:00', DATE '2026-09-02', 'Alice Example', '11010519491231002X', '130503670401001',
   '4111111111111111', '4111 1111-1111 1111', '192.0.2.10', '198.51.100.0/24', DATE '2000-02-29'),
- (2, 'Ordinary Bob', 'bob@example.com', 200, '11010519491231002X', '130503670401001',
+ (2, 'Ordinary Bob', 'bob@example.com', '13987654321', 200, 29.99, 20, 59.99, TIMESTAMP '2026-09-03 09:30:00', DATE '2026-09-04', 'Bob Example', '11010519491231002X', '130503670401001',
   '5555555555554444', '5555-5555-5555-4444', '2001:db8::1', '2001:db8::/48', DATE '1990-01-02'),
- (3, 'Ordinary Carol', 'carol@example.com', 300, 'PG_CONTROL_INVALID_ID_SENTINEL_1c93', '130503670401001',
+ (3, 'Ordinary Carol', 'carol@example.com', '13711112222', 300, 39.99, 30, 69.99, TIMESTAMP '2026-09-05 10:30:00', DATE '2026-09-06', 'Carol Example', 'PG_CONTROL_INVALID_ID_SENTINEL_1c93', '130503670401001',
   '378282246310005', '3782 822463 10005', '203.0.113.9', '203.0.113.0/24', DATE '1988-12-31')`)
 	require.NoError(t, err)
 
@@ -508,13 +516,14 @@ hashNotificationVerified:
 	// projection, handler logging, and notification projection.
 	rawSentinels := []string{
 		hashRaw,
+		"13812345678", "19.99", "2026-09-01 08:30:00", "Alice Example",
 		"11010519491231002X", "130503670401001", "4111111111111111", "4111 1111-1111 1111",
 		"192.0.2.10", "192.0.2.10/32", "198.51.100.0/24", "2000-02-29", "2000-02-29T00:00:00Z",
 	}
 	discoverBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
 		"/api/v1/datasources/pg-demo/discover", adminAuthorization, map[string]any{
 			"tables":      []map[string]string{{"schema": "public", "table": "customers"}},
-			"categories":  []string{"idcard", "bankcard", "ip", "birthdate"},
+			"categories":  []string{"phone", "email", "idcard", "bankcard", "ip", "birthdate", "number", "date", "generic"},
 			"sample_rows": 3,
 		})
 	var discovered adminE2EEnvelope[discovery.ScanResult]
@@ -523,21 +532,35 @@ hashNotificationVerified:
 	wantedColumns := map[string]bool{
 		"id_card": true, "legacy_id_card": true, "bank_card_plain": true, "bank_card_formatted": true,
 		"client_ip": true, "ip_network": true, "birth_date": true,
+		"price": true, "stock": true, "amount": true,
+		"created_at": true, "ordered_at": true, "full_name": true,
 	}
+	wantCategories := map[discovery.Category]int{
+		discovery.CategoryPhone: 1, discovery.CategoryEmail: 1, discovery.CategoryIDCard: 2,
+		discovery.CategoryBankCard: 2, discovery.CategoryIP: 2, discovery.CategoryBirthdate: 1,
+		discovery.CategoryNumber: 4, discovery.CategoryDate: 2, discovery.CategoryGeneric: 2,
+	}
+	gotCategories := make(map[discovery.Category]int, len(wantCategories))
 	applyItems := make([]map[string]any, 0, len(wantedColumns))
 	for _, finding := range discovered.Data.Findings {
+		gotCategories[finding.Category]++
 		if !wantedColumns[finding.Column] {
 			continue
 		}
 		require.True(t, finding.Applicable, finding.Column)
 		require.NotNil(t, finding.RecommendedRule, finding.Column)
-		applyItems = append(applyItems, map[string]any{
+		item := map[string]any{
 			"schema": finding.Schema, "table": finding.Table, "column": finding.Column,
 			"category":       string(finding.Category),
 			"sensitive_type": string(finding.RecommendedRule.SensitiveType),
 			"algo":           string(finding.RecommendedRule.Algo),
-		})
+		}
+		if finding.RecommendedRule.Range != nil {
+			item["range"] = finding.RecommendedRule.Range
+		}
+		applyItems = append(applyItems, item)
 	}
+	require.Equal(t, wantCategories, gotCategories, string(discoverBody))
 	require.Len(t, applyItems, len(wantedColumns), string(discoverBody))
 	managementEvents, cancelManagementEvents := runtime.Events.SubscribeLive()
 	applyBody := adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
@@ -574,6 +597,23 @@ hashNotificationVerified:
 		require.False(t, storedRule.Enabled, storedRule.ColumnName)
 		require.Empty(t, storedRule.SchemaName)
 		require.Equal(t, "customers", storedRule.TableName)
+		switch storedRule.ColumnName {
+		case "price", "stock", "amount":
+			require.Equal(t, "number", storedRule.SensitiveType)
+			require.Equal(t, "block", storedRule.Algo)
+			require.Nil(t, storedRule.RangeBucketWidth)
+			continue
+		case "created_at", "ordered_at":
+			require.Equal(t, "date", storedRule.SensitiveType)
+			require.Equal(t, "range", storedRule.Algo)
+			require.NotNil(t, storedRule.RangeGranularity)
+			require.Equal(t, "month", *storedRule.RangeGranularity)
+			continue
+		case "full_name":
+			require.Equal(t, "generic", storedRule.SensitiveType)
+			require.Equal(t, "block", storedRule.Algo)
+			continue
+		}
 		adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPut,
 			"/api/v1/mask_rules/"+storedRule.ID, adminAuthorization, map[string]any{
 				"datasource_id": "pg-demo", "schema_name": storedRule.SchemaName,
@@ -582,7 +622,7 @@ hashNotificationVerified:
 			})
 		enabledCount++
 	}
-	require.Equal(t, len(wantedColumns), enabledCount)
+	require.Equal(t, 7, enabledCount)
 
 	for {
 		select {

@@ -23,15 +23,15 @@ func TestClassifyColumnName(t *testing.T) {
 		{name: "long birth phrase", column: "verified_date_of_birth", category: CategoryBirthdate, candidate: true, signalName: "column_name_strong_birthdate"},
 		{name: "medium tel", column: "contact_tel", category: CategoryPhone, candidate: true, signalName: "column_name_medium_phone"},
 		{name: "medium card no", column: "payment_card_no", category: CategoryBankCard, candidate: true, signalName: "column_name_medium_bankcard"},
-		{name: "username excluded", column: "username"},
-		{name: "bare name excluded", column: "name"},
-		{name: "bare address excluded", column: "address"},
+		{name: "username generic", column: "username", category: CategoryGeneric, candidate: true, signalName: "column_name_strong_generic"},
+		{name: "bare name generic", column: "name", category: CategoryGeneric, candidate: true, signalName: "column_name_medium_generic"},
+		{name: "bare address generic", column: "address", category: CategoryGeneric, candidate: true, signalName: "column_name_strong_generic"},
 		{name: "substring not matched", column: "smartphone"},
-		{name: "description excluded", column: "description"},
-		{name: "remark excluded", column: "remark"},
-		{name: "created at excluded", column: "created_at"},
+		{name: "description generic", column: "description", category: CategoryGeneric, candidate: true, signalName: "column_name_medium_generic"},
+		{name: "remark generic", column: "remark", category: CategoryGeneric, candidate: true, signalName: "column_name_medium_generic"},
+		{name: "created at date", column: "created_at", category: CategoryDate, candidate: true, signalName: "column_name_strong_date"},
 		{name: "uuid excluded", column: "uuid"},
-		{name: "price excluded", column: "price"},
+		{name: "price number", column: "price", category: CategoryNumber, candidate: true, signalName: "column_name_strong_number"},
 	}
 	for _, test := range tests {
 		test := test
@@ -409,10 +409,10 @@ func TestEnhancedConfidenceCaps(t *testing.T) {
 	}
 }
 
-func TestLegacyGateLeavesPublicClassifierAtHeadBehavior(t *testing.T) {
+func TestEnhancedGateExposesNineCategoriesAndPreservesLegacyWinners(t *testing.T) {
 	t.Parallel()
-	if discoveryEnhancedEnabled {
-		t.Fatal("S1 must leave discoveryEnhancedEnabled false")
+	if !discoveryEnhancedEnabled {
+		t.Fatal("B4/S3 must enable discoveryEnhancedEnabled")
 	}
 	legacyGolden := map[string]Category{
 		"customer_phone_number":   CategoryPhone,
@@ -428,15 +428,22 @@ func TestLegacyGateLeavesPublicClassifierAtHeadBehavior(t *testing.T) {
 			t.Fatalf("ClassifyColumnName(%q) = %q, %v, %v; want %q, true, nil", column, got, matched, err, want)
 		}
 	}
-	for _, column := range []string{"birthdate", "username", "created_at", "risk_score", "product_name"} {
+	enhancedGolden := map[string]Category{
+		"birthdate":    CategoryBirthdate,
+		"username":     CategoryGeneric,
+		"created_at":   CategoryDate,
+		"risk_score":   CategoryNumber,
+		"product_name": CategoryGeneric,
+	}
+	for column, want := range enhancedGolden {
 		category, signals, matched, err := ClassifyColumnName(column, nil)
-		if err != nil || matched || category != "" || len(signals) != 0 {
-			t.Fatalf("enhanced column %q leaked through gate: %q %#v %v %v", column, category, signals, matched, err)
+		if err != nil || !matched || category != want || len(signals) != 1 {
+			t.Fatalf("enhanced column %q = %q %#v %v %v; want %q", column, category, signals, matched, err, want)
 		}
 	}
 	for _, category := range []Category{CategoryNumber, CategoryDate, CategoryGeneric} {
-		if _, _, _, err := ClassifyColumnName("phone", []Category{category}); !isError(err, ErrUnknownCategory) {
-			t.Fatalf("public category %q error = %v, want ErrUnknownCategory", category, err)
+		if _, _, _, err := ClassifyColumnName("phone", []Category{category}); err != nil {
+			t.Fatalf("public category %q error = %v", category, err)
 		}
 	}
 }
