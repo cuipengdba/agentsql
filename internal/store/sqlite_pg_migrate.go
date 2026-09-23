@@ -149,6 +149,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "error_msg", kind: migrationText}, {name: "action", kind: migrationText},
 		{name: "actor_type", kind: migrationText}, {name: "actor_id", kind: migrationText},
 		{name: "details_json", kind: migrationText}, {name: "error_code", kind: migrationText},
+		{name: "event_uuid", kind: migrationText},
 	}},
 	{name: "approvals", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "audit_id", kind: migrationInt64},
@@ -173,6 +174,21 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "syslog_host", kind: migrationText}, {name: "syslog_port", kind: migrationInt32},
 		{name: "syslog_transport", kind: migrationText}, {name: "syslog_facility", kind: migrationInt32},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "redaction_key_versions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "state", kind: migrationText},
+		{name: "commitment", kind: migrationText}, {name: "label", kind: migrationText},
+		{name: "config_revision", kind: migrationText}, {name: "created_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime}, {name: "activated_at", kind: migrationTime},
+		{name: "retired_at", kind: migrationTime},
+	}},
+	{name: "management_audit_outbox", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "event_uuid", kind: migrationText}, {name: "action", kind: migrationText},
+		{name: "actor_type", kind: migrationText}, {name: "actor_id", kind: migrationText},
+		{name: "details_json", kind: migrationText}, {name: "created_at", kind: migrationTime},
+		{name: "attempts", kind: migrationInt32}, {name: "claimed_by", kind: migrationText},
+		{name: "claimed_at", kind: migrationTime}, {name: "last_error", kind: migrationText},
+		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime},
 	}},
 }
 

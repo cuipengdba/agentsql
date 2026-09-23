@@ -19,7 +19,7 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 	}
 	require.Equal(t, []string{
 		"agents", "datasources", "rules", "mask_rules", "policies", "audit_logs", "approvals",
-		"notification_settings", "notification_channels",
+		"notification_settings", "notification_channels", "redaction_key_versions", "management_audit_outbox",
 	}, names)
 }
 
@@ -38,8 +38,26 @@ func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
 		"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
 		"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",
 		"decision", "rule_hits", "risk_level", "est_rows", "rows_returned", "latency_ms",
-		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json", "error_code",
+		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json", "error_code", "event_uuid",
 	}, migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs")))
+	require.Equal(t, []string{
+		"id", "state", "commitment", "label", "config_revision", "created_at",
+		"updated_at", "activated_at", "retired_at",
+	}, migrationColumnNames(sqliteToPostgresTableByName(t, "redaction_key_versions")))
+	require.Equal(t, []string{
+		"event_uuid", "action", "actor_type", "actor_id", "details_json", "created_at",
+		"attempts", "claimed_by", "claimed_at", "last_error", "next_attempt_at", "delivered_at",
+	}, migrationColumnNames(sqliteToPostgresTableByName(t, "management_audit_outbox")))
+}
+
+func TestSQLiteToPostgresAuditDigestSelectsEventUUIDLast(t *testing.T) {
+	audit := sqliteToPostgresTableByName(t, "audit_logs")
+	require.Equal(t, "event_uuid", audit.columns[len(audit.columns)-1].name)
+	for _, postgres := range []bool{false, true} {
+		selectSQL := migrationSelectSQL(audit, postgres)
+		require.Contains(t, selectSQL, `"error_code","event_uuid"`)
+		require.Less(t, strings.Index(selectSQL, `"error_code"`), strings.Index(selectSQL, `"event_uuid"`))
+	}
 }
 
 func migrationColumnNames(table migrationTable) []string {
@@ -230,6 +248,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=5 latest=6")
+		require.ErrorContains(t, err, "current=6 latest=7")
 	})
 }

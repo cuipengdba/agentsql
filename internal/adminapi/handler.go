@@ -166,6 +166,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("PUT /api/v1/rules/{id}", handler.rulesUpdate)
 	mux.HandleFunc("DELETE /api/v1/rules/{id}", handler.rulesDelete)
 	mux.HandleFunc("GET /api/v1/mask_rules", handler.maskRulesList)
+	mux.HandleFunc("GET /api/v1/redaction/keys", handler.redactionKeysList)
 	mux.HandleFunc("POST /api/v1/mask_rules", handler.maskRulesCreate)
 	mux.HandleFunc("PUT /api/v1/mask_rules/{id}", handler.maskRulesUpdate)
 	mux.HandleFunc("DELETE /api/v1/mask_rules/{id}", handler.maskRulesDelete)

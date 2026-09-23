@@ -105,6 +105,7 @@ type AuditLog struct {
 	ActorType      *string
 	ActorID        *string
 	DetailsJSON    *string
+	EventUUID      *string
 }
 
 // Approval is a persisted decision request associated with an audit record.

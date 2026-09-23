@@ -81,6 +81,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		require.NoError(t, err)
 		assertMigrationSummary(t, summary)
 		assertMigratedMaskRuleRanges(t, ctx, metadata)
+		assertMigratedRedactionStorage(t, ctx, metadata, audit)
 		rerun, err := MigrateSQLiteToPostgres(ctx, options)
 		require.NoError(t, err)
 		require.Equal(t, summary.Tables, rerun.Tables)
@@ -123,6 +124,7 @@ func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql
 	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
 	require.Equal(t, []int64{10, 12}, auditIDs)
+	assertMigratedRedactionStorage(t, ctx, target, target)
 	cipher, err := NewPasswordCipher([]byte(testSecret))
 	require.NoError(t, err)
 	notifications, err := (&NotificationRepository{
@@ -131,6 +133,28 @@ func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql
 	require.NoError(t, err)
 	require.Equal(t, completeNotificationConfig(), notifications)
 	assertMigratedMaskRuleRanges(t, ctx, target)
+}
+
+func assertMigratedRedactionStorage(t *testing.T, ctx context.Context, metadata, audit *sql.DB) {
+	t.Helper()
+	var activeCount, retiredCount, outboxCount int
+	require.NoError(t, metadata.QueryRowContext(ctx, `SELECT COUNT(*) FROM redaction_key_versions WHERE state='active'`).Scan(&activeCount))
+	require.NoError(t, metadata.QueryRowContext(ctx, `SELECT COUNT(*) FROM redaction_key_versions WHERE state='retired' AND retired_at IS NOT NULL`).Scan(&retiredCount))
+	require.NoError(t, metadata.QueryRowContext(ctx, `SELECT COUNT(*) FROM management_audit_outbox WHERE claimed_by='worker-1' AND attempts=2`).Scan(&outboxCount))
+	require.Equal(t, 1, activeCount)
+	require.Equal(t, 1, retiredCount)
+	require.Equal(t, 1, outboxCount)
+	var eventUUID sql.NullString
+	require.NoError(t, audit.QueryRowContext(ctx, `SELECT event_uuid FROM audit_logs WHERE id=10`).Scan(&eventUUID))
+	require.Equal(t, "migration-event-10", eventUUID.String)
+	require.True(t, eventUUID.Valid)
+	require.NoError(t, audit.QueryRowContext(ctx, `SELECT event_uuid FROM audit_logs WHERE id=12`).Scan(&eventUUID))
+	require.False(t, eventUUID.Valid)
+	var metadataIndex, auditIndex int
+	require.NoError(t, metadata.QueryRowContext(ctx, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname='ux_redaction_key_versions_active'`).Scan(&metadataIndex))
+	require.NoError(t, audit.QueryRowContext(ctx, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname='public' AND indexname='ux_audit_logs_event_uuid'`).Scan(&auditIndex))
+	require.Equal(t, 1, metadataIndex)
+	require.Equal(t, 1, auditIndex)
 }
 
 // assertMigratedMaskRuleRanges verifies that mask_rules range parameters survive
@@ -199,9 +223,12 @@ func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
 		{`INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo,range_bucket_width,range_bucket_offset) VALUES(?,?,?,?,?,?,?,?,?)`, []any{"range-number", "ds-1", "", "orders", "amount", "number", "range", 25, 0}},
 		{`INSERT INTO mask_rules(id,datasource_id,schema_name,table_name,column_name,sensitive_type,algo,range_granularity) VALUES(?,?,?,?,?,?,?,?)`, []any{"range-date", "ds-1", "tenant", "orders", "created_at", "date", "range", "quarter"}},
 		{`INSERT INTO policies(id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"policy-1", "agent-1", "ds-1", "table", "public.users", "", `{"tenant":1}`, "allow", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
-		{`INSERT INTO audit_logs(id,ts,agent_id,datasource_id,sql_raw,sql_norm,objects,decision,rule_hits,risk_level,est_rows,rows_returned,latency_ms,error_msg) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{int64(10), "2026-09-17 12:00:00.123456789", "agent-1", "ds-1", strings.Repeat("S", 1<<20), strings.Repeat("N", 1<<20), `[{"table":"users"}]`, "deny", "[]", 3, int64(1 << 40), 0, int64(25), ""}},
+		{`INSERT INTO audit_logs(id,ts,agent_id,datasource_id,sql_raw,sql_norm,objects,decision,rule_hits,risk_level,est_rows,rows_returned,latency_ms,error_msg,event_uuid) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{int64(10), "2026-09-17 12:00:00.123456789", "agent-1", "ds-1", strings.Repeat("S", 1<<20), strings.Repeat("N", 1<<20), `[{"table":"users"}]`, "deny", "[]", 3, int64(1 << 40), 0, int64(25), "", "migration-event-10"}},
 		{`INSERT INTO audit_logs(id,ts,decision,objects,rule_hits,error_msg) VALUES(?,?,?,?,?,?)`, []any{int64(12), "2026-09-17T20:00:00.999999999+08:00", "approve", "not-json", nil, nil}},
 		{`INSERT INTO approvals(id,audit_id,agent_id,sql_raw,reason,status,approver,decided_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"approval-1", int64(12), "agent-1", "UPDATE users SET active=1", "review", "pending", nil, nil, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO redaction_key_versions(id,state,commitment,label,config_revision,created_at,updated_at,activated_at) VALUES(?,?,?,?,?,?,?,?)`, []any{"2", "active", testCommitment2, "active", "r1", "2026-09-17 12:00:00", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO redaction_key_versions(id,state,commitment,label,config_revision,created_at,updated_at,retired_at) VALUES(?,?,?,?,?,?,?,?)`, []any{"10", "retired", strings.Repeat("a", 64), "retired", "r0", "2026-09-16 12:00:00", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO management_audit_outbox(event_uuid,action,actor_type,actor_id,details_json,created_at,attempts,claimed_by,claimed_at,last_error,next_attempt_at,delivered_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, []any{"outbox-migration-1", "redaction.switch", "admin", "operator", `{"id":"2"}`, "2026-09-17 12:00:00", 2, "worker-1", "2026-09-17 12:01:00", "retry", "2026-09-17 12:03:00", nil}},
 	}
 	for _, statement := range statements {
 		_, err := database.ExecContext(ctx, statement.query, statement.args...)
@@ -244,8 +271,12 @@ func assertMigrationSummary(t *testing.T, summary SQLiteToPostgresSummary) {
 	}
 	require.Contains(t, seen, "notification_settings")
 	require.Contains(t, seen, "notification_channels")
+	require.Contains(t, seen, "redaction_key_versions")
+	require.Contains(t, seen, "management_audit_outbox")
 	require.Equal(t, int64(1), seen["notification_settings"].SourceRows)
 	require.Equal(t, int64(6), seen["notification_channels"].SourceRows)
+	require.Equal(t, int64(2), seen["redaction_key_versions"].SourceRows)
+	require.Equal(t, int64(1), seen["management_audit_outbox"].SourceRows)
 	require.Equal(t, int64(10), *audit.MinID)
 	require.Equal(t, int64(12), *audit.MaxID)
 	require.Equal(t, int64(12), summary.Sequence.LastValue)

@@ -60,6 +60,34 @@ type Store struct {
 	auditSeparate bool
 	cipher        *PasswordCipher
 	applyMu       sync.Mutex
+	redactionMu   sync.Mutex
+}
+
+// MetadataRegistryView is the metadata-only surface used by registry and relay tooling.
+type MetadataRegistryView interface {
+	MigrationVersions(context.Context) (current, latest int, err error)
+	RedactionKeys() *RedactionKeyRepository
+	Outbox() *ManagementAuditOutboxRepository
+	Close() error
+}
+
+// AuditStoreView is the audit-only surface used by management audit delivery.
+type AuditStoreView interface {
+	MigrationVersions(context.Context) (current, latest int, err error)
+	AuditLogs() *AuditLogRepository
+	Close() error
+}
+
+type metadataOnlyStore struct {
+	db       *sql.DB
+	dialect  Dialect
+	separate bool
+	mu       sync.Mutex
+}
+
+type auditOnlyStore struct {
+	db      *sql.DB
+	dialect Dialect
 }
 
 // Ping verifies both targets. A shared connection is pinged exactly once.
@@ -128,6 +156,56 @@ func OpenMetadata(ctx context.Context, options MetadataOptions, secret []byte) (
 		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
 	}
 	return openMetadataWithCipher(ctx, options, passwordCipher)
+}
+
+// OpenMetadataOnly opens and prepares only the metadata target. Audit settings
+// select the combined or separated migration stream but are never connected.
+func OpenMetadataOnly(ctx context.Context, options MetadataOptions, secret []byte) (MetadataRegistryView, error) {
+	if err := validateMetadataOnlyOptions(ctx, options); err != nil {
+		return nil, err
+	}
+	if _, err := NewPasswordCipher(secret); err != nil {
+		return nil, fmt.Errorf("initialize datasource password encryption: %w", err)
+	}
+	database, err := openDatabase(options.Driver, options.SQLitePath, options.PostgresDSN, options.MaxOpenConns, options.MaxIdleConns, options.ConnMaxLifetime)
+	if err != nil {
+		return nil, fmt.Errorf("open %s metadata database: %w", options.Driver, err)
+	}
+	if err := database.PingContext(ctx); err != nil {
+		return nil, closeDatabasesAfterError(nil, database, fmt.Errorf("ping %s metadata database: %w", options.Driver, err))
+	}
+	if options.AutoMigrate {
+		err = MigrateMetadata(ctx, database, options.Driver, options.Audit.Separate)
+	} else {
+		err = VerifyMetadataSchema(ctx, database, options.Driver, options.Audit.Separate)
+	}
+	if err != nil {
+		return nil, closeDatabasesAfterError(nil, database, fmt.Errorf("prepare %s metadata database: %w", options.Driver, err))
+	}
+	return &metadataOnlyStore{db: database, dialect: options.Driver, separate: options.Audit.Separate}, nil
+}
+
+// OpenAuditOnly opens and prepares an independent PostgreSQL audit target.
+func OpenAuditOnly(ctx context.Context, options AuditOptions) (AuditStoreView, error) {
+	if err := validateAuditOnlyOptions(ctx, options); err != nil {
+		return nil, err
+	}
+	database, err := openDatabase(options.Driver, "", options.PostgresDSN, options.MaxOpenConns, options.MaxIdleConns, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open %s audit database: %w", options.Driver, err)
+	}
+	if err := database.PingContext(ctx); err != nil {
+		return nil, closeDatabasesAfterError(database, nil, fmt.Errorf("ping %s audit database: %w", options.Driver, err))
+	}
+	if options.AutoMigrate {
+		err = MigrateAudit(ctx, database, options.Driver)
+	} else {
+		err = VerifyAuditSchema(ctx, database, options.Driver)
+	}
+	if err != nil {
+		return nil, closeDatabasesAfterError(database, nil, fmt.Errorf("prepare %s audit database: %w", options.Driver, err))
+	}
+	return &auditOnlyStore{db: database, dialect: options.Driver}, nil
 }
 
 func openMetadataWithCipher(
@@ -270,6 +348,44 @@ func validateMetadataOptions(ctx context.Context, options MetadataOptions) error
 	return nil
 }
 
+func validateMetadataOnlyOptions(ctx context.Context, options MetadataOptions) error {
+	if ctx == nil {
+		return fmt.Errorf("open metadata store: %w", ErrNilContext)
+	}
+	switch options.Driver {
+	case DialectSQLite:
+		if strings.TrimSpace(options.SQLitePath) == "" {
+			return fmt.Errorf("open metadata store: %w", ErrInvalidStorePath)
+		}
+	case DialectPostgres:
+		if strings.TrimSpace(options.PostgresDSN) == "" {
+			return fmt.Errorf("open metadata store: %w", ErrInvalidPostgresDSN)
+		}
+	default:
+		return fmt.Errorf("open metadata store with driver %q: %w", options.Driver, ErrInvalidMetadataDriver)
+	}
+	if err := validatePool(options.MaxOpenConns, options.MaxIdleConns); err != nil {
+		return fmt.Errorf("open metadata store: %w", err)
+	}
+	return nil
+}
+
+func validateAuditOnlyOptions(ctx context.Context, options AuditOptions) error {
+	if ctx == nil {
+		return fmt.Errorf("open audit store: %w", ErrNilContext)
+	}
+	if options.Driver != DialectPostgres {
+		return fmt.Errorf("open audit store with driver %q: %w", options.Driver, ErrInvalidAuditDriver)
+	}
+	if strings.TrimSpace(options.PostgresDSN) == "" {
+		return fmt.Errorf("open audit store: %w", ErrInvalidPostgresDSN)
+	}
+	if err := validatePool(options.MaxOpenConns, options.MaxIdleConns); err != nil {
+		return fmt.Errorf("open audit store: %w", err)
+	}
+	return nil
+}
+
 func validatePool(maxOpenConns, maxIdleConns int) error {
 	if maxOpenConns < 0 || maxIdleConns < 0 {
 		return errors.New("connection pool values must not be negative")
@@ -350,6 +466,16 @@ func (store *Store) MaskRules() *MaskRuleRepository {
 	}
 }
 
+// RedactionKeys returns the metadata-side redaction key registry.
+func (store *Store) RedactionKeys() *RedactionKeyRepository {
+	return &RedactionKeyRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}, mu: &store.redactionMu}
+}
+
+// Outbox returns the metadata-side management audit outbox.
+func (store *Store) Outbox() *ManagementAuditOutboxRepository {
+	return &ManagementAuditOutboxRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // AuditLogs returns the append-only repository bound to the audit target.
 func (store *Store) AuditLogs() *AuditLogRepository {
 	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.auditDB, dialect: store.auditDriver}}
@@ -369,6 +495,40 @@ func (store *Store) Approvals() *ApprovalRepository {
 // Dashboard returns aggregates composed from the metadata and audit targets.
 func (store *Store) Dashboard() *DashboardRepository {
 	return NewDashboardRepository(store.metaDB, store.auditDB, store.metaDriver, store.auditDriver)
+}
+
+func (store *metadataOnlyStore) MigrationVersions(ctx context.Context) (int, int, error) {
+	return MetadataMigrationVersions(ctx, store.db, store.dialect, store.separate)
+}
+
+func (store *metadataOnlyStore) RedactionKeys() *RedactionKeyRepository {
+	return &RedactionKeyRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.dialect}, mu: &store.mu}
+}
+
+func (store *metadataOnlyStore) Outbox() *ManagementAuditOutboxRepository {
+	return &ManagementAuditOutboxRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.dialect}}
+}
+
+func (store *metadataOnlyStore) Close() error {
+	if store == nil || store.db == nil {
+		return nil
+	}
+	return store.db.Close()
+}
+
+func (store *auditOnlyStore) MigrationVersions(ctx context.Context) (int, int, error) {
+	return AuditMigrationVersions(ctx, store.db, store.dialect)
+}
+
+func (store *auditOnlyStore) AuditLogs() *AuditLogRepository {
+	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.dialect}}
+}
+
+func (store *auditOnlyStore) Close() error {
+	if store == nil || store.db == nil {
+		return nil
+	}
+	return store.db.Close()
 }
 
 func closeDatabasesAfterError(auditDB, metadataDB *sql.DB, cause error) error {
