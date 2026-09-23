@@ -75,6 +75,12 @@ func TestDiscoveryRouteBearerDTOAuditAndSentinel(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, status, response)
 	status, response = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover", fixture.adminToken, `{"tables":[]}`+strings.Repeat(" ", (1<<20)+1))
 	require.Equal(t, http.StatusRequestEntityTooLarge, status, response)
+	for _, category := range []string{"number", "date", "generic"} {
+		status, response = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover", fixture.adminToken,
+			`{"tables":[{"schema":"public","table":"customers"}],"categories":["`+category+`"]}`)
+		require.Equal(t, http.StatusUnprocessableEntity, status, response)
+		require.Contains(t, response, "DISCOVERY_UNKNOWN_CATEGORY")
+	}
 }
 
 func TestDiscoveryPermissionErrorIsSafeAndAudited(t *testing.T) {
@@ -130,6 +136,7 @@ func TestDiscoveryApplyDisabledIdempotentConflictAndStrictDTO(t *testing.T) {
 	status, body = fixture.request(http.MethodPost, "/api/v1/datasources/ds-1/discover/apply", fixture.adminToken, requestBody)
 	require.Equal(t, http.StatusOK, status, body)
 	require.Contains(t, body, `"created":1`)
+	require.NotContains(t, strings.ToLower(body), "audit", "apply response must not claim synchronous audit delivery")
 	rules, err := fixture.store.MaskRules().ListByDatasource(context.Background(), "ds-1")
 	require.NoError(t, err)
 	require.Len(t, rules, 1)
@@ -199,8 +206,13 @@ func TestDiscoveryApplyRejectsRangeNumberAndDate(t *testing.T) {
 		item string
 	}{
 		{name: "range algorithm", item: `{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"range"}`},
+		{name: "block algorithm", item: `{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"block"}`},
+		{name: "hash algorithm", item: `{"schema":"public","table":"customers","column":"phone","category":"phone","sensitive_type":"phone","algo":"hash"}`},
 		{name: "number sensitive type", item: `{"schema":"public","table":"customers","column":"amount","category":"phone","sensitive_type":"number","algo":"mask"}`},
 		{name: "date sensitive type", item: `{"schema":"public","table":"customers","column":"created_at","category":"birthdate","sensitive_type":"date","algo":"mask"}`},
+		{name: "gated number range", item: `{"schema":"public","table":"customers","column":"amount","category":"number","sensitive_type":"number","algo":"range","range":{"bucket_width":10}}`},
+		{name: "gated date range", item: `{"schema":"public","table":"customers","column":"created_at","category":"date","sensitive_type":"date","algo":"range","range":{"granularity":"month"}}`},
+		{name: "gated generic block", item: `{"schema":"public","table":"customers","column":"username","category":"generic","sensitive_type":"generic","algo":"block"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -247,7 +259,30 @@ func TestDiscoveryApplyGlobalCoverageAndAmbiguousAggregation(t *testing.T) {
 	require.Equal(t, audit.ActionDiscoverApply, *page.List[0].Action)
 	var details map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal([]byte(*page.List[0].DetailsJSON), &details))
-	require.Equal(t, []string{"ambiguous", "column_keys", "conflict", "covered_by_global", "created", "existing", "requested"}, sortedJSONKeys(details))
+	require.Equal(t, []string{"ambiguous", "column_keys", "conflict", "covered_by_global", "created", "datasource_id", "existing", "operation_id", "requested", "rules"}, sortedJSONKeys(details))
+}
+
+func TestDiscoveryApplyRangePassesThroughToDraft(t *testing.T) {
+	width, offset := int64(25), int64(-5)
+	number := discoveryDraftFromItem("number", discoveryApplyItemView{
+		Table: "orders", Column: "amount", SensitiveType: "number", Algo: "range",
+		Range: &discoveryApplyRange{BucketWidth: &width, BucketOffset: &offset},
+	})
+	require.Equal(t, int64(25), *number.RangeBucketWidth)
+	require.Equal(t, int64(-5), *number.RangeBucketOffset)
+	require.Empty(t, number.RangeGranularity)
+
+	date := discoveryDraftFromItem("date", discoveryApplyItemView{
+		Table: "orders", Column: "created_at", SensitiveType: "date", Algo: "range",
+		Range: &discoveryApplyRange{Granularity: "month"},
+	})
+	require.Nil(t, date.RangeBucketWidth)
+	require.Nil(t, date.RangeBucketOffset)
+	require.Equal(t, "month", date.RangeGranularity)
+
+	width, offset = 100, 0
+	require.Equal(t, int64(25), *number.RangeBucketWidth, "draft must own copied range pointers")
+	require.Equal(t, int64(-5), *number.RangeBucketOffset)
 }
 
 func TestDiscoveryApplyUsesTableOnlyPhysicalKeys(t *testing.T) {

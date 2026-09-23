@@ -461,8 +461,9 @@ func (store *Store) Rules() *RuleRepository {
 func (store *Store) MaskRules() *MaskRuleRepository {
 	return &MaskRuleRepository{
 		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
-		auditDB:        store.auditDB, auditDialect: store.auditDriver,
-		auditSeparate: store.auditSeparate, applyMu: &store.applyMu,
+		auditSeparate:  store.auditSeparate,
+		outbox:         &ManagementAuditOutboxRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}},
+		applyMu:        &store.applyMu,
 	}
 }
 

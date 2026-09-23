@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -22,7 +23,8 @@ const (
 var (
 	ErrOutboxEventAlreadyExists     = errors.New("management audit outbox event already exists")
 	ErrUnsafeManagementAuditDetails = errors.New("management audit details contain prohibited secret material")
-	unsafeDetailsPattern            = regexp.MustCompile(`(?i)key_b64|key_file|postgres(?:ql)?://|mysql://|password|passwd|secret|token|dsn`)
+	unsafeDetailsKeyPattern         = regexp.MustCompile(`(?i)(^|_)(key_b64|key_file|password|passwd|secret|token|dsn|sample|samples|sample_value|sample_values|raw_value|raw_values|preview)($|_)`)
+	unsafeDetailsURIPattern         = regexp.MustCompile(`(?i)postgres(?:ql)?://|mysql://`)
 	unsafeErrorPattern              = regexp.MustCompile(`(?i)(postgres(?:ql)?|mysql|https?)://[^\s]+|(?:key_b64|key_file|password|passwd|secret|token|dsn)\s*[:=]\s*[^\s,;]+|\b[A-Za-z0-9_+/=-]{24,}\b`)
 )
 
@@ -42,7 +44,7 @@ func (repository *ManagementAuditOutboxRepository) Append(ctx context.Context, t
 	if strings.TrimSpace(event.EventUUID) == "" || strings.TrimSpace(event.Action) == "" || strings.TrimSpace(event.ActorType) == "" || strings.TrimSpace(event.ActorID) == "" {
 		return fmt.Errorf("append management audit outbox: event identity and actor fields are required")
 	}
-	if unsafeDetailsPattern.MatchString(event.DetailsJSON) {
+	if unsafeManagementAuditDetails(event.DetailsJSON) {
 		return fmt.Errorf("append management audit outbox: %w", ErrUnsafeManagementAuditDetails)
 	}
 	now := time.Now().UTC()
@@ -58,6 +60,35 @@ func (repository *ManagementAuditOutboxRepository) Append(ctx context.Context, t
 		return fmt.Errorf("append management audit outbox: %w", err)
 	}
 	return nil
+}
+
+func unsafeManagementAuditDetails(details string) bool {
+	if unsafeDetailsURIPattern.MatchString(details) {
+		return true
+	}
+	var decoded any
+	if json.Unmarshal([]byte(details), &decoded) != nil {
+		return true
+	}
+	return containsUnsafeManagementAuditKey(decoded)
+}
+
+func containsUnsafeManagementAuditKey(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if unsafeDetailsKeyPattern.MatchString(key) || containsUnsafeManagementAuditKey(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if containsUnsafeManagementAuditKey(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ClaimBatch leases the earliest currently eligible events.

@@ -335,6 +335,13 @@ func isKnownCategory(category Category) bool {
 	return isKnownCategoryFor(category, discoveryEnhancedEnabled)
 }
 
+// IsKnownCategory reports whether category is currently exposed by the
+// discovery rollout gate. Callers must use this instead of maintaining a
+// second category allowlist outside this package.
+func IsKnownCategory(category Category) bool {
+	return isKnownCategory(category)
+}
+
 func isKnownCategoryFor(category Category, enhanced bool) bool {
 	switch category {
 	case CategoryPhone, CategoryEmail, CategoryIDCard, CategoryBankCard, CategoryIP, CategoryBirthdate:

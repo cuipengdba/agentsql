@@ -120,12 +120,19 @@ type discoveryInput struct {
 }
 
 type discoveryApplyItemInput struct {
-	Schema        string `json:"schema"`
-	Table         string `json:"table"`
-	Column        string `json:"column"`
-	Category      string `json:"category"`
-	SensitiveType string `json:"sensitive_type"`
-	Algo          string `json:"algo"`
+	Schema        string               `json:"schema"`
+	Table         string               `json:"table"`
+	Column        string               `json:"column"`
+	Category      string               `json:"category"`
+	SensitiveType string               `json:"sensitive_type"`
+	Algo          string               `json:"algo"`
+	Range         *discoveryApplyRange `json:"range,omitempty"`
+}
+
+type discoveryApplyRange struct {
+	BucketWidth  *int64 `json:"bucket_width,omitempty"`
+	BucketOffset *int64 `json:"bucket_offset,omitempty"`
+	Granularity  string `json:"granularity,omitempty"`
 }
 
 type discoveryApplyInput struct {
@@ -133,13 +140,14 @@ type discoveryApplyInput struct {
 }
 
 type discoveryApplyItemView struct {
-	Schema        string `json:"schema,omitempty"`
-	Table         string `json:"table,omitempty"`
-	Column        string `json:"column"`
-	Category      string `json:"category,omitempty"`
-	SensitiveType string `json:"sensitive_type"`
-	Algo          string `json:"algo"`
-	RuleID        string `json:"rule_id,omitempty"`
+	Schema        string               `json:"schema,omitempty"`
+	Table         string               `json:"table,omitempty"`
+	Column        string               `json:"column"`
+	Category      string               `json:"category,omitempty"`
+	SensitiveType string               `json:"sensitive_type"`
+	Algo          string               `json:"algo"`
+	Range         *discoveryApplyRange `json:"range,omitempty"`
+	RuleID        string               `json:"rule_id,omitempty"`
 }
 
 type discoveryApplyCounts struct {

@@ -201,6 +201,22 @@ func TestManagementAuditOutboxLifecycleAndSafety(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnsafeManagementAuditDetails)
 	require.NotContains(t, err.Error(), secret)
 	require.NoError(t, tx.Rollback())
+
+	unsafeEvent.EventUUID = "event-sample"
+	unsafeEvent.DetailsJSON = `{"sample_value":"raw customer value"}`
+	tx, err = opened.metaDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	err = repository.Append(ctx, tx, unsafeEvent)
+	require.ErrorIs(t, err, ErrUnsafeManagementAuditDetails)
+	require.NoError(t, tx.Rollback())
+
+	safePhysicalKey := event
+	safePhysicalKey.EventUUID = "event-physical-key"
+	safePhysicalKey.DetailsJSON = `{"table":"customers","column":"secret","algo":"block"}`
+	tx, err = opened.metaDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, repository.Append(ctx, tx, safePhysicalKey))
+	require.NoError(t, tx.Commit())
 }
 
 func TestAuditEventUUIDIdempotency(t *testing.T) {

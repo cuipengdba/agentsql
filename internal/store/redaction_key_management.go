@@ -127,7 +127,7 @@ func (repository *RedactionKeyRepository) writeManagementAudit(ctx context.Conte
 	if err := validateAuditLogInsert(ctx, *write.Audit); err != nil {
 		return err
 	}
-	if write.Audit.DetailsJSON != nil && unsafeDetailsPattern.MatchString(*write.Audit.DetailsJSON) {
+	if write.Audit.DetailsJSON != nil && unsafeManagementAuditDetails(*write.Audit.DetailsJSON) {
 		return fmt.Errorf("write management audit: %w", ErrUnsafeManagementAuditDetails)
 	}
 	_, err := insertAuditLog(ctx, tx, repository.dialect, *write.Audit)

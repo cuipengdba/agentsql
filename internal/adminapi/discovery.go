@@ -38,13 +38,24 @@ type discoverAuditDetails struct {
 }
 
 type applyAuditDetails struct {
-	Requested       int      `json:"requested"`
-	Created         int      `json:"created"`
-	Existing        int      `json:"existing"`
-	CoveredByGlobal int      `json:"covered_by_global"`
-	Conflict        int      `json:"conflict"`
-	Ambiguous       int      `json:"ambiguous"`
-	ColumnKeys      []string `json:"column_keys"`
+	OperationID     string                  `json:"operation_id"`
+	DatasourceID    string                  `json:"datasource_id"`
+	Requested       int                     `json:"requested"`
+	Created         int                     `json:"created"`
+	Existing        int                     `json:"existing"`
+	CoveredByGlobal int                     `json:"covered_by_global"`
+	Conflict        int                     `json:"conflict"`
+	Ambiguous       int                     `json:"ambiguous"`
+	ColumnKeys      []string                `json:"column_keys"`
+	Rules           []applyAuditRuleDetails `json:"rules"`
+}
+
+type applyAuditRuleDetails struct {
+	Table         string               `json:"table"`
+	Column        string               `json:"column"`
+	SensitiveType string               `json:"sensitive_type"`
+	Algo          string               `json:"algo"`
+	Range         *discoveryApplyRange `json:"range,omitempty"`
 }
 
 func (handler *Handler) datasourcesDiscover(writer http.ResponseWriter, request *http.Request) {
@@ -115,10 +126,7 @@ func discoveryScanRequest(input discoveryInput) (discovery.ScanRequest, string) 
 	categories := make([]discovery.Category, len(input.Categories))
 	for index, category := range input.Categories {
 		normalized := discovery.Category(strings.ToLower(strings.TrimSpace(category)))
-		switch normalized {
-		case discovery.CategoryPhone, discovery.CategoryEmail, discovery.CategoryIDCard,
-			discovery.CategoryBankCard, discovery.CategoryIP, discovery.CategoryBirthdate:
-		default:
+		if !discovery.IsKnownCategory(normalized) {
 			return discovery.ScanRequest{}, "DISCOVERY_UNKNOWN_CATEGORY"
 		}
 		categories[index] = normalized
@@ -273,17 +281,19 @@ func (handler *Handler) datasourcesDiscoverApply(writer http.ResponseWriter, req
 	drafts := make([]store.DiscoveryDraft, 0, len(groups))
 	keys := make([]string, 0, len(groups)+len(ambiguous))
 	for _, group := range groups {
-		drafts = append(drafts, store.DiscoveryDraft{ID: uuid.NewString(), SchemaName: "", TableName: group.item.Table, ColumnName: group.item.Column, SensitiveType: group.item.SensitiveType, Algo: group.item.Algo})
+		drafts = append(drafts, discoveryDraftFromItem(uuid.NewString(), group.item))
 		keys = append(keys, group.key)
 	}
 	for _, item := range ambiguous {
 		keys = append(keys, item.Table+"."+strings.ToLower(item.Column))
 	}
 	sort.Strings(keys)
+	operationID := uuid.NewString()
+	auditRules := applyAuditRules(groups)
 	if len(drafts) == 0 {
 		response := discoveryApplyResponse{Created: []discoveryApplyItemView{}, Existing: []discoveryApplyItemView{}, CoveredByGlobal: []discoveryApplyItemView{}, Conflicts: []discoveryApplyItemView{}, Ambiguous: ambiguous,
 			Counts: discoveryApplyCounts{Requested: len(input.Items), Ambiguous: len(ambiguous)}}
-		if err := handler.recordApplyAudit(request, datasourceID, applyAuditDetails{Requested: len(input.Items), Ambiguous: len(ambiguous), ColumnKeys: keys}); err != nil {
+		if err := handler.recordApplyAudit(request, datasourceID, applyAuditDetails{OperationID: operationID, DatasourceID: datasourceID, Requested: len(input.Items), Ambiguous: len(ambiguous), ColumnKeys: keys, Rules: auditRules}); err != nil {
 			handler.discoveryFailure(writer, http.StatusServiceUnavailable, "AUDIT_UNAVAILABLE", "审计服务不可用")
 			return
 		}
@@ -292,14 +302,16 @@ func (handler *Handler) datasourcesDiscoverApply(writer http.ResponseWriter, req
 	}
 	repository := handler.deps.Runtime.Store.MaskRules()
 	outcome, recorded, err := repository.ApplyDiscoveryDraftsWithAudit(request.Context(), datasourceID, drafts, func(outcome store.DiscoveryApplyOutcome) (model.AuditLog, error) {
-		details := applyAuditDetails{Requested: len(input.Items), Created: len(outcome.Created), Existing: len(outcome.Existing), CoveredByGlobal: len(outcome.CoveredByGlobal), Conflict: len(outcome.Conflicts), Ambiguous: len(ambiguous), ColumnKeys: keys}
+		details := applyAuditDetails{OperationID: operationID, DatasourceID: datasourceID, Requested: len(input.Items), Created: len(outcome.Created), Existing: len(outcome.Existing), CoveredByGlobal: len(outcome.CoveredByGlobal), Conflict: len(outcome.Conflicts), Ambiguous: len(ambiguous), ColumnKeys: keys, Rules: auditRules}
 		return handler.applyAuditLog(datasourceID, details)
 	})
 	if err != nil {
 		handler.writeDiscoveryApplyError(writer, err)
 		return
 	}
-	handler.deps.Runtime.PublishManagementAudit(recorded)
+	if recorded.ID != 0 {
+		handler.deps.Runtime.PublishManagementAudit(recorded)
+	}
 	response := applyResponse(groups, ambiguous, outcome, len(input.Items))
 	if len(outcome.Conflicts) != 0 {
 		handler.write(writer, http.StatusConflict, http.StatusConflict, "同名列已存在不同脱敏规则", response)
@@ -334,14 +346,23 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 		category := discovery.Category(strings.ToLower(strings.TrimSpace(raw.Category)))
 		sensitiveType := mask.SensitiveType(strings.ToLower(strings.TrimSpace(raw.SensitiveType)))
 		algo := mask.Algorithm(strings.ToLower(strings.TrimSpace(raw.Algo)))
-		if sensitiveType != mask.SensitiveType(category) || discovery.ValidateApplicable(category, discovery.RecommendedRule{SensitiveType: sensitiveType, Algo: algo}) != nil {
+		rule := discovery.RecommendedRule{SensitiveType: sensitiveType, Algo: algo}
+		if raw.Range != nil {
+			rule.Range = &discovery.RangeHint{
+				BucketWidth:  copyDiscoveryInt64(raw.Range.BucketWidth),
+				BucketOffset: copyDiscoveryInt64(raw.Range.BucketOffset),
+				Granularity:  strings.ToLower(strings.TrimSpace(raw.Range.Granularity)),
+			}
+		}
+		canonical, canonicalErr := discovery.CanonicalizeRule(category, rule)
+		if sensitiveType != mask.SensitiveType(category) || canonicalErr != nil || discovery.ValidateApplicable(category, canonical) != nil {
 			return nil, nil, "DISCOVERY_NOT_APPLICABLE"
 		}
 		column := mask.NormalizeColumnName(raw.Column)
 		if column == "" {
 			return nil, nil, "DISCOVERY_INVALID_IDENTIFIER"
 		}
-		view := discoveryApplyItemView{Schema: "", Table: raw.Table, Column: column, Category: string(category), SensitiveType: string(sensitiveType), Algo: string(algo)}
+		view := discoveryApplyItemView{Schema: "", Table: raw.Table, Column: column, Category: string(category), SensitiveType: string(canonical.SensitiveType), Algo: string(canonical.Algo), Range: discoveryRangeFromHint(canonical.Range)}
 		physicalKey := raw.Table + "\x00" + column
 		current := byPhysicalKey[physicalKey]
 		if current == nil {
@@ -349,7 +370,7 @@ func normalizeApplyItems(items []discoveryApplyItemInput) ([]canonicalApplyGroup
 			order = append(order, physicalKey)
 			continue
 		}
-		if current.group.item.Category != string(category) || current.group.item.SensitiveType != string(sensitiveType) || current.group.item.Algo != string(algo) {
+		if !sameDiscoveryApplyRule(current.group.item, view) {
 			current.ambiguous = true
 		}
 	}
@@ -389,12 +410,90 @@ func applyResponse(groups []canonicalApplyGroup, ambiguous []discoveryApplyItemV
 				}
 			}
 			view.Column, view.SensitiveType, view.Algo, view.RuleID = mask.NormalizeColumnName(rule.ColumnName), rule.SensitiveType, rule.Algo, rule.ID
+			view.Range = discoveryRangeFromModel(rule)
 			views = append(views, view)
 		}
 		return views
 	}
 	return discoveryApplyResponse{Created: convert(outcome.Created, false), Existing: convert(outcome.Existing, false), CoveredByGlobal: convert(outcome.CoveredByGlobal, true), Conflicts: convert(outcome.Conflicts, false), Ambiguous: ambiguous,
 		Counts: discoveryApplyCounts{Requested: requested, Created: len(outcome.Created), Existing: len(outcome.Existing), CoveredByGlobal: len(outcome.CoveredByGlobal), Conflicts: len(outcome.Conflicts), Ambiguous: len(ambiguous)}}
+}
+
+func sameDiscoveryApplyRule(left, right discoveryApplyItemView) bool {
+	if left.Category != right.Category || left.SensitiveType != right.SensitiveType || left.Algo != right.Algo {
+		return false
+	}
+	if left.Range == nil || right.Range == nil {
+		return left.Range == nil && right.Range == nil
+	}
+	return sameDiscoveryInt64(left.Range.BucketWidth, right.Range.BucketWidth) &&
+		sameDiscoveryInt64(left.Range.BucketOffset, right.Range.BucketOffset) &&
+		left.Range.Granularity == right.Range.Granularity
+}
+
+func sameDiscoveryInt64(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func copyDiscoveryInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func discoveryRangeFromHint(hint *discovery.RangeHint) *discoveryApplyRange {
+	if hint == nil {
+		return nil
+	}
+	return &discoveryApplyRange{
+		BucketWidth:  copyDiscoveryInt64(hint.BucketWidth),
+		BucketOffset: copyDiscoveryInt64(hint.BucketOffset),
+		Granularity:  hint.Granularity,
+	}
+}
+
+func discoveryRangeFromModel(rule model.MaskRule) *discoveryApplyRange {
+	if rule.RangeBucketWidth == nil && rule.RangeBucketOffset == nil && rule.RangeGranularity == nil {
+		return nil
+	}
+	rangeView := &discoveryApplyRange{
+		BucketWidth:  copyDiscoveryInt64(rule.RangeBucketWidth),
+		BucketOffset: copyDiscoveryInt64(rule.RangeBucketOffset),
+	}
+	if rule.RangeGranularity != nil {
+		rangeView.Granularity = *rule.RangeGranularity
+	}
+	return rangeView
+}
+
+func applyAuditRules(groups []canonicalApplyGroup) []applyAuditRuleDetails {
+	rules := make([]applyAuditRuleDetails, 0, len(groups))
+	for _, group := range groups {
+		rules = append(rules, applyAuditRuleDetails{
+			Table: group.item.Table, Column: group.item.Column,
+			SensitiveType: group.item.SensitiveType, Algo: group.item.Algo,
+			Range: group.item.Range,
+		})
+	}
+	return rules
+}
+
+func discoveryDraftFromItem(id string, item discoveryApplyItemView) store.DiscoveryDraft {
+	draft := store.DiscoveryDraft{
+		ID: id, SchemaName: "", TableName: item.Table, ColumnName: item.Column,
+		SensitiveType: item.SensitiveType, Algo: item.Algo,
+	}
+	if item.Range != nil {
+		draft.RangeBucketWidth = copyDiscoveryInt64(item.Range.BucketWidth)
+		draft.RangeBucketOffset = copyDiscoveryInt64(item.Range.BucketOffset)
+		draft.RangeGranularity = item.Range.Granularity
+	}
+	return draft
 }
 
 func (handler *Handler) applyAuditLog(datasourceID string, details applyAuditDetails) (model.AuditLog, error) {
