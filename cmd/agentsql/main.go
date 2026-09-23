@@ -95,6 +95,7 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("assemble MCP runtime: %w", err)
 			}
+			loaded.Redaction.Clear()
 			runError := mcpserver.RunStdio(ctx, mcpserver.Options{
 				APIKey:  boundKey,
 				Runtime: runtime,
@@ -169,6 +170,7 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("assemble HTTP runtime: %w", err)
 			}
+			loaded.Redaction.Clear()
 			adminDeps, err := adminapi.PrepareDemoDeps(ctx, adminapi.Deps{
 				Runtime:       runtime,
 				Config:        loaded,

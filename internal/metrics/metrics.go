@@ -39,6 +39,7 @@ type Metrics struct {
 	stageDuration           *prometheus.HistogramVec
 	rejected                *prometheus.CounterVec
 	poolConnections         *prometheus.GaugeVec
+	redactionKeyDrift       *prometheus.CounterVec
 	notificationSent        *prometheus.CounterVec
 	notificationFailed      *prometheus.CounterVec
 	notificationDropped     *prometheus.CounterVec
@@ -82,6 +83,10 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 			Name: "agentsql_pool_connections",
 			Help: "Current AgentSQL datasource pool connections.",
 		}, []string{"datasource", "dialect", "state"}),
+		redactionKeyDrift: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "redaction_key_drift",
+			Help: "Total redaction key reconciliation findings by bounded kind.",
+		}, []string{"kind"}),
 		notificationSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "agentsql_notification_sent_total",
 			Help: "Total AgentSQL notifications successfully sent.",
@@ -113,6 +118,7 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		metrics.ruleHits,
 		metrics.stageDuration,
 		metrics.rejected,
+		metrics.redactionKeyDrift,
 		metrics.notificationSent,
 		metrics.notificationFailed,
 		metrics.notificationDropped,
@@ -124,6 +130,15 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		},
 	)
 	return metrics
+}
+
+// IncRedactionKeyDrift records one bounded reconciliation finding. kind must
+// be supplied by the reconciliation classifier, never from an external error.
+func (metrics *Metrics) IncRedactionKeyDrift(kind string) {
+	if metrics == nil {
+		return
+	}
+	metrics.redactionKeyDrift.WithLabelValues(kind).Inc()
 }
 
 // RecordNotificationSent records a completed delivery and clears last_error.

@@ -192,6 +192,10 @@ func newHTTPHandlerWithRegistry(
 	if cfg.Defaults.QPSPerAgent <= 0 {
 		return nil, nil, fmt.Errorf("create MCP HTTP handler: QPS must be positive")
 	}
+	// Runtime owns the immutable redaction assembly. HTTP closures must not keep
+	// either legacy or manifest secret sources alive.
+	cfg.Redaction.HashKey = ""
+	cfg.Redaction.HashKeys = nil
 
 	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent)
 	getServer := func(request *http.Request) *mcp.Server {
@@ -254,9 +258,10 @@ func newHTTPHandlerWithRegistry(
 }
 
 type probeResponse struct {
-	Status  string             `json:"status"`
-	Version string             `json:"version,omitempty"`
-	Demo    *demoProbeResponse `json:"demo,omitempty"`
+	Status               string             `json:"status"`
+	Version              string             `json:"version,omitempty"`
+	Demo                 *demoProbeResponse `json:"demo,omitempty"`
+	RedactionUnsatisfied []int              `json:"redaction_unsatisfied,omitempty"`
 }
 
 type demoProbeResponse struct {
@@ -292,6 +297,12 @@ func readinessHandler(runtime *bootstrap.Runtime) http.HandlerFunc {
 		defer cancel()
 		if err := runtime.Store.Ping(ctx); err != nil {
 			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready"})
+			return
+		}
+		if ready, unsatisfied := runtime.RedactionReady(); !ready {
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{
+				Status: "not ready", RedactionUnsatisfied: unsatisfied,
+			})
 			return
 		}
 		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready"})
@@ -381,7 +392,7 @@ func idAPIResource(resource string) bool {
 func knownAPIResource(resource string) bool {
 	switch resource {
 	case "auth", "agents", "datasources", "policies", "rules", "mask_rules",
-		"audit", "approvals", "dashboard", "playground", "stream":
+		"audit", "approvals", "dashboard", "playground", "stream", "redaction":
 		return true
 	default:
 		return false
@@ -398,6 +409,8 @@ func staticAPIAction(resource, segment string) (string, bool) {
 		return segment, segment == "summary"
 	case "playground":
 		return segment, segment == "assess"
+	case "redaction":
+		return segment, segment == "keys"
 	default:
 		return "", false
 	}

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/auth"
@@ -21,6 +22,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
+	redactionstate "github.com/cuipengdba/agentsql/internal/redaction"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
 )
@@ -43,6 +45,7 @@ type Runtime struct {
 	secret    []byte
 	redactors *redactorBuilder
 	names     *notificationNameResolver
+	redaction *redactionRuntime
 	closed    bool
 }
 
@@ -72,6 +75,7 @@ func assembleWithExecutorProvider(
 	if err != nil {
 		return nil, fmt.Errorf("assemble runtime configuration: %w", err)
 	}
+	defer resolvedRedaction.Clear()
 	metadataStore, err := store.OpenMetadata(ctx, resolvedStore.MetadataOptions(), secret)
 	if err != nil {
 		return nil, fmt.Errorf("assemble metadata store: %w", err)
@@ -81,8 +85,14 @@ func assembleWithExecutorProvider(
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("assemble redaction: %w", err), metadataStore.Close())
 	}
+	cfg.Redaction.HashKey = ""
+	cfg.Redaction.HashKeys = nil
 	redactors.options = append(append([]mask.Option(nil), redactors.options...), assembly.PlanOptions...)
 	redactors.hashAvailable = len(assembly.PlanOptions) != 0
+	redactionRuntime, err := newRedactionRuntime(ctx, assembly.Observed, metadataStore.RedactionKeys())
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("assemble redaction registry reconciliation: %w", err), metadataStore.Close())
+	}
 	if err := redactors.validateEnabledRules(ctx, metadataStore.MaskRules()); err != nil {
 		cause := fmt.Errorf(
 			"assemble runtime: validate enabled redaction rules: %w; set AGENTSQL_REDACTION_HASH_KEY or redaction.hash_key",
@@ -159,7 +169,7 @@ func assembleWithExecutorProvider(
 		_ = controlled.Close()
 		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("start notification manager: %w", err))
 	}
-	return &Runtime{
+	runtime := &Runtime{
 		Pipeline:        flow,
 		Executors:       manager,
 		ControlledRead:  controlled,
@@ -171,7 +181,48 @@ func assembleWithExecutorProvider(
 		secret:          append([]byte(nil), secret...),
 		redactors:       redactors,
 		names:           names,
-	}, nil
+		redaction:       redactionRuntime,
+	}
+	redactionRuntime.attachMetrics(metricsHub)
+	redactionRuntime.start(ctx, time.Minute)
+	return runtime, nil
+}
+
+// RedactionReconciliation returns a concurrency-safe, non-secret snapshot for
+// readiness and management observation.
+func (runtime *Runtime) RedactionReconciliation() (redactionstate.Result, bool) {
+	if runtime == nil || runtime.redaction == nil {
+		return redactionstate.Result{}, false
+	}
+	return runtime.redaction.snapshot()
+}
+
+// RedactionReady returns the last newly computed reconciliation gate. It never
+// becomes true merely because time passed or another command reported success.
+func (runtime *Runtime) RedactionReady() (bool, []int) {
+	result, available := runtime.RedactionReconciliation()
+	if !available {
+		return true, nil
+	}
+	return result.Ready, append([]int(nil), result.Unsatisfied...)
+}
+
+// RerunRedactionReconciliation performs one strong read and atomically replaces
+// readiness with the result from this round's observed snapshot.
+func (runtime *Runtime) RerunRedactionReconciliation(ctx context.Context) error {
+	if runtime == nil || runtime.redaction == nil {
+		return fmt.Errorf("redaction reconciliation is unavailable")
+	}
+	return runtime.redaction.runStrong(ctx)
+}
+
+// RunPeriodicRedactionReconciliationOnce exposes the production periodic
+// read-only behavior for deterministic scheduling tests and future orchestration.
+func (runtime *Runtime) RunPeriodicRedactionReconciliationOnce(ctx context.Context) error {
+	if runtime == nil || runtime.redaction == nil {
+		return nil
+	}
+	return runtime.redaction.runPeriodic(ctx)
 }
 
 // ValidateRedactionActivation checks whether this process can execute an
@@ -232,6 +283,9 @@ func (runtime *Runtime) Close() error {
 	}
 	runtime.closed = true
 	var closeErrors []error
+	if runtime.redaction != nil {
+		runtime.redaction.close()
+	}
 	if runtime.Notifications != nil {
 		if err := runtime.Notifications.Close(); err != nil {
 			closeErrors = append(closeErrors, err)

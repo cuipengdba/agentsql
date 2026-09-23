@@ -18,7 +18,7 @@ func TestResolveRedactionPrecedenceAndByteLength(t *testing.T) {
 	}{
 		{name: "yaml only", yamlKey: "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", want: "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"},
 		{name: "environment only", envKey: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", envPresent: true, want: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
-		{name: "empty environment overrides yaml", yamlKey: "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", envPresent: true, want: ""},
+		{name: "empty environment is rejected", yamlKey: "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", envPresent: true, wantErr: ErrInvalidRedactionHashKey},
 		{name: "short yaml", yamlKey: "tiny-secret", wantErr: ErrInvalidRedactionHashKey},
 		{name: "short environment", yamlKey: "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", envKey: "tiny-secret", envPresent: true, wantErr: ErrInvalidRedactionHashKey},
 		{name: "exact boundary", yamlKey: "12345678901234567890123456789012", want: "12345678901234567890123456789012"},
@@ -28,12 +28,23 @@ func TestResolveRedactionPrecedenceAndByteLength(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := Config{Redaction: RedactionConfig{HashKey: test.yamlKey}}
 			resolved, err := ResolveRedaction(&cfg, func(name string) (string, bool) {
-				require.Equal(t, RedactionHashKeyEnv, name)
-				return test.envKey, test.envPresent
+				switch name {
+				case RedactionHashKeysFileEnv:
+					return "", false
+				case RedactionHashKeyEnv:
+					return test.envKey, test.envPresent
+				default:
+					t.Fatalf("unexpected environment lookup %q", name)
+					return "", false
+				}
 			})
 			if test.wantErr != nil {
-				require.ErrorIs(t, err, test.wantErr)
-				require.ErrorIs(t, err, mask.ErrHashKeyTooShort)
+				if test.envPresent && test.envKey == "" {
+					require.ErrorContains(t, err, "present but empty")
+				} else {
+					require.ErrorIs(t, err, test.wantErr)
+					require.ErrorIs(t, err, mask.ErrHashKeyTooShort)
+				}
 				if test.yamlKey != "" {
 					require.NotContains(t, err.Error(), test.yamlKey)
 				}

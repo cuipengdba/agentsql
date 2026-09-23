@@ -83,6 +83,15 @@ func Parse(contents []byte) (Config, error) {
 	if !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("decode trailing config data: %w", err)
 	}
+	redactionFields := configuredRedactionFields(contents)
+	loaded.Redaction.hashKeySet = redactionFields["hash_key"]
+	loaded.Redaction.hashKeysSet = redactionFields["hash_keys"]
+	if loaded.Redaction.hashKeysSet && loaded.Redaction.HashKeys == nil {
+		return Config{}, fmt.Errorf("validate redaction.hash_keys: value must be an object: %w", ErrInvalidHashKeysManifest)
+	}
+	if err := validateInlineHashKeys(contents, loaded.Redaction.HashKeys); err != nil {
+		return Config{}, fmt.Errorf("validate redaction.hash_keys: %w", err)
+	}
 
 	configured := configuredServerFields(contents)
 	if !configured["console_enabled"] {
@@ -110,6 +119,20 @@ func Parse(contents []byte) (Config, error) {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
 	return loaded, nil
+}
+
+func configuredRedactionFields(contents []byte) map[string]bool {
+	var document struct {
+		Redaction map[string]yaml.Node `yaml:"redaction"`
+	}
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return map[string]bool{}
+	}
+	configured := make(map[string]bool, len(document.Redaction))
+	for field := range document.Redaction {
+		configured[field] = true
+	}
+	return configured
 }
 
 // Load reads one YAML document, validates all startup settings, and creates the

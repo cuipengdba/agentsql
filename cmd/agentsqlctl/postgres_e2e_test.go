@@ -99,8 +99,9 @@ ORDER BY table_name`)
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{
-		"agents", "approvals", "audit_logs", "datasources", "mask_rules",
-		"notification_channels", "notification_settings", "policies", "rules", "schema_migrations",
+		"agents", "approvals", "audit_logs", "datasources", "management_audit_outbox",
+		"mask_rules", "notification_channels", "notification_settings", "policies",
+		"redaction_key_versions", "rules", "schema_migrations",
 	}, tables)
 
 	var healthOutput, healthError strings.Builder
@@ -176,11 +177,12 @@ theme:
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, auditDB.Close()) })
 	require.Equal(t, []string{
-		"agents", "approvals", "datasources", "mask_rules", "notification_channels",
-		"notification_settings", "policies", "rules", "schema_migrations",
+		"agents", "approvals", "datasources", "management_audit_outbox", "mask_rules",
+		"notification_channels", "notification_settings", "policies",
+		"redaction_key_versions", "rules", "schema_migrations",
 	}, commandPostgresTableNames(t, ctx, metadataDB))
 	require.Equal(t, []string{"audit_logs", "schema_migrations"}, commandPostgresTableNames(t, ctx, auditDB))
-	require.Equal(t, []string{"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts"}, commandPostgresIndexNames(t, ctx, auditDB))
+	require.Equal(t, []string{"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts", "ux_audit_logs_event_uuid"}, commandPostgresIndexNames(t, ctx, auditDB))
 	var approvalForeignKeys int
 	require.NoError(t, metadataDB.QueryRowContext(ctx, `
 SELECT count(*)
@@ -236,7 +238,7 @@ func commandPostgresIndexNames(t *testing.T, ctx context.Context, database *sql.
 	rows, err := database.QueryContext(ctx, `
 SELECT indexname
 FROM pg_indexes
-WHERE schemaname='public' AND indexname LIKE 'idx_%'
+WHERE schemaname='public' AND (indexname LIKE 'idx_%' OR indexname IN ('ux_mask_rules_scope_column','ux_redaction_key_versions_active','ux_audit_logs_event_uuid'))
 ORDER BY indexname`)
 	require.NoError(t, err)
 	return commandScanStrings(t, rows)

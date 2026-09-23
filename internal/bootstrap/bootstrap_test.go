@@ -28,6 +28,19 @@ import (
 
 var bootstrapTestSecret = []byte("0123456789abcdef0123456789abcdef")
 
+func unsetRedactionHashKeyEnv(t *testing.T) {
+	t.Helper()
+	previous, present := os.LookupEnv(config.RedactionHashKeyEnv)
+	require.NoError(t, os.Unsetenv(config.RedactionHashKeyEnv))
+	t.Cleanup(func() {
+		if present {
+			require.NoError(t, os.Setenv(config.RedactionHashKeyEnv, previous))
+			return
+		}
+		require.NoError(t, os.Unsetenv(config.RedactionHashKeyEnv))
+	})
+}
+
 func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	provider := &bootstrapExecutorProvider{executor: &bootstrapExecutor{}}
 	runtime, err := assembleWithExecutorProvider(
@@ -390,7 +403,7 @@ func TestRedactorBuilderBlockDoesNotRequireHashKey(t *testing.T) {
 	})
 
 	t.Run("startup scan succeeds without key", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "block.db")
 		seedBootstrapMaskRule(t, path, model.MaskRule{
 			ID: "block", ColumnName: "secret", SensitiveType: string(mask.TypeGeneric),
@@ -402,7 +415,7 @@ func TestRedactorBuilderBlockDoesNotRequireHashKey(t *testing.T) {
 	})
 
 	t.Run("enabled hash still requires key when mixed with block", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "block-hash.db")
 		seedBootstrapMaskRule(t, path, model.MaskRule{
 			ID: "block", ColumnName: "secret", SensitiveType: string(mask.TypeGeneric),
@@ -420,7 +433,7 @@ func TestRedactorBuilderBlockDoesNotRequireHashKey(t *testing.T) {
 
 func TestAssembleRedactionStartupMatrixSQLite(t *testing.T) {
 	t.Run("enabled hash without key fails and closes store", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "enabled.db")
 		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "hash", ColumnName: "phone", SensitiveType: string(mask.TypeGeneric), Algo: string(mask.AlgoHash), Enabled: true})
 		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
@@ -432,7 +445,7 @@ func TestAssembleRedactionStartupMatrixSQLite(t *testing.T) {
 	})
 
 	t.Run("disabled hash without key starts", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "disabled.db")
 		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "hash", ColumnName: "phone", SensitiveType: string(mask.TypeGeneric), Algo: string(mask.AlgoHash), Enabled: false})
 		runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
@@ -441,7 +454,7 @@ func TestAssembleRedactionStartupMatrixSQLite(t *testing.T) {
 	})
 
 	t.Run("same normalized column in different datasource scopes starts", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "scopes.db")
 		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "ds-1-phone", DatasourceID: stringPointerBootstrap("ds-1"), ColumnName: "phone", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true})
 		seedBootstrapMaskRule(t, path, model.MaskRule{ID: "ds-2-phone", DatasourceID: stringPointerBootstrap("ds-2"), ColumnName: "PHONE", SensitiveType: string(mask.TypePhone), Algo: string(mask.AlgoMask), Enabled: true})

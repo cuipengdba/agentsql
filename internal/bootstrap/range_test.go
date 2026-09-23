@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
@@ -79,7 +78,7 @@ func TestRedactorBuilderRangeActivationAndHashGate(t *testing.T) {
 
 func TestAssembleRangeStartupValidationSQLite(t *testing.T) {
 	t.Run("enabled range without hash key starts", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "valid-range.db")
 		width, offset := int64(10), int64(0)
 		seedBootstrapMaskRule(t, path, model.MaskRule{
@@ -107,7 +106,7 @@ func TestAssembleRangeStartupValidationSQLite(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv(config.RedactionHashKeyEnv, "")
+			unsetRedactionHashKeyEnv(t)
 			path := filepath.Join(t.TempDir(), "invalid-range.db")
 			seedBootstrapMaskRule(t, path, test.rule)
 			runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
@@ -117,7 +116,7 @@ func TestAssembleRangeStartupValidationSQLite(t *testing.T) {
 	}
 
 	t.Run("disabled invalid range follows draft policy", func(t *testing.T) {
-		t.Setenv(config.RedactionHashKeyEnv, "")
+		unsetRedactionHashKeyEnv(t)
 		path := filepath.Join(t.TempDir(), "disabled-invalid-range.db")
 		seedBootstrapMaskRule(t, path, model.MaskRule{
 			ID: "disabled-bad-number", ColumnName: "amount", SensitiveType: string(mask.TypeNumber),

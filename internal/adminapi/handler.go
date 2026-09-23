@@ -102,6 +102,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	// The runtime owns redaction capability. The HTTP layer must never retain
 	// the configured hash key merely because it needs the rest of Config.
 	deps.Config.Redaction.HashKey = ""
+	deps.Config.Redaction.HashKeys = nil
 	if strings.TrimSpace(deps.AdminUsername) == "" {
 		deps.AdminUsername = "admin"
 	}

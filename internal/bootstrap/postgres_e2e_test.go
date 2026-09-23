@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/redaction"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -83,7 +86,7 @@ func TestAssemblePostgres18MetadataE2E(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, runtime.Close())
 
-	t.Setenv(config.RedactionHashKeyEnv, "")
+	unsetRedactionHashKeyEnv(t)
 	rangeRuntime, err := Assemble(ctx, cfg, bootstrapTestSecret)
 	require.NoError(t, err, "a PostgreSQL-backed range-only rule set must activate without a hash key")
 	t.Cleanup(func() { require.NoError(t, rangeRuntime.Close()) })
@@ -94,6 +97,61 @@ func TestAssemblePostgres18MetadataE2E(t *testing.T) {
 	})
 	require.Equal(t, "[25,50)", result.Rows[0][0])
 	require.Equal(t, mask.TypeNumber, report.TouchedColumns[0])
+	require.NoError(t, rangeRuntime.Close())
+
+	// B3 S3: empty registry is #3, a fresh strong round restores readiness,
+	// active mismatch is hard #2, and standby mismatch is readiness-only #4.
+	encodedOne := base64.StdEncoding.EncodeToString([]byte("0123456789abcdefghijklmnopqrstuv"))
+	encodedTwo := base64.StdEncoding.EncodeToString([]byte("ABCDEFGHIJKLMNOPQRSTUV0123456789"))
+	cfg.Redaction.HashKeys = &config.RedactionHashKeysConfig{
+		ActiveVersion: 1,
+		Keys: []config.RedactionHashKeySpec{
+			{ID: 1, KeyB64: &encodedOne}, {ID: 2, KeyB64: &encodedTwo},
+		},
+	}
+	multiRuntime, err := Assemble(ctx, cfg, bootstrapTestSecret)
+	require.NoError(t, err)
+	ready, unmet := multiRuntime.RedactionReady()
+	require.False(t, ready)
+	require.Equal(t, []int{3}, unmet)
+	observed, available := multiRuntime.RedactionReconciliation()
+	require.True(t, available)
+	require.Len(t, observed.Observed.Keys, 2)
+	require.NoError(t, multiRuntime.Store.RedactionKeys().RegisterStandby(ctx, "1", observed.Observed.Keys[0].Commitment, "active", observed.Observed.Revision, nil))
+	require.NoError(t, multiRuntime.Store.RedactionKeys().RegisterStandby(ctx, "2", observed.Observed.Keys[1].Commitment, "standby", observed.Observed.Revision, nil))
+	_, _, _, err = multiRuntime.Store.RedactionKeys().MarkActiveCAS(ctx, "1")
+	require.NoError(t, err)
+	ready, _ = multiRuntime.RedactionReady()
+	require.False(t, ready, "registry mutation cannot recover readiness without a new round")
+	require.NoError(t, multiRuntime.RerunRedactionReconciliation(ctx))
+	ready, unmet = multiRuntime.RedactionReady()
+	require.True(t, ready)
+	require.Empty(t, unmet)
+	require.NoError(t, multiRuntime.Close())
+
+	connection, err := pgx.Connect(ctx, dsn)
+	require.NoError(t, err)
+	_, err = connection.Exec(ctx, `UPDATE redaction_key_versions SET commitment=$1 WHERE id='1'`, strings.Repeat("f", 64))
+	require.NoError(t, err)
+	require.NoError(t, connection.Close(ctx))
+	hardRuntime, err := Assemble(ctx, cfg, bootstrapTestSecret)
+	require.Nil(t, hardRuntime)
+	require.ErrorIs(t, err, redaction.ErrActiveCommitmentMismatch)
+	require.NotContains(t, err.Error(), encodedOne)
+
+	connection, err = pgx.Connect(ctx, dsn)
+	require.NoError(t, err)
+	_, err = connection.Exec(ctx, `UPDATE redaction_key_versions SET commitment=$1 WHERE id='1'`, observed.Observed.Keys[0].Commitment)
+	require.NoError(t, err)
+	_, err = connection.Exec(ctx, `UPDATE redaction_key_versions SET commitment=$1 WHERE id='2'`, strings.Repeat("e", 64))
+	require.NoError(t, err)
+	require.NoError(t, connection.Close(ctx))
+	standbyDriftRuntime, err := Assemble(ctx, cfg, bootstrapTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, standbyDriftRuntime.Close()) })
+	ready, unmet = standbyDriftRuntime.RedactionReady()
+	require.False(t, ready)
+	require.Equal(t, []int{4}, unmet)
 }
 
 func bootstrapDockerTestContext(t *testing.T) context.Context {

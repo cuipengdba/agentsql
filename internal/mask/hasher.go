@@ -10,6 +10,7 @@ import (
 const (
 	minimumHashKeyBytes = 32
 	legacyHashDomain    = "agentsql:redaction-hash:v1\x00"
+	keyCommitmentDomain = "agentsql:redaction-key-commitment:v1\x00"
 )
 
 type ActiveHasher interface {
@@ -74,6 +75,15 @@ func VerifyFingerprint(version int, key []byte, value, candidate string) (bool, 
 		return false, err
 	}
 	return hmac.Equal([]byte(active.Fingerprint(value)), []byte(candidate)), nil
+}
+
+// KeyCommitment returns the non-secret, stable commitment stored in the key
+// registry. It never retains or mutates keyMaterial.
+func KeyCommitment(keyMaterial []byte) string {
+	digest := sha256.New()
+	_, _ = digest.Write([]byte(keyCommitmentDomain))
+	_, _ = digest.Write(keyMaterial)
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func validateHashKey(key []byte) error {

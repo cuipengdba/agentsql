@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -134,7 +135,15 @@ VALUES
 	})
 	require.NoError(t, err)
 	require.NoError(t, seed.Close())
-	t.Setenv(config.RedactionHashKeyEnv, "")
+	previousHashKey, hashKeyWasSet := os.LookupEnv(config.RedactionHashKeyEnv)
+	require.NoError(t, os.Unsetenv(config.RedactionHashKeyEnv))
+	t.Cleanup(func() {
+		if hashKeyWasSet {
+			require.NoError(t, os.Setenv(config.RedactionHashKeyEnv, previousHashKey))
+		} else {
+			require.NoError(t, os.Unsetenv(config.RedactionHashKeyEnv))
+		}
+	})
 	failedRuntime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
 	require.Nil(t, failedRuntime)
 	require.ErrorIs(t, err, mask.ErrHashKeyRequired)

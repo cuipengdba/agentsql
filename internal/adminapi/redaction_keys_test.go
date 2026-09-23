@@ -2,11 +2,18 @@ package adminapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cuipengdba/agentsql/internal/bootstrap"
+	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,4 +43,52 @@ func TestRedactionKeysReadOnlyObservation(t *testing.T) {
 	status, body = fixture.request(http.MethodGet, "/api/v1/redaction/keys", "", "")
 	require.Equal(t, http.StatusUnauthorized, status, body)
 	require.Contains(t, body, `"code":401`)
+}
+
+func TestRedactionKeysProjectsObservedAndDriftBesideRegistered(t *testing.T) {
+	cfg := adminTestConfig(filepath.Join(t.TempDir(), "observed.db"))
+	encoded := base64.StdEncoding.EncodeToString([]byte("0123456789abcdefghijklmnopqrstuv"))
+	cfg.Redaction.HashKeys = &config.RedactionHashKeysConfig{
+		ActiveVersion: 1,
+		Keys:          []config.RedactionHashKeySpec{{ID: 1, KeyB64: &encoded}},
+	}
+	runtime, err := bootstrap.Assemble(context.Background(), cfg, []byte(adminTestSecret))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	handler, err := NewHandler(Deps{
+		Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: "password",
+		TokenKey: DeriveTokenKey([]byte(adminTestSecret)),
+	}, zerolog.Nop())
+	require.NoError(t, err)
+	token, _, err := issueAdminToken(DeriveTokenKey([]byte(adminTestSecret)), time.Now(), "observed-test")
+	require.NoError(t, err)
+	request := func() string {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/redaction/keys", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		return recorder.Body.String()
+	}
+
+	body := request()
+	require.Contains(t, body, `"registered":[]`)
+	require.Contains(t, body, `"status":"available"`)
+	require.Contains(t, body, `"active_version":1`)
+	require.Contains(t, body, `"unsatisfied":[3]`)
+	require.Contains(t, body, `"number":3`)
+	require.NotContains(t, body, encoded)
+	require.NotContains(t, body, "key_b64")
+	require.NotContains(t, body, "key_file")
+
+	result, available := runtime.RedactionReconciliation()
+	require.True(t, available)
+	require.NoError(t, runtime.Store.RedactionKeys().RegisterStandby(context.Background(), "1", result.Observed.Keys[0].Commitment, "active", result.Observed.Revision, nil))
+	_, _, _, err = runtime.Store.RedactionKeys().MarkActiveCAS(context.Background(), "1")
+	require.NoError(t, err)
+	require.NoError(t, runtime.RerunRedactionReconciliation(context.Background()))
+	body = request()
+	require.Contains(t, body, `"state":"active"`)
+	require.Contains(t, body, `"ready":true`)
+	require.Contains(t, body, `"unsatisfied":[]`)
 }

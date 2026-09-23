@@ -1,6 +1,10 @@
 package config
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -32,4 +36,50 @@ func TestBuildRedactionAssembly(t *testing.T) {
 	ok, err = assembly.Verify(2, "value", candidate)
 	require.Error(t, err)
 	require.False(t, ok)
+}
+
+func TestBuildManifestAssemblyUsesSingleMaskGate(t *testing.T) {
+	activeOne, err := resolveHashKeys(&RedactionHashKeysConfig{
+		ActiveVersion: 1,
+		Keys: []RedactionHashKeySpec{
+			{ID: 1, KeyB64: stringPointer(canonicalTestKey(0))},
+			{ID: 2, KeyB64: stringPointer(canonicalTestKey(32))},
+		},
+	})
+	require.NoError(t, err)
+	defer activeOne.Clear()
+	assembly, err := BuildRedactionAssembly(activeOne)
+	require.NoError(t, err)
+	require.Equal(t, "available", assembly.Observed.Status)
+	require.Equal(t, 1, assembly.Observed.ActiveVersion)
+	require.Len(t, assembly.Observed.Keys, 2)
+
+	candidate, err := mask.VerifyFingerprint(2, diverseTestBytes(32), "value", "h.2.not-a-match")
+	require.NoError(t, err)
+	require.False(t, candidate)
+	matched, err := assembly.Verify(2, "value", maskFingerprintForTest(t, 2, diverseTestBytes(32), "value"))
+	require.NoError(t, err)
+	require.True(t, matched, "standby keys are verify-only and do not pass the active gate")
+
+	activeTwo, err := resolveHashKeys(&RedactionHashKeysConfig{
+		ActiveVersion: 2,
+		Keys: []RedactionHashKeySpec{
+			{ID: 1, KeyB64: stringPointer(canonicalTestKey(0))},
+			{ID: 2, KeyB64: stringPointer(canonicalTestKey(32))},
+		},
+	})
+	require.NoError(t, err)
+	defer activeTwo.Clear()
+	_, err = BuildRedactionAssembly(activeTwo)
+	require.ErrorIs(t, err, mask.ErrVersionedActiveNotEnabled)
+}
+
+func maskFingerprintForTest(t *testing.T, version int, key []byte, value string) string {
+	t.Helper()
+	mac := hmac.New(sha256.New, key)
+	_, err := mac.Write([]byte(fmt.Sprintf("agentsql:redaction-hash:v%d\x00", version)))
+	require.NoError(t, err)
+	_, err = mac.Write([]byte(value))
+	require.NoError(t, err)
+	return fmt.Sprintf("h.%d.%s", version, hex.EncodeToString(mac.Sum(nil)[:16]))
 }

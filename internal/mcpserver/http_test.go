@@ -3,16 +3,19 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -151,6 +154,46 @@ func TestT241ReadinessFailsClosedWithoutStore(t *testing.T) {
 	readinessHandler(nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	require.JSONEq(t, `{"status":"not ready"}`, recorder.Body.String())
+}
+
+func TestRedactionReadinessRequiresFreshReconciliation(t *testing.T) {
+	cfg := httpTestConfig(100)
+	cfg.Store.SQLitePath = filepath.Join(t.TempDir(), "readiness.db")
+	encoded := base64.StdEncoding.EncodeToString([]byte("0123456789abcdefghijklmnopqrstuv"))
+	cfg.Redaction.HashKeys = &config.RedactionHashKeysConfig{
+		ActiveVersion: 1,
+		Keys:          []config.RedactionHashKeySpec{{ID: 1, KeyB64: &encoded}},
+	}
+	runtime, err := bootstrap.Assemble(context.Background(), cfg, mcpTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	handler, err := NewHTTPHandler(runtime, cfg, zerolog.Nop())
+	require.NoError(t, err)
+
+	assertReady := func(status int, body string) {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		require.Equal(t, status, recorder.Code, recorder.Body.String())
+		require.JSONEq(t, body, recorder.Body.String())
+	}
+	assertReady(http.StatusServiceUnavailable, `{"status":"not ready","redaction_unsatisfied":[3]}`)
+
+	result, available := runtime.RedactionReconciliation()
+	require.True(t, available)
+	require.Len(t, result.Observed.Keys, 1)
+	require.NoError(t, runtime.Store.RedactionKeys().RegisterStandby(
+		context.Background(), "1", result.Observed.Keys[0].Commitment, "current", result.Observed.Revision, nil,
+	))
+	_, _, _, err = runtime.Store.RedactionKeys().MarkActiveCAS(context.Background(), "1")
+	require.NoError(t, err)
+	assertReady(http.StatusServiceUnavailable, `{"status":"not ready","redaction_unsatisfied":[3]}`)
+
+	require.NoError(t, runtime.RerunRedactionReconciliation(context.Background()))
+	assertReady(http.StatusOK, `{"status":"ready"}`)
+
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.Equal(t, http.StatusOK, health.Code)
 }
 
 func TestStreamableHTTPEndToEndSevenTools(t *testing.T) {
@@ -541,6 +584,7 @@ func TestClassifyRoute(t *testing.T) {
 		{name: "audit action", path: "/api/v1/audit/export", want: "/api/v1/audit/export"},
 		{name: "dashboard action", path: "/api/v1/dashboard/summary", want: "/api/v1/dashboard/summary"},
 		{name: "playground action", path: "/api/v1/playground/assess", want: "/api/v1/playground/assess"},
+		{name: "redaction keys", path: "/api/v1/redaction/keys", want: "/api/v1/redaction/keys"},
 		{name: "event stream", path: "/api/v1/stream", want: "/api/v1/stream"},
 		{name: "unknown auth action", path: "/api/v1/auth/unknown", want: "/other"},
 		{name: "unknown audit action", path: "/api/v1/audit/unknown", want: "/other"},

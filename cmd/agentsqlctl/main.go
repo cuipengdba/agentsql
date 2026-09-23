@@ -315,6 +315,11 @@ func newCheckConfigCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("check config %q: %w", configPath, err)
 			}
+			resolvedRedaction, err := config.ResolveRedaction(&loaded, os.LookupEnv)
+			if err != nil {
+				return fmt.Errorf("check config %q: %w", configPath, err)
+			}
+			defer resolvedRedaction.Clear()
 			resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
 			if err != nil {
 				return fmt.Errorf("check config %q: %w", configPath, err)
@@ -328,6 +333,7 @@ func newCheckConfigCommand() *cobra.Command {
 			if resolved.Metadata.Driver == store.DialectSQLite {
 				message += " sqlite_path=" + resolved.Metadata.SQLitePath
 			}
+			message += " registry_retired_and_drift_checks=not_run"
 			if _, err := fmt.Fprintln(command.OutOrStdout(), message); err != nil {
 				return fmt.Errorf("write check-config result: %w", err)
 			}

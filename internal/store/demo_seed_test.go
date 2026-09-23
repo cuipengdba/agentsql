@@ -129,18 +129,18 @@ func demoHistoricalSeedFixture() ([]model.AuditLog, []model.Approval) {
 	approver := "demo-dba"
 	decidedAt := time.Date(2026, 8, 20, 12, 30, 0, 0, time.UTC)
 	return []model.AuditLog{
-		{
-			TS: time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC), AgentID: &agentID,
-			SessionID: &firstSession, SQLRaw: &allowSQL, Decision: "allow", ModelName: &modelName,
-		},
-		{
-			TS: time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC), AgentID: &agentID,
-			SessionID: &secondSession, SQLRaw: &approveSQL, Decision: "approve", ModelName: &modelName,
-		},
-	}, []model.Approval{
-		{
-			ID: "demo-approval-000002", AgentID: &agentID, SQLRaw: &approveSQL,
-			Reason: &reason, Status: "approved", Approver: &approver, DecidedAt: &decidedAt,
-		},
-	}
+			{
+				TS: time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC), AgentID: &agentID,
+				SessionID: &firstSession, SQLRaw: &allowSQL, Decision: "allow", ModelName: &modelName,
+			},
+			{
+				TS: time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC), AgentID: &agentID,
+				SessionID: &secondSession, SQLRaw: &approveSQL, Decision: "approve", ModelName: &modelName,
+			},
+		}, []model.Approval{
+			{
+				ID: "demo-approval-000002", AgentID: &agentID, SQLRaw: &approveSQL,
+				Reason: &reason, Status: "approved", Approver: &approver, DecidedAt: &decidedAt,
+			},
+		}
 }
