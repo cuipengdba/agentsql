@@ -184,11 +184,18 @@ func (repository *AuditLogRepository) chainInsertBatchAttempt(
 	inserted = make([]model.AuditLog, 0, len(logs))
 	var headID int64
 	for index, auditLog := range logs {
-		row, err := insertAuditLog(ctx, transaction, repository.dialect, auditLog)
+		sequence++
+		var row model.AuditLog
+		if locked.Status == "ACTIVE" {
+			row, err = insertActiveAuditLog(
+				ctx, transaction, repository.dialect, auditLog, sequence, previousHash, keyVersion,
+			)
+		} else {
+			row, err = insertAuditLog(ctx, transaction, repository.dialect, auditLog)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("insert batch item %d before hashing: %w", index, err)
 		}
-		sequence++
 		selfHash, err := repository.hashAuditLog(locked, row, mode, keyVersion, sequence, previousHash, key)
 		if err != nil {
 			return nil, fmt.Errorf("hash batch item %d: %w", index, err)
@@ -340,7 +347,7 @@ func (repository *AuditLogRepository) chainHashParameters(ctx context.Context, s
 		// S2a has no chain_state key-version column. S2b-1 therefore uses
 		// the initial frozen HMAC version; S2b-2 will source this from its
 		// build manifest/state when key rotation is introduced.
-		const keyVersion = 1
+		const keyVersion = initialHMACChainKeyVersion
 		if repository.keys == nil {
 			return "", 0, nil, fmt.Errorf("HMAC chain key provider is unavailable for version %d", keyVersion)
 		}
