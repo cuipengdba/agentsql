@@ -72,6 +72,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if _, writeErr := fmt.Fprintln(stderr, err); writeErr != nil {
 			return 1
 		}
+		var codedError interface{ ExitCode() int }
+		if errors.As(err, &codedError) {
+			return codedError.ExitCode()
+		}
 		if errors.Is(err, errManagementAuditPending) {
 			return 3
 		}
@@ -97,6 +101,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newHealthCommand())
 	command.AddCommand(newDemoSeedCommand(defaultDemoSeedDependencies()))
 	command.AddCommand(newRedactionKeyCommand())
+	command.AddCommand(newChainCommand())
 	return command
 }
 
