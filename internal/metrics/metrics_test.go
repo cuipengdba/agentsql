@@ -24,6 +24,10 @@ func TestMetricsObserveAndGather(t *testing.T) {
 	hub.RecordNotificationSent("hook", time.Unix(123, 0))
 	hub.RecordNotificationFailed("hook", "timeout")
 	hub.RecordNotificationDropped("hook")
+	hub.SetAuditWriterReady("management", true)
+	hub.SetAuditChainValid("management", true)
+	hub.SetAuditChainLastVerified("management", time.Unix(456, 0))
+	hub.SetAuditChainVerificationLag("management", true)
 
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.httpRequests.WithLabelValues("GET", "/healthz", "200")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.decisions.WithLabelValues("deny", "postgres", "UPDATE")))
@@ -35,6 +39,10 @@ func TestMetricsObserveAndGather(t *testing.T) {
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationDropped.WithLabelValues("hook")))
 	require.Equal(t, float64(123), testutil.ToFloat64(hub.notificationLastSuccess.WithLabelValues("hook")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationLastError.WithLabelValues("hook", "timeout")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.auditWriterReady.WithLabelValues("management")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.auditChainValid.WithLabelValues("management")))
+	require.Equal(t, float64(456), testutil.ToFloat64(hub.auditChainLastVerified.WithLabelValues("management")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.auditChainVerificationLag.WithLabelValues("management")))
 
 	families, err := hub.registry.Gather()
 	require.NoError(t, err)
@@ -63,6 +71,10 @@ func TestMetricsObserveAndGather(t *testing.T) {
 		"agentsql_pipeline_stage_duration_seconds",
 		"agentsql_rejected_total",
 		"agentsql_pool_connections",
+		"agentsql_audit_writer_ready",
+		"agentsql_audit_chain_valid",
+		"agentsql_audit_chain_last_verified_timestamp_seconds",
+		"agentsql_audit_chain_verification_lag",
 		"redaction_key_drift",
 		"agentsql_notification_sent_total",
 		"agentsql_notification_failed_total",
@@ -123,6 +135,10 @@ func TestMetricsNilReceiverAndSnapshotPanicAreSafe(t *testing.T) {
 		hub.RecordNotificationSent("hook", time.Now())
 		hub.RecordNotificationFailed("hook", "timeout")
 		hub.RecordNotificationDropped("hook")
+		hub.SetAuditWriterReady("management", true)
+		hub.SetAuditChainValid("management", true)
+		hub.SetAuditChainLastVerified("management", time.Now())
+		hub.SetAuditChainVerificationLag("management", true)
 		require.Nil(t, hub.Handler())
 	})
 

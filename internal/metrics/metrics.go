@@ -31,24 +31,28 @@ type PoolStat struct {
 
 // Metrics owns the process-local AgentSQL Prometheus registry.
 type Metrics struct {
-	registry                *prometheus.Registry
-	httpRequests            *prometheus.CounterVec
-	httpDuration            *prometheus.HistogramVec
-	decisions               *prometheus.CounterVec
-	ruleHits                *prometheus.CounterVec
-	stageDuration           *prometheus.HistogramVec
-	rejected                *prometheus.CounterVec
-	poolConnections         *prometheus.GaugeVec
-	redactionKeyDrift       *prometheus.CounterVec
-	outboxPending           prometheus.Gauge
-	outboxOldestAge         prometheus.Gauge
-	notificationSent        *prometheus.CounterVec
-	notificationFailed      *prometheus.CounterVec
-	notificationDropped     *prometheus.CounterVec
-	notificationLastError   *prometheus.GaugeVec
-	notificationLastSuccess *prometheus.GaugeVec
-	notificationMu          sync.Mutex
-	notificationError       map[string]string
+	registry                  *prometheus.Registry
+	httpRequests              *prometheus.CounterVec
+	httpDuration              *prometheus.HistogramVec
+	decisions                 *prometheus.CounterVec
+	ruleHits                  *prometheus.CounterVec
+	stageDuration             *prometheus.HistogramVec
+	rejected                  *prometheus.CounterVec
+	poolConnections           *prometheus.GaugeVec
+	auditWriterReady          *prometheus.GaugeVec
+	auditChainValid           *prometheus.GaugeVec
+	auditChainLastVerified    *prometheus.GaugeVec
+	auditChainVerificationLag *prometheus.GaugeVec
+	redactionKeyDrift         *prometheus.CounterVec
+	outboxPending             prometheus.Gauge
+	outboxOldestAge           prometheus.Gauge
+	notificationSent          *prometheus.CounterVec
+	notificationFailed        *prometheus.CounterVec
+	notificationDropped       *prometheus.CounterVec
+	notificationLastError     *prometheus.GaugeVec
+	notificationLastSuccess   *prometheus.GaugeVec
+	notificationMu            sync.Mutex
+	notificationError         map[string]string
 }
 
 // New creates an isolated registry and all AgentSQL collectors.
@@ -85,6 +89,22 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 			Name: "agentsql_pool_connections",
 			Help: "Current AgentSQL datasource pool connections.",
 		}, []string{"datasource", "dialect", "state"}),
+		auditWriterReady: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_audit_writer_ready",
+			Help: "Whether the AgentSQL audit writer has the key required by its trusted manifest.",
+		}, []string{"domain"}),
+		auditChainValid: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_audit_chain_valid",
+			Help: "Whether the most recent AgentSQL audit chain verification was valid at the observed head.",
+		}, []string{"domain"}),
+		auditChainLastVerified: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_audit_chain_last_verified_timestamp_seconds",
+			Help: "Unix timestamp when the AgentSQL audit chain most recently completed verification.",
+		}, []string{"domain"}),
+		auditChainVerificationLag: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_audit_chain_verification_lag",
+			Help: "Whether AgentSQL audit chain verification is later than 120 percent of its interval.",
+		}, []string{"domain"}),
 		redactionKeyDrift: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "redaction_key_drift",
 			Help: "Total redaction key reconciliation findings by bounded kind.",
@@ -126,6 +146,10 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		metrics.ruleHits,
 		metrics.stageDuration,
 		metrics.rejected,
+		metrics.auditWriterReady,
+		metrics.auditChainValid,
+		metrics.auditChainLastVerified,
+		metrics.auditChainVerificationLag,
 		metrics.redactionKeyDrift,
 		metrics.outboxPending,
 		metrics.outboxOldestAge,
@@ -140,6 +164,45 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		},
 	)
 	return metrics
+}
+
+// SetAuditWriterReady updates the domain-scoped audit writer key readiness.
+func (metrics *Metrics) SetAuditWriterReady(domain string, ready bool) {
+	if metrics == nil {
+		return
+	}
+	metrics.auditWriterReady.WithLabelValues(domain).Set(boolFloat(ready))
+}
+
+// SetAuditChainValid updates whether the latest verification reached a valid observed head.
+func (metrics *Metrics) SetAuditChainValid(domain string, valid bool) {
+	if metrics == nil {
+		return
+	}
+	metrics.auditChainValid.WithLabelValues(domain).Set(boolFloat(valid))
+}
+
+// SetAuditChainLastVerified records the completion time of the latest verification.
+func (metrics *Metrics) SetAuditChainLastVerified(domain string, at time.Time) {
+	if metrics == nil {
+		return
+	}
+	metrics.auditChainLastVerified.WithLabelValues(domain).Set(float64(at.Unix()))
+}
+
+// SetAuditChainVerificationLag updates the domain-scoped verification lag alarm.
+func (metrics *Metrics) SetAuditChainVerificationLag(domain string, lagging bool) {
+	if metrics == nil {
+		return
+	}
+	metrics.auditChainVerificationLag.WithLabelValues(domain).Set(boolFloat(lagging))
+}
+
+func boolFloat(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 // SetOutboxPending updates the current management audit backlog gauges.

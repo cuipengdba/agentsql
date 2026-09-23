@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -154,6 +155,101 @@ func TestT241ReadinessFailsClosedWithoutStore(t *testing.T) {
 	readinessHandler(nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	require.JSONEq(t, `{"status":"not ready"}`, recorder.Body.String())
+}
+
+func TestReadinessRemainsReadyWhenHMACChainKeyMissing(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	good := readinessChainManifest{mode: "hmac", version: 1, keys: map[int][]byte{1: key}}
+	opened, _ := openReadinessChainStore(t, good)
+	missing := readinessChainManifest{mode: "hmac", version: 1}
+	monitor := bootstrap.NewChainMonitor(
+		opened,
+		readinessChainProvider{manifest: missing},
+		nil,
+		[]string{"management"},
+		time.Hour,
+	)
+	runtime := &bootstrap.Runtime{Store: opened, ChainMonitor: monitor}
+	monitor.RunChainVerificationOnce(context.Background())
+	require.False(t, runtime.AuditWriterReady("management"))
+
+	recorder := httptest.NewRecorder()
+	readinessHandler(runtime).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"status":"ready"}`, recorder.Body.String())
+}
+
+func TestReadinessRemainsReadyWhenAuditHistoryIsBroken(t *testing.T) {
+	manifest := readinessChainManifest{mode: "keyless"}
+	opened, database := openReadinessChainStore(t, manifest)
+	_, err := database.Exec(`DROP TRIGGER trg_audit_logs_chain_contract_update`)
+	require.NoError(t, err)
+	_, err = database.Exec(`UPDATE audit_logs SET details_json = '{"tampered":true}' WHERE id = (SELECT MIN(id) FROM audit_logs)`)
+	require.NoError(t, err)
+	monitor := bootstrap.NewChainMonitor(
+		opened,
+		readinessChainProvider{manifest: manifest},
+		nil,
+		[]string{"management"},
+		time.Hour,
+	)
+	runtime := &bootstrap.Runtime{Store: opened, ChainMonitor: monitor}
+	monitor.RunChainVerificationOnce(context.Background())
+	require.True(t, runtime.AuditWriterReady("management"))
+
+	recorder := httptest.NewRecorder()
+	readinessHandler(runtime).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"status":"ready"}`, recorder.Body.String())
+}
+
+type readinessChainManifest struct {
+	mode    string
+	version int
+	keys    map[int][]byte
+}
+
+func (manifest readinessChainManifest) ExpectedMode(context.Context) (string, error) {
+	return manifest.mode, nil
+}
+
+func (manifest readinessChainManifest) CurrentKeyVersion(context.Context) (int, error) {
+	return manifest.version, nil
+}
+
+func (manifest readinessChainManifest) ChainKeyForVersion(_ context.Context, version int) ([]byte, error) {
+	key, exists := manifest.keys[version]
+	if !exists {
+		return nil, fmt.Errorf("chain key version %d is unavailable", version)
+	}
+	return key, nil
+}
+
+type readinessChainProvider struct {
+	manifest store.ChainManifest
+}
+
+func (provider readinessChainProvider) ChainManifestForDomain(context.Context, string) (store.ChainManifest, error) {
+	return provider.manifest, nil
+}
+
+func openReadinessChainStore(t *testing.T, manifest store.ChainManifest) (*store.Store, *sql.DB) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "chain-readiness.db")
+	opened, err := store.OpenWithSecret(context.Background(), path, mcpTestSecret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, opened.Close()) })
+	database, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	database.SetMaxOpenConns(1)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	details := `{"test":true}`
+	_, err = opened.AuditLogs().Insert(context.Background(), model.AuditLog{Decision: "allow", DetailsJSON: &details})
+	require.NoError(t, err)
+	require.NoError(t, store.NewChainProvisioner(
+		database, store.DialectSQLite, "management", manifest, store.BackfillConfig{},
+	).Provision(context.Background(), "readiness-test"))
+	return opened, database
 }
 
 func TestRedactionReadinessRequiresFreshReconciliation(t *testing.T) {

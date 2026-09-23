@@ -38,6 +38,7 @@ type Runtime struct {
 	ManagementAudit audit.Recorder
 	Store           *store.Store
 	Metrics         *metrics.Metrics
+	ChainMonitor    *ChainMonitor
 	// Events is the in-process stream of successfully persisted audits.
 	Events *eventbus.Hub
 	// Notifications is the process-local best-effort notification manager.
@@ -187,8 +188,16 @@ func assembleWithExecutorProvider(
 		names:           names,
 		redaction:       redactionRuntime,
 	}
+	runtime.ChainMonitor = NewChainMonitor(
+		metadataStore,
+		store.NewKeylessChainManifestProvider(),
+		metricsHub,
+		configuredChainDomains(!resolvedStore.Audit.ReuseMetadata),
+		chainVerificationInterval,
+	)
 	redactionRuntime.attachMetrics(metricsHub)
 	redactionRuntime.start(ctx, time.Minute)
+	runtime.ChainMonitor.start(ctx)
 	if !resolvedStore.Audit.ReuseMetadata {
 		relay, relayErr := auditrelay.New(metadataStore.Outbox(), metadataStore.AuditLogs(), "gateway-"+uuid.NewString(), metricsHub)
 		if relayErr != nil {
@@ -240,6 +249,24 @@ func (runtime *Runtime) RunPeriodicRedactionReconciliationOnce(ctx context.Conte
 		return nil
 	}
 	return runtime.redaction.runPeriodic(ctx)
+}
+
+// RunChainVerificationOnce attempts one audit-chain verification round without
+// changing process-wide readiness.
+func (runtime *Runtime) RunChainVerificationOnce(ctx context.Context) {
+	if runtime == nil || runtime.ChainMonitor == nil {
+		return
+	}
+	runtime.ChainMonitor.RunChainVerificationOnce(ctx)
+}
+
+// AuditWriterReady reports only whether the expected HMAC key is currently
+// available for writes in domain. Historical chain validity is not a gate.
+func (runtime *Runtime) AuditWriterReady(domain string) bool {
+	if runtime == nil || runtime.ChainMonitor == nil {
+		return true
+	}
+	return runtime.ChainMonitor.AuditWriterReady(domain)
 }
 
 // ValidateRedactionActivation checks whether this process can execute an
@@ -306,6 +333,9 @@ func (runtime *Runtime) Close() error {
 	}
 	if runtime.redaction != nil {
 		runtime.redaction.close()
+	}
+	if runtime.ChainMonitor != nil {
+		runtime.ChainMonitor.close()
 	}
 	if runtime.Notifications != nil {
 		if err := runtime.Notifications.Close(); err != nil {
