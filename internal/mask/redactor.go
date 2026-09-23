@@ -63,6 +63,7 @@ type resultRedactor struct {
 	wildcardScopedRules map[string]redactorRule
 	scopedRulesByColumn map[string][]redactorRule
 	active              ActiveHasher
+	activeVersion       int
 	hashFallbackCount   int
 }
 
@@ -239,6 +240,7 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 		wildcardScopedRules: wildcardScopedRules,
 		scopedRulesByColumn: scopedRulesByColumn,
 		active:              active,
+		activeVersion:       options.plan.activeVersion,
 	}, nil
 }
 
@@ -344,6 +346,9 @@ func (redactor *resultRedactor) ApplyWithColumnSources(
 				if changed {
 					copyResult.Rows[rowIndex][columnIndex] = masked
 					report.MaskedCells++
+					if rule.algorithm == AlgoHash && !hashFallback {
+						redactor.markHashVersion(&report)
+					}
 				}
 			}
 			continue
@@ -378,6 +383,18 @@ func (redactor *resultRedactor) ApplyWithColumnSources(
 		}
 	}
 	return copyResult, report
+}
+
+func (redactor *resultRedactor) markHashVersion(report *RedactReport) {
+	if report.HashKeyVersion != nil || redactor.active == nil {
+		return
+	}
+	version := redactor.activeVersion
+	if version == 0 {
+		// WithHashKey is the legacy v1 construction path.
+		version = 1
+	}
+	report.HashKeyVersion = &version
 }
 
 func (redactor *resultRedactor) hasRules() bool {

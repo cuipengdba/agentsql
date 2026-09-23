@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
+	"github.com/cuipengdba/agentsql/internal/auditrelay"
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/controlledread"
@@ -25,6 +26,7 @@ import (
 	redactionstate "github.com/cuipengdba/agentsql/internal/redaction"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
+	"github.com/google/uuid"
 )
 
 // Runtime owns the production pipeline, business connection manager, and
@@ -41,12 +43,14 @@ type Runtime struct {
 	// Notifications is the process-local best-effort notification manager.
 	Notifications *notify.Manager
 
-	mu        sync.Mutex
-	secret    []byte
-	redactors *redactorBuilder
-	names     *notificationNameResolver
-	redaction *redactionRuntime
-	closed    bool
+	mu          sync.Mutex
+	secret      []byte
+	redactors   *redactorBuilder
+	names       *notificationNameResolver
+	redaction   *redactionRuntime
+	relayCancel context.CancelFunc
+	relayWait   sync.WaitGroup
+	closed      bool
 }
 
 // Assemble validates configuration and wires the required pipeline ports and
@@ -185,6 +189,19 @@ func assembleWithExecutorProvider(
 	}
 	redactionRuntime.attachMetrics(metricsHub)
 	redactionRuntime.start(ctx, time.Minute)
+	if !resolvedStore.Audit.ReuseMetadata {
+		relay, relayErr := auditrelay.New(metadataStore.Outbox(), metadataStore.AuditLogs(), "gateway-"+uuid.NewString(), metricsHub)
+		if relayErr != nil {
+			return nil, errors.Join(relayErr, runtime.Close())
+		}
+		relayContext, cancelRelay := context.WithCancel(ctx)
+		runtime.relayCancel = cancelRelay
+		runtime.relayWait.Add(1)
+		go func() {
+			defer runtime.relayWait.Done()
+			_ = relay.Run(relayContext, 10*time.Second)
+		}()
+	}
 	return runtime, nil
 }
 
@@ -283,6 +300,10 @@ func (runtime *Runtime) Close() error {
 	}
 	runtime.closed = true
 	var closeErrors []error
+	if runtime.relayCancel != nil {
+		runtime.relayCancel()
+		runtime.relayWait.Wait()
+	}
 	if runtime.redaction != nil {
 		runtime.redaction.close()
 	}

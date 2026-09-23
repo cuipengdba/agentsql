@@ -40,6 +40,8 @@ type Metrics struct {
 	rejected                *prometheus.CounterVec
 	poolConnections         *prometheus.GaugeVec
 	redactionKeyDrift       *prometheus.CounterVec
+	outboxPending           prometheus.Gauge
+	outboxOldestAge         prometheus.Gauge
 	notificationSent        *prometheus.CounterVec
 	notificationFailed      *prometheus.CounterVec
 	notificationDropped     *prometheus.CounterVec
@@ -87,6 +89,12 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 			Name: "redaction_key_drift",
 			Help: "Total redaction key reconciliation findings by bounded kind.",
 		}, []string{"kind"}),
+		outboxPending: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "outbox_pending_count", Help: "Pending management audit outbox events.",
+		}),
+		outboxOldestAge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "outbox_oldest_age_seconds", Help: "Age in seconds of the oldest pending management audit event.",
+		}),
 		notificationSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "agentsql_notification_sent_total",
 			Help: "Total AgentSQL notifications successfully sent.",
@@ -119,6 +127,8 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		metrics.stageDuration,
 		metrics.rejected,
 		metrics.redactionKeyDrift,
+		metrics.outboxPending,
+		metrics.outboxOldestAge,
 		metrics.notificationSent,
 		metrics.notificationFailed,
 		metrics.notificationDropped,
@@ -130,6 +140,15 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		},
 	)
 	return metrics
+}
+
+// SetOutboxPending updates the current management audit backlog gauges.
+func (metrics *Metrics) SetOutboxPending(count int, oldestAge time.Duration) {
+	if metrics == nil {
+		return
+	}
+	metrics.outboxPending.Set(float64(count))
+	metrics.outboxOldestAge.Set(oldestAge.Seconds())
 }
 
 // IncRedactionKeyDrift records one bounded reconciliation finding. kind must

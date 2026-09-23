@@ -194,6 +194,24 @@ func (repository *ManagementAuditOutboxRepository) PendingStats(ctx context.Cont
 	return count, oldestAge, nil
 }
 
+// Delivered reports whether one outbox event has been durably acknowledged.
+func (repository *ManagementAuditOutboxRepository) Delivered(ctx context.Context, eventUUID string) (bool, error) {
+	if err := repository.validate(ctx, "read delivery status"); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(eventUUID) == "" {
+		return false, fmt.Errorf("read management audit delivery status: event UUID is required")
+	}
+	var deliveredAt databaseTimestamp
+	if err := repository.db.QueryRowContext(ctx, repository.bind(`SELECT delivered_at FROM management_audit_outbox WHERE event_uuid=?`), eventUUID).Scan(&deliveredAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, fmt.Errorf("read management audit delivery status: %w", ErrNotFound)
+		}
+		return false, fmt.Errorf("read management audit delivery status: %w", err)
+	}
+	return deliveredAt.valid, nil
+}
+
 func scanManagementAuditOutbox(scanner rowScanner) (model.ManagementAuditOutbox, error) {
 	var event model.ManagementAuditOutbox
 	var claimedBy, lastError sql.NullString

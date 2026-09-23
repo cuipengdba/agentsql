@@ -17,6 +17,18 @@ import (
 
 const testCommitment2 = "2222222222222222222222222222222222222222222222222222222222222222"
 
+func TestRegisterStandbysWithAuditRollsBackTogether(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	badAudit := model.AuditLog{Decision: "invalid"}
+	err := opened.RedactionKeys().RegisterStandbysWithAudit(ctx, []RedactionKeyRegistration{{
+		ID: "1", Commitment: strings.Repeat("a", 64), ConfigRevision: "r1",
+	}}, ManagementAuditWrite{Audit: &badAudit})
+	require.Error(t, err)
+	_, getErr := opened.RedactionKeys().Get(ctx, "1")
+	require.ErrorIs(t, getErr, ErrNotFound)
+}
+
 func TestRedactionKeyRepositoryStateMachineAndNumericOrder(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()

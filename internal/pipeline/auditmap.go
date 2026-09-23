@@ -66,6 +66,11 @@ func mapAuditLog(
 	if auditDecision == string(model.DecisionError) && isStableAuditErrorCode(response.ErrorCode) {
 		log.ErrorCode = stringPointer(response.ErrorCode)
 	}
+	details, err := auditEventDetailsJSON(response.auditPhase, response.relatedAuditID, response.Redact.HashKeyVersion)
+	if err != nil {
+		return model.AuditLog{}, err
+	}
+	log.DetailsJSON = details
 	return log, nil
 }
 
@@ -99,18 +104,21 @@ func isStableAuditErrorCode(code string) bool {
 }
 
 type auditEventDetails struct {
-	AuditPhase     string `json:"audit_phase"`
+	AuditPhase     string `json:"audit_phase,omitempty"`
 	RelatedAuditID int64  `json:"related_audit_id,omitempty"`
+	KeyVersion     *int   `json:"key_version,omitempty"`
 }
 
-func auditEventDetailsJSON(phase auditPhase, relatedAuditID int64) (*string, error) {
-	if phase == auditPhaseSingle {
+func auditEventDetailsJSON(phase auditPhase, relatedAuditID int64, keyVersion *int) (*string, error) {
+	if phase == auditPhaseSingle && keyVersion == nil {
 		return nil, nil
 	}
-	encoded, err := json.Marshal(auditEventDetails{
-		AuditPhase:     string(phase),
-		RelatedAuditID: relatedAuditID,
-	})
+	details := auditEventDetails{KeyVersion: keyVersion}
+	if phase != auditPhaseSingle {
+		details.AuditPhase = string(phase)
+		details.RelatedAuditID = relatedAuditID
+	}
+	encoded, err := json.Marshal(details)
 	if err != nil {
 		return nil, fmt.Errorf("marshal audit event details: %w", err)
 	}

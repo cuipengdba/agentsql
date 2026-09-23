@@ -6,7 +6,10 @@ const versionedActiveEnabled = false
 
 var ErrVersionedActiveNotEnabled = errors.New("versioned active hasher is not enabled in this build")
 
-type RedactionPlan struct{ active ActiveHasher }
+type RedactionPlan struct {
+	active        ActiveHasher
+	activeVersion int
+}
 
 func (p RedactionPlan) hasActive() bool { return p.active != nil }
 
@@ -17,7 +20,7 @@ func BuildRedactionPlan(activeVersion int, keys map[int][]byte) (RedactionPlan, 
 		if err != nil {
 			return RedactionPlan{}, err
 		}
-		return RedactionPlan{active: active}, nil
+		return RedactionPlan{active: active, activeVersion: activeVersion}, nil
 	}
 	if activeVersion >= 2 {
 		if !versionedActiveEnabled {
@@ -27,7 +30,7 @@ func BuildRedactionPlan(activeVersion int, keys map[int][]byte) (RedactionPlan, 
 		if err != nil {
 			return RedactionPlan{}, err
 		}
-		return RedactionPlan{active: active}, nil
+		return RedactionPlan{active: active, activeVersion: activeVersion}, nil
 	}
 	return RedactionPlan{}, errors.New("hash version must be between 1 and 9999")
 }

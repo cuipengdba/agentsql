@@ -81,6 +81,9 @@ func (redactor *resultRedactor) ApplyWithProjectionLineages(
 			}
 			copyResult.Rows[rowIndex][columnIndex] = masked
 			report.MaskedCells++
+			if !decision.block && decision.rule.algorithm == AlgoHash && !hashFallback {
+				redactor.markHashVersion(&report)
+			}
 			maskedCells++
 		}
 		if decision.unresolved && maskedCells > 0 {

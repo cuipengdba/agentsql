@@ -866,6 +866,8 @@ func (run *pipelineRun) audit(
 		run.setFailure(operationError)
 	}
 	run.response.Assessment.StageLatency = cloneStageLatency(run.stageLatency)
+	run.response.auditPhase = phase
+	run.response.relatedAuditID = run.auditAnchorID
 	log, err := mapAuditLog(
 		run.request,
 		run.agent,
@@ -881,12 +883,6 @@ func (run *pipelineRun) audit(
 		run.setFailure(ErrAuditUnavailable)
 		return ErrAuditUnavailable
 	}
-	details, err := auditEventDetailsJSON(phase, run.auditAnchorID)
-	if err != nil {
-		run.setFailure(ErrAuditUnavailable)
-		return ErrAuditUnavailable
-	}
-	log.DetailsJSON = details
 	if phase == auditPhaseOutcome && auditDecision == string(model.DecisionError) {
 		log.RowsReturned = nil
 	}

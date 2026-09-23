@@ -2,6 +2,7 @@ package mask
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -81,6 +82,26 @@ func TestRedactionPlanCopiesSelectedMaterialAndGatesVersionedActive(t *testing.T
 
 	_, err = BuildRedactionPlan(2, map[int][]byte{2: []byte("0123456789abcdef0123456789abcdef")})
 	require.ErrorIs(t, err, ErrVersionedActiveNotEnabled)
+}
+
+func TestRedactReportHashKeyVersionOnlyForSuccessfulNonEmptyHash(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	plan, err := BuildRedactionPlan(1, map[int][]byte{1: key})
+	require.NoError(t, err)
+	redactor, err := NewRedactor([]Rule{{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoHash}}, WithRedactionPlan(plan))
+	require.NoError(t, err)
+
+	_, report := redactor.Apply(model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{"value"}, {"h." + strings.Repeat("a", 32)}}})
+	require.NotNil(t, report.HashKeyVersion)
+	require.Equal(t, 1, *report.HashKeyVersion)
+
+	_, emptyReport := redactor.Apply(model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{""}, {"NULL"}}})
+	require.Nil(t, emptyReport.HashKeyVersion)
+
+	withoutHash, err := NewRedactor([]Rule{{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoBlock}})
+	require.NoError(t, err)
+	_, blockReport := withoutHash.Apply(model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{"value"}}})
+	require.Nil(t, blockReport.HashKeyVersion)
 }
 
 func TestHashRuleWithoutActiveFailsClosedAndCounts(t *testing.T) {

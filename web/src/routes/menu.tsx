@@ -7,6 +7,7 @@ import {
   EyeInvisibleOutlined,
   FileSearchOutlined,
   FilterOutlined,
+  KeyOutlined,
   RobotOutlined,
   SafetyOutlined,
 } from "@ant-design/icons";
@@ -22,6 +23,7 @@ const Rules = lazy(() => import("@/pages/Rules").then(({ Rules }) => ({ default:
 const Approvals = lazy(() => import("@/pages/Approvals").then(({ Approvals }) => ({ default: Approvals })));
 const MaskRules = lazy(() => import("@/pages/MaskRules").then(({ MaskRules }) => ({ default: MaskRules })));
 const Notifications = lazy(() => import("@/pages/Notifications").then(({ Notifications }) => ({ default: Notifications })));
+const RedactionKeys = lazy(() => import("@/pages/RedactionKeys").then(({ RedactionKeys }) => ({ default: RedactionKeys })));
 
 function RouteLoading() {
   return (
@@ -92,6 +94,14 @@ export const menuRoutes: MenuRoute[] = [
     label: "脱敏",
     icon: <EyeInvisibleOutlined />,
     element: lazyElement(MaskRules),
+  },
+  {
+    key: "redaction-keys",
+    path: "/settings/redaction-keys",
+    label: "脱敏密钥",
+    icon: <KeyOutlined />,
+    element: lazyElement(RedactionKeys),
+    group: "settings",
   },
   {
     key: "notifications",

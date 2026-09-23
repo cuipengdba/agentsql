@@ -2,8 +2,10 @@ import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from "@ant
 import { Alert, Button, Empty, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { TableProps } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { listDatasources } from "@/api/datasources";
+import { getRedactionKeys } from "@/api/redactionKeys";
 import { createMaskRule, deleteMaskRule, listMaskRules, updateMaskRule } from "@/api/maskRules";
 import type { DatasourceView, MaskRuleInput, MaskRuleView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
@@ -66,6 +68,7 @@ function completeMaskRuleInput(record: MaskRuleView, enabled: boolean): MaskRule
 }
 
 export function MaskRules() {
+  const [activeVersion, setActiveVersion] = useState<number | undefined>();
   const [datasources, setDatasources] = useState<DatasourceView[]>([]);
   const [datasourceID, setDatasourceID] = useState<string | undefined>();
   const [page, setPage] = useState(1);
@@ -84,6 +87,14 @@ export function MaskRules() {
   const controllerRef = useRef<AbortController | null>(null);
   const requestSequenceRef = useRef(0);
   const mutationSequenceRef = useRef(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getRedactionKeys(controller.signal)
+      .then((response) => setActiveVersion(response.observed.active_version))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -382,6 +393,13 @@ export function MaskRules() {
       subtitle="支持全局列、表.列与模式.表.列三档作用域；发现草稿需人工核对并启用"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增脱敏规则</Button>}
     >
+      <Alert
+        className="msk-info-alert"
+        type="success"
+        showIcon
+        message={`当前 active 版本：${activeVersion ? `v${activeVersion}` : "未观察到"}`}
+        description={<span>密钥切换采用重启式计划切换，standby 登记不会让运行时自动切换。<Link to="/settings/redaction-keys">查看脱敏密钥</Link></span>}
+      />
       <Alert
         className="msk-info-alert"
         type="info"

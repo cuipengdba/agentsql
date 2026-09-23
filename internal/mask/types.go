@@ -78,6 +78,9 @@ type RedactReport struct {
 	// replaced fail-closed.
 	MaskedCells       int
 	HashFallbackCount int `json:"hash_fallback_count,omitempty"`
+	// HashKeyVersion is present only when at least one non-empty cell was
+	// successfully fingerprinted with the assembled active key.
+	HashKeyVersion *int `json:"-"`
 	// UnresolvedScopedColumns records scoped-rule columns that were protected
 	// by the fixed block fallback because their physical source was unresolved.
 	// A column is included only when at least one non-empty cell was replaced.

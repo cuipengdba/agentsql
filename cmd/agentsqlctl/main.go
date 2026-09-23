@@ -72,6 +72,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if _, writeErr := fmt.Fprintln(stderr, err); writeErr != nil {
 			return 1
 		}
+		if errors.Is(err, errManagementAuditPending) {
+			return 3
+		}
 		return 1
 	}
 	return 0
@@ -93,6 +96,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newSQLiteToPostgresCommand())
 	command.AddCommand(newHealthCommand())
 	command.AddCommand(newDemoSeedCommand(defaultDemoSeedDependencies()))
+	command.AddCommand(newRedactionKeyCommand())
 	return command
 }
 
@@ -320,6 +324,10 @@ func newCheckConfigCommand() *cobra.Command {
 				return fmt.Errorf("check config %q: %w", configPath, err)
 			}
 			defer resolvedRedaction.Clear()
+			redactionAssembly, err := config.BuildRedactionAssembly(resolvedRedaction)
+			if err != nil {
+				return fmt.Errorf("check config %q: %w", configPath, err)
+			}
 			resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
 			if err != nil {
 				return fmt.Errorf("check config %q: %w", configPath, err)
@@ -333,6 +341,13 @@ func newCheckConfigCommand() *cobra.Command {
 			if resolved.Metadata.Driver == store.DialectSQLite {
 				message += " sqlite_path=" + resolved.Metadata.SQLitePath
 			}
+			redactionStatus := redactionAssembly.Observed.Status
+			if redactionStatus == "" {
+				redactionStatus = "unavailable"
+			}
+			message += fmt.Sprintf(" redaction_status=%s redaction_mode=%s active_version=%d key_count=%d revision=%s",
+				redactionStatus, redactionAssembly.Observed.Mode, redactionAssembly.Observed.ActiveVersion,
+				len(redactionAssembly.Observed.Keys), redactionAssembly.Observed.Revision)
 			message += " registry_retired_and_drift_checks=not_run"
 			if _, err := fmt.Fprintln(command.OutOrStdout(), message); err != nil {
 				return fmt.Errorf("write check-config result: %w", err)
