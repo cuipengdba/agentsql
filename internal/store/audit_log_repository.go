@@ -30,6 +30,8 @@ type AuditPage struct {
 // AuditLogRepository provides append and paginated read operations only.
 type AuditLogRepository struct {
 	repositoryBase
+	chainID string
+	keys    ChainKeyProvider
 }
 
 // Insert appends an audit log and returns the record with generated ID and timestamp.
@@ -39,6 +41,17 @@ func (repository *AuditLogRepository) Insert(ctx context.Context, auditLog model
 	}
 	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
 		return model.AuditLog{}, err
+	}
+	state, enabled, err := repository.chainStateForAppend(ctx)
+	if err != nil {
+		return model.AuditLog{}, err
+	}
+	if enabled {
+		inserted, err := repository.chainInsertOne(ctx, state, auditLog)
+		if err != nil {
+			return model.AuditLog{}, fmt.Errorf("insert audit log on %s chain: %w", repository.chainID, err)
+		}
+		return inserted, nil
 	}
 	return insertAuditLog(ctx, repository.db, repository.dialect, auditLog)
 }

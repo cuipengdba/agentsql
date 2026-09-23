@@ -166,22 +166,74 @@ func TestSQLiteToPostgresMigrationManifestCoversMetadataTables(t *testing.T) {
 	require.Contains(t, migrationTableNames(metadataTables), "notification_channels")
 
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "manifest.db")
-	database, err := sql.Open("sqlite", path)
-	require.NoError(t, err)
-	migrateSQLiteThroughVersion(t, ctx, database, "migrations/sqlite", 7)
+	t.Run("latest source with derived audit chain objects", func(t *testing.T) {
+		database := openSQLiteMigrationTestDB(t)
+		require.NoError(t, Migrate(ctx, database, DialectSQLite))
+		manifestAuditColumns := migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs"))
+		actualAuditColumns := tableColumnNames(t, database, "audit_logs")
+		require.Equal(t, manifestAuditColumns, actualAuditColumns[:len(manifestAuditColumns)])
+		require.ElementsMatch(t, auditChainColumnNames, actualAuditColumns[len(manifestAuditColumns):])
+		require.ElementsMatch(t, []string{"chain_state", "chain_verification"}, []string{
+			derivedTableName(t, database, "chain_state"),
+			derivedTableName(t, database, "chain_verification"),
+		})
+
+		_, err := database.ExecContext(ctx, `INSERT INTO audit_logs(decision) VALUES('allow')`)
+		require.NoError(t, err)
+		before := digestSQLiteMigrationSource(t, ctx, database)
+		_, err = database.ExecContext(ctx, `
+UPDATE audit_logs
+SET chain_seq=1, prev_hash='prev', self_hash='self', chain_key_version=2, chain_format_version=3;
+UPDATE chain_state SET head_seq=1, head_id=1, head_hash='self' WHERE chain_id='management';
+UPDATE chain_verification SET result='ok', last_verified_head_seq=1 WHERE chain_id='management'`)
+		require.NoError(t, err)
+		after := digestSQLiteMigrationSource(t, ctx, database)
+		require.Equal(t, before, after, "derived chain data must not affect copied table digests")
+
+		transaction, err := database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		require.NoError(t, err)
+		require.NoError(t, verifyMigrationSource(ctx, transaction))
+		require.NoError(t, transaction.Rollback())
+	})
+
+	t.Run("unknown business table remains fail closed", func(t *testing.T) {
+		database := openSQLiteMigrationTestDB(t)
+		require.NoError(t, Migrate(ctx, database, DialectSQLite))
+		_, err := database.ExecContext(ctx, "CREATE TABLE pirate_table (id TEXT PRIMARY KEY)")
+		require.NoError(t, err)
+		transaction, err := database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		require.NoError(t, err)
+		require.ErrorContains(t, verifyMigrationSourceTables(ctx, transaction), "business table list differs")
+		require.NoError(t, transaction.Rollback())
+	})
+
+	t.Run("unknown audit column remains fail closed", func(t *testing.T) {
+		database := openSQLiteMigrationTestDB(t)
+		require.NoError(t, Migrate(ctx, database, DialectSQLite))
+		_, err := database.ExecContext(ctx, "ALTER TABLE audit_logs ADD COLUMN pirate_column TEXT")
+		require.NoError(t, err)
+		transaction, err := database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		require.NoError(t, err)
+		require.ErrorContains(t, verifyMigrationSourceTables(ctx, transaction), "columns differ for table=audit_logs")
+		require.NoError(t, transaction.Rollback())
+	})
+}
+
+func derivedTableName(t *testing.T, database *sql.DB, name string) string {
+	t.Helper()
+	var actual string
+	require.NoError(t, database.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&actual))
+	return actual
+}
+
+func digestSQLiteMigrationSource(t *testing.T, ctx context.Context, database *sql.DB) map[string]migrationDigest {
+	t.Helper()
 	transaction, err := database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	require.NoError(t, err)
-	require.NoError(t, verifyMigrationSourceTables(ctx, transaction))
-	require.NoError(t, transaction.Rollback())
-
-	_, err = database.ExecContext(ctx, "CREATE TABLE future_metadata_table (id TEXT PRIMARY KEY)")
+	digests, err := digestTables(ctx, transaction, sqliteToPostgresTables, false)
 	require.NoError(t, err)
-	transaction, err = database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	require.NoError(t, err)
-	require.ErrorContains(t, verifyMigrationSourceTables(ctx, transaction), "business table list differs")
 	require.NoError(t, transaction.Rollback())
-	require.NoError(t, database.Close())
+	return digests
 }
 
 func sqliteToPostgresTableByName(t *testing.T, name string) migrationTable {

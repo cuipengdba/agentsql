@@ -96,16 +96,38 @@ func TestChainStateRepositoryReadErrors(t *testing.T) {
 
 func TestSQLiteToPostgresManifestExcludesAuditChainDerivedData(t *testing.T) {
 	t.Run("derived tables", func(t *testing.T) {
+		require.Equal(t, map[string]struct{}{
+			"chain_state":        {},
+			"chain_verification": {},
+		}, sqliteDerivedExcludedTables)
 		names := migrationTableNames(sqliteToPostgresTables)
 		require.NotContains(t, names, "chain_state")
 		require.NotContains(t, names, "chain_verification")
+		for name := range sqliteDerivedExcludedTables {
+			require.True(t, isDerivedExcludedTable(name))
+		}
+		require.False(t, isDerivedExcludedTable("pirate_table"))
 	})
 
 	t.Run("derived audit columns", func(t *testing.T) {
+		require.Equal(t, map[string]map[string]struct{}{
+			"audit_logs": {
+				"chain_seq":            {},
+				"prev_hash":            {},
+				"self_hash":            {},
+				"chain_key_version":    {},
+				"chain_format_version": {},
+			},
+		}, sqliteDerivedExcludedColumns)
 		auditColumns := migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs"))
+		selectSQL := migrationSelectSQL(sqliteToPostgresTableByName(t, "audit_logs"), false)
 		for _, column := range auditChainColumnNames {
 			require.NotContains(t, auditColumns, column, "derived column %s must not be copied", column)
+			require.NotContains(t, selectSQL, column, "derived column %s must not be selected for copying", column)
+			require.True(t, isDerivedExcludedColumn("audit_logs", column))
 		}
+		require.False(t, isDerivedExcludedColumn("audit_logs", "pirate_column"))
+		require.False(t, isDerivedExcludedColumn("agents", "chain_seq"))
 	})
 }
 

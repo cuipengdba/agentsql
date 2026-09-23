@@ -93,6 +93,35 @@ const (
 	migrationTargetAudit    migrationTableTarget = 'A'
 )
 
+var sqliteDerivedExcludedTables = map[string]struct{}{
+	"chain_state":        {},
+	"chain_verification": {},
+}
+
+var sqliteDerivedExcludedColumns = map[string]map[string]struct{}{
+	"audit_logs": {
+		"chain_seq":            {},
+		"prev_hash":            {},
+		"self_hash":            {},
+		"chain_key_version":    {},
+		"chain_format_version": {},
+	},
+}
+
+func isDerivedExcludedTable(name string) bool {
+	_, excluded := sqliteDerivedExcludedTables[name]
+	return excluded
+}
+
+func isDerivedExcludedColumn(table, column string) bool {
+	columns, exists := sqliteDerivedExcludedColumns[table]
+	if !exists {
+		return false
+	}
+	_, excluded := columns[column]
+	return excluded
+}
+
 var sqliteToPostgresTables = []migrationTable{
 	{name: "agents", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "name", kind: migrationText},
@@ -406,6 +435,9 @@ func verifyMigrationSourceTables(ctx context.Context, source *sql.Tx) error {
 				_ = rows.Close()
 				return fmt.Errorf("verify SQLite source schema: inspect table=%s", table.name)
 			}
+			if isDerivedExcludedColumn(table.name, name) {
+				continue
+			}
 			if index >= len(table.columns) || columnID != index || name != table.columns[index].name {
 				_ = rows.Close()
 				return fmt.Errorf("verify SQLite source schema: columns differ for table=%s", table.name)
@@ -438,6 +470,9 @@ ORDER BY name COLLATE BINARY`)
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return errors.New("verify SQLite source migration manifest: database error")
+		}
+		if isDerivedExcludedTable(name) {
+			continue
 		}
 		actual[name] = struct{}{}
 	}

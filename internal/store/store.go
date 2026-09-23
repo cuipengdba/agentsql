@@ -479,7 +479,14 @@ func (store *Store) Outbox() *ManagementAuditOutboxRepository {
 
 // AuditLogs returns the append-only repository bound to the audit target.
 func (store *Store) AuditLogs() *AuditLogRepository {
-	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.auditDB, dialect: store.auditDriver}}
+	chainID := "management"
+	if store.auditSeparate {
+		chainID = "traffic"
+	}
+	return &AuditLogRepository{
+		repositoryBase: repositoryBase{db: store.auditDB, dialect: store.auditDriver},
+		chainID:        chainID,
+	}
 }
 
 // Approvals uses metadata for approval rows and the configured audit target for
@@ -522,7 +529,10 @@ func (store *auditOnlyStore) MigrationVersions(ctx context.Context) (int, int, e
 }
 
 func (store *auditOnlyStore) AuditLogs() *AuditLogRepository {
-	return &AuditLogRepository{repositoryBase: repositoryBase{db: store.db, dialect: store.dialect}}
+	return &AuditLogRepository{
+		repositoryBase: repositoryBase{db: store.db, dialect: store.dialect},
+		chainID:        "traffic",
+	}
 }
 
 func (store *auditOnlyStore) Close() error {
