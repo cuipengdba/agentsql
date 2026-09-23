@@ -104,6 +104,27 @@ func TestHashKeysMaterialValidation(t *testing.T) {
 	require.ErrorIs(t, err, ErrDuplicateHashKeyMaterial)
 }
 
+func TestVersionedActiveMaterialValidationMatchesLegacy(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value []byte
+		err   error
+	}{
+		{name: "missing", value: nil, err: mask.ErrHashKeyRequired},
+		{name: "short", value: []byte("0123456789abcdef"), err: mask.ErrHashKeyTooShort},
+		{name: "weak", value: []byte(strings.Repeat("a", 32)), err: ErrWeakHashKey},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			encoded := base64.StdEncoding.EncodeToString(test.value)
+			_, err := resolveHashKeys(&RedactionHashKeysConfig{
+				ActiveVersion: 2,
+				Keys:          []RedactionHashKeySpec{{ID: 2, KeyB64: &encoded}},
+			})
+			require.ErrorIs(t, err, test.err)
+		})
+	}
+}
+
 func TestHashKeyFileAtomicRulesAndLimits(t *testing.T) {
 	directory := t.TempDir()
 	validPath := filepath.Join(directory, "key.bin")

@@ -617,6 +617,9 @@ function validateHtml(html, document, rendered, temporaryDirectory) {
   if (document.slug === 'user-guide' && !html.includes('page=1&amp;page_size=20')) {
     throw new Error('Ampersand text was not escaped');
   }
+  if (document.slug === 'user-guide' && !html.includes('脱敏密钥轮换与等值边界')) {
+    throw new Error('User Guide is missing the redaction key rotation and equality-boundary chapter');
+  }
 }
 
 async function findEdge() {

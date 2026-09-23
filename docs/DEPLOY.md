@@ -62,7 +62,7 @@ docker compose --profile observability up -d --build
 
 ## 脱敏哈希密钥管理
 
-`hash` 使用专用 HMAC 密钥生成不可逆哈希指纹；它不是加密，没有解密或还原原文的能力。该密钥与用于数据源密码、控制台/JWT 等用途的 `AGENTSQL_SECRET` 相互独立，不得复用或派生。密钥可来自 YAML `redaction.hash_key` 或环境变量 `AGENTSQL_REDACTION_HASH_KEY`；环境变量只要存在（包括空串）就覆盖 YAML。非空密钥按 UTF-8 字节计数，至少 32 字节，不会自动 trim。
+`hash` 使用专用 HMAC 密钥生成不可逆哈希指纹；它不是加密，没有解密或还原原文的能力。该密钥与用于数据源密码、控制台/JWT 等用途的 `AGENTSQL_SECRET` 相互独立，不得复用或派生。兼容单 key 可来自 YAML `redaction.hash_key` 或环境变量 `AGENTSQL_REDACTION_HASH_KEY`；v0.4 多版本模式使用 inline `redaction.hash_keys` 或绝对路径 `AGENTSQL_REDACTION_HASH_KEYS_FILE`。这些来源互斥。每份非空材料按原始字节计数，至少 32 字节，多版本材料还须通过多样性与重复检查。
 
 `block` 不使用任何密钥、盐或算法参数，也没有新增配置项；它不参与 hash key 启动 fail-fast。无 key 时 `mask` 与 `block` 都可正常运行，只有 `hash` 需要上述专用密钥。
 
@@ -91,7 +91,7 @@ Compose 已将 `AGENTSQL_REDACTION_HASH_KEY` 作为可选变量传入默认服�
 1. AgentSQL 使用带专用密钥的 HMAC-SHA256，而不是裸 SHA-256。手机号、身份证、邮箱和生日等低熵值可枚举；裸 SHA 容易被离线穷举或彩虹表反查，HMAC 只是把验证候选值的能力绑定到秘密 key。
 2. HMAC 不是匿名化证明。攻击者拿到 key，或能够把自选候选值送入同一 hash oracle 时，仍可能字典化低熵输入；“不可逆”只表示没有解密函数，不等于绝对匿名，最小查询权限和密钥保护仍不可少。
 3. 确定性指纹必然暴露相等关系与频率：同一 key 下的同值会得到同指纹，可供下游等值关联、去重和分组，也会暴露重复值、热点和分布。全局共享 key 还会形成跨数据源、跨表的关联追踪风险；互不应关联的环境或租户必须使用不同 key。
-4. 更换 key 会改变全部指纹并断裂旧、新结果的等值关联。首版仅支持单密钥，没有 key version、双写、多版本验证或在线轮换/重算；只能在维护窗口统一切换。历史指纹不会自动重算，轮换前必须盘点 enabled `hash` 规则和依赖这些指纹的存量数据，制定下游回填、全量重算和回滚方案，并把旧 key 作为受控回滚材料保留到验收完成。
+4. 更换 key 会改变指纹并断裂旧、新结果的等值关联。v0.4 支持版本化历史核验和重启式计划切换，但没有热加载、双写、在线轮换或自动重算；必须在维护窗口停写、drain、CAS active、统一修改 manifest、完全重启、强对账并确认 `/readyz` 200。轮换前必须盘点 enabled `hash` 规则和依赖指纹的存量数据，制定下游回填/双版本过渡和回滚方案，并把旧 key 作为 legacy 回滚材料保留到验收完成。
 5. 跨库等值只对“到达 HMAC 的字符串字节完全相同”成立。日期、时区、decimal、首尾空白、大小写或 Unicode 表示不同都会产生不同指纹；系统不为等值关联做 trim 或格式正规化。
 6. `hash` 在业务数据库把结果返回 AgentSQL 后、响应调用方之前计算，不会下推到业务数据库的 `JOIN`、`WHERE` 或 `GROUP BY`，也不改变数据库内部比较语义。它只能供拿到返回指纹的下游系统做等值关联。
 7. 密钥不得进入响应、审计、日志、metrics、panic 或配置回显。YAML 仅适用于文件权限受控的部署；密钥也不写入 metadata/audit 数据库或脱敏规则。

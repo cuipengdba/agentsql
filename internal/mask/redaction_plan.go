@@ -2,7 +2,7 @@ package mask
 
 import "errors"
 
-const versionedActiveEnabled = false
+const versionedActiveEnabled = true
 
 var ErrVersionedActiveNotEnabled = errors.New("versioned active hasher is not enabled in this build")
 

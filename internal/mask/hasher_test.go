@@ -190,3 +190,29 @@ func TestVersionedHasherValidation(t *testing.T) {
 	_, err := newVersionedHasher(2, nil)
 	require.ErrorIs(t, err, ErrHashKeyRequired)
 }
+
+func TestParseFingerprintCanonicalGrammar(t *testing.T) {
+	for _, test := range []struct {
+		candidate string
+		version   int
+	}{
+		{candidate: "h." + strings.Repeat("0", 32), version: 1},
+		{candidate: "h.2." + strings.Repeat("a", 32), version: 2},
+		{candidate: "h.9999." + strings.Repeat("f", 32), version: 9999},
+	} {
+		version, err := ParseFingerprint(test.candidate)
+		require.NoError(t, err)
+		require.Equal(t, test.version, version)
+	}
+
+	for _, candidate := range []string{
+		"", "h.", "h." + strings.Repeat("A", 32), "h." + strings.Repeat("0", 31),
+		"h.1." + strings.Repeat("0", 32), "h.02." + strings.Repeat("0", 32),
+		"h.10000." + strings.Repeat("0", 32), "h.2." + strings.Repeat("g", 32),
+		"h.2." + strings.Repeat("0", 31), "h.2." + strings.Repeat("0", 33),
+	} {
+		version, err := ParseFingerprint(candidate)
+		require.Zero(t, version)
+		require.ErrorIs(t, err, ErrInvalidFingerprint)
+	}
+}

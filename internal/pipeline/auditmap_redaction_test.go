@@ -34,3 +34,13 @@ func TestMapAuditLogSingleDetailsSemantics(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"key_version":1}`, *log.DetailsJSON)
 }
+
+func TestMapAuditLogRecordsVersionedHashKey(t *testing.T) {
+	version := 2
+	log, err := mapAuditLog(Request{}, nil, nil, nil, Response{
+		Redact: mask.RedactReport{HashKeyVersion: &version},
+	}, nil, "allow", nil, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, log.DetailsJSON)
+	require.JSONEq(t, `{"key_version":2}`, *log.DetailsJSON)
+}

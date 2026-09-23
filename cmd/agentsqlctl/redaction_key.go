@@ -172,11 +172,27 @@ func (cli *redactionCLI) newVerifyCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use: "verify", Short: "Verify a fingerprint without putting plaintext in argv", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			_, _, assembly, cleanup, err := loadRedactionCLI(cli.configPath)
+			_, resolvedStore, assembly, cleanup, err := loadRedactionCLI(cli.configPath)
 			if err != nil {
 				return err
 			}
 			defer cleanup()
+			metadata, err := openRegistry(command.Context(), resolvedStore)
+			if err != nil {
+				return err
+			}
+			defer metadata.Close()
+			registered, err := metadata.RedactionKeys().List(command.Context())
+			if err != nil {
+				return fmt.Errorf("read redaction key registry: %w", err)
+			}
+			verifiable := false
+			for _, registeredVersion := range registered {
+				if registeredVersion.ID == strconv.Itoa(id) && registeredVersion.State != model.RedactionKeyStateRetired {
+					verifiable = true
+					break
+				}
+			}
 			var plaintext []byte
 			if plaintextFile == "-" {
 				plaintext, err = io.ReadAll(io.LimitReader(command.InOrStdin(), 1<<20))
@@ -187,9 +203,12 @@ func (cli *redactionCLI) newVerifyCommand() *cobra.Command {
 				return fmt.Errorf("read plaintext input: %w", err)
 			}
 			defer clearBytes(plaintext)
-			match, err := assembly.Verify(id, string(plaintext), fingerprint)
-			if err != nil {
-				return err
+			match := false
+			if verifiable {
+				match, err = assembly.Verify(id, string(plaintext), fingerprint)
+				if err != nil {
+					return err
+				}
 			}
 			fmt.Fprintf(command.OutOrStdout(), "match=%t\n", match)
 			if !match {

@@ -70,7 +70,7 @@ func TestRedactionPlanInjectionAndSourceConflict(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRedactionPlanCopiesSelectedMaterialAndGatesVersionedActive(t *testing.T) {
+func TestRedactionPlanCopiesSelectedMaterialAndEnablesVersionedActive(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	keys := map[int][]byte{1: key}
 	plan, err := BuildRedactionPlan(1, keys)
@@ -80,8 +80,29 @@ func TestRedactionPlanCopiesSelectedMaterialAndGatesVersionedActive(t *testing.T
 	keys[1] = []byte("abcdef0123456789abcdef0123456789")
 	require.Equal(t, want, plan.active.Fingerprint("value"))
 
-	_, err = BuildRedactionPlan(2, map[int][]byte{2: []byte("0123456789abcdef0123456789abcdef")})
-	require.ErrorIs(t, err, ErrVersionedActiveNotEnabled)
+	versioned, err := BuildRedactionPlan(2, map[int][]byte{2: []byte("0123456789abcdef0123456789abcdef")})
+	require.NoError(t, err)
+	redactor, err := NewRedactor(
+		[]Rule{{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoHash}},
+		WithRedactionPlan(versioned),
+	)
+	require.NoError(t, err)
+	result, report := redactor.Apply(model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{"value"}}})
+	require.Regexp(t, `^h\.2\.[0-9a-f]{32}$`, result.Rows[0][0])
+	require.NotNil(t, report.HashKeyVersion)
+	require.Equal(t, 2, *report.HashKeyVersion)
+	upperBoundary, err := BuildRedactionPlan(9999, map[int][]byte{9999: key})
+	require.NoError(t, err)
+	require.Regexp(t, `^h\.9999\.[0-9a-f]{32}$`, upperBoundary.active.Fingerprint("value"))
+
+	for _, invalidVersion := range []int{-1, 0, 10000} {
+		_, err = BuildRedactionPlan(invalidVersion, map[int][]byte{invalidVersion: key})
+		require.Error(t, err)
+	}
+	_, err = BuildRedactionPlan(2, map[int][]byte{})
+	require.ErrorIs(t, err, ErrHashKeyRequired)
+	_, err = BuildRedactionPlan(2, map[int][]byte{2: []byte("short")})
+	require.ErrorIs(t, err, ErrHashKeyTooShort)
 }
 
 func TestRedactReportHashKeyVersionOnlyForSuccessfulNonEmptyHash(t *testing.T) {

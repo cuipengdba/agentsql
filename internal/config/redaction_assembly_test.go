@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/mask"
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,8 +71,20 @@ func TestBuildManifestAssemblyUsesSingleMaskGate(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer activeTwo.Clear()
-	_, err = BuildRedactionAssembly(activeTwo)
-	require.ErrorIs(t, err, mask.ErrVersionedActiveNotEnabled)
+	assembly, err = BuildRedactionAssembly(activeTwo)
+	require.NoError(t, err)
+	redactor, err := mask.NewRedactor([]mask.Rule{{
+		Column: "secret", SensitiveType: mask.TypeGeneric, Algorithm: mask.AlgoHash,
+	}}, assembly.PlanOptions...)
+	require.NoError(t, err)
+	result, report := redactor.Apply(structuredHashInput("value"))
+	require.Regexp(t, `^h\.2\.[0-9a-f]{32}$`, result.Rows[0][0])
+	require.NotNil(t, report.HashKeyVersion)
+	require.Equal(t, 2, *report.HashKeyVersion)
+}
+
+func structuredHashInput(value string) model.QueryResult {
+	return model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{value}}}
 }
 
 func maskFingerprintForTest(t *testing.T, version int, key []byte, value string) string {
