@@ -77,10 +77,12 @@ func assembleWithExecutorProvider(
 		return nil, fmt.Errorf("assemble metadata store: %w", err)
 	}
 	redactors := &redactorBuilder{repository: metadataStore.MaskRules()}
-	if resolvedRedaction.HashKey != "" {
-		redactors.options = []mask.Option{mask.WithHashKey([]byte(resolvedRedaction.HashKey))}
-		redactors.hashAvailable = true
+	assembly, err := config.BuildRedactionAssembly(resolvedRedaction)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("assemble redaction: %w", err), metadataStore.Close())
 	}
+	redactors.options = append(append([]mask.Option(nil), redactors.options...), assembly.PlanOptions...)
+	redactors.hashAvailable = len(assembly.PlanOptions) != 0
 	if err := redactors.validateEnabledRules(ctx, metadataStore.MaskRules()); err != nil {
 		cause := fmt.Errorf(
 			"assemble runtime: validate enabled redaction rules: %w; set AGENTSQL_REDACTION_HASH_KEY or redaction.hash_key",

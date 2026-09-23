@@ -18,24 +18,25 @@ func TestHMACSHA256RFC4231Vector(t *testing.T) {
 		key[index] = 0x0b
 	}
 
-	actual := hex.EncodeToString(hmacSHA256(key, []byte("Hi There")))
+	digest := hmacSHA256(key, []byte("Hi There"))
+	actual := hex.EncodeToString(digest[:])
 	require.Equal(t, "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", actual)
 }
 
 func TestHasherKeyValidationAndDefensiveCopy(t *testing.T) {
-	_, err := newHasher(nil)
+	_, err := newLegacyHasher(nil)
 	require.ErrorIs(t, err, ErrHashKeyRequired)
-	_, err = newHasher([]byte{})
+	_, err = newLegacyHasher([]byte{})
 	require.ErrorIs(t, err, ErrHashKeyRequired)
-	_, err = newHasher([]byte(strings.Repeat("k", 31)))
+	_, err = newLegacyHasher([]byte(strings.Repeat("k", 31)))
 	require.ErrorIs(t, err, ErrHashKeyTooShort)
 
 	key := []byte("0123456789abcdef0123456789abcdef")
-	hash, err := newHasher(key)
+	hash, err := newLegacyHasher(key)
 	require.NoError(t, err)
-	expected := hash.fingerprint("Alice Zhang")
+	expected := hash.Fingerprint("Alice Zhang")
 	key[0] = 'X'
-	require.Equal(t, expected, hash.fingerprint("Alice Zhang"))
+	require.Equal(t, expected, hash.Fingerprint("Alice Zhang"))
 
 	optionKey := []byte("abcdef0123456789abcdef0123456789")
 	optionKeySnapshot := append([]byte(nil), optionKey...)
@@ -45,32 +46,32 @@ func TestHasherKeyValidationAndDefensiveCopy(t *testing.T) {
 		Column: "name", SensitiveType: TypeGeneric, Algorithm: AlgoHash,
 	}}, option)
 	require.NoError(t, err)
-	expectedHasher, err := newHasher(optionKeySnapshot)
+	expectedHasher, err := newLegacyHasher(optionKeySnapshot)
 	require.NoError(t, err)
 	result, _ := redactor.Apply(model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{"Alice Zhang"}}})
-	require.Equal(t, expectedHasher.fingerprint("Alice Zhang"), result.Rows[0][0])
+	require.Equal(t, expectedHasher.Fingerprint("Alice Zhang"), result.Rows[0][0])
 }
 
 func TestHasherFingerprintGoldenShapeDeterminismAndDomain(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
-	hash, err := newHasher(key)
+	hash, err := newLegacyHasher(key)
 	require.NoError(t, err)
 
-	fingerprint := hash.fingerprint("Alice Zhang")
+	fingerprint := hash.Fingerprint("Alice Zhang")
 	require.Equal(t, "h.d119be750b2bb0be4dd7e2fc9fdae30f", fingerprint)
 	require.Len(t, fingerprint, 34)
 	require.True(t, strings.HasPrefix(fingerprint, "h."))
 	require.Equal(t, strings.ToLower(fingerprint), fingerprint)
 	_, err = hex.DecodeString(fingerprint[2:])
 	require.NoError(t, err)
-	require.Equal(t, fingerprint, hash.fingerprint("Alice Zhang"))
-	require.NotEqual(t, fingerprint, hash.fingerprint("Alice Zhang!"))
-	require.NotEqual(t, hash.fingerprint("Alice"), hash.fingerprint("alice"))
-	require.NotEqual(t, hash.fingerprint("é"), hash.fingerprint("e\u0301"))
+	require.Equal(t, fingerprint, hash.Fingerprint("Alice Zhang"))
+	require.NotEqual(t, fingerprint, hash.Fingerprint("Alice Zhang!"))
+	require.NotEqual(t, hash.Fingerprint("Alice"), hash.Fingerprint("alice"))
+	require.NotEqual(t, hash.Fingerprint("é"), hash.Fingerprint("e\u0301"))
 
-	otherHash, err := newHasher([]byte("abcdef0123456789abcdef0123456789"))
+	otherHash, err := newLegacyHasher([]byte("abcdef0123456789abcdef0123456789"))
 	require.NoError(t, err)
-	require.NotEqual(t, fingerprint, otherHash.fingerprint("Alice Zhang"))
+	require.NotEqual(t, fingerprint, otherHash.Fingerprint("Alice Zhang"))
 
 	rawSum := hmacSHA256(key, []byte("Alice Zhang"))
 	rawFingerprint := "h." + hex.EncodeToString(rawSum[:16])
@@ -154,8 +155,38 @@ func TestRedactorConcurrentApplyIsStable(t *testing.T) {
 }
 
 func TestHashKeyErrorsSupportErrorsIs(t *testing.T) {
-	_, err := newHasher(nil)
+	_, err := newLegacyHasher(nil)
 	require.True(t, errors.Is(err, ErrHashKeyRequired))
-	_, err = newHasher([]byte(strings.Repeat("k", 31)))
+	_, err = newLegacyHasher([]byte(strings.Repeat("k", 31)))
 	require.True(t, errors.Is(err, ErrHashKeyTooShort))
+}
+
+func TestHasherUTF8AndVersionedGolden(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	legacy, err := newLegacyHasher(key)
+	require.NoError(t, err)
+	require.Equal(t, "h.14c8fcca44f1275bb73f78a452c87917", legacy.Fingerprint("数据库🔐"))
+
+	versioned, err := newVersionedHasher(2, key)
+	require.NoError(t, err)
+	require.Equal(t, 2, versioned.Version())
+	require.Equal(t, "h.2.60743d03cb3db32dd8406a8ae910d3d4", versioned.Fingerprint("数据库🔐"))
+	ok, err := VerifyFingerprint(2, key, "数据库🔐", versioned.Fingerprint("数据库🔐"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = VerifyFingerprint(2, key, "数据库🔐", "h.2.deadbeef")
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestVersionedHasherValidation(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	for _, version := range []int{-1, 0, 10000} {
+		_, err := newVersionedHasher(version, key)
+		require.Error(t, err)
+		_, err = VerifyFingerprint(version, key, "value", "candidate")
+		require.Error(t, err)
+	}
+	_, err := newVersionedHasher(2, nil)
+	require.ErrorIs(t, err, ErrHashKeyRequired)
 }

@@ -48,6 +48,56 @@ func TestPhoneMasking(t *testing.T) {
 	}
 }
 
+func TestRedactionPlanInjectionAndSourceConflict(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	rules := []Rule{{Column: "secret", SensitiveType: TypeGeneric, Algorithm: AlgoHash}}
+	plan, err := BuildRedactionPlan(1, map[int][]byte{1: key})
+	require.NoError(t, err)
+
+	fromPlan, err := NewRedactor(rules, WithRedactionPlan(plan))
+	require.NoError(t, err)
+	fromKey, err := NewRedactor(rules, WithHashKey(key))
+	require.NoError(t, err)
+	input := model.QueryResult{Columns: []string{"secret"}, Rows: [][]string{{"value"}}}
+	planResult, _ := fromPlan.Apply(input)
+	keyResult, _ := fromKey.Apply(input)
+	require.Equal(t, keyResult, planResult)
+
+	_, err = NewRedactor(rules, WithHashKey(key), WithRedactionPlan(RedactionPlan{}))
+	require.NoError(t, err)
+	_, err = NewRedactor(rules, WithHashKey(key), WithRedactionPlan(plan))
+	require.Error(t, err)
+}
+
+func TestRedactionPlanCopiesSelectedMaterialAndGatesVersionedActive(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	keys := map[int][]byte{1: key}
+	plan, err := BuildRedactionPlan(1, keys)
+	require.NoError(t, err)
+	want := plan.active.Fingerprint("value")
+	key[0] = 'X'
+	keys[1] = []byte("abcdef0123456789abcdef0123456789")
+	require.Equal(t, want, plan.active.Fingerprint("value"))
+
+	_, err = BuildRedactionPlan(2, map[int][]byte{2: []byte("0123456789abcdef0123456789abcdef")})
+	require.ErrorIs(t, err, ErrVersionedActiveNotEnabled)
+}
+
+func TestHashRuleWithoutActiveFailsClosedAndCounts(t *testing.T) {
+	redactor := &resultRedactor{globalRules: map[string]redactorRule{
+		"secret": {column: "secret", sensitiveType: TypeGeneric, algorithm: AlgoHash},
+	}}
+	result, report := redactor.Apply(model.QueryResult{
+		Columns: []string{"secret"}, Rows: [][]string{{"value"}, {""}, {"NULL"}},
+	})
+	require.Equal(t, RedactedFallback, result.Rows[0][0])
+	require.Equal(t, "", result.Rows[1][0])
+	require.Equal(t, "NULL", result.Rows[2][0])
+	require.Equal(t, 1, report.HashFallbackCount)
+	require.Equal(t, 1, redactor.hashFallbackCount)
+	require.Equal(t, 1, report.MaskedCells)
+}
+
 func TestEmailMasking(t *testing.T) {
 	redactor, err := NewRedactor([]Rule{{
 		Column:        "email",

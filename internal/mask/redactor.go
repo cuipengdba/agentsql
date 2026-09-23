@@ -62,11 +62,13 @@ type resultRedactor struct {
 	exactScopedRules    map[string]redactorRule
 	wildcardScopedRules map[string]redactorRule
 	scopedRulesByColumn map[string][]redactorRule
-	hasher              *hasher
+	active              ActiveHasher
+	hashFallbackCount   int
 }
 
 type redactorOptions struct {
 	hashKey []byte
+	plan    RedactionPlan
 }
 
 // Option configures a Redactor without changing the frozen rule set.
@@ -216,12 +218,19 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 			option(&options)
 		}
 	}
-	var hash *hasher
+	if options.plan.hasActive() && len(options.hashKey) != 0 {
+		return nil, fmt.Errorf("multiple active hash sources are not allowed")
+	}
+	var active ActiveHasher
 	if hasHashRule {
-		var err error
-		hash, err = newHasher(options.hashKey)
-		if err != nil {
-			return nil, err
+		if options.plan.hasActive() {
+			active = options.plan.active
+		} else {
+			var err error
+			active, err = newLegacyHasher(options.hashKey)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	return &resultRedactor{
@@ -229,7 +238,7 @@ func NewRedactor(rules []Rule, opts ...Option) (Redactor, error) {
 		exactScopedRules:    exactScopedRules,
 		wildcardScopedRules: wildcardScopedRules,
 		scopedRulesByColumn: scopedRulesByColumn,
-		hasher:              hash,
+		active:              active,
 	}, nil
 }
 
@@ -327,7 +336,11 @@ func (redactor *resultRedactor) ApplyWithColumnSources(
 					continue
 				}
 				value := copyResult.Rows[rowIndex][columnIndex]
-				masked, changed := applyRule(rule, value, redactor.hasher)
+				masked, changed, hashFallback := applyRule(rule, value, redactor.active)
+				if hashFallback {
+					redactor.hashFallbackCount++
+					report.HashFallbackCount++
+				}
 				if changed {
 					copyResult.Rows[rowIndex][columnIndex] = masked
 					report.MaskedCells++
@@ -466,47 +479,58 @@ func applyUnresolvedScopedBlock(value string) (string, bool) {
 	return BlockPlaceholder, true
 }
 
-func applyRule(rule redactorRule, value string, hash *hasher) (string, bool) {
+func applyRule(rule redactorRule, value string, active ActiveHasher) (string, bool, bool) {
 	if rule.algorithm == AlgoRange {
 		switch rule.sensitiveType {
 		case TypeNumber:
-			return bucketNumeric(value, rule.rangeWidth, rule.rangeOffset)
+			masked, changed := bucketNumeric(value, rule.rangeWidth, rule.rangeOffset)
+			return masked, changed, false
 		case TypeDate:
-			return truncateDate(value, rule.rangeGranularity)
+			masked, changed := truncateDate(value, rule.rangeGranularity)
+			return masked, changed, false
 		default:
-			return RedactedFallback, true
+			return RedactedFallback, true, false
 		}
 	}
 	if rule.algorithm == AlgoHash {
-		if isEmptySensitiveValue(value) || hash == nil {
-			return value, false
+		if isEmptySensitiveValue(value) {
+			return value, false, false
 		}
-		return hash.fingerprint(value), true
+		if active == nil {
+			return RedactedFallback, true, true
+		}
+		return active.Fingerprint(value), true, false
 	}
 	if rule.algorithm == AlgoBlock {
 		if isEmptySensitiveValue(value) {
-			return value, false
+			return value, false, false
 		}
-		return BlockPlaceholder, true
+		return BlockPlaceholder, true, false
 	}
 	if rule.algorithm != AlgoMask {
-		return value, false
+		return value, false, false
 	}
 	switch rule.sensitiveType {
 	case TypePhone:
-		return maskPhone(value)
+		masked, changed := maskPhone(value)
+		return masked, changed, false
 	case TypeEmail:
-		return maskEmail(value)
+		masked, changed := maskEmail(value)
+		return masked, changed, false
 	case TypeIDCard:
-		return maskIDCard(value)
+		masked, changed := maskIDCard(value)
+		return masked, changed, false
 	case TypeBankCard:
-		return maskBankCard(value)
+		masked, changed := maskBankCard(value)
+		return masked, changed, false
 	case TypeIP:
-		return maskIP(value)
+		masked, changed := maskIP(value)
+		return masked, changed, false
 	case TypeBirthDate:
-		return maskBirthDate(value)
+		masked, changed := maskBirthDate(value)
+		return masked, changed, false
 	default:
-		return value, false
+		return value, false, false
 	}
 }
 

@@ -76,7 +76,8 @@ type RedactReport struct {
 	TouchedColumns map[int]SensitiveType
 	// MaskedCells is the number of non-empty cells successfully processed or
 	// replaced fail-closed.
-	MaskedCells int
+	MaskedCells       int
+	HashFallbackCount int `json:"hash_fallback_count,omitempty"`
 	// UnresolvedScopedColumns records scoped-rule columns that were protected
 	// by the fixed block fallback because their physical source was unresolved.
 	// A column is included only when at least one non-empty cell was replaced.

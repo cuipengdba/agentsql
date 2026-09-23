@@ -66,10 +66,15 @@ func (redactor *resultRedactor) ApplyWithProjectionLineages(
 			value := copyResult.Rows[rowIndex][columnIndex]
 			var masked string
 			var changed bool
+			var hashFallback bool
 			if decision.block {
 				masked, changed = applyUnresolvedScopedBlock(value)
 			} else {
-				masked, changed = applyRule(decision.rule, value, redactor.hasher)
+				masked, changed, hashFallback = applyRule(decision.rule, value, redactor.active)
+				if hashFallback {
+					redactor.hashFallbackCount++
+					report.HashFallbackCount++
+				}
 			}
 			if !changed {
 				continue
