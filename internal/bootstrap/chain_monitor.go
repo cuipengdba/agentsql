@@ -22,9 +22,7 @@ const (
 var errChainManifestUnavailable = errors.New("audit chain manifest is unavailable")
 
 // ChainManifestProvider resolves trusted, database-external chain authority.
-type ChainManifestProvider interface {
-	ChainManifestForDomain(ctx context.Context, domain string) (store.ChainManifest, error)
-}
+type ChainManifestProvider = store.ChainManifestProvider
 
 type chainObservation struct {
 	lastVerified time.Time
@@ -100,9 +98,16 @@ func (monitor *ChainMonitor) RunChainVerificationOnce(ctx context.Context) {
 		return
 	}
 	monitor.refreshLag(monitor.nowUTC())
+	var wait sync.WaitGroup
 	for _, domain := range monitor.domains {
-		monitor.verifyDomain(ctx, domain)
+		domain := domain
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			monitor.verifyDomain(ctx, domain)
+		}()
 	}
+	wait.Wait()
 }
 
 // AuditWriterReady is false only when the trusted expected mode is HMAC and a
@@ -128,9 +133,11 @@ func (monitor *ChainMonitor) verifyDomain(ctx context.Context, domain string) {
 
 	manifest, err := monitor.manifest(ctx, domain)
 	if err != nil {
-		monitor.metrics.SetAuditWriterReady(domain, monitor.readyAfterManifestFailure(domain))
+		monitor.metrics.SetAuditWriterReady(domain, monitor.readyAfterManifestFailure(ctx, domain))
 		monitor.metrics.SetAuditChainValid(domain, false)
-		slog.Warn("audit chain monitor could not load manifest", "domain", domain, "error", err)
+		if ctx.Err() == nil {
+			slog.Warn("audit chain monitor could not load manifest", "domain", domain, "error", err)
+		}
 		return
 	}
 	monitor.metrics.SetAuditWriterReady(domain, monitor.auditWriterReady(ctx, domain, manifest))
@@ -159,7 +166,7 @@ func (monitor *ChainMonitor) verifyDomain(ctx context.Context, domain string) {
 	monitor.stateMu.Unlock()
 	monitor.refreshDomainLag(domain, completedAt)
 
-	if verifyErr != nil {
+	if verifyErr != nil && ctx.Err() == nil {
 		slog.Warn("audit chain verification completed with an error", "domain", domain, "result", outcome.Result, "error", verifyErr)
 	}
 }
@@ -168,13 +175,13 @@ func (monitor *ChainMonitor) auditWriterReady(ctx context.Context, domain string
 	if manifest == nil {
 		loaded, err := monitor.manifest(ctx, domain)
 		if err != nil {
-			return monitor.readyAfterManifestFailure(domain)
+			return monitor.readyAfterManifestFailure(ctx, domain)
 		}
 		manifest = loaded
 	}
 	mode, err := manifest.ExpectedMode(ctx)
 	if err != nil {
-		return monitor.readyAfterManifestFailure(domain)
+		return monitor.readyAfterManifestFailure(ctx, domain)
 	}
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	monitor.stateMu.Lock()
@@ -205,11 +212,22 @@ func (monitor *ChainMonitor) manifest(ctx context.Context, domain string) (store
 	return manifest, nil
 }
 
-func (monitor *ChainMonitor) readyAfterManifestFailure(domain string) bool {
+func (monitor *ChainMonitor) readyAfterManifestFailure(ctx context.Context, domain string) bool {
 	monitor.stateMu.RLock()
 	mode := monitor.expectedModes[domain]
 	monitor.stateMu.RUnlock()
-	return mode != "hmac"
+	if mode == "hmac" {
+		return false
+	}
+	if monitor.store == nil {
+		return true
+	}
+	access, err := monitor.store.Chain(domain)
+	if err != nil {
+		return true
+	}
+	state, err := access.State().Get(ctx, domain)
+	return err != nil || state.Mode == nil || *state.Mode != "hmac"
 }
 
 func (monitor *ChainMonitor) refreshLag(now time.Time) {

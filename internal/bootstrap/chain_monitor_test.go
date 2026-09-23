@@ -73,20 +73,17 @@ func TestChainMonitorStartupImmediatelyVerifiesActiveKeylessChain(t *testing.T) 
 
 func TestChainMonitorSingleFlightSkipsOverlappingDomainRounds(t *testing.T) {
 	provider := &blockingChainMonitorProvider{entered: make(chan struct{}), release: make(chan struct{})}
-	monitor := NewChainMonitor(nil, provider, metrics.New(nil), []string{"management"}, time.Hour)
+	monitor := NewChainMonitor(nil, provider, metrics.New(nil), []string{"management"}, 5*time.Millisecond)
 	monitor.jitter = 0
-	firstDone := make(chan struct{})
-	go func() {
-		monitor.RunChainVerificationOnce(context.Background())
-		close(firstDone)
-	}()
+	monitor.start(context.Background())
 	<-provider.entered
 
+	time.Sleep(20 * time.Millisecond)
 	monitor.RunChainVerificationOnce(context.Background())
 	require.Equal(t, int32(1), provider.calls.Load())
 	require.Equal(t, int32(1), provider.maximum.Load())
 	close(provider.release)
-	<-firstDone
+	monitor.close()
 }
 
 func TestChainMonitorHMACMissingKeyOnlyLowersWriterReadiness(t *testing.T) {
@@ -162,6 +159,14 @@ func TestChainMonitorCloseStopsTickerAndWaitsForRound(t *testing.T) {
 func TestConfiguredChainDomains(t *testing.T) {
 	require.Equal(t, []string{"management"}, configuredChainDomains(false))
 	require.Equal(t, []string{"management", "traffic"}, configuredChainDomains(true))
+}
+
+func TestChainMonitorIntervalJitterBounds(t *testing.T) {
+	monitor := NewChainMonitor(nil, nil, nil, nil, 100*time.Second)
+	monitor.random = func() float64 { return 0 }
+	require.Equal(t, 80*time.Second, monitor.nextInterval())
+	monitor.random = func() float64 { return 1 }
+	require.Equal(t, 120*time.Second, monitor.nextInterval())
 }
 
 type blockingChainMonitorProvider struct {

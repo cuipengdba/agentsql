@@ -9,6 +9,7 @@ import {
   FilterOutlined,
   KeyOutlined,
   RobotOutlined,
+  SafetyCertificateOutlined,
   SafetyOutlined,
 } from "@ant-design/icons";
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
@@ -24,6 +25,7 @@ const Approvals = lazy(() => import("@/pages/Approvals").then(({ Approvals }) =>
 const MaskRules = lazy(() => import("@/pages/MaskRules").then(({ MaskRules }) => ({ default: MaskRules })));
 const Notifications = lazy(() => import("@/pages/Notifications").then(({ Notifications }) => ({ default: Notifications })));
 const RedactionKeys = lazy(() => import("@/pages/RedactionKeys").then(({ RedactionKeys }) => ({ default: RedactionKeys })));
+const AuditChain = lazy(() => import("@/pages/AuditChain").then(({ AuditChain }) => ({ default: AuditChain })));
 
 function RouteLoading() {
   return (
@@ -101,6 +103,14 @@ export const menuRoutes: MenuRoute[] = [
     label: "脱敏密钥",
     icon: <KeyOutlined />,
     element: lazyElement(RedactionKeys),
+    group: "settings",
+  },
+  {
+    key: "audit-chain",
+    path: "/settings/audit-chain",
+    label: "审计完整性链",
+    icon: <SafetyCertificateOutlined />,
+    element: lazyElement(AuditChain),
     group: "settings",
   },
   {
