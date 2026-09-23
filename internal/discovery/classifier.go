@@ -23,40 +23,82 @@ type columnCandidate struct {
 }
 
 type namePattern struct {
-	tokens   []string
-	category Category
-	strength signalStrength
+	tokens       []string
+	category     Category
+	strength     signalStrength
+	enhancedOnly bool
+	legacyRank   int
 }
 
-// Patterns are ordered by descending phrase length. Equal-length patterns are
-// ordered by a stable category/signal preference, making classification fully
-// deterministic.
+// Registration order is never precedence. betterNamePattern defines the
+// enhanced full order; legacyRank explicitly freezes the pre-S1 order while
+// the rollout gate is disabled.
 var columnNamePatterns = []namePattern{
-	{tokens: []string{"date", "of", "birth"}, category: CategoryBirthdate, strength: strengthStrong},
-	{tokens: []string{"identity", "number"}, category: CategoryIDCard, strength: strengthStrong},
-	{tokens: []string{"phone", "number"}, category: CategoryPhone, strength: strengthStrong},
-	{tokens: []string{"email", "address"}, category: CategoryEmail, strength: strengthStrong},
-	{tokens: []string{"id", "card"}, category: CategoryIDCard, strength: strengthStrong},
-	{tokens: []string{"bank", "card"}, category: CategoryBankCard, strength: strengthStrong},
-	{tokens: []string{"bank", "account"}, category: CategoryBankCard, strength: strengthStrong},
-	{tokens: []string{"ip", "address"}, category: CategoryIP, strength: strengthStrong},
-	{tokens: []string{"client", "ip"}, category: CategoryIP, strength: strengthStrong},
-	{tokens: []string{"birth", "date"}, category: CategoryBirthdate, strength: strengthStrong},
-	{tokens: []string{"card", "no"}, category: CategoryBankCard, strength: strengthMedium},
-	{tokens: []string{"mobile"}, category: CategoryPhone, strength: strengthStrong},
-	{tokens: []string{"phone"}, category: CategoryPhone, strength: strengthStrong},
-	{tokens: []string{"email"}, category: CategoryEmail, strength: strengthStrong},
-	{tokens: []string{"idcard"}, category: CategoryIDCard, strength: strengthStrong},
-	{tokens: []string{"ip"}, category: CategoryIP, strength: strengthStrong},
-	{tokens: []string{"dob"}, category: CategoryBirthdate, strength: strengthStrong},
-	{tokens: []string{"birthday"}, category: CategoryBirthdate, strength: strengthStrong},
-	{tokens: []string{"tel"}, category: CategoryPhone, strength: strengthMedium},
-	{tokens: []string{"mail"}, category: CategoryEmail, strength: strengthMedium},
-	{tokens: []string{"identity"}, category: CategoryIDCard, strength: strengthMedium},
-	{tokens: []string{"birth"}, category: CategoryBirthdate, strength: strengthMedium},
+	{tokens: []string{"date", "of", "birth"}, category: CategoryBirthdate, strength: strengthStrong, legacyRank: 1},
+	{tokens: []string{"identity", "number"}, category: CategoryIDCard, strength: strengthStrong, legacyRank: 2},
+	{tokens: []string{"phone", "number"}, category: CategoryPhone, strength: strengthStrong, legacyRank: 3},
+	{tokens: []string{"email", "address"}, category: CategoryEmail, strength: strengthStrong, legacyRank: 4},
+	{tokens: []string{"id", "card"}, category: CategoryIDCard, strength: strengthStrong, legacyRank: 5},
+	{tokens: []string{"bank", "card"}, category: CategoryBankCard, strength: strengthStrong, legacyRank: 6},
+	{tokens: []string{"bank", "account"}, category: CategoryBankCard, strength: strengthStrong, legacyRank: 7},
+	{tokens: []string{"ip", "address"}, category: CategoryIP, strength: strengthStrong, legacyRank: 8},
+	{tokens: []string{"client", "ip"}, category: CategoryIP, strength: strengthStrong, legacyRank: 9},
+	{tokens: []string{"birth", "date"}, category: CategoryBirthdate, strength: strengthStrong, legacyRank: 10},
+	{tokens: []string{"card", "no"}, category: CategoryBankCard, strength: strengthMedium, legacyRank: 11},
+	{tokens: []string{"mobile"}, category: CategoryPhone, strength: strengthStrong, legacyRank: 12},
+	{tokens: []string{"phone"}, category: CategoryPhone, strength: strengthStrong, legacyRank: 13},
+	{tokens: []string{"email"}, category: CategoryEmail, strength: strengthStrong, legacyRank: 14},
+	{tokens: []string{"idcard"}, category: CategoryIDCard, strength: strengthStrong, legacyRank: 15},
+	{tokens: []string{"ip"}, category: CategoryIP, strength: strengthStrong, legacyRank: 16},
+	{tokens: []string{"dob"}, category: CategoryBirthdate, strength: strengthStrong, legacyRank: 17},
+	{tokens: []string{"birthday"}, category: CategoryBirthdate, strength: strengthStrong, legacyRank: 18},
+	{tokens: []string{"tel"}, category: CategoryPhone, strength: strengthMedium, legacyRank: 19},
+	{tokens: []string{"mail"}, category: CategoryEmail, strength: strengthMedium, legacyRank: 20},
+	{tokens: []string{"identity"}, category: CategoryIDCard, strength: strengthMedium, legacyRank: 21},
+	{tokens: []string{"birth"}, category: CategoryBirthdate, strength: strengthMedium, legacyRank: 22},
+
+	{tokens: []string{"birthdate"}, category: CategoryBirthdate, strength: strengthStrong, enhancedOnly: true},
+
+	{tokens: []string{"created", "at"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"updated", "at"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"create", "time"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"update", "time"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"order", "date"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"ordered", "at"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"event", "time"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"date", "time"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"timestamp"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"date"}, category: CategoryDate, strength: strengthStrong, enhancedOnly: true},
+
+	{tokens: []string{"unit", "price"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"total", "amount"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"amount"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"salary"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"balance"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"price"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"quantity"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"qty"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"stock"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"income"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"score"}, category: CategoryNumber, strength: strengthStrong, enhancedOnly: true},
+
+	{tokens: []string{"full", "name"}, category: CategoryGeneric, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"first", "name"}, category: CategoryGeneric, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"last", "name"}, category: CategoryGeneric, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"user", "name"}, category: CategoryGeneric, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"username"}, category: CategoryGeneric, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"address"}, category: CategoryGeneric, strength: strengthStrong, enhancedOnly: true},
+	{tokens: []string{"name"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
+	{tokens: []string{"addr"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
+	{tokens: []string{"notes"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
+	{tokens: []string{"note"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
+	{tokens: []string{"remark"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
+	{tokens: []string{"description"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
+	{tokens: []string{"comment"}, category: CategoryGeneric, strength: strengthMedium, enhancedOnly: true},
 }
 
 var emailPattern = regexp.MustCompile(`^[A-Za-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$`)
+var numberPattern = regexp.MustCompile(`^[+-]?[0-9]+(?:\.[0-9]+)?$`)
 
 var allCategories = []Category{
 	CategoryPhone,
@@ -65,7 +107,12 @@ var allCategories = []Category{
 	CategoryBankCard,
 	CategoryIP,
 	CategoryBirthdate,
+	CategoryNumber,
+	CategoryDate,
+	CategoryGeneric,
 }
+
+var legacyCategories = allCategories[:6]
 
 // ClassifyColumnName performs only token/phrase matching. It never uses
 // substring matching. The returned signal name belongs to a fixed vocabulary.
@@ -77,44 +124,126 @@ func ClassifyColumnName(
 	if err != nil {
 		return "", nil, false, err
 	}
-	tokens := splitColumnName(name)
-	for _, pattern := range columnNamePatterns {
-		if !allowed[pattern.category] || !containsPhrase(tokens, pattern.tokens) {
-			continue
-		}
-		strength := "medium"
-		if pattern.strength == strengthStrong {
-			strength = "strong"
-		}
-		return pattern.category, []Signal{{
-			Name:  "column_name_" + strength + "_" + string(pattern.category),
-			Count: 1,
-		}}, true, nil
+	classification, matched := classifyColumnNameGlobal(name, discoveryEnhancedEnabled)
+	classification, matched = filterColumnCandidate(classification, matched, allowed)
+	if !matched {
+		return "", nil, false, nil
 	}
-	return "", nil, false, nil
+	return classification.category, []Signal{classification.signal}, true, nil
 }
 
 func classifyColumn(meta ColumnMeta, allowed map[Category]bool) (columnCandidate, bool) {
-	tokens := splitColumnName(meta.Column)
+	classification, matched := classifyColumnNameGlobal(meta.Column, discoveryEnhancedEnabled)
+	classification, matched = filterColumnCandidate(classification, matched, allowed)
+	if !matched {
+		return columnCandidate{}, false
+	}
+	classification.meta = meta
+	return classification, true
+}
+
+func filterColumnCandidate(
+	candidate columnCandidate,
+	matched bool,
+	allowed map[Category]bool,
+) (columnCandidate, bool) {
+	if !matched || !allowed[candidate.category] {
+		return columnCandidate{}, false
+	}
+	return candidate, true
+}
+
+func classifyColumnNameGlobal(name string, enhanced bool) (columnCandidate, bool) {
+	tokens := splitColumnName(name)
+	var winner namePattern
+	matched := false
 	for _, pattern := range columnNamePatterns {
-		if !allowed[pattern.category] || !containsPhrase(tokens, pattern.tokens) {
+		if pattern.enhancedOnly && !enhanced || !containsPhrase(tokens, pattern.tokens) {
 			continue
 		}
-		strength := "medium"
-		if pattern.strength == strengthStrong {
-			strength = "strong"
+		if !matched || betterNamePatternFor(pattern, winner, enhanced) {
+			winner = pattern
+			matched = true
 		}
-		return columnCandidate{
-			meta:     meta,
-			category: pattern.category,
-			strength: pattern.strength,
-			signal: Signal{
-				Name:  "column_name_" + strength + "_" + string(pattern.category),
-				Count: 1,
-			},
-		}, true
 	}
-	return columnCandidate{}, false
+	if !matched {
+		return columnCandidate{}, false
+	}
+	strength := "medium"
+	if winner.strength == strengthStrong {
+		strength = "strong"
+	}
+	return columnCandidate{
+		category: winner.category,
+		strength: winner.strength,
+		signal: Signal{
+			Name:  "column_name_" + strength + "_" + string(winner.category),
+			Count: 1,
+		},
+	}, true
+}
+
+func betterNamePatternFor(left, right namePattern, enhanced bool) bool {
+	if !enhanced {
+		if left.legacyRank != right.legacyRank {
+			return left.legacyRank < right.legacyRank
+		}
+	}
+	return betterNamePattern(left, right)
+}
+
+func betterNamePattern(left, right namePattern) bool {
+	if leftTier, rightTier := categoryTier(left.category), categoryTier(right.category); leftTier != rightTier {
+		return leftTier < rightTier
+	}
+	if len(left.tokens) != len(right.tokens) {
+		return len(left.tokens) > len(right.tokens)
+	}
+	if leftRank, rightRank := categoryPreference(left.category), categoryPreference(right.category); leftRank != rightRank {
+		return leftRank < rightRank
+	}
+	if left.strength != right.strength {
+		return left.strength > right.strength
+	}
+	return strings.Join(left.tokens, "\x00") < strings.Join(right.tokens, "\x00")
+}
+
+func categoryTier(category Category) int {
+	switch category {
+	case CategoryPhone, CategoryEmail, CategoryIDCard, CategoryBankCard, CategoryIP, CategoryBirthdate:
+		return 0
+	case CategoryDate, CategoryNumber:
+		return 1
+	case CategoryGeneric:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func categoryPreference(category Category) int {
+	switch category {
+	case CategoryPhone:
+		return 0
+	case CategoryEmail:
+		return 1
+	case CategoryIDCard:
+		return 2
+	case CategoryBankCard:
+		return 3
+	case CategoryIP:
+		return 4
+	case CategoryBirthdate:
+		return 5
+	case CategoryDate:
+		return 6
+	case CategoryNumber:
+		return 7
+	case CategoryGeneric:
+		return 8
+	default:
+		return 9
+	}
 }
 
 func splitColumnName(name string) []string {
@@ -176,13 +305,21 @@ func containsPhrase(tokens, phrase []string) bool {
 }
 
 func normalizeCategories(categories []Category) (map[Category]bool, []Category, error) {
-	allowed := make(map[Category]bool, len(allCategories))
+	return normalizeCategoriesFor(categories, discoveryEnhancedEnabled)
+}
+
+func normalizeCategoriesFor(categories []Category, enhanced bool) (map[Category]bool, []Category, error) {
+	activeCategories := legacyCategories
+	if enhanced {
+		activeCategories = allCategories
+	}
+	allowed := make(map[Category]bool, len(activeCategories))
 	if len(categories) == 0 {
-		categories = allCategories
+		categories = activeCategories
 	}
 	normalized := make([]Category, 0, len(categories))
 	for _, category := range categories {
-		if !isKnownCategory(category) {
+		if !isKnownCategoryFor(category, enhanced) {
 			return nil, nil, classified(CodeUnknownCategory, ErrUnknownCategory)
 		}
 		if allowed[category] {
@@ -195,9 +332,15 @@ func normalizeCategories(categories []Category) (map[Category]bool, []Category, 
 }
 
 func isKnownCategory(category Category) bool {
+	return isKnownCategoryFor(category, discoveryEnhancedEnabled)
+}
+
+func isKnownCategoryFor(category Category, enhanced bool) bool {
 	switch category {
 	case CategoryPhone, CategoryEmail, CategoryIDCard, CategoryBankCard, CategoryIP, CategoryBirthdate:
 		return true
+	case CategoryNumber, CategoryDate, CategoryGeneric:
+		return enhanced
 	default:
 		return false
 	}
@@ -224,9 +367,37 @@ func ValidateSample(category Category, value string, referenceDate time.Time) bo
 	case CategoryBirthdate:
 		_, ok := parseBirthdate(value, referenceDate)
 		return ok
+	case CategoryNumber:
+		return numberPattern.MatchString(value)
+	case CategoryDate:
+		return validDate(value)
+	case CategoryGeneric:
+		return false
 	default:
 		return false
 	}
+}
+
+func validDate(value string) bool {
+	// Compact numeric values are deliberately excluded so Unix timestamps and
+	// YYYYMMDD-shaped numbers are not assigned date semantics.
+	if allASCIIDigits(value) {
+		return false
+	}
+	for _, layout := range []string{
+		"2006-01-02",
+		"2006/01/02",
+		"2006.01.02",
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999",
+		"2006/01/02 15:04:05.999999999",
+		"2006-01-02T15:04:05.999999999",
+	} {
+		if _, err := time.Parse(layout, value); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func validEmail(value string) bool {
@@ -400,6 +571,9 @@ type sampleEvidence struct {
 }
 
 func evaluateSamples(category Category, values []*string, referenceDate time.Time) sampleEvidence {
+	if samplePolicyFor(category) == samplePolicyNone {
+		return sampleEvidence{}
+	}
 	var evidence sampleEvidence
 	for _, pointer := range values {
 		if pointer == nil || strings.TrimSpace(*pointer) == "" {
@@ -411,6 +585,18 @@ func evaluateSamples(category Category, values []*string, referenceDate time.Tim
 		}
 	}
 	return evidence
+}
+
+func samplePolicyFor(category Category) samplePolicy {
+	switch category {
+	case CategoryGeneric:
+		return samplePolicyNone
+	case CategoryPhone, CategoryEmail, CategoryIDCard, CategoryBankCard, CategoryIP,
+		CategoryBirthdate, CategoryNumber, CategoryDate:
+		return samplePolicyFormat
+	default:
+		return samplePolicyFormat
+	}
 }
 
 func (evidence sampleEvidence) supports() bool {

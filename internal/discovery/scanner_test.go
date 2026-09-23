@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cuipengdba/agentsql/internal/mask"
 )
 
 type fakeSchemaLister struct {
@@ -162,6 +164,99 @@ func TestScannerNegativeColumnsAreNotSampledOrReported(t *testing.T) {
 	}
 	if result.Stats.CandidateColumns != 0 || len(result.Findings) != 0 || len(querier.calls) != 0 {
 		t.Fatalf("negative scan stats/findings/calls = %#v %#v %d", result.Stats, result.Findings, len(querier.calls))
+	}
+}
+
+func TestScannerEnhancedGateProducesNoNewFindings(t *testing.T) {
+	t.Parallel()
+	table := TableRef{Schema: "public", Table: "enhanced_columns"}
+	columns := []string{
+		"birthdate", "username", "created_at", "risk_score", "product_name", "comment_count", "total_pages",
+	}
+	metadata := make([]ColumnMeta, len(columns))
+	for index, column := range columns {
+		metadata[index] = ColumnMeta{
+			Schema: table.Schema, Table: table.Table, Column: column, DataType: "text", Ordinal: index + 1,
+		}
+	}
+	querier := &fakeLimitedQuerier{}
+	result, err := NewScanner(&fakeSchemaLister{columns: metadata}, querier).Scan(
+		context.Background(), "ds-1", ScanRequest{Tables: []TableRef{table}},
+	)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if result.Stats.CandidateColumns != 0 || result.Stats.SampledColumns != 0 ||
+		result.Stats.FindingsCount != 0 || len(result.Findings) != 0 || len(querier.calls) != 0 {
+		t.Fatalf("enhanced behavior leaked through disabled gate: stats=%#v findings=%#v calls=%#v", result.Stats, result.Findings, querier.calls)
+	}
+}
+
+func TestEnhancedGenericFindingsIgnoreSamplesAndBroadIsDiscoveryOnly(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		strength   signalStrength
+		confidence Confidence
+		applicable bool
+	}{
+		{name: "strong", strength: strengthStrong, confidence: ConfidenceMedium, applicable: true},
+		{name: "broad", strength: strengthMedium, confidence: ConfidenceLow},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			candidate := columnCandidate{
+				meta:     ColumnMeta{Schema: "public", Table: "customers", Column: test.name, DataType: "text"},
+				category: CategoryGeneric,
+				strength: test.strength,
+				signal:   Signal{Name: "column_name_" + test.name + "_generic", Count: 1},
+			}
+			finding, err := findingForMode(candidate, test.confidence, false, sampleEvidence{}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if finding.Sampled || finding.EligibleSamples != 0 || finding.MatchedSamples != 0 || len(finding.Signals) != 1 {
+				t.Fatalf("generic finding contains sample evidence: %#v", finding)
+			}
+			if finding.Confidence != test.confidence || finding.Applicable != test.applicable {
+				t.Fatalf("generic finding confidence/applicable = %q/%v", finding.Confidence, finding.Applicable)
+			}
+			if test.applicable {
+				if finding.RecommendedRule == nil || finding.RecommendedRule.Algo != mask.AlgoBlock || finding.Reason != "" {
+					t.Fatalf("strong generic advice = %#v/%q", finding.RecommendedRule, finding.Reason)
+				}
+			} else if finding.RecommendedRule != nil || finding.Reason != GenericReviewReason {
+				t.Fatalf("broad generic advice = %#v/%q", finding.RecommendedRule, finding.Reason)
+			}
+		})
+	}
+}
+
+func TestEnhancedFindingDoesNotLeakRawSamples(t *testing.T) {
+	t.Parallel()
+	const sentinel = "RAW-SAMPLE-MUST-NOT-LEAK-9917"
+	values := stringPointers(sentinel)
+	evidence := evaluateSamples(CategoryNumber, values, fixedNow())
+	candidate, matched := classifyColumnNameGlobal("risk_score", true)
+	if !matched {
+		t.Fatal("risk_score did not classify")
+	}
+	candidate.meta = ColumnMeta{Schema: "public", Table: "risk", Column: "risk_score", DataType: "numeric"}
+	confidence, include := confidenceFor(candidate.category, candidate.strength, evidence)
+	if !include {
+		t.Fatal("strong number candidate was unexpectedly omitted")
+	}
+	finding, err := findingForMode(candidate, confidence, true, evidence, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(finding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), sentinel) {
+		t.Fatalf("sample leaked through finding: %s", encoded)
 	}
 }
 

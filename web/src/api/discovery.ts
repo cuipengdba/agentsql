@@ -1,9 +1,11 @@
 import type { ApiResponse } from "./types";
 import { request } from "./client";
-import type { SensitiveType } from "@/constants/sensitiveTypes";
+import type { MaskAlgorithm, SensitiveType } from "@/constants/sensitiveTypes";
 
+// Reuse the complete mask-domain unions so an enhanced backend response does
+// not become an impossible value to the older discovery UI.
 export type DiscoveryCategory = SensitiveType;
-export type DiscoveryAlgorithm = "mask";
+export type DiscoveryAlgorithm = MaskAlgorithm;
 export type DiscoveryConfidence = "high" | "medium" | "low";
 export type DiscoveryApplyStatus = "created" | "existing" | "covered_by_global" | "conflict" | "ambiguous";
 
@@ -27,6 +29,11 @@ export interface DiscoverySignal {
 export interface DiscoveryRecommendedRule {
   sensitive_type: SensitiveType;
   algo: DiscoveryAlgorithm;
+  range?: {
+    bucket_width?: number;
+    bucket_offset?: number;
+    granularity?: string;
+  };
 }
 
 export interface DiscoveryFinding {

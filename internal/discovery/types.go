@@ -14,6 +14,10 @@ const (
 	MaxSampleRows            = 20
 	DefaultSampleValues      = 500
 	MaxSampleValues          = 1000
+
+	// discoveryEnhancedEnabled is the single rollout gate for the nine-category
+	// discovery behavior. S1 deliberately leaves it disabled.
+	discoveryEnhancedEnabled = false
 )
 
 // TableRef is a metadata-confirmed table identity. It is deliberately not a
@@ -50,6 +54,16 @@ const (
 	CategoryBankCard  Category = "bankcard"
 	CategoryIP        Category = "ip"
 	CategoryBirthdate Category = "birthdate"
+	CategoryNumber    Category = "number"
+	CategoryDate      Category = "date"
+	CategoryGeneric   Category = "generic"
+)
+
+type samplePolicy uint8
+
+const (
+	samplePolicyFormat samplePolicy = iota + 1
+	samplePolicyNone
 )
 
 // Confidence is the confidence assigned by the fixed state machine.
@@ -68,10 +82,19 @@ type Signal struct {
 	Count int    `json:"count"`
 }
 
+// RangeHint is the narrow discovery representation of range parameters. It is
+// intentionally independent of mask.RangeParams and persistence models.
+type RangeHint struct {
+	BucketWidth  *int64 `json:"bucket_width,omitempty"`
+	BucketOffset *int64 `json:"bucket_offset,omitempty"`
+	Granularity  string `json:"granularity,omitempty"`
+}
+
 // RecommendedRule contains only combinations accepted by mask.NewRedactor.
 type RecommendedRule struct {
 	SensitiveType mask.SensitiveType `json:"sensitive_type"`
 	Algo          mask.Algorithm     `json:"algo"`
+	Range         *RangeHint         `json:"range,omitempty"`
 }
 
 // Finding is safe to return from the core: it contains counts, never raw

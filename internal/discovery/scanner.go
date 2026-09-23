@@ -71,10 +71,7 @@ func (scanner *Scanner) Scan(
 
 	if !scope.Sampling {
 		for _, candidate := range candidates {
-			confidence := ConfidenceLow
-			if candidate.strength == strengthStrong {
-				confidence = ConfidenceMedium
-			}
+			confidence := confidenceWithoutSamples(candidate.category, candidate.strength)
 			finding, findingErr := findingFor(candidate, confidence, false, sampleEvidence{})
 			if findingErr != nil {
 				return ScanResult{}, findingErr
@@ -88,26 +85,42 @@ func (scanner *Scanner) Scan(
 	if len(candidates) == 0 {
 		return result, nil
 	}
-	if scanner.querier == nil {
-		return ScanResult{}, classified(CodeInternal, ErrInternal)
+	sampledCandidates := make([]columnCandidate, 0, len(candidates))
+	sampledIndexes := make([]int, 0, len(candidates))
+	for index, candidate := range candidates {
+		if samplePolicyFor(candidate.category) != samplePolicyFormat {
+			continue
+		}
+		sampledCandidates = append(sampledCandidates, candidate)
+		sampledIndexes = append(sampledIndexes, index)
 	}
-	plannedValues := len(candidates) * scope.SampleRows
+	plannedValues := len(sampledCandidates) * scope.SampleRows
 	if plannedValues > MaxSampleValues {
 		return ScanResult{}, classified(CodeSampleLimit, ErrSampleLimitExceeded)
 	}
 
 	evidence := make([]sampleEvidence, len(candidates))
-	if err := scanner.sampleCandidates(ctx, datasourceID, scope.SampleRows, candidates, evidence, &result.Stats); err != nil {
-		return ScanResult{}, err
+	if len(sampledCandidates) > 0 {
+		if scanner.querier == nil {
+			return ScanResult{}, classified(CodeInternal, ErrInternal)
+		}
+		sampledEvidence := make([]sampleEvidence, len(sampledCandidates))
+		if err := scanner.sampleCandidates(ctx, datasourceID, scope.SampleRows, sampledCandidates, sampledEvidence, &result.Stats); err != nil {
+			return ScanResult{}, err
+		}
+		for index, candidateIndex := range sampledIndexes {
+			evidence[candidateIndex] = sampledEvidence[index]
+		}
 	}
-	result.Stats.SampledColumns = len(candidates)
+	result.Stats.SampledColumns = len(sampledCandidates)
 
 	for index, candidate := range candidates {
-		confidence, include := confidenceFor(candidate.strength, evidence[index])
+		confidence, include := confidenceFor(candidate.category, candidate.strength, evidence[index])
 		if !include {
 			continue
 		}
-		finding, findingErr := findingFor(candidate, confidence, true, evidence[index])
+		sampled := samplePolicyFor(candidate.category) == samplePolicyFormat
+		finding, findingErr := findingFor(candidate, confidence, sampled, evidence[index])
 		if findingErr != nil {
 			return ScanResult{}, findingErr
 		}
@@ -295,7 +308,31 @@ func sameColumns(expected, actual []ColumnRef) bool {
 	return true
 }
 
-func confidenceFor(strength signalStrength, evidence sampleEvidence) (Confidence, bool) {
+func confidenceWithoutSamples(category Category, strength signalStrength) Confidence {
+	if category == CategoryGeneric {
+		if strength == strengthStrong {
+			return ConfidenceMedium
+		}
+		return ConfidenceLow
+	}
+	if strength == strengthStrong {
+		return ConfidenceMedium
+	}
+	return ConfidenceLow
+}
+
+func confidenceFor(category Category, strength signalStrength, evidence sampleEvidence) (Confidence, bool) {
+	if category == CategoryGeneric {
+		return confidenceWithoutSamples(category, strength), true
+	}
+	confidence, include := legacyConfidenceFor(strength, evidence)
+	if include && (category == CategoryNumber || category == CategoryDate) && confidence == ConfidenceHigh {
+		confidence = ConfidenceMedium
+	}
+	return confidence, include
+}
+
+func legacyConfidenceFor(strength signalStrength, evidence sampleEvidence) (Confidence, bool) {
 	if strength == strengthStrong {
 		if evidence.supports() {
 			return ConfidenceHigh, true
@@ -317,7 +354,22 @@ func findingFor(
 	sampled bool,
 	evidence sampleEvidence,
 ) (Finding, error) {
-	rule, applicable, reason, err := Advise(candidate.category)
+	return findingForMode(candidate, confidence, sampled, evidence, discoveryEnhancedEnabled)
+}
+
+func findingForMode(
+	candidate columnCandidate,
+	confidence Confidence,
+	sampled bool,
+	evidence sampleEvidence,
+	enhanced bool,
+) (Finding, error) {
+	rule, applicable, reason, err := advise(
+		candidate.category,
+		candidate.strength,
+		nil,
+		enhanced,
+	)
 	if err != nil {
 		return Finding{}, err
 	}

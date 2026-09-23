@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -142,6 +143,301 @@ func TestEvaluateSamplesExcludesNullAndBlank(t *testing.T) {
 	evidence := evaluateSamples(CategoryPhone, []*string{nil, &blank, &valid, &invalid}, fixedNow())
 	if evidence.eligible != 2 || evidence.matched != 1 {
 		t.Fatalf("evidence = %#v, want eligible=2 matched=1", evidence)
+	}
+}
+
+func TestEnhancedCounterexamplesAndFinalVocabulary(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		column   string
+		category Category
+		strength signalStrength
+		matched  bool
+	}{
+		{column: "date_of_birth", category: CategoryBirthdate, strength: strengthStrong, matched: true},
+		{column: "birthdate", category: CategoryBirthdate, strength: strengthStrong, matched: true},
+		{column: "email_address", category: CategoryEmail, strength: strengthStrong, matched: true},
+		{column: "ip_address", category: CategoryIP, strength: strengthStrong, matched: true},
+		{column: "created_at", category: CategoryDate, strength: strengthStrong, matched: true},
+		{column: "processing_time_ms"},
+		{column: "order_number"},
+		{column: "employee_id"},
+		{column: "risk_score", category: CategoryNumber, strength: strengthStrong, matched: true},
+		{column: "username", category: CategoryGeneric, strength: strengthStrong, matched: true},
+		{column: "product_name", category: CategoryGeneric, strength: strengthMedium, matched: true},
+		{column: "comment_count", category: CategoryGeneric, strength: strengthMedium, matched: true},
+		{column: "total_pages"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.column, func(t *testing.T) {
+			t.Parallel()
+			candidate, matched := classifyColumnNameGlobal(test.column, true)
+			if matched != test.matched {
+				t.Fatalf("matched = %v, want %v; candidate = %#v", matched, test.matched, candidate)
+			}
+			if matched && (candidate.category != test.category || candidate.strength != test.strength) {
+				t.Fatalf("candidate = %#v, want category=%q strength=%d", candidate, test.category, test.strength)
+			}
+		})
+	}
+}
+
+func TestEnhancedAllowlistFiltersGlobalWinnerWithoutFallback(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		column     string
+		categories []Category
+	}{
+		{name: "birthdate does not fall back to date", column: "date_of_birth", categories: []Category{CategoryDate}},
+		{name: "email does not fall back to generic address", column: "email_address", categories: []Category{CategoryGeneric}},
+		{name: "ip does not fall back to generic address", column: "ip_address", categories: []Category{CategoryGeneric}},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			allowed, _, err := normalizeCategoriesFor(test.categories, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			winner, matched := classifyColumnNameGlobal(test.column, true)
+			if !matched {
+				t.Fatal("global classifier did not find the expected higher-priority winner")
+			}
+			if _, filtered := filterColumnCandidate(winner, matched, allowed); filtered {
+				t.Fatalf("global winner %q unexpectedly fell back into allowlist %#v", winner.category, test.categories)
+			}
+		})
+	}
+}
+
+func TestNamePatternComparatorIsExplicitStrictTotalOrder(t *testing.T) {
+	t.Parallel()
+	legacyRanks := make(map[int]struct{})
+	for left := range columnNamePatterns {
+		if !columnNamePatterns[left].enhancedOnly {
+			if columnNamePatterns[left].legacyRank < 1 {
+				t.Fatalf("legacy pattern %d has no explicit compatibility rank", left)
+			}
+			if _, duplicate := legacyRanks[columnNamePatterns[left].legacyRank]; duplicate {
+				t.Fatalf("duplicate legacy rank %d", columnNamePatterns[left].legacyRank)
+			}
+			legacyRanks[columnNamePatterns[left].legacyRank] = struct{}{}
+		}
+		if betterNamePattern(columnNamePatterns[left], columnNamePatterns[left]) {
+			t.Fatalf("pattern %d sorts before itself", left)
+		}
+		for right := range columnNamePatterns {
+			if left == right {
+				continue
+			}
+			leftFirst := betterNamePattern(columnNamePatterns[left], columnNamePatterns[right])
+			rightFirst := betterNamePattern(columnNamePatterns[right], columnNamePatterns[left])
+			if leftFirst == rightFirst {
+				t.Fatalf("patterns %d and %d lack a strict order", left, right)
+			}
+		}
+	}
+
+	for first := range columnNamePatterns {
+		for second := range columnNamePatterns {
+			if !betterNamePattern(columnNamePatterns[first], columnNamePatterns[second]) {
+				continue
+			}
+			for third := range columnNamePatterns {
+				if betterNamePattern(columnNamePatterns[second], columnNamePatterns[third]) &&
+					!betterNamePattern(columnNamePatterns[first], columnNamePatterns[third]) {
+					t.Fatalf("pattern order is not transitive: %d < %d < %d", first, second, third)
+				}
+			}
+		}
+	}
+}
+
+func TestNamePatternComparatorHonorsDesignedPrecedence(t *testing.T) {
+	t.Parallel()
+	pattern := func(category Category, strength signalStrength, tokens ...string) namePattern {
+		return namePattern{tokens: tokens, category: category, strength: strength, enhancedOnly: true}
+	}
+	tests := []struct {
+		name        string
+		preferred   namePattern
+		lowerRanked namePattern
+	}{
+		{
+			name:        "dedicated pii beats longer date",
+			preferred:   pattern(CategoryBirthdate, strengthMedium, "birth"),
+			lowerRanked: pattern(CategoryDate, strengthStrong, "created", "at"),
+		},
+		{
+			name:        "date number tier beats longer generic",
+			preferred:   pattern(CategoryNumber, strengthStrong, "score"),
+			lowerRanked: pattern(CategoryGeneric, strengthStrong, "full", "name"),
+		},
+		{
+			name:        "longer phrase wins within category",
+			preferred:   pattern(CategoryGeneric, strengthStrong, "full", "name"),
+			lowerRanked: pattern(CategoryGeneric, strengthMedium, "name"),
+		},
+		{
+			name:        "fixed category preference breaks equal length tie",
+			preferred:   pattern(CategoryDate, strengthStrong, "order", "date"),
+			lowerRanked: pattern(CategoryNumber, strengthStrong, "total", "amount"),
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if !betterNamePattern(test.preferred, test.lowerRanked) || betterNamePattern(test.lowerRanked, test.preferred) {
+				t.Fatalf("precedence not honored: preferred=%#v lower=%#v", test.preferred, test.lowerRanked)
+			}
+		})
+	}
+}
+
+func TestEnhancedMixedColumnNamesGolden(t *testing.T) {
+	t.Parallel()
+	want := map[string]Category{
+		"phone_email_address":         CategoryEmail,
+		"email_phone_number":          CategoryPhone,
+		"birth_date_timestamp":        CategoryBirthdate,
+		"created_at_amount":           CategoryDate,
+		"total_amount_order_date":     CategoryDate,
+		"username_price":              CategoryNumber,
+		"ip_address_full_name":        CategoryIP,
+		"full_name_description_notes": CategoryGeneric,
+	}
+	got := make(map[string]Category, len(want))
+	for column := range want {
+		candidate, matched := classifyColumnNameGlobal(column, true)
+		if !matched {
+			t.Fatalf("%q did not match", column)
+		}
+		got[column] = candidate.category
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mixed-name golden = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidateEnhancedSamples(t *testing.T) {
+	t.Parallel()
+	reference := time.Date(2026, time.September, 19, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		category Category
+		value    string
+		valid    bool
+	}{
+		{name: "integer", category: CategoryNumber, value: "-42", valid: true},
+		{name: "decimal", category: CategoryNumber, value: "+42.50", valid: true},
+		{name: "currency rejected", category: CategoryNumber, value: "$42.50"},
+		{name: "thousands rejected", category: CategoryNumber, value: "1,000"},
+		{name: "number text rejected", category: CategoryNumber, value: "42ms"},
+		{name: "date dash", category: CategoryDate, value: "2026-09-19", valid: true},
+		{name: "date slash", category: CategoryDate, value: "2026/09/19", valid: true},
+		{name: "date time", category: CategoryDate, value: "2026-09-19 12:13:14.123", valid: true},
+		{name: "rfc3339", category: CategoryDate, value: "2026-09-19T12:13:14+08:00", valid: true},
+		{name: "unix seconds rejected", category: CategoryDate, value: "1789776000"},
+		{name: "unix millis rejected", category: CategoryDate, value: "1789776000000"},
+		{name: "compact numeric date rejected", category: CategoryDate, value: "20260919"},
+		{name: "invalid calendar date", category: CategoryDate, value: "2026-02-30"},
+		{name: "generic has no format validator", category: CategoryGeneric, value: "private free text"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ValidateSample(test.category, test.value, reference); got != test.valid {
+				t.Fatalf("ValidateSample(%q) = %v, want %v", test.category, got, test.valid)
+			}
+		})
+	}
+}
+
+func TestGenericSamplePolicyProducesZeroEvidence(t *testing.T) {
+	t.Parallel()
+	values := stringPointers("secret-one", "secret-two", "secret-three")
+	evidence := evaluateSamples(CategoryGeneric, values, fixedNow())
+	if evidence != (sampleEvidence{}) || evidence.supports() || evidence.contradicts() {
+		t.Fatalf("generic evidence = %#v, supports=%v contradicts=%v", evidence, evidence.supports(), evidence.contradicts())
+	}
+	if got := confidenceWithoutSamples(CategoryGeneric, strengthStrong); got != ConfidenceMedium {
+		t.Fatalf("strong generic confidence = %q", got)
+	}
+	if got := confidenceWithoutSamples(CategoryGeneric, strengthMedium); got != ConfidenceLow {
+		t.Fatalf("broad generic confidence = %q", got)
+	}
+}
+
+func TestEveryCategoryDeclaresSamplePolicy(t *testing.T) {
+	t.Parallel()
+	for _, category := range allCategories {
+		want := samplePolicyFormat
+		if category == CategoryGeneric {
+			want = samplePolicyNone
+		}
+		if got := samplePolicyFor(category); got != want {
+			t.Fatalf("samplePolicyFor(%q) = %d, want %d", category, got, want)
+		}
+	}
+}
+
+func TestEnhancedConfidenceCaps(t *testing.T) {
+	t.Parallel()
+	supporting := sampleEvidence{eligible: 5, matched: 5}
+	for _, category := range []Category{CategoryNumber, CategoryDate} {
+		confidence, include := confidenceFor(category, strengthStrong, supporting)
+		if !include || confidence != ConfidenceMedium {
+			t.Fatalf("%q confidence = %q/%v, want medium/true", category, confidence, include)
+		}
+	}
+	for _, test := range []struct {
+		strength signalStrength
+		want     Confidence
+	}{
+		{strength: strengthStrong, want: ConfidenceMedium},
+		{strength: strengthMedium, want: ConfidenceLow},
+	} {
+		confidence, include := confidenceFor(CategoryGeneric, test.strength, sampleEvidence{eligible: 10, matched: 10})
+		if !include || confidence != test.want {
+			t.Fatalf("generic strength %d confidence = %q/%v, want %q/true", test.strength, confidence, include, test.want)
+		}
+	}
+}
+
+func TestLegacyGateLeavesPublicClassifierAtHeadBehavior(t *testing.T) {
+	t.Parallel()
+	if discoveryEnhancedEnabled {
+		t.Fatal("S1 must leave discoveryEnhancedEnabled false")
+	}
+	legacyGolden := map[string]Category{
+		"customer_phone_number":   CategoryPhone,
+		"primaryEmailAddress":     CategoryEmail,
+		"legal-id-card":           CategoryIDCard,
+		"settlement bank account": CategoryBankCard,
+		"clientIPAddress":         CategoryIP,
+		"verified_date_of_birth":  CategoryBirthdate,
+	}
+	for column, want := range legacyGolden {
+		got, _, matched, err := ClassifyColumnName(column, nil)
+		if err != nil || !matched || got != want {
+			t.Fatalf("ClassifyColumnName(%q) = %q, %v, %v; want %q, true, nil", column, got, matched, err, want)
+		}
+	}
+	for _, column := range []string{"birthdate", "username", "created_at", "risk_score", "product_name"} {
+		category, signals, matched, err := ClassifyColumnName(column, nil)
+		if err != nil || matched || category != "" || len(signals) != 0 {
+			t.Fatalf("enhanced column %q leaked through gate: %q %#v %v %v", column, category, signals, matched, err)
+		}
+	}
+	for _, category := range []Category{CategoryNumber, CategoryDate, CategoryGeneric} {
+		if _, _, _, err := ClassifyColumnName("phone", []Category{category}); !isError(err, ErrUnknownCategory) {
+			t.Fatalf("public category %q error = %v, want ErrUnknownCategory", category, err)
+		}
 	}
 }
 
