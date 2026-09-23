@@ -121,12 +121,12 @@ SELECT action, actor_type, actor_id, details_json FROM audit_logs LIMIT 1`).Scan
 		t.Cleanup(func() { require.NoError(t, opened.Close()) })
 		metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 		require.NoError(t, err)
-		require.Equal(t, 6, metadataCurrent)
-		require.Equal(t, 6, metadataLatest)
+		require.Equal(t, 7, metadataCurrent)
+		require.Equal(t, 7, metadataLatest)
 		auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 		require.NoError(t, err)
-		require.Equal(t, 4, auditCurrent)
-		require.Equal(t, 4, auditLatest)
+		require.Equal(t, 5, auditCurrent)
+		require.Equal(t, 5, auditLatest)
 	})
 }
 

@@ -86,11 +86,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 7, migrationCount)
+	require.Equal(t, 8, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 7, current)
-	require.Equal(t, 7, latest)
+	require.Equal(t, 8, current)
+	require.Equal(t, 8, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -136,19 +136,19 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Same(t, opened.auditDB, opened.AuditLogs().db)
 
 	require.Equal(t, []string{
-		"agents", "approvals", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
+		"agents", "approvals", "chain_state", "chain_verification", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
 		"notification_settings", "policies", "redaction_key_versions", "rules", "schema_migrations",
 	}, postgresTableNames(t, ctx, opened.metaDB))
-	require.Equal(t, []string{"audit_logs", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
+	require.Equal(t, []string{"audit_logs", "chain_state", "chain_verification", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 6, metadataCurrent)
-	require.Equal(t, 6, metadataLatest)
+	require.Equal(t, 7, metadataCurrent)
+	require.Equal(t, 7, metadataLatest)
 	assertPostgresMaskRuleRangeColumns(t, ctx, opened.metaDB)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
-	require.Equal(t, 4, auditCurrent)
-	require.Equal(t, 4, auditLatest)
+	require.Equal(t, 5, auditCurrent)
+	require.Equal(t, 5, auditLatest)
 	assertPostgresAuditErrorCodeColumn(t, ctx, opened.auditDB)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
@@ -170,13 +170,13 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 
 	auditDatabase, err := sql.Open("pgx", auditDSN)
 	require.NoError(t, err)
-	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=5 WHERE version=4")
+	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=6 WHERE version=5")
 	require.NoError(t, err)
 	require.NoError(t, auditDatabase.Close())
 	options.AutoMigrate = false
 	options.Audit.AutoMigrate = false
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=5 latest=4")
+	require.ErrorContains(t, err, "current=6 latest=5")
 }
 
 func TestPostgres18IndependentMetadataAndAuditOpenE2E(t *testing.T) {
@@ -437,6 +437,8 @@ ORDER BY table_name`)
 		"agents",
 		"approvals",
 		"audit_logs",
+		"chain_state",
+		"chain_verification",
 		"datasources",
 		"management_audit_outbox",
 		"mask_rules",
@@ -607,14 +609,14 @@ func TestPostgres18AuditErrorCodeMigrationsE2E(t *testing.T) {
 		latest     int
 	}{
 		{
-			name: "combined", directory: "migrations/postgres", oldVersion: 5, latest: 7,
+			name: "combined", directory: "migrations/postgres", oldVersion: 5, latest: 8,
 			migrate: func(ctx context.Context, db *sql.DB) error { return Migrate(ctx, db, DialectPostgres) },
 			versions: func(ctx context.Context, db *sql.DB) (int, int, error) {
 				return MetadataMigrationVersions(ctx, db, DialectPostgres, false)
 			},
 		},
 		{
-			name: "audit only", directory: "migrations/audit/postgres", oldVersion: 2, latest: 4,
+			name: "audit only", directory: "migrations/audit/postgres", oldVersion: 2, latest: 5,
 			migrate: func(ctx context.Context, db *sql.DB) error { return MigrateAudit(ctx, db, DialectPostgres) },
 			versions: func(ctx context.Context, db *sql.DB) (int, int, error) {
 				return AuditMigrationVersions(ctx, db, DialectPostgres)
@@ -683,11 +685,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
 			require.NoError(t, err)
 			if testCase.separated {
-				require.Equal(t, 6, current)
-				require.Equal(t, 6, latest)
-			} else {
 				require.Equal(t, 7, current)
 				require.Equal(t, 7, latest)
+			} else {
+				require.Equal(t, 8, current)
+				require.Equal(t, 8, latest)
 			}
 			assertPostgresMaskRuleRangeColumns(t, ctx, database)
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
@@ -723,8 +725,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 7, current)
-	require.Equal(t, 7, latest)
+	require.Equal(t, 8, current)
+	require.Equal(t, 8, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

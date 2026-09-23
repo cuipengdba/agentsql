@@ -1,0 +1,33 @@
+CREATE TABLE chain_state (
+  chain_id TEXT PRIMARY KEY CHECK (chain_id IN ('management','traffic')),
+  chain_instance_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('DISABLED','BUILDING','ACTIVE','FAILED')),
+  mode TEXT CHECK (mode IS NULL OR mode IN ('keyless','hmac')),
+  head_seq INTEGER NOT NULL DEFAULT 0,
+  head_id INTEGER,
+  head_hash TEXT,
+  genesis_at TIMESTAMP,
+  protected_since_id INTEGER,
+  build_owner TEXT,
+  build_lease_until TIMESTAMP,
+  build_epoch INTEGER NOT NULL DEFAULT 0,
+  last_built_id INTEGER,
+  last_built_seq INTEGER,
+  last_built_hash TEXT,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE chain_verification (
+  chain_id TEXT PRIMARY KEY,
+  observed_instance_id TEXT,
+  observed_head_hash TEXT,
+  result TEXT,
+  last_verified_head_seq INTEGER,
+  last_verified_at TIMESTAMP,
+  break_seq INTEGER,
+  break_id INTEGER,
+  break_reason TEXT
+);
+
+INSERT INTO chain_state (chain_id, status) VALUES ('management', 'DISABLED');
+INSERT INTO chain_verification (chain_id) VALUES ('management');
