@@ -110,6 +110,42 @@ try {
     # verify-only also validates 180/60/36/24 decisions, 24 linked approvals,
     # and zero missing/orphaned approval audit references.
 
+    # config.demo.yaml has no separate audit store, so the CLI's authoritative
+    # auto mapping selects the management domain. Keep the demo manifest
+    # explicitly keyless: no key material is read, passed, or printed.
+    $Stage = "provision-keyless-audit-chain"
+    Write-Host "[demo-reset] $Stage (domain=auto, mode=keyless)"
+    $chainProvisionOutput = (Invoke-Compose "exec" "-T" "agentsql-demo" `
+        "/usr/local/bin/agentsqlctl" "chain" "provision" `
+        "--config" "/etc/agentsql/config.demo.yaml" `
+        "--domain" "auto" "--mode" "keyless") -join "`n"
+    foreach ($expected in @("status=ACTIVE", "result=VALID_AT_OBSERVED_HEAD")) {
+        if ($chainProvisionOutput -notmatch "(^|\s)$([regex]::Escape($expected))(\s|$)") {
+            throw "chain provision output is missing $expected"
+        }
+    }
+
+    $Stage = "verify-keyless-audit-chain-status"
+    Write-Host "[demo-reset] $Stage"
+    $chainStatusOutput = (Invoke-Compose "exec" "-T" "agentsql-demo" `
+        "/usr/local/bin/agentsqlctl" "chain" "status" `
+        "--config" "/etc/agentsql/config.demo.yaml" "--domain" "auto") -join "`n"
+    foreach ($expected in @("chain_id=management", "status=ACTIVE", "mode=keyless", "result=VALID_AT_OBSERVED_HEAD")) {
+        if ($chainStatusOutput -notmatch "(^|\s)$([regex]::Escape($expected))(\s|$)") {
+            throw "chain status output is missing $expected"
+        }
+    }
+
+    $Stage = "verify-keyless-audit-chain"
+    Write-Host "[demo-reset] $Stage"
+    $chainVerifyOutput = (Invoke-Compose "exec" "-T" "agentsql-demo" `
+        "/usr/local/bin/agentsqlctl" "chain" "verify" `
+        "--config" "/etc/agentsql/config.demo.yaml" `
+        "--domain" "auto" "--mode" "keyless") -join "`n"
+    if ($chainVerifyOutput -notmatch "(^|\s)result=VALID_AT_OBSERVED_HEAD(\s|$)") {
+        throw "chain verify output is missing result=VALID_AT_OBSERVED_HEAD"
+    }
+
     # Count SQL is piped over stdin (demo/shared/*.sql). Embedding the SQL in
     # `sh -ec "..."` gets quote-mangled by the Windows docker CLI and returns
     # empty output; stdin avoids every nested-quote path and needs no extra
