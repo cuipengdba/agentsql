@@ -78,6 +78,52 @@ type AuditStoreView interface {
 	Close() error
 }
 
+// ChainAccess is a domain-bound view of the database resources needed to
+// observe and verify an audit chain. It deliberately exposes repositories and
+// verifier construction rather than a general-purpose database handle.
+type ChainAccess struct {
+	db      *sql.DB
+	dialect Dialect
+	domain  string
+}
+
+// Chain returns the database view for one audit-chain domain. Management is
+// always stored with metadata. Traffic uses the independent audit database
+// when configured, and otherwise shares the metadata database.
+func (store *Store) Chain(domain string) (*ChainAccess, error) {
+	if store == nil || store.metaDB == nil || store.auditDB == nil {
+		return nil, fmt.Errorf("open audit chain %q: store is unavailable", domain)
+	}
+	access := &ChainAccess{db: store.metaDB, dialect: store.metaDriver, domain: domain}
+	switch domain {
+	case "management":
+	case "traffic":
+		if store.auditSeparate {
+			access.db = store.auditDB
+			access.dialect = store.auditDriver
+		}
+	default:
+		return nil, fmt.Errorf("open audit chain %q: unsupported domain", domain)
+	}
+	return access, nil
+}
+
+// State returns the read-only state repository for this chain database.
+func (access *ChainAccess) State() *ChainStateRepository {
+	if access == nil {
+		return &ChainStateRepository{}
+	}
+	return &ChainStateRepository{repositoryBase: repositoryBase{db: access.db, dialect: access.dialect}}
+}
+
+// Verifier constructs the existing verifier against this chain database.
+func (access *ChainAccess) Verifier(manifest ChainManifest) *ChainVerifier {
+	if access == nil {
+		return NewChainVerifier(nil, "", "", manifest)
+	}
+	return NewChainVerifier(access.db, access.dialect, access.domain, manifest)
+}
+
 type metadataOnlyStore struct {
 	db       *sql.DB
 	dialect  Dialect

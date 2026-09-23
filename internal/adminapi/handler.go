@@ -35,6 +35,7 @@ type Deps struct {
 	TokenKey         []byte
 	DatasourcePinger DatasourcePinger
 	Discovery        DiscoveryRunner
+	ChainManifests   ChainManifestProvider
 	// EventStreamHeartbeatInterval is injectable for deterministic stream tests.
 	// Zero uses the production interval.
 	EventStreamHeartbeatInterval time.Duration
@@ -90,6 +91,9 @@ type Handler struct {
 	streamSlots    chan struct{}
 	heartbeat      time.Duration
 	notificationMu sync.Mutex
+	chainVerifyMu  sync.Mutex
+	chainVerifying map[string]bool
+	chainLastStart map[string]time.Time
 }
 
 func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
@@ -131,7 +135,8 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 		deps.Discovery = deps.Runtime.ControlledRead
 	}
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
-		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...)}
+		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...),
+		chainVerifying: make(map[string]bool), chainLastStart: make(map[string]time.Time)}
 	if streamEnabled {
 		handler.streamSlots = make(chan struct{}, deps.Config.Server.EventStreamMaxConnections)
 		handler.heartbeat = deps.EventStreamHeartbeatInterval
@@ -173,6 +178,8 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("DELETE /api/v1/mask_rules/{id}", handler.maskRulesDelete)
 	mux.HandleFunc("GET /api/v1/audit", handler.auditList)
 	mux.HandleFunc("GET /api/v1/audit/export", handler.auditExport)
+	mux.HandleFunc("GET /api/v1/audit-chain/status", handler.auditChainStatus)
+	mux.HandleFunc("POST /api/v1/audit-chain/verify", handler.auditChainVerify)
 	mux.HandleFunc("GET /api/v1/approvals", handler.approvalsList)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)

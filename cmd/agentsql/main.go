@@ -172,11 +172,12 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			}
 			loaded.Redaction.Clear()
 			adminDeps, err := adminapi.PrepareDemoDeps(ctx, adminapi.Deps{
-				Runtime:       runtime,
-				Config:        loaded,
-				AdminUsername: adminUser,
-				AdminPassword: adminPassword,
-				TokenKey:      adminapi.DeriveTokenKey([]byte(secret)),
+				Runtime:        runtime,
+				Config:         loaded,
+				AdminUsername:  adminUser,
+				AdminPassword:  adminPassword,
+				TokenKey:       adminapi.DeriveTokenKey([]byte(secret)),
+				ChainManifests: adminapi.NewKeylessChainManifestProvider(),
 			})
 			if err != nil {
 				return errors.Join(err, runtime.Close())
