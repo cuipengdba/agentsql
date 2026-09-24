@@ -24,6 +24,7 @@ const errorCodeLabels = {
   DB_EXECUTION_FAILED: "数据库执行失败",
   GATEWAY_INTERNAL: "网关内部错误",
   AUDIT_UNAVAILABLE: "审计服务不可用",
+  AUDIT_OVERLOADED: "系统繁忙，请稍后重试",
   COMMIT_OUTCOME_UNKNOWN: "提交结果未知",
 } as const;
 

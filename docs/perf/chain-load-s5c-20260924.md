@@ -76,19 +76,30 @@ PG backfill 实测为 1160 rows/s。该值作为 backfill 能力参考，不属�
 | 链头一致性 | `head_seq`=提交数，状态 ACTIVE | 3,799,725=3,799,725，mode=keyless(ACTIVE) | **PASS（正式实测）** |
 | 停载排空 | 停载后队列归零 | S5b-2 各场景均归零 | **PASS（短窗口实测）** |
 | SQLite 正式时长 | 500/s × 10 min 单独留存 | 正式时长结果未单独留存；短窗口已验证 500/s | **未捕获；不推算** |
-| 固定规模 Verify 耗时 | N=10^5；PG ≤ 30s，SQLite ≤ 60s | 尚未记录 | **收尾项；未捕获，不阻断本次发布** |
+| 固定规模 Verify 耗时 | N=10^5；PG ≤ 30s，SQLite ≤ 60s；额外 RSS ≤ 64 MiB | PG 8.120038s / 3.809 MiB；SQLite 4.970181s / 5.422 MiB；均为 VALID | **PASS（固定规模实测）** |
 
 burst 的 5000/s 是施加的 offered load，不是强制 goodput 阈值；4874/s 是短窗口已完成写入速率。正式 burst 窗口约 3329/s 的新增速率与零 `AUDIT_OVERLOADED` 共同说明 group-commit 在该窗口进行了平滑处理。
 
-## 6. 未捕获项与限制
+## 6. 固定规模 Verify 耗时
+
+2026-09-24 使用现有 fixture、backfill/激活工具和流式校验器，在两个后端分别构造恰好 100,000 行的 ACTIVE keyless 链。计时范围为调用只读 `ChainVerifier.Verify` 至返回的端到端时间，不包含数据生成、backfill 和激活。RSS 使用当前 Go 进程 working set：Verify 前执行两次 GC 后取即时基线，Verify 期间每 5ms 采样，额外 RSS 峰值为采样峰值减基线。
+
+| 后端 | 规模/状态 | Verify 结果 | 端到端耗时 | 时间阈值 | 额外 RSS 峰值 | RSS 阈值 | 判定 |
+|---|---|---|---:|---:|---:|---:|---|
+| PostgreSQL 18（testcontainers，2 CPU / 2048 MiB） | 100,000 行，ACTIVE keyless | `VALID_AT_OBSERVED_HEAD` | 8.120038s | ≤ 30s | 3.809 MiB | ≤ 64 MiB | **PASS** |
+| SQLite（本地） | 100,000 行，ACTIVE keyless | `VALID_AT_OBSERVED_HEAD` | 4.970181s | ≤ 60s | 5.422 MiB | ≤ 64 MiB | **PASS** |
+
+两个后端均满足耗时、结果与流式内存阈值，固定规模 Verify 收尾项完成。
+
+## 7. 未捕获项与限制
 
 1. 正式 30 分钟运行的逐场景 goodput/延迟没有持久化：长跑后会话输出被截断。因此，本报告只用同环境 S5b-2 短窗口数据判定逐场景吞吐和延迟，不从 3,799,725 行总量反推分位延迟。
 2. SQLite 500/s × 10 分钟的正式时长结果未单独留存；现有证据是同环境短窗口已验证 500/s。
 3. 对约 3.8M 行执行全量重算 `Verify` 是 O(N) 顺序扫描，未在采集窗口内跑完。正式实测已经覆盖序列连续唯一、无 NULL、ACTIVE 状态和 head/提交数一致性，但不宣称完成了全量哈希重算。
-4. 周期校验采用流式处理，生产库采用增量校验，因此第 3 项不构成本次发布阻断。收尾项是在固定 10^5 行数据集上记录 Verify 耗时，并确认 PostgreSQL ≤ 30s、SQLite ≤ 60s。
+4. 周期校验采用流式处理，生产库采用增量校验，因此第 3 项不构成本次发布阻断。固定 10^5 行数据集上的 Verify 收尾实测已完成，结果见第 6 节。
 
-## 7. 结论
+## 8. 结论
 
 S5 硬门满足：目标负载下零 fail-closed、零 `AUDIT_OVERLOADED`、零结构性断链；3,799,725 行规模下序列 1..N 连续唯一且 `head_seq` 等于提交数；目标 goodput 和追加延迟在同环境短窗口达到阈值。因此 **S5 容量门 GO**。
 
-唯一收尾项：在固定 N=10^5 行上记录 PostgreSQL 与 SQLite 的全量 Verify 耗时，分别确认 ≤30s 与 ≤60s。
+固定 N=10^5 行的全量 Verify 收尾项已通过：PostgreSQL 8.120038s、SQLite 4.970181s，均为 VALID，额外 RSS 峰值均低于 64 MiB。
