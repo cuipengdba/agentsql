@@ -127,6 +127,14 @@ type ColumnAuthorizationController interface {
 	Begin(context.Context, model.Agent, model.Datasource) (ColumnAuthorizationSnapshot, error)
 }
 
+// ColumnAuthorizationRouter lets an activated controller keep unsupported
+// dialects on the existing table-level path. Once it returns true, later
+// runtime/fence failures are handled inside Begin and fail closed rather than
+// silently falling back.
+type ColumnAuthorizationRouter interface {
+	ColumnAuthorizationEnabled(model.Datasource) bool
+}
+
 // RuleOverrideReader reads administrator-maintained global rule overrides.
 type RuleOverrideReader interface {
 	List(ctx context.Context, dbType string) ([]model.Rule, error)

@@ -29,6 +29,10 @@ type ColumnAuthorizationProvider interface {
 	BeginColumnAuthorization(context.Context, string, model.Datasource) (ColumnAuthorizationRequest, func() error, error)
 }
 
+type columnAuthorizationRouter interface {
+	ColumnAuthorizationEnabled(model.Datasource) bool
+}
+
 type GatewayOption func(*Gateway)
 
 func WithColumnAuthorizationProvider(provider ColumnAuthorizationProvider) GatewayOption {
@@ -44,6 +48,13 @@ type ColumnRef struct{ Schema, Table, Column string }
 type SchemaColumn struct {
 	Schema, Table, Column, DataType string
 	Ordinal                         int
+}
+
+// PostgresB2Capability is a non-executable startup attestation. It contains no
+// SQL handle, credential, pool, or mutable binder object.
+type PostgresB2Capability struct {
+	ServerMajor                                                           int
+	ABI, ExtensionVersion, ExtensionHash, NodeManifestHash, AllowlistHash string
 }
 
 func NewGateway(readOnly bool, options ...GatewayOption) *Gateway {
@@ -93,6 +104,45 @@ func (gateway *Gateway) Ping(ctx context.Context, datasource model.Datasource, s
 	if err := executor.Ping(ctx); err != nil {
 		return fixedExecutionError(err)
 	}
+	return nil
+}
+
+// ProbePostgresB2Capability validates the same extension ABI and PG14-18
+// capability manifest that the locked SELECT path consumes.
+func (gateway *Gateway) ProbePostgresB2Capability(ctx context.Context, datasource model.Datasource, secret []byte) (PostgresB2Capability, error) {
+	if datasource.DBType != "postgres" {
+		return PostgresB2Capability{}, &AuthError{Reason: ReasonDatasourceUnsupported}
+	}
+	opened, err := gateway.open(datasource, secret)
+	if err != nil {
+		return PostgresB2Capability{}, fixedExecutionError(err)
+	}
+	postgres, ok := opened.(*businessdb.PostgresExecutor)
+	if !ok {
+		return PostgresB2Capability{}, &AuthError{Reason: ReasonDatasourceUnsupported}
+	}
+	capability, err := postgres.ProbePostgresBinderCapability(ctx, NewBudget(DefaultLimits))
+	if err != nil {
+		return PostgresB2Capability{}, StableError(err)
+	}
+	return PostgresB2Capability{
+		ServerMajor: capability.ServerMajor, ABI: capability.ABI,
+		ExtensionVersion: capability.ExtensionVersion, ExtensionHash: capability.ExtensionHash,
+		NodeManifestHash: capability.NodeManifestHash, AllowlistHash: capability.AllowlistHash,
+	}, nil
+}
+
+// ProbeReservation proves that the request-level concurrency and memory
+// reservation primitive is live before protocol 3 can be activated.
+func (gateway *Gateway) ProbeReservation(datasourceID string) error {
+	if gateway == nil || gateway.reservations == nil || strings.TrimSpace(datasourceID) == "" {
+		return &AuthError{Reason: ReasonConcurrencyLimit}
+	}
+	reservation, err := gateway.reservations.Reserve("b2-activation", "b2-activation", datasourceID, defaultStatementMemoryReservation())
+	if err != nil {
+		return err
+	}
+	reservation.Release()
 	return nil
 }
 

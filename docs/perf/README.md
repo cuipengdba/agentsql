@@ -26,3 +26,14 @@ go test ./internal/pipeline -run '^$' -bench BenchmarkPipelineReadOnlyRealDataba
 ## 结果归档
 
 实测完成后在 `docs/perf/t25_bench_result.md` 记录环境、原始命令、五次样本和 P99 结论；未在真实环境跑通前不得预填性能数字。
+
+## B2 列级 SELECT 生产观测门
+
+PG16/18 真容器负载默认跳过。显式运行：
+
+```bash
+AGENTSQL_B2_COLUMN_LOAD=1 AGENTSQL_B2_LOAD_SECONDS=10 \
+go test ./internal/authorizedexecute -run TestB2ColumnSelectProductionLoad -count=1 -v
+```
+
+输出的 `B2_COLUMN_LOAD` JSON 包含吞吐、p95/p99、相对 S0 5.5ms P99 的增量、catalog+binder p95、稳定错误码分布及 reservation 触发证明。门要求错误码为空且端到端 P99 不超过 250ms；增量必须原样报告，不能用阈值替代。生产 Prometheus 同时暴露 `agentsql_b2_state` 与 `agentsql_b2_phase_duration_seconds`。

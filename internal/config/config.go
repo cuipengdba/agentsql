@@ -44,12 +44,14 @@ type Config struct {
 	ColumnAuthorization ColumnAuthorizationConfig `yaml:"column_authorization"`
 }
 
-// ColumnAuthorizationConfig is an implementation feature gate, not the S5
-// activation gate. Enabling it still requires a protocol-3 fence/runtime row;
-// without those control-plane facts every SELECT fails closed.
+// ColumnAuthorizationConfig is the explicit S5 activation request. Enabled is
+// off by default; startup establishes protocol-3 only after every readiness
+// probe succeeds. Failed activation keeps the table-level pipeline available.
 type ColumnAuthorizationConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	InstanceID string `yaml:"instance_id"`
+	Enabled             bool   `yaml:"enabled"`
+	InstanceID          string `yaml:"instance_id"`
+	LeaseMS             int    `yaml:"lease_ms"`
+	HeartbeatIntervalMS int    `yaml:"heartbeat_interval_ms"`
 }
 
 // ServerConfig controls the shared HTTP listener and console availability.
@@ -233,6 +235,13 @@ func (config Config) validateNonStore() error {
 	}
 	if config.ColumnAuthorization.Enabled && strings.TrimSpace(config.ColumnAuthorization.InstanceID) == "" {
 		return fmt.Errorf("validate column_authorization: instance_id is required when enabled")
+	}
+	if config.ColumnAuthorization.LeaseMS < 0 || config.ColumnAuthorization.HeartbeatIntervalMS < 0 {
+		return fmt.Errorf("validate column_authorization: lease and heartbeat interval must not be negative")
+	}
+	if config.ColumnAuthorization.Enabled && config.ColumnAuthorization.LeaseMS > 0 &&
+		config.ColumnAuthorization.HeartbeatIntervalMS >= config.ColumnAuthorization.LeaseMS {
+		return fmt.Errorf("validate column_authorization: heartbeat interval must be less than lease")
 	}
 
 	listen := strings.TrimSpace(config.Server.HTTPListen)

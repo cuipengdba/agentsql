@@ -44,6 +44,8 @@ type Metrics struct {
 	auditChainLastVerified    *prometheus.GaugeVec
 	auditChainVerificationLag *prometheus.GaugeVec
 	redactionKeyDrift         *prometheus.CounterVec
+	b2State                   *prometheus.GaugeVec
+	b2PhaseDuration           *prometheus.HistogramVec
 	outboxPending             prometheus.Gauge
 	outboxOldestAge           prometheus.Gauge
 	notificationSent          *prometheus.CounterVec
@@ -109,6 +111,15 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 			Name: "redaction_key_drift",
 			Help: "Total redaction key reconciliation findings by bounded kind.",
 		}, []string{"kind"}),
+		b2State: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "agentsql_b2_state",
+			Help: "Current B2 runtime state (exactly one bounded state is 1).",
+		}, []string{"state"}),
+		b2PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "agentsql_b2_phase_duration_seconds",
+			Help:    "B2 column SELECT latency by bounded execution phase.",
+			Buckets: stageDurationBuckets,
+		}, []string{"phase"}),
 		outboxPending: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "outbox_pending_count", Help: "Pending management audit outbox events.",
 		}),
@@ -151,6 +162,8 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		metrics.auditChainLastVerified,
 		metrics.auditChainVerificationLag,
 		metrics.redactionKeyDrift,
+		metrics.b2State,
+		metrics.b2PhaseDuration,
 		metrics.outboxPending,
 		metrics.outboxOldestAge,
 		metrics.notificationSent,
@@ -164,6 +177,25 @@ func New(poolSnapshot func() []PoolStat) *Metrics {
 		},
 	)
 	return metrics
+}
+
+// SetB2State updates the one-hot activation/readiness state.
+func (metrics *Metrics) SetB2State(state string) {
+	if metrics == nil {
+		return
+	}
+	for _, candidate := range []string{"active", "feature-off", "degraded", "unsupported"} {
+		metrics.b2State.WithLabelValues(candidate).Set(boolFloat(candidate == state))
+	}
+}
+
+// ObserveB2Phase records a phase duration. Phase names are internal constants,
+// never attacker-provided labels.
+func (metrics *Metrics) ObserveB2Phase(phase string, duration time.Duration) {
+	if metrics == nil || duration < 0 {
+		return
+	}
+	metrics.b2PhaseDuration.WithLabelValues(phase).Observe(duration.Seconds())
 }
 
 // SetAuditWriterReady updates the domain-scoped audit writer key readiness.

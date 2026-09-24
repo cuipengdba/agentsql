@@ -236,7 +236,13 @@ func (pipeline *Pipeline) process(
 		staticAssessment = run.response.Assessment
 	}
 	if run.ast.StmtType == model.StmtType("SELECT") && !isNilInterface(pipeline.column) {
-		return run.processColumnAuthorizedSelect(ctx)
+		enabled := true
+		if router, ok := pipeline.column.(ColumnAuthorizationRouter); ok {
+			enabled = router.ColumnAuthorizationEnabled(*run.datasource)
+		}
+		if enabled {
+			return run.processColumnAuthorizedSelect(ctx)
+		}
 	}
 	if staticAssessment.Decision == model.DecisionDeny {
 		return run.finish(ctx, nil)

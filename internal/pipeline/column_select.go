@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/lockrank"
@@ -13,6 +14,18 @@ import (
 )
 
 func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Response, error) {
+	phaseStarted := time.Now()
+	previousPhase := "preflight_reservation"
+	phaseObserver, _ := run.pipeline.observer.(interface {
+		ObserveB2Phase(string, time.Duration)
+	})
+	observePhase := func(phase executor.SelectPhase) {
+		now := time.Now()
+		if phaseObserver != nil {
+			phaseObserver.ObserveB2Phase(previousPhase, now.Sub(phaseStarted))
+		}
+		phaseStarted, previousPhase = now, string(phase)
+	}
 	ctx = lockrank.WithTracker(ctx)
 	snapshot, err := run.pipeline.column.Begin(ctx, *run.agent, *run.datasource)
 	if err != nil {
@@ -61,6 +74,7 @@ func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Resp
 		FinalFence: func(fenceContext context.Context) error {
 			return snapshot.FinalCheck(fenceContext)
 		},
+		Observe: observePhase,
 	})
 	statement, err := run.pipeline.ports.Executors.AuthorizedExecute(
 		columnContext, *run.datasource, append([]byte(nil), run.pipeline.secret...), run.request.SQL, "",
@@ -76,6 +90,9 @@ func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Resp
 		return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonAuthorizationProofInvalid})
 	}
 	_, err = columnStatement.Execute(columnContext)
+	if phaseObserver != nil {
+		phaseObserver.ObserveB2Phase(previousPhase, time.Since(phaseStarted))
+	}
 	selected, outcomeOK := columnStatement.ColumnAuthorizationResult()
 	statementCloseErr := columnStatement.Close()
 	closeErr := snapshot.Close()

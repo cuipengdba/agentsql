@@ -81,7 +81,11 @@ func (gateway *Gateway) AuthorizedExecute(
 	}
 	column, explicitColumn := ctx.Value(columnAuthorizationContextKey{}).(ColumnAuthorizationRequest)
 	var closeControl func() error
-	if explicitColumn || gateway.column != nil {
+	columnEnabled := gateway.column != nil
+	if router, ok := gateway.column.(columnAuthorizationRouter); ok && !explicitColumn {
+		columnEnabled = router.ColumnAuthorizationEnabled(datasource)
+	}
+	if explicitColumn || columnEnabled {
 		selectStatement, parseErr := isSingleSelect(datasource, sqlText)
 		if explicitColumn && (parseErr != nil || !selectStatement || sessionID != "") {
 			return nil, &AuthError{Reason: ReasonStatementClassDenied}

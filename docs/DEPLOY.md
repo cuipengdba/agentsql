@@ -885,6 +885,20 @@ sh scripts/push-release-image.sh v0.3.0
 
 只有本地开发或测试需要兼容仓库历史公开测试凭据时，才可设置 `AGENTSQL_INSECURE=1`。它只放行“长度正确的公开测试 SECRET”和“非空弱管理员口令”；SECRET 缺失或不是 32 字节、管理员口令为空仍会拒绝启动。该开关不会、也不得关闭认证、安全规则或 fail-closed 行为，生产环境禁止设置。
 
+## B2 protocol 3 激活（默认关闭）
+
+B2 列级 SELECT 的出厂默认仍为 `enabled: false`。只有显式配置以下开关时，启动过程才会尝试激活；这不是发布 GA 开关：
+
+```yaml
+column_authorization:
+  enabled: true
+  instance_id: gateway-prod-a
+  lease_ms: 15000
+  heartbeat_interval_ms: 5000
+```
+
+激活前会逐项验证 PG14–18 `agentsql_binder` ABI/capability、catalog binding、无 staging/`*`、enrollment healthy、control fence 和 request reservation；runtime artifact digest 绑定当前可执行文件及所有 PG capability digest，并在一个 control transaction 内建立 protocol-3 fence/runtime lease。任一门失败时不会建立 protocol 3，现有表级 pipeline 继续服务；`/healthz` 与 `/readyz` 的 `b2.state/reason` 以及管理审计记录明确给出 `degraded` 或 `unsupported` 原因。已经激活后若心跳或 lease 失效，列级入口 fail-closed 且 readiness 变为不可用，不会静默降为表级授权。
+
 ## 常见问题
 
 ### 容器映射端口后仍无法访问

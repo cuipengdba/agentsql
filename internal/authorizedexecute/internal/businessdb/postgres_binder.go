@@ -36,6 +36,35 @@ type PostgresBinderCapability struct {
 	Allowlist        PostgresOIDAllowlist `json:"allowlist"`
 }
 
+// ProbePostgresBinderCapability performs the exact ABI/major/hash validation
+// used by execution without preparing caller SQL or retaining a transaction.
+func (executor *PostgresExecutor) ProbePostgresBinderCapability(ctx context.Context, budget PostgresCatalogBudget) (PostgresBinderCapability, error) {
+	if executor == nil || executor.pool == nil || ctx == nil || budget == nil {
+		return PostgresBinderCapability{}, catalogAuthError("AUTH_BINDER_CAPABILITY_MISMATCH")
+	}
+	connection, err := executor.pool.Acquire(ctx)
+	if err != nil {
+		return PostgresBinderCapability{}, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL binder probe connection", err)
+	}
+	defer connection.Release()
+	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return PostgresBinderCapability{}, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL binder probe", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
+		return PostgresBinderCapability{}, err
+	}
+	capability, err := readPostgresBinderCapability(ctx, tx, budget)
+	if err != nil {
+		return PostgresBinderCapability{}, err
+	}
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		return PostgresBinderCapability{}, postgresDatabaseError(ctx, DBStageRollback, "rollback PostgreSQL binder probe", err)
+	}
+	return capability, nil
+}
+
 type PostgresPreparedManifest struct {
 	StatementName    string
 	BackendPID       uint32

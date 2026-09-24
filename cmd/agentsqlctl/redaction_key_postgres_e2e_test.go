@@ -255,7 +255,7 @@ func assertRestartReconciledAndReady(t *testing.T, ctx context.Context, configPa
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusOK, response.Code)
-	require.JSONEq(t, `{"status":"ready"}`, response.Body.String())
+	require.JSONEq(t, `{"status":"ready","b2":{"state":"feature-off","reason":"B2_FEATURE_OFF","protocol":2}}`, response.Body.String())
 	require.NoError(t, runtime.Close(), "closing the old runtime is the drain point before the next assembly")
 }
 

@@ -241,7 +241,7 @@ func newHTTPHandlerWithRegistry(
 		}
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthHandler(cfg))
+	mux.HandleFunc("GET /healthz", healthHandler(cfg, runtime))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
 	mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))
 	mux.Handle("/mcp", authorizedexecute.SealedHTTP(mcpHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
@@ -263,6 +263,7 @@ type probeResponse struct {
 	Version              string             `json:"version,omitempty"`
 	Demo                 *demoProbeResponse `json:"demo,omitempty"`
 	RedactionUnsatisfied []int              `json:"redaction_unsatisfied,omitempty"`
+	B2                   bootstrap.B2Status `json:"b2"`
 }
 
 type demoProbeResponse struct {
@@ -270,11 +271,16 @@ type demoProbeResponse struct {
 	Banner  string `json:"banner"`
 }
 
-func healthHandler(cfg config.Config) http.HandlerFunc {
+func healthHandler(cfg config.Config, runtimes ...*bootstrap.Runtime) http.HandlerFunc {
 	return func(writer http.ResponseWriter, _ *http.Request) {
+		b2 := bootstrap.B2Status{State: bootstrap.B2StateFeatureOff, Reason: bootstrap.B2ReasonFeatureOff, Protocol: 2}
+		if len(runtimes) != 0 && runtimes[0] != nil {
+			b2 = runtimes[0].B2Status()
+		}
 		response := probeResponse{
 			Status:  "ok",
 			Version: version.Version,
+			B2:      b2,
 		}
 		if cfg.DemoEnabled() {
 			banner := cfg.Demo.Banner
@@ -291,22 +297,27 @@ func healthHandler(cfg config.Config) http.HandlerFunc {
 func readinessHandler(runtime *bootstrap.Runtime) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		if runtime == nil || runtime.Store == nil {
-			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready"})
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: bootstrap.B2Status{State: bootstrap.B2StateDegraded, Reason: bootstrap.B2ReasonMetadataUnavailable}})
 			return
 		}
+		b2 := runtime.B2Status()
 		ctx, cancel := context.WithTimeout(request.Context(), time.Second)
 		defer cancel()
 		if err := runtime.Store.Ping(ctx); err != nil {
-			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready"})
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2})
+			return
+		}
+		if !runtime.B2Ready() {
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2})
 			return
 		}
 		if ready, unsatisfied := runtime.RedactionReady(); !ready {
 			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{
-				Status: "not ready", RedactionUnsatisfied: unsatisfied,
+				Status: "not ready", RedactionUnsatisfied: unsatisfied, B2: b2,
 			})
 			return
 		}
-		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready"})
+		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready", B2: b2})
 	}
 }
 

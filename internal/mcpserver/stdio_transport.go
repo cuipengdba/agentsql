@@ -43,14 +43,15 @@ func (reader *sealedLineReader) Read(destination []byte) (int, error) {
 				continue
 			}
 			if errors.Is(err, io.EOF) && len(frame) > 0 {
+				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonFrameLimit}
 				break
 			}
 			reader.terminal = err
 			break
 		}
 		if reader.terminal == nil {
-			trimmed := bytes.TrimSpace(frame)
-			if len(trimmed) == 0 || !json.Valid(trimmed) {
+			payload := frame[:len(frame)-1]
+			if len(payload) == 0 || bytes.ContainsAny(payload, "\r\n") || !json.Valid(payload) {
 				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonDatabaseFailure}
 			} else {
 				reader.pending = frame
@@ -94,7 +95,11 @@ func newSealedLineWriter(writer io.Writer, limit int) *sealedLineWriter {
 func (writer *sealedLineWriter) Write(frame []byte) (int, error) {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
-	if len(frame) == 0 || len(frame) > writer.limit || frame[len(frame)-1] != '\n' || !json.Valid(bytes.TrimSpace(frame)) {
+	if len(frame) == 0 || len(frame) > writer.limit || frame[len(frame)-1] != '\n' {
+		return 0, &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonEnvelopeLimit}
+	}
+	payload := frame[:len(frame)-1]
+	if len(payload) == 0 || bytes.ContainsAny(payload, "\r\n") || !json.Valid(payload) {
 		return 0, &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonEnvelopeLimit}
 	}
 	sealed := append([]byte(nil), frame...)

@@ -29,6 +29,7 @@ const (
 	initializeRequest  = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`
 	listToolsRequest   = `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
 	listSourcesRequest = `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_datasources","arguments":{}}}`
+	b2FeatureOffJSON   = `"b2":{"state":"feature-off","reason":"B2_FEATURE_OFF","protocol":2}`
 )
 
 func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
@@ -51,13 +52,13 @@ func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
 	require.Equal(t, http.StatusOK, health.Code)
 	require.Equal(t, "application/json", health.Header().Get("Content-Type"))
 	require.Equal(t, "no-store", health.Header().Get("Cache-Control"))
-	require.Equal(t, fmt.Sprintf(`{"status":"ok","version":%q}`, version.Version), health.Body.String())
+	require.JSONEq(t, fmt.Sprintf(`{"status":"ok","version":%q,%s}`, version.Version, b2FeatureOffJSON), health.Body.String())
 	require.Zero(t, webCalls)
 
 	ready := httptest.NewRecorder()
 	handler.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusOK, ready.Code)
-	require.JSONEq(t, `{"status":"ready"}`, ready.Body.String())
+	require.JSONEq(t, `{"status":"ready",`+b2FeatureOffJSON+`}`, ready.Body.String())
 	require.Zero(t, webCalls)
 
 	unauthorized := httptest.NewRecorder()
@@ -114,15 +115,16 @@ func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
 	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	require.Equal(t, http.StatusOK, health.Code)
 	require.Equal(t, "no-store", health.Header().Get("Cache-Control"))
-	require.Equal(t, fmt.Sprintf(
-		`{"status":"ok","version":%q,"demo":{"enabled":true,"banner":%q}}`,
+	require.JSONEq(t, fmt.Sprintf(
+		`{"status":"ok","version":%q,"demo":{"enabled":true,"banner":%q},%s}`,
 		version.Version,
 		config.DemoDefaultBanner,
+		b2FeatureOffJSON,
 	), health.Body.String())
 
 	var projection map[string]any
 	require.NoError(t, json.Unmarshal(health.Body.Bytes(), &projection))
-	require.ElementsMatch(t, []string{"status", "version", "demo"}, mapKeys(projection))
+	require.ElementsMatch(t, []string{"status", "version", "demo", "b2"}, mapKeys(projection))
 	demoProjection, ok := projection["demo"].(map[string]any)
 	require.True(t, ok)
 	require.ElementsMatch(t, []string{"enabled", "banner"}, mapKeys(demoProjection))
@@ -146,7 +148,7 @@ func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
 	ready := httptest.NewRecorder()
 	handler.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusOK, ready.Code)
-	require.Equal(t, `{"status":"ready"}`, ready.Body.String())
+	require.JSONEq(t, `{"status":"ready",`+b2FeatureOffJSON+`}`, ready.Body.String())
 	require.Empty(t, ready.Header().Get("Cache-Control"))
 }
 
@@ -154,7 +156,7 @@ func TestT241ReadinessFailsClosedWithoutStore(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	readinessHandler(nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
-	require.JSONEq(t, `{"status":"not ready"}`, recorder.Body.String())
+	require.JSONEq(t, `{"status":"not ready","b2":{"state":"degraded","reason":"B2_METADATA_UNAVAILABLE","protocol":0}}`, recorder.Body.String())
 }
 
 func TestReadinessRemainsReadyWhenHMACChainKeyMissing(t *testing.T) {
@@ -176,7 +178,7 @@ func TestReadinessRemainsReadyWhenHMACChainKeyMissing(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	readinessHandler(runtime).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.JSONEq(t, `{"status":"ready"}`, recorder.Body.String())
+	require.JSONEq(t, `{"status":"ready",`+b2FeatureOffJSON+`}`, recorder.Body.String())
 }
 
 func TestReadinessRemainsReadyWhenAuditHistoryIsBroken(t *testing.T) {
@@ -200,7 +202,7 @@ func TestReadinessRemainsReadyWhenAuditHistoryIsBroken(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	readinessHandler(runtime).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.JSONEq(t, `{"status":"ready"}`, recorder.Body.String())
+	require.JSONEq(t, `{"status":"ready",`+b2FeatureOffJSON+`}`, recorder.Body.String())
 }
 
 type readinessChainManifest struct {
@@ -272,7 +274,7 @@ func TestRedactionReadinessRequiresFreshReconciliation(t *testing.T) {
 		require.Equal(t, status, recorder.Code, recorder.Body.String())
 		require.JSONEq(t, body, recorder.Body.String())
 	}
-	assertReady(http.StatusServiceUnavailable, `{"status":"not ready","redaction_unsatisfied":[3]}`)
+	assertReady(http.StatusServiceUnavailable, `{"status":"not ready","redaction_unsatisfied":[3],`+b2FeatureOffJSON+`}`)
 
 	result, available := runtime.RedactionReconciliation()
 	require.True(t, available)
@@ -282,10 +284,10 @@ func TestRedactionReadinessRequiresFreshReconciliation(t *testing.T) {
 	))
 	_, _, _, err = runtime.Store.RedactionKeys().MarkActiveCAS(context.Background(), "1")
 	require.NoError(t, err)
-	assertReady(http.StatusServiceUnavailable, `{"status":"not ready","redaction_unsatisfied":[3]}`)
+	assertReady(http.StatusServiceUnavailable, `{"status":"not ready","redaction_unsatisfied":[3],`+b2FeatureOffJSON+`}`)
 
 	require.NoError(t, runtime.RerunRedactionReconciliation(context.Background()))
-	assertReady(http.StatusOK, `{"status":"ready"}`)
+	assertReady(http.StatusOK, `{"status":"ready",`+b2FeatureOffJSON+`}`)
 
 	health := httptest.NewRecorder()
 	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))

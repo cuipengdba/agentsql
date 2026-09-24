@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 var ErrUnsealed = errors.New("authorized response is not sealed")
@@ -31,6 +33,10 @@ func NewSealedResponseWriter(limit int) *SealedResponseWriter {
 
 func (writer *SealedResponseWriter) Header() http.Header { return writer.header }
 func (writer *SealedResponseWriter) WriteHeader(status int) {
+	if status < 200 || status > 599 {
+		writer.failed = ErrUnsealed
+		return
+	}
 	if writer.status == 0 {
 		writer.status = status
 	}
@@ -52,7 +58,10 @@ func (writer *SealedResponseWriter) Write(body []byte) (int, error) {
 	}
 	return writer.body.Write(body)
 }
-func (*SealedResponseWriter) Flush() {}
+func (writer *SealedResponseWriter) Flush() {
+	// Deliberate no-op: progress, SSE keepalives, and informational flushes
+	// cannot cross the private buffer before the outer seal commits it.
+}
 
 // AfterCommit registers a side effect that is safe only after the complete
 // sealed body has reached the underlying writer.
@@ -69,6 +78,10 @@ func (writer *SealedResponseWriter) Seal() error {
 		}
 		return writer.failed
 	}
+	if err := validateSealedHeaders(writer.header); err != nil {
+		writer.failed = err
+		return err
+	}
 	writer.sealed = true
 	return nil
 }
@@ -78,10 +91,14 @@ func (writer *SealedResponseWriter) CommitTo(destination http.ResponseWriter) er
 		return ErrUnsealed
 	}
 	for key, values := range writer.header {
+		if strings.EqualFold(key, "Content-Length") {
+			continue
+		}
 		for _, value := range values {
 			destination.Header().Add(key, value)
 		}
 	}
+	destination.Header().Set("Content-Length", strconv.Itoa(writer.body.Len()))
 	status := writer.status
 	if status == 0 {
 		status = http.StatusOK
@@ -96,6 +113,27 @@ func (writer *SealedResponseWriter) CommitTo(destination http.ResponseWriter) er
 	}
 	for _, callback := range writer.afterCommit {
 		callback()
+	}
+	return nil
+}
+
+func validateSealedHeaders(header http.Header) error {
+	for key, values := range header {
+		if key == "" || strings.ContainsAny(key, "\r\n:") {
+			return ErrUnsealed
+		}
+		switch strings.ToLower(key) {
+		case "transfer-encoding", "trailer", "connection", "keep-alive", "upgrade":
+			return ErrUnsealed
+		}
+		for _, value := range values {
+			if strings.ContainsAny(value, "\r\n") {
+				return ErrUnsealed
+			}
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(header.Get("Content-Type")), "text/event-stream") {
+		return ErrUnsealed
 	}
 	return nil
 }
@@ -128,7 +166,7 @@ func ReadBoundedFrame(reader io.Reader, limit int) ([]byte, error) {
 		return nil, limitError(ReasonFrameLimit)
 	}
 	length := binary.BigEndian.Uint32(header[:])
-	if uint64(length) > uint64(limit) {
+	if length == 0 || uint64(length) > uint64(limit) {
 		return nil, limitError(ReasonFrameLimit)
 	}
 	frame := make([]byte, int(length))
@@ -143,7 +181,7 @@ func WriteSealedFrame(writer io.Writer, frame []byte, limit int) error {
 	if limit <= 0 || limit > DefaultLimits.FrameBytes {
 		limit = DefaultLimits.FrameBytes
 	}
-	if len(frame) > limit {
+	if len(frame) == 0 || len(frame) > limit {
 		return limitError(ReasonFrameLimit)
 	}
 	var header [4]byte
@@ -151,6 +189,9 @@ func WriteSealedFrame(writer io.Writer, frame []byte, limit int) error {
 	buffer := make([]byte, 4+len(frame))
 	copy(buffer, header[:])
 	copy(buffer[4:], frame)
-	_, err := writer.Write(buffer)
+	written, err := writer.Write(buffer)
+	if err == nil && written != len(buffer) {
+		return io.ErrShortWrite
+	}
 	return err
 }

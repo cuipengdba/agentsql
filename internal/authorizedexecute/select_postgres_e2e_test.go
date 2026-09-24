@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -69,6 +70,53 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 		require.NoError(t, err, statement)
 		require.NoError(t, statementCapability.Close())
 	}
+
+	t.Run("protocol3-activation-gate", func(t *testing.T) {
+		control, err := store.OpenWithSecret(ctx, filepath.Join(t.TempDir(), "control.db"), secret)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, control.Close()) })
+		stored := datasource
+		stored.PasswordEnc = ""
+		stored, err = control.Datasources().Create(ctx, stored, "agentsql-password")
+		require.NoError(t, err)
+		capability, err := gateway.ProbePostgresB2Capability(ctx, stored, secret)
+		require.NoError(t, err)
+		wantMajor, err := strconv.Atoi(major)
+		require.NoError(t, err)
+		require.Equal(t, wantMajor, capability.ServerMajor)
+		require.Equal(t, "agentsql-binder-4.1", capability.ABI)
+		require.NoError(t, gateway.ProbeReservation(stored.ID))
+		metadataReadiness, err := control.Fence().Protocol3Readiness(ctx)
+		require.NoError(t, err)
+		require.True(t, metadataReadiness.Ready())
+		now := time.Now().UTC()
+		instance, err := control.Fence().ActivateProtocol3(ctx, store.Protocol3Activation{
+			InstanceID: "s5-pg-" + major, ArtifactDigest: capability.ExtensionHash,
+			BinderReady: true, CatalogReady: true, ReservationReady: true,
+			Now: now, Lease: time.Minute,
+		})
+		require.NoError(t, err)
+		instance, err = control.Fence().Heartbeat(ctx, instance, now.Add(time.Second), time.Minute)
+		require.NoError(t, err)
+		snapshot, err := control.Fence().BeginRead(ctx, 3, instance.InstanceID, now.Add(time.Second))
+		require.NoError(t, err)
+		require.NoError(t, snapshot.FinalCheck(ctx, now.Add(2*time.Second)))
+		require.NoError(t, snapshot.Close())
+		require.NoError(t, control.Fence().DrainRuntime(ctx, instance.InstanceID))
+		_, err = control.Fence().BeginRead(ctx, 3, instance.InstanceID, now.Add(2*time.Second))
+		require.ErrorIs(t, err, store.ErrFenceLost, "drained protocol-3 runtime must be inactive")
+
+		expiring, err := control.Fence().ActivateProtocol3(ctx, store.Protocol3Activation{
+			InstanceID: "s5-expiring-pg-" + major, ArtifactDigest: capability.ExtensionHash,
+			BinderReady: true, CatalogReady: true, ReservationReady: true,
+			Now: now.Add(2 * time.Second), Lease: time.Second,
+		})
+		require.NoError(t, err)
+		_, err = control.Fence().BeginRead(ctx, 3, expiring.InstanceID, now.Add(4*time.Second))
+		require.ErrorIs(t, err, store.ErrFenceLost, "expired protocol-3 runtime must fail closed")
+		_, err = control.Fence().Heartbeat(ctx, expiring, now.Add(4*time.Second), time.Minute)
+		require.ErrorIs(t, err, store.ErrFenceLost, "expired protocol-3 runtime cannot resurrect")
+	})
 
 	joinSQL := `SELECT a.phone FROM s4.a a JOIN s4.b b ON a.id=b.id WHERE b.note='x' ORDER BY a.id`
 	enrollment, err := gateway.EnrollPostgresSelect(ctx, datasource, secret, joinSQL, DefaultLimits)

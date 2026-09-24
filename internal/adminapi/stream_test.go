@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -100,6 +101,36 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	require.Contains(t, live, "event: audit\n")
 	require.Contains(t, live, "id: 3\n")
 	require.NotContains(t, live, "error_code")
+}
+
+type captureSSEWriter struct {
+	bytes.Buffer
+	header http.Header
+}
+
+func (writer *captureSSEWriter) Header() http.Header {
+	if writer.header == nil {
+		writer.header = make(http.Header)
+	}
+	return writer.header
+}
+func (*captureSSEWriter) WriteHeader(int) {}
+func (*captureSSEWriter) Flush()          {}
+
+func TestSSEEventBoundaryResistsCRLFAndEventInjection(t *testing.T) {
+	injected := "safe\r\n\r\nevent: smuggled\ndata:{\"leak\":true}"
+	writer := &captureSSEWriter{}
+	handler := &Handler{}
+	err := handler.writeAuditEvent(http.NewResponseController(writer), writer, eventbus.Event{Audit: model.AuditLog{
+		ID: 7, TS: time.Unix(7, 0).UTC(), Decision: "warn", Action: &injected, ActorID: &injected,
+	}})
+	require.NoError(t, err)
+	frame := writer.String()
+	require.Equal(t, 1, strings.Count(frame, "event: audit\n"))
+	require.Equal(t, 1, strings.Count(frame, "\n\n"), "one call must produce exactly one SSE event")
+	require.NotContains(t, frame, "\r")
+	require.NotContains(t, frame, "\nevent: smuggled")
+	require.Contains(t, frame, `safe\r\n\r\nevent: smuggled\ndata:`)
 }
 
 func TestStreamHeartbeatConnectionLimitAndSlotReuse(t *testing.T) {

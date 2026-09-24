@@ -120,6 +120,67 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NoError(t, runtime.Close())
 }
 
+func TestB2FactoryDefaultIsFeatureOffAndFailedActivationFallsBack(t *testing.T) {
+	provider := &bootstrapExecutorProvider{executor: &bootstrapExecutor{}}
+	offRuntime, err := assembleWithExecutorProvider(context.Background(),
+		bootstrapTestConfig(filepath.Join(t.TempDir(), "off.db")), bootstrapTestSecret, provider)
+	require.NoError(t, err)
+	require.Equal(t, B2Status{State: B2StateFeatureOff, Reason: B2ReasonFeatureOff, Protocol: 2}, offRuntime.B2Status())
+	require.True(t, offRuntime.B2Ready())
+	require.NoError(t, offRuntime.Close())
+
+	cfg := bootstrapTestConfig(filepath.Join(t.TempDir(), "requested.db"))
+	cfg.ColumnAuthorization = config.ColumnAuthorizationConfig{Enabled: true, InstanceID: "b2-no-pg"}
+	fallbackRuntime, err := assembleWithExecutorProvider(context.Background(), cfg, bootstrapTestSecret, provider)
+	require.NoError(t, err, "an unmet pre-activation gate must preserve the table-level service")
+	t.Cleanup(func() { require.NoError(t, fallbackRuntime.Close()) })
+	status := fallbackRuntime.B2Status()
+	require.Equal(t, B2StateUnsupported, status.State)
+	require.Equal(t, B2ReasonNoPostgresDatasource, status.Reason)
+	require.Equal(t, 2, status.Protocol)
+	require.True(t, fallbackRuntime.B2Ready())
+	page, err := fallbackRuntime.Store.ManagementAuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.NotZero(t, page.Total, "fallback state must be audited")
+	require.Equal(t, "b2_activation", *page.List[0].Action)
+}
+
+func TestB2ActivatedHeartbeatFailureStaysOnFailClosedRoute(t *testing.T) {
+	future := time.Now().Add(time.Minute)
+	manager := &b2Runtime{status: B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3, LeaseExpiresAt: &future}}
+	datasource := model.Datasource{ID: "pg", DBType: "postgres"}
+	require.True(t, manager.route(datasource))
+	require.True(t, manager.allow(datasource))
+	manager.status.State = B2StateDegraded
+	manager.status.Reason = B2ReasonHeartbeatFailed
+	require.True(t, manager.route(datasource), "an activated runtime must not silently fall back")
+	require.False(t, manager.allow(datasource), "new B2 snapshots must fail closed")
+	require.False(t, (&Runtime{b2: manager}).B2Ready())
+	require.False(t, manager.route(model.Datasource{ID: "mysql", DBType: "mysql"}))
+}
+
+func TestB2ExpiredLeaseIsImmediatelyDegradedAndFailClosed(t *testing.T) {
+	past := time.Now().Add(-time.Millisecond)
+	manager := &b2Runtime{status: B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3, LeaseExpiresAt: &past}}
+	datasource := model.Datasource{ID: "pg", DBType: "postgres"}
+	require.Equal(t, B2ReasonRuntimeLeaseExpired, manager.snapshot().Reason)
+	require.True(t, manager.route(datasource), "an activated runtime must remain on the fail-closed B2 route")
+	require.False(t, manager.allow(datasource))
+	require.False(t, (&Runtime{b2: manager}).B2Ready())
+}
+
+func TestB2ArtifactDigestBindsBinaryAndDatasourceCapabilities(t *testing.T) {
+	first, err := b2ArtifactDigest([]string{"pg16-capability"})
+	require.NoError(t, err)
+	repeat, err := b2ArtifactDigest([]string{"pg16-capability"})
+	require.NoError(t, err)
+	changed, err := b2ArtifactDigest([]string{"pg18-capability"})
+	require.NoError(t, err)
+	require.Len(t, first, 64)
+	require.Equal(t, first, repeat)
+	require.NotEqual(t, first, changed)
+}
+
 func TestAssembleKeepsInternalEventsWithoutSSESubscription(t *testing.T) {
 	for _, test := range []struct {
 		name    string

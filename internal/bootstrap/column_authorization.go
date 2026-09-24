@@ -18,10 +18,12 @@ type columnAuthorizationController struct {
 	fence      *store.FenceRepository
 	redactors  *redactorBuilder
 	instanceID string
+	runtime    *b2Runtime
 }
 
 func (controller *columnAuthorizationController) Begin(ctx context.Context, agent model.Agent, datasource model.Datasource) (pipeline.ColumnAuthorizationSnapshot, error) {
-	if controller == nil || controller.fence == nil || controller.redactors == nil || controller.instanceID == "" {
+	if controller == nil || controller.fence == nil || controller.redactors == nil || controller.instanceID == "" ||
+		controller.runtime == nil || !controller.runtime.allow(datasource) {
 		return nil, fmt.Errorf("column authorization controller is unavailable")
 	}
 	snapshot, err := controller.fence.BeginRead(ctx, 3, controller.instanceID, time.Now())
@@ -38,7 +40,12 @@ func (controller *columnAuthorizationController) Begin(ctx context.Context, agen
 		_ = snapshot.Close()
 		return nil, err
 	}
-	return &columnAuthorizationSnapshot{snapshot: snapshot, policies: state.Policies, redactor: redactor, revisionDigest: state.RevisionDigest}, nil
+	return &columnAuthorizationSnapshot{snapshot: snapshot, policies: state.Policies, redactor: redactor,
+		revisionDigest: state.RevisionDigest, runtime: controller.runtime, datasource: datasource}, nil
+}
+
+func (controller *columnAuthorizationController) ColumnAuthorizationEnabled(datasource model.Datasource) bool {
+	return controller != nil && controller.runtime != nil && controller.runtime.route(datasource)
 }
 
 type columnAuthorizationSnapshot struct {
@@ -46,6 +53,8 @@ type columnAuthorizationSnapshot struct {
 	policies       []model.Policy
 	redactor       mask.Redactor
 	revisionDigest string
+	runtime        *b2Runtime
+	datasource     model.Datasource
 }
 
 func (snapshot *columnAuthorizationSnapshot) Policies() []model.Policy {
@@ -54,6 +63,9 @@ func (snapshot *columnAuthorizationSnapshot) Policies() []model.Policy {
 func (snapshot *columnAuthorizationSnapshot) Redactor() mask.Redactor { return snapshot.redactor }
 func (snapshot *columnAuthorizationSnapshot) RevisionDigest() string  { return snapshot.revisionDigest }
 func (snapshot *columnAuthorizationSnapshot) FinalCheck(ctx context.Context) error {
+	if snapshot.runtime == nil || !snapshot.runtime.allow(snapshot.datasource) {
+		return store.ErrFenceLost
+	}
 	return snapshot.snapshot.FinalCheck(ctx, time.Now())
 }
 func (snapshot *columnAuthorizationSnapshot) Close() error { return snapshot.snapshot.Close() }
@@ -61,6 +73,10 @@ func (snapshot *columnAuthorizationSnapshot) Close() error { return snapshot.sna
 type controlledReadColumnAuthorizationProvider struct {
 	controller *columnAuthorizationController
 	recorder   audit.Recorder
+}
+
+func (provider *controlledReadColumnAuthorizationProvider) ColumnAuthorizationEnabled(datasource model.Datasource) bool {
+	return provider != nil && provider.controller != nil && provider.controller.ColumnAuthorizationEnabled(datasource)
 }
 
 func (provider *controlledReadColumnAuthorizationProvider) BeginColumnAuthorization(ctx context.Context, actorID string, datasource model.Datasource) (executor.ColumnAuthorizationRequest, func() error, error) {

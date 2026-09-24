@@ -21,6 +21,8 @@ func TestMetricsObserveAndGather(t *testing.T) {
 	hub.ObserveStage("guard_static", 7)
 	hub.IncRejected("rate_limited")
 	hub.IncRedactionKeyDrift("active_not_registered")
+	hub.SetB2State("active")
+	hub.ObserveB2Phase("bind_catalog", 5*time.Millisecond)
 	hub.RecordNotificationSent("hook", time.Unix(123, 0))
 	hub.RecordNotificationFailed("hook", "timeout")
 	hub.RecordNotificationDropped("hook")
@@ -34,6 +36,7 @@ func TestMetricsObserveAndGather(t *testing.T) {
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.ruleHits.WithLabelValues("R002", "deny", "1")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.rejected.WithLabelValues("rate_limited")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.redactionKeyDrift.WithLabelValues("active_not_registered")))
+	require.Equal(t, float64(1), testutil.ToFloat64(hub.b2State.WithLabelValues("active")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationSent.WithLabelValues("hook")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationFailed.WithLabelValues("hook", "timeout")))
 	require.Equal(t, float64(1), testutil.ToFloat64(hub.notificationDropped.WithLabelValues("hook")))
@@ -76,6 +79,8 @@ func TestMetricsObserveAndGather(t *testing.T) {
 		"agentsql_audit_chain_last_verified_timestamp_seconds",
 		"agentsql_audit_chain_verification_lag",
 		"redaction_key_drift",
+		"agentsql_b2_state",
+		"agentsql_b2_phase_duration_seconds",
 		"agentsql_notification_sent_total",
 		"agentsql_notification_failed_total",
 		"agentsql_notification_dropped_total",
@@ -132,6 +137,8 @@ func TestMetricsNilReceiverAndSnapshotPanicAreSafe(t *testing.T) {
 		hub.ObserveStage("audit", 1)
 		hub.IncRejected("rate_limited")
 		hub.IncRedactionKeyDrift("registry_unavailable")
+		hub.SetB2State("degraded")
+		hub.ObserveB2Phase("bind_catalog", time.Millisecond)
 		hub.RecordNotificationSent("hook", time.Now())
 		hub.RecordNotificationFailed("hook", "timeout")
 		hub.RecordNotificationDropped("hook")

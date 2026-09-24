@@ -75,6 +75,29 @@ theme:
 	require.True(t, errors.Is(err, ErrMultipleYAMLDocuments))
 }
 
+func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
+	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
+	base := fmt.Sprintf(validConfig, databasePath)
+	loaded, err := Parse([]byte(base))
+	require.NoError(t, err)
+	require.False(t, loaded.ColumnAuthorization.Enabled, "factory default must remain off")
+
+	enabled := base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: 15000\n  heartbeat_interval_ms: 5000\n"
+	loaded, err = Parse([]byte(enabled))
+	require.NoError(t, err)
+	require.True(t, loaded.ColumnAuthorization.Enabled)
+	require.Equal(t, "runtime-1", loaded.ColumnAuthorization.InstanceID)
+
+	for _, invalid := range []string{
+		base + "column_authorization:\n  enabled: true\n",
+		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: 1000\n  heartbeat_interval_ms: 1000\n",
+		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: -1\n",
+	} {
+		_, err = Parse([]byte(invalid))
+		require.Error(t, err)
+	}
+}
+
 func TestParseRegistersStrictRedactionFields(t *testing.T) {
 	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
 	contents := fmt.Sprintf(validConfig, databasePath) + "redaction:\n  hash_key: 12345678901234567890123456789012\n"

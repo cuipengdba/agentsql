@@ -170,3 +170,133 @@ func TestB2FenceLeaseExpiryIsFailClosed(t *testing.T) {
 	_, err = opened.Fence().Heartbeat(ctx, instance, now.Add(2*time.Minute), time.Minute)
 	require.ErrorIs(t, err, ErrFenceLost)
 }
+
+func TestB2Protocol3ActivationAndHeartbeatLifecycle(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	readiness, err := opened.Fence().Protocol3Readiness(ctx)
+	require.NoError(t, err)
+	require.True(t, readiness.Ready())
+
+	instance, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
+		InstanceID: "runtime-p3", ArtifactDigest: "artifact-p3", BinderReady: true,
+		CatalogReady: true, ReservationReady: true, Now: now, Lease: time.Minute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, instance.ProtocolVersion)
+	require.Equal(t, "active", instance.Status)
+
+	snapshot, err := opened.Fence().BeginRead(ctx, 3, instance.InstanceID, now.Add(time.Second))
+	require.NoError(t, err)
+	require.NoError(t, snapshot.FinalCheck(ctx, now.Add(30*time.Second)))
+	require.ErrorIs(t, snapshot.FinalCheck(ctx, now.Add(2*time.Minute)), ErrFenceLost)
+	require.NoError(t, snapshot.Close())
+
+	_, err = opened.Fence().BeginRead(ctx, 2, instance.InstanceID, now.Add(time.Second))
+	require.ErrorIs(t, err, ErrProtocolBlocked)
+	_, err = opened.Fence().Heartbeat(ctx, instance, now.Add(2*time.Minute), time.Minute)
+	require.ErrorIs(t, err, ErrFenceLost, "an expired runtime cannot resurrect itself")
+}
+
+func TestB2Protocol3ActivationGateLeavesFactoryFenceOff(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	agent, datasource := createPolicyDependencies(t, opened)
+	legacy := "id"
+	_, err := opened.Policies().Create(ctx, model.Policy{ID: "pending-b2", AgentID: agent.ID,
+		DatasourceID: datasource.ID, ObjectType: "column", ObjectName: "public.t", Columns: &legacy, Action: "allow"})
+	require.NoError(t, err)
+	readiness, err := opened.Fence().Protocol3Readiness(ctx)
+	require.NoError(t, err)
+	require.False(t, readiness.Ready())
+	require.NotZero(t, readiness.StagingRows)
+	require.NotZero(t, readiness.IncompleteBindings)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "blocked-p3",
+		ArtifactDigest: "artifact", BinderReady: true, CatalogReady: true,
+		ReservationReady: true, Now: now, Lease: time.Minute})
+	require.ErrorIs(t, err, ErrActivationGate)
+	var state string
+	var maximum int
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT state,max_writer_protocol FROM control_plane_compat WHERE fence_key='global'`).Scan(&state, &maximum))
+	require.Equal(t, "protocol2", state)
+	require.Equal(t, 2, maximum)
+	var runtimes int
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_instances WHERE instance_id='blocked-p3'`).Scan(&runtimes))
+	require.Zero(t, runtimes)
+}
+
+func TestB2Protocol3ActivationRequiresEveryRuntimeAttestation(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		binder      bool
+		catalog     bool
+		reservation bool
+	}{
+		{name: "binder", catalog: true, reservation: true},
+		{name: "catalog", binder: true, reservation: true},
+		{name: "reservation", binder: true, catalog: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opened := openTestStore(t)
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			_, err := opened.Fence().ActivateProtocol3(context.Background(), Protocol3Activation{
+				InstanceID: "blocked-" + test.name, ArtifactDigest: "artifact",
+				BinderReady: test.binder, CatalogReady: test.catalog, ReservationReady: test.reservation,
+				Now: now, Lease: time.Minute,
+			})
+			require.ErrorIs(t, err, ErrActivationGate)
+			var state string
+			require.NoError(t, opened.metaDB.QueryRow(`SELECT state FROM control_plane_compat WHERE fence_key='global'`).Scan(&state))
+			require.Equal(t, "protocol2", state)
+		})
+	}
+}
+
+func TestB2Protocol3RuntimeRegistrationCannotBypassActivationOrArtifactFence(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	first, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
+		InstanceID: "runtime-a", ArtifactDigest: "artifact-a", BinderReady: true,
+		CatalogReady: true, ReservationReady: true, Now: now, Lease: time.Minute,
+	})
+	require.NoError(t, err)
+
+	_, err = opened.Fence().Heartbeat(ctx, RuntimeInstance{
+		InstanceID: "unregistered", ProtocolVersion: 3, ArtifactDigest: first.ArtifactDigest,
+	}, now.Add(time.Second), time.Minute)
+	require.ErrorIs(t, err, ErrFenceLost, "protocol 3 registration must pass the activation gate")
+
+	for _, instanceID := range []string{first.InstanceID, "runtime-b"} {
+		_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
+			InstanceID: instanceID, ArtifactDigest: "artifact-b", BinderReady: true,
+			CatalogReady: true, ReservationReady: true, Now: now.Add(time.Second), Lease: time.Minute,
+		})
+		require.ErrorIs(t, err, ErrActivationGate, "a live artifact must not be replaced or joined by a different artifact")
+	}
+
+	second, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
+		InstanceID: "runtime-b", ArtifactDigest: first.ArtifactDigest, BinderReady: true,
+		CatalogReady: true, ReservationReady: true, Now: now.Add(time.Second), Lease: time.Minute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, first.ArtifactDigest, second.ArtifactDigest)
+}
+
+func TestB2Protocol3ActivationRejectsFrozenControlFence(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	_, err := opened.metaDB.ExecContext(ctx, `UPDATE control_plane_compat SET state='frozen' WHERE fence_key='global'`)
+	require.NoError(t, err)
+	_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
+		InstanceID: "blocked-frozen", ArtifactDigest: "artifact", BinderReady: true,
+		CatalogReady: true, ReservationReady: true, Now: time.Now().UTC(), Lease: time.Minute,
+	})
+	require.ErrorIs(t, err, ErrActivationGate)
+	var count int
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_instances WHERE instance_id='blocked-frozen'`).Scan(&count))
+	require.Zero(t, count)
+}

@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -51,6 +52,7 @@ type Runtime struct {
 	groupSink    *audit.GroupCommitSink
 	business     *executor.Gateway
 	businessRead *executor.Gateway
+	b2           *b2Runtime
 	relayCancel  context.CancelFunc
 	relayWait    sync.WaitGroup
 	closed       bool
@@ -123,6 +125,7 @@ func assembleWithExecutorProvider(
 		}
 		return result
 	})
+	metricsHub.SetB2State(B2StateFeatureOff)
 	executorPort := pipeline.ExecutorProvider(manager)
 	if executorOverride != nil {
 		executorPort = executorOverride
@@ -166,15 +169,47 @@ func assembleWithExecutorProvider(
 	}
 	pipelineOptions := []pipeline.Option{pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo)}
 	var columnController *columnAuthorizationController
-	if cfg.ColumnAuthorization.Enabled {
-		columnController = &columnAuthorizationController{
-			fence: metadataStore.Fence(), redactors: redactors, instanceID: cfg.ColumnAuthorization.InstanceID,
+	var b2Manager *b2Runtime
+	b2HandedOff := false
+	defer func() {
+		if b2Manager != nil && !b2HandedOff {
+			b2Manager.close()
 		}
-		pipelineOptions = append(pipelineOptions, pipeline.WithColumnAuthorization(columnController))
-		_ = readOnlyManager.CloseAll()
-		readOnlyManager = executor.NewGateway(true, executor.WithColumnAuthorizationProvider(&controlledReadColumnAuthorizationProvider{
-			controller: columnController, recorder: auditRecorder,
-		}))
+	}()
+	if cfg.ColumnAuthorization.Enabled {
+		var activationErr error
+		b2Manager, activationErr = activateB2Runtime(ctx, metadataStore, manager, secret,
+			strings.TrimSpace(cfg.ColumnAuthorization.InstanceID),
+			time.Duration(cfg.ColumnAuthorization.LeaseMS)*time.Millisecond,
+			time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond)
+		b2Manager.attachStateObserver(metricsHub.SetB2State)
+		status := b2Manager.snapshot()
+		details, _ := json.Marshal(struct {
+			B2 B2Status `json:"b2"`
+		}{B2: status})
+		action, actorType, actorID := "b2_activation", "runtime", status.InstanceID
+		decision := string(model.DecisionWarn)
+		if activationErr == nil {
+			decision = string(model.DecisionAllow)
+		}
+		text := string(details)
+		if _, auditErr := managementRecorder.Record(ctx, model.AuditLog{Decision: decision, Action: &action,
+			ActorType: &actorType, ActorID: &actorID, DetailsJSON: &text}); auditErr != nil {
+			b2Manager.close()
+			events.Close()
+			_ = readOnlyManager.CloseAll()
+			return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, fmt.Errorf("audit B2 activation: %w", auditErr))
+		}
+		if activationErr == nil {
+			columnController = &columnAuthorizationController{
+				fence: metadataStore.Fence(), redactors: redactors, instanceID: b2Manager.instance.InstanceID, runtime: b2Manager,
+			}
+			pipelineOptions = append(pipelineOptions, pipeline.WithColumnAuthorization(columnController))
+			_ = readOnlyManager.CloseAll()
+			readOnlyManager = executor.NewGateway(true, executor.WithColumnAuthorizationProvider(&controlledReadColumnAuthorizationProvider{
+				controller: columnController, recorder: auditRecorder,
+			}))
+		}
 	}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
@@ -230,6 +265,7 @@ func assembleWithExecutorProvider(
 		groupSink:       groupSink,
 		business:        manager,
 		businessRead:    readOnlyManager,
+		b2:              b2Manager,
 	}
 	runtime.ChainMonitor = NewChainMonitor(
 		metadataStore,
@@ -254,6 +290,7 @@ func assembleWithExecutorProvider(
 			_ = relay.Run(relayContext, 10*time.Second)
 		}()
 	}
+	b2HandedOff = true
 	return runtime, nil
 }
 
@@ -264,6 +301,23 @@ func (runtime *Runtime) RedactionReconciliation() (redactionstate.Result, bool) 
 		return redactionstate.Result{}, false
 	}
 	return runtime.redaction.snapshot()
+}
+
+// B2Status returns the protocol-3 activation/lease state without exposing
+// credentials or probe diagnostics.
+func (runtime *Runtime) B2Status() B2Status {
+	if runtime == nil || runtime.b2 == nil {
+		return featureOffB2Status()
+	}
+	return runtime.b2.snapshot()
+}
+
+// B2Ready is false only after protocol 3 was activated and subsequently lost
+// its runtime safety gate. Feature-off and pre-activation fallback keep the
+// existing table-level service ready while exposing their explicit state.
+func (runtime *Runtime) B2Ready() bool {
+	status := runtime.B2Status()
+	return status.Protocol != 3 || status.State == B2StateActive
 }
 
 // RedactionReady returns the last newly computed reconciliation gate. It never
@@ -404,6 +458,9 @@ func (runtime *Runtime) Close() error {
 	}
 	if runtime.ChainMonitor != nil {
 		runtime.ChainMonitor.close()
+	}
+	if runtime.b2 != nil {
+		runtime.b2.close()
 	}
 	if runtime.Notifications != nil {
 		if err := runtime.Notifications.Close(); err != nil {
