@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -25,7 +26,8 @@ type Outbox interface {
 }
 
 type Audit interface {
-	Insert(context.Context, model.AuditLog) (model.AuditLog, error)
+	AppendBatch(context.Context, []model.AuditLog) ([]model.AuditLog, error)
+	FindByEventUUIDs(context.Context, []string) ([]model.AuditLog, error)
 }
 
 type Observer interface {
@@ -37,6 +39,7 @@ type Relay struct {
 	audit    Audit
 	workerID string
 	observer Observer
+	commitMu sync.Mutex
 }
 
 func New(outbox Outbox, audit Audit, workerID string, observer Observer) (*Relay, error) {
@@ -58,19 +61,47 @@ func Backoff(attempts int) time.Duration {
 	return delays[attempts]
 }
 
-// RunOnce claims and attempts one batch. Delivery failures are persisted and
-// do not stop later events in the same batch.
+// RunOnce claims and attempts one atomic audit append. On a failed or unknown
+// outcome it reconciles by event UUID before updating each outbox row.
 func (relay *Relay) RunOnce(ctx context.Context) (int, error) {
 	events, err := relay.outbox.ClaimBatch(ctx, relay.workerID, DefaultBatchSize, DefaultLease)
 	if err != nil {
 		return 0, err
 	}
+	if len(events) == 0 {
+		relay.observe(ctx)
+		return 0, nil
+	}
+	logs := make([]model.AuditLog, len(events))
+	uuids := make([]string, len(events))
+	for index, event := range events {
+		logs[index] = managementAuditLog(event)
+		uuids[index] = event.EventUUID
+	}
+	relay.commitMu.Lock()
+	_, deliveryErr := relay.audit.AppendBatch(ctx, logs)
+	relay.commitMu.Unlock()
+	persisted := make(map[string]struct{}, len(events))
+	if deliveryErr == nil {
+		for _, eventUUID := range uuids {
+			persisted[eventUUID] = struct{}{}
+		}
+	} else {
+		rows, findErr := relay.audit.FindByEventUUIDs(ctx, uuids)
+		if findErr != nil {
+			deliveryErr = errors.Join(deliveryErr, fmt.Errorf("reconcile audit batch: %w", findErr))
+		} else {
+			for _, row := range rows {
+				if row.EventUUID != nil {
+					persisted[*row.EventUUID] = struct{}{}
+				}
+			}
+		}
+	}
 	delivered := 0
 	var failures []error
 	for _, event := range events {
-		log := managementAuditLog(event)
-		_, deliveryErr := relay.audit.Insert(ctx, log)
-		if deliveryErr == nil || errors.Is(deliveryErr, store.ErrAuditEventAlreadyDelivered) {
+		if _, found := persisted[event.EventUUID]; found {
 			if markErr := relay.outbox.MarkDelivered(ctx, event.EventUUID); markErr != nil && !errors.Is(markErr, store.ErrNotFound) {
 				failures = append(failures, fmt.Errorf("mark event %s delivered: %w", event.EventUUID, markErr))
 				continue
@@ -78,7 +109,11 @@ func (relay *Relay) RunOnce(ctx context.Context) (int, error) {
 			delivered++
 			continue
 		}
-		if markErr := relay.outbox.MarkFailed(ctx, event.EventUUID, deliveryErr.Error(), Backoff(event.Attempts)); markErr != nil {
+		failureText := "audit batch unavailable"
+		if deliveryErr != nil {
+			failureText = deliveryErr.Error()
+		}
+		if markErr := relay.outbox.MarkFailed(ctx, event.EventUUID, failureText, Backoff(event.Attempts)); markErr != nil {
 			failures = append(failures, fmt.Errorf("record event %s failure: %w", event.EventUUID, markErr))
 		} else {
 			failures = append(failures, fmt.Errorf("deliver event %s: audit unavailable", event.EventUUID))

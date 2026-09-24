@@ -614,9 +614,10 @@ func TestGroupCommitCloseDrainUnknownAndOrdering(t *testing.T) {
 
 	t.Run("drain deadline counts queued work as not started", func(t *testing.T) {
 		entered := make(chan struct{})
+		release := make(chan struct{})
 		backend := &fakeBatchBackend{fn: func(_ int, _ []model.AuditLog) ([]model.AuditLog, error) {
 			close(entered)
-			<-time.After(60 * time.Millisecond)
+			<-release
 			return nil, NewBatchError(BatchFailureTransient, false, errors.New("rolled back"))
 		}}
 		sink := testSink(backend,
@@ -629,7 +630,16 @@ func TestGroupCommitCloseDrainUnknownAndOrdering(t *testing.T) {
 		<-entered
 		second := insertAsync(sink, testAuditLog("not-started"))
 		eventually(t, func() bool { return sink.Stats().QueueDepth == 1 })
-		require.NoError(t, sink.Close())
+		closed := make(chan struct{})
+		go func() { _ = sink.Close(); close(closed) }()
+		eventually(t, func() bool {
+			sink.mu.Lock()
+			defer sink.mu.Unlock()
+			return !sink.accepting
+		})
+		time.Sleep(40 * time.Millisecond)
+		close(release)
+		<-closed
 		require.Error(t, requireResult(t, first).err)
 		require.Error(t, requireResult(t, second).err)
 		stats := sink.Stats()

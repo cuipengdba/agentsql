@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
-	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +23,10 @@ func TestRunOnceTreatsDuplicateAsDeliveredAndSchedulesFailures(t *testing.T) {
 	duplicate := model.ManagementAuditOutbox{EventUUID: "duplicate", Action: "test", ActorType: "cli", ActorID: "ctl", DetailsJSON: `{}`, Attempts: 2}
 	failing := model.ManagementAuditOutbox{EventUUID: "failing", Action: "test", ActorType: "cli", ActorID: "ctl", DetailsJSON: `{}`, Attempts: 3}
 	outbox := &fakeOutbox{events: []model.ManagementAuditOutbox{duplicate, failing}}
-	audit := &fakeAudit{errors: map[string]error{"duplicate": store.ErrAuditEventAlreadyDelivered, "failing": errors.New("postgres://secret@audit unavailable")}}
+	audit := &fakeAudit{
+		appendErr: errors.New("postgres://secret@audit unavailable"),
+		persisted: []model.AuditLog{{EventUUID: &duplicate.EventUUID}},
+	}
 	relay, err := New(outbox, audit, "worker", nil)
 	require.NoError(t, err)
 	delivered, err := relay.RunOnce(context.Background())
@@ -33,6 +35,25 @@ func TestRunOnceTreatsDuplicateAsDeliveredAndSchedulesFailures(t *testing.T) {
 	require.Equal(t, []string{"duplicate"}, outbox.delivered)
 	require.Equal(t, "failing", outbox.failedID)
 	require.Equal(t, 5*time.Minute, outbox.backoff)
+	require.Equal(t, 1, audit.appendCalls)
+	require.Equal(t, []string{"duplicate", "failing"}, audit.appendedUUIDs)
+}
+
+func TestRunOnceAppendsClaimedEventsInOneBatch(t *testing.T) {
+	events := []model.ManagementAuditOutbox{
+		{EventUUID: "one", Action: "a", ActorType: "cli", ActorID: "ctl", DetailsJSON: `{}`},
+		{EventUUID: "two", Action: "b", ActorType: "cli", ActorID: "ctl", DetailsJSON: `{}`},
+	}
+	outbox := &fakeOutbox{events: events}
+	audit := &fakeAudit{}
+	relay, err := New(outbox, audit, "worker", nil)
+	require.NoError(t, err)
+	delivered, err := relay.RunOnce(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 2, delivered)
+	require.Equal(t, 1, audit.appendCalls)
+	require.Equal(t, []string{"one", "two"}, audit.appendedUUIDs)
+	require.Equal(t, []string{"one", "two"}, outbox.delivered)
 }
 
 type fakeOutbox struct {
@@ -55,8 +76,24 @@ func (fake *fakeOutbox) MarkFailed(_ context.Context, id, _ string, backoff time
 }
 func (fake *fakeOutbox) PendingStats(context.Context) (int, time.Duration, error) { return 0, 0, nil }
 
-type fakeAudit struct{ errors map[string]error }
+type fakeAudit struct {
+	appendErr     error
+	persisted     []model.AuditLog
+	appendCalls   int
+	appendedUUIDs []string
+}
 
-func (fake *fakeAudit) Insert(_ context.Context, log model.AuditLog) (model.AuditLog, error) {
-	return model.AuditLog{}, fake.errors[*log.EventUUID]
+func (fake *fakeAudit) AppendBatch(_ context.Context, logs []model.AuditLog) ([]model.AuditLog, error) {
+	fake.appendCalls++
+	for _, log := range logs {
+		fake.appendedUUIDs = append(fake.appendedUUIDs, *log.EventUUID)
+	}
+	if fake.appendErr != nil {
+		return nil, fake.appendErr
+	}
+	return logs, nil
+}
+
+func (fake *fakeAudit) FindByEventUUIDs(context.Context, []string) ([]model.AuditLog, error) {
+	return fake.persisted, nil
 }

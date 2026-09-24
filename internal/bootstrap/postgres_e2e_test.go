@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/redaction"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -65,6 +67,10 @@ func TestAssemblePostgres18MetadataE2E(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	require.NoError(t, runtime.Store.Ping(ctx))
+	chainDatabase, err := sql.Open("pgx", dsn)
+	require.NoError(t, err)
+	exerciseCombinedGroupCommit(t, ctx, runtime, chainDatabase, store.DialectPostgres, 128)
+	require.NoError(t, chainDatabase.Close())
 
 	keyDigest := sha256.Sum256([]byte("bootstrap-pg-api-key"))
 	created, err := runtime.Store.Agents().Create(ctx, model.Agent{

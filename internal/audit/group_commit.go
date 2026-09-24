@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
@@ -35,11 +34,11 @@ type BatchBackend interface {
 // SinkError is the stable, transport-independent failure returned by the
 // group-commit admission and flushing paths. HTTP mapping belongs to S5b.
 type SinkError struct {
-	Code         executor.DBErrorCode `json:"code"`
-	Reason       string               `json:"reason"`
-	RetryAfterMS int                  `json:"retry_after_ms,omitempty"`
-	Retryable    bool                 `json:"retryable"`
-	Decision     string               `json:"decision"`
+	Code         model.DBErrorCode `json:"code"`
+	Reason       string            `json:"reason"`
+	RetryAfterMS int               `json:"retry_after_ms,omitempty"`
+	Retryable    bool              `json:"retryable"`
+	Decision     string            `json:"decision"`
 }
 
 func (err *SinkError) Error() string {
@@ -49,9 +48,9 @@ func (err *SinkError) Error() string {
 	return fmt.Sprintf("%s: %s", err.Code, err.Reason)
 }
 
-func sinkError(code executor.DBErrorCode, reason string, retryable bool) error {
+func sinkError(code model.DBErrorCode, reason string, retryable bool) error {
 	retryAfter := 0
-	if code == executor.DBErrorCodeAuditOverloaded {
+	if code == model.DBErrorCodeAuditOverloaded {
 		retryAfter = 100
 	}
 	return &SinkError{
@@ -455,7 +454,7 @@ func (sink *GroupCommitSink) Start() error {
 
 func (sink *GroupCommitSink) Insert(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
 	if sink == nil {
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeAuditUnavailable, "audit_closing", true)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeAuditUnavailable, "audit_closing", true)
 	}
 	if ctx == nil {
 		return model.AuditLog{}, fmt.Errorf("insert audit log: context is required")
@@ -464,11 +463,11 @@ func (sink *GroupCommitSink) Insert(ctx context.Context, log model.AuditLog) (mo
 		return model.AuditLog{}, sink.options.initErr
 	}
 	if isNilInterface(sink.backend) || sink.resolveChainID == nil {
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeAuditUnavailable, "audit_backend_unavailable", true)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeAuditUnavailable, "audit_backend_unavailable", true)
 	}
 	chainID := sink.resolveChainID(log)
 	if chainID == "" {
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeGatewayInternal, "audit_invariant_violation", false)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeGatewayInternal, "audit_invariant_violation", false)
 	}
 	coordinator, err := sink.coordinator(chainID)
 	if err != nil {
@@ -481,7 +480,7 @@ func (sink *GroupCommitSink) coordinator(chainID string) (*chainCoordinator, err
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
 	if !sink.accepting {
-		return nil, sinkError(executor.DBErrorCodeAuditUnavailable, "audit_closing", true)
+		return nil, sinkError(model.DBErrorCodeAuditUnavailable, "audit_closing", true)
 	}
 	if coordinator := sink.coordinators[chainID]; coordinator != nil {
 		return coordinator, nil
@@ -491,7 +490,7 @@ func (sink *GroupCommitSink) coordinator(chainID string) (*chainCoordinator, err
 	coordinatorRegistry.Lock()
 	defer coordinatorRegistry.Unlock()
 	if coordinatorRegistry.entries[key] != nil {
-		return nil, sinkError(executor.DBErrorCodeGatewayInternal, "duplicate_chain_coordinator", false)
+		return nil, sinkError(model.DBErrorCodeGatewayInternal, "duplicate_chain_coordinator", false)
 	}
 	coordinator := &chainCoordinator{
 		sink:       sink,
@@ -536,14 +535,14 @@ func backendIdentity(backend BatchBackend) uintptr {
 func (coordinator *chainCoordinator) insert(ctx context.Context, input model.AuditLog) (model.AuditLog, error) {
 	canonical, err := canonicalAuditBytes(input)
 	if err != nil {
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeGatewayInternal, "audit_canonicalization_failed", false)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeGatewayInternal, "audit_canonicalization_failed", false)
 	}
 	if len(canonical) > coordinator.sink.options.maxEventBytes {
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeGatewayInternal, "audit_event_too_large", false)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeGatewayInternal, "audit_event_too_large", false)
 	}
 	uuid := auditEventUUID(input)
 	if uuid == "" {
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeGatewayInternal, "audit_invariant_violation", false)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeGatewayInternal, "audit_invariant_violation", false)
 	}
 	digest, tokenID, err := coordinator.beginAdmission(input, uuid)
 	if err != nil {
@@ -555,7 +554,7 @@ func (coordinator *chainCoordinator) insert(ctx context.Context, input model.Aud
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return model.AuditLog{}, err
 		}
-		return model.AuditLog{}, sinkError(executor.DBErrorCodeAuditOverloaded, "audit_backpressure", true)
+		return model.AuditLog{}, sinkError(model.DBErrorCodeAuditOverloaded, "audit_backpressure", true)
 	}
 	waiter := newGroupCommitWaiter(reserved, time.Now())
 	if err := coordinator.finishAdmission(tokenID, uuid, digest, input, int64(len(canonical)), waiter); err != nil {
@@ -574,17 +573,17 @@ func (coordinator *chainCoordinator) beginAdmission(log model.AuditLog, uuid str
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	if !coordinator.accepting {
-		return "", 0, sinkError(executor.DBErrorCodeAuditUnavailable, "audit_closing", true)
+		return "", 0, sinkError(model.DBErrorCodeAuditUnavailable, "audit_closing", true)
 	}
 	if coordinator.waiterCount >= coordinator.sink.options.maxWaiters {
-		return "", 0, sinkError(executor.DBErrorCodeAuditOverloaded, "audit_backpressure", true)
+		return "", 0, sinkError(model.DBErrorCodeAuditOverloaded, "audit_backpressure", true)
 	}
 	digest, err := coordinator.sink.options.canonicalDigest(log)
 	if err != nil {
-		return "", 0, sinkError(executor.DBErrorCodeGatewayInternal, "audit_canonicalization_failed", false)
+		return "", 0, sinkError(model.DBErrorCodeGatewayInternal, "audit_canonicalization_failed", false)
 	}
 	if entity := coordinator.inflight[uuid]; entity != nil && entity.digest != digest {
-		return "", 0, sinkError(executor.DBErrorCodeGatewayInternal, "audit_uuid_conflict", false)
+		return "", 0, sinkError(model.DBErrorCodeGatewayInternal, "audit_uuid_conflict", false)
 	}
 	coordinator.nextToken++
 	tokenID := coordinator.nextToken
@@ -614,7 +613,7 @@ func (coordinator *chainCoordinator) finishAdmission(
 	coordinator.mu.Lock()
 	if _, exists := coordinator.admissions[tokenID]; !exists {
 		coordinator.mu.Unlock()
-		return sinkError(executor.DBErrorCodeGatewayInternal, "audit_admission_token_lost", false)
+		return sinkError(model.DBErrorCodeGatewayInternal, "audit_admission_token_lost", false)
 	}
 	phaseTwoDigest, digestErr := coordinator.sink.options.canonicalDigest(input)
 	if digestErr != nil {
@@ -622,14 +621,14 @@ func (coordinator *chainCoordinator) finishAdmission(
 		coordinator.waiterCount--
 		coordinator.mu.Unlock()
 		coordinator.signal()
-		return sinkError(executor.DBErrorCodeGatewayInternal, "audit_canonicalization_failed", false)
+		return sinkError(model.DBErrorCodeGatewayInternal, "audit_canonicalization_failed", false)
 	}
 	if phaseTwoDigest != digest {
 		delete(coordinator.admissions, tokenID)
 		coordinator.waiterCount--
 		coordinator.mu.Unlock()
 		coordinator.signal()
-		return sinkError(executor.DBErrorCodeGatewayInternal, "audit_uuid_conflict", false)
+		return sinkError(model.DBErrorCodeGatewayInternal, "audit_uuid_conflict", false)
 	}
 	entity := coordinator.inflight[uuid]
 	if entity != nil && entity.digest != phaseTwoDigest {
@@ -637,7 +636,7 @@ func (coordinator *chainCoordinator) finishAdmission(
 		coordinator.waiterCount--
 		coordinator.mu.Unlock()
 		coordinator.signal()
-		return sinkError(executor.DBErrorCodeGatewayInternal, "audit_uuid_conflict", false)
+		return sinkError(model.DBErrorCodeGatewayInternal, "audit_uuid_conflict", false)
 	}
 	delete(coordinator.admissions, tokenID)
 	if entity != nil {
@@ -704,7 +703,7 @@ func (coordinator *chainCoordinator) nextBatch(backlog bool) ([]*groupCommitEnti
 		if closing && !deadline.IsZero() && !time.Now().Before(deadline) && queueLength > 0 {
 			batch := coordinator.takeLocked(queueLength)
 			coordinator.mu.Unlock()
-			result := groupCommitResult{err: sinkError(executor.DBErrorCodeAuditUnavailable, "audit_closing", true)}
+			result := groupCommitResult{err: sinkError(model.DBErrorCodeAuditUnavailable, "audit_closing", true)}
 			for _, entity := range batch {
 				coordinator.finishEntity(entity, result, shutdownNotStarted)
 			}
@@ -824,12 +823,12 @@ func (coordinator *chainCoordinator) flush(batch []*groupCommitEntity) {
 					status = shutdownRolledBack
 				}
 				outcome = entityOutcome{
-					result:   groupCommitResult{err: sinkError(executor.DBErrorCodeAuditUnavailable, "audit_closing", true)},
+					result:   groupCommitResult{err: sinkError(model.DBErrorCodeAuditUnavailable, "audit_closing", true)},
 					shutdown: status,
 				}
 			} else {
 				outcome = entityOutcome{
-					result: groupCommitResult{err: sinkError(executor.DBErrorCodeAuditOverloaded, "audit_backpressure", true)},
+					result: groupCommitResult{err: sinkError(model.DBErrorCodeAuditOverloaded, "audit_backpressure", true)},
 				}
 			}
 		}
@@ -867,7 +866,7 @@ func (job *rootJob) process(batch []*groupCommitEntity, depth int) error {
 		if err == nil {
 			mapped, mapErr := mapBatchRows(batch, rows)
 			if mapErr != nil {
-				unknown := sinkError(executor.DBErrorCodeAuditUnavailable, "commit_unknown", false)
+				unknown := sinkError(model.DBErrorCodeAuditUnavailable, "commit_unknown", false)
 				for _, entity := range batch {
 					job.outcomes[entity] = entityOutcome{result: groupCommitResult{err: unknown}, shutdown: shutdownCommitUnknown}
 				}
@@ -881,7 +880,7 @@ func (job *rootJob) process(batch []*groupCommitEntity, depth int) error {
 		lastErr = err
 		kind, retryable, explicit := classifyBatchFailure(err)
 		if kind == BatchFailureCommitUnknown || (!explicit && errors.Is(ctx.Err(), context.DeadlineExceeded)) {
-			unknown := sinkError(executor.DBErrorCodeAuditUnavailable, "commit_unknown", false)
+			unknown := sinkError(model.DBErrorCodeAuditUnavailable, "commit_unknown", false)
 			for _, entity := range batch {
 				job.outcomes[entity] = entityOutcome{result: groupCommitResult{err: unknown}, shutdown: shutdownCommitUnknown}
 			}
@@ -894,7 +893,7 @@ func (job *rootJob) process(batch []*groupCommitEntity, depth int) error {
 		switch kind {
 		case BatchFailureDeterministic:
 			if len(batch) == 1 || depth >= 4 {
-				failure := sinkError(executor.DBErrorCodeGatewayInternal, "audit_event_rejected", false)
+				failure := sinkError(model.DBErrorCodeGatewayInternal, "audit_event_rejected", false)
 				job.coordinator.sink.metrics.quarantined.Add(uint64(len(batch)))
 				for _, entity := range batch {
 					job.outcomes[entity] = entityOutcome{result: groupCommitResult{err: failure}, shutdown: shutdownRolledBack}
@@ -910,7 +909,7 @@ func (job *rootJob) process(batch []*groupCommitEntity, depth int) error {
 			return errRootBudget
 		default:
 			job.fatalStatus = shutdownNotStarted
-			return sinkError(executor.DBErrorCodeAuditUnavailable, "audit_backend_unavailable", true)
+			return sinkError(model.DBErrorCodeAuditUnavailable, "audit_backend_unavailable", true)
 		}
 	}
 	return lastErr

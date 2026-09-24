@@ -242,6 +242,10 @@ func TestAuditLogRepositoryChainDomainInjection(t *testing.T) {
 	require.Equal(t, "management", shared.AuditLogs().chainID)
 	separate := &Store{auditDB: &sql.DB{}, auditDriver: DialectPostgres, auditSeparate: true}
 	require.Equal(t, "traffic", separate.AuditLogs().chainID)
+	separate.metaDB = &sql.DB{}
+	separate.metaDriver = DialectSQLite
+	require.Equal(t, "management", separate.ManagementAuditLogs().chainID)
+	require.Same(t, separate.metaDB, separate.ManagementAuditLogs().db)
 	auditOnly := &auditOnlyStore{db: &sql.DB{}, dialect: DialectPostgres}
 	require.Equal(t, "traffic", auditOnly.AuditLogs().chainID)
 }

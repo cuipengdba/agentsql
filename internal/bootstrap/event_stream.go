@@ -7,6 +7,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
+	"github.com/google/uuid"
 )
 
 type eventPublisher interface {
@@ -19,6 +20,13 @@ type publishingAuditSink struct {
 }
 
 func (sink *publishingAuditSink) Insert(ctx context.Context, log model.AuditLog) (model.AuditLog, error) {
+	// Group commit uses the event UUID both for result correlation and for
+	// in-flight idempotency. Older recorder callers legitimately omit it, so
+	// assign it at the production sink boundary before durable admission.
+	if log.EventUUID == nil || *log.EventUUID == "" {
+		eventUUID := uuid.NewString()
+		log.EventUUID = &eventUUID
+	}
 	recorded, err := sink.inner.Insert(ctx, log)
 	if err != nil {
 		return recorded, err

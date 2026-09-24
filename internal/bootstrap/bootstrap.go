@@ -49,6 +49,7 @@ type Runtime struct {
 	redactors   *redactorBuilder
 	names       *notificationNameResolver
 	redaction   *redactionRuntime
+	groupSink   *audit.GroupCommitSink
 	relayCancel context.CancelFunc
 	relayWait   sync.WaitGroup
 	closed      bool
@@ -128,13 +129,40 @@ func assembleWithExecutorProvider(
 	events, err := eventbus.New(eventbus.Options{HistorySize: 200, SubscriberBuffer: 64})
 	if err != nil {
 		_ = readOnlyManager.CloseAll()
-		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("assemble event stream: %w", err))
+		return nil, closeAfterAssemblyError(manager, metadataStore, nil, fmt.Errorf("assemble event stream: %w", err))
 	}
-	auditSink := audit.Sink(metadataStore.AuditLogs())
+	chainAwareRepo := metadataStore.AuditLogs()
+	var groupSink *audit.GroupCommitSink
+	auditSink := audit.Sink(chainAwareRepo)
+	if resolvedStore.Audit.ReuseMetadata {
+		groupOptions := []audit.Option(nil)
+		if resolvedStore.Metadata.Driver == store.DialectSQLite {
+			groupOptions = audit.SQLiteGroupCommitOptions()
+		}
+		backend := newAuditBatchBackend(chainAwareRepo)
+		groupSink = audit.NewGroupCommitSink(
+			backend,
+			func(model.AuditLog) string { return "management" },
+			groupOptions...,
+		)
+		if err := groupSink.Start(); err != nil {
+			events.Close()
+			_ = readOnlyManager.CloseAll()
+			return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, fmt.Errorf("start audit group commit sink: %w", err))
+		}
+		auditSink = groupSink
+	}
 	approvals := pipeline.ApprovalWriter(metadataStore.Approvals())
 	auditSink = &publishingAuditSink{inner: auditSink, publisher: events}
 	approvals = &publishingApprovalWorkflow{inner: metadataStore.Approvals(), publisher: events}
 	auditRecorder := audit.NewRecorder(auditSink)
+	managementRecorder := auditRecorder
+	if !resolvedStore.Audit.ReuseMetadata {
+		managementRecorder = audit.NewRecorder(&publishingAuditSink{
+			inner:     metadataStore.ManagementAuditLogs(),
+			publisher: events,
+		})
+	}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
@@ -148,7 +176,7 @@ func assembleWithExecutorProvider(
 	if err != nil {
 		events.Close()
 		_ = readOnlyManager.CloseAll()
-		return nil, closeAfterAssemblyError(manager, metadataStore, err)
+		return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, err)
 	}
 	controlled, err := controlledread.NewService(
 		metadataStore.Datasources(), readOnlyManager, secret, rules.NewDefaultTokenBucketLimiter(),
@@ -156,7 +184,7 @@ func assembleWithExecutorProvider(
 	if err != nil {
 		events.Close()
 		_ = readOnlyManager.CloseAll()
-		return nil, closeAfterAssemblyError(manager, metadataStore, err)
+		return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, err)
 	}
 	names := newNotificationNameResolver(metadataStore)
 	// Name enrichment is best effort. A failed warm-up leaves an empty cache and
@@ -166,19 +194,19 @@ func assembleWithExecutorProvider(
 	if err != nil {
 		events.Close()
 		_ = controlled.Close()
-		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("load notification configuration: %w", err))
+		return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, fmt.Errorf("load notification configuration: %w", err))
 	}
 	notifications := notify.NewManager(events, notify.WithMetrics(metricsHub), notify.WithNameResolver(names))
 	if err := notifications.Start(ctx, notificationConfig); err != nil {
 		events.Close()
 		_ = controlled.Close()
-		return nil, closeAfterAssemblyError(manager, metadataStore, fmt.Errorf("start notification manager: %w", err))
+		return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, fmt.Errorf("start notification manager: %w", err))
 	}
 	runtime := &Runtime{
 		Pipeline:        flow,
 		Executors:       manager,
 		ControlledRead:  controlled,
-		ManagementAudit: auditRecorder,
+		ManagementAudit: managementRecorder,
 		Store:           metadataStore,
 		Metrics:         metricsHub,
 		Events:          events,
@@ -187,6 +215,7 @@ func assembleWithExecutorProvider(
 		redactors:       redactors,
 		names:           names,
 		redaction:       redactionRuntime,
+		groupSink:       groupSink,
 	}
 	runtime.ChainMonitor = NewChainMonitor(
 		metadataStore,
@@ -199,7 +228,7 @@ func assembleWithExecutorProvider(
 	redactionRuntime.start(ctx, time.Minute)
 	runtime.ChainMonitor.start(ctx)
 	if !resolvedStore.Audit.ReuseMetadata {
-		relay, relayErr := auditrelay.New(metadataStore.Outbox(), metadataStore.AuditLogs(), "gateway-"+uuid.NewString(), metricsHub)
+		relay, relayErr := auditrelay.New(metadataStore.Outbox(), metadataStore.ManagementAuditLogs(), "gateway-"+uuid.NewString(), metricsHub)
 		if relayErr != nil {
 			return nil, errors.Join(relayErr, runtime.Close())
 		}
@@ -327,6 +356,13 @@ func (runtime *Runtime) Close() error {
 	}
 	runtime.closed = true
 	var closeErrors []error
+	// Stop audit admission first. Close performs the bounded drain and joins
+	// every flusher before any store connection can be closed below.
+	if runtime.groupSink != nil {
+		if err := runtime.groupSink.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	if runtime.relayCancel != nil {
 		runtime.relayCancel()
 		runtime.relayWait.Wait()
@@ -369,9 +405,14 @@ func (runtime *Runtime) Close() error {
 func closeAfterAssemblyError(
 	manager *executor.Manager,
 	metadataStore *store.Store,
+	groupSink *audit.GroupCommitSink,
 	cause error,
 ) error {
-	return errors.Join(cause, manager.CloseAll(), metadataStore.Close())
+	var groupErr error
+	if groupSink != nil {
+		groupErr = groupSink.Close()
+	}
+	return errors.Join(cause, manager.CloseAll(), groupErr, metadataStore.Close())
 }
 
 type maskRuleReader interface {

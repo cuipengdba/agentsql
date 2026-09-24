@@ -19,13 +19,8 @@ var (
 	ErrAuditEventAlreadyDelivered = errors.New("audit event was already delivered")
 )
 
-// AuditPage is one immutable audit-log result page.
-type AuditPage struct {
-	Total    int64
-	Page     int
-	PageSize int
-	List     []model.AuditLog
-}
+// AuditPage preserves the store API while the shared shape lives in model.
+type AuditPage = model.AuditPage
 
 // AuditLogRepository provides append and paginated read operations only.
 type AuditLogRepository struct {

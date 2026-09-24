@@ -153,6 +153,12 @@ func (repository *AuditLogRepository) chainLogsInTransaction(
 		}
 		previousHash = *locked.HeadHash
 	}
+	if repository.dialect == DialectPostgres && len(logs) > 1 && len(logs) <= 500 {
+		return repository.chainActiveLogsPostgres(
+			ctx, tx, logs, locked, mode, keyVersion, key, sequence, previousHash,
+		)
+	}
+
 	inserted := make([]model.AuditLog, 0, len(logs))
 	var headID int64
 	for index, auditLog := range logs {
@@ -178,6 +184,163 @@ func (repository *AuditLogRepository) chainLogsInTransaction(
 		return nil, err
 	}
 	return inserted, nil
+}
+
+func (repository *AuditLogRepository) chainActiveLogsPostgres(
+	ctx context.Context,
+	tx sqlExecutor,
+	logs []model.AuditLog,
+	locked ChainState,
+	mode string,
+	keyVersion int,
+	key []byte,
+	sequence int64,
+	previousHash string,
+) ([]model.AuditLog, error) {
+	inserted, err := insertActiveAuditLogsPostgres(ctx, tx, logs, sequence, previousHash, keyVersion)
+	if err != nil {
+		return nil, err
+	}
+	updates := make([]activeChainUpdate, len(inserted))
+	for index, row := range inserted {
+		sequence++
+		selfHash, hashErr := repository.hashAuditLog(locked, row, mode, keyVersion, sequence, previousHash, key)
+		if hashErr != nil {
+			return nil, fmt.Errorf("hash batch item %d: %w", index, hashErr)
+		}
+		updates[index] = activeChainUpdate{
+			id: row.ID, sequence: sequence, previousHash: previousHash,
+			selfHash: selfHash, keyVersion: keyVersion,
+		}
+		previousHash = selfHash
+	}
+	if err := updateAuditChainColumnsBatchPostgres(ctx, tx, updates); err != nil {
+		return nil, err
+	}
+	last := inserted[len(inserted)-1]
+	if err := repository.updateChainHead(ctx, tx, sequence, last.ID, previousHash); err != nil {
+		return nil, err
+	}
+	return inserted, nil
+}
+
+type activeChainUpdate struct {
+	id           int64
+	sequence     int64
+	previousHash string
+	selfHash     string
+	keyVersion   int
+}
+
+func insertActiveAuditLogsPostgres(
+	ctx context.Context,
+	executor sqlExecutor,
+	logs []model.AuditLog,
+	startingSequence int64,
+	previousHash string,
+	keyVersion int,
+) ([]model.AuditLog, error) {
+	const columns = `
+  agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
+  sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
+  est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg, error_code,
+  action, actor_type, actor_id, details_json, event_uuid,
+  chain_seq, prev_hash, self_hash, chain_key_version, chain_format_version`
+	const returning = `id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+       db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
+       risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
+       error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid, chain_seq`
+	placeholder := "(" + strings.TrimSuffix(strings.Repeat("?,", 30), ",") + ")"
+	values := make([]string, len(logs))
+	arguments := make([]any, 0, len(logs)*30)
+	for index, auditLog := range logs {
+		values[index] = placeholder
+		arguments = append(arguments,
+			optionalString(auditLog.AgentID), optionalString(auditLog.DatasourceID),
+			optionalString(auditLog.SessionID), optionalString(auditLog.ConversationID),
+			optionalString(auditLog.MCPTool), optionalString(auditLog.DBType),
+			optionalString(auditLog.SQLRaw), optionalString(auditLog.SQLNorm),
+			optionalString(auditLog.StmtType), optionalString(auditLog.Objects), auditLog.Decision,
+			optionalString(auditLog.RuleHits), optionalInt(auditLog.RiskLevel), optionalInt64(auditLog.EstRows),
+			optionalInt(auditLog.RowsReturned), optionalInt64(auditLog.LatencyMS),
+			optionalString(auditLog.ClientIP), optionalString(auditLog.ModelName),
+			optionalString(auditLog.ErrorMsg), optionalString(auditLog.ErrorCode),
+			optionalString(auditLog.Action), optionalString(auditLog.ActorType), optionalString(auditLog.ActorID),
+			optionalString(auditLog.DetailsJSON), optionalString(auditLog.EventUUID),
+			startingSequence+int64(index)+1, previousHash, activeSelfHashPlaceholder,
+			keyVersion, auditchain.ChainFormatVersionV1,
+		)
+	}
+	query := `WITH inserted AS (
+INSERT INTO audit_logs (` + columns + `)
+VALUES ` + strings.Join(values, ",") + `
+RETURNING ` + returning + `
+)
+SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+       db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
+       risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
+       error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid
+FROM inserted
+ORDER BY chain_seq`
+	rows, err := executor.QueryContext(ctx, rebindPostgres(query), arguments...)
+	if err != nil {
+		if isNamedUniqueViolation(err, "ux_audit_logs_event_uuid", "audit_logs.event_uuid") {
+			return nil, fmt.Errorf("insert audit log: %w", ErrAuditEventAlreadyDelivered)
+		}
+		return nil, fmt.Errorf("insert active audit log batch: %w", err)
+	}
+	inserted := make([]model.AuditLog, 0, len(logs))
+	for rows.Next() {
+		row, scanErr := scanAuditLog(rows)
+		if scanErr != nil {
+			return nil, closeRowsAfterError(rows, scanErr)
+		}
+		inserted = append(inserted, row)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, fmt.Errorf("finish active audit log batch: %w", err)
+	}
+	if len(inserted) != len(logs) {
+		return nil, fmt.Errorf("insert active audit log batch returned %d rows for %d inputs", len(inserted), len(logs))
+	}
+	return inserted, nil
+}
+
+func updateAuditChainColumnsBatchPostgres(
+	ctx context.Context,
+	executor sqlExecutor,
+	updates []activeChainUpdate,
+) error {
+	placeholder := "(?::bigint,?::bigint,?::text,?::text,?::integer,?::integer)"
+	values := make([]string, len(updates))
+	arguments := make([]any, 0, len(updates)*6)
+	for index, update := range updates {
+		values[index] = placeholder
+		arguments = append(arguments, update.id, update.sequence, update.previousHash,
+			update.selfHash, update.keyVersion, auditchain.ChainFormatVersionV1)
+	}
+	query := `
+UPDATE audit_logs AS audit
+SET chain_seq = updates.chain_seq,
+    prev_hash = updates.prev_hash,
+    self_hash = updates.self_hash,
+    chain_key_version = updates.chain_key_version,
+    chain_format_version = updates.chain_format_version
+FROM (VALUES ` + strings.Join(values, ",") + `)
+     AS updates(id, chain_seq, prev_hash, self_hash, chain_key_version, chain_format_version)
+WHERE audit.id = updates.id`
+	result, err := executor.ExecContext(ctx, rebindPostgres(query), arguments...)
+	if err != nil {
+		return fmt.Errorf("update audit chain batch: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated audit chain batch count: %w", err)
+	}
+	if affected != int64(len(updates)) {
+		return fmt.Errorf("audit chain batch update affected %d rows, want %d", affected, len(updates))
+	}
+	return nil
 }
 
 func (repository *AuditLogRepository) insertUnchainedLogs(

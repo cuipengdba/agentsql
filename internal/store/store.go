@@ -535,6 +535,19 @@ func (store *Store) AuditLogs() *AuditLogRepository {
 	}
 }
 
+// ManagementAuditLogs returns the chain-aware repository for the metadata
+// database. It differs from AuditLogs only when traffic uses a separate audit
+// database.
+func (store *Store) ManagementAuditLogs() *AuditLogRepository {
+	if store == nil {
+		return &AuditLogRepository{}
+	}
+	return &AuditLogRepository{
+		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
+		chainID:        "management",
+	}
+}
+
 // Approvals uses metadata for approval rows and the configured audit target for
 // the audit-first saga when those targets are separate.
 func (store *Store) Approvals() *ApprovalRepository {

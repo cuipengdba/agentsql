@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/cuipengdba/agentsql/internal/model"
-	"github.com/cuipengdba/agentsql/internal/store"
 )
 
 // Reader returns immutable filtered audit pages.
@@ -15,7 +14,7 @@ type Reader interface {
 		filter model.AuditFilter,
 		page int,
 		size int,
-	) (store.AuditPage, error)
+	) (model.AuditPage, error)
 }
 
 // Service combines synchronous recording, filtered reads, and export.
@@ -46,17 +45,12 @@ func (service *Service) Page(
 	filter model.AuditFilter,
 	page int,
 	size int,
-) (store.AuditPage, error) {
+) (model.AuditPage, error) {
 	if service == nil || isNilInterface(service.reader) {
-		return store.AuditPage{}, fmt.Errorf("page audit logs: reader is required")
+		return model.AuditPage{}, fmt.Errorf("page audit logs: reader is required")
 	}
 	if ctx == nil {
-		return store.AuditPage{}, fmt.Errorf("page audit logs: context is required")
+		return model.AuditPage{}, fmt.Errorf("page audit logs: context is required")
 	}
 	return service.reader.FilteredPage(ctx, filter, page, size)
 }
-
-var (
-	_ Sink   = (*store.AuditLogRepository)(nil)
-	_ Reader = (*store.AuditLogRepository)(nil)
-)
