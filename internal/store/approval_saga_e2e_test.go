@@ -28,6 +28,10 @@ func TestPostgres18SeparatedApprovalAuditFirstSagaE2E(t *testing.T) {
 	}, []byte(testSecret))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
+	activateEmptyChainForS5b1(
+		t, ctx, opened.auditDB, DialectPostgres, "traffic",
+		fixedChainManifest{mode: "keyless", version: 0},
+	)
 
 	// This trigger makes the initial INSERT shape observable: saga approvals
 	// must never first appear with a NULL audit_id and be backfilled later.
@@ -73,6 +77,9 @@ FOR EACH ROW EXECUTE FUNCTION require_saga_audit_id()`)
 	require.NoError(t, err)
 	require.Equal(t, "approve", storedAudit.Decision)
 	require.Equal(t, sqlRaw, *storedAudit.SQLRaw)
+	rows := loadStoredAuditChainRows(t, ctx, opened.auditDB)
+	require.Len(t, rows, 1)
+	require.Equal(t, int64(1), rows[0].Sequence)
 
 	t.Run("audit insert failure does not touch metadata", func(t *testing.T) {
 		_, triggerErr := opened.auditDB.ExecContext(ctx, `
@@ -135,6 +142,9 @@ FOR EACH ROW EXECUTE FUNCTION fail_saga_metadata_insert()`)
 		require.Zero(t, failedAudit.ID)
 		require.Zero(t, approvalCount(t, ctx, opened, "saga-meta-failure"))
 		require.Equal(t, before+1, auditCount(t, ctx, opened))
+		rows := loadStoredAuditChainRows(t, ctx, opened.auditDB)
+		require.Len(t, rows, int(before+1))
+		require.Equal(t, before+1, rows[len(rows)-1].Sequence)
 
 		page, pageErr := opened.AuditLogs().FilteredPage(
 			ctx, model.AuditFilter{Decisions: []string{"approve"}, Keyword: orphanSQL}, 1, 10,

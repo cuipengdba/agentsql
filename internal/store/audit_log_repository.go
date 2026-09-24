@@ -42,18 +42,11 @@ func (repository *AuditLogRepository) Insert(ctx context.Context, auditLog model
 	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
 		return model.AuditLog{}, err
 	}
-	state, enabled, err := repository.chainStateForAppend(ctx)
+	inserted, err := repository.chainInsertOne(ctx, auditLog)
 	if err != nil {
-		return model.AuditLog{}, err
+		return model.AuditLog{}, fmt.Errorf("insert audit log on %s chain: %w", repository.chainID, err)
 	}
-	if enabled {
-		inserted, err := repository.chainInsertOne(ctx, state, auditLog)
-		if err != nil {
-			return model.AuditLog{}, fmt.Errorf("insert audit log on %s chain: %w", repository.chainID, err)
-		}
-		return inserted, nil
-	}
-	return insertAuditLog(ctx, repository.db, repository.dialect, auditLog)
+	return inserted, nil
 }
 
 func insertAuditLog(
@@ -233,6 +226,46 @@ func stableAuditErrorCode(code string) bool {
 // Page returns audit logs ordered newest first.
 func (repository *AuditLogRepository) Page(ctx context.Context, page, pageSize int) (AuditPage, error) {
 	return repository.FilteredPage(ctx, model.AuditFilter{}, page, pageSize)
+}
+
+// FindByEventUUIDs returns persisted rows for the supplied event UUIDs. Rows
+// include every business column used by canonical audit-chain encoding.
+func (repository *AuditLogRepository) FindByEventUUIDs(
+	ctx context.Context,
+	uuids []string,
+) ([]model.AuditLog, error) {
+	if repository == nil || repository.db == nil {
+		return nil, fmt.Errorf("find audit logs by event UUID: repository is not initialized")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("find audit logs by event UUID: %w", ErrNilContext)
+	}
+	if len(uuids) == 0 {
+		return []model.AuditLog{}, nil
+	}
+
+	query := auditBusinessColumnsSQL + `
+FROM audit_logs
+WHERE event_uuid IN (` + auditPlaceholders(len(uuids)) + `)
+ORDER BY id ASC`
+	rows, err := repository.db.QueryContext(ctx, repository.bind(query), stringsToAny(uuids)...)
+	if err != nil {
+		return nil, fmt.Errorf("find audit logs by event UUID: %w", err)
+	}
+	logs := make([]model.AuditLog, 0, len(uuids))
+	for rows.Next() {
+		auditLog, scanErr := scanAuditLog(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan audit log by event UUID: %w", closeRowsAfterError(rows, scanErr))
+		}
+		logs = append(logs, auditLog)
+	}
+	iterationErr := rows.Err()
+	closeErr := rows.Close()
+	if iterationErr != nil || closeErr != nil {
+		return nil, fmt.Errorf("finish audit logs by event UUID: %w", errors.Join(iterationErr, closeErr))
+	}
+	return logs, nil
 }
 
 // FilteredPage returns matching audit logs ordered newest first.

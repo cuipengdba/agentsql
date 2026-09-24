@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -56,7 +55,7 @@ func TestSQLiteChainAwareAppend(t *testing.T) {
 		assertNullChainColumns(t, ctx, opened.metaDB, append([]int64{inserted.ID}, batch[0].ID, batch[1].ID))
 	})
 
-	t.Run("building keyless links inserts and advances head", func(t *testing.T) {
+	t.Run("building keyless leaves inserts for backfill", func(t *testing.T) {
 		opened := openTestStore(t)
 		repository := opened.AuditLogs()
 		setBuildingChain(t, ctx, opened.metaDB, "management", "keyless")
@@ -66,49 +65,24 @@ func TestSQLiteChainAwareAppend(t *testing.T) {
 		second, err := repository.Insert(ctx, fullAuditLogForChainTest("second", nil))
 		require.NoError(t, err)
 
-		rows := loadStoredAuditChainRows(t, ctx, opened.metaDB)
-		require.Equal(t, []int64{1, 2}, []int64{rows[0].Sequence, rows[1].Sequence})
-		require.Equal(t, auditchain.GenesisPrevHex, rows[0].PreviousHash)
-		require.Equal(t, rows[0].SelfHash, rows[1].PreviousHash)
-		assertStoredChainHash(t, first, rows[0], "management", chainAppendTestInstanceID, nil)
-		assertStoredChainHash(t, second, rows[1], "management", chainAppendTestInstanceID, nil)
-		assertChainHead(t, ctx, opened.metaDB, "management", 2, second.ID, rows[1].SelfHash)
+		assertNullChainColumns(t, ctx, opened.metaDB, []int64{first.ID, second.ID})
+		state := loadChainState(t, ctx, opened.metaDB, "management")
+		require.Zero(t, state.HeadSeq)
+		require.Nil(t, state.HeadID)
+		require.Nil(t, state.HeadHash)
 	})
 
-	t.Run("building hmac uses key and fails closed", func(t *testing.T) {
+	t.Run("building hmac remains unchained without loading a key", func(t *testing.T) {
 		opened := openTestStore(t)
 		setBuildingChain(t, ctx, opened.metaDB, "management", "hmac")
-		key := []byte("0123456789abcdef0123456789abcdef")
 		repository := opened.AuditLogs()
-		repository.keys = fakeChainKeyProvider{keys: map[int][]byte{1: key}}
 
 		inserted, err := repository.Insert(ctx, fullAuditLogForChainTest("hmac", nil))
 		require.NoError(t, err)
-		rows := loadStoredAuditChainRows(t, ctx, opened.metaDB)
-		require.Len(t, rows, 1)
-		require.Equal(t, 1, rows[0].KeyVersion)
-		assertStoredChainHash(t, inserted, rows[0], "management", chainAppendTestInstanceID, key)
-
-		beforeCount := countAuditLogs(t, ctx, opened.metaDB)
-		beforeState := loadChainState(t, ctx, opened.metaDB, "management")
-		for name, provider := range map[string]ChainKeyProvider{
-			"provider error": fakeChainKeyProvider{err: errors.New("key service unavailable")},
-			"missing key":    fakeChainKeyProvider{keys: map[int][]byte{}},
-			"nil provider":   nil,
-		} {
-			t.Run(name, func(t *testing.T) {
-				repository.keys = provider
-				_, err := repository.Insert(ctx, model.AuditLog{Decision: "allow"})
-				require.Error(t, err)
-				require.Equal(t, beforeCount, countAuditLogs(t, ctx, opened.metaDB))
-				afterState := loadChainState(t, ctx, opened.metaDB, "management")
-				require.Equal(t, beforeState.HeadSeq, afterState.HeadSeq)
-				require.Equal(t, beforeState.HeadHash, afterState.HeadHash)
-			})
-		}
+		assertNullChainColumns(t, ctx, opened.metaDB, []int64{inserted.ID})
 	})
 
-	t.Run("building batch is contiguous and atomic", func(t *testing.T) {
+	t.Run("building batch is unchained and atomic", func(t *testing.T) {
 		opened := openTestStore(t)
 		repository := opened.AuditLogs()
 		setBuildingChain(t, ctx, opened.metaDB, "management", "keyless")
@@ -120,18 +94,11 @@ func TestSQLiteChainAwareAppend(t *testing.T) {
 		inserted, err := repository.AppendBatch(ctx, logs)
 		require.NoError(t, err)
 		require.Len(t, inserted, 5)
-		rows := loadStoredAuditChainRows(t, ctx, opened.metaDB)
-		require.Len(t, rows, 5)
-		for index, row := range rows {
-			require.Equal(t, int64(index+1), row.Sequence)
-			if index == 0 {
-				require.Equal(t, auditchain.GenesisPrevHex, row.PreviousHash)
-			} else {
-				require.Equal(t, rows[index-1].SelfHash, row.PreviousHash)
-			}
-			assertStoredChainHash(t, inserted[index], row, "management", chainAppendTestInstanceID, nil)
+		ids := make([]int64, len(inserted))
+		for index := range inserted {
+			ids[index] = inserted[index].ID
 		}
-		assertChainHead(t, ctx, opened.metaDB, "management", 5, inserted[4].ID, rows[4].SelfHash)
+		assertNullChainColumns(t, ctx, opened.metaDB, ids)
 
 		beforeCount := countAuditLogs(t, ctx, opened.metaDB)
 		beforeState := loadChainState(t, ctx, opened.metaDB, "management")
@@ -158,7 +125,7 @@ func TestPostgres18ChainAwareAppendE2E(t *testing.T) {
 	opened := openPostgres18TestStore(t)
 	repository := opened.AuditLogs()
 
-	t.Run("new writes link without backfilling history", func(t *testing.T) {
+	t.Run("building writes remain available to backfill", func(t *testing.T) {
 		resetChainAppendTestData(t, ctx, opened.metaDB, "management")
 		historical := make([]model.AuditLog, 3)
 		for index := range historical {
@@ -175,21 +142,21 @@ func TestPostgres18ChainAwareAppendE2E(t *testing.T) {
 			fullAuditLogForChainTest("pg-three", nil),
 		})
 		require.NoError(t, err)
-		ids := []int64{oldRows[0].ID, oldRows[1].ID, oldRows[2].ID}
+		ids := []int64{oldRows[0].ID, oldRows[1].ID, oldRows[2].ID, one.ID, batch[0].ID, batch[1].ID}
 		assertNullChainColumns(t, ctx, opened.metaDB, ids)
-		rows := loadStoredAuditChainRows(t, ctx, opened.metaDB)
-		require.Len(t, rows, 3)
-		models := []model.AuditLog{one, batch[0], batch[1]}
-		for index, row := range rows {
-			require.Equal(t, int64(index+1), row.Sequence)
-			assertStoredChainHash(t, models[index], row, "management", chainAppendTestInstanceID, nil)
-		}
-		assertChainHead(t, ctx, opened.metaDB, "management", 3, batch[1].ID, rows[2].SelfHash)
+		require.Empty(t, loadStoredAuditChainRows(t, ctx, opened.metaDB))
 	})
 
 	t.Run("concurrent inserts serialize to a contiguous chain", func(t *testing.T) {
 		resetChainAppendTestData(t, ctx, opened.metaDB, "management")
-		setBuildingChain(t, ctx, opened.metaDB, "management", "keyless")
+		opened.metaDB.SetMaxOpenConns(2)
+		opened.metaDB.SetMaxIdleConns(2)
+		provisioner := NewChainProvisioner(
+			opened.metaDB, DialectPostgres, "management",
+			fixedChainManifest{mode: "keyless", version: 0}, BackfillConfig{},
+		)
+		require.NoError(t, provisioner.Provision(ctx, "append-concurrency-builder"))
+		instanceID := requireStringPointer(t, loadChainState(t, ctx, opened.metaDB, "management").ChainInstanceID)
 		const writers = 40
 		inserted := make([]model.AuditLog, writers)
 		errorsByWriter := make([]error, writers)
@@ -199,7 +166,13 @@ func TestPostgres18ChainAwareAppendE2E(t *testing.T) {
 			waitGroup.Add(1)
 			go func() {
 				defer waitGroup.Done()
-				inserted[index], errorsByWriter[index] = repository.Insert(ctx, fullAuditLogForChainTest(fmt.Sprintf("concurrent-%02d", index), nil))
+				batch, appendErr := repository.AppendBatch(
+					ctx, []model.AuditLog{fullAuditLogForChainTest(fmt.Sprintf("concurrent-%02d", index), nil)},
+				)
+				errorsByWriter[index] = appendErr
+				if appendErr == nil {
+					inserted[index] = batch[0]
+				}
 			}()
 		}
 		waitGroup.Wait()
@@ -220,14 +193,21 @@ func TestPostgres18ChainAwareAppendE2E(t *testing.T) {
 			} else {
 				require.Equal(t, rows[index-1].SelfHash, row.PreviousHash)
 			}
-			assertStoredChainHash(t, modelsByID[row.ID], row, "management", chainAppendTestInstanceID, nil)
+			assertStoredChainHash(t, modelsByID[row.ID], row, "management", instanceID, nil)
 		}
 		assertChainHead(t, ctx, opened.metaDB, "management", writers, rows[writers-1].ID, rows[writers-1].SelfHash)
+		verification, err := NewChainVerifier(
+			opened.metaDB, DialectPostgres, "management",
+			fixedChainManifest{mode: "keyless", version: 0},
+		).Verify(ctx)
+		require.NoError(t, err)
+		require.True(t, verification.Valid)
+		require.Equal(t, verificationValid, verification.Result)
 	})
 
 	t.Run("batch links once and rolls back on failure", func(t *testing.T) {
-		resetChainAppendTestData(t, ctx, opened.metaDB, "management")
-		setBuildingChain(t, ctx, opened.metaDB, "management", "keyless")
+		resetActiveChainAppendTestData(t, ctx, opened.metaDB, "management")
+		instanceID := requireStringPointer(t, loadChainState(t, ctx, opened.metaDB, "management").ChainInstanceID)
 		logs := make([]model.AuditLog, 5)
 		for index := range logs {
 			eventUUID := fmt.Sprintf("pg-batch-%d", index)
@@ -239,7 +219,7 @@ func TestPostgres18ChainAwareAppendE2E(t *testing.T) {
 		require.Len(t, rows, 5)
 		for index := range rows {
 			require.Equal(t, int64(index+1), rows[index].Sequence)
-			assertStoredChainHash(t, inserted[index], rows[index], "management", chainAppendTestInstanceID, nil)
+			assertStoredChainHash(t, inserted[index], rows[index], "management", instanceID, nil)
 		}
 
 		beforeState := loadChainState(t, ctx, opened.metaDB, "management")
@@ -289,6 +269,20 @@ SET status = 'DISABLED', mode = NULL, chain_instance_id = NULL, head_seq = 0,
     head_id = NULL, head_hash = NULL, updated_at = CURRENT_TIMESTAMP
 WHERE chain_id = $1`, chainID)
 	require.NoError(t, err)
+}
+
+func resetActiveChainAppendTestData(t *testing.T, ctx context.Context, database *sql.DB, chainID string) {
+	t.Helper()
+	_, err := database.ExecContext(ctx, "DELETE FROM audit_logs")
+	require.NoError(t, err)
+	result, err := database.ExecContext(ctx, `
+UPDATE chain_state
+SET head_seq = 0, head_id = NULL, head_hash = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE chain_id = $1 AND status = 'ACTIVE'`, chainID)
+	require.NoError(t, err)
+	affected, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), affected)
 }
 
 func assertNullChainColumns(t *testing.T, ctx context.Context, database *sql.DB, ids []int64) {

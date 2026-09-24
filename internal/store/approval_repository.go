@@ -24,6 +24,7 @@ type ApprovalRepository struct {
 	auditDB       *sql.DB
 	auditDialect  Dialect
 	auditSeparate bool
+	auditKeys     ChainKeyProvider
 }
 
 type ApprovalPage struct {
@@ -260,38 +261,55 @@ func (repository *ApprovalRepository) CreatePendingWithAudit(
 	return repository.createPendingWithAuditTransaction(ctx, approval, auditLog)
 }
 
-// createPendingWithAuditTransaction is the original shared-database path. It
-// intentionally keeps the insert-audit-backfill sequence in one transaction.
+// createPendingWithAuditTransaction keeps the approval, chain-aware audit
+// append, and approval link in one transaction. The chain-state lock is always
+// acquired before either business row is written.
 func (repository *ApprovalRepository) createPendingWithAuditTransaction(
 	ctx context.Context,
 	approval model.Approval,
 	auditLog model.AuditLog,
 ) (created model.Approval, recorded model.AuditLog, err error) {
-
-	tx, err := repository.db.BeginTx(ctx, nil)
+	auditRepository := &AuditLogRepository{
+		repositoryBase: repository.repositoryBase,
+		chainID:        "management",
+		keys:           repository.auditKeys,
+	}
+	tx, err := auditRepository.beginChainTransaction(ctx)
 	if err != nil {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval %q: begin transaction: %w", approval.ID, err)
 	}
-	committed := false
 	defer func() {
-		if committed {
+		if err == nil {
 			return
 		}
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {
 			err = errors.Join(err, fmt.Errorf("rollback pending approval %q: %w", approval.ID, rollbackErr))
 			created = model.Approval{}
 			recorded = model.AuditLog{}
 		}
 	}()
+	if repository.dialect == DialectSQLite {
+		if _, immediate := tx.(*sqliteChainTransaction); !immediate {
+			return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval %q: SQLite transaction is not immediate", approval.ID)
+		}
+	}
+
+	// Acquire the chain lock before approval/audit rows. chainLogsInTransaction
+	// reads the already-locked row again after the approval insert so all chain
+	// derivation still comes from transaction-local locked state.
+	if _, _, err := auditRepository.lockChainStateIfPresent(ctx, tx); err != nil {
+		return model.Approval{}, model.AuditLog{}, err
+	}
 
 	approval.AuditID = nil
 	if err := insertApproval(ctx, tx, repository.dialect, approval); err != nil {
 		return model.Approval{}, model.AuditLog{}, err
 	}
-	recorded, err = insertAuditLog(ctx, tx, repository.dialect, auditLog)
+	logs, err := auditRepository.chainLogsInTransaction(ctx, tx, []model.AuditLog{auditLog})
 	if err != nil {
 		return model.Approval{}, model.AuditLog{}, err
 	}
+	recorded = logs[0]
 	matched, err := approvalCAS(ctx, tx, repository.dialect, `
 UPDATE approvals
 SET audit_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -313,10 +331,9 @@ WHERE id = ? AND status = 'pending'`, recorded.ID, approval.ID)
 	if strings.TrimSpace(created.ID) == "" || recorded.ID <= 0 {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval %q: empty persisted identity", approval.ID)
 	}
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval %q: commit: %w", approval.ID, err)
 	}
-	committed = true
 	return created, recorded, nil
 }
 
@@ -348,7 +365,16 @@ func (repository *ApprovalRepository) recordOrReadApprovalAudit(
 	auditLog model.AuditLog,
 ) (model.AuditLog, error) {
 	if auditLog.ID == 0 {
-		return insertAuditLog(ctx, repository.auditDB, repository.auditDialect, auditLog)
+		auditRepository := &AuditLogRepository{
+			repositoryBase: repositoryBase{db: repository.auditDB, dialect: repository.auditDialect},
+			chainID:        "traffic",
+			keys:           repository.auditKeys,
+		}
+		inserted, err := auditRepository.AppendBatch(ctx, []model.AuditLog{auditLog})
+		if err != nil {
+			return model.AuditLog{}, err
+		}
+		return inserted[0], nil
 	}
 	recorded, err := getInsertedAuditLog(ctx, repository.auditDB, repository.auditDialect, auditLog.ID)
 	if err != nil {

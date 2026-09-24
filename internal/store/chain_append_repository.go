@@ -22,8 +22,6 @@ const (
 	chainAppendMaxBackoff  = time.Second
 )
 
-var errChainAppendRetry = errors.New("audit chain state changed during append")
-
 // ChainKeyProvider returns trusted HMAC key material for a frozen chain key
 // version. It must never silently substitute a keyless mode for a missing key.
 type ChainKeyProvider interface {
@@ -48,60 +46,18 @@ func (repository *AuditLogRepository) AppendBatch(ctx context.Context, logs []mo
 		return []model.AuditLog{}, nil
 	}
 
-	state, enabled, err := repository.chainStateForAppend(ctx)
+	inserted, err := repository.chainInsertBatch(ctx, logs)
 	if err != nil {
-		return nil, err
-	}
-	if enabled {
-		inserted, err := repository.chainInsertBatch(ctx, state, logs)
-		if err != nil {
-			return nil, fmt.Errorf("append audit log batch on %s chain: %w", repository.chainID, err)
-		}
-		return inserted, nil
-	}
-
-	inserted := make([]model.AuditLog, 0, len(logs))
-	for index, auditLog := range logs {
-		row, err := insertAuditLog(ctx, repository.db, repository.dialect, auditLog)
-		if err != nil {
-			return nil, fmt.Errorf("append audit log batch item %d: %w", index, err)
-		}
-		inserted = append(inserted, row)
+		return nil, fmt.Errorf("append audit log batch on %s chain: %w", repository.chainID, err)
 	}
 	return inserted, nil
 }
 
-func (repository *AuditLogRepository) chainStateForAppend(ctx context.Context) (ChainState, bool, error) {
-	// A zero chain ID is retained as a compatibility escape hatch for legacy
-	// package-local repository construction. Store constructors always inject
-	// an explicit management or traffic domain.
-	if repository.chainID == "" {
-		return ChainState{}, false, nil
-	}
-	stateRepository := &ChainStateRepository{repositoryBase: repository.repositoryBase}
-	state, err := stateRepository.Get(ctx, repository.chainID)
-	if errors.Is(err, ErrNotFound) {
-		return ChainState{}, false, nil
-	}
-	if err != nil {
-		return ChainState{}, false, fmt.Errorf("read audit chain state %q: %w", repository.chainID, err)
-	}
-	switch state.Status {
-	case "DISABLED":
-		return state, false, nil
-	case "BUILDING", "ACTIVE":
-		return state, true, nil
-	default:
-		return ChainState{}, false, fmt.Errorf("audit chain %q has non-writable status %q", repository.chainID, state.Status)
-	}
-}
-
 func (repository *AuditLogRepository) chainInsertOne(
 	ctx context.Context,
-	observed ChainState,
 	auditLog model.AuditLog,
 ) (model.AuditLog, error) {
-	inserted, err := repository.chainInsertBatch(ctx, observed, []model.AuditLog{auditLog})
+	inserted, err := repository.chainInsertBatch(ctx, []model.AuditLog{auditLog})
 	if err != nil {
 		return model.AuditLog{}, err
 	}
@@ -110,13 +66,12 @@ func (repository *AuditLogRepository) chainInsertOne(
 
 func (repository *AuditLogRepository) chainInsertBatch(
 	ctx context.Context,
-	observed ChainState,
 	logs []model.AuditLog,
 ) ([]model.AuditLog, error) {
 	deadline := time.Now().Add(chainAppendRetryBudget)
 	backoff := chainAppendMinBackoff
 	for {
-		inserted, err := repository.chainInsertBatchAttempt(ctx, observed, logs)
+		inserted, err := repository.chainInsertBatchAttempt(ctx, logs)
 		if err == nil {
 			return inserted, nil
 		}
@@ -132,20 +87,11 @@ func (repository *AuditLogRepository) chainInsertBatch(
 				backoff = chainAppendMaxBackoff
 			}
 		}
-		state, enabled, stateErr := repository.chainStateForAppend(ctx)
-		if stateErr != nil {
-			return nil, stateErr
-		}
-		if !enabled {
-			return nil, fmt.Errorf("audit chain %q became disabled while appending", repository.chainID)
-		}
-		observed = state
 	}
 }
 
 func (repository *AuditLogRepository) chainInsertBatchAttempt(
 	ctx context.Context,
-	observed ChainState,
 	logs []model.AuditLog,
 ) (inserted []model.AuditLog, resultErr error) {
 	transaction, err := repository.beginChainTransaction(ctx)
@@ -158,12 +104,38 @@ func (repository *AuditLogRepository) chainInsertBatchAttempt(
 		}
 	}()
 
-	locked, err := repository.lockChainState(ctx, transaction)
+	inserted, err = repository.chainLogsInTransaction(ctx, transaction, logs)
 	if err != nil {
 		return nil, err
 	}
-	if !sameAppendState(observed, locked) {
-		return nil, errChainAppendRetry
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit chain append transaction: %w", err)
+	}
+	return inserted, nil
+}
+
+// chainLogsInTransaction locks chain_state within tx and persists logs in
+// input order. It never begins or commits tx; the caller owns the transaction
+// lifecycle. ACTIVE rows are chained from the locked head. BUILDING,
+// DISABLED, and legacy stores without chain state receive ordinary unchained
+// rows so a BUILDING backfill can cover them in ID order.
+func (repository *AuditLogRepository) chainLogsInTransaction(
+	ctx context.Context,
+	tx sqlExecutor,
+	logs []model.AuditLog,
+) ([]model.AuditLog, error) {
+	if len(logs) == 0 {
+		return []model.AuditLog{}, nil
+	}
+	locked, found, err := repository.lockChainStateIfPresent(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if !found || locked.Status == "DISABLED" || locked.Status == "BUILDING" {
+		return repository.insertUnchainedLogs(ctx, tx, logs)
+	}
+	if locked.Status != "ACTIVE" {
+		return nil, fmt.Errorf("chain_state %q has non-writable status %q", repository.chainID, locked.Status)
 	}
 	mode, keyVersion, key, err := repository.chainHashParameters(ctx, locked)
 	if err != nil {
@@ -181,18 +153,13 @@ func (repository *AuditLogRepository) chainInsertBatchAttempt(
 		}
 		previousHash = *locked.HeadHash
 	}
-	inserted = make([]model.AuditLog, 0, len(logs))
+	inserted := make([]model.AuditLog, 0, len(logs))
 	var headID int64
 	for index, auditLog := range logs {
 		sequence++
-		var row model.AuditLog
-		if locked.Status == "ACTIVE" {
-			row, err = insertActiveAuditLog(
-				ctx, transaction, repository.dialect, auditLog, sequence, previousHash, keyVersion,
-			)
-		} else {
-			row, err = insertAuditLog(ctx, transaction, repository.dialect, auditLog)
-		}
+		row, err := insertActiveAuditLog(
+			ctx, tx, repository.dialect, auditLog, sequence, previousHash, keyVersion,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("insert batch item %d before hashing: %w", index, err)
 		}
@@ -200,18 +167,31 @@ func (repository *AuditLogRepository) chainInsertBatchAttempt(
 		if err != nil {
 			return nil, fmt.Errorf("hash batch item %d: %w", index, err)
 		}
-		if err := repository.updateAuditChainColumns(ctx, transaction, row.ID, sequence, previousHash, selfHash, keyVersion); err != nil {
+		if err := repository.updateAuditChainColumns(ctx, tx, row.ID, sequence, previousHash, selfHash, keyVersion); err != nil {
 			return nil, fmt.Errorf("update batch item %d chain columns: %w", index, err)
 		}
 		previousHash = selfHash
 		headID = row.ID
 		inserted = append(inserted, row)
 	}
-	if err := repository.updateChainHead(ctx, transaction, sequence, headID, previousHash); err != nil {
+	if err := repository.updateChainHead(ctx, tx, sequence, headID, previousHash); err != nil {
 		return nil, err
 	}
-	if err := transaction.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit chain append transaction: %w", err)
+	return inserted, nil
+}
+
+func (repository *AuditLogRepository) insertUnchainedLogs(
+	ctx context.Context,
+	tx sqlExecutor,
+	logs []model.AuditLog,
+) ([]model.AuditLog, error) {
+	inserted := make([]model.AuditLog, 0, len(logs))
+	for index, auditLog := range logs {
+		row, err := insertAuditLog(ctx, tx, repository.dialect, auditLog)
+		if err != nil {
+			return nil, fmt.Errorf("insert batch item %d: %w", index, err)
+		}
+		inserted = append(inserted, row)
 	}
 	return inserted, nil
 }
@@ -304,6 +284,23 @@ func (repository *AuditLogRepository) beginChainTransaction(ctx context.Context)
 }
 
 func (repository *AuditLogRepository) lockChainState(ctx context.Context, transaction sqlExecutor) (ChainState, error) {
+	state, found, err := repository.lockChainStateIfPresent(ctx, transaction)
+	if err != nil {
+		return ChainState{}, err
+	}
+	if !found {
+		return ChainState{}, fmt.Errorf("lock chain state %q: %w", repository.chainID, ErrNotFound)
+	}
+	return state, nil
+}
+
+func (repository *AuditLogRepository) lockChainStateIfPresent(
+	ctx context.Context,
+	transaction sqlExecutor,
+) (ChainState, bool, error) {
+	if repository.chainID == "" {
+		return ChainState{}, false, nil
+	}
 	query := `
 SELECT chain_id, chain_instance_id, status, mode, head_seq, head_id, head_hash,
        genesis_at, protected_since_id, build_owner, build_lease_until, build_epoch,
@@ -315,25 +312,12 @@ WHERE chain_id = ?`
 	}
 	state, err := scanChainState(transaction.QueryRowContext(ctx, repository.bind(query), repository.chainID))
 	if errors.Is(err, sql.ErrNoRows) {
-		return ChainState{}, fmt.Errorf("lock chain state %q: %w", repository.chainID, errors.Join(ErrNotFound, err))
+		return ChainState{}, false, nil
 	}
 	if err != nil {
-		return ChainState{}, fmt.Errorf("lock chain state %q: %w", repository.chainID, err)
+		return ChainState{}, false, fmt.Errorf("lock chain state %q: %w", repository.chainID, err)
 	}
-	if state.Status != "BUILDING" && state.Status != "ACTIVE" {
-		return ChainState{}, fmt.Errorf("chain_state %q changed to non-writable status %q", repository.chainID, state.Status)
-	}
-	return state, nil
-}
-
-func sameAppendState(left, right ChainState) bool {
-	return left.ChainID == right.ChainID &&
-		left.Status == right.Status &&
-		equalStringPointers(left.Mode, right.Mode) &&
-		equalStringPointers(left.ChainInstanceID, right.ChainInstanceID) &&
-		left.HeadSeq == right.HeadSeq &&
-		equalInt64Pointers(left.HeadID, right.HeadID) &&
-		equalStringPointers(left.HeadHash, right.HeadHash)
+	return state, true, nil
 }
 
 func (repository *AuditLogRepository) chainHashParameters(ctx context.Context, state ChainState) (string, int, []byte, error) {
@@ -494,15 +478,9 @@ WHERE chain_id = ?`), sequence, headID, headHash, repository.chainID)
 }
 
 func (repository *AuditLogRepository) retryableChainAppend(err error) bool {
-	if errors.Is(err, errChainAppendRetry) {
-		return true
-	}
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {
-		if postgresError.Code == "23505" && postgresError.ConstraintName == "ux_audit_logs_event_uuid" {
-			return false
-		}
-		return postgresError.Code == "40001" || postgresError.Code == "40P01" || postgresError.Code == "23505"
+		return postgresError.Code == "40001" || postgresError.Code == "40P01"
 	}
 	var sqliteError *modernsqlite.Error
 	if errors.As(err, &sqliteError) {
