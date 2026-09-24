@@ -1,0 +1,10 @@
+ARG PG_MAJOR=18
+FROM postgres:${PG_MAJOR}
+ARG PG_MAJOR
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential postgresql-server-dev-${PG_MAJOR} \
+ && rm -rf /var/lib/apt/lists/*
+COPY . /tmp/agentsql_binder
+RUN make -C /tmp/agentsql_binder clean all install \
+ && rm -rf /tmp/agentsql_binder

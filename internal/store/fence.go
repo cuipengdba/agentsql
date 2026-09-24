@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/cuipengdba/agentsql/internal/lockrank"
 )
 
 var (
@@ -44,12 +46,23 @@ type ControlSnapshot struct {
 	fence    ControlFence
 	instance RuntimeInstance
 	closed   bool
+	rank     *lockrank.Lease
 }
 
 func (repository *FenceRepository) BeginRead(ctx context.Context, protocol int, instanceID string, now time.Time) (*ControlSnapshot, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("begin control snapshot: %w", ErrNilContext)
 	}
+	rank, err := lockrank.Acquire(ctx, lockrank.Control)
+	if err != nil {
+		return nil, fmt.Errorf("begin control snapshot: %w", err)
+	}
+	rankTransferred := false
+	defer func() {
+		if !rankTransferred {
+			rank.Release()
+		}
+	}()
 	tx, err := repository.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: repository.dialect == DialectPostgres, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return nil, fmt.Errorf("begin control snapshot: %w", err)
@@ -85,7 +98,8 @@ func (repository *FenceRepository) BeginRead(ctx context.Context, protocol int, 
 	if instance.Status != "active" || instance.ProtocolVersion != protocol || !instance.LeaseExpiresAt.After(now) {
 		return nil, rollbackFenceTx(tx, ErrFenceLost)
 	}
-	return &ControlSnapshot{tx: tx, dialect: repository.dialect, fence: fence, instance: instance}, nil
+	rankTransferred = true
+	return &ControlSnapshot{tx: tx, dialect: repository.dialect, fence: fence, instance: instance, rank: rank}, nil
 }
 
 // FinalCheck runs in the original snapshot immediately before sealing.
@@ -127,7 +141,9 @@ func (snapshot *ControlSnapshot) Close() error {
 		return nil
 	}
 	snapshot.closed = true
-	return snapshot.tx.Rollback()
+	err := snapshot.tx.Rollback()
+	snapshot.rank.Release()
+	return err
 }
 
 // Heartbeat inserts a new runtime or renews a still-authorized live runtime.

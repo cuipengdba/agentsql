@@ -1,0 +1,6 @@
+comment = 'AgentSQL analyzed-OID SELECT binder'
+default_version = '0.4'
+module_pathname = '$libdir/agentsql_binder'
+relocatable = false
+schema = agentsql_catalog
+trusted = false

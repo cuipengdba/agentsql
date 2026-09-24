@@ -49,6 +49,31 @@ func TestBudgetSharesCheckedWork(t *testing.T) {
 	requireReason(t, budget.ChargeAST(&model.AST{ProjectionLineages: []model.ProjectionLineage{{Arms: []model.LineageArm{{Dependencies: []model.ColumnDependency{{}, {}}}}}}}), ReasonDependencyLimit)
 }
 
+func TestPostgresCatalogBudgetStableLimits(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason Reason
+		set    func(*Limits)
+		charge func(*Budget) error
+	}{
+		{"relations", ReasonRelationLimit, func(l *Limits) { l.Relations = 1 }, func(b *Budget) error { return b.ChargeRelations(2) }},
+		{"view-depth", ReasonViewDepthLimit, func(l *Limits) { l.ViewDepth = 1 }, func(b *Budget) error { return b.CheckViewDepth(2) }},
+		{"catalog-round-trips", ReasonCatalogRTLimit, func(l *Limits) { l.CatalogRoundTrips = 1 }, func(b *Budget) error { return b.ChargeCatalogRoundTrips(2) }},
+		{"definition-bytes", ReasonDefinitionLimit, func(l *Limits) { l.DefinitionBytes = 1 }, func(b *Budget) error { return b.ChargeDefinitionBytes(2) }},
+		{"binder-bytes", ReasonBinderLimit, func(l *Limits) { l.BinderBytes = 1 }, func(b *Budget) error { return b.ChargeBinderBytes(2) }},
+		{"catalog-bytes", ReasonCatalogLimit, func(l *Limits) { l.CatalogBytes = 1 }, func(b *Budget) error { return b.ChargeCatalogBytes(2) }},
+		{"catalog-rows", ReasonCatalogRowLimit, func(l *Limits) { l.CatalogRows = 1 }, func(b *Budget) error { return b.ChargeCatalogRows(2) }},
+		{"column-metadata", ReasonColumnLimit, func(l *Limits) { l.ColumnMetadata = 1 }, func(b *Budget) error { return b.ChargeColumnMetadata(2) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			limits := DefaultLimits
+			test.set(&limits)
+			requireReason(t, test.charge(NewBudget(limits)), test.reason)
+		})
+	}
+}
+
 func TestResultCapsNeverTruncate(t *testing.T) {
 	limits := DefaultLimits
 	limits.RawCellBytes = 3

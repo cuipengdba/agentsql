@@ -16,26 +16,44 @@ import (
 type Reason string
 
 const (
-	ReasonRequestTooLarge  Reason = "AUTH_REQUEST_TOO_LARGE"
-	ReasonParameterLimit   Reason = "AUTH_PARAMETER_LIMIT"
-	ReasonTokenLimit       Reason = "AUTH_TOKEN_LIMIT"
-	ReasonNestingLimit     Reason = "AUTH_NESTING_LIMIT"
-	ReasonASTLimit         Reason = "AUTH_AST_LIMIT"
-	ReasonQueryBlockLimit  Reason = "AUTH_QUERY_BLOCK_LIMIT"
-	ReasonProjectionLimit  Reason = "AUTH_PROJECTION_LIMIT"
-	ReasonRelationLimit    Reason = "AUTH_RELATION_LIMIT"
-	ReasonDependencyLimit  Reason = "AUTH_DEPENDENCY_LIMIT"
-	ReasonPathLimit        Reason = "AUTH_PATH_LIMIT"
-	ReasonWorkLimit        Reason = "AUTH_WORK_LIMIT"
-	ReasonFrameLimit       Reason = "AUTH_FRAME_LIMIT"
-	ReasonCellLimit        Reason = "AUTH_CELL_LIMIT"
-	ReasonRowLimit         Reason = "AUTH_ROW_LIMIT"
-	ReasonResultLimit      Reason = "AUTH_RESULT_LIMIT"
-	ReasonEnvelopeLimit    Reason = "AUTH_ENVELOPE_LIMIT"
-	ReasonDeadlineExceeded Reason = "AUTH_DEADLINE_EXCEEDED"
-	ReasonConcurrencyLimit Reason = "AUTH_CONCURRENCY_LIMIT"
-	ReasonMemoryLimit      Reason = "AUTH_MEMORY_LIMIT"
-	ReasonDatabaseFailure  Reason = "AUTH_DATABASE_ERROR"
+	ReasonRequestTooLarge   Reason = "AUTH_REQUEST_TOO_LARGE"
+	ReasonParameterLimit    Reason = "AUTH_PARAMETER_LIMIT"
+	ReasonTokenLimit        Reason = "AUTH_TOKEN_LIMIT"
+	ReasonNestingLimit      Reason = "AUTH_NESTING_LIMIT"
+	ReasonASTLimit          Reason = "AUTH_AST_LIMIT"
+	ReasonQueryBlockLimit   Reason = "AUTH_QUERY_BLOCK_LIMIT"
+	ReasonProjectionLimit   Reason = "AUTH_PROJECTION_LIMIT"
+	ReasonRelationLimit     Reason = "AUTH_RELATION_LIMIT"
+	ReasonViewDepthLimit    Reason = "AUTH_VIEW_DEPTH_LIMIT"
+	ReasonCatalogRTLimit    Reason = "AUTH_CATALOG_ROUND_TRIP_LIMIT"
+	ReasonDefinitionLimit   Reason = "AUTH_DEFINITION_LIMIT"
+	ReasonBinderLimit       Reason = "AUTH_BINDER_LIMIT"
+	ReasonCatalogLimit      Reason = "AUTH_CATALOG_LIMIT"
+	ReasonCatalogRowLimit   Reason = "AUTH_CATALOG_ROW_LIMIT"
+	ReasonColumnLimit       Reason = "AUTH_COLUMN_METADATA_LIMIT"
+	ReasonDependencyLimit   Reason = "AUTH_DEPENDENCY_LIMIT"
+	ReasonPathLimit         Reason = "AUTH_PATH_LIMIT"
+	ReasonWorkLimit         Reason = "AUTH_WORK_LIMIT"
+	ReasonFrameLimit        Reason = "AUTH_FRAME_LIMIT"
+	ReasonCellLimit         Reason = "AUTH_CELL_LIMIT"
+	ReasonRowLimit          Reason = "AUTH_ROW_LIMIT"
+	ReasonResultLimit       Reason = "AUTH_RESULT_LIMIT"
+	ReasonEnvelopeLimit     Reason = "AUTH_ENVELOPE_LIMIT"
+	ReasonDeadlineExceeded  Reason = "AUTH_DEADLINE_EXCEEDED"
+	ReasonConcurrencyLimit  Reason = "AUTH_CONCURRENCY_LIMIT"
+	ReasonMemoryLimit       Reason = "AUTH_MEMORY_LIMIT"
+	ReasonDatabaseFailure   Reason = "AUTH_DATABASE_ERROR"
+	ReasonCatalogIncomplete Reason = "AUTH_CATALOG_INCOMPLETE"
+	ReasonImplicitObject    Reason = "AUTH_IMPLICIT_OBJECT_UNSUPPORTED"
+	ReasonRelationShape     Reason = "AUTH_RELATION_SHAPE_UNSUPPORTED"
+	ReasonColumnShape       Reason = "AUTH_COLUMN_SHAPE_UNSUPPORTED"
+	ReasonExpressionShape   Reason = "AUTH_EXPRESSION_IDENTITY_UNSUPPORTED"
+	ReasonBinderIncomplete  Reason = "AUTH_BINDER_INCOMPLETE"
+	ReasonBinderCapability  Reason = "AUTH_BINDER_CAPABILITY_MISMATCH"
+	ReasonBindClosure       Reason = "AUTH_BIND_CLOSURE_MISMATCH"
+	ReasonCatalogRace       Reason = "AUTH_CATALOG_RACE"
+	ReasonPreparedInvalid   Reason = "AUTH_PREPARED_INVALIDATED"
+	ReasonPreparedState     Reason = "AUTH_PREPARED_STATE_INVALID"
 )
 
 // AuthError intentionally carries no underlying error or dynamic text.
@@ -279,6 +297,10 @@ func isSQLPunctuation(value byte) bool {
 type Budget struct {
 	limits                    Limits
 	work, nodes, edges, paths uint64
+	relations, catalogTrips   uint64
+	definitionBytes           uint64
+	binderBytes, catalogBytes uint64
+	catalogRows, columns      uint64
 }
 
 func NewBudget(limits Limits) *Budget { return &Budget{limits: NormalizeLimits(limits)} }
@@ -306,6 +328,44 @@ func (budget *Budget) ChargePaths(count int) error {
 }
 func (budget *Budget) ChargeWork(count int) error {
 	return budget.charge(&budget.work, count, budget.limits.WorkUnits, ReasonWorkLimit)
+}
+
+// ChargeRelations counts every distinct relation admitted to a candidate or
+// locked closure. Callers must charge before appending to an attacker-sized
+// slice so the limit also bounds allocation.
+func (budget *Budget) ChargeRelations(count int) error {
+	return budget.charge(&budget.relations, count, budget.limits.Relations, ReasonRelationLimit)
+}
+
+func (budget *Budget) CheckViewDepth(depth int) error {
+	if budget == nil || depth < 0 || depth > budget.limits.ViewDepth {
+		return limitError(ReasonViewDepthLimit)
+	}
+	return nil
+}
+
+func (budget *Budget) ChargeCatalogRoundTrips(count int) error {
+	return budget.charge(&budget.catalogTrips, count, budget.limits.CatalogRoundTrips, ReasonCatalogRTLimit)
+}
+
+func (budget *Budget) ChargeDefinitionBytes(count int) error {
+	return budget.charge(&budget.definitionBytes, count, budget.limits.DefinitionBytes, ReasonDefinitionLimit)
+}
+
+func (budget *Budget) ChargeBinderBytes(count int) error {
+	return budget.charge(&budget.binderBytes, count, budget.limits.BinderBytes, ReasonBinderLimit)
+}
+
+func (budget *Budget) ChargeCatalogBytes(count int) error {
+	return budget.charge(&budget.catalogBytes, count, budget.limits.CatalogBytes, ReasonCatalogLimit)
+}
+
+func (budget *Budget) ChargeCatalogRows(count int) error {
+	return budget.charge(&budget.catalogRows, count, budget.limits.CatalogRows, ReasonCatalogRowLimit)
+}
+
+func (budget *Budget) ChargeColumnMetadata(count int) error {
+	return budget.charge(&budget.columns, count, budget.limits.ColumnMetadata, ReasonColumnLimit)
 }
 
 func (budget *Budget) ChargeAST(ast *model.AST) error {
@@ -408,7 +468,10 @@ func StableError(err error) *AuthError {
 	if errors.As(err, &reasoned) {
 		reason := Reason(reasoned.AuthorizationReason())
 		switch reason {
-		case ReasonProjectionLimit, ReasonCellLimit, ReasonRowLimit, ReasonResultLimit, ReasonFrameLimit:
+		case ReasonProjectionLimit, ReasonCellLimit, ReasonRowLimit, ReasonResultLimit, ReasonFrameLimit,
+			ReasonCatalogIncomplete, ReasonImplicitObject, ReasonRelationShape, ReasonColumnShape,
+			ReasonExpressionShape, ReasonBinderIncomplete, ReasonBinderCapability, ReasonBindClosure,
+			ReasonCatalogRace, ReasonPreparedInvalid, ReasonPreparedState:
 			return &AuthError{Reason: reason}
 		}
 	}
