@@ -19,6 +19,7 @@ import (
 	"time"
 
 	containerapi "github.com/docker/docker/api/types/container"
+	"github.com/shirou/gopsutil/v4/process"
 	"github.com/testcontainers/testcontainers-go"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -29,13 +30,18 @@ import (
 const (
 	chainLoadGate = "AGENTSQL_CHAIN_LOAD"
 
-	chainLoadPGImage       = "postgres:18"
-	chainLoadCPUNano       = int64(2_000_000_000)
-	chainLoadMemoryBytes   = int64(2 * 1024 * 1024 * 1024)
-	chainLoadP95Limit      = 250 * time.Millisecond
-	chainLoadP99Limit      = time.Second
-	chainLoadLockP95Target = 100 * time.Millisecond
-	chainLoadLockP99Target = 250 * time.Millisecond
+	chainLoadPGImage        = "postgres:18"
+	chainLoadCPUNano        = int64(2_000_000_000)
+	chainLoadMemoryBytes    = int64(2 * 1024 * 1024 * 1024)
+	chainLoadP95Limit       = 250 * time.Millisecond
+	chainLoadP99Limit       = time.Second
+	chainLoadLockP95Target  = 100 * time.Millisecond
+	chainLoadLockP99Target  = 250 * time.Millisecond
+	chainLoadPGQueueCap     = 4096
+	chainLoadSQLiteQueueCap = 1024
+	chainLoadQueueSample    = 10 * time.Millisecond
+	chainLoadWarmup         = 60 * time.Second
+	chainLoadResourceSample = 60 * time.Second
 )
 
 type chainLoadConfig struct {
@@ -73,6 +79,8 @@ type chainLoadResult struct {
 	OfferedEvents         int64   `json:"offered_events,omitempty"`
 	CompletedEvents       int64   `json:"completed_events,omitempty"`
 	Errors                int64   `json:"errors"`
+	ErrorRatePercent      float64 `json:"error_rate_percent"`
+	ErrorThresholdPassed  *bool   `json:"error_threshold_passed,omitempty"`
 	OfferedWindowSeconds  float64 `json:"offered_window_seconds,omitempty"`
 	WallSeconds           float64 `json:"wall_seconds,omitempty"`
 	AchievedRate          float64 `json:"achieved_events_per_second,omitempty"`
@@ -90,7 +98,21 @@ type chainLoadResult struct {
 	ChainValid            bool    `json:"chain_valid"`
 	ChainContiguous       bool    `json:"chain_seq_contiguous_unique"`
 	QueueDrained          bool    `json:"queue_drained_after_load"`
+	QueueCapacity         int     `json:"queue_capacity,omitempty"`
+	QueueSampleIntervalMS int     `json:"queue_sample_interval_ms,omitempty"`
+	QueueSamples          int64   `json:"queue_samples,omitempty"`
+	MaxQueueDepth         int     `json:"max_queue_depth,omitempty"`
+	MaxQueueAfterWarmup   int     `json:"max_queue_depth_after_warmup,omitempty"`
+	MaxQueuePercent       float64 `json:"max_queue_percent_after_warmup,omitempty"`
+	QueueUnderHalfPassed  *bool   `json:"queue_under_half_after_warmup_passed,omitempty"`
+	DrainSeconds          float64 `json:"queue_drain_seconds,omitempty"`
+	DrainLimitSeconds     float64 `json:"queue_drain_limit_seconds,omitempty"`
+	QueueDepthAfterDrain  int     `json:"queue_depth_after_drain,omitempty"`
+	DrainThresholdPassed  bool    `json:"queue_drain_threshold_passed"`
 	VerificationResult    string  `json:"verification_result,omitempty"`
+	CommittedRows         int64   `json:"committed_rows,omitempty"`
+	HeadSeq               int64   `json:"head_seq,omitempty"`
+	HeadMatchesCommitted  bool    `json:"head_seq_matches_committed"`
 	BackfillRows          int64   `json:"backfill_rows,omitempty"`
 	BackfillSeconds       float64 `json:"backfill_seconds,omitempty"`
 	BackfillRowsPerSecond float64 `json:"backfill_rows_per_second,omitempty"`
@@ -116,6 +138,48 @@ type chainLoadRun struct {
 	latencies      []time.Duration
 	bodySizes      []int
 	firstErrorText string
+	queue          chainLoadQueueObservation
+}
+
+type chainLoadQueueObservation struct {
+	samples             int64
+	capacity            int
+	maxDepth            int
+	maxDepthAfterWarmup int
+}
+
+type chainLoadDrainObservation struct {
+	drained    bool
+	duration   time.Duration
+	limit      time.Duration
+	finalDepth int
+}
+
+type chainLoadResourceSampleValue struct {
+	Second          int    `json:"second"`
+	Goroutines      int    `json:"goroutines"`
+	WorkingSetBytes uint64 `json:"working_set_bytes"`
+}
+
+type chainLoadResourceWindow struct {
+	Label            string                         `json:"label"`
+	PID              int                            `json:"pid"`
+	IntervalSeconds  int                            `json:"interval_seconds"`
+	WorkingSetMethod string                         `json:"working_set_method"`
+	Samples          []chainLoadResourceSampleValue `json:"samples"`
+}
+
+type chainLoadResourceComparison struct {
+	BaselineSamples        int     `json:"baseline_samples"`
+	PostSamplesUsed        int     `json:"post_samples_used"`
+	BaselineGoroutineP50   float64 `json:"baseline_goroutine_p50"`
+	PostGoroutineP50       float64 `json:"post_goroutine_p50"`
+	GoroutineChangePercent float64 `json:"goroutine_change_percent"`
+	GoroutinePassed        bool    `json:"goroutine_regression_passed"`
+	BaselineRSSP50Bytes    float64 `json:"baseline_working_set_p50_bytes"`
+	PostRSSP50Bytes        float64 `json:"post_working_set_p50_bytes"`
+	RSSChangePercent       float64 `json:"working_set_change_percent"`
+	RSSPassed              bool    `json:"working_set_regression_passed"`
 }
 
 type chainLoadLockObservation struct {
@@ -161,15 +225,20 @@ func newChainLoadGroupSink(t *testing.T, repository *AuditLogRepository, dialect
 	return sink
 }
 
-func waitForChainLoadQueueDrain(sink *audit.GroupCommitSink) bool {
-	deadline := time.Now().Add(2 * time.Second)
+func waitForChainLoadQueueDrain(sink *audit.GroupCommitSink, limit time.Duration) chainLoadDrainObservation {
+	started := time.Now()
+	deadline := started.Add(limit)
 	for {
 		stats := sink.Stats()
 		if stats.QueueDepth == 0 && stats.QueueBytes == 0 && stats.AdmissionTokens == 0 && stats.Waiters == 0 {
-			return true
+			return chainLoadDrainObservation{
+				drained: true, duration: time.Since(started), limit: limit, finalDepth: stats.QueueDepth,
+			}
 		}
 		if !time.Now().Before(deadline) {
-			return false
+			return chainLoadDrainObservation{
+				duration: time.Since(started), limit: limit, finalDepth: stats.QueueDepth,
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -229,18 +298,22 @@ func TestChainLoadBaseline(t *testing.T) {
 	}
 
 	manifest := chainLoadManifest{}
-	backfill := runChainLoadBackfill(t, ctx, opened, manifest, fixture, cfg.backfillRows)
-	if !backfill.Passed {
-		printChainLoadResults(t, []chainLoadResult{backfill})
-		t.FailNow()
-	}
-
 	pgSink := newChainLoadGroupSink(t, opened.AuditLogs(), DialectPostgres)
 	defer func() {
 		if err := pgSink.Close(); err != nil {
 			t.Errorf("close PostgreSQL group commit sink: %v", err)
 		}
 	}()
+	resourceBaseline := sampleChainLoadResources(t, ctx, "pre_load", chainLoadResourceSample)
+
+	backfill := runChainLoadBackfill(
+		t, ctx, opened, DialectPostgres, "pg_backfill", manifest, fixture, cfg.backfillRows, 2_000,
+	)
+	if !backfill.ChainValid || !backfill.ChainContiguous || !backfill.HeadMatchesCommitted {
+		printChainLoadResults(t, []chainLoadResult{backfill})
+		t.FailNow()
+	}
+
 	baseline, baselineErr := measureUncontendedChainInserts(ctx, pgSink, fixture, cfg.baselineRows)
 	if baselineErr != nil {
 		backfill.Passed = false
@@ -255,13 +328,14 @@ func TestChainLoadBaseline(t *testing.T) {
 	sustainedRun := runOpenLoopChainLoad(
 		ctx, pgSink, fixture, "pg-sustained", cfg.sustainRate,
 		time.Duration(cfg.sustainSeconds)*time.Second, cfg.sustainWorkers,
+		chainLoadPGQueueCap, chainLoadWarmup,
 	)
-	sustainedQueueDrained := waitForChainLoadQueueDrain(pgSink)
+	sustainedDrain := waitForChainLoadQueueDrain(pgSink, 5*time.Second)
 	close(lockStop)
 	lockObservation := <-lockDone
 	sustained := evaluateChainLoadRun(
 		ctx, opened.metaDB, DialectPostgres, manifest, "pg_sustained", sustainedRun,
-		float64(cfg.sustainRate), true, true, sustainedQueueDrained,
+		float64(cfg.sustainRate), true, true, false, true, sustainedDrain,
 	)
 	lockResult := evaluateLockObservation(
 		lockObservation, percentileDuration(baseline, 0.95),
@@ -272,15 +346,20 @@ func TestChainLoadBaseline(t *testing.T) {
 	burstRun := runOpenLoopChainLoad(
 		ctx, pgSink, fixture, "pg-burst", cfg.burstRate,
 		time.Duration(cfg.burstSeconds)*time.Second, cfg.burstWorkers,
+		chainLoadPGQueueCap, 0,
 	)
-	burstQueueDrained := waitForChainLoadQueueDrain(pgSink)
+	burstDrain := waitForChainLoadQueueDrain(pgSink, 30*time.Second)
 	burst := evaluateChainLoadRun(
 		ctx, opened.metaDB, DialectPostgres, manifest, "pg_burst", burstRun,
-		float64(cfg.burstRate), false, true, burstQueueDrained,
+		float64(cfg.burstRate), false, true, true, false, burstDrain,
 	)
 
 	sqlite := runSQLiteChainLoad(t, ctx, manifest, fixture, cfg)
-	results := []chainLoadResult{sustained, burst, sqlite, backfill, lockResult}
+	sqliteBackfill := runSQLiteChainLoadBackfill(t, ctx, manifest, fixture, cfg.backfillRows)
+	resourcePost := sampleChainLoadResources(t, ctx, "post_load", chainLoadResourceSample)
+	resourceComparison := compareChainLoadResources(resourceBaseline, resourcePost)
+	logChainLoadJSON(t, "resource_comparison", resourceComparison)
+	results := []chainLoadResult{sustained, burst, sqlite, backfill, sqliteBackfill, lockResult}
 	printChainLoadResults(t, results)
 
 	allPassed := true
@@ -288,6 +367,9 @@ func TestChainLoadBaseline(t *testing.T) {
 		if !result.Passed && !result.Advisory {
 			allPassed = false
 		}
+	}
+	if !resourceComparison.GoroutinePassed || !resourceComparison.RSSPassed {
+		allPassed = false
 	}
 	summary := struct {
 		Passed    bool `json:"passed"`
@@ -429,13 +511,18 @@ func runChainLoadBackfill(
 	t *testing.T,
 	ctx context.Context,
 	opened *Store,
+	dialect Dialect,
+	scenario string,
 	manifest ChainManifest,
 	fixture chainLoadFixture,
 	rows int,
+	targetRate float64,
 ) chainLoadResult {
 	t.Helper()
-	result := chainLoadResult{Scenario: "pg_backfill", BackfillRows: int64(rows)}
-	bodySizes, err := seedBareChainLoadRows(ctx, opened.metaDB, fixture, rows)
+	result := chainLoadResult{
+		Scenario: scenario, BackfillRows: int64(rows), TargetRate: targetRate,
+	}
+	bodySizes, err := seedBareChainLoadRows(ctx, opened.metaDB, dialect, scenario, fixture, rows)
 	if err != nil {
 		result.Failure = "seed bare historical rows: " + err.Error()
 		return result
@@ -444,9 +531,9 @@ func runChainLoadBackfill(
 	result.BodyP95Bytes = percentileInt(bodySizes, 0.95)
 	result.BodyDistributionPass = result.BodyMedianBytes <= 2*1024 && result.BodyP95Bytes <= 8*1024
 
-	const owner = "chain-load-backfill"
+	owner := "chain-load-" + scenario
 	buildRepository := &ChainBuildRepository{repositoryBase: repositoryBase{
-		db: opened.metaDB, dialect: DialectPostgres,
+		db: opened.metaDB, dialect: dialect,
 	}}
 	lease, err := buildRepository.BeginBuild(ctx, "management", BuildRequest{
 		Mode: "keyless", Owner: owner, Lease: 2 * time.Minute,
@@ -456,13 +543,14 @@ func runChainLoadBackfill(
 		return result
 	}
 	service := NewBackfillService(
-		opened.metaDB, DialectPostgres, "management", manifest, BackfillConfig{},
+		opened.metaDB, dialect, "management", manifest, BackfillConfig{},
 	)
 	started := time.Now()
 	backfilled, err := service.Run(ctx, lease.Owner, lease.Epoch)
 	result.BackfillSeconds = time.Since(started).Seconds()
 	if result.BackfillSeconds > 0 {
 		result.BackfillRowsPerSecond = float64(backfilled.Linked) / result.BackfillSeconds
+		result.AchievedRate = math.Round(result.BackfillRowsPerSecond*10) / 10
 	}
 	result.CompletedEvents = backfilled.Linked
 	if err != nil {
@@ -477,21 +565,36 @@ func runChainLoadBackfill(
 		result.Failure = "activate: " + err.Error()
 		return result
 	}
-	result.ChainValid, result.ChainContiguous, result.VerificationResult, err = verifyChainLoad(
-		ctx, opened.metaDB, DialectPostgres, manifest,
+	result.ChainValid, result.ChainContiguous, result.VerificationResult,
+		result.CommittedRows, result.HeadSeq, result.HeadMatchesCommitted, err = verifyChainLoad(
+		ctx, opened.metaDB, dialect, manifest,
 	)
 	if err != nil {
 		result.Failure = "verify: " + err.Error()
 		return result
 	}
-	result.Passed = result.BodyDistributionPass && result.ChainValid && result.ChainContiguous
+	ratePassed := result.BackfillRowsPerSecond >= targetRate
+	result.RateThresholdPassed = &ratePassed
+	result.Passed = result.BodyDistributionPass && result.ChainValid && result.ChainContiguous &&
+		result.HeadMatchesCommitted && ratePassed
 	if !result.Passed {
-		result.Failure = "body distribution or post-activation chain invariant failed"
+		result.Failure = fmt.Sprintf(
+			"backfill threshold failed: rows/s=%.1f target=%.1f body_distribution=%t chain_valid=%t contiguous=%t head_matches=%t",
+			result.BackfillRowsPerSecond, targetRate, result.BodyDistributionPass, result.ChainValid,
+			result.ChainContiguous, result.HeadMatchesCommitted,
+		)
 	}
 	return result
 }
 
-func seedBareChainLoadRows(ctx context.Context, database *sql.DB, fixture chainLoadFixture, count int) ([]int, error) {
+func seedBareChainLoadRows(
+	ctx context.Context,
+	database *sql.DB,
+	dialect Dialect,
+	scenario string,
+	fixture chainLoadFixture,
+	count int,
+) ([]int, error) {
 	bodySizes := make([]int, count)
 	const chunkSize = 5_000
 	for start := 0; start < count; start += chunkSize {
@@ -503,15 +606,15 @@ func seedBareChainLoadRows(ctx context.Context, database *sql.DB, fixture chainL
 		if err != nil {
 			return nil, err
 		}
-		statement, err := transaction.PrepareContext(ctx, `
+		statement, err := transaction.PrepareContext(ctx, repositoryBase{dialect: dialect}.bind(`
 INSERT INTO audit_logs (decision, details_json, event_uuid)
-VALUES ($1, $2, $3)`)
+VALUES (?, ?, ?)`))
 		if err != nil {
 			_ = transaction.Rollback()
 			return nil, err
 		}
 		for index := start; index < end; index++ {
-			auditLog, bodySize := fixture.auditLog("pg-backfill", int64(index))
+			auditLog, bodySize := fixture.auditLog(scenario, int64(index))
 			bodySizes[index] = bodySize
 			if _, err := statement.ExecContext(
 				ctx, auditLog.Decision, optionalString(auditLog.DetailsJSON), optionalString(auditLog.EventUUID),
@@ -552,12 +655,14 @@ func measureUncontendedChainInserts(
 
 func runOpenLoopChainLoad(
 	parent context.Context,
-	sink audit.Sink,
+	sink *audit.GroupCommitSink,
 	fixture chainLoadFixture,
 	scenario string,
 	rate int,
 	duration time.Duration,
 	workers int,
+	queueCapacity int,
+	warmup time.Duration,
 ) chainLoadRun {
 	total := int64(math.Round(float64(rate) * duration.Seconds()))
 	if total < 1 {
@@ -582,6 +687,9 @@ func runOpenLoopChainLoad(
 	ctx, cancel := context.WithTimeout(parent, duration+drainAllowance)
 	defer cancel()
 	start := time.Now().Add(100 * time.Millisecond)
+	queueStop := make(chan struct{})
+	queueDone := make(chan chainLoadQueueObservation, 1)
+	go sampleChainLoadQueue(ctx, sink, queueCapacity, start, warmup, queueStop, queueDone)
 	var waitGroup sync.WaitGroup
 	for worker := 0; worker < workers; worker++ {
 		waitGroup.Add(1)
@@ -626,6 +734,8 @@ func runOpenLoopChainLoad(
 	}
 	waitGroup.Wait()
 	ended := time.Now()
+	close(queueStop)
+	queueObservation := <-queueDone
 
 	completedCount := completed.Load()
 	notCompleted := total - completedCount - errorCount.Load()
@@ -660,7 +770,45 @@ func runOpenLoopChainLoad(
 	return chainLoadRun{
 		offered: total, completed: completedCount, errors: errorCount.Load(), duration: duration,
 		wall: wall, steadyRate: steadyRate, latencies: validLatencies,
-		bodySizes: validSizes, firstErrorText: firstErrorText,
+		bodySizes: validSizes, firstErrorText: firstErrorText, queue: queueObservation,
+	}
+}
+
+func sampleChainLoadQueue(
+	ctx context.Context,
+	sink *audit.GroupCommitSink,
+	capacity int,
+	loadStart time.Time,
+	warmup time.Duration,
+	stop <-chan struct{},
+	done chan<- chainLoadQueueObservation,
+) {
+	ticker := time.NewTicker(chainLoadQueueSample)
+	defer ticker.Stop()
+	observation := chainLoadQueueObservation{capacity: capacity}
+	sample := func(now time.Time) {
+		stats := sink.Stats()
+		observation.samples++
+		if stats.QueueDepth > observation.maxDepth {
+			observation.maxDepth = stats.QueueDepth
+		}
+		if !now.Before(loadStart.Add(warmup)) && stats.QueueDepth > observation.maxDepthAfterWarmup {
+			observation.maxDepthAfterWarmup = stats.QueueDepth
+		}
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			sample(time.Now())
+			done <- observation
+			return
+		case <-stop:
+			sample(time.Now())
+			done <- observation
+			return
+		case now := <-ticker.C:
+			sample(now)
+		}
 	}
 }
 
@@ -674,24 +822,50 @@ func evaluateChainLoadRun(
 	targetRate float64,
 	enforceRate bool,
 	enforceLatency bool,
-	queueDrained bool,
+	enforceZeroErrors bool,
+	enforceQueueHalf bool,
+	drain chainLoadDrainObservation,
 ) chainLoadResult {
 	result := chainLoadResult{
-		Scenario:             scenario,
-		TargetRate:           targetRate,
-		OfferedEvents:        run.offered,
-		CompletedEvents:      run.completed,
-		Errors:               run.errors,
-		OfferedWindowSeconds: run.duration.Seconds(),
-		WallSeconds:          run.wall.Seconds(),
-		LatencyP50MS:         durationMilliseconds(percentileDuration(run.latencies, 0.50)),
-		LatencyP95MS:         durationMilliseconds(percentileDuration(run.latencies, 0.95)),
-		LatencyP99MS:         durationMilliseconds(percentileDuration(run.latencies, 0.99)),
-		BodyMedianBytes:      percentileInt(run.bodySizes, 0.50),
-		BodyP95Bytes:         percentileInt(run.bodySizes, 0.95),
-		RateMeasurement:      "successful completion span (first-to-last), rounded to 0.1 events/s",
-		Failure:              run.firstErrorText,
-		QueueDrained:         queueDrained,
+		Scenario:              scenario,
+		TargetRate:            targetRate,
+		OfferedEvents:         run.offered,
+		CompletedEvents:       run.completed,
+		Errors:                run.errors,
+		OfferedWindowSeconds:  run.duration.Seconds(),
+		WallSeconds:           run.wall.Seconds(),
+		LatencyP50MS:          durationMilliseconds(percentileDuration(run.latencies, 0.50)),
+		LatencyP95MS:          durationMilliseconds(percentileDuration(run.latencies, 0.95)),
+		LatencyP99MS:          durationMilliseconds(percentileDuration(run.latencies, 0.99)),
+		BodyMedianBytes:       percentileInt(run.bodySizes, 0.50),
+		BodyP95Bytes:          percentileInt(run.bodySizes, 0.95),
+		RateMeasurement:       "successful completion span (first-to-last), rounded to 0.1 events/s",
+		Failure:               run.firstErrorText,
+		QueueDrained:          drain.drained,
+		QueueCapacity:         run.queue.capacity,
+		QueueSampleIntervalMS: int(chainLoadQueueSample / time.Millisecond),
+		QueueSamples:          run.queue.samples,
+		MaxQueueDepth:         run.queue.maxDepth,
+		MaxQueueAfterWarmup:   run.queue.maxDepthAfterWarmup,
+		DrainSeconds:          drain.duration.Seconds(),
+		DrainLimitSeconds:     drain.limit.Seconds(),
+		QueueDepthAfterDrain:  drain.finalDepth,
+		DrainThresholdPassed:  drain.drained && drain.duration <= drain.limit,
+	}
+	if run.offered > 0 {
+		result.ErrorRatePercent = float64(run.errors) * 100 / float64(run.offered)
+	}
+	errorPassed := result.ErrorRatePercent < 0.1
+	if enforceZeroErrors {
+		errorPassed = run.errors == 0
+	}
+	result.ErrorThresholdPassed = &errorPassed
+	if run.queue.capacity > 0 {
+		result.MaxQueuePercent = float64(run.queue.maxDepthAfterWarmup) * 100 / float64(run.queue.capacity)
+	}
+	if enforceQueueHalf {
+		queuePassed := result.MaxQueuePercent < 50
+		result.QueueUnderHalfPassed = &queuePassed
 	}
 	result.AchievedRate = math.Round(run.steadyRate*10) / 10
 	if run.wall > 0 {
@@ -709,7 +883,8 @@ func evaluateChainLoadRun(
 		result.LatencyP99Passed = &p99Passed
 	}
 	var verifyErr error
-	result.ChainValid, result.ChainContiguous, result.VerificationResult, verifyErr = verifyChainLoad(
+	result.ChainValid, result.ChainContiguous, result.VerificationResult,
+		result.CommittedRows, result.HeadSeq, result.HeadMatchesCommitted, verifyErr = verifyChainLoad(
 		ctx, database, dialect, manifest,
 	)
 	if verifyErr != nil {
@@ -718,13 +893,16 @@ func evaluateChainLoadRun(
 		}
 		result.Failure += "verify: " + verifyErr.Error()
 	}
-	result.Passed = result.Errors == 0 && result.BodyDistributionPass && result.QueueDrained &&
-		result.ChainValid && result.ChainContiguous
+	result.Passed = errorPassed && result.BodyDistributionPass && result.DrainThresholdPassed &&
+		result.ChainValid && result.ChainContiguous && result.HeadMatchesCommitted
 	if result.RateThresholdPassed != nil {
 		result.Passed = result.Passed && *result.RateThresholdPassed
 	}
 	if result.LatencyP95Passed != nil {
 		result.Passed = result.Passed && *result.LatencyP95Passed && *result.LatencyP99Passed
+	}
+	if result.QueueUnderHalfPassed != nil {
+		result.Passed = result.Passed && *result.QueueUnderHalfPassed
 	}
 	if !result.Passed && result.Failure == "" {
 		result.Failure = "one or more hard thresholds failed"
@@ -766,11 +944,36 @@ func runSQLiteChainLoad(
 	run := runOpenLoopChainLoad(
 		ctx, sink, fixture, "sqlite-sustained", cfg.sqliteRate,
 		time.Duration(cfg.sqliteSeconds)*time.Second, cfg.sqliteWorkers,
+		chainLoadSQLiteQueueCap, chainLoadWarmup,
 	)
-	queueDrained := waitForChainLoadQueueDrain(sink)
+	drain := waitForChainLoadQueueDrain(sink, 5*time.Second)
 	return evaluateChainLoadRun(
 		ctx, opened.metaDB, DialectSQLite, manifest, "sqlite_sustained", run,
-		float64(cfg.sqliteRate), true, true, queueDrained,
+		float64(cfg.sqliteRate), true, false, false, false, drain,
+	)
+}
+
+func runSQLiteChainLoadBackfill(
+	t *testing.T,
+	ctx context.Context,
+	manifest ChainManifest,
+	fixture chainLoadFixture,
+	rows int,
+) chainLoadResult {
+	t.Helper()
+	opened, err := OpenWithSecret(
+		ctx, filepath.Join(t.TempDir(), "chain-load-backfill.db"), []byte(testSecret),
+	)
+	if err != nil {
+		return chainLoadResult{Scenario: "sqlite_backfill", Failure: "open SQLite: " + err.Error()}
+	}
+	defer func() {
+		if err := opened.Close(); err != nil {
+			t.Errorf("close SQLite backfill store: %v", err)
+		}
+	}()
+	return runChainLoadBackfill(
+		t, ctx, opened, DialectSQLite, "sqlite_backfill", manifest, fixture, rows, 500,
 	)
 }
 
@@ -779,10 +982,18 @@ func verifyChainLoad(
 	database *sql.DB,
 	dialect Dialect,
 	manifest ChainManifest,
-) (valid bool, contiguous bool, verificationResult string, resultErr error) {
+) (
+	valid bool,
+	contiguous bool,
+	verificationResult string,
+	committedRows int64,
+	headSeq int64,
+	headMatchesCommitted bool,
+	resultErr error,
+) {
 	outcome, err := NewChainVerifier(database, dialect, "management", manifest).Verify(ctx)
 	if err != nil {
-		return false, false, outcome.Result, err
+		return false, false, outcome.Result, 0, 0, false, err
 	}
 	valid = outcome.Valid && outcome.Result == verificationValid
 	query := `
@@ -794,7 +1005,7 @@ FROM audit_logs`
 	if err := database.QueryRowContext(ctx, query).Scan(
 		&total, &distinctSequences, &minimum, &maximum, &nullSequences,
 	); err != nil {
-		return valid, false, outcome.Result, err
+		return valid, false, outcome.Result, 0, 0, false, err
 	}
 	contiguous = total == distinctSequences && nullSequences == 0
 	if total == 0 {
@@ -802,7 +1013,13 @@ FROM audit_logs`
 	} else {
 		contiguous = contiguous && minimum == 1 && maximum == total
 	}
-	return valid, contiguous, outcome.Result, nil
+	state, err := (&ChainStateRepository{repositoryBase: repositoryBase{
+		db: database, dialect: dialect,
+	}}).Get(ctx, "management")
+	if err != nil {
+		return valid, contiguous, outcome.Result, total, 0, false, err
+	}
+	return valid, contiguous, outcome.Result, total, state.HeadSeq, state.HeadSeq == total, nil
 }
 
 func samplePostgresChainLockWaits(
@@ -904,6 +1121,108 @@ func evaluateLockObservation(
 	return result
 }
 
+func sampleChainLoadResources(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	duration time.Duration,
+) chainLoadResourceWindow {
+	t.Helper()
+	processHandle, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		t.Fatalf("open current process for resource sampling: %v", err)
+	}
+	sampleCount := int(duration / time.Second)
+	window := chainLoadResourceWindow{
+		Label:            label,
+		PID:              os.Getpid(),
+		IntervalSeconds:  1,
+		WorkingSetMethod: "gopsutil process.MemoryInfo().RSS (GetProcessMemoryInfo working set on Windows)",
+		Samples:          make([]chainLoadResourceSampleValue, 0, sampleCount),
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for second := 1; second <= sampleCount; second++ {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("resource sampling %s canceled: %v", label, ctx.Err())
+		case <-ticker.C:
+			memory, err := processHandle.MemoryInfo()
+			if err != nil {
+				t.Fatalf("sample current process working set (%s second %d): %v", label, second, err)
+			}
+			window.Samples = append(window.Samples, chainLoadResourceSampleValue{
+				Second: second, Goroutines: runtime.NumGoroutine(), WorkingSetBytes: memory.RSS,
+			})
+		}
+	}
+	logChainLoadJSON(t, "resource_window", window)
+	return window
+}
+
+func compareChainLoadResources(
+	baseline chainLoadResourceWindow,
+	post chainLoadResourceWindow,
+) chainLoadResourceComparison {
+	postSamples := post.Samples
+	if len(postSamples) > 30 {
+		postSamples = postSamples[len(postSamples)-30:]
+	}
+	baselineGoroutines := make([]float64, 0, len(baseline.Samples))
+	baselineRSS := make([]float64, 0, len(baseline.Samples))
+	for _, sample := range baseline.Samples {
+		baselineGoroutines = append(baselineGoroutines, float64(sample.Goroutines))
+		baselineRSS = append(baselineRSS, float64(sample.WorkingSetBytes))
+	}
+	postGoroutines := make([]float64, 0, len(postSamples))
+	postRSS := make([]float64, 0, len(postSamples))
+	for _, sample := range postSamples {
+		postGoroutines = append(postGoroutines, float64(sample.Goroutines))
+		postRSS = append(postRSS, float64(sample.WorkingSetBytes))
+	}
+	comparison := chainLoadResourceComparison{
+		BaselineSamples:      len(baseline.Samples),
+		PostSamplesUsed:      len(postSamples),
+		BaselineGoroutineP50: percentileFloat64(baselineGoroutines, 0.50),
+		PostGoroutineP50:     percentileFloat64(postGoroutines, 0.50),
+		BaselineRSSP50Bytes:  percentileFloat64(baselineRSS, 0.50),
+		PostRSSP50Bytes:      percentileFloat64(postRSS, 0.50),
+	}
+	comparison.GoroutineChangePercent = percentChange(
+		comparison.BaselineGoroutineP50, comparison.PostGoroutineP50,
+	)
+	comparison.RSSChangePercent = percentChange(comparison.BaselineRSSP50Bytes, comparison.PostRSSP50Bytes)
+	comparison.GoroutinePassed = comparison.GoroutineChangePercent <= 5
+	comparison.RSSPassed = comparison.RSSChangePercent <= 10
+	return comparison
+}
+
+func percentileFloat64(values []float64, percentile float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	ordered := append([]float64(nil), values...)
+	sort.Float64s(ordered)
+	index := int(math.Ceil(percentile*float64(len(ordered)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(ordered) {
+		index = len(ordered) - 1
+	}
+	return ordered[index]
+}
+
+func percentChange(baseline float64, current float64) float64 {
+	if baseline == 0 {
+		if current == 0 {
+			return 0
+		}
+		return math.Inf(1)
+	}
+	return (current/baseline - 1) * 100
+}
+
 func percentileDuration(values []time.Duration, percentile float64) time.Duration {
 	if len(values) == 0 {
 		return 0
@@ -954,9 +1273,21 @@ func printChainLoadResults(t *testing.T, results []chainLoadResult) {
 			result.LatencyP95MS, result.LatencyP99MS, result.Errors,
 			result.ChainValid, result.ChainContiguous,
 		)
-		if result.Scenario == "pg_backfill" {
+		if strings.HasSuffix(result.Scenario, "_backfill") {
 			t.Logf("  backfill rows=%d seconds=%.3f rows/s=%.1f", result.BackfillRows,
 				result.BackfillSeconds, result.BackfillRowsPerSecond)
+		}
+		if result.QueueCapacity > 0 {
+			t.Logf("  queue max=%d max_after_warmup=%d/%d (%.2f%%) samples=%d interval=%dms; "+
+				"drain=%.6fs/%.0fs final_depth=%d",
+				result.MaxQueueDepth, result.MaxQueueAfterWarmup, result.QueueCapacity,
+				result.MaxQueuePercent, result.QueueSamples, result.QueueSampleIntervalMS,
+				result.DrainSeconds, result.DrainLimitSeconds, result.QueueDepthAfterDrain)
+		}
+		if result.VerificationResult != "" {
+			t.Logf("  verify=%s committed=%d head_seq=%d head_matches=%t error_rate=%.6f%%",
+				result.VerificationResult, result.CommittedRows, result.HeadSeq,
+				result.HeadMatchesCommitted, result.ErrorRatePercent)
 		}
 		if result.LockObservationNote != "" {
 			t.Logf("  approximate state-lock wait p95=%.2fms p99=%.2fms samples=%d sample_errors=%d; "+
