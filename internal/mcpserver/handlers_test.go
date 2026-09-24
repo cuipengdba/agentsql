@@ -13,8 +13,8 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/auth"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -480,15 +480,40 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 	}, mcpTestSecret, pipeline.WithObserver(metricsHub))
 	require.NoError(t, err)
 	runtime := &bootstrap.Runtime{
-		Pipeline: flow, Executors: executor.NewManager(false), Store: metadataStore, Metrics: metricsHub,
+		Pipeline: flow, Store: metadataStore, Metrics: metricsHub,
 	}
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	handlers := &toolHandlers{
-		runtime:     runtime,
-		agent:       agent,
-		apiKey:      plaintext,
-		logger:      zerolog.Nop(),
-		executorFor: func(model.Datasource) (executor.Executor, error) { return spy, nil },
+		runtime: runtime,
+		agent:   agent,
+		apiKey:  plaintext,
+		logger:  zerolog.Nop(),
+		schemaFor: func(ctx context.Context, datasource model.Datasource, tables []executor.TableRef) ([]executor.SchemaColumn, error) {
+			object := ""
+			if len(tables) == 1 {
+				object = tables[0].Table
+				if tables[0].Schema != "" {
+					object = tables[0].Schema + "." + object
+				}
+			}
+			query, err := buildSchemaQuery(datasource.DBType, object)
+			if err != nil {
+				return nil, err
+			}
+			result, err := spy.querySQL(ctx, query, schemaRowLimit)
+			if err != nil {
+				return nil, err
+			}
+			parsed, err := schemaColumnsFromResult(result)
+			if err != nil {
+				return nil, err
+			}
+			columns := make([]executor.SchemaColumn, len(parsed))
+			for index, column := range parsed {
+				columns[index] = executor.SchemaColumn{Schema: column.Schema, Table: column.Table, Column: column.Column}
+			}
+			return columns, nil
+		},
 	}
 	return &mcpFixture{runtime: runtime, handlers: handlers, agent: agent, executor: spy, provider: provider, redactors: redactors}
 }
@@ -501,14 +526,14 @@ func (builder staticRedactorBuilder) RedactorFor(context.Context, string) (mask.
 
 type mcpExecutorProvider struct {
 	mu                    sync.Mutex
-	executor              executor.Executor
-	executorsByDatasource map[string]executor.Executor
+	executor              executor.Statement
+	executorsByDatasource map[string]executor.Statement
 	err                   error
 	count                 int
 	callsByDatasource     map[string]int
 }
 
-func (provider *mcpExecutorProvider) GetOrOpen(datasource model.Datasource, _ []byte) (executor.Executor, error) {
+func (provider *mcpExecutorProvider) AuthorizedExecute(_ context.Context, datasource model.Datasource, _ []byte, sqlText string, _ string) (executor.Statement, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	provider.count++
@@ -521,7 +546,13 @@ func (provider *mcpExecutorProvider) GetOrOpen(datasource model.Datasource, _ []
 		if !exists {
 			return nil, errors.New("test executor not configured for datasource")
 		}
+		if spy, ok := selected.(*mcpSpyExecutor); ok {
+			spy.setSQL(sqlText)
+		}
 		return selected, provider.err
+	}
+	if spy, ok := provider.executor.(*mcpSpyExecutor); ok {
+		spy.setSQL(sqlText)
 	}
 	return provider.executor, provider.err
 }
@@ -553,17 +584,11 @@ type mcpSpyExecutor struct {
 	queryErr     error
 	executeErr   error
 	lastSQL      string
+	boundSQL     string
 }
 
-func (*mcpSpyExecutor) Dialect() string            { return "postgres" }
-func (*mcpSpyExecutor) Ping(context.Context) error { return nil }
-func (*mcpSpyExecutor) OpenSession(context.Context, string) (executor.Session, error) {
-	return nil, errors.New("sessions are not used by MCP tests")
-}
-func (delegate *mcpSpyExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
-	return mcpSpyWriteTx{delegate: delegate}, nil
-}
-func (executor *mcpSpyExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
+func (*mcpSpyExecutor) Dialect() string { return "postgres" }
+func (executor *mcpSpyExecutor) Explain(context.Context) (model.ExplainInfo, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.calls.explain++
@@ -572,7 +597,13 @@ func (executor *mcpSpyExecutor) Explain(context.Context, string) (model.ExplainI
 	}
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }
-func (executor *mcpSpyExecutor) Query(_ context.Context, sql string, _ int) (model.QueryResult, error) {
+func (executor *mcpSpyExecutor) Query(ctx context.Context, limit int) (model.QueryResult, error) {
+	executor.mu.Lock()
+	sqlText := executor.boundSQL
+	executor.mu.Unlock()
+	return executor.querySQL(ctx, sqlText, limit)
+}
+func (executor *mcpSpyExecutor) querySQL(_ context.Context, sql string, _ int) (model.QueryResult, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.calls.query++
@@ -585,7 +616,7 @@ func (executor *mcpSpyExecutor) Query(_ context.Context, sql string, _ int) (mod
 	}
 	return executor.queryResult, nil
 }
-func (executor *mcpSpyExecutor) Execute(context.Context, string) (model.QueryResult, error) {
+func (executor *mcpSpyExecutor) Execute(context.Context) (model.QueryResult, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.calls.execute++
@@ -594,7 +625,15 @@ func (executor *mcpSpyExecutor) Execute(context.Context, string) (model.QueryRes
 	}
 	return model.QueryResult{RowCount: 1}, nil
 }
+func (executor *mcpSpyExecutor) ExecuteTransactional(ctx context.Context, before func(model.QueryResult) error) (model.QueryResult, error) {
+	result, err := executor.Execute(ctx)
+	if err == nil && before != nil {
+		err = before(result)
+	}
+	return result, err
+}
 func (*mcpSpyExecutor) Close() error                                { return nil }
+func (*mcpSpyExecutor) ReleaseReservation()                         {}
 func (*mcpSpyExecutor) TableHasIndex(string, string) (bool, error)  { return true, nil }
 func (*mcpSpyExecutor) TableRowCount(string, string) (int64, error) { return 1, nil }
 func (*mcpSpyExecutor) TransactionState() (rules.TransactionState, error) {
@@ -613,14 +652,11 @@ func (executor *mcpSpyExecutor) lastQuery() string {
 	defer executor.mu.Unlock()
 	return executor.lastSQL
 }
-
-type mcpSpyWriteTx struct{ delegate *mcpSpyExecutor }
-
-func (tx mcpSpyWriteTx) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
-	return tx.delegate.Execute(ctx, sql)
+func (executor *mcpSpyExecutor) setSQL(sqlText string) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	executor.boundSQL = sqlText
 }
-func (mcpSpyWriteTx) Commit(context.Context) error   { return nil }
-func (mcpSpyWriteTx) Rollback(context.Context) error { return nil }
 
 func stringPointerForMCP(value string) *string { return &value }
 
@@ -658,7 +694,7 @@ func assertMCPDatabaseErrorResponse(
 var (
 	_ pipeline.ExecutorProvider              = (*mcpExecutorProvider)(nil)
 	_ pipeline.RedactorBuilder               = (*staticRedactorBuilder)(nil)
-	_ executor.Executor                      = (*mcpSpyExecutor)(nil)
+	_ executor.Statement                     = (*mcpSpyExecutor)(nil)
 	_ rules.TransactionMetadataProvider      = (*mcpSpyExecutor)(nil)
 	_ rules.MysqlTransactionMetadataProvider = (*mcpSpyExecutor)(nil)
 )

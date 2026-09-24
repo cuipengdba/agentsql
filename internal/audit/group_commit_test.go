@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cuipengdba/agentsql/internal/executor"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )

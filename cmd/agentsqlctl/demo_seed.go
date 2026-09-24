@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/demoseed"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/spf13/cobra"
@@ -19,21 +19,8 @@ import (
 type realDemoDatasourcePinger struct{}
 
 func (realDemoDatasourcePinger) Ping(ctx context.Context, datasource model.Datasource, password string) error {
-	var opened executor.Executor
-	var err error
-	switch datasource.DBType {
-	case "postgres":
-		opened, err = executor.NewPostgresExecutor(ctx, datasource, password, true)
-	case "mysql":
-		opened, err = executor.NewMySQLExecutor(ctx, datasource, password, true)
-	default:
-		return fmt.Errorf("unsupported datasource type")
-	}
-	if err != nil {
+	if err := executor.ProbeDatasource(ctx, datasource, password); err != nil {
 		return fmt.Errorf("datasource is unreachable")
-	}
-	if err := opened.Close(); err != nil {
-		return fmt.Errorf("close datasource probe")
 	}
 	return nil
 }

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cuipengdba/agentsql/internal/executor"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
@@ -139,7 +139,7 @@ func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing
 		executorSpy *mcpSpyExecutor
 	}
 	tenants := make([]tenant, 0, agentCount)
-	executorsByDatasource := make(map[string]executor.Executor, agentCount)
+	executorsByDatasource := make(map[string]executor.Statement, agentCount)
 	for index := 0; index < agentCount; index++ {
 		agentID := fmt.Sprintf("tenant-agent-%02d", index)
 		datasourceID := fmt.Sprintf("ds-tenant-%02d", index)

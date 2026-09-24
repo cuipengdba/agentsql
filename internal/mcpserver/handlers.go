@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
@@ -59,11 +59,11 @@ type approvalData struct {
 }
 
 type toolHandlers struct {
-	runtime     *bootstrap.Runtime
-	agent       model.Agent
-	apiKey      string
-	logger      zerolog.Logger
-	executorFor func(model.Datasource) (executor.Executor, error)
+	runtime   *bootstrap.Runtime
+	agent     model.Agent
+	apiKey    string
+	logger    zerolog.Logger
+	schemaFor func(context.Context, model.Datasource, []executor.TableRef) ([]executor.SchemaColumn, error)
 }
 
 func (handlers *toolHandlers) listDatasources(ctx context.Context) ToolResponse {
@@ -87,7 +87,7 @@ func (handlers *toolHandlers) listSchema(
 	if response != nil {
 		return *response
 	}
-	query, err := buildSchemaQuery(datasource.DBType, table)
+	tables, err := parseSchemaTable(table)
 	if err != nil {
 		return denyToolResponse("table 必须是安全的表名或 schema.table", "请仅使用字母、数字、下划线和一个可选的点")
 	}
@@ -103,14 +103,7 @@ func (handlers *toolHandlers) listSchema(
 	if err != nil {
 		return handlers.internalError("list_schema", err)
 	}
-	databaseExecutor, err := handlers.getExecutor(datasource)
-	if err != nil {
-		return handlers.internalError("list_schema", err)
-	}
-	if isNilMCPDependency(databaseExecutor) {
-		return handlers.internalError("list_schema", fmt.Errorf("executor lookup returned nil"))
-	}
-	result, err := databaseExecutor.Query(ctx, query, schemaRowLimit)
+	columns, err := handlers.listSchemaColumns(ctx, datasource, tables)
 	if err != nil {
 		var databaseError *executor.DBError
 		if errors.As(err, &databaseError) {
@@ -118,14 +111,11 @@ func (handlers *toolHandlers) listSchema(
 		}
 		return handlers.internalError("list_schema", err)
 	}
-	if result.Truncated {
-		return errorToolResponse("数据源结构超过安全返回上限", "请指定 table 缩小结构查询范围")
+	policyColumns := make([]policy.SchemaColumn, len(columns))
+	for index, column := range columns {
+		policyColumns[index] = policy.SchemaColumn{Schema: column.Schema, Table: column.Table, Column: column.Column}
 	}
-	columns, err := schemaColumnsFromResult(result)
-	if err != nil {
-		return handlers.internalError("list_schema", err)
-	}
-	filtered, err := policy.FilterColumnsForSchema(columns, decision)
+	filtered, err := policy.FilterColumnsForSchema(policyColumns, decision)
 	if err != nil {
 		return handlers.internalError("list_schema", err)
 	}
@@ -140,11 +130,43 @@ func (handlers *toolHandlers) listSchema(
 	return allowToolResponse("已按 Agent 的表级和列级权限裁剪结构", data)
 }
 
-func (handlers *toolHandlers) getExecutor(datasource model.Datasource) (executor.Executor, error) {
-	if handlers.executorFor != nil {
-		return handlers.executorFor(datasource)
+func (handlers *toolHandlers) listSchemaColumns(
+	ctx context.Context,
+	datasource model.Datasource,
+	tables []executor.TableRef,
+) ([]executor.SchemaColumn, error) {
+	if handlers.schemaFor != nil {
+		return handlers.schemaFor(ctx, datasource, tables)
 	}
-	return handlers.runtime.ExecutorFor(datasource)
+	return handlers.runtime.ListDatasourceSchema(ctx, datasource, tables)
+}
+
+func parseSchemaTable(value string) ([]executor.TableRef, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) == 1 && validSchemaIdentifier(parts[0]) {
+		return []executor.TableRef{{Table: parts[0]}}, nil
+	}
+	if len(parts) == 2 && validSchemaIdentifier(parts[0]) && validSchemaIdentifier(parts[1]) {
+		return []executor.TableRef{{Schema: parts[0], Table: parts[1]}}, nil
+	}
+	return nil, fmt.Errorf("invalid table identity")
+}
+
+func validSchemaIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, character := range value {
+		if character == '_' || character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' ||
+			index > 0 && character >= '0' && character <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (handlers *toolHandlers) explainQuery(

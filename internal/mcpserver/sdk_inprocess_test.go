@@ -26,7 +26,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 		Logger: zerolog.Nop(), Version: version.Version,
 	})
 	require.NoError(t, err)
-	server.handlers.executorFor = fixture.handlers.executorFor
+	server.handlers.schemaFor = fixture.handlers.schemaFor
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
@@ -52,7 +52,7 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	require.NotNil(t, runtime.Pipeline)
-	require.NotNil(t, runtime.Executors)
+	require.NotNil(t, runtime.business)
 	require.NotNil(t, runtime.Store)
 	require.NotNil(t, runtime.Store.Rules())
 	var overrideReader pipeline.RuleOverrideReader = runtime.Store.Rules()
@@ -247,11 +247,11 @@ func receiveBootstrapEvent(t *testing.T, events <-chan eventbus.Event) eventbus.
 
 type bootstrapExecutorProvider struct {
 	mu       sync.Mutex
-	executor executor.Executor
+	executor executor.Statement
 	count    int
 }
 
-func (provider *bootstrapExecutorProvider) GetOrOpen(model.Datasource, []byte) (executor.Executor, error) {
+func (provider *bootstrapExecutorProvider) AuthorizedExecute(context.Context, model.Datasource, []byte, string, string) (executor.Statement, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	provider.count++
@@ -266,41 +266,37 @@ func (provider *bootstrapExecutorProvider) calls() int {
 
 type bootstrapExecutor struct{}
 
-func (*bootstrapExecutor) Dialect() string            { return "postgres" }
-func (*bootstrapExecutor) Ping(context.Context) error { return nil }
-func (*bootstrapExecutor) OpenSession(context.Context, string) (executor.Session, error) {
-	return nil, errors.New("session not configured")
-}
-func (delegate *bootstrapExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
-	return bootstrapWriteTx{delegate: delegate}, nil
-}
-func (*bootstrapExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
+func (*bootstrapExecutor) Dialect() string { return "postgres" }
+func (*bootstrapExecutor) Explain(context.Context) (model.ExplainInfo, error) {
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }
-func (*bootstrapExecutor) Query(context.Context, string, int) (model.QueryResult, error) {
+func (*bootstrapExecutor) Query(context.Context, int) (model.QueryResult, error) {
 	return model.QueryResult{Columns: []string{"phone"}, Rows: [][]string{{"13812345678"}}, RowCount: 1}, nil
 }
-func (*bootstrapExecutor) Execute(context.Context, string) (model.QueryResult, error) {
+func (*bootstrapExecutor) Execute(context.Context) (model.QueryResult, error) {
 	return model.QueryResult{RowCount: 1}, nil
 }
+func (delegate *bootstrapExecutor) ExecuteTransactional(ctx context.Context, before func(model.QueryResult) error) (model.QueryResult, error) {
+	result, err := delegate.Execute(ctx)
+	if err == nil && before != nil {
+		err = before(result)
+	}
+	return result, err
+}
 func (*bootstrapExecutor) Close() error                                { return nil }
+func (*bootstrapExecutor) ReleaseReservation()                         {}
 func (*bootstrapExecutor) TableHasIndex(string, string) (bool, error)  { return true, nil }
 func (*bootstrapExecutor) TableRowCount(string, string) (int64, error) { return 1, nil }
 func (*bootstrapExecutor) TransactionState() (rules.TransactionState, error) {
 	return rules.TransactionState{}, nil
 }
-
-type bootstrapWriteTx struct{ delegate *bootstrapExecutor }
-
-func (tx bootstrapWriteTx) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
-	return tx.delegate.Execute(ctx, sql)
+func (*bootstrapExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return rules.MysqlTransactionState{}, nil
 }
-func (bootstrapWriteTx) Commit(context.Context) error   { return nil }
-func (bootstrapWriteTx) Rollback(context.Context) error { return nil }
 
 var (
 	_ pipeline.ExecutorProvider         = (*bootstrapExecutorProvider)(nil)
-	_ executor.Executor                 = (*bootstrapExecutor)(nil)
+	_ executor.Statement                = (*bootstrapExecutor)(nil)
 	_ rules.TransactionMetadataProvider = (*bootstrapExecutor)(nil)
 )
 
@@ -592,7 +588,7 @@ func TestRuntimeCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, runtime.Close())
 	require.NoError(t, runtime.Close())
-	_, err = runtime.ExecutorFor(model.Datasource{})
+	err = runtime.PingDatasource(context.Background(), model.Datasource{})
 	require.Error(t, err)
 	require.False(t, errors.Is(err, context.Canceled))
 }

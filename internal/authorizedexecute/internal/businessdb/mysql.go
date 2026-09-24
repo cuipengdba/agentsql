@@ -1,4 +1,4 @@
-package executor
+package businessdb
 
 import (
 	"context"
@@ -21,6 +21,8 @@ import (
 )
 
 const mysqlConnectionMaxLifetime = 5 * time.Minute
+
+const mysqlProtocolFrameLimit = 1 << 20
 
 // MySQLExecutor controls one MySQL database/sql connection pool.
 type MySQLExecutor struct {
@@ -482,6 +484,8 @@ func buildMySQLDSN(datasource model.Datasource, password string) (string, error)
 	config.DBName = datasource.Database
 	config.ParseTime = true
 	config.MultiStatements = false
+	// The driver validates this packet length before allocating the payload.
+	config.MaxAllowedPacket = mysqlProtocolFrameLimit
 	dsn := config.FormatDSN()
 	separator := "?"
 	if strings.Contains(dsn, "?") {
@@ -700,6 +704,10 @@ func closeSQLRowsAfterError(rows *sql.Rows, cause error) error {
 }
 
 func mysqlDatabaseError(ctx context.Context, stage DBStage, message string, cause error) error {
+	var resource *ResourceError
+	if errors.As(cause, &resource) {
+		return resource
+	}
 	if classified, ok := classifyMySQLError(ctx, stage, cause); ok {
 		return classified
 	}

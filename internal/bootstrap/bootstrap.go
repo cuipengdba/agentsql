@@ -14,10 +14,10 @@ import (
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/auditrelay"
 	"github.com/cuipengdba/agentsql/internal/auth"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/controlledread"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -33,7 +33,6 @@ import (
 // metadata store for one AgentSQL process.
 type Runtime struct {
 	Pipeline        *pipeline.Pipeline
-	Executors       *executor.Manager
 	ControlledRead  *controlledread.Service
 	ManagementAudit audit.Recorder
 	Store           *store.Store
@@ -44,15 +43,17 @@ type Runtime struct {
 	// Notifications is the process-local best-effort notification manager.
 	Notifications *notify.Manager
 
-	mu          sync.Mutex
-	secret      []byte
-	redactors   *redactorBuilder
-	names       *notificationNameResolver
-	redaction   *redactionRuntime
-	groupSink   *audit.GroupCommitSink
-	relayCancel context.CancelFunc
-	relayWait   sync.WaitGroup
-	closed      bool
+	mu           sync.Mutex
+	secret       []byte
+	redactors    *redactorBuilder
+	names        *notificationNameResolver
+	redaction    *redactionRuntime
+	groupSink    *audit.GroupCommitSink
+	business     *executor.Gateway
+	businessRead *executor.Gateway
+	relayCancel  context.CancelFunc
+	relayWait    sync.WaitGroup
+	closed       bool
 }
 
 // Assemble validates configuration and wires the required pipeline ports and
@@ -106,8 +107,8 @@ func assembleWithExecutorProvider(
 		)
 		return nil, errors.Join(cause, metadataStore.Close())
 	}
-	manager := executor.NewManager(false)
-	readOnlyManager := executor.NewManager(true)
+	manager := executor.NewGateway(false)
+	readOnlyManager := executor.NewGateway(true)
 	metricsHub := metrics.New(func() []metrics.PoolStat {
 		snapshots := manager.SnapshotPools()
 		result := make([]metrics.PoolStat, 0, len(snapshots))
@@ -204,7 +205,6 @@ func assembleWithExecutorProvider(
 	}
 	runtime := &Runtime{
 		Pipeline:        flow,
-		Executors:       manager,
 		ControlledRead:  controlled,
 		ManagementAudit: managementRecorder,
 		Store:           metadataStore,
@@ -216,6 +216,8 @@ func assembleWithExecutorProvider(
 		names:           names,
 		redaction:       redactionRuntime,
 		groupSink:       groupSink,
+		business:        manager,
+		businessRead:    readOnlyManager,
 	}
 	runtime.ChainMonitor = NewChainMonitor(
 		metadataStore,
@@ -331,17 +333,35 @@ func (runtime *Runtime) PublishManagementAudit(recorded model.AuditLog) {
 	bestEffortPublish(runtime.Events, recorded)
 }
 
-// ExecutorFor returns the managed executor for trusted metadata operations.
-func (runtime *Runtime) ExecutorFor(datasource model.Datasource) (executor.Executor, error) {
+// PingDatasource performs a fixed health operation without exporting a
+// database handle or accepting SQL.
+func (runtime *Runtime) PingDatasource(ctx context.Context, datasource model.Datasource) error {
+	if runtime == nil {
+		return fmt.Errorf("runtime is nil")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed || runtime.businessRead == nil {
+		return fmt.Errorf("runtime is closed")
+	}
+	return runtime.businessRead.Ping(ctx, datasource, append([]byte(nil), runtime.secret...))
+}
+
+// ListDatasourceSchema performs only the fixed typed information-schema read.
+func (runtime *Runtime) ListDatasourceSchema(
+	ctx context.Context,
+	datasource model.Datasource,
+	tables []executor.TableRef,
+) ([]executor.SchemaColumn, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	if runtime.closed || runtime.Executors == nil {
+	if runtime.closed || runtime.businessRead == nil {
 		return nil, fmt.Errorf("runtime is closed")
 	}
-	return runtime.Executors.GetOrOpen(datasource, append([]byte(nil), runtime.secret...))
+	return runtime.businessRead.ListSchema(ctx, datasource, append([]byte(nil), runtime.secret...), tables)
 }
 
 // Close releases all business pools before closing metadata storage.
@@ -378,8 +398,8 @@ func (runtime *Runtime) Close() error {
 			closeErrors = append(closeErrors, err)
 		}
 	}
-	if runtime.Executors != nil {
-		if err := runtime.Executors.CloseAll(); err != nil {
+	if runtime.business != nil {
+		if err := runtime.business.CloseAll(); err != nil {
 			closeErrors = append(closeErrors, err)
 		}
 	}
@@ -403,7 +423,7 @@ func (runtime *Runtime) Close() error {
 }
 
 func closeAfterAssemblyError(
-	manager *executor.Manager,
+	manager *executor.Gateway,
 	metadataStore *store.Store,
 	groupSink *audit.GroupCommitSink,
 	cause error,

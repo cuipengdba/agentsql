@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/cuipengdba/agentsql/internal/executor"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/stretchr/testify/require"

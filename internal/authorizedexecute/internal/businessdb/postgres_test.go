@@ -1,13 +1,27 @@
-package executor
+package businessdb
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPostgresFrameCapRejectsHeaderBeforeBodyRead(t *testing.T) {
+	header := []byte{'D', 0, 0, 0, 0}
+	bodyLength := maxDatabaseFrameBytes - postgresFrameHeaderSize + 1
+	binary.BigEndian.PutUint32(header[1:], uint32(bodyLength+4))
+	frontend := newBoundedPostgresFrontend(bytes.NewReader(header), io.Discard)
+	_, err := frontend.Receive()
+	var exceeded *pgproto3.ExceededMaxBodyLenErr
+	require.ErrorAs(t, err, &exceeded)
+}
 
 func TestParsePostgresExplainJSON(t *testing.T) {
 	tests := []struct {

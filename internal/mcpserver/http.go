@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/auth"
+	authorizedexecute "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/metrics"
@@ -183,7 +184,7 @@ func newHTTPHandlerWithRegistry(
 	logger zerolog.Logger,
 	options ...HTTPOption,
 ) (http.Handler, *agentServerRegistry, error) {
-	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil || runtime.Executors == nil {
+	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil {
 		return nil, nil, fmt.Errorf("create MCP HTTP handler: runtime is incomplete")
 	}
 	if err := cfg.Validate(); err != nil {
@@ -243,12 +244,12 @@ func newHTTPHandlerWithRegistry(
 	mux.HandleFunc("GET /healthz", healthHandler(cfg))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
 	mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))
-	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp", authorizedexecute.SealedHTTP(mcpHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
 	if resolvedOptions.adminAPI != nil {
 		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
 	}
 	if resolvedOptions.webConsole != nil {
-		mux.Handle("/", resolvedOptions.webConsole)
+		mux.Handle("/", authorizedexecute.SealedHTTP(resolvedOptions.webConsole, authorizedexecute.DefaultLimits.EnvelopeBytes))
 	} else {
 		mux.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
 			writeHTTPError(writer, http.StatusNotFound, "not found")

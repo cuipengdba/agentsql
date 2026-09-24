@@ -37,7 +37,7 @@ func newT25LatencyPipeline(t *testing.T, datasource model.Datasource) *Pipeline 
 			Authenticator: t25BenchmarkAuthenticator{},
 			Datasources:   t25BenchmarkDatasourceReader{datasource: datasource},
 			Policies:      t25BenchmarkPolicyLoader{},
-			Executors:     t25BenchmarkExecutorProvider{executor: &t25BenchmarkExecutor{}},
+			Executors:     t25BenchmarkExecutorProvider{statement: &t25BenchmarkExecutor{}},
 			Approvals:     t25BenchmarkApprovalWriter{},
 			Audit:         t25BenchmarkAuditRecorder{},
 			Redactors:     t25BenchmarkRedactorBuilder{redactor: redactor},

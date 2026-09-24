@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
@@ -245,11 +245,11 @@ func (playgroundPipelinePolicyLoader) ListByAgentAndDatasource(
 
 type playgroundPipelineExecutorProvider struct {
 	mu       sync.Mutex
-	executor executor.Executor
+	executor executor.Statement
 	count    int
 }
 
-func (provider *playgroundPipelineExecutorProvider) GetOrOpen(model.Datasource, []byte) (executor.Executor, error) {
+func (provider *playgroundPipelineExecutorProvider) AuthorizedExecute(context.Context, model.Datasource, []byte, string, string) (executor.Statement, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	provider.count++
@@ -268,15 +268,8 @@ type playgroundPipelineExecutor struct {
 	result   *model.QueryResult
 }
 
-func (*playgroundPipelineExecutor) Dialect() string            { return "postgres" }
-func (*playgroundPipelineExecutor) Ping(context.Context) error { return nil }
-func (*playgroundPipelineExecutor) OpenSession(context.Context, string) (executor.Session, error) {
-	return nil, errors.New("unexpected demo session")
-}
-func (*playgroundPipelineExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
-	return nil, errors.New("unexpected demo write transaction")
-}
-func (*playgroundPipelineExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
+func (*playgroundPipelineExecutor) Dialect() string { return "postgres" }
+func (*playgroundPipelineExecutor) Explain(context.Context) (model.ExplainInfo, error) {
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }
 func (*playgroundPipelineExecutor) TableHasIndex(string, string) (bool, error)  { return true, nil }
@@ -286,7 +279,6 @@ func (*playgroundPipelineExecutor) TransactionState() (rules.TransactionState, e
 }
 func (demoExecutor *playgroundPipelineExecutor) Query(
 	_ context.Context,
-	_ string,
 	rowLimit int,
 ) (model.QueryResult, error) {
 	demoExecutor.mu.Lock()
@@ -311,10 +303,17 @@ func (demoExecutor *playgroundPipelineExecutor) Query(
 		RowCount: 1, Truncated: true, LatencyMS: 1,
 	}, nil
 }
-func (*playgroundPipelineExecutor) Execute(context.Context, string) (model.QueryResult, error) {
+func (*playgroundPipelineExecutor) Execute(context.Context) (model.QueryResult, error) {
 	return model.QueryResult{}, errors.New("unexpected demo execute")
 }
-func (*playgroundPipelineExecutor) Close() error { return nil }
+func (*playgroundPipelineExecutor) ExecuteTransactional(context.Context, func(model.QueryResult) error) (model.QueryResult, error) {
+	return model.QueryResult{}, errors.New("unexpected demo write transaction")
+}
+func (*playgroundPipelineExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return rules.MysqlTransactionState{}, nil
+}
+func (*playgroundPipelineExecutor) Close() error        { return nil }
+func (*playgroundPipelineExecutor) ReleaseReservation() {}
 func (demoExecutor *playgroundPipelineExecutor) lastRowLimit() int {
 	demoExecutor.mu.Lock()
 	defer demoExecutor.mu.Unlock()
@@ -357,7 +356,7 @@ var _ pipeline.IdentityAuthenticator = (*playgroundPipelineAuthenticator)(nil)
 var _ pipeline.DatasourceReader = playgroundPipelineDatasourceReader{}
 var _ pipeline.PolicyLoader = playgroundPipelinePolicyLoader{}
 var _ pipeline.ExecutorProvider = (*playgroundPipelineExecutorProvider)(nil)
-var _ executor.Executor = (*playgroundPipelineExecutor)(nil)
+var _ executor.Statement = (*playgroundPipelineExecutor)(nil)
 var _ rules.TransactionMetadataProvider = (*playgroundPipelineExecutor)(nil)
 var _ pipeline.ApprovalWriter = playgroundPipelineApprovalWriter{}
 var _ pipeline.RedactorBuilder = (*playgroundPipelineRedactorBuilder)(nil)

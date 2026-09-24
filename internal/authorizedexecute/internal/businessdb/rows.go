@@ -1,4 +1,4 @@
-package executor
+package businessdb
 
 import (
 	"database/sql/driver"
@@ -21,6 +21,22 @@ type rowSource interface {
 	Close() error
 }
 
+const (
+	maxResultColumns  = 256
+	maxRawCellBytes   = 64 << 10
+	maxRawRowBytes    = 1 << 20
+	maxRawResultBytes = 16 << 20
+)
+
+// ResourceError reports only a stable authorization reason and deliberately
+// retains neither database values nor driver diagnostics.
+type ResourceError struct{ Reason string }
+
+func (err *ResourceError) Error() string               { return err.Reason }
+func (err *ResourceError) AuthorizationReason() string { return err.Reason }
+
+func resourceError(reason string) error { return &ResourceError{Reason: reason} }
+
 func collectRows(source rowSource, rowLimit int) (model.QueryResult, error) {
 	if isNilValue(source) {
 		return model.QueryResult{}, fmt.Errorf("collect rows: source is nil")
@@ -34,6 +50,16 @@ func collectRows(source rowSource, rowLimit int) (model.QueryResult, error) {
 	columns, err := source.Columns()
 	if err != nil {
 		return model.QueryResult{}, fmt.Errorf("collect row columns: %w", closeRowSource(source, err))
+	}
+	if len(columns) > maxResultColumns {
+		return model.QueryResult{}, closeRowSource(source, resourceError("AUTH_PROJECTION_LIMIT"))
+	}
+	totalBytes := 0
+	for _, column := range columns {
+		if len(column) > maxRawCellBytes || totalBytes > maxRawResultBytes-len(column) {
+			return model.QueryResult{}, closeRowSource(source, resourceError("AUTH_RESULT_LIMIT"))
+		}
+		totalBytes += len(column)
 	}
 	result := model.QueryResult{
 		Columns: append([]string{}, columns...),
@@ -55,8 +81,21 @@ func collectRows(source rowSource, rowLimit int) (model.QueryResult, error) {
 			break
 		}
 		row := make([]string, len(values))
+		rowBytes := 0
 		for index, value := range values {
-			row[index] = stringifyDatabaseValue(value)
+			text, stringifyErr := stringifyDatabaseValueBounded(value, maxRawCellBytes)
+			if stringifyErr != nil {
+				return model.QueryResult{}, closeRowSource(source, stringifyErr)
+			}
+			if rowBytes > maxRawRowBytes-len(text) {
+				return model.QueryResult{}, closeRowSource(source, resourceError("AUTH_ROW_LIMIT"))
+			}
+			if totalBytes > maxRawResultBytes-len(text) {
+				return model.QueryResult{}, closeRowSource(source, resourceError("AUTH_RESULT_LIMIT"))
+			}
+			rowBytes += len(text)
+			totalBytes += len(text)
+			row[index] = text
 		}
 		result.Rows = append(result.Rows, row)
 	}
@@ -70,6 +109,24 @@ func collectRows(source rowSource, rowLimit int) (model.QueryResult, error) {
 	}
 	result.RowCount = len(result.Rows)
 	return result, nil
+}
+
+func stringifyDatabaseValueBounded(value any, limit int) (string, error) {
+	switch typed := value.(type) {
+	case string:
+		if len(typed) > limit {
+			return "", resourceError("AUTH_CELL_LIMIT")
+		}
+	case []byte:
+		if len(typed) > limit {
+			return "", resourceError("AUTH_CELL_LIMIT")
+		}
+	}
+	text := stringifyDatabaseValue(value)
+	if len(text) > limit {
+		return "", resourceError("AUTH_CELL_LIMIT")
+	}
+	return text, nil
 }
 
 func closeRowSource(source rowSource, cause error) error {

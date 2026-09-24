@@ -1,4 +1,4 @@
-package executor
+package businessdb
 
 import (
 	"database/sql/driver"

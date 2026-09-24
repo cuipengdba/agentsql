@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/engine"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
@@ -88,6 +88,9 @@ func (pipeline *Pipeline) process(
 			fmt.Errorf("process SQL request with nil context: %w", ErrInvalidRequest),
 		)
 	}
+	requestContext, cancelRequest := executor.WithRequestDeadline(ctx, executor.DefaultRequestWall)
+	defer cancelRequest()
+	ctx = requestContext
 
 	if err := run.measure(StageAuth, func() error {
 		agent, err := pipeline.ports.Authenticator.Authenticate(ctx, request.APIKey)
@@ -148,6 +151,9 @@ func (pipeline *Pipeline) process(
 	if run.response.Decision == model.DecisionDeny {
 		return run.finish(ctx, nil)
 	}
+	if err := executor.ValidatePreParse(request.SQL, nil, executor.DefaultLimits); err != nil {
+		return run.finish(ctx, err)
+	}
 
 	parseFailure := false
 	if err := run.measure(StageParse, func() error {
@@ -169,6 +175,9 @@ func (pipeline *Pipeline) process(
 		}
 		if ast == nil {
 			return fmt.Errorf("parser returned nil AST")
+		}
+		if err := executor.NewBudget(executor.DefaultLimits).ChargeAST(ast); err != nil {
+			return err
 		}
 		return nil
 	}); err != nil {
@@ -227,6 +236,9 @@ func (pipeline *Pipeline) process(
 	if staticAssessment.Decision == model.DecisionDeny {
 		return run.finish(ctx, nil)
 	}
+	lockedContext, cancelLockedWork := executor.WithLockDeadline(ctx, executor.DefaultRequestWall)
+	defer cancelLockedWork()
+	ctx = lockedContext
 
 	if err := run.measure(StageGuardDynamic, func() (stageError error) {
 		dynamicContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
@@ -234,55 +246,47 @@ func (pipeline *Pipeline) process(
 			return err
 		}
 		defer cancel()
-		openedSession := false
+		openedStatement := false
 		defer func() {
-			if stageError == nil || !openedSession || run.session == nil {
+			if stageError == nil || !openedStatement || run.statement == nil {
 				return
 			}
-			if closeError := run.session.Close(); closeError != nil {
+			if closeError := run.statement.Close(); closeError != nil {
 				stageError = errors.Join(stageError, closeError)
 			}
-			run.session = nil
+			run.statement = nil
 		}()
 
-		databaseExecutor, err := pipeline.ports.Executors.GetOrOpen(
+		tenant := run.agent.ID
+		if run.agent.Owner != nil && strings.TrimSpace(*run.agent.Owner) != "" {
+			tenant = strings.TrimSpace(*run.agent.Owner)
+		}
+		dynamicContext = executor.WithReservationScope(dynamicContext, run.agent.ID, tenant)
+		statement, err := pipeline.ports.Executors.AuthorizedExecute(
+			dynamicContext,
 			*run.datasource,
 			append([]byte(nil), pipeline.secret...),
+			request.SQL,
+			request.SessionID,
 		)
 		if err != nil {
 			return err
 		}
-		if isNilInterface(databaseExecutor) {
-			return fmt.Errorf("executor provider returned nil executor")
+		if isNilInterface(statement) {
+			return fmt.Errorf("authorized execution provider returned nil statement")
 		}
-		if databaseExecutor.Dialect() != run.datasource.DBType {
+		openedStatement = true
+		if statement.Dialect() != run.datasource.DBType {
 			return fmt.Errorf(
-				"executor dialect %q does not match datasource %q",
-				databaseExecutor.Dialect(),
+				"statement dialect %q does not match datasource %q",
+				statement.Dialect(),
 				run.datasource.DBType,
 			)
 		}
-		run.executor = databaseExecutor
-		metadata := any(databaseExecutor)
-		if request.SessionID != "" {
-			session, err := databaseExecutor.OpenSession(dynamicContext, request.SessionID)
-			if err != nil {
-				return err
-			}
-			if isNilInterface(session) {
-				return fmt.Errorf("executor returned nil session")
-			}
-			run.session = session
-			openedSession = true
-			metadata = session
-		}
+		run.statement = statement
+		metadata := any(statement)
 		if shouldExplain(run.ast) {
-			var explain model.ExplainInfo
-			if run.session != nil {
-				explain, err = run.session.Explain(dynamicContext, request.SQL)
-			} else {
-				explain, err = databaseExecutor.Explain(dynamicContext, request.SQL)
-			}
+			explain, err := statement.Explain(dynamicContext)
 			if err != nil {
 				return err
 			}
@@ -312,6 +316,7 @@ func (pipeline *Pipeline) process(
 	}); err != nil {
 		return run.finish(ctx, err)
 	}
+	defer run.statement.ReleaseReservation()
 	barrier := classifyExecutionBarrier(run.ast)
 	if barrier == barrierDeny {
 		run.response.Decision = model.DecisionDeny
@@ -382,17 +387,14 @@ func (pipeline *Pipeline) process(
 			if normalizeErr != nil {
 				return normalizeErr
 			}
-			if run.session != nil {
-				result, err = run.session.Query(executionContext, request.SQL, rowLimit)
-			} else {
-				result, err = run.executor.Query(executionContext, request.SQL, rowLimit)
-			}
-		} else if run.session != nil {
-			result, err = run.session.Execute(executionContext, request.SQL)
+			result, err = run.statement.Query(executionContext, rowLimit)
 		} else {
-			result, err = run.executor.Execute(executionContext, request.SQL)
+			result, err = run.statement.Execute(executionContext)
 		}
 		if err != nil {
+			return err
+		}
+		if err := executor.ValidateResult(result, false, executor.DefaultLimits); err != nil {
 			return err
 		}
 		run.executionResult = &result
@@ -430,6 +432,9 @@ func (pipeline *Pipeline) process(
 					redacted, report = redactor.Apply(*run.response.Result)
 				}
 			}
+			if err := executor.ValidateResult(redacted, true, executor.DefaultLimits); err != nil {
+				return err
+			}
 			run.response.Result = &redacted
 			run.response.Redact = report
 			return nil
@@ -441,47 +446,33 @@ func (pipeline *Pipeline) process(
 }
 
 func (run *pipelineRun) executeTransactionalWrite(ctx context.Context) (Response, error) {
-	var tx executor.WriteTx
+	var auditFailed bool
 	if err := run.measure(StageExecute, func() error {
-		var err error
-		if run.session != nil {
-			tx, err = run.session.BeginWriteTx(ctx)
-		} else {
-			tx, err = run.executor.BeginWriteTx(ctx)
-		}
-		if err != nil {
-			return err
-		}
-		if isNilInterface(tx) {
-			return fmt.Errorf("executor returned nil write transaction")
-		}
 		executionContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
 		if err != nil {
 			return err
 		}
 		defer cancel()
-		result, err := tx.Execute(executionContext, run.request.SQL)
-		if err != nil {
-			return err
+		result, err := run.statement.ExecuteTransactional(executionContext, func(candidate model.QueryResult) error {
+			run.executionResult = &candidate
+			if err := run.audit(ctx, string(run.response.Decision), nil, auditPhaseSingle); err != nil {
+				auditFailed = true
+				return ErrAuditUnavailable
+			}
+			return nil
+		})
+		if err == nil {
+			run.executionResult = &result
 		}
-		run.executionResult = &result
-		return nil
+		return err
 	}); err != nil {
-		if tx != nil {
-			run.rollbackWriteTx(tx)
+		if auditFailed {
+			return run.finish(ctx, ErrAuditUnavailable)
+		}
+		if errors.Is(err, executor.ErrCommitOutcomeUnknown) {
+			return run.finishOutcome(ctx, ErrBusinessCommitUncertain)
 		}
 		return run.finish(ctx, err)
-	}
-	defer run.rollbackWriteTx(tx)
-
-	if err := run.audit(ctx, string(run.response.Decision), nil, auditPhaseSingle); err != nil {
-		run.rollbackWriteTx(tx)
-		return run.finish(ctx, ErrAuditUnavailable)
-	}
-
-	if err := run.measure(StageExecute, func() error { return tx.Commit(ctx) }); err != nil {
-		run.response.Result = nil
-		return run.finishOutcome(ctx, ErrBusinessCommitUncertain)
 	}
 	result := *run.executionResult
 	run.response.Result = &result
@@ -499,11 +490,7 @@ func (run *pipelineRun) executeAfterIntent(ctx context.Context) (Response, error
 		}
 		defer cancel()
 		var result model.QueryResult
-		if run.session != nil {
-			result, err = run.session.Execute(executionContext, run.request.SQL)
-		} else {
-			result, err = run.executor.Execute(executionContext, run.request.SQL)
-		}
+		result, err = run.statement.Execute(executionContext)
 		if err != nil {
 			return err
 		}
@@ -515,15 +502,6 @@ func (run *pipelineRun) executeAfterIntent(ctx context.Context) (Response, error
 		return run.finishOutcome(ctx, err)
 	}
 	return run.finishOutcome(ctx, nil)
-}
-
-func (run *pipelineRun) rollbackWriteTx(tx executor.WriteTx) {
-	if isNilInterface(tx) {
-		return
-	}
-	cleanupContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = tx.Rollback(cleanupContext)
 }
 
 func resolveColumnSources(refs []model.DirectProjectionRef, columnCount int) []mask.ColumnSource {
@@ -561,13 +539,13 @@ func legacySourceNames(sources []mask.ColumnSource) []string {
 }
 
 func (run *pipelineRun) closeUnusedSession() error {
-	if run.session == nil {
+	if run.statement == nil {
 		return nil
 	}
-	session := run.session
-	run.session = nil
-	if err := session.Close(); err != nil {
-		return fmt.Errorf("close non-executing pipeline session: %w", err)
+	statement := run.statement
+	run.statement = nil
+	if err := statement.Close(); err != nil {
+		return fmt.Errorf("close non-executing authorized statement: %w", err)
 	}
 	return nil
 }
@@ -583,8 +561,7 @@ type pipelineRun struct {
 	policy          *model.PolicyDecision
 	ruleLayer       engine.RuleLayer
 	ast             *model.AST
-	executor        executor.Executor
-	session         executor.Session
+	statement       executor.Statement
 	executionResult *model.QueryResult
 	reservation     *requestLimiter
 	auditAttempts   int
@@ -795,6 +772,12 @@ func businessDatabaseError(operationError error) (*executor.DBError, bool) {
 }
 
 func internalFailurePresentation(cause error) (executor.DBErrorCode, string, string) {
+	stable := executor.StableError(cause)
+	if stable != nil && stable.Reason != executor.ReasonDatabaseFailure {
+		return executor.DBErrorCode(stable.Reason),
+			"请求超出安全资源边界",
+			"请缩小 SQL、参数或结果规模后重试"
+	}
 	switch {
 	case errors.Is(cause, ErrBusinessCommitUncertain):
 		return executor.DBErrorCodeCommitOutcomeUnknown,
@@ -812,6 +795,10 @@ func internalFailurePresentation(cause error) (executor.DBErrorCode, string, str
 }
 
 func internalFailureStage(cause error) string {
+	stable := executor.StableError(cause)
+	if stable != nil && stable.Reason != executor.ReasonDatabaseFailure {
+		return StageGuardStatic
+	}
 	switch {
 	case errors.Is(cause, ErrBusinessCommitUncertain):
 		return string(executor.DBStageCommit)
@@ -1087,7 +1074,7 @@ func statementContext(
 	if timeoutMS < 0 || int64(timeoutMS) > int64((time.Duration(1<<63-1))/time.Millisecond) {
 		return nil, nil, fmt.Errorf("invalid statement timeout %dms", timeoutMS)
 	}
-	ctx, cancel := context.WithTimeout(parent, time.Duration(timeoutMS)*time.Millisecond)
+	ctx, cancel := executor.WithStatementDeadline(parent, time.Duration(timeoutMS)*time.Millisecond)
 	return ctx, cancel, nil
 }
 

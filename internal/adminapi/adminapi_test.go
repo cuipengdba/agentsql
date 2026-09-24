@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/cuipengdba/agentsql/internal/store"

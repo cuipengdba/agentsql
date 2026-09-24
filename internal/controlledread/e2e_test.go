@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/discovery"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -35,9 +35,7 @@ func TestDiscoveryMySQL8EndToEndE2E(t *testing.T) {
 	port, err := container.MappedPort(ctx, "3306/tcp")
 	require.NoError(t, err)
 	datasource := model.Datasource{ID: "discovery-mysql8", DBType: "mysql", Host: host, Port: port.Int(), Database: database, Username: username, ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}
-	writer, err := executor.NewMySQLExecutor(ctx, datasource, password, false)
-	require.NoError(t, err)
-	defer writer.Close()
+	writer := newControlledReadE2EDatabase(t, datasource, password, false)
 	for _, statement := range []string{
 		"CREATE TABLE customers (id INT PRIMARY KEY, phone VARCHAR(32), email VARCHAR(128), id_card VARCHAR(32), legacy_id_card VARCHAR(32), bank_card VARCHAR(64), client_ip VARCHAR(64), birth_date DATE, description TEXT)",
 		"INSERT INTO customers VALUES " +
@@ -98,9 +96,7 @@ func TestDiscoveryPostgres18EndToEndE2E(t *testing.T) {
 	port, err := container.MappedPort(ctx, "5432/tcp")
 	require.NoError(t, err)
 	datasource := model.Datasource{ID: "discovery-pg18", DBType: "postgres", Host: host, Port: port.Int(), Database: database, Username: username, ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}
-	writer, err := executor.NewPostgresExecutor(ctx, datasource, password, false)
-	require.NoError(t, err)
-	defer writer.Close()
+	writer := newControlledReadE2EDatabase(t, datasource, password, false)
 	for _, statement := range []string{
 		"CREATE SCHEMA tenant_a",
 		"CREATE SCHEMA tenant_b",
@@ -140,9 +136,7 @@ func TestDiscoveryPostgres18EndToEndE2E(t *testing.T) {
 		limited := datasource
 		limited.ID = "discovery-pg18-limited"
 		limited.Username = "discovery_limited"
-		reader, err := executor.NewPostgresExecutor(ctx, limited, "limited-password", true)
-		require.NoError(t, err)
-		defer reader.Close()
+		reader := newControlledReadE2EDatabase(t, limited, "limited-password", true)
 		_, err = reader.Query(ctx, "SELECT phone FROM tenant_a.customers LIMIT 1", 1)
 		require.ErrorIs(t, err, executor.ErrPermissionDenied)
 		require.NotContains(t, err.Error(), discoveryE2ESentinel)
@@ -208,14 +202,14 @@ func newDatabaseDiscoveryService(t *testing.T, datasource model.Datasource, pass
 	require.NoError(t, err)
 	datasource.PasswordEnc, err = cipher.Encrypt(password)
 	require.NoError(t, err)
-	service, err := NewService(fakeDatasourceReader{datasource: datasource}, executor.NewManager(true), secret, rules.NewDefaultTokenBucketLimiter())
+	service, err := NewService(fakeDatasourceReader{datasource: datasource}, executor.NewGateway(true), secret, rules.NewDefaultTokenBucketLimiter())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, service.Close()) })
 	return service
 }
 
 func mysqlDatabasePermissionProbe(ctx context.Context, datasource model.Datasource, password string) error {
-	admin, err := executor.NewMySQLExecutor(ctx, datasource, password, false)
+	admin, err := newControlledReadE2EDatabaseE(ctx, datasource, password, false)
 	if err != nil {
 		return err
 	}
@@ -242,7 +236,7 @@ func mysqlDatabasePermissionProbe(ctx context.Context, datasource model.Datasour
 	limited := datasource
 	limited.ID = "discovery-mysql8-limited"
 	limited.Username = "discovery_limited"
-	reader, err := executor.NewMySQLExecutor(ctx, limited, "limited-password", true)
+	reader, err := newControlledReadE2EDatabaseE(ctx, limited, "limited-password", true)
 	if err != nil {
 		return err
 	}
@@ -250,6 +244,53 @@ func mysqlDatabasePermissionProbe(ctx context.Context, datasource model.Datasour
 	_, err = reader.Query(ctx, "SELECT phone FROM `"+datasource.Database+"`.`customers` LIMIT 1", 1)
 	return err
 }
+
+type controlledReadE2EDatabase struct {
+	gateway    *executor.Gateway
+	datasource model.Datasource
+	secret     []byte
+}
+
+func newControlledReadE2EDatabase(t *testing.T, datasource model.Datasource, password string, readOnly bool) *controlledReadE2EDatabase {
+	t.Helper()
+	database, err := newControlledReadE2EDatabaseE(context.Background(), datasource, password, readOnly)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	return database
+}
+
+func newControlledReadE2EDatabaseE(_ context.Context, datasource model.Datasource, password string, readOnly bool) (*controlledReadE2EDatabase, error) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	cipher, err := store.NewPasswordCipher(secret)
+	if err != nil {
+		return nil, err
+	}
+	datasource.PasswordEnc, err = cipher.Encrypt(password)
+	if err != nil {
+		return nil, err
+	}
+	return &controlledReadE2EDatabase{gateway: executor.NewGateway(readOnly), datasource: datasource, secret: secret}, nil
+}
+
+func (database *controlledReadE2EDatabase) Execute(ctx context.Context, sqlText string) (model.QueryResult, error) {
+	statement, err := database.gateway.AuthorizedExecute(ctx, database.datasource, database.secret, sqlText, "")
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer statement.Close()
+	return statement.Execute(ctx)
+}
+
+func (database *controlledReadE2EDatabase) Query(ctx context.Context, sqlText string, limit int) (model.QueryResult, error) {
+	statement, err := database.gateway.AuthorizedExecute(ctx, database.datasource, database.secret, sqlText, "")
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer statement.Close()
+	return statement.Query(ctx, limit)
+}
+
+func (database *controlledReadE2EDatabase) Close() error { return database.gateway.CloseAll() }
 
 func controlledReadDockerContext(t *testing.T) context.Context {
 	t.Helper()

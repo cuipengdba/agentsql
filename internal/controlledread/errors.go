@@ -3,8 +3,8 @@ package controlledread
 import (
 	"errors"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/discovery"
-	"github.com/cuipengdba/agentsql/internal/executor"
 )
 
 func safeDiscoveryError(err error) error {

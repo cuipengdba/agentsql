@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/engine"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 )
@@ -84,7 +84,7 @@ type PolicyLoader interface {
 }
 
 type ExecutorProvider interface {
-	GetOrOpen(datasource model.Datasource, secret []byte) (executor.Executor, error)
+	AuthorizedExecute(context.Context, model.Datasource, []byte, string, string) (executor.Statement, error)
 }
 
 type ApprovalWriter interface {
@@ -149,4 +149,4 @@ func WithRuleLayers(layers engine.RuleLayers) Option {
 	}
 }
 
-var _ ExecutorProvider = (*executor.Manager)(nil)
+var _ ExecutorProvider = (*executor.Gateway)(nil)

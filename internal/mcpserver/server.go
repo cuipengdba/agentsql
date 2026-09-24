@@ -3,9 +3,11 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/auth"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/version"
@@ -71,7 +73,7 @@ func buildBoundServerWithVersion(
 	logger zerolog.Logger,
 	version string,
 ) (*Server, error) {
-	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil || runtime.Executors == nil {
+	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil {
 		return nil, fmt.Errorf("build bound MCP server: runtime is incomplete")
 	}
 	if strings.TrimSpace(agent.ID) == "" || agent.Status != "active" {
@@ -87,11 +89,11 @@ func buildBoundServerWithVersion(
 	}
 	sdkServer := mcp.NewServer(&mcp.Implementation{Name: "agentsql", Version: version}, nil)
 	handlers := &toolHandlers{
-		runtime:     runtime,
-		agent:       cloneAgent(agent),
-		apiKey:      plainKey,
-		logger:      logger,
-		executorFor: runtime.ExecutorFor,
+		runtime:   runtime,
+		agent:     cloneAgent(agent),
+		apiKey:    plainKey,
+		logger:    logger,
+		schemaFor: runtime.ListDatasourceSchema,
 	}
 	registerTools(sdkServer, handlers)
 	return &Server{sdk: sdkServer, handlers: handlers}, nil
@@ -112,7 +114,11 @@ func RunStdio(ctx context.Context, options Options) error {
 		Str("agent_id", server.handlers.agent.ID).
 		Str("version", serverVersion).
 		Msg("MCP stdio server started")
-	if err := server.sdk.Run(ctx, &mcp.StdioTransport{}); err != nil {
+	transport := &mcp.IOTransport{
+		Reader: newSealedLineReader(os.Stdin, executor.DefaultLimits.EnvelopeBytes),
+		Writer: newSealedLineWriter(os.Stdout, executor.DefaultLimits.EnvelopeBytes),
+	}
+	if err := server.sdk.Run(ctx, transport); err != nil {
 		return fmt.Errorf("run MCP stdio server: %w", err)
 	}
 	return nil

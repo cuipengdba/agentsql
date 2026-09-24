@@ -10,18 +10,19 @@ import (
 	"strings"
 	"testing"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/engine"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
+	"github.com/cuipengdba/agentsql/internal/store"
 )
 
 var t25BenchmarkSecret = []byte("0123456789abcdef0123456789abcdef")
 
 func BenchmarkPipelineReadOnlyParallel(b *testing.B) {
 	datasource := t25BenchmarkDatasource()
-	flow := newT25BenchmarkPipeline(b, datasource, &t25BenchmarkExecutor{})
+	flow := newT25BenchmarkPipeline(b, datasource, t25BenchmarkExecutorProvider{statement: &t25BenchmarkExecutor{}})
 	request := t25BenchmarkRequest(datasource.ID)
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -45,21 +46,17 @@ func BenchmarkPipelineReadOnlyRealDatabase(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	databaseExecutor, err := executor.NewPostgresExecutor(
-		context.Background(),
-		datasource,
-		password,
-		true,
-	)
+	cipher, err := store.NewPasswordCipher(t25BenchmarkSecret)
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.Cleanup(func() {
-		if err := databaseExecutor.Close(); err != nil {
-			b.Error(err)
-		}
-	})
-	flow := newT25BenchmarkPipeline(b, datasource, databaseExecutor)
+	datasource.PasswordEnc, err = cipher.Encrypt(password)
+	if err != nil {
+		b.Fatal(err)
+	}
+	gateway := executor.NewGateway(true)
+	b.Cleanup(func() { _ = gateway.CloseAll() })
+	flow := newT25BenchmarkPipeline(b, datasource, gateway)
 	request := t25BenchmarkRequest(datasource.ID)
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -74,7 +71,7 @@ func BenchmarkPipelineReadOnlyRealDatabase(b *testing.B) {
 func newT25BenchmarkPipeline(
 	b *testing.B,
 	datasource model.Datasource,
-	databaseExecutor executor.Executor,
+	provider ExecutorProvider,
 ) *Pipeline {
 	b.Helper()
 	redactor, err := mask.NewRedactor(nil)
@@ -86,7 +83,7 @@ func newT25BenchmarkPipeline(
 			Authenticator: t25BenchmarkAuthenticator{},
 			Datasources:   t25BenchmarkDatasourceReader{datasource: datasource},
 			Policies:      t25BenchmarkPolicyLoader{},
-			Executors:     t25BenchmarkExecutorProvider{executor: databaseExecutor},
+			Executors:     provider,
 			Approvals:     t25BenchmarkApprovalWriter{},
 			Audit:         t25BenchmarkAuditRecorder{},
 			Redactors:     t25BenchmarkRedactorBuilder{redactor: redactor},
@@ -189,11 +186,11 @@ func (t25BenchmarkPolicyLoader) ListByAgentAndDatasource(context.Context, string
 }
 
 type t25BenchmarkExecutorProvider struct {
-	executor executor.Executor
+	statement executor.Statement
 }
 
-func (provider t25BenchmarkExecutorProvider) GetOrOpen(model.Datasource, []byte) (executor.Executor, error) {
-	return provider.executor, nil
+func (provider t25BenchmarkExecutorProvider) AuthorizedExecute(context.Context, model.Datasource, []byte, string, string) (executor.Statement, error) {
+	return provider.statement, nil
 }
 
 type t25BenchmarkApprovalWriter struct{}
@@ -219,29 +216,29 @@ func (builder t25BenchmarkRedactorBuilder) RedactorFor(context.Context, string) 
 
 type t25BenchmarkExecutor struct{}
 
-func (*t25BenchmarkExecutor) Dialect() string            { return "postgres" }
-func (*t25BenchmarkExecutor) Ping(context.Context) error { return nil }
-func (*t25BenchmarkExecutor) OpenSession(context.Context, string) (executor.Session, error) {
-	return nil, fmt.Errorf("benchmark does not use sessions")
-}
-func (*t25BenchmarkExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
-	return nil, fmt.Errorf("benchmark executor is read-only")
-}
-func (*t25BenchmarkExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
+func (*t25BenchmarkExecutor) Dialect() string { return "postgres" }
+func (*t25BenchmarkExecutor) Explain(context.Context) (model.ExplainInfo, error) {
 	return model.ExplainInfo{EstScanRows: 1, UsesIndex: true}, nil
 }
-func (*t25BenchmarkExecutor) Query(context.Context, string, int) (model.QueryResult, error) {
+func (*t25BenchmarkExecutor) Query(context.Context, int) (model.QueryResult, error) {
 	return model.QueryResult{Columns: []string{"value"}, Rows: [][]string{{"1"}}, RowCount: 1}, nil
 }
-func (*t25BenchmarkExecutor) Execute(context.Context, string) (model.QueryResult, error) {
+func (*t25BenchmarkExecutor) Execute(context.Context) (model.QueryResult, error) {
+	return model.QueryResult{}, fmt.Errorf("benchmark executor is read-only")
+}
+func (*t25BenchmarkExecutor) ExecuteTransactional(context.Context, func(model.QueryResult) error) (model.QueryResult, error) {
 	return model.QueryResult{}, fmt.Errorf("benchmark executor is read-only")
 }
 func (*t25BenchmarkExecutor) Close() error                                { return nil }
+func (*t25BenchmarkExecutor) ReleaseReservation()                         {}
 func (*t25BenchmarkExecutor) TableHasIndex(string, string) (bool, error)  { return true, nil }
 func (*t25BenchmarkExecutor) TableRowCount(string, string) (int64, error) { return 1, nil }
 func (*t25BenchmarkExecutor) TransactionState() (rules.TransactionState, error) {
 	return rules.TransactionState{}, nil
 }
+func (*t25BenchmarkExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return rules.MysqlTransactionState{}, nil
+}
 
-var _ executor.Executor = (*t25BenchmarkExecutor)(nil)
+var _ executor.Statement = (*t25BenchmarkExecutor)(nil)
 var _ rules.TransactionMetadataProvider = (*t25BenchmarkExecutor)(nil)

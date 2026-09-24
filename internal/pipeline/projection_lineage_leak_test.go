@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cuipengdba/agentsql/internal/executor"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -67,7 +67,7 @@ func runProjectionLineageLeakCase(t *testing.T, dialect string, test lineageLeak
 			RowCount: 1,
 		},
 	}
-	counted := &countingDatabaseExecutor{delegate: delegate}
+	counted := &countingDatabaseExecutor{delegate: &fakeExecutorProvider{executor: delegate}}
 	datasource := lineageLeakDatasource(dialect)
 	flow, ports := newDatabaseE2EPipelineWithRules(
 		t,
@@ -337,7 +337,7 @@ func runVisibleLineageValue(t *testing.T, dialect, sql, column string, rows [][]
 	}
 	datasource := lineageLeakDatasource(dialect)
 	flow, ports := newDatabaseE2EPipelineWithRules(
-		t, datasource, &countingDatabaseExecutor{delegate: delegate}, "dml",
+		t, datasource, &countingDatabaseExecutor{delegate: &fakeExecutorProvider{executor: delegate}}, "dml",
 		lineageLeakAllowedTables(dialect), lineageLeakRules(), nil,
 	)
 	response, err := flow.Process(context.Background(), databaseE2ERequest(datasource.ID, sql))
@@ -422,7 +422,7 @@ func TestProjectionLineageLeakRectangleFailuresClearResult(t *testing.T) {
 					}}
 					datasource := lineageLeakDatasource(dialect)
 					flow, ports := newDatabaseE2EPipelineWithRules(
-						t, datasource, &countingDatabaseExecutor{delegate: delegate}, "dml",
+						t, datasource, &countingDatabaseExecutor{delegate: &fakeExecutorProvider{executor: delegate}}, "dml",
 						lineageLeakAllowedTables(dialect), lineageLeakRules(), nil,
 					)
 					response, err := flow.Process(context.Background(), databaseE2ERequest(datasource.ID, query))
@@ -499,10 +499,10 @@ type scriptedLineageLeakExecutor struct {
 
 func (scripted *scriptedLineageLeakExecutor) Dialect() string            { return scripted.dialect }
 func (scripted *scriptedLineageLeakExecutor) Ping(context.Context) error { return nil }
-func (scripted *scriptedLineageLeakExecutor) OpenSession(context.Context, string) (executor.Session, error) {
+func (scripted *scriptedLineageLeakExecutor) OpenSession(context.Context, string) (rawTestSession, error) {
 	return nil, errors.New("sessions are not used by projection lineage leak tests")
 }
-func (scripted *scriptedLineageLeakExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+func (scripted *scriptedLineageLeakExecutor) BeginWriteTx(context.Context) (rawTestWriteTx, error) {
 	return nil, errors.New("write transactions are not used by projection lineage leak tests")
 }
 func (scripted *scriptedLineageLeakExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {

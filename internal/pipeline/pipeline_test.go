@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/engine"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -1036,16 +1036,145 @@ func (fake *fakePolicyLoader) ListByAgentAndDatasource(
 
 type fakeExecutorProvider struct {
 	mu       sync.Mutex
-	executor executor.Executor
+	executor rawTestExecutor
 	err      error
 	count    int
 }
 
-func (fake *fakeExecutorProvider) GetOrOpen(model.Datasource, []byte) (executor.Executor, error) {
+func (fake *fakeExecutorProvider) GetOrOpen(model.Datasource, []byte) (rawTestExecutor, error) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	fake.count++
 	return fake.executor, fake.err
+}
+
+func (fake *fakeExecutorProvider) AuthorizedExecute(
+	ctx context.Context,
+	_ model.Datasource,
+	_ []byte,
+	sqlText string,
+	sessionID string,
+) (executor.Statement, error) {
+	fake.mu.Lock()
+	fake.count++
+	delegate, err := fake.executor, fake.err
+	fake.mu.Unlock()
+	if err != nil || delegate == nil {
+		return nil, err
+	}
+	bound := &testBoundStatement{delegate: delegate, sql: sqlText}
+	if sessionID != "" {
+		bound.session, err = delegate.OpenSession(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return bound, nil
+}
+
+type testBoundStatement struct {
+	delegate rawTestExecutor
+	session  rawTestSession
+	sql      string
+}
+
+func (*testBoundStatement) ReleaseReservation() {}
+
+func (bound *testBoundStatement) Dialect() string { return bound.delegate.Dialect() }
+func (bound *testBoundStatement) Explain(ctx context.Context) (model.ExplainInfo, error) {
+	if bound.session != nil {
+		return bound.session.Explain(ctx, bound.sql)
+	}
+	return bound.delegate.Explain(ctx, bound.sql)
+}
+func (bound *testBoundStatement) Query(ctx context.Context, limit int) (model.QueryResult, error) {
+	if bound.session != nil {
+		return bound.session.Query(ctx, bound.sql, limit)
+	}
+	return bound.delegate.Query(ctx, bound.sql, limit)
+}
+func (bound *testBoundStatement) Execute(ctx context.Context) (model.QueryResult, error) {
+	if bound.session != nil {
+		return bound.session.Execute(ctx, bound.sql)
+	}
+	return bound.delegate.Execute(ctx, bound.sql)
+}
+func (bound *testBoundStatement) ExecuteTransactional(ctx context.Context, before func(model.QueryResult) error) (model.QueryResult, error) {
+	var tx rawTestWriteTx
+	var err error
+	if bound.session != nil {
+		tx, err = bound.session.BeginWriteTx(ctx)
+	} else {
+		tx, err = bound.delegate.BeginWriteTx(ctx)
+	}
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	result, err := tx.Execute(ctx, bound.sql)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return model.QueryResult{}, err
+	}
+	if before != nil {
+		if err := before(result); err != nil {
+			_ = tx.Rollback(ctx)
+			return model.QueryResult{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.QueryResult{}, executor.ErrCommitOutcomeUnknown
+	}
+	return result, nil
+}
+
+type rawTestExecutor interface {
+	Dialect() string
+	OpenSession(context.Context, string) (rawTestSession, error)
+	BeginWriteTx(context.Context) (rawTestWriteTx, error)
+	Explain(context.Context, string) (model.ExplainInfo, error)
+	Query(context.Context, string, int) (model.QueryResult, error)
+	Execute(context.Context, string) (model.QueryResult, error)
+}
+
+type rawTestSession interface {
+	BeginWriteTx(context.Context) (rawTestWriteTx, error)
+	Explain(context.Context, string) (model.ExplainInfo, error)
+	Query(context.Context, string, int) (model.QueryResult, error)
+	Execute(context.Context, string) (model.QueryResult, error)
+	TransactionState() (rules.TransactionState, error)
+	MysqlTransactionState() (rules.MysqlTransactionState, error)
+	Close() error
+}
+
+type rawTestWriteTx interface {
+	Execute(context.Context, string) (model.QueryResult, error)
+	Commit(context.Context) error
+	Rollback(context.Context) error
+}
+
+func (bound *testBoundStatement) metadata() any {
+	if bound.session != nil {
+		return bound.session
+	}
+	return bound.delegate
+}
+func (bound *testBoundStatement) TableHasIndex(schema, table string) (bool, error) {
+	return bound.metadata().(rules.MetadataProvider).TableHasIndex(schema, table)
+}
+func (bound *testBoundStatement) TableRowCount(schema, table string) (int64, error) {
+	return bound.metadata().(rules.MetadataProvider).TableRowCount(schema, table)
+}
+func (bound *testBoundStatement) TransactionState() (rules.TransactionState, error) {
+	return bound.metadata().(rules.TransactionMetadataProvider).TransactionState()
+}
+func (bound *testBoundStatement) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return bound.metadata().(rules.MysqlTransactionMetadataProvider).MysqlTransactionState()
+}
+func (bound *testBoundStatement) Close() error {
+	if bound.session != nil {
+		return bound.session.Close()
+	}
+	return nil
 }
 
 func (fake *fakeExecutorProvider) calls() int {
@@ -1248,7 +1377,7 @@ type spyExecutor struct {
 func (spy *spyExecutor) Dialect() string        { return spy.dialect }
 func (*spyExecutor) Ping(context.Context) error { return nil }
 
-func (spy *spyExecutor) OpenSession(context.Context, string) (executor.Session, error) {
+func (spy *spyExecutor) OpenSession(context.Context, string) (rawTestSession, error) {
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
 	spy.calls.openSession++
@@ -1258,7 +1387,7 @@ func (spy *spyExecutor) OpenSession(context.Context, string) (executor.Session, 
 	return &spySession{parent: spy}, nil
 }
 
-func (spy *spyExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+func (spy *spyExecutor) BeginWriteTx(context.Context) (rawTestWriteTx, error) {
 	spy.mu.Lock()
 	defer spy.mu.Unlock()
 	spy.calls.beginWriteTx++
@@ -1348,7 +1477,7 @@ type spySession struct {
 	parent *spyExecutor
 }
 
-func (session *spySession) BeginWriteTx(context.Context) (executor.WriteTx, error) {
+func (session *spySession) BeginWriteTx(context.Context) (rawTestWriteTx, error) {
 	session.parent.mu.Lock()
 	defer session.parent.mu.Unlock()
 	session.parent.calls.beginWriteTx++
@@ -1495,8 +1624,8 @@ var (
 	_ ApprovalWriter                         = (*fakeApprovalWriter)(nil)
 	_ AuditRecorder                          = (*fakeAuditRecorder)(nil)
 	_ RedactorBuilder                        = (*fakeRedactorBuilder)(nil)
-	_ executor.Executor                      = (*spyExecutor)(nil)
-	_ executor.Session                       = (*spySession)(nil)
+	_ rawTestExecutor                        = (*spyExecutor)(nil)
+	_ rawTestSession                         = (*spySession)(nil)
 	_ rules.TransactionMetadataProvider      = (*spyExecutor)(nil)
 	_ rules.TransactionMetadataProvider      = (*spySession)(nil)
 	_ rules.MysqlTransactionMetadataProvider = (*spyExecutor)(nil)

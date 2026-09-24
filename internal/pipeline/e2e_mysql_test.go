@@ -3,13 +3,14 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/engine"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -54,12 +55,10 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		StmtTimeoutMS: 5_000,
 		RowLimit:      50,
 	}
-	databaseExecutor, err := executor.NewMySQLExecutor(ctx, datasource, password, false)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, databaseExecutor.Close()) })
+	databaseExecutor := newPipelineE2EDatabase(t, &datasource, password, false)
 	setupMySQLPipelineSchema(t, ctx, databaseExecutor)
 
-	counted := &countingDatabaseExecutor{delegate: databaseExecutor}
+	counted := &countingDatabaseExecutor{delegate: databaseExecutor.gateway}
 	allowedTables := []string{
 		database + ".a4_missing_ddl",
 		database + ".allowed_rows",
@@ -196,18 +195,29 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 	})
 
 	t.Run("select for update nowait 3572 is retryable", func(t *testing.T) {
-		holder, err := databaseExecutor.OpenSession(ctx, "pipeline-mysql-nowait-holder")
+		holder, err := databaseExecutor.statement(ctx, "SELECT v FROM agentsql.lock_rows WHERE id = 1 FOR UPDATE", "pipeline-mysql-nowait-holder")
 		require.NoError(t, err)
-		holderTx, err := holder.BeginWriteTx(ctx)
-		require.NoError(t, err)
-		_, err = holderTx.Execute(ctx, "SELECT v FROM agentsql.lock_rows WHERE id = 1 FOR UPDATE")
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			require.NoError(t, holderTx.Rollback(cleanupCtx))
+		locked := make(chan struct{})
+		release := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			_, executeErr := holder.ExecuteTransactional(ctx, func(model.QueryResult) error {
+				close(locked)
+				<-release
+				return errors.New("release lock holder")
+			})
+			done <- executeErr
+		}()
+		select {
+		case <-locked:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out acquiring MySQL row lock")
+		}
+		defer func() {
+			close(release)
+			require.Error(t, <-done)
 			require.NoError(t, holder.Close())
-		})
+		}()
 
 		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
 		response, err := flow.Process(ctx, databaseE2ERequest(
@@ -257,7 +267,7 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 	runExpressionLineageNowMaskedScenario(t, ctx, "mysql", datasource, counted, allowedTables)
 }
 
-func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecutor *executor.MySQLExecutor) {
+func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecutor *pipelineE2EDatabase) {
 	t.Helper()
 	statements := []string{
 		`CREATE TABLE allowed_rows (id integer PRIMARY KEY, value text NOT NULL, phone text NOT NULL)`,

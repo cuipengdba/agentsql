@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/discovery"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -27,7 +27,8 @@ type datasourceReader interface {
 }
 
 type executorPool interface {
-	GetOrOpen(model.Datasource, []byte) (executor.Executor, error)
+	ListSchema(context.Context, model.Datasource, []byte, []executor.TableRef) ([]executor.SchemaColumn, error)
+	Sample(context.Context, model.Datasource, []byte, executor.TableRef, []executor.ColumnRef, int) (model.QueryResult, error)
 	CloseAll() error
 }
 
@@ -42,7 +43,6 @@ type Service struct {
 
 type runState struct {
 	datasource model.Datasource
-	executor   executor.Executor
 	allowed    map[discovery.ColumnRef]struct{}
 }
 
@@ -99,13 +99,9 @@ func (service *Service) Discover(ctx context.Context, username, datasourceID str
 		return discovery.ScanResult{}, err
 	}
 	datasource.StmtTimeoutMS = effectiveStatementTimeout(datasource.StmtTimeoutMS)
-	reader, err := service.manager.GetOrOpen(datasource, append([]byte(nil), service.secret...))
-	if err != nil {
-		return discovery.ScanResult{}, safeDiscoveryError(err)
-	}
 	timed, cancel := context.WithTimeout(ctx, discoverDeadline)
 	defer cancel()
-	state := &runState{datasource: datasource, executor: reader, allowed: make(map[discovery.ColumnRef]struct{})}
+	state := &runState{datasource: datasource, allowed: make(map[discovery.ColumnRef]struct{})}
 	timed = context.WithValue(timed, runStateKey{}, state)
 	result, err := discovery.NewScanner(service, service).Scan(timed, datasourceID, request)
 	if err != nil && errors.Is(timed.Err(), context.DeadlineExceeded) {
@@ -147,7 +143,7 @@ func stateFromContext(ctx context.Context, datasourceID string) (*runState, erro
 		return nil, discovery.NewPortError(discovery.CodeInternal)
 	}
 	state, ok := ctx.Value(runStateKey{}).(*runState)
-	if !ok || state == nil || state.datasource.ID != datasourceID || state.executor == nil {
+	if !ok || state == nil || state.datasource.ID != datasourceID {
 		return nil, discovery.NewPortError(discovery.CodeInternal)
 	}
 	return state, nil
@@ -158,35 +154,20 @@ func (service *Service) ListColumns(ctx context.Context, datasourceID string, ta
 	if err != nil {
 		return nil, err
 	}
-	dialect := model.DBDialect(state.datasource.DBType)
-	sqlText, err := buildMetadataSQL(dialect, state.datasource.Database, tables)
-	if err != nil {
-		return nil, discovery.NewPortError(discovery.CodeInvalidRequest)
+	requested := make([]executor.TableRef, len(tables))
+	for index, table := range tables {
+		requested[index] = executor.TableRef{Schema: table.Schema, Table: table.Table}
 	}
-	if err := assertMetadataSQL(dialect, sqlText); err != nil {
-		return nil, discovery.NewPortError(discovery.CodeInternal)
-	}
-	result, err := state.executor.Query(ctx, sqlText, metadataRowLimit)
+	columns, err := service.manager.ListSchema(ctx, state.datasource, append([]byte(nil), service.secret...), requested)
 	if err != nil {
 		return nil, safeDiscoveryError(err)
 	}
-	if result.Truncated || len(result.Rows) > discovery.MaxMetadataColumns || !metadataColumnsMatch(result.Columns) {
+	if len(columns) > discovery.MaxMetadataColumns {
 		return nil, discovery.NewPortError(discovery.CodeScopeLimit)
 	}
-	metadata := make([]discovery.ColumnMeta, 0, len(result.Rows))
-	for _, row := range result.Rows {
-		if len(row) != 6 {
-			return nil, discovery.NewPortError(discovery.CodeInternal)
-		}
-		ordinal, parseErr := parsePositiveInt(row[5])
-		if parseErr != nil {
-			return nil, discovery.NewPortError(discovery.CodeInternal)
-		}
-		dataType := row[3]
-		if row[4] != "" && row[4] != row[3] {
-			dataType += "/" + row[4]
-		}
-		meta := discovery.ColumnMeta{Schema: row[0], Table: row[1], Column: row[2], DataType: dataType, Ordinal: ordinal}
+	metadata := make([]discovery.ColumnMeta, 0, len(columns))
+	for _, column := range columns {
+		meta := discovery.ColumnMeta{Schema: column.Schema, Table: column.Table, Column: column.Column, DataType: column.DataType, Ordinal: column.Ordinal}
 		metadata = append(metadata, meta)
 		state.allowed[discovery.ColumnRef{Schema: meta.Schema, Table: meta.Table, Column: meta.Column}] = struct{}{}
 	}
@@ -203,15 +184,11 @@ func (service *Service) QueryColumns(ctx context.Context, datasourceID string, t
 			return discovery.SampleBatch{}, discovery.NewPortError(discovery.CodeInternal)
 		}
 	}
-	dialect := model.DBDialect(state.datasource.DBType)
-	sqlText, err := buildSampleSQL(dialect, table, columns, limit)
-	if err != nil {
-		return discovery.SampleBatch{}, discovery.NewPortError(discovery.CodeInvalidRequest)
+	requested := make([]executor.ColumnRef, len(columns))
+	for index, column := range columns {
+		requested[index] = executor.ColumnRef{Schema: column.Schema, Table: column.Table, Column: column.Column}
 	}
-	if err := assertSampleSQL(dialect, sqlText, table, columns); err != nil {
-		return discovery.SampleBatch{}, discovery.NewPortError(discovery.CodeInternal)
-	}
-	result, err := state.executor.Query(ctx, sqlText, limit)
+	result, err := service.manager.Sample(ctx, state.datasource, append([]byte(nil), service.secret...), executor.TableRef{Schema: table.Schema, Table: table.Table}, requested, limit)
 	if err != nil {
 		return discovery.SampleBatch{}, safeDiscoveryError(err)
 	}
@@ -219,7 +196,7 @@ func (service *Service) QueryColumns(ctx context.Context, datasourceID string, t
 		return discovery.SampleBatch{}, discovery.NewPortError(discovery.CodeInternal)
 	}
 	for index, name := range result.Columns {
-		if !sameIdentifier(dialect, name, columns[index].Column) {
+		if !sameIdentifier(model.DBDialect(state.datasource.DBType), name, columns[index].Column) {
 			return discovery.SampleBatch{}, discovery.NewPortError(discovery.CodeInternal)
 		}
 	}

@@ -1,0 +1,6 @@
+# Production locations allowed to contain database/SQL sink callsites.
+# Keep this list narrow; nested internal is the primary security boundary.
+internal/authorizedexecute/internal/businessdb/
+internal/authorizedexecute/statement.go
+internal/store/
+cmd/agentsqlctl/

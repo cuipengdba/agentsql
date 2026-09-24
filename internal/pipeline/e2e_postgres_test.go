@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/engine"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -66,12 +67,10 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 		StmtTimeoutMS: 5_000,
 		RowLimit:      50,
 	}
-	databaseExecutor, err := executor.NewPostgresExecutor(ctx, datasource, password, false)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, databaseExecutor.Close()) })
+	databaseExecutor := newPipelineE2EDatabase(t, &datasource, password, false)
 	setupPostgresPipelineSchema(t, ctx, databaseExecutor)
 
-	counted := &countingDatabaseExecutor{delegate: databaseExecutor}
+	counted := &countingDatabaseExecutor{delegate: databaseExecutor.gateway}
 	allowedTables := []string{
 		"public.a4_missing_table",
 		"public.a4_missing_ddl",
@@ -190,7 +189,7 @@ func runPostgresPipelineScenarios(t *testing.T, image string) {
 	}
 }
 
-func setupPostgresPipelineSchema(t *testing.T, ctx context.Context, databaseExecutor *executor.PostgresExecutor) {
+func setupPostgresPipelineSchema(t *testing.T, ctx context.Context, databaseExecutor *pipelineE2EDatabase) {
 	t.Helper()
 	statements := []string{
 		`CREATE TABLE allowed_rows (id integer PRIMARY KEY, value text NOT NULL, phone text NOT NULL)`,
@@ -235,7 +234,7 @@ func runPostgresStaticAndApprovalScenarios(
 	t *testing.T,
 	ctx context.Context,
 	datasource model.Datasource,
-	databaseExecutor *executor.PostgresExecutor,
+	databaseExecutor *pipelineE2EDatabase,
 	counted *countingDatabaseExecutor,
 	allowedTables []string,
 ) {
@@ -333,7 +332,7 @@ type pipelineE2EPorts struct {
 func newDatabaseE2EPipeline(
 	t *testing.T,
 	datasource model.Datasource,
-	databaseExecutor executor.Executor,
+	databaseExecutor ExecutorProvider,
 	agentLevel string,
 	allowedTables []string,
 	options ...Option,
@@ -349,7 +348,7 @@ func newDatabaseE2EPipeline(
 func newDatabaseE2EPipelineWithRules(
 	t *testing.T,
 	datasource model.Datasource,
-	databaseExecutor executor.Executor,
+	databaseExecutor ExecutorProvider,
 	agentLevel string,
 	allowedTables []string,
 	rules []mask.Rule,
@@ -377,7 +376,7 @@ func newDatabaseE2EPipelineWithRules(
 		Authenticator: &fakeAuthenticator{agent: model.Agent{ID: agentID, Status: "active", Level: agentLevel}},
 		Datasources:   &fakeDatasourceReader{datasource: datasource},
 		Policies:      &fakePolicyLoader{policies: policies},
-		Executors:     &fakeExecutorProvider{executor: databaseExecutor},
+		Executors:     databaseExecutor,
 		Approvals:     approvalWriter,
 		Audit:         auditRecorder,
 		Redactors:     &fakeRedactorBuilder{redactor: redactor},
@@ -392,7 +391,7 @@ func runHashE2EScenarios(
 	ctx context.Context,
 	table string,
 	datasource model.Datasource,
-	databaseExecutor executor.Executor,
+	databaseExecutor ExecutorProvider,
 	allowedTables []string,
 ) {
 	t.Helper()
@@ -446,7 +445,7 @@ func runBlockE2EScenarios(
 	ctx context.Context,
 	table string,
 	datasource model.Datasource,
-	databaseExecutor executor.Executor,
+	databaseExecutor ExecutorProvider,
 	allowedTables []string,
 ) {
 	t.Helper()
@@ -515,82 +514,128 @@ func databaseE2ERequest(datasourceID, sql string) Request {
 	}
 }
 
+type pipelineE2EDatabase struct {
+	gateway    *executor.Gateway
+	datasource model.Datasource
+}
+
+func newPipelineE2EDatabase(t *testing.T, datasource *model.Datasource, password string, readOnly bool) *pipelineE2EDatabase {
+	t.Helper()
+	cipher, err := store.NewPasswordCipher(testPipelineSecret)
+	require.NoError(t, err)
+	datasource.PasswordEnc, err = cipher.Encrypt(password)
+	require.NoError(t, err)
+	database := &pipelineE2EDatabase{gateway: executor.NewGateway(readOnly), datasource: *datasource}
+	t.Cleanup(func() { require.NoError(t, database.gateway.CloseAll()) })
+	return database
+}
+
+func (database *pipelineE2EDatabase) statement(ctx context.Context, sqlText, sessionID string) (executor.Statement, error) {
+	return database.gateway.AuthorizedExecute(ctx, database.datasource, testPipelineSecret, sqlText, sessionID)
+}
+
+func (database *pipelineE2EDatabase) Execute(ctx context.Context, sqlText string) (model.QueryResult, error) {
+	statement, err := database.statement(ctx, sqlText, "")
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer statement.Close()
+	return statement.Execute(ctx)
+}
+
+func (database *pipelineE2EDatabase) Query(ctx context.Context, sqlText string, limit int) (model.QueryResult, error) {
+	statement, err := database.statement(ctx, sqlText, "")
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	defer statement.Close()
+	return statement.Query(ctx, limit)
+}
+
 type countingDatabaseExecutor struct {
 	mu       sync.Mutex
-	delegate executor.Executor
+	delegate ExecutorProvider
 	calls    executorCalls
 }
 
-func (counted *countingDatabaseExecutor) Dialect() string { return counted.delegate.Dialect() }
-
-func (counted *countingDatabaseExecutor) Ping(ctx context.Context) error {
-	return counted.delegate.Ping(ctx)
-}
-
-func (counted *countingDatabaseExecutor) OpenSession(ctx context.Context, sessionID string) (executor.Session, error) {
-	counted.mu.Lock()
-	counted.calls.openSession++
-	counted.mu.Unlock()
-	return counted.delegate.OpenSession(ctx, sessionID)
-}
-
-func (counted *countingDatabaseExecutor) BeginWriteTx(ctx context.Context) (executor.WriteTx, error) {
-	return counted.delegate.BeginWriteTx(ctx)
-}
-
-func (counted *countingDatabaseExecutor) Explain(ctx context.Context, sql string) (model.ExplainInfo, error) {
-	counted.mu.Lock()
-	counted.calls.explain++
-	counted.mu.Unlock()
-	return counted.delegate.Explain(ctx, sql)
-}
-
-func (counted *countingDatabaseExecutor) Query(ctx context.Context, sql string, limit int) (model.QueryResult, error) {
-	counted.mu.Lock()
-	counted.calls.query++
-	counted.mu.Unlock()
-	return counted.delegate.Query(ctx, sql, limit)
-}
-
-func (counted *countingDatabaseExecutor) Execute(ctx context.Context, sql string) (model.QueryResult, error) {
-	counted.mu.Lock()
-	counted.calls.execute++
-	counted.mu.Unlock()
-	return counted.delegate.Execute(ctx, sql)
-}
-
-func (counted *countingDatabaseExecutor) Close() error { return counted.delegate.Close() }
-
-func (counted *countingDatabaseExecutor) TableHasIndex(schema, table string) (bool, error) {
-	provider, ok := counted.delegate.(rules.MetadataProvider)
-	if !ok {
-		return false, fmt.Errorf("%s executor does not provide index metadata", counted.Dialect())
+func (counted *countingDatabaseExecutor) AuthorizedExecute(ctx context.Context, datasource model.Datasource, secret []byte, sqlText, sessionID string) (executor.Statement, error) {
+	statement, err := counted.delegate.AuthorizedExecute(ctx, datasource, secret, sqlText, sessionID)
+	if err != nil {
+		return nil, err
 	}
-	return provider.TableHasIndex(schema, table)
+	if sessionID != "" {
+		counted.mu.Lock()
+		counted.calls.openSession++
+		counted.mu.Unlock()
+	}
+	return &countingStatement{parent: counted, delegate: statement, session: sessionID != ""}, nil
 }
 
-func (counted *countingDatabaseExecutor) TableRowCount(schema, table string) (int64, error) {
-	provider, ok := counted.delegate.(rules.MetadataProvider)
-	if !ok {
-		return 0, fmt.Errorf("%s executor does not provide row metadata", counted.Dialect())
-	}
-	return provider.TableRowCount(schema, table)
+type countingStatement struct {
+	parent   *countingDatabaseExecutor
+	delegate executor.Statement
+	session  bool
 }
 
-func (counted *countingDatabaseExecutor) TransactionState() (rules.TransactionState, error) {
-	provider, ok := counted.delegate.(rules.TransactionMetadataProvider)
-	if !ok {
-		return rules.TransactionState{}, fmt.Errorf("%s executor does not provide transaction metadata", counted.Dialect())
+func (statement *countingStatement) Dialect() string { return statement.delegate.Dialect() }
+func (statement *countingStatement) Explain(ctx context.Context) (model.ExplainInfo, error) {
+	statement.parent.mu.Lock()
+	if statement.session {
+		statement.parent.calls.sessionExplain++
+	} else {
+		statement.parent.calls.explain++
 	}
-	return provider.TransactionState()
+	statement.parent.mu.Unlock()
+	return statement.delegate.Explain(ctx)
 }
-
-func (counted *countingDatabaseExecutor) MysqlTransactionState() (rules.MysqlTransactionState, error) {
-	provider, ok := counted.delegate.(rules.MysqlTransactionMetadataProvider)
-	if !ok {
-		return rules.MysqlTransactionState{}, fmt.Errorf("%s executor does not provide MySQL transaction metadata", counted.Dialect())
+func (statement *countingStatement) Query(ctx context.Context, limit int) (model.QueryResult, error) {
+	statement.parent.mu.Lock()
+	if statement.session {
+		statement.parent.calls.sessionQuery++
+	} else {
+		statement.parent.calls.query++
 	}
-	return provider.MysqlTransactionState()
+	statement.parent.mu.Unlock()
+	return statement.delegate.Query(ctx, limit)
+}
+func (statement *countingStatement) Execute(ctx context.Context) (model.QueryResult, error) {
+	statement.parent.mu.Lock()
+	if statement.session {
+		statement.parent.calls.sessionExecute++
+	} else {
+		statement.parent.calls.execute++
+	}
+	statement.parent.mu.Unlock()
+	return statement.delegate.Execute(ctx)
+}
+func (statement *countingStatement) ExecuteTransactional(ctx context.Context, before func(model.QueryResult) error) (model.QueryResult, error) {
+	statement.parent.mu.Lock()
+	statement.parent.calls.execute++
+	statement.parent.mu.Unlock()
+	return statement.delegate.ExecuteTransactional(ctx, before)
+}
+func (statement *countingStatement) TableHasIndex(schema, table string) (bool, error) {
+	return statement.delegate.TableHasIndex(schema, table)
+}
+func (statement *countingStatement) TableRowCount(schema, table string) (int64, error) {
+	return statement.delegate.TableRowCount(schema, table)
+}
+func (statement *countingStatement) TransactionState() (rules.TransactionState, error) {
+	return statement.delegate.TransactionState()
+}
+func (statement *countingStatement) MysqlTransactionState() (rules.MysqlTransactionState, error) {
+	return statement.delegate.MysqlTransactionState()
+}
+func (statement *countingStatement) Close() error {
+	if statement.session {
+		statement.parent.mu.Lock()
+		statement.parent.calls.sessionClose++
+		statement.parent.mu.Unlock()
+	}
+	return statement.delegate.Close()
+}
+func (statement *countingStatement) ReleaseReservation() {
+	statement.delegate.ReleaseReservation()
 }
 
 func (counted *countingDatabaseExecutor) snapshot() executorCalls {
@@ -669,8 +714,6 @@ func isPipelineDockerDaemonUnavailable(err error) bool {
 }
 
 var (
-	_ executor.Executor                      = (*countingDatabaseExecutor)(nil)
-	_ rules.MetadataProvider                 = (*countingDatabaseExecutor)(nil)
-	_ rules.TransactionMetadataProvider      = (*countingDatabaseExecutor)(nil)
-	_ rules.MysqlTransactionMetadataProvider = (*countingDatabaseExecutor)(nil)
+	_ ExecutorProvider   = (*countingDatabaseExecutor)(nil)
+	_ executor.Statement = (*countingStatement)(nil)
 )

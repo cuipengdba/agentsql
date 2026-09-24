@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ func runMaskScopeScenarios(
 	ctx context.Context,
 	dialect string,
 	datasource model.Datasource,
-	databaseExecutor executor.Executor,
+	databaseExecutor *pipelineE2EDatabase,
 	counted *countingDatabaseExecutor,
 	allowedTables []string,
 ) {

@@ -1,10 +1,11 @@
-package executor
+package businessdb
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"net/url"
@@ -17,10 +18,15 @@ import (
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const executionTimeoutMargin = 250 * time.Millisecond
+const (
+	executionTimeoutMargin  = 250 * time.Millisecond
+	maxDatabaseFrameBytes   = 1 << 20
+	postgresFrameHeaderSize = 5
+)
 
 // PostgresExecutor controls one PostgreSQL connection pool.
 type PostgresExecutor struct {
@@ -81,6 +87,10 @@ func NewPostgresExecutor(
 		config.ConnConfig.RuntimeParams = make(map[string]string)
 	}
 	config.ConnConfig.RuntimeParams["statement_timeout"] = strconv.Itoa(timeoutMS)
+	config.ConnConfig.BuildFrontend = newBoundedPostgresFrontend
+	// NOTICE/WARNING payloads are database-controlled diagnostics and must not
+	// cross the capability boundary or enter ordinary logs.
+	config.ConnConfig.OnNotice = func(*pgconn.PgConn, *pgconn.Notice) {}
 	if readOnly {
 		config.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	}
@@ -102,6 +112,12 @@ func NewPostgresExecutor(
 		return nil, err
 	}
 	return executor, nil
+}
+
+func newBoundedPostgresFrontend(reader io.Reader, writer io.Writer) *pgproto3.Frontend {
+	frontend := pgproto3.NewFrontend(reader, writer)
+	frontend.SetMaxBodyLen(maxDatabaseFrameBytes - postgresFrameHeaderSize)
+	return frontend
 }
 
 func (executor *PostgresExecutor) poolSnapshot() PoolStat {
@@ -522,6 +538,10 @@ func (source *postgresRowSource) Close() error {
 }
 
 func postgresDatabaseError(ctx context.Context, stage DBStage, message string, cause error) error {
+	var resource *ResourceError
+	if errors.As(cause, &resource) {
+		return resource
+	}
 	if classified, ok := classifyPostgresError(ctx, stage, cause); ok {
 		return classified
 	}

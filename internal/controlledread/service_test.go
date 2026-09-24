@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/discovery"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/stretchr/testify/require"
@@ -22,8 +22,10 @@ func (reader fakeDatasourceReader) Get(context.Context, string) (model.Datasourc
 }
 
 type fakeExecutorPool struct {
-	executor executor.Executor
-	opened   model.Datasource
+	executor interface {
+		Query(context.Context, string, int) (model.QueryResult, error)
+	}
+	opened model.Datasource
 }
 
 type limiterCall struct {
@@ -47,9 +49,52 @@ func (limiter *recordingLimiter) Release(key string) error {
 	return nil
 }
 
-func (pool *fakeExecutorPool) GetOrOpen(datasource model.Datasource, _ []byte) (executor.Executor, error) {
+func (pool *fakeExecutorPool) ListSchema(ctx context.Context, datasource model.Datasource, _ []byte, tables []executor.TableRef) ([]executor.SchemaColumn, error) {
 	pool.opened = datasource
-	return pool.executor, nil
+	requested := make([]discovery.TableRef, len(tables))
+	for index, table := range tables {
+		requested[index] = discovery.TableRef{Schema: table.Schema, Table: table.Table}
+	}
+	query, err := buildMetadataSQL(model.DBDialect(datasource.DBType), datasource.Database, requested)
+	if err != nil {
+		return nil, err
+	}
+	result, err := pool.executor.Query(ctx, query, metadataRowLimit)
+	if err != nil {
+		return nil, err
+	}
+	if !metadataColumnsMatch(result.Columns) {
+		return nil, errors.New("invalid metadata shape")
+	}
+	columns := make([]executor.SchemaColumn, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) != 6 {
+			return nil, errors.New("invalid metadata row")
+		}
+		ordinal, err := parsePositiveInt(row[5])
+		if err != nil {
+			return nil, err
+		}
+		dataType := row[3]
+		if row[4] != "" && row[4] != row[3] {
+			dataType += "/" + row[4]
+		}
+		columns = append(columns, executor.SchemaColumn{Schema: row[0], Table: row[1], Column: row[2], DataType: dataType, Ordinal: ordinal})
+	}
+	return columns, nil
+}
+
+func (pool *fakeExecutorPool) Sample(ctx context.Context, datasource model.Datasource, _ []byte, table executor.TableRef, columns []executor.ColumnRef, limit int) (model.QueryResult, error) {
+	pool.opened = datasource
+	requested := make([]discovery.ColumnRef, len(columns))
+	for index, column := range columns {
+		requested[index] = discovery.ColumnRef{Schema: column.Schema, Table: column.Table, Column: column.Column}
+	}
+	query, err := buildSampleSQL(model.DBDialect(datasource.DBType), discovery.TableRef{Schema: table.Schema, Table: table.Table}, requested, limit)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	return pool.executor.Query(ctx, query, limit)
 }
 func (*fakeExecutorPool) CloseAll() error { return nil }
 
@@ -66,17 +111,6 @@ type fakeReadExecutor struct {
 	err            error
 }
 
-func (*fakeReadExecutor) Dialect() string            { return "postgres" }
-func (*fakeReadExecutor) Ping(context.Context) error { return nil }
-func (*fakeReadExecutor) OpenSession(context.Context, string) (executor.Session, error) {
-	return nil, errors.New("not used")
-}
-func (*fakeReadExecutor) BeginWriteTx(context.Context) (executor.WriteTx, error) {
-	return nil, executor.ErrReadOnlyViolated
-}
-func (*fakeReadExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
-	return model.ExplainInfo{}, executor.ErrReadOnlyViolated
-}
 func (reader *fakeReadExecutor) Query(_ context.Context, sqlText string, rowLimit int) (model.QueryResult, error) {
 	reader.mu.Lock()
 	defer reader.mu.Unlock()
@@ -89,10 +123,6 @@ func (reader *fakeReadExecutor) Query(_ context.Context, sqlText string, rowLimi
 	}
 	return reader.sampleResult, nil
 }
-func (*fakeReadExecutor) Execute(context.Context, string) (model.QueryResult, error) {
-	return model.QueryResult{}, executor.ErrReadOnlyViolated
-}
-func (*fakeReadExecutor) Close() error { return nil }
 
 func TestServiceCandidateOnlySamplingAndLimitDoubleBarrier(t *testing.T) {
 	reader := &fakeReadExecutor{

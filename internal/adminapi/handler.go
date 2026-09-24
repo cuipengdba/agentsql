@@ -19,10 +19,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/discovery"
-	"github.com/cuipengdba/agentsql/internal/executor"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/policy"
@@ -66,11 +66,7 @@ type runtimePinger struct{ runtime *bootstrap.Runtime }
 
 func (pinger runtimePinger) Ping(ctx context.Context, datasource model.Datasource) (PingResult, error) {
 	started := time.Now()
-	databaseExecutor, err := pinger.runtime.ExecutorFor(datasource)
-	if err != nil {
-		return pingResult(started, err), err
-	}
-	_, err = databaseExecutor.Query(ctx, "SELECT 1", 1)
+	err := pinger.runtime.PingDatasource(ctx, datasource)
 	return pingResult(started, err), err
 }
 
@@ -198,7 +194,17 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	if streamEnabled {
 		mux.HandleFunc("GET /api/v1/stream", handler.stream)
 	}
-	return handler.recover(handler.adminAuth(mux)), nil
+	root := handler.recover(handler.adminAuth(mux))
+	sealed := executor.SealedHTTP(root, executor.DefaultLimits.EnvelopeBytes)
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// The audit event stream is not a SQL/result transport. It remains a
+		// deliberate streaming endpoint; every SQL-bearing admin route is sealed.
+		if request.URL.Path == "/api/v1/stream" {
+			root.ServeHTTP(writer, request)
+			return
+		}
+		sealed.ServeHTTP(writer, request)
+	}), nil
 }
 
 func (handler *Handler) adminAuth(next http.Handler) http.Handler {
@@ -260,6 +266,12 @@ func (writer *statusRecorder) Write(body []byte) (int, error) {
 
 func (writer *statusRecorder) Unwrap() http.ResponseWriter {
 	return writer.ResponseWriter
+}
+
+func (writer *statusRecorder) AfterCommit(callback func()) {
+	if transactional, ok := writer.ResponseWriter.(interface{ AfterCommit(func()) }); ok {
+		transactional.AfterCommit(callback)
+	}
 }
 
 func (handler *Handler) login(writer http.ResponseWriter, request *http.Request) {
@@ -1451,6 +1463,12 @@ func (handler *Handler) auditExport(writer http.ResponseWriter, request *http.Re
 	writer.Header().Set("Cache-Control", "no-store")
 	written, writeErr := writer.Write(body)
 	if writeErr != nil || written != len(body) {
+		return
+	}
+	if transactional, ok := writer.(interface{ AfterCommit(func()) }); ok {
+		transactional.AfterCommit(func() {
+			handler.recordAuditExportTrail(request, normalizedAuditExportFormat(format), len(logs), filter)
+		})
 		return
 	}
 	handler.recordAuditExportTrail(request, normalizedAuditExportFormat(format), len(logs), filter)
