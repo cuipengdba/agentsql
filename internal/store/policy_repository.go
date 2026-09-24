@@ -18,6 +18,10 @@ var ErrRevisionMismatch = errors.New("store revision mismatch")
 // legacy staging rows. Mutations use one control-plane transaction.
 type PolicyRepository struct{ repositoryBase }
 
+type policyQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
 // RevalidatedColumnBinding is produced from original legacy/star input while
 // the caller holds its business schema lock. Discovery results are never
 // accepted as this value.
@@ -140,6 +144,10 @@ func (repository *PolicyRepository) ListByAgent(ctx context.Context, agentID str
 }
 
 func (repository *PolicyRepository) list(ctx context.Context, suffix string, arguments ...any) ([]model.Policy, error) {
+	return repository.listWith(ctx, repository.db, suffix, arguments...)
+}
+
+func (repository *PolicyRepository) listWith(ctx context.Context, queryer policyQueryer, suffix string, arguments ...any) ([]model.Policy, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("list policies: %w", ErrNilContext)
 	}
@@ -147,7 +155,7 @@ func (repository *PolicyRepository) list(ctx context.Context, suffix string, arg
 	if strings.Contains(suffix, "agent_id=? AND datasource_id=?") {
 		query = policySelect + indexHint(repository.dialect, " INDEXED BY idx_policies_agent_ds") + suffix
 	}
-	rows, err := repository.db.QueryContext(ctx, repository.bind(query), arguments...)
+	rows, err := queryer.QueryContext(ctx, repository.bind(query), arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("list policies: %w", err)
 	}
@@ -163,7 +171,7 @@ func (repository *PolicyRepository) list(ctx context.Context, suffix string, arg
 	if iterationErr != nil || closeErr != nil {
 		return nil, fmt.Errorf("finish policies: %w", errors.Join(iterationErr, closeErr))
 	}
-	if err := repository.loadChildren(ctx, items); err != nil {
+	if err := repository.loadChildrenWith(ctx, queryer, items); err != nil {
 		return nil, fmt.Errorf("load policy children: %w", err)
 	}
 	return items, nil
@@ -356,6 +364,10 @@ func legacyStaging(policyID, source string) []model.PolicyColumnPermissionStagin
 }
 
 func (repository *PolicyRepository) loadChildren(ctx context.Context, policies []model.Policy) error {
+	return repository.loadChildrenWith(ctx, repository.db, policies)
+}
+
+func (repository *PolicyRepository) loadChildrenWith(ctx context.Context, queryer policyQueryer, policies []model.Policy) error {
 	if len(policies) == 0 {
 		return nil
 	}
@@ -363,7 +375,7 @@ func (repository *PolicyRepository) loadChildren(ctx context.Context, policies [
 	for index := range policies {
 		byID[policies[index].ID] = &policies[index]
 	}
-	bindings, err := repository.db.QueryContext(ctx, `SELECT id,policy_id,datasource_id,schema_name,relation_name,stable_object_id,catalog_fingerprint,status,revision,created_at,updated_at FROM relation_policy_bindings ORDER BY policy_id`)
+	bindings, err := queryer.QueryContext(ctx, `SELECT id,policy_id,datasource_id,schema_name,relation_name,stable_object_id,catalog_fingerprint,status,revision,created_at,updated_at FROM relation_policy_bindings ORDER BY policy_id`)
 	if err != nil {
 		return err
 	}
@@ -385,7 +397,7 @@ func (repository *PolicyRepository) loadChildren(ctx context.Context, policies [
 	if err := errors.Join(bindings.Err(), bindings.Close()); err != nil {
 		return err
 	}
-	permissions, err := repository.db.QueryContext(ctx, `SELECT policy_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision FROM policy_column_permissions ORDER BY policy_id,column_ordinal,usage`)
+	permissions, err := queryer.QueryContext(ctx, `SELECT policy_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision FROM policy_column_permissions ORDER BY policy_id,column_ordinal,usage`)
 	if err != nil {
 		return err
 	}
@@ -402,7 +414,7 @@ func (repository *PolicyRepository) loadChildren(ctx context.Context, policies [
 	if err := errors.Join(permissions.Err(), permissions.Close()); err != nil {
 		return err
 	}
-	staging, err := repository.db.QueryContext(ctx, `SELECT policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status,error_code FROM policy_column_permission_staging ORDER BY policy_id,token_ordinal,requested_usage`)
+	staging, err := queryer.QueryContext(ctx, `SELECT policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status,error_code FROM policy_column_permission_staging ORDER BY policy_id,token_ordinal,requested_usage`)
 	if err != nil {
 		return err
 	}

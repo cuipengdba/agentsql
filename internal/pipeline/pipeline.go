@@ -32,6 +32,7 @@ type Pipeline struct {
 	layers   engine.RuleLayers
 	observer DecisionObserver
 	demo     config.DemoConfig
+	column   ColumnAuthorizationController
 }
 
 // New validates all seven ports and constructs the shared guard components.
@@ -65,6 +66,7 @@ func New(ports Ports, secret []byte, options ...Option) (*Pipeline, error) {
 		layers:   configuration.ruleLayers,
 		observer: configuration.observer,
 		demo:     configuration.demo,
+		column:   configuration.column,
 	}, nil
 }
 
@@ -232,6 +234,9 @@ func (pipeline *Pipeline) process(
 	if run.isDemo() && !isDemoSemanticReadOnly(run.ast) {
 		run.appendStructuralHit(demoNonSelectHit())
 		staticAssessment = run.response.Assessment
+	}
+	if run.ast.StmtType == model.StmtType("SELECT") && !isNilInterface(pipeline.column) {
+		return run.processColumnAuthorizedSelect(ctx)
 	}
 	if staticAssessment.Decision == model.DecisionDeny {
 		return run.finish(ctx, nil)

@@ -35,12 +35,21 @@ var (
 
 // Config is the root AgentSQL configuration.
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Store     StoreConfig     `yaml:"store"`
-	Defaults  DefaultsConfig  `yaml:"defaults"`
-	Theme     ThemeConfig     `yaml:"theme"`
-	Demo      DemoConfig      `yaml:"demo"`
-	Redaction RedactionConfig `yaml:"redaction"`
+	Server              ServerConfig              `yaml:"server"`
+	Store               StoreConfig               `yaml:"store"`
+	Defaults            DefaultsConfig            `yaml:"defaults"`
+	Theme               ThemeConfig               `yaml:"theme"`
+	Demo                DemoConfig                `yaml:"demo"`
+	Redaction           RedactionConfig           `yaml:"redaction"`
+	ColumnAuthorization ColumnAuthorizationConfig `yaml:"column_authorization"`
+}
+
+// ColumnAuthorizationConfig is an implementation feature gate, not the S5
+// activation gate. Enabling it still requires a protocol-3 fence/runtime row;
+// without those control-plane facts every SELECT fails closed.
+type ColumnAuthorizationConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	InstanceID string `yaml:"instance_id"`
 }
 
 // ServerConfig controls the shared HTTP listener and console availability.
@@ -221,6 +230,9 @@ func (config Config) validateNonStore() error {
 	demo := config.Demo
 	if err := defaultAndValidateDemo(&demo); err != nil {
 		return fmt.Errorf("validate demo config: %w", err)
+	}
+	if config.ColumnAuthorization.Enabled && strings.TrimSpace(config.ColumnAuthorization.InstanceID) == "" {
+		return fmt.Errorf("validate column_authorization: instance_id is required when enabled")
 	}
 
 	listen := strings.TrimSpace(config.Server.HTTPListen)

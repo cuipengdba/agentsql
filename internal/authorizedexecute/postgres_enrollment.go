@@ -24,6 +24,8 @@ type PostgresEnrolledRelation struct {
 	Schema, Name                           string
 	Kind                                   byte
 	ViewDepth                              int
+	StableObjectID                         string
+	CatalogFingerprint                     string
 }
 
 type PostgresEnrolledColumn struct {
@@ -32,6 +34,7 @@ type PostgresEnrolledColumn struct {
 	Name         string
 	TypeOID      uint32
 	CollationOID uint32
+	TypeDigest   string
 }
 
 // EnrollPostgresSelect performs S3 discovery only. It intentionally does not
@@ -66,12 +69,14 @@ func (gateway *Gateway) EnrollPostgresSelect(ctx context.Context, datasource mod
 		result.Relations[index] = PostgresEnrolledRelation{
 			DatabaseOID: relation.DatabaseOID, RelationOID: relation.OID, NamespaceOID: relation.NamespaceOID,
 			Schema: relation.Schema, Name: relation.Name, Kind: relation.Kind, ViewDepth: relation.ViewDepth,
+			StableObjectID: PostgresStableObjectID(relation.DatabaseOID, relation.OID), CatalogFingerprint: enrollment.Catalog.Fingerprint,
 		}
 	}
 	for index, column := range enrollment.Catalog.Columns {
 		result.Columns[index] = PostgresEnrolledColumn{
 			RelationOID: column.RelationOID, Attnum: column.Attnum, Name: column.Name,
 			TypeOID: column.TypeOID, CollationOID: column.Collation,
+			TypeDigest: PostgresColumnTypeDigest(column.TypeOID, column.Typmod, column.Collation),
 		}
 	}
 	return result, nil

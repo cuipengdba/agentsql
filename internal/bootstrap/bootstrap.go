@@ -164,6 +164,18 @@ func assembleWithExecutorProvider(
 			publisher: events,
 		})
 	}
+	pipelineOptions := []pipeline.Option{pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo)}
+	var columnController *columnAuthorizationController
+	if cfg.ColumnAuthorization.Enabled {
+		columnController = &columnAuthorizationController{
+			fence: metadataStore.Fence(), redactors: redactors, instanceID: cfg.ColumnAuthorization.InstanceID,
+		}
+		pipelineOptions = append(pipelineOptions, pipeline.WithColumnAuthorization(columnController))
+		_ = readOnlyManager.CloseAll()
+		readOnlyManager = executor.NewGateway(true, executor.WithColumnAuthorizationProvider(&controlledReadColumnAuthorizationProvider{
+			controller: columnController, recorder: auditRecorder,
+		}))
+	}
 	flow, err := pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
 		Datasources:   metadataStore.Datasources(),
@@ -173,7 +185,7 @@ func assembleWithExecutorProvider(
 		Audit:         auditRecorder,
 		Redactors:     redactors,
 		RuleOverrides: metadataStore.Rules(),
-	}, secret, pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo))
+	}, secret, pipelineOptions...)
 	if err != nil {
 		events.Close()
 		_ = readOnlyManager.CloseAll()

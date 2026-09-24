@@ -2,7 +2,11 @@ package authorizedexecute
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/authorizedexecute/internal/businessdb"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -14,6 +18,25 @@ type Gateway struct {
 	manager      *businessdb.Manager
 	reservations *ReservationPool
 	readOnly     bool
+	column       ColumnAuthorizationProvider
+}
+
+// ColumnAuthorizationProvider is used by fixed internal SELECT producers
+// (currently controlledread sampling) that cannot attach an agent pipeline
+// snapshot themselves. It returns request facts plus the control-snapshot
+// close barrier that must run after seal and before any result is returned.
+type ColumnAuthorizationProvider interface {
+	BeginColumnAuthorization(context.Context, string, model.Datasource) (ColumnAuthorizationRequest, func() error, error)
+}
+
+type GatewayOption func(*Gateway)
+
+func WithColumnAuthorizationProvider(provider ColumnAuthorizationProvider) GatewayOption {
+	return func(gateway *Gateway) {
+		if provider != nil {
+			gateway.column = provider
+		}
+	}
 }
 
 type TableRef struct{ Schema, Table string }
@@ -23,8 +46,14 @@ type SchemaColumn struct {
 	Ordinal                         int
 }
 
-func NewGateway(readOnly bool) *Gateway {
-	return &Gateway{manager: businessdb.NewManager(readOnly), reservations: NewReservationPool(DefaultReservationLimits), readOnly: readOnly}
+func NewGateway(readOnly bool, options ...GatewayOption) *Gateway {
+	gateway := &Gateway{manager: businessdb.NewManager(readOnly), reservations: NewReservationPool(DefaultReservationLimits), readOnly: readOnly}
+	for _, option := range options {
+		if option != nil {
+			option(gateway)
+		}
+	}
+	return gateway
 }
 
 // ProbeDatasource performs only connect, ping and close for CLI enrollment.
@@ -88,22 +117,72 @@ func (gateway *Gateway) ListSchema(ctx context.Context, datasource model.Datasou
 }
 
 func (gateway *Gateway) Sample(ctx context.Context, datasource model.Datasource, secret []byte, table TableRef, columns []ColumnRef, limit int) (model.QueryResult, error) {
-	executor, err := gateway.open(datasource, secret)
-	if err != nil {
-		return model.QueryResult{}, fixedExecutionError(err)
+	if ctx == nil || len(columns) == 0 || len(columns) > DefaultLimits.OutputColumns || limit <= 0 || limit > 1_000 {
+		return model.QueryResult{}, &AuthError{Reason: ReasonRequestTooLarge}
 	}
-	requested := make([]businessdb.SampleColumn, len(columns))
+	tableName, err := quoteTypedIdentifier(datasource.DBType, table.Table)
+	if err != nil {
+		return model.QueryResult{}, &AuthError{Reason: ReasonExpressionShape}
+	}
+	if table.Schema != "" {
+		schema, quoteErr := quoteTypedIdentifier(datasource.DBType, table.Schema)
+		if quoteErr != nil {
+			return model.QueryResult{}, &AuthError{Reason: ReasonExpressionShape}
+		}
+		tableName = schema + "." + tableName
+	}
+	projections := make([]string, len(columns))
 	for index, column := range columns {
-		requested[index] = businessdb.SampleColumn{Schema: column.Schema, Table: column.Table, Column: column.Column}
+		if column.Schema != table.Schema || column.Table != table.Table {
+			return model.QueryResult{}, &AuthError{Reason: ReasonExpressionShape}
+		}
+		projections[index], err = quoteTypedIdentifier(datasource.DBType, column.Column)
+		if err != nil {
+			return model.QueryResult{}, &AuthError{Reason: ReasonExpressionShape}
+		}
 	}
-	result, err := businessdb.Sample(ctx, executor, businessdb.SchemaTable{Schema: table.Schema, Table: table.Table}, requested, limit)
+	sqlText := "SELECT " + strings.Join(projections, ",") + " FROM " + tableName + " LIMIT " + strconv.Itoa(limit)
+	statement, err := gateway.AuthorizedExecute(ctx, datasource, secret, sqlText, "")
 	if err != nil {
-		return model.QueryResult{}, fixedExecutionError(err)
+		return model.QueryResult{}, err
+	}
+	result, queryErr := statement.Query(ctx, limit)
+	var columnErr error
+	if column, ok := statement.(ColumnAuthorizedStatement); ok && queryErr == nil {
+		outcome, available := column.ColumnAuthorizationResult()
+		if !available {
+			columnErr = &AuthError{Reason: ReasonAuthorizationProofInvalid}
+		} else if !outcome.Allowed {
+			columnErr = &AuthError{Reason: outcome.Reason}
+		}
+	}
+	closeErr := statement.Close()
+	if queryErr != nil || columnErr != nil || closeErr != nil {
+		return model.QueryResult{}, errors.Join(queryErr, columnErr, closeErr)
 	}
 	if err := ValidateResult(result, false, DefaultLimits); err != nil {
 		return model.QueryResult{}, err
 	}
 	return result, nil
+}
+
+func quoteTypedIdentifier(dialect, value string) (string, error) {
+	if value == "" || value != strings.TrimSpace(value) {
+		return "", fmt.Errorf("invalid identifier")
+	}
+	for _, character := range value {
+		if character == 0 || unicode.IsControl(character) {
+			return "", fmt.Errorf("invalid identifier")
+		}
+	}
+	switch dialect {
+	case "postgres":
+		return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`, nil
+	case "mysql":
+		return "`" + strings.ReplaceAll(value, "`", "``") + "`", nil
+	default:
+		return "", fmt.Errorf("unsupported dialect")
+	}
 }
 
 func (gateway *Gateway) SnapshotPools() []PoolStat {

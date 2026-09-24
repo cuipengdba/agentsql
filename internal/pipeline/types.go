@@ -59,10 +59,11 @@ type Response struct {
 	Redact         mask.RedactReport
 	ApprovalID     string
 	AuditID        int64
-	ErrorCode      string `json:"error_code,omitempty"`
-	ErrorStage     string `json:"error_stage,omitempty"`
-	ErrorMessage   string `json:"error_message,omitempty"`
-	Suggestion     string `json:"suggestion,omitempty"`
+	ErrorCode      string                             `json:"error_code,omitempty"`
+	ErrorStage     string                             `json:"error_stage,omitempty"`
+	ErrorMessage   string                             `json:"error_message,omitempty"`
+	Suggestion     string                             `json:"suggestion,omitempty"`
+	ColumnAuth     *executor.ColumnAuthorizationAudit `json:"column_auth,omitempty"`
 	auditPhase     auditPhase
 	relatedAuditID int64
 }
@@ -111,6 +112,21 @@ type RedactorBuilder interface {
 	RedactorFor(ctx context.Context, datasourceID string) (mask.Redactor, error)
 }
 
+// ColumnAuthorizationSnapshot owns one protocol-3 control snapshot. Its
+// policies and mask plan source were read inside that snapshot; FinalCheck is
+// called only after the business transaction and durable audit have ended.
+type ColumnAuthorizationSnapshot interface {
+	Policies() []model.Policy
+	Redactor() mask.Redactor
+	RevisionDigest() string
+	FinalCheck(context.Context) error
+	Close() error
+}
+
+type ColumnAuthorizationController interface {
+	Begin(context.Context, model.Agent, model.Datasource) (ColumnAuthorizationSnapshot, error)
+}
+
 // RuleOverrideReader reads administrator-maintained global rule overrides.
 type RuleOverrideReader interface {
 	List(ctx context.Context, dbType string) ([]model.Rule, error)
@@ -136,6 +152,19 @@ type pipelineOptions struct {
 	ruleLayers engine.RuleLayers
 	observer   DecisionObserver
 	demo       config.DemoConfig
+	column     ColumnAuthorizationController
+}
+
+// WithColumnAuthorization enables the feature-gated S4 SELECT path. Normal
+// construction omits this option, preserving the protocol-2 table pipeline.
+func WithColumnAuthorization(controller ColumnAuthorizationController) Option {
+	return func(options *pipelineOptions) error {
+		if isNilInterface(controller) {
+			return ErrInvalidOption
+		}
+		options.column = controller
+		return nil
+	}
 }
 
 // WithRuleLayers supplies global, datasource, and Agent rule overrides.

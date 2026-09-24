@@ -2,12 +2,17 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/lockrank"
+	"github.com/cuipengdba/agentsql/internal/model"
 )
 
 var (
@@ -47,6 +52,71 @@ type ControlSnapshot struct {
 	instance RuntimeInstance
 	closed   bool
 	rank     *lockrank.Lease
+}
+
+// ColumnAuthorizationState is read entirely through the original control
+// snapshot transaction. It contains no database handle and can be passed to
+// the S4 execution coordinator without permitting a second metadata read.
+type ColumnAuthorizationState struct {
+	Policies       []model.Policy
+	MaskRules      []model.MaskRule
+	RevisionDigest string
+}
+
+func (snapshot *ControlSnapshot) ColumnAuthorizationState(ctx context.Context, agentID, datasourceID string) (ColumnAuthorizationState, error) {
+	if snapshot == nil || snapshot.closed || ctx == nil || agentID == "" || datasourceID == "" {
+		return ColumnAuthorizationState{}, ErrFenceLost
+	}
+	repository := &PolicyRepository{repositoryBase: repositoryBase{dialect: snapshot.dialect}}
+	policies, err := repository.listWith(ctx, snapshot.tx, ` WHERE agent_id=? AND datasource_id=? ORDER BY created_at ASC,id ASC`, agentID, datasourceID)
+	if err != nil {
+		return ColumnAuthorizationState{}, errors.Join(ErrFenceLost, err)
+	}
+	rules, err := snapshot.listEnabledMaskRules(ctx, datasourceID)
+	if err != nil {
+		return ColumnAuthorizationState{}, errors.Join(ErrFenceLost, err)
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte("agentsql-column-control-v2\x00"))
+	_, _ = h.Write([]byte(strconv.FormatInt(snapshot.fence.Revision, 10) + "\x00" + strconv.FormatInt(snapshot.instance.Revision, 10)))
+	for _, policy := range policies {
+		_, _ = h.Write([]byte("\x00p:" + policy.ID + ":" + strconv.FormatInt(policy.Revision, 10)))
+		if policy.RelationBinding != nil {
+			_, _ = h.Write([]byte(":" + policy.RelationBinding.ID + ":" + strconv.FormatInt(policy.RelationBinding.Revision, 10)))
+		}
+	}
+	for _, rule := range rules {
+		_, _ = h.Write([]byte("\x00m:" + rule.ID + ":" + rule.UpdatedAt.UTC().Format(time.RFC3339Nano)))
+	}
+	return ColumnAuthorizationState{Policies: policies, MaskRules: rules, RevisionDigest: hex.EncodeToString(h.Sum(nil))}, nil
+}
+
+func (snapshot *ControlSnapshot) listEnabledMaskRules(ctx context.Context, datasourceID string) ([]model.MaskRule, error) {
+	query := `SELECT id,datasource_id,COALESCE(schema_name,''),COALESCE(table_name,''),column_name,sensitive_type,algo,
+ created_at,updated_at,enabled,range_bucket_width,range_bucket_offset,range_granularity
+ FROM mask_rules WHERE (datasource_id=`
+	if snapshot.dialect == DialectPostgres {
+		query += `$1 OR datasource_id IS NULL OR BTRIM(datasource_id)='') AND enabled=$2`
+	} else {
+		query += `? OR datasource_id IS NULL OR TRIM(datasource_id)='') AND enabled=?`
+	}
+	query += ` ORDER BY schema_name,table_name,column_name,id`
+	rows, err := snapshot.tx.QueryContext(ctx, query, datasourceID, true)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.MaskRule
+	for rows.Next() {
+		rule, err := scanMaskRule(rows)
+		if err != nil {
+			return nil, err
+		}
+		if rule.Enabled && (rule.DatasourceID == nil || strings.TrimSpace(*rule.DatasourceID) == "" || *rule.DatasourceID == datasourceID) {
+			result = append(result, rule)
+		}
+	}
+	return result, rows.Err()
 }
 
 func (repository *FenceRepository) BeginRead(ctx context.Context, protocol int, instanceID string, now time.Time) (*ControlSnapshot, error) {

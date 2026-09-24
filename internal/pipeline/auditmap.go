@@ -66,7 +66,7 @@ func mapAuditLog(
 	if auditDecision == string(model.DecisionError) && isStableAuditErrorCode(response.ErrorCode) {
 		log.ErrorCode = stringPointer(response.ErrorCode)
 	}
-	details, err := auditEventDetailsJSON(response.auditPhase, response.relatedAuditID, response.Redact.HashKeyVersion)
+	details, err := auditEventDetailsJSON(response.auditPhase, response.relatedAuditID, response.Redact.HashKeyVersion, response.ColumnAuth)
 	if err != nil {
 		return model.AuditLog{}, err
 	}
@@ -105,16 +105,21 @@ func isStableAuditErrorCode(code string) bool {
 }
 
 type auditEventDetails struct {
-	AuditPhase     string `json:"audit_phase,omitempty"`
-	RelatedAuditID int64  `json:"related_audit_id,omitempty"`
-	KeyVersion     *int   `json:"key_version,omitempty"`
+	AuditPhase     string                             `json:"audit_phase,omitempty"`
+	RelatedAuditID int64                              `json:"related_audit_id,omitempty"`
+	KeyVersion     *int                               `json:"key_version,omitempty"`
+	ColumnAuth     *executor.ColumnAuthorizationAudit `json:"column_auth,omitempty"`
 }
 
-func auditEventDetailsJSON(phase auditPhase, relatedAuditID int64, keyVersion *int) (*string, error) {
-	if phase == auditPhaseSingle && keyVersion == nil {
+func auditEventDetailsJSON(phase auditPhase, relatedAuditID int64, keyVersion *int, columnAuth ...*executor.ColumnAuthorizationAudit) (*string, error) {
+	var column *executor.ColumnAuthorizationAudit
+	if len(columnAuth) > 0 {
+		column = columnAuth[0]
+	}
+	if phase == auditPhaseSingle && keyVersion == nil && column == nil {
 		return nil, nil
 	}
-	details := auditEventDetails{KeyVersion: keyVersion}
+	details := auditEventDetails{KeyVersion: keyVersion, ColumnAuth: column}
 	if phase != auditPhaseSingle {
 		details.AuditPhase = string(phase)
 		details.RelatedAuditID = relatedAuditID

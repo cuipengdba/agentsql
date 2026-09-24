@@ -142,7 +142,7 @@ func scanPostgresCatalog(
 	allow PostgresOIDAllowlist,
 	budget PostgresCatalogBudget,
 ) (PostgresCatalogFrame, error) {
-	if ctx == nil || tx == nil || budget == nil || len(relationOIDs) == 0 {
+	if ctx == nil || tx == nil || budget == nil {
 		return PostgresCatalogFrame{}, catalogAuthError("AUTH_CATALOG_INCOMPLETE")
 	}
 	oids := uniqueSortedOIDs(relationOIDs)
@@ -155,7 +155,14 @@ func scanPostgresCatalog(
 		}
 	}
 
-	frame, typeOIDs, collationOIDs, err := readPostgresIdentities(ctx, tx, oids, viewDepth, budget)
+	var frame PostgresCatalogFrame
+	var typeOIDs, collationOIDs []uint32
+	var err error
+	if len(oids) == 0 {
+		frame, err = readPostgresSourceFreeFrame(ctx, tx, budget)
+	} else {
+		frame, typeOIDs, collationOIDs, err = readPostgresIdentities(ctx, tx, oids, viewDepth, budget)
+	}
 	if err != nil {
 		return PostgresCatalogFrame{}, err
 	}
@@ -175,10 +182,29 @@ func scanPostgresCatalog(
 	if len(findings) != 0 {
 		return PostgresCatalogFrame{}, catalogAuthError("AUTH_IMPLICIT_OBJECT_UNSUPPORTED")
 	}
-	if err := scanPostgresRelationShapes(ctx, tx, oids, allow.RelationAMs, budget); err != nil {
-		return PostgresCatalogFrame{}, err
+	if len(oids) != 0 {
+		if err := scanPostgresRelationShapes(ctx, tx, oids, allow.RelationAMs, budget); err != nil {
+			return PostgresCatalogFrame{}, err
+		}
 	}
 	frame.Fingerprint = fingerprintPostgresCatalog(frame)
+	return frame, nil
+}
+
+func readPostgresSourceFreeFrame(ctx context.Context, tx pgx.Tx, budget PostgresCatalogBudget) (PostgresCatalogFrame, error) {
+	if err := budget.ChargeCatalogRoundTrips(1); err != nil {
+		return PostgresCatalogFrame{}, err
+	}
+	var frame PostgresCatalogFrame
+	if err := tx.QueryRow(ctx, `SELECT current_setting('server_version_num')::int,oid FROM pg_catalog.pg_database WHERE datname=current_database()`).Scan(&frame.ServerVersion, &frame.DatabaseOID); err != nil || frame.ServerVersion == 0 || frame.DatabaseOID == 0 {
+		return PostgresCatalogFrame{}, catalogAuthError("AUTH_CATALOG_INCOMPLETE")
+	}
+	if err := budget.ChargeCatalogRows(1); err != nil {
+		return PostgresCatalogFrame{}, err
+	}
+	if err := budget.ChargeCatalogBytes(8); err != nil {
+		return PostgresCatalogFrame{}, err
+	}
 	return frame, nil
 }
 

@@ -101,6 +101,7 @@ func (service *Service) Discover(ctx context.Context, username, datasourceID str
 	datasource.StmtTimeoutMS = effectiveStatementTimeout(datasource.StmtTimeoutMS)
 	timed, cancel := context.WithTimeout(ctx, discoverDeadline)
 	defer cancel()
+	timed = executor.WithReservationScope(timed, username, username)
 	state := &runState{datasource: datasource, allowed: make(map[discovery.ColumnRef]struct{})}
 	timed = context.WithValue(timed, runStateKey{}, state)
 	result, err := discovery.NewScanner(service, service).Scan(timed, datasourceID, request)

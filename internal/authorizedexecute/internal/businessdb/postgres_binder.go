@@ -399,7 +399,7 @@ FROM agentsql_catalog.prepared_manifest($1)`
 }
 
 func validatePostgresManifest(manifest PostgresPreparedManifest, budget PostgresCatalogBudget) error {
-	if manifest.StatementName == "" || manifest.BackendPID == 0 || manifest.RoleOID == 0 || manifest.AnalyzedDigest == "" || manifest.DependencyDigest == "" || manifest.Invalidated || manifest.ReplanCount != 0 || manifest.CommandType != "SELECT" || manifest.HasRecursive || manifest.HasModifyingCTE || len(manifest.Relations) == 0 {
+	if manifest.StatementName == "" || manifest.BackendPID == 0 || manifest.RoleOID == 0 || manifest.AnalyzedDigest == "" || manifest.DependencyDigest == "" || manifest.Invalidated || manifest.ReplanCount != 0 || manifest.CommandType != "SELECT" || manifest.HasRecursive || manifest.HasModifyingCTE {
 		return catalogAuthError("AUTH_BINDER_INCOMPLETE")
 	}
 	if err := budget.ChargeNodes(manifest.NodeCount); err != nil {
@@ -666,6 +666,13 @@ func enrollmentFrom(manifest PostgresPreparedManifest, frame PostgresCatalogFram
 	writeCanonicalString(h, binder)
 	writeCanonicalString(h, frame.Fingerprint)
 	return PostgresEnrollment{Manifest: manifest, Catalog: frame, BinderFingerprint: binder, Fingerprint: "agentsql-pg-enrollment-v1:" + hex.EncodeToString(h.Sum(nil))}
+}
+
+// PostgresEnrollmentFromLocked derives the immutable enrollment digests from
+// the exact locked manifest/catalog pair consumed by S4. It does not expose a
+// database handle or permit execution.
+func PostgresEnrollmentFromLocked(manifest PostgresPreparedManifest, frame PostgresCatalogFrame) PostgresEnrollment {
+	return enrollmentFrom(manifest, frame)
 }
 
 type postgresCatalogRaceError struct{ reason string }
