@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const sqliteSchemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -25,7 +28,7 @@ const postgresSchemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migration
 
 var errForeignKeysDisabled = errors.New("SQLite foreign key enforcement is disabled")
 
-//go:embed migrations/sqlite/*.sql migrations/postgres/*.sql migrations/metadata/sqlite/*.sql migrations/metadata/postgres/*.sql migrations/audit/postgres/*.sql
+//go:embed migrations/sqlite/*.sql migrations/sqlite/down/*.sql migrations/postgres/*.sql migrations/postgres/down/*.sql migrations/metadata/sqlite/*.sql migrations/metadata/sqlite/down/*.sql migrations/metadata/postgres/*.sql migrations/metadata/postgres/down/*.sql migrations/audit/postgres/*.sql
 var migrationFiles embed.FS
 
 // Migrate applies each embedded migration exactly once in version order.
@@ -77,6 +80,60 @@ func MetadataMigrationVersions(ctx context.Context, database *sql.DB, dialect Di
 		directory = "migrations/metadata/" + string(dialect)
 	}
 	return migrationVersions(ctx, database, directory)
+}
+
+// RollbackMetadataMigration applies the checked-in down migration for the
+// current metadata version. Repeating the same version is a no-op; skipping a
+// newer applied version is rejected.
+func RollbackMetadataMigration(ctx context.Context, database *sql.DB, dialect Dialect, auditSeparate bool, version int) error {
+	if ctx == nil {
+		return fmt.Errorf("rollback metadata migration: %w", ErrNilContext)
+	}
+	directory := "migrations/" + string(dialect)
+	if auditSeparate {
+		directory = "migrations/metadata/" + string(dialect)
+	}
+	matches, err := fs.Glob(migrationFiles, directory+"/down/"+fmt.Sprintf("%04d_*.sql", version))
+	if err != nil || len(matches) != 1 {
+		return fmt.Errorf("rollback metadata migration %d: down migration not found", version)
+	}
+	contents, err := fs.ReadFile(migrationFiles, matches[0])
+	if err != nil {
+		return fmt.Errorf("rollback metadata migration %d: %w", version, err)
+	}
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin rollback metadata migration %d: %w", version, err)
+	}
+	if dialect == DialectPostgres {
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", int64(0x4153514c4d494702)); err != nil {
+			return rollbackMigration(tx, err)
+		}
+	}
+	var current int
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(version),0) FROM schema_migrations").Scan(&current); err != nil {
+		return rollbackMigration(tx, err)
+	}
+	if current < version {
+		return tx.Rollback()
+	}
+	if current != version {
+		return rollbackMigration(tx, fmt.Errorf("cannot rollback version %d while current version is %d", version, current))
+	}
+	if _, err := tx.ExecContext(ctx, string(contents)); err != nil {
+		return fmt.Errorf("execute down migration %d: %w", version, rollbackMigration(tx, err))
+	}
+	deleteSQL := "DELETE FROM schema_migrations WHERE version=?"
+	if dialect == DialectPostgres {
+		deleteSQL = "DELETE FROM schema_migrations WHERE version=$1"
+	}
+	if _, err := tx.ExecContext(ctx, deleteSQL, version); err != nil {
+		return rollbackMigration(tx, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit down migration %d: %w", version, err)
+	}
+	return nil
 }
 
 // LatestCombinedSQLiteMigrationVersion returns the schema version required of
@@ -135,8 +192,10 @@ func migrateDirectory(ctx context.Context, database *sql.DB, dialect Dialect, di
 			return fmt.Errorf("read migration %q: %w", filename, err)
 		}
 		preflightMaskRuleDuplicates := filename == "0003_discovery_drafts.sql"
+		columnAuthorizationMigration := strings.HasSuffix(filename, "_column_authorization.sql")
 		if err := applyMigrationWithOptions(
 			ctx, database, dialect, version, string(contents), preflightMaskRuleDuplicates,
+			columnAuthorizationMigration,
 		); err != nil {
 			return fmt.Errorf("apply migration %d: %w", version, err)
 		}
@@ -261,7 +320,7 @@ func migrationVersion(filename string) (int, error) {
 }
 
 func applyMigration(ctx context.Context, database *sql.DB, dialect Dialect, version int, contents string) error {
-	return applyMigrationWithOptions(ctx, database, dialect, version, contents, false)
+	return applyMigrationWithOptions(ctx, database, dialect, version, contents, false, false)
 }
 
 func applyMigrationWithOptions(
@@ -271,10 +330,16 @@ func applyMigrationWithOptions(
 	version int,
 	contents string,
 	preflightMaskRuleDuplicates bool,
+	columnAuthorizationMigration bool,
 ) error {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration %d: %w", version, err)
+	}
+	if dialect == DialectPostgres {
+		if _, err := transaction.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", int64(0x4153514c4d494702)); err != nil {
+			return fmt.Errorf("lock migration %d: %w", version, rollbackMigration(transaction, err))
+		}
 	}
 
 	claimed, err := claimMigration(ctx, transaction, dialect, version)
@@ -292,12 +357,120 @@ func applyMigrationWithOptions(
 			return fmt.Errorf("preflight mask_rules uniqueness: %w", rollbackMigration(transaction, err))
 		}
 	}
+	legacyColumns := []legacyPolicyColumns(nil)
+	if columnAuthorizationMigration {
+		legacyColumns, err = preflightLegacyPolicyColumns(ctx, transaction)
+		if err != nil {
+			return fmt.Errorf("preflight column authorization: %w", rollbackMigration(transaction, err))
+		}
+	}
 
 	if _, err := transaction.ExecContext(ctx, contents); err != nil {
 		return fmt.Errorf("execute migration %d: %w", version, rollbackMigration(transaction, err))
 	}
+	if columnAuthorizationMigration {
+		if err := backfillLegacyPolicyColumns(ctx, transaction, dialect, legacyColumns); err != nil {
+			return fmt.Errorf("backfill column authorization: %w", rollbackMigration(transaction, err))
+		}
+	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit migration %d: %w", version, err)
+	}
+	return nil
+}
+
+type legacyPolicyColumns struct {
+	policyID string
+	source   string
+	tokens   []string
+	digest   string
+}
+
+func preflightLegacyPolicyColumns(ctx context.Context, transaction *sql.Tx) ([]legacyPolicyColumns, error) {
+	rows, err := transaction.QueryContext(ctx, `SELECT id, columns FROM policies WHERE columns IS NOT NULL ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("read legacy policy columns: %w", err)
+	}
+	defer rows.Close()
+	result := make([]legacyPolicyColumns, 0)
+	for rows.Next() {
+		var policyID, source string
+		if err := rows.Scan(&policyID, &source); err != nil {
+			return nil, fmt.Errorf("scan legacy policy columns: %w", err)
+		}
+		if !utf8.ValidString(source) || strings.IndexByte(source, 0) >= 0 {
+			return nil, fmt.Errorf("policy %q columns is not canonical UTF-8 text", policyID)
+		}
+		if strings.TrimSpace(source) == "" {
+			continue
+		}
+		parts := strings.Split(source, ",")
+		if len(parts) > 16384 {
+			return nil, fmt.Errorf("policy %q columns exceeds staging token limit", policyID)
+		}
+		tokens := make([]string, len(parts))
+		for index, part := range parts {
+			tokens[index] = strings.TrimSpace(part)
+			if tokens[index] == "" {
+				return nil, fmt.Errorf("policy %q columns contains an empty token at ordinal %d", policyID, index+1)
+			}
+		}
+		digest := sha256.Sum256([]byte(source))
+		result = append(result, legacyPolicyColumns{
+			policyID: policyID, source: source, tokens: tokens, digest: hex.EncodeToString(digest[:]),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate legacy policy columns: %w", err)
+	}
+	return result, nil
+}
+
+func backfillLegacyPolicyColumns(
+	ctx context.Context,
+	transaction *sql.Tx,
+	dialect Dialect,
+	legacy []legacyPolicyColumns,
+) error {
+	statement := `INSERT INTO policy_column_permission_staging
+  (policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status)
+VALUES(?,?,?,?,?,'pending')`
+	if dialect == DialectPostgres {
+		statement = `INSERT INTO policy_column_permission_staging
+  (policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status)
+VALUES($1,$2,$3,$4,$5,'pending')`
+	}
+	inserted := 0
+	for _, policy := range legacy {
+		for tokenIndex, token := range policy.tokens {
+			for _, usage := range []string{"output", "reference"} {
+				if _, err := transaction.ExecContext(ctx, statement, policy.policyID, tokenIndex+1, token, usage, policy.digest); err != nil {
+					return fmt.Errorf("stage policy %q token %d usage %s: %w", policy.policyID, tokenIndex+1, usage, err)
+				}
+				inserted++
+			}
+		}
+	}
+	var count int
+	if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM policy_column_permission_staging`).Scan(&count); err != nil {
+		return fmt.Errorf("count staged policy columns: %w", err)
+	}
+	if count != inserted {
+		return fmt.Errorf("staged policy column count mismatch: expected=%d actual=%d", inserted, count)
+	}
+	for _, policy := range legacy {
+		var countForPolicy int
+		var minDigest, maxDigest string
+		query := `SELECT count(*),min(source_csv_sha256),max(source_csv_sha256) FROM policy_column_permission_staging WHERE policy_id=?`
+		if dialect == DialectPostgres {
+			query = `SELECT count(*),min(source_csv_sha256),max(source_csv_sha256) FROM policy_column_permission_staging WHERE policy_id=$1`
+		}
+		if err := transaction.QueryRowContext(ctx, query, policy.policyID).Scan(&countForPolicy, &minDigest, &maxDigest); err != nil {
+			return fmt.Errorf("verify staged policy %q: %w", policy.policyID, err)
+		}
+		if countForPolicy != len(policy.tokens)*2 || minDigest != policy.digest || maxDigest != policy.digest {
+			return fmt.Errorf("staged policy %q digest/count mismatch", policy.policyID)
+		}
 	}
 	return nil
 }

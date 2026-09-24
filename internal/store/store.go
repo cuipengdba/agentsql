@@ -498,6 +498,11 @@ func (store *Store) Policies() *PolicyRepository {
 	return &PolicyRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// Fence returns the reader/writer fence and runtime lease repository.
+func (store *Store) Fence() *FenceRepository {
+	return &FenceRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // Rules returns the rule repository.
 func (store *Store) Rules() *RuleRepository {
 	return &RuleRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}

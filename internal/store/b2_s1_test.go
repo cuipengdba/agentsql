@@ -1,0 +1,172 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/stretchr/testify/require"
+)
+
+func TestB2PolicyParentChildrenAtomicCASAndCascade(t *testing.T) {
+	opened := openTestStore(t)
+	agent, datasource := createPolicyDependencies(t, opened)
+	ctx := context.Background()
+	policy := model.Policy{
+		ID: "b2-policy", AgentID: agent.ID, DatasourceID: datasource.ID,
+		ObjectType: "table", ObjectName: "public.orders", Action: "allow",
+		RelationBinding: &model.RelationPolicyBinding{ID: "binding-1", RelationName: "orders"},
+		ColumnPermissions: []model.PolicyColumnPermission{
+			{RelationEnrollmentID: "enrollment-1", ColumnOrdinal: 1, ColumnName: "id", ColumnTypeDigest: "int8", Usage: "output"},
+			{RelationEnrollmentID: "enrollment-1", ColumnOrdinal: 1, ColumnName: "id", ColumnTypeDigest: "int8", Usage: "reference"},
+		},
+	}
+	created, err := opened.Policies().Create(ctx, policy)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), created.Revision)
+	require.Len(t, created.ColumnPermissions, 2)
+	require.NotNil(t, created.RelationBinding)
+	require.Equal(t, "binding-1", *created.RelationBindingID)
+
+	first, second := created, created
+	first.Action, second.Action = "deny", "allow"
+	updated, err := opened.Policies().UpdateIfRevision(ctx, first, created.Revision)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), updated.Revision)
+	_, err = opened.Policies().UpdateIfRevision(ctx, second, created.Revision)
+	require.ErrorIs(t, err, ErrRevisionMismatch)
+
+	// A direct child write cannot be silent: the defensive trigger bumps the parent.
+	_, err = opened.metaDB.ExecContext(ctx, `INSERT INTO policy_column_permissions
+ (policy_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision)
+ VALUES(?,?,?,?,?,?,?)`, created.ID, "enrollment-1", 2, "tenant_id", "int8", "output", updated.Revision)
+	require.NoError(t, err)
+	direct, err := opened.Policies().Get(ctx, created.ID)
+	require.NoError(t, err)
+	require.Greater(t, direct.Revision, updated.Revision)
+
+	require.NoError(t, opened.Policies().DeleteIfRevision(ctx, direct.ID, direct.Revision))
+	for _, table := range []string{"relation_policy_bindings", "policy_column_permissions", "policy_column_permission_staging"} {
+		var count int
+		require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE policy_id=?`, direct.ID).Scan(&count))
+		require.Zero(t, count)
+	}
+}
+
+func TestB2RepositoryRejectsNewWildcard(t *testing.T) {
+	opened := openTestStore(t)
+	agent, datasource := createPolicyDependencies(t, opened)
+	star := "*"
+	_, err := opened.Policies().Create(context.Background(), model.Policy{
+		ID: "repo-star", AgentID: agent.ID, DatasourceID: datasource.ID,
+		ObjectType: "table", ObjectName: "public.t", Columns: &star, Action: "allow",
+	})
+	require.ErrorContains(t, err, "wildcard")
+	_, err = opened.Policies().Get(context.Background(), "repo-star")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestB2StagingFinalizesWithDiscoveryThenControlBusinessRevalidation(t *testing.T) {
+	opened := openTestStore(t)
+	agent, datasource := createPolicyDependencies(t, opened)
+	legacy := "id"
+	created, err := opened.Policies().Create(context.Background(), model.Policy{
+		ID: "staged", AgentID: agent.ID, DatasourceID: datasource.ID,
+		ObjectType: "table", ObjectName: "public.t", Columns: &legacy, Action: "allow",
+	})
+	require.NoError(t, err)
+	require.Len(t, created.ColumnStaging, 2)
+	events := make([]string, 0, 2)
+	finalized, err := opened.Policies().FinalizeColumnBindingTwoPhase(context.Background(), created.ID, created.Revision,
+		func(context.Context) error { events = append(events, "discovery-released"); return nil },
+		func(context.Context) (RevalidatedColumnBinding, error) {
+			events = append(events, "control-then-business-revalidated")
+			return RevalidatedColumnBinding{
+				Binding: model.RelationPolicyBinding{ID: "binding-final", RelationName: "t", Status: "healthy"},
+				Permissions: []model.PolicyColumnPermission{
+					{RelationEnrollmentID: "e1", ColumnOrdinal: 1, ColumnName: "id", ColumnTypeDigest: "int8", Usage: "output"},
+					{RelationEnrollmentID: "e1", ColumnOrdinal: 1, ColumnName: "id", ColumnTypeDigest: "int8", Usage: "reference"},
+				},
+			}, nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, []string{"discovery-released", "control-then-business-revalidated"}, events)
+	require.Empty(t, finalized.ColumnStaging)
+	require.Len(t, finalized.ColumnPermissions, 2)
+	require.Equal(t, created.Revision+1, finalized.Revision)
+}
+
+func TestB2LegacyCSVStagingMigrationAndPreflightRollback(t *testing.T) {
+	ctx := context.Background()
+	for _, invalid := range []bool{false, true} {
+		database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "b2.db"))
+		require.NoError(t, err)
+		database.SetMaxOpenConns(1)
+		migrateSQLiteThroughVersion(t, ctx, database, "migrations/sqlite", 8)
+		_, err = database.ExecContext(ctx, `INSERT INTO agents(id,name,api_key_hash) VALUES('a','a','h')`)
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, `INSERT INTO datasources(id,name,db_type,host,port,database,username,password_enc) VALUES('d','d','postgres','h',5432,'d','u','p')`)
+		require.NoError(t, err)
+		columns := "id, email"
+		if invalid {
+			columns = "id,,email"
+		}
+		_, err = database.ExecContext(ctx, `INSERT INTO policies(id,agent_id,datasource_id,object_type,object_name,columns,action) VALUES('p','a','d','table','public.t',?,'allow')`, columns)
+		require.NoError(t, err)
+		err = Migrate(ctx, database, DialectSQLite)
+		if invalid {
+			require.ErrorContains(t, err, "empty token")
+			var version int
+			require.NoError(t, database.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version))
+			require.Equal(t, 8, version)
+			var count int
+			require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('policies') WHERE name='revision'`).Scan(&count))
+			require.Zero(t, count)
+		} else {
+			var count, distinctDigests int
+			require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*),count(DISTINCT source_csv_sha256) FROM policy_column_permission_staging WHERE policy_id='p'`).Scan(&count, &distinctDigests))
+			require.Equal(t, 4, count)
+			require.Equal(t, 1, distinctDigests)
+			var minOrdinal, maxOrdinal int
+			require.NoError(t, database.QueryRowContext(ctx, `SELECT min(token_ordinal),max(token_ordinal) FROM policy_column_permission_staging WHERE policy_id='p'`).Scan(&minOrdinal, &maxOrdinal))
+			require.Equal(t, 1, minOrdinal)
+			require.Equal(t, 2, maxOrdinal)
+		}
+		require.NoError(t, database.Close())
+	}
+}
+
+func TestB2SQLiteDownAndReapplyAreSafe(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 9))
+	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
+	require.NoError(t, err)
+	require.Equal(t, 8, current)
+	require.Equal(t, 9, latest)
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 9), "same down is idempotent")
+	require.NoError(t, Migrate(ctx, opened.metaDB, DialectSQLite))
+	current, latest, err = MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
+	require.NoError(t, err)
+	require.Equal(t, 9, current)
+	require.Equal(t, 9, latest)
+}
+
+func TestB2FenceLeaseExpiryIsFailClosed(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	instance, err := opened.Fence().Heartbeat(ctx, RuntimeInstance{InstanceID: "runtime-1", ProtocolVersion: 2, ArtifactDigest: "artifact"}, now, time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), instance.Revision)
+	snapshot, err := opened.Fence().BeginRead(ctx, 2, instance.InstanceID, now.Add(time.Second))
+	require.NoError(t, err)
+	require.NoError(t, snapshot.FinalCheck(ctx, now.Add(30*time.Second)))
+	require.ErrorIs(t, snapshot.FinalCheck(ctx, now.Add(2*time.Minute)), ErrFenceLost)
+	require.NoError(t, snapshot.Close())
+	_, err = opened.Fence().Heartbeat(ctx, instance, now.Add(2*time.Minute), time.Minute)
+	require.ErrorIs(t, err, ErrFenceLost)
+}

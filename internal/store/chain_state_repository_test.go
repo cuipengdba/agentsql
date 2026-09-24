@@ -97,8 +97,10 @@ func TestChainStateRepositoryReadErrors(t *testing.T) {
 func TestSQLiteToPostgresManifestExcludesAuditChainDerivedData(t *testing.T) {
 	t.Run("derived tables", func(t *testing.T) {
 		require.Equal(t, map[string]struct{}{
-			"chain_state":        {},
-			"chain_verification": {},
+			"chain_state":          {},
+			"chain_verification":   {},
+			"control_plane_compat": {},
+			"runtime_instances":    {},
 		}, sqliteDerivedExcludedTables)
 		names := migrationTableNames(sqliteToPostgresTables)
 		require.NotContains(t, names, "chain_state")

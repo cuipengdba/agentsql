@@ -1,0 +1,14 @@
+DROP TRIGGER IF EXISTS policy_binding_delete_bump;
+DROP TRIGGER IF EXISTS policy_binding_update_bump;
+DROP TRIGGER IF EXISTS policy_binding_insert_bump;
+DROP TRIGGER IF EXISTS policy_permission_delete_bump;
+DROP TRIGGER IF EXISTS policy_permission_update_bump;
+DROP TRIGGER IF EXISTS policy_permission_insert_bump;
+DROP TABLE IF EXISTS runtime_instances;
+DROP TABLE IF EXISTS control_plane_compat;
+DROP TABLE IF EXISTS policy_column_permissions;
+DROP TABLE IF EXISTS policy_column_permission_staging;
+DROP TABLE IF EXISTS relation_policy_bindings;
+ALTER TABLE policies DROP COLUMN legacy_unrepresentable;
+ALTER TABLE policies DROP COLUMN revision;
+ALTER TABLE policies DROP COLUMN relation_binding_id;

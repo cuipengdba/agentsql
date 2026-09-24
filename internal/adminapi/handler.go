@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,9 +13,11 @@ import (
 	"io"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
@@ -165,6 +168,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/datasources/{id}/discover/apply", handler.datasourcesDiscoverApply)
 	mux.HandleFunc("GET /api/v1/policies", handler.policiesList)
 	mux.HandleFunc("POST /api/v1/policies", handler.policiesCreate)
+	mux.HandleFunc("GET /api/v1/policies/{id}", handler.policiesGet)
 	mux.HandleFunc("PUT /api/v1/policies/{id}", handler.policiesUpdate)
 	mux.HandleFunc("DELETE /api/v1/policies/{id}", handler.policiesDelete)
 	mux.HandleFunc("GET /api/v1/rules", handler.rulesList)
@@ -618,15 +622,117 @@ func (handler *Handler) policiesList(writer http.ResponseWriter, request *http.R
 }
 
 func policyFromInput(input policyInput) model.Policy {
-	return model.Policy{ID: input.ID, AgentID: input.AgentID, DatasourceID: input.DatasourceID, ObjectType: input.ObjectType, ObjectName: input.ObjectName, Columns: input.Columns, RowFilter: input.RowFilter, Action: input.Action}
+	result := model.Policy{ID: input.ID, AgentID: input.AgentID, DatasourceID: input.DatasourceID, ObjectType: input.ObjectType, ObjectName: input.ObjectName, Columns: input.Columns, RelationBindingID: input.RelationBindingID, RowFilter: input.RowFilter, Action: input.Action}
+	if input.ColumnPermissions != nil {
+		result.ColumnPermissions = make([]model.PolicyColumnPermission, 0, len(*input.ColumnPermissions))
+		for _, permission := range *input.ColumnPermissions {
+			result.ColumnPermissions = append(result.ColumnPermissions, model.PolicyColumnPermission{
+				PolicyID: input.ID, RelationEnrollmentID: permission.RelationEnrollmentID,
+				ColumnOrdinal: permission.ColumnOrdinal, ColumnName: permission.ColumnName,
+				ColumnTypeDigest: permission.ColumnTypeDigest, Usage: permission.Usage,
+			})
+		}
+	}
+	return result
 }
 
 func validatePolicyInput(input policyInput) error {
 	if strings.TrimSpace(input.ID) == "" || input.AgentID == "" || input.DatasourceID == "" || input.ObjectName == "" {
 		return fmt.Errorf("policy identity fields are required")
 	}
-	_, err := policy.NewResolver().Resolve([]model.Policy{policyFromInput(input)}, "readonly")
+	legacyTokens, err := legacyColumnTokens(input.Columns)
+	if err != nil {
+		return err
+	}
+	for _, token := range legacyTokens {
+		if token == "*" {
+			return fmt.Errorf("new wildcard column grants are forbidden")
+		}
+	}
+	if input.ColumnPermissions != nil {
+		seen := make(map[string]struct{}, len(*input.ColumnPermissions))
+		for _, permission := range *input.ColumnPermissions {
+			if permission.RelationEnrollmentID == "" || permission.ColumnOrdinal <= 0 || strings.TrimSpace(permission.ColumnName) == "" || permission.ColumnName == "*" || permission.ColumnTypeDigest == "" || (permission.Usage != "output" && permission.Usage != "reference") {
+				return fmt.Errorf("invalid column permission")
+			}
+			key := permission.RelationEnrollmentID + "\x00" + strconv.Itoa(permission.ColumnOrdinal) + "\x00" + permission.Usage
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("duplicate column permission")
+			}
+			seen[key] = struct{}{}
+		}
+		if input.Columns != nil && !legacyPermissionsEquivalent(legacyTokens, *input.ColumnPermissions) {
+			return errPolicyRepresentationsConflict
+		}
+	}
+	_, err = policy.NewResolver().Resolve([]model.Policy{policyFromInput(input)}, "readonly")
 	return err
+}
+
+var errPolicyRepresentationsConflict = errors.New("legacy columns and column_permissions conflict")
+
+func legacyColumnTokens(columns *string) ([]string, error) {
+	if columns == nil || strings.TrimSpace(*columns) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(*columns, ",")
+	result := make([]string, len(parts))
+	for index, part := range parts {
+		result[index] = strings.TrimSpace(part)
+		if result[index] == "" {
+			return nil, fmt.Errorf("empty legacy column token")
+		}
+	}
+	return result, nil
+}
+
+func legacyPermissionsEquivalent(tokens []string, permissions []columnPermissionInput) bool {
+	if len(permissions) != len(tokens)*2 {
+		return false
+	}
+	want := make(map[string]int, len(tokens)*2)
+	for _, token := range tokens {
+		want[token+"\x00output"]++
+		want[token+"\x00reference"]++
+	}
+	for _, permission := range permissions {
+		key := permission.ColumnName + "\x00" + permission.Usage
+		if want[key] == 0 {
+			return false
+		}
+		want[key]--
+	}
+	return true
+}
+
+func normalizePolicyRepresentations(input *policyInput) {
+	if input.ColumnPermissions == nil {
+		return
+	}
+	permissions := *input.ColumnPermissions
+	byName := make(map[string]uint8)
+	order := make([]string, 0)
+	for _, permission := range permissions {
+		if _, exists := byName[permission.ColumnName]; !exists {
+			order = append(order, permission.ColumnName)
+		}
+		if permission.Usage == "output" {
+			byName[permission.ColumnName] |= 1
+		} else {
+			byName[permission.ColumnName] |= 2
+		}
+	}
+	representable := true
+	for _, bits := range byName {
+		if bits != 3 {
+			representable = false
+			break
+		}
+	}
+	if input.Columns == nil && representable {
+		columns := strings.Join(order, ",")
+		input.Columns = &columns
+	}
 }
 
 func (handler *Handler) policiesCreate(writer http.ResponseWriter, request *http.Request) {
@@ -639,37 +745,139 @@ func (handler *Handler) policiesCreate(writer http.ResponseWriter, request *http
 		handler.fail(writer, 422, "invalid policy")
 		return
 	}
-	created, err := handler.deps.Runtime.Store.Policies().Create(request.Context(), policyFromInput(input))
+	normalizePolicyRepresentations(&input)
+	policyModel := policyFromInput(input)
+	policyModel.LegacyUnrepresentable = input.ColumnPermissions != nil && input.Columns == nil
+	created, err := handler.deps.Runtime.Store.Policies().Create(request.Context(), policyModel)
 	if err != nil {
 		handler.fail(writer, 409, "policy already exists or is invalid")
 		return
 	}
+	writer.Header().Set("ETag", policyETag(created.ID, created.Revision))
 	handler.ok(writer, policyToView(created))
 }
+
+func (handler *Handler) policiesGet(writer http.ResponseWriter, request *http.Request) {
+	stored, err := handler.deps.Runtime.Store.Policies().Get(request.Context(), request.PathValue("id"))
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	writer.Header().Set("ETag", policyETag(stored.ID, stored.Revision))
+	handler.ok(writer, policyToView(stored))
+}
+
 func (handler *Handler) policiesUpdate(writer http.ResponseWriter, request *http.Request) {
+	id, expected, status := parsePolicyIfMatch(request)
+	if status != 0 {
+		handler.fail(writer, status, http.StatusText(status))
+		return
+	}
+	if id != request.PathValue("id") {
+		handler.fail(writer, http.StatusBadRequest, "If-Match policy does not match request path")
+		return
+	}
+	current, err := handler.deps.Runtime.Store.Policies().Get(request.Context(), id)
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	if current.Revision != expected {
+		handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
+		return
+	}
 	var input policyInput
 	if err := decodeJSON(writer, request, &input); err != nil {
 		handler.fail(writer, 400, "invalid request body")
 		return
 	}
 	input.ID = request.PathValue("id")
-	if err := validatePolicyInput(input); err != nil {
-		handler.fail(writer, 422, "invalid policy")
+	if current.LegacyUnrepresentable && input.Columns != nil && input.ColumnPermissions == nil {
+		handler.fail(writer, http.StatusConflict, "legacy columns cannot represent the current policy")
 		return
 	}
-	updated, err := handler.deps.Runtime.Store.Policies().Update(request.Context(), policyFromInput(input))
+	if err := validatePolicyInput(input); err != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, "invalid policy")
+		return
+	}
+	normalizePolicyRepresentations(&input)
+	policyModel := policyFromInput(input)
+	policyModel.LegacyUnrepresentable = input.ColumnPermissions != nil && input.Columns == nil
+	updated, err := handler.deps.Runtime.Store.Policies().UpdateIfRevision(request.Context(), policyModel, expected)
 	if err != nil {
+		if errors.Is(err, store.ErrRevisionMismatch) {
+			handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
+			return
+		}
 		handler.notFound(writer)
 		return
 	}
+	writer.Header().Set("ETag", policyETag(updated.ID, updated.Revision))
 	handler.ok(writer, policyToView(updated))
 }
 func (handler *Handler) policiesDelete(writer http.ResponseWriter, request *http.Request) {
-	if err := handler.deps.Runtime.Store.Policies().Delete(request.Context(), request.PathValue("id")); err != nil {
+	id, expected, status := parsePolicyIfMatch(request)
+	if status != 0 {
+		handler.fail(writer, status, http.StatusText(status))
+		return
+	}
+	if id != request.PathValue("id") {
+		handler.fail(writer, http.StatusBadRequest, "If-Match policy does not match request path")
+		return
+	}
+	if err := handler.deps.Runtime.Store.Policies().DeleteIfRevision(request.Context(), id, expected); err != nil {
+		if errors.Is(err, store.ErrRevisionMismatch) {
+			handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
+			return
+		}
 		handler.notFound(writer)
 		return
 	}
 	handler.ok(writer, map[string]bool{"deleted": true})
+}
+
+func policyETag(id string, revision int64) string {
+	return `"policy-` + base64.RawURLEncoding.EncodeToString([]byte(id)) + `-r` + strconv.FormatInt(revision, 10) + `"`
+}
+
+func parsePolicyIfMatch(request *http.Request) (string, int64, int) {
+	values := request.Header.Values("If-Match")
+	if len(values) == 0 {
+		return "", 0, http.StatusPreconditionRequired
+	}
+	if len(values) != 1 {
+		return "", 0, http.StatusBadRequest
+	}
+	value := values[0]
+	if len(value) < len(`"policy--r1"`) || value[0] != '"' || value[len(value)-1] != '"' || strings.ContainsAny(value, " \t\r\n,") || strings.HasPrefix(value, `W/`) {
+		return "", 0, http.StatusBadRequest
+	}
+	body := value[1 : len(value)-1]
+	if !strings.HasPrefix(body, "policy-") {
+		return "", 0, http.StatusBadRequest
+	}
+	encodedAndRevision := strings.TrimPrefix(body, "policy-")
+	separator := strings.LastIndex(encodedAndRevision, "-r")
+	if separator <= 0 {
+		return "", 0, http.StatusBadRequest
+	}
+	encoded, revisionText := encodedAndRevision[:separator], encodedAndRevision[separator+2:]
+	if revisionText == "" || revisionText[0] == '0' {
+		return "", 0, http.StatusBadRequest
+	}
+	revision, err := strconv.ParseInt(revisionText, 10, 64)
+	if err != nil || revision <= 0 {
+		return "", 0, http.StatusBadRequest
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) == 0 || base64.RawURLEncoding.EncodeToString(decoded) != encoded {
+		return "", 0, http.StatusBadRequest
+	}
+	id := string(decoded)
+	if !utf8.ValidString(id) || policyETag(id, revision) != value {
+		return "", 0, http.StatusBadRequest
+	}
+	return id, revision, 0
 }
 
 func (handler *Handler) rulesList(writer http.ResponseWriter, request *http.Request) {

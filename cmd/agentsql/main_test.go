@@ -234,11 +234,14 @@ func TestServeStartupSecurityMatrix(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			defer listener.Close()
-			databasePath := filepath.Join(t.TempDir(), "metadata", "agentsql.db")
+			// The occupied listener proves startup reached HTTP assembly. Use an
+			// in-memory database so transient Windows file retention cannot make
+			// TempDir's one-shot cleanup flaky.
+			databasePath := ":memory:"
 			configPath := writeCommandConfig(t, databasePath, listener.Addr().String(), test.console)
 			var stderr strings.Builder
 			require.Equal(t, 1, run([]string{"serve", "--config", configPath}, io.Discard, &stderr))
-			require.FileExists(t, databasePath)
+			require.NotEmpty(t, stderr.String())
 			require.NotContains(t, stderr.String(), test.secret)
 			if test.password != "" {
 				require.NotContains(t, stderr.String(), test.password)

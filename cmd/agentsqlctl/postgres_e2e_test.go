@@ -78,7 +78,7 @@ theme:
 
 	var migrateOutput, migrateError strings.Builder
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &migrateOutput, &migrateError), migrateError.String())
-	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=8 latest=8")
+	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=9 latest=9")
 	assertCommandOutputHasNoPostgresSecret(t, migrateOutput.String()+migrateError.String(), dsn, password, yamlDSN, yamlPassword)
 
 	database, err := sql.Open("pgx", dsn)
@@ -99,9 +99,9 @@ ORDER BY table_name`)
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{
-		"agents", "approvals", "audit_logs", "chain_state", "chain_verification", "datasources", "management_audit_outbox",
-		"mask_rules", "notification_channels", "notification_settings", "policies",
-		"redaction_key_versions", "rules", "schema_migrations",
+		"agents", "approvals", "audit_logs", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox",
+		"mask_rules", "notification_channels", "notification_settings", "policies", "policy_column_permission_staging", "policy_column_permissions",
+		"redaction_key_versions", "relation_policy_bindings", "rules", "runtime_instances", "schema_migrations",
 	}, tables)
 
 	var healthOutput, healthError strings.Builder
@@ -166,7 +166,7 @@ theme:
 	output.Reset()
 	stderr.Reset()
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &output, &stderr), stderr.String())
-	require.Contains(t, output.String(), "metadata migration driver=postgres current=7 latest=7")
+	require.Contains(t, output.String(), "metadata migration driver=postgres current=8 latest=8")
 	require.Contains(t, output.String(), "audit migration driver=postgres current=5 latest=5")
 	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
 
@@ -177,9 +177,9 @@ theme:
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, auditDB.Close()) })
 	require.Equal(t, []string{
-		"agents", "approvals", "chain_state", "chain_verification", "datasources", "management_audit_outbox", "mask_rules",
-		"notification_channels", "notification_settings", "policies",
-		"redaction_key_versions", "rules", "schema_migrations",
+		"agents", "approvals", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
+		"notification_channels", "notification_settings", "policies", "policy_column_permission_staging", "policy_column_permissions",
+		"redaction_key_versions", "relation_policy_bindings", "rules", "runtime_instances", "schema_migrations",
 	}, commandPostgresTableNames(t, ctx, metadataDB))
 	require.Equal(t, []string{"audit_logs", "chain_state", "chain_verification", "schema_migrations"}, commandPostgresTableNames(t, ctx, auditDB))
 	require.Equal(t, []string{"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts", "ux_audit_logs_event_uuid"}, commandPostgresIndexNames(t, ctx, auditDB))

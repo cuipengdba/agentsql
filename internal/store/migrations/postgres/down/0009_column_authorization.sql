@@ -1,0 +1,12 @@
+DROP FUNCTION IF EXISTS agentsql_replace_policy_permissions(text,bigint,jsonb);
+DROP TRIGGER IF EXISTS policy_binding_revision ON relation_policy_bindings;
+DROP TRIGGER IF EXISTS policy_permission_revision ON policy_column_permissions;
+DROP FUNCTION IF EXISTS agentsql_bump_policy_revision();
+DROP TABLE IF EXISTS runtime_instances;
+DROP TABLE IF EXISTS control_plane_compat;
+DROP TABLE IF EXISTS policy_column_permissions;
+DROP TABLE IF EXISTS policy_column_permission_staging;
+DROP TABLE IF EXISTS relation_policy_bindings;
+ALTER TABLE policies DROP COLUMN legacy_unrepresentable;
+ALTER TABLE policies DROP COLUMN revision;
+ALTER TABLE policies DROP COLUMN relation_binding_id;

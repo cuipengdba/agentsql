@@ -18,7 +18,8 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 		names = append(names, table.name)
 	}
 	require.Equal(t, []string{
-		"agents", "datasources", "rules", "mask_rules", "policies", "audit_logs", "approvals",
+		"agents", "datasources", "rules", "mask_rules", "policies", "relation_policy_bindings",
+		"policy_column_permission_staging", "policy_column_permissions", "audit_logs", "approvals",
 		"notification_settings", "notification_channels", "redaction_key_versions", "management_audit_outbox",
 	}, names)
 }
@@ -278,8 +279,7 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "orphan.db"))
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, database.Close()) })
-		migrateSQLiteThroughVersion(t, ctx, database, "migrations/sqlite", 7)
-		require.NoError(t, applyMigration(ctx, database, DialectSQLite, 8, "SELECT 1;"))
+		require.NoError(t, Migrate(ctx, database, DialectSQLite))
 		_, err = database.ExecContext(ctx, "PRAGMA foreign_keys=OFF")
 		require.NoError(t, err)
 		_, err = database.ExecContext(ctx, `INSERT INTO approvals(id,audit_id) VALUES('approval-locator',999)`)
@@ -301,6 +301,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=7 latest=8")
+		require.ErrorContains(t, err, "current=8 latest=9")
 	})
 }

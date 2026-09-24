@@ -125,10 +125,10 @@ func runRedactionKeyE2EPreparation(t *testing.T, configPath string, separated bo
 	var stdout, stderr strings.Builder
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &stdout, &stderr), stderr.String())
 	if separated {
-		require.Contains(t, stdout.String(), "metadata migration driver=postgres current=7 latest=7")
+		require.Contains(t, stdout.String(), "metadata migration driver=postgres current=8 latest=8")
 		require.Contains(t, stdout.String(), "audit migration driver=postgres current=5 latest=5")
 	} else {
-		require.Contains(t, stdout.String(), "migration driver=postgres current=8 latest=8")
+		require.Contains(t, stdout.String(), "migration driver=postgres current=9 latest=9")
 	}
 	runRedactionKeyCommand(t, configPath, []string{"reconcile"}, "registered_standby=1,2")
 	runRedactionKeyCommand(t, configPath, []string{"registry-mark-active", "--id", "1"}, "after=active")

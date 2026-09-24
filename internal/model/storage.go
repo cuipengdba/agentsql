@@ -34,16 +34,62 @@ type Datasource struct {
 
 // Policy grants or denies an agent access to a database object.
 type Policy struct {
-	ID           string
-	AgentID      string
-	DatasourceID string
-	ObjectType   string
-	ObjectName   string
-	Columns      *string
-	RowFilter    *string
-	Action       string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                    string
+	AgentID               string
+	DatasourceID          string
+	ObjectType            string
+	ObjectName            string
+	Columns               *string
+	RowFilter             *string
+	Action                string
+	RelationBindingID     *string
+	Revision              int64
+	LegacyUnrepresentable bool
+	RelationBinding       *RelationPolicyBinding
+	ColumnPermissions     []PolicyColumnPermission
+	ColumnStaging         []PolicyColumnPermissionStaging
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+// RelationPolicyBinding is the control-plane identity selected for a policy.
+// S1 permits staging identities; only a later slice may mark them healthy.
+type RelationPolicyBinding struct {
+	ID                 string
+	PolicyID           string
+	DatasourceID       string
+	SchemaName         string
+	RelationName       string
+	StableObjectID     *string
+	CatalogFingerprint *string
+	Status             string
+	Revision           int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// PolicyColumnPermission is an ordinal-bound output/reference grant. An
+// ordinal is never synthesized from a legacy CSV token.
+type PolicyColumnPermission struct {
+	PolicyID             string
+	RelationEnrollmentID string
+	ColumnOrdinal        int
+	ColumnName           string
+	ColumnTypeDigest     string
+	Usage                string
+	ParentRevision       int64
+}
+
+// PolicyColumnPermissionStaging retains an untrusted legacy token until S3
+// can bind it under the control-to-business two-phase protocol.
+type PolicyColumnPermissionStaging struct {
+	PolicyID       string
+	TokenOrdinal   int
+	LegacyToken    string
+	RequestedUsage string
+	SourceCSVHash  string
+	BindStatus     string
+	ErrorCode      *string
 }
 
 // Rule is a persisted SQL security-rule definition.

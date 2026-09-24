@@ -169,14 +169,32 @@ type discoveryApplyResponse struct {
 }
 
 type policyInput struct {
-	ID           string  `json:"id"`
-	AgentID      string  `json:"agent_id"`
-	DatasourceID string  `json:"datasource_id"`
-	ObjectType   string  `json:"object_type"`
-	ObjectName   string  `json:"object_name"`
-	Columns      *string `json:"columns,omitempty"`
-	RowFilter    *string `json:"row_filter,omitempty"`
-	Action       string  `json:"action"`
+	ID                string                   `json:"id"`
+	AgentID           string                   `json:"agent_id"`
+	DatasourceID      string                   `json:"datasource_id"`
+	ObjectType        string                   `json:"object_type"`
+	ObjectName        string                   `json:"object_name"`
+	Columns           *string                  `json:"columns,omitempty"`
+	ColumnPermissions *[]columnPermissionInput `json:"column_permissions,omitempty"`
+	RelationBindingID *string                  `json:"relation_binding_id,omitempty"`
+	RowFilter         *string                  `json:"row_filter,omitempty"`
+	Action            string                   `json:"action"`
+}
+
+type columnPermissionInput struct {
+	RelationEnrollmentID string `json:"relation_enrollment_id"`
+	ColumnOrdinal        int    `json:"column_ordinal"`
+	ColumnName           string `json:"column_name"`
+	ColumnTypeDigest     string `json:"column_type_digest"`
+	Usage                string `json:"usage"`
+}
+
+type columnPermissionView struct {
+	RelationEnrollmentID string `json:"relation_enrollment_id"`
+	ColumnOrdinal        int    `json:"column_ordinal"`
+	ColumnName           string `json:"column_name"`
+	ColumnTypeDigest     string `json:"column_type_digest"`
+	Usage                string `json:"usage"`
 }
 
 type ruleInput struct {
@@ -418,24 +436,41 @@ func approvalToViews(items []model.Approval) []approvalView {
 }
 
 type policyView struct {
-	ID           string    `json:"id"`
-	AgentID      string    `json:"agent_id"`
-	DatasourceID string    `json:"datasource_id"`
-	ObjectType   string    `json:"object_type"`
-	ObjectName   string    `json:"object_name"`
-	Columns      *string   `json:"columns,omitempty"`
-	RowFilter    *string   `json:"row_filter,omitempty"`
-	Action       string    `json:"action"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                    string                 `json:"id"`
+	AgentID               string                 `json:"agent_id"`
+	DatasourceID          string                 `json:"datasource_id"`
+	ObjectType            string                 `json:"object_type"`
+	ObjectName            string                 `json:"object_name"`
+	Columns               *string                `json:"columns,omitempty"`
+	ColumnPermissions     []columnPermissionView `json:"column_permissions"`
+	RelationBindingID     *string                `json:"relation_binding_id,omitempty"`
+	LegacyUnrepresentable bool                   `json:"legacy_unrepresentable"`
+	Revision              int64                  `json:"revision"`
+	RowFilter             *string                `json:"row_filter,omitempty"`
+	Action                string                 `json:"action"`
+	CreatedAt             time.Time              `json:"created_at"`
+	UpdatedAt             time.Time              `json:"updated_at"`
 }
 
 func policyToView(policy model.Policy) policyView {
 	return policyView{
 		ID: policy.ID, AgentID: policy.AgentID, DatasourceID: policy.DatasourceID, ObjectType: policy.ObjectType,
 		ObjectName: policy.ObjectName, Columns: policy.Columns, RowFilter: policy.RowFilter, Action: policy.Action,
+		ColumnPermissions: columnPermissionToViews(policy.ColumnPermissions), RelationBindingID: policy.RelationBindingID,
+		LegacyUnrepresentable: policy.LegacyUnrepresentable, Revision: policy.Revision,
 		CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt,
 	}
+}
+
+func columnPermissionToViews(items []model.PolicyColumnPermission) []columnPermissionView {
+	views := make([]columnPermissionView, 0, len(items))
+	for _, item := range items {
+		views = append(views, columnPermissionView{
+			RelationEnrollmentID: item.RelationEnrollmentID, ColumnOrdinal: item.ColumnOrdinal,
+			ColumnName: item.ColumnName, ColumnTypeDigest: item.ColumnTypeDigest, Usage: item.Usage,
+		})
+	}
+	return views
 }
 
 func policyToViews(items []model.Policy) []policyView {

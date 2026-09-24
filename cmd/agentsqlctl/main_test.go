@@ -135,7 +135,7 @@ func TestMigratePrintsVersionsAndIsIdempotentWithoutSecret(t *testing.T) {
 	for range 2 {
 		var output strings.Builder
 		require.Equal(t, 0, run([]string{"migrate", "-c", configPath}, &output, io.Discard))
-		require.Contains(t, output.String(), "migration driver=sqlite current=8 latest=8")
+		require.Contains(t, output.String(), "migration driver=sqlite current=9 latest=9")
 	}
 	_, err := os.Stat(databasePath)
 	require.NoError(t, err)

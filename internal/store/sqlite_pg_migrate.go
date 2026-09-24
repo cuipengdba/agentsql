@@ -94,8 +94,10 @@ const (
 )
 
 var sqliteDerivedExcludedTables = map[string]struct{}{
-	"chain_state":        {},
-	"chain_verification": {},
+	"chain_state":          {},
+	"chain_verification":   {},
+	"control_plane_compat": {},
+	"runtime_instances":    {},
 }
 
 var sqliteDerivedExcludedColumns = map[string]map[string]struct{}{
@@ -163,6 +165,28 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "object_name", kind: migrationText}, {name: "columns", kind: migrationText},
 		{name: "row_filter", kind: migrationText}, {name: "action", kind: migrationText},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "relation_binding_id", kind: migrationText}, {name: "revision", kind: migrationInt64},
+		{name: "legacy_unrepresentable", kind: migrationBool},
+	}},
+	{name: "relation_policy_bindings", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "policy_id", kind: migrationText},
+		{name: "datasource_id", kind: migrationText}, {name: "schema_name", kind: migrationText},
+		{name: "relation_name", kind: migrationText}, {name: "stable_object_id", kind: migrationText},
+		{name: "catalog_fingerprint", kind: migrationText}, {name: "status", kind: migrationText},
+		{name: "revision", kind: migrationInt64}, {name: "created_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime},
+	}},
+	{name: "policy_column_permission_staging", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "policy_id", kind: migrationText}, {name: "token_ordinal", kind: migrationInt32},
+		{name: "legacy_token", kind: migrationText}, {name: "requested_usage", kind: migrationText},
+		{name: "source_csv_sha256", kind: migrationText}, {name: "bind_status", kind: migrationText},
+		{name: "error_code", kind: migrationText},
+	}},
+	{name: "policy_column_permissions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "policy_id", kind: migrationText}, {name: "relation_enrollment_id", kind: migrationText},
+		{name: "column_ordinal", kind: migrationInt32}, {name: "column_name", kind: migrationText},
+		{name: "column_type_digest", kind: migrationText}, {name: "usage", kind: migrationText},
+		{name: "parent_revision", kind: migrationInt64},
 	}},
 	{name: "audit_logs", pkIndex: 0, target: migrationTargetAudit, columns: []migrationColumn{
 		{name: "id", kind: migrationInt64}, {name: "ts", kind: migrationTime},
@@ -982,15 +1006,19 @@ func migrationSelectSQL(table migrationTable, postgres bool) string {
 	if postgres {
 		prefix = `"public".` + prefix
 	}
-	order := quoteMigrationIdentifier(table.columns[table.pkIndex].name)
-	if table.columns[table.pkIndex].kind == migrationText {
-		if postgres {
-			order += ` COLLATE "C"`
-		} else {
-			order += " COLLATE BINARY"
+	order := make([]string, 0, len(table.columns))
+	for _, column := range table.columns {
+		term := quoteMigrationIdentifier(column.name)
+		if column.kind == migrationText {
+			if postgres {
+				term += ` COLLATE "C"`
+			} else {
+				term += " COLLATE BINARY"
+			}
 		}
+		order = append(order, term)
 	}
-	return "SELECT " + strings.Join(columns, ",") + " FROM " + prefix + " ORDER BY " + order
+	return "SELECT " + strings.Join(columns, ",") + " FROM " + prefix + " ORDER BY " + strings.Join(order, ",")
 }
 
 func migrationInsertSQL(table migrationTable, rowCount int) string {
