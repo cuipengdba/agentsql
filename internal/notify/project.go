@@ -100,6 +100,7 @@ func stableErrorCode(code string) string {
 		"DB_EXECUTION_FAILED",
 		"GATEWAY_INTERNAL",
 		"AUDIT_UNAVAILABLE",
+		"AUDIT_OVERLOADED",
 		"COMMIT_OUTCOME_UNKNOWN":
 		return code
 	default:

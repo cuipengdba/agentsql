@@ -56,6 +56,7 @@ const (
 	// and audit steps. They are not emitted by executor classifiers.
 	DBErrorCodeGatewayInternal      DBErrorCode = "GATEWAY_INTERNAL"
 	DBErrorCodeAuditUnavailable     DBErrorCode = "AUDIT_UNAVAILABLE"
+	DBErrorCodeAuditOverloaded      DBErrorCode = "AUDIT_OVERLOADED"
 	DBErrorCodeCommitOutcomeUnknown DBErrorCode = "COMMIT_OUTCOME_UNKNOWN"
 )
 

@@ -96,6 +96,7 @@ func isStableAuditErrorCode(code string) bool {
 		executor.DBErrorCodeExecution,
 		executor.DBErrorCodeGatewayInternal,
 		executor.DBErrorCodeAuditUnavailable,
+		executor.DBErrorCodeAuditOverloaded,
 		executor.DBErrorCodeCommitOutcomeUnknown:
 		return true
 	default:

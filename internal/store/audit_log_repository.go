@@ -222,6 +222,7 @@ func stableAuditErrorCode(code string) bool {
 		"DB_EXECUTION_FAILED",
 		"GATEWAY_INTERNAL",
 		"AUDIT_UNAVAILABLE",
+		"AUDIT_OVERLOADED",
 		"COMMIT_OUTCOME_UNKNOWN":
 		return true
 	default:
