@@ -1,4 +1,4 @@
-package b5terminal
+package b5dml
 
 import (
 	"io/fs"
@@ -17,15 +17,14 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 	}
 	packageDir := filepath.Dir(currentFile)
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
-	dmlContractDir := filepath.Join(repoRoot, "internal", "b5dml")
-	importPath := "github.com/cuipengdba/agentsql/internal/b5terminal"
+	importPath := "github.com/cuipengdba/agentsql/internal/b5dml"
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if path == packageDir || path == dmlContractDir || entry.Name() == ".git" || strings.HasPrefix(entry.Name(), "go-build") {
+			if path == packageDir || entry.Name() == ".git" || strings.HasPrefix(entry.Name(), "go-build") {
 				return filepath.SkipDir
 			}
 			return nil

@@ -30,9 +30,12 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if vanishedGoBuildPath(root, path, walkErr) {
+				return nil
+			}
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design") {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build")) {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -62,9 +65,12 @@ func TestNoProductionImportOfDeletedExecutorPackage(t *testing.T) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if vanishedGoBuildPath(root, path, walkErr) {
+				return nil
+			}
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design") {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build")) {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -155,6 +161,9 @@ func TestSQLSinkCallsitesMatchManifest(t *testing.T) {
 	}
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if vanishedGoBuildPath(root, path, walkErr) {
+				return nil
+			}
 			return walkErr
 		}
 		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build")) {
@@ -210,6 +219,14 @@ func TestSQLSinkCallsitesMatchManifest(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func vanishedGoBuildPath(root, path string, err error) bool {
+	if !os.IsNotExist(err) {
+		return false
+	}
+	relative, relErr := filepath.Rel(root, path)
+	return relErr == nil && strings.HasPrefix(filepath.ToSlash(relative), "go-build")
 }
 
 func expressionLooksLikeSQL(expression ast.Expr) bool {
