@@ -95,6 +95,11 @@ func NativeDMLSemanticFacts(datasourceID string, session SemanticIdentity, enrol
 	if err != nil {
 		return SemanticFacts{}, err
 	}
+	// SemanticFacts carries a request-local lifecycle generation shared by both
+	// modes. The extension's private invalidation generation remains bound in
+	// NativeBoundProgram.EngineEvidenceDigest and must not create a false
+	// cross-mode semantic divergence after seal_prepared increments it.
+	identity.PlanGeneration = 1
 	facts := SemanticFacts{Schema: SemanticFactsSchemaID, SchemaVersion: SemanticFactsVersion,
 		StatementClass: binderStatementClassForDML(enrollment.Facts.Action), Action: enrollment.Facts.Action, Identity: identity}
 	for _, relation := range frame.Relations {

@@ -165,7 +165,7 @@ func runPostgresDMLBinderMajor(t *testing.T, major int) {
 	t.Run("identity-and-seal", func(t *testing.T) {
 		for name, mutate := range map[string]func(context.Context, pgx.Tx, string) error{
 			"search-path": func(ctx context.Context, tx pgx.Tx, _ string) error {
-				_, err := tx.Exec(ctx, `SET LOCAL search_path=pg_catalog`)
+				_, err := tx.Exec(ctx, `SET LOCAL search_path=public`)
 				return err
 			},
 			"role": func(ctx context.Context, tx pgx.Tx, _ string) error {

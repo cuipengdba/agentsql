@@ -19,12 +19,13 @@ func TestFeatureOffPackageHasOnlyReviewedBinderReferences(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
 	importPath := "github.com/cuipengdba/agentsql/internal/b5dml"
 	allowedFiles := map[string]bool{
-		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go")): true,
-		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_coordinator.go")):      true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go")):         true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_coordinator.go")):              true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_binder_contract.go")): true,
-		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_catalog_kernel.go")):   true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_catalog_kernel.go")):  true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_native_adapter.go")):  true,
-		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "b5_transaction.go")):                                true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_closed_dml.go")):      true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "b5_transaction.go")):                                        true,
 	}
 	coordinatorDir := filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator"))
 	var references []string

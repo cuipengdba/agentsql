@@ -70,6 +70,7 @@ func runPostgresBinderS3Scenarios(t *testing.T, major string) {
 		`CREATE SCHEMA s3`,
 		`CREATE TABLE s3.base_a(id integer PRIMARY KEY, secret text)`,
 		`CREATE TABLE s3.base_b(id integer, note text)`,
+		`CREATE TABLE s3.s4_aba(id integer, note text)`,
 		`CREATE UNLOGGED TABLE s3.unlogged_table(id integer)`,
 		`CREATE EXTENSION postgres_fdw`,
 		`CREATE SERVER s3_loopback FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '127.0.0.1', dbname 'agentsql')`,
@@ -147,7 +148,8 @@ func runPostgresBinderS3Scenarios(t *testing.T, major string) {
 	runPostgresExactAllowlistScenarios(t, ctx, executor)
 	runPostgresPreparedIdentityScenarios(t, ctx, executor)
 	runPostgresCatalogRaceScenarios(t, ctx, executor)
-	_, err = executor.Execute(ctx, `GRANT SELECT ON ALL TABLES IN SCHEMA s3 TO s3_regular`)
+	runClosedDMLCatalogRaceScenarios(t, ctx, executor, "s4-race-pg-"+major)
+	_, err = executor.Execute(ctx, `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA s3 TO s3_regular`)
 	require.NoError(t, err)
 	regular, err := NewPostgresExecutor(ctx, model.Datasource{ID: "s3-regular-pg-" + major, DBType: "postgres", Host: host,
 		Port: port.Int(), Database: "agentsql", Username: "s3_regular", ConnLimit: 8, StmtTimeoutMS: 5_000}, "regular-password", false)
@@ -159,6 +161,9 @@ func runPostgresBinderS3Scenarios(t *testing.T, major string) {
 	}{{"super", executor}, {"regular", regular}} {
 		t.Run("closed-select-"+role.name, func(t *testing.T) {
 			runClosedSelectDifferentialScenarios(t, ctx, role.executor, "s3-differential-pg-"+major+"-"+role.name)
+		})
+		t.Run("closed-dml-"+role.name, func(t *testing.T) {
+			runClosedDMLDifferentialScenarios(t, ctx, role.executor, "s4-differential-pg-"+major+"-"+role.name)
 		})
 	}
 	requirePostgresExecutorClosesPromptly(t, regular)

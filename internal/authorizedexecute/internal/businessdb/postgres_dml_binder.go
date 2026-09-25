@@ -151,6 +151,9 @@ func (executor *PostgresExecutor) discoverPostgresDML(ctx context.Context, rawSQ
 	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
 		return PostgresDMLManifest{}, PostgresCatalogFrame{}, b5dml.StatementFacts{}, err
 	}
+	if err := setPostgresBinderSearchPath(ctx, tx); err != nil {
+		return PostgresDMLManifest{}, PostgresCatalogFrame{}, b5dml.StatementFacts{}, err
+	}
 	name, err := randomPreparedName()
 	if err != nil {
 		return PostgresDMLManifest{}, PostgresCatalogFrame{}, b5dml.StatementFacts{}, catalogAuthError("AUTH_DATABASE_ERROR")
@@ -192,6 +195,9 @@ func (executor *PostgresExecutor) PrepareBoundPostgresDML(ctx context.Context, n
 	defer native.mu.Unlock()
 	if native.claimed {
 		return nil, b5dml.AuthorizationDecision{}, catalogAuthError("AUTH_PREPARED_STATE_INVALID")
+	}
+	if err := setPostgresBinderSearchPath(ctx, native.tx); err != nil {
+		return nil, b5dml.AuthorizationDecision{}, err
 	}
 	if err := lockPostgresRelations(ctx, native.tx, enrollment.Manifest.Relations, budget); err != nil {
 		return nil, b5dml.AuthorizationDecision{}, err

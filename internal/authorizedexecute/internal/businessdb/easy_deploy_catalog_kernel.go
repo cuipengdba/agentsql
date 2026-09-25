@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	closedGrammarManifestHash = "catalog-closed-v1-select-s3"
+	closedGrammarManifestHash = "catalog-closed-v1-select-s3-dml-s4"
 	closedQueryPackHash       = "catalog-closed-v1-pg14-pg18-query-pack"
 	closedEncoderVersion      = "catalog-closed-canonical-v1"
 	closedBuiltinManifestHash = "catalog-closed-v1-exact-operator-builtins"
@@ -144,7 +144,8 @@ func closedCapability(serverVersion int, databaseOID uint32) CapabilityAttestati
 		CanonicalEncoderVersion: closedEncoderVersion, BuiltinManifestHash: closedBuiltinManifestHash,
 		Capabilities: []string{"schema_qualified_base_relation", "catalog_identity", "ordered_oid_locks", "prepare_lock_crosscheck",
 			"closed_select_direct", "closed_select_self_join", "closed_select_inner_join", "closed_select_left_join",
-			"closed_select_expression", "closed_select_in_exists"},
+			"closed_select_expression", "closed_select_in_exists", "closed_dml_insert_values", "closed_dml_update_where",
+			"closed_dml_delete_where", "closed_dml_implicit_null"},
 		Precision: []PrecisionDeclaration{{Name: "base_relation_identity", Exact: true},
 			{Name: "column_identity", Exact: true}, {Name: "implicit_object_negative_gate", Exact: true},
 			{Name: "plan_generation", Exact: false, Note: "unavailable; request-local PREPARE is never identity authority"}}}
@@ -585,6 +586,7 @@ func rejectClosedImplicitObjects(ctx context.Context, tx pgx.Tx, oids []uint32, 
  UNION ALL SELECT q.conrelid,'foreign_key',q.oid FROM pg_catalog.pg_constraint q JOIN target x ON q.conrelid=x.relid OR q.confrelid=x.relid WHERE q.contype='f'
  UNION ALL SELECT q.conrelid,'check',q.oid FROM pg_catalog.pg_constraint q JOIN target x ON q.conrelid=x.relid WHERE q.contype IN ('c','x')
  UNION ALL SELECT d.adrelid,CASE WHEN a.attgenerated<>'' THEN 'generated' ELSE 'default' END,d.oid FROM pg_catalog.pg_attrdef d JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum JOIN target x ON x.relid=d.adrelid
+ UNION ALL SELECT a.attrelid,CASE WHEN a.attgenerated<>'' THEN 'generated' ELSE 'identity' END,a.attrelid FROM pg_catalog.pg_attribute a JOIN target x ON x.relid=a.attrelid WHERE a.attnum>0 AND NOT a.attisdropped AND (a.attidentity<>'' OR a.attgenerated<>'')
  UNION ALL SELECT i.indrelid,CASE WHEN i.indexprs IS NOT NULL THEN 'expression_index' ELSE 'partial_index' END,i.indexrelid FROM pg_catalog.pg_index i JOIN target x ON x.relid=i.indrelid WHERE i.indexprs IS NOT NULL OR i.indpred IS NOT NULL
 ) SELECT owner_oid,kind,object_oid FROM findings ORDER BY 1,2,3 LIMIT 1`
 	var owner, object uint32

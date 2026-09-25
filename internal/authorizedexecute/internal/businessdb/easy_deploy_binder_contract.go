@@ -470,6 +470,7 @@ func AuthorizeB5(facts SemanticFacts, input b5dml.AuthorizationInput) (b5dml.Aut
 			Schema: relation.Schema, Name: relation.Name, CatalogFingerprint: relation.CatalogFingerprint}
 	}
 	input.Action = facts.Action
+	input.Target = b5dml.RelationIdentity{}
 	input.Writes = input.Writes[:0]
 	input.References = input.References[:0]
 	for _, write := range facts.WriteTargets {
