@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFeatureOffPackageHasOnlyReviewedS5bAndS6References(t *testing.T) {
+func TestFeatureOffPackageHasOnlyReviewedBinderReferences(t *testing.T) {
 	t.Parallel()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -21,6 +21,9 @@ func TestFeatureOffPackageHasOnlyReviewedS5bAndS6References(t *testing.T) {
 	allowedFiles := map[string]bool{
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go")): true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_coordinator.go")):      true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_binder_contract.go")): true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_catalog_kernel.go")):   true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_native_adapter.go")):  true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "b5_transaction.go")):                                true,
 	}
 	coordinatorDir := filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator"))
@@ -53,6 +56,6 @@ func TestFeatureOffPackageHasOnlyReviewedS5bAndS6References(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(references) != 0 {
-		t.Fatalf("feature-off package imported outside the isolated S5b binder: %v", references)
+		t.Fatalf("feature-off package imported outside the reviewed binder boundary: %v", references)
 	}
 }

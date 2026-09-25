@@ -50,6 +50,11 @@ const (
 	ReasonExpressionShape           Reason = "AUTH_EXPRESSION_IDENTITY_UNSUPPORTED"
 	ReasonBinderIncomplete          Reason = "AUTH_BINDER_INCOMPLETE"
 	ReasonBinderCapability          Reason = "AUTH_BINDER_CAPABILITY_MISMATCH"
+	ReasonBinderModeRequired        Reason = "AUTH_BINDER_MODE_REQUIRED"
+	ReasonBinderModeUnsupported     Reason = "AUTH_BINDER_MODE_UNSUPPORTED"
+	ReasonBinderDivergence          Reason = "AUTH_BINDER_DIVERGENCE"
+	ReasonBindLockFailed            Reason = "AUTH_BIND_LOCK_FAILED"
+	ReasonBindIdentityDrift         Reason = "AUTH_BIND_IDENTITY_DRIFT"
 	ReasonBindClosure               Reason = "AUTH_BIND_CLOSURE_MISMATCH"
 	ReasonCatalogRace               Reason = "AUTH_CATALOG_RACE"
 	ReasonPreparedInvalid           Reason = "AUTH_PREPARED_INVALIDATED"
@@ -483,7 +488,8 @@ func StableError(err error) *AuthError {
 		switch reason {
 		case ReasonProjectionLimit, ReasonCellLimit, ReasonRowLimit, ReasonResultLimit, ReasonFrameLimit,
 			ReasonCatalogIncomplete, ReasonImplicitObject, ReasonRelationShape, ReasonColumnShape,
-			ReasonExpressionShape, ReasonBinderIncomplete, ReasonBinderCapability, ReasonBindClosure,
+			ReasonExpressionShape, ReasonBinderIncomplete, ReasonBinderCapability, ReasonBinderModeRequired,
+			ReasonBinderModeUnsupported, ReasonBinderDivergence, ReasonBindLockFailed, ReasonBindIdentityDrift, ReasonBindClosure,
 			ReasonCatalogRace, ReasonPreparedInvalid, ReasonPreparedState:
 			return &AuthError{Reason: reason}
 		}
