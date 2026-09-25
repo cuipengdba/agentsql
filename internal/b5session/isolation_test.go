@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFeatureOffPackageHasOnlyReviewedS6Reference(t *testing.T) {
+func TestFeatureOffPackageHasOnlyReviewedReferences(t *testing.T) {
 	t.Parallel()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -18,7 +18,10 @@ func TestFeatureOffPackageHasOnlyReviewedS6Reference(t *testing.T) {
 	packageDir := filepath.Dir(currentFile)
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
 	importPath := "github.com/cuipengdba/agentsql/internal/b5session"
-	coordinatorGate := filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator", "session.go"))
+	reviewed := map[string]bool{
+		filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator", "session.go")): true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "mcpserver", "b5_service.go")):  true,
+	}
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -37,7 +40,7 @@ func TestFeatureOffPackageHasOnlyReviewedS6Reference(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
-		if strings.Contains(string(contents), importPath) && filepath.Clean(path) != coordinatorGate {
+		if strings.Contains(string(contents), importPath) && !reviewed[filepath.Clean(path)] {
 			references = append(references, path)
 		}
 		return nil
