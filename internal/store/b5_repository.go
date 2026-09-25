@@ -45,12 +45,15 @@ type B5DMLGrantStore interface {
 type B5ResultReceiptStore interface {
 	PutWriteOnce(context.Context, B5ResultReceipt) (B5ResultReceipt, bool, error)
 	Get(context.Context, B5ReceiptKey) (B5ResultReceipt, error)
+	ListByEventUUID(context.Context, []byte) ([]B5ResultReceipt, error)
 	Advance(context.Context, B5ReceiptKey, int64, B5ReceiptAdvance) (B5ResultReceipt, error)
 }
 
 type B5TxEventStore interface {
 	Append(context.Context, B5TxEvent) error
 	Get(context.Context, string, uint64) (B5TxEvent, error)
+	GetByUUID(context.Context, []byte) (B5TxEvent, error)
+	List(context.Context, int) ([]B5TxEvent, error)
 }
 
 var (
@@ -492,6 +495,27 @@ func (r *B5ResultReceiptRepository) Get(ctx context.Context, key B5ReceiptKey) (
 	return v, err
 }
 
+// ListByEventUUID joins the durable response plane to a verified WAL record.
+// More than one row is possible because a request can be retried with a new
+// attempt generation; callers must preserve every immutable historical value.
+func (r *B5ResultReceiptRepository) ListByEventUUID(ctx context.Context, eventUUID []byte) ([]B5ResultReceipt, error) {
+	q := `SELECT session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status,created_at,updated_at,revision FROM b5_result_receipts WHERE event_uuid=? ORDER BY session_id,request_id,attempt_generation`
+	rows, err := r.db.QueryContext(ctx, r.bind(q), eventUUID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]B5ResultReceipt, 0)
+	for rows.Next() {
+		value, scanErr := scanB5Receipt(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
 func (r *B5ResultReceiptRepository) Advance(ctx context.Context, key B5ReceiptKey, revision int64, u B5ReceiptAdvance) (B5ResultReceipt, error) {
 	current, err := r.Get(ctx, key)
 	if err != nil {
@@ -577,12 +601,42 @@ func (r *B5TxEventRepository) Append(ctx context.Context, v B5TxEvent) error {
 
 func (r *B5TxEventRepository) Get(ctx context.Context, transactionID string, sequence uint64) (B5TxEvent, error) {
 	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE transaction_id=? AND transaction_seq=?`
+	return scanB5TxEvent(r.db.QueryRowContext(ctx, r.bind(q), transactionID, sequence))
+}
+
+func (r *B5TxEventRepository) GetByUUID(ctx context.Context, eventUUID []byte) (B5TxEvent, error) {
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE event_uuid=?`
+	return scanB5TxEvent(r.db.QueryRowContext(ctx, r.bind(q), eventUUID))
+}
+
+func (r *B5TxEventRepository) List(ctx context.Context, limit int) ([]B5TxEvent, error) {
+	if limit < 1 || limit > 100000 {
+		return nil, fmt.Errorf("list b5 tx events: invalid limit")
+	}
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events ORDER BY created_at,transaction_id,transaction_seq LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, r.bind(q), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]B5TxEvent, 0)
+	for rows.Next() {
+		value, scanErr := scanB5TxEvent(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func scanB5TxEvent(row rowScanner) (B5TxEvent, error) {
 	var value B5TxEvent
 	var seq, schemaVersion int64
 	var terminal, disposition sql.NullString
 	var auditID sql.NullInt64
 	var created databaseTimestamp
-	err := r.db.QueryRowContext(ctx, r.bind(q), transactionID, sequence).Scan(&value.TransactionID, &seq, &value.EventUUID, &value.EventType, &value.EventSchemaID, &schemaVersion, &value.PreviousTxEventDigest, &value.EventDigest, &value.CanonicalEvent, &terminal, &disposition, &auditID, &created)
+	err := row.Scan(&value.TransactionID, &seq, &value.EventUUID, &value.EventType, &value.EventSchemaID, &schemaVersion, &value.PreviousTxEventDigest, &value.EventDigest, &value.CanonicalEvent, &terminal, &disposition, &auditID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return B5TxEvent{}, ErrNotFound
 	}

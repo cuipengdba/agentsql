@@ -25,6 +25,13 @@ type KeyWrapper interface {
 	Wrap(ctx context.Context, segmentKey [32]byte) ([]byte, error)
 }
 
+// ContextKeyWrapper is the production envelope-encryption surface. The legacy
+// KeyWrapper method remains for isolated S7a tests; production wrappers bind
+// ciphertext to the immutable key and segment identity as authenticated data.
+type ContextKeyWrapper interface {
+	WrapSegmentKey(ctx context.Context, keyID string, segmentID [16]byte, segmentKey [32]byte) ([]byte, error)
+}
+
 // ManifestStore must make the manifest durable, including its parent directory,
 // before Persist returns nil.
 type ManifestStore interface {
@@ -79,7 +86,13 @@ func (factory SegmentFactory) Create(ctx context.Context, ownerGeneration uint64
 		segment.Manifest.FormatVersion = WALFormatVersion
 		segment.Manifest.OwnerGeneration = ownerGeneration
 		segment.Manifest.KeyID = factory.MasterRevision + "/" + hex.EncodeToString(segment.Manifest.SegmentID[:])
-		wrapped, err := factory.Wrapper.Wrap(ctx, segment.Key)
+		var wrapped []byte
+		var err error
+		if contextual, ok := factory.Wrapper.(ContextKeyWrapper); ok {
+			wrapped, err = contextual.WrapSegmentKey(ctx, segment.Manifest.KeyID, segment.Manifest.SegmentID, segment.Key)
+		} else {
+			wrapped, err = factory.Wrapper.Wrap(ctx, segment.Key)
+		}
 		if err != nil {
 			return empty, fmt.Errorf("b5wal: wrap segment key: %w", err)
 		}
@@ -130,16 +143,7 @@ func (store FileManifestStore) Persist(ctx context.Context, manifest SegmentMani
 	if closeErr != nil {
 		return closeErr
 	}
-	directory, err := os.Open(store.Directory)
-	if err != nil {
-		return err
-	}
-	syncErr := directory.Sync()
-	closeErr = directory.Close()
-	if syncErr != nil {
-		return syncErr
-	}
-	return closeErr
+	return syncDirectory(store.Directory)
 }
 
 // MemoryKeyRegistry is a concurrency-safe contract implementation for tests.

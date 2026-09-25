@@ -1,9 +1,10 @@
-# B5 S7a emergency WAL contract (feature off)
+# B5 S7a/S7b emergency WAL contract and wiring (feature off)
 
-This package is an isolated S7a contract implementation. It is not imported by
-any production entry point. `CanonicalEvent` means already-canonical
+This package includes the S7a wire contract and the S7b production-facing WAL
+service. It is not imported by any MCP/HTTP production entry point and has no
+activation flag; S6 will call it in a later slice. `CanonicalEvent` means already-canonical
 `agentsql.audit.event.v4` bytes; the existing 27-field audit-chain V1 encoder is
-not used. Event-v4 and the formal PostgreSQL receipt schema remain S1b work.
+not used. Event-v4 and `b5_result_receipts` use the frozen S1b definitions.
 
 ## Record wire layout
 
@@ -108,3 +109,25 @@ The only append path is `UNKNOWN -> TIMEOUT -> LATE_CONFIRMED -> RECOVERED`
 durability never changes. A valid record with no result receipt yields
 `HistoricalResponseUnknown`; scanner/replay must never infer historical
 `AUDIT_PENDING`.
+
+## S7b production boundary
+
+`PGReceiptStore` adapts the frozen receipt repository (PostgreSQL in
+production, SQLite in tests) and retries revision CAS without weakening any
+state transition. `Service.IngestAndRespond` performs primary-first ingestion,
+then a charged emergency append, then the mandatory `PersistThenSend` fence.
+It caches a pending emission so a response retry cannot append the same fact a
+second time.
+
+`KMSKeyWrapper` binds envelope ciphertext to master revision, key ID and
+segment ID. `FileKeyRegistry` is a create-exclusive, file-and-directory-fsynced
+shared CAS registry. `NewFileManager` also requires a deployment-specific
+`DurabilityAttestor`; fsync success is not treated as proof against a device
+that lies about power-loss durability.
+
+`FileScanner` verifies the manifest, key, extent framing, CRC, AEAD, event
+digest, ordinal and nonce before producing a recovery record. Corrupt/torn
+segments are quarantined as a unit; KMS unavailability stops recovery instead
+of misclassifying the segment. `Reconciler` verifies the per-transaction and
+global chains, replays by UUID+payload digest, and advances receipt append and
+reconciliation states while preserving the immutable historical durability.

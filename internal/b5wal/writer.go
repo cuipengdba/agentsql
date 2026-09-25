@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -39,6 +41,10 @@ func NewFileExtentSink(path string) (*FileExtentSink, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
+	}
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("b5wal: sync new segment directory: %w", err)
 	}
 	return &FileExtentSink{file: file}, nil
 }
@@ -93,6 +99,21 @@ func (writer *Writer) State() WriterState {
 func (writer *Writer) Segment() Segment { return writer.segment }
 
 func (writer *Writer) Append(ctx context.Context, record Record) (AppendResult, error) {
+	return writer.append(ctx, nil, record)
+}
+
+// AppendReserved charges the complete physical extent before any bytes are
+// written. A failed or ambiguous append does not refund capacity: retrying the
+// same fact under a reused nonce is forbidden and the six-record bound must
+// remain conservative.
+func (writer *Writer) AppendReserved(ctx context.Context, reservation *Reservation, record Record) (AppendResult, error) {
+	if reservation == nil {
+		return AppendResult{}, errors.New("b5wal: nil reservation")
+	}
+	return writer.append(ctx, reservation, record)
+}
+
+func (writer *Writer) append(ctx context.Context, reservation *Reservation, record Record) (AppendResult, error) {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
 	var result AppendResult
@@ -112,6 +133,11 @@ func (writer *Writer) Append(ctx context.Context, record Record) (AppendResult, 
 	extent, err := EncodeRecord(writer.segment.Key[:], record)
 	if err != nil {
 		return result, err
+	}
+	if reservation != nil {
+		if err := reservation.ConsumeEncodedRecord(extent); err != nil {
+			return result, err
+		}
 	}
 	// Consume the nonce before I/O. Any write or sync ambiguity permanently
 	// wedges this segment, so the ordinal can never be retried under this key.
@@ -170,11 +196,35 @@ type Manager struct {
 }
 
 func NewManager(ctx context.Context, factory SegmentFactory, owner uint64, newSink func(Segment) (ExtentSink, error)) (*Manager, error) {
+	if newSink == nil {
+		return nil, errors.New("b5wal: nil segment sink factory")
+	}
 	manager := &Manager{factory: factory, owner: owner, newSink: newSink, rotated: make(map[[16]byte]bool)}
 	if err := manager.createCurrent(ctx); err != nil {
 		return nil, err
 	}
 	return manager, nil
+}
+
+// DurabilityAttestor represents the deployment-specific destructive power-loss
+// qualification that fsync alone cannot prove (for example, volatile device
+// caches that acknowledge barriers). A production file manager is not created
+// unless the target volume's attestation is currently valid.
+type DurabilityAttestor interface {
+	Attest(context.Context, string) error
+}
+
+func NewFileManager(ctx context.Context, factory SegmentFactory, owner uint64, directory string, attestor DurabilityAttestor) (*Manager, error) {
+	if attestor == nil {
+		return nil, errors.New("b5wal: durability attestor is required")
+	}
+	if err := attestor.Attest(ctx, directory); err != nil {
+		return nil, fmt.Errorf("b5wal: target volume is not durability-attested: %w", err)
+	}
+	return NewManager(ctx, factory, owner, func(segment Segment) (ExtentSink, error) {
+		name := hex.EncodeToString(segment.Manifest.SegmentID[:]) + ".wal"
+		return NewFileExtentSink(filepath.Join(directory, name))
+	})
 }
 
 func (manager *Manager) createCurrent(ctx context.Context) error {

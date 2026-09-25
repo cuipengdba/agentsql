@@ -145,6 +145,18 @@ func (store *MemoryReceiptStore) Get(_ context.Context, key ReceiptKey) (ResultR
 	return receipt, ok, nil
 }
 
+func (store *MemoryReceiptStore) FindByEventUUID(_ context.Context, eventUUID [16]byte) ([]ResultReceipt, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	values := make([]ResultReceipt, 0)
+	for key, receipt := range store.receipts {
+		if key.EventUUID == eventUUID {
+			values = append(values, receipt)
+		}
+	}
+	return values, nil
+}
+
 func (store *MemoryReceiptStore) Advance(_ context.Context, key ReceiptKey, update ReceiptAdvance) (ResultReceipt, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()

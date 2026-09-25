@@ -1,10 +1,11 @@
-// Package b5wal contains the feature-off B5 S7a emergency-WAL and result
-// receipt contracts. Nothing in a production entry point imports this package.
+// Package b5wal contains the feature-off B5 emergency-WAL contracts and the
+// S7b production persistence/service boundary. No MCP or HTTP entry point
+// imports this package; the future S6 coordinator is its intended caller.
 //
 // This is deliberately not the auditchain V1 canonical encoder. Callers pass
 // already-canonical agentsql.audit.event.v4 bytes and the encoder binds those
 // bytes, their schema identifier, and their digest into an encrypted record.
-// The eventual event-v4 and PostgreSQL receipt schemas remain an S1b decision.
+// The event-v4 and PostgreSQL receipt schemas are the frozen S1b definitions.
 package b5wal
 
 const (
