@@ -1,27 +1,31 @@
 package b5terminal
 
-import "crypto/subtle"
+import (
+	"crypto/subtle"
+
+	"github.com/cuipengdba/agentsql/internal/b5"
+)
 
 // TerminalOperation is the operation selected by the single terminal-owner
 // CAS. An operation value is never inferred from a driver error string.
-type TerminalOperation uint8
+type TerminalOperation = b5.TerminalOperation
 
 const (
-	OperationUnknown TerminalOperation = iota
-	OperationCommit
-	OperationRollback
+	OperationUnknown  = b5.OperationUnknown
+	OperationCommit   = b5.OperationCommit
+	OperationRollback = b5.OperationRollback
 )
 
 // WritePhase is connector-observed write progress for one terminal frame.
-type WritePhase uint8
+type WritePhase = b5.WritePhase
 
 const (
-	WritePhaseUnknown WritePhase = iota
-	WriteNotSent
-	WriteZeroBytes
-	WritePartial
-	WriteFullFrame
-	WriteIndeterminate
+	WritePhaseUnknown  = b5.WritePhaseUnknown
+	WriteNotSent       = b5.WriteNotSent
+	WriteZeroBytes     = b5.WriteZeroBytes
+	WritePartial       = b5.WritePartial
+	WriteFullFrame     = b5.WriteFullFrame
+	WriteIndeterminate = b5.WriteIndeterminate
 )
 
 // WriteEvidence binds a phase to the connector's byte accounting. FrameBytes
@@ -45,13 +49,13 @@ const (
 	ReplyUntyped
 )
 
-type CorrelationStrength uint8
+type CorrelationStrength = b5.ReplyCorrelation
 
 const (
-	CorrelationUnknown CorrelationStrength = iota
-	CorrelationNotApplicable
-	CorrelationWeakOrAbsent
-	CorrelationStrongCurrentOperation
+	CorrelationUnknown                = b5.CorrelationUnknown
+	CorrelationNotApplicable          = b5.CorrelationNotApplicable
+	CorrelationWeakOrAbsent           = b5.CorrelationWeakOrAbsent
+	CorrelationStrongCurrentOperation = b5.CorrelationStrongCurrentOperation
 )
 
 // CorrelationProof records the minimum facts needed to call a PostgreSQL
@@ -78,15 +82,15 @@ type TerminalReply struct {
 	Correlation           CorrelationProof
 }
 
-type ServerTxState uint8
+type ServerTxState = b5.ServerTxStatus
 
 const (
-	ServerStatusUnknown ServerTxState = iota
-	ServerStatusNotObserved
-	ServerReadyIdle
-	ServerReadyIdleInTransaction
-	ServerReadyFailed
-	ServerStatusUnknownOrContradictory
+	ServerStatusUnknown                = b5.ServerStatusUnknown
+	ServerStatusNotObserved            = b5.ServerStatusNotObserved
+	ServerReadyIdle                    = b5.ServerReadyIdle
+	ServerReadyIdleInTransaction       = b5.ServerReadyIdleInTransaction
+	ServerReadyFailed                  = b5.ServerReadyFailed
+	ServerStatusUnknownOrContradictory = b5.ServerStatusUnknownOrContradictory
 )
 
 // ServerTxStatus is one ReadyForQuery observation. Evidence retains all
@@ -100,6 +104,7 @@ type ServerTxStatus struct {
 // Evidence is the immutable input to CheckEvidence and ResolveTerminal.
 type Evidence struct {
 	Schema                string
+	SchemaVersion         uint16
 	Operation             TerminalOperation
 	TransactionGeneration uint64
 	AttemptGeneration     uint64
@@ -109,12 +114,12 @@ type Evidence struct {
 	ServerStatuses        []ServerTxStatus
 }
 
-type ConsistencyVerdict uint8
+type ConsistencyVerdict = b5.EvidenceConsistency
 
 const (
-	VerdictUnknown ConsistencyVerdict = iota
-	VerdictConsistent
-	VerdictContradiction
+	VerdictUnknown       = b5.EvidenceInsufficient
+	VerdictConsistent    = b5.EvidenceConsistent
+	VerdictContradiction = b5.EvidenceContradictory
 )
 
 type ConsistencyReason uint8
@@ -195,7 +200,7 @@ func CheckEvidence(e Evidence) ConsistencyResult {
 		return ConsistencyResult{Verdict: VerdictUnknown, Reason: ReasonServerStatusInsufficient}
 	}
 
-	row := int(e.Write.Phase - WriteNotSent)
+	row := writePhaseRow(e.Write.Phase)
 	verdict := phaseReplyTable[row][class]
 	result := ConsistencyResult{Verdict: verdict}
 	switch {
@@ -228,7 +233,7 @@ func reasonForInvalidEvidence(e Evidence) ConsistencyReason {
 }
 
 func validWrite(write WriteEvidence) bool {
-	if write.Phase < WriteNotSent || write.Phase > WriteIndeterminate || write.FrameBytes == 0 {
+	if writePhaseRow(write.Phase) < 0 || write.FrameBytes == 0 {
 		return false
 	}
 	switch write.Phase {
@@ -242,6 +247,23 @@ func validWrite(write WriteEvidence) bool {
 		return write.BytesWritten <= write.FrameBytes
 	default:
 		return false
+	}
+}
+
+func writePhaseRow(phase WritePhase) int {
+	switch phase {
+	case WriteNotSent:
+		return 0
+	case WriteZeroBytes:
+		return 1
+	case WritePartial:
+		return 2
+	case WriteFullFrame:
+		return 3
+	case WriteIndeterminate:
+		return 4
+	default:
+		return -1
 	}
 }
 
@@ -296,7 +318,7 @@ func classifyStatuses(e Evidence) (ServerTxState, ConsistencyResult) {
 		return ServerStatusUnknownOrContradictory, ConsistencyResult{Verdict: VerdictContradiction, Reason: ReasonDuplicateOrChangingRFQ}
 	}
 	status := e.ServerStatuses[0]
-	if status.State < ServerReadyIdle || status.State > ServerStatusUnknownOrContradictory {
+	if status.State != ServerReadyIdle && status.State != ServerReadyIdleInTransaction && status.State != ServerReadyFailed && status.State != ServerStatusUnknownOrContradictory {
 		return status.State, ConsistencyResult{Verdict: VerdictUnknown, Reason: ReasonUnknownSchema}
 	}
 	if status.TransactionGeneration != e.TransactionGeneration || status.AttemptGeneration != e.AttemptGeneration {

@@ -8,6 +8,8 @@
 // and persisted policy schema belong to S5b and S1b respectively.
 package b5dml
 
+import "github.com/cuipengdba/agentsql/internal/b5"
+
 const (
 	// BinderABI is the reviewed name reserved for the future PostgreSQL DML
 	// binder. S5a does not claim that the adapter exists.
@@ -16,9 +18,10 @@ const (
 	// AuthorizationContractSchema identifies this non-persisted S5a canonical
 	// contract. S1b must assign the formal proof and storage schema versions.
 	AuthorizationContractSchema = "agentsql.b5.dml-authorization-contract.s5a.v1"
-	BeginCleanupProofSchema     = "agentsql.b5.begin-cleanup-proof.v1"
+	BeginCleanupProofSchema     = b5.BeginCleanupProofSchemaID
+	BeginCleanupProofVersion    = b5.BeginCleanupProofVersion
 
 	// GrantSchemaDecision records the reviewed conclusion without pretending
 	// that S5a has created the S1b persistence schema.
-	GrantSchemaDecision = "independent-dml-grant-schema-required-in-s1b"
+	GrantSchemaDecision = b5.DMLGrantProofSchemaID
 )

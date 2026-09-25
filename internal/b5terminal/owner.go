@@ -239,6 +239,7 @@ func (owner *TerminalOwner) NoCommitProof(attempt TerminalAttempt) (NoCommitEver
 	}
 	return NoCommitEverSent{
 		Schema:                     NoCommitEverSentSchema,
+		SchemaVersion:              NoCommitEverSentVersion,
 		TransactionGeneration:      snapshot.txGeneration,
 		OwnerGeneration:            snapshot.ownerGeneration,
 		HistoryContinuous:          true,

@@ -1,27 +1,30 @@
 package b5terminal
 
-type DBOutcome uint8
+import "github.com/cuipengdba/agentsql/internal/b5"
+
+type DBOutcome = b5.DBOutcome
 
 const (
-	OutcomeUnknown DBOutcome = iota
-	OutcomeCommitted
-	OutcomeCommitRejected
-	OutcomeNotCommitted
+	OutcomeUnknown        = b5.OutcomeUnknown
+	OutcomeCommitted      = b5.OutcomeCommitted
+	OutcomeCommitRejected = b5.OutcomeNotCommitted
+	OutcomeNotCommitted   = b5.OutcomeNotCommitted
 )
 
-type ConnectionDisposition uint8
+type ConnectionDisposition = b5.ConnectionDisposition
 
 const (
-	DispositionUnknown ConnectionDisposition = iota
-	DispositionReleased
-	DispositionDiscarded
-	DispositionDiscardUnconfirmed
+	DispositionUnknown            = b5.DispositionUnknown
+	DispositionReleased           = b5.DispositionReleased
+	DispositionDiscarded          = b5.DispositionDiscarded
+	DispositionDiscardUnconfirmed = b5.DispositionDiscardUnconfirmed
 )
 
 // NoCommitEverSent is independent coordinator evidence. Connector evidence may
 // not manufacture it, particularly when that connector is contradictory.
 type NoCommitEverSent struct {
 	Schema                     string
+	SchemaVersion              uint16
 	TransactionGeneration      uint64
 	OwnerGeneration            uint64
 	HistoryContinuous          bool
@@ -58,9 +61,11 @@ type ResolutionContext struct {
 }
 
 type TerminalResolution struct {
-	Consistency ConsistencyResult
-	Outcome     DBOutcome
-	Disposition ConnectionDisposition
+	Schema        string
+	SchemaVersion uint16
+	Consistency   ConsistencyResult
+	Outcome       DBOutcome
+	Disposition   ConnectionDisposition
 }
 
 // ResolveTerminal is total over every Evidence value. Contradictory and
@@ -70,7 +75,7 @@ func ResolveTerminal(e Evidence, context ResolutionContext) TerminalResolution {
 	proofValid := context.NoCommitProof.ValidFor(e)
 	outcome := resolveOutcome(e, consistency, proofValid)
 	disposition := resolveDisposition(e, context, consistency, proofValid)
-	return TerminalResolution{Consistency: consistency, Outcome: outcome, Disposition: disposition}
+	return TerminalResolution{Schema: ConnectionDispositionSchema, SchemaVersion: ConnectionDispositionVersion, Consistency: consistency, Outcome: outcome, Disposition: disposition}
 }
 
 func resolveOutcome(e Evidence, consistency ConsistencyResult, noCommit bool) DBOutcome {

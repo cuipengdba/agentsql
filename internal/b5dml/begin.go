@@ -50,6 +50,7 @@ const (
 
 type BeginCleanupDecision struct {
 	Schema        string
+	SchemaVersion uint16
 	Resource      BeginResourceState
 	Action        BeginCleanupAction
 	Disposition   b5terminal.ConnectionDisposition
@@ -119,7 +120,7 @@ func (machine *BeginMachine) Cleanup(checks b5terminal.ReleaseChecks, backendAbs
 		return *machine.decision
 	}
 	decision := BeginCleanupDecision{
-		Schema: BeginCleanupProofSchema, Resource: machine.state,
+		Schema: BeginCleanupProofSchema, SchemaVersion: BeginCleanupProofVersion, Resource: machine.state,
 		Approval: ApprovalConsumedBeginFailed,
 	}
 	switch machine.state {

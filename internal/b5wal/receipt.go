@@ -8,40 +8,42 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/cuipengdba/agentsql/internal/b5"
 )
 
-type ReportedDurability uint8
+type ReportedDurability = b5.AuditDurability
 
 const (
-	DurabilityUnspecified ReportedDurability = iota
-	DurabilityDurable
-	DurabilityAuditPending
-	DurabilityLost
+	DurabilityUnspecified  = b5.DurabilityUnspecified
+	DurabilityDurable      = b5.DurabilityDurable
+	DurabilityAuditPending = b5.DurabilityAuditPending
+	DurabilityLost         = b5.DurabilityLost
 )
 
-type AppendConfirmationState uint8
+type AppendConfirmationState = b5.AppendConfirmation
 
 const (
-	AppendUnknown AppendConfirmationState = iota
-	AppendTimeout
-	AppendLateConfirmed
-	AppendRecovered
+	AppendUnknown       = b5.AppendUnknown
+	AppendTimeout       = b5.AppendTimeout
+	AppendLateConfirmed = b5.AppendLateConfirmed
+	AppendRecovered     = b5.AppendRecovered
 )
 
-type ReconciliationState uint8
+type ReconciliationState = b5.Reconciliation
 
 const (
-	ReconciliationNone ReconciliationState = iota
-	ReconciliationReplayStaged
-	ReconciliationPrimaryDurable
+	ReconciliationNone           = b5.ReconciliationNone
+	ReconciliationReplayStaged   = b5.ReconciliationReplayStaged
+	ReconciliationPrimaryDurable = b5.ReconciliationPrimaryDurable
 )
 
-type ResponseDeliveryState uint8
+type ResponseDeliveryState = b5.DeliveryStatus
 
 const (
-	ResponsePrepared ResponseDeliveryState = iota
-	ResponseSendStarted
-	ResponseSendCompleted
+	ResponsePrepared      = b5.DeliveryPrepared
+	ResponseSendStarted   = b5.DeliverySendStarted
+	ResponseSendCompleted = b5.DeliverySendComplete
 )
 
 type ReceiptKey struct {
@@ -57,6 +59,8 @@ type ReceiptKey struct {
 // exact terminal result reproducible even if the process dies before or during
 // network delivery; SendStarted cannot prove that a peer received the bytes.
 type ResultReceipt struct {
+	SchemaID                     string
+	SchemaVersion                uint16
 	Key                          ReceiptKey
 	BusinessEventDigest          [32]byte
 	WALAppendReceiptDigest       [32]byte
@@ -116,6 +120,7 @@ func NewMemoryReceiptStore() *MemoryReceiptStore {
 func (store *MemoryReceiptStore) PutWriteOnce(_ context.Context, receipt ResultReceipt) (ResultReceipt, bool, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	receipt = normalizeReceiptSchema(receipt)
 	if store.PutErr != nil {
 		return ResultReceipt{}, false, store.PutErr
 	}
@@ -152,19 +157,19 @@ func (store *MemoryReceiptStore) Advance(_ context.Context, key ReceiptKey, upda
 	}
 	if update.Append != nil {
 		if !validAppendTransition(receipt.AppendConfirmation, *update.Append) {
-			return ResultReceipt{}, fmt.Errorf("%w: append %d -> %d", ErrReceiptTransition, receipt.AppendConfirmation, *update.Append)
+			return ResultReceipt{}, fmt.Errorf("%w: append %s -> %s", ErrReceiptTransition, receipt.AppendConfirmation, *update.Append)
 		}
 		receipt.AppendConfirmation = *update.Append
 	}
 	if update.Reconciliation != nil {
 		if !validReconciliationTransition(receipt.Reconciliation, *update.Reconciliation) {
-			return ResultReceipt{}, fmt.Errorf("%w: reconciliation %d -> %d", ErrReceiptTransition, receipt.Reconciliation, *update.Reconciliation)
+			return ResultReceipt{}, fmt.Errorf("%w: reconciliation %s -> %s", ErrReceiptTransition, receipt.Reconciliation, *update.Reconciliation)
 		}
 		receipt.Reconciliation = *update.Reconciliation
 	}
 	if update.Delivery != nil {
-		if *update.Delivery < receipt.Delivery || *update.Delivery > ResponseSendCompleted {
-			return ResultReceipt{}, fmt.Errorf("%w: delivery %d -> %d", ErrReceiptTransition, receipt.Delivery, *update.Delivery)
+		if !validDeliveryTransition(receipt.Delivery, *update.Delivery) {
+			return ResultReceipt{}, fmt.Errorf("%w: delivery %s -> %s", ErrReceiptTransition, receipt.Delivery, *update.Delivery)
 		}
 		receipt.Delivery = *update.Delivery
 	}
@@ -173,7 +178,7 @@ func (store *MemoryReceiptStore) Advance(_ context.Context, key ReceiptKey, upda
 }
 
 func validateReceipt(receipt ResultReceipt) error {
-	if len(receipt.Key.SessionID) == 0 || len(receipt.Key.SessionID) > 128 || len(receipt.Key.RequestID) == 0 || len(receipt.Key.RequestID) > 128 || receipt.ReportedDurabilityAtResponse < DurabilityDurable || receipt.ReportedDurabilityAtResponse > DurabilityLost {
+	if receipt.SchemaID != b5.ResultReceiptSchemaID || receipt.SchemaVersion != b5.ResultReceiptSchemaVersion || len(receipt.Key.SessionID) == 0 || len(receipt.Key.SessionID) > 128 || len(receipt.Key.RequestID) == 0 || len(receipt.Key.RequestID) > 128 || !validDurability(receipt.ReportedDurabilityAtResponse) {
 		return fmt.Errorf("b5wal: invalid result receipt")
 	}
 	if receipt.Key.EventUUID == ([16]byte{}) || receipt.BusinessEventDigest == ([32]byte{}) || receipt.WALAppendReceiptDigest == ([32]byte{}) {
@@ -183,6 +188,22 @@ func validateReceipt(receipt ResultReceipt) error {
 		return fmt.Errorf("b5wal: new result receipt must be PREPARED")
 	}
 	return nil
+}
+
+func normalizeReceiptSchema(receipt ResultReceipt) ResultReceipt {
+	if receipt.SchemaID == "" && receipt.SchemaVersion == 0 {
+		receipt.SchemaID = b5.ResultReceiptSchemaID
+		receipt.SchemaVersion = b5.ResultReceiptSchemaVersion
+	}
+	return receipt
+}
+
+func validDurability(value ReportedDurability) bool {
+	return value == DurabilityDurable || value == DurabilityAuditPending || value == DurabilityLost
+}
+
+func validDeliveryTransition(from, to ResponseDeliveryState) bool {
+	return from == to || from == ResponsePrepared && to == ResponseSendStarted || from == ResponseSendStarted && to == ResponseSendCompleted
 }
 
 func sameImmutableReceipt(left, right ResultReceipt) bool {

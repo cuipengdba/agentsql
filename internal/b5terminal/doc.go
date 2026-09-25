@@ -6,8 +6,13 @@
 // backend lifecycle belong to S4b.
 package b5terminal
 
+import "github.com/cuipengdba/agentsql/internal/b5"
+
 const (
-	TerminalEvidenceSchema      = "agentsql.b5.terminal-evidence.v2"
-	NoCommitEverSentSchema      = "agentsql.b5.no-commit-ever-sent.v1"
-	ConnectionDispositionSchema = "agentsql.b5.connection-disposition-proof.v1"
+	TerminalEvidenceSchema       = b5.TerminalEvidenceSchemaID
+	TerminalEvidenceVersion      = b5.TerminalEvidenceVersion
+	NoCommitEverSentSchema       = b5.NoCommitProofSchemaID
+	NoCommitEverSentVersion      = b5.NoCommitProofVersion
+	ConnectionDispositionSchema  = b5.DispositionProofSchemaID
+	ConnectionDispositionVersion = b5.DispositionProofVersion
 )

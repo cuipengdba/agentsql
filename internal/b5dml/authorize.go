@@ -6,23 +6,25 @@ import (
 	"encoding/hex"
 	"sort"
 	"strconv"
+
+	"github.com/cuipengdba/agentsql/internal/b5"
 )
 
-type GrantEffect uint8
+type GrantEffect = b5.GrantEffect
 
 const (
-	GrantEffectUnknown GrantEffect = iota
-	GrantAllow
-	GrantDeny
+	GrantEffectUnknown = b5.GrantEffectUnknown
+	GrantAllow         = b5.GrantAllow
+	GrantDeny          = b5.GrantDeny
 )
 
-type GrantElement uint8
+type GrantElement = b5.GrantElement
 
 const (
-	GrantElementUnknown GrantElement = iota
-	GrantAction
-	GrantWriteTarget
-	GrantReference
+	GrantElementUnknown = b5.GrantElementUnknown
+	GrantAction         = b5.GrantElementAction
+	GrantWriteTarget    = b5.GrantElementWriteTarget
+	GrantReference      = b5.GrantElementReference
 )
 
 // Grant is an S5a in-memory contract, not the persisted S1b schema. Every
@@ -87,9 +89,11 @@ type AuthorizationInput struct {
 }
 
 type AuthorizationDecision struct {
-	allowed bool
-	reason  AuthorizationReason
-	digest  [32]byte
+	Schema        string
+	SchemaVersion uint16
+	allowed       bool
+	reason        AuthorizationReason
+	digest        [32]byte
 }
 
 func (decision AuthorizationDecision) Allowed() bool               { return decision.allowed }
@@ -109,7 +113,7 @@ func (decision AuthorizationDecision) Verify(input AuthorizationInput) bool {
 // Within an element, deny is absorbing; allows from multiple policies union.
 func Authorize(input AuthorizationInput) AuthorizationDecision {
 	decide := func(reason AuthorizationReason) AuthorizationDecision {
-		decision := AuthorizationDecision{allowed: reason == ReasonAllow, reason: reason}
+		decision := AuthorizationDecision{Schema: b5.DMLGrantProofSchemaID, SchemaVersion: b5.DMLGrantProofSchemaVersion, allowed: reason == ReasonAllow, reason: reason}
 		decision.digest = digestAuthorization(input, reason)
 		return decision
 	}
@@ -372,7 +376,7 @@ func policyKey(policy Policy) string {
 	grants := append([]Grant(nil), policy.Grants...)
 	sort.Slice(grants, func(i, j int) bool { return grantKey(grants[i]) < grantKey(grants[j]) })
 	value := policy.ID + "\x00" + strconv.FormatUint(policy.Revision, 10) + "\x00" +
-		policy.PrincipalID + "\x00" + policy.DatasourceID + "\x00" + strconv.Itoa(int(policy.Effect))
+		policy.PrincipalID + "\x00" + policy.DatasourceID + "\x00" + string(policy.Effect)
 	for _, grant := range grants {
 		value += "\x00" + grantKey(grant)
 	}
@@ -380,7 +384,7 @@ func policyKey(policy Policy) string {
 }
 
 func grantKey(grant Grant) string {
-	return strconv.Itoa(int(grant.Element)) + "\x00" + grant.Action.String() + "\x00" +
+	return string(grant.Element) + "\x00" + grant.Action.String() + "\x00" +
 		grant.Relation.key() + "\x00" + strconv.Itoa(int(grant.WriteKind)) + "\x00" +
 		grant.Column.key() + "\x00" + strconv.Itoa(int(grant.ReferenceKind))
 }

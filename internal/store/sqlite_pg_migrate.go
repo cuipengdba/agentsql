@@ -72,6 +72,7 @@ const (
 	migrationInt64 migrationColumnKind = 'L'
 	migrationBool  migrationColumnKind = 'B'
 	migrationTime  migrationColumnKind = 'Z'
+	migrationBytes migrationColumnKind = 'X'
 )
 
 type migrationColumn struct {
@@ -242,6 +243,52 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "attempts", kind: migrationInt32}, {name: "claimed_by", kind: migrationText},
 		{name: "claimed_at", kind: migrationTime}, {name: "last_error", kind: migrationText},
 		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime},
+	}},
+	{name: "b5_sessions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "session_id", kind: migrationText}, {name: "agent_id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
+		{name: "principal_id", kind: migrationText}, {name: "owner_instance_id", kind: migrationText}, {name: "owner_epoch", kind: migrationInt64},
+		{name: "continuation_schema_id", kind: migrationText}, {name: "continuation_schema_version", kind: migrationInt32},
+		{name: "continuation_key_ciphertext", kind: migrationText}, {name: "continuation_hmac_digest", kind: migrationBytes},
+		{name: "sticky_route", kind: migrationText}, {name: "status", kind: migrationText}, {name: "idle_expires_at", kind: migrationTime},
+		{name: "absolute_expires_at", kind: migrationTime}, {name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "revision", kind: migrationInt64},
+	}},
+	{name: "b5_transactions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "transaction_id", kind: migrationText}, {name: "session_id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
+		{name: "status", kind: migrationText}, {name: "phase", kind: migrationText}, {name: "plan_digest", kind: migrationBytes},
+		{name: "approval_id", kind: migrationText}, {name: "owner_epoch", kind: migrationInt64}, {name: "idle_deadline", kind: migrationTime},
+		{name: "wall_deadline", kind: migrationTime}, {name: "statement_deadline", kind: migrationTime}, {name: "backend_pid", kind: migrationInt32},
+		{name: "backend_secret_digest", kind: migrationBytes}, {name: "backend_started_at", kind: migrationTime},
+		{name: "connection_generation", kind: migrationInt64}, {name: "lease_generation", kind: migrationInt64},
+		{name: "statement_count", kind: migrationInt32}, {name: "transaction_seq", kind: migrationInt64},
+		{name: "previous_tx_event_digest", kind: migrationBytes}, {name: "created_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64},
+	}},
+	{name: "b5_dml_grants", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "grant_id", kind: migrationText}, {name: "policy_id", kind: migrationText}, {name: "policy_revision", kind: migrationInt64},
+		{name: "principal_id", kind: migrationText}, {name: "datasource_id", kind: migrationText}, {name: "effect", kind: migrationText},
+		{name: "grant_element", kind: migrationText}, {name: "action", kind: migrationText}, {name: "database_oid", kind: migrationInt64},
+		{name: "relation_oid", kind: migrationInt64}, {name: "relation_kind", kind: migrationText}, {name: "schema_name", kind: migrationText},
+		{name: "relation_name", kind: migrationText}, {name: "catalog_fingerprint", kind: migrationText}, {name: "write_target_kind", kind: migrationText},
+		{name: "column_attnum", kind: migrationInt32}, {name: "column_name", kind: migrationText}, {name: "column_type_oid", kind: migrationInt64},
+		{name: "column_type_modifier", kind: migrationInt32}, {name: "column_collation_oid", kind: migrationInt64}, {name: "reference_kind", kind: migrationText},
+		{name: "proof_schema_id", kind: migrationText}, {name: "proof_schema_version", kind: migrationInt32}, {name: "proof_digest", kind: migrationBytes},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64},
+	}},
+	{name: "b5_result_receipts", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "session_id", kind: migrationText}, {name: "request_id", kind: migrationText}, {name: "event_uuid", kind: migrationBytes},
+		{name: "attempt_generation", kind: migrationInt64}, {name: "schema_id", kind: migrationText}, {name: "schema_version", kind: migrationInt32},
+		{name: "business_event_digest", kind: migrationBytes}, {name: "wal_append_receipt_digest", kind: migrationBytes},
+		{name: "reported_durability", kind: migrationText}, {name: "append_confirmation", kind: migrationText},
+		{name: "reconciliation", kind: migrationText}, {name: "delivery_status", kind: migrationText},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64},
+	}},
+	{name: "b5_tx_events", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "transaction_id", kind: migrationText}, {name: "transaction_seq", kind: migrationInt64}, {name: "event_uuid", kind: migrationBytes},
+		{name: "event_type", kind: migrationText}, {name: "event_schema_id", kind: migrationText}, {name: "event_schema_version", kind: migrationInt32},
+		{name: "previous_tx_event_digest", kind: migrationBytes}, {name: "event_digest", kind: migrationBytes}, {name: "canonical_event", kind: migrationBytes},
+		{name: "terminal_evidence_text", kind: migrationText}, {name: "disposition_proof_text", kind: migrationText},
+		{name: "audit_log_id", kind: migrationInt64}, {name: "created_at", kind: migrationTime},
 	}},
 }
 
@@ -879,6 +926,12 @@ func normalizeMigrationCell(kind migrationColumnKind, source any) (migrationCell
 			return migrationCell{}, errors.New("invalid timestamp")
 		}
 		cell.value = timestamp.time.UTC().Truncate(time.Microsecond)
+	case migrationBytes:
+		value, ok := source.([]byte)
+		if !ok {
+			return migrationCell{}, errors.New("invalid binary type")
+		}
+		cell.value = append([]byte(nil), value...)
 	default:
 		return migrationCell{}, errors.New("unsupported migration type")
 	}
@@ -912,23 +965,25 @@ func writeCanonicalCell(destination hash.Hash, cell migrationCell) {
 		return
 	}
 	_, _ = destination.Write([]byte{1})
-	var content string
+	var content []byte
 	switch cell.kind {
 	case migrationText:
-		content = cell.value.(string)
+		content = []byte(cell.value.(string))
 	case migrationInt32, migrationInt64:
-		content = strconv.FormatInt(cell.value.(int64), 10)
+		content = []byte(strconv.FormatInt(cell.value.(int64), 10))
 	case migrationBool:
 		if cell.value.(bool) {
-			content = "1"
+			content = []byte("1")
 		} else {
-			content = "0"
+			content = []byte("0")
 		}
 	case migrationTime:
-		content = cell.value.(time.Time).UTC().Format("2006-01-02T15:04:05.000000Z")
+		content = []byte(cell.value.(time.Time).UTC().Format("2006-01-02T15:04:05.000000Z"))
+	case migrationBytes:
+		content = cell.value.([]byte)
 	}
 	writeCanonicalLength(destination, uint64(len(content)))
-	_, _ = destination.Write([]byte(content))
+	_, _ = destination.Write(content)
 }
 
 func writeCanonicalLength(destination hash.Hash, length uint64) {

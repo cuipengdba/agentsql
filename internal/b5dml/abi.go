@@ -1,6 +1,10 @@
 package b5dml
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/cuipengdba/agentsql/internal/b5"
+)
 
 type Dialect uint8
 
@@ -10,30 +14,17 @@ const (
 	DialectMySQL
 )
 
-type Action uint8
+type Action = b5.DMLAction
 
 const (
-	ActionUnknown Action = iota
-	ActionInsert
-	ActionUpdate
-	ActionDelete
+	ActionUnknown = b5.ActionUnknown
+	ActionInsert  = b5.ActionInsert
+	ActionUpdate  = b5.ActionUpdate
+	ActionDelete  = b5.ActionDelete
 )
 
-func (action Action) String() string {
-	switch action {
-	case ActionInsert:
-		return "insert"
-	case ActionUpdate:
-		return "update"
-	case ActionDelete:
-		return "delete"
-	default:
-		return "unknown"
-	}
-}
-
 func validAction(action Action) bool {
-	return action >= ActionInsert && action <= ActionDelete
+	return action == ActionInsert || action == ActionUpdate || action == ActionDelete
 }
 
 // RelationIdentity is authority-bearing only as a complete catalog identity.

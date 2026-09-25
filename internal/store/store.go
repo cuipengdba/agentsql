@@ -564,6 +564,28 @@ func (store *Store) Approvals() *ApprovalRepository {
 	}
 }
 
+// B5Sessions exposes the feature-off B5 session persistence surface. No
+// production handler calls this repository until a later activation slice.
+func (store *Store) B5Sessions() *B5SessionRepository {
+	return &B5SessionRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
+func (store *Store) B5Transactions() *B5TransactionRepository {
+	return &B5TransactionRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
+func (store *Store) B5DMLGrants() *B5DMLGrantRepository {
+	return &B5DMLGrantRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
+func (store *Store) B5ResultReceipts() *B5ResultReceiptRepository {
+	return &B5ResultReceiptRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
+func (store *Store) B5TxEvents() *B5TxEventRepository {
+	return &B5TxEventRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // Dashboard returns aggregates composed from the metadata and audit targets.
 func (store *Store) Dashboard() *DashboardRepository {
 	return NewDashboardRepository(store.metaDB, store.auditDB, store.metaDriver, store.auditDriver)
