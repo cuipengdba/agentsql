@@ -39,6 +39,11 @@ type Deps struct {
 	DatasourcePinger DatasourcePinger
 	Discovery        DiscoveryRunner
 	ChainManifests   ChainManifestProvider
+	// B5Admin is deliberately nil in the production feature-off assembly. S9
+	// routes remain registered so clients receive stable empty capability
+	// responses, while an activated assembly must explicitly provide the
+	// read/operation boundary.
+	B5Admin B5AdminBackend
 	// EventStreamHeartbeatInterval is injectable for deterministic stream tests.
 	// Zero uses the production interval.
 	EventStreamHeartbeatInterval time.Duration
@@ -133,6 +138,12 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	if deps.Discovery == nil {
 		deps.Discovery = deps.Runtime.ControlledRead
 	}
+	if deps.B5Admin != nil {
+		deps.Runtime.SetB5StatusProvider(func(ctx context.Context) (bootstrap.B5Status, error) {
+			status, err := deps.B5Admin.Status(ctx)
+			return bootstrap.B5Status{Enabled: true, State: status.State, Reason: status.Reason, Ready: status.Ready}, err
+		})
+	}
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
 		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...),
 		chainVerifying: make(map[string]bool), chainLastStart: make(map[string]time.Time)}
@@ -183,6 +194,17 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/approvals", handler.approvalsList)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)
+	mux.HandleFunc("GET /api/v1/b5/status", handler.b5Status)
+	mux.HandleFunc("GET /api/v1/b5/sessions", handler.b5SessionsList)
+	mux.HandleFunc("GET /api/v1/b5/sessions/{id}", handler.b5SessionsGet)
+	mux.HandleFunc("GET /api/v1/b5/transactions", handler.b5TransactionsList)
+	mux.HandleFunc("GET /api/v1/b5/transactions/{id}", handler.b5TransactionsGet)
+	mux.HandleFunc("GET /api/v1/b5/quarantine", handler.b5QuarantineList)
+	mux.HandleFunc("POST /api/v1/b5/quarantine/{id}/confirm-discard", handler.b5ConfirmDiscard)
+	mux.HandleFunc("GET /api/v1/b5/inventory", handler.b5Inventory)
+	mux.HandleFunc("GET /api/v1/b5/metrics", handler.b5Metrics)
+	mux.HandleFunc("GET /api/v1/b5/reconciliation", handler.b5ReconciliationList)
+	mux.HandleFunc("POST /api/v1/b5/reconciliation", handler.b5Reconcile)
 	mux.HandleFunc("GET /api/v1/integrations/notifications", handler.notificationsGet)
 	mux.HandleFunc("PUT /api/v1/integrations/notifications", handler.notificationsPut)
 	mux.HandleFunc("POST /api/v1/integrations/notifications/test", handler.notificationsTest)

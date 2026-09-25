@@ -282,11 +282,12 @@ func newHTTPHandlerWithRegistry(
 }
 
 type probeResponse struct {
-	Status               string             `json:"status"`
-	Version              string             `json:"version,omitempty"`
-	Demo                 *demoProbeResponse `json:"demo,omitempty"`
-	RedactionUnsatisfied []int              `json:"redaction_unsatisfied,omitempty"`
-	B2                   bootstrap.B2Status `json:"b2"`
+	Status               string              `json:"status"`
+	Version              string              `json:"version,omitempty"`
+	Demo                 *demoProbeResponse  `json:"demo,omitempty"`
+	RedactionUnsatisfied []int               `json:"redaction_unsatisfied,omitempty"`
+	B2                   bootstrap.B2Status  `json:"b2"`
+	B5                   *bootstrap.B5Status `json:"b5,omitempty"`
 }
 
 type demoProbeResponse struct {
@@ -295,7 +296,7 @@ type demoProbeResponse struct {
 }
 
 func healthHandler(cfg config.Config, runtimes ...*bootstrap.Runtime) http.HandlerFunc {
-	return func(writer http.ResponseWriter, _ *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
 		b2 := bootstrap.B2Status{State: bootstrap.B2StateFeatureOff, Reason: bootstrap.B2ReasonFeatureOff, Protocol: 2}
 		if len(runtimes) != 0 && runtimes[0] != nil {
 			b2 = runtimes[0].B2Status()
@@ -304,6 +305,14 @@ func healthHandler(cfg config.Config, runtimes ...*bootstrap.Runtime) http.Handl
 			Status:  "ok",
 			Version: version.Version,
 			B2:      b2,
+		}
+		if len(runtimes) != 0 && runtimes[0] != nil {
+			if status, available, err := runtimes[0].B5Status(request.Context()); available {
+				if err != nil {
+					status = bootstrap.B5Status{Enabled: true, State: "DEGRADED", Reason: "B5_STATUS_UNAVAILABLE", Ready: false}
+				}
+				response.B5 = &status
+			}
 		}
 		if cfg.DemoEnabled() {
 			banner := cfg.Demo.Banner
@@ -326,21 +335,32 @@ func readinessHandler(runtime *bootstrap.Runtime) http.HandlerFunc {
 		b2 := runtime.B2Status()
 		ctx, cancel := context.WithTimeout(request.Context(), time.Second)
 		defer cancel()
+		var b5 *bootstrap.B5Status
+		if status, available, err := runtime.B5Status(ctx); available {
+			if err != nil {
+				status = bootstrap.B5Status{Enabled: true, State: "DEGRADED", Reason: "B5_STATUS_UNAVAILABLE", Ready: false}
+			}
+			b5 = &status
+		}
 		if err := runtime.Store.Ping(ctx); err != nil {
-			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2})
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2, B5: b5})
 			return
 		}
 		if !runtime.B2Ready() {
-			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2})
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2, B5: b5})
+			return
+		}
+		if b5 != nil && !b5.Ready {
+			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{Status: "not ready", B2: b2, B5: b5})
 			return
 		}
 		if ready, unsatisfied := runtime.RedactionReady(); !ready {
 			writeProbeResponse(writer, http.StatusServiceUnavailable, probeResponse{
-				Status: "not ready", RedactionUnsatisfied: unsatisfied, B2: b2,
+				Status: "not ready", RedactionUnsatisfied: unsatisfied, B2: b2, B5: b5,
 			})
 			return
 		}
-		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready", B2: b2})
+		writeProbeResponse(writer, http.StatusOK, probeResponse{Status: "ready", B2: b2, B5: b5})
 	}
 }
 
@@ -396,6 +416,9 @@ func classifyRoute(requestPath string) string {
 	if len(segments) == 1 {
 		return base
 	}
+	if segments[0] == "b5" {
+		return classifyB5Route(segments)
+	}
 	if action, ok := staticAPIAction(segments[0], segments[1]); ok {
 		if len(segments) == 2 {
 			return base + "/" + action
@@ -427,11 +450,33 @@ func idAPIResource(resource string) bool {
 func knownAPIResource(resource string) bool {
 	switch resource {
 	case "auth", "agents", "datasources", "policies", "rules", "mask_rules",
-		"audit", "approvals", "dashboard", "playground", "stream", "redaction":
+		"audit", "approvals", "dashboard", "playground", "stream", "redaction", "b5":
 		return true
 	default:
 		return false
 	}
+}
+
+func classifyB5Route(segments []string) string {
+	if len(segments) < 2 {
+		return "/other"
+	}
+	view := segments[1]
+	allowed := view == "status" || view == "sessions" || view == "transactions" || view == "quarantine" || view == "inventory" || view == "metrics" || view == "reconciliation"
+	if !allowed {
+		return "/other"
+	}
+	base := "/api/v1/b5/" + view
+	if len(segments) == 2 {
+		return base
+	}
+	if len(segments) == 3 && (view == "sessions" || view == "transactions") {
+		return base + "/{id}"
+	}
+	if len(segments) == 4 && view == "quarantine" && segments[3] == "confirm-discard" {
+		return base + "/{id}/confirm-discard"
+	}
+	return "/other"
 }
 
 func staticAPIAction(resource, segment string) (string, bool) {

@@ -2990,6 +2990,19 @@ pre {
   background: linear-gradient(145deg, color-mix(in srgb, var(--color-surface) 96%, #052e2b), var(--color-surface));
 }
 
+/* B5 operations: cyan/teal signal colors keep the dark control-room surface
+   visually separate from the product's warning and approval palettes. */
+.b5-page { width: 100%; }
+.b5-kpi, .b5-panel { border-color: color-mix(in srgb, var(--color-border) 78%, #0891b2); background: linear-gradient(145deg, color-mix(in srgb, var(--color-surface) 96%, #083344), var(--color-surface)); }
+.b5-kpi-warn { border-color: color-mix(in srgb, var(--color-border) 55%, #d97706); }
+.b5-budget { display: flex; justify-content: space-between; gap: 12px; color: var(--color-text-secondary); }
+.b5-budget strong { color: #f59e0b; font-size: 20px; }
+.b5-kpi small { color: var(--color-text-secondary); }
+.b5-toolbar { display: grid; grid-template-columns: auto minmax(220px, 1fr) minmax(150px, .35fr); gap: 12px; margin-bottom: 16px; }
+.b5-detail { width: 100%; }
+.b5-state-chart { width: 100%; height: 260px; }
+@media (max-width: 720px) { .b5-toolbar { grid-template-columns: 1fr; } }
+
 .redaction-observed { margin: 0 0 16px; }
 .redaction-observed > div { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--color-border); }
 .redaction-observed dt { color: var(--color-text-secondary); }

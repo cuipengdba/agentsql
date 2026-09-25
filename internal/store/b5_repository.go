@@ -81,6 +81,16 @@ type B5Session struct {
 
 type B5SessionRepository struct{ repositoryBase }
 
+type B5SessionFilter struct {
+	Status, Owner, Query string
+}
+
+type B5SessionPage struct {
+	Total          int64
+	List           []B5Session
+	Page, PageSize int
+}
+
 func (r *B5SessionRepository) Create(ctx context.Context, value B5Session) (B5Session, error) {
 	if ctx == nil {
 		return B5Session{}, fmt.Errorf("create b5 session: %w", ErrNilContext)
@@ -108,6 +118,57 @@ func (r *B5SessionRepository) Get(ctx context.Context, id string) (B5Session, er
 		return B5Session{}, fmt.Errorf("get b5 session %q: %w", id, err)
 	}
 	return value, nil
+}
+
+// ListPage exposes only non-secret directory metadata. Continuation key
+// ciphertext and HMAC material never cross the repository boundary here.
+func (r *B5SessionRepository) ListPage(ctx context.Context, filter B5SessionFilter, page, pageSize int) (B5SessionPage, error) {
+	if ctx == nil {
+		return B5SessionPage{}, ErrNilContext
+	}
+	if page < 1 {
+		return B5SessionPage{}, ErrInvalidPage
+	}
+	if pageSize < 1 || pageSize > 100 {
+		return B5SessionPage{}, ErrInvalidPageSize
+	}
+	where, args := []string{}, []any{}
+	if filter.Status != "" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.Owner != "" {
+		where = append(where, "owner_instance_id=?")
+		args = append(args, filter.Owner)
+	}
+	if filter.Query != "" {
+		where = append(where, "(LOWER(session_id) LIKE ? OR LOWER(agent_id) LIKE ? OR LOWER(principal_id) LIKE ? OR LOWER(owner_instance_id) LIKE ?)")
+		pattern := "%" + strings.ToLower(filter.Query) + "%"
+		args = append(args, pattern, pattern, pattern, pattern)
+	}
+	clause := ""
+	if len(where) != 0 {
+		clause = " WHERE " + strings.Join(where, " AND ")
+	}
+	var total int64
+	if err := r.db.QueryRowContext(ctx, r.bind("SELECT COUNT(*) FROM b5_sessions"+clause), args...).Scan(&total); err != nil {
+		return B5SessionPage{}, err
+	}
+	query := `SELECT session_id,agent_id,tenant_id,principal_id,owner_instance_id,owner_epoch,continuation_schema_id,continuation_schema_version,continuation_key_ciphertext,continuation_hmac_digest,sticky_route,status,idle_expires_at,absolute_expires_at,created_at,updated_at,revision FROM b5_sessions` + clause + ` ORDER BY updated_at DESC,session_id DESC LIMIT ? OFFSET ?`
+	rows, err := r.db.QueryContext(ctx, r.bind(query), append(append([]any{}, args...), pageSize, (page-1)*pageSize)...)
+	if err != nil {
+		return B5SessionPage{}, err
+	}
+	defer rows.Close()
+	values := make([]B5Session, 0, pageSize)
+	for rows.Next() {
+		value, scanErr := scanB5Session(rows)
+		if scanErr != nil {
+			return B5SessionPage{}, scanErr
+		}
+		values = append(values, value)
+	}
+	return B5SessionPage{Total: total, List: values, Page: page, PageSize: pageSize}, rows.Err()
 }
 
 func (r *B5SessionRepository) CASStatus(ctx context.Context, id string, expectedRevision int64, from, to b5.SessionStatus, idleExpiry time.Time) (B5Session, error) {
@@ -230,6 +291,16 @@ type B5TransactionProgress struct {
 
 type B5TransactionRepository struct{ repositoryBase }
 
+type B5TransactionFilter struct {
+	Status, Phase, DatasourceID, Query string
+}
+
+type B5TransactionPage struct {
+	Total          int64
+	List           []B5Transaction
+	Page, PageSize int
+}
+
 func (r *B5TransactionRepository) Create(ctx context.Context, value B5Transaction) (B5Transaction, error) {
 	query := `INSERT INTO b5_transactions (transaction_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	_, err := r.db.ExecContext(ctx, r.bind(query), value.TransactionID, value.SessionID, value.DatasourceID, value.Status, value.Phase, value.PlanDigest, optionalString(value.ApprovalID), value.OwnerEpoch, value.IdleDeadline, value.WallDeadline, optionalTime(value.StatementDeadline), optionalInt(value.BackendPID), nullableBytes(value.BackendSecretDigest), optionalTime(value.BackendStartedAt), value.ConnectionGeneration, value.LeaseGeneration, value.StatementCount, value.TransactionSeq, nullableBytes(value.PreviousTxEventDigest))
@@ -246,6 +317,56 @@ func (r *B5TransactionRepository) Get(ctx context.Context, id string) (B5Transac
 		return B5Transaction{}, fmt.Errorf("get b5 transaction %q: %w", id, ErrNotFound)
 	}
 	return value, err
+}
+
+func (r *B5TransactionRepository) ListPage(ctx context.Context, filter B5TransactionFilter, page, pageSize int) (B5TransactionPage, error) {
+	if ctx == nil {
+		return B5TransactionPage{}, ErrNilContext
+	}
+	if page < 1 {
+		return B5TransactionPage{}, ErrInvalidPage
+	}
+	if pageSize < 1 || pageSize > 100 {
+		return B5TransactionPage{}, ErrInvalidPageSize
+	}
+	where, args := []string{}, []any{}
+	add := func(column, value string) {
+		if value != "" {
+			where = append(where, column+"=?")
+			args = append(args, value)
+		}
+	}
+	add("status", filter.Status)
+	add("phase", filter.Phase)
+	add("datasource_id", filter.DatasourceID)
+	if filter.Query != "" {
+		where = append(where, "(LOWER(transaction_id) LIKE ? OR LOWER(session_id) LIKE ? OR LOWER(datasource_id) LIKE ?)")
+		pattern := "%" + strings.ToLower(filter.Query) + "%"
+		args = append(args, pattern, pattern, pattern)
+	}
+	clause := ""
+	if len(where) != 0 {
+		clause = " WHERE " + strings.Join(where, " AND ")
+	}
+	var total int64
+	if err := r.db.QueryRowContext(ctx, r.bind("SELECT COUNT(*) FROM b5_transactions"+clause), args...).Scan(&total); err != nil {
+		return B5TransactionPage{}, err
+	}
+	query := `SELECT transaction_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest,created_at,updated_at,revision FROM b5_transactions` + clause + ` ORDER BY updated_at DESC,transaction_id DESC LIMIT ? OFFSET ?`
+	rows, err := r.db.QueryContext(ctx, r.bind(query), append(append([]any{}, args...), pageSize, (page-1)*pageSize)...)
+	if err != nil {
+		return B5TransactionPage{}, err
+	}
+	defer rows.Close()
+	values := make([]B5Transaction, 0, pageSize)
+	for rows.Next() {
+		value, scanErr := scanB5Transaction(rows)
+		if scanErr != nil {
+			return B5TransactionPage{}, scanErr
+		}
+		values = append(values, value)
+	}
+	return B5TransactionPage{Total: total, List: values, Page: page, PageSize: pageSize}, rows.Err()
 }
 
 func (r *B5TransactionRepository) CASState(ctx context.Context, id string, revision int64, fromStatus b5.TransactionStatus, fromPhase b5.TransactionPhase, toStatus b5.TransactionStatus, toPhase b5.TransactionPhase) (B5Transaction, error) {
@@ -688,6 +809,27 @@ func (r *B5TxEventRepository) List(ctx context.Context, limit int) ([]B5TxEvent,
 	}
 	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events ORDER BY created_at,transaction_id,transaction_seq LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, r.bind(q), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := make([]B5TxEvent, 0)
+	for rows.Next() {
+		value, scanErr := scanB5TxEvent(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func (r *B5TxEventRepository) ListByTransaction(ctx context.Context, transactionID string, limit int) ([]B5TxEvent, error) {
+	if transactionID == "" || limit < 1 || limit > 10000 {
+		return nil, fmt.Errorf("list b5 transaction events: invalid input")
+	}
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE transaction_id=? ORDER BY transaction_seq LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, r.bind(q), transactionID, limit)
 	if err != nil {
 		return nil, err
 	}

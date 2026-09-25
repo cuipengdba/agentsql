@@ -42,6 +42,8 @@ func TestB5S1bPostgres14And18MigrationAndStore(t *testing.T) {
 				}
 				_, err = db.ExecContext(ctx, `INSERT INTO agents(id,name,api_key_hash) VALUES('b5-agent','b5','hash')`)
 				require.NoError(t, err)
+				_, err = db.ExecContext(ctx, `INSERT INTO datasources(id,name,db_type,host,port,database,username,password_enc) VALUES('pg-datasource','b5','postgres','db',5432,'app','user','ciphertext')`)
+				require.NoError(t, err)
 				now := time.Now().UTC().Truncate(time.Microsecond)
 				store := &Store{metaDB: db, metaDriver: DialectPostgres}
 				session, err := store.B5Sessions().Create(ctx, B5Session{
@@ -56,6 +58,26 @@ func TestB5S1bPostgres14And18MigrationAndStore(t *testing.T) {
 				session, err = store.B5Sessions().CASOwner(ctx, session.SessionID, session.Revision, "instance", 1, "instance-2", "instance-2", "ciphertext-2", bytesOf(32, 2))
 				require.NoError(t, err)
 				require.Equal(t, uint64(2), session.OwnerEpoch)
+				sessionPage, err := store.B5Sessions().ListPage(ctx, B5SessionFilter{Status: "ACTIVE", Owner: "instance-2", Query: "pg-session"}, 1, 10)
+				require.NoError(t, err)
+				require.Equal(t, int64(1), sessionPage.Total)
+				require.Equal(t, "pg-session", sessionPage.List[0].SessionID)
+
+				transaction, err := store.B5Transactions().Create(ctx, B5Transaction{
+					TransactionID: "pg-transaction", SessionID: session.SessionID, DatasourceID: "pg-datasource",
+					Status: b5.TransactionActive, Phase: b5.PhaseActive, PlanDigest: bytesOf(32, 3), OwnerEpoch: session.OwnerEpoch,
+					IdleDeadline: now.Add(time.Minute), WallDeadline: now.Add(time.Hour), TransactionSeq: 1,
+					PreviousTxEventDigest: bytesOf(32, 4),
+				})
+				require.NoError(t, err)
+				transactionPage, err := store.B5Transactions().ListPage(ctx, B5TransactionFilter{Status: "ACTIVE", Phase: "ACTIVE", DatasourceID: "pg-datasource", Query: "pg-transaction"}, 1, 10)
+				require.NoError(t, err)
+				require.Equal(t, int64(1), transactionPage.Total)
+				require.Equal(t, transaction.TransactionID, transactionPage.List[0].TransactionID)
+				require.NoError(t, store.B5TxEvents().Append(ctx, B5TxEvent{TransactionID: transaction.TransactionID, TransactionSeq: 1, EventUUID: bytesOf(16, 5), EventType: "tx_begin", EventSchemaID: "agentsql.b5.event.v4", EventSchemaVersion: 4, PreviousTxEventDigest: bytesOf(32, 4), EventDigest: bytesOf(32, 6), CanonicalEvent: []byte("event")}))
+				events, err := store.B5TxEvents().ListByTransaction(ctx, transaction.TransactionID, 10)
+				require.NoError(t, err)
+				require.Len(t, events, 1)
 
 				// PostgreSQL DDL and the migration claim must roll back together.
 				err = applyMigration(ctx, db, DialectPostgres, 99, `CREATE TABLE b5_atomic_pg_probe(id BIGINT); INSERT INTO table_that_does_not_exist VALUES(1);`)

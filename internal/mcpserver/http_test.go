@@ -159,6 +159,26 @@ func TestT241ReadinessFailsClosedWithoutStore(t *testing.T) {
 	require.JSONEq(t, `{"status":"not ready","b2":{"state":"degraded","reason":"B2_METADATA_UNAVAILABLE","protocol":0}}`, recorder.Body.String())
 }
 
+func TestB5StatusLinksHealthAndReadinessOnlyWhenExplicitlyInstalled(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	fixture.runtime.SetB5StatusProvider(func(context.Context) (bootstrap.B5Status, error) {
+		return bootstrap.B5Status{Enabled: true, State: "DEGRADED", Reason: "B5_QUARANTINE_BUDGET", Ready: false}, nil
+	})
+	handler, err := NewHTTPHandler(fixture.runtime, httpTestConfig(100), zerolog.Nop())
+	require.NoError(t, err)
+
+	health := httptest.NewRecorder()
+	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.Equal(t, http.StatusOK, health.Code)
+	require.Contains(t, health.Body.String(), `"b5":{"enabled":true,"state":"DEGRADED","reason":"B5_QUARANTINE_BUDGET","ready":false}`)
+
+	ready := httptest.NewRecorder()
+	handler.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, ready.Code)
+	require.Contains(t, ready.Body.String(), `"status":"not ready"`)
+	require.Contains(t, ready.Body.String(), `"reason":"B5_QUARANTINE_BUDGET"`)
+}
+
 func TestReadinessRemainsReadyWhenHMACChainKeyMissing(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	good := readinessChainManifest{mode: "hmac", version: 1, keys: map[int][]byte{1: key}}
@@ -683,6 +703,10 @@ func TestClassifyRoute(t *testing.T) {
 		{name: "dashboard action", path: "/api/v1/dashboard/summary", want: "/api/v1/dashboard/summary"},
 		{name: "playground action", path: "/api/v1/playground/assess", want: "/api/v1/playground/assess"},
 		{name: "redaction keys", path: "/api/v1/redaction/keys", want: "/api/v1/redaction/keys"},
+		{name: "b5 sessions", path: "/api/v1/b5/sessions", want: "/api/v1/b5/sessions"},
+		{name: "b5 transaction id", path: "/api/v1/b5/transactions/tx-secret", want: "/api/v1/b5/transactions/{id}"},
+		{name: "b5 quarantine operation", path: "/api/v1/b5/quarantine/lease-secret/confirm-discard", want: "/api/v1/b5/quarantine/{id}/confirm-discard"},
+		{name: "unknown b5 operation", path: "/api/v1/b5/quarantine/lease-secret/release", want: "/other"},
 		{name: "event stream", path: "/api/v1/stream", want: "/api/v1/stream"},
 		{name: "unknown auth action", path: "/api/v1/auth/unknown", want: "/other"},
 		{name: "unknown audit action", path: "/api/v1/audit/unknown", want: "/other"},

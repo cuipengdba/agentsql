@@ -9,11 +9,12 @@ import {
 } from "@ant-design/icons";
 import { Alert, Avatar, Button, Layout, Menu, Space, Tag, Tooltip, Typography } from "antd";
 import type { MenuProps } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { logout as logoutRequest } from "@/api/auth";
-import { menuRoutes } from "@/routes/menu";
+import { getB5Status } from "@/api/b5";
+import { menuRoutes, menuRoutesForFeatures } from "@/routes/menu";
 import { useAuthStore } from "@/store/authStore";
 import { selectIsDemo, useDemoStore } from "@/store/demoStore";
 import { useThemeStore } from "@/theme/useThemeStore";
@@ -23,6 +24,7 @@ const { Header, Sider, Content } = Layout;
 export function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [bannerVisible, setBannerVisible] = useState(true);
+  const [b5Enabled, setB5Enabled] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const username = useAuthStore((state) => state.username);
@@ -39,8 +41,9 @@ export function MainLayout() {
       ? <span className="demo-menu-label"><span>{label}</span><Tag color="processing">Live Demo</Tag></span>
       : label,
   });
-  const primaryRoutes = menuRoutes.filter((route) => route.group !== "settings");
-  const settingsRoutes = menuRoutes.filter((route) => route.group === "settings");
+  const visibleRoutes = menuRoutesForFeatures(b5Enabled);
+  const primaryRoutes = visibleRoutes.filter((route) => route.group !== "settings");
+  const settingsRoutes = visibleRoutes.filter((route) => route.group === "settings");
   const menuItems: MenuProps["items"] = [
     ...primaryRoutes.map(menuItem),
     ...(settingsRoutes.length > 0 ? [{
@@ -49,6 +52,14 @@ export function MainLayout() {
       children: settingsRoutes.map(menuItem),
     }] : []),
   ];
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getB5Status(controller.signal)
+      .then((status) => setB5Enabled(status.enabled))
+      .catch(() => setB5Enabled(false));
+    return () => controller.abort();
+  }, []);
 
   const handleLogout = async () => {
     try {

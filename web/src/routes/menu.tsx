@@ -11,6 +11,7 @@ import {
   RobotOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
+  SwapOutlined,
 } from "@ant-design/icons";
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 
@@ -26,6 +27,7 @@ const MaskRules = lazy(() => import("@/pages/MaskRules").then(({ MaskRules }) =>
 const Notifications = lazy(() => import("@/pages/Notifications").then(({ Notifications }) => ({ default: Notifications })));
 const RedactionKeys = lazy(() => import("@/pages/RedactionKeys").then(({ RedactionKeys }) => ({ default: RedactionKeys })));
 const AuditChain = lazy(() => import("@/pages/AuditChain").then(({ AuditChain }) => ({ default: AuditChain })));
+const B5Operations = lazy(() => import("@/pages/B5Operations").then(({ B5Operations }) => ({ default: B5Operations })));
 
 function RouteLoading() {
   return (
@@ -61,6 +63,7 @@ export interface MenuRoute {
   icon: ReactNode;
   element: ReactNode;
   group?: "settings";
+  feature?: "b5";
 }
 
 export const menuRoutes: MenuRoute[] = [
@@ -89,6 +92,14 @@ export const menuRoutes: MenuRoute[] = [
     label: "审批",
     icon: <AuditOutlined />,
     element: lazyElement(Approvals),
+  },
+  {
+    key: "b5-operations",
+    path: "/b5-operations",
+    label: "会话/事务",
+    icon: <SwapOutlined />,
+    element: lazyElement(B5Operations),
+    feature: "b5",
   },
   {
     key: "mask-rules",
@@ -122,3 +133,7 @@ export const menuRoutes: MenuRoute[] = [
     group: "settings",
   },
 ];
+
+export function menuRoutesForFeatures(b5Enabled: boolean): MenuRoute[] {
+  return menuRoutes.filter((route) => route.feature !== "b5" || b5Enabled);
+}

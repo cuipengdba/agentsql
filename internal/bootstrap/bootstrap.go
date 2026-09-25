@@ -53,6 +53,7 @@ type Runtime struct {
 	business     *executor.Gateway
 	businessRead *executor.Gateway
 	b2           *b2Runtime
+	b5Probe      func(context.Context) (B5Status, error)
 	relayCancel  context.CancelFunc
 	relayWait    sync.WaitGroup
 	closed       bool
