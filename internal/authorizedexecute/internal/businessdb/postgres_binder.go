@@ -186,16 +186,25 @@ func (executor *PostgresExecutor) discoverPostgresSelect(ctx context.Context, ra
 	if err != nil {
 		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL binder connection", err)
 	}
-	defer connection.Release()
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
+		connection.Release()
 		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL candidate binder transaction", err)
 	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
+	name := ""
+	cleaned := false
+	defer func() {
+		if !cleaned {
+			_ = cleanupPostgresPreparedConnection(executor, connection, tx, name)
+		}
+	}()
 	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
 		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, err
 	}
-	name, err := randomPreparedName()
+	if err := setPostgresBinderSearchPath(ctx, tx); err != nil {
+		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, err
+	}
+	name, err = randomPreparedName()
 	if err != nil {
 		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, catalogAuthError("AUTH_DATABASE_ERROR")
 	}
@@ -207,9 +216,10 @@ func (executor *PostgresExecutor) discoverPostgresSelect(ctx context.Context, ra
 	if err != nil {
 		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, err
 	}
-	_ = deallocatePostgresPrepared(ctx, tx, name)
-	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, postgresDatabaseError(ctx, DBStageRollback, "rollback PostgreSQL candidate binder transaction", err)
+	cleanupErr := cleanupPostgresPreparedConnection(executor, connection, tx, name)
+	cleaned = true
+	if cleanupErr != nil {
+		return PostgresPreparedManifest{}, PostgresCatalogFrame{}, postgresDatabaseError(ctx, DBStageRollback, "rollback PostgreSQL candidate binder transaction", cleanupErr)
 	}
 	return manifest, frame, nil
 }
@@ -229,29 +239,27 @@ func (executor *PostgresExecutor) prepareLockedPostgresSelect(ctx context.Contex
 	if err != nil {
 		return nil, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL execution binder connection", err)
 	}
-	release := true
-	defer func() {
-		if release {
-			connection.Release()
-		}
-	}()
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
+		connection.Release()
 		return nil, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL execution binder transaction", err)
 	}
-	rollback := true
+	name := ""
 	defer func() {
-		if rollback {
-			_ = tx.Rollback(context.Background())
+		if !rankTransferred {
+			_ = cleanupPostgresPreparedConnection(executor, connection, tx, name)
 		}
 	}()
 	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
 		return nil, err
 	}
+	if err := setPostgresBinderSearchPath(ctx, tx); err != nil {
+		return nil, err
+	}
 	if err := lockPostgresRelations(ctx, tx, candidate.Relations, budget); err != nil {
 		return nil, err
 	}
-	name, err := randomPreparedName()
+	name, err = randomPreparedName()
 	if err != nil {
 		return nil, catalogAuthError("AUTH_DATABASE_ERROR")
 	}
@@ -264,7 +272,6 @@ func (executor *PostgresExecutor) prepareLockedPostgresSelect(ctx context.Contex
 		return nil, err
 	}
 	if !samePostgresClosure(candidate.Relations, manifest.Relations) || !sameOIDSet(actual, manifestRelationOIDs(manifest)) {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, &postgresCatalogRaceError{reason: "AUTH_BIND_CLOSURE_MISMATCH"}
 	}
 	fpre, err := scanPostgresCatalog(ctx, tx, manifestRelationOIDs(manifest), manifestViewDepths(manifest), manifest.Objects, manifest.Capability.Allowlist, budget)
@@ -273,7 +280,6 @@ func (executor *PostgresExecutor) prepareLockedPostgresSelect(ctx context.Contex
 	}
 	current := enrollmentFrom(manifest, fpre)
 	if enrollment != nil && enrollment.Fingerprint != current.Fingerprint {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, &postgresCatalogRaceError{reason: "AUTH_CATALOG_RACE"}
 	}
 	// Planning is deliberately delayed until after the exact-OID implicit
@@ -294,9 +300,13 @@ func (executor *PostgresExecutor) prepareLockedPostgresSelect(ctx context.Contex
 		return nil, &postgresCatalogRaceError{reason: "AUTH_PREPARED_INVALIDATED"}
 	}
 	manifest = sealed
-	release, rollback = false, false
+	prepared := &PostgresPreparedSelect{executor: executor, connection: connection, tx: tx, name: name,
+		manifest: manifest, fpre: fpre, businessRank: businessRank}
+	if err := executor.registerResource(prepared); err != nil {
+		return nil, err
+	}
 	rankTransferred = true
-	return &PostgresPreparedSelect{executor: executor, connection: connection, tx: tx, name: name, manifest: manifest, fpre: fpre, businessRank: businessRank}, nil
+	return prepared, nil
 }
 
 func prepareAndReadPostgresManifest(ctx context.Context, tx pgx.Tx, name, rawSQL string, budget PostgresCatalogBudget) (PostgresPreparedManifest, error) {
@@ -324,6 +334,20 @@ func prepareAndReadPostgresManifest(ctx context.Context, tx pgx.Tx, name, rawSQL
 		return PostgresPreparedManifest{}, err
 	}
 	return manifest, nil
+}
+
+func setPostgresBinderSearchPath(ctx context.Context, tx pgx.Tx) error {
+	if ctx == nil || tx == nil {
+		return NewIdentityDriftFailure()
+	}
+	// Session hardening is transaction setup, not a catalog read. Charging it
+	// against the catalog round-trip budget would make the same manifest cost
+	// differently solely because fixed-path resolution is enabled.
+	var path string
+	if err := tx.QueryRow(ctx, `SELECT pg_catalog.set_config('search_path','pg_catalog',true)`).Scan(&path); err != nil || path != "pg_catalog" {
+		return NewIdentityDriftFailure()
+	}
+	return nil
 }
 
 func readPostgresBinderCapability(ctx context.Context, tx pgx.Tx, budget PostgresCatalogBudget) (PostgresBinderCapability, error) {
@@ -587,6 +611,9 @@ func (prepared *PostgresPreparedSelect) Close(ctx context.Context, commit bool) 
 		return nil
 	}
 	prepared.closed = true
+	if prepared.executor != nil {
+		defer prepared.executor.unregisterResource(prepared)
+	}
 	if prepared.businessRank != nil {
 		defer prepared.businessRank.Release()
 		prepared.businessRank = nil
@@ -594,18 +621,24 @@ func (prepared *PostgresPreparedSelect) Close(ctx context.Context, commit bool) 
 	if prepared.tx == nil || prepared.connection == nil {
 		return nil
 	}
-	_ = deallocatePostgresPrepared(ctx, prepared.tx, prepared.name)
 	var err error
 	if commit && !prepared.discard {
+		_ = deallocatePostgresPrepared(ctx, prepared.tx, prepared.name)
 		err = prepared.tx.Commit(ctx)
 	} else {
-		err = prepared.tx.Rollback(ctx)
+		err = cleanupPostgresPreparedConnection(prepared.executor, prepared.connection, prepared.tx, prepared.name)
 	}
 	prepared.tx = nil
+	if !commit || prepared.discard {
+		prepared.connection = nil
+		return err
+	}
 	if prepared.discard || err != nil {
 		physical := prepared.connection.Hijack()
 		prepared.connection = nil
-		closeErr := physical.Close(context.Background())
+		closeContext, cancel := context.WithTimeout(context.Background(), postgresCloseTimeout)
+		closeErr := physical.Close(closeContext)
+		cancel()
 		if err != nil {
 			return errors.Join(err, closeErr)
 		}
@@ -613,6 +646,45 @@ func (prepared *PostgresPreparedSelect) Close(ctx context.Context, commit bool) 
 	}
 	prepared.connection.Release()
 	prepared.connection = nil
+	return nil
+}
+
+func (prepared *PostgresPreparedSelect) closeForExecutor(context.Context) error {
+	return prepared.Close(context.Background(), false)
+}
+
+func cleanupPostgresPreparedConnection(executor *PostgresExecutor, connection *pgxpool.Conn, tx pgx.Tx, name string) error {
+	if connection == nil {
+		return nil
+	}
+	timeout := postgresCloseTimeout
+	if executor != nil && executor.timeout > 0 && executor.timeout < timeout {
+		timeout = executor.timeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	deallocateErr := error(nil)
+	if tx != nil && name != "" {
+		deallocateErr = deallocatePostgresPrepared(ctx, tx, name)
+	}
+	rollbackErr := error(nil)
+	if tx != nil {
+		rollbackErr = tx.Rollback(ctx)
+		if errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			rollbackErr = nil
+		}
+	}
+	if deallocateErr != nil && rollbackErr == nil && name != "" {
+		_, deallocateErr = connection.Exec(ctx, "DEALLOCATE "+quoteInternalPreparedName(name))
+	}
+	if deallocateErr != nil || rollbackErr != nil {
+		physical := connection.Hijack()
+		closeContext, closeCancel := context.WithTimeout(context.Background(), timeout)
+		closeErr := physical.Close(closeContext)
+		closeCancel()
+		return errors.Join(rollbackErr, closeErr)
+	}
+	connection.Release()
 	return nil
 }
 

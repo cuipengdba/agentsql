@@ -66,13 +66,21 @@ func runPostgresBinderS3Scenarios(t *testing.T, major string) {
 		`CREATE SCHEMA agentsql_catalog`,
 		`CREATE EXTENSION agentsql_binder WITH SCHEMA agentsql_catalog`,
 		`CREATE ROLE s3_other`,
+		`CREATE ROLE s3_regular LOGIN PASSWORD 'regular-password' NOSUPERUSER NOCREATEDB NOCREATEROLE`,
 		`CREATE SCHEMA s3`,
 		`CREATE TABLE s3.base_a(id integer PRIMARY KEY, secret text)`,
 		`CREATE TABLE s3.base_b(id integer, note text)`,
+		`CREATE UNLOGGED TABLE s3.unlogged_table(id integer)`,
+		`CREATE EXTENSION postgres_fdw`,
+		`CREATE SERVER s3_loopback FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '127.0.0.1', dbname 'agentsql')`,
+		`CREATE FOREIGN TABLE s3.foreign_table(id integer) SERVER s3_loopback OPTIONS (schema_name 's3', table_name 'base_a')`,
 		`CREATE VIEW s3.v_ab AS SELECT a.id,a.secret,b.note FROM s3.base_a a JOIN s3.base_b b USING(id)`,
 		`CREATE VIEW s3.v2 AS SELECT id,secret FROM s3.v_ab`,
 		`INSERT INTO s3.base_a VALUES (1,'alpha')`,
 		`INSERT INTO s3.base_b VALUES (1,'note')`,
+		`GRANT USAGE ON SCHEMA agentsql_catalog,s3 TO s3_regular`,
+		`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA agentsql_catalog TO s3_regular`,
+		`GRANT SELECT ON ALL TABLES IN SCHEMA s3 TO s3_regular`,
 	} {
 		_, err = executor.Execute(ctx, statement)
 		require.NoError(t, err, statement)
@@ -139,6 +147,34 @@ func runPostgresBinderS3Scenarios(t *testing.T, major string) {
 	runPostgresExactAllowlistScenarios(t, ctx, executor)
 	runPostgresPreparedIdentityScenarios(t, ctx, executor)
 	runPostgresCatalogRaceScenarios(t, ctx, executor)
+	_, err = executor.Execute(ctx, `GRANT SELECT ON ALL TABLES IN SCHEMA s3 TO s3_regular`)
+	require.NoError(t, err)
+	regular, err := NewPostgresExecutor(ctx, model.Datasource{ID: "s3-regular-pg-" + major, DBType: "postgres", Host: host,
+		Port: port.Int(), Database: "agentsql", Username: "s3_regular", ConnLimit: 8, StmtTimeoutMS: 5_000}, "regular-password", false)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, regular.Close()) })
+	for _, role := range []struct {
+		name     string
+		executor *PostgresExecutor
+	}{{"super", executor}, {"regular", regular}} {
+		t.Run("closed-select-"+role.name, func(t *testing.T) {
+			runClosedSelectDifferentialScenarios(t, ctx, role.executor, "s3-differential-pg-"+major+"-"+role.name)
+		})
+	}
+	requirePostgresExecutorClosesPromptly(t, regular)
+	requirePostgresExecutorClosesPromptly(t, executor)
+}
+
+func requirePostgresExecutorClosesPromptly(t *testing.T, executor *PostgresExecutor) {
+	t.Helper()
+	closed := make(chan error, 1)
+	go func() { closed <- executor.Close() }()
+	select {
+	case err := <-closed:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("PostgreSQL executor Close exceeded 3 seconds")
+	}
 }
 
 func runPostgresShapeGateScenarios(t *testing.T, ctx context.Context, executor *PostgresExecutor) {
@@ -302,6 +338,7 @@ func runPostgresPreparedIdentityScenarios(t *testing.T, ctx context.Context, exe
 		t.Helper()
 		prepared, err := executor.PrepareBoundPostgresSelect(ctx, `SELECT id FROM s3.base_a`, nil, &unlimitedPostgresBudget{})
 		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, prepared.Close(context.Background(), false)) })
 		return prepared
 	}
 	t.Run("same-backend-sealed", func(t *testing.T) {
@@ -318,7 +355,7 @@ func runPostgresPreparedIdentityScenarios(t *testing.T, ctx context.Context, exe
 	})
 	t.Run("search-path-change", func(t *testing.T) {
 		prepared := newPrepared(t)
-		_, err := prepared.tx.Exec(ctx, `SET LOCAL search_path=pg_catalog`)
+		_, err := prepared.tx.Exec(ctx, `SET LOCAL search_path=pg_catalog,public`)
 		require.NoError(t, err)
 		_, err = prepared.Execute(ctx, 10)
 		require.Error(t, err)

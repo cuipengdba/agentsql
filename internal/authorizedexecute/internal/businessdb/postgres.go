@@ -26,18 +26,25 @@ const (
 	executionTimeoutMargin  = 250 * time.Millisecond
 	maxDatabaseFrameBytes   = 1 << 20
 	postgresFrameHeaderSize = 5
+	postgresCloseTimeout    = 2 * time.Second
 )
+
+type postgresExecutorResource interface {
+	closeForExecutor(context.Context) error
+}
 
 // PostgresExecutor controls one PostgreSQL connection pool.
 type PostgresExecutor struct {
-	pool       *pgxpool.Pool
-	maxConns   int32
-	timeout    time.Duration
-	readOnly   bool
-	clock      sessionClock
-	sessionsMu sync.RWMutex
-	sessions   map[string]Session
-	closed     bool
+	pool        *pgxpool.Pool
+	maxConns    int32
+	timeout     time.Duration
+	readOnly    bool
+	clock       sessionClock
+	sessionsMu  sync.RWMutex
+	sessions    map[string]Session
+	resourcesMu sync.Mutex
+	resources   map[postgresExecutorResource]struct{}
+	closed      bool
 }
 
 type postgresRunner interface {
@@ -100,12 +107,13 @@ func NewPostgresExecutor(
 		return nil, postgresConnectionError(ctx, DBStageConnect, "create PostgreSQL connection pool", err)
 	}
 	executor := &PostgresExecutor{
-		pool:     pool,
-		maxConns: int32(connectionLimit),
-		timeout:  time.Duration(timeoutMS) * time.Millisecond,
-		readOnly: readOnly,
-		clock:    wallClock{},
-		sessions: make(map[string]Session),
+		pool:      pool,
+		maxConns:  int32(connectionLimit),
+		timeout:   time.Duration(timeoutMS) * time.Millisecond,
+		readOnly:  readOnly,
+		clock:     wallClock{},
+		sessions:  make(map[string]Session),
+		resources: make(map[postgresExecutorResource]struct{}),
 	}
 	if err := executor.Ping(ctx); err != nil {
 		pool.Close()
@@ -355,17 +363,82 @@ func (executor *PostgresExecutor) Close() error {
 	}
 	executor.sessions = make(map[string]Session)
 	executor.sessionsMu.Unlock()
-	closeErrors := make([]error, 0)
-	for _, session := range sessions {
-		if err := session.Close(); err != nil {
-			closeErrors = append(closeErrors, err)
-		}
+	executor.resourcesMu.Lock()
+	resources := make([]postgresExecutorResource, 0, len(executor.resources))
+	for resource := range executor.resources {
+		resources = append(resources, resource)
 	}
-	executor.pool.Close()
+	executor.resourcesMu.Unlock()
+	closeContext, cancel := context.WithTimeout(context.Background(), postgresCloseTimeout)
+	defer cancel()
+	gracefulDone := make(chan []error, 1)
+	go func() {
+		gracefulErrors := make([]error, 0)
+		for _, session := range sessions {
+			if err := session.Close(); err != nil {
+				gracefulErrors = append(gracefulErrors, err)
+			}
+		}
+		for _, resource := range resources {
+			if err := resource.closeForExecutor(closeContext); err != nil {
+				gracefulErrors = append(gracefulErrors, err)
+			}
+		}
+		gracefulDone <- gracefulErrors
+	}()
+	closeErrors := make([]error, 0)
+	select {
+	case gracefulErrors := <-gracefulDone:
+		closeErrors = append(closeErrors, gracefulErrors...)
+	case <-closeContext.Done():
+		closeErrors = append(closeErrors, fmt.Errorf("close PostgreSQL managed resources: %w", closeContext.Err()))
+	}
+	poolClosed := make(chan struct{})
+	go func() {
+		executor.pool.Close()
+		close(poolClosed)
+	}()
+	select {
+	case <-poolClosed:
+	case <-time.After(postgresCloseTimeout):
+		// Reset immediately destroys idle connections and marks any connection
+		// returned after this point for destruction. Managed request resources
+		// were explicitly closed above, so reaching this branch indicates an
+		// unowned acquisition rather than a request-handle leak.
+		executor.pool.Reset()
+		closeErrors = append(closeErrors, fmt.Errorf("close PostgreSQL pool: timed out with %d acquired connections", executor.pool.Stat().AcquiredConns()))
+	}
 	if len(closeErrors) > 0 {
-		return fmt.Errorf("close PostgreSQL sessions: %w", errors.Join(closeErrors...))
+		return fmt.Errorf("close PostgreSQL executor: %w", errors.Join(closeErrors...))
 	}
 	return nil
+}
+
+func (executor *PostgresExecutor) registerResource(resource postgresExecutorResource) error {
+	if executor == nil || resource == nil {
+		return fmt.Errorf("register PostgreSQL resource: executor or resource is unavailable")
+	}
+	executor.sessionsMu.RLock()
+	defer executor.sessionsMu.RUnlock()
+	if executor.closed {
+		return fmt.Errorf("register PostgreSQL resource: %w", ErrSessionClosed)
+	}
+	executor.resourcesMu.Lock()
+	defer executor.resourcesMu.Unlock()
+	if executor.resources == nil {
+		executor.resources = make(map[postgresExecutorResource]struct{})
+	}
+	executor.resources[resource] = struct{}{}
+	return nil
+}
+
+func (executor *PostgresExecutor) unregisterResource(resource postgresExecutorResource) {
+	if executor == nil || resource == nil {
+		return
+	}
+	executor.resourcesMu.Lock()
+	delete(executor.resources, resource)
+	executor.resourcesMu.Unlock()
 }
 
 // TableHasIndex implements rules.MetadataProvider using PostgreSQL catalogs.

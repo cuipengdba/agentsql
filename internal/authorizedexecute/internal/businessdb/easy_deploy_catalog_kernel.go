@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	closedGrammarManifestHash = "catalog-closed-v1-grammar-s1s2"
+	closedGrammarManifestHash = "catalog-closed-v1-select-s3"
 	closedQueryPackHash       = "catalog-closed-v1-pg14-pg18-query-pack"
 	closedEncoderVersion      = "catalog-closed-canonical-v1"
-	closedBuiltinManifestHash = "catalog-closed-v1-no-expression-builtins"
+	closedBuiltinManifestHash = "catalog-closed-v1-exact-operator-builtins"
 	closedCacheVersion        = "agentsql.closed-cache.v1"
 )
 
@@ -65,12 +65,12 @@ func (executor *PostgresExecutor) ProbeEasyDeployBinderCapabilities(ctx context.
 	if err != nil {
 		return BinderCapabilityHandshake{}, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL easy-deploy probe", err)
 	}
-	defer connection.Release()
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
+		connection.Release()
 		return BinderCapabilityHandshake{}, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL easy-deploy probe", err)
 	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
+	defer func() { _ = cleanupPostgresPreparedConnection(executor, connection, tx, "") }()
 	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
 		return BinderCapabilityHandshake{}, err
 	}
@@ -142,7 +142,9 @@ func closedCapability(serverVersion int, databaseOID uint32) CapabilityAttestati
 		ServerMajor: serverVersion / 10000, DatabaseOID: databaseOID,
 		GrammarManifestHash: closedGrammarManifestHash, CatalogQueryPackHash: closedQueryPackHash,
 		CanonicalEncoderVersion: closedEncoderVersion, BuiltinManifestHash: closedBuiltinManifestHash,
-		Capabilities: []string{"schema_qualified_base_relation", "catalog_identity", "ordered_oid_locks", "prepare_lock_crosscheck"},
+		Capabilities: []string{"schema_qualified_base_relation", "catalog_identity", "ordered_oid_locks", "prepare_lock_crosscheck",
+			"closed_select_direct", "closed_select_self_join", "closed_select_inner_join", "closed_select_left_join",
+			"closed_select_expression", "closed_select_in_exists"},
 		Precision: []PrecisionDeclaration{{Name: "base_relation_identity", Exact: true},
 			{Name: "column_identity", Exact: true}, {Name: "implicit_object_negative_gate", Exact: true},
 			{Name: "plan_generation", Exact: false, Note: "unavailable; request-local PREPARE is never identity authority"}}}
@@ -169,12 +171,17 @@ func (executor *PostgresExecutor) DiscoverClosedCatalog(ctx context.Context, ref
 	if err != nil {
 		return ClosedCatalogCandidate{}, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL closed candidate", err)
 	}
-	defer connection.Release()
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
+		connection.Release()
 		return ClosedCatalogCandidate{}, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL closed candidate", err)
 	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
+	cleaned := false
+	defer func() {
+		if !cleaned {
+			_ = cleanupPostgresPreparedConnection(executor, connection, tx, "")
+		}
+	}()
 	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
 		return ClosedCatalogCandidate{}, err
 	}
@@ -189,14 +196,17 @@ func (executor *PostgresExecutor) DiscoverClosedCatalog(ctx context.Context, ref
 	identity.CatalogDigest = frame.Fingerprint
 	candidate := ClosedCatalogCandidate{Refs: refs, Frame: frame, Identity: identity,
 		Digest: frame.Fingerprint, Capability: closedCapability(serverVersion, frame.DatabaseOID)}
-	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-		return ClosedCatalogCandidate{}, postgresDatabaseError(ctx, DBStageRollback, "rollback PostgreSQL closed candidate", err)
+	cleanupErr := cleanupPostgresPreparedConnection(executor, connection, tx, "")
+	cleaned = true
+	if cleanupErr != nil {
+		return ClosedCatalogCandidate{}, postgresDatabaseError(ctx, DBStageRollback, "rollback PostgreSQL closed candidate", cleanupErr)
 	}
 	return candidate, nil
 }
 
 type PostgresClosedPrepared struct {
 	mu           sync.Mutex
+	executor     *PostgresExecutor
 	connection   *pgxpool.Conn
 	tx           pgx.Tx
 	name         string
@@ -222,7 +232,17 @@ func (prepared *PostgresClosedPrepared) Fpre() PostgresCatalogFrame {
 // PrepareClosedCatalog performs ordered locks, locked re-resolution, Fpre and
 // standard server PREPARE. It never calls EXPLAIN and exposes no Execute method.
 func (executor *PostgresExecutor) PrepareClosedCatalog(ctx context.Context, rawSQL string, candidate ClosedCatalogCandidate, facts SemanticFacts, budget PostgresCatalogBudget) (*PostgresClosedPrepared, error) {
-	if executor == nil || executor.pool == nil || ctx == nil || budget == nil || strings.TrimSpace(rawSQL) == "" || candidate.Digest == "" {
+	return executor.prepareClosedCatalogResolved(ctx, rawSQL, candidate, budget,
+		func(context.Context, pgx.Tx, PostgresCatalogFrame, PostgresCatalogBudget) (SemanticFacts, error) {
+			return facts, nil
+		})
+}
+
+type closedFactsResolver func(context.Context, pgx.Tx, PostgresCatalogFrame, PostgresCatalogBudget) (SemanticFacts, error)
+
+func (executor *PostgresExecutor) prepareClosedCatalogResolved(ctx context.Context, rawSQL string, candidate ClosedCatalogCandidate,
+	budget PostgresCatalogBudget, resolve closedFactsResolver) (*PostgresClosedPrepared, error) {
+	if executor == nil || executor.pool == nil || ctx == nil || budget == nil || resolve == nil || strings.TrimSpace(rawSQL) == "" || candidate.Digest == "" {
 		return nil, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
 	businessRank, err := lockrank.Acquire(ctx, lockrank.Business)
@@ -239,20 +259,15 @@ func (executor *PostgresExecutor) PrepareClosedCatalog(ctx context.Context, rawS
 	if err != nil {
 		return nil, postgresDatabaseError(ctx, DBStageAcquire, "acquire PostgreSQL closed execution", err)
 	}
-	release := true
-	defer func() {
-		if release {
-			connection.Release()
-		}
-	}()
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
+		connection.Release()
 		return nil, postgresDatabaseError(ctx, DBStageBeginTx, "begin PostgreSQL closed execution", err)
 	}
-	rollback := true
+	name := ""
 	defer func() {
-		if rollback {
-			_ = tx.Rollback(context.Background())
+		if !transferred {
+			_ = cleanupPostgresPreparedConnection(executor, connection, tx, name)
 		}
 	}()
 	if err := setPostgresCatalogTimeout(ctx, tx, executor.timeout); err != nil {
@@ -275,7 +290,11 @@ func (executor *PostgresExecutor) PrepareClosedCatalog(ctx context.Context, rawS
 	if fpre.Fingerprint != candidate.Frame.Fingerprint || !sameFrameRelationOIDs(fpre, candidate.Frame) {
 		return nil, NewCatalogFailure("AUTH_CATALOG_RACE")
 	}
-	name, err := randomPreparedName()
+	facts, err := resolve(ctx, tx, fpre, budget)
+	if err != nil {
+		return nil, err
+	}
+	name, err = randomClosedPreparedName()
 	if err != nil {
 		return nil, catalogAuthError("AUTH_DATABASE_ERROR")
 	}
@@ -287,37 +306,33 @@ func (executor *PostgresExecutor) PrepareClosedCatalog(ctx context.Context, rawS
 	}
 	actual, err := readPostgresUserLocks(ctx, tx, budget)
 	if err != nil {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, err
 	}
 	expected := frameRelationOIDs(fpre)
 	if !sameOIDSet(actual, expected) {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, binderFailure(BinderFailureCatalog, "AUTH_BIND_CLOSURE_MISMATCH")
 	}
 	identityAfter, _, err := readClosedSessionIdentity(ctx, tx, budget)
 	if err != nil {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, err
 	}
 	if !sameClosedIdentity(identity, identityAfter) {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, NewIdentityDriftFailure()
 	}
+	datasourceIdentity := facts.Identity.DatasourceIdentity
 	facts.Schema, facts.SchemaVersion = SemanticFactsSchemaID, SemanticFactsVersion
 	facts.Identity = identityAfter
+	facts.Identity.DatasourceIdentity = datasourceIdentity
 	facts.Identity.CatalogDigest = fpre.Fingerprint
 	// A closed statement is always freshly prepared for this request. Generation
 	// one is a lifecycle identity, not a claim that SQL exposes PostgreSQL's
 	// private plan invalidation counter.
 	facts.Identity.PlanGeneration = 1
 	if err := sealFactsWithFrame(&facts, fpre); err != nil {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, err
 	}
 	factsDigest, err := facts.Digest()
 	if err != nil {
-		_ = deallocatePostgresPrepared(ctx, tx, name)
 		return nil, err
 	}
 	engine := sha256.Sum256([]byte(closedEncoderVersion + "\x00" + factsDigest + "\x00" + fpre.Fingerprint))
@@ -326,9 +341,21 @@ func (executor *PostgresExecutor) PrepareClosedCatalog(ctx context.Context, rawS
 		LockExpectation: makeLockExpectations(expected), CatalogRoots: expected, ExecutionHandle: name}
 	preseal := PreSeal{Program: program, CatalogPreDigest: fpre.Fingerprint,
 		ActualLockDigest: digestOIDs(actual), IdentityDigest: digestSemanticIdentity(identityAfter)}
-	release, rollback, transferred = false, false, true
-	return &PostgresClosedPrepared{connection: connection, tx: tx, name: name, refs: append([]ClosedRelationRef(nil), candidate.Refs...),
-		fpre: fpre, preseal: preseal, businessRank: businessRank}, nil
+	prepared := &PostgresClosedPrepared{executor: executor, connection: connection, tx: tx, name: name,
+		refs: append([]ClosedRelationRef(nil), candidate.Refs...), fpre: fpre, preseal: preseal, businessRank: businessRank}
+	if err := executor.registerResource(prepared); err != nil {
+		return nil, err
+	}
+	transferred = true
+	return prepared, nil
+}
+
+func randomClosedPreparedName() (string, error) {
+	name, err := randomPreparedName()
+	if err != nil {
+		return "", err
+	}
+	return "asqlclosed_" + strings.TrimPrefix(name, "agentsql_"), nil
 }
 
 func (prepared *PostgresClosedPrepared) VerifyPost(ctx context.Context, budget PostgresCatalogBudget) (BinderProof, error) {
@@ -362,6 +389,9 @@ func (prepared *PostgresClosedPrepared) Close(ctx context.Context) error {
 		return nil
 	}
 	prepared.closed = true
+	if prepared.executor != nil {
+		defer prepared.executor.unregisterResource(prepared)
+	}
 	if prepared.businessRank != nil {
 		defer prepared.businessRank.Release()
 		prepared.businessRank = nil
@@ -369,15 +399,14 @@ func (prepared *PostgresClosedPrepared) Close(ctx context.Context) error {
 	if prepared.tx == nil || prepared.connection == nil {
 		return nil
 	}
-	_ = deallocatePostgresPrepared(ctx, prepared.tx, prepared.name)
-	err := prepared.tx.Rollback(ctx)
+	err := cleanupPostgresPreparedConnection(prepared.executor, prepared.connection, prepared.tx, prepared.name)
 	prepared.tx = nil
-	prepared.connection.Release()
 	prepared.connection = nil
-	if errors.Is(err, pgx.ErrTxClosed) {
-		return nil
-	}
 	return err
+}
+
+func (prepared *PostgresClosedPrepared) closeForExecutor(context.Context) error {
+	return prepared.Close(context.Background())
 }
 
 func scanClosedCatalog(ctx context.Context, tx pgx.Tx, refs []ClosedRelationRef, budget PostgresCatalogBudget) (PostgresCatalogFrame, error) {

@@ -56,12 +56,21 @@ func NativeSelectSemanticFacts(datasourceID string, session SemanticIdentity, ma
 		}
 		bound := boundByOID[use.RelationOID]
 		outputIndex := -1
-		if use.Usage == string(SemanticUsageOutput) && use.ContributorGroup > 0 && use.ContributorGroup <= outputCount {
+		usage := SemanticUsage(use.Usage)
+		site := use.Site
+		if usage == SemanticUsageOutput && use.QueryDepth > 0 {
+			// A nested SELECT target contributes to the outer predicate, not to
+			// the client-visible result. Normalize the native walker into the
+			// common B2 reference semantics used by the closed resolver.
+			usage = SemanticUsageReference
+			site = "subquery"
+		}
+		if usage == SemanticUsageOutput && use.ContributorGroup > 0 && use.ContributorGroup <= outputCount {
 			outputIndex = use.ContributorGroup - 1
 		}
 		semantic := SemanticColumnUse{RelationOID: use.RelationOID, Attnum: use.Attnum, Name: column.Name,
 			TypeOID: column.TypeOID, TypeModifier: column.Typmod, CollationOID: column.Collation,
-			Usage: SemanticUsage(use.Usage), Site: use.Site, OutputIndex: outputIndex,
+			Usage: usage, Site: site, OutputIndex: outputIndex,
 			BindingAlias: bound.Path, ViewPath: nativeViewPath(bound), WholeRow: use.WholeRow,
 			SystemColumn: use.Attnum < 0}
 		facts.ColumnUses = append(facts.ColumnUses, semantic)
