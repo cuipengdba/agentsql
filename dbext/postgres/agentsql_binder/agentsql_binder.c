@@ -31,6 +31,7 @@
 PG_MODULE_MAGIC;
 
 #define AGENTSQL_ABI "agentsql-binder-4.1"
+#define AGENTSQL_DML_ABI "agentsql-binder-dml-1"
 #define AGENTSQL_EXT_VERSION "0.4-s3"
 #define AGENTSQL_MAX_DEPTH 64
 
@@ -84,6 +85,10 @@ typedef struct BinderRecord
 	bool invalidated;
 	bool sealed;
 	char *command_type;
+	bool dml;
+	Oid target_relation_oid;
+	char *dml_shape;
+	bool has_returning;
 	bool has_recursive;
 	bool has_modifying_cte;
 	int node_count;
@@ -125,8 +130,10 @@ void _PG_fini(void);
 
 PG_FUNCTION_INFO_V1(agentsql_binder_capabilities);
 PG_FUNCTION_INFO_V1(agentsql_binder_prepare);
+PG_FUNCTION_INFO_V1(agentsql_binder_dml_prepare);
 PG_FUNCTION_INFO_V1(agentsql_binder_seal);
 PG_FUNCTION_INFO_V1(agentsql_binder_manifest);
+PG_FUNCTION_INFO_V1(agentsql_binder_dml_manifest);
 PG_FUNCTION_INFO_V1(agentsql_binder_relations);
 PG_FUNCTION_INFO_V1(agentsql_binder_vars);
 PG_FUNCTION_INFO_V1(agentsql_binder_objects);
@@ -169,6 +176,8 @@ static void ensure_relation_capacity(BinderRecord *record);
 static void ensure_var_capacity(BinderRecord *record);
 static void ensure_object_capacity(BinderRecord *record);
 static Datum tuple_result(FunctionCallInfo fcinfo, Datum *values, bool *nulls);
+static Datum binder_prepare_common(FunctionCallInfo fcinfo, bool dml);
+static bool record_has_write_target(BinderRecord *record, Oid relation_oid, AttrNumber attnum);
 
 void
 _PG_init(void)
@@ -405,11 +414,26 @@ preflight_walker(Node *node, void *context)
 Datum
 agentsql_binder_prepare(PG_FUNCTION_ARGS)
 {
+	return binder_prepare_common(fcinfo, false);
+}
+
+Datum
+agentsql_binder_dml_prepare(PG_FUNCTION_ARGS)
+{
+	return binder_prepare_common(fcinfo, true);
+}
+
+static Datum
+binder_prepare_common(FunctionCallInfo fcinfo, bool dml)
+{
 	char *name = text_to_cstring(PG_GETARG_TEXT_PP(0));
 	char *sql = text_to_cstring(PG_GETARG_TEXT_PP(1));
 	List *raw;
 	RawStmt *statement;
-	SelectStmt *select;
+	SelectStmt *select = NULL;
+	const char *command_type = NULL;
+	const char *dml_shape = "SIMPLE";
+	bool has_returning = false;
 	StringInfoData command;
 	PreparedStatement *prepared;
 	BinderRecord *record;
@@ -425,13 +449,64 @@ agentsql_binder_prepare(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errcode(ERRCODE_DUPLICATE_PSTATEMENT), errmsg("AgentSQL statement already exists")));
 	raw = raw_parser(sql, RAW_PARSE_DEFAULT);
 	if (list_length(raw) != 1)
-		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("AgentSQL requires one SELECT")));
+		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("AgentSQL requires one statement")));
 	statement = linitial_node(RawStmt, raw);
-	if (!IsA(statement->stmt, SelectStmt))
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL supports SELECT only")));
-	select = (SelectStmt *) statement->stmt;
-	if (select->intoClause != NULL || select->lockingClause != NIL || select->withClause != NULL)
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL SELECT shape is unsupported")));
+	if (!dml)
+	{
+		if (!IsA(statement->stmt, SelectStmt))
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL supports SELECT only")));
+		select = (SelectStmt *) statement->stmt;
+		if (select->intoClause != NULL || select->lockingClause != NIL || select->withClause != NULL)
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL SELECT shape is unsupported")));
+		command_type = "SELECT";
+	}
+	else if (IsA(statement->stmt, InsertStmt))
+	{
+		InsertStmt *insert = (InsertStmt *) statement->stmt;
+		command_type = "INSERT";
+#if PG_VERSION_NUM >= 180000
+		has_returning = insert->returningClause != NULL;
+#else
+		has_returning = insert->returningList != NIL;
+#endif
+		if (insert->withClause != NULL)
+			dml_shape = "CTE";
+		else if (insert->onConflictClause != NULL)
+			dml_shape = "UPSERT";
+		else if (insert->selectStmt != NULL &&
+			(!IsA(insert->selectStmt, SelectStmt) || ((SelectStmt *) insert->selectStmt)->valuesLists == NIL))
+			dml_shape = "INSERT_SELECT";
+	}
+	else if (IsA(statement->stmt, UpdateStmt))
+	{
+		UpdateStmt *update = (UpdateStmt *) statement->stmt;
+		command_type = "UPDATE";
+#if PG_VERSION_NUM >= 180000
+		has_returning = update->returningClause != NULL;
+#else
+		has_returning = update->returningList != NIL;
+#endif
+		if (update->withClause != NULL)
+			dml_shape = "CTE";
+		else if (update->fromClause != NIL)
+			dml_shape = "UPDATE_FROM";
+	}
+	else if (IsA(statement->stmt, DeleteStmt))
+	{
+		DeleteStmt *delete_stmt = (DeleteStmt *) statement->stmt;
+		command_type = "DELETE";
+#if PG_VERSION_NUM >= 180000
+		has_returning = delete_stmt->returningClause != NULL;
+#else
+		has_returning = delete_stmt->returningList != NIL;
+#endif
+		if (delete_stmt->withClause != NULL)
+			dml_shape = "CTE";
+		else if (delete_stmt->usingClause != NIL)
+			dml_shape = "DELETE_USING";
+	}
+	else
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL DML binder supports INSERT, UPDATE, or DELETE only")));
 	(void) preflight_walker(statement->stmt, NULL);
 
 	initStringInfo(&command);
@@ -476,7 +551,10 @@ agentsql_binder_prepare(PG_FUNCTION_ARGS)
 	record->search_path = pstrdup(GetConfigOption("search_path", false, false));
 	xid = GetTopTransactionIdIfAny();
 	record->transaction_id = psprintf("%u:%d", xid, GetCurrentTransactionNestLevel());
-	record->command_type = pstrdup("SELECT");
+	record->command_type = pstrdup(command_type);
+	record->dml = dml;
+	record->dml_shape = pstrdup(dml_shape);
+	record->has_returning = has_returning;
 	record->plansource = prepared->plansource;
 	record->next = records;
 	records = record;
@@ -495,10 +573,17 @@ agentsql_binder_prepare(PG_FUNCTION_ARGS)
 		foreach(cell, prepared->plansource->query_list)
 		{
 			Query *query = lfirst_node(Query, cell);
-			if (query->commandType != CMD_SELECT)
-				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL rewrite produced non-SELECT")));
+			if ((!dml && query->commandType != CMD_SELECT) ||
+				(dml && query->commandType != CMD_INSERT && query->commandType != CMD_UPDATE && query->commandType != CMD_DELETE))
+				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL rewrite changed the statement class")));
+			if (dml && ((query->commandType == CMD_INSERT && strcmp(command_type, "INSERT") != 0) ||
+				(query->commandType == CMD_UPDATE && strcmp(command_type, "UPDATE") != 0) ||
+				(query->commandType == CMD_DELETE && strcmp(command_type, "DELETE") != 0)))
+				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL rewrite changed the DML action")));
 			scan_query(&context, query, 0, "query");
 		}
+		if (dml && (!OidIsValid(record->target_relation_oid) || list_length(prepared->plansource->query_list) != 1))
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL DML target is not singular")));
 		if (context.unsupported)
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("AgentSQL analyzed node is unsupported")));
 	}
@@ -543,6 +628,10 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 	context->record->work_units++;
 	context->record->has_recursive |= query->hasRecursive;
 	context->record->has_modifying_cte |= query->hasModifyingCTE;
+	if (context->record->dml && query->hasModifyingCTE)
+		context->record->dml_shape = MemoryContextStrdup(context->record->memory_context, "WRITABLE_CTE");
+	else if (context->record->dml && query->hasSubLinks && strcmp(context->record->dml_shape, "SIMPLE") == 0)
+		context->record->dml_shape = MemoryContextStrdup(context->record->memory_context, "DML_SUBQUERY");
 
 	foreach(cell, query->rtable)
 	{
@@ -567,6 +656,12 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 			char kind = get_rel_relkind(rte->relid);
 			add_relation(context, rte->relid, kind, rte->inh, required, check_as_user,
 						 view_depth, psprintf("%s.rte%d", path, rti));
+			if (context->record->dml && query->resultRelation == rti)
+			{
+				if (OidIsValid(context->record->target_relation_oid) && context->record->target_relation_oid != rte->relid)
+					context->unsupported = true;
+				context->record->target_relation_oid = rte->relid;
+			}
 		}
 		else if (rte->rtekind == RTE_SUBQUERY)
 		{
@@ -599,14 +694,83 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 	{
 		TargetEntry *entry = lfirst_node(TargetEntry, cell);
 		if (entry->resjunk)
+		{
+			if (context->record->dml)
+				walk_expression(context, query, (Node *) entry->expr, "internal_read", "reference", ++context->record->edge_count);
 			continue;
+		}
 		output++;
-		if (is_composite_type(exprType((Node *) entry->expr)))
+		if (context->record->dml)
+		{
+			Oid target = context->record->target_relation_oid;
+			Oid type_oid = InvalidOid;
+			Oid collation_oid = InvalidOid;
+			int32 type_modifier = -1;
+			const char *saved_site = context->site;
+			const char *saved_usage = context->usage;
+			int saved_group = context->contributor_group;
+			if (OidIsValid(target) && entry->resno > 0)
+				get_atttypetypmodcoll(target, entry->resno, &type_oid, &type_modifier, &collation_oid);
+			context->site = IsA(entry->expr, SetToDefault) ? "write.explicit_default" : "write.explicit";
+			context->usage = "write_target";
+			context->contributor_group = ++context->record->edge_count;
+			add_var(context, target, entry->resno, type_oid, collation_oid,
+				OidIsValid(target) && entry->resno > 0 && OidIsValid(type_oid), false, type_oid, false);
+			context->site = saved_site;
+			context->usage = saved_usage;
+			context->contributor_group = saved_group;
+			walk_expression(context, query, (Node *) entry->expr,
+				psprintf("assignment.%d", output), "reference", ++context->record->edge_count);
+		}
+		else if (is_composite_type(exprType((Node *) entry->expr)))
 			add_var(context, InvalidOid, InvalidAttrNumber,
 				exprType((Node *) entry->expr), exprCollation((Node *) entry->expr),
 				false, false, exprType((Node *) entry->expr), true);
-		walk_expression(context, query, (Node *) entry->expr,
-						psprintf("target.%d", output), "output", output);
+		if (!context->record->dml)
+			walk_expression(context, query, (Node *) entry->expr,
+							psprintf("target.%d", output), "output", output);
+	}
+	if (context->record->dml && query->commandType == CMD_INSERT && OidIsValid(context->record->target_relation_oid))
+	{
+		Relation relation = relation_open(context->record->target_relation_oid, NoLock);
+		TupleDesc descriptor = RelationGetDescr(relation);
+		int i;
+		for (i = 0; i < descriptor->natts; i++)
+		{
+			Form_pg_attribute attribute = TupleDescAttr(descriptor, i);
+			const char *saved_site;
+			const char *saved_usage;
+			int saved_group;
+			if (attribute->attisdropped || record_has_write_target(context->record, context->record->target_relation_oid, attribute->attnum))
+				continue;
+			saved_site = context->site;
+			saved_usage = context->usage;
+			saved_group = context->contributor_group;
+			context->site = "write.implicit_null";
+			context->usage = "write_target";
+			context->contributor_group = ++context->record->edge_count;
+			add_var(context, context->record->target_relation_oid, attribute->attnum,
+				attribute->atttypid, attribute->attcollation, true, false, attribute->atttypid, false);
+			context->site = saved_site;
+			context->usage = saved_usage;
+			context->contributor_group = saved_group;
+		}
+		relation_close(relation, NoLock);
+	}
+	if (context->record->dml)
+	{
+		foreach(cell, query->returningList)
+		{
+			TargetEntry *entry = lfirst_node(TargetEntry, cell);
+			walk_expression(context, query, (Node *) entry->expr, "returning", "reference", ++context->record->edge_count);
+		}
+		if (query->onConflict != NULL)
+		{
+			walk_expression(context, query, (Node *) query->onConflict->arbiterElems, "conflict_check", "reference", ++context->record->edge_count);
+			walk_expression(context, query, query->onConflict->arbiterWhere, "conflict_check", "reference", ++context->record->edge_count);
+			walk_expression(context, query, (Node *) query->onConflict->onConflictSet, "conflict_update", "reference", ++context->record->edge_count);
+			walk_expression(context, query, query->onConflict->onConflictWhere, "conflict_update", "reference", ++context->record->edge_count);
+		}
 	}
 	if (query->jointree != NULL)
 		walk_expression(context, query, (Node *) query->jointree, "join_where", "reference", ++context->record->edge_count);
@@ -641,6 +805,17 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 
 	context->stack_depth = saved_depth;
 	context->view_depth = saved_view_depth;
+}
+
+static bool
+record_has_write_target(BinderRecord *record, Oid relation_oid, AttrNumber attnum)
+{
+	int i;
+	for (i = 0; i < record->var_count; i++)
+		if (record->vars[i].relation_oid == relation_oid && record->vars[i].attnum == attnum &&
+			strcmp(record->vars[i].usage, "write_target") == 0)
+			return true;
+	return false;
 }
 
 static void
@@ -1136,6 +1311,16 @@ agentsql_binder_manifest(PG_FUNCTION_ARGS)
 	if (SRF_IS_FIRSTCALL()) { MemoryContext old; char *name=text_to_cstring(PG_GETARG_TEXT_PP(0)); funcctx=SRF_FIRSTCALL_INIT(); old=MemoryContextSwitchTo(funcctx->multi_call_memory_ctx); record=find_record(name,false); validate_record(record,false); funcctx->user_fctx=record; funcctx->max_calls=1; MemoryContextSwitchTo(old); }
 	funcctx=SRF_PERCALL_SETUP(); record=funcctx->user_fctx;
 	if (funcctx->call_cntr<1) { Datum values[17]; bool nulls[17]={false}; values[0]=CStringGetTextDatum(record->name); values[1]=Int32GetDatum(record->backend_pid); values[2]=CStringGetTextDatum(record->transaction_id); values[3]=ObjectIdGetDatum(record->role_oid); values[4]=CStringGetTextDatum(record->role_name); values[5]=CStringGetTextDatum(record->search_path); values[6]=CStringGetTextDatum(record->analyzed_digest); values[7]=CStringGetTextDatum(record->dependency_digest); values[8]=Int64GetDatum((int64)record->plan_generation); values[9]=Int64GetDatum((int64)record->replan_count); values[10]=BoolGetDatum(record->invalidated); values[11]=CStringGetTextDatum(record->command_type); values[12]=BoolGetDatum(record->has_recursive); values[13]=BoolGetDatum(record->has_modifying_cte); values[14]=Int32GetDatum(record->node_count); values[15]=Int32GetDatum(record->edge_count); values[16]=Int32GetDatum(record->work_units); SRF_RETURN_NEXT(funcctx,tuple_result(fcinfo,values,nulls)); }
+	SRF_RETURN_DONE(funcctx);
+}
+
+Datum
+agentsql_binder_dml_manifest(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx; BinderRecord *record;
+	if (SRF_IS_FIRSTCALL()) { MemoryContext old; char *name=text_to_cstring(PG_GETARG_TEXT_PP(0)); funcctx=SRF_FIRSTCALL_INIT(); old=MemoryContextSwitchTo(funcctx->multi_call_memory_ctx); record=find_record(name,false); validate_record(record,false); if (!record->dml) ereport(ERROR,(errcode(ERRCODE_WRONG_OBJECT_TYPE),errmsg("AgentSQL statement is not DML"))); funcctx->user_fctx=record; funcctx->max_calls=1; MemoryContextSwitchTo(old); }
+	funcctx=SRF_PERCALL_SETUP(); record=funcctx->user_fctx;
+	if (funcctx->call_cntr<1) { Datum values[20]; bool nulls[20]={false}; values[0]=CStringGetTextDatum(record->name); values[1]=Int32GetDatum(record->backend_pid); values[2]=CStringGetTextDatum(record->transaction_id); values[3]=ObjectIdGetDatum(record->role_oid); values[4]=CStringGetTextDatum(record->role_name); values[5]=CStringGetTextDatum(record->search_path); values[6]=CStringGetTextDatum(record->analyzed_digest); values[7]=CStringGetTextDatum(record->dependency_digest); values[8]=Int64GetDatum((int64)record->plan_generation); values[9]=Int64GetDatum((int64)record->replan_count); values[10]=BoolGetDatum(record->invalidated); values[11]=CStringGetTextDatum(record->command_type); values[12]=BoolGetDatum(record->has_recursive); values[13]=BoolGetDatum(record->has_modifying_cte); values[14]=Int32GetDatum(record->node_count); values[15]=Int32GetDatum(record->edge_count); values[16]=Int32GetDatum(record->work_units); values[17]=ObjectIdGetDatum(record->target_relation_oid); values[18]=CStringGetTextDatum(record->dml_shape); values[19]=BoolGetDatum(record->has_returning); SRF_RETURN_NEXT(funcctx,tuple_result(fcinfo,values,nulls)); }
 	SRF_RETURN_DONE(funcctx);
 }
 

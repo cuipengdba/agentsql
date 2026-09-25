@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
+func TestFeatureOffPackageHasOnlyS5bBinderReference(t *testing.T) {
 	t.Parallel()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -18,6 +18,7 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 	packageDir := filepath.Dir(currentFile)
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
 	importPath := "github.com/cuipengdba/agentsql/internal/b5dml"
+	allowed := filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go"))
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -36,7 +37,7 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(contents), importPath) {
+		if strings.Contains(string(contents), importPath) && filepath.Clean(path) != allowed {
 			references = append(references, path)
 		}
 		return nil
@@ -45,6 +46,6 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(references) != 0 {
-		t.Fatalf("feature-off package imported by production files: %v", references)
+		t.Fatalf("feature-off package imported outside the isolated S5b binder: %v", references)
 	}
 }

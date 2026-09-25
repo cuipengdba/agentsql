@@ -1,8 +1,10 @@
 # B5 S5a DML/begin contract (feature off)
 
-This package is an isolated contract implementation. It has no driver adapter,
-production caller, migration, or feature flag. `agentsql-binder-dml-1` and the
-PostgreSQL 14–18 attestations are inputs, not claims that S5b exists.
+This package is an isolated contract implementation. The feature-off S5b
+adapter in `internal/authorizedexecute/internal/businessdb/postgres_dml_binder.go`
+is its only non-test consumer. There is still no production caller, migration,
+or feature flag. `agentsql-binder-dml-1` and the PostgreSQL 14–18 attestations
+remain mandatory authorization inputs.
 
 ## Grant schema and lattice
 
@@ -64,4 +66,3 @@ confirmed backend absence is discarded; otherwise the resource is quarantined
 as `DISCARD_UNCONFIRMED`. Once native BEGIN is proven, cleanup acquires the S4a
 generation-bound terminal owner and requests exactly one typed rollback. Every
 failure result remains `consumed_begin_failed`.
-

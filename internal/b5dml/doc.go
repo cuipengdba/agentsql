@@ -12,7 +12,7 @@ import "github.com/cuipengdba/agentsql/internal/b5"
 
 const (
 	// BinderABI is the reviewed name reserved for the future PostgreSQL DML
-	// binder. S5a does not claim that the adapter exists.
+	// binder implemented by the isolated, feature-off S5b businessdb adapter.
 	BinderABI = "agentsql-binder-dml-1"
 
 	// AuthorizationContractSchema identifies this non-persisted S5a canonical

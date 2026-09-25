@@ -29,6 +29,7 @@ type PostgresBinderCapability struct {
 	ABI              string               `json:"abi"`
 	ServerMajor      int                  `json:"server_major"`
 	ExtensionVersion string               `json:"extension_version"`
+	BuildHash        string               `json:"build_hash,omitempty"`
 	ExtensionHash    string               `json:"extension_hash"`
 	NodeManifestHash string               `json:"node_manifest_hash"`
 	AllowlistHash    string               `json:"allowlist_hash"`
