@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1.7
+ARG PG_MAJOR=16
+ARG PACKAGE_VERSION=0.4.0
+ARG PACKAGE_RELEASE=1
+ARG SOURCE_REVISION=unknown
+ARG ALPINE_VERSION=3.21
+
+FROM postgres:${PG_MAJOR}-bookworm AS deb-build
+ARG PG_MAJOR PACKAGE_VERSION PACKAGE_RELEASE SOURCE_REVISION TARGETARCH
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential ca-certificates postgresql-server-dev-${PG_MAJOR} && rm -rf /var/lib/apt/lists/*
+COPY dbext/postgres/agentsql_binder /src
+COPY dbext/packaging/scripts /packaging
+RUN make -C /src with_llvm=no clean && make -C /src with_llvm=no all && make -C /src with_llvm=no DESTDIR=/pkg install && \
+    libdir="$(pg_config --pkglibdir)" && mv "/pkg${libdir}/agentsql_binder.so" "/pkg${libdir}/agentsql_binder-0.4.so" && \
+    ln -s agentsql_binder-0.4.so "/pkg${libdir}/agentsql_binder.so" && \
+    arch="$(dpkg --print-architecture)" && package="agentsql-binder-pg${PG_MAJOR}" && \
+    mkdir -p /pkg/DEBIAN /out && \
+    printf 'Package: %s\nVersion: %s-%s\nArchitecture: %s\nMaintainer: AgentSQL Release Engineering <release@agentsql.invalid>\nDepends: postgresql-%s (>= %s), postgresql-%s (<< %s.999)\nSection: database\nPriority: optional\nDescription: AgentSQL optional analyzed-tree binder for PostgreSQL %s\n' \
+      "$package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" "$arch" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" > /pkg/DEBIAN/control && \
+    chmod 0755 /pkg/DEBIAN && find /pkg -type f -exec chmod 0644 {} + && chmod 0755 /pkg/DEBIAN && \
+    artifact="/out/${package}_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_${arch}.deb" && dpkg-deb --root-owner-group --build /pkg "$artifact" && \
+    cc_version="$(gcc -dumpfullversion)" && make_version="$(make --version | head -1 | awk '{print $3}')" && \
+    pgdev_version="$(dpkg-query -W -f='${Version}' postgresql-server-dev-${PG_MAJOR})" && libc_version="$(dpkg-query -W -f='${Version}' libc6-dev)" && \
+    sh /packaging/write-sbom.sh "${artifact}.cdx.json" "$artifact" "$package" "$PACKAGE_VERSION" "$PG_MAJOR" "$arch" deb "$SOURCE_REVISION" \
+      "gcc|$cc_version|build" "make|$make_version|build" "postgresql-server-dev-${PG_MAJOR}|$pgdev_version|build" "libc6-dev|$libc_version|build" "postgresql-${PG_MAJOR}|$PG_MAJOR|runtime" && \
+    sh /packaging/write-provenance.sh "${artifact}.provenance.json" "$artifact" "$PG_MAJOR" "$arch" deb "$SOURCE_REVISION" "postgres:${PG_MAJOR}-bookworm"
+
+FROM scratch AS package-deb
+COPY --from=deb-build /out/ /
+
+FROM rockylinux:9 AS rpm-toolchain
+ARG TARGETARCH
+RUN set -eux; case "$TARGETARCH" in amd64) repo_arch=x86_64;; arm64) repo_arch=aarch64;; *) exit 64;; esac; \
+    dnf install -y dnf-plugins-core; dnf config-manager --set-enabled crb; \
+    dnf install -y "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-${repo_arch}/pgdg-redhat-repo-latest.noarch.rpm"; \
+    dnf config-manager --set-disabled 'pgdg*'; dnf -qy module disable postgresql; \
+    dnf install -y gcc make rpm-build
+
+FROM rpm-toolchain AS rpm-build
+ARG PG_MAJOR PACKAGE_VERSION PACKAGE_RELEASE SOURCE_REVISION TARGETARCH
+RUN set -eux; dnf config-manager --set-enabled pgdg-common "pgdg${PG_MAJOR}"; \
+    dnf install -y "postgresql${PG_MAJOR}-devel"; dnf clean all
+COPY dbext/postgres/agentsql_binder /src
+COPY dbext/packaging/scripts /packaging
+RUN set -eux; export PATH="/usr/pgsql-${PG_MAJOR}/bin:$PATH"; make -C /src with_llvm=no clean; make -C /src with_llvm=no all; make -C /src with_llvm=no DESTDIR=/pkg install; \
+    libdir="$(pg_config --pkglibdir)"; mv "/pkg${libdir}/agentsql_binder.so" "/pkg${libdir}/agentsql_binder-0.4.so"; ln -s agentsql_binder-0.4.so "/pkg${libdir}/agentsql_binder.so"; \
+    mkdir -p /rpmbuild/SPECS /rpmbuild/SOURCES /out; cp -a /pkg/. /rpmbuild/SOURCES/root/; \
+    printf 'Name: agentsql-binder-pg%s\nVersion: %s\nRelease: %s%%{?dist}\nSummary: AgentSQL optional analyzed-tree binder for PostgreSQL %s\nLicense: Apache-2.0\nRequires: postgresql%s-server >= %s\nBuildArch: %s\nSource0: root\n%%description\nAgentSQL optional native binder built for the PostgreSQL %s server ABI.\n%%install\nmkdir -p %%{buildroot}\ncp -a %%{_sourcedir}/root/. %%{buildroot}/\n%%files\n/usr/pgsql-%s/lib/agentsql_binder.so\n/usr/pgsql-%s/lib/agentsql_binder-0.4.so\n/usr/pgsql-%s/share/extension/agentsql_binder.control\n/usr/pgsql-%s/share/extension/agentsql_binder--0.4.sql\n' \
+      "$PG_MAJOR" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$(rpm --eval '%{_arch}')" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" > /rpmbuild/SPECS/agentsql-binder.spec; \
+    rpmbuild -bb --define '_topdir /rpmbuild' /rpmbuild/SPECS/agentsql-binder.spec; artifact_src="$(find /rpmbuild/RPMS -name '*.rpm' -type f | head -1)"; cp "$artifact_src" /out/; artifact="/out/$(basename "$artifact_src")"; \
+    arch="$(rpm --eval '%{_arch}')"; cc_version="$(gcc -dumpfullversion)"; make_version="$(make --version | head -1 | awk '{print $3}')"; pgdev_version="$(rpm -q --qf '%{VERSION}-%{RELEASE}' postgresql${PG_MAJOR}-devel)"; libc_version="$(rpm -q --qf '%{VERSION}-%{RELEASE}' glibc-devel)"; \
+    sh /packaging/write-sbom.sh "${artifact}.cdx.json" "$artifact" "agentsql-binder-pg${PG_MAJOR}" "$PACKAGE_VERSION" "$PG_MAJOR" "$arch" rpm "$SOURCE_REVISION" \
+      "gcc|$cc_version|build" "make|$make_version|build" "postgresql${PG_MAJOR}-devel|$pgdev_version|build" "glibc-devel|$libc_version|build" "postgresql${PG_MAJOR}-server|$PG_MAJOR|runtime"; \
+    sh /packaging/write-provenance.sh "${artifact}.provenance.json" "$artifact" "$PG_MAJOR" "$arch" rpm "$SOURCE_REVISION" "rockylinux:9"
+
+FROM scratch AS package-rpm
+COPY --from=rpm-build /out/ /
+
+FROM alpine:${ALPINE_VERSION} AS apk-build
+ARG PG_MAJOR PACKAGE_VERSION PACKAGE_RELEASE SOURCE_REVISION TARGETARCH ALPINE_VERSION
+RUN apk add --no-cache alpine-sdk build-base "postgresql${PG_MAJOR}-dev" "postgresql${PG_MAJOR}" su-exec
+COPY dbext/postgres/agentsql_binder /src
+COPY dbext/packaging/scripts /packaging
+RUN set -eux; adduser -D builder; addgroup builder abuild; mkdir -p /home/builder/package/source/agentsql_binder-src /out; cp -a /src/. /home/builder/package/source/agentsql_binder-src/; \
+    tar -C /home/builder/package/source -czf /home/builder/package/agentsql_binder-src.tar.gz agentsql_binder-src; rm -rf /home/builder/package/source; chown -R builder:builder /home/builder /out; \
+    printf '# Maintainer: AgentSQL Release Engineering <release@agentsql.invalid>\npkgname=agentsql-binder-pg%s\npkgver=%s\npkgrel=%s\npkgdesc="AgentSQL optional analyzed-tree binder for PostgreSQL %s"\nurl="https://agentsql.invalid"\narch="x86_64 aarch64"\nlicense="Apache-2.0"\ndepends="postgresql%s~%s"\nmakedepends="postgresql%s-dev build-base"\noptions="!check"\nsource="agentsql_binder-src.tar.gz"\nbuilddir="$srcdir/agentsql_binder-src"\nbuild() { make -C "$builddir" with_llvm=no clean; make -C "$builddir" with_llvm=no all; }\npackage() { make -C "$builddir" with_llvm=no DESTDIR="$pkgdir" install; libdir="$(pg_config --pkglibdir)"; mv "$pkgdir$libdir/agentsql_binder.so" "$pkgdir$libdir/agentsql_binder-0.4.so"; ln -s agentsql_binder-0.4.so "$pkgdir$libdir/agentsql_binder.so"; }\n' \
+      "$PG_MAJOR" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" > /home/builder/package/APKBUILD; \
+    chown builder:builder /home/builder/package/APKBUILD; su-exec builder abuild-keygen -a -n; cp /home/builder/.abuild/*.rsa.pub /etc/apk/keys/; \
+    su-exec builder sh -c 'cd /home/builder/package && abuild checksum && abuild -F -r'; \
+    artifact_src="$(find /home/builder/packages -name 'agentsql-binder-*.apk' -type f | head -1)"; cp "$artifact_src" /out/; artifact="/out/$(basename "$artifact_src")"; \
+    arch="$(apk --print-arch)"; cc_version="$(gcc -dumpfullversion)"; make_version="$(make --version | head -1 | awk '{print $3}')"; \
+    pgdev_version="$(apk list --installed "postgresql${PG_MAJOR}-dev" 2>/dev/null | awk '{print $1}' | sed "s/^postgresql${PG_MAJOR}-dev-//")"; \
+    musl_version="$(apk list --installed musl-dev 2>/dev/null | awk '{print $1}' | sed 's/^musl-dev-//')"; \
+    sh /packaging/write-sbom.sh "${artifact}.cdx.json" "$artifact" "agentsql-binder-pg${PG_MAJOR}" "$PACKAGE_VERSION" "$PG_MAJOR" "$arch" apk "$SOURCE_REVISION" \
+      "gcc|$cc_version|build" "make|$make_version|build" "postgresql${PG_MAJOR}-dev|$pgdev_version|build" "musl-dev|$musl_version|build" "postgresql${PG_MAJOR}|$PG_MAJOR|runtime"; \
+    sh /packaging/write-provenance.sh "${artifact}.provenance.json" "$artifact" "$PG_MAJOR" "$arch" apk "$SOURCE_REVISION" "alpine:${ALPINE_VERSION}"
+
+FROM scratch AS package-apk
+COPY --from=apk-build /out/ /

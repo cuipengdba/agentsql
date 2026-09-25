@@ -38,12 +38,36 @@ func TestEasyDeployNativeCapabilityProbePG16(t *testing.T) {
 	port, err := container.MappedPort(ctx, "5432/tcp")
 	require.NoError(t, err)
 	super := newEasyDeployTestExecutor(t, ctx, "native-probe-super", host, port.Int(), "agentsql", "agentsql-password")
-	for _, statement := range []string{`CREATE SCHEMA agentsql_catalog`, `CREATE EXTENSION agentsql_binder WITH SCHEMA agentsql_catalog`, `CREATE ROLE probe_regular LOGIN PASSWORD 'regular-password' NOSUPERUSER NOCREATEDB NOCREATEROLE`, `GRANT USAGE ON SCHEMA agentsql_catalog TO probe_regular`, `GRANT EXECUTE ON FUNCTION agentsql_catalog.capabilities() TO probe_regular`} {
+	for _, statement := range []string{`CREATE ROLE probe_regular LOGIN PASSWORD 'regular-password' NOSUPERUSER NOCREATEDB NOCREATEROLE`} {
 		_, err = super.Execute(ctx, statement)
 		require.NoError(t, err, statement)
 	}
+	var audit []BinderCapabilityAuditRecord
+	handshake, err := super.BootstrapEasyDeployBinder(ctx, EasyDeployBinderBootstrapOptions{CreateIfAvailable: true, RuntimeRole: "probe_regular",
+		Audit: BinderCapabilityAuditFunc(func(_ context.Context, record BinderCapabilityAuditRecord) error {
+			audit = append(audit, record)
+			return nil
+		})}, &unlimitedPostgresBudget{})
+	require.NoError(t, err)
+	require.Equal(t, BinderModeNativeCV1, handshake.SelectedMode)
+	require.GreaterOrEqual(t, len(audit), 4)
+	require.Equal(t, "bootstrap_inventory", audit[0].Stage)
+	require.Equal(t, "create", audit[1].Stage)
+	require.Equal(t, "created", audit[1].Outcome)
+	audit = nil
+	handshake, err = super.BootstrapEasyDeployBinder(ctx, EasyDeployBinderBootstrapOptions{CreateIfAvailable: true, RuntimeRole: "probe_regular",
+		Audit: BinderCapabilityAuditFunc(func(_ context.Context, record BinderCapabilityAuditRecord) error {
+			audit = append(audit, record)
+			return nil
+		})}, &unlimitedPostgresBudget{})
+	require.NoError(t, err)
+	require.Equal(t, BinderModeNativeCV1, handshake.SelectedMode)
+	require.GreaterOrEqual(t, len(audit), 4)
+	require.Equal(t, "create", audit[1].Stage)
+	require.Equal(t, "configured", audit[1].Outcome)
 	regular := newEasyDeployTestExecutor(t, ctx, "native-probe-regular", host, port.Int(), "probe_regular", "regular-password")
-	expected := NativeCapabilityExpectation{ABI: postgresBinderABI, ServerMajor: 16, ExtensionVersion: "0.4-s3", ExtensionHash: "agentsql-binder-source-v1-pg16", NodeManifestHash: "query-rte-var-join-v1-pg16", AllowlistHash: "builtin-exact-oids-v1-pg16"}
+	expected, ok := PostgresBinderNativeExpectation(16)
+	require.True(t, ok)
 	for _, executor := range []*PostgresExecutor{super, regular} {
 		handshake, err := executor.ProbeEasyDeployBinderCapabilities(ctx, expected, &unlimitedPostgresBudget{})
 		require.NoError(t, err)
@@ -58,6 +82,43 @@ func TestEasyDeployNativeCapabilityProbePG16(t *testing.T) {
 		require.False(t, handshake.Native.Available)
 		require.Equal(t, "AUTH_BINDER_CAPABILITY_MISMATCH", handshake.NativeHealth)
 	}
+	for _, tamper := range []struct {
+		name, version, buildHash string
+	}{
+		{name: "binary-attestation-hash", version: expected.ExtensionVersion, buildHash: "tampered-so-build"},
+		{name: "extension-version", version: "0.3", buildHash: expected.BuildHash},
+	} {
+		t.Run("reject-"+tamper.name, func(t *testing.T) {
+			statement := fmt.Sprintf(`CREATE OR REPLACE FUNCTION agentsql_catalog.capabilities() RETURNS jsonb
+LANGUAGE SQL STABLE PARALLEL RESTRICTED AS $stub$
+SELECT pg_catalog.jsonb_build_object(
+  'abi', '%s', 'server_major', %d, 'extension_version', '%s',
+  'build_hash', '%s', 'extension_hash', '%s',
+  'node_manifest_hash', '%s', 'allowlist_hash', '%s')
+$stub$`, expected.ABI, expected.ServerMajor, tamper.version, tamper.buildHash,
+				expected.ExtensionHash, expected.NodeManifestHash, expected.AllowlistHash)
+			_, err := super.Execute(ctx, statement)
+			require.NoError(t, err)
+			handshake, err := super.ProbeEasyDeployBinderCapabilities(ctx, expected, &unlimitedPostgresBudget{})
+			require.NoError(t, err)
+			require.Equal(t, BinderModeCatalogClosedV1, handshake.SelectedMode)
+			require.False(t, handshake.Native.Available)
+			require.Equal(t, "AUTH_BINDER_CAPABILITY_MISMATCH", handshake.NativeHealth)
+		})
+	}
+	_, err = super.Execute(ctx, `CREATE OR REPLACE FUNCTION agentsql_catalog.capabilities() RETURNS jsonb
+AS '$libdir/agentsql_binder', 'agentsql_binder_capabilities'
+LANGUAGE C STABLE PARALLEL RESTRICTED`)
+	require.NoError(t, err)
+	exitCode, _, err := container.Exec(ctx, []string{"sh", "-c", `library="$(pg_config --pkglibdir)/agentsql_binder.so"; printf 'tampered shared object\n' > "${library}.tampered"; chmod 0755 "${library}.tampered"; mv "${library}.tampered" "$library"`})
+	require.NoError(t, err)
+	require.Zero(t, exitCode)
+	tampered := newEasyDeployTestExecutor(t, ctx, "native-probe-tampered-so", host, port.Int(), "agentsql", "agentsql-password")
+	handshake, err = tampered.ProbeEasyDeployBinderCapabilities(ctx, expected, &unlimitedPostgresBudget{})
+	require.NoError(t, err)
+	require.Equal(t, BinderModeCatalogClosedV1, handshake.SelectedMode)
+	require.False(t, handshake.Native.Available)
+	require.Equal(t, "AUTH_BINDER_CAPABILITY_MISMATCH", handshake.NativeHealth)
 }
 
 func runEasyDeployCatalogKernelMatrix(t *testing.T, major string) {

@@ -188,14 +188,16 @@ func TestClosedCacheConcurrentAccess(t *testing.T) {
 
 func TestNativeCapabilityRequiresExactABIAndHashes(t *testing.T) {
 	t.Parallel()
-	value := PostgresBinderCapability{ABI: postgresBinderABI, ServerMajor: 16, ExtensionVersion: "0.4-s3",
-		ExtensionHash: "extension", NodeManifestHash: "nodes", AllowlistHash: "allowlist"}
-	expected := NativeCapabilityExpectation{ABI: postgresBinderABI, ServerMajor: 16, ExtensionVersion: "0.4-s3",
-		ExtensionHash: "extension", NodeManifestHash: "nodes", AllowlistHash: "allowlist"}
+	expected, ok := PostgresBinderNativeExpectation(16)
+	if !ok {
+		t.Fatal("PG16 expectation unavailable")
+	}
+	value := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: expected.ServerMajor, ExtensionVersion: expected.ExtensionVersion,
+		BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash}
 	if !nativeCapabilityMatches(value, expected) {
 		t.Fatal("exact native capability rejected")
 	}
-	for _, mutate := range []func(*NativeCapabilityExpectation){func(v *NativeCapabilityExpectation) { v.ABI = "wrong" }, func(v *NativeCapabilityExpectation) { v.ServerMajor = 17 }, func(v *NativeCapabilityExpectation) { v.ExtensionHash = "wrong" }, func(v *NativeCapabilityExpectation) { v.NodeManifestHash = "wrong" }, func(v *NativeCapabilityExpectation) { v.AllowlistHash = "wrong" }} {
+	for _, mutate := range []func(*NativeCapabilityExpectation){func(v *NativeCapabilityExpectation) { v.ABI = "wrong" }, func(v *NativeCapabilityExpectation) { v.ServerMajor = 17 }, func(v *NativeCapabilityExpectation) { v.ExtensionVersion = "wrong" }, func(v *NativeCapabilityExpectation) { v.BuildHash = "wrong" }, func(v *NativeCapabilityExpectation) { v.ExtensionHash = "wrong" }, func(v *NativeCapabilityExpectation) { v.NodeManifestHash = "wrong" }, func(v *NativeCapabilityExpectation) { v.AllowlistHash = "wrong" }} {
 		candidate := expected
 		mutate(&candidate)
 		if nativeCapabilityMatches(value, candidate) {
@@ -206,7 +208,8 @@ func TestNativeCapabilityRequiresExactABIAndHashes(t *testing.T) {
 
 func TestNativeCAdapterProducesUnifiedFactsAndSeparateEvidence(t *testing.T) {
 	t.Parallel()
-	capability := PostgresBinderCapability{ABI: postgresBinderABI, ServerMajor: 16, ExtensionVersion: "0.4-s3", ExtensionHash: "extension", NodeManifestHash: "nodes", AllowlistHash: "allowlist"}
+	expected, _ := PostgresBinderNativeExpectation(16)
+	capability := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: expected.ServerMajor, ExtensionVersion: expected.ExtensionVersion, BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash}
 	manifest := PostgresPreparedManifest{StatementName: "agentsql_test", RoleOID: 10, RoleName: "agent", SearchPath: "pg_catalog", AnalyzedDigest: "analyzed", DependencyDigest: "dependencies", PlanGeneration: 1, CommandType: "SELECT", Capability: capability,
 		Relations: []PostgresBoundRelation{{OID: 100, Kind: 'r', Path: "a"}}, Columns: []PostgresColumnUse{{Site: "target", RelationOID: 100, Attnum: 1, TypeOID: 23, Usage: "output", ContributorGroup: 1, ContributorComplete: true}, {Site: "where", RelationOID: 100, Attnum: 1, TypeOID: 23, Usage: "reference", ContributorComplete: true}}}
 	frame := PostgresCatalogFrame{ServerVersion: 160005, DatabaseOID: 9, Fingerprint: "catalog-v1", Relations: []PostgresRelationIdentity{{DatabaseOID: 9, OID: 100, NamespaceOID: 11, Schema: "public", Name: "a", Kind: 'r', Persistence: 'p'}}, Columns: []PostgresColumnIdentity{{RelationOID: 100, Attnum: 1, Name: "id", TypeOID: 23, Typmod: -1}}}

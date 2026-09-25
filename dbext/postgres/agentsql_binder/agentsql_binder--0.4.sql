@@ -75,6 +75,15 @@ RETURNS TABLE(object_kind text, object_oid oid)
 AS 'MODULE_PATHNAME', 'agentsql_binder_objects'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
+-- The extension is installed by a bootstrap owner. Runtime access is granted
+-- explicitly by the gateway bootstrap after this default-deny baseline.
+REVOKE ALL ON FUNCTION capabilities() FROM PUBLIC;
+REVOKE ALL ON FUNCTION dml_capabilities() FROM PUBLIC;
 REVOKE ALL ON FUNCTION prepare(text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION prepare_dml(text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION seal_prepared(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION prepared_manifest(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION prepared_dml_manifest(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION prepared_relations(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION prepared_vars(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION prepared_objects(text) FROM PUBLIC;

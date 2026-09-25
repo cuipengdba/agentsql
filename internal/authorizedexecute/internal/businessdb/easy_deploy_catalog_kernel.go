@@ -48,10 +48,12 @@ type NativeCapabilityExpectation struct {
 }
 
 type BinderCapabilityHandshake struct {
-	SelectedMode BinderMode
-	Closed       CapabilityAttestation
-	Native       CapabilityAttestation
-	NativeHealth string
+	SelectedMode         BinderMode
+	Closed               CapabilityAttestation
+	Native               CapabilityAttestation
+	NativeHealth         string
+	NativeFilesAvailable bool
+	NativeInstalled      bool
 }
 
 // ProbeEasyDeployBinderCapabilities performs the feature-off dual-mode
@@ -89,15 +91,23 @@ func (executor *PostgresExecutor) ProbeEasyDeployBinderCapabilities(ctx context.
 	if err := budget.ChargeCatalogRoundTrips(1); err != nil {
 		return BinderCapabilityHandshake{}, err
 	}
-	var available, installed bool
+	var available, availableVersion, installed, installedVersion bool
 	const extensionSQL = `SELECT
   EXISTS(SELECT 1 FROM pg_catalog.pg_available_extensions WHERE name='agentsql_binder'),
-  EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')`
-	if err := tx.QueryRow(ctx, extensionSQL).Scan(&available, &installed); err != nil {
+	EXISTS(SELECT 1 FROM pg_catalog.pg_available_extension_versions WHERE name='agentsql_binder' AND version='0.4'),
+	EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder'),
+	EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder' AND extversion='0.4')`
+	if err := tx.QueryRow(ctx, extensionSQL).Scan(&available, &availableVersion, &installed, &installedVersion); err != nil {
 		return BinderCapabilityHandshake{}, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
+	handshake.NativeFilesAvailable = available
+	handshake.NativeInstalled = installed
 	if !available || !installed {
 		handshake.NativeHealth = BinderCodeModeRequired
+		return handshake, nil
+	}
+	if !availableVersion || !installedVersion {
+		handshake.NativeHealth = "AUTH_BINDER_CAPABILITY_MISMATCH"
 		return handshake, nil
 	}
 	capability, capabilityErr := readPostgresBinderCapability(ctx, tx, budget)
@@ -125,15 +135,38 @@ func (executor *PostgresExecutor) ProbeEasyDeployBinderCapabilities(ctx context.
 }
 
 func nativeCapabilityMatches(value PostgresBinderCapability, expected NativeCapabilityExpectation) bool {
-	if expected.ABI == "" || expected.ServerMajor == 0 || expected.ExtensionHash == "" ||
+	if expected.ABI == "" || expected.ServerMajor == 0 || expected.ExtensionVersion == "" || expected.BuildHash == "" || expected.ExtensionHash == "" ||
 		expected.NodeManifestHash == "" || expected.AllowlistHash == "" {
 		return false
 	}
 	return value.ABI == expected.ABI && value.ServerMajor == expected.ServerMajor &&
-		(expected.ExtensionVersion == "" || value.ExtensionVersion == expected.ExtensionVersion) &&
-		(expected.BuildHash == "" || value.BuildHash == expected.BuildHash) &&
+		value.ExtensionVersion == expected.ExtensionVersion && value.BuildHash == expected.BuildHash &&
 		value.ExtensionHash == expected.ExtensionHash && value.NodeManifestHash == expected.NodeManifestHash &&
 		value.AllowlistHash == expected.AllowlistHash
+}
+
+// PostgresBinderNativeExpectation returns the immutable artifact attestation
+// embedded in this gateway build. It intentionally does not accept values from
+// the datasource or installer as authority.
+func PostgresBinderNativeExpectation(major int) (NativeCapabilityExpectation, bool) {
+	if major < 14 || major > 18 {
+		return NativeCapabilityExpectation{}, false
+	}
+	suffix := strconv.Itoa(major)
+	return NativeCapabilityExpectation{
+		ABI:              postgresBinderABI,
+		ServerMajor:      major,
+		ExtensionVersion: "0.4",
+		BuildHash:        binderArtifactHash("agentsql-binder-build-v1-pg" + suffix),
+		ExtensionHash:    binderArtifactHash("agentsql-binder-source-v1-pg" + suffix),
+		NodeManifestHash: binderArtifactHash("query-rte-var-join-v1-pg" + suffix),
+		AllowlistHash:    binderArtifactHash("builtin-exact-oids-v1-pg" + suffix),
+	}, true
+}
+
+func binderArtifactHash(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
 }
 
 func closedCapability(serverVersion int, databaseOID uint32) CapabilityAttestation {

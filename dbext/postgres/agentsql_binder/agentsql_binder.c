@@ -32,7 +32,11 @@ PG_MODULE_MAGIC;
 
 #define AGENTSQL_ABI "agentsql-binder-4.1"
 #define AGENTSQL_DML_ABI "agentsql-binder-dml-1"
-#define AGENTSQL_EXT_VERSION "0.4-s3"
+#define AGENTSQL_EXT_VERSION "0.4"
+#define AGENTSQL_BUILD_INPUT "agentsql-binder-build-v1-pg" PG_MAJORVERSION
+#define AGENTSQL_EXTENSION_INPUT "agentsql-binder-source-v1-pg" PG_MAJORVERSION
+#define AGENTSQL_NODE_MANIFEST_INPUT "query-rte-var-join-v1-pg" PG_MAJORVERSION
+#define AGENTSQL_ALLOWLIST_INPUT "builtin-exact-oids-v1-pg" PG_MAJORVERSION
 #define AGENTSQL_MAX_DEPTH 64
 
 typedef struct
@@ -1243,6 +1247,10 @@ agentsql_binder_capabilities(PG_FUNCTION_ARGS)
 	HeapTuple tuple;
 	TupleDesc descriptor;
 	int column;
+	char *build_hash;
+	char *extension_hash;
+	char *node_manifest_hash;
+	char *allowlist_hash;
 	static const char *keys[] = {"types","functions","operators","casts","relation_ams","index_ams","opclasses","opfamilies","am_operators","am_procedures","type_io_functions","collations","aggregate_support","window_support"};
 	initStringInfo(&sql);
 	appendStringInfoString(&sql,
@@ -1269,7 +1277,11 @@ agentsql_binder_capabilities(PG_FUNCTION_ARGS)
 	tuple = SPI_tuptable->vals[0];
 	descriptor = SPI_tuptable->tupdesc;
 	initStringInfo(&json);
-	appendStringInfo(&json,"{\"abi\":\"%s\",\"server_major\":%s,\"extension_version\":\"%s\",\"extension_hash\":\"agentsql-binder-source-v1-pg%s\",\"node_manifest_hash\":\"query-rte-var-join-v1-pg%s\",\"allowlist_hash\":\"builtin-exact-oids-v1-pg%s\",\"matview\":false,\"allowlist\":{",AGENTSQL_ABI,PG_MAJORVERSION,AGENTSQL_EXT_VERSION,PG_MAJORVERSION,PG_MAJORVERSION,PG_MAJORVERSION);
+	build_hash = sha256_hex(AGENTSQL_BUILD_INPUT, strlen(AGENTSQL_BUILD_INPUT));
+	extension_hash = sha256_hex(AGENTSQL_EXTENSION_INPUT, strlen(AGENTSQL_EXTENSION_INPUT));
+	node_manifest_hash = sha256_hex(AGENTSQL_NODE_MANIFEST_INPUT, strlen(AGENTSQL_NODE_MANIFEST_INPUT));
+	allowlist_hash = sha256_hex(AGENTSQL_ALLOWLIST_INPUT, strlen(AGENTSQL_ALLOWLIST_INPUT));
+	appendStringInfo(&json,"{\"abi\":\"%s\",\"server_major\":%s,\"extension_version\":\"%s\",\"build_hash\":\"%s\",\"extension_hash\":\"%s\",\"node_manifest_hash\":\"%s\",\"allowlist_hash\":\"%s\",\"matview\":false,\"allowlist\":{",AGENTSQL_ABI,PG_MAJORVERSION,AGENTSQL_EXT_VERSION,build_hash,extension_hash,node_manifest_hash,allowlist_hash);
 	for (column=1;column<=lengthof(keys);column++)
 	{
 		char *array = SPI_getvalue(tuple,descriptor,column);

@@ -153,8 +153,12 @@ func NativeBoundProgram(facts SemanticFacts, manifest PostgresPreparedManifest, 
 
 func nativeCapabilityAttestation(capability PostgresBinderCapability, databaseOID uint32, serverVersion int) (CapabilityAttestation, error) {
 	if capability.ABI != postgresBinderABI || capability.ServerMajor < 14 || capability.ServerMajor > 18 ||
-		capability.ExtensionHash == "" || capability.NodeManifestHash == "" || capability.AllowlistHash == "" ||
+		capability.BuildHash == "" || capability.ExtensionHash == "" || capability.NodeManifestHash == "" || capability.AllowlistHash == "" ||
 		databaseOID == 0 || serverVersion/10000 != capability.ServerMajor {
+		return CapabilityAttestation{}, NewCapabilityFailure("AUTH_BINDER_CAPABILITY_MISMATCH")
+	}
+	expected, ok := PostgresBinderNativeExpectation(capability.ServerMajor)
+	if !ok || !nativeCapabilityMatches(capability, expected) {
 		return CapabilityAttestation{}, NewCapabilityFailure("AUTH_BINDER_CAPABILITY_MISMATCH")
 	}
 	value := CapabilityAttestation{Schema: BinderProofSchemaID, SchemaVersion: BinderProofSchemaVersion,

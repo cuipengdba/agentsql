@@ -32,3 +32,6 @@ demo/demo.env
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local Docker CLI / buildx state
+.docker-config/

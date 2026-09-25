@@ -365,7 +365,8 @@ func readPostgresBinderCapability(ctx context.Context, tx pgx.Tx, budget Postgre
 	if err := json.Unmarshal(raw, &capability); err != nil {
 		return PostgresBinderCapability{}, catalogAuthError("AUTH_BINDER_CAPABILITY_MISMATCH")
 	}
-	if capability.ABI != postgresBinderABI || capability.ServerMajor < 14 || capability.ServerMajor > 18 || capability.Matview || capability.ExtensionHash == "" || capability.NodeManifestHash == "" || capability.AllowlistHash == "" {
+	expected, ok := PostgresBinderNativeExpectation(capability.ServerMajor)
+	if !ok || capability.Matview || !nativeCapabilityMatches(capability, expected) {
 		return PostgresBinderCapability{}, catalogAuthError("AUTH_BINDER_CAPABILITY_MISMATCH")
 	}
 	return capability, nil
