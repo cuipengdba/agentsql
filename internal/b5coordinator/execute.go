@@ -427,3 +427,42 @@ func (coordinator *Coordinator) Expire(ctx context.Context, limit int) (int, err
 	}
 	return count, nil
 }
+
+// Shutdown stops admission at the protocol owner, freezes every locally-held
+// capability, and gives each transaction the same typed rollback/cancel-taint
+// lifecycle used by the watchdog. It never reconstructs or touches a foreign
+// owner capability.
+func (coordinator *Coordinator) Shutdown(ctx context.Context) error {
+	if coordinator == nil {
+		return nil
+	}
+	coordinator.mu.RLock()
+	live := make([]*liveTransaction, 0, len(coordinator.live))
+	for _, transaction := range coordinator.live {
+		live = append(live, transaction)
+	}
+	coordinator.mu.RUnlock()
+	var shutdownErr error
+	for _, transaction := range live {
+		transaction.mu.Lock()
+		id := transaction.record.TransactionID
+		op := transaction.operation
+		status := transaction.record.Status
+		transaction.mu.Unlock()
+		if status == b5.TransactionTerminal {
+			continue
+		}
+		var result Result
+		var err error
+		if op != nil {
+			result, err = coordinator.watchdogStatement(ctx, transaction, op, "shutdown:"+id, b5.ErrorTxOperationWatchdog)
+		} else {
+			result, err = coordinator.forceRollback(ctx, transaction, "shutdown:"+id, b5.ErrorTxOperationWatchdog, context.Canceled)
+		}
+		if result.Status == b5.TransactionTerminal {
+			err = nil
+		}
+		shutdownErr = errors.Join(shutdownErr, err)
+	}
+	return shutdownErr
+}

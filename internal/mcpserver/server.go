@@ -2,9 +2,12 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/auth"
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
@@ -21,12 +24,14 @@ type Options struct {
 	Runtime *bootstrap.Runtime
 	Logger  zerolog.Logger
 	Version string
+	B5      B5Options
 }
 
 // Server owns the SDK server and the immutable bound-Agent handlers.
 type Server struct {
 	sdk      *mcp.Server
 	handlers *toolHandlers
+	b5       B5Options
 }
 
 // NewServer authenticates the stdio API key once and registers all seven tools.
@@ -54,6 +59,7 @@ func NewServer(ctx context.Context, options Options) (*Server, error) {
 		options.Runtime,
 		options.Logger,
 		serverVersion,
+		options.B5,
 	)
 }
 
@@ -63,7 +69,7 @@ func buildBoundServer(
 	runtime *bootstrap.Runtime,
 	logger zerolog.Logger,
 ) (*Server, error) {
-	return buildBoundServerWithVersion(agent, plainKey, runtime, logger, version.Version)
+	return buildBoundServerWithVersion(agent, plainKey, runtime, logger, version.Version, B5Options{})
 }
 
 func buildBoundServerWithVersion(
@@ -72,6 +78,7 @@ func buildBoundServerWithVersion(
 	runtime *bootstrap.Runtime,
 	logger zerolog.Logger,
 	version string,
+	b5Options ...B5Options,
 ) (*Server, error) {
 	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil {
 		return nil, fmt.Errorf("build bound MCP server: runtime is incomplete")
@@ -87,6 +94,13 @@ func buildBoundServerWithVersion(
 	if strings.TrimSpace(plainKey) == "" {
 		return nil, fmt.Errorf("build bound MCP server: API key is required")
 	}
+	var b5 B5Options
+	if len(b5Options) != 0 {
+		b5 = b5Options[0]
+	}
+	if err := b5.validate(); err != nil {
+		return nil, fmt.Errorf("build bound MCP server: %w", err)
+	}
 	sdkServer := mcp.NewServer(&mcp.Implementation{Name: "agentsql", Version: version}, nil)
 	handlers := &toolHandlers{
 		runtime:   runtime,
@@ -96,7 +110,28 @@ func buildBoundServerWithVersion(
 		schemaFor: runtime.ListDatasourceSchema,
 	}
 	registerTools(sdkServer, handlers)
-	return &Server{sdk: sdkServer, handlers: handlers}, nil
+	if b5.B5Sessions {
+		registerB5Tools(sdkServer, handlers, b5)
+	}
+	return &Server{sdk: sdkServer, handlers: handlers, b5: b5}, nil
+}
+
+// RunStdioStreams serves the sealed length-prefixed stdio protocol over the
+// supplied streams. It exists so the exact production framing can be exercised
+// end-to-end without replacing process-global stdin/stdout in tests.
+func (server *Server) RunStdioStreams(ctx context.Context, reader io.ReadCloser, writer io.WriteCloser) error {
+	if server == nil || server.sdk == nil || reader == nil || writer == nil {
+		return errors.New("run MCP stdio streams: incomplete server or streams")
+	}
+	transport := &mcp.IOTransport{Reader: newSealedLineReader(reader, executor.DefaultLimits.EnvelopeBytes), Writer: newSealedLineWriter(writer, executor.DefaultLimits.EnvelopeBytes)}
+	err := server.sdk.Run(ctx, legacyProtocolTransport{Transport: transport})
+	if server.b5.B5Sessions && server.b5.Service != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		shutdownErr := server.b5.Service.Shutdown(shutdownCtx)
+		cancel()
+		err = errors.Join(err, shutdownErr)
+	}
+	return err
 }
 
 // RunStdio blocks while serving MCP JSON-RPC on stdin/stdout. This function
@@ -114,11 +149,7 @@ func RunStdio(ctx context.Context, options Options) error {
 		Str("agent_id", server.handlers.agent.ID).
 		Str("version", serverVersion).
 		Msg("MCP stdio server started")
-	transport := &mcp.IOTransport{
-		Reader: newSealedLineReader(os.Stdin, executor.DefaultLimits.EnvelopeBytes),
-		Writer: newSealedLineWriter(os.Stdout, executor.DefaultLimits.EnvelopeBytes),
-	}
-	if err := server.sdk.Run(ctx, transport); err != nil {
+	if err := server.RunStdioStreams(ctx, os.Stdin, os.Stdout); err != nil {
 		return fmt.Errorf("run MCP stdio server: %w", err)
 	}
 	return nil

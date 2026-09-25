@@ -21,12 +21,19 @@ import (
 const schemaRowLimit = 10_000
 
 type ToolResponse struct {
-	Decision   string `json:"decision"`
-	ErrorCode  string `json:"error_code,omitempty"`
-	ErrorStage string `json:"error_stage,omitempty"`
-	Reason     string `json:"reason"`
-	Suggestion string `json:"suggestion"`
-	Data       any    `json:"data,omitempty"`
+	Decision              string `json:"decision"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	ErrorStage            string `json:"error_stage,omitempty"`
+	Reason                string `json:"reason"`
+	Suggestion            string `json:"suggestion"`
+	RetrySameRequest      *bool  `json:"retry_same_request,omitempty"`
+	NewTransactionAllowed *bool  `json:"new_transaction_allowed,omitempty"`
+	TxEffect              string `json:"tx_effect,omitempty"`
+	DBOutcome             string `json:"db_outcome,omitempty"`
+	AuditDurability       string `json:"audit_durability,omitempty"`
+	ConnectionDisposition string `json:"connection_disposition,omitempty"`
+	TerminalEventDigest   string `json:"terminal_event_digest,omitempty"`
+	Data                  any    `json:"data,omitempty"`
 }
 
 type publicDatasource struct {

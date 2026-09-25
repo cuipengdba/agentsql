@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"strings"
 	"testing"
@@ -23,7 +24,10 @@ func TestSealedStdioWriterWritesOnlyCompleteBoundedJSONFrame(t *testing.T) {
 	require.Empty(t, destination.Bytes())
 	written, err = writer.Write([]byte("{\"jsonrpc\":\"2.0\"}\n"))
 	require.NoError(t, err)
-	require.Equal(t, destination.Len(), written)
+	require.Equal(t, len("{\"jsonrpc\":\"2.0\"}\n"), written)
+	frame, err := authorizedexecute.ReadBoundedFrame(&destination, 32)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"jsonrpc":"2.0"}`, string(frame))
 }
 
 type fragmentedReadCloser struct {
@@ -41,22 +45,23 @@ func (reader *fragmentedReadCloser) Read(target []byte) (int, error) {
 func (*fragmentedReadCloser) Close() error { return nil }
 
 func TestSealedStdioFramingAttackMatrix(t *testing.T) {
-	valid := []byte("{\"jsonrpc\":\"2.0\",\"id\":1}\n")
-	reader := newSealedLineReader(&fragmentedReadCloser{data: append([]byte(nil), valid...)}, len(valid))
+	validPayload := []byte(`{"jsonrpc":"2.0","id":1}`)
+	valid := lengthPrefix(validPayload)
+	reader := newSealedLineReader(&fragmentedReadCloser{data: append([]byte(nil), valid...)}, len(validPayload))
 	observed, err := io.ReadAll(reader)
 	require.NoError(t, err)
-	require.Equal(t, valid, observed, "fragmentation must not change the sealed frame")
+	require.Equal(t, append(validPayload, '\n'), observed, "fragmentation must not change the sealed frame")
 
 	attacks := []struct {
 		name  string
 		frame string
 		limit int
 	}{
-		{name: "half frame", frame: `{"jsonrpc":"2.0"}`, limit: 64},
-		{name: "CRLF injection", frame: "{\"jsonrpc\":\"2.0\"}\r\n", limit: 64},
-		{name: "embedded newline smuggling", frame: "{\"jsonrpc\":\n\"2.0\"}\n{\"smuggled\":true}\n", limit: 128},
-		{name: "malformed then valid", frame: "{bad}\n{\"jsonrpc\":\"2.0\"}\n", limit: 128},
-		{name: "oversize", frame: strings.Repeat("x", 65) + "\n", limit: 64},
+		{name: "half frame", frame: string(append([]byte{0, 0, 0, 20}, []byte(`{"jsonrpc"}`)...)), limit: 64},
+		{name: "CRLF injection", frame: string(lengthPrefix([]byte("{\"jsonrpc\":\"2.0\"}\r\n"))), limit: 64},
+		{name: "embedded newline smuggling", frame: string(lengthPrefix([]byte("{\"jsonrpc\":\n\"2.0\"}"))), limit: 128},
+		{name: "malformed then valid", frame: string(lengthPrefix([]byte("{bad}"))), limit: 128},
+		{name: "oversize", frame: string(append([]byte{0, 0, 0, 65}, []byte(strings.Repeat("x", 65))...)), limit: 64},
 	}
 	for _, attack := range attacks {
 		t.Run(attack.name, func(t *testing.T) {
@@ -88,11 +93,18 @@ func TestSealedStdioFramingAttackMatrix(t *testing.T) {
 }
 
 func TestSealedStdioReaderRejectsOversizeBeforeSDKObservesBytes(t *testing.T) {
-	reader := newSealedLineReader(readCloser{bytes.NewBufferString(`{"value":"0123456789"}` + "\n")}, 8)
+	reader := newSealedLineReader(readCloser{bytes.NewReader(lengthPrefix([]byte(`{"value":"0123456789"}`)))}, 8)
 	buffer := make([]byte, 32)
 	count, err := reader.Read(buffer)
 	require.Zero(t, count)
 	var authorizationError *authorizedexecute.AuthError
 	require.ErrorAs(t, err, &authorizationError)
-	require.Equal(t, authorizedexecute.ReasonEnvelopeLimit, authorizationError.Reason)
+	require.Equal(t, authorizedexecute.ReasonFrameLimit, authorizationError.Reason)
+}
+
+func lengthPrefix(payload []byte) []byte {
+	result := make([]byte, 4+len(payload))
+	binary.BigEndian.PutUint32(result, uint32(len(payload)))
+	copy(result[4:], payload)
+	return result
 }

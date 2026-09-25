@@ -19,6 +19,7 @@ const (
 	PlanSchemaID      = "agentsql.b5.plan.v4"
 	PlanSchemaVersion = uint16(4)
 	BeginAuthSchemaID = "agentsql.b5.begin-auth.v3"
+	RequiredBinderABI = b5dml.BinderABI
 )
 
 var (
@@ -264,23 +265,23 @@ type FinishRequest struct {
 }
 
 type OperationEvidence struct {
-	Ordinal                 int
-	OperationID             string
-	AffectedRows            int64
-	StatementEvidenceDigest [32]byte
-	AuditEventDigest        [32]byte
+	Ordinal                 int      `json:"ordinal"`
+	OperationID             string   `json:"operation_id"`
+	AffectedRows            int64    `json:"affected_rows"`
+	StatementEvidenceDigest [32]byte `json:"statement_evidence_digest"`
+	AuditEventDigest        [32]byte `json:"audit_event_digest"`
 }
 
 type Result struct {
-	TransactionID         string
-	Status                b5.TransactionStatus
-	Phase                 b5.TransactionPhase
-	Code                  b5.ErrorCode
-	Effect                b5.TxEffect
-	DBOutcome             b5.DBOutcome
-	AuditDurability       b5.AuditDurability
-	ConnectionDisposition b5.ConnectionDisposition
-	NextOrdinal           int
-	AffectedRows          int64
-	Evidence              []OperationEvidence
+	TransactionID         string                   `json:"transaction_id"`
+	Status                b5.TransactionStatus     `json:"status"`
+	Phase                 b5.TransactionPhase      `json:"phase"`
+	Code                  b5.ErrorCode             `json:"error_code,omitempty"`
+	Effect                b5.TxEffect              `json:"tx_effect"`
+	DBOutcome             b5.DBOutcome             `json:"db_outcome,omitempty"`
+	AuditDurability       b5.AuditDurability       `json:"audit_durability,omitempty"`
+	ConnectionDisposition b5.ConnectionDisposition `json:"connection_disposition,omitempty"`
+	NextOrdinal           int                      `json:"next_ordinal"`
+	AffectedRows          int64                    `json:"affected_rows"`
+	Evidence              []OperationEvidence      `json:"evidence,omitempty"`
 }

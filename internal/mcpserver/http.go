@@ -45,19 +45,26 @@ type agentServerRegistry struct {
 	logger   zerolog.Logger
 	qps      int
 	built    int
+	b5       B5Options
 }
 
 func newAgentServerRegistry(
 	runtime *bootstrap.Runtime,
 	logger zerolog.Logger,
 	qps int,
+	b5Options ...B5Options,
 ) *agentServerRegistry {
+	var b5 B5Options
+	if len(b5Options) != 0 {
+		b5 = b5Options[0]
+	}
 	return &agentServerRegistry{
 		servers:  make(map[string]*mcp.Server),
 		limiters: make(map[string]*rate.Limiter),
 		runtime:  runtime,
 		logger:   logger,
 		qps:      qps,
+		b5:       b5,
 	}
 }
 
@@ -79,7 +86,7 @@ func (registry *agentServerRegistry) getOrCreate(
 		return server, nil
 	}
 	registry.resetServersAtCapacityLocked(key)
-	bound, err := buildBoundServer(agent, plainKey, registry.runtime, registry.logger)
+	bound, err := buildBoundServerWithVersion(agent, plainKey, registry.runtime, registry.logger, version.Version, registry.b5)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +162,7 @@ func NewHTTPHandler(
 type httpHandlerOptions struct {
 	adminAPI   http.Handler
 	webConsole http.Handler
+	b5         B5Options
 }
 
 // HTTPOption extends the T15 mux without changing its default routes.
@@ -178,6 +186,15 @@ func WithWebConsole(handler http.Handler) HTTPOption {
 	}
 }
 
+// WithB5Sessions explicitly installs the feature-off S8 surface. The caller
+// must still set B5Sessions and B5TxPostgres; the zero value exposes
+// no B5 tools and preserves the pre-S8 server byte-for-byte.
+func WithB5Sessions(options B5Options) HTTPOption {
+	return func(configuration *httpHandlerOptions) {
+		configuration.b5 = options
+	}
+}
+
 func newHTTPHandlerWithRegistry(
 	runtime *bootstrap.Runtime,
 	cfg config.Config,
@@ -198,7 +215,16 @@ func newHTTPHandlerWithRegistry(
 	cfg.Redaction.HashKey = ""
 	cfg.Redaction.HashKeys = nil
 
-	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent)
+	resolvedOptions := &httpHandlerOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(resolvedOptions)
+		}
+	}
+	if err := resolvedOptions.b5.validate(); err != nil {
+		return nil, nil, fmt.Errorf("create MCP HTTP handler: %w", err)
+	}
+	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent, resolvedOptions.b5)
 	getServer := func(request *http.Request) *mcp.Server {
 		identity, ok := identityFromContext(request.Context())
 		if !ok {
@@ -216,10 +242,13 @@ func newHTTPHandlerWithRegistry(
 	sdkHandler := mcp.NewStreamableHTTPHandler(
 		getServer,
 		&mcp.StreamableHTTPOptions{
-			Stateless:                    true,
-			JSONResponse:                 true,
-			MaxRequestBodyBytes:          maxMCPRequestBodyBytes,
-			PropagateRequestCancellation: true,
+			Stateless:           true,
+			JSONResponse:        true,
+			MaxRequestBodyBytes: maxMCPRequestBodyBytes,
+			// Reviewed legacy protocols do not bind disconnect to request
+			// cancellation. The coordinator's independent 300ms watchdog owns
+			// cancel-taint and rollback/discard decisions.
+			PropagateRequestCancellation: false,
 			Logger:                       sdkLogger,
 		},
 	)
@@ -230,16 +259,10 @@ func newHTTPHandlerWithRegistry(
 			registry,
 			recoverMiddleware(
 				logger,
-				accessLogMiddleware(logger, sdkHandler),
+				accessLogMiddleware(logger, protocolVersionMiddleware(sdkHandler)),
 			),
 		),
 	)
-	resolvedOptions := &httpHandlerOptions{}
-	for _, option := range options {
-		if option != nil {
-			option(resolvedOptions)
-		}
-	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(cfg, runtime))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))

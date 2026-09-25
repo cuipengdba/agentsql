@@ -436,3 +436,17 @@ func TestCommitUnknownIsReconciliationOnly(t *testing.T) {
 		t.Fatalf("recover=%+v err=%v", status, err)
 	}
 }
+
+type authorizationReasonError string
+
+func (err authorizationReasonError) Error() string               { return string(err) }
+func (err authorizationReasonError) AuthorizationReason() string { return string(err) }
+
+func TestErrorCodeAcceptsOnlyFrozenBinderReasons(t *testing.T) {
+	if code := ErrorCode(authorizationReasonError(b5.ErrorAuthConstraintClosureUnsupported)); code != b5.ErrorAuthConstraintClosureUnsupported {
+		t.Fatalf("known binder reason mapped to %q", code)
+	}
+	if code := ErrorCode(authorizationReasonError("AUTH_DATABASE_ERROR")); code != b5.ErrorNone {
+		t.Fatalf("unknown binder reason escaped as %q", code)
+	}
+}

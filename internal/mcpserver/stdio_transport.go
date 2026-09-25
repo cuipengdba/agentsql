@@ -4,12 +4,22 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"sync"
 
 	authorizedexecute "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+const legacyMCPProtocolVersion = "2025-06-18"
+
+// legacyProtocolTransport prevents the SDK from silently negotiating unknown
+// legacy clients to a newer version. v0.4 has exactly one reviewed protocol.
+type legacyProtocolTransport struct{ mcp.Transport }
+
+func (legacyProtocolTransport) SupportsProtocolVersion(version string) bool {
+	return version == legacyMCPProtocolVersion
+}
 
 type sealedLineReader struct {
 	reader   *bufio.Reader
@@ -28,33 +38,23 @@ func newSealedLineReader(reader io.ReadCloser, limit int) *sealedLineReader {
 
 func (reader *sealedLineReader) Read(destination []byte) (int, error) {
 	if len(reader.pending) == 0 && reader.terminal == nil {
-		var frame []byte
-		for {
-			fragment, err := reader.reader.ReadSlice('\n')
-			if len(fragment) > reader.limit-len(frame) {
-				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonEnvelopeLimit}
-				break
-			}
-			frame = append(frame, fragment...)
-			if err == nil {
-				break
-			}
-			if errors.Is(err, bufio.ErrBufferFull) {
-				continue
-			}
-			if errors.Is(err, io.EOF) && len(frame) > 0 {
-				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonFrameLimit}
-				break
-			}
+		if _, err := reader.reader.Peek(1); err != nil {
 			reader.terminal = err
-			break
 		}
+		var frame []byte
+		var err error
 		if reader.terminal == nil {
-			payload := frame[:len(frame)-1]
-			if len(payload) == 0 || bytes.ContainsAny(payload, "\r\n") || !json.Valid(payload) {
+			frame, err = authorizedexecute.ReadBoundedFrame(reader.reader, reader.limit)
+		}
+		if reader.terminal == nil && err != nil {
+			reader.terminal = err
+		} else if reader.terminal == nil {
+			if bytes.ContainsAny(frame, "\r\n") || !json.Valid(frame) {
 				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonDatabaseFailure}
 			} else {
-				reader.pending = frame
+				// The SDK's IO transport is newline-oriented. The newline exists
+				// only inside this adapter and never crosses the stdio wire.
+				reader.pending = append(frame, '\n')
 			}
 		}
 	}
@@ -102,12 +102,12 @@ func (writer *sealedLineWriter) Write(frame []byte) (int, error) {
 	if len(payload) == 0 || bytes.ContainsAny(payload, "\r\n") || !json.Valid(payload) {
 		return 0, &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonEnvelopeLimit}
 	}
-	sealed := append([]byte(nil), frame...)
-	written, err := writer.writer.Write(sealed)
-	if err == nil && written != len(sealed) {
-		err = io.ErrShortWrite
+	sealed := append([]byte(nil), payload...)
+	if err := authorizedexecute.WriteSealedFrame(writer.writer, sealed, writer.limit); err != nil {
+		return 0, err
 	}
-	return written, err
+	// Report the bytes consumed from the SDK, not the wire prefix.
+	return len(frame), nil
 }
 
 func (writer *sealedLineWriter) Close() error {
@@ -116,3 +116,6 @@ func (writer *sealedLineWriter) Close() error {
 	}
 	return writer.closer.Close()
 }
+
+var _ mcp.ProtocolVersionSupporter = legacyProtocolTransport{}
+var _ mcp.Transport = legacyProtocolTransport{}

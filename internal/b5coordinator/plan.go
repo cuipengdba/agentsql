@@ -38,6 +38,32 @@ func ErrorCode(err error) b5.ErrorCode {
 	if errors.As(err, &failure) {
 		return failure.Code
 	}
+	var sessionFailure *SessionFailure
+	if errors.As(err, &sessionFailure) {
+		return sessionFailure.Code
+	}
+	var reasoned interface{ AuthorizationReason() string }
+	if errors.As(err, &reasoned) {
+		code := b5.ErrorCode(reasoned.AuthorizationReason())
+		switch code {
+		case b5.ErrorAuthDMLBinderRequired,
+			b5.ErrorAuthDMLActionMissing,
+			b5.ErrorAuthDMLWriteTargetGrantMissing,
+			b5.ErrorAuthDMLReferenceGrantMissing,
+			b5.ErrorAuthImplicitObjectUnclosed,
+			b5.ErrorAuthClosureUnsupported,
+			b5.ErrorAuthConstraintClosureUnsupported,
+			b5.ErrorAuthTypeClosureUnsupported,
+			b5.ErrorAuthDefaultClosureUnsupported,
+			b5.ErrorAuthExpressionClosureUnsupported,
+			b5.ErrorAuthRewriteClosureUnsupported,
+			b5.ErrorAuthRelationKindUnsupported,
+			b5.ErrorAuthInternalObjectDenied,
+			b5.ErrorAuthWholeRowUnsupported,
+			b5.ErrorAuthCatalogRace:
+			return code
+		}
+	}
 	return b5.ErrorNone
 }
 
