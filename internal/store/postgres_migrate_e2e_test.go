@@ -665,7 +665,7 @@ func TestPostgres18AuditErrorCodeMigrationsE2E(t *testing.T) {
 		latest     int
 	}{
 		{
-			name: "combined", directory: "migrations/postgres", oldVersion: 5, latest: 9,
+			name: "combined", directory: "migrations/postgres", oldVersion: 5, latest: 10,
 			migrate: func(ctx context.Context, db *sql.DB) error { return Migrate(ctx, db, DialectPostgres) },
 			versions: func(ctx context.Context, db *sql.DB) (int, int, error) {
 				return MetadataMigrationVersions(ctx, db, DialectPostgres, false)

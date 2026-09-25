@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/b5"
@@ -22,6 +23,7 @@ type B5SessionStore interface {
 	Create(context.Context, B5Session) (B5Session, error)
 	Get(context.Context, string) (B5Session, error)
 	CASStatus(context.Context, string, int64, b5.SessionStatus, b5.SessionStatus, time.Time) (B5Session, error)
+	CASOwner(context.Context, string, int64, string, uint64, string, string, string, []byte) (B5Session, error)
 	ListExpired(context.Context, time.Time, int) ([]B5Session, error)
 }
 
@@ -113,6 +115,26 @@ func (r *B5SessionRepository) CASStatus(ctx context.Context, id string, expected
 	}
 	if changed, _ := result.RowsAffected(); changed != 1 {
 		return B5Session{}, fmt.Errorf("advance b5 session %q: %w", id, ErrB5CASConflict)
+	}
+	return r.Get(ctx, id)
+}
+
+// CASOwner is the S3 directory fencing primitive. Owner epoch advances by
+// exactly one and the continuation key is re-sealed with AAD containing that
+// new epoch in the same durable compare-and-swap.
+func (r *B5SessionRepository) CASOwner(ctx context.Context, id string, expectedRevision int64, expectedOwner string, expectedEpoch uint64, newOwner, stickyRoute, keyCiphertext string, keyDigest []byte) (B5Session, error) {
+	if ctx == nil {
+		return B5Session{}, fmt.Errorf("transfer b5 session owner: %w", ErrNilContext)
+	}
+	if expectedEpoch == 0 || expectedEpoch >= math.MaxInt64 || expectedOwner == "" || newOwner == "" || stickyRoute == "" || keyCiphertext == "" || len(keyDigest) != 32 {
+		return B5Session{}, fmt.Errorf("transfer b5 session owner: %w", ErrB5InvalidTransition)
+	}
+	result, err := r.db.ExecContext(ctx, r.bind(`UPDATE b5_sessions SET owner_instance_id=?,owner_epoch=?,sticky_route=?,continuation_key_ciphertext=?,continuation_hmac_digest=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND revision=? AND owner_instance_id=? AND owner_epoch=? AND status IN ('READY','ACTIVE')`), newOwner, expectedEpoch+1, stickyRoute, keyCiphertext, keyDigest, id, expectedRevision, expectedOwner, expectedEpoch)
+	if err != nil {
+		return B5Session{}, fmt.Errorf("transfer b5 session owner %q: %w", id, err)
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return B5Session{}, fmt.Errorf("transfer b5 session owner %q: %w", id, ErrB5CASConflict)
 	}
 	return r.Get(ctx, id)
 }

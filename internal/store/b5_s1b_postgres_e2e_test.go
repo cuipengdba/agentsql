@@ -51,8 +51,11 @@ func TestB5S1bPostgres14And18MigrationAndStore(t *testing.T) {
 					StickyRoute: "instance", Status: b5.SessionReady, IdleExpiresAt: now.Add(10 * time.Minute), AbsoluteExpiresAt: now.Add(time.Hour),
 				})
 				require.NoError(t, err)
-				_, err = store.B5Sessions().CASStatus(ctx, session.SessionID, session.Revision, b5.SessionReady, b5.SessionActive, now.Add(9*time.Minute))
+				session, err = store.B5Sessions().CASStatus(ctx, session.SessionID, session.Revision, b5.SessionReady, b5.SessionActive, now.Add(9*time.Minute))
 				require.NoError(t, err)
+				session, err = store.B5Sessions().CASOwner(ctx, session.SessionID, session.Revision, "instance", 1, "instance-2", "instance-2", "ciphertext-2", bytesOf(32, 2))
+				require.NoError(t, err)
+				require.Equal(t, uint64(2), session.OwnerEpoch)
 
 				// PostgreSQL DDL and the migration claim must roll back together.
 				err = applyMigration(ctx, db, DialectPostgres, 99, `CREATE TABLE b5_atomic_pg_probe(id BIGINT); INSERT INTO table_that_does_not_exist VALUES(1);`)

@@ -33,6 +33,10 @@ func TestB5S1bSQLiteStoreCRUDCASAndIdempotency(t *testing.T) {
 	require.Equal(t, int64(1), session.Revision)
 	session, err = opened.B5Sessions().CASStatus(ctx, session.SessionID, session.Revision, b5.SessionReady, b5.SessionActive, now.Add(9*time.Minute))
 	require.NoError(t, err)
+	session, err = opened.B5Sessions().CASOwner(ctx, session.SessionID, session.Revision, "instance-1", 1, "instance-2", "instance-2", "kms-ciphertext-epoch-2", bytesOf(32, 10))
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), session.OwnerEpoch)
+	require.Equal(t, "instance-2", session.OwnerInstanceID)
 	_, err = opened.B5Sessions().CASStatus(ctx, session.SessionID, 1, b5.SessionReady, b5.SessionActive, now.Add(time.Minute))
 	require.ErrorIs(t, err, ErrB5CASConflict)
 

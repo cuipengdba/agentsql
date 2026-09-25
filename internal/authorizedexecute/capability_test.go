@@ -53,7 +53,9 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			}
 			allowedBusiness := strings.HasPrefix(filepath.ToSlash(relative), "internal/authorizedexecute/internal/businessdb/")
 			allowedControl := strings.HasPrefix(filepath.ToSlash(relative), "internal/store/") || strings.HasPrefix(filepath.ToSlash(relative), "cmd/agentsqlctl/")
-			require.Truef(t, allowedBusiness || allowedControl, "%s imports driver capability %s", relative, name)
+			normalized := filepath.ToSlash(relative)
+			allowedB5S3 := normalized == "internal/b5session/sql_ledger.go" || normalized == "internal/b5session/tombstone.go" || normalized == "internal/b5session/pg_inventory.go"
+			require.Truef(t, allowedBusiness || allowedControl || allowedB5S3, "%s imports driver capability %s", relative, name)
 		}
 		return nil
 	})

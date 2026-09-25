@@ -78,7 +78,7 @@ theme:
 
 	var migrateOutput, migrateError strings.Builder
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &migrateOutput, &migrateError), migrateError.String())
-	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=9 latest=9")
+	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=10 latest=10")
 	assertCommandOutputHasNoPostgresSecret(t, migrateOutput.String()+migrateError.String(), dsn, password, yamlDSN, yamlPassword)
 
 	database, err := sql.Open("pgx", dsn)
@@ -99,7 +99,8 @@ ORDER BY table_name`)
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{
-		"agents", "approvals", "audit_logs", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox",
+		"agents", "approvals", "audit_logs", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events",
+		"chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox",
 		"mask_rules", "notification_channels", "notification_settings", "policies", "policy_column_permission_staging", "policy_column_permissions",
 		"redaction_key_versions", "relation_policy_bindings", "rules", "runtime_instances", "schema_migrations",
 	}, tables)
@@ -166,7 +167,7 @@ theme:
 	output.Reset()
 	stderr.Reset()
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &output, &stderr), stderr.String())
-	require.Contains(t, output.String(), "metadata migration driver=postgres current=8 latest=8")
+	require.Contains(t, output.String(), "metadata migration driver=postgres current=9 latest=9")
 	require.Contains(t, output.String(), "audit migration driver=postgres current=5 latest=5")
 	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
 
@@ -177,7 +178,8 @@ theme:
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, auditDB.Close()) })
 	require.Equal(t, []string{
-		"agents", "approvals", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
+		"agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events",
+		"chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
 		"notification_channels", "notification_settings", "policies", "policy_column_permission_staging", "policy_column_permissions",
 		"redaction_key_versions", "relation_policy_bindings", "rules", "runtime_instances", "schema_migrations",
 	}, commandPostgresTableNames(t, ctx, metadataDB))

@@ -23,6 +23,12 @@ const (
 	BeginCleanupProofVersion   = uint16(1)
 	WALAppendReceiptSchemaID   = "agentsql.b5.wal-append-receipt.v1"
 	WALAppendReceiptVersion    = uint16(1)
+	ContinuationProofSchemaID  = "agentsql.b5.continuation.v2"
+	ContinuationProofVersion   = uint16(2)
+	PoolChildProofSchemaID     = "agentsql.b5.pool-child-proof.v1"
+	PoolChildProofVersion      = uint16(1)
+	QuarantineProofSchemaID    = "agentsql.b5.quarantine-proof.v1"
+	QuarantineProofVersion     = uint16(1)
 )
 
 type SessionStatus string
