@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
+func TestFeatureOffPackageHasOnlyReviewedS6Reference(t *testing.T) {
 	t.Parallel()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -18,6 +18,7 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 	packageDir := filepath.Dir(currentFile)
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
 	importPath := "github.com/cuipengdba/agentsql/internal/b5session"
+	coordinatorGate := filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator", "session.go"))
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -36,7 +37,7 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
-		if strings.Contains(string(contents), importPath) {
+		if strings.Contains(string(contents), importPath) && filepath.Clean(path) != coordinatorGate {
 			references = append(references, path)
 		}
 		return nil

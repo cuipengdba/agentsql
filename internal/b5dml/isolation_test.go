@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFeatureOffPackageHasOnlyS5bBinderReference(t *testing.T) {
+func TestFeatureOffPackageHasOnlyReviewedS5bAndS6References(t *testing.T) {
 	t.Parallel()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -18,7 +18,12 @@ func TestFeatureOffPackageHasOnlyS5bBinderReference(t *testing.T) {
 	packageDir := filepath.Dir(currentFile)
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
 	importPath := "github.com/cuipengdba/agentsql/internal/b5dml"
-	allowed := filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go"))
+	allowedFiles := map[string]bool{
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go")): true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_coordinator.go")):      true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "b5_transaction.go")):                                true,
+	}
+	coordinatorDir := filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator"))
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -37,7 +42,9 @@ func TestFeatureOffPackageHasOnlyS5bBinderReference(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(contents), importPath) && filepath.Clean(path) != allowed {
+		clean := filepath.Clean(path)
+		inCoordinator := strings.HasPrefix(clean, coordinatorDir+string(filepath.Separator))
+		if strings.Contains(string(contents), importPath) && !allowedFiles[clean] && !inCoordinator {
 			references = append(references, path)
 		}
 		return nil

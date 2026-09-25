@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/b5"
@@ -31,6 +32,7 @@ type B5TransactionStore interface {
 	Create(context.Context, B5Transaction) (B5Transaction, error)
 	Get(context.Context, string) (B5Transaction, error)
 	CASState(context.Context, string, int64, b5.TransactionStatus, b5.TransactionPhase, b5.TransactionStatus, b5.TransactionPhase) (B5Transaction, error)
+	CASProgress(context.Context, string, int64, b5.TransactionStatus, b5.TransactionPhase, B5TransactionProgress) (B5Transaction, error)
 	ListExpired(context.Context, time.Time, int) ([]B5Transaction, error)
 }
 
@@ -208,6 +210,24 @@ type B5Transaction struct {
 	Revision                               int64
 }
 
+// B5TransactionProgress is the bounded mutable part of a live transaction.
+// Pointers distinguish "leave unchanged" from a typed zero value.  Callers
+// must still own the transaction's current revision, status and phase; this
+// prevents a late statement result from extending a deadline or advancing a
+// sequence after a terminal/watchdog CAS has won.
+type B5TransactionProgress struct {
+	IdleDeadline         *time.Time
+	StatementDeadline    **time.Time
+	BackendPID           **int
+	BackendSecretDigest  *[]byte
+	BackendStartedAt     **time.Time
+	ConnectionGeneration *uint64
+	LeaseGeneration      *uint64
+	StatementCount       *int
+	TransactionSeq       *uint64
+	PreviousEventDigest  *[]byte
+}
+
 type B5TransactionRepository struct{ repositoryBase }
 
 func (r *B5TransactionRepository) Create(ctx context.Context, value B5Transaction) (B5Transaction, error) {
@@ -233,6 +253,59 @@ func (r *B5TransactionRepository) CASState(ctx context.Context, id string, revis
 		return B5Transaction{}, ErrB5InvalidTransition
 	}
 	result, err := r.db.ExecContext(ctx, r.bind(`UPDATE b5_transactions SET status=?,phase=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE transaction_id=? AND revision=? AND status=? AND phase=?`), toStatus, toPhase, id, revision, fromStatus, fromPhase)
+	if err != nil {
+		return B5Transaction{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return B5Transaction{}, ErrB5CASConflict
+	}
+	return r.Get(ctx, id)
+}
+
+// CASProgress persists deadline, backend and ordered-statement progress
+// without changing the lifecycle phase.  It is intentionally one SQL update:
+// recovery must never observe a new statement count with an old deadline (or
+// vice versa), and stale operation owners must lose the revision CAS.
+func (r *B5TransactionRepository) CASProgress(ctx context.Context, id string, revision int64, status b5.TransactionStatus, phase b5.TransactionPhase, update B5TransactionProgress) (B5Transaction, error) {
+	sets := []string{"updated_at=CURRENT_TIMESTAMP", "revision=revision+1"}
+	args := make([]any, 0, 13)
+	add := func(column string, value any) {
+		sets = append(sets, column+"=?")
+		args = append(args, value)
+	}
+	if update.IdleDeadline != nil {
+		add("idle_deadline", *update.IdleDeadline)
+	}
+	if update.StatementDeadline != nil {
+		add("statement_deadline", optionalTime(*update.StatementDeadline))
+	}
+	if update.BackendPID != nil {
+		add("backend_pid", optionalInt(*update.BackendPID))
+	}
+	if update.BackendSecretDigest != nil {
+		add("backend_secret_digest", nullableBytes(*update.BackendSecretDigest))
+	}
+	if update.BackendStartedAt != nil {
+		add("backend_started_at", optionalTime(*update.BackendStartedAt))
+	}
+	if update.ConnectionGeneration != nil {
+		add("connection_generation", *update.ConnectionGeneration)
+	}
+	if update.LeaseGeneration != nil {
+		add("lease_generation", *update.LeaseGeneration)
+	}
+	if update.StatementCount != nil {
+		add("statement_count", *update.StatementCount)
+	}
+	if update.TransactionSeq != nil {
+		add("transaction_seq", *update.TransactionSeq)
+	}
+	if update.PreviousEventDigest != nil {
+		add("previous_tx_event_digest", nullableBytes(*update.PreviousEventDigest))
+	}
+	args = append(args, id, revision, status, phase)
+	query := `UPDATE b5_transactions SET ` + strings.Join(sets, ",") + ` WHERE transaction_id=? AND revision=? AND status=? AND phase=?`
+	result, err := r.db.ExecContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return B5Transaction{}, err
 	}

@@ -48,6 +48,30 @@ func TestB5S1bSQLiteStoreCRUDCASAndIdempotency(t *testing.T) {
 	tx, err = opened.B5Transactions().CASState(ctx, tx.TransactionID, tx.Revision, b5.TransactionPending, b5.PhaseReady, b5.TransactionPending, b5.PhasePlanReady)
 	require.NoError(t, err)
 	require.Equal(t, b5.PhasePlanReady, tx.Phase)
+	statementDeadline := now.Add(5 * time.Second)
+	statementDeadlinePointer := &statementDeadline
+	backendPID := 4242
+	backendPIDPointer := &backendPID
+	statementCount := 1
+	transactionSeq := uint64(2)
+	previousDigest := bytesOf(32, 11)
+	tx, err = opened.B5Transactions().CASProgress(ctx, tx.TransactionID, tx.Revision, tx.Status, tx.Phase, B5TransactionProgress{
+		StatementDeadline:   &statementDeadlinePointer,
+		BackendPID:          &backendPIDPointer,
+		StatementCount:      &statementCount,
+		TransactionSeq:      &transactionSeq,
+		PreviousEventDigest: &previousDigest,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, tx.StatementDeadline)
+	require.Equal(t, statementDeadline, *tx.StatementDeadline)
+	require.NotNil(t, tx.BackendPID)
+	require.Equal(t, backendPID, *tx.BackendPID)
+	require.Equal(t, statementCount, tx.StatementCount)
+	require.Equal(t, transactionSeq, tx.TransactionSeq)
+	require.Equal(t, previousDigest, tx.PreviousTxEventDigest)
+	_, err = opened.B5Transactions().CASProgress(ctx, tx.TransactionID, tx.Revision-1, tx.Status, tx.Phase, B5TransactionProgress{StatementCount: &statementCount})
+	require.ErrorIs(t, err, ErrB5CASConflict)
 	_, err = opened.B5Transactions().CASState(ctx, tx.TransactionID, tx.Revision, b5.TransactionPending, b5.PhasePlanReady, b5.TransactionActive, b5.PhaseTerminal)
 	require.ErrorIs(t, err, ErrB5InvalidTransition)
 
