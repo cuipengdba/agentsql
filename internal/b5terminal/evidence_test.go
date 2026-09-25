@@ -159,6 +159,7 @@ func TestUnknownSchemaAndInvalidWriteFailClosed(t *testing.T) {
 		mutate func(*Evidence)
 	}{
 		{name: "unknown schema", mutate: func(e *Evidence) { e.Schema = "agentsql.b5.terminal-evidence.v999" }},
+		{name: "unknown schema version", mutate: func(e *Evidence) { e.SchemaVersion++ }},
 		{name: "unknown phase", mutate: func(e *Evidence) { e.Write.Phase = WritePhaseUnknown }},
 		{name: "zero with bytes", mutate: func(e *Evidence) { e.Write.Phase, e.Write.BytesWritten = WriteZeroBytes, 1 }},
 		{name: "partial at frame boundary", mutate: func(e *Evidence) { e.Write.Phase, e.Write.BytesWritten = WritePartial, e.Write.FrameBytes }},
@@ -273,6 +274,7 @@ func baseEvidence(operation TerminalOperation, phase WritePhase) Evidence {
 	}
 	return Evidence{
 		Schema:                TerminalEvidenceSchema,
+		SchemaVersion:         TerminalEvidenceVersion,
 		Operation:             operation,
 		TransactionGeneration: 11,
 		AttemptGeneration:     7,
@@ -320,6 +322,7 @@ func allVerdicts(verdict ConsistencyVerdict) [5]ConsistencyVerdict {
 func validNoCommitProof(e Evidence) NoCommitEverSent {
 	return NoCommitEverSent{
 		Schema:                     NoCommitEverSentSchema,
+		SchemaVersion:              NoCommitEverSentVersion,
 		TransactionGeneration:      e.TransactionGeneration,
 		OwnerGeneration:            e.OwnerGeneration,
 		HistoryContinuous:          true,

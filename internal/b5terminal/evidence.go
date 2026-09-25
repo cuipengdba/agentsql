@@ -221,12 +221,13 @@ func CheckEvidence(e Evidence) ConsistencyResult {
 
 func validEvidenceHeader(e Evidence) bool {
 	return e.Schema == TerminalEvidenceSchema &&
+		e.SchemaVersion == TerminalEvidenceVersion &&
 		(e.Operation == OperationCommit || e.Operation == OperationRollback) &&
 		e.TransactionGeneration != 0 && e.AttemptGeneration != 0 && e.OwnerGeneration != 0
 }
 
 func reasonForInvalidEvidence(e Evidence) ConsistencyReason {
-	if e.Schema != TerminalEvidenceSchema || e.Operation == OperationUnknown || e.TransactionGeneration == 0 || e.AttemptGeneration == 0 || e.OwnerGeneration == 0 {
+	if e.Schema != TerminalEvidenceSchema || e.SchemaVersion != TerminalEvidenceVersion || e.Operation == OperationUnknown || e.TransactionGeneration == 0 || e.AttemptGeneration == 0 || e.OwnerGeneration == 0 {
 		return ReasonUnknownSchema
 	}
 	return ReasonInvalidWriteAccounting

@@ -34,6 +34,7 @@ type NoCommitEverSent struct {
 
 func (proof NoCommitEverSent) ValidFor(e Evidence) bool {
 	return proof.Schema == NoCommitEverSentSchema &&
+		proof.SchemaVersion == NoCommitEverSentVersion &&
 		proof.TransactionGeneration == e.TransactionGeneration &&
 		proof.OwnerGeneration == e.OwnerGeneration &&
 		proof.HistoryContinuous && proof.UniqueSocketOwner &&

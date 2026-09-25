@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
+func TestFeatureOffPackageHasNoProductionEntryPointReferences(t *testing.T) {
 	t.Parallel()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -18,6 +18,7 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 	packageDir := filepath.Dir(currentFile)
 	repoRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
 	dmlContractDir := filepath.Join(repoRoot, "internal", "b5dml")
+	typedAdapter := filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_pg_terminal_adapter.go")
 	importPath := "github.com/cuipengdba/agentsql/internal/b5terminal"
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -30,7 +31,7 @@ func TestFeatureOffPackageHasNoProductionReferences(t *testing.T) {
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || path == typedAdapter {
 			return nil
 		}
 		contents, err := os.ReadFile(path)

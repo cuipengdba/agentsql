@@ -1,9 +1,9 @@
-// Package b5terminal contains the feature-off B5 S4a terminal evidence,
-// ownership, and PostgreSQL CancelRequest contracts.
+// Package b5terminal contains the feature-off B5 terminal evidence,
+// ownership, PostgreSQL wire adapter, and CancelRequest contracts.
 //
-// It deliberately contains no database driver adapter and is not imported by
-// a production entry point. The PostgreSQL wire implementation and real
-// backend lifecycle belong to S4b.
+// It is deliberately not imported by a production entry point. In particular,
+// adding the PostgreSQL adapter here does not activate a flag or replace the
+// legacy businessdb transaction interface.
 package b5terminal
 
 import "github.com/cuipengdba/agentsql/internal/b5"

@@ -204,6 +204,31 @@ func (owner *TerminalOwner) OpenCommitSendPermit(attempt TerminalAttempt) error 
 	}
 }
 
+// ValidateAttempt proves that attempt is still the generation-bound terminal
+// owner before an adapter is allowed to touch the physical connection.
+func (owner *TerminalOwner) ValidateAttempt(attempt TerminalAttempt) error {
+	if owner == nil {
+		return ErrInvalidOwnerState
+	}
+	snapshot := owner.current.Load()
+	if !matchesAttempt(snapshot, attempt) {
+		return ErrStaleTerminalAttempt
+	}
+	switch attempt.Operation {
+	case OperationCommit:
+		if snapshot.state != OwnerCommitting {
+			return ErrInvalidOwnerState
+		}
+	case OperationRollback:
+		if snapshot.state != OwnerRollingBack {
+			return ErrInvalidOwnerState
+		}
+	default:
+		return ErrInvalidOwnerState
+	}
+	return nil
+}
+
 func (owner *TerminalOwner) AdvanceCommitStage(attempt TerminalAttempt, stage CommitStage) error {
 	if stage < CommitStageBeforeSend || stage > CommitStageACKObservedAwaitingRFQ {
 		return ErrInvalidOwnerState
