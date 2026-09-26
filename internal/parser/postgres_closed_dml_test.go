@@ -12,7 +12,7 @@ func TestParsePostgresClosedDMLSupportedSubset(t *testing.T) {
 		hasWhere bool
 		relation PostgresClosedRelation
 	}{
-		{name: "insert values", sql: `INSERT INTO app.items (id, name) VALUES (1, 'a'), (2, NULL)`, action: "INSERT", writes: 2, rows: 2, relation: PostgresClosedRelation{Schema: "app", Name: "items"}},
+		{name: "insert values", sql: `INSERT INTO app.items (id, name) VALUES (1, 'a')`, action: "INSERT", writes: 2, rows: 1, relation: PostgresClosedRelation{Schema: "app", Name: "items"}},
 		{name: "update", sql: `UPDATE app.items AS i SET name = 'x', n = n + 1 WHERE i.id = 1 AND n IS NOT NULL`, action: "UPDATE", writes: 2, hasWhere: true, relation: PostgresClosedRelation{Schema: "app", Name: "items", Alias: "i"}},
 		{name: "delete", sql: `DELETE FROM app.items AS i WHERE i.id = 1`, action: "DELETE", hasWhere: true, relation: PostgresClosedRelation{Schema: "app", Name: "items", Alias: "i"}},
 	}
@@ -40,6 +40,7 @@ func TestParsePostgresClosedDMLFailClosedCorpus(t *testing.T) {
 		`INSERT INTO app.items (id) VALUES (DEFAULT)`,
 		`INSERT INTO app.items (id) VALUES (random())`,
 		`INSERT INTO app.items (id) VALUES ((SELECT 1))`,
+		`INSERT INTO app.items (id) VALUES (1), (2)`,
 		`INSERT INTO app.items (id) VALUES (1), (random())`,
 		`INSERT INTO app.items (id) VALUES (1) RETURNING id`,
 		`INSERT INTO app.items (id) VALUES (1) ON CONFLICT DO NOTHING`,

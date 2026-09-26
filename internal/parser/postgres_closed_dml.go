@@ -144,6 +144,12 @@ func (parser *postgresClosedParser) parseClosedInsert(value any, depth int) (*Po
 	if !ok || len(rows) == 0 {
 		return nil, postgresClosedFailure(PostgresClosedModeRequired)
 	}
+	// NATIVE_C_V1 currently rejects multi-row VALUES with SQLSTATE 0A000.
+	// Keep the closed allow-set a subset of native by treating this product
+	// shape as unsupported, not as a reason to route to native.
+	if len(rows) != 1 {
+		return nil, postgresClosedFailure(PostgresClosedUnsupported)
+	}
 	for _, rowValue := range rows {
 		if err := parser.charge(depth + 1); err != nil {
 			return nil, err
