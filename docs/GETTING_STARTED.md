@@ -1,6 +1,6 @@
 # AgentSQL 快速上手
 
-> 发布状态：AgentSQL v0.3.0 即将发布。一键安装命令与 `ghcr.io/cuipengdba/agentsql` 镜像将在发布日可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
+> 发布状态：AgentSQL v0.4.0 即将发布。一键安装命令与 `ghcr.io/cuipengdba/agentsql` 镜像将在发布日可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
 
 AgentSQL 是放在 AI Agent 与业务数据库之间的数据库安全网关和生产级 MCP Server，让每条 SQL 在执行前经过身份、权限、规则和决策检查，并在可审计的边界内执行。
 
@@ -80,7 +80,7 @@ bash ./demo/reset.sh        # Windows PowerShell 用：.\demo\reset.ps1
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-发布前请按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建。不要尝试 `docker pull ghcr.io/cuipengdba/agentsql:v0.3.0` 或下载 GitHub Release 资产；两者均在 v0.3.0 发布后才可用。
+发布前请按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建。不要尝试 `docker pull ghcr.io/cuipengdba/agentsql:v0.4.0` 或下载 GitHub Release 资产；两者均在 v0.4.0 发布后才可用。
 
 ### 2. 登录控制台
 

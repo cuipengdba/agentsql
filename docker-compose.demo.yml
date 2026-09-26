@@ -48,9 +48,9 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v0.3.0}
+        VERSION: ${VERSION:-v0.4.0}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: agentsql:${VERSION:-v0.3.0}
+    image: agentsql:${VERSION:-v0.4.0}
     user: agentsql
     entrypoint: ["/usr/local/bin/agentsqlctl"]
     command:
@@ -85,9 +85,9 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v0.3.0}
+        VERSION: ${VERSION:-v0.4.0}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: agentsql:${VERSION:-v0.3.0}
+    image: agentsql:${VERSION:-v0.4.0}
     user: agentsql
     command: ["serve", "--config", "/etc/agentsql/config.demo.yaml"]
     environment:

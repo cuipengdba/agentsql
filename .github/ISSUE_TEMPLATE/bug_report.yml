@@ -14,7 +14,7 @@ body:
     attributes:
       label: AgentSQL 版本
       description: 请填写版本号；如为源码构建，请同时填写提交号。
-      placeholder: v0.3.0 / commit SHA
+      placeholder: v0.4.0 / commit SHA
     validations:
       required: true
   - type: dropdown

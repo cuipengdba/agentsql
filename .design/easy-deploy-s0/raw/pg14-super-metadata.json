@@ -1,0 +1,16 @@
+{
+  "catalog_counts": "{\"class\": 433, \"depend\": 8916, \"policy\": 1, \"rewrite\": 142, \"trigger\": 1, \"attribute\": 3197}",
+  "generic_plan_probe": "ERROR: ERROR: unrecognized EXPLAIN option \"generic_plan\" (SQLSTATE 42601)",
+  "identity": "{\"role_oid\": \"10\", \"superuser\": true, \"search_path\": \"\\\"$user\\\", public\", \"temp_schema\": \"0\", \"current_user\": \"spike\", \"session_user\": \"spike\"}",
+  "major": 14,
+  "policy_expression": "owner_name = CURRENT_USER",
+  "prepared_columns": "[{\"name\": \"name\", \"type\": \"text\"}, {\"name\": \"statement\", \"type\": \"text\"}, {\"name\": \"prepare_time\", \"type\": \"timestamp with time zone\"}, {\"name\": \"parameter_types\", \"type\": \"ARRAY\"}, {\"name\": \"from_sql\", \"type\": \"boolean\"}, {\"name\": \"generic_plans\", \"type\": \"bigint\"}, {\"name\": \"custom_plans\", \"type\": \"bigint\"}]",
+  "role": "super",
+  "superuser": true,
+  "trigger_definition": "CREATE TRIGGER trigger_target_audit AFTER UPDATE ON edb.trigger_target FOR EACH ROW EXECUTE FUNCTION edb.trigger_audit()",
+  "trigger_function_definition": "CREATE OR REPLACE FUNCTION edb.trigger_audit()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$BEGIN INSERT INTO edb.audit_log(event) VALUES(NEW.payload); RETURN NEW; END$function$\n",
+  "trigger_function_dependencies": "[{\"deptype\": \"n\", \"refobjid\": \"13834\", \"refclassid\": \"2612\", \"refobjsubid\": 0}, {\"deptype\": \"n\", \"refobjid\": \"16386\", \"refclassid\": \"2615\", \"refobjsubid\": 0}]",
+  "view_definition": " SELECT v.id,\n    v.name\n   FROM edb.v_customer v\n  WHERE v.secret \u003c\u003e ''::text;",
+  "view_dependencies": "[{\"objid\": \"16406\", \"deptype\": \"n\", \"objsubid\": 0, \"refobjid\": \"16399\", \"refobjsubid\": 1}, {\"objid\": \"16406\", \"deptype\": \"n\", \"objsubid\": 0, \"refobjid\": \"16399\", \"refobjsubid\": 2}, {\"objid\": \"16406\", \"deptype\": \"n\", \"objsubid\": 0, \"refobjid\": \"16399\", \"refobjsubid\": 3}, {\"objid\": \"16406\", \"deptype\": \"i\", \"objsubid\": 0, \"refobjid\": \"16403\", \"refobjsubid\": 0}, {\"objid\": \"16406\", \"deptype\": \"n\", \"objsubid\": 0, \"refobjid\": \"16403\", \"refobjsubid\": 0}]",
+  "view_rewrite_tree_digest": "cbdccac38cec8d0142097007a10b0974955f28828e8c97e4fd03aab799c788f0"
+}
