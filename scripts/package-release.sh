@@ -33,6 +33,7 @@ CTL_BINARY="bin/agentsqlctl-linux-${ARCH}"
 [ -f scripts/install.sh ] || die "Missing scripts/install.sh."
 [ -f deploy/systemd/agentsql.service ] || die "Missing deploy/systemd/agentsql.service."
 [ -f deploy/systemd/config.yaml ] || die "Missing deploy/systemd/config.yaml."
+[ -d docs ] || die "Missing repository docs directory."
 [ -f LICENSE ] || die "Missing repository LICENSE."
 
 pr_agentsql_version=$("$AGENTSQL_BINARY" --version 2>/dev/null) || die "Could not execute $AGENTSQL_BINARY."
@@ -131,15 +132,19 @@ done
 ROOT_NAME="agentsql-${VERSION}-linux-${ARCH}"
 STAGE="$TMP_DIR/$ROOT_NAME"
 mkdir -p "$STAGE/deploy/systemd"
+mkdir -p "$STAGE/docs"
 cp "$AGENTSQL_BINARY" "$STAGE/agentsql"
 cp "$CTL_BINARY" "$STAGE/agentsqlctl"
 cp scripts/install.sh "$STAGE/install.sh"
 cp deploy/systemd/agentsql.service "$STAGE/deploy/systemd/agentsql.service"
 cp deploy/systemd/config.yaml "$STAGE/deploy/systemd/config.yaml"
+cp -R docs/. "$STAGE/docs/"
 cp LICENSE "$STAGE/LICENSE"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 chmod 0755 "$STAGE/agentsql" "$STAGE/agentsqlctl" "$STAGE/install.sh"
 chmod 0644 "$STAGE/deploy/systemd/agentsql.service" "$STAGE/deploy/systemd/config.yaml" "$STAGE/LICENSE" "$STAGE/VERSION"
+find "$STAGE/docs" -type d -exec chmod 0755 {} \;
+find "$STAGE/docs" -type f -exec chmod 0644 {} \;
 
 pr_file_list="$TMP_DIR/payload-files"
 (cd "$STAGE" && find . -type f ! -path './SHA256SUMS' -print | sed 's#^\./##' | LC_ALL=C sort) > "$pr_file_list"
