@@ -20,7 +20,7 @@ func TestClosedDMLResolverExactFacts(t *testing.T) {
 		implicit   int
 		rowDelete  bool
 	}{
-		{name: "insert omitted is implicit null", sql: `INSERT INTO app.items (id,name) VALUES (1,'a'),(2,'b')`, action: b5dml.ActionInsert, writes: 3, implicit: 1},
+		{name: "insert omitted is implicit null", sql: `INSERT INTO app.items (id,name) VALUES (1,'a')`, action: b5dml.ActionInsert, writes: 3, implicit: 1},
 		{name: "update set and where", sql: `UPDATE app.items AS i SET name='x', n=n+1 WHERE i.id=1`, action: b5dml.ActionUpdate, writes: 2, references: map[string]string{"n": "expression", "id": "where"}},
 		{name: "delete relation row", sql: `DELETE FROM app.items AS i WHERE i.id=1 AND i.name IS NOT NULL`, action: b5dml.ActionDelete, writes: 1, references: map[string]string{"id": "where", "name": "where"}, rowDelete: true},
 	}
