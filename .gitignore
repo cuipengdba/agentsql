@@ -35,3 +35,6 @@ Thumbs.db
 
 # Local Docker CLI / buildx state
 .docker-config/
+
+artifacts/
+.tmp/

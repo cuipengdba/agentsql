@@ -133,9 +133,12 @@ func TestB5ToolLayerRejectsClosedSurfaceBeforeCoordinator(t *testing.T) {
 			require.NotContains(t, spy.calls, "begin", "case %d reached coordinator", index)
 		})
 	}
-	mysql := map[string]any{"session_id": "s", "owner_epoch": 1, "request_id": "r", "continuation_proof": strings.Repeat("a", 43), "body_digest": strings.Repeat("00", 32), "transaction_id": "tx", "datasource_id": "ds-allowed", "dialect": "mysql", "server_major": 8, "key_revision": 1, "datasource_revision": 1, "policy_revision": 1, "statements": []map[string]any{{"operation_id": "op", "sql": "UPDATE customers SET phone='x'", "reason": "mysql unsupported"}}}
-	body := callMCPBody(t, handler, fixture.handlers.apiKey, toolCall("begin_transaction", mysql))
-	require.Contains(t, body, string(b5.ErrorDialectTransactionUnsupported))
+	t.Run("mysql unsupported", func(t *testing.T) {
+		mysql := map[string]any{"session_id": "s", "owner_epoch": 1, "request_id": "r", "continuation_proof": strings.Repeat("a", 43), "body_digest": strings.Repeat("00", 32), "transaction_id": "tx", "datasource_id": "ds-allowed", "dialect": "mysql", "server_major": 8, "key_revision": 1, "datasource_revision": 1, "policy_revision": 1, "statements": []map[string]any{{"operation_id": "op", "sql": "UPDATE customers SET phone='x'", "reason": "mysql unsupported"}}}
+		body := callMCPBody(t, handler, fixture.handlers.apiKey, toolCall("begin_transaction", mysql))
+		require.Contains(t, body, string(b5.ErrorDialectTransactionUnsupported))
+		require.NotContains(t, spy.calls, "begin", "MySQL unsupported path reached coordinator")
+	})
 }
 
 func TestMCPProtocolAllowlistRejectsBeforeSDKWithBusinessEnvelope(t *testing.T) {

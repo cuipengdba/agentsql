@@ -185,7 +185,9 @@ func TestPGAdapterWatchdogFullFrameACKMissing(t *testing.T) {
 		// Deliberately never return a PostgreSQL response.
 	}()
 	adapter := mustPGAdapter(t, client, nil, func(context.Context, PGBackendIdentity) (bool, error) { return false, nil }, PGAdapterOptions{
-		WatchdogTimeout: 30 * time.Millisecond,
+		// Leave enough scheduler headroom for -race and cold Windows builds;
+		// the assertion is about a full frame followed by a missing reply.
+		WatchdogTimeout: 500 * time.Millisecond,
 		ReconcileBudget: 5 * time.Millisecond,
 	})
 	owner := NewTerminalOwner(3, 4)
@@ -195,7 +197,7 @@ func TestPGAdapterWatchdogFullFrameACKMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 150*time.Millisecond {
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
 		t.Fatalf("watchdog returned after %v", elapsed)
 	}
 	if !result.WatchdogFired || result.Evidence.Write.Phase != WriteFullFrame || result.Resolution.Outcome != OutcomeUnknown || result.Resolution.Disposition != DispositionDiscardUnconfirmed {

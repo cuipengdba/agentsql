@@ -40,6 +40,12 @@ func TestFeatureOffPackageHasNoProductionEntryPointReferences(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// The S10 soak executable has an explicit compile-time gate in addition
+		// to its runtime environment gate. It is absent from every default and
+		// production build, so it is not a product entry-point reference.
+		if strings.HasPrefix(string(contents), "//go:build agentsql_b5_soak\n") {
+			return nil
+		}
 		if strings.Contains(string(contents), importPath) {
 			references = append(references, path)
 		}

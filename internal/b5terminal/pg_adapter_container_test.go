@@ -111,12 +111,13 @@ func TestPGTerminalContainerMatrix(t *testing.T) {
 						if proxied {
 							dsn = startPGTCPProxy(t, directDSN)
 						}
-						runPGRealPositiveCommit(t, ctx, dsn, major, tlsEnabled, proxied)
-						runPGRealDeferredRejection(t, ctx, dsn, major, tlsEnabled, proxied)
-						runPGRealRollback(t, ctx, dsn, major, tlsEnabled, proxied)
+						t.Run("positive-commit", func(t *testing.T) { runPGRealPositiveCommit(t, ctx, dsn, major, tlsEnabled, proxied) })
+						t.Run("deferred-rejection", func(t *testing.T) { runPGRealDeferredRejection(t, ctx, dsn, major, tlsEnabled, proxied) })
+						t.Run("rollback", func(t *testing.T) { runPGRealRollback(t, ctx, dsn, major, tlsEnabled, proxied) })
 						runPGRealFaultMatrix(t, ctx, dsn, major, tlsEnabled, proxied)
 						runPGRealDelayedCancel(t, ctx, dsn, major, tlsEnabled, proxied)
 						runPGRealStatementTimeoutCancel(t, ctx, dsn, major, tlsEnabled, proxied)
+						pgMatrixAssertNoLeakedBackends(t, ctx, dsn)
 					})
 				}
 				runPGRealRestartAndPIDReuseDefense(t, ctx, directDSN, container, major, tlsEnabled)
@@ -265,6 +266,7 @@ func runPGRealStatementTimeoutCancel(t *testing.T, ctx context.Context, dsn, maj
 				t.Fatalf("timeout/cancel sent command %v", command)
 			}
 		}
+		pgMatrixAssertBackendGone(t, ctx, dsn, identity)
 	})
 }
 
@@ -366,11 +368,12 @@ func runPGRealFaultMatrix(t *testing.T, ctx context.Context, dsn, major string, 
 		wantOutcome     DBOutcome
 		wantConsistency ConsistencyVerdict
 		wantCommitted   bool
+		wantWatchdog    bool
 	}{
 		{name: "before-send-zero", mode: pgFaultZeroWrite, wantPhase: WriteZeroBytes, wantOutcome: OutcomeNotCommitted, wantConsistency: VerdictConsistent},
 		{name: "partial-frame", mode: pgFaultPartialWrite, wantPhase: WritePartial, wantOutcome: OutcomeUnknown, wantConsistency: VerdictConsistent},
-		{name: "full-frame-ack-missing", mode: pgFaultDropAllReplies, wantPhase: WriteFullFrame, wantOutcome: OutcomeUnknown, wantConsistency: VerdictConsistent, wantCommitted: true},
-		{name: "positive-ack-rfq-not-observed", mode: pgFaultACKOnly, wantPhase: WriteFullFrame, wantOutcome: OutcomeCommitted, wantConsistency: VerdictConsistent, wantCommitted: true},
+		{name: "full-frame-ack-missing", mode: pgFaultDropAllReplies, wantPhase: WriteFullFrame, wantOutcome: OutcomeUnknown, wantConsistency: VerdictConsistent, wantCommitted: true, wantWatchdog: true},
+		{name: "positive-ack-rfq-not-observed", mode: pgFaultACKOnly, wantPhase: WriteFullFrame, wantOutcome: OutcomeCommitted, wantConsistency: VerdictConsistent, wantCommitted: true, wantWatchdog: true},
 		{name: "ack-missing-rfq-idle", mode: pgFaultDropACK, wantPhase: WriteFullFrame, wantOutcome: OutcomeUnknown, wantConsistency: VerdictConsistent, wantCommitted: true},
 		{name: "ack-rfq-in-transaction", mode: pgFaultRFQInTransaction, wantPhase: WriteFullFrame, wantOutcome: OutcomeUnknown, wantConsistency: VerdictContradiction, wantCommitted: true},
 		{name: "ack-rfq-failed", mode: pgFaultRFQFailed, wantPhase: WriteFullFrame, wantOutcome: OutcomeUnknown, wantConsistency: VerdictContradiction, wantCommitted: true},
@@ -407,6 +410,9 @@ func runPGRealFaultMatrix(t *testing.T, ctx context.Context, dsn, major string, 
 			if result.Evidence.Write.Phase != test.wantPhase || result.Resolution.Outcome != test.wantOutcome || result.Resolution.Consistency.Verdict != test.wantConsistency || result.Resolution.Disposition != DispositionDiscardUnconfirmed {
 				t.Fatalf("fault result = %+v evidence=%+v", result.Resolution, result.Evidence)
 			}
+			if result.WatchdogFired != test.wantWatchdog {
+				t.Fatalf("watchdog fired=%t want=%t", result.WatchdogFired, test.wantWatchdog)
+			}
 			deadline := time.Now().Add(time.Second)
 			var count int
 			for {
@@ -423,6 +429,7 @@ func runPGRealFaultMatrix(t *testing.T, ctx context.Context, dsn, major string, 
 			if err != nil || count != wantCount {
 				t.Fatalf("fault truth count=%d want=%d err=%v", count, wantCount, err)
 			}
+			pgMatrixAssertBackendGone(t, ctx, dsn, identity)
 		})
 	}
 
@@ -461,6 +468,7 @@ func runPGRealFaultMatrix(t *testing.T, ctx context.Context, dsn, major string, 
 		if err = observer.QueryRow(ctx, "SELECT count(*) FROM "+deferred).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("deferred ACK-only truth count=%d err=%v", count, err)
 		}
+		pgMatrixAssertBackendGone(t, ctx, dsn, identity)
 	})
 }
 
@@ -607,7 +615,7 @@ func pgMatrixAdapter(t *testing.T, ctx context.Context, connection *pgx.Conn, la
 func pgMatrixIdentity(t *testing.T, ctx context.Context, connection *pgx.Conn, label, major string, tlsEnabled, proxied bool) PGBackendIdentity {
 	t.Helper()
 	var backendStart time.Time
-	if err := connection.QueryRow(ctx, "SELECT pg_postmaster_start_time()").Scan(&backendStart); err != nil {
+	if err := connection.QueryRow(ctx, "SELECT backend_start FROM pg_stat_activity WHERE pid=pg_backend_pid()").Scan(&backendStart); err != nil {
 		t.Fatal(err)
 	}
 	return PGBackendIdentity{
@@ -616,6 +624,48 @@ func pgMatrixIdentity(t *testing.T, ctx context.Context, connection *pgx.Conn, l
 		PID:             connection.PgConn().PID(),
 		BackendStart:    backendStart,
 		ConnectionNonce: fmt.Sprintf("%s-pg%s-tls-%t-proxy-%t-%d", label, major, tlsEnabled, proxied, time.Now().UnixNano()),
+	}
+}
+
+func pgMatrixAssertBackendGone(t *testing.T, ctx context.Context, dsn string, identity PGBackendIdentity) {
+	t.Helper()
+	observer := pgMatrixObserver(t, ctx, dsn)
+	defer observer.Close(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var exists bool
+		err := observer.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND backend_start=$2)", identity.PID, identity.BackendStart).Scan(&exists)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("backend remains after discard: pid=%d backend_start=%s", identity.PID, identity.BackendStart)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func pgMatrixAssertNoLeakedBackends(t *testing.T, ctx context.Context, dsn string) {
+	t.Helper()
+	observer := pgMatrixObserver(t, ctx, dsn)
+	defer observer.Close(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var count int
+		err := observer.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND usename=current_user AND pid<>pg_backend_pid()").Scan(&count)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d PostgreSQL test backends remain after matrix cell group", count)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -722,8 +772,15 @@ func (connection *pgRealFaultConn) Read(target []byte) (int, error) {
 		return connection.Conn.Read(target)
 	}
 	if connection.mode == pgFaultDropAllReplies || (connection.mode == pgFaultACKOnly && connection.ackDelivered) {
-		time.Sleep(25 * time.Millisecond)
-		return 0, io.EOF
+		// Consume the server's frames but never deliver them to the adapter.
+		// Once PostgreSQL becomes quiet, the real socket blocks until the
+		// adapter watchdog closes it. This models a one-way blackhole instead
+		// of an orderly EOF and proves the missed-kill stop path.
+		for {
+			if _, err := readPGBackendWireFrame(connection.Conn); err != nil {
+				return 0, err
+			}
+		}
 	}
 	for {
 		frame, err := readPGBackendWireFrame(connection.Conn)

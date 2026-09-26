@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -18,6 +19,49 @@ type unavailablePrimary struct{ err error }
 
 func (primary unavailablePrimary) Put(context.Context, PrimaryEvent) (bool, error) {
 	return false, primary.err
+}
+
+type diskFullSink struct{}
+
+func (diskFullSink) WriteExtent([]byte) error { return syscall.ENOSPC }
+func (diskFullSink) Sync() error              { return nil }
+func (diskFullSink) Close() error             { return nil }
+
+func TestS10DiskFullReportsLostAndNeverRetriesFact(t *testing.T) {
+	factory, _ := newTestFactory()
+	created := 0
+	manager, err := NewManager(context.Background(), factory, 1, func(Segment) (ExtentSink, error) {
+		created++
+		if created == 1 {
+			return diskFullSink{}, nil
+		}
+		return newScriptedSink(nil), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := Service{Primary: unavailablePrimary{err: errors.New("primary down")}, Receipts: NewMemoryReceiptStore(), WAL: manager, SyncTimeout: time.Second}
+	var reservationID, eventUUID [16]byte
+	reservationID[0], eventUUID[0] = 71, 72
+	reservation, err := NewEmissionReservation(reservationID, LastAfterStatementEffect, TransitionFsyncTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var delivered ResultReceipt
+	result, err := service.IngestAndRespond(context.Background(), reservation, ServiceEvent{
+		Kind: RecordStatement, Outcome: OutcomeNotCommitted, TransactionID: "disk-full", TransactionSeq: 1,
+		EventUUID: eventUUID, SchemaID: "agentsql.audit.event.v4", SchemaVersion: 4, CanonicalEvent: []byte("disk-full"),
+		SessionID: "session", RequestID: "request", AttemptGeneration: 1,
+	}, func(receipt ResultReceipt) error { delivered = receipt; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Durability != DurabilityLost || delivered.ReportedDurabilityAtResponse != DurabilityLost || reservation.Emitted() != 1 || created != 2 {
+		t.Fatalf("result=%+v receipt=%+v emitted=%d segments=%d", result, delivered, reservation.Emitted(), created)
+	}
+	if result.Append.Identity.RecordOrdinal != 0 || manager.Current().State() != WriterOpen {
+		t.Fatalf("append=%+v replacement_state=%v", result.Append, manager.Current().State())
+	}
 }
 
 func TestServiceReservationWedgeRotationAndSixRecordBound(t *testing.T) {
