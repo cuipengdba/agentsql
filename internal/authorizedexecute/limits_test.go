@@ -30,6 +30,7 @@ func TestPreParseLimitsFailBeforeParser(t *testing.T) {
 	requireReason(t, ValidatePreParse("SELECT 123", nil, limits), ReasonRequestTooLarge)
 	limits.RawSQLBytes = DefaultLimits.RawSQLBytes
 	requireReason(t, ValidatePreParse("a b c", nil, limits), ReasonTokenLimit)
+	requireReason(t, ValidatePreParse("a+a+a", nil, limits), ReasonTokenLimit)
 	requireReason(t, ValidatePreParse("((x))", nil, limits), ReasonNestingLimit)
 	require.NoError(t, ValidatePreParse("'((' -- ))\n", nil, limits))
 	limits.Tokens = DefaultLimits.Tokens

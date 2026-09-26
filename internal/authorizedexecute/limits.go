@@ -276,21 +276,27 @@ func scanSQLShape(rawSQL string, limits Limits) error {
 			if isSQLSpace(current) {
 				continue
 			}
-			if index == 0 || isSQLSpace(rawSQL[index-1]) || isSQLPunctuation(rawSQL[index-1]) {
+			if isSQLWordByte(current) {
+				// Consume every identifier/keyword/numeric run once. Looking only
+				// at whitespace or a tiny punctuation set undercounted compact
+				// attacker input such as a+a+a by orders of magnitude.
 				tokens++
-				if isSQLWordByte(current) {
-					end := index + 1
-					for end < len(rawSQL) && isSQLWordByte(rawSQL[end]) {
-						end++
-					}
-					if end-index == len("SELECT") && strings.EqualFold(rawSQL[index:end], "SELECT") {
-						queryBlocks++
-						if queryBlocks > limits.QueryBlocks {
-							return limitError(ReasonQueryBlockLimit)
-						}
-					}
-					index = end - 1
+				end := index + 1
+				for end < len(rawSQL) && isSQLWordByte(rawSQL[end]) {
+					end++
 				}
+				if end-index == len("SELECT") && strings.EqualFold(rawSQL[index:end], "SELECT") {
+					queryBlocks++
+					if queryBlocks > limits.QueryBlocks {
+						return limitError(ReasonQueryBlockLimit)
+					}
+				}
+				index = end - 1
+			} else {
+				// Every remaining non-space byte is an operator/delimiter token.
+				// Counting unknown UTF-8 bytes conservatively is fail-closed and
+				// avoids allocating or needing a dialect lexer at this boundary.
+				tokens++
 			}
 		}
 		if tokens > limits.Tokens {
@@ -306,9 +312,6 @@ func isSQLWordByte(value byte) bool {
 
 func isSQLSpace(value byte) bool {
 	return value == ' ' || value == '\t' || value == '\r' || value == '\n' || value == '\f'
-}
-func isSQLPunctuation(value byte) bool {
-	return value == '(' || value == ')' || value == ',' || value == ';'
 }
 
 // Budget is a single checked counter shared by AST, lineage and catalog work.
