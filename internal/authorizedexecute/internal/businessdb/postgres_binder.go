@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	postgresBinderABI        = "agentsql-binder-4.1"
+	postgresBinderABI        = "agentsql-binder-4.2"
 	postgresBinderMaxRetries = 1
 	postgresCatalogTimeout   = time.Second
 )
@@ -366,7 +366,7 @@ func readPostgresBinderCapability(ctx context.Context, tx pgx.Tx, budget Postgre
 		return PostgresBinderCapability{}, catalogAuthError("AUTH_BINDER_CAPABILITY_MISMATCH")
 	}
 	expected, ok := PostgresBinderNativeExpectation(capability.ServerMajor)
-	if !ok || capability.Matview || !nativeCapabilityMatches(capability, expected) {
+	if !ok || !capability.Matview || !nativeCapabilityMatches(capability, expected) {
 		return PostgresBinderCapability{}, catalogAuthError("AUTH_BINDER_CAPABILITY_MISMATCH")
 	}
 	return capability, nil
@@ -468,7 +468,7 @@ func validatePostgresManifest(manifest PostgresPreparedManifest, budget Postgres
 	}
 	seen := make(map[uint32]struct{})
 	for _, relation := range manifest.Relations {
-		if relation.OID == 0 || relation.Kind != 'r' && relation.Kind != 'v' {
+		if relation.OID == 0 || relation.Kind != 'r' && relation.Kind != 'v' && relation.Kind != 'm' {
 			return catalogAuthError("AUTH_RELATION_SHAPE_UNSUPPORTED")
 		}
 		if err := budget.CheckViewDepth(relation.ViewDepth); err != nil {
@@ -499,7 +499,7 @@ func lockPostgresRelations(ctx context.Context, tx pgx.Tx, relations []PostgresB
 			continue
 		}
 		seen[relation.OID] = struct{}{}
-		if relation.Kind != 'r' && relation.Kind != 'v' {
+		if relation.Kind != 'r' && relation.Kind != 'v' && relation.Kind != 'm' {
 			return catalogAuthError("AUTH_RELATION_SHAPE_UNSUPPORTED")
 		}
 		if err := budget.ChargeCatalogRoundTrips(1); err != nil {
@@ -509,7 +509,14 @@ func lockPostgresRelations(ctx context.Context, tx pgx.Tx, relations []PostgresB
 		if err := tx.QueryRow(ctx, `SELECT pg_catalog.format('%I.%I',n.nspname,c.relname) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.oid=$1 AND c.relkind=$2`, relation.OID, string(relation.Kind)).Scan(&qualified); err != nil {
 			return &postgresCatalogRaceError{reason: "AUTH_CATALOG_RACE"}
 		}
-		if _, err := tx.Exec(ctx, "LOCK TABLE "+qualified+" IN ACCESS SHARE MODE"); err != nil {
+		lockSQL := "LOCK TABLE " + qualified + " IN ACCESS SHARE MODE"
+		if relation.Kind == 'm' {
+			// PostgreSQL rejects LOCK TABLE for materialized views. Planning a
+			// zero-row SELECT obtains the same transaction-scoped AccessShareLock
+			// without executing the relation, so WITH NO DATA also remains bindable.
+			lockSQL = "EXPLAIN SELECT 1 FROM " + qualified + " LIMIT 0"
+		}
+		if _, err := tx.Exec(ctx, lockSQL); err != nil {
 			return postgresDatabaseError(ctx, DBStageMetadata, "lock PostgreSQL relation", err)
 		}
 		var locked bool
@@ -524,7 +531,7 @@ func readPostgresUserLocks(ctx context.Context, tx pgx.Tx, budget PostgresCatalo
 	if err := budget.ChargeCatalogRoundTrips(1); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT DISTINCT l.relation FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid=l.relation JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE l.pid=pg_backend_pid() AND l.locktype='relation' AND l.granted AND c.relkind IN ('r','v') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' ORDER BY l.relation`)
+	rows, err := tx.Query(ctx, `SELECT DISTINCT l.relation FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid=l.relation JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE l.pid=pg_backend_pid() AND l.locktype='relation' AND l.granted AND c.relkind IN ('r','v','m') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' ORDER BY l.relation`)
 	if err != nil {
 		return nil, postgresDatabaseError(ctx, DBStageMetadata, "read PostgreSQL held relation locks", err)
 	}
@@ -733,7 +740,22 @@ func manifestViewDepths(manifest PostgresPreparedManifest) map[uint32]int {
 	return result
 }
 func samePostgresClosure(left, right []PostgresBoundRelation) bool {
-	return sameOIDSet(boundRelationOIDs(left), boundRelationOIDs(right))
+	if !sameOIDSet(boundRelationOIDs(left), boundRelationOIDs(right)) {
+		return false
+	}
+	kinds := make(map[uint32]byte, len(left))
+	for _, relation := range left {
+		if prior, exists := kinds[relation.OID]; exists && prior != relation.Kind {
+			return false
+		}
+		kinds[relation.OID] = relation.Kind
+	}
+	for _, relation := range right {
+		if kind, exists := kinds[relation.OID]; !exists || kind != relation.Kind {
+			return false
+		}
+	}
+	return true
 }
 func boundRelationOIDs(values []PostgresBoundRelation) []uint32 {
 	result := make([]uint32, 0, len(values))

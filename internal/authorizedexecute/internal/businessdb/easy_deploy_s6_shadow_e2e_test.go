@@ -168,7 +168,7 @@ func runEasyDeployS6CorpusReplay(t *testing.T, ctx context.Context, executor *Po
 		nativeCovered++
 	}
 	require.Equal(t, 32, closedCovered)
-	require.Equal(t, 45, nativeCovered)
+	require.Equal(t, 46, nativeCovered)
 }
 
 func setupEasyDeployS6CorpusFixture(t *testing.T, ctx context.Context, executor *PostgresExecutor) {
@@ -230,6 +230,15 @@ func runEasyDeployS6RealShadow(t *testing.T, ctx context.Context, executor *Post
 		require.Equal(t, ShadowConsistent, result.Status, sql)
 		require.Empty(t, result.DifferingFields, sql)
 	}
+	matviewSQL := `SELECT m.id FROM s6c.account_rollup m`
+	matviewResult, matviewErr := runner.Run(ctx, ShadowDifferentialInput{DatasourceIdentity: nativeRequired.DatasourceIdentity,
+		RequestDigest: EasyDeployRequestDigest(matviewSQL), StatementClass: BinderStatementSelect,
+		ClosedDisposition: ClosedRequestNativeRequired, NativeCapabilityDigest: handshake.Native.Digest},
+		BindRequest{RawSQL: matviewSQL, Identity: SemanticIdentity{DatasourceIdentity: nativeRequired.DatasourceIdentity}},
+		realClosedShadowBind(executor), realNativeSelectShadowBind(executor, nil))
+	require.NoError(t, matviewErr, "%s result=%+v", matviewSQL, matviewResult)
+	require.Equal(t, ShadowNativeOnly, matviewResult.Status)
+	require.Equal(t, "AUTH_RELATION_SHAPE_UNSUPPORTED", matviewResult.ClosedReason)
 	for _, sql := range []string{
 		`INSERT INTO s6c.events(id,account_id,amount) VALUES (30,1,10)`,
 		`UPDATE s6c.events e SET amount=e.amount+1 WHERE e.id=1`,
@@ -263,7 +272,7 @@ func runEasyDeployS6RealShadow(t *testing.T, ctx context.Context, executor *Post
 	require.True(t, result.NativeMarkedUnhealthy)
 	require.NotEmpty(t, result.DifferingFields)
 	require.Equal(t, uint64(1), metrics.Snapshot().Divergence)
-	require.Len(t, events, 8)
+	require.Len(t, events, 9)
 
 	for index := 0; index < 2; index++ {
 		fresh := nativeRequired
@@ -293,6 +302,13 @@ func runEasyDeployS6ClosedOnly(t *testing.T, ctx context.Context, executor *Post
 	require.NoError(t, err)
 	require.Equal(t, BinderModeCatalogClosedV1, program.Mode)
 	require.Equal(t, BinderStatementSelect, program.Facts.StatementClass)
+
+	matview := request
+	matview.RequestDigest = EasyDeployRequestDigest("closed-only-matview")
+	matview.RequiresMatview = true
+	decision, err = selector.Select(matview)
+	requireAuthorizationReason(t, err, "AUTH_RELATION_SHAPE_UNSUPPORTED")
+	require.True(t, decision.Rejected)
 }
 
 func runEasyDeployS6NegativeEscapeGate(t *testing.T, ctx context.Context, executor *PostgresExecutor,

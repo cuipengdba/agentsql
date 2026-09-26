@@ -121,7 +121,7 @@ func (executor *PostgresExecutor) ProbeEasyDeployBinderCapabilities(ctx context.
 		ExtensionVersion: capability.ExtensionVersion, BuildHash: capability.BuildHash,
 		ExtensionHash: capability.ExtensionHash, NodeManifestHash: capability.NodeManifestHash,
 		AllowlistHash: capability.AllowlistHash,
-		Capabilities:  []string{"analyzed_tree", "exact_expression_oids", "ordinary_view_lineage", "prepared_generation"},
+		Capabilities:  []string{"analyzed_tree", "exact_expression_oids", "ordinary_view_lineage", "matview_typed_lineage", "matview_relkind_lock", "prepared_generation"},
 		Precision:     []PrecisionDeclaration{{Name: "semantic_facts", Exact: true}, {Name: "plan_generation", Exact: true}}}
 	native.Digest, err = native.CanonicalDigest()
 	if err != nil {
@@ -142,7 +142,7 @@ func nativeCapabilityMatches(value PostgresBinderCapability, expected NativeCapa
 	return value.ABI == expected.ABI && value.ServerMajor == expected.ServerMajor &&
 		value.ExtensionVersion == expected.ExtensionVersion && value.BuildHash == expected.BuildHash &&
 		value.ExtensionHash == expected.ExtensionHash && value.NodeManifestHash == expected.NodeManifestHash &&
-		value.AllowlistHash == expected.AllowlistHash
+		value.AllowlistHash == expected.AllowlistHash && value.Matview
 }
 
 // PostgresBinderNativeExpectation returns the immutable artifact attestation
@@ -156,10 +156,10 @@ func PostgresBinderNativeExpectation(major int) (NativeCapabilityExpectation, bo
 	return NativeCapabilityExpectation{
 		ABI:              postgresBinderABI,
 		ServerMajor:      major,
-		ExtensionVersion: "0.4",
-		BuildHash:        binderArtifactHash("agentsql-binder-build-v1-pg" + suffix),
-		ExtensionHash:    binderArtifactHash("agentsql-binder-source-v1-pg" + suffix),
-		NodeManifestHash: binderArtifactHash("query-rte-var-join-v1-pg" + suffix),
+		ExtensionVersion: "0.4-s3m",
+		BuildHash:        binderArtifactHash("agentsql-binder-build-v2-pg" + suffix),
+		ExtensionHash:    binderArtifactHash("agentsql-binder-source-v2-pg" + suffix),
+		NodeManifestHash: binderArtifactHash("query-rte-var-join-matview-v2-pg" + suffix),
 		AllowlistHash:    binderArtifactHash("builtin-exact-oids-v1-pg" + suffix),
 	}, true
 }

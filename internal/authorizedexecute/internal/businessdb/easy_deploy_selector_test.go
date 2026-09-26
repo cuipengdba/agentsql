@@ -66,6 +66,29 @@ func TestEasyDeploySelectorRulesAndNativeFallback(t *testing.T) {
 	require.Equal(t, BinderModeCatalogClosedV1, decision.Mode)
 }
 
+func TestEasyDeploySelectorMatviewRequiresHealthyNative(t *testing.T) {
+	t.Parallel()
+	handshake := healthySelectorHandshake(t, 16, 42)
+	selector := NewBinderModeSelector(NewNativeHealthRegistry())
+	request := BinderSelectionRequest{DatasourceIdentity: "matview-ds", RequestDigest: "sha256:matview",
+		StatementClass: BinderStatementSelect, ClosedDisposition: ClosedRequestProven, RequiresMatview: true,
+		Provider: postgresProviderSelfManaged, Handshake: handshake}
+	decision, err := selector.Select(request)
+	require.NoError(t, err)
+	require.Equal(t, BinderModeNativeCV1, decision.Mode)
+	require.Equal(t, ClosedRequestNativeRequired, decision.ClosedDisposition)
+
+	request.DatasourceIdentity = "matview-without-native"
+	request.Handshake.NativeFilesAvailable = false
+	request.Handshake.NativeInstalled = false
+	request.Handshake.NativeHealth = BinderCodeModeRequired
+	request.Handshake.Native = CapabilityAttestation{Schema: BinderProofSchemaID, SchemaVersion: BinderProofSchemaVersion, Mode: BinderModeNativeCV1}
+	decision, err = selector.Select(request)
+	requireAuthorizationReason(t, err, "AUTH_RELATION_SHAPE_UNSUPPORTED")
+	require.True(t, decision.Rejected)
+	require.Equal(t, BinderModeCatalogClosedV1, decision.Mode)
+}
+
 func TestShadowDivergenceMarksNativeUnhealthyAndSelectorFallsBack(t *testing.T) {
 	t.Parallel()
 	handshake := healthySelectorHandshake(t, 16, 42)
@@ -141,6 +164,14 @@ func TestShadowConsistentNativeOnlyRejectedAndFieldOrdering(t *testing.T) {
 		ClosedDisposition: ClosedRequestMustReject}, BindRequest{}, fixedShadowBind(BinderModeCatalogClosedV1, SemanticFacts{}, modeRequired), fixedShadowBind(BinderModeNativeCV1, SemanticFacts{}, modeRequired))
 	require.NoError(t, err)
 	require.Equal(t, ShadowRejected, result.Status)
+
+	shapeUnsupported := NewPrecisionFailure("AUTH_RELATION_SHAPE_UNSUPPORTED")
+	result, err = runner.Run(context.Background(), ShadowDifferentialInput{DatasourceIdentity: "matview-ds", RequestDigest: "sha256:matview",
+		StatementClass: BinderStatementSelect, ClosedDisposition: ClosedRequestNativeRequired}, BindRequest{},
+		fixedShadowBind(BinderModeCatalogClosedV1, SemanticFacts{}, shapeUnsupported), fixedShadowBind(BinderModeNativeCV1, facts, nil))
+	require.NoError(t, err)
+	require.Equal(t, ShadowNativeOnly, result.Status, "closed matview rejection and native proof are an expected capability layer")
+	require.Equal(t, "AUTH_RELATION_SHAPE_UNSUPPORTED", result.ClosedReason)
 }
 
 func TestClassifyEasyDeployClosedSyntaxEscapeCorpus(t *testing.T) {
@@ -171,7 +202,7 @@ func healthySelectorHandshake(t testing.TB, major int, databaseOID uint32) Binde
 	require.True(t, ok)
 	capability := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: major, ExtensionVersion: expected.ExtensionVersion,
 		BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash,
-		AllowlistHash: expected.AllowlistHash}
+		AllowlistHash: expected.AllowlistHash, Matview: true}
 	native, err := nativeCapabilityAttestation(capability, databaseOID, major*10000+1)
 	require.NoError(t, err)
 	return BinderCapabilityHandshake{SelectedMode: BinderModeNativeCV1, Closed: closedCapability(major*10000+1, databaseOID),

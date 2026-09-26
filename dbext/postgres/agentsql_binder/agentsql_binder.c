@@ -16,6 +16,7 @@
 #include "nodes/print.h"
 #include "parser/parser.h"
 #include "parser/parsetree.h"
+#include "rewrite/rewriteHandler.h"
 #include "storage/ipc.h"
 #include "tcop/utility.h"
 #include "utils/builtins.h"
@@ -30,12 +31,12 @@
 
 PG_MODULE_MAGIC;
 
-#define AGENTSQL_ABI "agentsql-binder-4.1"
+#define AGENTSQL_ABI "agentsql-binder-4.2"
 #define AGENTSQL_DML_ABI "agentsql-binder-dml-1"
-#define AGENTSQL_EXT_VERSION "0.4"
-#define AGENTSQL_BUILD_INPUT "agentsql-binder-build-v1-pg" PG_MAJORVERSION
-#define AGENTSQL_EXTENSION_INPUT "agentsql-binder-source-v1-pg" PG_MAJORVERSION
-#define AGENTSQL_NODE_MANIFEST_INPUT "query-rte-var-join-v1-pg" PG_MAJORVERSION
+#define AGENTSQL_EXT_VERSION "0.4-s3m"
+#define AGENTSQL_BUILD_INPUT "agentsql-binder-build-v2-pg" PG_MAJORVERSION
+#define AGENTSQL_EXTENSION_INPUT "agentsql-binder-source-v2-pg" PG_MAJORVERSION
+#define AGENTSQL_NODE_MANIFEST_INPUT "query-rte-var-join-matview-v2-pg" PG_MAJORVERSION
 #define AGENTSQL_ALLOWLIST_INPUT "builtin-exact-oids-v1-pg" PG_MAJORVERSION
 #define AGENTSQL_MAX_DEPTH 64
 
@@ -162,6 +163,12 @@ static JoinExpr *find_join_expr(Node *node, Index rtindex);
 static void resolve_join_input(BinderWalkContext *context, Query *query, Node *join_input,
 							   AttrNumber attnum, Oid type_oid, Oid collid,
 							   int view_depth, int recursion_depth);
+static Query *relation_definition_query(Oid relid, char kind);
+static bool relation_on_view_stack(BinderWalkContext *context, Oid relid);
+static void scan_relation_definition(BinderWalkContext *context, Oid relid, char kind,
+								 int view_depth, const char *path);
+static bool resolve_relation_definition_var(BinderWalkContext *context, Oid relid, char kind,
+									AttrNumber attnum, int view_depth, int recursion_depth);
 static void walk_expression(BinderWalkContext *context, Query *query, Node *node,
 							const char *site, const char *usage, int contributor_group);
 static void add_relation(BinderWalkContext *context, Oid oid, char kind, bool inh,
@@ -397,7 +404,8 @@ preflight_walker(Node *node, void *context)
 		TupleDesc descriptor = RelationGetDescr(relation);
 		int i;
 		char kind = relation->rd_rel->relkind;
-		if (kind != RELKIND_RELATION && kind != RELKIND_VIEW)
+		if (kind != RELKIND_RELATION && kind != RELKIND_VIEW &&
+			kind != RELKIND_MATVIEW)
 			ereport(ERROR, (errcode(ERRCODE_WRONG_OBJECT_TYPE),
 							errmsg("AgentSQL relation kind is unsupported")));
 		for (i = 0; i < descriptor->natts; i++)
@@ -660,6 +668,10 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 			char kind = get_rel_relkind(rte->relid);
 			add_relation(context, rte->relid, kind, rte->inh, required, check_as_user,
 						 view_depth, psprintf("%s.rte%d", path, rti));
+			if ((kind == RELKIND_VIEW || kind == RELKIND_MATVIEW) &&
+				!relation_on_view_stack(context, rte->relid))
+				scan_relation_definition(context, rte->relid, kind, view_depth,
+								 psprintf("%s.definition%d", path, rti));
 			if (context->record->dml && query->resultRelation == rti)
 			{
 				if (OidIsValid(context->record->target_relation_oid) && context->record->target_relation_oid != rte->relid)
@@ -686,10 +698,15 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 			if (OidIsValid(rte->relid))
 				context->view_stack_depth--;
 		}
-		else if (rte->rtekind == RTE_JOIN || rte->rtekind == RTE_RESULT)
+		else if (rte->rtekind == RTE_JOIN || rte->rtekind == RTE_RESULT
+#if PG_VERSION_NUM >= 180000
+				 || rte->rtekind == RTE_GROUP
+#endif
+				 )
 			;
 		else
-			context->unsupported = true;
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("AgentSQL range table kind %d is unsupported", (int) rte->rtekind)));
 		if (rte->securityQuals != NIL)
 			walk_expression(context, query, (Node *) rte->securityQuals, "security_qual", "reference", ++context->record->edge_count);
 	}
@@ -811,6 +828,67 @@ scan_query(BinderWalkContext *context, Query *query, int view_depth, const char 
 	context->view_depth = saved_view_depth;
 }
 
+/*
+ * Ordinary views normally arrive from the rewriter as RTE_SUBQUERY nodes.
+ * Materialized views deliberately do not: their heap is read directly.  The
+ * only authoritative definition for both relation kinds is the typed Query
+ * stored by the unique _RETURN rule.  Copy it out of the relcache before the
+ * Relation is closed so all later walking remains request-local.
+ */
+static Query *
+relation_definition_query(Oid relid, char kind)
+{
+	Relation relation;
+	Query *definition;
+
+	if (kind != RELKIND_VIEW && kind != RELKIND_MATVIEW)
+		return NULL;
+	relation = relation_open(relid, NoLock);
+	if (relation->rd_rel->relkind != kind)
+	{
+		relation_close(relation, NoLock);
+		ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("AgentSQL relation identity changed")));
+	}
+	definition = get_view_query(relation);
+	if (definition == NULL || !IsA(definition, Query) || definition->commandType != CMD_SELECT)
+	{
+		relation_close(relation, NoLock);
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("AgentSQL relation definition is unavailable")));
+	}
+	definition = copyObject(definition);
+	relation_close(relation, NoLock);
+	return definition;
+}
+
+static bool
+relation_on_view_stack(BinderWalkContext *context, Oid relid)
+{
+	int i;
+	for (i = 0; i < context->view_stack_depth; i++)
+		if (context->view_stack[i] == relid)
+			return true;
+	return false;
+}
+
+static void
+scan_relation_definition(BinderWalkContext *context, Oid relid, char kind,
+						 int view_depth, const char *path)
+{
+	Query *definition;
+
+	if (relation_on_view_stack(context, relid))
+		return;
+	if (context->view_stack_depth >= AGENTSQL_MAX_DEPTH)
+		ereport(ERROR, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						errmsg("AgentSQL view depth exceeded")));
+	definition = relation_definition_query(relid, kind);
+	context->view_stack[context->view_stack_depth++] = relid;
+	scan_query(context, definition, view_depth + 1, path);
+	context->view_stack_depth--;
+}
+
 static bool
 record_has_write_target(BinderRecord *record, Oid relation_oid, AttrNumber attnum)
 {
@@ -904,6 +982,14 @@ resolve_rte_var(BinderWalkContext *context, Query *query, Index varno,
 	{
 		add_var(context, rte->relid, attnum, type_oid, collid, true,
 				attnum == InvalidAttrNumber, type_oid, is_composite_type(type_oid));
+		if (attnum > 0)
+		{
+			char kind = get_rel_relkind(rte->relid);
+			if ((kind == RELKIND_VIEW || kind == RELKIND_MATVIEW) &&
+				!relation_on_view_stack(context, rte->relid))
+				(void) resolve_relation_definition_var(context, rte->relid, kind,
+											  attnum, view_depth, recursion_depth + 1);
+		}
 		return;
 	}
 	if (rte->rtekind == RTE_SUBQUERY)
@@ -939,6 +1025,14 @@ resolve_rte_var(BinderWalkContext *context, Query *query, Index varno,
 		}
 		return;
 	}
+#if PG_VERSION_NUM >= 180000
+	if (rte->rtekind == RTE_GROUP && attnum > 0 &&
+		attnum <= list_length(rte->groupexprs))
+	{
+		(void) expression_walker(list_nth(rte->groupexprs, attnum - 1), context);
+		return;
+	}
+#endif
 	if (rte->rtekind == RTE_JOIN && attnum > 0)
 	{
 		JoinExpr *join = find_join_expr((Node *) query->jointree, varno);
@@ -962,6 +1056,46 @@ resolve_rte_var(BinderWalkContext *context, Query *query, Index varno,
 	}
 	add_var(context, InvalidOid, attnum, type_oid, collid, false,
 			attnum == InvalidAttrNumber, type_oid, is_composite_type(type_oid));
+}
+
+static bool
+resolve_relation_definition_var(BinderWalkContext *context, Oid relid, char kind,
+								AttrNumber attnum, int view_depth, int recursion_depth)
+{
+	Query *definition;
+	TargetEntry *entry = NULL;
+	ListCell *cell;
+	int saved_depth;
+	int saved_view;
+
+	if (recursion_depth > AGENTSQL_MAX_DEPTH || relation_on_view_stack(context, relid))
+		return false;
+	if (context->stack_depth >= AGENTSQL_MAX_DEPTH ||
+		context->view_stack_depth >= AGENTSQL_MAX_DEPTH)
+		ereport(ERROR, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						errmsg("AgentSQL view depth exceeded")));
+	definition = relation_definition_query(relid, kind);
+	foreach(cell, definition->targetList)
+	{
+		TargetEntry *candidate = lfirst_node(TargetEntry, cell);
+		if (!candidate->resjunk && candidate->resno == attnum)
+		{
+			entry = candidate;
+			break;
+		}
+	}
+	if (entry == NULL)
+		return false;
+	saved_depth = context->stack_depth;
+	saved_view = context->view_depth;
+	context->query_stack[context->stack_depth++] = definition;
+	context->view_stack[context->view_stack_depth++] = relid;
+	context->view_depth = view_depth + 1;
+	(void) expression_walker((Node *) entry->expr, context);
+	context->view_stack_depth--;
+	context->stack_depth = saved_depth;
+	context->view_depth = saved_view;
+	return true;
 }
 
 static JoinExpr *
@@ -1281,7 +1415,7 @@ agentsql_binder_capabilities(PG_FUNCTION_ARGS)
 	extension_hash = sha256_hex(AGENTSQL_EXTENSION_INPUT, strlen(AGENTSQL_EXTENSION_INPUT));
 	node_manifest_hash = sha256_hex(AGENTSQL_NODE_MANIFEST_INPUT, strlen(AGENTSQL_NODE_MANIFEST_INPUT));
 	allowlist_hash = sha256_hex(AGENTSQL_ALLOWLIST_INPUT, strlen(AGENTSQL_ALLOWLIST_INPUT));
-	appendStringInfo(&json,"{\"abi\":\"%s\",\"server_major\":%s,\"extension_version\":\"%s\",\"build_hash\":\"%s\",\"extension_hash\":\"%s\",\"node_manifest_hash\":\"%s\",\"allowlist_hash\":\"%s\",\"matview\":false,\"allowlist\":{",AGENTSQL_ABI,PG_MAJORVERSION,AGENTSQL_EXT_VERSION,build_hash,extension_hash,node_manifest_hash,allowlist_hash);
+	appendStringInfo(&json,"{\"abi\":\"%s\",\"server_major\":%s,\"extension_version\":\"%s\",\"build_hash\":\"%s\",\"extension_hash\":\"%s\",\"node_manifest_hash\":\"%s\",\"allowlist_hash\":\"%s\",\"matview\":true,\"allowlist\":{",AGENTSQL_ABI,PG_MAJORVERSION,AGENTSQL_EXT_VERSION,build_hash,extension_hash,node_manifest_hash,allowlist_hash);
 	for (column=1;column<=lengthof(keys);column++)
 	{
 		char *array = SPI_getvalue(tuple,descriptor,column);

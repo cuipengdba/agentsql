@@ -63,6 +63,7 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 		`CREATE VIEW s4.v2 AS SELECT id,phone FROM s4.v`,
 		`INSERT INTO s4.a VALUES (1,'13812345678'),(2,'13987654321')`,
 		`INSERT INTO s4.b VALUES (1,'x'),(2,'y')`,
+		`CREATE MATERIALIZED VIEW s4.mv AS SELECT id, phone AS phone_alias, length(phone) AS phone_len FROM s4.v WITH DATA`,
 	} {
 		statementCapability, err := gateway.AuthorizedExecute(ctx, datasource, secret, statement, "")
 		require.NoError(t, err, statement)
@@ -84,7 +85,8 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 		wantMajor, err := strconv.Atoi(major)
 		require.NoError(t, err)
 		require.Equal(t, wantMajor, capability.ServerMajor)
-		require.Equal(t, "agentsql-binder-4.1", capability.ABI)
+		require.Equal(t, "agentsql-binder-4.2", capability.ABI)
+		require.True(t, capability.Matview)
 		require.NoError(t, gateway.ProbeReservation(stored.ID))
 		metadataReadiness, err := control.Fence().Protocol3Readiness(ctx)
 		require.NoError(t, err)
@@ -171,6 +173,7 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 	})
 
 	for name, sqlText := range map[string]string{
+		"matview-allow":  `SELECT phone_alias FROM s4.mv WHERE id=1`,
 		"self-join":      `SELECT left_a.phone FROM s4.a left_a JOIN s4.a right_a ON left_a.id=right_a.id WHERE right_a.id=1`,
 		"two-level-view": `SELECT phone FROM s4.v2 WHERE id=1`,
 	} {
@@ -190,6 +193,23 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 			require.NotEmpty(t, selected.Result.Rows)
 		})
 	}
+
+	t.Run("matview-deny-without-output-grant", func(t *testing.T) {
+		const sqlText = `SELECT phone_alias FROM s4.mv WHERE id=1`
+		enrolled, err := gateway.EnrollPostgresSelect(ctx, datasource, secret, sqlText, DefaultLimits)
+		require.NoError(t, err)
+		selected, err := executeColumnAuthorized(ctx, gateway, datasource, secret, sqlText, ColumnAuthorizationRequest{
+			Agent: model.Agent{ID: "agent", Status: "active", Level: "readonly"}, Policies: removeUsage(policiesForEnrollment(datasource.ID, enrolled), "output"),
+			Redactor: redactor, RowLimit: 10, PreliminaryAllowed: true, ControlRevisionDigest: "revision",
+			DurableAudit: func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error {
+				return nil
+			},
+			FinalFence: func(context.Context) error { return nil },
+		})
+		require.NoError(t, err)
+		require.False(t, selected.Allowed)
+		require.Equal(t, ReasonColumnGrantMissing, selected.Reason)
+	})
 
 	t.Run("post-audit-fence-failure-delivers-nothing", func(t *testing.T) {
 		selected, err := executeColumnAuthorized(ctx, gateway, datasource, secret, joinSQL, ColumnAuthorizationRequest{

@@ -216,7 +216,7 @@ func readPostgresIdentities(ctx context.Context, tx pgx.Tx, oids []uint32, depth
   d.oid, c.oid, n.oid, n.nspname, c.relname, c.relkind::text,
   c.relpersistence::text, c.relam, c.reloftype, c.relispartition,
   pg_catalog.format('%I.%I',n.nspname,c.relname),
-  CASE WHEN c.relkind='v' THEN r.ev_action::text ELSE NULL END
+  CASE WHEN c.relkind IN ('v','m') THEN r.ev_action::text ELSE NULL END
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
 CROSS JOIN pg_catalog.pg_database d
@@ -249,6 +249,9 @@ ORDER BY c.oid,r.oid`
 		relation.DatabaseOID = frame.DatabaseOID
 		relation.Kind, relation.Persistence = kind[0], persistence[0]
 		relation.ViewDepth = depths[relation.OID]
+		if (relation.Kind == 'v' || relation.Kind == 'm') && (definition == nil || *definition == "") {
+			return PostgresCatalogFrame{}, nil, nil, catalogAuthError("AUTH_CATALOG_INCOMPLETE")
+		}
 		if definition != nil {
 			relation.Definition = *definition
 			if err := budget.ChargeDefinitionBytes(len(relation.Definition)); err != nil {
@@ -366,7 +369,7 @@ func scanPostgresImplicitObjects(ctx context.Context, tx pgx.Tx, relationOIDs, t
  UNION ALL SELECT c.oid,'rls',COALESCE(p.oid,c.oid) FROM pg_catalog.pg_class c JOIN target x ON x.relid=c.oid LEFT JOIN pg_catalog.pg_policy p ON p.polrelid=c.oid
  WHERE c.relrowsecurity OR c.relforcerowsecurity OR p.oid IS NOT NULL
  UNION ALL SELECT r.ev_class,'rule',r.oid FROM pg_catalog.pg_rewrite r JOIN pg_catalog.pg_class c ON c.oid=r.ev_class JOIN target x ON x.relid=r.ev_class
- WHERE NOT (r.rulename='_RETURN' AND c.relkind='v' AND r.ev_type='1')
+	WHERE NOT (r.rulename='_RETURN' AND c.relkind IN ('v','m') AND r.ev_type='1')
  UNION ALL SELECT q.conrelid,'constraint:'::text||q.contype::text,q.oid FROM pg_catalog.pg_constraint q JOIN target x ON x.relid=q.conrelid WHERE q.contype::text IN ('c'::text,'x'::text)
  UNION ALL SELECT q.conrelid,'foreign_key',q.oid FROM pg_catalog.pg_constraint q JOIN target x ON q.conrelid=x.relid OR q.confrelid=x.relid WHERE q.contype='f'
  UNION ALL SELECT i.indrelid,CASE WHEN i.indexprs IS NOT NULL THEN 'expression_index' ELSE 'partial_index' END,i.indexrelid
@@ -419,7 +422,7 @@ UNION ALL SELECT i.inhrelid,'inherits_parent',i.inhparent FROM pg_catalog.pg_inh
 UNION ALL SELECT i.inhparent,'inherits_child',i.inhrelid FROM pg_catalog.pg_inherits i JOIN target t ON t.relid=i.inhparent
 UNION ALL SELECT c.oid,'typed_table',c.reloftype FROM pg_catalog.pg_class c JOIN target t ON t.relid=c.oid WHERE c.reloftype<>0
 UNION ALL SELECT c.oid,'relation_am',c.relam FROM pg_catalog.pg_class c JOIN target t ON t.relid=c.oid WHERE c.relam<>0 AND NOT(c.relam=ANY($2::oid[]))
-UNION ALL SELECT c.oid,'relation_kind',c.oid FROM pg_catalog.pg_class c JOIN target t ON t.relid=c.oid WHERE c.relkind::text NOT IN ('r'::text,'v'::text) OR c.relpersistence::text<>'p'::text
+UNION ALL SELECT c.oid,'relation_kind',c.oid FROM pg_catalog.pg_class c JOIN target t ON t.relid=c.oid WHERE c.relkind::text NOT IN ('r'::text,'v'::text,'m'::text) OR c.relpersistence::text<>'p'::text
 UNION ALL SELECT c.oid,'system_schema',c.relnamespace FROM pg_catalog.pg_class c JOIN target t ON t.relid=c.oid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('pg_catalog','information_schema') OR n.nspname LIKE 'pg_toast%'
 ORDER BY 1,2,3`
 	rows, err := tx.Query(ctx, query, oidArrayLiteral(relationOIDs), oidArrayLiteral(relationAMs))

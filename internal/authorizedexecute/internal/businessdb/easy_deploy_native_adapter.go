@@ -167,7 +167,7 @@ func nativeCapabilityAttestation(capability PostgresBinderCapability, databaseOI
 		ExtensionVersion: capability.ExtensionVersion, BuildHash: capability.BuildHash,
 		ExtensionHash: capability.ExtensionHash, NodeManifestHash: capability.NodeManifestHash,
 		AllowlistHash: capability.AllowlistHash,
-		Capabilities:  []string{"analyzed_tree", "exact_expression_oids", "ordinary_view_lineage", "prepared_generation"},
+		Capabilities:  []string{"analyzed_tree", "exact_expression_oids", "ordinary_view_lineage", "matview_typed_lineage", "matview_relkind_lock", "prepared_generation"},
 		Precision:     []PrecisionDeclaration{{Name: "semantic_facts", Exact: true}, {Name: "plan_generation", Exact: true}}}
 	value.Digest, _ = value.CanonicalDigest()
 	return value, nil

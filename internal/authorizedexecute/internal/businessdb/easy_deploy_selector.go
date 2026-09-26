@@ -41,6 +41,7 @@ type BinderSelectionRequest struct {
 	RequestDigest      string
 	StatementClass     BinderStatementClass
 	ClosedDisposition  ClosedRequestDisposition
+	RequiresMatview    bool
 	ClosedShapeID      string
 	Provider           string
 	Handshake          BinderCapabilityHandshake
@@ -162,6 +163,10 @@ func (selector *BinderModeSelector) Select(request BinderSelectionRequest) (Bind
 	}
 	state := selector.health.ObserveProbe(request.DatasourceIdentity, request.Handshake)
 	decision.NativeCapabilityState = state.Reason
+	if request.RequiresMatview {
+		request.ClosedDisposition = ClosedRequestNativeRequired
+		decision.ClosedDisposition = ClosedRequestNativeRequired
+	}
 	switch request.ClosedDisposition {
 	case ClosedRequestMustReject:
 		decision.Reason, decision.Rejected = ModeSelectionStatementRejected, true
@@ -175,6 +180,10 @@ func (selector *BinderModeSelector) Select(request BinderSelectionRequest) (Bind
 	}
 	if isManagedPostgresProvider(request.Provider) {
 		decision.Reason = ModeSelectionManagedService
+		if request.RequiresMatview {
+			decision.Rejected = true
+			return decision, NewPrecisionFailure("AUTH_RELATION_SHAPE_UNSUPPORTED")
+		}
 		return decision, nil
 	}
 	if state.Healthy && nativeHandshakeUsable(request.Handshake) {
@@ -187,6 +196,10 @@ func (selector *BinderModeSelector) Select(request BinderSelectionRequest) (Bind
 		decision.Reason = ModeSelectionNativeUnhealthy
 	} else if request.Handshake.NativeFilesAvailable && request.Handshake.NativeInstalled {
 		decision.Reason = ModeSelectionNativeMismatch
+	}
+	if request.RequiresMatview {
+		decision.Rejected = true
+		return decision, NewPrecisionFailure("AUTH_RELATION_SHAPE_UNSUPPORTED")
 	}
 	return decision, nil
 }

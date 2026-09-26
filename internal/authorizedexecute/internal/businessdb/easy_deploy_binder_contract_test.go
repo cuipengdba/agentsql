@@ -193,7 +193,7 @@ func TestNativeCapabilityRequiresExactABIAndHashes(t *testing.T) {
 		t.Fatal("PG16 expectation unavailable")
 	}
 	value := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: expected.ServerMajor, ExtensionVersion: expected.ExtensionVersion,
-		BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash}
+		BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash, Matview: true}
 	if !nativeCapabilityMatches(value, expected) {
 		t.Fatal("exact native capability rejected")
 	}
@@ -209,7 +209,7 @@ func TestNativeCapabilityRequiresExactABIAndHashes(t *testing.T) {
 func TestNativeCAdapterProducesUnifiedFactsAndSeparateEvidence(t *testing.T) {
 	t.Parallel()
 	expected, _ := PostgresBinderNativeExpectation(16)
-	capability := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: expected.ServerMajor, ExtensionVersion: expected.ExtensionVersion, BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash}
+	capability := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: expected.ServerMajor, ExtensionVersion: expected.ExtensionVersion, BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash, Matview: true}
 	manifest := PostgresPreparedManifest{StatementName: "agentsql_test", RoleOID: 10, RoleName: "agent", SearchPath: "pg_catalog", AnalyzedDigest: "analyzed", DependencyDigest: "dependencies", PlanGeneration: 1, CommandType: "SELECT", Capability: capability,
 		Relations: []PostgresBoundRelation{{OID: 100, Kind: 'r', Path: "a"}}, Columns: []PostgresColumnUse{{Site: "target", RelationOID: 100, Attnum: 1, TypeOID: 23, Usage: "output", ContributorGroup: 1, ContributorComplete: true}, {Site: "where", RelationOID: 100, Attnum: 1, TypeOID: 23, Usage: "reference", ContributorComplete: true}}}
 	frame := PostgresCatalogFrame{ServerVersion: 160005, DatabaseOID: 9, Fingerprint: "catalog-v1", Relations: []PostgresRelationIdentity{{DatabaseOID: 9, OID: 100, NamespaceOID: 11, Schema: "public", Name: "a", Kind: 'r', Persistence: 'p'}}, Columns: []PostgresColumnIdentity{{RelationOID: 100, Attnum: 1, Name: "id", TypeOID: 23, Typmod: -1}}}

@@ -144,6 +144,7 @@ func runPostgresBinderS3Scenarios(t *testing.T, major string) {
 	})
 
 	runPostgresShapeGateScenarios(t, ctx, executor)
+	runPostgresMatviewS3mScenarios(t, ctx, executor)
 	runPostgresImplicitObjectScenarios(t, ctx, executor)
 	runPostgresExactAllowlistScenarios(t, ctx, executor)
 	runPostgresPreparedIdentityScenarios(t, ctx, executor)
@@ -191,7 +192,6 @@ func runPostgresShapeGateScenarios(t *testing.T, ctx context.Context, executor *
 		`CREATE TABLE s3.part_leaf PARTITION OF s3.part_parent FOR VALUES FROM (0) TO (10)`,
 		`CREATE TYPE s3.typed_row AS (id integer)`,
 		`CREATE TABLE s3.typed OF s3.typed_row`,
-		`CREATE MATERIALIZED VIEW s3.mv AS SELECT id FROM s3.base_a WITH NO DATA`,
 	} {
 		_, err := executor.Execute(ctx, statement)
 		require.NoError(t, err, statement)
@@ -202,7 +202,6 @@ func runPostgresShapeGateScenarios(t *testing.T, ctx context.Context, executor *
 		"partitioned-only":     `SELECT id FROM ONLY s3.part_parent`,
 		"partition-leaf-only":  `SELECT id FROM ONLY s3.part_leaf`,
 		"typed-table":          `SELECT id FROM s3.typed`,
-		"matview-s3m-off":      `SELECT id FROM s3.mv`,
 	} {
 		t.Run("shape-"+name, func(t *testing.T) {
 			_, err := executor.EnrollPostgresSelect(ctx, query, &unlimitedPostgresBudget{})
@@ -226,6 +225,197 @@ func runPostgresShapeGateScenarios(t *testing.T, ctx context.Context, executor *
 			requireAuthorizationReason(t, err, "AUTH_COLUMN_SHAPE_UNSUPPORTED")
 		})
 	}
+}
+
+func runPostgresMatviewS3mScenarios(t *testing.T, ctx context.Context, executor *PostgresExecutor) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE MATERIALIZED VIEW s3.mv_typed (entity_id,secret_alias,score,note_count) AS
+SELECT v.id,v.secret,v.id+b.id,pg_catalog.count(b.note)
+FROM s3.v2 v JOIN s3.base_b b ON b.id=v.id
+GROUP BY v.id,v.secret,b.id WITH DATA`,
+		`CREATE UNIQUE INDEX mv_typed_unique ON s3.mv_typed(entity_id)`,
+		`CREATE MATERIALIZED VIEW s3.mv_outer (outer_id,outer_secret,outer_score) AS
+SELECT entity_id,secret_alias,score FROM s3.mv_typed WITH DATA`,
+		`CREATE MATERIALIZED VIEW s3.mv_no_data (aliased_id,aliased_secret) AS SELECT id,secret FROM s3.v2 WITH NO DATA`,
+		`CREATE MATERIALIZED VIEW s3.mv AS SELECT id FROM s3.base_a WITH NO DATA`,
+		`CREATE VIEW s3.v_on_mv AS SELECT outer_id,outer_secret FROM s3.mv_outer`,
+		`CREATE MATERIALIZED VIEW s3.mv_aba AS SELECT id FROM s3.base_a WITH DATA`,
+	} {
+		_, err := executor.Execute(ctx, statement)
+		require.NoError(t, err, statement)
+	}
+
+	t.Run("typed-lineage-alias-expression-aggregate", func(t *testing.T) {
+		capability, err := executor.ProbePostgresBinderCapability(ctx, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		require.True(t, capability.Matview)
+		require.Equal(t, "agentsql-binder-4.2", capability.ABI)
+		require.Equal(t, "0.4-s3m", capability.ExtensionVersion)
+
+		enrollment, err := executor.EnrollPostgresSelect(ctx,
+			`SELECT outer_id,outer_secret,outer_score FROM s3.mv_outer WHERE outer_id > 0`, &unlimitedPostgresBudget{})
+		if err != nil {
+			logPostgresDBError(t, err)
+			diagnosePostgresBinder(t, ctx, executor, `SELECT outer_id,outer_secret,outer_score FROM s3.mv_outer WHERE outer_id > 0`)
+		}
+		require.NoError(t, err)
+		for _, relation := range []struct {
+			name string
+			kind byte
+		}{{"mv_outer", 'm'}, {"mv_typed", 'm'}, {"v2", 'v'}, {"v_ab", 'v'}, {"base_a", 'r'}, {"base_b", 'r'}} {
+			requirePostgresRelationIdentity(t, enrollment.Catalog, relation.name, relation.kind)
+		}
+		for _, column := range []struct{ relation, column string }{
+			{"mv_outer", "outer_secret"}, {"mv_typed", "secret_alias"}, {"v2", "secret"},
+			{"v_ab", "secret"}, {"base_a", "secret"}, {"base_b", "id"},
+		} {
+			requirePostgresColumnLineage(t, enrollment, column.relation, column.column)
+		}
+		require.True(t, postgresManifestHasRelationKind(enrollment.Manifest, 'm'))
+
+		aggregate, err := executor.EnrollPostgresSelect(ctx, `SELECT note_count FROM s3.mv_typed`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		requirePostgresColumnLineage(t, aggregate, "base_b", "note")
+
+		prepared, err := executor.PrepareBoundPostgresSelect(ctx,
+			`SELECT outer_id,outer_secret,outer_score FROM s3.mv_outer WHERE outer_id > 0`, &enrollment, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		result, err := prepared.Execute(ctx, 10)
+		require.NoError(t, err)
+		require.Len(t, result.Rows, 1)
+		_, err = prepared.VerifyPost(ctx, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		require.NoError(t, prepared.Close(ctx, true))
+	})
+
+	t.Run("with-no-data-binds-without-reading", func(t *testing.T) {
+		enrollment, err := executor.EnrollPostgresSelect(ctx, `SELECT aliased_secret FROM s3.mv_no_data`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		requirePostgresRelationIdentity(t, enrollment.Catalog, "mv_no_data", 'm')
+		requirePostgresColumnLineage(t, enrollment, "base_a", "secret")
+	})
+
+	t.Run("ordinary-view-on-matview", func(t *testing.T) {
+		enrollment, err := executor.EnrollPostgresSelect(ctx, `SELECT outer_secret FROM s3.v_on_mv`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		requirePostgresRelationIdentity(t, enrollment.Catalog, "v_on_mv", 'v')
+		requirePostgresRelationIdentity(t, enrollment.Catalog, "mv_outer", 'm')
+		requirePostgresColumnLineage(t, enrollment, "base_a", "secret")
+	})
+
+	t.Run("refresh-and-concurrent-refresh-rebind", func(t *testing.T) {
+		_, err := executor.EnrollPostgresSelect(ctx, `SELECT secret_alias FROM s3.mv_typed`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		_, err = executor.Execute(ctx, `REFRESH MATERIALIZED VIEW s3.mv_typed`)
+		require.NoError(t, err)
+		_, err = executor.Execute(ctx, `REFRESH MATERIALIZED VIEW CONCURRENTLY s3.mv_typed`)
+		require.NoError(t, err)
+		rebound, err := executor.EnrollPostgresSelect(ctx, `SELECT secret_alias FROM s3.mv_typed`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		prepared, err := executor.PrepareBoundPostgresSelect(ctx, `SELECT secret_alias FROM s3.mv_typed`, &rebound, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		_, err = prepared.Execute(ctx, 10)
+		require.NoError(t, err)
+		_, err = prepared.VerifyPost(ctx, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		require.NoError(t, prepared.Close(ctx, true))
+	})
+
+	t.Run("relkind-locks-block-refresh-and-dependency-ddl", func(t *testing.T) {
+		prepared, err := executor.PrepareBoundPostgresSelect(ctx,
+			`SELECT outer_secret FROM s3.mv_outer`, nil, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		connection, err := executor.pool.Acquire(ctx)
+		require.NoError(t, err)
+		defer connection.Release()
+		_, err = connection.Exec(ctx, `SET lock_timeout='100ms'`)
+		require.NoError(t, err)
+		_, err = connection.Exec(ctx, `REFRESH MATERIALIZED VIEW s3.mv_outer`)
+		if err == nil {
+			require.NoError(t, prepared.Close(ctx, false))
+			t.Fatal("REFRESH MATERIALIZED VIEW bypassed the prepared matview lock")
+		}
+		_, err = connection.Exec(ctx, `ALTER TABLE s3.base_a ADD COLUMN s3m_should_block integer`)
+		if err == nil {
+			_, cleanupErr := connection.Exec(ctx, `ALTER TABLE s3.base_a DROP COLUMN s3m_should_block`)
+			require.NoError(t, cleanupErr)
+			require.NoError(t, prepared.Close(ctx, false))
+			t.Fatal("dependency DDL bypassed the prepared closure lock")
+		}
+		_, err = prepared.Execute(ctx, 10)
+		require.NoError(t, err)
+		_, err = prepared.VerifyPost(ctx, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		require.NoError(t, prepared.Close(ctx, true))
+	})
+
+	t.Run("drop-recreate-invalidates-enrollment", func(t *testing.T) {
+		old, err := executor.EnrollPostgresSelect(ctx, `SELECT id FROM s3.mv_aba`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		oldOID := postgresRelationOID(old.Catalog, "mv_aba")
+		_, err = executor.Execute(ctx, `DROP MATERIALIZED VIEW s3.mv_aba`)
+		require.NoError(t, err)
+		_, err = executor.Execute(ctx, `CREATE MATERIALIZED VIEW s3.mv_aba AS SELECT id FROM s3.base_a WITH DATA`)
+		require.NoError(t, err)
+		rebound, err := executor.EnrollPostgresSelect(ctx, `SELECT id FROM s3.mv_aba`, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		require.NotEqual(t, oldOID, postgresRelationOID(rebound.Catalog, "mv_aba"))
+		_, err = executor.PrepareBoundPostgresSelect(ctx, `SELECT id FROM s3.mv_aba`, &old, &unlimitedPostgresBudget{})
+		requireAuthorizationReason(t, err, "AUTH_CATALOG_RACE")
+		prepared, err := executor.PrepareBoundPostgresSelect(ctx, `SELECT id FROM s3.mv_aba`, &rebound, &unlimitedPostgresBudget{})
+		require.NoError(t, err)
+		require.NoError(t, prepared.Close(ctx, false))
+	})
+
+	t.Run("closed-mode-fails-closed", func(t *testing.T) {
+		_, err := executor.BindClosedSelect(ctx, BindRequest{RawSQL: `SELECT outer_secret FROM s3.mv_outer`,
+			Identity: SemanticIdentity{DatasourceIdentity: "s3m-closed"}}, &unlimitedPostgresBudget{})
+		requireAuthorizationReason(t, err, "AUTH_RELATION_SHAPE_UNSUPPORTED")
+	})
+
+	runPostgresMatviewEscapeScenarios(t, ctx, executor)
+}
+
+func runPostgresMatviewEscapeScenarios(t *testing.T, ctx context.Context, executor *PostgresExecutor) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE FUNCTION s3.s3m_security_definer(integer) RETURNS integer LANGUAGE sql IMMUTABLE SECURITY DEFINER AS 'SELECT $1'`,
+		`CREATE MATERIALIZED VIEW s3.mv_security_definer AS SELECT s3.s3m_security_definer(id) AS id FROM s3.base_a WITH DATA`,
+		`CREATE TABLE s3.mv_trigger_base(id integer)`,
+		`CREATE MATERIALIZED VIEW s3.mv_trigger AS SELECT id FROM s3.mv_trigger_base WITH DATA`,
+		`CREATE FUNCTION s3.s3m_trigger() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END'`,
+		`CREATE TRIGGER s3m_trigger BEFORE INSERT ON s3.mv_trigger_base FOR EACH ROW EXECUTE FUNCTION s3.s3m_trigger()`,
+		`CREATE TABLE s3.mv_rule_base(id integer)`,
+		`CREATE MATERIALIZED VIEW s3.mv_rule AS SELECT id FROM s3.mv_rule_base WITH DATA`,
+		`CREATE RULE s3m_rule AS ON UPDATE TO s3.mv_rule_base DO ALSO NOTHING`,
+		`CREATE VIEW s3.v_mv_escape AS SELECT outer_id FROM s3.mv_outer`,
+		`CREATE FUNCTION s3.s3m_view_trigger() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END'`,
+		`CREATE TRIGGER s3m_view_trigger INSTEAD OF INSERT ON s3.v_mv_escape FOR EACH ROW EXECUTE FUNCTION s3.s3m_view_trigger()`,
+	} {
+		_, err := executor.Execute(ctx, statement)
+		require.NoError(t, err, statement)
+	}
+	for name, query := range map[string]string{
+		"security-definer":     `SELECT id FROM s3.mv_security_definer`,
+		"dependency-trigger":   `SELECT id FROM s3.mv_trigger`,
+		"dependency-rule":      `SELECT id FROM s3.mv_rule`,
+		"view-on-matview-hook": `SELECT outer_id FROM s3.v_mv_escape`,
+	} {
+		t.Run("escape-"+name, func(t *testing.T) {
+			_, err := executor.EnrollPostgresSelect(ctx, query, &unlimitedPostgresBudget{})
+			require.Error(t, err)
+		})
+	}
+}
+
+func postgresManifestHasRelationKind(manifest PostgresPreparedManifest, kind byte) bool {
+	for _, relation := range manifest.Relations {
+		if relation.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func runPostgresImplicitObjectScenarios(t *testing.T, ctx context.Context, executor *PostgresExecutor) {

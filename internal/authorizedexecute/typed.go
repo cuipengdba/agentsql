@@ -55,6 +55,7 @@ type SchemaColumn struct {
 type PostgresB2Capability struct {
 	ServerMajor                                                           int
 	ABI, ExtensionVersion, ExtensionHash, NodeManifestHash, AllowlistHash string
+	Matview                                                               bool
 }
 
 func NewGateway(readOnly bool, options ...GatewayOption) *Gateway {
@@ -129,6 +130,7 @@ func (gateway *Gateway) ProbePostgresB2Capability(ctx context.Context, datasourc
 		ServerMajor: capability.ServerMajor, ABI: capability.ABI,
 		ExtensionVersion: capability.ExtensionVersion, ExtensionHash: capability.ExtensionHash,
 		NodeManifestHash: capability.NodeManifestHash, AllowlistHash: capability.AllowlistHash,
+		Matview: capability.Matview,
 	}, nil
 }
 

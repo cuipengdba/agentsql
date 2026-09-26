@@ -15,7 +15,8 @@ AS $$
     'build_hash', pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('agentsql-binder-dml-build-v1-pg' || (current_setting('server_version_num')::integer / 10000)::text, 'UTF8')), 'hex'),
     'extension_hash', pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('agentsql-binder-dml-source-v1-pg' || (current_setting('server_version_num')::integer / 10000)::text, 'UTF8')), 'hex'),
     'node_manifest_hash', pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('query-dml-write-reference-v1-pg' || (current_setting('server_version_num')::integer / 10000)::text, 'UTF8')), 'hex'),
-    'allowlist_hash', pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('builtin-exact-oids-dml-v1-pg' || (current_setting('server_version_num')::integer / 10000)::text, 'UTF8')), 'hex')
+    'allowlist_hash', pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('builtin-exact-oids-dml-v1-pg' || (current_setting('server_version_num')::integer / 10000)::text, 'UTF8')), 'hex'),
+    'matview', false
   )
 $$;
 

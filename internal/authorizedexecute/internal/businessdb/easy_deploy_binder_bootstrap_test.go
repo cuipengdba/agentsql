@@ -47,7 +47,7 @@ func TestNativeExpectationsCoverFiveMajorsAndRejectTamper(t *testing.T) {
 			t.Fatalf("incomplete expectation for PG%d: %#v", major, expected)
 		}
 		value := PostgresBinderCapability{ABI: expected.ABI, ServerMajor: major, ExtensionVersion: expected.ExtensionVersion,
-			BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash}
+			BuildHash: expected.BuildHash, ExtensionHash: expected.ExtensionHash, NodeManifestHash: expected.NodeManifestHash, AllowlistHash: expected.AllowlistHash, Matview: true}
 		if !nativeCapabilityMatches(value, expected) {
 			t.Fatalf("PG%d exact capability rejected", major)
 		}
