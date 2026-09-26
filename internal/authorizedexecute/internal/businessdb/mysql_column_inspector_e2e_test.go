@@ -70,7 +70,11 @@ func runMySQLColumnInspectorS6Matrix(t *testing.T, image string) {
 		`CREATE TRIGGER agentsql.customer_ai AFTER INSERT ON agentsql.customer FOR EACH ROW INSERT INTO agentsql.audit_sink(customer_id) VALUES (NEW.id)`,
 		`CREATE EVENT agentsql.s6_daily_event ON SCHEDULE EVERY 1 DAY STARTS CURRENT_TIMESTAMP + INTERVAL 1 DAY DO INSERT INTO agentsql.audit_sink(customer_id) VALUES (0)`,
 		fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY '%s'", inspectorUser, inspectorPassword),
-		fmt.Sprintf("GRANT SELECT, SHOW VIEW, TRIGGER, EVENT ON agentsql.* TO '%s'@'%%'", inspectorUser),
+		fmt.Sprintf("GRANT SELECT ON agentsql.customer TO '%s'@'%%'", inspectorUser),
+		fmt.Sprintf("GRANT SELECT ON agentsql.child TO '%s'@'%%'", inspectorUser),
+		fmt.Sprintf("GRANT SELECT, SHOW VIEW ON agentsql.customer_public TO '%s'@'%%'", inspectorUser),
+		fmt.Sprintf("GRANT TRIGGER ON agentsql.customer TO '%s'@'%%'", inspectorUser),
+		fmt.Sprintf("GRANT EVENT ON agentsql.* TO '%s'@'%%'", inspectorUser),
 		fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY '%s'", proxyUser, proxyPassword),
 		fmt.Sprintf("GRANT SELECT ON agentsql.* TO '%s'@'%%'", proxyUser),
 	} {
@@ -90,6 +94,9 @@ func runMySQLColumnInspectorS6Matrix(t *testing.T, image string) {
 		Schema: database, BaseTable: "customer", View: "customer_public",
 	})
 	require.NoError(t, err)
+	t.Logf("image=%s server=%s gtid=%s log_bin=%t binlog_format=%s lower_case_table_names=%d facts=%s",
+		image, report.ServerVersion, report.GTIDMode, report.LogBin, report.BinlogFormat,
+		report.LowerCaseTableNames, report.String())
 	require.Less(t, time.Since(started), 10*time.Second)
 	require.Contains(t, report.ServerVersion, strings.TrimPrefix(image, "mysql:"))
 	require.Equal(t, inspectorUser+"@%", report.CurrentUser)

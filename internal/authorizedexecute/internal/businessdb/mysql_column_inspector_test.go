@@ -49,6 +49,8 @@ func TestMySQLInspectorRejectsBroadOrAdministrativeGrants(t *testing.T) {
 		"GRANT SELECT, CONNECTION_ADMIN ON *.* TO `inspector`@`%`",
 		"GRANT SELECT, REPLICATION CLIENT ON *.* TO `inspector`@`%`",
 		"GRANT SELECT, CREATE ON `agentsql`.* TO `inspector`@`%`",
+		"GRANT SELECT, INSERT ON `agentsql`.* TO `inspector`@`%`",
+		"GRANT SELECT, LOCK TABLES ON `agentsql`.* TO `inspector`@`%`",
 		"GRANT SELECT ON `agentsql`.* TO `inspector`@`%` WITH GRANT OPTION",
 	} {
 		t.Run(grant, func(t *testing.T) {

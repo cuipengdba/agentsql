@@ -330,7 +330,9 @@ func mysqlInspectorHasExcessPrivilege(grants []string) bool {
 			" SHUTDOWN ", " CREATE USER ", " CREATE ROLE ", " DROP ROLE ",
 			" REPLICATION SLAVE ", " REPLICATION CLIENT ", " BACKUP_ADMIN ",
 			" CONNECTION_ADMIN ", " SYSTEM_USER ", " SYSTEM_VARIABLES_ADMIN ",
-			" CREATE ", " ALTER ", " DROP ", " INDEX ", " GRANT OPTION ",
+			" CREATE ", " ALTER ", " DROP ", " INDEX ", " INSERT ", " UPDATE ",
+			" DELETE ", " EXECUTE ", " CREATE ROUTINE ", " ALTER ROUTINE ",
+			" CREATE TEMPORARY TABLES ", " LOCK TABLES ", " GRANT OPTION ",
 		} {
 			if strings.Contains(normalized, forbidden) {
 				return true
