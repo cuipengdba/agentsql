@@ -81,6 +81,13 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 	loaded, err := Parse([]byte(base))
 	require.NoError(t, err)
 	require.False(t, loaded.ColumnAuthorization.Enabled, "factory default must remain off")
+	require.False(t, loaded.ColumnAuthorization.DryRun, "factory dry-run must remain off")
+
+	dryRun := base + "column_authorization:\n  enabled: false\n  dry_run: true\n  instance_id: runtime-observer\n"
+	loaded, err = Parse([]byte(dryRun))
+	require.NoError(t, err)
+	require.True(t, loaded.ColumnAuthorization.DryRun)
+	require.False(t, loaded.ColumnAuthorization.Enabled)
 
 	enabled := base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: 15000\n  heartbeat_interval_ms: 5000\n"
 	loaded, err = Parse([]byte(enabled))
@@ -90,6 +97,8 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 
 	for _, invalid := range []string{
 		base + "column_authorization:\n  enabled: true\n",
+		base + "column_authorization:\n  dry_run: true\n",
+		base + "column_authorization:\n  enabled: true\n  dry_run: true\n  instance_id: runtime-1\n",
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: 1000\n  heartbeat_interval_ms: 1000\n",
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: -1\n",
 	} {

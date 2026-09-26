@@ -20,11 +20,13 @@ import (
 
 const (
 	B2StateActive      = "active"
+	B2StateDryRun      = "dry-run"
 	B2StateFeatureOff  = "feature-off"
 	B2StateDegraded    = "degraded"
 	B2StateUnsupported = "unsupported"
 
 	B2ReasonFeatureOff              = "B2_FEATURE_OFF"
+	B2ReasonDryRunReady             = "B2_DRY_RUN_READY"
 	B2ReasonNoPostgresDatasource    = "B2_POSTGRES_DATASOURCE_REQUIRED"
 	B2ReasonMetadataUnavailable     = "B2_METADATA_UNAVAILABLE"
 	B2ReasonEnrollmentIncomplete    = "B2_ENROLLMENT_INCOMPLETE"
@@ -66,6 +68,16 @@ func featureOffB2Status() B2Status {
 }
 
 func activateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration) (*b2Runtime, error) {
+	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, true)
+}
+
+// dryRunB2Runtime executes the same probes and phase-one snapshot as
+// activation, but never changes the control fence or registers a runtime.
+func dryRunB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration) (*b2Runtime, error) {
+	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, false)
+}
+
+func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, activate bool) (*b2Runtime, error) {
 	manager := &b2Runtime{fence: metadata.Fence(), lease: lease, interval: interval}
 	if lease <= 0 {
 		lease = 15 * time.Second
@@ -75,7 +87,7 @@ func activateB2Runtime(ctx context.Context, metadata *store.Store, gateway *exec
 		interval = lease / 3
 		manager.interval = interval
 	}
-	readiness, err := manager.fence.Protocol3Readiness(ctx)
+	readiness, err := manager.fence.PrepareProtocol3Activation(ctx)
 	if err != nil {
 		manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonMetadataUnavailable, Protocol: 2}
 		return manager, err
@@ -130,9 +142,14 @@ func activateB2Runtime(ctx context.Context, metadata *store.Store, gateway *exec
 		manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonArtifactAttestation, Protocol: 2, UnsupportedDatasources: unsupported}
 		return manager, err
 	}
+	if !activate {
+		manager.status = B2Status{State: B2StateDryRun, Reason: B2ReasonDryRunReady, Protocol: 2,
+			InstanceID: instanceID, ArtifactDigest: artifact, UnsupportedDatasources: unsupported}
+		return manager, nil
+	}
 	now := time.Now().UTC()
 	instance, err := manager.fence.ActivateProtocol3(ctx, store.Protocol3Activation{
-		InstanceID: instanceID, ArtifactDigest: artifact, BinderReady: true,
+		InstanceID: instanceID, ArtifactDigest: artifact, ExpectedETag: readiness.ETag, BinderReady: true,
 		CatalogReady: true, ReservationReady: true, Now: now, Lease: lease,
 	})
 	if err != nil {

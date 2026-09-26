@@ -88,13 +88,14 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 		require.Equal(t, "agentsql-binder-4.2", capability.ABI)
 		require.True(t, capability.Matview)
 		require.NoError(t, gateway.ProbeReservation(stored.ID))
-		metadataReadiness, err := control.Fence().Protocol3Readiness(ctx)
+		metadataReadiness, err := control.Fence().PrepareProtocol3Activation(ctx)
 		require.NoError(t, err)
 		require.True(t, metadataReadiness.Ready())
 		now := time.Now().UTC()
 		instance, err := control.Fence().ActivateProtocol3(ctx, store.Protocol3Activation{
 			InstanceID: "s5-pg-" + major, ArtifactDigest: capability.ExtensionHash,
-			BinderReady: true, CatalogReady: true, ReservationReady: true,
+			ExpectedETag: metadataReadiness.ETag,
+			BinderReady:  true, CatalogReady: true, ReservationReady: true,
 			Now: now, Lease: time.Minute,
 		})
 		require.NoError(t, err)
@@ -108,9 +109,12 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 		_, err = control.Fence().BeginRead(ctx, 3, instance.InstanceID, now.Add(2*time.Second))
 		require.ErrorIs(t, err, store.ErrFenceLost, "drained protocol-3 runtime must be inactive")
 
+		metadataReadiness, err = control.Fence().PrepareProtocol3Activation(ctx)
+		require.NoError(t, err)
 		expiring, err := control.Fence().ActivateProtocol3(ctx, store.Protocol3Activation{
 			InstanceID: "s5-expiring-pg-" + major, ArtifactDigest: capability.ExtensionHash,
-			BinderReady: true, CatalogReady: true, ReservationReady: true,
+			ExpectedETag: metadataReadiness.ETag,
+			BinderReady:  true, CatalogReady: true, ReservationReady: true,
 			Now: now.Add(2 * time.Second), Lease: time.Second,
 		})
 		require.NoError(t, err)

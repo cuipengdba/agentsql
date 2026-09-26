@@ -129,6 +129,20 @@ func TestB2FactoryDefaultIsFeatureOffAndFailedActivationFallsBack(t *testing.T) 
 	require.True(t, offRuntime.B2Ready())
 	require.NoError(t, offRuntime.Close())
 
+	dryConfig := bootstrapTestConfig(filepath.Join(t.TempDir(), "dry-run.db"))
+	dryConfig.ColumnAuthorization = config.ColumnAuthorizationConfig{DryRun: true, InstanceID: "b2-dry-run"}
+	dryRuntime, err := assembleWithExecutorProvider(context.Background(), dryConfig, bootstrapTestSecret, provider)
+	require.NoError(t, err, "dry-run findings must not block the table-level service")
+	dryStatus := dryRuntime.B2Status()
+	require.Equal(t, 2, dryStatus.Protocol)
+	require.Equal(t, B2StateUnsupported, dryStatus.State)
+	require.True(t, dryRuntime.B2Ready())
+	dryPage, err := dryRuntime.Store.ManagementAuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.NotZero(t, dryPage.Total)
+	require.Equal(t, "b2_dry_run", *dryPage.List[0].Action)
+	require.NoError(t, dryRuntime.Close())
+
 	cfg := bootstrapTestConfig(filepath.Join(t.TempDir(), "requested.db"))
 	cfg.ColumnAuthorization = config.ColumnAuthorizationConfig{Enabled: true, InstanceID: "b2-no-pg"}
 	fallbackRuntime, err := assembleWithExecutorProvider(context.Background(), cfg, bootstrapTestSecret, provider)

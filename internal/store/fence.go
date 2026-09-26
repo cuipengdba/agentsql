@@ -51,6 +51,9 @@ type Protocol3MetadataReadiness struct {
 	IncompleteBindings  int64
 	UnhealthyBindings   int64
 	OrphanedPermissions int64
+	// ETag binds the phase-one metadata snapshot and control fence. Activation
+	// must present it again while holding the exclusive fence.
+	ETag string
 }
 
 func (readiness Protocol3MetadataReadiness) Ready() bool {
@@ -65,6 +68,7 @@ func (readiness Protocol3MetadataReadiness) Ready() bool {
 type Protocol3Activation struct {
 	InstanceID       string
 	ArtifactDigest   string
+	ExpectedETag     string
 	BinderReady      bool
 	CatalogReady     bool
 	ReservationReady bool
@@ -218,8 +222,35 @@ func (repository *FenceRepository) Protocol3Readiness(ctx context.Context) (Prot
 	return repository.protocol3ReadinessWith(ctx, repository.db)
 }
 
+// PrepareProtocol3Activation performs phase one of activation in one strong,
+// read-only snapshot. The returned ETag is single-use in the sense that any
+// intervening fence or readiness change makes phase two fail closed.
+func (repository *FenceRepository) PrepareProtocol3Activation(ctx context.Context) (Protocol3MetadataReadiness, error) {
+	if repository == nil || repository.db == nil || ctx == nil {
+		return Protocol3MetadataReadiness{}, ErrActivationGate
+	}
+	tx, err := repository.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: repository.dialect == DialectPostgres, Isolation: sql.LevelSerializable})
+	if err != nil {
+		return Protocol3MetadataReadiness{}, errors.Join(ErrActivationGate, err)
+	}
+	readiness, err := repository.protocol3ReadinessWith(ctx, tx)
+	if err != nil {
+		return Protocol3MetadataReadiness{}, rollbackFenceTx(tx, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Protocol3MetadataReadiness{}, errors.Join(ErrActivationGate, err)
+	}
+	return readiness, nil
+}
+
 func (repository *FenceRepository) protocol3ReadinessWith(ctx context.Context, queryer protocol3Queryer) (Protocol3MetadataReadiness, error) {
 	var result Protocol3MetadataReadiness
+	var fence ControlFence
+	if err := queryer.QueryRowContext(ctx, repository.bind(`SELECT fence_key,min_reader_protocol,max_writer_protocol,fence_epoch,state,revision
+FROM control_plane_compat WHERE fence_key=?`), "global").Scan(&fence.FenceKey, &fence.MinReaderProtocol,
+		&fence.MaxWriterProtocol, &fence.FenceEpoch, &fence.State, &fence.Revision); err != nil {
+		return Protocol3MetadataReadiness{}, errors.Join(ErrActivationGate, err)
+	}
 	counts := []struct {
 		target *int64
 		query  string
@@ -259,6 +290,11 @@ WHERE NOT EXISTS (SELECT 1 FROM relation_policy_bindings b
 	if err := rows.Err(); err != nil {
 		return Protocol3MetadataReadiness{}, errors.Join(ErrActivationGate, err)
 	}
+	hash := sha256.New()
+	_, _ = fmt.Fprintf(hash, "agentsql-protocol3-activation-v1\x00%s\x00%d\x00%d\x00%d\x00%s\x00%d\x00%d\x00%d\x00%d\x00%d\x00%d",
+		fence.FenceKey, fence.MinReaderProtocol, fence.MaxWriterProtocol, fence.FenceEpoch, fence.State, fence.Revision,
+		result.StagingRows, result.WildcardPolicies, result.IncompleteBindings, result.UnhealthyBindings, result.OrphanedPermissions)
+	result.ETag = `"p3-` + hex.EncodeToString(hash.Sum(nil)) + `"`
 	return result, nil
 }
 
@@ -267,7 +303,7 @@ WHERE NOT EXISTS (SELECT 1 FROM relation_policy_bindings b
 // every supplied and durable readiness fact is true.
 func (repository *FenceRepository) ActivateProtocol3(ctx context.Context, activation Protocol3Activation) (RuntimeInstance, error) {
 	if repository == nil || repository.db == nil || ctx == nil || activation.InstanceID == "" ||
-		activation.ArtifactDigest == "" || activation.Lease <= 0 || activation.Now.IsZero() ||
+		activation.ArtifactDigest == "" || activation.ExpectedETag == "" || activation.Lease <= 0 || activation.Now.IsZero() ||
 		!activation.BinderReady || !activation.CatalogReady || !activation.ReservationReady {
 		return RuntimeInstance{}, ErrActivationGate
 	}
@@ -283,7 +319,7 @@ func (repository *FenceRepository) ActivateProtocol3(ctx context.Context, activa
 		return RuntimeInstance{}, rollbackFenceTx(tx, errors.Join(ErrActivationGate, err))
 	}
 	readiness, err := repository.protocol3ReadinessWith(ctx, tx)
-	if err != nil || !readiness.Ready() {
+	if err != nil || !readiness.Ready() || readiness.ETag != activation.ExpectedETag {
 		return RuntimeInstance{}, rollbackFenceTx(tx, errors.Join(ErrActivationGate, err))
 	}
 	var state string

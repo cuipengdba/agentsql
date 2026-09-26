@@ -2,6 +2,9 @@ package businessdb
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -20,6 +23,20 @@ import (
 
 const b2S7MatrixGate = "AGENTSQL_B2_S7_MATRIX"
 
+type b2S7AttackCell struct {
+	PostgresMajor int  `json:"postgres_major"`
+	TLS           bool `json:"tls"`
+	Passed        bool `json:"passed"`
+}
+
+type b2S7AttackReport struct {
+	Schema      string           `json:"schema"`
+	GeneratedAt time.Time        `json:"generated_at"`
+	Cells       []b2S7AttackCell `json:"cells"`
+	Passed      bool             `json:"passed"`
+	Digest      string           `json:"digest"`
+}
+
 // TestB2S7ColumnAuthorizationAttackMatrix is the opt-in, destructive red-team
 // acceptance suite for B2. It deliberately runs against real PostgreSQL 14
 // and 18 servers; the PG18 cell is TLS-only. Every case either proves that an
@@ -29,6 +46,7 @@ func TestB2S7ColumnAuthorizationAttackMatrix(t *testing.T) {
 	if os.Getenv(b2S7MatrixGate) != "1" {
 		t.Skip("set " + b2S7MatrixGate + "=1 to run the PG14/18 B2 S7 attack matrix")
 	}
+	report := b2S7AttackReport{Schema: "agentsql.b2.s7-attack-matrix/v1", GeneratedAt: time.Now().UTC(), Passed: true}
 	for _, cell := range []struct {
 		major int
 		tls   bool
@@ -38,10 +56,35 @@ func TestB2S7ColumnAuthorizationAttackMatrix(t *testing.T) {
 		if cell.tls {
 			name += "-tls"
 		}
-		t.Run(name, func(t *testing.T) {
+		passed := t.Run(name, func(t *testing.T) {
 			runB2S7AttackMatrix(t, cell.major, cell.tls)
 		})
+		report.Cells = append(report.Cells, b2S7AttackCell{PostgresMajor: cell.major, TLS: cell.tls, Passed: passed})
+		report.Passed = report.Passed && passed
 	}
+	writeB2S7AttackReport(t, report)
+}
+
+func writeB2S7AttackReport(t *testing.T, report b2S7AttackReport) {
+	t.Helper()
+	unsigned, err := json.Marshal(report)
+	require.NoError(t, err)
+	digest := sha256.Sum256(unsigned)
+	report.Digest = "sha256:" + hex.EncodeToString(digest[:])
+	encoded, err := json.MarshalIndent(report, "", "  ")
+	require.NoError(t, err)
+	directory := os.Getenv("AGENTSQL_B2_S7_OUTPUT_DIR")
+	if directory == "" {
+		directory = filepath.Join("..", "..", "..", "..", "artifacts", "b2-s7")
+	} else if !filepath.IsAbs(directory) {
+		root, rootErr := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+		require.NoError(t, rootErr)
+		directory = filepath.Join(root, directory)
+	}
+	require.NoError(t, os.MkdirAll(directory, 0o700))
+	path := filepath.Join(directory, "attack-"+report.GeneratedAt.Format("20060102T150405Z")+".json")
+	require.NoError(t, os.WriteFile(path, append(encoded, '\n'), 0o600))
+	t.Logf("B2 S7 report: %s", path)
 }
 
 func runB2S7AttackMatrix(t *testing.T, major int, tls bool) {

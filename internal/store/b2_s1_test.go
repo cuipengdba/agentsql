@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,7 +183,7 @@ func TestB2Protocol3ActivationAndHeartbeatLifecycle(t *testing.T) {
 
 	instance, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
 		InstanceID: "runtime-p3", ArtifactDigest: "artifact-p3", BinderReady: true,
-		CatalogReady: true, ReservationReady: true, Now: now, Lease: time.Minute,
+		CatalogReady: true, ReservationReady: true, ExpectedETag: readiness.ETag, Now: now, Lease: time.Minute,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 3, instance.ProtocolVersion)
@@ -215,7 +216,7 @@ func TestB2Protocol3ActivationGateLeavesFactoryFenceOff(t *testing.T) {
 	require.NotZero(t, readiness.IncompleteBindings)
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "blocked-p3",
+	_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "blocked-p3", ExpectedETag: readiness.ETag,
 		ArtifactDigest: "artifact", BinderReady: true, CatalogReady: true,
 		ReservationReady: true, Now: now, Lease: time.Minute})
 	require.ErrorIs(t, err, ErrActivationGate)
@@ -243,9 +244,12 @@ func TestB2Protocol3ActivationRequiresEveryRuntimeAttestation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			opened := openTestStore(t)
 			now := time.Now().UTC().Truncate(time.Microsecond)
+			readiness, readinessErr := opened.Fence().PrepareProtocol3Activation(context.Background())
+			require.NoError(t, readinessErr)
 			_, err := opened.Fence().ActivateProtocol3(context.Background(), Protocol3Activation{
 				InstanceID: "blocked-" + test.name, ArtifactDigest: "artifact",
-				BinderReady: test.binder, CatalogReady: test.catalog, ReservationReady: test.reservation,
+				ExpectedETag: readiness.ETag,
+				BinderReady:  test.binder, CatalogReady: test.catalog, ReservationReady: test.reservation,
 				Now: now, Lease: time.Minute,
 			})
 			require.ErrorIs(t, err, ErrActivationGate)
@@ -260,9 +264,11 @@ func TestB2Protocol3RuntimeRegistrationCannotBypassActivationOrArtifactFence(t *
 	opened := openTestStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
+	readiness, err := opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
 	first, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
 		InstanceID: "runtime-a", ArtifactDigest: "artifact-a", BinderReady: true,
-		CatalogReady: true, ReservationReady: true, Now: now, Lease: time.Minute,
+		CatalogReady: true, ReservationReady: true, ExpectedETag: readiness.ETag, Now: now, Lease: time.Minute,
 	})
 	require.NoError(t, err)
 
@@ -272,16 +278,20 @@ func TestB2Protocol3RuntimeRegistrationCannotBypassActivationOrArtifactFence(t *
 	require.ErrorIs(t, err, ErrFenceLost, "protocol 3 registration must pass the activation gate")
 
 	for _, instanceID := range []string{first.InstanceID, "runtime-b"} {
+		readiness, readinessErr := opened.Fence().PrepareProtocol3Activation(ctx)
+		require.NoError(t, readinessErr)
 		_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
 			InstanceID: instanceID, ArtifactDigest: "artifact-b", BinderReady: true,
-			CatalogReady: true, ReservationReady: true, Now: now.Add(time.Second), Lease: time.Minute,
+			CatalogReady: true, ReservationReady: true, ExpectedETag: readiness.ETag, Now: now.Add(time.Second), Lease: time.Minute,
 		})
 		require.ErrorIs(t, err, ErrActivationGate, "a live artifact must not be replaced or joined by a different artifact")
 	}
 
+	readiness, err = opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
 	second, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
 		InstanceID: "runtime-b", ArtifactDigest: first.ArtifactDigest, BinderReady: true,
-		CatalogReady: true, ReservationReady: true, Now: now.Add(time.Second), Lease: time.Minute,
+		CatalogReady: true, ReservationReady: true, ExpectedETag: readiness.ETag, Now: now.Add(time.Second), Lease: time.Minute,
 	})
 	require.NoError(t, err)
 	require.Equal(t, first.ArtifactDigest, second.ArtifactDigest)
@@ -292,12 +302,73 @@ func TestB2Protocol3ActivationRejectsFrozenControlFence(t *testing.T) {
 	ctx := context.Background()
 	_, err := opened.metaDB.ExecContext(ctx, `UPDATE control_plane_compat SET state='frozen' WHERE fence_key='global'`)
 	require.NoError(t, err)
+	readiness, err := opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
 	_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{
 		InstanceID: "blocked-frozen", ArtifactDigest: "artifact", BinderReady: true,
-		CatalogReady: true, ReservationReady: true, Now: time.Now().UTC(), Lease: time.Minute,
+		CatalogReady: true, ReservationReady: true, ExpectedETag: readiness.ETag, Now: time.Now().UTC(), Lease: time.Minute,
 	})
 	require.ErrorIs(t, err, ErrActivationGate)
 	var count int
 	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_instances WHERE instance_id='blocked-frozen'`).Scan(&count))
 	require.Zero(t, count)
+}
+
+func TestB2Protocol3ActivationRejectsStaleOrWeakETagWithoutMutation(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	prepared, err := opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, prepared.ETag)
+	require.Equal(t, '"', rune(prepared.ETag[0]))
+
+	_, err = opened.metaDB.ExecContext(ctx, `UPDATE control_plane_compat SET revision=revision+1 WHERE fence_key='global'`)
+	require.NoError(t, err)
+	_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "stale-etag", ArtifactDigest: "artifact",
+		ExpectedETag: prepared.ETag, BinderReady: true, CatalogReady: true, ReservationReady: true,
+		Now: time.Now().UTC(), Lease: time.Minute})
+	require.ErrorIs(t, err, ErrActivationGate)
+
+	for _, etag := range []string{"", "*", `W/"weak"`, strings.Trim(prepared.ETag, `"`)} {
+		_, err = opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "weak-etag", ArtifactDigest: "artifact",
+			ExpectedETag: etag, BinderReady: true, CatalogReady: true, ReservationReady: true,
+			Now: time.Now().UTC(), Lease: time.Minute})
+		require.ErrorIs(t, err, ErrActivationGate, etag)
+	}
+	var state string
+	var runtimes int
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT state FROM control_plane_compat WHERE fence_key='global'`).Scan(&state))
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_instances`).Scan(&runtimes))
+	require.Equal(t, "protocol2", state)
+	require.Zero(t, runtimes)
+}
+
+func TestB2Protocol3RecoveryRequiresFreshPrepareAndReactivation(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	firstPlan, err := opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
+	first, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "runtime-before-fault",
+		ArtifactDigest: "signed-artifact", ExpectedETag: firstPlan.ETag, BinderReady: true, CatalogReady: true,
+		ReservationReady: true, Now: now, Lease: time.Second})
+	require.NoError(t, err)
+	_, err = opened.Fence().BeginRead(ctx, 3, first.InstanceID, now.Add(2*time.Second))
+	require.ErrorIs(t, err, ErrFenceLost)
+
+	// The expired identity cannot heal itself. Recovery takes a fresh phase-one
+	// snapshot and registers a new identity against the same artifact.
+	_, err = opened.Fence().Heartbeat(ctx, first, now.Add(2*time.Second), time.Minute)
+	require.ErrorIs(t, err, ErrFenceLost)
+	recoveryPlan, err := opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, firstPlan.ETag, recoveryPlan.ETag)
+	recovered, err := opened.Fence().ActivateProtocol3(ctx, Protocol3Activation{InstanceID: "runtime-after-recovery",
+		ArtifactDigest: first.ArtifactDigest, ExpectedETag: recoveryPlan.ETag, BinderReady: true, CatalogReady: true,
+		ReservationReady: true, Now: now.Add(2 * time.Second), Lease: time.Minute})
+	require.NoError(t, err)
+	snapshot, err := opened.Fence().BeginRead(ctx, 3, recovered.InstanceID, now.Add(3*time.Second))
+	require.NoError(t, err)
+	require.NoError(t, snapshot.FinalCheck(ctx, now.Add(3*time.Second)))
+	require.NoError(t, snapshot.Close())
 }

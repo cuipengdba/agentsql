@@ -49,6 +49,7 @@ type Config struct {
 // probe succeeds. Failed activation keeps the table-level pipeline available.
 type ColumnAuthorizationConfig struct {
 	Enabled             bool   `yaml:"enabled"`
+	DryRun              bool   `yaml:"dry_run"`
 	InstanceID          string `yaml:"instance_id"`
 	LeaseMS             int    `yaml:"lease_ms"`
 	HeartbeatIntervalMS int    `yaml:"heartbeat_interval_ms"`
@@ -233,13 +234,16 @@ func (config Config) validateNonStore() error {
 	if err := defaultAndValidateDemo(&demo); err != nil {
 		return fmt.Errorf("validate demo config: %w", err)
 	}
-	if config.ColumnAuthorization.Enabled && strings.TrimSpace(config.ColumnAuthorization.InstanceID) == "" {
-		return fmt.Errorf("validate column_authorization: instance_id is required when enabled")
+	if config.ColumnAuthorization.Enabled && config.ColumnAuthorization.DryRun {
+		return fmt.Errorf("validate column_authorization: enabled and dry_run are mutually exclusive")
+	}
+	if (config.ColumnAuthorization.Enabled || config.ColumnAuthorization.DryRun) && strings.TrimSpace(config.ColumnAuthorization.InstanceID) == "" {
+		return fmt.Errorf("validate column_authorization: instance_id is required when enabled or dry_run")
 	}
 	if config.ColumnAuthorization.LeaseMS < 0 || config.ColumnAuthorization.HeartbeatIntervalMS < 0 {
 		return fmt.Errorf("validate column_authorization: lease and heartbeat interval must not be negative")
 	}
-	if config.ColumnAuthorization.Enabled && config.ColumnAuthorization.LeaseMS > 0 &&
+	if (config.ColumnAuthorization.Enabled || config.ColumnAuthorization.DryRun) && config.ColumnAuthorization.LeaseMS > 0 &&
 		config.ColumnAuthorization.HeartbeatIntervalMS >= config.ColumnAuthorization.LeaseMS {
 		return fmt.Errorf("validate column_authorization: heartbeat interval must be less than lease")
 	}

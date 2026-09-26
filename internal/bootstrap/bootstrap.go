@@ -177,20 +177,30 @@ func assembleWithExecutorProvider(
 			b2Manager.close()
 		}
 	}()
-	if cfg.ColumnAuthorization.Enabled {
+	if cfg.ColumnAuthorization.Enabled || cfg.ColumnAuthorization.DryRun {
 		var activationErr error
-		b2Manager, activationErr = activateB2Runtime(ctx, metadataStore, manager, secret,
-			strings.TrimSpace(cfg.ColumnAuthorization.InstanceID),
-			time.Duration(cfg.ColumnAuthorization.LeaseMS)*time.Millisecond,
-			time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond)
+		if cfg.ColumnAuthorization.DryRun {
+			b2Manager, activationErr = dryRunB2Runtime(ctx, metadataStore, manager, secret,
+				strings.TrimSpace(cfg.ColumnAuthorization.InstanceID),
+				time.Duration(cfg.ColumnAuthorization.LeaseMS)*time.Millisecond,
+				time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond)
+		} else {
+			b2Manager, activationErr = activateB2Runtime(ctx, metadataStore, manager, secret,
+				strings.TrimSpace(cfg.ColumnAuthorization.InstanceID),
+				time.Duration(cfg.ColumnAuthorization.LeaseMS)*time.Millisecond,
+				time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond)
+		}
 		b2Manager.attachStateObserver(metricsHub.SetB2State)
 		status := b2Manager.snapshot()
 		details, _ := json.Marshal(struct {
 			B2 B2Status `json:"b2"`
 		}{B2: status})
 		action, actorType, actorID := "b2_activation", "runtime", status.InstanceID
+		if cfg.ColumnAuthorization.DryRun {
+			action = "b2_dry_run"
+		}
 		decision := string(model.DecisionWarn)
-		if activationErr == nil {
+		if activationErr == nil && cfg.ColumnAuthorization.Enabled {
 			decision = string(model.DecisionAllow)
 		}
 		text := string(details)

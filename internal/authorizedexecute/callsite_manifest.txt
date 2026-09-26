@@ -6,4 +6,5 @@ internal/store/
 internal/b5session/sql_ledger.go
 internal/b5session/tombstone.go
 internal/b5session/pg_inventory.go
+internal/b5soak/postgres.go
 cmd/agentsqlctl/
