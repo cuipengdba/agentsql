@@ -62,7 +62,7 @@
     <section id="top" class="hero section">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v0.4.0-rc · 即将发布</div>
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v0.4.0 已发布</div>
           <h1>AI Agent 的数据库安全网关</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并同步写入应用层审计。</p>
           <div class="hero-actions">
@@ -186,18 +186,18 @@
           <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>选择 Streamable HTTP 或 stdio，配置七个工具的调用与返回处理。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v0.4.0.pdf" download="AgentSQL-MCP接入指南-v0.4.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="#demo">在线演示说明</a></p><p>v0.4.0 发布日将开放一键安装与容器镜像；公网 Live Demo 尚未开放。</p><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
-          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases（v0.4.0 即将发布）</a></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="#demo">在线演示说明</a></p><p>v0.4.0 提供一键安装与容器镜像；公网 Live Demo 尚未开放。</p><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases（v0.4.0）</a></div>
         </div>
       </div>
     </section>
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>当前支持矩阵</h2><p>版本与协议支持以 v0.4.0 发布候选代码和仓库文档为准。</p></div>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>当前支持矩阵</h2><p>版本与协议支持以 v0.4.0 和仓库文档为准。</p></div>
         <div class="table-wrap">
           <table>
-            <caption>AgentSQL v0.4.0-rc 兼容范围</caption>
+            <caption>AgentSQL v0.4.0 兼容范围</caption>
             <thead><tr><th scope="col">类别</th><th scope="col">当前支持</th><th scope="col">边界与说明</th></tr></thead>
             <tbody>
               <tr><th scope="row">被防护业务库</th><td>MySQL 8.x；PostgreSQL 14 / 15 / 16 / 17 / 18</td><td>按对应方言解析并执行受控检查。</td></tr>
@@ -252,7 +252,7 @@ bash ./demo/reset.sh
           <li><strong>JOIN 授权</strong><span>JOIN / 自连接仅做表级授权，不推断投影列归属。</span></li>
           <li><strong>通配权限</strong><span><code>*</code> / <code>schema.*</code> 代表整表全列权限。</span></li>
           <li><strong>列名回溯</strong><span>脱敏按最终结果列名匹配，表达式 / 聚合 / CAST / UNION / 复杂 CTE / 视图重命名可能无法回溯源列。</span></li>
-          <li><strong>SQL / 事务边界</strong><span>每个 MCP 请求只接受单条 SQL，不提供通用跨请求事务代理，拒绝多语句堆叠。</span></li>
+          <li><strong>SQL / 事务边界</strong><span>MCP 多语句事务与跨请求会话能力随 v0.4.0 交付，但 B5 出厂默认关闭，需显式开启并完成数据源能力核验；默认（未开启 B5）时仍只允许单条顶层 SQL，不允许 stacked SQL（堆叠语句）或跨请求事务。</span></li>
           <li><strong>审批边界</strong><span>审批通过只是一条人工决策记录，不会自动执行原 SQL，也不是后续执行的豁免票据；获准后仍需由库外流程重新发起受控请求。</span></li>
           <li><strong>演示环境</strong><span>公网 Demo 仅只读合成数据，不接真实库。</span></li>
           <li><strong>规划能力</strong><span>HA / 集中管控 / 企业身份在规划方向。</span></li>
@@ -267,7 +267,7 @@ bash ./demo/reset.sh
           <li class="complete"><span>v0.1</span><strong>核心网关</strong></li>
           <li class="complete"><span>v0.2</span><strong>实时大屏 / PostgreSQL 控制面 / 一键 Live Demo</strong><small>已完成阶段</small></li>
           <li class="complete"><span>v0.3</span><strong>安全事件通知 / 敏感列发现 / 表.列感知脱敏</strong><small>已完成阶段</small></li>
-          <li class="current"><span>v0.4</span><strong>安全与交付增强</strong><small>当前，发布候选</small></li>
+          <li class="current"><span>v0.4</span><strong>安全与交付增强</strong><small>当前版本</small></li>
           <li><span>下一阶段</span><strong>国产与商业数据库适配</strong></li>
           <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
           <li><span>后续方向</span><strong>高可用与集中管控</strong></li>
@@ -304,7 +304,7 @@ bash ./demo/reset.sh
       <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
     </div>
     <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志最长保留 30 天，并受单文件 10 MiB、最多 10 个轮转文件上限约束（高流量时可能提前淘汰），联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>
-    <div class="container footer-bottom"><span>© <span data-current-year>2026</span> 崔鹏 · 本站为个人开源技术项目，仅用于技术交流</span><!-- ICP/公安备案号：下号后在此渲染，ICP 链接 https://beian.miit.gov.cn ，公安联网备案链接以上线时官方平台返回为准 --></div>
+    <div class="container footer-bottom"><span>© <span data-current-year>2026</span> 崔鹏 · 本站为个人开源技术项目，仅用于技术交流</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">黑ICP备【ICP备案号】号</a> · <a href="https://beian.mps.gov.cn/" target="_blank" rel="noopener noreferrer">黑公网安备【公安备案号】号</a></span></div>
   </footer>
 </body>
 </html>

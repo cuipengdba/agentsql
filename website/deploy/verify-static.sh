@@ -68,7 +68,7 @@ fi
 origin_fail=0
 while IFS= read -r hit; do
   case "$hit" in
-    https://agentsql.cn/*|https://github.com/*|https://beian.miit.gov.cn*|http://127.0.0.1:*|mailto:*) ;;
+    https://agentsql.cn/*|https://github.com/*|https://beian.miit.gov.cn*|https://beian.mps.gov.cn*|http://127.0.0.1:*|mailto:*) ;;
     *) printf '      非白名单引用: %s\n' "$hit"; origin_fail=1 ;;
   esac
 done < <(grep -RhoE 'https?://[^"<>()[:space:]]+|mailto:[^"<>()[:space:]]+' "$SITE_ROOT"/*.html "$SITE_ROOT"/.well-known/security.txt 2>/dev/null | sort -u)
