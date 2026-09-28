@@ -43,16 +43,32 @@ mask_rules:
   - {id: mask-demo-mysql-email, datasource_id: ds-demo-mysql, table_name: "", column_name: email, sensitive_type: email, algo: mask}
 
 policies:
-  - {id: policy-demo-ro-pg-customers, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: customers, action: allow}
-  - {id: policy-demo-ro-pg-orders, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: orders, action: allow}
-  - {id: policy-demo-ro-pg-products, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: products, action: allow}
-  - {id: policy-demo-ro-pg-internal-notes, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: internal_notes, action: deny}
+  - {id: policy-demo-ro-pg-customers, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: public.customers, action: allow}
+  - {id: policy-demo-ro-pg-orders, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: public.orders, action: allow}
+  - {id: policy-demo-ro-pg-products, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: public.products, action: allow}
+  - {id: policy-demo-ro-pg-internal-notes, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: public.internal_notes, action: deny}
+  - {id: policy-demo-ro-pg-demo-b2-customers, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: public.demo_b2_customers, action: allow}
+  - {id: policy-demo-ro-pg-demo-b2-orders, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: table, object_name: public.demo_b2_orders, action: allow}
   - {id: policy-demo-ro-mysql-customers, agent_id: agent-demo-ro, datasource_id: ds-demo-mysql, object_type: table, object_name: customers, action: allow}
   - {id: policy-demo-ro-mysql-orders, agent_id: agent-demo-ro, datasource_id: ds-demo-mysql, object_type: table, object_name: orders, action: allow}
   - {id: policy-demo-ro-mysql-products, agent_id: agent-demo-ro, datasource_id: ds-demo-mysql, object_type: table, object_name: products, action: allow}
   - {id: policy-demo-ro-mysql-internal-notes, agent_id: agent-demo-ro, datasource_id: ds-demo-mysql, object_type: table, object_name: internal_notes, action: deny}
-  - {id: policy-demo-dml-pg-deny-all, agent_id: agent-demo-dml, datasource_id: ds-demo-pg, object_type: table, object_name: "*", action: deny}
+  - {id: policy-demo-ro-pg-demo-b2-customers-columns, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: column, object_name: public.demo_b2_customers, columns: "id,full_name,region", enrollment_sql: "SELECT c.full_name,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1", action: allow}
+  - {id: policy-demo-ro-pg-demo-b2-orders-columns, agent_id: agent-demo-ro, datasource_id: ds-demo-pg, object_type: column, object_name: public.demo_b2_orders, columns: "id,customer_id,status", enrollment_sql: "SELECT c.full_name,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1", action: allow}
+  # This marker is never treated as a usable binding. Its presence makes the
+  # configured B2 pipeline return the stable Chinese MySQL-unsupported result
+  # before any business query is executed.
+  - {id: policy-demo-ro-mysql-columns-unsupported, agent_id: agent-demo-ro, datasource_id: ds-demo-mysql, object_type: column, object_name: customers, columns: "full_name", action: allow}
+  - {id: policy-demo-dml-pg-demo-tx, agent_id: agent-demo-dml, datasource_id: ds-demo-pg, object_type: table, object_name: public.demo_tx_accounts, action: allow}
   - {id: policy-demo-dml-mysql-deny-all, agent_id: agent-demo-dml, datasource_id: ds-demo-mysql, object_type: table, object_name: "*", action: deny}
+
+b5:
+  agent_id: agent-demo-dml
+  datasource_id: ds-demo-pg
+  policy_id: policy-demo-dml-pg-demo-tx
+  statements:
+    - "UPDATE public.demo_tx_accounts SET balance=balance+10 WHERE id=1"
+    - "UPDATE public.demo_tx_accounts SET status='committed' WHERE id=1"
 
 # These IDs are validated against the rules package's executable catalog.
 rules:

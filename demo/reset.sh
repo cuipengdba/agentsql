@@ -76,10 +76,12 @@ for expected in \
   DEMO_SEED_VERIFY_OK \
   datasources=2 \
   agents=2 \
-  policies=10 \
+  policies=15 \
   mask_rules=4 \
   audits=300 \
-  approvals=24; do
+  approvals=24 \
+  b5_grants=5 \
+  b2_mode=NATIVE_C_V1; do
   grep -Eq "(^| )${expected}( |$)" <<<"$verify_output"
 done
 # verify-only also validates allow/deny/warn/approve=180/60/36/24 and all 24
@@ -96,6 +98,9 @@ require_line "$pg_counts" 'customers=128'
 require_line "$pg_counts" 'products=64'
 require_line "$pg_counts" 'orders=2400'
 require_line "$pg_counts" 'internal_notes=16'
+require_line "$pg_counts" 'demo_tx_accounts=4'
+require_line "$pg_counts" 'demo_b2_customers=128'
+require_line "$pg_counts" 'demo_b2_orders=2400'
 
 STAGE="verify-mysql-counts"
 printf '[demo-reset] %s\n' "$STAGE"

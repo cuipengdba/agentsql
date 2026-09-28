@@ -42,13 +42,142 @@ function Invoke-Docker {
 }
 
 function Assert-CountLines {
-    param([string[]]$Lines)
+    param([string[]]$Lines, [string[]]$Expected = @("customers=128", "products=64", "orders=2400", "internal_notes=16"))
     $clean = @($Lines | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
-    foreach ($expected in @("customers=128", "products=64", "orders=2400", "internal_notes=16")) {
+    foreach ($expected in $Expected) {
         if ($clean -notcontains $expected) {
             throw "missing expected count $expected; got: $($clean -join ', ')"
         }
     }
+}
+
+function Invoke-MCPTool {
+    param(
+        [string]$GatewayPort,
+        [string]$APIKey,
+        [string]$Name,
+        [object]$Arguments
+    )
+    $body = [ordered]@{
+        jsonrpc = "2.0"
+        id = "$Name-$([Guid]::NewGuid().ToString('N'))"
+        method = "tools/call"
+        params = [ordered]@{ name = $Name; arguments = $Arguments }
+    } | ConvertTo-Json -Depth 20 -Compress
+    $headers = @{
+        Authorization = "Bearer $APIKey"
+        Accept = "application/json, text/event-stream"
+        "MCP-Protocol-Version" = "2025-06-18"
+    }
+    $client = New-Object System.Net.WebClient
+    $client.Encoding = [Text.Encoding]::UTF8
+    foreach ($header in $headers.GetEnumerator()) { $client.Headers.Add($header.Key, $header.Value) }
+    $client.Headers.Add("Content-Type", "application/json; charset=utf-8")
+    try {
+        $response = $client.UploadString("http://127.0.0.1:$GatewayPort/mcp", "POST", $body) | ConvertFrom-Json
+    } finally {
+        $client.Dispose()
+    }
+    if ($null -ne $response.error) {
+        throw "MCP transport error for $Name"
+    }
+    return $response.result.structuredContent
+}
+
+function ConvertFrom-Base64Url {
+    param([string]$Value)
+    $value = $Value.Replace('-', '+').Replace('_', '/')
+    switch ($value.Length % 4) {
+        2 { $value += '==' }
+        3 { $value += '=' }
+    }
+    return [Convert]::FromBase64String($value)
+}
+
+function ConvertTo-Base64Url {
+    param([byte[]]$Value)
+    return [Convert]::ToBase64String($Value).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+}
+
+function Get-BigEndianUInt64 {
+    param([UInt64]$Value)
+    $bytes = [BitConverter]::GetBytes($Value)
+    if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($bytes) }
+    return $bytes
+}
+
+function Add-LengthPrefixedBytes {
+    param([System.Collections.Generic.List[byte]]$Target, [byte[]]$Value)
+    foreach ($byte in (Get-BigEndianUInt64 ([UInt64]$Value.Length))) { $Target.Add($byte) }
+    foreach ($byte in $Value) { $Target.Add($byte) }
+}
+
+function Get-HMACSHA256 {
+    param([byte[]]$Key, [byte[]]$Value)
+    $hmac = [Security.Cryptography.HMACSHA256]::new($Key)
+    try { return $hmac.ComputeHash($Value) } finally { $hmac.Dispose() }
+}
+
+function Set-B5Signature {
+    param([string]$Secret, [string]$Method, [System.Collections.Specialized.OrderedDictionary]$Arguments)
+    $Arguments.continuation_proof = ""
+    $Arguments.body_digest = ""
+    $canonical = [ordered]@{ schema = "agentsql.b5.mcp-body.v1"; method = $Method; arguments = $Arguments } |
+        ConvertTo-Json -Depth 20 -Compress
+    # Windows PowerShell's ConvertTo-Json escapes apostrophes as \u0027;
+    # Go encoding/json leaves them literal when it re-marshals the decoded
+    # typed payload for B5BodyDigest. Normalize to that exact wire contract.
+    $canonical = $canonical.Replace('\u0027', [string][char]0x27)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $bodyDigest = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($canonical)) } finally { $sha.Dispose() }
+    $Arguments.body_digest = ([BitConverter]::ToString($bodyDigest)).Replace('-', '').ToLowerInvariant()
+
+    $secretBytes = ConvertFrom-Base64Url $Secret
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $salt = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes([string]$Arguments.session_id)) } finally { $sha.Dispose() }
+    $prk = Get-HMACSHA256 $salt $secretBytes
+    $info = New-Object System.Collections.Generic.List[byte]
+    foreach ($byte in [Text.Encoding]::UTF8.GetBytes("agentsql.b5.continuation-key.v2")) { $info.Add($byte) }
+    $info.Add(1)
+    $key = Get-HMACSHA256 $prk $info.ToArray()
+
+    $message = New-Object System.Collections.Generic.List[byte]
+    foreach ($field in @("agentsql.b5.continuation.v2", $Method, [string]$Arguments.session_id)) {
+        Add-LengthPrefixedBytes $message ([Text.Encoding]::UTF8.GetBytes($field))
+    }
+    Add-LengthPrefixedBytes $message (Get-BigEndianUInt64 ([UInt64]$Arguments.owner_epoch))
+    Add-LengthPrefixedBytes $message ([Text.Encoding]::UTF8.GetBytes([string]$Arguments.request_id))
+    if ($Arguments.Contains("expected_seq")) {
+        Add-LengthPrefixedBytes $message ([Text.Encoding]::UTF8.GetBytes("present"))
+        Add-LengthPrefixedBytes $message (Get-BigEndianUInt64 ([UInt64]$Arguments.expected_seq))
+    } else {
+        Add-LengthPrefixedBytes $message ([Text.Encoding]::UTF8.GetBytes("absent"))
+    }
+    Add-LengthPrefixedBytes $message $bodyDigest
+    $Arguments.continuation_proof = ConvertTo-Base64Url (Get-HMACSHA256 $key $message.ToArray())
+}
+
+function New-B5Continuation {
+    param([object]$Session, [string]$RequestID)
+    return [ordered]@{
+        session_id = [string]$Session.session_id
+        owner_epoch = [UInt64]$Session.owner_epoch
+        request_id = $RequestID
+        continuation_proof = ""
+        body_digest = ""
+    }
+}
+
+function Wait-DemoReady {
+    param([string]$GatewayPort, [int]$Attempts = 30)
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            $value = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:$GatewayPort/readyz"
+            if ($value.status -eq "ready") { return $value }
+        } catch {}
+        Start-Sleep -Seconds 1
+    }
+    throw "demo gateway did not become ready"
 }
 
 try {
@@ -95,6 +224,20 @@ try {
     if ($ready.status -ne "ready") {
         throw "/readyz did not report status=ready"
     }
+    $b2Mode = [string]$health.b2.datasource_modes.'ds-demo-pg'
+    if ($health.b2.state -ne "active" -or $health.b2.protocol -ne 3 -or $b2Mode -ne "NATIVE_C_V1") {
+        throw "B2 is not active in native mode (state=$($health.b2.state), protocol=$($health.b2.protocol), mode=$b2Mode)"
+    }
+    if ($health.b2.unsupported_datasources.'ds-demo-mysql' -ne "B2_DATASOURCE_DIALECT_UNSUPPORTED") {
+        throw "B2 did not report the MySQL datasource as unsupported"
+    }
+    if ($null -eq $health.b5 -or $health.b5.ready -ne $true -or $health.b5.state -notin @("READY", "READY_WITH_DATASOURCE_ERRORS")) {
+        throw "B5 readiness is not READY/READY_WITH_DATASOURCE_ERRORS"
+    }
+    $b5Readiness = [string]$health.b5.state
+    if ($b5Readiness -eq "READY_WITH_DATASOURCE_ERRORS" -and $health.b5.reason -ne "B5_DATASOURCE_ERRORS_1") {
+        throw "B5 datasource error readiness did not identify exactly the expected MySQL rejection"
+    }
 
     $Stage = "verify-control-plane-seed"
     Write-Host "[demo-reset] $Stage"
@@ -102,7 +245,7 @@ try {
         "demo-seed" "--config" "/etc/agentsql/config.demo.yaml" `
         "--manifest" "/etc/agentsql/demo-seed.yaml" `
         "--anchor-date" $anchor "--verify-only") -join "`n"
-    foreach ($expected in @("DEMO_SEED_VERIFY_OK", "datasources=2", "agents=2", "policies=10", "mask_rules=4", "audits=300", "approvals=24")) {
+    foreach ($expected in @("DEMO_SEED_VERIFY_OK", "datasources=2", "agents=2", "policies=15", "mask_rules=4", "audits=300", "approvals=24", "b5_grants=5", "b2_mode=NATIVE_C_V1")) {
         if ($verifyOutput -notmatch "(^| )$([regex]::Escape($expected))( |$)") {
             throw "verify-only output is missing $expected"
         }
@@ -161,7 +304,14 @@ try {
     $pgCountSql = Join-Path $sharedSqlDir "pg_counts.sql"
     $pgCounts = @(Get-Content -Raw -LiteralPath $pgCountSql | & docker exec -i $pgContainer psql -U $pgOwner -d agentsql_demo -tA)
     if ($LASTEXITCODE -ne 0) { throw "postgres count query failed with exit $LASTEXITCODE" }
-    Assert-CountLines $pgCounts
+    Assert-CountLines $pgCounts @("customers=128", "products=64", "orders=2400", "internal_notes=16", "demo_b2_customers=128", "demo_b2_orders=2400", "demo_tx_accounts=4")
+
+    $Stage = "verify-postgres-native-extension"
+    Write-Host "[demo-reset] $Stage"
+    $binderState = (& docker exec $pgContainer psql -U $pgOwner -d agentsql_demo -tA -c "SELECT extversion || ':' || (agentsql_catalog.capabilities()->>'abi') FROM pg_catalog.pg_extension WHERE extname='agentsql_binder'").Trim()
+    if ($LASTEXITCODE -ne 0 -or $binderState -ne "0.4:agentsql-binder-4.2") {
+        throw "agentsql_binder extension is missing or failed its runtime capability check (got=$binderState)"
+    }
 
     $Stage = "verify-mysql-counts"
     Write-Host "[demo-reset] $Stage"
@@ -174,7 +324,136 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "mysql count query failed with exit $LASTEXITCODE" }
     Assert-CountLines $mysqlCounts
 
-    Write-Host "[demo-reset] OK anchor=$anchor gateway=http://127.0.0.1:$gatewayPort"
+    $roKey = Get-EnvFileValue "AGENTSQL_DEMO_RO_KEY"
+    $dmlKey = Get-EnvFileValue "AGENTSQL_DEMO_DML_KEY"
+    if ([string]::IsNullOrWhiteSpace($roKey) -or [string]::IsNullOrWhiteSpace($dmlKey)) {
+        throw "demo Agent API keys are required for MCP verification"
+    }
+
+    $Stage = "verify-b2-join-column-authorization"
+    Write-Host "[demo-reset] $Stage (mode=$b2Mode)"
+    $positiveSQL = "SELECT c.full_name,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1"
+    $positive = Invoke-MCPTool $gatewayPort $roKey "query" ([ordered]@{ datasource_id = "ds-demo-pg"; sql = $positiveSQL })
+    if ($positive.decision -ne "allow" -or $positive.data.result.RowCount -ne 1) {
+        throw "B2 JOIN/self-join positive query was not allowed"
+    }
+    Start-Sleep -Milliseconds 600
+    $negativeSQL = "SELECT c.email,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1"
+    $negative = Invoke-MCPTool $gatewayPort $roKey "query" ([ordered]@{ datasource_id = "ds-demo-pg"; sql = $negativeSQL })
+    if ($negative.decision -ne "deny" -or $negative.reason -ne "AUTH_COLUMN_GRANT_MISSING" -or $null -ne $negative.data.result) {
+        throw "B2 JOIN/self-join unauthorized column did not fail closed"
+    }
+
+    $Stage = "verify-mysql-unsupported"
+    Write-Host "[demo-reset] $Stage"
+    Start-Sleep -Milliseconds 600
+    $mysqlColumn = Invoke-MCPTool $gatewayPort $roKey "query" ([ordered]@{ datasource_id = "ds-demo-mysql"; sql = "SELECT full_name FROM customers WHERE id=1" })
+    if ($mysqlColumn.decision -ne "error" -or $mysqlColumn.error_code -ne "AUTH_COLUMN_AUTHORIZATION_UNSUPPORTED" -or (($mysqlColumn.reason + $mysqlColumn.suggestion) -notmatch "[\u4e00-\u9fff]")) {
+        throw "MySQL B2 unsupported response was not stable and Chinese"
+    }
+    Start-Sleep -Milliseconds 600
+    $mysqlTx = [ordered]@{
+        session_id = "not-used"; owner_epoch = [UInt64]1; request_id = "mysql-unsupported"
+        continuation_proof = "not-used"; body_digest = ("00" * 32)
+        transaction_id = "mysql-unsupported"; datasource_id = "ds-demo-mysql"; dialect = "mysql"
+        server_major = 8; key_revision = [UInt64]1; datasource_revision = [UInt64]1; policy_revision = [UInt64]1
+        statements = @([ordered]@{ operation_id = "never"; sql = "UPDATE customers SET full_name='x' WHERE id=1"; reason = "verify unsupported" })
+    }
+    $mysqlB5 = Invoke-MCPTool $gatewayPort $dmlKey "begin_transaction" $mysqlTx
+    if ($mysqlB5.decision -ne "error" -or $mysqlB5.error_code -ne "DIALECT_TRANSACTION_UNSUPPORTED" -or (($mysqlB5.reason + $mysqlB5.suggestion) -notmatch "[\u4e00-\u9fff]")) {
+        throw "MySQL B5 unsupported response was not stable and Chinese"
+    }
+
+    $Stage = "verify-b5-cross-request-commit"
+    Write-Host "[demo-reset] $Stage"
+    Start-Sleep -Milliseconds 600
+    $opened = (Invoke-MCPTool $gatewayPort $dmlKey "open_session" ([ordered]@{})).data
+    $begin = New-B5Continuation $opened "demo-b5-begin-commit"
+    $begin["transaction_id"] = "demo-b5-commit"
+    $begin["datasource_id"] = "ds-demo-pg"
+    $begin["dialect"] = "postgres"
+    $begin["server_major"] = 16
+    $begin["key_revision"] = [UInt64]1
+    $begin["datasource_revision"] = [UInt64]1
+    $begin["policy_revision"] = [UInt64]1
+    $begin["statements"] = @(
+        [ordered]@{ operation_id = "balance"; sql = "UPDATE public.demo_tx_accounts SET balance=balance+10 WHERE id=1"; reason = "demo committed balance" },
+        [ordered]@{ operation_id = "status"; sql = "UPDATE public.demo_tx_accounts SET status='committed' WHERE id=1"; reason = "demo committed status" }
+    )
+    Set-B5Signature $opened.continuation_secret "begin_transaction" $begin
+    $begun = Invoke-MCPTool $gatewayPort $dmlKey "begin_transaction" $begin
+    if ($begun.decision -ne "allow" -or $begun.data.status -ne "ACTIVE") { throw "B5 commit scenario did not begin: $($begun | ConvertTo-Json -Depth 10 -Compress)" }
+    foreach ($operation in @(@("balance", 0), @("status", 1))) {
+        Start-Sleep -Milliseconds 600
+        $execute = New-B5Continuation $opened "demo-b5-execute-$($operation[1])"
+        $execute["transaction_id"] = "demo-b5-commit"; $execute["operation_id"] = $operation[0]; $execute["ordinal"] = $operation[1]
+        Set-B5Signature $opened.continuation_secret "execute_transaction_statement" $execute
+        $executed = Invoke-MCPTool $gatewayPort $dmlKey "execute_transaction_statement" $execute
+        if ($executed.decision -ne "allow" -or $executed.data.status -ne "ACTIVE") { throw "B5 commit scenario statement failed: $($executed | ConvertTo-Json -Depth 10 -Compress)" }
+    }
+    Start-Sleep -Milliseconds 600
+    $commit = New-B5Continuation $opened "demo-b5-commit"
+    $commit["transaction_id"] = "demo-b5-commit"
+    Set-B5Signature $opened.continuation_secret "commit_transaction" $commit
+    $committed = Invoke-MCPTool $gatewayPort $dmlKey "commit_transaction" $commit
+    $commitTerminal = $committed.db_outcome -eq "COMMITTED" -and $committed.tx_effect -eq "TERMINAL_COMMITTED"
+    $commitDispositionSafe = $committed.decision -eq "allow" -or
+        ($committed.decision -eq "error" -and $committed.error_code -eq "TX_COMMITTED_CONNECTION_QUARANTINED" -and $committed.connection_disposition -eq "DISCARDED")
+    if (-not $commitTerminal -or -not $commitDispositionSafe) { throw "B5 commit scenario did not reach a safe committed terminal: $($committed | ConvertTo-Json -Depth 10 -Compress)" }
+    $committedRow = (& docker exec $pgContainer psql -U $pgOwner -d agentsql_demo -tA -c "SELECT balance || ':' || status FROM demo_tx_accounts WHERE id=1").Trim()
+    if ($committedRow -ne "1010:committed") { throw "B5 committed values are not visible (got=$committedRow)" }
+
+    $Stage = "verify-b5-cross-request-rollback"
+    Write-Host "[demo-reset] $Stage"
+    Start-Sleep -Milliseconds 600
+    $openedRollback = (Invoke-MCPTool $gatewayPort $dmlKey "open_session" ([ordered]@{})).data
+    $rollbackSQL = "UPDATE public.demo_tx_accounts SET balance=balance+7 WHERE id=2"
+    $beginRollback = New-B5Continuation $openedRollback "demo-b5-begin-rollback"
+    $beginRollback["transaction_id"] = "demo-b5-rollback"; $beginRollback["datasource_id"] = "ds-demo-pg"; $beginRollback["dialect"] = "postgres"
+    $beginRollback["server_major"] = 16; $beginRollback["key_revision"] = [UInt64]1; $beginRollback["datasource_revision"] = [UInt64]1; $beginRollback["policy_revision"] = [UInt64]1
+    $beginRollback["statements"] = @([ordered]@{ operation_id = "balance"; sql = $rollbackSQL; reason = "demo explicit rollback" })
+    Set-B5Signature $openedRollback.continuation_secret "begin_transaction" $beginRollback
+    if ((Invoke-MCPTool $gatewayPort $dmlKey "begin_transaction" $beginRollback).decision -ne "allow") { throw "B5 rollback scenario did not begin" }
+    Start-Sleep -Milliseconds 600
+    $executeRollback = New-B5Continuation $openedRollback "demo-b5-execute-rollback"
+    $executeRollback["transaction_id"] = "demo-b5-rollback"; $executeRollback["operation_id"] = "balance"; $executeRollback["ordinal"] = 0
+    Set-B5Signature $openedRollback.continuation_secret "execute_transaction_statement" $executeRollback
+    if ((Invoke-MCPTool $gatewayPort $dmlKey "execute_transaction_statement" $executeRollback).decision -ne "allow") { throw "B5 rollback scenario statement failed" }
+    Start-Sleep -Milliseconds 600
+    $rollback = New-B5Continuation $openedRollback "demo-b5-rollback"
+    $rollback["transaction_id"] = "demo-b5-rollback"
+    Set-B5Signature $openedRollback.continuation_secret "rollback_transaction" $rollback
+    $rolledBack = Invoke-MCPTool $gatewayPort $dmlKey "rollback_transaction" $rollback
+    $rollbackTerminal = $rolledBack.db_outcome -eq "NOT_COMMITTED" -and $rolledBack.tx_effect -eq "TERMINAL_NOT_COMMITTED"
+    $rollbackDispositionSafe = $rolledBack.decision -eq "allow" -or
+        ($rolledBack.decision -eq "error" -and $rolledBack.error_code -eq "TX_NOT_COMMITTED_CONNECTION_QUARANTINED" -and $rolledBack.connection_disposition -eq "DISCARDED")
+    if (-not $rollbackTerminal -or -not $rollbackDispositionSafe) { throw "B5 rollback scenario did not reach a safe not-committed terminal: $($rolledBack | ConvertTo-Json -Depth 10 -Compress)" }
+    $rolledBackValue = (& docker exec $pgContainer psql -U $pgOwner -d agentsql_demo -tA -c "SELECT balance FROM demo_tx_accounts WHERE id=2").Trim()
+    if ($rolledBackValue -ne "2000") { throw "B5 rollback leaked a write (got=$rolledBackValue)" }
+
+    $Stage = "verify-b5-interruption-fail-closed"
+    Write-Host "[demo-reset] $Stage"
+    Start-Sleep -Milliseconds 600
+    $openedInterrupted = (Invoke-MCPTool $gatewayPort $dmlKey "open_session" ([ordered]@{})).data
+    $interruptSQL = "UPDATE public.demo_tx_accounts SET balance=balance+11 WHERE id=3"
+    $beginInterrupted = New-B5Continuation $openedInterrupted "demo-b5-begin-interrupted"
+    $beginInterrupted["transaction_id"] = "demo-b5-interrupted"; $beginInterrupted["datasource_id"] = "ds-demo-pg"; $beginInterrupted["dialect"] = "postgres"
+    $beginInterrupted["server_major"] = 16; $beginInterrupted["key_revision"] = [UInt64]1; $beginInterrupted["datasource_revision"] = [UInt64]1; $beginInterrupted["policy_revision"] = [UInt64]1
+    $beginInterrupted["statements"] = @([ordered]@{ operation_id = "balance"; sql = $interruptSQL; reason = "demo restart interruption" })
+    Set-B5Signature $openedInterrupted.continuation_secret "begin_transaction" $beginInterrupted
+    if ((Invoke-MCPTool $gatewayPort $dmlKey "begin_transaction" $beginInterrupted).decision -ne "allow") { throw "B5 interruption scenario did not begin" }
+    Start-Sleep -Milliseconds 600
+    $executeInterrupted = New-B5Continuation $openedInterrupted "demo-b5-execute-interrupted"
+    $executeInterrupted["transaction_id"] = "demo-b5-interrupted"; $executeInterrupted["operation_id"] = "balance"; $executeInterrupted["ordinal"] = 0
+    Set-B5Signature $openedInterrupted.continuation_secret "execute_transaction_statement" $executeInterrupted
+    if ((Invoke-MCPTool $gatewayPort $dmlKey "execute_transaction_statement" $executeInterrupted).decision -ne "allow") { throw "B5 interruption scenario statement failed" }
+    Invoke-Compose "restart" "agentsql-demo"
+    $readyAfterRestart = Wait-DemoReady $gatewayPort
+    if ($readyAfterRestart.b5.ready -ne $true -or $readyAfterRestart.b2.state -ne "active") { throw "demo did not recover B2/B5 readiness after restart" }
+    $interruptedValue = (& docker exec $pgContainer psql -U $pgOwner -d agentsql_demo -tA -c "SELECT balance FROM demo_tx_accounts WHERE id=3").Trim()
+    if ($interruptedValue -ne "3000") { throw "B5 interrupted transaction leaked a write (got=$interruptedValue)" }
+
+    Write-Host "[demo-reset] OK anchor=$anchor gateway=http://127.0.0.1:$gatewayPort b2_mode=$b2Mode b5_readiness=$b5Readiness"
 } catch {
     Write-Error "[demo-reset] FAILED stage=$Stage`: $($_.Exception.Message)"
     exit 1

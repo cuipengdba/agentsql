@@ -32,6 +32,14 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 GRANT CONNECT ON DATABASE agentsql_demo TO agentsql_demo_ro;
 GRANT USAGE ON SCHEMA public TO agentsql_demo_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO agentsql_demo_ro;
+GRANT UPDATE (balance, status) ON TABLE demo_tx_accounts TO agentsql_demo_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT ON TABLES TO agentsql_demo_ro;
+
+-- Extension SQL starts default-deny. Grant only the fixed runtime role and
+-- only when init found and created the optional extension.
+SELECT 'GRANT USAGE ON SCHEMA agentsql_catalog TO agentsql_demo_ro'
+WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder' AND extversion='0.4') \gexec
+SELECT 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA agentsql_catalog TO agentsql_demo_ro'
+WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder' AND extversion='0.4') \gexec
 SQL

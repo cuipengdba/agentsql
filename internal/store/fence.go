@@ -255,15 +255,20 @@ FROM control_plane_compat WHERE fence_key=?`), "global").Scan(&fence.FenceKey, &
 		target *int64
 		query  string
 	}{
-		{&result.StagingRows, `SELECT COUNT(*) FROM policy_column_permission_staging`},
+		{&result.StagingRows, `SELECT COUNT(*) FROM policy_column_permission_staging s
+JOIN policies p ON p.id=s.policy_id JOIN datasources d ON d.id=p.datasource_id WHERE d.db_type='postgres'`},
 		{&result.IncompleteBindings, `SELECT COUNT(*) FROM policies p
-WHERE p.object_type='column' AND (p.relation_binding_id IS NULL OR NOT EXISTS (
+JOIN datasources d ON d.id=p.datasource_id
+WHERE d.db_type='postgres' AND p.object_type='column' AND (p.relation_binding_id IS NULL OR NOT EXISTS (
  SELECT 1 FROM relation_policy_bindings b WHERE b.id=p.relation_binding_id AND b.policy_id=p.id
  AND b.stable_object_id IS NOT NULL AND b.stable_object_id<>''
  AND b.catalog_fingerprint IS NOT NULL AND b.catalog_fingerprint<>''))`},
-		{&result.UnhealthyBindings, `SELECT COUNT(*) FROM relation_policy_bindings WHERE status<>'healthy'`},
+		{&result.UnhealthyBindings, `SELECT COUNT(*) FROM relation_policy_bindings b
+JOIN policies p ON p.id=b.policy_id JOIN datasources d ON d.id=p.datasource_id
+WHERE d.db_type='postgres' AND b.status<>'healthy'`},
 		{&result.OrphanedPermissions, `SELECT COUNT(*) FROM policy_column_permissions pc
-WHERE NOT EXISTS (SELECT 1 FROM relation_policy_bindings b
+JOIN policies p ON p.id=pc.policy_id JOIN datasources d ON d.id=p.datasource_id
+WHERE d.db_type='postgres' AND NOT EXISTS (SELECT 1 FROM relation_policy_bindings b
  WHERE b.id=pc.relation_enrollment_id AND b.policy_id=pc.policy_id AND b.status='healthy')`},
 	}
 	for _, count := range counts {
@@ -271,7 +276,8 @@ WHERE NOT EXISTS (SELECT 1 FROM relation_policy_bindings b
 			return Protocol3MetadataReadiness{}, errors.Join(ErrActivationGate, err)
 		}
 	}
-	rows, err := queryer.QueryContext(ctx, `SELECT COALESCE(columns,'') FROM policies WHERE object_type='column'`)
+	rows, err := queryer.QueryContext(ctx, `SELECT COALESCE(p.columns,'') FROM policies p
+JOIN datasources d ON d.id=p.datasource_id WHERE d.db_type='postgres' AND p.object_type='column'`)
 	if err != nil {
 		return Protocol3MetadataReadiness{}, errors.Join(ErrActivationGate, err)
 	}

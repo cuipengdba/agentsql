@@ -1,6 +1,11 @@
 services:
   demo-postgres:
-    image: postgres:16
+    build:
+      context: .
+      dockerfile: dbext/postgres/agentsql_binder/Dockerfile.demo
+      args:
+        PG_MAJOR: "16"
+    image: agentsql/postgres-binder-demo:16-0.4
     environment:
       POSTGRES_DB: agentsql_demo
       POSTGRES_USER: "${DEMO_PG_OWNER_USER:-agentsql_demo_owner}"

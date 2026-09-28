@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/auth"
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/b5"
+	"github.com/cuipengdba/agentsql/internal/b5dml"
 	"github.com/cuipengdba/agentsql/internal/demoseed"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -30,6 +33,33 @@ type fakeDemoPinger struct {
 func (pinger *fakeDemoPinger) Ping(context.Context, model.Datasource, string) error {
 	pinger.calls++
 	return pinger.err
+}
+
+func (pinger *fakeDemoPinger) EnrollPostgresPolicySelect(_ context.Context, _ model.Datasource, _ []byte, sqlText string, _ executor.Limits) (executor.PostgresPolicyEnrollment, error) {
+	return executor.PostgresPolicyEnrollment{Mode: "NATIVE_C_V1", StatementClass: "SELECT", Relations: []executor.PostgresPolicyRelation{
+		{DatabaseOID: 1, RelationOID: 100, Schema: "public", Name: "demo_b2_customers", Kind: 'r', CatalogFingerprint: "catalog-demo"},
+		{DatabaseOID: 1, RelationOID: 101, Schema: "public", Name: "demo_b2_orders", Kind: 'r', CatalogFingerprint: "catalog-demo"},
+	}, ColumnUses: []executor.PostgresPolicyColumnUse{
+		{RelationOID: 100, Attnum: 1, Name: "id", TypeOID: 20, TypeModifier: -1, Usage: "reference"},
+		{RelationOID: 100, Attnum: 2, Name: "full_name", TypeOID: 25, TypeModifier: -1, Usage: "output"},
+		{RelationOID: 100, Attnum: 4, Name: "region", TypeOID: 25, TypeModifier: -1, Usage: "output"},
+		{RelationOID: 101, Attnum: 1, Name: "id", TypeOID: 20, TypeModifier: -1, Usage: "reference"},
+		{RelationOID: 101, Attnum: 2, Name: "customer_id", TypeOID: 20, TypeModifier: -1, Usage: "reference"},
+		{RelationOID: 101, Attnum: 3, Name: "status", TypeOID: 25, TypeModifier: -1, Usage: "output"},
+	}}, nil
+}
+
+func (pinger *fakeDemoPinger) EnrollPostgresPolicyDML(_ context.Context, _ model.Datasource, _ []byte, sqlText string, _ executor.Limits) (executor.PostgresPolicyEnrollment, error) {
+	relation := executor.PostgresPolicyRelation{DatabaseOID: 1, RelationOID: 200, Schema: "public", Name: "demo_tx_accounts", Kind: 'r', CatalogFingerprint: "catalog-demo-tx"}
+	result := executor.PostgresPolicyEnrollment{Mode: "NATIVE_C_V1", StatementClass: "UPDATE", Action: b5.ActionUpdate, Relations: []executor.PostgresPolicyRelation{relation},
+		ColumnUses: []executor.PostgresPolicyColumnUse{{RelationOID: 200, Attnum: 1, Name: "id", TypeOID: 20, TypeModifier: -1, Usage: "reference"}}}
+	if strings.Contains(sqlText, "balance=balance") {
+		result.WriteTargets = []executor.PostgresPolicyWriteTarget{{RelationOID: 200, Attnum: 2, Name: "balance", TypeOID: 20, TypeModifier: -1, Kind: b5dml.WriteTargetColumn}}
+		result.ColumnUses = append(result.ColumnUses, executor.PostgresPolicyColumnUse{RelationOID: 200, Attnum: 2, Name: "balance", TypeOID: 20, TypeModifier: -1, Usage: "reference"})
+	} else {
+		result.WriteTargets = []executor.PostgresPolicyWriteTarget{{RelationOID: 200, Attnum: 3, Name: "status", TypeOID: 25, TypeModifier: -1, Kind: b5dml.WriteTargetColumn}}
+	}
+	return result, nil
 }
 
 func TestDemoSeedRejectsDisabledBadAnchorAndMissingEnvironment(t *testing.T) {
@@ -87,7 +117,7 @@ func TestDemoSeedSQLiteIdempotencyVerifyAuthenticationAndTamper(t *testing.T) {
 
 	first, manifest, err := executeDemoSeed(context.Background(), configPath, manifestPath, "2026-09-17", false, dependencies)
 	require.NoError(t, err)
-	require.Equal(t, demoseed.Summary{Datasources: 2, Agents: 2, MaskRules: 4, Policies: 10, Rules: len(rules.BuiltinRuleOverrides()), Audits: 300, Approvals: 24}, first)
+	require.Equal(t, demoseed.Summary{Datasources: 2, Agents: 2, MaskRules: 4, Policies: 15, Rules: len(rules.BuiltinRuleOverrides()), Audits: 300, Approvals: 24, B5Grants: 5, B2Mode: "NATIVE_C_V1"}, first)
 	firstHashes := readAgentHashes(t, databasePath)
 	second, _, err := executeDemoSeed(context.Background(), configPath, manifestPath, "2026-09-17", false, dependencies)
 	require.NoError(t, err)
@@ -103,7 +133,8 @@ func TestDemoSeedSQLiteIdempotencyVerifyAuthenticationAndTamper(t *testing.T) {
 	requireTableCount(t, database, "datasources", 2)
 	requireTableCount(t, database, "agents", 2)
 	requireTableCount(t, database, "mask_rules", 4)
-	requireTableCount(t, database, "policies", 10)
+	requireTableCount(t, database, "policies", 15)
+	requireTableCount(t, database, "b5_dml_grants", 5)
 	requireTableCount(t, database, "rules", int64(len(rules.BuiltinRuleOverrides())))
 	requireTableCount(t, database, "audit_logs", 300)
 	requireTableCount(t, database, "approvals", 24)

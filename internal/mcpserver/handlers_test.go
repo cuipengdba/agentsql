@@ -197,6 +197,15 @@ func TestHandlersInternalErrorDefensivelyMapsDBError(t *testing.T) {
 	assertMCPDatabaseErrorResponse(t, response, executor.DBErrorKindTimeout, executor.DBErrorCodeTimeout)
 }
 
+func TestHandlersInternalErrorMapsColumnAuthorizationUnsupported(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	response := fixture.handlers.internalError("query", &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
+	require.Equal(t, "error", response.Decision)
+	require.Equal(t, string(executor.ReasonColumnAuthUnsupported), response.ErrorCode)
+	require.Contains(t, response.Reason, "MySQL")
+	require.Contains(t, response.Reason, "不受支持")
+}
+
 func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {
 	const raw = "T41_MCP_RAW_SENTINEL_b7a3"
 	key := []byte("mcp-hash-key-0123456789abcdef0123")

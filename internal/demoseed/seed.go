@@ -1,7 +1,10 @@
 package demoseed
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -9,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/b5"
+	"github.com/cuipengdba/agentsql/internal/b5dml"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -18,6 +24,11 @@ import (
 // while unit tests remain hermetic.
 type DatasourcePinger interface {
 	Ping(ctx context.Context, datasource model.Datasource, password string) error
+}
+
+type FeatureEnroller interface {
+	EnrollPostgresPolicySelect(context.Context, model.Datasource, []byte, string, executor.Limits) (executor.PostgresPolicyEnrollment, error)
+	EnrollPostgresPolicyDML(context.Context, model.Datasource, []byte, string, executor.Limits) (executor.PostgresPolicyEnrollment, error)
 }
 
 type LookupEnv func(string) (string, bool)
@@ -35,6 +46,8 @@ type Summary struct {
 	Rules       int
 	Audits      int
 	Approvals   int
+	B5Grants    int
+	B2Mode      string
 }
 
 // LoadSecrets resolves every secret reference before any write occurs.
@@ -74,6 +87,8 @@ func Run(
 	anchor time.Time,
 	verifyOnly bool,
 	pinger DatasourcePinger,
+	enroller FeatureEnroller,
+	masterSecret []byte,
 ) (Summary, error) {
 	if ctx == nil || metadataStore == nil {
 		return Summary{}, errors.New("demo seed store or context is unavailable")
@@ -81,7 +96,11 @@ func Run(
 	if pinger == nil {
 		return Summary{}, errors.New("demo seed datasource pinger is unavailable")
 	}
+	if enroller == nil || len(masterSecret) < 32 {
+		return Summary{}, errors.New("demo seed feature enroller or master secret is unavailable")
+	}
 
+	storedDatasources := make(map[string]model.Datasource, len(manifest.Datasources))
 	for _, item := range manifest.Datasources {
 		expected := datasourceModel(item)
 		stored, err := ensureDatasource(ctx, metadataStore, expected, secrets.Passwords[item.ID], verifyOnly)
@@ -98,6 +117,7 @@ func Run(
 		if err := pinger.Ping(ctx, stored, plaintext); err != nil {
 			return Summary{}, fmt.Errorf("connectivity probe failed for datasource %q", item.ID)
 		}
+		storedDatasources[item.ID] = stored
 	}
 
 	for _, item := range manifest.Agents {
@@ -110,10 +130,31 @@ func Run(
 			return Summary{}, err
 		}
 	}
+	b2Mode := ""
 	for _, item := range manifest.Policies {
-		if err := ensurePolicy(ctx, metadataStore, policyModel(item), verifyOnly); err != nil {
+		expected, mode, err := enrolledPolicy(ctx, item, storedDatasources[item.DatasourceID], enroller, masterSecret)
+		if err != nil {
 			return Summary{}, err
 		}
+		if mode != "" {
+			if b2Mode != "" && b2Mode != mode {
+				return Summary{}, errors.New("demo seed PostgreSQL column policies selected inconsistent binder modes")
+			}
+			b2Mode = mode
+		}
+		if err := ensurePolicy(ctx, metadataStore, expected, verifyOnly); err != nil {
+			return Summary{}, err
+		}
+	}
+	b5Grants, b5Mode, err := ensureB5Grants(ctx, metadataStore, manifest.B5, storedDatasources[manifest.B5.DatasourceID], enroller, masterSecret, verifyOnly)
+	if err != nil {
+		return Summary{}, err
+	}
+	if b2Mode == "" {
+		b2Mode = b5Mode
+	}
+	if b5Mode != "" && b2Mode != b5Mode {
+		return Summary{}, errors.New("demo seed B2 and B5 selected inconsistent binder modes")
 	}
 	catalog := make(map[string]model.Rule)
 	for _, rule := range rules.BuiltinRuleOverrides() {
@@ -150,7 +191,160 @@ func Run(
 		Datasources: len(manifest.Datasources), Agents: len(manifest.Agents),
 		MaskRules: len(manifest.MaskRules), Policies: len(manifest.Policies), Rules: len(manifest.Rules),
 		Audits: len(audits), Approvals: len(approvals),
+		B5Grants: b5Grants, B2Mode: b2Mode,
 	}, nil
+}
+
+func enrolledPolicy(ctx context.Context, item PolicyManifest, datasource model.Datasource, enroller FeatureEnroller, secret []byte) (model.Policy, string, error) {
+	expected := policyModel(item)
+	if item.ObjectType != "column" {
+		return expected, "", nil
+	}
+	if item.DatasourceID == "ds-demo-mysql" {
+		// This remains staged and unusable. PostgreSQL protocol-3 readiness only
+		// counts PostgreSQL bindings; the pipeline sees the marker and returns the
+		// stable MySQL-unsupported response before opening a business connection.
+		return expected, "", nil
+	}
+	enrollment, err := enroller.EnrollPostgresPolicySelect(ctx, datasource, secret, item.EnrollmentSQL, executor.DefaultLimits)
+	if err != nil {
+		return model.Policy{}, "", fmt.Errorf("enroll demo column policy %q: %w", item.ID, err)
+	}
+	var relation executor.PostgresPolicyRelation
+	for _, candidate := range enrollment.Relations {
+		if candidate.Schema+"."+candidate.Name == item.ObjectName {
+			relation = candidate
+			break
+		}
+	}
+	if relation.RelationOID == 0 || relation.Kind != 'r' || relation.CatalogFingerprint == "" {
+		return model.Policy{}, "", fmt.Errorf("enroll demo column policy %q: relation identity mismatch", item.ID)
+	}
+	bindingID := "binding-" + item.ID
+	stable := executor.PostgresStableObjectID(relation.DatabaseOID, relation.RelationOID)
+	fingerprint := relation.CatalogFingerprint
+	expected.RelationBindingID = &bindingID
+	expected.RelationBinding = &model.RelationPolicyBinding{ID: bindingID, SchemaName: relation.Schema, RelationName: relation.Name,
+		StableObjectID: &stable, CatalogFingerprint: &fingerprint, Status: "healthy", Revision: 1}
+	columns := make(map[string]executor.PostgresPolicyColumnUse)
+	for _, use := range enrollment.ColumnUses {
+		if use.RelationOID == relation.RelationOID {
+			columns[use.Name] = use
+		}
+	}
+	for _, name := range strings.Split(item.Columns, ",") {
+		use, ok := columns[name]
+		if !ok || use.RelationOID != relation.RelationOID || use.Attnum <= 0 {
+			return model.Policy{}, "", fmt.Errorf("enroll demo column policy %q: column %q identity missing", item.ID, name)
+		}
+		for _, usage := range []string{"output", "reference"} {
+			expected.ColumnPermissions = append(expected.ColumnPermissions, model.PolicyColumnPermission{PolicyID: item.ID,
+				RelationEnrollmentID: bindingID, ColumnOrdinal: int(use.Attnum), ColumnName: name,
+				ColumnTypeDigest: executor.PostgresColumnTypeDigest(use.TypeOID, use.TypeModifier, use.CollationOID), Usage: usage, ParentRevision: 1})
+		}
+	}
+	return expected, enrollment.Mode, nil
+}
+
+func ensureB5Grants(ctx context.Context, opened *store.Store, manifest B5Manifest, datasource model.Datasource, enroller FeatureEnroller, secret []byte, verify bool) (int, string, error) {
+	byKey := make(map[string]store.B5DMLGrant)
+	mode := ""
+	for _, sqlText := range manifest.Statements {
+		enrollment, err := enroller.EnrollPostgresPolicyDML(ctx, datasource, secret, sqlText, executor.DefaultLimits)
+		if err != nil {
+			return 0, "", fmt.Errorf("enroll demo B5 statement: %w", err)
+		}
+		if mode != "" && mode != enrollment.Mode {
+			return 0, "", errors.New("demo B5 statements selected inconsistent binder modes")
+		}
+		mode = enrollment.Mode
+		if len(enrollment.Relations) != 1 || enrollment.Action != b5.ActionUpdate {
+			return 0, "", errors.New("demo B5 enrollment is not one closed UPDATE relation")
+		}
+		relation := enrollment.Relations[0]
+		base := store.B5DMLGrant{PolicyID: manifest.PolicyID, PolicyRevision: 1, PrincipalID: manifest.AgentID,
+			DatasourceID: manifest.DatasourceID, Effect: b5.GrantAllow, Action: enrollment.Action,
+			DatabaseOID: relation.DatabaseOID, RelationOID: relation.RelationOID, RelationKind: string([]byte{relation.Kind}),
+			SchemaName: relation.Schema, RelationName: relation.Name, CatalogFingerprint: relation.CatalogFingerprint,
+			ProofSchemaID: b5.DMLGrantProofSchemaID, ProofSchemaVersion: b5.DMLGrantProofSchemaVersion}
+		action := base
+		action.Element = b5.GrantElementAction
+		if err := putB5Grant(byKey, "action:update", action); err != nil {
+			return 0, "", err
+		}
+		for _, write := range enrollment.WriteTargets {
+			grant := base
+			grant.Element = b5.GrantElementWriteTarget
+			kind := "COLUMN"
+			if write.Kind == b5dml.WriteTargetRow {
+				kind = "ROW"
+			}
+			grant.WriteTargetKind = &kind
+			if write.Kind == b5dml.WriteTargetColumn {
+				setB5GrantColumn(&grant, write.Attnum, write.Name, write.TypeOID, write.TypeModifier, write.CollationOID)
+			}
+			if err := putB5Grant(byKey, fmt.Sprintf("write:%s:%d", kind, write.Attnum), grant); err != nil {
+				return 0, "", err
+			}
+		}
+		for _, reference := range enrollment.ColumnUses {
+			if reference.Usage != "reference" {
+				continue
+			}
+			grant := base
+			grant.Element = b5.GrantElementReference
+			kind := "COLUMN"
+			grant.ReferenceKind = &kind
+			setB5GrantColumn(&grant, reference.Attnum, reference.Name, reference.TypeOID, reference.TypeModifier, reference.CollationOID)
+			if err := putB5Grant(byKey, fmt.Sprintf("reference:%d", reference.Attnum), grant); err != nil {
+				return 0, "", err
+			}
+		}
+	}
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		expected := byKey[key]
+		digest := sha256.Sum256([]byte(expected.GrantID + "\x00" + expected.CatalogFingerprint))
+		expected.ProofDigest = digest[:]
+		stored, err := opened.B5DMLGrants().Get(ctx, expected.GrantID)
+		if errors.Is(err, store.ErrNotFound) {
+			if verify {
+				return 0, "", fmt.Errorf("demo seed verify: B5 grant %q is missing", expected.GrantID)
+			}
+			if _, err = opened.B5DMLGrants().Create(ctx, expected); err != nil {
+				return 0, "", fmt.Errorf("create demo B5 grant %q: %w", expected.GrantID, err)
+			}
+			continue
+		}
+		if err != nil || !sameB5Grant(expected, stored) {
+			return 0, "", fmt.Errorf("demo seed conflict: B5 grant %q differs", expected.GrantID)
+		}
+	}
+	rows, err := opened.B5DMLGrants().List(ctx, manifest.AgentID, manifest.DatasourceID, b5.ActionUpdate, 1000)
+	if err != nil || len(rows) != len(keys) {
+		return 0, "", fmt.Errorf("demo seed B5 grant count mismatch: grants=%d want=%d", len(rows), len(keys))
+	}
+	return len(keys), mode, nil
+}
+
+func putB5Grant(target map[string]store.B5DMLGrant, key string, grant store.B5DMLGrant) error {
+	if existing, ok := target[key]; ok && (existing.DatabaseOID != grant.DatabaseOID || existing.RelationOID != grant.RelationOID ||
+		existing.CatalogFingerprint != grant.CatalogFingerprint || existing.RelationKind != grant.RelationKind) {
+		return fmt.Errorf("demo B5 grant %q has inconsistent catalog identity across statements", key)
+	}
+	digest := sha256.Sum256([]byte(key))
+	grant.GrantID = "grant-demo-b5-" + hex.EncodeToString(digest[:8])
+	target[key] = grant
+	return nil
+}
+func setB5GrantColumn(grant *store.B5DMLGrant, attnum int16, name string, oid uint32, modifier int32, collation uint32) {
+	a, m := int(attnum), int(modifier)
+	grant.ColumnAttnum, grant.ColumnName, grant.ColumnTypeOID = &a, &name, &oid
+	grant.ColumnTypeModifier, grant.ColumnCollationOID = &m, &collation
 }
 
 func ensureDatasource(ctx context.Context, opened *store.Store, expected model.Datasource, password string, verify bool) (model.Datasource, error) {
@@ -288,18 +482,21 @@ func verifyHistory(ctx context.Context, opened *store.Store, expectedAudits []mo
 	if err != nil {
 		return fmt.Errorf("verify demo audits: read failed")
 	}
-	if page.Total != int64(len(expectedAudits)) || len(page.List) != len(expectedAudits) {
-		return fmt.Errorf("demo seed history count mismatch: audits=%d want=%d", page.Total, len(expectedAudits))
-	}
-	bySession := make(map[string]model.AuditLog, len(page.List))
+	// The running gateway may append operational audits (for example protocol-3
+	// activation) before verify-only executes. Verify the fixed daily demo
+	// namespace exactly while preserving and ignoring unrelated runtime rows.
+	bySession := make(map[string]model.AuditLog, len(expectedAudits))
 	for _, stored := range page.List {
 		if stored.SessionID == nil || !strings.HasPrefix(*stored.SessionID, store.DemoSeedSessionPrefix) {
-			return errors.New("demo seed history contains a non-demo or empty session_id")
+			continue
 		}
 		if _, duplicate := bySession[*stored.SessionID]; duplicate {
 			return fmt.Errorf("demo seed history contains duplicate session_id %q", *stored.SessionID)
 		}
 		bySession[*stored.SessionID] = stored
+	}
+	if len(bySession) != len(expectedAudits) {
+		return fmt.Errorf("demo seed history count mismatch: audits=%d want=%d", len(bySession), len(expectedAudits))
 	}
 	recordedInSeedOrder := make([]model.AuditLog, len(expectedAudits))
 	for index, expected := range expectedAudits {
@@ -312,7 +509,7 @@ func verifyHistory(ctx context.Context, opened *store.Store, expectedAudits []mo
 		}
 		recordedInSeedOrder[index] = stored
 	}
-	if err := ValidateHistory(page.List, mustApprovalShapeForCounts(expectedApprovals), anchor); err != nil {
+	if err := ValidateHistory(recordedInSeedOrder, mustApprovalShapeForCounts(expectedApprovals), anchor); err != nil {
 		return fmt.Errorf("verify demo audit distribution: %w", err)
 	}
 
@@ -364,8 +561,13 @@ func maskRuleModel(item MaskRuleManifest) model.MaskRule {
 }
 
 func policyModel(item PolicyManifest) model.Policy {
+	var columns *string
+	if item.Columns != "" {
+		value := item.Columns
+		columns = &value
+	}
 	return model.Policy{ID: item.ID, AgentID: item.AgentID, DatasourceID: item.DatasourceID,
-		ObjectType: item.ObjectType, ObjectName: item.ObjectName, Action: item.Action}
+		ObjectType: item.ObjectType, ObjectName: item.ObjectName, Columns: columns, Action: item.Action}
 }
 
 func sameDatasource(expected, stored model.Datasource) bool {
@@ -392,9 +594,43 @@ func sameMaskRule(expected, stored model.MaskRule) bool {
 }
 
 func samePolicy(expected, stored model.Policy) bool {
-	return expected.ID == stored.ID && expected.AgentID == stored.AgentID && expected.DatasourceID == stored.DatasourceID &&
+	if !(expected.ID == stored.ID && expected.AgentID == stored.AgentID && expected.DatasourceID == stored.DatasourceID &&
 		expected.ObjectType == stored.ObjectType && expected.ObjectName == stored.ObjectName &&
-		equalString(expected.Columns, stored.Columns) && equalString(expected.RowFilter, stored.RowFilter) && expected.Action == stored.Action
+		equalString(expected.Columns, stored.Columns) && equalString(expected.RowFilter, stored.RowFilter) && expected.Action == stored.Action &&
+		equalString(expected.RelationBindingID, stored.RelationBindingID)) {
+		return false
+	}
+	if (expected.RelationBinding == nil) != (stored.RelationBinding == nil) || len(expected.ColumnPermissions) != len(stored.ColumnPermissions) {
+		return false
+	}
+	if expected.RelationBinding != nil {
+		left, right := expected.RelationBinding, stored.RelationBinding
+		if left.ID != right.ID || left.SchemaName != right.SchemaName || left.RelationName != right.RelationName ||
+			!equalString(left.StableObjectID, right.StableObjectID) || !equalString(left.CatalogFingerprint, right.CatalogFingerprint) || left.Status != right.Status {
+			return false
+		}
+	}
+	for index := range expected.ColumnPermissions {
+		left, right := expected.ColumnPermissions[index], stored.ColumnPermissions[index]
+		if left.RelationEnrollmentID != right.RelationEnrollmentID || left.ColumnOrdinal != right.ColumnOrdinal ||
+			left.ColumnName != right.ColumnName || left.ColumnTypeDigest != right.ColumnTypeDigest || left.Usage != right.Usage {
+			return false
+		}
+	}
+	return true
+}
+
+func sameB5Grant(expected, stored store.B5DMLGrant) bool {
+	return expected.GrantID == stored.GrantID && expected.PolicyID == stored.PolicyID && expected.PolicyRevision == stored.PolicyRevision &&
+		expected.PrincipalID == stored.PrincipalID && expected.DatasourceID == stored.DatasourceID && expected.Effect == stored.Effect &&
+		expected.Element == stored.Element && expected.Action == stored.Action && expected.DatabaseOID == stored.DatabaseOID &&
+		expected.RelationOID == stored.RelationOID && expected.RelationKind == stored.RelationKind && expected.SchemaName == stored.SchemaName &&
+		expected.RelationName == stored.RelationName && expected.CatalogFingerprint == stored.CatalogFingerprint &&
+		equalString(expected.WriteTargetKind, stored.WriteTargetKind) && equalInt(expected.ColumnAttnum, stored.ColumnAttnum) &&
+		equalString(expected.ColumnName, stored.ColumnName) && equalUint32(expected.ColumnTypeOID, stored.ColumnTypeOID) &&
+		equalInt(expected.ColumnTypeModifier, stored.ColumnTypeModifier) && equalUint32(expected.ColumnCollationOID, stored.ColumnCollationOID) &&
+		equalString(expected.ReferenceKind, stored.ReferenceKind) && expected.ProofSchemaID == stored.ProofSchemaID &&
+		expected.ProofSchemaVersion == stored.ProofSchemaVersion && bytes.Equal(expected.ProofDigest, stored.ProofDigest)
 }
 
 func sameRule(expected, stored model.Rule) bool {
@@ -423,6 +659,12 @@ func equalString(left, right *string) bool {
 	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 func equalInt64(left, right *int64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+func equalInt(left, right *int) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+func equalUint32(left, right *uint32) bool {
 	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 func equalTime(left, right *time.Time) bool {

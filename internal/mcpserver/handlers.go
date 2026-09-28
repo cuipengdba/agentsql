@@ -396,6 +396,12 @@ func (handlers *toolHandlers) internalError(tool string, err error) ToolResponse
 	if errors.As(err, &databaseError) {
 		return databaseErrorToolResponse(databaseError)
 	}
+	var authorizationError *executor.AuthError
+	if errors.As(err, &authorizationError) && authorizationError.Reason == executor.ReasonColumnAuthUnsupported {
+		return ToolResponse{Decision: "error", ErrorCode: string(executor.ReasonColumnAuthUnsupported),
+			Reason:     "MySQL 列级授权在 v0.4 中不受支持，已拒绝执行",
+			Suggestion: "请改用 PostgreSQL 演示列级授权；MySQL 请求不会连接或执行真实业务 SQL"}
+	}
 	handlers.logger.Error().
 		Str("tool", tool).
 		Str("error_type", fmt.Sprintf("%T", err)).

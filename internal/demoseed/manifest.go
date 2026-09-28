@@ -34,6 +34,7 @@ type Manifest struct {
 	Agents      []AgentManifest      `yaml:"agents"`
 	MaskRules   []MaskRuleManifest   `yaml:"mask_rules"`
 	Policies    []PolicyManifest     `yaml:"policies"`
+	B5          B5Manifest           `yaml:"b5"`
 	Rules       []RuleManifest       `yaml:"rules"`
 }
 
@@ -69,12 +70,21 @@ type MaskRuleManifest struct {
 }
 
 type PolicyManifest struct {
-	ID           string `yaml:"id"`
-	AgentID      string `yaml:"agent_id"`
-	DatasourceID string `yaml:"datasource_id"`
-	ObjectType   string `yaml:"object_type"`
-	ObjectName   string `yaml:"object_name"`
-	Action       string `yaml:"action"`
+	ID            string `yaml:"id"`
+	AgentID       string `yaml:"agent_id"`
+	DatasourceID  string `yaml:"datasource_id"`
+	ObjectType    string `yaml:"object_type"`
+	ObjectName    string `yaml:"object_name"`
+	Columns       string `yaml:"columns,omitempty"`
+	EnrollmentSQL string `yaml:"enrollment_sql,omitempty"`
+	Action        string `yaml:"action"`
+}
+
+type B5Manifest struct {
+	AgentID      string   `yaml:"agent_id"`
+	DatasourceID string   `yaml:"datasource_id"`
+	PolicyID     string   `yaml:"policy_id"`
+	Statements   []string `yaml:"statements"`
 }
 
 type RuleManifest struct {
@@ -123,6 +133,9 @@ func (manifest Manifest) Validate(cfg config.Config) error {
 		return err
 	}
 	if err := validatePolicies(manifest.Policies); err != nil {
+		return err
+	}
+	if err := validateB5(manifest.B5, manifest.Policies); err != nil {
 		return err
 	}
 	if err := validateRules(manifest.Rules); err != nil {
@@ -215,35 +228,52 @@ func validateMaskRules(items []MaskRuleManifest) error {
 }
 
 func validatePolicies(items []PolicyManifest) error {
-	if len(items) != 10 {
-		return fmt.Errorf("manifest must contain exactly 10 policies, got %d", len(items))
+	type expectedPolicy struct{ agent, datasource, objectType, objectName, columns, enrollment, action string }
+	wanted := map[string]expectedPolicy{
+		"policy-demo-ro-pg-customers":                 {"agent-demo-ro", config.DemoDatasourcePG, "table", "public.customers", "", "", "allow"},
+		"policy-demo-ro-pg-orders":                    {"agent-demo-ro", config.DemoDatasourcePG, "table", "public.orders", "", "", "allow"},
+		"policy-demo-ro-pg-products":                  {"agent-demo-ro", config.DemoDatasourcePG, "table", "public.products", "", "", "allow"},
+		"policy-demo-ro-pg-internal-notes":            {"agent-demo-ro", config.DemoDatasourcePG, "table", "public.internal_notes", "", "", "deny"},
+		"policy-demo-ro-pg-demo-b2-customers":         {"agent-demo-ro", config.DemoDatasourcePG, "table", "public.demo_b2_customers", "", "", "allow"},
+		"policy-demo-ro-pg-demo-b2-orders":            {"agent-demo-ro", config.DemoDatasourcePG, "table", "public.demo_b2_orders", "", "", "allow"},
+		"policy-demo-ro-mysql-customers":              {"agent-demo-ro", config.DemoDatasourceMySQL, "table", "customers", "", "", "allow"},
+		"policy-demo-ro-mysql-orders":                 {"agent-demo-ro", config.DemoDatasourceMySQL, "table", "orders", "", "", "allow"},
+		"policy-demo-ro-mysql-products":               {"agent-demo-ro", config.DemoDatasourceMySQL, "table", "products", "", "", "allow"},
+		"policy-demo-ro-mysql-internal-notes":         {"agent-demo-ro", config.DemoDatasourceMySQL, "table", "internal_notes", "", "", "deny"},
+		"policy-demo-ro-pg-demo-b2-customers-columns": {"agent-demo-ro", config.DemoDatasourcePG, "column", "public.demo_b2_customers", "id,full_name,region", "SELECT c.full_name,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1", "allow"},
+		"policy-demo-ro-pg-demo-b2-orders-columns":    {"agent-demo-ro", config.DemoDatasourcePG, "column", "public.demo_b2_orders", "id,customer_id,status", "SELECT c.full_name,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1", "allow"},
+		"policy-demo-ro-mysql-columns-unsupported":    {"agent-demo-ro", config.DemoDatasourceMySQL, "column", "customers", "full_name", "", "allow"},
+		"policy-demo-dml-pg-demo-tx":                  {"agent-demo-dml", config.DemoDatasourcePG, "table", "public.demo_tx_accounts", "", "", "allow"},
+		"policy-demo-dml-mysql-deny-all":              {"agent-demo-dml", config.DemoDatasourceMySQL, "table", "*", "", "", "deny"},
 	}
-	wanted := make(map[string]struct{}, 10)
-	for _, datasourceID := range []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL} {
-		for _, object := range []string{"customers", "orders", "products"} {
-			wanted[policyKey("agent-demo-ro", datasourceID, object, "allow")] = struct{}{}
-		}
-		wanted[policyKey("agent-demo-ro", datasourceID, "internal_notes", "deny")] = struct{}{}
-		wanted[policyKey("agent-demo-dml", datasourceID, "*", "deny")] = struct{}{}
+	if len(items) != len(wanted) {
+		return fmt.Errorf("manifest must contain exactly %d policies, got %d", len(wanted), len(items))
 	}
 	ids := make(map[string]struct{}, len(items))
 	groups := make(map[string][]model.Policy)
 	for _, item := range items {
-		if strings.TrimSpace(item.ID) == "" || item.ObjectType != "table" {
+		if strings.TrimSpace(item.ID) == "" {
 			return fmt.Errorf("manifest policy %q has invalid id or object_type", item.ID)
 		}
 		if _, exists := ids[item.ID]; exists {
 			return fmt.Errorf("manifest contains duplicate policy id %q", item.ID)
 		}
 		ids[item.ID] = struct{}{}
-		key := policyKey(item.AgentID, item.DatasourceID, item.ObjectName, item.Action)
-		if _, ok := wanted[key]; !ok {
+		expected, ok := wanted[item.ID]
+		if !ok || item.AgentID != expected.agent || item.DatasourceID != expected.datasource ||
+			item.ObjectType != expected.objectType || item.ObjectName != expected.objectName || item.Columns != expected.columns ||
+			item.EnrollmentSQL != expected.enrollment || item.Action != expected.action {
 			return fmt.Errorf("manifest policy %q differs from the fixed demo policy contract", item.ID)
 		}
-		delete(wanted, key)
+		delete(wanted, item.ID)
+		var columns *string
+		if item.Columns != "" {
+			value := item.Columns
+			columns = &value
+		}
 		groups[item.AgentID+"\x00"+item.DatasourceID] = append(groups[item.AgentID+"\x00"+item.DatasourceID], model.Policy{
 			ID: item.ID, AgentID: item.AgentID, DatasourceID: item.DatasourceID,
-			ObjectType: item.ObjectType, ObjectName: item.ObjectName, Action: item.Action,
+			ObjectType: item.ObjectType, ObjectName: item.ObjectName, Columns: columns, Action: item.Action,
 		})
 	}
 	if len(wanted) != 0 {
@@ -260,6 +290,21 @@ func validatePolicies(items []PolicyManifest) error {
 		}
 	}
 	return nil
+}
+
+func validateB5(item B5Manifest, policies []PolicyManifest) error {
+	if item.AgentID != "agent-demo-dml" || item.DatasourceID != config.DemoDatasourcePG ||
+		item.PolicyID != "policy-demo-dml-pg-demo-tx" || len(item.Statements) != 2 ||
+		item.Statements[0] != "UPDATE public.demo_tx_accounts SET balance=balance+10 WHERE id=1" ||
+		item.Statements[1] != "UPDATE public.demo_tx_accounts SET status='committed' WHERE id=1" {
+		return errors.New("manifest B5 plan differs from the fixed demo transaction contract")
+	}
+	for _, policy := range policies {
+		if policy.ID == item.PolicyID && policy.AgentID == item.AgentID && policy.DatasourceID == item.DatasourceID && policy.Action == "allow" {
+			return nil
+		}
+	}
+	return errors.New("manifest B5 policy is missing")
 }
 
 func validateRules(items []RuleManifest) error {
@@ -288,10 +333,6 @@ func validateRules(items []RuleManifest) error {
 		return fmt.Errorf("manifest is missing built-in rules: %s", strings.Join(missing, ","))
 	}
 	return nil
-}
-
-func policyKey(agentID, datasourceID, objectName, action string) string {
-	return strings.Join([]string{agentID, datasourceID, objectName, action}, "\x00")
 }
 
 // ValidateAPIKey accepts only the exact format emitted by store.GenerateAPIKey.

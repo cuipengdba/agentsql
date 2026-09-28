@@ -230,6 +230,26 @@ func TestB2Protocol3ActivationGateLeavesFactoryFenceOff(t *testing.T) {
 	require.Zero(t, runtimes)
 }
 
+func TestB2Protocol3ReadinessIgnoresStagedMySQLUnsupportedMarker(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	agent, datasource := createPolicyDependencies(t, opened)
+	datasource.ID = "b2-mysql-unsupported"
+	datasource.DBType = "mysql"
+	_, err := opened.Datasources().Create(ctx, datasource, "mysql-password")
+	require.NoError(t, err)
+	columns := "full_name"
+	_, err = opened.Policies().Create(ctx, model.Policy{ID: "mysql-column-marker", AgentID: agent.ID,
+		DatasourceID: datasource.ID, ObjectType: "column", ObjectName: "customers", Columns: &columns, Action: "allow"})
+	require.NoError(t, err)
+
+	readiness, err := opened.Fence().PrepareProtocol3Activation(ctx)
+	require.NoError(t, err)
+	require.True(t, readiness.Ready())
+	require.Zero(t, readiness.StagingRows)
+	require.Zero(t, readiness.IncompleteBindings)
+}
+
 func TestB2Protocol3ActivationRequiresEveryRuntimeAttestation(t *testing.T) {
 	for _, test := range []struct {
 		name        string

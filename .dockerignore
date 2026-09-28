@@ -1,5 +1,7 @@
 .git
 bin
+dist
+.docker-config
 data
 *.db
 *.db-*
@@ -16,6 +18,10 @@ coverage.out
 .testcache
 **/.testcache
 **/.cache
+.gocache
+**/.gocache
+demo/reset.ps1
+demo/reset.sh
 
 # The embedded console is a required Go build input.
 !internal/webui/dist/

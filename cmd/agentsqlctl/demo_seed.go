@@ -28,10 +28,11 @@ func (realDemoDatasourcePinger) Ping(ctx context.Context, datasource model.Datas
 type demoSeedDependencies struct {
 	lookupEnv func(string) (string, bool)
 	pinger    demoseed.DatasourcePinger
+	enroller  demoseed.FeatureEnroller
 }
 
 func defaultDemoSeedDependencies() demoSeedDependencies {
-	return demoSeedDependencies{lookupEnv: os.LookupEnv, pinger: realDemoDatasourcePinger{}}
+	return demoSeedDependencies{lookupEnv: os.LookupEnv, pinger: realDemoDatasourcePinger{}, enroller: executor.NewGateway(false)}
 }
 
 func newDemoSeedCommand(dependencies demoSeedDependencies) *cobra.Command {
@@ -54,10 +55,10 @@ func newDemoSeedCommand(dependencies demoSeedDependencies) *cobra.Command {
 				status = "DEMO_SEED_VERIFY_OK"
 			}
 			_, err = fmt.Fprintf(command.OutOrStdout(),
-				"%s datasource_ids=%s agent_ids=%s datasources=%d agents=%d policies=%d mask_rules=%d rules=%d audits=%d approvals=%d\n",
+				"%s datasource_ids=%s agent_ids=%s datasources=%d agents=%d policies=%d mask_rules=%d rules=%d audits=%d approvals=%d b5_grants=%d b2_mode=%s\n",
 				status, strings.Join(datasourceIDs, ","), strings.Join(agentIDs, ","),
 				result.Datasources, result.Agents, result.Policies, result.MaskRules,
-				result.Rules, result.Audits, result.Approvals,
+				result.Rules, result.Audits, result.Approvals, result.B5Grants, result.B2Mode,
 			)
 			if err != nil {
 				return fmt.Errorf("write demo seed result: %w", err)
@@ -149,7 +150,11 @@ func executeDemoSeed(
 		}
 	}()
 
-	summary, err = demoseed.Run(ctx, opened, manifest, secrets, anchor, verifyOnly, dependencies.pinger)
+	enroller := dependencies.enroller
+	if enroller == nil {
+		enroller, _ = dependencies.pinger.(demoseed.FeatureEnroller)
+	}
+	summary, err = demoseed.Run(ctx, opened, manifest, secrets, anchor, verifyOnly, dependencies.pinger, enroller, []byte(secret))
 	if err != nil {
 		return demoseed.Summary{}, manifest, err
 	}

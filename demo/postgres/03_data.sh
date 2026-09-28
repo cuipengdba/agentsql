@@ -64,9 +64,24 @@ SELECT id,
                            secs => (id * 31) % 60)) AT TIME ZONE 'UTC'
 FROM generate_series(1, 16) AS series(id);
 
+INSERT INTO demo_b2_customers (id, full_name, email, region)
+SELECT id, full_name, email, region FROM customers;
+
+INSERT INTO demo_b2_orders (id, customer_id, status)
+SELECT id, customer_id, status FROM orders;
+
+INSERT INTO demo_tx_accounts (id, balance, status) VALUES
+    (1, 1000, 'ready'),
+    (2, 2000, 'ready'),
+    (3, 3000, 'ready'),
+    (4, 4000, 'ready');
+
 COMMIT;
 
 ANALYZE customers;
 ANALYZE products;
 ANALYZE orders;
+ANALYZE demo_b2_customers;
+ANALYZE demo_b2_orders;
+ANALYZE demo_tx_accounts;
 SQL

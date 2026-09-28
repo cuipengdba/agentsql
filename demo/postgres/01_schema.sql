@@ -33,3 +33,28 @@ CREATE TABLE internal_notes (
     note TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );
+
+-- Native B2 intentionally uses constraint-free mirrors of the public demo
+-- data. The v0.4 binder rejects implicit objects (including constraint-backed
+-- indexes) rather than guessing their authority closure.
+CREATE TABLE demo_b2_customers (
+    id BIGINT NOT NULL,
+    full_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    region TEXT NOT NULL
+);
+
+CREATE TABLE demo_b2_orders (
+    id BIGINT NOT NULL,
+    customer_id BIGINT NOT NULL,
+    status TEXT NOT NULL
+);
+
+-- Constraint-free on purpose: B5 v0.4 proves a conservative closure before
+-- accepting DML, so this table avoids triggers, defaults, indexes and foreign
+-- keys while still supporting an observable commit/rollback demonstration.
+CREATE TABLE demo_tx_accounts (
+    id BIGINT NOT NULL,
+    balance BIGINT NOT NULL,
+    status TEXT NOT NULL
+);
