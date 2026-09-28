@@ -80,8 +80,9 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 	base := fmt.Sprintf(validConfig, databasePath)
 	loaded, err := Parse([]byte(base))
 	require.NoError(t, err)
-	require.False(t, loaded.ColumnAuthorization.Enabled, "factory default must remain off")
+	require.True(t, loaded.ColumnAuthorization.Enabled, "PostgreSQL B2 factory default must be on")
 	require.False(t, loaded.ColumnAuthorization.DryRun, "factory dry-run must remain off")
+	require.Empty(t, loaded.ColumnAuthorization.InstanceID, "Parse must not create persistent state")
 
 	dryRun := base + "column_authorization:\n  enabled: false\n  dry_run: true\n  instance_id: runtime-observer\n"
 	loaded, err = Parse([]byte(dryRun))
@@ -96,15 +97,80 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 	require.Equal(t, "runtime-1", loaded.ColumnAuthorization.InstanceID)
 
 	for _, invalid := range []string{
-		base + "column_authorization:\n  enabled: true\n",
+		base + "column_authorization:\n  enabled: true\n  instance_id: \"\"\n",
 		base + "column_authorization:\n  dry_run: true\n",
 		base + "column_authorization:\n  enabled: true\n  dry_run: true\n  instance_id: runtime-1\n",
+		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  instance_id_file: runtime.id\n",
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: 1000\n  heartbeat_interval_ms: 1000\n",
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: -1\n",
 	} {
 		_, err = Parse([]byte(invalid))
 		require.Error(t, err)
 	}
+}
+
+func TestColumnAuthorizationExplicitOffOverridesDefaultOn(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "agentsql.db")
+	contents := fmt.Sprintf(validConfig, filepath.ToSlash(databasePath)) + "column_authorization:\n  enabled: false\n"
+	loaded, err := Load(writeConfig(t, contents))
+	require.NoError(t, err)
+	require.False(t, loaded.ColumnAuthorization.Enabled)
+	require.False(t, loaded.ColumnAuthorization.DryRun)
+	require.Empty(t, loaded.ColumnAuthorization.InstanceID)
+	require.NoFileExists(t, databasePath+".instance-id")
+}
+
+func TestLoadPersistsRandomColumnAuthorizationInstanceIDPerDeployment(t *testing.T) {
+	root := t.TempDir()
+	firstDatabase := filepath.Join(root, "replica-a", "agentsql.db")
+	secondDatabase := filepath.Join(root, "replica-b", "agentsql.db")
+	firstPath := writeConfig(t, fmt.Sprintf(validConfig, filepath.ToSlash(firstDatabase)))
+	secondPath := filepath.Join(root, "replica-b.yaml")
+	require.NoError(t, os.WriteFile(secondPath, []byte(fmt.Sprintf(validConfig, filepath.ToSlash(secondDatabase))), 0o600))
+
+	first, err := Load(firstPath)
+	require.NoError(t, err)
+	reloaded, err := Load(firstPath)
+	require.NoError(t, err)
+	second, err := Load(secondPath)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, first.ColumnAuthorization.InstanceID)
+	require.Equal(t, first.ColumnAuthorization.InstanceID, reloaded.ColumnAuthorization.InstanceID)
+	require.NotEqual(t, first.ColumnAuthorization.InstanceID, second.ColumnAuthorization.InstanceID)
+	require.FileExists(t, firstDatabase+".instance-id")
+}
+
+func TestColumnAuthorizationExplicitInstanceIDWinsAndCorruptDefaultFails(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "agentsql.db")
+	explicit := fmt.Sprintf(validConfig, filepath.ToSlash(databasePath)) +
+		"column_authorization:\n  enabled: true\n  instance_id: replica-explicit\n"
+	loaded, err := Load(writeConfig(t, explicit))
+	require.NoError(t, err)
+	require.Equal(t, "replica-explicit", loaded.ColumnAuthorization.InstanceID)
+	require.NoFileExists(t, databasePath+".instance-id")
+
+	defaultPath := writeConfig(t, fmt.Sprintf(validConfig, filepath.ToSlash(databasePath)))
+	require.NoError(t, os.WriteFile(databasePath+".instance-id", []byte("shared-public-value\n"), 0o600))
+	_, err = Load(defaultPath)
+	require.ErrorIs(t, err, ErrInvalidColumnAuthorizationInstanceID)
+}
+
+func TestColumnAuthorizationInstanceIDFileSupportsReadOnlyConfigLayouts(t *testing.T) {
+	root := t.TempDir()
+	databasePath := filepath.Join(root, "agentsql.db")
+	identityPath := filepath.Join(root, "state", "b2-instance-id")
+	contents := fmt.Sprintf(validConfig, filepath.ToSlash(databasePath)) + fmt.Sprintf(
+		"column_authorization:\n  instance_id_file: %q\n", filepath.ToSlash(identityPath),
+	)
+	configPath := writeConfig(t, contents)
+
+	loaded, err := Load(configPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, loaded.ColumnAuthorization.InstanceID)
+	require.Equal(t, filepath.ToSlash(identityPath), loaded.ColumnAuthorization.InstanceIDFile)
+	require.FileExists(t, identityPath)
+	require.NoError(t, loaded.Validate())
 }
 
 func TestParseRegistersStrictRedactionFields(t *testing.T) {

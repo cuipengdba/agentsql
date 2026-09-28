@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/authorizedexecute/internal/businessdb"
@@ -19,6 +20,8 @@ type Gateway struct {
 	reservations *ReservationPool
 	readOnly     bool
 	column       ColumnAuthorizationProvider
+	b2Mu         sync.RWMutex
+	b2Handshakes map[string]businessdb.BinderCapabilityHandshake
 }
 
 // ColumnAuthorizationProvider is used by fixed internal SELECT producers
@@ -56,16 +59,81 @@ type PostgresB2Capability struct {
 	ServerMajor                                                           int
 	ABI, ExtensionVersion, ExtensionHash, NodeManifestHash, AllowlistHash string
 	Matview                                                               bool
+	Mode, ClosedDigest, NativeDigest                                      string
+	NativeAvailable                                                       bool
 }
 
 func NewGateway(readOnly bool, options ...GatewayOption) *Gateway {
-	gateway := &Gateway{manager: businessdb.NewManager(readOnly), reservations: NewReservationPool(DefaultReservationLimits), readOnly: readOnly}
+	gateway := &Gateway{manager: businessdb.NewManager(readOnly), reservations: NewReservationPool(DefaultReservationLimits),
+		readOnly: readOnly, b2Handshakes: make(map[string]businessdb.BinderCapabilityHandshake)}
 	for _, option := range options {
 		if option != nil {
 			option(gateway)
 		}
 	}
 	return gateway
+}
+
+// ProbePostgresB2Modes proves that the pure catalog binder is available and
+// opportunistically validates the native extension against the build-embedded
+// signature. A missing or mismatched extension does not invalidate closed mode.
+func (gateway *Gateway) ProbePostgresB2Modes(ctx context.Context, datasource model.Datasource, secret []byte) (PostgresB2Capability, error) {
+	if datasource.DBType != "postgres" {
+		return PostgresB2Capability{}, &AuthError{Reason: ReasonDatasourceUnsupported}
+	}
+	opened, err := gateway.open(datasource, secret)
+	if err != nil {
+		return PostgresB2Capability{}, fixedExecutionError(err)
+	}
+	postgres, ok := opened.(*businessdb.PostgresExecutor)
+	if !ok {
+		return PostgresB2Capability{}, &AuthError{Reason: ReasonDatasourceUnsupported}
+	}
+	initial, err := postgres.ProbeEasyDeployBinderCapabilities(ctx, businessdb.NativeCapabilityExpectation{}, NewBudget(DefaultLimits))
+	if err != nil {
+		return PostgresB2Capability{}, StableError(err)
+	}
+	handshake := initial
+	expectation, supported := businessdb.PostgresBinderNativeExpectation(initial.Closed.ServerMajor)
+	if !supported {
+		return PostgresB2Capability{}, &AuthError{Reason: ReasonBinderModeUnsupported}
+	}
+	handshake, err = postgres.ProbeEasyDeployBinderCapabilities(ctx, expectation, NewBudget(DefaultLimits))
+	if err != nil {
+		return PostgresB2Capability{}, StableError(err)
+	}
+	if handshake.Closed.Mode != businessdb.BinderModeCatalogClosedV1 || !handshake.Closed.Available || handshake.Closed.Digest == "" {
+		return PostgresB2Capability{}, &AuthError{Reason: ReasonBinderCapability}
+	}
+	gateway.b2Mu.Lock()
+	if gateway.b2Handshakes == nil {
+		gateway.b2Handshakes = make(map[string]businessdb.BinderCapabilityHandshake)
+	}
+	gateway.b2Handshakes[datasource.ID] = handshake
+	gateway.b2Mu.Unlock()
+	capability := PostgresB2Capability{ServerMajor: handshake.Closed.ServerMajor,
+		Mode: string(handshake.SelectedMode), ClosedDigest: handshake.Closed.Digest}
+	if handshake.NativeHealth == "healthy" && handshake.Native.Available {
+		capability.NativeAvailable = true
+		capability.NativeDigest = handshake.Native.Digest
+		capability.ABI = handshake.Native.ABI
+		capability.ExtensionVersion = handshake.Native.ExtensionVersion
+		capability.ExtensionHash = handshake.Native.ExtensionHash
+		capability.NodeManifestHash = handshake.Native.NodeManifestHash
+		capability.AllowlistHash = handshake.Native.AllowlistHash
+		capability.Matview = true
+	}
+	return capability, nil
+}
+
+func (gateway *Gateway) postgresB2Handshake(datasourceID string) (businessdb.BinderCapabilityHandshake, bool) {
+	if gateway == nil {
+		return businessdb.BinderCapabilityHandshake{}, false
+	}
+	gateway.b2Mu.RLock()
+	defer gateway.b2Mu.RUnlock()
+	handshake, ok := gateway.b2Handshakes[datasourceID]
+	return handshake, ok
 }
 
 // ProbeDatasource performs only connect, ping and close for CLI enrollment.

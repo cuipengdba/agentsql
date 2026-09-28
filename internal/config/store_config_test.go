@@ -261,19 +261,17 @@ func TestLoadStoreFilesystemEffectsDependOnDriver(t *testing.T) {
 		require.DirExists(t, filepath.Dir(databasePath))
 	})
 
-	t.Run("postgres creates no directory", func(t *testing.T) {
+	t.Run("postgres persists only the B2 instance identity beside config", func(t *testing.T) {
 		t.Setenv(metadataDSNEnv, "postgres://env:secret@example/agentsql")
 		root := t.TempDir()
 		configPath := filepath.Join(root, "config.yaml")
 		require.NoError(t, os.WriteFile(configPath, []byte(configWithStore("  metadata:\n    driver: postgres\n    dsn: postgres://yaml:secret@example/agentsql\n")), 0o600))
-		before, err := os.ReadDir(root)
-		require.NoError(t, err)
 		loaded, err := Load(configPath)
 		require.NoError(t, err)
 		require.Equal(t, store.DialectPostgres, store.Dialect(loaded.Store.Metadata.Driver))
 		after, err := os.ReadDir(root)
 		require.NoError(t, err)
-		require.Equal(t, entryNames(before), entryNames(after))
+		require.Equal(t, []string{"config.yaml", "config.yaml.instance-id"}, entryNames(after))
 	})
 }
 

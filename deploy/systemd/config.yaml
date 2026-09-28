@@ -9,6 +9,12 @@ server:
 store:
   sqlite_path: "/var/lib/agentsql/agentsql.db"
 
+# PostgreSQL B2 列级授权默认开启；普通 schema-qualified 基表使用免扩展的
+# CATALOG_CLOSED_V1。缺省 instance_id 会持久化在数据目录，显式配置优先。
+column_authorization:
+  enabled: true
+  dry_run: false
+
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000

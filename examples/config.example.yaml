@@ -41,6 +41,15 @@ redaction:
   # 环境变量只要存在（包括空串）就覆盖此 YAML 值。不要提交真实密钥。
   hash_key: ""
 
+# PostgreSQL B2 列级授权默认开启；不安装 C 扩展时自动使用纯 SQL/catalog 的
+# CATALOG_CLOSED_V1。NATIVE_C_V1 仅是 view/matview/复杂 lineage 的可选加速器。
+# instance_id 缺省时会生成并持久化每个部署唯一的随机标识；显式值始终优先。
+column_authorization:
+  enabled: true                    # 可显式改为 false 回退到表级保护
+  dry_run: false                   # dry_run=true 时必须同时显式 enabled=false
+  # instance_id: "gateway-replica-a"
+  # instance_id_file: "./data/instance-id" # 与 instance_id 互斥；只读配置目录可使用此项
+
 # 全局安全默认值，可被数据源或 Agent 的有效配置覆盖。
 defaults:
   statement_timeout_ms: 5000       # 单条 SQL 默认超时，单位毫秒

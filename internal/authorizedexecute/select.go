@@ -161,24 +161,65 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	}
 	budget := NewBudget(limits)
 	observe(request.Observe, PhaseBusinessBegin)
-	prepared, err := postgres.PrepareBoundPostgresSelect(ctx, request.SQL, nil, budget)
-	if err != nil {
-		return AuthorizedSelectResult{}, StableError(err)
+	handshake, handshakeOK := gateway.postgresB2Handshake(request.Datasource.ID)
+	if !handshakeOK {
+		if _, err := gateway.ProbePostgresB2Modes(ctx, request.Datasource, request.Secret); err != nil {
+			return AuthorizedSelectResult{}, StableError(err)
+		}
+		handshake, handshakeOK = gateway.postgresB2Handshake(request.Datasource.ID)
+	}
+	if !handshakeOK || !handshake.Closed.Available || handshake.Closed.Digest == "" {
+		return AuthorizedSelectResult{}, &AuthError{Reason: ReasonBinderCapability}
+	}
+	var facts businessdb.SemanticFacts
+	var executePrepared func(context.Context, int) (model.QueryResult, error)
+	var verifyPrepared func(context.Context, businessdb.PostgresCatalogBudget) (string, error)
+	var closePrepared func(context.Context, bool) error
+	if handshake.NativeHealth == "healthy" && handshake.Native.Available {
+		prepared, prepareErr := postgres.PrepareBoundPostgresSelect(ctx, request.SQL, nil, budget)
+		if prepareErr != nil {
+			return AuthorizedSelectResult{}, StableError(prepareErr)
+		}
+		manifest, fpre := prepared.Manifest(), prepared.Fpre()
+		facts, err = businessdb.NativeSelectSemanticFacts(request.Datasource.ID, businessdb.SemanticIdentity{
+			DatasourceIdentity: request.Datasource.ID,
+		}, manifest, fpre)
+		if err != nil {
+			_ = prepared.Close(context.Background(), false)
+			return AuthorizedSelectResult{}, StableError(err)
+		}
+		executePrepared = prepared.Execute
+		verifyPrepared = func(verifyContext context.Context, verifyBudget businessdb.PostgresCatalogBudget) (string, error) {
+			frame, verifyErr := prepared.VerifyPost(verifyContext, verifyBudget)
+			return frame.Fingerprint, verifyErr
+		}
+		closePrepared = prepared.Close
+	} else {
+		prepared, prepareErr := postgres.BindClosedSelect(ctx, businessdb.BindRequest{RawSQL: request.SQL,
+			Identity: businessdb.SemanticIdentity{DatasourceIdentity: request.Datasource.ID}}, budget)
+		if prepareErr != nil {
+			return AuthorizedSelectResult{}, StableError(prepareErr)
+		}
+		facts = prepared.Program().Facts
+		executePrepared = prepared.Execute
+		verifyPrepared = func(verifyContext context.Context, verifyBudget businessdb.PostgresCatalogBudget) (string, error) {
+			proof, verifyErr := prepared.VerifyPost(verifyContext, verifyBudget)
+			return proof.CatalogPostDigest, verifyErr
+		}
+		closePrepared = func(closeContext context.Context, _ bool) error { return prepared.Close(closeContext) }
 	}
 	businessClosed := false
 	defer func() {
 		if businessClosed {
 			return
 		}
-		if closeErr := prepared.Close(context.Background(), false); closeErr != nil && returnedErr == nil {
+		if closeErr := closePrepared(context.Background(), false); closeErr != nil && returnedErr == nil {
 			returnedErr = fixedExecutionError(closeErr)
 			result = AuthorizedSelectResult{}
 		}
 	}()
 
-	manifest := prepared.Manifest()
-	fpre := prepared.Fpre()
-	columnInput, identityRequests, err := postgresColumnAuthorizationInput(request, manifest, fpre, nonce)
+	columnInput, identityRequests, err := postgresColumnAuthorizationInputFromFacts(request, facts, nonce)
 	if err != nil {
 		return AuthorizedSelectResult{}, err
 	}
@@ -188,10 +229,13 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	} else {
 		columnInput.Masks = failedMaskCandidate(columnInput.Uses, errors.Is(maskPlanErr, mask.ErrIdentityCapability))
 	}
-	plan := columnauth.Authorize(columnInput)
+	plan, err := businessdb.AuthorizeB2(facts, columnInput)
+	if err != nil {
+		return AuthorizedSelectResult{}, StableError(err)
+	}
 	audit := buildColumnAuthorizationAudit(columnInput, plan)
 	if !plan.Allowed() {
-		if err := prepared.Close(ctx, false); err != nil {
+		if err := closePrepared(ctx, false); err != nil {
 			return AuthorizedSelectResult{}, fixedExecutionError(err)
 		}
 		businessClosed = true
@@ -213,7 +257,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	}
 
 	observe(request.Observe, PhaseExecute)
-	raw, err := prepared.Execute(ctx, rowLimit)
+	raw, err := executePrepared(ctx, rowLimit)
 	if err != nil {
 		return AuthorizedSelectResult{}, fixedExecutionError(err)
 	}
@@ -237,12 +281,12 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	// Fpre and Fpost are independently bounded catalog frames. Reusing the
 	// discovery/Fpre counter here makes a valid multi-relation statement fail
 	// merely because the same bounded catalog proof is repeated at Fpost.
-	fpost, err := prepared.VerifyPost(ctx, NewBudget(limits))
+	fpostDigest, err := verifyPrepared(ctx, NewBudget(limits))
 	if err != nil {
 		return AuthorizedSelectResult{}, StableError(err)
 	}
-	audit.FpostDigest = fpost.Fingerprint
-	if err := prepared.Close(ctx, true); err != nil {
+	audit.FpostDigest = fpostDigest
+	if err := closePrepared(ctx, true); err != nil {
 		return AuthorizedSelectResult{}, fixedExecutionError(err)
 	}
 	businessClosed = true
@@ -310,70 +354,53 @@ func newDeliverySeal(encoded []byte) DeliverySeal {
 	return seal
 }
 
-func postgresColumnAuthorizationInput(request authorizedSelectRequest, manifest businessdb.PostgresPreparedManifest, frame businessdb.PostgresCatalogFrame, nonce []byte) (columnauth.Input, []mask.IdentityRequest, error) {
-	relations := make(map[uint32]columnauth.RelationIdentity, len(frame.Relations))
-	paths := make(map[uint32]businessdb.PostgresBoundRelation, len(manifest.Relations))
-	for _, relation := range manifest.Relations {
-		paths[relation.OID] = relation
+func postgresColumnAuthorizationInputFromFacts(request authorizedSelectRequest, facts businessdb.SemanticFacts, nonce []byte) (columnauth.Input, []mask.IdentityRequest, error) {
+	factsDigest, err := facts.Digest()
+	if err != nil || facts.StatementClass != businessdb.BinderStatementSelect || facts.Identity.CatalogDigest == "" {
+		return columnauth.Input{}, nil, &AuthError{Reason: ReasonBinderIncomplete}
 	}
 	input := columnauth.Input{
-		Agent: request.Agent, DatasourceID: request.Datasource.ID, Statement: model.StmtType("SELECT"), PreliminaryAllowed: request.PreliminaryAllowed,
-		DatasourceSupported: true, CatalogConsistent: true, CatalogDigest: frame.Fingerprint,
+		Agent: request.Agent, DatasourceID: request.Datasource.ID, Statement: model.StmtType("SELECT"),
+		PreliminaryAllowed: request.PreliminaryAllowed, DatasourceSupported: true,
+		CatalogConsistent: true, CatalogDigest: facts.Identity.CatalogDigest, BinderDigest: factsDigest,
 		ControlRevisionDigest: request.ControlRevisionDigest, Policies: append([]model.Policy(nil), request.Policies...),
 		Nonce: append([]byte(nil), nonce...), Now: time.Now(),
 	}
-	enrollment := businessdb.PostgresEnrollmentFromLocked(manifest, frame)
-	input.BinderDigest = enrollment.BinderFingerprint
-	for _, relation := range frame.Relations {
-		bound := paths[relation.OID]
+	relations := make(map[uint32]columnauth.RelationIdentity, len(facts.Relations))
+	for _, relation := range facts.Relations {
 		identity := columnauth.RelationIdentity{
 			DatabaseID:     strconv.FormatUint(uint64(relation.DatabaseOID), 10),
-			StableObjectID: PostgresStableObjectID(relation.DatabaseOID, relation.OID),
-			Schema:         relation.Schema, Name: relation.Name, CatalogFingerprint: frame.Fingerprint,
-			BindingAlias: bound.Path, ViewPath: viewPath(bound),
+			StableObjectID: PostgresStableObjectID(relation.DatabaseOID, relation.RelationOID),
+			Schema:         relation.Schema, Name: relation.Name, CatalogFingerprint: relation.CatalogFingerprint,
+			BindingAlias: relation.BindingAlias, ViewPath: relation.ViewPath,
 		}
-		relations[relation.OID] = identity
+		relations[relation.RelationOID] = identity
 		input.Relations = append(input.Relations, identity)
 	}
-	columns := make(map[string]businessdb.PostgresColumnIdentity, len(frame.Columns))
-	for _, column := range frame.Columns {
-		columns[postgresColumnKey(column.RelationOID, column.Attnum)] = column
-	}
-	// Contributor groups are local to a query level. Nested view target lists
-	// may therefore contain groups beyond the final result width. Only depth-0
-	// output groups define deliverable positions; deeper entries with the same
-	// group remain lineage contributors to those positions.
-	outputCount := 0
-	for _, use := range manifest.Columns {
-		if use.Usage == string(columnauth.UsageOutput) && use.QueryDepth == 0 && use.ContributorGroup > outputCount {
-			outputCount = use.ContributorGroup
-		}
-	}
 	requestsByOutput := make(map[int]*mask.IdentityRequest)
-	for _, use := range manifest.Columns {
-		relation, relationOK := relations[use.RelationOID]
-		column, columnOK := columns[postgresColumnKey(use.RelationOID, use.Attnum)]
-		if !relationOK || !columnOK {
-			return columnauth.Input{}, nil, &AuthError{Reason: ReasonCatalogIncomplete}
+	for _, use := range facts.ColumnUses {
+		relation, ok := relations[use.RelationOID]
+		if !ok || use.Attnum <= 0 || use.WholeRow || use.SystemColumn {
+			return columnauth.Input{}, nil, &AuthError{Reason: ReasonColumnShape}
 		}
 		usage := columnauth.Usage(use.Usage)
-		outputIndex := -1
-		if usage == columnauth.UsageOutput && use.ContributorGroup <= outputCount {
-			outputIndex = use.ContributorGroup - 1
+		bound := columnauth.BoundColumnUse{
+			Column: columnauth.ColumnIdentity{Relation: relation, Ordinal: int(use.Attnum), Name: use.Name,
+				TypeDigest: PostgresColumnTypeDigest(use.TypeOID, use.TypeModifier, use.CollationOID)},
+			Usage: usage, Site: use.Site, OutputIndex: use.OutputIndex,
+			BindingAlias: use.BindingAlias, ViewPath: use.ViewPath,
 		}
-		boundUse := columnauth.BoundColumnUse{
-			Column: columnauth.ColumnIdentity{Relation: relation, Ordinal: int(column.Attnum), Name: column.Name, TypeDigest: PostgresColumnTypeDigest(column.TypeOID, column.Typmod, column.Collation)},
-			Usage:  usage, Site: use.Site, OutputIndex: outputIndex, BindingAlias: relation.BindingAlias, ViewPath: relation.ViewPath,
+		input.Uses = append(input.Uses, bound)
+		if usage != columnauth.UsageOutput || use.OutputIndex < 0 {
+			continue
 		}
-		input.Uses = append(input.Uses, boundUse)
-		if usage == columnauth.UsageOutput && outputIndex >= 0 {
-			entry := requestsByOutput[outputIndex]
-			if entry == nil {
-				entry = &mask.IdentityRequest{OutputIndex: outputIndex}
-				requestsByOutput[outputIndex] = entry
-			}
-			entry.Sources = append(entry.Sources, mask.PhysicalColumn{Schema: relation.Schema, Table: relation.Name, Column: column.Name, InputType: boundUse.Column.TypeDigest})
+		entry := requestsByOutput[use.OutputIndex]
+		if entry == nil {
+			entry = &mask.IdentityRequest{OutputIndex: use.OutputIndex}
+			requestsByOutput[use.OutputIndex] = entry
 		}
+		entry.Sources = append(entry.Sources, mask.PhysicalColumn{Schema: relation.Schema, Table: relation.Name,
+			Column: use.Name, InputType: bound.Column.TypeDigest})
 	}
 	positions := make([]int, 0, len(requestsByOutput))
 	for position := range requestsByOutput {
@@ -382,8 +409,7 @@ func postgresColumnAuthorizationInput(request authorizedSelectRequest, manifest 
 	sort.Ints(positions)
 	requests := make([]mask.IdentityRequest, 0, len(positions))
 	for _, position := range positions {
-		entry := requestsByOutput[position]
-		requests = append(requests, *entry)
+		requests = append(requests, *requestsByOutput[position])
 	}
 	return input, requests, nil
 }
@@ -520,15 +546,4 @@ func PostgresStableObjectID(databaseOID, relationOID uint32) string {
 
 func PostgresColumnTypeDigest(typeOID uint32, typmod int32, collationOID uint32) string {
 	return fmt.Sprintf("pg:type=%d;typmod=%d;collation=%d", typeOID, typmod, collationOID)
-}
-
-func postgresColumnKey(relationOID uint32, attnum int16) string {
-	return strconv.FormatUint(uint64(relationOID), 10) + ":" + strconv.Itoa(int(attnum))
-}
-
-func viewPath(relation businessdb.PostgresBoundRelation) string {
-	if relation.ViewDepth <= 0 {
-		return ""
-	}
-	return relation.Path
 }

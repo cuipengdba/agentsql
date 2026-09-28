@@ -141,6 +141,7 @@ func (pipeline *Pipeline) process(
 		if err := validateLoadedPolicies(storedPolicies, run.agent.ID, datasource.ID); err != nil {
 			return err
 		}
+		run.storedPolicies = append([]model.Policy(nil), storedPolicies...)
 		decision, err := pipeline.resolver.Resolve(storedPolicies, run.agent.Level)
 		if err != nil {
 			return err
@@ -236,6 +237,9 @@ func (pipeline *Pipeline) process(
 		staticAssessment = run.response.Assessment
 	}
 	if run.ast.StmtType == model.StmtType("SELECT") && !isNilInterface(pipeline.column) {
+		if run.datasource.DBType == "mysql" && columnAuthorizationConfigured(pipeline.column) && hasB2ColumnPolicy(run.storedPolicies) {
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
+		}
 		enabled := true
 		if router, ok := pipeline.column.(ColumnAuthorizationRouter); ok {
 			enabled = router.ColumnAuthorizationEnabled(*run.datasource)
@@ -575,6 +579,7 @@ type pipelineRun struct {
 	statement       executor.Statement
 	executionResult *model.QueryResult
 	reservation     *requestLimiter
+	storedPolicies  []model.Policy
 	auditAttempts   int
 	auditAnchorID   int64
 	mode            pipelineRunMode
@@ -785,6 +790,21 @@ func businessDatabaseError(operationError error) (*executor.DBError, bool) {
 func internalFailurePresentation(cause error) (executor.DBErrorCode, string, string) {
 	stable := executor.StableError(cause)
 	if stable != nil && stable.Reason != executor.ReasonDatabaseFailure {
+		switch stable.Reason {
+		case executor.ReasonColumnAuthUnsupported:
+			return executor.DBErrorCode(stable.Reason),
+				"MySQL 不支持 B2 列级授权",
+				"请移除该 MySQL 数据源的列级策略并继续使用表级保护，或改用 PostgreSQL"
+		case executor.ReasonRelationShape, executor.ReasonColumnShape, executor.ReasonExpressionShape,
+			executor.ReasonBinderModeRequired, executor.ReasonBinderModeUnsupported:
+			return executor.DBErrorCode(stable.Reason),
+				"当前列级授权模式无法安全证明该查询或结果形状",
+				"请缩小为 schema-qualified 普通基表上的封闭 SQL，或安装可选的 NATIVE_C_V1 加速器"
+		case executor.ReasonColumnAuthUnavailable, executor.ReasonBinderIncomplete, executor.ReasonBinderCapability:
+			return executor.DBErrorCode(stable.Reason),
+				"PostgreSQL 列级授权当前不可用，已拒绝执行",
+				"请检查 B2 健康状态、策略绑定和数据源 catalog 权限后重试"
+		}
 		return executor.DBErrorCode(stable.Reason),
 			"请求超出安全资源边界",
 			"请缩小 SQL、参数或结果规模后重试"
@@ -1048,6 +1068,21 @@ func validateLoadedPolicies(policies []model.Policy, agentID, datasourceID strin
 		}
 	}
 	return nil
+}
+
+func columnAuthorizationConfigured(controller ColumnAuthorizationController) bool {
+	configured, ok := controller.(ColumnAuthorizationConfiguration)
+	return ok && configured.ColumnAuthorizationConfigured()
+}
+
+func hasB2ColumnPolicy(policies []model.Policy) bool {
+	for _, stored := range policies {
+		if strings.EqualFold(strings.TrimSpace(stored.ObjectType), "column") ||
+			len(stored.ColumnPermissions) != 0 || len(stored.ColumnStaging) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldExplain(ast *model.AST) bool {

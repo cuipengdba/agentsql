@@ -62,6 +62,8 @@ const (
 	ReasonAgentDenied               Reason = "AUTH_AGENT_DENIED"
 	ReasonStatementClassDenied      Reason = "AUTH_STATEMENT_CLASS_DENIED"
 	ReasonDatasourceUnsupported     Reason = "AUTH_DATASOURCE_UNSUPPORTED"
+	ReasonColumnAuthUnsupported     Reason = "AUTH_COLUMN_AUTHORIZATION_UNSUPPORTED"
+	ReasonColumnAuthUnavailable     Reason = "AUTH_COLUMN_AUTHORIZATION_UNAVAILABLE"
 	ReasonRelationDenied            Reason = "AUTH_RELATION_DENIED"
 	ReasonRelationGrantMissing      Reason = "AUTH_RELATION_GRANT_MISSING"
 	ReasonIdentityUnproven          Reason = "AUTH_IDENTITY_UNPROVEN"

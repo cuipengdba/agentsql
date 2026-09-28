@@ -21,6 +21,15 @@ store:
     max_idle_conns: 5
   auto_migrate: false
 
+# PostgreSQL B2 defaults on and uses extension-free CATALOG_CLOSED_V1 when the
+# optional signed NATIVE_C_V1 accelerator is absent. The omitted instance_id is
+# a persistent random per-deployment identity; set it explicitly for managed
+# replicas whose local state directory is not persistent.
+column_authorization:
+  enabled: true
+  dry_run: false
+  instance_id_file: "/var/lib/agentsql/instance-id"
+
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000

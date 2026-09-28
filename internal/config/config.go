@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/store"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,6 +32,8 @@ var (
 	ErrMultipleYAMLDocuments = errors.New("configuration must contain exactly one YAML document")
 	// ErrInvalidEventStreamMaxConnections indicates an SSE connection limit outside 1-1000.
 	ErrInvalidEventStreamMaxConnections = errors.New("server.event_stream_max_connections must be between 1 and 1000")
+	// ErrInvalidColumnAuthorizationInstanceID indicates an explicitly empty or corrupt persisted instance identity.
+	ErrInvalidColumnAuthorizationInstanceID = errors.New("column_authorization.instance_id must be non-empty when explicitly configured")
 )
 
 // Config is the root AgentSQL configuration.
@@ -44,15 +47,23 @@ type Config struct {
 	ColumnAuthorization ColumnAuthorizationConfig `yaml:"column_authorization"`
 }
 
-// ColumnAuthorizationConfig is the explicit S5 activation request. Enabled is
-// off by default; startup establishes protocol-3 only after every readiness
-// probe succeeds. Failed activation keeps the table-level pipeline available.
+// ColumnAuthorizationConfig controls the PostgreSQL protocol-3 path. Enabled
+// defaults on for parsed YAML, while an explicitly configured false remains an
+// authoritative rollback switch. Load resolves an omitted InstanceID from a
+// persistent per-deployment random identity before production assembly.
 type ColumnAuthorizationConfig struct {
 	Enabled             bool   `yaml:"enabled"`
 	DryRun              bool   `yaml:"dry_run"`
 	InstanceID          string `yaml:"instance_id"`
+	InstanceIDFile      string `yaml:"instance_id_file"`
 	LeaseMS             int    `yaml:"lease_ms"`
 	HeartbeatIntervalMS int    `yaml:"heartbeat_interval_ms"`
+
+	enabledSet               bool
+	instanceIDSet            bool
+	instanceIDFileSet        bool
+	instanceIDDefaultPending bool
+	instanceIDResolvedFile   bool
 }
 
 // ServerConfig controls the shared HTTP listener and console availability.
@@ -94,6 +105,17 @@ func Parse(contents []byte) (Config, error) {
 	}
 	if !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("decode trailing config data: %w", err)
+	}
+	columnFields := configuredColumnAuthorizationFields(contents)
+	loaded.ColumnAuthorization.enabledSet = columnFields["enabled"]
+	loaded.ColumnAuthorization.instanceIDSet = columnFields["instance_id"]
+	loaded.ColumnAuthorization.instanceIDFileSet = columnFields["instance_id_file"]
+	if !loaded.ColumnAuthorization.enabledSet {
+		loaded.ColumnAuthorization.Enabled = true
+	}
+	if (loaded.ColumnAuthorization.Enabled || loaded.ColumnAuthorization.DryRun) &&
+		!loaded.ColumnAuthorization.instanceIDSet && strings.TrimSpace(loaded.ColumnAuthorization.InstanceID) == "" {
+		loaded.ColumnAuthorization.instanceIDDefaultPending = true
 	}
 	redactionFields := configuredRedactionFields(contents)
 	loaded.Redaction.hashKeySet = redactionFields["hash_key"]
@@ -169,6 +191,9 @@ func Load(path string) (Config, error) {
 			return Config{}, fmt.Errorf("create SQLite directory for %q: %w", resolved.Metadata.SQLitePath, err)
 		}
 	}
+	if err := resolveColumnAuthorizationInstanceID(path, resolved, &loaded.ColumnAuthorization); err != nil {
+		return Config{}, fmt.Errorf("resolve config %q: %w", path, err)
+	}
 	applyResolvedStore(&loaded, resolved)
 
 	return loaded, nil
@@ -218,6 +243,20 @@ func configuredServerFields(contents []byte) map[string]bool {
 	return configured
 }
 
+func configuredColumnAuthorizationFields(contents []byte) map[string]bool {
+	var document struct {
+		ColumnAuthorization map[string]yaml.Node `yaml:"column_authorization"`
+	}
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return map[string]bool{}
+	}
+	configured := make(map[string]bool, len(document.ColumnAuthorization))
+	for field := range document.ColumnAuthorization {
+		configured[field] = true
+	}
+	return configured
+}
+
 // Validate checks every T01 startup invariant and fails closed on invalid input.
 func (config Config) Validate() error {
 	if err := config.validateNonStore(); err != nil {
@@ -237,8 +276,13 @@ func (config Config) validateNonStore() error {
 	if config.ColumnAuthorization.Enabled && config.ColumnAuthorization.DryRun {
 		return fmt.Errorf("validate column_authorization: enabled and dry_run are mutually exclusive")
 	}
-	if (config.ColumnAuthorization.Enabled || config.ColumnAuthorization.DryRun) && strings.TrimSpace(config.ColumnAuthorization.InstanceID) == "" {
-		return fmt.Errorf("validate column_authorization: instance_id is required when enabled or dry_run")
+	if strings.TrimSpace(config.ColumnAuthorization.InstanceID) != "" && strings.TrimSpace(config.ColumnAuthorization.InstanceIDFile) != "" &&
+		!config.ColumnAuthorization.instanceIDResolvedFile {
+		return fmt.Errorf("validate column_authorization: instance_id and instance_id_file are mutually exclusive")
+	}
+	if (config.ColumnAuthorization.Enabled || config.ColumnAuthorization.DryRun) && strings.TrimSpace(config.ColumnAuthorization.InstanceID) == "" &&
+		!config.ColumnAuthorization.instanceIDDefaultPending {
+		return fmt.Errorf("validate column_authorization: %w", ErrInvalidColumnAuthorizationInstanceID)
 	}
 	if config.ColumnAuthorization.LeaseMS < 0 || config.ColumnAuthorization.HeartbeatIntervalMS < 0 {
 		return fmt.Errorf("validate column_authorization: lease and heartbeat interval must not be negative")
@@ -277,4 +321,114 @@ func (config Config) validateNonStore() error {
 	}
 
 	return nil
+}
+
+func resolveColumnAuthorizationInstanceID(configPath string, resolved *ResolvedStore, column *ColumnAuthorizationConfig) error {
+	if column == nil || (!column.Enabled && !column.DryRun) {
+		return nil
+	}
+	if explicit := strings.TrimSpace(column.InstanceID); explicit != "" {
+		column.InstanceID = explicit
+		column.instanceIDDefaultPending = false
+		return nil
+	}
+	if column.instanceIDSet {
+		return ErrInvalidColumnAuthorizationInstanceID
+	}
+	identityPath := strings.TrimSpace(column.InstanceIDFile)
+	if column.instanceIDFileSet && identityPath == "" {
+		return fmt.Errorf("column_authorization.instance_id_file must be non-empty when explicitly configured")
+	}
+	var err error
+	if identityPath == "" {
+		identityPath, err = columnAuthorizationInstanceIDPath(configPath, resolved)
+	}
+	if err != nil {
+		return err
+	}
+	identity, err := readOrCreateColumnAuthorizationInstanceID(identityPath)
+	if err != nil {
+		return err
+	}
+	column.InstanceID = identity
+	column.instanceIDDefaultPending = false
+	column.instanceIDResolvedFile = true
+	return nil
+}
+
+func columnAuthorizationInstanceIDPath(configPath string, resolved *ResolvedStore) (string, error) {
+	if resolved == nil {
+		return "", fmt.Errorf("column authorization instance identity: resolved store is required")
+	}
+	if resolved.Metadata.Driver == store.DialectSQLite && strings.TrimSpace(resolved.Metadata.SQLitePath) != "" {
+		return filepath.Clean(resolved.Metadata.SQLitePath) + ".instance-id", nil
+	}
+	absolute, err := filepath.Abs(configPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve column authorization instance identity path: %w", err)
+	}
+	return filepath.Clean(absolute) + ".instance-id", nil
+}
+
+func readOrCreateColumnAuthorizationInstanceID(path string) (string, error) {
+	contents, err := os.ReadFile(path)
+	if err == nil {
+		return validatePersistedColumnAuthorizationInstanceID(contents)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read column authorization instance identity %q: %w", path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return "", fmt.Errorf("create column authorization instance identity directory %q: %w", filepath.Dir(path), err)
+	}
+	generated, err := uuid.NewRandom()
+	if err != nil {
+		return "", fmt.Errorf("generate column authorization instance identity: %w", err)
+	}
+	identity := "agentsql-" + generated.String()
+	file, err := os.CreateTemp(filepath.Dir(path), ".agentsql-instance-id-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary column authorization instance identity for %q: %w", path, err)
+	}
+	temporaryPath := file.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("secure temporary column authorization instance identity %q: %w", temporaryPath, err)
+	}
+	if _, err := file.WriteString(identity + "\n"); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("persist column authorization instance identity %q: %w", path, err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("sync column authorization instance identity %q: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close temporary column authorization instance identity %q: %w", temporaryPath, err)
+	}
+	err = os.Link(temporaryPath, path)
+	if errors.Is(err, os.ErrExist) {
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return "", fmt.Errorf("read concurrently created column authorization instance identity %q: %w", path, readErr)
+		}
+		return validatePersistedColumnAuthorizationInstanceID(contents)
+	}
+	if err != nil {
+		return "", fmt.Errorf("create column authorization instance identity %q: %w", path, err)
+	}
+	return identity, nil
+}
+
+func validatePersistedColumnAuthorizationInstanceID(contents []byte) (string, error) {
+	identity := strings.TrimSpace(string(contents))
+	const prefix = "agentsql-"
+	if !strings.HasPrefix(identity, prefix) {
+		return "", fmt.Errorf("validate persisted column authorization instance identity: %w", ErrInvalidColumnAuthorizationInstanceID)
+	}
+	if _, err := uuid.Parse(strings.TrimPrefix(identity, prefix)); err != nil {
+		return "", fmt.Errorf("validate persisted column authorization instance identity: %w", ErrInvalidColumnAuthorizationInstanceID)
+	}
+	return identity, nil
 }

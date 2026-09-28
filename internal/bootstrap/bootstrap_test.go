@@ -120,7 +120,7 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NoError(t, runtime.Close())
 }
 
-func TestB2FactoryDefaultIsFeatureOffAndFailedActivationFallsBack(t *testing.T) {
+func TestB2ProgrammaticZeroValueIsFeatureOffAndNoPostgresKeepsMySQLReady(t *testing.T) {
 	provider := &bootstrapExecutorProvider{executor: &bootstrapExecutor{}}
 	offRuntime, err := assembleWithExecutorProvider(context.Background(),
 		bootstrapTestConfig(filepath.Join(t.TempDir(), "off.db")), bootstrapTestSecret, provider)
@@ -161,7 +161,8 @@ func TestB2FactoryDefaultIsFeatureOffAndFailedActivationFallsBack(t *testing.T) 
 
 func TestB2ActivatedHeartbeatFailureStaysOnFailClosedRoute(t *testing.T) {
 	future := time.Now().Add(time.Minute)
-	manager := &b2Runtime{status: B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3, LeaseExpiresAt: &future}}
+	manager := &b2Runtime{enabled: true, status: B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3,
+		LeaseExpiresAt: &future, DatasourceModes: map[string]string{"pg": "CATALOG_CLOSED_V1"}}}
 	datasource := model.Datasource{ID: "pg", DBType: "postgres"}
 	require.True(t, manager.route(datasource))
 	require.True(t, manager.allow(datasource))
@@ -173,9 +174,20 @@ func TestB2ActivatedHeartbeatFailureStaysOnFailClosedRoute(t *testing.T) {
 	require.False(t, manager.route(model.Datasource{ID: "mysql", DBType: "mysql"}))
 }
 
+func TestB2EnabledPreActivationFailureKeepsPostgresOnFailClosedRoute(t *testing.T) {
+	manager := &b2Runtime{enabled: true, status: B2Status{
+		State: B2StateUnsupported, Reason: B2ReasonBinderProbeFailed, Protocol: 2,
+	}}
+	datasource := model.Datasource{ID: "pg", DBType: "postgres"}
+	require.True(t, manager.route(datasource))
+	require.False(t, manager.allow(datasource))
+	require.False(t, (&Runtime{b2: manager}).B2Ready())
+}
+
 func TestB2ExpiredLeaseIsImmediatelyDegradedAndFailClosed(t *testing.T) {
 	past := time.Now().Add(-time.Millisecond)
-	manager := &b2Runtime{status: B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3, LeaseExpiresAt: &past}}
+	manager := &b2Runtime{enabled: true, status: B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3,
+		LeaseExpiresAt: &past, DatasourceModes: map[string]string{"pg": "CATALOG_CLOSED_V1"}}}
 	datasource := model.Datasource{ID: "pg", DBType: "postgres"}
 	require.Equal(t, B2ReasonRuntimeLeaseExpired, manager.snapshot().Reason)
 	require.True(t, manager.route(datasource), "an activated runtime must remain on the fail-closed B2 route")

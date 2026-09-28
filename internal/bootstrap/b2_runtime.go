@@ -50,6 +50,7 @@ type B2Status struct {
 	ArtifactDigest         string            `json:"artifact_digest,omitempty"`
 	LeaseExpiresAt         *time.Time        `json:"lease_expires_at,omitempty"`
 	UnsupportedDatasources map[string]string `json:"unsupported_datasources,omitempty"`
+	DatasourceModes        map[string]string `json:"datasource_modes,omitempty"`
 }
 
 type b2Runtime struct {
@@ -61,6 +62,7 @@ type b2Runtime struct {
 	cancel          context.CancelFunc
 	wait            sync.WaitGroup
 	stateObserver   func(string)
+	enabled         bool
 }
 
 func featureOffB2Status() B2Status {
@@ -78,7 +80,7 @@ func dryRunB2Runtime(ctx context.Context, metadata *store.Store, gateway *execut
 }
 
 func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, activate bool) (*b2Runtime, error) {
-	manager := &b2Runtime{fence: metadata.Fence(), lease: lease, interval: interval}
+	manager := &b2Runtime{fence: metadata.Fence(), lease: lease, interval: interval, enabled: activate}
 	if lease <= 0 {
 		lease = 15 * time.Second
 		manager.lease = lease
@@ -106,45 +108,59 @@ func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *exec
 		return manager, err
 	}
 	unsupported := make(map[string]string)
+	modes := make(map[string]string)
 	capabilityDigests := make([]string, 0, len(datasources))
 	postgresCount := 0
+	readyPostgresCount := 0
 	for _, datasource := range datasources {
 		if datasource.DBType != "postgres" {
 			unsupported[datasource.ID] = B2ReasonDatasourceUnsupported
 			continue
 		}
 		postgresCount++
-		capability, probeErr := gateway.ProbePostgresB2Capability(ctx, datasource, secret)
+		capability, probeErr := gateway.ProbePostgresB2Modes(ctx, datasource, secret)
 		if probeErr != nil {
 			reason := B2ReasonBinderProbeFailed
 			var authErr *executor.AuthError
-			if errors.As(probeErr, &authErr) && (authErr.Reason == executor.ReasonBinderCapability || authErr.Reason == executor.ReasonDatasourceUnsupported) {
+			if errors.As(probeErr, &authErr) && (authErr.Reason == executor.ReasonBinderCapability ||
+				authErr.Reason == executor.ReasonBinderModeUnsupported || authErr.Reason == executor.ReasonDatasourceUnsupported) {
 				reason = B2ReasonBinderUnsupported
 			}
-			manager.status = B2Status{State: B2StateUnsupported, Reason: reason, Protocol: 2, UnsupportedDatasources: unsupported}
-			return manager, probeErr
+			unsupported[datasource.ID] = reason
+			continue
 		}
-		capabilityDigests = append(capabilityDigests, strings.Join([]string{datasource.ID, capability.ABI,
+		readyPostgresCount++
+		modes[datasource.ID] = capability.Mode
+		capabilityDigests = append(capabilityDigests, strings.Join([]string{datasource.ID, capability.Mode, capability.ClosedDigest,
+			capability.NativeDigest, capability.ABI,
 			capability.ExtensionVersion, capability.ExtensionHash, capability.NodeManifestHash,
 			capability.AllowlistHash}, "\x00"))
 		if err := gateway.ProbeReservation(datasource.ID); err != nil {
-			manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonReservationUnavailable, Protocol: 2, UnsupportedDatasources: unsupported}
+			manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonReservationUnavailable, Protocol: 2,
+				UnsupportedDatasources: unsupported, DatasourceModes: modes}
 			return manager, err
 		}
 	}
 	if postgresCount == 0 {
-		manager.status = B2Status{State: B2StateUnsupported, Reason: B2ReasonNoPostgresDatasource, Protocol: 2, UnsupportedDatasources: unsupported}
+		manager.status = B2Status{State: B2StateUnsupported, Reason: B2ReasonNoPostgresDatasource, Protocol: 2,
+			UnsupportedDatasources: unsupported, DatasourceModes: modes}
+		return manager, store.ErrActivationGate
+	}
+	if readyPostgresCount == 0 {
+		manager.status = B2Status{State: B2StateUnsupported, Reason: B2ReasonBinderProbeFailed, Protocol: 2,
+			UnsupportedDatasources: unsupported, DatasourceModes: modes}
 		return manager, store.ErrActivationGate
 	}
 	sort.Strings(capabilityDigests)
 	artifact, err := b2ArtifactDigest(capabilityDigests)
 	if err != nil {
-		manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonArtifactAttestation, Protocol: 2, UnsupportedDatasources: unsupported}
+		manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonArtifactAttestation, Protocol: 2,
+			UnsupportedDatasources: unsupported, DatasourceModes: modes}
 		return manager, err
 	}
 	if !activate {
 		manager.status = B2Status{State: B2StateDryRun, Reason: B2ReasonDryRunReady, Protocol: 2,
-			InstanceID: instanceID, ArtifactDigest: artifact, UnsupportedDatasources: unsupported}
+			InstanceID: instanceID, ArtifactDigest: artifact, UnsupportedDatasources: unsupported, DatasourceModes: modes}
 		return manager, nil
 	}
 	now := time.Now().UTC()
@@ -153,14 +169,15 @@ func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *exec
 		CatalogReady: true, ReservationReady: true, Now: now, Lease: lease,
 	})
 	if err != nil {
-		manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonControlFenceUnavailable, Protocol: 2, UnsupportedDatasources: unsupported}
+		manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonControlFenceUnavailable, Protocol: 2,
+			UnsupportedDatasources: unsupported, DatasourceModes: modes}
 		return manager, err
 	}
 	manager.instance = instance
 	expires := instance.LeaseExpiresAt
 	manager.status = B2Status{State: B2StateActive, Reason: "B2_READY", Protocol: 3,
 		InstanceID: instance.InstanceID, ArtifactDigest: artifact, LeaseExpiresAt: &expires,
-		UnsupportedDatasources: unsupported}
+		UnsupportedDatasources: unsupported, DatasourceModes: modes}
 	heartbeatContext, cancel := context.WithCancel(ctx)
 	manager.cancel = cancel
 	manager.wait.Add(1)
@@ -248,6 +265,7 @@ func (runtime *b2Runtime) snapshot() B2Status {
 		result.Reason = B2ReasonRuntimeLeaseExpired
 	}
 	result.UnsupportedDatasources = cloneStringMap(runtime.status.UnsupportedDatasources)
+	result.DatasourceModes = cloneStringMap(runtime.status.DatasourceModes)
 	return result
 }
 
@@ -257,16 +275,15 @@ func (runtime *b2Runtime) allow(datasource model.Datasource) bool {
 		return false
 	}
 	_, unsupported := status.UnsupportedDatasources[datasource.ID]
-	return !unsupported
+	_, enrolled := status.DatasourceModes[datasource.ID]
+	return !unsupported && enrolled
 }
 
 func (runtime *b2Runtime) route(datasource model.Datasource) bool {
 	if runtime == nil || datasource.DBType != "postgres" {
 		return false
 	}
-	status := runtime.snapshot()
-	_, unsupported := status.UnsupportedDatasources[datasource.ID]
-	return status.Protocol == 3 && !unsupported
+	return runtime.enabled
 }
 
 func (runtime *b2Runtime) close() {
@@ -277,9 +294,11 @@ func (runtime *b2Runtime) close() {
 		runtime.cancel()
 		runtime.wait.Wait()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	_ = runtime.fence.DrainRuntime(ctx, runtime.instance.InstanceID)
-	cancel()
+	if runtime.fence != nil && runtime.instance.InstanceID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = runtime.fence.DrainRuntime(ctx, runtime.instance.InstanceID)
+		cancel()
+	}
 }
 
 func cloneStringMap(source map[string]string) map[string]string {

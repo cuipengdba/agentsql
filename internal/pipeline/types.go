@@ -135,6 +135,12 @@ type ColumnAuthorizationRouter interface {
 	ColumnAuthorizationEnabled(model.Datasource) bool
 }
 
+// ColumnAuthorizationConfiguration reports that B2 enforcement was requested
+// even for a dialect that deliberately remains on the table-level route.
+type ColumnAuthorizationConfiguration interface {
+	ColumnAuthorizationConfigured() bool
+}
+
 // RuleOverrideReader reads administrator-maintained global rule overrides.
 type RuleOverrideReader interface {
 	List(ctx context.Context, dbType string) ([]model.Rule, error)

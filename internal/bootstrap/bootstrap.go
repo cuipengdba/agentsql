@@ -211,9 +211,12 @@ func assembleWithExecutorProvider(
 			_ = readOnlyManager.CloseAll()
 			return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, fmt.Errorf("audit B2 activation: %w", auditErr))
 		}
-		if activationErr == nil {
+		// When enforcement is enabled, install the controller even if activation
+		// failed. PostgreSQL requests must remain on the B2 route and fail closed;
+		// only explicit feature-off or dry-run uses the legacy table path.
+		if cfg.ColumnAuthorization.Enabled {
 			columnController = &columnAuthorizationController{
-				fence: metadataStore.Fence(), redactors: redactors, instanceID: b2Manager.instance.InstanceID, runtime: b2Manager,
+				fence: metadataStore.Fence(), redactors: redactors, instanceID: strings.TrimSpace(cfg.ColumnAuthorization.InstanceID), runtime: b2Manager,
 			}
 			pipelineOptions = append(pipelineOptions, pipeline.WithColumnAuthorization(columnController))
 			_ = readOnlyManager.CloseAll()
@@ -323,10 +326,16 @@ func (runtime *Runtime) B2Status() B2Status {
 	return runtime.b2.snapshot()
 }
 
-// B2Ready is false only after protocol 3 was activated and subsequently lost
-// its runtime safety gate. Feature-off and pre-activation fallback keep the
-// existing table-level service ready while exposing their explicit state.
+// B2Ready is false whenever enabled enforcement cannot admit protocol-3 work.
+// Feature-off and dry-run do not gate the existing table-level service.
 func (runtime *Runtime) B2Ready() bool {
+	if runtime != nil && runtime.b2 != nil && runtime.b2.enabled {
+		status := runtime.B2Status()
+		if status.Reason == B2ReasonNoPostgresDatasource {
+			return true
+		}
+		return status.Protocol == 3 && status.State == B2StateActive
+	}
 	status := runtime.B2Status()
 	return status.Protocol != 3 || status.State == B2StateActive
 }

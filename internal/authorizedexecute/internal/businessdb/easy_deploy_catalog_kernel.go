@@ -12,6 +12,7 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/b5dml"
 	"github.com/cuipengdba/agentsql/internal/lockrank"
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -248,6 +249,7 @@ type PostgresClosedPrepared struct {
 	fpre         PostgresCatalogFrame
 	preseal      PreSeal
 	closed       bool
+	executed     bool
 	businessRank *lockrank.Lease
 }
 
@@ -263,8 +265,25 @@ func (prepared *PostgresClosedPrepared) Fpre() PostgresCatalogFrame {
 	return prepared.fpre
 }
 
+// Execute runs only the request-owned prepared SELECT created by the closed
+// binder. It accepts no SQL and keeps the catalog locks until VerifyPost.
+func (prepared *PostgresClosedPrepared) Execute(ctx context.Context, rowLimit int) (model.QueryResult, error) {
+	prepared.mu.Lock()
+	defer prepared.mu.Unlock()
+	if prepared.closed || prepared.executed || prepared.tx == nil || rowLimit <= 0 {
+		return model.QueryResult{}, catalogAuthError("AUTH_PREPARED_STATE_INVALID")
+	}
+	result, err := prepared.executor.queryWithRunner(ctx, prepared.tx, `EXECUTE `+quoteInternalPreparedName(prepared.name), rowLimit)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	prepared.executed = true
+	return result, nil
+}
+
 // PrepareClosedCatalog performs ordered locks, locked re-resolution, Fpre and
-// standard server PREPARE. It never calls EXPLAIN and exposes no Execute method.
+// standard server PREPARE. It never calls EXPLAIN; execution is exposed only
+// through the request-owned, SQL-free PostgresClosedPrepared capability.
 func (executor *PostgresExecutor) PrepareClosedCatalog(ctx context.Context, rawSQL string, candidate ClosedCatalogCandidate, facts SemanticFacts, budget PostgresCatalogBudget) (*PostgresClosedPrepared, error) {
 	return executor.prepareClosedCatalogResolved(ctx, rawSQL, candidate, budget,
 		func(context.Context, pgx.Tx, PostgresCatalogFrame, PostgresCatalogBudget) (SemanticFacts, error) {
@@ -395,7 +414,7 @@ func randomClosedPreparedName() (string, error) {
 func (prepared *PostgresClosedPrepared) VerifyPost(ctx context.Context, budget PostgresCatalogBudget) (BinderProof, error) {
 	prepared.mu.Lock()
 	defer prepared.mu.Unlock()
-	if prepared.closed || prepared.tx == nil || budget == nil {
+	if prepared.closed || !prepared.executed || prepared.tx == nil || budget == nil {
 		return BinderProof{}, catalogAuthError("AUTH_PREPARED_STATE_INVALID")
 	}
 	fpost, err := scanClosedCatalog(ctx, prepared.tx, prepared.refs, budget)

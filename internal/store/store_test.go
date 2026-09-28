@@ -45,7 +45,13 @@ func TestOpenMetadataSQLiteAndValidation(t *testing.T) {
 	}, []byte(testSecret))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
-	require.Equal(t, 1, opened.metaDB.Stats().MaxOpenConnections)
+	require.Equal(t, 4, opened.metaDB.Stats().MaxOpenConnections)
+	var journalMode string
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journalMode))
+	require.Equal(t, "wal", journalMode)
+	var foreignKeys int
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys))
+	require.Equal(t, 1, foreignKeys)
 
 	_, err = OpenMetadata(ctx, MetadataOptions{Driver: Dialect("mysql")}, []byte(testSecret))
 	require.ErrorIs(t, err, ErrInvalidMetadataDriver)

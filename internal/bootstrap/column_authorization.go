@@ -24,7 +24,7 @@ type columnAuthorizationController struct {
 func (controller *columnAuthorizationController) Begin(ctx context.Context, agent model.Agent, datasource model.Datasource) (pipeline.ColumnAuthorizationSnapshot, error) {
 	if controller == nil || controller.fence == nil || controller.redactors == nil || controller.instanceID == "" ||
 		controller.runtime == nil || !controller.runtime.allow(datasource) {
-		return nil, fmt.Errorf("column authorization controller is unavailable")
+		return nil, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable}
 	}
 	snapshot, err := controller.fence.BeginRead(ctx, 3, controller.instanceID, time.Now())
 	if err != nil {
@@ -46,6 +46,10 @@ func (controller *columnAuthorizationController) Begin(ctx context.Context, agen
 
 func (controller *columnAuthorizationController) ColumnAuthorizationEnabled(datasource model.Datasource) bool {
 	return controller != nil && controller.runtime != nil && controller.runtime.route(datasource)
+}
+
+func (controller *columnAuthorizationController) ColumnAuthorizationConfigured() bool {
+	return controller != nil && controller.runtime != nil && controller.runtime.enabled
 }
 
 type columnAuthorizationSnapshot struct {

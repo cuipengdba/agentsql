@@ -15,6 +15,14 @@ store:
   audit:
     separate: false
 
+# PostgreSQL B2 defaults on; no C extension is required for ordinary
+# schema-qualified base tables. NATIVE_C_V1 is an optional accelerator.
+column_authorization:
+  enabled: true
+  dry_run: false
+  instance_id_file: "/var/lib/agentsql/instance-id"
+  # instance_id: "gateway-replica-a" # 与 instance_id_file 互斥；显式 ID 优先于缺省来源
+
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000

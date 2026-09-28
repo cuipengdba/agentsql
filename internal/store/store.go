@@ -332,14 +332,24 @@ func openDatabase(
 	driverName, target := "sqlite", sqlitePath
 	if dialect == DialectPostgres {
 		driverName, target = "pgx", postgresDSN
+	} else {
+		// B2 keeps a read-only control snapshot open until the durable audit
+		// barrier and final fence complete. WAL permits that reader and the
+		// audit writer to make progress concurrently; connection-level pragmas
+		// keep every pooled SQLite connection equally fail-closed.
+		separator := "?"
+		if strings.Contains(target, "?") {
+			separator = "&"
+		}
+		target += separator + "_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 	}
 	database, err := sql.Open(driverName, target)
 	if err != nil {
 		return nil, err
 	}
 	if dialect == DialectSQLite {
-		database.SetMaxOpenConns(1)
-		database.SetMaxIdleConns(1)
+		database.SetMaxOpenConns(4)
+		database.SetMaxIdleConns(4)
 		return database, nil
 	}
 	if maxOpenConns == 0 {
