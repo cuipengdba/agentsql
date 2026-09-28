@@ -334,8 +334,15 @@ func (router *b5DatasourceRouter) resolve(ctx context.Context, id string) (B5Dat
 	}
 	capability, err := router.gateway.ProbePostgresB2Modes(ctx, datasource, router.secret)
 	if err != nil {
-		router.recordFailure(id, string(b5.ErrorPostgresCapabilityUnavailable))
-		return B5DatasourceAuthority{}, &b5coordinator.Failure{Code: b5.ErrorPostgresCapabilityUnavailable, Cause: errors.New("PostgreSQL 能力探测失败，未开始事务；请检查连接、权限和封闭 binder 能力")}
+		code := b5.ErrorPostgresCapabilityUnavailable
+		cause := errors.New("PostgreSQL 能力探测失败，未开始事务；请检查连接、权限和封闭 binder 能力")
+		var authErr *executor.AuthError
+		if errors.As(err, &authErr) && authErr.Reason == executor.ReasonBinderModeUnsupported {
+			code = b5.ErrorPostgresVersionUnsupported
+			cause = errors.New("PostgreSQL 主版本不在受支持的 14 到 18 范围内，未开始事务")
+		}
+		router.recordFailure(id, string(code))
+		return B5DatasourceAuthority{}, &b5coordinator.Failure{Code: code, Cause: cause}
 	}
 	if capability.ServerMajor < 14 || capability.ServerMajor > 18 {
 		router.recordFailure(id, string(b5.ErrorPostgresVersionUnsupported))

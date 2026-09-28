@@ -144,6 +144,63 @@ func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
 	}
 }
 
+func TestB5ExplicitOffHidesToolsFromHTTPAndStdio(t *testing.T) {
+	const secret = "0123456789abcdef0123456789abcdef"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cfg, _ := newDemoStartupRuntime(t, false, secret)
+	cfg.Store.SQLitePath = filepath.Join(t.TempDir(), "b5-off.db")
+	cfg.MCP = config.MCPConfig{
+		Sessions: config.MCPSessionsConfig{Enabled: false, IdleTTLMS: 600_000, AbsoluteTTLMS: 3_600_000},
+		Transactions: config.MCPTransactionsConfig{Postgres: false, MySQL: false, IdleTimeoutMS: 15_000,
+			WallTimeoutMS: 60_000, StatementTimeoutMS: 5_000, ShutdownDrainMS: 5_000},
+	}
+	runtime, err := bootstrap.Assemble(ctx, cfg, []byte(secret))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	require.Nil(t, runtime.B5)
+	apiKey := "asql_b5_explicit_off"
+	_, err = runtime.Store.Agents().Create(ctx, model.Agent{ID: "b5-off-agent", Name: "B5 off", Status: "active", APIKeyHash: store.HashAPIKey(apiKey), Level: "dml"})
+	require.NoError(t, err)
+
+	handler, err := mcpserver.NewHTTPHandler(runtime, cfg, zerolog.Nop())
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	for _, name := range []string{"open_session", "close_session", "get_session_status", "begin_transaction", "execute_transaction_statement", "commit_transaction", "rollback_transaction", "get_transaction_status"} {
+		require.NotContains(t, recorder.Body.String(), `"`+name+`"`)
+	}
+
+	server, err := mcpserver.NewServer(ctx, mcpserver.Options{APIKey: apiKey, Runtime: runtime, Logger: zerolog.Nop(), B5: productionB5Options(runtime)})
+	require.NoError(t, err)
+	serverInput, clientInput := io.Pipe()
+	clientOutput, serverOutput := io.Pipe()
+	runErrors := make(chan error, 1)
+	go func() { runErrors <- server.RunStdioStreams(ctx, serverInput, serverOutput) }()
+	require.NoError(t, authorizedexecute.WriteSealedFrame(clientInput, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"b5-off-test","version":"1"}}}`), authorizedexecute.DefaultLimits.FrameBytes))
+	_, err = authorizedexecute.ReadBoundedFrame(clientOutput, authorizedexecute.DefaultLimits.FrameBytes)
+	require.NoError(t, err)
+	require.NoError(t, authorizedexecute.WriteSealedFrame(clientInput, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`), authorizedexecute.DefaultLimits.FrameBytes))
+	listed, err := authorizedexecute.ReadBoundedFrame(clientOutput, authorizedexecute.DefaultLimits.FrameBytes)
+	require.NoError(t, err)
+	for _, name := range []string{"open_session", "close_session", "get_session_status", "begin_transaction", "execute_transaction_statement", "commit_transaction", "rollback_transaction", "get_transaction_status"} {
+		require.NotContains(t, string(listed), `"`+name+`"`)
+	}
+	require.NoError(t, clientInput.Close())
+	select {
+	case err := <-runErrors:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("feature-off stdio entrypoint did not stop after EOF")
+	}
+}
+
 func TestMCPCommandKeepsStdoutCleanOnStartupFailure(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("LOG_FORMAT", "")

@@ -182,6 +182,32 @@ func TestB5ProductionDefaultExplicitOffAndMySQLNoBusinessConnection(t *testing.T
 	require.NoError(t, err)
 	require.False(t, available)
 	require.NoError(t, offRuntime.Close())
+
+	postgresOffConfig := bootstrapTestConfig(filepath.Join(t.TempDir(), "postgres-off.db"))
+	postgresOffConfig.MCP = config.MCPConfig{
+		Sessions: config.MCPSessionsConfig{Enabled: true, IdleTTLMS: 600_000, AbsoluteTTLMS: 3_600_000},
+		Transactions: config.MCPTransactionsConfig{Postgres: false, MySQL: false, IdleTimeoutMS: 15_000,
+			WallTimeoutMS: 60_000, StatementTimeoutMS: 5_000, ShutdownDrainMS: 5_000},
+	}
+	postgresOffRuntime, err := Assemble(context.Background(), postgresOffConfig, bootstrapTestSecret)
+	require.NoError(t, err)
+	require.NotNil(t, postgresOffRuntime.B5, "sessions remain installed when only PostgreSQL transactions are disabled")
+	require.False(t, postgresOffRuntime.B5.PostgresEnabled())
+	status, available, err = postgresOffRuntime.B5Status(context.Background())
+	require.NoError(t, err)
+	require.True(t, available)
+	require.True(t, status.Enabled)
+	_, err = postgresOffRuntime.Store.Datasources().Create(context.Background(), model.Datasource{
+		ID: "postgres-disabled", Name: "PostgreSQL disabled", DBType: "postgres", Host: "127.0.0.1", Port: 1,
+		Database: "app", Username: "agentsql", ConnLimit: 2, StmtTimeoutMS: 500, RowLimit: 10,
+	}, "not-used")
+	require.NoError(t, err)
+	before = postgresOffRuntime.B5.gateway.SnapshotPools()
+	_, err = postgresOffRuntime.B5.ResolveDatasource(context.Background(), "postgres-disabled")
+	require.Error(t, err)
+	require.Equal(t, b5.ErrorDialectTransactionUnsupported, b5coordinator.ErrorCode(err))
+	require.Equal(t, before, postgresOffRuntime.B5.gateway.SnapshotPools(), "explicit PostgreSQL-off must reject before opening a business pool")
+	require.NoError(t, postgresOffRuntime.Close())
 }
 
 func TestB2ProgrammaticZeroValueIsFeatureOffAndNoPostgresKeepsMySQLReady(t *testing.T) {

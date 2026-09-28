@@ -17,6 +17,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -208,6 +209,72 @@ func TestB5ProductionMySQLContainerUnsupported(t *testing.T) {
 	_, err = runtime.B5.ResolveDatasource(ctx, "b5-production-mysql")
 	require.Error(t, err)
 	require.Equal(t, b5.ErrorDialectTransactionUnsupported, b5coordinator.ErrorCode(err))
+}
+
+func TestB2B5UnsupportedPostgresVersionsFailClosed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("B2/B5 PostgreSQL version boundaries require real containers")
+	}
+	for _, test := range []struct{ major, image string }{
+		{major: "13", image: "postgres:13"},
+		{major: "19", image: "postgres:19beta4-bookworm"},
+	} {
+		test := test
+		major := test.major
+		t.Run("postgres-"+major, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			t.Cleanup(cancel)
+			container, err := postgrescontainer.Run(ctx, test.image,
+				postgrescontainer.WithDatabase("agentsql"), postgrescontainer.WithUsername("agentsql"),
+				postgrescontainer.WithPassword("version-boundary-password"), postgrescontainer.BasicWaitStrategies())
+			if err != nil {
+				if container != nil {
+					testcontainers.CleanupContainer(t, container)
+				}
+				require.NoError(t, err, "start postgres:%s", major)
+			}
+			testcontainers.CleanupContainer(t, container)
+			host, err := container.Host(ctx)
+			require.NoError(t, err)
+			port, err := container.MappedPort(ctx, "5432/tcp")
+			require.NoError(t, err)
+
+			secret := []byte("0123456789abcdef0123456789abcdef")
+			metadataPath := filepath.Join(t.TempDir(), "version-boundary.db")
+			metadata, err := store.OpenWithSecret(ctx, metadataPath, secret)
+			require.NoError(t, err)
+			apiKey := "asql_version_boundary_" + major
+			agentID := "version-boundary-agent-" + major
+			datasourceID := "version-boundary-pg-" + major
+			_, err = metadata.Agents().Create(ctx, model.Agent{ID: agentID, Name: "Version boundary", Status: "active", APIKeyHash: store.HashAPIKey(apiKey), Level: "readonly"})
+			require.NoError(t, err)
+			_, err = metadata.Datasources().Create(ctx, model.Datasource{ID: datasourceID, Name: "PostgreSQL " + major, DBType: "postgres",
+				Host: host, Port: port.Int(), Database: "agentsql", Username: "agentsql", ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}, "version-boundary-password")
+			require.NoError(t, err)
+			_, err = metadata.Policies().Create(ctx, model.Policy{ID: "version-boundary-policy-" + major, AgentID: agentID,
+				DatasourceID: datasourceID, ObjectType: "table", ObjectName: "public.missing", Action: "allow"})
+			require.NoError(t, err)
+			require.NoError(t, metadata.Close())
+
+			cfg := config.Config{Server: config.ServerConfig{HTTPListen: "127.0.0.1:8653", EventStreamMaxConnections: 100},
+				Store:    config.StoreConfig{SQLitePath: metadataPath, AutoMigrate: true},
+				Defaults: config.DefaultsConfig{StatementTimeoutMS: 5_000, RowLimit: 1_000, MaxConnsPerDatasource: 5, QPSPerAgent: 100}, Theme: config.ThemeConfig{Default: "dark"},
+				ColumnAuthorization: config.ColumnAuthorizationConfig{Enabled: true, InstanceID: "version-boundary-" + major}}
+			runtime, err := bootstrap.Assemble(ctx, cfg, secret)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+			require.Equal(t, bootstrap.B2StateUnsupported, runtime.B2Status().State)
+			require.Equal(t, bootstrap.B2ReasonBinderUnsupported, runtime.B2Status().UnsupportedDatasources[datasourceID])
+			response, err := runtime.Pipeline.Process(ctx, pipeline.Request{APIKey: apiKey, DatasourceID: datasourceID,
+				SQL: "SELECT id FROM public.missing", MCPTool: "query"})
+			require.Error(t, err)
+			require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+			require.Nil(t, response.Result, "unsupported versions must stop before business SQL")
+			_, err = runtime.B5.ResolveDatasource(ctx, datasourceID)
+			require.Error(t, err)
+			require.Equal(t, b5.ErrorPostgresVersionUnsupported, b5coordinator.ErrorCode(err))
+		})
+	}
 }
 
 func seedB5ProductionGrants(t *testing.T, ctx context.Context, metadata *store.Store, principal, datasource string, facts businessdb.SemanticFacts) {

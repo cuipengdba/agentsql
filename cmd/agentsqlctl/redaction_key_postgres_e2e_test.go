@@ -110,7 +110,12 @@ store:
   metadata:
     driver: postgres
     dsn: %q
-%sdefaults:
+%scolumn_authorization:
+  enabled: false
+mcp:
+  sessions:
+    enabled: false
+defaults:
   statement_timeout_ms: 5000
   row_limit: 1000
   max_conns_per_datasource: 5

@@ -27,6 +27,12 @@ func TestFeatureOffPackageHasOnlyReviewedBinderReferences(t *testing.T) {
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_native_adapter.go")):  true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_closed_dml.go")):      true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "b5_transaction.go")):                                        true,
+		// Administrative demo enrollment maps already-validated binder facts
+		// into non-executable policy identities; it exposes no runtime handle.
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "demo_enrollment.go")): true,
+		// The deterministic demo seeder consumes only the public enrollment DTO
+		// to persist exact grants; it is not an MCP or execution entry point.
+		filepath.Clean(filepath.Join(repoRoot, "internal", "demoseed", "seed.go")): true,
 		// Production composition may translate persisted grants and implement the
 		// coordinator Engine interface, but it must not expose b5dml through MCP.
 		filepath.Clean(filepath.Join(repoRoot, "internal", "bootstrap", "b5_runtime.go")): true,

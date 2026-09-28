@@ -12,6 +12,8 @@ import (
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/authorizedexecute/internal/businessdb"
+	"github.com/cuipengdba/agentsql/internal/b5"
+	"github.com/cuipengdba/agentsql/internal/b5coordinator"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -90,7 +92,18 @@ EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')`).
 
 	defaultConfig := loadClosedOnlyConfig(t, false)
 	require.True(t, defaultConfig.ColumnAuthorization.Enabled, "omitted column_authorization must default on")
+	require.True(t, defaultConfig.MCP.Sessions.Enabled, "omitted mcp.sessions must default on")
+	require.True(t, defaultConfig.MCP.Transactions.Postgres, "omitted mcp.transactions.postgres must default on")
 	apiKey, storedDatasource := seedClosedOnlyMetadata(t, ctx, defaultConfig.Store.SQLitePath, secret, datasource, password, facts, true)
+	metadata, err := store.OpenWithSecret(ctx, defaultConfig.Store.SQLitePath, secret)
+	require.NoError(t, err)
+	_, err = metadata.Datasources().Create(ctx, model.Datasource{ID: "closed-only-mysql-neighbor", Name: "MySQL neighbor", DBType: "mysql",
+		Host: "127.0.0.1", Port: 3306, Database: "app", Username: "agentsql", ConnLimit: 1, StmtTimeoutMS: 500, RowLimit: 10}, "not-used")
+	require.NoError(t, err)
+	_, err = metadata.Datasources().Create(ctx, model.Datasource{ID: "closed-only-broken-pg", Name: "Broken PostgreSQL", DBType: "postgres",
+		Host: "127.0.0.1", Port: 1, Database: "app", Username: "agentsql", ConnLimit: 1, StmtTimeoutMS: 500, RowLimit: 10}, "not-used")
+	require.NoError(t, err)
+	require.NoError(t, metadata.Close())
 	runtime, err := bootstrap.Assemble(ctx, defaultConfig, secret)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
@@ -100,6 +113,27 @@ EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')`).
 	require.Equal(t, 3, status.Protocol)
 	require.Equal(t, "CATALOG_CLOSED_V1", status.DatasourceModes[datasourceID])
 	require.NotContains(t, status.UnsupportedDatasources, datasourceID)
+	require.Equal(t, bootstrap.B2ReasonDatasourceUnsupported, status.UnsupportedDatasources["closed-only-mysql-neighbor"])
+	require.Equal(t, bootstrap.B2ReasonBinderProbeFailed, status.UnsupportedDatasources["closed-only-broken-pg"])
+	require.NotNil(t, runtime.B5)
+	require.True(t, runtime.B5.PostgresEnabled())
+	b5Status, available, err := runtime.B5Status(ctx)
+	require.NoError(t, err)
+	require.True(t, available)
+	require.True(t, b5Status.Enabled)
+	require.True(t, b5Status.Ready)
+	require.Equal(t, "READY_WITH_DATASOURCE_ERRORS", b5Status.State)
+	authority, err := runtime.B5.ResolveDatasource(ctx, datasourceID)
+	require.NoError(t, err)
+	require.Equal(t, "CATALOG_CLOSED_V1", authority.Mode)
+	_, err = runtime.B5.ResolveDatasource(ctx, "closed-only-mysql-neighbor")
+	require.Error(t, err)
+	require.Equal(t, b5.ErrorDialectTransactionUnsupported, b5coordinator.ErrorCode(err))
+	_, err = runtime.B5.ResolveDatasource(ctx, "closed-only-broken-pg")
+	require.Error(t, err)
+	require.Equal(t, b5.ErrorPostgresCapabilityUnavailable, b5coordinator.ErrorCode(err))
+	_, err = runtime.B5.ResolveDatasource(ctx, datasourceID)
+	require.NoError(t, err, "unsupported neighbors must not revoke the ready PostgreSQL datasource")
 	probe := executor.NewGateway(false)
 	t.Cleanup(func() { require.NoError(t, probe.CloseAll()) })
 	capability, err := probe.ProbePostgresB2Modes(ctx, storedDatasource, secret)
