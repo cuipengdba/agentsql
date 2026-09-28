@@ -76,10 +76,11 @@ printf '%s\n' "$CONTAINER_NAME" | grep -E '^[A-Za-z0-9][A-Za-z0-9_.-]*$' >/dev/n
 command -v docker >/dev/null 2>&1 || die "Docker CLI is required. Install Docker and retry."
 docker info >/dev/null 2>&1 || die "Docker daemon is unavailable or the current user cannot access it."
 
-qs_arch=$(uname -m)
+qs_arch=$(docker info --format '{{.Architecture}}') || die "Could not detect the Docker daemon architecture."
 case "$qs_arch" in
-  x86_64|amd64) ;;
-  *) die "This quickstart supports amd64 hosts only. ARM64 and other hosts require explicit x86 emulation and are not supported by this script." ;;
+  x86_64|amd64) qs_image_arch_expected=amd64 ;;
+  aarch64|arm64) qs_image_arch_expected=arm64 ;;
+  *) die "This quickstart supports linux/amd64 and linux/arm64 Docker daemons only (detected: $qs_arch)." ;;
 esac
 
 if [ -z "$VERSION" ]; then
@@ -102,7 +103,7 @@ if [ "$BUILD_LOCAL" -eq 1 ]; then
   grep -F 'module github.com/cuipengdba/agentsql' go.mod >/dev/null 2>&1 || die "The current source tree is not github.com/cuipengdba/agentsql."
   qs_source_version=$(sed -n 's/^VERSION ?= \(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' Makefile | sed -n '1p')
   [ "$qs_source_version" = "$VERSION" ] || die "Source tree default version '$qs_source_version' does not match requested version '$VERSION'."
-  docker build --platform linux/amd64 --build-arg "VERSION=$VERSION" -t "$IMAGE" . || die "Docker build failed."
+  docker build --platform "linux/$qs_image_arch_expected" --build-arg "VERSION=$VERSION" -t "$IMAGE" . || die "Docker build failed."
 else
   if ! docker pull "$IMAGE"; then
     die "Could not pull $IMAGE. Check network access, GHCR package visibility, authentication, and whether the tag exists. No source build was attempted."
@@ -110,7 +111,7 @@ else
 fi
 
 qs_image_arch=$(docker image inspect --format '{{.Architecture}}' "$IMAGE" 2>/dev/null) || die "Could not inspect image $IMAGE."
-[ "$qs_image_arch" = amd64 ] || die "Image $IMAGE has architecture '$qs_image_arch', expected amd64."
+[ "$qs_image_arch" = "$qs_image_arch_expected" ] || die "Image $IMAGE has architecture '$qs_image_arch', expected $qs_image_arch_expected."
 qs_desired_image_id=$(docker image inspect --format '{{.Id}}' "$IMAGE")
 
 qs_container_exists=0

@@ -186,7 +186,7 @@
           <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>选择 Streamable HTTP 或 stdio，配置七个工具的调用与返回处理。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v0.4.0.pdf" download="AgentSQL-MCP接入指南-v0.4.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="#demo">在线演示说明</a></p><p>v0.4.0 提供一键安装与容器镜像；公网 Live Demo 尚未开放。</p><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="#demo">在线演示说明</a></p><p>v0.4.0 提供一键安装与 amd64 / arm64 多架构容器镜像；公网 Live Demo 尚未开放。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v0.4.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
           <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases（v0.4.0）</a></div>
         </div>
       </div>
@@ -208,7 +208,7 @@
               <tr><th scope="row">七个 MCP 工具</th><td colspan="2"><code>list_datasources</code>、<code>list_schema</code>、<code>explain_query</code>、<code>query</code>（只读）、<code>execute_write</code>（受控写 / 审批）、<code>request_approval</code>、<code>get_approval_result</code></td></tr>
               <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
               <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>（<code>x86_64</code> / <code>amd64</code>）与 <code>linux/arm64</code>（<code>aarch64</code> / <code>arm64</code>）、glibc 2.28+、systemd</td><td>v0.4.0 起提供 linux/arm64 原生 glibc 包；不提供 musl / Alpine 或 CentOS 7 原生包。</td></tr>
-              <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；发布容器镜像仍为 amd64，不提供 arm64 镜像或 multi-arch manifest。</td></tr>
+              <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；GHCR 发布镜像提供 linux/amd64 与 linux/arm64 multi-arch manifest，拉取时自动匹配架构。</td></tr>
               <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
             </tbody>
           </table>
@@ -218,17 +218,14 @@
 
     <section id="quickstart" class="section">
       <div class="container">
-        <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker、镜像与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。以下命令在仓库根目录执行，细节以仓库 README 为准。</p></div>
+        <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker 与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。GHCR tag 会自动匹配 linux/amd64 或 linux/arm64；源码路径仍以仓库 README 为准。</p></div>
         <div class="quick-grid">
-          <article class="terminal-card"><div class="terminal-head"><span>Docker Compose</span><span>默认环境</span></div><pre><code><span class="comment"># 1. 复制配置样例</span>
-cp examples/docker/.env.example .env
+          <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker 自动选择当前平台镜像</span>
+docker pull ghcr.io/cuipengdba/agentsql:v0.4.0
 
-<span class="comment"># 2. 分别运行两次并填入 .env</span>
-openssl rand -base64 24
-openssl rand -base64 24
-
-<span class="comment"># 3. 构建并启动</span>
-docker compose up -d --build</code></pre><div class="terminal-foot">访问 <code>http://127.0.0.1:7780</code></div></article>
+<span class="comment"># 推荐使用仓库 quickstart 生成凭据并启动</span>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v0.4.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
           <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>合成数据</span></div><pre><code><span class="comment"># 复制演示环境样例并替换占位凭据</span>
 cp examples/docker/demo.env.example demo/demo.env
 
@@ -252,7 +249,7 @@ bash ./demo/reset.sh
           <li><strong>JOIN 授权</strong><span>JOIN / 自连接仅做表级授权，不推断投影列归属。</span></li>
           <li><strong>通配权限</strong><span><code>*</code> / <code>schema.*</code> 代表整表全列权限。</span></li>
           <li><strong>列名回溯</strong><span>脱敏按最终结果列名匹配，表达式 / 聚合 / CAST / UNION / 复杂 CTE / 视图重命名可能无法回溯源列。</span></li>
-          <li><strong>SQL / 事务边界</strong><span>MCP 多语句事务与跨请求会话能力随 v0.4.0 交付，但 B5 出厂默认关闭，需显式开启并完成数据源能力核验；默认（未开启 B5）时仍只允许单条顶层 SQL，不允许 stacked SQL（堆叠语句）或跨请求事务。</span></li>
+          <li><strong>SQL / 事务边界</strong><span>PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。</span></li>
           <li><strong>审批边界</strong><span>审批通过只是一条人工决策记录，不会自动执行原 SQL，也不是后续执行的豁免票据；获准后仍需由库外流程重新发起受控请求。</span></li>
           <li><strong>演示环境</strong><span>公网 Demo 仅只读合成数据，不接真实库。</span></li>
           <li><strong>规划能力</strong><span>HA / 集中管控 / 企业身份在规划方向。</span></li>

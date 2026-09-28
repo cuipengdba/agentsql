@@ -48,13 +48,19 @@ sudo ./install.sh install
 
 ### 2. Docker 一行启动
 
-脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag，生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
+脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag；该 tag 是 `linux/amd64` + `linux/arm64` 多架构镜像，Docker 会自动匹配运行架构。脚本生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。也可先用一条命令拉取，Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+
+```bash
+docker pull ghcr.io/cuipengdba/agentsql:v0.4.0
+```
+
+等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
@@ -229,8 +235,8 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 - `block` 不输出原值字符、长度或等值关系，但仍保留结果集行列形状、行数、列名、是否有结果，并因空值原样返回而暴露该格为空/NULL；它不是匿名化。`block` 在数据库执行后处理，不减少数据库读取，也不阻止数据库侧使用原值做 WHERE/JOIN/GROUP BY，只阻止结果单元对外返回。其固定 `***` 是不透明字符串，不保证数值、日期或 JSON 的 schema 兼容。
 - 多表 JOIN 与自连接的授权只做表级，列级白名单不随投影列归属收紧；脱敏层则可对已用表名或别名限定的 JOIN 投影列精确归属，未限定的裸列按 fail-closed 兜底处理。
 - `AllowedTables` 中的 `*` 或 `schema.*` 表示管理员显式授予匹配表的全部列；此时精确列白名单不再收紧。单表使用精确列白名单时，应显式列出投影列。
-- MCP 多语句事务与跨请求会话能力随 v0.4.0 交付，但 B5 出厂默认关闭；启用前需显式配置并完成数据源能力核验。
-- 默认（未开启 B5）时，每个 MCP 请求独立处理，只允许单条顶层 SQL，不允许 stacked SQL（堆叠语句）或跨请求事务。启用后，每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
+- PostgreSQL 的 B2 列级授权出厂默认开启；普通 schema-qualified 基表使用免扩展的 `CATALOG_CLOSED_V1`，原生 binder 仅用于可选增强。MySQL 不进入 B2 PostgreSQL 路径。
+- B5 跨请求逻辑会话与 PostgreSQL 计划事务出厂默认开启；MySQL 跨请求事务不支持，配置 `mcp.transactions.mysql: true` 会拒绝启动。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
 
 ## 本地测试模式
 

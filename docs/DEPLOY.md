@@ -288,7 +288,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 官方原生包在对应架构的 Rocky Linux 8（glibc 2.28）工具链中构建。`linux/amd64` 对应 `uname -m` 的 `x86_64` / `amd64`；v0.4.0 起提供 `linux/arm64` 原生 glibc 包，对应 `aarch64` / `arm64`。amd64 包适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本，并已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；CentOS 7（glibc 2.17）明确不支持。
 
-预编译二进制不支持 musl（Alpine）或 amd64 / arm64 之外的架构。这些环境请使用基于 Debian bookworm、内含 glibc 的 amd64 容器镜像，或在目标机运行 `make build` 本机编译。可用 `make release-linux-amd64 VERSION=v0.4.0` 或 `make release-linux-arm64 VERSION=v0.4.0` 在同架构容器内构建、测试并打包；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。正式发布时 `ROCKY_IMAGE` 必须固定为审核过的 `@sha256` digest。
+预编译二进制不支持 musl（Alpine）或 amd64 / arm64 之外的架构。这些环境请使用基于 Debian bookworm、内含 glibc 的 amd64 / arm64 多架构容器镜像，或在目标机运行 `make build` 本机编译。可用 `make release-linux-amd64 VERSION=v0.4.0` 或 `make release-linux-arm64 VERSION=v0.4.0` 在同架构容器内构建、测试并打包；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。正式发布时 `ROCKY_IMAGE` 必须固定为审核过的 `@sha256` digest。
 
 ```bash
 make build VERSION=v0.4.0
@@ -848,13 +848,15 @@ COMMIT;
 ```bash
 make release-linux-amd64 VERSION=v0.4.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
 make release-linux-arm64 VERSION=v0.4.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
-sh scripts/push-release-image.sh v0.4.0
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.4.0
+# 负责人取得 write:packages 后才执行：
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.4.0 -Push
 ```
 
-发布镜像脚本要求操作者先执行 `docker login ghcr.io`，默认只推精确版本 tag；只有显式加 `--latest` 才会移动 latest。之后必须按顺序完成：
+多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.4.0-oci.tar`，不登录、不推送。`-Push` 分支才会推送精确版本 tag 与 `latest`，随后请求把 GHCR package 设为 public；推送前负责人必须在其设备执行 `gh auth refresh -h github.com -s write:packages`。之后必须按顺序完成：
 
-1. 在 GHCR 将 `ghcr.io/cuipengdba/agentsql` package 设为 public。
-2. 在没有 GHCR 登录状态的干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.4.0`，核对架构为 amd64，并以回环端口启动、等待 health 为 healthy。
+1. 核对 GHCR 中 `ghcr.io/cuipengdba/agentsql:v0.4.0` 与 `latest` 均指向包含 `linux/amd64`、`linux/arm64` 的 manifest list，且 package 为 public。
+2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.4.0`；Docker 会自动匹配架构。两边均以回环端口启动，验证 `/healthz` 返回 `v0.4.0` 且 `/readyz` 就绪。
 3. 把 `dist/agentsql-v0.4.0-linux-amd64.tar.gz`、`dist/agentsql-v0.4.0-linux-arm64.tar.gz`、各自同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。v0.4.0 起提供 linux/arm64 原生 glibc 包；正式封板前版本号仍按发布流程统一确定。
 4. 再次下载 Release 资产，校验外层 SHA-256、包内 `SHA256SUMS` 和两个二进制版本，全部通过后发布 Release。
 
@@ -864,8 +866,8 @@ sh scripts/push-release-image.sh v0.4.0
 | --- | --- | --- |
 | x86_64 + glibc 2.28+ + systemd PID 1 | 支持 | 支持 |
 | x86_64 + glibc 2.28+，无 systemd PID 1 | 仅 `--no-start` 预安装 | 支持 |
-| aarch64 / arm64 + glibc 2.28+ + systemd PID 1 | v0.4.0 起支持 | 不支持（发布镜像仍为 amd64） |
-| aarch64 / arm64 + glibc 2.28+，无 systemd PID 1 | v0.4.0 起仅 `--no-start` 预安装 | 不支持（发布镜像仍为 amd64） |
+| aarch64 / arm64 + glibc 2.28+ + systemd PID 1 | v0.4.0 起支持 | 支持，GHCR 自动选择 arm64 |
+| aarch64 / arm64 + glibc 2.28+，无 systemd PID 1 | v0.4.0 起仅 `--no-start` 预安装 | 支持，GHCR 自动选择 arm64 |
 | CentOS 7 / glibc 2.17 | 不支持 | 使用 Debian/glibc 镜像 |
 | Alpine / musl | 不支持 | 使用 Debian/glibc 镜像 |
 | amd64 / arm64 之外的架构 | 无原生包 | 本快速脚本不支持 |
@@ -885,9 +887,9 @@ sh scripts/push-release-image.sh v0.4.0
 
 只有本地开发或测试需要兼容仓库历史公开测试凭据时，才可设置 `AGENTSQL_INSECURE=1`。它只放行“长度正确的公开测试 SECRET”和“非空弱管理员口令”；SECRET 缺失或不是 32 字节、管理员口令为空仍会拒绝启动。该开关不会、也不得关闭认证、安全规则或 fail-closed 行为，生产环境禁止设置。
 
-## B2 protocol 3 激活（默认关闭）
+## B2 PostgreSQL 列级授权（默认开启）
 
-B2 列级 SELECT 的出厂默认仍为 `enabled: false`。只有显式配置以下开关时，启动过程才会尝试激活；这不是发布 GA 开关：
+B2 列级 SELECT 在 PostgreSQL 上出厂默认 `enabled: true`；普通 schema-qualified 基表默认使用免安装扩展的 `CATALOG_CLOSED_V1`，原生 `agentsql_binder` 仅用于 view / matview / 复杂 lineage 的可选增强。MySQL 不进入 B2 PostgreSQL 路径。以下是等价的显式配置；只有需要回退到既有表级保护时才显式设为 `false`：
 
 ```yaml
 column_authorization:
@@ -897,7 +899,22 @@ column_authorization:
   heartbeat_interval_ms: 5000
 ```
 
-激活前会逐项验证 PG14–18 `agentsql_binder` ABI/capability、catalog binding、无 staging/`*`、enrollment healthy、control fence 和 request reservation；runtime artifact digest 绑定当前可执行文件及所有 PG capability digest，并在一个 control transaction 内建立 protocol-3 fence/runtime lease。任一门失败时不会建立 protocol 3，现有表级 pipeline 继续服务；`/healthz` 与 `/readyz` 的 `b2.state/reason` 以及管理审计记录明确给出 `degraded` 或 `unsupported` 原因。已经激活后若心跳或 lease 失效，列级入口 fail-closed 且 readiness 变为不可用，不会静默降为表级授权。
+启动时会核对 PG14–18 catalog binding、enrollment、control fence 和 request reservation；使用原生 binder 时还会验证 `agentsql_binder` ABI/capability 与签名 digest。`/healthz` 与 `/readyz` 的 `b2.state/reason` 以及管理审计记录明确给出状态。默认 enforcement 激活失败或运行中 lease 失效时，PostgreSQL B2 列级入口 fail-closed 且 readiness 变为不可用，不会静默降为表级授权；只有显式 `enabled: false` 或 dry-run 才走既有表级路径。
+
+## B5 PostgreSQL 会话与计划事务（默认开启）
+
+B5 跨请求逻辑会话与 PostgreSQL 计划事务出厂默认开启；MySQL 跨请求事务固定不支持，配置 `mcp.transactions.mysql: true` 会拒绝启动。等价的显式配置如下；若要回退，必须同时显式关闭依赖它的 PostgreSQL 事务开关：
+
+```yaml
+mcp:
+  sessions:
+    enabled: true
+  transactions:
+    postgres: true
+    mysql: false
+```
+
+每个 operation 仍只允许一条顶层 SQL，并受预检计划、会话 owner、连接终态和审计屏障约束。`/healthz` 与 `/readyz` 会报告 B5 状态；依赖不可用时 readiness fail-closed，不会把 MySQL 或不受支持的事务形态静默降级执行。
 
 ## 常见问题
 
@@ -907,7 +924,7 @@ column_authorization:
 
 ### 为什么不能设置 `CGO_ENABLED=0` 或使用 Alpine
 
-项目的 `pg_query_go` 解析器依赖 cgo。纯 Go 构建会缺少必要符号；Alpine 使用 musl，也不符合当前 glibc 构建与运行约束。官方容器镜像基于 Debian bookworm 且仍为 amd64；官方 linux/amd64 与 v0.4.0 起提供的 linux/arm64 原生 glibc 包分别使用对应架构的 Rocky Linux 8（glibc 2.28）工具链构建。
+项目的 `pg_query_go` 解析器依赖 cgo。纯 Go 构建会缺少必要符号；Alpine 使用 musl，也不符合当前 glibc 构建与运行约束。官方容器镜像基于 Debian bookworm，并以 multi-arch manifest 同时提供 linux/amd64 与 linux/arm64；官方原生 glibc 包分别使用对应架构的 Rocky Linux 8（glibc 2.28）工具链构建。
 
 ### 7780 端口被占用
 

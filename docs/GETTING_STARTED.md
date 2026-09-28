@@ -22,7 +22,7 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 
 - 不替代数据库账号、网络隔离、TLS 终止、备份、监控与变更管理。
 - 不保护绕过 AgentSQL 直连数据库的请求。
-- MCP 多语句事务与跨请求会话能力随 v0.4.0 交付，但 B5 出厂默认关闭，需显式开启并完成数据源能力核验；默认（未开启 B5）时仍只允许单条顶层 SQL，不允许 stacked SQL（堆叠语句）或跨请求事务。
+- PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
 - 审批通过不会自动执行 SQL；审计不是法规级 WORM。
 - 当前不支持完整 DLP、企业身份、高可用或 Kubernetes 编排。
 
@@ -31,7 +31,7 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 | 范围 | 当前支持 | 说明 |
 | --- | --- | --- |
 | 一键安装宿主 | `linux/amd64`、`linux/arm64`；glibc 2.28+、systemd | v0.4.0 起提供 linux/arm64 原生 glibc 包；`x86_64` / `amd64` 对应 amd64，`aarch64` / `arm64` 对应 arm64 |
-| 其他宿主 | Docker / Docker Compose | musl / Alpine、CentOS 7 与上述两种架构之外的平台不提供原生包；发布容器镜像仍为 amd64 |
+| 其他宿主 | Docker / Docker Compose | GHCR tag 提供 `linux/amd64` + `linux/arm64` multi-arch manifest 并自动匹配；musl / Alpine、CentOS 7 与上述两种架构之外的平台不提供原生包 |
 | 业务数据库 | MySQL 8；PostgreSQL 14–18 | 为 AgentSQL 创建独立、最小权限运行账号 |
 | 控制面存储 | SQLite；PostgreSQL 15+ | SQLite 为默认；PostgreSQL 可分离 metadata 与 audit |
 | 浏览器控制台 | `http://127.0.0.1:7780` | 默认绑定回环地址 |
@@ -80,7 +80,7 @@ bash ./demo/reset.sh        # Windows PowerShell 用：.\demo\reset.ps1
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-除一键安装外，也可按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建，或拉取 `ghcr.io/cuipengdba/agentsql:v0.4.0` 镜像；发布资产以 GitHub Releases 页面为准。
+除一键安装外，也可按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建，或运行 `docker pull ghcr.io/cuipengdba/agentsql:v0.4.0` 拉取会自动匹配 `linux/amd64` / `linux/arm64` 的多架构镜像；发布资产以 GitHub Releases 页面为准。
 
 ### 2. 登录控制台
 

@@ -61,7 +61,7 @@ The release-owner test is default-skipped and cannot be shortened:
 ```powershell
 $env:AGENTSQL_B5_SOAK_LONG = "1"
 $env:AGENTSQL_B5_SOAK_DSN = "postgres://user:password@host:5432/database?sslmode=require"
-go test ./internal/b5soak -run '^TestLongS10Soak$' -count=1 -timeout 27h
+go test -tags agentsql_b5_soak ./internal/b5soak -run '^TestLongS10Soak$' -count=1 -timeout 27h
 ```
 
 The equivalent standalone-driver invocation is:
