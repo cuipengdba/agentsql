@@ -639,7 +639,7 @@ func verifyDMLAttestations(capability PostgresBinderCapability, values []b5dml.B
 }
 
 // PostgresDMLBinderAttestations returns the immutable PG14-18 artifact hashes
-// accepted by this feature-off build. Callers put this exact set into the S5a
+// accepted by this build. Callers put this exact set into the S5a
 // proof; runtime capability bytes must also match the current-major entry.
 func PostgresDMLBinderAttestations() []b5dml.BinderAttestation {
 	values := make([]b5dml.BinderAttestation, 0, 5)

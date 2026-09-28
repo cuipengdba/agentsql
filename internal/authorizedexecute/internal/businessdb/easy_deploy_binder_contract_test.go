@@ -237,6 +237,29 @@ func TestNativeCAdapterProducesUnifiedFactsAndSeparateEvidence(t *testing.T) {
 	}
 }
 
+func TestCanonicalizeClosedFactsDatasourceIsOptionalButFingerprintIsRequired(t *testing.T) {
+	t.Parallel()
+	identity := SemanticIdentity{DatabaseOID: 9, SessionUser: "agent", CurrentUser: "agent", RoleOID: 10,
+		FixedSearchPath: "pg_catalog", SearchPathDigest: "path"}
+	frame := PostgresCatalogFrame{DatabaseOID: 9, Fingerprint: "catalog-v1", Relations: []PostgresRelationIdentity{{
+		DatabaseOID: 9, OID: 42, NamespaceOID: 11, Schema: "public", Name: "items", Kind: 'r', Persistence: 'p',
+	}}}
+
+	facts, err := canonicalizeClosedFacts(SemanticFacts{StatementClass: BinderStatementSelect}, identity, frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.Identity.DatasourceIdentity != "" || facts.Identity.CatalogDigest != frame.Fingerprint ||
+		facts.Identity.PlanGeneration != 1 || len(facts.Relations) != 1 ||
+		facts.Relations[0].CatalogFingerprint != frame.Fingerprint {
+		t.Fatalf("canonical facts=%#v", facts)
+	}
+
+	frame.Fingerprint = ""
+	_, err = canonicalizeClosedFacts(SemanticFacts{StatementClass: BinderStatementSelect}, identity, frame)
+	requireAuthorizationReason(t, err, "AUTH_CATALOG_INCOMPLETE")
+}
+
 func semanticSelectFixture() SemanticFacts {
 	identity := SemanticIdentity{DatasourceIdentity: "endpoint", DatabaseOID: 9, SessionUser: "agent", CurrentUser: "agent", RoleOID: 10, FixedSearchPath: "pg_catalog", SearchPathDigest: "path", CatalogDigest: "catalog-v1"}
 	return SemanticFacts{Schema: SemanticFactsSchemaID, SchemaVersion: SemanticFactsVersion, StatementClass: BinderStatementSelect, Identity: identity,

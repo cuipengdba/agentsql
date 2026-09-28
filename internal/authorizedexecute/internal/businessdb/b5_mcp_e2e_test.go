@@ -112,7 +112,10 @@ func runB5MCPMatrix(t *testing.T, major int) {
 	require.NoError(t, err)
 	coordinator, err := b5coordinator.New(b5coordinator.Config{Transactions: runtime.Store.B5Transactions(), Sessions: b5coordinator.DirectorySessionGate{Directory: directory}, Engine: pgRuntime.Engine, Audit: &b5coordinator.MemoryAuditor{}})
 	require.NoError(t, err)
-	service := &mcpserver.B5CoordinatorService{Directory: directory, Coordinator: coordinator, Analyzer: pgRuntime.Analyzer, InstanceID: "s8-instance", StickyRoute: "s8-instance", FinalFence: func(context.Context, b5coordinator.Result) error { return nil }}
+	service := &mcpserver.B5CoordinatorService{Directory: directory, Coordinator: coordinator, Analyzer: pgRuntime.Analyzer, InstanceID: "s8-instance", StickyRoute: "s8-instance", FinalFence: func(context.Context, b5coordinator.Result) error { return nil },
+		ResolveDatasource: func(context.Context, string) (mcpserver.B5DatasourceAuthority, error) {
+			return mcpserver.B5DatasourceAuthority{Dialect: "postgres", Mode: "NATIVE_C_V1", ServerMajor: major, KeyRevision: 1, DatasourceRevision: 1, PolicyRevision: 1}, nil
+		}}
 	options := mcpserver.B5Options{B5Sessions: true, B5TxPostgres: true, Service: service}
 
 	handler, err := mcpserver.NewHTTPHandler(runtime, cfg, zerolog.Nop(), mcpserver.WithB5Sessions(options))

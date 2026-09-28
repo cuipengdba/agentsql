@@ -149,6 +149,17 @@ func TestStoreB5AdminReadsPersistedSessionsTransactionsAndDigestChain(t *testing
 	require.NotContains(t, encoded, "backend_secret_digest")
 }
 
+func TestStoreB5AdminUsesProductionReadinessProvider(t *testing.T) {
+	fixture := newAdminFixture(t)
+	backend, err := NewStoreB5AdminWithStatus(fixture.store, func(context.Context) (B5StatusView, error) {
+		return B5StatusView{Enabled: true, State: "READY", Reason: "B5_READY", Ready: true}, nil
+	})
+	require.NoError(t, err)
+	status, err := backend.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, B5StatusView{Enabled: true, State: "READY", Reason: "B5_READY", Ready: true}, status)
+}
+
 func newB5AdminFixture(t *testing.T, backend B5AdminBackend) *adminFixture {
 	t.Helper()
 	fixture := newAdminFixture(t)

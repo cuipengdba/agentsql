@@ -16,7 +16,7 @@ import (
 // B5AdminBackend is the narrow S9 boundary. Read methods cannot obtain a raw
 // business executor. Mutation methods are intentionally separate and are
 // called only after the HTTP layer has durably recorded an administrator
-// intent. The production zero value keeps b5_sessions off.
+// intent. A nil backend keeps the explicit rollback/feature-off surface.
 type B5AdminBackend interface {
 	Status(context.Context) (B5StatusView, error)
 	ListSessions(context.Context, B5ListFilter) (B5SessionPage, error)

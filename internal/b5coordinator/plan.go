@@ -60,7 +60,11 @@ func ErrorCode(err error) b5.ErrorCode {
 			b5.ErrorAuthRelationKindUnsupported,
 			b5.ErrorAuthInternalObjectDenied,
 			b5.ErrorAuthWholeRowUnsupported,
-			b5.ErrorAuthCatalogRace:
+			b5.ErrorAuthCatalogRace,
+			b5.ErrorPostgresVersionUnsupported,
+			b5.ErrorPostgresCapabilityUnavailable,
+			b5.ErrorTxPlanUnproven,
+			b5.ErrorDialectTransactionUnsupported:
 			return code
 		}
 	}
@@ -73,6 +77,16 @@ func ErrorCode(err error) b5.ErrorCode {
 func Preflight(ctx context.Context, request PlanRequest, analyzer Analyzer) (Plan, error) {
 	if ctx == nil || analyzer == nil {
 		return Plan{}, fail(b5.ErrorTxPlanRequired, ErrInvalidPlan)
+	}
+	if resolver, ok := analyzer.(PlanAnalyzerResolver); ok {
+		resolved, err := resolver.AnalyzerFor(ctx, request)
+		if err != nil {
+			return Plan{}, err
+		}
+		if resolved == nil {
+			return Plan{}, fail(b5.ErrorAuthDMLBinderRequired, ErrCapabilityUnknown)
+		}
+		analyzer = resolved
 	}
 	limits := normalizeLimits(request.Limits)
 	if request.Dialect != "postgres" {

@@ -101,6 +101,7 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 				Runtime: runtime,
 				Logger:  logger,
 				Version: version.Version,
+				B5:      productionB5Options(runtime),
 			})
 			if errors.Is(runError, context.Canceled) {
 				runError = nil
@@ -183,6 +184,17 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 				return errors.Join(err, runtime.Close())
 			}
 			var httpOptions []mcpserver.HTTPOption
+			if runtime.B5 != nil {
+				b5Admin, b5AdminErr := adminapi.NewStoreB5AdminWithStatus(runtime.Store, func(statusContext context.Context) (adminapi.B5StatusView, error) {
+					status, statusErr := runtime.B5.Status(statusContext)
+					return adminapi.B5StatusView{Enabled: status.Enabled, State: status.State, Reason: status.Reason, Ready: status.Ready}, statusErr
+				})
+				if b5AdminErr != nil {
+					return errors.Join(b5AdminErr, runtime.Close())
+				}
+				adminDeps.B5Admin = b5Admin
+				httpOptions = append(httpOptions, mcpserver.WithB5Sessions(productionB5Options(runtime)))
+			}
 			if loaded.Server.ConsoleEnabled {
 				adminHandler, adminError := adminapi.NewHandler(adminDeps, logger)
 				if adminError != nil {
@@ -237,6 +249,24 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 	}
 	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")
 	return command
+}
+
+func productionB5Options(runtime *bootstrap.Runtime) mcpserver.B5Options {
+	if runtime == nil || runtime.B5 == nil {
+		return mcpserver.B5Options{}
+	}
+	b5Runtime := runtime.B5
+	service := &mcpserver.B5CoordinatorService{
+		Directory: b5Runtime.Directory, Coordinator: b5Runtime.Coordinator, AnalyzerResolver: b5Runtime.Analyzer,
+		InstanceID: b5Runtime.InstanceID, StickyRoute: b5Runtime.StickyRoute, Limits: b5Runtime.Limits,
+		Admission: b5Runtime.Admit, FinalFence: b5Runtime.FinalFence, CheckDialect: b5Runtime.CheckDatasourceDialect,
+		ResolveDatasource: func(ctx context.Context, datasourceID string) (mcpserver.B5DatasourceAuthority, error) {
+			value, err := b5Runtime.ResolveDatasource(ctx, datasourceID)
+			return mcpserver.B5DatasourceAuthority{Dialect: value.Dialect, Mode: value.Mode, ServerMajor: value.ServerMajor,
+				KeyRevision: value.KeyRevision, DatasourceRevision: value.DatasourceRevision, PolicyRevision: value.PolicyRevision}, err
+		},
+	}
+	return mcpserver.B5Options{B5Sessions: true, B5TxPostgres: b5Runtime.PostgresEnabled(), B5TxMySQL: false, Service: service}
 }
 
 func validateStartupSecurity(logger zerolog.Logger) (secret string, insecure bool, err error) {

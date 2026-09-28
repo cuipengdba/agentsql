@@ -21,11 +21,15 @@ func TestFeatureOffPackageHasOnlyReviewedBinderReferences(t *testing.T) {
 	allowedFiles := map[string]bool{
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "postgres_dml_binder.go")):         true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_coordinator.go")):              true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "b5_closed_coordinator.go")):       true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_binder_contract.go")): true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_catalog_kernel.go")):  true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_native_adapter.go")):  true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "internal", "businessdb", "easy_deploy_closed_dml.go")):      true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "authorizedexecute", "b5_transaction.go")):                                        true,
+		// Production composition may translate persisted grants and implement the
+		// coordinator Engine interface, but it must not expose b5dml through MCP.
+		filepath.Clean(filepath.Join(repoRoot, "internal", "bootstrap", "b5_runtime.go")): true,
 	}
 	coordinatorDir := filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator"))
 	var references []string

@@ -137,6 +137,9 @@ func TestB5ToolLayerRejectsClosedSurfaceBeforeCoordinator(t *testing.T) {
 		mysql := map[string]any{"session_id": "s", "owner_epoch": 1, "request_id": "r", "continuation_proof": strings.Repeat("a", 43), "body_digest": strings.Repeat("00", 32), "transaction_id": "tx", "datasource_id": "ds-allowed", "dialect": "mysql", "server_major": 8, "key_revision": 1, "datasource_revision": 1, "policy_revision": 1, "statements": []map[string]any{{"operation_id": "op", "sql": "UPDATE customers SET phone='x'", "reason": "mysql unsupported"}}}
 		body := callMCPBody(t, handler, fixture.handlers.apiKey, toolCall("begin_transaction", mysql))
 		require.Contains(t, body, string(b5.ErrorDialectTransactionUnsupported))
+		require.Contains(t, body, "MySQL")
+		require.Contains(t, body, "不支持")
+		require.Contains(t, body, "未取得可写连接")
 		require.NotContains(t, spy.calls, "begin", "MySQL unsupported path reached coordinator")
 	})
 }
@@ -173,6 +176,26 @@ func TestB5OptionsFailClosedAndStdioProtocolIsExact(t *testing.T) {
 	require.True(t, transport.SupportsProtocolVersion("2025-06-18"))
 	require.False(t, transport.SupportsProtocolVersion("2025-11-25"))
 	require.False(t, transport.SupportsProtocolVersion("2026-07-28"))
+}
+
+func TestB5ProductionFailureContractsAreChineseAndStable(t *testing.T) {
+	for _, code := range []b5.ErrorCode{
+		b5.ErrorDialectTransactionUnsupported,
+		b5.ErrorPostgresVersionUnsupported,
+		b5.ErrorPostgresCapabilityUnavailable,
+		b5.ErrorTxPlanUnproven,
+		b5.ErrorAuthImplicitObjectUnclosed,
+		b5.ErrorAuthCatalogRace,
+		b5.ErrorAuthDMLActionMissing,
+		b5.ErrorTxDMLShapeUnsupported,
+		b5.ErrorAuditEmergencyWALUnavailable,
+	} {
+		response := b5ErrorResponse(code, errors.New("unstable internal error"))
+		require.Equal(t, string(code), response.ErrorCode)
+		require.True(t, containsHan(response.Reason), code)
+		require.True(t, containsHan(response.Suggestion), code)
+		require.NotContains(t, response.Reason, "unstable internal error")
+	}
 }
 
 type disconnectService struct {

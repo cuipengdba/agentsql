@@ -363,6 +363,12 @@ func realClosedShadowBind(executor *PostgresExecutor) ShadowBindFunc {
 			return BoundProgram{}, err
 		}
 		program := prepared.Program()
+		if program.Facts.StatementClass == BinderStatementSelect {
+			if _, err = prepared.Execute(ctx, 10); err != nil {
+				_ = prepared.Close(context.Background())
+				return BoundProgram{}, err
+			}
+		}
 		if _, err = prepared.VerifyPost(ctx, &unlimitedPostgresBudget{}); err != nil {
 			_ = prepared.Close(context.Background())
 			return BoundProgram{}, err

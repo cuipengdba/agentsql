@@ -17,19 +17,45 @@ import (
 // B5CoordinatorService adapts the reviewed directory and planned coordinator
 // to MCP without exposing either a raw SQL executor or a database session.
 type B5CoordinatorService struct {
-	Directory   *b5session.Directory
-	Coordinator *b5coordinator.Coordinator
-	Analyzer    b5coordinator.Analyzer
-	InstanceID  string
-	StickyRoute string
-	FinalFence  func(context.Context, b5coordinator.Result) error
+	Directory         *b5session.Directory
+	Coordinator       *b5coordinator.Coordinator
+	Analyzer          b5coordinator.Analyzer
+	AnalyzerResolver  b5coordinator.PlanAnalyzerResolver
+	InstanceID        string
+	StickyRoute       string
+	FinalFence        func(context.Context, b5coordinator.Result) error
+	Admission         func() error
+	CheckDialect      func(context.Context, string) error
+	ResolveDatasource func(context.Context, string) (B5DatasourceAuthority, error)
+	Limits            b5coordinator.ResourceLimits
 
 	mu              sync.Mutex
 	activeBySession map[string]string
 }
 
+// CheckB5Datasource is the metadata-only dialect gate used before parsing a
+// plan. Production wires it to a repository lookup that never opens a
+// business connection.
+func (service *B5CoordinatorService) CheckB5Datasource(ctx context.Context, datasourceID string) error {
+	if err := service.ready(); err != nil {
+		return err
+	}
+	if service.CheckDialect == nil {
+		return nil
+	}
+	return service.CheckDialect(ctx, datasourceID)
+}
+
+// B5DatasourceAuthority contains only server-verified facts. The service
+// overwrites all matching client fields before coordinator preflight.
+type B5DatasourceAuthority struct {
+	Dialect, Mode                                   string
+	ServerMajor                                     int
+	KeyRevision, DatasourceRevision, PolicyRevision uint64
+}
+
 func (service *B5CoordinatorService) ready() error {
-	if service == nil || service.Directory == nil || service.Coordinator == nil || service.Analyzer == nil || service.InstanceID == "" || service.StickyRoute == "" {
+	if service == nil || service.Directory == nil || service.Coordinator == nil || (service.Analyzer == nil && service.AnalyzerResolver == nil) || service.InstanceID == "" || service.StickyRoute == "" {
 		return errors.New("B5 MCP service is unavailable")
 	}
 	service.mu.Lock()
@@ -43,6 +69,11 @@ func (service *B5CoordinatorService) ready() error {
 func (service *B5CoordinatorService) OpenSession(ctx context.Context, agentID string, input B5OpenSessionInput) (B5SessionView, error) {
 	if err := service.ready(); err != nil {
 		return B5SessionView{}, err
+	}
+	if service.Admission != nil {
+		if err := service.Admission(); err != nil {
+			return B5SessionView{}, err
+		}
 	}
 	// Until an external identity mapping is signed off, principal and tenant
 	// are bound to the authenticated Agent. Caller-provided aliases fail closed.
@@ -90,10 +121,33 @@ func (service *B5CoordinatorService) Begin(ctx context.Context, agentID string, 
 	if err := service.ready(); err != nil {
 		return b5coordinator.Result{}, err
 	}
-	continuation, err := service.authorization(agentID, "begin_transaction", input.B5Continuation, input)
+	if service.CheckDialect != nil {
+		if err := service.CheckDialect(ctx, input.DatasourceID); err != nil {
+			return b5coordinator.Result{}, err
+		}
+	}
+	if service.Admission != nil {
+		if err := service.Admission(); err != nil {
+			return b5coordinator.Result{}, err
+		}
+	}
+	if service.ResolveDatasource == nil {
+		return b5coordinator.Result{}, &b5coordinator.Failure{Code: b5.ErrorTxPlanUnproven, Cause: errors.New("服务端数据源能力核验不可用，未开始事务")}
+	}
+	signedInput := input
+	// The continuation authenticates the exact bytes supplied by the caller.
+	// Authenticate it before any live capability probe can acquire a business
+	// connection. Server authority is then applied and never guessed by a client.
+	continuation, err := service.authorization(agentID, "begin_transaction", signedInput.B5Continuation, signedInput)
 	if err != nil {
 		return b5coordinator.Result{}, err
 	}
+	authority, err := service.ResolveDatasource(ctx, input.DatasourceID)
+	if err != nil {
+		return b5coordinator.Result{}, err
+	}
+	input.Dialect, input.ServerMajor = authority.Dialect, authority.ServerMajor
+	input.KeyRevision, input.DatasourceRevision, input.PolicyRevision = authority.KeyRevision, authority.DatasourceRevision, authority.PolicyRevision
 	statements := make([]b5coordinator.StatementRequest, len(input.Statements))
 	for index, statement := range input.Statements {
 		statements[index] = b5coordinator.StatementRequest{OperationID: statement.OperationID, SQL: statement.SQL, Reason: statement.Reason}
@@ -102,15 +156,33 @@ func (service *B5CoordinatorService) Begin(ctx context.Context, agentID string, 
 		TenantID: agentID, PrincipalID: agentID, AgentID: agentID, DatasourceID: input.DatasourceID,
 		KeyRevision: input.KeyRevision, DatasourceRevision: input.DatasourceRevision, PolicyRevision: input.PolicyRevision,
 		Dialect: input.Dialect, ServerMajor: input.ServerMajor, Isolation: "read_committed", BinderABI: b5coordinator.RequiredBinderABI,
-		ClosurePolicy: "agentsql.b5.closure.v1", Statements: statements, Limits: b5coordinator.DefaultResourceLimits(),
+		ClosurePolicy: authority.Mode, Statements: statements, Limits: service.resourceLimits(),
 	}}
-	result, err := service.Coordinator.Begin(ctx, request, service.Analyzer)
+	analyzer := service.Analyzer
+	if service.AnalyzerResolver != nil {
+		analyzer, err = service.AnalyzerResolver.AnalyzerFor(ctx, request.Plan)
+		if err != nil {
+			return b5coordinator.Result{}, err
+		}
+		if analyzer == nil {
+			return b5coordinator.Result{}, &b5coordinator.Failure{Code: b5.ErrorTxPlanUnproven, Cause: errors.New("服务端无法为数据源建立计划分析器，未开始事务")}
+		}
+	}
+	result, err := service.Coordinator.Begin(ctx, request, analyzer)
 	if err == nil {
 		service.mu.Lock()
 		service.activeBySession[input.SessionID] = input.TransactionID
 		service.mu.Unlock()
 	}
 	return result, err
+}
+
+func (service *B5CoordinatorService) resourceLimits() b5coordinator.ResourceLimits {
+	limits := service.Limits
+	if limits.MaxStatements == 0 {
+		limits = b5coordinator.DefaultResourceLimits()
+	}
+	return limits
 }
 
 func (service *B5CoordinatorService) Execute(ctx context.Context, agentID string, input B5ExecuteInput) (b5coordinator.Result, error) {

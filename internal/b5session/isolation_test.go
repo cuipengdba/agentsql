@@ -21,6 +21,7 @@ func TestFeatureOffPackageHasOnlyReviewedReferences(t *testing.T) {
 	reviewed := map[string]bool{
 		filepath.Clean(filepath.Join(repoRoot, "internal", "b5coordinator", "session.go")): true,
 		filepath.Clean(filepath.Join(repoRoot, "internal", "mcpserver", "b5_service.go")):  true,
+		filepath.Clean(filepath.Join(repoRoot, "internal", "bootstrap", "b5_runtime.go")):  true,
 	}
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {

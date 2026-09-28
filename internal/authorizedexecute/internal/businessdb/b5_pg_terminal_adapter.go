@@ -14,14 +14,14 @@ import (
 
 var ErrB5PGXTransactionNotActive = errors.New("businessdb: B5 pgx physical connection is not in a transaction")
 
-// B5PGXPhysicalHooks bridges the flag-off typed adapter to a B5-owned physical
+// B5PGXPhysicalHooks bridges the typed adapter to a B5-owned physical
 // pgconn pool. ReturnToPool must perform its pool-transfer generation CAS and
 // assumes ownership of pgConn only when it returns nil.
 type B5PGXPhysicalHooks struct {
 	ReturnToPool             func(context.Context, *pgconn.PgConn, b5terminal.PGBackendIdentity) error
 	ConfirmBackendAbsence    func(context.Context, b5terminal.PGBackendIdentity) (bool, error)
 	OnLocalConnectionDiscard func(b5terminal.PGBackendIdentity, error)
-	// WrapWire exists only for the feature-off fault matrix. It is applied
+	// WrapWire exists only for the fault matrix. It is applied
 	// above pgx's TLS connection, so counts remain PostgreSQL frame bytes.
 	WrapWire func(net.Conn) net.Conn
 }

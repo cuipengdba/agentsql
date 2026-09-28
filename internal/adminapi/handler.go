@@ -39,9 +39,9 @@ type Deps struct {
 	DatasourcePinger DatasourcePinger
 	Discovery        DiscoveryRunner
 	ChainManifests   ChainManifestProvider
-	// B5Admin is deliberately nil in the production feature-off assembly. S9
-	// routes remain registered so clients receive stable empty capability
-	// responses, while an activated assembly must explicitly provide the
+	// B5Admin is nil only for an explicit feature-off assembly. S9 routes remain
+	// registered so clients receive stable empty capability responses, while an
+	// activated assembly must explicitly provide the
 	// read/operation boundary.
 	B5Admin B5AdminBackend
 	// EventStreamHeartbeatInterval is injectable for deterministic stream tests.

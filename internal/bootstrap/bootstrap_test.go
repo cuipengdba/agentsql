@@ -15,6 +15,8 @@ import (
 	"time"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/b5"
+	"github.com/cuipengdba/agentsql/internal/b5coordinator"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -55,6 +57,7 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NotNil(t, runtime.business)
 	require.NotNil(t, runtime.Store)
 	require.NotNil(t, runtime.Store.Rules())
+	require.NotNil(t, runtime.B5, "factory-default configuration must assemble B5")
 	var overrideReader pipeline.RuleOverrideReader = runtime.Store.Rules()
 	require.NotNil(t, overrideReader)
 
@@ -118,6 +121,67 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 	require.NoError(t, runtime.Close())
+}
+
+func TestB5ProductionDefaultExplicitOffAndMySQLNoBusinessConnection(t *testing.T) {
+	defaultRuntime, err := Assemble(context.Background(), bootstrapTestConfig(filepath.Join(t.TempDir(), "default.db")), bootstrapTestSecret)
+	require.NoError(t, err)
+	require.NotNil(t, defaultRuntime.B5)
+	status, available, err := defaultRuntime.B5Status(context.Background())
+	require.NoError(t, err)
+	require.True(t, available)
+	require.True(t, status.Enabled)
+	if !status.Ready {
+		require.Equal(t, "B5_AUDIT_WAL_UNAVAILABLE", status.Reason, "a platform without durable directory sync must expose a fail-closed readiness reason")
+	}
+
+	_, err = defaultRuntime.Store.Datasources().Create(context.Background(), model.Datasource{
+		ID: "mysql-b5", Name: "MySQL", DBType: "mysql", Host: "127.0.0.1", Port: 3306,
+		Database: "app", Username: "agentsql", ConnLimit: 5, StmtTimeoutMS: 5_000, RowLimit: 100,
+	}, "password")
+	require.NoError(t, err)
+	before := defaultRuntime.business.SnapshotPools()
+	b5Before := defaultRuntime.B5.gateway.SnapshotPools()
+	_, err = defaultRuntime.B5.ResolveDatasource(context.Background(), "mysql-b5")
+	require.Error(t, err)
+	require.Equal(t, b5.ErrorDialectTransactionUnsupported, b5coordinator.ErrorCode(err))
+	require.Equal(t, before, defaultRuntime.business.SnapshotPools(), "MySQL rejection must happen before opening a business pool")
+	require.Equal(t, b5Before, defaultRuntime.B5.gateway.SnapshotPools(), "MySQL rejection must not touch the B5-owned pool")
+
+	_, err = defaultRuntime.Store.Datasources().Create(context.Background(), model.Datasource{
+		ID: "changed-pg-b5", Name: "Changed PostgreSQL", DBType: "postgres", Host: "127.0.0.1", Port: 1,
+		Database: "app", Username: "agentsql", ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100,
+	}, "password")
+	require.NoError(t, err)
+	changed, err := defaultRuntime.Store.Datasources().Get(context.Background(), "changed-pg-b5")
+	require.NoError(t, err)
+	currentRevision := uint64(changed.UpdatedAt.UnixNano())
+	if currentRevision == 0 {
+		currentRevision = 1
+	}
+	defaultRuntime.B5.router.mu.Lock()
+	defaultRuntime.B5.router.observedRevisions[changed.ID] = currentRevision + 1
+	defaultRuntime.B5.router.mu.Unlock()
+	b5Before = defaultRuntime.B5.gateway.SnapshotPools()
+	_, err = defaultRuntime.B5.router.resolve(context.Background(), changed.ID)
+	require.Error(t, err)
+	require.Equal(t, b5.ErrorTxPlanUnproven, b5coordinator.ErrorCode(err))
+	require.Equal(t, b5Before, defaultRuntime.B5.gateway.SnapshotPools(), "a changed datasource revision must fail before opening or reusing a pool")
+	require.NoError(t, defaultRuntime.Close())
+
+	offConfig := bootstrapTestConfig(filepath.Join(t.TempDir(), "off.db"))
+	offConfig.MCP = config.MCPConfig{
+		Sessions: config.MCPSessionsConfig{Enabled: false, IdleTTLMS: 600_000, AbsoluteTTLMS: 3_600_000},
+		Transactions: config.MCPTransactionsConfig{Postgres: false, MySQL: false, IdleTimeoutMS: 15_000,
+			WallTimeoutMS: 60_000, StatementTimeoutMS: 5_000, ShutdownDrainMS: 5_000},
+	}
+	offRuntime, err := Assemble(context.Background(), offConfig, bootstrapTestSecret)
+	require.NoError(t, err)
+	require.Nil(t, offRuntime.B5)
+	_, available, err = offRuntime.B5Status(context.Background())
+	require.NoError(t, err)
+	require.False(t, available)
+	require.NoError(t, offRuntime.Close())
 }
 
 func TestB2ProgrammaticZeroValueIsFeatureOffAndNoPostgresKeepsMySQLReady(t *testing.T) {

@@ -103,6 +103,13 @@ type Analyzer interface {
 	Analyze(context.Context, StatementRequest, int) (Analysis, error)
 }
 
+// PlanAnalyzerResolver selects an analyzer from server-owned datasource and
+// principal state. It is evaluated before any statement analysis and prevents
+// a multi-datasource production runtime from trusting client dialect metadata.
+type PlanAnalyzerResolver interface {
+	AnalyzerFor(context.Context, PlanRequest) (Analyzer, error)
+}
+
 type PlannedStatement struct {
 	Ordinal        int
 	OperationID    string

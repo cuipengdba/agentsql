@@ -18,8 +18,8 @@ var (
 	ErrB5InvalidTransition = errors.New("b5 store invalid state transition")
 )
 
-// Feature-off repository contracts are deliberately metadata-only. They are
-// exposed for later B5 slices without granting access to a business executor.
+// B5 repository contracts are deliberately metadata-only and never grant
+// access to a business executor.
 type B5SessionStore interface {
 	Create(context.Context, B5Session) (B5Session, error)
 	Get(context.Context, string) (B5Session, error)

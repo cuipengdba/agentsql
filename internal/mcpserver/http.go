@@ -186,9 +186,9 @@ func WithWebConsole(handler http.Handler) HTTPOption {
 	}
 }
 
-// WithB5Sessions explicitly installs the feature-off S8 surface. The caller
-// must still set B5Sessions and B5TxPostgres; the zero value exposes
-// no B5 tools and preserves the pre-S8 server byte-for-byte.
+// WithB5Sessions installs the production B5 surface selected by bootstrap.
+// The zero value remains feature-off so component tests and explicit rollback
+// configurations preserve the pre-B5 server surface.
 func WithB5Sessions(options B5Options) HTTPOption {
 	return func(configuration *httpHandlerOptions) {
 		configuration.b5 = options

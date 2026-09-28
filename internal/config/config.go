@@ -34,6 +34,9 @@ var (
 	ErrInvalidEventStreamMaxConnections = errors.New("server.event_stream_max_connections must be between 1 and 1000")
 	// ErrInvalidColumnAuthorizationInstanceID indicates an explicitly empty or corrupt persisted instance identity.
 	ErrInvalidColumnAuthorizationInstanceID = errors.New("column_authorization.instance_id must be non-empty when explicitly configured")
+	// ErrB5MySQLUnsupported prevents a configuration switch from advertising a
+	// transaction dialect whose ownership and binder contracts are not closed.
+	ErrB5MySQLUnsupported = errors.New("mcp.transactions.mysql 不受支持；请关闭该开关并使用 PostgreSQL")
 )
 
 // Config is the root AgentSQL configuration.
@@ -45,6 +48,68 @@ type Config struct {
 	Demo                DemoConfig                `yaml:"demo"`
 	Redaction           RedactionConfig           `yaml:"redaction"`
 	ColumnAuthorization ColumnAuthorizationConfig `yaml:"column_authorization"`
+	MCP                 MCPConfig                 `yaml:"mcp"`
+}
+
+// MCPConfig is the production configuration root for explicit logical
+// sessions and planned multi-request transactions.
+type MCPConfig struct {
+	Sessions     MCPSessionsConfig     `yaml:"sessions"`
+	Transactions MCPTransactionsConfig `yaml:"transactions"`
+
+	sessionsEnabledSet   bool
+	transactionsPGSet    bool
+	transactionsMySQLSet bool
+}
+
+type MCPSessionsConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	InstanceID    string `yaml:"instance_id"`
+	StickyRoute   string `yaml:"sticky_route"`
+	IdleTTLMS     int    `yaml:"idle_ttl_ms"`
+	AbsoluteTTLMS int    `yaml:"absolute_ttl_ms"`
+}
+
+type MCPTransactionsConfig struct {
+	Postgres           bool   `yaml:"postgres"`
+	MySQL              bool   `yaml:"mysql"`
+	IdleTimeoutMS      int    `yaml:"idle_timeout_ms"`
+	WallTimeoutMS      int    `yaml:"wall_timeout_ms"`
+	StatementTimeoutMS int    `yaml:"statement_timeout_ms"`
+	ShutdownDrainMS    int    `yaml:"shutdown_drain_ms"`
+	WALDirectory       string `yaml:"wal_directory"`
+}
+
+// EffectiveMCP returns the factory defaults for programmatically constructed
+// Config values as well as parsed YAML. Parsed explicit false values remain
+// authoritative because Parse fills the non-boolean defaults before decode.
+func (config Config) EffectiveMCP() MCPConfig {
+	value := config.MCP
+	if value.Sessions.IdleTTLMS == 0 && value.Sessions.AbsoluteTTLMS == 0 &&
+		value.Transactions.IdleTimeoutMS == 0 && value.Transactions.WallTimeoutMS == 0 &&
+		value.Transactions.StatementTimeoutMS == 0 && value.Transactions.ShutdownDrainMS == 0 {
+		value.Sessions.Enabled = true
+		value.Transactions.Postgres = true
+	}
+	if value.Sessions.IdleTTLMS == 0 {
+		value.Sessions.IdleTTLMS = 10 * 60 * 1000
+	}
+	if value.Sessions.AbsoluteTTLMS == 0 {
+		value.Sessions.AbsoluteTTLMS = 60 * 60 * 1000
+	}
+	if value.Transactions.IdleTimeoutMS == 0 {
+		value.Transactions.IdleTimeoutMS = 15 * 1000
+	}
+	if value.Transactions.WallTimeoutMS == 0 {
+		value.Transactions.WallTimeoutMS = 60 * 1000
+	}
+	if value.Transactions.StatementTimeoutMS == 0 {
+		value.Transactions.StatementTimeoutMS = 5 * 1000
+	}
+	if value.Transactions.ShutdownDrainMS == 0 {
+		value.Transactions.ShutdownDrainMS = 5 * 1000
+	}
+	return value
 }
 
 // ColumnAuthorizationConfig controls the PostgreSQL protocol-3 path. Enabled
@@ -92,6 +157,11 @@ type ThemeConfig struct {
 func Parse(contents []byte) (Config, error) {
 	var loaded Config
 	loaded.Store.AutoMigrate = true
+	loaded.MCP.Sessions = MCPSessionsConfig{Enabled: true, IdleTTLMS: 10 * 60 * 1000, AbsoluteTTLMS: 60 * 60 * 1000}
+	loaded.MCP.Transactions = MCPTransactionsConfig{
+		Postgres: true, MySQL: false, IdleTimeoutMS: 15 * 1000,
+		WallTimeoutMS: 60 * 1000, StatementTimeoutMS: 5 * 1000, ShutdownDrainMS: 5 * 1000,
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(contents))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&loaded); err != nil {
@@ -112,6 +182,16 @@ func Parse(contents []byte) (Config, error) {
 	loaded.ColumnAuthorization.instanceIDFileSet = columnFields["instance_id_file"]
 	if !loaded.ColumnAuthorization.enabledSet {
 		loaded.ColumnAuthorization.Enabled = true
+	}
+	sessionFields, transactionFields := configuredMCPFields(contents)
+	loaded.MCP.sessionsEnabledSet = sessionFields["enabled"]
+	loaded.MCP.transactionsPGSet = transactionFields["postgres"]
+	loaded.MCP.transactionsMySQLSet = transactionFields["mysql"]
+	// A single explicit session rollback switch disables the default dependent
+	// PostgreSQL transaction switch unless the operator explicitly contradicted
+	// it, in which case validation fails below.
+	if loaded.MCP.sessionsEnabledSet && !loaded.MCP.Sessions.Enabled && !loaded.MCP.transactionsPGSet {
+		loaded.MCP.Transactions.Postgres = false
 	}
 	if (loaded.ColumnAuthorization.Enabled || loaded.ColumnAuthorization.DryRun) &&
 		!loaded.ColumnAuthorization.instanceIDSet && strings.TrimSpace(loaded.ColumnAuthorization.InstanceID) == "" {
@@ -257,6 +337,27 @@ func configuredColumnAuthorizationFields(contents []byte) map[string]bool {
 	return configured
 }
 
+func configuredMCPFields(contents []byte) (map[string]bool, map[string]bool) {
+	var document struct {
+		MCP struct {
+			Sessions     map[string]yaml.Node `yaml:"sessions"`
+			Transactions map[string]yaml.Node `yaml:"transactions"`
+		} `yaml:"mcp"`
+	}
+	if err := yaml.Unmarshal(contents, &document); err != nil {
+		return map[string]bool{}, map[string]bool{}
+	}
+	sessions := make(map[string]bool, len(document.MCP.Sessions))
+	for field := range document.MCP.Sessions {
+		sessions[field] = true
+	}
+	transactions := make(map[string]bool, len(document.MCP.Transactions))
+	for field := range document.MCP.Transactions {
+		transactions[field] = true
+	}
+	return sessions, transactions
+}
+
 // Validate checks every T01 startup invariant and fails closed on invalid input.
 func (config Config) Validate() error {
 	if err := config.validateNonStore(); err != nil {
@@ -290,6 +391,28 @@ func (config Config) validateNonStore() error {
 	if (config.ColumnAuthorization.Enabled || config.ColumnAuthorization.DryRun) && config.ColumnAuthorization.LeaseMS > 0 &&
 		config.ColumnAuthorization.HeartbeatIntervalMS >= config.ColumnAuthorization.LeaseMS {
 		return fmt.Errorf("validate column_authorization: heartbeat interval must be less than lease")
+	}
+	mcp := config.EffectiveMCP()
+	if mcp.Transactions.MySQL {
+		return fmt.Errorf("validate mcp.transactions.mysql: %w", ErrB5MySQLUnsupported)
+	}
+	if !mcp.Sessions.Enabled && mcp.Transactions.Postgres {
+		return fmt.Errorf("validate mcp: transactions.postgres=true requires sessions.enabled=true")
+	}
+	if mcp.Sessions.IdleTTLMS <= 0 || mcp.Sessions.IdleTTLMS > 30*60*1000 ||
+		mcp.Sessions.AbsoluteTTLMS <= 0 || mcp.Sessions.AbsoluteTTLMS > 60*60*1000 ||
+		mcp.Sessions.IdleTTLMS > mcp.Sessions.AbsoluteTTLMS {
+		return fmt.Errorf("validate mcp.sessions: idle_ttl_ms must be positive and <= 30m; absolute_ttl_ms must be positive and <= 60m")
+	}
+	if len(strings.TrimSpace(mcp.Sessions.InstanceID)) > 128 || len(strings.TrimSpace(mcp.Sessions.StickyRoute)) > 256 {
+		return fmt.Errorf("validate mcp.sessions: instance_id or sticky_route is too long")
+	}
+	transactions := mcp.Transactions
+	if transactions.IdleTimeoutMS <= 0 || transactions.IdleTimeoutMS > 30*1000 ||
+		transactions.WallTimeoutMS <= 0 || transactions.WallTimeoutMS > 60*1000 ||
+		transactions.StatementTimeoutMS <= 0 || transactions.StatementTimeoutMS > 5*1000 ||
+		transactions.ShutdownDrainMS <= 0 || transactions.ShutdownDrainMS > 30*1000 {
+		return fmt.Errorf("validate mcp.transactions: timeout values must be positive and must not exceed the B5 hard limits")
 	}
 
 	listen := strings.TrimSpace(config.Server.HTTPListen)

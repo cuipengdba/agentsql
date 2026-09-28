@@ -278,3 +278,26 @@ func (manager *Manager) ChangeOwnership(ctx context.Context, owner uint64) error
 	manager.owner = owner
 	return manager.createCurrent(ctx)
 }
+
+// Close seals the active writer and every retired writer exactly once. It is
+// the final step after transaction drain and before metadata storage closes.
+func (manager *Manager) Close() error {
+	if manager == nil {
+		return nil
+	}
+	manager.mu.Lock()
+	writers := append([]*Writer(nil), manager.retired...)
+	if manager.current != nil {
+		writers = append(writers, manager.current)
+		manager.current = nil
+	}
+	manager.retired = nil
+	manager.mu.Unlock()
+	var err error
+	for _, writer := range writers {
+		if writer != nil {
+			err = errors.Join(err, writer.Seal())
+		}
+	}
+	return err
+}

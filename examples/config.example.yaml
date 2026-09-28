@@ -50,6 +50,22 @@ column_authorization:
   # instance_id: "gateway-replica-a"
   # instance_id_file: "./data/instance-id" # 与 instance_id 互斥；只读配置目录可使用此项
 
+# B5 MCP 跨请求逻辑会话与 PostgreSQL 计划事务默认开启。MySQL v0.4 固定不支持，
+# 配置为 true 会中文报错并拒绝启动；显式 enabled/postgres=false 可独立回退。
+mcp:
+  sessions:
+    enabled: true
+    idle_ttl_ms: 600000
+    absolute_ttl_ms: 3600000
+  transactions:
+    postgres: true
+    mysql: false
+    idle_timeout_ms: 15000
+    wall_timeout_ms: 60000
+    statement_timeout_ms: 5000
+    shutdown_drain_ms: 5000
+    # wal_directory: "./data/b5-wal"
+
 # 全局安全默认值，可被数据源或 Agent 的有效配置覆盖。
 defaults:
   statement_timeout_ms: 5000       # 单条 SQL 默认超时，单位毫秒

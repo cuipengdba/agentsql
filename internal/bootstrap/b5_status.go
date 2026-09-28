@@ -2,9 +2,9 @@ package bootstrap
 
 import "context"
 
-// B5Status is the non-secret S9 projection linked into health/readiness only
-// when an explicit feature-on assembly installs a provider. Feature-off keeps
-// the pre-S9 probe representation unchanged.
+// B5Status is the non-secret S9 projection linked into health/readiness by the
+// production assembly. An explicit feature-off keeps the pre-S9 probe
+// representation unchanged.
 type B5Status struct {
 	Enabled bool   `json:"enabled"`
 	State   string `json:"state"`

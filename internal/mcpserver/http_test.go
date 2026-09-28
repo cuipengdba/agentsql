@@ -277,6 +277,10 @@ func openReadinessChainStore(t *testing.T, manifest store.ChainManifest) (*store
 func TestRedactionReadinessRequiresFreshReconciliation(t *testing.T) {
 	cfg := httpTestConfig(100)
 	cfg.Store.SQLitePath = filepath.Join(t.TempDir(), "readiness.db")
+	// This test isolates redaction readiness; B5 production-default readiness
+	// has its own coverage and is explicitly rolled back here.
+	cfg.MCP = config.MCPConfig{Sessions: config.MCPSessionsConfig{Enabled: false, IdleTTLMS: 600_000, AbsoluteTTLMS: 3_600_000},
+		Transactions: config.MCPTransactionsConfig{Postgres: false, IdleTimeoutMS: 15_000, WallTimeoutMS: 60_000, StatementTimeoutMS: 5_000, ShutdownDrainMS: 5_000}}
 	encoded := base64.StdEncoding.EncodeToString([]byte("0123456789abcdefghijklmnopqrstuv"))
 	cfg.Redaction.HashKeys = &config.RedactionHashKeysConfig{
 		ActiveVersion: 1,

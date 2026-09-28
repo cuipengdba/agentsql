@@ -34,7 +34,7 @@ type closedDMLResolver struct {
 	seenRefs   map[string]struct{}
 }
 
-// BindClosedDML runs the feature-off CATALOG_CLOSED_V1 simple-DML lifecycle.
+// BindClosedDML runs the extension-free CATALOG_CLOSED_V1 simple-DML lifecycle.
 // It returns proof material only and deliberately exposes no execution method.
 func (executor *PostgresExecutor) BindClosedDML(ctx context.Context, request BindRequest, budget PostgresCatalogBudget) (*PostgresClosedPrepared, error) {
 	if executor == nil || ctx == nil || budget == nil || request.Identity.DatasourceIdentity == "" {

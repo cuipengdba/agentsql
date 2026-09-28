@@ -299,12 +299,20 @@ func b2S8Request(ctx context.Context, executor *PostgresExecutor, mode string) (
 			return true, false, err
 		}
 		ordered := b2S8LockOrder(prepared.Program().LockExpectation)
+		result, executeErr := prepared.Execute(ctx, 10)
+		unauthorized := false
+		for _, column := range result.Columns {
+			unauthorized = unauthorized || strings.EqualFold(column, "forbidden")
+		}
 		_, verifyErr := prepared.VerifyPost(ctx, budget)
 		closeErr := prepared.Close(ctx)
-		if verifyErr != nil {
-			return ordered, false, verifyErr
+		if executeErr != nil {
+			return ordered, unauthorized, executeErr
 		}
-		return ordered, false, closeErr
+		if verifyErr != nil {
+			return ordered, unauthorized, verifyErr
+		}
+		return ordered, unauthorized, closeErr
 	}
 	const query = `SELECT v.id,v.payload FROM s8.v_hot v WHERE v.id=1`
 	enrollment, err := executor.EnrollPostgresSelect(ctx, query, budget)

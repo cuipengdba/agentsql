@@ -57,7 +57,7 @@ type BinderCapabilityHandshake struct {
 	NativeInstalled      bool
 }
 
-// ProbeEasyDeployBinderCapabilities performs the feature-off dual-mode
+// ProbeEasyDeployBinderCapabilities performs the production dual-mode
 // handshake. Extension absence, permission failure or mismatch makes native C
 // unhealthy but does not make the closed catalog capability fail.
 func (executor *PostgresExecutor) ProbeEasyDeployBinderCapabilities(ctx context.Context, expectation NativeCapabilityExpectation, budget PostgresCatalogBudget) (BinderCapabilityHandshake, error) {
@@ -372,25 +372,16 @@ func (executor *PostgresExecutor) prepareClosedCatalogResolved(ctx context.Conte
 	if !sameClosedIdentity(identity, identityAfter) {
 		return nil, NewIdentityDriftFailure()
 	}
-	datasourceIdentity := facts.Identity.DatasourceIdentity
-	facts.Schema, facts.SchemaVersion = SemanticFactsSchemaID, SemanticFactsVersion
-	facts.Identity = identityAfter
-	facts.Identity.DatasourceIdentity = datasourceIdentity
-	facts.Identity.CatalogDigest = fpre.Fingerprint
-	// A closed statement is always freshly prepared for this request. Generation
-	// one is a lifecycle identity, not a claim that SQL exposes PostgreSQL's
-	// private plan invalidation counter.
-	facts.Identity.PlanGeneration = 1
-	if err := sealFactsWithFrame(&facts, fpre); err != nil {
+	facts, err = canonicalizeClosedFacts(facts, identityAfter, fpre)
+	if err != nil {
 		return nil, err
 	}
 	factsDigest, err := facts.Digest()
 	if err != nil {
 		return nil, err
 	}
-	engine := sha256.Sum256([]byte(closedEncoderVersion + "\x00" + factsDigest + "\x00" + fpre.Fingerprint))
 	program := BoundProgram{Mode: BinderModeCatalogClosedV1, Facts: facts, SemanticFactsDigest: factsDigest,
-		EngineEvidenceDigest: "closed-ast-catalog:" + hex.EncodeToString(engine[:]), Capability: candidate.Capability,
+		EngineEvidenceDigest: closedEngineEvidenceDigest(factsDigest, fpre.Fingerprint), Capability: candidate.Capability,
 		LockExpectation: makeLockExpectations(expected), CatalogRoots: expected, ExecutionHandle: name}
 	preseal := PreSeal{Program: program, CatalogPreDigest: fpre.Fingerprint,
 		ActualLockDigest: digestOIDs(actual), IdentityDigest: digestSemanticIdentity(identityAfter)}
@@ -401,6 +392,38 @@ func (executor *PostgresExecutor) prepareClosedCatalogResolved(ctx context.Conte
 	}
 	transferred = true
 	return prepared, nil
+}
+
+// canonicalizeClosedFacts is the single canonicalization boundary shared by
+// candidate preparation and transaction-bound re-resolution. It deliberately
+// excludes request-local handles and transaction identifiers while binding the
+// stable execution identity and the locked catalog fingerprint.
+func canonicalizeClosedFacts(facts SemanticFacts, identity SemanticIdentity, frame PostgresCatalogFrame) (SemanticFacts, error) {
+	datasourceIdentity := facts.Identity.DatasourceIdentity
+	// DatasourceIdentity is a control-plane routing/cache namespace. It is not
+	// PostgreSQL catalog evidence and direct PrepareClosedCatalog callers may
+	// legitimately omit it. The locked catalog fingerprint, in contrast, is
+	// required to seal every relation and remains fail-closed.
+	if frame.Fingerprint == "" {
+		return SemanticFacts{}, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+	}
+	facts.Schema, facts.SchemaVersion = SemanticFactsSchemaID, SemanticFactsVersion
+	facts.Identity = identity
+	facts.Identity.DatasourceIdentity = datasourceIdentity
+	facts.Identity.CatalogDigest = frame.Fingerprint
+	// A closed statement is always freshly prepared for this request. Generation
+	// one is a lifecycle identity, not a claim that SQL exposes PostgreSQL's
+	// private plan invalidation counter.
+	facts.Identity.PlanGeneration = 1
+	if err := sealFactsWithFrame(&facts, frame); err != nil {
+		return SemanticFacts{}, err
+	}
+	return facts, nil
+}
+
+func closedEngineEvidenceDigest(factsDigest, catalogFingerprint string) string {
+	engine := sha256.Sum256([]byte(closedEncoderVersion + "\x00" + factsDigest + "\x00" + catalogFingerprint))
+	return "closed-ast-catalog:" + hex.EncodeToString(engine[:])
 }
 
 func randomClosedPreparedName() (string, error) {
@@ -414,7 +437,12 @@ func randomClosedPreparedName() (string, error) {
 func (prepared *PostgresClosedPrepared) VerifyPost(ctx context.Context, budget PostgresCatalogBudget) (BinderProof, error) {
 	prepared.mu.Lock()
 	defer prepared.mu.Unlock()
-	if prepared.closed || !prepared.executed || prepared.tx == nil || budget == nil {
+	// Closed SELECT is an executable request capability, so its post-proof is
+	// valid only after that capability has run. Closed DML is prepared in this
+	// read-only catalog transaction solely to produce a bind proof; B5 executes
+	// it later in its separately sealed transaction capability.
+	requiresExecution := prepared.preseal.Program.Facts.StatementClass == BinderStatementSelect
+	if prepared.closed || (requiresExecution && !prepared.executed) || prepared.tx == nil || budget == nil {
 		return BinderProof{}, catalogAuthError("AUTH_PREPARED_STATE_INVALID")
 	}
 	fpost, err := scanClosedCatalog(ctx, prepared.tx, prepared.refs, budget)

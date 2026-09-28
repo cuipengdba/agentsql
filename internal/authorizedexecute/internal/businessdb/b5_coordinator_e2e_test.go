@@ -39,8 +39,8 @@ func TestB5CoordinatorPostgresMatrix(t *testing.T) {
 type coordinatorMatrixAuthorizer struct{}
 
 func (coordinatorMatrixAuthorizer) DatasourceID() string { return "matrix" }
-func (coordinatorMatrixAuthorizer) AuthorizeCandidate(_ context.Context, enrollment PostgresDMLEnrollment, _ b5coordinator.StatementRequest, _ int) (B5PostgresAuthorization, error) {
-	authorization := postgresDMLMatrixAuthorization(enrollment)
+func (coordinatorMatrixAuthorizer) AuthorizeCandidate(_ context.Context, facts b5dml.StatementFacts, _ b5coordinator.StatementRequest, _ int) (B5PostgresAuthorization, error) {
+	authorization := postgresDMLMatrixAuthorization(PostgresDMLEnrollment{Facts: facts})
 	return B5PostgresAuthorization{Policies: authorization.Policies, Decision: b5coordinator.DecisionAllow, PreliminaryAllowed: true, DatasourceSupported: true, PolicySnapshotDigest: authorization.PolicySnapshotDigest}, nil
 }
 

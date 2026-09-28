@@ -24,7 +24,7 @@ type B5Options struct {
 
 func (options B5Options) validate() error {
 	if options.B5TxMySQL {
-		return errors.New("b5_tx_mysql is fixed unsupported in v0.4")
+		return errors.New("MySQL 在 AgentSQL v0.4 中不支持 MCP 跨请求事务；请保持 mcp.transactions.mysql=false")
 	}
 	if !options.B5Sessions {
 		if options.B5TxPostgres {
@@ -107,6 +107,10 @@ type B5ToolService interface {
 	Shutdown(context.Context) error
 }
 
+type b5DatasourceDialectChecker interface {
+	CheckB5Datasource(context.Context, string) error
+}
+
 func registerB5Tools(server *mcp.Server, handlers *toolHandlers, options B5Options) {
 	add := func(name, description string, call func(context.Context, any) ToolResponse) {
 		_ = name
@@ -134,9 +138,23 @@ func registerB5Tools(server *mcp.Server, handlers *toolHandlers, options B5Optio
 		return protocolResult(response), response, nil
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "begin_transaction", Description: "预检完整有序 DML 计划并开始 PostgreSQL transaction；不执行 statement。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5BeginInput) (*mcp.CallToolResult, ToolResponse, error) {
-		if !options.B5TxPostgres || input.Dialect != "postgres" {
-			response := b5ErrorResponse(b5.ErrorDialectTransactionUnsupported, errors.New("transaction dialect is disabled"))
+		// A client claiming MySQL can be rejected before any service or business
+		// connection is touched. All potentially enabling PostgreSQL claims are
+		// still ignored by the service, which resolves the datasource dialect and
+		// capabilities from the server-side registry.
+		if !options.B5TxPostgres || strings.EqualFold(strings.TrimSpace(input.Dialect), "mysql") {
+			reason := "PostgreSQL 事务已被显式关闭；请启用 mcp.transactions.postgres"
+			if strings.EqualFold(strings.TrimSpace(input.Dialect), "mysql") {
+				reason = "MySQL 不支持跨请求事务；未开始事务且未取得可写连接"
+			}
+			response := b5ErrorResponse(b5.ErrorDialectTransactionUnsupported, errors.New(reason))
 			return protocolResult(response), response, nil
+		}
+		if checker, ok := options.Service.(b5DatasourceDialectChecker); ok {
+			if err := checker.CheckB5Datasource(ctx, input.DatasourceID); err != nil {
+				response := b5ErrorResponse(b5coordinator.ErrorCode(err), err)
+				return protocolResult(response), response, nil
+			}
 		}
 		if code, err := validateB5Plan(input.Statements); err != nil {
 			response := b5ErrorResponse(code, err)
@@ -247,13 +265,58 @@ func b5ErrorResponse(code b5.ErrorCode, err error) ToolResponse {
 	if code == b5.ErrorNone {
 		code = b5.ErrorTxPlanRequired
 	}
-	reason := string(code)
-	if err != nil {
+	reason, suggestion := b5ChineseContract(code)
+	if reason == "" {
+		reason = "B5 操作失败，事务状态未被假定为成功"
+	}
+	// Preserve a Chinese lower-level reason when it is already suitable for an
+	// operator; never leak unstable English implementation text into the MCP
+	// error contract.
+	if err != nil && containsHan(err.Error()) {
 		reason = err.Error()
 	}
-	response := ToolResponse{Decision: "error", ErrorCode: string(code), Reason: reason, Suggestion: "do not replay writes; follow retry_same_request and tx_effect", TxEffect: string(fixedB5Effect(code))}
+	response := ToolResponse{Decision: "error", ErrorCode: string(code), Reason: reason, Suggestion: suggestion, TxEffect: string(fixedB5Effect(code))}
 	setB5RetryContract(&response, code)
 	return response
+}
+
+func containsHan(value string) bool {
+	for _, r := range value {
+		if r >= '\u4e00' && r <= '\u9fff' {
+			return true
+		}
+	}
+	return false
+}
+
+func b5ChineseContract(code b5.ErrorCode) (string, string) {
+	suggestion := "不要重放写入；请依据 retry_same_request、new_transaction_allowed 和 tx_effect 处理"
+	switch code {
+	case b5.ErrorDialectTransactionUnsupported:
+		return "当前数据源方言不支持跨请求事务，未开始事务且未取得可写连接", "请使用 PostgreSQL 数据源；MySQL 在 AgentSQL v0.4 中明确不支持此能力"
+	case b5.ErrorPostgresVersionUnsupported:
+		return "PostgreSQL 主版本不在受支持的 14 到 18 范围内，未开始事务", "请升级或切换到 PostgreSQL 14 至 18 后重试"
+	case b5.ErrorPostgresCapabilityUnavailable, b5.ErrorAuthDMLBinderRequired:
+		return "PostgreSQL binder 能力或能力证明不可用，未开始事务", "请检查数据源连接与封闭 binder 条件；C 扩展仅是可选加速器"
+	case b5.ErrorTxPlanUnproven, b5.ErrorTxPlanRequired, b5.ErrorTxPlanMismatch:
+		return "事务计划无法由服务端完整证明，未开始事务", "请刷新数据源能力与授权快照，并提交完整、定序且不可变的 DML 计划"
+	case b5.ErrorAuthImplicitObjectUnclosed, b5.ErrorAuthClosureUnsupported, b5.ErrorAuthConstraintClosureUnsupported,
+		b5.ErrorAuthTypeClosureUnsupported, b5.ErrorAuthDefaultClosureUnsupported, b5.ErrorAuthExpressionClosureUnsupported,
+		b5.ErrorAuthRewriteClosureUnsupported, b5.ErrorAuthRelationKindUnsupported, b5.ErrorAuthWholeRowUnsupported:
+		return "SQL 超出当前可证明的封闭 DML 子集，事务已 fail-closed", "请缩小为受支持的普通表简单 INSERT、UPDATE 或 DELETE，或安装并核验可选 native 扩展"
+	case b5.ErrorAuthCatalogRace:
+		return "计划与执行间的目录身份发生变化，事务已回滚", "请刷新 schema 与授权快照后创建新事务"
+	case b5.ErrorAuthDMLActionMissing, b5.ErrorAuthDMLWriteTargetGrantMissing, b5.ErrorAuthDMLReferenceGrantMissing:
+		return "DML 动作、写目标或引用授权不完整，未执行写入", "请由管理员补齐精确且目录绑定的 B5 DML grant"
+	case b5.ErrorTxDMLShapeUnsupported, b5.ErrorTxControlStatementDenied, b5.ErrorTxSelectUnsupported, b5.ErrorTxReturningUnsupported:
+		return "事务语句形态不受支持，未开始或已回滚事务", "每次仅提交一条受支持 DML；不要使用事务控制语句、SELECT、RETURNING 或 stacked SQL"
+	case b5.ErrorAuditBarrierUnavailableBeforeTx, b5.ErrorAuditEmergencyWALUnavailable, b5.ErrorAuditStatementBarrierFailed, b5.ErrorAuditCommitIntentFailed:
+		return "审计/WAL 屏障不可用，事务已按安全边界拒绝或回滚", "请恢复审计存储与 WAL 持久化后再创建新事务"
+	case b5.ErrorNone:
+		return "", suggestion
+	default:
+		return "B5 操作未完成，系统保持 fail-closed", suggestion
+	}
 }
 
 func fixedB5Effect(code b5.ErrorCode) b5.TxEffect {
@@ -299,7 +362,9 @@ func setB5RetryContract(response *ToolResponse, code b5.ErrorCode) {
 	}
 	switch code {
 	case b5.ErrorSessionLimitExceeded, b5.ErrorSessionExpired, b5.ErrorTxActivePlanMismatch,
-		b5.ErrorTxPlanRequired, b5.ErrorTxPlanMismatch, b5.ErrorTxApprovalRequired,
+		b5.ErrorTxPlanRequired, b5.ErrorTxPlanMismatch, b5.ErrorTxPlanUnproven,
+		b5.ErrorPostgresVersionUnsupported, b5.ErrorPostgresCapabilityUnavailable, b5.ErrorDialectTransactionUnsupported,
+		b5.ErrorTxApprovalRequired,
 		b5.ErrorTxApprovalExpired, b5.ErrorTxApprovalPlanMismatch, b5.ErrorTxApprovalConsumedBeginFailed,
 		b5.ErrorTxBeginManifestMismatch, b5.ErrorTxBeginOutcomeUncertainConnectionQuarantine,
 		b5.ErrorTxRollbackOnly, b5.ErrorTxMaskUnsupported, b5.ErrorTxSelectUnsupported,

@@ -23,6 +23,14 @@ column_authorization:
   instance_id_file: "/var/lib/agentsql/instance-id"
   # instance_id: "gateway-replica-a" # 与 instance_id_file 互斥；显式 ID 优先于缺省来源
 
+mcp:
+  sessions:
+    enabled: true
+  transactions:
+    postgres: true
+    mysql: false
+    wal_directory: "/var/lib/agentsql/b5-wal"
+
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000

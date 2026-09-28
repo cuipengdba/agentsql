@@ -460,7 +460,9 @@ func (coordinator *Coordinator) Shutdown(ctx context.Context) error {
 			result, err = coordinator.forceRollback(ctx, transaction, "shutdown:"+id, b5.ErrorTxOperationWatchdog, context.Canceled)
 		}
 		if result.Status == b5.TransactionTerminal {
-			err = nil
+			// Shutdown owns the same post-terminal durable fence as an MCP
+			// commit/rollback response. WAL and metadata are still open here.
+			err = coordinator.FinalFence(ctx, id)
 		}
 		shutdownErr = errors.Join(shutdownErr, err)
 	}

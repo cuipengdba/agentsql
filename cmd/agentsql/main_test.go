@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/adminapi"
+	"github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
@@ -68,6 +73,75 @@ func TestPrepareStdioConfigDisablesHTTPEventStream(t *testing.T) {
 	require.False(t, prepared.Server.EventStream)
 	require.True(t, loaded.Server.ConsoleEnabled)
 	require.True(t, loaded.Server.EventStream)
+}
+
+func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
+	const secret = "0123456789abcdef0123456789abcdef"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cfg, runtime := newDemoStartupRuntime(t, false, secret)
+	apiKey := "asql_b5_production_entrypoint"
+	_, err := runtime.Store.Agents().Create(ctx, model.Agent{ID: "b5-entrypoint-agent", Name: "B5", Status: "active", APIKeyHash: store.HashAPIKey(apiKey), Level: "dml"})
+	require.NoError(t, err)
+	options := productionB5Options(runtime)
+	require.True(t, options.B5Sessions)
+	require.True(t, options.B5TxPostgres)
+	require.False(t, options.B5TxMySQL)
+
+	handler, err := mcpserver.NewHTTPHandler(runtime, cfg, zerolog.Nop(), mcpserver.WithB5Sessions(options))
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	for _, name := range []string{"open_session", "begin_transaction", "execute_transaction_statement", "commit_transaction", "rollback_transaction"} {
+		require.Contains(t, recorder.Body.String(), `"`+name+`"`)
+	}
+	_, err = runtime.Store.Datasources().Create(ctx, model.Datasource{ID: "b5-entrypoint-mysql", Name: "MySQL", DBType: "mysql",
+		Host: "127.0.0.1", Port: 3306, Database: "app", Username: "agentsql", ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}, "not-used")
+	require.NoError(t, err)
+	mysqlCall := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"begin_transaction","arguments":{"session_id":"not-used","owner_epoch":1,"request_id":"mysql","continuation_proof":"not-used","body_digest":"not-used","transaction_id":"not-used","datasource_id":"b5-entrypoint-mysql","dialect":"postgres","server_major":18,"key_revision":1,"datasource_revision":1,"policy_revision":1,"statements":[{"operation_id":"op","sql":"UPDATE items SET value=1","reason":"must reject mysql"}]}}}`
+	request = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(mysqlCall))
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "DIALECT_TRANSACTION_UNSUPPORTED")
+	require.Contains(t, recorder.Body.String(), "MySQL")
+	require.Contains(t, recorder.Body.String(), "不受支持")
+	require.Contains(t, recorder.Body.String(), "未取得可写连接")
+
+	server, err := mcpserver.NewServer(ctx, mcpserver.Options{APIKey: apiKey, Runtime: runtime, Logger: zerolog.Nop(), B5: options})
+	require.NoError(t, err)
+	serverInput, clientInput := io.Pipe()
+	clientOutput, serverOutput := io.Pipe()
+	runErrors := make(chan error, 1)
+	go func() { runErrors <- server.RunStdioStreams(ctx, serverInput, serverOutput) }()
+	err = authorizedexecute.WriteSealedFrame(clientInput, []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"b5-entrypoint-test","version":"1"}}}`), authorizedexecute.DefaultLimits.FrameBytes)
+	require.NoError(t, err)
+	_, err = authorizedexecute.ReadBoundedFrame(clientOutput, authorizedexecute.DefaultLimits.FrameBytes)
+	require.NoError(t, err)
+	err = authorizedexecute.WriteSealedFrame(clientInput, []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`), authorizedexecute.DefaultLimits.FrameBytes)
+	require.NoError(t, err)
+	listed, err := authorizedexecute.ReadBoundedFrame(clientOutput, authorizedexecute.DefaultLimits.FrameBytes)
+	require.NoError(t, err)
+	for _, name := range []string{"open_session", "begin_transaction", "execute_transaction_statement", "commit_transaction", "rollback_transaction"} {
+		require.Contains(t, string(listed), `"`+name+`"`)
+	}
+	require.NoError(t, clientInput.Close())
+	select {
+	case err := <-runErrors:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("production stdio entrypoint did not stop after EOF")
+	}
 }
 
 func TestMCPCommandKeepsStdoutCleanOnStartupFailure(t *testing.T) {

@@ -25,10 +25,23 @@ type B5RuntimePlane interface {
 }
 
 // StoreB5Admin is the production S9 read model. Constructing it does not
-// activate B5; the caller must still explicitly place it in Deps.B5Admin.
+// activate B5; bootstrap selects activation and the entrypoint places it in
+// Deps.B5Admin.
 type StoreB5Admin struct {
-	store *store.Store
-	live  B5RuntimePlane
+	store  *store.Store
+	live   B5RuntimePlane
+	status func(context.Context) (B5StatusView, error)
+}
+
+// NewStoreB5AdminWithStatus links the production bootstrap readiness provider
+// without granting the admin read model a business executor.
+func NewStoreB5AdminWithStatus(metadata *store.Store, status func(context.Context) (B5StatusView, error)) (*StoreB5Admin, error) {
+	admin, err := NewStoreB5Admin(metadata, nil)
+	if err != nil {
+		return nil, err
+	}
+	admin.status = status
+	return admin, nil
 }
 
 func NewStoreB5Admin(metadata *store.Store, live B5RuntimePlane) (*StoreB5Admin, error) {
@@ -39,6 +52,9 @@ func NewStoreB5Admin(metadata *store.Store, live B5RuntimePlane) (*StoreB5Admin,
 }
 
 func (admin *StoreB5Admin) Status(ctx context.Context) (B5StatusView, error) {
+	if admin.status != nil {
+		return admin.status(ctx)
+	}
 	if admin.live == nil {
 		return B5StatusView{Enabled: true, State: "DEGRADED", Reason: "B5_OPERATIONS_RUNTIME_UNAVAILABLE", Ready: false}, nil
 	}

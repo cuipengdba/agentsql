@@ -120,6 +120,40 @@ func TestColumnAuthorizationExplicitOffOverridesDefaultOn(t *testing.T) {
 	require.NoFileExists(t, databasePath+".instance-id")
 }
 
+func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
+	base := fmt.Sprintf(validConfig, filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db")))
+	loaded, err := Parse([]byte(base))
+	require.NoError(t, err)
+	require.True(t, loaded.MCP.Sessions.Enabled)
+	require.True(t, loaded.MCP.Transactions.Postgres)
+	require.False(t, loaded.MCP.Transactions.MySQL)
+	require.Equal(t, 15_000, loaded.MCP.Transactions.IdleTimeoutMS)
+	require.Equal(t, 60_000, loaded.MCP.Transactions.WallTimeoutMS)
+
+	off, err := Parse([]byte(base + "mcp:\n  sessions:\n    enabled: false\n"))
+	require.NoError(t, err)
+	require.False(t, off.MCP.Sessions.Enabled)
+	require.False(t, off.MCP.Transactions.Postgres, "session rollback switch must disable the dependent default")
+
+	postgresOff, err := Parse([]byte(base + "mcp:\n  transactions:\n    postgres: false\n"))
+	require.NoError(t, err)
+	require.True(t, postgresOff.MCP.Sessions.Enabled)
+	require.False(t, postgresOff.MCP.Transactions.Postgres)
+
+	_, err = Parse([]byte(base + "mcp:\n  transactions:\n    mysql: true\n"))
+	require.ErrorIs(t, err, ErrB5MySQLUnsupported)
+	require.Contains(t, err.Error(), "不受支持")
+
+	for _, fragment := range []string{
+		"mcp:\n  sessions:\n    idle_ttl_ms: 1800001\n",
+		"mcp:\n  transactions:\n    wall_timeout_ms: 60001\n",
+		"mcp:\n  sessions:\n    enabled: false\n  transactions:\n    postgres: true\n",
+	} {
+		_, err = Parse([]byte(base + fragment))
+		require.Error(t, err)
+	}
+}
+
 func TestLoadPersistsRandomColumnAuthorizationInstanceIDPerDeployment(t *testing.T) {
 	root := t.TempDir()
 	firstDatabase := filepath.Join(root, "replica-a", "agentsql.db")

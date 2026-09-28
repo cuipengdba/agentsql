@@ -30,6 +30,8 @@ func runClosedSelectDifferentialScenarios(t *testing.T, ctx context.Context, exe
 			closed, err := executor.BindClosedSelect(ctx, request, &unlimitedPostgresBudget{})
 			require.NoError(t, err)
 			program := closed.Program()
+			_, err = closed.Execute(ctx, 10)
+			require.NoError(t, err)
 			_, err = closed.VerifyPost(ctx, &unlimitedPostgresBudget{})
 			require.NoError(t, err)
 			require.NoError(t, closed.Close(ctx))

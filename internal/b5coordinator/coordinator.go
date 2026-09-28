@@ -345,6 +345,27 @@ func writeHashUint(writer hashWriter, value uint64) {
 	_, _ = writer.Write(data[:])
 }
 
+// FinalFence durably marks that all post-terminal control-plane work for a
+// transaction completed. It is deliberately callable only after the business
+// connection has reached a terminal disposition.
+func (coordinator *Coordinator) FinalFence(ctx context.Context, transactionID string) error {
+	if coordinator == nil || ctx == nil || transactionID == "" {
+		return ErrInvalidPlan
+	}
+	record, err := coordinator.transactions.Get(ctx, transactionID)
+	if err != nil {
+		return err
+	}
+	if record.Status != b5.TransactionTerminal || record.Phase == b5.PhaseFinalFence {
+		if record.Phase == b5.PhaseFinalFence {
+			return nil
+		}
+		return ErrTerminal
+	}
+	_, err = coordinator.transactions.CASState(ctx, record.TransactionID, record.Revision, record.Status, record.Phase, b5.TransactionTerminal, b5.PhaseFinalFence)
+	return err
+}
+
 func (coordinator *Coordinator) Status(ctx context.Context, session SessionAuthorization, transactionID string) (Result, error) {
 	live, err := coordinator.validateLive(ctx, session, transactionID)
 	if err != nil {
@@ -374,7 +395,7 @@ func (coordinator *Coordinator) Recover(ctx context.Context, transactionID strin
 }
 
 func (coordinator *Coordinator) String() string {
-	return fmt.Sprintf("b5coordinator(flag-off,live=%d)", coordinator.liveCount())
+	return fmt.Sprintf("b5coordinator(live=%d)", coordinator.liveCount())
 }
 func (coordinator *Coordinator) liveCount() int {
 	coordinator.mu.RLock()

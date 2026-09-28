@@ -34,7 +34,8 @@ type Server struct {
 	b5       B5Options
 }
 
-// NewServer authenticates the stdio API key once and registers all seven tools.
+// NewServer authenticates the stdio API key once and registers the base tools
+// plus the production-selected B5 tools.
 func NewServer(ctx context.Context, options Options) (*Server, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("create MCP server: context is required")

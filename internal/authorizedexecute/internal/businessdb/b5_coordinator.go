@@ -29,13 +29,14 @@ type B5PostgresAuthorization struct {
 }
 
 type B5PostgresAuthorizer interface {
-	AuthorizeCandidate(context.Context, PostgresDMLEnrollment, b5coordinator.StatementRequest, int) (B5PostgresAuthorization, error)
+	AuthorizeCandidate(context.Context, b5dml.StatementFacts, b5coordinator.StatementRequest, int) (B5PostgresAuthorization, error)
 }
 
 type B5PostgresRuntime struct {
 	executor     *PostgresExecutor
 	authorizer   B5PostgresAuthorizer
 	budgetLimits b5CatalogLimits
+	closed       bool
 }
 
 func NewB5PostgresRuntime(executor *PostgresExecutor, authorizer B5PostgresAuthorizer) (*B5PostgresRuntime, error) {
@@ -45,18 +46,28 @@ func NewB5PostgresRuntime(executor *PostgresExecutor, authorizer B5PostgresAutho
 	return &B5PostgresRuntime{executor: executor, authorizer: authorizer, budgetLimits: defaultB5CatalogLimits()}, nil
 }
 
+func NewB5ClosedPostgresRuntime(executor *PostgresExecutor, authorizer B5PostgresAuthorizer) (*B5PostgresRuntime, error) {
+	if executor == nil || executor.pool == nil || authorizer == nil {
+		return nil, errors.New("businessdb: incomplete closed B5 PostgreSQL runtime")
+	}
+	return &B5PostgresRuntime{executor: executor, authorizer: authorizer, budgetLimits: defaultB5CatalogLimits(), closed: true}, nil
+}
+
 type b5PostgresArtifact struct {
 	enrollment    PostgresDMLEnrollment
 	authorization PostgresDMLAuthorization
 }
 
 func (runtime *B5PostgresRuntime) Analyze(ctx context.Context, statement b5coordinator.StatementRequest, ordinal int) (b5coordinator.Analysis, error) {
+	if runtime.closed {
+		return runtime.analyzeClosed(ctx, statement, ordinal)
+	}
 	budget := newB5CatalogBudget(runtime.budgetLimits)
 	enrollment, err := runtime.executor.EnrollPostgresDML(ctx, statement.SQL, enrollmentDatasource(runtime.authorizer), budget)
 	if err != nil {
 		return b5coordinator.Analysis{}, err
 	}
-	authorization, err := runtime.authorizer.AuthorizeCandidate(ctx, enrollment, statement, ordinal)
+	authorization, err := runtime.authorizer.AuthorizeCandidate(ctx, enrollment.Facts, statement, ordinal)
 	if err != nil {
 		return b5coordinator.Analysis{}, err
 	}
@@ -140,7 +151,7 @@ func (runtime *B5PostgresRuntime) Pin(ctx context.Context, plan b5coordinator.Pl
 	guard := b5terminal.NewCancelGuard()
 	poolConfig := runtime.executor.pool.Config().ConnConfig
 	connectionNonce := fmt.Sprintf("%x", sha256.Sum256(append([]byte(fmt.Sprintf("%d:%d", pgConn.PID(), time.Now().UnixNano())), pgConn.SecretKey()...)))
-	capability := &b5PGCoordinatorCapability{runtime: runtime, connection: connection, guard: guard, plan: plan, begin: begin, identity: b5terminal.PGBackendIdentity{ServerIdentity: poolConfig.Host, Database: poolConfig.Database, PID: pgConn.PID(), BackendStart: started, ConnectionNonce: connectionNonce}}
+	capability := &b5PGCoordinatorCapability{runtime: runtime, connection: connection, guard: guard, plan: plan, begin: begin, closedMode: runtime.closed, prepared: make(map[int]string), sealedOIDs: make(map[uint32]struct{}), identity: b5terminal.PGBackendIdentity{ServerIdentity: poolConfig.Host, Database: poolConfig.Database, PID: pgConn.PID(), BackendStart: started, ConnectionNonce: connectionNonce}}
 	backend := b5coordinator.BackendIdentity{PID: int(pgConn.PID()), SecretDigest: secret, StartedAt: started, ConnectionGeneration: 1, LeaseGeneration: 1}
 	return capability, backend, nil
 }
@@ -156,6 +167,9 @@ type b5PGCoordinatorCapability struct {
 	plan           b5coordinator.Plan
 	begin          *b5dml.BeginMachine
 	identity       b5terminal.PGBackendIdentity
+	closedMode     bool
+	prepared       map[int]string
+	sealedOIDs     map[uint32]struct{}
 	active, closed bool
 }
 
@@ -212,6 +226,9 @@ func (capability *b5PGCoordinatorCapability) BindAndSeal(ctx context.Context, pl
 	if capability.tx == nil {
 		return [32]byte{}, errors.New("businessdb: native B5 transaction missing")
 	}
+	if capability.closedMode {
+		return capability.bindClosedPlan(ctx, plan)
+	}
 	native, err := AttachPostgresDMLNativeTx(ctx, capability.tx, capability.begin)
 	if err != nil {
 		return [32]byte{}, err
@@ -222,7 +239,15 @@ func (capability *b5PGCoordinatorCapability) BindAndSeal(ctx context.Context, pl
 		if !ok || artifact == nil {
 			return [32]byte{}, errors.New("businessdb: invalid B5 DML enrollment")
 		}
-		auth := artifact.authorization
+		fresh, refreshErr := capability.runtime.authorizer.AuthorizeCandidate(ctx, artifact.enrollment.Facts,
+			b5coordinator.StatementRequest{OperationID: statement.OperationID, SQL: statement.SQL}, statement.Ordinal)
+		if refreshErr != nil || fresh.PolicySnapshotDigest == "" || fresh.PolicySnapshotDigest != artifact.authorization.PolicySnapshotDigest || fresh.Decision != statement.Decision {
+			return [32]byte{}, errors.Join(refreshErr, &b5coordinator.Failure{Code: b5.ErrorAuthCatalogRace, Cause: errors.New("businessdb: B5 policy snapshot changed before begin")})
+		}
+		auth := PostgresDMLAuthorization{PrincipalID: authorizationPrincipal(fresh.Policies), DatasourceID: artifact.enrollment.Facts.Target.DatasourceID,
+			Policies: append([]b5dml.Policy(nil), fresh.Policies...), PreliminaryAllowed: fresh.PreliminaryAllowed,
+			DatasourceSupported: fresh.DatasourceSupported, ReservedTarget: fresh.ReservedTarget,
+			PolicySnapshotDigest: fresh.PolicySnapshotDigest, Attestations: PostgresDMLBinderAttestations()}
 		auth.PlanDigest = fmt.Sprintf("%x", plan.Digest)
 		prepared, decision, prepareErr := capability.runtime.executor.PrepareBoundPostgresDML(ctx, native, statement.SQL, &artifact.enrollment, auth, newB5CatalogBudget(capability.runtime.budgetLimits))
 		if prepareErr != nil || !decision.Allowed() {
@@ -237,7 +262,7 @@ func (capability *b5PGCoordinatorCapability) BindAndSeal(ctx context.Context, pl
 func (capability *b5PGCoordinatorCapability) Activate() (b5coordinator.Capability, error) {
 	capability.mu.Lock()
 	defer capability.mu.Unlock()
-	if capability.native == nil || capability.closed {
+	if (!capability.closedMode && capability.native == nil) || (capability.closedMode && len(capability.prepared) != len(capability.plan.Statements)) || capability.closed {
 		return nil, errors.New("businessdb: B5 plan not sealed")
 	}
 	capability.active = true
@@ -245,9 +270,12 @@ func (capability *b5PGCoordinatorCapability) Activate() (b5coordinator.Capabilit
 }
 func (capability *b5PGCoordinatorCapability) Execute(ctx context.Context, statement b5coordinator.PlannedStatement) (b5coordinator.StatementResult, error) {
 	capability.mu.Lock()
-	if !capability.active || capability.closed || capability.native == nil {
+	if !capability.active || capability.closed || (!capability.closedMode && capability.native == nil) {
 		capability.mu.Unlock()
 		return b5coordinator.StatementResult{}, errors.New("businessdb: B5 capability inactive")
+	}
+	if capability.closedMode {
+		return capability.executeClosedLocked(ctx, statement)
 	}
 	artifact, ok := statement.Artifact().(*b5PostgresArtifact)
 	if !ok {

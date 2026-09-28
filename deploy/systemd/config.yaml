@@ -15,6 +15,14 @@ column_authorization:
   enabled: true
   dry_run: false
 
+mcp:
+  sessions:
+    enabled: true
+  transactions:
+    postgres: true
+    mysql: false
+    wal_directory: "/var/lib/agentsql/b5-wal"
+
 defaults:
   statement_timeout_ms: 5000
   row_limit: 1000

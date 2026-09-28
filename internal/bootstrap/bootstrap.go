@@ -43,6 +43,9 @@ type Runtime struct {
 	Events *eventbus.Hub
 	// Notifications is the process-local best-effort notification manager.
 	Notifications *notify.Manager
+	// B5 owns the production logical-session and planned-transaction graph when
+	// mcp.sessions.enabled is effective.
+	B5 *B5Runtime
 
 	mu           sync.Mutex
 	secret       []byte
@@ -281,6 +284,14 @@ func assembleWithExecutorProvider(
 		businessRead:    readOnlyManager,
 		b2:              b2Manager,
 	}
+	b5Runtime, err := assembleB5Runtime(ctx, cfg, resolvedStore, metadataStore, secret)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("assemble B5 runtime: %w", err), runtime.Close())
+	}
+	runtime.B5 = b5Runtime
+	if b5Runtime != nil {
+		runtime.b5Probe = b5Runtime.Status
+	}
 	runtime.ChainMonitor = NewChainMonitor(
 		metadataStore,
 		store.NewKeylessChainManifestProvider(),
@@ -462,8 +473,15 @@ func (runtime *Runtime) Close() error {
 	}
 	runtime.closed = true
 	var closeErrors []error
-	// Stop audit admission first. Close performs the bounded drain and joins
-	// every flusher before any store connection can be closed below.
+	// Stop B5 admission first. Its bounded drain records terminal WAL/audit facts
+	// before the shared audit sink or metadata store can be closed.
+	if runtime.B5 != nil {
+		if err := runtime.B5.close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
+	// Then stop ordinary audit admission and join every flusher before any store
+	// connection can be closed below.
 	if runtime.groupSink != nil {
 		if err := runtime.groupSink.Close(); err != nil {
 			closeErrors = append(closeErrors, err)
