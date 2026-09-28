@@ -61,7 +61,7 @@ else
   exit 1
 fi
 
-required=(index.html 404.html favicon.svg robots.txt sitemap.xml assets .well-known/security.txt)
+required=(index.html 404.html favicon.svg robots.txt sitemap.xml demo/index.html assets .well-known/security.txt)
 for item in "${required[@]}"; do
   if [[ ! -e "$public_dir/$item" ]]; then
     echo "缺少发布文件: $public_dir/$item" >&2
@@ -101,6 +101,7 @@ install -m 0644 "$public_dir/favicon.svg" "$release_public/favicon.svg"
 install -m 0644 "$public_dir/robots.txt" "$release_public/robots.txt"
 install -m 0644 "$public_dir/sitemap.xml" "$release_public/sitemap.xml"
 cp -a -- "$public_dir/assets" "$release_public/assets"
+cp -a -- "$public_dir/demo" "$release_public/demo"
 cp -a -- "$public_dir/.well-known" "$release_public/.well-known"
 chown -R root:root "$release_dir"
 find "$release_dir" -type d -exec chmod 0755 {} +

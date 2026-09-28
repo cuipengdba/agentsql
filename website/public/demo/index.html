@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentSQL Live Demo｜安全须知</title>
+  <meta name="description" content="AgentSQL Live Demo 安全入口：仅合成数据、只读或受控演示、定期重置，禁止输入真实数据或秘密。">
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="canonical" href="https://agentsql.cn/demo/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AgentSQL">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="AgentSQL Live Demo｜安全须知">
+  <meta property="og:description" content="仅合成数据、只读或受控演示、定期重置；禁止输入真实数据或秘密。">
+  <meta property="og:url" content="https://agentsql.cn/demo/">
+  <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png">
+  <meta property="og:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header">
+    <div class="container nav-shell">
+      <a class="brand" href="/" aria-label="返回 AgentSQL 官网首页">
+        <img src="/favicon.svg" width="36" height="36" loading="eager" decoding="async" alt="" aria-hidden="true">
+        <span>AgentSQL</span>
+      </a>
+      <nav class="primary-nav" aria-label="演示页导航">
+        <a href="/">官网首页</a>
+        <a href="/#docs">文档 / 下载</a>
+        <a href="/#security">安全边界</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero section">
+      <div class="container narrow">
+        <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Live Demo 安全入口</div>
+        <h1>先确认边界，再进入演示</h1>
+        <p class="hero-lead">此环境只用于体验 AgentSQL 的控制台与六个预置安全剧本，不是生产服务，也不连接任何真实业务数据库。</p>
+        <div class="callout callout-warning" role="note">
+          <strong>禁止输入真实数据或秘密：</strong>请勿提交业务 SQL、个人信息、数据库地址、账号密码、API Key、访问令牌、私钥或其他机密内容。
+        </div>
+        <ul class="boundary-grid" aria-label="Live Demo 使用边界">
+          <li><strong>仅合成数据</strong><span>演示库中的身份、订单和审计记录均为虚构数据。</span></li>
+          <li><strong>只读 / 受控演示</strong><span>仅开放预置只读或受策略约束的剧本，不作为通用数据库入口。</span></li>
+          <li><strong>定期重置</strong><span>数据与演示状态会定期恢复，不应依赖其持久保存任何内容。</span></li>
+          <li><strong>非生产配置</strong><span>可用性、容量、保留期和安全配置均不代表生产承诺或 SLA。</span></li>
+        </ul>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/demo/console">我已了解，进入演示</a>
+          <a class="button button-secondary" href="/">返回官网</a>
+        </div>
+        <p class="quiet-line">控制台由独立演示源提供；入口地址保持为 <code>https://agentsql.cn/demo/</code>。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-bottom"><span>© <span data-current-year>2026</span> 崔鹏 · 本站为个人开源技术项目，仅用于技术交流</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">黑ICP备2026011740号-1</a> · <a href="https://beian.mps.gov.cn/#/query/webSearch?code=23010302002016" target="_blank" rel="noopener noreferrer">黑公网安备23010302002016号</a></span></div>
+  </footer>
+</body>
+</html>

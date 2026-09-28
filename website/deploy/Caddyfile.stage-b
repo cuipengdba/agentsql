@@ -9,7 +9,10 @@ import /etc/caddy/Caddyfile.common
 agentsql.cn {
 	import agentsql_static
 
-	@html path / /index.html
+	@demo_console path /demo/console /demo/console/
+	redir @demo_console {$DEMO_PUBLIC_URL:https://demo.agentsql.cn/} 302
+
+	@html path / /index.html /demo /demo/ /demo/index.html
 	header @html Cache-Control "no-cache"
 
 	@mutable path /assets/app.js /assets/app.css /assets/og-cover.png /favicon.svg /apple-touch-icon.png /assets/apple-touch-icon.png /assets/screenshots/*.png
@@ -22,4 +25,20 @@ agentsql.cn {
 		Strict-Transport-Security "max-age=300"
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
 	}
+}
+
+www.agentsql.cn {
+	import agentsql_security
+	header {
+		Strict-Transport-Security "max-age=300"
+		Content-Security-Policy "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+	}
+	redir https://agentsql.cn{uri} 301
+}
+
+# 独立源让根路径型控制台保持完整，不对外暴露 7780/17880。
+# 此站点不启用 access log；上游必须只监听回环。
+demo.agentsql.cn {
+	import agentsql_demo_proxy
+	header Strict-Transport-Security "max-age=300"
 }

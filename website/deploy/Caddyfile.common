@@ -1,20 +1,24 @@
 # 两阶段共用片段。部署时复制到 /etc/caddy/Caddyfile.common，
 # Caddyfile.stage-a 与 Caddyfile.stage-b 均通过绝对路径 import。
-(agentsql_static) {
-	root * /var/www/agentsql/current/public
-	encode zstd gzip
-
-	@private path_regexp private (?i)(^|/)\.(git|env|svn|hg)(/|$)|(^|/)deploy(?:/|$)
-	respond @private 404
-
+(agentsql_security) {
 	header {
 		-Server
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 	}
+}
+
+(agentsql_static) {
+	root * /var/www/agentsql/current/public
+	encode zstd gzip
+	import agentsql_security
+
+	@private path_regexp private (?i)(^|/)\.(git|env|svn|hg)(/|$)|(^|/)deploy(?:/|$)
+	respond @private 404
+
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 
 	log {
 		output file /var/log/caddy/agentsql-access.json {
@@ -32,4 +36,18 @@
 		rewrite @not_found /404.html
 		file_server
 	}
+}
+
+# 控制台构建固定使用根路径 /assets、/api/v1 和 BrowserRouter，不能安全地
+# handle_path 到 /demo 子路径。演示控制台因此使用独立源，并只反代回环上游。
+# 本片段刻意不启用 Caddy access log，避免记录认证头、查询串或请求秘密；
+# reverse_proxy 本身也不记录请求正文。
+(agentsql_demo_proxy) {
+	import agentsql_security
+	encode zstd gzip
+	header {
+		Cache-Control "no-store"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	}
+	reverse_proxy {$DEMO_UPSTREAM:127.0.0.1:17880}
 }

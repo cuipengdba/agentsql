@@ -81,6 +81,20 @@ curl -I http://127.0.0.1:8080/
 bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 ```
 
+`/demo/` 是无需登录即可读取的静态安全落地页。当前控制台不支持 base-path：`internal/webui/dist/index.html` 使用绝对 `/assets/...`，`web/vite.config.ts` 的 `base` 为 `/`，路由使用无 `basename` 的 `createBrowserRouter`，API 客户端固定为 `/api/v1`。因此不要对 HTML 正文做字符串替换，也不要把控制台直接 `handle_path` 到 `/demo`。
+
+阶段 A 采用独立回环源：主站的 `/demo/console` 跳转到 `http://127.0.0.1:8081/`，8081 再反代 `DEMO_UPSTREAM`。默认值是 `127.0.0.1:17880`，可在启动 Caddy 前用环境变量覆盖。两个 Caddy 监听和 Compose 的 17880、5432、3306 都必须只绑定 `127.0.0.1`：
+
+```bash
+export DEMO_UPSTREAM=127.0.0.1:17880
+ss -tlnp | grep -E ':(8080|8081|7780|17880|5432|3306)\b'
+curl -I http://127.0.0.1:8080/demo/
+curl -I http://127.0.0.1:8080/demo/console
+curl -I http://127.0.0.1:8081/
+```
+
+预期只出现回环监听；`/demo/` 返回 200，`/demo/console` 返回到 8081 的 302，8081 经反代返回控制台。演示控制台仍使用自身登录，禁止绕过认证。登录后在“演练场”逐一运行六个预置剧本，确认页面横幅说明数据会重置，并确认数据源只有 `ds-demo-pg` 与 `ds-demo-mysql` 两个合成库。
+
 `--stage` 为必填参数，脚本不会猜测当前阶段。阶段 A 首次流程会创建 `/var/www/agentsql/releases/<UTC时间戳>/`，仅复制 `public/` 白名单内容，把 `current` 更新为 root 拥有的符号链接，安装阶段 A 配置和 systemd drop-in，执行静态校验、SELinux 标记、Caddy 配置校验并 reload-or-restart。
 
 部署后必须核验监听地址：
@@ -100,6 +114,21 @@ ssh -L 8080:127.0.0.1:8080 root@203.0.113.10
 保持隧道连接，在本地浏览器打开 `http://127.0.0.1:8080/`。此阶段不改 DNS、不开放 8080，也不申请证书。
 
 ## 4. 阶段 B：备案后切换
+
+### `/demo` 与独立控制台源
+
+stage-b 中 `https://agentsql.cn/demo/` 继续由主站静态提供，`/demo/console` 跳转到 `DEMO_PUBLIC_URL`（默认 `https://demo.agentsql.cn/`）；独立的 `demo.agentsql.cn` 站点再反代 `DEMO_UPSTREAM`（默认 `127.0.0.1:17880`）。这样控制台保持根路径语义，官网入口不依赖临时主机名。配置文件只做准备，本 Unit 禁止修改 DNS 或部署 stage-b；正式切换前必须单独确认 `demo.agentsql.cn` 的备案、DNS 与证书条件。
+
+演示源不启用 Caddy access log，避免把 Authorization、Cookie、查询串或其他请求秘密写入官网访问日志；Caddy 也不会记录请求正文。上游应用自身的日志策略仍需在发布审核中单独检查。演示源保留安全响应头，HSTS 初始值仍是 `max-age=300`，控制台所需的内联样式仅在独立演示源 CSP 中放行。
+
+禁止为演示开放 7780、17880、5432、3306 的安全组或 firewalld 规则。唯一公网入口应为 Caddy 的 80/443；`DEMO_UPSTREAM` 必须是回环地址。正式部署环境可显式设置：
+
+```bash
+export DEMO_UPSTREAM=127.0.0.1:17880
+export DEMO_PUBLIC_URL=https://demo.agentsql.cn/
+```
+
+`www.agentsql.cn` 使用 301 跳转到 `https://agentsql.cn{uri}`，保留原路径与查询串。它和两个 HTTPS 站点都使用初始 `Strict-Transport-Security: max-age=300`，此阶段不得拉长或加入 `includeSubDomains` / `preload`。
 
 按顺序完成以下清单：
 
@@ -131,6 +160,8 @@ ssh -L 8080:127.0.0.1:8080 root@203.0.113.10
    ```bash
    bash ./deploy/verify-static.sh https://agentsql.cn stage-b
    ```
+
+   另行检查 `https://www.agentsql.cn/path?check=1` 为保留 URI 的 301，并检查 `/demo/`、`/demo/console` 与独立演示源。发布日前，`public/index.html` 与 `public/demo/index.html` 必须保持 `noindex,nofollow`，`public/robots.txt` 必须保持 `Disallow: /`。发布日开关位于这三个文件；只可在最终 Release、备案、DNS、证书和演示隔离全部通过后改为 `index,follow` / `Allow: /`。
 
 8. 验证后确认阶段 A 的 8080 监听已消失；如曾临时添加相关防火墙或安全组规则，应删除。HSTS 初始只使用 `max-age=300`，稳定运行并确认所有资源都可经 HTTPS 获取、没有紧急回退需求后，再评估逐步提高；当前不启用 `includeSubDomains` 或 `preload`。
 

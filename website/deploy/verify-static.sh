@@ -35,6 +35,20 @@ if [[ $local_only -eq 0 ]]; then
   status=$(fetch "$BASE_URL/" home)
   [[ $status == 200 ]] && pass "首页返回 200" || fail "首页返回状态为 $status（期望 200）"
 
+  status=$(fetch "$BASE_URL/demo/" demo_landing)
+  if [[ $status == 200 ]] && grep -q '仅合成数据' "$tmp_dir/demo_landing.body" && grep -q '禁止输入真实数据或秘密' "$tmp_dir/demo_landing.body"; then
+    pass "未登录可访问 /demo/ 安全落地页"
+  else
+    fail "/demo/ 状态或安全须知不正确（状态 $status）"
+  fi
+
+  status=$(fetch "$BASE_URL/demo/console" demo_entry)
+  if [[ $status == 302 ]] && grep -Eiq '^location: *https?://' "$tmp_dir/demo_entry.headers"; then
+    pass "/demo/console 跳转到独立演示源"
+  else
+    fail "/demo/console 未返回到独立演示源的 302（状态 $status）"
+  fi
+
   status=$(fetch "$BASE_URL/not-found-for-static-check" missing)
   if [[ $status == 404 ]] && grep -q '页面不存在' "$tmp_dir/missing.body"; then pass "自定义 404 页面返回 404"; else fail "自定义 404 状态或内容不正确"; fi
 
@@ -58,6 +72,8 @@ if [[ $local_only -eq 0 ]]; then
     status=$(fetch 'https://agentsql.cn/' stage_b_https)
     [[ $status == 200 ]] && pass "HTTPS 首页返回 200" || fail "HTTPS 首页返回 $status"
     if grep -Eiq '^strict-transport-security: *max-age=300' "$tmp_dir/stage_b_https.headers"; then pass "HSTS 初始 max-age=300"; else fail "缺少阶段 B HSTS"; fi
+    status=$(curl -sS -o /dev/null -w '%{http_code}' 'https://www.agentsql.cn/verify-www-path?source=stage-b' || true)
+    [[ $status == 301 ]] && pass "www 使用 301 跳转到主域" || fail "www 返回 $status（期望 301）"
   else
     pass "阶段 A：跳过公网 HTTPS 与跳转检查"
   fi
@@ -65,13 +81,32 @@ else
   pass "本地模式：跳过 HTTP、TLS 与响应头检查"
 fi
 
+demo_page="$SITE_ROOT/demo/index.html"
+if [[ -f $demo_page ]] && grep -q '仅合成数据' "$demo_page" && grep -q '只读 / 受控演示' "$demo_page" && grep -q '定期重置' "$demo_page" && grep -q '非生产配置' "$demo_page" && grep -q '禁止输入真实数据或秘密' "$demo_page"; then
+  pass "Demo 落地页包含全部安全边界"
+else
+  fail "Demo 落地页缺失或安全边界不完整"
+fi
+
+if grep -q '<meta name="robots" content="noindex,nofollow">' "$SITE_ROOT/index.html" && grep -q '<meta name="robots" content="noindex,nofollow">' "$demo_page" && grep -q '^Disallow: /$' "$SITE_ROOT/robots.txt"; then
+  pass "预览阶段 meta 与 robots.txt 保持 noindex"
+else
+  fail "预览阶段 noindex 闸门不完整"
+fi
+
+if grep -q 'rel="canonical" href="https://agentsql.cn/"' "$SITE_ROOT/index.html" && grep -q 'property="og:url" content="https://agentsql.cn/"' "$SITE_ROOT/index.html" && grep -q '<loc>https://agentsql.cn/</loc>' "$SITE_ROOT/sitemap.xml"; then
+  pass "canonical、Open Graph URL 与 sitemap 使用 agentsql.cn"
+else
+  fail "canonical、Open Graph URL 或 sitemap 域名不统一"
+fi
+
 origin_fail=0
 while IFS= read -r hit; do
   case "$hit" in
-    https://agentsql.cn/*|https://github.com/*|https://beian.miit.gov.cn*|https://beian.mps.gov.cn*|http://127.0.0.1:*|mailto:*) ;;
+    https://agentsql.cn/*|https://github.com/*|https://raw.githubusercontent.com/*|https://beian.miit.gov.cn*|https://beian.mps.gov.cn*|http://127.0.0.1:*|mailto:*) ;;
     *) printf '      非白名单引用: %s\n' "$hit"; origin_fail=1 ;;
   esac
-done < <(grep -RhoE 'https?://[^"<>()[:space:]]+|mailto:[^"<>()[:space:]]+' "$SITE_ROOT"/*.html "$SITE_ROOT"/.well-known/security.txt 2>/dev/null | sort -u)
+done < <(grep -RhoE --include='*.html' --include='security.txt' 'https?://[^"<>()[:space:]]+|mailto:[^"<>()[:space:]]+' "$SITE_ROOT" 2>/dev/null | sort -u)
 [[ $origin_fail -eq 0 ]] && pass "HTML 外部引用仅含同源、GitHub、备案站、回环地址与邮箱" || fail "发现非白名单外部引用"
 
 if grep -RniE --include='*.html' --include='*.css' '@import|url\(|preconnect|<iframe' "$SITE_ROOT" >/dev/null; then
@@ -91,6 +126,7 @@ validate_reference() {
   fi
   case "$target" in
     data:*|mailto:*|tel:*) return ;;
+    /demo/console) return ;; # Caddy 动态入口，跳转到独立演示源。
     https://agentsql.cn/*) target=/${target#https://agentsql.cn/} ;;
     http://*|https://*) return ;;
     //*) printf '      协议相对引用不允许: %s\n' "$target"; reference_fail=1; return ;;
@@ -142,13 +178,13 @@ while IFS= read -r html_file; do
     value=$(printf '%s\n' "$value" | sed -E 's/^content="(.*)"$/\1/')
     validate_reference "$value" "$html_file" "分享图 meta"
   done < <(grep -Ei '<meta[^>]+(property|name)="(og:image|twitter:image)"' "$html_file" || true)
-done < <(find "$SITE_ROOT" -maxdepth 1 -type f -name '*.html' -print)
+done < <(find "$SITE_ROOT" -type f -name '*.html' -print)
 
 for required_asset in assets/app.css assets/app.js assets/og-cover.png favicon.svg assets/apple-touch-icon.png; do
   [[ -f "$SITE_ROOT/$required_asset" ]] || { printf '      缺失核心资产: %s\n' "$required_asset"; reference_fail=1; }
 done
 
-if grep -Ehi '<(script|img)[^>]+src="https?://|<link[^>]+rel="(stylesheet|icon|apple-touch-icon)"[^>]+href="https?://' "$SITE_ROOT"/*.html >/dev/null; then
+if find "$SITE_ROOT" -type f -name '*.html' -print0 | xargs -0 grep -Ehi '<(script|img)[^>]+src="https?://|<link[^>]+rel="(stylesheet|icon|apple-touch-icon)"[^>]+href="https?://' >/dev/null; then
   printf '      发现外部运行时资源。\n'
   reference_fail=1
 fi

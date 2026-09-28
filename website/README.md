@@ -29,7 +29,7 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 
 - 只发布 `public/` 内容；不得把 `deploy/`、仓库根目录、`.git/` 或环境文件放入文档根。
 - 阶段 A 只监听 `127.0.0.1:8080`，通过 SSH 隧道预览；备案、DNS 和防火墙就绪后才切换阶段 B。
-- 页面与仓库版本口径统一为 `v0.4.0`；正式发布前再复核一次页面与 Release 状态。
+- 页面与仓库版本口径统一为 `v0.4.0 GA`；Release 按钮已指向 `https://github.com/cuipengdba/agentsql/releases/latest`，仅在发布日确认最终 Release 已存在后生效。
 - 站点没有 Cookie 或第三方统计。Caddy 访问日志默认按配置保留 720 小时。
 - 开源授权链接指向仓库 `LICENSE`；商业授权链接指向已存在的 `COMMERCIAL-LICENSE.md`。
 
@@ -46,4 +46,14 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 - 页脚已按上线结构预留 ICP 与公安备案查询链接；生产上线前必须把占位文本替换为审核通过的真实备案号，不得把占位符或编造编号对外发布。
 - 备案完成、DNS A 记录生效且 80/443 放行后，按 `deploy/README-DEPLOY.md` 切换阶段 B。
 - HSTS 先保持 `max-age=300`；稳定运行并确认无回退需求后再评估提高。
-- 公网演示开放前，确认只读合成数据、每日重置和不接真实数据库的边界。
+- `/demo/` 是稳定的静态安全入口；控制台使用独立源反代回环上游，因为当前 Web 构建固定使用根 `/assets`、`/api/v1` 与 BrowserRouter，不能直接部署到子路径。
+- 公网演示开放前，确认仅合成数据、只读或受控剧本、定期重置、不接真实数据库，并确认 7780、17880、5432、3306 均未直接公网暴露。
+
+## 发布日收录闸门
+
+预览与未发布阶段必须保留两处开关：`public/index.html` 和 `public/demo/index.html` 的 `<meta name="robots" content="noindex,nofollow">`，以及 `public/robots.txt` 的 `Disallow: /`。发布日由主控在 stage-b 切换前完成以下动作并重新运行静态验收：
+
+1. 确认 v0.4.0 最终 Release 已存在，`releases/latest` 已解析到该版本。
+2. 将两个 HTML 的 robots meta 改为 `index,follow`。
+3. 将 `public/robots.txt` 改为 `Allow: /`，保留 `https://agentsql.cn/sitemap.xml`。
+4. 仅在备案、DNS、证书与演示隔离全部就绪后部署 stage-b。
