@@ -24,7 +24,7 @@ func TestDiscoveryMySQL8EndToEndE2E(t *testing.T) {
 	ctx := controlledReadDockerContext(t)
 	const database, username, password = "agentsql_discovery", "root", "agentsql-password"
 	container, err := mysqlcontainer.Run(ctx, "mysql:8", mysqlcontainer.WithDatabase(database), mysqlcontainer.WithUsername(username), mysqlcontainer.WithPassword(password),
-		testcontainers.WithWaitStrategyAndDeadline(180*time.Second, wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second)))
+		testcontainers.WithWaitStrategyAndDeadline(300*time.Second, wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(300*time.Second)))
 	if err != nil {
 		if container != nil {
 			testcontainers.CleanupContainer(t, container)

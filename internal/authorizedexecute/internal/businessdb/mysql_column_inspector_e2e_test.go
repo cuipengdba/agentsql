@@ -43,8 +43,8 @@ func runMySQLColumnInspectorS6Matrix(t *testing.T, image string) {
 			"agentsql.b2.s6.mysql-inspector": "true",
 			"agentsql.mysql.image":           image,
 		}),
-		testcontainers.WithWaitStrategyAndDeadline(180*time.Second,
-			wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second),
+		testcontainers.WithWaitStrategyAndDeadline(300*time.Second,
+			wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(300*time.Second),
 		),
 	)
 	if err != nil {

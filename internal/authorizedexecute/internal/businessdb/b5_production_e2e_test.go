@@ -180,7 +180,7 @@ func TestB5ProductionMySQLContainerUnsupported(t *testing.T) {
 	t.Cleanup(cancel)
 	container, err := mysqlcontainer.Run(ctx, "mysql:8.4", mysqlcontainer.WithDatabase("agentsql"),
 		mysqlcontainer.WithUsername("agentsql"), mysqlcontainer.WithPassword("b5-mysql-password"),
-		testcontainers.WithWaitStrategyAndDeadline(180*time.Second, wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second)))
+		testcontainers.WithWaitStrategyAndDeadline(300*time.Second, wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(300*time.Second)))
 	if err != nil {
 		if container != nil {
 			testcontainers.CleanupContainer(t, container)

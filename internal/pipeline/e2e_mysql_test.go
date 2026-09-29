@@ -33,8 +33,8 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		mysqlcontainer.WithDatabase(database),
 		mysqlcontainer.WithUsername(username),
 		mysqlcontainer.WithPassword(password),
-		testcontainers.WithWaitStrategyAndDeadline(180*time.Second,
-			wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second),
+		testcontainers.WithWaitStrategyAndDeadline(300*time.Second,
+			wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(300*time.Second),
 		),
 	)
 	if err != nil {
