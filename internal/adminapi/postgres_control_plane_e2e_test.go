@@ -336,7 +336,8 @@ VALUES
 	require.NoError(t, json.Unmarshal(ruleBody, &createdRule))
 	require.True(t, createdRule.Data.Enabled, "PostgreSQL boolean values must scan through the rule repository")
 
-	queryResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 1,
+	sessionID := adminE2EMCPInitialize(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 0)
+	queryResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, sessionID, 1,
 		"query", map[string]any{
 			"datasource_id": "pg-demo",
 			"sql":           "SELECT id, email, balance FROM public.customers ORDER BY id LIMIT 10",
@@ -354,7 +355,7 @@ VALUES
 	require.Positive(t, queryData.AuditID)
 
 	hashEvents, cancelHashEvents := runtime.Events.SubscribeLive()
-	hashResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 2,
+	hashResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, sessionID, 2,
 		"query", map[string]any{
 			"datasource_id": "pg-demo",
 			"sql":           "SELECT name FROM public.customers WHERE id = 1 LIMIT 1",
@@ -428,7 +429,7 @@ hashNotificationVerified:
 		{sql: "UPDATE public.customers SET balance = 0", reason: "unsafe update regression"},
 		{sql: "DELETE FROM public.customers", reason: "unsafe delete regression"},
 	} {
-		response := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey,
+		response := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, sessionID,
 			id+2, "execute_write", map[string]any{
 				"datasource_id": "pg-demo", "sql": write.sql, "reason": write.reason,
 			})
@@ -440,7 +441,7 @@ hashNotificationVerified:
 		require.Equal(t, before, adminE2EBusinessRows(t, ctx, businessPool), "denied SQL must not reach PostgreSQL")
 	}
 
-	approvalResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 4,
+	approvalResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, sessionID, 4,
 		"execute_write", map[string]any{
 			"datasource_id": "pg-demo",
 			"sql":           "UPDATE public.customers SET balance = balance + 1 WHERE id = 1",
@@ -635,7 +636,7 @@ hashNotificationVerified:
 notificationsDrained:
 	events, cancelEvents := runtime.Events.SubscribeLive()
 	defer cancelEvents()
-	sensitiveResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 40,
+	sensitiveResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, sessionID, 40,
 		"query", map[string]any{
 			"datasource_id": "pg-demo",
 			"sql":           "SELECT id_card, legacy_id_card, bank_card_plain, bank_card_formatted, client_ip, ip_network, birth_date FROM public.customers WHERE id = 1 LIMIT 1",
@@ -706,7 +707,7 @@ notificationsDrained:
 
 notificationVerified:
 
-	fallbackResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, 41,
+	fallbackResponse := adminE2EMCPCall(t, ctx, server.Client(), server.URL, createdAgent.Data.APIKey, sessionID, 41,
 		"query", map[string]any{
 			"datasource_id": "pg-demo",
 			"sql":           "SELECT id_card FROM public.customers WHERE id = 3 LIMIT 1",
@@ -786,12 +787,48 @@ func adminE2ERequest(
 	return contents
 }
 
+func adminE2EMCPInitialize(
+	t *testing.T,
+	ctx context.Context,
+	client *http.Client,
+	baseURL string,
+	apiKey string,
+	id int,
+) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": id, "method": "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2025-06-18",
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "admin-e2e", "version": "1"},
+		},
+	})
+	require.NoError(t, err)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/mcp", bytes.NewReader(payload))
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	contents, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode, string(contents))
+	sessionID := response.Header.Get("Mcp-Session-Id")
+	require.NotEmpty(t, sessionID, "initialize must return a transport session ID")
+	return sessionID
+}
+
 func adminE2EMCPCall(
 	t *testing.T,
 	ctx context.Context,
 	client *http.Client,
 	baseURL string,
 	apiKey string,
+	sessionID string,
 	id int,
 	tool string,
 	arguments map[string]any,
@@ -808,6 +845,7 @@ func adminE2EMCPCall(
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	request.Header.Set("Mcp-Session-Id", sessionID)
 	response, err := client.Do(request)
 	require.NoError(t, err)
 	defer response.Body.Close()

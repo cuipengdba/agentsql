@@ -75,6 +75,36 @@ func TestPrepareStdioConfigDisablesHTTPEventStream(t *testing.T) {
 	require.True(t, loaded.Server.EventStream)
 }
 
+const mcpInitializeHTTPBody = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cmd-entrypoint-test","version":"1"}}}`
+
+// mcpHTTPRequest posts a single Streamable HTTP MCP envelope, attaching the
+// transport session ID when one is provided.
+func mcpHTTPRequest(t *testing.T, handler http.Handler, apiKey string, body string, sessionID string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	if sessionID != "" {
+		request.Header.Set("Mcp-Session-Id", sessionID)
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+// mcpHTTPInitialize performs the initialize handshake and returns the
+// Mcp-Session-Id that subsequent stateful requests must present.
+func mcpHTTPInitialize(t *testing.T, handler http.Handler, apiKey string) string {
+	t.Helper()
+	recorder := mcpHTTPRequest(t, handler, apiKey, mcpInitializeHTTPBody, "")
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	sessionID := recorder.Header().Get("Mcp-Session-Id")
+	require.NotEmpty(t, sessionID, "initialize must return a transport session ID")
+	return sessionID
+}
+
 func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
 	const secret = "0123456789abcdef0123456789abcdef"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -90,13 +120,8 @@ func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
 
 	handler, err := mcpserver.NewHTTPHandler(runtime, cfg, zerolog.Nop(), mcpserver.WithB5Sessions(options))
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
-	request.Header.Set("Authorization", "Bearer "+apiKey)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json, text/event-stream")
-	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
+	sessionID := mcpHTTPInitialize(t, handler, apiKey)
+	recorder := mcpHTTPRequest(t, handler, apiKey, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, sessionID)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	for _, name := range []string{"open_session", "begin_transaction", "execute_transaction_statement", "commit_transaction", "rollback_transaction"} {
 		require.Contains(t, recorder.Body.String(), `"`+name+`"`)
@@ -104,14 +129,8 @@ func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
 	_, err = runtime.Store.Datasources().Create(ctx, model.Datasource{ID: "b5-entrypoint-mysql", Name: "MySQL", DBType: "mysql",
 		Host: "127.0.0.1", Port: 3306, Database: "app", Username: "agentsql", ConnLimit: 2, StmtTimeoutMS: 5_000, RowLimit: 100}, "not-used")
 	require.NoError(t, err)
-	mysqlCall := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"begin_transaction","arguments":{"session_id":"not-used","owner_epoch":1,"request_id":"mysql","continuation_proof":"not-used","body_digest":"not-used","transaction_id":"not-used","datasource_id":"b5-entrypoint-mysql","dialect":"postgres","server_major":18,"key_revision":1,"datasource_revision":1,"policy_revision":1,"statements":[{"operation_id":"op","sql":"UPDATE items SET value=1","reason":"must reject mysql"}]}}}`
-	request = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(mysqlCall))
-	request.Header.Set("Authorization", "Bearer "+apiKey)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json, text/event-stream")
-	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
-	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
+	mysqlCall := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"begin_transaction","arguments":{"session_id":"not-used","owner_epoch":1,"request_id":"mysql","continuation_proof":"not-used","body_digest":"not-used","transaction_id":"not-used","datasource_id":"b5-entrypoint-mysql","dialect":"postgres","server_major":18,"key_revision":1,"datasource_revision":1,"policy_revision":1,"statements":[{"operation_id":"op","sql":"UPDATE items SET value=1","reason":"must reject mysql"}]}}}`
+	recorder = mcpHTTPRequest(t, handler, apiKey, mysqlCall, sessionID)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Contains(t, recorder.Body.String(), "DIALECT_TRANSACTION_UNSUPPORTED")
 	require.Contains(t, recorder.Body.String(), "MySQL")
@@ -165,13 +184,8 @@ func TestB5ExplicitOffHidesToolsFromHTTPAndStdio(t *testing.T) {
 
 	handler, err := mcpserver.NewHTTPHandler(runtime, cfg, zerolog.Nop())
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
-	request.Header.Set("Authorization", "Bearer "+apiKey)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json, text/event-stream")
-	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
+	sessionID := mcpHTTPInitialize(t, handler, apiKey)
+	recorder := mcpHTTPRequest(t, handler, apiKey, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, sessionID)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	for _, name := range []string{"open_session", "close_session", "get_session_status", "begin_transaction", "execute_transaction_statement", "commit_transaction", "rollback_transaction", "get_transaction_status"} {
 		require.NotContains(t, recorder.Body.String(), `"`+name+`"`)

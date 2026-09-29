@@ -99,6 +99,8 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 		})
 	dmlKey := createAuditBarrierAgent(t, ctx, server, authorization, "barrier-dml", "dml")
 	ddlKey := createAuditBarrierAgent(t, ctx, server, authorization, "barrier-ddl", "ddl")
+	dmlSession := adminE2EMCPInitialize(t, ctx, server.Client(), server.URL, dmlKey, 100)
+	ddlSession := adminE2EMCPInitialize(t, ctx, server.Client(), server.URL, ddlKey, 100)
 	for _, policy := range []map[string]any{
 		{"id": "barrier-dml-policy", "agent_id": "barrier-dml", "datasource_id": "barrier-business", "object_type": "table", "object_name": "public.accounts", "action": "allow"},
 		{"id": "barrier-ddl-policy", "agent_id": "barrier-ddl", "datasource_id": "barrier-business", "object_type": "table", "object_name": "public.audit_outage_object", "action": "allow"},
@@ -144,21 +146,21 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 		return response.StatusCode == http.StatusServiceUnavailable
 	}, "readiness to become unavailable")
 
-	queryFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, 101,
+	queryFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 101,
 		"query", map[string]any{"datasource_id": "barrier-business", "sql": "SELECT id,balance FROM public.accounts ORDER BY id LIMIT 10"})
 	require.Equal(t, "error", queryFailure.Decision)
 	require.Empty(t, queryFailure.Data)
 	require.NotContains(t, queryFailure.Reason, auditDSN)
 	require.NotContains(t, queryFailure.Reason, password)
 
-	writeFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, 102,
+	writeFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 102,
 		"execute_write", map[string]any{
 			"datasource_id": "barrier-business", "sql": "UPDATE public.accounts SET balance=balance+10 WHERE id=1", "reason": "audit outage test",
 		})
 	require.Equal(t, "error", writeFailure.Decision)
 	require.Equal(t, before, auditBarrierBusinessRows(t, ctx, businessPool))
 
-	approvalFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, 103,
+	approvalFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 103,
 		"request_approval", map[string]any{
 			"datasource_id": "barrier-business", "sql": "UPDATE public.accounts SET balance=balance+1 WHERE id=2", "reason": "audit outage approval",
 		})
@@ -167,7 +169,7 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 	require.NoError(t, metaPool.QueryRow(ctx, "SELECT COUNT(*) FROM approvals").Scan(&approvalsAfter))
 	require.Equal(t, approvalsBefore, approvalsAfter)
 
-	ddlFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, ddlKey, 104,
+	ddlFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, ddlKey, ddlSession, 104,
 		"execute_write", map[string]any{
 			"datasource_id": "barrier-business", "sql": "CREATE TABLE public.audit_outage_object(id integer)", "reason": "audit outage DDL",
 		})
@@ -197,15 +199,15 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 		return response.StatusCode == http.StatusOK
 	}, "readiness to recover")
 
-	querySuccess := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, 105,
+	querySuccess := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 105,
 		"query", map[string]any{"datasource_id": "barrier-business", "sql": "SELECT id,balance FROM public.accounts ORDER BY id LIMIT 10"})
 	require.Equal(t, "allow", querySuccess.Decision)
-	writeSuccess := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, 106,
+	writeSuccess := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 106,
 		"execute_write", map[string]any{
 			"datasource_id": "barrier-business", "sql": "UPDATE public.accounts SET balance=balance+10 WHERE id=1", "reason": "audit recovered",
 		})
 	require.Equal(t, "allow", writeSuccess.Decision)
-	approvalSuccess := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, 107,
+	approvalSuccess := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 107,
 		"request_approval", map[string]any{
 			"datasource_id": "barrier-business", "sql": "UPDATE public.accounts SET balance=balance+1 WHERE id=2", "reason": "audit recovered approval",
 		})
