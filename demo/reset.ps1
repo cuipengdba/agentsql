@@ -51,6 +51,75 @@ function Assert-CountLines {
     }
 }
 
+$mcpTransportSessions = @{}
+
+function Send-MCPRequest {
+    param(
+        [string]$GatewayPort,
+        [string]$APIKey,
+        [string]$Payload,
+        [string]$SessionID,
+        [int]$MaxAttempts = 8
+    )
+    for ($i = 0; $i -lt $MaxAttempts; $i++) {
+        $client = New-Object System.Net.WebClient
+        $client.Encoding = [Text.Encoding]::UTF8
+        $client.Headers.Add("Authorization", "Bearer $APIKey")
+        $client.Headers.Add("Accept", "application/json, text/event-stream")
+        $client.Headers.Add("MCP-Protocol-Version", "2025-06-18")
+        $client.Headers.Add("Content-Type", "application/json; charset=utf-8")
+        if (-not [string]::IsNullOrWhiteSpace($SessionID)) {
+            $client.Headers.Add("Mcp-Session-Id", $SessionID)
+        }
+        try {
+            $raw = $client.UploadString("http://127.0.0.1:$GatewayPort/mcp", "POST", $Payload)
+            return [pscustomobject]@{ Body = ($raw | ConvertFrom-Json); SessionID = $client.ResponseHeaders["Mcp-Session-Id"] }
+        } catch [System.Net.WebException] {
+            $statusCode = 0
+            if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
+            if ($statusCode -eq 429) {
+                # Rate limited; the demo limiter refills at 2 QPS (one token
+                # every 500ms), so back off and retry.
+                Start-Sleep -Milliseconds 600
+                continue
+            }
+            throw
+        } finally {
+            $client.Dispose()
+        }
+    }
+    throw "MCP request gave up after $MaxAttempts attempts (rate limited)"
+}
+
+function New-MCPTransportSession {
+    param(
+        [string]$GatewayPort,
+        [string]$APIKey,
+        [switch]$Force
+    )
+    $cacheKey = "$GatewayPort|" + $APIKey.GetHashCode()
+    if (-not $Force -and $mcpTransportSessions.ContainsKey($cacheKey)) {
+        return $mcpTransportSessions[$cacheKey]
+    }
+    $init = [ordered]@{
+        jsonrpc = "2.0"
+        id = "init-$([Guid]::NewGuid().ToString('N'))"
+        method = "initialize"
+        params = [ordered]@{
+            protocolVersion = "2025-06-18"
+            capabilities = [ordered]@{}
+            clientInfo = [ordered]@{ name = "demo-reset"; version = "v0.4" }
+        }
+    } | ConvertTo-Json -Depth 20 -Compress
+    $result = Send-MCPRequest -GatewayPort $GatewayPort -APIKey $APIKey -Payload $init
+    $sessionID = $result.SessionID
+    if ([string]::IsNullOrWhiteSpace($sessionID)) {
+        throw "MCP initialize did not return an Mcp-Session-Id header"
+    }
+    $mcpTransportSessions[$cacheKey] = $sessionID
+    return $sessionID
+}
+
 function Invoke-MCPTool {
     param(
         [string]$GatewayPort,
@@ -64,19 +133,30 @@ function Invoke-MCPTool {
         method = "tools/call"
         params = [ordered]@{ name = $Name; arguments = $Arguments }
     } | ConvertTo-Json -Depth 20 -Compress
-    $headers = @{
-        Authorization = "Bearer $APIKey"
-        Accept = "application/json, text/event-stream"
-        "MCP-Protocol-Version" = "2025-06-18"
+    # The Streamable HTTP transport is stateful by default: every
+    # non-initialize POST must carry the Mcp-Session-Id obtained from the
+    # initialize handshake, otherwise the gateway returns 400. One transport
+    # session is established and reused per API key (a real client's behavior).
+    # The helper self-paces against the demo rate limiter (429 backoff) and
+    # rebuilds a transport session if the cached one expired (404/400).
+    $response = $null
+    for ($attempt = 0; $attempt -le 2; $attempt++) {
+        $sessionID = New-MCPTransportSession -GatewayPort $GatewayPort -APIKey $APIKey -Force:($attempt -ge 1)
+        try {
+            $response = (Send-MCPRequest -GatewayPort $GatewayPort -APIKey $APIKey -Payload $body -SessionID $sessionID).Body
+            break
+        } catch [System.Net.WebException] {
+            $statusCode = 0
+            if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
+            if ($statusCode -eq 404 -or $statusCode -eq 400) {
+                # Cached session expired or was rejected; force a new one.
+                continue
+            }
+            throw
+        }
     }
-    $client = New-Object System.Net.WebClient
-    $client.Encoding = [Text.Encoding]::UTF8
-    foreach ($header in $headers.GetEnumerator()) { $client.Headers.Add($header.Key, $header.Value) }
-    $client.Headers.Add("Content-Type", "application/json; charset=utf-8")
-    try {
-        $response = $client.UploadString("http://127.0.0.1:$GatewayPort/mcp", "POST", $body) | ConvertFrom-Json
-    } finally {
-        $client.Dispose()
+    if ($null -eq $response) {
+        throw "MCP transport error for $Name"
     }
     if ($null -ne $response.error) {
         throw "MCP transport error for $Name"
@@ -454,6 +534,7 @@ try {
     if ($interruptedValue -ne "3000") { throw "B5 interrupted transaction leaked a write (got=$interruptedValue)" }
 
     Write-Host "[demo-reset] OK anchor=$anchor gateway=http://127.0.0.1:$gatewayPort b2_mode=$b2Mode b5_readiness=$b5Readiness"
+    exit 0
 } catch {
     Write-Error "[demo-reset] FAILED stage=$Stage`: $($_.Exception.Message)"
     exit 1
