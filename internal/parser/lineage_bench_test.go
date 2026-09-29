@@ -59,6 +59,9 @@ func benchmarkProjectionLineageSQL(b *testing.B, dialect model.DBDialect, sql st
 }
 
 func TestParseProjectionLineageP99Budget(t *testing.T) {
+	if raceEnabled {
+		t.Skip("hard latency budget is not meaningful under -race (instrumentation adds multi-x overhead); budget covered by non-race runs")
+	}
 	const (
 		typicalIterations = 2000
 		scaleIterations   = 200
