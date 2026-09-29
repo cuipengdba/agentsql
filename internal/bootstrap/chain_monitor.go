@@ -17,6 +17,13 @@ const (
 	chainVerificationInterval = 15 * time.Minute
 	chainVerificationJitter   = 0.20
 	chainVerificationValid    = "VALID_AT_OBSERVED_HEAD"
+	// chainVerificationRoundTimeout bounds a single verification round. The
+	// round context is deliberately detached from the monitor lifecycle so
+	// that closing the monitor does not interrupt an in-flight read-only
+	// SQLite query. Interrupting such a query races the driver connection
+	// teardown and can leave a file lock on Windows; letting the round
+	// finish naturally releases the lock synchronously.
+	chainVerificationRoundTimeout = 90 * time.Second
 )
 
 var errChainManifestUnavailable = errors.New("audit chain manifest is unavailable")
@@ -153,7 +160,13 @@ func (monitor *ChainMonitor) verifyDomain(ctx context.Context, domain string) {
 		slog.Warn("audit chain monitor could not open domain", "domain", domain, "error", err)
 		return
 	}
-	outcome, verifyErr := access.Verifier(manifest).VerifyAndPersist(ctx)
+	// The read-only verification snapshot runs on a detached, bounded context.
+	// Interrupting an in-flight SQLite read via the lifecycle context races the
+	// driver connection teardown and can leave a file lock on Windows; the
+	// read is fast and is allowed to finish naturally.
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), chainVerificationRoundTimeout)
+	defer verifyCancel()
+	outcome, verifyErr := access.Verifier(manifest).VerifyAndPersist(verifyCtx)
 	completedAt := monitor.nowUTC()
 	monitor.metrics.SetAuditChainValid(domain, outcome.Valid && outcome.Result == chainVerificationValid)
 	monitor.metrics.SetAuditChainLastVerified(domain, completedAt)
