@@ -42,7 +42,7 @@ func NewFileExtentSink(path string) (*FileExtentSink, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syncDirectory(filepath.Dir(path)); err != nil {
+	if err := SyncDirectory(filepath.Dir(path)); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("b5wal: sync new segment directory: %w", err)
 	}

@@ -172,11 +172,11 @@ func (store FileQuarantineStore) Quarantine(ctx context.Context, source string, 
 	if err != nil {
 		return err
 	}
-	if err := syncDirectory(store.Directory); err != nil {
+	if err := SyncDirectory(store.Directory); err != nil {
 		return err
 	}
 	if sourceDirectory := filepath.Dir(source); sourceDirectory != store.Directory {
-		return syncDirectory(sourceDirectory)
+		return SyncDirectory(sourceDirectory)
 	}
 	return nil
 }

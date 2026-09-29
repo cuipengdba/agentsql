@@ -115,17 +115,9 @@ func (registry FileKeyRegistry) Reserve(ctx context.Context, keyID string, segme
 	if closeErr != nil {
 		return false, closeErr
 	}
-	if err := syncDirectory(registry.Directory); err != nil {
+	if err := SyncDirectory(registry.Directory); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	err = directory.Sync()
-	return errors.Join(err, directory.Close())
-}

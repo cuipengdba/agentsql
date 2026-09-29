@@ -571,11 +571,7 @@ func (directoryFsyncAttestor) Attest(ctx context.Context, directory string) erro
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	file, err := os.Open(directory)
-	if err != nil {
-		return err
-	}
-	return errors.Join(file.Sync(), file.Close())
+	return b5wal.SyncDirectory(directory)
 }
 
 type unavailableB5Auditor struct{ cause error }

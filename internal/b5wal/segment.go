@@ -143,7 +143,7 @@ func (store FileManifestStore) Persist(ctx context.Context, manifest SegmentMani
 	if closeErr != nil {
 		return closeErr
 	}
-	return syncDirectory(store.Directory)
+	return SyncDirectory(store.Directory)
 }
 
 // MemoryKeyRegistry is a concurrency-safe contract implementation for tests.
