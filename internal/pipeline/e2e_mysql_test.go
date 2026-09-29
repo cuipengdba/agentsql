@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestPipelineMySQL8E2E(t *testing.T) {
@@ -32,6 +33,9 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		mysqlcontainer.WithDatabase(database),
 		mysqlcontainer.WithUsername(username),
 		mysqlcontainer.WithPassword(password),
+		testcontainers.WithWaitStrategyAndDeadline(180*time.Second,
+			wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second),
+		),
 	)
 	if err != nil {
 		if container != nil {

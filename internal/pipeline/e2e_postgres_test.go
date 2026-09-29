@@ -665,7 +665,7 @@ func pipelineDockerTestContext(t *testing.T) context.Context {
 		t.Skip("docker daemon unavailable")
 	}
 	require.NoError(t, err, "Docker probe failed after the client connected")
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 	return ctx
 }

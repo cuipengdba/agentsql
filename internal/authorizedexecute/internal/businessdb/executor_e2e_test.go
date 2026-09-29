@@ -16,6 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestPostgresExecutorE2E(t *testing.T) {
@@ -411,6 +412,9 @@ func TestMySQLExecutorE2E(t *testing.T) {
 		mysqlcontainer.WithDatabase(database),
 		mysqlcontainer.WithUsername(username),
 		mysqlcontainer.WithPassword(password),
+		testcontainers.WithWaitStrategyAndDeadline(180*time.Second,
+			wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second),
+		),
 	)
 	if err != nil {
 		if container != nil {
@@ -1024,7 +1028,7 @@ func dockerTestContext(t *testing.T) context.Context {
 		t.Skip("docker daemon unavailable")
 	}
 	require.NoError(t, err, "Docker probe failed after the client connected")
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 	return ctx
 }

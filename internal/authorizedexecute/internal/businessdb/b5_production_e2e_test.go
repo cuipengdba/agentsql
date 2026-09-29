@@ -24,6 +24,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestB5ProductionOrdinaryPostgresNoExtensionCrossRequestAndFailClosed(t *testing.T) {
@@ -175,10 +176,11 @@ func TestB5ProductionMySQLContainerUnsupported(t *testing.T) {
 	if testing.Short() {
 		t.Skip("B5 production MySQL rejection requires a real container")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 	container, err := mysqlcontainer.Run(ctx, "mysql:8.4", mysqlcontainer.WithDatabase("agentsql"),
-		mysqlcontainer.WithUsername("agentsql"), mysqlcontainer.WithPassword("b5-mysql-password"))
+		mysqlcontainer.WithUsername("agentsql"), mysqlcontainer.WithPassword("b5-mysql-password"),
+		testcontainers.WithWaitStrategyAndDeadline(180*time.Second, wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second)))
 	if err != nil {
 		if container != nil {
 			testcontainers.CleanupContainer(t, container)

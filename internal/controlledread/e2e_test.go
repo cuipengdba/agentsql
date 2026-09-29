@@ -17,12 +17,14 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestDiscoveryMySQL8EndToEndE2E(t *testing.T) {
 	ctx := controlledReadDockerContext(t)
 	const database, username, password = "agentsql_discovery", "root", "agentsql-password"
-	container, err := mysqlcontainer.Run(ctx, "mysql:8", mysqlcontainer.WithDatabase(database), mysqlcontainer.WithUsername(username), mysqlcontainer.WithPassword(password))
+	container, err := mysqlcontainer.Run(ctx, "mysql:8", mysqlcontainer.WithDatabase(database), mysqlcontainer.WithUsername(username), mysqlcontainer.WithPassword(password),
+		testcontainers.WithWaitStrategyAndDeadline(180*time.Second, wait.ForLog("port: 3306  MySQL Community Server").WithStartupTimeout(180*time.Second)))
 	if err != nil {
 		if container != nil {
 			testcontainers.CleanupContainer(t, container)
@@ -303,7 +305,7 @@ func controlledReadDockerContext(t *testing.T) context.Context {
 		t.Skip("docker daemon unavailable")
 	}
 	require.NoError(t, err, "Docker probe failed after client construction")
-	ctx, stop := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, stop := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(stop)
 	return ctx
 }
