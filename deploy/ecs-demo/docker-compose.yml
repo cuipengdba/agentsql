@@ -1,0 +1,147 @@
+# AgentSQL Live Demo — full dual-datasource stack (PostgreSQL + MySQL).
+#
+# The demo control plane enforces a fixed contract: both datasources must be
+# present, and the PostgreSQL B2 column policies require the shipped
+# agentsql_binder native extension (the stock postgres image is rejected during
+# demo-seed with AUTH_BINDER_MODE_REQUIRED). This compose therefore uses the
+# binder image published to GHCR.
+#
+# Memory footprint is tuned for a 2 vCPU / ~1.8 GB host. The gateway is bound
+# to loopback and is fronted by Caddy on demo.agentsql.cn.
+#
+# Deploy:
+#   cp .env.example .env   # then edit every REPLACE value
+#   docker compose pull
+#   docker compose up -d postgres mysql
+#   docker compose run --rm seed
+#   docker compose up -d gateway
+#
+# The demo is ephemeral by design; reset with:
+#   docker compose down -v && docker compose run --rm seed
+
+services:
+  postgres:
+    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.4
+    container_name: agentsql-demo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentsql_demo
+      POSTGRES_USER: agentsql_demo_owner
+      POSTGRES_PASSWORD: ${DEMO_PG_OWNER_PASSWORD}
+      DEMO_ANCHOR_DATE: ${DEMO_ANCHOR_DATE}
+      DEMO_PG_RO_PASSWORD: ${AGENTSQL_DEMO_PG_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - max_connections=12
+      - -c
+      - work_mem=4MB
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./postgres:/docker-entrypoint-initdb.d:ro
+    networks:
+      default:
+        aliases:
+          - demo-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentsql_demo_owner -d agentsql_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mysql:
+    image: mysql:8
+    container_name: agentsql-demo-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: agentsql_demo
+      MYSQL_ROOT_PASSWORD: ${DEMO_MYSQL_ROOT_PASSWORD}
+      DEMO_ANCHOR_DATE: ${DEMO_ANCHOR_DATE}
+      DEMO_MYSQL_RO_PASSWORD: ${AGENTSQL_DEMO_MYSQL_PASSWORD}
+    # Memory-tuned for a small host: shrink the InnoDB buffer pool, disable the
+    # performance schema and cap caches/connections.
+    command:
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=12
+      - --innodb-log-buffer-size=8M
+      - --table-open-cache=100
+      - --table-definition-cache=100
+      - --innodb-flush-method=fsync
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql:/docker-entrypoint-initdb.d:ro
+    networks:
+      default:
+        aliases:
+          - demo-mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DEMO_MYSQL_ROOT_PASSWORD}", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  seed:
+    image: ghcr.io/cuipengdba/agentsql:v0.4.0
+    container_name: agentsql-demo-seed
+    restart: "no"
+    environment:
+      AGENTSQL_DEMO: "1"
+      AGENTSQL_SECRET: ${AGENTSQL_SECRET}
+      AGENTSQL_DEMO_PG_PASSWORD: ${AGENTSQL_DEMO_PG_PASSWORD}
+      AGENTSQL_DEMO_MYSQL_PASSWORD: ${AGENTSQL_DEMO_MYSQL_PASSWORD}
+      AGENTSQL_DEMO_RO_KEY: ${AGENTSQL_DEMO_RO_KEY}
+      AGENTSQL_DEMO_DML_KEY: ${AGENTSQL_DEMO_DML_KEY}
+    entrypoint: ["/usr/local/bin/agentsqlctl"]
+    command:
+      - demo-seed
+      - --config
+      - /etc/agentsql/config.demo.yaml
+      - --manifest
+      - /etc/agentsql/demo-seed.yaml
+      - --anchor-date
+      - ${DEMO_ANCHOR_DATE}
+    volumes:
+      - gw-data:/var/lib/agentsql
+      - ./config.demo.yaml:/etc/agentsql/config.demo.yaml:ro
+      - ./demo-seed.yaml:/etc/agentsql/demo-seed.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+
+  gateway:
+    image: ghcr.io/cuipengdba/agentsql:v0.4.0
+    container_name: agentsql-demo-gateway
+    restart: unless-stopped
+    environment:
+      AGENTSQL_DEMO: "1"
+      AGENTSQL_SECRET: ${AGENTSQL_SECRET}
+      AGENTSQL_ADMIN_USER: ${AGENTSQL_ADMIN_USER}
+      AGENTSQL_ADMIN_PASSWORD: ${AGENTSQL_ADMIN_PASSWORD}
+      AGENTSQL_DEMO_PG_PASSWORD: ${AGENTSQL_DEMO_PG_PASSWORD}
+      AGENTSQL_DEMO_MYSQL_PASSWORD: ${AGENTSQL_DEMO_MYSQL_PASSWORD}
+      AGENTSQL_DEMO_RO_KEY: ${AGENTSQL_DEMO_RO_KEY}
+      AGENTSQL_DEMO_DML_KEY: ${AGENTSQL_DEMO_DML_KEY}
+    command:
+      - serve
+      - --config
+      - /etc/agentsql/config.demo.yaml
+    volumes:
+      - gw-data:/var/lib/agentsql
+      - ./config.demo.yaml:/etc/agentsql/config.demo.yaml:ro
+    ports:
+      # Loopback only; Caddy terminates TLS on demo.agentsql.cn and proxies here.
+      # Override GATEWAY_HOST_PORT for local testing to avoid port conflicts.
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-17880}:7780"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+volumes:
+  pg-data:
+  mysql-data:
+  gw-data:

@@ -1,0 +1,7 @@
+# Assembled at deploy time by prepare.sh / copied from the repo.
+/config.demo.yaml
+/demo-seed.yaml
+/postgres/
+/mysql/
+# Real credentials — never commit.
+/.env
