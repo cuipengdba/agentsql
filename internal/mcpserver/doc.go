@@ -1,3 +1,4 @@
-// Package mcpserver exposes the seven frozen AgentSQL tools over MCP stdio and
-// stateless multi-tenant Streamable HTTP.
+// Package mcpserver exposes the frozen AgentSQL tools over MCP stdio and
+// authenticated multi-tenant Streamable HTTP. HTTP transport sessions are
+// stateful by default and can be explicitly rolled back to stateless mode.
 package mcpserver

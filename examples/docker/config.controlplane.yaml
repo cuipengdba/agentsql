@@ -31,6 +31,9 @@ column_authorization:
   instance_id_file: "/var/lib/agentsql/instance-id"
 
 mcp:
+  http:
+    stateful: true
+    session_timeout_ms: 600000
   sessions:
     enabled: true
   transactions:

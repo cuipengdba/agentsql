@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,13 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cuipengdba/agentsql/internal/auth"
+	internalauth "github.com/cuipengdba/agentsql/internal/auth"
 	authorizedexecute "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/version"
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
@@ -148,7 +150,7 @@ func agentServerKey(agent model.Agent) string {
 	return agent.ID + "|" + agent.APIKeyHash
 }
 
-// NewHTTPHandler creates the stateless multi-tenant Streamable HTTP endpoint.
+// NewHTTPHandler creates the multi-tenant Streamable HTTP endpoint.
 func NewHTTPHandler(
 	runtime *bootstrap.Runtime,
 	cfg config.Config,
@@ -225,6 +227,7 @@ func newHTTPHandlerWithRegistry(
 		return nil, nil, fmt.Errorf("create MCP HTTP handler: %w", err)
 	}
 	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent, resolvedOptions.b5)
+	mcpConfig := cfg.EffectiveMCP()
 	getServer := func(request *http.Request) *mcp.Server {
 		identity, ok := identityFromContext(request.Context())
 		if !ok {
@@ -242,9 +245,10 @@ func newHTTPHandlerWithRegistry(
 	sdkHandler := mcp.NewStreamableHTTPHandler(
 		getServer,
 		&mcp.StreamableHTTPOptions{
-			Stateless:           true,
+			Stateless:           !mcpConfig.HTTP.Stateful,
 			JSONResponse:        true,
 			MaxRequestBodyBytes: maxMCPRequestBodyBytes,
+			SessionTimeout:      time.Duration(mcpConfig.HTTP.SessionTimeoutMS) * time.Millisecond,
 			// Reviewed legacy protocols do not bind disconnect to request
 			// cancellation. The coordinator's independent 300ms watchdog owns
 			// cancel-taint and rollback/discard decisions.
@@ -252,14 +256,18 @@ func newHTTPHandlerWithRegistry(
 			Logger:                       sdkLogger,
 		},
 	)
-	authenticator := auth.NewAuthenticator(runtime.Store.Agents())
+	authenticator := internalauth.NewAuthenticator(runtime.Store.Agents())
 	mcpHandler := authMiddleware(
 		authenticator,
-		rateMiddleware(
-			registry,
-			recoverMiddleware(
-				logger,
-				accessLogMiddleware(logger, protocolVersionMiddleware(sdkHandler)),
+		mcpSessionIdentityMiddleware(
+			rateMiddleware(
+				registry,
+				recoverMiddleware(
+					logger,
+					accessLogMiddleware(logger, protocolVersionMiddleware(
+						statefulSessionHeaderMiddleware(mcpConfig.HTTP.Stateful, sdkHandler),
+					)),
+				),
 			),
 		),
 	)
@@ -279,6 +287,79 @@ func newHTTPHandlerWithRegistry(
 		})
 	}
 	return metricsMiddleware(runtime.Metrics, mux), registry, nil
+}
+
+// statefulSessionHeaderMiddleware rejects non-initialize POSTs that omit the
+// transport session ID. go-sdk otherwise creates an unaddressable fresh
+// session and returns a JSON-RPC initialization error with HTTP 200, which is
+// ambiguous to clients and weakens the fail-closed transport contract.
+func statefulSessionHeaderMiddleware(stateful bool, next http.Handler) http.Handler {
+	if !stateful {
+		return next
+	}
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.Header.Get("Mcp-Session-Id") != "" || request.Body == nil {
+			next.ServeHTTP(writer, request)
+			return
+		}
+
+		prefix, err := io.ReadAll(io.LimitReader(request.Body, maxMCPRequestBodyBytes+1))
+		if err != nil {
+			request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(prefix), request.Body))
+			next.ServeHTTP(writer, request)
+			return
+		}
+		if len(prefix) > maxMCPRequestBodyBytes {
+			request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(prefix), request.Body))
+			next.ServeHTTP(writer, request)
+			return
+		}
+		_ = request.Body.Close()
+		request.Body = io.NopCloser(bytes.NewReader(prefix))
+		if isInitializeEnvelope(prefix) {
+			next.ServeHTTP(writer, request)
+			return
+		}
+		http.Error(writer, "Bad Request: non-initialize POST requires an Mcp-Session-Id header", http.StatusBadRequest)
+	})
+}
+
+func isInitializeEnvelope(body []byte) bool {
+	var single struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(body, &single); err == nil {
+		return single.Method == "initialize"
+	}
+	var batch []struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(body, &batch); err != nil {
+		// Let go-sdk produce its existing malformed-request response.
+		return true
+	}
+	for _, message := range batch {
+		if message.Method == "initialize" {
+			return true
+		}
+	}
+	return false
+}
+
+// mcpSessionIdentityMiddleware supplies the authenticated Agent identity to
+// go-sdk's stateful transport. The SDK stores this UserID at initialize and
+// rejects later requests that present the session ID under another Agent key.
+func mcpSessionIdentityMiddleware(next http.Handler) http.Handler {
+	return mcpauth.RequireBearerToken(
+		func(ctx context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
+			identity, ok := identityFromContext(ctx)
+			if !ok || token != identity.plainKey {
+				return nil, mcpauth.ErrInvalidToken
+			}
+			return &mcpauth.TokenInfo{UserID: agentServerKey(identity.agent)}, nil
+		},
+		&mcpauth.RequireBearerTokenOptions{AllowMissingExpiration: true},
+	)(next)
 }
 
 type probeResponse struct {

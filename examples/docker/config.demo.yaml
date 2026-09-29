@@ -17,10 +17,15 @@ column_authorization:
   dry_run: false
   instance_id_file: "/var/lib/agentsql/instance-id"
 
-# B5 sessions and PostgreSQL planned transactions are enabled. MySQL remains
-# fail-closed in v0.4. The WAL lives on demo-agentsql-data so file and directory
-# fsync are provided by the Linux container filesystem and survive restarts.
+# MCP Streamable HTTP sessions, B5 logical sessions, and PostgreSQL planned
+# transactions are enabled. Transport sessions are independent from B5. MySQL
+# remains fail-closed in v0.4. The WAL lives on demo-agentsql-data so file and
+# directory fsync are provided by the Linux container filesystem and survive
+# restarts.
 mcp:
+  http:
+    stateful: true
+    session_timeout_ms: 600000
   sessions:
     enabled: true
     idle_ttl_ms: 600000

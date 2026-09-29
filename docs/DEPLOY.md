@@ -901,12 +901,17 @@ column_authorization:
 
 启动时会核对 PG14–18 catalog binding、enrollment、control fence 和 request reservation；使用原生 binder 时还会验证 `agentsql_binder` ABI/capability 与签名 digest。`/healthz` 与 `/readyz` 的 `b2.state/reason` 以及管理审计记录明确给出状态。默认 enforcement 激活失败或运行中 lease 失效时，PostgreSQL B2 列级入口 fail-closed 且 readiness 变为不可用，不会静默降为表级授权；只有显式 `enabled: false` 或 dry-run 才走既有表级路径。
 
-## B5 PostgreSQL 会话与计划事务（默认开启）
+## MCP 传输会话与 B5 PostgreSQL 会话（默认开启）
 
-B5 跨请求逻辑会话与 PostgreSQL 计划事务出厂默认开启；MySQL 跨请求事务固定不支持，配置 `mcp.transactions.mysql: true` 会拒绝启动。等价的显式配置如下；若要回退，必须同时显式关闭依赖它的 PostgreSQL 事务开关：
+Streamable HTTP 传输会话通过 `mcp.http` 独立配置，默认开启，空闲超时为 10 分钟。它与 `open_session`/`close_session` 使用的 B5 逻辑会话不是同一层：关闭 `mcp.sessions.enabled` 不会关闭传输会话，设置 `mcp.http.stateful: false` 也不会隐藏 B5 工具。
+
+B5 跨请求逻辑会话与 PostgreSQL 计划事务出厂默认开启；MySQL 跨请求事务固定不支持，配置 `mcp.transactions.mysql: true` 会拒绝启动。等价的显式配置如下；若要回退 B5，必须同时显式关闭依赖它的 PostgreSQL 事务开关：
 
 ```yaml
 mcp:
+  http:
+    stateful: true
+    session_timeout_ms: 600000
   sessions:
     enabled: true
   transactions:

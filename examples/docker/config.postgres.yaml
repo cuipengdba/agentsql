@@ -24,6 +24,9 @@ column_authorization:
   # instance_id: "gateway-replica-a" # 与 instance_id_file 互斥；显式 ID 优先于缺省来源
 
 mcp:
+  http:
+    stateful: true
+    session_timeout_ms: 600000
   sessions:
     enabled: true
   transactions:

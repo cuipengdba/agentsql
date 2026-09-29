@@ -53,6 +53,11 @@ column_authorization:
 # B5 MCP 跨请求逻辑会话与 PostgreSQL 计划事务默认开启。MySQL v0.4 固定不支持，
 # 配置为 true 会中文报错并拒绝启动；显式 enabled/postgres=false 可独立回退。
 mcp:
+  # Streamable HTTP transport sessions are independent from B5 logical sessions.
+  # Stateful mode is the default; set false only as a compatibility rollback.
+  http:
+    stateful: true
+    session_timeout_ms: 600000
   sessions:
     enabled: true
     idle_ttl_ms: 600000

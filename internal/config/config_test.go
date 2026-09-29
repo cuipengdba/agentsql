@@ -124,6 +124,8 @@ func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
 	base := fmt.Sprintf(validConfig, filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db")))
 	loaded, err := Parse([]byte(base))
 	require.NoError(t, err)
+	require.True(t, loaded.MCP.HTTP.Stateful)
+	require.Equal(t, 600_000, loaded.MCP.HTTP.SessionTimeoutMS)
 	require.True(t, loaded.MCP.Sessions.Enabled)
 	require.True(t, loaded.MCP.Transactions.Postgres)
 	require.False(t, loaded.MCP.Transactions.MySQL)
@@ -134,6 +136,13 @@ func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, off.MCP.Sessions.Enabled)
 	require.False(t, off.MCP.Transactions.Postgres, "session rollback switch must disable the dependent default")
+	require.True(t, off.MCP.HTTP.Stateful, "B5 rollback must not disable transport sessions")
+
+	stateless, err := Parse([]byte(base + "mcp:\n  http:\n    stateful: false\n    session_timeout_ms: 300000\n"))
+	require.NoError(t, err)
+	require.False(t, stateless.MCP.HTTP.Stateful, "explicit false must override the stateful default")
+	require.Equal(t, 300_000, stateless.MCP.HTTP.SessionTimeoutMS)
+	require.True(t, stateless.MCP.Sessions.Enabled, "transport rollback must not disable B5 sessions")
 
 	postgresOff, err := Parse([]byte(base + "mcp:\n  transactions:\n    postgres: false\n"))
 	require.NoError(t, err)
@@ -145,6 +154,7 @@ func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
 	require.Contains(t, err.Error(), "不受支持")
 
 	for _, fragment := range []string{
+		"mcp:\n  http:\n    session_timeout_ms: 1800001\n",
 		"mcp:\n  sessions:\n    idle_ttl_ms: 1800001\n",
 		"mcp:\n  transactions:\n    wall_timeout_ms: 60001\n",
 		"mcp:\n  sessions:\n    enabled: false\n  transactions:\n    postgres: true\n",

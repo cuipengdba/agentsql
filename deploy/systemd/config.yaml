@@ -16,6 +16,9 @@ column_authorization:
   dry_run: false
 
 mcp:
+  http:
+    stateful: true
+    session_timeout_ms: 600000
   sessions:
     enabled: true
   transactions:

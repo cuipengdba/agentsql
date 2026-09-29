@@ -683,6 +683,33 @@ func doMCPRequest(
 }
 
 func httpTestConfig(qps int) config.Config {
+	// Existing transport tests exercise the v0.3 per-request behavior. Keep
+	// that behavior explicit while statefulHTTPTestConfig covers the v0.4
+	// default and session lifecycle.
+	cfg := statefulHTTPTestConfig(qps)
+	parsed, err := config.Parse([]byte(fmt.Sprintf(`server:
+  http_listen: "127.0.0.1:8650"
+store:
+  sqlite_path: "test.db"
+defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: %d
+theme:
+  default: dark
+mcp:
+  http:
+    stateful: false
+`, qps)))
+	if err != nil {
+		panic(err)
+	}
+	cfg.MCP = parsed.MCP
+	return cfg
+}
+
+func statefulHTTPTestConfig(qps int) config.Config {
 	return config.Config{
 		Server: config.ServerConfig{HTTPListen: "127.0.0.1:8650", EventStreamMaxConnections: 100},
 		Store:  config.StoreConfig{SQLitePath: "test.db"},

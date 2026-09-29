@@ -51,15 +51,24 @@ type Config struct {
 	MCP                 MCPConfig                 `yaml:"mcp"`
 }
 
-// MCPConfig is the production configuration root for explicit logical
-// sessions and planned multi-request transactions.
+// MCPConfig is the production configuration root for the MCP HTTP transport,
+// explicit logical sessions, and planned multi-request transactions.
 type MCPConfig struct {
+	HTTP         MCPHTTPConfig         `yaml:"http"`
 	Sessions     MCPSessionsConfig     `yaml:"sessions"`
 	Transactions MCPTransactionsConfig `yaml:"transactions"`
 
+	httpStatefulSet      bool
 	sessionsEnabledSet   bool
 	transactionsPGSet    bool
 	transactionsMySQLSet bool
+}
+
+// MCPHTTPConfig controls protocol-level Streamable HTTP sessions. These
+// sessions are independent from the application-level B5 sessions below.
+type MCPHTTPConfig struct {
+	Stateful         bool `yaml:"stateful"`
+	SessionTimeoutMS int  `yaml:"session_timeout_ms"`
 }
 
 type MCPSessionsConfig struct {
@@ -85,6 +94,12 @@ type MCPTransactionsConfig struct {
 // authoritative because Parse fills the non-boolean defaults before decode.
 func (config Config) EffectiveMCP() MCPConfig {
 	value := config.MCP
+	if !value.httpStatefulSet {
+		value.HTTP.Stateful = true
+	}
+	if value.HTTP.SessionTimeoutMS == 0 {
+		value.HTTP.SessionTimeoutMS = 10 * 60 * 1000
+	}
 	if value.Sessions.IdleTTLMS == 0 && value.Sessions.AbsoluteTTLMS == 0 &&
 		value.Transactions.IdleTimeoutMS == 0 && value.Transactions.WallTimeoutMS == 0 &&
 		value.Transactions.StatementTimeoutMS == 0 && value.Transactions.ShutdownDrainMS == 0 {
@@ -157,6 +172,7 @@ type ThemeConfig struct {
 func Parse(contents []byte) (Config, error) {
 	var loaded Config
 	loaded.Store.AutoMigrate = true
+	loaded.MCP.HTTP = MCPHTTPConfig{Stateful: true, SessionTimeoutMS: 10 * 60 * 1000}
 	loaded.MCP.Sessions = MCPSessionsConfig{Enabled: true, IdleTTLMS: 10 * 60 * 1000, AbsoluteTTLMS: 60 * 60 * 1000}
 	loaded.MCP.Transactions = MCPTransactionsConfig{
 		Postgres: true, MySQL: false, IdleTimeoutMS: 15 * 1000,
@@ -183,7 +199,8 @@ func Parse(contents []byte) (Config, error) {
 	if !loaded.ColumnAuthorization.enabledSet {
 		loaded.ColumnAuthorization.Enabled = true
 	}
-	sessionFields, transactionFields := configuredMCPFields(contents)
+	httpFields, sessionFields, transactionFields := configuredMCPFields(contents)
+	loaded.MCP.httpStatefulSet = httpFields["stateful"]
 	loaded.MCP.sessionsEnabledSet = sessionFields["enabled"]
 	loaded.MCP.transactionsPGSet = transactionFields["postgres"]
 	loaded.MCP.transactionsMySQLSet = transactionFields["mysql"]
@@ -337,15 +354,20 @@ func configuredColumnAuthorizationFields(contents []byte) map[string]bool {
 	return configured
 }
 
-func configuredMCPFields(contents []byte) (map[string]bool, map[string]bool) {
+func configuredMCPFields(contents []byte) (map[string]bool, map[string]bool, map[string]bool) {
 	var document struct {
 		MCP struct {
+			HTTP         map[string]yaml.Node `yaml:"http"`
 			Sessions     map[string]yaml.Node `yaml:"sessions"`
 			Transactions map[string]yaml.Node `yaml:"transactions"`
 		} `yaml:"mcp"`
 	}
 	if err := yaml.Unmarshal(contents, &document); err != nil {
-		return map[string]bool{}, map[string]bool{}
+		return map[string]bool{}, map[string]bool{}, map[string]bool{}
+	}
+	httpFields := make(map[string]bool, len(document.MCP.HTTP))
+	for field := range document.MCP.HTTP {
+		httpFields[field] = true
 	}
 	sessions := make(map[string]bool, len(document.MCP.Sessions))
 	for field := range document.MCP.Sessions {
@@ -355,7 +377,7 @@ func configuredMCPFields(contents []byte) (map[string]bool, map[string]bool) {
 	for field := range document.MCP.Transactions {
 		transactions[field] = true
 	}
-	return sessions, transactions
+	return httpFields, sessions, transactions
 }
 
 // Validate checks every T01 startup invariant and fails closed on invalid input.
@@ -393,6 +415,9 @@ func (config Config) validateNonStore() error {
 		return fmt.Errorf("validate column_authorization: heartbeat interval must be less than lease")
 	}
 	mcp := config.EffectiveMCP()
+	if mcp.HTTP.SessionTimeoutMS <= 0 || mcp.HTTP.SessionTimeoutMS > 30*60*1000 {
+		return fmt.Errorf("validate mcp.http: session_timeout_ms must be positive and <= 30m")
+	}
 	if mcp.Transactions.MySQL {
 		return fmt.Errorf("validate mcp.transactions.mysql: %w", ErrB5MySQLUnsupported)
 	}

@@ -14,7 +14,7 @@
 - 身份头：`Authorization: Bearer <Agent API Key>`
 - MCP 协议版本：`2025-06-18`
 - `Accept`：`application/json, text/event-stream`
-- 模式：stateless
+- 模式：默认 stateful（initialize 返回 `Mcp-Session-Id`）；可显式回退 stateless
 - 单请求体上限：4 MiB
 
 Agent API Key 不是控制台管理员 token。Agent 被禁用、过期、删除或轮换 Key 后，旧 Key 立即失效。
@@ -161,7 +161,7 @@ request_approval(reason 必填)
 
 ```bash
 # 适用前提：本机 AgentSQL 已运行；AGENTSQL_API_KEY 已导出为有效 Agent Key
-curl -fsS http://127.0.0.1:7780/mcp \
+curl -fsS -D /tmp/agentsql-mcp-headers http://127.0.0.1:7780/mcp \
   -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
@@ -169,7 +169,7 @@ curl -fsS http://127.0.0.1:7780/mcp \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"agentsql-smoke","version":"1.0.0"}}}'
 ```
 
-服务是 stateless，不要依赖跨请求服务端会话。每个请求都发送 Bearer、正确的 `Accept` 和协议版本头，并把请求体控制在 4 MiB 内。
+Streamable HTTP 传输默认是有状态的。读取 initialize 响应中的 `Mcp-Session-Id`，并在后续 `tools/list`、`tools/call`、GET 和 DELETE 请求中原样携带；服务端仍会对每个请求重新校验 Bearer。`mcp.http.stateful: false` 只用于兼容性回退，此时不会返回会话头且只接受 POST。无论哪种模式，每个请求都要发送 Bearer、正确的 `Accept` 和协议版本头，并把请求体控制在 4 MiB 内。
 
 ### Go SDK
 
@@ -199,7 +199,7 @@ Accept: application/json, text/event-stream
 
 ### MCP 握手失败
 
-确认端点是 `/mcp`，请求包含 `Content-Type: application/json`、`Accept: application/json, text/event-stream` 和 `MCP-Protocol-Version: 2025-06-18`。同时检查客户端是否真的支持 Streamable HTTP，以及请求体是否超过 4 MiB。
+确认端点是 `/mcp`，请求包含 `Content-Type: application/json`、`Accept: application/json, text/event-stream` 和 `MCP-Protocol-Version: 2025-06-18`。默认有状态模式下还要确认 initialize 响应包含 `Mcp-Session-Id`，且后续请求携带相同的值；同时检查客户端是否真的支持 Streamable HTTP，以及请求体是否超过 4 MiB。
 
 ### 堆叠多语句被拒绝
 
