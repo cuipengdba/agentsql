@@ -1,0 +1,63 @@
+\set ON_ERROR_STOP on
+
+CREATE TABLE customers (
+    id BIGINT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    phone VARCHAR(11) NOT NULL,
+    email TEXT NOT NULL,
+    region TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE products (
+    id BIGINT PRIMARY KEY,
+    sku TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    price NUMERIC(12,2) NOT NULL,
+    stock INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE orders (
+    id BIGINT PRIMARY KEY,
+    customer_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    quantity INTEGER NOT NULL,
+    amount NUMERIC(12,2) NOT NULL,
+    status TEXT NOT NULL,
+    ordered_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE internal_notes (
+    id BIGINT PRIMARY KEY,
+    note TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+-- Native B2 intentionally uses constraint-free mirrors of the public demo
+-- data. The v0.4 binder rejects implicit objects (including foreign keys,
+-- triggers, defaults and constraint-backed indexes) rather than guessing
+-- their authority closure. These mirrors carry the exact columns the sealed
+-- demo query needs, including phone/email so masking is observable.
+CREATE TABLE demo_b2_customers (
+    id BIGINT NOT NULL,
+    full_name TEXT NOT NULL,
+    phone VARCHAR(11) NOT NULL,
+    email TEXT NOT NULL,
+    region TEXT NOT NULL
+);
+
+CREATE TABLE demo_b2_orders (
+    id BIGINT NOT NULL,
+    customer_id BIGINT NOT NULL,
+    status TEXT NOT NULL
+);
+
+-- Constraint-free on purpose: B5 v0.4 proves a conservative closure before
+-- accepting DML, so this table avoids triggers, defaults, indexes and foreign
+-- keys while still supporting an observable commit/rollback demonstration.
+CREATE TABLE demo_tx_accounts (
+    id BIGINT NOT NULL,
+    balance BIGINT NOT NULL,
+    status TEXT NOT NULL
+);

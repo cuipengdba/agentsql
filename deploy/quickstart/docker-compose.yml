@@ -1,0 +1,111 @@
+# AgentSQL 5 分钟 Live Demo —— 自包含，无需克隆源码、无需编辑任何配置。
+# Demo-only: 固定演示凭据，仅用于本地体验，切勿连接真实数据。
+#
+# 用法（一个命令）：
+#   docker compose -f docker-compose.yml up -d
+# 然后打开 http://127.0.0.1:17880 （登录页已自动填好账号，直接点登录）
+# 清理：docker compose -f docker-compose.yml down -v
+
+services:
+  postgres:
+    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.4-quickstart
+    container_name: agentsql-quickstart-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentsql_demo
+      POSTGRES_USER: agentsql_demo_owner
+      POSTGRES_PASSWORD: 4aa72bf7e3c25be8fda9ca75
+      DEMO_ANCHOR_DATE: "2026-09-30"
+      DEMO_PG_RO_PASSWORD: 93dac283be147bd88d4cd1fc
+    healthcheck:
+      # Must succeed only after init: TCP listening AND the demo RO user created.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U agentsql_demo_ro -d agentsql_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    networks:
+      default:
+        aliases:
+          - demo-postgres
+
+  mysql:
+    image: ghcr.io/cuipengdba/agentsql-mysql-demo:8
+    container_name: agentsql-quickstart-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: agentsql_demo
+      MYSQL_ROOT_PASSWORD: 714f51498462b1be20fcfefa
+      DEMO_ANCHOR_DATE: "2026-09-30"
+      DEMO_MYSQL_RO_PASSWORD: 1417808175b5bc9236857d35
+    healthcheck:
+      # Must succeed only after init: TCP listening AND the demo RO user created.
+      test: ["CMD", "mysql", "--host=127.0.0.1", "--port=3306", "--user=agentsql_demo_ro", "--password=1417808175b5bc9236857d35", "--database=agentsql_demo", "-e", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    networks:
+      default:
+        aliases:
+          - demo-mysql
+
+  seed:
+    image: ghcr.io/cuipengdba/agentsql:v0.4.0-quickstart
+    container_name: agentsql-quickstart-seed
+    restart: "no"
+    entrypoint: ["/usr/local/bin/agentsqlctl"]
+    command:
+      - demo-seed
+      - --config
+      - /etc/agentsql/config.demo.yaml
+      - --manifest
+      - /etc/agentsql/demo-seed.yaml
+      - --anchor-date
+      - "2026-09-30"
+    environment:
+      AGENTSQL_DEMO: "1"
+      AGENTSQL_SECRET: 01efe761823ce5d677b886271e988d3c
+      AGENTSQL_DEMO_PG_PASSWORD: 93dac283be147bd88d4cd1fc
+      AGENTSQL_DEMO_MYSQL_PASSWORD: 1417808175b5bc9236857d35
+      AGENTSQL_DEMO_RO_KEY: asql_jNu0HitTukZtOj0cHe95Zg6Y0iuFQKjiEgNB7LGGRXQ
+      AGENTSQL_DEMO_DML_KEY: asql_CXhZHv684dPV-AEpd7cYmq-os0UVRFsad8YdzctqqyE
+    volumes:
+      - qs-data:/var/lib/agentsql
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+
+  gateway:
+    image: ghcr.io/cuipengdba/agentsql:v0.4.0-quickstart
+    container_name: agentsql-quickstart-gateway
+    restart: unless-stopped
+    environment:
+      AGENTSQL_DEMO: "1"
+      AGENTSQL_SECRET: 01efe761823ce5d677b886271e988d3c
+      AGENTSQL_ADMIN_USER: admin
+      AGENTSQL_ADMIN_PASSWORD: 2f71e91d1ccfe280eb4ee49e
+      AGENTSQL_DEMO_PG_PASSWORD: 93dac283be147bd88d4cd1fc
+      AGENTSQL_DEMO_MYSQL_PASSWORD: 1417808175b5bc9236857d35
+      AGENTSQL_DEMO_RO_KEY: asql_jNu0HitTukZtOj0cHe95Zg6Y0iuFQKjiEgNB7LGGRXQ
+      AGENTSQL_DEMO_DML_KEY: asql_CXhZHv684dPV-AEpd7cYmq-os0UVRFsad8YdzctqqyE
+    command:
+      - serve
+      - --config
+      - /etc/agentsql/config.demo.yaml
+    volumes:
+      - qs-data:/var/lib/agentsql
+    ports:
+      - "127.0.0.1:17880:7780"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "agentsqlctl", "health", "--url", "http://127.0.0.1:7780/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+
+volumes:
+  qs-data:

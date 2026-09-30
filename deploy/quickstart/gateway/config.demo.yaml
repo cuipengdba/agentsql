@@ -1,0 +1,58 @@
+# Dedicated local Live Demo configuration. Secrets are injected by environment.
+server:
+  http_listen: "0.0.0.0:7780"
+  console_enabled: true
+  event_stream: true
+  event_stream_max_connections: 100
+
+store:
+  sqlite_path: "/var/lib/agentsql/agentsql.db"
+  auto_migrate: false
+
+# B2 is deliberately explicit in the Live Demo. PostgreSQL prefers the exact
+# native capability when present and automatically falls back to the closed
+# catalog binder when the optional extension is absent or does not attest.
+column_authorization:
+  enabled: true
+  dry_run: false
+  instance_id_file: "/var/lib/agentsql/instance-id"
+
+# MCP Streamable HTTP sessions, B5 logical sessions, and PostgreSQL planned
+# transactions are enabled. Transport sessions are independent from B5. MySQL
+# remains fail-closed in v0.4. The WAL lives on demo-agentsql-data so file and
+# directory fsync are provided by the Linux container filesystem and survive
+# restarts.
+mcp:
+  http:
+    stateful: true
+    session_timeout_ms: 600000
+  sessions:
+    enabled: true
+    idle_ttl_ms: 600000
+    absolute_ttl_ms: 3600000
+  transactions:
+    postgres: true
+    mysql: false
+    idle_timeout_ms: 15000
+    wall_timeout_ms: 60000
+    statement_timeout_ms: 5000
+    shutdown_drain_ms: 5000
+    wal_directory: "/var/lib/agentsql/b5-wal"
+
+defaults:
+  statement_timeout_ms: 1500
+  row_limit: 20
+  max_conns_per_datasource: 2
+  qps_per_agent: 2
+
+theme:
+  default: "dark"
+
+demo:
+  enabled: true
+  # This must exactly equal examples/docker/demo-seed.yaml's banner value.
+  banner: "Live Demo · data resets daily · never connect real data or databases"
+  allowed_datasource_ids:
+    - ds-demo-pg
+    - ds-demo-mysql
+  qps_per_agent: 2

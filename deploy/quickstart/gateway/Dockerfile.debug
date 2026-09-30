@@ -1,0 +1,9 @@
+# Debug gateway for quickstart with error_detail logging.
+FROM agentsql:debug
+
+USER root
+COPY config.demo.yaml /etc/agentsql/config.demo.yaml
+COPY demo-seed.yaml /etc/agentsql/demo-seed.yaml
+RUN chown agentsql:agentsql /etc/agentsql/config.demo.yaml /etc/agentsql/demo-seed.yaml \
+    && chmod 0644 /etc/agentsql/config.demo.yaml /etc/agentsql/demo-seed.yaml
+USER agentsql

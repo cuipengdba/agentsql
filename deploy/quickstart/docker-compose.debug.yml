@@ -1,0 +1,8 @@
+services:
+  seed:
+    image: ghcr.io/cuipengdba/agentsql:v0.4.0-quickstart
+  gateway:
+    image: agentsql-quickstart-gateway:debug
+volumes:
+  qs-data:
+    name: qs-data-debug
