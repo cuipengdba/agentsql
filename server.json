@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cuipengdba/agentsql",
+  "title": "AgentSQL",
+  "description": "Guard AI agents' PostgreSQL/MySQL access via MCP: SQL audit, auth, masking, write approval",
+  "version": "0.4.0",
+  "websiteUrl": "https://agentsql.cn",
+  "repository": {
+    "url": "https://github.com/cuipengdba/agentsql",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://demo.agentsql.cn/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer asql_jNu0HitTukZtOj0cHe95Zg6Y0iuFQKjiEgNB7LGGRXQ",
+          "description": "Demo read-only API key. The demo uses synthetic data and resets daily; for production self-host with Docker via the GitHub repo."
+        }
+      ]
+    }
+  ]
+}
