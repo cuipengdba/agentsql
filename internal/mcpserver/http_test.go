@@ -44,6 +44,7 @@ func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
 		httpTestConfig(100),
 		zerolog.Nop(),
 		WithWebConsole(webConsole),
+		WithDemoAdminCredentials("must-not-leak-user", "must-not-leak-password"),
 	)
 	require.NoError(t, err)
 
@@ -53,6 +54,7 @@ func TestT241HealthAndReadinessBypassAgentAuthentication(t *testing.T) {
 	require.Equal(t, "application/json", health.Header().Get("Content-Type"))
 	require.Equal(t, "no-store", health.Header().Get("Cache-Control"))
 	require.JSONEq(t, fmt.Sprintf(`{"status":"ok","version":%q,%s}`, version.Version, b2FeatureOffJSON), health.Body.String())
+	require.NotContains(t, health.Body.String(), "must-not-leak")
 	require.Zero(t, webCalls)
 
 	ready := httptest.NewRecorder()
@@ -77,6 +79,8 @@ func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
 		keyCanary      = "asql_health-demo-key-canary"
 		hostCanary     = "health-private-host-canary.invalid"
 		usernameCanary = "health-admin-username-canary"
+		demoAdminUser  = "demo-admin"
+		demoAdminPass  = "demo-password"
 	)
 	keyHashCanary := strings.Repeat("ab", 32)
 	t.Setenv("AGENTSQL_SECRET", secretCanary)
@@ -108,7 +112,12 @@ func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
 		AllowedDatasourceIDs: []string{config.DemoDatasourcePG, config.DemoDatasourceMySQL},
 		QPSPerAgent:          config.DemoDefaultQPSPerAgent,
 	}
-	handler, err := NewHTTPHandler(fixture.runtime, cfg, zerolog.Nop())
+	handler, err := NewHTTPHandler(
+		fixture.runtime,
+		cfg,
+		zerolog.Nop(),
+		WithDemoAdminCredentials(demoAdminUser, demoAdminPass),
+	)
 	require.NoError(t, err)
 
 	health := httptest.NewRecorder()
@@ -116,9 +125,11 @@ func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
 	require.Equal(t, http.StatusOK, health.Code)
 	require.Equal(t, "no-store", health.Header().Get("Cache-Control"))
 	require.JSONEq(t, fmt.Sprintf(
-		`{"status":"ok","version":%q,"demo":{"enabled":true,"banner":%q},%s}`,
+		`{"status":"ok","version":%q,"demo":{"enabled":true,"banner":%q,"admin_username":%q,"admin_password":%q},%s}`,
 		version.Version,
 		config.DemoDefaultBanner,
+		demoAdminUser,
+		demoAdminPass,
 		b2FeatureOffJSON,
 	), health.Body.String())
 
@@ -127,7 +138,9 @@ func TestHealthDemoProjectionIsMinimalAndDoesNotLeak(t *testing.T) {
 	require.ElementsMatch(t, []string{"status", "version", "demo", "b2"}, mapKeys(projection))
 	demoProjection, ok := projection["demo"].(map[string]any)
 	require.True(t, ok)
-	require.ElementsMatch(t, []string{"enabled", "banner"}, mapKeys(demoProjection))
+	require.ElementsMatch(t, []string{"enabled", "banner", "admin_username", "admin_password"}, mapKeys(demoProjection))
+	require.Equal(t, demoAdminUser, demoProjection["admin_username"])
+	require.Equal(t, demoAdminPass, demoProjection["admin_password"])
 
 	responseText := health.Body.String() + fmt.Sprint(health.Header())
 	for _, canary := range []string{

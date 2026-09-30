@@ -1,19 +1,34 @@
 import { LockOutlined, SafetyCertificateFilled, UserOutlined } from "@ant-design/icons";
-import { Button, Card, Form, Input, Typography } from "antd";
-import { useState } from "react";
+import { Alert, Button, Card, Form, Input, Typography } from "antd";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { login, me } from "@/api/auth";
+import { fetchDemoProjection } from "@/api/health";
 import type { LoginInput } from "@/api/types";
 import { useAuthStore } from "@/store/authStore";
 
 export function Login() {
+  const [form] = Form.useForm<LoginInput>();
   const [loading, setLoading] = useState(false);
+  const [demoCredentialsLoaded, setDemoCredentialsLoaded] = useState(false);
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const storeLogin = useAuthStore((state) => state.login);
   const setUsername = useAuthStore((state) => state.setUsername);
   const clear = useAuthStore((state) => state.clear);
+
+  useEffect(() => {
+    let active = true;
+    void fetchDemoProjection().then((demo) => {
+      if (!active || !demo?.adminUsername || !demo.adminPassword) return;
+      form.setFieldsValue({ username: demo.adminUsername, password: demo.adminPassword });
+      setDemoCredentialsLoaded(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [form]);
 
   if (isAuthenticated()) {
     return <Navigate to="/" replace />;
@@ -46,7 +61,21 @@ export function Login() {
             AI 原生数据库安全网关 · 让每一次模型访问都可控、可审计
           </Typography.Paragraph>
         </div>
-        <Form<LoginInput> layout="vertical" requiredMark={false} onFinish={(values) => void handleSubmit(values)}>
+        {demoCredentialsLoaded ? (
+          <Alert
+            type="info"
+            showIcon
+            message="演示账号已自动填入"
+            description="直接点击登录即可体验；演示数据每日重置"
+            style={{ marginBottom: 24 }}
+          />
+        ) : null}
+        <Form<LoginInput>
+          form={form}
+          layout="vertical"
+          requiredMark={false}
+          onFinish={(values) => void handleSubmit(values)}
+        >
           <Form.Item name="username" label="用户名" rules={[{ required: true, message: "请输入用户名" }]}>
             <Input prefix={<UserOutlined />} autoComplete="username" size="large" />
           </Form.Item>

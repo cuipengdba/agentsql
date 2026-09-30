@@ -259,6 +259,16 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 
 请不要在公开 Issue 中提交真实密钥、口令、连接串或未修复漏洞细节；未修复漏洞请按 [SECURITY.md](SECURITY.md) 走私密渠道。
 
+### 加入社区（微信）
+
+| 交流群 #2 | 交流群 #3 | 公众号 | 个人微信 |
+| --- | --- | --- | --- |
+| ![PG x AgentSQL 交流群 #2](website/public/assets/community/wechat-group-2.png) | ![PG x AgentSQL 交流群 #3](website/public/assets/community/wechat-group-3.png) | ![CP 的 PostgreSQL 厨房](website/public/assets/community/wechat-official-account.png) | ![崔鹏 个人微信](website/public/assets/community/wechat-personal.png) |
+| 扫码进群 | 扫码进群 | 扫码关注 | 扫码加好友 |
+
+> **交流群 #1 已超过 200 人，无法扫码加入**：请先添加作者个人微信（崔鹏），备注「AgentSQL」，由群主拉你进群。
+> 群二维码 7 天内有效；若过期请添加个人微信或关注公众号获取最新入群方式。
+
 ## 构建与贡献
 
 ```bash

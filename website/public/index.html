@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AgentSQL（中文名：智盾）｜AI Agent 的数据库安全网关</title>
   <meta name="description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
-  <meta name="robots" content="noindex,nofollow">
+  <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
   <meta property="og:type" content="website">
@@ -49,6 +49,7 @@
         <a href="#quickstart">快速开始</a>
         <a href="#security">安全边界</a>
         <a href="#licensing">授权</a>
+        <a href="#community">社区</a>
         <a href="#faq">FAQ</a>
         <a class="button button-small button-ghost" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.56 4.93.36.31.68.92.68 1.86V21c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
@@ -293,12 +294,44 @@ bash ./demo/reset.sh
         </div>
       </div>
     </section>
+
+    <section id="community" class="section section-muted">
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">社区 / 联系</p>
+          <h2>加入交流群，或直接联系作者</h2>
+          <p>微信扫码加入技术交流群、关注公众号，或添加作者个人微信；群内只讨论 PostgreSQL / AgentSQL 与数据库安全技术。</p>
+        </div>
+        <div class="community-grid">
+          <figure class="community-card">
+            <img src="/assets/community/wechat-group-2.png" loading="lazy" decoding="async" alt="PG x AgentSQL 交流群 2 号微信群二维码">
+            <figcaption><strong>交流群 #2</strong><span>微信扫码直接加入</span></figcaption>
+          </figure>
+          <figure class="community-card">
+            <img src="/assets/community/wechat-group-3.png" loading="lazy" decoding="async" alt="PG x AgentSQL 交流群 3 号微信群二维码">
+            <figcaption><strong>交流群 #3</strong><span>微信扫码直接加入</span></figcaption>
+          </figure>
+          <figure class="community-card">
+            <img src="/assets/community/wechat-official-account.png" loading="lazy" decoding="async" alt="微信公众号 CP的PostgreSQL厨房 二维码">
+            <figcaption><strong>公众号：CP的PostgreSQL厨房</strong><span>扫码关注</span></figcaption>
+          </figure>
+          <figure class="community-card">
+            <img src="/assets/community/wechat-personal.png" loading="lazy" decoding="async" alt="作者崔鹏个人微信二维码">
+            <figcaption><strong>个人微信：崔鹏</strong><span>扫码添加好友</span></figcaption>
+          </figure>
+        </div>
+        <div class="callout callout-note">
+          <strong>关于交流群 #1：</strong>交流群 #1 已超过 200 人，无法通过扫码加入。请先添加作者个人微信（崔鹏），备注「AgentSQL」，由群主拉你进群。
+        </div>
+        <p class="quiet-line">群二维码 7 天内有效；若过期请添加个人微信或关注公众号获取最新入群方式。</p>
+      </div>
+    </section>
   </main>
 
   <footer class="site-footer">
     <div class="container footer-grid">
       <div><a class="brand" href="#top"><img src="/favicon.svg" width="34" height="34" loading="lazy" decoding="async" alt="" aria-hidden="true"><span>AgentSQL</span></a><p>模型与数据库之间默认拒绝的安全闸门。</p></div>
-      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="/demo/">演示</a><a href="#features">特性</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#security">安全边界</a><a href="#faq">FAQ</a></nav>
+      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="/demo/">演示</a><a href="#features">特性</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#security">安全边界</a><a href="#community">社区</a><a href="#faq">FAQ</a></nav>
       <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
     </div>
     <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志最长保留 30 天，并受单文件 10 MiB、最多 10 个轮转文件上限约束（高流量时可能提前淘汰），联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>

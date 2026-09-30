@@ -162,9 +162,11 @@ func NewHTTPHandler(
 }
 
 type httpHandlerOptions struct {
-	adminAPI   http.Handler
-	webConsole http.Handler
-	b5         B5Options
+	adminAPI          http.Handler
+	webConsole        http.Handler
+	b5                B5Options
+	demoAdminUsername string
+	demoAdminPassword string
 }
 
 // HTTPOption extends the T15 mux without changing its default routes.
@@ -185,6 +187,15 @@ func WithWebConsole(handler http.Handler) HTTPOption {
 		if handler != nil {
 			options.webConsole = handler
 		}
+	}
+}
+
+// WithDemoAdminCredentials makes console credentials available to the health
+// projection. healthHandler only emits them when demo mode is enabled.
+func WithDemoAdminCredentials(username, password string) HTTPOption {
+	return func(options *httpHandlerOptions) {
+		options.demoAdminUsername = username
+		options.demoAdminPassword = password
 	}
 }
 
@@ -272,7 +283,7 @@ func newHTTPHandlerWithRegistry(
 		),
 	)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthHandler(cfg, runtime))
+	mux.HandleFunc("GET /healthz", healthHandler(cfg, resolvedOptions.demoAdminUsername, resolvedOptions.demoAdminPassword, runtime))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
 	mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))
 	mux.Handle("/mcp", authorizedexecute.SealedHTTP(mcpHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
@@ -372,11 +383,13 @@ type probeResponse struct {
 }
 
 type demoProbeResponse struct {
-	Enabled bool   `json:"enabled"`
-	Banner  string `json:"banner"`
+	Enabled       bool   `json:"enabled"`
+	Banner        string `json:"banner"`
+	AdminUsername string `json:"admin_username,omitempty"`
+	AdminPassword string `json:"admin_password,omitempty"`
 }
 
-func healthHandler(cfg config.Config, runtimes ...*bootstrap.Runtime) http.HandlerFunc {
+func healthHandler(cfg config.Config, demoAdminUsername, demoAdminPassword string, runtimes ...*bootstrap.Runtime) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		b2 := bootstrap.B2Status{State: bootstrap.B2StateFeatureOff, Reason: bootstrap.B2ReasonFeatureOff, Protocol: 2}
 		if len(runtimes) != 0 && runtimes[0] != nil {
@@ -400,7 +413,12 @@ func healthHandler(cfg config.Config, runtimes ...*bootstrap.Runtime) http.Handl
 			if banner == "" {
 				banner = config.DemoDefaultBanner
 			}
-			response.Demo = &demoProbeResponse{Enabled: true, Banner: banner}
+			response.Demo = &demoProbeResponse{
+				Enabled:       true,
+				Banner:        banner,
+				AdminUsername: demoAdminUsername,
+				AdminPassword: demoAdminPassword,
+			}
 		}
 		writer.Header().Set("Cache-Control", "no-store")
 		writeProbeResponse(writer, http.StatusOK, response)
