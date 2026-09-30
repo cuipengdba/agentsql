@@ -109,17 +109,15 @@ request_approval(reason 必填)
 
 因此，不要把 `deny`、`warn` 或 `approve` 当成网络错误自动重试。特别是写操作，盲目重试会产生重复审批或重复业务意图。
 
-## 客户端配置骨架
+## Claude Desktop 接入（stdio）
 
-以下 JSON 是 AgentSQL 连接字段骨架。Cursor、Claude Desktop、Cline 的配置文件路径、HTTP transport 键名（包括某些版本要求的 `type` 或 `transport`）以及 HTTP 支持版本，必须以各客户端官方 MCP 文档为准；不要根据本文猜测路径或版本。
-
-### stdio 骨架
+Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。`command` 建议填写 `agentsql` 可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致；Windows JSON 路径中的反斜杠需要写成 `\\`。
 
 ```json
 {
   "mcpServers": {
     "agentsql": {
-      "command": "agentsql",
+      "command": "/absolute/path/to/agentsql",
       "args": ["mcp", "--config", "/absolute/path/config.yaml"],
       "env": {
         "AGENTSQL_SECRET": "<与控制面配对的恰好 32 字节值>",
@@ -130,15 +128,48 @@ request_approval(reason 必填)
 }
 ```
 
-前提：桌面客户端启动的进程能读取该绝对路径、控制面存储和相同的 SECRET。优先使用客户端的秘密注入能力，不要把真实值提交到配置仓库。
+上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，应能看到 AgentSQL 暴露的七个工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
 
-### Streamable HTTP 骨架
+## Cursor 接入（stdio）
+
+Cursor 可把相同的 `mcpServers` 片段放入用户级 `~/.cursor/mcp.json`，或项目级 `.cursor/mcp.json`。团队项目优先只提交不含秘密的配置模板；真实 Key 和 SECRET 使用 Cursor 当前版本提供的秘密注入方式或仅保存在未纳入版本控制的本地配置中。
 
 ```json
 {
   "mcpServers": {
     "agentsql": {
-      "url": "http://127.0.0.1:7780/mcp",
+      "command": "/absolute/path/to/agentsql",
+      "args": ["mcp", "--config", "/absolute/path/config.yaml"],
+      "env": {
+        "AGENTSQL_SECRET": "<与控制面配对的恰好 32 字节值>",
+        "AGENTSQL_API_KEY": "<Agent API Key>"
+      }
+    }
+  }
+}
+```
+
+项目级文件中的相对路径容易受工作目录影响，`command` 与 `--config` 的值均建议使用绝对路径。保存后按当前 Cursor 版本的方式刷新 MCP Server；若客户端版本的配置入口或外层字段发生变化，以 Cursor 官方 MCP 文档为准。
+
+## 豆包及其他远程 MCP 客户端（Streamable HTTP）
+
+客户端必须明确支持 **Streamable HTTP**，并允许为 MCP Server 添加自定义 Header。在豆包或其他客户端的 MCP Server 配置页填写：
+
+| 配置项 | 公网演示 | 生产自托管 |
+| --- | --- | --- |
+| Server URL | `https://demo.agentsql.cn/mcp` | `https://<你的网关>/mcp` |
+| Header 名 | `Authorization` | `Authorization` |
+| Header 值 | `Bearer <演示环境 Agent API Key>` | `Bearer <自托管 Agent API Key>` |
+
+演示 Key 是 Agent API Key，不是演示控制台的管理员 token；使用登录页预填的演示管理员账号时，应确认所选演示 Agent 对应的当前只读 Key。若演示 Key 不公开，则改用自托管环境验证，不要猜测或复用管理员 token。演示环境仅限本地接入测试，生产必须自托管并使用自己的密钥。若某客户端不支持自定义 Header、只支持旧版 SSE，或无法确认其 Streamable HTTP 版本，则不能按此方式直连；不要把 Key 放入 URL 查询参数。
+
+下面是通用字段骨架，豆包及其他客户端的配置入口、外层 JSON 结构，以及某些版本要求的 `type` 或 `transport` 字段，以该客户端当前官方文档为准：
+
+```json
+{
+  "mcpServers": {
+    "agentsql": {
+      "url": "https://demo.agentsql.cn/mcp",
       "headers": {
         "Authorization": "Bearer <Agent API Key>"
       }
@@ -147,11 +178,27 @@ request_approval(reason 必填)
 }
 ```
 
-- Cursor：使用该版本官方 MCP 文档确认 `mcpServers` 的配置文件位置和 HTTP transport 字段。
-- Claude Desktop：使用官方 MCP 文档确认该版本是否支持 Streamable HTTP；若只支持 stdio，使用上面的 stdio 骨架。
+已运行本机 AgentSQL 服务时，也可把 URL 换成 `http://127.0.0.1:7780/mcp`。非本机生产部署必须使用受控的 HTTPS 入口，不得把监听端口直接裸露到公网。
+
+- Cursor：远程接入时，使用该版本官方 MCP 文档确认 HTTP transport 字段。
+- Claude Desktop：使用官方 MCP 文档确认该版本是否支持 Streamable HTTP；若只支持 stdio，使用前面的 Claude Desktop 配置。
 - Cline：使用官方 MCP 文档确认配置入口、`mcpServers` 结构及 HTTP transport 字段。
 
-这些客户端的 `command`、`args`、`env`（stdio）和 `url`、`headers`（HTTP）是 AgentSQL 对接所需信息；外层结构变化以客户端为准。
+这些客户端的 `command`、`args`、`env`（stdio）和 `url`、`headers`（HTTP）是 AgentSQL 对接所需信息；外层结构与 transport 声明以客户端当前版本为准。
+
+## 从 MCP Registry / Glama 查找
+
+AgentSQL 已收录于 MCP 官方 Registry（状态为 active）。在 MCP Registry 搜索 **AgentSQL**，核对条目名称 `io.github.cuipengdba/agentsql`、版本和仓库地址后，再按客户端支持的方式接入；仓库没有给出可长期依赖的 Registry 条目直达 URL，因此本文不编造链接。
+
+Glama 也已收录 AgentSQL，可在 [Glama 的 AgentSQL 搜索结果](https://glama.ai/mcp/servers?query=AgentSQL) 中查找。第三方目录中的端点、版本或 Header 示例可能滞后，最终以本仓库文档、实际部署配置和 MCP `tools/list` 返回为准。
+
+## 客户端接入安全提醒
+
+- 公网 demo 只连接合成演示库，用于功能体验和客户端连通性测试；不要向 demo 发送真实业务 SQL、数据或凭据。
+- 生产环境必须自托管 AgentSQL，并使用自己的数据源、Agent 与 API Key；网关前配置 TLS、访问控制和限流。
+- API Key、`AGENTSQL_SECRET` 和数据源口令不得写进公开配置、截图、日志或代码仓库。公开项目中只保留占位符，并在泄露后立即轮换。
+- stdio 配置会在本机新建 AgentSQL 运行时；若已有受控服务，优先连接其 Streamable HTTP 端点，避免复制或放宽生产秘密文件权限。
+- 客户端仅应获得完成任务所需的最小 Agent 能力和数据源授权；始终处理 `deny`、`warn`、`approve`、`error`，不要把安全决策当作网络失败自动重试。
 
 ## 自研客户端
 
