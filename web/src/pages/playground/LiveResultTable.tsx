@@ -44,6 +44,7 @@ const ruleLabels: Readonly<Record<string, string>> = {
   R005: "大结果集或全表扫描风险",
   R010: "对象访问未获授权",
   DEMO_NON_SELECT: "演示通道禁止非只读语句",
+  DEMO_WRITE_APPROVAL: "写操作进入人工审批",
   DEMO_PARSE: "演示语句无法安全解析",
 };
 
@@ -118,7 +119,7 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
 
   const decisionIcon = decision === "allow"
     ? <CheckCircleFilled />
-    : decision === "warn"
+    : decision === "warn" || decision === "approve"
       ? <WarningFilled />
       : decision === "error"
         ? <CloseCircleFilled />
@@ -194,6 +195,15 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
             showIcon
             message="请求已在触达数据库前被拦截"
             description="仅展示安全网关判词；数据库未执行该语句，也没有返回业务数据。"
+          />
+        </section>
+      ) : decision === "approve" ? (
+        <section className="live-approve-panel" aria-label="请求已进入人工审批">
+          <Alert
+            type="warning"
+            showIcon
+            message="请求已进入 DBA 人工审批"
+            description={result.assessment?.reason?.trim() || "审批完成前不会执行该语句；可通过 audit_id 回看本次请求。"}
           />
         </section>
       ) : (

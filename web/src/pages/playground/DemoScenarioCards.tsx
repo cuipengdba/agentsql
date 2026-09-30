@@ -20,54 +20,54 @@ export interface DemoRunScenario {
   datasourceID: PlaygroundDemoDatasourceID;
   agentProfile: PlaygroundDemoAgentProfile;
   expected: string;
-  expectedDecision: "allow" | "warn" | "deny";
+  expectedDecision: "allow" | "warn" | "deny" | "approve";
 }
 
 const demoRunScenarios: readonly DemoRunScenario[] = [
   {
-    key: "normal-allow",
-    title: "正常放行",
-    sql: "SELECT id, full_name, region FROM customers ORDER BY id LIMIT 5",
+    key: "masked-join-allow",
+    title: "列授权 + 脱敏",
+    sql: "SELECT c.id, c.full_name, c.phone, c.email, c.region, o.status FROM public.demo_b2_customers c JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1",
     datasourceID: "ds-demo-pg",
     agentProfile: "ro",
-    expected: "allow，真实返回 ≤5 行，有 audit_id。",
+    expected: "allow，返回 1 行；phone/email 共 2 个单元格被脱敏（如 138****0001、u***@example.test），并返回 audit_id。",
     expectedDecision: "allow",
   },
   {
-    key: "write-blocked",
-    title: "无 WHERE 写拦截",
-    sql: "UPDATE orders SET status = 'cancelled'",
-    datasourceID: "ds-demo-mysql",
+    key: "column-grant-missing",
+    title: "列授权缺失",
+    sql: "SELECT id, name FROM public.products WHERE id=1",
+    datasourceID: "ds-demo-pg",
+    agentProfile: "ro",
+    expected: "deny，原因为 AUTH_COLUMN_GRANT_MISSING；表级允许不会绕过列级绑定。",
+    expectedDecision: "deny",
+  },
+  {
+    key: "agent-denied",
+    title: "对象越权",
+    sql: "SELECT id, note FROM public.internal_notes LIMIT 5",
+    datasourceID: "ds-demo-pg",
+    agentProfile: "ro",
+    expected: "deny，命中 R010 / AUTH_AGENT_DENIED，不返回 internal_notes 内容。",
+    expectedDecision: "deny",
+  },
+  {
+    key: "ddl-denied",
+    title: "DDL 越权",
+    sql: "DROP TABLE public.customers",
+    datasourceID: "ds-demo-pg",
+    agentProfile: "ro",
+    expected: "deny，当前 Agent 没有 DDL 权限；语句不会触达数据库。",
+    expectedDecision: "deny",
+  },
+  {
+    key: "write-approval",
+    title: "写操作转人工",
+    sql: "UPDATE public.demo_tx_accounts SET status='x' WHERE id=1",
+    datasourceID: "ds-demo-pg",
     agentProfile: "dml",
-    expected: "deny，hits 含 R002 与 DEMO_NON_SELECT，结果为空、不显示数据库报错。",
-    expectedDecision: "deny",
-  },
-  {
-    key: "masked-columns",
-    title: "脱敏",
-    sql: "SELECT id, full_name, phone, email FROM customers ORDER BY id LIMIT 5",
-    datasourceID: "ds-demo-mysql",
-    agentProfile: "ro",
-    expected: "allow，phone/email 列全部掩码（如 138****8000），表格与原始 JSON 中都看不到完整手机号/邮箱。",
-    expectedDecision: "allow",
-  },
-  {
-    key: "large-result-warning",
-    title: "大结果告警",
-    sql: "SELECT id, status, amount FROM orders WHERE status = 'paid'",
-    datasourceID: "ds-demo-pg",
-    agentProfile: "ro",
-    expected: "warn，hits 含 R005，est_scan_rows>20，返回 ≤20 行且 truncated=true。",
-    expectedDecision: "warn",
-  },
-  {
-    key: "unauthorized-deny",
-    title: "越权拒绝",
-    sql: "SELECT id, note FROM internal_notes LIMIT 5",
-    datasourceID: "ds-demo-pg",
-    agentProfile: "ro",
-    expected: "deny，hits 含 R010，不返回 internal_notes 内容。",
-    expectedDecision: "deny",
+    expected: "approve，Live Demo 中的 UPDATE/DELETE 默认进入 DBA 人工审批，审批前不执行。",
+    expectedDecision: "approve",
   },
 ];
 
@@ -119,7 +119,7 @@ export function DemoScenarioCards({ activeKey, loading, latestAuditID, onRun }: 
             <div className="demo-scenario-title">
               <span className="demo-scenario-number">{index + 1}</span>
               <strong>{scenario.title}</strong>
-              <Tag color={scenario.expectedDecision === "allow" ? "success" : scenario.expectedDecision === "warn" ? "warning" : "error"}>
+              <Tag color={scenario.expectedDecision === "allow" ? "success" : scenario.expectedDecision === "warn" || scenario.expectedDecision === "approve" ? "warning" : "error"}>
                 {scenario.expectedDecision}
               </Tag>
             </div>

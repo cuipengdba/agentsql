@@ -935,6 +935,10 @@ pre {
   border-top: 3px solid var(--color-warn);
 }
 
+.demo-scenario-card.demo-scenario-approve {
+  border-top: 3px solid var(--color-approve);
+}
+
 .demo-scenario-card.demo-scenario-deny {
   border-top: 3px solid var(--color-deny);
 }
@@ -1165,6 +1169,13 @@ pre {
   padding: 14px;
   background: color-mix(in srgb, var(--color-deny) 5%, var(--color-elevated));
   border: 1px solid color-mix(in srgb, var(--color-deny) 48%, var(--color-border));
+  border-radius: 6px;
+}
+
+.live-approve-panel {
+  padding: 14px;
+  background: color-mix(in srgb, var(--color-approve) 5%, var(--color-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-approve) 48%, var(--color-border));
   border-radius: 6px;
 }
 
