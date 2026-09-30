@@ -5,6 +5,10 @@
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
+生态收录：[Glama](https://glama.ai/mcp/servers?query=AgentSQL)
+
+已收录于 MCP 官方 Registry，可直接在 MCP Registry 搜索 AgentSQL 接入。
+
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
 ```text
@@ -22,6 +26,14 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出（面向机器的 JSONL，以及 Excel/WPS 可直接打开、带公式注入防护的中文 CSV）、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
 - 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
+
+## 生态与兼容
+
+AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL，并正在规划对主流国产数据库的兼容适配与生态合作。
+
+电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · 崖山数据库 YashanDB · 达梦数据库 DM
+
+> 以上为生态合作与兼容性评估的规划方向，不代表当前版本已支持；欢迎各数据库厂商联系开展兼容性认证与合作。如需为你的数据库申请兼容性认证或联合案例，请通过交流群或仓库 Discussion 联系我们。
 
 ## 5 分钟快速开始
 
