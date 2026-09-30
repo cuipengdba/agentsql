@@ -67,49 +67,23 @@ export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AG
 docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.4.0
 ```
 
-### 3. 本地 Live Demo（一条命令）
+### 3. 本地 Live Demo（一条命令，无需源码）
 
-这套独立环境只连接仓库生成的 PostgreSQL/MySQL 合成数据，不连接真实数据库。复制环境样例、替换其中全部公开凭据后运行：
+这套自包含环境只连接合成的 PostgreSQL/MySQL 演示数据，不连接真实数据库。无需克隆源码、无需编辑配置或构建镜像，只需下载一个 compose 文件并启动：
 
 ```bash
-cp examples/docker/demo.env.example demo/demo.env && bash ./demo/reset.sh
+mkdir agentsql-demo && cd agentsql-demo
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/main/deploy/quickstart/docker-compose.yml
+docker compose up -d
 ```
 
-Windows PowerShell：
+等待约 1–2 分钟，四个容器就绪后打开 <http://127.0.0.1:17880>：登录页已自动填好演示账号，直接点「登录」即可。「演示台」内置 5 个真实剧本：列授权 + 脱敏、列授权缺失、对象越权、DDL 越权、写操作转人工。彻底清理：
 
-```powershell
-Copy-Item examples/docker/demo.env.example demo/demo.env; .\demo\reset.ps1
+```bash
+docker compose down -v
 ```
 
-打开 <http://127.0.0.1:17880>。Live Demo 页面通过仅在 demo 模式注册的 `POST /api/v1/playground/run` 走真实网关链路；普通部署仍只提供不连库的静态评估。页面内置 6 个剧本：正常放行、无 WHERE 写拦截、以 phone/email 为演示数据的脱敏、大结果扫描告警、越权表拒绝，以及审计/大屏回看。
-
-六剧本真实运行截图（Live Demo 走真实网关链路；演示数据可由重置脚本或外部计划任务定期重建）：
-
-1. **正常放行（allow）**：只读点查真实返回 5 行，生成 `audit_id` 并留痕。
-
-   ![正常放行](docs/images/demo-scenario-1.png)
-
-2. **无 WHERE 写拦截（deny）**：命中 R002 / R010 / R202 / DEMO_NON_SELECT，在触达数据库前拦截，不执行语句，也不暴露底层数据库报错。
-
-   ![无 WHERE 写拦截](docs/images/demo-scenario-2.png)
-
-3. **结果脱敏（allow）**：该演示剧本覆盖 `phone` / `email` 列（如 `138****0001`），表格与原始 JSON 中均看不到完整手机号 / 邮箱；产品能力还支持身份证、银行卡、IP 和出生日期，六类说明见[敏感列发现指南](docs/DISCOVERY.md)。
-
-   ![结果脱敏](docs/images/demo-scenario-3.png)
-
-4. **大结果告警（warn）**：命中 R005，预估扫描 600 行超出行数阈值，仅返回前 20 行并标记 `truncated=true`。
-
-   ![大结果告警](docs/images/demo-scenario-4.png)
-
-5. **越权表拒绝（deny）**：命中 R010，`internal_notes` 被策略显式拒绝访问，不返回该表任何内容。
-
-   ![越权表拒绝](docs/images/demo-scenario-5.png)
-
-6. **审计证据链**：六段安检时间线（鉴权 / 解析 / 安检 / 决策 / 执行 / 留痕），被拦截语句标记为“未执行”，留存 SQL 原文、归一化 SQL 与命中规则判词。
-
-   ![审计证据链](docs/images/demo-scenario-6.png)
-
-凭据替换、手工 Compose 命令、通过外部计划任务定期重置和公开部署安全清单见 [Live Demo 指南](docs/DEMO.md)。
+Demo 凭据均为固定演示值、写在 compose 中，仅用于本地体验，切勿连接真实数据。完整说明见 [5 分钟快速上手](docs/GETTING_STARTED.md) 与 [Live Demo 指南](docs/DEMO.md)。
 
 ## 其他安装方式（源码构建、离线与审计环境）
 

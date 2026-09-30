@@ -35,37 +35,55 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 | 业务数据库 | MySQL 8；PostgreSQL 14–18 | 为 AgentSQL 创建独立、最小权限运行账号 |
 | 控制面存储 | SQLite；PostgreSQL 15+ | SQLite 为默认；PostgreSQL 可分离 metadata 与 audit |
 | 浏览器控制台 | `http://127.0.0.1:7780` | 默认绑定回环地址 |
-| 本地 Live Demo | Docker Engine / Docker Desktop、Docker Compose v2 | 从源码构建，不依赖 GHCR |
+| 本地 Live Demo | Docker Engine / Docker Desktop、Docker Compose v2 | 自包含，无需克隆源码或构建，镜像托管在公开 GHCR |
 
-## 路径 A：5 分钟零配置看效果（现在就能跑）
+## 路径 A：5 分钟零配置看效果（一条命令）
 
-这是专用 Demo 模式：使用合成数据和固定演示身份，`POST /api/v1/playground/run` 只在该模式注册。普通 `/playground/assess` 仅做解析与静态规则评估，不连接数据库、不执行 SQL、也不写审计。
+这是专用 Demo 模式：使用合成数据和固定演示身份，无需克隆源码、无需编辑任何配置、无需构建镜像。三个镜像全部托管在公开的 GHCR，首次启动会自动拉取并播种固定演示数据。
 
-先克隆当前源码仓库并进入根目录。Live Demo 使用独立的 `docker-compose.demo.yml`（Compose 项目名 `agentsql-demo`、控制台端口 17880、内置固定种子数据与演示身份），**不要**用根目录的 `docker-compose.yml`。先按 [本地 Live Demo](DEMO.md) 准备演示凭据，再用重置脚本一条命令构建、播种并启动：
+只需一个 `docker-compose.yml`（在任意空目录执行）：
 
 ```bash
-# 1) 复制演示环境文件，并按 docs/DEMO.md 替换其中的公开示例值
-#    （AGENTSQL_SECRET、管理员密码、演示库 owner/ro 密码、两个演示 Agent Key）
-cp examples/docker/demo.env.example demo/demo.env
+# 1) 新建一个空目录并进入
+mkdir agentsql-demo && cd agentsql-demo
 
-# 2) 一条命令构建镜像、播种固定数据并启动（会重建演示数据；从源码构建，不依赖 GHCR）
-bash ./demo/reset.sh        # Windows PowerShell 用：.\demo\reset.ps1
+# 2) 下载自包含 compose（仅这一个文件，约 2KB）
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/main/deploy/quickstart/docker-compose.yml
+
+# 3) 一条命令拉起全部容器（postgres + mysql + seed + gateway）
+docker compose up -d
 ```
 
-脚本完成后打开 <http://127.0.0.1:17880>，用 `demo/demo.env` 中的管理员账号和密码登录。完整凭据说明、端口映射、每日 04:00 重置与故障排查见 [DEMO.md](DEMO.md)。
+Windows（PowerShell）用等价命令：
 
-在「演示台」按顺序查看六张卡：
+```powershell
+New-Item -ItemType Directory -Force agentsql-demo | Out-Null; Set-Location agentsql-demo
+Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/main/deploy/quickstart/docker-compose.yml
+docker compose up -d
+```
 
-1. PostgreSQL 只读查询放行，返回不超过 5 行并生成审计。
-2. MySQL 无 `WHERE` 的 `UPDATE` 被 R002 与 Demo 只读屏障拦截，不触达业务库。
-3. MySQL 查询返回的 `phone`、`email` 被结果层脱敏。
-4. PostgreSQL 大结果在 Demo 阈值下命中 R005，最多返回 20 行并显示 `truncated=true`。
-5. 访问未授权 `internal_notes` 被 R010 拒绝，不返回表内容。
-6. 用最近一次 `audit_id` 打开审计详情，并在总览大屏回看实时事件。
+等待约 1–2 分钟，四个容器全部就绪后打开 <http://127.0.0.1:17880>：登录页已自动填好演示账号，直接点「登录」即可。也可以在终端确认进度：
 
-![Live Demo 六张场景卡](images/demo-scenario-cards.png)
+```bash
+docker compose ps            # gateway 状态变为 healthy 即就绪
+docker compose logs -f seed  # 看到 DEMO_SEED_OK 表示播种完成
+```
 
-真实运行截图还可查看 `images/demo-scenario-1.png` 至 `images/demo-scenario-6.png`。上述 R005 告警是 Demo 模式专用动态阶段，不代表普通生产流水线默认会产生同一告警；生产环境始终应依赖执行层 `row_limit` 截断作为结果上限。
+进入「演示台」后，按五张剧本卡逐个体验（每张卡都已内置准确的固定 SQL，点击即可看到真实结果）：
+
+1. **列授权 + 脱敏**：密封 JOIN 查询放行，返回结果中 `phone`、`email` 两列被脱敏。
+2. **列授权缺失**：查询未授权列被拒绝，不触达业务库。
+3. **对象越权**：访问 `internal_notes` 被策略显式拒绝，不返回表内容。
+4. **DDL 越权**：`DROP TABLE` 被拦截。
+5. **写操作转人工**：`UPDATE` 不直接执行，转为 `approve` 等待人工审批。
+
+体验完毕彻底清理（删除容器与演示数据卷）：
+
+```bash
+docker compose down -v
+```
+
+> Demo 说明：所有凭据均为固定演示值、写在 compose 中，仅用于本地体验，切勿连接真实数据或数据库。Demo 站点默认只绑定回环地址 `127.0.0.1`，不对局域网开放。
 
 ## 路径 B：接入你自己的库（真实生产闭环）
 
