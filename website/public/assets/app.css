@@ -175,6 +175,10 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .license-panel .install-conditions { margin: 10px 0 0; color: #9fb1c8; font-size: .82rem; }
 .license-panel .commercial-note { margin: 24px 0 0; color: #dce8f4; font-weight: 700; }
 .license-links { display: grid; gap: 10px; min-width: 245px; }
+.ecosystem-panel { margin-top: 22px; padding: 34px 36px; border: 1px solid #315a72; border-radius: 22px; background: #0d1a2c; }
+.ecosystem-label { margin: 0 0 14px; color: var(--accent); font-family: var(--font-mono); font-size: .82rem; letter-spacing: .04em; text-transform: uppercase; }
+.ecosystem-list { margin: 0; color: #dce8f4; font-size: 1.05rem; line-height: 2; }
+.ecosystem-note { margin: 18px 0 0; color: var(--muted); font-size: .84rem; }
 .faq-list { display: grid; gap: 12px; }
 .faq-list summary { display: flex; align-items: center; font-size: 1.02rem; }
 .faq-list p { padding: 0 20px 20px; margin: 0; color: var(--muted); }

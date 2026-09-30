@@ -46,6 +46,7 @@
         <a href="#features">特性</a>
         <a href="#docs">文档 / 下载</a>
         <a href="#compatibility">兼容性</a>
+        <a href="#ecosystem">生态</a>
         <a href="#quickstart">快速开始</a>
         <a href="#security">安全边界</a>
         <a href="#licensing">授权</a>
@@ -211,9 +212,20 @@
               <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
               <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>（<code>x86_64</code> / <code>amd64</code>）与 <code>linux/arm64</code>（<code>aarch64</code> / <code>arm64</code>）、glibc 2.28+、systemd</td><td>v0.4.0 起提供 linux/arm64 原生 glibc 包；不提供 musl / Alpine 或 CentOS 7 原生包。</td></tr>
               <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；GHCR 发布镜像提供 linux/amd64 与 linux/arm64 multi-arch manifest，拉取时自动匹配架构。</td></tr>
-              <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
+              <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 电科金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="ecosystem" class="section">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>向国产数据库开放适配与生态合作</h2><p>AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL，并正在规划对主流国产数据库的兼容适配与生态合作。欢迎各数据库厂商与我们建立联系、联合共建。</p></div>
+        <div class="ecosystem-panel">
+          <p class="ecosystem-label">生态合作与兼容性评估方向</p>
+          <p class="ecosystem-list">电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · 崖山数据库 YashanDB · 达梦数据库 DM</p>
+          <p class="ecosystem-note">*以上为生态合作与兼容性评估的规划方向，不代表当前版本已支持；具体支持状态以各版本 Release Notes 为准。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
         </div>
       </div>
     </section>
@@ -331,7 +343,7 @@ bash ./demo/reset.sh
   <footer class="site-footer">
     <div class="container footer-grid">
       <div><a class="brand" href="#top"><img src="/favicon.svg" width="34" height="34" loading="lazy" decoding="async" alt="" aria-hidden="true"><span>AgentSQL</span></a><p>模型与数据库之间默认拒绝的安全闸门。</p></div>
-      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="/demo/">演示</a><a href="#features">特性</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#security">安全边界</a><a href="#community">社区</a><a href="#faq">FAQ</a></nav>
+      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="/demo/">演示</a><a href="#features">特性</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#ecosystem">生态</a><a href="#security">安全边界</a><a href="#community">社区</a><a href="#faq">FAQ</a></nav>
       <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
     </div>
     <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志最长保留 30 天，并受单文件 10 MiB、最多 10 个轮转文件上限约束（高流量时可能提前淘汰），联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>
