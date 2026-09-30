@@ -31,7 +31,9 @@ func (demoSeedNoopPinger) EnrollPostgresPolicySelect(_ context.Context, _ model.
 	}, ColumnUses: []executor.PostgresPolicyColumnUse{
 		{RelationOID: 100, Attnum: 1, Name: "id", TypeOID: 20, TypeModifier: -1},
 		{RelationOID: 100, Attnum: 2, Name: "full_name", TypeOID: 25, TypeModifier: -1},
-		{RelationOID: 100, Attnum: 4, Name: "region", TypeOID: 25, TypeModifier: -1},
+		{RelationOID: 100, Attnum: 3, Name: "phone", TypeOID: 1043, TypeModifier: -1},
+		{RelationOID: 100, Attnum: 4, Name: "email", TypeOID: 25, TypeModifier: -1},
+		{RelationOID: 100, Attnum: 5, Name: "region", TypeOID: 25, TypeModifier: -1},
 		{RelationOID: 101, Attnum: 1, Name: "id", TypeOID: 20, TypeModifier: -1},
 		{RelationOID: 101, Attnum: 2, Name: "customer_id", TypeOID: 20, TypeModifier: -1},
 		{RelationOID: 101, Attnum: 3, Name: "status", TypeOID: 25, TypeModifier: -1},

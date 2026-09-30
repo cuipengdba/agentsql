@@ -40,6 +40,7 @@ CREATE TABLE internal_notes (
 CREATE TABLE demo_b2_customers (
     id BIGINT NOT NULL,
     full_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
     email TEXT NOT NULL,
     region TEXT NOT NULL
 );

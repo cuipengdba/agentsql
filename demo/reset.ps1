@@ -412,23 +412,32 @@ try {
 
     $Stage = "verify-b2-join-column-authorization"
     Write-Host "[demo-reset] $Stage (mode=$b2Mode)"
-    $positiveSQL = "SELECT c.full_name,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1"
+    $positiveSQL = "SELECT c.id, c.full_name, c.phone, c.email, c.region, o.status FROM public.demo_b2_customers c JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1"
     $positive = Invoke-MCPTool $gatewayPort $roKey "query" ([ordered]@{ datasource_id = "ds-demo-pg"; sql = $positiveSQL })
     if ($positive.decision -ne "allow" -or $positive.data.result.RowCount -ne 1) {
-        throw "B2 JOIN/self-join positive query was not allowed"
+        throw "B2 JOIN positive query was not allowed"
+    }
+    $positiveRow = @($positive.data.result.Rows)[0]
+    $positiveColumns = @($positive.data.result.Columns)
+    $phoneIndex = [Array]::IndexOf($positiveColumns, "phone")
+    $emailIndex = [Array]::IndexOf($positiveColumns, "email")
+    if ($phoneIndex -lt 0 -or $emailIndex -lt 0 -or -not ("$($positiveRow[$phoneIndex])".Contains("*")) -or -not ("$($positiveRow[$emailIndex])".Contains("*"))) {
+        throw "B2 JOIN positive query did not mask phone/email"
     }
     Start-Sleep -Milliseconds 600
-    $negativeSQL = "SELECT c.email,peer.region,o.status FROM public.demo_b2_customers c JOIN public.demo_b2_customers peer ON peer.id=c.id JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1"
+    # products has a table-level allow but no column-level binding, so a column
+    # query must fail closed with AUTH_COLUMN_GRANT_MISSING.
+    $negativeSQL = "SELECT id, name FROM public.products WHERE id=1"
     $negative = Invoke-MCPTool $gatewayPort $roKey "query" ([ordered]@{ datasource_id = "ds-demo-pg"; sql = $negativeSQL })
     if ($negative.decision -ne "deny" -or $negative.reason -ne "AUTH_COLUMN_GRANT_MISSING" -or $null -ne $negative.data.result) {
-        throw "B2 JOIN/self-join unauthorized column did not fail closed"
+        throw "B2 unauthorized column did not fail closed"
     }
 
     $Stage = "verify-mysql-unsupported"
     Write-Host "[demo-reset] $Stage"
     Start-Sleep -Milliseconds 600
     $mysqlColumn = Invoke-MCPTool $gatewayPort $roKey "query" ([ordered]@{ datasource_id = "ds-demo-mysql"; sql = "SELECT full_name FROM customers WHERE id=1" })
-    if ($mysqlColumn.decision -ne "error" -or $mysqlColumn.error_code -ne "AUTH_COLUMN_AUTHORIZATION_UNSUPPORTED" -or (($mysqlColumn.reason + $mysqlColumn.suggestion) -notmatch "[\u4e00-\u9fff]")) {
+    if ($mysqlColumn.decision -ne "deny" -or $mysqlColumn.error_code -ne "AUTH_COLUMN_AUTH_UNSUPPORTED" -or (($mysqlColumn.reason + $mysqlColumn.suggestion) -notmatch "[\u4e00-\u9fff]")) {
         throw "MySQL B2 unsupported response was not stable and Chinese"
     }
     Start-Sleep -Milliseconds 600
