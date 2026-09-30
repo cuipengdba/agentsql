@@ -200,10 +200,11 @@ func TestHandlersInternalErrorDefensivelyMapsDBError(t *testing.T) {
 func TestHandlersInternalErrorMapsColumnAuthorizationUnsupported(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	response := fixture.handlers.internalError("query", &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
-	require.Equal(t, "error", response.Decision)
+	require.Equal(t, "deny", response.Decision)
 	require.Equal(t, string(executor.ReasonColumnAuthUnsupported), response.ErrorCode)
 	require.Contains(t, response.Reason, "MySQL")
-	require.Contains(t, response.Reason, "不受支持")
+	require.Contains(t, response.Reason, "暂不支持")
+	require.False(t, protocolResult(response).IsError)
 }
 
 func TestHandlersHashResponseAndAuditDoNotLeakRawSentinel(t *testing.T) {

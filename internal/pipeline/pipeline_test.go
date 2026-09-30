@@ -18,12 +18,13 @@ import (
 
 var testPipelineSecret = []byte("0123456789abcdef0123456789abcdef")
 
-func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
+func TestPipelineFailurePathsDoNotExecuteBusinessSQL(t *testing.T) {
 	tests := []struct {
-		name      string
-		configure func(*pipelineFixture)
-		request   Request
-		decision  model.Decision
+		name          string
+		configure     func(*pipelineFixture)
+		request       Request
+		decision      model.Decision
+		metadataCheck bool
 	}{
 		{
 			name: "authentication failure",
@@ -46,10 +47,11 @@ func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
 			decision:  model.DecisionDeny,
 		},
 		{
-			name:      "unauthorized table",
-			configure: func(*pipelineFixture) {},
-			request:   requestWithSQL("SELECT id FROM public.secrets LIMIT 1"),
-			decision:  model.DecisionDeny,
+			name:          "unauthorized table",
+			configure:     func(*pipelineFixture) {},
+			request:       requestWithSQL("SELECT id FROM public.secrets LIMIT 1"),
+			decision:      model.DecisionDeny,
+			metadataCheck: true,
 		},
 		{
 			name: "readonly agent write",
@@ -77,8 +79,14 @@ func TestPipelineFailurePathsDoNotTouchBusinessDatabase(t *testing.T) {
 				require.Nil(t, response.Result)
 			}
 			calls := fixture.executor.callsSnapshot()
-			require.Zero(t, fixture.executors.calls())
-			require.Zero(t, calls.explain+calls.query+calls.execute+calls.openSession)
+			if test.metadataCheck {
+				require.Equal(t, 1, fixture.executors.calls())
+				require.Equal(t, 1, calls.explain)
+			} else {
+				require.Zero(t, fixture.executors.calls())
+				require.Zero(t, calls.explain)
+			}
+			require.Zero(t, calls.query+calls.execute+calls.openSession)
 			require.Zero(t, calls.sessionExplain+calls.sessionQuery+calls.sessionExecute)
 			require.Equal(t, 1, fixture.audit.calls())
 			if err != nil || test.name == "malformed SQL" {
@@ -400,7 +408,7 @@ func TestPipelineAllowedWriteUsesExecuteWithoutRedactor(t *testing.T) {
 	require.Equal(t, 1, *fixture.audit.last().RowsReturned)
 }
 
-func TestPipelineColumnPolicyDenyDoesNotTouchDatabase(t *testing.T) {
+func TestPipelineColumnPolicyDenyOnlyChecksObjectExistence(t *testing.T) {
 	fixture := newPipelineFixture(t)
 	columns := "id"
 	fixture.policies.policies = append(fixture.policies.policies, model.Policy{
@@ -416,7 +424,10 @@ func TestPipelineColumnPolicyDenyDoesNotTouchDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, model.DecisionDeny, response.Decision)
 	require.Contains(t, response.Assessment.Reason, "public.customers.phone")
-	require.Zero(t, fixture.executors.calls())
+	require.Equal(t, 1, fixture.executors.calls())
+	calls := fixture.executor.callsSnapshot()
+	require.Equal(t, 1, calls.explain)
+	require.Zero(t, calls.query+calls.execute)
 	require.Equal(t, "deny", fixture.audit.last().Decision)
 }
 
@@ -471,7 +482,10 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, model.DecisionDeny, response.Decision)
 		require.Contains(t, response.Assessment.Reason, "SELECT *")
-		require.Zero(t, fixture.executors.calls())
+		require.Equal(t, 1, fixture.executors.calls())
+		calls := fixture.executor.callsSnapshot()
+		require.Equal(t, 1, calls.explain)
+		require.Zero(t, calls.query+calls.execute)
 	})
 
 	t.Run("star projection is allowed with table-only grant", func(t *testing.T) {

@@ -261,8 +261,11 @@ func runPostgresStaticAndApprovalScenarios(
 			"SELECT id FROM public.secret_rows LIMIT 1"))
 		require.NoError(t, err)
 		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Contains(t, ruleHitIDs(response.Assessment.Hits), "R010")
+		require.Contains(t, response.Assessment.Reason, "不在 Agent 的允许范围内")
 		delta := counted.snapshot().minus(before)
-		require.Zero(t, delta.explain+delta.query+delta.execute+delta.openSession)
+		require.Equal(t, 1, delta.explain)
+		require.Zero(t, delta.query+delta.execute+delta.openSession)
 		require.Equal(t, "deny", ports.audit.last().Decision)
 	})
 

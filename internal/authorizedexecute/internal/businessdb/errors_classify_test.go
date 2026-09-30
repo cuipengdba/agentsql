@@ -158,6 +158,24 @@ func TestPostgresErrorCodeMatrix(t *testing.T) {
 }
 
 func TestPostgresClassificationPriorityAndCancellation(t *testing.T) {
+	t.Run("binder function qualification is authorization denial", func(t *testing.T) {
+		err := postgresDatabaseError(context.Background(), DBStageMetadata, "prepare", &pgconn.PgError{
+			Code:    "0A000",
+			Message: "AgentSQL function must be explicitly pg_catalog qualified",
+		})
+		var reasoned interface{ AuthorizationReason() string }
+		require.ErrorAs(t, err, &reasoned)
+		require.Equal(t, "AUTH_FUNCTION_QUALIFICATION_REQUIRED", reasoned.AuthorizationReason())
+		var databaseError *DBError
+		require.False(t, errors.As(err, &databaseError))
+	})
+	t.Run("other feature-not-supported errors remain database errors", func(t *testing.T) {
+		err := postgresDatabaseError(context.Background(), DBStageMetadata, "prepare", &pgconn.PgError{
+			Code:    "0A000",
+			Message: "some other unsupported feature",
+		})
+		requireDBError(t, err, DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata)
+	})
 	t.Run("context deadline precedes exact SQLSTATE", func(t *testing.T) {
 		cause := errors.Join(context.DeadlineExceeded, &pgconn.PgError{Code: "42501"})
 		err := postgresDatabaseError(context.Background(), DBStageExplain, "explain", cause)

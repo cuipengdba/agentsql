@@ -13,7 +13,10 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
-func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Response, error) {
+func (run *pipelineRun) processColumnAuthorizedSelect(
+	ctx context.Context,
+	bindBeforePreliminaryDeny bool,
+) (Response, error) {
 	phaseStarted := time.Now()
 	previousPhase := "preflight_reservation"
 	phaseObserver, _ := run.pipeline.observer.(interface {
@@ -53,8 +56,9 @@ func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Resp
 	defer cancelLocked()
 	columnContext := executor.WithColumnAuthorization(lockedContext, executor.ColumnAuthorizationRequest{
 		Agent: *run.agent, Policies: snapshot.Policies(), Redactor: redactor, RowLimit: rowLimit,
-		PreliminaryAllowed:    run.response.Decision == model.DecisionAllow || run.response.Decision == model.DecisionWarn,
-		ControlRevisionDigest: snapshot.RevisionDigest(), Limits: executor.DefaultLimits,
+		PreliminaryAllowed:        run.response.Decision == model.DecisionAllow || run.response.Decision == model.DecisionWarn,
+		BindBeforePreliminaryDeny: bindBeforePreliminaryDeny,
+		ControlRevisionDigest:     snapshot.RevisionDigest(), Limits: executor.DefaultLimits,
 		DurableAudit: func(auditContext context.Context, detail executor.ColumnAuthorizationAudit, candidate *model.QueryResult, report mask.RedactReport) error {
 			copyDetail := detail
 			run.response.ColumnAuth = &copyDetail
@@ -67,7 +71,12 @@ func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Resp
 				run.response.Decision = model.DecisionDeny
 				run.response.Assessment.Decision = model.DecisionDeny
 				run.response.Assessment.Risk = model.RiskDeny
-				run.response.Assessment.Reason = detail.Reason
+				if bindBeforePreliminaryDeny {
+					run.response.ErrorCode = detail.Reason
+					run.response.ErrorStage = StageGuardStatic
+				} else {
+					run.response.Assessment.Reason = detail.Reason
+				}
 			}
 			return run.audit(auditContext, string(run.response.Decision), nil, auditPhaseSingle)
 		},
@@ -118,7 +127,12 @@ func (run *pipelineRun) processColumnAuthorizedSelect(ctx context.Context) (Resp
 		run.response.Decision = model.DecisionDeny
 		run.response.Assessment.Decision = model.DecisionDeny
 		run.response.Assessment.Risk = model.RiskDeny
-		run.response.Assessment.Reason = string(selected.Reason)
+		if bindBeforePreliminaryDeny {
+			run.response.ErrorCode = string(selected.Reason)
+			run.response.ErrorStage = StageGuardStatic
+		} else {
+			run.response.Assessment.Reason = string(selected.Reason)
+		}
 		return run.finish(ctx, nil)
 	}
 	if !selected.Seal.Verify(selected.Encoded) {

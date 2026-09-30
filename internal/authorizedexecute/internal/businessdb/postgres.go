@@ -628,6 +628,14 @@ func classifyPostgresError(ctx context.Context, stage DBStage, cause error) (err
 
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
+		// The native binder deliberately uses a fixed SQLSTATE/message pair for
+		// this authorization precondition. Match both values exactly: 0A000 is
+		// otherwise a broad PostgreSQL feature-not-supported class and must keep
+		// its ordinary database-error semantics.
+		if postgresError.Code == "0A000" &&
+			postgresError.Message == "AgentSQL function must be explicitly pg_catalog qualified" {
+			return catalogAuthError("AUTH_FUNCTION_QUALIFICATION_REQUIRED"), true
+		}
 		kind, code, compat := postgresErrorCode(postgresError.Code)
 		return newDBError(kind, code, stage, postgresError.Code, compat), true
 	}

@@ -30,16 +30,21 @@ const (
 // but no SQL, credentials, datasource, or SQL-capable handle. It is attached
 // to the AuthorizedExecute call and cannot create a second raw SQL ingress.
 type ColumnAuthorizationRequest struct {
-	Agent                 model.Agent
-	Policies              []model.Policy
-	Redactor              mask.Redactor
-	RowLimit              int
-	PreliminaryAllowed    bool
-	ControlRevisionDigest string
-	Limits                Limits
-	DurableAudit          func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error
-	FinalFence            func(context.Context) error
-	Observe               func(SelectPhase)
+	Agent              model.Agent
+	Policies           []model.Policy
+	Redactor           mask.Redactor
+	RowLimit           int
+	PreliminaryAllowed bool
+	// BindBeforePreliminaryDeny permits the prepare-only binder to resolve
+	// object existence before honoring a preliminary static denial. The
+	// preliminary denial remains part of the sealed authorization input, so a
+	// successfully bound statement is still denied before execution.
+	BindBeforePreliminaryDeny bool
+	ControlRevisionDigest     string
+	Limits                    Limits
+	DurableAudit              func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error
+	FinalFence                func(context.Context) error
+	Observe                   func(SelectPhase)
 }
 
 type authorizedSelectRequest struct {
@@ -133,7 +138,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 		Nonce: append([]byte(nil), nonce...), Now: time.Now(),
 	}
 	preflight := columnauth.Authorize(preflightInput)
-	if preflight.Reason() == columnauth.ReasonAgentDenied || preflight.Reason() == columnauth.ReasonStatementDenied || preflight.Reason() == columnauth.ReasonDatasourceUnsupported {
+	if shouldFinishSelectPreflight(request, preflight.Reason()) {
 		audit := buildColumnAuthorizationAudit(preflightInput, preflight)
 		observe(request.Observe, PhaseAudit)
 		if err := request.DurableAudit(ctx, audit, nil, mask.RedactReport{}); err != nil {
@@ -178,7 +183,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	if handshake.NativeHealth == "healthy" && handshake.Native.Available {
 		prepared, prepareErr := postgres.PrepareBoundPostgresSelect(ctx, request.SQL, nil, budget)
 		if prepareErr != nil {
-			return AuthorizedSelectResult{}, StableError(prepareErr)
+			return AuthorizedSelectResult{}, fixedExecutionError(prepareErr)
 		}
 		manifest, fpre := prepared.Manifest(), prepared.Fpre()
 		facts, err = businessdb.NativeSelectSemanticFacts(request.Datasource.ID, businessdb.SemanticIdentity{
@@ -198,7 +203,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 		prepared, prepareErr := postgres.BindClosedSelect(ctx, businessdb.BindRequest{RawSQL: request.SQL,
 			Identity: businessdb.SemanticIdentity{DatasourceIdentity: request.Datasource.ID}}, budget)
 		if prepareErr != nil {
-			return AuthorizedSelectResult{}, StableError(prepareErr)
+			return AuthorizedSelectResult{}, fixedExecutionError(prepareErr)
 		}
 		facts = prepared.Program().Facts
 		executePrepared = prepared.Execute
@@ -309,6 +314,23 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 		return AuthorizedSelectResult{}, &AuthError{Reason: ReasonDeliverySealFailed}
 	}
 	return AuthorizedSelectResult{Allowed: true, Reason: Reason("ALLOW"), Result: masked, Redact: report, Audit: audit, Encoded: encoded, Seal: seal}, nil
+}
+
+func shouldFinishSelectPreflight(request authorizedSelectRequest, reason columnauth.Reason) bool {
+	if reason != columnauth.ReasonAgentDenied {
+		return reason == columnauth.ReasonStatementDenied || reason == columnauth.ReasonDatasourceUnsupported
+	}
+	if !request.BindBeforePreliminaryDeny || request.PreliminaryAllowed ||
+		request.Agent.Status != "active" ||
+		(request.Agent.ExpiresAt != nil && !request.Agent.ExpiresAt.After(time.Now())) {
+		return true
+	}
+	switch request.Agent.Level {
+	case "readonly", "dml", "ddl":
+		return false
+	default:
+		return true
+	}
 }
 
 func sameProtectionMasks(protected []columnauth.OutputMask, executable []mask.IdentityPlan) bool {

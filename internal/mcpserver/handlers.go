@@ -315,7 +315,8 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 		data.Status = "pending"
 	}
 	return ToolResponse{
-		Decision: string(response.Decision), Reason: response.Assessment.Reason,
+		Decision: string(response.Decision), ErrorCode: response.ErrorCode,
+		ErrorStage: response.ErrorStage, Reason: response.Assessment.Reason,
 		Suggestion: suggestion, Data: data,
 	}
 }
@@ -398,13 +399,14 @@ func (handlers *toolHandlers) internalError(tool string, err error) ToolResponse
 	}
 	var authorizationError *executor.AuthError
 	if errors.As(err, &authorizationError) && authorizationError.Reason == executor.ReasonColumnAuthUnsupported {
-		return ToolResponse{Decision: "error", ErrorCode: string(executor.ReasonColumnAuthUnsupported),
-			Reason:     "MySQL 列级授权在 v0.4 中不受支持，已拒绝执行",
+		return ToolResponse{Decision: "deny", ErrorCode: string(executor.ReasonColumnAuthUnsupported),
+			Reason:     "MySQL 列级授权在 v0.4 中暂不支持",
 			Suggestion: "请改用 PostgreSQL 演示列级授权；MySQL 请求不会连接或执行真实业务 SQL"}
 	}
 	handlers.logger.Error().
 		Str("tool", tool).
 		Str("error_type", fmt.Sprintf("%T", err)).
+		Str("error_detail", err.Error()).
 		Msg("MCP tool failed")
 	return errorToolResponse("AgentSQL 内部处理失败", "请稍后重试；若持续失败，请联系管理员并提供工具名")
 }

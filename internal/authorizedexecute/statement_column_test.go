@@ -3,7 +3,9 @@ package authorizedexecute
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/cuipengdba/agentsql/internal/columnauth"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
@@ -60,6 +62,26 @@ func TestColumnPreflightDenyAuditsWithoutOpeningBusinessDatabase(t *testing.T) {
 	require.Equal(t, ColumnAuditVersion, recorded.Version)
 	require.Equal(t, "deny", recorded.Decision)
 	require.NoError(t, statement.Close())
+}
+
+func TestBindBeforePreliminaryDenyExceptionIsNarrow(t *testing.T) {
+	valid := authorizedSelectRequest{ColumnAuthorizationRequest: ColumnAuthorizationRequest{
+		Agent:                     model.Agent{ID: "agent", Status: "active", Level: "readonly"},
+		PreliminaryAllowed:        false,
+		BindBeforePreliminaryDeny: true,
+	}}
+	require.False(t, shouldFinishSelectPreflight(valid, columnauth.ReasonAgentDenied))
+
+	disabled := valid
+	disabled.BindBeforePreliminaryDeny = false
+	require.True(t, shouldFinishSelectPreflight(disabled, columnauth.ReasonAgentDenied))
+
+	expired := valid
+	expiredAt := time.Now().Add(-time.Minute)
+	expired.Agent.ExpiresAt = &expiredAt
+	require.True(t, shouldFinishSelectPreflight(expired, columnauth.ReasonAgentDenied))
+	require.True(t, shouldFinishSelectPreflight(valid, columnauth.ReasonDatasourceUnsupported))
+	require.True(t, shouldFinishSelectPreflight(valid, columnauth.ReasonStatementDenied))
 }
 
 func TestFixedSelectProviderRoutesControlledReadThroughFacade(t *testing.T) {

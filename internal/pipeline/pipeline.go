@@ -233,8 +233,20 @@ func (pipeline *Pipeline) process(
 	}
 	staticAssessment := run.response.Assessment
 	if run.isDemo() && !isDemoSemanticReadOnly(run.ast) {
+		if demoWriteApprovalEligible(run.ast) && staticAssessment.Decision != model.DecisionDeny {
+			run.appendStructuralHit(demoWriteApprovalHit())
+			return run.approve(ctx)
+		}
 		run.appendStructuralHit(demoNonSelectHit())
 		staticAssessment = run.response.Assessment
+	}
+	bindDeniedSelect := shouldBindDeniedSelect(run.ast, staticAssessment)
+	// All static denials except an isolated SELECT R010 remain terminal. R010
+	// is allowed through a prepare-only binder/EXPLAIN so a missing object can
+	// be distinguished from an existing but unauthorized object. The static
+	// denial remains authoritative and prevents execution.
+	if staticAssessment.Decision == model.DecisionDeny && !bindDeniedSelect {
+		return run.finish(ctx, nil)
 	}
 	if run.ast.StmtType == model.StmtType("SELECT") && !isNilInterface(pipeline.column) {
 		if run.datasource.DBType == "mysql" && columnAuthorizationConfigured(pipeline.column) && hasB2ColumnPolicy(run.storedPolicies) {
@@ -245,11 +257,8 @@ func (pipeline *Pipeline) process(
 			enabled = router.ColumnAuthorizationEnabled(*run.datasource)
 		}
 		if enabled {
-			return run.processColumnAuthorizedSelect(ctx)
+			return run.processColumnAuthorizedSelect(ctx, bindDeniedSelect)
 		}
-	}
-	if staticAssessment.Decision == model.DecisionDeny {
-		return run.finish(ctx, nil)
 	}
 	lockedContext, cancelLockedWork := executor.WithLockDeadline(ctx, executor.DefaultRequestWall)
 	defer cancelLockedWork()
@@ -694,13 +703,18 @@ func (run *pipelineRun) finishWithAudit(
 ) (Response, error) {
 	auditDecision := string(run.response.Decision)
 	_, databaseFailure := businessDatabaseError(operationError)
+	authorizationFailure := expectedAuthorizationFailure(operationError)
 	if operationError != nil {
 		if databaseError, ok := businessDatabaseError(operationError); ok {
 			run.setDatabaseFailure(databaseError)
 			auditDecision = string(model.DecisionError)
 		} else {
 			run.setFailure(operationError)
-			auditDecision = string(model.DecisionError)
+			if authorizationFailure {
+				auditDecision = string(model.DecisionDeny)
+			} else {
+				auditDecision = string(model.DecisionError)
+			}
 		}
 	}
 	finalError := operationError
@@ -719,8 +733,39 @@ func (run *pipelineRun) finishWithAudit(
 			finalError = nil
 		}
 	}
+	if authorizationFailure && expectedAuthorizationFailure(finalError) {
+		finalError = nil
+	}
 	run.observe()
 	return run.response, finalError
+}
+
+func expectedAuthorizationFailure(err error) bool {
+	stable := executor.StableError(err)
+	if stable == nil {
+		return false
+	}
+	switch stable.Reason {
+	case executor.ReasonAgentDenied,
+		executor.ReasonStatementClassDenied,
+		executor.ReasonDatasourceUnsupported,
+		executor.ReasonColumnAuthUnsupported,
+		executor.ReasonFunctionQualification,
+		executor.ReasonImplicitObject,
+		executor.ReasonRelationShape,
+		executor.ReasonColumnShape,
+		executor.ReasonExpressionShape,
+		executor.ReasonBinderModeRequired,
+		executor.ReasonBinderModeUnsupported,
+		executor.ReasonRelationDenied,
+		executor.ReasonRelationGrantMissing,
+		executor.ReasonIdentityUnproven,
+		executor.ReasonColumnGrantMissing,
+		executor.ReasonMaskMeetUndefined:
+		return true
+	default:
+		return false
+	}
 }
 
 func (run *pipelineRun) setDatabaseFailure(databaseError *executor.DBError) {
@@ -793,8 +838,12 @@ func internalFailurePresentation(cause error) (executor.DBErrorCode, string, str
 		switch stable.Reason {
 		case executor.ReasonColumnAuthUnsupported:
 			return executor.DBErrorCode(stable.Reason),
-				"MySQL 不支持 B2 列级授权",
-				"请移除该 MySQL 数据源的列级策略并继续使用表级保护，或改用 PostgreSQL"
+				"MySQL 列级授权在 v0.4 中暂不支持",
+				"请改用 PostgreSQL 演示列级授权，或移除 MySQL 列级策略并使用表级保护"
+		case executor.ReasonFunctionQualification:
+			return executor.DBErrorCode(stable.Reason),
+				"SQL 中的 PostgreSQL 内置函数必须显式使用 pg_catalog 限定",
+				"请为内置函数添加 pg_catalog. 前缀，例如 SELECT pg_catalog.count(*) ..."
 		case executor.ReasonRelationShape, executor.ReasonColumnShape, executor.ReasonExpressionShape,
 			executor.ReasonBinderModeRequired, executor.ReasonBinderModeUnsupported:
 			return executor.DBErrorCode(stable.Reason),
@@ -1095,6 +1144,23 @@ func shouldExplain(ast *model.AST) bool {
 	default:
 		return false
 	}
+}
+
+func shouldBindDeniedSelect(ast *model.AST, assessment model.Assessment) bool {
+	if ast == nil || ast.StmtType != model.StmtType("SELECT") || assessment.Decision != model.DecisionDeny {
+		return false
+	}
+	foundObjectDeny := false
+	for _, hit := range assessment.Hits {
+		if hit.Decision != model.DecisionDeny {
+			continue
+		}
+		if hit.RuleID != "R010" {
+			return false
+		}
+		foundObjectDeny = true
+	}
+	return foundObjectDeny
 }
 
 func normalizedRowLimit(value int) (int, error) {

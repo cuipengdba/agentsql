@@ -93,6 +93,38 @@ func TestPipelineMySQL8E2E(t *testing.T) {
 		require.Equal(t, "allow", ports.audit.last().Decision)
 	})
 
+	t.Run("missing unauthorized table is an object error", func(t *testing.T) {
+		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+		before := counted.snapshot()
+		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"SELECT id FROM agentsql.no_such_table"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionError, response.Decision)
+		require.Equal(t, string(executor.DBErrorCodeObjectNotFound), response.ErrorCode)
+		require.Equal(t, "表或对象不存在", response.ErrorMessage)
+		require.Equal(t, executor.Suggestion(executor.DBErrorCodeObjectNotFound), response.Suggestion)
+		require.NotContains(t, response.Assessment.Reason, "不在 Agent 的允许范围内")
+		delta := counted.snapshot().minus(before)
+		require.Equal(t, 1, delta.explain)
+		require.Zero(t, delta.query+delta.execute)
+		require.Equal(t, "error", ports.audit.last().Decision)
+	})
+
+	t.Run("existing unauthorized table keeps R010 denial", func(t *testing.T) {
+		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "dml", allowedTables)
+		before := counted.snapshot()
+		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
+			"SELECT id FROM agentsql.secret_rows"))
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Contains(t, ruleHitIDs(response.Assessment.Hits), "R010")
+		require.Contains(t, response.Assessment.Reason, "不在 Agent 的允许范围内")
+		delta := counted.snapshot().minus(before)
+		require.Equal(t, 1, delta.explain)
+		require.Zero(t, delta.query+delta.execute)
+		require.Equal(t, "deny", ports.audit.last().Decision)
+	})
+
 	t.Run("A4 failed DDL persists related intent and error outcome", func(t *testing.T) {
 		flow, ports := newDatabaseE2EPipeline(t, datasource, counted, "ddl", allowedTables)
 		response, err := flow.Process(ctx, databaseE2ERequest(datasource.ID,
@@ -278,6 +310,7 @@ func setupMySQLPipelineSchema(t *testing.T, ctx context.Context, databaseExecuto
 		`INSERT INTO allowed_rows (id, value, phone) VALUES (1, 'original', '13812345678')`,
 		`CREATE TABLE big_rows (id integer PRIMARY KEY, value integer NOT NULL)`,
 		`CREATE TABLE customers (id integer PRIMARY KEY, phone text NOT NULL, name text NOT NULL)`,
+		`CREATE TABLE secret_rows (id integer PRIMARY KEY)`,
 		`INSERT INTO customers (id, phone, name) VALUES
  (1, '13812345678', 'Alice'), (2, '13987654321', 'Bob')`,
 		`CREATE TABLE orders (id integer PRIMARY KEY, customer_id integer NOT NULL, note text NOT NULL)`,

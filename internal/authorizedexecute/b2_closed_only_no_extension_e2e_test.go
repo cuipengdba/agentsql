@@ -155,7 +155,7 @@ EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')`).
 	negative, err := runtime.Pipeline.Process(ctx, pipeline.Request{
 		APIKey: apiKey, DatasourceID: datasourceID, SQL: matviewSQL, MCPTool: "query",
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
 	require.Equal(t, model.DecisionDeny, negative.Decision)
 	require.Contains(t, []string{
 		string(executor.ReasonRelationShape),

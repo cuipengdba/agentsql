@@ -99,6 +99,23 @@ func demoNonSelectHit() model.RuleHit {
 	}
 }
 
+func demoWriteApprovalEligible(ast *model.AST) bool {
+	if ast == nil || ast.IsMulti {
+		return false
+	}
+	return ast.StmtType == model.StmtType("UPDATE") || ast.StmtType == model.StmtType("DELETE")
+}
+
+func demoWriteApprovalHit() model.RuleHit {
+	return model.RuleHit{
+		RuleID:     "DEMO_WRITE_APPROVAL",
+		Risk:       model.RiskApprove,
+		Decision:   model.DecisionApprove,
+		Message:    "Live Demo 中的 UPDATE/DELETE 默认进入 DBA 人工审批",
+		Suggestion: "请在审批页核对影响范围；审批完成前不会执行该语句",
+	}
+}
+
 func (run *pipelineRun) appendStructuralHit(hit model.RuleHit) {
 	if run == nil {
 		return

@@ -24,9 +24,7 @@ func TestProcessDemoNonSelectBarrierNeverTouchesBusinessDatabase(t *testing.T) {
 		wantStmt model.StmtType
 	}{
 		{name: "insert", dialect: "postgres", sql: "INSERT INTO public.orders (id) VALUES (1)", wantHit: "DEMO_NON_SELECT", wantStmt: "INSERT"},
-		{name: "update with where", dialect: "postgres", sql: "UPDATE public.orders SET status = 'paid' WHERE id = 1", wantHit: "DEMO_NON_SELECT", wantStmt: "UPDATE"},
 		{name: "update without where", dialect: "postgres", sql: "UPDATE public.orders SET status = 'paid'", wantHit: "DEMO_NON_SELECT", alsoWant: "R002", wantStmt: "UPDATE"},
-		{name: "delete with where", dialect: "postgres", sql: "DELETE FROM public.orders WHERE id = 1", wantHit: "DEMO_NON_SELECT", wantStmt: "DELETE"},
 		{name: "delete without where", dialect: "postgres", sql: "DELETE FROM public.orders", wantHit: "DEMO_NON_SELECT", alsoWant: "R002", wantStmt: "DELETE"},
 		{name: "drop table", dialect: "postgres", sql: "DROP TABLE public.orders", wantHit: "DEMO_NON_SELECT", wantStmt: "DDL"},
 		{name: "alter table", dialect: "postgres", sql: "ALTER TABLE public.orders ADD COLUMN demo_flag boolean", wantHit: "DEMO_NON_SELECT", wantStmt: "DDL"},
@@ -85,6 +83,29 @@ func TestProcessDemoNonSelectBarrierNeverTouchesBusinessDatabase(t *testing.T) {
 				t.Fatal("timed out waiting for persisted audit event")
 			}
 			assertDemoBusinessDatabaseUntouched(t, fixture)
+		})
+	}
+}
+
+func TestProcessDemoBoundedUpdateAndDeleteCreateApprovalWithoutExecution(t *testing.T) {
+	for _, sql := range []string{
+		"UPDATE public.orders SET status = 'paid' WHERE id = 1",
+		"DELETE FROM public.orders WHERE id = 1",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			fixture, request := newDemoPipelineFixture(t, "postgres", config.DemoAgentDML, "dml")
+			request.SQL = sql
+
+			response, err := fixture.pipeline.ProcessDemo(context.Background(), request)
+
+			require.NoError(t, err)
+			require.Equal(t, model.DecisionApprove, response.Decision)
+			require.Contains(t, ruleHitIDs(response.Assessment.Hits), "DEMO_WRITE_APPROVAL")
+			require.NotEmpty(t, response.ApprovalID)
+			require.Positive(t, response.AuditID)
+			require.Zero(t, fixture.executors.calls())
+			require.Equal(t, 1, fixture.approvals.calls())
+			require.Equal(t, "approve", fixture.audit.last().Decision)
 		})
 	}
 }

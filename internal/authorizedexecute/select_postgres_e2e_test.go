@@ -131,6 +131,46 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 	redactor, err := mask.NewRedactor([]mask.Rule{{Schema: "s4", Table: "a", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask}})
 	require.NoError(t, err)
 
+	t.Run("preliminary-object-deny-binds-but-never-executes", func(t *testing.T) {
+		var audited ColumnAuthorizationAudit
+		selected, err := executeColumnAuthorized(ctx, gateway, datasource, secret, joinSQL, ColumnAuthorizationRequest{
+			Agent:    model.Agent{ID: "agent", Status: "active", Level: "readonly"},
+			Redactor: redactor, RowLimit: 10, PreliminaryAllowed: false,
+			BindBeforePreliminaryDeny: true, ControlRevisionDigest: "revision",
+			DurableAudit: func(_ context.Context, audit ColumnAuthorizationAudit, candidate *model.QueryResult, _ mask.RedactReport) error {
+				require.Nil(t, candidate)
+				audited = audit
+				return nil
+			},
+			FinalFence: func(context.Context) error { return nil },
+		})
+		require.NoError(t, err)
+		require.False(t, selected.Allowed)
+		require.Equal(t, ReasonAgentDenied, selected.Reason)
+		require.Equal(t, "deny", audited.Decision)
+		require.NotEmpty(t, audited.BinderDigest, "the existing object must reach the prepare-only binder")
+	})
+
+	t.Run("preliminary-object-deny-reports-missing-relation", func(t *testing.T) {
+		auditCalls := 0
+		_, err := executeColumnAuthorized(ctx, gateway, datasource, secret,
+			`SELECT id FROM s4.no_such_table`, ColumnAuthorizationRequest{
+				Agent:    model.Agent{ID: "agent", Status: "active", Level: "readonly"},
+				Redactor: redactor, RowLimit: 10, PreliminaryAllowed: false,
+				BindBeforePreliminaryDeny: true, ControlRevisionDigest: "revision",
+				DurableAudit: func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error {
+					auditCalls++
+					return nil
+				},
+				FinalFence: func(context.Context) error { return nil },
+			})
+		require.Error(t, err)
+		var databaseError *DBError
+		require.ErrorAs(t, err, &databaseError)
+		require.Equal(t, DBErrorCodeObjectNotFound, databaseError.Code)
+		require.Zero(t, auditCalls)
+	})
+
 	t.Run("join-reference-mask-p0e", func(t *testing.T) {
 		tracked := lockrank.WithTracker(ctx)
 		control, err := lockrank.Acquire(tracked, lockrank.Control)
