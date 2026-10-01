@@ -16,7 +16,7 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 - 按 Agent × 数据源 × 对象建立默认拒绝的授权策略。
 - 对单条 SQL 做解析、规则判断、受控执行、结果限行和基础脱敏。
 - 在控制台查看 `allow`、`deny`、`warn`、`approve`、`error` 的证据链与应用层审计。
-- 通过 Streamable HTTP 或 stdio 向 MCP 客户端提供七个固定工具。
+- 通过 Streamable HTTP 或 stdio 向 MCP 客户端提供 7 个固定基础工具；默认开启的 PostgreSQL B5 会话/计划事务另提供 8 个工具。
 
 ## 明确不做什么
 
@@ -177,6 +177,6 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 
 - [使用手册](USER_GUIDE.md)：按控制台菜单学习每项能力及边界。
 - [敏感列发现指南](DISCOVERY.md)：显式表范围、采样安全、置信度与脱敏草稿边界。
-- [MCP 接入指南](INTEGRATIONS.md)：两种传输、七工具、调用时序和客户端配置。
+- [MCP 接入指南](INTEGRATIONS.md)：两种传输、7 个基础工具、B5 会话/事务工具、调用时序和客户端配置。
 - [部署指南](DEPLOY.md)：源码、Compose、systemd、升级、备份和控制面迁移。
 - [本地 Live Demo](DEMO.md)：完整演示凭据、重置脚本与安全清单。

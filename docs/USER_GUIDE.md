@@ -660,6 +660,8 @@ v0.4 支持多版本密钥 manifest、登记对账、历史指纹核验和**重�
 | `migrate-sqlite-to-postgres` | 把组合 SQLite 控制面迁移到 PostgreSQL |
 | `health` | 检查 HTTP 健康或直接检查控制面存储 |
 | `demo-seed` | 仅演示环境维护，用固定 manifest 写入 Demo 数据 |
+| `redaction-key` | 管理脱敏密钥登记、核验与审计发件箱 relay；子命令为 `reconcile`、`registry-mark-active`、`registry-mark-retired`、`verify`、`relay` |
+| `chain` | 管理审计完整性链；子命令为 `status`、`verify`、`provision` |
 
 不存在 `run-check-config-and-health` 子命令；该字符串只是迁移输出中的步骤文案。
 

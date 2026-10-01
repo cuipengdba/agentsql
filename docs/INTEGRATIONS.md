@@ -39,15 +39,17 @@ AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
 
-`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套七工具。
+`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：始终提供 7 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具。
 
 > **重要：stdio 不是连接已运行 systemd 服务的代理。** 它会新建一套运行时，必须能读取配置、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。安装器生成的 `/etc/agentsql/agentsql.env` 权限为 `0600 root:root`，普通桌面用户读不到；已经安装并运行服务时请直接使用 HTTP。
 
 stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI。
 
-## 七个 MCP 工具
+## MCP 工具
 
 所有 SQL 参数都只接受单条语句，不允许堆叠多语句。客户端必须读取结构化结果中的 `decision`。
+
+以下 7 个基础工具始终注册：
 
 | 工具 | 用途 | 入参 | 可能的 decision 与关键语义 |
 | --- | --- | --- | --- |
@@ -60,6 +62,18 @@ stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI�
 | `get_approval_result` | 查询审批状态 | `approval_id` | 只能查询当前 Agent 自己的单；其他 Agent 的单号按未找到处理 |
 
 `execute_write` 和 `request_approval` 的调用方 `reason` 当前会写日志；审批单保存的是规则评估原因，不是调用方原文。
+
+v0.4.0 的 B5 跨请求逻辑会话与 PostgreSQL 计划事务出厂默认开启，因此默认 `tools/list` 还会返回以下 8 个工具：
+
+| 工具 | 用途 |
+| --- | --- |
+| `open_session` / `close_session` / `get_session_status` | 创建、关闭和查询显式 AgentSQL 逻辑会话；不要把它与 HTTP `Mcp-Session-Id` 传输会话混用 |
+| `begin_transaction` | 预检并封存完整有序 DML 计划，然后开始 PostgreSQL 事务；此步不执行语句 |
+| `execute_transaction_statement` | 按计划 ordinal 执行一条已封存的 `INSERT`、`UPDATE` 或 `DELETE`，执行阶段不能替换 SQL |
+| `commit_transaction` / `rollback_transaction` | 提交或回滚并完成终态栅栏 |
+| `get_transaction_status` | 幂等查询事务 outcome、audit 与 disposition 状态 |
+
+B5 每个 operation 仍只允许一条顶层 SQL，不支持事务内 `SELECT`、`RETURNING`、DDL 或 MySQL 跨请求事务。显式设置 `mcp.sessions.enabled: false` 会隐藏这 8 个工具，并要求同时关闭 `mcp.transactions.postgres`；实际可用集合始终以 `tools/list` 为准。
 
 ## 调用时序
 
@@ -128,7 +142,7 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 }
 ```
 
-上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，应能看到 AgentSQL 暴露的七个工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
+上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，默认配置应能看到 7 个基础工具和 8 个 B5 工具；显式关闭 B5 时只显示基础工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
 
 ## Cursor 接入（stdio）
 

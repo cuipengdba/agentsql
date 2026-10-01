@@ -2,6 +2,48 @@
 
 本项目的重要变化记录于此，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [v0.4.0] - 2026-09-30
+
+> 已正式发布并创建 `v0.4.0` tag。本版主题是“生产级列授权与跨请求事务安全”，在既有默认拒绝链路上补齐 PostgreSQL 列级授权、MCP 逻辑会话、审计完整性与一键体验。
+
+### Added
+
+- **MCP 双承载与会话化传输**：继续同时提供本机 `stdio` 与 Streamable HTTP `/mcp`，保留 `list_datasources`、`list_schema`、`explain_query`、`query`、`execute_write`、`request_approval`、`get_approval_result` 7 个基础工具；Streamable HTTP 默认启用有状态传输会话，`initialize` 返回 `Mcp-Session-Id`，也可显式回退 stateless。
+- **B2 PostgreSQL 列级授权**：新增 PostgreSQL 14–18 的 SELECT 列级授权闭环，覆盖元数据、列级白名单、投影血缘、OID/catalog 绑定、请求预留、控制栅栏与审计；出厂默认开启，普通基表默认使用免安装扩展的 `CATALOG_CLOSED_V1`，view、matview 与复杂血缘可选用签名 `agentsql_binder` 原生扩展。授权越界、绑定不确定或运行期 lease 失效均 fail-closed；MySQL 不进入 B2 路径。
+- **B5 跨请求逻辑会话与计划事务**：新增默认开启的 PostgreSQL 跨请求逻辑会话、强一致会话目录、owner epoch/sticky、计划封存、顺序 DML、终态 CAS/final fence、故障恢复与应急 WAL；增加 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status` 8 个 MCP 工具。MySQL 跨请求事务在 v0.4 固定不支持。
+- **脱敏与敏感列发现增强**：结果层完整覆盖 `mask`、HMAC-SHA256 `hash`、整值 `block`、数值分桶/日期截断 `range` 四类算法；新增版本化 hash 密钥 manifest、登记/核验、启动强对账、重启式计划切换与审计发件箱。敏感列发现扩展到九类，并可按建议算法生成默认禁用的表.列脱敏草稿；样本仍只在内存使用，不落盘、不进入审计正文或通知。
+- **审计完整性与导出**：新增可回填、可校验、带状态与 readiness 的审计哈希链，以及 `agentsqlctl chain status/verify/provision`、只读管理 API 和控制台完整性面板；审计导出继续提供带中文表头与公式注入防护的 CSV 和面向机器的 JSONL，并记录 `audit.export` 管理留痕。
+- **通知外发**：提供按决策过滤的 Webhook 与 Syslog 通道，保持 live-only、best-effort、默认关闭且默认不包含 SQL 原文；Webhook 具备 SSRF fail-closed、签名、有界队列和投递指标，通知失败不改变 SQL 决策或权威审计记录。
+- **5 分钟快速上手与演示栈**：新增无需克隆源码、只下载一个 Compose 文件即可启动的自包含 PostgreSQL/MySQL Demo，并提供带真实授权、脱敏、越权拒绝与审批结果的场景卡；Linux 安装器、发布包与 GHCR 镜像同时覆盖 `linux/amd64` 和 `linux/arm64`。
+- **生态收录与兼容预研**：新增 MCP 官方 Registry 描述文件并完成 Registry / Glama 收录；补充电科金仓 KingbaseES、瀚高 HighGo、openGauss（GaussDB）、IvorySQL、TiDB、OceanBase、TDSQL、崖山数据库 YashanDB、达梦数据库 DM 共 9 家候选数据库的兼容预研与联合案例大纲。上述名单是规划与合作方向，不代表 v0.4 已支持。
+
+### Changed
+
+- 数据库错误统一进入 `decision=error` 业务信封并贯穿 Playground、Ping、MCP、审计、SSE 与通知，稳定记录 `error_code` / `error_stage`；可预期授权失败、SQL 语法错误、对象不存在、连接/超时等口径分离，控制台展示可执行的中文提示。
+- PostgreSQL B2 列级授权与 B5 逻辑会话/计划事务由预研门控切换为出厂默认开启；`/healthz`、`/readyz` 与运维面同步报告激活、漂移、恢复和故障状态。
+- 查询结果脱敏改用投影血缘对齐 MySQL/PostgreSQL 顶层直接投影；能唯一解析的列按物理来源精确匹配，无法确定归属且可能涉及受保护表时固定阻断为 `***`。
+- 发布工程新增生产 Ed25519 签名器、可复核开发签名工具、架构感知安装器与 GHCR 多架构构建流程；公开文档、示例与产物版本统一为 v0.4.0。
+
+### Security
+
+- B2 使用 sealed transport、语言级能力隔离、资源上限、catalog/OID 锁与激活栅栏；原生扩展验证 ABI、能力与签名摘要，免扩展闭合模式不确定时拒绝，不静默退回表级放行。
+- B5 事务在开始前封存完整有序 DML 计划，执行阶段不可替换 SQL；会话 continuation proof、owner fence、终态证据一致性、取消污染与崩溃恢复共同阻止跨 Agent、乱序和重复提交。
+- SQL 解析器升级并对 `VALUES` table statement 等边界 fail-closed；脱敏血缘补充零泄漏负向集，hash 密钥材料不进入配置回显、日志、审计或指标。
+- 审计链使用 canonical envelope 与哈希派生覆盖写入、审批和批量落盘路径；链状态异常可使相关写组件 readiness fail-closed，独立 verifier 支持固定退出码核验。
+
+### Fixed
+
+- 修复 MCP 有状态会话测试与 Demo reset helper 未先完成 `initialize` 握手的问题。
+- 修复 Windows 下 B5 应急 WAL 目录 `fsync` 被拒绝、审计链监控错误复用已结束生命周期上下文，以及 MySQL 镜像漂移和容器冷启动超时导致的回归不稳定。
+- 修复解析失败未返回稳定 `DB_SYNTAX_ERROR`、MySQL `INSERT ... VALUES` EXPLAIN 分类和数据库错误被误报为 HTTP 500；进一步区分预期授权失败与对象缺失提示。
+- 修复 Demo 表外键与密封 JOIN 剧本冲突，并加固每日重置的 seed/gateway 启动时序。
+
+### Compatibility
+
+- 被防护业务库仍支持 MySQL 8 与 PostgreSQL 14/15/16/17/18；控制面支持默认 SQLite 与 PostgreSQL 15+。B2 列级授权和 B5 跨请求事务仅在 PostgreSQL 路径提供，MySQL 保持既有表级授权与单请求执行边界。
+- 官方原生包支持 glibc 2.28+ 的 `linux/amd64`、`linux/arm64`，GHCR tag 为相同双架构 manifest；musl/Alpine、CentOS 7 与其他原生架构仍不支持。
+- B2/B5 与有状态 HTTP 传输均提供显式回退开关；关闭 B5 不影响 7 个基础 MCP 工具，关闭 HTTP transport session 也不会隐式改变 B5 逻辑会话配置。
+
 ## [v0.3.0] - 2026-09-29
 
 > 发布准备稿：目标 GA 日期为 2026-09-29，正式 tag 尚未创建。本版主题是“敏感数据保护纵深”，不改变默认拒绝的安全链路。
