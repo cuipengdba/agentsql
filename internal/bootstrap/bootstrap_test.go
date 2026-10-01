@@ -369,10 +369,13 @@ func TestAssembleLoadsNotificationsAndDeliversPersistedDeny(t *testing.T) {
 	runtime, err := Assemble(context.Background(), bootstrapTestConfig(path), bootstrapTestSecret)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	// Keep this notification bootstrap test independent of a live database. R006
+	// makes the denial terminal; an isolated R010 denial intentionally proceeds to
+	// the read-only binder so the pipeline can distinguish a missing object.
 	response, _ := runtime.Pipeline.Process(context.Background(), pipeline.Request{
-		APIKey: plaintext, DatasourceID: "notify-ds", SQL: "SELECT secret FROM private_table", MCPTool: "query",
+		APIKey: plaintext, DatasourceID: "notify-ds", SQL: "SELECT /* notification-deny */ secret FROM private_table", MCPTool: "query",
 	})
-	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Equal(t, model.DecisionDeny, response.Decision, response)
 	select {
 	case payload := <-received:
 		require.Equal(t, "deny", payload.Decision)

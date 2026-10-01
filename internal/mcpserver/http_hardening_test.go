@@ -240,7 +240,7 @@ func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing
 		response := decodeHardeningRPCResponse(t, result.body)
 		require.Nil(t, response.Error, result.body)
 		require.Equal(t, result.idRaw, string(response.ID), "JSON-RPC id type/value changed")
-		require.Equal(t, "allow", response.Result.StructuredContent.Decision)
+		require.Equal(t, "allow", response.Result.StructuredContent.Decision, result.body)
 		if result.kind == "list" {
 			var listed []publicDatasource
 			require.NoError(t, json.Unmarshal(response.Result.StructuredContent.Data, &listed))
