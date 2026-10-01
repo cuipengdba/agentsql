@@ -2,6 +2,49 @@ package model
 
 import "time"
 
+// Tenant is an isolation boundary for control-plane identities and RBAC data.
+type Tenant struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// User is a human control-plane identity. PasswordHash is never serialized by
+// the HTTP layer and contains only a slow password hash, never plaintext.
+type User struct {
+	ID              string    `json:"id"`
+	TenantID        string    `json:"tenant_id"`
+	Username        string    `json:"username"`
+	DisplayName     string    `json:"display_name"`
+	PasswordHash    string    `json:"-"`
+	Status          string    `json:"status"`
+	AuthProvider    string    `json:"auth_provider"`
+	ExternalSubject *string   `json:"external_subject,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// Role groups permissions inside exactly one tenant.
+type Role struct {
+	ID          string    `json:"id"`
+	TenantID    string    `json:"tenant_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Builtin     bool      `json:"builtin"`
+	ParentIDs   []string  `json:"parent_role_ids"`
+	Permissions []string  `json:"permissions"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Permission is a stable, globally-defined action code assignable to roles.
+type Permission struct {
+	Code        string `json:"code"`
+	Description string `json:"description"`
+}
+
 // Agent is an authenticated AI database client.
 type Agent struct {
 	ID         string

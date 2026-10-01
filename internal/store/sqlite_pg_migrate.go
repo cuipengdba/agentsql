@@ -244,6 +244,33 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "claimed_at", kind: migrationTime}, {name: "last_error", kind: migrationText},
 		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime},
 	}},
+	{name: "tenants", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "name", kind: migrationText}, {name: "status", kind: migrationText},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "users", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText}, {name: "username", kind: migrationText},
+		{name: "display_name", kind: migrationText}, {name: "password_hash", kind: migrationText}, {name: "status", kind: migrationText},
+		{name: "auth_provider", kind: migrationText}, {name: "external_subject", kind: migrationText},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "permissions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "code", kind: migrationText}, {name: "description", kind: migrationText},
+	}},
+	{name: "roles", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText}, {name: "name", kind: migrationText},
+		{name: "description", kind: migrationText}, {name: "builtin", kind: migrationBool},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "user_roles", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "user_id", kind: migrationText}, {name: "role_id", kind: migrationText},
+	}},
+	{name: "role_permissions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "role_id", kind: migrationText}, {name: "permission_code", kind: migrationText},
+	}},
+	{name: "role_inheritance", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "role_id", kind: migrationText}, {name: "parent_role_id", kind: migrationText},
+	}},
 	{name: "b5_sessions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "session_id", kind: migrationText}, {name: "agent_id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
 		{name: "principal_id", kind: migrationText}, {name: "owner_instance_id", kind: migrationText}, {name: "owner_epoch", kind: migrationInt64},

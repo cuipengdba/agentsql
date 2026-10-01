@@ -86,11 +86,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 10, migrationCount)
+	require.Equal(t, 11, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 10, current)
-	require.Equal(t, 10, latest)
+	require.Equal(t, 11, current)
+	require.Equal(t, 11, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -741,11 +741,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
 			require.NoError(t, err)
 			if testCase.separated {
-				require.Equal(t, 9, current)
-				require.Equal(t, 9, latest)
-			} else {
 				require.Equal(t, 10, current)
 				require.Equal(t, 10, latest)
+			} else {
+				require.Equal(t, 11, current)
+				require.Equal(t, 11, latest)
 			}
 			assertPostgresMaskRuleRangeColumns(t, ctx, database)
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
@@ -781,8 +781,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 10, current)
-	require.Equal(t, 10, latest)
+	require.Equal(t, 11, current)
+	require.Equal(t, 11, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

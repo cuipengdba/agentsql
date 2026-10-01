@@ -136,9 +136,10 @@ func TestB5S1bSQLiteCombinedAndMetadataDownReapply(t *testing.T) {
 		name     string
 		separate bool
 		version  int
+		latest   int
 	}{
-		{name: "combined", version: 10},
-		{name: "metadata", separate: true, version: 9},
+		{name: "combined", version: 10, latest: 11},
+		{name: "metadata", separate: true, version: 9, latest: 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -152,6 +153,7 @@ func TestB5S1bSQLiteCombinedAndMetadataDownReapply(t *testing.T) {
 				require.Equal(t, 1, count)
 			}
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate), "up migration reentry")
+			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.latest))
 			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.version))
 			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.version), "down migration reentry")
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate))

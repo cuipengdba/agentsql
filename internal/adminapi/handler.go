@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +25,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/policy"
+	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 )
@@ -36,6 +36,7 @@ type Deps struct {
 	AdminUsername    string
 	AdminPassword    string
 	TokenKey         []byte
+	RBAC             *rbac.Service
 	DatasourcePinger DatasourcePinger
 	Discovery        DiscoveryRunner
 	ChainManifests   ChainManifestProvider
@@ -92,6 +93,7 @@ type Handler struct {
 	adminUser      string
 	adminPassword  string
 	tokenKey       []byte
+	rbac           *rbac.Service
 	streamSlots    chan struct{}
 	heartbeat      time.Duration
 	notificationMu sync.Mutex
@@ -120,6 +122,12 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	if len(deps.TokenKey) == 0 {
 		return nil, fmt.Errorf("create admin handler: token key is required")
 	}
+	if deps.RBAC == nil {
+		deps.RBAC = rbac.NewService(deps.Runtime.Store.RBAC())
+	}
+	if err := bootstrapRBAC(deps.RBAC, deps.AdminUsername, deps.AdminPassword); err != nil {
+		return nil, fmt.Errorf("create admin handler: bootstrap RBAC: %w", err)
+	}
 	if deps.Config.DemoEnabled() {
 		if deps.demoRunner == nil {
 			return nil, fmt.Errorf("create admin handler: demo pipeline is unavailable")
@@ -145,7 +153,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 		})
 	}
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
-		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...),
+		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...), rbac: deps.RBAC,
 		chainVerifying: make(map[string]bool), chainLastStart: make(map[string]time.Time)}
 	if streamEnabled {
 		handler.streamSlots = make(chan struct{}, deps.Config.Server.EventStreamMaxConnections)
@@ -159,6 +167,24 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/auth/login", handler.login)
 	mux.HandleFunc("GET /api/v1/auth/me", handler.me)
 	mux.HandleFunc("POST /api/v1/auth/logout", handler.logout)
+	mux.HandleFunc("GET /api/v1/permissions", handler.permissionsList)
+	mux.HandleFunc("GET /api/v1/users", handler.usersList)
+	mux.HandleFunc("POST /api/v1/users", handler.usersCreate)
+	mux.HandleFunc("GET /api/v1/users/{id}", handler.usersGet)
+	mux.HandleFunc("PUT /api/v1/users/{id}", handler.usersUpdate)
+	mux.HandleFunc("DELETE /api/v1/users/{id}", handler.usersDelete)
+	mux.HandleFunc("PUT /api/v1/users/{id}/roles", handler.usersSetRoles)
+	mux.HandleFunc("GET /api/v1/roles", handler.rolesList)
+	mux.HandleFunc("POST /api/v1/roles", handler.rolesCreate)
+	mux.HandleFunc("GET /api/v1/roles/{id}", handler.rolesGet)
+	mux.HandleFunc("PUT /api/v1/roles/{id}", handler.rolesUpdate)
+	mux.HandleFunc("DELETE /api/v1/roles/{id}", handler.rolesDelete)
+	mux.HandleFunc("PUT /api/v1/roles/{id}/permissions", handler.rolesSetPermissions)
+	mux.HandleFunc("GET /api/v1/tenants", handler.tenantsList)
+	mux.HandleFunc("POST /api/v1/tenants", handler.tenantsCreate)
+	mux.HandleFunc("GET /api/v1/tenants/{id}", handler.tenantsGet)
+	mux.HandleFunc("PUT /api/v1/tenants/{id}", handler.tenantsUpdate)
+	mux.HandleFunc("DELETE /api/v1/tenants/{id}", handler.tenantsDelete)
 	mux.HandleFunc("GET /api/v1/agents", handler.agentsList)
 	mux.HandleFunc("POST /api/v1/agents", handler.agentsCreate)
 	mux.HandleFunc("GET /api/v1/agents/{id}", handler.agentsGet)
@@ -229,6 +255,20 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	}), nil
 }
 
+func bootstrapRBAC(service *rbac.Service, username, password string) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = service.Bootstrap(context.Background(), username, password)
+		if err == nil || !strings.Contains(strings.ToLower(err.Error()), "database is locked") && !strings.Contains(strings.ToLower(err.Error()), "sqlite_busy") {
+			return err
+		}
+		if attempt < 2 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return err
+}
+
 func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodPost && request.URL.Path == "/api/v1/auth/login" {
@@ -236,12 +276,73 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 			return
 		}
 		token, ok := adminBearerToken(request.Header.Get("Authorization"))
-		if !ok || validateAdminToken(handler.tokenKey, token, time.Now()) != nil {
+		payload, tokenErr := parseAdminToken(handler.tokenKey, token, time.Now())
+		if !ok || tokenErr != nil {
 			handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		next.ServeHTTP(writer, request)
+		principal, err := handler.rbac.Principal(request.Context(), payload.TenantID, payload.UserID)
+		if err != nil || principal.Username != payload.Username {
+			handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		permission, protected := requiredPermission(request.Method, request.URL.Path)
+		if protected && !principal.Has(permission) {
+			handler.fail(writer, http.StatusForbidden, "forbidden")
+			return
+		}
+		if !protected && request.URL.Path != "/api/v1/auth/me" && request.URL.Path != "/api/v1/auth/logout" {
+			handler.fail(writer, http.StatusForbidden, "forbidden")
+			return
+		}
+		if principal.TenantID != rbac.DefaultTenantID && !tenantNativeRoute(request.URL.Path) {
+			// Existing SQL gateway resources predate tenant ownership columns. Until
+			// they are migrated, non-default tenants must never see the shared rows.
+			handler.fail(writer, http.StatusForbidden, "forbidden")
+			return
+		}
+		ctx := context.WithValue(request.Context(), principalContextKey{}, principal)
+		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
+}
+
+func tenantNativeRoute(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/auth/") || strings.HasPrefix(path, "/api/v1/users") ||
+		strings.HasPrefix(path, "/api/v1/roles") || strings.HasPrefix(path, "/api/v1/tenants") || path == "/api/v1/permissions"
+}
+
+type principalContextKey struct{}
+
+func requestPrincipal(request *http.Request) (rbac.Principal, bool) {
+	if request == nil {
+		return rbac.Principal{}, false
+	}
+	principal, ok := request.Context().Value(principalContextKey{}).(rbac.Principal)
+	return principal, ok && principal.UserID != "" && principal.TenantID != ""
+}
+
+func requiredPermission(method, path string) (string, bool) {
+	switch {
+	case strings.HasPrefix(path, "/api/v1/users"):
+		return rbac.PermissionUserManage, true
+	case strings.HasPrefix(path, "/api/v1/roles"), path == "/api/v1/permissions":
+		return rbac.PermissionRoleManage, true
+	case strings.HasPrefix(path, "/api/v1/tenants"):
+		return rbac.PermissionTenantManage, true
+	case strings.HasPrefix(path, "/api/v1/agents"), strings.HasPrefix(path, "/api/v1/datasources"):
+		return rbac.PermissionDatasourceManage, true
+	case strings.HasPrefix(path, "/api/v1/policies"), strings.HasPrefix(path, "/api/v1/rules"),
+		strings.HasPrefix(path, "/api/v1/mask_rules"), strings.HasPrefix(path, "/api/v1/redaction"),
+		strings.HasPrefix(path, "/api/v1/integrations"):
+		return rbac.PermissionStrategyManage, true
+	case strings.HasPrefix(path, "/api/v1/audit"), strings.HasPrefix(path, "/api/v1/dashboard"), path == "/api/v1/stream":
+		return rbac.PermissionAuditView, true
+	case strings.HasPrefix(path, "/api/v1/approvals"), strings.HasPrefix(path, "/api/v1/playground"), strings.HasPrefix(path, "/api/v1/b5"):
+		return rbac.PermissionQueryExecute, true
+	default:
+		_ = method
+		return "", false
+	}
 }
 
 func (handler *Handler) recover(next http.Handler) http.Handler {
@@ -297,14 +398,20 @@ func (writer *statusRecorder) AfterCommit(callback func()) {
 }
 
 func (handler *Handler) login(writer http.ResponseWriter, request *http.Request) {
-	var input struct{ Username, Password string }
+	var input struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		TenantID string `json:"tenant_id,omitempty"`
+	}
 	if err := decodeJSON(writer, request, &input); err != nil {
 		handler.fail(writer, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	usernameMatch := subtle.ConstantTimeCompare([]byte(input.Username), []byte(handler.adminUser))
-	passwordMatch := subtle.ConstantTimeCompare([]byte(input.Password), []byte(handler.adminPassword))
-	if usernameMatch != 1 || passwordMatch != 1 {
+	if input.TenantID == "" {
+		input.TenantID = rbac.DefaultTenantID
+	}
+	principal, err := handler.rbac.Authenticate(request.Context(), input.TenantID, input.Username, input.Password)
+	if err != nil {
 		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -313,7 +420,7 @@ func (handler *Handler) login(writer http.ResponseWriter, request *http.Request)
 		handler.fail(writer, http.StatusInternalServerError, "internal error")
 		return
 	}
-	token, expires, err := issueAdminToken(handler.tokenKey, time.Now(), hex.EncodeToString(jtiBytes))
+	token, expires, err := issuePrincipalToken(handler.tokenKey, time.Now(), hex.EncodeToString(jtiBytes), principal)
 	if err != nil {
 		handler.fail(writer, http.StatusInternalServerError, "internal error")
 		return
@@ -321,8 +428,14 @@ func (handler *Handler) login(writer http.ResponseWriter, request *http.Request)
 	handler.ok(writer, map[string]any{"token": token, "expires_at": expires.Format(time.RFC3339)})
 }
 
-func (handler *Handler) me(writer http.ResponseWriter, _ *http.Request) {
-	handler.ok(writer, map[string]string{"username": handler.adminUser})
+func (handler *Handler) me(writer http.ResponseWriter, request *http.Request) {
+	principal, ok := requestPrincipal(request)
+	if !ok {
+		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	handler.ok(writer, map[string]any{"id": principal.UserID, "tenant_id": principal.TenantID,
+		"username": principal.Username, "roles": principal.RoleIDs, "permissions": principal.Permissions})
 }
 
 func (handler *Handler) logout(writer http.ResponseWriter, _ *http.Request) {

@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/cuipengdba/agentsql/internal/rbac"
 )
 
 const (
@@ -27,6 +29,9 @@ type tokenPayload struct {
 	IssuedAt int64  `json:"iat"`
 	Expires  int64  `json:"exp"`
 	JTI      string `json:"jti"`
+	UserID   string `json:"sub"`
+	TenantID string `json:"tid"`
+	Username string `json:"username"`
 }
 
 // DeriveTokenKey derives the admin-token signing key from AGENTSQL_SECRET.
@@ -51,11 +56,21 @@ func AdminCredentialsFromEnv() (username, password string, err error) {
 }
 
 func issueAdminToken(key []byte, now time.Time, jti string) (string, time.Time, error) {
+	return issuePrincipalToken(key, now, jti, rbac.Principal{
+		UserID: rbac.BootstrapUserID, TenantID: rbac.DefaultTenantID, Username: "admin",
+	})
+}
+
+func issuePrincipalToken(key []byte, now time.Time, jti string, principal rbac.Principal) (string, time.Time, error) {
 	if len(key) == 0 || now.IsZero() || strings.TrimSpace(jti) == "" {
 		return "", time.Time{}, fmt.Errorf("issue admin token: invalid token inputs")
 	}
+	if strings.TrimSpace(principal.UserID) == "" || strings.TrimSpace(principal.TenantID) == "" || strings.TrimSpace(principal.Username) == "" {
+		return "", time.Time{}, fmt.Errorf("issue admin token: invalid principal")
+	}
 	expires := now.Add(adminTokenLifetime)
-	payload, err := json.Marshal(tokenPayload{IssuedAt: now.Unix(), Expires: expires.Unix(), JTI: jti})
+	payload, err := json.Marshal(tokenPayload{IssuedAt: now.Unix(), Expires: expires.Unix(), JTI: jti,
+		UserID: principal.UserID, TenantID: principal.TenantID, Username: principal.Username})
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("marshal admin token: %w", err)
 	}
@@ -65,33 +80,39 @@ func issueAdminToken(key []byte, now time.Time, jti string) (string, time.Time, 
 }
 
 func validateAdminToken(key []byte, token string, now time.Time) error {
+	_, err := parseAdminToken(key, token, now)
+	return err
+}
+
+func parseAdminToken(key []byte, token string, now time.Time) (tokenPayload, error) {
 	if len(key) == 0 || strings.TrimSpace(token) != token || token == "" || now.IsZero() {
-		return ErrInvalidAdminToken
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return ErrInvalidAdminToken
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
 	provided, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil || len(provided) != sha256.Size {
-		return ErrInvalidAdminToken
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
 	expected := signToken(key, parts[0])
 	if subtle.ConstantTimeCompare(provided, expected) != 1 {
-		return ErrInvalidAdminToken
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
 	encodedPayload, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return ErrInvalidAdminToken
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
 	var payload tokenPayload
-	if err := json.Unmarshal(encodedPayload, &payload); err != nil || payload.IssuedAt <= 0 || payload.Expires <= payload.IssuedAt || strings.TrimSpace(payload.JTI) == "" {
-		return ErrInvalidAdminToken
+	if err := json.Unmarshal(encodedPayload, &payload); err != nil || payload.IssuedAt <= 0 || payload.Expires <= payload.IssuedAt ||
+		strings.TrimSpace(payload.JTI) == "" || strings.TrimSpace(payload.UserID) == "" || strings.TrimSpace(payload.TenantID) == "" || strings.TrimSpace(payload.Username) == "" {
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
-	if now.Unix() >= payload.Expires {
-		return ErrInvalidAdminToken
+	if now.Unix() >= payload.Expires || payload.IssuedAt > now.Add(time.Minute).Unix() {
+		return tokenPayload{}, ErrInvalidAdminToken
 	}
-	return nil
+	return payload, nil
 }
 
 func signToken(key []byte, encodedPayload string) []byte {
