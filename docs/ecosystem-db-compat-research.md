@@ -177,6 +177,68 @@ Go 驱动建议优先评估 `godror`。其项目说明实现 `database/sql/drive
 
 Oracle 不能映射到现有 PG/MySQL 路径。建议新增独立 `oracle` dialect、parser 与 executor，分别处理 `ALL_*` / `DBA_*` / `V$*` 目录、CDB/PDB 与 service 语义、quoted identifier、空字符串为 `NULL`、`NUMBER` 精度、`DATE` / `TIMESTAMP WITH TIME ZONE`、LOB、数组/对象类型、授权与角色、错误码和取消。完成这些实现与安全闭环前，**当前 AgentSQL 未支持 Oracle；本次官方 Free 镜像的 SQL*Plus 连通性不构成支持或认证声明。**
 
+### 0.7 第五批实测与独立评估（2026-10-02）
+
+本批继续沿用第 0.2 节的安全口径：只使用合成数据，不修改 AgentSQL 核心生产代码，不以协议可连接替代完整兼容认证。PolarDB 以现有 `db_type=postgres` 路径完成端到端实测；崖山仅验证厂商容器、客户端和版本，并根据官方资料给出独立 dialect 设计建议，**不声明当前 AgentSQL 已支持崖山**。
+
+#### 0.7.1 PolarDB for PostgreSQL 实测结果
+
+镜像 `polardb/polardb_pg_local_instance:15` 已在本机存在，镜像 ID 为 `85cf47a18d84`。按 `polardb-v06` 容器名启动并将读写节点 `5432` 映射到宿主机 `127.0.0.1:15433`；初始化期间日志有 `polar_cache_trash` 目录不存在的 warning，但随后 `pg_isready` 从拒绝连接转为 `accepting connections`，版本和读写查询均正常。`SELECT version();` 实际返回：
+
+```text
+PostgreSQL 15.19 (PolarDB 15.19.5.0 build unknown) on x86_64-linux-gnu
+```
+
+测试表为 `public.agentsql_test(id integer, name varchar(100), phone varchar(32))`，插入 `Alice/13800138000` 与 `Bob/13900139000` 两行合成数据，并为网关创建仅具有目标库连接、`public` schema usage 和该表 select 权限的 `agentsql_ro` 账号。容器内直接执行 `EXPLAIN (FORMAT JSON) SELECT id,name,phone FROM public.agentsql_test ORDER BY id` 返回合法 PostgreSQL JSON 计划（`Sort -> Seq Scan`），直接查询返回 2 行。
+
+AgentSQL 使用 `db_type=postgres`、`host.docker.internal:15433`、库 `postgres` 注册数据源 `polardb-v06`，未增加 PolarDB 别名、dialect 或识别开关。实测闭环如下：
+
+| 闭环步骤 | 实际结果 |
+| --- | --- |
+| 连接 / Ping | 通过；首次冷连接 446 ms |
+| discovery | 通过；扫描 1 表、3 列，`phone` 为唯一候选列，2 个采样值均命中手机号分类；管理审计 ID **26** |
+| R006 规则拒绝 | 通过；带 `/* compat-v07 */` 注释的受控查询被 R006 拒绝，未进入数据库执行；审计 ID **27** |
+| `EXPLAIN` 与允许查询 | 通过；AgentSQL 的前置计划评估成功，允许查询返回 2 行，`est_scan_rows=10`、数据库执行耗时 4 ms；审计 ID **28**，审计记录 `rows_returned=2` |
+| 结果脱敏 | 通过；`phone` 列共 2 个单元格被掩码，结果为 `138****8000`、`139****9000` |
+| 审计落库 | 通过；discovery、拒绝、允许分别落库为 ID 26、27、28，允许记录的 decision 为 `allow` |
+
+结论：**该指定社区镜像和合成用例下，PolarDB for PostgreSQL 的现有 PostgreSQL 路径实测通过，无需新增 dialect 或厂商识别开关。** 依据不是产品名称，而是本次真实验证的 PostgreSQL wire protocol、PG 15 语法、`information_schema` discovery、合法 `EXPLAIN (FORMAT JSON)` 及完整安全闭环。该结论不外推为阿里云商业服务全部拓扑、扩展、故障切换、认证/TLS 或生产兼容认证；这些仍需在目标版本和拓扑上联合终验。
+
+#### 0.7.2 崖山 YashanDB 独立评估
+
+容器 `yashan-v06` 使用镜像 `yashandb:yashandb-image-23.4.1.109-linux-x86_64`，宿主机端口 1688。`docker ps` 显示容器持续运行；部署日志中 `DeployYasdbCluster` 最终由 `RUNNING` 变为 `SUCCESS`，`return_code=0`、`progress=100`、`cost=422`。客户端实际位于 `/data/yashan/yasdb_home/23.4.1.109/bin/yasql`。加载同目录 `lib` 后，以交互式口令登录成功，避免把口令中的 `@` 错误解释为 DSN 分隔符。实测结果为：
+
+```text
+YashanDB Server Enterprise Edition Release 23.4.1.109 x86_64 - Linux
+V$VERSION.VERSION_NUMBER = 23.4.1.109
+DATABASE_ROLE: PRIMARY / OPEN
+COMPAT_VECTOR = yashan
+```
+
+因此本容器是 **yashan 模式**。官方 23.4 兼容性说明把该模式定位为崖山自己的 SQL/PL 与系统视图体系，并在大量已交付特性上兼容 Oracle；`COMPAT_VECTOR` 文档说明 `yashan` 与 `oracle` 取向等价。它不是 PostgreSQL 协议或 PostgreSQL 方言。23.4 另有安装时选择的 MySQL 模式，但该模式具有单独的 MySQL 协议监听和语义，不能用来代表当前容器，更不能把当前 1688 端口映射到 AgentSQL 的 PG/MySQL 路径。依据：[与 Oracle 兼容性说明](https://doc.yashandb.com/yashandb/23.4/zh/All-Manuals/Product-Overview/Compatibility/Compatibility-with-Oracle.html)、[23.4 单机部署与模式说明](https://doc.yashandb.com/yashandb/23.4/zh/All-Manuals/Installation-and-Upgrade/Installation-and-Deployment/YashanDB-Installation-via-CLI/Standalone-%28Primary-Standby%29-Deployment.html)、[COMPAT_VECTOR 参数](https://doc.yashandb.com/yashandb/23.4.6/zh/All-Manuals/Reference-Manual/Configuration-Parameters.html)。
+
+Go 接入的官方结论如下：
+
+| 项目 | 评估结果 |
+| --- | --- |
+| 官方驱动 | `yasdb-go`，`database/sql` 驱动名 `yasdb` |
+| 当前公开导入路径 | `github.com/yashan-technologies/yashandb-go`；官方仓库示例为 v1.4.2 |
+| DSN | `user/password@host:port[?param=value]`，例如 `sales/sales@127.0.0.1:1688`；不是 `yasql://...`。用户名或口令包含 `/`、`@`、`\` 时需按官方规则用反斜杠转义 |
+| CGO / 运行时 | **需要 CGO 和 YashanDB C 客户端**；Linux 需配置客户端动态库搜索路径，Windows 还需 64 位 GCC |
+| 本容器实测边界 | 本批使用镜像内 `yasql`/C 客户端完成登录和版本查询，未把 Go 驱动引入 AgentSQL，也未验证 Go 驱动在本镜像上的 Ping、取消、事务或并发行为 |
+
+公开资料同时存在旧版手册导入路径 `git.yasdb.com/go/yasdb-go` 与当前公开 GitHub 路径；新接入应以当前官方 GitHub 发布和厂商支持矩阵为准，旧路径是否继续受支持标记为**待核实**。Go 仓库为 Apache-2.0，但配套 C 客户端的获取、再分发、静态/动态链接、基础镜像和 CI 使用许可仍需厂商书面确认。依据：[官方 Go 驱动仓库](https://github.com/yashan-technologies/yashandb-go)、[23.4 Go 驱动使用介绍](https://doc.yashandb.com/yashandb/23.4/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Usage-Introduction.html)、[Go 驱动 Linux 安装](https://doc.yashandb.com/yashandb/23.4.6/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Installation/Installing-Go-Driver-%28Linux%29.html)。
+
+建议新增独立 `yashandb` dialect，而不是将其伪装为 `postgres`、`mysql` 或尚不存在的通用 `oracle` 别名：
+
+1. **驱动与部署**：在 `openExecutor` 增加显式的 `yashandb` 分派，使用受厂商支持的 `yasdb` 驱动；定义 DSN 特殊字符、连接池、超时取消、TLS/认证和动态库装载合同，并单独审查 C 客户端许可与多平台打包。
+2. **parser / 规则**：建立 YashanDB corpus，覆盖 Oracle 兼容语法、崖山扩展、PL、hint、分页、空字符串/NULL、标识符与注释；即使未来复用某个 Oracle AST，也必须有显式能力边界，未知语法继续 fail-closed。
+3. **计划与发现**：适配崖山 `EXPLAIN`/AUTOTRACE 输出，不复用 PostgreSQL JSON 计划假设；使用崖山/Oracle 兼容系统视图实现 schema、表、列、约束和类型发现，验证普通只读账号的最小权限与不可见对象语义。
+4. **类型与错误**：覆盖 `NUMBER`、日期时间与时区、interval、RAW、LOB、JSON/XML、ROWID、自定义类型和 NULL；建立 YAS 错误码到稳定安全错误的映射，并回归 bind、批量、事务、取消和连接失效。
+5. **授权、脱敏与审计**：现有 B2 只支持精确的 `db_type=postgres`，崖山必须独立设计 catalog/binder 和列级授权探测；完成前只能验证应用层表策略与脱敏原型，不能宣称 B2 支持。
+
+复杂度评估为**高**，主要风险是 proprietary wire/C 运行时与 CGO 交付、Oracle 兼容并非 Oracle 完全等价、系统目录与计划格式差异、类型和错误码覆盖，以及驱动/C 客户端许可。**当前 AgentSQL 未支持 YashanDB；本次容器与 yasql 连通性只证明目标环境可用，不构成 AgentSQL 支持或厂商认证。**
+
 ## 1. 十家数据库基线
 
 下表中的驱动形态只描述公开资料中常见的接入方向，不表示 AgentSQL 已验证，也不表示相关驱动均由厂商以相同方式维护。具体驱动名称、版本、许可证、支持周期和 Go `database/sql` 兼容性均待厂商确认。
