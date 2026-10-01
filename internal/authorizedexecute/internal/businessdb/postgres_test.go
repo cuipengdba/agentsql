@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 
@@ -78,6 +79,85 @@ func TestParsePostgresExplainJSONRejectsMalformedInput(t *testing.T) {
 		_, err := parsePostgresExplainJSON([]byte(raw))
 		require.Error(t, err)
 	}
+	_, err := parsePostgresExplainJSON(bytes.Repeat([]byte{'x'}, maxExplainPlanBytes+1))
+	require.Error(t, err)
+}
+
+func TestParseOpenTenBaseV2ExplainJSON(t *testing.T) {
+	// Captured from domainlau/opentenbase:v2.5.0. The missing comma after
+	// Node/s is emitted by the server, not removed from this fixture.
+	raw := []byte(`[
+  {
+    "Plan": {
+      "Node Type": "Remote Fast Query Execution",
+      "Parallel Aware": false,
+      "Startup Cost": 0.00,
+      "Total Cost": 0.00,
+      "Plan Rows": 0,
+      "Plan Width": 0,
+      "Node/s": "dn001"
+      "Remote plan": [
+        {
+          "Plan": {
+            "Node Type": "Limit",
+            "Parallel Aware": false,
+            "Startup Cost": 0.15,
+            "Total Cost": 3.99,
+            "Plan Rows": 10,
+            "Plan Width": 174,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Scan Direction": "Forward",
+                "Index Name": "agentsql_v05_customers_pkey",
+                "Relation Name": "agentsql_v05_customers",
+                "Alias": "agentsql_v05_customers",
+                "Startup Cost": 0.15,
+                "Total Cost": 46.25,
+                "Plan Rows": 120,
+                "Plan Width": 174,
+                "Index Cond": "(id > 0)"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]`)
+
+	info, err := parseOpenTenBaseExplainJSON(raw, openTenBaseV2Version)
+	require.NoError(t, err)
+	require.Equal(t, int64(120), info.EstScanRows)
+	require.Equal(t, 46.25, info.EstCost)
+	require.False(t, info.SeqScan)
+	require.True(t, info.UsesIndex)
+	require.Equal(t, "opentenbase-v2 nodes=2 scan_rows=120 cost=46.25 seq_scan=false uses_index=true", info.Raw)
+	require.NotContains(t, info.Raw, "id > 0")
+}
+
+func TestParseOpenTenBaseV2ExplainJSONFailsClosed(t *testing.T) {
+	base := `[{"Plan":{"Node Type":"Remote Fast Query Execution","Plan Rows":0,"Total Cost":0,"Node/s":"dn001" "Remote plan":[{"Plan":{"Node Type":%q,"Plan Rows":1,"Total Cost":1}}]}}]`
+
+	_, err := parseOpenTenBaseExplainJSON(
+		[]byte(fmt.Sprintf(base, "Unknown Vendor Node")),
+		openTenBaseV2Version,
+	)
+	require.Error(t, err)
+
+	_, err = parseOpenTenBaseExplainJSON(
+		[]byte(fmt.Sprintf(base, "Seq Scan")),
+		"10.0 OpenTenBase V3",
+	)
+	require.Error(t, err)
+
+	_, err = parseOpenTenBaseExplainJSON(
+		bytes.Repeat([]byte{'x'}, maxExplainPlanBytes+1),
+		openTenBaseV2Version,
+	)
+	require.Error(t, err)
 }
 
 func TestPostgresDatabaseErrorClassification(t *testing.T) {

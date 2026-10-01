@@ -9,10 +9,12 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
@@ -27,6 +29,13 @@ const (
 	maxDatabaseFrameBytes   = 1 << 20
 	postgresFrameHeaderSize = 5
 	postgresCloseTimeout    = 2 * time.Second
+	maxExplainPlanBytes     = 512 << 10
+	maxExplainPlanNodes     = 1024
+	openTenBaseV2Version    = "10.0 OpenTenBase V2"
+)
+
+var openTenBaseMissingComma = regexp.MustCompile(
+	`("Node/s"\s*:\s*"[A-Za-z][A-Za-z0-9_-]{0,63}")(\s*)("Remote plan"\s*:)`,
 )
 
 type postgresExecutorResource interface {
@@ -35,16 +44,17 @@ type postgresExecutorResource interface {
 
 // PostgresExecutor controls one PostgreSQL connection pool.
 type PostgresExecutor struct {
-	pool        *pgxpool.Pool
-	maxConns    int32
-	timeout     time.Duration
-	readOnly    bool
-	clock       sessionClock
-	sessionsMu  sync.RWMutex
-	sessions    map[string]Session
-	resourcesMu sync.Mutex
-	resources   map[postgresExecutorResource]struct{}
-	closed      bool
+	pool          *pgxpool.Pool
+	maxConns      int32
+	timeout       time.Duration
+	readOnly      bool
+	clock         sessionClock
+	sessionsMu    sync.RWMutex
+	sessions      map[string]Session
+	resourcesMu   sync.Mutex
+	resources     map[postgresExecutorResource]struct{}
+	serverVersion string
+	closed        bool
 }
 
 type postgresRunner interface {
@@ -119,6 +129,12 @@ func NewPostgresExecutor(
 		pool.Close()
 		return nil, err
 	}
+	// server_version is capability evidence, not a datasource-type guess. A
+	// failed probe leaves the standard PostgreSQL parser selected (fail closed
+	// if the server later returns non-standard JSON).
+	versionContext, versionCancel := executor.timeoutContext(ctx)
+	defer versionCancel()
+	_ = pool.QueryRow(versionContext, "SHOW server_version").Scan(&executor.serverVersion)
 	return executor, nil
 }
 
@@ -339,7 +355,13 @@ func (executor *PostgresExecutor) explainWithRunner(
 	).Scan(&raw); err != nil {
 		return model.ExplainInfo{}, postgresDatabaseError(timedContext, DBStageExplain, "explain PostgreSQL statement", err)
 	}
-	info, err := parsePostgresExplainJSON(raw)
+	var info model.ExplainInfo
+	var err error
+	if isSupportedOpenTenBaseVersion(executor.serverVersion) {
+		info, err = parseOpenTenBaseExplainJSON(raw, executor.serverVersion)
+	} else {
+		info, err = parsePostgresExplainJSON(raw)
+	}
 	if err != nil {
 		return model.ExplainInfo{}, fmt.Errorf("parse PostgreSQL explain result: %w", err)
 	}
@@ -550,13 +572,18 @@ type postgresExplainDocument struct {
 }
 
 type postgresExplainPlan struct {
-	NodeType  string  `json:"Node Type"`
-	PlanRows  float64 `json:"Plan Rows"`
-	TotalCost float64 `json:"Total Cost"`
-	IndexName string  `json:"Index Name"`
+	NodeType   string                    `json:"Node Type"`
+	PlanRows   float64                   `json:"Plan Rows"`
+	TotalCost  float64                   `json:"Total Cost"`
+	IndexName  string                    `json:"Index Name"`
+	Plans      []postgresExplainPlan     `json:"Plans"`
+	RemotePlan []postgresExplainDocument `json:"Remote plan"`
 }
 
 func parsePostgresExplainJSON(raw []byte) (model.ExplainInfo, error) {
+	if err := validateExplainPayload(raw); err != nil {
+		return model.ExplainInfo{}, err
+	}
 	var documents []postgresExplainDocument
 	if err := json.Unmarshal(raw, &documents); err != nil {
 		return model.ExplainInfo{}, fmt.Errorf("decode JSON plan: %w", err)
@@ -578,6 +605,129 @@ func parsePostgresExplainJSON(raw []byte) (model.ExplainInfo, error) {
 			strings.Contains(plan.NodeType, "Bitmap"),
 		Raw: string(raw),
 	}, nil
+}
+
+func isSupportedOpenTenBaseVersion(version string) bool {
+	return strings.TrimSpace(version) == openTenBaseV2Version
+}
+
+func parseOpenTenBaseExplainJSON(raw []byte, serverVersion string) (model.ExplainInfo, error) {
+	if !isSupportedOpenTenBaseVersion(serverVersion) {
+		return model.ExplainInfo{}, fmt.Errorf("unsupported OpenTenBase server version")
+	}
+	if err := validateExplainPayload(raw); err != nil {
+		return model.ExplainInfo{}, err
+	}
+
+	normalized := raw
+	if !json.Valid(normalized) {
+		matches := openTenBaseMissingComma.FindAllIndex(normalized, -1)
+		if len(matches) != 1 {
+			return model.ExplainInfo{}, fmt.Errorf("unsupported OpenTenBase JSON plan shape")
+		}
+		normalized = openTenBaseMissingComma.ReplaceAll(normalized, []byte("$1,$2$3"))
+		if !json.Valid(normalized) {
+			return model.ExplainInfo{}, fmt.Errorf("decode OpenTenBase JSON plan")
+		}
+	}
+
+	var documents []postgresExplainDocument
+	if err := json.Unmarshal(normalized, &documents); err != nil {
+		return model.ExplainInfo{}, fmt.Errorf("decode OpenTenBase JSON plan: %w", err)
+	}
+	if len(documents) != 1 || documents[0].Plan.NodeType != "Remote Fast Query Execution" ||
+		len(documents[0].Plan.RemotePlan) != 1 {
+		return model.ExplainInfo{}, fmt.Errorf("unsupported OpenTenBase root plan")
+	}
+	root := documents[0].Plan.RemotePlan[0].Plan
+	if strings.TrimSpace(root.NodeType) == "" {
+		return model.ExplainInfo{}, fmt.Errorf("OpenTenBase remote plan is empty")
+	}
+	info, nodeCount, scanCount, err := summarizePostgresCompatPlan(root, 0)
+	if err != nil {
+		return model.ExplainInfo{}, err
+	}
+	if nodeCount == 0 || nodeCount > maxExplainPlanNodes {
+		return model.ExplainInfo{}, fmt.Errorf("OpenTenBase plan has invalid node count")
+	}
+	if scanCount == 0 {
+		info.EstScanRows = int64(math.Ceil(root.PlanRows))
+	}
+	info.Raw = fmt.Sprintf(
+		"opentenbase-v2 nodes=%d scan_rows=%d cost=%.6g seq_scan=%t uses_index=%t",
+		nodeCount, info.EstScanRows, info.EstCost, info.SeqScan, info.UsesIndex,
+	)
+	return info, nil
+}
+
+func validateExplainPayload(raw []byte) error {
+	if len(raw) == 0 || len(raw) > maxExplainPlanBytes || !utf8.Valid(raw) {
+		return fmt.Errorf("explain plan payload is empty, oversized, or invalid UTF-8")
+	}
+	return nil
+}
+
+func summarizePostgresCompatPlan(plan postgresExplainPlan, depth int) (model.ExplainInfo, int, int, error) {
+	if depth > maxExplainPlanNodes || !knownPostgresPlanNode(plan.NodeType) {
+		return model.ExplainInfo{}, 0, 0, fmt.Errorf("unsupported PostgreSQL plan node")
+	}
+	if invalidPlanEstimate(plan.PlanRows) || invalidPlanEstimate(plan.TotalCost) {
+		return model.ExplainInfo{}, 0, 0, fmt.Errorf("OpenTenBase plan contains invalid estimates")
+	}
+	info := model.ExplainInfo{EstCost: plan.TotalCost}
+	nodes := 1
+	scans := 0
+	if postgresScanNode(plan.NodeType) {
+		if plan.PlanRows > math.MaxInt64 || plan.PlanRows > float64(math.MaxInt64-info.EstScanRows) {
+			return model.ExplainInfo{}, 0, 0, fmt.Errorf("OpenTenBase rows estimate overflows int64")
+		}
+		info.EstScanRows = int64(math.Ceil(plan.PlanRows))
+		scans = 1
+	}
+	info.SeqScan = plan.NodeType == "Seq Scan"
+	info.UsesIndex = plan.IndexName != "" || strings.Contains(plan.NodeType, "Index") ||
+		strings.Contains(plan.NodeType, "Bitmap")
+	for _, child := range plan.Plans {
+		childInfo, childNodes, childScans, err := summarizePostgresCompatPlan(child, depth+1)
+		if err != nil {
+			return model.ExplainInfo{}, 0, 0, err
+		}
+		if info.EstScanRows > math.MaxInt64-childInfo.EstScanRows {
+			return model.ExplainInfo{}, 0, 0, fmt.Errorf("OpenTenBase rows estimate overflows int64")
+		}
+		info.EstScanRows += childInfo.EstScanRows
+		info.EstCost = math.Max(info.EstCost, childInfo.EstCost)
+		info.SeqScan = info.SeqScan || childInfo.SeqScan
+		info.UsesIndex = info.UsesIndex || childInfo.UsesIndex
+		nodes += childNodes
+		scans += childScans
+		if nodes > maxExplainPlanNodes {
+			return model.ExplainInfo{}, 0, 0, fmt.Errorf("OpenTenBase plan has too many nodes")
+		}
+	}
+	return info, nodes, scans, nil
+}
+
+func invalidPlanEstimate(value float64) bool {
+	return value < 0 || value > math.MaxInt64 || math.IsNaN(value) || math.IsInf(value, 0)
+}
+
+func postgresScanNode(nodeType string) bool {
+	return strings.Contains(nodeType, "Scan")
+}
+
+func knownPostgresPlanNode(nodeType string) bool {
+	switch nodeType {
+	case "Aggregate", "Append", "Bitmap Heap Scan", "Bitmap Index Scan", "CTE Scan",
+		"Foreign Scan", "Function Scan", "Gather", "Gather Merge", "GroupAggregate",
+		"Hash", "Hash Join", "HashAggregate", "Index Only Scan", "Index Scan", "Limit",
+		"LockRows", "Materialize", "Merge Append", "Merge Join", "Nested Loop", "ProjectSet",
+		"Result", "Seq Scan", "SetOp", "Sort", "Subquery Scan", "Tid Scan", "Unique",
+		"Values Scan", "WindowAgg", "WorkTable Scan":
+		return true
+	default:
+		return false
+	}
 }
 
 type postgresRowSource struct {

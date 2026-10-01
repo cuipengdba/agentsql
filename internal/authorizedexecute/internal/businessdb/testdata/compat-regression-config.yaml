@@ -1,0 +1,29 @@
+server:
+  http_listen: "0.0.0.0:17780"
+  console_enabled: true
+  event_stream: false
+
+store:
+  sqlite_path: "/var/lib/agentsql/agentsql.db"
+
+column_authorization:
+  enabled: false
+
+mcp:
+  http:
+    stateful: false
+  sessions:
+    enabled: false
+  transactions:
+    postgres: false
+    mysql: false
+    wal_directory: "/var/lib/agentsql/b5-wal"
+
+defaults:
+  statement_timeout_ms: 5000
+  row_limit: 1000
+  max_conns_per_datasource: 5
+  qps_per_agent: 20
+
+theme:
+  default: "dark"

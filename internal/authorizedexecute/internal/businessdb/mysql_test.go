@@ -129,6 +129,75 @@ func TestParseMySQLExplainRowsRejectsInvalidInput(t *testing.T) {
 		[][]any{{"ALL", nil, "-1"}},
 	)
 	require.Error(t, err)
+	_, err = parseMysqlExplainRows(
+		[]string{"mystery"},
+		[][]any{{"unrecognized plan"}},
+	)
+	require.Error(t, err)
+	_, err = parseMysqlExplainRows(
+		[]string{"Query Plan"},
+		[][]any{{strings.Repeat("x", maxExplainPlanBytes+1)}},
+	)
+	require.Error(t, err)
+}
+
+func TestParseTiDB751ExplainRows(t *testing.T) {
+	columns := []string{"id", "estRows", "task", "access object", "operator info"}
+	values := [][]any{
+		{"Limit_11", "0.67", "root", "", "offset:0, count:10"},
+		{"└─TableReader_18", "0.67", "root", "", "data:Limit_17"},
+		{"  └─Limit_17", "0.67", "cop[tikv]", "", "offset:0, count:10"},
+		{"    └─TableRangeScan_16", "0.67", "cop[tikv]", "table:agentsql_v05_customers", "range:(0,+inf], keep order:true, stats:pseudo"},
+	}
+
+	info, err := parseMysqlExplainRows(columns, values)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), info.EstScanRows)
+	require.False(t, info.SeqScan)
+	require.True(t, info.UsesIndex)
+	require.Equal(t, "tidb-v7 nodes=4 scan_rows=1 seq_scan=false uses_index=true", info.Raw)
+	require.NotContains(t, info.Raw, "range:")
+
+	values[3][0] = "    └─UnknownScan_99"
+	_, err = parseMysqlExplainRows(columns, values)
+	require.Error(t, err)
+}
+
+func TestParseOceanBase4421ExplainRows(t *testing.T) {
+	plan := `==================================================================
+|ID|OPERATOR        |NAME                  |EST.ROWS|EST.TIME(us)|
+------------------------------------------------------------------
+|0 |TABLE RANGE SCAN|agentsql_v05_customers|2       |3           |
+==================================================================
+Outputs & filters:
+-------------------------------------
+  0 - output([agentsql_v05_customers.id], [agentsql_v05_customers.name], [agentsql_v05_customers.phone], [agentsql_v05_customers.email]), filter(nil), rowset=16
+      access([agentsql_v05_customers.id], [agentsql_v05_customers.name], [agentsql_v05_customers.phone], [agentsql_v05_customers.email]), partitions(p0)
+      limit(10), offset(nil), is_index_back=false, is_global_index=false,
+      range_key([agentsql_v05_customers.id]), range(0 ; MAX),
+      range_cond([agentsql_v05_customers.id > 0])`
+
+	planRows := strings.Split(plan, "\n")
+	values := make([][]any, len(planRows))
+	for index, row := range planRows {
+		values[index] = []any{row}
+	}
+	info, err := parseMysqlExplainRows([]string{"Query Plan"}, values)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), info.EstScanRows)
+	require.False(t, info.SeqScan)
+	require.True(t, info.UsesIndex)
+	require.Equal(t, "oceanbase-v4 nodes=1 scan_rows=2 seq_scan=false uses_index=true", info.Raw)
+	require.NotContains(t, info.Raw, "id > 0")
+
+	unknown := strings.Replace(plan, "TABLE RANGE SCAN", "UNKNOWN OPERATOR", 1)
+	unknownRows := strings.Split(unknown, "\n")
+	unknownValues := make([][]any, len(unknownRows))
+	for index, row := range unknownRows {
+		unknownValues[index] = []any{row}
+	}
+	_, err = parseMysqlExplainRows([]string{"Query Plan"}, unknownValues)
+	require.Error(t, err)
 }
 
 func TestMySQLDatabaseErrorClassification(t *testing.T) {

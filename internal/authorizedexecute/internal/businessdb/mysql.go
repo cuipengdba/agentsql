@@ -24,6 +24,11 @@ const mysqlConnectionMaxLifetime = 5 * time.Minute
 
 const mysqlProtocolFrameLimit = 1 << 20
 
+const (
+	maxMySQLExplainRows    = 1024
+	maxMySQLExplainColumns = 64
+)
+
 // MySQLExecutor controls one MySQL database/sql connection pool.
 type MySQLExecutor struct {
 	database   *sql.DB
@@ -573,14 +578,34 @@ func readMySQLExplainRows(rows *sql.Rows) ([]string, [][]any, error) {
 }
 
 func parseMysqlExplainRows(columns []string, values [][]any) (model.ExplainInfo, error) {
+	if err := validateMySQLExplainInput(columns, values); err != nil {
+		return model.ExplainInfo{}, err
+	}
 	columnIndexes := make(map[string]int, len(columns))
 	for index, column := range columns {
-		columnIndexes[strings.ToLower(column)] = index
+		columnIndexes[strings.ToLower(strings.TrimSpace(column))] = index
 	}
 	typeIndex, hasType := columnIndexes["type"]
 	keyIndex, hasKey := columnIndexes["key"]
 	rowsIndex, hasRows := columnIndexes["rows"]
-	if !hasType || !hasKey || !hasRows || len(values) == 0 {
+	if hasType && hasKey && hasRows {
+		return parseStandardMySQLExplainRows(columns, values, typeIndex, keyIndex, rowsIndex)
+	}
+	if isTiDBExplainColumns(columns) {
+		return parseTiDBExplainRows(columns, values)
+	}
+	if len(columns) == 1 && strings.EqualFold(strings.TrimSpace(columns[0]), "Query Plan") {
+		return parseOceanBaseExplainRows(values)
+	}
+	return model.ExplainInfo{}, fmt.Errorf("unsupported MySQL-compatible EXPLAIN format")
+}
+
+func parseStandardMySQLExplainRows(
+	columns []string,
+	values [][]any,
+	typeIndex, keyIndex, rowsIndex int,
+) (model.ExplainInfo, error) {
+	if len(values) == 0 {
 		return model.ExplainInfo{}, fmt.Errorf("MySQL EXPLAIN requires type, key, rows and at least one row")
 	}
 
@@ -616,6 +641,233 @@ func parseMysqlExplainRows(columns []string, values [][]any) (model.ExplainInfo,
 	}
 	info.Raw = raw.String()
 	return info, nil
+}
+
+func validateMySQLExplainInput(columns []string, values [][]any) error {
+	if len(columns) == 0 || len(columns) > maxMySQLExplainColumns || len(values) == 0 ||
+		len(values) > maxMySQLExplainRows {
+		return fmt.Errorf("MySQL-compatible EXPLAIN has invalid dimensions")
+	}
+	totalBytes := 0
+	for _, column := range columns {
+		totalBytes += len(column)
+	}
+	for _, row := range values {
+		if len(row) != len(columns) {
+			return fmt.Errorf("MySQL-compatible EXPLAIN row width mismatch")
+		}
+		for _, value := range row {
+			switch typed := value.(type) {
+			case string:
+				totalBytes += len(typed)
+			case []byte:
+				totalBytes += len(typed)
+			}
+			if totalBytes > maxExplainPlanBytes {
+				return fmt.Errorf("MySQL-compatible EXPLAIN payload is oversized")
+			}
+		}
+	}
+	return nil
+}
+
+func isTiDBExplainColumns(columns []string) bool {
+	expected := []string{"id", "estrows", "task", "access object", "operator info"}
+	if len(columns) != len(expected) {
+		return false
+	}
+	for index := range expected {
+		if strings.ToLower(strings.TrimSpace(columns[index])) != expected[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func parseTiDBExplainRows(columns []string, values [][]any) (model.ExplainInfo, error) {
+	info := model.ExplainInfo{}
+	rootRows := int64(0)
+	scanCount := 0
+	for _, row := range values {
+		operator, err := tidbExplainOperator(stringifyDatabaseValue(row[0]))
+		if err != nil || !knownTiDBPlanNode(operator) {
+			return model.ExplainInfo{}, fmt.Errorf("unsupported TiDB EXPLAIN node")
+		}
+		estimate, err := mysqlExplainFloat(row[1])
+		if err != nil {
+			return model.ExplainInfo{}, fmt.Errorf("TiDB EXPLAIN has invalid rows estimate")
+		}
+		estimatedRows := int64(math.Ceil(estimate))
+		if rootRows == 0 {
+			rootRows = estimatedRows
+		}
+		if tidbScanNode(operator) {
+			if info.EstScanRows > math.MaxInt64-estimatedRows {
+				return model.ExplainInfo{}, fmt.Errorf("TiDB rows estimate overflows int64")
+			}
+			info.EstScanRows += estimatedRows
+			scanCount++
+		}
+		info.SeqScan = info.SeqScan || operator == "TableFullScan"
+		info.UsesIndex = info.UsesIndex || strings.Contains(operator, "Index") ||
+			operator == "TableRangeScan" || operator == "Point_Get" || operator == "Batch_Point_Get"
+	}
+	if scanCount == 0 {
+		info.EstScanRows = rootRows
+	}
+	info.Raw = fmt.Sprintf(
+		"tidb-v7 nodes=%d scan_rows=%d seq_scan=%t uses_index=%t",
+		len(values), info.EstScanRows, info.SeqScan, info.UsesIndex,
+	)
+	return info, nil
+}
+
+func tidbExplainOperator(raw string) (string, error) {
+	operator := strings.TrimLeftFunc(strings.TrimSpace(raw), func(r rune) bool {
+		return r == '│' || r == '├' || r == '└' || r == '─' || r == ' '
+	})
+	separator := strings.LastIndexByte(operator, '_')
+	if separator <= 0 || separator == len(operator)-1 {
+		return "", fmt.Errorf("TiDB node lacks numeric instance suffix")
+	}
+	if _, err := strconv.ParseUint(operator[separator+1:], 10, 32); err != nil {
+		return "", fmt.Errorf("TiDB node has invalid instance suffix")
+	}
+	return operator[:separator], nil
+}
+
+func mysqlExplainFloat(value any) (float64, error) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(stringifyDatabaseValue(value)), 64)
+	if err != nil || parsed < 0 || parsed > math.MaxInt64 || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, fmt.Errorf("invalid non-negative estimate")
+	}
+	return parsed, nil
+}
+
+func tidbScanNode(operator string) bool {
+	return strings.Contains(operator, "Scan") || operator == "Point_Get" || operator == "Batch_Point_Get"
+}
+
+func knownTiDBPlanNode(operator string) bool {
+	switch operator {
+	case "Aggregate", "Apply", "Batch_Point_Get", "CTE", "CTETable", "DataSource",
+		"ExchangeReceiver", "ExchangeSender", "Expand", "HashAgg", "HashJoin", "IndexFullScan",
+		"IndexHashJoin", "IndexJoin", "IndexLookUp", "IndexMerge", "IndexRangeScan", "Limit",
+		"MergeJoin", "PartitionUnion", "Point_Get", "Projection", "Selection", "Sequence",
+		"Sort", "StreamAgg", "TableDual", "TableFullScan", "TableReader", "TableRangeScan",
+		"TopN", "Union", "UnionScan", "Window":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseOceanBaseExplainRows(values [][]any) (model.ExplainInfo, error) {
+	if len(values) < 7 {
+		return model.ExplainInfo{}, fmt.Errorf("OceanBase EXPLAIN requires Query Plan rows")
+	}
+	lines := make([]string, len(values))
+	for index, row := range values {
+		if len(row) != 1 {
+			return model.ExplainInfo{}, fmt.Errorf("OceanBase EXPLAIN requires one Query Plan column")
+		}
+		line := stringifyDatabaseValue(row[0])
+		if strings.ContainsAny(line, "\r\n") {
+			return model.ExplainInfo{}, fmt.Errorf("OceanBase Query Plan row contains an unexpected line break")
+		}
+		lines[index] = line
+	}
+	if len(lines) < 7 || !oceanBaseSeparator(lines[0], '=') ||
+		strings.ReplaceAll(lines[1], " ", "") != "|ID|OPERATOR|NAME|EST.ROWS|EST.TIME(us)|" ||
+		!oceanBaseSeparator(lines[2], '-') {
+		return model.ExplainInfo{}, fmt.Errorf("unsupported OceanBase Query Plan header")
+	}
+
+	info := model.ExplainInfo{}
+	rootRows := int64(0)
+	scanCount := 0
+	nodeCount := 0
+	lineIndex := 3
+	for ; lineIndex < len(lines) && !oceanBaseSeparator(lines[lineIndex], '='); lineIndex++ {
+		line := strings.TrimSpace(lines[lineIndex])
+		parts := strings.Split(strings.Trim(line, "|"), "|")
+		if len(parts) != 5 {
+			return model.ExplainInfo{}, fmt.Errorf("invalid OceanBase Query Plan row")
+		}
+		if _, err := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err != nil {
+			return model.ExplainInfo{}, fmt.Errorf("invalid OceanBase Query Plan node ID")
+		}
+		operator := strings.Join(strings.Fields(parts[1]), " ")
+		if !knownOceanBasePlanNode(operator) {
+			return model.ExplainInfo{}, fmt.Errorf("unsupported OceanBase Query Plan node")
+		}
+		estimate, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64)
+		if err != nil || estimate < 0 || estimate > math.MaxInt64 || math.IsNaN(estimate) || math.IsInf(estimate, 0) {
+			return model.ExplainInfo{}, fmt.Errorf("OceanBase Query Plan has invalid rows estimate")
+		}
+		estimatedRows := int64(math.Ceil(estimate))
+		if nodeCount == 0 {
+			rootRows = estimatedRows
+		}
+		if oceanBaseScanNode(operator) {
+			if info.EstScanRows > math.MaxInt64-estimatedRows {
+				return model.ExplainInfo{}, fmt.Errorf("OceanBase rows estimate overflows int64")
+			}
+			info.EstScanRows += estimatedRows
+			scanCount++
+		}
+		info.SeqScan = info.SeqScan || operator == "TABLE FULL SCAN"
+		info.UsesIndex = info.UsesIndex || strings.Contains(operator, "INDEX") || operator == "TABLE RANGE SCAN"
+		nodeCount++
+	}
+	if nodeCount == 0 || lineIndex >= len(lines) || !oceanBaseSeparator(lines[lineIndex], '=') {
+		return model.ExplainInfo{}, fmt.Errorf("OceanBase Query Plan is incomplete")
+	}
+	lineIndex++
+	for lineIndex < len(lines) && strings.TrimSpace(lines[lineIndex]) == "" {
+		lineIndex++
+	}
+	if lineIndex >= len(lines) || strings.TrimSpace(lines[lineIndex]) != "Outputs & filters:" {
+		return model.ExplainInfo{}, fmt.Errorf("unsupported OceanBase Query Plan trailer")
+	}
+	if scanCount == 0 {
+		info.EstScanRows = rootRows
+	}
+	info.Raw = fmt.Sprintf(
+		"oceanbase-v4 nodes=%d scan_rows=%d seq_scan=%t uses_index=%t",
+		nodeCount, info.EstScanRows, info.SeqScan, info.UsesIndex,
+	)
+	return info, nil
+}
+
+func oceanBaseSeparator(line string, marker byte) bool {
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) < 5 {
+		return false
+	}
+	for index := range len(trimmed) {
+		if trimmed[index] != marker {
+			return false
+		}
+	}
+	return true
+}
+
+func oceanBaseScanNode(operator string) bool {
+	return strings.Contains(operator, "SCAN") || operator == "TABLE GET"
+}
+
+func knownOceanBasePlanNode(operator string) bool {
+	switch operator {
+	case "AGGREGATE", "COUNT", "DISTINCT", "EXCHANGE IN DISTR", "EXCHANGE OUT DISTR",
+		"HASH GROUP BY", "HASH JOIN", "INDEX FULL SCAN", "INDEX RANGE SCAN", "LIMIT",
+		"MERGE GROUP BY", "MERGE JOIN", "NESTED-LOOP JOIN", "PHY_SUBPLAN_FILTER",
+		"SORT", "SUBPLAN SCAN", "TABLE FULL SCAN", "TABLE GET", "TABLE RANGE SCAN",
+		"TOP-N SORT", "UNION ALL", "WINDOW FUNCTION":
+		return true
+	default:
+		return false
+	}
 }
 
 func mysqlExplainInteger(value any) (int64, error) {
