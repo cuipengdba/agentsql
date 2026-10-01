@@ -31,7 +31,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 
 AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL，并正在规划对主流国产数据库的兼容适配与生态合作。
 
-电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · 崖山数据库 YashanDB · 达梦数据库 DM
+电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · OpenTenBase · 崖山数据库 YashanDB · 达梦数据库 DM
 
 > 以上为生态合作与兼容性评估的规划方向，不代表当前版本已支持；欢迎各数据库厂商联系开展兼容性认证与合作。如需为你的数据库申请兼容性认证或联合案例，请通过交流群或仓库 Discussion 联系我们。
 
