@@ -24,7 +24,7 @@ An Agent API Key is not a console administrator token. Disabling, expiring, or d
 The service should bind only to the loopback address by default. For remote access, use SSH local forwarding or a controlled TLS reverse proxy. Never expose `0.0.0.0:7780` directly to the public internet.
 
 ```bash
-# 适用前提：远端 AgentSQL 仅监听 127.0.0.1:7780；本机已配置 SSH 身份
+# Requires remote AgentSQL to listen on 127.0.0.1:7780 and a configured SSH identity
 ssh -N -L 7780:127.0.0.1:7780 user@agentsql-host
 ```
 
@@ -35,8 +35,8 @@ The client then continues to connect to `http://127.0.0.1:7780/mcp`. A reverse p
 stdio starts a new AgentSQL runtime:
 
 ```bash
-# 适用前提：本机已安装 agentsql；当前用户可读绝对路径配置及控制面存储
-AGENTSQL_SECRET='<与控制面配对的恰好 32 字节值>' \
+# Requires a local agentsql binary and access to the absolute config and control-plane storage paths
+AGENTSQL_SECRET='<EXACTLY_32_BYTES_PAIRED_WITH_THE_CONTROL_PLANE>' \
 AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
@@ -93,11 +93,11 @@ Confirm the data source and visible schema first, evaluate the SQL, and only the
 ### Write: Automatic Approval Routing
 
 ```text
-execute_write(reason 必填)
-  → decision="approve" + approval_id（系统已自动创建 pending 单）
-  → 管理员在控制台审批
-  → get_approval_result
-  → approved 后由库外人工或另一个具备权限的流程执行
+execute_write(reason is required)
+  -> decision="approve" + approval_id (a pending request already exists)
+  -> administrator decides in the console
+  -> get_approval_result
+  -> after approval, a human or separate authorized process acts outside this request
 ```
 
 After `execute_write` returns an `approval_id`, do not call `request_approval` again; doing so creates a duplicate request.
@@ -107,10 +107,10 @@ Approval is neither an executor nor an exemption ticket. `approved` records a po
 ### Write: Proactive Approval Request
 
 ```text
-request_approval(reason 必填)
-  → approval_id
-  → 管理员在控制台审批
-  → get_approval_result
+request_approval(reason is required)
+  -> approval_id
+  -> administrator decides in the console
+  -> get_approval_result
 ```
 
 Use proactive approval when the caller explicitly wants human input first. It never executes SQL.
@@ -136,7 +136,7 @@ Claude Desktop starts a local process from `mcpServers` in `claude_desktop_confi
       "command": "/absolute/path/to/agentsql",
       "args": ["mcp", "--config", "/absolute/path/config.yaml"],
       "env": {
-        "AGENTSQL_SECRET": "<与控制面配对的恰好 32 字节值>",
+        "AGENTSQL_SECRET": "<EXACTLY_32_BYTES_PAIRED_WITH_THE_CONTROL_PLANE>",
         "AGENTSQL_API_KEY": "<Agent API Key>"
       }
     }
@@ -157,7 +157,7 @@ Cursor can use the same `mcpServers` fragment in the user-level `~/.cursor/mcp.j
       "command": "/absolute/path/to/agentsql",
       "args": ["mcp", "--config", "/absolute/path/config.yaml"],
       "env": {
-        "AGENTSQL_SECRET": "<与控制面配对的恰好 32 字节值>",
+        "AGENTSQL_SECRET": "<EXACTLY_32_BYTES_PAIRED_WITH_THE_CONTROL_PLANE>",
         "AGENTSQL_API_KEY": "<Agent API Key>"
       }
     }
@@ -173,9 +173,9 @@ The client must explicitly support **Streamable HTTP** and allow custom headers 
 
 | Setting | Public demo | Production self-hosting |
 | --- | --- | --- |
-| Server URL | `https://demo.agentsql.cn/mcp` | `https://<你的网关>/mcp` |
+| Server URL | `https://demo.agentsql.cn/mcp` | `https://<your-gateway>/mcp` |
 | Header name | `Authorization` | `Authorization` |
-| Header value | `Bearer <演示环境 Agent API Key>` | `Bearer <自托管 Agent API Key>` |
+| Header value | `Bearer <demo Agent API Key>` | `Bearer <self-hosted Agent API Key>` |
 
 The demo Key is an Agent API Key, not the demo console’s administrator token. When using the prefilled demo administrator account on the sign-in page, confirm the current read-only Key for the selected demo Agent. If the demo Key is not public, verify against a self-hosted environment instead; never guess it or reuse an administrator token. The demo environment is for integration testing only. Production must be self-hosted with your own secrets. A client that lacks custom-header support, supports only legacy SSE, or has an unknown Streamable HTTP version cannot connect this way. Never place the Key in a URL query parameter.
 
@@ -223,7 +223,7 @@ AgentSQL is also listed on Glama. Find it in the [Glama AgentSQL search results]
 Set the Key first. The following request applies to a Streamable HTTP service already running locally:
 
 ```bash
-# 适用前提：本机 AgentSQL 已运行；AGENTSQL_API_KEY 已导出为有效 Agent Key
+# Requires a local running AgentSQL service and AGENTSQL_API_KEY exported as a valid Agent Key
 curl -fsS -D /tmp/agentsql-mcp-headers http://127.0.0.1:7780/mcp \
   -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
   -H 'Content-Type: application/json' \

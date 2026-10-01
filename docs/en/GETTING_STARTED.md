@@ -7,7 +7,7 @@
 AgentSQL is a database security gateway and production-grade MCP Server placed between AI Agents and business databases. It checks identity, permissions, rules, and decisions before executing each SQL statement, then executes it within an auditable boundary.
 
 ```text
-人 → AI Agent / LLM → MCP → AgentSQL → PostgreSQL / MySQL 业务库
+Human -> AI Agent / LLM -> MCP -> AgentSQL -> PostgreSQL / MySQL business database
 ```
 
 AgentSQL is not BI, an ORM, or Text2SQL. It does not convert natural language into SQL, nor does it replace database accounts and permission systems. A least-privilege runtime account on the database remains the final line of defense.
@@ -46,13 +46,13 @@ This dedicated Demo mode uses synthetic data and fixed demo identities. You do n
 You only need one `docker-compose.yml`. Run the following in any empty directory:
 
 ```bash
-# 1) 新建一个空目录并进入
+# 1) Create and enter an empty directory
 mkdir agentsql-demo && cd agentsql-demo
 
-# 2) 下载自包含 compose（仅这一个文件，约 2KB）
+# 2) Download the self-contained Compose file
 curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/main/deploy/quickstart/docker-compose.yml
 
-# 3) 一条命令拉起全部容器（postgres + mysql + seed + gateway）
+# 3) Start PostgreSQL, MySQL, the seed job, and the gateway
 docker compose up -d
 ```
 
@@ -67,8 +67,8 @@ docker compose up -d
 Wait about one to two minutes. After all four containers are ready, open <http://127.0.0.1:17880>. The demo credentials are prefilled on the sign-in page, so click “登录” (“Sign in”). You can also check progress in the terminal:
 
 ```bash
-docker compose ps            # gateway 状态变为 healthy 即就绪
-docker compose logs -f seed  # 看到 DEMO_SEED_OK 表示播种完成
+docker compose ps            # Ready when the gateway is healthy
+docker compose logs -f seed  # Ready when the log contains DEMO_SEED_OK
 ```
 
 In “演示台” (“Demo”), try the five scenario cards in order. Each card contains fixed, accurate SQL and runs it to show the real result:
@@ -96,7 +96,7 @@ Complete the following steps in order. Creating a data source and an Agent is no
 **Native linux/arm64 glibc packages are available starting with v0.4.0:** the one-command installer supports `linux/amd64` (`uname -m` is `x86_64` / `amd64`) and `linux/arm64` (`aarch64` / `arm64`). Both require glibc 2.28+, systemd, and root privileges:
 
 ```bash
-# 适用前提：v0.4.0 起；linux/amd64 或 linux/arm64 + glibc 2.28+ + systemd
+# Requires v0.4.0+, linux/amd64 or linux/arm64, glibc 2.28+, and systemd
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
@@ -148,14 +148,14 @@ When the installer or systemd already runs the service, prefer Streamable HTTP. 
 After restarting or reloading the client, call `list_datasources` and `list_schema` first. Then use `query` to submit one authorized, single `SELECT` with a `WHERE` clause:
 
 ```sql
--- 适用前提：替换为已授权的真实表和列；通过 MCP query 工具提交
+-- Replace these identifiers with an authorized table and columns; submit through the MCP query tool
 SELECT id, name FROM public.customers WHERE id = 1 LIMIT 10;
 ```
 
 Confirm that an `allow` record appears under “审计” (“Audit”). Next, use a `readonly` Agent to send an update without a `WHERE` clause through `execute_write`, and provide a `reason`:
 
 ```sql
--- 适用前提：仅用于验证拦截；通过 MCP execute_write 工具提交并填写 reason
+-- Denial test only; submit through MCP execute_write with a non-empty reason
 UPDATE public.customers SET name = 'blocked-test';
 ```
 
@@ -170,7 +170,7 @@ R002 (unconditional bulk write) and/or R003 (a write from a read-only Agent) sho
 - The API Key, database password, and `AGENTSQL_SECRET` do not appear in shell history, the repository, or public logs.
 
 ```bash
-# 适用前提：AgentSQL 已在本机 127.0.0.1:7780 运行
+# Requires AgentSQL to be running locally at 127.0.0.1:7780
 curl -fsS http://127.0.0.1:7780/healthz
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 ```

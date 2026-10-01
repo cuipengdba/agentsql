@@ -1,5 +1,9 @@
 > Source: [../README.md](../../README.md)
 
+> Documentation navigation: start with the [root English README](../../README.en.md), then follow [Quick Start](QUICKSTART.md), [Administration](ADMIN.md), [MCP Integration](INTEGRATIONS.md), and [Security](SECURITY.md). The root English README carries the complete status-qualified database ecosystem matrix; this page is the earlier long-form translation of the Chinese README.
+
+See the [English documentation coverage inventory](COVERAGE.md) for the complete `docs/` audit, source-to-English mapping, remaining specialized gaps, and known source discrepancies.
+
 # AgentSQL
 
 ![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
@@ -14,9 +18,9 @@ AgentSQL is listed in the official MCP Registry and can be found by searching fo
 AgentSQL (Chinese brand name: 智盾, shown in the console as “AgentSQL 智盾控制台” / “AgentSQL Zhìdùn Console”) is a database security gateway and production-grade MCP Server for AI Agents. Before any PostgreSQL/MySQL request from a model reaches the database, it passes through authentication, SQL parsing, authorization and rule evaluation, controlled execution, result data masking, and SQL audit.
 
 ```text
-AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
-                                  │
-                                  └─ 鉴权 · 授权 · 规则 · 审批 · 脱敏 · 审计
+AI Agent -> LLM / MCP Client -> AgentSQL gateway -> PostgreSQL / MySQL
+                                      |
+                                      +-- auth, policy, rules, approval, masking, audit
 ```
 
 ## Core Features
