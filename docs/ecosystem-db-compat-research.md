@@ -1,8 +1,78 @@
 # 国产数据库适配预研
 
-> 文档状态：预研，不是兼容性认证或支持声明。本文对数据库兼容系、协议与驱动的描述均为公开资料判断，尚未经过 AgentSQL 端到端实测；未验证项需厂商提供与目标版本一致的测试环境、驱动和文档后确认。
+> 文档状态：预研与实验性协议路径实测，不是兼容性认证或支持声明。2026-10-01 的实测结论仅适用于下文列出的社区版本、拓扑与用例；商业版本及未验证项仍需厂商提供与目标版本一致的测试环境、驱动和文档后确认。
 
 AgentSQL 当前原生支持 PostgreSQL 与 MySQL。本预研用于拆分国产数据库接入工作、安排联合验证顺序，不应作为“已支持”或“已完成适配”的对外依据。即使数据库宣称兼容 PostgreSQL、MySQL 或 Oracle，也不能直接推导出其 SQL 方言、系统目录、驱动行为和安全能力与对应数据库完全一致。
+
+## 0. 首批适配状态与实测记录（2026-10-01）
+
+### 0.1 统一状态口径
+
+| 厂商 / 产品线 | 本轮状态 | 结论边界 |
+| --- | --- | --- |
+| 电科金仓 KingbaseES 商业版 | **协议层映射，待厂商环境终验** | 官方资料显示存在 PostgreSQL 兼容模式，但本轮没有合法可用的商业版环境；建议映射到现有 PG 路径后逐项验证，不写“已支持” |
+| 瀚高 HighGo 商业版 | **协议层映射，待厂商环境终验** | 本轮没有商业版环境；IvorySQL 社区版的结果只能作为同厂商社区产品的工程参考，不能替代 HighGo 终验 |
+| IvorySQL 5.3（PG18） | **社区版协议路径实测通过** | 在 PG 入口完成最小闭环；这是指定镜像和用例的实验性结果，不是 HighGo 商业版结论或官方兼容认证 |
+| openGauss 7.0.0-RC3 | **社区版协议路径实测通过** | 以 `db_type=postgres` 完成最小闭环；GaussDB 商业版仍为待厂商环境终验 |
+| 腾讯 TDSQL 商业版 | **协议层映射，待厂商环境终验** | 必须先锁定 TDSQL PostgreSQL 版或 TDSQL MySQL 版，再分别映射 PG/MySQL 路径；不同产品线的结论不能互相替代 |
+| OpenTenBase v2.5.0（PG 内核） | **部分实测，待进一步适配** | 单机 GTM/CN/DN 已初始化；连接、发现、规则拒绝与审计成功，但允许查询在 AgentSQL 执行器返回 `AUTH_DATABASE_ERROR`，闭环未通过 |
+| OpenTenBase 的 TXSQL/MySQL 路径 | **规划中，本轮未评估** | 属于另一内核/项目，本轮只评估 OpenTenBase PG 内核 |
+| 达梦 DM | **需独立评估** | 当前不在 PG/MySQL 适配路径内；按 Oracle 兼容方向独立评估，不做硬映射 |
+
+“社区版协议路径实测通过”只表示下面的合成数据冒烟闭环通过；不代表厂商认证、完整 SQL 方言兼容、生产可用性或商业版支持。TiDB 7.5.1 与 OceanBase CE 4.4.2.1 虽有本机环境，但遵循“PG 系先交付”的顺序，本轮没有新增端到端证据，继续沿用既有 MySQL 适配结论，不在本文追加通过声明。
+
+### 0.2 实测基线
+
+- AgentSQL：从当前仓库源码构建，版本标记 `v0.5.0-compat-research`；MCP 使用无状态 HTTP 调用。
+- 安全开关：`column_authorization.enabled=false`，因此本轮验证的是现有表级策略与结果脱敏，不声称 B2 列级授权通过；B2 健康状态为 `feature-off`、协议号 2。
+- 合成表：`public.agentsql_v05_customers(id, name, phone, email)`，2 行虚构数据；手机与邮箱各配置一条精确脱敏规则。
+- 允许 SQL：`SELECT id,name,phone,email FROM public.agentsql_v05_customers WHERE id > 0 ORDER BY id LIMIT 10`。
+- 拒绝 SQL：在受控 `SELECT` 后附加注释，命中内置规则 R006，用来证明规则拒绝和审计链路；不把该规则用例解释为数据库自身能力。
+- 网关首次启动拒绝公开示例密钥，原文为 `AGENTSQL_SECRET uses a publicly known example value and is refused; generate a unique 32-byte value; for local development/testing set AGENTSQL_INSECURE=1`。本轮仅在隔离本机测试容器使用 `AGENTSQL_INSECURE=1`；生产与联合验收不得使用该绕过。
+
+### 0.3 最小闭环结果
+
+| 数据库 | 连接 / Ping | discovery | 规则命中 | 允许查询 | 列级授权或脱敏 | 审计落库 | 本轮结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| openGauss 7.0.0-RC3，端口 15432，库 `postgres` | 通过，35 ms | 通过：1 表、4 列、4 个采样值；识别 phone/email，两类均 2/2 命中 | 通过：R006 拒绝 | 通过：2 行 | 结果脱敏通过：4 个单元格；手机如 `138****8000`，邮箱如 `a***@example.com`；B2 未启用 | 通过：拒绝/允许审计 ID 4/5，允许记录 `rows_returned=2` | **社区版协议路径实测通过** |
+| IvorySQL 5.3（PostgreSQL 18.3），端口 5434，库 `postgres` | 通过，33 ms | 通过：与上表相同 | 通过：R006 拒绝 | 通过：2 行 | 结果脱敏通过：4 个单元格；B2 未启用 | 通过：拒绝/允许审计 ID 6/7，允许记录 `rows_returned=2` | **社区版协议路径实测通过** |
+| OpenTenBase v2.5.0，CN 端口 11000，库 `postgres` | 通过，237 ms | 通过：1 表、4 列、4 个采样值；识别 phone/email，两类均 2/2 命中 | 通过：R006 拒绝 | **未通过**：决策进入 `error`，审计码 `GATEWAY_INTERNAL`，网关稳定错误详情 `AUTH_DATABASE_ERROR` | 未到结果阶段，不能声明脱敏通过；B2 未启用 | 通过：规则拒绝/执行错误审计 ID 13/14 | **部分实测，待进一步适配** |
+
+IvorySQL 的 discovery 第一次紧邻前一请求时触发全局限流，原文为 `{"code":429,"msg":"敏感发现请求过于频繁","data":{"error_code":"DISCOVERY_RATE_LIMITED"}}`；等待约 1.2 秒重试成功。这是 AgentSQL 发现接口限流行为，不是数据库不兼容。
+
+openGauss 容器内自带 `gsql` 无法启动，原文为 `error while loading shared libraries: libssl.so.3: cannot open shared object file: No such file or directory`。本轮改用 IvorySQL 容器内的 `psql` 通过外部 TCP 建表和核验，AgentSQL 网关本身仍直接连接 openGauss。实测服务端版本原文为 `(openGauss 7.0.0-RC3 build 01b7e318) ... GCC 10.3.0, 64-bit`；IvorySQL 为 `PostgreSQL 18.3 (IvorySQL 5.3) ... 64-bit`。
+
+### 0.4 OpenTenBase 初始化、阻碍与可复现边界
+
+镜像 `domainlau/opentenbase:v2.5.0` 实测为 Ubuntu 22.04 安装包型镜像：默认用户 `opentenbase`，工作目录 `/var/lib/opentenbase`，包含 `gtm`、`initgtm`、`initdb`、`pg_ctl`、`pgxc_ctl`、`postgres`、`psql`，无自动初始化入口，默认命令为 `/bin/bash`。本轮在单容器中启动 1 个 GTM、1 个 CN、1 个 DN：GTM 20001；CN 11000、pooler 11001；DN 21000、pooler 21001。该拓扑只用于兼容性冒烟，不代表生产部署建议。
+
+官方资料中，OpenTenBase 的标准快速开始使用 `opentenbase_ctl` 安装 GTM/CN/DN；组件文档也给出带 `--master_gtm_nodename`、`--master_gtm_ip`、`--master_gtm_port` 的 CN 初始化方式。本轮镜像没有 `opentenbase_ctl` 配套入口，因此按组件工具完成最小初始化。依据：[OpenTenBase Quick Start](https://docs.opentenbase.org/en/guide/01-quickstart/)、[组件安装及管理](https://docs.opentenbase.org/guide/05-component/)、[v2.5.0 发布说明](https://docs.opentenbase.org/en/release/v2-5-0/)。
+
+关键步骤与实际差异如下：
+
+1. 挂载数据卷后先将目录所有者设为容器内 UID/GID 1000；否则 `initgtm` / `initdb` 原文为 `could not create directory ... Permission denied`。
+2. `initgtm -Z gtm` 初始化并启动 GTM。`gtm_ctl -w` 在已启动后仍停在 `waiting for server to start`，本轮通过进程、端口与 GTM 日志三项确认后继续，不能只依赖包装器等待状态。
+3. 初次 `initdb` 未传 GTM 主节点参数时失败，原文包含 `FATAL: syntax error at or near "("` 和 `create gtm node (null) with (type='gtm', host='(null)',port=(null), primary=1);`。补充 `--master_gtm_nodename=gtm --master_gtm_ip=127.0.0.1 --master_gtm_port=20001` 后，CN/DN 初始化成功。
+4. 启动参数直接加入 `gtm_host` 时失败，原文为 `FATAL: unrecognized configuration parameter "gtm_host"`；去掉运行时参数，使用 `initdb` 已持久化的 GTM 信息后启动成功。
+5. 在 CN 与 DN 双向登记节点，CN 创建 `DEFAULT NODE GROUP` 与 `SHARDING GROUP`，再创建 `DISTRIBUTE BY SHARD(id)` 的合成表。实测 `version()` 为 `PostgreSQL 10.0 OpenTenBase V2 ... 64-bit`，CN 直连查询与 `EXPLAIN (FORMAT JSON)` 成功，根计划节点为 `Remote Fast Query Execution`。
+6. 镜像初始 HBA 只有本地 trust。网关首次连接原文为 `FATAL: no pg_hba.conf entry for host "172.17.0.1", user "opentenbase", database "postgres", SSL off`。本轮没有开放整个网段，而是创建最小只读测试角色，并仅为 Docker 主机地址、目标库和该角色添加 `/32` 的 `md5` 规则。
+7. 初次启动出现审计/维护日志目录缺失风暴，原文为 `could not open audit log file "log/audit/audit-Thursday-06.log": No such file or directory` 和 `could not open audit log file "pg_log/maintain/maintain-Thursday-06.trace": No such file or directory`。创建 CN/DN 对应目录并重载后，重复拉起停止；后续仍观察到镜像内 2PC 清理函数缺失日志，应在正式拓扑继续核验。
+
+允许查询失败并非数据库账号或 SQL 本身失败：相同只读账号从 CN 直连可返回 2 行，开启 `default_transaction_read_only=on` 后仍可返回；AgentSQL 处于 B2 `feature-off`，所以本轮不把错误归因于 B2。当前能确认的失败边界是 `internal/authorizedexecute/internal/businessdb` 的 PostgreSQL 查询执行/结果读取路径对该分布式 PG10 内核返回数据库错误，外层按安全设计只暴露 `AUTH_DATABASE_ERROR`。在未取得原始驱动错误与修复回归前，OpenTenBase 状态保持“待进一步适配”，不得写成实测通过。
+
+### 0.5 商业版协议映射方案
+
+仓库当前没有厂商识别开关：`Datasource.DBType`、parser、`openExecutor`、discovery 只接受 `postgres` / `mysql`，B2 又只对精确的 `DBType == "postgres"` 探测。因而本轮没有增加 `kingbase`、`highgo`、`tdsql` 等别名，也没有修改核心网关；仅加别名会掩盖系统目录、版本、类型和安全能力差异，并形成虚假支持声明。
+
+| 厂商 / 产品 | 建议映射路径 | 厂商环境终验清单 |
+| --- | --- | --- |
+| KingbaseES 商业版 | 仅在厂商确认目标实例为 PG 兼容模式后映射到 PG parser / executor / discovery；KingbaseES 官方手册列出 `pg`、`oracle`、`mysql` 等初始化兼容模式，不能只凭产品名选择路径 | 产品完整版本与兼容模式；官方推荐 Go/PG 驱动及许可证；认证/TLS/DSN；`version()`/`server_version_num`；`pg_catalog`、`information_schema`、OID/类型；标识符大小写；`EXPLAIN JSON`；超时/取消；发现、规则、允许/拒绝、脱敏、审计；B2 catalog/binder 与故障关闭 |
+| HighGo 商业版 | 建议从 PG 路径开始；IvorySQL 5.3 的结果只作为社区版参考，不继承为商业版结论 | 商业版完整版本、内核基线与兼容模式；官方驱动；TLS/认证；catalog/OID/扩展类型；标识符；`EXPLAIN`；取消/连接池；完整安全闭环与 B2 适用性 |
+| TDSQL PostgreSQL 版 | 映射到 PG 路径，但按分布式数据库单列能力矩阵；OpenTenBase v2.5.0 的部分实测不能替代商业版 | 商业产品全称/版本/拓扑；CN/代理入口；驱动；路由与分布式事务；catalog、计划、类型、错误码、取消；安全闭环；B2 的 PG14--18 版本门槛与 catalog 假设 |
+| TDSQL MySQL 版 / TXSQL | 映射到 MySQL parser / executor / discovery；与 TDSQL PostgreSQL 版分开登记 | 产品全称/版本/拓扑；MySQL 协议/驱动；`information_schema`；分片路由与事务；`EXPLAIN`；类型/字符集；规则、脱敏、审计。现有 B2 不支持 MySQL，列级授权需另行设计 |
+| 达梦 DM | 不映射到 PG/MySQL | 当前不在 PG/MySQL 适配路径内，需按 Oracle 兼容特征独立评估 parser、驱动、目录、类型、授权与脱敏 |
+
+公开资料只作为确定测试入口的依据，不作为 AgentSQL 通过证据。KingbaseES 官方应用参考手册列出了多兼容模式：[KingbaseES 服务器应用参考手册](https://help.kingbase.com.cn/v8.6.8.14/PDF/KingbaseES%E6%9C%8D%E5%8A%A1%E5%99%A8%E5%BA%94%E7%94%A8%E5%8F%82%E8%80%83%E6%89%8B%E5%86%8C.pdf)。IvorySQL 官方文档说明其基于 PostgreSQL、具有 PG/Oracle 模式与双入口：[IvorySQL 5.3 文档](https://docs.ivorysql.org/en/ivorysql-doc/v5.3/welcome.html)、[IvorySQL 框架设计](https://docs.ivorysql.org/en/ivorysql-doc/v5.4/7.1)。腾讯官方分别维护 [TDSQL PostgreSQL 版](https://cloud.tencent.com/document/product/1129) 与 [TDSQL MySQL 版](https://cloud.tencent.com/product/dcdb) 文档，因此必须分线映射和终验。
 
 ## 1. 十家数据库基线
 
@@ -51,7 +121,7 @@ AgentSQL 当前原生支持 PostgreSQL 与 MySQL。本预研用于拆分国产�
 
 ## 4. 联合案例最小验证方案
 
-统一的最小闭环建议为：在隔离的测试环境中部署 AgentSQL 与目标数据库实例，使用合成数据完成“数据源连接与发现 → Agent/对象及列规则 → 查询决策 → 结果脱敏 → 审计回看”。至少同时验证一条允许、一条越权拒绝和一条敏感列脱敏；数据库及 AgentSQL 均记录版本，禁止使用生产数据。以下均为建议方案，不代表已经执行。
+统一的最小闭环建议为：在隔离的测试环境中部署 AgentSQL 与目标数据库实例，使用合成数据完成“数据源连接与发现 → Agent/对象及列规则 → 查询决策 → 结果脱敏 → 审计回看”。至少同时验证一条允许、一条越权拒绝和一条敏感列脱敏；数据库及 AgentSQL 均记录版本，禁止使用生产数据。本节是完整联合验收方案；本轮已经执行的社区版子集及其限制只以第 0 节记录为准，不能把下表中的建议项目当作已完成项。
 
 | 数据库 | 最小可验证场景 | 环境要求 |
 | --- | --- | --- |
