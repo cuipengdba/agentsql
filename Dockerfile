@@ -31,7 +31,7 @@ FROM debian:bookworm-slim AS runtime
 ARG VERSION=v0.4.0
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
-      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}"
 
 RUN apt-get update \

@@ -8,7 +8,7 @@ See the [English documentation coverage inventory](COVERAGE.md) for the complete
 
 ![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](../../go.mod)
-[![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](../../LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](../../LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](../../COMMERCIAL-LICENSE.md)
 
 Ecosystem listing: [Glama](https://glama.ai/mcp/servers?query=AgentSQL)

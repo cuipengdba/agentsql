@@ -2,7 +2,7 @@
 
 ![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
-[![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
 生态收录：[Glama](https://glama.ai/mcp/servers?query=AgentSQL)
@@ -279,4 +279,4 @@ make build VERSION=v0.4.0
 
 ## 许可、商业授权与商标
 
-开源版本依据 [GNU AGPLv3](LICENSE) 授权。需要闭源集成、SaaS 商用、企业模块、保修或 SLA 时，请参阅 [商业授权说明](COMMERCIAL-LICENSE.md)。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。
+开源版本依据 [Apache License 2.0](LICENSE) 授权（含 [NOTICE](NOTICE) 文件），允许闭源集成、SaaS 商用与再分发。需要商标使用许可、企业模块、保修或 SLA 时，请参阅 [商业授权说明](COMMERCIAL-LICENSE.md)。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。

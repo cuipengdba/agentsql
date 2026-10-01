@@ -4,7 +4,7 @@
 
 ![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
-[![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
 AgentSQL (Chinese brand name: 智盾, or “Zhidun”) is a database security gateway and production-grade MCP server for AI agents. Every PostgreSQL or MySQL request sent through the gateway passes through authentication, SQL parsing, authorization and rule evaluation, controlled execution, result masking, and application-level audit.
@@ -129,4 +129,4 @@ Result masking is not complete DLP, and application-level audit is not regulator
 
 ## License
 
-The repository's open-source edition is licensed under the [GNU Affero General Public License v3.0](LICENSE), with a separate [commercial license](COMMERCIAL-LICENSE.md). The repository does **not** currently contain an Apache-2.0 license. AgentSQL and 智盾 names and logos remain subject to the trademark terms described in the commercial-license notice.
+The repository's open-source edition is licensed under the [Apache License, Version 2.0](LICENSE) (see also [NOTICE](NOTICE)), with a separate [commercial license](COMMERCIAL-LICENSE.md). Apache-2.0 permits closed-source integration, SaaS use, and redistribution. It does **not** grant trademark rights; AgentSQL and 智盾 names and logos remain subject to the trademark terms described in the commercial-license notice.

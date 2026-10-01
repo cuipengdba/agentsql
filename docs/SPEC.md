@@ -374,7 +374,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 ## 10. 授权、版本与路线图
 
-- 源代码采用 **GNU AGPLv3**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
+- 源代码采用 **Apache License 2.0**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
 - **开源版（免费、可独立用于生产）**：本规格第 8 章列出的全部兼容能力、完整 SQL 安全引擎（规则 / 评分 / 只读 / 拦截 / 审批 / EXPLAIN / N+1 风险）、结果脱敏、审计闭环、九页控制台、SSE 实时大屏、一键 Live Demo、SQLite 与 PostgreSQL 18 控制面（含独立审计库与迁移命令）、单节点部署与 Prometheus 可观测。
 - **企业版（商业 License + 私有化交付 + 年订阅 / SLA）方向**：
   - **T29 国产 / 商业数据库矩阵**：达梦、人大金仓、瀚高、GaussDB、OceanBase、TiDB、Oracle、SQL Server 的方言解析、驱动适配与脱敏 / 规则兼容；

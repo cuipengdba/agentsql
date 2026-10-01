@@ -102,6 +102,8 @@ AgentSQL 是**网关层**的安全管控，不是银弹，本版明确不承诺�
 
 开源版本采用 **GNU AGPLv3**；闭源集成分发、对外 SaaS/托管且不希望按网络条款开源、需要企业模块或 SLA/保修的场景，需要商业授权。AgentSQL 名称与 Logo 商标保留，fork 不得冒充官方版本。详见 [LICENSE](../LICENSE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。
 
+> 注：以上为 v0.2.0 发布时点的许可证口径（AGPLv3）。自后续版本起，开源许可证已切换为 **Apache License 2.0**，当前以根目录 [LICENSE](../LICENSE) 为准。
+
 商业授权、企业版与私有化合作：**邮箱 87326549@qq.com ｜ 官网 https://agentsql.cn**
 
 ## 资产校验和
