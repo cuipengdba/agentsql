@@ -88,10 +88,14 @@ else
   fail "Demo 落地页缺失或安全边界不完整"
 fi
 
+# 预览阶段：主页与 demo 均 noindex，robots 全 Disallow
 if grep -q '<meta name="robots" content="noindex,nofollow">' "$SITE_ROOT/index.html" && grep -q '<meta name="robots" content="noindex,nofollow">' "$demo_page" && grep -q '^Disallow: /$' "$SITE_ROOT/robots.txt"; then
   pass "预览阶段 meta 与 robots.txt 保持 noindex"
+# 已发布阶段：主页 index,follow，demo 保持 noindex，robots 允许但 Disallow /demo
+elif grep -q '<meta name="robots" content="index,follow">' "$SITE_ROOT/index.html" && grep -q '<meta name="robots" content="noindex,nofollow">' "$demo_page" && grep -q '^Allow: /$' "$SITE_ROOT/robots.txt" && grep -qE '^Disallow: /demo/?$' "$SITE_ROOT/robots.txt"; then
+  pass "已发布阶段主页可收录、demo 保持 noindex"
 else
-  fail "预览阶段 noindex 闸门不完整"
+  fail "robots 闸门状态不一致（预览或发布状态必须二选一且自洽）"
 fi
 
 if grep -q 'rel="canonical" href="https://agentsql.cn/"' "$SITE_ROOT/index.html" && grep -q 'property="og:url" content="https://agentsql.cn/"' "$SITE_ROOT/index.html" && grep -q '<loc>https://agentsql.cn/</loc>' "$SITE_ROOT/sitemap.xml"; then
