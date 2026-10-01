@@ -102,6 +102,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newDemoSeedCommand(defaultDemoSeedDependencies()))
 	command.AddCommand(newRedactionKeyCommand())
 	command.AddCommand(newChainCommand())
+	command.AddCommand(newAuditCommand())
 	return command
 }
 

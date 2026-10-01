@@ -29,6 +29,30 @@ type AuditLogRepository struct {
 	keys    ChainKeyProvider
 }
 
+// AuditLogReader provides read-only audit queries for operational tools that
+// already own a database connection.
+type AuditLogReader struct {
+	repositoryBase
+}
+
+// NewAuditLogReader binds read-only audit queries to an existing connection.
+func NewAuditLogReader(database *sql.DB, dialect Dialect) *AuditLogReader {
+	return &AuditLogReader{repositoryBase: repositoryBase{db: database, dialect: dialect}}
+}
+
+// FilteredPage returns matching audit logs ordered newest first.
+func (reader *AuditLogReader) FilteredPage(
+	ctx context.Context,
+	filter model.AuditFilter,
+	page int,
+	pageSize int,
+) (AuditPage, error) {
+	if reader == nil {
+		return AuditPage{}, fmt.Errorf("page audit logs: reader is not initialized")
+	}
+	return filteredAuditPage(ctx, reader.repositoryBase, filter, page, pageSize)
+}
+
 // Insert appends an audit log and returns the record with generated ID and timestamp.
 func (repository *AuditLogRepository) Insert(ctx context.Context, auditLog model.AuditLog) (model.AuditLog, error) {
 	if repository == nil || repository.db == nil {
@@ -270,7 +294,20 @@ func (repository *AuditLogRepository) FilteredPage(
 	page int,
 	pageSize int,
 ) (AuditPage, error) {
-	if repository == nil || repository.db == nil {
+	if repository == nil {
+		return AuditPage{}, fmt.Errorf("page audit logs: repository is not initialized")
+	}
+	return filteredAuditPage(ctx, repository.repositoryBase, filter, page, pageSize)
+}
+
+func filteredAuditPage(
+	ctx context.Context,
+	base repositoryBase,
+	filter model.AuditFilter,
+	page int,
+	pageSize int,
+) (AuditPage, error) {
+	if base.db == nil {
 		return AuditPage{}, fmt.Errorf("page audit logs: repository is not initialized")
 	}
 	if ctx == nil {
@@ -283,12 +320,12 @@ func (repository *AuditLogRepository) FilteredPage(
 		return AuditPage{}, fmt.Errorf("page audit logs: %w", ErrInvalidPageSize)
 	}
 
-	whereClause, filterArgs := buildAuditWhereForDialect(repository.dialect, filter)
+	whereClause, filterArgs := buildAuditWhereForDialect(base.dialect, filter)
 	var total int64
 	countQuery := "SELECT COUNT(*) FROM audit_logs" + whereClause
-	if err := repository.db.QueryRowContext(
+	if err := base.db.QueryRowContext(
 		ctx,
-		repository.bind(countQuery),
+		base.bind(countQuery),
 		filterArgs...,
 	).Scan(&total); err != nil {
 		return AuditPage{}, fmt.Errorf("count audit logs: %w", err)
@@ -305,7 +342,7 @@ LIMIT ? OFFSET ?`
 	selectArgs := make([]any, 0, len(filterArgs)+2)
 	selectArgs = append(selectArgs, filterArgs...)
 	selectArgs = append(selectArgs, pageSize, int64(page-1)*int64(pageSize))
-	rows, err := repository.db.QueryContext(ctx, repository.bind(selectQuery), selectArgs...)
+	rows, err := base.db.QueryContext(ctx, base.bind(selectQuery), selectArgs...)
 	if err != nil {
 		return AuditPage{}, fmt.Errorf("query audit log page %d: %w", page, err)
 	}
@@ -336,8 +373,8 @@ func buildAuditWhere(filter model.AuditFilter) (clause string, args []any) {
 }
 
 func buildAuditWhereForDialect(dialect Dialect, filter model.AuditFilter) (clause string, args []any) {
-	conditions := make([]string, 0, 12)
-	args = make([]any, 0, 16)
+	conditions := make([]string, 0, 18)
+	args = make([]any, 0, 24)
 	appendCondition := func(condition string, values ...any) {
 		conditions = append(conditions, condition)
 		args = append(args, values...)
@@ -351,6 +388,9 @@ func buildAuditWhereForDialect(dialect Dialect, filter model.AuditFilter) (claus
 	if filter.AgentID != nil {
 		appendCondition("agent_id = ?", *filter.AgentID)
 	}
+	if filter.Actor != nil {
+		appendCondition("(actor_id = ? OR agent_id = ?)", *filter.Actor, *filter.Actor)
+	}
 	if filter.DatasourceID != nil {
 		appendCondition("datasource_id = ?", *filter.DatasourceID)
 	}
@@ -359,6 +399,15 @@ func buildAuditWhereForDialect(dialect Dialect, filter model.AuditFilter) (claus
 	}
 	if filter.MCPTool != nil {
 		appendCondition("mcp_tool = ?", *filter.MCPTool)
+	}
+	if filter.Action != nil {
+		appendCondition("action = ?", *filter.Action)
+	}
+	if filter.ErrorCode != nil {
+		appendCondition("error_code = ?", *filter.ErrorCode)
+	}
+	if filter.EventUUID != nil {
+		appendCondition("event_uuid = ?", *filter.EventUUID)
 	}
 	if len(filter.Decisions) > 0 {
 		appendCondition("decision IN ("+auditPlaceholders(len(filter.Decisions))+")", stringsToAny(filter.Decisions)...)
@@ -379,6 +428,9 @@ func buildAuditWhereForDialect(dialect Dialect, filter model.AuditFilter) (claus
 	}
 	if filter.ObjectLike != "" {
 		appendCondition("objects "+likeOperator(dialect)+" ? ESCAPE '!'", auditLikeArgument(filter.ObjectLike))
+	}
+	if filter.RuleLike != "" {
+		appendCondition("rule_hits "+likeOperator(dialect)+" ? ESCAPE '!'", auditLikeArgument(filter.RuleLike))
 	}
 	if len(conditions) == 0 {
 		return "", args
