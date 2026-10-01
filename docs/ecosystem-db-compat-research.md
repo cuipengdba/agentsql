@@ -19,7 +19,7 @@ AgentSQL 当前原生支持 PostgreSQL 与 MySQL。本预研用于拆分国产�
 | OpenTenBase 的 TXSQL/MySQL 路径 | **规划中，本轮未评估** | 属于另一内核/项目，本轮只评估 OpenTenBase PG 内核 |
 | 达梦 DM | **需独立评估** | 当前不在 PG/MySQL 适配路径内；按 Oracle 兼容方向独立评估，不做硬映射 |
 
-“社区版协议路径实测通过”只表示下面的合成数据冒烟闭环通过；不代表厂商认证、完整 SQL 方言兼容、生产可用性或商业版支持。TiDB 7.5.1 与 OceanBase CE 4.4.2.1 虽有本机环境，但遵循“PG 系先交付”的顺序，本轮没有新增端到端证据，继续沿用既有 MySQL 适配结论，不在本文追加通过声明。
+“社区版协议路径实测通过”只表示下面的合成数据冒烟闭环通过；不代表厂商认证、完整 SQL 方言兼容、生产可用性或商业版支持。首批没有新增 TiDB 7.5.1 与 OceanBase CE 4.4.2.1 的端到端证据；第二批补测结果见 0.6，其中两者均在 `EXPLAIN` 结果解析阶段失败，不能追加通过声明。
 
 ### 0.2 实测基线
 
@@ -54,11 +54,11 @@ openGauss 容器内自带 `gsql` 无法启动，原文为 `error while loading s
 2. `initgtm -Z gtm` 初始化并启动 GTM。`gtm_ctl -w` 在已启动后仍停在 `waiting for server to start`，本轮通过进程、端口与 GTM 日志三项确认后继续，不能只依赖包装器等待状态。
 3. 初次 `initdb` 未传 GTM 主节点参数时失败，原文包含 `FATAL: syntax error at or near "("` 和 `create gtm node (null) with (type='gtm', host='(null)',port=(null), primary=1);`。补充 `--master_gtm_nodename=gtm --master_gtm_ip=127.0.0.1 --master_gtm_port=20001` 后，CN/DN 初始化成功。
 4. 启动参数直接加入 `gtm_host` 时失败，原文为 `FATAL: unrecognized configuration parameter "gtm_host"`；去掉运行时参数，使用 `initdb` 已持久化的 GTM 信息后启动成功。
-5. 在 CN 与 DN 双向登记节点，CN 创建 `DEFAULT NODE GROUP` 与 `SHARDING GROUP`，再创建 `DISTRIBUTE BY SHARD(id)` 的合成表。实测 `version()` 为 `PostgreSQL 10.0 OpenTenBase V2 ... 64-bit`，CN 直连查询与 `EXPLAIN (FORMAT JSON)` 成功，根计划节点为 `Remote Fast Query Execution`。
+5. 在 CN 与 DN 双向登记节点，CN 创建 `DEFAULT NODE GROUP` 与 `SHARDING GROUP`，再创建 `DISTRIBUTE BY SHARD(id)` 的合成表。实测 `version()` 为 `PostgreSQL 10.0 OpenTenBase V2 ... 64-bit`，CN 直连查询成功；`EXPLAIN (FORMAT JSON)` 命令能够返回以 `Remote Fast Query Execution` 为根节点的文本，但第二批复核确认该文本在 `"Node/s": "dn001"` 与 `"Remote plan"` 之间缺少逗号，不是合法 JSON。
 6. 镜像初始 HBA 只有本地 trust。网关首次连接原文为 `FATAL: no pg_hba.conf entry for host "172.17.0.1", user "opentenbase", database "postgres", SSL off`。本轮没有开放整个网段，而是创建最小只读测试角色，并仅为 Docker 主机地址、目标库和该角色添加 `/32` 的 `md5` 规则。
 7. 初次启动出现审计/维护日志目录缺失风暴，原文为 `could not open audit log file "log/audit/audit-Thursday-06.log": No such file or directory` 和 `could not open audit log file "pg_log/maintain/maintain-Thursday-06.trace": No such file or directory`。创建 CN/DN 对应目录并重载后，重复拉起停止；后续仍观察到镜像内 2PC 清理函数缺失日志，应在正式拓扑继续核验。
 
-允许查询失败并非数据库账号或 SQL 本身失败：相同只读账号从 CN 直连可返回 2 行，开启 `default_transaction_read_only=on` 后仍可返回；AgentSQL 处于 B2 `feature-off`，所以本轮不把错误归因于 B2。当前能确认的失败边界是 `internal/authorizedexecute/internal/businessdb` 的 PostgreSQL 查询执行/结果读取路径对该分布式 PG10 内核返回数据库错误，外层按安全设计只暴露 `AUTH_DATABASE_ERROR`。在未取得原始驱动错误与修复回归前，OpenTenBase 状态保持“待进一步适配”，不得写成实测通过。
+允许查询失败并非数据库账号、PG 协议或查询结果读取失败：相同只读账号从 CN 直连可返回 2 行，开启 `default_transaction_read_only=on` 后仍可返回；第二批使用与 AgentSQL 相同的 pgx v5.9.2、1 MiB 前端帧上限和运行参数复现时，`Ping` 与直接 `Query` 也都返回 2 行。根因已经定位到查询前的计划评估：OpenTenBase 返回的 `EXPLAIN (FORMAT JSON)` 文本缺少逗号，AgentSQL 的固定 PostgreSQL JSON 计划解析失败。执行器级原始错误为 `parse PostgreSQL explain result: decode JSON plan: invalid character '"' after object key:value pair`，网关外层仍按安全设计只暴露 `AUTH_DATABASE_ERROR`。AgentSQL 处于 B2 `feature-off`，所以该问题与 B2 无关；在实现兼容分支并完成回归前，状态保持“待进一步适配”，不得写成实测通过。
 
 ### 0.5 商业版协议映射方案
 
@@ -73,6 +73,109 @@ openGauss 容器内自带 `gsql` 无法启动，原文为 `error while loading s
 | 达梦 DM | 不映射到 PG/MySQL | 当前不在 PG/MySQL 适配路径内，需按 Oracle 兼容特征独立评估 parser、驱动、目录、类型、授权与脱敏 |
 
 公开资料只作为确定测试入口的依据，不作为 AgentSQL 通过证据。KingbaseES 官方应用参考手册列出了多兼容模式：[KingbaseES 服务器应用参考手册](https://help.kingbase.com.cn/v8.6.8.14/PDF/KingbaseES%E6%9C%8D%E5%8A%A1%E5%99%A8%E5%BA%94%E7%94%A8%E5%8F%82%E8%80%83%E6%89%8B%E5%86%8C.pdf)。IvorySQL 官方文档说明其基于 PostgreSQL、具有 PG/Oracle 模式与双入口：[IvorySQL 5.3 文档](https://docs.ivorysql.org/en/ivorysql-doc/v5.3/welcome.html)、[IvorySQL 框架设计](https://docs.ivorysql.org/en/ivorysql-doc/v5.4/7.1)。腾讯官方分别维护 [TDSQL PostgreSQL 版](https://cloud.tencent.com/document/product/1129) 与 [TDSQL MySQL 版](https://cloud.tencent.com/product/dcdb) 文档，因此必须分线映射和终验。
+
+### 0.6 第二批实测记录（2026-10-01）
+
+#### 0.6.1 环境、口径与统一用例
+
+- 宿主环境：Windows、Docker Client/Server 29.8.0（Docker Desktop 4.92.0），连接 `npipe:////./pipe/docker_engine`。AgentSQL 镜像版本标签为 `v0.5.0-compat-research`，MCP 协议 `2025-06-18`，无状态 HTTP；`column_authorization.enabled=false`，所以本节只验证表级策略与结果脱敏，不声称 B2 列级授权通过。
+- 安全边界：网关继续使用公开示例密钥，因而只在隔离本机容器设置 `AGENTSQL_INSECURE=1`。生产、厂商联合验收和任何非隔离环境不得使用该绕过；本节未记录测试口令。
+- PG 路径合成表为 `public.agentsql_v05_customers(id integer primary key,name varchar(64),phone varchar(32),email varchar(128))`；MySQL 路径位于库 `agentsql_v06`，表结构相同。两者均为 Alice/Bob 两行虚构数据，并为 `phone`、`email` 各配置一条精确 `mask` 规则。
+- PG 允许 SQL 为 `SELECT id,name,phone,email FROM public.agentsql_v05_customers WHERE id > 0 ORDER BY id LIMIT 10`；MySQL 允许 SQL 去掉 `public.`。拒绝 SQL 在 `SELECT` 后插入 `/* compat-v06 */`，预期由 R006 拒绝。该拒绝只证明 AgentSQL 规则链路，不是数据库自身安全能力。
+- 本节中的“通过”只表示列出的镜像、端口、账号、SQL 和合成数据完成对应步骤；第三方镜像、社区版协议结果都不是厂商认证，不能外推到商业版或生产环境。达梦与 Oracle 未接入网关，不适用合成表、允许/拒绝 SQL 和审计 ID，也不得据此声称 AgentSQL 已支持。
+
+镜像与数据库原始版本证据如下。镜像 ID 用于固定本次对象；`latest` 或第三方 tag 后续可能指向其他内容。
+
+| 数据库 / 镜像 | 镜像 ID 与端口 | 账号 / 库或服务 | 数据库版本原文与边界 |
+| --- | --- | --- | --- |
+| 达梦 DM8，`dm8_single:dm8_20241022_rev244896_x86_rh6_64` | `sha256:d8dfa0b3332e...`；5236 | `SYSDBA`；实例 `DM8_TEST` | `DM Database Server 64 V8`、`DB Version: 0x7000c`、`03134284294-20241009-244896-20119`、`ID_CODE(): --03134284294-20241009-244896-20119 Pack3` |
+| Oracle AI Database Free，`container-registry.oracle.com/database/free:latest` | `sha256:f988b0c04c4c...`；1521 | `SYS` / `SYSTEM`；CDB 服务 `FREE`，应用 PDB `FREEPDB1` | 用户指定查询 `SELECT version FROM v$instance` 原文为 `23.0.0.0.0`；实例 `FREE / OPEN`；`PDB$SEED / READ ONLY`、`FREEPDB1 / READ WRITE`。容器启动日志另报 `Oracle AI Database 26ai Free Release 23.26.3.0.0` |
+| 瀚高 SEE，`qiuchenjun/hgdb-see:4.5.10.3` | `sha256:e4dd0ac4877c...`；5866 | `agentsql_ro`；库 `highgo` | 服务端原文 `HighGo Database Management System 4.5 on x86_64,build on 20250227`。`4.5.10.3` 仅来自第三方镜像 tag，未获得厂商镜像或厂商确认 |
+| 金仓，`chyiyaqing/kingbase:v8r6` | `sha256:32146e4b8856...`；预期 54321 | 预期 `SYSTEM`；服务未启动 | 镜像环境自报 `DB_VERSION=V008R003C002B0320`，与 `v8r6` tag 不一致；无法执行 SQL 核验完整版本。启动原文见 0.6.2 |
+| OpenTenBase，`domainlau/opentenbase:v2.5.0` | CN 11000、pooler 11001；GTM 20001；DN 21000、pooler 21001 | `agentsql_compat`；库 `postgres` | `PostgreSQL 10.0 OpenTenBase V2 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, 64-bit` |
+| TiDB，现有 `tidb-test` | 4000 | `agentsql_ro`；库 `agentsql_v06` | `8.0.11-TiDB-v7.5.1`；`TiDB Server (Apache License 2.0) Community Edition, MySQL 8.0 compatible` |
+| OceanBase CE，现有 `ob-test` | 2881 | `agentsql_ro@test`；库 `agentsql_v06` | `5.7.25-OceanBase_CE-v4.4.2.1`；`OceanBase_CE 4.4.2.1 (r101000022026050611-8cf64ed50606966fd5c29f47265cf557d97ea776) (Built May 6 2026 12:21:55)` |
+
+#### 0.6.2 瀚高 SEE 与金仓旧镜像闭环
+
+| 数据库 | 连接 / Ping | discovery | 规则命中 | 允许查询 | 列级授权或脱敏 | 审计落库 | 本轮结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 瀚高 SEE，第三方镜像 tag `4.5.10.3`，端口 5866，库 `highgo` | 通过，74 ms | 通过：1 表、4 列、4 个采样值；phone/email 均 2/2 命中，另将 `name` 标为低置信 generic 候选 | 通过：R006 拒绝 | 通过：2 行 | 结果脱敏通过：4 个单元格；`138****8000`、`a***@example.com` 等；B2 未启用 | 通过：discovery 审计 ID 4；拒绝/允许审计 ID 11/12，允许记录 `rows_returned=2` | **第三方镜像的 PG 协议路径实测通过；非官方、非厂商认证，商业版仍待厂商终验** |
+| 金仓第三方旧镜像 tag `v8r6`，预期端口 54321 | **未通过**：初始化完成但服务启动失败 | 未执行 | 未执行 | 未执行 | 未执行 | 无 AgentSQL 审计 ID | **未实测 / 待厂商终验**；仅确认旧镜像被许可证阻断，不能形成协议层结论；官网 V9R1C10 待负责人合法下载后另测 |
+
+瀚高镜像由 Docker Hub 个人账号发布，不是瀚高官方交付物，只用于协议层验证。为绕开镜像入口以 root 身份递归 `chown /opt/highgo` 长时间无进展的问题，本轮以镜像内 UID/GID 999 启动；初始化日志确认监听 5866。三权分立配置下，`sysdba` 向普通角色授予表权限返回原文 `ERROR: Can't grant it to other role.`，因此合成表由测试角色直接创建并持有；这不是生产授权方案。商业版仍需厂商提供正式镜像、完整版本、驱动/TLS/认证矩阵和最小权限设计后重跑。
+
+金仓镜像同样由 Docker Hub 个人账号发布，创建于 2021-11-01，且 tag 与镜像内版本环境不一致。`initdb` 已完成，但 `sys_ctl` 启动原文为：
+
+```text
+sys_ctl: could not start server
+FATAL:  XX000: License file expired.
+LOCATION:  PostmasterMain, postmaster.c:659
+```
+
+因此本轮没有连接、发现、规则、允许查询、脱敏或审计证据；不能把镜像启动失败写成 KingbaseES 产品不兼容，也不能把 tag 当作已核实版本。该镜像仅保留为旧协议环境线索，正式结论等待官网 V9R1C10 或厂商交付的目标版本环境。
+
+#### 0.6.3 OpenTenBase 根因复现与建议改动
+
+恢复单机 GTM/CN/DN 时，GTM 必须显式以 20001 启动，DN 必须显式以 21000、pooler 21001 启动；否则 CN/DN 分别出现 `GTM error, could not obtain global timestamp` 或落到默认 5432。恢复后 AgentSQL Ping 4 ms、discovery 成功（审计 ID 5），R006 拒绝成功（审计 ID 13），允许查询仍以 `AUTH_DATABASE_ERROR` 失败（审计 ID 14，审计码 `GATEWAY_INTERNAL`）。
+
+独立复现排除了 PG 连接与普通查询读取问题：pgx v5.9.2 在 `default_transaction_read_only=on`、`statement_timeout=5000` 和 AgentSQL 的 1 MiB bounded frontend 下，`Ping` 成功，字段 OID 为 `23/1043/1043/1043`，两行均可完整读取。直接调用仓库现有执行器时，`Query` 同样返回 `rows=2, err=<nil>`；失败只发生于前置 `Explain`：
+
+```text
+otb-v06 explain: *fmt.wrapError: parse PostgreSQL explain result: decode JSON plan: invalid character '"' after object key:value pair
+otb-v06 query: rows=2 err=<nil>: <nil>
+```
+
+数据库返回文本中的关键原文为：
+
+```text
+"Node/s": "dn001"
+"Remote plan": [
+```
+
+两项之间缺少 JSON 逗号。根因是 OpenTenBase v2.5.0 的分布式根计划文本不满足标准 PostgreSQL JSON 计划格式，而 AgentSQL `internal/authorizedexecute/internal/businessdb/postgres.go` 的 `explainWithRunner` 固定执行 `EXPLAIN (FORMAT JSON)` 后直接 `json.Unmarshal`；不是 pgx 驱动查询失败。
+
+建议改动清单（本批未修改源码）：
+
+1. 在 `internal/authorizedexecute/internal/businessdb/postgres.go` 的 `explainWithRunner` / `parsePostgresExplainJSON` 周边引入明确的“PG 兼容实现能力”分支；不要对所有 `db_type=postgres` 静默修补任意非法 JSON，也不要在解析失败时跳过计划风控。
+2. OpenTenBase 分支优先尝试厂商可稳定支持的结构化计划接口；若只能取得当前文本，新增严格、有限、带版本门槛的适配器，将 `Remote Fast Query Execution` 的远端子计划规范化后再进入现有 `ExplainInfo`，任何未知格式继续 fail-closed。
+3. 为上述函数增加该原始缺逗号样本、标准 PostgreSQL JSON、超大/畸形计划和未知节点的单元测试；再以 CN/DN 实例回归 Ping、discovery、R006、允许查询、脱敏、审计和取消语义。
+4. 在不泄露 SQL、参数、凭据或服务端自由文本的前提下，为 `DBStageExplain` 增加结构化内部诊断（数据源类型、阶段、安全错误类别、可选 SQLSTATE/驱动错误类型），外部继续保持稳定的 `AUTH_DATABASE_ERROR`。
+
+#### 0.6.4 TiDB / OceanBase 端到端补测
+
+| 数据库 | 连接 / Ping | discovery | 规则命中 | 允许查询 | 列级授权或脱敏 | 审计落库 | 本轮结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| TiDB 7.5.1，端口 4000，库 `agentsql_v06` | 通过，12 ms | 通过：1 表、4 列、4 个采样值；phone/email 均 2/2 命中，成功审计 ID 9 | 通过：R006 拒绝 | **未通过**：前置 `EXPLAIN` 结果解析失败；直接驱动查询返回 2 行 | 未到结果阶段，不能声明网关脱敏通过；B2 不支持 MySQL | 拒绝/执行错误审计 ID 15/16；错误记录 `GATEWAY_INTERNAL` | **部分实测，待适配 TiDB 计划格式** |
+| OceanBase CE 4.4.2.1 MySQL 模式，端口 2881，库 `agentsql_v06` | 通过，10 ms | 通过：同一合成表与采样；phone/email 均 2/2 命中，成功审计 ID 10 | 通过：R006 拒绝 | **未通过**：前置 `EXPLAIN` 结果解析失败；直接驱动查询返回 2 行 | 未到结果阶段，不能声明网关脱敏通过；B2 不支持 MySQL | 拒绝/执行错误审计 ID 17/18；错误记录 `GATEWAY_INTERNAL` | **部分实测，待适配 OceanBase 计划格式** |
+
+两库的普通查询以及 AgentSQL 注入的 `/*+ MAX_EXECUTION_TIME(5000) */` 查询均直接返回两行，失败点不是 MySQL 驱动、账号或超时 hint。TiDB 的 `EXPLAIN` 列为 `id, estRows, task, access object, operator info`；OceanBase 客户端只呈现 `Query Plan`。当前 `parseMysqlExplainRows` 固定要求 `type`、`key`、`rows` 三列，执行器级原始错误均为：
+
+```text
+parse MySQL explain result: MySQL EXPLAIN requires type, key, rows and at least one row
+```
+
+应在 `internal/authorizedexecute/internal/businessdb/mysql.go` 的 `explainWithRunner` / `parseMysqlExplainRows` 增加显式 TiDB、OceanBase 计划适配器和版本化 fixture；未知格式必须继续 fail-closed，不能为了跑通允许查询而跳过 `EXPLAIN` 风险评估。本批遵守禁改核心源码要求，仅记录建议。
+
+TiDB 限流也得到实际复现：第一次以错误的 `public.agentsql_v05_customers` 范围请求返回 `403 / DISCOVERY_SCOPE_NOT_VISIBLE`（审计 ID 6），紧邻重复请求返回原文 `{"code":429,"msg":"敏感发现请求过于频繁","data":{"error_code":"DISCOVERY_RATE_LIMITED"}}`（审计 ID 7）；等待并改用正确库名 `agentsql_v06` 后成功（审计 ID 9）。这是 AgentSQL 全局 1 QPS 发现限流，不是 TiDB 数据库错误。
+
+#### 0.6.5 达梦独立评估
+
+本机从指定官方单机 tar 加载镜像，以 `SYSDBA_PWD=<redacted>` 覆盖口令并映射 `127.0.0.1:5236:5236` 启动；实际默认端口 5236、管理账号 `SYSDBA`、实例名 `DM8_TEST`。日志原文包含 `create dm database success. 2026-10-01 18:40:14` 与 `SYSTEM IS READY.`；`disql` 连接、版本查询成功。镜像许可证日志同时提示 `License will expire in 14 day(s) on 2026-10-15`，所以本环境只用于当日冒烟，不可作为持续 CI 或生产授权依据。
+
+镜像实际 `dm.ini` 为 `COMPATIBLE_MODE = 0`（none），并非 Oracle 模式 2；`CASE_COMPATIBLE_MODE = 1` 只表示 Oracle 风格大小写处理。因此即便产品具有 Oracle 兼容方向，也不能用 Oracle parser 直接替代 DM 方言验证，更不能复用 PG/MySQL parser 后声称支持。
+
+驱动方面，达梦官方 Go 指南说明其驱动实现 Go `database/sql`，驱动名为 `dm`，DSN 形如 `dm://...`，可调用 `Ping`；官方 FAQ 同时说明 Go 驱动暂未在线提供，需要从数据库安装目录的驱动包取得。依据：[达梦 Go 编程指南](https://eco.dameng.com/document/dm/zh-cn/pm/go-rogramming-guide.html)、[达梦 Go 驱动 FAQ](https://eco.dameng.com/document/dm/zh-cn/faq/faq-go-new.html)。本批只用镜像内 `disql` 完成最小 TCP/登录冒烟，没有把厂商 Go 驱动引入仓库，也未验证其许可证与可分发性。
+
+接入建议为独立 `dm` dialect：新增受支持驱动与连接参数合同；以 DM parser corpus 覆盖分页、标识符、Oracle 兼容语法和错误失败关闭；以 `V$VERSION`、`V$DM_INI`、`SYS` 目录重新实现 discovery；单列评估数值/日期时间/LOB/二进制/自定义类型、账号/角色/对象授权、错误码与取消语义；最后再跑合成表、规则、允许/拒绝、脱敏和审计。**当前 AgentSQL 未支持达梦，本次连通性冒烟不得表述为已支持。**
+
+#### 0.6.6 Oracle 独立评估
+
+官方 `container-registry.oracle.com/database/free:latest` 以 `ORACLE_PWD=<redacted>` 启动并映射 `127.0.0.1:1521:1521`。实际监听端口 1521；`SYS` / `SYSTEM` 口令由 `ORACLE_PWD` 设置；CDB 服务 `FREE`，应用连接应使用已打开的 `FREEPDB1`。Oracle 官方安装资料也区分 `FREE` 根容器服务和默认 PDB 服务 `FREEPDB1`：[Oracle AI Database Free 安装指南](https://docs.oracle.com/en/database/oracle/oracle-database/26/xeinl/oracle-ai-database-free-installation-guide-linux.pdf)。
+
+Go 驱动建议优先评估 `godror`。其项目说明实现 `database/sql/driver`，基于 ODPI-C/OCI，需要 CGO 编译器，并在运行时提供 Oracle Client 库；连接串示例使用 `host:1521/service`，生产还应使用连接池。依据：[godror README](https://github.com/godror/godror/blob/main/README.md)。本批只使用镜像内 SQL*Plus 验证服务和版本，没有把 godror 或 Oracle Client 引入 AgentSQL，也没有验证其打包、许可证、TLS/wallet 和平台部署。
+
+Oracle 不能映射到现有 PG/MySQL 路径。建议新增独立 `oracle` dialect、parser 与 executor，分别处理 `ALL_*` / `DBA_*` / `V$*` 目录、CDB/PDB 与 service 语义、quoted identifier、空字符串为 `NULL`、`NUMBER` 精度、`DATE` / `TIMESTAMP WITH TIME ZONE`、LOB、数组/对象类型、授权与角色、错误码和取消。完成这些实现与安全闭环前，**当前 AgentSQL 未支持 Oracle；本次官方 Free 镜像的 SQL*Plus 连通性不构成支持或认证声明。**
 
 ## 1. 十家数据库基线
 
