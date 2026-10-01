@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,18 +27,20 @@ func TestStreamableHTTPStatefulSessionLifecycleAndTenantBinding(t *testing.T) {
 	require.Equal(t, http.StatusOK, initialized.Code, initialized.Body.String())
 	sessionID := initialized.Header().Get(mcpSessionIDHeader)
 	require.NotEmpty(t, sessionID, "initialize must return a transport session ID by default")
-	t.Logf("initialize response: status=%d Content-Type=%q Mcp-Session-Id=%q", initialized.Code, initialized.Header().Get("Content-Type"), sessionID)
+	t.Logf("initialize response: status=%d Content-Type=%q session_id_present=true", initialized.Code, initialized.Header().Get("Content-Type"))
+	ready := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, `{"jsonrpc":"2.0","method":"notifications/initialized"}`, sessionID)
+	require.Equal(t, http.StatusAccepted, ready.Code, ready.Body.String())
 
 	listed := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	toolNames := decodeToolNames(t, listed.Body.Bytes())
 	require.Len(t, toolNames, 7, "the current non-B5 server surface has seven tools")
-	t.Logf("tools/list request: Mcp-Session-Id=%q; response: status=%d tools=%d", sessionID, listed.Code, len(toolNames))
+	t.Logf("tools/list response: status=%d tools=%d", listed.Code, len(toolNames))
 
 	called := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listSourcesRequest, sessionID)
 	require.Equal(t, http.StatusOK, called.Code, called.Body.String())
 	require.Contains(t, called.Body.String(), "ds-allowed")
-	t.Logf("tools/call request: Mcp-Session-Id=%q; response: status=%d contains_allowed_datasource=true", sessionID, called.Code)
+	t.Logf("tools/call response: status=%d contains_allowed_datasource=true", called.Code)
 
 	missing := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, "")
 	require.Equal(t, http.StatusBadRequest, missing.Code, missing.Body.String())
@@ -63,6 +66,70 @@ func TestStreamableHTTPStatefulSessionLifecycleAndTenantBinding(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
 	afterDelete := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusNotFound, afterDelete.Code, afterDelete.Body.String())
+}
+
+func TestStreamableHTTPInitializeWithoutProtocolHeader(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	handler, err := NewHTTPHandler(fixture.runtime, statefulHTTPTestConfig(100), zerolog.Nop())
+	require.NoError(t, err)
+
+	request := newMCPRequest(fixture.handlers.apiKey, http.MethodPost, initializeRequest, "")
+	request.Header.Del("MCP-Protocol-Version")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.NotEmpty(t, response.Header().Get(mcpSessionIDHeader))
+}
+
+func TestStreamableHTTPConcurrentSessionsAreIsolated(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	handler, err := NewHTTPHandler(fixture.runtime, statefulHTTPTestConfig(1_000), zerolog.Nop())
+	require.NoError(t, err)
+
+	sessionA := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, initializeRequest, "").Header().Get(mcpSessionIDHeader)
+	sessionB := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, initializeRequest, "").Header().Get(mcpSessionIDHeader)
+	require.NotEmpty(t, sessionA)
+	require.NotEmpty(t, sessionB)
+	require.NotEqual(t, sessionA, sessionB)
+
+	var wait sync.WaitGroup
+	errors := make(chan string, 2)
+	for _, sessionID := range []string{sessionA, sessionB} {
+		sessionID := sessionID
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			response := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
+			if response.Code != http.StatusOK {
+				errors <- response.Body.String()
+			}
+		}()
+	}
+	wait.Wait()
+	close(errors)
+	for message := range errors {
+		require.Fail(t, "concurrent session request failed", message)
+	}
+
+	deleted := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodDelete, "", sessionA)
+	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
+	require.Equal(t, http.StatusNotFound, serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionA).Code)
+	require.Equal(t, http.StatusOK, serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionB).Code)
+}
+
+func TestStreamableHTTPSessionDoesNotSurviveHandlerRestart(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	first, err := NewHTTPHandler(fixture.runtime, statefulHTTPTestConfig(100), zerolog.Nop())
+	require.NoError(t, err)
+	sessionID := serveMCPWithSession(t, first, fixture.handlers.apiKey, http.MethodPost, initializeRequest, "").Header().Get(mcpSessionIDHeader)
+	require.NotEmpty(t, sessionID)
+
+	restarted, err := NewHTTPHandler(fixture.runtime, statefulHTTPTestConfig(100), zerolog.Nop())
+	require.NoError(t, err)
+	response := serveMCPWithSession(t, restarted, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
+	require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "session not found")
 }
 
 func TestStreamableHTTPStatefulToolsListWithB5(t *testing.T) {
@@ -136,6 +203,13 @@ func serveMCPWithSession(
 	sessionID string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
+	request := newMCPRequest(key, method, body, sessionID)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func newMCPRequest(key string, method string, body string, sessionID string) *http.Request {
 	request := httptest.NewRequest(method, "/mcp", strings.NewReader(body))
 	if key != "" {
 		request.Header.Set("Authorization", "Bearer "+key)
@@ -146,9 +220,7 @@ func serveMCPWithSession(
 	if sessionID != "" {
 		request.Header.Set(mcpSessionIDHeader, sessionID)
 	}
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	return response
+	return request
 }
 
 func decodeToolNames(t *testing.T, body []byte) []string {

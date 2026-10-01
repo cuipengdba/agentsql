@@ -28,11 +28,6 @@ func protocolVersionMiddleware(next http.Handler) http.Handler {
 			writeHTTPError(writer, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
-		versions := request.Header.Values("MCP-Protocol-Version")
-		if len(versions) != 1 || versions[0] != legacyMCPProtocolVersion {
-			writeProtocolRejection(writer, nil)
-			return
-		}
 		if request.Body == nil {
 			writeProtocolRejection(writer, nil)
 			return
@@ -53,6 +48,14 @@ func protocolVersionMiddleware(next http.Handler) http.Handler {
 			// Let the SDK return its normal JSON-RPC parse error. The gate only
 			// owns version negotiation, not general request validation.
 			next.ServeHTTP(writer, request)
+			return
+		}
+		versions := request.Header.Values("MCP-Protocol-Version")
+		// The negotiated protocol version is carried in InitializeParams. The
+		// HTTP header is required only on subsequent requests by MCP 2025-06-18,
+		// and mainstream clients commonly omit it on the initialize POST.
+		if len(versions) > 1 || len(versions) == 1 && versions[0] != legacyMCPProtocolVersion || len(versions) == 0 && envelope.Method != "initialize" {
+			writeProtocolRejection(writer, envelope.ID)
 			return
 		}
 		bodyVersion := envelope.Params.ProtocolVersion

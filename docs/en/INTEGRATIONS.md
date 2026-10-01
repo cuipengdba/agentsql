@@ -228,11 +228,10 @@ curl -fsS -D /tmp/agentsql-mcp-headers http://127.0.0.1:7780/mcp \
   -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -H 'MCP-Protocol-Version: 2025-06-18' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"agentsql-smoke","version":"1.0.0"}}}'
 ```
 
-Streamable HTTP is stateful by default. Read `Mcp-Session-Id` from the `initialize` response and send it unchanged on later `tools/list`, `tools/call`, GET, and DELETE requests. The server still revalidates the Bearer token on every request. `mcp.http.stateful: false` is a compatibility fallback: it returns no session header and accepts POST only. In either mode, every request must include the Bearer token, the correct `Accept` and protocol-version headers, and a body no larger than 4 MiB.
+Streamable HTTP is stateful by default. Read `Mcp-Session-Id` from the `initialize` response and send it unchanged on later `tools/list`, `tools/call`, GET, and DELETE requests. The first `initialize` negotiates its version in `params.protocolVersion`, so its HTTP protocol-version header is optional; later POST requests must send `MCP-Protocol-Version: 2025-06-18`. The server still revalidates the Bearer token on every request. `mcp.http.stateful: false` is a compatibility fallback: it returns no session header and accepts POST only. In either mode, every request must include the Bearer token and correct `Accept` header, and a body no larger than 4 MiB.
 
 ### Go SDK
 

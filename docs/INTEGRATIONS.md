@@ -226,11 +226,10 @@ curl -fsS -D /tmp/agentsql-mcp-headers http://127.0.0.1:7780/mcp \
   -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -H 'MCP-Protocol-Version: 2025-06-18' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"agentsql-smoke","version":"1.0.0"}}}'
 ```
 
-Streamable HTTP 传输默认是有状态的。读取 initialize 响应中的 `Mcp-Session-Id`，并在后续 `tools/list`、`tools/call`、GET 和 DELETE 请求中原样携带；服务端仍会对每个请求重新校验 Bearer。`mcp.http.stateful: false` 只用于兼容性回退，此时不会返回会话头且只接受 POST。无论哪种模式，每个请求都要发送 Bearer、正确的 `Accept` 和协议版本头，并把请求体控制在 4 MiB 内。
+Streamable HTTP 传输默认是有状态的。读取 initialize 响应中的 `Mcp-Session-Id`，并在后续 `tools/list`、`tools/call`、GET 和 DELETE 请求中原样携带。首次 initialize 通过 `params.protocolVersion` 协商版本，因此其 HTTP 协议版本头可省略；后续 POST 必须发送 `MCP-Protocol-Version: 2025-06-18`。服务端仍会对每个请求重新校验 Bearer。`mcp.http.stateful: false` 只用于兼容性回退，此时不会返回会话头且只接受 POST。无论哪种模式，每个请求都要发送 Bearer 和正确的 `Accept`，并把请求体控制在 4 MiB 内。
 
 ### Go SDK
 
