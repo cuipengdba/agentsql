@@ -179,6 +179,17 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .ecosystem-label { margin: 0 0 14px; color: var(--accent); font-family: var(--font-mono); font-size: .82rem; letter-spacing: .04em; text-transform: uppercase; }
 .ecosystem-list { margin: 0; color: #dce8f4; font-size: 1.05rem; line-height: 2; }
 .ecosystem-note { margin: 18px 0 0; color: var(--muted); font-size: .84rem; }
+.eco-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: .94rem; }
+.eco-table caption { margin-bottom: 12px; color: var(--muted); font-size: .84rem; text-align: left; }
+.eco-table th { padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--line-strong); font-size: .8rem; text-align: left; }
+.eco-table td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.eco-table tr:last-child td { border-bottom: 0; }
+.eco-table .eco-db { color: var(--text); font-weight: 600; white-space: nowrap; }
+.eco-status { display: inline-block; padding: 2px 12px; border-radius: 999px; font-size: .78rem; font-weight: 650; white-space: nowrap; }
+.eco-status.ok { color: var(--green); background: rgba(69, 209, 154, .12); border: 1px solid rgba(69, 209, 154, .35); }
+.eco-status.wip { color: var(--blue); background: rgba(98, 168, 255, .12); border: 1px solid rgba(98, 168, 255, .35); }
+.eco-status.plan { color: var(--muted); background: rgba(169, 184, 204, .1); border: 1px solid rgba(169, 184, 204, .3); }
+.eco-desc { color: var(--muted); font-size: .86rem; }
 .faq-list { display: grid; gap: 12px; }
 .faq-list summary { display: flex; align-items: center; font-size: 1.02rem; }
 .faq-list p { padding: 0 20px 20px; margin: 0; color: var(--muted); }

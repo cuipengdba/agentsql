@@ -29,11 +29,23 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 
 ## 生态与兼容
 
-AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL，并正在规划对主流国产数据库的兼容适配与生态合作。
+AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.5 正在推进主流国产数据库的兼容适配与生态合作。
 
-电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · OpenTenBase · 崖山数据库 YashanDB · 达梦数据库 DM
+| 数据库 | 适配状态 | 说明 |
+| --- | --- | --- |
+| 中电科金仓 KingbaseES | 待实测 | 等待官方 V9 镜像（第三方旧版 License 已过期） |
+| 瀚高 HighGo | 已实测 | 容器镜像协议路径已实测通过 |
+| IvorySQL | 已实测 | 社区版协议路径已实测通过 |
+| openGauss（GaussDB） | 已实测 | 社区版协议路径已实测通过 |
+| TiDB | 适配中 | 执行计划（EXPLAIN）适配实现中 |
+| OceanBase | 适配中 | 执行计划（EXPLAIN）适配实现中 |
+| TDSQL | 适配中 | 开源版 OpenTenBase 适配中；商用版待实测 |
+| OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
+| 崖山数据库 YashanDB | 待实测 | x86 镜像已就位，ARM 镜像备用 |
+| 达梦数据库 DM | 待适配 | DM8 容器已起，独立方言待开发 |
+| PolarDB | 已纳入 | PolarDB 兼容适配已纳入 v0.5 |
 
-> 以上为生态合作与兼容性评估的规划方向，不代表当前版本已支持；欢迎各数据库厂商联系开展兼容性认证与合作。如需为你的数据库申请兼容性认证或联合案例，请通过交流群或仓库 Discussion 联系我们。
+> "已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商联系开展兼容性认证与合作：请通过交流群、仓库 Discussion 或邮件 87326549@qq.com 联系我们。
 
 ## 5 分钟快速开始
 

@@ -212,7 +212,7 @@
               <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
               <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>（<code>x86_64</code> / <code>amd64</code>）与 <code>linux/arm64</code>（<code>aarch64</code> / <code>arm64</code>）、glibc 2.28+、systemd</td><td>v0.4.0 起提供 linux/arm64 原生 glibc 包；不提供 musl / Alpine 或 CentOS 7 原生包。</td></tr>
               <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；GHCR 发布镜像提供 linux/amd64 与 linux/arm64 multi-arch manifest，拉取时自动匹配架构。</td></tr>
-              <tr><th scope="row">暂不支持（规划方向）</th><td>Oracle、SQL Server、达梦 / 电科金仓 / 瀚高等国产库；高可用 / 跨实例集中管控 / K8s；企业身份集成（SSO/RBAC）与法规级 WORM</td><td>规划方向，不构成版本或交付承诺。</td></tr>
+              <tr><th scope="row">暂不支持（规划方向）</th><td>SQL Server；高可用 / 跨实例集中管控 / K8s；法规级 WORM</td><td>Oracle、达梦及国产数据库的适配进展见上方<a href="#ecosystem">生态适配矩阵</a>；规划方向不构成版本或交付承诺。</td></tr>
             </tbody>
           </table>
         </div>
@@ -223,9 +223,27 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">生态与兼容</p><h2>向国产数据库开放适配与生态合作</h2><p>AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL，并正在规划对主流国产数据库的兼容适配与生态合作。欢迎各数据库厂商与我们建立联系、联合共建。</p></div>
         <div class="ecosystem-panel">
-          <p class="ecosystem-label">生态合作与兼容性评估方向</p>
-          <p class="ecosystem-list">电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · OpenTenBase · 崖山数据库 YashanDB · 达梦数据库 DM</p>
-          <p class="ecosystem-note">*以上为生态合作与兼容性评估的规划方向，不代表当前版本已支持；具体支持状态以各版本 Release Notes 为准。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
+          <p class="ecosystem-label">国产数据库生态适配矩阵（v0.5 进行中）</p>
+          <div class="table-wrap">
+            <table class="eco-table">
+              <caption>AgentSQL 数据库生态适配进展；状态以各版本 Release Notes 与仓库文档为准。</caption>
+              <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
+              <tbody>
+                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status plan">待实测</span></td><td class="eco-desc">等待官方 V9 镜像（第三方旧版 License 已过期）。</td></tr>
+                <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">容器镜像协议路径已实测通过。</td></tr>
+                <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
+                <tr><td class="eco-db">openGauss（GaussDB）</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
+                <tr><td class="eco-db">TiDB</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
+                <tr><td class="eco-db">OceanBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
+                <tr><td class="eco-db">TDSQL</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">开源版 OpenTenBase 适配中；商用版待实测。</td></tr>
+                <tr><td class="eco-db">OpenTenBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划兼容修复实现中。</td></tr>
+                <tr><td class="eco-db">崖山数据库 YashanDB</td><td><span class="eco-status plan">待实测</span></td><td class="eco-desc">x86 镜像已就位，ARM 镜像备用。</td></tr>
+                <tr><td class="eco-db">达梦数据库 DM</td><td><span class="eco-status plan">待适配</span></td><td class="eco-desc">DM8 容器已起，独立方言待开发。</td></tr>
+                <tr><td class="eco-db">PolarDB</td><td><span class="eco-status plan">已纳入</span></td><td class="eco-desc">PolarDB 兼容适配已纳入 v0.5。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="ecosystem-note">*"已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
         </div>
       </div>
     </section>
