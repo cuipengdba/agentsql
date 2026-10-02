@@ -183,6 +183,12 @@ func openExecutor(
 		return NewPostgresExecutor(context.Background(), datasource, password, readOnly)
 	case "mysql":
 		return NewMySQLExecutor(context.Background(), datasource, password, readOnly)
+	case "dm":
+		return NewDMExecutor(context.Background(), datasource, password, readOnly)
+	case "oracle":
+		return NewOracleExecutor(context.Background(), datasource, password, readOnly)
+	case "yashan":
+		return NewYashanExecutor(context.Background(), datasource, password, readOnly)
 	default:
 		return nil, fmt.Errorf("unsupported datasource type %q", datasource.DBType)
 	}

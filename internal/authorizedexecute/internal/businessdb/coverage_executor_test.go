@@ -118,10 +118,10 @@ func TestCoverageExecutorManagerAndValidation(t *testing.T) {
 }
 
 func TestCoverageExecutorOpenersRejectInvalidConfiguration(t *testing.T) {
-	_, err := openExecutor(model.Datasource{DBType: "oracle"}, "secret", false)
-	require.ErrorContains(t, err, `unsupported datasource type "oracle"`)
+	_, err := openExecutor(model.Datasource{DBType: "sqlite"}, "secret", false)
+	require.ErrorContains(t, err, `unsupported datasource type "sqlite"`)
 
-	for _, dialect := range []string{"postgres", "mysql"} {
+	for _, dialect := range []string{"postgres", "mysql", "dm", "oracle"} {
 		t.Run(dialect, func(t *testing.T) {
 			_, openErr := openExecutor(model.Datasource{DBType: dialect}, "secret", false)
 			require.Error(t, openErr)

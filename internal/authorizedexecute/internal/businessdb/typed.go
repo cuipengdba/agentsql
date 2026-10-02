@@ -2,6 +2,7 @@ package businessdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -73,6 +74,40 @@ func ListSchema(ctx context.Context, executor Executor, database string, tables 
 			return nil, mysqlDatabaseError(ctx, DBStageMetadata, "read MySQL metadata", queryErr)
 		}
 		result, err = collectRows(&mysqlRowSource{rows: rows}, typedSchemaRowLimit)
+	case *DMExecutor:
+		query, args := dmSchemaQuery(typed.username, tables)
+		metadataContext, cancel := typed.timeoutContext(ctx)
+		defer cancel()
+		rows, queryErr := typed.database.QueryContext(metadataContext, query, args...)
+		if queryErr != nil {
+			return nil, newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
+		}
+		result, err = collectRows(&mysqlRowSource{rows: rows}, typedSchemaRowLimit)
+	case *OracleExecutor:
+		query, args := oracleSchemaQuery(typed.username, tables)
+		metadataContext, cancel := typed.timeoutContext(ctx)
+		defer cancel()
+		rows, queryErr := typed.database.QueryContext(metadataContext, query, args...)
+		if queryErr != nil {
+			return nil, newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
+		}
+		result, err = collectRows(&mysqlRowSource{rows: rows}, typedSchemaRowLimit)
+	case *YashanExecutor:
+		query, args := yashanSchemaQuery(typed.username, tables)
+		metadataContext, cancel := typed.timeoutContext(ctx)
+		defer cancel()
+		rows, queryErr := typed.database.QueryContext(metadataContext, query, args...)
+		if queryErr != nil {
+			return nil, newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
+		}
+		result, err = collectRows(&mysqlRowSource{rows: rows}, typedSchemaRowLimit)
+		if err != nil {
+			var limitError *ResourceError
+			if errors.As(err, &limitError) {
+				return nil, limitError
+			}
+			return nil, newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported typed schema reader")
 	}
@@ -131,6 +166,51 @@ func mysqlSchemaQuery(database string, tables []SchemaTable) (string, []any) {
 		query += " AND (" + strings.Join(parts, " OR ") + ")"
 	}
 	return query + " ORDER BY table_schema,table_name,ordinal_position", args
+}
+
+func dmSchemaQuery(defaultOwner string, tables []SchemaTable) (string, []any) {
+	query := "SELECT OWNER,TABLE_NAME,COLUMN_NAME,DATA_TYPE,DATA_TYPE,CAST(COLUMN_ID AS VARCHAR(20)) FROM SYS.ALL_TAB_COLUMNS WHERE "
+	filter, args := oracleStyleTableFilter(defaultOwner, tables, func(int) string { return "?" })
+	return query + filter + " ORDER BY OWNER,TABLE_NAME,COLUMN_ID", args
+}
+
+func oracleSchemaQuery(defaultOwner string, tables []SchemaTable) (string, []any) {
+	query := "SELECT OWNER,TABLE_NAME,COLUMN_NAME,DATA_TYPE,DATA_TYPE,TO_CHAR(COLUMN_ID) FROM ALL_TAB_COLUMNS WHERE "
+	filter, args := oracleStyleTableFilter(defaultOwner, tables, func(index int) string {
+		return ":" + strconv.Itoa(index)
+	})
+	return query + filter + " ORDER BY OWNER,TABLE_NAME,COLUMN_ID", args
+}
+
+func yashanSchemaQuery(defaultOwner string, tables []SchemaTable) (string, []any) {
+	// YashanDB 23.4 reports ALL_TAB_COLUMNS.COLUMN_ID from zero, while the
+	// authorization model exposes ordinals from one. Normalize in fixed SQL so
+	// the global row validator remains strict.
+	query := "SELECT OWNER,TABLE_NAME,COLUMN_NAME,DATA_TYPE,DATA_TYPE,TO_CHAR(COLUMN_ID + 1) FROM ALL_TAB_COLUMNS WHERE "
+	filter, args := oracleStyleTableFilter(defaultOwner, tables, func(int) string { return "?" })
+	return query + filter + " ORDER BY OWNER,TABLE_NAME,COLUMN_ID", args
+}
+
+func oracleStyleTableFilter(
+	defaultOwner string,
+	tables []SchemaTable,
+	placeholder func(int) string,
+) (string, []any) {
+	args := make([]any, 0, max(1, len(tables)*2))
+	if len(tables) == 0 {
+		args = append(args, defaultOwner)
+		return "OWNER=" + placeholder(1), args
+	}
+	parts := make([]string, 0, len(tables))
+	for _, table := range tables {
+		owner := table.Schema
+		if owner == "" {
+			owner = defaultOwner
+		}
+		args = append(args, owner, table.Table)
+		parts = append(parts, "(OWNER="+placeholder(len(args)-1)+" AND TABLE_NAME="+placeholder(len(args))+")")
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
 }
 
 // Sample is a typed, bounded SELECT constructed entirely inside businessdb.
