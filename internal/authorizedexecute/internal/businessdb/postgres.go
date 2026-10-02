@@ -38,6 +38,10 @@ var openTenBaseMissingComma = regexp.MustCompile(
 	`("Node/s"\s*:\s*"[A-Za-z][A-Za-z0-9_-]{0,63}")(\s*)("Remote plan"\s*:)`,
 )
 
+var openTenBaseNodeList = regexp.MustCompile(
+	`^[A-Za-z][A-Za-z0-9_-]{0,63}(?:\s*,\s*[A-Za-z][A-Za-z0-9_-]{0,63})*$`,
+)
+
 type postgresExecutorResource interface {
 	closeForExecutor(context.Context) error
 }
@@ -573,9 +577,10 @@ type postgresExplainDocument struct {
 
 type postgresExplainPlan struct {
 	NodeType   string                    `json:"Node Type"`
-	PlanRows   float64                   `json:"Plan Rows"`
-	TotalCost  float64                   `json:"Total Cost"`
+	PlanRows   *float64                  `json:"Plan Rows"`
+	TotalCost  *float64                  `json:"Total Cost"`
 	IndexName  string                    `json:"Index Name"`
+	Nodes      string                    `json:"Node/s"`
 	Plans      []postgresExplainPlan     `json:"Plans"`
 	RemotePlan []postgresExplainDocument `json:"Remote plan"`
 }
@@ -592,14 +597,13 @@ func parsePostgresExplainJSON(raw []byte) (model.ExplainInfo, error) {
 		return model.ExplainInfo{}, fmt.Errorf("JSON plan must contain one root Plan")
 	}
 	plan := documents[0].Plan
-	if plan.PlanRows < 0 || plan.PlanRows > math.MaxInt64 || math.IsNaN(plan.PlanRows) ||
-		math.IsInf(plan.PlanRows, 0) || plan.TotalCost < 0 || math.IsNaN(plan.TotalCost) ||
-		math.IsInf(plan.TotalCost, 0) {
+	if plan.PlanRows == nil || plan.TotalCost == nil || invalidPlanEstimate(*plan.PlanRows) ||
+		invalidPlanEstimate(*plan.TotalCost) {
 		return model.ExplainInfo{}, fmt.Errorf("JSON plan contains invalid estimates")
 	}
 	return model.ExplainInfo{
-		EstScanRows: int64(plan.PlanRows),
-		EstCost:     plan.TotalCost,
+		EstScanRows: int64(*plan.PlanRows),
+		EstCost:     *plan.TotalCost,
 		SeqScan:     plan.NodeType == "Seq Scan",
 		UsesIndex: plan.IndexName != "" || strings.Contains(plan.NodeType, "Index") ||
 			strings.Contains(plan.NodeType, "Bitmap"),
@@ -635,11 +639,27 @@ func parseOpenTenBaseExplainJSON(raw []byte, serverVersion string) (model.Explai
 	if err := json.Unmarshal(normalized, &documents); err != nil {
 		return model.ExplainInfo{}, fmt.Errorf("decode OpenTenBase JSON plan: %w", err)
 	}
-	if len(documents) != 1 || documents[0].Plan.NodeType != "Remote Fast Query Execution" ||
-		len(documents[0].Plan.RemotePlan) != 1 {
-		return model.ExplainInfo{}, fmt.Errorf("unsupported OpenTenBase root plan")
+	if len(documents) != 1 {
+		return model.ExplainInfo{}, fmt.Errorf("OpenTenBase JSON plan must contain one root Plan")
 	}
-	root := documents[0].Plan.RemotePlan[0].Plan
+	wrapper := documents[0].Plan
+	if wrapper.PlanRows == nil || wrapper.TotalCost == nil || invalidPlanEstimate(*wrapper.PlanRows) ||
+		invalidPlanEstimate(*wrapper.TotalCost) {
+		return model.ExplainInfo{}, fmt.Errorf("OpenTenBase root plan contains invalid estimates")
+	}
+
+	root := wrapper
+	if wrapper.NodeType == "Remote Fast Query Execution" {
+		if !openTenBaseNodeList.MatchString(wrapper.Nodes) || len(wrapper.Plans) != 0 ||
+			len(wrapper.RemotePlan) != 1 {
+			return model.ExplainInfo{}, fmt.Errorf("unsupported OpenTenBase remote root plan")
+		}
+		root = wrapper.RemotePlan[0].Plan
+	} else if !json.Valid(raw) || wrapper.Nodes != "" || len(wrapper.RemotePlan) != 0 {
+		// The missing-comma repair is only valid for the observed distributed
+		// wrapper. A local OpenTenBase plan must already be standard JSON.
+		return model.ExplainInfo{}, fmt.Errorf("unsupported OpenTenBase local root plan")
+	}
 	if strings.TrimSpace(root.NodeType) == "" {
 		return model.ExplainInfo{}, fmt.Errorf("OpenTenBase remote plan is empty")
 	}
@@ -651,7 +671,7 @@ func parseOpenTenBaseExplainJSON(raw []byte, serverVersion string) (model.Explai
 		return model.ExplainInfo{}, fmt.Errorf("OpenTenBase plan has invalid node count")
 	}
 	if scanCount == 0 {
-		info.EstScanRows = int64(math.Ceil(root.PlanRows))
+		info.EstScanRows = int64(math.Ceil(*root.PlanRows))
 	}
 	info.Raw = fmt.Sprintf(
 		"opentenbase-v2 nodes=%d scan_rows=%d cost=%.6g seq_scan=%t uses_index=%t",
@@ -668,20 +688,21 @@ func validateExplainPayload(raw []byte) error {
 }
 
 func summarizePostgresCompatPlan(plan postgresExplainPlan, depth int) (model.ExplainInfo, int, int, error) {
-	if depth > maxExplainPlanNodes || !knownPostgresPlanNode(plan.NodeType) {
+	if depth > maxExplainPlanNodes || !knownPostgresPlanNode(plan.NodeType) || len(plan.RemotePlan) != 0 {
 		return model.ExplainInfo{}, 0, 0, fmt.Errorf("unsupported PostgreSQL plan node")
 	}
-	if invalidPlanEstimate(plan.PlanRows) || invalidPlanEstimate(plan.TotalCost) {
+	if plan.PlanRows == nil || plan.TotalCost == nil || invalidPlanEstimate(*plan.PlanRows) ||
+		invalidPlanEstimate(*plan.TotalCost) {
 		return model.ExplainInfo{}, 0, 0, fmt.Errorf("OpenTenBase plan contains invalid estimates")
 	}
-	info := model.ExplainInfo{EstCost: plan.TotalCost}
+	info := model.ExplainInfo{EstCost: *plan.TotalCost}
 	nodes := 1
 	scans := 0
 	if postgresScanNode(plan.NodeType) {
-		if plan.PlanRows > math.MaxInt64 || plan.PlanRows > float64(math.MaxInt64-info.EstScanRows) {
+		if *plan.PlanRows > math.MaxInt64 || *plan.PlanRows > float64(math.MaxInt64-info.EstScanRows) {
 			return model.ExplainInfo{}, 0, 0, fmt.Errorf("OpenTenBase rows estimate overflows int64")
 		}
-		info.EstScanRows = int64(math.Ceil(plan.PlanRows))
+		info.EstScanRows = int64(math.Ceil(*plan.PlanRows))
 		scans = 1
 	}
 	info.SeqScan = plan.NodeType == "Seq Scan"

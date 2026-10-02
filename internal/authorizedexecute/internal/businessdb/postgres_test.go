@@ -138,6 +138,20 @@ func TestParseOpenTenBaseV2ExplainJSON(t *testing.T) {
 	require.NotContains(t, info.Raw, "id > 0")
 }
 
+func TestParseOpenTenBaseV2StandardJSON(t *testing.T) {
+	// CN-local statements do not use Remote Fast Query Execution. OpenTenBase
+	// emits ordinary PostgreSQL JSON for these plans.
+	raw := []byte(`[{"Plan":{"Node Type":"Limit","Plan Rows":1,"Total Cost":0.01,"Plans":[{"Node Type":"Result","Plan Rows":1,"Total Cost":0.01}]}}]`)
+
+	info, err := parseOpenTenBaseExplainJSON(raw, openTenBaseV2Version)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), info.EstScanRows)
+	require.Equal(t, 0.01, info.EstCost)
+	require.False(t, info.SeqScan)
+	require.False(t, info.UsesIndex)
+	require.Equal(t, "opentenbase-v2 nodes=2 scan_rows=1 cost=0.01 seq_scan=false uses_index=false", info.Raw)
+}
+
 func TestParseOpenTenBaseV2ExplainJSONFailsClosed(t *testing.T) {
 	base := `[{"Plan":{"Node Type":"Remote Fast Query Execution","Plan Rows":0,"Total Cost":0,"Node/s":"dn001" "Remote plan":[{"Plan":{"Node Type":%q,"Plan Rows":1,"Total Cost":1}}]}}]`
 
@@ -157,6 +171,41 @@ func TestParseOpenTenBaseV2ExplainJSONFailsClosed(t *testing.T) {
 		bytes.Repeat([]byte{'x'}, maxExplainPlanBytes+1),
 		openTenBaseV2Version,
 	)
+	require.Error(t, err)
+
+	_, err = parseOpenTenBaseExplainJSON(
+		[]byte(`[{"Plan":{"Node Type":"Seq Scan","Plan Rows":1}}]`),
+		openTenBaseV2Version,
+	)
+	require.Error(t, err)
+
+	_, err = parseOpenTenBaseExplainJSON(
+		[]byte(`[{"Plan":{"Node Type":"Remote Fast Query Execution","Plan Rows":0,"Total Cost":0,"Remote plan":[{"Plan":{"Node Type":"Seq Scan","Plan Rows":1,"Total Cost":1}}]}}]`),
+		openTenBaseV2Version,
+	)
+	require.Error(t, err)
+
+	_, err = parseOpenTenBaseExplainJSON(
+		[]byte(`[{"Plan":{"Node Type":"Result","Plan Rows":1,"Total Cost":1,"Remote plan":[{"Plan":{"Node Type":"Result","Plan Rows":1,"Total Cost":1}}]}}]`),
+		openTenBaseV2Version,
+	)
+	require.Error(t, err)
+
+	_, err = parseOpenTenBaseExplainJSON(
+		[]byte(`[{"Plan":{"Node Type":"Remote Fast Query Execution","Plan Rows":0,"Total Cost":0,"Node/s":"dn001" "Remote plan":[],"Extra":{"Node/s":"dn002" "Remote plan":[]}}}]`),
+		openTenBaseV2Version,
+	)
+	require.Error(t, err)
+}
+
+func TestParseOpenTenBaseV2ExplainJSONRejectsTooManyNodes(t *testing.T) {
+	plan := `{"Node Type":"Result","Plan Rows":1,"Total Cost":1}`
+	for range maxExplainPlanNodes {
+		plan = `{"Node Type":"Result","Plan Rows":1,"Total Cost":1,"Plans":[` + plan + `]}`
+	}
+	raw := []byte(`[{"Plan":` + plan + `}]`)
+
+	_, err := parseOpenTenBaseExplainJSON(raw, openTenBaseV2Version)
 	require.Error(t, err)
 }
 
