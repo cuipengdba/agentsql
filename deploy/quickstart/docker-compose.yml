@@ -8,7 +8,7 @@
 
 services:
   postgres:
-    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.4-quickstart
+    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.5-quickstart
     container_name: agentsql-quickstart-postgres
     restart: unless-stopped
     environment:
@@ -49,7 +49,7 @@ services:
           - demo-mysql
 
   seed:
-    image: ghcr.io/cuipengdba/agentsql:v0.4.0-quickstart
+    image: ghcr.io/cuipengdba/agentsql:v0.5.0-quickstart
     container_name: agentsql-quickstart-seed
     restart: "no"
     entrypoint: ["/usr/local/bin/agentsqlctl"]
@@ -77,7 +77,7 @@ services:
         condition: service_healthy
 
   gateway:
-    image: ghcr.io/cuipengdba/agentsql:v0.4.0-quickstart
+    image: ghcr.io/cuipengdba/agentsql:v0.5.0-quickstart
     container_name: agentsql-quickstart-gateway
     restart: unless-stopped
     environment:

@@ -80,7 +80,7 @@ and refuses a pre-existing `agentsql_catalog` schema owned by another role.
 ```
 
 The script locally loads architecture-specific tags such as
-`agentsql/postgres-binder:16-0.4-amd64`, emits OCI archives and image SBOMs,
+`agentsql/postgres-binder:16-0.5-amd64`, emits OCI archives and image SBOMs,
 and never pushes. The image installs the already-built matching Debian package,
 so its extension bytes are identical to the package matrix rather than a second
 compile. Run `build-packages` first. Fresh data directories create and self-test the extension via

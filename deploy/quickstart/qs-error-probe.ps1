@@ -30,7 +30,7 @@ function Send-MCP {
 function Init-Session {
   $init = [ordered]@{
     jsonrpc='2.0'; id="init-$(New-Guid)"; method='initialize'
-    params=[ordered]@{ protocolVersion='2025-06-18'; capabilities=[ordered]@{}; clientInfo=[ordered]@{ name='err-probe'; version='v0.4' } }
+    params=[ordered]@{ protocolVersion='2025-06-18'; capabilities=[ordered]@{}; clientInfo=[ordered]@{ name='err-probe'; version='v0.5' } }
   } | ConvertTo-Json -Depth 20 -Compress
   $r = Send-MCP -Payload $init
   if ([string]::IsNullOrWhiteSpace($r.SessionID)) { throw 'no session id' }

@@ -108,7 +108,7 @@ function New-MCPTransportSession {
         params = [ordered]@{
             protocolVersion = "2025-06-18"
             capabilities = [ordered]@{}
-            clientInfo = [ordered]@{ name = "demo-reset"; version = "v0.4" }
+            clientInfo = [ordered]@{ name = "demo-reset"; version = "v0.5" }
         }
     } | ConvertTo-Json -Depth 20 -Compress
     $result = Send-MCPRequest -GatewayPort $GatewayPort -APIKey $APIKey -Payload $init

@@ -4,7 +4,7 @@
 
 ## Current Status
 
-The current tree contains v0.5 RBAC APIs and the `agentsqlctl audit` implementation. The CLI help still labels audit query/report commands as “planned for v0.5,” and the published installation assets referenced by the repository remain v0.4.0.
+The current tree is prepared for the pending v0.5.0 release and contains the RBAC APIs and `agentsqlctl audit` implementation. The CLI help still labels audit query/report commands as “planned for v0.5,” which is known wording debt. Externally published installation assets remain v0.4.0 until the v0.5.0 release-day gates pass.
 
 The embedded web console manages overview, audit, Agents, data sources, policies, rules, approvals, masking, B5 operations, and notification settings. User, role, permission, and tenant management is currently available through `/api/v1` management APIs; the current `web/src` tree does not contain dedicated user/role/tenant pages. This distinction prevents an API capability from being presented as an existing console screen.
 

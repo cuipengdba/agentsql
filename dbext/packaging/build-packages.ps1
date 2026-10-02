@@ -32,7 +32,7 @@ foreach ($major in $PostgresMajor) {
             New-Item -ItemType Directory -Force -Path $out | Out-Null
             $args = @('buildx','build','--builder',$Builder,'--platform',$platformName,
                 '--file','dbext/packaging/Dockerfile.packages','--target',"package-$formatName",
-                '--build-arg',"PG_MAJOR=$major",'--build-arg','PACKAGE_VERSION=0.4.0',
+                '--build-arg',"PG_MAJOR=$major",'--build-arg','PACKAGE_VERSION=0.5.0',
                 '--build-arg','PACKAGE_RELEASE=1','--build-arg',"SOURCE_REVISION=$sourceRevision",
                 '--output',"type=local,dest=$out")
             if ($formatName -eq 'apk') { $args += @('--build-arg',"ALPINE_VERSION=$($alpineByMajor[$major])") }

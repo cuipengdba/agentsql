@@ -20,7 +20,7 @@ function Send-MCP {
 
 $init = [ordered]@{
   jsonrpc='2.0'; id="init-$(New-Guid)"; method='initialize'
-  params=[ordered]@{ protocolVersion='2025-06-18'; capabilities=[ordered]@{}; clientInfo=[ordered]@{ name='qs-inspect'; version='v0.4' } }
+  params=[ordered]@{ protocolVersion='2025-06-18'; capabilities=[ordered]@{}; clientInfo=[ordered]@{ name='qs-inspect'; version='v0.5' } }
 } | ConvertTo-Json -Depth 20 -Compress
 $r = Send-MCP -Payload $init
 Start-Sleep -Milliseconds 650

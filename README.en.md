@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.5.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -73,7 +73,7 @@ sh quickstart.sh
 ### Pull the published GHCR image
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.4.0
+docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
 The published tag is a `linux/amd64` and `linux/arm64` multi-architecture image. For a complete direct `docker run` example with generated secrets, or to connect your first data source and run a query, follow the [five-minute quick start](docs/en/QUICKSTART.md).

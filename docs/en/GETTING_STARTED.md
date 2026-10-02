@@ -2,7 +2,7 @@
 
 # Getting Started with AgentSQL
 
-> Release status: This document applies to AgentSQL v0.4.0. The one-command installer and the `ghcr.io/cuipengdba/agentsql:v0.4.0` image are available for deployment. You can also build and try AgentSQL locally by following the “Source / Live Demo” paths in this guide. The source repository is `github.com/cuipengdba/agentsql`.
+> Release status: This document applies to the pending AgentSQL v0.5.0 release. The one-command assets and the `ghcr.io/cuipengdba/agentsql:v0.5.0` image become available after release-day validation; before then, use the “Source / Live Demo” paths in this guide. The source repository is `github.com/cuipengdba/agentsql`.
 
 AgentSQL is a database security gateway and production-grade MCP Server placed between AI Agents and business databases. It checks identity, permissions, rules, and decisions before executing each SQL statement, then executes it within an auditable boundary.
 
@@ -100,7 +100,7 @@ Complete the following steps in order. Creating a data source and an Agent is no
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-Instead of the one-command installer, you can build from source or use Docker Compose as described in the [Deployment Guide](../DEPLOY.md). You can also run `docker pull ghcr.io/cuipengdba/agentsql:v0.4.0` to pull the multi-arch image that automatically matches `linux/amd64` or `linux/arm64`. The GitHub Releases page is authoritative for release assets.
+Instead of the one-command installer, you can build from source or use Docker Compose as described in the [Deployment Guide](../DEPLOY.md). After v0.5.0 is released, you can run `docker pull ghcr.io/cuipengdba/agentsql:v0.5.0` to pull the multi-arch image that automatically matches `linux/amd64` or `linux/arm64`. The GitHub Releases page is authoritative for release assets.
 
 ### 2. Sign In to the Console
 

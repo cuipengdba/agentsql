@@ -21,7 +21,7 @@
 
 services:
   postgres:
-    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.4
+    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.5
     container_name: agentsql-demo-postgres
     restart: unless-stopped
     environment:
@@ -84,7 +84,7 @@ services:
       retries: 30
 
   seed:
-    image: ghcr.io/cuipengdba/agentsql:v0.4.0
+    image: ghcr.io/cuipengdba/agentsql:v0.5.0
     container_name: agentsql-demo-seed
     restart: "no"
     environment:
@@ -114,7 +114,7 @@ services:
         condition: service_healthy
 
   gateway:
-    image: ghcr.io/cuipengdba/agentsql:v0.4.0
+    image: ghcr.io/cuipengdba/agentsql:v0.5.0
     container_name: agentsql-demo-gateway
     restart: unless-stopped
     environment:

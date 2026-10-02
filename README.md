@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.5.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -66,9 +66,9 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 以下是既有 amd64 资产示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v0.4.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v0.4.0-linux-amd64.tar.gz
-cd agentsql-v0.4.0-linux-amd64
+sha256sum -c agentsql-v0.5.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.5.0-linux-amd64.tar.gz
+cd agentsql-v0.5.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -83,14 +83,14 @@ curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/qu
 GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。也可先用一条命令拉取，Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.4.0
+docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.4.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -140,7 +140,7 @@ docker compose --profile observability up -d --build
 源码二进制构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
-make build VERSION=v0.4.0
+make build VERSION=v0.5.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -274,7 +274,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.4.0
+make build VERSION=v0.5.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

@@ -25,7 +25,7 @@ docker buildx inspect --bootstrap | Out-Null
 foreach ($major in $PostgresMajor) {
     foreach ($platformName in $Platform) {
         $arch = ($platformName -split '/')[1]
-        $package = Join-Path $dist "deb\pg$major\$arch\agentsql-binder-pg$($major)_0.4.0-1_$arch.deb"
+        $package = Join-Path $dist "deb\pg$major\$arch\agentsql-binder-pg$($major)_0.5.0-1_$arch.deb"
         if (-not (Test-Path -LiteralPath $package -PathType Leaf)) {
             throw "Debian package missing for derived image: $package; run build-packages first"
         }

@@ -3,7 +3,7 @@
   "name": "io.github.cuipengdba/agentsql",
   "title": "AgentSQL",
   "description": "Guard AI agents' PostgreSQL/MySQL access via MCP: SQL audit, auth, masking, write approval",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "websiteUrl": "https://agentsql.cn",
   "repository": {
     "url": "https://github.com/cuipengdba/agentsql",

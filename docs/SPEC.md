@@ -1,6 +1,6 @@
 # AgentSQL 架构与工程规格
 
-> 版本：v0.4.0 ｜ 本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
+> 版本：v0.5.0 ｜ 本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
 > 完整可运行的配置样例见 `examples/`，完整建表 DDL 见 `internal/store/migrations/`；当本文与源码出现分歧时，以源码与测试为准并提 issue 修正本文。
 
 ---
@@ -343,7 +343,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 ---
 
-## 8. 兼容矩阵（v0.4.0）
+## 8. 兼容矩阵（v0.5.0）
 
 | 维度 | 支持情况 |
 |---|---|
@@ -357,7 +357,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
 | 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
 
-**路线图中暂不支持**：Oracle、SQL Server，以及达梦 / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等国产 / 商业数据库（企业版 T29）；企业 SSO / RBAC / 法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
+**仍未完整交付**：SQL Server，以及达梦 / Oracle / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等数据库的完整方言或商业版认证（v0.5.0 的有界 dialect / 协议路径结果见 [Release Notes](release-notes-v0.5.md)，不得扩大为完整支持）；企业 SSO、法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
 
 ---
 

@@ -6,7 +6,7 @@ See the [English documentation coverage inventory](COVERAGE.md) for the complete
 
 # AgentSQL
 
-![Release](https://img.shields.io/badge/Release-v0.4.0-blue)
+![Release](https://img.shields.io/badge/Release-v0.5.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](../../go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](../../LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](../../COMMERCIAL-LICENSE.md)
@@ -58,9 +58,9 @@ Non-TTY output in pipelines and CI does not show the generated administrator pas
 The following uses an existing amd64 asset as an example. Starting with v0.4.0, arm64 hosts use the corresponding `-linux-arm64` asset name.
 
 ```bash
-sha256sum -c agentsql-v0.4.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v0.4.0-linux-amd64.tar.gz
-cd agentsql-v0.4.0-linux-amd64
+sha256sum -c agentsql-v0.5.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.5.0-linux-amd64.tar.gz
+cd agentsql-v0.5.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -75,14 +75,14 @@ curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/qu
 The publisher must make the GHCR package public for anonymous pulls to work. You can also pull it directly; Docker selects `linux/amd64` or `linux/arm64` from the manifest list automatically:
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.4.0
+docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
 The equivalent single `docker run` command follows. Random values are passed only through the current shell environment and are not written into command-line arguments:
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.4.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
 ### 3. Local Live Demo (One Command, No Source Required)

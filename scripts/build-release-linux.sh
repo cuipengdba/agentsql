@@ -3,7 +3,7 @@
 set -eu
 
 ARCH=${ARCH:-amd64}
-VERSION=${VERSION:-v0.4.0}
+VERSION=${VERSION:-v0.5.0}
 GO_VERSION=${GO_VERSION:-1.25.14}
 GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
 

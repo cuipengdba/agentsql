@@ -2,7 +2,7 @@
 
 # AgentSQL MCP Integration Guide
 
-> Release status: This document applies to AgentSQL v0.4.0. The one-command installer and the `ghcr.io/cuipengdba/agentsql:v0.4.0` image are available for deployment. You can also build and try AgentSQL locally by following the “Source / Live Demo” paths in this guide. The source repository is `github.com/cuipengdba/agentsql`.
+> Release status: This document applies to the pending AgentSQL v0.5.0 release. The one-command assets and the `ghcr.io/cuipengdba/agentsql:v0.5.0` image become available after release-day validation; before then, use the “Source / Live Demo” paths in this guide. The source repository is `github.com/cuipengdba/agentsql`.
 
 This guide explains how to connect an MCP client to AgentSQL. See the [User Guide](../USER_GUIDE.md) for identity, authorization, rules, approval, and capability boundaries, and [Getting Started](GETTING_STARTED.md) for a first deployment. See the [Notification Guide](../NOTIFICATIONS.md) to forward decision events to Webhook endpoints, alert groups, or Syslog.
 

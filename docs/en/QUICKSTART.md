@@ -2,7 +2,7 @@
 
 # AgentSQL Five-Minute Quick Start
 
-> Release status: published installation assets and examples in this repository use AgentSQL v0.4.0. Do not substitute a v0.5 image tag until that release exists.
+> Release status: this page is prepared for AgentSQL v0.5.0, whose installation assets and image remain pending until release-day validation. Before the release exists, use a source build or the currently published stable release.
 
 This guide takes you from installation to a first protected query and an audit record. For a longer walkthrough and acceptance checklist, see [Getting Started](GETTING_STARTED.md).
 
@@ -32,7 +32,7 @@ The script pulls the exact stable GHCR tag, creates a mode-`0600` `.env`, uses t
 ### Direct GHCR image
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.4.0
+docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER=admin
 export AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
@@ -41,7 +41,7 @@ docker run -d --name agentsql --restart unless-stopped \
   -p 127.0.0.1:7780:7780 \
   -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD \
   -v agentsql-data:/var/lib/agentsql \
-  ghcr.io/cuipengdba/agentsql:v0.4.0
+  ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
 The GHCR tag is a `linux/amd64` and `linux/arm64` multi-architecture image. The three exported values are passed through the current shell instead of being included as literal process arguments.

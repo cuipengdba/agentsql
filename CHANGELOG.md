@@ -2,6 +2,41 @@
 
 本项目的重要变化记录于此，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [v0.5.0] - 2026-10-12（待发布）
+
+> 本条目是发布准备草稿，尚未创建 tag 或 GitHub Release。完整比较基线为 `v0.4.0..1d6682d`；详细证据、资产状态和发布日闸门见 [v0.5.0 Release Notes](docs/release-notes-v0.5.md)。
+
+### Added
+
+- 新增 DM、Oracle 和 YashanDB 独立 dialect 的有界连接/元数据能力；Oracle 完成严格只读子集和 EXPLAIN 归一化实测，DM 真库验证受凭据阻断，未实现路径继续 fail-closed。
+- 新增 RBAC / 多租户 MVP：本地用户、租户、角色、权限、多角色、角色继承与管理 API 逐路由授权；全部能力开放，无许可门控。
+- 新增企业审计查询/报表与合规导出配套，以及无需克隆源码的自包含五分钟快速上手演示栈。
+- 新增英文首页、快速上手、管理、MCP 接入、安全与覆盖度文档。
+- 新增金仓 + 瀚高联合案例验证记录、运营口径与演示 SQL，严格区分指定镜像协议路径实测、商业版终验和厂商认证。
+- 新增 MCP Registry 描述、官网生态/兼容板块与社区入口，并系统补齐国产数据库研究、优先级、联合案例和口径文档。
+
+### Changed
+
+- OpenTenBase PostgreSQL 内核新增严格、版本受限的分布式计划归一化，并在指定 v2.5.0 单机 GTM/CN/DN 拓扑完成最小安全闭环；TXSQL/MySQL 内核仍待官方环境实测。
+- PolarDB for PostgreSQL 指定社区镜像通过现有 `postgres` 路径完成实验性安全闭环，未新增别名或厂商识别开关。
+- OpenTenBase、TiDB 和 OceanBase 增加 fail-closed EXPLAIN 适配与回归 fixture；未知版本、计划列或节点继续拒绝。
+- MCP Streamable HTTP 首次 `initialize` 可不预先携带 `MCP-Protocol-Version`；后续请求的版本、会话与 Agent/Key 绑定校验保持严格。
+- 演示台场景卡对齐真实剧本与审批结果；业务错误口径进一步区分可预期授权失败、对象缺失与数据库执行错误。
+- 官网搜索闸门调整为放行主站、保持 `/demo/` 禁止索引；实际部署状态仍需发布日外网复核。
+- 自 v0.5 起，开源版许可证由 AGPLv3 调整为 Apache-2.0，并提供独立商业许可说明。
+
+### Fixed
+
+- 修复 MCP 首次握手协议版本门禁与主流客户端标准流程不兼容的问题。
+- 修复 Demo 表外键与密封 JOIN 剧本冲突，并加固每日重置的 seed/gateway 启动时序。
+- 修正 R005 前端规则元数据与文档口径，并加固 bootstrap 通知测试和 MCP 并发测试诊断。
+
+### Known Issues
+
+- P0 R005 在普通生产查询中可能不产生大结果集风险命中；`row_limit` 仍截断结果，但该截断不等价于 R005 告警已完整生效。
+- DM 真库业务 SELECT / EXPLAIN、KingbaseES V9 以及 HighGo / GaussDB / TDSQL 等商业版的目标环境终验仍待凭据或厂商环境。
+- OIDC/LDAP/MFA、存量业务元数据全租户化、MCP transport session 持久化与 SSE 断线重放未在本版交付。
+
 ## [v0.4.0] - 2026-09-30
 
 > 已正式发布并创建 `v0.4.0` tag。本版主题是“生产级列授权与跨请求事务安全”，在既有默认拒绝链路上补齐 PostgreSQL 列级授权、MCP 逻辑会话、审计完整性与一键体验。

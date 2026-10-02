@@ -112,4 +112,4 @@ Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, o
 - email: [87326549@qq.com](mailto:87326549@qq.com);
 - [GitHub private vulnerability reporting](https://github.com/cuipengdba/agentsql/security/advisories/new).
 
-The Chinese [security policy](../../SECURITY.md) currently lists 0.3.x as the supported series even though the root README and release assets identify v0.4.0. This is an unresolved documentation discrepancy; confirm the supported security-fix series privately with the maintainers rather than assuming coverage.
+The Chinese [security policy](../../SECURITY.md) currently lists 0.3.x as the supported series while the repository is prepared for pending v0.5.0 and the externally published assets remain v0.4.0. This is an unresolved documentation discrepancy; confirm the supported security-fix series privately with the maintainers rather than assuming coverage.
