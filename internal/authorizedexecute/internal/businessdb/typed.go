@@ -240,6 +240,14 @@ func Sample(ctx context.Context, executor Executor, table SchemaTable, columns [
 			return model.QueryResult{}, err
 		}
 	}
-	query := "SELECT " + strings.Join(projections, ",") + " FROM " + tableName + " LIMIT " + strconv.Itoa(limit)
+	query := buildSampleQuery(dialect, tableName, projections, limit)
 	return executor.Query(ctx, query, limit)
+}
+
+func buildSampleQuery(dialect, tableName string, projections []string, limit int) string {
+	query := "SELECT " + strings.Join(projections, ",") + " FROM " + tableName
+	if dialect == "oracle" {
+		return query + " FETCH FIRST " + strconv.Itoa(limit) + " ROWS ONLY"
+	}
+	return query + " LIMIT " + strconv.Itoa(limit)
 }

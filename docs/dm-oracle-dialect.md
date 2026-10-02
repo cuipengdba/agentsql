@@ -1,8 +1,41 @@
-# DM8 / Oracle 独立 dialect 设计与首批实测
+# DM8 / Oracle dialect 能力与验证边界
 
-> 状态：v0.5 任务 #10 的最小实现与后续设计；不是完整兼容或生产认证声明。实测日期：2026-10-02。
+> 状态：v0.5 批十、批十三与批二十的累计说明；不是完整兼容或生产认证声明。最近离线深化日期：2026-10-03。
 
-## 1. 本批结论
+## 0. 当前能力矩阵（批二十）
+
+本节是当前口径；后续章节保留批十的环境、驱动决策和历史设计背景。批二十不连接外部数据库，所有新增结论仅来自纯函数 corpus、结构化驱动错误 fixture 和 `PLAN_TABLE` 离线黄金样例。
+
+| 能力 | DM8 | Oracle |
+| --- | --- | --- |
+| 连接与池 | 原生 `dm` 驱动、Ping、当前 schema、池和独占物理会话已实现 | `go-ora/v2`、Ping、`CURRENT_SCHEMA`、池和独占物理会话已实现 |
+| metadata | 固定查询 `SYS.ALL_TAB_COLUMNS`；`?` bind；有界结果读取 | 固定查询 `ALL_TAB_COLUMNS`；`:N` bind；有界结果读取 |
+| 只读 SQL | 极窄单条 `SELECT`；池与 session 共用 fail-closed 门禁 | 同左 |
+| 分页与伪列 | 门禁接受 `TOP`、`LIMIT`、`FETCH`、`ROWNUM`；typed 采样固定生成 `LIMIT n` | 门禁接受 `FETCH`、`ROWNUM`，明确拒绝 `TOP`、`LIMIT`；typed 采样固定生成 `FETCH FIRST n ROWS ONLY` |
+| `DUAL` | 可作为普通对象出现在窄 SELECT 中，不做兼容模式改写 | 可作为普通对象出现在窄 SELECT 中；离线计划覆盖 `FAST DUAL` |
+| 序列 | `NEXTVAL`、`CURRVAL` 均拒绝 | `NEXTVAL`、`CURRVAL` 均拒绝 |
+| EXPLAIN | 未实现，保持 fail-closed | 结构化读取 `PLAN_TABLE`；校验唯一根、完整 parent、无环、非负有限估算值；识别普通、bitmap 和 domain index |
+| 错误分类 | 认证、语法、权限、连接，以及对象/模式不存在、锁超时、唯一约束 | 认证、权限、语法、列/对象不存在、约束、中断、连接，以及资源忙/死锁、临时空间/共享池资源不足 |
+| 类型 | 保留厂商 `DATA_TYPE` 字符串；尚无 canonical type 映射 | 同左；`NUMBER`、日期、LOB、JSON/BOOLEAN/Vector 等仍待独立语义设计 |
+| 写入/事务/触发器 | 未实现；`Execute`、`WriteTx` 保持 fail-closed | 同左 |
+| 主 parser/授权闭环 | 未接入 DM parser、规则、列级授权和脱敏 pipeline | 未接入 Oracle parser、规则、列级授权和脱敏 pipeline |
+
+### 0.1 批二十离线验证
+
+- 方言 corpus 覆盖 DM `TOP/LIMIT/FETCH/ROWNUM`、Oracle `FETCH/ROWNUM/DUAL`、Oracle 对 `TOP/LIMIT` 的拒绝，以及字符串/双引号内关键字与真实注释的边界。
+- typed 采样 SQL 通过纯 builder 黄金值验证；这只证明生成语句，不代表上层 `Gateway.Sample` 已接通 DM/Oracle 授权链路。
+- 错误分类通过构造 `dm8.DmError` 与 `network.OracleError` 验证，不把模拟错误当作真库实测。
+- Oracle EXPLAIN 通过内联 `model.QueryResult` fixture 验证普通索引、bitmap/domain index、`FAST DUAL`、多根、缺 parent、环、非法数值和控制字符；对象名仍不进入 `Raw`。
+
+### 0.2 明确限制与待真库验证
+
+- 窄门禁不是完整 SQL parser：函数、括号、子查询、CTE、bind、注释和尾部分号即使是合法 SQL 也拒绝；未引用标识符若与受限关键字重名也会 fail-closed。
+- DM EXPLAIN 没有稳定、已采集的本实例 fixture，因此本批不解析、不宣称支持。
+- DM `SYSDBA/SYSDBA` 仍已知返回 `-2501`；待提供有效凭据后复跑 Ping、metadata、分页查询、错误分类和取消/池复用。
+- Oracle 本批没有外部实例；新增分页、错误码和计划形态均待 Oracle 真库回归。批十三已有环境证据不等于批二十重新实测。
+- DM/Oracle 的 canonical 类型、LOB/时区/字符集、完整 parser、列级授权/脱敏、事务、触发器、取消后连接复用仍未验证。
+
+## 1. 批十初始结论（历史记录）
 
 DM8 和 Oracle 都不能映射为现有 PostgreSQL/MySQL dialect。两者需要独立的连接、系统目录、SQL parser/规则能力、执行计划解析、错误分类和事务状态实现。
 

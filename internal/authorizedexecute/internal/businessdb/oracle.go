@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	goora "github.com/sijms/go-ora/v2"
@@ -58,10 +59,14 @@ func classifyOracleError(ctx context.Context, stage DBStage, cause error) (error
 			return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, stage, driverCode, nil), true
 		case code == 904:
 			return newDBError(DBErrorKindColumnNotFound, DBErrorCodeColumnNotFound, stage, driverCode, nil), true
-		case code == 942:
+		case code == 942 || code == 4043:
 			return newDBError(DBErrorKindObjectNotFound, DBErrorCodeObjectNotFound, stage, driverCode, nil), true
 		case code == 1:
 			return newDBError(DBErrorKindConstraint, DBErrorCodeConstraint, stage, driverCode, nil), true
+		case code == 54 || code == 60:
+			return newDBError(DBErrorKindRetryable, DBErrorCodeRetryable, stage, driverCode, nil), true
+		case code == 1652 || code == 4031:
+			return newDBError(DBErrorKindResource, DBErrorCodeResource, stage, driverCode, nil), true
 		case code == 1013:
 			return newDBError(DBErrorKindInterrupted, DBErrorCodeInterrupted, stage, driverCode, ErrQueryTimeout), true
 		case code == 28 || code == 1012 || code == 1033 || code == 1034 || code == 1089 ||
@@ -164,7 +169,7 @@ func parseOraclePlanTable(result model.QueryResult) (model.ExplainInfo, error) {
 		cost        string
 	}
 	nodes := make([]planNode, 0, len(result.Rows))
-	ids := make(map[int64]struct{}, len(result.Rows))
+	nodesByID := make(map[int64]planNode, len(result.Rows))
 	for _, row := range result.Rows {
 		if len(row) != len(expectedColumns) {
 			return model.ExplainInfo{}, fmt.Errorf("Oracle PLAN_TABLE row width mismatch")
@@ -173,10 +178,9 @@ func parseOraclePlanTable(result model.QueryResult) (model.ExplainInfo, error) {
 		if err != nil || id < 0 {
 			return model.ExplainInfo{}, fmt.Errorf("invalid Oracle plan node ID")
 		}
-		if _, duplicate := ids[id]; duplicate {
+		if _, duplicate := nodesByID[id]; duplicate {
 			return model.ExplainInfo{}, fmt.Errorf("duplicate Oracle plan node ID")
 		}
-		ids[id] = struct{}{}
 		node := planNode{
 			id: id, operation: strings.ToUpper(strings.TrimSpace(row[2])),
 			options:     strings.ToUpper(strings.TrimSpace(row[3])),
@@ -184,6 +188,23 @@ func parseOraclePlanTable(result model.QueryResult) (model.ExplainInfo, error) {
 		}
 		if node.operation == "" {
 			return model.ExplainInfo{}, fmt.Errorf("empty Oracle plan operation")
+		}
+		for _, field := range []string{node.operation, node.options, node.cardinality, node.cost} {
+			if strings.IndexFunc(field, unicode.IsControl) >= 0 {
+				return model.ExplainInfo{}, fmt.Errorf("control character in Oracle plan field")
+			}
+		}
+		if node.cardinality != "" {
+			cardinality, parseErr := strconv.ParseInt(node.cardinality, 10, 64)
+			if parseErr != nil || cardinality < 0 {
+				return model.ExplainInfo{}, fmt.Errorf("invalid Oracle cardinality")
+			}
+		}
+		if node.cost != "" {
+			cost, parseErr := strconv.ParseFloat(node.cost, 64)
+			if parseErr != nil || cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
+				return model.ExplainInfo{}, fmt.Errorf("invalid Oracle cost")
+			}
 		}
 		if parentText := strings.TrimSpace(row[1]); parentText != "" {
 			node.parent, err = strconv.ParseInt(parentText, 10, 64)
@@ -193,13 +214,7 @@ func parseOraclePlanTable(result model.QueryResult) (model.ExplainInfo, error) {
 			node.hasParent = true
 		}
 		nodes = append(nodes, node)
-	}
-	for _, node := range nodes {
-		if node.hasParent {
-			if _, exists := ids[node.parent]; !exists {
-				return model.ExplainInfo{}, fmt.Errorf("missing Oracle plan parent")
-			}
-		}
+		nodesByID[id] = node
 	}
 	root := nodes[0]
 	if root.id != 0 || root.hasParent || root.operation != "SELECT STATEMENT" || root.cardinality == "" || root.cost == "" {
@@ -213,10 +228,31 @@ func parseOraclePlanTable(result model.QueryResult) (model.ExplainInfo, error) {
 	if err != nil || estimatedCost < 0 || math.IsNaN(estimatedCost) || math.IsInf(estimatedCost, 0) {
 		return model.ExplainInfo{}, fmt.Errorf("invalid Oracle cost")
 	}
+	for _, node := range nodes[1:] {
+		if !node.hasParent {
+			return model.ExplainInfo{}, fmt.Errorf("multiple Oracle plan roots")
+		}
+		seen := map[int64]struct{}{node.id: {}}
+		current := node
+		for current.hasParent {
+			if _, duplicate := seen[current.parent]; duplicate {
+				return model.ExplainInfo{}, fmt.Errorf("cycle in Oracle plan tree")
+			}
+			seen[current.parent] = struct{}{}
+			parent, exists := nodesByID[current.parent]
+			if !exists {
+				return model.ExplainInfo{}, fmt.Errorf("missing Oracle plan parent")
+			}
+			current = parent
+		}
+		if current.id != root.id {
+			return model.ExplainInfo{}, fmt.Errorf("disconnected Oracle plan tree")
+		}
+	}
 	info := model.ExplainInfo{EstScanRows: estimatedRows, EstCost: estimatedCost}
 	var raw strings.Builder
 	for _, node := range nodes {
-		if node.operation == "INDEX" {
+		if node.operation == "INDEX" || node.operation == "BITMAP INDEX" || node.operation == "DOMAIN INDEX" {
 			info.UsesIndex = true
 		}
 		if node.operation == "TABLE ACCESS" && node.options == "FULL" {

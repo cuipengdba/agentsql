@@ -65,6 +65,62 @@ func TestLimitedDialectSelectValidatorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestLimitedDialectPaginationAndKeywordBoundaries(t *testing.T) {
+	accepted := []struct {
+		dialect string
+		sql     string
+	}{
+		{dialect: "dm", sql: "SELECT TOP 5 ID FROM APP.CUSTOMERS"},
+		{dialect: "dm", sql: "SELECT ID FROM APP.CUSTOMERS LIMIT 5"},
+		{dialect: "dm", sql: "SELECT ID FROM APP.CUSTOMERS FETCH FIRST 5 ROWS ONLY"},
+		{dialect: "dm", sql: "SELECT ID FROM APP.CUSTOMERS WHERE ROWNUM <= 5"},
+		{dialect: "oracle", sql: "SELECT ID FROM APP.CUSTOMERS FETCH FIRST 5 ROWS ONLY"},
+		{dialect: "oracle", sql: "SELECT ID FROM APP.CUSTOMERS WHERE ROWNUM <= 5"},
+		{dialect: "oracle", sql: "SELECT DUMMY FROM DUAL"},
+		{dialect: "oracle", sql: `SELECT "LIMIT", UPDATE_COUNT, NEXTVALUE FROM "APP"."T"`},
+		{dialect: "oracle", sql: "SELECT '-- LIMIT CURRVAL UPDATE' AS TEXT_VALUE FROM DUAL"},
+	}
+	for _, test := range accepted {
+		require.NoError(t, validateLimitedSelectForDialect(test.dialect, test.sql), test.sql)
+	}
+
+	rejected := []struct {
+		dialect string
+		sql     string
+	}{
+		{dialect: "oracle", sql: "SELECT ID FROM APP.CUSTOMERS LIMIT 5"},
+		{dialect: "oracle", sql: "SELECT TOP 5 ID FROM APP.CUSTOMERS"},
+		{dialect: "oracle", sql: "SELECT SEQ.NEXTVAL FROM DUAL"},
+		{dialect: "oracle", sql: "SELECT SEQ.CURRVAL FROM DUAL"},
+		{dialect: "dm", sql: "SELECT SEQ.CURRVAL FROM DUAL"},
+		{dialect: "dm", sql: "SELECT ID FROM T /*+ INDEX(T IDX_T) */"},
+		{dialect: "oracle", sql: "SELECT ID FROM T -- trailing"},
+	}
+	for _, test := range rejected {
+		require.Error(t, validateLimitedSelectForDialect(test.dialect, test.sql), test.sql)
+	}
+}
+
+func TestBuildSampleQueryUsesVendorPagination(t *testing.T) {
+	tableName := `"APP"."CUSTOMERS"`
+	projections := []string{`"ID"`, `"NAME"`}
+	require.Equal(
+		t,
+		`SELECT "ID","NAME" FROM "APP"."CUSTOMERS" LIMIT 10`,
+		buildSampleQuery("dm", tableName, projections, 10),
+	)
+	require.Equal(
+		t,
+		`SELECT "ID","NAME" FROM "APP"."CUSTOMERS" FETCH FIRST 10 ROWS ONLY`,
+		buildSampleQuery("oracle", tableName, projections, 10),
+	)
+	require.Equal(
+		t,
+		`SELECT "ID","NAME" FROM "APP"."CUSTOMERS" LIMIT 10`,
+		buildSampleQuery("postgres", tableName, projections, 10),
+	)
+}
+
 func TestLimitedDialectWritePathsStillFailClosed(t *testing.T) {
 	executor := &limitedSQLExecutor{dialect: "oracle", readOnly: true}
 	_, err := executor.Execute(context.Background(), "DELETE FROM T")
@@ -92,11 +148,21 @@ func TestDMAndOracleErrorClassification(t *testing.T) {
 		{name: "dm syntax", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2007}, wantKind: DBErrorKindSyntax, wantCode: DBErrorCodeSyntax, wantDriver: "-2007"},
 		{name: "dm permission range", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -5516}, wantKind: DBErrorKindPermission, wantCode: DBErrorCodePermission, wantDriver: "-5516"},
 		{name: "dm authentication", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2501}, wantKind: DBErrorKindAuthentication, wantCode: DBErrorCodeAuthentication, wantDriver: "-2501"},
+		{name: "dm object", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2106}, wantKind: DBErrorKindObjectNotFound, wantCode: DBErrorCodeObjectNotFound, wantDriver: "-2106"},
+		{name: "dm schema", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2103}, wantKind: DBErrorKindObjectNotFound, wantCode: DBErrorCodeObjectNotFound, wantDriver: "-2103"},
+		{name: "dm lock timeout", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -6407}, wantKind: DBErrorKindRetryable, wantCode: DBErrorCodeRetryable, wantDriver: "-6407"},
+		{name: "dm constraint", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -6602}, wantKind: DBErrorKindConstraint, wantCode: DBErrorCodeConstraint, wantDriver: "-6602"},
+		{name: "dm unknown", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -77777}, wantKind: DBErrorKindExecution, wantCode: DBErrorCodeExecution, wantDriver: "-77777"},
 		{name: "dm connection", classify: classifyDMError, cause: errors.New("connection refused"), wantKind: DBErrorKindConnection, wantCode: DBErrorCodeConnection},
 		{name: "oracle syntax", classify: classifyOracleError, cause: gooranetwork.NewOracleError(900), wantKind: DBErrorKindSyntax, wantCode: DBErrorCodeSyntax, wantDriver: "900"},
 		{name: "oracle permission", classify: classifyOracleError, cause: gooranetwork.NewOracleError(1031), wantKind: DBErrorKindPermission, wantCode: DBErrorCodePermission, wantDriver: "1031"},
 		{name: "oracle authentication", classify: classifyOracleError, cause: gooranetwork.NewOracleError(1017), wantKind: DBErrorKindAuthentication, wantCode: DBErrorCodeAuthentication, wantDriver: "1017"},
 		{name: "oracle connection", classify: classifyOracleError, cause: gooranetwork.NewOracleError(12514), wantKind: DBErrorKindConnection, wantCode: DBErrorCodeConnection, wantDriver: "12514"},
+		{name: "oracle object", classify: classifyOracleError, cause: gooranetwork.NewOracleError(4043), wantKind: DBErrorKindObjectNotFound, wantCode: DBErrorCodeObjectNotFound, wantDriver: "4043"},
+		{name: "oracle resource busy", classify: classifyOracleError, cause: gooranetwork.NewOracleError(54), wantKind: DBErrorKindRetryable, wantCode: DBErrorCodeRetryable, wantDriver: "54"},
+		{name: "oracle deadlock", classify: classifyOracleError, cause: gooranetwork.NewOracleError(60), wantKind: DBErrorKindRetryable, wantCode: DBErrorCodeRetryable, wantDriver: "60"},
+		{name: "oracle temp space", classify: classifyOracleError, cause: gooranetwork.NewOracleError(1652), wantKind: DBErrorKindResource, wantCode: DBErrorCodeResource, wantDriver: "1652"},
+		{name: "oracle shared pool", classify: classifyOracleError, cause: gooranetwork.NewOracleError(4031), wantKind: DBErrorKindResource, wantCode: DBErrorCodeResource, wantDriver: "4031"},
 		{name: "oracle unknown", classify: classifyOracleError, cause: gooranetwork.NewOracleError(77777), wantKind: DBErrorKindExecution, wantCode: DBErrorCodeExecution, wantDriver: "77777"},
 	}
 	for _, test := range tests {
@@ -137,6 +203,93 @@ func TestParseOraclePlanTable(t *testing.T) {
 	result.Rows[2][1] = "999"
 	_, err = parseOraclePlanTable(result)
 	require.Error(t, err)
+}
+
+func TestParseOraclePlanTableOfflineFixtures(t *testing.T) {
+	columns := []string{"ID", "PARENT_ID", "OPERATION", "OPTIONS", "CARDINALITY", "COST"}
+	tests := []struct {
+		name        string
+		rows        [][]string
+		wantIndex   bool
+		wantSeqScan bool
+		wantRaw     string
+		wantError   bool
+	}{
+		{
+			name: "fast dual",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "1", "2"},
+				{"1", "0", "FAST DUAL", "", "1", "2"},
+			},
+			wantRaw: "0|SELECT STATEMENT||1|2\n1|FAST DUAL||1|2",
+		},
+		{
+			name: "bitmap index",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "4", "3"},
+				{"1", "0", "TABLE ACCESS", "BY INDEX ROWID", "4", "3"},
+				{"2", "1", "BITMAP INDEX", "RANGE SCAN", "4", "1"},
+			},
+			wantIndex: true,
+		},
+		{
+			name: "domain index",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "2", "8"},
+				{"1", "0", "DOMAIN INDEX", "", "2", "8"},
+			},
+			wantIndex: true,
+		},
+		{
+			name: "multiple roots",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "1", "1"},
+				{"1", "", "FAST DUAL", "", "1", "1"},
+			},
+			wantError: true,
+		},
+		{
+			name: "cycle",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "1", "1"},
+				{"1", "2", "VIEW", "", "1", "1"},
+				{"2", "1", "FAST DUAL", "", "1", "1"},
+			},
+			wantError: true,
+		},
+		{
+			name: "invalid child cardinality",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "1", "1"},
+				{"1", "0", "TABLE ACCESS", "FULL", "NaN", "1"},
+			},
+			wantError: true,
+		},
+		{
+			name: "control character",
+			rows: [][]string{
+				{"0", "", "SELECT STATEMENT", "", "1", "1"},
+				{"1", "0", "TABLE\nACCESS", "FULL", "1", "1"},
+			},
+			wantError: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := model.QueryResult{Columns: columns, Rows: test.rows, RowCount: len(test.rows)}
+			info, err := parseOraclePlanTable(result)
+			if test.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.wantIndex, info.UsesIndex)
+			require.Equal(t, test.wantSeqScan, info.SeqScan)
+			if test.wantRaw != "" {
+				require.Equal(t, test.wantRaw, info.Raw)
+			}
+		})
+	}
 }
 
 func TestDMDiscoveryE2E(t *testing.T) {

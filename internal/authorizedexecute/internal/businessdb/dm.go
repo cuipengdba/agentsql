@@ -55,6 +55,12 @@ func classifyDMError(ctx context.Context, stage DBStage, cause error) (error, bo
 			return newDBError(DBErrorKindAuthentication, DBErrorCodeAuthentication, stage, driverCode, nil), true
 		case code == -2007:
 			return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, stage, driverCode, nil), true
+		case code == -2103 || code == -2106:
+			return newDBError(DBErrorKindObjectNotFound, DBErrorCodeObjectNotFound, stage, driverCode, nil), true
+		case code == -6407:
+			return newDBError(DBErrorKindRetryable, DBErrorCodeRetryable, stage, driverCode, nil), true
+		case code == -6602:
+			return newDBError(DBErrorKindConstraint, DBErrorCodeConstraint, stage, driverCode, nil), true
 		case code <= -5501 && code > -6000:
 			return newDBError(DBErrorKindPermission, DBErrorCodePermission, stage, driverCode, ErrPermissionDenied), true
 		case code == 6001 || code == 6060 || code == 9007 || code == 9008 || code == 20001:

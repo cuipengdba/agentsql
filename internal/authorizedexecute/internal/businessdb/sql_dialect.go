@@ -316,7 +316,7 @@ func (executor *limitedSQLExecutor) validateReadOnlyQuery(ctx context.Context, s
 	if executor == nil || executor.database == nil || ctx == nil {
 		return newDBError(DBErrorKindConnection, DBErrorCodeConnection, stage, "", ErrDatasourceUnreachable)
 	}
-	if err := validateLimitedSelect(sqlText); err != nil {
+	if err := validateLimitedSelectForDialect(executor.dialect, sqlText); err != nil {
 		return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, DBStageParse, "", nil)
 	}
 	return nil
@@ -351,8 +351,35 @@ func (executor *limitedSQLExecutor) queryWithRunner(
 // separators, function calls or write-capable clauses. Unsupported valid SQL
 // fails closed until a vendor parser can prove its semantics.
 func validateLimitedSelect(sqlText string) error {
+	_, err := validateLimitedSelectWords(sqlText)
+	return err
+}
+
+// validateLimitedSelectForDialect keeps the common fail-closed SELECT subset,
+// then rejects vendor-incompatible pagination and sequence forms. Dialects not
+// listed here retain the common validator's behavior.
+func validateLimitedSelectForDialect(dialect, sqlText string) error {
+	words, err := validateLimitedSelectWords(sqlText)
+	if err != nil {
+		return err
+	}
+	if dialect != "dm" && dialect != "oracle" {
+		return nil
+	}
+	for _, word := range words[1:] {
+		if word == "CURRVAL" {
+			return fmt.Errorf("sequence pseudocolumns are unsupported")
+		}
+		if dialect == "oracle" && (word == "LIMIT" || word == "TOP") {
+			return fmt.Errorf("unsupported Oracle pagination form")
+		}
+	}
+	return nil
+}
+
+func validateLimitedSelectWords(sqlText string) ([]string, error) {
 	if strings.TrimSpace(sqlText) == "" || !utf8.ValidString(sqlText) {
-		return fmt.Errorf("empty or invalid SQL")
+		return nil, fmt.Errorf("empty or invalid SQL")
 	}
 	words := make([]string, 0, 16)
 	for index := 0; index < len(sqlText); {
@@ -377,20 +404,20 @@ func validateLimitedSelect(sqlText string) error {
 				break
 			}
 			if !closed {
-				return fmt.Errorf("unterminated quoted value")
+				return nil, fmt.Errorf("unterminated quoted value")
 			}
 		case character == ';' || character == '?' || character == ':' || character == '$':
-			return fmt.Errorf("unsupported statement separator or bind marker")
+			return nil, fmt.Errorf("unsupported statement separator or bind marker")
 		case character == '(' || character == ')':
-			return fmt.Errorf("function calls and subqueries are unsupported")
+			return nil, fmt.Errorf("function calls and subqueries are unsupported")
 		case character == '-' && index+1 < len(sqlText) && sqlText[index+1] == '-':
-			return fmt.Errorf("comments are unsupported")
+			return nil, fmt.Errorf("comments are unsupported")
 		case character == '/' && index+1 < len(sqlText) && sqlText[index+1] == '*':
-			return fmt.Errorf("comments are unsupported")
+			return nil, fmt.Errorf("comments are unsupported")
 		default:
 			runeValue, size := utf8.DecodeRuneInString(sqlText[index:])
 			if unicode.IsControl(runeValue) && !unicode.IsSpace(runeValue) {
-				return fmt.Errorf("control character is unsupported")
+				return nil, fmt.Errorf("control character is unsupported")
 			}
 			if unicode.IsLetter(runeValue) || runeValue == '_' {
 				start := index
@@ -409,17 +436,17 @@ func validateLimitedSelect(sqlText string) error {
 		}
 	}
 	if len(words) == 0 || words[0] != "SELECT" {
-		return fmt.Errorf("only SELECT is supported")
+		return nil, fmt.Errorf("only SELECT is supported")
 	}
 	for _, word := range words[1:] {
 		switch word {
 		case "INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "CALL", "EXEC", "EXECUTE",
 			"BEGIN", "DECLARE", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "REVOKE",
 			"COMMIT", "ROLLBACK", "SAVEPOINT", "LOCK", "NEXTVAL":
-			return fmt.Errorf("write-capable SELECT form is unsupported")
+			return nil, fmt.Errorf("write-capable SELECT form is unsupported")
 		}
 	}
-	return nil
+	return words, nil
 }
 
 func (executor *limitedSQLExecutor) removeSession(id string, session *limitedSQLSession) {
