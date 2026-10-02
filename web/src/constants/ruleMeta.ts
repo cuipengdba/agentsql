@@ -14,7 +14,7 @@ export const ruleMeta: Record<string, RuleMeta> = {
   R002: { id: "R002", title: "无条件批量写防护", risk: 5, dbType: "all", group: "通用防护", dynamic: false, builtin: true, patternType: "ast" },
   R003: { id: "R003", title: "只读 Agent 写操作防护", risk: 5, dbType: "all", group: "通用防护", dynamic: false, builtin: true, patternType: "ast" },
   R004: { id: "R004", title: "大范围扫描审批", risk: 4, dbType: "all", group: "通用防护", dynamic: true, builtin: true, patternType: "ast" },
-  R005: { id: "R005", title: "大结果集限制提醒", risk: 3, dbType: "all", group: "通用防护", dynamic: false, builtin: true, patternType: "ast" },
+  R005: { id: "R005", title: "大结果集限制提醒", risk: 3, dbType: "all", group: "通用防护", dynamic: true, builtin: true, patternType: "ast" },
   R006: { id: "R006", title: "注释与未知语句注入防护", risk: 5, dbType: "all", group: "通用防护", dynamic: false, builtin: true, patternType: "ast" },
   R007: { id: "R007", title: "危险函数黑名单", risk: 5, dbType: "all", group: "通用防护", dynamic: false, builtin: true, patternType: "ast" },
   R008: { id: "R008", title: "请求速率与并发限制", risk: 5, dbType: "all", group: "通用防护", dynamic: false, builtin: true, patternType: "ast" },
