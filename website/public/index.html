@@ -229,8 +229,8 @@
               <caption>AgentSQL 数据库生态适配进展；状态以各版本 Release Notes 与仓库文档为准。</caption>
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
-                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status plan">待实测</span></td><td class="eco-desc">等待官方 V9 镜像（第三方旧版 License 已过期）。</td></tr>
-                <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">容器镜像协议路径已实测通过。</td></tr>
+                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status plan">待厂商环境</span></td><td class="eco-desc">V9R1C10 目标镜像待厂商提供（第三方旧版 License 已过期）。</td></tr>
+                <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status ok">协议路径已实测</span></td><td class="eco-desc">第三方 SEE 容器的 PostgreSQL 协议路径已实测；商业版待厂商终验。</td></tr>
                 <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
                 <tr><td class="eco-db">openGauss（GaussDB）</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
                 <tr><td class="eco-db">TiDB</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
@@ -243,7 +243,7 @@
               </tbody>
             </table>
           </div>
-          <p class="ecosystem-note">*"已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
+          <p class="ecosystem-note">*"已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。首批金仓 + 瀚高的证据边界与复现 SQL 见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/joint-case-kingbase-highgo.md" target="_blank" rel="noopener noreferrer">联合案例验证记录</a>。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
         </div>
       </div>
     </section>

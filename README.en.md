@@ -35,8 +35,8 @@ AgentSQL currently supports PostgreSQL and MySQL as protected business databases
 
 | Database | Status | Notes |
 | --- | --- | --- |
-| KingbaseES | Pending test | Waiting for an official V9 image; the available third-party older image has an expired license |
-| HighGo | Tested | Container-image protocol path tested |
+| KingbaseES | Pending vendor environment | The target V9R1C10 image is pending from the vendor; the available third-party older image has an expired license |
+| HighGo | Protocol path tested | The PostgreSQL protocol path was tested with a third-party SEE image; commercial-edition validation is still pending |
 | IvorySQL | Tested | Community-edition protocol path tested |
 | openGauss (GaussDB) | Tested | Community-edition protocol path tested |
 | TiDB | In progress | EXPLAIN adaptation is in progress |
@@ -48,6 +48,8 @@ AgentSQL currently supports PostgreSQL and MySQL as protected business databases
 | PolarDB | Included in plan | Compatibility work is included in the v0.5 plan |
 
 “Tested” means that a community-edition or container-image protocol path was exercised; it is not vendor certification. “In progress” and “pending test” do not mean the current release supports that database. The current native support matrix remains PostgreSQL 14–18 and MySQL 8.
+
+See the [KingbaseES + HighGo case-validation record](docs/joint-case-kingbase-highgo.md) for evidence, reproducible SQL, and pending vendor items. Public messaging is defined in the [community operations wording](docs/joint-case-operations.md).
 
 ## Quick Start
 
