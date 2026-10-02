@@ -119,7 +119,7 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 准备 | 版本常量与 CHANGELOG | **已完成** | 源码/构建/示例默认版本对齐 `v0.5.0`；历史口径保留 |
 | 准备 | 完整变更基线复核 | **已完成** | 使用 `v0.4.0..1d6682d`，并记录 `391dcf0` 边界不完整 |
 | 安全 | Private Vulnerability Reporting（PVR） | **待发布日** | 匿名 API 不返回该设置；由仓库管理员在 Security settings 复核为开启 |
-| 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | `go build ./...`、改动包测试、gofmt 与 diff check 通过；全量 short tests 的 PostgreSQL parser P99 为 9.50 ms，超过 5 ms 预算，须在标准 Linux runner 复核并清零后才可发布 |
+| 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | 批十九已降低 PostgreSQL parser 主体延迟和分配，但同环境独占 5 轮 P99 仍有 3 轮超过 5 ms（5.576/4.906/4.744/5.485/5.643 ms）；不得据此清零闸门，仍须在标准 Linux runner 独占复核并稳定通过后才可发布 |
 | 构建 | 固定 Rocky Linux 8 digest 构建 amd64/arm64 | **待发布日** | 两个二进制均回报 `v0.5.0`，GLIBC 符号不高于 2.28 |
 | 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **dry-run 已补齐；生产签名待发布日** | `scripts/release-dryrun.ps1` 编排双架构包、SBOM、metadata、provenance 和说明；dry-run 只生成显式不可发布的未签名占位文档，绝不读取私钥 |
 | 校验 | SHA-256 与签名双重验证 | **本地 SHA-256 闭环已补齐；生产签名待发布日** | dry-run 断言恰好 15 项，回验 tarball sidecar 与统一 `SHA256SUMS` 并输出逐项名称/大小/SHA-256；有效 Ed25519 签名仍须发布日替换占位文档后验证 |
@@ -137,6 +137,15 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 2. **本批已补齐并实跑辅助 tag 非推送命令。** `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` 保持主镜像精确 tag 与显式 `-Push` 才移动 `latest` 的既有规则，同时分别为 `v0.5.0-demo` / `v0.5.0-quickstart` 生成双架构 OCI 归档和结构化 digest JSON。本地离线检查确认三个归档均包含 amd64/arm64 descriptor；发布日仍须由主控执行推送、GHCR public 和匿名双架构拉取验收。
 3. PVR 设置、GHCR public、官网实时状态和搜索放行需管理员/外网证据；当前无法从匿名 API 完整取证的项均保持“待发布日”。
 4. `SECURITY.md` 的受支持版本矩阵仍列 0.3.x，与待发布的 v0.5.0 不一致。该项涉及安全修复承诺，必须由维护者在发布日前确认并更新；本批不代替维护者猜测支持周期。
+
+### PostgreSQL parser P99 调查（批十九）
+
+- 口径：`TestParseProjectionLineageP99Budget/postgres` 测量完整 `Parser.Parse`，典型 SQL 为 8 个 `UNION ALL` 分支、每分支 8 列，每轮 2,000 样本；包含 `pg_query`、JSON AST 解码、Normalize 前扫描和 lineage 后处理，不包含闭包 DML 执行链路。
+- 环境：`golang:1.25-bookworm`、Linux/amd64、Intel i7-6700、8 个逻辑 CPU。未优化独占 3 轮 P99 为 7.329/8.938/6.518 ms；补采的一轮 P50/P90/P99 为 2.554/4.138/5.671 ms。
+- 根因：典型 SQL 无字面量，实际不会执行 `pg_query.Normalize`；优化前却每次执行拆句、ParseToJSON、Normalize 前扫描和注释扫描共 4 次 `pg_query` 前端调用。CPU profile 中两次 Scan 合计约 20.1%，两段 JSON 解码约 30.2%，lineage 约 10.3%，CGO 平坦耗时约 18.5%，没有独立类型推断阶段。
+- 最小优化：无分号单语句跳过冗余拆句扫描；Normalize 与注释检测复用一次 token scan；JSON AST 从两段解码合并为一次并拒绝 NULL 根；表、CTE、列、函数收集合并为一次只读遍历。现有 `set_arms_8`（8 分支、每分支 1 列）benchmark 从 720,686–756,478 ns/op、110,278–110,279 B/op、1,255 allocs/op 改善到 495,068–544,081 ns/op、86,421 B/op、1,139 allocs/op。
+- 结论：最终 5 轮 P50 为 1.702–1.861 ms、P90 为 3.146–3.289 ms，但 P99 为 5.576/4.906/4.744/5.485/5.643 ms，仅 2/5 通过。主体延迟约降低 27%–33%，尾部仍受 C parser/scan、JSON 大量分配及 GC/调度共同影响；保留 5 ms 发布日闸门，不放宽、不标记达标。
+- 全仓并行 `go test -short ./... -count=1` 的功能包均通过，但性能门因 CPU 竞争失败（MySQL/PostgreSQL P99 为 19.518/12.546 ms），因此命令总体为 FAIL；发布判定仍只采用无并行负载的独占复跑，同时不能把这次全仓结果记为通过。
 
 ## English
 

@@ -216,15 +216,15 @@ func TestCoveragePostgresIntegerAndNodeHelpers(t *testing.T) {
 func TestCoveragePostgresRootAndExplainFailures(t *testing.T) {
 	_, _, err := postgresRoot(postgresRawStatement{})
 	require.ErrorContains(t, err, "got 0")
-	_, _, err = postgresRoot(postgresRawStatement{Statement: map[string]json.RawMessage{
-		"SelectStmt": json.RawMessage(`{}`),
-		"UpdateStmt": json.RawMessage(`{}`),
+	_, _, err = postgresRoot(postgresRawStatement{Statement: map[string]any{
+		"SelectStmt": map[string]any{},
+		"UpdateStmt": map[string]any{},
 	}})
 	require.ErrorContains(t, err, "got 2")
-	_, _, err = postgresRoot(postgresRawStatement{Statement: map[string]json.RawMessage{
-		"SelectStmt": json.RawMessage(`{`),
+	_, _, err = postgresRoot(postgresRawStatement{Statement: map[string]any{
+		"SelectStmt": nil,
 	}})
-	require.ErrorContains(t, err, "decode PostgreSQL SelectStmt")
+	require.ErrorContains(t, err, "root node is null")
 
 	for _, node := range []any{
 		"not an object",

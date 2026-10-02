@@ -75,7 +75,7 @@ func TestParseProjectionLineageP99Budget(t *testing.T) {
 
 			typicalSQL := projectionLineageSetSQL(dialect, 8, 8)
 			typical := measureProjectionLineageParse(t, approved, typicalSQL, typicalIterations)
-			t.Logf("%s typical arms=8 columns=8 parses=%d P50=%s P95=%s P99=%s", dialect, typicalIterations, typical.p50, typical.p95, typical.p99)
+			t.Logf("%s typical arms=8 columns=8 parses=%d P50=%s P90=%s P95=%s P99=%s", dialect, typicalIterations, typical.p50, typical.p90, typical.p95, typical.p99)
 			require.LessOrEqual(t, typical.p99, typicalP99Budget, "parser total P99 is the available lineage budget proxy; the parser has no lineage-off mode")
 
 			column100 := measureProjectionLineageParse(t, approved, projectionLineageColumnsSQL(dialect, 100), scaleIterations)
@@ -103,6 +103,7 @@ func TestParseProjectionLineageP99Budget(t *testing.T) {
 
 type projectionLineageTimings struct {
 	p50  time.Duration
+	p90  time.Duration
 	p95  time.Duration
 	p99  time.Duration
 	mean time.Duration
@@ -127,6 +128,7 @@ func measureProjectionLineageParse(t *testing.T, approved Parser, sql string, it
 	sort.Slice(durations, func(left, right int) bool { return durations[left] < durations[right] })
 	return projectionLineageTimings{
 		p50:  percentileDuration(durations, 50),
+		p90:  percentileDuration(durations, 90),
 		p95:  percentileDuration(durations, 95),
 		p99:  percentileDuration(durations, 99),
 		mean: total / time.Duration(iterations),

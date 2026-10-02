@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +19,7 @@ type postgresDocument struct {
 }
 
 type postgresRawStatement struct {
-	Statement map[string]json.RawMessage `json:"stmt"`
+	Statement map[string]any `json:"stmt"`
 }
 
 func (parser *postgresParser) Parse(sql string) (ast *model.AST, err error) {
@@ -40,15 +39,21 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 			errors.New("SQL is empty"),
 		)
 	}
-	pieces, err := pg_query.SplitWithScanner(sql, true)
-	if err != nil {
-		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
-	}
-	if len(pieces) != 1 {
-		return parser.postgresMultiAST(sql, pieces), unparseableError(
-			postgresDialect,
-			fmt.Errorf("expected one statement, got %d", len(pieces)),
-		)
+	// A PostgreSQL statement cannot contain a second statement when it has no
+	// semicolon. Keep the scanner path unchanged for every potentially multi-
+	// statement input, while avoiding an otherwise redundant C scanner call on
+	// the overwhelmingly common single-statement path.
+	if strings.ContainsRune(sql, ';') {
+		pieces, err := pg_query.SplitWithScanner(sql, true)
+		if err != nil {
+			return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+		}
+		if len(pieces) != 1 {
+			return parser.postgresMultiAST(sql, pieces), unparseableError(
+				postgresDialect,
+				fmt.Errorf("expected one statement, got %d", len(pieces)),
+			)
+		}
 	}
 
 	parsedJSON, err := pg_query.ParseToJSON(sql)
@@ -71,7 +76,14 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	if err != nil {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
 	}
-	normalized, err := normalizePostgres(sql)
+	scanResult, err := pg_query.Scan(sql)
+	if err != nil {
+		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(
+			postgresDialect,
+			fmt.Errorf("scan PostgreSQL SQL before normalization: %w", err),
+		)
+	}
+	normalized, err := normalizePostgresScanResult(sql, scanResult)
 	if err != nil {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
 	}
@@ -80,17 +92,15 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	columns := make(stringSet)
 	functions := make(stringSet)
 	commonTableExpressions := make(stringSet)
-	collectPostgresRangeVars(node, tables)
 	walkPostgresNode(node, func(key string, value any) {
-		if key != "CommonTableExpr" {
-			return
+		if object, ok := postgresRangeVar(value); ok {
+			tables.add(object)
 		}
-		if name, ok := postgresStringField(value, "ctename"); ok {
-			commonTableExpressions.add(name)
-		}
-	})
-	walkPostgresNode(node, func(key string, value any) {
 		switch key {
+		case "CommonTableExpr":
+			if name, ok := postgresStringField(value, "ctename"); ok {
+				commonTableExpressions.add(name)
+			}
 		case "ColumnRef":
 			if column, ok := postgresColumnRef(value); ok {
 				columns.add(column)
@@ -140,10 +150,7 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	for _, column := range postgresProjectedColumns(analysisType, analysisNode) {
 		operations.add(selectColumnOperation + ":" + column)
 	}
-	hasComment, err := postgresHasComment(sql)
-	if err != nil {
-		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
-	}
+	hasComment := postgresScanHasComment(scanResult)
 	if hasComment {
 		operations.add(sqlCommentOperation)
 	}
@@ -576,6 +583,10 @@ func normalizePostgres(sql string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("scan PostgreSQL SQL before normalization: %w", err)
 	}
+	return normalizePostgresScanResult(sql, scanResult)
+}
+
+func normalizePostgresScanResult(sql string, scanResult *pg_query.ScanResult) (string, error) {
 	if !postgresScanContainsLiteral(scanResult) {
 		return sql, nil
 	}
@@ -648,17 +659,24 @@ func postgresHasComment(sql string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("scan PostgreSQL tokens: %w", err)
 	}
+	return postgresScanHasComment(scanResult), nil
+}
+
+func postgresScanHasComment(scanResult *pg_query.ScanResult) bool {
+	if scanResult == nil {
+		return false
+	}
 	for _, token := range scanResult.GetTokens() {
 		switch token.GetToken().String() {
 		case "C_COMMENT", "SQL_COMMENT":
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 func decodePostgresDocument(parsedJSON string) (postgresDocument, error) {
-	decoder := json.NewDecoder(bytes.NewBufferString(parsedJSON))
+	decoder := json.NewDecoder(strings.NewReader(parsedJSON))
 	decoder.UseNumber()
 	var document postgresDocument
 	if err := decoder.Decode(&document); err != nil {
@@ -671,12 +689,9 @@ func postgresRoot(statement postgresRawStatement) (string, any, error) {
 	if len(statement.Statement) != 1 {
 		return "", nil, fmt.Errorf("expected one PostgreSQL root node, got %d", len(statement.Statement))
 	}
-	for nodeType, raw := range statement.Statement {
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-		var node any
-		if err := decoder.Decode(&node); err != nil {
-			return "", nil, fmt.Errorf("decode PostgreSQL %s node: %w", nodeType, err)
+	for nodeType, node := range statement.Statement {
+		if node == nil {
+			return "", nil, fmt.Errorf("PostgreSQL %s root node is null", nodeType)
 		}
 		return nodeType, node, nil
 	}
