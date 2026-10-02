@@ -1,10 +1,10 @@
 # DM8 / Oracle dialect 能力与验证边界
 
-> 状态：v0.5 批十、批十三与批二十的累计说明；不是完整兼容或生产认证声明。最近离线深化日期：2026-10-03。
+> 状态：v0.5 批十、批十三、批二十与批二十一的累计说明；不是完整兼容或生产认证声明。最近离线深化日期：2026-10-03。
 
-## 0. 当前能力矩阵（批二十）
+## 0. 当前能力矩阵（批二十一）
 
-本节是当前口径；后续章节保留批十的环境、驱动决策和历史设计背景。批二十不连接外部数据库，所有新增结论仅来自纯函数 corpus、结构化驱动错误 fixture 和 `PLAN_TABLE` 离线黄金样例。
+本节是当前口径；后续章节保留批十的环境、驱动决策和历史设计背景。批二十一不连接外部数据库，DM EXPLAIN 新增结论仅来自达梦官方文档样例的纯离线 fixture；不把离线解析测试表述为真库实测。
 
 | 能力 | DM8 | Oracle |
 | --- | --- | --- |
@@ -14,23 +14,32 @@
 | 分页与伪列 | 门禁接受 `TOP`、`LIMIT`、`FETCH`、`ROWNUM`；typed 采样固定生成 `LIMIT n` | 门禁接受 `FETCH`、`ROWNUM`，明确拒绝 `TOP`、`LIMIT`；typed 采样固定生成 `FETCH FIRST n ROWS ONLY` |
 | `DUAL` | 可作为普通对象出现在窄 SELECT 中，不做兼容模式改写 | 可作为普通对象出现在窄 SELECT 中；离线计划覆盖 `FAST DUAL` |
 | 序列 | `NEXTVAL`、`CURRVAL` 均拒绝 | `NEXTVAL`、`CURRVAL` 均拒绝 |
-| EXPLAIN | 未实现，保持 fail-closed | 结构化读取 `PLAN_TABLE`；校验唯一根、完整 parent、无环、非负有限估算值；识别普通、bitmap 和 domain index |
+| EXPLAIN | 离线归一化已实现、待真库验证；运行时使用官方结果集形式 `EXPLAIN FOR`，文本样例与结构化结果共用 `ExplainInfo` 归一化；未知列、节点、树形或数值 fail-closed | 结构化读取 `PLAN_TABLE`；校验唯一根、完整 parent、无环、非负有限估算值；识别普通、bitmap 和 domain index |
 | 错误分类 | 认证、语法、权限、连接，以及对象/模式不存在、锁超时、唯一约束 | 认证、权限、语法、列/对象不存在、约束、中断、连接，以及资源忙/死锁、临时空间/共享池资源不足 |
 | 类型 | 保留厂商 `DATA_TYPE` 字符串；尚无 canonical type 映射 | 同左；`NUMBER`、日期、LOB、JSON/BOOLEAN/Vector 等仍待独立语义设计 |
 | 写入/事务/触发器 | 未实现；`Execute`、`WriteTx` 保持 fail-closed | 同左 |
 | 主 parser/授权闭环 | 未接入 DM parser、规则、列级授权和脱敏 pipeline | 未接入 Oracle parser、规则、列级授权和脱敏 pipeline |
 
-### 0.1 批二十离线验证
+### 0.1 批二十、批二十一离线验证
 
 - 方言 corpus 覆盖 DM `TOP/LIMIT/FETCH/ROWNUM`、Oracle `FETCH/ROWNUM/DUAL`、Oracle 对 `TOP/LIMIT` 的拒绝，以及字符串/双引号内关键字与真实注释的边界。
 - typed 采样 SQL 通过纯 builder 黄金值验证；这只证明生成语句，不代表上层 `Gateway.Sample` 已接通 DM/Oracle 授权链路。
 - 错误分类通过构造 `dm8.DmError` 与 `network.OracleError` 验证，不把模拟错误当作真库实测。
 - Oracle EXPLAIN 通过内联 `model.QueryResult` fixture 验证普通索引、bitmap/domain index、`FAST DUAL`、多根、缺 parent、环、非法数值和控制字符；对象名仍不进入 `Raw`。
+- DM EXPLAIN 文本 fixture 验证官方复杂连接树与显式二级索引树；结构化 fixture 验证官方 `EXPLAIN AS A1 FOR` 四节点结果。根节点 `[cost, rows, bytes]` 归一化为 `EstCost`/`EstScanRows`，`CSEK/SSEK/SSCN/BLKUP` 形成索引信号，`CSCN` 形成顺序扫描信号。
+- DM 归一化 `Raw` 仅保留节点号、层级、操作符、估算行数与代价，不保留表名、索引名、谓词或 SQL 字面量；文本/结构化输入均限制大小、节点数和深度，并拒绝未知操作符、非法树形、负数与非有限代价。
 
-### 0.2 明确限制与待真库验证
+### 0.2 DM EXPLAIN fixture 来源
+
+- [达梦官方《数据查询语句》4.19.1 EXPLAIN](https://eco.dameng.com/document/dm/zh-cn/pm/check-phrases.html)：复杂 `NSET2/PRJT2/HASH LEFT SEMI JOIN2/CSCN2/CSEK2/BLKUP2/SSEK2` 文本树及 `[cost, rows, bytes]` 三元组。
+- [达梦官方《数据查询语句》4.19.2 EXPLAIN FOR](https://eco.dameng.com/document/dm/zh-cn/pm/check-phrases.html)：19 列结果集定义对应的 `EXPLAIN AS A1 FOR` 四节点样例。
+- [达梦官方《数据查询语句》4.22 指定索引查询](https://eco.dameng.com/document/dm/zh-cn/pm/check-phrases.html)：`BLKUP2 + SSCN` 与 `BLKUP2 + SSEK2` 文本树。
+- [达梦官方《附录 4：执行计划操作符》](https://eco.dameng.com/document/dm/zh-cn/pm/dm8-admin-manual-appendix4.html)与[《查询优化》EXPLAIN FOR 列说明](https://eco.dameng.com/document/dm/zh-cn/pm/query-optimization.html)：操作符语义及 `LEVEL_ID/OPERATION/ROW_NUMS/COST` 字段含义。
+
+### 0.3 明确限制与待真库验证
 
 - 窄门禁不是完整 SQL parser：函数、括号、子查询、CTE、bind、注释和尾部分号即使是合法 SQL 也拒绝；未引用标识符若与受限关键字重名也会 fail-closed。
-- DM EXPLAIN 没有稳定、已采集的本实例 fixture，因此本批不解析、不宣称支持。
+- DM EXPLAIN 尚无有效凭据下采集的本实例 fixture；待真库逐行比对普通 `EXPLAIN` 文本和 `EXPLAIN FOR` 的实际列名、列类型、层级、权限、计划记录持久化/清理行为，以及 context cancel 后连接复用。当前准确口径仅为“官方文档样例离线归一化已实现”。
 - DM `SYSDBA/SYSDBA` 仍已知返回 `-2501`；待提供有效凭据后复跑 Ping、metadata、分页查询、错误分类和取消/池复用。
 - Oracle 本批没有外部实例；新增分页、错误码和计划形态均待 Oracle 真库回归。批十三已有环境证据不等于批二十重新实测。
 - DM/Oracle 的 canonical 类型、LOB/时区/字符集、完整 parser、列级授权/脱敏、事务、触发器、取消后连接复用仍未验证。
@@ -61,7 +70,7 @@ DM8 和 Oracle 都不能映射为现有 PostgreSQL/MySQL dialect。两者需要�
 | 原生客户端 | `/opt/dmdbms/bin/disql`；运行需将 `/opt/dmdbms/bin` 加入 `LD_LIBRARY_PATH` | `/opt/oracle/product/26ai/dbhomeFree/bin/sqlplus`；`/ as sysdba` 可用 |
 | Go E2E | `TestDMDiscoveryE2E`：Ping；从 `SYS.ALL_TAB_COLUMNS` 发现自身 31 列 | `TestOracleDiscoveryE2E`：Ping；从 `SYS.DUAL` 发现列 |
 
-DM `EXPLAIN` 返回多行文本树，例如 `#HASH LEFT JOIN2: [cost, rows, bytes]`、`#CSEK2`、`#CSCN2`，没有 PostgreSQL JSON envelope。Oracle 需要先执行 `EXPLAIN PLAN ... FOR ...`，再读取 `TABLE(DBMS_XPLAN.DISPLAY(...))`；本次实测输出为 ASCII 表格，包含 `Operation`、`Name`、`Rows`、`Cost (%CPU)`。这两种格式都不能交给现有 PostgreSQL/MySQL parser 猜测解析。
+DM `EXPLAIN` 返回多行文本树，例如 `#HASH LEFT SEMI JOIN2: [cost, rows, bytes]`、`#CSEK2`、`#CSCN2`，没有 PostgreSQL JSON envelope；官方另提供以 19 列结果集返回的 `EXPLAIN FOR`。当前驱动的标准 `database/sql` 查询通道不能读取普通 `EXPLAIN` 的内部文本，因此运行时适配选择 `EXPLAIN FOR`，离线文本 parser 用于逐字锁定官方样例 grammar，两者汇合到相同节点归一化器。Oracle 需要先执行 `EXPLAIN PLAN ... FOR ...`，再结构化读取 `PLAN_TABLE`。这些格式都不交给现有 PostgreSQL/MySQL parser 猜测解析。
 
 ## 3. 驱动与 DSN 决策
 
@@ -114,6 +123,7 @@ Oracle 在 2026 年提供了官方纯 Go `github.com/oracle/go-oracledb/v26`，�
 - `Dialect()` 精确返回 `dm` 或 `oracle`；`Manager.SnapshotPools` 可读取标准 `database/sql` 池统计；
 - typed metadata 只接受 `SchemaTable` 身份，拒绝非法标识符，最多 256 个关系；查询模板固定，owner/table 全部使用 bind，不把输入拼入 SQL；结果仍受 256 列、单元格/行/总字节和 10,000 行上限约束；
 - metadata 驱动错误在能力边界内转成无驱动原文的统一 `DBError`；
+- DM `limitedDialectExplainer` 执行 `EXPLAIN FOR <SQL>`，严格读取官方 19 列并归一化为公共 `model.ExplainInfo`；池与 session 继续复用既有 `Explain` 超时、只读校验和错误通道；
 - 尚未验证的能力统一在 `limitedSQLExecutor` 返回 `DBErrorCodeExecution`，未知执行计划格式也绝不产生零值计划或放行结论。
 
 当前授权与发现调用关系保持不变：
@@ -130,7 +140,7 @@ Gateway.Sample -> AuthorizedExecute -> parser/rules/EXPLAIN -> executor.Query
 ## 6. 后续小批拆分
 
 1. **控制面与 parser 准入**：在 datasource API/store 校验中显式接受新类型；为两种方言建立单语句 parser、注释/终止符、对象与列提取、危险函数、CTE/子查询、DML/DDL corpus。任何无法归一化的 AST 必须拒绝。
-2. **EXPLAIN**：DM 建立有界文本 grammar；Oracle 优先读取结构化 `PLAN_TABLE` 列而非解析本地化 ASCII。限制原文大小、节点数、深度和数值范围；缺列、重复根、未知节点/数字溢出全部拒绝。
+2. **EXPLAIN 真库验证与扩展**：用有效 DM 凭据比对普通 `EXPLAIN` 文本与 `EXPLAIN FOR` 结果集，核验计划记录生命周期，并仅依据新增官方/真库 fixture 扩充操作符白名单；Oracle 继续优先读取结构化 `PLAN_TABLE` 而非本地化 ASCII。
 3. **只读查询与采样**：实现 dialect 自己的行限制器和仅 SELECT 分类；禁止尾部分号/多语句逃逸；接回 `Gateway.Sample` 后跑敏感类型识别、mask/hash/block/range 和截断用例。
 4. **错误与取消**：按真实驱动错误类型建立认证、权限、对象不存在、语法、约束、死锁、资源、超时、取消分类；未知码固定 execution；验证取消后的物理连接处置。
 5. **事务与写路径**：实现 Session/WriteTx、事务状态和 read-only 证据，再接审计 barrier；提交结果不确定时保持现有 fail-closed/unknown outcome 语义。

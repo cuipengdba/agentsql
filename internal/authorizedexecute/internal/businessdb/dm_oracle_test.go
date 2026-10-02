@@ -178,6 +178,139 @@ func TestDMAndOracleErrorClassification(t *testing.T) {
 	}
 }
 
+func TestParseDMExplainTextOfficialManualFixtures(t *testing.T) {
+	// Source: DM SQL Development Guide, "Data Query Statements", 4.19.1
+	// https://eco.dameng.com/document/dm/zh-cn/pm/check-phrases.html
+	complexPlan := `1   #NSET2: [1, 28, 100]
+2     #PRJT2: [1, 28, 100]; exp_num(2), is_atom(FALSE); INFO_BITS(0); spl_info(NULL)
+3       #HASH LEFT SEMI JOIN2: [1, 28, 100]; (ANTI), KEY_NUM(1), KEY(SYSOBJECTS.NAME = DMTEMPVIEW_889193466.colname), KEY_NULL_EQU(0)
+4         #SLCT2: [1, 28, 100]; SYSOBJECTS.SUBTYPE$ = 'STAB'; slct_pushdown(1); spl_info(NULL); flt_batch_exec(1)
+5           #CSCN2: [1, 1124, 100]; SYSINDEXSYSOBJECTS(SYSOBJECTS as SYSOBJECTS); btr_scan(1); need_slct(1); prejudge_iescn(0)
+6         #PRJT2: [1, 1, 96]; exp_num(1), is_atom(FALSE); INFO_BITS(0); spl_info(NULL)
+7           #INDEX JOIN SEMI JOIN2: [1, 1, 96]; join condition(SYSOBJECTS.SUBTYPE$ = 'STAB'), flt_batch_exec(0)
+8             #CSEK2: [1, 28, 96]; scan_type(ASC), SYSINDEXSYSOBJECTS(SYSOBJECTS as SYSOBJECTS), scan_range[('DSYNOM',min,min),('DSYNOM',max,max))
+9             #BLKUP2: [1, 3, 96]; SYSINDEXNAMESYSOBJECTS(SYSOBJECTS); use_clu_addr(0)
+10              #SSEK2: [1, 3, 96]; scan_type(ASC), SYSINDEXNAMESYSOBJECTS(SYSOBJECTS as SYSOBJECTS), scan_range[SYSOBJECTS.NAME,SYSOBJECTS.NAME], is_global(0)
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+3 - access(SYSOBJECTS.NAME = DMTEMPVIEW_889193466.colname)
+4 - filter(SYSOBJECTS.SUBTYPE$ = 'STAB')
+7 - filter(SYSOBJECTS.SUBTYPE$ = 'STAB')`
+
+	info, err := parseDMExplainText(complexPlan)
+	require.NoError(t, err)
+	require.Equal(t, int64(28), info.EstScanRows)
+	require.Equal(t, float64(1), info.EstCost)
+	require.True(t, info.UsesIndex)
+	require.True(t, info.SeqScan)
+	require.Contains(t, info.Raw, "10|6|SSEK2|3|1")
+	require.NotContains(t, info.Raw, "SYSOBJECTS")
+	require.NotContains(t, info.Raw, "STAB")
+
+	// Same source, 4.22 example with an explicitly selected secondary index.
+	indexPlan := `1   #NSET2: [1, 1, 108]
+2     #PRJT2: [1, 1, 108]; exp_num(2), is_atom(FALSE); INFO_BITS(0); spl_info(NULL)
+3       #SLCT2: [1, 1, 108]; ADDRESS.ADDRESS2 = '洪山区保利花园50号'; slct_pushdown(0); spl_info(NULL); flt_batch_exec(1)
+4         #BLKUP2: [1, 16, 108]; INDEX1(ADDRESS); use_clu_addr(0)
+5           #SSCN: [1, 16, 108]; INDEX1(ADDRESS); btr_scan(1); is_global(0)`
+	info, err = parseDMExplainText(indexPlan)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), info.EstScanRows)
+	require.True(t, info.UsesIndex)
+	require.False(t, info.SeqScan)
+	require.NotContains(t, info.Raw, "INDEX1")
+	require.NotContains(t, info.Raw, "洪山区")
+}
+
+func TestParseDMExplainForOfficialManualFixture(t *testing.T) {
+	// Source: DM SQL Development Guide, "Data Query Statements", 4.19.2,
+	// EXPLAIN AS A1 FOR SELECT ... (all values below are copied from the sample).
+	result := model.QueryResult{
+		Columns: append([]string{}, dmExplainColumns...),
+		Rows: [][]string{
+			{"6", "A1", "2022-12-14 13:55:55.000000", "0", "NSET2", "", "", "", "", "65", "100", "1", "0", "0", "", "", "", "0", "0"},
+			{"6", "A1", "2022-12-14 13:55:55.000000", "1", "PRJT2", "", "", "", "", "65", "100", "1", "0", "0", "", "", "", "0", "0"},
+			{"6", "A1", "2022-12-14 13:55:55.000000", "2", "SLCT2", "", "", "", "", "65", "100", "1", "0", "0", "SYSOBJECTS.SUBTYPE$ = 'STAB'", "", "", "0", "0"},
+			{"6", "A1", "2022-12-14 13:55:55.000000", "3", "CSCN2", "SYSOBJECTS", "SYSINDEXSYSOBJECTS", "", "", "1103", "100", "1", "0", "0", "", "", "", "0", "0"},
+		},
+		RowCount: 4,
+	}
+
+	info, err := parseDMExplainFor(result)
+	require.NoError(t, err)
+	require.Equal(t, int64(65), info.EstScanRows)
+	require.Equal(t, float64(1), info.EstCost)
+	require.False(t, info.UsesIndex)
+	require.True(t, info.SeqScan)
+	require.Equal(t, "1|0|NSET2|65|1\n2|1|PRJT2|65|1\n3|2|SLCT2|65|1\n4|3|CSCN2|1103|1", info.Raw)
+	require.NotContains(t, info.Raw, "SYSOBJECTS")
+}
+
+func TestParseDMExplainFailsClosed(t *testing.T) {
+	valid := "1   #NSET2: [1, 1, 4]\n2     #PRJT2: [1, 1, 4]\n3       #CSCN2: [1, 1, 4]"
+	textCases := map[string]string{
+		"unknown operator": strings.Replace(valid, "PRJT2", "MYSTERY2", 1),
+		"wrong root":       strings.Replace(valid, "NSET2", "PRJT2", 1),
+		"node id gap":      strings.Replace(valid, "3       #", "4       #", 1),
+		"level jump":       strings.Replace(valid, "2     #", "2         #", 1),
+		"negative rows":    strings.Replace(valid, "[1, 1, 4]", "[1, -1, 4]", 1),
+		"invalid tuple":    strings.Replace(valid, "[1, 1, 4]", "[1, 1]", 1),
+		"control":          valid + "\t",
+		"predicate only":   "Predicate Information (identified by operation id):",
+		"oversized":        strings.Repeat("x", dmExplainTextLimit+1),
+	}
+	for name, fixture := range textCases {
+		t.Run("text "+name, func(t *testing.T) {
+			_, err := parseDMExplainText(fixture)
+			require.Error(t, err)
+		})
+	}
+
+	base := model.QueryResult{
+		Columns: append([]string{}, dmExplainColumns...),
+		Rows: [][]string{
+			{"6", "A1", "2022-12-14 13:55:55.000000", "0", "NSET2", "", "", "", "", "65", "100", "1", "0", "0", "", "", "", "0", "0"},
+			{"6", "A1", "2022-12-14 13:55:55.000000", "1", "CSCN2", "SYSOBJECTS", "SYSINDEXSYSOBJECTS", "", "", "1103", "100", "1", "0", "0", "", "", "", "0", "0"},
+		},
+		RowCount: 2,
+	}
+	structuredCases := map[string]model.QueryResult{}
+	badColumns := base
+	badColumns.Columns = append([]string{}, base.Columns...)
+	badColumns.Columns[4] = "NODE"
+	structuredCases["columns"] = badColumns
+	unknown := base
+	unknown.Rows = cloneStringRows(base.Rows)
+	unknown.Rows[1][4] = "MYSTERY2"
+	structuredCases["unknown operator"] = unknown
+	levelGap := base
+	levelGap.Rows = cloneStringRows(base.Rows)
+	levelGap.Rows[1][3] = "2"
+	structuredCases["level gap"] = levelGap
+	nonFinite := base
+	nonFinite.Rows = cloneStringRows(base.Rows)
+	nonFinite.Rows[0][11] = "NaN"
+	structuredCases["non-finite cost"] = nonFinite
+	truncated := base
+	truncated.Truncated = true
+	structuredCases["truncated"] = truncated
+	for name, fixture := range structuredCases {
+		t.Run("structured "+name, func(t *testing.T) {
+			_, err := parseDMExplainFor(fixture)
+			require.Error(t, err)
+		})
+	}
+}
+
+func cloneStringRows(rows [][]string) [][]string {
+	cloned := make([][]string, len(rows))
+	for index := range rows {
+		cloned[index] = append([]string{}, rows[index]...)
+	}
+	return cloned
+}
+
 func TestParseOraclePlanTable(t *testing.T) {
 	result := model.QueryResult{
 		Columns: []string{"ID", "PARENT_ID", "OPERATION", "OPTIONS", "CARDINALITY", "COST"},
