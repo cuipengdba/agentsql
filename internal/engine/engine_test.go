@@ -373,6 +373,10 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 		Level:         "readonly",
 	}
 	thresholds := map[string]float64{"scan_rows": 100}
+	runtimeResult := &model.QueryResult{
+		Columns: []string{"id"},
+		Rows:    [][]string{{"1"}},
+	}
 	rule := fakeRule{
 		id:      "mutating-fake",
 		dialect: DialectAll,
@@ -388,6 +392,8 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 			context.Policy.ColumnACL["public.orders"][0] = "changed"
 			context.Policy.ColumnACL["changed"] = []string{"changed"}
 			context.Thresholds["scan_rows"] = 999
+			context.RuntimeResult.Columns[0] = "changed"
+			context.RuntimeResult.Rows[0][0] = "changed"
 			return nonAllowResult("mutating-fake", model.DecisionWarn), nil
 		},
 	}
@@ -398,9 +404,10 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 	}
 
 	_, err := (Engine{}).Evaluate(ast, EvalContext{
-		Agent:      agent,
-		Datasource: datasource,
-		Policy:     policy,
+		Agent:         agent,
+		Datasource:    datasource,
+		Policy:        policy,
+		RuntimeResult: runtimeResult,
 	}, []Rule{rule}, layers)
 
 	require.NoError(t, err)
@@ -412,6 +419,8 @@ func TestEvaluationDoesNotMutateInputs(t *testing.T) {
 	require.Equal(t, []string{"public.secrets"}, policy.DeniedTables)
 	require.Equal(t, map[string][]string{"public.orders": {"id"}}, policy.ColumnACL)
 	require.Equal(t, float64(100), thresholds["scan_rows"])
+	require.Equal(t, []string{"id"}, runtimeResult.Columns)
+	require.Equal(t, [][]string{{"1"}}, runtimeResult.Rows)
 }
 
 func TestEngineIsSafeForConcurrentEvaluation(t *testing.T) {

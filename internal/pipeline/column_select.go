@@ -47,6 +47,10 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 		_ = snapshot.Close()
 		return run.finish(ctx, err)
 	}
+	if err := run.evaluateR005(nil); err != nil {
+		_ = snapshot.Close()
+		return run.finish(ctx, err)
+	}
 	tenant := run.agent.ID
 	if run.agent.Owner != nil && strings.TrimSpace(*run.agent.Owner) != "" {
 		tenant = strings.TrimSpace(*run.agent.Owner)
@@ -59,27 +63,7 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 		PreliminaryAllowed:        run.response.Decision == model.DecisionAllow || run.response.Decision == model.DecisionWarn,
 		BindBeforePreliminaryDeny: bindBeforePreliminaryDeny,
 		ControlRevisionDigest:     snapshot.RevisionDigest(), Limits: executor.DefaultLimits,
-		DurableAudit: func(auditContext context.Context, detail executor.ColumnAuthorizationAudit, candidate *model.QueryResult, report mask.RedactReport) error {
-			copyDetail := detail
-			run.response.ColumnAuth = &copyDetail
-			if candidate != nil {
-				copied := cloneQueryResult(*candidate)
-				run.executionResult = &copied
-				run.response.Result = &copied
-				run.response.Redact = report
-			} else {
-				run.response.Decision = model.DecisionDeny
-				run.response.Assessment.Decision = model.DecisionDeny
-				run.response.Assessment.Risk = model.RiskDeny
-				if bindBeforePreliminaryDeny {
-					run.response.ErrorCode = detail.Reason
-					run.response.ErrorStage = StageGuardStatic
-				} else {
-					run.response.Assessment.Reason = detail.Reason
-				}
-			}
-			return run.audit(auditContext, string(run.response.Decision), nil, auditPhaseSingle)
-		},
+		DurableAudit: run.columnDurableAudit(bindBeforePreliminaryDeny),
 		FinalFence: func(fenceContext context.Context) error {
 			return snapshot.FinalCheck(fenceContext)
 		},
@@ -142,6 +126,40 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 	run.response.Result = &result
 	run.executionResult = &result
 	return run.finish(ctx, nil)
+}
+
+func (run *pipelineRun) columnDurableAudit(
+	bindBeforePreliminaryDeny bool,
+) func(context.Context, executor.ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error {
+	return func(
+		auditContext context.Context,
+		detail executor.ColumnAuthorizationAudit,
+		candidate *model.QueryResult,
+		report mask.RedactReport,
+	) error {
+		copyDetail := detail
+		run.response.ColumnAuth = &copyDetail
+		if candidate != nil {
+			copied := cloneQueryResult(*candidate)
+			run.executionResult = &copied
+			run.response.Result = &copied
+			run.response.Redact = report
+			if err := run.evaluateR005(&copied); err != nil {
+				return err
+			}
+		} else {
+			run.response.Decision = model.DecisionDeny
+			run.response.Assessment.Decision = model.DecisionDeny
+			run.response.Assessment.Risk = model.RiskDeny
+			if bindBeforePreliminaryDeny {
+				run.response.ErrorCode = detail.Reason
+				run.response.ErrorStage = StageGuardStatic
+			} else {
+				run.response.Assessment.Reason = detail.Reason
+			}
+		}
+		return run.audit(auditContext, string(run.response.Decision), nil, auditPhaseSingle)
+	}
 }
 
 func cloneQueryResult(source model.QueryResult) model.QueryResult {

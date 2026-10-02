@@ -107,6 +107,7 @@ func TestR005UnlimitedLargeResult(t *testing.T) {
 	cases := []ruleCase{
 		{name: "default large result", ast: astWithExplain(1_001), want: model.DecisionWarn},
 		{name: "custom large result", ast: astWithExplain(11), context: thresholds(ThresholdRowLimit, 10), want: model.DecisionWarn},
+		{name: "datasource row limit", ast: astWithExplain(3), context: engine.EvalContext{Datasource: &model.Datasource{RowLimit: 2}}, want: model.DecisionWarn},
 		{name: "query has limit", ast: astWithExplain(50_000), mutate: func(ast *model.AST) { ast.HasLimit = true }, want: model.DecisionAllow},
 		{name: "pure aggregate without group", ast: astWithExplain(50_000), mutate: func(ast *model.AST) { ast.IsPureAggregate = true }, want: model.DecisionAllow},
 		{name: "grouped aggregate remains warning", ast: astWithExplain(50_000), mutate: func(ast *model.AST) { ast.IsPureAggregate, ast.HasGroupBy = false, true }, want: model.DecisionWarn},
@@ -114,6 +115,25 @@ func TestR005UnlimitedLargeResult(t *testing.T) {
 		{name: "write statement", ast: astWith("postgres", "UPDATE", "UPDATE t SET a = 1 WHERE id = 2"), mutate: func(ast *model.AST) { ast.Explain = &model.ExplainInfo{EstScanRows: 50_000} }, want: model.DecisionAllow},
 	}
 	runRuleCases(t, rule, cases)
+}
+
+func TestR005RuntimeTruncationOverridesSQLLimit(t *testing.T) {
+	rule := genericRuleByID(t, "R005", nil)
+	ast := astWith("postgres", "SELECT", "SELECT * FROM t LIMIT 100")
+	ast.HasLimit = true
+	datasource := &model.Datasource{RowLimit: 20}
+
+	truncated, err := rule.Eval(engine.EvalContext{
+		AST: ast, Datasource: datasource, RuntimeResult: &model.QueryResult{Truncated: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionWarn, truncated.Decision)
+
+	bounded, err := rule.Eval(engine.EvalContext{
+		AST: ast, Datasource: datasource, RuntimeResult: &model.QueryResult{Truncated: false},
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, bounded.Decision)
 }
 
 func TestR006ParserBypassSignals(t *testing.T) {

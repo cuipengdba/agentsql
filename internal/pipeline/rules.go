@@ -102,11 +102,11 @@ func splitRules(all []engine.Rule) (static []engine.Rule, dynamic []engine.Rule)
 	return splitRulesForRun(all, false)
 }
 
-func splitRulesForRun(all []engine.Rule, demo bool) (static []engine.Rule, dynamic []engine.Rule) {
+func splitRulesForRun(all []engine.Rule, _ bool) (static []engine.Rule, dynamic []engine.Rule) {
 	static = make([]engine.Rule, 0, len(all))
 	dynamic = make([]engine.Rule, 0, 6)
 	for _, rule := range all {
-		if isDynamicRuleID(rule.ID()) || demo && rule.ID() == "R005" {
+		if isDynamicRuleID(rule.ID()) {
 			dynamic = append(dynamic, rule)
 			continue
 		}
@@ -117,11 +117,41 @@ func splitRulesForRun(all []engine.Rule, demo bool) (static []engine.Rule, dynam
 
 func isDynamicRuleID(id string) bool {
 	switch id {
-	case "R004", "R105", "R106", "R107", "R204":
+	case "R004", "R005", "R105", "R106", "R107", "R204":
 		return true
 	default:
 		return false
 	}
+}
+
+func (run *pipelineRun) evaluateR005(runtimeResult *model.QueryResult) error {
+	var selected []engine.Rule
+	for _, rule := range rules.NewGenericRules(run.reservation) {
+		if rule.ID() == "R005" {
+			selected = append(selected, rule)
+			break
+		}
+	}
+	if len(selected) != 1 {
+		return fmt.Errorf("R005 runtime rule is unavailable")
+	}
+	layers, err := run.requestRuleLayers()
+	if err != nil {
+		return err
+	}
+	evalContext := run.evalContext(panicMetadataProvider{})
+	evalContext.RuntimeResult = runtimeResult
+	runtimeAssessment, err := run.pipeline.engine.Evaluate(
+		run.ast,
+		evalContext,
+		selected,
+		projectRuleLayers(layers, selected),
+	)
+	if err != nil {
+		return err
+	}
+	run.setAssessment(mergeAssessment(run.response.Assessment, runtimeAssessment))
+	return nil
 }
 
 func projectRuleLayers(layers engine.RuleLayers, selected []engine.Rule) engine.RuleLayers {

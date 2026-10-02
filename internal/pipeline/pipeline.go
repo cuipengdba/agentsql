@@ -424,6 +424,11 @@ func (pipeline *Pipeline) process(
 		run.executionResult = &result
 		responseResult := result
 		run.response.Result = &responseResult
+		if returnsRows {
+			if err := run.evaluateR005(&result); err != nil {
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
 		return run.finish(ctx, err)

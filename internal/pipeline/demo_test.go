@@ -253,8 +253,8 @@ func TestProcessDemoAddsDynamicR005WithDatasourceRowLimitOnly(t *testing.T) {
 	production.executor.explain = model.ExplainInfo{EstScanRows: 21, SeqScan: true}
 	productionResponse, err := production.pipeline.Process(context.Background(), requestWithSQL(sql))
 	require.NoError(t, err)
-	require.Equal(t, model.DecisionAllow, productionResponse.Decision)
-	require.NotContains(t, ruleHitIDs(productionResponse.Assessment.Hits), "R005")
+	require.Equal(t, model.DecisionWarn, productionResponse.Decision)
+	require.Contains(t, ruleHitIDs(productionResponse.Assessment.Hits), "R005")
 }
 
 func TestDemoSemanticReadOnlyFailsClosedForUnsafeASTShapes(t *testing.T) {

@@ -319,7 +319,21 @@ func cloneEvalContext(source EvalContext, ast *model.AST, thresholds map[string]
 	cloned.Datasource = cloneDatasource(source.Datasource)
 	cloned.Policy = clonePolicyDecision(source.Policy)
 	cloned.Thresholds = cloneThresholds(thresholds)
+	cloned.RuntimeResult = cloneQueryResult(source.RuntimeResult)
 	return cloned
+}
+
+func cloneQueryResult(source *model.QueryResult) *model.QueryResult {
+	if source == nil {
+		return nil
+	}
+	cloned := *source
+	cloned.Columns = append([]string{}, source.Columns...)
+	cloned.Rows = make([][]string, len(source.Rows))
+	for index := range source.Rows {
+		cloned.Rows[index] = append([]string{}, source.Rows[index]...)
+	}
+	return &cloned
 }
 
 func cloneAgent(source *model.Agent) *model.Agent {

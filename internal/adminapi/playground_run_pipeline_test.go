@@ -76,7 +76,7 @@ func TestPlaygroundRunRealPipelineSelectAndDenyPersistFixedIdentityAudits(t *tes
 		Data playgroundRunView `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &selected))
-	require.Equal(t, "allow", selected.Data.Decision)
+	require.Equal(t, "warn", selected.Data.Decision)
 	require.Equal(t, [][]string{{"110105********002X", "130503******001", "411111******1111", "411111******1111", "192.0.*.*", "198.51.*.*", "2000-**-**"}}, selected.Data.Result.Rows)
 	require.True(t, selected.Data.Result.Truncated)
 	require.Equal(t, 7, selected.Data.Redact.MaskedCells)

@@ -51,6 +51,8 @@ type EvalContext struct {
 	Policy           *model.PolicyDecision
 	MetadataProvider any
 	Thresholds       map[string]float64
+	// RuntimeResult is present only after a bounded query result has been validated.
+	RuntimeResult *model.QueryResult
 }
 
 // RuleConfig overrides one rule at a single configuration layer.

@@ -320,12 +320,24 @@ func (r005Rule) Eval(context engine.EvalContext) (engine.RuleResult, error) {
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R005: %w", err)
 	}
-	threshold, err := positiveThreshold(context, ThresholdRowLimit, defaultRowLimit)
+	fallback := float64(defaultRowLimit)
+	if context.Datasource != nil && context.Datasource.RowLimit > 0 {
+		fallback = float64(context.Datasource.RowLimit)
+	}
+	threshold, err := positiveThreshold(context, ThresholdRowLimit, fallback)
 	if err != nil {
 		return engine.RuleResult{}, fmt.Errorf("R005: %w", err)
 	}
-	if !isStatement(ast, "SELECT") || ast.HasLimit || ast.Explain == nil ||
-		(ast.IsPureAggregate && !ast.HasGroupBy) {
+	if !isStatement(ast, "SELECT") {
+		return allowResult(), nil
+	}
+	if context.RuntimeResult != nil && context.RuntimeResult.Truncated {
+		return warnResult(
+			fmt.Sprintf("查询结果超过执行层行数上限 %.0f，返回结果已被截断", fallback),
+			"请增加更严格的过滤条件或降低查询 LIMIT，避免依赖执行层截断",
+		), nil
+	}
+	if ast.HasLimit || ast.Explain == nil || (ast.IsPureAggregate && !ast.HasGroupBy) {
 		return allowResult(), nil
 	}
 	if ast.Explain.EstScanRows < 0 {

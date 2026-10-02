@@ -232,6 +232,87 @@ func TestPipelineAllowSelectQueriesRedactsAndAudits(t *testing.T) {
 	require.Equal(t, "SELECT", *log.StmtType)
 }
 
+func TestPipelineR005ProductionDynamicAndRuntimeSignals(t *testing.T) {
+	t.Run("dynamic plan exceeds datasource row limit", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		fixture.executor.explain = model.ExplainInfo{EstScanRows: 3, SeqScan: true}
+
+		response, err := fixture.pipeline.Process(
+			context.Background(),
+			requestWithSQL("SELECT phone FROM public.customers WHERE id > 0"),
+		)
+
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionWarn, response.Decision)
+		require.Contains(t, ruleHitIDs(response.Assessment.Hits), "R005")
+		require.Equal(t, int64(3), response.Assessment.EstScanRows)
+		require.Equal(t, "warn", fixture.audit.last().Decision)
+	})
+
+	t.Run("actual row limit truncation overrides explicit SQL limit", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		fixture.executor.explain = model.ExplainInfo{EstScanRows: 1, UsesIndex: true}
+		fixture.executor.queryResult = model.QueryResult{
+			Columns:   []string{"phone"},
+			Rows:      [][]string{{"13812345678"}, {"13912345678"}},
+			RowCount:  2,
+			Truncated: true,
+		}
+
+		response, err := fixture.pipeline.Process(
+			context.Background(),
+			requestWithSQL("SELECT phone FROM public.customers WHERE id > 0 LIMIT 100"),
+		)
+
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionWarn, response.Decision)
+		require.Contains(t, ruleHitIDs(response.Assessment.Hits), "R005")
+		require.NotNil(t, response.Result)
+		require.True(t, response.Result.Truncated)
+		require.Equal(t, "warn", fixture.audit.last().Decision)
+	})
+
+	t.Run("small bounded result does not warn", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		fixture.executor.explain = model.ExplainInfo{EstScanRows: 2, UsesIndex: true}
+		fixture.executor.queryResult = model.QueryResult{
+			Columns:  []string{"phone"},
+			Rows:     [][]string{{"13812345678"}, {"13912345678"}},
+			RowCount: 2,
+		}
+
+		response, err := fixture.pipeline.Process(
+			context.Background(),
+			requestWithSQL("SELECT phone FROM public.customers WHERE id > 0"),
+		)
+
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionAllow, response.Decision)
+		require.NotContains(t, ruleHitIDs(response.Assessment.Hits), "R005")
+		require.False(t, response.Result.Truncated)
+		require.Equal(t, "allow", fixture.audit.last().Decision)
+	})
+
+	t.Run("unknown plan fails closed before query", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		explainErr := errors.New("plan size unavailable")
+		fixture.executor.explainErr = explainErr
+
+		response, err := fixture.pipeline.Process(
+			context.Background(),
+			requestWithSQL("SELECT phone FROM public.customers WHERE id > 0"),
+		)
+
+		require.ErrorIs(t, err, explainErr)
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Nil(t, response.Result)
+		calls := fixture.executor.callsSnapshot()
+		require.Equal(t, 1, calls.explain)
+		require.Zero(t, calls.query)
+		require.Equal(t, "error", fixture.audit.last().Decision)
+	})
+}
+
 func TestPipelineRedactsDirectAliasedSourceColumn(t *testing.T) {
 	fixture := newPipelineFixture(t)
 	fixture.executor.queryResult = model.QueryResult{
@@ -774,14 +855,14 @@ func TestStaticRuleSetCannotTouchPanicMetadataProvider(t *testing.T) {
 	all, err := assembleRules("postgres", &validationLimiter{}, panicMetadataProvider{})
 	require.NoError(t, err)
 	static, dynamic := splitRules(all)
-	require.Equal(t, []string{"R004", "R105", "R106", "R107"}, ruleIDs(dynamic))
+	require.Equal(t, []string{"R004", "R005", "R105", "R106", "R107"}, ruleIDs(dynamic))
 	for _, id := range ruleIDs(static) {
 		require.False(t, isDynamicRuleID(id), id)
 	}
 	all, err = assembleRules("mysql", &validationLimiter{}, panicMetadataProvider{})
 	require.NoError(t, err)
 	_, dynamic = splitRules(all)
-	require.Equal(t, []string{"R004", "R204"}, ruleIDs(dynamic))
+	require.Equal(t, []string{"R004", "R005", "R204"}, ruleIDs(dynamic))
 }
 
 func TestPipelineUsesBoundSessionOnlyWhenRequested(t *testing.T) {

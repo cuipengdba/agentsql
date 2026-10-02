@@ -29,11 +29,10 @@
 
 - 修复 MCP 首次握手协议版本门禁与主流客户端标准流程不兼容的问题。
 - 修复 Demo 表外键与密封 JOIN 剧本冲突，并加固每日重置的 seed/gateway 启动时序。
-- 修正 R005 前端规则元数据与文档口径，并加固 bootstrap 通知测试和 MCP 并发测试诊断。
+- 修复 R005 生产动态告警缺失：通用路径按 EXPLAIN 评估，通用执行与 PostgreSQL 列级授权路径在 `row_limit` 实际截断时补充告警；同时修正前端规则元数据与文档口径。
 
 ### Known Issues
 
-- P0 R005 在普通生产查询中可能不产生大结果集风险命中；`row_limit` 仍截断结果，但该截断不等价于 R005 告警已完整生效。
 - DM 真库业务 SELECT / EXPLAIN、KingbaseES V9 以及 HighGo / GaussDB / TDSQL 等商业版的目标环境终验仍待凭据或厂商环境。
 - OIDC/LDAP/MFA、存量业务元数据全租户化、MCP transport session 持久化与 SSE 断线重放未在本版交付。
 
