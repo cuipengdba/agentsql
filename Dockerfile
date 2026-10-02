@@ -10,7 +10,7 @@ ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc libc6-dev ca-certificates \
+    && apt-get install -y --no-install-recommends gcc binutils libc6-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
@@ -19,12 +19,23 @@ RUN go mod download
 # The repository includes internal/webui/dist; frontend tooling is not run here.
 COPY . .
 RUN mkdir -p /out \
-    && CGO_ENABLED=1 go build -trimpath \
+    && GOFLAGS= CGO_ENABLED=1 go build -trimpath \
         -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
         -o /out/agentsql ./cmd/agentsql \
-    && CGO_ENABLED=1 go build -trimpath \
+    && GOFLAGS= CGO_ENABLED=1 go build -trimpath \
         -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
-        -o /out/agentsqlctl ./cmd/agentsqlctl
+        -o /out/agentsqlctl ./cmd/agentsqlctl \
+    && for binary in /out/agentsql /out/agentsqlctl; do \
+         if go version -m "$binary" | grep -F 'github.com/yashan-technologies/yashandb-go' >/dev/null; then \
+           echo "ERROR: $binary includes the optional YashanDB Go driver" >&2; exit 1; \
+         fi; \
+         if strings "$binary" | grep -E 'libyas(cli|_infra)(\.so|\.dylib|\.dll|$)' >/dev/null; then \
+           echo "ERROR: $binary contains a YashanDB client marker" >&2; exit 1; \
+         fi; \
+         if readelf -d "$binary" 2>/dev/null | grep -E 'libyas(cli|_infra)' >/dev/null; then \
+           echo "ERROR: $binary dynamically links a YashanDB client library" >&2; exit 1; \
+         fi; \
+       done
 
 FROM debian:bookworm-slim AS runtime
 

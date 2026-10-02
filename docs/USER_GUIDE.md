@@ -151,6 +151,48 @@ Agent 是调用 AgentSQL 的独立身份。
 
 数据源密码使用 `AGENTSQL_SECRET` 加密。丢失或更换 SECRET 会导致已有密码无法解密；数据库/控制面备份与 SECRET 必须成对保存，详见 [部署指南](DEPLOY.md)。
 
+### YashanDB 自备驱动边界
+
+AgentSQL 官方发布二进制、Linux tar 包和 GHCR 运行时镜像不包含 YashanDB Go 驱动代码，也不包含 `libyascli.so`、`libyas_infra.so` 等厂商 C 客户端。普通官方二进制虽然能识别 `db_type=yashan`，但没有注册 `yasdb` 驱动，打开连接会 fail-closed；把客户端目录挂到官方容器或只设置环境变量不会补入 Go 驱动。
+
+确需验证当前 YashanDB 最小 dialect 时，由部署方承担客户端许可和版本匹配责任，并按以下路径准备专用二进制：
+
+1. 从 YashanDB 厂商下载中心、交付介质或技术支持渠道取得与操作系统和 CPU 架构匹配的**独立客户端**，解压到仓库外的受控目录，例如 `/opt/yashan-client`。不要把客户端文件复制进本仓库、AgentSQL 发布包或对外镜像。
+2. 确认目录至少包含厂商说明中的 `lib`（以及其依赖）；按厂商 Go 驱动安装说明设置动态库路径。`YASHAN_CLIENT_HOME` 只是下列命令使用的本地便捷变量，不是 AgentSQL 配置项：
+
+   ```bash
+   export YASHAN_CLIENT_HOME=/opt/yashan-client
+   test -f "$YASHAN_CLIENT_HOME/lib/libyascli.so"
+   export LD_LIBRARY_PATH="$YASHAN_CLIENT_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+   ```
+
+3. 在 AgentSQL 源码根目录用启用 CGO 的 Linux/Go 环境本地构建。不要给正式发布构建或 GHCR 构建传入该 tag：
+
+   ```bash
+   CGO_ENABLED=1 go build -tags yashan -trimpath \
+     -o ./bin/agentsql-yashan ./cmd/agentsql
+   ```
+
+4. 把专用二进制安装到部署方管理的路径，并在启动时继续提供同一个 `LD_LIBRARY_PATH`：
+
+   ```bash
+   sudo install -D -m 0755 ./bin/agentsql-yashan /opt/agentsql-yashan/agentsql
+   ```
+
+   systemd 不会可靠继承交互式 shell 的环境；可创建仅属于本机部署的 drop-in，并把 `ExecStart` 指向部署方自行构建的二进制：
+
+   ```ini
+   # /etc/systemd/system/agentsql.service.d/yashan-client.conf
+   [Service]
+   Environment="LD_LIBRARY_PATH=/opt/yashan-client/lib"
+   ExecStart=
+   ExecStart=/opt/agentsql-yashan/agentsql serve -c /etc/agentsql/config.yaml
+   ```
+
+   修改后执行 `sudo systemctl daemon-reload && sudo systemctl restart agentsql`。容器部署需要部署方自行构建内部镜像并确认厂商许可；官方 GHCR 镜像不提供崖山驱动变体。
+
+常见排错：连接立即返回通用不可达错误时，先确认运行的确为带 `-tags yashan` 的专用二进制；出现 `libyascli.so: cannot open shared object file` 时，在与服务账号相同的环境检查 `LD_LIBRARY_PATH` 和 `ldd "$YASHAN_CLIENT_HOME/lib/libyascli.so"`；出现未定义符号、架构错误或 `YAS-02143` 时，不要替换成服务器镜像内的库碰运气，应按厂商支持矩阵核对 Go 驱动、独立客户端、服务器版本和 CPU 架构。当前只开放有界连接与元数据发现，普通 Query、写入、事务和 EXPLAIN 仍 fail-closed。实现边界、已验证版本与完整命令见 [YashanDB dialect boundary](yashan-dialect.md#user-supplied-driver-build-and-loading)。
+
 ## 6. 权限 `/policies`
 
 策略绑定一个 Agent 与一个数据源。默认无授权即拒绝；创建数据源和 Agent 并不自动授予任何表。

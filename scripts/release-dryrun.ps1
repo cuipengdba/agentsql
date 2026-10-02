@@ -116,6 +116,32 @@ function Assert-SignatureDocument {
     }
 }
 
+function Assert-NoYashanRedistribution {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$ReleaseVersion
+    )
+
+    $metadataPath = Join-Path $Directory 'go-version-metadata.txt'
+    if (Select-String -LiteralPath $metadataPath -SimpleMatch 'github.com/yashan-technologies/yashandb-go' -Quiet) {
+        throw 'go-version-metadata.txt includes the optional YashanDB Go driver; official assets must exclude it.'
+    }
+
+    foreach ($architecture in @('amd64', 'arm64')) {
+        $tarName = "agentsql-$ReleaseVersion-linux-$architecture.tar.gz"
+        $tarPath = Join-Path $Directory $tarName
+        $entries = @(& tar -tzf $tarPath)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect archive entries in $tarName."
+        }
+        $forbidden = @($entries | Where-Object { $_ -match '(?i)(^|/)libyas(cli|_infra)(\.so|\.so\.|\.a$|\.dylib$|\.dll$)' })
+        if ($forbidden.Count -gt 0) {
+            throw "$tarName contains YashanDB client libraries: $($forbidden -join ', ')."
+        }
+    }
+    Write-Host 'RELEASE_DRYRUN_YASHAN_REDISTRIBUTION=EXCLUDED'
+}
+
 function Test-ReleaseAssets {
     param(
         [Parameter(Mandatory = $true)][string]$Directory,
@@ -158,6 +184,7 @@ function Test-ReleaseAssets {
         }
     }
     Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
+    Assert-NoYashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
 
     $publicDocument = Get-Content -LiteralPath (Join-Path $Directory 'ed25519-release-public-key.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $isDryRunSet = $publicDocument.PSObject.Properties['dryRun'] -and $publicDocument.dryRun -eq $true
@@ -337,7 +364,7 @@ if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') {
     throw 'Could not read git source identity.'
 }
 $dirtyOutput = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
-$inputNames = @('go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json', 'scripts/build-release-linux.sh', 'scripts/package-release.sh', 'scripts/install.sh', 'scripts/release-dryrun.ps1', 'scripts/build-ghcr-multiarch.ps1', 'Makefile')
+$inputNames = @('go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json', 'Dockerfile', 'scripts/build-release-linux.sh', 'scripts/package-release.sh', 'scripts/install.sh', 'scripts/release-dryrun.ps1', 'scripts/build-ghcr-multiarch.ps1', 'Makefile')
 $inputs = foreach ($name in $inputNames) {
     [ordered]@{ name = $name; sha256 = Get-Sha256 (Join-Path $repositoryRoot $name) }
 }

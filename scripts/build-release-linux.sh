@@ -63,7 +63,11 @@ export PATH="/usr/local/go/bin:$PATH"
 export GOROOT=/usr/local/go
 
 cd /src
+# Official release binaries must never inherit a caller-supplied build tag.
+# In particular, the optional "yashan" tag links the user-supplied YashanDB
+# client and is intentionally excluded from every AgentSQL release artifact.
 export GOPROXY GOOS=linux GOARCH="$ARCH" CGO_ENABLED=1 GOCACHE=/tmp/gocache GOTMPDIR=/tmp
+export GOFLAGS=
 go version
 go env GOOS GOARCH CGO_ENABLED CC GOARM64
 mkdir -p bin
@@ -72,6 +76,29 @@ go mod download
 LDFLAGS="-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}"
 go build -trimpath -ldflags "$LDFLAGS" -o "bin/agentsql-linux-${ARCH}" ./cmd/agentsql
 go build -trimpath -ldflags "$LDFLAGS" -o "bin/agentsqlctl-linux-${ARCH}" ./cmd/agentsqlctl
+
+check_no_yashan_driver() {
+  binary=$1
+  name=$(basename "$binary")
+  metadata_file="/tmp/${name}.go-version-metadata"
+  strings_file="/tmp/${name}.redistribution-strings"
+
+  go version -m "$binary" > "$metadata_file"
+  if grep -F 'github.com/yashan-technologies/yashandb-go' "$metadata_file" >/dev/null 2>&1; then
+    die "$binary includes the optional YashanDB Go driver; official artifacts must exclude it."
+  fi
+  strings "$binary" > "$strings_file"
+  if grep -E 'github\.com/yashan-technologies/yashandb-go|libyas(cli|_infra)(\.so|\.dylib|\.dll|$)' "$strings_file" >/dev/null 2>&1; then
+    die "$binary contains a YashanDB driver/client marker; official artifacts must exclude it."
+  fi
+  if readelf -d "$binary" 2>/dev/null | grep -E 'libyas(cli|_infra)' >/dev/null 2>&1; then
+    die "$binary dynamically links a YashanDB client library; official artifacts must exclude it."
+  fi
+  echo "$binary passed the YashanDB redistribution exclusion check"
+}
+
+check_no_yashan_driver "bin/agentsql-linux-${ARCH}"
+check_no_yashan_driver "bin/agentsqlctl-linux-${ARCH}"
 
 if ! command -v objdump >/dev/null 2>&1; then
   echo "ERROR: objdump is required for the GLIBC compatibility check" >&2

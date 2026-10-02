@@ -28,7 +28,28 @@ to be escaped with `\\`. A real password containing `@` failed when naively
 concatenated and succeeded when supplied separately to `yasql`; the Go E2E test
 exercises the implemented driver escaping.
 
-## Driver and reproducible build
+## Driver redistribution policy
+
+AgentSQL does not have written permission to redistribute the vendor C client.
+Official release tarballs, installer payloads and GHCR images therefore contain
+neither the optional YashanDB Go driver code nor any vendor client library.
+The release build deliberately omits the `yashan` build tag and fails if its Go
+module metadata, ELF dependencies, binary strings or archive entries show a
+YashanDB driver/client marker.
+
+Installing or bind-mounting the C client beside an official AgentSQL binary is
+not sufficient. The C library is loaded dynamically, but the Go
+`database/sql` registration code must already have been compiled into the
+process. A stock release recognizes `db_type=yashan` and then fails closed
+without opening a connection because `yasdb` is not registered.
+
+Go `plugin` is not used as a runtime adapter: it would require an exact match
+of Go toolchain, dependency graph and build flags, is not portable across all
+release platforms, and would still need CGO and the vendor client. A stable
+plugin ABI or separate adapter process would be a new architecture and is
+outside the verified dialect slice.
+
+## User-supplied driver build and loading
 
 The supported module is
 `github.com/yashan-technologies/yashandb-go@v1.4.4`, registered as `yasdb`.
@@ -56,19 +77,58 @@ go build ./...
 go test -short ./internal/authorizedexecute/internal/businessdb
 ```
 
+To use the bounded native path, the deployer must obtain a platform-matched
+standalone client from the vendor download center, delivery media or vendor
+support. No vendor archive URL is hard-coded here. Extract it outside this
+repository (the example uses `/opt/yashan-client`), retain the vendor license,
+and verify that the client `lib` directory contains `libyascli.so` and its
+dependencies. Do not use a library copied from the database server image as a
+substitute for the supported standalone client.
+
 The verified Linux native path uses `golang:1.25-bookworm` with GCC, mounts the
 source and an ephemeral read-only extraction of the official standalone
 client, and runs:
 
-```text
+```bash
+export YASHAN_CLIENT_HOME=/opt/yashan-client
+test -f "$YASHAN_CLIENT_HOME/lib/libyascli.so"
 export CGO_ENABLED=1
-export LD_LIBRARY_PATH=/opt/yashan-client/lib
-go build -tags yashan ./...
+export LD_LIBRARY_PATH="$YASHAN_CLIENT_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+go build -tags yashan -trimpath -o ./bin/agentsql-yashan ./cmd/agentsql
 AGENTSQL_YASHAN_E2E=1 YASHAN_HOST=127.0.0.1 YASHAN_USER=SYS \
   YASHAN_SCHEMA=SYS YASHAN_TABLE=ALL_TAB_COLUMNS \
   YASHAN_PASSWORD='<from secret injection>' \
   go test -tags yashan -short ./internal/authorizedexecute/internal/businessdb
 ```
+
+The same `LD_LIBRARY_PATH` must be present when the resulting process starts.
+For systemd, put it in a local service drop-in rather than relying on an
+interactive shell, and point `ExecStart` at the locally built binary:
+
+```ini
+[Service]
+Environment="LD_LIBRARY_PATH=/opt/yashan-client/lib"
+ExecStart=
+ExecStart=/opt/agentsql-yashan/agentsql serve -c /etc/agentsql/config.yaml
+```
+
+For a private container deployment, the deployer must build and operate its
+own internal image and independently confirm the applicable vendor license.
+The official GHCR image cannot be enabled by mounting `/opt/yashan-client`
+because it intentionally lacks the compiled Go driver.
+
+Troubleshooting is fail-closed:
+
+- A safe connection/unreachable error with no vendor diagnostic usually means
+  the stock binary is running and `yasdb` was never registered. Rebuild and
+  deploy the tagged binary; there is no runtime flag that changes a stock one.
+- `libyascli.so: cannot open shared object file` means the service process does
+  not see the client `lib` directory. Inspect its actual environment and run
+  `ldd "$YASHAN_CLIENT_HOME/lib/libyascli.so"` as the service user.
+- An undefined symbol, wrong ELF class/architecture, or `YAS-02143` requires
+  checking the Go driver, standalone client, server version and CPU
+  architecture against the vendor support matrix. Do not copy random server
+  libraries into the release or weaken the guard.
 
 The final E2E used the real SYS password containing `@` and passed through
 `openExecutor`, pool Ping, physical-session acquisition and bound
@@ -113,6 +173,7 @@ Official references:
 
 - <https://github.com/yashan-technologies/yashandb-go>
 - <https://github.com/yashan-technologies/yashandb-client>
+- <https://doc.yashandb.com/yashandb/23.4.6/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Installation/Installing-Go-Driver-%28Linux%29.html>
 - <https://doc.yashandb.com/yashandb-en/23.4/en/All-Manuals/Reference-Manual/System-Views/ALL-Views/ALL_Views.html>
 - <https://doc.yashandb.com/yashandb-en/23.4/en/All-Manuals/Development-Guide/SQL-Reference-Manual/SQL-Statements/EXPLAIN.html>
 - <https://doc.yashandb.com/yashandb-en/23.4/en/All-Manuals/Performance-Tuning/Performance-Tuning-Features-and-Tools/AUTOTRACE.html>

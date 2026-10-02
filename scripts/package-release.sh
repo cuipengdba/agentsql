@@ -19,7 +19,7 @@ esac
 printf '%s\n' "$VERSION" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null 2>&1 || die "VERSION must match vX.Y.Z exactly."
 printf '%s\n' "$SOURCE_DATE_EPOCH" | grep -E '^[0-9]+$' >/dev/null 2>&1 || die "SOURCE_DATE_EPOCH must be a non-negative integer."
 
-for pr_cmd in tar gzip sort find awk sed grep chmod cp mv mkdir mktemp basename rm file readelf; do
+for pr_cmd in tar gzip sort find awk sed grep chmod cp mv mkdir mktemp basename rm file readelf strings; do
   command -v "$pr_cmd" >/dev/null 2>&1 || die "Required command '$pr_cmd' is missing."
 done
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
@@ -89,6 +89,19 @@ check_dependencies() {
   sed 's/^/  /' "$cd_output"
 }
 
+check_no_yashan_driver() {
+  cyr_binary=$1
+  cyr_strings="$TMP_DIR/$(basename "$cyr_binary").redistribution-strings"
+  strings "$cyr_binary" > "$cyr_strings"
+  if grep -E 'github\.com/yashan-technologies/yashandb-go|libyas(cli|_infra)(\.so|\.dylib|\.dll|$)' "$cyr_strings" >/dev/null 2>&1; then
+    die "$cyr_binary contains a YashanDB driver/client marker; official artifacts must exclude it."
+  fi
+  if readelf -d "$cyr_binary" 2>/dev/null | grep -E 'libyas(cli|_infra)' >/dev/null 2>&1; then
+    die "$cyr_binary dynamically links a YashanDB client library; official artifacts must exclude it."
+  fi
+  printf '%s\n' "$cyr_binary passed the YashanDB redistribution exclusion check"
+}
+
 sha_file() {
   sf_path=$1
   if command -v sha256sum >/dev/null 2>&1; then
@@ -127,6 +140,7 @@ for pr_binary in "$AGENTSQL_BINARY" "$CTL_BINARY"; do
   check_elf "$pr_binary"
   check_glibc_version "$pr_binary" "$(basename "$pr_binary")"
   check_dependencies "$pr_binary"
+  check_no_yashan_driver "$pr_binary"
 done
 
 ROOT_NAME="agentsql-${VERSION}-linux-${ARCH}"
@@ -162,6 +176,10 @@ TARBALL_TMP="$TMP_DIR/$TARBALL_NAME"
 TAR_TMP="$TMP_DIR/${ROOT_NAME}.tar"
 (cd "$TMP_DIR" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" --format=gnu -cf "$TAR_TMP" "$ROOT_NAME")
 gzip -n -c "$TAR_TMP" > "$TARBALL_TMP"
+if tar -tzf "$TARBALL_TMP" | grep -E -i '(^|/)libyas(cli|_infra)(\.so|\.so\.|\.a$|\.dylib$|\.dll$)' >/dev/null 2>&1; then
+  die "$TARBALL_NAME contains a YashanDB client library; official artifacts must exclude it."
+fi
+printf '%s\n' "$TARBALL_NAME passed the YashanDB client-file exclusion check"
 
 VERIFY_DIR="$TMP_DIR/verify"
 mkdir "$VERIFY_DIR"

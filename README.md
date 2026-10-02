@@ -47,6 +47,8 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 
 > "已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商联系开展兼容性认证与合作：请通过交流群、仓库 Discussion 或邮件 87326549@qq.com 联系我们。
 
+> **崖山驱动再分发边界：**AgentSQL 官方发布二进制、Linux 安装包和 GHCR 运行时镜像均不包含 YashanDB Go 驱动代码或厂商 C 客户端。需要验证 `db_type=yashan` 最小能力的用户，须从厂商渠道自行取得匹配平台的客户端，并在自己的环境中构建带 `yashan` tag 的专用二进制；仅给官方镜像挂载客户端目录不能启用驱动。完整步骤和排错见 [YashanDB 驱动自备说明](docs/yashan-dialect.md#user-supplied-driver-build-and-loading)。
+
 首批金仓 + 瀚高的证据边界、复现 SQL 与待厂商项见[联合案例验证记录](docs/joint-case-kingbase-highgo.md)；公众号与技术群文案见[社区运营口径](docs/joint-case-operations.md)。
 
 ## 5 分钟快速开始
