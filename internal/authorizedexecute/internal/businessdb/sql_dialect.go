@@ -8,15 +8,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rules"
 )
 
 // limitedSQLExecutor is the deliberately small common substrate for dialects
-// whose parser, transaction-state model and EXPLAIN decoder are not yet part
-// of the authorization boundary. It supports pool/session lifecycle and typed
-// metadata only. Every general SQL operation fails closed.
+// whose full parser and transaction-state model are not yet part of the
+// authorization boundary. It supports lifecycle, typed metadata and a narrow
+// read-only SELECT subset. Writes and unavailable plan decoders fail closed.
 type limitedSQLExecutor struct {
 	database   *sql.DB
 	dialect    string
@@ -24,10 +26,22 @@ type limitedSQLExecutor struct {
 	maxConns   int
 	timeout    time.Duration
 	readOnly   bool
+	classifier limitedDialectErrorClassifier
+	explainer  limitedDialectExplainer
 	sessionsMu sync.Mutex
 	sessions   map[string]*limitedSQLSession
 	closed     bool
 }
+
+type limitedDialectErrorClassifier func(context.Context, DBStage, error) (error, bool)
+
+type limitedDialectRunner interface {
+	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+type limitedDialectExplainer func(context.Context, limitedDialectRunner, string) (model.ExplainInfo, error)
 
 func newLimitedSQLExecutor(
 	ctx context.Context,
@@ -37,6 +51,22 @@ func newLimitedSQLExecutor(
 	dialect string,
 	password string,
 	readOnly bool,
+) (*limitedSQLExecutor, error) {
+	return newLimitedSQLExecutorWithDialect(
+		ctx, datasource, driverName, dsn, dialect, password, readOnly, nil, nil,
+	)
+}
+
+func newLimitedSQLExecutorWithDialect(
+	ctx context.Context,
+	datasource model.Datasource,
+	driverName string,
+	dsn string,
+	dialect string,
+	password string,
+	readOnly bool,
+	classifier limitedDialectErrorClassifier,
+	explainer limitedDialectExplainer,
 ) (*limitedSQLExecutor, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("open %s datasource: context is nil", dialect)
@@ -69,13 +99,15 @@ func newLimitedSQLExecutor(
 	database.SetMaxIdleConns(connectionLimit)
 	database.SetConnMaxLifetime(mysqlConnectionMaxLifetime)
 	executor := &limitedSQLExecutor{
-		database: database,
-		dialect:  dialect,
-		username: datasource.Username,
-		maxConns: connectionLimit,
-		timeout:  time.Duration(timeoutMS) * time.Millisecond,
-		readOnly: readOnly,
-		sessions: make(map[string]*limitedSQLSession),
+		database:   database,
+		dialect:    dialect,
+		username:   datasource.Username,
+		maxConns:   connectionLimit,
+		timeout:    time.Duration(timeoutMS) * time.Millisecond,
+		readOnly:   readOnly,
+		classifier: classifier,
+		explainer:  explainer,
+		sessions:   make(map[string]*limitedSQLSession),
 	}
 	if err := executor.Ping(ctx); err != nil {
 		closeErr := database.Close()
@@ -107,16 +139,7 @@ func (executor *limitedSQLExecutor) Ping(ctx context.Context) error {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
 	if err := executor.database.PingContext(timedContext); err != nil {
-		if errors.Is(timedContext.Err(), context.DeadlineExceeded) {
-			return newDBError(DBErrorKindTimeout, DBErrorCodeTimeout, DBStagePing, "", ErrQueryTimeout)
-		}
-		return newDBError(
-			DBErrorKindConnection,
-			DBErrorCodeConnection,
-			DBStagePing,
-			"",
-			ErrDatasourceUnreachable,
-		)
+		return executor.databaseError(timedContext, DBStagePing, err)
 	}
 	return nil
 }
@@ -140,7 +163,7 @@ func (executor *limitedSQLExecutor) OpenSession(ctx context.Context, sessionID s
 	defer cancel()
 	connection, err := executor.database.Conn(timedContext)
 	if err != nil {
-		return nil, newDBError(DBErrorKindConnection, DBErrorCodeConnection, DBStageAcquire, "", ErrDatasourceUnreachable)
+		return nil, executor.databaseError(timedContext, DBStageAcquire, err)
 	}
 	session := &limitedSQLSession{id: sessionID, executor: executor, connection: connection}
 	executor.sessions[sessionID] = session
@@ -160,12 +183,28 @@ func (executor *limitedSQLExecutor) BeginWriteTx(context.Context) (WriteTx, erro
 	return nil, executor.unsupported(DBStageBeginTx)
 }
 
-func (executor *limitedSQLExecutor) Explain(context.Context, string) (model.ExplainInfo, error) {
-	return model.ExplainInfo{}, executor.unsupported(DBStageExplain)
+func (executor *limitedSQLExecutor) Explain(ctx context.Context, sqlText string) (model.ExplainInfo, error) {
+	if err := executor.validateReadOnlyQuery(ctx, sqlText, DBStageExplain); err != nil {
+		return model.ExplainInfo{}, err
+	}
+	if executor.explainer == nil {
+		return model.ExplainInfo{}, executor.unsupported(DBStageExplain)
+	}
+	timedContext, cancel := executor.timeoutContext(ctx)
+	defer cancel()
+	connection, err := executor.database.Conn(timedContext)
+	if err != nil {
+		return model.ExplainInfo{}, executor.databaseError(timedContext, DBStageAcquire, err)
+	}
+	defer connection.Close()
+	return executor.explainer(timedContext, connection, sqlText)
 }
 
-func (executor *limitedSQLExecutor) Query(context.Context, string, int) (model.QueryResult, error) {
-	return model.QueryResult{}, executor.unsupported(DBStageQuery)
+func (executor *limitedSQLExecutor) Query(ctx context.Context, sqlText string, rowLimit int) (model.QueryResult, error) {
+	if err := executor.validateReadOnlyQuery(ctx, sqlText, DBStageQuery); err != nil {
+		return model.QueryResult{}, err
+	}
+	return executor.queryWithRunner(ctx, executor.database, sqlText, rowLimit)
 }
 
 func (executor *limitedSQLExecutor) Execute(context.Context, string) (model.QueryResult, error) {
@@ -234,7 +273,7 @@ func (executor *limitedSQLExecutor) probeCurrentSchema(ctx context.Context, quer
 	defer cancel()
 	var currentSchema string
 	if err := executor.database.QueryRowContext(timedContext, query).Scan(&currentSchema); err != nil {
-		return newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
+		return executor.databaseError(timedContext, DBStageMetadata, err)
 	}
 	if strings.TrimSpace(currentSchema) == "" {
 		return newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
@@ -252,6 +291,135 @@ func (executor *limitedSQLExecutor) timeoutContext(ctx context.Context) (context
 
 func (executor *limitedSQLExecutor) unsupported(stage DBStage) error {
 	return newDBError(DBErrorKindExecution, DBErrorCodeExecution, stage, "", nil)
+}
+
+func (executor *limitedSQLExecutor) databaseError(ctx context.Context, stage DBStage, cause error) error {
+	var resource *ResourceError
+	if errors.As(cause, &resource) {
+		return resource
+	}
+	if executor != nil && executor.classifier != nil {
+		if classified, ok := executor.classifier(ctx, stage, cause); ok {
+			return classified
+		}
+	}
+	if classified, ok := classifyContextError(ctx, stage, cause); ok {
+		return classified
+	}
+	if isNetworkConnectionError(cause) {
+		return newDBError(DBErrorKindConnection, DBErrorCodeConnection, stage, "", ErrDatasourceUnreachable)
+	}
+	return newDBError(DBErrorKindExecution, DBErrorCodeExecution, stage, "", nil)
+}
+
+func (executor *limitedSQLExecutor) validateReadOnlyQuery(ctx context.Context, sqlText string, stage DBStage) error {
+	if executor == nil || executor.database == nil || ctx == nil {
+		return newDBError(DBErrorKindConnection, DBErrorCodeConnection, stage, "", ErrDatasourceUnreachable)
+	}
+	if err := validateLimitedSelect(sqlText); err != nil {
+		return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, DBStageParse, "", nil)
+	}
+	return nil
+}
+
+func (executor *limitedSQLExecutor) queryWithRunner(
+	ctx context.Context,
+	runner limitedDialectRunner,
+	sqlText string,
+	rowLimit int,
+) (model.QueryResult, error) {
+	if rowLimit <= 0 {
+		return model.QueryResult{}, fmt.Errorf("query %s datasource: row limit must be positive", executor.dialect)
+	}
+	started := time.Now()
+	timedContext, cancel := executor.timeoutContext(ctx)
+	defer cancel()
+	rows, err := runner.QueryContext(timedContext, sqlText)
+	if err != nil {
+		return model.QueryResult{}, executor.databaseError(timedContext, DBStageQuery, err)
+	}
+	result, err := collectRows(&mysqlRowSource{rows: rows}, rowLimit)
+	if err != nil {
+		return model.QueryResult{}, executor.databaseError(timedContext, DBStageReadRows, err)
+	}
+	result.LatencyMS = time.Since(started).Milliseconds()
+	return result, nil
+}
+
+// validateLimitedSelect is intentionally narrower than either vendor grammar.
+// It admits one plain SELECT without comments, bind markers, statement
+// separators, function calls or write-capable clauses. Unsupported valid SQL
+// fails closed until a vendor parser can prove its semantics.
+func validateLimitedSelect(sqlText string) error {
+	if strings.TrimSpace(sqlText) == "" || !utf8.ValidString(sqlText) {
+		return fmt.Errorf("empty or invalid SQL")
+	}
+	words := make([]string, 0, 16)
+	for index := 0; index < len(sqlText); {
+		character := sqlText[index]
+		switch {
+		case character == '\'' || character == '"':
+			quote := character
+			index++
+			closed := false
+			for index < len(sqlText) {
+				if sqlText[index] != quote {
+					_, size := utf8.DecodeRuneInString(sqlText[index:])
+					index += size
+					continue
+				}
+				if index+1 < len(sqlText) && sqlText[index+1] == quote {
+					index += 2
+					continue
+				}
+				index++
+				closed = true
+				break
+			}
+			if !closed {
+				return fmt.Errorf("unterminated quoted value")
+			}
+		case character == ';' || character == '?' || character == ':' || character == '$':
+			return fmt.Errorf("unsupported statement separator or bind marker")
+		case character == '(' || character == ')':
+			return fmt.Errorf("function calls and subqueries are unsupported")
+		case character == '-' && index+1 < len(sqlText) && sqlText[index+1] == '-':
+			return fmt.Errorf("comments are unsupported")
+		case character == '/' && index+1 < len(sqlText) && sqlText[index+1] == '*':
+			return fmt.Errorf("comments are unsupported")
+		default:
+			runeValue, size := utf8.DecodeRuneInString(sqlText[index:])
+			if unicode.IsControl(runeValue) && !unicode.IsSpace(runeValue) {
+				return fmt.Errorf("control character is unsupported")
+			}
+			if unicode.IsLetter(runeValue) || runeValue == '_' {
+				start := index
+				index += size
+				for index < len(sqlText) {
+					next, nextSize := utf8.DecodeRuneInString(sqlText[index:])
+					if !unicode.IsLetter(next) && !unicode.IsDigit(next) && next != '_' && next != '$' && next != '#' {
+						break
+					}
+					index += nextSize
+				}
+				words = append(words, strings.ToUpper(sqlText[start:index]))
+				continue
+			}
+			index += size
+		}
+	}
+	if len(words) == 0 || words[0] != "SELECT" {
+		return fmt.Errorf("only SELECT is supported")
+	}
+	for _, word := range words[1:] {
+		switch word {
+		case "INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "CALL", "EXEC", "EXECUTE",
+			"BEGIN", "DECLARE", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "REVOKE",
+			"COMMIT", "ROLLBACK", "SAVEPOINT", "LOCK", "NEXTVAL":
+			return fmt.Errorf("write-capable SELECT form is unsupported")
+		}
+	}
+	return nil
 }
 
 func (executor *limitedSQLExecutor) removeSession(id string, session *limitedSQLSession) {
@@ -283,11 +451,19 @@ func (session *limitedSQLSession) BeginWriteTx(context.Context) (WriteTx, error)
 	return nil, session.executor.unsupported(DBStageBeginTx)
 }
 
-func (session *limitedSQLSession) Query(context.Context, string, int) (model.QueryResult, error) {
-	if err := session.validate(); err != nil {
+func (session *limitedSQLSession) Query(ctx context.Context, sqlText string, rowLimit int) (model.QueryResult, error) {
+	if session == nil {
+		return model.QueryResult{}, fmt.Errorf("query dialect session: %w", ErrSessionClosed)
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed || session.executor == nil || session.connection == nil {
+		return model.QueryResult{}, fmt.Errorf("query dialect session: %w", ErrSessionClosed)
+	}
+	if err := session.executor.validateReadOnlyQuery(ctx, sqlText, DBStageQuery); err != nil {
 		return model.QueryResult{}, err
 	}
-	return model.QueryResult{}, session.executor.unsupported(DBStageQuery)
+	return session.executor.queryWithRunner(ctx, session.connection, sqlText, rowLimit)
 }
 
 func (session *limitedSQLSession) Execute(context.Context, string) (model.QueryResult, error) {
@@ -300,11 +476,24 @@ func (session *limitedSQLSession) Execute(context.Context, string) (model.QueryR
 	return model.QueryResult{}, session.executor.unsupported(DBStageExecute)
 }
 
-func (session *limitedSQLSession) Explain(context.Context, string) (model.ExplainInfo, error) {
-	if err := session.validate(); err != nil {
+func (session *limitedSQLSession) Explain(ctx context.Context, sqlText string) (model.ExplainInfo, error) {
+	if session == nil {
+		return model.ExplainInfo{}, fmt.Errorf("explain dialect session: %w", ErrSessionClosed)
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.closed || session.executor == nil || session.connection == nil {
+		return model.ExplainInfo{}, fmt.Errorf("explain dialect session: %w", ErrSessionClosed)
+	}
+	if err := session.executor.validateReadOnlyQuery(ctx, sqlText, DBStageExplain); err != nil {
 		return model.ExplainInfo{}, err
 	}
-	return model.ExplainInfo{}, session.executor.unsupported(DBStageExplain)
+	if session.executor.explainer == nil {
+		return model.ExplainInfo{}, session.executor.unsupported(DBStageExplain)
+	}
+	timedContext, cancel := session.executor.timeoutContext(ctx)
+	defer cancel()
+	return session.executor.explainer(timedContext, session.connection, sqlText)
 }
 
 func (*limitedSQLSession) TransactionState() (rules.TransactionState, error) {
