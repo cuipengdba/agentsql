@@ -96,9 +96,9 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 
 | 其他分发项 | 状态 | 发布日验收 |
 | --- | --- | --- |
-| `ghcr.io/cuipengdba/agentsql:v0.5.0` | 待构建/推送 | amd64 + arm64 manifest list；匿名 pull；`/healthz` 回报 `v0.5.0` |
+| `ghcr.io/cuipengdba/agentsql:v0.5.0` | 本地非推送双架构构建已通过；推送待发布日 | 本地 OCI/digest 已记录；发布日仍须匿名 pull 并确认 `/healthz` 回报 `v0.5.0` |
 | `ghcr.io/cuipengdba/agentsql:latest` | 待发布日移动 | 仅在精确 tag 验收后指向同一 digest |
-| `v0.5.0-demo` / `v0.5.0-quickstart` 辅助镜像 | 待构建/演练 | 现有脚本未覆盖这两个 tag，需主控按现有 Dockerfile 单独构建并匿名拉取 |
+| `v0.5.0-demo` / `v0.5.0-quickstart` 辅助镜像 | 本地非推送双架构构建已通过 | `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` 已按现有 Dockerfile 分别生成 OCI 归档和 digest JSON，并离线核对 amd64/arm64 descriptor；发布日仍需推送并匿名拉取 |
 | `docs/release-notes-v0.5.md` | 已完成（本草稿） | 发布日复核日期、状态和 SHA-256 |
 | `CHANGELOG.md` | 已更新为待发布条目 | 发布后才可改成“已发布” |
 | 官网三份 v0.5.0 PDF | 待重导 | 按 `website/tools/build-docs-pdf.mjs` 重导并通过 `verify-static.sh`；本批不制造空链接 |
@@ -121,11 +121,11 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 安全 | Private Vulnerability Reporting（PVR） | **待发布日** | 匿名 API 不返回该设置；由仓库管理员在 Security settings 复核为开启 |
 | 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | `go build ./...`、改动包测试、gofmt 与 diff check 通过；全量 short tests 的 PostgreSQL parser P99 为 9.50 ms，超过 5 ms 预算，须在标准 Linux runner 复核并清零后才可发布 |
 | 构建 | 固定 Rocky Linux 8 digest 构建 amd64/arm64 | **待发布日** | 两个二进制均回报 `v0.5.0`，GLIBC 符号不高于 2.28 |
-| 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **待发布日** | 按 15 资产表生成；私钥不进仓、不进日志 |
-| 校验 | SHA-256 与签名双重验证 | **待发布日** | 两个 tarball 外层 sidecar、包内 `SHA256SUMS`、Release `SHA256SUMS`、签名全部通过 |
+| 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **dry-run 已补齐；生产签名待发布日** | `scripts/release-dryrun.ps1` 编排双架构包、SBOM、metadata、provenance 和说明；dry-run 只生成显式不可发布的未签名占位文档，绝不读取私钥 |
+| 校验 | SHA-256 与签名双重验证 | **本地 SHA-256 闭环已补齐；生产签名待发布日** | dry-run 断言恰好 15 项，回验 tarball sidecar 与统一 `SHA256SUMS` 并输出逐项名称/大小/SHA-256；有效 Ed25519 签名仍须发布日替换占位文档后验证 |
 | 草稿 | 建立 GitHub Release draft 并上传恰好 15 资产 | **待发布日** | 本批禁止创建；草稿中先验证名称、大小、SHA-256 和下载 |
-| 镜像 | 推送 `v0.5.0`，设 GHCR public，匿名双架构 pull | **待发布日** | 先验精确 tag，后更新 `latest`；记录 manifest digest |
-| Demo | 生成辅助镜像并执行 reset | **待发布日** | 复用已加固 reset 脚本；验证 seed 成功后才启 gateway，只使用合成数据 |
+| 镜像 | 推送 `v0.5.0`，设 GHCR public，匿名双架构 pull | **本地非推送命令已补齐；发布闸门待发布日** | dry-run 生成主镜像 OCI 与结构化 digest 记录；发布日先验精确 tag，后更新 `latest` |
+| Demo | 生成辅助镜像并执行 reset | **辅助 tag 本地命令已补齐；联调待发布日** | `-IncludeAuxiliaryTags` 分别构建 `v0.5.0-demo` / `v0.5.0-quickstart` 并记录 digest；reset、推送和匿名拉取仍待发布日 |
 | 官网 | 重导 PDF、运行静态验收、部署 | **待发布日** | 先验 Release/镜像/Demo，再部署；复核 HTTPS、`www` 301、sitemap 和 security.txt |
 | 搜索 | 放行主站、保持 `/demo/` noindex | **待发布日** | 主页 `index,follow`；`robots.txt` 为 `Allow: /` + `Disallow: /demo/`；demo meta 仍 `noindex,nofollow` |
 | 发布 | Release draft → 正式 | **待发布日** | 只在上述闸门全绿后发布；本批禁止执行 |
@@ -133,8 +133,8 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 
 ### 发布链待办
 
-1. 仓库没有受版本控制的 Release CI，也没有一条命令组装并校验全部 15 资产。v0.5.0 先复用 v0.4.0 已演练的手工流程，并将“恰好 15 项 + 统一 SHA256SUMS + 生产签名验证”设为不可跳过的发布日闸门。本批不新增未经演练的发布 CI。
-2. `scripts/build-ghcr-multiarch.ps1` 只覆盖主镜像精确 tag 和 `latest`，不覆盖 `v0.5.0-demo` / `v0.5.0-quickstart`。发布主控需为两个辅助 tag 保存可复现构建命令与 digest；中长期应将其纳入统一的非推送 dry-run 验证脚本。
+1. **本批已补齐本地 dry-run。** `scripts/release-dryrun.ps1` 一条命令复用 v0.4.0 双架构构建/打包与 SBOM 路径，在 `dist/release-dryrun/v0.5.0/assets/` 组装并校验恰好 15 项，生成统一 `SHA256SUMS` 并输出逐项名称、大小和 SHA-256；`evidence/` 单独保存 OCI/digest 证据，不混入 Release 资产。仓库仍不新增未经演练的 Release CI。dry-run 的公钥与三份签名文件是显式 `dryRun=true`、`signed=false` 的不可发布占位文档；生产签名和验签仍是不可跳过的发布日人工闸门。
+2. **本批已补齐并实跑辅助 tag 非推送命令。** `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` 保持主镜像精确 tag 与显式 `-Push` 才移动 `latest` 的既有规则，同时分别为 `v0.5.0-demo` / `v0.5.0-quickstart` 生成双架构 OCI 归档和结构化 digest JSON。本地离线检查确认三个归档均包含 amd64/arm64 descriptor；发布日仍须由主控执行推送、GHCR public 和匿名双架构拉取验收。
 3. PVR 设置、GHCR public、官网实时状态和搜索放行需管理员/外网证据；当前无法从匿名 API 完整取证的项均保持“待发布日”。
 4. `SECURITY.md` 的受支持版本矩阵仍列 0.3.x，与待发布的 v0.5.0 不一致。该项涉及安全修复承诺，必须由维护者在发布日前确认并更新；本批不代替维护者猜测支持周期。
 
@@ -168,4 +168,4 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 
 ### Release assets and release-day gates
 
-The v0.5.0 GitHub Release must contain exactly the same 15 named asset classes listed in the Chinese asset table, with `v0.5.0` substituted in versioned filenames. All are pending build/signing; no v0.5.0 Release exists while this draft is being prepared. The GHCR `v0.5.0` and `latest` tags, auxiliary demo/quickstart images, website PDFs, website deployment, demo reset, search-index gate, PVR verification, draft-to-final transition, tag creation, and post-release anonymous smoke tests are release-day actions. No publication, tag, merge, or push is performed by this preparation batch.
+The v0.5.0 GitHub Release must contain exactly the same 15 named asset classes listed in the Chinese asset table, with `v0.5.0` substituted in versioned filenames. `scripts/release-dryrun.ps1` now assembles and checksum-verifies that 15-file topology locally, while deliberately emitting unmistakable unsigned, non-releasable placeholders for the public key and three signatures. `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` adds non-pushing, digest-recorded builds for the demo and quickstart tags. Production signing and verification, GHCR push/public/anonymous pull, GitHub Release creation, website PDFs/deployment, demo reset, search-index gate, PVR verification, draft-to-final transition, tag creation, and post-release anonymous smoke tests remain release-day actions. No publication, tag, merge, or push is performed by this preparation batch.
