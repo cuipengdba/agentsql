@@ -129,13 +129,34 @@ two-column table also passed the same discovery path. That user, its table, the
 downloaded client archive, build containers and temporary Docker volumes were
 removed after testing. `yashan-v06` was deliberately left running.
 
-The batch-29 packaging rerun again reached the real server, completed Ping,
-physical-session acquisition and non-empty `SYS.ALL_TAB_COLUMNS` discovery.
-The existing `TestYashanDiscoveryE2E` nevertheless finished **FAIL** at its
-subsequent fail-closed assertion: `SELECT 1 FROM DUAL` returned no error while
-the test expected one. This is recorded as an existing query-boundary mismatch,
-not as a packaging failure or a fully passing E2E; this batch does not change
-business-query behavior.
+Batch 30 reproduced the batch-29 failure before changing business behavior. The
+real AgentSQL path returned `columns=[1] rows=[[1]] err=<nil>` for
+`SELECT 1 FROM DUAL`: this was a successful one-row query, not an empty result
+or a swallowed driver error. `YashanExecutor` had anonymously embedded the
+common `limitedSQLExecutor`, whose promoted `Query` validates a narrow SELECT
+and then calls `database/sql.QueryContext`. The same path was also exposed by a
+physical limited-dialect session. In the official v1.4.4 driver source,
+`statement.go` implements `YasStmt.Query` at line 45 and `QueryContext` at line
+57, while `rows.go` implements `YasRows.Next` at line 99. The driver's normal
+result path therefore matched the observed row; the missing guard was in
+AgentSQL rather than the driver.
+
+The v0.5 boundary remains metadata-only. Batch 30 added Yashan-specific pool
+and session `Query` guards that return a safe `DBStageQuery` execution error
+before validation or driver submission. The typed metadata capability still
+uses its fixed internal SQL directly. The post-fix real
+`TestYashanDiscoveryE2E` passed in 0.68 seconds, including connection, Ping,
+physical-session lifecycle, non-empty `SYS.ALL_TAB_COLUMNS` discovery, both
+pool and session Query rejection, and EXPLAIN rejection.
+
+| Capability | v0.5 boundary | Batch-30 verification |
+| --- | --- | --- |
+| Native connection and Ping | supported | real 23.4.1.109 E2E PASS |
+| Physical session acquire/release | supported | real E2E PASS; session Query remains guarded |
+| Typed `ListSchema` discovery | supported | real non-empty `SYS.ALL_TAB_COLUMNS` PASS |
+| General pool/session `Query` | fail closed | pre-fix one-row result reproduced; post-fix real E2E rejection PASS |
+| `EXPLAIN` | fail closed | real E2E rejection PASS |
+| `Execute`, writes and transactions | fail closed | unchanged; no caller SQL is submitted by these paths |
 
 ## Dialect findings
 
@@ -190,7 +211,7 @@ error; this remains deliberate fail-closed behavior, not a protocol fallback.
 
 The following operations return safe errors and do not submit caller SQL:
 
-- general `Query`;
+- general pool and physical-session `Query`;
 - `Execute`;
 - `BeginWriteTx` and transaction execution;
 - `EXPLAIN` parsing and cost authorization;

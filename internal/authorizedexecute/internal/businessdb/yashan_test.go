@@ -45,10 +45,18 @@ func TestYashanGeneralSQLFailsClosed(t *testing.T) {
 	executor := &YashanExecutor{limitedSQLExecutor: &limitedSQLExecutor{dialect: "yashan"}}
 	require.Equal(t, "yashan", executor.Dialect())
 
-	_, err := executor.Query(context.Background(), "SELECT 1 FROM DUAL", 1)
+	result, err := executor.Query(context.Background(), "SELECT 1 FROM DUAL", 1)
+	require.Empty(t, result)
 	require.Error(t, err)
 	var databaseError *DBError
 	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
+	require.Equal(t, DBStageQuery, databaseError.Stage)
+
+	result, err = (&yashanSession{}).Query(context.Background(), "SELECT 1 FROM DUAL", 1)
+	require.Empty(t, result)
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
 	require.Equal(t, DBStageQuery, databaseError.Stage)
 
 	_, err = executor.Explain(context.Background(), "SELECT 1 FROM DUAL")
@@ -78,6 +86,13 @@ func TestYashanDiscoveryE2E(t *testing.T) {
 
 	session, err := executor.OpenSession(ctx, "yashan-e2e-session")
 	require.NoError(t, err)
+	result, err := session.Query(ctx, "SELECT 1 FROM DUAL", 1)
+	require.Empty(t, result)
+	require.Error(t, err)
+	var databaseError *DBError
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
+	require.Equal(t, DBStageQuery, databaseError.Stage)
 	require.NoError(t, session.Close())
 
 	columns, err := ListSchema(ctx, executor, datasource.Database, []SchemaTable{{Schema: datasource.Database, Table: tableName}})
@@ -87,6 +102,15 @@ func TestYashanDiscoveryE2E(t *testing.T) {
 	require.Equal(t, tableName, columns[0].Table)
 	require.GreaterOrEqual(t, columns[0].Ordinal, 1)
 
-	_, err = executor.Query(ctx, "SELECT 1 FROM DUAL", 1)
+	result, err = executor.Query(ctx, "SELECT 1 FROM DUAL", 1)
+	require.Empty(t, result)
 	require.Error(t, err)
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
+	require.Equal(t, DBStageQuery, databaseError.Stage)
+
+	_, err = executor.Explain(ctx, "SELECT 1 FROM DUAL")
+	require.Error(t, err)
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBStageExplain, databaseError.Stage)
 }

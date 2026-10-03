@@ -17,6 +17,10 @@ import (
 // their authorization and decoding contracts are implemented and verified.
 type YashanExecutor struct{ *limitedSQLExecutor }
 
+// yashanSession preserves physical-session ownership while keeping caller SQL
+// outside the native driver until a YashanDB authorization contract exists.
+type yashanSession struct{ Session }
+
 // NewYashanExecutor opens and verifies a native YashanDB datasource. The
 // official driver is registered only by builds using "-tags yashan" with CGO
 // enabled; ordinary builds fail closed without acquiring a connection.
@@ -48,6 +52,41 @@ func NewYashanExecutor(
 		return nil, err
 	}
 	return &YashanExecutor{limitedSQLExecutor: executor}, nil
+}
+
+// OpenSession acquires the physical connection needed by the session lifecycle,
+// but wraps it so the common limited-dialect SELECT path is not promoted into
+// the deliberately metadata-only YashanDB capability.
+func (executor *YashanExecutor) OpenSession(ctx context.Context, sessionID string) (Session, error) {
+	if executor == nil || executor.limitedSQLExecutor == nil {
+		return nil, newDBError(
+			DBErrorKindConnection,
+			DBErrorCodeConnection,
+			DBStageAcquire,
+			"",
+			ErrDatasourceUnreachable,
+		)
+	}
+	session, err := executor.limitedSQLExecutor.OpenSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return &yashanSession{Session: session}, nil
+}
+
+// Query fails closed before validation or driver submission. YashanDB metadata
+// discovery uses its typed capability and does not depend on general Query.
+func (*YashanExecutor) Query(context.Context, string, int) (model.QueryResult, error) {
+	return model.QueryResult{}, yashanUnsupported(DBStageQuery)
+}
+
+// Query fails closed on physical sessions as well as on the pooled executor.
+func (*yashanSession) Query(context.Context, string, int) (model.QueryResult, error) {
+	return model.QueryResult{}, yashanUnsupported(DBStageQuery)
+}
+
+func yashanUnsupported(stage DBStage) error {
+	return newDBError(DBErrorKindExecution, DBErrorCodeExecution, stage, "", nil)
 }
 
 func buildYashanDSN(datasource model.Datasource, password string) (string, error) {
@@ -93,3 +132,4 @@ func sqlDriverRegistered(name string) bool {
 }
 
 var _ Executor = (*YashanExecutor)(nil)
+var _ Session = (*yashanSession)(nil)
