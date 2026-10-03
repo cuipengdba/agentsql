@@ -38,7 +38,10 @@ func NewDMExecutor(
 	if err != nil {
 		return nil, err
 	}
-	if err := executor.probeCurrentSchema(ctx, "SELECT USER"); err != nil {
+	// USER is the login identity, not the active schema selected by the DSN's
+	// schema property. CURRENT_SCHID reflects the driver's SET SCHEMA step and
+	// keeps unqualified metadata discovery scoped to the configured owner.
+	if err := executor.probeCurrentSchema(ctx, "SELECT SF_GET_SCHEMA_NAME_BY_ID(CURRENT_SCHID)"); err != nil {
 		_ = executor.Close()
 		return nil, err
 	}
@@ -318,6 +321,8 @@ func classifyDMError(ctx context.Context, stage DBStage, cause error) (error, bo
 			return newDBError(DBErrorKindAuthentication, DBErrorCodeAuthentication, stage, driverCode, nil), true
 		case code == -2007:
 			return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, stage, driverCode, nil), true
+		case code == -2111:
+			return newDBError(DBErrorKindColumnNotFound, DBErrorCodeColumnNotFound, stage, driverCode, nil), true
 		case code == -2103 || code == -2106:
 			return newDBError(DBErrorKindObjectNotFound, DBErrorCodeObjectNotFound, stage, driverCode, nil), true
 		case code == -6407:

@@ -1,21 +1,67 @@
 # DM8 / Oracle dialect 能力与验证边界
 
-> 状态：v0.5 批十、批十三、批二十与批二十一的累计说明；不是完整兼容或生产认证声明。最近离线深化日期：2026-10-03。
+> 状态：v0.5 批十、批十三、批二十、批二十一与批二十八的累计说明；不是完整兼容或生产认证声明。最近 DM8 真库回归日期：2026-10-03。
 
-## 0. 当前能力矩阵（批二十一）
+## 批二十八：DM8 真库端到端回归
 
-本节是当前口径；后续章节保留批十的环境、驱动决策和历史设计背景。批二十一不连接外部数据库，DM EXPLAIN 新增结论仅来自达梦官方文档样例的纯离线 fixture；不把离线解析测试表述为真库实测。
+### 环境与驱动
+
+- 容器 `dm8-v06` 持续运行，镜像 `dm8_single:dm8_20241022_rev244896_x86_rh6_64`，端口映射 `127.0.0.1:5236->5236/tcp`；TCP 探测成功。
+- disql 实测 `SYSDBA/"Agentsql@2026"@localhost:5236` 登录成功，实例 `STATUS$=OPEN`，版本 `03134284294-20241009-244896-20119 Pack3`，`SF_GET_CASE_SENSITIVE_FLAG()=1`，`COMPATIBLE_MODE=0`。
+- 服务端 `ENABLE_ENCRYPT=0`、`AUTO_ENCRYPT=0`、`FORCE_CERTIFICATE_ENCRYPTION=0`，`AUTH_ENCRYPT_NAME` 与 `COMM_ENCRYPT_NAME` 均为空；本批没有启用 SSL 证书或通信加密 DSN 参数。驱动自身的登录口令握手配置与服务端通信加密不是同一开关。
+- `go.mod` 已有 `github.com/godoes/gorm-dameng v0.7.2`，运行时 import 为 `github.com/godoes/gorm-dameng/dm8`、注册名为 `dm`，所以本批不新增或升级驱动。含原始 `@` 的密码通过真实 Go Ping；该版本按最后一个 `@` 分割主机，不能改用会保留字面 `%40` 的通用 URL userinfo 编码。
+- 供应链仍 fail-closed：v0.7.2 的 Go module 压缩包和本机 module cache 不含 `LICENSE`、`COPYING` 或 `NOTICE`。上游当前主分支后来出现 MIT `LICENSE`，但不能据此反推 v0.7.2 发布物及其中整理的 DM 官方驱动源码已明确授权再分发；进入发行物前仍需法务/供应链确认。
+
+### 真实差异与修复
+
+| 适配面 | 批二十一离线假设 | 批二十八真实 DM8 结果与处理 |
+| --- | --- | --- |
+| 当前 schema | 构造后执行 `SELECT USER` 并把登录用户当 metadata owner | DSN `schema=` 由驱动执行 `SET SCHEMA`；真实结果可出现 `USER=只读账号`、`CURRENT_SCHID=owner schema`。改为 `SF_GET_SCHEMA_NAME_BY_ID(CURRENT_SCHID)`，未限定 schema 的列发现现在跟随 DSN owner |
+| 分页 | DM typed 采样生成 `LIMIT n`；门禁接受 `TOP/LIMIT/FETCH/ROWNUM` | `LIMIT 2 OFFSET 1` 返回 2、3；`LIMIT 2,1` 返回 3；`OFFSET 1 ROWS FETCH NEXT 2 ROWS ONLY` 返回 2、3；`TOP 2` 返回 1、2；offset 0 返回首页，offset 99 和 2147483647 返回空集 |
+| EXPLAIN 结果集 | `EXPLAIN FOR` 预期为 19 列 | 列顺序与 19 列定义一致。二级索引真实树为 `NSET2/PRJT2/BLKUP2/SSEK2`，归一化 `rows=1 cost=1`；非索引条件真实树为 `NSET2/PRJT2/SLCT2/CSCN2`，根估算 `rows=62 cost=1`，底层扫描 2505 行 |
+| EXPLAIN 操作符范围 | 只接受离线样例白名单 | 系统视图真实计划另出现 `PIPE2`、`UNION ALL`、`ACTRL`、`DISTINCT`、`DSCN`、`HEAP TABLE SCAN` 等。本批没有仅凭一次样本扩大授权白名单；这些形态继续 fail-closed，避免把未知计划误判为安全 |
+| 类型与值表示 | 保留 `DATA_TYPE` 厂商字符串 | 真库发现顺序为 `INT/BIGINT/VARCHAR/VARCHAR/DECIMAL/TIMESTAMP/DATE/VARBINARY/CLOB/BLOB`。`DECIMAL(12,2)` 值 `0.01` 经 v0.7.2 驱动读取为字符串 `.01`；本批记录真实输出，不擅自补零改变值表示 |
+| 错误码 | `-2111` 未分类 | 真库确认 `-2111=Invalid column name`，现归一为 `DB_COLUMN_NOT_FOUND`；`-2501` 认证、`-2106` 对象、`-2007` 语法、`-5501/-5515` 权限分类也由真库复核 |
+
+### 可重复端到端证据
+
+`TestDMDiscoveryE2E` 使用 SYSDBA 仅做 fixture 管理，每次生成带纳秒后缀的唯一 owner 与只读账号，创建 2505 行测试表和二级索引；只读账号只显式获得 `CREATE SESSION` 与目标表 `SELECT`。测试顺序及真实结果如下：
+
+1. owner 与只读账号均通过原生 Go 驱动连接；错误密码返回 `DB_AUTHENTICATION_FAILED/-2501`。
+2. 只读账号以 owner 作为 DSN schema，真实观测 `USER=只读账号`、active schema=owner；`SYS.ALL_TABLES` 找到唯一 fixture 表，`SYS.ALL_TAB_COLUMNS` 找到 10 列及上述类型。
+3. 受控查询正确读取 `O'Reilly @ 上海`；typed sample 的 `LIMIT 2` 返回 `[[1 K0001] [2 K0002]]`。
+4. 分页得到首页 `[[1] [2] [3]]`、末页 `[[2504] [2505]]`、超大 offset 空集；大结果用 row limit 2000 返回 `rows=2000 truncated=true`。
+5. 索引 EXPLAIN 归一化为 `1|0|NSET2|1|1`、`2|1|PRJT2|1|1`、`3|2|BLKUP2|1|1`、`4|3|SSEK2|1|1`；顺序扫描归一化为 `NSET2/PRJT2/SLCT2/CSCN2`。`Raw` 不含表名、索引名或 SQL 字面量。
+6. 不存在列、对象和语法错误分别得到 `-2111/-2106/-2007`；只读账号直接尝试 INSERT 与 CREATE TABLE 分别得到 `-5501/-5515` 并归一为权限不足。
+7. 池连接和独占 session 均能读取 fixture；测试 cleanup 关闭连接后删除两个唯一测试用户（owner 的 schema、表、索引和 2505 行随 `CASCADE` 删除），再查询 `SYS.DBA_USERS` 断言残留数为 0。
+
+真实回归命令使用 Go 1.26 Linux/CGO 环境：
+
+```text
+AGENTSQL_DM_E2E=1 DM_HOST=host.docker.internal DM_PASSWORD=<secret> \
+go test ./internal/authorizedexecute/internal/businessdb -run '^TestDMDiscoveryE2E$' -count=1 -v
+```
+
+### 未覆盖与阻塞
+
+- `parser.NewParser("dm")` 仍返回 `ErrUnsupportedDialect`。因此本批只证明窄 SELECT 门禁、对象查询、元数据和 EXPLAIN；没有 DM AST/投影血缘，也不声称“血缘 PASS”。未知 DM SQL 继续 fail-closed。要完成血缘闭环必须新增并评审 DM parser、对象/列提取和 lineage corpus，这会修改 `internal/parser` 等超出本批预期文件范围的组件。
+- 未验证 SSL、通信加密、LOB 内容读取/写入、时区转换、context cancel 后物理连接复用、写事务和完整 Gateway 授权/脱敏/审计闭环。
+- Windows 主机的 Go 环境为 `CGO_ENABLED=0`，不能编译仓库既有 `pg_query_go` parser；本批用已有 `golang:1.26-bookworm` 镜像运行 Linux CGO 测试。businessdb 无过滤全量测试还包含自动启动 PostgreSQL/MySQL testcontainers 的用例，未向构建容器授予 Docker socket；DM/Oracle 定向离线集与 DM 真库 E2E 均独立通过。
+
+## 0. 能力矩阵（批二十一基线，DM 由批二十八更新）
+
+本节保留批二十一基线和 Oracle 口径；DM 的当前真库口径以上方批二十八章节为准。批二十一当时不连接外部数据库，DM EXPLAIN 结论仅来自官方文档样例；这些历史离线测试不追溯表述为真库实测。
 
 | 能力 | DM8 | Oracle |
 | --- | --- | --- |
 | 连接与池 | 原生 `dm` 驱动、Ping、当前 schema、池和独占物理会话已实现 | `go-ora/v2`、Ping、`CURRENT_SCHEMA`、池和独占物理会话已实现 |
-| metadata | 固定查询 `SYS.ALL_TAB_COLUMNS`；`?` bind；有界结果读取 | 固定查询 `ALL_TAB_COLUMNS`；`:N` bind；有界结果读取 |
+| metadata | 固定查询 `SYS.ALL_TAB_COLUMNS`；`?` bind；有界结果读取；批二十八修复为按 DSN active schema 选择默认 owner | 固定查询 `ALL_TAB_COLUMNS`；`:N` bind；有界结果读取 |
 | 只读 SQL | 极窄单条 `SELECT`；池与 session 共用 fail-closed 门禁 | 同左 |
 | 分页与伪列 | 门禁接受 `TOP`、`LIMIT`、`FETCH`、`ROWNUM`；typed 采样固定生成 `LIMIT n` | 门禁接受 `FETCH`、`ROWNUM`，明确拒绝 `TOP`、`LIMIT`；typed 采样固定生成 `FETCH FIRST n ROWS ONLY` |
 | `DUAL` | 可作为普通对象出现在窄 SELECT 中，不做兼容模式改写 | 可作为普通对象出现在窄 SELECT 中；离线计划覆盖 `FAST DUAL` |
 | 序列 | `NEXTVAL`、`CURRVAL` 均拒绝 | `NEXTVAL`、`CURRVAL` 均拒绝 |
-| EXPLAIN | 离线归一化已实现、待真库验证；运行时使用官方结果集形式 `EXPLAIN FOR`，文本样例与结构化结果共用 `ExplainInfo` 归一化；未知列、节点、树形或数值 fail-closed | 结构化读取 `PLAN_TABLE`；校验唯一根、完整 parent、无环、非负有限估算值；识别普通、bitmap 和 domain index |
-| 错误分类 | 认证、语法、权限、连接，以及对象/模式不存在、锁超时、唯一约束 | 认证、权限、语法、列/对象不存在、约束、中断、连接，以及资源忙/死锁、临时空间/共享池资源不足 |
+| EXPLAIN | 批二十八已真库验证 19 列 `EXPLAIN FOR` 的索引/顺序扫描形态；文本样例与结构化结果共用 `ExplainInfo` 归一化；未知列、操作符、树形或数值 fail-closed | 结构化读取 `PLAN_TABLE`；校验唯一根、完整 parent、无环、非负有限估算值；识别普通、bitmap 和 domain index |
+| 错误分类 | 认证、语法、权限、连接、列/对象/模式不存在、锁超时、唯一约束；批二十八新增真实 `-2111` 列不存在 | 认证、权限、语法、列/对象不存在、约束、中断、连接，以及资源忙/死锁、临时空间/共享池资源不足 |
 | 类型 | 保留厂商 `DATA_TYPE` 字符串；尚无 canonical type 映射 | 同左；`NUMBER`、日期、LOB、JSON/BOOLEAN/Vector 等仍待独立语义设计 |
 | 写入/事务/触发器 | 未实现；`Execute`、`WriteTx` 保持 fail-closed | 同左 |
 | 主 parser/授权闭环 | 未接入 DM parser、规则、列级授权和脱敏 pipeline | 未接入 Oracle parser、规则、列级授权和脱敏 pipeline |
@@ -36,11 +82,10 @@
 - [达梦官方《数据查询语句》4.22 指定索引查询](https://eco.dameng.com/document/dm/zh-cn/pm/check-phrases.html)：`BLKUP2 + SSCN` 与 `BLKUP2 + SSEK2` 文本树。
 - [达梦官方《附录 4：执行计划操作符》](https://eco.dameng.com/document/dm/zh-cn/pm/dm8-admin-manual-appendix4.html)与[《查询优化》EXPLAIN FOR 列说明](https://eco.dameng.com/document/dm/zh-cn/pm/query-optimization.html)：操作符语义及 `LEVEL_ID/OPERATION/ROW_NUMS/COST` 字段含义。
 
-### 0.3 明确限制与待真库验证
+### 0.3 明确限制与历史待办
 
 - 窄门禁不是完整 SQL parser：函数、括号、子查询、CTE、bind、注释和尾部分号即使是合法 SQL 也拒绝；未引用标识符若与受限关键字重名也会 fail-closed。
-- DM EXPLAIN 尚无有效凭据下采集的本实例 fixture；待真库逐行比对普通 `EXPLAIN` 文本和 `EXPLAIN FOR` 的实际列名、列类型、层级、权限、计划记录持久化/清理行为，以及 context cancel 后连接复用。当前准确口径仅为“官方文档样例离线归一化已实现”。
-- DM `SYSDBA/SYSDBA` 仍已知返回 `-2501`；待提供有效凭据后复跑 Ping、metadata、分页查询、错误分类和取消/池复用。
+- DM EXPLAIN、Ping、metadata、分页、权限和主要错误分类已在批二十八使用有效凭据复跑；context cancel 后连接复用、SSL/通信加密及更广操作符仍待验证。
 - Oracle 本批没有外部实例；新增分页、错误码和计划形态均待 Oracle 真库回归。批十三已有环境证据不等于批二十重新实测。
 - DM/Oracle 的 canonical 类型、LOB/时区/字符集、完整 parser、列级授权/脱敏、事务、触发器、取消后连接复用仍未验证。
 

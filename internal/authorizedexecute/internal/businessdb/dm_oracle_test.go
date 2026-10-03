@@ -2,13 +2,16 @@ package businessdb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 	dm8 "github.com/godoes/gorm-dameng/dm8"
 	gooranetwork "github.com/sijms/go-ora/v2/network"
 	"github.com/stretchr/testify/require"
@@ -148,6 +151,7 @@ func TestDMAndOracleErrorClassification(t *testing.T) {
 		{name: "dm syntax", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2007}, wantKind: DBErrorKindSyntax, wantCode: DBErrorCodeSyntax, wantDriver: "-2007"},
 		{name: "dm permission range", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -5516}, wantKind: DBErrorKindPermission, wantCode: DBErrorCodePermission, wantDriver: "-5516"},
 		{name: "dm authentication", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2501}, wantKind: DBErrorKindAuthentication, wantCode: DBErrorCodeAuthentication, wantDriver: "-2501"},
+		{name: "dm column", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2111}, wantKind: DBErrorKindColumnNotFound, wantCode: DBErrorCodeColumnNotFound, wantDriver: "-2111"},
 		{name: "dm object", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2106}, wantKind: DBErrorKindObjectNotFound, wantCode: DBErrorCodeObjectNotFound, wantDriver: "-2106"},
 		{name: "dm schema", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -2103}, wantKind: DBErrorKindObjectNotFound, wantCode: DBErrorCodeObjectNotFound, wantDriver: "-2103"},
 		{name: "dm lock timeout", classify: classifyDMError, cause: &dm8.DmError{ErrCode: -6407}, wantKind: DBErrorKindRetryable, wantCode: DBErrorCodeRetryable, wantDriver: "-6407"},
@@ -429,30 +433,289 @@ func TestDMDiscoveryE2E(t *testing.T) {
 	if os.Getenv("AGENTSQL_DM_E2E") != "1" {
 		t.Skip("set AGENTSQL_DM_E2E=1 to run against DM8")
 	}
-	datasource := model.Datasource{
-		ID: "dm-e2e", DBType: "dm", Host: envOrDefault("DM_HOST", "127.0.0.1"),
+	adminPassword := os.Getenv("DM_PASSWORD")
+	require.NotEmpty(t, adminPassword, "DM_PASSWORD is required")
+	adminDatasource := model.Datasource{
+		ID: "dm-e2e-admin", DBType: "dm", Host: envOrDefault("DM_HOST", "127.0.0.1"),
 		Port: 5236, Database: envOrDefault("DM_SCHEMA", "SYSDBA"),
 		Username: envOrDefault("DM_USER", "SYSDBA"), ConnLimit: 1, StmtTimeoutMS: 15_000,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	executor, err := NewDMExecutor(ctx, datasource, os.Getenv("DM_PASSWORD"), true)
+	adminDSN, err := buildDMDSN(adminDatasource, adminPassword)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, executor.Close()) })
-	require.NoError(t, executor.Ping(ctx))
-	session, err := executor.OpenSession(ctx, "dm-e2e-session")
+	admin, err := sql.Open("dm", adminDSN)
 	require.NoError(t, err)
-	result, err := session.Query(ctx, "SELECT USER AS CURRENT_USER", 1)
+	admin.SetMaxOpenConns(1)
+	require.NoError(t, admin.PingContext(ctx))
+
+	suffix := fmt.Sprintf("%X", time.Now().UnixNano())
+	ownerName := "AGSQL_D28_O_" + suffix
+	readerName := "AGSQL_D28_R_" + suffix
+	const ownerPassword = "Owner@2026"
+	const readerPassword = "Read@2026"
+	ownerCreated := false
+	readerCreated := false
+	var ownerExecutor *DMExecutor
+	var readerExecutor *DMExecutor
+	var readerDB *sql.DB
+	t.Cleanup(func() {
+		if readerExecutor != nil {
+			if closeErr := readerExecutor.Close(); closeErr != nil {
+				t.Errorf("close DM reader executor: %v", closeErr)
+			}
+		}
+		if ownerExecutor != nil {
+			if closeErr := ownerExecutor.Close(); closeErr != nil {
+				t.Errorf("close DM owner executor: %v", closeErr)
+			}
+		}
+		if readerDB != nil {
+			if closeErr := readerDB.Close(); closeErr != nil {
+				t.Errorf("close raw DM reader connection: %v", closeErr)
+			}
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		if readerCreated {
+			if _, dropErr := admin.ExecContext(cleanupCtx, "DROP USER "+readerName+" CASCADE"); dropErr != nil {
+				t.Errorf("drop DM E2E reader: %v", dropErr)
+			}
+		}
+		if ownerCreated {
+			if _, dropErr := admin.ExecContext(cleanupCtx, "DROP USER "+ownerName+" CASCADE"); dropErr != nil {
+				t.Errorf("drop DM E2E owner: %v", dropErr)
+			}
+		}
+		var remaining int
+		if queryErr := admin.QueryRowContext(
+			cleanupCtx,
+			"SELECT COUNT(*) FROM SYS.DBA_USERS WHERE USERNAME IN (?,?)",
+			ownerName,
+			readerName,
+		).Scan(&remaining); queryErr != nil {
+			t.Errorf("verify DM E2E cleanup: %v", queryErr)
+		} else if remaining != 0 {
+			t.Errorf("DM E2E cleanup left %d test users", remaining)
+		} else {
+			t.Logf("cleanup verified: users %s and %s are absent", ownerName, readerName)
+		}
+		if closeErr := admin.Close(); closeErr != nil {
+			t.Errorf("close DM admin connection: %v", closeErr)
+		}
+	})
+
+	mustExec := func(label, statement string) {
+		t.Helper()
+		_, execErr := admin.ExecContext(ctx, statement)
+		require.NoError(t, execErr, label)
+		t.Log(label + ": OK")
+	}
+	mustExec("create owner", "CREATE USER "+ownerName+` IDENTIFIED BY "`+ownerPassword+`"`)
+	ownerCreated = true
+	mustExec("create reader", "CREATE USER "+readerName+` IDENTIFIED BY "`+readerPassword+`"`)
+	readerCreated = true
+	mustExec("grant owner session", "GRANT CREATE SESSION TO "+ownerName)
+	mustExec("grant reader session", "GRANT CREATE SESSION TO "+readerName)
+	mustExec("create typed table", "CREATE TABLE "+ownerName+`.DM28_DATA (
+ID INT NOT NULL, BIG_VALUE BIGINT, CODE VARCHAR(32), NOTE VARCHAR(100),
+AMOUNT DECIMAL(12,2), CREATED_AT TIMESTAMP(6), EVENT_DATE DATE,
+RAW_VALUE VARBINARY(16), TEXT_VALUE CLOB, BLOB_VALUE BLOB,
+CONSTRAINT DM28_DATA_PK PRIMARY KEY(ID))`)
+	mustExec(
+		"create lookup index",
+		"CREATE UNIQUE INDEX "+ownerName+".DM28_DATA_CODE_UK ON "+ownerName+".DM28_DATA(CODE)",
+	)
+	mustExec(
+		"seed 2505 rows",
+		"INSERT INTO "+ownerName+`.DM28_DATA
+(ID,BIG_VALUE,CODE,NOTE,AMOUNT,CREATED_AT,EVENT_DATE,RAW_VALUE,TEXT_VALUE)
+SELECT LEVEL,CAST(LEVEL AS BIGINT)*10000000000,'K'||LPAD(LEVEL,4,'0'),
+CASE WHEN LEVEL=1 THEN 'O''Reilly @ 上海' ELSE 'row-'||LEVEL END,
+LEVEL/100.0,TIMESTAMP '2026-10-03 12:34:56.123456',DATE '2026-10-03',
+HEXTORAW('0A0B'),'clob-'||LEVEL FROM DUAL CONNECT BY LEVEL<=2505`,
+	)
+	mustExec("grant table select", "GRANT SELECT ON "+ownerName+".DM28_DATA TO "+readerName)
+
+	ownerDatasource := adminDatasource
+	ownerDatasource.ID = "dm-e2e-owner"
+	ownerDatasource.Database = ownerName
+	ownerDatasource.Username = ownerName
+	ownerExecutor, err = NewDMExecutor(ctx, ownerDatasource, ownerPassword, true)
 	require.NoError(t, err)
-	require.Equal(t, [][]string{{datasource.Username}}, result.Rows)
+	require.NoError(t, ownerExecutor.Ping(ctx))
+	ownerResult, err := ownerExecutor.Query(ctx, "SELECT USER AS CURRENT_USER", 1)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{ownerName}}, ownerResult.Rows)
+	t.Logf("owner connection: user=%s schema=%s", ownerName, ownerExecutor.username)
+
+	readerDatasource := adminDatasource
+	readerDatasource.ID = "dm-e2e-reader"
+	readerDatasource.Database = ownerName
+	readerDatasource.Username = readerName
+	_, err = NewDMExecutor(ctx, readerDatasource, "Wrong@Password", true)
+	require.Error(t, err)
+	var databaseError *DBError
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorCodeAuthentication, databaseError.Code)
+	require.Equal(t, "-2501", databaseError.DriverCode)
+	t.Logf("authentication error normalized: code=%s driver=%s", databaseError.Code, databaseError.DriverCode)
+
+	readerExecutor, err = NewDMExecutor(ctx, readerDatasource, readerPassword, true)
+	require.NoError(t, err)
+	require.NoError(t, readerExecutor.Ping(ctx))
+	require.Equal(t, ownerName, readerExecutor.username, "metadata owner must follow DSN schema, not login user")
+	t.Logf("reader connection: user=%s active_schema=%s", readerName, readerExecutor.username)
+
+	readerDSN, err := buildDMDSN(readerDatasource, readerPassword)
+	require.NoError(t, err)
+	readerDB, err = sql.Open("dm", readerDSN)
+	require.NoError(t, err)
+	readerDB.SetMaxOpenConns(1)
+	require.NoError(t, readerDB.PingContext(ctx))
+	var loginUser, activeSchema string
+	require.NoError(t, readerDB.QueryRowContext(
+		ctx,
+		"SELECT USER,SF_GET_SCHEMA_NAME_BY_ID(CURRENT_SCHID)",
+	).Scan(&loginUser, &activeSchema))
+	require.Equal(t, readerName, loginUser)
+	require.Equal(t, ownerName, activeSchema)
+
+	var sysPrivileges, tablePrivileges string
+	require.NoError(t, admin.QueryRowContext(
+		ctx,
+		"SELECT LISTAGG(PRIVILEGE,',') WITHIN GROUP (ORDER BY PRIVILEGE) FROM SYS.DBA_SYS_PRIVS WHERE GRANTEE=?",
+		readerName,
+	).Scan(&sysPrivileges))
+	require.NoError(t, admin.QueryRowContext(
+		ctx,
+		"SELECT LISTAGG(PRIVILEGE,',') WITHIN GROUP (ORDER BY PRIVILEGE) FROM SYS.DBA_TAB_PRIVS WHERE GRANTEE=?",
+		readerName,
+	).Scan(&tablePrivileges))
+	require.Equal(t, "CREATE SESSION", sysPrivileges)
+	require.Equal(t, "SELECT", tablePrivileges)
+	t.Logf("reader explicit privileges: system=%s table=%s", sysPrivileges, tablePrivileges)
+
+	catalogResult, err := readerExecutor.Query(
+		ctx,
+		"SELECT OWNER,TABLE_NAME FROM SYS.ALL_TABLES WHERE OWNER='"+ownerName+"' AND TABLE_NAME='DM28_DATA'",
+		5,
+	)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{ownerName, "DM28_DATA"}}, catalogResult.Rows)
+	t.Logf("catalog discovery: %v", catalogResult.Rows)
+
+	columns, err := ListSchema(ctx, readerExecutor, ownerName, []SchemaTable{{Table: "DM28_DATA"}})
+	require.NoError(t, err)
+	require.Len(t, columns, 10)
+	wantTypes := []string{"INT", "BIGINT", "VARCHAR", "VARCHAR", "DECIMAL", "TIMESTAMP", "DATE", "VARBINARY", "CLOB", "BLOB"}
+	for index, column := range columns {
+		require.Equal(t, ownerName, column.Schema)
+		require.Equal(t, "DM28_DATA", column.Table)
+		require.Equal(t, index+1, column.Ordinal)
+		require.Equal(t, wantTypes[index], column.DataType)
+	}
+	t.Logf("column discovery/types: %+v", columns)
+
+	result, err := readerExecutor.Query(
+		ctx,
+		"SELECT ID,CODE,NOTE,AMOUNT FROM DM28_DATA WHERE NOTE='O''Reilly @ 上海'",
+		10,
+	)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"1", "K0001", "O'Reilly @ 上海", ".01"}}, result.Rows)
+	t.Logf("controlled quoted/unicode query: %v", result.Rows)
+
+	sample, err := Sample(
+		ctx,
+		readerExecutor,
+		SchemaTable{Schema: ownerName, Table: "DM28_DATA"},
+		[]SampleColumn{
+			{Schema: ownerName, Table: "DM28_DATA", Column: "ID"},
+			{Schema: ownerName, Table: "DM28_DATA", Column: "CODE"},
+		},
+		2,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []string{"ID", "CODE"}, sample.Columns)
+	require.Equal(t, 2, sample.RowCount)
+	t.Logf("typed sample via DM LIMIT: rows=%v", sample.Rows)
+
+	pageZero, err := readerExecutor.Query(ctx, "SELECT ID FROM DM28_DATA ORDER BY ID LIMIT 3 OFFSET 0", 3)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"1"}, {"2"}, {"3"}}, pageZero.Rows)
+	lastPage, err := readerExecutor.Query(ctx, "SELECT ID FROM DM28_DATA ORDER BY ID LIMIT 3 OFFSET 2503", 3)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"2504"}, {"2505"}}, lastPage.Rows)
+	overPage, err := readerExecutor.Query(ctx, "SELECT ID FROM DM28_DATA ORDER BY ID LIMIT 3 OFFSET 2147483647", 3)
+	require.NoError(t, err)
+	require.Empty(t, overPage.Rows)
+	t.Logf("pagination: offset0=%v last=%v huge_offset_rows=%d", pageZero.Rows, lastPage.Rows, overPage.RowCount)
+
+	largeResult, err := readerExecutor.Query(ctx, "SELECT ID,CODE FROM DM28_DATA ORDER BY ID", 2_000)
+	require.NoError(t, err)
+	require.Equal(t, 2_000, largeResult.RowCount)
+	require.True(t, largeResult.Truncated)
+	t.Logf("large result bounded: rows=%d truncated=%t", largeResult.RowCount, largeResult.Truncated)
+
+	indexPlan, err := readerExecutor.Explain(ctx, "SELECT ID,CODE FROM DM28_DATA WHERE CODE='K0001'")
+	require.NoError(t, err)
+	require.True(t, indexPlan.UsesIndex)
+	require.False(t, indexPlan.SeqScan)
+	require.Positive(t, indexPlan.EstScanRows)
+	require.Positive(t, indexPlan.EstCost)
+	require.NotContains(t, indexPlan.Raw, "DM28_DATA")
+	require.NotContains(t, indexPlan.Raw, "K0001")
+	t.Logf("normalized index EXPLAIN: rows=%d cost=%g raw=%q", indexPlan.EstScanRows, indexPlan.EstCost, indexPlan.Raw)
+	seqPlan, err := readerExecutor.Explain(ctx, "SELECT ID FROM DM28_DATA WHERE NOTE='row-2'")
+	require.NoError(t, err)
+	require.True(t, seqPlan.SeqScan)
+	t.Logf("normalized sequential EXPLAIN: rows=%d cost=%g raw=%q", seqPlan.EstScanRows, seqPlan.EstCost, seqPlan.Raw)
+
+	_, err = readerExecutor.Query(ctx, "SELECT MISSING_COLUMN FROM DM28_DATA", 1)
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorCodeColumnNotFound, databaseError.Code)
+	require.Equal(t, "-2111", databaseError.DriverCode)
+	t.Logf("missing column normalized: code=%s driver=%s", databaseError.Code, databaseError.DriverCode)
+	_, err = readerExecutor.Query(ctx, "SELECT * FROM DM28_MISSING", 1)
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorCodeObjectNotFound, databaseError.Code)
+	require.Equal(t, "-2106", databaseError.DriverCode)
+	_, err = readerExecutor.Query(ctx, "SELECT FROM DM28_DATA", 1)
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorCodeSyntax, databaseError.Code)
+	require.Equal(t, "-2007", databaseError.DriverCode)
+	t.Logf("object/syntax normalized: object=-2106 syntax=-2007")
+
+	_, permissionCause := readerDB.ExecContext(
+		ctx,
+		"INSERT INTO "+ownerName+".DM28_DATA(ID,CODE) VALUES(9000,'DENIED')",
+	)
+	require.Error(t, permissionCause)
+	classified, ok := classifyDMError(ctx, DBStageExecute, permissionCause)
+	require.True(t, ok)
+	require.ErrorAs(t, classified, &databaseError)
+	require.Equal(t, DBErrorCodePermission, databaseError.Code)
+	require.Equal(t, "-5501", databaseError.DriverCode)
+	_, permissionCause = readerDB.ExecContext(ctx, "CREATE TABLE "+readerName+".SHOULD_FAIL(ID INT)")
+	require.Error(t, permissionCause)
+	classified, ok = classifyDMError(ctx, DBStageExecute, permissionCause)
+	require.True(t, ok)
+	require.ErrorAs(t, classified, &databaseError)
+	require.Equal(t, DBErrorCodePermission, databaseError.Code)
+	require.Equal(t, "-5515", databaseError.DriverCode)
+	t.Logf("least-privilege denials normalized: insert=-5501 create=-5515")
+
+	session, err := readerExecutor.OpenSession(ctx, "dm-e2e-session")
+	require.NoError(t, err)
+	sessionResult, err := session.Query(ctx, "SELECT ID,CODE FROM DM28_DATA WHERE ID=1", 1)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"1", "K0001"}}, sessionResult.Rows)
 	require.NoError(t, session.Close())
-	result, err = executor.Query(ctx, "SELECT TABLE_NAME FROM SYS.ALL_TABLES WHERE OWNER='SYS'", 2)
-	require.NoError(t, err)
-	require.Equal(t, 2, result.RowCount)
-	require.True(t, result.Truncated)
-	columns, err := ListSchema(ctx, executor, datasource.Database, []SchemaTable{{Schema: "SYS", Table: "ALL_TAB_COLUMNS"}})
-	require.NoError(t, err)
-	require.NotEmpty(t, columns)
+
+	_, lineageErr := parser.NewParser(model.DBDialect("dm"))
+	require.ErrorIs(t, lineageErr, parser.ErrUnsupportedDialect)
+	t.Log("DM lineage parser: fail-closed (unsupported dialect); no lineage PASS claimed")
 }
 
 func TestOracleDiscoveryE2E(t *testing.T) {
