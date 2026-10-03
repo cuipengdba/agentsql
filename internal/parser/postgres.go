@@ -76,16 +76,20 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	if err != nil {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
 	}
-	scanResult, err := pg_query.Scan(sql)
-	if err != nil {
-		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(
-			postgresDialect,
-			fmt.Errorf("scan PostgreSQL SQL before normalization: %w", err),
-		)
-	}
-	normalized, err := normalizePostgresScanResult(sql, scanResult)
-	if err != nil {
-		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+	var scanResult *pg_query.ScanResult
+	normalized := sql
+	if postgresNeedsTokenScan(sql) {
+		scanResult, err = pg_query.Scan(sql)
+		if err != nil {
+			return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(
+				postgresDialect,
+				fmt.Errorf("scan PostgreSQL SQL before normalization: %w", err),
+			)
+		}
+		normalized, err = normalizePostgresScanResult(sql, scanResult)
+		if err != nil {
+			return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
+		}
 	}
 
 	tables := make(objectSet)
@@ -599,6 +603,44 @@ func normalizePostgresScanResult(sql string, scanResult *pg_query.ScanResult) (s
 		return "", fmt.Errorf("redact PostgreSQL string constants: %w", err)
 	}
 	return redacted, nil
+}
+
+// postgresNeedsTokenScan reports whether normalization or comment detection
+// may need PostgreSQL's scanner. ParseToJSON has already validated the SQL at
+// the call site. This deliberately recognizes only a narrow safe path: quoted
+// and dollar-quoted strings, comments, parameters, and numeric literals all
+// fall back to the scanner. Digits following an identifier byte are part of an
+// unquoted identifier and cannot begin a literal token.
+func postgresNeedsTokenScan(sql string) bool {
+	for index := 0; index < len(sql); index++ {
+		switch current := sql[index]; current {
+		case '\'', '$':
+			return true
+		case '-':
+			if index+1 < len(sql) && sql[index+1] == '-' {
+				return true
+			}
+		case '/':
+			if index+1 < len(sql) && sql[index+1] == '*' {
+				return true
+			}
+		default:
+			if current < '0' || current > '9' {
+				continue
+			}
+			if index == 0 || !postgresIdentifierByte(sql[index-1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func postgresIdentifierByte(value byte) bool {
+	return value == '_' || value >= 0x80 ||
+		(value >= 'a' && value <= 'z') ||
+		(value >= 'A' && value <= 'Z') ||
+		(value >= '0' && value <= '9')
 }
 
 func postgresScanContainsLiteral(scanResult *pg_query.ScanResult) bool {
