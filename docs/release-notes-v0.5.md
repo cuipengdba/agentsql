@@ -1,6 +1,6 @@
 # AgentSQL v0.5.0 Release Notes / 发布说明
 
-> 目标发布日 / Target release date: **2026-10-12**
+> 发布闸门 / Release gate: **2026-10-12 16:00 CST**
 >
 > 状态 / Status: **待发布 / Pending release**
 >
@@ -16,7 +16,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 
 ### 新特性与变更
 
-- **DM / Oracle / YashanDB 独立 dialect 边界**：新增独立数据源类型与有界连接/元数据路径；Oracle 完成严格只读子集查询和 `PLAN_TABLE` EXPLAIN 归一化实测。DM 代码路径已完成，但当前凭据被实例拒绝；YashanDB Go 驱动 v1.4.4 与官方 C 客户端 23.4.7.100 已随 Linux 发行物分发。崖山客户端再分发依据为用户于 2026-10-03 声明已取得厂商授权，本仓库未收到书面授权文件。普通查询、EXPLAIN 和写路径设计为 fail-closed，但批二十九真实冒烟发现普通 Query 未按测试预期报错，修复并复验前保留发布阻断。
+- **DM / Oracle / YashanDB 独立 dialect 边界**：新增独立数据源类型与有界连接/元数据路径；Oracle 完成严格只读子集查询和 `PLAN_TABLE` EXPLAIN 归一化实测。DM 代码路径已完成，但当前凭据被实例拒绝；YashanDB Go 驱动 v1.4.4 与官方 C 客户端 23.4.7.100 计划随 Linux 发行物分发。崖山客户端再分发依据为用户于 2026-10-03 声明已取得厂商授权，本仓库未收到书面授权文件。批三十提交 `33f2d56` 已修复 pool/physical session 普通 Query 边界并在真实 23.4.1.109 实例复验 fail-closed；EXPLAIN 和写路径仍不宣称可用。批三十一发现旧 dry-run 包未包含新驱动/客户端，必须由封板提交重新构建。
 - **OpenTenBase 双内核深化**：OpenTenBase v2.5.0 PostgreSQL 内核对特定远程计划实现严格、版本受限的规范化，指定单机 GTM/CN/DN 拓扑的最小安全闭环有实测记录。TXSQL/MySQL 内核是独立路线，本版未实测、未实现产品专用代码。
 - **PolarDB 兼容路径**：指定 PolarDB for PostgreSQL 15 社区镜像通过现有 `postgres` 路径完成 Ping、discovery、R006 拒绝、EXPLAIN、只读查询、脱敏与审计闭环；未新增 PolarDB 别名或厂商识别开关。
 - **EXPLAIN 兼容适配**：增加 OpenTenBase、TiDB 和 OceanBase 的严格计划适配与回归 fixture；未知版本、列、节点或计划形态继续 fail-closed。TiDB / OceanBase 本批有代码回归证据，不借此宣称厂商环境完整闭环已通过。
@@ -37,7 +37,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 | MySQL 8 | 原生支持 | 表级授权与单请求执行；不声称 B2 列级授权 |
 | DM8 | 独立 dialect 最小切片 | 连接/元数据与严格只读代码路径已落地；当前凭据无效，真库 Query 与 EXPLAIN 待验证 |
 | Oracle Free 23.26.3 | 独立 dialect 有界实测 | 严格 SELECT 子集、元数据和 EXPLAIN 归一化有记录；完整 parser、写入、列授权/脱敏 pipeline 未实现 |
-| YashanDB 23.4.1.109 | 独立 dialect 最小切片 | 连接、当前 schema 和列发现实测可达；通用 Query fail-closed 断言当前失败，修复并复验前阻断发布；EXPLAIN / 写路径仍不宣称可用 |
+| YashanDB 23.4.1.109 | 独立 dialect 最小切片 | 连接、当前 schema 和列发现实测可达；提交 `33f2d56` 已在真实实例复验通用 Query fail-closed；EXPLAIN / 写路径仍不宣称可用；发布包双架构重建待发布日 |
 | OpenTenBase v2.5.0（PG 内核） | 指定环境协议路径闭环通过 | 仅指定单机 GTM/CN/DN 和已知计划形态；非厂商认证 |
 | TXSQL/MySQL 内核 | 待官方环境实测 | 未实现产品专用代码；不用普通 MySQL 结果替代 |
 | PolarDB for PostgreSQL 15 | 指定社区镜像协议路径闭环通过 | 复用 `postgres`；商业服务拓扑、TLS、故障切换待联合终验 |
@@ -78,27 +78,27 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 
 | # | GitHub Release 资产 | 用途 | 状态 |
 | ---: | --- | --- | --- |
-| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | amd64 glibc 2.28+ 原生包 | 待构建 |
-| 2 | `agentsql-v0.5.0-linux-amd64.tar.gz.sha256` | amd64 外层 SHA-256 | 待构建 |
-| 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | arm64 glibc 2.28+ 原生包 | 待构建 |
-| 4 | `agentsql-v0.5.0-linux-arm64.tar.gz.sha256` | arm64 外层 SHA-256 | 待构建 |
-| 5 | `agentsql-v0.5.0.spdx.json` | SPDX SBOM | 待生成 |
+| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | amd64 glibc 2.28+ 原生包 | 发布日重建；旧 dry-run 包缺 Yashan runtime，不可用 |
+| 2 | `agentsql-v0.5.0-linux-amd64.tar.gz.sha256` | amd64 外层 SHA-256 | 随 #1 重建 |
+| 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | arm64 glibc 2.28+ 原生包 | 发布日重建；旧 dry-run 包缺 Yashan runtime，不可用 |
+| 4 | `agentsql-v0.5.0-linux-arm64.tar.gz.sha256` | arm64 外层 SHA-256 | 随 #3 重建 |
+| 5 | `agentsql-v0.5.0.spdx.json` | SPDX SBOM | 发布日从 sealed 双架构二进制生成 |
 | 6 | `agentsql-v0.5.0.spdx.json.sig.json` | SBOM Ed25519 签名 | 待签名 |
 | 7 | `ed25519-release-public-key.json` | 发布公钥 | 待复核/导出 |
-| 8 | `go-version-metadata.txt` | Go 工具链与模块元数据 | 待生成 |
+| 8 | `go-version-metadata.txt` | Go 工具链与模块元数据 | 发布日重建；旧文件缺 `yashandb-go v1.4.4` |
 | 9 | `install.sh` | 架构感知安装器 | 待从封板提交导出 |
-| 10 | `provenance.json` | 产物来源记录 | 待生成 |
+| 10 | `provenance.json` | 产物来源记录 | `-ProductionPrepare` 命令已补；待发布日生成 |
 | 11 | `provenance.json.sig.json` | provenance Ed25519 签名 | 待签名 |
-| 12 | `SBOM-GENERATION.txt` | SBOM 生成说明 | 待生成 |
-| 13 | `SHA256SUMS` | 15 资产统一校验和 | 待生成 |
+| 12 | `SBOM-GENERATION.txt` | SBOM 生成说明 | `-ProductionPrepare` 命令已补；待发布日生成 |
+| 13 | `SHA256SUMS` | 除自身及其签名外 13 项的统一校验和 | 待发布日生成 |
 | 14 | `SHA256SUMS.sig.json` | 校验和 Ed25519 签名 | 待签名 |
-| 15 | `VERIFYING-SIGNATURES.md` | 签名验证说明 | 待生成 |
+| 15 | `VERIFYING-SIGNATURES.md` | 签名验证说明 | `-ProductionPrepare` 命令已补；待发布日生成 |
 
 | 其他分发项 | 状态 | 发布日验收 |
 | --- | --- | --- |
-| `ghcr.io/cuipengdba/agentsql:v0.5.0` | 本地非推送双架构构建已通过；推送待发布日 | 本地 OCI/digest 已记录；发布日仍须匿名 pull 并确认 `/healthz` 回报 `v0.5.0` |
+| `ghcr.io/cuipengdba/agentsql:v0.5.0` | 旧 OCI 有双架构 descriptor，但缺新 Yashan 内容；当前 HEAD 待发布日重建 | 发布日须匿名双架构 pull 并确认 `/healthz` 回报 `v0.5.0` |
 | `ghcr.io/cuipengdba/agentsql:latest` | 待发布日移动 | 仅在精确 tag 验收后指向同一 digest |
-| `v0.5.0-demo` / `v0.5.0-quickstart` 辅助镜像 | 本地非推送双架构构建已通过 | `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` 已按现有 Dockerfile 分别生成 OCI 归档和 digest JSON，并离线核对 amd64/arm64 descriptor；发布日仍需推送并匿名拉取 |
+| `v0.5.0-demo` / `v0.5.0-quickstart` 辅助镜像 | 旧归档证实 quickstart 只是主镜像换 tag；构建图已修复，当前 HEAD 待重建 | Buildx Bake 的 quickstart target 从同图 demo base 叠加两份配置；发布日需核对文件存在、双架构 descriptor、Compose seed/gateway/reset |
 | `docs/release-notes-v0.5.md` | 已完成（本草稿） | 发布日复核日期、状态和 SHA-256 |
 | `CHANGELOG.md` | 已更新为待发布条目 | 发布后才可改成“已发布” |
 | 官网三份 v0.5.0 PDF | 待重导 | 按 `website/tools/build-docs-pdf.mjs` 重导并通过 `verify-static.sh`；本批不制造空链接 |
@@ -121,13 +121,13 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 安全 | 支持版本矩阵 | **已完成** | v0.5.x 支持至 v0.6.0 发布后 6 个月且不早于 2027-10-31；v0.4.x 支持至 2027-04-30；0.3.x 及更早 EOL |
 | 安全 | Private Vulnerability Reporting（PVR） | **待发布日** | 匿名 API 不返回该设置；由仓库管理员在 Security settings 复核为开启 |
 | 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | 批十九已降低 PostgreSQL parser 主体延迟和分配，但同环境独占 5 轮 P99 仍有 3 轮超过 5 ms（5.576/4.906/4.744/5.485/5.643 ms）；不得据此清零闸门，仍须在标准 Linux runner 独占复核并稳定通过后才可发布 |
-| 构建 | 固定 Rocky Linux 8 digest 构建 amd64/arm64 | **待发布日** | 两个二进制均回报 `v0.5.0`，GLIBC 符号不高于 2.28 |
-| 构建 | 崖山驱动与 C 客户端双架构打包 | **本批已落地；构建验收见交付证据** | `yashandb-go@v1.4.4`；客户端 23.4.7.100 固定官方仓库提交与双架构 SHA-256，dry-run 校验驱动元数据及 tar 内运行库 |
-| 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **dry-run 已补齐；生产签名待发布日** | `scripts/release-dryrun.ps1` 编排双架构包、SBOM、metadata、provenance 和说明；dry-run 只生成显式不可发布的未签名占位文档，绝不读取私钥 |
-| 校验 | SHA-256 与签名双重验证 | **本地 SHA-256 闭环已补齐；生产签名待发布日** | dry-run 断言恰好 15 项，回验 tarball sidecar 与统一 `SHA256SUMS` 并输出逐项名称/大小/SHA-256；有效 Ed25519 签名仍须发布日替换占位文档后验证 |
+| 构建 | 固定 Rocky Linux 8 digest + Go 1.26.8 构建 amd64/arm64 | **待发布日** | `go.mod` 为 1.26；脚本设 `GOTOOLCHAIN=local` 防止隐式换工具链；两个二进制均须回报 `v0.5.0`，GLIBC 符号不高于 2.28 |
+| 构建 | 崖山驱动与 C 客户端双架构打包 | **脚本已落地；当前产物阻塞** | `yashandb-go@v1.4.4` 与客户端 23.4.7.100 的固定版本/SHA 已在脚本；批三十一验证旧 tar/metadata 不含它们，必须由 sealed commit 双架构重建 |
+| 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **dry-run/生产准备命令已补；实跑待发布日** | dry-run 生成不可发布占位；`-ProductionPrepare` 从干净工作树和正式公钥生成 11 个待签名文件；生产签名仍待发布日 |
+| 校验 | SHA-256 与签名双重验证 | **校验逻辑已补；当前 15 项 FAIL** | 旧目录真实在 Yashan metadata 闸门失败；发布日最终 15 项须通过三次密码学验签、sidecar/manifest 和 provenance commit 校验 |
 | 草稿 | 建立 GitHub Release draft 并上传恰好 15 资产 | **待发布日** | 本批禁止创建；草稿中先验证名称、大小、SHA-256 和下载 |
-| 镜像 | 推送 `v0.5.0`，设 GHCR public，匿名双架构 pull | **本地非推送命令已补齐；发布闸门待发布日** | dry-run 生成主镜像 OCI 与结构化 digest 记录；发布日先验精确 tag，后更新 `latest` |
-| Demo | 生成辅助镜像并执行 reset | **辅助 tag 本地命令已补齐；联调待发布日** | `-IncludeAuxiliaryTags` 分别构建 `v0.5.0-demo` / `v0.5.0-quickstart` 并记录 digest；reset、推送和匿名拉取仍待发布日 |
+| 镜像 | 推送 `v0.5.0`，设 GHCR public，匿名双架构 pull | **顺序缺口已修；构建/发布闸门待发布日** | `-Push` 不再移动 latest；精确 tag 验收后单独 `-PromoteLatest` 并比较 digest |
+| Demo | 生成辅助镜像并执行 reset | **quickstart 构建缺口已修；实跑待发布日** | `-IncludeAuxiliaryTags` 用独立 quickstart target 加入 demo 配置；旧同 digest 归档不可作为通过证据 |
 | 官网 | 重导 PDF、运行静态验收、部署 | **待发布日** | 先验 Release/镜像/Demo，再部署；复核 HTTPS、`www` 301、sitemap 和 security.txt |
 | 搜索 | 放行主站、保持 `/demo/` noindex | **待发布日** | 主页 `index,follow`；`robots.txt` 为 `Allow: /` + `Disallow: /demo/`；demo meta 仍 `noindex,nofollow` |
 | 发布 | Release draft → 正式 | **待发布日** | 只在上述闸门全绿后发布；本批禁止执行 |
@@ -135,10 +135,11 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 
 ### 发布链待办
 
-1. **本批已补齐本地 dry-run。** `scripts/release-dryrun.ps1` 一条命令复用 v0.4.0 双架构构建/打包与 SBOM 路径，在 `dist/release-dryrun/v0.5.0/assets/` 组装并校验恰好 15 项，生成统一 `SHA256SUMS` 并输出逐项名称、大小和 SHA-256；`evidence/` 单独保存 OCI/digest 证据，不混入 Release 资产。仓库仍不新增未经演练的 Release CI。dry-run 的公钥与三份签名文件是显式 `dryRun=true`、`signed=false` 的不可发布占位文档；生产签名和验签仍是不可跳过的发布日人工闸门。
-2. **本批已补齐并实跑辅助 tag 非推送命令。** `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` 保持主镜像精确 tag 与显式 `-Push` 才移动 `latest` 的既有规则，同时分别为 `v0.5.0-demo` / `v0.5.0-quickstart` 生成双架构 OCI 归档和结构化 digest JSON。本地离线检查确认三个归档均包含 amd64/arm64 descriptor；发布日仍须由主控执行推送、GHCR public 和匿名双架构拉取验收。
-3. PVR 设置、GHCR public、官网实时状态和搜索放行需管理员/外网证据；当前无法从匿名 API 完整取证的项均保持“待发布日”。
-4. **支持矩阵已按 2026-10-03 用户定案更新。** v0.5.x 与 v0.4.x 的截止口径已同步到中英文安全文档，0.3.x 及更早标记为 EOL。
+1. **批三十一真实 dry-run 结论为阻塞。** 旧 15 项在 Yashan metadata 闸门 fail-closed，两个 tar 也缺两份客户端库；当前 HEAD 的完整重建需要任务书要求本批跳过的外网。详细命令与输出见 [`release-day-checklist-v0.5.md`](release-day-checklist-v0.5.md)。
+2. **辅助镜像缺口已修但未冒充实跑通过。** 旧三个 OCI 的平台 manifest digest 相同，证实旧 quickstart 只是换 tag；新 `quickstart` target 会加入 `config.demo.yaml` / `demo-seed.yaml`。`-Push` 与 `-PromoteLatest` 已拆开，避免精确 tag 验收前移动 latest。
+3. **生产候选命令已补。** `-ProductionPrepare -PublicKeyPath` 要求完全干净工作树并输出 11 个非 dry-run 待签名文件；发布日补齐三份签名和 `SHA256SUMS` 后，才可用 `-ValidateOnly` 核对 15 项并逐份密码学验签。
+4. PVR 设置、GHCR public、官网实时状态和搜索放行需管理员/外网证据；当前无法从匿名 API 完整取证的项均保持“待发布日”。
+5. **支持矩阵已按 2026-10-03 用户定案更新。** v0.5.x 与 v0.4.x 的截止口径已同步到中英文安全文档，0.3.x 及更早标记为 EOL。
 
 ### PostgreSQL parser P99 调查（批十九）
 
@@ -161,7 +162,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 
 ### Highlights
 
-- Independent dialect boundaries for DM, Oracle, and YashanDB. Oracle has evidence for the strict read-only subset and normalized `PLAN_TABLE` EXPLAIN. DM live query/EXPLAIN remains pending valid credentials. The Linux artifacts now include `yashandb-go@v1.4.4` and the official 23.4.7.100 C client under the user's 2026-10-03 declaration of vendor redistribution authorization; no written authorization file was supplied. YashanDB general query, EXPLAIN, and writes are designed to remain disabled, but the batch-29 live smoke found that a general Query did not return the error required by the existing test. Release remains blocked until that boundary is fixed and revalidated.
+- Independent dialect boundaries for DM, Oracle, and YashanDB. Oracle has evidence for the strict read-only subset and normalized `PLAN_TABLE` EXPLAIN. DM live query/EXPLAIN remains pending valid credentials. Commit `33f2d56` fixed and revalidated the YashanDB pool/physical-session general-Query fail-closed boundary against a real 23.4.1.109 instance; EXPLAIN and writes remain unavailable. The planned Linux artifacts include `yashandb-go@v1.4.4` and the official 23.4.7.100 C client under the user's 2026-10-03 declaration of vendor redistribution authorization, but batch 31 proved that the stale local dry-run artifacts do not contain them and must be rebuilt from the sealed commit.
 - Strict, version-gated OpenTenBase v2.5.0 PostgreSQL-plan normalization and a scoped single-node GTM/CN/DN safety-loop record. TXSQL/MySQL is a separate, untested path with no product-specific implementation in this release.
 - A scoped PolarDB for PostgreSQL 15 community-image exercise through the existing `postgres` path, with no PolarDB alias or vendor-identification switch.
 - Fail-closed EXPLAIN adapters and regression fixtures for OpenTenBase, TiDB, and OceanBase. Fixture coverage is not represented as full vendor-environment certification.
@@ -181,4 +182,4 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 
 ### Release assets and release-day gates
 
-The v0.5.0 GitHub Release must contain exactly the same 15 named asset classes listed in the Chinese asset table, with `v0.5.0` substituted in versioned filenames. `scripts/release-dryrun.ps1` now assembles and checksum-verifies that 15-file topology locally, while deliberately emitting unmistakable unsigned, non-releasable placeholders for the public key and three signatures. `scripts/build-ghcr-multiarch.ps1 -IncludeAuxiliaryTags` adds non-pushing, digest-recorded builds for the demo and quickstart tags. Production signing and verification, GHCR push/public/anonymous pull, GitHub Release creation, website PDFs/deployment, demo reset, search-index gate, PVR verification, draft-to-final transition, tag creation, and post-release anonymous smoke tests remain release-day actions. No publication, tag, merge, or push is performed by this preparation batch.
+The v0.5.0 GitHub Release must contain exactly the 15 named assets in the Chinese table. Batch 31 did not obtain a current green dry-run: the stale local set fails the new Yashan metadata/library gates, while a sealed-current rebuild requires release-day network access. `scripts/release-dryrun.ps1 -ProductionPrepare` now creates the 11 non-signature production candidates from a clean worktree and authorized public key; the release owner must add two content signatures, `SHA256SUMS`, and its signature, then cryptographically verify all three signatures and run `-ValidateOnly`. The GHCR script now builds a real quickstart target, validates OCI platforms, pushes exact tags without moving `latest`, and exposes a separate post-validation `-PromoteLatest` action. The full ordered checklist is in `release-day-checklist-v0.5.md`. No signing, tag, Release, image push, or publication was performed in batch 31.

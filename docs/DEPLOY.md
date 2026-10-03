@@ -843,22 +843,28 @@ COMMIT;
 
 ## 发布与分发
 
-发布者应按以下顺序构建、验证并分发同一版本。正式发布建议把 `ROCKY_IMAGE` 固定到审核过的 `rockylinux:8@sha256:...`，默认值仍为 `rockylinux:8`：
+发布者应按以下顺序构建、验证并分发同一版本。完整命令、凭据和验收点见 [`release-day-checklist-v0.5.md`](release-day-checklist-v0.5.md)。正式发布必须使用 `scripts/release-dryrun.ps1` 已固定并审核的 Rocky Linux 与 Syft digest；禁止把未固定的 `rockylinux:8` 默认值用于正式产物：
 
-```bash
-make release-linux-amd64 VERSION=v0.5.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
-make release-linux-arm64 VERSION=v0.5.0 ROCKY_IMAGE=rockylinux:8@sha256:<reviewed-digest>
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0
-# 负责人取得 write:packages 后才执行：
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0 -Push
+```powershell
+# 无私钥、无 push 的完整双架构预演：15 个不可发布 dry-run 资产 + 三个 OCI 证据
+pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0
+
+# 发布日：由正式公钥生成 11 个待签名生产候选；随后按发布日清单签名并组成 15 项
+pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0 -ProductionPrepare -PublicKeyPath X:\secure\ed25519-release-public-key-v0.5.0.json
+
+# 负责人取得 write:packages 后，只推精确版本和辅助 tag，不移动 latest
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0 -IncludeAuxiliaryTags -Push
+
+# 精确 tag 完成 public + 匿名双架构验收后，才单独移动 latest
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0 -PromoteLatest
 ```
 
-多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.5.0-oci.tar`，不登录、不推送。`-Push` 分支才会推送精确版本 tag 与 `latest`，随后请求把 GHCR package 设为 public；推送前负责人必须在其设备执行 `gh auth refresh -h github.com -s write:packages`。之后必须按顺序完成：
+多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.5.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag 并请求把 GHCR package 设为 public；推送前负责人必须在其设备执行 `gh auth refresh -h github.com -s write:packages`。`latest` 只能由独立的 `-PromoteLatest` 在精确 tag 验收后移动。之后必须按顺序完成：
 
-1. 核对 GHCR 中 `ghcr.io/cuipengdba/agentsql:v0.5.0` 与 `latest` 均指向包含 `linux/amd64`、`linux/arm64` 的 manifest list，且 package 为 public。
-2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.5.0`；Docker 会自动匹配架构。两边均以回环端口启动，验证 `/healthz` 返回 `v0.5.0` 且 `/readyz` 就绪。
-3. 把 `dist/agentsql-v0.5.0-linux-amd64.tar.gz`、`dist/agentsql-v0.5.0-linux-arm64.tar.gz`、各自同名 `.sha256` 和固定名 `dist/install.sh` 上传到同一个 GitHub Release。v0.4.0 起提供 linux/arm64 原生 glibc 包；正式封板前版本号仍按发布流程统一确定。
-4. 再次下载 Release 资产，校验外层 SHA-256、包内 `SHA256SUMS` 和两个二进制版本，全部通过后发布 Release。
+1. 核对 GHCR 中 `v0.5.0`、`v0.5.0-demo`、`v0.5.0-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
+2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.5.0`；两边均以回环端口启动，验证 `/healthz` 返回 `v0.5.0` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。
+3. 只有第 1–2 步通过后才执行 `-PromoteLatest`，并核对 `latest` 与 `v0.5.0` 顶层 digest 相同；随后再做一次匿名 pull。
+4. GitHub Release 必须上传发布日清单定义的恰好 15 个文件，而不是仅上传 tar、sidecar 和安装器。draft 回下载后重算外层/包内 SHA-256、执行三份 Ed25519 密码学验签、核对 provenance commit、两个二进制版本及 Yashan driver/client 双架构内容；全部通过后才转正式。
 
 `scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。
 

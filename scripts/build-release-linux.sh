@@ -4,7 +4,7 @@ set -eu
 
 ARCH=${ARCH:-amd64}
 VERSION=${VERSION:-v0.5.0}
-GO_VERSION=${GO_VERSION:-1.25.14}
+GO_VERSION=${GO_VERSION:-1.26.8}
 GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
 YASHAN_CLIENT_VERSION=${YASHAN_CLIENT_VERSION:-23.4.7.100}
 YASHAN_CLIENT_REVISION=${YASHAN_CLIENT_REVISION:-a72b24d63ba0e43820c43d7443c0e4fd0ab304fd}
@@ -63,11 +63,13 @@ echo "Go tarball SHA-256 verified against go.dev: $go_filename"
 tar -C /usr/local -xzf /tmp/go.tgz
 export PATH="/usr/local/go/bin:$PATH"
 export GOROOT=/usr/local/go
+export GOTOOLCHAIN=local
 
 cd /src
 export GOPROXY GOOS=linux GOARCH="$ARCH" CGO_ENABLED=1 GOCACHE=/tmp/gocache GOTMPDIR=/tmp
 export GOFLAGS=
 go version
+[ "$(go version | awk '{print $3}')" = "go${GO_VERSION}" ] || die "Installed Go toolchain does not report go${GO_VERSION}."
 go env GOOS GOARCH CGO_ENABLED CC GOARM64
 mkdir -p bin
 go mod download

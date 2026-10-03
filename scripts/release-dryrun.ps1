@@ -1,5 +1,6 @@
-# Assemble and verify the v0.4-style 15-file AgentSQL release set without
-# reading a signing key, pushing an image, changing git, or calling GitHub.
+# Assemble and verify the v0.4-style 15-file AgentSQL dry-run set, or prepare
+# the 11 unsigned production candidates, without reading a private signing key,
+# pushing an image, changing git, or calling GitHub.
 [CmdletBinding()]
 param(
     [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')]
@@ -19,6 +20,10 @@ param(
     [string]$SyftImage = 'anchore/syft@sha256:f94e5d9fce1f2278491a8e3a63bd5f6ddb81fdfdbb8bf7a1637565c1d5344357',
 
     [switch]$SkipImages,
+
+    [switch]$ProductionPrepare,
+
+    [string]$PublicKeyPath,
 
     [switch]$ValidateOnly
 )
@@ -147,7 +152,8 @@ function Assert-YashanRedistribution {
 function Test-ReleaseAssets {
     param(
         [Parameter(Mandatory = $true)][string]$Directory,
-        [Parameter(Mandatory = $true)][string]$ReleaseVersion
+        [Parameter(Mandatory = $true)][string]$ReleaseVersion,
+        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit
     )
     if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
         throw "Asset directory does not exist: $Directory"
@@ -188,6 +194,14 @@ function Test-ReleaseAssets {
     Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
     Assert-YashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
 
+    $provenanceDocument = Get-Content -LiteralPath (Join-Path $Directory 'provenance.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$provenanceDocument.version -ne $ReleaseVersion) {
+        throw "provenance.json version '$($provenanceDocument.version)' does not match '$ReleaseVersion'."
+    }
+    if ([string]$provenanceDocument.source.commit -ne $ExpectedCommit) {
+        throw "provenance.json source commit '$($provenanceDocument.source.commit)' does not match expected commit '$ExpectedCommit'."
+    }
+
     $publicDocument = Get-Content -LiteralPath (Join-Path $Directory 'ed25519-release-public-key.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $isDryRunSet = $publicDocument.PSObject.Properties['dryRun'] -and $publicDocument.dryRun -eq $true
     if ($isDryRunSet) {
@@ -221,6 +235,9 @@ function Test-ReleaseAssets {
 }
 
 if ($ValidateOnly) {
+    if ($ProductionPrepare -or $PublicKeyPath) {
+        throw '-ValidateOnly cannot be combined with -ProductionPrepare or -PublicKeyPath.'
+    }
     if (-not $AssetsDirectory) {
         throw '-ValidateOnly requires -AssetsDirectory.'
     }
@@ -228,7 +245,11 @@ if ($ValidateOnly) {
         $AssetsDirectory = Join-Path $repositoryRoot $AssetsDirectory
     }
     $AssetsDirectory = [System.IO.Path]::GetFullPath($AssetsDirectory)
-    Test-ReleaseAssets -Directory $AssetsDirectory -ReleaseVersion $Version | Out-Null
+    $validationCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $validationCommit -notmatch '^[0-9a-f]{40}$') {
+        throw 'Could not read the expected git commit for validation.'
+    }
+    Test-ReleaseAssets -Directory $AssetsDirectory -ReleaseVersion $Version -ExpectedCommit $validationCommit | Out-Null
     Write-Host 'RELEASE_DRYRUN_VALIDATE_ONLY=PASS'
     exit 0
 }
@@ -236,8 +257,15 @@ if ($ValidateOnly) {
 if ($AssetsDirectory) {
     throw '-AssetsDirectory is valid only with -ValidateOnly.'
 }
+if ($ProductionPrepare -and -not $PublicKeyPath) {
+    throw '-ProductionPrepare requires -PublicKeyPath containing the authorized release public-key document.'
+}
+if (-not $ProductionPrepare -and $PublicKeyPath) {
+    throw '-PublicKeyPath is valid only with -ProductionPrepare.'
+}
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $repositoryRoot "dist/release-dryrun/$Version"
+    $outputKind = if ($ProductionPrepare) { 'release-prepare' } else { 'release-dryrun' }
+    $OutputDirectory = Join-Path $repositoryRoot "dist/$outputKind/$Version"
 }
 elseif (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot $OutputDirectory
@@ -255,6 +283,30 @@ if (-not $SourceDateEpoch) {
     $SourceDateEpoch = (& git -C $repositoryRoot show -s --format=%ct HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $SourceDateEpoch -notmatch '^[0-9]+$') {
         throw 'Could not derive SOURCE_DATE_EPOCH from HEAD.'
+    }
+}
+
+if ($ProductionPrepare) {
+    $productionDirty = @(& git -C $repositoryRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not verify the production source worktree state.'
+    }
+    if ($productionDirty.Count -gt 0) {
+        throw "Production preparation requires a completely clean worktree. Found: $($productionDirty -join '; ')"
+    }
+    if (-not [System.IO.Path]::IsPathRooted($PublicKeyPath)) {
+        $PublicKeyPath = Join-Path $repositoryRoot $PublicKeyPath
+    }
+    $PublicKeyPath = [System.IO.Path]::GetFullPath($PublicKeyPath)
+    if (-not (Test-Path -LiteralPath $PublicKeyPath -PathType Leaf)) {
+        throw "Release public-key document does not exist: $PublicKeyPath"
+    }
+    $productionPublicDocument = Get-Content -LiteralPath $PublicKeyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$productionPublicDocument.algorithm -ne 'Ed25519' -or
+        [string]$productionPublicDocument.keyClass -ne 'release' -or
+        [string]$productionPublicDocument.keyId -notmatch '^sha256:[0-9a-f]{64}$' -or
+        [string]$productionPublicDocument.publicKeyBase64 -eq '') {
+        throw 'Release public-key document is not a structurally valid Ed25519 release key.'
     }
 }
 
@@ -282,7 +334,7 @@ foreach ($architecture in @('amd64', 'arm64')) {
         'run', '--rm', '--platform', "linux/$architecture",
         '-e', "ARCH=$architecture",
         '-e', "VERSION=$Version",
-        '-e', 'GO_VERSION=1.25.14',
+        '-e', 'GO_VERSION=1.26.8',
         '-e', 'GOPROXY=https://goproxy.cn,direct',
         '-e', "SOURCE_DATE_EPOCH=$SourceDateEpoch",
         '-v', "${repositoryRoot}:/src",
@@ -338,14 +390,26 @@ $sbomPath = Join-Path $assetsPath $sbomName
 $sbom = Get-Content -LiteralPath $sbomPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $createdAt = [DateTimeOffset]::FromUnixTimeSeconds([long]$SourceDateEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
 $sbom.creationInfo.created = $createdAt
-$sbom.documentNamespace = "https://github.com/cuipengdba/agentsql/releases/dry-run/$Version/$SourceDateEpoch"
+$sbom.documentNamespace = if ($ProductionPrepare) {
+    "https://github.com/cuipengdba/agentsql/releases/download/$Version/$sbomName"
+}
+else {
+    "https://github.com/cuipengdba/agentsql/releases/dry-run/$Version/$SourceDateEpoch"
+}
 Write-JsonFile -Path $sbomPath -Value $sbom -Depth 100
 
 $packageCount = @($sbom.packages).Count
 $relationshipCount = @($sbom.relationships).Count
+$sbomTitle = if ($ProductionPrepare) { "AgentSQL $Version production SBOM generation" } else { "AgentSQL $Version dry-run SBOM generation" }
+$sbomClosing = if ($ProductionPrepare) {
+    'This production candidate must be signed and verified before upload.'
+}
+else {
+    'Release day must rerun the pinned generator against the sealed source and binaries before production signing.'
+}
 $sbomInstructions = @"
-AgentSQL $Version dry-run SBOM generation
-========================================
+$sbomTitle
+$('=' * $sbomTitle.Length)
 
 Format: SPDX 2.3 JSON
 Generator image: $SyftImage
@@ -354,9 +418,8 @@ SOURCE_DATE_EPOCH: $SourceDateEpoch
 
 The offline scan input contains go.mod, go.sum, web/package.json,
 web/package-lock.json, and both AgentSQL Linux binaries for amd64 and arm64.
-Online enrichment is disabled. This dry-run found $packageCount packages and
-$relationshipCount relationships. Release day must rerun the pinned generator
-against the sealed source and binaries before production signing.
+Online enrichment is disabled. This run found $packageCount packages and
+$relationshipCount relationships. $sbomClosing
 "@
 Write-Utf8File -Path (Join-Path $assetsPath 'SBOM-GENERATION.txt') -Content $sbomInstructions
 
@@ -383,11 +446,9 @@ $subjects = foreach ($name in $subjectNames) {
 }
 $provenance = [ordered]@{
     schemaVersion = 1
-    documentType  = 'AgentSQL release dry-run provenance'
+    documentType  = if ($ProductionPrepare) { 'AgentSQL official release provenance' } else { 'AgentSQL release dry-run provenance' }
     version       = $Version
-    dryRun        = $true
-    releasable    = $false
-    notice        = 'DRY RUN ONLY: unsigned, not for upload or publication.'
+    notice        = if ($ProductionPrepare) { 'Production candidate: sign and verify all required documents before upload.' } else { 'DRY RUN ONLY: unsigned, not for upload or publication.' }
     source        = [ordered]@{
         repository      = 'https://github.com/cuipengdba/agentsql'
         branch          = $branch
@@ -398,9 +459,9 @@ $provenance = [ordered]@{
     subjects      = @($subjects)
     inputs        = @($inputs)
     builder       = [ordered]@{
-        kind       = 'local Docker dry-run'
+        kind       = if ($ProductionPrepare) { 'local Docker production preparation' } else { 'local Docker dry-run' }
         rockyImage = $RockyImage
-        go         = '1.25.14'
+        go         = '1.26.8'
         syftImage  = $SyftImage
         cgo        = $true
     }
@@ -409,20 +470,35 @@ $provenance = [ordered]@{
         'build-release-linux.sh + package-release.sh (linux/arm64)',
         'syft dir:/scan --enrich=[] -o spdx-json'
     )
-    signing       = [ordered]@{ status = 'not-performed'; reason = 'dry-run is forbidden from accessing a signing private key' }
+    signing       = if ($ProductionPrepare) {
+        [ordered]@{ status = 'detached-signature-required'; reason = 'the production assembler never reads a private signing key' }
+    }
+    else {
+        [ordered]@{ status = 'not-performed'; reason = 'dry-run is forbidden from accessing a signing private key' }
+    }
     generatedAt   = $createdAt
+}
+if (-not $ProductionPrepare) {
+    $provenance.Insert(3, 'dryRun', $true)
+    $provenance.Insert(4, 'releasable', $false)
 }
 Write-JsonFile -Path (Join-Path $assetsPath 'provenance.json') -Value $provenance -Depth 30
 
-$publicPlaceholder = [ordered]@{
-    schemaVersion = 1
-    dryRun        = $true
-    signed        = $false
-    releasable    = $false
-    artifact      = 'ed25519-release-public-key.json'
-    notice        = 'DRY RUN ONLY: production public key export is a release-day manual gate.'
+$publicAssetPath = Join-Path $assetsPath 'ed25519-release-public-key.json'
+if ($ProductionPrepare) {
+    Copy-Item -LiteralPath $PublicKeyPath -Destination $publicAssetPath
 }
-Write-JsonFile -Path (Join-Path $assetsPath 'ed25519-release-public-key.json') -Value $publicPlaceholder
+else {
+    $publicPlaceholder = [ordered]@{
+        schemaVersion = 1
+        dryRun        = $true
+        signed        = $false
+        releasable    = $false
+        artifact      = 'ed25519-release-public-key.json'
+        notice        = 'DRY RUN ONLY: production public key export is a release-day manual gate.'
+    }
+    Write-JsonFile -Path $publicAssetPath -Value $publicPlaceholder
+}
 
 function Write-UnsignedPlaceholder {
     param(
@@ -441,10 +517,34 @@ function Write-UnsignedPlaceholder {
     Write-JsonFile -Path (Join-Path $assetsPath $SignatureName) -Value $placeholder
 }
 
-Write-UnsignedPlaceholder -ArtifactName $sbomName -SignatureName "$sbomName.sig.json"
-Write-UnsignedPlaceholder -ArtifactName 'provenance.json' -SignatureName 'provenance.json.sig.json'
+if (-not $ProductionPrepare) {
+    Write-UnsignedPlaceholder -ArtifactName $sbomName -SignatureName "$sbomName.sig.json"
+    Write-UnsignedPlaceholder -ArtifactName 'provenance.json' -SignatureName 'provenance.json.sig.json'
+}
 
-$verificationInstructions = @"
+$verificationInstructions = if ($ProductionPrepare) {
+@"
+# Release signature verification ($Version)
+
+These are detached Ed25519 signatures over the raw bytes of each named file.
+Verify the SPDX SBOM, `provenance.json`, and `SHA256SUMS` with the checked-in
+`scripts/releasesign/main.go` helper and `ed25519-release-public-key.json`
+before uploading any asset. Also run `scripts/release-dryrun.ps1 -ValidateOnly`
+against the completed 15-file directory from the sealed release commit.
+
+From a repository checkout at tag $Version, set `$AssetDirectory to the
+download directory and run:
+
+```powershell
+go run ./scripts/releasesign/main.go -mode verify -public "`$AssetDirectory/ed25519-release-public-key.json" -input "`$AssetDirectory/$sbomName" -signature "`$AssetDirectory/$sbomName.sig.json"
+go run ./scripts/releasesign/main.go -mode verify -public "`$AssetDirectory/ed25519-release-public-key.json" -input "`$AssetDirectory/provenance.json" -signature "`$AssetDirectory/provenance.json.sig.json"
+go run ./scripts/releasesign/main.go -mode verify -public "`$AssetDirectory/ed25519-release-public-key.json" -input "`$AssetDirectory/SHA256SUMS" -signature "`$AssetDirectory/SHA256SUMS.sig.json"
+pwsh ./scripts/release-dryrun.ps1 -Version $Version -ValidateOnly -AssetsDirectory `$AssetDirectory
+```
+"@
+}
+else {
+@"
 # Release signature verification ($Version dry-run)
 
 This directory was produced by `scripts/release-dryrun.ps1`. It intentionally
@@ -457,21 +557,28 @@ then verify the raw bytes of the SPDX SBOM, `provenance.json`, and `SHA256SUMS`
 with `go run ./scripts/releasesign/main.go -mode verify`. Only verified files
 may be uploaded to a GitHub Release.
 "@
+}
 Write-Utf8File -Path (Join-Path $assetsPath 'VERIFYING-SIGNATURES.md') -Content $verificationInstructions
 
-$expectedNames = @(Get-ExpectedAssetNames $Version)
-$manifestNames = @($expectedNames | Where-Object { $_ -notin @('SHA256SUMS', 'SHA256SUMS.sig.json') } | Sort-Object)
-$manifestLines = foreach ($name in $manifestNames) {
-    "$(Get-Sha256 (Join-Path $assetsPath $name))  $name"
+if ($ProductionPrepare) {
+    Write-Host 'RELEASE_PREPARE_UNSIGNED_ASSET_COUNT=11'
+    Write-Host 'RELEASE_PREPARE_SIGNING_REQUIRED=SBOM_PROVENANCE_SHA256SUMS'
 }
-Write-Utf8File -Path (Join-Path $assetsPath 'SHA256SUMS') -Content (($manifestLines -join "`n") + "`n")
-Write-UnsignedPlaceholder -ArtifactName 'SHA256SUMS' -SignatureName 'SHA256SUMS.sig.json'
+else {
+    $expectedNames = @(Get-ExpectedAssetNames $Version)
+    $manifestNames = @($expectedNames | Where-Object { $_ -notin @('SHA256SUMS', 'SHA256SUMS.sig.json') } | Sort-Object)
+    $manifestLines = foreach ($name in $manifestNames) {
+        "$(Get-Sha256 (Join-Path $assetsPath $name))  $name"
+    }
+    Write-Utf8File -Path (Join-Path $assetsPath 'SHA256SUMS') -Content (($manifestLines -join "`n") + "`n")
+    Write-UnsignedPlaceholder -ArtifactName 'SHA256SUMS' -SignatureName 'SHA256SUMS.sig.json'
 
-Test-ReleaseAssets -Directory $assetsPath -ReleaseVersion $Version | Out-Null
+    Test-ReleaseAssets -Directory $assetsPath -ReleaseVersion $Version -ExpectedCommit $commit | Out-Null
+}
 
 if ($SkipImages) {
     Write-Utf8File -Path (Join-Path $evidencePath 'image-build-skipped.txt') -Content "Image build skipped explicitly; all GHCR build/push/public/anonymous-pull gates remain pending release day.`n"
-    Write-Host 'RELEASE_DRYRUN_IMAGES=SKIPPED_BY_REQUEST'
+    Write-Host "$(if ($ProductionPrepare) { 'RELEASE_PREPARE_IMAGES' } else { 'RELEASE_DRYRUN_IMAGES' })=SKIPPED_BY_REQUEST"
 }
 else {
     $imageEvidence = Join-Path $evidencePath 'images'
@@ -482,8 +589,14 @@ else {
     if ($LASTEXITCODE -ne 0) {
         throw 'Local multi-architecture image dry-run failed.'
     }
-    Write-Host 'RELEASE_DRYRUN_IMAGES=PASS'
+    Write-Host "$(if ($ProductionPrepare) { 'RELEASE_PREPARE_IMAGES' } else { 'RELEASE_DRYRUN_IMAGES' })=PASS"
 }
 
-Write-Host "RELEASE_DRYRUN_OUTPUT=$OutputDirectory"
-Write-Host 'RELEASE_DRYRUN_RESULT=PASS_UNSIGNED_NOT_FOR_RELEASE'
+if ($ProductionPrepare) {
+    Write-Host "RELEASE_PREPARE_OUTPUT=$OutputDirectory"
+    Write-Host 'RELEASE_PREPARE_RESULT=PASS_UNSIGNED_REQUIRES_SIGNING'
+}
+else {
+    Write-Host "RELEASE_DRYRUN_OUTPUT=$OutputDirectory"
+    Write-Host 'RELEASE_DRYRUN_RESULT=PASS_UNSIGNED_NOT_FOR_RELEASE'
+}
