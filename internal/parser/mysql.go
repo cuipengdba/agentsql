@@ -53,7 +53,7 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 		)
 	}
 
-	statement, err := parser.parser.ParseStrictDDL(sql)
+	statement, parseSQL, starPlaceholder, err := mysqlParseStrictDDL(parser.parser, sql)
 	if err != nil {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
@@ -67,7 +67,7 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 			errors.New("MySQL stored procedure statements are unsupported"),
 		)
 	}
-	normalized, err := normalizeMySQL(parser.parser, statement, sql)
+	normalized, err := normalizeMySQL(parser.parser, statement, parseSQL, starPlaceholder)
 	if err != nil {
 		return &model.AST{Dialect: mysqlDialect, RawSQL: sql}, unparseableError(mysqlDialect, err)
 	}
@@ -205,6 +205,160 @@ func (parser *mysqlParser) parse(sql string) (*model.AST, error) {
 	}, nil
 }
 
+type mysqlLexToken struct {
+	kind  int
+	start int
+	depth int
+}
+
+// mysqlParseStrictDDL preserves the v0.22 parser contract for an unqualified
+// star mixed with other SELECT expressions. Vitess v0.23 only accepts a bare
+// star when it is the entire projection list, even though the resulting AST
+// still supports StarExpr alongside other expressions.
+func mysqlParseStrictDDL(parser *sqlparser.Parser, sql string) (sqlparser.Statement, string, string, error) {
+	statement, err := parser.ParseStrictDDL(sql)
+	if err == nil {
+		return statement, sql, "", nil
+	}
+
+	compatibleSQL, placeholder, replacements := mysqlUnqualifiedStarCompatibilitySQL(parser, sql)
+	if replacements == 0 {
+		return nil, sql, "", err
+	}
+	compatibleStatement, compatibleErr := parser.ParseStrictDDL(compatibleSQL)
+	if compatibleErr != nil {
+		return nil, sql, "", err
+	}
+	if restored := mysqlRestoreUnqualifiedStars(compatibleStatement, placeholder); restored != replacements {
+		return nil, sql, "", err
+	}
+	return compatibleStatement, compatibleSQL, placeholder, nil
+}
+
+func mysqlUnqualifiedStarCompatibilitySQL(parser *sqlparser.Parser, sql string) (string, string, int) {
+	tokenizer := parser.NewStringTokenizer(sql)
+	tokenizer.AllowComments = true
+	tokenizer.SkipSpecialComments = true
+
+	tokens := make([]mysqlLexToken, 0, 32)
+	depth := 0
+	for {
+		kind, _ := tokenizer.Scan()
+		if kind == 0 {
+			break
+		}
+		if kind == sqlparser.LEX_ERROR {
+			return sql, "", 0
+		}
+		if kind == ')' && depth > 0 {
+			depth--
+		}
+		start := tokenizer.Pos
+		if kind == '*' {
+			start--
+		}
+		tokens = append(tokens, mysqlLexToken{kind: kind, start: start, depth: depth})
+		if kind == '(' {
+			depth++
+		}
+	}
+
+	positions := make([]int, 0, 2)
+	for index, token := range tokens {
+		if token.kind != '*' || !mysqlTokenIsSelectListStar(tokens, index) {
+			continue
+		}
+		positions = append(positions, token.start)
+	}
+	if len(positions) == 0 {
+		return sql, "", 0
+	}
+
+	placeholder := "__agentsql_unqualified_star_compat__"
+	for strings.Contains(strings.ToLower(sql), placeholder) {
+		placeholder += "x"
+	}
+	replacement := "`" + placeholder + "`"
+	var compatible strings.Builder
+	compatible.Grow(len(sql) + len(positions)*(len(replacement)-1))
+	previous := 0
+	for _, position := range positions {
+		compatible.WriteString(sql[previous:position])
+		compatible.WriteString(replacement)
+		previous = position + 1
+	}
+	compatible.WriteString(sql[previous:])
+	return compatible.String(), placeholder, len(positions)
+}
+
+func mysqlTokenIsSelectListStar(tokens []mysqlLexToken, index int) bool {
+	star := tokens[index]
+	previous := mysqlNeighborToken(tokens, index, -1, star.depth)
+	if previous != sqlparser.SELECT && previous != ',' {
+		return false
+	}
+	next := mysqlNeighborToken(tokens, index, 1, star.depth)
+	if next != 0 && next != ',' && next != sqlparser.FROM && next != sqlparser.INTO {
+		return false
+	}
+
+	for current := index - 1; current >= 0; current-- {
+		token := tokens[current]
+		if token.kind == sqlparser.COMMENT || token.depth > star.depth {
+			continue
+		}
+		if token.depth < star.depth || token.kind == sqlparser.FROM {
+			return false
+		}
+		if token.kind == sqlparser.SELECT {
+			return true
+		}
+	}
+	return false
+}
+
+func mysqlNeighborToken(tokens []mysqlLexToken, index, step, depth int) int {
+	for current := index + step; current >= 0 && current < len(tokens); current += step {
+		token := tokens[current]
+		if token.kind == sqlparser.COMMENT || token.depth > depth {
+			continue
+		}
+		if token.depth < depth {
+			return 0
+		}
+		return token.kind
+	}
+	return 0
+}
+
+func mysqlRestoreUnqualifiedStars(statement sqlparser.Statement, placeholder string) int {
+	restored := 0
+	sqlparser.Rewrite(
+		statement,
+		func(cursor *sqlparser.Cursor) bool {
+			selectNode, ok := cursor.Node().(*sqlparser.Select)
+			if !ok || selectNode.SelectExprs == nil {
+				return true
+			}
+			for index, expression := range selectNode.SelectExprs.Exprs {
+				aliased, ok := expression.(*sqlparser.AliasedExpr)
+				if !ok || !aliased.As.IsEmpty() {
+					continue
+				}
+				column, ok := aliased.Expr.(*sqlparser.ColName)
+				if !ok || column.Name.String() != placeholder {
+					continue
+				}
+				selectNode.SelectExprs.Exprs[index] = &sqlparser.StarExpr{}
+				restored++
+			}
+			return true
+		},
+		func(*sqlparser.Cursor) bool { return true },
+	)
+	return restored
+}
+
 func (parser *mysqlParser) mysqlMultiAST(sql string, pieces []string) *model.AST {
 	tables := make(objectSet)
 	columns := make(stringSet)
@@ -264,13 +418,13 @@ func mysqlHasComment(parser *sqlparser.Parser, sql string) (bool, error) {
 	}
 }
 
-func normalizeMySQL(parser *sqlparser.Parser, statement sqlparser.Statement, sql string) (string, error) {
+func normalizeMySQL(parser *sqlparser.Parser, statement sqlparser.Statement, sql, starPlaceholder string) (string, error) {
 	normalized, err := parser.RedactSQLQuery(sql)
 	if err != nil {
 		return "", fmt.Errorf("redact MySQL literals: %w", err)
 	}
 	if !mysqlHasOutputFile(statement) {
-		return normalized, nil
+		return mysqlRestoreStarPlaceholder(normalized, starPlaceholder), nil
 	}
 	normalizedStatement, err := parser.ParseStrictDDL(normalized)
 	if err != nil {
@@ -282,7 +436,15 @@ func normalizeMySQL(parser *sqlparser.Parser, statement sqlparser.Statement, sql
 	case *sqlparser.Union:
 		redactMySQLSelectInto(typed.Into)
 	}
-	return sqlparser.String(normalizedStatement), nil
+	return mysqlRestoreStarPlaceholder(sqlparser.String(normalizedStatement), starPlaceholder), nil
+}
+
+func mysqlRestoreStarPlaceholder(sql, placeholder string) string {
+	if placeholder == "" {
+		return sql
+	}
+	sql = strings.ReplaceAll(sql, "`"+placeholder+"`", "*")
+	return strings.ReplaceAll(sql, placeholder, "*")
 }
 
 func mysqlHasOutputFile(statement sqlparser.Statement) bool {
