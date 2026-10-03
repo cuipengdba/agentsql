@@ -2,25 +2,27 @@
 
 记录日期：2026-10-02。
 
+> 状态更新（2026-10-04，批三十三）：本文件主体保留批十四当时的调查、复现与处置记录。其 R005 “待修”结论已由批十七提交 `02565f5` 关闭，不再代表当前产品状态；当前能力与发布口径见 `docs/release-notes-v0.5.md` 和 `docs/USER_GUIDE.md`。
+
 ## 调研范围与结论
 
 - GitHub 公共 REST 查询 `cuipengdba/agentsql`：仓库 `has_issues=true`，`open_issues_count=0`；`state=open` 与 `state=all` 均返回空数组；直接读取 issue `#36` 返回 404。因此当前公开仓库没有可列出的 open issue，`#36` 按本任务编号记录，不能据此编造远端 issue 内容。
 - 对项目自有源码、配置、脚本、测试与 `docs/` 做 `TODO` / `FIXME` / `XXX` 大小写敏感词边界扫描，未发现待处理标记。`docs/v0.5-known-issues-task7.md` 中有一处对既往扫描结果的文字记录，不是新 TODO；`web/node_modules` 中有上游依赖的 FIXME，不属于项目自有代码。
-- 仓库内明确且仍有效的产品已知问题是 R005 生产动态告警缺失。另有 R005 前端规则元数据错误、parser P99 环境相关波动，以及真实 MCP 客户端和 Testcontainers/Ryuk 待实测项。
+- 在批十四当时的仓库基线上，明确的产品已知问题是 R005 生产动态告警缺失。另有 R005 前端规则元数据错误、parser P99 环境相关波动，以及真实 MCP 客户端和 Testcontainers/Ryuk 待实测项；其中 R005 运行时缺口后来由批十七关闭。
 - 本批没有运行任何 Git 命令。
 
 ## 优先级清单
 
 | 优先级 | 项目 | 结论 | 理由 |
 | --- | --- | --- | --- |
-| P0 | R005 在普通生产查询中可能不产生大结果集告警 | **本次不修，后续安全小批** | 用户可见的风险告警缺失；执行层 `row_limit` 仍截断结果，但不能用截断替代风险命中。最小分类改动无法覆盖默认 PostgreSQL 列级授权闭环，半修复会造成错误的支持口径。 |
+| P0 | R005 在普通生产查询中可能不产生大结果集告警 | **批十四未修；批十七 `02565f5` 已关闭** | 批十四时用户可见的风险告警缺失；后续修复同时覆盖生产动态 EXPLAIN、通用执行截断与 PostgreSQL 列级授权截断，未以部分路径补丁冒充完整修复。 |
 | P1 | PostgreSQL parser lineage P99 偶发超过 5 ms | **环境相关，只记录** | 既往 Windows Docker 独占复现仍受调度影响，缺少固定 Linux runner 的 CPU/alloc profile，不能稳定归因。不得放宽门槛掩盖失败。 |
 | P2 | R005 在规则页元数据中被标为静态 | **已修复** | R005 的判定读取 `AST.Explain`，前端显示“静态”与实现、用户指南均矛盾，会误导管理员。 |
 | 环境 | Testcontainers/Ryuk、Windows Docker 文件系统、宿主缺少 `rg`/Go/Node、真实豆包/Claude 客户端 | **不修，只记录** | 均需要运行环境、工具链或真实客户端/账号，不应据此改生产逻辑。 |
 
 数据库兼容性文档中的“待实测/未实现”是已声明的产品边界，不属于 #36 的可直接修复缺陷。本批未改 Yashan、OpenTenBase、DM 或 Oracle dialect。
 
-## P0：R005 生产动态告警缺失
+## P0：R005 生产动态告警缺失（批十四历史；批十七已关闭）
 
 ### 现象
 
@@ -51,6 +53,8 @@
 - 提供真实失败到修复后通过的单测，并通过列级授权攻击矩阵与相关 E2E。
 
 本批不提交只覆盖部分路径的一行分类改动，也不削弱授权、脱敏、审计或查询门禁。
+
+批十七提交 `02565f5` 后，R005 被纳入普通生产动态规则集合；通用执行结果和 PostgreSQL 列级授权持久审计回调还会在 `Truncated=true` 时重新评估 R005。结构化命中进入响应 `Assessment.Hits`，并由 `internal/pipeline/auditmap.go` 序列化到同一审计记录的 `rule_hits`。`internal/pipeline/pipeline_test.go`、`internal/pipeline/r005_column_select_test.go` 与 `internal/rules/generic_test.go` 覆盖估算超阈值、实际截断、未超阈值和显式 LIMIT 仍被实际截断的边界。
 
 ## P2：R005 元数据错误
 
@@ -83,7 +87,7 @@
 
 - `go build ./...`：在已有 `golang:1.25-bookworm` 容器中通过，退出码 0。
 - `go test -short ./internal/pipeline ./internal/rules -count=1`：通过，分别为 0.584 秒和 0.050 秒。
-- `go test -short ./internal/pipeline -run '^TestProcessDemoAddsDynamicR005WithDatasourceRowLimitOnly$' -count=1 -v`：通过；该既有用例同时复现 Demo 命中 R005、production 不命中的当前差异。
+- `go test -short ./internal/pipeline -run '^TestProcessDemoAddsDynamicR005WithDatasourceRowLimitOnly$' -count=1 -v`：批十四时通过；该用例当时复现 Demo 命中 R005、production 不命中的差异，批十七已将 production 断言更新为同样命中 R005。
 - R005 元数据源码断言：修复前失败并输出 `R005 is not classified as dynamic`；修复后源码与用户指南一致性检查通过。
 - 改动文件尾随空白、冲突标记、末尾换行检查：通过。任务红线禁止任何 Git 操作，因此没有运行 `git diff --check`，使用上述精确文件检查替代，不能将其表述为执行过 Git 检查。
 - 产品 Go 源码的全仓 `gofmt -l` 扫描输出了未由本批触碰的既有文件 `internal/b5wal/key_registry.go`。本批没有 Go 文件改动；按“仅 #36、禁止顺手重构/格式噪音”约束未修改该文件，因此全仓 gofmt 门禁不能标为通过。

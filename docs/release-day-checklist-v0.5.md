@@ -2,11 +2,11 @@
 
 > 闸门时间：2026-10-12 16:00 CST
 >
-> 本清单核对批次：批三十一，2026-10-04，基线提交 `33f2d56872230db95c18f85479b05450bf7bc72c`
+> 本清单最近核对批次：批三十三，2026-10-04，基线提交 `e8777079a342dd9d92c29989e0cd37e35846553e`；批三十一发布工程证据继续保留
 >
-> 本批边界：未签名、未建 tag、未推送、未创建 Release、未 push 镜像、未访问发布站点。
+> 批三十三边界：未签名、未建 tag、未推送、未创建 Release、未 push 镜像、未访问发布站点；未执行任何 git 写操作。
 
-## 1. 批三十一结论
+## 1. 当前结论（批三十三；批三十一发布工程证据保留）
 
 - 15 个 GitHub Release 资产的唯一可执行定义位于 `scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames`；本文和 `docs/release-notes-v0.5.md` 与它对齐。
 - `scripts/build-release-linux.sh` 与 `scripts/package-release.sh` 都只接受 `amd64` / `arm64`。前者要求容器原生架构与 `ARCH` 一致，因此 arm64 依赖原生 arm64 runner 或 Docker/QEMU；本机 Docker/QEMU 的禁网探针已分别回报 `x86_64` 和 `aarch64`。
@@ -17,6 +17,8 @@
 - 旧的三个 OCI 归档确有 amd64/arm64 descriptor，但三者的平台镜像 digest 完全相同；旧 `quickstart` 只是主镜像换 tag，缺 Compose 所需 demo 配置。发布脚本现用同一个 Buildx Bake 图构建 demo base 和叠加两份配置的 quickstart target，并实际解析 OCI descriptor。
 - `scripts/build-ghcr-multiarch.ps1 -Push` 现只推精确版本和可选辅助 tag，不再同时移动 `latest`；精确 tag 匿名双架构验收后，单独执行 `-PromoteLatest`。
 - `scripts/release-dryrun.ps1 -ProductionPrepare` 提供生产候选的可执行组装路径：要求完全干净工作树并复制授权公钥，只生成 11 个待签名文件，不读取私钥、不生成签名。补齐两份内容签名、`SHA256SUMS` 和其签名后才形成 15 项。
+- R005 的发布说明曾滞后于批十七提交 `02565f5`。代码已覆盖普通生产动态 EXPLAIN 告警、通用执行实际截断补告警和 PostgreSQL 列级授权实际截断补告警；结构化命中位于 `assessment.hits`，同一命中持久化到审计 `rule_hits`，可由管理审计 API 查询。批三十三已校正文档，不再把该项列为开放 P0。
+- PostgreSQL parser P99 **仍阻断发布**。批三十三在 Go 1.26.8 Linux/amd64、Intel i7-6700、8 CPU、`GOMAXPROCS=8` 下，优化前和优化后均仅 3/5 轮满足 P99 ≤ 5 ms；优化后为 4.456/4.775/6.404/6.554/4.173 ms。不得用平均 benchmark 改善替代尾延迟门，也不得放宽阈值。
 
 ## 2. 15 资产核对表
 
@@ -80,11 +82,13 @@ git diff --check
 ### B. 代码与双架构构建闸门
 
 ```powershell
+docker run --rm --platform linux/amd64 -e GOMAXPROCS=8 -e GOTOOLCHAIN=local -v "${PWD}:/src:ro" -w /src golang:1.26.8-bookworm /usr/local/go/bin/go test ./internal/parser -run '^TestParseProjectionLineageP99Budget$/^postgres$' -count=5 -v
+docker run --rm --platform linux/amd64 -e GOTOOLCHAIN=local -v "${PWD}:/src:ro" -w /src golang:1.26.8-bookworm /usr/local/go/bin/go test -short ./internal/rules ./internal/pipeline -count=1
 docker run --rm --platform linux/amd64 -v "${PWD}:/src" -w /src golang:1.26.8-bookworm sh -c 'GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go build -tags=yashan ./...'
 pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist/release-dryrun/v0.5.0-final
 ```
 
-验收：两次 Go build PASS；dry-run 输出 `RELEASE_DRYRUN_ASSET_COUNT=15`、`RELEASE_DRYRUN_SHA256SUMS=PASS`、`RELEASE_DRYRUN_IMAGES=PASS`、`PASS_UNSIGNED_NOT_FOR_RELEASE`。逐项保存完整日志。dry-run 占位签名禁止上传。
+验收：parser 命令连续 5 轮均为 PASS 且每轮 P99 ≤ 5 ms，任一轮失败立即停止；R005 所在 rules/pipeline short tests PASS；两次 Go build PASS；dry-run 输出 `RELEASE_DRYRUN_ASSET_COUNT=15`、`RELEASE_DRYRUN_SHA256SUMS=PASS`、`RELEASE_DRYRUN_IMAGES=PASS`、`PASS_UNSIGNED_NOT_FOR_RELEASE`。逐项保存完整日志。dry-run 占位签名禁止上传。
 
 ### C. 正式公钥、生产候选与 15 资产
 

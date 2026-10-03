@@ -45,9 +45,9 @@ The generic rule set is evaluated in stable R001–R010 order:
 
 PostgreSQL-specific rules R101–R107 cover high-risk DROP, lock-heavy operations, administrative/file functions, COPY PROGRAM, unindexed bulk writes, large-table DDL, and long/idle transactions. MySQL-specific R201–R204 cover file access, dangerous bulk writes, high-risk administration, and large transactions.
 
-R005 has an important boundary: the normal production pipeline does not currently run its EXPLAIN-dependent warning stage by default, so the guaranteed production control is execution-layer `row_limit` truncation. The Live Demo has a dedicated dynamic stage; its R005 behavior must not be generalized into a production guarantee.
+R005 runs in the normal production dynamic stage. An unbounded query whose controlled EXPLAIN estimate is strictly greater than the effective `row_limit` produces a structured `R005` warning; actual execution-layer truncation also adds R005 on both the generic and PostgreSQL column-authorization paths, even when the SQL contains a larger explicit `LIMIT`. The hit is returned in `assessment.hits`, persisted in audit `rule_hits`, and available through the audit management API. There is no separate R005-specific response header or log event. Missing EXPLAIN or audit facts continue to fail closed.
 
-Built-in rules can be enabled or disabled, but their actions and internal thresholds are not editable in the current Rules page. Custom rule definitions can be stored through CRUD APIs but are not assembled into the execution engine.
+Built-in rules can be enabled or disabled, but their actions and internal thresholds are not editable in the current Rules page. R005 uses the data source's configurable `row_limit` as its default warning and execution threshold (1000 when the value is zero/unset; negative values are invalid). Custom rule definitions can be stored through CRUD APIs but are not assembled into the execution engine.
 
 ## Authorization and Fail-Closed Behavior
 

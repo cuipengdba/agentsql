@@ -32,8 +32,6 @@ func postgresProjectionLineages(nodeType string, node any) ([]model.ProjectionLi
 	builder := &postgresLineageBuilder{
 		dependencyKeys: make(map[string]struct{}),
 		selectScopes:   make(map[uintptr]*lineageScope),
-		joinUsing:      make(map[*lineageScope]map[string]struct{}),
-		joinNatural:    make(map[*lineageScope]bool),
 	}
 	lineages, err := builder.postgresSelectLineages(selectNode, nil)
 	if err != nil {
@@ -43,6 +41,42 @@ func postgresProjectionLineages(nodeType string, node any) ([]model.ProjectionLi
 		return nil, err
 	}
 	return lineages, nil
+}
+
+// PostgreSQL commonly creates many short-lived scopes for UNION branches.
+// Keep their indexes lazy so a simple physical FROM source pays only for the
+// alias or name index that it actually uses. The shared lineage constructor is
+// left unchanged for the other dialects.
+func newPostgresLineageScope(parent *lineageScope) *lineageScope {
+	return &lineageScope{parent: parent}
+}
+
+func postgresCTEOnlyLineageScope(scope *lineageScope) *lineageScope {
+	if scope == nil {
+		return nil
+	}
+	parent := postgresCTEOnlyLineageScope(scope.parent)
+	if len(scope.ctes) == 0 {
+		return parent
+	}
+	cloned := newPostgresLineageScope(parent)
+	cloned.ctes = make(map[string]derivedRelation, len(scope.ctes))
+	for key, relation := range scope.ctes {
+		cloned.ctes[key] = relation
+	}
+	return cloned
+}
+
+func postgresAddLineageBinding(scope *lineageScope, binding relationBinding) {
+	if scope == nil {
+		return
+	}
+	if binding.alias != "" && scope.byAlias == nil {
+		scope.byAlias = make(map[string][]int)
+	} else if binding.alias == "" && binding.visibleName != "" && scope.byName == nil {
+		scope.byName = make(map[string][]int)
+	}
+	scope.addBinding(binding)
 }
 
 func postgresValidateLineageStructure(node any) error {
@@ -93,10 +127,10 @@ func (builder *postgresLineageBuilder) postgresSelectLineages(
 	if err != nil {
 		return nil, err
 	}
-	cteOnly := cteOnlyLineageScope(scope)
+	var cteOnly *lineageScope
 	fromClause, _ := selectNode["fromClause"].([]any)
 	for _, source := range fromClause {
-		if err := builder.postgresAppendLineageBinding(source, scope, cteOnly); err != nil {
+		if err := builder.postgresAppendLineageBinding(source, scope, &cteOnly); err != nil {
 			return nil, err
 		}
 	}
@@ -189,13 +223,16 @@ func (builder *postgresLineageBuilder) postgresValuesLineages(values []any, scop
 }
 
 func (builder *postgresLineageBuilder) postgresApplyWith(value any, parent *lineageScope) (*lineageScope, error) {
-	scope := newLineageScope(parent)
+	scope := newPostgresLineageScope(parent)
 	withClause, ok := value.(map[string]any)
 	if !ok {
 		return scope, nil
 	}
 	recursive, _ := withClause["recursive"].(bool)
 	ctes, _ := withClause["ctes"].([]any)
+	if len(ctes) > 0 {
+		scope.ctes = make(map[string]derivedRelation, len(ctes))
+	}
 	for _, item := range ctes {
 		cte, ok := postgresWrappedNode(item, "CommonTableExpr")
 		if !ok {
@@ -217,7 +254,7 @@ func (builder *postgresLineageBuilder) postgresApplyWith(value any, parent *line
 			}
 			continue
 		}
-		lineages, err := builder.postgresSelectLineages(query, cteOnlyLineageScope(scope))
+		lineages, err := builder.postgresSelectLineages(query, postgresCTEOnlyLineageScope(scope))
 		if err != nil {
 			return nil, err
 		}
@@ -251,11 +288,11 @@ func postgresSealRecursiveRelation(relation *derivedRelation) {
 func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 	value any,
 	scope *lineageScope,
-	cteOnly *lineageScope,
+	cteOnly **lineageScope,
 ) error {
 	wrapper, ok := value.(map[string]any)
 	if !ok || len(wrapper) == 0 {
-		scope.addBinding(relationBinding{kind: bindingOpaque, opaque: opaqueArm(
+		postgresAddLineageBinding(scope, relationBinding{kind: bindingOpaque, opaque: opaqueArm(
 			"unsupported_from_item", model.LineageUnsupported, scopePossibleRelations(scope),
 		)})
 		return nil
@@ -263,7 +300,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 	if source, ok := wrapper["RangeVar"].(map[string]any); ok {
 		object, valid := postgresRangeVar(source)
 		if !valid {
-			scope.addBinding(relationBinding{kind: bindingOpaque, opaque: opaqueArm(
+			postgresAddLineageBinding(scope, relationBinding{kind: bindingOpaque, opaque: opaqueArm(
 				"malformed_range_var", model.LineageUnsupported, scopePossibleRelations(scope),
 			)})
 			return nil
@@ -271,7 +308,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 		alias := object.Alias
 		if object.Schema == "" {
 			if relation, exists := scope.lookupCTE(object.Table); exists {
-				scope.addBinding(relationBinding{
+				postgresAddLineageBinding(scope, relationBinding{
 					visibleName: object.Table, alias: alias, kind: bindingCTE,
 					outputs: relation.outputs, outputCount: relation.outputCount, outputOrder: relation.outputOrder,
 					complete: relation.complete, opaque: relation.opaque, route: model.RouteCTE,
@@ -279,7 +316,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 				return nil
 			}
 		}
-		scope.addBinding(relationBinding{
+		postgresAddLineageBinding(scope, relationBinding{
 			visibleName: object.Table, alias: alias, kind: bindingPhysical,
 			object: object, complete: false,
 		})
@@ -288,7 +325,10 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 	if source, ok := wrapper["RangeSubselect"].(map[string]any); ok {
 		alias := postgresAliasName(source)
 		lateral, _ := source["lateral"].(bool)
-		parent := cteOnly
+		if !lateral && *cteOnly == nil {
+			*cteOnly = postgresCTEOnlyLineageScope(scope)
+		}
+		parent := *cteOnly
 		route := model.RouteDerived
 		if lateral {
 			parent = scope
@@ -296,7 +336,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 		}
 		query, valid := postgresWrappedNode(source["subquery"], "SelectStmt")
 		if !valid {
-			scope.addBinding(relationBinding{alias: alias, kind: bindingOpaque, opaque: opaqueArm(
+			postgresAddLineageBinding(scope, relationBinding{alias: alias, kind: bindingOpaque, opaque: opaqueArm(
 				"unsupported_derived_query", model.LineageUnsupported, scopePossibleRelations(scope),
 			)})
 			return nil
@@ -324,7 +364,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 		if aliasValue, ok := source["alias"].(map[string]any); ok {
 			relation = overrideDerivedColumns(relation, postgresStringNodes(aliasValue["colnames"]))
 		}
-		scope.addBinding(relationBinding{
+		postgresAddLineageBinding(scope, relationBinding{
 			alias: alias, kind: bindingDerived, outputs: relation.outputs,
 			outputCount: relation.outputCount, outputOrder: relation.outputOrder, complete: relation.complete,
 			opaque: relation.opaque, route: route,
@@ -334,7 +374,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 	if join, ok := wrapper["JoinExpr"].(map[string]any); ok {
 		if alias := postgresAliasName(join); alias != "" {
 			relations := postgresFromPossibleRelations(join)
-			scope.addBinding(relationBinding{alias: alias, kind: bindingOpaque, opaque: opaqueArm(
+			postgresAddLineageBinding(scope, relationBinding{alias: alias, kind: bindingOpaque, opaque: opaqueArm(
 				"joined_relation_alias", model.LineageOpaqueState, relations,
 			)})
 			return nil
@@ -346,9 +386,15 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 			return err
 		}
 		if natural, _ := join["isNatural"].(bool); natural {
+			if builder.joinNatural == nil {
+				builder.joinNatural = make(map[*lineageScope]bool)
+			}
 			builder.joinNatural[scope] = true
 		}
 		for _, column := range postgresStringNodes(join["usingClause"]) {
+			if builder.joinUsing == nil {
+				builder.joinUsing = make(map[*lineageScope]map[string]struct{})
+			}
 			if builder.joinUsing[scope] == nil {
 				builder.joinUsing[scope] = make(map[string]struct{})
 			}
@@ -365,7 +411,7 @@ func (builder *postgresLineageBuilder) postgresAppendLineageBinding(
 	if sample, ok := wrapper["RangeTableSample"].(map[string]any); ok {
 		return builder.postgresAppendLineageBinding(sample["relation"], scope, cteOnly)
 	}
-	scope.addBinding(relationBinding{alias: postgresAliasName(wrapper), kind: bindingOpaque, opaque: opaqueArm(
+	postgresAddLineageBinding(scope, relationBinding{alias: postgresAliasName(wrapper), kind: bindingOpaque, opaque: opaqueArm(
 		"unsupported_from_source", model.LineageUnsupported, scopePossibleRelations(scope),
 	)})
 	return nil
@@ -386,7 +432,7 @@ func (builder *postgresLineageBuilder) postgresAppendOpaqueRangeSource(
 	arm := opaqueArm(operation, status, relations)
 	arm.Dependencies = dependencies
 	alias := postgresAliasName(source)
-	scope.addBinding(relationBinding{alias: alias, kind: bindingOpaque, complete: false, opaque: arm})
+	postgresAddLineageBinding(scope, relationBinding{alias: alias, kind: bindingOpaque, complete: false, opaque: arm})
 	return nil
 }
 

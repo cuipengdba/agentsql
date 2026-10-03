@@ -26,7 +26,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - **快速上手、Demo 与错误口径**：新增下载单个 Compose 文件即可启动的自包含五分钟演示栈；演示场景卡对齐真实剧本和审批结果，修复演示表外键/密封 JOIN 冲突与每日 reset 的 seed/gateway 时序，并区分可预期授权失败、对象缺失与数据库执行错误。
 - **生态与官网配套**：新增 MCP Registry 描述、官网“生态与兼容”板块、社区入口与国产数据库分批研究/联合验证资料；主站搜索闸门已在仓库中调整为放行主站、保持 `/demo/` 禁止索引，仍需在发布部署后做外网复核。
 - **英文文档**：增加英文首页、快速上手、管理、MCP 接入、安全和覆盖度文档。
-- **已知问题修复与记录**：修正 R005 前端动态规则元数据；加固 bootstrap / MCP 测试诊断。R005 生产动态告警缺失仍为 P0 待修，未以部分路径补丁冒充完整修复。
+- **已知问题修复与记录**：修正 R005 前端动态规则元数据；加固 bootstrap / MCP 测试诊断。批十七提交 `02565f5` 已闭环 R005：普通生产动态阶段按 EXPLAIN 评估，无界查询估算结果超过数据源 `row_limit` 时返回结构化 `R005` 风险命中；通用执行和 PostgreSQL 列级授权路径在实际截断时补充同一命中，并写入持久审计。
 - **联合案例配套**：新增金仓 + 瀚高验证记录、运营口径和瀚高演示 SQL。瀚高指定第三方 SEE 镜像有协议路径实测记录；金仓 V9 仍待厂商环境。
 
 ### Dialect 与生态适配矩阵
@@ -54,7 +54,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 
 - DM/Oracle parser 只覆盖文档列出的 v0.5 受控 SELECT profile；`*` 仅绑定到物理来源表，parser 无 catalog，不能虚构逐列名称。该能力不等于完整 SQL grammar 或已接入列级授权/脱敏 pipeline。
 - KingbaseES V9R1C10 目标环境待厂商提供；HighGo、GaussDB、TDSQL 等商业版仍待目标环境终验。
-- P0 R005 生产动态大结果集告警缺失待修；`row_limit` 仍截断返回结果，但不得把截断写成风险告警已完整生效。
+- R005 生产动态告警已闭环，但能力边界仍须准确表述：无界查询的执行前命中依赖受控 EXPLAIN；实际 `row_limit` 截断会在通用执行和 PostgreSQL 列级授权路径补充 `R005`。响应通过 `assessment.hits` 返回结构化命中，持久审计通过 `rule_hits` 保存；未知 EXPLAIN 或审计事实继续 fail-closed。`row_limit` 可在数据源管理入口配置，默认值为 1000；规则页不提供独立 R005 阈值编辑器。
 - RBAC 是 MVP：非默认租户对存量共享业务元数据仍拒绝；OIDC/LDAP/MFA、令牌撤销/刷新和全量租户化未交付。
 - 跨进程 MCP transport session、断线重放与服务重启前会话恢复未提供；豆包、Claude Desktop / Inspector 真实客户端仍待账号和指定版本联调。
 - “协议路径实测”不覆盖完整 SQL 方言、生产拓扑、HA/故障切换、TLS/认证矩阵、性能 SLA 或厂商支持责任。
@@ -108,7 +108,7 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 类型 | v0.5.0 步骤 |
 | --- | --- |
 | 复用 | 仓库公开与 PVR 复核；固定 Rocky Linux 8 digest 构建 amd64/arm64；恰好 15 个 Release 资产、SHA-256、SBOM/provenance 与 Ed25519 签名；先建 Release 草稿并回下载验证；GHCR 精确 tag → public → 匿名双架构 pull → 再移动 `latest`；Demo reset；官网 PDF/静态验收/部署；Release 草稿转正式；发布后无登录烟测 |
-| v0.5 新增闸门 | 核对 Apache-2.0 / `NOTICE` / 商业许可口径；逐项复核 dialect 矩阵且保留“协议路径实测 ≠ 厂商认证”；构建并演练 demo/quickstart 辅助镜像；确认 P0 R005、DM/金仓凭据和商业版终验未被误标为完成；在标准 runner 清零 parser P99 失败；由维护者确认 `SECURITY.md` 支持版本矩阵 |
+| v0.5 新增闸门 | 核对 Apache-2.0 / `NOTICE` / 商业许可口径；逐项复核 dialect 矩阵且保留“协议路径实测 ≠ 厂商认证”；构建并演练 demo/quickstart 辅助镜像；复核 R005 闭环证据且不得把 DM/金仓凭据和商业版终验误标为完成；在标准 runner 清零 parser P99 失败；由维护者确认 `SECURITY.md` 支持版本矩阵 |
 
 ### 发布检查清单
 
@@ -120,7 +120,7 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 准备 | 完整变更基线复核 | **已完成** | 使用 `v0.4.0..1d6682d`，并记录 `391dcf0` 边界不完整 |
 | 安全 | 支持版本矩阵 | **已完成** | v0.5.x 支持至 v0.6.0 发布后 6 个月且不早于 2027-10-31；v0.4.x 支持至 2027-04-30；0.3.x 及更早 EOL |
 | 安全 | Private Vulnerability Reporting（PVR） | **待发布日** | 匿名 API 不返回该设置；由仓库管理员在 Security settings 复核为开启 |
-| 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | 批十九已降低 PostgreSQL parser 主体延迟和分配，但同环境独占 5 轮 P99 仍有 3 轮超过 5 ms（5.576/4.906/4.744/5.485/5.643 ms）；不得据此清零闸门，仍须在标准 Linux runner 独占复核并稳定通过后才可发布 |
+| 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | 批三十三在 Go 1.26.8 Linux/amd64、8 CPU 容器独占复核：优化前 P99 为 5.780/4.092/3.709/4.518/5.827 ms，优化后为 4.456/4.775/6.404/6.554/4.173 ms，两组均仅 3/5 通过；不得据此清零闸门，仍须在标准 Linux runner 独占复核并连续 5 轮稳定通过后才可发布 |
 | 构建 | 固定 Rocky Linux 8 digest + Go 1.26.8 构建 amd64/arm64 | **待发布日** | `go.mod` 为 1.26；脚本设 `GOTOOLCHAIN=local` 防止隐式换工具链；两个二进制均须回报 `v0.5.0`，GLIBC 符号不高于 2.28 |
 | 构建 | 崖山驱动与 C 客户端双架构打包 | **脚本已落地；当前产物阻塞** | `yashandb-go@v1.4.4` 与客户端 23.4.7.100 的固定版本/SHA 已在脚本；批三十一验证旧 tar/metadata 不含它们，必须由 sealed commit 双架构重建 |
 | 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **dry-run/生产准备命令已补；实跑待发布日** | dry-run 生成不可发布占位；`-ProductionPrepare` 从干净工作树和正式公钥生成 11 个待签名文件；生产签名仍待发布日 |
@@ -150,6 +150,35 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 - 结论：最终 5 轮 P50 为 1.702–1.861 ms、P90 为 3.146–3.289 ms，但 P99 为 5.576/4.906/4.744/5.485/5.643 ms，仅 2/5 通过。主体延迟约降低 27%–33%，尾部仍受 C parser/scan、JSON 大量分配及 GC/调度共同影响；保留 5 ms 发布日闸门，不放宽、不标记达标。
 - 全仓并行 `go test -short ./... -count=1` 的功能包均通过，但性能门因 CPU 竞争失败（MySQL/PostgreSQL P99 为 19.518/12.546 ms），因此命令总体为 FAIL；发布判定仍只采用无并行负载的独占复跑，同时不能把这次全仓结果记为通过。
 
+### R005 收尾与 PostgreSQL parser P99 复核（批三十三）
+
+R005 的批十四调查文档和本发布说明没有跟进批十七提交 `02565f5`，属于披露滞后，不是运行时代码仍缺失。当前核对结果如下：
+
+| 能力点 | 结论 | 代码 / 测试证据 |
+| --- | --- | --- |
+| 无界大结果执行前告警 | 已实现；生产动态规则包含 R005，受控 EXPLAIN 的估算结果严格大于有效 `row_limit` 时返回 `warn` | `internal/pipeline/rules.go` 的动态规则分类；`internal/rules/generic.go` 的 R005；`TestPipelineR005ProductionDynamicAndRuntimeSignals/dynamic plan exceeds datasource row limit` |
+| 实际截断补告警 | 已实现；即使 SQL 自带更大 `LIMIT`，只要执行层报告 `Truncated=true`，通用执行与 PostgreSQL 列级授权路径均补充 R005 | `internal/pipeline/pipeline.go`、`internal/pipeline/column_select.go`；`TestR005RuntimeTruncationOverridesSQLLimit`、`TestPostgresColumnAuthorizationAuditAddsR005WithoutStaticExplain` |
+| 结构化响应 | 已实现；`Response.Assessment.Hits` 返回含消息和建议的 `RuleHit{RuleID:"R005", Decision:"warn"}`，结果同时保留 `Truncated` | `internal/pipeline/types.go`、`internal/model/model.go`；上述 pipeline 测试。没有另设专用 HTTP 响应头或专用日志事件，不能超出 `assessment.hits` 口径宣称 |
+| 持久审计与管理查询 | 已实现；同一 assessment 的完整 hits JSON 写入 `audit_logs.rule_hits`，`GET /api/v1/audit`、实时流和导出投影均返回 `rule_hits` | `internal/pipeline/auditmap.go`、`internal/adminapi/dto.go`、`internal/adminapi/handler.go`；pipeline 审计一致性测试 |
+| 阈值入口与边界 | 数据源 `row_limit` 是默认告警/执行阈值，缺省为 1000，并由数据源管理 API 创建/更新；内部三层规则配置可覆盖 `row_limit` 阈值，但当前 Rules 页面/API 不提供独立阈值字段 | `internal/pipeline/types.go`、`internal/rules/generic.go`、`internal/adminapi/dto.go`、`internal/adminapi/handler.go`、`internal/pipeline/rule_overrides.go` |
+| 不触发与 fail-closed | 阈值相等、小结果、显式受控 LIMIT、无分组纯聚合不因估算误报；实际截断仍优先告警。EXPLAIN、规则或审计事实不可取得时不降级放行 | `internal/rules/generic_test.go`、`internal/pipeline/pipeline_test.go` |
+
+PostgreSQL parser 复核环境为 Docker 29.8.0、`golang:1.26-bookworm`（镜像 ID `a688600ca24f`，Go 1.26.8）、Linux/amd64 WSL2 kernel 6.18.40.1、Intel i7-6700、8 个逻辑 CPU、`GOMAXPROCS=8`。工作区只读挂载；命令为：
+
+```text
+docker run --rm --platform linux/amd64 -e GOMAXPROCS=8 -e GOTOOLCHAIN=local \
+  -v "${PWD}:/src:ro" -w /src golang:1.26-bookworm \
+  /usr/local/go/bin/go test ./internal/parser -run '^TestParseProjectionLineageP99Budget$/^postgres$' -count=5 -v
+```
+
+- 优化前 5 轮原始 typical P50/P90/P99（ms）：`1.456/2.794/5.780`、`1.340/2.565/4.092`、`1.345/2.579/3.709`、`1.327/2.603/4.518`、`1.412/2.748/5.827`；3/5 通过，命令退出 1。
+- CPU/alloc profile 显示 JSON 通用树解码占 alloc_space 52.66%，`newLineageScope` 占 15.11%。本批只在 PostgreSQL lineage 内按需创建 scope 索引、CTE-only scope 和 JOIN 状态，不切换 protobuf AST、不改规则或血缘语义。
+- 相同 `set_arms_8` benchmark：优化前 `451841 ns/op, 76605 B/op, 1042 allocs/op`；优化后三轮 `405681–411521 ns/op, 65873–65874 B/op, 833 allocs/op`。
+- 优化后 5 轮原始 typical P50/P90/P99（ms）：`1.348/2.604/4.456`、`1.413/2.679/4.775`、`1.545/2.990/6.404`、`1.477/2.800/6.554`、`1.294/2.541/4.173`；仍仅 3/5 通过，命令退出 1。
+- 功能与构建：`go test -short ./internal/parser ./internal/rules ./internal/pipeline -skip '^TestParseProjectionLineageP99Budget$' -count=1 -p 1` PASS；`go build ./...` PASS；修改文件 gofmt 与 `git diff --check` PASS。一次全仓 short 尝试未形成 PASS：`internal/adminapi` 在 Windows Docker 的 SQLite WAL `fsync` 关闭阶段达到 10 分钟超时，且只读源码挂载使 `internal/authorizedexecute` 的临时编译目录创建失败；这两项按环境/挂载限制如实保留，不能计为代码通过或本批语义回归。
+
+因此 P99 发布闸门仍为 **FAIL**。平均耗时和分配改善不能替代尾延迟门；发布日必须在标准 Linux runner、无并行负载下以同一命令连续 5 轮全部满足 P99 ≤ 5 ms，任一轮失败即停止发布。
+
 发布前只读加固核验（批二十三）已记录于 [`security-scan-v0.5.md`](security-scan-v0.5.md)：前端生产依赖与 demo 功能链路通过，Go 源码可调用漏洞为 0 但有 4 个不可达模块级命中；F-04 的 208 处历史赋值类命中已由用户于 2026-10-03 复核为测试数据、示例或非敏感赋值并按不处置关闭。parser P99 仅 3/5 轮通过 5 ms 闸门，故整体不能标记为全绿。
 
 ## English
@@ -169,13 +198,14 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 - An openly available RBAC/multi-tenant MVP: local users, tenants, roles, permissions, multiple roles, inheritance, and per-route authorization. OIDC/LDAP/MFA and full tenant ownership for legacy business metadata are deferred.
 - MCP Streamable HTTP initialization now accepts the standards-compliant first request without a pre-sent protocol-version header; subsequent protocol, session, and Agent/Key checks remain strict.
 - Audit query/reporting work, the self-contained five-minute quickstart stack, hardened demo reset sequencing, clearer authorization/database-error reporting, MCP Registry metadata, and ecosystem/website documentation are included in the `v0.4.0..1d6682d` change set.
-- A new English documentation suite, R005 metadata/test-diagnostic fixes, and the KingbaseES + HighGo joint-case evidence and wording package.
+- A new English documentation suite, R005 metadata/test-diagnostic fixes, and the KingbaseES + HighGo joint-case evidence and wording package. The production R005 gap was subsequently closed in `02565f5`: EXPLAIN-based large-result warnings run in the normal dynamic stage, and actual execution-layer truncation adds the same structured hit on both the generic and PostgreSQL column-authorization paths.
 - **License change notice:** existing v0.4.0-and-earlier source, tags, and release packages remain available under the license that applied when they were published; historical tags and assets will not be recreated. Starting with v0.5.0, the open-source edition uses [Apache License 2.0](../LICENSE) plus a separate [commercial-license notice](../COMMERCIAL-LICENSE.md). This does not imply database-vendor authorization or endorsement.
 
 ### Known boundaries
 
 - The DM/Oracle parser covers only the documented v0.5 controlled-SELECT profile. Wildcards are bound to physical source relations, but the parser has no catalog and does not invent concrete column names. This is not full SQL grammar support or integration with the column-authorization/redaction pipeline. KingbaseES V9 and the named commercial database editions remain pending vendor-provided target environments.
-- The P0 R005 production dynamic large-result warning gap remains open. `row_limit` still bounds returned rows, but that is not a substitute for the missing risk hit.
+- R005 is closed within its documented boundary. An unbounded query whose controlled EXPLAIN estimate exceeds the effective `row_limit`, or a query actually truncated by the execution layer, produces an `R005` warning in `assessment.hits`; the same hit is persisted in `rule_hits` and is available through the audit management API. There is no separate R005-specific response header or log event. Missing EXPLAIN or audit facts continue to fail closed.
+- The PostgreSQL parser P99 gate remains open. In batch 33, both the pre-optimization and post-optimization five-run sets passed only 3/5 runs at the unchanged 5 ms threshold; the post-optimization P99 values were 4.456/4.775/6.404/6.554/4.173 ms. Release still requires five consecutive passing runs on the standard isolated Linux runner.
 - RBAC is an MVP. OIDC/LDAP/MFA, server-side token revocation/refresh, and complete tenant ownership migration are not included.
 - MCP transport sessions are not persisted across processes or restarts, and SSE replay is not implemented. Real-account tests for Doubao and specific Claude Desktop/Inspector versions remain pending.
 - Protocol-path results do not cover full dialects, production topologies, HA/failover, the complete TLS/authentication matrix, performance SLAs, or vendor support obligations.
