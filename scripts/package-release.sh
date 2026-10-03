@@ -35,6 +35,9 @@ CTL_BINARY="bin/agentsqlctl-linux-${ARCH}"
 [ -f deploy/systemd/config.yaml ] || die "Missing deploy/systemd/config.yaml."
 [ -d docs ] || die "Missing repository docs directory."
 [ -f LICENSE ] || die "Missing repository LICENSE."
+[ -x /usr/local/go/bin/go ] || die "Missing /usr/local/go/bin/go from the release build step."
+[ -f /opt/yashandb-client/lib/libyascli.so ] || die "Missing packaged YashanDB client libyascli.so."
+[ -f /opt/yashandb-client/lib/libyas_infra.so ] || die "Missing packaged YashanDB client libyas_infra.so."
 
 pr_agentsql_version=$("$AGENTSQL_BINARY" --version 2>/dev/null) || die "Could not execute $AGENTSQL_BINARY."
 pr_ctl_version=$("$CTL_BINARY" version 2>/dev/null) || die "Could not execute $CTL_BINARY."
@@ -43,7 +46,9 @@ pr_ctl_version=$("$CTL_BINARY" version 2>/dev/null) || die "Could not execute $C
 
 check_elf() {
   ce_binary=$1
-  ce_output=$(LC_ALL=C file "$ce_binary")
+  # Vendor client entry points are versioned-library symlinks.  Follow them so
+  # architecture validation applies to the ELF payload, not the link inode.
+  ce_output=$(LC_ALL=C file -L "$ce_binary")
   case "$ARCH" in
     amd64) ce_file_pattern='ELF 64-bit.*x86-64'; ce_machine_pattern='Machine:[[:space:]]+(Advanced Micro Devices X86-64|AMD x86-64)' ;;
     arm64) ce_file_pattern='ELF 64-bit.*(ARM aarch64|aarch64)'; ce_machine_pattern='Machine:[[:space:]]+AArch64' ;;
@@ -89,19 +94,6 @@ check_dependencies() {
   sed 's/^/  /' "$cd_output"
 }
 
-check_no_yashan_driver() {
-  cyr_binary=$1
-  cyr_strings="$TMP_DIR/$(basename "$cyr_binary").redistribution-strings"
-  strings "$cyr_binary" > "$cyr_strings"
-  if grep -E 'github\.com/yashan-technologies/yashandb-go|libyas(cli|_infra)(\.so|\.dylib|\.dll|$)' "$cyr_strings" >/dev/null 2>&1; then
-    die "$cyr_binary contains a YashanDB driver/client marker; official artifacts must exclude it."
-  fi
-  if readelf -d "$cyr_binary" 2>/dev/null | grep -E 'libyas(cli|_infra)' >/dev/null 2>&1; then
-    die "$cyr_binary dynamically links a YashanDB client library; official artifacts must exclude it."
-  fi
-  printf '%s\n' "$cyr_binary passed the YashanDB redistribution exclusion check"
-}
-
 sha_file() {
   sf_path=$1
   if command -v sha256sum >/dev/null 2>&1; then
@@ -140,25 +132,40 @@ for pr_binary in "$AGENTSQL_BINARY" "$CTL_BINARY"; do
   check_elf "$pr_binary"
   check_glibc_version "$pr_binary" "$(basename "$pr_binary")"
   check_dependencies "$pr_binary"
-  check_no_yashan_driver "$pr_binary"
 done
+
+pr_yashan_metadata="$TMP_DIR/agentsql-yashan-metadata"
+/usr/local/go/bin/go version -m "$AGENTSQL_BINARY" > "$pr_yashan_metadata"
+grep -E 'github\.com/yashan-technologies/yashandb-go[[:space:]]+v1\.4\.4' "$pr_yashan_metadata" >/dev/null 2>&1 \
+  || die "$AGENTSQL_BINARY does not include yashandb-go v1.4.4."
+for pr_yashan_lib in /opt/yashandb-client/lib/libyascli.so /opt/yashandb-client/lib/libyas_infra.so; do
+  check_elf "$pr_yashan_lib"
+  pr_yashan_ldd="$TMP_DIR/$(basename "$pr_yashan_lib").ldd"
+  LD_LIBRARY_PATH=/opt/yashandb-client/lib ldd "$pr_yashan_lib" > "$pr_yashan_ldd" 2>&1 || true
+  grep -F 'not found' "$pr_yashan_ldd" >/dev/null 2>&1 && die "$pr_yashan_lib has a missing shared-library dependency."
+done
+printf '%s\n' "$AGENTSQL_BINARY and the YashanDB client runtime passed inclusion checks"
 
 ROOT_NAME="agentsql-${VERSION}-linux-${ARCH}"
 STAGE="$TMP_DIR/$ROOT_NAME"
 mkdir -p "$STAGE/deploy/systemd"
 mkdir -p "$STAGE/docs"
+mkdir -p "$STAGE/lib/yashandb"
 cp "$AGENTSQL_BINARY" "$STAGE/agentsql"
 cp "$CTL_BINARY" "$STAGE/agentsqlctl"
 cp scripts/install.sh "$STAGE/install.sh"
 cp deploy/systemd/agentsql.service "$STAGE/deploy/systemd/agentsql.service"
 cp deploy/systemd/config.yaml "$STAGE/deploy/systemd/config.yaml"
 cp -R docs/. "$STAGE/docs/"
+cp -LR /opt/yashandb-client/lib/. "$STAGE/lib/yashandb/"
 cp LICENSE "$STAGE/LICENSE"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 chmod 0755 "$STAGE/agentsql" "$STAGE/agentsqlctl" "$STAGE/install.sh"
 chmod 0644 "$STAGE/deploy/systemd/agentsql.service" "$STAGE/deploy/systemd/config.yaml" "$STAGE/LICENSE" "$STAGE/VERSION"
 find "$STAGE/docs" -type d -exec chmod 0755 {} \;
 find "$STAGE/docs" -type f -exec chmod 0644 {} \;
+find "$STAGE/lib/yashandb" -type d -exec chmod 0755 {} \;
+find "$STAGE/lib/yashandb" -type f -exec chmod 0644 {} \;
 
 pr_file_list="$TMP_DIR/payload-files"
 (cd "$STAGE" && find . -type f ! -path './SHA256SUMS' -print | sed 's#^\./##' | LC_ALL=C sort) > "$pr_file_list"
@@ -176,10 +183,15 @@ TARBALL_TMP="$TMP_DIR/$TARBALL_NAME"
 TAR_TMP="$TMP_DIR/${ROOT_NAME}.tar"
 (cd "$TMP_DIR" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" --format=gnu -cf "$TAR_TMP" "$ROOT_NAME")
 gzip -n -c "$TAR_TMP" > "$TARBALL_TMP"
-if tar -tzf "$TARBALL_TMP" | grep -E -i '(^|/)libyas(cli|_infra)(\.so|\.so\.|\.a$|\.dylib$|\.dll$)' >/dev/null 2>&1; then
-  die "$TARBALL_NAME contains a YashanDB client library; official artifacts must exclude it."
-fi
-printf '%s\n' "$TARBALL_NAME passed the YashanDB client-file exclusion check"
+pr_tar_entries="$TMP_DIR/tar-entries"
+tar -tzf "$TARBALL_TMP" > "$pr_tar_entries"
+for pr_required_yashan in \
+  "$ROOT_NAME/lib/yashandb/libyascli.so" \
+  "$ROOT_NAME/lib/yashandb/libyas_infra.so"; do
+  grep -F -x "$pr_required_yashan" "$pr_tar_entries" >/dev/null 2>&1 \
+    || die "$TARBALL_NAME is missing $pr_required_yashan."
+done
+printf '%s\n' "$TARBALL_NAME includes the authorized YashanDB client runtime"
 
 VERIFY_DIR="$TMP_DIR/verify"
 mkdir "$VERIFY_DIR"

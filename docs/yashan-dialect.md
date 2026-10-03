@@ -28,28 +28,23 @@ to be escaped with `\\`. A real password containing `@` failed when naively
 concatenated and succeeded when supplied separately to `yasql`; the Go E2E test
 exercises the implemented driver escaping.
 
-## Driver redistribution policy
+## Packaged driver and client runtime
 
-AgentSQL does not have written permission to redistribute the vendor C client.
-Official release tarballs, installer payloads and GHCR images therefore contain
-neither the optional YashanDB Go driver code nor any vendor client library.
-The release build deliberately omits the `yashan` build tag and fails if its Go
-module metadata, ELF dependencies, binary strings or archive entries show a
-YashanDB driver/client marker.
+Starting with AgentSQL v0.5.0, official Linux release tarballs, the systemd
+installer payload and GHCR runtime images include the YashanDB Go driver and a
+platform-matched YashanDB C client runtime. The redistribution basis recorded
+for this release is the user's 2026-10-03 declaration that vendor authorization
+has been obtained. No written authorization file was supplied to this
+repository; this statement does not claim that the C client is covered by the
+Go driver's Apache-2.0 license.
 
-Installing or bind-mounting the C client beside an official AgentSQL binary is
-not sufficient. The C library is loaded dynamically, but the Go
-`database/sql` registration code must already have been compiled into the
-process. A stock release recognizes `db_type=yashan` and then fails closed
-without opening a connection because `yasdb` is not registered.
+The official `agentsql` binary is compiled with `-tags yashan`, so the `yasdb`
+driver is registered in `database/sql`. The C shim still loads
+`libyascli.so` dynamically when a YashanDB connection is opened. The release
+therefore carries the complete client `lib` directory rather than relying on a
+library copied from a database-server image.
 
-Go `plugin` is not used as a runtime adapter: it would require an exact match
-of Go toolchain, dependency graph and build flags, is not portable across all
-release platforms, and would still need CGO and the vendor client. A stable
-plugin ABI or separate adapter process would be a new architecture and is
-outside the verified dialect slice.
-
-## User-supplied driver build and loading
+## Version and source evidence
 
 The supported module is
 `github.com/yashan-technologies/yashandb-go@v1.4.4`, registered as `yasdb`.
@@ -68,67 +63,64 @@ The successful E2E path used the official standalone x86_64 client
 official `yashandb-client` repository. That client connected to the
 23.4.1.109 server with v1.4.4.
 
-The native driver import is isolated behind `yashan && cgo` in
-`yashan_driver.go`. Consequently the ordinary build remains independent of
-the proprietary runtime:
+The module is pinned in `go.mod`/`go.sum`; Go's module record resolves v1.4.4
+to tag `refs/tags/v1.4.4`, commit
+`93d0929514d7a33b7e081c692764ec1024fc8b75`, with module checksum
+`h1:162fBTXk77Gski56O58ZU7Q7GDJK0pmX3HstmMnvZ58=`. Its repository carries an
+Apache-2.0 `LICENSE`.
 
-```text
-go build ./...
-go test -short ./internal/authorizedexecute/internal/businessdb
-```
+The packaged C client is version 23.4.7.100 from the vendor's official
+`yashan-technologies/yashandb-client` repository, pinned to commit
+`a72b24d63ba0e43820c43d7443c0e4fd0ab304fd`. Release builds download the
+architecture-specific archive and fail closed unless its SHA-256 matches:
 
-To use the bounded native path, the deployer must obtain a platform-matched
-standalone client from the vendor download center, delivery media or vendor
-support. No vendor archive URL is hard-coded here. Extract it outside this
-repository (the example uses `/opt/yashan-client`), retain the vendor license,
-and verify that the client `lib` directory contains `libyascli.so` and its
-dependencies. Do not use a library copied from the database server image as a
-substitute for the supported standalone client.
+| Release architecture | Vendor archive | SHA-256 |
+| --- | --- | --- |
+| linux/amd64 | `yashandb-client-23.4.7.100-linux-x86_64.tar.gz` | `403ff0852712a7cfbaeb70269e4acf2391960dddcc374bee4227e68c4680d95f` |
+| linux/arm64 | `yashandb-client-23.4.7.100-linux-aarch64.tar.gz` | `69752b7bac8962ab0470687052462c7d7f0edb279959e5416910935b984a43d4` |
 
-The verified Linux native path uses `golang:1.25-bookworm` with GCC, mounts the
-source and an ephemeral read-only extraction of the official standalone
-client, and runs:
+The official client repository identifies these archives as YashanDB C driver
+packages but does not publish a standalone license file alongside them. Their
+redistribution here relies on the user-declared vendor authorization above.
+
+The native driver import remains isolated behind `yashan && cgo` in
+`yashan_driver.go`. The root image builds in `golang:1.26-bookworm` with GCC;
+the native release builder also enables CGO and passes `-tags yashan`. No C
+client header or link-time library is required because v1.4.4 compiles its shim
+from module sources and uses `dlopen` at runtime.
+
+The packaged runtime locations are:
+
+- systemd installation: `/usr/local/lib/agentsql/yashandb`, with the unit
+  setting `LD_LIBRARY_PATH`;
+- release tarball: `lib/yashandb` below the extracted package root;
+- official container: `/opt/yashandb-client/lib`, set in the image
+  `LD_LIBRARY_PATH`.
+
+For a directly extracted tarball, run from its package root:
 
 ```bash
-export YASHAN_CLIENT_HOME=/opt/yashan-client
-test -f "$YASHAN_CLIENT_HOME/lib/libyascli.so"
-export CGO_ENABLED=1
-export LD_LIBRARY_PATH="$YASHAN_CLIENT_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-go build -tags yashan -trimpath -o ./bin/agentsql-yashan ./cmd/agentsql
-AGENTSQL_YASHAN_E2E=1 YASHAN_HOST=127.0.0.1 YASHAN_USER=SYS \
-  YASHAN_SCHEMA=SYS YASHAN_TABLE=ALL_TAB_COLUMNS \
-  YASHAN_PASSWORD='<from secret injection>' \
-  go test -tags yashan -short ./internal/authorizedexecute/internal/businessdb
+export LD_LIBRARY_PATH="$PWD/lib/yashandb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+./agentsql --version
+./agentsql serve -c ./deploy/systemd/config.yaml
 ```
 
-The same `LD_LIBRARY_PATH` must be present when the resulting process starts.
-For systemd, put it in a local service drop-in rather than relying on an
-interactive shell, and point `ExecStart` at the locally built binary:
+For source verification in the required container toolchain:
 
-```ini
-[Service]
-Environment="LD_LIBRARY_PATH=/opt/yashan-client/lib"
-ExecStart=
-ExecStart=/opt/agentsql-yashan/agentsql serve -c /etc/agentsql/config.yaml
+```bash
+docker run --rm -v "$PWD:/src" -w /src golang:1.26-bookworm sh -lc '
+  export PATH=/usr/local/go/bin:$PATH
+  CGO_ENABLED=1 go build -tags yashan ./...
+  CGO_ENABLED=1 go test -tags yashan -short \
+    ./internal/authorizedexecute/internal/businessdb
+'
 ```
 
-For a private container deployment, the deployer must build and operate its
-own internal image and independently confirm the applicable vendor license.
-The official GHCR image cannot be enabled by mounting `/opt/yashan-client`
-because it intentionally lacks the compiled Go driver.
-
-Troubleshooting is fail-closed:
-
-- A safe connection/unreachable error with no vendor diagnostic usually means
-  the stock binary is running and `yasdb` was never registered. Rebuild and
-  deploy the tagged binary; there is no runtime flag that changes a stock one.
-- `libyascli.so: cannot open shared object file` means the service process does
-  not see the client `lib` directory. Inspect its actual environment and run
-  `ldd "$YASHAN_CLIENT_HOME/lib/libyascli.so"` as the service user.
-- An undefined symbol, wrong ELF class/architecture, or `YAS-02143` requires
-  checking the Go driver, standalone client, server version and CPU
-  architecture against the vendor support matrix. Do not copy random server
-  libraries into the release or weaken the guard.
+Troubleshooting remains fail-closed. `libyascli.so: cannot open shared object
+file` means the process does not see its packaged library directory. An
+undefined symbol, wrong ELF class/architecture, or `YAS-02143` requires
+checking the Go driver, standalone client, server version and CPU architecture;
+do not mix in libraries copied from a server image.
 
 The final E2E used the real SYS password containing `@` and passed through
 `openExecutor`, pool Ping, physical-session acquisition and bound
@@ -137,11 +129,13 @@ two-column table also passed the same discovery path. That user, its table, the
 downloaded client archive, build containers and temporary Docker volumes were
 removed after testing. `yashan-v06` was deliberately left running.
 
-Do not copy the client libraries into this repository or a distributable image.
-The Go repository is Apache-2.0, but the C client redistribution, static-link,
-CI-runner and base-image rights were not established. Written vendor approval
-is required before any such distribution. The test copy must be ephemeral and
-deleted after validation.
+The batch-29 packaging rerun again reached the real server, completed Ping,
+physical-session acquisition and non-empty `SYS.ALL_TAB_COLUMNS` discovery.
+The existing `TestYashanDiscoveryE2E` nevertheless finished **FAIL** at its
+subsequent fail-closed assertion: `SELECT 1 FROM DUAL` returned no error while
+the test expected one. This is recorded as an existing query-boundary mismatch,
+not as a packaging failure or a fully passing E2E; this batch does not change
+business-query behavior.
 
 ## Dialect findings
 
@@ -187,9 +181,10 @@ schema, and can acquire/release a physical `sql.Conn` session. `ListSchema`
 performs bounded native column discovery using only identities supplied by the
 caller; SQL and placeholders remain inside the capability implementation.
 
-The build without `-tags yashan` recognizes the datasource type but rejects
-opening it with a safe connection error because no native driver is registered.
-This is deliberate fail-closed behavior, not a protocol fallback.
+Official v0.5 builds register `yasdb` through the `yashan` build tag and ship
+the matching client runtime. A custom source build that omits the tag still
+recognizes the datasource type but rejects opening it with a safe connection
+error; this remains deliberate fail-closed behavior, not a protocol fallback.
 
 ## Deferred, fail-closed boundary
 

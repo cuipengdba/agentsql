@@ -112,4 +112,4 @@ Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, o
 - email: [87326549@qq.com](mailto:87326549@qq.com);
 - [GitHub private vulnerability reporting](https://github.com/cuipengdba/agentsql/security/advisories/new).
 
-The Chinese [security policy](../../SECURITY.md) currently lists 0.3.x as the supported series while the repository is prepared for pending v0.5.0 and the externally published assets remain v0.4.0. This is an unresolved documentation discrepancy; confirm the supported security-fix series privately with the maintainers rather than assuming coverage.
+The authoritative [security policy](../../SECURITY.md) supports v0.5.x until six months after v0.6.0 is released, but not earlier than 2027-10-31; v0.4.x remains supported through 2027-04-30. Versions 0.3.x and earlier are EOL and no longer receive security fixes.

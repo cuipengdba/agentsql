@@ -47,7 +47,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 
 > "已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商联系开展兼容性认证与合作：请通过交流群、仓库 Discussion 或邮件 87326549@qq.com 联系我们。
 
-> **崖山驱动再分发边界：**AgentSQL 官方发布二进制、Linux 安装包和 GHCR 运行时镜像均不包含 YashanDB Go 驱动代码或厂商 C 客户端。需要验证 `db_type=yashan` 最小能力的用户，须从厂商渠道自行取得匹配平台的客户端，并在自己的环境中构建带 `yashan` tag 的专用二进制；仅给官方镜像挂载客户端目录不能启用驱动。完整步骤和排错见 [YashanDB 驱动自备说明](docs/yashan-dialect.md#user-supplied-driver-build-and-loading)。
+> **崖山驱动随发行物分发：**自 v0.5.0 起，官方 Linux 安装包和 GHCR 运行时镜像内置 `github.com/yashan-technologies/yashandb-go@v1.4.4`，并携带官方 YashanDB C 客户端 23.4.7.100 的匹配架构运行库。再分发依据为用户于 2026-10-03 声明已取得厂商授权；本仓库未收到书面授权文件。设计可用范围仍限于连接与元数据发现，普通 Query、写入、事务和 EXPLAIN 应 fail-closed；但批二十九真实冒烟发现普通 Query 未按测试预期报错，因此在修复并复验前属于发布阻断项，不得据打包成功宣称该边界已通过。版本、来源、手工 tar 包运行方式、实测结果与排错见 [YashanDB 驱动说明](docs/yashan-dialect.md#packaged-driver-and-client-runtime)。
 
 首批金仓 + 瀚高的证据边界、复现 SQL 与待厂商项见[联合案例验证记录](docs/joint-case-kingbase-highgo.md)；公众号与技术群文案见[社区运营口径](docs/joint-case-operations.md)。
 
@@ -283,4 +283,4 @@ make build VERSION=v0.5.0
 
 ## 许可、商业授权与商标
 
-开源版本依据 [Apache License 2.0](LICENSE) 授权（含 [NOTICE](NOTICE) 文件），允许闭源集成、SaaS 商用与再分发。需要商标使用许可、企业模块、保修或 SLA 时，请参阅 [商业授权说明](COMMERCIAL-LICENSE.md)。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。
+**许可更换声明：**v0.4.0 及更早版本的既有源码、tag 和发布包保持其发布时适用的原许可，继续按原许可使用，不重打 tag、不重发资产；自 v0.5.0 起，开源版本切换为 [Apache License 2.0](LICENSE)（含 [NOTICE](NOTICE) 文件），并提供独立的 [商业授权说明](COMMERCIAL-LICENSE.md)。Apache-2.0 允许闭源集成、SaaS 商用与再分发。需要商标使用许可、企业模块、保修或 SLA 时，请参阅商业授权说明。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。

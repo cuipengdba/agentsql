@@ -14,6 +14,8 @@ UNIT_PATH="/etc/systemd/system/agentsql.service"
 STATE_PATH="${CONFIG_DIR}/install-state"
 ENV_PATH="${CONFIG_DIR}/agentsql.env"
 CONFIG_PATH="${CONFIG_DIR}/config.yaml"
+YASHAN_LIB_PARENT="/usr/local/lib/agentsql"
+YASHAN_LIB_DIR="${YASHAN_LIB_PARENT}/yashandb"
 
 ACTION=
 VERSION=
@@ -37,6 +39,7 @@ TX_KIND=
 OLD_AGENTSQL_PRESENT=0
 OLD_CTL_PRESENT=0
 OLD_UNIT_PRESENT=0
+OLD_YASHAN_LIB_PRESENT=0
 OLD_ACTIVE=0
 OLD_ENABLED=0
 UPGRADE_BACKUP_DIR=
@@ -111,6 +114,7 @@ cleanup_paths() {
     restore_service_state || warn "The previous service state could not be restored automatically."
   fi
   rm -f "$BIN_DIR/.agentsql.new.$$" "$BIN_DIR/.agentsqlctl.new.$$" "/etc/systemd/system/.agentsql.service.new.$$" 2>/dev/null || true
+  rm -rf "$YASHAN_LIB_PARENT/.yashandb.new.$$" 2>/dev/null || true
   if [ -n "$TMP_DIR" ]; then
     case "$TMP_DIR" in
       /tmp/agentsql-install.*|*/agentsql-install.*) rm -rf "$TMP_DIR" ;;
@@ -424,7 +428,7 @@ verify_package_root() {
   [ -d "$vpr_root" ] || die "Package root is not a directory: $vpr_root"
   [ ! -L "$vpr_root" ] || die "Package root must not be a symbolic link."
   [ "$(basename "$vpr_root")" = "agentsql-${VERSION}-linux-${PLATFORM_ARCH}" ] || die "Package directory name does not match its VERSION or host architecture."
-  for vpr_expected in agentsql agentsqlctl install.sh deploy/systemd/agentsql.service deploy/systemd/config.yaml LICENSE VERSION SHA256SUMS; do
+  for vpr_expected in agentsql agentsqlctl install.sh deploy/systemd/agentsql.service deploy/systemd/config.yaml lib/yashandb/libyascli.so lib/yashandb/libyas_infra.so LICENSE VERSION SHA256SUMS; do
     [ -f "$vpr_root/$vpr_expected" ] || die "Release package is missing $vpr_expected."
     [ ! -L "$vpr_root/$vpr_expected" ] || die "Release package file must not be a symbolic link: $vpr_expected"
   done
@@ -447,7 +451,7 @@ verify_package_root() {
   [ "$(wc -l < "$vpr_manifest_list" | tr -d ' ')" = "$(wc -l < "$vpr_manifest_sorted" | tr -d ' ')" ] || die "Package SHA256SUMS contains duplicate entries."
   (cd "$vpr_root" && find . -type f ! -path './SHA256SUMS' -print | sed 's#^\./##' | LC_ALL=C sort) > "$vpr_actual_sorted"
   cmp -s "$vpr_manifest_sorted" "$vpr_actual_sorted" || die "Package SHA256SUMS does not cover every payload file exactly once."
-  for vpr_expected in agentsql agentsqlctl install.sh deploy/systemd/agentsql.service deploy/systemd/config.yaml LICENSE VERSION; do
+  for vpr_expected in agentsql agentsqlctl install.sh deploy/systemd/agentsql.service deploy/systemd/config.yaml lib/yashandb/libyascli.so lib/yashandb/libyas_infra.so LICENSE VERSION; do
     grep -F "  $vpr_expected" "$vpr_root/SHA256SUMS" >/dev/null 2>&1 || die "Package SHA256SUMS does not cover $vpr_expected."
   done
   if ! sha256_check_file SHA256SUMS "$vpr_root" >/dev/null 2>&1; then
@@ -531,7 +535,7 @@ acquire_release() {
 }
 
 reject_managed_symlinks() {
-  for rms_path in "$BIN_DIR" "$CONFIG_DIR" "$DATA_DIR" "$BIN_DIR/agentsql" "$BIN_DIR/agentsqlctl" "$UNIT_PATH" "$CONFIG_PATH" "$ENV_PATH" "$STATE_PATH" "$DATA_DIR/agentsql.db" "$DATA_DIR/agentsql.db-wal" "$DATA_DIR/agentsql.db-shm"; do
+  for rms_path in "$BIN_DIR" "$CONFIG_DIR" "$DATA_DIR" "$YASHAN_LIB_PARENT" "$YASHAN_LIB_DIR" "$BIN_DIR/agentsql" "$BIN_DIR/agentsqlctl" "$UNIT_PATH" "$CONFIG_PATH" "$ENV_PATH" "$STATE_PATH" "$DATA_DIR/agentsql.db" "$DATA_DIR/agentsql.db-wal" "$DATA_DIR/agentsql.db-shm"; do
     [ ! -L "$rms_path" ] || die "Managed path must not be a symbolic link: $rms_path"
   done
 }
@@ -624,12 +628,19 @@ stage_replacements() {
   sr_agent_new="$BIN_DIR/.agentsql.new.$$"
   sr_ctl_new="$BIN_DIR/.agentsqlctl.new.$$"
   sr_unit_new="/etc/systemd/system/.agentsql.service.new.$$"
+  sr_yashan_new="$YASHAN_LIB_PARENT/.yashandb.new.$$"
+  install -d -o root -g root -m 0755 "$YASHAN_LIB_PARENT"
+  mkdir "$sr_yashan_new"
   cp "$PKG_ROOT/agentsql" "$sr_agent_new"
   cp "$PKG_ROOT/agentsqlctl" "$sr_ctl_new"
   cp "$PKG_ROOT/deploy/systemd/agentsql.service" "$sr_unit_new"
+  cp -R "$PKG_ROOT/lib/yashandb/." "$sr_yashan_new/"
   chown root:root "$sr_agent_new" "$sr_ctl_new" "$sr_unit_new"
+  chown -R root:root "$sr_yashan_new"
   chmod 0755 "$sr_agent_new" "$sr_ctl_new"
   chmod 0644 "$sr_unit_new"
+  find "$sr_yashan_new" -type d -exec chmod 0755 {} \;
+  find "$sr_yashan_new" -type f -exec chmod 0644 {} \;
   [ "$("$sr_agent_new" --version 2>/dev/null)" = "$VERSION" ] || die "Staged agentsql binary failed version verification."
   [ "$("$sr_ctl_new" version 2>/dev/null)" = "$VERSION" ] || die "Staged agentsqlctl binary failed version verification."
 }
@@ -638,6 +649,7 @@ activate_replacements() {
   OLD_AGENTSQL_PRESENT=0
   OLD_CTL_PRESENT=0
   OLD_UNIT_PRESENT=0
+  OLD_YASHAN_LIB_PRESENT=0
   TX_ACTIVE=1
   if [ -e "$BIN_DIR/agentsql" ]; then
     OLD_AGENTSQL_PRESENT=1
@@ -651,13 +663,19 @@ activate_replacements() {
     OLD_UNIT_PRESENT=1
     mv "$UNIT_PATH" "/etc/systemd/system/.agentsql.service.backup.$$"
   fi
+  if [ -e "$YASHAN_LIB_DIR" ]; then
+    OLD_YASHAN_LIB_PRESENT=1
+    mv "$YASHAN_LIB_DIR" "$YASHAN_LIB_PARENT/.yashandb.backup.$$"
+  fi
   mv "$BIN_DIR/.agentsql.new.$$" "$BIN_DIR/agentsql"
   mv "$BIN_DIR/.agentsqlctl.new.$$" "$BIN_DIR/agentsqlctl"
   mv "/etc/systemd/system/.agentsql.service.new.$$" "$UNIT_PATH"
+  mv "$YASHAN_LIB_PARENT/.yashandb.new.$$" "$YASHAN_LIB_DIR"
 }
 
 remove_transaction_backups() {
   rm -f "$BIN_DIR/.agentsql.backup.$$" "$BIN_DIR/.agentsqlctl.backup.$$" "/etc/systemd/system/.agentsql.service.backup.$$"
+  rm -rf "$YASHAN_LIB_PARENT/.yashandb.backup.$$"
 }
 
 restore_replacement_files() {
@@ -686,7 +704,16 @@ restore_replacement_files() {
   else
     rm -f "$UNIT_PATH" "/etc/systemd/system/.agentsql.service.backup.$$" || rrf_ok=1
   fi
+  if [ "$OLD_YASHAN_LIB_PRESENT" -eq 1 ]; then
+    if [ -d "$YASHAN_LIB_PARENT/.yashandb.backup.$$" ]; then
+      rm -rf "$YASHAN_LIB_DIR" || rrf_ok=1
+      mv "$YASHAN_LIB_PARENT/.yashandb.backup.$$" "$YASHAN_LIB_DIR" || rrf_ok=1
+    fi
+  else
+    rm -rf "$YASHAN_LIB_DIR" "$YASHAN_LIB_PARENT/.yashandb.backup.$$" || rrf_ok=1
+  fi
   rm -f "$BIN_DIR/.agentsql.new.$$" "$BIN_DIR/.agentsqlctl.new.$$" "/etc/systemd/system/.agentsql.service.new.$$" || rrf_ok=1
+  rm -rf "$YASHAN_LIB_PARENT/.yashandb.new.$$" || rrf_ok=1
   [ "$rrf_ok" -eq 0 ]
 }
 
@@ -748,6 +775,12 @@ restore_upgrade_payload() {
   else
     rm -f "$UNIT_PATH" || return 1
   fi
+  if [ "$OLD_YASHAN_LIB_PRESENT" -eq 1 ] && [ -d "$YASHAN_LIB_PARENT/.yashandb.backup.$$" ]; then
+    rm -rf "$YASHAN_LIB_DIR" || return 1
+    mv "$YASHAN_LIB_PARENT/.yashandb.backup.$$" "$YASHAN_LIB_DIR" || return 1
+  else
+    rm -rf "$YASHAN_LIB_DIR" "$YASHAN_LIB_PARENT/.yashandb.backup.$$" || return 1
+  fi
   if [ "$BACKUP_CONFIG_PRESENT" -eq 1 ]; then
     restore_backup_file "$UPGRADE_BACKUP_DIR/config.yaml" "$CONFIG_PATH" || return 1
   else
@@ -781,6 +814,7 @@ rollback_transaction() {
   if [ "$TX_KIND" = upgrade ] && [ -n "$UPGRADE_BACKUP_DIR" ]; then
     restore_upgrade_payload || rbt_ok=1
     rm -f "$BIN_DIR/.agentsql.backup.$$" "$BIN_DIR/.agentsqlctl.backup.$$" "/etc/systemd/system/.agentsql.service.backup.$$"
+    rm -rf "$YASHAN_LIB_PARENT/.yashandb.backup.$$"
   else
     restore_replacement_files || rbt_ok=1
   fi
@@ -815,7 +849,7 @@ rollback_transaction() {
 apply_selinux_contexts() {
   if command -v restorecon >/dev/null 2>&1; then
     restorecon -F "$BIN_DIR/agentsql" "$BIN_DIR/agentsqlctl" "$UNIT_PATH" 2>/dev/null || warn "restorecon reported an error on installed files."
-    restorecon -RF "$CONFIG_DIR" "$DATA_DIR" 2>/dev/null || warn "restorecon reported an error on AgentSQL directories."
+    restorecon -RF "$CONFIG_DIR" "$DATA_DIR" "$YASHAN_LIB_PARENT" 2>/dev/null || warn "restorecon reported an error on AgentSQL directories."
   fi
   if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null || true)" = Enforcing ]; then
     say "SELinux is enforcing. If startup is denied, inspect AVC records with: ausearch -m AVC"
@@ -836,6 +870,7 @@ write_install_state() {
     printf 'MANAGED_FILE_3=%s\n' "$UNIT_PATH"
     printf 'MANAGED_FILE_4=%s\n' "$CONFIG_PATH"
     printf 'MANAGED_FILE_5=%s\n' "$ENV_PATH"
+    printf 'MANAGED_DIRECTORY_1=%s\n' "$YASHAN_LIB_DIR"
   } > "$wis_tmp"
   chown root:root "$wis_tmp"
   chmod 0644 "$wis_tmp"
@@ -1097,6 +1132,9 @@ uninstall_action() {
     [ ! -L "$ua_path" ] || die "Refusing to remove symbolic link at managed path: $ua_path"
     rm -f "$ua_path"
   done
+  [ ! -L "$YASHAN_LIB_DIR" ] || die "Refusing to remove symbolic link at managed path: $YASHAN_LIB_DIR"
+  rm -rf "$YASHAN_LIB_DIR"
+  rmdir "$YASHAN_LIB_PARENT" 2>/dev/null || true
   if systemd_available; then
     systemctl daemon-reload || warn "systemctl daemon-reload failed."
     systemctl reset-failed agentsql >/dev/null 2>&1 || true

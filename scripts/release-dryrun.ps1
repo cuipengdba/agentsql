@@ -116,15 +116,15 @@ function Assert-SignatureDocument {
     }
 }
 
-function Assert-NoYashanRedistribution {
+function Assert-YashanRedistribution {
     param(
         [Parameter(Mandatory = $true)][string]$Directory,
         [Parameter(Mandatory = $true)][string]$ReleaseVersion
     )
 
     $metadataPath = Join-Path $Directory 'go-version-metadata.txt'
-    if (Select-String -LiteralPath $metadataPath -SimpleMatch 'github.com/yashan-technologies/yashandb-go' -Quiet) {
-        throw 'go-version-metadata.txt includes the optional YashanDB Go driver; official assets must exclude it.'
+    if (-not (Select-String -LiteralPath $metadataPath -Pattern 'github\.com/yashan-technologies/yashandb-go\s+v1\.4\.4' -Quiet)) {
+        throw 'go-version-metadata.txt does not include yashandb-go v1.4.4.'
     }
 
     foreach ($architecture in @('amd64', 'arm64')) {
@@ -134,12 +134,14 @@ function Assert-NoYashanRedistribution {
         if ($LASTEXITCODE -ne 0) {
             throw "Could not inspect archive entries in $tarName."
         }
-        $forbidden = @($entries | Where-Object { $_ -match '(?i)(^|/)libyas(cli|_infra)(\.so|\.so\.|\.a$|\.dylib$|\.dll$)' })
-        if ($forbidden.Count -gt 0) {
-            throw "$tarName contains YashanDB client libraries: $($forbidden -join ', ')."
+        foreach ($requiredLibrary in @('libyascli.so', 'libyas_infra.so')) {
+            $expectedSuffix = "/lib/yashandb/$requiredLibrary"
+            if (-not @($entries | Where-Object { $_.EndsWith($expectedSuffix, [System.StringComparison]::Ordinal) })) {
+                throw "$tarName is missing the authorized YashanDB client library $requiredLibrary."
+            }
         }
     }
-    Write-Host 'RELEASE_DRYRUN_YASHAN_REDISTRIBUTION=EXCLUDED'
+    Write-Host 'RELEASE_DRYRUN_YASHAN_REDISTRIBUTION=INCLUDED_DRIVER_v1.4.4_CLIENT_23.4.7.100'
 }
 
 function Test-ReleaseAssets {
@@ -184,7 +186,7 @@ function Test-ReleaseAssets {
         }
     }
     Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
-    Assert-NoYashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
+    Assert-YashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
 
     $publicDocument = Get-Content -LiteralPath (Join-Path $Directory 'ed25519-release-public-key.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $isDryRunSet = $publicDocument.PSObject.Properties['dryRun'] -and $publicDocument.dryRun -eq $true

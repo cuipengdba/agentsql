@@ -8,6 +8,7 @@ Type=simple
 User=agentsql
 Group=agentsql
 EnvironmentFile=-/etc/agentsql/agentsql.env
+Environment="LD_LIBRARY_PATH=/usr/local/lib/agentsql/yashandb"
 ExecStart=/usr/local/bin/agentsql serve -c /etc/agentsql/config.yaml
 Restart=on-failure
 NoNewPrivileges=true

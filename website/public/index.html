@@ -71,7 +71,7 @@
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
           </div>
-          <p class="badge-line">Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
+          <p class="badge-line">v0.5.0 起 Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
           <p class="positioning">它不是 BI，也不是 ORM 或 Text2SQL，而是模型与数据库之间一道默认拒绝的安全闸门。</p>
         </div>
         <div class="gateway-visual" aria-label="请求经过 AgentSQL 网关的处理链路">
@@ -306,7 +306,7 @@ bash ./demo/reset.sh
 
     <section id="licensing" class="section section-muted">
       <div class="container license-panel">
-        <div><p class="kicker">授权模式</p><h2>开源核心与商业双授权</h2><p>AgentSQL 开源核心采用 Apache License 2.0，并保留商标权利。开源版本依据 Apache-2.0 提供，允许闭源集成、SaaS 商用与再分发，但不包含商标使用权。需要商标使用许可，或面向团队 / 大规模部署的企业能力，可邮件咨询商业授权：<a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p><p class="commercial-note">需要商标许可、企业能力或商业授权，请邮件联系 87326549@qq.com</p></div>
+        <div><p class="kicker">授权模式</p><h2>开源核心与商业双授权</h2><p><strong>许可更换声明：</strong>v0.4.0 及更早版本的既有源码、tag 与发布包维持其发布时适用的原许可并可继续按原许可使用，不重打历史 tag、不重发历史资产；自 v0.5.0 起，AgentSQL 开源核心切换为 Apache License 2.0，并提供独立商业许可说明。Apache-2.0 允许闭源集成、SaaS 商用与再分发，但不包含商标使用权。需要商标使用许可，或面向团队 / 大规模部署的企业能力，可邮件咨询商业授权：<a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p><p class="commercial-note">需要商标许可、企业能力或商业授权，请邮件联系 87326549@qq.com</p></div>
         <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">查看 Apache-2.0</a><a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/COMMERCIAL-LICENSE.md" target="_blank" rel="noopener noreferrer">查看商业授权说明</a></div>
       </div>
     </section>
@@ -319,7 +319,7 @@ bash ./demo/reset.sh
           <details><summary>不用 MCP，模型就不能连数据库吗？</summary><p>可以，应用也可用自研 API、数据库代理或服务端托管凭据连接；AgentSQL 提供的是面向 MCP 的统一身份、策略、受控执行与审计入口，而非唯一连接方式。</p></details>
           <details><summary>它是 BI / ORM / Text2SQL 吗？</summary><p>都不是；不负责自然语言生成 SQL 的业务体验，也不替代 ORM，负责安全执行与留痕。</p></details>
           <details><summary>性能如何？</summary><p>静态判定在毫秒级；在内存 fake executor、20 worker / 20 万样本、剥离真实库网络与执行时间的基准中，网关 CPU 路径 P99 约 1.81 ms，该数字不是端到端查询延迟，真实延迟取决于连接、EXPLAIN、数据库执行与审计存储。</p></details>
-          <details><summary>个人 / 公司能免费用吗？</summary><p>按 Apache-2.0 条款可免费使用、闭源集成、SaaS 商用与再分发；商标使用许可、企业能力或官方保障请邮件咨询商业授权。</p></details>
+          <details><summary>个人 / 公司能免费用吗？</summary><p>v0.4.0 及更早版本继续适用其发布时的原许可；v0.5.0 起可按 Apache-2.0 条款免费使用、闭源集成、SaaS 商用与再分发。商标使用许可、企业能力或官方保障请邮件咨询商业授权。</p></details>
           <details><summary>支持哪些数据库 / 客户端？</summary><p>请查看上方<a href="#compatibility">兼容矩阵</a>，其中列出业务库、控制面、MCP 传输、宿主与部署范围。</p></details>
         </div>
       </div>
