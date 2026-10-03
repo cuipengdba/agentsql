@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26-bookworm AS build
 
 ARG VERSION=v0.5.0
 # Overridable module proxy for restricted networks, e.g.
