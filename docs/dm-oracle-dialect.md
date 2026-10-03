@@ -1,6 +1,20 @@
 # DM8 / Oracle dialect 能力与验证边界
 
-> 状态：v0.5 批十、批十三、批二十、批二十一与批二十八的累计说明；不是完整兼容或生产认证声明。最近 DM8 真库回归日期：2026-10-03。
+> 状态：v0.5 批十、批十三、批二十、批二十一、批二十八与批三十二的累计说明；不是完整兼容或生产认证声明。最近 DM8 真库回归日期：2026-10-03。
+
+## 批三十二：受控 SELECT parser 与投影血缘
+
+`parser.NewParser("dm")` 和 `parser.NewParser("oracle")` 现已注册独立的 Oracle-compatible 只读分析器。它是 v0.5 冻结 profile：DM 语法基线只采用批二十八在 `COMPATIBLE_MODE=0`、Pack3 实例得到的证据，Oracle 基线采用本文记录的 Oracle Free 23.26.3 路径；parser 不根据未知服务端版本自动扩语法。该注册只增加只读 AST/血缘分析能力，没有修改 `limitedSQLExecutor` 的查询放行或拒绝逻辑，也没有把 DM/Oracle 别名到 PostgreSQL/MySQL parser。
+
+支持范围严格限定为以下无括号、单条 `SELECT` 子集：
+
+- `SELECT [DISTINCT]`；投影项只能是直接列（最多 `schema.table.column`）、字符串/数字/`NULL`/布尔常量、`*` 或 `alias.*`，支持投影别名；
+- 必须有 `FROM` 物理关系，只接受单表、多表逗号连接，或 `INNER/LEFT/RIGHT/FULL/CROSS JOIN`；非 CROSS JOIN 必须带无括号 `ON` 简单谓词；表别名采用 Oracle-compatible 的无 `AS` 形式；
+- `WHERE`/`ON` 只接受直接列或常量之间的 `= != <> < <= > >= LIKE`、`IS [NOT] NULL`，以及 `AND`/`OR`；`ORDER BY` 只接受直接列与 `ASC/DESC`；
+- DM 仅额外接受真库已证明的 `TOP n`、`LIMIT n`、`LIMIT n OFFSET m`、`LIMIT m,n` 和 `OFFSET ... ROWS FETCH ... ROWS ONLY`；Oracle 仅接受 `OFFSET/FETCH`，继续拒绝 `TOP/LIMIT`；
+- 输出 `AST.Tables`、`AST.Columns`、`DirectProjections` 与 `ProjectionLineages`。直接列记录唯一物理来源；无限定多表列标记为 `ambiguous` 且不猜测 dependency；常量为 `source_free`；通配符为 variadic lineage。parser 不持有 catalog，所以 `*` 的“展开”只精确到对应物理表的通配列集合，不能虚构实际列名；真正逐列展开仍需调用方提供 metadata。
+
+下列结构即使厂商 SQL 本身可能合法，也统一返回包含 `ErrUnparseable` 的明确错误：函数和任何括号、子查询、CTE、算术或 `CASE` 表达式、`GROUP BY/HAVING`、集合操作、`CONNECT BY`、`NATURAL/USING JOIN`、注释、bind、分号/多语句、非 `SELECT` 语句、无法解析到当前 `FROM` 作用域的限定列，以及所有未列出的结构。该 fail-closed profile 是完整厂商 grammar 的真子集，不代表完整 parser、列级授权/脱敏 pipeline 或厂商认证。
 
 ## 批二十八：DM8 真库端到端回归
 
@@ -44,7 +58,7 @@ go test ./internal/authorizedexecute/internal/businessdb -run '^TestDMDiscoveryE
 
 ### 未覆盖与阻塞
 
-- `parser.NewParser("dm")` 仍返回 `ErrUnsupportedDialect`。因此本批只证明窄 SELECT 门禁、对象查询、元数据和 EXPLAIN；没有 DM AST/投影血缘，也不声称“血缘 PASS”。未知 DM SQL 继续 fail-closed。要完成血缘闭环必须新增并评审 DM parser、对象/列提取和 lineage corpus，这会修改 `internal/parser` 等超出本批预期文件范围的组件。
+- 批二十八当时 `parser.NewParser("dm")` 仍返回 `ErrUnsupportedDialect`，所以该提交本身只证明窄 SELECT 门禁、对象查询、元数据和 EXPLAIN；批三十二已补上方所列的有界 parser/投影血缘，但不追溯改写批二十八的测试结论。
 - 未验证 SSL、通信加密、LOB 内容读取/写入、时区转换、context cancel 后物理连接复用、写事务和完整 Gateway 授权/脱敏/审计闭环。
 - Windows 主机的 Go 环境为 `CGO_ENABLED=0`，不能编译仓库既有 `pg_query_go` parser；本批用已有 `golang:1.26-bookworm` 镜像运行 Linux CGO 测试。businessdb 无过滤全量测试还包含自动启动 PostgreSQL/MySQL testcontainers 的用例，未向构建容器授予 Docker socket；DM/Oracle 定向离线集与 DM 真库 E2E 均独立通过。
 
@@ -64,7 +78,7 @@ go test ./internal/authorizedexecute/internal/businessdb -run '^TestDMDiscoveryE
 | 错误分类 | 认证、语法、权限、连接、列/对象/模式不存在、锁超时、唯一约束；批二十八新增真实 `-2111` 列不存在 | 认证、权限、语法、列/对象不存在、约束、中断、连接，以及资源忙/死锁、临时空间/共享池资源不足 |
 | 类型 | 保留厂商 `DATA_TYPE` 字符串；尚无 canonical type 映射 | 同左；`NUMBER`、日期、LOB、JSON/BOOLEAN/Vector 等仍待独立语义设计 |
 | 写入/事务/触发器 | 未实现；`Execute`、`WriteTx` 保持 fail-closed | 同左 |
-| 主 parser/授权闭环 | 未接入 DM parser、规则、列级授权和脱敏 pipeline | 未接入 Oracle parser、规则、列级授权和脱敏 pipeline |
+| parser/授权闭环 | v0.5 受控 SELECT profile 的对象、列和投影血缘已实现，未知结构 fail-closed；尚未接入完整规则、列级授权和脱敏 pipeline | 同左；Oracle 分页只接受 `OFFSET/FETCH`，明确拒绝 `TOP/LIMIT` |
 
 ### 0.1 批二十、批二十一离线验证
 
@@ -84,10 +98,10 @@ go test ./internal/authorizedexecute/internal/businessdb -run '^TestDMDiscoveryE
 
 ### 0.3 明确限制与历史待办
 
-- 窄门禁不是完整 SQL parser：函数、括号、子查询、CTE、bind、注释和尾部分号即使是合法 SQL 也拒绝；未引用标识符若与受限关键字重名也会 fail-closed。
+- 窄门禁与批三十二 parser 都不是完整 SQL parser：函数、括号、子查询、CTE、bind、注释和尾部分号即使是合法 SQL 也拒绝；未引用标识符若与受限关键字重名也会 fail-closed。
 - DM EXPLAIN、Ping、metadata、分页、权限和主要错误分类已在批二十八使用有效凭据复跑；context cancel 后连接复用、SSL/通信加密及更广操作符仍待验证。
 - Oracle 本批没有外部实例；新增分页、错误码和计划形态均待 Oracle 真库回归。批十三已有环境证据不等于批二十重新实测。
-- DM/Oracle 的 canonical 类型、LOB/时区/字符集、完整 parser、列级授权/脱敏、事务、触发器、取消后连接复用仍未验证。
+- DM/Oracle 的 canonical 类型、LOB/时区/字符集、完整厂商 grammar、catalog 驱动的 `*` 逐列展开、列级授权/脱敏、事务、触发器、取消后连接复用仍未验证。
 
 ## 1. 批十初始结论（历史记录）
 
@@ -177,14 +191,14 @@ Oracle 在 2026 年提供了官方纯 Go `github.com/oracle/go-oracledb/v26`，�
 Gateway.ListSchema -> Manager/openExecutor -> DM/Oracle pool -> businessdb.ListSchema -> fixed catalog SQL
 
 Gateway.Sample -> AuthorizedExecute -> parser/rules/EXPLAIN -> executor.Query
-                                      (DM/Oracle parser 尚未注册，因此 fail-closed)
+                                      (DM/Oracle 仅注册 v0.5 受控 SELECT profile；完整规则/列授权仍未接入)
 ```
 
 特别地，本批没有让 `Gateway.Sample` 绕过 `AuthorizedExecute` 去调用底层数据库，也没有把 DM/Oracle 假装成 postgres/mysql。这样会牺牲完整敏感发现，但不会削弱授权、脱敏和审计边界。
 
 ## 6. 后续小批拆分
 
-1. **控制面与 parser 准入**：在 datasource API/store 校验中显式接受新类型；为两种方言建立单语句 parser、注释/终止符、对象与列提取、危险函数、CTE/子查询、DML/DDL corpus。任何无法归一化的 AST 必须拒绝。
+1. **控制面与完整 parser 准入**：受控 SELECT 的对象、列与投影血缘已实现；后续若要接入完整授权 pipeline，仍需显式评审 datasource API/store、规则集合、catalog `*` 展开，以及危险函数、CTE/子查询和 DML/DDL corpus。任何无法归一化的 AST 必须拒绝。
 2. **EXPLAIN 真库验证与扩展**：用有效 DM 凭据比对普通 `EXPLAIN` 文本与 `EXPLAIN FOR` 结果集，核验计划记录生命周期，并仅依据新增官方/真库 fixture 扩充操作符白名单；Oracle 继续优先读取结构化 `PLAN_TABLE` 而非本地化 ASCII。
 3. **只读查询与采样**：实现 dialect 自己的行限制器和仅 SELECT 分类；禁止尾部分号/多语句逃逸；接回 `Gateway.Sample` 后跑敏感类型识别、mask/hash/block/range 和截断用例。
 4. **错误与取消**：按真实驱动错误类型建立认证、权限、对象不存在、语法、约束、死锁、资源、超时、取消分类；未知码固定 execution；验证取消后的物理连接处置。

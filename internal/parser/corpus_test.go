@@ -150,7 +150,7 @@ func sortedObjects(values []model.ObjectRef) []model.ObjectRef {
 }
 
 func TestNewParserRejectsUnsupportedDialect(t *testing.T) {
-	approvedParser, err := NewParser(model.DBDialect("oracle"))
+	approvedParser, err := NewParser(model.DBDialect("sqlite"))
 	require.Nil(t, approvedParser)
 	require.True(t, errors.Is(err, ErrUnsupportedDialect))
 }

@@ -16,7 +16,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 
 ### 新特性与变更
 
-- **DM / Oracle / YashanDB 独立 dialect 边界**：新增独立数据源类型与有界连接/元数据路径；Oracle 完成严格只读子集查询和 `PLAN_TABLE` EXPLAIN 归一化实测。DM 代码路径已完成，但当前凭据被实例拒绝；YashanDB Go 驱动 v1.4.4 与官方 C 客户端 23.4.7.100 计划随 Linux 发行物分发。崖山客户端再分发依据为用户于 2026-10-03 声明已取得厂商授权，本仓库未收到书面授权文件。批三十提交 `33f2d56` 已修复 pool/physical session 普通 Query 边界并在真实 23.4.1.109 实例复验 fail-closed；EXPLAIN 和写路径仍不宣称可用。批三十一发现旧 dry-run 包未包含新驱动/客户端，必须由封板提交重新构建。
+- **DM / Oracle / YashanDB 独立 dialect 边界**：新增独立数据源类型与有界连接/元数据路径；DM8 已在 `COMPATIBLE_MODE=0` 的 Pack3 实例完成窄查询、分页和已知 EXPLAIN 形态实测，Oracle 完成严格只读子集查询和 `PLAN_TABLE` EXPLAIN 归一化实测。DM/Oracle 新增 v0.5 冻结、fail-closed 的受控 SELECT parser：提取物理表、引用列和直接/常量/通配符投影血缘，不改变 executor 放行语义；函数、括号、子查询、CTE、复杂表达式和未列出的结构仍拒绝。YashanDB Go 驱动 v1.4.4 与官方 C 客户端 23.4.7.100 计划随 Linux 发行物分发。崖山客户端再分发依据为用户于 2026-10-03 声明已取得厂商授权，本仓库未收到书面授权文件。批三十提交 `33f2d56` 已修复 pool/physical session 普通 Query 边界并在真实 23.4.1.109 实例复验 fail-closed；EXPLAIN 和写路径仍不宣称可用。批三十一发现旧 dry-run 包未包含新驱动/客户端，必须由封板提交重新构建。
 - **OpenTenBase 双内核深化**：OpenTenBase v2.5.0 PostgreSQL 内核对特定远程计划实现严格、版本受限的规范化，指定单机 GTM/CN/DN 拓扑的最小安全闭环有实测记录。TXSQL/MySQL 内核是独立路线，本版未实测、未实现产品专用代码。
 - **PolarDB 兼容路径**：指定 PolarDB for PostgreSQL 15 社区镜像通过现有 `postgres` 路径完成 Ping、discovery、R006 拒绝、EXPLAIN、只读查询、脱敏与审计闭环；未新增 PolarDB 别名或厂商识别开关。
 - **EXPLAIN 兼容适配**：增加 OpenTenBase、TiDB 和 OceanBase 的严格计划适配与回归 fixture；未知版本、列、节点或计划形态继续 fail-closed。TiDB / OceanBase 本批有代码回归证据，不借此宣称厂商环境完整闭环已通过。
@@ -35,8 +35,8 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 | --- | --- | --- |
 | PostgreSQL 14–18 | 原生支持 | 既有 PG parser / executor / discovery；B2/B5 仅在 PostgreSQL 路径提供 |
 | MySQL 8 | 原生支持 | 表级授权与单请求执行；不声称 B2 列级授权 |
-| DM8 | 独立 dialect 最小切片 | 连接/元数据与严格只读代码路径已落地；当前凭据无效，真库 Query 与 EXPLAIN 待验证 |
-| Oracle Free 23.26.3 | 独立 dialect 有界实测 | 严格 SELECT 子集、元数据和 EXPLAIN 归一化有记录；完整 parser、写入、列授权/脱敏 pipeline 未实现 |
+| DM8 | 独立 dialect 有界实测 | `COMPATIBLE_MODE=0` Pack3 的窄 SELECT、分页和已知 EXPLAIN 形态有真库证据；v0.5 受控 SELECT 表/列/投影血缘已实现并对未知结构 fail-closed；完整 grammar、写入、列授权/脱敏 pipeline 未实现 |
+| Oracle Free 23.26.3 | 独立 dialect 有界实测 | 严格 SELECT 子集、元数据和 EXPLAIN 归一化有记录；v0.5 受控 SELECT 表/列/投影血缘已实现并对未知结构 fail-closed；完整 grammar、写入、列授权/脱敏 pipeline 未实现 |
 | YashanDB 23.4.1.109 | 独立 dialect 最小切片 | 连接、当前 schema 和列发现实测可达；提交 `33f2d56` 已在真实实例复验通用 Query fail-closed；EXPLAIN / 写路径仍不宣称可用；发布包双架构重建待发布日 |
 | OpenTenBase v2.5.0（PG 内核） | 指定环境协议路径闭环通过 | 仅指定单机 GTM/CN/DN 和已知计划形态；非厂商认证 |
 | TXSQL/MySQL 内核 | 待官方环境实测 | 未实现产品专用代码；不用普通 MySQL 结果替代 |
@@ -52,7 +52,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 
 ### 已知边界与不承诺事项
 
-- DM 实例凭据未通过，DM 真库业务 SELECT 和 EXPLAIN 不标记为通过。
+- DM/Oracle parser 只覆盖文档列出的 v0.5 受控 SELECT profile；`*` 仅绑定到物理来源表，parser 无 catalog，不能虚构逐列名称。该能力不等于完整 SQL grammar 或已接入列级授权/脱敏 pipeline。
 - KingbaseES V9R1C10 目标环境待厂商提供；HighGo、GaussDB、TDSQL 等商业版仍待目标环境终验。
 - P0 R005 生产动态大结果集告警缺失待修；`row_limit` 仍截断返回结果，但不得把截断写成风险告警已完整生效。
 - RBAC 是 MVP：非默认租户对存量共享业务元数据仍拒绝；OIDC/LDAP/MFA、令牌撤销/刷新和全量租户化未交付。
@@ -162,7 +162,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 
 ### Highlights
 
-- Independent dialect boundaries for DM, Oracle, and YashanDB. Oracle has evidence for the strict read-only subset and normalized `PLAN_TABLE` EXPLAIN. DM live query/EXPLAIN remains pending valid credentials. Commit `33f2d56` fixed and revalidated the YashanDB pool/physical-session general-Query fail-closed boundary against a real 23.4.1.109 instance; EXPLAIN and writes remain unavailable. The planned Linux artifacts include `yashandb-go@v1.4.4` and the official 23.4.7.100 C client under the user's 2026-10-03 declaration of vendor redistribution authorization, but batch 31 proved that the stale local dry-run artifacts do not contain them and must be rebuilt from the sealed commit.
+- Independent dialect boundaries for DM, Oracle, and YashanDB. DM8 has real-instance evidence for the narrow query/pagination path and known EXPLAIN shapes on the documented `COMPATIBLE_MODE=0` Pack3 baseline; Oracle has evidence for the strict read-only subset and normalized `PLAN_TABLE` EXPLAIN. DM/Oracle now have a frozen v0.5, fail-closed controlled-SELECT parser that extracts physical tables, referenced columns, and direct/constant/wildcard projection lineage without changing executor admission behavior. Functions, parentheses, subqueries, CTEs, complex expressions, and unlisted structures remain rejected. Commit `33f2d56` fixed and revalidated the YashanDB pool/physical-session general-Query fail-closed boundary against a real 23.4.1.109 instance; EXPLAIN and writes remain unavailable. The planned Linux artifacts include `yashandb-go@v1.4.4` and the official 23.4.7.100 C client under the user's 2026-10-03 declaration of vendor redistribution authorization, but batch 31 proved that the stale local dry-run artifacts do not contain them and must be rebuilt from the sealed commit.
 - Strict, version-gated OpenTenBase v2.5.0 PostgreSQL-plan normalization and a scoped single-node GTM/CN/DN safety-loop record. TXSQL/MySQL is a separate, untested path with no product-specific implementation in this release.
 - A scoped PolarDB for PostgreSQL 15 community-image exercise through the existing `postgres` path, with no PolarDB alias or vendor-identification switch.
 - Fail-closed EXPLAIN adapters and regression fixtures for OpenTenBase, TiDB, and OceanBase. Fixture coverage is not represented as full vendor-environment certification.
@@ -174,7 +174,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 
 ### Known boundaries
 
-- DM live validation is blocked by invalid instance credentials. KingbaseES V9 and the named commercial database editions remain pending vendor-provided target environments.
+- The DM/Oracle parser covers only the documented v0.5 controlled-SELECT profile. Wildcards are bound to physical source relations, but the parser has no catalog and does not invent concrete column names. This is not full SQL grammar support or integration with the column-authorization/redaction pipeline. KingbaseES V9 and the named commercial database editions remain pending vendor-provided target environments.
 - The P0 R005 production dynamic large-result warning gap remains open. `row_limit` still bounds returned rows, but that is not a substitute for the missing risk hit.
 - RBAC is an MVP. OIDC/LDAP/MFA, server-side token revocation/refresh, and complete tenant ownership migration are not included.
 - MCP transport sessions are not persisted across processes or restarts, and SSE replay is not implemented. Real-account tests for Doubao and specific Claude Desktop/Inspector versions remain pending.

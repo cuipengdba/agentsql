@@ -12,6 +12,8 @@ import (
 const (
 	postgresDialect       model.DBDialect = "postgres"
 	mysqlDialect          model.DBDialect = "mysql"
+	dmDialect             model.DBDialect = "dm"
+	oracleDialect         model.DBDialect = "oracle"
 	sqlCommentOperation                   = "SQL_COMMENT"
 	nestingDepthOperation                 = "NESTING_DEPTH"
 	unionCountOperation                   = "UNION_COUNT"
@@ -37,6 +39,8 @@ func NewParser(dialect model.DBDialect) (Parser, error) {
 		return &postgresParser{}, nil
 	case mysqlDialect:
 		return newMySQLParser()
+	case dmDialect, oracleDialect:
+		return &oracleCompatibleParser{dialect: dialect}, nil
 	default:
 		return nil, fmt.Errorf("create parser for %q: %w", dialect, ErrUnsupportedDialect)
 	}
