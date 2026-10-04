@@ -98,14 +98,19 @@ All endpoints except login and refresh require a Bearer console token and return
 | Endpoint | Required access |
 | --- | --- |
 | `POST /api/v1/auth/login` | Public; `tenant_id` defaults to `tenant_default` |
+| `GET /api/v1/auth/config` | Public capability discovery; never returns provider secrets |
+| `POST /api/v1/auth/mfa/verify` | Public; consumes a one-shot challenge issued after password verification |
+| `GET /api/v1/auth/oidc/start` and callback | Public OIDC Authorization Code + PKCE flow |
+| `POST /api/v1/auth/ldap/login` | Public; LDAP/AD user bind over validated TLS |
 | `POST /api/v1/auth/refresh` | Public endpoint authenticated by a rotating refresh token |
 | `GET /api/v1/auth/me` | Authenticated principal |
+| MFA enrollment/status/disable and OIDC logout routes | Authenticated principal |
 | `GET/POST /api/v1/users` and item/role-assignment routes | `user.manage` |
 | `GET/POST /api/v1/roles` and item/permission routes | `role.manage` |
 | `GET /api/v1/permissions` | `role.manage` |
 | `GET/POST /api/v1/tenants` and item routes | `tenant.manage` |
 
-Local passwords are stored as bcrypt hashes and never returned. A created user's password must contain at least 12 characters. Built-in roles cannot be deleted, the current user cannot delete itself, and the default tenant cannot be deleted. OIDC is not implemented in this batch; do not configure or advertise it.
+Local passwords are stored as bcrypt hashes and never returned. A created user's password must contain at least 12 characters. Built-in roles cannot be deleted, the current user cannot delete itself, and the default tenant cannot be deleted. TOTP MFA, OIDC, and LDAP are opt-in and default off; configuration, role mapping, rollback, and security boundaries are documented in [Human authentication](AUTHENTICATION.md).
 
 ## Audit Search and Export
 

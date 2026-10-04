@@ -86,3 +86,7 @@ PolarDB-X 通过 `db_type=mysql` 接入，不新增 `polardbx` 数据源类型�
 - SQL Server 路径不使用 PostgreSQL B2/B5 native binder，不提供 PostgreSQL 的列级证明。结果脱敏也不是数据库原生 RLS、Dynamic Data Masking 或完整 DLP 的替代品。
 
 部署配置与驱动行为应以 Microsoft 的 [Go 驱动加密与证书](https://learn.microsoft.com/en-us/sql/connect/golang/encryption-certificates?view=sql-server-ver17)、[Go 驱动安全最佳实践](https://learn.microsoft.com/en-us/sql/connect/golang/security-best-practices?view=sql-server-ver17)及 [`SET SHOWPLAN_XML`](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-showplan-xml-transact-sql?view=sql-server-ver17) 文档为准。
+
+## MFA / OIDC / LDAP 安全边界
+
+v0.5 的人员身份认证不会绕过 AgentSQL RBAC。OIDC/LDAP 组只能映射到指定租户内的显式角色 ID；映射为空、角色不存在、目录结果不唯一、外部服务不可用或验证状态无法读取时一律 fail-closed。TOTP 密钥加密保存，恢复码与 refresh token 只保存摘要；OIDC 使用 Authorization Code + PKCE、一次性 state/nonce、discovery 与 RS256 JWKS 校验；LDAP 只允许证书校验通过的 LDAPS 或 StartTLS，并通过用户 bind 验证密码。完整配置和限制见 [v0.5 身份认证指南](docs/AUTHENTICATION.md)。

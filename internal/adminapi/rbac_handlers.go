@@ -20,12 +20,14 @@ type userView struct {
 }
 
 type userInput struct {
-	TenantID    string    `json:"tenant_id,omitempty"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"display_name"`
-	Password    *string   `json:"password,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	RoleIDs     *[]string `json:"role_ids,omitempty"`
+	TenantID        string    `json:"tenant_id,omitempty"`
+	Username        string    `json:"username"`
+	DisplayName     string    `json:"display_name"`
+	Password        *string   `json:"password,omitempty"`
+	Status          string    `json:"status,omitempty"`
+	RoleIDs         *[]string `json:"role_ids,omitempty"`
+	AuthProvider    string    `json:"auth_provider,omitempty"`
+	ExternalSubject string    `json:"external_subject,omitempty"`
 }
 
 type roleInput struct {
@@ -83,23 +85,35 @@ func (handler *Handler) usersCreate(writer http.ResponseWriter, request *http.Re
 	if !ok {
 		return
 	}
-	if input.Password == nil || utf8.RuneCountInString(*input.Password) < 12 || strings.TrimSpace(input.Username) == "" {
-		handler.fail(writer, http.StatusUnprocessableEntity, "username and a password of at least 12 characters are required")
-		return
+	provider := input.AuthProvider
+	if provider == "" {
+		provider = "local"
 	}
-	hash, err := rbac.HashPassword(*input.Password)
-	if err != nil {
-		handler.fail(writer, http.StatusUnprocessableEntity, "invalid password")
+	if strings.TrimSpace(input.Username) == "" || (provider == "local" && (input.Password == nil || utf8.RuneCountInString(*input.Password) < 12)) ||
+		(provider != "local" && (provider != "oidc" && provider != "ldap" || strings.TrimSpace(input.ExternalSubject) == "" || input.Password != nil)) {
+		handler.fail(writer, http.StatusUnprocessableEntity, "local users require a password of at least 12 characters; external users require oidc/ldap and external_subject")
 		return
 	}
 	status := input.Status
 	if status == "" {
 		status = "active"
 	}
-	created, err := handler.deps.Runtime.Store.RBAC().CreateUser(request.Context(), model.User{
-		ID: rbac.NewID("user"), TenantID: tenantID, Username: input.Username, DisplayName: input.DisplayName,
-		PasswordHash: hash, Status: status, AuthProvider: "local",
-	})
+	var created model.User
+	var err error
+	if provider == "local" {
+		var hash string
+		hash, err = rbac.HashPassword(*input.Password)
+		if err == nil {
+			created, err = handler.deps.Runtime.Store.RBAC().CreateUser(request.Context(), model.User{
+				ID: rbac.NewID("user"), TenantID: tenantID, Username: input.Username, DisplayName: input.DisplayName,
+				PasswordHash: hash, Status: status, AuthProvider: "local",
+			})
+		}
+	} else {
+		created, err = handler.deps.Runtime.Store.HumanAuth().CreateExternalIdentity(request.Context(), model.User{
+			ID: rbac.NewID("user"), TenantID: tenantID, Username: input.Username, DisplayName: input.DisplayName, Status: status,
+		}, provider, input.ExternalSubject)
+	}
 	if err != nil {
 		handler.fail(writer, http.StatusConflict, "user already exists or is invalid")
 		return
@@ -165,6 +179,10 @@ func (handler *Handler) usersUpdate(writer http.ResponseWriter, request *http.Re
 		item.Status = input.Status
 	}
 	if input.Password != nil {
+		if item.AuthProvider != "local" {
+			handler.fail(writer, http.StatusUnprocessableEntity, "external identities do not accept local passwords")
+			return
+		}
 		if utf8.RuneCountInString(*input.Password) < 12 {
 			handler.fail(writer, http.StatusUnprocessableEntity, "password must be at least 12 characters")
 			return
@@ -240,8 +258,12 @@ func (handler *Handler) userView(request *http.Request, item model.User) (userVi
 	if roles == nil {
 		roles = make([]string, 0)
 	}
+	provider := item.AuthProvider
+	if external, providerErr := handler.deps.Runtime.Store.HumanAuth().ProviderForUser(request.Context(), item.TenantID, item.ID); providerErr == nil {
+		provider = external
+	}
 	return userView{ID: item.ID, TenantID: item.TenantID, Username: item.Username,
-		DisplayName: item.DisplayName, Status: item.Status, AuthProvider: item.AuthProvider, RoleIDs: roles}, nil
+		DisplayName: item.DisplayName, Status: item.Status, AuthProvider: provider, RoleIDs: roles}, nil
 }
 
 func (handler *Handler) rolesList(writer http.ResponseWriter, request *http.Request) {

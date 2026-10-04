@@ -23,6 +23,7 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 		"notification_settings", "notification_channels", "redaction_key_versions", "management_audit_outbox",
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens",
 		"users", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
+		"auth_identities", "user_mfa", "user_mfa_recovery_codes", "auth_login_challenges", "oidc_auth_requests",
 		"b5_sessions", "b5_transactions", "b5_dml_grants", "b5_result_receipts", "b5_tx_events",
 	}, names)
 }
@@ -313,6 +314,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=14 latest=15")
+		require.ErrorContains(t, err, "current=15 latest=16")
 	})
 }

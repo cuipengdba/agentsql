@@ -24,8 +24,18 @@ export interface LoginInput {
 }
 
 export interface LoginView {
-  token: string;
-  expires_at: string;
+  token?: string;
+  expires_at?: string;
+  refresh_token?: string;
+  refresh_expires_at?: string;
+  mfa_required?: boolean;
+  challenge_token?: string;
+}
+
+export interface HumanAuthConfig {
+  mfa_enabled: boolean;
+  oidc_enabled: boolean;
+  ldap_enabled: boolean;
 }
 
 export interface AdminView {

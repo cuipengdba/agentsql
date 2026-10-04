@@ -8,6 +8,8 @@
 
 ### Added
 
+- v0.5 控制平面新增 TOTP MFA、OIDC Authorization Code + PKCE 和 LDAP/AD TLS bind 登录；外部组必须显式映射到租户角色，MFA/SSO/目录状态异常均 fail-closed，并复用 refresh token 轮换、重放整族吊销和 logout 撤销链路。
+
 - 新增 DM、Oracle 和 YashanDB 独立 dialect 的有界连接/元数据能力；Oracle 完成严格只读子集和 EXPLAIN 归一化实测，DM 真库验证受凭据阻断，未实现路径继续 fail-closed。
 - 新增 RBAC / 多租户 MVP：本地用户、租户、角色、权限、多角色、角色继承与管理 API 逐路由授权；全部能力开放，无许可门控。
 - 新增企业审计查询/报表与合规导出配套，以及无需克隆源码的自包含五分钟快速上手演示栈。
@@ -35,7 +37,7 @@
 ### Known Issues
 
 - DM 真库业务 SELECT / EXPLAIN、KingbaseES V9 以及 HighGo / GaussDB / TDSQL 等商业版的目标环境终验仍待凭据或厂商环境。
-- OIDC/LDAP/MFA、存量业务元数据全租户化、MCP transport session 持久化与 SSE 断线重放未在本版交付。
+- 登录限速/锁定和 MCP transport session 跨进程持久化仍未交付；OIDC/LDAP 的真实企业 IdP/目录兼容矩阵需在目标环境逐项验收。
 
 ## [v0.4.0] - 2026-09-30
 

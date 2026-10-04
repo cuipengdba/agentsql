@@ -101,6 +101,8 @@ type Handler struct {
 	chainVerifyMu  sync.Mutex
 	chainVerifying map[string]bool
 	chainLastStart map[string]time.Time
+	oidc           *oidcProvider
+	ldap           *ldapAuthenticator
 }
 
 func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
@@ -156,6 +158,20 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
 		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...), rbac: deps.RBAC,
 		chainVerifying: make(map[string]bool), chainLastStart: make(map[string]time.Time)}
+	if deps.Config.Auth.OIDC.Enabled {
+		provider, providerErr := newOIDCProvider(context.Background(), deps.Config.Auth.OIDC)
+		if providerErr != nil {
+			return nil, fmt.Errorf("create admin handler: initialize OIDC: %w", providerErr)
+		}
+		handler.oidc = provider
+	}
+	if deps.Config.Auth.LDAP.Enabled {
+		authenticator, authenticatorErr := newLDAPAuthenticator(deps.Config.Auth.LDAP)
+		if authenticatorErr != nil {
+			return nil, fmt.Errorf("create admin handler: initialize LDAP: %w", authenticatorErr)
+		}
+		handler.ldap = authenticator
+	}
 	if streamEnabled {
 		handler.streamSlots = make(chan struct{}, deps.Config.Server.EventStreamMaxConnections)
 		handler.heartbeat = deps.EventStreamHeartbeatInterval
@@ -167,6 +183,16 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	handler.mux = mux
 	mux.HandleFunc("POST /api/v1/auth/login", handler.login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", handler.refresh)
+	mux.HandleFunc("GET /api/v1/auth/config", handler.authConfig)
+	mux.HandleFunc("POST /api/v1/auth/mfa/verify", handler.mfaVerify)
+	mux.HandleFunc("GET /api/v1/auth/mfa", handler.mfaStatus)
+	mux.HandleFunc("POST /api/v1/auth/mfa/enroll", handler.mfaEnroll)
+	mux.HandleFunc("POST /api/v1/auth/mfa/confirm", handler.mfaConfirm)
+	mux.HandleFunc("DELETE /api/v1/auth/mfa", handler.mfaDisable)
+	mux.HandleFunc("GET /api/v1/auth/oidc/start", handler.oidcStart)
+	mux.HandleFunc("GET /api/v1/auth/oidc/callback", handler.oidcCallback)
+	mux.HandleFunc("POST /api/v1/auth/oidc/logout", handler.oidcLogout)
+	mux.HandleFunc("POST /api/v1/auth/ldap/login", handler.ldapLogin)
 	mux.HandleFunc("GET /api/v1/auth/me", handler.me)
 	mux.HandleFunc("POST /api/v1/auth/logout", handler.logout)
 	mux.HandleFunc("GET /api/v1/permissions", handler.permissionsList)
@@ -273,7 +299,8 @@ func bootstrapRBAC(service *rbac.Service, username, password string) error {
 
 func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method == http.MethodPost && (request.URL.Path == "/api/v1/auth/login" || request.URL.Path == "/api/v1/auth/refresh") {
+		if (request.Method == http.MethodPost && (request.URL.Path == "/api/v1/auth/login" || request.URL.Path == "/api/v1/auth/refresh" || request.URL.Path == "/api/v1/auth/mfa/verify" || request.URL.Path == "/api/v1/auth/ldap/login")) ||
+			(request.Method == http.MethodGet && (request.URL.Path == "/api/v1/auth/config" || request.URL.Path == "/api/v1/auth/oidc/start" || request.URL.Path == "/api/v1/auth/oidc/callback")) {
 			next.ServeHTTP(writer, request)
 			return
 		}
@@ -298,7 +325,9 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 			handler.fail(writer, http.StatusForbidden, "forbidden")
 			return
 		}
-		if !protected && request.URL.Path != "/api/v1/auth/me" && request.URL.Path != "/api/v1/auth/logout" {
+		selfServiceAuth := request.URL.Path == "/api/v1/auth/me" || request.URL.Path == "/api/v1/auth/logout" ||
+			strings.HasPrefix(request.URL.Path, "/api/v1/auth/mfa") || request.URL.Path == "/api/v1/auth/oidc/logout"
+		if !protected && !selfServiceAuth {
 			handler.fail(writer, http.StatusForbidden, "forbidden")
 			return
 		}
@@ -426,37 +455,68 @@ func (handler *Handler) login(writer http.ResponseWriter, request *http.Request)
 		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	now := time.Now().UTC()
-	jti, err := randomHex(16)
-	if err != nil {
-		handler.fail(writer, http.StatusInternalServerError, "internal error")
-		return
+	if handler.deps.Config.Auth.MFA.Enabled {
+		mfa, mfaErr := handler.deps.Runtime.Store.HumanAuth().MFA(request.Context(), principal.TenantID, principal.UserID)
+		if mfaErr == nil && mfa.Status == "enabled" {
+			challenge, challengeHash, challengeErr := newOpaqueToken()
+			if challengeErr != nil {
+				handler.fail(writer, http.StatusInternalServerError, "internal error")
+				return
+			}
+			expires := time.Now().UTC().Add(5 * time.Minute)
+			if challengeErr = handler.deps.Runtime.Store.HumanAuth().CreateLoginChallenge(request.Context(), store.LoginChallenge{
+				Hash: challengeHash, TenantID: principal.TenantID, UserID: principal.UserID, Username: principal.Username, ExpiresAt: expires,
+			}); challengeErr != nil {
+				handler.internal(writer, challengeErr)
+				return
+			}
+			handler.ok(writer, map[string]any{"mfa_required": true, "challenge_token": challenge, "expires_at": expires.Format(time.RFC3339)})
+			return
+		}
+		if mfaErr != nil && !errors.Is(mfaErr, store.ErrNotFound) {
+			handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
 	}
-	familyID, err := randomHex(16)
-	if err != nil {
-		handler.fail(writer, http.StatusInternalServerError, "internal error")
-		return
-	}
-	refreshToken, refreshHash, err := newAdminRefreshToken()
-	if err != nil {
-		handler.fail(writer, http.StatusInternalServerError, "internal error")
-		return
-	}
-	token, expires, err := issuePrincipalSessionToken(handler.tokenKey, now, jti, familyID, principal)
-	if err != nil {
-		handler.fail(writer, http.StatusInternalServerError, "internal error")
-		return
-	}
-	refreshExpires := now.Add(adminRefreshTokenLifetime)
-	err = handler.deps.Runtime.Store.AdminSessions().CreateRefreshSession(request.Context(), store.AdminRefreshSession{
-		FamilyID: familyID, TokenHash: refreshHash, TenantID: principal.TenantID, UserID: principal.UserID,
-		Username: principal.Username, CreatedAt: now, ExpiresAt: refreshExpires,
-	})
+	handler.issueSession(writer, request, principal)
+}
+
+func (handler *Handler) issueSession(writer http.ResponseWriter, request *http.Request, principal rbac.Principal) {
+	response, err := handler.newSession(request.Context(), principal)
 	if err != nil {
 		handler.internal(writer, err)
 		return
 	}
-	handler.ok(writer, tokenResponse(token, expires, refreshToken, refreshExpires))
+	handler.ok(writer, response)
+}
+
+func (handler *Handler) newSession(ctx context.Context, principal rbac.Principal) (map[string]any, error) {
+	now := time.Now().UTC()
+	jti, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
+	familyID, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
+	refreshToken, refreshHash, err := newAdminRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+	token, expires, err := issuePrincipalSessionToken(handler.tokenKey, now, jti, familyID, principal)
+	if err != nil {
+		return nil, err
+	}
+	refreshExpires := now.Add(adminRefreshTokenLifetime)
+	err = handler.deps.Runtime.Store.AdminSessions().CreateRefreshSession(ctx, store.AdminRefreshSession{
+		FamilyID: familyID, TokenHash: refreshHash, TenantID: principal.TenantID, UserID: principal.UserID,
+		Username: principal.Username, CreatedAt: now, ExpiresAt: refreshExpires,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tokenResponse(token, expires, refreshToken, refreshExpires), nil
 }
 
 func (handler *Handler) refresh(writer http.ResponseWriter, request *http.Request) {
@@ -527,19 +587,22 @@ func (handler *Handler) me(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (handler *Handler) logout(writer http.ResponseWriter, request *http.Request) {
-	payload, ok := requestTokenPayload(request)
-	if !ok {
-		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	now := time.Now().UTC()
-	if err := handler.deps.Runtime.Store.AdminSessions().RevokeAccessAndRefreshFamily(
-		request.Context(), payload.JTI, payload.SessionID, time.Unix(payload.Expires, 0).UTC(), now,
-	); err != nil {
+	if err := handler.revokeRequestSession(request); err != nil {
 		handler.internal(writer, err)
 		return
 	}
 	handler.ok(writer, map[string]bool{"ok": true})
+}
+
+func (handler *Handler) revokeRequestSession(request *http.Request) error {
+	payload, ok := requestTokenPayload(request)
+	if !ok {
+		return errors.New("request session is unavailable")
+	}
+	now := time.Now().UTC()
+	return handler.deps.Runtime.Store.AdminSessions().RevokeAccessAndRefreshFamily(
+		request.Context(), payload.JTI, payload.SessionID, time.Unix(payload.Expires, 0).UTC(), now,
+	)
 }
 
 func randomHex(byteLength int) (string, error) {
@@ -570,6 +633,16 @@ func adminRefreshTokenHash(token string) (string, bool) {
 	}
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:]), true
+}
+
+func newOpaqueToken() (string, string, error) {
+	value := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, value); err != nil {
+		return "", "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(value)
+	digest := sha256.Sum256(value)
+	return token, hex.EncodeToString(digest[:]), nil
 }
 
 func (handler *Handler) agentsList(writer http.ResponseWriter, request *http.Request) {

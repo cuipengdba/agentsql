@@ -288,6 +288,29 @@ var sqliteToPostgresTables = []migrationTable{
 	{name: "role_inheritance", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "tenant_id", kind: migrationText}, {name: "role_id", kind: migrationText}, {name: "parent_role_id", kind: migrationText},
 	}},
+	{name: "auth_identities", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "user_id", kind: migrationText}, {name: "provider", kind: migrationText},
+		{name: "subject", kind: migrationText}, {name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "user_mfa", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "user_id", kind: migrationText}, {name: "secret_ciphertext", kind: migrationText},
+		{name: "status", kind: migrationText}, {name: "last_counter", kind: migrationInt64},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
+	{name: "user_mfa_recovery_codes", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "user_id", kind: migrationText}, {name: "code_hash", kind: migrationText},
+		{name: "used_at", kind: migrationTime}, {name: "created_at", kind: migrationTime},
+	}},
+	{name: "auth_login_challenges", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "challenge_hash", kind: migrationText}, {name: "tenant_id", kind: migrationText}, {name: "user_id", kind: migrationText},
+		{name: "username", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "used_at", kind: migrationTime},
+		{name: "created_at", kind: migrationTime},
+	}},
+	{name: "oidc_auth_requests", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "state_hash", kind: migrationText}, {name: "nonce", kind: migrationText}, {name: "pkce_verifier", kind: migrationText},
+		{name: "return_to", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "used_at", kind: migrationTime},
+		{name: "created_at", kind: migrationTime},
+	}},
 	{name: "b5_sessions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "session_id", kind: migrationText}, {name: "agent_id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
 		{name: "principal_id", kind: migrationText}, {name: "owner_instance_id", kind: migrationText}, {name: "owner_epoch", kind: migrationInt64},

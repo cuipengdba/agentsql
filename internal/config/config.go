@@ -49,6 +49,7 @@ type Config struct {
 	Redaction           RedactionConfig           `yaml:"redaction"`
 	ColumnAuthorization ColumnAuthorizationConfig `yaml:"column_authorization"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
+	Auth                AuthConfig                `yaml:"auth"`
 }
 
 // MCPConfig is the production configuration root for the MCP HTTP transport,
@@ -409,6 +410,9 @@ func (config Config) Validate() error {
 }
 
 func (config Config) validateNonStore() error {
+	if err := config.Auth.Validate(); err != nil {
+		return fmt.Errorf("validate auth: %w", err)
+	}
 	demo := config.Demo
 	if err := defaultAndValidateDemo(&demo); err != nil {
 		return fmt.Errorf("validate demo config: %w", err)

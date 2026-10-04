@@ -141,3 +141,7 @@ Compatibility evidence must identify the CN/DN/CDC topology, PolarDB-X version, 
 - The SQL Server path does not use the PostgreSQL B2/B5 native binder and provides no PostgreSQL column-proof guarantee. Result masking is not a replacement for native RLS, Dynamic Data Masking, or complete DLP.
 
 Use Microsoft's [Go driver encryption and certificate guidance](https://learn.microsoft.com/en-us/sql/connect/golang/encryption-certificates?view=sql-server-ver17), [Go driver security practices](https://learn.microsoft.com/en-us/sql/connect/golang/security-best-practices?view=sql-server-ver17), and [`SET SHOWPLAN_XML`](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-showplan-xml-transact-sql?view=sql-server-ver17) as the operational references.
+
+## MFA, OIDC, and LDAP boundary
+
+Human federation does not bypass AgentSQL RBAC. OIDC groups and LDAP groups map only to explicit role IDs inside one configured tenant, and an empty, ambiguous, or invalid mapping fails closed. TOTP secrets are encrypted at rest; recovery codes and refresh tokens are stored only as digests. OIDC uses Authorization Code + PKCE, one-shot state, nonce, discovery, and RS256 JWKS verification. LDAP requires certificate-validated LDAPS or StartTLS and proves the submitted password with a user bind. See the [v0.5 authentication guide](AUTHENTICATION.md) for configuration and operational limitations.

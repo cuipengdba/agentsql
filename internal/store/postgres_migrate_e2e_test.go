@@ -86,11 +86,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 15, migrationCount)
+	require.Equal(t, 16, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 15, current)
-	require.Equal(t, 15, latest)
+	require.Equal(t, 16, current)
+	require.Equal(t, 16, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -136,14 +136,14 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Same(t, opened.auditDB, opened.AuditLogs().db)
 
 	require.Equal(t, []string{
-		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
-		"mcp_stream_event_cursors", "mcp_stream_events", "notification_settings", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "schema_migrations", "tenants", "user_roles", "users",
+		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
+		"mcp_stream_event_cursors", "mcp_stream_events", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "schema_migrations", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
 	}, postgresTableNames(t, ctx, opened.metaDB))
 	require.Equal(t, []string{"audit_logs", "chain_state", "chain_verification", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 13, metadataCurrent)
-	require.Equal(t, 13, metadataLatest)
+	require.Equal(t, 15, metadataCurrent)
+	require.Equal(t, 15, metadataLatest)
 	assertPostgresMaskRuleRangeColumns(t, ctx, opened.metaDB)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
@@ -156,9 +156,9 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Equal(t, completeNotificationConfig(), storedNotifications)
 	require.Equal(t, []string{
 		"idx_admin_access_revocations_expiry", "idx_admin_refresh_families_expiry", "idx_admin_refresh_tokens_family",
-		"idx_agents_keyhash", "idx_approvals_status", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit", "idx_policies_agent_ds",
+		"idx_agents_keyhash", "idx_approvals_status", "idx_auth_challenges_expiry", "idx_auth_identities_user", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit", "idx_policies_agent_ds",
 		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
-		"idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
+		"idx_oidc_requests_expiry", "idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
 		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active",
 	}, postgresNamedIndexes(t, ctx, opened.metaDB))
 	require.Equal(t, []string{
@@ -166,6 +166,11 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 		"ux_audit_logs_event_uuid",
 	}, postgresNamedIndexes(t, ctx, opened.auditDB))
 	require.Equal(t, []string{
+		"admin_refresh_tokens.family_id->admin_refresh_families.family_id",
+		"auth_identities.tenant_id->users.id", "auth_identities.tenant_id->users.tenant_id",
+		"auth_identities.user_id->users.id", "auth_identities.user_id->users.tenant_id",
+		"auth_login_challenges.tenant_id->users.id", "auth_login_challenges.tenant_id->users.tenant_id",
+		"auth_login_challenges.user_id->users.id", "auth_login_challenges.user_id->users.tenant_id",
 		"b5_dml_grants.datasource_id->datasources.id", "b5_dml_grants.policy_id->policies.id",
 		"b5_result_receipts.session_id->b5_sessions.session_id", "b5_sessions.agent_id->agents.id",
 		"b5_transactions.datasource_id->datasources.id", "b5_transactions.session_id->b5_sessions.session_id",
@@ -173,6 +178,23 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 		"policies.agent_id->agents.id", "policies.datasource_id->datasources.id",
 		"policy_column_permission_staging.policy_id->policies.id", "policy_column_permissions.policy_id->policies.id",
 		"relation_policy_bindings.datasource_id->datasources.id", "relation_policy_bindings.policy_id->policies.id",
+		"role_inheritance.parent_role_id->roles.id", "role_inheritance.parent_role_id->roles.tenant_id",
+		"role_inheritance.role_id->roles.id", "role_inheritance.role_id->roles.tenant_id",
+		"role_inheritance.tenant_id->roles.id", "role_inheritance.tenant_id->roles.id",
+		"role_inheritance.tenant_id->roles.tenant_id", "role_inheritance.tenant_id->roles.tenant_id",
+		"role_permissions.permission_code->permissions.code",
+		"role_permissions.role_id->roles.id", "role_permissions.role_id->roles.tenant_id",
+		"role_permissions.tenant_id->roles.id", "role_permissions.tenant_id->roles.tenant_id",
+		"roles.tenant_id->tenants.id",
+		"user_mfa.tenant_id->users.id", "user_mfa.tenant_id->users.tenant_id",
+		"user_mfa.user_id->users.id", "user_mfa.user_id->users.tenant_id",
+		"user_mfa_recovery_codes.tenant_id->user_mfa.tenant_id", "user_mfa_recovery_codes.tenant_id->user_mfa.user_id",
+		"user_mfa_recovery_codes.user_id->user_mfa.tenant_id", "user_mfa_recovery_codes.user_id->user_mfa.user_id",
+		"user_roles.role_id->roles.id", "user_roles.role_id->roles.tenant_id",
+		"user_roles.tenant_id->roles.id", "user_roles.tenant_id->roles.tenant_id",
+		"user_roles.tenant_id->users.id", "user_roles.tenant_id->users.tenant_id",
+		"user_roles.user_id->users.id", "user_roles.user_id->users.tenant_id",
+		"users.tenant_id->tenants.id",
 	}, postgresForeignKeys(t, ctx, opened.metaDB))
 	require.NoError(t, opened.Ping(ctx))
 	require.NoError(t, opened.Close())
@@ -449,6 +471,8 @@ ORDER BY table_name`)
 		"agents",
 		"approvals",
 		"audit_logs",
+		"auth_identities",
+		"auth_login_challenges",
 		"b5_dml_grants",
 		"b5_result_receipts",
 		"b5_sessions",
@@ -464,6 +488,7 @@ ORDER BY table_name`)
 		"mcp_stream_events",
 		"notification_channels",
 		"notification_settings",
+		"oidc_auth_requests",
 		"permissions",
 		"policies",
 		"policy_column_permission_staging",
@@ -477,6 +502,8 @@ ORDER BY table_name`)
 		"runtime_instances",
 		"schema_migrations",
 		"tenants",
+		"user_mfa",
+		"user_mfa_recovery_codes",
 		"user_roles",
 		"users",
 	}, scanSingleStringColumn(t, rows))
@@ -490,6 +517,8 @@ WHERE schemaname = 'public'
 	'idx_admin_access_revocations_expiry',
 	'idx_admin_refresh_families_expiry',
 	'idx_admin_refresh_tokens_family',
+	'idx_auth_challenges_expiry',
+	'idx_auth_identities_user',
     'idx_agents_keyhash',
     'idx_policies_agent_ds',
     'idx_audit_ts',
@@ -517,6 +546,7 @@ WHERE schemaname = 'public'
 	'idx_mcp_stream_event_cursors_updated_at',
 	'idx_mcp_stream_events_created_at',
 	'idx_mcp_stream_events_session',
+	'idx_oidc_requests_expiry',
     'ux_mask_rules_scope_column',
     'ux_redaction_key_versions_active',
     'ux_audit_logs_event_uuid'
@@ -532,6 +562,8 @@ ORDER BY indexname`)
 		"idx_audit_agent_ts",
 		"idx_audit_decision",
 		"idx_audit_ts",
+		"idx_auth_challenges_expiry",
+		"idx_auth_identities_user",
 		"idx_b5_dml_grants_identity",
 		"idx_b5_dml_grants_lookup",
 		"idx_b5_result_receipts_delivery",
@@ -546,6 +578,7 @@ ORDER BY indexname`)
 		"idx_mcp_stream_event_cursors_updated_at",
 		"idx_mcp_stream_events_created_at",
 		"idx_mcp_stream_events_session",
+		"idx_oidc_requests_expiry",
 		"idx_policies_agent_ds",
 		"idx_policy_column_permissions_policy",
 		"idx_relation_policy_bindings_datasource",
@@ -588,6 +621,14 @@ WHERE tc.constraint_schema = 'public'
 	require.Equal(t, []string{
 		"admin_refresh_tokens.family_id->admin_refresh_families.family_id",
 		"approvals.audit_id->audit_logs.id",
+		"auth_identities.tenant_id->users.id",
+		"auth_identities.tenant_id->users.tenant_id",
+		"auth_identities.user_id->users.id",
+		"auth_identities.user_id->users.tenant_id",
+		"auth_login_challenges.tenant_id->users.id",
+		"auth_login_challenges.tenant_id->users.tenant_id",
+		"auth_login_challenges.user_id->users.id",
+		"auth_login_challenges.user_id->users.tenant_id",
 		"b5_dml_grants.datasource_id->datasources.id",
 		"b5_dml_grants.policy_id->policies.id",
 		"b5_result_receipts.session_id->b5_sessions.session_id",
@@ -615,6 +656,14 @@ WHERE tc.constraint_schema = 'public'
 		"role_permissions.tenant_id->roles.id",
 		"role_permissions.tenant_id->roles.tenant_id",
 		"roles.tenant_id->tenants.id",
+		"user_mfa.tenant_id->users.id",
+		"user_mfa.tenant_id->users.tenant_id",
+		"user_mfa.user_id->users.id",
+		"user_mfa.user_id->users.tenant_id",
+		"user_mfa_recovery_codes.tenant_id->user_mfa.tenant_id",
+		"user_mfa_recovery_codes.tenant_id->user_mfa.user_id",
+		"user_mfa_recovery_codes.user_id->user_mfa.tenant_id",
+		"user_mfa_recovery_codes.user_id->user_mfa.user_id",
 		"user_roles.role_id->roles.id",
 		"user_roles.role_id->roles.tenant_id",
 		"user_roles.tenant_id->roles.id",
@@ -799,11 +848,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
 			require.NoError(t, err)
 			if testCase.separated {
-				require.Equal(t, 14, current)
-				require.Equal(t, 14, latest)
-			} else {
 				require.Equal(t, 15, current)
 				require.Equal(t, 15, latest)
+			} else {
+				require.Equal(t, 16, current)
+				require.Equal(t, 16, latest)
 			}
 			assertPostgresMaskRuleRangeColumns(t, ctx, database)
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
@@ -839,8 +888,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 15, current)
-	require.Equal(t, 15, latest)
+	require.Equal(t, 16, current)
+	require.Equal(t, 16, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

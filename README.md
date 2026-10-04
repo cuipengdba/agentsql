@@ -285,3 +285,5 @@ make build VERSION=v0.5.0
 ## 许可、商业授权与商标
 
 **许可更换声明：**v0.4.0 及更早版本的既有源码、tag 和发布包保持其发布时适用的原许可，继续按原许可使用，不重打 tag、不重发资产；自 v0.5.0 起，开源版本切换为 [Apache License 2.0](LICENSE)（含 [NOTICE](NOTICE) 文件），并提供独立的 [商业授权说明](COMMERCIAL-LICENSE.md)。Apache-2.0 允许闭源集成、SaaS 商用与再分发。需要商标使用许可、企业模块、保修或 SLA 时，请参阅商业授权说明。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。
+
+v0.5 人员认证（MFA / OIDC / LDAP）的配置、威胁边界和迁移说明见 [身份认证指南](docs/AUTHENTICATION.md)。

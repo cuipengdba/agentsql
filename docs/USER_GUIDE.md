@@ -728,4 +728,4 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
 - 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；具体实测范围与未决项见 [v0.5.0 Release Notes](release-notes-v0.5.md)，不得视为完整方言支持或厂商认证。
-- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；GHCR tag 同时提供 linux/amd64 与 linux/arm64 multi-arch manifest。当前仍不支持企业 SSO（OIDC/LDAP/MFA）、法规级 WORM、SIEM、HA、Kubernetes、musl / Alpine 或 CentOS 7 原生一键安装，这些均为后续路线；v0.5.0 的本地 RBAC / 多租户能力仍是 MVP。
+- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；GHCR tag 同时提供 linux/amd64 与 linux/arm64 multi-arch manifest。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。法规级 WORM、SIEM、HA、Kubernetes、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。

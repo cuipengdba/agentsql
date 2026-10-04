@@ -28,6 +28,7 @@ const Notifications = lazy(() => import("@/pages/Notifications").then(({ Notific
 const RedactionKeys = lazy(() => import("@/pages/RedactionKeys").then(({ RedactionKeys }) => ({ default: RedactionKeys })));
 const AuditChain = lazy(() => import("@/pages/AuditChain").then(({ AuditChain }) => ({ default: AuditChain })));
 const B5Operations = lazy(() => import("@/pages/B5Operations").then(({ B5Operations }) => ({ default: B5Operations })));
+const Security = lazy(() => import("@/pages/Security").then(({ Security }) => ({ default: Security })));
 
 function RouteLoading() {
   return (
@@ -122,6 +123,14 @@ export const menuRoutes: MenuRoute[] = [
     label: "审计完整性链",
     icon: <SafetyCertificateOutlined />,
     element: lazyElement(AuditChain),
+    group: "settings",
+  },
+  {
+    key: "security",
+    path: "/settings/security",
+    label: "登录安全",
+    icon: <SafetyCertificateOutlined />,
+    element: lazyElement(Security),
     group: "settings",
   },
   {

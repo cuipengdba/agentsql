@@ -119,6 +119,7 @@ Streamable HTTP is stateful by default. The client must retain the `Mcp-Session-
 - [Administration, RBAC, and audit](docs/en/ADMIN.md)
 - [MCP integration](docs/en/INTEGRATIONS.md)
 - [Security model and boundaries](docs/en/SECURITY.md)
+- [MFA, OIDC, and LDAP authentication](docs/en/AUTHENTICATION.md)
 - [Chinese deployment guide](docs/DEPLOY.md)
 - [Chinese user guide](docs/USER_GUIDE.md)
 

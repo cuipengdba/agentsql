@@ -1,6 +1,6 @@
 > Source: [../README.md](../../README.md)
 
-> Documentation navigation: start with the [root English README](../../README.en.md), then follow [Quick Start](QUICKSTART.md), [Administration](ADMIN.md), [MCP Integration](INTEGRATIONS.md), and [Security](SECURITY.md). The root English README carries the complete status-qualified database ecosystem matrix; this page is the earlier long-form translation of the Chinese README.
+> Documentation navigation: start with the [root English README](../../README.en.md), then follow [Quick Start](QUICKSTART.md), [Administration](ADMIN.md), [Human authentication](AUTHENTICATION.md), [MCP Integration](INTEGRATIONS.md), and [Security](SECURITY.md). The root English README carries the complete status-qualified database ecosystem matrix; this page is the earlier long-form translation of the Chinese README.
 
 See the [English documentation coverage inventory](COVERAGE.md) for the complete `docs/` audit, source-to-English mapping, remaining specialized gaps, and known source discrepancies.
 
