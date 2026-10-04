@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -165,6 +166,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux := http.NewServeMux()
 	handler.mux = mux
 	mux.HandleFunc("POST /api/v1/auth/login", handler.login)
+	mux.HandleFunc("POST /api/v1/auth/refresh", handler.refresh)
 	mux.HandleFunc("GET /api/v1/auth/me", handler.me)
 	mux.HandleFunc("POST /api/v1/auth/logout", handler.logout)
 	mux.HandleFunc("GET /api/v1/permissions", handler.permissionsList)
@@ -271,13 +273,18 @@ func bootstrapRBAC(service *rbac.Service, username, password string) error {
 
 func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method == http.MethodPost && request.URL.Path == "/api/v1/auth/login" {
+		if request.Method == http.MethodPost && (request.URL.Path == "/api/v1/auth/login" || request.URL.Path == "/api/v1/auth/refresh") {
 			next.ServeHTTP(writer, request)
 			return
 		}
 		token, ok := adminBearerToken(request.Header.Get("Authorization"))
 		payload, tokenErr := parseAdminToken(handler.tokenKey, token, time.Now())
 		if !ok || tokenErr != nil {
+			handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		valid, err := handler.deps.Runtime.Store.AdminSessions().ValidateAccessToken(request.Context(), payload.JTI, payload.SessionID, time.Now())
+		if err != nil || !valid {
 			handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -302,6 +309,7 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(request.Context(), principalContextKey{}, principal)
+		ctx = context.WithValue(ctx, tokenPayloadContextKey{}, payload)
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
 }
@@ -312,6 +320,7 @@ func tenantNativeRoute(path string) bool {
 }
 
 type principalContextKey struct{}
+type tokenPayloadContextKey struct{}
 
 func requestPrincipal(request *http.Request) (rbac.Principal, bool) {
 	if request == nil {
@@ -319,6 +328,14 @@ func requestPrincipal(request *http.Request) (rbac.Principal, bool) {
 	}
 	principal, ok := request.Context().Value(principalContextKey{}).(rbac.Principal)
 	return principal, ok && principal.UserID != "" && principal.TenantID != ""
+}
+
+func requestTokenPayload(request *http.Request) (tokenPayload, bool) {
+	if request == nil {
+		return tokenPayload{}, false
+	}
+	payload, ok := request.Context().Value(tokenPayloadContextKey{}).(tokenPayload)
+	return payload, ok && payload.JTI != "" && payload.Expires > 0
 }
 
 func requiredPermission(method, path string) (string, bool) {
@@ -415,17 +432,94 @@ func (handler *Handler) login(writer http.ResponseWriter, request *http.Request)
 		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	jtiBytes := make([]byte, 16)
-	if _, err := io.ReadFull(rand.Reader, jtiBytes); err != nil {
-		handler.fail(writer, http.StatusInternalServerError, "internal error")
-		return
-	}
-	token, expires, err := issuePrincipalToken(handler.tokenKey, time.Now(), hex.EncodeToString(jtiBytes), principal)
+	now := time.Now().UTC()
+	jti, err := randomHex(16)
 	if err != nil {
 		handler.fail(writer, http.StatusInternalServerError, "internal error")
 		return
 	}
-	handler.ok(writer, map[string]any{"token": token, "expires_at": expires.Format(time.RFC3339)})
+	familyID, err := randomHex(16)
+	if err != nil {
+		handler.fail(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	refreshToken, refreshHash, err := newAdminRefreshToken()
+	if err != nil {
+		handler.fail(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	token, expires, err := issuePrincipalSessionToken(handler.tokenKey, now, jti, familyID, principal)
+	if err != nil {
+		handler.fail(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	refreshExpires := now.Add(adminRefreshTokenLifetime)
+	err = handler.deps.Runtime.Store.AdminSessions().CreateRefreshSession(request.Context(), store.AdminRefreshSession{
+		FamilyID: familyID, TokenHash: refreshHash, TenantID: principal.TenantID, UserID: principal.UserID,
+		Username: principal.Username, CreatedAt: now, ExpiresAt: refreshExpires,
+	})
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	handler.ok(writer, tokenResponse(token, expires, refreshToken, refreshExpires))
+}
+
+func (handler *Handler) refresh(writer http.ResponseWriter, request *http.Request) {
+	var input struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := decodeJSON(writer, request, &input); err != nil {
+		handler.fail(writer, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	oldHash, ok := adminRefreshTokenHash(input.RefreshToken)
+	if !ok {
+		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	newRefreshToken, newHash, err := newAdminRefreshToken()
+	if err != nil {
+		handler.fail(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	now := time.Now().UTC()
+	session, err := handler.deps.Runtime.Store.AdminSessions().RotateRefreshToken(request.Context(), oldHash, newHash, now)
+	if err != nil {
+		if errors.Is(err, store.ErrAdminRefreshTokenReplay) {
+			handler.logger.Warn().Msg("admin refresh token replay rejected; refresh family revoked")
+		}
+		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	principal, err := handler.rbac.Principal(request.Context(), session.TenantID, session.UserID)
+	if err != nil || principal.Username != session.Username {
+		if revokeErr := handler.deps.Runtime.Store.AdminSessions().RevokeRefreshFamily(request.Context(), session.FamilyID, now); revokeErr != nil {
+			handler.logger.Error().Str("error_type", fmt.Sprintf("%T", revokeErr)).Msg("admin refresh family cleanup failed")
+		}
+		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	jti, err := randomHex(16)
+	if err != nil {
+		_ = handler.deps.Runtime.Store.AdminSessions().RevokeRefreshFamily(request.Context(), session.FamilyID, now)
+		handler.fail(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	accessToken, accessExpires, err := issuePrincipalSessionToken(handler.tokenKey, now, jti, session.FamilyID, principal)
+	if err != nil {
+		_ = handler.deps.Runtime.Store.AdminSessions().RevokeRefreshFamily(request.Context(), session.FamilyID, now)
+		handler.fail(writer, http.StatusInternalServerError, "internal error")
+		return
+	}
+	handler.ok(writer, tokenResponse(accessToken, accessExpires, newRefreshToken, session.ExpiresAt))
+}
+
+func tokenResponse(accessToken string, accessExpires time.Time, refreshToken string, refreshExpires time.Time) map[string]any {
+	return map[string]any{
+		"token": accessToken, "expires_at": accessExpires.Format(time.RFC3339),
+		"refresh_token": refreshToken, "refresh_expires_at": refreshExpires.Format(time.RFC3339),
+	}
 }
 
 func (handler *Handler) me(writer http.ResponseWriter, request *http.Request) {
@@ -438,8 +532,50 @@ func (handler *Handler) me(writer http.ResponseWriter, request *http.Request) {
 		"username": principal.Username, "roles": principal.RoleIDs, "permissions": principal.Permissions})
 }
 
-func (handler *Handler) logout(writer http.ResponseWriter, _ *http.Request) {
+func (handler *Handler) logout(writer http.ResponseWriter, request *http.Request) {
+	payload, ok := requestTokenPayload(request)
+	if !ok {
+		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	now := time.Now().UTC()
+	if err := handler.deps.Runtime.Store.AdminSessions().RevokeAccessAndRefreshFamily(
+		request.Context(), payload.JTI, payload.SessionID, time.Unix(payload.Expires, 0).UTC(), now,
+	); err != nil {
+		handler.internal(writer, err)
+		return
+	}
 	handler.ok(writer, map[string]bool{"ok": true})
+}
+
+func randomHex(byteLength int) (string, error) {
+	value := make([]byte, byteLength)
+	if _, err := io.ReadFull(rand.Reader, value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func newAdminRefreshToken() (string, string, error) {
+	value := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, value); err != nil {
+		return "", "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(value)
+	digest := sha256.Sum256(value)
+	return token, hex.EncodeToString(digest[:]), nil
+}
+
+func adminRefreshTokenHash(token string) (string, bool) {
+	if token == "" || strings.TrimSpace(token) != token || strings.ContainsAny(token, " \t\r\n") {
+		return "", false
+	}
+	value, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(value) != 32 || base64.RawURLEncoding.EncodeToString(value) != token {
+		return "", false
+	}
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:]), true
 }
 
 func (handler *Handler) agentsList(writer http.ResponseWriter, request *http.Request) {

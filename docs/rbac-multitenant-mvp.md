@@ -87,9 +87,10 @@ tenant 1──N user N──N role N──N permission
 
 | 方法与路径 | 权限 | 请求/响应要点 |
 |---|---|---|
-| `POST /api/v1/auth/login` | 公开 | 请求 `{tenant_id?,username,password}`；返回 `{token,expires_at}`；租户缺省为默认租户 |
+| `POST /api/v1/auth/login` | 公开 | 请求 `{tenant_id?,username,password}`；兼容保留 `{token,expires_at}`，并返回 `{refresh_token,refresh_expires_at}`；租户缺省为默认租户 |
+| `POST /api/v1/auth/refresh` | 公开（refresh token 认证） | 请求 `{refresh_token}`；轮换 refresh token 并返回新的 access/refresh token；重放会撤销整条 refresh family |
 | `GET /api/v1/auth/me` | 已认证 | 返回用户、租户、角色及实时权限 |
-| `POST /api/v1/auth/logout` | 已认证 | 保持原兼容响应；MVP 无服务端会话表 |
+| `POST /api/v1/auth/logout` | 已认证 | 保持原兼容响应；持久化撤销当前 access jti 及其 refresh family，立即失效 |
 | `GET/POST /api/v1/users` | `user.manage` | 列表或创建；创建密码至少 12 字符，可同时给 `role_ids` |
 | `GET/PUT/DELETE /api/v1/users/{id}` | `user.manage` | 当前租户 CRUD；禁止删除当前用户 |
 | `PUT /api/v1/users/{id}/roles` | `user.manage` | 请求 `{role_ids}`，整体替换 |
@@ -128,5 +129,4 @@ state/nonce 存储、issuer discovery/JWKS 校验、严格 redirect allow-list�
 `(issuer,sub)` 唯一映射、显式租户与角色 claim 映射以及本地账号绑定/恢复
 策略。OIDC 必须默认关闭；配置不完整或校验失败时不得回退为信任未验证 claim。
 
-后续还包括服务端令牌撤销/短期 access + refresh token、登录限速与锁定、全部
-存量业务元数据的租户所有权迁移，以及租户级管理审计事件。
+本批已交付管理端本地用户的服务端令牌撤销，以及短期 access + 长期 refresh token。refresh token 仅存 SHA-256 哈希、每次使用均轮换；重用已轮换或撤销的 token 会撤销整条 refresh family，store 状态不可读时 fail-closed。后续仍包括登录限速与锁定、全部存量业务元数据的租户所有权迁移，以及租户级管理审计事件。

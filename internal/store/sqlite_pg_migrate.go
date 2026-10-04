@@ -244,6 +244,19 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "claimed_at", kind: migrationTime}, {name: "last_error", kind: migrationText},
 		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime},
 	}},
+	{name: "admin_access_revocations", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "jti", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
+	}},
+	{name: "admin_refresh_families", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "family_id", kind: migrationText}, {name: "tenant_id", kind: migrationText}, {name: "user_id", kind: migrationText},
+		{name: "username", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
+		{name: "created_at", kind: migrationTime},
+	}},
+	{name: "admin_refresh_tokens", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "token_hash", kind: migrationText}, {name: "family_id", kind: migrationText}, {name: "expires_at", kind: migrationTime},
+		{name: "state", kind: migrationText}, {name: "replaced_by_hash", kind: migrationText}, {name: "created_at", kind: migrationTime},
+		{name: "used_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
+	}},
 	{name: "tenants", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "name", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},

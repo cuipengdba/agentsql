@@ -109,18 +109,21 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"event_uuid", "action", "actor_type", "actor_id", "details_json", "created_at",
 			"attempts", "claimed_by", "claimed_at", "last_error", "next_attempt_at", "delivered_at",
 		},
-		"tenants":            {"id", "name", "status", "created_at", "updated_at"},
-		"users":              {"id", "tenant_id", "username", "display_name", "password_hash", "status", "auth_provider", "external_subject", "created_at", "updated_at"},
-		"permissions":        {"code", "description"},
-		"roles":              {"id", "tenant_id", "name", "description", "builtin", "created_at", "updated_at"},
-		"user_roles":         {"tenant_id", "user_id", "role_id"},
-		"role_permissions":   {"tenant_id", "role_id", "permission_code"},
-		"role_inheritance":   {"tenant_id", "role_id", "parent_role_id"},
-		"b5_sessions":        {"session_id", "agent_id", "tenant_id", "principal_id", "owner_instance_id", "owner_epoch", "continuation_schema_id", "continuation_schema_version", "continuation_key_ciphertext", "continuation_hmac_digest", "sticky_route", "status", "idle_expires_at", "absolute_expires_at", "created_at", "updated_at", "revision"},
-		"b5_transactions":    {"transaction_id", "session_id", "datasource_id", "status", "phase", "plan_digest", "approval_id", "owner_epoch", "idle_deadline", "wall_deadline", "statement_deadline", "backend_pid", "backend_secret_digest", "backend_started_at", "connection_generation", "lease_generation", "statement_count", "transaction_seq", "previous_tx_event_digest", "created_at", "updated_at", "revision"},
-		"b5_dml_grants":      {"grant_id", "policy_id", "policy_revision", "principal_id", "datasource_id", "effect", "grant_element", "action", "database_oid", "relation_oid", "relation_kind", "schema_name", "relation_name", "catalog_fingerprint", "write_target_kind", "column_attnum", "column_name", "column_type_oid", "column_type_modifier", "column_collation_oid", "reference_kind", "proof_schema_id", "proof_schema_version", "proof_digest", "created_at", "updated_at", "revision"},
-		"b5_result_receipts": {"session_id", "request_id", "event_uuid", "attempt_generation", "schema_id", "schema_version", "business_event_digest", "wal_append_receipt_digest", "reported_durability", "append_confirmation", "reconciliation", "delivery_status", "created_at", "updated_at", "revision"},
-		"b5_tx_events":       {"transaction_id", "transaction_seq", "event_uuid", "event_type", "event_schema_id", "event_schema_version", "previous_tx_event_digest", "event_digest", "canonical_event", "terminal_evidence_text", "disposition_proof_text", "audit_log_id", "created_at"},
+		"admin_access_revocations": {"jti", "expires_at", "revoked_at"},
+		"admin_refresh_families":   {"family_id", "tenant_id", "user_id", "username", "expires_at", "revoked_at", "created_at"},
+		"admin_refresh_tokens":     {"token_hash", "family_id", "expires_at", "state", "replaced_by_hash", "created_at", "used_at", "revoked_at"},
+		"tenants":                  {"id", "name", "status", "created_at", "updated_at"},
+		"users":                    {"id", "tenant_id", "username", "display_name", "password_hash", "status", "auth_provider", "external_subject", "created_at", "updated_at"},
+		"permissions":              {"code", "description"},
+		"roles":                    {"id", "tenant_id", "name", "description", "builtin", "created_at", "updated_at"},
+		"user_roles":               {"tenant_id", "user_id", "role_id"},
+		"role_permissions":         {"tenant_id", "role_id", "permission_code"},
+		"role_inheritance":         {"tenant_id", "role_id", "parent_role_id"},
+		"b5_sessions":              {"session_id", "agent_id", "tenant_id", "principal_id", "owner_instance_id", "owner_epoch", "continuation_schema_id", "continuation_schema_version", "continuation_key_ciphertext", "continuation_hmac_digest", "sticky_route", "status", "idle_expires_at", "absolute_expires_at", "created_at", "updated_at", "revision"},
+		"b5_transactions":          {"transaction_id", "session_id", "datasource_id", "status", "phase", "plan_digest", "approval_id", "owner_epoch", "idle_deadline", "wall_deadline", "statement_deadline", "backend_pid", "backend_secret_digest", "backend_started_at", "connection_generation", "lease_generation", "statement_count", "transaction_seq", "previous_tx_event_digest", "created_at", "updated_at", "revision"},
+		"b5_dml_grants":            {"grant_id", "policy_id", "policy_revision", "principal_id", "datasource_id", "effect", "grant_element", "action", "database_oid", "relation_oid", "relation_kind", "schema_name", "relation_name", "catalog_fingerprint", "write_target_kind", "column_attnum", "column_name", "column_type_oid", "column_type_modifier", "column_collation_oid", "reference_kind", "proof_schema_id", "proof_schema_version", "proof_digest", "created_at", "updated_at", "revision"},
+		"b5_result_receipts":       {"session_id", "request_id", "event_uuid", "attempt_generation", "schema_id", "schema_version", "business_event_digest", "wal_append_receipt_digest", "reported_durability", "append_confirmation", "reconciliation", "delivery_status", "created_at", "updated_at", "revision"},
+		"b5_tx_events":             {"transaction_id", "transaction_seq", "event_uuid", "event_type", "event_schema_id", "event_schema_version", "previous_tx_event_digest", "event_digest", "canonical_event", "terminal_evidence_text", "disposition_proof_text", "audit_log_id", "created_at"},
 	}
 
 	actualTables := businessTableNames(t, opened.metaDB)
@@ -138,6 +141,9 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 	}
 
 	require.Equal(t, []string{
+		"idx_admin_access_revocations_expiry",
+		"idx_admin_refresh_families_expiry",
+		"idx_admin_refresh_tokens_family",
 		"idx_agents_keyhash",
 		"idx_approvals_status",
 		"idx_audit_agent_ts",
@@ -207,8 +213,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 11, current)
-	require.Equal(t, 11, latest)
+	require.Equal(t, 12, current)
+	require.Equal(t, 12, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -238,10 +244,11 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.Equal(t, []string{
-		"agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
+		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
 		"notification_settings", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "tenants", "user_roles", "users",
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{
+		"idx_admin_access_revocations_expiry", "idx_admin_refresh_families_expiry", "idx_admin_refresh_tokens_family",
 		"idx_agents_keyhash", "idx_approvals_status", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit", "idx_policies_agent_ds",
 		"idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
 		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active",
@@ -255,8 +262,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 10, current)
-	require.Equal(t, 10, latest)
+	require.Equal(t, 11, current)
+	require.Equal(t, 11, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -291,9 +298,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 11, current)
+				require.Equal(t, 12, current)
 			} else {
-				require.Equal(t, 10, current)
+				require.Equal(t, 11, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -358,9 +365,9 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 11, current)
+				require.Equal(t, 12, current)
 			} else {
-				require.Equal(t, 10, current)
+				require.Equal(t, 11, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",

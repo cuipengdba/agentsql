@@ -55,7 +55,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - DM/Oracle parser 只覆盖文档列出的 v0.5 受控 SELECT profile；`*` 仅绑定到物理来源表，parser 无 catalog，不能虚构逐列名称。该能力不等于完整 SQL grammar 或已接入列级授权/脱敏 pipeline。
 - KingbaseES V9R1C10 目标环境待厂商提供；HighGo、GaussDB、TDSQL 等商业版仍待目标环境终验。
 - R005 生产动态告警已闭环，但能力边界仍须准确表述：无界查询的执行前命中依赖受控 EXPLAIN；实际 `row_limit` 截断会在通用执行和 PostgreSQL 列级授权路径补充 `R005`。响应通过 `assessment.hits` 返回结构化命中，持久审计通过 `rule_hits` 保存；未知 EXPLAIN 或审计事实继续 fail-closed。`row_limit` 可在数据源管理入口配置，默认值为 1000；规则页不提供独立 R005 阈值编辑器。
-- RBAC 是 MVP：非默认租户对存量共享业务元数据仍拒绝；OIDC/LDAP/MFA、令牌撤销/刷新和全量租户化未交付。
+- RBAC 仍是 MVP：非默认租户对存量共享业务元数据仍拒绝，OIDC/LDAP/MFA 与全量租户化未交付。管理端本地用户令牌已支持持久化服务端撤销和长期 refresh token：refresh token 仅以 SHA-256 哈希存储、每次刷新都会轮换，重用已轮换/撤销的 token 会撤销整条 refresh family；状态不可读时 access 校验、刷新与登出均 fail-closed。
 - 跨进程 MCP transport session、断线重放与服务重启前会话恢复未提供；豆包、Claude Desktop / Inspector 真实客户端仍待账号和指定版本联调。
 - “协议路径实测”不覆盖完整 SQL 方言、生产拓扑、HA/故障切换、TLS/认证矩阵、性能 SLA 或厂商支持责任。
 
@@ -206,7 +206,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 - The DM/Oracle parser covers only the documented v0.5 controlled-SELECT profile. Wildcards are bound to physical source relations, but the parser has no catalog and does not invent concrete column names. This is not full SQL grammar support or integration with the column-authorization/redaction pipeline. KingbaseES V9 and the named commercial database editions remain pending vendor-provided target environments.
 - R005 is closed within its documented boundary. An unbounded query whose controlled EXPLAIN estimate exceeds the effective `row_limit`, or a query actually truncated by the execution layer, produces an `R005` warning in `assessment.hits`; the same hit is persisted in `rule_hits` and is available through the audit management API. There is no separate R005-specific response header or log event. Missing EXPLAIN or audit facts continue to fail closed.
 - The PostgreSQL parser P99 gate remains open. In batch 33, both the pre-optimization and post-optimization five-run sets passed only 3/5 runs at the unchanged 5 ms threshold; the post-optimization P99 values were 4.456/4.775/6.404/6.554/4.173 ms. Release still requires five consecutive passing runs on the standard isolated Linux runner.
-- RBAC is an MVP. OIDC/LDAP/MFA, server-side token revocation/refresh, and complete tenant ownership migration are not included.
+- RBAC remains an MVP: OIDC/LDAP/MFA and complete tenant ownership migration are not included. Local management-user tokens now support persistent server-side revocation and long-lived refresh tokens. Refresh tokens are stored only as SHA-256 hashes and rotated on every refresh; reuse of a rotated or revoked token revokes the entire refresh family. Access validation, refresh, and logout fail closed when token state cannot be read.
 - MCP transport sessions are not persisted across processes or restarts, and SSE replay is not implemented. Real-account tests for Doubao and specific Claude Desktop/Inspector versions remain pending.
 - Protocol-path results do not cover full dialects, production topologies, HA/failover, the complete TLS/authentication matrix, performance SLAs, or vendor support obligations.
 

@@ -3,6 +3,7 @@ package adminapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,12 +36,18 @@ func TestAdminLoginAndAuthenticationIsolation(t *testing.T) {
 	var login struct {
 		Code int `json:"code"`
 		Data struct {
-			Token string `json:"token"`
+			Token            string `json:"token"`
+			RefreshToken     string `json:"refresh_token"`
+			ExpiresAt        string `json:"expires_at"`
+			RefreshExpiresAt string `json:"refresh_expires_at"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &login))
 	require.Equal(t, 0, login.Code)
 	require.NotEmpty(t, login.Data.Token)
+	require.NotEmpty(t, login.Data.RefreshToken)
+	require.NotEmpty(t, login.Data.ExpiresAt)
+	require.NotEmpty(t, login.Data.RefreshExpiresAt)
 	status, _ = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+login.Data.Token, "")
 	require.Equal(t, http.StatusOK, status)
 	status, body = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+fixture.agentKey, "")
@@ -52,6 +59,74 @@ func TestAdminLoginAndAuthenticationIsolation(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, status)
 	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/logout", "Bearer "+login.Data.Token, "")
 	require.Equal(t, http.StatusOK, status)
+	status, _ = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+login.Data.Token, "")
+	require.Equal(t, http.StatusUnauthorized, status)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+login.Data.RefreshToken+`"}`)
+	require.Equal(t, http.StatusUnauthorized, status)
+}
+
+func TestAdminRefreshRotationReplayAndLogoutE2E(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"admin","password":"password"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	access := responseString(t, body, "token")
+	refresh := responseString(t, body, "refresh_token")
+
+	status, body = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+access, "")
+	require.Equal(t, http.StatusOK, status, body)
+	status, body = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+refresh+`"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	rotatedAccess := responseString(t, body, "token")
+	rotatedRefresh := responseString(t, body, "refresh_token")
+	require.NotEqual(t, access, rotatedAccess)
+	require.NotEqual(t, refresh, rotatedRefresh)
+	status, body = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+rotatedAccess, "")
+	require.Equal(t, http.StatusOK, status, body)
+
+	status, body = fixture.request(http.MethodPost, "/api/v1/auth/logout", "Bearer "+rotatedAccess, "")
+	require.Equal(t, http.StatusOK, status, body)
+	for _, token := range []string{access, rotatedAccess} {
+		status, _ = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+token, "")
+		require.Equal(t, http.StatusUnauthorized, status)
+	}
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+rotatedRefresh+`"}`)
+	require.Equal(t, http.StatusUnauthorized, status)
+}
+
+func TestAdminRefreshReplayRevokesFamily(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"admin","password":"password"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	refresh := responseString(t, body, "refresh_token")
+	status, body = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+refresh+`"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	rotatedAccess := responseString(t, body, "token")
+	rotatedRefresh := responseString(t, body, "refresh_token")
+
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+refresh+`"}`)
+	require.Equal(t, http.StatusUnauthorized, status)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+rotatedRefresh+`"}`)
+	require.Equal(t, http.StatusUnauthorized, status)
+	status, _ = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+rotatedAccess, "")
+	require.Equal(t, http.StatusUnauthorized, status)
+}
+
+func TestAdminTokenStateFailuresAreFailClosed(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"admin","password":"password"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	access := responseString(t, body, "token")
+	refresh := responseString(t, body, "refresh_token")
+
+	for _, malformed := range []string{"", "not-base64", refresh + " ", base64.RawURLEncoding.EncodeToString(make([]byte, 31))} {
+		status, _ = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+malformed+`"}`)
+		require.Equal(t, http.StatusUnauthorized, status)
+	}
+	require.NoError(t, fixture.store.Close())
+	status, _ = fixture.request(http.MethodGet, "/api/v1/auth/me", "Bearer "+access, "")
+	require.Equal(t, http.StatusUnauthorized, status)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/refresh", "", `{"refresh_token":"`+refresh+`"}`)
+	require.Equal(t, http.StatusUnauthorized, status)
 }
 
 func TestAdminTokenExpiryAndStrictBearer(t *testing.T) {

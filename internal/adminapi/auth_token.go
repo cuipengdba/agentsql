@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	adminTokenLifetime = 12 * time.Hour
-	adminTokenPurpose  = "agentsql-admin-token-v1"
+	adminTokenLifetime        = 12 * time.Hour
+	adminRefreshTokenLifetime = 30 * 24 * time.Hour
+	adminTokenPurpose         = "agentsql-admin-token-v1"
 )
 
 var (
@@ -26,12 +27,13 @@ var (
 )
 
 type tokenPayload struct {
-	IssuedAt int64  `json:"iat"`
-	Expires  int64  `json:"exp"`
-	JTI      string `json:"jti"`
-	UserID   string `json:"sub"`
-	TenantID string `json:"tid"`
-	Username string `json:"username"`
+	IssuedAt  int64  `json:"iat"`
+	Expires   int64  `json:"exp"`
+	JTI       string `json:"jti"`
+	UserID    string `json:"sub"`
+	TenantID  string `json:"tid"`
+	Username  string `json:"username"`
+	SessionID string `json:"sid,omitempty"`
 }
 
 // DeriveTokenKey derives the admin-token signing key from AGENTSQL_SECRET.
@@ -62,6 +64,10 @@ func issueAdminToken(key []byte, now time.Time, jti string) (string, time.Time, 
 }
 
 func issuePrincipalToken(key []byte, now time.Time, jti string, principal rbac.Principal) (string, time.Time, error) {
+	return issuePrincipalSessionToken(key, now, jti, "", principal)
+}
+
+func issuePrincipalSessionToken(key []byte, now time.Time, jti, sessionID string, principal rbac.Principal) (string, time.Time, error) {
 	if len(key) == 0 || now.IsZero() || strings.TrimSpace(jti) == "" {
 		return "", time.Time{}, fmt.Errorf("issue admin token: invalid token inputs")
 	}
@@ -70,7 +76,7 @@ func issuePrincipalToken(key []byte, now time.Time, jti string, principal rbac.P
 	}
 	expires := now.Add(adminTokenLifetime)
 	payload, err := json.Marshal(tokenPayload{IssuedAt: now.Unix(), Expires: expires.Unix(), JTI: jti,
-		UserID: principal.UserID, TenantID: principal.TenantID, Username: principal.Username})
+		UserID: principal.UserID, TenantID: principal.TenantID, Username: principal.Username, SessionID: sessionID})
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("marshal admin token: %w", err)
 	}

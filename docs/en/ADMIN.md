@@ -14,7 +14,7 @@ Open <http://127.0.0.1:7780>. On first startup, AgentSQL bootstraps the default 
 
 Console users and MCP Agents are separate identities:
 
-- console users authenticate at `POST /api/v1/auth/login` and receive a signed Bearer token;
+- console users authenticate at `POST /api/v1/auth/login` and receive a signed access Bearer token plus a rotating refresh token; only the refresh-token SHA-256 hash is persisted;
 - MCP Agents authenticate with an Agent API Key whose plaintext is shown only when created or rotated;
 - an administrator token cannot be used as an Agent API Key, and an Agent Key cannot administer the console.
 
@@ -93,11 +93,12 @@ The stable permissions are:
 
 ### Management API
 
-All endpoints except login require a Bearer console token and return the existing `{code,msg,data}` envelope.
+All endpoints except login and refresh require a Bearer console token and return the existing `{code,msg,data}` envelope. Logout persistently revokes the current access-token jti and its refresh family. Token-state read failures are rejected rather than bypassed.
 
 | Endpoint | Required access |
 | --- | --- |
 | `POST /api/v1/auth/login` | Public; `tenant_id` defaults to `tenant_default` |
+| `POST /api/v1/auth/refresh` | Public endpoint authenticated by a rotating refresh token |
 | `GET /api/v1/auth/me` | Authenticated principal |
 | `GET/POST /api/v1/users` and item/role-assignment routes | `user.manage` |
 | `GET/POST /api/v1/roles` and item/permission routes | `role.manage` |

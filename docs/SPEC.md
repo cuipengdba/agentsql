@@ -326,8 +326,8 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 ### 6.5 管理 REST API
 
-- 前缀 `/api/v1`，除 `POST /api/v1/auth/login` 外均需管理端 Bearer 令牌；统一响应信封 `{code,msg,data}`，分页为 `{total,page,page_size,list}`。
-- 端点族：认证（login）、agents（含 rotate-key）、datasources（含连通性 ping 与敏感发现）、policies、rules、mask_rules（三档作用域 CRUD）、audit（分页 / 筛选 / JSONL 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。
+- 前缀 `/api/v1`，除 `POST /api/v1/auth/login` 与 `POST /api/v1/auth/refresh` 外均需管理端 Bearer 令牌；refresh 端点以轮换式 refresh token 认证。统一响应信封 `{code,msg,data}`，分页为 `{total,page,page_size,list}`。
+- 端点族：认证（login、refresh、me、logout；服务端持久化撤销 access jti 与 refresh family）、agents（含 rotate-key）、datasources（含连通性 ping 与敏感发现）、policies、rules、mask_rules（三档作用域 CRUD）、audit（分页 / 筛选 / JSONL 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。
 - 脱敏规则 `POST /api/v1/mask_rules` 与 `PUT /api/v1/mask_rules/{id}` 接受 `schema_name`、`table_name`、`column_name`、`sensitive_type`、`algo`、`enabled` 及可选 `datasource_id` / `range_*` 字段。作用域字段禁止首尾空白、NUL / 控制字符、`*`、`%` 和单字段内的 `.`，最长 128 个 Unicode 字符；保留原始大小写并允许中文等合法引号标识符。
 - 探针：`/healthz`（存活）、`/readyz`（存储就绪，控制面与审计库双 Ping）、`/metrics`（Prometheus）。
 

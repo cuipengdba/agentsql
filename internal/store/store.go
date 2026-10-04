@@ -492,6 +492,11 @@ func (store *Store) RBAC() *RBACRepository {
 	return &RBACRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// AdminSessions returns the persistent administrator-token session repository.
+func (store *Store) AdminSessions() *AdminSessionRepository {
+	return &AdminSessionRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // Datasources returns the datasource repository.
 func (store *Store) Datasources() *DatasourceRepository {
 	return &DatasourceRepository{
