@@ -216,12 +216,16 @@ func identityComplete(input AuthorizationInput) bool {
 }
 
 func completeAttestationSet(values []BinderAttestation, current int) bool {
+	if len(values) == 1 {
+		value := values[0]
+		return value.Mode == BinderAttestationCatalogClosed && value.ServerMajor == current && value.complete()
+	}
 	if len(values) != 5 || current < 14 || current > 18 {
 		return false
 	}
 	seen := [19]bool{}
 	for _, value := range values {
-		if !value.complete() || seen[value.ServerMajor] {
+		if value.Mode != BinderAttestationNative || !value.complete() || seen[value.ServerMajor] {
 			return false
 		}
 		seen[value.ServerMajor] = true

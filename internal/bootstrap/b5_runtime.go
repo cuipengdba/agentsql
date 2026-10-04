@@ -344,12 +344,12 @@ func (router *b5DatasourceRouter) resolve(ctx context.Context, id string) (B5Dat
 		router.recordFailure(id, string(code))
 		return B5DatasourceAuthority{}, &b5coordinator.Failure{Code: code, Cause: cause}
 	}
-	if capability.ServerMajor < 14 || capability.ServerMajor > 18 {
-		router.recordFailure(id, string(b5.ErrorPostgresVersionUnsupported))
-		return B5DatasourceAuthority{}, &b5coordinator.Failure{Code: b5.ErrorPostgresVersionUnsupported, Cause: fmt.Errorf("PostgreSQL 主版本 %d 不受支持；请使用 14 到 18", capability.ServerMajor)}
-	}
 	mode := "CATALOG_CLOSED_V1"
 	if capability.NativeAvailable {
+		if capability.ServerMajor < 14 || capability.ServerMajor > 18 {
+			router.recordFailure(id, string(b5.ErrorPostgresVersionUnsupported))
+			return B5DatasourceAuthority{}, &b5coordinator.Failure{Code: b5.ErrorPostgresVersionUnsupported, Cause: fmt.Errorf("PostgreSQL native 主版本 %d 不受支持；请使用 14 到 18", capability.ServerMajor)}
+		}
 		mode = "NATIVE_C_V1"
 	}
 	value := B5DatasourceAuthority{Dialect: "postgres", Mode: mode, ServerMajor: capability.ServerMajor, KeyRevision: 1, DatasourceRevision: revision, PolicyRevision: 1}

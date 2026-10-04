@@ -652,7 +652,7 @@ func PostgresDMLBinderAttestations() []b5dml.BinderAttestation {
 func postgresDMLBinderAttestation(major int) b5dml.BinderAttestation {
 	suffix := fmt.Sprintf("%d", major)
 	return b5dml.BinderAttestation{
-		ServerMajor: major, ABI: b5dml.BinderABI,
+		Mode: b5dml.BinderAttestationNative, ServerMajor: major, ABI: b5dml.BinderABI,
 		BuildHash:        postgresDMLArtifactHash("agentsql-binder-dml-build-v1-pg" + suffix),
 		ExtensionHash:    postgresDMLArtifactHash("agentsql-binder-dml-source-v1-pg" + suffix),
 		NodeManifestHash: postgresDMLArtifactHash("query-dml-write-reference-v1-pg" + suffix),

@@ -177,6 +177,31 @@ func TestProofDigestBindsPolicyRevisionCatalogIdentityAndFiveMajors(t *testing.T
 	}
 }
 
+func TestCatalogClosedAttestationBindsExactLowServerMajor(t *testing.T) {
+	t.Parallel()
+	input := authorizationFixture()
+	input.CurrentServerMajor = 12
+	input.Attestations = []BinderAttestation{{Mode: BinderAttestationCatalogClosed,
+		ServerMajor: 12, ABI: BinderABI, BuildHash: "closed-build", ExtensionHash: "closed-grammar",
+		NodeManifestHash: "closed-catalog", AllowlistHash: "closed-builtins"}}
+	if decision := Authorize(input); !decision.Allowed() || !decision.Verify(input) {
+		t.Fatalf("closed PG12 decision = allowed=%v reason=%s", decision.Allowed(), decision.Reason())
+	}
+
+	drifted := input
+	drifted.Attestations = append([]BinderAttestation(nil), input.Attestations...)
+	drifted.Attestations[0].ServerMajor = 10
+	if reason := Authorize(drifted).Reason(); reason != ReasonIdentityUnproven {
+		t.Fatalf("drifted closed major reason = %s", reason)
+	}
+
+	mixed := input
+	mixed.Attestations = append(mixed.Attestations, testAttestations()[0])
+	if reason := Authorize(mixed).Reason(); reason != ReasonIdentityUnproven {
+		t.Fatalf("mixed attestation set reason = %s", reason)
+	}
+}
+
 func authorizationFixture() AuthorizationInput {
 	relation := testRelation("target", 100)
 	writeColumn := testColumn(relation, 2, "value")
@@ -230,7 +255,7 @@ func testColumn(relation RelationIdentity, attnum int16, name string) ColumnIden
 func testAttestations() []BinderAttestation {
 	result := make([]BinderAttestation, 0, 5)
 	for major := 14; major <= 18; major++ {
-		result = append(result, BinderAttestation{ServerMajor: major, ABI: BinderABI,
+		result = append(result, BinderAttestation{Mode: BinderAttestationNative, ServerMajor: major, ABI: BinderABI,
 			BuildHash: "build-" + string(rune('A'+major-14)), ExtensionHash: "extension",
 			NodeManifestHash: "nodes", AllowlistHash: "allowlist"})
 	}

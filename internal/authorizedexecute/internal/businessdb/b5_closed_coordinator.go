@@ -45,7 +45,7 @@ func (runtime *B5PostgresRuntime) analyzeClosed(ctx context.Context, statement b
 		PrincipalID: authorizationPrincipal(authorization.Policies), DatasourceID: facts.Target.DatasourceID,
 		Policies: append([]b5dml.Policy(nil), authorization.Policies...), PreliminaryAllowed: authorization.PreliminaryAllowed,
 		DatasourceSupported: authorization.DatasourceSupported, ReservedTarget: authorization.ReservedTarget,
-		PolicySnapshotDigest: authorization.PolicySnapshotDigest, Attestations: PostgresClosedDMLBinderAttestations(),
+		PolicySnapshotDigest: authorization.PolicySnapshotDigest, Attestations: PostgresClosedDMLBinderAttestations(program.Capability.ServerMajor),
 	}
 	decision, err := AuthorizeB5(program.Facts, b5dml.AuthorizationInput{
 		PrincipalID: auth.PrincipalID, DatasourceID: auth.DatasourceID, Dialect: b5dml.DialectPostgreSQL,
@@ -145,25 +145,22 @@ func b5StatementFactsFromSemantic(facts SemanticFacts) (b5dml.StatementFacts, er
 	return result, nil
 }
 
-// PostgresClosedDMLBinderAttestations domain-separates the five supported
-// closed-mode builds. These values attest the embedded grammar/query-pack
-// contract, not the optional C extension.
-func PostgresClosedDMLBinderAttestations() []b5dml.BinderAttestation {
-	values := make([]b5dml.BinderAttestation, 0, 5)
-	for major := 14; major <= 18; major++ {
-		digest := func(label string) string {
-			return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("agentsql-b5-closed-%s-pg%d", label, major))))
-		}
-		values = append(values, b5dml.BinderAttestation{ServerMajor: major, ABI: b5dml.BinderABI,
-			BuildHash: digest("build"), ExtensionHash: digest("grammar"), NodeManifestHash: digest("catalog"), AllowlistHash: digest("builtins")})
+// PostgresClosedDMLBinderAttestations binds the embedded grammar/query-pack
+// contract to the server major that already passed the closed catalog
+// capability probe. It does not claim that an optional native extension exists.
+func PostgresClosedDMLBinderAttestations(serverMajor int) []b5dml.BinderAttestation {
+	digest := func(label string) string {
+		return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("agentsql-b5-closed-%s-pg%d", label, serverMajor))))
 	}
-	return values
+	return []b5dml.BinderAttestation{{Mode: b5dml.BinderAttestationCatalogClosed,
+		ServerMajor: serverMajor, ABI: b5dml.BinderABI, BuildHash: digest("build"), ExtensionHash: digest("grammar"),
+		NodeManifestHash: digest("catalog"), AllowlistHash: digest("builtins")}}
 }
 
 // bindClosedPlan re-resolves and seals every statement in the already-open
 // native write transaction. No raw SQL reaches Execute after this method.
 func (capability *b5PGCoordinatorCapability) bindClosedPlan(ctx context.Context, plan b5coordinator.Plan) ([32]byte, error) {
-	if capability.tx == nil || !capability.closedMode || plan.ServerMajor < 14 || plan.ServerMajor > 18 {
+	if capability.tx == nil || !capability.closedMode || plan.ServerMajor <= 0 {
 		return [32]byte{}, errors.New("businessdb: invalid closed B5 transaction")
 	}
 	for _, statement := range plan.Statements {
@@ -223,7 +220,7 @@ func (capability *b5PGCoordinatorCapability) bindClosedPlan(ctx context.Context,
 		auth := PostgresDMLAuthorization{PrincipalID: authorizationPrincipal(fresh.Policies), DatasourceID: lockedFacts.Target.DatasourceID,
 			Policies: append([]b5dml.Policy(nil), fresh.Policies...), PreliminaryAllowed: fresh.PreliminaryAllowed,
 			DatasourceSupported: fresh.DatasourceSupported, ReservedTarget: fresh.ReservedTarget,
-			PolicySnapshotDigest: fresh.PolicySnapshotDigest, Attestations: PostgresClosedDMLBinderAttestations()}
+			PolicySnapshotDigest: fresh.PolicySnapshotDigest, Attestations: PostgresClosedDMLBinderAttestations(plan.ServerMajor)}
 		auth.PlanDigest = fmt.Sprintf("%x", plan.Digest)
 		decision, err := AuthorizeB5(locked, b5dml.AuthorizationInput{PrincipalID: auth.PrincipalID, DatasourceID: auth.DatasourceID,
 			Dialect: b5dml.DialectPostgreSQL, CurrentServerMajor: plan.ServerMajor, Policies: auth.Policies,

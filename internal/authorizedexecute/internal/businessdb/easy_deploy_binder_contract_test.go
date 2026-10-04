@@ -304,7 +304,8 @@ func semanticUpdateFixture() SemanticFacts {
 func testDualModeAttestations() []b5dml.BinderAttestation {
 	values := make([]b5dml.BinderAttestation, 0, 5)
 	for major := 14; major <= 18; major++ {
-		values = append(values, b5dml.BinderAttestation{ServerMajor: major, ABI: b5dml.BinderABI, BuildHash: "build", ExtensionHash: "extension", NodeManifestHash: "nodes", AllowlistHash: "allowlist"})
+		values = append(values, b5dml.BinderAttestation{Mode: b5dml.BinderAttestationNative,
+			ServerMajor: major, ABI: b5dml.BinderABI, BuildHash: "build", ExtensionHash: "extension", NodeManifestHash: "nodes", AllowlistHash: "allowlist"})
 	}
 	return values
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/model"
-	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -213,9 +212,9 @@ func TestB5ProductionMySQLContainerUnsupported(t *testing.T) {
 	require.Equal(t, b5.ErrorDialectTransactionUnsupported, b5coordinator.ErrorCode(err))
 }
 
-func TestB2B5UnsupportedPostgresVersionsFailClosed(t *testing.T) {
+func TestB2B5ClosedPostgresOutsideNativeRange(t *testing.T) {
 	if testing.Short() {
-		t.Skip("B2/B5 PostgreSQL version boundaries require real containers")
+		t.Skip("B2/B5 closed PostgreSQL version boundaries require real containers")
 	}
 	for _, test := range []struct{ major, image string }{
 		{major: "13", image: "postgres:13"},
@@ -265,16 +264,12 @@ func TestB2B5UnsupportedPostgresVersionsFailClosed(t *testing.T) {
 			runtime, err := bootstrap.Assemble(ctx, cfg, secret)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, runtime.Close()) })
-			require.Equal(t, bootstrap.B2StateUnsupported, runtime.B2Status().State)
-			require.Equal(t, bootstrap.B2ReasonBinderUnsupported, runtime.B2Status().UnsupportedDatasources[datasourceID])
-			response, err := runtime.Pipeline.Process(ctx, pipeline.Request{APIKey: apiKey, DatasourceID: datasourceID,
-				SQL: "SELECT id FROM public.missing", MCPTool: "query"})
-			require.Error(t, err)
-			require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
-			require.Nil(t, response.Result, "unsupported versions must stop before business SQL")
-			_, err = runtime.B5.ResolveDatasource(ctx, datasourceID)
-			require.Error(t, err)
-			require.Equal(t, b5.ErrorPostgresVersionUnsupported, b5coordinator.ErrorCode(err))
+			require.Equal(t, bootstrap.B2StateActive, runtime.B2Status().State)
+			require.Equal(t, string(businessdb.BinderModeCatalogClosedV1), runtime.B2Status().DatasourceModes[datasourceID])
+			authority, err := runtime.B5.ResolveDatasource(ctx, datasourceID)
+			require.NoError(t, err)
+			require.Equal(t, string(businessdb.BinderModeCatalogClosedV1), authority.Mode)
+			require.Equal(t, major, fmt.Sprintf("%d", authority.ServerMajor))
 		})
 	}
 }

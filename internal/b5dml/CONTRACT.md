@@ -3,8 +3,9 @@
 This package is an isolated contract implementation. The feature-off S5b
 adapter in `internal/authorizedexecute/internal/businessdb/postgres_dml_binder.go`
 is its only non-test consumer. There is still no production caller, migration,
-or feature flag. `agentsql-binder-dml-1` and the PostgreSQL 14–18 attestations
-remain mandatory authorization inputs.
+or feature flag. `agentsql-binder-dml-1` remains mandatory. Native mode requires
+the complete PostgreSQL 14–18 attestation set; catalog-closed mode requires one
+embedded grammar/query-pack attestation for the exact probed server major.
 
 ## Grant schema and lattice
 
@@ -32,9 +33,10 @@ does not participate in this meet and cannot supply a missing grant.
 
 The proof digest uses length-framed canonical fields and includes every policy
 ID/revision/grant, complete relation and column catalog identity, policy and
-catalog snapshot digests, closure and plan digests, the decision, and all five
-independent PG14–18 binder attestations. Unknown/incomplete identities fail
-closed. Formal persisted proof/JSON schema naming remains S1b work.
+catalog snapshot digests, closure and plan digests, the decision, and either all
+five independent native PG14–18 binder attestations or the exact current-major
+catalog-closed attestation. Unknown/incomplete identities fail closed. Formal
+persisted proof/JSON schema naming remains S1b work.
 
 ## Statement meaning
 

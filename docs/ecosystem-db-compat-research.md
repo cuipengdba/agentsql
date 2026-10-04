@@ -262,9 +262,29 @@ Go 接入的官方结论如下：
 | OpenTenBase v2.5.0 / `100000`（major 10） | 不支持 | 现有 PG gateway 探测稳定返回 `AUTH_DATABASE_ERROR`；目录核验发现缺 `pg_attribute.attgenerated`，不满足 query pack v2 | **closed 不可用并安全拒绝**；还需解决现有 pgx/拓扑入口与厂商目录差异，不能宣称 B2 支持 |
 | KingbaseES V9 | 待取得 10/8 目标环境版本证据 | 未执行 | **待测**；不从产品版本号推测 major，不从旧镜像或其他 PG 兼容库外推 |
 
-真实厂商矩阵位于 `internal/authorizedexecute/pg_compat_closed_matrix_e2e_test.go`，由 `AGENTSQL_PG_COMPAT_CLOSED_MATRIX` 或其 base64 形式显式提供目标，且在 `testing.Short()` 下跳过；口令不写入仓库。默认 PostgreSQL 无扩展的完整生产路径仍由 `b2_closed_only_no_extension_e2e_test.go` 覆盖。单元测试另覆盖 `90204/100000/120007/150019/180003` 的 closed handshake 版本身份、低 major cache key，以及 malformed version/major 的故障关闭。
+真实厂商矩阵位于 `internal/authorizedexecute/pg_compat_closed_matrix_e2e_test.go`，由 `AGENTSQL_PG_COMPAT_CLOSED_MATRIX` 或其 base64 形式显式提供目标，且在 `testing.Short()` 下跳过；口令不写入仓库。矩阵现在同时覆盖 capability、closed SELECT、启用 B2 后的列允许/拒绝、closed B5 的 INSERT/UPDATE/DELETE/隐式 NULL、提交与显式回滚、缺失 write grant 拒绝和索引隐式对象故障关闭。默认 PostgreSQL 无扩展的完整生产路径仍由 `b2_closed_only_no_extension_e2e_test.go` 覆盖。单元测试另覆盖 `90204/100000/120007/150019/180003` 的 closed handshake 版本身份、低 major cache key，以及 malformed version/major 的故障关闭。
 
 本轮不增加 `openGauss`、`highgo`、`opentenbase` 等 datasource alias，不修改 RBAC、store、admin API，也不扩展 native binder 的版本支持范围。对外口径必须区分“连接/表级路径通过”“catalog 自检通过”“closed-only E2E 通过”和“native 可用”；四者不能互相替代。
+
+### 0.9 closed-only DML 与真实列授权矩阵（2026-10-05）
+
+本轮补齐的是 closed-only 能力链，不把兼容内核伪装成 native。`NATIVE_C_V1` 仍只接受 PostgreSQL 14--18 的完整五份构建 attestation；`CATALOG_CLOSED_V1` 的 B5 事务改为接受一份与当前 `server_version_num` major 精确绑定的嵌入式 grammar/query-pack attestation。低 major 只有在 closed catalog 自检、OID 身份、顺序锁、重扫、策略快照和 `PREPARE` 交叉核验全部成立时才能进入 DML；major 不匹配、混用 native/closed attestation 或目录证据不完整均继续 fail-closed。
+
+矩阵中的成功 DML 表刻意不建索引、触发器、外键、默认值、identity、generated、RLS、规则或分区。当前 closed DML 尚不能证明这些隐式对象的完整执行闭包，因此目标表一旦存在索引（包括普通主键索引）就返回 `AUTH_IMPLICIT_OBJECT_UNSUPPORTED`，不会降级到表级授权或直接执行原 SQL。允许集只包含：带显式列清单的 `INSERT ... VALUES`、被省略普通列的隐式 NULL、带 `WHERE` 的单表 `UPDATE`、带 `WHERE` 的单表 `DELETE`；`RETURNING`、upsert、子查询、`UPDATE FROM`、`DELETE USING`、无 `WHERE` 写入和未限定表名继续拒绝。
+
+列授权用例不再沿用第 0.2/0.6 节的 `column_authorization.enabled=false` 口径。每个可用目标都创建隔离 metadata，显式设置 `column_authorization.enabled=true`，经 production `Pipeline.Process` 路由验证：已登记 `id` 的 output/reference 允许并返回一行；同表未登记的 `label` 输出被 B2 拒绝、无结果返回且不会回退到表级 allow。closed `SemanticFacts` 与 native 适配器仍共同进入 `postgresColumnAuthorizationInputFromFacts` / `AuthorizeB2`，数据库原生 RBAC 只作为纵深防御，不替代 AgentSQL 的列策略证据。
+
+厂商结论仍按能力证据分层：
+
+| 目标 | closed SELECT / B2 前提 | closed DML 预期 | native 结论 |
+| --- | --- | --- | --- |
+| openGauss 9 系 | 缺 `pg_partitioned_table`、`relispartition`、`attidentity`、`attgenerated`，closed 自检失败 | 不进入 DML binder，安全拒绝 | 不得声称 native；需要独立 query pack |
+| OpenTenBase 10 系 | 缺 `attgenerated`，closed 自检失败 | 不进入 DML binder，安全拒绝 | 不得声称 native；还需解决目录与拓扑差异 |
+| HighGo 12 系 | 既有第三方镜像的 closed capability/SELECT 已通过；商业版仍待厂商终验 | 新矩阵允许在同一 closed 证据成立后运行受授权简单 DML；真实目标须重跑后才能记为通过 | major 12 不在 native 14--18 范围，`NativeAvailable=false` |
+| PolarDB for PostgreSQL 15 | 既有只读 catalog 自检为 closed 候选，完整专用凭据复核仍待执行 | 具备进入新矩阵的版本条件，但未跑完不得声明 DML 通过 | 未发现受信任的 `agentsql_binder` attestation 时只能 closed-only |
+| IvorySQL 18 | 既有指定社区镜像 closed SELECT E2E 已通过 | 新矩阵覆盖简单 DML 与授权拒绝；真实目标须重跑并记录镜像/模式 | 未安装并通过 attestation 的扩展不构成 native |
+
+建议的环境 JSON 每项继续使用 `name/host/port/database/username/password/server_major/expect_closed`；openGauss/OpenTenBase 应配置 `expect_closed=false` 和稳定错误原因，HighGo/PolarDB/IvorySQL 仅在目标实例确实满足 closed query pack 时配置 `expect_closed=true`。本节描述实现后的验收口径；没有当次矩阵日志、版本原文和容器/拓扑证据的目标，不追加“实测通过”声明。
 
 ## 1. 十家数据库基线
 

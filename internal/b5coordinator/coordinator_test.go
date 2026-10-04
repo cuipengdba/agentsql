@@ -201,6 +201,22 @@ func TestPreflightRejectsEntireIllegalPlanBeforePin(t *testing.T) {
 	}
 }
 
+func TestPreflightAllowsLowMajorOnlyForCatalogClosed(t *testing.T) {
+	t.Parallel()
+	analyzer := &testAnalyzer{decisions: map[string]Decision{}}
+	request := testPlan("UPDATE public.items SET value=1 WHERE id=1")
+	request.ServerMajor = 12
+	request.ClosurePolicy = string(b5dml.BinderAttestationCatalogClosed)
+	if _, err := Preflight(context.Background(), request, analyzer); err != nil {
+		t.Fatalf("catalog-closed PG12 preflight: %v", err)
+	}
+
+	request.ClosurePolicy = "closed-v1"
+	if _, err := Preflight(context.Background(), request, analyzer); err == nil {
+		t.Fatal("non-catalog low-major plan was accepted")
+	}
+}
+
 func TestApprovalMustBeConsumedBeforePinAndNeverRefunds(t *testing.T) {
 	capability := newTestCapability()
 	engine := &testEngine{capability: capability, pinErr: errors.New("pin fault")}

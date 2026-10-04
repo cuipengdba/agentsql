@@ -171,10 +171,19 @@ func supportedReference(reference Reference) bool {
 		reference.Site >= ReferenceWhere && reference.Site <= ReferenceReturning
 }
 
+type BinderAttestationMode string
+
+const (
+	BinderAttestationNative        BinderAttestationMode = "NATIVE_C_V1"
+	BinderAttestationCatalogClosed BinderAttestationMode = "CATALOG_CLOSED_V1"
+)
+
 // BinderAttestation is independently built and hashed for one PostgreSQL
-// major. All five supported majors enter the proof even though one server
-// major is selected for a request.
+// major. Native mode requires the complete PG14--18 artifact set. Catalog
+// closed mode instead requires exactly one embedded grammar/query-pack
+// attestation bound to the current server major.
 type BinderAttestation struct {
+	Mode             BinderAttestationMode
 	ServerMajor      int
 	ABI              string
 	BuildHash        string
@@ -184,15 +193,20 @@ type BinderAttestation struct {
 }
 
 func (attestation BinderAttestation) complete() bool {
-	return attestation.ServerMajor >= 14 && attestation.ServerMajor <= 18 &&
+	serverSupported := attestation.ServerMajor >= 14 && attestation.ServerMajor <= 18
+	if attestation.Mode == BinderAttestationCatalogClosed {
+		serverSupported = attestation.ServerMajor > 0
+	}
+	return serverSupported &&
+		(attestation.Mode == BinderAttestationNative || attestation.Mode == BinderAttestationCatalogClosed) &&
 		attestation.ABI == BinderABI && attestation.BuildHash != "" &&
 		attestation.ExtensionHash != "" && attestation.NodeManifestHash != "" &&
 		attestation.AllowlistHash != ""
 }
 
 func (attestation BinderAttestation) key() string {
-	return fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s\x00%s",
-		attestation.ServerMajor, attestation.ABI, attestation.BuildHash,
+	return fmt.Sprintf("%s\x00%d\x00%s\x00%s\x00%s\x00%s\x00%s",
+		attestation.Mode, attestation.ServerMajor, attestation.ABI, attestation.BuildHash,
 		attestation.ExtensionHash, attestation.NodeManifestHash,
 		attestation.AllowlistHash)
 }

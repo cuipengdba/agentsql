@@ -92,7 +92,11 @@ func Preflight(ctx context.Context, request PlanRequest, analyzer Analyzer) (Pla
 	if request.Dialect != "postgres" {
 		return Plan{}, fail(b5.ErrorDialectTransactionUnsupported, ErrInvalidPlan)
 	}
-	if request.ServerMajor < 14 || request.ServerMajor > 18 || request.BinderABI != b5dml.BinderABI ||
+	serverSupported := request.ServerMajor >= 14 && request.ServerMajor <= 18
+	if request.ClosurePolicy == string(b5dml.BinderAttestationCatalogClosed) {
+		serverSupported = request.ServerMajor > 0
+	}
+	if !serverSupported || request.BinderABI != b5dml.BinderABI ||
 		!boundedIdentity(request.TenantID) || !boundedIdentity(request.PrincipalID) ||
 		!boundedIdentity(request.AgentID) || !boundedIdentity(request.DatasourceID) ||
 		request.KeyRevision == 0 || request.DatasourceRevision == 0 || request.PolicyRevision == 0 ||
