@@ -28,7 +28,7 @@ const postgresSchemaMigrationsDDL = `CREATE TABLE IF NOT EXISTS schema_migration
 
 var errForeignKeysDisabled = errors.New("SQLite foreign key enforcement is disabled")
 
-//go:embed migrations/sqlite/*.sql migrations/sqlite/down/*.sql migrations/postgres/*.sql migrations/postgres/down/*.sql migrations/metadata/sqlite/*.sql migrations/metadata/sqlite/down/*.sql migrations/metadata/postgres/*.sql migrations/metadata/postgres/down/*.sql migrations/audit/postgres/*.sql
+//go:embed migrations/sqlite/*.sql migrations/sqlite/down/*.sql migrations/postgres/*.sql migrations/postgres/down/*.sql migrations/metadata/sqlite/*.sql migrations/metadata/sqlite/down/*.sql migrations/metadata/postgres/*.sql migrations/metadata/postgres/down/*.sql migrations/audit/postgres/*.sql migrations/audit/postgres/down/*.sql
 var migrationFiles embed.FS
 
 // Migrate applies each embedded migration exactly once in version order.

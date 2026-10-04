@@ -3,8 +3,27 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 )
+
+const DefaultTenantID = "tenant_default"
+
+var ErrTenantRequired = errors.New("tenant ID is required")
+
+type tenantContextKey struct{}
+
+// WithTenant binds an authenticated tenant to repository calls.
+func WithTenant(ctx context.Context, tenantID string) (context.Context, error) {
+	if ctx == nil {
+		return nil, ErrNilContext
+	}
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, ErrTenantRequired
+	}
+	return context.WithValue(ctx, tenantContextKey{}, tenantID), nil
+}
 
 type sqlExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
@@ -15,6 +34,43 @@ type sqlExecutor interface {
 type repositoryBase struct {
 	db      *sql.DB
 	dialect Dialect
+}
+
+func (repository repositoryBase) tenant(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", ErrNilContext
+	}
+	if tenantID, ok := ctx.Value(tenantContextKey{}).(string); ok {
+		if strings.TrimSpace(tenantID) == "" {
+			return "", ErrTenantRequired
+		}
+		return tenantID, nil
+	}
+	// Legacy internal and MCP paths remain the explicit default-tenant boundary.
+	// Authenticated console requests always override this value through WithTenant.
+	return DefaultTenantID, nil
+}
+
+func (repository repositoryBase) explicitTenant(ctx context.Context) (string, bool, error) {
+	if ctx == nil {
+		return "", false, ErrNilContext
+	}
+	tenantID, ok := ctx.Value(tenantContextKey{}).(string)
+	if !ok {
+		return DefaultTenantID, false, nil
+	}
+	if strings.TrimSpace(tenantID) == "" {
+		return "", true, ErrTenantRequired
+	}
+	return tenantID, true, nil
+}
+
+func (repository repositoryBase) requireTenant(ctx context.Context, operation string) (string, error) {
+	tenantID, err := repository.tenant(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", operation, err)
+	}
+	return tenantID, nil
 }
 
 func (repository repositoryBase) bind(query string) string {

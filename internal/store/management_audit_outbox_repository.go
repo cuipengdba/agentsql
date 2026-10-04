@@ -47,12 +47,17 @@ func (repository *ManagementAuditOutboxRepository) Append(ctx context.Context, t
 	if unsafeManagementAuditDetails(event.DetailsJSON) {
 		return fmt.Errorf("append management audit outbox: %w", ErrUnsafeManagementAuditDetails)
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "append management audit outbox")
+	if tenantErr != nil {
+		return tenantErr
+	}
+	event.TenantID = tenantID
 	now := time.Now().UTC()
 	createdAt := event.CreatedAt.UTC()
 	if event.CreatedAt.IsZero() {
 		createdAt = now
 	}
-	_, err := tx.ExecContext(ctx, repository.bind(`INSERT INTO management_audit_outbox (event_uuid,action,actor_type,actor_id,details_json,created_at,attempts,claimed_by,claimed_at,last_error,next_attempt_at,delivered_at) VALUES (?,?,?,?,?,?,0,NULL,NULL,NULL,?,NULL)`), event.EventUUID, event.Action, event.ActorType, event.ActorID, event.DetailsJSON, createdAt, now)
+	_, err := tx.ExecContext(ctx, repository.bind(`INSERT INTO management_audit_outbox (event_uuid,tenant_id,action,actor_type,actor_id,details_json,created_at,attempts,claimed_by,claimed_at,last_error,next_attempt_at,delivered_at) VALUES (?,?,?,?,?,?,?,0,NULL,NULL,NULL,?,NULL)`), event.EventUUID, event.TenantID, event.Action, event.ActorType, event.ActorID, event.DetailsJSON, createdAt, now)
 	if isNamedUniqueViolation(err, "management_audit_outbox_pkey", "management_audit_outbox.event_uuid") {
 		return fmt.Errorf("append management audit outbox: %w", ErrOutboxEventAlreadyExists)
 	}
@@ -115,7 +120,7 @@ func (repository *ManagementAuditOutboxRepository) ClaimBatch(ctx context.Contex
 		}
 	}()
 	now := time.Now().UTC()
-	query := `SELECT event_uuid,action,actor_type,actor_id,details_json,created_at,attempts,claimed_by,claimed_at,last_error,next_attempt_at,delivered_at FROM management_audit_outbox WHERE delivered_at IS NULL AND next_attempt_at<=? ORDER BY next_attempt_at,event_uuid LIMIT ?`
+	query := `SELECT event_uuid,tenant_id,action,actor_type,actor_id,details_json,created_at,attempts,claimed_by,claimed_at,last_error,next_attempt_at,delivered_at FROM management_audit_outbox WHERE delivered_at IS NULL AND next_attempt_at<=? ORDER BY next_attempt_at,event_uuid LIMIT ?`
 	if repository.dialect == DialectPostgres {
 		query += ` FOR UPDATE SKIP LOCKED`
 	}
@@ -247,7 +252,7 @@ func scanManagementAuditOutbox(scanner rowScanner) (model.ManagementAuditOutbox,
 	var event model.ManagementAuditOutbox
 	var claimedBy, lastError sql.NullString
 	var createdAt, claimedAt, nextAttemptAt, deliveredAt databaseTimestamp
-	if err := scanner.Scan(&event.EventUUID, &event.Action, &event.ActorType, &event.ActorID, &event.DetailsJSON, &createdAt, &event.Attempts, &claimedBy, &claimedAt, &lastError, &nextAttemptAt, &deliveredAt); err != nil {
+	if err := scanner.Scan(&event.EventUUID, &event.TenantID, &event.Action, &event.ActorType, &event.ActorID, &event.DetailsJSON, &createdAt, &event.Attempts, &claimedBy, &claimedAt, &lastError, &nextAttemptAt, &deliveredAt); err != nil {
 		return event, err
 	}
 	event.ClaimedBy, event.LastError = claimedBy.String, lastError.String

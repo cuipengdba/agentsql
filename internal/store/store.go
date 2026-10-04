@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -333,6 +334,13 @@ func openDatabase(
 	if dialect == DialectPostgres {
 		driverName, target = "pgx", postgresDSN
 	} else {
+		if strings.TrimSpace(target) == ":memory:" {
+			var unique [16]byte
+			if _, err := rand.Read(unique[:]); err != nil {
+				return nil, fmt.Errorf("generate SQLite in-memory database name: %w", err)
+			}
+			target = fmt.Sprintf("file:memdb_%x?mode=memory&cache=shared", unique[:])
+		}
 		// B2 keeps a read-only control snapshot open until the durable audit
 		// barrier and final fence complete. WAL permits that reader and the
 		// audit writer to make progress concurrently; connection-level pragmas

@@ -25,12 +25,16 @@ func (repository *NotificationRepository) Get(ctx context.Context) (notify.Confi
 	if ctx == nil {
 		return notify.Config{}, fmt.Errorf("get notification configuration: %w", ErrNilContext)
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "get notification configuration")
+	if tenantErr != nil {
+		return notify.Config{}, tenantErr
+	}
 	var config notify.Config
 	var enabled databaseBool
 	err := repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT enabled, queue_size
 FROM notification_settings
-WHERE id = ?`), notificationSettingsID).Scan(&enabled, &config.QueueSize)
+WHERE id = ? AND tenant_id = ?`), notificationSettingsID, tenantID).Scan(&enabled, &config.QueueSize)
 	if errors.Is(err, sql.ErrNoRows) {
 		return notify.Config{}, nil
 	}
@@ -39,14 +43,15 @@ WHERE id = ?`), notificationSettingsID).Scan(&enabled, &config.QueueSize)
 	}
 	config.Enabled = enabled.value
 
-	rows, err := repository.db.QueryContext(ctx, `
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, enabled, kind, decisions, include_sql, allow_private_endpoints,
        webhook_present, webhook_template, webhook_url_enc,
        webhook_bearer_token_enc, webhook_headers_enc, webhook_secret_enc,
        syslog_present, syslog_host, syslog_port, syslog_transport,
        syslog_facility
 FROM notification_channels
-ORDER BY position ASC`)
+WHERE tenant_id = ?
+ORDER BY position ASC`), tenantID)
 	if err != nil {
 		return notify.Config{}, fmt.Errorf("list notification channels: %w", err)
 	}
@@ -68,6 +73,10 @@ ORDER BY position ASC`)
 func (repository *NotificationRepository) Replace(ctx context.Context, config notify.Config) (resultErr error) {
 	if ctx == nil {
 		return fmt.Errorf("replace notification configuration: %w", ErrNilContext)
+	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "replace notification configuration")
+	if tenantErr != nil {
+		return tenantErr
 	}
 	prepared := make([]storedNotificationChannel, len(config.Channels))
 	seen := make(map[string]struct{}, len(config.Channels))
@@ -94,29 +103,29 @@ func (repository *NotificationRepository) Replace(ctx context.Context, config no
 		}
 	}()
 	_, err = transaction.ExecContext(ctx, repository.bind(`
-INSERT INTO notification_settings (id, enabled, queue_size)
-VALUES (?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
+INSERT INTO notification_settings (tenant_id, id, enabled, queue_size)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(tenant_id,id) DO UPDATE SET
   enabled = excluded.enabled,
   queue_size = excluded.queue_size,
-  updated_at = CURRENT_TIMESTAMP`), notificationSettingsID, config.Enabled, config.QueueSize)
+  updated_at = CURRENT_TIMESTAMP`), tenantID, notificationSettingsID, config.Enabled, config.QueueSize)
 	if err != nil {
 		return fmt.Errorf("upsert notification settings: %w", err)
 	}
 	positionShift := len(prepared) + 1
 	if _, err := transaction.ExecContext(ctx, repository.bind(
-		"UPDATE notification_channels SET position = position + ?",
-	), positionShift); err != nil {
+		"UPDATE notification_channels SET position = position + ? WHERE tenant_id = ?",
+	), positionShift, tenantID); err != nil {
 		return fmt.Errorf("stage notification channels for replacement: %w", err)
 	}
 	for _, channel := range prepared {
-		if err := repository.insertChannel(ctx, transaction, channel); err != nil {
+		if err := repository.insertChannel(ctx, transaction, tenantID, channel); err != nil {
 			return err
 		}
 	}
 	if _, err := transaction.ExecContext(ctx, repository.bind(
-		"DELETE FROM notification_channels WHERE position >= ?",
-	), positionShift); err != nil {
+		"DELETE FROM notification_channels WHERE tenant_id = ? AND position >= ?",
+	), tenantID, positionShift); err != nil {
 		return fmt.Errorf("remove stale notification channels: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
@@ -161,7 +170,7 @@ func (repository *NotificationRepository) prepareChannel(channel notify.ChannelC
 	return stored, nil
 }
 
-func (repository *NotificationRepository) insertChannel(ctx context.Context, transaction *sql.Tx, stored storedNotificationChannel) error {
+func (repository *NotificationRepository) insertChannel(ctx context.Context, transaction *sql.Tx, tenantID string, stored storedNotificationChannel) error {
 	channel := stored.channel
 	var webhookTemplate any
 	if channel.Webhook != nil {
@@ -176,14 +185,14 @@ func (repository *NotificationRepository) insertChannel(ctx context.Context, tra
 	// the replacement range, so channel reordering cannot violate UNIQUE(position).
 	_, err := transaction.ExecContext(ctx, repository.bind(`
 INSERT INTO notification_channels (
-  id, position, enabled, kind, decisions, include_sql,
+  tenant_id, id, position, enabled, kind, decisions, include_sql,
   allow_private_endpoints, webhook_present, webhook_template,
   webhook_url_enc, webhook_bearer_token_enc, webhook_headers_enc,
   webhook_secret_enc, syslog_present, syslog_host, syslog_port,
   syslog_transport, syslog_facility
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(tenant_id,id) DO UPDATE SET
   position = excluded.position,
   enabled = excluded.enabled,
   kind = excluded.kind,
@@ -202,7 +211,7 @@ ON CONFLICT(id) DO UPDATE SET
   syslog_transport = excluded.syslog_transport,
   syslog_facility = excluded.syslog_facility,
   updated_at = CURRENT_TIMESTAMP`),
-		channel.ID, stored.position, channel.Enabled, string(channel.Kind), stored.decisions,
+		tenantID, channel.ID, stored.position, channel.Enabled, string(channel.Kind), stored.decisions,
 		channel.IncludeSQL, channel.AllowPrivateEndpoints, stored.webhookPresent,
 		webhookTemplate, nullableEncrypted(stored.webhookPresent, stored.webhookURL),
 		nullableEncrypted(stored.webhookPresent, stored.webhookBearer),

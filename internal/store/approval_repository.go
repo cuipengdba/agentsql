@@ -50,10 +50,14 @@ func (repository *ApprovalRepository) ListPage(
 	if pageSize < 1 || pageSize > 100 {
 		return ApprovalPage{}, fmt.Errorf("list approvals: %w", ErrInvalidPageSize)
 	}
-	where := ""
-	args := make([]any, 0, 1)
+	tenantID, err := repository.requireTenant(ctx, "list approvals")
+	if err != nil {
+		return ApprovalPage{}, err
+	}
+	where := " WHERE tenant_id = ?"
+	args := []any{tenantID}
 	if status != "" {
-		where = " WHERE status = ?"
+		where += " AND status = ?"
 		args = append(args, status)
 	}
 	var total int64
@@ -62,7 +66,7 @@ func (repository *ApprovalRepository) ListPage(
 		return ApprovalPage{}, fmt.Errorf("count approvals: %w", err)
 	}
 	query := `
-SELECT id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
+SELECT id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
        created_at, updated_at
 FROM approvals` + where + `
 ORDER BY created_at DESC, id DESC
@@ -96,6 +100,11 @@ func (repository *ApprovalRepository) Create(ctx context.Context, approval model
 	if ctx == nil {
 		return model.Approval{}, fmt.Errorf("create approval: %w", ErrNilContext)
 	}
+	tenantID, err := repository.requireTenant(ctx, "create approval")
+	if err != nil {
+		return model.Approval{}, err
+	}
+	approval.TenantID = tenantID
 	if err := insertApproval(ctx, repository.db, repository.dialect, approval); err != nil {
 		return model.Approval{}, err
 	}
@@ -109,11 +118,12 @@ func (repository *ApprovalRepository) Create(ctx context.Context, approval model
 func insertApproval(ctx context.Context, executor sqlExecutor, dialect Dialect, approval model.Approval) error {
 	query := `
 INSERT INTO approvals (
-  id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at
+  id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := executor.ExecContext(ctx, repositoryBase{dialect: dialect}.bind(query),
 		approval.ID,
+		approval.TenantID,
 		optionalInt64(approval.AuditID),
 		optionalString(approval.AgentID),
 		optionalString(approval.SQLRaw),
@@ -130,17 +140,21 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 // Get returns an approval by ID.
 func (repository *ApprovalRepository) Get(ctx context.Context, id string) (model.Approval, error) {
-	return getApproval(ctx, repository.db, repository.dialect, id)
+	tenantID, err := repository.requireTenant(ctx, "get approval")
+	if err != nil {
+		return model.Approval{}, err
+	}
+	return getApproval(ctx, repository.db, repository.dialect, tenantID, id)
 }
 
-func getApproval(ctx context.Context, executor sqlExecutor, dialect Dialect, id string) (model.Approval, error) {
+func getApproval(ctx context.Context, executor sqlExecutor, dialect Dialect, tenantID, id string) (model.Approval, error) {
 	query := `
-SELECT id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
+SELECT id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
        created_at, updated_at
 FROM approvals
-WHERE id = ?`
+WHERE id = ? AND tenant_id = ?`
 	approval, err := scanApproval(executor.QueryRowContext(
-		ctx, repositoryBase{dialect: dialect}.bind(query), id,
+		ctx, repositoryBase{dialect: dialect}.bind(query), id, tenantID,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Approval{}, fmt.Errorf("get approval %q: %w", id, errors.Join(ErrNotFound, err))
@@ -171,6 +185,10 @@ func (repository *ApprovalRepository) DecidePending(
 		strings.TrimSpace(approver) == "" || decidedAt.IsZero() {
 		return model.Approval{}, fmt.Errorf("decide approval: invalid decision input")
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "decide approval")
+	if tenantErr != nil {
+		return model.Approval{}, tenantErr
+	}
 	tx, err := repository.db.BeginTx(ctx, nil)
 	if err != nil {
 		return model.Approval{}, fmt.Errorf("decide approval %q: begin transaction: %w", id, err)
@@ -190,8 +208,8 @@ func (repository *ApprovalRepository) DecidePending(
 UPDATE approvals
 SET status = ?, approver = ?, decided_at = ?, reason = COALESCE(?, reason),
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ? AND status = 'pending'`,
-		status, approver, decidedAt, optionalString(reason), id,
+WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
+		status, approver, decidedAt, optionalString(reason), id, tenantID,
 	)
 	if err != nil {
 		return model.Approval{}, fmt.Errorf("decide approval %q: %w", id, err)
@@ -200,8 +218,8 @@ WHERE id = ? AND status = 'pending'`,
 		var exists int
 		err = tx.QueryRowContext(
 			ctx,
-			repository.bind("SELECT 1 FROM approvals WHERE id = ?"),
-			id,
+			repository.bind("SELECT 1 FROM approvals WHERE id = ? AND tenant_id = ?"),
+			id, tenantID,
 		).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.Approval{}, fmt.Errorf("decide approval %q: %w", id, ErrNotFound)
@@ -211,7 +229,7 @@ WHERE id = ? AND status = 'pending'`,
 		}
 		return model.Approval{}, fmt.Errorf("decide approval %q: %w", id, ErrApprovalNotPending)
 	}
-	updated, err = getApproval(ctx, tx, repository.dialect, id)
+	updated, err = getApproval(ctx, tx, repository.dialect, tenantID, id)
 	if err != nil {
 		return model.Approval{}, fmt.Errorf("read decided approval %q: %w", id, err)
 	}
@@ -237,6 +255,11 @@ func (repository *ApprovalRepository) CreatePendingWithAudit(
 	if ctx == nil {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: %w", ErrNilContext)
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "create pending approval")
+	if tenantErr != nil {
+		return model.Approval{}, model.AuditLog{}, tenantErr
+	}
+	approval.TenantID, auditLog.TenantID = tenantID, tenantID
 	if strings.TrimSpace(approval.ID) == "" || approval.Status != "pending" || approval.AuditID != nil {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("create pending approval: invalid approval input")
 	}
@@ -320,7 +343,7 @@ WHERE id = ? AND status = 'pending'`, recorded.ID, approval.ID)
 	if !matched {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("link approval %q: affected 0 rows", approval.ID)
 	}
-	created, err = getApproval(ctx, tx, repository.dialect, approval.ID)
+	created, err = getApproval(ctx, tx, repository.dialect, approval.TenantID, approval.ID)
 	if err != nil {
 		return model.Approval{}, model.AuditLog{}, fmt.Errorf("read pending approval %q: %w", approval.ID, err)
 	}
@@ -405,7 +428,7 @@ func (repository *ApprovalRepository) insertPendingApprovalSaga(
 		return model.Approval{}, errors.Join(err, rollbackErr)
 	}
 
-	created, err := getApproval(ctx, tx, repository.dialect, expected.ID)
+	created, err := getApproval(ctx, tx, repository.dialect, expected.TenantID, expected.ID)
 	if err != nil {
 		return model.Approval{}, errors.Join(
 			fmt.Errorf("read pending approval %q: %w", expected.ID, err),
@@ -435,7 +458,7 @@ func (repository *ApprovalRepository) readMatchingApprovalReplay(
 	ctx context.Context,
 	expected model.Approval,
 ) (model.Approval, error) {
-	stored, err := getApproval(ctx, repository.db, repository.dialect, expected.ID)
+	stored, err := getApproval(ctx, repository.db, repository.dialect, expected.TenantID, expected.ID)
 	if err != nil {
 		return model.Approval{}, err
 	}
@@ -478,11 +501,15 @@ func equalStringPointers(left, right *string) bool {
 
 // Update replaces mutable approval fields and returns the stored record.
 func (repository *ApprovalRepository) Update(ctx context.Context, approval model.Approval) (model.Approval, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update approval")
+	if tenantErr != nil {
+		return model.Approval{}, tenantErr
+	}
 	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE approvals
 SET audit_id = ?, agent_id = ?, sql_raw = ?, reason = ?, status = ?, approver = ?,
     decided_at = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`),
+WHERE id = ? AND tenant_id = ?`),
 		optionalInt64(approval.AuditID),
 		optionalString(approval.AgentID),
 		optionalString(approval.SQLRaw),
@@ -491,6 +518,7 @@ WHERE id = ?`),
 		optionalString(approval.Approver),
 		optionalTime(approval.DecidedAt),
 		approval.ID,
+		tenantID,
 	)
 	if err != nil {
 		return model.Approval{}, fmt.Errorf("update approval %q: %w", approval.ID, err)
@@ -507,7 +535,11 @@ WHERE id = ?`),
 
 // Delete removes an approval by ID.
 func (repository *ApprovalRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM approvals WHERE id = ?"), id)
+	tenantID, err := repository.requireTenant(ctx, "delete approval")
+	if err != nil {
+		return err
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM approvals WHERE id = ? AND tenant_id = ?"), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete approval %q: %w", id, err)
 	}
@@ -524,6 +556,7 @@ func scanApproval(scanner rowScanner) (model.Approval, error) {
 	var decidedAt, createdAt, updatedAt databaseTimestamp
 	if err := scanner.Scan(
 		&approval.ID,
+		&approval.TenantID,
 		&auditID,
 		&agentID,
 		&sqlRaw,

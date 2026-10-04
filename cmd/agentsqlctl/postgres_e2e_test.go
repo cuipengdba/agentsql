@@ -78,7 +78,7 @@ theme:
 
 	var migrateOutput, migrateError strings.Builder
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &migrateOutput, &migrateError), migrateError.String())
-	require.Contains(t, migrateOutput.String(), "migration driver=postgres current=10 latest=10")
+	assertCurrentMigrationVersion(t, migrateOutput.String(), "migration driver=postgres")
 	assertCommandOutputHasNoPostgresSecret(t, migrateOutput.String()+migrateError.String(), dsn, password, yamlDSN, yamlPassword)
 
 	database, err := sql.Open("pgx", dsn)
@@ -167,8 +167,8 @@ theme:
 	output.Reset()
 	stderr.Reset()
 	require.Equal(t, 0, run([]string{"migrate", "--config", configPath}, &output, &stderr), stderr.String())
-	require.Contains(t, output.String(), "metadata migration driver=postgres current=9 latest=9")
-	require.Contains(t, output.String(), "audit migration driver=postgres current=5 latest=5")
+	assertCurrentMigrationVersion(t, output.String(), "metadata migration driver=postgres")
+	assertCurrentMigrationVersion(t, output.String(), "audit migration driver=postgres")
 	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
 
 	metadataDB, err := sql.Open("pgx", metadataDSN)

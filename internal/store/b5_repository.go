@@ -95,6 +95,11 @@ func (r *B5SessionRepository) Create(ctx context.Context, value B5Session) (B5Se
 	if ctx == nil {
 		return B5Session{}, fmt.Errorf("create b5 session: %w", ErrNilContext)
 	}
+	if tenantID, explicit, err := r.explicitTenant(ctx); err != nil {
+		return B5Session{}, err
+	} else if explicit {
+		value.TenantID = tenantID
+	}
 	query := `INSERT INTO b5_sessions
 (session_id,agent_id,tenant_id,principal_id,owner_instance_id,owner_epoch,continuation_schema_id,continuation_schema_version,continuation_key_ciphertext,continuation_hmac_digest,sticky_route,status,idle_expires_at,absolute_expires_at)
 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -109,8 +114,17 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 }
 
 func (r *B5SessionRepository) Get(ctx context.Context, id string) (B5Session, error) {
+	tenantID, explicit, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5Session{}, tenantErr
+	}
 	query := `SELECT session_id,agent_id,tenant_id,principal_id,owner_instance_id,owner_epoch,continuation_schema_id,continuation_schema_version,continuation_key_ciphertext,continuation_hmac_digest,sticky_route,status,idle_expires_at,absolute_expires_at,created_at,updated_at,revision FROM b5_sessions WHERE session_id=?`
-	value, err := scanB5Session(r.db.QueryRowContext(ctx, r.bind(query), id))
+	args := []any{id}
+	if explicit {
+		query += ` AND tenant_id=?`
+		args = append(args, tenantID)
+	}
+	value, err := scanB5Session(r.db.QueryRowContext(ctx, r.bind(query), args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return B5Session{}, fmt.Errorf("get b5 session %q: %w", id, ErrNotFound)
 	}
@@ -132,7 +146,15 @@ func (r *B5SessionRepository) ListPage(ctx context.Context, filter B5SessionFilt
 	if pageSize < 1 || pageSize > 100 {
 		return B5SessionPage{}, ErrInvalidPageSize
 	}
+	tenantID, explicit, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5SessionPage{}, tenantErr
+	}
 	where, args := []string{}, []any{}
+	if explicit {
+		where = append(where, "tenant_id=?")
+		args = append(args, tenantID)
+	}
 	if filter.Status != "" {
 		where = append(where, "status=?")
 		args = append(args, filter.Status)
@@ -175,7 +197,13 @@ func (r *B5SessionRepository) CASStatus(ctx context.Context, id string, expected
 	if !validSessionTransition(from, to) {
 		return B5Session{}, ErrB5InvalidTransition
 	}
-	result, err := r.db.ExecContext(ctx, r.bind(`UPDATE b5_sessions SET status=?,idle_expires_at=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND revision=? AND status=?`), to, idleExpiry, id, expectedRevision, from)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5Session{}, tenantErr
+	}
+	query := `UPDATE b5_sessions SET status=?,idle_expires_at=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND revision=? AND status=?` + tenantClause
+	args := append([]any{to, idleExpiry, id, expectedRevision, from}, tenantArgs...)
+	result, err := r.db.ExecContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return B5Session{}, fmt.Errorf("advance b5 session %q: %w", id, err)
 	}
@@ -195,7 +223,13 @@ func (r *B5SessionRepository) CASOwner(ctx context.Context, id string, expectedR
 	if expectedEpoch == 0 || expectedEpoch >= math.MaxInt64 || expectedOwner == "" || newOwner == "" || stickyRoute == "" || keyCiphertext == "" || len(keyDigest) != 32 {
 		return B5Session{}, fmt.Errorf("transfer b5 session owner: %w", ErrB5InvalidTransition)
 	}
-	result, err := r.db.ExecContext(ctx, r.bind(`UPDATE b5_sessions SET owner_instance_id=?,owner_epoch=?,sticky_route=?,continuation_key_ciphertext=?,continuation_hmac_digest=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND revision=? AND owner_instance_id=? AND owner_epoch=? AND status IN ('READY','ACTIVE')`), newOwner, expectedEpoch+1, stickyRoute, keyCiphertext, keyDigest, id, expectedRevision, expectedOwner, expectedEpoch)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5Session{}, tenantErr
+	}
+	query := `UPDATE b5_sessions SET owner_instance_id=?,owner_epoch=?,sticky_route=?,continuation_key_ciphertext=?,continuation_hmac_digest=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND revision=? AND owner_instance_id=? AND owner_epoch=? AND status IN ('READY','ACTIVE')` + tenantClause
+	args := append([]any{newOwner, expectedEpoch + 1, stickyRoute, keyCiphertext, keyDigest, id, expectedRevision, expectedOwner, expectedEpoch}, tenantArgs...)
+	result, err := r.db.ExecContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return B5Session{}, fmt.Errorf("transfer b5 session owner %q: %w", id, err)
 	}
@@ -215,7 +249,14 @@ func (r *B5SessionRepository) ListExpired(ctx context.Context, now time.Time, li
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("list expired b5 sessions: invalid limit")
 	}
-	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT session_id,agent_id,tenant_id,principal_id,owner_instance_id,owner_epoch,continuation_schema_id,continuation_schema_version,continuation_key_ciphertext,continuation_hmac_digest,sticky_route,status,idle_expires_at,absolute_expires_at,created_at,updated_at,revision FROM b5_sessions WHERE status IN ('READY','ACTIVE') AND (idle_expires_at<=? OR absolute_expires_at<=?) ORDER BY absolute_expires_at,session_id LIMIT ?`), now, now, limit)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
+	query := `SELECT session_id,agent_id,tenant_id,principal_id,owner_instance_id,owner_epoch,continuation_schema_id,continuation_schema_version,continuation_key_ciphertext,continuation_hmac_digest,sticky_route,status,idle_expires_at,absolute_expires_at,created_at,updated_at,revision FROM b5_sessions WHERE status IN ('READY','ACTIVE') AND (idle_expires_at<=? OR absolute_expires_at<=?)` + tenantClause + ` ORDER BY absolute_expires_at,session_id LIMIT ?`
+	args := append([]any{now, now}, tenantArgs...)
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("list expired b5 sessions: %w", err)
 	}
@@ -302,8 +343,12 @@ type B5TransactionPage struct {
 }
 
 func (r *B5TransactionRepository) Create(ctx context.Context, value B5Transaction) (B5Transaction, error) {
-	query := `INSERT INTO b5_transactions (transaction_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.ExecContext(ctx, r.bind(query), value.TransactionID, value.SessionID, value.DatasourceID, value.Status, value.Phase, value.PlanDigest, optionalString(value.ApprovalID), value.OwnerEpoch, value.IdleDeadline, value.WallDeadline, optionalTime(value.StatementDeadline), optionalInt(value.BackendPID), nullableBytes(value.BackendSecretDigest), optionalTime(value.BackendStartedAt), value.ConnectionGeneration, value.LeaseGeneration, value.StatementCount, value.TransactionSeq, nullableBytes(value.PreviousTxEventDigest))
+	tenantID, _, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5Transaction{}, tenantErr
+	}
+	query := `INSERT INTO b5_transactions (transaction_id,tenant_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.ExecContext(ctx, r.bind(query), value.TransactionID, tenantID, value.SessionID, value.DatasourceID, value.Status, value.Phase, value.PlanDigest, optionalString(value.ApprovalID), value.OwnerEpoch, value.IdleDeadline, value.WallDeadline, optionalTime(value.StatementDeadline), optionalInt(value.BackendPID), nullableBytes(value.BackendSecretDigest), optionalTime(value.BackendStartedAt), value.ConnectionGeneration, value.LeaseGeneration, value.StatementCount, value.TransactionSeq, nullableBytes(value.PreviousTxEventDigest))
 	if err != nil {
 		return B5Transaction{}, fmt.Errorf("create b5 transaction %q: %w", value.TransactionID, err)
 	}
@@ -311,8 +356,17 @@ func (r *B5TransactionRepository) Create(ctx context.Context, value B5Transactio
 }
 
 func (r *B5TransactionRepository) Get(ctx context.Context, id string) (B5Transaction, error) {
+	tenantID, explicit, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5Transaction{}, tenantErr
+	}
 	query := `SELECT transaction_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest,created_at,updated_at,revision FROM b5_transactions WHERE transaction_id=?`
-	value, err := scanB5Transaction(r.db.QueryRowContext(ctx, r.bind(query), id))
+	args := []any{id}
+	if explicit {
+		query += ` AND tenant_id=?`
+		args = append(args, tenantID)
+	}
+	value, err := scanB5Transaction(r.db.QueryRowContext(ctx, r.bind(query), args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return B5Transaction{}, fmt.Errorf("get b5 transaction %q: %w", id, ErrNotFound)
 	}
@@ -329,7 +383,15 @@ func (r *B5TransactionRepository) ListPage(ctx context.Context, filter B5Transac
 	if pageSize < 1 || pageSize > 100 {
 		return B5TransactionPage{}, ErrInvalidPageSize
 	}
+	tenantID, explicit, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5TransactionPage{}, tenantErr
+	}
 	where, args := []string{}, []any{}
+	if explicit {
+		where = append(where, "tenant_id=?")
+		args = append(args, tenantID)
+	}
 	add := func(column, value string) {
 		if value != "" {
 			where = append(where, column+"=?")
@@ -373,7 +435,13 @@ func (r *B5TransactionRepository) CASState(ctx context.Context, id string, revis
 	if !validTransactionTransition(fromStatus, fromPhase, toStatus, toPhase) {
 		return B5Transaction{}, ErrB5InvalidTransition
 	}
-	result, err := r.db.ExecContext(ctx, r.bind(`UPDATE b5_transactions SET status=?,phase=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE transaction_id=? AND revision=? AND status=? AND phase=?`), toStatus, toPhase, id, revision, fromStatus, fromPhase)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5Transaction{}, tenantErr
+	}
+	query := `UPDATE b5_transactions SET status=?,phase=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE transaction_id=? AND revision=? AND status=? AND phase=?` + tenantClause
+	args := append([]any{toStatus, toPhase, id, revision, fromStatus, fromPhase}, tenantArgs...)
+	result, err := r.db.ExecContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return B5Transaction{}, err
 	}
@@ -424,8 +492,13 @@ func (r *B5TransactionRepository) CASProgress(ctx context.Context, id string, re
 	if update.PreviousEventDigest != nil {
 		add("previous_tx_event_digest", nullableBytes(*update.PreviousEventDigest))
 	}
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5Transaction{}, tenantErr
+	}
 	args = append(args, id, revision, status, phase)
-	query := `UPDATE b5_transactions SET ` + strings.Join(sets, ",") + ` WHERE transaction_id=? AND revision=? AND status=? AND phase=?`
+	args = append(args, tenantArgs...)
+	query := `UPDATE b5_transactions SET ` + strings.Join(sets, ",") + ` WHERE transaction_id=? AND revision=? AND status=? AND phase=?` + tenantClause
 	result, err := r.db.ExecContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return B5Transaction{}, err
@@ -481,8 +554,14 @@ func (r *B5TransactionRepository) ListExpired(ctx context.Context, now time.Time
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("list expired b5 transactions: invalid limit")
 	}
-	query := `SELECT transaction_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest,created_at,updated_at,revision FROM b5_transactions WHERE status<>'TERMINAL' AND (idle_deadline<=? OR wall_deadline<=? OR (statement_deadline IS NOT NULL AND statement_deadline<=?)) ORDER BY wall_deadline,transaction_id LIMIT ?`
-	rows, err := r.db.QueryContext(ctx, r.bind(query), now, now, now, limit)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
+	query := `SELECT transaction_id,session_id,datasource_id,status,phase,plan_digest,approval_id,owner_epoch,idle_deadline,wall_deadline,statement_deadline,backend_pid,backend_secret_digest,backend_started_at,connection_generation,lease_generation,statement_count,transaction_seq,previous_tx_event_digest,created_at,updated_at,revision FROM b5_transactions WHERE status<>'TERMINAL' AND (idle_deadline<=? OR wall_deadline<=? OR (statement_deadline IS NOT NULL AND statement_deadline<=?))` + tenantClause + ` ORDER BY wall_deadline,transaction_id LIMIT ?`
+	args := append([]any{now, now, now}, tenantArgs...)
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(query), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -552,8 +631,12 @@ type B5DMLGrant struct {
 type B5DMLGrantRepository struct{ repositoryBase }
 
 func (r *B5DMLGrantRepository) Create(ctx context.Context, v B5DMLGrant) (B5DMLGrant, error) {
-	q := `INSERT INTO b5_dml_grants (grant_id,policy_id,policy_revision,principal_id,datasource_id,effect,grant_element,action,database_oid,relation_oid,relation_kind,schema_name,relation_name,catalog_fingerprint,write_target_kind,column_attnum,column_name,column_type_oid,column_type_modifier,column_collation_oid,reference_kind,proof_schema_id,proof_schema_version,proof_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.ExecContext(ctx, r.bind(q), v.GrantID, v.PolicyID, v.PolicyRevision, v.PrincipalID, v.DatasourceID, v.Effect, v.Element, v.Action, v.DatabaseOID, v.RelationOID, v.RelationKind, v.SchemaName, v.RelationName, v.CatalogFingerprint, optionalString(v.WriteTargetKind), optionalInt(v.ColumnAttnum), optionalString(v.ColumnName), optionalUint32(v.ColumnTypeOID), optionalInt(v.ColumnTypeModifier), optionalUint32(v.ColumnCollationOID), optionalString(v.ReferenceKind), v.ProofSchemaID, v.ProofSchemaVersion, v.ProofDigest)
+	tenantID, _, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5DMLGrant{}, tenantErr
+	}
+	q := `INSERT INTO b5_dml_grants (tenant_id,grant_id,policy_id,policy_revision,principal_id,datasource_id,effect,grant_element,action,database_oid,relation_oid,relation_kind,schema_name,relation_name,catalog_fingerprint,write_target_kind,column_attnum,column_name,column_type_oid,column_type_modifier,column_collation_oid,reference_kind,proof_schema_id,proof_schema_version,proof_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.ExecContext(ctx, r.bind(q), tenantID, v.GrantID, v.PolicyID, v.PolicyRevision, v.PrincipalID, v.DatasourceID, v.Effect, v.Element, v.Action, v.DatabaseOID, v.RelationOID, v.RelationKind, v.SchemaName, v.RelationName, v.CatalogFingerprint, optionalString(v.WriteTargetKind), optionalInt(v.ColumnAttnum), optionalString(v.ColumnName), optionalUint32(v.ColumnTypeOID), optionalInt(v.ColumnTypeModifier), optionalUint32(v.ColumnCollationOID), optionalString(v.ReferenceKind), v.ProofSchemaID, v.ProofSchemaVersion, v.ProofDigest)
 	if err != nil {
 		return B5DMLGrant{}, err
 	}
@@ -561,8 +644,13 @@ func (r *B5DMLGrantRepository) Create(ctx context.Context, v B5DMLGrant) (B5DMLG
 }
 
 func (r *B5DMLGrantRepository) UpdateIfRevision(ctx context.Context, v B5DMLGrant, expected int64) (B5DMLGrant, error) {
-	q := `UPDATE b5_dml_grants SET policy_id=?,policy_revision=?,principal_id=?,datasource_id=?,effect=?,grant_element=?,action=?,database_oid=?,relation_oid=?,relation_kind=?,schema_name=?,relation_name=?,catalog_fingerprint=?,write_target_kind=?,column_attnum=?,column_name=?,column_type_oid=?,column_type_modifier=?,column_collation_oid=?,reference_kind=?,proof_schema_id=?,proof_schema_version=?,proof_digest=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE grant_id=? AND revision=?`
-	result, err := r.db.ExecContext(ctx, r.bind(q), v.PolicyID, v.PolicyRevision, v.PrincipalID, v.DatasourceID, v.Effect, v.Element, v.Action, v.DatabaseOID, v.RelationOID, v.RelationKind, v.SchemaName, v.RelationName, v.CatalogFingerprint, optionalString(v.WriteTargetKind), optionalInt(v.ColumnAttnum), optionalString(v.ColumnName), optionalUint32(v.ColumnTypeOID), optionalInt(v.ColumnTypeModifier), optionalUint32(v.ColumnCollationOID), optionalString(v.ReferenceKind), v.ProofSchemaID, v.ProofSchemaVersion, v.ProofDigest, v.GrantID, expected)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5DMLGrant{}, tenantErr
+	}
+	q := `UPDATE b5_dml_grants SET policy_id=?,policy_revision=?,principal_id=?,datasource_id=?,effect=?,grant_element=?,action=?,database_oid=?,relation_oid=?,relation_kind=?,schema_name=?,relation_name=?,catalog_fingerprint=?,write_target_kind=?,column_attnum=?,column_name=?,column_type_oid=?,column_type_modifier=?,column_collation_oid=?,reference_kind=?,proof_schema_id=?,proof_schema_version=?,proof_digest=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE grant_id=? AND revision=?` + tenantClause
+	args := []any{v.PolicyID, v.PolicyRevision, v.PrincipalID, v.DatasourceID, v.Effect, v.Element, v.Action, v.DatabaseOID, v.RelationOID, v.RelationKind, v.SchemaName, v.RelationName, v.CatalogFingerprint, optionalString(v.WriteTargetKind), optionalInt(v.ColumnAttnum), optionalString(v.ColumnName), optionalUint32(v.ColumnTypeOID), optionalInt(v.ColumnTypeModifier), optionalUint32(v.ColumnCollationOID), optionalString(v.ReferenceKind), v.ProofSchemaID, v.ProofSchemaVersion, v.ProofDigest, v.GrantID, expected}
+	result, err := r.db.ExecContext(ctx, r.bind(q), append(args, tenantArgs...)...)
 	if err != nil {
 		return B5DMLGrant{}, err
 	}
@@ -573,7 +661,11 @@ func (r *B5DMLGrantRepository) UpdateIfRevision(ctx context.Context, v B5DMLGran
 }
 
 func (r *B5DMLGrantRepository) Get(ctx context.Context, id string) (B5DMLGrant, error) {
-	v, err := scanB5DMLGrant(r.db.QueryRowContext(ctx, r.bind(b5GrantSelect+` WHERE grant_id=?`), id))
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5DMLGrant{}, tenantErr
+	}
+	v, err := scanB5DMLGrant(r.db.QueryRowContext(ctx, r.bind(b5GrantSelect+` WHERE grant_id=?`+tenantClause), append([]any{id}, tenantArgs...)...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}
@@ -584,7 +676,14 @@ func (r *B5DMLGrantRepository) List(ctx context.Context, principal, datasource s
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("list b5 grants: invalid limit")
 	}
-	rows, err := r.db.QueryContext(ctx, r.bind(b5GrantSelect+` WHERE principal_id=? AND datasource_id=? AND action=? ORDER BY policy_id,grant_id LIMIT ?`), principal, datasource, action, limit)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
+	q := b5GrantSelect + ` WHERE principal_id=? AND datasource_id=? AND action=?` + tenantClause + ` ORDER BY policy_id,grant_id LIMIT ?`
+	args := append([]any{principal, datasource, action}, tenantArgs...)
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(q), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +700,11 @@ func (r *B5DMLGrantRepository) List(ctx context.Context, principal, datasource s
 }
 
 func (r *B5DMLGrantRepository) DeleteIfRevision(ctx context.Context, id string, revision int64) error {
-	result, err := r.db.ExecContext(ctx, r.bind(`DELETE FROM b5_dml_grants WHERE grant_id=? AND revision=?`), id, revision)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return tenantErr
+	}
+	result, err := r.db.ExecContext(ctx, r.bind(`DELETE FROM b5_dml_grants WHERE grant_id=? AND revision=?`+tenantClause), append([]any{id, revision}, tenantArgs...)...)
 	if err != nil {
 		return err
 	}
@@ -664,8 +767,12 @@ type B5ReceiptAdvance struct {
 type B5ResultReceiptRepository struct{ repositoryBase }
 
 func (r *B5ResultReceiptRepository) PutWriteOnce(ctx context.Context, v B5ResultReceipt) (B5ResultReceipt, bool, error) {
-	q := `INSERT INTO b5_result_receipts (session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.ExecContext(ctx, r.bind(q), v.Key.SessionID, v.Key.RequestID, v.Key.EventUUID, v.Key.AttemptGeneration, v.SchemaID, v.SchemaVersion, v.BusinessEventDigest, v.WALAppendReceiptDigest, v.ReportedDurability, v.AppendConfirmation, v.Reconciliation, v.DeliveryStatus)
+	tenantID, _, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return B5ResultReceipt{}, false, tenantErr
+	}
+	q := `INSERT INTO b5_result_receipts (tenant_id,session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.ExecContext(ctx, r.bind(q), tenantID, v.Key.SessionID, v.Key.RequestID, v.Key.EventUUID, v.Key.AttemptGeneration, v.SchemaID, v.SchemaVersion, v.BusinessEventDigest, v.WALAppendReceiptDigest, v.ReportedDurability, v.AppendConfirmation, v.Reconciliation, v.DeliveryStatus)
 	if err == nil {
 		stored, e := r.Get(ctx, v.Key)
 		return stored, true, e
@@ -681,8 +788,13 @@ func (r *B5ResultReceiptRepository) PutWriteOnce(ctx context.Context, v B5Result
 }
 
 func (r *B5ResultReceiptRepository) Get(ctx context.Context, key B5ReceiptKey) (B5ResultReceipt, error) {
-	q := `SELECT session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status,created_at,updated_at,revision FROM b5_result_receipts WHERE session_id=? AND request_id=? AND event_uuid=? AND attempt_generation=?`
-	v, err := scanB5Receipt(r.db.QueryRowContext(ctx, r.bind(q), key.SessionID, key.RequestID, key.EventUUID, key.AttemptGeneration))
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5ResultReceipt{}, tenantErr
+	}
+	q := `SELECT session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status,created_at,updated_at,revision FROM b5_result_receipts WHERE session_id=? AND request_id=? AND event_uuid=? AND attempt_generation=?` + tenantClause
+	args := append([]any{key.SessionID, key.RequestID, key.EventUUID, key.AttemptGeneration}, tenantArgs...)
+	v, err := scanB5Receipt(r.db.QueryRowContext(ctx, r.bind(q), args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}
@@ -693,8 +805,12 @@ func (r *B5ResultReceiptRepository) Get(ctx context.Context, key B5ReceiptKey) (
 // More than one row is possible because a request can be retried with a new
 // attempt generation; callers must preserve every immutable historical value.
 func (r *B5ResultReceiptRepository) ListByEventUUID(ctx context.Context, eventUUID []byte) ([]B5ResultReceipt, error) {
-	q := `SELECT session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status,created_at,updated_at,revision FROM b5_result_receipts WHERE event_uuid=? ORDER BY session_id,request_id,attempt_generation`
-	rows, err := r.db.QueryContext(ctx, r.bind(q), eventUUID)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
+	q := `SELECT session_id,request_id,event_uuid,attempt_generation,schema_id,schema_version,business_event_digest,wal_append_receipt_digest,reported_durability,append_confirmation,reconciliation,delivery_status,created_at,updated_at,revision FROM b5_result_receipts WHERE event_uuid=?` + tenantClause + ` ORDER BY session_id,request_id,attempt_generation`
+	rows, err := r.db.QueryContext(ctx, r.bind(q), append([]any{eventUUID}, tenantArgs...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +844,13 @@ func (r *B5ResultReceiptRepository) Advance(ctx context.Context, key B5ReceiptKe
 	if u.DeliveryStatus != nil {
 		deliveryValue = *u.DeliveryStatus
 	}
-	result, err := r.db.ExecContext(ctx, r.bind(`UPDATE b5_result_receipts SET append_confirmation=?,reconciliation=?,delivery_status=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND request_id=? AND event_uuid=? AND attempt_generation=? AND revision=?`), appendValue, reconcileValue, deliveryValue, key.SessionID, key.RequestID, key.EventUUID, key.AttemptGeneration, revision)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5ResultReceipt{}, tenantErr
+	}
+	q := `UPDATE b5_result_receipts SET append_confirmation=?,reconciliation=?,delivery_status=?,updated_at=CURRENT_TIMESTAMP,revision=revision+1 WHERE session_id=? AND request_id=? AND event_uuid=? AND attempt_generation=? AND revision=?` + tenantClause
+	args := []any{appendValue, reconcileValue, deliveryValue, key.SessionID, key.RequestID, key.EventUUID, key.AttemptGeneration, revision}
+	result, err := r.db.ExecContext(ctx, r.bind(q), append(args, tenantArgs...)...)
 	if err != nil {
 		return B5ResultReceipt{}, err
 	}
@@ -788,27 +910,44 @@ type B5TxEvent struct {
 type B5TxEventRepository struct{ repositoryBase }
 
 func (r *B5TxEventRepository) Append(ctx context.Context, v B5TxEvent) error {
-	q := `INSERT INTO b5_tx_events (transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
-	_, err := r.db.ExecContext(ctx, r.bind(q), v.TransactionID, v.TransactionSeq, v.EventUUID, v.EventType, v.EventSchemaID, v.EventSchemaVersion, nullableBytes(v.PreviousTxEventDigest), v.EventDigest, v.CanonicalEvent, optionalString(v.TerminalEvidenceText), optionalString(v.DispositionProofText), optionalInt64(v.AuditLogID))
+	tenantID, _, tenantErr := r.explicitTenant(ctx)
+	if tenantErr != nil {
+		return tenantErr
+	}
+	q := `INSERT INTO b5_tx_events (tenant_id,transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	_, err := r.db.ExecContext(ctx, r.bind(q), tenantID, v.TransactionID, v.TransactionSeq, v.EventUUID, v.EventType, v.EventSchemaID, v.EventSchemaVersion, nullableBytes(v.PreviousTxEventDigest), v.EventDigest, v.CanonicalEvent, optionalString(v.TerminalEvidenceText), optionalString(v.DispositionProofText), optionalInt64(v.AuditLogID))
 	return err
 }
 
 func (r *B5TxEventRepository) Get(ctx context.Context, transactionID string, sequence uint64) (B5TxEvent, error) {
-	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE transaction_id=? AND transaction_seq=?`
-	return scanB5TxEvent(r.db.QueryRowContext(ctx, r.bind(q), transactionID, sequence))
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5TxEvent{}, tenantErr
+	}
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE transaction_id=? AND transaction_seq=?` + tenantClause
+	return scanB5TxEvent(r.db.QueryRowContext(ctx, r.bind(q), append([]any{transactionID, sequence}, tenantArgs...)...))
 }
 
 func (r *B5TxEventRepository) GetByUUID(ctx context.Context, eventUUID []byte) (B5TxEvent, error) {
-	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE event_uuid=?`
-	return scanB5TxEvent(r.db.QueryRowContext(ctx, r.bind(q), eventUUID))
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return B5TxEvent{}, tenantErr
+	}
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE event_uuid=?` + tenantClause
+	return scanB5TxEvent(r.db.QueryRowContext(ctx, r.bind(q), append([]any{eventUUID}, tenantArgs...)...))
 }
 
 func (r *B5TxEventRepository) List(ctx context.Context, limit int) ([]B5TxEvent, error) {
 	if limit < 1 || limit > 100000 {
 		return nil, fmt.Errorf("list b5 tx events: invalid limit")
 	}
-	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events ORDER BY created_at,transaction_id,transaction_seq LIMIT ?`
-	rows, err := r.db.QueryContext(ctx, r.bind(q), limit)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE 1=1` + tenantClause + ` ORDER BY created_at,transaction_id,transaction_seq LIMIT ?`
+	args := append(tenantArgs, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(q), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -828,8 +967,14 @@ func (r *B5TxEventRepository) ListByTransaction(ctx context.Context, transaction
 	if transactionID == "" || limit < 1 || limit > 10000 {
 		return nil, fmt.Errorf("list b5 transaction events: invalid input")
 	}
-	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE transaction_id=? ORDER BY transaction_seq LIMIT ?`
-	rows, err := r.db.QueryContext(ctx, r.bind(q), transactionID, limit)
+	tenantClause, tenantArgs, tenantErr := b5TenantCondition(r.repositoryBase, ctx)
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
+	q := `SELECT transaction_id,transaction_seq,event_uuid,event_type,event_schema_id,event_schema_version,previous_tx_event_digest,event_digest,canonical_event,terminal_evidence_text,disposition_proof_text,audit_log_id,created_at FROM b5_tx_events WHERE transaction_id=?` + tenantClause + ` ORDER BY transaction_seq LIMIT ?`
+	args := append([]any{transactionID}, tenantArgs...)
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(q), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -872,6 +1017,17 @@ func nullableBytes(value []byte) any {
 		return nil
 	}
 	return value
+}
+
+func b5TenantCondition(repository repositoryBase, ctx context.Context) (string, []any, error) {
+	tenantID, explicit, err := repository.explicitTenant(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if !explicit {
+		return "", nil, nil
+	}
+	return " AND tenant_id=?", []any{tenantID}, nil
 }
 func optionalUint32(value *uint32) any {
 	if value == nil {

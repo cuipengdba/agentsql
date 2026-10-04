@@ -45,30 +45,30 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 	expectedColumns := map[string][]string{
 		"agents": {
 			"id", "name", "owner", "status", "api_key_hash", "level", "expires_at",
-			"created_at", "updated_at",
+			"created_at", "updated_at", "tenant_id",
 		},
 		"datasources": {
 			"id", "name", "db_type", "host", "port", "database", "username",
 			"password_enc", "conn_limit", "stmt_timeout_ms", "row_limit", "created_at",
-			"updated_at",
+			"updated_at", "tenant_id",
 		},
 		"policies": {
 			"id", "agent_id", "datasource_id", "object_type", "object_name", "columns",
-			"row_filter", "action", "created_at", "updated_at", "relation_binding_id", "revision", "legacy_unrepresentable",
+			"row_filter", "action", "created_at", "updated_at", "relation_binding_id", "revision", "legacy_unrepresentable", "tenant_id",
 		},
-		"relation_policy_bindings":         {"id", "policy_id", "datasource_id", "schema_name", "relation_name", "stable_object_id", "catalog_fingerprint", "status", "revision", "created_at", "updated_at"},
-		"policy_column_permission_staging": {"policy_id", "token_ordinal", "legacy_token", "requested_usage", "source_csv_sha256", "bind_status", "error_code"},
-		"policy_column_permissions":        {"policy_id", "relation_enrollment_id", "column_ordinal", "column_name", "column_type_digest", "usage", "parent_revision"},
+		"relation_policy_bindings":         {"id", "policy_id", "datasource_id", "schema_name", "relation_name", "stable_object_id", "catalog_fingerprint", "status", "revision", "created_at", "updated_at", "tenant_id"},
+		"policy_column_permission_staging": {"policy_id", "token_ordinal", "legacy_token", "requested_usage", "source_csv_sha256", "bind_status", "error_code", "tenant_id"},
+		"policy_column_permissions":        {"policy_id", "relation_enrollment_id", "column_ordinal", "column_name", "column_type_digest", "usage", "parent_revision", "tenant_id"},
 		"control_plane_compat":             {"fence_key", "min_reader_protocol", "max_writer_protocol", "fence_epoch", "state", "revision", "updated_at"},
 		"runtime_instances":                {"instance_id", "protocol_version", "artifact_digest", "status", "last_heartbeat_at", "lease_expires_at", "revision"},
 		"rules": {
 			"id", "db_type", "title", "risk_level", "pattern_type", "definition",
-			"enabled", "builtin", "created_at", "updated_at",
+			"enabled", "builtin", "created_at", "updated_at", "tenant_id",
 		},
 		"mask_rules": {
 			"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 			"created_at", "updated_at", "enabled", "range_bucket_width",
-			"range_bucket_offset", "range_granularity", "schema_name",
+			"range_bucket_offset", "range_granularity", "schema_name", "tenant_id",
 		},
 		"audit_logs": {
 			"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
@@ -76,26 +76,26 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"decision", "rule_hits", "risk_level", "est_rows", "rows_returned",
 			"latency_ms", "client_ip", "model_name", "error_msg",
 			"action", "actor_type", "actor_id", "details_json", "error_code", "event_uuid",
-			"chain_seq", "prev_hash", "self_hash", "chain_key_version", "chain_format_version",
+			"chain_seq", "prev_hash", "self_hash", "chain_key_version", "chain_format_version", "tenant_id",
 		},
 		"chain_state": {
-			"chain_id", "chain_instance_id", "status", "mode", "head_seq", "head_id",
+			"tenant_id", "chain_id", "chain_instance_id", "status", "mode", "head_seq", "head_id",
 			"head_hash", "genesis_at", "protected_since_id", "build_owner", "build_lease_until",
 			"build_epoch", "last_built_id", "last_built_seq", "last_built_hash", "updated_at",
 		},
 		"chain_verification": {
-			"chain_id", "observed_instance_id", "observed_head_hash", "result",
+			"tenant_id", "chain_id", "observed_instance_id", "observed_head_hash", "result",
 			"last_verified_head_seq", "last_verified_at", "break_seq", "break_id", "break_reason",
 		},
 		"approvals": {
 			"id", "audit_id", "agent_id", "sql_raw", "reason", "status", "approver",
-			"decided_at", "created_at", "updated_at",
+			"decided_at", "created_at", "updated_at", "tenant_id",
 		},
 		"notification_settings": {
-			"id", "enabled", "queue_size", "created_at", "updated_at",
+			"tenant_id", "id", "enabled", "queue_size", "created_at", "updated_at",
 		},
 		"notification_channels": {
-			"id", "position", "enabled", "kind", "decisions", "include_sql",
+			"tenant_id", "id", "position", "enabled", "kind", "decisions", "include_sql",
 			"allow_private_endpoints", "webhook_present", "webhook_template",
 			"webhook_url_enc", "webhook_bearer_token_enc", "webhook_headers_enc",
 			"webhook_secret_enc", "syslog_present", "syslog_host", "syslog_port",
@@ -103,11 +103,11 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		},
 		"redaction_key_versions": {
 			"id", "state", "commitment", "label", "config_revision", "created_at",
-			"updated_at", "activated_at", "retired_at",
+			"updated_at", "activated_at", "retired_at", "tenant_id",
 		},
 		"management_audit_outbox": {
 			"event_uuid", "action", "actor_type", "actor_id", "details_json", "created_at",
-			"attempts", "claimed_by", "claimed_at", "last_error", "next_attempt_at", "delivered_at",
+			"attempts", "claimed_by", "claimed_at", "last_error", "next_attempt_at", "delivered_at", "tenant_id",
 		},
 		"admin_access_revocations": {"jti", "expires_at", "revoked_at"},
 		"admin_refresh_families":   {"family_id", "tenant_id", "user_id", "username", "expires_at", "revoked_at", "created_at"},
@@ -120,10 +120,10 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"role_permissions":         {"tenant_id", "role_id", "permission_code"},
 		"role_inheritance":         {"tenant_id", "role_id", "parent_role_id"},
 		"b5_sessions":              {"session_id", "agent_id", "tenant_id", "principal_id", "owner_instance_id", "owner_epoch", "continuation_schema_id", "continuation_schema_version", "continuation_key_ciphertext", "continuation_hmac_digest", "sticky_route", "status", "idle_expires_at", "absolute_expires_at", "created_at", "updated_at", "revision"},
-		"b5_transactions":          {"transaction_id", "session_id", "datasource_id", "status", "phase", "plan_digest", "approval_id", "owner_epoch", "idle_deadline", "wall_deadline", "statement_deadline", "backend_pid", "backend_secret_digest", "backend_started_at", "connection_generation", "lease_generation", "statement_count", "transaction_seq", "previous_tx_event_digest", "created_at", "updated_at", "revision"},
-		"b5_dml_grants":            {"grant_id", "policy_id", "policy_revision", "principal_id", "datasource_id", "effect", "grant_element", "action", "database_oid", "relation_oid", "relation_kind", "schema_name", "relation_name", "catalog_fingerprint", "write_target_kind", "column_attnum", "column_name", "column_type_oid", "column_type_modifier", "column_collation_oid", "reference_kind", "proof_schema_id", "proof_schema_version", "proof_digest", "created_at", "updated_at", "revision"},
-		"b5_result_receipts":       {"session_id", "request_id", "event_uuid", "attempt_generation", "schema_id", "schema_version", "business_event_digest", "wal_append_receipt_digest", "reported_durability", "append_confirmation", "reconciliation", "delivery_status", "created_at", "updated_at", "revision"},
-		"b5_tx_events":             {"transaction_id", "transaction_seq", "event_uuid", "event_type", "event_schema_id", "event_schema_version", "previous_tx_event_digest", "event_digest", "canonical_event", "terminal_evidence_text", "disposition_proof_text", "audit_log_id", "created_at"},
+		"b5_transactions":          {"transaction_id", "session_id", "datasource_id", "status", "phase", "plan_digest", "approval_id", "owner_epoch", "idle_deadline", "wall_deadline", "statement_deadline", "backend_pid", "backend_secret_digest", "backend_started_at", "connection_generation", "lease_generation", "statement_count", "transaction_seq", "previous_tx_event_digest", "created_at", "updated_at", "revision", "tenant_id"},
+		"b5_dml_grants":            {"grant_id", "policy_id", "policy_revision", "principal_id", "datasource_id", "effect", "grant_element", "action", "database_oid", "relation_oid", "relation_kind", "schema_name", "relation_name", "catalog_fingerprint", "write_target_kind", "column_attnum", "column_name", "column_type_oid", "column_type_modifier", "column_collation_oid", "reference_kind", "proof_schema_id", "proof_schema_version", "proof_digest", "created_at", "updated_at", "revision", "tenant_id"},
+		"b5_result_receipts":       {"session_id", "request_id", "event_uuid", "attempt_generation", "schema_id", "schema_version", "business_event_digest", "wal_append_receipt_digest", "reported_durability", "append_confirmation", "reconciliation", "delivery_status", "created_at", "updated_at", "revision", "tenant_id"},
+		"b5_tx_events":             {"transaction_id", "transaction_seq", "event_uuid", "event_type", "event_schema_id", "event_schema_version", "previous_tx_event_digest", "event_digest", "canonical_event", "terminal_evidence_text", "disposition_proof_text", "audit_log_id", "created_at", "tenant_id"},
 		"mcp_stream_event_cursors": {"session_id", "stream_id", "next_event_index", "updated_at"},
 		"mcp_stream_events":        {"session_id", "stream_id", "event_index", "data", "created_at"},
 	}
@@ -147,29 +147,50 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_admin_refresh_families_expiry",
 		"idx_admin_refresh_tokens_family",
 		"idx_agents_keyhash",
+		"idx_agents_tenant",
 		"idx_approvals_status",
+		"idx_approvals_tenant",
 		"idx_audit_agent_ts",
 		"idx_audit_decision",
+		"idx_audit_logs_tenant",
 		"idx_audit_ts",
 		"idx_b5_dml_grants_identity",
 		"idx_b5_dml_grants_lookup",
+		"idx_b5_dml_grants_tenant",
 		"idx_b5_result_receipts_delivery",
 		"idx_b5_result_receipts_event",
 		"idx_b5_result_receipts_reconcile",
+		"idx_b5_result_receipts_tenant",
 		"idx_b5_sessions_owner",
+		"idx_b5_sessions_tenant",
 		"idx_b5_sessions_ttl",
 		"idx_b5_transactions_datasource",
 		"idx_b5_transactions_deadline",
 		"idx_b5_transactions_one_live_session",
+		"idx_b5_transactions_tenant",
 		"idx_b5_tx_events_audit",
+		"idx_b5_tx_events_tenant",
+		"idx_chain_state_tenant",
+		"idx_chain_verification_tenant",
+		"idx_datasources_tenant",
+		"idx_management_audit_outbox_tenant",
+		"idx_mask_rules_tenant",
 		"idx_mcp_stream_event_cursors_updated_at",
 		"idx_mcp_stream_events_created_at",
 		"idx_mcp_stream_events_session",
+		"idx_notification_channels_tenant",
+		"idx_notification_settings_tenant",
 		"idx_policies_agent_ds",
+		"idx_policies_tenant",
+		"idx_policy_column_permission_staging_tenant",
 		"idx_policy_column_permissions_policy",
+		"idx_policy_column_permissions_tenant",
+		"idx_redaction_key_versions_tenant",
 		"idx_relation_policy_bindings_datasource",
+		"idx_relation_policy_bindings_tenant",
 		"idx_role_permissions_role",
 		"idx_roles_tenant",
+		"idx_rules_tenant",
 		"idx_runtime_instances_lease",
 		"idx_user_roles_user",
 		"idx_users_tenant",
@@ -218,8 +239,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 13, current)
-	require.Equal(t, 13, latest)
+	require.Equal(t, 14, current)
+	require.Equal(t, 14, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -254,9 +275,10 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{
 		"idx_admin_access_revocations_expiry", "idx_admin_refresh_families_expiry", "idx_admin_refresh_tokens_family",
-		"idx_agents_keyhash", "idx_approvals_status", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit",
+		"idx_agents_keyhash", "idx_agents_tenant", "idx_approvals_status", "idx_approvals_tenant", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_dml_grants_tenant", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_result_receipts_tenant", "idx_b5_sessions_owner", "idx_b5_sessions_tenant", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_transactions_tenant", "idx_b5_tx_events_audit", "idx_b5_tx_events_tenant",
+		"idx_chain_state_tenant", "idx_chain_verification_tenant", "idx_datasources_tenant", "idx_management_audit_outbox_tenant", "idx_mask_rules_tenant",
 		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
-		"idx_policies_agent_ds", "idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
+		"idx_notification_channels_tenant", "idx_notification_settings_tenant", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
 		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active",
 	}, businessIndexNames(t, database))
 
@@ -268,8 +290,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 12, current)
-	require.Equal(t, 12, latest)
+	require.Equal(t, 13, current)
+	require.Equal(t, 13, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -304,9 +326,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 13, current)
+				require.Equal(t, 14, current)
 			} else {
-				require.Equal(t, 12, current)
+				require.Equal(t, 13, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -371,14 +393,14 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 13, current)
+				require.Equal(t, 14, current)
 			} else {
-				require.Equal(t, 12, current)
+				require.Equal(t, 13, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 				"created_at", "updated_at", "enabled", "range_bucket_width",
-				"range_bucket_offset", "range_granularity", "schema_name",
+				"range_bucket_offset", "range_granularity", "schema_name", "tenant_id",
 			}, tableColumnNames(t, database, "mask_rules"))
 
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectSQLite}}

@@ -30,13 +30,13 @@ func TestRBACAPIAllowsAssignedPermissionAndDeniesByDefault(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status, body)
 }
 
-func TestRBACAPICrossTenantAndLegacyResourceAccessAreDenied(t *testing.T) {
+func TestRBACAPICrossTenantAndBusinessResourceIsolation(t *testing.T) {
 	fixture := newAdminFixture(t)
 	status, body := fixture.request(http.MethodPost, "/api/v1/tenants", fixture.adminToken,
 		`{"id":"tenant_b","name":"Tenant B"}`)
 	require.Equal(t, http.StatusOK, status, body)
 	status, body = fixture.request(http.MethodPost, "/api/v1/roles", fixture.adminToken,
-		`{"tenant_id":"tenant_b","name":"tenant-admin","permissions":["user.manage","role.manage","audit.view"]}`)
+		`{"tenant_id":"tenant_b","name":"tenant-admin","permissions":["user.manage","role.manage","audit.view","datasource.manage"]}`)
 	require.Equal(t, http.StatusOK, status, body)
 	roleID := responseString(t, body, "id")
 	status, body = fixture.request(http.MethodPost, "/api/v1/users", fixture.adminToken,
@@ -50,7 +50,11 @@ func TestRBACAPICrossTenantAndLegacyResourceAccessAreDenied(t *testing.T) {
 	status, body = fixture.request(http.MethodGet, "/api/v1/users?tenant_id=tenant_default", token, "")
 	require.Equal(t, http.StatusForbidden, status, body)
 	status, body = fixture.request(http.MethodGet, "/api/v1/audit", token, "")
-	require.Equal(t, http.StatusForbidden, status, body)
+	require.Equal(t, http.StatusOK, status, body)
+	require.NotContains(t, body, `"tenant_default"`)
+	status, body = fixture.request(http.MethodGet, "/api/v1/agents", token, "")
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, `"list":[]`)
 }
 
 func responseString(t *testing.T, body, key string) string {

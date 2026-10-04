@@ -92,6 +92,10 @@ func (repository *DashboardRepository) Summary(ctx context.Context, days int) (D
 	if days < 1 || days > 90 {
 		return DashboardSummary{}, fmt.Errorf("dashboard summary days must be between 1 and 90")
 	}
+	tenantID, err := repository.meta.requireTenant(ctx, "dashboard summary")
+	if err != nil {
+		return DashboardSummary{}, err
+	}
 	now := time.Now()
 	if repository.now != nil {
 		now = repository.now()
@@ -112,15 +116,15 @@ func (repository *DashboardRepository) Summary(ctx context.Context, days int) (D
 	if err != nil {
 		return DashboardSummary{}, err
 	}
-	pending, err := repository.metaCount(ctx, "SELECT COUNT(*) FROM approvals WHERE status = ?", "pending")
+	pending, err := repository.metaCount(ctx, "SELECT COUNT(*) FROM approvals WHERE tenant_id = ? AND status = ?", tenantID, "pending")
 	if err != nil {
 		return DashboardSummary{}, fmt.Errorf("dashboard pending approvals: %w", err)
 	}
-	activeAgents, err := repository.metaCount(ctx, "SELECT COUNT(*) FROM agents WHERE status = ?", "active")
+	activeAgents, err := repository.metaCount(ctx, "SELECT COUNT(*) FROM agents WHERE tenant_id = ? AND status = ?", tenantID, "active")
 	if err != nil {
 		return DashboardSummary{}, fmt.Errorf("dashboard active agents: %w", err)
 	}
-	datasources, err := repository.metaCount(ctx, "SELECT COUNT(*) FROM datasources")
+	datasources, err := repository.metaCount(ctx, "SELECT COUNT(*) FROM datasources WHERE tenant_id = ?", tenantID)
 	if err != nil {
 		return DashboardSummary{}, fmt.Errorf("dashboard datasources: %w", err)
 	}
@@ -165,10 +169,14 @@ func (repository *DashboardRepository) metaCount(ctx context.Context, query stri
 }
 
 func (repository *DashboardRepository) auditCounts(ctx context.Context, start, end time.Time) (int64, int64, error) {
+	tenantID, err := repository.audit.requireTenant(ctx, "dashboard audit counts")
+	if err != nil {
+		return 0, 0, err
+	}
 	var total, blocked int64
 	if err := repository.audit.db.QueryRowContext(ctx, repository.audit.bind(`
 SELECT COUNT(*), COALESCE(SUM(CASE WHEN decision = 'deny' THEN 1 ELSE 0 END), 0)
-FROM audit_logs WHERE ts >= ? AND ts < ?`), start, end).Scan(&total, &blocked); err != nil {
+FROM audit_logs WHERE tenant_id = ? AND ts >= ? AND ts < ?`), tenantID, start, end).Scan(&total, &blocked); err != nil {
 		return 0, 0, fmt.Errorf("dashboard audit counts: %w", err)
 	}
 	return total, blocked, nil
@@ -181,6 +189,10 @@ func (repository *DashboardRepository) trend(
 	end time.Time,
 	days int,
 ) ([]TrendDay, error) {
+	tenantID, tenantErr := repository.audit.requireTenant(ctx, "dashboard trend")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	// substr(ts,1,19) trims fractional seconds/timezone so SQLite date() does not
 	// return NULL for RFC3339Nano values written via a parameterized time.Time;
 	// CURRENT_TIMESTAMP text is normalized identically.
@@ -192,8 +204,8 @@ SELECT ` + selectExpression + `, COUNT(*),
        COALESCE(SUM(CASE WHEN decision = 'warn' THEN 1 ELSE 0 END), 0),
        COALESCE(SUM(CASE WHEN decision = 'approve' THEN 1 ELSE 0 END), 0),
        COALESCE(SUM(CASE WHEN decision = 'allow' THEN 1 ELSE 0 END), 0)
-FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY ` + groupExpression + ` ORDER BY ` + groupExpression + ` ASC`
-	rows, err := repository.audit.db.QueryContext(ctx, repository.audit.bind(query), start, end)
+FROM audit_logs WHERE tenant_id = ? AND ts >= ? AND ts < ? GROUP BY ` + groupExpression + ` ORDER BY ` + groupExpression + ` ASC`
+	rows, err := repository.audit.db.QueryContext(ctx, repository.audit.bind(query), tenantID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard trend: %w", err)
 	}
@@ -229,9 +241,13 @@ FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY ` + groupExpression + ` ORDER 
 }
 
 func (repository *DashboardRepository) decisionDistribution(ctx context.Context, start, end time.Time) ([]DecisionCount, error) {
+	tenantID, tenantErr := repository.audit.requireTenant(ctx, "dashboard decision distribution")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	counts := map[string]int64{"allow": 0, "warn": 0, "approve": 0, "deny": 0}
 	rows, err := repository.audit.db.QueryContext(ctx, repository.audit.bind(`
-SELECT decision, COUNT(*) FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY decision`), start, end)
+SELECT decision, COUNT(*) FROM audit_logs WHERE tenant_id = ? AND ts >= ? AND ts < ? GROUP BY decision`), tenantID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard decision distribution: %w", err)
 	}
@@ -259,8 +275,12 @@ SELECT decision, COUNT(*) FROM audit_logs WHERE ts >= ? AND ts < ? GROUP BY deci
 }
 
 func (repository *DashboardRepository) riskTop(ctx context.Context, start, end time.Time) ([]RiskTopEntry, error) {
+	tenantID, tenantErr := repository.audit.requireTenant(ctx, "dashboard risk top")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	rows, err := repository.audit.db.QueryContext(ctx, repository.audit.bind(`
-SELECT rule_hits FROM audit_logs WHERE ts >= ? AND ts < ? AND rule_hits IS NOT NULL`), start, end)
+SELECT rule_hits FROM audit_logs WHERE tenant_id = ? AND ts >= ? AND ts < ? AND rule_hits IS NOT NULL`), tenantID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard risk top: %w", err)
 	}
@@ -302,10 +322,14 @@ SELECT rule_hits FROM audit_logs WHERE ts >= ? AND ts < ? AND rule_hits IS NOT N
 }
 
 func (repository *DashboardRepository) agentRanking(ctx context.Context, start, end time.Time) ([]AgentRankingItem, error) {
+	tenantID, tenantErr := repository.audit.requireTenant(ctx, "dashboard agent ranking")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	rows, err := repository.audit.db.QueryContext(ctx, repository.audit.bind(`
 SELECT agent_id, COUNT(*) FROM audit_logs
-WHERE ts >= ? AND ts < ? AND decision = 'deny' AND agent_id IS NOT NULL
-GROUP BY agent_id ORDER BY COUNT(*) DESC, agent_id ASC LIMIT 5`), start, end)
+WHERE tenant_id = ? AND ts >= ? AND ts < ? AND decision = 'deny' AND agent_id IS NOT NULL
+GROUP BY agent_id ORDER BY COUNT(*) DESC, agent_id ASC LIMIT 5`), tenantID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("dashboard agent ranking: %w", err)
 	}
@@ -329,13 +353,15 @@ GROUP BY agent_id ORDER BY COUNT(*) DESC, agent_id ASC LIMIT 5`), start, end)
 	if len(ids) == 0 {
 		return []AgentRankingItem{}, nil
 	}
-	arguments := make([]any, len(ids))
+	arguments := make([]any, 0, len(ids)+1)
+	arguments = append(arguments, tenantID)
 	for index, value := range ids {
-		arguments[index] = value.id
+		_ = index
+		arguments = append(arguments, value.id)
 	}
 	nameRows, err := repository.meta.db.QueryContext(
 		ctx,
-		repository.meta.bind("SELECT id, name FROM agents WHERE id IN ("+auditPlaceholders(len(ids))+")"),
+		repository.meta.bind("SELECT id, name FROM agents WHERE tenant_id = ? AND id IN ("+auditPlaceholders(len(ids))+")"),
 		arguments...,
 	)
 	if err != nil {
@@ -364,17 +390,21 @@ GROUP BY agent_id ORDER BY COUNT(*) DESC, agent_id ASC LIMIT 5`), start, end)
 }
 
 func (repository *DashboardRepository) battleReport(ctx context.Context, start, end time.Time) (int64, int64, error) {
+	tenantID, tenantErr := repository.audit.requireTenant(ctx, "dashboard battle report")
+	if tenantErr != nil {
+		return 0, 0, tenantErr
+	}
 	var blocked, rowsSaved int64
 	query := `
 SELECT COUNT(*), COALESCE(SUM(COALESCE(est_rows, 0)), 0)
-FROM audit_logs WHERE ts >= ? AND ts < ? AND decision = 'deny'`
+FROM audit_logs WHERE tenant_id = ? AND ts >= ? AND ts < ? AND decision = 'deny'`
 	if repository.audit.dialect == DialectPostgres {
 		query = `
 SELECT COUNT(*), CAST(COALESCE(SUM(est_rows), 0) AS BIGINT)
-FROM audit_logs WHERE ts >= ? AND ts < ? AND decision = 'deny'`
+FROM audit_logs WHERE tenant_id = ? AND ts >= ? AND ts < ? AND decision = 'deny'`
 	}
 	if err := repository.audit.db.QueryRowContext(
-		ctx, repository.audit.bind(query), start, end,
+		ctx, repository.audit.bind(query), tenantID, start, end,
 	).Scan(&blocked, &rowsSaved); err != nil {
 		return 0, 0, fmt.Errorf("dashboard battle report: %w", err)
 	}

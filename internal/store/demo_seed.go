@@ -262,7 +262,7 @@ func demoAuditBySession(
 	sessionID string,
 ) (model.AuditLog, bool, error) {
 	rows, err := executor.QueryContext(ctx, repositoryBase{dialect: dialect}.bind(`
-SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+SELECT id, tenant_id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid
@@ -293,6 +293,9 @@ ORDER BY id`), sessionID)
 }
 
 func sameHistoricalAuditIntent(expected, stored model.AuditLog) bool {
+	if expected.TenantID == "" {
+		expected.TenantID = DefaultTenantID
+	}
 	expected.ID = stored.ID
 	expectedTimestamp := expected.TS
 	expected.TS = stored.TS
@@ -352,6 +355,7 @@ func seedDemoApprovals(
 			continue
 		}
 		approval := approvals[approvalIndex]
+		approval.TenantID = DefaultTenantID
 		approval.AuditID = &recorded[auditIndex].ID
 		expected = append(expected, approval)
 		approvalIndex++
@@ -360,7 +364,7 @@ func seedDemoApprovals(
 	persisted := make([]model.Approval, len(expected))
 	missing := make([]bool, len(expected))
 	for index, approval := range expected {
-		stored, found, err := demoApprovalByAuditID(ctx, executor, dialect, *approval.AuditID)
+		stored, found, err := demoApprovalByAuditID(ctx, executor, dialect, approval.TenantID, *approval.AuditID)
 		if err != nil {
 			return nil, err
 		}
@@ -381,7 +385,7 @@ func seedDemoApprovals(
 		if err := insertApproval(ctx, executor, dialect, approval); err != nil {
 			return nil, fmt.Errorf("seed demo historical audits: insert approval %q: %w", approval.ID, err)
 		}
-		stored, err := getApproval(ctx, executor, dialect, approval.ID)
+		stored, err := getApproval(ctx, executor, dialect, approval.TenantID, approval.ID)
 		if err != nil {
 			return nil, fmt.Errorf("seed demo historical audits: read approval %q: %w", approval.ID, err)
 		}
@@ -397,14 +401,15 @@ func demoApprovalByAuditID(
 	ctx context.Context,
 	executor sqlExecutor,
 	dialect Dialect,
+	tenantID string,
 	auditID int64,
 ) (model.Approval, bool, error) {
 	rows, err := executor.QueryContext(ctx, repositoryBase{dialect: dialect}.bind(`
-SELECT id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
+SELECT id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
        created_at, updated_at
 FROM approvals
-WHERE audit_id = ?
-ORDER BY id`), auditID)
+WHERE audit_id = ? AND tenant_id = ?
+ORDER BY id`), auditID, tenantID)
 	if err != nil {
 		return model.Approval{}, false, fmt.Errorf("seed demo historical audits: read approval for audit_id %d: %w", auditID, err)
 	}

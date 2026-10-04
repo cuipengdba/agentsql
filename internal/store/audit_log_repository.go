@@ -61,6 +61,11 @@ func (repository *AuditLogRepository) Insert(ctx context.Context, auditLog model
 	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
 		return model.AuditLog{}, err
 	}
+	tenantID, err := repository.requireTenant(ctx, "insert audit log")
+	if err != nil {
+		return model.AuditLog{}, err
+	}
+	auditLog.TenantID = tenantID
 	inserted, err := repository.chainInsertOne(ctx, auditLog)
 	if err != nil {
 		return model.AuditLog{}, fmt.Errorf("insert audit log on %s chain: %w", repository.chainID, err)
@@ -76,12 +81,13 @@ func insertAuditLog(
 ) (model.AuditLog, error) {
 	id, err := insertReturningID(ctx, executor, dialect, `
 INSERT INTO audit_logs (
-  agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
+  tenant_id, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
   est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg, error_code,
   action, actor_type, actor_id, details_json, event_uuid
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		auditLog.TenantID,
 		optionalString(auditLog.AgentID),
 		optionalString(auditLog.DatasourceID),
 		optionalString(auditLog.SessionID),
@@ -133,6 +139,9 @@ func insertHistoricalAuditLog(
 	dialect Dialect,
 	auditLog model.AuditLog,
 ) (model.AuditLog, error) {
+	if auditLog.TenantID == "" {
+		auditLog.TenantID = DefaultTenantID
+	}
 	if err := validateAuditLogInsert(ctx, auditLog); err != nil {
 		return model.AuditLog{}, err
 	}
@@ -142,13 +151,14 @@ func insertHistoricalAuditLog(
 
 	id, err := insertReturningID(ctx, executor, dialect, `
 INSERT INTO audit_logs (
-  ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
+  ts, tenant_id, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
   est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg, error_code,
   action, actor_type, actor_id, details_json, event_uuid
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		auditLog.TS,
+		auditLog.TenantID,
 		optionalString(auditLog.AgentID),
 		optionalString(auditLog.DatasourceID),
 		optionalString(auditLog.SessionID),
@@ -262,12 +272,17 @@ func (repository *AuditLogRepository) FindByEventUUIDs(
 	if len(uuids) == 0 {
 		return []model.AuditLog{}, nil
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "find audit logs")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 
 	query := auditBusinessColumnsSQL + `
 FROM audit_logs
-WHERE event_uuid IN (` + auditPlaceholders(len(uuids)) + `)
+WHERE tenant_id = ? AND event_uuid IN (` + auditPlaceholders(len(uuids)) + `)
 ORDER BY id ASC`
-	rows, err := repository.db.QueryContext(ctx, repository.bind(query), stringsToAny(uuids)...)
+	args := append([]any{tenantID}, stringsToAny(uuids)...)
+	rows, err := repository.db.QueryContext(ctx, repository.bind(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("find audit logs by event UUID: %w", err)
 	}
@@ -319,8 +334,18 @@ func filteredAuditPage(
 	if pageSize < 1 || pageSize > 1000 {
 		return AuditPage{}, fmt.Errorf("page audit logs: %w", ErrInvalidPageSize)
 	}
+	tenantID, err := base.requireTenant(ctx, "page audit logs")
+	if err != nil {
+		return AuditPage{}, err
+	}
 
 	whereClause, filterArgs := buildAuditWhereForDialect(base.dialect, filter)
+	if whereClause == "" {
+		whereClause = " WHERE tenant_id = ?"
+	} else {
+		whereClause += " AND tenant_id = ?"
+	}
+	filterArgs = append(filterArgs, tenantID)
 	var total int64
 	countQuery := "SELECT COUNT(*) FROM audit_logs" + whereClause
 	if err := base.db.QueryRowContext(
@@ -332,7 +357,7 @@ func filteredAuditPage(
 	}
 
 	selectQuery := `
-SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+SELECT id, tenant_id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid
@@ -470,7 +495,7 @@ func getInsertedAuditLog(
 	id int64,
 ) (model.AuditLog, error) {
 	query := `
-SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+SELECT id, tenant_id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid
@@ -498,6 +523,7 @@ func scanAuditLog(scanner rowScanner) (model.AuditLog, error) {
 	var riskLevel, estimatedRows, rowsReturned, latencyMS sql.NullInt64
 	if err := scanner.Scan(
 		&auditLog.ID,
+		&auditLog.TenantID,
 		&timestamp,
 		&agentID,
 		&datasourceID,

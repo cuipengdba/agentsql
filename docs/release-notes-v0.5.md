@@ -20,7 +20,8 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - **OpenTenBase 双内核深化**：OpenTenBase v2.5.0 PostgreSQL 内核对特定远程计划实现严格、版本受限的规范化，指定单机 GTM/CN/DN 拓扑的最小安全闭环有实测记录。TXSQL/MySQL 内核是独立路线，本版未实测、未实现产品专用代码。
 - **PolarDB 兼容路径**：指定 PolarDB for PostgreSQL 15 社区镜像通过现有 `postgres` 路径完成 Ping、discovery、R006 拒绝、EXPLAIN、只读查询、脱敏与审计闭环；未新增 PolarDB 别名或厂商识别开关。
 - **EXPLAIN 兼容适配**：增加 OpenTenBase、TiDB 和 OceanBase 的严格计划适配与回归 fixture；未知版本、列、节点或计划形态继续 fail-closed。TiDB / OceanBase 本批有代码回归证据，不借此宣称厂商环境完整闭环已通过。
-- **RBAC / SSO / 多租户 MVP（#33）**：新增本地用户、租户、角色、权限、多角色和角色继承，并对管理 API 执行逐路由授权。MVP 完全开放、无许可门控；OIDC/LDAP/MFA 与存量业务元数据的全租户化不在本版。
+- **RBAC / SSO / 多租户 MVP（#33）**：新增本地用户、租户、角色、权限、多角色和角色继承，并对管理 API 执行逐路由授权。MVP 完全开放、无许可门控；OIDC/LDAP/MFA 不在本版，存量业务元数据的全租户化已由批三十六补齐。
+- **业务元数据全租户化（批三十六）**：Agent、数据源、策略及列权限、规则、脱敏规则与密钥、通知、审批、审计、管理审计 outbox、审计链及 B5 持久业务实体均增加租户所有权；无法可靠识别归属的历史行一律回填 `tenant_default`。控制台列表按令牌 `tid` 隔离，跨租户详情、更新和删除统一表现为 404，管理审计事件携带租户上下文。`schema_migrations`、RBAC 自身表、管理令牌/会话、MCP stream event、`control_plane_compat`、`runtime_instances` 等平台运行表未被误作业务元数据 tenant 化。Agent API Key 协议未改变；MCP 执行数据路径尚未把已认证 Agent 的租户显式传播到全部数据源/策略仓储调用，当前仍落在默认租户兼容边界，不能据此宣称 MCP 数据访问已完成跨租户隔离。
 - **MCP 会话与断线重放**：Streamable HTTP 首次 `initialize` 可以不携带 `MCP-Protocol-Version`，后续请求继续严格校验协议版本、会话 ID 和 Agent/Key 绑定。stateful 旧协议默认使用 SQLite/PostgreSQL 持久化 EventStore，支持 `GET /mcp` + `Last-Event-ID` 连续重放；TTL/容量缺口 fail-closed。go-sdk session 仍不跨进程持久化，重启后旧 ID 以 `Mcp-Session-Expired: 1` 明确要求重新 initialize。
 - **企业审计报表与合规导出**：增加 `agentsqlctl audit` 查询/报表能力及配套文档；这不改变“应用层只追加审计不等于法规级 WORM”的信任边界。
 - **快速上手、Demo 与错误口径**：新增下载单个 Compose 文件即可启动的自包含五分钟演示栈；演示场景卡对齐真实剧本和审批结果，修复演示表外键/密封 JOIN 冲突与每日 reset 的 seed/gateway 时序，并区分可预期授权失败、对象缺失与数据库执行错误。
@@ -55,7 +56,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - DM/Oracle parser 只覆盖文档列出的 v0.5 受控 SELECT profile；`*` 仅绑定到物理来源表，parser 无 catalog，不能虚构逐列名称。该能力不等于完整 SQL grammar 或已接入列级授权/脱敏 pipeline。
 - KingbaseES V9R1C10 目标环境待厂商提供；HighGo、GaussDB、TDSQL 等商业版仍待目标环境终验。
 - R005 生产动态告警已闭环，但能力边界仍须准确表述：无界查询的执行前命中依赖受控 EXPLAIN；实际 `row_limit` 截断会在通用执行和 PostgreSQL 列级授权路径补充 `R005`。响应通过 `assessment.hits` 返回结构化命中，持久审计通过 `rule_hits` 保存；未知 EXPLAIN 或审计事实继续 fail-closed。`row_limit` 可在数据源管理入口配置，默认值为 1000；规则页不提供独立 R005 阈值编辑器。
-- RBAC 仍是 MVP：非默认租户对存量共享业务元数据仍拒绝，OIDC/LDAP/MFA 与全量租户化未交付。管理端本地用户令牌已支持持久化服务端撤销和长期 refresh token：refresh token 仅以 SHA-256 哈希存储、每次刷新都会轮换，重用已轮换/撤销的 token 会撤销整条 refresh family；状态不可读时 access 校验、刷新与登出均 fail-closed。
+- RBAC 仍是 MVP：控制台业务元数据已经按租户隔离，但 OIDC/LDAP/MFA、登录限速与锁定尚未交付；MCP 执行数据路径的 Agent 租户传播仍是明确后续边界。管理端本地用户令牌已支持持久化服务端撤销和长期 refresh token：refresh token 仅以 SHA-256 哈希存储、每次刷新都会轮换，重用已轮换/撤销的 token 会撤销整条 refresh family；状态不可读时 access 校验、刷新与登出均 fail-closed。
 - MCP transport session 不跨进程保存，服务重启前的旧 session 不能无缝恢复；已提供持久化 SSE 断线重放和重启后 `Mcp-Session-Expired: 1` → 重新 initialize 路径。豆包、Claude Desktop / Inspector 真实客户端仍待账号和指定版本联调。
 - “协议路径实测”不覆盖完整 SQL 方言、生产拓扑、HA/故障切换、TLS/认证矩阵、性能 SLA 或厂商支持责任。
 

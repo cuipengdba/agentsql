@@ -40,6 +40,10 @@ func (repository *PolicyRepository) FinalizeColumnBindingTwoPhase(
 	discover func(context.Context) error,
 	revalidate func(context.Context) (RevalidatedColumnBinding, error),
 ) (model.Policy, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "finalize policy binding")
+	if tenantErr != nil {
+		return model.Policy{}, tenantErr
+	}
 	if discover == nil || revalidate == nil {
 		return model.Policy{}, fmt.Errorf("two-phase binding callbacks are required")
 	}
@@ -64,7 +68,7 @@ func (repository *PolicyRepository) FinalizeColumnBindingTwoPhase(
 	if err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, fmt.Errorf("binding revalidation: %w", err))
 	}
-	parent, err := scanPolicy(tx.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=?`), policyID))
+	parent, err := scanPolicy(tx.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=? AND tenant_id=?`), policyID, tenantID))
 	if err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, err)
 	}
@@ -76,7 +80,7 @@ func (repository *PolicyRepository) FinalizeColumnBindingTwoPhase(
 	if err := repository.replaceChildren(ctx, tx, parent, next); err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, err)
 	}
-	if _, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET relation_binding_id=?,revision=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`), bound.Binding.ID, next, policyID); err != nil {
+	if _, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET relation_binding_id=?,revision=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=?`), bound.Binding.ID, next, policyID, tenantID); err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -89,6 +93,10 @@ func (repository *PolicyRepository) Create(ctx context.Context, policy model.Pol
 	if ctx == nil {
 		return model.Policy{}, fmt.Errorf("create policy: %w", ErrNilContext)
 	}
+	tenantID, err := repository.requireTenant(ctx, "create policy")
+	if err != nil {
+		return model.Policy{}, err
+	}
 	tx, err := repository.beginMutation(ctx)
 	if err != nil {
 		return model.Policy{}, err
@@ -97,8 +105,8 @@ func (repository *PolicyRepository) Create(ctx context.Context, policy model.Pol
 		policy.Revision = 1
 	}
 	_, err = tx.ExecContext(ctx, repository.bind(`INSERT INTO policies
-  (id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,relation_binding_id,revision,legacy_unrepresentable)
-VALUES (?,?,?,?,?,?,?,?,?,?,?)`), policy.ID, policy.AgentID, policy.DatasourceID, policy.ObjectType,
+  (id,tenant_id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,relation_binding_id,revision,legacy_unrepresentable)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`), policy.ID, tenantID, policy.AgentID, policy.DatasourceID, policy.ObjectType,
 		policy.ObjectName, optionalString(policy.Columns), optionalString(policy.RowFilter), policy.Action,
 		optionalString(policy.RelationBindingID), policy.Revision, policy.LegacyUnrepresentable)
 	if err != nil {
@@ -107,7 +115,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?)`), policy.ID, policy.AgentID, policy.DatasourceID
 	if err := repository.replaceChildren(ctx, tx, policy, policy.Revision); err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, err)
 	}
-	if _, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET revision=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`), policy.Revision, policy.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET revision=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=?`), policy.Revision, policy.ID, tenantID); err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -117,7 +125,11 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?)`), policy.ID, policy.AgentID, policy.DatasourceID
 }
 
 func (repository *PolicyRepository) Get(ctx context.Context, id string) (model.Policy, error) {
-	policy, err := scanPolicy(repository.db.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=?`), id))
+	tenantID, tenantErr := repository.requireTenant(ctx, "get policy")
+	if tenantErr != nil {
+		return model.Policy{}, tenantErr
+	}
+	policy, err := scanPolicy(repository.db.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=? AND tenant_id=?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Policy{}, fmt.Errorf("get policy %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -151,9 +163,20 @@ func (repository *PolicyRepository) listWith(ctx context.Context, queryer policy
 	if ctx == nil {
 		return nil, fmt.Errorf("list policies: %w", ErrNilContext)
 	}
-	query := policySelect + suffix
+	tenantID, err := repository.requireTenant(ctx, "list policies")
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(suffix)
+	if strings.HasPrefix(trimmed, "WHERE ") {
+		suffix = " AND " + strings.TrimPrefix(trimmed, "WHERE ")
+	} else {
+		suffix = " " + trimmed
+	}
+	query := policySelect + " WHERE tenant_id=?" + suffix
+	arguments = append([]any{tenantID}, arguments...)
 	if strings.Contains(suffix, "agent_id=? AND datasource_id=?") {
-		query = policySelect + indexHint(repository.dialect, " INDEXED BY idx_policies_agent_ds") + suffix
+		query = policySelect + indexHint(repository.dialect, " INDEXED BY idx_policies_agent_ds") + " WHERE tenant_id=?" + suffix
 	}
 	rows, err := queryer.QueryContext(ctx, repository.bind(query), arguments...)
 	if err != nil {
@@ -186,6 +209,10 @@ func (repository *PolicyRepository) UpdateIfRevision(ctx context.Context, policy
 }
 
 func (repository *PolicyRepository) update(ctx context.Context, policy model.Policy, expected int64, compare bool) (model.Policy, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update policy")
+	if tenantErr != nil {
+		return model.Policy{}, tenantErr
+	}
 	tx, err := repository.beginMutation(ctx)
 	if err != nil {
 		return model.Policy{}, err
@@ -198,9 +225,9 @@ func (repository *PolicyRepository) update(ctx context.Context, policy model.Pol
 		return model.Policy{}, rollbackPolicyTx(tx, ErrRevisionMismatch)
 	}
 	next := current + 1
-	result, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET agent_id=?,datasource_id=?,object_type=?,object_name=?,columns=?,row_filter=?,action=?,relation_binding_id=?,legacy_unrepresentable=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?`),
+	result, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET agent_id=?,datasource_id=?,object_type=?,object_name=?,columns=?,row_filter=?,action=?,relation_binding_id=?,legacy_unrepresentable=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND revision=?`),
 		policy.AgentID, policy.DatasourceID, policy.ObjectType, policy.ObjectName, optionalString(policy.Columns), optionalString(policy.RowFilter), policy.Action,
-		optionalString(policy.RelationBindingID), policy.LegacyUnrepresentable, policy.ID, current)
+		optionalString(policy.RelationBindingID), policy.LegacyUnrepresentable, policy.ID, tenantID, current)
 	if err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, fmt.Errorf("update policy %q: %w", policy.ID, err))
 	}
@@ -228,6 +255,10 @@ func (repository *PolicyRepository) DeleteIfRevision(ctx context.Context, id str
 }
 
 func (repository *PolicyRepository) delete(ctx context.Context, id string, expected int64, compare bool) error {
+	tenantID, tenantErr := repository.requireTenant(ctx, "delete policy")
+	if tenantErr != nil {
+		return tenantErr
+	}
 	tx, err := repository.beginMutation(ctx)
 	if err != nil {
 		return err
@@ -239,7 +270,7 @@ func (repository *PolicyRepository) delete(ctx context.Context, id string, expec
 	if compare && current != expected {
 		return rollbackPolicyTx(tx, ErrRevisionMismatch)
 	}
-	if _, err := tx.ExecContext(ctx, repository.bind(`DELETE FROM policies WHERE id=? AND revision=?`), id, current); err != nil {
+	if _, err := tx.ExecContext(ctx, repository.bind(`DELETE FROM policies WHERE id=? AND tenant_id=? AND revision=?`), id, tenantID, current); err != nil {
 		return rollbackPolicyTx(tx, fmt.Errorf("delete policy %q: %w", id, err))
 	}
 	if err := tx.Commit(); err != nil {
@@ -267,12 +298,16 @@ func (repository *PolicyRepository) beginMutation(ctx context.Context) (*sql.Tx,
 }
 
 func (repository *PolicyRepository) lockPolicy(ctx context.Context, tx *sql.Tx, id string) (int64, error) {
-	query := repository.bind(`SELECT revision FROM policies WHERE id=?`)
+	tenantID, err := repository.requireTenant(ctx, "lock policy")
+	if err != nil {
+		return 0, err
+	}
+	query := repository.bind(`SELECT revision FROM policies WHERE id=? AND tenant_id=?`)
 	if repository.dialect == DialectPostgres {
 		query += ` FOR UPDATE`
 	}
 	var revision int64
-	if err := tx.QueryRowContext(ctx, query, id).Scan(&revision); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, query, id, tenantID).Scan(&revision); errors.Is(err, sql.ErrNoRows) {
 		return 0, errors.Join(ErrNotFound, err)
 	} else if err != nil {
 		return 0, err
@@ -281,6 +316,10 @@ func (repository *PolicyRepository) lockPolicy(ctx context.Context, tx *sql.Tx, 
 }
 
 func (repository *PolicyRepository) replaceChildren(ctx context.Context, tx *sql.Tx, policy model.Policy, revision int64) error {
+	tenantID, tenantErr := repository.requireTenant(ctx, "replace policy children")
+	if tenantErr != nil {
+		return tenantErr
+	}
 	if policy.Columns != nil {
 		for _, token := range strings.Split(*policy.Columns, ",") {
 			if strings.TrimSpace(token) == "*" {
@@ -289,7 +328,7 @@ func (repository *PolicyRepository) replaceChildren(ctx context.Context, tx *sql
 		}
 	}
 	for _, table := range []string{"policy_column_permissions", "policy_column_permission_staging", "relation_policy_bindings"} {
-		if _, err := tx.ExecContext(ctx, repository.bind(`DELETE FROM `+table+` WHERE policy_id=?`), policy.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, repository.bind(`DELETE FROM `+table+` WHERE policy_id=? AND tenant_id=?`), policy.ID, tenantID); err != nil {
 			return fmt.Errorf("clear %s for policy %q: %w", table, policy.ID, err)
 		}
 	}
@@ -303,8 +342,8 @@ func (repository *PolicyRepository) replaceChildren(ctx context.Context, tx *sql
 			binding.Status = "staging"
 		}
 		_, err := tx.ExecContext(ctx, repository.bind(`INSERT INTO relation_policy_bindings
- (id,policy_id,datasource_id,schema_name,relation_name,stable_object_id,catalog_fingerprint,status,revision)
- VALUES(?,?,?,?,?,?,?,?,?)`), binding.ID, binding.PolicyID, binding.DatasourceID, binding.SchemaName, binding.RelationName,
+ (id,tenant_id,policy_id,datasource_id,schema_name,relation_name,stable_object_id,catalog_fingerprint,status,revision)
+ VALUES(?,?,?,?,?,?,?,?,?,?)`), binding.ID, tenantID, binding.PolicyID, binding.DatasourceID, binding.SchemaName, binding.RelationName,
 			optionalString(binding.StableObjectID), optionalString(binding.CatalogFingerprint), binding.Status, binding.Revision)
 		if err != nil {
 			return fmt.Errorf("insert policy binding: %w", err)
@@ -318,8 +357,8 @@ func (repository *PolicyRepository) replaceChildren(ctx context.Context, tx *sql
 			return fmt.Errorf("invalid column permission")
 		}
 		_, err := tx.ExecContext(ctx, repository.bind(`INSERT INTO policy_column_permissions
- (policy_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision) VALUES(?,?,?,?,?,?,?)`),
-			policy.ID, permission.RelationEnrollmentID, permission.ColumnOrdinal, permission.ColumnName, permission.ColumnTypeDigest, permission.Usage, revision)
+ (policy_id,tenant_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision) VALUES(?,?,?,?,?,?,?,?)`),
+			policy.ID, tenantID, permission.RelationEnrollmentID, permission.ColumnOrdinal, permission.ColumnName, permission.ColumnTypeDigest, permission.Usage, revision)
 		if err != nil {
 			return fmt.Errorf("insert policy permission: %w", err)
 		}
@@ -337,8 +376,8 @@ func (repository *PolicyRepository) replaceChildren(ctx context.Context, tx *sql
 			status = "pending"
 		}
 		_, err := tx.ExecContext(ctx, repository.bind(`INSERT INTO policy_column_permission_staging
- (policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status,error_code) VALUES(?,?,?,?,?,?,?)`),
-			policy.ID, row.TokenOrdinal, row.LegacyToken, row.RequestedUsage, row.SourceCSVHash, status, optionalString(row.ErrorCode))
+ (policy_id,tenant_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status,error_code) VALUES(?,?,?,?,?,?,?,?)`),
+			policy.ID, tenantID, row.TokenOrdinal, row.LegacyToken, row.RequestedUsage, row.SourceCSVHash, status, optionalString(row.ErrorCode))
 		if err != nil {
 			return fmt.Errorf("insert staged column permission: %w", err)
 		}
@@ -375,7 +414,11 @@ func (repository *PolicyRepository) loadChildrenWith(ctx context.Context, querye
 	for index := range policies {
 		byID[policies[index].ID] = &policies[index]
 	}
-	bindings, err := queryer.QueryContext(ctx, `SELECT id,policy_id,datasource_id,schema_name,relation_name,stable_object_id,catalog_fingerprint,status,revision,created_at,updated_at FROM relation_policy_bindings ORDER BY policy_id`)
+	tenantID, err := repository.requireTenant(ctx, "load policy children")
+	if err != nil {
+		return err
+	}
+	bindings, err := queryer.QueryContext(ctx, repository.bind(`SELECT id,policy_id,datasource_id,schema_name,relation_name,stable_object_id,catalog_fingerprint,status,revision,created_at,updated_at FROM relation_policy_bindings WHERE tenant_id=? ORDER BY policy_id`), tenantID)
 	if err != nil {
 		return err
 	}
@@ -397,7 +440,7 @@ func (repository *PolicyRepository) loadChildrenWith(ctx context.Context, querye
 	if err := errors.Join(bindings.Err(), bindings.Close()); err != nil {
 		return err
 	}
-	permissions, err := queryer.QueryContext(ctx, `SELECT policy_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision FROM policy_column_permissions ORDER BY policy_id,column_ordinal,usage`)
+	permissions, err := queryer.QueryContext(ctx, repository.bind(`SELECT policy_id,relation_enrollment_id,column_ordinal,column_name,column_type_digest,usage,parent_revision FROM policy_column_permissions WHERE tenant_id=? ORDER BY policy_id,column_ordinal,usage`), tenantID)
 	if err != nil {
 		return err
 	}
@@ -414,7 +457,7 @@ func (repository *PolicyRepository) loadChildrenWith(ctx context.Context, querye
 	if err := errors.Join(permissions.Err(), permissions.Close()); err != nil {
 		return err
 	}
-	staging, err := queryer.QueryContext(ctx, `SELECT policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status,error_code FROM policy_column_permission_staging ORDER BY policy_id,token_ordinal,requested_usage`)
+	staging, err := queryer.QueryContext(ctx, repository.bind(`SELECT policy_id,token_ordinal,legacy_token,requested_usage,source_csv_sha256,bind_status,error_code FROM policy_column_permission_staging WHERE tenant_id=? ORDER BY policy_id,token_ordinal,requested_usage`), tenantID)
 	if err != nil {
 		return err
 	}
@@ -433,13 +476,13 @@ func (repository *PolicyRepository) loadChildrenWith(ctx context.Context, querye
 	return errors.Join(staging.Err(), staging.Close())
 }
 
-const policySelect = `SELECT id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,relation_binding_id,revision,legacy_unrepresentable,created_at,updated_at FROM policies`
+const policySelect = `SELECT id,tenant_id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,relation_binding_id,revision,legacy_unrepresentable,created_at,updated_at FROM policies`
 
 func scanPolicy(scanner rowScanner) (model.Policy, error) {
 	var policy model.Policy
 	var columns, rowFilter, binding sql.NullString
 	var created, updated databaseTimestamp
-	if err := scanner.Scan(&policy.ID, &policy.AgentID, &policy.DatasourceID, &policy.ObjectType, &policy.ObjectName, &columns, &rowFilter, &policy.Action, &binding, &policy.Revision, &policy.LegacyUnrepresentable, &created, &updated); err != nil {
+	if err := scanner.Scan(&policy.ID, &policy.TenantID, &policy.AgentID, &policy.DatasourceID, &policy.ObjectType, &policy.ObjectName, &columns, &rowFilter, &policy.Action, &binding, &policy.Revision, &policy.LegacyUnrepresentable, &created, &updated); err != nil {
 		return policy, fmt.Errorf("scan policy: %w", err)
 	}
 	policy.Columns, policy.RowFilter, policy.RelationBindingID = stringPointer(columns), stringPointer(rowFilter), stringPointer(binding)

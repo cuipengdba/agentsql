@@ -18,11 +18,11 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 		names = append(names, table.name)
 	}
 	require.Equal(t, []string{
-		"agents", "datasources", "rules", "mask_rules", "policies", "relation_policy_bindings",
+		"tenants", "agents", "datasources", "rules", "mask_rules", "policies", "relation_policy_bindings",
 		"policy_column_permission_staging", "policy_column_permissions", "audit_logs", "approvals",
 		"notification_settings", "notification_channels", "redaction_key_versions", "management_audit_outbox",
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens",
-		"tenants", "users", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
+		"users", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
 		"b5_sessions", "b5_transactions", "b5_dml_grants", "b5_result_receipts", "b5_tx_events",
 	}, names)
 }
@@ -32,7 +32,7 @@ func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
 	require.Equal(t, []string{
 		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 		"created_at", "updated_at", "enabled", "range_bucket_width", "range_bucket_offset",
-		"range_granularity", "schema_name",
+		"range_granularity", "schema_name", "tenant_id",
 	}, migrationColumnNames(maskRuleTable))
 	require.Equal(t, migrationInt32, maskRuleTable.columns[9].kind)
 	require.Equal(t, migrationInt32, maskRuleTable.columns[10].kind)
@@ -42,25 +42,25 @@ func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
 		"id", "ts", "agent_id", "datasource_id", "session_id", "conversation_id",
 		"mcp_tool", "db_type", "sql_raw", "sql_norm", "stmt_type", "objects",
 		"decision", "rule_hits", "risk_level", "est_rows", "rows_returned", "latency_ms",
-		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json", "error_code", "event_uuid",
+		"client_ip", "model_name", "error_msg", "action", "actor_type", "actor_id", "details_json", "error_code", "event_uuid", "tenant_id",
 	}, migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs")))
 	require.Equal(t, []string{
 		"id", "state", "commitment", "label", "config_revision", "created_at",
-		"updated_at", "activated_at", "retired_at",
+		"updated_at", "activated_at", "retired_at", "tenant_id",
 	}, migrationColumnNames(sqliteToPostgresTableByName(t, "redaction_key_versions")))
 	require.Equal(t, []string{
 		"event_uuid", "action", "actor_type", "actor_id", "details_json", "created_at",
-		"attempts", "claimed_by", "claimed_at", "last_error", "next_attempt_at", "delivered_at",
+		"attempts", "claimed_by", "claimed_at", "last_error", "next_attempt_at", "delivered_at", "tenant_id",
 	}, migrationColumnNames(sqliteToPostgresTableByName(t, "management_audit_outbox")))
 }
 
-func TestSQLiteToPostgresAuditDigestSelectsEventUUIDLast(t *testing.T) {
+func TestSQLiteToPostgresAuditDigestIncludesTenantAfterEventUUID(t *testing.T) {
 	audit := sqliteToPostgresTableByName(t, "audit_logs")
-	require.Equal(t, "event_uuid", audit.columns[len(audit.columns)-1].name)
+	require.Equal(t, "tenant_id", audit.columns[len(audit.columns)-1].name)
 	for _, postgres := range []bool{false, true} {
 		selectSQL := migrationSelectSQL(audit, postgres)
-		require.Contains(t, selectSQL, `"error_code","event_uuid"`)
-		require.Less(t, strings.Index(selectSQL, `"error_code"`), strings.Index(selectSQL, `"event_uuid"`))
+		require.Contains(t, selectSQL, `"error_code","event_uuid","tenant_id"`)
+		require.Less(t, strings.Index(selectSQL, `"event_uuid"`), strings.Index(selectSQL, `"tenant_id"`))
 	}
 }
 
@@ -175,8 +175,17 @@ func TestSQLiteToPostgresMigrationManifestCoversMetadataTables(t *testing.T) {
 		require.NoError(t, Migrate(ctx, database, DialectSQLite))
 		manifestAuditColumns := migrationColumnNames(sqliteToPostgresTableByName(t, "audit_logs"))
 		actualAuditColumns := tableColumnNames(t, database, "audit_logs")
-		require.Equal(t, manifestAuditColumns, actualAuditColumns[:len(manifestAuditColumns)])
-		require.ElementsMatch(t, auditChainColumnNames, actualAuditColumns[len(manifestAuditColumns):])
+		copyColumns := make([]string, 0, len(manifestAuditColumns))
+		derivedColumns := make([]string, 0, len(auditChainColumnNames))
+		for _, column := range actualAuditColumns {
+			if isDerivedExcludedColumn("audit_logs", column) {
+				derivedColumns = append(derivedColumns, column)
+			} else {
+				copyColumns = append(copyColumns, column)
+			}
+		}
+		require.Equal(t, manifestAuditColumns, copyColumns)
+		require.ElementsMatch(t, auditChainColumnNames, derivedColumns)
 		require.ElementsMatch(t, []string{"chain_state", "chain_verification"}, []string{
 			derivedTableName(t, database, "chain_state"),
 			derivedTableName(t, database, "chain_verification"),
@@ -304,6 +313,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=12 latest=13")
+		require.ErrorContains(t, err, "current=13 latest=14")
 	})
 }

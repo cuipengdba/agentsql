@@ -48,6 +48,7 @@ type Permission struct {
 // Agent is an authenticated AI database client.
 type Agent struct {
 	ID         string
+	TenantID   string
 	Name       string
 	Owner      *string
 	Status     string
@@ -61,6 +62,7 @@ type Agent struct {
 // Datasource is a protected PostgreSQL or MySQL connection target.
 type Datasource struct {
 	ID            string
+	TenantID      string
 	Name          string
 	DBType        string
 	Host          string
@@ -78,6 +80,7 @@ type Datasource struct {
 // Policy grants or denies an agent access to a database object.
 type Policy struct {
 	ID                    string
+	TenantID              string
 	AgentID               string
 	DatasourceID          string
 	ObjectType            string
@@ -99,6 +102,7 @@ type Policy struct {
 // S1 permits staging identities; only a later slice may mark them healthy.
 type RelationPolicyBinding struct {
 	ID                 string
+	TenantID           string
 	PolicyID           string
 	DatasourceID       string
 	SchemaName         string
@@ -115,6 +119,7 @@ type RelationPolicyBinding struct {
 // ordinal is never synthesized from a legacy CSV token.
 type PolicyColumnPermission struct {
 	PolicyID             string
+	TenantID             string
 	RelationEnrollmentID string
 	ColumnOrdinal        int
 	ColumnName           string
@@ -127,6 +132,7 @@ type PolicyColumnPermission struct {
 // can bind it under the control-to-business two-phase protocol.
 type PolicyColumnPermissionStaging struct {
 	PolicyID       string
+	TenantID       string
 	TokenOrdinal   int
 	LegacyToken    string
 	RequestedUsage string
@@ -138,6 +144,7 @@ type PolicyColumnPermissionStaging struct {
 // Rule is a persisted SQL security-rule definition.
 type Rule struct {
 	ID          string
+	TenantID    string
 	DBType      string
 	Title       string
 	RiskLevel   int
@@ -152,6 +159,7 @@ type Rule struct {
 // MaskRule configures redaction for one result column.
 type MaskRule struct {
 	ID                string
+	TenantID          string
 	DatasourceID      *string
 	SchemaName        string
 	TableName         string
@@ -169,6 +177,7 @@ type MaskRule struct {
 // AuditLog is an immutable record of one AgentSQL operation.
 type AuditLog struct {
 	ID             int64
+	TenantID       string `json:"tenant_id,omitempty"`
 	TS             time.Time
 	AgentID        *string
 	DatasourceID   *string
@@ -200,6 +209,7 @@ type AuditLog struct {
 // Approval is a persisted decision request associated with an audit record.
 type Approval struct {
 	ID        string
+	TenantID  string
 	AuditID   *int64
 	AgentID   *string
 	SQLRaw    *string

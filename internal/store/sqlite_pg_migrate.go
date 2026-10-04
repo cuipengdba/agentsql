@@ -128,12 +128,16 @@ func isDerivedExcludedColumn(table, column string) bool {
 }
 
 var sqliteToPostgresTables = []migrationTable{
+	{name: "tenants", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "name", kind: migrationText}, {name: "status", kind: migrationText},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
 	{name: "agents", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "name", kind: migrationText},
 		{name: "owner", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "api_key_hash", kind: migrationText}, {name: "level", kind: migrationText},
 		{name: "expires_at", kind: migrationTime}, {name: "created_at", kind: migrationTime},
-		{name: "updated_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "datasources", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "name", kind: migrationText},
@@ -142,14 +146,14 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "username", kind: migrationText}, {name: "password_enc", kind: migrationText},
 		{name: "conn_limit", kind: migrationInt32}, {name: "stmt_timeout_ms", kind: migrationInt32},
 		{name: "row_limit", kind: migrationInt32}, {name: "created_at", kind: migrationTime},
-		{name: "updated_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "rules", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "db_type", kind: migrationText},
 		{name: "title", kind: migrationText}, {name: "risk_level", kind: migrationInt32},
 		{name: "pattern_type", kind: migrationText}, {name: "definition", kind: migrationText},
 		{name: "enabled", kind: migrationBool}, {name: "builtin", kind: migrationBool},
-		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "mask_rules", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
@@ -160,7 +164,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "range_bucket_width", kind: migrationInt32},
 		{name: "range_bucket_offset", kind: migrationInt32},
 		{name: "range_granularity", kind: migrationText},
-		{name: "schema_name", kind: migrationText},
+		{name: "schema_name", kind: migrationText}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "policies", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "agent_id", kind: migrationText},
@@ -169,7 +173,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "row_filter", kind: migrationText}, {name: "action", kind: migrationText},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 		{name: "relation_binding_id", kind: migrationText}, {name: "revision", kind: migrationInt64},
-		{name: "legacy_unrepresentable", kind: migrationBool},
+		{name: "legacy_unrepresentable", kind: migrationBool}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "relation_policy_bindings", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "policy_id", kind: migrationText},
@@ -177,19 +181,19 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "relation_name", kind: migrationText}, {name: "stable_object_id", kind: migrationText},
 		{name: "catalog_fingerprint", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "revision", kind: migrationInt64}, {name: "created_at", kind: migrationTime},
-		{name: "updated_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "policy_column_permission_staging", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "policy_id", kind: migrationText}, {name: "token_ordinal", kind: migrationInt32},
 		{name: "legacy_token", kind: migrationText}, {name: "requested_usage", kind: migrationText},
 		{name: "source_csv_sha256", kind: migrationText}, {name: "bind_status", kind: migrationText},
-		{name: "error_code", kind: migrationText},
+		{name: "error_code", kind: migrationText}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "policy_column_permissions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "policy_id", kind: migrationText}, {name: "relation_enrollment_id", kind: migrationText},
 		{name: "column_ordinal", kind: migrationInt32}, {name: "column_name", kind: migrationText},
 		{name: "column_type_digest", kind: migrationText}, {name: "usage", kind: migrationText},
-		{name: "parent_revision", kind: migrationInt64},
+		{name: "parent_revision", kind: migrationInt64}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "audit_logs", pkIndex: 0, target: migrationTargetAudit, columns: []migrationColumn{
 		{name: "id", kind: migrationInt64}, {name: "ts", kind: migrationTime},
@@ -205,22 +209,22 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "error_msg", kind: migrationText}, {name: "action", kind: migrationText},
 		{name: "actor_type", kind: migrationText}, {name: "actor_id", kind: migrationText},
 		{name: "details_json", kind: migrationText}, {name: "error_code", kind: migrationText},
-		{name: "event_uuid", kind: migrationText},
+		{name: "event_uuid", kind: migrationText}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "approvals", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "audit_id", kind: migrationInt64},
 		{name: "agent_id", kind: migrationText}, {name: "sql_raw", kind: migrationText},
 		{name: "reason", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "approver", kind: migrationText}, {name: "decided_at", kind: migrationTime},
-		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
-	{name: "notification_settings", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
-		{name: "id", kind: migrationInt32}, {name: "enabled", kind: migrationBool},
+	{name: "notification_settings", pkIndex: 1, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "id", kind: migrationInt32}, {name: "enabled", kind: migrationBool},
 		{name: "queue_size", kind: migrationInt32}, {name: "created_at", kind: migrationTime},
 		{name: "updated_at", kind: migrationTime},
 	}},
-	{name: "notification_channels", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
-		{name: "id", kind: migrationText}, {name: "position", kind: migrationInt32},
+	{name: "notification_channels", pkIndex: 1, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "id", kind: migrationText}, {name: "position", kind: migrationInt32},
 		{name: "enabled", kind: migrationBool}, {name: "kind", kind: migrationText},
 		{name: "decisions", kind: migrationText}, {name: "include_sql", kind: migrationBool},
 		{name: "allow_private_endpoints", kind: migrationBool}, {name: "webhook_present", kind: migrationBool},
@@ -236,7 +240,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "commitment", kind: migrationText}, {name: "label", kind: migrationText},
 		{name: "config_revision", kind: migrationText}, {name: "created_at", kind: migrationTime},
 		{name: "updated_at", kind: migrationTime}, {name: "activated_at", kind: migrationTime},
-		{name: "retired_at", kind: migrationTime},
+		{name: "retired_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "management_audit_outbox", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "event_uuid", kind: migrationText}, {name: "action", kind: migrationText},
@@ -244,7 +248,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "details_json", kind: migrationText}, {name: "created_at", kind: migrationTime},
 		{name: "attempts", kind: migrationInt32}, {name: "claimed_by", kind: migrationText},
 		{name: "claimed_at", kind: migrationTime}, {name: "last_error", kind: migrationText},
-		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime},
+		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "admin_access_revocations", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "jti", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
@@ -258,10 +262,6 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "token_hash", kind: migrationText}, {name: "family_id", kind: migrationText}, {name: "expires_at", kind: migrationTime},
 		{name: "state", kind: migrationText}, {name: "replaced_by_hash", kind: migrationText}, {name: "created_at", kind: migrationTime},
 		{name: "used_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
-	}},
-	{name: "tenants", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
-		{name: "id", kind: migrationText}, {name: "name", kind: migrationText}, {name: "status", kind: migrationText},
-		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
 	{name: "users", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText}, {name: "username", kind: migrationText},
@@ -304,7 +304,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "connection_generation", kind: migrationInt64}, {name: "lease_generation", kind: migrationInt64},
 		{name: "statement_count", kind: migrationInt32}, {name: "transaction_seq", kind: migrationInt64},
 		{name: "previous_tx_event_digest", kind: migrationBytes}, {name: "created_at", kind: migrationTime},
-		{name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64},
+		{name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "b5_dml_grants", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "grant_id", kind: migrationText}, {name: "policy_id", kind: migrationText}, {name: "policy_revision", kind: migrationInt64},
@@ -315,7 +315,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "column_attnum", kind: migrationInt32}, {name: "column_name", kind: migrationText}, {name: "column_type_oid", kind: migrationInt64},
 		{name: "column_type_modifier", kind: migrationInt32}, {name: "column_collation_oid", kind: migrationInt64}, {name: "reference_kind", kind: migrationText},
 		{name: "proof_schema_id", kind: migrationText}, {name: "proof_schema_version", kind: migrationInt32}, {name: "proof_digest", kind: migrationBytes},
-		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "b5_result_receipts", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "session_id", kind: migrationText}, {name: "request_id", kind: migrationText}, {name: "event_uuid", kind: migrationBytes},
@@ -323,14 +323,14 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "business_event_digest", kind: migrationBytes}, {name: "wal_append_receipt_digest", kind: migrationBytes},
 		{name: "reported_durability", kind: migrationText}, {name: "append_confirmation", kind: migrationText},
 		{name: "reconciliation", kind: migrationText}, {name: "delivery_status", kind: migrationText},
-		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "revision", kind: migrationInt64}, {name: "tenant_id", kind: migrationText},
 	}},
 	{name: "b5_tx_events", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "transaction_id", kind: migrationText}, {name: "transaction_seq", kind: migrationInt64}, {name: "event_uuid", kind: migrationBytes},
 		{name: "event_type", kind: migrationText}, {name: "event_schema_id", kind: migrationText}, {name: "event_schema_version", kind: migrationInt32},
 		{name: "previous_tx_event_digest", kind: migrationBytes}, {name: "event_digest", kind: migrationBytes}, {name: "canonical_event", kind: migrationBytes},
 		{name: "terminal_evidence_text", kind: migrationText}, {name: "disposition_proof_text", kind: migrationText},
-		{name: "audit_log_id", kind: migrationInt64}, {name: "created_at", kind: migrationTime},
+		{name: "audit_log_id", kind: migrationInt64}, {name: "created_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
 }
 
@@ -551,7 +551,7 @@ func verifyMigrationSourceTables(ctx context.Context, source *sql.Tx) error {
 			if isDerivedExcludedColumn(table.name, name) {
 				continue
 			}
-			if index >= len(table.columns) || columnID != index || name != table.columns[index].name {
+			if index >= len(table.columns) || name != table.columns[index].name {
 				_ = rows.Close()
 				return fmt.Errorf("verify SQLite source schema: columns differ for table=%s", table.name)
 			}
@@ -822,6 +822,12 @@ const (
 func classifyMigrationGroup(tables []migrationTable, source, target map[string]migrationDigest) migrationGroupState {
 	empty := true
 	for _, table := range tables {
+		if table.name == "tenants" && target[table.name].rows == 1 {
+			// The tenant-ownership migration seeds tenant_default before any
+			// business FK can be populated. Treat that canonical seed as empty;
+			// exact digest verification after copy still detects any mismatch.
+			continue
+		}
 		if target[table.name].rows != 0 {
 			empty = false
 			break
@@ -1137,7 +1143,14 @@ func migrationInsertSQL(table migrationTable, rowCount int) string {
 	if table.name == "audit_logs" {
 		override = " OVERRIDING SYSTEM VALUE"
 	}
-	return "INSERT INTO \"public\"." + quoteMigrationIdentifier(table.name) + " (" + strings.Join(columns, ",") + ")" + override + " VALUES " + strings.Join(values, ",")
+	conflict := ""
+	if table.name == "tenants" {
+		// Fresh PostgreSQL schemas contain the canonical tenant_default row from
+		// the metadata migration. Replace every mutable value with the SQLite
+		// source value so the post-copy digest is exact (timestamps included).
+		conflict = " ON CONFLICT (\"id\") DO UPDATE SET \"name\"=EXCLUDED.\"name\",\"status\"=EXCLUDED.\"status\",\"created_at\"=EXCLUDED.\"created_at\",\"updated_at\"=EXCLUDED.\"updated_at\""
+	}
+	return "INSERT INTO \"public\"." + quoteMigrationIdentifier(table.name) + " (" + strings.Join(columns, ",") + ")" + override + " VALUES " + strings.Join(values, ",") + conflict
 }
 
 func quoteMigrationIdentifier(identifier string) string { return `"` + identifier + `"` }

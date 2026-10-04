@@ -12,6 +12,7 @@ const (
 // RedactionKeyVersion is a key-version registry record. It never contains key material.
 type RedactionKeyVersion struct {
 	ID             string
+	TenantID       string
 	State          string
 	Commitment     string
 	Label          string
@@ -25,6 +26,7 @@ type RedactionKeyVersion struct {
 // ManagementAuditOutbox is one metadata-side management audit delivery.
 type ManagementAuditOutbox struct {
 	EventUUID     string
+	TenantID      string
 	Action        string
 	ActorType     string
 	ActorID       string

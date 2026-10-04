@@ -64,6 +64,9 @@ func (repository *MaskRuleRepository) ApplyDiscoveryDraftsWithAudit(
 		repository.applyMu.Lock()
 		defer repository.applyMu.Unlock()
 	}
+	if _, tenantErr := repository.requireTenant(ctx, "apply discovery drafts"); tenantErr != nil {
+		return outcome, recorded, tenantErr
+	}
 	outcome, recorded, err = repository.applyDiscoveryDraftsTransaction(ctx, datasourceID, drafts, buildAudit)
 	if IsMaskRuleConflict(err) {
 		// A different process can win after this process plans but before it
@@ -112,6 +115,11 @@ func (repository *MaskRuleRepository) applyDiscoveryDraftsTransaction(
 	if err != nil {
 		return DiscoveryApplyOutcome{}, recorded, err
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "apply discovery drafts")
+	if tenantErr != nil {
+		return DiscoveryApplyOutcome{}, recorded, tenantErr
+	}
+	log.TenantID = tenantID
 	if repository.auditSeparate {
 		if repository.outbox == nil {
 			return DiscoveryApplyOutcome{}, model.AuditLog{}, fmt.Errorf("apply discovery drafts: outbox repository is not initialized")
@@ -137,7 +145,11 @@ func (repository *MaskRuleRepository) applyDiscoveryDraftsTransaction(
 }
 
 func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, executor sqlExecutor, datasourceID string, drafts []DiscoveryDraft) (DiscoveryApplyOutcome, error) {
-	listed, err := listDiscoveryScopeRules(ctx, executor, repository.dialect, datasourceID)
+	tenantID, tenantErr := repository.requireTenant(ctx, "plan discovery drafts")
+	if tenantErr != nil {
+		return DiscoveryApplyOutcome{}, tenantErr
+	}
+	listed, err := listDiscoveryScopeRules(ctx, executor, repository.dialect, tenantID, datasourceID)
 	if err != nil {
 		return DiscoveryApplyOutcome{}, err
 	}
@@ -164,6 +176,7 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 			return DiscoveryApplyOutcome{}, fmt.Errorf("apply discovery drafts: %w: %w", ErrInvalidDiscoveryDraft, validationErr)
 		}
 		candidate := discoveryRuleToMaskRule(draft, column, datasourceID, canonical)
+		candidate.TenantID = tenantID
 		var scoped *model.MaskRule
 		var global *model.MaskRule
 		for index := range listed {
@@ -205,14 +218,14 @@ func (repository *MaskRuleRepository) planDiscoveryDrafts(ctx context.Context, e
 	return outcome, nil
 }
 
-func listDiscoveryScopeRules(ctx context.Context, executor sqlExecutor, dialect Dialect, datasourceID string) ([]model.MaskRule, error) {
+func listDiscoveryScopeRules(ctx context.Context, executor sqlExecutor, dialect Dialect, tenantID, datasourceID string) ([]model.MaskRule, error) {
 	query := repositoryBase{dialect: dialect}.bind(`
-SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
+SELECT id, tenant_id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
-WHERE datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = ''
+WHERE tenant_id = ? AND (datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = '')
 ORDER BY id`)
-	rows, err := executor.QueryContext(ctx, query, datasourceID)
+	rows, err := executor.QueryContext(ctx, query, tenantID, datasourceID)
 	if err != nil {
 		return nil, fmt.Errorf("apply discovery drafts: list rules: %w", err)
 	}
@@ -234,11 +247,11 @@ ORDER BY id`)
 func insertDiscoveryDraft(ctx context.Context, executor sqlExecutor, dialect Dialect, rule model.MaskRule) error {
 	_, err := executor.ExecContext(ctx, repositoryBase{dialect: dialect}.bind(`
 INSERT INTO mask_rules (
-  id, datasource_id, schema_name, table_name, column_name, sensitive_type, algo, enabled,
+  id, tenant_id, datasource_id, schema_name, table_name, column_name, sensitive_type, algo, enabled,
   range_bucket_width, range_bucket_offset, range_granularity
 )
-VALUES (?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?, ?, ?, ?)`),
-		rule.ID, optionalString(rule.DatasourceID), rule.SchemaName, rule.TableName,
+VALUES (?, ?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?, ?, ?, ?)`),
+		rule.ID, rule.TenantID, optionalString(rule.DatasourceID), rule.SchemaName, rule.TableName,
 		rule.ColumnName, rule.SensitiveType, rule.Algo, false,
 		rule.RangeBucketWidth, rule.RangeBucketOffset, rule.RangeGranularity)
 	if err != nil {

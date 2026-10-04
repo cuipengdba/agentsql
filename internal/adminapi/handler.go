@@ -302,21 +302,15 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 			handler.fail(writer, http.StatusForbidden, "forbidden")
 			return
 		}
-		if principal.TenantID != rbac.DefaultTenantID && !tenantNativeRoute(request.URL.Path) {
-			// Existing SQL gateway resources predate tenant ownership columns. Until
-			// they are migrated, non-default tenants must never see the shared rows.
-			handler.fail(writer, http.StatusForbidden, "forbidden")
-			return
-		}
 		ctx := context.WithValue(request.Context(), principalContextKey{}, principal)
 		ctx = context.WithValue(ctx, tokenPayloadContextKey{}, payload)
+		ctx, err = store.WithTenant(ctx, principal.TenantID)
+		if err != nil {
+			handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
-}
-
-func tenantNativeRoute(path string) bool {
-	return strings.HasPrefix(path, "/api/v1/auth/") || strings.HasPrefix(path, "/api/v1/users") ||
-		strings.HasPrefix(path, "/api/v1/roles") || strings.HasPrefix(path, "/api/v1/tenants") || path == "/api/v1/permissions"
 }
 
 type principalContextKey struct{}

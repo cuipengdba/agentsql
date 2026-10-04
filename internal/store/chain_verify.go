@@ -323,12 +323,16 @@ func commitVerificationSnapshot(transaction *sql.Tx) error {
 }
 
 func (verifier *ChainVerifier) readState(ctx context.Context, transaction *sql.Tx) (ChainState, error) {
+	tenantID, tenantErr := verifier.requireTenant(ctx, "verify audit chain state")
+	if tenantErr != nil {
+		return ChainState{}, tenantErr
+	}
 	state, err := scanChainState(transaction.QueryRowContext(ctx, verifier.bind(`
 SELECT chain_id, chain_instance_id, status, mode, head_seq, head_id, head_hash,
        genesis_at, protected_since_id, build_owner, build_lease_until, build_epoch,
        last_built_id, last_built_seq, last_built_hash, updated_at
 FROM chain_state
-WHERE chain_id = ?`), verifier.chainID))
+WHERE chain_id = ? AND tenant_id = ?`), verifier.chainID, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChainState{}, fmt.Errorf("verify audit chain state %q: %w", verifier.chainID, errors.Join(ErrNotFound, err))
 	}
@@ -356,9 +360,13 @@ func (verifier *ChainVerifier) readCoverageCounts(
 	transaction *sql.Tx,
 	outcome *ChainVerificationOutcome,
 ) error {
-	if err := transaction.QueryRowContext(ctx, `
+	tenantID, tenantErr := verifier.requireTenant(ctx, "read audit chain coverage")
+	if tenantErr != nil {
+		return tenantErr
+	}
+	if err := transaction.QueryRowContext(ctx, verifier.bind(`
 SELECT COUNT(*), COALESCE(SUM(CASE WHEN chain_seq IS NULL THEN 1 ELSE 0 END), 0)
-FROM audit_logs`).Scan(&outcome.TotalRows, &outcome.Unchained); err != nil {
+FROM audit_logs WHERE tenant_id = ?`), tenantID).Scan(&outcome.TotalRows, &outcome.Unchained); err != nil {
 		return fmt.Errorf("read audit chain coverage counts: %w", err)
 	}
 	return nil
@@ -392,11 +400,15 @@ func (verifier *ChainVerifier) firstHalfChained(
 	ctx context.Context,
 	transaction *sql.Tx,
 ) (sequence, id int64, found bool, err error) {
+	tenantID, tenantErr := verifier.requireTenant(ctx, "detect half-chained audit row")
+	if tenantErr != nil {
+		return 0, 0, false, tenantErr
+	}
 	var nullableSequence sql.NullInt64
-	err = transaction.QueryRowContext(ctx, `
+	err = transaction.QueryRowContext(ctx, verifier.bind(`
 SELECT chain_seq, id
 FROM audit_logs
-WHERE NOT (
+WHERE tenant_id = ? AND NOT (
         chain_seq IS NULL AND prev_hash IS NULL AND self_hash IS NULL
         AND chain_key_version IS NULL AND chain_format_version IS NULL
       )
@@ -405,7 +417,7 @@ WHERE NOT (
         AND chain_key_version IS NOT NULL AND chain_format_version IS NOT NULL
       )
 ORDER BY CASE WHEN chain_seq IS NULL THEN 0 ELSE chain_seq END, id
-LIMIT 1`).Scan(&nullableSequence, &id)
+LIMIT 1`), tenantID).Scan(&nullableSequence, &id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, 0, false, nil
 	}
@@ -441,13 +453,18 @@ func nullableVerificationInt64(value int64) any {
 }
 
 func (verifier *ChainVerifier) persist(ctx context.Context, outcome ChainVerificationOutcome) error {
+	tenantID, tenantErr := verifier.requireTenant(ctx, "persist audit chain verification")
+	if tenantErr != nil {
+		return tenantErr
+	}
 	query := `
 INSERT INTO chain_verification (
-  chain_id, observed_instance_id, observed_head_hash, result,
+  tenant_id, chain_id, observed_instance_id, observed_head_hash, result,
   last_verified_head_seq, last_verified_at, break_seq, break_id, break_reason
 )
-SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?`
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
 	arguments := []any{
+		tenantID,
 		outcome.ChainID,
 		outcome.observedInstance,
 		outcome.observedHeadHash,
@@ -459,7 +476,7 @@ SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?`
 		nullableVerificationString(outcome.BreakReason),
 	}
 	if outcome.observed {
-		predicate, predicateArguments := verifier.verificationObservationPredicate(outcome)
+		predicate, predicateArguments := verifier.verificationObservationPredicate(tenantID, outcome)
 		query += "\nWHERE EXISTS (" + predicate + ")"
 		arguments = append(arguments, predicateArguments...)
 	} else {
@@ -467,7 +484,7 @@ SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?`
 		query += "\nWHERE 1 = 1"
 	}
 	query += `
-ON CONFLICT(chain_id) DO UPDATE SET
+ON CONFLICT(tenant_id,chain_id) DO UPDATE SET
   observed_instance_id = excluded.observed_instance_id,
   observed_head_hash = excluded.observed_head_hash,
   result = excluded.result,
@@ -479,7 +496,7 @@ ON CONFLICT(chain_id) DO UPDATE SET
 WHERE (chain_verification.last_verified_at IS NULL
    OR chain_verification.last_verified_at <= excluded.last_verified_at)`
 	if outcome.observed {
-		predicate, predicateArguments := verifier.verificationObservationPredicate(outcome)
+		predicate, predicateArguments := verifier.verificationObservationPredicate(tenantID, outcome)
 		query += "\n  AND EXISTS (" + predicate + ")"
 		arguments = append(arguments, predicateArguments...)
 	}
@@ -489,7 +506,7 @@ WHERE (chain_verification.last_verified_at IS NULL
 	return nil
 }
 
-func (verifier *ChainVerifier) verificationObservationPredicate(outcome ChainVerificationOutcome) (string, []any) {
+func (verifier *ChainVerifier) verificationObservationPredicate(tenantID string, outcome ChainVerificationOutcome) (string, []any) {
 	nullSafeComparison := func(column string) string {
 		if verifier.dialect == DialectPostgres {
 			return column + " IS NOT DISTINCT FROM ?"
@@ -498,7 +515,7 @@ func (verifier *ChainVerifier) verificationObservationPredicate(outcome ChainVer
 	}
 	predicate := `
 SELECT 1 FROM chain_state
-WHERE chain_id = ?
+WHERE tenant_id = ? AND chain_id = ?
   AND status = ?
   AND head_seq = ?
   AND build_epoch = ?
@@ -506,6 +523,7 @@ WHERE chain_id = ?
   AND ` + nullSafeComparison("head_hash") + `
   AND ` + nullSafeComparison("mode")
 	arguments := []any{
+		tenantID,
 		outcome.ChainID,
 		outcome.Status,
 		outcome.HeadSeq,

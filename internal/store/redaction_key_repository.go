@@ -39,11 +39,15 @@ func (repository *RedactionKeyRepository) List(ctx context.Context) ([]model.Red
 	if err := repository.validate(ctx, "list"); err != nil {
 		return nil, err
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "list redaction key versions")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	order := "CAST(id AS INTEGER)"
 	if repository.dialect == DialectPostgres {
 		order = "id::int"
 	}
-	rows, err := repository.db.QueryContext(ctx, `SELECT id,state,commitment,label,config_revision,created_at,updated_at,activated_at,retired_at FROM redaction_key_versions ORDER BY `+order)
+	rows, err := repository.db.QueryContext(ctx, repository.bind(`SELECT id,tenant_id,state,commitment,label,config_revision,created_at,updated_at,activated_at,retired_at FROM redaction_key_versions WHERE tenant_id=? ORDER BY `+order), tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list redaction key versions: %w", err)
 	}
@@ -78,6 +82,10 @@ func (repository *RedactionKeyRepository) RegisterStandby(ctx context.Context, i
 	if err := repository.validate(ctx, "register"); err != nil {
 		return err
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "register redaction key version")
+	if tenantErr != nil {
+		return tenantErr
+	}
 	if err := validateRedactionKeyID(id); err != nil {
 		return fmt.Errorf("register redaction key version: %w", err)
 	}
@@ -90,7 +98,7 @@ func (repository *RedactionKeyRepository) RegisterStandby(ctx context.Context, i
 	}
 	existing, err := repository.getWith(ctx, executor, id)
 	if errors.Is(err, ErrNotFound) {
-		_, err = executor.ExecContext(ctx, repository.bind(`INSERT INTO redaction_key_versions (id,state,commitment,label,config_revision,created_at,updated_at) VALUES (?,'standby',?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`), id, commitment, optionalText(label), optionalText(configRevision))
+		_, err = executor.ExecContext(ctx, repository.bind(`INSERT INTO redaction_key_versions (id,tenant_id,state,commitment,label,config_revision,created_at,updated_at) VALUES (?,?,'standby',?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`), id, tenantID, commitment, optionalText(label), optionalText(configRevision))
 		if err != nil {
 			return fmt.Errorf("register redaction key version: %w", err)
 		}
@@ -105,7 +113,7 @@ func (repository *RedactionKeyRepository) RegisterStandby(ctx context.Context, i
 	if existing.Commitment != "" && existing.Commitment != commitment {
 		return fmt.Errorf("register redaction key version: %w", ErrRedactionKeyCommitmentConflict)
 	}
-	_, err = executor.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET commitment=?,label=?,config_revision=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND state IN ('standby','legacy','active')`), commitment, optionalText(label), optionalText(configRevision), id)
+	_, err = executor.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET commitment=?,label=?,config_revision=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND state IN ('standby','legacy','active')`), commitment, optionalText(label), optionalText(configRevision), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("register redaction key version: %w", err)
 	}
@@ -127,6 +135,11 @@ func (repository *RedactionKeyRepository) MarkActiveCAS(ctx context.Context, id 
 		repository.mu.Lock()
 		defer repository.mu.Unlock()
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "mark redaction key active")
+	if tenantErr != nil {
+		err = tenantErr
+		return
+	}
 	tx, beginErr := repository.db.BeginTx(ctx, nil)
 	if beginErr != nil {
 		err = fmt.Errorf("mark redaction key active: begin transaction: %w", beginErr)
@@ -141,11 +154,11 @@ func (repository *RedactionKeyRepository) MarkActiveCAS(ctx context.Context, id 
 	if err != nil {
 		return before, after, outcome, fmt.Errorf("mark redaction key active: %w", err)
 	}
-	query := `SELECT id FROM redaction_key_versions WHERE state='active' ORDER BY id`
+	query := repository.bind(`SELECT id FROM redaction_key_versions WHERE tenant_id=? AND state='active' ORDER BY id`)
 	if repository.dialect == DialectPostgres {
 		query += ` FOR UPDATE`
 	}
-	rows, queryErr := tx.QueryContext(ctx, query)
+	rows, queryErr := tx.QueryContext(ctx, query, tenantID)
 	if queryErr != nil {
 		err = fmt.Errorf("mark redaction key active: inspect active versions: %w", queryErr)
 		return
@@ -172,7 +185,7 @@ func (repository *RedactionKeyRepository) MarkActiveCAS(ctx context.Context, id 
 			err = fmt.Errorf("mark redaction key active: first activation requires standby: %w", ErrRedactionKeyTransition)
 			return
 		}
-		if err = expectOneAffected(tx.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='active',activated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='standby'`), id)); err != nil {
+		if err = expectOneAffected(tx.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='active',activated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND state='standby'`), id, tenantID)); err != nil {
 			err = fmt.Errorf("mark redaction key active: %w", err)
 			return
 		}
@@ -186,11 +199,11 @@ func (repository *RedactionKeyRepository) MarkActiveCAS(ctx context.Context, id 
 			err = fmt.Errorf("mark redaction key active: target must be standby or legacy: %w", ErrRedactionKeyTransition)
 			return
 		}
-		if err = expectOneAffected(tx.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='legacy',updated_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'`), activeIDs[0])); err != nil {
+		if err = expectOneAffected(tx.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='legacy',updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND state='active'`), activeIDs[0], tenantID)); err != nil {
 			err = fmt.Errorf("mark redaction key active: demote current version: %w", err)
 			return
 		}
-		if err = expectOneAffected(tx.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='active',activated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND state IN ('standby','legacy')`), id)); err != nil {
+		if err = expectOneAffected(tx.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='active',activated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND state IN ('standby','legacy')`), id, tenantID)); err != nil {
 			err = fmt.Errorf("mark redaction key active: promote target version: %w", err)
 			return
 		}
@@ -234,7 +247,11 @@ func (repository *RedactionKeyRepository) MarkRetired(ctx context.Context, id st
 	default:
 		return fmt.Errorf("retire redaction key version: unknown state: %w", ErrRedactionKeyIntegrity)
 	}
-	result, err := repository.db.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='retired',retired_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND state IN ('standby','legacy')`), id)
+	tenantID, tenantErr := repository.requireTenant(ctx, "retire redaction key version")
+	if tenantErr != nil {
+		return tenantErr
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind(`UPDATE redaction_key_versions SET state='retired',retired_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND state IN ('standby','legacy')`), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("retire redaction key version: %w", err)
 	}
@@ -245,7 +262,11 @@ func (repository *RedactionKeyRepository) MarkRetired(ctx context.Context, id st
 }
 
 func (repository *RedactionKeyRepository) getWith(ctx context.Context, executor sqlExecutor, id string) (model.RedactionKeyVersion, error) {
-	version, err := scanRedactionKeyVersion(executor.QueryRowContext(ctx, repository.bind(`SELECT id,state,commitment,label,config_revision,created_at,updated_at,activated_at,retired_at FROM redaction_key_versions WHERE id=?`), id))
+	tenantID, tenantErr := repository.requireTenant(ctx, "get redaction key version")
+	if tenantErr != nil {
+		return model.RedactionKeyVersion{}, tenantErr
+	}
+	version, err := scanRedactionKeyVersion(executor.QueryRowContext(ctx, repository.bind(`SELECT id,tenant_id,state,commitment,label,config_revision,created_at,updated_at,activated_at,retired_at FROM redaction_key_versions WHERE id=? AND tenant_id=?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.RedactionKeyVersion{}, fmt.Errorf("redaction key version not found: %w", ErrNotFound)
 	}
@@ -259,7 +280,7 @@ func scanRedactionKeyVersion(scanner rowScanner) (model.RedactionKeyVersion, err
 	var version model.RedactionKeyVersion
 	var commitment, label, revision sql.NullString
 	var createdAt, updatedAt, activatedAt, retiredAt databaseTimestamp
-	if err := scanner.Scan(&version.ID, &version.State, &commitment, &label, &revision, &createdAt, &updatedAt, &activatedAt, &retiredAt); err != nil {
+	if err := scanner.Scan(&version.ID, &version.TenantID, &version.State, &commitment, &label, &revision, &createdAt, &updatedAt, &activatedAt, &retiredAt); err != nil {
 		return version, err
 	}
 	version.Commitment, version.Label, version.ConfigRevision = commitment.String, label.String, revision.String

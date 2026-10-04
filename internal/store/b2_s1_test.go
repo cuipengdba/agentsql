@@ -143,6 +143,7 @@ func TestB2LegacyCSVStagingMigrationAndPreflightRollback(t *testing.T) {
 func TestB2SQLiteDownAndReapplyAreSafe(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 14))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 13))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 12))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 11))
@@ -151,13 +152,13 @@ func TestB2SQLiteDownAndReapplyAreSafe(t *testing.T) {
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
 	require.Equal(t, 8, current)
-	require.Equal(t, 13, latest)
+	require.Equal(t, 14, latest)
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 9), "same down is idempotent")
 	require.NoError(t, Migrate(ctx, opened.metaDB, DialectSQLite))
 	current, latest, err = MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 13, current)
-	require.Equal(t, 13, latest)
+	require.Equal(t, 14, current)
+	require.Equal(t, 14, latest)
 }
 
 func TestB2FenceLeaseExpiryIsFailClosed(t *testing.T) {

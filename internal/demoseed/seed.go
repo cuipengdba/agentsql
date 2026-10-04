@@ -640,6 +640,9 @@ func sameRule(expected, stored model.Rule) bool {
 }
 
 func sameAudit(expected, stored model.AuditLog) bool {
+	if expected.TenantID == "" {
+		expected.TenantID = store.DefaultTenantID
+	}
 	if !expected.TS.Equal(stored.TS) {
 		return false
 	}
@@ -649,7 +652,10 @@ func sameAudit(expected, stored model.AuditLog) bool {
 }
 
 func sameApproval(expected, stored model.Approval) bool {
-	return expected.ID == stored.ID && equalInt64(expected.AuditID, stored.AuditID) &&
+	if expected.TenantID == "" {
+		expected.TenantID = store.DefaultTenantID
+	}
+	return expected.ID == stored.ID && expected.TenantID == stored.TenantID && equalInt64(expected.AuditID, stored.AuditID) &&
 		equalString(expected.AgentID, stored.AgentID) && equalString(expected.SQLRaw, stored.SQLRaw) &&
 		equalString(expected.Reason, stored.Reason) && expected.Status == stored.Status &&
 		equalString(expected.Approver, stored.Approver) && equalTime(expected.DecidedAt, stored.DecidedAt)

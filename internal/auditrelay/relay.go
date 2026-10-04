@@ -72,31 +72,46 @@ func (relay *Relay) RunOnce(ctx context.Context) (int, error) {
 		relay.observe(ctx)
 		return 0, nil
 	}
-	logs := make([]model.AuditLog, len(events))
-	uuids := make([]string, len(events))
-	for index, event := range events {
-		logs[index] = managementAuditLog(event)
-		uuids[index] = event.EventUUID
-	}
-	relay.commitMu.Lock()
-	_, deliveryErr := relay.audit.AppendBatch(ctx, logs)
-	relay.commitMu.Unlock()
 	persisted := make(map[string]struct{}, len(events))
-	if deliveryErr == nil {
-		for _, eventUUID := range uuids {
-			persisted[eventUUID] = struct{}{}
+	groups := make(map[string][]model.ManagementAuditOutbox)
+	for _, event := range events {
+		tenantID := event.TenantID
+		if tenantID == "" {
+			tenantID = store.DefaultTenantID
 		}
-	} else {
-		rows, findErr := relay.audit.FindByEventUUIDs(ctx, uuids)
+		groups[tenantID] = append(groups[tenantID], event)
+	}
+	var deliveryErr error
+	for tenantID, group := range groups {
+		tenantCtx, tenantErr := store.WithTenant(ctx, tenantID)
+		if tenantErr != nil {
+			deliveryErr = errors.Join(deliveryErr, tenantErr)
+			continue
+		}
+		logs, uuids := make([]model.AuditLog, len(group)), make([]string, len(group))
+		for index, event := range group {
+			logs[index], uuids[index] = managementAuditLog(event), event.EventUUID
+		}
+		relay.commitMu.Lock()
+		_, appendErr := relay.audit.AppendBatch(tenantCtx, logs)
+		relay.commitMu.Unlock()
+		if appendErr == nil {
+			for _, eventUUID := range uuids {
+				persisted[eventUUID] = struct{}{}
+			}
+			continue
+		}
+		rows, findErr := relay.audit.FindByEventUUIDs(tenantCtx, uuids)
 		if findErr != nil {
-			deliveryErr = errors.Join(deliveryErr, fmt.Errorf("reconcile audit batch: %w", findErr))
-		} else {
-			for _, row := range rows {
-				if row.EventUUID != nil {
-					persisted[*row.EventUUID] = struct{}{}
-				}
+			deliveryErr = errors.Join(deliveryErr, appendErr, fmt.Errorf("reconcile audit batch: %w", findErr))
+			continue
+		}
+		for _, row := range rows {
+			if row.EventUUID != nil {
+				persisted[*row.EventUUID] = struct{}{}
 			}
 		}
+		deliveryErr = errors.Join(deliveryErr, appendErr)
 	}
 	delivered := 0
 	var failures []error
@@ -160,7 +175,7 @@ func (relay *Relay) observe(ctx context.Context) {
 func managementAuditLog(event model.ManagementAuditOutbox) model.AuditLog {
 	action, actorType, actorID, details, eventUUID := event.Action, event.ActorType, event.ActorID, event.DetailsJSON, event.EventUUID
 	return model.AuditLog{
-		Decision: "allow", Action: &action, ActorType: &actorType, ActorID: &actorID,
+		TenantID: event.TenantID, Decision: "allow", Action: &action, ActorType: &actorType, ActorID: &actorID,
 		DetailsJSON: &details, EventUUID: &eventUUID,
 	}
 }

@@ -32,14 +32,19 @@ type MaskRuleRepository struct {
 
 // Create inserts a mask rule and returns the stored record.
 func (repository *MaskRuleRepository) Create(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
+	tenantID, err := repository.requireTenant(ctx, "create mask rule")
+	if err != nil {
+		return model.MaskRule{}, err
+	}
 	rule = normalizeMaskRuleRangeFields(rule)
-	_, err := repository.db.ExecContext(ctx, repository.bind(`
+	_, err = repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO mask_rules (
-  id, datasource_id, schema_name, table_name, column_name, sensitive_type, algo, enabled,
+  id, tenant_id, datasource_id, schema_name, table_name, column_name, sensitive_type, algo, enabled,
   range_bucket_width, range_bucket_offset, range_granularity
 )
-VALUES (?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?, ?, ?, ?)`),
+VALUES (?, ?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?, ?, ?, ?)`),
 		rule.ID,
+		tenantID,
 		optionalString(rule.DatasourceID),
 		rule.SchemaName,
 		rule.TableName,
@@ -66,11 +71,15 @@ VALUES (?, ?, COALESCE(?, ''), COALESCE(?, ''), ?, ?, ?, ?, ?, ?, ?)`),
 
 // Get returns a mask rule by ID.
 func (repository *MaskRuleRepository) Get(ctx context.Context, id string) (model.MaskRule, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "get mask rule")
+	if tenantErr != nil {
+		return model.MaskRule{}, tenantErr
+	}
 	rule, err := scanMaskRule(repository.db.QueryRowContext(ctx, repository.bind(`
-SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
+SELECT id, tenant_id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
-WHERE id = ?`), id))
+WHERE id = ? AND tenant_id = ?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.MaskRule{}, fmt.Errorf("get mask rule %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -108,17 +117,21 @@ func (repository *MaskRuleRepository) listByDatasource(
 	if ctx == nil {
 		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
 	}
+	tenantID, err := repository.requireTenant(ctx, "list mask rules")
+	if err != nil {
+		return nil, err
+	}
 	enabledClause := ""
 	if enabledOnly {
 		enabledClause = " AND enabled = ?"
 	}
 	query := `
-SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
+SELECT id, tenant_id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
-WHERE (datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = '')` + enabledClause + `
+WHERE tenant_id = ? AND (datasource_id = ? OR datasource_id IS NULL OR TRIM(datasource_id) = '')` + enabledClause + `
 ORDER BY schema_name ASC, table_name ASC, column_name ASC, id ASC`
-	args := []any{datasourceID}
+	args := []any{tenantID, datasourceID}
 	if enabledOnly {
 		args = append(args, true)
 	}
@@ -155,11 +168,16 @@ func (repository *MaskRuleRepository) List(ctx context.Context) ([]model.MaskRul
 	if ctx == nil {
 		return nil, fmt.Errorf("list mask rules: %w", ErrNilContext)
 	}
+	tenantID, err := repository.requireTenant(ctx, "list mask rules")
+	if err != nil {
+		return nil, err
+	}
 	rows, err := repository.db.QueryContext(ctx, repository.bind(`
-SELECT id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
+SELECT id, tenant_id, datasource_id, COALESCE(schema_name, ''), COALESCE(table_name, ''), column_name, sensitive_type, algo,
        created_at, updated_at, enabled, range_bucket_width, range_bucket_offset, range_granularity
 FROM mask_rules
-ORDER BY schema_name ASC, table_name ASC, column_name ASC, id ASC`))
+WHERE tenant_id = ?
+ORDER BY schema_name ASC, table_name ASC, column_name ASC, id ASC`), tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list mask rules: %w", err)
 	}
@@ -181,13 +199,17 @@ ORDER BY schema_name ASC, table_name ASC, column_name ASC, id ASC`))
 
 // Update replaces mutable mask-rule fields and returns the stored record.
 func (repository *MaskRuleRepository) Update(ctx context.Context, rule model.MaskRule) (model.MaskRule, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update mask rule")
+	if tenantErr != nil {
+		return model.MaskRule{}, tenantErr
+	}
 	rule = normalizeMaskRuleRangeFields(rule)
 	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE mask_rules
 SET datasource_id = ?, schema_name = COALESCE(?, ''), table_name = COALESCE(?, ''), column_name = ?, sensitive_type = ?,
     algo = ?, enabled = ?, range_bucket_width = ?, range_bucket_offset = ?,
     range_granularity = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`),
+WHERE id = ? AND tenant_id = ?`),
 		optionalString(rule.DatasourceID),
 		rule.SchemaName,
 		rule.TableName,
@@ -199,6 +221,7 @@ WHERE id = ?`),
 		rule.RangeBucketOffset,
 		rule.RangeGranularity,
 		rule.ID,
+		tenantID,
 	)
 	if err != nil {
 		if repository.hasNormalizedKeyConflict(ctx, rule.DatasourceID, rule.SchemaName, rule.TableName, rule.ColumnName, rule.ID) {
@@ -218,7 +241,11 @@ WHERE id = ?`),
 
 // Delete removes a mask rule by ID.
 func (repository *MaskRuleRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM mask_rules WHERE id = ?"), id)
+	tenantID, err := repository.requireTenant(ctx, "delete mask rule")
+	if err != nil {
+		return err
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM mask_rules WHERE id = ? AND tenant_id = ?"), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete mask rule %q: %w", id, err)
 	}
@@ -236,6 +263,7 @@ func scanMaskRule(scanner rowScanner) (model.MaskRule, error) {
 	var createdAt, updatedAt databaseTimestamp
 	if err := scanner.Scan(
 		&rule.ID,
+		&rule.TenantID,
 		&datasourceID,
 		&rule.SchemaName,
 		&rule.TableName,
@@ -293,6 +321,10 @@ func (repository *MaskRuleRepository) hasNormalizedKeyConflict(
 	columnName string,
 	excludeID string,
 ) bool {
+	tenantID, tenantErr := repository.requireTenant(ctx, "check mask rule conflict")
+	if tenantErr != nil {
+		return false
+	}
 	trimFunction := "TRIM"
 	if repository.dialect == DialectPostgres {
 		trimFunction = "BTRIM"
@@ -301,6 +333,7 @@ func (repository *MaskRuleRepository) hasNormalizedKeyConflict(
 SELECT COUNT(*)
 FROM mask_rules
 WHERE COALESCE(NULLIF(%[1]s(datasource_id),''),'') = ?
+  AND tenant_id = ?
   AND schema_name = ?
   AND table_name = ?
   AND LOWER(%[1]s(column_name)) = LOWER(%[1]s(?))
@@ -311,7 +344,7 @@ WHERE COALESCE(NULLIF(%[1]s(datasource_id),''),'') = ?
 	}
 	var count int
 	err := repository.db.QueryRowContext(
-		ctx, repository.bind(query), scope, schemaName, tableName, columnName, excludeID,
+		ctx, repository.bind(query), scope, tenantID, schemaName, tableName, columnName, excludeID,
 	).Scan(&count)
 	return err == nil && count != 0
 }

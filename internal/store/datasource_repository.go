@@ -21,17 +21,22 @@ func (repository *DatasourceRepository) Create(
 	datasource model.Datasource,
 	plaintextPassword string,
 ) (model.Datasource, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "create datasource")
+	if tenantErr != nil {
+		return model.Datasource{}, tenantErr
+	}
 	passwordEncrypted, err := repository.cipher.Encrypt(plaintextPassword)
 	if err != nil {
 		return model.Datasource{}, fmt.Errorf("encrypt password for datasource %q: %w", datasource.ID, err)
 	}
 	_, err = repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO datasources (
-  id, name, db_type, host, port, database, username, password_enc,
+  id, tenant_id, name, db_type, host, port, database, username, password_enc,
   conn_limit, stmt_timeout_ms, row_limit
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		datasource.ID,
+		tenantID,
 		datasource.Name,
 		datasource.DBType,
 		datasource.Host,
@@ -55,11 +60,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 
 // Get returns a datasource by ID with its encrypted password.
 func (repository *DatasourceRepository) Get(ctx context.Context, id string) (model.Datasource, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "get datasource")
+	if tenantErr != nil {
+		return model.Datasource{}, tenantErr
+	}
 	datasource, err := scanDatasource(repository.db.QueryRowContext(ctx, repository.bind(`
-SELECT id, name, db_type, host, port, database, username, password_enc,
+SELECT id, tenant_id, name, db_type, host, port, database, username, password_enc,
        conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
 FROM datasources
-WHERE id = ?`), id))
+WHERE id = ? AND tenant_id = ?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Datasource{}, fmt.Errorf("get datasource %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -75,11 +84,16 @@ func (repository *DatasourceRepository) List(ctx context.Context) ([]model.Datas
 	if ctx == nil {
 		return nil, fmt.Errorf("list datasources: %w", ErrNilContext)
 	}
+	tenantID, err := repository.requireTenant(ctx, "list datasources")
+	if err != nil {
+		return nil, err
+	}
 	rows, err := repository.db.QueryContext(ctx, repository.bind(`
-SELECT id, name, db_type, host, port, database, username, password_enc,
+SELECT id, tenant_id, name, db_type, host, port, database, username, password_enc,
        conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
 FROM datasources
-ORDER BY id ASC`))
+WHERE tenant_id = ?
+ORDER BY id ASC`), tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list datasources: %w", err)
 	}
@@ -105,6 +119,10 @@ func (repository *DatasourceRepository) Update(
 	datasource model.Datasource,
 	plaintextPassword string,
 ) (model.Datasource, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update datasource")
+	if tenantErr != nil {
+		return model.Datasource{}, tenantErr
+	}
 	passwordEncrypted, err := repository.cipher.Encrypt(plaintextPassword)
 	if err != nil {
 		return model.Datasource{}, fmt.Errorf("encrypt password for datasource %q: %w", datasource.ID, err)
@@ -114,7 +132,7 @@ UPDATE datasources
 SET name = ?, db_type = ?, host = ?, port = ?, database = ?, username = ?,
     password_enc = ?, conn_limit = ?, stmt_timeout_ms = ?, row_limit = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`),
+WHERE id = ? AND tenant_id = ?`),
 		datasource.Name,
 		datasource.DBType,
 		datasource.Host,
@@ -126,6 +144,7 @@ WHERE id = ?`),
 		datasource.StmtTimeoutMS,
 		datasource.RowLimit,
 		datasource.ID,
+		tenantID,
 	)
 	if err != nil {
 		return model.Datasource{}, fmt.Errorf("update datasource %q: %w", datasource.ID, err)
@@ -142,7 +161,11 @@ WHERE id = ?`),
 
 // Delete removes a datasource by ID.
 func (repository *DatasourceRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM datasources WHERE id = ?"), id)
+	tenantID, err := repository.requireTenant(ctx, "delete datasource")
+	if err != nil {
+		return err
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM datasources WHERE id = ? AND tenant_id = ?"), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete datasource %q: %w", id, err)
 	}
@@ -166,6 +189,7 @@ func scanDatasource(scanner rowScanner) (model.Datasource, error) {
 	var createdAt, updatedAt databaseTimestamp
 	if err := scanner.Scan(
 		&datasource.ID,
+		&datasource.TenantID,
 		&datasource.Name,
 		&datasource.DBType,
 		&datasource.Host,

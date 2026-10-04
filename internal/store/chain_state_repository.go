@@ -51,12 +51,16 @@ func (repository *ChainStateRepository) Get(ctx context.Context, chainID string)
 	if err := repository.validate(ctx, "get"); err != nil {
 		return ChainState{}, err
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "get chain state")
+	if tenantErr != nil {
+		return ChainState{}, tenantErr
+	}
 	state, err := scanChainState(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT chain_id, chain_instance_id, status, mode, head_seq, head_id, head_hash,
        genesis_at, protected_since_id, build_owner, build_lease_until, build_epoch,
        last_built_id, last_built_seq, last_built_hash, updated_at
 FROM chain_state
-WHERE chain_id = ?`), chainID))
+WHERE chain_id = ? AND tenant_id = ?`), chainID, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChainState{}, fmt.Errorf("get chain state %q: %w", chainID, errors.Join(ErrNotFound, err))
 	}
@@ -71,11 +75,15 @@ func (repository *ChainStateRepository) GetVerification(ctx context.Context, cha
 	if err := repository.validate(ctx, "get verification"); err != nil {
 		return ChainVerification{}, err
 	}
+	tenantID, tenantErr := repository.requireTenant(ctx, "get chain verification")
+	if tenantErr != nil {
+		return ChainVerification{}, tenantErr
+	}
 	verification, err := scanChainVerification(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT chain_id, observed_instance_id, observed_head_hash, result,
        last_verified_head_seq, last_verified_at, break_seq, break_id, break_reason
 FROM chain_verification
-WHERE chain_id = ?`), chainID))
+WHERE chain_id = ? AND tenant_id = ?`), chainID, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChainVerification{}, fmt.Errorf("get chain verification %q: %w", chainID, errors.Join(ErrNotFound, err))
 	}

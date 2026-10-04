@@ -75,7 +75,7 @@ func GenerateHistory(anchor time.Time) ([]model.AuditLog, []model.Approval, erro
 		}
 		emptyError := ""
 		auditLog := model.AuditLog{
-			TS: timestamp, AgentID: stringPtr(agentID), DatasourceID: stringPtr(datasourceID),
+			TenantID: store.DefaultTenantID, TS: timestamp, AgentID: stringPtr(agentID), DatasourceID: stringPtr(datasourceID),
 			SessionID: stringPtr(sessionID), ConversationID: stringPtr(conversationID), MCPTool: stringPtr(tool),
 			DBType: stringPtr(dbType), SQLRaw: stringPtr(sqlRaw), SQLNorm: stringPtr(sqlNorm),
 			StmtType: stringPtr(stmtType), Objects: stringPtr(objects), Decision: decision,
@@ -89,7 +89,7 @@ func GenerateHistory(anchor time.Time) ([]model.AuditLog, []model.Approval, erro
 			status := []string{"pending", "approved", "rejected", "expired"}[approveIndex/6]
 			reason := fmt.Sprintf("Demo approval for %s", ruleID)
 			approval := model.Approval{
-				ID: fmt.Sprintf("demo-approval-%06d", ordinal), AgentID: stringPtr(agentID),
+				ID: fmt.Sprintf("demo-approval-%06d", ordinal), TenantID: store.DefaultTenantID, AgentID: stringPtr(agentID),
 				SQLRaw: stringPtr(sqlRaw), Reason: stringPtr(reason), Status: status,
 			}
 			if status != "pending" {

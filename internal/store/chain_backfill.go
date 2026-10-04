@@ -505,15 +505,19 @@ WHERE chain_id = ? AND status = 'BUILDING' AND build_owner = ? AND build_epoch =
 }
 
 func (service *BackfillService) selectUnchainedBatch(ctx context.Context, transaction chainTransaction) ([]model.AuditLog, error) {
+	tenantID, tenantErr := service.requireTenant(ctx, "select unchained audit rows")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	query := auditBusinessColumnsSQL + `
 FROM audit_logs
-WHERE chain_seq IS NULL
+WHERE tenant_id = ? AND chain_seq IS NULL
 ORDER BY id ASC
 LIMIT ?`
 	if service.dialect == DialectPostgres {
 		query += " FOR UPDATE"
 	}
-	rows, err := transaction.QueryContext(ctx, service.bind(query), service.cfg.BatchSize)
+	rows, err := transaction.QueryContext(ctx, service.bind(query), tenantID, service.cfg.BatchSize)
 	if err != nil {
 		return nil, fmt.Errorf("select unchained audit rows: %w", err)
 	}
@@ -534,19 +538,27 @@ LIMIT ?`
 }
 
 func (service *BackfillService) countUnchained(ctx context.Context, transaction chainTransaction) (int64, error) {
+	tenantID, tenantErr := service.requireTenant(ctx, "count unchained audit rows")
+	if tenantErr != nil {
+		return 0, tenantErr
+	}
 	var count int64
-	if err := transaction.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs WHERE chain_seq IS NULL`).Scan(&count); err != nil {
+	if err := transaction.QueryRowContext(ctx, service.bind(`SELECT COUNT(*) FROM audit_logs WHERE tenant_id = ? AND chain_seq IS NULL`), tenantID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count unchained audit rows: %w", err)
 	}
 	return count, nil
 }
 
 func (service *BackfillService) hasHalfChainedRow(ctx context.Context, transaction chainTransaction) (bool, error) {
+	tenantID, tenantErr := service.requireTenant(ctx, "detect half-chained audit rows")
+	if tenantErr != nil {
+		return false, tenantErr
+	}
 	var id int64
-	err := transaction.QueryRowContext(ctx, `
+	err := transaction.QueryRowContext(ctx, service.bind(`
 SELECT id
 FROM audit_logs
-WHERE NOT (
+WHERE tenant_id = ? AND NOT (
         chain_seq IS NULL AND prev_hash IS NULL AND self_hash IS NULL
         AND chain_key_version IS NULL AND chain_format_version IS NULL
       )
@@ -554,7 +566,7 @@ WHERE NOT (
         chain_seq IS NOT NULL AND prev_hash IS NOT NULL AND self_hash IS NOT NULL
         AND chain_key_version IS NOT NULL AND chain_format_version IS NOT NULL
       )
-LIMIT 1`).Scan(&id)
+LIMIT 1`), tenantID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -578,16 +590,21 @@ func (service *BackfillService) selectLinkedVerificationPage(
 	transaction chainTransaction,
 	cursorSequence, cursorID int64,
 ) ([]backfillVerificationRow, error) {
+	tenantID, tenantErr := service.requireTenant(ctx, "select linked audit rows")
+	if tenantErr != nil {
+		return nil, tenantErr
+	}
 	query := auditBusinessColumnsSQL + `,
        chain_seq, prev_hash, self_hash, chain_key_version, chain_format_version
 FROM audit_logs
-WHERE chain_seq IS NOT NULL
+WHERE tenant_id = ? AND chain_seq IS NOT NULL
   AND (chain_seq > ? OR (chain_seq = ? AND id > ?))
 ORDER BY chain_seq ASC, id ASC
 LIMIT ?`
 	rows, err := transaction.QueryContext(
 		ctx,
 		service.bind(query),
+		tenantID,
 		cursorSequence,
 		cursorSequence,
 		cursorID,
@@ -613,7 +630,7 @@ LIMIT ?`
 }
 
 const auditBusinessColumnsSQL = `
-SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+SELECT id, tenant_id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid`
@@ -627,7 +644,7 @@ func scanBackfillVerificationRow(scanner rowScanner) (backfillVerificationRow, e
 	var action, actorType, actorID, detailsJSON, eventUUID sql.NullString
 	var riskLevel, estimatedRows, rowsReturned, latencyMS sql.NullInt64
 	if err := scanner.Scan(
-		&row.auditLog.ID, &timestamp,
+		&row.auditLog.ID, &row.auditLog.TenantID, &timestamp,
 		&agentID, &datasourceID, &sessionID, &conversationID,
 		&mcpTool, &databaseType, &sqlRaw, &sqlNormalized, &statementType,
 		&objects, &row.auditLog.Decision, &ruleHits,

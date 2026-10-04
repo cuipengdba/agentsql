@@ -16,12 +16,17 @@ type RuleRepository struct {
 
 // Create inserts a rule and returns the stored record.
 func (repository *RuleRepository) Create(ctx context.Context, rule model.Rule) (model.Rule, error) {
-	_, err := repository.db.ExecContext(ctx, repository.bind(`
+	tenantID, err := repository.requireTenant(ctx, "create rule")
+	if err != nil {
+		return model.Rule{}, err
+	}
+	_, err = repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO rules (
-  id, db_type, title, risk_level, pattern_type, definition, enabled, builtin
+  id, tenant_id, db_type, title, risk_level, pattern_type, definition, enabled, builtin
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		rule.ID,
+		tenantID,
 		rule.DBType,
 		rule.Title,
 		rule.RiskLevel,
@@ -42,11 +47,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
 
 // Get returns a rule by ID.
 func (repository *RuleRepository) Get(ctx context.Context, id string) (model.Rule, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "get rule")
+	if tenantErr != nil {
+		return model.Rule{}, tenantErr
+	}
 	rule, err := scanRule(repository.db.QueryRowContext(ctx, repository.bind(`
-SELECT id, db_type, title, risk_level, pattern_type, definition, enabled, builtin,
+SELECT id, tenant_id, db_type, title, risk_level, pattern_type, definition, enabled, builtin,
        created_at, updated_at
 FROM rules
-WHERE id = ?`), id))
+WHERE id = ? AND tenant_id = ?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Rule{}, fmt.Errorf("get rule %q: %w", id, errors.Join(ErrNotFound, err))
 	}
@@ -62,12 +71,16 @@ func (repository *RuleRepository) List(ctx context.Context, dbType string) ([]mo
 		return nil, fmt.Errorf("list rules: %w", ErrNilContext)
 	}
 	query := `
-SELECT id, db_type, title, risk_level, pattern_type, definition, enabled, builtin,
+SELECT id, tenant_id, db_type, title, risk_level, pattern_type, definition, enabled, builtin,
        created_at, updated_at
-FROM rules`
-	args := make([]any, 0, 1)
+FROM rules WHERE tenant_id = ?`
+	tenantID, err := repository.requireTenant(ctx, "list rules")
+	if err != nil {
+		return nil, err
+	}
+	args := []any{tenantID}
 	if dbType != "" {
-		query += " WHERE db_type = ?"
+		query += " AND db_type = ?"
 		args = append(args, dbType)
 	}
 	query += " ORDER BY id ASC"
@@ -93,11 +106,15 @@ FROM rules`
 
 // Update replaces mutable rule fields and returns the stored record.
 func (repository *RuleRepository) Update(ctx context.Context, rule model.Rule) (model.Rule, error) {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update rule")
+	if tenantErr != nil {
+		return model.Rule{}, tenantErr
+	}
 	result, err := repository.db.ExecContext(ctx, repository.bind(`
 UPDATE rules
 SET db_type = ?, title = ?, risk_level = ?, pattern_type = ?, definition = ?,
     enabled = ?, builtin = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`),
+WHERE id = ? AND tenant_id = ?`),
 		rule.DBType,
 		rule.Title,
 		rule.RiskLevel,
@@ -106,6 +123,7 @@ WHERE id = ?`),
 		rule.Enabled,
 		rule.Builtin,
 		rule.ID,
+		tenantID,
 	)
 	if err != nil {
 		return model.Rule{}, fmt.Errorf("update rule %q: %w", rule.ID, err)
@@ -122,7 +140,11 @@ WHERE id = ?`),
 
 // Delete removes a rule by ID.
 func (repository *RuleRepository) Delete(ctx context.Context, id string) error {
-	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM rules WHERE id = ?"), id)
+	tenantID, err := repository.requireTenant(ctx, "delete rule")
+	if err != nil {
+		return err
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM rules WHERE id = ? AND tenant_id = ?"), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete rule %q: %w", id, err)
 	}
@@ -138,6 +160,7 @@ func scanRule(scanner rowScanner) (model.Rule, error) {
 	var enabled, builtin databaseBool
 	if err := scanner.Scan(
 		&rule.ID,
+		&rule.TenantID,
 		&rule.DBType,
 		&rule.Title,
 		&rule.RiskLevel,

@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -132,13 +134,33 @@ func TestMigratePrintsVersionsAndIsIdempotentWithoutSecret(t *testing.T) {
 	))
 	t.Setenv("AGENTSQL_SECRET", "")
 	t.Setenv("AGENTSQL_INSECURE", "")
-	for range 2 {
+	previousVersion := 0
+	for iteration := range 2 {
 		var output strings.Builder
 		require.Equal(t, 0, run([]string{"migrate", "-c", configPath}, &output, io.Discard))
-		require.Contains(t, output.String(), "migration driver=sqlite current=11 latest=11")
+		version := assertCurrentMigrationVersion(t, output.String(), "migration driver=sqlite")
+		if iteration > 0 {
+			require.Equal(t, previousVersion, version)
+		}
+		previousVersion = version
 	}
 	_, err := os.Stat(databasePath)
 	require.NoError(t, err)
+}
+
+func assertCurrentMigrationVersion(t *testing.T, output, prefix string) int {
+	t.Helper()
+	require.Contains(t, output, prefix)
+	matches := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(prefix) + ` current=([0-9]+) latest=([0-9]+)`).FindStringSubmatch(output)
+	require.Len(t, matches, 3, "migration output must include parseable current and latest versions")
+	current, err := strconv.Atoi(matches[1])
+	require.NoError(t, err)
+	latest, err := strconv.Atoi(matches[2])
+	require.NoError(t, err)
+	require.Positive(t, current)
+	require.Positive(t, latest)
+	require.Equal(t, latest, current)
+	return current
 }
 
 func TestSQLiteToPostgresCommandValidationAndRedaction(t *testing.T) {

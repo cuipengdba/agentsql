@@ -67,8 +67,8 @@ func TestPlanDiscoveryDraftsUsesPhysicalScopeKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"existing"}, []string{outcome.Existing[0].ID})
 	require.Equal(t, []model.MaskRule{
-		{ID: "other-schema", DatasourceID: scope, SchemaName: "Sales", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false},
-		{ID: "other-table", DatasourceID: scope, SchemaName: "sales", TableName: "accounts", ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false},
+		{ID: "other-schema", TenantID: DefaultTenantID, DatasourceID: scope, SchemaName: "Sales", TableName: "customers", ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false},
+		{ID: "other-table", TenantID: DefaultTenantID, DatasourceID: scope, SchemaName: "sales", TableName: "accounts", ColumnName: "phone", SensitiveType: "phone", Algo: "mask", Enabled: false},
 	}, outcome.Created)
 	require.NoError(t, insertDiscoveryDraft(ctx, opened.metaDB, DialectSQLite, outcome.Created[1]))
 	stored, err := repository.Get(ctx, "other-table")

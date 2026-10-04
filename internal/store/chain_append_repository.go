@@ -45,6 +45,13 @@ func (repository *AuditLogRepository) AppendBatch(ctx context.Context, logs []mo
 	if len(logs) == 0 {
 		return []model.AuditLog{}, nil
 	}
+	tenantID, err := repository.requireTenant(ctx, "append audit logs")
+	if err != nil {
+		return nil, err
+	}
+	for index := range logs {
+		logs[index].TenantID = tenantID
+	}
 
 	inserted, err := repository.chainInsertBatch(ctx, logs)
 	if err != nil {
@@ -241,22 +248,22 @@ func insertActiveAuditLogsPostgres(
 	keyVersion int,
 ) ([]model.AuditLog, error) {
 	const columns = `
-  agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
+	  tenant_id, agent_id, datasource_id, session_id, conversation_id, mcp_tool, db_type,
   sql_raw, sql_norm, stmt_type, objects, decision, rule_hits, risk_level,
   est_rows, rows_returned, latency_ms, client_ip, model_name, error_msg, error_code,
   action, actor_type, actor_id, details_json, event_uuid,
   chain_seq, prev_hash, self_hash, chain_key_version, chain_format_version`
-	const returning = `id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+	const returning = `id, tenant_id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid, chain_seq`
-	placeholder := "(" + strings.TrimSuffix(strings.Repeat("?,", 30), ",") + ")"
+	placeholder := "(" + strings.TrimSuffix(strings.Repeat("?,", 31), ",") + ")"
 	values := make([]string, len(logs))
-	arguments := make([]any, 0, len(logs)*30)
+	arguments := make([]any, 0, len(logs)*31)
 	for index, auditLog := range logs {
 		values[index] = placeholder
 		arguments = append(arguments,
-			optionalString(auditLog.AgentID), optionalString(auditLog.DatasourceID),
+			auditLog.TenantID, optionalString(auditLog.AgentID), optionalString(auditLog.DatasourceID),
 			optionalString(auditLog.SessionID), optionalString(auditLog.ConversationID),
 			optionalString(auditLog.MCPTool), optionalString(auditLog.DBType),
 			optionalString(auditLog.SQLRaw), optionalString(auditLog.SQLNorm),
@@ -276,7 +283,7 @@ INSERT INTO audit_logs (` + columns + `)
 VALUES ` + strings.Join(values, ",") + `
 RETURNING ` + returning + `
 )
-SELECT id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
+SELECT id, tenant_id, ts, agent_id, datasource_id, session_id, conversation_id, mcp_tool,
        db_type, sql_raw, sql_norm, stmt_type, objects, decision, rule_hits,
        risk_level, est_rows, rows_returned, latency_ms, client_ip, model_name,
        error_msg, error_code, action, actor_type, actor_id, details_json, event_uuid
@@ -469,11 +476,15 @@ SELECT chain_id, chain_instance_id, status, mode, head_seq, head_id, head_hash,
        genesis_at, protected_since_id, build_owner, build_lease_until, build_epoch,
        last_built_id, last_built_seq, last_built_hash, updated_at
 FROM chain_state
-WHERE chain_id = ?`
+WHERE chain_id = ? AND tenant_id = ?`
 	if repository.dialect == DialectPostgres {
 		query += " FOR UPDATE"
 	}
-	state, err := scanChainState(transaction.QueryRowContext(ctx, repository.bind(query), repository.chainID))
+	tenantID, tenantErr := repository.requireTenant(ctx, "lock chain state")
+	if tenantErr != nil {
+		return ChainState{}, false, tenantErr
+	}
+	state, err := scanChainState(transaction.QueryRowContext(ctx, repository.bind(query), repository.chainID, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChainState{}, false, nil
 	}
@@ -600,10 +611,14 @@ func (repository *AuditLogRepository) updateAuditChainColumns(
 	previousHash, selfHash string,
 	keyVersion int,
 ) error {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update chain head")
+	if tenantErr != nil {
+		return tenantErr
+	}
 	result, err := transaction.ExecContext(ctx, repository.bind(`
 UPDATE audit_logs
 SET chain_seq = ?, prev_hash = ?, self_hash = ?, chain_key_version = ?, chain_format_version = ?
-WHERE id = ?`), sequence, previousHash, selfHash, keyVersion, auditchain.ChainFormatVersionV1, id)
+WHERE id = ? AND tenant_id = ?`), sequence, previousHash, selfHash, keyVersion, auditchain.ChainFormatVersionV1, id, tenantID)
 	if err != nil {
 		return err
 	}
@@ -623,10 +638,14 @@ func (repository *AuditLogRepository) updateChainHead(
 	sequence, headID int64,
 	headHash string,
 ) error {
+	tenantID, tenantErr := repository.requireTenant(ctx, "update chain head")
+	if tenantErr != nil {
+		return tenantErr
+	}
 	result, err := transaction.ExecContext(ctx, repository.bind(`
 UPDATE chain_state
 SET head_seq = ?, head_id = ?, head_hash = ?, updated_at = CURRENT_TIMESTAMP
-WHERE chain_id = ?`), sequence, headID, headHash, repository.chainID)
+WHERE chain_id = ? AND tenant_id = ?`), sequence, headID, headHash, repository.chainID, tenantID)
 	if err != nil {
 		return fmt.Errorf("update chain head: %w", err)
 	}
