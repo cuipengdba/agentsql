@@ -33,6 +33,8 @@ func quoteIdentifier(dialect model.DBDialect, identifier string) (string, error)
 		return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`, nil
 	case "mysql":
 		return "`" + strings.ReplaceAll(identifier, "`", "``") + "`", nil
+	case "sqlserver":
+		return "[" + strings.ReplaceAll(identifier, "]", "]]") + "]", nil
 	default:
 		return "", fmt.Errorf("unsupported dialect")
 	}
@@ -84,6 +86,19 @@ func buildMetadataSQL(dialect model.DBDialect, database string, tables []discove
 			"ON t.table_schema = c.table_schema AND t.table_name = c.table_name " +
 			"WHERE c.table_schema = DATABASE() AND t.table_type = 'BASE TABLE' AND " + scope +
 			" ORDER BY c.table_name, c.ordinal_position", nil
+	case "sqlserver":
+		serverConditions := make([]string, 0, len(tables))
+		for _, table := range tables {
+			schema, _ := sqlLiteral(table.Schema)
+			name, _ := sqlLiteral(table.Table)
+			serverConditions = append(serverConditions, "(s.name = "+schema+" AND t.name = "+name+")")
+		}
+		return "SELECT s.name AS table_schema, t.name AS table_name, c.name AS column_name, " +
+			"ty.name AS data_type, ty.name AS type_name, c.column_id AS ordinal_position " +
+			"FROM sys.tables AS t JOIN sys.schemas AS s ON s.schema_id = t.schema_id " +
+			"JOIN sys.columns AS c ON c.object_id = t.object_id " +
+			"JOIN sys.types AS ty ON ty.user_type_id = c.user_type_id WHERE " +
+			"(" + strings.Join(serverConditions, " OR ") + ") ORDER BY s.name, t.name, c.column_id", nil
 	default:
 		return "", fmt.Errorf("unsupported dialect")
 	}
@@ -110,6 +125,9 @@ func buildSampleSQL(dialect model.DBDialect, table discovery.TableRef, columns [
 		if err != nil {
 			return "", err
 		}
+	}
+	if dialect == "sqlserver" {
+		return "SELECT TOP " + strconv.Itoa(limit) + " " + strings.Join(projection, ", ") + " FROM " + schema + "." + tableName, nil
 	}
 	return "SELECT " + strings.Join(projection, ", ") + " FROM " + schema + "." + tableName + " LIMIT " + strconv.Itoa(limit), nil
 }

@@ -2,7 +2,7 @@ export interface RuleMeta {
   id: string;
   title: string;
   risk: number;
-  dbType: "all" | "postgres" | "mysql";
+  dbType: "all" | "postgres" | "mysql" | "sqlserver";
   group: "通用防护" | "PostgreSQL 专属" | "MySQL 专属";
   dynamic: boolean;
   builtin: true;

@@ -29,6 +29,9 @@ func TestStaticAssessScenarios(t *testing.T) {
 		{name: "malformed SQL", input: StaticAssessInput{SQL: "SELECT FROM WHERE (((", Dialect: "postgres", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
 		{name: "mysql union values", input: StaticAssessInput{SQL: "SELECT 1 UNION VALUES ROW(2)", Dialect: "mysql", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
 		{name: "mysql root values", input: StaticAssessInput{SQL: "VALUES ROW(1)", Dialect: "mysql", AgentLevel: "readonly"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
+		{name: "sqlserver bounded select", input: StaticAssessInput{SQL: "SELECT TOP 10 [id] FROM [dbo].[customers] WHERE [id] = 42", Dialect: "sqlserver", AgentLevel: "readonly"}, decision: model.DecisionAllow, expectedHits: []string{}},
+		{name: "sqlserver update fails closed", input: StaticAssessInput{SQL: "UPDATE dbo.customers SET enabled = 0", Dialect: "sqlserver", AgentLevel: "dml"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
+		{name: "sqlserver xp_cmdshell fails closed", input: StaticAssessInput{SQL: "EXEC xp_cmdshell 'whoami'", Dialect: "sqlserver", AgentLevel: "ddl"}, decision: model.DecisionDeny, expectedHits: []string{"PARSE"}, parseError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

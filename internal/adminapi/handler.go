@@ -753,7 +753,11 @@ func (handler *Handler) datasourcesCreate(writer http.ResponseWriter, request *h
 		handler.fail(writer, http.StatusUnprocessableEntity, "password is required")
 		return
 	}
-	datasource := model.Datasource{ID: input.ID, Name: input.Name, DBType: input.DBType, Host: input.Host, Port: input.Port, Database: input.Database, Username: input.Username, ConnLimit: input.ConnLimit, StmtTimeoutMS: input.StmtTimeoutMS, RowLimit: input.RowLimit}
+	datasource, validationErr := datasourceFromInput(input)
+	if validationErr != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, validationErr.Error())
+		return
+	}
 	created, err := handler.deps.Runtime.Store.Datasources().Create(request.Context(), datasource, input.Password)
 	if err != nil {
 		handler.fail(writer, http.StatusConflict, "datasource already exists or is invalid")
@@ -813,6 +817,15 @@ func (handler *Handler) datasourcesUpdate(writer http.ResponseWriter, request *h
 	if input.RowLimit == 0 {
 		input.RowLimit = current.RowLimit
 	}
+	if input.TLSMode == "" {
+		input.TLSMode = current.TLSMode
+	}
+	if input.TLSServerName == "" {
+		input.TLSServerName = current.TLSServerName
+	}
+	if input.TLSCAFile == "" {
+		input.TLSCAFile = current.TLSCAFile
+	}
 	password := input.Password
 	if password == "" {
 		password, err = handler.deps.Runtime.Store.Datasources().DecryptPassword(current.PasswordEnc)
@@ -821,7 +834,13 @@ func (handler *Handler) datasourcesUpdate(writer http.ResponseWriter, request *h
 			return
 		}
 	}
-	updated, err := handler.deps.Runtime.Store.Datasources().Update(request.Context(), model.Datasource{ID: current.ID, Name: input.Name, DBType: input.DBType, Host: input.Host, Port: input.Port, Database: input.Database, Username: input.Username, ConnLimit: input.ConnLimit, StmtTimeoutMS: input.StmtTimeoutMS, RowLimit: input.RowLimit}, password)
+	input.ID = current.ID
+	datasource, validationErr := datasourceFromInput(input)
+	if validationErr != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, validationErr.Error())
+		return
+	}
+	updated, err := handler.deps.Runtime.Store.Datasources().Update(request.Context(), datasource, password)
 	if err != nil {
 		handler.internal(writer, err)
 		return
@@ -873,6 +892,51 @@ func (handler *Handler) datasourcesPing(writer http.ResponseWriter, request *htt
 		result.ErrorCode, result.ErrorMessage = &code, &message
 	}
 	handler.ok(writer, result)
+}
+
+func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
+	input.ID = strings.TrimSpace(input.ID)
+	input.Name = strings.TrimSpace(input.Name)
+	input.DBType = strings.TrimSpace(input.DBType)
+	input.Host = strings.TrimSpace(input.Host)
+	input.Database = strings.TrimSpace(input.Database)
+	input.Username = strings.TrimSpace(input.Username)
+	input.TLSMode = strings.TrimSpace(input.TLSMode)
+	input.TLSServerName = strings.TrimSpace(input.TLSServerName)
+	input.TLSCAFile = strings.TrimSpace(input.TLSCAFile)
+	if input.ID == "" || input.Name == "" || input.Host == "" || input.Database == "" || input.Username == "" {
+		return model.Datasource{}, fmt.Errorf("datasource identity and connection fields are required")
+	}
+	if !model.SupportedDatasourceType(input.DBType) {
+		return model.Datasource{}, fmt.Errorf("unsupported datasource type")
+	}
+	if input.DBType == string(model.DialectSQLServer) && input.Port == 0 {
+		input.Port = 1433
+	}
+	if input.Port < 1 || input.Port > 65_535 {
+		return model.Datasource{}, fmt.Errorf("datasource port is invalid")
+	}
+	if input.DBType == string(model.DialectSQLServer) {
+		if input.TLSMode == "" {
+			input.TLSMode = "strict"
+		}
+		if input.TLSMode != "strict" && input.TLSMode != "verify-full" {
+			return model.Datasource{}, fmt.Errorf("SQL Server tls_mode must be strict or verify-full")
+		}
+		if input.TLSMode == "strict" && input.TrustServerCertificate {
+			return model.Datasource{}, fmt.Errorf("strict TLS cannot trust an unverified server certificate")
+		}
+	} else {
+		input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
+		input.TrustServerCertificate = false
+	}
+	return model.Datasource{
+		ID: input.ID, Name: input.Name, DBType: input.DBType, Host: input.Host,
+		Port: input.Port, Database: input.Database, Username: input.Username,
+		ConnLimit: input.ConnLimit, StmtTimeoutMS: input.StmtTimeoutMS, RowLimit: input.RowLimit,
+		TLSMode: input.TLSMode, TLSServerName: input.TLSServerName, TLSCAFile: input.TLSCAFile,
+		TrustServerCertificate: input.TrustServerCertificate,
+	}, nil
 }
 
 func (handler *Handler) policiesList(writer http.ResponseWriter, request *http.Request) {

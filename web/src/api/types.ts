@@ -72,6 +72,10 @@ export interface DatasourceView {
   conn_limit: number;
   stmt_timeout_ms: number;
   row_limit: number;
+  tls_mode?: string;
+  tls_server_name?: string;
+  tls_ca_file?: string;
+  trust_server_certificate: boolean;
   has_password: boolean;
 }
 
@@ -87,6 +91,10 @@ export interface DatasourceInput {
   conn_limit: number;
   stmt_timeout_ms: number;
   row_limit: number;
+  tls_mode?: string;
+  tls_server_name?: string;
+  tls_ca_file?: string;
+  trust_server_certificate?: boolean;
 }
 
 export interface PingView {
@@ -379,7 +387,7 @@ export interface NotificationHealth {
 
 export interface PlaygroundAssessRequest {
   sql: string;
-  db_type: "postgres" | "mysql";
+  db_type: "postgres" | "mysql" | "sqlserver";
   agent_level?: "readonly" | "dml" | "ddl";
 }
 

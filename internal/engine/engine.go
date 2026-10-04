@@ -129,7 +129,8 @@ func validateAST(ast *model.AST) error {
 	if ast == nil {
 		return fmt.Errorf("validate AST: %w", ErrInvalidInput)
 	}
-	if ast.Dialect != model.DBDialect("postgres") && ast.Dialect != model.DBDialect("mysql") {
+	if ast.Dialect != model.DialectPostgres && ast.Dialect != model.DialectMySQL &&
+		ast.Dialect != model.DialectSQLServer {
 		return fmt.Errorf("validate AST dialect %q: %w", ast.Dialect, ErrInvalidInput)
 	}
 	return nil
@@ -248,6 +249,7 @@ func validateRuleResult(ruleID string, result RuleResult) error {
 func validRuleDialect(dialect model.DBDialect) bool {
 	return dialect == model.DBDialect("postgres") ||
 		dialect == model.DBDialect("mysql") ||
+		dialect == model.DBDialect("sqlserver") ||
 		dialect == DialectAll
 }
 

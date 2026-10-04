@@ -313,6 +313,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=13 latest=14")
+		require.ErrorContains(t, err, "current=14 latest=15")
 	})
 }

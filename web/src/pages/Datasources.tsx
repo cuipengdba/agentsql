@@ -1,5 +1,5 @@
 import { ApiOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
-import { Alert, Button, Drawer, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tag, message } from "antd";
+import { Alert, Button, Checkbox, Drawer, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tag, message } from "antd";
 import type { TableProps } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -12,7 +12,7 @@ import { DiscoveryDrawer } from "@/pages/datasources/DiscoveryDrawer";
 import { apiErrorMessage, httpStatus, isCanceled } from "./config/utils";
 
 interface DatasourceFormValues extends DatasourceInput {
-  db_type: "postgres" | "mysql";
+  db_type: "postgres" | "mysql" | "sqlserver";
 }
 
 const defaultDatasource: Partial<DatasourceFormValues> = {
@@ -21,6 +21,7 @@ const defaultDatasource: Partial<DatasourceFormValues> = {
   conn_limit: 5,
   stmt_timeout_ms: 5_000,
   row_limit: 1_000,
+  trust_server_certificate: false,
 };
 
 export function Datasources() {
@@ -94,6 +95,10 @@ export function Datasources() {
       conn_limit: datasource.conn_limit,
       stmt_timeout_ms: datasource.stmt_timeout_ms,
       row_limit: datasource.row_limit,
+      tls_mode: datasource.tls_mode,
+      tls_server_name: datasource.tls_server_name,
+      tls_ca_file: datasource.tls_ca_file,
+      trust_server_certificate: datasource.trust_server_certificate,
     });
     setDrawerOpen(true);
   };
@@ -116,6 +121,10 @@ export function Datasources() {
       conn_limit: values.conn_limit,
       stmt_timeout_ms: values.stmt_timeout_ms,
       row_limit: values.row_limit,
+      tls_mode: values.tls_mode,
+      tls_server_name: values.tls_server_name?.trim(),
+      tls_ca_file: values.tls_ca_file?.trim(),
+      trust_server_certificate: Boolean(values.trust_server_certificate),
     };
     if (values.password) input.password = values.password;
     setSaving(true);
@@ -200,12 +209,18 @@ export function Datasources() {
           layout="vertical"
           onValuesChange={(changed: Partial<DatasourceFormValues>) => {
             const dbType = changed.db_type;
-            if (dbType) form.setFieldValue("port", dbType === "postgres" ? 5432 : 3306);
+            if (dbType) {
+              form.setFieldValue("port", dbType === "postgres" ? 5432 : dbType === "mysql" ? 3306 : 1433);
+              if (dbType === "sqlserver") {
+                form.setFieldValue("tls_mode", "strict");
+                form.setFieldValue("trust_server_certificate", false);
+              }
+            }
           }}
         >
           <Form.Item name="id" label="数据源 ID" rules={[{ required: true, whitespace: true }]}><Input disabled={Boolean(editing)} /></Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
-          <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={[{ value: "postgres", label: "PostgreSQL" }, { value: "mysql", label: "MySQL" }]} /></Form.Item>
+          <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={[{ value: "postgres", label: "PostgreSQL" }, { value: "mysql", label: "MySQL" }, { value: "sqlserver", label: "SQL Server 2025" }]} /></Form.Item>
           <div className="cfg-form-grid">
             <Form.Item name="host" label="主机" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
             <Form.Item name="port" label="端口" rules={[{ required: true }]}><InputNumber min={1} max={65535} className="cfg-full-width" /></Form.Item>
@@ -213,6 +228,18 @@ export function Datasources() {
           <Form.Item name="database" label="数据库" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
           <Form.Item name="username" label="用户名" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
           <Form.Item name="password" label="密码" rules={editing ? [] : [{ required: true, message: "新建数据源必须填写密码" }]}><Input.Password placeholder={editing ? "留空表示不修改密码" : "输入数据库密码"} /></Form.Item>
+          <Form.Item noStyle shouldUpdate={(previous, current) => previous.db_type !== current.db_type || previous.tls_mode !== current.tls_mode}>
+            {({ getFieldValue }) => getFieldValue("db_type") === "sqlserver" ? <>
+              <Alert className="cfg-inline-alert" type="info" showIcon message="SQL Server 2025 仅开放受控只读 SELECT；TLS 不可关闭，默认使用 TDS 8.0 strict。" />
+              <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>
+                <Select options={[{ value: "strict", label: "strict（推荐，TDS 8.0）" }, { value: "verify-full", label: "verify-full（兼容模式）" }]} />
+              </Form.Item>
+              <Form.Item name="tls_server_name" label="证书主机名（可选）"><Input placeholder="db.example.com" /></Form.Item>
+              <Form.Item name="tls_ca_file" label="CA / 服务器证书文件（服务端路径，可选）"><Input /></Form.Item>
+              {getFieldValue("tls_mode") === "verify-full" ?
+                <Form.Item name="trust_server_certificate" valuePropName="checked"><Checkbox>信任未验证证书（仅限受控开发环境）</Checkbox></Form.Item> : null}
+            </> : null}
+          </Form.Item>
           <div className="cfg-form-grid cfg-form-grid-three">
             <Form.Item name="conn_limit" label="连接上限" rules={[{ required: true }]}><InputNumber min={1} className="cfg-full-width" /></Form.Item>
             <Form.Item name="stmt_timeout_ms" label="语句超时(ms)" rules={[{ required: true }]}><InputNumber min={1} className="cfg-full-width" /></Form.Item>

@@ -416,6 +416,13 @@ var dangerousFunctions = map[string]map[string]struct{}{
 		"benchmark": {},
 		"sleep":     {},
 	},
+	"sqlserver": {
+		"xp_cmdshell":    {},
+		"sp_oacreate":    {},
+		"openrowset":     {},
+		"opendatasource": {},
+		"waitfor":        {},
+	},
 }
 
 // 攻击场景：单个 Agent 以突发 QPS 或过高并发压垮数据库连接池。
@@ -620,7 +627,8 @@ func requiredAST(context engine.EvalContext) (*model.AST, error) {
 		return nil, fmt.Errorf("missing AST")
 	}
 	if context.AST.Dialect != model.DBDialect("postgres") &&
-		context.AST.Dialect != model.DBDialect("mysql") {
+		context.AST.Dialect != model.DBDialect("mysql") &&
+		context.AST.Dialect != model.DBDialect("sqlserver") {
 		return nil, fmt.Errorf("unsupported dialect %q", context.AST.Dialect)
 	}
 	statementType := string(context.AST.StmtType)

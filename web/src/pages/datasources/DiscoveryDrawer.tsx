@@ -126,7 +126,7 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
     nextKeyRef.current = 2;
     setTables([{
       key: 1,
-      schema: datasource.db_type === "postgres" ? "public" : datasource.database,
+      schema: datasource.db_type === "postgres" ? "public" : datasource.db_type === "sqlserver" ? "dbo" : datasource.database,
       table: "",
     }]);
     setSampling(true);
@@ -157,7 +157,7 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
     const key = nextKeyRef.current++;
     setTables((current) => [...current, {
       key,
-      schema: datasource?.db_type === "postgres" ? "public" : (datasource?.database || ""),
+      schema: datasource?.db_type === "postgres" ? "public" : datasource?.db_type === "sqlserver" ? "dbo" : (datasource?.database || ""),
       table: "",
     }]);
   };

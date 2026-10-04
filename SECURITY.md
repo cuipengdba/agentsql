@@ -58,3 +58,17 @@ AgentSQL 是面向 AI Agent 的数据库安全网关和 MCP Server。它对经�
 - Streamable HTTP 的远程部署需要由运维方配置 HTTPS、网络访问控制和凭据管理；AgentSQL 的本机 HTTP 示例不代表公网安全部署方案。
 
 发现可突破上述预期边界、造成权限提升、认证绕过、敏感信息泄露或审计规避的问题时，请按本政策私密报告。
+
+## SQL Server 2025 安全边界
+
+`db_type=sqlserver` 是独立的 SQL Server 2025（主版本 17）受限只读能力，不代表完整 T-SQL、DML、DDL、存储过程、SQL Agent、CLR、链接服务器或 B2/B5 支持。
+
+- 传输必须加密。默认 `tls_mode=strict`，对应 TDS 8.0 严格加密与证书校验；`verify-full` 对应 `encrypt=true` 的兼容路径。没有关闭 TLS 的配置。`trust_server_certificate=true` 会跳过服务端身份验证，只能在隔离开发环境中与 `verify-full` 显式组合，生产环境禁止使用。
+- 数据库账号必须遵循最小权限：仅授予目标库/模式/表的 `SELECT`、受控元数据可见性及估算计划所需 `SHOWPLAN`。不要授予 `sysadmin`、`CONTROL SERVER`、`db_owner`、写权限、DDL、存储过程执行、impersonation、外部数据源或文件访问权限。
+- 网关只接受一条窄只读 `SELECT`。写操作（包括有 `WHERE` 的写操作）、过程调用、批处理、动态数据源、`xp_cmdshell`、OLE 自动化、`BULK`、`WAITFOR`、`DBCC`、会话级 `SET/USE` 和未证明安全的语法均失败关闭。解析失败时不会把原 SQL 交给驱动尝试。
+- discovery 使用固定、参数化的 `sys.tables/sys.schemas/sys.columns/sys.types` 查询。SQL Server 的 metadata visibility 会按数据库权限隐藏对象；权限不足、目录结果超限或结果形状异常都作为失败处理，不扩大权限或回退到调用者提供的 SQL。
+- 动态扫描规则使用 `SHOWPLAN_XML` 的估算计划；目标 `SELECT` 不在该阶段执行。计划 XML 解析有大小、深度和节点限制，无法验证的计划拒绝继续。`SHOWPLAN` 本身可能泄露对象与计划信息，因此只应授予专用网关账号，不应向终端用户暴露原始计划。
+- 审计中的 `db_type` 会记录为 `sqlserver`，但仍属于应用层审计，保留与防篡改边界与本政策其他数据库相同。驱动原始错误、DSN、密码、证书路径和业务对象名不得写入面向客户端的错误或普通审计详情。
+- SQL Server 路径不使用 PostgreSQL B2/B5 native binder，不提供 PostgreSQL 的列级证明。结果脱敏也不是数据库原生 RLS、Dynamic Data Masking 或完整 DLP 的替代品。
+
+部署配置与驱动行为应以 Microsoft 的 [Go 驱动加密与证书](https://learn.microsoft.com/en-us/sql/connect/golang/encryption-certificates?view=sql-server-ver17)、[Go 驱动安全最佳实践](https://learn.microsoft.com/en-us/sql/connect/golang/security-best-practices?view=sql-server-ver17)及 [`SET SHOWPLAN_XML`](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-showplan-xml-transact-sql?view=sql-server-ver17) 文档为准。

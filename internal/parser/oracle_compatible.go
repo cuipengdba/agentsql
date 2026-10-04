@@ -11,7 +11,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
-// oracleCompatibleParser implements only the frozen v0.5 DM8/Oracle lineage
+// oracleCompatibleParser implements the frozen v0.5 DM8/Oracle/SQL Server lineage
 // profile. It is deliberately independent from the execution validator: adding
 // parser support must not change which statements an executor accepts.
 type oracleCompatibleParser struct {
@@ -105,7 +105,7 @@ func (parser *oracleCompatibleParser) Parse(sql string) (ast *model.AST, err err
 			err = recoveredError(dialect, recovered)
 		}
 	}()
-	if dialect != dmDialect && dialect != oracleDialect {
+	if dialect != dmDialect && dialect != oracleDialect && dialect != sqlserverDialect {
 		return &model.AST{Dialect: dialect, RawSQL: sql}, unparseableError(
 			dialect, errors.New("unsupported Oracle-compatible parser dialect"),
 		)
@@ -118,7 +118,7 @@ func (parser *oracleCompatibleParser) Parse(sql string) (ast *model.AST, err err
 			dialect, errors.New("SQL exceeds the size limit or is not valid UTF-8"),
 		)
 	}
-	tokens, tokenizeErr := tokenizeOracleCompatible(sql)
+	tokens, tokenizeErr := tokenizeOracleCompatible(sql, dialect)
 	if tokenizeErr != nil {
 		return &model.AST{Dialect: dialect, RawSQL: sql}, unparseableError(dialect, tokenizeErr)
 	}
@@ -133,7 +133,7 @@ func (parser *oracleCompatibleParser) Parse(sql string) (ast *model.AST, err err
 	return result, nil
 }
 
-func tokenizeOracleCompatible(sql string) ([]oracleToken, error) {
+func tokenizeOracleCompatible(sql string, dialect model.DBDialect) ([]oracleToken, error) {
 	tokens := make([]oracleToken, 0, min(len(sql)/2, 256))
 	appendToken := func(kind oracleTokenKind, text string) error {
 		if len(tokens) >= oracleCompatibleMaxTokens {
@@ -155,8 +155,34 @@ func tokenizeOracleCompatible(sql string) ([]oracleToken, error) {
 			return nil, errors.New("bind markers are unsupported")
 		case current == '(' || current == ')':
 			return nil, errors.New("parenthesized expressions, functions, and subqueries are unsupported")
-		case current == '`' || current == '[' || current == ']':
+		case current == '`' || (current == ']' && dialect != sqlserverDialect) || (current == '[' && dialect != sqlserverDialect):
 			return nil, errors.New("non-Oracle identifier quoting is unsupported")
+		case current == '[':
+			position++
+			var value strings.Builder
+			closed := false
+			for position < len(sql) {
+				if sql[position] != ']' {
+					runeValue, runeSize := utf8.DecodeRuneInString(sql[position:])
+					value.WriteRune(runeValue)
+					position += runeSize
+					continue
+				}
+				if position+1 < len(sql) && sql[position+1] == ']' {
+					value.WriteByte(']')
+					position += 2
+					continue
+				}
+				position++
+				closed = true
+				break
+			}
+			if !closed || value.Len() == 0 {
+				return nil, errors.New("empty or unterminated bracket identifier")
+			}
+			if err := appendToken(oracleTokenQuotedIdentifier, value.String()); err != nil {
+				return nil, err
+			}
 		case current == '-' && position+1 < len(sql) && sql[position+1] == '-':
 			return nil, errors.New("comments are unsupported")
 		case current == '/' && position+1 < len(sql) && sql[position+1] == '*':
@@ -291,7 +317,7 @@ func (parser *oracleSelectParser) parseSelect() error {
 	}
 	parser.consumeKeyword("DISTINCT")
 	if parser.consumeKeyword("TOP") {
-		if parser.dialect != dmDialect {
+		if parser.dialect != dmDialect && parser.dialect != sqlserverDialect {
 			return errors.New("TOP is unsupported for Oracle")
 		}
 		if err := parser.consumeUnsignedInteger("TOP row count"); err != nil {
@@ -464,7 +490,17 @@ func (parser *oracleSelectParser) parseRelation() (oracleRelation, error) {
 	if relation.hasSchema {
 		relation.object.Schema = relation.schema.name
 	}
-	if parser.matchKeyword("AS") {
+	if parser.consumeKeyword("AS") {
+		if parser.dialect == sqlserverDialect {
+			alias, aliasErr := parser.consumeIdentifier("table alias")
+			if aliasErr != nil {
+				return oracleRelation{}, aliasErr
+			}
+			relation.alias = alias
+			relation.hasAlias = true
+			relation.object.Alias = alias.name
+			return relation, nil
+		}
 		return oracleRelation{}, errors.New("AS table aliases are outside the Oracle-compatible profile")
 	}
 	if oracleTokenCanBeAlias(parser.current()) {

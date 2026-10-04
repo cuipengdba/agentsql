@@ -92,6 +92,9 @@ func assembleRules(
 			return nil, fmt.Errorf("MySQL transaction metadata provider is unavailable")
 		}
 		assembled = append(assembled, rules.NewMysqlRules(provider)...)
+	case model.DBDialect("sqlserver"):
+		// SQL Server 2025 currently uses only the dialect-neutral rules. Its
+		// executor independently enforces the narrower read-only T-SQL subset.
 	default:
 		return nil, fmt.Errorf("unsupported rule dialect %q", dialect)
 	}

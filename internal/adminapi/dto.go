@@ -80,31 +80,39 @@ type agentUpdateInput struct {
 }
 
 type datasourceView struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DBType      string `json:"db_type"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Database    string `json:"database"`
-	Username    string `json:"username"`
-	ConnLimit   int    `json:"conn_limit"`
-	StmtTimeout int    `json:"stmt_timeout_ms"`
-	RowLimit    int    `json:"row_limit"`
-	HasPassword bool   `json:"has_password"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	DBType                 string `json:"db_type"`
+	Host                   string `json:"host"`
+	Port                   int    `json:"port"`
+	Database               string `json:"database"`
+	Username               string `json:"username"`
+	ConnLimit              int    `json:"conn_limit"`
+	StmtTimeout            int    `json:"stmt_timeout_ms"`
+	RowLimit               int    `json:"row_limit"`
+	TLSMode                string `json:"tls_mode,omitempty"`
+	TLSServerName          string `json:"tls_server_name,omitempty"`
+	TLSCAFile              string `json:"tls_ca_file,omitempty"`
+	TrustServerCertificate bool   `json:"trust_server_certificate"`
+	HasPassword            bool   `json:"has_password"`
 }
 
 type datasourceInput struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	DBType        string `json:"db_type"`
-	Host          string `json:"host"`
-	Port          int    `json:"port"`
-	Database      string `json:"database"`
-	Username      string `json:"username"`
-	Password      string `json:"password,omitempty"`
-	ConnLimit     int    `json:"conn_limit"`
-	StmtTimeoutMS int    `json:"stmt_timeout_ms"`
-	RowLimit      int    `json:"row_limit"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	DBType                 string `json:"db_type"`
+	Host                   string `json:"host"`
+	Port                   int    `json:"port"`
+	Database               string `json:"database"`
+	Username               string `json:"username"`
+	Password               string `json:"password,omitempty"`
+	ConnLimit              int    `json:"conn_limit"`
+	StmtTimeoutMS          int    `json:"stmt_timeout_ms"`
+	RowLimit               int    `json:"row_limit"`
+	TLSMode                string `json:"tls_mode,omitempty"`
+	TLSServerName          string `json:"tls_server_name,omitempty"`
+	TLSCAFile              string `json:"tls_ca_file,omitempty"`
+	TrustServerCertificate bool   `json:"trust_server_certificate,omitempty"`
 }
 
 type discoveryTableInput struct {
@@ -302,7 +310,9 @@ func datasourceToView(datasource model.Datasource) datasourceView {
 	return datasourceView{ID: datasource.ID, Name: datasource.Name, DBType: datasource.DBType,
 		Host: datasource.Host, Port: datasource.Port, Database: datasource.Database, Username: datasource.Username,
 		ConnLimit: datasource.ConnLimit, StmtTimeout: datasource.StmtTimeoutMS, RowLimit: datasource.RowLimit,
-		HasPassword: datasource.PasswordEnc != ""}
+		TLSMode: datasource.TLSMode, TLSServerName: datasource.TLSServerName, TLSCAFile: datasource.TLSCAFile,
+		TrustServerCertificate: datasource.TrustServerCertificate,
+		HasPassword:            datasource.PasswordEnc != ""}
 }
 
 func splitCSV(value string) []string {

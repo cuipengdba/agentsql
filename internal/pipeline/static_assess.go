@@ -24,7 +24,8 @@ func StaticAssess(in StaticAssessInput) (model.Assessment, string, error) {
 	if sql == "" {
 		return model.Assessment{}, "", fmt.Errorf("static assess: SQL is required")
 	}
-	if in.Dialect != model.DBDialect("postgres") && in.Dialect != model.DBDialect("mysql") {
+	if in.Dialect != model.DBDialect("postgres") && in.Dialect != model.DBDialect("mysql") &&
+		in.Dialect != model.DBDialect("sqlserver") {
 		return model.Assessment{}, "", fmt.Errorf("static assess: unsupported dialect %q", in.Dialect)
 	}
 	level := in.AgentLevel

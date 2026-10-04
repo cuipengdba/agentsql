@@ -113,7 +113,7 @@ func (pipeline *Pipeline) process(
 		if datasource.ID != request.DatasourceID {
 			return fmt.Errorf("datasource reader returned ID %q for %q", datasource.ID, request.DatasourceID)
 		}
-		if datasource.DBType != "postgres" && datasource.DBType != "mysql" {
+		if datasource.DBType != "postgres" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" {
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource

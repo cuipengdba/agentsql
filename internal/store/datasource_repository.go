@@ -32,9 +32,10 @@ func (repository *DatasourceRepository) Create(
 	_, err = repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO datasources (
   id, tenant_id, name, db_type, host, port, database, username, password_enc,
-  conn_limit, stmt_timeout_ms, row_limit
+  conn_limit, stmt_timeout_ms, row_limit, tls_mode, tls_server_name,
+  tls_ca_file, trust_server_certificate
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		datasource.ID,
 		tenantID,
 		datasource.Name,
@@ -47,6 +48,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		datasource.ConnLimit,
 		datasource.StmtTimeoutMS,
 		datasource.RowLimit,
+		datasource.TLSMode,
+		datasource.TLSServerName,
+		datasource.TLSCAFile,
+		datasource.TrustServerCertificate,
 	)
 	if err != nil {
 		return model.Datasource{}, fmt.Errorf("create datasource %q: %w", datasource.ID, err)
@@ -66,7 +71,8 @@ func (repository *DatasourceRepository) Get(ctx context.Context, id string) (mod
 	}
 	datasource, err := scanDatasource(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, tenant_id, name, db_type, host, port, database, username, password_enc,
-       conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
+       conn_limit, stmt_timeout_ms, row_limit, tls_mode, tls_server_name,
+       tls_ca_file, trust_server_certificate, created_at, updated_at
 FROM datasources
 WHERE id = ? AND tenant_id = ?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -90,7 +96,8 @@ func (repository *DatasourceRepository) List(ctx context.Context) ([]model.Datas
 	}
 	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, tenant_id, name, db_type, host, port, database, username, password_enc,
-       conn_limit, stmt_timeout_ms, row_limit, created_at, updated_at
+       conn_limit, stmt_timeout_ms, row_limit, tls_mode, tls_server_name,
+       tls_ca_file, trust_server_certificate, created_at, updated_at
 FROM datasources
 WHERE tenant_id = ?
 ORDER BY id ASC`), tenantID)
@@ -131,6 +138,7 @@ func (repository *DatasourceRepository) Update(
 UPDATE datasources
 SET name = ?, db_type = ?, host = ?, port = ?, database = ?, username = ?,
     password_enc = ?, conn_limit = ?, stmt_timeout_ms = ?, row_limit = ?,
+    tls_mode = ?, tls_server_name = ?, tls_ca_file = ?, trust_server_certificate = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ? AND tenant_id = ?`),
 		datasource.Name,
@@ -143,6 +151,10 @@ WHERE id = ? AND tenant_id = ?`),
 		datasource.ConnLimit,
 		datasource.StmtTimeoutMS,
 		datasource.RowLimit,
+		datasource.TLSMode,
+		datasource.TLSServerName,
+		datasource.TLSCAFile,
+		datasource.TrustServerCertificate,
 		datasource.ID,
 		tenantID,
 	)
@@ -200,6 +212,10 @@ func scanDatasource(scanner rowScanner) (model.Datasource, error) {
 		&datasource.ConnLimit,
 		&datasource.StmtTimeoutMS,
 		&datasource.RowLimit,
+		&datasource.TLSMode,
+		&datasource.TLSServerName,
+		&datasource.TLSCAFile,
+		&datasource.TrustServerCertificate,
 		&createdAt,
 		&updatedAt,
 	); err != nil {

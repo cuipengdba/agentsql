@@ -22,10 +22,10 @@ func TestB5S1bPostgres14And18MigrationAndStore(t *testing.T) {
 		for _, separate := range []bool{false, true} {
 			separate := separate
 			name := image + "/combined"
-			versions := []int{14, 13, 12, 11, 10}
+			versions := []int{15, 14, 13, 12, 11, 10}
 			if separate {
 				name = image + "/metadata"
-				versions = []int{13, 12, 11, 10, 9}
+				versions = []int{14, 13, 12, 11, 10, 9}
 			}
 			t.Run(name, func(t *testing.T) {
 				ctx := dockerTestContext(t)

@@ -11,12 +11,12 @@ import { ruleMeta, type RuleMeta } from "@/constants/ruleMeta";
 
 import { apiErrorMessage, isCanceled } from "./config/utils";
 
-type RuleFilter = "all" | "generic" | "postgres" | "mysql";
+type RuleFilter = "all" | "generic" | "postgres" | "mysql" | "sqlserver";
 
 interface RuleRow {
   id: string;
   title: string;
-  dbType: "all" | "postgres" | "mysql";
+  dbType: "all" | "postgres" | "mysql" | "sqlserver";
   risk: number;
   patternType: string;
   definition: string;
@@ -29,7 +29,7 @@ interface RuleRow {
 
 interface CustomRuleValues {
   id: string;
-  db_type: "all" | "postgres" | "mysql";
+  db_type: "all" | "postgres" | "mysql" | "sqlserver";
   title: string;
   risk_level: number;
   definition: string;
@@ -276,7 +276,7 @@ export function Rules() {
     <PageContainer title="规则" subtitle="管理全局规则开关与自定义 AST 规则" extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建自定义规则</Button>}>
       <Alert className="cfg-inline-alert" type="info" showIcon message="开关保存后对真实网关的下一次 SQL 请求立即生效、无需重启；拦截演示台（T21）为零连库纯静态演示，不读取此处开关。动态规则需真实连库执行 EXPLAIN 或读取运行态才会触发。" />
       <section className="cfg-rule-filter">
-        <Segmented<RuleFilter> value={filter} options={[{ value: "all", label: "全部" }, { value: "generic", label: "通用" }, { value: "postgres", label: "PostgreSQL" }, { value: "mysql", label: "MySQL" }]} onChange={setFilter} />
+        <Segmented<RuleFilter> value={filter} options={[{ value: "all", label: "全部" }, { value: "generic", label: "通用" }, { value: "postgres", label: "PostgreSQL" }, { value: "mysql", label: "MySQL" }, { value: "sqlserver", label: "SQL Server" }]} onChange={setFilter} />
         <Input.Search allowClear value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索规则 ID 或中文名" className="cfg-rule-search" />
         <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新</Button>
       </section>

@@ -119,8 +119,8 @@ func (handler *Handler) playgroundAssess(writer http.ResponseWriter, request *ht
 		handler.fail(writer, http.StatusUnprocessableEntity, "sql is required")
 		return
 	}
-	if input.DBType != "postgres" && input.DBType != "mysql" {
-		handler.fail(writer, http.StatusUnprocessableEntity, "db_type must be postgres or mysql")
+	if input.DBType != "postgres" && input.DBType != "mysql" && input.DBType != "sqlserver" {
+		handler.fail(writer, http.StatusUnprocessableEntity, "db_type must be postgres, mysql, or sqlserver")
 		return
 	}
 	if input.AgentLevel == "" {

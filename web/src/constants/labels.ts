@@ -61,6 +61,7 @@ export const agentStatusMeta = {
 export const dbTypeMeta = {
   postgres: { label: "PostgreSQL", color: "blue" },
   mysql: { label: "MySQL", color: "gold" },
+  sqlserver: { label: "SQL Server 2025", color: "purple" },
   all: { label: "通用", color: "default" },
 } as const;
 

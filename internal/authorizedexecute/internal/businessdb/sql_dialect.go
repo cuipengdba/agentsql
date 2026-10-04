@@ -363,7 +363,7 @@ func validateLimitedSelectForDialect(dialect, sqlText string) error {
 	if err != nil {
 		return err
 	}
-	if dialect != "dm" && dialect != "oracle" {
+	if dialect != "dm" && dialect != "oracle" && dialect != "sqlserver" {
 		return nil
 	}
 	for _, word := range words[1:] {
@@ -372,6 +372,13 @@ func validateLimitedSelectForDialect(dialect, sqlText string) error {
 		}
 		if dialect == "oracle" && (word == "LIMIT" || word == "TOP") {
 			return fmt.Errorf("unsupported Oracle pagination form")
+		}
+		if dialect == "sqlserver" {
+			switch word {
+			case "LIMIT", "CURRVAL", "OPENROWSET", "OPENDATASOURCE", "OPENQUERY", "BULK", "WAITFOR",
+				"DBCC", "USE", "SET", "XP_CMDSHELL", "SP_OACREATE", "SP_OAMETHOD", "SP_OAGETPROPERTY":
+				return fmt.Errorf("unsupported SQL Server SELECT form")
+			}
 		}
 	}
 	return nil

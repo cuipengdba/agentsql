@@ -53,6 +53,7 @@ func TestPostgres18B2PolicyAtomicTriggerProcedureAndFenceE2E(t *testing.T) {
 	require.NoError(t, snapshot.FinalCheck(ctx, now.Add(time.Second)))
 	require.NoError(t, snapshot.Close())
 
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectPostgres, false, 15))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectPostgres, false, 14))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectPostgres, false, 13))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectPostgres, false, 12))
@@ -62,7 +63,7 @@ func TestPostgres18B2PolicyAtomicTriggerProcedureAndFenceE2E(t *testing.T) {
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
 	require.Equal(t, 8, current)
-	require.Equal(t, 14, latest)
+	require.Equal(t, 15, latest)
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectPostgres, false, 9))
 	require.NoError(t, Migrate(ctx, opened.metaDB, DialectPostgres))
 }

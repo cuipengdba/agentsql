@@ -189,6 +189,8 @@ func openExecutor(
 		return NewOracleExecutor(context.Background(), datasource, password, readOnly)
 	case "yashan":
 		return NewYashanExecutor(context.Background(), datasource, password, readOnly)
+	case "sqlserver":
+		return NewSQLServerExecutor(context.Background(), datasource, password, readOnly)
 	default:
 		return nil, fmt.Errorf("unsupported datasource type %q", datasource.DBType)
 	}

@@ -59,7 +59,9 @@ type Agent struct {
 	UpdatedAt  time.Time
 }
 
-// Datasource is a protected PostgreSQL or MySQL connection target.
+// Datasource is a protected business-database connection target. SQL Server
+// TLS settings are intentionally explicit: an empty TLSMode is normalized to
+// strict by the SQL Server adapter, and plaintext transport is never accepted.
 type Datasource struct {
 	ID            string
 	TenantID      string
@@ -73,8 +75,15 @@ type Datasource struct {
 	ConnLimit     int
 	StmtTimeoutMS int
 	RowLimit      int
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	TLSMode       string
+	TLSServerName string
+	TLSCAFile     string
+	// TrustServerCertificate is only accepted with SQL Server verify-full mode
+	// for controlled development environments. It must remain false in
+	// production because it disables server identity verification.
+	TrustServerCertificate bool
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // Policy grants or denies an agent access to a database object.

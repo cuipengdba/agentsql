@@ -135,7 +135,8 @@ func metadataColumnsMatch(columns []string) bool {
 			return false
 		}
 	}
-	return (strings.EqualFold(columns[4], "udt_name") || strings.EqualFold(columns[4], "column_type")) &&
+	return (strings.EqualFold(columns[4], "udt_name") || strings.EqualFold(columns[4], "column_type") ||
+		strings.EqualFold(columns[4], "type_name")) &&
 		strings.EqualFold(columns[5], "ordinal_position")
 }
 

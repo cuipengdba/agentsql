@@ -114,13 +114,21 @@ func TestDatasourceRepositoryCRUDAndEncryptedPasswordStorage(t *testing.T) {
 	read, err := repository.Get(context.Background(), created.ID)
 	require.NoError(t, err)
 	read.Name = "Replica"
-	read.Port = 3306
-	read.DBType = "mysql"
+	read.Port = 1433
+	read.DBType = "sqlserver"
+	read.TLSMode = "verify-full"
+	read.TLSServerName = "db.example.test"
+	read.TLSCAFile = "C:/certs/sqlserver.pem"
+	read.TrustServerCertificate = true
 	secondPassword := "plaintext-password-two"
 	updated, err := repository.Update(context.Background(), read, secondPassword)
 	require.NoError(t, err)
 	require.Equal(t, "Replica", updated.Name)
-	require.Equal(t, 3306, updated.Port)
+	require.Equal(t, 1433, updated.Port)
+	require.Equal(t, "verify-full", updated.TLSMode)
+	require.Equal(t, "db.example.test", updated.TLSServerName)
+	require.Equal(t, "C:/certs/sqlserver.pem", updated.TLSCAFile)
+	require.True(t, updated.TrustServerCertificate)
 	require.NotEqual(t, read.PasswordEnc, updated.PasswordEnc)
 	decrypted, err = repository.DecryptPassword(updated.PasswordEnc)
 	require.NoError(t, err)

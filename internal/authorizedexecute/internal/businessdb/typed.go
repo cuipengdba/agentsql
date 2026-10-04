@@ -40,6 +40,9 @@ func quoteIdentifier(dialect, value string) (string, error) {
 	if dialect == "mysql" {
 		return "`" + value + "`", nil
 	}
+	if dialect == "sqlserver" {
+		return "[" + value + "]", nil
+	}
 	return `"` + value + `"`, nil
 }
 
@@ -108,6 +111,15 @@ func ListSchema(ctx context.Context, executor Executor, database string, tables 
 			}
 			return nil, newDBError(DBErrorKindExecution, DBErrorCodeExecution, DBStageMetadata, "", nil)
 		}
+	case *SQLServerExecutor:
+		query, args := sqlServerSchemaQuery(typed.username, tables)
+		metadataContext, cancel := typed.timeoutContext(ctx)
+		defer cancel()
+		rows, queryErr := typed.database.QueryContext(metadataContext, query, args...)
+		if queryErr != nil {
+			return nil, sqlServerDatabaseError(metadataContext, DBStageMetadata, queryErr)
+		}
+		result, err = collectRows(&mysqlRowSource{rows: rows}, typedSchemaRowLimit)
 	default:
 		return nil, fmt.Errorf("unsupported typed schema reader")
 	}
@@ -191,6 +203,31 @@ func yashanSchemaQuery(defaultOwner string, tables []SchemaTable) (string, []any
 	return query + filter + " ORDER BY OWNER,TABLE_NAME,COLUMN_ID", args
 }
 
+func sqlServerSchemaQuery(defaultSchema string, tables []SchemaTable) (string, []any) {
+	query := "SELECT s.name AS table_schema,t.name AS table_name,c.name AS column_name," +
+		"ty.name AS data_type,ty.name AS type_name,CONVERT(varchar(20),c.column_id) AS ordinal_position " +
+		"FROM sys.tables AS t JOIN sys.schemas AS s ON s.schema_id=t.schema_id " +
+		"JOIN sys.columns AS c ON c.object_id=t.object_id " +
+		"JOIN sys.types AS ty ON ty.user_type_id=c.user_type_id WHERE "
+	args := make([]any, 0, max(1, len(tables)*2))
+	if len(tables) == 0 {
+		args = append(args, defaultSchema)
+		query += "s.name=@p1"
+	} else {
+		parts := make([]string, 0, len(tables))
+		for _, table := range tables {
+			schema := table.Schema
+			if schema == "" {
+				schema = defaultSchema
+			}
+			args = append(args, schema, table.Table)
+			parts = append(parts, "(s.name=@p"+strconv.Itoa(len(args)-1)+" AND t.name=@p"+strconv.Itoa(len(args))+")")
+		}
+		query += "(" + strings.Join(parts, " OR ") + ")"
+	}
+	return query + " ORDER BY s.name,t.name,c.column_id", args
+}
+
 func oracleStyleTableFilter(
 	defaultOwner string,
 	tables []SchemaTable,
@@ -246,6 +283,9 @@ func Sample(ctx context.Context, executor Executor, table SchemaTable, columns [
 
 func buildSampleQuery(dialect, tableName string, projections []string, limit int) string {
 	query := "SELECT " + strings.Join(projections, ",") + " FROM " + tableName
+	if dialect == "sqlserver" {
+		return "SELECT TOP " + strconv.Itoa(limit) + " " + strings.Join(projections, ",") + " FROM " + tableName
+	}
 	if dialect == "oracle" {
 		return query + " FETCH FIRST " + strconv.Itoa(limit) + " ROWS ONLY"
 	}

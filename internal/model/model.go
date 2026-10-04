@@ -1,8 +1,28 @@
 // Package model defines the frozen contracts shared by AgentSQL components.
 package model
 
-// DBDialect identifies a supported database dialect: postgres or mysql.
+// DBDialect identifies a supported business-database SQL dialect.
 type DBDialect string
+
+const (
+	DialectPostgres  DBDialect = "postgres"
+	DialectMySQL     DBDialect = "mysql"
+	DialectDM        DBDialect = "dm"
+	DialectOracle    DBDialect = "oracle"
+	DialectYashan    DBDialect = "yashan"
+	DialectSQLServer DBDialect = "sqlserver"
+)
+
+// SupportedDatasourceType reports whether the runtime has a native connection
+// adapter for value. Parser and write capabilities remain dialect-specific.
+func SupportedDatasourceType(value string) bool {
+	switch DBDialect(value) {
+	case DialectPostgres, DialectMySQL, DialectDM, DialectOracle, DialectYashan, DialectSQLServer:
+		return true
+	default:
+		return false
+	}
+}
 
 // StmtType identifies a SQL statement as SELECT, INSERT, UPDATE, DELETE, DDL,
 // ADMIN, or UNKNOWN.

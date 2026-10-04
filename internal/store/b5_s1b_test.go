@@ -137,8 +137,8 @@ func TestB5S1bSQLiteCombinedAndMetadataDownReapply(t *testing.T) {
 		separate bool
 		versions []int
 	}{
-		{name: "combined", versions: []int{14, 13, 12, 11, 10}},
-		{name: "metadata", separate: true, versions: []int{13, 12, 11, 10, 9}},
+		{name: "combined", versions: []int{15, 14, 13, 12, 11, 10}},
+		{name: "metadata", separate: true, versions: []int{14, 13, 12, 11, 10, 9}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()

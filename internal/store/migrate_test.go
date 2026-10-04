@@ -50,7 +50,8 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"datasources": {
 			"id", "name", "db_type", "host", "port", "database", "username",
 			"password_enc", "conn_limit", "stmt_timeout_ms", "row_limit", "created_at",
-			"updated_at", "tenant_id",
+			"updated_at", "tenant_id", "tls_mode", "tls_server_name", "tls_ca_file",
+			"trust_server_certificate",
 		},
 		"policies": {
 			"id", "agent_id", "datasource_id", "object_type", "object_name", "columns",
@@ -239,8 +240,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 14, current)
-	require.Equal(t, 14, latest)
+	require.Equal(t, 15, current)
+	require.Equal(t, 15, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -290,8 +291,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 13, current)
-	require.Equal(t, 13, latest)
+	require.Equal(t, 14, current)
+	require.Equal(t, 14, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -326,9 +327,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 14, current)
+				require.Equal(t, 15, current)
 			} else {
-				require.Equal(t, 13, current)
+				require.Equal(t, 14, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -393,9 +394,9 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 14, current)
+				require.Equal(t, 15, current)
 			} else {
-				require.Equal(t, 13, current)
+				require.Equal(t, 14, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",

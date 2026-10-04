@@ -171,6 +171,8 @@ func ProbeDatasource(ctx context.Context, datasource model.Datasource, password 
 		opened, err = businessdb.NewPostgresExecutor(ctx, datasource, password, true)
 	case "mysql":
 		opened, err = businessdb.NewMySQLExecutor(ctx, datasource, password, true)
+	case "sqlserver":
+		opened, err = businessdb.NewSQLServerExecutor(ctx, datasource, password, true)
 	default:
 		return &AuthError{Reason: ReasonDatabaseFailure}
 	}
@@ -287,6 +289,9 @@ func (gateway *Gateway) Sample(ctx context.Context, datasource model.Datasource,
 		}
 	}
 	sqlText := "SELECT " + strings.Join(projections, ",") + " FROM " + tableName + " LIMIT " + strconv.Itoa(limit)
+	if datasource.DBType == "sqlserver" {
+		sqlText = "SELECT TOP " + strconv.Itoa(limit) + " " + strings.Join(projections, ",") + " FROM " + tableName
+	}
 	statement, err := gateway.AuthorizedExecute(ctx, datasource, secret, sqlText, "")
 	if err != nil {
 		return model.QueryResult{}, err
@@ -325,6 +330,8 @@ func quoteTypedIdentifier(dialect, value string) (string, error) {
 		return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`, nil
 	case "mysql":
 		return "`" + strings.ReplaceAll(value, "`", "``") + "`", nil
+	case "sqlserver":
+		return "[" + strings.ReplaceAll(value, "]", "]]") + "]", nil
 	default:
 		return "", fmt.Errorf("unsupported dialect")
 	}

@@ -15,6 +15,24 @@ func TestQuoteIdentifier(t *testing.T) {
 	mysql, err := quoteIdentifier("mysql", "odd`name")
 	require.NoError(t, err)
 	require.Equal(t, "`odd``name`", mysql)
+	sqlserver, err := quoteIdentifier("sqlserver", "odd]name")
+	require.NoError(t, err)
+	require.Equal(t, "[odd]]name]", sqlserver)
+}
+
+func TestBuildSQLServerSampleAndMetadataSQL(t *testing.T) {
+	table := discovery.TableRef{Schema: "dbo", Table: "customers"}
+	columns := []discovery.ColumnRef{{Schema: "dbo", Table: "customers", Column: "phone"}}
+	sample, err := buildSampleSQL("sqlserver", table, columns, 20)
+	require.NoError(t, err)
+	require.Equal(t, "SELECT TOP 20 [phone] FROM [dbo].[customers]", sample)
+	require.NoError(t, assertSampleSQL("sqlserver", sample, table, columns))
+
+	metadata, err := buildMetadataSQL("sqlserver", "app", []discovery.TableRef{table})
+	require.NoError(t, err)
+	require.Contains(t, metadata, "FROM sys.tables")
+	require.Contains(t, metadata, "JOIN sys.columns")
+	require.Contains(t, metadata, "s.name = 'dbo'")
 }
 
 func TestBuildSampleSQLAndASTInvariant(t *testing.T) {

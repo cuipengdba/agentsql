@@ -2,7 +2,30 @@
 
 > 文档状态：预研与实验性协议路径实测，不是兼容性认证或支持声明。2026-10-01 的实测结论仅适用于下文列出的社区版本、拓扑与用例；商业版本及未验证项仍需厂商提供与目标版本一致的测试环境、驱动和文档后确认。
 
-AgentSQL 当前原生支持 PostgreSQL 与 MySQL。本预研用于拆分国产数据库接入工作、安排联合验证顺序，不应作为“已支持”或“已完成适配”的对外依据。即使数据库宣称兼容 PostgreSQL、MySQL 或 Oracle，也不能直接推导出其 SQL 方言、系统目录、驱动行为和安全能力与对应数据库完全一致。
+AgentSQL 当前的完整方言路径为 PostgreSQL 与 MySQL；另有 SQL Server 2025 的受限、fail-closed 只读路径。后者不是完整 T-SQL 支持。本预研用于拆分其他数据库接入工作、安排联合验证顺序，不应作为“已支持”或“已完成适配”的对外依据。即使数据库宣称兼容 PostgreSQL、MySQL 或 Oracle，也不能直接推导出其 SQL 方言、系统目录、驱动行为和安全能力与对应数据库完全一致。
+
+## SQL Server 2025 受限能力基线（2026-10-05）
+
+本仓库将 `sqlserver` 作为独立 `DBType`，只接受 SQL Server 2025（产品主版本 17），默认端口 1433。连接使用纯 Go 的 `github.com/microsoft/go-mssqldb`，普通构建不依赖 CGO。该路径的对外口径必须是“SQL Server 2025 受限只读支持”，不能简写为“完整支持 SQL Server/T-SQL”。
+
+| 能力 | 当前状态 | 边界 |
+| --- | --- | --- |
+| 连接、池、Ping、超时、稳定错误分类 | 已实现 | 启动探针要求 `SERVERPROPERTY('ProductMajorVersion') = 17`；其他主版本拒绝接入 |
+| 传输加密 | 强制 | 默认 `strict`（TDS 8.0）；兼容模式映射为 `encrypt=true` 并验证证书；不提供明文模式。`TrustServerCertificate` 只允许显式选择兼容模式，且仅面向受控开发环境 |
+| 元数据发现 | 已实现 | 固定参数化查询 `sys.tables`、`sys.schemas`、`sys.columns`、`sys.types`；只返回当前账号可见元数据，权限不足或结果形状异常时失败关闭，不回退到拼接式调用者 SQL |
+| 采样与业务查询 | 受限实现 | 只允许单条、直接表引用、无函数/子查询/注释/绑定标记的窄 `SELECT`；支持方括号标识符、`TOP` 及有限 `OFFSET/FETCH` |
+| 执行计划 | 受限实现 | 使用 `SET SHOWPLAN_XML ON/OFF` 读取估算计划，不执行目标查询；XML 有大小、深度和节点数上限，未知格式失败关闭 |
+| DML、DDL、存储过程、动态 SQL、批处理 | 不支持 | `INSERT/UPDATE/DELETE/MERGE`、`EXEC/EXECUTE`、`xp_cmdshell`、OLE 自动化、`OPENROWSET`/`OPENDATASOURCE`/`OPENQUERY`、`BULK`、`WAITFOR`、`DBCC`、`USE`、`SET` 和多语句均拒绝；因此不存在“无 WHERE 的 UPDATE/DELETE 被放行”的路径 |
+| B2/B5 与 PostgreSQL native binder | 不支持 | B2/B5 仍是 PostgreSQL 专属，不把 SQL Server 伪装成 PostgreSQL，也不复用其 catalog/OID/RBAC 证明 |
+| 列级授权 | 不声明 | SQL Server 路径当前只使用通用静态规则、表级策略和结果层控制；不得宣称 PostgreSQL B2 列级证明适用于 SQL Server |
+
+选择 `sys.*` 而不是只依赖 `INFORMATION_SCHEMA`，是因为 Microsoft 明确说明 INFORMATION_SCHEMA 仅表示元数据子集，不保证覆盖全部对象元数据；目录视图同时遵循 SQL Server 的 metadata visibility，调用者只能看到其拥有或获授权限的安全对象。参考：[SQL Server 2025 新功能](https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2025?view=sql-server-ver17)、[`sys.columns`](https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-columns-transact-sql?view=sql-server-ver17)、[`INFORMATION_SCHEMA.TABLES` 限制](https://learn.microsoft.com/en-us/sql/relational-databases/system-information-schema-views/tables-transact-sql?view=sql-server-ver17)。
+
+TLS 配置依据 Microsoft Go 驱动文档：`strict` 使用 TDS 8.0 且要求 SQL Server 2022 或更高版本；`encrypt=true` 会加密并校验证书；`TrustServerCertificate=true` 跳过证书验证，只适合测试。参考：[Go 驱动加密与证书](https://learn.microsoft.com/en-us/sql/connect/golang/encryption-certificates?view=sql-server-ver17)、[Go 驱动安全最佳实践](https://learn.microsoft.com/en-us/sql/connect/golang/security-best-practices?view=sql-server-ver17)。
+
+`SHOWPLAN_XML` 返回估算计划而不执行语句，但账号仍需对引用对象具备执行所需权限，并对相关数据库具备 `SHOWPLAN` 权限。生产账号应只授予业务 `SELECT`、必要目录可见性和 `SHOWPLAN`，明确拒绝 `CONTROL SERVER`、`sysadmin`、`db_owner`、DDL/DML、存储过程执行和外部访问能力。参考：[SET SHOWPLAN_XML](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-showplan-xml-transact-sql?view=sql-server-ver17)。
+
+环境门控集成测试为 `TestSQLServer2025ExecutorE2E`。它默认跳过；只有设置 `AGENTSQL_SQLSERVER_2025_E2E=1` 及 `AGENTSQL_SQLSERVER_HOST/PORT/DATABASE/USERNAME/PASSWORD`（可选 TLS 变量）时才连接真实实例。测试会创建并删除固定前缀的合成表，不下载或自动接受 SQL Server 镜像许可。
 
 ## 0. 首批适配状态与实测记录（2026-10-01）
 
@@ -62,7 +85,7 @@ openGauss 容器内自带 `gsql` 无法启动，原文为 `error while loading s
 
 ### 0.5 商业版协议映射方案
 
-仓库当前没有厂商识别开关：`Datasource.DBType`、parser、`openExecutor`、discovery 只接受 `postgres` / `mysql`，B2 又只对精确的 `DBType == "postgres"` 探测。因而本轮没有增加 `kingbase`、`highgo`、`tdsql` 等别名，也没有修改核心网关；仅加别名会掩盖系统目录、版本、类型和安全能力差异，并形成虚假支持声明。
+仓库仍不使用厂商别名冒充兼容方言：`Datasource.DBType`、parser、executor 与 discovery 都按显式 dialect 注册；除既有方言外，本轮新增的是独立的 `sqlserver`，而不是把它或其他厂商映射成 `postgres` / `mysql`。B2 仍只对精确的 `DBType == "postgres"` 探测。因而没有增加 `kingbase`、`highgo`、`tdsql` 等别名；仅加别名会掩盖系统目录、版本、类型和安全能力差异，并形成虚假支持声明。
 
 | 厂商 / 产品 | 建议映射路径 | 厂商环境终验清单 |
 | --- | --- | --- |
@@ -308,10 +331,10 @@ Go 接入的官方结论如下：
 仓库当前没有集中在单一 `internal/dbext` 目录下的插件式方言接口。数据库能力分布在多个层次，新增 dialect 不能只在数据源类型上增加一个枚举或把兼容库映射成 `postgres` / `mysql`。建议先抽象稳定合同，再按以下路径接入：
 
 1. **数据源模型与管理面**：`internal/model` 中的数据源以 `DBType` 标识类型；管理 API、持久化校验、控制台表单和配置目前围绕 `postgres` / `mysql`。新增数据库需定义稳定的 dialect ID、默认端口、连接参数、凭据与 TLS 边界，并保证旧数据兼容。
-2. **驱动与连接池**：`internal/authorizedexecute/internal/businessdb` 的 `Executor` / `Session` / `WriteTx` 是主要执行合同，`openExecutor` 当前只分派 PostgreSQL 和 MySQL。每个新 dialect 需实现连接、Ping、会话、查询、写入、事务、超时取消、行数限制和安全错误映射；协议兼容库也必须验证连接池与取消语义。
-3. **SQL 解析与标准化**：`internal/parser.NewParser` 当前只注册 PG 与 MySQL，分别使用 `pg_query_go` 和 Vitess parser。新增 dialect 需要确定是复用既有 AST 转换、增加兼容层，还是引入独立 parser；必须用真实方言 corpus 验证单语句约束、对象提取、语句分类、危险函数、注释和列血缘，解析不确定时继续 fail-closed。
-4. **规则与动态评估**：`internal/engine` 目前只接受 PG/MySQL AST，规则还包含方言专属能力。需逐项审查静态规则、`EXPLAIN` 结果、估算行数、事务状态和危险管理命令，不能因规则未识别而默认放行。
-5. **发现与元数据读取**：`internal/controlledread` 目前为 PG/MySQL 分别生成标识符、`information_schema` 查询和采样 SQL。新 dialect 需适配标识符转义、catalog/schema 含义、基础表过滤、类型发现、采样查询和权限不足时的安全失败。
+2. **驱动与连接池**：`internal/authorizedexecute/internal/businessdb` 的 `Executor` / `Session` / `WriteTx` 是主要执行合同，`openExecutor` 按 dialect 显式分派；SQL Server 分支仅实现连接、Ping、SHOWPLAN、查询与受限只读会话，不实现写事务。每个新增 dialect 必须逐项声明连接、会话、查询、写入、事务、超时取消、行数限制和安全错误映射能力；协议兼容库也必须验证连接池与取消语义。
+3. **SQL 解析与标准化**：`internal/parser.NewParser` 按 dialect 注册 parser。SQL Server 使用故障关闭的窄 T-SQL SELECT 子集，支持括号标识符、`TOP` 和常见表别名，但不把存储过程、动态 SQL、批量/外部数据源或 DML 当作已支持语法。新增 dialect 需要确定是复用既有 AST 转换、增加兼容层，还是引入独立 parser；必须用真实方言 corpus 验证单语句约束、对象提取、语句分类、危险函数、注释和列血缘，解析不确定时继续 fail-closed。
+4. **规则与动态评估**：`internal/engine` 只接受已注册 dialect 的规范 AST，规则还包含方言专属能力。SQL Server 复用通用静态规则并使用受限 `SHOWPLAN_XML` 动态证据；需逐项审查估算行数、事务状态和危险管理命令，不能因规则未识别而默认放行。
+5. **发现与元数据读取**：`internal/controlledread` 为每个支持的 dialect 生成标识符、catalog 查询和采样 SQL。SQL Server 使用 `sys.tables` / `sys.schemas` / `sys.columns` / `sys.types` 与 `SELECT TOP`；新 dialect 仍需适配 catalog/schema 含义、基础表过滤、类型发现、采样查询和权限不足时的安全失败。
 6. **类型系统与结果处理**：需要建立数据库类型到 AgentSQL 九类脱敏类型的映射，覆盖数值、日期时间、二进制、JSON、大对象、定制类型及 `NULL`，同时验证列名、来源表/列元数据、字符集和时区。无法可靠判定列归属时应保持现有 fail-closed 语义。
 7. **授权、脱敏与审计**：表级/列级策略匹配、mask/hash/block/range、审计字段和错误脱敏都要纳入方言回归。数据库原生列权限、视图、行级安全或脱敏能力可作为纵深防御，但不能未经设计就替代 AgentSQL 的应用层决策证据链。
 

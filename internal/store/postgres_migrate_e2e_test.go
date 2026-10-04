@@ -86,11 +86,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 14, migrationCount)
+	require.Equal(t, 15, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 14, current)
-	require.Equal(t, 14, latest)
+	require.Equal(t, 15, current)
+	require.Equal(t, 15, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -723,7 +723,7 @@ func TestPostgres18AuditErrorCodeMigrationsE2E(t *testing.T) {
 		latest     int
 	}{
 		{
-			name: "combined", directory: "migrations/postgres", oldVersion: 5, latest: 14,
+			name: "combined", directory: "migrations/postgres", oldVersion: 5, latest: 15,
 			migrate: func(ctx context.Context, db *sql.DB) error { return Migrate(ctx, db, DialectPostgres) },
 			versions: func(ctx context.Context, db *sql.DB) (int, int, error) {
 				return MetadataMigrationVersions(ctx, db, DialectPostgres, false)
@@ -799,11 +799,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
 			require.NoError(t, err)
 			if testCase.separated {
-				require.Equal(t, 13, current)
-				require.Equal(t, 13, latest)
-			} else {
 				require.Equal(t, 14, current)
 				require.Equal(t, 14, latest)
+			} else {
+				require.Equal(t, 15, current)
+				require.Equal(t, 15, latest)
 			}
 			assertPostgresMaskRuleRangeColumns(t, ctx, database)
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
@@ -839,8 +839,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 14, current)
-	require.Equal(t, 14, latest)
+	require.Equal(t, 15, current)
+	require.Equal(t, 15, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

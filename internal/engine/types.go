@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	// DialectAll makes a rule applicable to both supported SQL dialects.
+	// DialectAll makes a rule applicable to every supported SQL dialect.
 	DialectAll model.DBDialect = "all"
 	guardStage                 = "guard"
 )

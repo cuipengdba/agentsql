@@ -309,7 +309,7 @@ export function Playground() {
             <span>数据库方言</span>
             <Segmented<Dialect>
               value={dialect}
-              options={[{ label: "PostgreSQL", value: "postgres" }, { label: "MySQL", value: "mysql" }]}
+              options={[{ label: "PostgreSQL", value: "postgres" }, { label: "MySQL", value: "mysql" }, { label: "SQL Server 2025", value: "sqlserver" }]}
               onChange={setDialect}
             />
           </div>
@@ -333,7 +333,7 @@ export function Playground() {
           onKeyDown={handleKeyDown}
           autoSize={{ minRows: 3, maxRows: 10 }}
           spellCheck={false}
-          placeholder="输入一条 PostgreSQL 或 MySQL 语句"
+          placeholder="输入一条 PostgreSQL、MySQL 或受限 T-SQL 语句"
         />
         <div className="playground-actions">
           <Button icon={<UndoOutlined />} onClick={reset}>重置</Button>

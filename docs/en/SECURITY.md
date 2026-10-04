@@ -113,3 +113,17 @@ Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, o
 - [GitHub private vulnerability reporting](https://github.com/cuipengdba/agentsql/security/advisories/new).
 
 The authoritative [security policy](../../SECURITY.md) supports v0.5.x until six months after v0.6.0 is released, but not earlier than 2027-10-31; v0.4.x remains supported through 2027-04-30. Versions 0.3.x and earlier are EOL and no longer receive security fixes.
+
+## SQL Server 2025 Security Boundary
+
+`db_type=sqlserver` is an independent, restricted read-only capability for SQL Server 2025 (major version 17). It is not a claim of complete T-SQL, DML, DDL, stored-procedure, SQL Agent, CLR, linked-server, or B2/B5 support.
+
+- Transport encryption is mandatory. `tls_mode=strict` is the default and uses TDS 8.0 strict encryption with certificate validation. `verify-full` maps to the compatible `encrypt=true` path. There is no plaintext mode. `trust_server_certificate=true` skips server identity validation and is accepted only when explicitly combined with `verify-full` for isolated development; do not use it in production.
+- Use a dedicated least-privilege login with only the required table `SELECT`, controlled metadata visibility, and `SHOWPLAN` permission for estimated plans. Do not grant `sysadmin`, `CONTROL SERVER`, `db_owner`, writes, DDL, procedure execution, impersonation, external-source, or file-access privileges.
+- The gateway accepts one narrow read-only `SELECT`. All writes (with or without `WHERE`), procedure calls, batches, dynamic sources, `xp_cmdshell`, OLE automation, `BULK`, `WAITFOR`, `DBCC`, session-level `SET/USE`, and unproven syntax fail closed. A parse failure is never retried as raw driver SQL.
+- Discovery uses fixed parameterized queries over `sys.tables`, `sys.schemas`, `sys.columns`, and `sys.types`. SQL Server metadata visibility still applies. Insufficient permission, excessive results, or an unexpected result shape fails closed; the gateway does not elevate or fall back to caller-supplied SQL.
+- Dynamic scan assessment consumes an estimated `SHOWPLAN_XML`; it does not execute the target query. XML size, depth, and node count are bounded. Because plan access can reveal object and plan details, grant `SHOWPLAN` only to the dedicated gateway login and do not expose raw plans to end users.
+- Audit records carry `db_type=sqlserver`, but remain application-level evidence with the same retention and tamper-resistance limits described above. Raw driver errors, DSNs, passwords, certificate paths, and business object names must not appear in client errors or ordinary audit detail.
+- The SQL Server path does not use the PostgreSQL B2/B5 native binder and provides no PostgreSQL column-proof guarantee. Result masking is not a replacement for native RLS, Dynamic Data Masking, or complete DLP.
+
+Use Microsoft's [Go driver encryption and certificate guidance](https://learn.microsoft.com/en-us/sql/connect/golang/encryption-certificates?view=sql-server-ver17), [Go driver security practices](https://learn.microsoft.com/en-us/sql/connect/golang/security-best-practices?view=sql-server-ver17), and [`SET SHOWPLAN_XML`](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-showplan-xml-transact-sql?view=sql-server-ver17) as the operational references.
