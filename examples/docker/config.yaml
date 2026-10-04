@@ -18,6 +18,9 @@ mcp:
   http:
     stateful: true
     session_timeout_ms: 600000
+    event_store_enabled: true
+    event_store_max_bytes: 67108864
+    event_store_ttl_ms: 1800000
   sessions:
     enabled: true
   transactions:

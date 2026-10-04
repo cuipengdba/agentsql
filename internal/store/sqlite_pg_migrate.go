@@ -95,10 +95,12 @@ const (
 )
 
 var sqliteDerivedExcludedTables = map[string]struct{}{
-	"chain_state":          {},
-	"chain_verification":   {},
-	"control_plane_compat": {},
-	"runtime_instances":    {},
+	"chain_state":              {},
+	"chain_verification":       {},
+	"control_plane_compat":     {},
+	"mcp_stream_event_cursors": {},
+	"mcp_stream_events":        {},
+	"runtime_instances":        {},
 }
 
 var sqliteDerivedExcludedColumns = map[string]map[string]struct{}{

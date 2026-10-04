@@ -918,12 +918,17 @@ mcp:
   http:
     stateful: true
     session_timeout_ms: 600000
+    event_store_enabled: true
+    event_store_max_bytes: 67108864
+    event_store_ttl_ms: 1800000
   sessions:
     enabled: true
   transactions:
     postgres: true
     mysql: false
 ```
+
+`event_store_enabled` 仅在 stateful Streamable HTTP 且协议版本早于 `2026-07-28` 时由 go-sdk 使用。旧协议客户端可通过 `GET /mcp` + `Last-Event-ID` 重放断线期间的连续 SSE 事件；TTL 或容量回收造成缺口时服务端 fail-closed，不返回部分事件。进程重启不会恢复 go-sdk 的内存 session：旧 `Mcp-Session-Id` 收到 404 和 `Mcp-Session-Expired: 1` 后必须重新 `initialize`。残留事件由后续 `Open`/`Append` 惰性回收，不会启动清理 goroutine。
 
 每个 operation 仍只允许一条顶层 SQL，并受预检计划、会话 owner、连接终态和审计屏障约束。`/healthz` 与 `/readyz` 会报告 B5 状态；依赖不可用时 readiness fail-closed，不会把 MySQL 或不受支持的事务形态静默降级执行。
 

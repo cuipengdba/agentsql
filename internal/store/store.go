@@ -497,6 +497,11 @@ func (store *Store) AdminSessions() *AdminSessionRepository {
 	return &AdminSessionRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// MCPStreamEvents returns the persistent Streamable HTTP event repository.
+func (store *Store) MCPStreamEvents() *MCPStreamEventRepository {
+	return &MCPStreamEventRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // Datasources returns the datasource repository.
 func (store *Store) Datasources() *DatasourceRepository {
 	return &DatasourceRepository{

@@ -59,6 +59,7 @@ type MCPConfig struct {
 	Transactions MCPTransactionsConfig `yaml:"transactions"`
 
 	httpStatefulSet      bool
+	httpEventStoreSet    bool
 	sessionsEnabledSet   bool
 	transactionsPGSet    bool
 	transactionsMySQLSet bool
@@ -67,8 +68,11 @@ type MCPConfig struct {
 // MCPHTTPConfig controls protocol-level Streamable HTTP sessions. These
 // sessions are independent from the application-level B5 sessions below.
 type MCPHTTPConfig struct {
-	Stateful         bool `yaml:"stateful"`
-	SessionTimeoutMS int  `yaml:"session_timeout_ms"`
+	Stateful           bool `yaml:"stateful"`
+	SessionTimeoutMS   int  `yaml:"session_timeout_ms"`
+	EventStoreEnabled  bool `yaml:"event_store_enabled"`
+	EventStoreMaxBytes int  `yaml:"event_store_max_bytes"`
+	EventStoreTTLMS    int  `yaml:"event_store_ttl_ms"`
 }
 
 type MCPSessionsConfig struct {
@@ -99,6 +103,15 @@ func (config Config) EffectiveMCP() MCPConfig {
 	}
 	if value.HTTP.SessionTimeoutMS == 0 {
 		value.HTTP.SessionTimeoutMS = 10 * 60 * 1000
+	}
+	if !value.httpEventStoreSet {
+		value.HTTP.EventStoreEnabled = true
+	}
+	if value.HTTP.EventStoreMaxBytes <= 0 {
+		value.HTTP.EventStoreMaxBytes = 64 << 20
+	}
+	if value.HTTP.EventStoreTTLMS <= 0 {
+		value.HTTP.EventStoreTTLMS = 30 * 60 * 1000
 	}
 	if value.Sessions.IdleTTLMS == 0 && value.Sessions.AbsoluteTTLMS == 0 &&
 		value.Transactions.IdleTimeoutMS == 0 && value.Transactions.WallTimeoutMS == 0 &&
@@ -172,7 +185,10 @@ type ThemeConfig struct {
 func Parse(contents []byte) (Config, error) {
 	var loaded Config
 	loaded.Store.AutoMigrate = true
-	loaded.MCP.HTTP = MCPHTTPConfig{Stateful: true, SessionTimeoutMS: 10 * 60 * 1000}
+	loaded.MCP.HTTP = MCPHTTPConfig{
+		Stateful: true, SessionTimeoutMS: 10 * 60 * 1000,
+		EventStoreEnabled: true, EventStoreMaxBytes: 64 << 20, EventStoreTTLMS: 30 * 60 * 1000,
+	}
 	loaded.MCP.Sessions = MCPSessionsConfig{Enabled: true, IdleTTLMS: 10 * 60 * 1000, AbsoluteTTLMS: 60 * 60 * 1000}
 	loaded.MCP.Transactions = MCPTransactionsConfig{
 		Postgres: true, MySQL: false, IdleTimeoutMS: 15 * 1000,
@@ -201,6 +217,7 @@ func Parse(contents []byte) (Config, error) {
 	}
 	httpFields, sessionFields, transactionFields := configuredMCPFields(contents)
 	loaded.MCP.httpStatefulSet = httpFields["stateful"]
+	loaded.MCP.httpEventStoreSet = httpFields["event_store_enabled"]
 	loaded.MCP.sessionsEnabledSet = sessionFields["enabled"]
 	loaded.MCP.transactionsPGSet = transactionFields["postgres"]
 	loaded.MCP.transactionsMySQLSet = transactionFields["mysql"]
@@ -417,6 +434,12 @@ func (config Config) validateNonStore() error {
 	mcp := config.EffectiveMCP()
 	if mcp.HTTP.SessionTimeoutMS <= 0 || mcp.HTTP.SessionTimeoutMS > 30*60*1000 {
 		return fmt.Errorf("validate mcp.http: session_timeout_ms must be positive and <= 30m")
+	}
+	if mcp.HTTP.EventStoreMaxBytes > 1<<30 {
+		return fmt.Errorf("validate mcp.http: event_store_max_bytes must be <= 1GiB")
+	}
+	if mcp.HTTP.EventStoreTTLMS > 24*60*60*1000 {
+		return fmt.Errorf("validate mcp.http: event_store_ttl_ms must be <= 24h")
 	}
 	if mcp.Transactions.MySQL {
 		return fmt.Errorf("validate mcp.transactions.mysql: %w", ErrB5MySQLUnsupported)

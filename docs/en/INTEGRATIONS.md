@@ -17,9 +17,12 @@ When AgentSQL is already running through the installer, systemd, or Compose, con
 - MCP protocol version: `2025-06-18`
 - `Accept`: `application/json, text/event-stream`
 - Mode: stateful by default (`initialize` returns `Mcp-Session-Id`), with an explicit stateless fallback
+- Resumption: legacy-protocol SSE events are persisted by default; reconnect with `GET /mcp` and `Last-Event-ID`. A TTL/capacity gap returns HTTP 400 without a partial suffix
 - Maximum request body: 4 MiB
 
 An Agent API Key is not a console administrator token. Disabling, expiring, or deleting an Agent, or rotating its Key, invalidates the old Key immediately.
+
+The go-sdk transport-session map remains process-local. After a process restart, a request carrying an old `Mcp-Session-Id` receives HTTP 404 plus `Mcp-Session-Expired: 1`; discard that ID and run `initialize` again. The new session never consumes events from the old session.
 
 The service should bind only to the loopback address by default. For remote access, use SSH local forwarding or a controlled TLS reverse proxy. Never expose `0.0.0.0:7780` directly to the public internet.
 

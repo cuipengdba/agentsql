@@ -56,6 +56,7 @@ AgentSQL 是**网关层**防护，必须如实理解其边界：
 ## 2. 部署与运行形态
 
 - **MCP 双承载**：`stdio`（供本地 Agent 以子进程方式接入）与 **Streamable HTTP**（网关多租户入口，路径 `/mcp`，遵循 MCP 2025-06-18 规范）。
+- **Streamable HTTP 断线重放**：stateful 模式默认启用关系库 EventStore，复用元数据库（SQLite 或 PostgreSQL）持久化旧协议 SSE 事件。客户端以 `GET /mcp`、`Accept: text/event-stream` 和 `Last-Event-ID: <streamID>_<index>` 重连时，只重放该 index 之后的连续事件；事件受 64 MiB 总 payload 上限和 30 分钟 TTL 约束，发生回收缺口时固定返回 HTTP 400 `failed to replay events`，不会返回部分后缀。go-sdk v1.7.0 的 session 表仍为进程内存态：进程重启后旧 `Mcp-Session-Id` 返回 404，并带 `Mcp-Session-Expired: 1`，客户端必须重新 `initialize`；这不是旧 session 的跨重启无缝恢复。
 - **Web 控制台 + 管理 REST API** 由同一进程提供，默认仅监听回环 `127.0.0.1:7780`；一键自托管在线演示套件默认 `127.0.0.1:17880`。
 - **控制面（元数据 / 审计存储）**：内置 **SQLite**（默认、零配置单文件）或 **PostgreSQL 15+**（基准与推荐 **PG18**）；审计库可通过独立 DSN 指向另一套 PostgreSQL，实现元数据与审计隔离。
 - **交付物**：单二进制（前端经 `go:embed` 内嵌）、Docker / Docker Compose、Linux systemd unit；提供 Prometheus 指标与 Grafana 面板，以及 `/healthz`（进程存活）、`/readyz`（含存储就绪）探针。

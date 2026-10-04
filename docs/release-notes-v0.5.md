@@ -21,7 +21,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - **PolarDB 兼容路径**：指定 PolarDB for PostgreSQL 15 社区镜像通过现有 `postgres` 路径完成 Ping、discovery、R006 拒绝、EXPLAIN、只读查询、脱敏与审计闭环；未新增 PolarDB 别名或厂商识别开关。
 - **EXPLAIN 兼容适配**：增加 OpenTenBase、TiDB 和 OceanBase 的严格计划适配与回归 fixture；未知版本、列、节点或计划形态继续 fail-closed。TiDB / OceanBase 本批有代码回归证据，不借此宣称厂商环境完整闭环已通过。
 - **RBAC / SSO / 多租户 MVP（#33）**：新增本地用户、租户、角色、权限、多角色和角色继承，并对管理 API 执行逐路由授权。MVP 完全开放、无许可门控；OIDC/LDAP/MFA 与存量业务元数据的全租户化不在本版。
-- **MCP 会话修复**：Streamable HTTP 首次 `initialize` 可以不携带 `MCP-Protocol-Version`，后续请求继续严格校验协议版本、会话 ID 和 Agent/Key 绑定。跨进程会话持久化和 SSE 断线重放未实现。
+- **MCP 会话与断线重放**：Streamable HTTP 首次 `initialize` 可以不携带 `MCP-Protocol-Version`，后续请求继续严格校验协议版本、会话 ID 和 Agent/Key 绑定。stateful 旧协议默认使用 SQLite/PostgreSQL 持久化 EventStore，支持 `GET /mcp` + `Last-Event-ID` 连续重放；TTL/容量缺口 fail-closed。go-sdk session 仍不跨进程持久化，重启后旧 ID 以 `Mcp-Session-Expired: 1` 明确要求重新 initialize。
 - **企业审计报表与合规导出**：增加 `agentsqlctl audit` 查询/报表能力及配套文档；这不改变“应用层只追加审计不等于法规级 WORM”的信任边界。
 - **快速上手、Demo 与错误口径**：新增下载单个 Compose 文件即可启动的自包含五分钟演示栈；演示场景卡对齐真实剧本和审批结果，修复演示表外键/密封 JOIN 冲突与每日 reset 的 seed/gateway 时序，并区分可预期授权失败、对象缺失与数据库执行错误。
 - **生态与官网配套**：新增 MCP Registry 描述、官网“生态与兼容”板块、社区入口与国产数据库分批研究/联合验证资料；主站搜索闸门已在仓库中调整为放行主站、保持 `/demo/` 禁止索引，仍需在发布部署后做外网复核。
@@ -56,7 +56,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - KingbaseES V9R1C10 目标环境待厂商提供；HighGo、GaussDB、TDSQL 等商业版仍待目标环境终验。
 - R005 生产动态告警已闭环，但能力边界仍须准确表述：无界查询的执行前命中依赖受控 EXPLAIN；实际 `row_limit` 截断会在通用执行和 PostgreSQL 列级授权路径补充 `R005`。响应通过 `assessment.hits` 返回结构化命中，持久审计通过 `rule_hits` 保存；未知 EXPLAIN 或审计事实继续 fail-closed。`row_limit` 可在数据源管理入口配置，默认值为 1000；规则页不提供独立 R005 阈值编辑器。
 - RBAC 仍是 MVP：非默认租户对存量共享业务元数据仍拒绝，OIDC/LDAP/MFA 与全量租户化未交付。管理端本地用户令牌已支持持久化服务端撤销和长期 refresh token：refresh token 仅以 SHA-256 哈希存储、每次刷新都会轮换，重用已轮换/撤销的 token 会撤销整条 refresh family；状态不可读时 access 校验、刷新与登出均 fail-closed。
-- 跨进程 MCP transport session、断线重放与服务重启前会话恢复未提供；豆包、Claude Desktop / Inspector 真实客户端仍待账号和指定版本联调。
+- MCP transport session 不跨进程保存，服务重启前的旧 session 不能无缝恢复；已提供持久化 SSE 断线重放和重启后 `Mcp-Session-Expired: 1` → 重新 initialize 路径。豆包、Claude Desktop / Inspector 真实客户端仍待账号和指定版本联调。
 - “协议路径实测”不覆盖完整 SQL 方言、生产拓扑、HA/故障切换、TLS/认证矩阵、性能 SLA 或厂商支持责任。
 
 ### 版本 bump 文件清单与保留项
@@ -207,7 +207,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 - R005 is closed within its documented boundary. An unbounded query whose controlled EXPLAIN estimate exceeds the effective `row_limit`, or a query actually truncated by the execution layer, produces an `R005` warning in `assessment.hits`; the same hit is persisted in `rule_hits` and is available through the audit management API. There is no separate R005-specific response header or log event. Missing EXPLAIN or audit facts continue to fail closed.
 - The PostgreSQL parser P99 gate remains open. In batch 33, both the pre-optimization and post-optimization five-run sets passed only 3/5 runs at the unchanged 5 ms threshold; the post-optimization P99 values were 4.456/4.775/6.404/6.554/4.173 ms. Release still requires five consecutive passing runs on the standard isolated Linux runner.
 - RBAC remains an MVP: OIDC/LDAP/MFA and complete tenant ownership migration are not included. Local management-user tokens now support persistent server-side revocation and long-lived refresh tokens. Refresh tokens are stored only as SHA-256 hashes and rotated on every refresh; reuse of a rotated or revoked token revokes the entire refresh family. Access validation, refresh, and logout fail closed when token state cannot be read.
-- MCP transport sessions are not persisted across processes or restarts, and SSE replay is not implemented. Real-account tests for Doubao and specific Claude Desktop/Inspector versions remain pending.
+- Stateful legacy-protocol SSE events are persisted in SQLite/PostgreSQL and can be replayed with `GET /mcp` plus `Last-Event-ID`; TTL/capacity gaps fail closed. MCP transport sessions themselves are still not persisted across processes or restarts. An old ID receives `Mcp-Session-Expired: 1` with the 404 and the client must initialize a new session. Real-account tests for Doubao and specific Claude Desktop/Inspector versions remain pending.
 - Protocol-path results do not cover full dialects, production topologies, HA/failover, the complete TLS/authentication matrix, performance SLAs, or vendor support obligations.
 
 ### Release assets and release-day gates

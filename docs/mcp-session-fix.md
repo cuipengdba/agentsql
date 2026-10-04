@@ -62,5 +62,4 @@ HTTP transport 使用仓库锁定的 `github.com/modelcontextprotocol/go-sdk`。
 
 本次修复：默认 stateful、可配置 idle timeout、initialize 返回 ID、后续请求校验、认证身份绑定、无效/过期/重启失效响应、显式 stateless 回退，以及首次 initialize 可不带协议版本头。
 
-不在本次范围：迁移到其他传输、跨进程持久化或共享 session store、恢复服务重启前会话、SSE event store/断线重放、数据库风控行为、前端，以及任何客户端私有握手扩展。豆包和各版本 Claude 的真实行为没有本地账号/运行环境证据，均标记为待实测，不据此添加非标准分支。
-
+本页记录的会话修复批次当时不包含 SSE event store；批三十五已经补充旧协议 SSE 断线重放。仍不在范围内的是迁移到其他传输、跨进程持久化或共享 session store、恢复服务重启前会话、数据库风控行为、前端，以及任何客户端私有握手扩展。豆包和各版本 Claude 的真实行为没有本地账号/运行环境证据，均标记为待实测，不据此添加非标准分支。

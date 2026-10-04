@@ -15,9 +15,12 @@
 - MCP 协议版本：`2025-06-18`
 - `Accept`：`application/json, text/event-stream`
 - 模式：默认 stateful（initialize 返回 `Mcp-Session-Id`）；可显式回退 stateless
+- 断线重放：stateful 旧协议默认持久化 SSE 事件；以 `GET /mcp` + `Last-Event-ID` 重连。若事件已因 TTL/容量回收，返回 HTTP 400，不返回部分事件
 - 单请求体上限：4 MiB
 
 Agent API Key 不是控制台管理员 token。Agent 被禁用、过期、删除或轮换 Key 后，旧 Key 立即失效。
+
+进程重启不会恢复 go-sdk 的内存 transport session。携带旧 `Mcp-Session-Id` 的请求会收到 HTTP 404 与 `Mcp-Session-Expired: 1`；客户端应丢弃旧 ID 并重新 `initialize`。新 session 不会读取旧 session 的事件。
 
 服务默认应只绑定回环地址。远程使用时，选择 SSH 本地转发或受控 TLS 反向代理；禁止让 `0.0.0.0:7780` 在公网裸奔。
 

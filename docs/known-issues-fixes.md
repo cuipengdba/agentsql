@@ -1,5 +1,11 @@
 # v0.5 已知问题修复记录（批十四 / #36）
 
+## 批三十五：MCP SSE 重放与重启边界
+
+go-sdk v1.7.0 的 `StreamableHTTPHandler.sessions` 是纯内存表，上游仍保留 session retention 的 TODO（#148），且没有把已关闭 `ServerSession` 重新装载回 handler 的接口。因此本批没有实现、也不宣称实现“旧 `Mcp-Session-Id` 跨进程无缝续命”。
+
+本批交付的是两个明确路径：stateful 旧协议使用 SQLite/PostgreSQL 持久化 EventStore 支持 `GET /mcp` + `Last-Event-ID` 断线重放，并在 TTL/容量 purge 造成缺口时以 HTTP 400 fail-closed；进程重启后旧 session 返回 HTTP 404 与 `Mcp-Session-Expired: 1`，客户端据此重新 `initialize`。崩溃遗留事件和 cursor 由后续活动按 TTL 惰性回收，不依赖 `SessionClosed`，也没有后台清理线程。
+
 记录日期：2026-10-02。
 
 > 状态更新（2026-10-04，批三十三）：本文件主体保留批十四当时的调查、复现与处置记录。其 R005 “待修”结论已由批十七提交 `02565f5` 关闭，不再代表当前产品状态；当前能力与发布口径见 `docs/release-notes-v0.5.md` 和 `docs/USER_GUIDE.md`。

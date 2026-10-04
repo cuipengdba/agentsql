@@ -30,6 +30,10 @@ import (
 const (
 	agentServerRegistryLimit = 256
 	maxMCPRequestBodyBytes   = 4 << 20
+	// MCPSessionExpiredHeader tells clients that a supplied transport session
+	// ID is no longer present and initialize must be performed again.
+	MCPSessionExpiredHeader = "Mcp-Session-Expired"
+	MCPSessionExpiredValue  = "1"
 )
 
 type requestIdentityContextKey struct{}
@@ -253,20 +257,26 @@ func newHTTPHandlerWithRegistry(
 		return server
 	}
 	sdkLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sdkHandler := mcp.NewStreamableHTTPHandler(
-		getServer,
-		&mcp.StreamableHTTPOptions{
-			Stateless:           !mcpConfig.HTTP.Stateful,
-			JSONResponse:        true,
-			MaxRequestBodyBytes: maxMCPRequestBodyBytes,
-			SessionTimeout:      time.Duration(mcpConfig.HTTP.SessionTimeoutMS) * time.Millisecond,
-			// Reviewed legacy protocols do not bind disconnect to request
-			// cancellation. The coordinator's independent 300ms watchdog owns
-			// cancel-taint and rollback/discard decisions.
-			PropagateRequestCancellation: false,
-			Logger:                       sdkLogger,
-		},
-	)
+	streamableOptions := &mcp.StreamableHTTPOptions{
+		Stateless:           !mcpConfig.HTTP.Stateful,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: maxMCPRequestBodyBytes,
+		SessionTimeout:      time.Duration(mcpConfig.HTTP.SessionTimeoutMS) * time.Millisecond,
+		// Reviewed legacy protocols do not bind disconnect to request
+		// cancellation. The coordinator's independent 300ms watchdog owns
+		// cancel-taint and rollback/discard decisions.
+		PropagateRequestCancellation: false,
+		Logger:                       sdkLogger,
+	}
+	if mcpConfig.HTTP.Stateful && mcpConfig.HTTP.EventStoreEnabled {
+		streamableOptions.EventStore = newPersistentEventStore(
+			runtime.Store.MCPStreamEvents(),
+			mcpConfig.HTTP.EventStoreMaxBytes,
+			time.Duration(mcpConfig.HTTP.EventStoreTTLMS)*time.Millisecond,
+		)
+	}
+	sdkHandler := mcp.NewStreamableHTTPHandler(getServer, streamableOptions)
+	sdkWithExpiredSessionSignal := expiredSessionSignalMiddleware(sdkHandler)
 	authenticator := internalauth.NewAuthenticator(runtime.Store.Agents())
 	mcpHandler := authMiddleware(
 		authenticator,
@@ -276,7 +286,7 @@ func newHTTPHandlerWithRegistry(
 				recoverMiddleware(
 					logger,
 					accessLogMiddleware(logger, protocolVersionMiddleware(
-						statefulSessionHeaderMiddleware(mcpConfig.HTTP.Stateful, sdkHandler),
+						statefulSessionHeaderMiddleware(mcpConfig.HTTP.Stateful, sdkWithExpiredSessionSignal),
 					)),
 				),
 			),
@@ -286,7 +296,17 @@ func newHTTPHandlerWithRegistry(
 	mux.HandleFunc("GET /healthz", healthHandler(cfg, resolvedOptions.demoAdminUsername, resolvedOptions.demoAdminPassword, runtime))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
 	mux.HandleFunc("GET /metrics", metricsEndpoint(runtime))
-	mux.Handle("/mcp", authorizedexecute.SealedHTTP(mcpHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
+	sealedMCPHandler := authorizedexecute.SealedHTTP(mcpHandler, authorizedexecute.DefaultLimits.EnvelopeBytes)
+	mux.Handle("/mcp", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// SSE responses must stream and cannot pass through the bounded response
+		// seal, which intentionally rejects text/event-stream and Flush. All
+		// non-GET MCP responses retain the existing complete-envelope seal.
+		if request.Method == http.MethodGet {
+			mcpHandler.ServeHTTP(writer, request)
+			return
+		}
+		sealedMCPHandler.ServeHTTP(writer, request)
+	}))
 	if resolvedOptions.adminAPI != nil {
 		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
 	}
@@ -298,6 +318,33 @@ func newHTTPHandlerWithRegistry(
 		})
 	}
 	return metricsMiddleware(runtime.Metrics, mux), registry, nil
+}
+
+// expiredSessionSignalMiddleware supplements go-sdk's stateful 404 with a
+// machine-readable signal. It deliberately does not alter the response body.
+func expiredSessionSignalMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Mcp-Session-Id") == "" {
+			next.ServeHTTP(writer, request)
+			return
+		}
+		next.ServeHTTP(&expiredSessionResponseWriter{ResponseWriter: writer}, request)
+	})
+}
+
+type expiredSessionResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (writer *expiredSessionResponseWriter) WriteHeader(statusCode int) {
+	if statusCode == http.StatusNotFound {
+		writer.Header().Set(MCPSessionExpiredHeader, MCPSessionExpiredValue)
+	}
+	writer.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (writer *expiredSessionResponseWriter) Unwrap() http.ResponseWriter {
+	return writer.ResponseWriter
 }
 
 // statefulSessionHeaderMiddleware rejects non-initialize POSTs that omit the

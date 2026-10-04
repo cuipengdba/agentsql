@@ -22,10 +22,10 @@ func TestB5S1bPostgres14And18MigrationAndStore(t *testing.T) {
 		for _, separate := range []bool{false, true} {
 			separate := separate
 			name := image + "/combined"
-			version := 10
+			versions := []int{13, 12, 11, 10}
 			if separate {
 				name = image + "/metadata"
-				version = 9
+				versions = []int{12, 11, 10, 9}
 			}
 			t.Run(name, func(t *testing.T) {
 				ctx := dockerTestContext(t)
@@ -86,8 +86,10 @@ func TestB5S1bPostgres14And18MigrationAndStore(t *testing.T) {
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.b5_atomic_pg_probe') IS NOT NULL`).Scan(&exists))
 				require.False(t, exists)
 
-				require.NoError(t, RollbackMetadataMigration(ctx, db, DialectPostgres, separate, version))
-				require.NoError(t, RollbackMetadataMigration(ctx, db, DialectPostgres, separate, version))
+				for _, version := range versions {
+					require.NoError(t, RollbackMetadataMigration(ctx, db, DialectPostgres, separate, version))
+				}
+				require.NoError(t, RollbackMetadataMigration(ctx, db, DialectPostgres, separate, versions[len(versions)-1]))
 				require.NoError(t, MigrateMetadata(ctx, db, DialectPostgres, separate))
 			})
 		}

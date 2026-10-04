@@ -126,6 +126,9 @@ func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, loaded.MCP.HTTP.Stateful)
 	require.Equal(t, 600_000, loaded.MCP.HTTP.SessionTimeoutMS)
+	require.True(t, loaded.MCP.HTTP.EventStoreEnabled)
+	require.Equal(t, 67_108_864, loaded.MCP.HTTP.EventStoreMaxBytes)
+	require.Equal(t, 1_800_000, loaded.MCP.HTTP.EventStoreTTLMS)
 	require.True(t, loaded.MCP.Sessions.Enabled)
 	require.True(t, loaded.MCP.Transactions.Postgres)
 	require.False(t, loaded.MCP.Transactions.MySQL)
@@ -144,6 +147,16 @@ func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
 	require.Equal(t, 300_000, stateless.MCP.HTTP.SessionTimeoutMS)
 	require.True(t, stateless.MCP.Sessions.Enabled, "transport rollback must not disable B5 sessions")
 
+	eventStoreOff, err := Parse([]byte(base + "mcp:\n  http:\n    event_store_enabled: false\n"))
+	require.NoError(t, err)
+	require.False(t, eventStoreOff.MCP.HTTP.EventStoreEnabled, "explicit false must disable replay persistence")
+
+	fallback, err := Parse([]byte(base + "mcp:\n  http:\n    event_store_max_bytes: -1\n    event_store_ttl_ms: -1\n"))
+	require.NoError(t, err)
+	fallbackMCP := fallback.EffectiveMCP()
+	require.Equal(t, 67_108_864, fallbackMCP.HTTP.EventStoreMaxBytes)
+	require.Equal(t, 1_800_000, fallbackMCP.HTTP.EventStoreTTLMS)
+
 	postgresOff, err := Parse([]byte(base + "mcp:\n  transactions:\n    postgres: false\n"))
 	require.NoError(t, err)
 	require.True(t, postgresOff.MCP.Sessions.Enabled)
@@ -155,6 +168,8 @@ func TestMCPB5DefaultsExplicitOffAndValidation(t *testing.T) {
 
 	for _, fragment := range []string{
 		"mcp:\n  http:\n    session_timeout_ms: 1800001\n",
+		"mcp:\n  http:\n    event_store_max_bytes: 1073741825\n",
+		"mcp:\n  http:\n    event_store_ttl_ms: 86400001\n",
 		"mcp:\n  sessions:\n    idle_ttl_ms: 1800001\n",
 		"mcp:\n  transactions:\n    wall_timeout_ms: 60001\n",
 		"mcp:\n  sessions:\n    enabled: false\n  transactions:\n    postgres: true\n",

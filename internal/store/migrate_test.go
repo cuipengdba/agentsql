@@ -124,6 +124,8 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"b5_dml_grants":            {"grant_id", "policy_id", "policy_revision", "principal_id", "datasource_id", "effect", "grant_element", "action", "database_oid", "relation_oid", "relation_kind", "schema_name", "relation_name", "catalog_fingerprint", "write_target_kind", "column_attnum", "column_name", "column_type_oid", "column_type_modifier", "column_collation_oid", "reference_kind", "proof_schema_id", "proof_schema_version", "proof_digest", "created_at", "updated_at", "revision"},
 		"b5_result_receipts":       {"session_id", "request_id", "event_uuid", "attempt_generation", "schema_id", "schema_version", "business_event_digest", "wal_append_receipt_digest", "reported_durability", "append_confirmation", "reconciliation", "delivery_status", "created_at", "updated_at", "revision"},
 		"b5_tx_events":             {"transaction_id", "transaction_seq", "event_uuid", "event_type", "event_schema_id", "event_schema_version", "previous_tx_event_digest", "event_digest", "canonical_event", "terminal_evidence_text", "disposition_proof_text", "audit_log_id", "created_at"},
+		"mcp_stream_event_cursors": {"session_id", "stream_id", "next_event_index", "updated_at"},
+		"mcp_stream_events":        {"session_id", "stream_id", "event_index", "data", "created_at"},
 	}
 
 	actualTables := businessTableNames(t, opened.metaDB)
@@ -160,6 +162,9 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_b5_transactions_deadline",
 		"idx_b5_transactions_one_live_session",
 		"idx_b5_tx_events_audit",
+		"idx_mcp_stream_event_cursors_updated_at",
+		"idx_mcp_stream_events_created_at",
+		"idx_mcp_stream_events_session",
 		"idx_policies_agent_ds",
 		"idx_policy_column_permissions_policy",
 		"idx_relation_policy_bindings_datasource",
@@ -213,8 +218,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 12, current)
-	require.Equal(t, 12, latest)
+	require.Equal(t, 13, current)
+	require.Equal(t, 13, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -244,13 +249,14 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.Equal(t, []string{
-		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
-		"notification_settings", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "tenants", "user_roles", "users",
+		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
+		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_settings", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "tenants", "user_roles", "users",
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{
 		"idx_admin_access_revocations_expiry", "idx_admin_refresh_families_expiry", "idx_admin_refresh_tokens_family",
-		"idx_agents_keyhash", "idx_approvals_status", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit", "idx_policies_agent_ds",
-		"idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
+		"idx_agents_keyhash", "idx_approvals_status", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit",
+		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
+		"idx_policies_agent_ds", "idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
 		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active",
 	}, businessIndexNames(t, database))
 
@@ -262,8 +268,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 11, current)
-	require.Equal(t, 11, latest)
+	require.Equal(t, 12, current)
+	require.Equal(t, 12, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -298,9 +304,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 12, current)
+				require.Equal(t, 13, current)
 			} else {
-				require.Equal(t, 11, current)
+				require.Equal(t, 12, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -365,9 +371,9 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 12, current)
+				require.Equal(t, 13, current)
 			} else {
-				require.Equal(t, 11, current)
+				require.Equal(t, 12, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",

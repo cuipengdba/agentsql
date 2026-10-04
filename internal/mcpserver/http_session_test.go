@@ -130,6 +130,7 @@ func TestStreamableHTTPSessionDoesNotSurviveHandlerRestart(t *testing.T) {
 	response := serveMCPWithSession(t, restarted, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
 	require.Contains(t, response.Body.String(), "session not found")
+	require.Equal(t, MCPSessionExpiredValue, response.Header().Get(MCPSessionExpiredHeader))
 }
 
 func TestStreamableHTTPStatefulToolsListWithB5(t *testing.T) {
