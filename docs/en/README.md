@@ -37,7 +37,7 @@ AI Agent -> LLM / MCP Client -> AgentSQL gateway -> PostgreSQL / MySQL
 
 AgentSQL is a database-neutral security gateway. It currently supports PostgreSQL and MySQL natively and is planning compatibility work and ecosystem collaboration for major Chinese database products.
 
-电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · TDSQL · OpenTenBase · 崖山数据库 YashanDB · 达梦数据库 DM
+电科金仓 KingbaseES · 瀚高 HighGo · openGauss（GaussDB）· IvorySQL · TiDB · OceanBase · PolarDB-X · TDSQL · OpenTenBase · 崖山数据库 YashanDB · 达梦数据库 DM
 
 > This list describes planned ecosystem collaboration and compatibility evaluation; it does not mean the current release supports these databases. Database vendors are welcome to contact us about compatibility certification and collaboration. To request compatibility certification or a joint case study for your database, contact us through the WeChat community groups or the repository Discussion area.
 

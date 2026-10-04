@@ -316,19 +316,45 @@ func (executor *MySQLExecutor) explainWithRunner(
 ) (model.ExplainInfo, error) {
 	timedContext, cancel := executor.timeoutContext(ctx)
 	defer cancel()
-	rows, err := runner.QueryContext(timedContext, "EXPLAIN "+sqlText)
+	columns, values, err := queryMySQLExplain(timedContext, runner, "EXPLAIN "+sqlText)
 	if err != nil {
-		return model.ExplainInfo{}, mysqlDatabaseError(timedContext, DBStageExplain, "explain MySQL statement", err)
+		return model.ExplainInfo{}, err
 	}
-	columns, values, err := readMySQLExplainRows(rows)
-	if err != nil {
-		return model.ExplainInfo{}, mysqlDatabaseError(timedContext, DBStageExplain, "read MySQL explain result", err)
+	if isPolarDBXLogicalExplainColumns(columns) {
+		if err := validateMySQLExplainInput(columns, values); err != nil {
+			return model.ExplainInfo{}, fmt.Errorf("parse PolarDB-X logical explain result: %w", err)
+		}
+		// PolarDB-X returns its CN logical plan for plain EXPLAIN. AgentSQL
+		// needs the DN plan estimates used by the MySQL risk rules, which the
+		// documented EXPLAIN EXECUTE form exposes in MySQL's tabular shape.
+		// The fallback is shape-gated: other one-column plans continue to fail
+		// closed in parseMysqlExplainRows.
+		columns, values, err = queryMySQLExplain(timedContext, runner, "EXPLAIN EXECUTE "+sqlText)
+		if err != nil {
+			return model.ExplainInfo{}, err
+		}
 	}
 	info, err := parseMysqlExplainRows(columns, values)
 	if err != nil {
 		return model.ExplainInfo{}, fmt.Errorf("parse MySQL explain result: %w", err)
 	}
 	return info, nil
+}
+
+func queryMySQLExplain(
+	ctx context.Context,
+	runner mysqlRunner,
+	statement string,
+) ([]string, [][]any, error) {
+	rows, err := runner.QueryContext(ctx, statement)
+	if err != nil {
+		return nil, nil, mysqlDatabaseError(ctx, DBStageExplain, "explain MySQL statement", err)
+	}
+	columns, values, err := readMySQLExplainRows(rows)
+	if err != nil {
+		return nil, nil, mysqlDatabaseError(ctx, DBStageExplain, "read MySQL explain result", err)
+	}
+	return columns, values, nil
 }
 
 // Close closes the MySQL connection pool.
@@ -598,6 +624,11 @@ func parseMysqlExplainRows(columns []string, values [][]any) (model.ExplainInfo,
 		return parseOceanBaseExplainRows(values)
 	}
 	return model.ExplainInfo{}, fmt.Errorf("unsupported MySQL-compatible EXPLAIN format")
+}
+
+func isPolarDBXLogicalExplainColumns(columns []string) bool {
+	return len(columns) == 1 &&
+		strings.EqualFold(strings.TrimSpace(columns[0]), "LOGICAL EXECUTIONPLAN")
 }
 
 func parseStandardMySQLExplainRows(

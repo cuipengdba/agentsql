@@ -19,7 +19,8 @@
 
 - OpenTenBase PostgreSQL 内核新增严格、版本受限的分布式计划归一化，并在指定 v2.5.0 单机 GTM/CN/DN 拓扑完成最小安全闭环；TXSQL/MySQL 内核仍待官方环境实测。
 - PolarDB for PostgreSQL 指定社区镜像通过现有 `postgres` 路径完成实验性安全闭环，未新增别名或厂商识别开关。
-- OpenTenBase、TiDB 和 OceanBase 增加 fail-closed EXPLAIN 适配与回归 fixture；未知版本、计划列或节点继续拒绝。
+- PolarDB-X 复用 `db_type=mysql`，增加从严格识别的 `LOGICAL EXECUTIONPLAN` 到 `EXPLAIN EXECUTE` 的两阶段 fail-closed 计划适配、兼容 corpus 与 opt-in E2E；不与 PolarDB for PostgreSQL 混称。
+- OpenTenBase、TiDB、OceanBase 和 PolarDB-X 增加 fail-closed EXPLAIN 适配与回归 fixture；未知版本、计划列或节点继续拒绝。
 - MCP Streamable HTTP 首次 `initialize` 可不预先携带 `MCP-Protocol-Version`；后续请求的版本、会话与 Agent/Key 绑定校验保持严格。
 - 演示台场景卡对齐真实剧本与审批结果；业务错误口径进一步区分可预期授权失败、对象缺失与数据库执行错误。
 - 官网搜索闸门调整为放行主站、保持 `/demo/` 禁止索引；实际部署状态仍需发布日外网复核。

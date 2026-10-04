@@ -45,7 +45,8 @@ AgentSQL currently supports PostgreSQL and MySQL as protected business databases
 | OpenTenBase | In progress | Execution-plan compatibility fix is in progress |
 | YashanDB | Pending test | x86 image is available; ARM image is a fallback |
 | Dameng Database (DM) | Pending adaptation | DM8 container is running; a separate dialect is still required |
-| PolarDB | Included in plan | Compatibility work is included in the v0.5 plan |
+| PolarDB for PostgreSQL | Protocol path tested | A named PG 15 community image reuses `db_type=postgres`; this is not commercial-service certification |
+| PolarDB-X | Bounded old-image test | The official `2.0.1` all-in-one image reuses `db_type=mysql` and passes the two-stage EXPLAIN path; current full-topology and commercial-service validation remain pending |
 
 “Tested” means that a community-edition or container-image protocol path was exercised; it is not vendor certification. “In progress” and “pending test” do not mean the current release supports that database. The current native support matrix remains PostgreSQL 14–18 and MySQL 8.
 

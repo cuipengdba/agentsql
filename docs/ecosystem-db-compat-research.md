@@ -309,7 +309,64 @@ Go 接入的官方结论如下：
 
 建议的环境 JSON 每项继续使用 `name/host/port/database/username/password/server_major/expect_closed`；openGauss/OpenTenBase 应配置 `expect_closed=false` 和稳定错误原因，HighGo/PolarDB/IvorySQL 仅在目标实例确实满足 closed query pack 时配置 `expect_closed=true`。本节描述实现后的验收口径；没有当次矩阵日志、版本原文和容器/拓扑证据的目标，不追加“实测通过”声明。
 
-## 1. 十家数据库基线
+### 0.10 PolarDB-X MySQL 协议路径（2026-10-05）
+
+本节讨论的是 **PolarDB-X 分布式数据库**，不是第 0.7 节已验证的 PolarDB for PostgreSQL。两者产品、协议、计划格式和安全边界均不同，不得互相替代结论。
+
+#### 0.10.1 官方资料与部署边界
+
+- 上游主仓库现为 [`polardb/polardbx`](https://github.com/polardb/polardbx)；旧的 `ApsaraDB` 组织地址不应作为当前唯一来源。官方首选体验方式是 PXD，生产/完整拓扑可使用 PolarDB-X Operator。
+- 官方资料确认 CN 可由 MySQL Client 和符合 MySQL 交互协议的程序连接；源码部署示例端口为 `8527`。因此 AgentSQL 复用 `go-sql-driver/mysql`，数据源保持 `db_type=mysql`，不新增 `polardbx` 别名或服务端识别开关。
+- 官方旧教程仍提供单容器 `polardbx/polardb-x:2.0.1`，默认 `polardbx_root/123456`，不是 `root/root`。该镜像适合本地冒烟，不代表当前版本、完整 CN/DN/CDC 拓扑或商业服务。Operator 部署的 `polardbx_root` 密码从 Kubernetes Secret 随机取得。
+- 官方元数据兼容表显示 `SCHEMATA/TABLES/COLUMNS/STATISTICS` 等核心 `information_schema` 视图兼容 MySQL，但 `REFERENTIAL_CONSTRAINTS/EVENTS/TRIGGERS` 等并非全部兼容。这支持 AgentSQL 现有 discovery 的窄核心查询，不支持把完整 MySQL inspector 能力整体外推到 PolarDB-X。
+
+隔离冒烟环境可按官方旧教程启动；端口在本轮改为仅绑定本机，避免与其他服务冲突：
+
+```powershell
+docker pull polardbx/polardb-x:2.0.1
+docker run -d --name agentsql-polardbx-e2e `
+  -p 127.0.0.1:18527:8527 polardbx/polardb-x:2.0.1
+```
+
+先创建专用合成测试库，随后显式启用测试；密码只通过进程环境传入，不写入仓库：
+
+```powershell
+$env:AGENTSQL_POLARDBX_E2E='1'
+$env:POLARDBX_E2E_HOST='127.0.0.1'
+$env:POLARDBX_E2E_PORT='18527'
+$env:POLARDBX_E2E_DATABASE='agentsql_polardbx'
+$env:POLARDBX_E2E_USERNAME='polardbx_root'
+$env:POLARDBX_E2E_PASSWORD='<local-test-password>'
+go test ./internal/authorizedexecute/internal/businessdb ./internal/controlledread `
+  -run PolarDBX -count=1 -v
+```
+
+#### 0.10.2 代码适配与故障关闭
+
+| 能力 | v0.5 实现 / 证据 | 边界 |
+| --- | --- | --- |
+| 连接 | `NewMySQLExecutor`、MySQL DSN、连接池和取消路径；`db_type=mysql` | 不按版本字符串偷偷切换安全策略；TLS/认证矩阵待目标环境终验 |
+| parser / binder | 复用冻结的 MySQL 8 parser；新增 PolarDB-X 兼容 corpus，SELECT、带 WHERE/LIMIT、INSERT/UPDATE/DELETE 保持 MySQL AST | 不新增 `polardbx` dialect；TDDL/DRDS Hint、管理语句和未知扩展不因协议兼容自动放行；MySQL 路径没有 PG B2/B5 binder |
+| discovery | 固定 `information_schema.columns` + `tables` 查询、当前 `DATABASE()` 限定、反引号与 `LIMIT` 采样 | 仅依赖官方列为兼容的核心视图；返回形状、范围或权限异常失败关闭 |
+| SELECT | 复用行数双屏障、context deadline、危险函数与多语句拒绝 | `MAX_EXECUTION_TIME` 是否生效随版本而异，不能替代 context 取消 |
+| DML / 事务 | 复用 MySQL DML 规则、显式 `WriteTx`、提交/回滚和错误脱敏；E2E 覆盖 INSERT/UPDATE/DELETE 与回滚 | 分布式事务、GSI、分区键、广播表、跨分片隔离与未知提交结果仍需目标拓扑验证 |
+| EXPLAIN | 普通 `EXPLAIN` 精确返回单列 `LOGICAL EXECUTIONPLAN` 时，追加官方 `EXPLAIN EXECUTE`，再按 MySQL `type/key/rows` 严格归一化；两阶段均有大小/行列/数值约束 | 未知单列名、第二阶段错误、未知列或非法估算直接失败；不以 `EstScanRows=0` 降级放行 |
+| 脱敏 / 审计 | 继续使用 AgentSQL MySQL 路径的结果层脱敏和应用审计 | 不替代数据库原生权限、审计、RLS/DLP 或绕过网关的直连控制 |
+
+新增 `polardbx_e2e_test.go` 为 opt-in 真库测试：执行版本识别、连接、建表、SELECT、INSERT/UPDATE/DELETE、显式事务回滚、只读拒绝、两阶段 EXPLAIN，以及 `information_schema` discovery、限定采样和敏感发现结果不回显原值。默认 `go test -short` 不拉镜像、不启动重型数据库；未提供显式环境变量时稳定跳过。
+
+#### 0.10.3 当前结论
+
+本轮已拉取官方旧单容器 `polardbx/polardb-x:2.0.1`（镜像 digest `sha256:1c3b7471b21f7525aa739abffee03192491fc8c7438e49e134162a924390748b`），实测 CN `SELECT VERSION()` 为 `5.6.29-PXC-5.4.12-20220128`。AgentSQL 以 `db_type=mysql`、Go 1.26 Linux 测试容器和合成数据运行新增 E2E：
+
+- `TestPolarDBXMySQLCompatibilityE2E` 通过（19.83 s）：版本识别、连接、SELECT、INSERT/UPDATE/DELETE、索引计划、显式事务回滚与只读执行器拒写均通过；
+- `TestPolarDBXDiscoveryE2E` 通过（21.16 s）：`information_schema` 列发现、反引号/`LIMIT` 采样、phone/email 分类和原始哨兵不回显均通过；
+- 实例原始形状为普通 `EXPLAIN` 的 `LOGICAL EXECUTIONPLAN` 单列，以及 `EXPLAIN EXECUTE` 的 `id/select_type/table/partitions/type/possible_keys/key/key_len/ref/rows/filtered/Extra`，与新增适配器一致；
+- 回归 fixture 另行验证未知第二阶段计划列失败关闭，不跳过动态规则。
+
+因此可准确表述为“**PolarDB-X 官方 2.0.1 旧单容器在合成用例下，通过 `db_type=mysql` 完成有界协议路径冒烟；产品特有两阶段 EXPLAIN 已 fail-closed 适配**”。不得写成完整方言支持或厂商认证，也不能外推到当前 PXD/Operator 集群、完整 CN/DN/CDC、HA/TLS、分布式事务/GSI 或阿里云商业服务；这些仍需目标版本和拓扑联合终验。
+
+## 1. 十一家数据库基线
 
 下表中的驱动形态只描述公开资料中常见的接入方向，不表示 AgentSQL 已验证，也不表示相关驱动均由厂商以相同方式维护。具体驱动名称、版本、许可证、支持周期和 Go `database/sql` 兼容性均待厂商确认。
 
@@ -320,6 +377,7 @@ Go 接入的官方结论如下：
 | openGauss（GaussDB） | 源自 PostgreSQL | 常见 JDBC、ODBC、C/libpq 类接口，并有 Go 生态连接方式；具体官方支持范围待确认 | 较高，但内核演进、系统目录和方言差异可能大于一般 PG 兼容库 | 评估 PG parser 覆盖率、系统表与 `EXPLAIN` 格式；选定受支持 Go 驱动；适配自有类型和错误码；验证对象发现、列级授权、脱敏及审计 |
 | IvorySQL | PostgreSQL 系，强调 Oracle 兼容能力；与 HighGo 同属瀚高产品线，IvorySQL 为社区版 | 以 PostgreSQL 协议及 JDBC、ODBC、C/libpq 类客户端为主；独立 Go 驱动待确认 | 高，PG 模式可优先复用；Oracle 兼容语法需单独评估 | 与 HighGo 按同一厂商统一对接；区分原生 PG 与 Oracle 兼容语法范围；核对系统目录、类型和函数；验证 Go 连接、列血缘、列级授权及脱敏，不把协议可连通等同于方言完整支持 |
 | TiDB | MySQL 协议兼容 | 通常使用 MySQL 生态的 C、Go、Java 驱动；兼容版本与参数待验证 | 高，优先评估复用 MySQL parser 与执行器 | 核对 TiDB 特有语法、事务和 `EXPLAIN`；验证 MySQL Go 驱动行为、类型返回与错误码；适配 information_schema 差异；列级授权 B2 不能沿用 PG 闭环，需另行设计，脱敏需端到端验证 |
+| PolarDB-X | MySQL 交互协议兼容的分布式数据库 | 官方支持 MySQL Client 及兼容 MySQL 交互协议的程序；AgentSQL 使用现有 Go MySQL 驱动 | 高，保持 `db_type=mysql`；EXPLAIN 需产品适配 | 核对 CN/DN/CDC 拓扑、核心 information_schema、两阶段 `EXPLAIN`、分布式事务/GSI/分片语义、Hint 与管理语句拒绝、TLS/认证；不得与 PolarDB for PostgreSQL 混称 |
 | OceanBase | MySQL 与 Oracle 两种兼容模式 | 常见 C、Go、Java/JDBC、ODBC 接入形态；不同模式使用的驱动与能力需分别确认 | MySQL 模式中高；Oracle 模式与现有 dialect 亲缘度低 | 两种模式必须拆分认证；MySQL 模式评估协议/语法复用，Oracle 模式需新增 parser/dialect 路径；核对租户、系统目录、类型、事务、错误码；分别验证授权与脱敏 |
 | TDSQL | 商用产品包含 MySQL 版、PG 版等产品线，具体以厂商资料为准 | 驱动形态须按选定的具体产品线分别确认 | 须按具体产品线分别评估，不以一条产品线的结论替代另一条 | 先锁定产品全称、版本和部署形态；按具体产品线核对分布式语法、路由、事务、`EXPLAIN`、系统目录及安全闭环 |
 | OpenTenBase | PG 系（OpenTenBase 内核源自腾讯自研 TBase，基于 PostgreSQL 分支）；另有 TXSQL（MySQL 兼容）内核，双内核须分别评估 | OpenTenBase 内核按 PostgreSQL 兼容路径评估，TXSQL 内核按 MySQL 兼容路径评估；具体驱动和官方支持范围待确认 | OpenTenBase 内核可优先评估复用 PG dialect；TXSQL 内核按 MySQL 系另行评估，两者结论不得互相替代 | 企业级分布式数据库 TDSQL 的社区发行版，由腾讯云捐赠给开放原子开源基金会孵化运营；与 TDSQL 按腾讯一家厂商两条线统一对接，并分别核对双内核的语法、系统目录、分布式能力、类型、错误码与安全闭环 |
@@ -349,7 +407,7 @@ Go 接入的官方结论如下：
 | 优先级 | 候选 | 理由 |
 | --- | --- | --- |
 | P0：首批验证 | 电科金仓 KingbaseES、openGauss（GaussDB）、瀚高 HighGo（含 IvorySQL 社区版）、腾讯 TDSQL（含 OpenTenBase 社区版） | PG 系优先；瀚高与腾讯均按一家厂商两条线统一对接并分别记录版本和验证边界；OpenTenBase 优先评估 PG 兼容的 OpenTenBase 内核，TXSQL 按 MySQL 系另行评估，双内核结论不得互相替代 |
-| P1：后续评估 | TiDB | 保留 MySQL 协议系候选，待 PG 系首批验证推进后评估；非 PG 的列级授权闭环需另行设计 |
+| P1：MySQL 协议系评估 | TiDB、PolarDB-X | 复用 MySQL parser/驱动并分别适配产品计划与目录差异；非 PG 的列级授权闭环需另行设计，产品间结论不得互相替代 |
 | P2：专项适配 | OceanBase、崖山数据库 YashanDB、达梦数据库 DM | 多兼容模式或 Oracle 兼容特征带来更大的 parser、类型和系统目录差异，宜在通用扩展合同稳定后专项推进；若已有明确用户和厂商联合资源可提前 |
 
 每一档的入口条件应至少包括：明确目标版本、合法可用的测试环境、厂商技术联系人、驱动与许可证确认，以及覆盖安全失败路径的验收用例。市场曝光只能用于同等条件下排序，不能替代工程可验证性。
@@ -365,6 +423,7 @@ Go 接入的官方结论如下：
 | openGauss（GaussDB） | 使用普通表及一项 openGauss 特有类型，验证发现、规则、脱敏、审计，并记录与 PG 路径的差异 | 社区 openGauss 可先做实验；GaussDB 联合案例仍需厂商提供对应商业版本环境与文档 |
 | IvorySQL | 作为瀚高产品线的社区版，先以 PG 原生语法跑通闭环，再增加一条 Oracle 兼容语法作为明确的支持/拒绝边界用例 | 可先使用官方可得测试环境；与 HighGo 统一由瀚高对接，目标版本与 Oracle 兼容模式仍需确认 |
 | TiDB | 使用 MySQL 驱动接入单表，验证发现、规则、脱敏和审计，再验证一条 TiDB 特有语法被正确处理或安全拒绝 | 可先用合法测试实例；联合认证需厂商提供目标版本、拓扑和推荐配置 |
+| PolarDB-X | 以 `db_type=mysql` 接入 CN，验证核心目录发现、受控查询、两阶段 EXPLAIN、DML/事务回滚、脱敏和审计；增加一条 TDDL/DRDS 扩展被明确拒绝的用例 | 旧单容器仅供冒烟；完整结论需厂商提供目标 CN/DN/CDC 版本、拓扑、TLS/认证和分布式事务/GSI 测试环境 |
 | OceanBase | MySQL 模式先跑最小闭环；Oracle 模式建立独立用例，若尚无 parser 支持应明确返回不支持而非降级放行 | 两种租户模式都需厂商提供真实测试环境、驱动和版本说明，不得以一种模式代表另一种 |
 | TDSQL | 确定具体商业产品线后，按其兼容系跑通连接、发现、规则、授权、脱敏与审计闭环，并增加分布式事务或路由相关的安全失败用例；不同产品线分别记录结论 | 需厂商提供具体产品、版本、拓扑及测试账号；真实环境验证必需 |
 | OpenTenBase | OpenTenBase 内核以 PG 兼容路径跑通连接、发现、规则、列级授权、脱敏与审计闭环；TXSQL 内核按 MySQL 兼容路径另行验证，双内核分别记录边界 | 作为 TDSQL 社区发行版与 TDSQL 商业产品线按腾讯一家厂商两条线统一对接；具体内核版本、驱动、支持范围及测试环境待腾讯官方资料确认 |

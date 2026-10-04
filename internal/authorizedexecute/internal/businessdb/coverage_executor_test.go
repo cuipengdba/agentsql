@@ -507,6 +507,22 @@ func TestCoverageMySQLErrorAndResourceBranches(t *testing.T) {
 	require.NoError(t, nilSession.Close())
 }
 
+func TestPolarDBXExplainUsesPhysicalExecutePlan(t *testing.T) {
+	database := openCoverageSQLDatabase(t, "polardbx")
+	executor := &MySQLExecutor{database: database, timeout: time.Second, sessions: make(map[string]Session)}
+
+	plan, err := executor.Explain(context.Background(), "SELECT id FROM orders WHERE id = 7")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), plan.EstScanRows)
+	require.True(t, plan.UsesIndex)
+	require.False(t, plan.SeqScan)
+
+	invalidDatabase := openCoverageSQLDatabase(t, "polardbx-invalid")
+	invalid := &MySQLExecutor{database: invalidDatabase, timeout: time.Second, sessions: make(map[string]Session)}
+	_, err = invalid.Explain(context.Background(), "SELECT id FROM orders")
+	require.ErrorContains(t, err, "unsupported MySQL-compatible EXPLAIN format")
+}
+
 func TestCoveragePostgresRunnerAndSession(t *testing.T) {
 	clock := newFakeSessionClock()
 	runner := &coveragePostgresRunner{
@@ -740,6 +756,15 @@ func (connection *coverageSQLConn) QueryContext(
 		rows.columns = []string{"value"}
 		rows.values = [][]driver.Value{{int64(1)}}
 		rows.closeErr = errors.New("driver rows close failed")
+	case connection.mode == "polardbx-invalid" && strings.HasPrefix(strings.TrimSpace(query), "EXPLAIN EXECUTE"):
+		rows.columns = []string{"unknown_plan"}
+		rows.values = [][]driver.Value{{"unverified"}}
+	case connection.mode == "polardbx" && strings.HasPrefix(strings.TrimSpace(query), "EXPLAIN EXECUTE"):
+		rows.columns = []string{"id", "select_type", "table", "type", "possible_keys", "key", "rows"}
+		rows.values = [][]driver.Value{{int64(1), "SIMPLE", "orders_0000", "const", "PRIMARY", "PRIMARY", "1"}}
+	case strings.HasPrefix(connection.mode, "polardbx") && strings.HasPrefix(strings.TrimSpace(query), "EXPLAIN"):
+		rows.columns = []string{"LOGICAL EXECUTIONPLAN"}
+		rows.values = [][]driver.Value{{`LogicalView(tables="agentsql.orders_0000", shardCount=1)`}}
 	case strings.HasPrefix(strings.TrimSpace(query), "EXPLAIN"):
 		rows.columns = []string{"type", "key", "rows"}
 		rows.values = [][]driver.Value{{"ALL", nil, "7"}}

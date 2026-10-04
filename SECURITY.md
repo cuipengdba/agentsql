@@ -59,6 +59,20 @@ AgentSQL 是面向 AI Agent 的数据库安全网关和 MCP Server。它对经�
 
 发现可突破上述预期边界、造成权限提升、认证绕过、敏感信息泄露或审计规避的问题时，请按本政策私密报告。
 
+## PolarDB-X（MySQL 协议路径）安全边界
+
+PolarDB-X 通过 `db_type=mysql` 接入，不新增 `polardbx` 数据源类型，也不以服务端产品名绕过 MySQL parser、规则或执行器。该路径表示有界的 MySQL 协议兼容，不表示完整 PolarDB-X 方言支持、厂商认证或生产可用性承诺。
+
+- 仅复用 AgentSQL 已能严格解析并归类的 MySQL 单语句子集。PolarDB-X 的路由 Hint、DRDS/TDDL 管理语句、分布式 DDL、存储过程及其他未识别扩展不会因协议兼容而自动获准；解析或分类不确定时失败关闭。
+- discovery 使用固定的 `information_schema.tables` / `information_schema.columns` 查询与反引号、`LIMIT` 采样语句，并限定在当前 `DATABASE()`。目录权限不足、结果超限、返回列形状变化或跨库范围均失败关闭。
+- 普通 `EXPLAIN` 若且仅若返回精确的单列 `LOGICAL EXECUTIONPLAN`，执行器才追加官方定义的 `EXPLAIN EXECUTE`，并按 MySQL `type` / `key` / `rows` 表格归一化 DN 计划。第二阶段错误、未知列、空计划、非法估算或超大结果不会降级为零风险或跳过 R004/R005。
+- SELECT 继续接受执行器行数上限、context deadline 和单语句限制。`MAX_EXECUTION_TIME` Hint 只是纵深限制，不能替代客户端取消；目标版本忽略 Hint 时仍由 context 截止时间关闭连接/查询。
+- INSERT / UPDATE / DELETE 复用 MySQL DML 解析、R002/R003/R006/R201--R204、显式写事务与错误脱敏。分布式事务、GSI、分区键更新、广播表及跨分片语义必须在目标拓扑另行验证；协议可执行不等于原子性、隔离级别或提交结果已获认证。
+- MySQL 路径不提供 PostgreSQL B2/B5 native binder 证明。表/列策略、结果脱敏和应用审计仍由 AgentSQL 执行，不能替代 PolarDB-X 原生账号权限、网络隔离、TLS、审计或备份。
+- 生产环境必须使用专用最小权限账号和目标版本要求的 TLS/认证配置。官方体验镜像的 `polardbx_root/123456` 仅用于隔离本地测试，禁止作为生产凭据；Kubernetes Operator 的 root 密码由 Secret 随机生成，不应写入仓库或日志。
+
+版本与部署结论必须分别记录 CN/DN/CDC 拓扑、PolarDB-X 版本、驱动版本和测试范围。旧的 `polardbx/polardb-x:2.0.1` 单容器只能作为开发冒烟环境，不代表当前社区版、Operator 集群或阿里云商业服务。
+
 ## SQL Server 2025 安全边界
 
 `db_type=sqlserver` 是独立的 SQL Server 2025（主版本 17）受限只读能力，不代表完整 T-SQL、DML、DDL、存储过程、SQL Agent、CLR、链接服务器或 B2/B5 支持。

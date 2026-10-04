@@ -114,6 +114,20 @@ Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, o
 
 The authoritative [security policy](../../SECURITY.md) supports v0.5.x until six months after v0.6.0 is released, but not earlier than 2027-10-31; v0.4.x remains supported through 2027-04-30. Versions 0.3.x and earlier are EOL and no longer receive security fixes.
 
+## PolarDB-X (MySQL Protocol Path) Security Boundary
+
+PolarDB-X is configured as `db_type=mysql`. AgentSQL does not add a `polardbx` data-source type and does not use server-product detection to bypass the MySQL parser, rules, or executor. This is a bounded MySQL-protocol compatibility path, not a claim of complete PolarDB-X dialect support, vendor certification, or production readiness.
+
+- Only the MySQL single-statement subset that AgentSQL can strictly parse and classify is eligible. PolarDB-X routing hints, DRDS/TDDL administrative statements, distributed DDL, stored procedures, and unrecognized extensions are not admitted merely because the wire protocol is compatible. Ambiguity fails closed.
+- Discovery uses fixed queries over `information_schema.tables` and `information_schema.columns`, backtick quoting, and bounded `LIMIT` sampling within the current `DATABASE()`. Insufficient catalog permission, excessive results, an unexpected result shape, or cross-database scope fails closed.
+- If and only if plain `EXPLAIN` returns exactly one `LOGICAL EXECUTIONPLAN` column, the executor issues the documented `EXPLAIN EXECUTE` form and normalizes the DN plan from MySQL `type`, `key`, and `rows` columns. A second-stage error, unknown columns, an empty plan, invalid estimates, or an oversized payload never falls back to zero risk or skips R004/R005.
+- SELECT remains bounded by the executor row limit, context deadline, and one-statement rule. `MAX_EXECUTION_TIME` is defense in depth, not a substitute for client cancellation; the context deadline remains authoritative when a target version ignores the hint.
+- INSERT, UPDATE, and DELETE reuse MySQL DML parsing, R002/R003/R006/R201--R204, explicit write transactions, and error redaction. Distributed transactions, GSIs, partition-key updates, broadcast tables, and cross-shard semantics require separate validation on the target topology. Protocol-level execution does not certify atomicity, isolation, or commit-outcome behavior.
+- The MySQL path has no PostgreSQL B2/B5 native-binder proof. AgentSQL table/column policy, result masking, and application audit do not replace PolarDB-X account privileges, network isolation, TLS, native audit, or backups.
+- Production deployments require a dedicated least-privilege account and the target version's TLS/authentication settings. The official demo image's `polardbx_root/123456` credential is only for isolated local testing and must not be used in production. Operator deployments generate the root password in a Kubernetes Secret; do not commit or log it.
+
+Compatibility evidence must identify the CN/DN/CDC topology, PolarDB-X version, driver version, and exercised scope. The old `polardbx/polardb-x:2.0.1` all-in-one image is only a development smoke environment and does not represent current community releases, Operator clusters, or Alibaba Cloud commercial service.
+
 ## SQL Server 2025 Security Boundary
 
 `db_type=sqlserver` is an independent, restricted read-only capability for SQL Server 2025 (major version 17). It is not a claim of complete T-SQL, DML, DDL, stored-procedure, SQL Agent, CLR, linked-server, or B2/B5 support.

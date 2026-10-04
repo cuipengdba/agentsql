@@ -141,6 +141,19 @@ func TestParseMySQLExplainRowsRejectsInvalidInput(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPolarDBXLogicalExplainShapeIsExplicitAndFailClosed(t *testing.T) {
+	require.True(t, isPolarDBXLogicalExplainColumns([]string{"LOGICAL EXECUTIONPLAN"}))
+	require.True(t, isPolarDBXLogicalExplainColumns([]string{" logical executionplan "}))
+	require.False(t, isPolarDBXLogicalExplainColumns([]string{"Query Plan"}))
+	require.False(t, isPolarDBXLogicalExplainColumns([]string{"LOGICAL EXECUTIONPLAN", "extra"}))
+
+	_, err := parseMysqlExplainRows(
+		[]string{"LOGICAL EXECUTIONPLAN"},
+		[][]any{{`LogicalView(tables="agentsql.orders", shardCount=1)`}},
+	)
+	require.ErrorContains(t, err, "unsupported MySQL-compatible EXPLAIN format")
+}
+
 func TestParseTiDB751ExplainRows(t *testing.T) {
 	columns := []string{"id", "estRows", "task", "access object", "operator info"}
 	values := [][]any{
