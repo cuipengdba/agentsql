@@ -1,6 +1,7 @@
 package authorizedexecute
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/authorizedexecute/internal/businessdb"
@@ -54,4 +55,59 @@ func TestPostgresColumnAuthorizationInputRejectsUnprovableFacts(t *testing.T) {
 	_, _, err := postgresColumnAuthorizationInputFromFacts(authorizedSelectRequest{}, facts, nil)
 	require.Error(t, err)
 	require.Equal(t, ReasonColumnShape, StableError(err).Reason)
+}
+
+func TestClosedHandshakeDoesNotRequireNativeMajor(t *testing.T) {
+	t.Parallel()
+	for _, serverVersion := range []int{90204, 100000, 120007, 150019, 180003} {
+		serverVersion := serverVersion
+		t.Run(strconv.Itoa(serverVersion), func(t *testing.T) {
+			t.Parallel()
+			handshake := businessdb.BinderCapabilityHandshake{
+				SelectedMode: businessdb.BinderModeCatalogClosedV1,
+				Closed: businessdb.CapabilityAttestation{
+					Mode:             businessdb.BinderModeCatalogClosedV1,
+					Available:        true,
+					Digest:           "closed-digest",
+					ServerVersionNum: serverVersion,
+					ServerMajor:      serverVersion / 10000,
+					DatabaseOID:      42,
+				},
+			}
+			require.NoError(t, validatePostgresClosedHandshake(handshake))
+		})
+	}
+}
+
+func TestClosedHandshakeRejectsUnboundVersionIdentity(t *testing.T) {
+	t.Parallel()
+	handshake := businessdb.BinderCapabilityHandshake{
+		SelectedMode: businessdb.BinderModeCatalogClosedV1,
+		Closed: businessdb.CapabilityAttestation{
+			Mode: businessdb.BinderModeCatalogClosedV1, Available: true, Digest: "closed-digest",
+			ServerVersionNum: 120007, ServerMajor: 14, DatabaseOID: 42,
+		},
+	}
+	err := validatePostgresClosedHandshake(handshake)
+	require.Error(t, err)
+	require.Equal(t, ReasonBinderCapability, StableError(err).Reason)
+}
+
+func TestClosedHandshakeRejectsInconsistentNativeSelection(t *testing.T) {
+	t.Parallel()
+	handshake := businessdb.BinderCapabilityHandshake{
+		SelectedMode: businessdb.BinderModeNativeCV1,
+		Closed: businessdb.CapabilityAttestation{
+			Mode: businessdb.BinderModeCatalogClosedV1, Available: true, Digest: "closed-digest",
+			ServerVersionNum: 160005, ServerMajor: 16, DatabaseOID: 42,
+		},
+		Native: businessdb.CapabilityAttestation{
+			Mode: businessdb.BinderModeNativeCV1, Available: true, Digest: "native-digest",
+			ServerVersionNum: 160005, ServerMajor: 16, DatabaseOID: 43,
+		},
+		NativeHealth: "healthy",
+	}
+	err := validatePostgresClosedHandshake(handshake)
+	require.Error(t, err)
+	require.Equal(t, ReasonBinderCapability, StableError(err).Reason)
 }

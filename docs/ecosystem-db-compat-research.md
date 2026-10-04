@@ -239,6 +239,33 @@ Go 接入的官方结论如下：
 
 复杂度评估为**高**，主要风险是 proprietary wire/C 运行时与 CGO 交付、Oracle 兼容并非 Oracle 完全等价、系统目录与计划格式差异、类型和错误码覆盖，以及驱动/C 客户端许可。**当前 AgentSQL 未支持 YashanDB；本次容器与 yasql 连通性只证明目标环境可用，不构成 AgentSQL 支持或厂商认证。**
 
+### 0.8 B2 closed-only 降级与 PG 兼容内核实测（2026-10-04）
+
+本节只评估 PostgreSQL B2 binder 的能力握手与 closed catalog 证据链，不替代前述表级策略、脱敏和审计结论，也不是厂商认证。实测版本号来自 `current_setting('server_version_num')`；产品版本号不能代替 PostgreSQL 内核兼容口径。
+
+#### 0.8.1 能力边界
+
+- native `agentsql_binder` 的构建期 expectation 仍严格限定 PostgreSQL major 14--18，ABI、扩展版本和各 manifest hash 的精确匹配规则未放宽。低版本或魔改内核不会被伪装成 native 可用。
+- closed mode 不再把 native major 范围当作入口门槛。首次握手必须先证明 `CATALOG_CLOSED_V1`、`Available=true`、非空 digest、`server_version_num`/major 一致和非零 database OID；仅当 major 为 14--18 时才进行第二次 native expectation 探测。低 major 的 closed 证据成立时返回 closed-only，`NativeAvailable=false`、native digest/ABI/扩展版本为空；不会仅因 native major 不支持而返回 `AUTH_BINDER_MODE_UNSUPPORTED`。
+- closed capability 仍是 fail-closed 的能力探测，不是“所有 PG 协议库都默认可用”。query pack v2 自检要求相关系统目录及 8 个关键字段存在，包括 `relispartition`、RLS 字段、`attidentity`、`attgenerated` 和 `pg_partitioned_table.partrelid`。字段缺失、权限不足或目录语义无法证明时拒绝 closed；不以 `false`/空值猜测厂商语义。
+- native 扩展发现属于 native-only 证据。兼容内核缺少或限制扩展发现目录时，只会把 native 标为不健康；已经完成的 closed 自检不会因此被撤销。上下文取消仍整体失败。
+- closed AST cache 升级到 v2。cache key 不再要求 major 14--18，但仍要求正 major，并继续同时绑定 datasource identity、database OID、server major、role OID、search-path digest、SQL digest、capability digest 和 catalog fingerprint。缓存只保存 candidate hint；每次执行仍重新加锁、重扫 `Fpre/Fpost`、核对 OID 锁集合并重新 `PREPARE`，因此解除版本门槛不会把 native 证据或跨内核缓存混入 closed 执行。
+
+#### 0.8.2 实测矩阵
+
+| 产品 / `server_version_num` | native 14--18 eligibility | closed 握手 / AST 结果 | 本轮结论 |
+| --- | --- | --- | --- |
+| PolarDB for PostgreSQL 15 / `150019`（major 15） | 有资格；实例无 `agentsql_binder` 文件或安装记录 | 通过容器本地 socket 完成只读 catalog 自检：8/8 必需字段齐全；因本轮没有读取现有容器外部凭据，未计为完整 Gateway/AST E2E | **closed-only 候选成立，完整 B2 E2E 待专用测试凭据复核**；不得把 major eligibility 写成 native available |
+| openGauss 7.0.0-RC3 / `90204`（major 9） | 不支持 | 现有 PG gateway 探测稳定返回 `AUTH_DATABASE_ERROR`；只读目录核验同时确认缺 `pg_partitioned_table`、`relispartition`、`attidentity`、`attgenerated` | **closed 不可用并安全拒绝**；需独立 openGauss query pack/驱动适配，不能用解除 major gate 绕过目录缺口 |
+| IvorySQL 5.3 / `180003`（major 18） | 有资格；测试实例未安装扩展 | 完整 Gateway probe 通过，返回 `CATALOG_CLOSED_V1`、非空 closed digest、`NativeAvailable=false`；随后对隔离永久表完成 closed AST bind → execute → post-proof，结果正确并清理 schema | **本指定社区镜像的 closed-only E2E 通过**；不等于 native 或 HighGo 商业版认证 |
+| HighGo SEE 4.5.10.3 / `120007`（major 12） | 不支持 | 完整 Gateway probe 通过，返回 `CATALOG_CLOSED_V1`、非空 closed digest、`NativeAvailable=false`；随后完成 closed AST bind → execute → post-proof | **本第三方镜像的 closed-only E2E 通过**；证明 closed 可独立于 native major，但商业版仍待厂商终验 |
+| OpenTenBase v2.5.0 / `100000`（major 10） | 不支持 | 现有 PG gateway 探测稳定返回 `AUTH_DATABASE_ERROR`；目录核验发现缺 `pg_attribute.attgenerated`，不满足 query pack v2 | **closed 不可用并安全拒绝**；还需解决现有 pgx/拓扑入口与厂商目录差异，不能宣称 B2 支持 |
+| KingbaseES V9 | 待取得 10/8 目标环境版本证据 | 未执行 | **待测**；不从产品版本号推测 major，不从旧镜像或其他 PG 兼容库外推 |
+
+真实厂商矩阵位于 `internal/authorizedexecute/pg_compat_closed_matrix_e2e_test.go`，由 `AGENTSQL_PG_COMPAT_CLOSED_MATRIX` 或其 base64 形式显式提供目标，且在 `testing.Short()` 下跳过；口令不写入仓库。默认 PostgreSQL 无扩展的完整生产路径仍由 `b2_closed_only_no_extension_e2e_test.go` 覆盖。单元测试另覆盖 `90204/100000/120007/150019/180003` 的 closed handshake 版本身份、低 major cache key，以及 malformed version/major 的故障关闭。
+
+本轮不增加 `openGauss`、`highgo`、`opentenbase` 等 datasource alias，不修改 RBAC、store、admin API，也不扩展 native binder 的版本支持范围。对外口径必须区分“连接/表级路径通过”“catalog 自检通过”“closed-only E2E 通过”和“native 可用”；四者不能互相替代。
+
 ## 1. 十家数据库基线
 
 下表中的驱动形态只描述公开资料中常见的接入方向，不表示 AgentSQL 已验证，也不表示相关驱动均由厂商以相同方式维护。具体驱动名称、版本、许可证、支持周期和 Go `database/sql` 兼容性均待厂商确认。

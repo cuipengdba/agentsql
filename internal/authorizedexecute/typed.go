@@ -93,17 +93,19 @@ func (gateway *Gateway) ProbePostgresB2Modes(ctx context.Context, datasource mod
 	if err != nil {
 		return PostgresB2Capability{}, StableError(err)
 	}
+	if err := validatePostgresClosedHandshake(initial); err != nil {
+		return PostgresB2Capability{}, err
+	}
 	handshake := initial
 	expectation, supported := businessdb.PostgresBinderNativeExpectation(initial.Closed.ServerMajor)
-	if !supported {
-		return PostgresB2Capability{}, &AuthError{Reason: ReasonBinderModeUnsupported}
+	if supported {
+		handshake, err = postgres.ProbeEasyDeployBinderCapabilities(ctx, expectation, NewBudget(DefaultLimits))
+		if err != nil {
+			return PostgresB2Capability{}, StableError(err)
+		}
 	}
-	handshake, err = postgres.ProbeEasyDeployBinderCapabilities(ctx, expectation, NewBudget(DefaultLimits))
-	if err != nil {
-		return PostgresB2Capability{}, StableError(err)
-	}
-	if handshake.Closed.Mode != businessdb.BinderModeCatalogClosedV1 || !handshake.Closed.Available || handshake.Closed.Digest == "" {
-		return PostgresB2Capability{}, &AuthError{Reason: ReasonBinderCapability}
+	if err := validatePostgresClosedHandshake(handshake); err != nil {
+		return PostgresB2Capability{}, err
 	}
 	gateway.b2Mu.Lock()
 	if gateway.b2Handshakes == nil {
@@ -124,6 +126,29 @@ func (gateway *Gateway) ProbePostgresB2Modes(ctx context.Context, datasource mod
 		capability.Matview = true
 	}
 	return capability, nil
+}
+
+func validatePostgresClosedHandshake(handshake businessdb.BinderCapabilityHandshake) error {
+	if handshake.SelectedMode != businessdb.BinderModeCatalogClosedV1 && handshake.SelectedMode != businessdb.BinderModeNativeCV1 {
+		return &AuthError{Reason: ReasonBinderCapability}
+	}
+	if handshake.Closed.Mode != businessdb.BinderModeCatalogClosedV1 || !handshake.Closed.Available ||
+		handshake.Closed.Digest == "" || handshake.Closed.ServerVersionNum <= 0 || handshake.Closed.ServerMajor <= 0 ||
+		handshake.Closed.ServerMajor != handshake.Closed.ServerVersionNum/10000 || handshake.Closed.DatabaseOID == 0 {
+		return &AuthError{Reason: ReasonBinderCapability}
+	}
+	if handshake.SelectedMode == businessdb.BinderModeNativeCV1 {
+		if handshake.NativeHealth != "healthy" || handshake.Native.Mode != businessdb.BinderModeNativeCV1 ||
+			!handshake.Native.Available || handshake.Native.Digest == "" ||
+			handshake.Native.ServerVersionNum != handshake.Closed.ServerVersionNum ||
+			handshake.Native.ServerMajor != handshake.Closed.ServerMajor ||
+			handshake.Native.DatabaseOID != handshake.Closed.DatabaseOID {
+			return &AuthError{Reason: ReasonBinderCapability}
+		}
+	} else if handshake.NativeHealth == "healthy" || handshake.Native.Available {
+		return &AuthError{Reason: ReasonBinderCapability}
+	}
+	return nil
 }
 
 func (gateway *Gateway) postgresB2Handshake(datasourceID string) (businessdb.BinderCapabilityHandshake, bool) {

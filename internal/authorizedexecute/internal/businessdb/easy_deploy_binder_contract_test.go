@@ -164,6 +164,30 @@ func TestClosedCacheIsVersionedClonedAndCatalogBound(t *testing.T) {
 	}
 }
 
+func TestClosedCacheMajorIsAnIsolationDimensionNotANativeGate(t *testing.T) {
+	t.Parallel()
+	cache := NewClosedASTCache(8)
+	for _, major := range []int{9, 10, 12, 15, 18} {
+		fingerprint := "catalog-" + strconv.Itoa(major)
+		key := ClosedCacheKey{DatasourceIdentity: "endpoint", DatabaseOID: 9, ServerMajor: major, RoleOID: 10,
+			SearchPathDigest: "path", SQLDigest: "sql", CapabilityDigest: "cap", CatalogFingerprint: fingerprint}
+		candidate := ClosedCatalogCandidate{Digest: fingerprint, Frame: PostgresCatalogFrame{Fingerprint: fingerprint}}
+		if !cache.Put(key, ClosedASTCacheEntry{ASTDigest: "ast", Candidate: candidate}) {
+			t.Fatalf("closed cache rejected server major %d", major)
+		}
+		if _, ok := cache.Get(key); !ok {
+			t.Fatalf("closed cache missed server major %d", major)
+		}
+	}
+	invalid := ClosedCacheKey{DatasourceIdentity: "endpoint", DatabaseOID: 9, RoleOID: 10,
+		SearchPathDigest: "path", SQLDigest: "sql", CapabilityDigest: "cap", CatalogFingerprint: "catalog-invalid"}
+	if cache.Put(invalid, ClosedASTCacheEntry{ASTDigest: "ast", Candidate: ClosedCatalogCandidate{
+		Digest: "catalog-invalid", Frame: PostgresCatalogFrame{Fingerprint: "catalog-invalid"},
+	}}) {
+		t.Fatal("closed cache accepted an absent server-major identity")
+	}
+}
+
 func TestClosedCacheConcurrentAccess(t *testing.T) {
 	cache := NewClosedASTCache(8)
 	var workers sync.WaitGroup

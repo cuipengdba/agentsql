@@ -19,10 +19,10 @@ import (
 
 const (
 	closedGrammarManifestHash = "catalog-closed-v1-select-s3-dml-s4"
-	closedQueryPackHash       = "catalog-closed-v1-pg14-pg18-query-pack"
+	closedQueryPackHash       = "catalog-closed-v1-self-tested-query-pack-v2"
 	closedEncoderVersion      = "catalog-closed-canonical-v1"
 	closedBuiltinManifestHash = "catalog-closed-v1-exact-operator-builtins"
-	closedCacheVersion        = "agentsql.closed-cache.v1"
+	closedCacheVersion        = "agentsql.closed-cache.v2"
 )
 
 type ClosedRelationRef struct {
@@ -99,7 +99,14 @@ func (executor *PostgresExecutor) ProbeEasyDeployBinderCapabilities(ctx context.
 	EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder'),
 	EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder' AND extversion='0.4')`
 	if err := tx.QueryRow(ctx, extensionSQL).Scan(&available, &availableVersion, &installed, &installedVersion); err != nil {
-		return BinderCapabilityHandshake{}, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+		if ctx.Err() != nil {
+			return BinderCapabilityHandshake{}, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+		}
+		// Extension discovery is native-only evidence. A compatible kernel may
+		// omit or restrict these catalogs while still satisfying every closed
+		// catalog self-test, so do not turn that into a closed-mode failure.
+		handshake.NativeHealth = "AUTH_BINDER_CAPABILITY_MISMATCH"
+		return handshake, nil
 	}
 	handshake.NativeFilesAvailable = available
 	handshake.NativeInstalled = installed
@@ -560,7 +567,7 @@ ORDER BY c.oid`
 		return PostgresCatalogFrame{}, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
 	rows.Close()
-	if len(frame.Relations) != len(refs) || frame.DatabaseOID == 0 || frame.ServerVersion/10000 < 14 || frame.ServerVersion/10000 > 18 {
+	if len(frame.Relations) != len(refs) || frame.DatabaseOID == 0 || frame.ServerVersion <= 0 || frame.ServerVersion/10000 <= 0 {
 		return PostgresCatalogFrame{}, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
 	oids := frameRelationOIDs(frame)
@@ -737,12 +744,26 @@ func closedCatalogSelfTest(ctx context.Context, tx pgx.Tx, budget PostgresCatalo
 		return err
 	}
 	var classOID, attrOID, dependOID, triggerOID, rewriteOID, policyOID, inheritOID, partitionOID uint32
-	const query = `SELECT 'pg_catalog.pg_class'::regclass::oid,'pg_catalog.pg_attribute'::regclass::oid,
+	var requiredColumns int
+	const query = `WITH required(relid,attname) AS (VALUES
+ ('pg_catalog.pg_class'::regclass,'relam'),
+ ('pg_catalog.pg_class'::regclass,'reloftype'),
+ ('pg_catalog.pg_class'::regclass,'relispartition'),
+ ('pg_catalog.pg_class'::regclass,'relrowsecurity'),
+ ('pg_catalog.pg_class'::regclass,'relforcerowsecurity'),
+ ('pg_catalog.pg_attribute'::regclass,'attidentity'),
+ ('pg_catalog.pg_attribute'::regclass,'attgenerated'),
+ ('pg_catalog.pg_partitioned_table'::regclass,'partrelid')
+) SELECT 'pg_catalog.pg_class'::regclass::oid,'pg_catalog.pg_attribute'::regclass::oid,
  'pg_catalog.pg_depend'::regclass::oid,'pg_catalog.pg_trigger'::regclass::oid,
  'pg_catalog.pg_rewrite'::regclass::oid,'pg_catalog.pg_policy'::regclass::oid,
- 'pg_catalog.pg_inherits'::regclass::oid,'pg_catalog.pg_partitioned_table'::regclass::oid`
-	if err := tx.QueryRow(ctx, query).Scan(&classOID, &attrOID, &dependOID, &triggerOID, &rewriteOID, &policyOID, &inheritOID, &partitionOID); err != nil ||
+	 'pg_catalog.pg_inherits'::regclass::oid,'pg_catalog.pg_partitioned_table'::regclass::oid,
+	 (SELECT count(*) FROM required r JOIN pg_catalog.pg_attribute a ON a.attrelid=r.relid AND a.attname=r.attname AND a.attnum>0 AND NOT a.attisdropped)`
+	if err := tx.QueryRow(ctx, query).Scan(&classOID, &attrOID, &dependOID, &triggerOID, &rewriteOID, &policyOID, &inheritOID, &partitionOID, &requiredColumns); err != nil ||
 		classOID == 0 || attrOID == 0 || dependOID == 0 || triggerOID == 0 || rewriteOID == 0 || policyOID == 0 || inheritOID == 0 || partitionOID == 0 {
+		return NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+	}
+	if requiredColumns != 8 {
 		return NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
 	return nil
@@ -958,7 +979,7 @@ func (cache *ClosedASTCache) InvalidateCatalog(fingerprint string) {
 	}
 }
 func validClosedCacheKey(v ClosedCacheKey) bool {
-	return v.DatasourceIdentity != "" && v.DatabaseOID != 0 && v.ServerMajor >= 14 && v.ServerMajor <= 18 && v.RoleOID != 0 && v.SearchPathDigest != "" && v.SQLDigest != "" && v.CapabilityDigest != "" && v.CatalogFingerprint != ""
+	return v.DatasourceIdentity != "" && v.DatabaseOID != 0 && v.ServerMajor > 0 && v.RoleOID != 0 && v.SearchPathDigest != "" && v.SQLDigest != "" && v.CapabilityDigest != "" && v.CatalogFingerprint != ""
 }
 func cloneClosedCandidate(v ClosedCatalogCandidate) ClosedCatalogCandidate {
 	v.Refs = append([]ClosedRelationRef(nil), v.Refs...)
