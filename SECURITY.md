@@ -91,3 +91,8 @@ PolarDB-X 通过 `db_type=mysql` 接入，不新增 `polardbx` 数据源类型�
 ## MFA / OIDC / LDAP 安全边界
 
 v0.5 的人员身份认证不会绕过 AgentSQL RBAC。OIDC/LDAP 组只能映射到指定租户内的显式角色 ID；映射为空、角色不存在、目录结果不唯一、外部服务不可用或验证状态无法读取时一律 fail-closed。TOTP 密钥加密保存，恢复码与 refresh token 只保存摘要；OIDC 使用 Authorization Code + PKCE、一次性 state/nonce、discovery 与 RS256 JWKS 校验；LDAP 只允许证书校验通过的 LDAPS 或 StartTLS，并通过用户 bind 验证密码。完整配置和限制见 [v0.5 身份认证指南](docs/AUTHENTICATION.md)。
+## 在线升级安全边界 / Online Upgrade Security Boundary
+
+`agentsqlctl upgrade check` 只从显式 `--manifest-url` 或 `AGENTSQL_UPGRADE_MANIFEST_URL` 读取 HTTPS JSON 清单（`version`、`url`、`sha256`），并报告更新、同版或旧版。`upgrade apply --backup-dir <新目录> --dry-run` 读取清单和同源 HTTPS 下载内容，限制大小，计算并比对 SHA-256，并检查当前可执行文件、配置文件与备份目录路径；它不创建备份、不停止服务、不替换二进制、不运行迁移。重定向、HTTP、降级安装、无效版本或摘要不一致均拒绝。`--yes` 目前不能启用实际安装；非 dry-run 的 `apply` 一律拒绝。
+
+HTTPS 与 SHA-256 只提供传输校验和清单一致性。若清单及其摘要同时被篡改，校验仍可能成功；此流程没有签名、独立信任锚、发布者认证或防回滚证明。运行人员必须通过可信的独立渠道核对发布来源，在维护窗口另行备份程序、配置、数据库和匹配的密钥，验证恢复方案，并通过独立审核的部署流程安装。控制台的版本页只展示当前运行版本及预检指令，不提供远程安装。

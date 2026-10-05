@@ -103,6 +103,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newRedactionKeyCommand())
 	command.AddCommand(newChainCommand())
 	command.AddCommand(newAuditCommand())
+	command.AddCommand(newUpgradeCommand())
 	return command
 }
 

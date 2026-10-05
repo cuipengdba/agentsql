@@ -12,6 +12,7 @@ import {
   SafetyCertificateOutlined,
   SafetyOutlined,
   SwapOutlined,
+  CloudDownloadOutlined,
 } from "@ant-design/icons";
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 
@@ -29,6 +30,7 @@ const RedactionKeys = lazy(() => import("@/pages/RedactionKeys").then(({ Redacti
 const AuditChain = lazy(() => import("@/pages/AuditChain").then(({ AuditChain }) => ({ default: AuditChain })));
 const B5Operations = lazy(() => import("@/pages/B5Operations").then(({ B5Operations }) => ({ default: B5Operations })));
 const Security = lazy(() => import("@/pages/Security").then(({ Security }) => ({ default: Security })));
+const Upgrade = lazy(() => import("@/pages/Upgrade").then(({ Upgrade }) => ({ default: Upgrade })));
 
 function RouteLoading() {
   return (
@@ -68,6 +70,7 @@ export interface MenuRoute {
 }
 
 export const menuRoutes: MenuRoute[] = [
+  { key: "upgrade", path: "/settings/upgrade", label: "版本与升级", icon: <CloudDownloadOutlined />, element: lazyElement(Upgrade), group: "settings" },
   { key: "overview", path: "/", label: "总览", icon: <DashboardOutlined />, element: lazyElement(Overview) },
   { key: "audit", path: "/audit", label: "审计", icon: <FileSearchOutlined />, element: lazyElement(Audit) },
   {

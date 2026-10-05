@@ -248,6 +248,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/approvals", handler.approvalsList)
 	mux.HandleFunc("POST /api/v1/approvals/{id}/decide", handler.approvalsDecide)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", handler.dashboardSummary)
+	mux.HandleFunc("GET /api/v1/system/release", handler.systemRelease)
 	mux.HandleFunc("GET /api/v1/b5/status", handler.b5Status)
 	mux.HandleFunc("GET /api/v1/b5/sessions", handler.b5SessionsList)
 	mux.HandleFunc("GET /api/v1/b5/sessions/{id}", handler.b5SessionsGet)
@@ -376,6 +377,8 @@ func requiredPermission(method, path string) (string, bool) {
 		strings.HasPrefix(path, "/api/v1/integrations"):
 		return rbac.PermissionStrategyManage, true
 	case strings.HasPrefix(path, "/api/v1/audit"), strings.HasPrefix(path, "/api/v1/dashboard"), path == "/api/v1/stream":
+		return rbac.PermissionAuditView, true
+	case path == "/api/v1/system/release":
 		return rbac.PermissionAuditView, true
 	case strings.HasPrefix(path, "/api/v1/approvals"), strings.HasPrefix(path, "/api/v1/playground"), strings.HasPrefix(path, "/api/v1/b5"):
 		return rbac.PermissionQueryExecute, true
