@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Release](https://img.shields.io/badge/Release-v0.5.0-blue)
+![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -10,6 +10,8 @@
 已收录于 MCP 官方 Registry，可直接在 MCP Registry 搜索 AgentSQL 接入。
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
+
+v0.5.0 计划于 **2026-10-16 16:00（北京时间）** 通过发布闸门后发布；当前公开 Release 仍为 v0.4.0。待发布代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL

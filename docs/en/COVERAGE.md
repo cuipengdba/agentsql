@@ -53,7 +53,7 @@ The remaining gaps are specialized references: full deployment internals, discov
 
 ## Known Source Discrepancies
 
-- The repository is now licensed under Apache-2.0 (see `LICENSE` and `NOTICE`), with a separate commercial license (`COMMERCIAL-LICENSE.md`). Historical release notes for v0.2.0 retain the AGPLv3 wording that applied at that point in time.
+- Pending v0.5.0 source is licensed under Apache-2.0 (see `LICENSE` and `NOTICE`), with a separate commercial license (`COMMERCIAL-LICENSE.md`). Existing v0.4.0 and earlier artifacts retain their original license; historical v0.2.0 release notes retain the AGPLv3 wording that applied at that time.
 - Externally published assets remain v0.4.0 until release day; `server.json` and the repository release-preparation material identify pending v0.5.0. The audit CLI itself still says “planned for v0.5,” which is tracked as wording debt rather than evidence of a published release.
 - The security support matrix is now authoritative and synchronized: v0.5.x is the current supported line, v0.4.x is supported through 2027-04-30, and 0.3.x and earlier are EOL.
 - RBAC user/role/tenant APIs exist, but the current frontend source has no dedicated pages for them. The English administration guide documents them as APIs, not console screens.

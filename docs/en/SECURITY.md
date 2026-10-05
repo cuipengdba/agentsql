@@ -2,6 +2,32 @@
 
 # AgentSQL Security Model
 
+## Database Compatibility and Security Status (as of 2026-10-06)
+
+This table describes evidence for the **pending v0.5.0 code**, not vendor certification or a change to AgentSQL's security-fix support policy. A tested protocol path means only the named image, topology, and synthetic cases were exercised. Every path still requires gateway routing, a dedicated least-privilege database account, and failure closed when parsing, catalog, plan, or authorization facts are uncertain. PostgreSQL B2 column authorization and B5 controlled transactions do not transfer to other products merely because they speak a similar protocol.
+
+| Product and target | AgentSQL path and evidence | Remaining boundary |
+| --- | --- | --- |
+| PostgreSQL 14–18 | Native `postgres` path | B2/B5 retain their own version, catalog, and capability checks |
+| PolarDB for PostgreSQL 15 | Named community image completed a minimal `postgres` path exercise | Commercial service, HA, TLS, and B2/B5 need separate validation |
+| IvorySQL 5.3 | Named community edition completed a minimal PG protocol exercise | No inference for Oracle mode or commercial HighGo |
+| openGauss 7.0.0-RC3 | Named community edition completed a minimal PG protocol exercise | No inference for commercial GaussDB or B2/B5 |
+| HighGo SEE 4.5 | Named third-party image completed a minimal PG protocol exercise | HighGo V9.0 and official commercial environment await vendor validation |
+| OpenTenBase v2.5.0 | Named single-node GTM/CN/DN topology and known plan shapes completed a minimal exercise | Production topology, other plans, and B2/B5 unproven |
+| KingbaseES V9 | Vendor environment pending; an old third-party image could not run because its license expired | V9R1C10 target environment was expected on October 8; validate PG mode before any support claim |
+| MySQL 8.0 | Native `mysql` path | No PostgreSQL B2/B5 proof |
+| SQL Server 2025 (17.x) | Independent `sqlserver` strict read-only subset; see below | No full T-SQL, writes, B2/B5, or vendor certification |
+| TDSQL for PostgreSQL | PG protocol candidate, awaiting commercial target environment | OpenTenBase results do not establish this product's status |
+| TDSQL for MySQL | MySQL protocol candidate, awaiting commercial target environment | Separate from TDSQL for PostgreSQL |
+| TXSQL | OpenTenBase community MySQL direction (TXSQL); separate MySQL route with no product-specific live test | MySQL 8 or OpenTenBase results do not establish this route |
+| Oracle Database 23ai | Independent `oracle` strict SELECT subset | No claim for Enterprise Edition or full Oracle SQL |
+| YashanDB 23.4.1.109 | Independent `yashan` slice; connectivity, catalog, and ordinary Query fail-closed behavior retested | EXPLAIN, writes, and full security pipeline unproven |
+| DM8 | Independent `dm` bounded SELECT subset exercised | Full grammar, writes, and column security pipeline incomplete |
+| TiDB 7.5.1 / OceanBase CE 4.4.2.1 | MySQL compatibility candidates; EXPLAIN adapters and regression fixtures exist | Fixtures do not establish a full target-environment exercise or certification |
+| PolarDB-X | Old official `2.0.1` all-in-one image exercised through `mysql`; see below | Full CN/DN/CDC, commercial service, distributed semantics, and B2/B5 unproven |
+
+Reproducible AgentSQL evidence is in the [compatibility research](../ecosystem-db-compat-research.md), [v0.5 release notes](../release-notes-v0.5.md), and [KingbaseES/HighGo case record](../joint-case-kingbase-highgo.md). Product distinctions follow vendor material for [TDSQL for PostgreSQL](https://cloud.tencent.com/document/product/1129), [TDSQL for MySQL](https://cloud.tencent.com/product/dcdb), and OpenTenBase's [separate TXSQL download](https://docs.opentenbase.org/en/download/).
+
 ## Scope and Trust Boundaries
 
 AgentSQL protects SQL requests that pass through the gateway and use its controlled database runtime account. It authenticates the caller, parses one SQL statement, evaluates authorization and safety rules, executes within configured limits, masks selected result columns, and writes application-level audit evidence.
@@ -112,9 +138,9 @@ PDF and ZIP compliance exports contain sensitive audit material, including SQL, 
 Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, or sensitive data in public Issues, Discussions, pull requests, logs, or social media. Report privately by either:
 
 - email: [87326549@qq.com](mailto:87326549@qq.com);
-- [GitHub private vulnerability reporting](https://github.com/cuipengdba/agentsql/security/advisories/new).
+- [GitHub private vulnerability reporting](https://github.com/cuipengdba/agentsql/security/advisories/new) when the repository Security page offers “Report a vulnerability”; otherwise use the email address above. Do not substitute a public Issue.
 
-The authoritative [security policy](../../SECURITY.md) supports v0.5.x until six months after v0.6.0 is released, but not earlier than 2027-10-31; v0.4.x remains supported through 2027-04-30. Versions 0.3.x and earlier are EOL and no longer receive security fixes.
+The authoritative [security policy](../../SECURITY.md) plans to support v0.5.x after release until six months after v0.6.0 is released, but not earlier than 2027-10-31; the currently released v0.4.x remains supported through 2027-04-30. Versions 0.3.x and earlier are EOL and no longer receive security fixes.
 
 ## PolarDB-X (MySQL Protocol Path) Security Boundary
 

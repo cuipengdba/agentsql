@@ -4,6 +4,8 @@
 
 下表是预期清单，**不是 v0.5.0 已发布或已通过验证的声明**。来源对应 `scripts/release-dryrun.ps1`、`scripts/build-release-linux.sh`、`scripts/package-release.sh` 和 `scripts/releasesign/main.go`。正式 Release 必须使用最终封板提交重新生成，并逐项验收。
 
+2026-09-30 的 v0.4.0 社区发布物料只概述了双架构安装包、SHA-256、SBOM 与数字签名，**没有逐项列出 15 个上传文件**；其 AGPLv3 文案也只适用于当时的 v0.4.0。v0.5.0 的 15 项名称和生成/验收规则应以下表与 `Get-ExpectedAssetNames` 为准。签名覆盖 SBOM、provenance 和汇总清单；归档包由 sidecar 与已签名汇总清单校验，不能把“每个发布物都带数字签名”理解为每个文件都有独立签名。旧发布物料不得直接复制为 v0.5 宣传文案。
+
 | # | v0.5.0 资产 | 产生位置与来源 | 必查项 |
 | ---: | --- | --- | --- |
 | 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64；`build-release-linux.sh` → `package-release.sh` | 外层和包内 SHA-256、ELF/GLIBC、版本、Yashan 客户端两库 |

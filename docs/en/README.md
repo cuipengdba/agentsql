@@ -6,7 +6,7 @@ See the [English documentation coverage inventory](COVERAGE.md) for the complete
 
 # AgentSQL
 
-![Release](https://img.shields.io/badge/Release-v0.5.0-blue)
+![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](../../go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](../../LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](../../COMMERCIAL-LICENSE.md)

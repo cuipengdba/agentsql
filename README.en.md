@@ -2,12 +2,14 @@
 
 [中文](README.md) | English
 
-![Release](https://img.shields.io/badge/Release-v0.5.0-blue)
+![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
 AgentSQL (Chinese brand name: 智盾, or “Zhidun”) is a database security gateway and production-grade MCP server for AI agents. Every PostgreSQL or MySQL request sent through the gateway passes through authentication, SQL parsing, authorization and rule evaluation, controlled execution, result masking, and application-level audit.
+
+v0.5.0 is planned for **2026-10-16 16:00 CST (UTC+08:00)**, subject to the release gates. The current public Release is v0.4.0. The pending v0.5 code uses Apache-2.0; existing v0.4.0 artifacts retain their original license.
 
 ```text
 AI agent -> LLM / MCP client -> AgentSQL gateway -> PostgreSQL / MySQL
@@ -142,4 +144,4 @@ Result masking is not complete DLP, and application-level audit is not regulator
 
 ## License
 
-The repository's open-source edition is licensed under the [Apache License, Version 2.0](LICENSE) (see also [NOTICE](NOTICE)), with a separate [commercial license](COMMERCIAL-LICENSE.md). Apache-2.0 permits closed-source integration, SaaS use, and redistribution. It does **not** grant trademark rights; AgentSQL and 智盾 names and logos remain subject to the trademark terms described in the commercial-license notice.
+Starting with v0.5.0, the repository's open-source edition is licensed under the [Apache License, Version 2.0](LICENSE) (see also [NOTICE](NOTICE)), with a separate [commercial license](COMMERCIAL-LICENSE.md). Existing v0.4.0 and earlier source, tags, and release artifacts keep the license under which they were published. Apache-2.0 permits closed-source integration, SaaS use, and redistribution. It does **not** grant trademark rights; AgentSQL and 智盾 names and logos remain subject to the trademark terms described in the commercial-license notice.

@@ -1,6 +1,6 @@
 # AgentSQL v0.5.0 Release Notes / 发布说明
 
-> 发布闸门 / Release gate: **2026-10-12 16:00 CST**
+> 发布闸门 / Release gate: **2026-10-16 16:00 CST (UTC+08:00)**
 >
 > 状态 / Status: **待发布 / Pending release**
 >

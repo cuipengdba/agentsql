@@ -6,11 +6,37 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 
 | 版本 | 状态 | 安全修复支持截止 |
 | --- | --- | --- |
-| v0.5.x（当前） | 支持 | 至下一主版本（v0.6.0）发布后 6 个月，且不早于 2027-10-31 |
-| v0.4.x（上一版，已发布） | 支持 | 2027-04-30 |
+| v0.5.x（待发布） | 发布后支持 | 至下一主版本（v0.6.0）发布后 6 个月，且不早于 2027-10-31 |
+| v0.4.x（当前已发布） | 支持 | 2027-04-30 |
 | 0.3.x 及更早 | EOL | 不再提供安全修复 |
 
 请先在可控环境复现，并尽量使用最新的受支持版本确认问题仍然存在。
+
+## 数据库接入状态与安全边界（截至 2026-10-06）
+
+下表描述 **AgentSQL v0.5.0 待发布代码**的接入证据，不是数据库厂商的认证清单，也不改变上面的 AgentSQL 安全修复版本政策。“协议路径实测”仅表示指定镜像、拓扑和合成用例通过；“待验证”不能写成已支持。任何数据库都必须经 AgentSQL 网关并使用专用最小权限账号，解析、目录、执行计划或授权事实不明时失败关闭。PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
+
+| 产品与目标版本 | AgentSQL 路径和已知证据 | 未覆盖的边界 |
+| --- | --- | --- |
+| PostgreSQL 14–18 | 原生 `postgres` 路径 | B2/B5 仍受自身版本、目录和能力检查约束 |
+| PolarDB for PostgreSQL 15 | 指定社区镜像经 `postgres` 路径完成最小闭环 | 商业服务、HA、TLS 与 B2/B5 终验未覆盖 |
+| IvorySQL 5.3 | 指定社区版 PG 协议路径完成最小闭环 | Oracle 兼容模式和 HighGo 商业版不继承此结论 |
+| openGauss 7.0.0-RC3 | 指定社区版 PG 协议路径完成最小闭环 | GaussDB 商业版和 B2/B5 未终验 |
+| HighGo SEE 4.5 | 指定第三方镜像 PG 协议路径完成最小闭环 | HighGo V9.0 及官方商业环境待厂商终验 |
+| OpenTenBase v2.5.0 | 指定单机 GTM/CN/DN 拓扑和已知计划形态完成最小闭环 | 生产拓扑、其他计划形态及 B2/B5 未证明 |
+| KingbaseES V9 | 待厂商环境；旧第三方镜像因许可证过期未能验证 | V9R1C10 目标环境拟于 10 月 8 日取得，取得前不声明接入通过；须确认 PG 兼容模式 |
+| MySQL 8.0 | 原生 `mysql` 路径 | 无 PostgreSQL B2/B5 证明 |
+| SQL Server 2025（17.x） | 独立 `sqlserver` 严格只读子集；详见下文 | 不提供完整 T-SQL、写入、B2/B5 或厂商认证 |
+| TDSQL for PostgreSQL | PG 协议候选，商业版待目标环境终验 | 不能用 OpenTenBase 结果替代 |
+| TDSQL for MySQL | MySQL 协议候选，商业版待目标环境终验 | 不与 TDSQL for PostgreSQL 混同 |
+| TXSQL | OpenTenBase 社区 MySQL 方向（TXSQL）；独立 MySQL 路线，未实测产品专用路径 | 不能用 MySQL 8 或 OpenTenBase 结果替代 |
+| Oracle Database 23ai | 独立 `oracle` 严格 SELECT 子集 | 不能据此推断企业版或完整 Oracle 方言已通过 |
+| YashanDB 23.4.1.109 | 独立 `yashan` 最小切片；连接、元数据及普通 Query 失败关闭已复验 | EXPLAIN、写入与完整安全闭环未证明 |
+| DM8 | 独立 `dm` 受控 SELECT 子集有界实测 | 完整语法、写入和列级安全链路未完成 |
+| TiDB 7.5.1 / OceanBase CE 4.4.2.1 | MySQL 兼容候选；EXPLAIN 适配与回归 fixture 已落地 | 不把 fixture 当作目标环境完整闭环或厂商认证 |
+| PolarDB-X | 旧官方 `2.0.1` 单容器经 `mysql` 路径有界实测；详见下文 | 完整 CN/DN/CDC、商业服务、分布式语义及 B2/B5 未证明 |
+
+接入状态的可复现证据见[兼容性调研](docs/ecosystem-db-compat-research.md)、[v0.5 发布说明](docs/release-notes-v0.5.md)和[金仓/瀚高联合案例](docs/joint-case-kingbase-highgo.md)。产品线区分参见腾讯官方的 [TDSQL PostgreSQL 版](https://cloud.tencent.com/document/product/1129)、[TDSQL MySQL 版](https://cloud.tencent.com/product/dcdb)以及 OpenTenBase 的[独立 TXSQL 下载入口](https://docs.opentenbase.org/en/download/)；协议相容不等于安全语义相同。
 
 ## 私密报告漏洞
 
@@ -19,7 +45,7 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 请使用以下任一私密渠道：
 
 - 发送邮件至 [87326549@qq.com](mailto:87326549@qq.com)；
-- 使用仓库的 [GitHub Security Advisories 私密报告](https://github.com/cuipengdba/agentsql/security/advisories/new)。
+- 若仓库 Security 页面显示“Report a vulnerability”，使用 [GitHub 私密漏洞报告入口](https://github.com/cuipengdba/agentsql/security/advisories/new)；若入口不可用，请使用上述邮件。不要用公开 Issue 代替。
 
 报告中请尽量包含：
 
