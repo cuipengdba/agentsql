@@ -77,6 +77,25 @@ function Get-ExpectedAssetNames {
     )
 }
 
+function Show-AssetInventory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$ReleaseVersion
+    )
+    Write-Host 'RELEASE_DRYRUN_ASSETS_BEGIN'
+    foreach ($name in @(Get-ExpectedAssetNames $ReleaseVersion)) {
+        $path = Join-Path $Directory $name
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $item = Get-Item -LiteralPath $path
+            Write-Host "$name | $($item.Length) bytes | $(Get-Sha256 $path) | PRESENT"
+        }
+        else {
+            Write-Host "$name | - | - | MISSING"
+        }
+    }
+    Write-Host 'RELEASE_DRYRUN_ASSETS_END'
+}
+
 function Assert-NameSet {
     param(
         [Parameter(Mandatory = $true)][string[]]$Actual,
@@ -159,8 +178,16 @@ function Test-ReleaseAssets {
         throw "Asset directory does not exist: $Directory"
     }
     $expected = @(Get-ExpectedAssetNames $ReleaseVersion)
-    $actualFiles = @(Get-ChildItem -LiteralPath $Directory -File)
-    Assert-NameSet -Actual @($actualFiles.Name) -Expected $expected -Label 'Release asset'
+    $actualEntries = @(Get-ChildItem -LiteralPath $Directory -Force)
+    if (@($actualEntries | Where-Object { $_.PSIsContainer }).Count -gt 0) {
+        throw 'Release asset directory contains a subdirectory; expected exactly 15 files.'
+    }
+    Assert-NameSet -Actual @($actualEntries.Name) -Expected $expected -Label 'Release asset'
+    foreach ($entry in $actualEntries) {
+        if ($entry.Length -eq 0) {
+            throw "Release asset is empty: $($entry.Name)"
+        }
+    }
 
     foreach ($architecture in @('amd64', 'arm64')) {
         $tarName = "agentsql-$ReleaseVersion-linux-$architecture.tar.gz"
@@ -227,7 +254,6 @@ function Test-ReleaseAssets {
             SHA256 = Get-Sha256 $file.FullName
         }
     }
-    $report | Format-Table -AutoSize | Out-Host
     Write-Host "RELEASE_DRYRUN_ASSET_COUNT=$($report.Count)"
     Write-Host 'RELEASE_DRYRUN_SHA256SUMS=PASS'
     Write-Host "RELEASE_DRYRUN_SIGNATURE_MODE=$(if ($isDryRunSet) { 'UNSIGNED_PLACEHOLDERS' } else { 'SIGNED_STRUCTURE_ONLY' })"
@@ -249,7 +275,17 @@ if ($ValidateOnly) {
     if ($LASTEXITCODE -ne 0 -or $validationCommit -notmatch '^[0-9a-f]{40}$') {
         throw 'Could not read the expected git commit for validation.'
     }
-    Test-ReleaseAssets -Directory $AssetsDirectory -ReleaseVersion $Version -ExpectedCommit $validationCommit | Out-Null
+    try {
+        Show-AssetInventory -Directory $AssetsDirectory -ReleaseVersion $Version
+        Test-ReleaseAssets -Directory $AssetsDirectory -ReleaseVersion $Version -ExpectedCommit $validationCommit | Out-Null
+    }
+    catch {
+        Write-Host 'RELEASE_DRYRUN_RESULT=FAIL'
+        throw
+    }
+    Write-Host 'RELEASE_DRYRUN_IMAGES=NOT_CHECKED_VALIDATE_ONLY'
+    Write-Host 'RELEASE_DRYRUN_GHCR_PUBLICATION=NOT_PERFORMED'
+    Write-Host 'RELEASE_DRYRUN_GIT_TAG=NOT_CREATED'
     Write-Host 'RELEASE_DRYRUN_VALIDATE_ONLY=PASS'
     exit 0
 }
@@ -522,9 +558,9 @@ if (-not $ProductionPrepare) {
     Write-UnsignedPlaceholder -ArtifactName 'provenance.json' -SignatureName 'provenance.json.sig.json'
 }
 
-$verificationInstructions = if ($ProductionPrepare) {
-@"
-# Release signature verification ($Version)
+if ($ProductionPrepare) {
+$verificationInstructions = @'
+# Release signature verification ({VERSION})
 
 These are detached Ed25519 signatures over the raw bytes of each named file.
 Verify the SPDX SBOM, `provenance.json`, and `SHA256SUMS` with the checked-in
@@ -532,20 +568,21 @@ Verify the SPDX SBOM, `provenance.json`, and `SHA256SUMS` with the checked-in
 before uploading any asset. Also run `scripts/release-dryrun.ps1 -ValidateOnly`
 against the completed 15-file directory from the sealed release commit.
 
-From a repository checkout at tag $Version, set `$AssetDirectory to the
+From a repository checkout at tag {VERSION}, set `$AssetDirectory to the
 download directory and run:
 
 ```powershell
-go run ./scripts/releasesign/main.go -mode verify -public "`$AssetDirectory/ed25519-release-public-key.json" -input "`$AssetDirectory/$sbomName" -signature "`$AssetDirectory/$sbomName.sig.json"
-go run ./scripts/releasesign/main.go -mode verify -public "`$AssetDirectory/ed25519-release-public-key.json" -input "`$AssetDirectory/provenance.json" -signature "`$AssetDirectory/provenance.json.sig.json"
-go run ./scripts/releasesign/main.go -mode verify -public "`$AssetDirectory/ed25519-release-public-key.json" -input "`$AssetDirectory/SHA256SUMS" -signature "`$AssetDirectory/SHA256SUMS.sig.json"
-pwsh ./scripts/release-dryrun.ps1 -Version $Version -ValidateOnly -AssetsDirectory `$AssetDirectory
+go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/{SBOM}" -signature "$AssetDirectory/{SBOM}.sig.json"
+go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/provenance.json" -signature "$AssetDirectory/provenance.json.sig.json"
+go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/SHA256SUMS" -signature "$AssetDirectory/SHA256SUMS.sig.json"
+pwsh ./scripts/release-dryrun.ps1 -Version {VERSION} -ValidateOnly -AssetsDirectory $AssetDirectory
 ```
-"@
+'@
+    $verificationInstructions = $verificationInstructions.Replace('{VERSION}', $Version).Replace('{SBOM}', $sbomName)
 }
 else {
-@"
-# Release signature verification ($Version dry-run)
+    $verificationInstructions = @'
+# Release signature verification ({VERSION} dry-run)
 
 This directory was produced by `scripts/release-dryrun.ps1`. It intentionally
 contains unsigned placeholders and is **NOT FOR RELEASE**. The dry-run never
@@ -556,7 +593,8 @@ and all three `*.sig.json` placeholders using the production Ed25519 process,
 then verify the raw bytes of the SPDX SBOM, `provenance.json`, and `SHA256SUMS`
 with `go run ./scripts/releasesign/main.go -mode verify`. Only verified files
 may be uploaded to a GitHub Release.
-"@
+'@
+    $verificationInstructions = $verificationInstructions.Replace('{VERSION}', $Version)
 }
 Write-Utf8File -Path (Join-Path $assetsPath 'VERIFYING-SIGNATURES.md') -Content $verificationInstructions
 
@@ -573,6 +611,7 @@ else {
     Write-Utf8File -Path (Join-Path $assetsPath 'SHA256SUMS') -Content (($manifestLines -join "`n") + "`n")
     Write-UnsignedPlaceholder -ArtifactName 'SHA256SUMS' -SignatureName 'SHA256SUMS.sig.json'
 
+    Show-AssetInventory -Directory $assetsPath -ReleaseVersion $Version
     Test-ReleaseAssets -Directory $assetsPath -ReleaseVersion $Version -ExpectedCommit $commit | Out-Null
 }
 
@@ -585,7 +624,20 @@ else {
     New-Item -ItemType Directory -Path $imageEvidence -Force | Out-Null
     $mainArchive = Join-Path $imageEvidence "ghcr-agentsql-$Version-oci.tar"
     $digestOutput = Join-Path $imageEvidence "ghcr-agentsql-$Version-image-digests.json"
-    & (Join-Path $PSScriptRoot 'build-ghcr-multiarch.ps1') -Version $Version -Output $mainArchive -DigestOutput $digestOutput -IncludeAuxiliaryTags
+    $localBuilder = 'agentsql-release-dryrun'
+    $builderExists = $true
+    try {
+        & docker buildx inspect $localBuilder *> $null
+        if ($LASTEXITCODE -ne 0) { $builderExists = $false }
+    }
+    catch {
+        $builderExists = $false
+    }
+    if (-not $builderExists) {
+        & docker buildx create --name $localBuilder --driver docker-container --use
+        if ($LASTEXITCODE -ne 0) { throw "Could not create local Buildx builder '$localBuilder'." }
+    }
+    & (Join-Path $PSScriptRoot 'build-ghcr-multiarch.ps1') -Version $Version -Builder $localBuilder -Output $mainArchive -DigestOutput $digestOutput -IncludeAuxiliaryTags
     if ($LASTEXITCODE -ne 0) {
         throw 'Local multi-architecture image dry-run failed.'
     }
@@ -598,5 +650,7 @@ if ($ProductionPrepare) {
 }
 else {
     Write-Host "RELEASE_DRYRUN_OUTPUT=$OutputDirectory"
+    Write-Host 'RELEASE_DRYRUN_GHCR_PUBLICATION=NOT_PERFORMED'
+    Write-Host 'RELEASE_DRYRUN_GIT_TAG=NOT_CREATED'
     Write-Host 'RELEASE_DRYRUN_RESULT=PASS_UNSIGNED_NOT_FOR_RELEASE'
 }
