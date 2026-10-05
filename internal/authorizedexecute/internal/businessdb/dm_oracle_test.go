@@ -34,6 +34,22 @@ func TestBuildDMDSNHandlesDriverCredentialRules(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDMOracleExecutorRejectsUnimplementedTLSBeforeConnecting(t *testing.T) {
+	for _, dialect := range []string{"dm", "oracle"} {
+		datasource := model.Datasource{
+			ID: dialect, DBType: dialect, Host: "127.0.0.1", Port: 1521,
+			Database: "APP", Username: "agent", TLSMode: "strict",
+		}
+		var err error
+		if dialect == "dm" {
+			_, err = NewDMExecutor(context.Background(), datasource, "password", true)
+		} else {
+			_, err = NewOracleExecutor(context.Background(), datasource, "password", true)
+		}
+		require.ErrorContains(t, err, "TLS options are not supported")
+	}
+}
+
 func TestOracleStyleSchemaQueriesUseBinds(t *testing.T) {
 	tables := []SchemaTable{
 		{Table: "CUSTOMERS"},

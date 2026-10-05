@@ -71,6 +71,10 @@ func newLimitedSQLExecutorWithDialect(
 	if ctx == nil {
 		return nil, fmt.Errorf("open %s datasource: context is nil", dialect)
 	}
+	if (dialect == "dm" || dialect == "oracle") &&
+		(datasource.TLSMode != "" || datasource.TLSServerName != "" || datasource.TLSCAFile != "" || datasource.TrustServerCertificate) {
+		return nil, fmt.Errorf("open %s datasource: TLS options are not supported by the current driver", dialect)
+	}
 	if err := validateDatasource(datasource); err != nil {
 		return nil, fmt.Errorf("open %s datasource: %w", dialect, err)
 	}

@@ -28,3 +28,19 @@ func TestDatasourceFromInputSQLServerRejectsTLSDisableAndStrictTrust(t *testing.
 	_, err = datasourceFromInput(base)
 	require.ErrorContains(t, err, "cannot trust")
 }
+
+func TestDatasourceFromInputDMOracleRejectsIgnoredTLSOptions(t *testing.T) {
+	for _, dialect := range []string{"dm", "oracle"} {
+		for _, setTLS := range []func(*datasourceInput){
+			func(input *datasourceInput) { input.TLSMode = "strict" },
+			func(input *datasourceInput) { input.TLSServerName = "db.example.test" },
+			func(input *datasourceInput) { input.TLSCAFile = "ca.pem" },
+			func(input *datasourceInput) { input.TrustServerCertificate = true },
+		} {
+			input := datasourceInput{ID: dialect, Name: dialect, DBType: dialect, Host: "db.example.test", Port: 1521, Database: "APP", Username: "agent"}
+			setTLS(&input)
+			_, err := datasourceFromInput(input)
+			require.ErrorContains(t, err, "TLS options are not supported")
+		}
+	}
+}

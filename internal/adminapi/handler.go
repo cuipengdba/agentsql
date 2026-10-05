@@ -1003,6 +1003,10 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			return model.Datasource{}, fmt.Errorf("strict TLS cannot trust an unverified server certificate")
 		}
 	} else {
+		if (input.DBType == string(model.DialectDM) || input.DBType == string(model.DialectOracle)) &&
+			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
+			return model.Datasource{}, fmt.Errorf("DM/Oracle TLS options are not supported by the current drivers")
+		}
 		input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
 		input.TrustServerCertificate = false
 	}

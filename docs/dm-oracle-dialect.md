@@ -2,6 +2,24 @@
 
 > 状态：v0.5 批十、批十三、批二十、批二十一、批二十八与批三十二的累计说明；不是完整兼容或生产认证声明。最近 DM8 真库回归日期：2026-10-03。
 
+## v0.5 当前接入结论
+
+| 路径 | DM8 | Oracle |
+| --- | --- | --- |
+| 控制面数据源登记与 Ping | `db_type=dm`，原生驱动；以指定 schema 建连 | `db_type=oracle`，`go-ora/v2`；`database` 填 service/PDB 名 |
+| 底层只读查询 | `limitedSQLExecutor` 的单条窄 SELECT；`TOP`、`LIMIT` 与 `FETCH` 有界支持 | 同一路径的窄 SELECT；仅 `FETCH`/`ROWNUM`，拒绝 `TOP`/`LIMIT` |
+| 元数据与采样 | 固定 `SYS.ALL_TAB_COLUMNS` 查询、绑定参数；typed sample 用 `LIMIT n` | 固定 `ALL_TAB_COLUMNS` 查询、绑定参数；typed sample 用 `FETCH FIRST n ROWS ONLY` |
+| 解析与血缘 | `parser.NewParser("dm")` 的受控 SELECT 子集 | `parser.NewParser("oracle")` 的受控 SELECT 子集 |
+| 完整网关授权、列级权限与脱敏 | 尚未接通：规则引擎只接受 PG/MySQL/SQL Server AST，`controlledread` 的 metadata 与采样 builder 也没有 DM 分支 | 同左 |
+| INSERT / UPDATE / DELETE / DDL、写事务 | 底层 `Execute` 和 `BeginWriteTx` 拒绝 | 同左 |
+| TLS / 通信加密 | 当前驱动适配没有实现可验证的配置；显式 TLS 选项会被拒绝 | 同左 |
+
+因此，数据源登记、Ping、底层只读能力和独立 parser 不能等同于可用的 Gateway CRUD。DM/Oracle 上的创建、查询、更新、删除业务闭环都不得按 PostgreSQL 路径宣传或部署。生产使用所需的只读授权闭环、列元数据绑定、加密通信、取消与连接复用仍需分别验证；不存在自动回退到 PG/MySQL 方言的行为。
+
+当前记录的 Oracle 真库版本是 **Oracle AI Database 26ai Free 23.26.3.0.0**（`FREEPDB1`）。这份记录不证明单独命名的 Oracle Database 23ai Free 镜像或商业版兼容。DM8 的 `-2501` 是已实测的认证失败分类；测试账号及口令仅属历史 fixture，不是部署凭据。`go.mod` 当前声明 Go 1.26.0；下文关于 Go 1.25 驱动选择的文字是当时的决策记录。
+
+离线回归可运行 `go test -short ./internal/parser ./internal/authorizedexecute/internal/businessdb ./internal/adminapi`；DM/Oracle 真库 E2E 需要各自显式启用的测试环境，短测试通过不能替代真库验收。v0.5 的 PostgreSQL parser P99 发布门槛仍单独保持未通过状态，DM/Oracle 的这组测试不改变该门槛。
+
 ## 批三十二：受控 SELECT parser 与投影血缘
 
 `parser.NewParser("dm")` 和 `parser.NewParser("oracle")` 现已注册独立的 Oracle-compatible 只读分析器。它是 v0.5 冻结 profile：DM 语法基线只采用批二十八在 `COMPATIBLE_MODE=0`、Pack3 实例得到的证据，Oracle 基线采用本文记录的 Oracle Free 23.26.3 路径；parser 不根据未知服务端版本自动扩语法。该注册只增加只读 AST/血缘分析能力，没有修改 `limitedSQLExecutor` 的查询放行或拒绝逻辑，也没有把 DM/Oracle 别名到 PostgreSQL/MySQL parser。
