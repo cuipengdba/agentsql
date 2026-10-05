@@ -189,10 +189,14 @@ func TestStreamableHTTPSessionIdleTimeout(t *testing.T) {
 	initialized := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, initializeRequest, "")
 	sessionID := initialized.Header().Get(mcpSessionIDHeader)
 	require.NotEmpty(t, sessionID)
-	require.Eventually(t, func() bool {
-		response := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
-		return response.Code == http.StatusNotFound
-	}, time.Second, 25*time.Millisecond)
+	// A request for a live session resets the SDK idle timer. Polling the
+	// endpoint therefore keeps the very session under test alive. Leave it
+	// genuinely idle for a generous multiple of the configured timeout, then
+	// make exactly one request to observe removal.
+	time.Sleep(500 * time.Millisecond)
+	response := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
+	require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+	require.Equal(t, MCPSessionExpiredValue, response.Header().Get(MCPSessionExpiredHeader))
 }
 
 func serveMCPWithSession(

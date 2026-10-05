@@ -105,6 +105,8 @@ Audit records are application-level evidence for engineering review and behavior
 
 CSV exports neutralize common spreadsheet formula prefixes, but JSONL is the authoritative choice when exact long text matters. Notification delivery is best-effort and does not replace the audit store; notification failure does not change the SQL decision.
 
+PDF and ZIP compliance exports contain sensitive audit material, including SQL, errors, and details, and must be protected in transit and at rest. An archive `manifest.json` records each payload's size and SHA-256; `agentsqlctl audit verify-archive` rejects unsafe names, missing/extra/duplicate members, size changes, and digest mismatches. This proves package consistency only. The manifest is not signed and has no external time or head anchor, so an attacker who can rewrite both payloads and manifest can create a different self-consistent archive. Verification does not authenticate the producer, ownership, generation time, freshness, or WORM retention.
+
 ## Vulnerability Reporting
 
 Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, or sensitive data in public Issues, Discussions, pull requests, logs, or social media. Report privately by either:

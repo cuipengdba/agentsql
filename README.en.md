@@ -110,6 +110,15 @@ Create an Agent in the console, grant it the minimum required data-source policy
 
 Streamable HTTP is stateful by default. The client must retain the `Mcp-Session-Id` returned by `initialize` and send it on later requests. See the [MCP integration guide](docs/en/INTEGRATIONS.md) for the complete handshake, stdio setup, client examples, and error behavior.
 
+Audit reporting supports CSV, JSONL, a pure-Go PDF, and a ZIP containing all report representations plus a per-file SHA-256 `manifest.json`:
+
+```bash
+agentsqlctl audit report -c config.yaml --format archive --out audit-compliance.zip
+agentsqlctl audit verify-archive --in audit-compliance.zip
+```
+
+Archive verification proves package consistency only; it is not a digital signature, trusted timestamp, freshness proof, WORM store, or SIEM retention control.
+
 ## Documentation
 
 - [English documentation index](docs/en/README.md)

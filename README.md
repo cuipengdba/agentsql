@@ -163,6 +163,15 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 
 `agentsqlctl check-config -c config.yaml` 只校验配置，不要求凭据；`agentsqlctl migrate -c config.yaml` 会校验 SECRET 后执行元数据库迁移。
 
+v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类载荷和逐文件 SHA-256 `manifest.json` 的 ZIP：
+
+```powershell
+./bin/agentsqlctl audit report -c config.yaml --format archive --out audit-compliance.zip
+./bin/agentsqlctl audit verify-archive --in audit-compliance.zip
+```
+
+归档校验只证明包内一致性，不替代数字签名、外部时间戳、WORM 或 SIEM 保留。
+
 ## MCP 接入
 
 先在控制台创建 Agent、配置数据源和授权策略，并保存只显示一次的 `asql_...` API Key。

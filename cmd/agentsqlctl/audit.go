@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/cuipengdba/agentsql/internal/compliance"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -122,6 +123,7 @@ func newAuditCommand() *cobra.Command {
 	}
 	command.AddCommand(newAuditQueryCommand())
 	command.AddCommand(newAuditReportCommand())
+	command.AddCommand(newAuditVerifyArchiveCommand())
 	return command
 }
 
@@ -184,11 +186,11 @@ func newAuditReportCommand() *cobra.Command {
 	var limit int
 	command := &cobra.Command{
 		Use:   "report",
-		Short: "Export a compliance report and summary (planned for v0.5)",
+		Short: "Export a compliance report and summary",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if format != "csv" && format != "jsonl" {
-				return errors.New("audit report --format must be csv or jsonl")
+			if format != "csv" && format != "jsonl" && format != "pdf" && format != "archive" {
+				return errors.New("audit report --format must be csv, jsonl, pdf, or archive")
 			}
 			if strings.TrimSpace(outputPath) == "" {
 				return errors.New("audit report --out is required")
@@ -215,16 +217,57 @@ func newAuditReportCommand() *cobra.Command {
 			if closeErr != nil {
 				return safeStoreError("close audit report database", opened.target, closeErr)
 			}
-			report, err := renderAuditReport(format, logs)
-			if err != nil {
-				return err
-			}
+			generatedAt := time.Now().UTC()
 			summary := buildAuditReportSummary(format, logs)
+			summary.GeneratedAt = generatedAt
 			summaryBytes, err := json.MarshalIndent(summary, "", "  ")
 			if err != nil {
 				return fmt.Errorf("encode audit report summary: %w", err)
 			}
 			summaryBytes = append(summaryBytes, '\n')
+			if format == "archive" {
+				csvReport, renderErr := renderAuditReport("csv", logs)
+				if renderErr != nil {
+					return renderErr
+				}
+				jsonlReport, renderErr := renderAuditReport("jsonl", logs)
+				if renderErr != nil {
+					return renderErr
+				}
+				pdfReport, renderErr := compliance.RenderAuditPDF(logs, compliance.PDFOptions{GeneratedAt: generatedAt, Filters: flags.pdfFilters()})
+				if renderErr != nil {
+					return fmt.Errorf("render audit PDF report: %w", renderErr)
+				}
+				archive, _, archiveErr := compliance.BuildArchive(generatedAt, []compliance.ArchiveFile{
+					{Name: "audit.csv", MediaType: "text/csv; charset=utf-8", Data: csvReport},
+					{Name: "audit.jsonl", MediaType: "application/x-ndjson", Data: jsonlReport},
+					{Name: "report.pdf", MediaType: "application/pdf", Data: pdfReport},
+					{Name: "summary.json", MediaType: "application/json", Data: summaryBytes},
+				})
+				if archiveErr != nil {
+					return fmt.Errorf("build audit compliance archive: %w", archiveErr)
+				}
+				reportPath := filepath.Clean(outputPath)
+				if err := writeNewAuditFile(reportPath, archive); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(command.OutOrStdout(), "report written: path=%s format=archive events=%d summary=summary.json manifest=manifest.json\n", reportPath, len(logs)); err != nil {
+					return fmt.Errorf("write audit report result: %w", err)
+				}
+				return nil
+			}
+			var report []byte
+			if format == "pdf" {
+				report, err = compliance.RenderAuditPDF(logs, compliance.PDFOptions{GeneratedAt: generatedAt, Filters: flags.pdfFilters()})
+				if err != nil {
+					return fmt.Errorf("render audit PDF report: %w", err)
+				}
+			} else {
+				report, err = renderAuditReport(format, logs)
+				if err != nil {
+					return err
+				}
+			}
 			reportPath, summaryPath, err := writeAuditReportFiles(outputPath, report, summaryBytes)
 			if err != nil {
 				return err
@@ -236,10 +279,60 @@ func newAuditReportCommand() *cobra.Command {
 		},
 	}
 	flags.bind(command)
-	command.Flags().StringVar(&format, "format", "csv", "report format: csv or jsonl")
+	command.Flags().StringVar(&format, "format", "csv", "report format: csv, jsonl, pdf, or archive")
 	command.Flags().StringVar(&outputPath, "out", "", "report output file (must not already exist)")
 	command.Flags().IntVar(&limit, "limit", auditReportDefaultLimit, "safety ceiling for matching records (1-100000)")
 	return command
+}
+
+func newAuditVerifyArchiveCommand() *cobra.Command {
+	var inputPath string
+	command := &cobra.Command{
+		Use:   "verify-archive",
+		Short: "Verify an audit archive manifest, membership, sizes, and SHA-256 digests",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if strings.TrimSpace(inputPath) == "" {
+				return errors.New("audit verify-archive --in is required")
+			}
+			info, err := os.Stat(inputPath)
+			if err != nil {
+				return fmt.Errorf("inspect audit archive %q: %w", inputPath, err)
+			}
+			if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > compliance.MaximumArchiveBytes {
+				return fmt.Errorf("audit archive %q has an invalid size or file type", inputPath)
+			}
+			contents, err := os.ReadFile(inputPath)
+			if err != nil {
+				return fmt.Errorf("read audit archive %q: %w", inputPath, err)
+			}
+			manifest, err := compliance.VerifyArchive(contents)
+			if err != nil {
+				return fmt.Errorf("verify audit archive %q: %w", inputPath, err)
+			}
+			_, err = fmt.Fprintf(command.OutOrStdout(), "archive verified: path=%s schema=%s files=%d generated_at=%s authenticity=not-verified\n",
+				filepath.Clean(inputPath), manifest.SchemaVersion, len(manifest.Files), manifest.GeneratedAt.UTC().Format(time.RFC3339))
+			if err != nil {
+				return fmt.Errorf("write audit archive verification result: %w", err)
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVar(&inputPath, "in", "", "audit archive ZIP file")
+	return command
+}
+
+func (flags auditFilterFlags) pdfFilters() map[string]string {
+	values := map[string]string{}
+	for name, value := range map[string]string{
+		"since": flags.since, "until": flags.until, "action": flags.action, "actor": flags.actor,
+		"datasource": flags.database, "rule": flags.rule, "status": flags.status, "error_code": flags.errorCode, "event_uuid": flags.eventUUID,
+	} {
+		if value = strings.TrimSpace(value); value != "" {
+			values[name] = value
+		}
+	}
+	return values
 }
 
 func (flags *auditFilterFlags) bind(command *cobra.Command) {

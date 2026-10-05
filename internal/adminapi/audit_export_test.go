@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/csv"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
+	"github.com/cuipengdba/agentsql/internal/compliance"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
@@ -289,13 +291,46 @@ func TestAdminAuditExportCSVEmptyResultHasHeader(t *testing.T) {
 	require.Equal(t, [][]string{auditCSVExpectedHeader}, records)
 }
 
+func TestAdminAuditExportPDFAndArchive(t *testing.T) {
+	fixture := newAdminFixture(t)
+	insertAdminAuditLog(t, fixture, model.AuditLog{
+		AgentID: stringPointerAdmin("pdf-agent"), SQLRaw: stringPointerAdmin("SELECT name FROM customers"), Decision: "allow",
+	})
+	pdf := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=pdf&keyword=do-not-copy-me", fixture.adminToken)
+	require.Equal(t, http.StatusOK, pdf.Code)
+	require.Equal(t, "application/pdf", pdf.Header().Get("Content-Type"))
+	require.Equal(t, "attachment; filename=agentsql-audit.pdf", pdf.Header().Get("Content-Disposition"))
+	require.Equal(t, "nosniff", pdf.Header().Get("X-Content-Type-Options"))
+	require.True(t, bytes.HasPrefix(pdf.Body.Bytes(), []byte("%PDF-1.7")))
+	require.NotContains(t, pdf.Body.String(), "do-not-copy-me")
+
+	archiveResponse := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=archive&agent_id=pdf-agent", fixture.adminToken)
+	require.Equal(t, http.StatusOK, archiveResponse.Code)
+	require.Equal(t, "application/zip", archiveResponse.Header().Get("Content-Type"))
+	require.Equal(t, "attachment; filename=agentsql-audit-archive.zip", archiveResponse.Header().Get("Content-Disposition"))
+	manifest, err := compliance.VerifyArchive(archiveResponse.Body.Bytes())
+	require.NoError(t, err)
+	require.Len(t, manifest.Files, 4)
+
+	reader, err := zip.NewReader(bytes.NewReader(archiveResponse.Body.Bytes()), int64(archiveResponse.Body.Len()))
+	require.NoError(t, err)
+	names := make([]string, 0, len(reader.File))
+	for _, file := range reader.File {
+		names = append(names, file.Name)
+	}
+	require.ElementsMatch(t, []string{"audit.csv", "audit.jsonl", "report.pdf", "summary.json", "manifest.json"}, names)
+
+	trail := latestAdminAuditTrail(t, fixture)
+	require.Equal(t, "archive", exportDetailsFromTrail(t, trail).Format)
+}
+
 func TestAdminAuditExportRejectsUnsupportedFormat(t *testing.T) {
 	fixture := newAdminFixture(t)
-	for _, format := range []string{"pdf", "CSV"} {
+	for _, format := range []string{"xml", "CSV"} {
 		t.Run(format, func(t *testing.T) {
 			response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format="+format, fixture.adminToken)
 			require.Equal(t, http.StatusBadRequest, response.Code)
-			require.Contains(t, response.Body.String(), "format must be csv or jsonl")
+			require.Contains(t, response.Body.String(), "format must be csv, jsonl, pdf, or archive")
 			require.Empty(t, response.Header().Get("Content-Disposition"))
 			require.False(t, bytes.HasPrefix(response.Body.Bytes(), []byte{0xEF, 0xBB, 0xBF}))
 			var envelope map[string]any
@@ -479,7 +514,7 @@ func TestAdminAuditExportTrailRecorderErrorBestEffort(t *testing.T) {
 
 func TestAdminAuditExportTrailNotRecordedOnBadFormat(t *testing.T) {
 	fixture := newAdminFixture(t)
-	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=pdf", fixture.adminToken)
+	response := requestAdminAuditExport(t, fixture, "/api/v1/audit/export?format=xml", fixture.adminToken)
 	require.Equal(t, http.StatusBadRequest, response.Code)
 
 	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 1)

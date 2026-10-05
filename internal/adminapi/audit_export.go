@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
+	"github.com/cuipengdba/agentsql/internal/compliance"
 	"github.com/cuipengdba/agentsql/internal/model"
 )
 
@@ -244,4 +245,74 @@ func renderAuditCSV(logs []model.AuditLog) ([]byte, error) {
 		return nil, err
 	}
 	return buffer.Bytes(), nil
+}
+
+func renderAuditJSONL(logs []model.AuditLog) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	for _, log := range logs {
+		if err := encoder.Encode(auditToView(log)); err != nil {
+			return nil, err
+		}
+	}
+	return buffer.Bytes(), nil
+}
+
+func auditCompliancePDFFilters(filter model.AuditFilter) map[string]string {
+	metadata := buildExportAuditFilters(filter)
+	values := map[string]string{}
+	for name, value := range map[string]string{
+		"time_start": metadata.TimeStart, "time_end": metadata.TimeEnd,
+		"agent_id": metadata.AgentID, "datasource_id": metadata.DatasourceID,
+		"session_id": metadata.SessionID, "mcp_tool": metadata.MCPTool,
+		"decisions": metadata.Decisions, "statement_types": metadata.StmtTypes,
+		"risk_min": metadata.RiskMin, "risk_max": metadata.RiskMax, "object": metadata.Object,
+	} {
+		if value != "" {
+			values[name] = value
+		}
+	}
+	if metadata.HasKeyword {
+		values["keyword_applied"] = "true"
+	}
+	return values
+}
+
+type auditComplianceSummary struct {
+	SchemaVersion string             `json:"schema_version"`
+	GeneratedAt   time.Time          `json:"generated_at"`
+	TotalEvents   int                `json:"total_events"`
+	Filters       exportAuditFilters `json:"filters"`
+	Notice        string             `json:"integrity_notice"`
+}
+
+func renderAuditArchive(logs []model.AuditLog, filter model.AuditFilter, generatedAt time.Time) ([]byte, error) {
+	csvReport, err := renderAuditCSV(logs)
+	if err != nil {
+		return nil, err
+	}
+	jsonlReport, err := renderAuditJSONL(logs)
+	if err != nil {
+		return nil, err
+	}
+	pdfReport, err := compliance.RenderAuditPDF(logs, compliance.PDFOptions{GeneratedAt: generatedAt, Filters: auditCompliancePDFFilters(filter)})
+	if err != nil {
+		return nil, err
+	}
+	summary, err := json.MarshalIndent(auditComplianceSummary{
+		SchemaVersion: "agentsql.audit-summary/v1", GeneratedAt: generatedAt.UTC(), TotalEvents: len(logs),
+		Filters: buildExportAuditFilters(filter),
+		Notice:  "SHA-256 manifest verification proves package consistency only; it does not authenticate the producer or provide external freshness/WORM retention.",
+	}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	summary = append(summary, '\n')
+	archive, _, err := compliance.BuildArchive(generatedAt, []compliance.ArchiveFile{
+		{Name: "audit.csv", MediaType: "text/csv; charset=utf-8", Data: csvReport},
+		{Name: "audit.jsonl", MediaType: "application/x-ndjson", Data: jsonlReport},
+		{Name: "report.pdf", MediaType: "application/pdf", Data: pdfReport},
+		{Name: "summary.json", MediaType: "application/json", Data: summary},
+	})
+	return archive, err
 }

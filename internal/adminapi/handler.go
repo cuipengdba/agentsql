@@ -1,7 +1,6 @@
 package adminapi
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -21,6 +20,7 @@ import (
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
+	"github.com/cuipengdba/agentsql/internal/compliance"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/discovery"
 	"github.com/cuipengdba/agentsql/internal/mask"
@@ -1818,8 +1818,8 @@ func (handler *Handler) auditList(writer http.ResponseWriter, request *http.Requ
 }
 func (handler *Handler) auditExport(writer http.ResponseWriter, request *http.Request) {
 	format := request.URL.Query().Get("format")
-	if format != "" && format != "jsonl" && format != "csv" {
-		handler.fail(writer, http.StatusBadRequest, "format must be csv or jsonl")
+	if format != "" && format != "jsonl" && format != "csv" && format != "pdf" && format != "archive" {
+		handler.fail(writer, http.StatusBadRequest, "format must be csv, jsonl, pdf, or archive")
 		return
 	}
 	filter, err := auditFilterFromRequest(request)
@@ -1837,23 +1837,25 @@ func (handler *Handler) auditExport(writer http.ResponseWriter, request *http.Re
 		return
 	}
 
+	generatedAt := time.Now().UTC()
 	var body []byte
 	contentType := "application/x-ndjson"
 	contentDisposition := "attachment; filename=agentsql-audit.jsonl"
-	if format == "csv" {
+	switch format {
+	case "csv":
 		body, err = renderAuditCSV(logs)
 		contentType = "text/csv; charset=utf-8"
 		contentDisposition = "attachment; filename=agentsql-audit.csv"
-	} else {
-		var buffer bytes.Buffer
-		encoder := json.NewEncoder(&buffer)
-		for _, log := range logs {
-			if encodeErr := encoder.Encode(auditToView(log)); encodeErr != nil {
-				err = encodeErr
-				break
-			}
-		}
-		body = buffer.Bytes()
+	case "pdf":
+		body, err = compliance.RenderAuditPDF(logs, compliance.PDFOptions{GeneratedAt: generatedAt, Filters: auditCompliancePDFFilters(filter)})
+		contentType = "application/pdf"
+		contentDisposition = "attachment; filename=agentsql-audit.pdf"
+	case "archive":
+		body, err = renderAuditArchive(logs, filter, generatedAt)
+		contentType = "application/zip"
+		contentDisposition = "attachment; filename=agentsql-audit-archive.zip"
+	default:
+		body, err = renderAuditJSONL(logs)
 	}
 	if err != nil {
 		handler.internal(writer, err)
@@ -1863,6 +1865,7 @@ func (handler *Handler) auditExport(writer http.ResponseWriter, request *http.Re
 	writer.Header().Set("Content-Type", contentType)
 	writer.Header().Set("Content-Disposition", contentDisposition)
 	writer.Header().Set("Cache-Control", "no-store")
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	written, writeErr := writer.Write(body)
 	if writeErr != nil || written != len(body) {
 		return

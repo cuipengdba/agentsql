@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
@@ -145,7 +146,7 @@ func TestAuditCommandValidation(t *testing.T) {
 		want string
 	}{
 		{name: "query format", args: []string{"audit", "query", "--format", "csv"}, want: "table or json"},
-		{name: "report format", args: []string{"audit", "report", "--out", "x", "--format", "pdf"}, want: "csv or jsonl"},
+		{name: "report format", args: []string{"audit", "report", "--out", "x", "--format", "xml"}, want: "csv, jsonl, pdf, or archive"},
 		{name: "missing out", args: []string{"audit", "report"}, want: "--out is required"},
 		{name: "bad status", args: []string{"audit", "query", "--status", "denied"}, want: "success or error"},
 		{name: "bad time", args: []string{"audit", "query", "--since", "yesterday"}, want: "RFC3339"},
@@ -161,6 +162,71 @@ func TestAuditCommandValidation(t *testing.T) {
 			require.Contains(t, commandError.String(), test.want)
 		})
 	}
+}
+
+func TestAuditReportPDFArchiveAndVerification(t *testing.T) {
+	configPath := prepareAuditCLIStore(t)
+	directory := t.TempDir()
+	pdfPath := filepath.Join(directory, "compliance.pdf")
+	var output, commandError strings.Builder
+	require.Equal(t, 0, run([]string{
+		"audit", "report", "-c", configPath, "--out", pdfPath, "--format", "pdf", "--status", "success",
+	}, &output, &commandError), commandError.String())
+	pdf, err := os.ReadFile(pdfPath)
+	require.NoError(t, err)
+	require.True(t, bytes.HasPrefix(pdf, []byte("%PDF-1.7")))
+	require.FileExists(t, pdfPath+".summary.json")
+
+	archivePath := filepath.Join(directory, "compliance.zip")
+	output.Reset()
+	commandError.Reset()
+	require.Equal(t, 0, run([]string{
+		"audit", "report", "-c", configPath, "--out", archivePath, "--format", "archive",
+	}, &output, &commandError), commandError.String())
+	require.Contains(t, output.String(), "manifest=manifest.json")
+	require.NoFileExists(t, archivePath+".summary.json")
+
+	output.Reset()
+	commandError.Reset()
+	require.Equal(t, 0, run([]string{"audit", "verify-archive", "--in", archivePath}, &output, &commandError), commandError.String())
+	require.Contains(t, output.String(), "files=4")
+	require.Contains(t, output.String(), "authenticity=not-verified")
+
+	corruptPath := filepath.Join(directory, "corrupt.zip")
+	rewriteAuditArchiveEntry(t, archivePath, corruptPath, "audit.csv")
+	commandError.Reset()
+	require.Equal(t, 1, run([]string{"audit", "verify-archive", "--in", corruptPath}, io.Discard, &commandError))
+	require.Contains(t, commandError.String(), "verify audit archive")
+}
+
+func rewriteAuditArchiveEntry(t *testing.T, sourcePath, destinationPath, targetName string) {
+	t.Helper()
+	source, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	reader, err := zip.NewReader(bytes.NewReader(source), int64(len(source)))
+	require.NoError(t, err)
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	found := false
+	for _, file := range reader.File {
+		opened, openErr := file.Open()
+		require.NoError(t, openErr)
+		contents, readErr := io.ReadAll(opened)
+		require.NoError(t, readErr)
+		require.NoError(t, opened.Close())
+		if file.Name == targetName {
+			contents = append(contents, []byte("tampered")...)
+			found = true
+		}
+		entry, createErr := writer.Create(file.Name)
+		require.NoError(t, createErr)
+		written, writeErr := entry.Write(contents)
+		require.NoError(t, writeErr)
+		require.Equal(t, len(contents), written)
+	}
+	require.True(t, found)
+	require.NoError(t, writer.Close())
+	require.NoError(t, os.WriteFile(destinationPath, output.Bytes(), 0o600))
 }
 
 func TestAuditCSVSanitizesFormulaText(t *testing.T) {

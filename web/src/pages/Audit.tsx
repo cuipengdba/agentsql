@@ -1,10 +1,10 @@
-import { ArrowLeftOutlined, DownloadOutlined, FileExcelOutlined, FilePdfOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DownloadOutlined, FileExcelOutlined, FilePdfOutlined, FileZipOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Pagination, Space, Tooltip, Typography, message } from "antd";
 import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { exportAudit, listAudit, type AuditExportFormat } from "@/api/audit";
+import { auditExportFilename, exportAudit, listAudit, type AuditExportFormat } from "@/api/audit";
 import type { AuditView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 
@@ -14,10 +14,6 @@ import { AuditTable } from "./audit/AuditTable";
 
 function safeTotal(value: number): number {
   return Number.isFinite(value) && value >= 0 ? value : 0;
-}
-
-function exportFilename(format: AuditExportFormat): string {
-  return `agentsql-audit.${format}`;
 }
 
 async function exportErrorMessage(error: unknown): Promise<string> {
@@ -205,7 +201,7 @@ export function Audit() {
     try {
       const blob = await exportAudit(appliedFilters, format);
       if (!mountedRef.current) return;
-      downloadBlob(blob, exportFilename(format));
+      downloadBlob(blob, auditExportFilename(format));
       void message.success(`审计 ${format.toUpperCase()} 已开始下载`);
     } catch (error: unknown) {
       if (!mountedRef.current) return;
@@ -248,7 +244,22 @@ export function Audit() {
         >
           导出 CSV
         </Button>
-        <Button icon={<FilePdfOutlined />} onClick={() => void message.info("合规 PDF 报告将在后续版本提供")}>导出 PDF</Button>
+        <Button
+          icon={<FilePdfOutlined />}
+          loading={exporting === "pdf"}
+          disabled={exporting !== null}
+          onClick={() => void handleExport("pdf")}
+        >
+          导出 PDF
+        </Button>
+        <Button
+          icon={<FileZipOutlined />}
+          loading={exporting === "archive"}
+          disabled={exporting !== null}
+          onClick={() => void handleExport("archive")}
+        >
+          导出归档
+        </Button>
       </Space>
     </div>
   );
