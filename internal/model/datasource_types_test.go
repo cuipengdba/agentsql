@@ -45,6 +45,12 @@ func TestDatasourceRegistry(t *testing.T) {
 			t.Errorf("wide-column connection fields should be optional for %s: %+v", name, spec)
 		}
 	}
+	for _, name := range []string{"neo4j", "janusgraph", "nebula"} {
+		spec, _ := TypeSpecFor(name)
+		if spec.Category != CategoryGraph || spec.RequiresDatabase || spec.RequiresUsername || spec.RequiresPassword {
+			t.Errorf("graph connection fields should be optional for %s: %+v", name, spec)
+		}
+	}
 	if SupportedDatasourceType("unknown") || IsNative("unknown") {
 		t.Fatal("unknown type accepted")
 	}

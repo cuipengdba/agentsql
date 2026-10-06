@@ -42,10 +42,12 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"cassandra": {CategoryWideColumn, "Cassandra", 9042, false, false, false},
 	"hbase":     {CategoryWideColumn, "HBase", 16020, false, false, false},
 	"scylla":    {CategoryWideColumn, "ScyllaDB", 9042, false, false, false},
+	// Graph adapters provide connection-level native operations. Database and
+	// credentials are optional at registration; server authentication may require them.
+	"neo4j":      {CategoryGraph, "Neo4j", 7687, false, false, false},
+	"janusgraph": {CategoryGraph, "JanusGraph", 8182, false, false, false},
+	"nebula":     {CategoryGraph, "NebulaGraph", 9669, false, false, false},
 	// Connection logic for the following native types awaits later batches.
-	"neo4j":       {CategoryGraph, "Neo4j", 7687, true, true, true},
-	"janusgraph":  {CategoryGraph, "JanusGraph", 8182, true, true, true},
-	"nebula":      {CategoryGraph, "NebulaGraph", 9669, true, true, true},
 	"influxdb":    {CategoryTimeSeries, "InfluxDB", 8086, true, true, true},
 	"prometheus":  {CategoryTimeSeries, "Prometheus", 9090, true, true, true},
 	"timescaledb": {CategoryTimeSeries, "TimescaleDB", 5432, true, true, true},

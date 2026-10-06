@@ -25,6 +25,12 @@ func openNativeExecutor(datasource model.Datasource, password string, readOnly b
 		return NewCassandraExecutor(datasource, password, readOnly)
 	case "hbase":
 		return NewHBaseExecutor(datasource, password, readOnly)
+	case "neo4j":
+		return NewNeo4jExecutor(datasource, password, readOnly)
+	case "janusgraph":
+		return NewJanusGraphExecutor(datasource, password, readOnly)
+	case "nebula":
+		return NewNebulaExecutor(datasource, password, readOnly)
 	default:
 		category, ok := model.CategoryOf(datasource.DBType)
 		if !ok {
