@@ -825,7 +825,7 @@ func (handler *Handler) datasourcesCreate(writer http.ResponseWriter, request *h
 		handler.fail(writer, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if input.Password == "" {
+	if spec, ok := model.TypeSpecFor(strings.TrimSpace(input.DBType)); !ok || (spec.RequiresPassword && input.Password == "") {
 		handler.fail(writer, http.StatusUnprocessableEntity, "password is required")
 		return
 	}
@@ -980,17 +980,29 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 	input.TLSMode = strings.TrimSpace(input.TLSMode)
 	input.TLSServerName = strings.TrimSpace(input.TLSServerName)
 	input.TLSCAFile = strings.TrimSpace(input.TLSCAFile)
-	if input.ID == "" || input.Name == "" || input.Host == "" || input.Database == "" || input.Username == "" {
+	if input.ID == "" || input.Name == "" || input.Host == "" {
 		return model.Datasource{}, fmt.Errorf("datasource identity and connection fields are required")
 	}
 	if !model.SupportedDatasourceType(input.DBType) {
 		return model.Datasource{}, fmt.Errorf("unsupported datasource type")
 	}
-	if input.DBType == string(model.DialectSQLServer) && input.Port == 0 {
-		input.Port = 1433
+	spec, _ := model.TypeSpecFor(input.DBType)
+	if (spec.RequiresDatabase && input.Database == "") || (spec.RequiresUsername && input.Username == "") {
+		return model.Datasource{}, fmt.Errorf("datasource connection fields are required")
+	}
+	if input.Port == 0 {
+		input.Port = spec.DefaultPort
 	}
 	if input.Port < 1 || input.Port > 65_535 {
 		return model.Datasource{}, fmt.Errorf("datasource port is invalid")
+	}
+	if input.DBType == "redis" || input.DBType == "valkey" {
+		if input.Database != "" {
+			db, err := strconv.Atoi(input.Database)
+			if err != nil || db < 0 || db > 15 {
+				return model.Datasource{}, fmt.Errorf("redis database must be a number from 0 to 15")
+			}
+		}
 	}
 	if input.DBType == string(model.DialectSQLServer) {
 		if input.TLSMode == "" {
@@ -1007,7 +1019,9 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
 			return model.Datasource{}, fmt.Errorf("DM/Oracle TLS options are not supported by the current drivers")
 		}
-		input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
+		if !model.IsNative(input.DBType) {
+			input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
+		}
 		input.TrustServerCertificate = false
 	}
 	return model.Datasource{

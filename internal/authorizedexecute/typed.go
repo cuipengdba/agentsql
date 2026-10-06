@@ -16,12 +16,13 @@ import (
 // Gateway owns business credentials and pools without exporting a raw SQL,
 // connection, session, transaction, driver or database/sql handle.
 type Gateway struct {
-	manager      *businessdb.Manager
-	reservations *ReservationPool
-	readOnly     bool
-	column       ColumnAuthorizationProvider
-	b2Mu         sync.RWMutex
-	b2Handshakes map[string]businessdb.BinderCapabilityHandshake
+	manager       *businessdb.Manager
+	nativeManager *businessdb.NativeManager
+	reservations  *ReservationPool
+	readOnly      bool
+	column        ColumnAuthorizationProvider
+	b2Mu          sync.RWMutex
+	b2Handshakes  map[string]businessdb.BinderCapabilityHandshake
 }
 
 // ColumnAuthorizationProvider is used by fixed internal SELECT producers
@@ -64,7 +65,7 @@ type PostgresB2Capability struct {
 }
 
 func NewGateway(readOnly bool, options ...GatewayOption) *Gateway {
-	gateway := &Gateway{manager: businessdb.NewManager(readOnly), reservations: NewReservationPool(DefaultReservationLimits),
+	gateway := &Gateway{manager: businessdb.NewManager(readOnly), nativeManager: businessdb.NewNativeManager(readOnly), reservations: NewReservationPool(DefaultReservationLimits),
 		readOnly: readOnly, b2Handshakes: make(map[string]businessdb.BinderCapabilityHandshake)}
 	for _, option := range options {
 		if option != nil {
@@ -192,7 +193,28 @@ func (gateway *Gateway) open(datasource model.Datasource, secret []byte) (busine
 	return gateway.manager.GetOrOpen(datasource, secret)
 }
 
+func (gateway *Gateway) openNative(ctx context.Context, datasource model.Datasource, secret []byte) (businessdb.NativeExecutor, error) {
+	if gateway == nil || gateway.nativeManager == nil {
+		return nil, fmt.Errorf("authorized native datasource gateway is unavailable")
+	}
+	return gateway.nativeManager.GetOrOpen(ctx, datasource, secret)
+}
+
 func (gateway *Gateway) Ping(ctx context.Context, datasource model.Datasource, secret []byte) error {
+	category, ok := model.CategoryOf(datasource.DBType)
+	if !ok {
+		return &AuthError{Reason: ReasonDatasourceUnsupported}
+	}
+	if category != model.CategoryRelational {
+		executor, err := gateway.openNative(ctx, datasource, secret)
+		if err != nil {
+			return fixedExecutionError(err)
+		}
+		if err := executor.Ping(ctx); err != nil {
+			return fixedExecutionError(err)
+		}
+		return nil
+	}
 	executor, err := gateway.open(datasource, secret)
 	if err != nil {
 		return err
@@ -344,14 +366,28 @@ func (gateway *Gateway) SnapshotPools() []PoolStat {
 	return gateway.manager.SnapshotPools()
 }
 func (gateway *Gateway) Close(id string) error {
-	if gateway == nil || gateway.manager == nil {
+	if gateway == nil {
 		return nil
 	}
-	return gateway.manager.Close(id)
+	var sqlErr, nativeErr error
+	if gateway.manager != nil {
+		sqlErr = gateway.manager.Close(id)
+	}
+	if gateway.nativeManager != nil {
+		nativeErr = gateway.nativeManager.Close(id)
+	}
+	return errors.Join(sqlErr, nativeErr)
 }
 func (gateway *Gateway) CloseAll() error {
-	if gateway == nil || gateway.manager == nil {
+	if gateway == nil {
 		return nil
 	}
-	return gateway.manager.CloseAll()
+	var sqlErr, nativeErr error
+	if gateway.manager != nil {
+		sqlErr = gateway.manager.CloseAll()
+	}
+	if gateway.nativeManager != nil {
+		nativeErr = gateway.nativeManager.CloseAll()
+	}
+	return errors.Join(sqlErr, nativeErr)
 }

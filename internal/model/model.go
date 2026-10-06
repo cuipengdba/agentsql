@@ -1,27 +1,45 @@
 // Package model defines the frozen contracts shared by AgentSQL components.
 package model
 
-// DBDialect identifies a supported business-database SQL dialect.
+// DBDialect identifies a registered business database type. Only relational
+// values also identify SQL dialects.
 type DBDialect string
 
 const (
-	DialectPostgres  DBDialect = "postgres"
-	DialectMySQL     DBDialect = "mysql"
-	DialectDM        DBDialect = "dm"
-	DialectOracle    DBDialect = "oracle"
-	DialectYashan    DBDialect = "yashan"
-	DialectSQLServer DBDialect = "sqlserver"
+	DialectPostgres    DBDialect = "postgres"
+	DialectMySQL       DBDialect = "mysql"
+	DialectDM          DBDialect = "dm"
+	DialectOracle      DBDialect = "oracle"
+	DialectYashan      DBDialect = "yashan"
+	DialectSQLServer   DBDialect = "sqlserver"
+	DialectRedis       DBDialect = "redis"
+	DialectValkey      DBDialect = "valkey"
+	DialectMemcached   DBDialect = "memcached"
+	DialectMongoDB     DBDialect = "mongodb"
+	DialectCouchbase   DBDialect = "couchbase"
+	DialectCouchDB     DBDialect = "couchdb"
+	DialectCassandra   DBDialect = "cassandra"
+	DialectHBase       DBDialect = "hbase"
+	DialectScylla      DBDialect = "scylla"
+	DialectNeo4j       DBDialect = "neo4j"
+	DialectJanusGraph  DBDialect = "janusgraph"
+	DialectNebula      DBDialect = "nebula"
+	DialectInfluxDB    DBDialect = "influxdb"
+	DialectPrometheus  DBDialect = "prometheus"
+	DialectTimescaleDB DBDialect = "timescaledb"
+	DialectClickHouse  DBDialect = "clickhouse"
+	DialectDoris       DBDialect = "doris"
+	DialectStarRocks   DBDialect = "starrocks"
+	DialectMilvus      DBDialect = "milvus"
+	DialectQdrant      DBDialect = "qdrant"
+	DialectWeaviate    DBDialect = "weaviate"
 )
 
-// SupportedDatasourceType reports whether the runtime has a native connection
-// adapter for value. Parser and write capabilities remain dialect-specific.
+// SupportedDatasourceType reports whether the type is registered. Native
+// adapter availability and SQL capabilities are separate from registration.
 func SupportedDatasourceType(value string) bool {
-	switch DBDialect(value) {
-	case DialectPostgres, DialectMySQL, DialectDM, DialectOracle, DialectYashan, DialectSQLServer:
-		return true
-	default:
-		return false
-	}
+	_, ok := TypeSpecFor(value)
+	return ok
 }
 
 // StmtType identifies a SQL statement as SELECT, INSERT, UPDATE, DELETE, DDL,
