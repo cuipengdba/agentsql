@@ -36,6 +36,8 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 | TiDB 7.5.1 / OceanBase CE 4.4.2.1 | MySQL 兼容候选；EXPLAIN 适配与回归 fixture 已落地 | 不把 fixture 当作目标环境完整闭环或厂商认证 |
 | PolarDB-X | 旧官方 `2.0.1` 单容器经 `mysql` 路径有界实测；详见下文 | 完整 CN/DN/CDC、商业服务、分布式语义及 B2/B5 未证明 |
 
+> **YashanDB 客户端再分发授权：**AgentSQL v0.5.0 Linux tarball、systemd 原生安装包及 GHCR 运行时镜像均携带匹配架构的 YashanDB C 客户端运行库（client 23.4.7.100，配合 yashandb-go v1.4.4）。再分发依据是项目维护者声明已取得厂商授权；本仓库未收到书面授权文件。这不改变 YashanDB 的低阶支持范围：连接和元数据发现已复验，普通 Query、写入、事务及 EXPLAIN 仍 fail-closed。
+
 接入状态的可复现证据见[兼容性调研](docs/ecosystem-db-compat-research.md)、[v0.5 发布说明](docs/release-notes-v0.5.md)和[金仓/瀚高联合案例](docs/joint-case-kingbase-highgo.md)。产品线区分参见腾讯官方的 [TDSQL PostgreSQL 版](https://cloud.tencent.com/document/product/1129)、[TDSQL MySQL 版](https://cloud.tencent.com/product/dcdb)以及 OpenTenBase 的[独立 TXSQL 下载入口](https://docs.opentenbase.org/en/download/)；协议相容不等于安全语义相同。
 
 ## 私密报告漏洞

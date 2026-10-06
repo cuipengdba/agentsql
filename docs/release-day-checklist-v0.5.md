@@ -11,7 +11,7 @@
 - 15 个 GitHub Release 资产的唯一可执行定义位于 `scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames`；本文和 `docs/release-notes-v0.5.md` 与它对齐。
 - `scripts/build-release-linux.sh` 与 `scripts/package-release.sh` 都只接受 `amd64` / `arm64`。前者要求容器原生架构与 `ARCH` 一致，因此 arm64 依赖原生 arm64 runner 或 Docker/QEMU；本机 Docker/QEMU 的禁网探针已分别回报 `x86_64` 和 `aarch64`。
 - `go.mod` 已是 Go 1.26；正式脚本现固定 Go 1.26.8 并设置 `GOTOOLCHAIN=local`。`Makefile` 的开发默认值仍是历史 `1.25.14`，本批按改动范围未修改；发布日不得依赖该默认值，如人工调用 make target 必须显式传 `GO_VERSION=1.26.8`。
-- 现存 `dist/release-dryrun/v0.5.0` 来自旧提交 `02565f5...`，Go metadata 缺 `yashandb-go v1.4.4`。`-ValidateOnly` 真实返回 FAIL，旧资产不可复用。当前规则要求两个 tar 均不含 `lib/yashandb/`。
+- 现存 `dist/release-dryrun/v0.5.0` 来自旧提交 `02565f5...`，Go metadata 缺 `yashandb-go v1.4.4`。`-ValidateOnly` 真实返回 FAIL，旧资产不可复用。当前规则要求两个 tar 均包含 `lib/yashandb/libyascli.so` 与 `lib/yashandb/libyas_infra.so`。
 - 本批按任务红线跳过外网。完整当前 HEAD 构建因 `dnf`、go.dev、阿里云 Go 镜像、GitHub Raw 崖山客户端及 BuildKit 基础镜像元数据均需要外网而阻塞；不得写成 PASS。
 - 本地缓存的 `golang:1.26-bookworm` 实测为 Go 1.26.8 amd64，但没有 arm64 平台镜像；原生发行脚本发布日必须按固定版本下载并校验两架构 Go tarball，不能用本批缓存替代。
 - 旧的三个 OCI 归档确有 amd64/arm64 descriptor，但三者的平台镜像 digest 完全相同；旧 `quickstart` 只是主镜像换 tag，缺 Compose 所需 demo 配置。发布脚本现用同一个 Buildx Bake 图构建 demo base 和叠加两份配置的 quickstart target，并实际解析 OCI descriptor。
@@ -26,9 +26,9 @@
 
 | # | 资产 | 来源 | 发布日校验 | 批三十一状态 |
 | ---: | --- | --- | --- | --- |
-| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64：`build-release-linux.sh` → `package-release.sh` | 外层 sidecar；包内全文件 SHA-256；ELF x86-64；GLIBC ≤ 2.28；二进制版本；不含 Yashan C 客户端 | **阻塞**：当前构建需外网，旧包须按当前规则重验 |
+| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64：`build-release-linux.sh` → `package-release.sh` | 外层 sidecar；包内全文件 SHA-256；ELF x86-64；GLIBC ≤ 2.28；二进制版本；含两份 Yashan C 必需库 | **阻塞**：当前构建需外网，旧包须按当前规则重验 |
 | 2 | `agentsql-v0.5.0-linux-amd64.tar.gz.sha256` | `package-release.sh` | 严格 `64hex␠␠filename`，重算匹配 | **阻塞**：随 #1 重建 |
-| 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | Rocky 8 arm64/QEMU：同上 | 外层/包内 SHA-256；ELF AArch64；GLIBC ≤ 2.28；版本；不含 Yashan C 客户端 | **阻塞**：当前构建需外网，旧包须按当前规则重验 |
+| 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | Rocky 8 arm64/QEMU：同上 | 外层/包内 SHA-256；ELF AArch64；GLIBC ≤ 2.28；版本；含两份 Yashan C 必需库 | **阻塞**：当前构建需外网，旧包须按当前规则重验 |
 | 4 | `agentsql-v0.5.0-linux-arm64.tar.gz.sha256` | `package-release.sh` | 同 #2 | **阻塞**：随 #3 重建 |
 | 5 | `agentsql-v0.5.0.spdx.json` | 固定 digest Syft 对 sealed modules + 四个二进制生成 | SPDX JSON 可解析；namespace 非 dry-run；包/关系数记录 | **阻塞**：等待当前双架构二进制 |
 | 6 | `agentsql-v0.5.0.spdx.json.sig.json` | `scripts/releasesign/main.go -mode sign` | `-mode verify` 对 SBOM 原始字节通过 | **本批禁止签名** |
@@ -52,8 +52,8 @@
 | `docker version`；`docker buildx version` | client/server `29.8.0`；Buildx `v0.37.1` |
 | `docker run --rm --pull never --network none --platform linux/{amd64,arm64} rockylinux:8 ... uname -m` | `x86_64` / `aarch64`，两架构运行能力存在 |
 | `./scripts/release-dryrun.ps1 -ValidateOnly -AssetsDirectory dist/release-dryrun/v0.5.0/assets` | **FAIL**：`go-version-metadata.txt does not include yashandb-go v1.4.4.` |
-| `tar -tzf` 检查旧 amd64/arm64 tar | 两包都没有 `lib/yashandb/` 条目 |
-| 禁网运行旧本地 `agentsql:v0.5.0` 并检查 Yashan 路径 | 版本为 `v0.5.0`，但两库均 `No such file or directory`，不可作当前候选 |
+| `tar -tzf` 检查旧 amd64/arm64 tar | 两包都没有 `lib/yashandb/` 条目，因此不可作当前候选 |
+| 禁网运行旧本地 `agentsql:v0.5.0` 并检查 Yashan 路径 | 版本为 `v0.5.0`，但两库均 `No such file or directory`，不可作当前候选；新镜像须复验 |
 | 解析三个旧 OCI 的 `index.json` 与嵌套 index | 每份都有 `linux/amd64`、`linux/arm64` 和两份 attestation；三个归档的平台 manifest digest 都是 amd64 `774548d1...`、arm64 `97cb882b...`，证明旧辅助 tag 未形成 quickstart 层 |
 | 当前工作树 `docker buildx build --network none --pull=false --target quickstart ...` | **未完成/不合规**：仍出现 `resolve image config` / `load metadata for docker.io/...`；客户端 PID 经命令行核对后终止，临时目录已清理 |
 | 两架构 Rocky 禁网容器执行 `sh -n scripts/{build-release-linux.sh,package-release.sh,install.sh,push-release-image.sh}` | amd64 `SHELL_SYNTAX=PASS`；arm64 `SHELL_SYNTAX=PASS` |
@@ -88,7 +88,7 @@ docker run --rm --platform linux/amd64 -v "${PWD}:/src" -w /src golang:1.26.8-bo
 pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist/release-dryrun/v0.5.0-final
 ```
 
-验收：parser 命令连续 5 轮均为 PASS 且每轮 P99 ≤ 5 ms，任一轮失败立即停止；R005 所在 rules/pipeline short tests PASS；两次 Go build PASS；dry-run 输出 `RELEASE_DRYRUN_ASSET_COUNT=15`、`RELEASE_DRYRUN_SHA256SUMS=PASS`、`RELEASE_DRYRUN_IMAGES=PASS`、`PASS_UNSIGNED_NOT_FOR_RELEASE`。逐项保存完整日志。dry-run 占位签名禁止上传。
+验收：parser 命令连续 5 轮均为 PASS 且每轮 P99 ≤ 5 ms，任一轮失败立即停止；R005 所在 rules/pipeline short tests PASS；两次 Go build PASS；dry-run 输出 `RELEASE_DRYRUN_ASSET_COUNT=15`、`RELEASE_DRYRUN_SHA256SUMS=PASS`、`RELEASE_DRYRUN_YASHAN_REDISTRIBUTION=INCLUDED_DRIVER_v1.4.4_CLIENT_23.4.7.100`、`RELEASE_DRYRUN_IMAGES=PASS`、`PASS_UNSIGNED_NOT_FOR_RELEASE`。两个 tar 均须检查 `lib/yashandb/libyascli.so` 与 `lib/yashandb/libyas_infra.so`；镜像须检查 `/opt/yashandb-client/lib` 及 `LD_LIBRARY_PATH`。逐项保存完整日志。dry-run 占位签名禁止上传。
 
 ### C. 正式公钥、生产候选与 15 资产
 

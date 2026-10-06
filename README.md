@@ -50,7 +50,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 
 > "已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商联系开展兼容性认证与合作：请通过交流群、仓库 Discussion 或邮件 87326549@qq.com 联系我们。
 
-> **崖山驱动随发行物分发：**自 v0.5.0 起，官方 Linux 安装包和 GHCR 运行时镜像内置 `github.com/yashan-technologies/yashandb-go@v1.4.4`，并携带官方 YashanDB C 客户端 23.4.7.100 的匹配架构运行库。再分发依据为用户于 2026-10-03 声明已取得厂商授权；本仓库未收到书面授权文件。设计可用范围仍限于连接与元数据发现，普通 Query、写入、事务和 EXPLAIN 应 fail-closed；但批二十九真实冒烟发现普通 Query 未按测试预期报错，因此在修复并复验前属于发布阻断项，不得据打包成功宣称该边界已通过。版本、来源、手工 tar 包运行方式、实测结果与排错见 [YashanDB 驱动说明](docs/yashan-dialect.md#packaged-driver-and-client-runtime)。
+> **崖山驱动随发行物分发：**自 v0.5.0 起，官方 Linux tarball、systemd 安装包和 GHCR 运行时镜像内置 `github.com/yashan-technologies/yashandb-go@v1.4.4`，并携带官方 YashanDB C 客户端 23.4.7.100 的匹配架构运行库。再分发依据为项目维护者于 2026-10-03 声明已取得厂商授权；本仓库未收到书面授权文件。批三十已在真实 YashanDB 上复验连接、Ping、元数据发现和普通 Query 的失败关闭；写入、事务、EXPLAIN 仍失败关闭，打包成功不扩大此范围。版本、来源、手工 tar 包运行方式、实测结果与排错见 [YashanDB 驱动说明](docs/yashan-dialect.md#packaged-driver-and-client-runtime)。
 
 首批金仓 + 瀚高的证据边界、复现 SQL 与待厂商项见[联合案例验证记录](docs/joint-case-kingbase-highgo.md)；公众号与技术群文案见[社区运营口径](docs/joint-case-operations.md)。
 

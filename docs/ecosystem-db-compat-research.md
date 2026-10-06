@@ -250,7 +250,7 @@ Go 接入的官方结论如下：
 | CGO / 运行时 | **需要 CGO 和 YashanDB C 客户端**；Linux 需配置客户端动态库搜索路径，Windows 还需 64 位 GCC |
 | 本容器实测边界 | 本批使用镜像内 `yasql`/C 客户端完成登录和版本查询，未把 Go 驱动引入 AgentSQL，也未验证 Go 驱动在本镜像上的 Ping、取消、事务或并发行为 |
 
-公开资料同时存在旧版手册导入路径 `git.yasdb.com/go/yasdb-go` 与当前公开 GitHub 路径；新接入应以当前官方 GitHub 发布和厂商支持矩阵为准，旧路径是否继续受支持标记为**待核实**。Go 仓库为 Apache-2.0，但配套 C 客户端的获取、再分发、静态/动态链接、基础镜像和 CI 使用许可仍需厂商书面确认。依据：[官方 Go 驱动仓库](https://github.com/yashan-technologies/yashandb-go)、[23.4 Go 驱动使用介绍](https://doc.yashandb.com/yashandb/23.4/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Usage-Introduction.html)、[Go 驱动 Linux 安装](https://doc.yashandb.com/yashandb/23.4.6/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Installation/Installing-Go-Driver-%28Linux%29.html)。
+公开资料同时存在旧版手册导入路径 `git.yasdb.com/go/yasdb-go` 与当前公开 GitHub 路径；新接入应以当前官方 GitHub 发布和厂商支持矩阵为准，旧路径是否继续受支持标记为**待核实**。Go 仓库为 Apache-2.0；项目维护者于 2026-10-03 声明已取得配套 C 客户端再分发授权，但本仓库未收到书面授权文件，不能将 Go 驱动许可证当作 C 客户端许可证。依据：[官方 Go 驱动仓库](https://github.com/yashan-technologies/yashandb-go)、[23.4 Go 驱动使用介绍](https://doc.yashandb.com/yashandb/23.4/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Usage-Introduction.html)、[Go 驱动 Linux 安装](https://doc.yashandb.com/yashandb/23.4.6/zh/All-Manuals/Development-Guide/Go-Driver/Go-Driver-Installation/Installing-Go-Driver-%28Linux%29.html)。
 
 建议新增独立 `yashandb` dialect，而不是将其伪装为 `postgres`、`mysql` 或尚不存在的通用 `oracle` 别名：
 

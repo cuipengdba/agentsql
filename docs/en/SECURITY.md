@@ -26,6 +26,8 @@ This table describes evidence for the **pending v0.5.0 code**, not vendor certif
 | TiDB 7.5.1 / OceanBase CE 4.4.2.1 | MySQL compatibility candidates; EXPLAIN adapters and regression fixtures exist | Fixtures do not establish a full target-environment exercise or certification |
 | PolarDB-X | Old official `2.0.1` all-in-one image exercised through `mysql`; see below | Full CN/DN/CDC, commercial service, distributed semantics, and B2/B5 unproven |
 
+> **YashanDB client redistribution authorization:** AgentSQL v0.5.0 release artifacts (Linux tarballs, systemd native packages, GHCR runtime images) bundle the YashanDB C client (client 23.4.7.100, with yashandb-go v1.4.4) runtime libraries for the matching architecture. They are redistributed on the basis that the project maintainer has declared vendor authorization; no written authorization file was supplied to this repository. This does not change the low-tier YashanDB support scope: connectivity and metadata discovery are retested, while ordinary Query, writes, transactions, and EXPLAIN remain fail-closed.
+
 Reproducible AgentSQL evidence is in the [compatibility research](../ecosystem-db-compat-research.md), [v0.5 release notes](../release-notes-v0.5.md), and [KingbaseES/HighGo case record](../joint-case-kingbase-highgo.md). Product distinctions follow vendor material for [TDSQL for PostgreSQL](https://cloud.tencent.com/document/product/1129), [TDSQL for MySQL](https://cloud.tencent.com/product/dcdb), and OpenTenBase's [separate TXSQL download](https://docs.opentenbase.org/en/download/).
 
 ## Scope and Trust Boundaries

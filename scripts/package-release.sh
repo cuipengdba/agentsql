@@ -36,6 +36,8 @@ CTL_BINARY="bin/agentsqlctl-linux-${ARCH}"
 [ -d docs ] || die "Missing repository docs directory."
 [ -f LICENSE ] || die "Missing repository LICENSE."
 [ -x /usr/local/go/bin/go ] || die "Missing /usr/local/go/bin/go from the release build step."
+[ -f /opt/yashandb-client/lib/libyascli.so ] || die "Missing packaged YashanDB client libyascli.so."
+[ -f /opt/yashandb-client/lib/libyas_infra.so ] || die "Missing packaged YashanDB client libyas_infra.so."
 
 pr_agentsql_version=$("$AGENTSQL_BINARY" --version 2>/dev/null) || die "Could not execute $AGENTSQL_BINARY."
 pr_ctl_version=$("$CTL_BINARY" version 2>/dev/null) || die "Could not execute $CTL_BINARY."
@@ -136,24 +138,34 @@ pr_yashan_metadata="$TMP_DIR/agentsql-yashan-metadata"
 /usr/local/go/bin/go version -m "$AGENTSQL_BINARY" > "$pr_yashan_metadata"
 grep -E 'github\.com/yashan-technologies/yashandb-go[[:space:]]+v1\.4\.4' "$pr_yashan_metadata" >/dev/null 2>&1 \
   || die "$AGENTSQL_BINARY does not include yashandb-go v1.4.4."
-printf '%s\n' "$AGENTSQL_BINARY includes yashandb-go v1.4.4; the YashanDB C client is supplied by the deployer"
+for pr_yashan_lib in /opt/yashandb-client/lib/libyascli.so /opt/yashandb-client/lib/libyas_infra.so; do
+  check_elf "$pr_yashan_lib"
+  pr_yashan_ldd="$TMP_DIR/$(basename "$pr_yashan_lib").ldd"
+  LD_LIBRARY_PATH=/opt/yashandb-client/lib ldd "$pr_yashan_lib" > "$pr_yashan_ldd" 2>&1 || true
+  grep -F 'not found' "$pr_yashan_ldd" >/dev/null 2>&1 && die "$pr_yashan_lib has a missing shared-library dependency."
+done
+printf '%s\n' "$AGENTSQL_BINARY and the YashanDB client runtime passed inclusion checks"
 
 ROOT_NAME="agentsql-${VERSION}-linux-${ARCH}"
 STAGE="$TMP_DIR/$ROOT_NAME"
 mkdir -p "$STAGE/deploy/systemd"
 mkdir -p "$STAGE/docs"
+mkdir -p "$STAGE/lib/yashandb"
 cp "$AGENTSQL_BINARY" "$STAGE/agentsql"
 cp "$CTL_BINARY" "$STAGE/agentsqlctl"
 cp scripts/install.sh "$STAGE/install.sh"
 cp deploy/systemd/agentsql.service "$STAGE/deploy/systemd/agentsql.service"
 cp deploy/systemd/config.yaml "$STAGE/deploy/systemd/config.yaml"
 cp -R docs/. "$STAGE/docs/"
+cp -LR /opt/yashandb-client/lib/. "$STAGE/lib/yashandb/"
 cp LICENSE "$STAGE/LICENSE"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 chmod 0755 "$STAGE/agentsql" "$STAGE/agentsqlctl" "$STAGE/install.sh"
 chmod 0644 "$STAGE/deploy/systemd/agentsql.service" "$STAGE/deploy/systemd/config.yaml" "$STAGE/LICENSE" "$STAGE/VERSION"
 find "$STAGE/docs" -type d -exec chmod 0755 {} \;
 find "$STAGE/docs" -type f -exec chmod 0644 {} \;
+find "$STAGE/lib/yashandb" -type d -exec chmod 0755 {} \;
+find "$STAGE/lib/yashandb" -type f -exec chmod 0644 {} \;
 
 pr_file_list="$TMP_DIR/payload-files"
 (cd "$STAGE" && find . -type f ! -path './SHA256SUMS' -print | sed 's#^\./##' | LC_ALL=C sort) > "$pr_file_list"
@@ -173,10 +185,13 @@ TAR_TMP="$TMP_DIR/${ROOT_NAME}.tar"
 gzip -n -c "$TAR_TMP" > "$TARBALL_TMP"
 pr_tar_entries="$TMP_DIR/tar-entries"
 tar -tzf "$TARBALL_TMP" > "$pr_tar_entries"
-if grep -E "^${ROOT_NAME}/lib/yashandb(/|$)|/(libyascli|libyas_infra)\.so$" "$pr_tar_entries" >/dev/null 2>&1; then
-  die "$TARBALL_NAME unexpectedly contains a YashanDB C client."
-fi
-printf '%s\n' "$TARBALL_NAME excludes the YashanDB C client"
+for pr_required_yashan in \
+  "$ROOT_NAME/lib/yashandb/libyascli.so" \
+  "$ROOT_NAME/lib/yashandb/libyas_infra.so"; do
+  grep -F -x "$pr_required_yashan" "$pr_tar_entries" >/dev/null 2>&1 \
+    || die "$TARBALL_NAME is missing $pr_required_yashan."
+done
+printf '%s\n' "$TARBALL_NAME includes the authorized YashanDB client runtime"
 
 VERIFY_DIR="$TMP_DIR/verify"
 mkdir "$VERIFY_DIR"

@@ -8,8 +8,7 @@ Type=simple
 User=agentsql
 Group=agentsql
 EnvironmentFile=-/etc/agentsql/agentsql.env
-# YashanDB client is NOT bundled. If you use YashanDB data sources, download the client from the vendor and uncomment:
-# Environment="LD_LIBRARY_PATH=/path/to/your/yashandb-client/lib"
+Environment="LD_LIBRARY_PATH=/usr/local/lib/agentsql/yashandb"
 ExecStart=/usr/local/bin/agentsql serve -c /etc/agentsql/config.yaml
 Restart=on-failure
 NoNewPrivileges=true

@@ -140,7 +140,7 @@ function Assert-SignatureDocument {
     }
 }
 
-function Assert-YashanExternalClient {
+function Assert-YashanRedistribution {
     param(
         [Parameter(Mandatory = $true)][string]$Directory,
         [Parameter(Mandatory = $true)][string]$ReleaseVersion
@@ -158,11 +158,14 @@ function Assert-YashanExternalClient {
         if ($LASTEXITCODE -ne 0) {
             throw "Could not inspect archive entries in $tarName."
         }
-        if (@($entries | Where-Object { $_ -match '/lib/yashandb(?:/|$)|/(?:libyascli|libyas_infra)\.so$' }).Count -gt 0) {
-            throw "$tarName must not contain a YashanDB C client."
+        foreach ($requiredLibrary in @('libyascli.so', 'libyas_infra.so')) {
+            $expectedSuffix = "/lib/yashandb/$requiredLibrary"
+            if (-not @($entries | Where-Object { $_.EndsWith($expectedSuffix, [System.StringComparison]::Ordinal) })) {
+                throw "$tarName is missing the authorized YashanDB client library $requiredLibrary."
+            }
         }
     }
-    Write-Host 'RELEASE_DRYRUN_YASHAN_CLIENT=EXTERNAL_DRIVER_v1.4.4'
+    Write-Host 'RELEASE_DRYRUN_YASHAN_REDISTRIBUTION=INCLUDED_DRIVER_v1.4.4_CLIENT_23.4.7.100'
 }
 
 function Test-ReleaseAssets {
@@ -216,7 +219,7 @@ function Test-ReleaseAssets {
         }
     }
     Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
-    Assert-YashanExternalClient -Directory $Directory -ReleaseVersion $ReleaseVersion
+    Assert-YashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
 
     $provenanceDocument = Get-Content -LiteralPath (Join-Path $Directory 'provenance.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ([string]$provenanceDocument.version -ne $ReleaseVersion) {

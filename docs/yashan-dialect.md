@@ -33,7 +33,7 @@ exercises the implemented driver escaping.
 Starting with AgentSQL v0.5.0, official Linux release tarballs, the systemd
 installer payload and GHCR runtime images include the YashanDB Go driver and a
 platform-matched YashanDB C client runtime. The redistribution basis recorded
-for this release is the user's 2026-10-03 declaration that vendor authorization
+for this release is the project maintainer's 2026-10-03 declaration that vendor authorization
 has been obtained. No written authorization file was supplied to this
 repository; this statement does not claim that the C client is covered by the
 Go driver's Apache-2.0 license.
@@ -81,7 +81,7 @@ architecture-specific archive and fail closed unless its SHA-256 matches:
 
 The official client repository identifies these archives as YashanDB C driver
 packages but does not publish a standalone license file alongside them. Their
-redistribution here relies on the user-declared vendor authorization above.
+redistribution here relies on the maintainer-declared vendor authorization above.
 
 The native driver import remains isolated behind `yashan && cgo` in
 `yashan_driver.go`. The root image builds in `golang:1.26-bookworm` with GCC;
