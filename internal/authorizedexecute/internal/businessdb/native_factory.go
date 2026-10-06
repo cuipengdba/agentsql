@@ -21,6 +21,10 @@ func openNativeExecutor(datasource model.Datasource, password string, readOnly b
 		return NewCouchbaseExecutor(datasource, password, readOnly)
 	case "couchdb":
 		return NewCouchDBExecutor(datasource, password, readOnly)
+	case "cassandra", "scylla":
+		return NewCassandraExecutor(datasource, password, readOnly)
+	case "hbase":
+		return NewHBaseExecutor(datasource, password, readOnly)
 	default:
 		category, ok := model.CategoryOf(datasource.DBType)
 		if !ok {

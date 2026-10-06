@@ -38,10 +38,11 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"mongodb":   {CategoryDocument, "MongoDB", 27017, false, false, false},
 	"couchbase": {CategoryDocument, "Couchbase", 11210, false, false, false},
 	"couchdb":   {CategoryDocument, "CouchDB", 5984, false, false, false},
+	// Wide-column sources have optional keyspace and credentials.
+	"cassandra": {CategoryWideColumn, "Cassandra", 9042, false, false, false},
+	"hbase":     {CategoryWideColumn, "HBase", 16020, false, false, false},
+	"scylla":    {CategoryWideColumn, "ScyllaDB", 9042, false, false, false},
 	// Connection logic for the following native types awaits later batches.
-	"cassandra":   {CategoryWideColumn, "Cassandra", 9042, true, true, true},
-	"hbase":       {CategoryWideColumn, "HBase", 16020, true, true, true},
-	"scylla":      {CategoryWideColumn, "ScyllaDB", 9042, true, true, true},
 	"neo4j":       {CategoryGraph, "Neo4j", 7687, true, true, true},
 	"janusgraph":  {CategoryGraph, "JanusGraph", 8182, true, true, true},
 	"nebula":      {CategoryGraph, "NebulaGraph", 9669, true, true, true},

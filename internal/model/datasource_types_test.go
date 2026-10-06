@@ -39,6 +39,12 @@ func TestDatasourceRegistry(t *testing.T) {
 			t.Errorf("document connection fields should be optional for %s: %+v", name, spec)
 		}
 	}
+	for _, name := range []string{"cassandra", "hbase", "scylla"} {
+		spec, _ := TypeSpecFor(name)
+		if spec.Category != CategoryWideColumn || spec.RequiresDatabase || spec.RequiresUsername || spec.RequiresPassword {
+			t.Errorf("wide-column connection fields should be optional for %s: %+v", name, spec)
+		}
+	}
 	if SupportedDatasourceType("unknown") || IsNative("unknown") {
 		t.Fatal("unknown type accepted")
 	}
