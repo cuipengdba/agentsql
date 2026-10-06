@@ -51,6 +51,16 @@ func TestDatasourceRegistry(t *testing.T) {
 			t.Errorf("graph connection fields should be optional for %s: %+v", name, spec)
 		}
 	}
+	for _, name := range []string{"influxdb", "prometheus"} {
+		spec, _ := TypeSpecFor(name)
+		if spec.Category != CategoryTimeSeries || spec.RequiresDatabase || spec.RequiresUsername || spec.RequiresPassword {
+			t.Errorf("time-series connection fields should be optional for %s: %+v", name, spec)
+		}
+	}
+	spec, _ := TypeSpecFor("timescaledb")
+	if spec.Category != CategoryTimeSeries || !spec.RequiresDatabase || !spec.RequiresUsername || !spec.RequiresPassword {
+		t.Errorf("timescaledb connection fields are invalid: %+v", spec)
+	}
 	if SupportedDatasourceType("unknown") || IsNative("unknown") {
 		t.Fatal("unknown type accepted")
 	}

@@ -31,6 +31,12 @@ func openNativeExecutor(datasource model.Datasource, password string, readOnly b
 		return NewJanusGraphExecutor(datasource, password, readOnly)
 	case "nebula":
 		return NewNebulaExecutor(datasource, password, readOnly)
+	case "influxdb":
+		return NewInfluxDBExecutor(datasource, password, readOnly)
+	case "prometheus":
+		return NewPrometheusExecutor(datasource, password, readOnly)
+	case "timescaledb":
+		return NewTimescaleExecutor(datasource, password, readOnly)
 	default:
 		category, ok := model.CategoryOf(datasource.DBType)
 		if !ok {
