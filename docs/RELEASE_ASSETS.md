@@ -8,7 +8,7 @@
 
 | # | v0.5.0 资产 | 产生位置与来源 | 必查项 |
 | ---: | --- | --- | --- |
-| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64；`build-release-linux.sh` → `package-release.sh` | 外层和包内 SHA-256、ELF/GLIBC、版本、Yashan 客户端两库 |
+| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64；`build-release-linux.sh` → `package-release.sh` | 外层和包内 SHA-256、ELF/GLIBC、版本 |
 | 2 | `agentsql-v0.5.0-linux-amd64.tar.gz.sha256` | `package-release.sh` | 唯一一行 `64hex␠␠filename`，重算 #1 |
 | 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | Rocky 8 arm64；同 #1 | 与 #1 相同，并确认 AArch64 |
 | 4 | `agentsql-v0.5.0-linux-arm64.tar.gz.sha256` | `package-release.sh` | 唯一一行，重算 #3 |
@@ -23,6 +23,10 @@
 | 13 | `SHA256SUMS` | #6、#11 完成后生成 | 恰好覆盖除自身与 #14 外的 **13 个**唯一文件名；逐项重算 |
 | 14 | `SHA256SUMS.sig.json` | 正式 Ed25519 签名工具，最后签 | 对 #13 原始字节验签 |
 | 15 | `VERIFYING-SIGNATURES.md` | `release-dryrun.ps1 -ProductionPrepare` | 三个正式验签命令指向本版本文件 |
+
+这 15 项是 AgentSQL 的上传资产清单，YashanDB C 客户端不是单独的第 16 项。Dockerfile 的构建阶段需要匹配架构的客户端供 `yashandb-go` cgo 编译，最终容器不复制该客户端，也不预设其 `LD_LIBRARY_PATH`。使用 YashanDB 的部署须自行从厂商获取 C 客户端并配置运行时库路径；客户端缺失或加载失败时，YashanDB 连接应 fail-closed。`go version -m` 中出现 `github.com/yashan-technologies/yashandb-go v1.4.4` 只能证明 Go 依赖存在，不能证明运行时客户端可用。
+
+当前 `scripts/package-release.sh` 和 `scripts/install.sh` 仍将客户端库作为 Linux tarball 的必需内容并复制到安装目录。本清单不表示这两个脚本已改为外置客户端；如要让 Linux tarball 也不携带客户端，须另行修改并验收发布与安装脚本，再重新生成发行物。
 
 ## 当前证据与判定
 

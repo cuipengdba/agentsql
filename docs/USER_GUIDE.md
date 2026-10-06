@@ -155,22 +155,22 @@ Agent 是调用 AgentSQL 的独立身份。
 
 数据源密码使用 `AGENTSQL_SECRET` 加密。丢失或更换 SECRET 会导致已有密码无法解密；数据库/控制面备份与 SECRET 必须成对保存，详见 [部署指南](DEPLOY.md)。
 
-### YashanDB 随发行物驱动
+### YashanDB 客户端配置
 
-自 v0.5.0 起，AgentSQL 官方 Linux tar 包和 GHCR 运行时镜像内置 YashanDB Go 驱动 v1.4.4，并携带官方 C 客户端 23.4.7.100 的匹配架构运行库。再分发依据为用户于 2026-10-03 声明已取得厂商授权；本仓库未收到书面授权文件。驱动与客户端的来源、固定提交和 SHA-256 见 [YashanDB dialect boundary](yashan-dialect.md#packaged-driver-and-client-runtime)。
+YashanDB Go 驱动 v1.4.4 的构建需要厂商 C 客户端。最终容器镜像不携带该客户端；使用 YashanDB 数据源时，请从厂商获取与运行主机架构匹配的客户端，并提供完整 `lib` 目录。详见 [部署指南](DEPLOY.md#方式三systemd)。
 
-- 使用官方 `install.sh` 安装时，客户端库会安装到 `/usr/local/lib/agentsql/yashandb`，systemd unit 已设置对应的 `LD_LIBRARY_PATH`。
-- 使用解压后的 tar 包直接运行时，先在包根目录执行：
+- 使用 systemd 时，在已安装的 `/etc/systemd/system/agentsql.service` 中取消 `Environment="LD_LIBRARY_PATH=/path/to/your/yashandb-client/lib"` 的注释并替换为实际路径，或在环境文件中设置该变量，然后重新加载 unit 并重启服务。
+- 从 shell 直接运行时，先设置客户端库路径，例如：
 
   ```bash
-  export LD_LIBRARY_PATH="$PWD/lib/yashandb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH="/path/to/your/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   ./agentsql --version
   ./agentsql serve -c ./deploy/systemd/config.yaml
   ```
 
-- 官方容器已把客户端库放在 `/opt/yashandb-client/lib` 并设置 `LD_LIBRARY_PATH`，无需额外挂载驱动目录。
+- 使用容器时，将厂商客户端的完整 `lib` 目录挂载到容器内自选路径，并为容器进程设置对应的 `LD_LIBRARY_PATH`。无需使用 `/opt/yashandb-client` 这一固定路径。
 
-这次打包只改变驱动可用性，不扩大 dialect 能力：设计上仅开放有界连接、Ping、物理会话与元数据发现，普通 Query、写入、事务、EXPLAIN 和未知输出应 fail-closed。批二十九真实冒烟已通过连接与发现，但普通 Query 未按现有测试预期报错；在另批修复并复验前，这是发布阻断项，不得把打包成功视为该能力边界通过。出现 `libyascli.so: cannot open shared object file` 时，检查实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、客户端、服务器版本与 CPU 架构，不要混用从服务器镜像临时复制的库。
+客户端缺失或动态加载失败时，YashanDB 连接应 fail-closed；其他数据源的使用不应依赖该客户端。YashanDB dialect 仅开放有界连接、Ping、物理会话与元数据发现，普通 Query、写入、事务、EXPLAIN 和未知输出仍 fail-closed。批三十已在真实 YashanDB 上复验连接、元数据发现及普通 Query 拒绝行为；打包检查不能代替这些能力边界检查。出现 `libyascli.so: cannot open shared object file` 时，检查实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、客户端、服务器版本与 CPU 架构。
 
 ## 6. 权限 `/policies`
 

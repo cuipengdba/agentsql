@@ -7,6 +7,7 @@ ARG VERSION=v0.5.0
 # `docker build --build-arg GOPROXY=https://goproxy.cn,direct`.
 ARG GOPROXY=https://proxy.golang.org,direct
 ARG TARGETARCH
+# build-stage only: yashandb-go cgo build needs the client; NOT copied into the final image
 ARG YASHAN_CLIENT_VERSION=23.4.7.100
 ARG YASHAN_CLIENT_REVISION=a72b24d63ba0e43820c43d7443c0e4fd0ab304fd
 ENV GOPROXY=${GOPROXY}
@@ -48,7 +49,6 @@ RUN mkdir -p /out \
 FROM debian:bookworm-slim AS runtime
 
 ARG VERSION=v0.5.0
-ENV LD_LIBRARY_PATH=/opt/yashandb-client/lib
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
       org.opencontainers.image.licenses="Apache-2.0" \
@@ -64,7 +64,6 @@ RUN apt-get update \
 
 COPY --from=build /out/agentsql /usr/local/bin/agentsql
 COPY --from=build /out/agentsqlctl /usr/local/bin/agentsqlctl
-COPY --from=build /opt/yashandb-client/lib /opt/yashandb-client/lib
 COPY examples/docker/config.yaml /etc/agentsql/config.yaml
 COPY LICENSE /usr/share/licenses/agentsql/LICENSE
 

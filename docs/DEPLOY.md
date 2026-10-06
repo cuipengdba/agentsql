@@ -319,7 +319,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。
+安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。使用 YashanDB 数据源时还需按下文准备厂商 C 客户端；其他数据源不依赖该客户端。
 
 常用生命周期命令：
 
@@ -351,18 +351,24 @@ sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh ins
 
 ## 方式三：systemd
 
-先构建二进制，再安装服务文件和目录：
+以下以已解压的 v0.5.0 Linux 发行包根目录为工作目录，安装二进制及服务文件：
 
 ```bash
 sudo useradd --system --user-group --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql
 sudo install -d -o root -g agentsql -m 0750 /etc/agentsql
 sudo install -d -o agentsql -g agentsql -m 0750 /var/lib/agentsql
-sudo install -m 0755 bin/agentsql bin/agentsqlctl /usr/local/bin/
+sudo install -m 0755 ./agentsql ./agentsqlctl /usr/local/bin/
 sudo install -m 0644 deploy/systemd/agentsql.service /etc/systemd/system/agentsql.service
 sudo install -o root -g agentsql -m 0640 deploy/systemd/config.yaml /etc/agentsql/config.yaml
 ```
 
-如果系统已经存在 `agentsql` 用户，跳过 `useradd`。systemd 专用配置模板已固定仅监听 `127.0.0.1:7780`，并将 SQLite 数据写入 `/var/lib/agentsql/agentsql.db`，无需再手工修改 `sqlite_path`。裸机默认只监听 `127.0.0.1`；如需远程访问，应使用 SSH 本地转发或受控反向代理（TLS/鉴权），不要直接把 `http_listen` 改成 `0.0.0.0` 暴露公网。创建仅 root 可读的环境文件：
+如果系统已经存在 `agentsql` 用户，跳过 `useradd`。systemd 专用配置模板已固定仅监听 `127.0.0.1:7780`，并将 SQLite 数据写入 `/var/lib/agentsql/agentsql.db`，无需再手工修改 `sqlite_path`。裸机默认只监听 `127.0.0.1`；如需远程访问，应使用 SSH 本地转发或受控反向代理（TLS/鉴权），不要直接把 `http_listen` 改成 `0.0.0.0` 暴露公网。
+
+如需连接 YashanDB，请从厂商获取与主机 CPU 架构（amd64/arm64）及 glibc 环境匹配的 YashanDB C 客户端，将其完整 `lib` 目录安装在你选择的路径，例如 `/opt/yashandb-client/lib`；不要把 AgentSQL GitHub Release 当作客户端的独立下载渠道，也不要只复制 `libyascli.so`。源码构建 YashanDB 支持时，构建阶段需要该客户端、`CGO_ENABLED=1` 和 `-tags yashan`；运行时只在使用 YashanDB 数据源时提供客户端库路径。
+
+systemd 部署可在已安装的 `/etc/systemd/system/agentsql.service` 中取消 `Environment="LD_LIBRARY_PATH=/path/to/your/yashandb-client/lib"` 的注释并替换路径，然后执行 `sudo systemctl daemon-reload` 和 `sudo systemctl restart agentsql`。也可在下方创建环境文件时加入 `LD_LIBRARY_PATH=/path/to/your/yashandb-client/lib`。从 shell 直接启动时先执行 `export LD_LIBRARY_PATH=/path/to/your/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}`。客户端缺失或动态加载失败时，YashanDB 连接应 fail-closed；普通服务启动及其他数据源不应由客户端缺失阻断。
+
+创建仅 root 可读的环境文件：
 
 ```bash
 sudo sh -c 'cat > /etc/agentsql/agentsql.env <<EOF
