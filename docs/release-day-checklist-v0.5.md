@@ -11,7 +11,7 @@
 - 15 个 GitHub Release 资产的唯一可执行定义位于 `scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames`；本文和 `docs/release-notes-v0.5.md` 与它对齐。
 - `scripts/build-release-linux.sh` 与 `scripts/package-release.sh` 都只接受 `amd64` / `arm64`。前者要求容器原生架构与 `ARCH` 一致，因此 arm64 依赖原生 arm64 runner 或 Docker/QEMU；本机 Docker/QEMU 的禁网探针已分别回报 `x86_64` 和 `aarch64`。
 - `go.mod` 已是 Go 1.26；正式脚本现固定 Go 1.26.8 并设置 `GOTOOLCHAIN=local`。`Makefile` 的开发默认值仍是历史 `1.25.14`，本批按改动范围未修改；发布日不得依赖该默认值，如人工调用 make target 必须显式传 `GO_VERSION=1.26.8`。
-- 现存 `dist/release-dryrun/v0.5.0` 来自旧提交 `02565f5...`，且两个 tar 均缺 `lib/yashandb/libyascli.so`、`libyas_infra.so`，Go metadata 也缺 `yashandb-go v1.4.4`。`-ValidateOnly` 真实返回 FAIL，旧资产不可复用。
+- 现存 `dist/release-dryrun/v0.5.0` 来自旧提交 `02565f5...`，Go metadata 缺 `yashandb-go v1.4.4`。`-ValidateOnly` 真实返回 FAIL，旧资产不可复用。当前规则要求两个 tar 均不含 `lib/yashandb/`。
 - 本批按任务红线跳过外网。完整当前 HEAD 构建因 `dnf`、go.dev、阿里云 Go 镜像、GitHub Raw 崖山客户端及 BuildKit 基础镜像元数据均需要外网而阻塞；不得写成 PASS。
 - 本地缓存的 `golang:1.26-bookworm` 实测为 Go 1.26.8 amd64，但没有 arm64 平台镜像；原生发行脚本发布日必须按固定版本下载并校验两架构 Go tarball，不能用本批缓存替代。
 - 旧的三个 OCI 归档确有 amd64/arm64 descriptor，但三者的平台镜像 digest 完全相同；旧 `quickstart` 只是主镜像换 tag，缺 Compose 所需 demo 配置。发布脚本现用同一个 Buildx Bake 图构建 demo base 和叠加两份配置的 quickstart target，并实际解析 OCI descriptor。
@@ -26,9 +26,9 @@
 
 | # | 资产 | 来源 | 发布日校验 | 批三十一状态 |
 | ---: | --- | --- | --- | --- |
-| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64：`build-release-linux.sh` → `package-release.sh` | 外层 sidecar；包内全文件 SHA-256；ELF x86-64；GLIBC ≤ 2.28；二进制版本；Yashan 两库及 `ldd` | **阻塞**：旧包缺 Yashan；当前构建需外网 |
+| 1 | `agentsql-v0.5.0-linux-amd64.tar.gz` | Rocky 8 amd64：`build-release-linux.sh` → `package-release.sh` | 外层 sidecar；包内全文件 SHA-256；ELF x86-64；GLIBC ≤ 2.28；二进制版本；不含 Yashan C 客户端 | **阻塞**：当前构建需外网，旧包须按当前规则重验 |
 | 2 | `agentsql-v0.5.0-linux-amd64.tar.gz.sha256` | `package-release.sh` | 严格 `64hex␠␠filename`，重算匹配 | **阻塞**：随 #1 重建 |
-| 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | Rocky 8 arm64/QEMU：同上 | 外层/包内 SHA-256；ELF AArch64；GLIBC ≤ 2.28；版本；Yashan 两库及 arm64 `ldd` | **阻塞**：旧包缺 Yashan；当前构建需外网 |
+| 3 | `agentsql-v0.5.0-linux-arm64.tar.gz` | Rocky 8 arm64/QEMU：同上 | 外层/包内 SHA-256；ELF AArch64；GLIBC ≤ 2.28；版本；不含 Yashan C 客户端 | **阻塞**：当前构建需外网，旧包须按当前规则重验 |
 | 4 | `agentsql-v0.5.0-linux-arm64.tar.gz.sha256` | `package-release.sh` | 同 #2 | **阻塞**：随 #3 重建 |
 | 5 | `agentsql-v0.5.0.spdx.json` | 固定 digest Syft 对 sealed modules + 四个二进制生成 | SPDX JSON 可解析；namespace 非 dry-run；包/关系数记录 | **阻塞**：等待当前双架构二进制 |
 | 6 | `agentsql-v0.5.0.spdx.json.sig.json` | `scripts/releasesign/main.go -mode sign` | `-mode verify` 对 SBOM 原始字节通过 | **本批禁止签名** |
