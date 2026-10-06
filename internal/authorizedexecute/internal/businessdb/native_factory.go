@@ -15,6 +15,12 @@ func openNativeExecutor(datasource model.Datasource, password string, readOnly b
 			return nil, fmt.Errorf("Memcached authentication is unsupported")
 		}
 		return NewMemcachedExecutor(datasource, readOnly)
+	case "mongodb":
+		return NewMongoExecutor(datasource, password, readOnly)
+	case "couchbase":
+		return NewCouchbaseExecutor(datasource, password, readOnly)
+	case "couchdb":
+		return NewCouchDBExecutor(datasource, password, readOnly)
 	default:
 		category, ok := model.CategoryOf(datasource.DBType)
 		if !ok {

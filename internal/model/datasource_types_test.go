@@ -33,6 +33,12 @@ func TestDatasourceRegistry(t *testing.T) {
 			t.Errorf("missing or wrong port for %s", name)
 		}
 	}
+	for _, name := range []string{"mongodb", "couchbase", "couchdb"} {
+		spec, _ := TypeSpecFor(name)
+		if spec.Category != CategoryDocument || spec.RequiresDatabase || spec.RequiresUsername || spec.RequiresPassword {
+			t.Errorf("document connection fields should be optional for %s: %+v", name, spec)
+		}
+	}
 	if SupportedDatasourceType("unknown") || IsNative("unknown") {
 		t.Fatal("unknown type accepted")
 	}

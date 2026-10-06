@@ -34,10 +34,11 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"redis":     {CategoryKeyValue, "Redis", 6379, false, false, false},
 	"valkey":    {CategoryKeyValue, "Valkey", 6379, false, false, false},
 	"memcached": {CategoryKeyValue, "Memcached", 11211, false, false, false},
-	// Connection logic for the following 18 native types awaits later batches.
-	"mongodb":     {CategoryDocument, "MongoDB", 27017, true, true, true},
-	"couchbase":   {CategoryDocument, "Couchbase", 11210, true, true, true},
-	"couchdb":     {CategoryDocument, "CouchDB", 5984, true, true, true},
+	// Document adapters provide connection-level native operations.
+	"mongodb":   {CategoryDocument, "MongoDB", 27017, false, false, false},
+	"couchbase": {CategoryDocument, "Couchbase", 11210, false, false, false},
+	"couchdb":   {CategoryDocument, "CouchDB", 5984, false, false, false},
+	// Connection logic for the following native types awaits later batches.
 	"cassandra":   {CategoryWideColumn, "Cassandra", 9042, true, true, true},
 	"hbase":       {CategoryWideColumn, "HBase", 16020, true, true, true},
 	"scylla":      {CategoryWideColumn, "ScyllaDB", 9042, true, true, true},
