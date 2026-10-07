@@ -57,6 +57,12 @@ func TestDatasourceRegistry(t *testing.T) {
 			t.Errorf("time-series connection fields should be optional for %s: %+v", name, spec)
 		}
 	}
+	for _, name := range []string{"clickhouse", "doris", "starrocks"} {
+		spec, _ := TypeSpecFor(name)
+		if spec.Category != CategoryOLAP || spec.RequiresDatabase || spec.RequiresUsername || spec.RequiresPassword {
+			t.Errorf("OLAP connection fields should be optional for %s: %+v", name, spec)
+		}
+	}
 	spec, _ := TypeSpecFor("timescaledb")
 	if spec.Category != CategoryTimeSeries || !spec.RequiresDatabase || !spec.RequiresUsername || !spec.RequiresPassword {
 		t.Errorf("timescaledb connection fields are invalid: %+v", spec)

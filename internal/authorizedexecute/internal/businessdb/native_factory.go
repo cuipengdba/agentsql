@@ -37,6 +37,12 @@ func openNativeExecutor(datasource model.Datasource, password string, readOnly b
 		return NewPrometheusExecutor(datasource, password, readOnly)
 	case "timescaledb":
 		return NewTimescaleExecutor(datasource, password, readOnly)
+	case "clickhouse":
+		return NewClickHouseExecutor(datasource, password, readOnly)
+	case "doris":
+		return NewDorisExecutor(datasource, password, readOnly)
+	case "starrocks":
+		return NewStarRocksExecutor(datasource, password, readOnly)
 	default:
 		category, ok := model.CategoryOf(datasource.DBType)
 		if !ok {

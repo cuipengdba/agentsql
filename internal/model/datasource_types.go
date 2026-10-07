@@ -52,13 +52,15 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"influxdb":    {CategoryTimeSeries, "InfluxDB", 8086, false, false, false},
 	"prometheus":  {CategoryTimeSeries, "Prometheus", 9090, false, false, false},
 	"timescaledb": {CategoryTimeSeries, "TimescaleDB", 5432, true, true, true},
-	// Connection logic for the following native types awaits later batches.
-	"clickhouse": {CategoryOLAP, "ClickHouse", 9000, true, true, true},
-	"doris":      {CategoryOLAP, "Doris", 9030, true, true, true},
-	"starrocks":  {CategoryOLAP, "StarRocks", 9030, true, true, true},
-	"milvus":     {CategoryVector, "Milvus", 19530, true, true, true},
-	"qdrant":     {CategoryVector, "Qdrant", 6334, true, true, true},
-	"weaviate":   {CategoryVector, "Weaviate", 8080, true, true, true},
+	// OLAP adapters provide bounded connection-level operations. Credentials
+	// and initial database are optional at registration; servers may require them.
+	"clickhouse": {CategoryOLAP, "ClickHouse", 9000, false, false, false},
+	"doris":      {CategoryOLAP, "Doris", 9030, false, false, false},
+	"starrocks":  {CategoryOLAP, "StarRocks", 9030, false, false, false},
+	// Connection logic for vector types awaits a later batch.
+	"milvus":   {CategoryVector, "Milvus", 19530, true, true, true},
+	"qdrant":   {CategoryVector, "Qdrant", 6334, true, true, true},
+	"weaviate": {CategoryVector, "Weaviate", 8080, true, true, true},
 }
 
 func TypeSpecFor(dbType string) (DatasourceTypeSpec, bool) {
