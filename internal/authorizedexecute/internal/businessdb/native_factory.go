@@ -43,6 +43,12 @@ func openNativeExecutor(datasource model.Datasource, password string, readOnly b
 		return NewDorisExecutor(datasource, password, readOnly)
 	case "starrocks":
 		return NewStarRocksExecutor(datasource, password, readOnly)
+	case "milvus":
+		return NewMilvusExecutor(datasource, password, readOnly)
+	case "weaviate":
+		return NewWeaviateExecutor(datasource, password, readOnly)
+	case "qdrant":
+		return NewQdrantExecutor(datasource, password, readOnly)
 	default:
 		category, ok := model.CategoryOf(datasource.DBType)
 		if !ok {

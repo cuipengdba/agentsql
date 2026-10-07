@@ -57,10 +57,10 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"clickhouse": {CategoryOLAP, "ClickHouse", 9000, false, false, false},
 	"doris":      {CategoryOLAP, "Doris", 9030, false, false, false},
 	"starrocks":  {CategoryOLAP, "StarRocks", 9030, false, false, false},
-	// Connection logic for vector types awaits a later batch.
-	"milvus":   {CategoryVector, "Milvus", 19530, true, true, true},
-	"qdrant":   {CategoryVector, "Qdrant", 6334, true, true, true},
-	"weaviate": {CategoryVector, "Weaviate", 8080, true, true, true},
+	// Vector credentials and database are optional at registration.
+	"milvus":   {CategoryVector, "Milvus", 19530, false, false, false},
+	"qdrant":   {CategoryVector, "Qdrant", 6334, false, false, false},
+	"weaviate": {CategoryVector, "Weaviate", 8080, false, false, false},
 }
 
 func TypeSpecFor(dbType string) (DatasourceTypeSpec, bool) {
