@@ -1,0 +1,83 @@
+{
+  "main_queue": [
+    {
+      "id": "batch61",
+      "title": "PostgreSQL parser P99：连续 5 轮 P99 ≤ 5 ms",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch61.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch62",
+      "title": "发布工程 dry-run：一条命令校验 15 资产及崖山两份 C 库入包",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch62.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch63",
+      "title": "达梦与 Oracle 方言深化",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch63.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch64",
+      "title": "金仓 V9 真库：镜像与 license 到位后插队",
+      "external_dependency": true,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch64.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch65",
+      "title": "达梦 DM8 真库：license 到位后执行",
+      "external_dependency": true,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch65.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch66",
+      "title": "崖山发布后细化",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch66.md",
+      "status": "pending"
+    }
+  ],
+  "backup_queue": [
+    {
+      "id": "batch67",
+      "title": "边界与错误路径测试补齐",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch67.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch68",
+      "title": "docs 补全",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch68.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch69",
+      "title": "go vet 与 staticcheck 清理",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch69.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch70",
+      "title": "方言用例补齐",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch70.md",
+      "status": "pending"
+    },
+    {
+      "id": "batch71",
+      "title": "Web UI 细节",
+      "external_dependency": false,
+      "task_file": "D:\\ruanjiansheji\\codex-task-batch71.md",
+      "status": "pending"
+    }
+  ]
+}
