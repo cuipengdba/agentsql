@@ -2,6 +2,20 @@
 
 > 状态：v0.5 批十、批十三、批二十、批二十一、批二十八与批三十二的累计说明；不是完整兼容或生产认证声明。最近 DM8 真库回归日期：2026-10-03。
 
+## 批六十三：离线 parser 边界
+
+本批仅验证 `internal/parser` 的 SQL 结构、AST 标志与列血缘，不连接 DM/Oracle 实例，也不改变执行器放行规则。新增表驱动用例覆盖：
+
+1. Oracle `ROWNUM < n`、`<= n`、`= n` 在简单 `WHERE` 中识别为行数约束，不将 `ROWNUM` 伪列记为物理列。
+2. `ROWNUM` 投影、反向比较、`>`、负数/小数、多重条件、`OR` 和 `JOIN ON` 形态保持 `ErrUnparseable`；DM 的未确认 `ROWNUM` 形态同样拒绝。
+3. DM/Oracle 的 `ORDER BY` 投影别名和正整数序号不再产生虚假的物理列依赖；零、越界、小数序号及重复别名拒绝。
+4. `NULL = NULL` 和 `NULL != NULL` 的真值保持未知，不能误报 `WhereTautology`；`NULL IS NULL` 仍识别为恒真。
+5. Oracle 空字符串按 NULL 处理：`'' IS NULL` 为真，`'' IS NOT NULL` 为假，`'' = ''` 不判为恒真；DM 空字符串谓词的模式语义未由本批确认，恒真判断保持未知。
+6. DM `LIMIT n OFFSET m`、`LIMIT m,n`、`TOP n` 与 Oracle `OFFSET/FETCH` 的既有受控形态增加离线回归；负数、不完整分页、DM `TOP` 混用尾部分页、Oracle `TOP/LIMIT` 与未支持的 `WITH TIES` 拒绝。
+7. Oracle `ALTER SESSION`、`MERGE INTO` 和 DM `BACKUP/RESTORE` 保持只读 parser 的 `ErrUnparseable` 边界。
+
+以上是本地 parser 行为测试，不构成对任意 DM 兼容模式或 Oracle 服务端版本的语法认证。
+
 ## v0.5 当前接入结论
 
 | 路径 | DM8 | Oracle |

@@ -59,6 +59,7 @@ type oracleProjection struct {
 	star          bool
 	constant      bool
 	alias         string
+	aliasQuoted   bool
 }
 
 type oracleRelation struct {
@@ -95,6 +96,9 @@ type oracleSelectParser struct {
 	hasPredicate  bool
 	whereTruth    oracleTruth
 	hasPagination bool
+	hasTop        bool
+	allowRownum   bool
+	hasRownum     bool
 }
 
 func (parser *oracleCompatibleParser) Parse(sql string) (ast *model.AST, err error) {
@@ -324,6 +328,7 @@ func (parser *oracleSelectParser) parseSelect() error {
 			return err
 		}
 		parser.hasPagination = true
+		parser.hasTop = true
 	}
 	if err := parser.parseProjections(); err != nil {
 		return err
@@ -335,7 +340,9 @@ func (parser *oracleSelectParser) parseSelect() error {
 		return err
 	}
 	if parser.consumeKeyword("WHERE") {
+		parser.allowRownum = true
 		truth, err := parser.parsePredicate()
+		parser.allowRownum = false
 		if err != nil {
 			return fmt.Errorf("WHERE predicate: %w", err)
 		}
@@ -388,6 +395,7 @@ func (parser *oracleSelectParser) parseProjection() (oracleProjection, error) {
 			return oracleProjection{}, err
 		} else if ok {
 			projection.alias = alias.name
+			projection.aliasQuoted = alias.quoted
 		}
 		return projection, nil
 	}
@@ -410,6 +418,7 @@ func (parser *oracleSelectParser) parseProjection() (oracleProjection, error) {
 			return oracleProjection{}, errors.New("wildcard aliases are unsupported")
 		}
 		projection.alias = alias.name
+		projection.aliasQuoted = alias.quoted
 	}
 	return projection, nil
 }
@@ -540,12 +549,17 @@ func (parser *oracleSelectParser) parsePredicate() (oracleTruth, error) {
 	if err != nil {
 		return oracleTruthUnknown, err
 	}
+	hasOr := false
 	for parser.consumeKeyword("OR") {
+		hasOr = true
 		right, rightErr := parser.parsePredicateAnd()
 		if rightErr != nil {
 			return oracleTruthUnknown, rightErr
 		}
 		truth = oracleTruthOr(truth, right)
+	}
+	if hasOr && parser.hasRownum {
+		return oracleTruthUnknown, errors.New("ROWNUM with OR is outside the supported profile")
 	}
 	return truth, nil
 }
@@ -566,6 +580,23 @@ func (parser *oracleSelectParser) parsePredicateAnd() (oracleTruth, error) {
 }
 
 func (parser *oracleSelectParser) parseComparison() (oracleTruth, error) {
+	if parser.matchKeyword("ROWNUM") && parser.dialect == oracleDialect && parser.allowRownum {
+		parser.position++
+		operator := parser.current()
+		if operator.kind != oracleTokenOperator || (operator.text != "<" && operator.text != "<=" && operator.text != "=") {
+			return oracleTruthUnknown, errors.New("ROWNUM supports only <, <=, or = in WHERE")
+		}
+		parser.position++
+		if err := parser.consumeUnsignedInteger("ROWNUM bound"); err != nil {
+			return oracleTruthUnknown, err
+		}
+		if parser.hasRownum {
+			return oracleTruthUnknown, errors.New("multiple ROWNUM predicates are unsupported")
+		}
+		parser.hasRownum = true
+		parser.hasPagination = true
+		return oracleTruthUnknown, nil
+	}
 	left, err := parser.parseOperand()
 	if err != nil {
 		return oracleTruthUnknown, err
@@ -578,8 +609,11 @@ func (parser *oracleSelectParser) parseComparison() (oracleTruth, error) {
 		if left.column != nil {
 			return oracleTruthUnknown, nil
 		}
+		if parser.dialect == dmDialect && oracleEmptyStringLiteral(left) {
+			return oracleTruthUnknown, nil
+		}
 		truth := oracleTruthFalse
-		if left.literalKind == oracleTokenWord && strings.EqualFold(left.literal, "NULL") {
+		if oracleNullLiteral(left, parser.dialect) {
 			truth = oracleTruthTrue
 		}
 		if not {
@@ -599,7 +633,7 @@ func (parser *oracleSelectParser) parseComparison() (oracleTruth, error) {
 	if err != nil {
 		return oracleTruthUnknown, err
 	}
-	return evaluateOracleLiteralComparison(left, operator.text, right), nil
+	return evaluateOracleLiteralComparison(left, operator.text, right, parser.dialect), nil
 }
 
 func (parser *oracleSelectParser) parseOperand() (oracleOperand, error) {
@@ -623,12 +657,34 @@ func (parser *oracleSelectParser) parseOperand() (oracleOperand, error) {
 
 func (parser *oracleSelectParser) parseOrderBy() error {
 	for {
-		parts, star, err := parser.parseIdentifierPath(3, false)
-		if err != nil || star {
-			return errors.New("ORDER BY supports only direct columns")
+		if parser.current().kind == oracleTokenNumber {
+			ordinal, err := strconv.ParseUint(parser.current().text, 10, 32)
+			if err != nil || ordinal == 0 || ordinal > uint64(len(parser.projections)) {
+				return errors.New("ORDER BY ordinal is outside the projection list")
+			}
+			parser.position++
+		} else {
+			parts, star, err := parser.parseIdentifierPath(3, false)
+			if err != nil || star {
+				return errors.New("ORDER BY supports only direct columns")
+			}
+			aliasMatches := 0
+			if len(parts) == 1 {
+				for _, projection := range parser.projections {
+					if projection.alias != "" && oracleIdentifiersEqual(
+						oracleIdentifier{name: projection.alias, quoted: projection.aliasQuoted}, parts[0]) {
+						aliasMatches++
+					}
+				}
+			}
+			if aliasMatches > 1 {
+				return errors.New("ORDER BY alias is ambiguous")
+			}
+			if aliasMatches == 0 {
+				parser.references = append(parser.references, oracleColumnRef{parts: parts})
+				parser.columns.add(parts[len(parts)-1].name)
+			}
 		}
-		parser.references = append(parser.references, oracleColumnRef{parts: parts})
-		parser.columns.add(parts[len(parts)-1].name)
 		if !parser.consumeKeyword("ASC") {
 			parser.consumeKeyword("DESC")
 		}
@@ -639,6 +695,9 @@ func (parser *oracleSelectParser) parseOrderBy() error {
 }
 
 func (parser *oracleSelectParser) parsePagination() error {
+	if parser.hasTop && (parser.matchKeyword("LIMIT") || parser.matchKeyword("OFFSET") || parser.matchKeyword("FETCH")) {
+		return errors.New("TOP cannot be combined with trailing pagination")
+	}
 	if parser.consumeKeyword("LIMIT") {
 		if parser.dialect != dmDialect {
 			return errors.New("LIMIT is unsupported for Oracle")
@@ -726,6 +785,9 @@ func (parser *oracleSelectParser) consumeIdentifier(label string) (oracleIdentif
 		parser.position++
 		return oracleIdentifier{name: token.text, quoted: true}, nil
 	case oracleTokenWord:
+		if (parser.dialect == oracleDialect || parser.dialect == dmDialect) && strings.EqualFold(token.text, "ROWNUM") {
+			return oracleIdentifier{}, errors.New("unquoted ROWNUM requires a supported Oracle WHERE bound")
+		}
 		if oracleReservedKeyword(token.text) {
 			return oracleIdentifier{}, fmt.Errorf("%s cannot be reserved keyword %q", label, token.text)
 		}
@@ -1034,7 +1096,20 @@ func oracleTruthOr(left, right oracleTruth) oracleTruth {
 	return oracleTruthUnknown
 }
 
-func evaluateOracleLiteralComparison(left oracleOperand, operator string, right oracleOperand) oracleTruth {
+func oracleNullLiteral(operand oracleOperand, dialect model.DBDialect) bool {
+	return operand.column == nil && (operand.literalKind == oracleTokenWord && strings.EqualFold(operand.literal, "NULL") ||
+		dialect == oracleDialect && oracleEmptyStringLiteral(operand))
+}
+
+func oracleEmptyStringLiteral(operand oracleOperand) bool {
+	return operand.column == nil && operand.literalKind == oracleTokenString && operand.literal == "''"
+}
+
+func evaluateOracleLiteralComparison(left oracleOperand, operator string, right oracleOperand, dialect model.DBDialect) oracleTruth {
+	if oracleNullLiteral(left, dialect) || oracleNullLiteral(right, dialect) ||
+		dialect == dmDialect && (oracleEmptyStringLiteral(left) || oracleEmptyStringLiteral(right)) {
+		return oracleTruthUnknown
+	}
 	if left.column != nil || right.column != nil || strings.EqualFold(operator, "LIKE") ||
 		left.literalKind != right.literalKind {
 		return oracleTruthUnknown

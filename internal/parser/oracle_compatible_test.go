@@ -2,7 +2,9 @@ package parser
 
 import (
 	"errors"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
@@ -171,6 +173,163 @@ func TestOracleCompatibleQuotedIdentifiers(t *testing.T) {
 		require.Equal(t, []model.ObjectRef{{Schema: "App", Table: "Customer", Alias: "C"}}, ast.Tables)
 		require.Equal(t, []string{"MixedName"}, ast.Columns)
 		assertOracleCompatibleDirectArm(t, ast.ProjectionLineages[0], "Output", model.ObjectRef{Schema: "App", Table: "Customer"})
+	}
+}
+
+func TestOracleRownumBoundedWhere(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT id FROM app.customers WHERE ROWNUM < 10",
+		"SELECT id FROM app.customers WHERE active = 1 AND ROWNUM <= 10 ORDER BY id",
+		"SELECT 1 AS one FROM DUAL WHERE ROWNUM = 1",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			ast := parseOracleCompatible(t, oracleDialect, sql)
+			require.True(t, ast.HasWhere)
+			require.True(t, ast.HasLimit)
+			require.NotContains(t, ast.Columns, "ROWNUM")
+			require.False(t, ast.WhereTautology)
+		})
+	}
+}
+
+func TestOracleRownumUnsupportedShapesFailClosed(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT ROWNUM FROM customers",
+		"SELECT id FROM customers WHERE ROWNUM > 1",
+		"SELECT id FROM customers WHERE 1 = ROWNUM",
+		"SELECT id FROM customers WHERE ROWNUM <= 5 OR active = 1",
+		"SELECT id FROM customers WHERE active = 1 OR ROWNUM < 5",
+		"SELECT id FROM customers WHERE ROWNUM < 5 AND ROWNUM < 3",
+		"SELECT id FROM customers WHERE ROWNUM <= -1",
+		"SELECT id FROM customers WHERE ROWNUM <= 1.5",
+		"SELECT id FROM customers JOIN orders ON ROWNUM < 5",
+	} {
+		t.Run(sql, func(t *testing.T) { assertOracleCompatibleRejected(t, oracleDialect, sql) })
+	}
+	assertOracleCompatibleRejected(t, dmDialect, "SELECT id FROM customers WHERE ROWNUM <= 5")
+}
+
+func TestOracleCompatibleOrderByProjectionReferences(t *testing.T) {
+	for _, dialect := range []model.DBDialect{dmDialect, oracleDialect} {
+		t.Run(string(dialect), func(t *testing.T) {
+			for _, test := range []struct {
+				sql     string
+				columns []string
+			}{
+				{"SELECT c.id AS identifier FROM app.customers c ORDER BY identifier", []string{"id"}},
+				{`SELECT c.id AS "Output" FROM app.customers c ORDER BY "Output"`, []string{"id"}},
+				{"SELECT c.id, c.name FROM app.customers c ORDER BY 2 DESC, 1", []string{"id", "name"}},
+				{"SELECT 1 AS one FROM DUAL ORDER BY one", []string{}},
+				{"SELECT c.id FROM app.customers c ORDER BY c.id", []string{"id"}},
+			} {
+				ast := parseOracleCompatible(t, dialect, test.sql)
+				require.Equal(t, test.columns, ast.Columns, test.sql)
+			}
+			for _, sql := range []string{
+				"SELECT id FROM customers ORDER BY 0",
+				"SELECT id FROM customers ORDER BY 2",
+				"SELECT id FROM customers ORDER BY 1.5",
+				"SELECT id AS x, name AS x FROM customers ORDER BY x",
+			} {
+				assertOracleCompatibleRejected(t, dialect, sql)
+			}
+		})
+	}
+}
+
+func TestOracleNullPredicateBoundaries(t *testing.T) {
+	for _, dialect := range []model.DBDialect{dmDialect, oracleDialect} {
+		t.Run(string(dialect), func(t *testing.T) {
+			for _, sql := range []string{
+				"SELECT id FROM customers WHERE NULL = NULL",
+				"SELECT id FROM customers WHERE NULL != NULL",
+				"SELECT id FROM customers WHERE NULL = NULL OR 1 = 0",
+			} {
+				ast := parseOracleCompatible(t, dialect, sql)
+				require.False(t, ast.WhereTautology, sql)
+			}
+			ast := parseOracleCompatible(t, dialect, "SELECT id FROM customers WHERE NULL IS NULL")
+			require.True(t, ast.WhereTautology)
+		})
+	}
+	for _, test := range []struct {
+		sql       string
+		tautology bool
+	}{
+		{"SELECT id FROM customers WHERE '' IS NULL", true},
+		{"SELECT id FROM customers WHERE '' IS NOT NULL", false},
+		{"SELECT id FROM customers WHERE '' = ''", false},
+	} {
+		ast := parseOracleCompatible(t, oracleDialect, test.sql)
+		require.Equal(t, test.tautology, ast.WhereTautology, test.sql)
+	}
+	for _, sql := range []string{
+		"SELECT id FROM customers WHERE '' IS NULL",
+		"SELECT id FROM customers WHERE '' IS NOT NULL",
+		"SELECT id FROM customers WHERE '' = ''",
+	} {
+		ast := parseOracleCompatible(t, dmDialect, sql)
+		require.False(t, ast.WhereTautology, sql)
+	}
+}
+
+func TestDMOraclePaginationAndAdministrativeBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		dialect model.DBDialect
+		sql     string
+		accept  bool
+	}{
+		{dmDialect, "SELECT id FROM app.customers LIMIT 5 OFFSET 2", true},
+		{dmDialect, "SELECT id FROM app.customers LIMIT 2, 5", true},
+		{dmDialect, "SELECT TOP 5 id FROM app.customers", true},
+		{oracleDialect, "SELECT id FROM app.customers OFFSET 2 ROWS FETCH NEXT 5 ROWS ONLY", true},
+		{oracleDialect, "SELECT id FROM app.customers FETCH FIRST 5 ROWS ONLY", true},
+		{oracleDialect, "SELECT id FROM app.customers LIMIT 5", false},
+		{oracleDialect, "SELECT TOP 5 id FROM app.customers", false},
+		{dmDialect, "SELECT id FROM app.customers LIMIT 5 OFFSET -1", false},
+		{dmDialect, "SELECT id FROM app.customers LIMIT 5,", false},
+		{dmDialect, "SELECT TOP 5 id FROM app.customers LIMIT 2", false},
+		{dmDialect, "SELECT TOP 5 id FROM app.customers FETCH FIRST 2 ROWS ONLY", false},
+		{oracleDialect, "SELECT id FROM app.customers FETCH FIRST 5 ROWS WITH TIES", false},
+		{oracleDialect, "ALTER SESSION SET CURRENT_SCHEMA = app", false},
+		{dmDialect, "BACKUP DATABASE FULL TO local_backup", false},
+		{dmDialect, "RESTORE DATABASE FROM local_backup", false},
+		{oracleDialect, "MERGE INTO customers USING incoming ON customers.id = incoming.id", false},
+	} {
+		t.Run(string(test.dialect)+"/"+test.sql, func(t *testing.T) {
+			if test.accept {
+				ast := parseOracleCompatible(t, test.dialect, test.sql)
+				require.True(t, ast.HasLimit)
+			} else {
+				assertOracleCompatibleRejected(t, test.dialect, test.sql)
+			}
+		})
+	}
+}
+
+func TestDMOracleCompatibleP99Budget(t *testing.T) {
+	const sql = `SELECT c.id, c.name, c.status, c.region, o.id, o.total, o.state, o.created_at
+FROM app.customers c JOIN app.orders o ON c.id = o.customer_id
+WHERE c.active = 1 AND o.state = 'PAID' ORDER BY o.created_at FETCH FIRST 100 ROWS ONLY`
+	const parses = 2000
+	for _, dialect := range []model.DBDialect{dmDialect, oracleDialect} {
+		t.Run(string(dialect), func(t *testing.T) {
+			approved, err := NewParser(dialect)
+			require.NoError(t, err)
+			_, err = approved.Parse(sql)
+			require.NoError(t, err)
+			durations := make([]time.Duration, parses)
+			for i := range durations {
+				start := time.Now()
+				_, err = approved.Parse(sql)
+				durations[i] = time.Since(start)
+				require.NoError(t, err)
+			}
+			sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+			p99 := durations[(parses*99+99)/100-1]
+			t.Logf("%s representative SELECT parses=%d P99=%s", dialect, parses, p99)
+			require.LessOrEqual(t, p99, 5*time.Millisecond)
+		})
 	}
 }
 
