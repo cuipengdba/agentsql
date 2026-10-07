@@ -96,7 +96,8 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	columns := make(stringSet)
 	functions := make(stringSet)
 	commonTableExpressions := make(stringSet)
-	walkPostgresNode(node, func(key string, value any) {
+	nestingDepth, unionCount := 0, 0
+	collect := func(key string, value any) {
 		if object, ok := postgresRangeVar(value); ok {
 			tables.add(object)
 		}
@@ -122,7 +123,12 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 				functions.add(function)
 			}
 		}
-	})
+	}
+	if nodeType == "SelectStmt" {
+		walkPostgresNodeWithComplexity(node, collect, 0, &nestingDepth, &unionCount)
+	} else {
+		walkPostgresNode(node, collect)
+	}
 	tables.removeUnqualified(commonTableExpressions)
 	if nodeType == "DropStmt" {
 		for _, object := range postgresDropObjects(node) {
@@ -142,7 +148,9 @@ func (parser *postgresParser) parse(sql string) (*model.AST, error) {
 	if err != nil {
 		return &model.AST{Dialect: postgresDialect, RawSQL: sql}, unparseableError(postgresDialect, err)
 	}
-	nestingDepth, unionCount := postgresQueryComplexity(analysisType, analysisNode)
+	if nodeType != "SelectStmt" {
+		nestingDepth, unionCount = postgresQueryComplexity(analysisType, analysisNode)
+	}
 	operations.add(fmt.Sprintf("%s:%d", nestingDepthOperation, nestingDepth))
 	operations.add(fmt.Sprintf("%s:%d", unionCountOperation, unionCount))
 	hasGroupBy, isPureAggregate := postgresAggregateShape(analysisType, analysisNode)
@@ -964,6 +972,32 @@ func walkPostgresNode(value any, visit func(key string, value any)) {
 	case []any:
 		for _, child := range typed {
 			walkPostgresNode(child, visit)
+		}
+	}
+}
+
+// Collect SELECT complexity during the same traversal used for tables,
+// columns, and functions. The depth and union rules match postgresSelectComplexity.
+func walkPostgresNodeWithComplexity(value any, visit func(key string, value any), depth int, maximumDepth, unionCount *int) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if operation, _ := typed["op"].(string); operation == "SETOP_UNION" {
+			*unionCount++
+		}
+		for key, child := range typed {
+			childDepth := depth
+			if postgresNestedQueryBoundary(key) {
+				childDepth++
+				if childDepth > *maximumDepth {
+					*maximumDepth = childDepth
+				}
+			}
+			visit(key, child)
+			walkPostgresNodeWithComplexity(child, visit, childDepth, maximumDepth, unionCount)
+		}
+	case []any:
+		for _, child := range typed {
+			walkPostgresNodeWithComplexity(child, visit, depth, maximumDepth, unionCount)
 		}
 	}
 }
