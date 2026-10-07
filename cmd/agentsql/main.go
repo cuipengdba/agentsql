@@ -174,6 +174,7 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			loaded.Redaction.Clear()
 			adminDeps, err := adminapi.PrepareDemoDeps(ctx, adminapi.Deps{
 				Runtime:        runtime,
+				Native:         runtime,
 				Config:         loaded,
 				AdminUsername:  adminUser,
 				AdminPassword:  adminPassword,

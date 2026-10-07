@@ -1,5 +1,9 @@
 import { request } from "./client";
-import type { DatasourceInput, DatasourceView, DeleteView, PageQuery, PageResp, PingView } from "./types";
+import type { DatasourceInput, DatasourceTypeView, DatasourceView, DeleteView, NativePingView, PageQuery, PageResp, PingView } from "./types";
+
+export function listDatasourceTypes(signal?: AbortSignal): Promise<DatasourceTypeView[]> {
+  return request<DatasourceTypeView[]>({ method: "GET", url: "/datasource-types", signal });
+}
 
 export function listDatasources(params: PageQuery = {}, signal?: AbortSignal): Promise<PageResp<DatasourceView>> {
   return request<PageResp<DatasourceView>>({ method: "GET", url: "/datasources", params, signal });
@@ -23,4 +27,8 @@ export function deleteDatasource(id: string): Promise<DeleteView> {
 
 export function pingDatasource(id: string): Promise<PingView> {
   return request<PingView>({ method: "POST", url: `/datasources/${encodeURIComponent(id)}/ping` });
+}
+
+export function nativePingDatasource(id: string): Promise<NativePingView> {
+  return request<NativePingView>({ method: "POST", url: `/datasources/${encodeURIComponent(id)}/native-ping` });
 }

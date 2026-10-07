@@ -3,8 +3,8 @@ import { Alert, Button, Checkbox, Drawer, Form, Input, InputNumber, Modal, Pagin
 import type { TableProps } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { createDatasource, deleteDatasource, listDatasources, pingDatasource, updateDatasource } from "@/api/datasources";
-import type { DatasourceInput, DatasourceView } from "@/api/types";
+import { createDatasource, deleteDatasource, listDatasources, listDatasourceTypes, nativePingDatasource, pingDatasource, updateDatasource } from "@/api/datasources";
+import type { DatasourceInput, DatasourceTypeView, DatasourceView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { configLabel, dbTypeMeta } from "@/constants/labels";
 import { DiscoveryDrawer } from "@/pages/datasources/DiscoveryDrawer";
@@ -12,8 +12,14 @@ import { DiscoveryDrawer } from "@/pages/datasources/DiscoveryDrawer";
 import { apiErrorMessage, httpStatus, isCanceled } from "./config/utils";
 
 interface DatasourceFormValues extends DatasourceInput {
-  db_type: "postgres" | "mysql" | "sqlserver";
+  db_type: string;
 }
+
+const categoryLabels: Record<string, string> = {
+  relational: "关系型", keyvalue: "键值", document: "文档", widecolumn: "宽列",
+  graph: "图", timeseries: "时序", olap: "OLAP", vector: "向量",
+};
+const categoryOrder = ["relational", "keyvalue", "document", "widecolumn", "graph", "timeseries", "olap", "vector"];
 
 const defaultDatasource: Partial<DatasourceFormValues> = {
   db_type: "postgres",
@@ -27,6 +33,9 @@ const defaultDatasource: Partial<DatasourceFormValues> = {
 export function Datasources() {
   const [form] = Form.useForm<DatasourceFormValues>();
   const [list, setList] = useState<DatasourceView[]>([]);
+  const [types, setTypes] = useState<DatasourceTypeView[]>([]);
+  const [typesFailed, setTypesFailed] = useState(false);
+  const [selectedType, setSelectedType] = useState("postgres");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
@@ -74,8 +83,26 @@ export function Datasources() {
     };
   }, [load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void listDatasourceTypes(controller.signal).then(setTypes).catch((error: unknown) => {
+      if (!isCanceled(error)) setTypesFailed(true);
+    });
+    return () => controller.abort();
+  }, []);
+
+  const typeByKey = Object.fromEntries(types.map((type) => [type.key, type])) as Record<string, DatasourceTypeView>;
+  const selectedSpec = typeByKey[selectedType];
+  const groupedOptions = categoryOrder.map((category) => ({
+    label: categoryLabels[category],
+    options: types.filter((type) => type.category === category).map((type) => ({
+      value: type.key, label: `${type.display_name} · ${type.default_port} · ${type.capability}`,
+    })),
+  })).filter((group) => group.options.length > 0);
+
   const openCreate = () => {
     setEditing(null);
+    setSelectedType("postgres");
     form.resetFields();
     form.setFieldsValue(defaultDatasource);
     setDrawerOpen(true);
@@ -83,6 +110,7 @@ export function Datasources() {
 
   const openEdit = (datasource: DatasourceView) => {
     setEditing(datasource);
+    setSelectedType(datasource.db_type);
     form.setFieldsValue({
       id: datasource.id,
       name: datasource.name,
@@ -104,6 +132,10 @@ export function Datasources() {
   };
 
   const submit = async () => {
+    if (!selectedSpec) {
+      void message.error("数据源类型尚未加载，请稍后重试");
+      return;
+    }
     let values: DatasourceFormValues;
     try {
       values = await form.validateFields();
@@ -116,8 +148,8 @@ export function Datasources() {
       db_type: values.db_type,
       host: values.host.trim(),
       port: values.port,
-      database: values.database.trim(),
-      username: values.username.trim(),
+      database: (values.database || "").trim(),
+      username: (values.username || "").trim(),
       conn_limit: values.conn_limit,
       stmt_timeout_ms: values.stmt_timeout_ms,
       row_limit: values.row_limit,
@@ -143,9 +175,14 @@ export function Datasources() {
   };
 
   const ping = async (datasource: DatasourceView) => {
+    if (!typeByKey[datasource.db_type]) {
+      void message.error("数据源类型尚未加载，无法选择连接测试路径");
+      return;
+    }
     setPingingID(datasource.id);
     try {
-      const result = await pingDatasource(datasource.id);
+      const result = typeByKey[datasource.db_type]?.kind === "nosql"
+        ? await nativePingDatasource(datasource.id) : await pingDatasource(datasource.id);
       if (!mountedRef.current) return;
       if (result.ok) void message.success(`连接成功，延迟 ${Number.isFinite(result.latency_ms) ? result.latency_ms : 0} ms`);
       else void message.error("连接测试未通过");
@@ -178,7 +215,8 @@ export function Datasources() {
   const columns: TableProps<DatasourceView>["columns"] = [
     { title: "ID", dataIndex: "id", width: 140, ellipsis: true, render: (value: string) => <code>{value}</code> },
     { title: "名称", dataIndex: "name", width: 140, ellipsis: true },
-    { title: "类型", dataIndex: "db_type", width: 110, render: (value: string) => <Tag color={dbTypeMeta[value as keyof typeof dbTypeMeta]?.color}>{configLabel(dbTypeMeta, value)}</Tag> },
+    { title: "类型", dataIndex: "db_type", width: 190, render: (value: string) => { const spec = typeByKey[value]; return <Space size={4}><Tag color={spec?.kind === "nosql" ? "cyan" : "blue"}>{spec?.display_name || configLabel(dbTypeMeta, value)}</Tag>{spec?.kind === "nosql" ? <Tag>{categoryLabels[spec.category]}</Tag> : null}</Space>; } },
+    { title: "能力档位", dataIndex: "db_type", width: 150, render: (value: string) => typeByKey[value]?.capability || "未知" },
     { title: "地址", key: "address", width: 190, render: (_: unknown, row: DatasourceView) => <code>{row.host}:{row.port}</code> },
     { title: "数据库", dataIndex: "database", width: 130, ellipsis: true },
     { title: "用户名", dataIndex: "username", width: 120, ellipsis: true },
@@ -191,7 +229,7 @@ export function Datasources() {
       render: (_: unknown, row: DatasourceView) => <Space size={4}>
         <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>
         <Button type="link" size="small" icon={<ApiOutlined />} loading={pingingID === row.id} onClick={() => void ping(row)}>测试</Button>
-        <Button type="link" size="small" icon={<SafetyCertificateOutlined />} onClick={() => setDiscoveryTarget(row)}>敏感发现</Button>
+        {typeByKey[row.db_type]?.kind === "relational" ? <Button type="link" size="small" icon={<SafetyCertificateOutlined />} onClick={() => setDiscoveryTarget(row)}>敏感发现</Button> : null}
         <Button type="link" danger size="small" icon={<DeleteOutlined />} onClick={() => { setDeleteTarget(row); setDeleteConfirmation(""); }}>删除</Button>
       </Space>,
     },
@@ -200,7 +238,8 @@ export function Datasources() {
   return (
     <PageContainer title="数据源" subtitle="配置受控数据库连接与执行限额" extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建数据源</Button>}>
       {failed ? <Alert className="cfg-inline-alert" type="error" showIcon message="数据源列表加载失败" action={<Button size="small" onClick={() => void load()}>重试</Button>} /> : null}
-      <div className="cfg-table"><Table<DatasourceView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_600 }} /></div>
+      {typesFailed ? <Alert type="error" showIcon message="数据源类型加载失败，请刷新页面后重试" /> : null}
+      <div className="cfg-table"><Table<DatasourceView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_800 }} /></div>
       <div className="cfg-pagination"><Pagination current={page} pageSize={pageSize} total={total} pageSizeOptions={[20, 50, 100]} showSizeChanger onChange={(next, size) => { setPageSize(size); setPage(size !== pageSize ? 1 : next); }} /></div>
 
       <Drawer open={drawerOpen} title={editing ? "编辑数据源" : "新建数据源"} width={560} destroyOnClose onClose={() => setDrawerOpen(false)} extra={<Button type="primary" loading={saving} onClick={() => void submit()}>保存</Button>}>
@@ -210,7 +249,8 @@ export function Datasources() {
           onValuesChange={(changed: Partial<DatasourceFormValues>) => {
             const dbType = changed.db_type;
             if (dbType) {
-              form.setFieldValue("port", dbType === "postgres" ? 5432 : dbType === "mysql" ? 3306 : 1433);
+              setSelectedType(dbType);
+              form.setFieldValue("port", typeByKey[dbType]?.default_port);
               if (dbType === "sqlserver") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
@@ -220,14 +260,15 @@ export function Datasources() {
         >
           <Form.Item name="id" label="数据源 ID" rules={[{ required: true, whitespace: true }]}><Input disabled={Boolean(editing)} /></Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
-          <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={[{ value: "postgres", label: "PostgreSQL" }, { value: "mysql", label: "MySQL" }, { value: "sqlserver", label: "SQL Server 2025" }]} /></Form.Item>
+          <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={groupedOptions} disabled={types.length === 0} /></Form.Item>
+          {selectedSpec?.kind === "nosql" ? <Alert type="info" showIcon message={`${categoryLabels[selectedSpec.category]} · 默认端口 ${selectedSpec.default_port} · 连接级/低阶支持（nosql-connect）`} /> : null}
           <div className="cfg-form-grid">
             <Form.Item name="host" label="主机" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
             <Form.Item name="port" label="端口" rules={[{ required: true }]}><InputNumber min={1} max={65535} className="cfg-full-width" /></Form.Item>
           </div>
-          <Form.Item name="database" label="数据库" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
-          <Form.Item name="username" label="用户名" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
-          <Form.Item name="password" label="密码" rules={editing ? [] : [{ required: true, message: "新建数据源必须填写密码" }]}><Input.Password placeholder={editing ? "留空表示不修改密码" : "输入数据库密码"} /></Form.Item>
+          <Form.Item name="database" label="数据库 / 命名空间" rules={selectedSpec?.requires_database ? [{ required: true, whitespace: true }] : []}><Input /></Form.Item>
+          <Form.Item name="username" label="用户名" rules={selectedSpec?.requires_username ? [{ required: true, whitespace: true }] : []}><Input /></Form.Item>
+          <Form.Item name="password" label="密码 / 令牌" rules={!editing && selectedSpec?.requires_password ? [{ required: true }] : []}><Input.Password placeholder={editing ? "留空表示不修改" : "依数据源要求填写"} /></Form.Item>
           <Form.Item noStyle shouldUpdate={(previous, current) => previous.db_type !== current.db_type || previous.tls_mode !== current.tls_mode}>
             {({ getFieldValue }) => getFieldValue("db_type") === "sqlserver" ? <>
               <Alert className="cfg-inline-alert" type="info" showIcon message="SQL Server 2025 仅开放受控只读 SELECT；TLS 不可关闭，默认使用 TDS 8.0 strict。" />

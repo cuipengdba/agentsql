@@ -39,6 +39,7 @@ type Deps struct {
 	TokenKey         []byte
 	RBAC             *rbac.Service
 	DatasourcePinger DatasourcePinger
+	Native           NativeBackend
 	Discovery        DiscoveryRunner
 	ChainManifests   ChainManifestProvider
 	// B5Admin is nil only for an explicit feature-off assembly. S9 routes remain
@@ -220,11 +221,15 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("DELETE /api/v1/agents/{id}", handler.agentsDelete)
 	mux.HandleFunc("POST /api/v1/agents/{id}/rotate-key", handler.agentsRotate)
 	mux.HandleFunc("GET /api/v1/datasources", handler.datasourcesList)
+	mux.HandleFunc("GET /api/v1/datasource-types", handler.datasourceTypesList)
 	mux.HandleFunc("POST /api/v1/datasources", handler.datasourcesCreate)
 	mux.HandleFunc("GET /api/v1/datasources/{id}", handler.datasourcesGet)
 	mux.HandleFunc("PUT /api/v1/datasources/{id}", handler.datasourcesUpdate)
 	mux.HandleFunc("DELETE /api/v1/datasources/{id}", handler.datasourcesDelete)
 	mux.HandleFunc("POST /api/v1/datasources/{id}/ping", handler.datasourcesPing)
+	mux.HandleFunc("POST /api/v1/datasources/{id}/native-ping", handler.nativePing)
+	mux.HandleFunc("POST /api/v1/datasources/{id}/native-query", handler.nativeQuery)
+	mux.HandleFunc("GET /api/v1/datasources/{id}/native-schema", handler.nativeSchema)
 	mux.HandleFunc("POST /api/v1/datasources/{id}/discover", handler.datasourcesDiscover)
 	mux.HandleFunc("POST /api/v1/datasources/{id}/discover/apply", handler.datasourcesDiscoverApply)
 	mux.HandleFunc("GET /api/v1/policies", handler.policiesList)
@@ -370,7 +375,7 @@ func requiredPermission(method, path string) (string, bool) {
 		return rbac.PermissionRoleManage, true
 	case strings.HasPrefix(path, "/api/v1/tenants"):
 		return rbac.PermissionTenantManage, true
-	case strings.HasPrefix(path, "/api/v1/agents"), strings.HasPrefix(path, "/api/v1/datasources"):
+	case strings.HasPrefix(path, "/api/v1/agents"), strings.HasPrefix(path, "/api/v1/datasources"), path == "/api/v1/datasource-types":
 		return rbac.PermissionDatasourceManage, true
 	case strings.HasPrefix(path, "/api/v1/policies"), strings.HasPrefix(path, "/api/v1/rules"),
 		strings.HasPrefix(path, "/api/v1/mask_rules"), strings.HasPrefix(path, "/api/v1/redaction"),

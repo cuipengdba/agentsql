@@ -112,6 +112,24 @@ export interface PingView {
   latency_ms: number;
 }
 
+export interface DatasourceTypeView {
+  key: string;
+  display_name: string;
+  category: string;
+  default_port: number;
+  kind: "relational" | "nosql";
+  capability: "relational" | "nosql-connect";
+  requires_database: boolean;
+  requires_username: boolean;
+  requires_password: boolean;
+}
+
+export interface NativePingView extends PingView {
+  version?: string;
+  error_code?: string;
+  error_message?: string;
+}
+
 export interface PolicyView {
   id: string;
   agent_id: string;
