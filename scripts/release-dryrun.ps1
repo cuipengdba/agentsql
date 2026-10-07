@@ -1,4 +1,4 @@
-# Assemble and verify the v0.4-style 15-file AgentSQL dry-run set, or prepare
+# Assemble and verify the 15-file AgentSQL dry-run set, or prepare
 # the 11 unsigned production candidates, without reading a private signing key,
 # pushing an image, changing git, or calling GitHub.
 [CmdletBinding()]
@@ -33,6 +33,28 @@ Set-StrictMode -Version Latest
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$assetChecksReported = $false
+trap {
+    $reason = $_.Exception.Message
+    if (-not $ProductionPrepare -and -not $script:assetChecksReported) {
+        Write-Host 'RELEASE_DRYRUN_CHECKS_BEGIN'
+        foreach ($name in @(Get-ExpectedAssetNames $Version)) {
+            Write-Host "ASSET $name | FAIL | assembly or validation did not complete: $reason"
+        }
+        Write-Host 'RELEASE_DRYRUN_CHECKS_END'
+        Write-Host 'RELEASE_DRYRUN_ITEM_PASS_COUNT=0'
+        Write-Host 'RELEASE_DRYRUN_ITEM_FAIL_COUNT=15'
+    }
+    if ($ProductionPrepare) {
+        Write-Host "RELEASE_PREPARE_ERROR=$reason"
+        Write-Host 'RELEASE_PREPARE_RESULT=FAIL'
+    }
+    else {
+        Write-Host "RELEASE_DRYRUN_ERROR=$reason"
+        Write-Host 'RELEASE_DRYRUN_RESULT=FAIL'
+    }
+    exit 1
+}
 
 function Write-Utf8File {
     param(
@@ -94,6 +116,141 @@ function Show-AssetInventory {
         }
     }
     Write-Host 'RELEASE_DRYRUN_ASSETS_END'
+}
+
+function Show-AssetValidation {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$ReleaseVersion,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit
+    )
+    $expected = @(Get-ExpectedAssetNames $ReleaseVersion)
+    $failures = @()
+    $script:assetChecksReported = $true
+    Write-Host 'RELEASE_DRYRUN_CHECKS_BEGIN'
+    foreach ($name in $expected) {
+        $path = Join-Path $Directory $name
+        try {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw 'missing file'
+            }
+            $item = Get-Item -LiteralPath $path
+            if ($item.Length -le 0) { throw 'empty file' }
+            $hash = Get-Sha256 $path
+            switch -Regex ($name) {
+                '^agentsql-.*-linux-(amd64|arm64)\.tar\.gz$' {
+                    $architecture = $Matches[1]
+                    $rootName = "agentsql-$ReleaseVersion-linux-$architecture"
+                    $entries = @(& tar -tzf $path)
+                    if ($LASTEXITCODE -ne 0) { throw 'tar archive cannot be read' }
+                    foreach ($library in @('libyascli.so', 'libyas_infra.so')) {
+                        $libraryPath = "$rootName/lib/yashandb/$library"
+                        if ($entries -cnotcontains $libraryPath) { throw "missing $libraryPath" }
+                        Write-Host "YASHAN_LIBRARY $name $libraryPath | PASS"
+                    }
+                    if ($entries -cnotcontains "$rootName/SHA256SUMS") { throw 'missing internal SHA256SUMS' }
+                    break
+                }
+                '^agentsql-.*-linux-(amd64|arm64)\.tar\.gz\.sha256$' {
+                    $tarName = $name.Substring(0, $name.Length - '.sha256'.Length)
+                    $sidecar = (Get-Content -LiteralPath $path -Raw -Encoding UTF8).Trim()
+                    if ($sidecar -cnotmatch '^([0-9a-f]{64})  ([^\\/]+)$') { throw 'malformed sidecar' }
+                    if ($Matches[2] -cne $tarName -or $Matches[1] -cne (Get-Sha256 (Join-Path $Directory $tarName))) {
+                        throw "checksum does not match $tarName"
+                    }
+                    break
+                }
+                '^agentsql-.*\.spdx\.json$' {
+                    $sbom = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ([string]$sbom.spdxVersion -ne 'SPDX-2.3' -or [string]$sbom.documentNamespace -notmatch [regex]::Escape($ReleaseVersion)) {
+                        throw 'SPDX version or document namespace mismatch'
+                    }
+                    break
+                }
+                '^agentsql-.*\.spdx\.json\.sig\.json$' {
+                    $signature = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $isPlaceholder = $signature.PSObject.Properties['dryRun'] -and $signature.dryRun -eq $true
+                    Assert-SignatureDocument -Directory $Directory -ArtifactName "agentsql-$ReleaseVersion.spdx.json" -SignatureName $name -DryRunSet $isPlaceholder
+                    break
+                }
+                '^provenance\.json\.sig\.json$|^SHA256SUMS\.sig\.json$' {
+                    $signature = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $artifact = $name.Substring(0, $name.Length - '.sig.json'.Length)
+                    $isPlaceholder = $signature.PSObject.Properties['dryRun'] -and $signature.dryRun -eq $true
+                    Assert-SignatureDocument -Directory $Directory -ArtifactName $artifact -SignatureName $name -DryRunSet $isPlaceholder
+                    break
+                }
+                '^ed25519-release-public-key\.json$' {
+                    $public = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($public.PSObject.Properties['dryRun'] -and $public.dryRun -eq $true) {
+                        if ($public.signed -ne $false -or $public.PSObject.Properties['publicKeyBase64']) { throw 'invalid unsigned public-key placeholder' }
+                    }
+                    elseif ([string]$public.algorithm -ne 'Ed25519' -or [string]$public.publicKeyBase64 -eq '') {
+                        throw 'malformed release public key'
+                    }
+                    break
+                }
+                '^go-version-metadata\.txt$' {
+                    $metadata = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+                    if ($metadata -notmatch 'github\.com/yashan-technologies/yashandb-go\s+v1\.4\.4') { throw 'missing yashandb-go v1.4.4' }
+                    foreach ($architecture in @('amd64', 'arm64')) {
+                        if ($metadata -notmatch [regex]::Escape("agentsql-linux-$architecture")) { throw "missing linux/$architecture metadata" }
+                    }
+                    break
+                }
+                '^install\.sh$' {
+                    if ($hash -cne (Get-Sha256 (Join-Path $repositoryRoot 'scripts/install.sh'))) { throw 'does not match scripts/install.sh' }
+                    break
+                }
+                '^provenance\.json$' {
+                    $provenance = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ([string]$provenance.version -cne $ReleaseVersion -or [string]$provenance.source.commit -cne $ExpectedCommit) {
+                        throw 'version or source commit mismatch'
+                    }
+                    break
+                }
+                '^SBOM-GENERATION\.txt$' {
+                    $instructions = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+                    if ($instructions -notmatch 'SPDX 2\.3 JSON' -or $instructions -notmatch 'SOURCE_DATE_EPOCH: [0-9]+') {
+                        throw 'missing SPDX or source epoch marker'
+                    }
+                    break
+                }
+                '^SHA256SUMS$' {
+                    $manifestNames = @()
+                    foreach ($line in @(Get-Content -LiteralPath $path -Encoding UTF8)) {
+                        if ($line -cnotmatch '^([0-9a-f]{64})  ([^\\/]+)$') { throw "malformed manifest line: $line" }
+                        $manifestHash = $Matches[1]
+                        $manifestName = $Matches[2]
+                        if ($manifestNames -ccontains $manifestName) { throw "duplicate manifest entry: $manifestName" }
+                        $manifestNames += $manifestName
+                        if ($manifestHash -cne (Get-Sha256 (Join-Path $Directory $manifestName))) { throw "checksum mismatch: $manifestName" }
+                    }
+                    $manifestExpected = @($expected | Where-Object { $_ -notin @('SHA256SUMS', 'SHA256SUMS.sig.json') })
+                    Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
+                    break
+                }
+                '^VERIFYING-SIGNATURES\.md$' {
+                    $instructions = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+                    if ($instructions -notmatch [regex]::Escape($ReleaseVersion) -or $instructions -notmatch 'SHA256SUMS') {
+                        throw 'missing release version or manifest verification instructions'
+                    }
+                    break
+                }
+                default { throw "no validation rule for expected asset $name" }
+            }
+            Write-Host "ASSET $name | $($item.Length) bytes | $hash | PASS"
+        }
+        catch {
+            $reason = $_.Exception.Message
+            $failures += "$name`: $reason"
+            Write-Host "ASSET $name | FAIL | $reason"
+        }
+    }
+    Write-Host 'RELEASE_DRYRUN_CHECKS_END'
+    Write-Host "RELEASE_DRYRUN_ITEM_PASS_COUNT=$($expected.Count - $failures.Count)"
+    Write-Host "RELEASE_DRYRUN_ITEM_FAIL_COUNT=$($failures.Count)"
+    if ($failures.Count -gt 0) { throw "Asset validation failed: $($failures -join '; ')" }
 }
 
 function Assert-NameSet {
@@ -275,14 +432,8 @@ if ($ValidateOnly) {
     if ($LASTEXITCODE -ne 0 -or $validationCommit -notmatch '^[0-9a-f]{40}$') {
         throw 'Could not read the expected git commit for validation.'
     }
-    try {
-        Show-AssetInventory -Directory $AssetsDirectory -ReleaseVersion $Version
-        Test-ReleaseAssets -Directory $AssetsDirectory -ReleaseVersion $Version -ExpectedCommit $validationCommit | Out-Null
-    }
-    catch {
-        Write-Host 'RELEASE_DRYRUN_RESULT=FAIL'
-        throw
-    }
+    Show-AssetValidation -Directory $AssetsDirectory -ReleaseVersion $Version -ExpectedCommit $validationCommit
+    Test-ReleaseAssets -Directory $AssetsDirectory -ReleaseVersion $Version -ExpectedCommit $validationCommit | Out-Null
     Write-Host 'RELEASE_DRYRUN_IMAGES=NOT_CHECKED_VALIDATE_ONLY'
     Write-Host 'RELEASE_DRYRUN_GHCR_PUBLICATION=NOT_PERFORMED'
     Write-Host 'RELEASE_DRYRUN_GIT_TAG=NOT_CREATED'
@@ -316,10 +467,7 @@ if (Test-Path -LiteralPath $OutputDirectory) {
 }
 
 if (-not $SourceDateEpoch) {
-    $SourceDateEpoch = (& git -C $repositoryRoot show -s --format=%ct HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or $SourceDateEpoch -notmatch '^[0-9]+$') {
-        throw 'Could not derive SOURCE_DATE_EPOCH from HEAD.'
-    }
+    $SourceDateEpoch = [string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 }
 
 if ($ProductionPrepare) {
@@ -460,10 +608,14 @@ $relationshipCount relationships. $sbomClosing
 Write-Utf8File -Path (Join-Path $assetsPath 'SBOM-GENERATION.txt') -Content $sbomInstructions
 
 $commit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
-$branch = (& git -C $repositoryRoot branch --show-current).Trim()
 if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') {
     throw 'Could not read git source identity.'
 }
+$branchStatus = @(& git -C $repositoryRoot status --porcelain=1 --branch)
+if ($LASTEXITCODE -ne 0 -or $branchStatus.Count -eq 0 -or $branchStatus[0] -notmatch '^## (.+?)(?:\.\.\..*)?$') {
+    throw 'Could not read git branch from status.'
+}
+$branch = $Matches[1]
 $dirtyOutput = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
 $inputNames = @('go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json', 'Dockerfile', 'scripts/build-release-linux.sh', 'scripts/package-release.sh', 'scripts/install.sh', 'scripts/release-dryrun.ps1', 'scripts/build-ghcr-multiarch.ps1', 'Makefile')
 $inputs = foreach ($name in $inputNames) {
@@ -611,7 +763,7 @@ else {
     Write-Utf8File -Path (Join-Path $assetsPath 'SHA256SUMS') -Content (($manifestLines -join "`n") + "`n")
     Write-UnsignedPlaceholder -ArtifactName 'SHA256SUMS' -SignatureName 'SHA256SUMS.sig.json'
 
-    Show-AssetInventory -Directory $assetsPath -ReleaseVersion $Version
+    Show-AssetValidation -Directory $assetsPath -ReleaseVersion $Version -ExpectedCommit $commit
     Test-ReleaseAssets -Directory $assetsPath -ReleaseVersion $Version -ExpectedCommit $commit | Out-Null
 }
 
