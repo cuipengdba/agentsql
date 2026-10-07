@@ -33,26 +33,45 @@ The seven base MCP tools are `list_datasources`, `list_schema`, `explain_query`,
 
 ## Database Compatibility
 
-AgentSQL currently supports PostgreSQL and MySQL as protected business databases. The following Chinese-database matrix is copied from the Chinese README and distinguishes tested protocol paths from work in progress.
+The pending v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 is a separate vendor-environment candidate and is not included in the 27. Tiers describe bounded capabilities: 🟢 full protection = parsing, authorization, controlled execution, masking, and audit; 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
 
-| Database | Status | Notes |
-| --- | --- | --- |
-| KingbaseES | Pending vendor environment | The target V9R1C10 image is pending from the vendor; the available third-party older image has an expired license |
-| HighGo | Protocol path tested | The PostgreSQL protocol path was tested with a third-party SEE image; commercial-edition validation is still pending |
-| IvorySQL | Tested | Community-edition protocol path tested |
-| openGauss (GaussDB) | Tested | Community-edition protocol path tested |
-| TiDB | In progress | EXPLAIN adaptation is in progress |
-| OceanBase | In progress | EXPLAIN adaptation is in progress |
-| TDSQL | In progress | OpenTenBase adaptation is in progress; commercial edition pending test |
-| OpenTenBase | In progress | Execution-plan compatibility fix is in progress |
-| YashanDB | Pending test | x86 image is available; ARM image is a fallback |
-| Dameng Database (DM) | Pending adaptation | DM8 container is running; a separate dialect is still required |
-| PolarDB for PostgreSQL | Protocol path tested | A named PG 15 community image reuses `db_type=postgres`; this is not commercial-service certification |
-| PolarDB-X | Bounded old-image test | The official `2.0.1` all-in-one image reuses `db_type=mysql` and passes the two-stage EXPLAIN path; current full-topology and commercial-service validation remain pending |
+### Relational (6 registered + 1 pending)
 
-“Tested” means that a community-edition or container-image protocol path was exercised; it is not vendor certification. “In progress” and “pending test” do not mean the current release supports that database. The current native support matrix remains PostgreSQL 14–18 and MySQL 8.
+- 🟢 PostgreSQL 14–18; MySQL 8.0
+- 🔵 Oracle 23ai; Dameng DM8; YashanDB; SQL Server 2025
+- 🟡 KingbaseES V9: waiting for a vendor image and license; the target environment was expected on October 8. Connection validation is not claimed before it is obtained.
 
-See the [KingbaseES + HighGo case-validation record](docs/joint-case-kingbase-highgo.md) for evidence, reproducible SQL, and pending vendor items. Public messaging is defined in the [community operations wording](docs/joint-case-operations.md).
+### Key-value (KV)
+
+- 🔷 Redis; Valkey (reuses the Redis adapter); Memcached
+
+### Document
+
+- 🔷 MongoDB; Couchbase; CouchDB
+
+### Wide-column
+
+- 🔷 Cassandra; ScyllaDB; HBase
+
+### Graph
+
+- 🔷 Neo4j; JanusGraph; NebulaGraph
+
+### Time-series
+
+- 🔷 InfluxDB; Prometheus; TimescaleDB
+
+### OLAP
+
+- 🔷 ClickHouse; Apache Doris; StarRocks
+
+### Vector
+
+- 🔷 Milvus; Qdrant; Weaviate
+
+NoSQL and vector databases currently have bounded, connection-level support. A read-only preview does not imply full query, retrieval, or server-side security capabilities. All tests use specified container images and synthetic cases; they are **not official database-vendor certification**. Protocol compatibility does not imply identical security semantics. Every database request must pass through the AgentSQL gateway with a dedicated least-privilege account; unknown parsing, authorization, or capability facts fail closed. See [SECURITY.md](SECURITY.md) for details.
+
+Control-plane storage is separate from this count: zero-configuration SQLite by default, or PostgreSQL 15+ in combined or separate metadata/audit databases (PG18 baseline). `agentsqlctl migrate-sqlite-to-postgres` migrates SQLite to one or two PostgreSQL databases.
 
 ## Quick Start
 

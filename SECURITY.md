@@ -14,27 +14,60 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 
 ## 数据库接入状态与安全边界（截至 2026-10-06）
 
-下表描述 **AgentSQL v0.5.0 待发布代码**的接入证据，不是数据库厂商的认证清单，也不改变上面的 AgentSQL 安全修复版本政策。“协议路径实测”仅表示指定镜像、拓扑和合成用例通过；“待验证”不能写成已支持。任何数据库都必须经 AgentSQL 网关并使用专用最小权限账号，解析、目录、执行计划或授权事实不明时失败关闭。PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
+以下分组描述 **AgentSQL v0.5.0 待发布代码**的接入范围与证据，不是数据库厂商的认证清单，也不改变上面的 AgentSQL 安全修复版本政策。注册表共 8 类 27 款（6 款关系型 + 21 款 NoSQL / 向量）；KingbaseES V9 是额外的待验证候选，不计入 27 款。
 
-| 产品与目标版本 | AgentSQL 路径和已知证据 | 未覆盖的边界 |
-| --- | --- | --- |
-| PostgreSQL 14–18 | 原生 `postgres` 路径 | B2/B5 仍受自身版本、目录和能力检查约束 |
-| PolarDB for PostgreSQL 15 | 指定社区镜像经 `postgres` 路径完成最小闭环 | 商业服务、HA、TLS 与 B2/B5 终验未覆盖 |
-| IvorySQL 5.3 | 指定社区版 PG 协议路径完成最小闭环 | Oracle 兼容模式和 HighGo 商业版不继承此结论 |
-| openGauss 7.0.0-RC3 | 指定社区版 PG 协议路径完成最小闭环 | GaussDB 商业版和 B2/B5 未终验 |
-| HighGo SEE 4.5 | 指定第三方镜像 PG 协议路径完成最小闭环 | HighGo V9.0 及官方商业环境待厂商终验 |
-| OpenTenBase v2.5.0 | 指定单机 GTM/CN/DN 拓扑和已知计划形态完成最小闭环 | 生产拓扑、其他计划形态及 B2/B5 未证明 |
-| KingbaseES V9 | 待厂商环境；旧第三方镜像因许可证过期未能验证 | V9R1C10 目标环境拟于 10 月 8 日取得，取得前不声明接入通过；须确认 PG 兼容模式 |
-| MySQL 8.0 | 原生 `mysql` 路径 | 无 PostgreSQL B2/B5 证明 |
-| SQL Server 2025（17.x） | 独立 `sqlserver` 严格只读子集；详见下文 | 不提供完整 T-SQL、写入、B2/B5 或厂商认证 |
-| TDSQL for PostgreSQL | PG 协议候选，商业版待目标环境终验 | 不能用 OpenTenBase 结果替代 |
-| TDSQL for MySQL | MySQL 协议候选，商业版待目标环境终验 | 不与 TDSQL for PostgreSQL 混同 |
-| TXSQL | OpenTenBase 社区 MySQL 方向（TXSQL）；独立 MySQL 路线，未实测产品专用路径 | 不能用 MySQL 8 或 OpenTenBase 结果替代 |
-| Oracle Database 23ai | 独立 `oracle` 严格 SELECT 子集 | 不能据此推断企业版或完整 Oracle 方言已通过 |
-| YashanDB 23.4.1.109 | 独立 `yashan` 最小切片；连接、元数据及普通 Query 失败关闭已复验 | EXPLAIN、写入与完整安全闭环未证明 |
-| DM8 | 独立 `dm` 受控 SELECT 子集有界实测 | 完整语法、写入和列级安全链路未完成 |
-| TiDB 7.5.1 / OceanBase CE 4.4.2.1 | MySQL 兼容候选；EXPLAIN 适配与回归 fixture 已落地 | 不把 fixture 当作目标环境完整闭环或厂商认证 |
-| PolarDB-X | 旧官方 `2.0.1` 单容器经 `mysql` 路径有界实测；详见下文 | 完整 CN/DN/CDC、商业服务、分布式语义及 B2/B5 未证明 |
+档位：🟢 完整防护＝解析、授权、受控执行、脱敏、审计；🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。所有实测仅表示指定容器镜像、拓扑及合成用例通过，**非数据库厂商官方认证**。所有数据库必须经 AgentSQL 网关，使用专用最小权限账号；解析、目录、执行计划或授权事实不明时 fail-closed。协议兼容不等于安全语义相同；PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
+
+### 关系型（6 款已注册 + 1 款待验证）
+
+- 🟢 **PostgreSQL 14–18**：原生 `postgres` 路径；B2/B5 仍受自身版本、目录和能力检查约束。
+- 🟢 **MySQL 8.0**：原生 `mysql` 路径；不继承 PostgreSQL B2/B5 证明。
+- 🔵 **Oracle 23ai**：独立 `oracle` 严格 SELECT 子集；不能据此推断企业版或完整 Oracle 方言已通过。
+- 🔵 **达梦 DM8**：独立 `dm` 受控 SELECT 子集有界实测；完整语法、写入和列级安全链路未完成。
+- 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` 最小切片；连接、元数据及普通 Query 失败关闭已复验；EXPLAIN、写入与完整安全闭环未证明。
+- 🔵 **SQL Server 2025（17.x）**：独立 `sqlserver` 严格只读子集；不提供完整 T-SQL、写入、B2/B5 或厂商认证。
+- 🟡 **金仓 KingbaseES V9**：等厂商镜像与 license；旧第三方镜像因许可证过期未能验证。V9R1C10 目标环境拟于 10 月 8 日取得，取得前不声明接入通过，且须确认 PG 兼容模式。
+
+### 键值 KV（🔷 连接级）
+
+- **Redis、Valkey（复用 Redis 适配）、Memcached**：仅 ping、版本、Schema、只读预览；不声明完整命令集、写入控制或数据库原生授权已通过。
+
+### 文档 Document（🔷 连接级）
+
+- **MongoDB、Couchbase、CouchDB**：仅连接级只读预览；不声明完整文档查询或服务端安全语义已通过。
+
+### 宽列 Wide-Column（🔷 连接级）
+
+- **Cassandra、ScyllaDB、HBase**：仅连接级只读预览；不声明完整 CQL / HBase 操作或写入能力。
+
+### 图 Graph（🔷 连接级）
+
+- **Neo4j、JanusGraph、NebulaGraph**：仅连接级只读预览；不声明完整图查询或遍历能力。
+
+### 时序 Time-Series（🔷 连接级）
+
+- **InfluxDB、Prometheus、TimescaleDB**：仅连接级只读预览；不声明完整时序查询或 PostgreSQL B2/B5 能力。
+
+### OLAP（🔷 连接级）
+
+- **ClickHouse、Apache Doris、StarRocks**：仅连接级只读预览；不声明完整分析查询或写入能力。
+
+### 向量 Vector（🔷 连接级）
+
+- **Milvus、Qdrant、Weaviate**：仅连接级只读预览；不声明完整向量检索、索引或服务端安全能力。
+
+### 其他协议候选与有界证据（不计入上述 27 款）
+
+- **PolarDB for PostgreSQL 15**：指定社区镜像经 `postgres` 路径完成最小闭环；商业服务、HA、TLS 与 B2/B5 终验未覆盖。
+- **IvorySQL 5.3**：指定社区版 PG 协议路径完成最小闭环；Oracle 兼容模式和 HighGo 商业版不继承此结论。
+- **openGauss 7.0.0-RC3**：指定社区版 PG 协议路径完成最小闭环；GaussDB 商业版和 B2/B5 未终验。
+- **HighGo SEE 4.5**：指定第三方镜像 PG 协议路径完成最小闭环；HighGo V9.0 及官方商业环境待厂商终验。
+- **OpenTenBase v2.5.0**：指定单机 GTM/CN/DN 拓扑和已知计划形态完成最小闭环；生产拓扑、其他计划形态及 B2/B5 未证明。
+- **TDSQL for PostgreSQL**：PG 协议候选，商业版待目标环境终验；不能用 OpenTenBase 结果替代。
+- **TDSQL for MySQL**：MySQL 协议候选，商业版待目标环境终验；不与 TDSQL for PostgreSQL 混同。
+- **TXSQL**：OpenTenBase 社区 MySQL 方向，独立 MySQL 路线；产品专用路径未实测，不能用 MySQL 8 或 OpenTenBase 结果替代。
+- **TiDB 7.5.1 / OceanBase CE 4.4.2.1**：MySQL 兼容候选，EXPLAIN 适配与回归 fixture 已落地；fixture 不是目标环境完整闭环或厂商认证。
+- **PolarDB-X**：旧官方 `2.0.1` 单容器经 `mysql` 路径有界实测；完整 CN/DN/CDC、商业服务、分布式语义及 B2/B5 未证明。
 
 > **YashanDB 客户端再分发授权：**AgentSQL v0.5.0 Linux tarball、systemd 原生安装包及 GHCR 运行时镜像均携带匹配架构的 YashanDB C 客户端运行库（client 23.4.7.100，配合 yashandb-go v1.4.4）。再分发依据是项目维护者声明已取得厂商授权；本仓库未收到书面授权文件。这不改变 YashanDB 的低阶支持范围：连接和元数据发现已复验，普通 Query、写入、事务及 EXPLAIN 仍 fail-closed。
 

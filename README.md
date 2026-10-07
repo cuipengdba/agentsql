@@ -234,13 +234,45 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-| 用途 | 数据库 | 当前代码 |
-| --- | --- | --- |
-| 被防护业务库 | MySQL 8 | 支持 |
-| 被防护业务库 | PostgreSQL 14 / 15 / 16 / 17 / 18 | 支持 |
-| 元数据与审计库 | SQLite | 支持，默认零配置，可 combined 存储 |
-| 元数据与审计库 | PostgreSQL 15+ | 支持；PG18 为基准，可 combined 或独立 metadata/audit 库 |
-| 控制面迁移 | SQLite → PostgreSQL | `agentsqlctl migrate-sqlite-to-postgres`，支持迁往单库或独立双库 |
+v0.5.0 待发布代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为待厂商环境候选，不计入 27 款。档位只描述对应能力范围：🟢 完整防护＝解析、授权、受控执行、脱敏、审计；🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
+
+### 关系型 Relational（6 款已注册 + 1 款待验证）
+
+- 🟢 PostgreSQL 14–18；MySQL 8.0
+- 🔵 Oracle 23ai；达梦 DM8；崖山 YashanDB；SQL Server 2025
+- 🟡 金仓 KingbaseES V9：等厂商镜像与 license，目标环境拟于 10 月 8 日取得；取得前不声明接入通过。
+
+### 键值 KV
+
+- 🔷 Redis；Valkey（复用 Redis 适配）；Memcached
+
+### 文档 Document
+
+- 🔷 MongoDB；Couchbase；CouchDB
+
+### 宽列 Wide-Column
+
+- 🔷 Cassandra；ScyllaDB；HBase
+
+### 图 Graph
+
+- 🔷 Neo4j；JanusGraph；NebulaGraph
+
+### 时序 Time-Series
+
+- 🔷 InfluxDB；Prometheus；TimescaleDB
+
+### OLAP
+
+- 🔷 ClickHouse；Apache Doris；StarRocks
+
+### 向量 Vector
+
+- 🔷 Milvus；Qdrant；Weaviate
+
+NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
+
+控制面存储另计：SQLite 默认零配置，可 combined 存储；PostgreSQL 15+ 可 combined 或独立 metadata / audit 库（PG18 为基准）。使用 `agentsqlctl migrate-sqlite-to-postgres` 可从 SQLite 迁至单库或独立双库。
 
 ## 已知限制与安全边界
 
