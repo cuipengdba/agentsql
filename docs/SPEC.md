@@ -1,6 +1,6 @@
 # AgentSQL 架构与工程规格
 
-> 版本：v0.5.0 ｜ 本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
+> 版本：v0.5.0（待发布）｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
 > 完整可运行的配置样例见 `examples/`，完整建表 DDL 见 `internal/store/migrations/`；当本文与源码出现分歧时，以源码与测试为准并提 issue 修正本文。
 
 ---
@@ -9,7 +9,7 @@
 
 ### 1.1 是什么
 
-AgentSQL（中文名：**智盾**，AI-Native Database Security Gateway）是夹在 **AI Agent 与关系型数据库之间的数据库安全网关**，以**生产级 MCP Server** 的形态交付。AI 客户端（Cursor、Claude Desktop、豆包、自研 Agent 等）通过 MCP 接入，Agent 生成的每一条 SQL 都必须经过解析、鉴权、规则评估、风险决策、受控执行、脱敏与审计，才能访问真实数据库。
+AgentSQL（中文名：**智盾**，AI-Native Database Security Gateway）是面向 AI Agent 的数据库安全网关，以**生产级 MCP Server** 的形态交付。PostgreSQL/MySQL SQL 请求经解析、鉴权、规则评估、风险决策、受控执行、脱敏与审计后访问业务库；其他已注册数据源只在各自有界能力内接入，不自动继承这条完整 SQL 安全链路（见第 8 章）。
 
 - 网关二进制：`agentsql`（MCP 承载 + 管理 API + Web 控制台）
 - 运维 CLI：`agentsqlctl`（生成配置、配置校验、数据库迁移、健康检查、演示种子等）
@@ -95,7 +95,7 @@ Web 控制台 ──REST(/api/v1)──► adminapi ───┘                
 
 ## 4. 技术栈
 
-**后端（Go 1.25）**
+**后端（`go.mod` 声明 Go 1.26.0；正式发布脚本固定 Go 1.26.8）**
 
 | 用途 | 依赖 |
 |---|---|
@@ -175,7 +175,7 @@ redaction:
 ### 6.2 核心枚举与模型
 
 ```go
-type DBDialect string // "postgres" | "mysql"
+type DBDialect string // 业务库类型标识；注册表共 27 款，能进入 NewParser 的范围另受方言入口限制
 type StmtType  string // SELECT / INSERT / UPDATE / DELETE / DDL / ADMIN / UNKNOWN
 type Decision  string // allow / warn / approve / deny
 type RiskLevel int    // 1 拒绝 / 2 审批 / 3 告警 / 4 提示
@@ -311,7 +311,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 敏感发现以物理来源键 `(datasource, schema, table, column)` 识别候选列。应用候选时，PostgreSQL 和 MySQL 均生成 `schema_name=""`、`table_name=<真实表名>`、`algo=mask`、`enabled=false` 的 table-only 草稿；不同表的同名列是多条独立草稿。若候选列已被启用的全局列规则覆盖，结果标为 `CoveredByGlobal` 并跳过创建；disabled 全局草稿不阻挡新的 table-only 草稿。
 
-### 6.4 MCP 工具（对 AI 暴露，共七个）
+### 6.4 MCP 工具（七个基础工具 + PostgreSQL B5 八个会话/计划事务工具）
 
 | 工具 | 入参 | 行为 |
 |---|---|---|
@@ -323,12 +323,12 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | `request_approval` | `{datasource_id, sql, reason}` | 生成人工审批单，不执行 |
 | `get_approval_result` | `{approval_id}` | 查询审批状态 |
 
-错误统一返回 `{decision, reason, suggestion}`，`suggestion` 用中文指导 AI 自我改写。**不提供 `execute_raw_sql` 之类的万能执行工具。**
+PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status`；显式关闭 `mcp.sessions.enabled` 后仅保留上述七个基础工具。错误统一返回 `{decision, reason, suggestion}`，`suggestion` 用中文指导 AI 自我改写。**不提供 `execute_raw_sql` 之类的万能执行工具。**
 
 ### 6.5 管理 REST API
 
 - 前缀 `/api/v1`，除 `POST /api/v1/auth/login` 与 `POST /api/v1/auth/refresh` 外均需管理端 Bearer 令牌；refresh 端点以轮换式 refresh token 认证。统一响应信封 `{code,msg,data}`，分页为 `{total,page,page_size,list}`。
-- 端点族：认证（login、refresh、me、logout；服务端持久化撤销 access jti 与 refresh family）、agents（含 rotate-key）、datasources（含连通性 ping 与敏感发现）、policies、rules、mask_rules（三档作用域 CRUD）、audit（分页 / 筛选 / JSONL 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。
+- 端点族：认证（login、refresh、me、logout；服务端持久化撤销 access jti 与 refresh family）、agents（含 rotate-key）、datasources（含连通性 ping、敏感发现及 NoSQL 的 `native-ping` / `native-schema` / `native-query`）、`datasource-types`、policies、rules、mask_rules（三档作用域 CRUD）、audit（分页 / 筛选 / CSV/JSONL/PDF/ZIP 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。NoSQL 原生命令只开放适配器白名单内的受控子集，详见 [NoSQL 支持范围](nosql-support.md)。
 - 脱敏规则 `POST /api/v1/mask_rules` 与 `PUT /api/v1/mask_rules/{id}` 接受 `schema_name`、`table_name`、`column_name`、`sensitive_type`、`algo`、`enabled` 及可选 `datasource_id` / `range_*` 字段。作用域字段禁止首尾空白、NUL / 控制字符、`*`、`%` 和单字段内的 `.`，最长 128 个 Unicode 字符；保留原始大小写并允许中文等合法引号标识符。
 - 探针：`/healthz`（存活）、`/readyz`（存储就绪，控制面与审计库双 Ping）、`/metrics`（Prometheus）。
 
@@ -348,7 +348,10 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 | 维度 | 支持情况 |
 |---|---|
-| 被防护业务库 | MySQL 8.x；PostgreSQL 14 / 15 / 16 / 17 / **18** |
+| 完整防护业务库（🟢） | MySQL 8.0；PostgreSQL 14 / 15 / 16 / 17 / **18** |
+| 受控只读注册项（🔵） | `oracle`、`dm`、`yashan`、`sqlserver`；连接/元数据及各自限定的只读子集，不继承 PostgreSQL/MySQL 完整防护闭环 |
+| 连接级注册项（🔷） | 7 类 21 款 NoSQL / 向量数据源；ping、版本、Schema 与只读预览按适配器有界提供，不承诺完整检索或写入 |
+| 待验证候选（🟡） | KingbaseES V9，等厂商环境；不计入 27 款注册表 |
 | 控制面 / 元数据库 | SQLite（默认）；PostgreSQL 15+，基准与推荐 **PG18**（开源免费） |
 | 审计库 | 随元数据库，或独立 PostgreSQL（最小权限仅 INSERT/SELECT） |
 | MCP 传输 | stdio；Streamable HTTP `/mcp`（MCP 2025-06-18） |
@@ -358,31 +361,27 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
 | 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
 
-**仍未完整交付**：SQL Server，以及达梦 / Oracle / 人大金仓 / 瀚高 / GaussDB / OceanBase / TiDB 等数据库的完整方言或商业版认证（v0.5.0 的有界 dialect / 协议路径结果见 [Release Notes](release-notes-v0.5.md)，不得扩大为完整支持）；企业 SSO、法规级 WORM（T30）；多副本 HA、K8s Operator、跨实例集中管控（T31）。
+注册表的 27 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM/Oracle 的受控 SELECT parser 仍未接通完整网关授权/脱敏链路；YashanDB 仅有 `NewYashanParser()` 离线入口，标准 `NewParser` 尚未注册它。SQL Server、达梦、Oracle、YashanDB 及其他协议候选的完整方言或商业版认证均未宣称；各自证据边界见 [Release Notes](release-notes-v0.5.md) 与 [SECURITY.md](../SECURITY.md)。
 
 ---
 
 ## 9. 质量与测试门
 
-- 格式 / 静态检查：`gofmt`、`go vet`；全量 `go test -race` 干净；核心安全包（parser / engine / rules / policy / pipeline）覆盖率目标 ≥ 80%，每条规则同时具备正例（应拦截）与反例（不应拦截）。
+- 格式 / 静态检查目标：`gofmt`、`go vet`、全量 `go test -race`；核心安全包（parser / engine / rules / policy / pipeline）覆盖率目标 ≥ 80%，每条规则同时具备正例（应拦截）与反例（不应拦截）。这些是质量门要求，不表示当前全部完成。
 - **决策回归语料**（`tests/corpus/`）：解析语料 + 252 条决策用例，按 PostgreSQL / MySQL 方言展开 353 次判定；要求危险漏拦为 0、误拦率低于 2%。
-- **fuzz fail-closed**：流水线在数千万级变异 SQL 输入下不发生 panic，任何未预期输入均走向拒绝。
+- **fuzz fail-closed 目标**：流水线对变异 SQL 不发生 panic，未预期输入走向拒绝；具体执行规模须以测试报告为准。
 - **真实库 E2E**：用 testcontainers 拉起真实 PostgreSQL 18 与 MySQL 8，覆盖只读放行、越权拒绝、无 WHERE 写拦截、脱敏、审批、审计可查；控制面在 SQLite 与 PostgreSQL 两种布局下双跑。
 - **「写攻击零触库」双证据**：以假执行器（fake executor）相关方法零调用，加上真实业务库执行前后行数 / 校验和不变，共同证明危险写与 DDL 不触库。
 - **性能口径（避免误导）**：文档中的只读 P99 延迟是**剥离了真实数据库网络与 I/O 的网关 CPU 路径微基准**（假执行器、固定并发、内存态），用于守住网关自身 CPU 预算，**不代表端到端延迟**；受控写因新增事务与审计往返，真实延迟必然更高，只记录不套用该门限。
+- **当前证据与保留项**：批六十一 PostgreSQL parser 的 5 ms P99 闸门在指定 Linux 环境两组各 5/5 通过，但发布日仍须按相同门槛独占复测；全仓 short tests 尚未形成 PASS。批六十七新增 parser malformed/并发错误路径与 pipeline 执行前拒绝测试，覆盖范围和离线限制见 [测试覆盖说明](test-coverage-notes.md)。
 
 ---
 
 ## 10. 授权、版本与路线图
 
 - 源代码采用 **Apache License 2.0**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
-- **开源版（免费、可独立用于生产）**：本规格第 8 章列出的全部兼容能力、完整 SQL 安全引擎（规则 / 评分 / 只读 / 拦截 / 审批 / EXPLAIN / N+1 风险）、结果脱敏、审计闭环、九页控制台、SSE 实时大屏、一键 Live Demo、SQLite 与 PostgreSQL 18 控制面（含独立审计库与迁移命令）、单节点部署与 Prometheus 可观测。
-- **企业版（商业 License + 私有化交付 + 年订阅 / SLA）方向**：
-  - **T29 国产 / 商业数据库矩阵**：达梦、人大金仓、瀚高、GaussDB、OceanBase、TiDB、Oracle、SQL Server 的方言解析、驱动适配与脱敏 / 规则兼容；
-  - **T30 合规与身份管控**：等保 / 数据安全法报告、审计哈希链 / 签名 / WORM、外置 SIEM、长期归档、操作水印、敏感数据发现分级、SSO（OIDC/SAML）、LDAP/AD、MFA、多租户、RBAC/ABAC、多级会签与工单集成；
-  - **T31 HA / 集中管控与规模交付**：多副本高可用、K8s Operator、水平扩展、多网关 / 多环境集中策略统管、备份恢复、容量性能报表、私有化安装包与等保模板、实施培训与 SLA。
-  - **AgentSQL Cloud 托管 SaaS** 作为在线演示的商业化延伸，后置规划。
-- **分界原则**：通用 MySQL / PostgreSQL 场景与 PostgreSQL 18 控制面免费（推动其成为事实标准），信创、合规与规模化生产所需能力走商业授权。
+- **当前待发布代码**：第 8 章的能力档位按各自边界提供；RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 与审计哈希链已有实现，不能再列作整体未交付。实际启用条件、未完成的 Agent 租户传播与身份系统终验见 [Release Notes](release-notes-v0.5.md)。
+- **后续方向**：完整国产/商业数据库方言与厂商目标环境终验、法规级 WORM / 外置 SIEM、多副本 HA、K8s Operator、跨实例集中管控等仍需后续验证或实现；本规格不将其计作已交付能力。
 - 商业合作：**87326549@qq.com** ｜ **https://agentsql.cn**
 
 ---

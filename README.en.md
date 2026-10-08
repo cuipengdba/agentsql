@@ -3,7 +3,7 @@
 [中文](README.md) | English
 
 ![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
-[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
@@ -69,7 +69,7 @@ The pending v0.5.0 code registers **8 categories and 27 databases** (6 relationa
 
 - 🔷 Milvus; Qdrant; Weaviate
 
-NoSQL and vector databases currently have bounded, connection-level support. A read-only preview does not imply full query, retrieval, or server-side security capabilities. All tests use specified container images and synthetic cases; they are **not official database-vendor certification**. Protocol compatibility does not imply identical security semantics. Every database request must pass through the AgentSQL gateway with a dedicated least-privilege account; unknown parsing, authorization, or capability facts fail closed. See [SECURITY.md](SECURITY.md) for details.
+NoSQL and vector databases currently have bounded, connection-level support. A read-only preview does not imply full query, retrieval, or server-side security capabilities. The [NoSQL support notes](docs/nosql-support.md) list all 21 registered types and default ports, including the HBase and Couchbase connection-port exceptions. DM/Oracle have a narrow controlled-SELECT parser that is not wired into the full gateway authorization/masking pipeline; the YashanDB offline parser is not registered through the standard `NewParser` entry point. See the [DM/Oracle](docs/dm-oracle-dialect.md) and [YashanDB](docs/yashan-dialect.md) boundaries. All tests use specified container images and synthetic cases; they are **not official database-vendor certification**. Protocol compatibility does not imply identical security semantics. Every database request must pass through the AgentSQL gateway with a dedicated least-privilege account; unknown parsing, authorization, or capability facts fail closed. See [SECURITY.md](SECURITY.md) for details.
 
 Control-plane storage is separate from this count: zero-configuration SQLite by default, or PostgreSQL 15+ in combined or separate metadata/audit databases (PG18 baseline). `agentsqlctl migrate-sqlite-to-postgres` migrates SQLite to one or two PostgreSQL databases.
 
@@ -92,13 +92,13 @@ curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/qu
 sh quickstart.sh
 ```
 
-### Pull the published GHCR image
+### Pull the v0.5.0 GHCR image after release
 
 ```bash
 docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
-The published tag is a `linux/amd64` and `linux/arm64` multi-architecture image. For a complete direct `docker run` example with generated secrets, or to connect your first data source and run a query, follow the [five-minute quick start](docs/en/QUICKSTART.md).
+The planned tag is a `linux/amd64` and `linux/arm64` multi-architecture image; pull it only after the release-day public-image gate passes. For a complete direct `docker run` example with generated secrets, or to connect your first data source and run a query, follow the [five-minute quick start](docs/en/QUICKSTART.md).
 
 ### Self-contained local demo
 

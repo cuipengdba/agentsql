@@ -1,7 +1,7 @@
 # AgentSQL
 
 ![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
-[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](go.mod)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
@@ -43,8 +43,8 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 | OceanBase | 适配中 | 执行计划（EXPLAIN）适配实现中 |
 | TDSQL | 适配中 | 开源版 OpenTenBase 适配中；商用版待实测 |
 | OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
-| 崖山数据库 YashanDB | 待实测 | x86 镜像已就位，ARM 镜像备用 |
-| 达梦数据库 DM | 待适配 | DM8 容器已起，独立方言待开发 |
+| 崖山数据库 YashanDB | 独立方言最小切片 | 指定 23.4.1.109 实例的连接与元数据已复验，普通 Query 仍 fail-closed；离线 parser 未接标准入口 |
+| 达梦数据库 DM | 独立方言有界实测 | 指定 DM8 Pack3 实例的窄 SELECT、分页及已知 EXPLAIN 形态有记录；完整网关授权/脱敏链路未接通 |
 | PolarDB for PostgreSQL | 协议路径已实测 | 指定 PG 15 社区镜像复用 `db_type=postgres`；非商业服务认证 |
 | PolarDB-X | 旧官方镜像有界实测 | `2.0.1` 单容器复用 `db_type=mysql`，两阶段 EXPLAIN 已适配；当前完整拓扑与商业服务待终验 |
 
@@ -68,7 +68,7 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是既有 amd64 资产示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v0.5.0 **待发布**的 amd64 资产名示例，须在该版 Release 实际发布后使用；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
 sha256sum -c agentsql-v0.5.0-linux-amd64.tar.gz.sha256
@@ -85,7 +85,7 @@ sudo ./install.sh install
 curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。也可先用一条命令拉取，Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.5.0 精确 tag 命令须待发布日推送并验收后使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
 docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
@@ -142,7 +142,7 @@ docker compose --profile observability up -d --build
 
 完整说明见 [可观测性示例](examples/observability/README.md)。`AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份；直接更换 SECRET 会让既有数据源口令无法解密。生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库，完整迁移、最小权限和回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
 
-源码二进制构建需要 Go 1.25、cgo、C 编译器和 glibc 兼容环境；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
+源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。正式发布脚本固定 Go 1.26.8；若人工调用 Makefile 的 Docker 发布目标，须显式传 `GO_VERSION=1.26.8`，不能依赖其历史默认值 `1.25.14`。普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
 make build VERSION=v0.5.0
@@ -270,7 +270,7 @@ v0.5.0 待发布代码的注册表覆盖 **8 大类、27 款数据库**（6 款�
 
 - 🔷 Milvus；Qdrant；Weaviate
 
-NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
+NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM/Oracle 的受控 SELECT parser 仍未接通完整网关授权/脱敏链路；YashanDB 的离线 parser 尚未注册到标准 `NewParser` 入口，见 [DM/Oracle 方言边界](docs/dm-oracle-dialect.md)及 [YashanDB 方言边界](docs/yashan-dialect.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
 
 控制面存储另计：SQLite 默认零配置，可 combined 存储；PostgreSQL 15+ 可 combined 或独立 metadata / audit 库（PG18 为基准）。使用 `agentsqlctl migrate-sqlite-to-postgres` 可从 SQLite 迁至单库或独立双库。
 

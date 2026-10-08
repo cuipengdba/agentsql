@@ -10,13 +10,15 @@
 
 ### 范围与口径
 
-v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC / 多租户 MVP、MCP 会话兼容修复、英文文档和联合案例记录，并将开源许可证调整为 Apache-2.0。完整变更基线是 `v0.4.0..1d6682d`；任务书指定的 `391dcf0..1d6682d` 只包含许可证与后续 dialect / 案例的 6 个提交，不包含更早的 RBAC、EXPLAIN、MCP 和英文文档提交。
+v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、7 类 21 款 NoSQL / 向量连接级数据源、RBAC / 多租户 MVP、MCP 会话兼容修复、英文文档和联合案例记录，并将开源许可证调整为 Apache-2.0。对比起点是 `v0.4.0`；此前使用的 `v0.4.0..1d6682d` 是阶段性快照，不能覆盖其后的 NoSQL、方言和发布工程提交。发布日须以最终封板提交重核完整变更范围。
 
 本文中的“协议路径实测通过”仅指定版本、指定镜像/拓扑和合成数据用例，**不等于厂商认证、完整方言兼容、商业版支持或生产可用性承诺**。
 
 ### 新特性与变更
 
 - **DM / Oracle / YashanDB 独立 dialect 边界**：新增独立数据源类型与有界连接/元数据路径；DM8 已在 `COMPATIBLE_MODE=0` 的 Pack3 实例完成窄查询、分页和已知 EXPLAIN 形态实测，Oracle 完成严格只读子集查询和 `PLAN_TABLE` EXPLAIN 归一化实测。DM/Oracle 新增 v0.5 冻结、fail-closed 的受控 SELECT parser：提取物理表、引用列和直接/常量/通配符投影血缘，不改变 executor 放行语义；函数、括号、子查询、CTE、复杂表达式和未列出的结构仍拒绝。YashanDB Go 驱动 v1.4.4 与官方 C 客户端 23.4.7.100 计划随 Linux 发行物分发。崖山客户端再分发依据为用户于 2026-10-03 声明已取得厂商授权，本仓库未收到书面授权文件。批三十提交 `33f2d56` 已修复 pool/physical session 普通 Query 边界并在真实 23.4.1.109 实例复验 fail-closed；EXPLAIN 和写路径仍不宣称可用。批三十一发现旧 dry-run 包未包含新驱动/客户端，必须由封板提交重新构建。
+- **方言离线边界收尾**：批六十三为 DM/Oracle 补充 `ROWNUM`、投影别名/序号、NULL 与空字符串语义、分页和管理语句拒绝回归；批六十六提供 `NewYashanParser()` 的离线受控 SELECT profile，但标准 `NewParser(model.DialectYashan)` 尚未注册，通用 Query 仍 fail-closed。上述 parser 测试不构成完整网关授权/脱敏闭环或厂商语法认证。
+- **NoSQL / 向量注册与连接级能力**：注册表为 6 款关系型加 7 类 21 款 NoSQL / 向量，共 8 类 27 款；21 款仅提供适配器白名单内的连接、健康、元数据及只读预览能力。类型、默认端口和 HBase/Couchbase 实际连接端口例外逐项见 [NoSQL 支持范围](nosql-support.md)。
 - **OpenTenBase 双内核深化**：OpenTenBase v2.5.0 PostgreSQL 内核对特定远程计划实现严格、版本受限的规范化，指定单机 GTM/CN/DN 拓扑的最小安全闭环有实测记录。TXSQL/MySQL 内核是独立路线，本版未实测、未实现产品专用代码。
 - **PolarDB 兼容路径**：指定 PolarDB for PostgreSQL 15 社区镜像通过现有 `postgres` 路径完成 Ping、discovery、R006 拒绝、EXPLAIN、只读查询、脱敏与审计闭环；未新增 PolarDB 别名或厂商识别开关。
 - **PolarDB-X MySQL 协议路径**：保持 `db_type=mysql`，复用 MySQL parser、执行器、DML/事务和 discovery；普通计划精确匹配 `LOGICAL EXECUTIONPLAN` 后使用 `EXPLAIN EXECUTE` 获取 DN 的 MySQL 表格计划，任一未知形状继续 fail-closed。新增兼容 corpus 与显式环境门控的真库 E2E；不把它与 PolarDB for PostgreSQL 混称，也不把旧单容器冒烟扩大为当前集群或商业服务认证。
@@ -31,6 +33,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 - **英文文档**：增加英文首页、快速上手、管理、MCP 接入、安全和覆盖度文档。
 - **已知问题修复与记录**：修正 R005 前端动态规则元数据；加固 bootstrap / MCP 测试诊断。批十七提交 `02565f5` 已闭环 R005：普通生产动态阶段按 EXPLAIN 评估，无界查询估算结果超过数据源 `row_limit` 时返回结构化 `R005` 风险命中；通用执行和 PostgreSQL 列级授权路径在实际截断时补充同一命中，并写入持久审计。
 - **联合案例配套**：新增金仓 + 瀚高验证记录、运营口径和瀚高演示 SQL。瀚高指定第三方 SEE 镜像有协议路径实测记录；金仓 V9 仍待厂商环境。
+- **发布与测试收尾**：`scripts/release-dryrun.ps1` 已定义 15 项资产的一键 dry-run、生产准备和 `-ValidateOnly` 核对路径，正式签名与发布仍待发布日。批六十七新增 parser malformed/并发错误路径及 pipeline 执行前拒绝测试；本次文档核对没有运行测试，覆盖边界与离线依赖限制见 [测试覆盖说明](test-coverage-notes.md)。
 
 ### Dialect 与生态适配矩阵
 
@@ -57,6 +60,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、RBAC 
 ### 已知边界与不承诺事项
 
 - DM/Oracle parser 只覆盖文档列出的 v0.5 受控 SELECT profile；`*` 仅绑定到物理来源表，parser 无 catalog，不能虚构逐列名称。该能力不等于完整 SQL grammar 或已接入列级授权/脱敏 pipeline。
+- YashanDB 的 `NewYashanParser()` 目前仅作离线分析，未接标准 `NewParser` 路由；注册表的 NoSQL 21 款均处于连接级，HBase 注册默认 `16020` 不是当前适配器可用的 ZooKeeper bootstrap 端口。
 - KingbaseES V9R1C10 目标环境待厂商提供；HighGo、GaussDB、TDSQL 等商业版仍待目标环境终验。
 - R005 生产动态告警已闭环，但能力边界仍须准确表述：无界查询的执行前命中依赖受控 EXPLAIN；实际 `row_limit` 截断会在通用执行和 PostgreSQL 列级授权路径补充 `R005`。响应通过 `assessment.hits` 返回结构化命中，持久审计通过 `rule_hits` 保存；未知 EXPLAIN 或审计事实继续 fail-closed。`row_limit` 可在数据源管理入口配置，默认值为 1000；规则页不提供独立 R005 阈值编辑器。
 - RBAC 仍是 MVP：控制台业务元数据已经按租户隔离，TOTP MFA、OIDC 与 LDAP/AD 已交付，但登录限速与锁定、外部身份系统的生产兼容矩阵仍是后续边界；MCP 执行数据路径的 Agent 租户传播也尚未完成。管理端本地与外部用户令牌复用持久化服务端撤销和 refresh token 轮换：refresh token 仅以 SHA-256 哈希存储、每次刷新都会轮换，重用已轮换/撤销的 token 会撤销整条 refresh family；状态不可读时 access 校验、刷新与登出均 fail-closed。
@@ -112,7 +116,7 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 类型 | v0.5.0 步骤 |
 | --- | --- |
 | 复用 | 仓库公开与 PVR 复核；固定 Rocky Linux 8 digest 构建 amd64/arm64；恰好 15 个 Release 资产、SHA-256、SBOM/provenance 与 Ed25519 签名；先建 Release 草稿并回下载验证；GHCR 精确 tag → public → 匿名双架构 pull → 再移动 `latest`；Demo reset；官网 PDF/静态验收/部署；Release 草稿转正式；发布后无登录烟测 |
-| v0.5 新增闸门 | 核对 Apache-2.0 / `NOTICE` / 商业许可口径；逐项复核 dialect 矩阵且保留“协议路径实测 ≠ 厂商认证”；构建并演练 demo/quickstart 辅助镜像；复核 R005 闭环证据且不得把 DM/金仓凭据和商业版终验误标为完成；在标准 runner 清零 parser P99 失败；由维护者确认 `SECURITY.md` 支持版本矩阵 |
+| v0.5 新增闸门 | 核对 Apache-2.0 / `NOTICE` / 商业许可口径；逐项复核 27 款注册与 dialect 矩阵，保留“协议路径实测 ≠ 厂商认证”；构建并演练 demo/quickstart 辅助镜像；复核 R005 闭环证据，DM/Oracle 完整网关与金仓/商业版终验不得误标完成；标准 runner 独占重跑 parser P99 连续五轮；由维护者确认 `SECURITY.md` 支持版本矩阵 |
 
 ### 发布检查清单
 
@@ -121,14 +125,14 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 准备 | 仓库公开 | **已完成** | GitHub REST 只读查询返回 `private=false` / `visibility=public` |
 | 准备 | v0.5.0 Release Notes、资产表、检查表 | **已完成** | 本文；状态仍为待发布 |
 | 准备 | 版本常量与 CHANGELOG | **已完成** | 源码/构建/示例默认版本对齐 `v0.5.0`；历史口径保留 |
-| 准备 | 完整变更基线复核 | **已完成** | 使用 `v0.4.0..1d6682d`，并记录 `391dcf0` 边界不完整 |
+| 准备 | 完整变更基线复核 | **待发布日重核** | `v0.4.0..1d6682d` 仅是阶段性快照；以最终封板提交重核 NoSQL、方言及发布工程后续变化 |
 | 安全 | 支持版本矩阵 | **已完成** | v0.5.x 支持至 v0.6.0 发布后 6 个月且不早于 2027-10-31；v0.4.x 支持至 2027-04-30；0.3.x 及更早 EOL |
 | 安全 | Private Vulnerability Reporting（PVR） | **待发布日** | 匿名 API 不返回该设置；由仓库管理员在 Security settings 复核为开启 |
-| 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | 批三十三在 Go 1.26.8 Linux/amd64、8 CPU 容器独占复核：优化前 P99 为 5.780/4.092/3.709/4.518/5.827 ms，优化后为 4.456/4.775/6.404/6.554/4.173 ms，两组均仅 3/5 通过；不得据此清零闸门，仍须在标准 Linux runner 独占复核并连续 5 轮稳定通过后才可发布 |
+| 验证 | Go 构建、short tests、gofmt、`git diff --check` | **待发布日** | 批三十三 P99 两组均仅 3/5；批六十一在指定 Go 1.26.8 Linux/amd64 环境两组各 5/5 通过，复核组为 1.917/2.075/1.994/2.011/1.911 ms（见 `PARSER_PERF.md`）。全仓 short 仍未完成；标准 Linux runner 须独占重跑连续五轮及全仓测试 |
 | 构建 | 固定 Rocky Linux 8 digest + Go 1.26.8 构建 amd64/arm64 | **待发布日** | `go.mod` 为 1.26；脚本设 `GOTOOLCHAIN=local` 防止隐式换工具链；两个二进制均须回报 `v0.5.0`，GLIBC 符号不高于 2.28 |
 | 构建 | 崖山驱动与 C 客户端双架构打包 | **脚本已落地；当前产物阻塞** | `yashandb-go@v1.4.4` 与客户端 23.4.7.100 的固定版本/SHA 已在脚本；批三十一验证旧 tar/metadata 不含它们，必须由 sealed commit 双架构重建 |
 | 供应链 | SBOM、provenance、Go metadata、生产 Ed25519 签名 | **dry-run/生产准备命令已补；实跑待发布日** | dry-run 生成不可发布占位；`-ProductionPrepare` 从干净工作树和正式公钥生成 11 个待签名文件；生产签名仍待发布日 |
-| 校验 | SHA-256 与签名双重验证 | **校验逻辑已补；当前 15 项 FAIL** | 旧目录真实在 Yashan metadata 闸门失败；发布日最终 15 项须通过三次密码学验签、sidecar/manifest 和 provenance commit 校验 |
+| 校验 | SHA-256 与签名双重验证 | **校验逻辑已补；旧目录 15 项 FAIL，新候选待验证** | 旧目录真实在 Yashan metadata 闸门失败；发布日最终 15 项须通过三次密码学验签、sidecar/manifest 和 provenance commit 校验 |
 | 草稿 | 建立 GitHub Release draft 并上传恰好 15 资产 | **待发布日** | 本批禁止创建；草稿中先验证名称、大小、SHA-256 和下载 |
 | 镜像 | 推送 `v0.5.0`，设 GHCR public，匿名双架构 pull | **顺序缺口已修；构建/发布闸门待发布日** | `-Push` 不再移动 latest；精确 tag 验收后单独 `-PromoteLatest` 并比较 digest |
 | Demo | 生成辅助镜像并执行 reset | **quickstart 构建缺口已修；实跑待发布日** | `-IncludeAuxiliaryTags` 用独立 quickstart target 加入 demo 配置；旧同 digest 归档不可作为通过证据 |
@@ -139,7 +143,7 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 
 ### 发布链待办
 
-1. **批三十一真实 dry-run 结论为阻塞。** 旧 15 项在 Yashan metadata 闸门 fail-closed，两个 tar 也缺两份客户端库；当前 HEAD 的完整重建需要任务书要求本批跳过的外网。详细命令与输出见 [`release-day-checklist-v0.5.md`](release-day-checklist-v0.5.md)。
+1. **批三十一真实 dry-run 结论为阻塞。** 旧 15 项在 Yashan metadata 闸门 fail-closed，两个 tar 也缺两份客户端库；最终封板提交的完整重建仍待发布日依赖与外网。详细命令与输出见 [`release-day-checklist-v0.5.md`](release-day-checklist-v0.5.md)。
 2. **辅助镜像缺口已修但未冒充实跑通过。** 旧三个 OCI 的平台 manifest digest 相同，证实旧 quickstart 只是换 tag；新 `quickstart` target 会加入 `config.demo.yaml` / `demo-seed.yaml`。`-Push` 与 `-PromoteLatest` 已拆开，避免精确 tag 验收前移动 latest。
 3. **生产候选命令已补。** `-ProductionPrepare -PublicKeyPath` 要求完全干净工作树并输出 11 个非 dry-run 待签名文件；发布日补齐三份签名和 `SHA256SUMS` 后，才可用 `-ValidateOnly` 核对 15 项并逐份密码学验签。
 4. PVR 设置、GHCR public、官网实时状态和搜索放行需管理员/外网证据；当前无法从匿名 API 完整取证的项均保持“待发布日”。
@@ -181,21 +185,23 @@ docker run --rm --platform linux/amd64 -e GOMAXPROCS=8 -e GOTOOLCHAIN=local \
 - 优化后 5 轮原始 typical P50/P90/P99（ms）：`1.348/2.604/4.456`、`1.413/2.679/4.775`、`1.545/2.990/6.404`、`1.477/2.800/6.554`、`1.294/2.541/4.173`；仍仅 3/5 通过，命令退出 1。
 - 功能与构建：`go test -short ./internal/parser ./internal/rules ./internal/pipeline -skip '^TestParseProjectionLineageP99Budget$' -count=1 -p 1` PASS；`go build ./...` PASS；修改文件 gofmt 与 `git diff --check` PASS。一次全仓 short 尝试未形成 PASS：`internal/adminapi` 在 Windows Docker 的 SQLite WAL `fsync` 关闭阶段达到 10 分钟超时，且只读源码挂载使 `internal/authorizedexecute` 的临时编译目录创建失败；这两项按环境/挂载限制如实保留，不能计为代码通过或本批语义回归。
 
-因此 P99 发布闸门仍为 **FAIL**。平均耗时和分配改善不能替代尾延迟门；发布日必须在标准 Linux runner、无并行负载下以同一命令连续 5 轮全部满足 P99 ≤ 5 ms，任一轮失败即停止发布。
+因此**批三十三当时** P99 发布闸门为 **FAIL**。批六十一在指定 Go 1.26.8 Linux/amd64 环境的初测与复核两组各 5/5 通过，复核 P99 为 1.917/2.075/1.994/2.011/1.911 ms；详见 [性能复核](PARSER_PERF.md)。这不改写批三十三的原始失败，也不能代替发布日标准 Linux runner、无并行负载下的连续 5 轮 P99 ≤ 5 ms 验收；任一轮失败即停止发布。
 
-发布前只读加固核验（批二十三）已记录于 [`security-scan-v0.5.md`](security-scan-v0.5.md)：前端生产依赖与 demo 功能链路通过，Go 源码可调用漏洞为 0 但有 4 个不可达模块级命中；F-04 的 208 处历史赋值类命中已由用户于 2026-10-03 复核为测试数据、示例或非敏感赋值并按不处置关闭。parser P99 仅 3/5 轮通过 5 ms 闸门，故整体不能标记为全绿。
+发布前只读加固核验（批二十三）已记录于 [`security-scan-v0.5.md`](security-scan-v0.5.md)：前端生产依赖与 demo 功能链路通过，Go 源码可调用漏洞为 0 但有 4 个不可达模块级命中；F-04 的 208 处历史赋值类命中已由用户于 2026-10-03 复核为测试数据、示例或非敏感赋值并按不处置关闭。批六十一的指定环境 P99 复核通过后，全仓 short tests 与发布日标准 runner 复测仍待完成，整体不能标记为全绿。
 
 ## English
 
 ### Scope and evidence language
 
-AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MCP session compatibility fixes, English documentation, joint-case material, and an Apache-2.0 licensing change. The complete comparison base is `v0.4.0..1d6682d`. The narrower `391dcf0..1d6682d` range contains only six commits and would omit the earlier RBAC, EXPLAIN, MCP, and English-documentation commits.
+AgentSQL v0.5.0 adds bounded database-dialect work, connection-level support for 21 NoSQL/vector sources, an RBAC/multi-tenant MVP, MCP session compatibility fixes, English documentation, joint-case material, and an Apache-2.0 licensing change. The comparison starts at the released v0.4.0. The earlier `v0.4.0..1d6682d` range was an interim snapshot; release day must reconcile all later changes against the final sealed commit.
 
 "Protocol-path tested" means only the named version, image/topology, and synthetic test cases. It is **not vendor certification, complete SQL-dialect compatibility, commercial-edition support, or a production-readiness commitment**.
 
 ### Highlights
 
 - Independent dialect boundaries for DM, Oracle, and YashanDB. DM8 has real-instance evidence for the narrow query/pagination path and known EXPLAIN shapes on the documented `COMPATIBLE_MODE=0` Pack3 baseline; Oracle has evidence for the strict read-only subset and normalized `PLAN_TABLE` EXPLAIN. DM/Oracle now have a frozen v0.5, fail-closed controlled-SELECT parser that extracts physical tables, referenced columns, and direct/constant/wildcard projection lineage without changing executor admission behavior. Functions, parentheses, subqueries, CTEs, complex expressions, and unlisted structures remain rejected. Commit `33f2d56` fixed and revalidated the YashanDB pool/physical-session general-Query fail-closed boundary against a real 23.4.1.109 instance; EXPLAIN and writes remain unavailable. The planned Linux artifacts include `yashandb-go@v1.4.4` and the official 23.4.7.100 C client under the user's 2026-10-03 declaration of vendor redistribution authorization, but batch 31 proved that the stale local dry-run artifacts do not contain them and must be rebuilt from the sealed commit.
+- The registry has 8 categories and 27 types: 6 relational plus 7 groups of 3 NoSQL/vector sources. The 21 native sources have bounded connection, health, schema, and read-only preview operations; their registered default ports and the HBase/Couchbase port exceptions are listed in [NoSQL support](nosql-support.md). Batch 63 added offline DM/Oracle parser boundary cases. Batch 66 added `NewYashanParser()` for offline analysis, while standard `NewParser(model.DialectYashan)` remains unregistered and general Query stays fail-closed.
+- The release dry-run script defines and checks the 15 named assets in one invocation, with separate production preparation and validation paths. Batch 67 added parser malformed/concurrent failure tests and pipeline pre-execution rejection tests; [coverage notes](test-coverage-notes.md) state their limits and the offline dependency constraint. This documentation pass did not run Go tests.
 - Strict, version-gated OpenTenBase v2.5.0 PostgreSQL-plan normalization and a scoped single-node GTM/CN/DN safety-loop record. TXSQL/MySQL is a separate, untested path with no product-specific implementation in this release.
 - A scoped PolarDB for PostgreSQL 15 community-image exercise through the existing `postgres` path, with no PolarDB alias or vendor-identification switch.
 - A bounded PolarDB-X path through `db_type=mysql`, with shape-gated `LOGICAL EXECUTIONPLAN` to `EXPLAIN EXECUTE` normalization, compatibility corpus, and opt-in E2E coverage. It is distinct from PolarDB for PostgreSQL and is not a full topology or commercial-service certification.
@@ -210,8 +216,9 @@ AgentSQL v0.5.0 adds bounded database-dialect work, an RBAC/multi-tenant MVP, MC
 ### Known boundaries
 
 - The DM/Oracle parser covers only the documented v0.5 controlled-SELECT profile. Wildcards are bound to physical source relations, but the parser has no catalog and does not invent concrete column names. This is not full SQL grammar support or integration with the column-authorization/redaction pipeline. KingbaseES V9 and the named commercial database editions remain pending vendor-provided target environments.
+- YashanDB's offline parser is not wired through standard `NewParser`. None of the 21 NoSQL/vector sources inherit the full SQL protection pipeline. The registered HBase default of `16020` is rejected by the current adapter as a ZooKeeper bootstrap port.
 - R005 is closed within its documented boundary. An unbounded query whose controlled EXPLAIN estimate exceeds the effective `row_limit`, or a query actually truncated by the execution layer, produces an `R005` warning in `assessment.hits`; the same hit is persisted in `rule_hits` and is available through the audit management API. There is no separate R005-specific response header or log event. Missing EXPLAIN or audit facts continue to fail closed.
-- The PostgreSQL parser P99 gate remains open. In batch 33, both the pre-optimization and post-optimization five-run sets passed only 3/5 runs at the unchanged 5 ms threshold; the post-optimization P99 values were 4.456/4.775/6.404/6.554/4.173 ms. Release still requires five consecutive passing runs on the standard isolated Linux runner.
+- The PostgreSQL parser P99 release-day gate still requires a fresh run. In batch 33 both five-run sets passed only 3/5 at the 5 ms threshold; batch 61 passed two 5/5 sets in its specified Go 1.26.8 Linux/amd64 environment, with review P99 values of 1.917/2.075/1.994/2.011/1.911 ms. The full repository short-test run did not complete. Release still requires five consecutive passing P99 runs on the standard isolated Linux runner and completion of the other gates.
 - Human authentication now includes TOTP MFA with encrypted secrets, replay-resistant counters and one-time recovery codes; OIDC Authorization Code + PKCE with discovery, one-shot state/nonce and RS256 JWKS validation; and certificate-validated LDAP/AD search plus user bind. OIDC/LDAP groups map to explicit tenant-scoped AgentSQL role IDs and fail closed on missing or invalid mappings. Local and federated sessions reuse persistent access revocation and refresh-token family rotation/replay revocation. See `docs/en/AUTHENTICATION.md` for configuration and boundaries.
 - Stateful legacy-protocol SSE events are persisted in SQLite/PostgreSQL and can be replayed with `GET /mcp` plus `Last-Event-ID`; TTL/capacity gaps fail closed. MCP transport sessions themselves are still not persisted across processes or restarts. An old ID receives `Mcp-Session-Expired: 1` with the 404 and the client must initialize a new session. Real-account tests for Doubao and specific Claude Desktop/Inspector versions remain pending.
 - Protocol-path results do not cover full dialects, production topologies, HA/failover, the complete TLS/authentication matrix, performance SLAs, or vendor support obligations.

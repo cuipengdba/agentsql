@@ -2,23 +2,25 @@
 
 > 闸门时间：2026-10-16 16:00 CST（北京时间，UTC+08:00）
 >
-> 本清单最近核对批次：批三十三，2026-10-04，基线提交 `e8777079a342dd9d92c29989e0cd37e35846553e`；批三十一发布工程证据继续保留
+> 历史核对批次：批三十三，2026-10-04，基线提交 `e8777079a342dd9d92c29989e0cd37e35846553e`；批三十一发布工程证据继续保留
 >
 > 批三十三边界：未签名、未建 tag、未推送、未创建 Release、未 push 镜像、未访问发布站点；未执行任何 git 写操作。
 
-## 1. 当前结论（批三十三；批三十一发布工程证据保留）
+> 文档收尾补记：批六十一的 P99 复核、批六十二的 dry-run 脚本与批六十七的测试源码已纳入下方发布日待执行闸门；第 2、3 节的“批三十一状态/输出”保留为历史证据，不表示当前产物已通过。
+
+## 1. 批三十三记录与后续文档更新（批三十一发布工程证据保留）
 
 - 15 个 GitHub Release 资产的唯一可执行定义位于 `scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames`；本文和 `docs/release-notes-v0.5.md` 与它对齐。
 - `scripts/build-release-linux.sh` 与 `scripts/package-release.sh` 都只接受 `amd64` / `arm64`。前者要求容器原生架构与 `ARCH` 一致，因此 arm64 依赖原生 arm64 runner 或 Docker/QEMU；本机 Docker/QEMU 的禁网探针已分别回报 `x86_64` 和 `aarch64`。
 - `go.mod` 已是 Go 1.26；正式脚本现固定 Go 1.26.8 并设置 `GOTOOLCHAIN=local`。`Makefile` 的开发默认值仍是历史 `1.25.14`，本批按改动范围未修改；发布日不得依赖该默认值，如人工调用 make target 必须显式传 `GO_VERSION=1.26.8`。
 - 现存 `dist/release-dryrun/v0.5.0` 来自旧提交 `02565f5...`，Go metadata 缺 `yashandb-go v1.4.4`。`-ValidateOnly` 真实返回 FAIL，旧资产不可复用。当前规则要求两个 tar 均包含 `lib/yashandb/libyascli.so` 与 `lib/yashandb/libyas_infra.so`。
-- 本批按任务红线跳过外网。完整当前 HEAD 构建因 `dnf`、go.dev、阿里云 Go 镜像、GitHub Raw 崖山客户端及 BuildKit 基础镜像元数据均需要外网而阻塞；不得写成 PASS。
+- 批三十一按当时任务红线跳过外网。该次封板候选的完整构建因 `dnf`、go.dev、阿里云 Go 镜像、GitHub Raw 崖山客户端及 BuildKit 基础镜像元数据均需要外网而阻塞；不得写成 PASS。
 - 本地缓存的 `golang:1.26-bookworm` 实测为 Go 1.26.8 amd64，但没有 arm64 平台镜像；原生发行脚本发布日必须按固定版本下载并校验两架构 Go tarball，不能用本批缓存替代。
 - 旧的三个 OCI 归档确有 amd64/arm64 descriptor，但三者的平台镜像 digest 完全相同；旧 `quickstart` 只是主镜像换 tag，缺 Compose 所需 demo 配置。发布脚本现用同一个 Buildx Bake 图构建 demo base 和叠加两份配置的 quickstart target，并实际解析 OCI descriptor。
 - `scripts/build-ghcr-multiarch.ps1 -Push` 现只推精确版本和可选辅助 tag，不再同时移动 `latest`；精确 tag 匿名双架构验收后，单独执行 `-PromoteLatest`。
 - `scripts/release-dryrun.ps1 -ProductionPrepare` 提供生产候选的可执行组装路径：要求完全干净工作树并复制授权公钥，只生成 11 个待签名文件，不读取私钥、不生成签名。补齐两份内容签名、`SHA256SUMS` 和其签名后才形成 15 项。
 - R005 的发布说明曾滞后于批十七提交 `02565f5`。代码已覆盖普通生产动态 EXPLAIN 告警、通用执行实际截断补告警和 PostgreSQL 列级授权实际截断补告警；结构化命中位于 `assessment.hits`，同一命中持久化到审计 `rule_hits`，可由管理审计 API 查询。批三十三已校正文档，不再把该项列为开放 P0。
-- PostgreSQL parser P99 **仍阻断发布**。批三十三在 Go 1.26.8 Linux/amd64、Intel i7-6700、8 CPU、`GOMAXPROCS=8` 下，优化前和优化后均仅 3/5 轮满足 P99 ≤ 5 ms；优化后为 4.456/4.775/6.404/6.554/4.173 ms。不得用平均 benchmark 改善替代尾延迟门，也不得放宽阈值。
+- PostgreSQL parser P99 的批三十三记录仅 3/5 轮满足 P99 ≤ 5 ms；批六十一在指定 Go 1.26.8 Linux/amd64 环境里两组各 5/5 通过，复核组 P99 为 1.917/2.075/1.994/2.011/1.911 ms。后一次通过不抹去历史失败，也不代替发布日标准 Linux runner 的连续五轮独占复测；不得用平均 benchmark 代替尾延迟门或放宽阈值。
 
 ## 2. 15 资产核对表
 
@@ -89,6 +91,8 @@ pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist/release-
 ```
 
 验收：parser 命令连续 5 轮均为 PASS 且每轮 P99 ≤ 5 ms，任一轮失败立即停止；R005 所在 rules/pipeline short tests PASS；两次 Go build PASS；dry-run 输出 `RELEASE_DRYRUN_ASSET_COUNT=15`、`RELEASE_DRYRUN_SHA256SUMS=PASS`、`RELEASE_DRYRUN_YASHAN_REDISTRIBUTION=INCLUDED_DRIVER_v1.4.4_CLIENT_23.4.7.100`、`RELEASE_DRYRUN_IMAGES=PASS`、`PASS_UNSIGNED_NOT_FOR_RELEASE`。两个 tar 均须检查 `lib/yashandb/libyascli.so` 与 `lib/yashandb/libyas_infra.so`；镜像须检查 `/opt/yashandb-client/lib` 及 `LD_LIBRARY_PATH`。逐项保存完整日志。dry-run 占位签名禁止上传。
+
+补充测试闸门（发布日执行）：按 [测试覆盖说明](test-coverage-notes.md) 检查 parser 畸形输入/并发隔离和 pipeline 执行前拒绝测试的真实退出码，并完成全仓 short tests。`internal/pipeline` 的测试包编译涉及 testcontainers 依赖；缺模块缓存、CGO 工具链或 Docker E2E 环境时记录“未完成/未执行”，不得将定向断言或短测试替代全仓与真库结果。批六十一只获得 parser/rules/pipeline 三包 PASS，全仓 short 未完成。
 
 ### C. 正式公钥、生产候选与 15 资产
 
@@ -189,4 +193,6 @@ pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0 -PromoteLatest
 - 禁止把本批旧资产、旧 OCI descriptor 或脚本语法 PASS 写成当前 HEAD 构建 PASS。
 - 发布日仍需外网：Rocky/Syft/Go/崖山客户端获取与校验、GitHub/GHCR、PVR、官网部署与公网验收。
 - 发布日仍需凭据：正式 Ed25519 密钥落盘策略、Git tag/push、GitHub Release、`write:packages`、GHCR visibility、官网主机/DNS/证书权限。
+- `scripts/release-dryrun.ps1` 定义并核验 15 项资产，但 dry-run 结果不是正式签名；发布日必须以当前 sealed commit 重建、签名、三次密码学验签和 `-ValidateOnly` 完成 C 闸门。旧资产的 FAIL 不得挪作新资产结论。
+- NoSQL 注册/端口、DM/Oracle 与 YashanDB 方言边界须对照 [NoSQL 支持范围](nosql-support.md)、[DM/Oracle 边界](dm-oracle-dialect.md)、[YashanDB 边界](yashan-dialect.md) 完成发布文案复核；不得把 HBase 注册默认端口写成可直接连通的 ZooKeeper bootstrap 端口，也不得把离线 parser 当成完整网关放行。
 - `Makefile` 的 `GO_VERSION ?= 1.25.14` 不是正式发布值；使用 `scripts/release-dryrun.ps1` / `-ProductionPrepare`，或对 make 显式覆盖为 `1.26.8`，否则 `GOTOOLCHAIN=local` 会 fail-closed。
