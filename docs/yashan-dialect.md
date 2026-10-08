@@ -194,6 +194,28 @@ Official references:
 - <https://doc.yashandb.com/yashandb-en/23.4/en/All-Manuals/Performance-Tuning/Performance-Tuning-Features-and-Tools/AUTOTRACE.html>
 - <https://doc.yashandb.com/yashandb-en/23.4/en/All-Manuals/Reference-Manual/Error-Codes.html>
 
+## Batch 66 offline parser profile
+
+`parser.NewYashanParser()` now constructs a narrow SELECT parser for local,
+offline analysis. It reuses the strict Oracle-compatible parser and returns an
+AST labeled `yashan`. The tests in `internal/parser/yashan_parser_test.go` verify
+the following parser outcomes; they do not validate additional server syntax.
+
+| Offline parser accepts | Offline parser rejects |
+| --- | --- |
+| `DUAL` constant projection | `NVL` and `DECODE` calls |
+| bounded `ROWNUM` predicate | unsupported `ROWNUM` operators or `OR` combinations |
+| double-quoted names and column aliases | `AS` table alias outside the qualified profile |
+| `FETCH FIRST ... ROWS ONLY` | PostgreSQL `LIMIT`, `::` cast, and ambiguous `ILIKE` marker |
+| empty string `IS NULL`; empty equality is not marked tautological | ambiguous unquoted `PIVOT` marker |
+| direct projection lineage across a simple join | hierarchical query, bind marker, multiple statements, malformed input |
+
+Unsupported shapes return `ErrUnparseable` with an empty Yashan AST and a stable
+error, without a panic. Quoted identifiers such as `"ILIKE"` remain allowed.
+`NewParser(model.DialectYashan)` is still unregistered because `parser.go` is
+outside this batch's allowed file list; existing caller routing and execution
+guards therefore remain unchanged. General Yashan `Query` remains disabled.
+
 ## Implemented boundary
 
 `openExecutor` recognizes `db_type=yashan`. `YashanExecutor` owns an
