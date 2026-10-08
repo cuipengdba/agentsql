@@ -230,7 +230,7 @@
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
                 <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status plan">待厂商环境</span></td><td class="eco-desc">V9R1C10 目标镜像待厂商提供（第三方旧版 License 已过期）。</td></tr>
-                <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status ok">协议路径已实测</span></td><td class="eco-desc">第三方 SEE 容器的 PostgreSQL 协议路径已实测；商业版待厂商终验。</td></tr>
+                <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status ok">🟢 指定实例防护链路实测通过</span></td><td class="eco-desc">HighGo 9.0.10 企业版（PG 模式、单实例合成表）：解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝、allow/deny 审计链路实测通过；TLS、连接池故障切换、取消/超时、EXPLAIN、扩展类型/OID、系统目录差异、B2 列级授权、parse-error 审计分支（本轮未触发）、跨版本与生产负载未测。非厂商认证或生产支持承诺。</td></tr>
                 <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
                 <tr><td class="eco-db">openGauss（GaussDB）</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
                 <tr><td class="eco-db">TiDB</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
@@ -243,7 +243,7 @@
               </tbody>
             </table>
           </div>
-          <p class="ecosystem-note">*"已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。首批金仓 + 瀚高的证据边界与复现 SQL 见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/joint-case-kingbase-highgo.md" target="_blank" rel="noopener noreferrer">联合案例验证记录</a>。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
+          <p class="ecosystem-note">*"已实测"仅指对应版本、镜像/拓扑与用例；HighGo 9.0.10 企业版真库证据见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/highgo-verification.md" target="_blank" rel="noopener noreferrer">瀚高验证记录</a>，不代表厂商认证或生产支持承诺。"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。首批金仓 + 瀚高的早期证据边界与复现 SQL 见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/joint-case-kingbase-highgo.md" target="_blank" rel="noopener noreferrer">联合案例验证记录</a>。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
         </div>
       </div>
     </section>

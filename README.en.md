@@ -33,7 +33,7 @@ The seven base MCP tools are `list_datasources`, `list_schema`, `explain_query`,
 
 ## Database Compatibility
 
-The pending v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 is a separate vendor-environment candidate and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
+The pending v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 is a separate vendor-environment candidate and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. HighGo green applies only to the 9.0.10 Enterprise Edition PG-mode, single-instance synthetic case, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
 
 ### Relational (6 registered + 1 pending)
 
@@ -41,6 +41,10 @@ The pending v0.5.0 code registers **8 categories and 27 databases** (6 relationa
 - 🟢 Dameng DM8 (Pack3, `COMPATIBLE_MODE=0`, specified protection chain only)
 - 🔵 Oracle 23ai; YashanDB; SQL Server 2025
 - 🟡 KingbaseES V9: waiting for a vendor image and license; the target environment was expected on October 8. Connection validation is not claimed before it is obtained.
+
+### Additional tested PG protocol path (outside the 27 registered types)
+
+- 🟢 HighGo 9.0.10 Enterprise Edition (PG mode, single instance, synthetic table): parsing/column lineage, table-level authorization, controlled read-only SELECT, phone-number masking, R006 denial, and the allow/deny audit chain passed a live test through `db_type=postgres`. TLS, pool failover, cancellation/timeouts, EXPLAIN, extended types/OIDs, system-catalog differences, B2 column authorization, the parse-error audit branch (not triggered), cross-version behavior, and production workloads remain untested. This is neither vendor certification nor a production support commitment. See the [HighGo verification record](docs/highgo-verification.md).
 
 ### Key-value (KV)
 

@@ -23,6 +23,7 @@
 
 ### Changed
 
+- 瀚高 HighGo 9.0.10 企业版在 PG 模式、单实例合成表范围，经批七十真库验证通过解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝及 allow/deny 审计链路；用户于 2026-10-08 拍板，矩阵档位转为 🟢 指定实例防护链路实测通过。TLS、连接池故障切换、取消/超时、EXPLAIN、扩展类型/OID、系统目录差异、B2 列级授权、parse-error 审计分支（本轮未触发）、跨版本与生产负载未测；不构成厂商认证或生产支持承诺。见[真库验证记录](docs/highgo-verification.md)。
 - OpenTenBase PostgreSQL 内核新增严格、版本受限的分布式计划归一化，并在指定 v2.5.0 单机 GTM/CN/DN 拓扑完成最小安全闭环；TXSQL/MySQL 内核仍待官方环境实测。
 - PolarDB for PostgreSQL 指定社区镜像通过现有 `postgres` 路径完成实验性安全闭环，未新增别名或厂商识别开关。
 - PolarDB-X 复用 `db_type=mysql`，增加从严格识别的 `LOGICAL EXECUTIONPLAN` 到 `EXPLAIN EXECUTE` 的两阶段 fail-closed 计划适配、兼容 corpus 与 opt-in E2E；不与 PolarDB for PostgreSQL 混称。
@@ -41,7 +42,7 @@
 
 ### Known Issues
 
-- Oracle 的完整网关授权/脱敏闭环、YashanDB HTTP/MCP 与持久化审计终验、KingbaseES V9 以及 HighGo / GaussDB / TDSQL 等商业版的目标环境终验仍未完成。崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。
+- Oracle 的完整网关授权/脱敏闭环、YashanDB HTTP/MCP 与持久化审计终验、KingbaseES V9 以及 GaussDB / TDSQL 等商业版的目标环境终验仍未完成。崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。
 - 登录限速/锁定和 MCP transport session 跨进程持久化仍未交付；OIDC/LDAP 的真实企业 IdP/目录兼容矩阵需在目标环境逐项验收。
 
 ## [v0.4.0] - 2026-09-30

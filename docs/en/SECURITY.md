@@ -2,9 +2,9 @@
 
 # AgentSQL Security Model
 
-## Database Compatibility and Security Status (as of 2026-10-06)
+## Database Compatibility and Security Status (as of 2026-10-08)
 
-This table describes evidence for the **pending v0.5.0 code**, not vendor certification or a change to AgentSQL's security-fix support policy. A tested protocol path means only the named image, topology, and synthetic cases were exercised. Every path still requires gateway routing, a dedicated least-privilege database account, and failure closed when parsing, catalog, plan, or authorization facts are uncertain. PostgreSQL B2 column authorization and B5 controlled transactions do not transfer to other products merely because they speak a similar protocol.
+This table describes evidence for the **pending v0.5.0 code**, not vendor certification, a production support commitment, or a change to AgentSQL's security-fix support policy. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within the stated scope; the DM8 and HighGo green tiers apply only to their named instances and cases. A tested protocol path means only the named image, topology, and synthetic cases were exercised. Every path still requires gateway routing, a dedicated least-privilege database account, and failure closed when parsing, catalog, plan, or authorization facts are uncertain. PostgreSQL B2 column authorization and B5 controlled transactions do not transfer to other products merely because they speak a similar protocol.
 
 | Product and target | AgentSQL path and evidence | Remaining boundary |
 | --- | --- | --- |
@@ -12,7 +12,8 @@ This table describes evidence for the **pending v0.5.0 code**, not vendor certif
 | PolarDB for PostgreSQL 15 | Named community image completed a minimal `postgres` path exercise | Commercial service, HA, TLS, and B2/B5 need separate validation |
 | IvorySQL 5.3 | Named community edition completed a minimal PG protocol exercise | No inference for Oracle mode or commercial HighGo |
 | openGauss 7.0.0-RC3 | Named community edition completed a minimal PG protocol exercise | No inference for commercial GaussDB or B2/B5 |
-| HighGo SEE 4.5 | Named third-party image completed a minimal PG protocol exercise | HighGo V9.0 and official commercial environment await vendor validation |
+| HighGo SEE 4.5 | Named third-party image completed a minimal PG protocol exercise | This older record is separate from the V9.0.10 enterprise-edition live test below |
+| 🟢 HighGo 9.0.10 Enterprise Edition | PG mode, single instance, synthetic table: parsing/column lineage, table-level authorization, controlled read-only SELECT, phone-number masking, R006 denial, and allow/deny audit chain passed a live test through the `postgres` data source path | TLS, pool failover, cancellation/timeouts, EXPLAIN, extended types/OIDs, system-catalog differences, B2 column authorization, parse-error audit branch (not triggered), cross-version behavior, and production workloads remain untested; no vendor certification or production support commitment. See the [HighGo verification record](../highgo-verification.md) |
 | OpenTenBase v2.5.0 | Named single-node GTM/CN/DN topology and known plan shapes completed a minimal exercise | Production topology, other plans, and B2/B5 unproven |
 | KingbaseES V9 | Vendor environment pending; an old third-party image could not run because its license expired | V9R1C10 target environment was expected on October 8; validate PG mode before any support claim |
 | MySQL 8.0 | Native `mysql` path | No PostgreSQL B2/B5 proof |
