@@ -26,7 +26,7 @@
 
 这 15 项是 AgentSQL 的上传资产清单；YashanDB C 客户端不是第 16 个独立上传资产，而是包含在两个 Linux tarball 的 `lib/yashandb/` 中。`scripts/package-release.sh` 校验 `yashandb-go v1.4.4`、客户端 ELF 架构和动态依赖，并检查归档中两份必需库。`scripts/install.sh` 校验包内清单，将客户端安装到 `/usr/local/lib/agentsql/yashandb`，在升级和回滚时管理该目录。GHCR 最终镜像包含客户端，并设置 `LD_LIBRARY_PATH=/opt/yashandb-client/lib`。
 
-发行物按项目维护者声明的厂商授权再分发 YashanDB C 客户端 23.4.7.100；仓库未收到书面授权文件。源码自行构建时仍需准备匹配架构的客户端；直接运行解压后的 tarball 时需将 `lib/yashandb` 加入 `LD_LIBRARY_PATH`。详见 [DEPLOY.md](DEPLOY.md)。客户端缺失或加载失败时，YashanDB 连接应 fail-closed。资产名称仍为上表 15 项；必须从最终提交重新生成 tarball 和 dry-run，再做验收。
+崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。上述打包位置是现有脚本的目标设计，不是批七十一的产物验收结论。本轮没有从服务器镜像打包客户端，也没有重建发行物；当前可复现的接入路径是用户自行取得匹配架构的独立客户端，并在启动前设置 `LD_LIBRARY_PATH`。详见 [DEPLOY.md](DEPLOY.md)。客户端缺失或加载失败时，YashanDB 连接失败关闭。资产名称仍为上表 15 项；必须从最终提交重新生成 tarball 和 dry-run，再做验收。
 
 ## 当前证据与判定
 

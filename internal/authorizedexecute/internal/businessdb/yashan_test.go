@@ -41,27 +41,43 @@ func TestYashanSchemaQueryUsesBindsAndOneBasedOrdinals(t *testing.T) {
 	require.Contains(t, query, "TO_CHAR(COLUMN_ID + 1)")
 }
 
-func TestYashanGeneralSQLFailsClosed(t *testing.T) {
+func TestYashanSQLGuardFailsClosed(t *testing.T) {
 	executor := &YashanExecutor{limitedSQLExecutor: &limitedSQLExecutor{dialect: "yashan"}}
 	require.Equal(t, "yashan", executor.Dialect())
 
-	result, err := executor.Query(context.Background(), "SELECT 1 FROM DUAL", 1)
+	result, err := executor.Query(context.Background(), "SELECT NVL(name, 'x') FROM customers", 1)
 	require.Empty(t, result)
 	require.Error(t, err)
 	var databaseError *DBError
 	require.ErrorAs(t, err, &databaseError)
-	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
-	require.Equal(t, DBStageQuery, databaseError.Stage)
+	require.Equal(t, DBErrorKindSyntax, databaseError.Kind)
+	require.Equal(t, DBStageParse, databaseError.Stage)
 
-	result, err = (&yashanSession{}).Query(context.Background(), "SELECT 1 FROM DUAL", 1)
+	result, err = (&yashanSession{}).Query(context.Background(), "DELETE FROM customers", 1)
 	require.Empty(t, result)
 	require.ErrorAs(t, err, &databaseError)
-	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
-	require.Equal(t, DBStageQuery, databaseError.Stage)
+	require.Equal(t, DBErrorKindSyntax, databaseError.Kind)
+	require.Equal(t, DBStageParse, databaseError.Stage)
+
+	require.NoError(t, validateYashanSelect("SELECT 1 FROM DUAL"))
+	require.Error(t, validateLimitedSelectForDialect("yashan", "SELECT seq.CURRVAL FROM DUAL"))
 
 	_, err = executor.Explain(context.Background(), "SELECT 1 FROM DUAL")
 	require.ErrorAs(t, err, &databaseError)
 	require.Equal(t, DBStageExplain, databaseError.Stage)
+}
+
+func TestYashanMissingNativeComponentsFailClosed(t *testing.T) {
+	if !sqlDriverRegistered("yasdb") {
+		datasource := model.Datasource{
+			ID: "yashan-missing-driver", DBType: "yashan", Host: "127.0.0.1", Port: 1688,
+			Database: "APP", Username: "reader",
+		}
+		_, err := NewYashanExecutor(context.Background(), datasource, "synthetic", true)
+		require.ErrorContains(t, err, "-tags yashan")
+	}
+	t.Setenv("LD_LIBRARY_PATH", t.TempDir())
+	require.False(t, yashanClientRuntimeReady())
 }
 
 func TestYashanDiscoveryE2E(t *testing.T) {
@@ -69,11 +85,11 @@ func TestYashanDiscoveryE2E(t *testing.T) {
 		t.Skip("set AGENTSQL_YASHAN_E2E=1 and build with -tags yashan to run against YashanDB")
 	}
 	datasource := model.Datasource{
-		ID: "yashan-e2e", DBType: "yashan", Host: envOrDefault("YASHAN_HOST", "127.0.0.1"),
-		Port: 1688, Database: envOrDefault("YASHAN_SCHEMA", "SYS"),
-		Username: envOrDefault("YASHAN_USER", "SYS"), ConnLimit: 1, StmtTimeoutMS: 15_000,
+		ID: "yashan-e2e", DBType: "yashan", Host: yashanEnvOrDefault("YASHAN_HOST", "127.0.0.1"),
+		Port: 1688, Database: yashanEnvOrDefault("YASHAN_SCHEMA", "SYS"),
+		Username: yashanEnvOrDefault("YASHAN_USER", "SYS"), ConnLimit: 1, StmtTimeoutMS: 15_000,
 	}
-	tableName := envOrDefault("YASHAN_TABLE", "ALL_TAB_COLUMNS")
+	tableName := yashanEnvOrDefault("YASHAN_TABLE", "ALL_TAB_COLUMNS")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	opened, err := openExecutor(datasource, os.Getenv("YASHAN_PASSWORD"), true)
@@ -87,12 +103,8 @@ func TestYashanDiscoveryE2E(t *testing.T) {
 	session, err := executor.OpenSession(ctx, "yashan-e2e-session")
 	require.NoError(t, err)
 	result, err := session.Query(ctx, "SELECT 1 FROM DUAL", 1)
-	require.Empty(t, result)
-	require.Error(t, err)
-	var databaseError *DBError
-	require.ErrorAs(t, err, &databaseError)
-	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
-	require.Equal(t, DBStageQuery, databaseError.Stage)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
 	require.NoError(t, session.Close())
 
 	columns, err := ListSchema(ctx, executor, datasource.Database, []SchemaTable{{Schema: datasource.Database, Table: tableName}})
@@ -103,14 +115,23 @@ func TestYashanDiscoveryE2E(t *testing.T) {
 	require.GreaterOrEqual(t, columns[0].Ordinal, 1)
 
 	result, err = executor.Query(ctx, "SELECT 1 FROM DUAL", 1)
-	require.Empty(t, result)
-	require.Error(t, err)
-	require.ErrorAs(t, err, &databaseError)
-	require.Equal(t, DBErrorKindExecution, databaseError.Kind)
-	require.Equal(t, DBStageQuery, databaseError.Stage)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
 
 	_, err = executor.Explain(ctx, "SELECT 1 FROM DUAL")
 	require.Error(t, err)
+	var databaseError *DBError
 	require.ErrorAs(t, err, &databaseError)
 	require.Equal(t, DBStageExplain, databaseError.Stage)
+
+	_, err = executor.Execute(ctx, "INSERT INTO missing_table VALUES (1)")
+	require.ErrorAs(t, err, &databaseError)
+	require.Equal(t, DBErrorKindReadOnly, databaseError.Kind)
+}
+
+func yashanEnvOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }

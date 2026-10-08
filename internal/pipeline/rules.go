@@ -98,6 +98,8 @@ func assembleRules(
 	case model.DialectDM:
 		// DM8 uses the generic rules. Its parser and executor independently
 		// enforce the documented read-only SELECT subset.
+	case model.DialectYashan:
+		// Yashan uses generic rules; its parser and executor reject unproved SQL.
 	default:
 		return nil, fmt.Errorf("unsupported rule dialect %q", dialect)
 	}

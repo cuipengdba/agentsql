@@ -361,7 +361,7 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
 | 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
 
-注册表的 27 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM/Oracle 的受控 SELECT parser 仍未接通完整网关授权/脱敏链路；YashanDB 仅有 `NewYashanParser()` 离线入口，标准 `NewParser` 尚未注册它。SQL Server、达梦、Oracle、YashanDB 及其他协议候选的完整方言或商业版认证均未宣称；各自证据边界见 [Release Notes](release-notes-v0.5.md) 与 [SECURITY.md](../SECURITY.md)。
+注册表的 27 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM8 Pack3、`COMPATIBLE_MODE=0` 的只读 SELECT、列血缘、R010、审计及手机号脱敏已在批六十五真库链路通过；R006、多行分页/JOIN/函数/系统目录仍未验证，写入未放开。Oracle 的完整网关授权/脱敏闭环仍未证明。YashanDB 标准 `NewParser` 与窄 SELECT 路径已接通；本轮独立客户端直连真库参数绑定和只读写入拒绝通过，另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计。HTTP/MCP、持久化审计及最小权限账号与流水线的组合未测。SQL Server、达梦、Oracle、YashanDB 及其他协议候选的完整方言或商业版认证均未宣称；各自证据边界见 [Release Notes](release-notes-v0.5.md) 与 [SECURITY.md](../SECURITY.md)。
 
 ---
 

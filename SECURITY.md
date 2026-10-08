@@ -16,15 +16,15 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 
 以下分组描述 **AgentSQL v0.5.0 待发布代码**的接入范围与证据，不是数据库厂商的认证清单，也不改变上面的 AgentSQL 安全修复版本政策。注册表共 8 类 27 款（6 款关系型 + 21 款 NoSQL / 向量）；KingbaseES V9 是额外的待验证候选，不计入 27 款。
 
-档位：🟢 完整防护＝解析、授权、受控执行、脱敏、审计；🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。所有实测仅表示指定容器镜像、拓扑及合成用例通过，**非数据库厂商官方认证**。所有数据库必须经 AgentSQL 网关，使用专用最小权限账号；解析、目录、执行计划或授权事实不明时 fail-closed。协议兼容不等于安全语义相同；PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
+档位：🟢 解析、授权、受控执行、脱敏、审计链路在所述范围通过；DM8 绿色仅限指定 Pack3 实例与用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。所有实测仅表示指定容器镜像、拓扑及合成用例通过，**非数据库厂商官方认证**。所有数据库必须经 AgentSQL 网关，使用专用最小权限账号；解析、目录、执行计划或授权事实不明时 fail-closed。协议兼容不等于安全语义相同；PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
 
 ### 关系型（6 款已注册 + 1 款待验证）
 
 - 🟢 **PostgreSQL 14–18**：原生 `postgres` 路径；B2/B5 仍受自身版本、目录和能力检查约束。
 - 🟢 **MySQL 8.0**：原生 `mysql` 路径；不继承 PostgreSQL B2/B5 证明。
 - 🔵 **Oracle 23ai**：独立 `oracle` 严格 SELECT 子集；不能据此推断企业版或完整 Oracle 方言已通过。
-- 🔵 **达梦 DM8**：独立 `dm` 受控 SELECT 子集有界实测；完整语法、写入和列级安全链路未完成。
-- 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` 最小切片；连接、元数据及普通 Query 失败关闭已复验；EXPLAIN、写入与完整安全闭环未证明。
+- 🟢 **达梦 DM8**：Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。
+- 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` parser 与窄 SELECT 路径已接通；独立客户端真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏及三条测试审计，最小权限账号的数据库写入拒绝另经原生探针验证。HTTP/MCP、持久化审计及最小权限账号与流水线的组合未测；EXPLAIN、写入继续失败关闭。
 - 🔵 **SQL Server 2025（17.x）**：独立 `sqlserver` 严格只读子集；不提供完整 T-SQL、写入、B2/B5 或厂商认证。
 - 🟡 **金仓 KingbaseES V9**：等厂商镜像与 license；旧第三方镜像因许可证过期未能验证。V9R1C10 目标环境拟于 10 月 8 日取得，取得前不声明接入通过，且须确认 PG 兼容模式。
 
@@ -69,7 +69,7 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 - **TiDB 7.5.1 / OceanBase CE 4.4.2.1**：MySQL 兼容候选，EXPLAIN 适配与回归 fixture 已落地；fixture 不是目标环境完整闭环或厂商认证。
 - **PolarDB-X**：旧官方 `2.0.1` 单容器经 `mysql` 路径有界实测；完整 CN/DN/CDC、商业服务、分布式语义及 B2/B5 未证明。
 
-> **YashanDB 客户端再分发授权：**AgentSQL v0.5.0 Linux tarball、systemd 原生安装包及 GHCR 运行时镜像均携带匹配架构的 YashanDB C 客户端运行库（client 23.4.7.100，配合 yashandb-go v1.4.4）。再分发依据是项目维护者声明已取得厂商授权；本仓库未收到书面授权文件。这不改变 YashanDB 的低阶支持范围：连接和元数据发现已复验，普通 Query、写入、事务及 EXPLAIN 仍 fail-closed。
+> **YashanDB 客户端再分发授权：**已获厂家口头授权（C 客户端再分发）；仓库无书面授权文件。本轮没有从服务器镜像复制或打包 C 客户端，也没有重建待发布的 Linux/GHCR 发行物。服务器镜像自带库在既有 Go 驱动真库探针中返回 `YAS-02143`；本机旧的未发布 dry-run 包内缓存的独立客户端 23.4.7.100 通过本轮原生驱动和真实数据库流水线测试。部署时用户自行取得独立客户端并在启动前设置 `LD_LIBRARY_PATH`；缺 Go 驱动或运行库时连接失败关闭。Go 驱动须通过 `CGO_ENABLED=1` 与 `-tags yashan` 编入二进制。上述流水线测试未覆盖 HTTP/MCP 接口或持久化审计库。
 
 接入状态的可复现证据见[兼容性调研](docs/ecosystem-db-compat-research.md)、[v0.5 发布说明](docs/release-notes-v0.5.md)和[金仓/瀚高联合案例](docs/joint-case-kingbase-highgo.md)。产品线区分参见腾讯官方的 [TDSQL PostgreSQL 版](https://cloud.tencent.com/document/product/1129)、[TDSQL MySQL 版](https://cloud.tencent.com/product/dcdb)以及 OpenTenBase 的[独立 TXSQL 下载入口](https://docs.opentenbase.org/en/download/)；协议相容不等于安全语义相同。
 

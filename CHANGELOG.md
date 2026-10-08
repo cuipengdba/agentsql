@@ -10,9 +10,9 @@
 
 - v0.5 控制平面新增 TOTP MFA、OIDC Authorization Code + PKCE 和 LDAP/AD TLS bind 登录；外部组必须显式映射到租户角色，MFA/SSO/目录状态异常均 fail-closed，并复用 refresh token 轮换、重放整族吊销和 logout 撤销链路。
 
-- 新增 DM、Oracle 和 YashanDB 独立 dialect 的有界连接/元数据能力；Oracle 完成严格只读子集和 EXPLAIN 归一化实测，DM8 在指定 `COMPATIBLE_MODE=0` Pack3 实例完成窄 SELECT、分页及已知 EXPLAIN 形态实测，完整授权/脱敏链路仍未接通。
+- 新增 DM、Oracle 和 YashanDB 独立 dialect 的有界连接/元数据能力；Oracle 完成严格只读子集和 EXPLAIN 归一化实测。DM8 Pack3、`COMPATIBLE_MODE=0` 的只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏链路经批六十五真库验证通过，矩阵转绿；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。
 - 注册表新增 7 类 21 款 NoSQL / 向量连接级数据源（键值、文档、宽列、图、时序、OLAP、向量），加上 6 款关系型共 8 类 27 款；只提供有界 ping、版本、Schema 和只读预览，不扩展为完整 SQL 安全闭环。逐项类型与默认端口见 [NoSQL 支持范围](docs/nosql-support.md)。
-- DM/Oracle 的受控 SELECT parser 补充 ROWNUM、投影别名、NULL 语义与分页等离线边界回归；YashanDB 增加 `NewYashanParser()` 离线 SELECT profile，标准 `NewParser` 入口仍未注册它，通用 Query 保持 fail-closed。
+- DM/Oracle 的受控 SELECT parser 补充 ROWNUM、投影别名、NULL 语义与分页等离线边界回归；YashanDB 增加 `NewYashanParser()` 离线 SELECT profile，批七十一接通标准 `NewParser`、通用规则与窄 SELECT 执行路径。旧未发布 dry-run 包内的独立客户端 23.4.7.100 通过原生驱动只读写入拒绝探针；真实数据库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计，HTTP/MCP 与持久化审计仍待验证。
 - 新增 parser 畸形输入、错误稳定性和并发隔离，以及 pipeline 空 SQL/不完整 SQL 的执行前拒绝测试；覆盖范围和离线依赖限制见 [测试覆盖说明](docs/test-coverage-notes.md)。
 - 新增 RBAC / 多租户 MVP：本地用户、租户、角色、权限、多角色、角色继承与管理 API 逐路由授权；全部能力开放，无许可门控。
 - 新增企业审计查询/报表与合规导出配套，以及无需克隆源码的自包含五分钟快速上手演示栈。
@@ -41,7 +41,7 @@
 
 ### Known Issues
 
-- DM/Oracle 的完整网关授权/脱敏闭环、YashanDB 标准 parser 入口与通用 Query、KingbaseES V9 以及 HighGo / GaussDB / TDSQL 等商业版的目标环境终验仍未完成。
+- Oracle 的完整网关授权/脱敏闭环、YashanDB HTTP/MCP 与持久化审计终验、KingbaseES V9 以及 HighGo / GaussDB / TDSQL 等商业版的目标环境终验仍未完成。崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。
 - 登录限速/锁定和 MCP transport session 跨进程持久化仍未交付；OIDC/LDAP 的真实企业 IdP/目录兼容矩阵需在目标环境逐项验收。
 
 ## [v0.4.0] - 2026-09-30

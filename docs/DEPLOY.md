@@ -319,7 +319,7 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。官方 tarball 已包含匹配架构的 YashanDB C 客户端，安装器将其放到 `/usr/local/lib/agentsql/yashandb`。
+安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。现有发行脚本计划在 tarball 中放入匹配架构的 YashanDB C 客户端并安装到 `/usr/local/lib/agentsql/yashandb`；批七十一没有重建或验收当前发行包。
 
 常用生命周期命令：
 
@@ -364,9 +364,9 @@ sudo install -o root -g agentsql -m 0640 deploy/systemd/config.yaml /etc/agentsq
 
 如果系统已经存在 `agentsql` 用户，跳过 `useradd`。systemd 专用配置模板已固定仅监听 `127.0.0.1:7780`，并将 SQLite 数据写入 `/var/lib/agentsql/agentsql.db`，无需再手工修改 `sqlite_path`。裸机默认只监听 `127.0.0.1`；如需远程访问，应使用 SSH 本地转发或受控反向代理（TLS/鉴权），不要直接把 `http_listen` 改成 `0.0.0.0` 暴露公网。
 
-官方 v0.5.0 Linux tarball 在 `lib/yashandb` 内携带匹配架构的 YashanDB C 客户端 23.4.7.100。通过 `install.sh` 安装时，客户端位于 `/usr/local/lib/agentsql/yashandb`；systemd unit 已设置该目录为 `LD_LIBRARY_PATH`。直接从解压目录运行时，先执行 `export LD_LIBRARY_PATH="$PWD/lib/yashandb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"`。源码自行构建 YashanDB 支持时，仍需从厂商取得客户端，并使用 `CGO_ENABLED=1` 和 `-tags yashan`。
+崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。批七十一未重建 v0.5.0 发行物，不能据源码中的打包脚本推断当前 tarball 已携带客户端。本轮可复现路径是用户自行取得独立 YashanDB C 客户端 23.4.7.100，使用 `CGO_ENABLED=1`、`-tags yashan` 编入 Go 驱动，并在启动 AgentSQL 前将客户端 `lib` 目录加入 `LD_LIBRARY_PATH`。服务器镜像内的 C 库在历史 Go 驱动探针中返回 `YAS-02143`，不作为发行运行库。
 
-GHCR 运行时镜像同样携带客户端，位于 `/opt/yashandb-client/lib`，并预设 `LD_LIBRARY_PATH`。发行物再分发依据是项目维护者声明已获厂商授权；仓库未收到书面授权文件。客户端缺失或动态加载失败时，YashanDB 连接应 fail-closed；普通 Query、写入、事务与 EXPLAIN 仍 fail-closed，打包完成不扩大该能力范围。
+未来若按现有打包脚本重建并验证 GHCR 镜像，预设客户端目录为 `/opt/yashandb-client/lib`；本轮未执行该发行验收。Go 驱动或客户端缺失时，YashanDB 连接失败关闭。标准 parser 与窄 SELECT 路径已完成接线；本机旧未发布 dry-run 包缓存的独立客户端通过直连真库参数绑定及只读账号写入拒绝探针。另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计；HTTP/MCP、持久化审计和最小权限账号与流水线组合仍未测，写入、事务与 EXPLAIN 仍失败关闭。
 
 创建仅 root 可读的环境文件：
 

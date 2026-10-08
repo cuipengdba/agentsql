@@ -157,20 +157,19 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ### YashanDB 客户端配置
 
-AgentSQL v0.5.0 官方 Linux tarball、systemd 安装和 GHCR 镜像均携带匹配架构的 YashanDB C 客户端 23.4.7.100，配合 YashanDB Go 驱动 v1.4.4。自行从源码构建时仍需准备厂商客户端。详见 [部署指南](DEPLOY.md#方式三systemd)。
+崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。批七十一没有重建或验证 v0.5.0 tarball/GHCR 镜像，因此当前可复现路径是用户自行取得独立 YashanDB C 客户端 23.4.7.100，构建时使用 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动 v1.4.4。详见 [部署指南](DEPLOY.md#方式三systemd)。
 
-- 使用 `install.sh` 安装时，客户端位于 `/usr/local/lib/agentsql/yashandb`，systemd unit 已设置该目录为 `LD_LIBRARY_PATH`。
-- 从解压后的 tarball 直接运行时，先设置包内客户端库路径：
+- 自行安装客户端后，在启动 AgentSQL 前设置客户端库目录，例如：
 
   ```bash
-  export LD_LIBRARY_PATH="$PWD/lib/yashandb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH="/path/to/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   ./agentsql --version
   ./agentsql serve -c ./deploy/systemd/config.yaml
   ```
 
-- 官方 GHCR 镜像已将客户端放在 `/opt/yashandb-client/lib`，并预设 `LD_LIBRARY_PATH`。
+- 现有发行脚本设计了 tarball 的 `lib/yashandb` 与 GHCR 的 `/opt/yashandb-client/lib` 路径；须在最终重建和验收后才可认定发行物包含这些文件。
 
-客户端缺失或动态加载失败时，YashanDB 连接应 fail-closed；其他数据源的使用不应依赖该客户端。YashanDB dialect 仅开放有界连接、Ping、物理会话与元数据发现，普通 Query、写入、事务、EXPLAIN 和未知输出仍 fail-closed。批三十已在真实 YashanDB 上复验连接、元数据发现及普通 Query 拒绝行为；打包检查不能代替这些能力边界检查。出现 `libyascli.so: cannot open shared object file` 时，检查安装目录或解压目录及实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、客户端、服务器版本与 CPU 架构。
+客户端缺失或动态加载失败时，YashanDB 连接失败关闭；其他数据源的使用不依赖该客户端。标准 parser、通用规则与窄 SELECT 查询路径已接通；本机旧未发布 dry-run 包缓存的独立客户端通过本轮真库直连、参数绑定、最小权限 SELECT 与写入拒绝探针。另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计；HTTP/MCP、持久化审计和最小权限账号与流水线组合仍未测。写入、事务、EXPLAIN 和未知输出继续失败关闭。批三十历史真库记录仅证明当时的连接、元数据发现及普通 Query 拒绝行为，不能作为新查询路径通过证据。出现 `libyascli.so: cannot open shared object file` 时检查实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、独立客户端、服务器版本与 CPU 架构。
 
 ## 6. 权限 `/policies`
 

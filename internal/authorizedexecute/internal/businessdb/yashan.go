@@ -5,20 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 )
 
-// YashanExecutor is the native YashanDB connection and typed-metadata
-// dialect. General SQL, transactions and EXPLAIN remain unavailable until
-// their authorization and decoding contracts are implemented and verified.
+// YashanExecutor permits the independently checked Yashan SELECT profile.
+// Transactions, writes, and EXPLAIN remain unavailable.
 type YashanExecutor struct{ *limitedSQLExecutor }
 
-// yashanSession preserves physical-session ownership while keeping caller SQL
-// outside the native driver until a YashanDB authorization contract exists.
+// yashanSession preserves physical-session ownership and the SELECT guard.
 type yashanSession struct{ Session }
 
 // NewYashanExecutor opens and verifies a native YashanDB datasource. The
@@ -35,13 +36,10 @@ func NewYashanExecutor(
 		return nil, err
 	}
 	if !sqlDriverRegistered("yasdb") {
-		return nil, newDBError(
-			DBErrorKindConnection,
-			DBErrorCodeConnection,
-			DBStageConnect,
-			"",
-			ErrDatasourceUnreachable,
-		)
+		return nil, fmt.Errorf("YashanDB Go driver is unavailable: rebuild with CGO_ENABLED=1 and -tags yashan")
+	}
+	if !yashanClientRuntimeReady() {
+		return nil, fmt.Errorf("YashanDB C client runtime is unavailable: install the vendor client and set LD_LIBRARY_PATH to its lib directory before starting AgentSQL")
 	}
 	executor, err := newLimitedSQLExecutor(ctx, datasource, "yasdb", dsn, "yashan", password, readOnly)
 	if err != nil {
@@ -54,9 +52,7 @@ func NewYashanExecutor(
 	return &YashanExecutor{limitedSQLExecutor: executor}, nil
 }
 
-// OpenSession acquires the physical connection needed by the session lifecycle,
-// but wraps it so the common limited-dialect SELECT path is not promoted into
-// the deliberately metadata-only YashanDB capability.
+// OpenSession acquires a physical connection and retains the SELECT guard.
 func (executor *YashanExecutor) OpenSession(ctx context.Context, sessionID string) (Session, error) {
 	if executor == nil || executor.limitedSQLExecutor == nil {
 		return nil, newDBError(
@@ -74,15 +70,48 @@ func (executor *YashanExecutor) OpenSession(ctx context.Context, sessionID strin
 	return &yashanSession{Session: session}, nil
 }
 
-// Query fails closed before validation or driver submission. YashanDB metadata
-// discovery uses its typed capability and does not depend on general Query.
-func (*YashanExecutor) Query(context.Context, string, int) (model.QueryResult, error) {
-	return model.QueryResult{}, yashanUnsupported(DBStageQuery)
+// Query submits only the offline-qualified Yashan SELECT subset.
+func (executor *YashanExecutor) Query(ctx context.Context, sqlText string, rowLimit int) (model.QueryResult, error) {
+	if err := validateYashanSelect(sqlText); err != nil {
+		return model.QueryResult{}, err
+	}
+	if executor == nil || executor.limitedSQLExecutor == nil {
+		return model.QueryResult{}, yashanUnsupported(DBStageQuery)
+	}
+	return executor.limitedSQLExecutor.Query(ctx, sqlText, rowLimit)
 }
 
-// Query fails closed on physical sessions as well as on the pooled executor.
-func (*yashanSession) Query(context.Context, string, int) (model.QueryResult, error) {
-	return model.QueryResult{}, yashanUnsupported(DBStageQuery)
+// Query applies the same guard to physical sessions.
+func (session *yashanSession) Query(ctx context.Context, sqlText string, rowLimit int) (model.QueryResult, error) {
+	if err := validateYashanSelect(sqlText); err != nil {
+		return model.QueryResult{}, err
+	}
+	if session == nil || session.Session == nil {
+		return model.QueryResult{}, yashanUnsupported(DBStageQuery)
+	}
+	return session.Session.Query(ctx, sqlText, rowLimit)
+}
+
+func validateYashanSelect(sqlText string) error {
+	if _, err := parser.NewYashanParser().Parse(sqlText); err != nil {
+		return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, DBStageParse, "", nil)
+	}
+	if err := validateLimitedSelectForDialect("yashan", sqlText); err != nil {
+		return newDBError(DBErrorKindSyntax, DBErrorCodeSyntax, DBStageParse, "", nil)
+	}
+	return nil
+}
+
+func yashanClientRuntimeReady() bool {
+	for _, directory := range filepath.SplitList(os.Getenv("LD_LIBRARY_PATH")) {
+		if directory == "" {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(directory, "libyascli.so")); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func yashanUnsupported(stage DBStage) error {

@@ -367,7 +367,7 @@ func validateLimitedSelectForDialect(dialect, sqlText string) error {
 	if err != nil {
 		return err
 	}
-	if dialect != "dm" && dialect != "oracle" && dialect != "sqlserver" {
+	if dialect != "dm" && dialect != "oracle" && dialect != "sqlserver" && dialect != "yashan" {
 		return nil
 	}
 	for _, word := range words[1:] {

@@ -1,6 +1,6 @@
 # DM8 / Oracle dialect 能力与验证边界
 
-> 状态：v0.5 批十、批十三、批二十、批二十一、批二十八与批三十二的累计说明；不是完整兼容或生产认证声明。最近 DM8 真库回归日期：2026-10-03。
+> 状态：v0.5 历史批次能力说明；最近 DM8 真库闭环为 2026-10-08 批六十五，批七十一按其证据将 DM8 矩阵转绿。绿色仅限指定 Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010、审计和手机号脱敏；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。不是完整兼容或生产认证声明。
 
 ## 批六十三：离线 parser 边界
 
@@ -24,11 +24,11 @@
 | 底层只读查询 | `limitedSQLExecutor` 的单条窄 SELECT；`TOP`、`LIMIT` 与 `FETCH` 有界支持 | 同一路径的窄 SELECT；仅 `FETCH`/`ROWNUM`，拒绝 `TOP`/`LIMIT` |
 | 元数据与采样 | 固定 `SYS.ALL_TAB_COLUMNS` 查询、绑定参数；typed sample 用 `LIMIT n` | 固定 `ALL_TAB_COLUMNS` 查询、绑定参数；typed sample 用 `FETCH FIRST n ROWS ONLY` |
 | 解析与血缘 | `parser.NewParser("dm")` 的受控 SELECT 子集 | `parser.NewParser("oracle")` 的受控 SELECT 子集 |
-| 完整网关授权、列级权限与脱敏 | 尚未接通：规则引擎只接受 PG/MySQL/SQL Server AST，`controlledread` 的 metadata 与采样 builder 也没有 DM 分支 | 同左 |
+| 网关授权与脱敏 | 批六十五真库验证 R010 表策略、列血缘、手机号脱敏与审计链路；完整列级授权、R006 等未验证。下文旧批次的“未接通”属历史状态 | 完整网关授权/脱敏闭环仍未证明 |
 | INSERT / UPDATE / DELETE / DDL、写事务 | 底层 `Execute` 和 `BeginWriteTx` 拒绝 | 同左 |
 | TLS / 通信加密 | 当前驱动适配没有实现可验证的配置；显式 TLS 选项会被拒绝 | 同左 |
 
-因此，数据源登记、Ping、底层只读能力和独立 parser 不能等同于可用的 Gateway CRUD。DM/Oracle 上的创建、查询、更新、删除业务闭环都不得按 PostgreSQL 路径宣传或部署。生产使用所需的只读授权闭环、列元数据绑定、加密通信、取消与连接复用仍需分别验证；不存在自动回退到 PG/MySQL 方言的行为。
+因此，数据源登记、Ping、底层只读能力和独立 parser 不能等同于完整 Gateway CRUD。DM8 指定实例的有界只读防护闭环见 [批六十五真库报告](dm8-verification.md)；Oracle 仍按既有边界。创建、更新、删除、完整列级授权、加密通信、取消与连接复用仍需分别验证；不存在自动回退到 PG/MySQL 方言的行为。
 
 当前记录的 Oracle 真库版本是 **Oracle AI Database 26ai Free 23.26.3.0.0**（`FREEPDB1`）。这份记录不证明单独命名的 Oracle Database 23ai Free 镜像或商业版兼容。DM8 的 `-2501` 是已实测的认证失败分类；测试账号及口令仅属历史 fixture，不是部署凭据。`go.mod` 当前声明 Go 1.26.0；下文关于 Go 1.25 驱动选择的文字是当时的决策记录。
 

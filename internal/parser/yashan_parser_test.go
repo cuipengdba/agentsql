@@ -9,6 +9,10 @@ import (
 )
 
 func TestYashanOfflineSelectProfile(t *testing.T) {
+	standard, err := NewParser(model.DialectYashan)
+	require.NoError(t, err)
+	require.IsType(t, &yashanParser{}, standard)
+	require.Equal(t, model.DialectYashan, mustYashanDialect(t, standard))
 	tests := []struct {
 		name       string
 		sql        string
@@ -84,6 +88,13 @@ func TestYashanOfflineSelectProfile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustYashanDialect(t *testing.T, approved Parser) model.DBDialect {
+	t.Helper()
+	ast, err := approved.Parse("SELECT 1 AS one FROM DUAL")
+	require.NoError(t, err)
+	return ast.Dialect
 }
 
 func TestYashanUnsupportedShapesFailClosed(t *testing.T) {

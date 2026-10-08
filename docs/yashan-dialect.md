@@ -1,7 +1,7 @@
 # YashanDB dialect boundary
 
-This document records the verified v0.5 batch-eleven boundary for native
-YashanDB. It is intentionally a separate `yashan` dialect: the tested server
+This document records the historical batch-eleven to batch-sixty-six evidence and
+the batch-seventy-one integration status for native YashanDB. It is intentionally a separate `yashan` dialect: the tested server
 uses YashanDB's native protocol and `COMPAT_VECTOR=yashan`, not PostgreSQL or
 MySQL wire compatibility.
 
@@ -30,19 +30,18 @@ exercises the implemented driver escaping.
 
 ## Packaged driver and client runtime
 
-Starting with AgentSQL v0.5.0, official Linux release tarballs, the systemd
-installer payload and GHCR runtime images include the YashanDB Go driver and a
-platform-matched YashanDB C client runtime. The redistribution basis recorded
-for this release is the project maintainer's 2026-10-03 declaration that vendor authorization
-has been obtained. No written authorization file was supplied to this
-repository; this statement does not claim that the C client is covered by the
-Go driver's Apache-2.0 license.
+The existing v0.5.0 release scripts are designed to include the YashanDB Go
+driver and a platform-matched C client in Linux tarballs and GHCR images. Those
+artifacts were not rebuilt or accepted in batch 71. **已获厂家口头授权（C 客户端再分发）**:
+vendor oral authorization has been obtained for C client redistribution. No
+written authorization file was supplied to this repository; the Go driver's
+Apache-2.0 license does not cover the C client.
 
-The official `agentsql` binary is compiled with `-tags yashan`, so the `yasdb`
-driver is registered in `database/sql`. The C shim still loads
-`libyascli.so` dynamically when a YashanDB connection is opened. The release
-therefore carries the complete client `lib` directory rather than relying on a
-library copied from a database-server image.
+The existing release build scripts compile with `-tags yashan` so that `yasdb`
+is registered in `database/sql`; batch 71 did not certify a newly built release
+binary. The C shim loads `libyascli.so` dynamically on connection. A verified
+standalone client `lib` directory is required; the server-image library is not
+used as a replacement.
 
 ## Version and source evidence
 
@@ -89,7 +88,7 @@ the native release builder also enables CGO and passes `-tags yashan`. No C
 client header or link-time library is required because v1.4.4 compiles its shim
 from module sources and uses `dlopen` at runtime.
 
-The packaged runtime locations are:
+The runtime locations planned by the existing release scripts are:
 
 - systemd installation: `/usr/local/lib/agentsql/yashandb`, with the unit
   setting `LD_LIBRARY_PATH`;
@@ -122,7 +121,7 @@ undefined symbol, wrong ELF class/architecture, or `YAS-02143` requires
 checking the Go driver, standalone client, server version and CPU architecture;
 do not mix in libraries copied from a server image.
 
-The final E2E used the real SYS password containing `@` and passed through
+The historical pre-batch-71 E2E used a SYS credential kept out of logs and passed through
 `openExecutor`, pool Ping, physical-session acquisition and bound
 `ALL_TAB_COLUMNS` discovery. A separate least-privilege temporary user and its
 two-column table also passed the same discovery path. That user, its table, the
@@ -141,7 +140,7 @@ physical limited-dialect session. In the official v1.4.4 driver source,
 result path therefore matched the observed row; the missing guard was in
 AgentSQL rather than the driver.
 
-The v0.5 boundary remains metadata-only. Batch 30 added Yashan-specific pool
+The historical batch-30 boundary was metadata-only. Batch 30 added Yashan-specific pool
 and session `Query` guards that return a safe `DBStageQuery` execution error
 before validation or driver submission. The typed metadata capability still
 uses its fixed internal SQL directly. The post-fix real
@@ -212,9 +211,9 @@ the following parser outcomes; they do not validate additional server syntax.
 
 Unsupported shapes return `ErrUnparseable` with an empty Yashan AST and a stable
 error, without a panic. Quoted identifiers such as `"ILIKE"` remain allowed.
-`NewParser(model.DialectYashan)` is still unregistered because `parser.go` is
-outside this batch's allowed file list; existing caller routing and execution
-guards therefore remain unchanged. General Yashan `Query` remains disabled.
+Batch 66 left `NewParser(model.DialectYashan)` unregistered because `parser.go`
+was outside that batch's allowed file list. Batch 71 has now connected it and
+the narrow SELECT execution path, as recorded below.
 
 ## Implemented boundary
 
@@ -224,14 +223,15 @@ schema, and can acquire/release a physical `sql.Conn` session. `ListSchema`
 performs bounded native column discovery using only identities supplied by the
 caller; SQL and placeholders remain inside the capability implementation.
 
-Official v0.5 builds register `yasdb` through the `yashan` build tag and ship
-the matching client runtime. A custom source build that omits the tag still
-recognizes the datasource type but rejects opening it with a safe connection
-error; this remains deliberate fail-closed behavior, not a protocol fallback.
+The existing release scripts register `yasdb` through the `yashan` build tag
+and are designed to ship a matching client runtime; batch 71 did not rebuild
+those artifacts. A source build that omits the tag recognizes the datasource
+type but rejects opening it with an explicit missing-driver error.
 
 ## Deferred, fail-closed boundary
 
-The following operations return safe errors and do not submit caller SQL:
+The following was the historical batch-66 boundary; batch 71 supersedes the
+general Query item with its guarded narrow SELECT path:
 
 - general pool and physical-session `Query`;
 - `Execute`;
@@ -244,3 +244,64 @@ The following operations return safe errors and do not submit caller SQL:
 These require later small batches with parser qualification, transaction-state
 semantics, stable cancellation testing, plan fixtures and versioned error-code
 coverage. Unknown output or diagnostic formats must continue to fail closed.
+
+## Batch 71 integration
+
+**Authorization:** 已获厂家口头授权（C 客户端再分发）. No written vendor
+authorization file or authorization number is held in this repository.
+
+The supplied x86_64 server image archive is loaded locally. The retained
+`yashan-v06` container runs on port 1688. Its `yasql`, `yacli.h`, and
+`libyascli.so` are present. Its server-image library previously returned
+`YAS-02143` through yashandb-go v1.4.4, so batch 71 does not copy or package
+that library. A historical, unpublished local dry-run tarball contains the
+separate 23.4.7.100 standalone client `lib` directory; only those library files
+were extracted into a temporary test directory, with no license copied. This
+test fixture does not establish that a current release artifact is ready. With
+that standalone client, the batch-71 native Go probe passed real-server Ping,
+`?` parameter binding, a temporary least-privilege reader SELECT, and database
+rejection of its INSERT (`YAS-02213`). The temporary reader and table were
+removed. The offline `CGO_ENABLED=1 go build -tags yashan ./...` passed. A
+tagged real-server `TestYashanDiscoveryE2E` then passed the project's actual
+`YashanExecutor` pool and physical-session SELECTs, bound metadata discovery,
+and write/EXPLAIN guards. A further real-server
+`TestYashanPipelineRealE2E` passed SELECT allow, projection lineage, R010 table
+deny, table/column-scoped phone masking, and three allow/deny/error audit
+records through the pipeline. Its authentication, policy, and audit storage
+ports are test fixtures; HTTP/MCP routing and durable audit storage were not
+part of this test. The pipeline test used `SYS`, while the separate native
+probe established a least-privilege reader's SELECT and server write denial.
+
+`parser.NewParser(model.DialectYashan)` now returns the existing narrow
+Yashan parser. The pipeline, engine, and generic rules accept the same dialect
+without aliasing it to Oracle or PostgreSQL. Pool and physical-session `Query`
+parse the Yashan SELECT profile again before using the existing limited SELECT
+validator and native driver. Unsupported SQL, including the `CURRVAL` sequence
+pseudocolumn, fails before driver submission.
+Writes and transactions remain closed. The missing Go driver reports the
+required `CGO_ENABLED=1` and `-tags yashan` build settings; a missing C library
+reports the requirement to install the vendor standalone client and set
+`LD_LIBRARY_PATH` before process startup. The native driver uses `dlopen`, so
+the C client is loaded when connecting.
+
+Yashan has no verified EXPLAIN plan decoder. The pipeline therefore skips
+EXPLAIN for this dialect and treats a static R010 deny as terminal. R004 plan
+estimates and the pre-execution R005 plan warning are unavailable; the
+execution row limit and post-execution R005 truncation warning still apply.
+The parser rejects comments at parse stage, which is not proof of an R006 hit.
+Full column authorization, complex SQL shapes, cancellation, TLS, stable error
+code mapping, and production compatibility remain outside this batch.
+
+For a source build with a user-obtained standalone 23.4.7.100 C client:
+
+```sh
+CGO_ENABLED=1 GOPROXY=off go build -tags yashan ./cmd/agentsql
+export LD_LIBRARY_PATH="/path/to/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+./agentsql serve -c ./deploy/systemd/config.yaml
+```
+
+The offline inspection/build/test script is `scripts/yashan-verify.ps1`. Its
+fixed sanitized transcript path is
+`C:\Users\Administrator\AppData\Local\Temp\agentsql-yashan-b71-verify.log`.
+The detailed current results and untested cases are in
+[the batch 71 verification report](yashan-verification-b71.md).

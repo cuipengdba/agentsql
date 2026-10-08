@@ -43,14 +43,14 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 | OceanBase | 适配中 | 执行计划（EXPLAIN）适配实现中 |
 | TDSQL | 适配中 | 开源版 OpenTenBase 适配中；商用版待实测 |
 | OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
-| 崖山数据库 YashanDB | 独立方言最小切片 | 指定 23.4.1.109 实例的连接与元数据已复验，普通 Query 仍 fail-closed；离线 parser 未接标准入口 |
-| 达梦数据库 DM | 独立方言有界实测 | 指定 DM8 Pack3 实例的窄 SELECT、分页及已知 EXPLAIN 形态有记录；完整网关授权/脱敏链路未接通 |
+| 崖山数据库 YashanDB | 独立方言受控只读接线 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
+| 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：只读 SELECT、列血缘、R010 表策略、审计及手机号脱敏链路实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开 |
 | PolarDB for PostgreSQL | 协议路径已实测 | 指定 PG 15 社区镜像复用 `db_type=postgres`；非商业服务认证 |
 | PolarDB-X | 旧官方镜像有界实测 | `2.0.1` 单容器复用 `db_type=mysql`，两阶段 EXPLAIN 已适配；当前完整拓扑与商业服务待终验 |
 
 > "已实测"指基于社区版 / 容器镜像的协议路径实测，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商联系开展兼容性认证与合作：请通过交流群、仓库 Discussion 或邮件 87326549@qq.com 联系我们。
 
-> **崖山驱动随发行物分发：**自 v0.5.0 起，官方 Linux tarball、systemd 安装包和 GHCR 运行时镜像内置 `github.com/yashan-technologies/yashandb-go@v1.4.4`，并携带官方 YashanDB C 客户端 23.4.7.100 的匹配架构运行库。再分发依据为项目维护者于 2026-10-03 声明已取得厂商授权；本仓库未收到书面授权文件。批三十已在真实 YashanDB 上复验连接、Ping、元数据发现和普通 Query 的失败关闭；写入、事务、EXPLAIN 仍失败关闭，打包成功不扩大此范围。版本、来源、手工 tar 包运行方式、实测结果与排错见 [YashanDB 驱动说明](docs/yashan-dialect.md#packaged-driver-and-client-runtime)。
+> **崖山客户端授权与运行：**已获厂家口头授权（C 客户端再分发），仓库无书面授权文件。服务器镜像内的库在既有 Go 驱动探针中返回 `YAS-02143`，本轮没有从服务器镜像打包；本机旧的未发布 dry-run 包内缓存了独立客户端 23.4.7.100，其直连真库参数绑定、只读账号 SELECT 与写入拒绝探针通过。用户可自行取得同版独立客户端，使用带 `yashan` 构建标签的 Go 驱动，并在启动前配置 `LD_LIBRARY_PATH`；缺少驱动或运行库时明确失败关闭。当前发行脚本的捆绑方案尚未在本轮重建或验收，详见 [YashanDB 驱动说明](docs/yashan-dialect.md#batch-71-integration)。
 
 首批金仓 + 瀚高的证据边界、复现 SQL 与待厂商项见[联合案例验证记录](docs/joint-case-kingbase-highgo.md)；公众号与技术群文案见[社区运营口径](docs/joint-case-operations.md)。
 
@@ -234,12 +234,13 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v0.5.0 待发布代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为待厂商环境候选，不计入 27 款。档位只描述对应能力范围：🟢 完整防护＝解析、授权、受控执行、脱敏、审计；🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
+v0.5.0 待发布代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为待厂商环境候选，不计入 27 款。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；DM8 的绿色只针对下述指定实例与用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
 
 ### 关系型 Relational（6 款已注册 + 1 款待验证）
 
 - 🟢 PostgreSQL 14–18；MySQL 8.0
-- 🔵 Oracle 23ai；达梦 DM8；崖山 YashanDB；SQL Server 2025
+- 🟢 达梦 DM8（仅 Pack3、`COMPATIBLE_MODE=0` 指定链路；边界见下文）
+- 🔵 Oracle 23ai；崖山 YashanDB；SQL Server 2025
 - 🟡 金仓 KingbaseES V9：等厂商镜像与 license，目标环境拟于 10 月 8 日取得；取得前不声明接入通过。
 
 ### 键值 KV
@@ -270,7 +271,7 @@ v0.5.0 待发布代码的注册表覆盖 **8 大类、27 款数据库**（6 款�
 
 - 🔷 Milvus；Qdrant；Weaviate
 
-NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM/Oracle 的受控 SELECT parser 仍未接通完整网关授权/脱敏链路；YashanDB 的离线 parser 尚未注册到标准 `NewParser` 入口，见 [DM/Oracle 方言边界](docs/dm-oracle-dialect.md)及 [YashanDB 方言边界](docs/yashan-dialect.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
+NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM8 指定实例的只读 SELECT、列血缘、R010、审计和手机号脱敏已通过；R006、多行分页、JOIN、函数和系统目录未验证，写入未放开。Oracle 仍限于既有有界证据。YashanDB 真库流水线测试已通过 SELECT、列血缘、R010、表列定向手机号脱敏及三条测试审计；该测试的认证、策略、审计存储端口为测试夹具，HTTP/MCP、持久化审计和最小权限账号与流水线的组合未测，见 [DM/Oracle 方言边界](docs/dm-oracle-dialect.md)及 [YashanDB 方言边界](docs/yashan-dialect.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
 
 控制面存储另计：SQLite 默认零配置，可 combined 存储；PostgreSQL 15+ 可 combined 或独立 metadata / audit 库（PG18 为基准）。使用 `agentsqlctl migrate-sqlite-to-postgres` 可从 SQLite 迁至单库或独立双库。
 

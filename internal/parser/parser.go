@@ -42,6 +42,8 @@ func NewParser(dialect model.DBDialect) (Parser, error) {
 		return newMySQLParser()
 	case dmDialect, oracleDialect, sqlserverDialect:
 		return &oracleCompatibleParser{dialect: dialect}, nil
+	case model.DialectYashan:
+		return NewYashanParser(), nil
 	default:
 		return nil, fmt.Errorf("create parser for %q: %w", dialect, ErrUnsupportedDialect)
 	}
