@@ -95,6 +95,9 @@ func assembleRules(
 	case model.DBDialect("sqlserver"):
 		// SQL Server 2025 currently uses only the dialect-neutral rules. Its
 		// executor independently enforces the narrower read-only T-SQL subset.
+	case model.DialectDM:
+		// DM8 uses the generic rules. Its parser and executor independently
+		// enforce the documented read-only SELECT subset.
 	default:
 		return nil, fmt.Errorf("unsupported rule dialect %q", dialect)
 	}
