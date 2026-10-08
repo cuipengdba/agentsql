@@ -1,81 +1,81 @@
-# KingbaseES V9 真库验证：批六十九
+# KingbaseES V9 真库验证：批七十二（可写 license 卷）
 
-验证时间：2026-10-08（Asia/Shanghai）。完整终端 transcript：`C:\Users\Administrator\AppData\Local\Temp\kingbase-v9-batch69-transcript.txt`。脚本：[kingbase-v9-verify.ps1](../scripts/kingbase-v9-verify.ps1)。本批未运行任何 git 命令，未修改矩阵、README、SECURITY.md 或 `internal/`。
+验证日期：2026-10-08（Asia/Shanghai）。一键脚本：[kingbase-v9-verify.ps1](../scripts/kingbase-v9-verify.ps1)。最终运行的完整终端 transcript：`C:\Users\Administrator\AppData\Local\Temp\kingbase-v9-batch72-transcript.txt`（7,877 bytes，14 条带时间戳的 PASS、0 条 FAIL，最终退出码 **0**）。早期调试失败已被最终 transcript 覆盖，其关键失败结论在下文单列。本批未执行 git 操作，未改矩阵、README、SECURITY.md 或 `internal/`。
 
-## 结论
+## 结论与矩阵建议
 
-**FAIL，V9 不能转绿。** 新 tar 已从指定路径执行 `docker load`；image ID 与批六十四完全相同，**镜像未变，仅 license 更新**。新 license 以只读 bind mount 注入成功，但服务器在启动阶段报 `License file should have write access mode in floating mode`，退出前尚未进入产品版本校验。因此不能声称新的产品码已经匹配，也没有 V9 SQL、PG 协议或 AgentSQL 闭环通过证据。
+**V9 的本次 `pg` 模式基础防护闭环通过。** 可写 license named volume 下数据库正常启动；日志为 `starting KingbaseES V009R001C010`，`SELECT version()` 与之相同，没有浮动模式写权限 FATAL 或产品码 FATAL。新 license 的 V009R001C 产品码被该服务器接受，这是由启动成功推得的兼容结论，不是对 license 文件内容的转录。
 
-本批按“license 文件只读挂载、不复制”的约束停止。批六十四曾把旧 license 复制到可写 Docker 卷以越过该权限检查；本批脚本删除了那条路径。[金仓官方 License FAQ](https://bbs.kingbase.com.cn/kingbase-doc/v9.3.11/faq/faq-new/license.html)说明浮动基准日期启用时，到期日按更换日期计算；该文档未给出让当前浮动授权在只读文件上启动的配置。需要厂商提供可按生成日期为基准且允许只读挂载的授权，或用户调整只读/不复制约束后，才能重跑下游项目。
+建议将矩阵中 **V9／PostgreSQL 协议基础闭环**标为 🟩（待用户拍板）；不把该结果扩展为 V9 全模式、长期授权或生产可用结论。若矩阵只有一个不区分范围的 V9 总档位，建议暂保留 🟨，直到实际到期日和未测边界另行确认。本报告未直接改矩阵。
 
-建议兼容矩阵继续保持 **🟡 待验证**，由用户拍板；本批不能转绿。V8 批六十四已通过的对照结果不替代 V9 结果。
+## 方案 B：镜像、license 与容器
 
-## 输入、镜像和授权元数据
-
-| 项目 | 批六十九实测 |
+| 项目 | 批七十二实测 |
 | --- | --- |
-| 新镜像文件 | `D:\ruanjiansheji\db-images\jincang\KingbaseES_V009R001C010B0004_x86_64_Docker.tar` |
-| 新镜像大小 / SHA-256 | 765,955,072 bytes / `16A436608CC204349E510CB136B8FC1FCBDF6874AEE7B204CDAC20A3522282DA` |
-| `docker load` tag | `kingbase_v009r001c010b0004_single_x86:v1` |
-| 新加载 image ID | `sha256:0bce318e74adca7a3d619b55b336269017507fd679833b7ce5d8400289661724` |
-| 批六十四旧 image ID | `sha256:0bce318e74adca7a3d619b55b336269017507fd679833b7ce5d8400289661724`，完全相同 |
-| Entrypoint / User | `["/bin/bash","/home/kingbase/docker-entrypoint.sh"]` / `kingbase` |
-| 暴露端口 | `54321/tcp` |
-| 镜像环境变量 | `PATH=/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/home/kingbase/install/kingbase/bin:`；`USER=kingbase` |
-| 新 license 文件 | `D:\ruanjiansheji\db-images\jincang\license_4_V009R001C-企业版-180天.dat` |
-| 新 license 大小 / SHA-256 | 5,036 bytes / `03793D90E5C23CD2F4303019D1EE6888D13D4679739923D5FDFCDBCDA648B1E9` |
-| 旧 license（仅对照） | `license-180.dat`，4,992 bytes / `3CF5A2109695E59A847F012CF11849B616B631D212C192AEFB76194AB2A594FE` |
-| 新 license 到期日 | **未取得**：服务器未启动，不能调用 `get_license_info()` 或从日志确认。文件名中的“180天”不能推算实际到期日。 |
+| 镜像 tar | `D:\ruanjiansheji\db-images\jincang\KingbaseES_V009R001C010B0004_x86_64_Docker.tar`，本轮复用本机已加载镜像 |
+| tag / image ID | `kingbase_v009r001c010b0004_single_x86:v1` / `sha256:0bce318e74adca7a3d619b55b336269017507fd679833b7ce5d8400289661724`；与批六十四、六十九相同 |
+| 镜像入口与端口 | `/home/kingbase/docker-entrypoint.sh`，用户 `kingbase`，`54321/tcp` |
+| 镜像 license 路径 | 原始 `/home/kingbase/install/kingbase/bin/license.dat`，厂商入口运行时搬到 `/home/kingbase/install/kingbase/etc/license.dat` 并创建软链；本脚本按已核对的 `initdb`/`sys_ctl` 命令启动，将 bin 路径软链至 `/license/license.dat` |
+| 新 license | `license_4_V009R001C-企业版-180天.dat`，5,036 bytes，SHA-256 `03793D90E5C23CD2F4303019D1EE6888D13D4679739923D5FDFCDBCDA648B1E9` |
+| 可写卷 | `kingbase_v9_license_b72`，`--mount type=volume,source=kingbase_v9_license_b72,target=/license`；**不是 bind mount** |
+| 复制 | 一次性容器 `kingbase-v9-license-copy-b72` 挂卷后，用 `docker cp` 从宿主机复制至 `/license/license.dat`；卷内设为 `kingbase:kingbase`、`0600`；尺寸和 SHA-256 与源文件一致，`kingbase` 用户的 `test -w` 通过；复制容器随即删除 |
+| 启动与网络 | V9 以 `-m pg` 初始化，数据库端口仅发布在 `127.0.0.1` 临时端口；容器 inspect 确认 `/license` 为 `volume` 且 `RW=true` |
+| 服务器许可元数据 | `get_license_validdays()` 返回 `180`；`get_license_info()` 中提取到 `2025-11-24`，但字段含义**未确认**，不得将其当作到期日。服务器启动日志未给出可确认的到期日；**实际到期日未验证**。脚本只输出日期与天数，不输出函数原文或 license 内容 |
 
-镜像入口脚本确认 `DB_PATH=/home/kingbase/install/kingbase`、数据目录 `/home/kingbase/userdata/data`、默认用户 `system` 和数据库 `kingbase`。`initdb --help` 的默认模式为 `oracle`；本批明确传 `-m pg`，但数据库未启动，`SHOW database_mode` 未执行。入口脚本会移动 `bin/license.dat` 至 `etc/license.dat`；单文件只读挂载不能移动，因此脚本按已核对的 `initdb`/`sys_ctl` 路径启动，并让 `bin/license.dat` 指向 `/license/license.dat` 只读挂载。没有复制、改写或打印 license 内容。
+原始 license 文件只读于本地验证流程，脚本结束时重新计算源文件 SHA-256，仍为表中哈希；没有 `docker commit`、构建镜像或向仓库复制 license。V9 数据目录仅在本轮容器中，最终删除该容器、临时角色/表、AgentSQL 容器及数据卷、license named volume；脚本完成后从 Docker 再次查验，这些本轮对象均不存在。离线 Go 构建卷、缓存卷和本轮私有网络保留以便重跑；批六十四的 V8/V9 容器及其卷没有被本脚本操作。
 
-## 真实输出和批六十四对照
+## 与前两次失败对照
+
+| 批次 | license 接入 | 实测结果 |
+| --- | --- | --- |
+| 批六十四 | 旧 license 的可写副本 | `productVersion check failed. server is 'V009R001B' but license is 'V009'`；未启动 |
+| 批六十九 | 新 V009R001C license，只读 bind mount | `FATAL: License file should have write access mode in floating mode`；先在写权限检查失败，未走到产品码校验 |
+| 批七十二 | 新 license 的专用可写 named volume | `kingbase` 可写；V9 启动并完成后续 SQL、PG 协议、AgentSQL 闭环；未出现上述 FATAL |
+
+## 实际运行证据
+
+下列摘录来自最终运行的固定路径 transcript；完整输出和每一步时间戳以该文件为准。
 
 ```text
-[2026-10-08T17:47:57+08:00] Load supplied V9 image
-Loaded image: kingbase_v009r001c010b0004_single_x86:v1
-[2026-10-08T17:50:21+08:00] PASS: image ID equals batch64: image unchanged; only license input changed
-[2026-10-08T17:50:48+08:00] PASS: read-only license mount metadata bytes/mode/owner=5036|777|root:root
-[2026-10-08T17:50:51+08:00] Container=kingbase-v9-batch69 host=127.0.0.1:50542 container_port=54321 license_mount=readonly
-[2026-10-08T17:51:14+08:00] FAIL: database did not become ready; database logfile follows
-FATAL:  XX000: License file should have write access mode in floating mode, or use license generating date as base date.
-LOCATION:  KesMasterMain, master.c:1108
-[2026-10-08T17:51:14+08:00] FAIL: V9 readiness/license verification failed; PG protocol and AgentSQL checks were not run
-[2026-10-08T17:51:15+08:00] PASS: temporary containers and their synthetic role/table removed
+[2026-10-08T23:56:08+08:00] PASS: named volume=kingbase_v9_license_b72 target=/license copied_bytes/mode/owner=5036|600|kingbase:kingbase sha256=03793D90E5C23CD2F4303019D1EE6888D13D4679739923D5FDFCDBCDA648B1E9; kingbase user can write
+[2026-10-08T23:57:01+08:00] PASS: database ready and license accepted by server startup
+2026-10-08 15:56:59.257 UTC [151] LOG:  starting KingbaseES V009R001C010
+[2026-10-08T23:57:01+08:00] PASS: server license metadata valid_days=180 reported_dates=2025-11-24 (date role unconfirmed; license text suppressed)
+[2026-10-08T23:57:04+08:00] PASS: identifier comparison quoted=mixed unquoted=mixed
+[2026-10-08T23:57:04+08:00] PASS: ksql version, PG mode, CRUD, LIMIT/OFFSET and identifier probes
+host_pgx_user=agentsql_ro mode=pg phone=13812345678 denied_write=ERROR: permission denied for table agentsql_batch72_verify (SQLSTATE 42501) version=KingbaseES V009R001C010
+[2026-10-08T23:57:13+08:00] PASS: host pgx/v5 $1 bind, SCRAM and readonly SQLSTATE 42501
+[2026-10-08T23:58:50+08:00] PASS: offline go build ./...
+[2026-10-08T23:59:18+08:00] SELECT decision=allow audit_id=1 masked_cells=1 row=1|Alice|138****5678
+[2026-10-08T23:59:25+08:00] PASS: ProjectionLineages physical origins match the synthetic V9 table
+[2026-10-08T23:59:25+08:00] R006 decision=deny audit_id=2 rule_ids=R006
+[2026-10-08T23:59:25+08:00] Audit total=2 decisions=deny,allow
+[2026-10-08T23:59:25+08:00] PASS: V9 PG protocol, readonly account, AgentSQL query, scoped masking, R006 and audit
+[2026-10-08T23:59:30+08:00] PASS: temporary containers, synthetic role/table and license named volume removed
 ```
 
-最终一键脚本退出码为 **1**。批六十四在**可写副本**上越过写权限检查后，报 `productVersion check failed. server is 'V009R001B' but license is 'V009'`。本批因只读权限检查先失败，不能据此判断新 license 的产品码是否解决了批六十四问题。新 license 源文件运行后 SHA-256 仍为 `03793D90E5C23CD2F4303019D1EE6888D13D4679739923D5FDFCDBCDA648B1E9`；Docker 中本批两个临时容器均已不存在。
+`ksql` 实际执行了 `SELECT version()`、`SHOW database_mode`（`pg`）、建表、插入、查询、更新（`UPDATE 1`）、删除（`DELETE 1` 后 `count(*)=0`）、`LIMIT 1 OFFSET 0`。带引号 `"MiXeD"` 和不带引号 `MiXeD` 的输出表头均为 `mixed`；因此不声称与 PostgreSQL 的标识符大小写行为完全相同。宿主机 pgx/v5 查询使用 `$1` 绑定；HBA 的 TCP 条目为 `scram-sha-256`，只读角色的写入拒绝错误码为 `42501`。
 
-## 验收步骤
+本轮 `pg` 模式不接受显式 `GRANT CREATE SESSION TO agentsql_ro`：单独探索运行在 `2026-10-08T23:33:46+08:00` 报 `syntax error at or near "SESSION"`，该次脚本非零退出并清理。最终脚本采用已实测可用的 `CREATE ROLE ... LOGIN`、`GRANT CONNECT`、schema `USAGE` 和单表 `SELECT`；SCRAM 登录和查询成功，UPDATE 被拒。**显式 CREATE SESSION 语法未通过，功能上的创建会话能力已验证。**
 
-| 步骤 | 本批状态 | 证据或原因 |
-| --- | --- | --- |
-| 新 tar 加载、镜像元数据对照 | PASS | `docker load` 退出 0；tag、ID、Entrypoint、User、端口、环境变量见上。 |
-| license 挂载路径和权限 | PASS | `/license/license.dat` 是源文件的只读 bind mount；容器内 `stat` 为 `5036|777|root:root`。`bin/license.dat` 仅为指向它的符号链接。 |
-| V9 启动、版本和到期日 | FAIL | 数据库日志为浮动模式写权限 `FATAL XX000`；无正常启动、无到期日。 |
-| `ksql` 版本、CRUD、LIMIT、标识符大小写 | 未执行 | 启动前置失败。 |
-| 宿主机 pgx/v5、`$1`、SCRAM、只读角色拒写错误码 | 未执行 | 启动前置失败；没有临时角色创建。 |
-| AgentSQL `db_type=postgres` 接入、SELECT、脱敏、MaskedCells | 未执行 | 启动前置失败；仓库注册表无 `kingbase`，脚本预备使用现有 PostgreSQL 类型。 |
-| ProjectionLineages 物理来源 | 未执行 | 脚本含同一 SQL 的独立 parser 探针；本批未运行，不能算通过。 |
-| R006 注释探针、RuleID、allow/deny/parse-error 审计数量 | 未执行 | 启动前置失败；不得算通过。 |
-| 临时用户、表和 AgentSQL 容器清理 | PASS（本次无创建） | 本批数据库未启动，未创建角色/表或 AgentSQL 容器。最终脚本失败清理结果见 transcript。 |
+AgentSQL 使用仓库现有 `db_type=postgres`，以最小权限角色连接 V9。本轮没有新增 `kingbase` 类型或修改 `internal/`。普通查询 `decision=allow`，`MaskedCells=1`，手机号 `138****5678`；同一 SQL 的 `ProjectionLineages` 三列分别指向 `public.agentsql_batch72_verify.id/name/phone`；注释规则探针 `decision=deny` 且 hits 含 `R006`；审计恰有两条，分别为 allow、deny，没有 parse-error。注释被 parser 接受，本项不是未验证。
 
-脚本非零退出即 FAIL，并输出步骤行。AgentSQL HTTP 仅发布在 `127.0.0.1` 临时端口。V9 容器在最终脚本中停止并删除；license 源文件仍在原路径，未复制。批六十四的旧容器和 V8 对照库不在本批清理范围。
+## 离线构建、测试与清理
 
-## 构建和测试
-
-离线命令使用已缓存的 `golang:1.26-bookworm`，`--network none`、`GOPROXY=off`、`GOTOOLCHAIN=local`、`CGO_ENABLED=1`，仓库与模块缓存只读挂载。独立执行 `go build ./...` **退出 0，PASS**。没有 `internal/` Go 包改动；另外尝试 `go test -short ./internal/parser ./internal/mask ./internal/pipeline`，其中 `internal/parser` 输出 `ok`（14.669s），`internal/mask` 输出 `ok`（101.802s），`internal/pipeline` 因缺少已缓存的 `github.com/moby/sys/user@v0.4.1`，在只读模块缓存创建锁文件时报错 `read-only file system`，**整体退出 1，pipeline 未通过**。后续单独重复 `parser`/`mask` 测试时，`parser` 输出缓存命中，但容器超过 10 分钟仍未给出 `mask` 结果，已停止，退出 1；这次重复测试不记为通过。脚本在 V9 启动后会执行 `go build ./...`、`go test -short ./internal/parser ./internal/mask` 及 AgentSQL 二进制构建；本轮因启动失败未到达脚本内的构建阶段。
+最终脚本在已缓存的 `golang:1.26-bookworm` 容器中，用 `--network none`、`GOPROXY=off`、`GOTOOLCHAIN=local`、`CGO_ENABLED=1` 执行 `go build ./...`（23:58:50 PASS），并构建 AgentSQL 可执行文件（23:59:11 PASS）；未下载依赖。之前一次完整闭环运行中，独立执行相同离线参数下的 `go test -short ./internal/parser ./internal/mask`，输出为 `parser 12.133s`、`mask 89.797s`，并在 23:29:58 输出 PASS。随后一次重复短测试在约 12 分钟仍无结果，经停止测试容器而非零退出；该次脚本按失败路径清理，**不记为测试通过**。最终一键脚本去掉重复短测试；本批没有改 `internal/`，故不存在需要回归测试的改动包。最终运行证据以固定路径 transcript 为准，独立短测试结果来自本轮较早的实际终端输出。
 
 ## 未测边界
 
 | 范围 | 状态 |
 | --- | --- |
-| V9 基础单行 CRUD、分页、大小写 | 未测：数据库未启动。 |
-| 多行分页、JOIN、聚合和函数、类型 OID、系统目录、`EXPLAIN` | 未测。 |
-| 连接超时与取消、TLS/加密、HA/故障切换 | 未测。 |
-| B2 列授权、多用户并发、生产负载 | 未测。 |
-| V9 与原生 PostgreSQL 行为差异 | 未测。 |
+| 多行数据与深度分页、JOIN、聚合和一般函数、复杂表达式、类型 OID、系统目录、`EXPLAIN` | 未测；本轮仅单行 SQL 与一个 `LIMIT/OFFSET` 探针 |
+| 列级授权 B2、多角色并发、长连接/超时取消、生产负载 | 未测 |
+| TLS/加密传输、HA/故障切换、备份恢复 | 未测 |
+| V9 Oracle 模式、原生 Kingbase 驱动、跨版本差异 | 未测；本轮明确是 `pg` 模式与现有 PostgreSQL 协议接线 |
+| 实际 license 到期日及后续续期行为 | 未确认；仅得到服务器报告的 180 天和含义未明的日期 |
 
-## 改动与清理
+## 改动清单
 
-仅更新本脚本和本报告；**无 `internal/` 业务代码改动**，无需要逐处说明的内部接线修复。脚本相对批六十四的主要 diff：默认输入改为新路径；移除 license 可写卷、license 的 `docker cp`、`chown`、`chmod`；改为只读 bind mount 与启动失败立即报错；增加镜像对照、完整 PASS/FAIL、固定 Temp transcript、下游 SQL/驱动/血缘/AgentSQL 检查及清理步骤。后续分支尚无本次真库执行证据。
+- `scripts/kingbase-v9-verify.ps1`：复用已加载镜像；将只读 bind mount 改为一次性容器 `docker cp` 至可写 named volume，并校验尺寸、SHA-256、属主/权限、写入能力和容器挂载 RW；把卷删除纳入成功与失败清理；加入仅输出许可元数据的服务器探针；批次名改为 72；标识符对照按真实结果记录。
+- `docs/kingbase-v9-verification.md`：更新为本次真库证据、前两批对照、边界和档位建议。
+- `internal/`：**无文件改动**，无最小业务接线修复。

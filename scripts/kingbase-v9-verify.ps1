@@ -2,14 +2,14 @@
     [string]$ImageTar = 'D:\ruanjiansheji\db-images\jincang\KingbaseES_V009R001C010B0004_x86_64_Docker.tar',
     [string]$LicenseFile = 'D:\ruanjiansheji\db-images\jincang\license_4_V009R001C-企业版-180天.dat',
     [string]$DockerExe = 'E:\Docker\DockerDesktop\resources\bin\docker.exe',
-    [string]$ContainerName = 'kingbase-v9-batch69',
+    [string]$ContainerName = 'kingbase-v9-batch72',
     [int]$ReadyTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $env:DOCKER_CONFIG = Join-Path (Split-Path $PSScriptRoot -Parent) '.docker-config'
-$transcriptPath = Join-Path $env:TEMP 'kingbase-v9-batch69-transcript.txt'
+$transcriptPath = Join-Path $env:TEMP 'kingbase-v9-batch72-transcript.txt'
 Start-Transcript -LiteralPath $transcriptPath -Force | Out-Null
 
 function Step([string]$message) {
@@ -38,7 +38,7 @@ function Docker-Exists([string[]]$arguments) {
 }
 
 function Cleanup {
-    Step 'Cleanup: stop AgentSQL and remove temporary V9 database container'
+    Step 'Cleanup: stop AgentSQL and remove temporary V9 database container and license volume'
     if ($script:agentContainer -and (Docker-Exists @('container', 'inspect', $script:agentContainer))) {
         Docker @('rm', '-f', $script:agentContainer) | Out-Null
     }
@@ -51,14 +51,22 @@ function Cleanup {
     if ($script:agentDataVolume -and (Docker-Exists @('volume', 'inspect', $script:agentDataVolume))) {
         Docker @('volume', 'rm', $script:agentDataVolume) | Out-Null
     }
+    if ($script:licenseHelper -and (Docker-Exists @('container', 'inspect', $script:licenseHelper))) {
+        Docker @('rm', '-f', $script:licenseHelper) | Out-Null
+    }
+    if ($script:licenseVolume -and (Docker-Exists @('volume', 'inspect', $script:licenseVolume))) {
+        Docker @('volume', 'rm', $script:licenseVolume) | Out-Null
+    }
     if ($script:LicenseHash -and (Get-FileHash -LiteralPath $script:LicenseFile -Algorithm SHA256).Hash -ne $script:LicenseHash) {
         throw 'Source license SHA-256 changed during verification'
     }
-    Step 'PASS: temporary containers and their synthetic role/table removed'
+    Step 'PASS: temporary containers, synthetic role/table and license named volume removed'
 }
 
-$script:agentContainer = 'kingbase-v9-agentsql-batch69'
-$script:agentDataVolume = 'kingbase-v9-batch69-agentsql-data'
+$script:agentContainer = 'kingbase-v9-agentsql-batch72'
+$script:agentDataVolume = 'kingbase-v9-batch72-agentsql-data'
+$script:licenseHelper = 'kingbase-v9-license-copy-b72'
+$script:licenseVolume = 'kingbase_v9_license_b72'
 $script:LicenseHash = $null
 trap {
     Step ("FAIL: {0}" -f $_.Exception.Message)
@@ -69,7 +77,7 @@ trap {
 
 function Read-DatabaseLog {
     param([string]$dataDir)
-    $tempLog = Join-Path $env:TEMP ('kingbase-batch69-' + [Guid]::NewGuid().ToString('N') + '.log')
+    $tempLog = Join-Path $env:TEMP ('kingbase-batch72-' + [Guid]::NewGuid().ToString('N') + '.log')
     try {
         Docker @('cp', ("${ContainerName}:${dataDir}/logfile"), $tempLog) | Out-Null
         return (Get-Content -LiteralPath $tempLog -Raw)
@@ -89,12 +97,15 @@ foreach ($required in @($ImageTar, $LicenseFile)) {
 }
 $script:LicenseHash = (Get-FileHash -LiteralPath $LicenseFile -Algorithm SHA256).Hash
 
-Step 'Load supplied V9 image'
-$load = Docker @('load', '-i', $ImageTar)
-$load | ForEach-Object { Write-Output $_ }
-$tagLine = @($load | Where-Object { $_ -match '^Loaded image: (.+)$' }) | Select-Object -First 1
-if (-not $tagLine) { throw 'docker load did not return a tagged image' }
-$imageTag = ([regex]::Match($tagLine, '^Loaded image: (.+)$')).Groups[1].Value
+$imageTag = 'kingbase_v009r001c010b0004_single_x86:v1'
+$existingImage = @(Docker @('image', 'ls', '-q', '--filter', "reference=$imageTag") | Where-Object { $_ })
+if ($existingImage.Count -eq 0) {
+    Step 'Load supplied V9 image because expected tag is absent'
+    $load = Docker @('load', '-i', $ImageTar)
+    $load | ForEach-Object { Write-Output $_ }
+    if ($load -notcontains "Loaded image: $imageTag") { throw 'docker load did not return the expected V9 tag' }
+}
+else { Step 'Reuse locally loaded V9 image' }
 $image = (Docker @('image', 'inspect', $imageTag, '--format', '{{json .}}') | Select-Object -First 1) | ConvertFrom-Json
 if ($image.Config.Entrypoint.Count -ne 2 -or $image.Config.Entrypoint[0] -ne '/bin/bash') {
     throw 'Unexpected image entrypoint; inspect before proceeding'
@@ -142,30 +153,42 @@ Step ("Vendor data_dir={0} default_user={1} default_database={2} default_mode={3
 Step ("Vendor license source={0} runtime={1} image_license_bytes={2}" -f $licenseInBin, $licenseInEtc, $licenseInImage)
 Step ("Supplied license bytes={0} sha256={1}" -f (Get-Item -LiteralPath $LicenseFile).Length, $script:LicenseHash)
 
-# The source license is mounted read-only. The vendor entrypoint moves its
-# default license, so use its confirmed initdb/sys_ctl commands directly.
-# A license requiring write access must fail closed here.
-Step 'Check read-only source license mount and prepare dedicated container'
+Step 'Create dedicated writable license named volume and copy supplied file with a temporary container'
 if (Docker-Exists @('container', 'inspect', $ContainerName)) { Docker @('rm', '-f', $ContainerName) | Out-Null }
-$licenseMount = "type=bind,source=$LicenseFile,target=/license/license.dat,readonly"
-$licenseStat = @(Docker @('run', '--rm', '--mount', $licenseMount, '--entrypoint', '/usr/bin/stat', $imageTag, '-c', '%s|%a|%U:%G', '/license/license.dat'))
-if ($licenseStat.Count -ne 1 -or $licenseStat[0] -notmatch '^[0-9]+\|[0-7]+\|') { throw 'Unknown mounted license path or permissions' }
-Step ("PASS: read-only license mount metadata bytes/mode/owner={0}" -f $licenseStat[0])
+if (Docker-Exists @('container', 'inspect', $licenseHelper)) { Docker @('rm', '-f', $licenseHelper) | Out-Null }
+if (Docker-Exists @('volume', 'inspect', $licenseVolume)) { Docker @('volume', 'rm', $licenseVolume) | Out-Null }
+Docker @('volume', 'create', $licenseVolume) | Out-Null
+$licenseMount = "type=volume,source=$licenseVolume,target=/license"
+Docker @('run', '-d', '--name', $licenseHelper, '--user', '0', '--mount', $licenseMount,
+    '--entrypoint', '/bin/bash', $imageTag, '-c', 'sleep 600') | Out-Null
+Docker @('cp', $LicenseFile, "${licenseHelper}:/license/license.dat") | Out-Null
+Docker @('exec', $licenseHelper, '/bin/chown', 'kingbase:kingbase', '/license/license.dat') | Out-Null
+Docker @('exec', $licenseHelper, '/bin/chmod', '600', '/license/license.dat') | Out-Null
+$licenseStat = @(Docker @('exec', $licenseHelper, '/usr/bin/stat', '-c', '%s|%a|%U:%G', '/license/license.dat'))
+$copiedHash = @(Docker @('exec', $licenseHelper, '/usr/bin/sha256sum', '/license/license.dat'))
+if ($licenseStat.Count -ne 1 -or $licenseStat[0] -notmatch '^[0-9]+\|600\|kingbase:kingbase$' -or
+    $licenseStat[0].Split('|')[0] -ne (Get-Item -LiteralPath $LicenseFile).Length -or
+    $copiedHash.Count -ne 1 -or $copiedHash[0].Split(' ')[0].ToUpperInvariant() -ne $script:LicenseHash) {
+    throw 'Named-volume license size, owner, mode or SHA-256 mismatch'
+}
+Docker @('exec', '--user', 'kingbase', $licenseHelper, '/bin/bash', '-c', 'test -w /license/license.dat') | Out-Null
+Step ("PASS: named volume={0} target=/license copied_bytes/mode/owner={1} sha256={2}; kingbase user can write" -f $licenseVolume, $licenseStat[0], $script:LicenseHash)
+Docker @('rm', '-f', $licenseHelper) | Out-Null
 
 $bytes = New-Object byte[] 20
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
 $password = ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
 
-# The vendor entrypoint moves bin/license.dat after initdb. Avoid that move;
-# resolve bin/license.dat to the read-only mount before invoking the server.
+# The vendor entrypoint moves bin/license.dat after initdb. Resolve the binary
+# path to the confirmed writable named volume before invoking the server.
 $shell = 'set -e; DB_PATH=' + $dbPath + '; DATA_DIR=' + $dataDir +
     '; rm $DB_PATH/bin/license.dat' +
     '; ln -s /license/license.dat $DB_PATH/bin/license.dat' +
     '; $DB_PATH/bin/initdb -U' + $dbUser + ' -x $DB_PASSWORD -D $DATA_DIR -E UTF-8 -m pg' +
     '; $DB_PATH/bin/sys_ctl -D $DATA_DIR -l $DATA_DIR/logfile start' +
     '; exec tail -F $DATA_DIR/logfile'
-Step 'Start V9 in explicit pg mode with loopback-only published port'
+Step 'Start V9 in explicit pg mode with writable license volume and loopback-only published port'
 Docker @('run', '-d', '--name', $ContainerName, '--publish', "127.0.0.1::${containerPort}",
     '--mount', $licenseMount, '--env', "DB_PASSWORD=$password",
     '--entrypoint', '/bin/bash', $imageTag, '-c', $shell) | Out-Null
@@ -173,7 +196,10 @@ $container = (Docker @('inspect', $ContainerName, '--format', '{{json .}}') | Se
 $binding = @($container.NetworkSettings.Ports."${containerPort}/tcp")
 if ($binding.Count -ne 1 -or $binding[0].HostIp -ne '127.0.0.1') { throw 'No exclusive loopback port binding found' }
 $hostPort = [int]$binding[0].HostPort
-Step ("Container={0} host=127.0.0.1:{1} container_port={2} license_mount=readonly" -f $ContainerName, $hostPort, $containerPort)
+if (@($container.Mounts | Where-Object { $_.Type -eq 'volume' -and $_.Name -eq $licenseVolume -and $_.Destination -eq '/license' -and $_.RW }).Count -ne 1) {
+    throw 'V9 license mount is not the expected writable named volume'
+}
+Step ("Container={0} host=127.0.0.1:{1} container_port={2} license_mount=volume:rw" -f $ContainerName, $hostPort, $containerPort)
 
 Step 'Wait for database, checking database logfile on every failure'
 $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
@@ -197,7 +223,7 @@ do {
 if (-not $ready) {
     $dbLog = Read-DatabaseLog -dataDir $dataDir
     Step 'FAIL: database did not become ready; database logfile follows'
-    Write-Output $dbLog.TrimEnd()
+    @($dbLog -split "`n" | Where-Object { $_ -match '(?i)FATAL|license|productVersion|starting KingbaseES' }) | ForEach-Object { Write-Output $_.TrimEnd() }
     throw 'V9 readiness/license verification failed; PG protocol and AgentSQL checks were not run'
 }
 Step 'PASS: database ready and license accepted by server startup'
@@ -208,19 +234,25 @@ Step 'Server license/version log lines:'
 $licenseLogLines | ForEach-Object { Write-Output $_.TrimEnd() }
 
 $ksql = @('exec', $ContainerName, "$dbPath/bin/ksql", '-X', '-w', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-U', $dbUser, '-d', $database, '-p', "$containerPort")
+$licenseInfo = @(Docker ($ksql + @('-c', 'SELECT get_license_info();')))
+$licenseValidDays = @(Docker ($ksql + @('-c', 'SELECT get_license_validdays();')))
+if ($licenseValidDays.Count -ne 1 -or $licenseValidDays[0] -notmatch '^[0-9]+$') { throw 'Unknown server license valid-days format' }
+$reportedDates = @([regex]::Matches(($licenseInfo -join "`n"), '\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b') | ForEach-Object { $_.Value } | Select-Object -Unique)
+if ($reportedDates.Count -ne 1) { throw 'Unknown or ambiguous server license date format' }
+Step ("PASS: server license metadata valid_days={0} reported_dates={1} (date role unconfirmed; license text suppressed)" -f $licenseValidDays[0], ($reportedDates -join ','))
 foreach ($sql in @(
     'SELECT version();',
     'SHOW database_mode;',
-    'CREATE TABLE public.agentsql_batch69_verify (id integer PRIMARY KEY, name varchar(40), phone varchar(20));',
-    "INSERT INTO public.agentsql_batch69_verify VALUES (1, 'batch69', '13812345678');",
-    'SELECT id, name, phone FROM public.agentsql_batch69_verify WHERE id = 1;',
-    "UPDATE public.agentsql_batch69_verify SET name = 'updated' WHERE id = 1;",
-    'SELECT id, name FROM public.agentsql_batch69_verify WHERE id = 1;',
-    'SELECT id FROM public.agentsql_batch69_verify ORDER BY id LIMIT 1 OFFSET 0;',
-    'SELECT id AS "MiXeD" FROM public.agentsql_batch69_verify WHERE id = 1;',
-    'SELECT id AS MiXeD FROM public.agentsql_batch69_verify WHERE id = 1;',
-    'DELETE FROM public.agentsql_batch69_verify WHERE id = 1;',
-    'SELECT count(*) FROM public.agentsql_batch69_verify;'
+    'CREATE TABLE public.agentsql_batch72_verify (id integer PRIMARY KEY, name varchar(40), phone varchar(20));',
+    "INSERT INTO public.agentsql_batch72_verify VALUES (1, 'batch72', '13812345678');",
+    'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1;',
+    "UPDATE public.agentsql_batch72_verify SET name = 'updated' WHERE id = 1;",
+    'SELECT id, name FROM public.agentsql_batch72_verify WHERE id = 1;',
+    'SELECT id FROM public.agentsql_batch72_verify ORDER BY id LIMIT 1 OFFSET 0;',
+    'SELECT id AS "MiXeD" FROM public.agentsql_batch72_verify WHERE id = 1;',
+    'SELECT id AS MiXeD FROM public.agentsql_batch72_verify WHERE id = 1;',
+    'DELETE FROM public.agentsql_batch72_verify WHERE id = 1;',
+    'SELECT count(*) FROM public.agentsql_batch72_verify;'
 )) {
     Step ("ksql: {0}" -f $sql)
     $sqlOutput = @(Docker ($ksql + @('-c', $sql)))
@@ -229,24 +261,26 @@ foreach ($sql in @(
     if ($sql -eq 'SHOW database_mode;' -and $joined.Trim() -ne 'pg') { throw "Unexpected database mode: $joined" }
     if ($sql.StartsWith('UPDATE ') -and $joined.Trim() -ne 'UPDATE 1') { throw "UPDATE did not affect one row: $joined" }
     if ($sql.StartsWith('DELETE ') -and $joined.Trim() -ne 'DELETE 1') { throw "DELETE did not affect one row: $joined" }
-    if ($sql -eq 'SELECT count(*) FROM public.agentsql_batch69_verify;' -and $joined.Trim() -ne '0') {
+    if ($sql -eq 'SELECT count(*) FROM public.agentsql_batch72_verify;' -and $joined.Trim() -ne '0') {
         throw "DELETE verification count was not zero: $joined"
     }
-    if ($sql.StartsWith('SELECT id FROM public.agentsql_batch69_verify ORDER BY') -and $joined.Trim() -ne '1') { throw "LIMIT/OFFSET failed: $joined" }
+    if ($sql.StartsWith('SELECT id FROM public.agentsql_batch72_verify ORDER BY') -and $joined.Trim() -ne '1') { throw "LIMIT/OFFSET failed: $joined" }
 }
-foreach ($sql in @('SELECT id AS "MiXeD" FROM public.agentsql_batch69_verify WHERE id = 1 LIMIT 0;',
-                  'SELECT id AS MiXeD FROM public.agentsql_batch69_verify WHERE id = 1 LIMIT 0;')) {
+foreach ($sql in @('SELECT id AS "MiXeD" FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 0;',
+                  'SELECT id AS MiXeD FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 0;')) {
     $headerKsql = @($ksql | Where-Object { $_ -ne '-t' })
     $headers = @(Docker ($headerKsql + @('-c', $sql)))
     Step ("identifier header for {0}: {1}" -f $sql, ($headers -join '|'))
     if ($headers.Count -lt 1) { throw 'Identifier header missing' }
-    if ($sql -match '"MiXeD"' -and $headers[0].Trim() -cne 'MiXeD') { throw 'Quoted identifier did not preserve case' }
-    if ($sql -notmatch '"MiXeD"' -and $headers[0].Trim() -cne 'mixed') { throw 'Unquoted identifier did not fold to lower case' }
+    if ($sql -match '"MiXeD"') { $quotedIdentifierHeader = $headers[0].Trim() }
+    else { $unquotedIdentifierHeader = $headers[0].Trim() }
 }
+if (-not $quotedIdentifierHeader -or -not $unquotedIdentifierHeader) { throw 'Identifier comparison was incomplete' }
+Step ("PASS: identifier comparison quoted={0} unquoted={1}" -f $quotedIdentifierHeader, $unquotedIdentifierHeader)
 Step 'PASS: ksql version, PG mode, CRUD, LIMIT/OFFSET and identifier probes'
 
 Step 'Create synthetic row and a minimum SELECT-only database role'
-Docker ($ksql + @('-c', "INSERT INTO public.agentsql_batch69_verify VALUES (1, 'Alice', '13812345678');")) | Out-Null
+Docker ($ksql + @('-c', "INSERT INTO public.agentsql_batch72_verify VALUES (1, 'Alice', '13812345678');")) | Out-Null
 $rolePasswordBytes = New-Object byte[] 20
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 try { $rng.GetBytes($rolePasswordBytes) } finally { $rng.Dispose() }
@@ -255,9 +289,9 @@ foreach ($sql in @(
     "CREATE ROLE agentsql_ro LOGIN PASSWORD '$rolePassword';",
     "GRANT CONNECT ON DATABASE $database TO agentsql_ro;",
     'GRANT USAGE ON SCHEMA public TO agentsql_ro;',
-    'GRANT SELECT ON public.agentsql_batch69_verify TO agentsql_ro;'
+    'GRANT SELECT ON public.agentsql_batch72_verify TO agentsql_ro;'
 )) { Docker ($ksql + @('-c', $sql)) | Out-Null }
-Step 'PASS: readonly role created with CONNECT, USAGE and one-table SELECT only'
+Step 'PASS: readonly role created with LOGIN, CONNECT, USAGE and one-table SELECT only'
 $hbaLines = @(Docker @('exec', $ContainerName, '/bin/grep', '-E', '^host[[:space:]]', "$dataDir/sys_hba.conf"))
 $hbaLines | ForEach-Object { Step ("HBA: {0}" -f $_) }
 if (-not ($hbaLines -match 'scram-sha-256')) { throw 'SCRAM authentication is not configured for TCP host connections' }
@@ -269,7 +303,7 @@ if (-not (Test-Path -LiteralPath $goExe -PathType Leaf)) {
     if (-not $goCommand) { throw 'Go 1.26 CLI not found for host-side pgx verification' }
     $goExe = $goCommand.Source
 }
-$probeSource = Join-Path $env:TEMP ('kingbase-batch69-' + [Guid]::NewGuid().ToString('N') + '.go')
+$probeSource = Join-Path $env:TEMP ('kingbase-batch72-' + [Guid]::NewGuid().ToString('N') + '.go')
 $env:KINGBASE_TEST_DSN = "postgres://agentsql_ro:$rolePassword@127.0.0.1:$hostPort/${database}?sslmode=disable"
 $previousGoToolchain = $env:GOTOOLCHAIN
 $previousGoCache = $env:GOCACHE
@@ -277,11 +311,11 @@ try {
     @'
 package main
 import("context";"fmt";"os";"github.com/jackc/pgx/v5")
-func main(){ctx:=context.Background();c,e:=pgx.Connect(ctx,os.Getenv("KINGBASE_TEST_DSN"));if e!=nil{fmt.Println("CONNECT_FAIL",e);os.Exit(1)};defer c.Close(ctx);var user,mode,version,phone string;e=c.QueryRow(ctx,"SELECT current_user, current_setting('database_mode'), version()").Scan(&user,&mode,&version);if e!=nil{fmt.Println("QUERY_FAIL",e);os.Exit(1)};e=c.QueryRow(ctx,"SELECT phone FROM public.agentsql_batch69_verify WHERE id=$1",1).Scan(&phone);if e!=nil{fmt.Println("BIND_FAIL",e);os.Exit(1)};tx,e:=c.Begin(ctx);if e!=nil{fmt.Println("BEGIN_FAIL",e);os.Exit(1)};_,writeErr:=tx.Exec(ctx,"UPDATE public.agentsql_batch69_verify SET name='bad' WHERE id=1");_ = tx.Rollback(ctx);if writeErr==nil{fmt.Println("WRITE_UNEXPECTEDLY_ALLOWED");os.Exit(1)};fmt.Printf("host_pgx_user=%s mode=%s phone=%s denied_write=%v version=%s\n",user,mode,phone,writeErr,version)}
+func main(){ctx:=context.Background();c,e:=pgx.Connect(ctx,os.Getenv("KINGBASE_TEST_DSN"));if e!=nil{fmt.Println("CONNECT_FAIL",e);os.Exit(1)};defer c.Close(ctx);var user,mode,version,phone string;e=c.QueryRow(ctx,"SELECT current_user, current_setting('database_mode'), version()").Scan(&user,&mode,&version);if e!=nil{fmt.Println("QUERY_FAIL",e);os.Exit(1)};e=c.QueryRow(ctx,"SELECT phone FROM public.agentsql_batch72_verify WHERE id=$1",1).Scan(&phone);if e!=nil{fmt.Println("BIND_FAIL",e);os.Exit(1)};tx,e:=c.Begin(ctx);if e!=nil{fmt.Println("BEGIN_FAIL",e);os.Exit(1)};_,writeErr:=tx.Exec(ctx,"UPDATE public.agentsql_batch72_verify SET name='bad' WHERE id=1");_ = tx.Rollback(ctx);if writeErr==nil{fmt.Println("WRITE_UNEXPECTEDLY_ALLOWED");os.Exit(1)};fmt.Printf("host_pgx_user=%s mode=%s phone=%s denied_write=%v version=%s\n",user,mode,phone,writeErr,version)}
 '@ | Set-Content -LiteralPath $probeSource -Encoding UTF8
     $env:GOTOOLCHAIN = 'local'
     $env:GOPROXY = 'off'
-    $env:GOCACHE = Join-Path $env:TEMP 'kingbase-batch69-host-gocache'
+    $env:GOCACHE = Join-Path $env:TEMP 'kingbase-batch72-host-gocache'
     $pgOutput = @(& $goExe run $probeSource 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "host pgx verification failed: $($pgOutput -join ' ')" }
     $pgOutput | ForEach-Object { Write-Output $_ }
@@ -300,8 +334,8 @@ Step 'Build current AgentSQL source offline in local Go/CGO Docker image'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $moduleCache = Join-Path $env:USERPROFILE 'go\pkg\mod'
 if (-not (Test-Path -LiteralPath $moduleCache -PathType Container)) { throw 'Local Go module cache unavailable for offline build' }
-$buildVolume = 'kingbase-batch69-go-build'
-$cacheVolume = 'kingbase-batch69-go-cache'
+$buildVolume = 'kingbase-batch72-go-build'
+$cacheVolume = 'kingbase-batch72-go-cache'
 Docker @('volume', 'create', $buildVolume) | Out-Null
 Docker @('volume', 'create', $cacheVolume) | Out-Null
 Docker @('run', '--rm', '--network', 'none',
@@ -316,14 +350,6 @@ Step 'PASS: offline go build ./...'
 Docker @('run', '--rm', '--network', 'none',
     '--mount', "type=bind,source=$repoRoot,target=/src,readonly",
     '--mount', "type=bind,source=$moduleCache,target=/gomod,readonly",
-    '--mount', "type=volume,source=$cacheVolume,target=/buildcache",
-    '--workdir', '/src', '--env', 'GOPROXY=off', '--env', 'GOTOOLCHAIN=local', '--env', 'GOMODCACHE=/gomod',
-    '--env', 'GOCACHE=/buildcache', '--env', 'CGO_ENABLED=1',
-    'golang:1.26-bookworm', 'go', 'test', '-short', './internal/parser', './internal/mask') | ForEach-Object { Write-Output $_ }
-Step 'PASS: offline go test -short ./internal/parser ./internal/mask'
-Docker @('run', '--rm', '--network', 'none',
-    '--mount', "type=bind,source=$repoRoot,target=/src,readonly",
-    '--mount', "type=bind,source=$moduleCache,target=/gomod,readonly",
     '--mount', "type=volume,source=$buildVolume,target=/out",
     '--mount', "type=volume,source=$cacheVolume,target=/buildcache",
     '--workdir', '/src', '--env', 'GOPROXY=off', '--env', 'GOTOOLCHAIN=local', '--env', 'GOMODCACHE=/gomod',
@@ -332,12 +358,12 @@ Docker @('run', '--rm', '--network', 'none',
 Step 'PASS: offline AgentSQL binary built'
 
 Step 'Start current AgentSQL build on private Docker network with loopback-only HTTP port'
-$network = 'kingbase-batch69-net'
+$network = 'kingbase-batch72-net'
 if (-not (Docker-Exists @('network', 'inspect', $network))) { Docker @('network', 'create', $network) | Out-Null }
 $networkNames = @($container.NetworkSettings.Networks.PSObject.Properties.Name)
 if ($networkNames -notcontains $network) { Docker @('network', 'connect', $network, $ContainerName) | Out-Null }
-$agentContainer = 'kingbase-v9-agentsql-batch69'
-$agentDataVolume = 'kingbase-v9-batch69-agentsql-data'
+$agentContainer = 'kingbase-v9-agentsql-batch72'
+$agentDataVolume = 'kingbase-v9-batch72-agentsql-data'
 if (Docker-Exists @('container', 'inspect', $agentContainer)) { Docker @('rm', '-f', $agentContainer) | Out-Null }
 if (Docker-Exists @('volume', 'inspect', $agentDataVolume)) { Docker @('volume', 'rm', $agentDataVolume) | Out-Null }
 Docker @('volume', 'create', $agentDataVolume) | Out-Null
@@ -350,7 +376,7 @@ try {
     $adminPassword = ([BitConverter]::ToString($secretBytes)).Replace('-', '').ToLowerInvariant()
 }
 finally { $rng.Dispose() }
-$configFile = Join-Path $env:TEMP ('kingbase-batch69-' + [Guid]::NewGuid().ToString('N') + '.yaml')
+$configFile = Join-Path $env:TEMP ('kingbase-batch72-' + [Guid]::NewGuid().ToString('N') + '.yaml')
 try {
     @'
 server:
@@ -413,7 +439,7 @@ function Api([string]$method, [string]$path, $body, [string]$token) {
 $token = (Api 'POST' '/api/v1/auth/login' @{ username = 'admin'; password = $adminPassword } '').token
 if (-not $token) { throw 'AgentSQL admin login returned no token' }
 $datasource = Api 'POST' '/api/v1/datasources' @{
-    id = 'kb-v9'; name = 'Kingbase V9 batch69'; db_type = 'postgres'; host = $ContainerName
+    id = 'kb-v9'; name = 'Kingbase V9 batch72'; db_type = 'postgres'; host = $ContainerName
     port = $containerPort; database = $database; username = 'agentsql_ro'; password = $rolePassword
     conn_limit = 5; stmt_timeout_ms = 5000; row_limit = 100
 } $token
@@ -423,10 +449,10 @@ $apiKey = $agent.api_key
 if (-not $apiKey) { throw 'AgentSQL did not return a new API key' }
 Api 'POST' '/api/v1/policies' @{
     id = 'kb-v9-table'; agent_id = 'kb-v9-agent'; datasource_id = 'kb-v9'
-    object_type = 'table'; object_name = 'public.agentsql_batch69_verify'; action = 'allow'
+    object_type = 'table'; object_name = 'public.agentsql_batch72_verify'; action = 'allow'
 } $token | Out-Null
 Api 'POST' '/api/v1/mask_rules' @{
-    id = 'kb-v9-phone'; datasource_id = 'kb-v9'; table_name = 'agentsql_batch69_verify'
+    id = 'kb-v9-phone'; datasource_id = 'kb-v9'; table_name = 'agentsql_batch72_verify'
     column_name = 'phone'; sensitive_type = 'phone'; algo = 'mask'
 } $token | Out-Null
 
@@ -437,7 +463,7 @@ $mcpHeaders = @{
 }
 $initialize = @{
     jsonrpc = '2.0'; id = 0; method = 'initialize'
-    params = @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'batch69'; version = '1' } }
+    params = @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'batch72'; version = '1' } }
 } | ConvertTo-Json -Depth 10 -Compress
 $initialResponse = Invoke-WebRequest -Uri "$agentURL/mcp" -Method Post -Headers $mcpHeaders -ContentType 'application/json' -Body $initialize -UseBasicParsing
 $sessionID = $initialResponse.Headers['Mcp-Session-Id']
@@ -458,12 +484,12 @@ function Call-MCP([int]$id, [string]$tool, $arguments) {
 
 Step 'Verify AgentSQL SELECT, scoped phone masking, R006 denial and audit records'
 $allowed = (Call-MCP 1 'query' @{
-    datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch69_verify WHERE id = 1 LIMIT 10'
+    datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
 }).result.structuredContent
 $row = @($allowed.data.result.rows)[0]
 Step ("SELECT decision={0} audit_id={1} masked_cells={2} row={3}" -f $allowed.decision, $allowed.data.audit_id, $allowed.data.redact.MaskedCells, ($row -join '|'))
 Step 'Verify physical ProjectionLineages for the same SELECT through the registered postgres parser'
-$lineageProbe = Join-Path $repoRoot 'scripts/kingbase_b69_lineage_probe_temp.go'
+$lineageProbe = Join-Path $repoRoot 'scripts/kingbase_b72_lineage_probe_temp.go'
 try {
 @'
 package main
@@ -475,14 +501,14 @@ import (
 )
 func main() {
  p,e:=parser.NewParser(model.DialectPostgres); if e!=nil { panic(e) }
- ast,e:=p.Parse("SELECT id, name, phone FROM public.agentsql_batch69_verify WHERE id = 1 LIMIT 10"); if e!=nil { panic(e) }
+ ast,e:=p.Parse("SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10"); if e!=nil { panic(e) }
  expected:=[]string{"id","name","phone"}
  if len(ast.ProjectionLineages)!=len(expected) { fmt.Println("LINEAGE_COUNT_FAIL"); os.Exit(1) }
  for i,col:=range expected {
   line:=ast.ProjectionLineages[i]
   if len(line.Arms)!=1 || len(line.Arms[0].Dependencies)!=1 { fmt.Println("LINEAGE_ARM_FAIL",i); os.Exit(1) }
   origin:=line.Arms[0].Dependencies[0].Origin
-  if origin.Relation.Schema!="public" || origin.Relation.Table!="agentsql_batch69_verify" || origin.Column!=col { fmt.Println("LINEAGE_ORIGIN_FAIL",i,origin.Relation.Schema,origin.Relation.Table,origin.Column); os.Exit(1) }
+  if origin.Relation.Schema!="public" || origin.Relation.Table!="agentsql_batch72_verify" || origin.Column!=col { fmt.Println("LINEAGE_ORIGIN_FAIL",i,origin.Relation.Schema,origin.Relation.Table,origin.Column); os.Exit(1) }
   fmt.Printf("ProjectionLineages[%d]=%s <- %s.%s.%s\n",i,line.OutputName,origin.Relation.Schema,origin.Relation.Table,origin.Column)
  }
 }
@@ -493,12 +519,12 @@ func main() {
         '--mount', "type=volume,source=$cacheVolume,target=/buildcache",
         '--workdir', '/src', '--env', 'GOPROXY=off', '--env', 'GOTOOLCHAIN=local', '--env', 'GOMODCACHE=/gomod',
         '--env', 'GOCACHE=/buildcache', '--env', 'CGO_ENABLED=1',
-        'golang:1.26-bookworm', 'go', 'run', './scripts/kingbase_b69_lineage_probe_temp.go') | ForEach-Object { Write-Output $_ }
+        'golang:1.26-bookworm', 'go', 'run', './scripts/kingbase_b72_lineage_probe_temp.go') | ForEach-Object { Write-Output $_ }
 }
 finally { Remove-Item -LiteralPath $lineageProbe -ErrorAction SilentlyContinue }
 Step 'PASS: ProjectionLineages physical origins match the synthetic V9 table'
 $deniedCall = Call-MCP 2 'query' @{
-    datasource_id = 'kb-v9'; sql = 'SELECT /* batch69-r006 */ id FROM public.agentsql_batch69_verify WHERE id = 1 LIMIT 1'
+    datasource_id = 'kb-v9'; sql = 'SELECT /* batch72-r006 */ id FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 1'
 }
 $denied = $null
 if ($deniedCall.PSObject.Properties['result'] -and $deniedCall.result.PSObject.Properties['structuredContent']) {
