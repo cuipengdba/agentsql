@@ -33,14 +33,14 @@ The seven base MCP tools are `list_datasources`, `list_schema`, `explain_query`,
 
 ## Database Compatibility
 
-The pending v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 is a separate vendor-environment candidate and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. HighGo green applies only to the 9.0.10 Enterprise Edition PG-mode, single-instance synthetic case, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
+The pending v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 has a separately verified PG protocol basic protection chain and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. HighGo green applies only to the 9.0.10 Enterprise Edition PG-mode, single-instance synthetic case, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
 
-### Relational (6 registered + 1 pending)
+### Relational (6 registered + 1 separately verified)
 
 - 🟢 PostgreSQL 14–18; MySQL 8.0
 - 🟢 Dameng DM8 (Pack3, `COMPATIBLE_MODE=0`, specified protection chain only)
 - 🔵 Oracle 23ai; YashanDB; SQL Server 2025
-- 🟡 KingbaseES V9: waiting for a vendor image and license; the target environment was expected on October 8. Connection validation is not claimed before it is obtained.
+- 🟢 KingbaseES V9 (V9R1C10, PG mode, single instance, synthetic table only): PG protocol basic controlled read-only chain passed a live test. A writable license volume allowed startup; ksql CRUD/pagination/identifier probes, pgx/v5 `$1` binding and SCRAM, read-only role write denial (`42501`), controlled SELECT allow, phone masking, column lineage, R006 comment denial, and allow/deny audit passed via `db_type=postgres`. Actual license expiry is unconfirmed. V9 Oracle mode, native driver, V8, multi-row/deep pagination, JOIN, aggregates/functions, complex expressions, type OIDs, system catalogs, EXPLAIN, TLS/encryption, HA/failover, backup/restore, B2 column authorization, multi-role concurrency, and production workloads remain untested. Explicit `GRANT CREATE SESSION` was rejected; session ability was verified with `LOGIN` + `CONNECT`. No vendor certification or production support commitment. See the [KingbaseES V9 verification record](docs/kingbase-v9-verification.md).
 
 ### Additional tested PG protocol path (outside the 27 registered types)
 

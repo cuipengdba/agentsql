@@ -1,12 +1,12 @@
 # KingbaseES V9 真库验证：批七十二（可写 license 卷）
 
-验证日期：2026-10-08（Asia/Shanghai）。一键脚本：[kingbase-v9-verify.ps1](../scripts/kingbase-v9-verify.ps1)。最终运行的完整终端 transcript：`C:\Users\Administrator\AppData\Local\Temp\kingbase-v9-batch72-transcript.txt`（7,877 bytes，14 条带时间戳的 PASS、0 条 FAIL，最终退出码 **0**）。早期调试失败已被最终 transcript 覆盖，其关键失败结论在下文单列。本批未执行 git 操作，未改矩阵、README、SECURITY.md 或 `internal/`。
+验证日期：2026-10-08（Asia/Shanghai）。一键脚本：[kingbase-v9-verify.ps1](../scripts/kingbase-v9-verify.ps1)。最终运行的完整终端 transcript：`C:\Users\Administrator\AppData\Local\Temp\kingbase-v9-batch72-transcript.txt`（7,877 bytes，14 条带时间戳的 PASS、0 条 FAIL，最终退出码 **0**）。早期调试失败已被最终 transcript 覆盖，其关键失败结论在下文单列。批七十二未改矩阵、README、SECURITY.md 或 `internal/`；批七十四依据 2026-10-09 用户决定同步矩阵档位。
 
-## 结论与矩阵建议
+## 结论与矩阵档位
 
 **V9 的本次 `pg` 模式基础防护闭环通过。** 可写 license named volume 下数据库正常启动；日志为 `starting KingbaseES V009R001C010`，`SELECT version()` 与之相同，没有浮动模式写权限 FATAL 或产品码 FATAL。新 license 的 V009R001C 产品码被该服务器接受，这是由启动成功推得的兼容结论，不是对 license 文件内容的转录。
 
-建议将矩阵中 **V9／PostgreSQL 协议基础闭环**标为 🟩（待用户拍板）；不把该结果扩展为 V9 全模式、长期授权或生产可用结论。若矩阵只有一个不区分范围的 V9 总档位，建议暂保留 🟨，直到实际到期日和未测边界另行确认。本报告未直接改矩阵。
+**用户已于 2026-10-09 拍板转绿：仅 V9R1C10、PG 兼容模式、单实例合成表、只读受控链路的 PG 协议基础闭环标为 🟢。** 可写 license 卷启动、ksql CRUD/分页/标识符、宿主机 pgx/v5 `$1` 绑定 + SCRAM、只读角色拒写 `42501`、AgentSQL 受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计均与下列真库证据对应。该档位不扩展为 V9 全模式、V8、长期授权、厂商认证或生产支持承诺；未测能力继续 fail-closed。
 
 ## 方案 B：镜像、license 与容器
 
@@ -71,7 +71,7 @@ AgentSQL 使用仓库现有 `db_type=postgres`，以最小权限角色连接 V9�
 | 多行数据与深度分页、JOIN、聚合和一般函数、复杂表达式、类型 OID、系统目录、`EXPLAIN` | 未测；本轮仅单行 SQL 与一个 `LIMIT/OFFSET` 探针 |
 | 列级授权 B2、多角色并发、长连接/超时取消、生产负载 | 未测 |
 | TLS/加密传输、HA/故障切换、备份恢复 | 未测 |
-| V9 Oracle 模式、原生 Kingbase 驱动、跨版本差异 | 未测；本轮明确是 `pg` 模式与现有 PostgreSQL 协议接线 |
+| V9 Oracle 模式、原生 Kingbase 驱动、V8 与其它跨版本差异 | 未测；本轮明确是 `pg` 模式与现有 PostgreSQL 协议接线 |
 | 实际 license 到期日及后续续期行为 | 未确认；仅得到服务器报告的 180 天和含义未明的日期 |
 
 ## 改动清单

@@ -23,6 +23,7 @@
 
 ### Changed
 
+- 金仓 KingbaseES V9 经批七十二真库验证，用户于 2026-10-09 拍板，将 **仅 V9R1C10、PG 模式、单实例合成表的 PG 协议基础闭环**矩阵档位转为 🟢：可写 license 卷启动、ksql CRUD/分页/标识符、pgx/v5 `$1` 绑定 + SCRAM、只读角色拒写 `42501`、AgentSQL 受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计实测通过。实际 license 到期日及 V9 其它模式、V8、复杂查询、B2、TLS、HA 和生产负载等仍未验证；非厂商认证或生产支持承诺。见[真库验证记录](docs/kingbase-v9-verification.md)。
 - 瀚高 HighGo 9.0.10 企业版在 PG 模式、单实例合成表范围，经批七十真库验证通过解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝及 allow/deny 审计链路；用户于 2026-10-08 拍板，矩阵档位转为 🟢 指定实例防护链路实测通过。TLS、连接池故障切换、取消/超时、EXPLAIN、扩展类型/OID、系统目录差异、B2 列级授权、parse-error 审计分支（本轮未触发）、跨版本与生产负载未测；不构成厂商认证或生产支持承诺。见[真库验证记录](docs/highgo-verification.md)。
 - OpenTenBase PostgreSQL 内核新增严格、版本受限的分布式计划归一化，并在指定 v2.5.0 单机 GTM/CN/DN 拓扑完成最小安全闭环；TXSQL/MySQL 内核仍待官方环境实测。
 - PolarDB for PostgreSQL 指定社区镜像通过现有 `postgres` 路径完成实验性安全闭环，未新增别名或厂商识别开关。
@@ -42,7 +43,7 @@
 
 ### Known Issues
 
-- Oracle 的完整网关授权/脱敏闭环、YashanDB HTTP/MCP 与持久化审计终验、KingbaseES V9 以及 GaussDB / TDSQL 等商业版的目标环境终验仍未完成。崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。
+- Oracle 的完整网关授权/脱敏闭环、YashanDB HTTP/MCP 与持久化审计终验、KingbaseES V9 超出上述 PG 协议基础闭环的能力以及 GaussDB / TDSQL 等商业版的目标环境终验仍未完成。崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。
 - 登录限速/锁定和 MCP transport session 跨进程持久化仍未交付；OIDC/LDAP 的真实企业 IdP/目录兼容矩阵需在目标环境逐项验收。
 
 ## [v0.4.0] - 2026-09-30
