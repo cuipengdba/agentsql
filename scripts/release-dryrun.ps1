@@ -471,7 +471,7 @@ if (-not $SourceDateEpoch) {
 }
 
 if ($ProductionPrepare) {
-    $productionDirty = @(& git -C $repositoryRoot status --porcelain)
+    $productionDirty = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not verify the production source worktree state.'
     }
