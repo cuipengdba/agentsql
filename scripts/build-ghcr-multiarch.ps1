@@ -1,6 +1,8 @@
 # Build the linux/amd64 + linux/arm64 GHCR image locally as OCI archives.
 # Push is opt-in. -Push never moves latest; use -PromoteLatest only after the
 # exact version tag has passed the public, anonymous, dual-architecture gates.
+# GHCR package visibility has no REST API to change it; the owner must use the
+# package settings web page to make a package public.
 # Before using either publishing mode, the release owner must run on their device:
 #   gh auth refresh -h github.com -s write:packages
 [CmdletBinding()]
@@ -303,14 +305,25 @@ $digestJson = ($digestDocument | ConvertTo-Json -Depth 8) + "`n"
 [System.IO.File]::WriteAllText($DigestOutput, $digestJson, $utf8NoBom)
 
 if ($Push) {
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        throw 'The image was pushed, but GitHub CLI is required to set package visibility.'
+    $visibility = $null
+    if (Get-Command gh -ErrorAction SilentlyContinue) {
+        try {
+            $visibilityOutput = @(& gh api --method GET /user/packages/container/agentsql --jq .visibility 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $visibilityOutput.Count -gt 0) {
+                $visibility = [string]$visibilityOutput[0]
+            }
+        }
+        catch {
+            # Visibility lookup must not turn a successful image push into a failure.
+        }
     }
-    gh api --method PATCH /user/packages/container/agentsql -f visibility=public
-    if ($LASTEXITCODE -ne 0) {
-        throw 'The image was pushed, but setting GHCR package visibility failed.'
+    if ($visibility -and $visibility.Trim() -eq 'public') {
+        Write-Host 'PACKAGE_VISIBILITY_PUBLIC'
     }
-    Write-Host "Pushed exact release tags; requested public package visibility. latest was not changed."
+    else {
+        Write-Host 'VISIBILITY_OWNER_ACTION_REQUIRED=web Package settings Danger Zone Change visibility'
+    }
+    Write-Host "Pushed exact release tags. latest was not changed."
 }
 else {
     Write-Host "Wrote multi-architecture OCI archive: $Output"
