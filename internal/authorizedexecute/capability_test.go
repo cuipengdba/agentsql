@@ -35,7 +35,7 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			}
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build")) {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build") || strings.HasPrefix(entry.Name(), "capabilitycompile")) {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -56,7 +56,13 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			normalized := filepath.ToSlash(relative)
 			allowedB5S3 := normalized == "internal/b5session/sql_ledger.go" || normalized == "internal/b5session/tombstone.go" || normalized == "internal/b5session/pg_inventory.go"
 			allowedSoak := normalized == "internal/b5soak/postgres.go"
-			require.Truef(t, allowedBusiness || allowedControl || allowedB5S3 || allowedSoak, "%s imports driver capability %s", relative, name)
+			// The standalone HighGo probe verifies that a read-only database role
+			// rejects an UPDATE. It is not imported by the product runtime.
+			allowedHighGoProbe := normalized == "scripts/highgo/pgx-probe/main.go"
+			// The build-tagged Yashan native-driver probe verifies binding and
+			// least-privilege denial against disposable database objects.
+			allowedYashanProbe := normalized == "scripts/yashan-native-probe.go"
+			require.Truef(t, allowedBusiness || allowedControl || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe, "%s imports driver capability %s", relative, name)
 		}
 		return nil
 	})
@@ -73,7 +79,7 @@ func TestNoProductionImportOfDeletedExecutorPackage(t *testing.T) {
 			}
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build")) {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build") || strings.HasPrefix(entry.Name(), "capabilitycompile")) {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -169,7 +175,7 @@ func TestSQLSinkCallsitesMatchManifest(t *testing.T) {
 			}
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build")) {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build") || strings.HasPrefix(entry.Name(), "capabilitycompile")) {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -184,7 +190,7 @@ func TestSQLSinkCallsitesMatchManifest(t *testing.T) {
 		relative = filepath.ToSlash(relative)
 		permitted := false
 		for _, prefix := range allowed {
-			if relative == prefix || strings.HasPrefix(relative, prefix) {
+			if relative == prefix || (strings.HasSuffix(prefix, "/") && strings.HasPrefix(relative, prefix)) {
 				permitted = true
 				break
 			}
@@ -229,7 +235,11 @@ func vanishedGoBuildPath(root, path string, err error) bool {
 		return false
 	}
 	relative, relErr := filepath.Rel(root, path)
-	return relErr == nil && strings.HasPrefix(filepath.ToSlash(relative), "go-build")
+	if relErr != nil {
+		return false
+	}
+	normalized := filepath.ToSlash(relative)
+	return strings.HasPrefix(normalized, "go-build") || strings.HasPrefix(normalized, "capabilitycompile")
 }
 
 func expressionLooksLikeSQL(expression ast.Expr) bool {

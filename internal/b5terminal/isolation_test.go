@@ -25,10 +25,13 @@ func TestFeatureOffPackageHasNoProductionEntryPointReferences(t *testing.T) {
 	var references []string
 	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if os.IsNotExist(walkErr) && strings.HasPrefix(filepath.ToSlash(path), filepath.ToSlash(repoRoot)+"/capabilitycompile") {
+				return nil
+			}
 			return walkErr
 		}
 		if entry.IsDir() {
-			if path == packageDir || path == dmlContractDir || entry.Name() == ".git" || strings.HasPrefix(entry.Name(), "go-build") {
+			if path == packageDir || path == dmlContractDir || entry.Name() == ".git" || strings.HasPrefix(entry.Name(), "go-build") || strings.HasPrefix(entry.Name(), "capabilitycompile") {
 				return filepath.SkipDir
 			}
 			return nil

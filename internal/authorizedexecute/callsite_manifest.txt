@@ -8,3 +8,7 @@ internal/b5session/tombstone.go
 internal/b5session/pg_inventory.go
 internal/b5soak/postgres.go
 cmd/agentsqlctl/
+# Standalone read-only-role denial probe; its UPDATE must fail with SQLSTATE 42501.
+scripts/highgo/pgx-probe/main.go
+# Build-tagged native-driver binding and least-privilege probe on disposable objects.
+scripts/yashan-native-probe.go

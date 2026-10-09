@@ -107,7 +107,9 @@ func mcpHTTPInitialize(t *testing.T, handler http.Handler, apiKey string) string
 
 func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
 	const secret = "0123456789abcdef0123456789abcdef"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Full-suite parallelism can delay SQLite-backed startup; this deadline
+	// bounds the whole integration flow rather than one operation.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cfg, runtime := newDemoStartupRuntime(t, false, secret)
 	apiKey := "asql_b5_production_entrypoint"
@@ -165,7 +167,9 @@ func TestB5ProductionEntrypointOptionsRegisterHTTPAndStdio(t *testing.T) {
 
 func TestB5ExplicitOffHidesToolsFromHTTPAndStdio(t *testing.T) {
 	const secret = "0123456789abcdef0123456789abcdef"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Full-suite parallelism can delay SQLite-backed startup; this deadline
+	// bounds the whole integration flow rather than one operation.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cfg, _ := newDemoStartupRuntime(t, false, secret)
 	cfg.Store.SQLitePath = filepath.Join(t.TempDir(), "b5-off.db")

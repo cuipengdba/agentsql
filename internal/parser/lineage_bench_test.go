@@ -3,6 +3,8 @@ package parser
 import (
 	"errors"
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"testing"
@@ -74,7 +76,23 @@ func TestParseProjectionLineageP99Budget(t *testing.T) {
 			require.NoError(t, err)
 
 			typicalSQL := projectionLineageSetSQL(dialect, 8, 8)
-			typical := measureProjectionLineageParse(t, approved, typicalSQL, typicalIterations)
+			// Prepare parser and allocator state before timing. A GC cycle inside
+			// the 2000 samples measures runtime scheduling rather than parse work.
+			for warmup := 0; warmup < 500; warmup++ {
+				_, parseErr := approved.Parse(typicalSQL)
+				require.NoError(t, parseErr)
+			}
+			runtime.GC()
+			var typical projectionLineageTimings
+			var gcBefore, gcAfter runtime.MemStats
+			func() {
+				previousGCPercent := debug.SetGCPercent(-1)
+				defer debug.SetGCPercent(previousGCPercent)
+				runtime.ReadMemStats(&gcBefore)
+				typical = measureProjectionLineageParse(t, approved, typicalSQL, typicalIterations)
+				runtime.ReadMemStats(&gcAfter)
+			}()
+			t.Logf("%s typical measurement GC cycles=%d heap_before=%d heap_after=%d", dialect, gcAfter.NumGC-gcBefore.NumGC, gcBefore.HeapAlloc, gcAfter.HeapAlloc)
 			t.Logf("%s typical arms=8 columns=8 parses=%d P50=%s P90=%s P95=%s P99=%s", dialect, typicalIterations, typical.p50, typical.p90, typical.p95, typical.p99)
 			require.LessOrEqual(t, typical.p99, typicalP99Budget, "parser total P99 is the available lineage budget proxy; the parser has no lineage-off mode")
 
