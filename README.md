@@ -31,7 +31,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 
 ## 生态与兼容
 
-AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.5 正在推进主流国产数据库的兼容适配与生态合作。
+AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.5.0 已正式发布，主流国产数据库指定实例与协议路径的兼容适配和生态验证范围见下表。
 
 | 数据库 | 适配状态 | 说明 |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 | OceanBase | 适配中 | 执行计划（EXPLAIN）适配实现中 |
 | TDSQL | 适配中 | 开源版 OpenTenBase 适配中；商用版待实测 |
 | OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
-| 崖山数据库 YashanDB | 独立方言受控只读接线 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
+| 崖山数据库 YashanDB | 🔵 受控只读 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
 | 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：只读 SELECT、列血缘、R010 表策略、审计及手机号脱敏链路实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开 |
 | PolarDB for PostgreSQL | 协议路径已实测 | 指定 PG 15 社区镜像复用 `db_type=postgres`；非商业服务认证 |
 | PolarDB-X | 旧官方镜像有界实测 | `2.0.1` 单容器复用 `db_type=mysql`，两阶段 EXPLAIN 已适配；当前完整拓扑与商业服务待终验 |

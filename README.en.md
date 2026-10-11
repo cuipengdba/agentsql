@@ -35,6 +35,25 @@ The seven base MCP tools are `list_datasources`, `list_schema`, `explain_query`,
 
 The v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 has a separately verified PG protocol basic protection chain and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. HighGo green applies only to the 9.0.10 Enterprise Edition PG-mode, single-instance synthetic case, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
 
+### Domestic database ecosystem
+
+AgentSQL v0.5.0 has been released. These ecosystem results apply only to the specified versions, images, topologies, and synthetic cases; they are not vendor certification or a production support commitment. "Adaptation in progress" does not mean that v0.5.0 supports the product.
+
+| Database | Status | Notes |
+| --- | --- | --- |
+| KingbaseES | 🟢 PG protocol basic protection chain passed | V9R1C10, PG mode, single-instance synthetic table only: writable license volume, ksql CRUD/pagination/identifiers, pgx/v5 `$1` binding with SCRAM, read-only role write denial (`42501`), controlled SELECT, phone masking, column lineage, R006 comment denial, and allow/deny audit passed; see the [verification record](docs/kingbase-v9-verification.md). |
+| HighGo | 🟢 Specified-instance protection chain passed | HighGo 9.0.10 Enterprise Edition, PG mode, single-instance synthetic table: parsing/column lineage, table-level authorization, controlled read-only SELECT, phone masking, R006 denial, and allow/deny audit passed; see the [verification record](docs/highgo-verification.md). |
+| IvorySQL | Tested | The specified community-edition PG protocol path passed a minimal protection loop. |
+| openGauss (GaussDB) | Tested | The specified openGauss community-edition PG protocol path passed a minimal protection loop; this does not validate commercial GaussDB. |
+| TiDB | Adaptation in progress | EXPLAIN compatibility work remains in progress. |
+| OceanBase | Adaptation in progress | EXPLAIN compatibility work remains in progress. |
+| TDSQL | Adaptation in progress | Open-source OpenTenBase adaptation remains in progress; commercial editions await target-environment validation. |
+| OpenTenBase | Adaptation in progress | Execution-plan compatibility work remains in progress. |
+| YashanDB | 🔵 Controlled read-only | The independent parser and narrow SELECT path are wired; a standalone-client real-server pipeline passed SELECT, column lineage, R010, phone masking, and three test audit records. HTTP/MCP and durable audit storage remain untested; the client, build, and fail-closed boundaries are detailed below. |
+| Dameng DM | 🟢 Specified-instance protection chain passed | DM8 Pack3, `COMPATIBLE_MODE=0`: read-only SELECT, column lineage, R010 table policy, audit, and phone masking passed. R006, multirow pagination, JOIN, functions, and system catalogs remain untested; writes are not enabled. |
+| PolarDB for PostgreSQL | Protocol path tested | A specified PG 15 community image completed a minimal protection loop via `db_type=postgres`; commercial services, HA, TLS, and B2/B5 are not covered. |
+| PolarDB-X | Bounded test on older official image | `polardbx/polardb-x:2.0.1` single container via `db_type=mysql`: two-phase EXPLAIN uses a single logical-plan column from plain `EXPLAIN`, then standard MySQL columns from `EXPLAIN EXECUTE`. Routing hints, DRDS/TDDL statements, distributed DDL, and stored procedures fail closed. Full CN/DN/CDC topology, commercial services, distributed semantics, and B2/B5 are not proven. |
+
 ### Relational (6 registered + 1 separately verified)
 
 - 🟢 PostgreSQL 14–18; MySQL 8.0
