@@ -26,6 +26,27 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/app.js" defer></script>
+  <style>
+      .compat-summary { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; margin:0 0 18px; color:var(--text); }
+      .compat-summary strong { color:var(--accent); font-size:clamp(1.3rem, 3vw, 1.8rem); }
+      .compat-legend { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 22px; }
+      .compat-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
+      .compat-card { min-width:0; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+      .compat-card--wide { grid-column:1 / -1; }
+      .compat-card h3 { margin:0 0 8px; color:var(--text); font-size:1.1rem; }
+      .compat-card p { margin:0 0 14px; color:var(--muted); font-size:.9rem; }
+      .compat-card p:last-child { margin:14px 0 0; }
+      .compat-badges { display:flex; flex-wrap:wrap; gap:9px; padding:0; margin:0; list-style:none; }
+      .compat-badge { display:inline-flex; max-width:100%; align-items:center; gap:8px; padding:7px 11px; border:1px solid var(--line); border-radius:999px; background:var(--bg); color:var(--text); font-size:.9rem; overflow-wrap:anywhere; }
+      .compat-badge::before { content:""; flex:0 0 9px; width:9px; height:9px; border-radius:50%; background:var(--accent); }
+      .compat-badge.tier-full::before { background:var(--green); }
+      .compat-badge.tier-read::before { background:var(--blue); }
+      .compat-badge.tier-conn::before { background:var(--accent); }
+      .compat-badge.tier-pending { border:1px dashed var(--amber); }
+      .compat-badge.tier-pending::before { background:var(--amber); }
+      .compat-legend .compat-badge { color:var(--muted); }
+      @media (max-width:700px) { .compat-grid { grid-template-columns:minmax(0, 1fr); } .compat-card--wide { grid-column:auto; } .compat-card { padding:18px; } }
+    </style>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -197,36 +218,99 @@
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>v0.5.0 GA 兼容矩阵</h2><p>版本与协议支持以 v0.5.0 和仓库文档为准。</p></div>
-        <div class="table-wrap">
-          <table>
-            <caption>AgentSQL v0.5.0 GA 兼容范围</caption>
-            <thead><tr><th scope="col">类别</th><th scope="col">当前支持</th><th scope="col">边界与说明</th></tr></thead>
-            <tbody>
-              <tr><th scope="row">被防护业务库</th><td>MySQL 8.x；PostgreSQL 14 / 15 / 16 / 17 / 18</td><td>按对应方言解析并执行受控检查。</td></tr>
-              <tr><th scope="row">元数据 / 审计控制面</th><td>纯 Go 嵌入式 SQLite（默认）；PostgreSQL 15+</td><td>PG18 为开发 / Compose / CI 基准；可用 <code>agentsqlctl migrate-sqlite-to-postgres</code> 迁移单库或独立元数据 / 审计双库。</td></tr>
-              <tr><th scope="row">MCP 传输</th><td>stdio；Streamable HTTP <code>/mcp</code></td><td>HTTP 使用 Bearer Agent API Key；无状态 JSON 响应；MCP 2025-06-18。</td></tr>
-              <tr><th scope="row">控制台实时事件</th><td>Bearer 鉴权 SSE <code>/api/v1/stream</code></td><td>断线降级轮询。</td></tr>
-              <tr><th scope="row">MCP 宿主</th><td>支持相应 transport 与协议版本的 MCP 宿主</td><td>不承诺所有 Claude Desktop / Cursor 版本都支持 HTTP transport。</td></tr>
-              <tr><th scope="row">七个 MCP 工具</th><td colspan="2"><code>list_datasources</code>、<code>list_schema</code>、<code>explain_query</code>、<code>query</code>（只读）、<code>execute_write</code>（受控写 / 审批）、<code>request_approval</code>、<code>get_approval_result</code></td></tr>
-              <tr><th scope="row">端口</th><td>控制台 / HTTP 默认 7780；Live Demo 宿主映射 17880</td><td>均仅绑定回环。</td></tr>
-              <tr><th scope="row">官方原生发布包</th><td><code>linux/amd64</code>（<code>x86_64</code> / <code>amd64</code>）与 <code>linux/arm64</code>（<code>aarch64</code> / <code>arm64</code>）、glibc 2.28+、systemd</td><td>v0.4.0 起提供 linux/arm64 原生 glibc 包；不提供 musl / Alpine 或 CentOS 7 原生包。</td></tr>
-              <tr><th scope="row">源码 / 容器构建</th><td>Go 1.25 源码构建；Docker / Compose</td><td>源码构建需 cgo 与 C 编译器；GHCR 发布镜像提供 linux/amd64 与 linux/arm64 multi-arch manifest，拉取时自动匹配架构。</td></tr>
-              <tr><th scope="row">暂不支持（规划方向）</th><td>SQL Server；高可用 / 跨实例集中管控 / K8s；法规级 WORM</td><td>Oracle、达梦及国产数据库的适配进展见上方<a href="#ecosystem">生态适配矩阵</a>；规划方向不构成版本或交付承诺。</td></tr>
-            </tbody>
-          </table>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>v0.5.0 GA 兼容矩阵</h2><p>v0.5.0 已正式发布；按实际能力分档展示数据库注册与指定环境实测范围，详情以仓库安全边界为准。</p></div>
+        <div class="compat-summary"><strong>8 大类 / 27 款已注册</strong><span>另列金仓 KingbaseES V9 已验证的 PG 协议基础闭环</span></div>
+        <div class="compat-legend" aria-label="支持档位">
+          <span class="compat-badge tier-full">完整防护：解析 / 授权 / 受控执行 / 脱敏 / 审计</span>
+          <span class="compat-badge tier-read">受控只读：连接 / 元数据 / 只读查询子集</span>
+          <span class="compat-badge tier-conn">连接级：ping / 版本 / Schema / 只读预览</span>
         </div>
+        <div class="compat-grid">
+          <article class="compat-card compat-card--wide">
+            <h3>关系型 Relational</h3>
+            <p>6 款已注册；金仓 V9 另列为已验证的 PG 协议基础闭环，不计入 27 款。</p>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-full" title="完整防护">PostgreSQL 14–18</span></li>
+              <li><span class="compat-badge tier-full" title="完整防护">MySQL 8.0</span></li>
+              <li><span class="compat-badge tier-read" title="受控只读">Oracle 23ai</span></li>
+              <li><span class="compat-badge tier-full" title="指定实例完整防护链路">达梦 DM8</span></li>
+              <li><span class="compat-badge tier-read" title="受控只读">崖山 YashanDB</span></li>
+              <li><span class="compat-badge tier-read" title="受控只读">SQL Server 2025</span></li>
+              <li><span class="compat-badge tier-full" title="PG 协议基础闭环">金仓 KingbaseES V9</span></li>
+            </ul>
+            <p>达梦 DM8 绿色仅限 Pack3、COMPATIBLE_MODE=0 指定链路；金仓 V9 绿色仅限 V9R1C10、PG 模式、单实例合成表的只读受控基础闭环。未测能力继续 fail-closed。</p>
+          </article>
+          <article class="compat-card">
+            <h3>键值 KV</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">Redis</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Valkey</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Memcached</span></li>
+            </ul>
+            <p>Valkey 复用 Redis 适配。</p>
+          </article>
+          <article class="compat-card">
+            <h3>文档 Document</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">MongoDB</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Couchbase</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">CouchDB</span></li>
+            </ul>
+          </article>
+          <article class="compat-card">
+            <h3>宽列 Wide-Column</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">Cassandra</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">ScyllaDB</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">HBase</span></li>
+            </ul>
+          </article>
+          <article class="compat-card">
+            <h3>图 Graph</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">Neo4j</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">JanusGraph</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">NebulaGraph</span></li>
+            </ul>
+          </article>
+          <article class="compat-card">
+            <h3>时序 Time-Series</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">InfluxDB</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Prometheus</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">TimescaleDB</span></li>
+            </ul>
+          </article>
+          <article class="compat-card">
+            <h3>OLAP</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">ClickHouse</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Apache Doris</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">StarRocks</span></li>
+            </ul>
+          </article>
+          <article class="compat-card compat-card--wide">
+            <h3>向量 Vector</h3>
+            <ul class="compat-badges">
+              <li><span class="compat-badge tier-conn" title="连接级">Milvus</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Qdrant</span></li>
+              <li><span class="compat-badge tier-conn" title="连接级">Weaviate</span></li>
+            </ul>
+            <p>连接级只读预览，不代表完整向量检索或服务端安全能力。</p>
+          </article>
+        </div>
+        <p class="ecosystem-note">v0.5.0 GA 的实测结论仅限指定容器镜像、拓扑与合成用例，非数据库厂商官方认证或生产支持承诺。NoSQL / 向量目前为连接级低阶支持；协议兼容不等于安全语义相同。所有库须经 AgentSQL 网关并使用专用最小权限账号，事实不明一律 fail-closed。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
       </div>
     </section>
 
     <section id="ecosystem" class="section">
       <div class="container">
-        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>向国产数据库开放适配与生态合作</h2><p>AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL，并正在规划对主流国产数据库的兼容适配与生态合作。欢迎各数据库厂商与我们建立联系、联合共建。</p></div>
+        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v0.5.0 GA 已对金仓、瀚高、达梦、崖山、PolarDB 等指定实例或协议路径完成有界实测；各产品的验证范围与未测能力如下。欢迎数据库厂商联合验证。</p></div>
         <div class="ecosystem-panel">
-          <p class="ecosystem-label">国产数据库生态适配矩阵（v0.5 进行中）</p>
+          <p class="ecosystem-label">国产数据库生态适配矩阵（v0.5.0 GA）</p>
           <div class="table-wrap">
             <table class="eco-table">
-              <caption>AgentSQL 数据库生态适配进展；状态以各版本 Release Notes 与仓库文档为准。</caption>
+              <caption>AgentSQL v0.5.0 GA 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
                 <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议基础闭环实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：可写 license 卷启动、ksql CRUD/分页/标识符、宿主机 pgx/v5 $1 参数绑定 + SCRAM、只读角色拒写 42501、AgentSQL 受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计实测通过；实际到期日及其它模式、复杂查询、B2、TLS、HA、生产负载未验证。非厂商认证或生产支持承诺。</td></tr>
@@ -237,13 +321,14 @@
                 <tr><td class="eco-db">OceanBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
                 <tr><td class="eco-db">TDSQL</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">开源版 OpenTenBase 适配中；商用版待实测。</td></tr>
                 <tr><td class="eco-db">OpenTenBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划兼容修复实现中。</td></tr>
-                <tr><td class="eco-db">崖山数据库 YashanDB</td><td><span class="eco-status plan">待实测</span></td><td class="eco-desc">x86 镜像已就位，ARM 镜像备用。</td></tr>
-                <tr><td class="eco-db">达梦数据库 DM</td><td><span class="eco-status ok">指定实例防护链路通过</span></td><td class="eco-desc">DM8 Pack3、COMPATIBLE_MODE 0：只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过。R006 未验证；多行分页、JOIN、函数、系统目录未测；写入未放开。</td></tr>
-                <tr><td class="eco-db">PolarDB</td><td><span class="eco-status plan">已纳入</span></td><td class="eco-desc">PolarDB 兼容适配已纳入 v0.5。</td></tr>
+                <tr><td class="eco-db">崖山数据库 YashanDB</td><td><span class="eco-status wip">🔵 受控只读</span></td><td class="eco-desc">独立 <code>yashan</code> parser 与窄 SELECT 路径已接通；独立客户端真库流水线测试通过 SELECT、列血缘、R010、表列定向手机号脱敏及三条测试审计，最小权限账号写入拒绝经原生探针验证。已获厂家口头授权 C 客户端再分发；当前不打包驱动，用户自行取得独立客户端并在启动前设置 <code>LD_LIBRARY_PATH</code>，缺驱动或运行库 fail-closed；Go 驱动须以 <code>CGO_ENABLED=1</code> 和 <code>-tags yashan</code> 编入。HTTP/MCP、持久化审计、EXPLAIN、写入未测或未放开。</td></tr>
+                <tr><td class="eco-db">达梦数据库 DM</td><td><span class="eco-status ok">🟢 指定实例防护链路通过</span></td><td class="eco-desc">DM8 Pack3、COMPATIBLE_MODE 0：只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过。R006 未验证；多行分页、JOIN、函数、系统目录未测；写入未放开。</td></tr>
+                <tr><td class="eco-db">PolarDB</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">PolarDB for PostgreSQL 15，指定社区镜像经 <code>postgres</code> 路径完成最小闭环；商业服务、HA、TLS、B2/B5 未覆盖。</td></tr>
+                <tr><td class="eco-db">PolarDB-X</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">旧官方 <code>polardbx/polardb-x:2.0.1</code> 单容器经 <code>mysql</code> 路径有界实测；通过 <code>db_type=mysql</code> 接入，不新增 polardbx 数据源类型。两阶段 EXPLAIN：普通 EXPLAIN 返回单列逻辑计划，<code>EXPLAIN EXECUTE</code> 返回标准 MySQL 列；路由 Hint、DRDS/TDDL 管理语句、分布式 DDL、存储过程 fail-closed。完整 CN/DN/CDC、商业服务、分布式语义、B2/B5 未证明。</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="ecosystem-note">*"已实测"仅指对应版本、镜像/拓扑与用例；金仓 V9R1C10 的 PG 模式、单实例合成表只读受控基础闭环证据及完整未测边界见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/kingbase-v9-verification.md" target="_blank" rel="noopener noreferrer">金仓 V9 真库验证记录</a>；HighGo 9.0.10 企业版真库证据见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/highgo-verification.md" target="_blank" rel="noopener noreferrer">瀚高验证记录</a>，不代表厂商认证或生产支持承诺。"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。首批金仓 + 瀚高的早期证据边界与复现 SQL 见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/joint-case-kingbase-highgo.md" target="_blank" rel="noopener noreferrer">联合案例验证记录</a>。欢迎各数据库厂商与我们联系开展兼容性认证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
+          <p class="ecosystem-note">*v0.5.0 GA 的“已实测”仅指所述版本、镜像/拓扑与用例，不代表厂商认证或生产支持承诺；“适配中”不代表当前版本已支持。金仓与瀚高的证据及未测边界见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/kingbase-v9-verification.md" target="_blank" rel="noopener noreferrer">金仓 V9 真库验证记录</a>和<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/highgo-verification.md" target="_blank" rel="noopener noreferrer">瀚高验证记录</a>；其余协议路径和有界实测见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/ecosystem-db-compat-research.md" target="_blank" rel="noopener noreferrer">数据库兼容调研</a>及<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">安全边界</a>。欢迎联系开展目标环境验证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
         </div>
       </div>
     </section>
