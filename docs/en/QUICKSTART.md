@@ -2,7 +2,7 @@
 
 # AgentSQL Five-Minute Quick Start
 
-> Release status: this page is prepared for AgentSQL v0.5.0, whose installation assets and image remain pending until release-day validation. Before the release exists, use a source build or the currently published stable release.
+> Release status: AgentSQL v0.5.0 is released; its installation assets and image are available.
 
 This guide takes you from installation to a first protected query and an audit record. For a longer walkthrough and acceptance checklist, see [Getting Started](GETTING_STARTED.md).
 

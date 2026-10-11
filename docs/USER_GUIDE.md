@@ -1,6 +1,6 @@
 # AgentSQL 使用手册
 
-> 发布状态：本文对应待发布的 AgentSQL v0.5.0。一键安装资产与 `ghcr.io/cuipengdba/agentsql:v0.5.0` 镜像将在发布日完成验收后可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
+> 发布状态：本文对应已发布的 AgentSQL v0.5.0。一键安装资产与 `ghcr.io/cuipengdba/agentsql:v0.5.0` 镜像已可用。源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本手册按控制台真实菜单顺序说明 AgentSQL v0.5.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 

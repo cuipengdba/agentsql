@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
+![Release v0.5.0](https://img.shields.io/badge/Release-v0.5.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -11,7 +11,7 @@
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
-v0.5.0 计划于 **2026-10-16 16:00（北京时间）** 通过发布闸门后发布；当前公开 Release 仍为 v0.4.0。待发布代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
+v0.5.0 已于 **2026-10-10** 正式发布。v0.5.0 代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -72,7 +72,7 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v0.5.0 **待发布**的 amd64 资产名示例，须在该版 Release 实际发布后使用；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v0.5.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
 sha256sum -c agentsql-v0.5.0-linux-amd64.tar.gz.sha256
@@ -89,7 +89,7 @@ sudo ./install.sh install
 curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.5.0 精确 tag 命令须待发布日推送并验收后使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.5.0 精确 tag 命令可直接使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
 docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
@@ -238,7 +238,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v0.5.0 待发布代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为已验证的 PG 协议基础闭环，不计入 27 款。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；DM8 的绿色只针对下述指定实例与用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
+v0.5.0 代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为已验证的 PG 协议基础闭环，不计入 27 款。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；DM8 的绿色只针对下述指定实例与用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
 
 ### 关系型 Relational（6 款已注册 + 1 款额外验证）
 

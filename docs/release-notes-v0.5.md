@@ -2,7 +2,7 @@
 
 > 发布闸门 / Release gate: **2026-10-16 16:00 CST (UTC+08:00)**
 >
-> 状态 / Status: **待发布 / Pending release**
+> 状态 / Status: **已发布 / Released**
 >
 > 版本 / Version: **v0.5.0**
 

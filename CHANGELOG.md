@@ -2,9 +2,9 @@
 
 本项目的重要变化记录于此，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [v0.5.0] - 2026-10-16（待发布）
+## [v0.5.0] - 2026-10-10
 
-> 本条目是发布准备草稿，**尚未发布**，尚未创建 v0.5.0 tag 或 GitHub Release。相对已发布 v0.4.0 的详细证据、资产状态和发布日闸门见 [v0.5.0 Release Notes](docs/release-notes-v0.5.md)。
+> v0.5.0 已于 2026-10-10 正式发布（Release 非 draft、GHCR 全 public）。相对已发布 v0.4.0 的详细证据、资产状态和发布日闸门见 [v0.5.0 Release Notes](docs/release-notes-v0.5.md)。
 
 ### Added
 

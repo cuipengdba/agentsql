@@ -1,6 +1,6 @@
 # AgentSQL 架构与工程规格
 
-> 版本：v0.5.0（待发布）｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
+> 版本：v0.5.0（已发布）｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
 > 完整可运行的配置样例见 `examples/`，完整建表 DDL 见 `internal/store/migrations/`；当本文与源码出现分歧时，以源码与测试为准并提 issue 修正本文。
 
 ---
@@ -380,7 +380,7 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 ## 10. 授权、版本与路线图
 
 - 源代码采用 **Apache License 2.0**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
-- **当前待发布代码**：第 8 章的能力档位按各自边界提供；RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 与审计哈希链已有实现，不能再列作整体未交付。实际启用条件、未完成的 Agent 租户传播与身份系统终验见 [Release Notes](release-notes-v0.5.md)。
+- **当前已发布代码**：第 8 章的能力档位按各自边界提供；RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 与审计哈希链已有实现，不能再列作整体未交付。实际启用条件、未完成的 Agent 租户传播与身份系统终验见 [Release Notes](release-notes-v0.5.md)。
 - **后续方向**：完整国产/商业数据库方言与厂商目标环境终验、法规级 WORM / 外置 SIEM、多副本 HA、K8s Operator、跨实例集中管控等仍需后续验证或实现；本规格不将其计作已交付能力。
 - 商业合作：**87326549@qq.com** ｜ **https://agentsql.cn**
 
