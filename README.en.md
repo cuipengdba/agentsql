@@ -2,14 +2,14 @@
 
 [中文](README.md) | English
 
-![Next release: v0.5.0 pending](https://img.shields.io/badge/Next%20release-v0.5.0%20pending-blue)
+![Release v0.5.0](https://img.shields.io/badge/Release-v0.5.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
 AgentSQL (Chinese brand name: 智盾, or “Zhidun”) is a database security gateway and production-grade MCP server for AI agents. Every PostgreSQL or MySQL request sent through the gateway passes through authentication, SQL parsing, authorization and rule evaluation, controlled execution, result masking, and application-level audit.
 
-v0.5.0 is planned for **2026-10-16 16:00 CST (UTC+08:00)**, subject to the release gates. The current public Release is v0.4.0. The pending v0.5 code uses Apache-2.0; existing v0.4.0 artifacts retain their original license.
+v0.5.0 was released on **2026-10-10**. The v0.5.0 code uses Apache-2.0; existing v0.4.0 artifacts retain their original license.
 
 ```text
 AI agent -> LLM / MCP client -> AgentSQL gateway -> PostgreSQL / MySQL
@@ -33,7 +33,7 @@ The seven base MCP tools are `list_datasources`, `list_schema`, `explain_query`,
 
 ## Database Compatibility
 
-The pending v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 has a separately verified PG protocol basic protection chain and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. HighGo green applies only to the 9.0.10 Enterprise Edition PG-mode, single-instance synthetic case, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
+The v0.5.0 code registers **8 categories and 27 databases** (6 relational + 21 NoSQL / vector). KingbaseES V9 has a separately verified PG protocol basic protection chain and is not included in the 27. 🟢 means the parsing, authorization, controlled execution, masking, and audit chain passed within its stated scope; DM8 green applies only to the instance and cases below, not its full SQL dialect. HighGo green applies only to the 9.0.10 Enterprise Edition PG-mode, single-instance synthetic case, not its full SQL dialect. 🔵 controlled read-only = connection, metadata, and a read-only query subset; 🔷 connection-level = ping, version, schema, and read-only preview; 🟡 pending validation = waiting for a vendor environment.
 
 ### Relational (6 registered + 1 separately verified)
 
@@ -97,13 +97,13 @@ curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/qu
 sh quickstart.sh
 ```
 
-### Pull the v0.5.0 GHCR image after release
+### Pull the v0.5.0 GHCR image
 
 ```bash
 docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
 ```
 
-The planned tag is a `linux/amd64` and `linux/arm64` multi-architecture image; pull it only after the release-day public-image gate passes. For a complete direct `docker run` example with generated secrets, or to connect your first data source and run a query, follow the [five-minute quick start](docs/en/QUICKSTART.md).
+The v0.5.0 tag is a `linux/amd64` and `linux/arm64` multi-architecture image. For a complete direct `docker run` example with generated secrets, or to connect your first data source and run a query, follow the [five-minute quick start](docs/en/QUICKSTART.md).
 
 ### Self-contained local demo
 
