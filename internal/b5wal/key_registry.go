@@ -120,4 +120,3 @@ func (registry FileKeyRegistry) Reserve(ctx context.Context, keyID string, segme
 	}
 	return true, nil
 }
-

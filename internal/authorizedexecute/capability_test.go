@@ -38,6 +38,9 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build") || strings.HasPrefix(entry.Name(), "capabilitycompile")) {
 			return filepath.SkipDir
 		}
+		if entry.IsDir() && entry.Name() == "dist" {
+			return filepath.SkipDir
+		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
@@ -119,6 +122,12 @@ func TestCompilerRejectsRawBusinessDatabaseCapabilities(t *testing.T) {
 		name, source, marker string
 	}{
 		{
+			name: "allowed capability import",
+			source: `package capabilitycompile
+import _ "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+`,
+		},
+		{
 			name: "nested internal import",
 			source: `package capabilitycompile
 import _ "github.com/cuipengdba/agentsql/internal/authorizedexecute/internal/businessdb"
@@ -135,15 +144,20 @@ var _ = authorizedexecute.NewManager
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			directory, err := os.MkdirTemp(root, "capabilitycompile")
+			directory, err := os.MkdirTemp("", "capabilitycompile")
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, os.RemoveAll(directory)) })
+			module := "module github.com/cuipengdba/agentsql/capabilitycompile\n\ngo 1.26.0\n\nrequire github.com/cuipengdba/agentsql v0.0.0\n\nreplace github.com/cuipengdba/agentsql => " + filepath.ToSlash(root) + "\n"
+			require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "illegal.go"), []byte(testCase.source), 0o600))
-			relative, err := filepath.Rel(root, directory)
-			require.NoError(t, err)
-			command := exec.Command("go", "test", "./"+filepath.ToSlash(relative))
-			command.Dir = root
+			command := exec.Command("go", "test", "-mod=mod", ".")
+			command.Dir = directory
+			command.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
 			output, err := command.CombinedOutput()
+			if testCase.marker == "" {
+				require.NoError(t, err, string(output))
+				return
+			}
 			require.Error(t, err, string(output))
 			require.Contains(t, string(output), testCase.marker)
 		})
@@ -176,6 +190,9 @@ func TestSQLSinkCallsitesMatchManifest(t *testing.T) {
 			return walkErr
 		}
 		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".gocache" || entry.Name() == ".design" || strings.HasPrefix(entry.Name(), "go-build") || strings.HasPrefix(entry.Name(), "capabilitycompile")) {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() && entry.Name() == "dist" {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

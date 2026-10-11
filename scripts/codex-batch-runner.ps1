@@ -9,6 +9,25 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+function Get-CodexExecutable {
+    param([string]$Override, [string]$Bin = 'C:\Users\Administrator\AppData\Local\OpenAI\Codex\bin')
+    if (-not [string]::IsNullOrWhiteSpace($Override)) {
+        $overridePath = [System.IO.Path]::GetFullPath($Override)
+        $testRoot = [System.IO.Path]::GetFullPath((Join-Path $chainRepo 'dist\runner-b80r-selftest'))
+        if (-not $overridePath.StartsWith(($testRoot.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)) { throw 'CodexExecutable override is limited to runner selftest' }
+        if (-not [System.IO.File]::Exists($overridePath)) { throw "Codex executable missing: $overridePath" }
+        return $overridePath
+    }
+    $found = @(
+        Get-ChildItem -LiteralPath $Bin -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $candidate = Join-Path $_.FullName 'codex.exe'
+            if ([System.IO.File]::Exists($candidate)) { Get-Item -LiteralPath $candidate }
+        }
+    )
+    if ($found.Count -eq 0) { throw "No codex.exe found under installation root: $Bin" }
+    $newest = $found | Sort-Object -Property @{ Expression = 'LastWriteTimeUtc'; Descending = $true }, @{ Expression = 'FullName'; Descending = $false } | Select-Object -First 1
+    return $newest.FullName
+}
 if ($PSCmdlet.ParameterSetName -eq 'Chain') {
     $chainUtf8 = New-Object System.Text.UTF8Encoding($false)
 
@@ -219,22 +238,6 @@ if ($PSCmdlet.ParameterSetName -eq 'Chain') {
         } catch { $result.actual = 'ERROR: ' + $_.Exception.Message; $result.passed = $false }
         return $result
     }
-    function Get-CodexExecutable {
-        param([string]$Override)
-        if (-not [string]::IsNullOrWhiteSpace($Override)) {
-            $overridePath = [System.IO.Path]::GetFullPath($Override)
-            $testRoot = [System.IO.Path]::GetFullPath((Join-Path $chainRepo 'dist\runner-b80r-selftest'))
-            if (-not $overridePath.StartsWith(($testRoot.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)) { throw 'CodexExecutable override is limited to runner selftest' }
-            if (-not [System.IO.File]::Exists($overridePath)) { throw "Codex executable missing: $overridePath" }
-            return $overridePath
-        }
-        $preferred = 'C:\Users\Administrator\AppData\Local\OpenAI\Codex\bin\f544b3844e0f14e9\codex.exe'
-        if ([System.IO.File]::Exists($preferred)) { return $preferred }
-        $bin = 'C:\Users\Administrator\AppData\Local\OpenAI\Codex\bin'
-        $found = @(Get-ChildItem -LiteralPath $bin -Filter codex.exe -Recurse -File -ErrorAction SilentlyContinue)
-        if ($found.Count -ne 1) { throw "Cannot identify unique codex.exe in $bin" }
-        return $found[0].FullName
-    }
     function Write-BatchHandoff {
         param([object]$Chain, [object]$Batch, [string]$Result, [string]$TaskPath, [string]$OutPath, [string]$ErrPath, [string]$Detail, [string]$HandoffPath)
         $stamp = [DateTime]::UtcNow.ToString('o')
@@ -397,7 +400,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Chain') {
 }
 $repo = 'D:\ruanjiansheji\agentsql-v04'
 $runtime = 'D:\ruanjiansheji'
-$codex = 'C:\Users\Administrator\AppData\Local\OpenAI\Codex\bin\f544b3844e0f14e9\codex.exe'
+$codex = Get-CodexExecutable
 $statePath = Join-Path $runtime 'current-batch.json'
 $flagPath = Join-Path $runtime 'batch-done.flag'
 $pidPath = Join-Path $runtime ("codex-batch{0}.pid" -f $BatchNumber)
@@ -425,7 +428,6 @@ function Get-NewestLogTime {
     return $errTime
 }
 
-if (-not (Test-Path -LiteralPath $codex -PathType Leaf)) { throw "Codex executable missing: $codex" }
 if (-not (Test-Path -LiteralPath $TaskFile -PathType Leaf)) { throw "Task file missing: $TaskFile" }
 if (Test-Path -LiteralPath $flagPath) { throw "Unprocessed completion flag: $flagPath" }
 if (Test-Path -LiteralPath $statePath) {
