@@ -1,5 +1,100 @@
 # v0.5 已知问题修复记录（批十四 / #36）
 
+## 批八十六（WorkBuddy 接管自验）：问题复核结论
+
+来源：WorkBuddy 在“不动代码、不破坏环境”前提下对 `feature/v0.4` 做端到端自验
+（原始清单 `codex-task-batch86-issues.md`，仓库外）。豆包逐条独立复核，结论如下。
+复核日期：2026-10-11。以下为只读核验，本批未改任何代码，未执行修复。
+
+### 优先级清单（复核后）
+
+| 编号 | 原始定级 | 复核结论 | 定级调整 | 处置 |
+| --- | --- | --- | --- | --- |
+| P0-1 | P0 | 隐患原理成立，但**当前门禁未复现** | 降为 P2 加固建议 | 统一脚本退出码收口规范 |
+| P0-2 | P0 | **确认**：本地两个测试假失败（假失败，非假绿） | 维持 P0 | 方案 B（SkipDir 补 `dist`）为根治，可叠加方案 A（清理 `dist`） |
+| P0-3 | P0 | **确认**：仅在只读 `:ro` 挂载下失败 | 降为 P1 健壮性 | 临时目录改系统临时位置并保证模块解析 |
+| P1-1 | P1 | **确认**：gofmt 历史遗留 | 维持 P1 | 末尾多余空行，下次改动顺手修 |
+| P1-2 | P1 | **确认**：runner 硬编码失效路径 | 维持 P1 | 改为动态探测、取最新版本 |
+| P2-1 | P2 | **确认**：环境问题 | 维持 P2 | 仅记录，不需处理 |
+| P2-2 | P2 | **确认**：环境事实 | 维持 P2 | 真库可达性须加同网段负例对照 |
+
+### P0-1：门禁“假绿”隐患——原理成立，当前脚本未复现
+
+- 原理：`go test` 经管道 `| grep/tail` 时，管道末尾的退出码来自最后一个命令，
+  会吞掉 `go test` 的非零退出码——这是真实风险，值得统一加固。
+- 但权威门禁脚本 `dist/release-gate-b77/run-gate.ps1` 未出现该问题：
+  第 36 行 `& docker ... 2>&1 | ForEach-Object {...} | Tee-Object` 后，
+  第 37 行 `$result = $LASTEXITCODE`、第 39 行 `exit $result`；
+  `ForEach-Object`/`Tee-Object` 是 cmdlet，不修改 `$LASTEXITCODE`，
+  故收口的是 `docker`（即容器内 `go test`）的真实退出码。
+- `scripts/check-capability-imports.ps1` 以 `$ErrorActionPreference='Stop'`
+  并在 `go list` 后显式检查 `$LASTEXITCODE -ne 0`，违例即 `throw`。
+- 源码 `scripts/` 下没有任何 `go test` 调用，也不存在 WorkBuddy 提到的
+  `b43-verify.sh`（在 `scripts/tests/deploy/.github` 等目录均未找到）。
+- 结论：当前不存在“测试 FAIL 却报绿”的实际缺陷；作为通用加固项保留，
+  建议后续所有门禁显式记录每步退出码、以累积变量收口。
+
+### P0-2：`dist/` 物理目录污染导致两个测试假失败——确认
+
+- 仓库根 `dist/` 实测 9.43 GB，虽被 `.gitignore:15` 忽略，但物理存在。
+- 内含 5 个历史产物 `.go` 副本（`dist/release-b81/validation-source/scripts/...`）。
+  其中 `highgo/pgx-probe/main.go` 导入 `jackc/pgx/v5` 与 `pgconn`，
+  `yashan-native-probe.go` 导入 `database/sql`，均命中违禁清单；
+  它们的白名单路径是 `scripts/highgo/pgx-probe/main.go`、
+  `scripts/yashan-native-probe.go`，而 `dist` 副本路径不匹配，被判越权。
+- `TestBusinessDriverImportsStayInsideCapabilityDomain`
+  与 `TestSQLSinkCallsitesMatchManifest` 均以 `filepath.WalkDir(root)` 遍历物理目录；
+  `capability_test.go` 的 SkipDir 名单（第 38、178 行）含
+  `.git/.gocache/.design/go-build*/capabilitycompile*`，**缺 `dist`**。
+- 这是“假失败”而非代码缺陷，且在 batch81（20:30 后）才产生；
+  发布当时（10-09 12:39）的门禁绿是在该污染出现之前取得，不影响已发布产物。
+- 修复方案（改已提交测试文件，**待用户拍板**）：
+  - 方案 B（推荐、根治）：在两处 SkipDir 名单补 `entry.Name() == "dist"`；
+  - 方案 A（可选、回收空间）：清理 `dist/` 9.43 GB。
+  建议 A、B 都做：B 防止复发，A 回收磁盘。
+
+### P0-3：只读挂载下编译器测试假失败——确认（仅 `:ro`）
+
+- `TestCompilerRejectsRawBusinessDatabaseCapabilities` 第 138 行
+  `os.MkdirTemp(root, "capabilitycompile")` 在源码根内建临时目录；
+  仓库以 `:ro` 挂载时会报 `read-only file system`。
+- 实际门禁 `run-gate.ps1` 的挂载是 `${root}:/src`（可读写，无 `:ro`），
+  故正常发布流程不受影响；该项属健壮性问题。
+- 修复方向（改已提交测试，**待用户拍板**）：临时目录改用
+  `os.MkdirTemp("", "capabilitycompile")`；因被测用例需导入本仓
+  `internal/...` 包，须同时保证模块解析（临时目录加 `go.mod` 并以
+  `replace` 指向仓库根，或等价的 `go.work`），不能只改一行。
+
+### P1-1：gofmt 历史遗留——确认
+
+- `gofmt -l internal/b5wal/key_registry.go` 命中；`gofmt -d` 显示仅
+  文件末尾多一个空行（`}\n\n` → `}\n`）。该文件已提交、非本次改动引入，
+  下次顺手修正即可。
+
+### P1-2：runner 硬编码失效路径（定时炸弹）——确认
+
+- `scripts/codex-batch-runner.ps1` 第 231、400 行写死
+  `...\bin\f544b3844e0f14e9\codex.exe`，实测该目录已不存在；
+  现靠第 233-236 行递归查找“恰好 1 个 codex.exe”兜底。
+  若 Codex 升级后留下多个版本目录，会抛 `Cannot identify unique codex.exe`。
+- 修复（改已提交脚本，**待用户拍板**）：枚举 `bin\*\codex.exe` 并按
+  版本/时间取最新，去掉写死路径。
+
+### P2-1 / P2-2：环境项——确认，仅记录
+
+- P2-1：备份副本 `.git` 指向原主目录 worktree，切回主工程目录即消失，不需处理。
+- P2-2：Docker Desktop（WSL2）对出网流量透明劫持，容器内裸 TCP/`/dev/tcp`
+  探测对跨网段地址会假阳性；真库 E2E 的“可达”结论必须用同网段不存在地址做
+  负例对照（对照组 CLOSED 时 OPEN 才可信）。
+
+### 建议修复顺序
+
+1. 可直接做、无需取舍的：P1-1（gofmt）、P1-2（runner 动态探测）、P0-2 方案 B
+   （SkipDir 补 `dist`）、P0-3（临时目录外移，注意模块解析）——均属改已提交文件，
+   建议合并成一批由 Codex 实施、豆包验收后精确提交。
+2. 需用户拍板的空间操作：P0-2 方案 A（清理 `dist/` 9.43 GB），与第 1 步独立。
+3. P2-1、P2-2 仅作环境记录，不产生代码改动。
+
 ## 批三十六：业务元数据租户所有权与边界
 
 控制台业务元数据已完成 tenant 化。迁移对缺少可信归属信息的历史行统一回填
