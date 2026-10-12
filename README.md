@@ -240,40 +240,36 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 v0.5.0 代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为已验证的 PG 协议基础闭环，不计入 27 款。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；DM8 的绿色只针对下述指定实例与用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
 
-### 关系型 Relational（6 款已注册 + 1 款额外验证）
-
-- 🟢 PostgreSQL 14–18；MySQL 8.0
-- 🟢 达梦 DM8（仅 Pack3、`COMPATIBLE_MODE=0` 指定链路；边界见下文）
-- 🔵 Oracle 23ai；崖山 YashanDB；SQL Server 2025
-- 🟢 金仓 KingbaseES V9（仅 V9R1C10、PG 模式、单实例合成表）：PG 协议只读受控基础闭环实测通过；证据与未测边界见上方[真库验证记录](docs/kingbase-v9-verification.md)。
-
-### 键值 KV
-
-- 🔷 Redis；Valkey（复用 Redis 适配）；Memcached
-
-### 文档 Document
-
-- 🔷 MongoDB；Couchbase；CouchDB
-
-### 宽列 Wide-Column
-
-- 🔷 Cassandra；ScyllaDB；HBase
-
-### 图 Graph
-
-- 🔷 Neo4j；JanusGraph；NebulaGraph
-
-### 时序 Time-Series
-
-- 🔷 InfluxDB；Prometheus；TimescaleDB
-
-### OLAP
-
-- 🔷 ClickHouse；Apache Doris；StarRocks
-
-### 向量 Vector
-
-- 🔷 Milvus；Qdrant；Weaviate
+| 类别 | 数据库 | 适配状态 | 边界说明 |
+| --- | --- | --- | --- |
+| 关系型 | PostgreSQL 14–18 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
+|  | MySQL 8.0 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
+|  | Oracle 23ai | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
+|  | 达梦 DM8 | 🟢 已适配 · 完整防护 | 仅限 Pack3、COMPATIBLE_MODE=0 指定链路 |
+|  | 崖山 YashanDB | 🔵 已适配 · 受控只读 | 标准 parser 接通，真库流水线通过 |
+|  | SQL Server 2025 | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
+|  | 金仓 KingbaseES V9（另列） | 🟢 已适配 · 完整防护 | V9R1C10 PG 模式基础闭环，不计入 27 |
+| 键值 | Redis | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Valkey | 🔷 已适配 · 连接级 | 复用 Redis 适配 |
+|  | Memcached | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+| 文档 | MongoDB | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Couchbase | 🔷 已适配 · 连接级 | 同口径 |
+|  | CouchDB | 🔷 已适配 · 连接级 | 同口径 |
+| 宽列 | Cassandra | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | ScyllaDB | 🔷 已适配 · 连接级 | 同口径 |
+|  | HBase | 🔷 已适配 · 连接级 | 同口径 |
+| 图 | Neo4j | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | JanusGraph | 🔷 已适配 · 连接级 | 同口径 |
+|  | NebulaGraph | 🔷 已适配 · 连接级 | 同口径 |
+| 时序 | InfluxDB | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Prometheus | 🔷 已适配 · 连接级 | 同口径 |
+|  | TimescaleDB | 🔷 已适配 · 连接级 | 同口径 |
+| OLAP | ClickHouse | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Apache Doris | 🔷 已适配 · 连接级 | 同口径 |
+|  | StarRocks | 🔷 已适配 · 连接级 | 同口径 |
+| 向量 | Milvus | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览，不代表完整向量检索 |
+|  | Qdrant | 🔷 已适配 · 连接级 | 同口径 |
+|  | Weaviate | 🔷 已适配 · 连接级 | 同口径 |
 
 NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM8 指定实例的只读 SELECT、列血缘、R010、审计和手机号脱敏已通过；R006、多行分页、JOIN、函数和系统目录未验证，写入未放开。Oracle 仍限于既有有界证据。YashanDB 真库流水线测试已通过 SELECT、列血缘、R010、表列定向手机号脱敏及三条测试审计；该测试的认证、策略、审计存储端口为测试夹具，HTTP/MCP、持久化审计和最小权限账号与流水线的组合未测，见 [DM/Oracle 方言边界](docs/dm-oracle-dialect.md)及 [YashanDB 方言边界](docs/yashan-dialect.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
 

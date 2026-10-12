@@ -29,23 +29,13 @@
   <style>
       .compat-summary { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; margin:0 0 18px; color:var(--text); }
       .compat-summary strong { color:var(--accent); font-size:clamp(1.3rem, 3vw, 1.8rem); }
-      .compat-legend { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 22px; }
-      .compat-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
-      .compat-card { min-width:0; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
-      .compat-card--wide { grid-column:1 / -1; }
-      .compat-card h3 { margin:0 0 8px; color:var(--text); font-size:1.1rem; }
-      .compat-card p { margin:0 0 14px; color:var(--muted); font-size:.9rem; }
-      .compat-card p:last-child { margin:14px 0 0; }
-      .compat-badges { display:flex; flex-wrap:wrap; gap:9px; padding:0; margin:0; list-style:none; }
-      .compat-badge { display:inline-flex; max-width:100%; align-items:center; gap:8px; padding:7px 11px; border:1px solid var(--line); border-radius:999px; background:var(--bg); color:var(--text); font-size:.9rem; overflow-wrap:anywhere; }
-      .compat-badge::before { content:""; flex:0 0 9px; width:9px; height:9px; border-radius:50%; background:var(--accent); }
-      .compat-badge.tier-full::before { background:var(--green); }
-      .compat-badge.tier-read::before { background:var(--blue); }
-      .compat-badge.tier-conn::before { background:var(--accent); }
-      .compat-badge.tier-pending { border:1px dashed var(--amber); }
-      .compat-badge.tier-pending::before { background:var(--amber); }
-      .compat-legend .compat-badge { color:var(--muted); }
-      @media (max-width:700px) { .compat-grid { grid-template-columns:minmax(0, 1fr); } .compat-card--wide { grid-column:auto; } .compat-card { padding:18px; } }
+      .compat-table th, .compat-table td { vertical-align:middle; }
+      .compat-table .compat-category { font-weight:700; text-align:center; }
+      .compat-table .compat-status { display:inline-block; white-space:nowrap; font-weight:700; }
+      .compat-table .tier-full, .compat-legend .tier-full { color:var(--green); }
+      .compat-table .tier-read, .compat-legend .tier-read { color:var(--blue); }
+      .compat-table .tier-conn, .compat-legend .tier-conn { color:var(--accent); }
+      .compat-legend { display:flex; flex-wrap:wrap; gap:8px 22px; margin:18px 0 22px; color:var(--muted); }
     </style>
 </head>
 <body>
@@ -220,84 +210,46 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">兼容性</p><h2>v0.5.0 GA 兼容矩阵</h2><p>v0.5.0 已正式发布；按实际能力分档展示数据库注册与指定环境实测范围，详情以仓库安全边界为准。</p></div>
         <div class="compat-summary"><strong>8 大类 / 27 款已注册</strong><span>另列金仓 KingbaseES V9 已验证的 PG 协议基础闭环</span></div>
-        <div class="compat-legend" aria-label="支持档位">
-          <span class="compat-badge tier-full">完整防护：解析 / 授权 / 受控执行 / 脱敏 / 审计</span>
-          <span class="compat-badge tier-read">受控只读：连接 / 元数据 / 只读查询子集</span>
-          <span class="compat-badge tier-conn">连接级：ping / 版本 / Schema / 只读预览</span>
+        <div class="table-wrap">
+          <table class="compat-table">
+            <caption>AgentSQL v0.5.0 GA 数据库兼容矩阵：8 大类、27 款已注册，金仓 KingbaseES V9 另列。</caption>
+            <thead><tr><th scope="col">类别</th><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">边界说明</th></tr></thead>
+            <tbody>
+              <tr><th scope="rowgroup" rowspan="7" class="compat-category">关系型</th><td>PostgreSQL 14–18</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>全链路实测通过</td></tr>
+              <tr><td>MySQL 8.0</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>全链路实测通过</td></tr>
+              <tr><td>Oracle 23ai</td><td><span class="compat-status tier-read">🔵 已适配 · 受控只读</span></td><td>连接 / 元数据 / 只读查询子集</td></tr>
+              <tr><td>达梦 DM8</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>仅限 Pack3、COMPATIBLE_MODE=0 指定链路</td></tr>
+              <tr><td>崖山 YashanDB</td><td><span class="compat-status tier-read">🔵 已适配 · 受控只读</span></td><td>标准 parser 接通，真库流水线通过</td></tr>
+              <tr><td>SQL Server 2025</td><td><span class="compat-status tier-read">🔵 已适配 · 受控只读</span></td><td>连接 / 元数据 / 只读查询子集</td></tr>
+              <tr><td>金仓 KingbaseES V9（另列）</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>V9R1C10 PG 模式基础闭环，不计入 27</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">键值</th><td>Redis</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><td>Valkey</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>复用 Redis 适配</td></tr>
+              <tr><td>Memcached</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">文档</th><td>MongoDB</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><td>Couchbase</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><td>CouchDB</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">宽列</th><td>Cassandra</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><td>ScyllaDB</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><td>HBase</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">图</th><td>Neo4j</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><td>JanusGraph</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><td>NebulaGraph</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">时序</th><td>InfluxDB</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><td>Prometheus</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><td>TimescaleDB</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">OLAP</th><td>ClickHouse</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览</td></tr>
+              <tr><td>Apache Doris</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><td>StarRocks</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">向量</th><td>Milvus</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>ping / 版本 / Schema / 只读预览，不代表完整向量检索</td></tr>
+              <tr><td>Qdrant</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+              <tr><td>Weaviate</td><td><span class="compat-status tier-conn">🔷 已适配 · 连接级</span></td><td>同口径</td></tr>
+            </tbody>
+          </table>
         </div>
-        <div class="compat-grid">
-          <article class="compat-card compat-card--wide">
-            <h3>关系型 Relational</h3>
-            <p>6 款已注册；金仓 V9 另列为已验证的 PG 协议基础闭环，不计入 27 款。</p>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-full" title="完整防护">PostgreSQL 14–18</span></li>
-              <li><span class="compat-badge tier-full" title="完整防护">MySQL 8.0</span></li>
-              <li><span class="compat-badge tier-read" title="受控只读">Oracle 23ai</span></li>
-              <li><span class="compat-badge tier-full" title="指定实例完整防护链路">达梦 DM8</span></li>
-              <li><span class="compat-badge tier-read" title="受控只读">崖山 YashanDB</span></li>
-              <li><span class="compat-badge tier-read" title="受控只读">SQL Server 2025</span></li>
-              <li><span class="compat-badge tier-full" title="PG 协议基础闭环">金仓 KingbaseES V9</span></li>
-            </ul>
-            <p>达梦 DM8 绿色仅限 Pack3、COMPATIBLE_MODE=0 指定链路；金仓 V9 绿色仅限 V9R1C10、PG 模式、单实例合成表的只读受控基础闭环。未测能力继续 fail-closed。</p>
-          </article>
-          <article class="compat-card">
-            <h3>键值 KV</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">Redis</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Valkey</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Memcached</span></li>
-            </ul>
-            <p>Valkey 复用 Redis 适配。</p>
-          </article>
-          <article class="compat-card">
-            <h3>文档 Document</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">MongoDB</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Couchbase</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">CouchDB</span></li>
-            </ul>
-          </article>
-          <article class="compat-card">
-            <h3>宽列 Wide-Column</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">Cassandra</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">ScyllaDB</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">HBase</span></li>
-            </ul>
-          </article>
-          <article class="compat-card">
-            <h3>图 Graph</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">Neo4j</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">JanusGraph</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">NebulaGraph</span></li>
-            </ul>
-          </article>
-          <article class="compat-card">
-            <h3>时序 Time-Series</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">InfluxDB</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Prometheus</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">TimescaleDB</span></li>
-            </ul>
-          </article>
-          <article class="compat-card">
-            <h3>OLAP</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">ClickHouse</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Apache Doris</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">StarRocks</span></li>
-            </ul>
-          </article>
-          <article class="compat-card compat-card--wide">
-            <h3>向量 Vector</h3>
-            <ul class="compat-badges">
-              <li><span class="compat-badge tier-conn" title="连接级">Milvus</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Qdrant</span></li>
-              <li><span class="compat-badge tier-conn" title="连接级">Weaviate</span></li>
-            </ul>
-            <p>连接级只读预览，不代表完整向量检索或服务端安全能力。</p>
-          </article>
+        <div class="compat-legend" aria-label="支持档位">
+          <span><strong class="tier-full">完整防护</strong>：解析 / 授权 / 受控执行 / 脱敏 / 审计</span>
+          <span><strong class="tier-read">受控只读</strong>：连接 / 元数据 / 只读查询子集</span>
+          <span><strong class="tier-conn">连接级</strong>：ping / 版本 / Schema / 只读预览</span>
         </div>
         <p class="ecosystem-note">v0.5.0 GA 的实测结论仅限指定容器镜像、拓扑与合成用例，非数据库厂商官方认证或生产支持承诺。NoSQL / 向量目前为连接级低阶支持；协议兼容不等于安全语义相同。所有库须经 AgentSQL 网关并使用专用最小权限账号，事实不明一律 fail-closed。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
       </div>

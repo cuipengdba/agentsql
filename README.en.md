@@ -54,44 +54,40 @@ AgentSQL v0.5.0 has been released. These ecosystem results apply only to the spe
 | PolarDB for PostgreSQL | Protocol path tested | A specified PG 15 community image completed a minimal protection loop via `db_type=postgres`; commercial services, HA, TLS, and B2/B5 are not covered. |
 | PolarDB-X | Bounded test on older official image | `polardbx/polardb-x:2.0.1` single container via `db_type=mysql`: two-phase EXPLAIN uses a single logical-plan column from plain `EXPLAIN`, then standard MySQL columns from `EXPLAIN EXECUTE`. Routing hints, DRDS/TDDL statements, distributed DDL, and stored procedures fail closed. Full CN/DN/CDC topology, commercial services, distributed semantics, and B2/B5 are not proven. |
 
-### Relational (6 registered + 1 separately verified)
+| Category | Database | Status | Boundary notes |
+| --- | --- | --- | --- |
+| Relational | PostgreSQL 14–18 | 🟢 Adapted · Full protection | Full chain passed on live tests |
+|  | MySQL 8.0 | 🟢 Adapted · Full protection | Full chain passed on live tests |
+|  | Oracle 23ai | 🔵 Adapted · Controlled read-only | Connection / metadata / read-only query subset |
+|  | 达梦 DM8 | 🟢 Adapted · Full protection | Pack3, COMPATIBLE_MODE=0 specified chain only |
+|  | 崖山 YashanDB | 🔵 Adapted · Controlled read-only | Standard parser wired; real-server pipeline passed |
+|  | SQL Server 2025 | 🔵 Adapted · Controlled read-only | Connection / metadata / read-only query subset |
+|  | 金仓 KingbaseES V9（另列） | 🟢 Adapted · Full protection | V9R1C10 PG-mode basic closed loop; not counted in the 27 |
+| Key-value | Redis | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+|  | Valkey | 🔷 Adapted · Connection-level | Reuses the Redis adapter |
+|  | Memcached | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+| Document | MongoDB | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+|  | Couchbase | 🔷 Adapted · Connection-level | Same scope |
+|  | CouchDB | 🔷 Adapted · Connection-level | Same scope |
+| Wide-column | Cassandra | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+|  | ScyllaDB | 🔷 Adapted · Connection-level | Same scope |
+|  | HBase | 🔷 Adapted · Connection-level | Same scope |
+| Graph | Neo4j | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+|  | JanusGraph | 🔷 Adapted · Connection-level | Same scope |
+|  | NebulaGraph | 🔷 Adapted · Connection-level | Same scope |
+| Time-series | InfluxDB | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+|  | Prometheus | 🔷 Adapted · Connection-level | Same scope |
+|  | TimescaleDB | 🔷 Adapted · Connection-level | Same scope |
+| OLAP | ClickHouse | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
+|  | Apache Doris | 🔷 Adapted · Connection-level | Same scope |
+|  | StarRocks | 🔷 Adapted · Connection-level | Same scope |
+| Vector | Milvus | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview; Does not imply full vector retrieval |
+|  | Qdrant | 🔷 Adapted · Connection-level | Same scope |
+|  | Weaviate | 🔷 Adapted · Connection-level | Same scope |
 
-- 🟢 PostgreSQL 14–18; MySQL 8.0
-- 🟢 Dameng DM8 (Pack3, `COMPATIBLE_MODE=0`, specified protection chain only)
-- 🔵 Oracle 23ai; YashanDB; SQL Server 2025
-- 🟢 KingbaseES V9 (V9R1C10, PG mode, single instance, synthetic table only): PG protocol basic controlled read-only chain passed a live test. A writable license volume allowed startup; ksql CRUD/pagination/identifier probes, pgx/v5 `$1` binding and SCRAM, read-only role write denial (`42501`), controlled SELECT allow, phone masking, column lineage, R006 comment denial, and allow/deny audit passed via `db_type=postgres`. Actual license expiry is unconfirmed. V9 Oracle mode, native driver, V8, multi-row/deep pagination, JOIN, aggregates/functions, complex expressions, type OIDs, system catalogs, EXPLAIN, TLS/encryption, HA/failover, backup/restore, B2 column authorization, multi-role concurrency, and production workloads remain untested. Explicit `GRANT CREATE SESSION` was rejected; session ability was verified with `LOGIN` + `CONNECT`. No vendor certification or production support commitment. See the [KingbaseES V9 verification record](docs/kingbase-v9-verification.md).
+KingbaseES V9 (V9R1C10, PG mode, single instance, synthetic table only): PG protocol basic controlled read-only chain passed a live test. A writable license volume allowed startup; ksql CRUD/pagination/identifier probes, pgx/v5 `$1` binding and SCRAM, read-only role write denial (`42501`), controlled SELECT allow, phone masking, column lineage, R006 comment denial, and allow/deny audit passed via `db_type=postgres`. Actual license expiry is unconfirmed. V9 Oracle mode, native driver, V8, multi-row/deep pagination, JOIN, aggregates/functions, complex expressions, type OIDs, system catalogs, EXPLAIN, TLS/encryption, HA/failover, backup/restore, B2 column authorization, multi-role concurrency, and production workloads remain untested. Explicit `GRANT CREATE SESSION` was rejected; session ability was verified with `LOGIN` + `CONNECT`. No vendor certification or production support commitment. See the [KingbaseES V9 verification record](docs/kingbase-v9-verification.md).
 
-### Additional tested PG protocol path (outside the 27 registered types)
-
-- 🟢 HighGo 9.0.10 Enterprise Edition (PG mode, single instance, synthetic table): parsing/column lineage, table-level authorization, controlled read-only SELECT, phone-number masking, R006 denial, and the allow/deny audit chain passed a live test through `db_type=postgres`. TLS, pool failover, cancellation/timeouts, EXPLAIN, extended types/OIDs, system-catalog differences, B2 column authorization, the parse-error audit branch (not triggered), cross-version behavior, and production workloads remain untested. This is neither vendor certification nor a production support commitment. See the [HighGo verification record](docs/highgo-verification.md).
-
-### Key-value (KV)
-
-- 🔷 Redis; Valkey (reuses the Redis adapter); Memcached
-
-### Document
-
-- 🔷 MongoDB; Couchbase; CouchDB
-
-### Wide-column
-
-- 🔷 Cassandra; ScyllaDB; HBase
-
-### Graph
-
-- 🔷 Neo4j; JanusGraph; NebulaGraph
-
-### Time-series
-
-- 🔷 InfluxDB; Prometheus; TimescaleDB
-
-### OLAP
-
-- 🔷 ClickHouse; Apache Doris; StarRocks
-
-### Vector
-
-- 🔷 Milvus; Qdrant; Weaviate
+HighGo 9.0.10 Enterprise Edition (PG mode, single instance, synthetic table): parsing/column lineage, table-level authorization, controlled read-only SELECT, phone-number masking, R006 denial, and the allow/deny audit chain passed a live test through `db_type=postgres`. TLS, pool failover, cancellation/timeouts, EXPLAIN, extended types/OIDs, system-catalog differences, B2 column authorization, the parse-error audit branch (not triggered), cross-version behavior, and production workloads remain untested. This is neither vendor certification nor a production support commitment. See the [HighGo verification record](docs/highgo-verification.md).
 
 NoSQL and vector databases currently have bounded, connection-level support. A read-only preview does not imply full query, retrieval, or server-side security capabilities. The [NoSQL support notes](docs/nosql-support.md) list all 21 registered types and default ports, including the HBase and Couchbase connection-port exceptions. On a DM8 Pack3 instance with `COMPATIBLE_MODE=0`, read-only SELECT, column lineage, R010 table policy, audit, and phone-number masking passed end to end. R006, multirow pagination, JOIN, functions, and system catalogs remain untested; writes are not enabled. Oracle retains its existing bounded status. YashanDB's standard parser and narrow SELECT path are wired. A standalone 23.4.7.100 client cached in an unpublished local dry-run artifact passed native-driver parameter binding, least-privilege SELECT, and write-denial probes. A real-server pipeline test passed SELECT, column lineage, R010, table/column-scoped phone masking, and three test audit records. That test used fixture authentication, policy, and audit storage ports; HTTP/MCP routing, durable audit storage, and the least-privilege account combined with the pipeline remain untested. Vendor oral authorization has been obtained for C client redistribution; no written authorization file is held in this repository. A `yashan`-tagged build needs a user-provided standalone client in `LD_LIBRARY_PATH`, and missing components fail closed. See the [DM/Oracle](docs/dm-oracle-dialect.md) and [YashanDB](docs/yashan-dialect.md) boundaries. All tests use specified container images and synthetic cases; they are **not official database-vendor certification**. Protocol compatibility does not imply identical security semantics. Every database request must pass through the AgentSQL gateway with a dedicated least-privilege account; unknown parsing, authorization, or capability facts fail closed. See [SECURITY.md](SECURITY.md) for details.
 
