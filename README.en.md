@@ -62,7 +62,7 @@ AgentSQL v0.5.0 has been released. These ecosystem results apply only to the spe
 |  | 达梦 DM8 | 🟢 Adapted · Full protection | Pack3, COMPATIBLE_MODE=0 specified chain only |
 |  | 崖山 YashanDB | 🔵 Adapted · Controlled read-only | Standard parser wired; real-server pipeline passed |
 |  | SQL Server 2025 | 🔵 Adapted · Controlled read-only | Connection / metadata / read-only query subset |
-|  | 金仓 KingbaseES V9（另列） | 🟢 Adapted · Full protection | V9R1C10 PG-mode basic closed loop; not counted in the 27 |
+|  | KingbaseES V9 (listed separately) | 🟢 Adapted · Full protection | V9R1C10 PG-mode basic closed loop; not counted in the 27 |
 | Key-value | Redis | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
 |  | Valkey | 🔷 Adapted · Connection-level | Reuses the Redis adapter |
 |  | Memcached | 🔷 Adapted · Connection-level | ping / version / schema / read-only preview |
