@@ -1,73 +1,96 @@
 package businessdb
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/auth"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 type WeaviateExecutor struct {
-	client   *weaviate.Client
+	baseURL  string
+	client   *http.Client
+	apiKey   string
 	id       string
 	readOnly bool
 }
 
-func weaviateConfig(ds model.Datasource, password string) (weaviate.Config, error) {
+type weaviateHTTPConfig struct {
+	Host    string
+	Scheme  string
+	Timeout time.Duration
+	APIKey  string
+}
+
+type weaviateClass struct {
+	Class      string             `json:"class"`
+	Vectorizer string             `json:"vectorizer"`
+	Properties []weaviateProperty `json:"properties"`
+}
+
+type weaviateProperty struct {
+	Name     string   `json:"name"`
+	DataType []string `json:"dataType"`
+}
+
+type weaviateMeta struct {
+	Version string `json:"version"`
+}
+
+type weaviateGraphQLResponse struct {
+	Data   json.RawMessage   `json:"data"`
+	Errors []json.RawMessage `json:"errors"`
+}
+
+type weaviateCreatedObject struct {
+	ID string `json:"id"`
+}
+
+func weaviateConfig(ds model.Datasource, password string) (weaviateHTTPConfig, error) {
 	if ds.DBType != "weaviate" || strings.TrimSpace(ds.Host) == "" {
-		return weaviate.Config{}, fmt.Errorf("weaviate host is required")
+		return weaviateHTTPConfig{}, fmt.Errorf("weaviate host is required")
 	}
 	port := ds.Port
 	if port == 0 {
 		port = 8080
 	}
 	if port < 1 || port > 65535 {
-		return weaviate.Config{}, fmt.Errorf("weaviate port is invalid")
+		return weaviateHTTPConfig{}, fmt.Errorf("weaviate port is invalid")
 	}
 	if ds.Database != "" || ds.Username != "" {
-		return weaviate.Config{}, fmt.Errorf("weaviate database and username are unsupported")
+		return weaviateHTTPConfig{}, fmt.Errorf("weaviate database and username are unsupported")
 	}
 	if ds.TrustServerCertificate || ds.TLSServerName != "" || ds.TLSCAFile != "" {
-		return weaviate.Config{}, fmt.Errorf("custom or unverified weaviate TLS is unsupported")
+		return weaviateHTTPConfig{}, fmt.Errorf("custom or unverified weaviate TLS is unsupported")
 	}
 	scheme := "http"
 	if ds.TLSMode != "" {
 		if ds.TLSMode != "strict" && ds.TLSMode != "verify-full" {
-			return weaviate.Config{}, fmt.Errorf("weaviate TLS mode is invalid")
+			return weaviateHTTPConfig{}, fmt.Errorf("weaviate TLS mode is invalid")
 		}
 		scheme = "https"
 	}
 	ms, err := normalizedStatementTimeout(ds.StmtTimeoutMS)
 	if err != nil {
-		return weaviate.Config{}, err
+		return weaviateHTTPConfig{}, err
 	}
-	cfg := weaviate.Config{Host: net.JoinHostPort(ds.Host, strconv.Itoa(port)), Scheme: scheme, Timeout: time.Duration(ms) * time.Millisecond, StartupTimeout: time.Duration(ms) * time.Millisecond}
-	if password != "" {
-		cfg.AuthConfig = auth.ApiKey{Value: password}
-	}
-	return cfg, nil
+	return weaviateHTTPConfig{Host: net.JoinHostPort(ds.Host, strconv.Itoa(port)), Scheme: scheme, Timeout: time.Duration(ms) * time.Millisecond, APIKey: password}, nil
 }
 func NewWeaviateExecutor(ds model.Datasource, password string, readOnly bool) (*WeaviateExecutor, error) {
 	cfg, err := weaviateConfig(ds, password)
 	if err != nil {
 		return nil, err
 	}
-	c, err := weaviate.NewClient(cfg)
-	if err != nil {
-		return nil, err
-	}
-	e := &WeaviateExecutor{client: c, id: ds.ID, readOnly: readOnly}
+	e := &WeaviateExecutor{baseURL: cfg.Scheme + "://" + cfg.Host, client: &http.Client{Timeout: cfg.Timeout}, apiKey: cfg.APIKey, id: ds.ID, readOnly: readOnly}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
 	if err := e.Ping(ctx); err != nil {
@@ -79,32 +102,74 @@ func NewWeaviateExecutor(ds model.Datasource, password string, readOnly bool) (*
 func (*WeaviateExecutor) Category() model.DatasourceCategory { return model.CategoryVector }
 func (*WeaviateExecutor) Dialect() model.DBDialect           { return "weaviate" }
 func (*WeaviateExecutor) Close() error                       { return nil }
+func (e *WeaviateExecutor) do(ctx context.Context, method, path string, body any) ([]byte, int, error) {
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, 0, err
+		}
+		reader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, e.baseURL+path, reader)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if e.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+e.apiKey)
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		summary := boundedNativeString(strings.TrimSpace(string(b)))
+		if summary == "" {
+			return nil, resp.StatusCode, fmt.Errorf("weaviate HTTP %d", resp.StatusCode)
+		}
+		return nil, resp.StatusCode, fmt.Errorf("weaviate HTTP %d: %s", resp.StatusCode, summary)
+	}
+	return b, resp.StatusCode, nil
+}
 func (e *WeaviateExecutor) Ping(ctx context.Context) error {
-	live, err := e.client.Misc().LiveChecker().Do(ctx)
+	b, status, err := e.do(ctx, http.MethodGet, "/v1/.well-known/live", nil)
 	if err != nil {
 		return err
 	}
-	if !live {
+	if status != http.StatusOK || strings.TrimSpace(string(b)) == "false" {
 		return fmt.Errorf("weaviate is not live")
 	}
 	return nil
 }
 func (e *WeaviateExecutor) ServerVersion(ctx context.Context) (string, error) {
-	meta, err := e.client.Misc().MetaGetter().Do(ctx)
+	b, _, err := e.do(ctx, http.MethodGet, "/v1/meta", nil)
 	if err != nil {
 		return "", err
 	}
-	if meta == nil {
+	if len(b) == 0 {
 		return "", nil
+	}
+	if bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+		return "", fmt.Errorf("weaviate meta is unavailable")
+	}
+	var meta weaviateMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return "", err
 	}
 	return boundedNativeString(meta.Version), nil
 }
-func weaviateNamespace(c *models.Class) NativeNamespace {
+func weaviateNamespace(c *weaviateClass) NativeNamespace {
 	n := NativeNamespace{Name: boundedNativeString(c.Class), Kind: "class", Metadata: map[string]string{"vector_dimensions": "unavailable"}}
 	n.Metadata["vectorizer"] = boundedNativeString(c.Vectorizer)
 	props := []string{}
 	for _, p := range c.Properties {
-		if p != nil && len(props) < 100 {
+		if len(props) < 100 {
 			props = append(props, p.Name)
 		}
 	}
@@ -116,11 +181,14 @@ func (e *WeaviateExecutor) Discover(ctx context.Context) (NativeCatalog, error) 
 	if err != nil {
 		return NativeCatalog{}, err
 	}
-	s, err := e.client.Schema().Getter().Do(ctx)
+	b, _, err := e.do(ctx, http.MethodGet, "/v1/schema", nil)
 	if err != nil {
 		return NativeCatalog{}, err
 	}
-	if s == nil {
+	var s struct {
+		Classes []weaviateClass `json:"classes"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil || len(s.Classes) == 0 {
 		return NativeCatalog{}, fmt.Errorf("weaviate schema is unavailable")
 	}
 	out := NativeCatalog{Category: model.CategoryVector, ServerVersion: v}
@@ -128,9 +196,12 @@ func (e *WeaviateExecutor) Discover(ctx context.Context) (NativeCatalog, error) 
 		if len(out.Namespaces) >= nativeMaxRows {
 			break
 		}
-		if c != nil && c.Class != "" {
-			out.Namespaces = append(out.Namespaces, weaviateNamespace(c))
+		if c.Class != "" {
+			out.Namespaces = append(out.Namespaces, weaviateNamespace(&c))
 		}
+	}
+	if len(out.Namespaces) == 0 {
+		return NativeCatalog{}, fmt.Errorf("weaviate schema is unavailable")
 	}
 	return out, nil
 }
@@ -150,34 +221,34 @@ func weaviateCommandAllowed(command string, readOnly bool) error {
 
 var weaviateUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-func weaviateFields(c *models.Class) []graphql.Field {
-	fields := []graphql.Field{{Name: "_additional", Fields: []graphql.Field{{Name: "id"}}}}
+func weaviateFields(c *weaviateClass) []string {
+	fields := []string{}
 	for _, p := range c.Properties {
-		if p != nil && vectorName.MatchString(p.Name) && len(fields) < 101 && len(p.DataType) > 0 && (p.DataType[0] == "text" || p.DataType[0] == "string" || p.DataType[0] == "int" || p.DataType[0] == "number" || p.DataType[0] == "boolean" || p.DataType[0] == "date") {
-			fields = append(fields, graphql.Field{Name: p.Name})
+		if vectorName.MatchString(p.Name) && len(fields) < 100 && len(p.DataType) > 0 && (p.DataType[0] == "text" || p.DataType[0] == "string" || p.DataType[0] == "int" || p.DataType[0] == "number" || p.DataType[0] == "boolean" || p.DataType[0] == "date") {
+			fields = append(fields, p.Name)
 		}
 	}
-	return fields
+	return append(fields, "_additional{id}")
 }
-func weaviateRows(resp *models.GraphQLResponse, class string) (NativeQueryResult, error) {
+func weaviateRows(resp *weaviateGraphQLResponse, class string) (NativeQueryResult, error) {
 	if resp == nil || len(resp.Errors) > 0 {
 		return NativeQueryResult{}, fmt.Errorf("weaviate GraphQL query failed")
 	}
-	b, err := json.Marshal(resp.Data)
-	if err != nil {
-		return NativeQueryResult{}, err
-	}
-	var payload map[string]map[string][]json.RawMessage
-	if err = json.Unmarshal(b, &payload); err != nil {
+	var payload map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		return NativeQueryResult{}, err
 	}
 	classes, ok := payload["Get"]
 	if !ok {
 		return NativeQueryResult{}, fmt.Errorf("weaviate GraphQL result is incomplete")
 	}
-	items, ok := classes[class]
+	rawItems, ok := classes[class]
 	if !ok {
 		return NativeQueryResult{}, fmt.Errorf("weaviate GraphQL class result is missing")
+	}
+	var items []json.RawMessage
+	if rawItems = bytes.TrimSpace(rawItems); len(rawItems) == 0 || rawItems[0] != '[' || json.Unmarshal(rawItems, &items) != nil {
+		return NativeQueryResult{}, fmt.Errorf("weaviate GraphQL class result is invalid")
 	}
 	rows := [][]string{}
 	for _, item := range items {
@@ -187,6 +258,21 @@ func weaviateRows(resp *models.GraphQLResponse, class string) (NativeQueryResult
 		rows = append(rows, []string{string(item)})
 	}
 	return boundedNativeRows([]string{"object"}, rows), nil
+}
+func weaviateGraphQLString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+func (e *WeaviateExecutor) query(ctx context.Context, query string) (*weaviateGraphQLResponse, error) {
+	b, _, err := e.do(ctx, http.MethodPost, "/v1/graphql", map[string]string{"query": query})
+	if err != nil {
+		return nil, err
+	}
+	var resp weaviateGraphQLResponse
+	if err := json.Unmarshal(b, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryRequest) (result NativeQueryResult, err error) {
 	command := "INVALID"
@@ -211,11 +297,12 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 	if err = vectorCollection(req.Namespace); err != nil {
 		return result, err
 	}
-	c, err := e.client.Schema().ClassGetter().WithClassName(req.Namespace).Do(ctx)
+	b, _, err := e.do(ctx, http.MethodGet, "/v1/schema/"+req.Namespace, nil)
 	if err != nil {
 		return result, err
 	}
-	if c == nil {
+	var c weaviateClass
+	if json.Unmarshal(b, &c) != nil || c.Class == "" || c.Class != req.Namespace {
 		return result, fmt.Errorf("weaviate class is unavailable")
 	}
 	switch command {
@@ -223,7 +310,7 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 		if len(args) != 0 {
 			return result, fmt.Errorf("weaviate describe takes no arguments")
 		}
-		n := weaviateNamespace(c)
+		n := weaviateNamespace(&c)
 		b, _ := json.Marshal(n.Metadata)
 		return boundedNativeRows([]string{"class", "metadata"}, [][]string{{n.Name, string(b)}}), nil
 	case "SEARCH":
@@ -234,23 +321,28 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 		if x != nil {
 			return result, x
 		}
-		builder := e.client.GraphQL().Get().WithClassName(req.Namespace).WithFields(weaviateFields(c)...).WithLimit(limit)
+		clause := ""
 		switch strings.ToUpper(args[0]) {
 		case "NEARVECTOR":
 			vec, x := parseFloatVector(args[1])
 			if x != nil {
 				return result, x
 			}
-			builder = builder.WithNearVector(e.client.GraphQL().NearVectorArgBuilder().WithVector(vec))
+			vectorJSON, x := json.Marshal(vec)
+			if x != nil {
+				return result, x
+			}
+			clause = ",nearVector:{vector:" + string(vectorJSON) + "}"
 		case "NEARTEXT":
 			if strings.TrimSpace(args[1]) == "" || strings.ContainsAny(args[1], ";\r\n") {
 				return result, fmt.Errorf("weaviate nearText is invalid")
 			}
-			builder = builder.WithNearText(e.client.GraphQL().NearTextArgBuilder().WithConcepts([]string{args[1]}))
+			clause = ",nearText:{concepts:[" + weaviateGraphQLString(args[1]) + "]}"
 		default:
 			return result, fmt.Errorf("weaviate search mode is invalid")
 		}
-		resp, x := builder.Do(ctx)
+		query := fmt.Sprintf("{Get{%s(limit:%d%s){%s}}}", req.Namespace, limit, clause, strings.Join(weaviateFields(&c), " "))
+		resp, x := e.query(ctx, query)
 		if x != nil {
 			return result, x
 		}
@@ -264,7 +356,7 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 		}
 		found := false
 		for _, p := range c.Properties {
-			if p != nil && p.Name == args[0] && len(p.DataType) > 0 && (p.DataType[0] == "text" || p.DataType[0] == "string") {
+			if p.Name == args[0] && len(p.DataType) > 0 && (p.DataType[0] == "text" || p.DataType[0] == "string") {
 				found = true
 			}
 		}
@@ -275,8 +367,9 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 		if x != nil {
 			return result, x
 		}
-		builder := e.client.GraphQL().Get().WithClassName(req.Namespace).WithFields(weaviateFields(c)...).WithWhere(filters.Where().WithPath([]string{args[0]}).WithOperator(filters.Equal).WithValueString(args[1])).WithLimit(limit)
-		resp, x := builder.Do(ctx)
+		clause := ",where:{path:[" + weaviateGraphQLString(args[0]) + "],operator:Equal,valueText:" + weaviateGraphQLString(args[1]) + "}"
+		query := fmt.Sprintf("{Get{%s(limit:%d%s){%s}}}", req.Namespace, limit, clause, strings.Join(weaviateFields(&c), " "))
+		resp, x := e.query(ctx, query)
 		if x != nil {
 			return result, x
 		}
@@ -294,14 +387,15 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 			if len(o) == 0 {
 				return result, fmt.Errorf("weaviate object is empty")
 			}
-			created, x := e.client.Data().Creator().WithClassName(req.Namespace).WithProperties(o).Do(ctx)
+			b, _, x := e.do(ctx, http.MethodPost, "/v1/objects", map[string]any{"class": req.Namespace, "properties": o})
 			if x != nil {
 				return result, x
 			}
-			if created == nil || created.Object == nil {
+			var created weaviateCreatedObject
+			if json.Unmarshal(b, &created) != nil || created.ID == "" {
 				return result, fmt.Errorf("weaviate create result is incomplete")
 			}
-			rows = append(rows, []string{string(created.Object.ID)})
+			rows = append(rows, []string{created.ID})
 		}
 		return boundedNativeRows([]string{"id"}, rows), nil
 	case "UPDATE":
@@ -312,9 +406,12 @@ func (e *WeaviateExecutor) NativeQuery(ctx context.Context, req NativeQueryReque
 		if json.Unmarshal([]byte(args[1]), &o) != nil || len(o) == 0 {
 			return result, fmt.Errorf("weaviate update properties are invalid")
 		}
-		err = e.client.Data().Updater().WithClassName(req.Namespace).WithID(args[0]).WithProperties(o).WithMerge().Do(ctx)
+		_, status, err := e.do(ctx, http.MethodPatch, "/v1/objects/"+req.Namespace+"/"+args[0], map[string]any{"properties": o})
 		if err != nil {
 			return result, err
+		}
+		if status != http.StatusNoContent {
+			return result, fmt.Errorf("weaviate update returned HTTP %d, expected 204", status)
 		}
 		return boundedNativeRows([]string{"updated"}, [][]string{{args[0]}}), nil
 	}

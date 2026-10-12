@@ -718,7 +718,7 @@ ORDER BY ordinal_position`)
 	require.Equal(t, []string{
 		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 		"created_at", "updated_at", "enabled", "range_bucket_width", "range_bucket_offset",
-		"range_granularity", "schema_name",
+		"range_granularity", "schema_name", "tenant_id",
 	}, scanSingleStringColumn(t, rows))
 
 	rows, err = database.QueryContext(ctx, `
