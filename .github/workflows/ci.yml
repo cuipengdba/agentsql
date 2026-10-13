@@ -39,9 +39,10 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Prepare offline compiler fixture
-        # capability_test.go runs a child module with GOPROXY=off. Brotli's
-        # module graph requires this test-only dependency in the module cache.
-        run: go mod download github.com/xyproto/randomstring@v1.0.5
+        # capability_test.go compiles a replacement module with GOPROXY=off.
+        # Download the complete root module graph, including transitive
+        # go.mod files that build/vet do not otherwise cache.
+        run: go mod download
       - name: Test all packages (short)
         env:
           GOMAXPROCS: '2'
