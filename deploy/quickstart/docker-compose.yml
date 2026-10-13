@@ -8,7 +8,7 @@
 
 services:
   postgres:
-    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.5-quickstart
+    image: ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.5.1-quickstart
     container_name: agentsql-quickstart-postgres
     restart: unless-stopped
     environment:
