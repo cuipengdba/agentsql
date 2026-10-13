@@ -7,6 +7,7 @@ type DBDialect string
 
 const (
 	DialectPostgres    DBDialect = "postgres"
+	DialectVastbase    DBDialect = "vastbase"
 	DialectMySQL       DBDialect = "mysql"
 	DialectDM          DBDialect = "dm"
 	DialectOracle      DBDialect = "oracle"

@@ -170,6 +170,8 @@ func ProbeDatasource(ctx context.Context, datasource model.Datasource, password 
 	switch datasource.DBType {
 	case "postgres":
 		opened, err = businessdb.NewPostgresExecutor(ctx, datasource, password, true)
+	case "vastbase":
+		opened, err = businessdb.NewVastbaseExecutor(ctx, datasource, password)
 	case "mysql":
 		opened, err = businessdb.NewMySQLExecutor(ctx, datasource, password, true)
 	case "sqlserver":

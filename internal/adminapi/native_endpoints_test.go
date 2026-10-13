@@ -24,9 +24,10 @@ func TestDatasourceTypesEndpoint(t *testing.T) {
 		Data []datasourceTypeView `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &envelope))
-	require.Len(t, envelope.Data, 27)
+	require.Len(t, envelope.Data, 28)
 	require.Equal(t, "postgres", envelope.Data[0].Key)
-	require.Equal(t, "weaviate", envelope.Data[26].Key)
+	require.Equal(t, "vastbase", envelope.Data[1].Key)
+	require.Equal(t, "weaviate", envelope.Data[27].Key)
 	for _, item := range envelope.Data {
 		spec, ok := model.TypeSpecFor(item.Key)
 		require.True(t, ok)

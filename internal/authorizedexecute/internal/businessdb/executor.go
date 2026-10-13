@@ -181,6 +181,8 @@ func openExecutor(
 	switch datasource.DBType {
 	case "postgres":
 		return NewPostgresExecutor(context.Background(), datasource, password, readOnly)
+	case "vastbase":
+		return NewVastbaseExecutor(context.Background(), datasource, password)
 	case "mysql":
 		return NewMySQLExecutor(context.Background(), datasource, password, readOnly)
 	case "dm":

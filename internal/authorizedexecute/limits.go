@@ -63,6 +63,7 @@ const (
 	ReasonStatementClassDenied      Reason = "AUTH_STATEMENT_CLASS_DENIED"
 	ReasonDatasourceUnsupported     Reason = "AUTH_DATASOURCE_UNSUPPORTED"
 	ReasonColumnAuthUnsupported     Reason = "AUTH_COLUMN_AUTH_UNSUPPORTED"
+	ReasonVastbaseColumnUnsupported Reason = "AUTH_VASTBASE_COLUMN_AUTH_UNSUPPORTED"
 	ReasonFunctionQualification     Reason = "AUTH_FUNCTION_QUALIFICATION_REQUIRED"
 	ReasonColumnAuthUnavailable     Reason = "AUTH_COLUMN_AUTHORIZATION_UNAVAILABLE"
 	ReasonRelationDenied            Reason = "AUTH_RELATION_DENIED"

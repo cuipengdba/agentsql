@@ -113,7 +113,7 @@ func (pipeline *Pipeline) process(
 		if datasource.ID != request.DatasourceID {
 			return fmt.Errorf("datasource reader returned ID %q for %q", datasource.ID, request.DatasourceID)
 		}
-		if datasource.DBType != "postgres" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "yashan" {
+		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "yashan" {
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
@@ -251,6 +251,9 @@ func (pipeline *Pipeline) process(
 	if run.ast.StmtType == model.StmtType("SELECT") && !isNilInterface(pipeline.column) {
 		if run.datasource.DBType == "mysql" && columnAuthorizationConfigured(pipeline.column) && hasB2ColumnPolicy(run.storedPolicies) {
 			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
+		}
+		if run.datasource.DBType == "vastbase" && columnAuthorizationConfigured(pipeline.column) && hasB2ColumnPolicy(run.storedPolicies) {
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonVastbaseColumnUnsupported})
 		}
 		enabled := true
 		if router, ok := pipeline.column.(ColumnAuthorizationRouter); ok {
@@ -755,6 +758,7 @@ func expectedAuthorizationFailure(err error) bool {
 		executor.ReasonStatementClassDenied,
 		executor.ReasonDatasourceUnsupported,
 		executor.ReasonColumnAuthUnsupported,
+		executor.ReasonVastbaseColumnUnsupported,
 		executor.ReasonFunctionQualification,
 		executor.ReasonImplicitObject,
 		executor.ReasonRelationShape,
@@ -845,6 +849,10 @@ func internalFailurePresentation(cause error) (executor.DBErrorCode, string, str
 			return executor.DBErrorCode(stable.Reason),
 				"MySQL 列级授权在 v0.4 中暂不支持",
 				"请改用 PostgreSQL 演示列级授权，或移除 MySQL 列级策略并使用表级保护"
+		case executor.ReasonVastbaseColumnUnsupported:
+			return executor.DBErrorCode(stable.Reason),
+				"Vastbase G100 的列级授权尚未完成真库验收，已拒绝执行",
+				"请移除 Vastbase 列级策略并仅使用表级保护；列级授权等待目标实例验收"
 		case executor.ReasonFunctionQualification:
 			return executor.DBErrorCode(stable.Reason),
 				"SQL 中的 PostgreSQL 内置函数必须显式使用 pg_catalog 限定",

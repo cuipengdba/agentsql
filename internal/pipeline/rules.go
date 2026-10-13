@@ -100,6 +100,9 @@ func assembleRules(
 		// enforce the documented read-only SELECT subset.
 	case model.DialectYashan:
 		// Yashan uses generic rules; its parser and executor reject unproved SQL.
+	case model.DialectVastbase:
+		// Vastbase PG mode uses only dialect-neutral rules plus its narrow parser
+		// and a permanently read-only executor. PostgreSQL B2/B5 are not inherited.
 	default:
 		return nil, fmt.Errorf("unsupported rule dialect %q", dialect)
 	}

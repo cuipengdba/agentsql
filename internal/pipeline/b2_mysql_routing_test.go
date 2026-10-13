@@ -134,6 +134,44 @@ func TestMySQLB2RoutingRejectsOnlyColumnPolicies(t *testing.T) {
 	})
 }
 
+func TestVastbaseB2ColumnPolicyFailsBeforeDatabaseAccess(t *testing.T) {
+	controller := &configuredMySQLB2Controller{}
+	fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+	fixture.datasources.datasource.DBType = "vastbase"
+	fixture.executor.dialect = "vastbase"
+	columns := "phone"
+	fixture.policies.policies = append(fixture.policies.policies, model.Policy{
+		ID: "vastbase-columns", AgentID: "agent-1", DatasourceID: "datasource-1",
+		ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow",
+	})
+
+	response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(
+		"SELECT id FROM public.customers WHERE id = 1 LIMIT 10",
+	))
+
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Equal(t, string(executor.ReasonVastbaseColumnUnsupported), response.ErrorCode)
+	require.Zero(t, controller.beginCalls)
+	require.Zero(t, fixture.executors.calls())
+}
+
+func TestVastbaseTablePolicyKeepsOrdinaryReadRoute(t *testing.T) {
+	controller := &configuredMySQLB2Controller{}
+	fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+	fixture.datasources.datasource.DBType = "vastbase"
+	fixture.executor.dialect = "vastbase"
+
+	response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(
+		"SELECT id FROM public.customers WHERE id = 1 LIMIT 10",
+	))
+
+	require.NoError(t, err)
+	require.NotEqual(t, string(executor.ReasonVastbaseColumnUnsupported), response.ErrorCode)
+	require.Zero(t, controller.beginCalls)
+	require.NotZero(t, fixture.executors.calls())
+}
+
 func TestPostgresB2BinderDistinguishesMissingAndUnauthorizedObjects(t *testing.T) {
 	redactor, err := mask.NewRedactor(nil)
 	require.NoError(t, err)

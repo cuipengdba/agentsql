@@ -26,6 +26,7 @@ type DatasourceTypeSpec struct {
 
 var datasourceTypes = map[string]DatasourceTypeSpec{
 	"postgres":  {CategoryRelational, "PostgreSQL", 5432, true, true, true},
+	"vastbase":  {CategoryRelational, "Vastbase G100 PG（待真库验收）", 5432, true, true, true},
 	"mysql":     {CategoryRelational, "MySQL", 3306, true, true, true},
 	"dm":        {CategoryRelational, "DM", 5236, true, true, true},
 	"oracle":    {CategoryRelational, "Oracle", 1521, true, true, true},
