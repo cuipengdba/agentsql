@@ -1921,6 +1921,11 @@ func (handler *Handler) approvalsList(writer http.ResponseWriter, request *http.
 	})
 }
 func (handler *Handler) approvalsDecide(writer http.ResponseWriter, request *http.Request) {
+	principal, ok := requestPrincipal(request)
+	if !ok {
+		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	id := request.PathValue("id")
 	var input decideInput
 	if err := decodeJSON(writer, request, &input); err != nil {
@@ -1941,7 +1946,7 @@ func (handler *Handler) approvalsDecide(writer http.ResponseWriter, request *htt
 		reason = stringPointer(input.Comment)
 	}
 	updated, err := handler.deps.Runtime.Store.Approvals().DecidePending(
-		request.Context(), id, status, handler.adminUser, reason, now,
+		request.Context(), id, status, principal.UserID, reason, now,
 	)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {

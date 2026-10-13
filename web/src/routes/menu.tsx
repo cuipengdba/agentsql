@@ -13,6 +13,10 @@ import {
   SafetyOutlined,
   SwapOutlined,
   CloudDownloadOutlined,
+  TeamOutlined,
+  ApartmentOutlined,
+  IdcardOutlined,
+  RocketOutlined,
 } from "@ant-design/icons";
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 
@@ -31,6 +35,10 @@ const AuditChain = lazy(() => import("@/pages/AuditChain").then(({ AuditChain })
 const B5Operations = lazy(() => import("@/pages/B5Operations").then(({ B5Operations }) => ({ default: B5Operations })));
 const Security = lazy(() => import("@/pages/Security").then(({ Security }) => ({ default: Security })));
 const Upgrade = lazy(() => import("@/pages/Upgrade").then(({ Upgrade }) => ({ default: Upgrade })));
+const Users = lazy(() => import("@/pages/Users").then(({ Users }) => ({ default: Users })));
+const Roles = lazy(() => import("@/pages/Roles").then(({ Roles }) => ({ default: Roles })));
+const Tenants = lazy(() => import("@/pages/Tenants").then(({ Tenants }) => ({ default: Tenants })));
+const Onboarding = lazy(() => import("@/pages/Onboarding").then(({ Onboarding }) => ({ default: Onboarding })));
 
 function RouteLoading() {
   return (
@@ -67,11 +75,13 @@ export interface MenuRoute {
   element: ReactNode;
   group?: "settings";
   feature?: "b5";
+  permission?: string;
 }
 
 export const menuRoutes: MenuRoute[] = [
   { key: "upgrade", path: "/settings/upgrade", label: "版本与升级", icon: <CloudDownloadOutlined />, element: lazyElement(Upgrade), group: "settings" },
   { key: "overview", path: "/", label: "总览", icon: <DashboardOutlined />, element: lazyElement(Overview) },
+  { key: "onboarding", path: "/onboarding", label: "接入向导", icon: <RocketOutlined />, element: lazyElement(Onboarding), permission: "datasource.manage" },
   { key: "audit", path: "/audit", label: "审计", icon: <FileSearchOutlined />, element: lazyElement(Audit) },
   {
     key: "playground",
@@ -89,6 +99,9 @@ export const menuRoutes: MenuRoute[] = [
     element: lazyElement(Datasources),
   },
   { key: "policies", path: "/policies", label: "权限", icon: <SafetyOutlined />, element: lazyElement(Policies) },
+  { key: "users", path: "/users", label: "用户", icon: <TeamOutlined />, element: lazyElement(Users), group: "settings", permission: "user.manage" },
+  { key: "roles", path: "/roles", label: "角色", icon: <IdcardOutlined />, element: lazyElement(Roles), group: "settings", permission: "role.manage" },
+  { key: "tenants", path: "/tenants", label: "租户", icon: <ApartmentOutlined />, element: lazyElement(Tenants), group: "settings", permission: "tenant.manage" },
   { key: "rules", path: "/rules", label: "规则", icon: <FilterOutlined />, element: lazyElement(Rules) },
   {
     key: "approvals",
@@ -146,6 +159,6 @@ export const menuRoutes: MenuRoute[] = [
   },
 ];
 
-export function menuRoutesForFeatures(b5Enabled: boolean): MenuRoute[] {
-  return menuRoutes.filter((route) => route.feature !== "b5" || b5Enabled);
+export function menuRoutesForFeatures(b5Enabled: boolean, permissions: string[] = []): MenuRoute[] {
+  return menuRoutes.filter((route) => (route.feature !== "b5" || b5Enabled) && (!route.permission || permissions.includes(route.permission)));
 }

@@ -221,6 +221,73 @@ func (service *Service) Authorize(ctx context.Context, tenantID, userID, permiss
 	return principal, nil
 }
 
+// CanDelegateRoles prevents a role manager from assigning permissions that
+// the manager does not already hold, including permissions inherited by roles.
+func (service *Service) CanDelegateRoles(ctx context.Context, principal Principal, tenantID string, roleIDs []string) error {
+	if !principal.Has(PermissionRoleManage) || (tenantID != principal.TenantID && !principal.IsBootstrapAdmin()) {
+		return ErrForbidden
+	}
+	roles, err := service.repository.ListRoles(ctx, tenantID)
+	if err != nil {
+		return ErrForbidden
+	}
+	return canDelegate(principal, roles, roleIDs)
+}
+
+// CanManageUser protects password resets, status changes, deletion, and role
+// replacement of accounts whose effective privileges exceed the caller's.
+func (service *Service) CanManageUser(ctx context.Context, principal Principal, tenantID, userID string) error {
+	if !principal.Has(PermissionUserManage) || (tenantID != principal.TenantID && !principal.IsBootstrapAdmin()) {
+		return ErrForbidden
+	}
+	assigned, err := service.repository.UserRoleIDs(ctx, tenantID, userID)
+	if err != nil {
+		return ErrForbidden
+	}
+	roles, err := service.repository.ListRoles(ctx, tenantID)
+	if err != nil {
+		return ErrForbidden
+	}
+	return canDelegate(principal, roles, assigned)
+}
+
+// CanDelegateRole evaluates the resulting role graph before writing a new or
+// updated role. Unknown parents and inheritance cycles fail closed.
+func (service *Service) CanDelegateRole(ctx context.Context, principal Principal, candidate model.Role) error {
+	if !principal.Has(PermissionRoleManage) || (candidate.TenantID != principal.TenantID && !principal.IsBootstrapAdmin()) {
+		return ErrForbidden
+	}
+	roles, err := service.repository.ListRoles(ctx, candidate.TenantID)
+	if err != nil {
+		return ErrForbidden
+	}
+	found := false
+	for index := range roles {
+		if roles[index].ID == candidate.ID {
+			roles[index] = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		roles = append(roles, candidate)
+	}
+	return canDelegate(principal, roles, []string{candidate.ID})
+}
+
+func canDelegate(principal Principal, roles []model.Role, roleIDs []string) error {
+	permissions, _, err := resolvePermissions(roles, roleIDs)
+	if err != nil {
+		return ErrForbidden
+	}
+	for _, permission := range permissions {
+		if !principal.Has(permission) {
+			return ErrForbidden
+		}
+	}
+	return nil
+}
+
 func resolvePermissions(roles []model.Role, assigned []string) ([]string, []string, error) {
 	byID := make(map[string]model.Role, len(roles))
 	for _, role := range roles {

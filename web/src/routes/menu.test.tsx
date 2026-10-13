@@ -11,3 +11,13 @@ describe("B5 navigation gate", () => {
     expect(menuRoutesForFeatures(true).find((route) => route.key === "b5-operations")?.path).toBe("/b5-operations");
   });
 });
+
+describe("governance navigation", () => {
+  it("shows only the governance pages granted by the current principal", () => {
+    const routes = menuRoutesForFeatures(false, ["user.manage", "role.manage"]);
+    expect(routes.map((route) => route.key)).toContain("users");
+    expect(routes.map((route) => route.key)).toContain("roles");
+    expect(routes.map((route) => route.key)).not.toContain("tenants");
+    expect(menuRoutesForFeatures(false).map((route) => route.key)).not.toContain("users");
+  });
+});

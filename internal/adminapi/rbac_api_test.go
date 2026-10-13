@@ -57,6 +57,48 @@ func TestRBACAPICrossTenantAndBusinessResourceIsolation(t *testing.T) {
 	require.Contains(t, body, `"list":[]`)
 }
 
+func TestRBACAPICannotDelegatePermissionsCallerDoesNotHold(t *testing.T) {
+	fixture := newAdminFixture(t)
+	status, body := fixture.request(http.MethodPost, "/api/v1/roles", fixture.adminToken,
+		`{"name":"limited-manager","permissions":["user.manage","role.manage"]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	managerRole := responseString(t, body, "id")
+	status, body = fixture.request(http.MethodPost, "/api/v1/users", fixture.adminToken,
+		`{"username":"limited-manager","display_name":"Limited","password":"correct horse battery staple","role_ids":["`+managerRole+`"]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	managerID := responseString(t, body, "id")
+	status, body = fixture.request(http.MethodPost, "/api/v1/auth/login", "",
+		`{"username":"limited-manager","password":"correct horse battery staple"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	token := "Bearer " + responseString(t, body, "token")
+
+	status, body = fixture.request(http.MethodPut, "/api/v1/users/"+managerID+"/roles", token,
+		`{"role_ids":["role_default_admin"]}`)
+	require.Equal(t, http.StatusConflict, status, body)
+	status, body = fixture.request(http.MethodPost, "/api/v1/users", token,
+		`{"username":"escalated-user","display_name":"Escalated","password":"correct horse battery staple","role_ids":["role_default_admin"]}`)
+	require.Equal(t, http.StatusForbidden, status, body)
+	status, body = fixture.request(http.MethodPut, "/api/v1/users/user_bootstrap_admin", token,
+		`{"password":"another strong password"}`)
+	require.Equal(t, http.StatusForbidden, status, body)
+	status, body = fixture.request(http.MethodDelete, "/api/v1/users/user_bootstrap_admin", token, "")
+	require.Equal(t, http.StatusForbidden, status, body)
+	status, body = fixture.request(http.MethodPost, "/api/v1/roles", token,
+		`{"name":"escalated","permissions":["tenant.manage"]}`)
+	require.Equal(t, http.StatusForbidden, status, body)
+	status, body = fixture.request(http.MethodPost, "/api/v1/roles", token,
+		`{"name":"inherited-escalation","parent_role_ids":["role_default_admin"]}`)
+	require.Equal(t, http.StatusForbidden, status, body)
+
+	status, body = fixture.request(http.MethodPost, "/api/v1/roles", token,
+		`{"name":"delegated","permissions":["user.manage"]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	delegatedRole := responseString(t, body, "id")
+	status, body = fixture.request(http.MethodPost, "/api/v1/users", token,
+		`{"username":"delegatee","display_name":"Delegatee","password":"correct horse battery staple","role_ids":["`+delegatedRole+`"]}`)
+	require.Equal(t, http.StatusOK, status, body)
+}
+
 func responseString(t *testing.T, body, key string) string {
 	t.Helper()
 	var response struct {

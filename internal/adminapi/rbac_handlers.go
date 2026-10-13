@@ -85,6 +85,12 @@ func (handler *Handler) usersCreate(writer http.ResponseWriter, request *http.Re
 	if !ok {
 		return
 	}
+	if input.RoleIDs != nil {
+		if err := handler.rbac.CanDelegateRoles(request.Context(), principal, tenantID, *input.RoleIDs); err != nil {
+			handler.fail(writer, http.StatusForbidden, "role assignment exceeds current permissions")
+			return
+		}
+	}
 	provider := input.AuthProvider
 	if provider == "" {
 		provider = "local"
@@ -163,10 +169,24 @@ func (handler *Handler) usersUpdate(writer http.ResponseWriter, request *http.Re
 	if !ok {
 		return
 	}
+	if input.RoleIDs != nil {
+		if err := handler.rbac.CanDelegateRoles(request.Context(), principal, tenantID, *input.RoleIDs); err != nil {
+			handler.fail(writer, http.StatusForbidden, "role assignment exceeds current permissions")
+			return
+		}
+	}
 	repository := handler.deps.Runtime.Store.RBAC()
 	item, err := repository.GetUser(request.Context(), tenantID, request.PathValue("id"))
 	if err != nil {
 		handler.notFound(writer)
+		return
+	}
+	if err := handler.rbac.CanManageUser(request.Context(), principal, tenantID, item.ID); err != nil {
+		handler.fail(writer, http.StatusForbidden, "target user exceeds current permissions")
+		return
+	}
+	if item.ID == principal.UserID && (input.RoleIDs != nil || (input.Status != "" && input.Status != "active")) {
+		handler.fail(writer, http.StatusConflict, "cannot change own roles or disable current user")
 		return
 	}
 	if input.Username != "" {
@@ -226,6 +246,18 @@ func (handler *Handler) usersSetRoles(writer http.ResponseWriter, request *http.
 	if !ok {
 		return
 	}
+	if request.PathValue("id") == principal.UserID {
+		handler.fail(writer, http.StatusConflict, "cannot change own roles")
+		return
+	}
+	if err := handler.rbac.CanManageUser(request.Context(), principal, tenantID, request.PathValue("id")); err != nil {
+		handler.fail(writer, http.StatusForbidden, "target user exceeds current permissions")
+		return
+	}
+	if err := handler.rbac.CanDelegateRoles(request.Context(), principal, tenantID, input.RoleIDs); err != nil {
+		handler.fail(writer, http.StatusForbidden, "role assignment exceeds current permissions")
+		return
+	}
 	if err := handler.deps.Runtime.Store.RBAC().SetUserRoles(request.Context(), tenantID, request.PathValue("id"), input.RoleIDs); err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid role assignment")
 		return
@@ -241,6 +273,10 @@ func (handler *Handler) usersDelete(writer http.ResponseWriter, request *http.Re
 	}
 	if request.PathValue("id") == principal.UserID {
 		handler.fail(writer, http.StatusConflict, "cannot delete the current user")
+		return
+	}
+	if err := handler.rbac.CanManageUser(request.Context(), principal, tenantID, request.PathValue("id")); err != nil {
+		handler.fail(writer, http.StatusForbidden, "target user exceeds current permissions")
 		return
 	}
 	if err := handler.deps.Runtime.Store.RBAC().DeleteUser(request.Context(), tenantID, request.PathValue("id")); err != nil {
@@ -295,10 +331,15 @@ func (handler *Handler) rolesCreate(writer http.ResponseWriter, request *http.Re
 		handler.fail(writer, http.StatusUnprocessableEntity, "role name is required")
 		return
 	}
-	item, err := handler.deps.Runtime.Store.RBAC().CreateRole(request.Context(), model.Role{
+	candidate := model.Role{
 		ID: rbac.NewID("role"), TenantID: tenantID, Name: input.Name, Description: input.Description,
 		Permissions: input.Permissions, ParentIDs: input.ParentIDs,
-	})
+	}
+	if err := handler.rbac.CanDelegateRole(request.Context(), principal, candidate); err != nil {
+		handler.fail(writer, http.StatusForbidden, "role permissions exceed current permissions")
+		return
+	}
+	item, err := handler.deps.Runtime.Store.RBAC().CreateRole(request.Context(), candidate)
 	if err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid role, permission, or parent role")
 		return
@@ -337,10 +378,22 @@ func (handler *Handler) rolesUpdate(writer http.ResponseWriter, request *http.Re
 		handler.notFound(writer)
 		return
 	}
+	if item.Builtin {
+		handler.fail(writer, http.StatusConflict, "built-in role is immutable")
+		return
+	}
+	if err := handler.rbac.CanDelegateRole(request.Context(), principal, item); err != nil {
+		handler.fail(writer, http.StatusForbidden, "target role exceeds current permissions")
+		return
+	}
 	if input.Name != "" {
 		item.Name = input.Name
 	}
 	item.Description, item.Permissions, item.ParentIDs = input.Description, input.Permissions, input.ParentIDs
+	if err := handler.rbac.CanDelegateRole(request.Context(), principal, item); err != nil {
+		handler.fail(writer, http.StatusForbidden, "role permissions exceed current permissions")
+		return
+	}
 	item, err = repository.UpdateRole(request.Context(), item)
 	if err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid role, permission, or parent role")
@@ -363,6 +416,24 @@ func (handler *Handler) rolesSetPermissions(writer http.ResponseWriter, request 
 	if !ok {
 		return
 	}
+	role, err := handler.deps.Runtime.Store.RBAC().GetRole(request.Context(), tenantID, request.PathValue("id"))
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	if role.Builtin {
+		handler.fail(writer, http.StatusConflict, "built-in role is immutable")
+		return
+	}
+	if err := handler.rbac.CanDelegateRole(request.Context(), principal, role); err != nil {
+		handler.fail(writer, http.StatusForbidden, "target role exceeds current permissions")
+		return
+	}
+	role.Permissions = input.Permissions
+	if err := handler.rbac.CanDelegateRole(request.Context(), principal, role); err != nil {
+		handler.fail(writer, http.StatusForbidden, "role permissions exceed current permissions")
+		return
+	}
 	if err := handler.deps.Runtime.Store.RBAC().SetRolePermissions(request.Context(), tenantID, request.PathValue("id"), input.Permissions); err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid permission assignment")
 		return
@@ -374,6 +445,15 @@ func (handler *Handler) rolesDelete(writer http.ResponseWriter, request *http.Re
 	principal, _ := requestPrincipal(request)
 	tenantID, ok := handler.targetTenant(writer, principal, request.URL.Query().Get("tenant_id"))
 	if !ok {
+		return
+	}
+	role, err := handler.deps.Runtime.Store.RBAC().GetRole(request.Context(), tenantID, request.PathValue("id"))
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	if err := handler.rbac.CanDelegateRole(request.Context(), principal, role); err != nil {
+		handler.fail(writer, http.StatusForbidden, "target role exceeds current permissions")
 		return
 	}
 	if err := handler.deps.Runtime.Store.RBAC().DeleteRole(request.Context(), tenantID, request.PathValue("id")); err != nil {
@@ -459,6 +539,10 @@ func (handler *Handler) tenantsUpdate(writer http.ResponseWriter, request *http.
 	}
 	if decodeJSON(writer, request, &input) != nil {
 		handler.fail(writer, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if input.Status != "" && input.Status != "active" && id == principal.TenantID {
+		handler.fail(writer, http.StatusConflict, "cannot disable current tenant")
 		return
 	}
 	repository := handler.deps.Runtime.Store.RBAC()

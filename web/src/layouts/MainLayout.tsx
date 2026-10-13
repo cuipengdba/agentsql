@@ -12,7 +12,7 @@ import type { MenuProps } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { logout as logoutRequest } from "@/api/auth";
+import { logout as logoutRequest, me } from "@/api/auth";
 import { getB5Status } from "@/api/b5";
 import { menuRoutes, menuRoutesForFeatures } from "@/routes/menu";
 import { useAuthStore } from "@/store/authStore";
@@ -25,6 +25,8 @@ export function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [bannerVisible, setBannerVisible] = useState(true);
   const [b5Enabled, setB5Enabled] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [bootstrapAdmin, setBootstrapAdmin] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const username = useAuthStore((state) => state.username);
@@ -41,7 +43,7 @@ export function MainLayout() {
       ? <span className="demo-menu-label"><span>{label}</span><Tag color="processing">Live Demo</Tag></span>
       : label,
   });
-  const visibleRoutes = menuRoutesForFeatures(b5Enabled);
+  const visibleRoutes = menuRoutesForFeatures(b5Enabled, permissions).filter((route) => route.key !== "tenants" || bootstrapAdmin);
   const primaryRoutes = visibleRoutes.filter((route) => route.group !== "settings");
   const settingsRoutes = visibleRoutes.filter((route) => route.group === "settings");
   const menuItems: MenuProps["items"] = [
@@ -59,6 +61,16 @@ export function MainLayout() {
       .then((status) => setB5Enabled(status.enabled))
       .catch(() => setB5Enabled(false));
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void me().then((principal) => {
+      if (!active) return;
+      setPermissions(principal.permissions || []);
+      setBootstrapAdmin(principal.id === "user_bootstrap_admin" && principal.tenant_id === "tenant_default" && principal.permissions.includes("tenant.manage"));
+    }).catch(() => { if (active) { setPermissions([]); setBootstrapAdmin(false); } });
+    return () => { active = false; };
   }, []);
 
   const handleLogout = async () => {

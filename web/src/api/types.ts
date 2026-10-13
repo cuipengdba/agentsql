@@ -40,6 +40,10 @@ export interface HumanAuthConfig {
 
 export interface AdminView {
   username: string;
+  permissions: string[];
+  tenant_id: string;
+  id: string;
+  roles: string[];
 }
 
 export interface AgentView {
