@@ -21,6 +21,97 @@ func (legacyProtocolTransport) SupportsProtocolVersion(version string) bool {
 	return version == legacyMCPProtocolVersion
 }
 
+// MCP stdio uses newline-delimited JSON. Bound and validate each complete
+// message before allowing the SDK decoder to see any attacker-controlled bytes.
+type boundedJSONLineReader struct {
+	reader   *bufio.Reader
+	closer   io.Closer
+	limit    int
+	pending  []byte
+	terminal error
+}
+
+func newBoundedJSONLineReader(reader io.ReadCloser, limit int) *boundedJSONLineReader {
+	if limit <= 0 || limit > authorizedexecute.DefaultLimits.EnvelopeBytes {
+		limit = authorizedexecute.DefaultLimits.EnvelopeBytes
+	}
+	return &boundedJSONLineReader{reader: bufio.NewReaderSize(reader, min(limit, 64<<10)), closer: reader, limit: limit}
+}
+
+func (reader *boundedJSONLineReader) Read(destination []byte) (int, error) {
+	if len(reader.pending) == 0 && reader.terminal == nil {
+		var frame []byte
+		for {
+			fragment, err := reader.reader.ReadSlice('\n')
+			if len(frame)+len(fragment) > reader.limit {
+				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonFrameLimit}
+				break
+			}
+			frame = append(frame, fragment...)
+			if err == nil {
+				break
+			}
+			if err != bufio.ErrBufferFull {
+				reader.terminal = err
+				break
+			}
+		}
+		if reader.terminal == nil {
+			payload := frame[:len(frame)-1]
+			if len(payload) == 0 || bytes.ContainsAny(payload, "\r\n") || !json.Valid(payload) {
+				reader.terminal = &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonDatabaseFailure}
+			} else {
+				reader.pending = frame
+			}
+		}
+	}
+	if len(reader.pending) > 0 {
+		count := copy(destination, reader.pending)
+		reader.pending = reader.pending[count:]
+		return count, nil
+	}
+	if reader.terminal != nil {
+		err := reader.terminal
+		reader.terminal = io.EOF
+		return 0, err
+	}
+	return 0, io.EOF
+}
+
+func (reader *boundedJSONLineReader) Close() error { return reader.closer.Close() }
+
+type boundedJSONLineWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+	limit  int
+}
+
+func newBoundedJSONLineWriter(writer io.Writer, limit int) *boundedJSONLineWriter {
+	if limit <= 0 || limit > authorizedexecute.DefaultLimits.EnvelopeBytes {
+		limit = authorizedexecute.DefaultLimits.EnvelopeBytes
+	}
+	return &boundedJSONLineWriter{writer: writer, limit: limit}
+}
+
+func (writer *boundedJSONLineWriter) Write(frame []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if len(frame) == 0 || len(frame) > writer.limit || frame[len(frame)-1] != '\n' {
+		return 0, &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonEnvelopeLimit}
+	}
+	payload := frame[:len(frame)-1]
+	if len(payload) == 0 || bytes.ContainsAny(payload, "\r\n") || !json.Valid(payload) {
+		return 0, &authorizedexecute.AuthError{Reason: authorizedexecute.ReasonEnvelopeLimit}
+	}
+	written, err := writer.writer.Write(frame)
+	if err == nil && written != len(frame) {
+		err = io.ErrShortWrite
+	}
+	return written, err
+}
+
+func (*boundedJSONLineWriter) Close() error { return nil }
+
 type sealedLineReader struct {
 	reader   *bufio.Reader
 	closer   io.Closer

@@ -20,6 +20,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -682,8 +683,15 @@ func authMiddleware(authenticator identityAuthenticator, next http.Handler) http
 			writeHTTPError(writer, http.StatusUnauthorized, "unauthorized")
 			return
 		}
+		// The API key identifies the Agent's tenant. A caller-supplied tenant
+		// header or tool argument must never choose the repository scope.
+		tenantContext, tenantErr := store.WithTenant(request.Context(), agent.TenantID)
+		if tenantErr != nil {
+			writeHTTPError(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
 		identity := requestIdentity{agent: cloneAgent(agent), plainKey: plainKey}
-		ctx := context.WithValue(request.Context(), requestIdentityContextKey{}, identity)
+		ctx := context.WithValue(tenantContext, requestIdentityContextKey{}, identity)
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
 }

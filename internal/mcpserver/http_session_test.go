@@ -18,6 +18,28 @@ import (
 
 const mcpSessionIDHeader = "Mcp-Session-Id"
 
+func TestStreamableHTTPStatefulSessionAccepts2025NovemberHandshake(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	handler, err := NewHTTPHandler(fixture.runtime, statefulHTTPTestConfig(1_000), zerolog.Nop())
+	require.NoError(t, err)
+	initialize := strings.Replace(initializeRequest, `"protocolVersion":"2025-06-18"`, `"protocolVersion":"2025-11-25"`, 1)
+	request := newMCPRequest(fixture.handlers.apiKey, http.MethodPost, initialize, "")
+	request.Header.Set("MCP-Protocol-Version", "2025-11-25")
+	initialized := httptest.NewRecorder()
+	handler.ServeHTTP(initialized, request)
+	require.Equal(t, http.StatusOK, initialized.Code, initialized.Body.String())
+	require.Contains(t, initialized.Body.String(), `"protocolVersion":"2025-11-25"`)
+	sessionID := initialized.Header().Get(mcpSessionIDHeader)
+	require.NotEmpty(t, sessionID)
+
+	request = newMCPRequest(fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
+	request.Header.Set("MCP-Protocol-Version", "2025-11-25")
+	listed := httptest.NewRecorder()
+	handler.ServeHTTP(listed, request)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	require.Contains(t, listed.Body.String(), `"list_datasources"`)
+}
+
 func TestStreamableHTTPStatefulSessionLifecycleAndTenantBinding(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	handler, _, err := newHTTPHandlerWithRegistry(fixture.runtime, statefulHTTPTestConfig(1_000), zerolog.Nop())

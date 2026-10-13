@@ -1,8 +1,8 @@
 # AgentSQL 使用手册
 
-> 发布状态：本文对应已发布的 AgentSQL v0.5.0。一键安装资产与 `ghcr.io/cuipengdba/agentsql:v0.5.0` 镜像已可用。源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文对应 AgentSQL v0.5.1。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台真实菜单顺序说明 AgentSQL v0.5.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台真实菜单顺序说明 AgentSQL v0.5.1 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 ## 1. 总览 `/`
 
@@ -157,7 +157,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ### YashanDB 客户端配置
 
-崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。批七十一没有重建或验证 v0.5.0 tarball/GHCR 镜像，因此当前可复现路径是用户自行取得独立 YashanDB C 客户端 23.4.7.100，构建时使用 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动 v1.4.4。详见 [部署指南](DEPLOY.md#方式三systemd)。
+崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。v0.5.1 Linux 发行包和 GHCR 镜像构建使用独立客户端 23.4.7.100，并校验匹配架构的 SHA-256；正式资产仍须通过双架构内容检查。自行从源码构建时，需取得同版客户端，使用 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动 v1.4.4，并配置客户端运行库目录。详见 [部署指南](DEPLOY.md#方式三systemd)。
 
 - 自行安装客户端后，在启动 AgentSQL 前设置客户端库目录，例如：
 
@@ -167,7 +167,7 @@ Agent 是调用 AgentSQL 的独立身份。
   ./agentsql serve -c ./deploy/systemd/config.yaml
   ```
 
-- 现有发行脚本设计了 tarball 的 `lib/yashandb` 与 GHCR 的 `/opt/yashandb-client/lib` 路径；须在最终重建和验收后才可认定发行物包含这些文件。
+- v0.5.1 Linux 发行包将客户端放在 `lib/yashandb`，安装器写入 `/usr/local/lib/agentsql/yashandb`；GHCR 镜像中的路径为 `/opt/yashandb-client/lib`。使用前应按正式资产的清单和签名核对文件与架构。
 
 客户端缺失或动态加载失败时，YashanDB 连接失败关闭；其他数据源的使用不依赖该客户端。标准 parser、通用规则与窄 SELECT 查询路径已接通；本机旧未发布 dry-run 包缓存的独立客户端通过本轮真库直连、参数绑定、最小权限 SELECT 与写入拒绝探针。另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计；HTTP/MCP、持久化审计和最小权限账号与流水线组合仍未测。写入、事务、EXPLAIN 和未知输出继续失败关闭。批三十历史真库记录仅证明当时的连接、元数据发现及普通 Query 拒绝行为，不能作为新查询路径通过证据。出现 `libyascli.so: cannot open shared object file` 时检查实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、独立客户端、服务器版本与 CPU 架构。
 
@@ -730,7 +730,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - `range` 只对 `number` / `date` 开放并在结果层输出字符串；同桶值仍可关联，不承诺 k-匿名，也不减少数据库读取或限制数据库侧按原值过滤、关联和分组。
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
-- 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；具体实测范围与未决项见 [v0.5.0 Release Notes](release-notes-v0.5.md)，不得视为完整方言支持或厂商认证。
+- 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；具体实测范围与未决项见 [v0.5.1 发布说明](release-notes-v0.5.1.md)及[v0.5.0 历史记录](release-notes-v0.5.md)，不得视为完整方言支持或厂商认证。
 - v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；GHCR tag 同时提供 linux/amd64 与 linux/arm64 multi-arch manifest。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。法规级 WORM、SIEM、HA、Kubernetes、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。
 ## 升级预检（只读）
 

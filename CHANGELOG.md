@@ -2,6 +2,25 @@
 
 本项目的重要变化记录于此，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [v0.5.1] - 2026-10-13
+
+### Added
+
+- HTTP MCP 明确接受 `2025-06-18` 与 `2025-11-25` 两个有状态握手版本；仍拒绝未审查的 `2026-07-28` 无会话协议和冲突版本声明。
+- 标准逐行 JSON stdio 成为默认传输，Claude Desktop 等标准客户端可直接使用；原长度前缀传输保留为显式 `--sealed-stdio` 兼容选项。
+- 补充 Claude Desktop 本地 HTTP 桥接和 Dify 自托管接入指南；使用 Claude Desktop 所需的 `mcp-remote` 桥接程序与 Dify 1.17.1 的实际 `MCPClient` 代码分别验证握手、工具发现和带 Agent Key 的工具调用。Dify 1.17.1 需静态配置 `MCP-Protocol-Version: 2025-06-18` 请求头。
+
+### Fixed
+
+- MCP HTTP 与 stdio 的 Agent 身份在每次工具执行时绑定持久化租户；取消请求后的权威审计保留该租户上下文，避免落入默认租户。
+- CI 离线编译夹具预取所需模块，将构建和 govulncheck 所用 Go 版本统一到 `1.26.9`，并修正 govulncheck Action 参数。
+- 达梦与金仓实库验证脚本将 PowerShell 响应头数组中的 `Mcp-Session-Id` 转为单个字符串，避免首次工具调用误报会话不存在；达梦脚本在失败时清理自身创建的测试用户和表。
+
+### Verification
+
+- DM8 Pack3、`COMPATIBLE_MODE=0` 真库复验通过驱动参数绑定、只读账号拒写、HTTP MCP 受控 SELECT、列血缘、R010 越权拒绝、手机号脱敏、解析失败关闭与三条持久化审计；仅限所述合成场景。
+- KingbaseES V9R1C10 PG 模式真库复验通过许可证启动、CRUD/分页/标识符、pgx 参数绑定与 SCRAM、只读账号拒写、AgentSQL 受控 SELECT、列血缘、脱敏、R006 拒绝和允许/拒绝审计；仅限所述合成场景。
+
 ## [v0.5.0] - 2026-10-10
 
 > v0.5.0 已于 2026-10-10 正式发布（Release 非 draft、GHCR 全 public）。相对已发布 v0.4.0 的详细证据、资产状态和发布日闸门见 [v0.5.0 Release Notes](docs/release-notes-v0.5.md)。

@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Release v0.5.0](https://img.shields.io/badge/Release-v0.5.0-blue)
+![Release v0.5.1](https://img.shields.io/badge/Release-v0.5.1-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -11,7 +11,9 @@
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
-v0.5.0 已于 **2026-10-10** 正式发布。v0.5.0 代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
+v0.5.1 聚焦 MCP 客户端互通、租户隔离、发布工具链与达梦/金仓真库复验。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
+
+版本变化与验证边界见 [v0.5.1 发布说明](docs/release-notes-v0.5.1.md)。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -31,7 +33,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 
 ## 生态与兼容
 
-AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.5 正在推进主流国产数据库的兼容适配与生态合作。
+AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.5.1 的主流国产数据库指定实例与协议路径验证范围见下表。
 
 | 数据库 | 适配状态 | 说明 |
 | --- | --- | --- |
@@ -43,8 +45,8 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 | OceanBase | 适配中 | 执行计划（EXPLAIN）适配实现中 |
 | TDSQL | 适配中 | 开源版 OpenTenBase 适配中；商用版待实测 |
 | OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
-| 崖山数据库 YashanDB | 独立方言受控只读接线 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
-| 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：只读 SELECT、列血缘、R010 表策略、审计及手机号脱敏链路实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开 |
+| 崖山数据库 YashanDB | 🔵 受控只读 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
+| 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：v0.5.1 真库复验了 HTTP MCP 查询、列血缘、R010 表策略、手机号脱敏和持久化审计；R006 注释在解析阶段失败关闭，多行分页/JOIN/函数/系统目录未测，写入未放开 |
 | PolarDB for PostgreSQL | 协议路径已实测 | 指定 PG 15 社区镜像复用 `db_type=postgres`；非商业服务认证 |
 | PolarDB-X | 旧官方镜像有界实测 | `2.0.1` 单容器复用 `db_type=mysql`，两阶段 EXPLAIN 已适配；当前完整拓扑与商业服务待终验 |
 
@@ -54,7 +56,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 
 > **HighGo 绿色边界：**仅限上述 9.0.10 企业版、PG 模式、单实例合成表用例；TLS、连接池故障切换、取消/超时、EXPLAIN、扩展类型/OID、系统目录差异、B2 列级授权、parse-error 审计分支（本轮未触发）、跨版本与生产负载未测。绿色不代表厂商认证或生产支持承诺。
 
-> **崖山客户端授权与运行：**已获厂家口头授权（C 客户端再分发），仓库无书面授权文件。服务器镜像内的库在既有 Go 驱动探针中返回 `YAS-02143`，本轮没有从服务器镜像打包；本机旧的未发布 dry-run 包内缓存了独立客户端 23.4.7.100，其直连真库参数绑定、只读账号 SELECT 与写入拒绝探针通过。用户可自行取得同版独立客户端，使用带 `yashan` 构建标签的 Go 驱动，并在启动前配置 `LD_LIBRARY_PATH`；缺少驱动或运行库时明确失败关闭。当前发行脚本的捆绑方案尚未在本轮重建或验收，详见 [YashanDB 驱动说明](docs/yashan-dialect.md#batch-71-integration)。
+> **崖山客户端授权与运行：**已获厂家口头授权（C 客户端再分发），仓库无书面授权文件。v0.5.1 的 Linux 发行包与 GHCR 镜像构建使用独立客户端 23.4.7.100，并校验匹配架构的 SHA-256；正式资产须通过双架构内容与运行库检查后发布。自行从源码构建时需取得同版客户端、启用 `yashan` 构建标签并配置 `LD_LIBRARY_PATH`；缺少驱动或运行库时明确失败关闭。既有真库验证限于独立客户端的参数绑定、只读 SELECT、写入拒绝及指定流水线场景，详见 [YashanDB 驱动说明](docs/yashan-dialect.md#batch-71-integration)。
 
 首批金仓 + 瀚高的证据边界、复现 SQL 与待厂商项见[联合案例验证记录](docs/joint-case-kingbase-highgo.md)；公众号与技术群文案见[社区运营口径](docs/joint-case-operations.md)。
 
@@ -72,12 +74,12 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v0.5.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v0.5.1 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v0.5.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v0.5.0-linux-amd64.tar.gz
-cd agentsql-v0.5.0-linux-amd64
+sha256sum -c agentsql-v0.5.1-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.5.1-linux-amd64.tar.gz
+cd agentsql-v0.5.1-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -89,17 +91,17 @@ sudo ./install.sh install
 curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.5.0 精确 tag 命令可直接使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.5.1 精确 tag 命令可直接使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.5.0
+docker pull ghcr.io/cuipengdba/agentsql:v0.5.1
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.5.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.5.1
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -149,7 +151,7 @@ docker compose --profile observability up -d --build
 源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。正式发布脚本固定 Go 1.26.8；若人工调用 Makefile 的 Docker 发布目标，须显式传 `GO_VERSION=1.26.8`，不能依赖其历史默认值 `1.25.14`。普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
-make build VERSION=v0.5.0
+make build VERSION=v0.5.1
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -238,42 +240,39 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v0.5.0 代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 另列为已验证的 PG 协议基础闭环，不计入 27 款。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；DM8 的绿色只针对下述指定实例与用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
+v0.5.1 代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 与瀚高 HighGo 另列为指定环境已验证的 PG 协议基础闭环，不计入 27 款；分类表共 29 行。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；达梦、金仓与瀚高的绿色仅限所述实例和用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
 
-### 关系型 Relational（6 款已注册 + 1 款额外验证）
-
-- 🟢 PostgreSQL 14–18；MySQL 8.0
-- 🟢 达梦 DM8（仅 Pack3、`COMPATIBLE_MODE=0` 指定链路；边界见下文）
-- 🔵 Oracle 23ai；崖山 YashanDB；SQL Server 2025
-- 🟢 金仓 KingbaseES V9（仅 V9R1C10、PG 模式、单实例合成表）：PG 协议只读受控基础闭环实测通过；证据与未测边界见上方[真库验证记录](docs/kingbase-v9-verification.md)。
-
-### 键值 KV
-
-- 🔷 Redis；Valkey（复用 Redis 适配）；Memcached
-
-### 文档 Document
-
-- 🔷 MongoDB；Couchbase；CouchDB
-
-### 宽列 Wide-Column
-
-- 🔷 Cassandra；ScyllaDB；HBase
-
-### 图 Graph
-
-- 🔷 Neo4j；JanusGraph；NebulaGraph
-
-### 时序 Time-Series
-
-- 🔷 InfluxDB；Prometheus；TimescaleDB
-
-### OLAP
-
-- 🔷 ClickHouse；Apache Doris；StarRocks
-
-### 向量 Vector
-
-- 🔷 Milvus；Qdrant；Weaviate
+| 类别 | 数据库 | 适配状态 | 边界说明 |
+| --- | --- | --- | --- |
+| 关系型 | PostgreSQL 14–18 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
+|  | MySQL 8.0 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
+|  | Oracle 23ai | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
+|  | 达梦 DM8 | 🟢 已适配 · 完整防护 | 仅限 Pack3、COMPATIBLE_MODE=0 指定链路 |
+|  | 崖山 YashanDB | 🔵 已适配 · 受控只读 | 标准 parser 接通，真库流水线通过 |
+|  | SQL Server 2025 | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
+|  | 金仓 KingbaseES V9（另列） | 🟢 已适配 · 完整防护 | V9R1C10 PG 模式基础闭环，不计入 27 |
+|  | 瀚高 HighGo（另列） | 🟢 已适配 · 完整防护 | HighGo 9.0.10 企业版 PG 模式、单实例合成表限定，不计入 27 |
+| 键值 | Redis | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Valkey | 🔷 已适配 · 连接级 | 复用 Redis 适配 |
+|  | Memcached | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+| 文档 | MongoDB | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Couchbase | 🔷 已适配 · 连接级 | 同口径 |
+|  | CouchDB | 🔷 已适配 · 连接级 | 同口径 |
+| 宽列 | Cassandra | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | ScyllaDB | 🔷 已适配 · 连接级 | 同口径 |
+|  | HBase | 🔷 已适配 · 连接级 | 同口径 |
+| 图 | Neo4j | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | JanusGraph | 🔷 已适配 · 连接级 | 同口径 |
+|  | NebulaGraph | 🔷 已适配 · 连接级 | 同口径 |
+| 时序 | InfluxDB | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Prometheus | 🔷 已适配 · 连接级 | 同口径 |
+|  | TimescaleDB | 🔷 已适配 · 连接级 | 同口径 |
+| OLAP | ClickHouse | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
+|  | Apache Doris | 🔷 已适配 · 连接级 | 同口径 |
+|  | StarRocks | 🔷 已适配 · 连接级 | 同口径 |
+| 向量 | Milvus | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览，不代表完整向量检索 |
+|  | Qdrant | 🔷 已适配 · 连接级 | 同口径 |
+|  | Weaviate | 🔷 已适配 · 连接级 | 同口径 |
 
 NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM8 指定实例的只读 SELECT、列血缘、R010、审计和手机号脱敏已通过；R006、多行分页、JOIN、函数和系统目录未验证，写入未放开。Oracle 仍限于既有有界证据。YashanDB 真库流水线测试已通过 SELECT、列血缘、R010、表列定向手机号脱敏及三条测试审计；该测试的认证、策略、审计存储端口为测试夹具，HTTP/MCP、持久化审计和最小权限账号与流水线的组合未测，见 [DM/Oracle 方言边界](docs/dm-oracle-dialect.md)及 [YashanDB 方言边界](docs/yashan-dialect.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
 
@@ -325,7 +324,7 @@ NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.5.0
+make build VERSION=v0.5.1
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

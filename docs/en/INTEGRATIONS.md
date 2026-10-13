@@ -2,7 +2,7 @@
 
 # AgentSQL MCP Integration Guide
 
-> Release status: This document applies to the released AgentSQL v0.5.0. The one-command assets and the `ghcr.io/cuipengdba/agentsql:v0.5.0` image are available. The source repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v0.5.1. Use the latest published [GitHub Release](https://github.com/cuipengdba/agentsql/releases) for installation assets and images. The source repository is `github.com/cuipengdba/agentsql`.
 
 This guide explains how to connect an MCP client to AgentSQL. See the [User Guide](../USER_GUIDE.md) for identity, authorization, rules, approval, and capability boundaries, and [Getting Started](GETTING_STARTED.md) for a first deployment. See the [Notification Guide](../NOTIFICATIONS.md) to forward decision events to Webhook endpoints, alert groups, or Syslog.
 
@@ -14,7 +14,7 @@ When AgentSQL is already running through the installer, systemd, or Compose, con
 
 - Endpoint: `http://127.0.0.1:7780/mcp`
 - Identity header: `Authorization: Bearer <Agent API Key>`
-- MCP protocol version: `2025-06-18`
+- MCP protocol version: `2025-06-18` or `2025-11-25` (both use the session handshake; `2026-07-28` is not yet supported)
 - `Accept`: `application/json, text/event-stream`
 - Mode: stateful by default (`initialize` returns `Mcp-Session-Id`), with an explicit stateless fallback
 - Resumption: legacy-protocol SSE events are persisted by default; reconnect with `GET /mcp` and `Last-Event-ID`. A TTL/capacity gap returns HTTP 400 without a partial suffix
@@ -130,7 +130,7 @@ Do not automatically retry `deny`, `warn`, or `approve` as if they were network 
 
 ## Claude Desktop Integration (stdio)
 
-Claude Desktop starts a local process from `mcpServers` in `claude_desktop_config.json`. Use an absolute path for the `agentsql` executable in `command` so differences between the desktop application’s and terminal’s `PATH` do not matter. Backslashes in Windows JSON paths must be written as `\\`.
+Claude Desktop starts a local process from `mcpServers` in `claude_desktop_config.json`. AgentSQL v0.5.1 uses standard newline-delimited JSON for stdio by default; the earlier length-prefixed format is available only with `--sealed-stdio`. The direct executable example below needs a compatible Linux binary and access to the control-plane store. Current release assets do not include a native Windows executable; use the HTTP bridge example below on Windows. Use absolute paths for executables and configuration.
 
 ```json
 {
@@ -148,6 +148,14 @@ Claude Desktop starts a local process from `mcpServers` in `claude_desktop_confi
 ```
 
 The repository CLI confirms these parameters: the subcommand is `mcp`, and the configuration option is `--config` (or `-c`). After saving the configuration and restarting Claude Desktop, the default configuration should expose seven base tools and eight B5 tools. If B5 is explicitly disabled, only the base tools appear. If they do not appear, confirm that the process launched by the desktop client can read the executable, configuration, and metadata/audit control-plane storage, and that it uses the same `AGENTSQL_SECRET` as the encrypted data source credentials.
+
+For Windows Claude Desktop, run the AgentSQL HTTP service locally (or through an SSH port forward) and use [`mcp-remote`](https://github.com/geelen/mcp-remote) as a local stdio-to-HTTP bridge. Configure the bridge with the `/mcp` URL, `--transport http-only`, and an `Authorization: Bearer <Agent API Key>` header. On Windows, put the bearer value in an environment variable and pass `Authorization:${AGENTSQL_AUTH_HEADER}` as the `--header` argument to avoid argument parsing problems. The bridge is an independent community tool, not an AgentSQL release asset. Claude Desktop itself must be signed in for UI verification; the repository's bridge protocol test does not claim a logged-in UI test.
+
+## Self-hosted Dify Integration (Streamable HTTP)
+
+In Dify's MCP tool configuration, set the server URL to `http://<AgentSQL address reachable from the Dify API container>:7780/mcp`. Set both `Authorization: Bearer <Agent API Key>` and `MCP-Protocol-Version: 2025-06-18` as static request headers. Dify 1.17.1 negotiates that version but does not automatically send its required header on later HTTP requests. Check tool discovery, then call `list_datasources` and an authorized read-only `query`. Dify's own `127.0.0.1` is not the host running AgentSQL.
+
+Self-hosted Dify's SSRF proxy blocks private destinations by default. If AgentSQL is on a controlled private network, allow only its exact address as a `/32` in `SSRF_PROXY_ALLOW_PRIVATE_IPS` and keep the AgentSQL listener private. A static header represents one Agent identity; per-user identities need a separate mapping design.
 
 ## Cursor Integration (stdio)
 

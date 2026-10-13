@@ -17,7 +17,9 @@ type protocolEnvelope struct {
 }
 
 // protocolVersionMiddleware is deliberately before the SDK. This prevents
-// go-sdk's unknown-legacy fallback from silently selecting 2025-11-25.
+// go-sdk's unknown-version fallback from silently selecting another revision.
+// Both reviewed handshake-era revisions retain transport sessions and the
+// authorization boundary enforced by the stateful HTTP handler.
 func protocolVersionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
@@ -52,20 +54,28 @@ func protocolVersionMiddleware(next http.Handler) http.Handler {
 		}
 		versions := request.Header.Values("MCP-Protocol-Version")
 		// The negotiated protocol version is carried in InitializeParams. The
-		// HTTP header is required only on subsequent requests by MCP 2025-06-18,
+		// HTTP header is required only on subsequent requests by the legacy era,
 		// and mainstream clients commonly omit it on the initialize POST.
-		if len(versions) > 1 || len(versions) == 1 && versions[0] != legacyMCPProtocolVersion || len(versions) == 0 && envelope.Method != "initialize" {
+		if len(versions) > 1 || len(versions) == 1 && !supportedHandshakeProtocolVersion(versions[0]) || len(versions) == 0 && envelope.Method != "initialize" {
 			writeProtocolRejection(writer, envelope.ID)
 			return
 		}
 		bodyVersion := envelope.Params.ProtocolVersion
 		metaVersion, _ := envelope.Params.Meta["protocolVersion"].(string)
-		if bodyVersion != "" && bodyVersion != legacyMCPProtocolVersion || metaVersion != "" && metaVersion != legacyMCPProtocolVersion || bodyVersion != "" && metaVersion != "" && bodyVersion != metaVersion {
+		if bodyVersion != "" && !supportedHandshakeProtocolVersion(bodyVersion) ||
+			metaVersion != "" && !supportedHandshakeProtocolVersion(metaVersion) ||
+			bodyVersion != "" && metaVersion != "" && bodyVersion != metaVersion ||
+			len(versions) == 1 && bodyVersion != "" && versions[0] != bodyVersion ||
+			len(versions) == 1 && metaVersion != "" && versions[0] != metaVersion {
 			writeProtocolRejection(writer, envelope.ID)
 			return
 		}
 		next.ServeHTTP(writer, request)
 	})
+}
+
+func supportedHandshakeProtocolVersion(version string) bool {
+	return version == legacyMCPProtocolVersion || version == "2025-11-25"
 }
 
 func writeProtocolRejection(writer http.ResponseWriter, id json.RawMessage) {

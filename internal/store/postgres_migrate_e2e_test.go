@@ -136,8 +136,8 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Same(t, opened.auditDB, opened.AuditLogs().db)
 
 	require.Equal(t, []string{
-		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules", "notification_channels",
-		"mcp_stream_event_cursors", "mcp_stream_events", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "schema_migrations", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
+		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
+		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "schema_migrations", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
 	}, postgresTableNames(t, ctx, opened.metaDB))
 	require.Equal(t, []string{"audit_logs", "chain_state", "chain_verification", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
@@ -147,7 +147,7 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	assertPostgresMaskRuleRangeColumns(t, ctx, opened.metaDB)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
-	require.Equal(t, 5, auditCurrent)
+	require.Equal(t, 6, auditCurrent)
 	require.Equal(t, 6, auditLatest)
 	assertPostgresAuditErrorCodeColumn(t, ctx, opened.auditDB)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
@@ -156,13 +156,15 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Equal(t, completeNotificationConfig(), storedNotifications)
 	require.Equal(t, []string{
 		"idx_admin_access_revocations_expiry", "idx_admin_refresh_families_expiry", "idx_admin_refresh_tokens_family",
-		"idx_agents_keyhash", "idx_approvals_status", "idx_auth_challenges_expiry", "idx_auth_identities_user", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_sessions_owner", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_tx_events_audit", "idx_policies_agent_ds",
+		"idx_agents_keyhash", "idx_agents_tenant", "idx_approvals_status", "idx_approvals_tenant", "idx_auth_challenges_expiry", "idx_auth_identities_user", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_dml_grants_tenant", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_result_receipts_tenant", "idx_b5_sessions_owner", "idx_b5_sessions_tenant", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_transactions_tenant", "idx_b5_tx_events_audit", "idx_b5_tx_events_tenant",
+		"idx_chain_state_tenant", "idx_chain_verification_tenant", "idx_datasources_tenant", "idx_management_audit_outbox_tenant", "idx_mask_rules_tenant",
 		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
-		"idx_oidc_requests_expiry", "idx_policy_column_permissions_policy", "idx_relation_policy_bindings_datasource", "idx_role_permissions_role", "idx_roles_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
+		"idx_notification_channels_tenant", "idx_notification_settings_tenant", "idx_oidc_requests_expiry", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
 		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active",
 	}, postgresNamedIndexes(t, ctx, opened.metaDB))
 	require.Equal(t, []string{
-		"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts",
+		"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_logs_tenant", "idx_audit_ts",
+		"idx_chain_state_tenant", "idx_chain_verification_tenant",
 		"ux_audit_logs_event_uuid",
 	}, postgresNamedIndexes(t, ctx, opened.auditDB))
 	require.Equal(t, []string{
@@ -201,13 +203,13 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 
 	auditDatabase, err := sql.Open("pgx", auditDSN)
 	require.NoError(t, err)
-	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=6 WHERE version=5")
+	_, err = auditDatabase.ExecContext(ctx, "UPDATE schema_migrations SET version=7 WHERE version=6")
 	require.NoError(t, err)
 	require.NoError(t, auditDatabase.Close())
 	options.AutoMigrate = false
 	options.Audit.AutoMigrate = false
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=6 latest=5")
+	require.ErrorContains(t, err, "current=7 latest=6")
 }
 
 func TestPostgres18IndependentMetadataAndAuditOpenE2E(t *testing.T) {
@@ -716,7 +718,7 @@ ORDER BY ordinal_position`)
 	require.Equal(t, []string{
 		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
 		"created_at", "updated_at", "enabled", "range_bucket_width", "range_bucket_offset",
-		"range_granularity", "schema_name",
+		"range_granularity", "schema_name", "tenant_id",
 	}, scanSingleStringColumn(t, rows))
 
 	rows, err = database.QueryContext(ctx, `

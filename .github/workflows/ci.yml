@@ -1,0 +1,79 @@
+# For security, pin third-party actions to verified commit SHAs in a future change.
+# Major-version tags are used here because their SHAs cannot be verified offline.
+name: CI
+
+on:
+  push:
+    branches: [main, feature/v0.4]
+  pull_request:
+    branches: [main, feature/v0.4]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    # The -tags=yashan build requires the vendor C client (CGO), which GitHub runners lack.
+    # The offline release gate covers that build and fails closed if the client is missing.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+          cache: true
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build ./...
+      - name: Prepare offline compiler fixture
+        # capability_test.go compiles a replacement module with GOPROXY=off.
+        # Download the complete root module graph, including transitive
+        # go.mod files that build/vet do not otherwise cache.
+        run: go mod download
+      - name: Test all packages (short)
+        env:
+          GOMAXPROCS: '2'
+        run: go test -short -p 1 -timeout 20m ./... -count=1
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: '1.26.9'
+          repo-checkout: true

@@ -2,6 +2,7 @@ package businessdb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,8 +15,6 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/auth"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestWeaviateOptionsAndPolicy(t *testing.T) {
@@ -23,8 +22,8 @@ func TestWeaviateOptionsAndPolicy(t *testing.T) {
 	if err != nil || cfg.Host != "localhost:8080" || cfg.Scheme != "http" {
 		t.Fatalf("config %+v %v", cfg, err)
 	}
-	if a, ok := cfg.AuthConfig.(auth.ApiKey); !ok || a.Value != "key" {
-		t.Fatalf("API key config: %+v", cfg.AuthConfig)
+	if cfg.APIKey != "key" {
+		t.Fatalf("API key config: %+v", cfg.APIKey)
 	}
 	for _, c := range []string{"SEARCH", "GET", "DESCRIBE", "STATUS", "HEALTH"} {
 		if err := weaviateCommandAllowed(c, true); err != nil {
@@ -113,6 +112,58 @@ func TestWeaviateHTTPAdapter(t *testing.T) {
 		}
 	}
 }
+func TestWeaviateGraphQLValueEscaping(t *testing.T) {
+	queries := make(chan string, 2)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer key" {
+			t.Errorf("authorization header %q", got)
+		}
+		switch r.URL.Path {
+		case "/v1/.well-known/live":
+			w.WriteHeader(http.StatusOK)
+		case "/v1/schema/Things":
+			fmt.Fprint(w, `{"class":"Things","properties":[{"name":"name","dataType":["text"]}]}`)
+		case "/v1/graphql":
+			if r.Method != http.MethodPost {
+				t.Errorf("GraphQL method %s", r.Method)
+			}
+			var body struct {
+				Query string `json:"query"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("GraphQL body: %v", err)
+			}
+			queries <- body.Query
+			fmt.Fprint(w, `{"data":{"Get":{"Things":[]}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer s.Close()
+	host, port, err := splitTestHostPort(strings.TrimPrefix(s.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewWeaviateExecutor(model.Datasource{DBType: "weaviate", Host: host, Port: port}, "key", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := "a\"b\\c"
+	for _, tc := range []struct {
+		req  NativeQueryRequest
+		want string
+	}{
+		{NativeQueryRequest{Namespace: "Things", Command: "GET", Args: []string{"name", value, "1"}}, "valueText:" + strconv.Quote(value)},
+		{NativeQueryRequest{Namespace: "Things", Command: "SEARCH", Args: []string{"nearText", value, "1"}}, "concepts:[" + strconv.Quote(value) + "]"},
+	} {
+		if _, err := e.NativeQuery(context.Background(), tc.req); err != nil {
+			t.Fatal(err)
+		}
+		if query := <-queries; !strings.Contains(query, tc.want) {
+			t.Errorf("GraphQL query %q does not contain %q", query, tc.want)
+		}
+	}
+}
 func splitTestHostPort(s string) (string, int, error) {
 	h, p, err := net.SplitHostPort(s)
 	if err != nil {
@@ -164,10 +215,10 @@ func TestWeaviateContainer(t *testing.T) {
 		t.Fatalf("version %q %v", v, err)
 	}
 	t.Logf("semitechnologies/weaviate:1.27.0 server %s", v)
-	if err := e.client.Schema().ClassCreator().WithClass(&models.Class{Class: "Batch57", Vectorizer: "none", Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}}}).Do(ctx); err != nil {
+	if _, _, err := e.do(ctx, http.MethodPost, "/v1/schema", map[string]any{"class": "Batch57", "vectorizer": "none", "properties": []map[string]any{{"name": "name", "dataType": []string{"text"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.client.Data().Creator().WithClassName("Batch57").WithProperties(map[string]any{"name": "one"}).WithVector([]float32{1, 0, 0}).Do(ctx); err != nil {
+	if _, _, err := e.do(ctx, http.MethodPost, "/v1/objects", map[string]any{"class": "Batch57", "properties": map[string]any{"name": "one"}, "vector": []float32{1, 0, 0}}); err != nil {
 		t.Fatal(err)
 	}
 	cat, err := e.Discover(ctx)
