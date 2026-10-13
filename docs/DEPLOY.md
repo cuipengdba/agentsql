@@ -319,12 +319,12 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。现有发行脚本计划在 tarball 中放入匹配架构的 YashanDB C 客户端并安装到 `/usr/local/lib/agentsql/yashandb`；批七十一没有重建或验收当前发行包。
+安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。v0.5.1 发行包构建放入匹配架构、经 SHA-256 校验的独立 YashanDB C 客户端，安装器将其放到 `/usr/local/lib/agentsql/yashandb`；正式资产还须通过包内内容检查。
 
 常用生命周期命令：
 
 ```bash
-sudo ./install.sh install --version v0.5.0
+sudo ./install.sh install --version v0.5.1
 sudo ./install.sh upgrade --version v0.5.1
 sudo ./install.sh uninstall
 sudo ./install.sh uninstall --purge --yes
@@ -335,7 +335,7 @@ sudo ./install.sh uninstall --purge --yes
 离线安装可把已解压包目录传给 `--from`，或传入 tarball；传 tarball 时同目录必须有 `<tarball>.sha256`。从发布包根执行 `sudo ./install.sh install` 会自动使用当前已校验的包，不访问网络：
 
 ```bash
-sudo ./install.sh install --from /srv/releases/agentsql-v0.5.0-linux-amd64
+sudo ./install.sh install --from /srv/releases/agentsql-v0.5.1-linux-amd64
 sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.5.1-linux-amd64.tar.gz
 ```
 
@@ -344,14 +344,14 @@ sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.5.1-linux-amd64.tar.g
 下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-<amd64|arm64>.tar.gz[.sha256]` 提供同源文件，安装器按本机架构选择。建议同时明确 `--version`，例如：
 
 ```bash
-sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.5.0
+sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.5.1
 ```
 
 安装器若发现 `restorecon` 会恢复二进制、unit、配置和数据目录的 SELinux 默认上下文，不调用 `chcon`、不关闭 enforcing；遇到拒绝时用 `ausearch -m AVC` 调查。发布 tarball 的许可证位于包根 `LICENSE`，容器镜像内位于 `/usr/share/licenses/agentsql/LICENSE`。
 
 ## 方式三：systemd
 
-以下以已解压的 v0.5.0 Linux 发行包根目录为工作目录，安装二进制及服务文件：
+以下以已解压的 v0.5.1 Linux 发行包根目录为工作目录，安装二进制及服务文件：
 
 ```bash
 sudo useradd --system --user-group --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql
@@ -364,9 +364,9 @@ sudo install -o root -g agentsql -m 0640 deploy/systemd/config.yaml /etc/agentsq
 
 如果系统已经存在 `agentsql` 用户，跳过 `useradd`。systemd 专用配置模板已固定仅监听 `127.0.0.1:7780`，并将 SQLite 数据写入 `/var/lib/agentsql/agentsql.db`，无需再手工修改 `sqlite_path`。裸机默认只监听 `127.0.0.1`；如需远程访问，应使用 SSH 本地转发或受控反向代理（TLS/鉴权），不要直接把 `http_listen` 改成 `0.0.0.0` 暴露公网。
 
-崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。批七十一未重建 v0.5.0 发行物，不能据源码中的打包脚本推断当前 tarball 已携带客户端。本轮可复现路径是用户自行取得独立 YashanDB C 客户端 23.4.7.100，使用 `CGO_ENABLED=1`、`-tags yashan` 编入 Go 驱动，并在启动 AgentSQL 前将客户端 `lib` 目录加入 `LD_LIBRARY_PATH`。服务器镜像内的 C 库在历史 Go 驱动探针中返回 `YAS-02143`，不作为发行运行库。
+崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。v0.5.1 发行包构建使用独立 YashanDB C 客户端 23.4.7.100，以 SHA-256 校验后按架构打包；自行从源码构建时需取得同版客户端，使用 `CGO_ENABLED=1`、`-tags yashan` 编入 Go 驱动，并在启动前将客户端 `lib` 目录加入 `LD_LIBRARY_PATH`。服务器镜像内的 C 库在历史 Go 驱动探针中返回 `YAS-02143`，不作为发行运行库。
 
-未来若按现有打包脚本重建并验证 GHCR 镜像，预设客户端目录为 `/opt/yashandb-client/lib`；本轮未执行该发行验收。Go 驱动或客户端缺失时，YashanDB 连接失败关闭。标准 parser 与窄 SELECT 路径已完成接线；本机旧未发布 dry-run 包缓存的独立客户端通过直连真库参数绑定及只读账号写入拒绝探针。另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计；HTTP/MCP、持久化审计和最小权限账号与流水线组合仍未测，写入、事务与 EXPLAIN 仍失败关闭。
+v0.5.1 GHCR 镜像构建使用的客户端目录为 `/opt/yashandb-client/lib`，最终以公开镜像的双架构内容验收为准。Go 驱动或客户端缺失时，YashanDB 连接失败关闭。标准 parser 与窄 SELECT 路径已完成接线；旧未发布 dry-run 包内的独立客户端通过直连真库参数绑定及只读账号写入拒绝探针。另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计；HTTP/MCP、持久化审计和最小权限账号与流水线组合仍未测，写入、事务与 EXPLAIN 仍失败关闭。
 
 创建仅 root 可读的环境文件：
 
@@ -849,27 +849,27 @@ COMMIT;
 
 ## 发布与分发
 
-发布者应按以下顺序构建、验证并分发同一版本。完整命令、凭据和验收点见 [`release-day-checklist-v0.5.md`](release-day-checklist-v0.5.md)。正式发布必须使用 `scripts/release-dryrun.ps1` 已固定并审核的 Rocky Linux 与 Syft digest；禁止把未固定的 `rockylinux:8` 默认值用于正式产物：
+发布者应按以下顺序构建、验证并分发同一版本。v0.5.0 的详细签名与验收方法见[历史发布日清单](release-day-checklist-v0.5.md)；v0.5.1 的范围见[发布说明](release-notes-v0.5.1.md)。正式发布必须使用 `scripts/release-dryrun.ps1` 已固定并审核的 Rocky Linux 与 Syft digest；禁止把未固定的 `rockylinux:8` 默认值用于正式产物：
 
 ```powershell
 # 无私钥、无 push 的完整双架构预演：15 个不可发布 dry-run 资产 + 三个 OCI 证据
-pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0
+pwsh ./scripts/release-dryrun.ps1 -Version v0.5.1
 
 # 发布日：由正式公钥生成 11 个待签名生产候选；随后按发布日清单签名并组成 15 项
-pwsh ./scripts/release-dryrun.ps1 -Version v0.5.0 -ProductionPrepare -PublicKeyPath X:\secure\ed25519-release-public-key-v0.5.0.json
+pwsh ./scripts/release-dryrun.ps1 -Version v0.5.1 -ProductionPrepare -PublicKeyPath X:\secure\ed25519-release-public-key-v0.5.0.json
 
 # 负责人取得 write:packages 后，只推精确版本和辅助 tag，不移动 latest
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0 -IncludeAuxiliaryTags -Push
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.1 -IncludeAuxiliaryTags -Push
 
 # 精确 tag 完成 public + 匿名双架构验收后，才单独移动 latest
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.0 -PromoteLatest
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.5.1 -PromoteLatest
 ```
 
-多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.5.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag 并请求把 GHCR package 设为 public；推送前负责人必须在其设备执行 `gh auth refresh -h github.com -s write:packages`。`latest` 只能由独立的 `-PromoteLatest` 在精确 tag 验收后移动。之后必须按顺序完成：
+多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.5.1-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag 并检查 GHCR package 是否为 public；推送前须具备 `write:packages` 权限。`latest` 只能由独立的 `-PromoteLatest` 在精确 tag 验收后移动。之后必须按顺序完成：
 
-1. 核对 GHCR 中 `v0.5.0`、`v0.5.0-demo`、`v0.5.0-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
-2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.5.0`；两边均以回环端口启动，验证 `/healthz` 返回 `v0.5.0` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。
-3. 只有第 1–2 步通过后才执行 `-PromoteLatest`，并核对 `latest` 与 `v0.5.0` 顶层 digest 相同；随后再做一次匿名 pull。
+1. 核对 GHCR 中 `v0.5.1`、`v0.5.1-demo`、`v0.5.1-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
+2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.5.1`；两边均以回环端口启动，验证 `/healthz` 返回 `v0.5.1` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。
+3. 只有第 1–2 步通过后才执行 `-PromoteLatest`，并核对 `latest` 与 `v0.5.1` 顶层 digest 相同；随后再做一次匿名 pull。
 4. GitHub Release 必须上传发布日清单定义的恰好 15 个文件，而不是仅上传 tar、sidecar 和安装器。draft 回下载后重算外层/包内 SHA-256、执行三份 Ed25519 密码学验签、核对 provenance commit、两个二进制版本及 Yashan driver/client 双架构内容；全部通过后才转正式。
 
 `scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。
