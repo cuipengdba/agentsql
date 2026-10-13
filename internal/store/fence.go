@@ -127,16 +127,20 @@ func (snapshot *ControlSnapshot) ColumnAuthorizationState(ctx context.Context, a
 }
 
 func (snapshot *ControlSnapshot) listEnabledMaskRules(ctx context.Context, datasourceID string) ([]model.MaskRule, error) {
-	query := `SELECT id,datasource_id,COALESCE(schema_name,''),COALESCE(table_name,''),column_name,sensitive_type,algo,
- created_at,updated_at,enabled,range_bucket_width,range_bucket_offset,range_granularity
- FROM mask_rules WHERE (datasource_id=`
+	tenantID, err := (repositoryBase{}).requireTenant(ctx, "list enabled mask rules")
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id,tenant_id,datasource_id,COALESCE(schema_name,''),COALESCE(table_name,''),column_name,sensitive_type,algo,
+	 created_at,updated_at,enabled,range_bucket_width,range_bucket_offset,range_granularity
+	 FROM mask_rules WHERE tenant_id=`
 	if snapshot.dialect == DialectPostgres {
-		query += `$1 OR datasource_id IS NULL OR BTRIM(datasource_id)='') AND enabled=$2`
+		query += `$1 AND (datasource_id=$2 OR datasource_id IS NULL OR BTRIM(datasource_id)='') AND enabled=$3`
 	} else {
-		query += `? OR datasource_id IS NULL OR TRIM(datasource_id)='') AND enabled=?`
+		query += `? AND (datasource_id=? OR datasource_id IS NULL OR TRIM(datasource_id)='') AND enabled=?`
 	}
 	query += ` ORDER BY schema_name,table_name,column_name,id`
-	rows, err := snapshot.tx.QueryContext(ctx, query, datasourceID, true)
+	rows, err := snapshot.tx.QueryContext(ctx, query, tenantID, datasourceID, true)
 	if err != nil {
 		return nil, err
 	}
