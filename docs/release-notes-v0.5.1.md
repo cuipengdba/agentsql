@@ -7,7 +7,7 @@
 - 更新 Claude Desktop 和 Dify 自托管接入步骤。Windows Claude Desktop 使用 `mcp-remote` 将 stdio 转发到 AgentSQL 的 Streamable HTTP 端点；Dify 1.17.1 需在 MCP 服务配置中显式加入 `MCP-Protocol-Version: 2025-06-18` 请求头。
 - CI 修复离线编译测试所需模块的预取，将 Go 构建及漏洞扫描工具链对齐到 Go 1.26.9。
 - 达梦和金仓真库验证脚本修复 MCP 会话头处理，并补充失败时的合成对象清理。
-- 修复 PostgreSQL 控制面快照读取脱敏规则时的字段数量错误，并将规则查询限定在当前租户；快速启动镜像引用同步更新为 v0.5.1。
+- 修复 PostgreSQL 控制面快照读取脱敏规则时的字段数量错误，并将规则查询限定在当前租户；快速启动镜像引用同步更新为 v0.5.1，并修复全新数据卷的 PostgreSQL 扩展初始化校验。
 - Linux 双架构发行包与 GHCR 镜像构建纳入独立 YashanDB C 客户端 23.4.7.100 的 SHA-256 和架构检查；崖山数据库的 HTTP/MCP 与持久化审计组合仍未完成真库验证。
 
 ## 验证范围
