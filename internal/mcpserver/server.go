@@ -13,6 +13,7 @@ import (
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
@@ -20,11 +21,12 @@ import (
 
 // Options configures one authenticated stdio MCP server.
 type Options struct {
-	APIKey  string
-	Runtime *bootstrap.Runtime
-	Logger  zerolog.Logger
-	Version string
-	B5      B5Options
+	APIKey      string
+	Runtime     *bootstrap.Runtime
+	Logger      zerolog.Logger
+	Version     string
+	B5          B5Options
+	SealedStdio bool
 }
 
 // Server owns the SDK server and the immutable bound-Agent handlers.
@@ -84,7 +86,7 @@ func buildBoundServerWithVersion(
 	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil {
 		return nil, fmt.Errorf("build bound MCP server: runtime is incomplete")
 	}
-	if strings.TrimSpace(agent.ID) == "" || agent.Status != "active" {
+	if strings.TrimSpace(agent.ID) == "" || strings.TrimSpace(agent.TenantID) == "" || agent.Status != "active" {
 		return nil, fmt.Errorf("build bound MCP server: Agent is invalid or inactive")
 	}
 	switch agent.Level {
@@ -117,15 +119,39 @@ func buildBoundServerWithVersion(
 	return &Server{sdk: sdkServer, handlers: handlers, b5: b5}, nil
 }
 
-// RunStdioStreams serves the sealed length-prefixed stdio protocol over the
-// supplied streams. It exists so the exact production framing can be exercised
-// end-to-end without replacing process-global stdin/stdout in tests.
+// RunStdioStreams serves standard newline-delimited MCP over the supplied
+// streams. It permits end-to-end testing without replacing process stdin/stdout.
 func (server *Server) RunStdioStreams(ctx context.Context, reader io.ReadCloser, writer io.WriteCloser) error {
-	if server == nil || server.sdk == nil || reader == nil || writer == nil {
+	return server.runStdioStreams(ctx, reader, writer, false)
+}
+
+// RunSealedStdioStreams retains the v0.5.0 length-prefixed wire format for
+// existing custom integrations that explicitly opt in to it.
+func (server *Server) RunSealedStdioStreams(ctx context.Context, reader io.ReadCloser, writer io.WriteCloser) error {
+	return server.runStdioStreams(ctx, reader, writer, true)
+}
+
+func (server *Server) runStdioStreams(ctx context.Context, reader io.ReadCloser, writer io.WriteCloser, sealed bool) error {
+	if server == nil || server.sdk == nil || server.handlers == nil || reader == nil || writer == nil {
 		return errors.New("run MCP stdio streams: incomplete server or streams")
 	}
-	transport := &mcp.IOTransport{Reader: newSealedLineReader(reader, executor.DefaultLimits.EnvelopeBytes), Writer: newSealedLineWriter(writer, executor.DefaultLimits.EnvelopeBytes)}
-	err := server.sdk.Run(ctx, legacyProtocolTransport{Transport: transport})
+	tenantContext, err := store.WithTenant(ctx, server.handlers.agent.TenantID)
+	if err != nil {
+		return fmt.Errorf("run MCP stdio streams: Agent tenant is required: %w", err)
+	}
+	transport := &mcp.IOTransport{}
+	if sealed {
+		transport.Reader = newSealedLineReader(reader, executor.DefaultLimits.EnvelopeBytes)
+		transport.Writer = newSealedLineWriter(writer, executor.DefaultLimits.EnvelopeBytes)
+	} else {
+		transport.Reader = newBoundedJSONLineReader(reader, executor.DefaultLimits.FrameBytes)
+		transport.Writer = newBoundedJSONLineWriter(writer, executor.DefaultLimits.EnvelopeBytes)
+	}
+	if sealed {
+		err = server.sdk.Run(tenantContext, legacyProtocolTransport{Transport: transport})
+	} else {
+		err = server.sdk.Run(tenantContext, transport)
+	}
 	if server.b5.B5Sessions && server.b5.Service != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		shutdownErr := server.b5.Service.Shutdown(shutdownCtx)
@@ -150,8 +176,14 @@ func RunStdio(ctx context.Context, options Options) error {
 		Str("agent_id", server.handlers.agent.ID).
 		Str("version", serverVersion).
 		Msg("MCP stdio server started")
-	if err := server.RunStdioStreams(ctx, os.Stdin, os.Stdout); err != nil {
-		return fmt.Errorf("run MCP stdio server: %w", err)
+	var runErr error
+	if options.SealedStdio {
+		runErr = server.RunSealedStdioStreams(ctx, os.Stdin, os.Stdout)
+	} else {
+		runErr = server.RunStdioStreams(ctx, os.Stdin, os.Stdout)
+	}
+	if runErr != nil {
+		return fmt.Errorf("run MCP stdio server: %w", runErr)
 	}
 	return nil
 }

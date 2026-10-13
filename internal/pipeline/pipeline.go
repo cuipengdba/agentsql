@@ -961,7 +961,9 @@ func (run *pipelineRun) audit(
 	auditStarted := time.Now()
 	auditParent := ctx
 	if ctx.Err() != nil {
-		auditParent = context.Background()
+		// An audit needs its own timeout after the caller is canceled, while
+		// retaining the authenticated tenant and other request values.
+		auditParent = context.WithoutCancel(ctx)
 	}
 	auditContext, cancel, contextError := statementContext(
 		auditParent,

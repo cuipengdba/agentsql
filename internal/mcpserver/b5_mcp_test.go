@@ -148,7 +148,7 @@ func TestMCPProtocolAllowlistRejectsBeforeSDKWithBusinessEnvelope(t *testing.T) 
 	fixture := newMCPFixture(t, "dml")
 	handler, registry, err := newHTTPHandlerWithRegistry(fixture.runtime, httpTestConfig(100), zerolog.Nop())
 	require.NoError(t, err)
-	for _, version := range []string{"2025-11-25", "2026-07-28", "1999-01-01"} {
+	for _, version := range []string{"2026-07-28", "1999-01-01"} {
 		recorder := httptest.NewRecorder()
 		request := authorizedRequest(http.MethodPost, initializeRequest, fixture.handlers.apiKey)
 		request.Header.Set("MCP-Protocol-Version", version)
@@ -162,7 +162,7 @@ func TestMCPProtocolAllowlistRejectsBeforeSDKWithBusinessEnvelope(t *testing.T) 
 	request.Header.Del("MCP-Protocol-Version")
 	handler.ServeHTTP(missingAfterInitialize, request)
 	require.Contains(t, missingAfterInitialize.Body.String(), string(b5.ErrorMCPProtocolUnsupported))
-	conflict := strings.Replace(initializeRequest, `"protocolVersion":"2025-06-18"`, `"protocolVersion":"2025-11-25"`, 1)
+	conflict := strings.Replace(initializeRequest, `"protocolVersion":"2025-06-18"`, `"protocolVersion":"2026-07-28"`, 1)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, authorizedRequest(http.MethodPost, conflict, fixture.handlers.apiKey))
 	require.Contains(t, recorder.Body.String(), string(b5.ErrorMCPProtocolUnsupported))
@@ -171,6 +171,13 @@ func TestMCPProtocolAllowlistRejectsBeforeSDKWithBusinessEnvelope(t *testing.T) 
 	handler.ServeHTTP(recorder, authorizedRequest(http.MethodPost, metaConflict, fixture.handlers.apiKey))
 	require.Contains(t, recorder.Body.String(), string(b5.ErrorMCPProtocolUnsupported))
 	require.Zero(t, registry.buildCount(), "rejected versions must not reach SDK server construction")
+
+	mismatched := strings.Replace(initializeRequest, `"protocolVersion":"2025-06-18"`, `"protocolVersion":"2025-11-25"`, 1)
+	recorder = httptest.NewRecorder()
+	request = authorizedRequest(http.MethodPost, mismatched, fixture.handlers.apiKey)
+	request.Header.Set("MCP-Protocol-Version", legacyMCPProtocolVersion)
+	handler.ServeHTTP(recorder, request)
+	require.Contains(t, recorder.Body.String(), string(b5.ErrorMCPProtocolUnsupported))
 }
 
 func TestB5OptionsFailClosedAndStdioProtocolIsExact(t *testing.T) {

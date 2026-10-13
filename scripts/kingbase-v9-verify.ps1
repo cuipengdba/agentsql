@@ -466,7 +466,9 @@ $initialize = @{
     params = @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'batch72'; version = '1' } }
 } | ConvertTo-Json -Depth 10 -Compress
 $initialResponse = Invoke-WebRequest -Uri "$agentURL/mcp" -Method Post -Headers $mcpHeaders -ContentType 'application/json' -Body $initialize -UseBasicParsing
-$sessionID = $initialResponse.Headers['Mcp-Session-Id']
+# PowerShell exposes response headers as string arrays. Send the scalar
+# session ID back or the MCP SDK will reject the next request as unknown.
+$sessionID = [string]@($initialResponse.Headers['Mcp-Session-Id'])[0]
 if (-not $sessionID) { throw 'MCP initialize returned no transport session' }
 $mcpHeaders['Mcp-Session-Id'] = $sessionID
 

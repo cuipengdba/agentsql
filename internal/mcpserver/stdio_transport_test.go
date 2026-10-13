@@ -102,6 +102,27 @@ func TestSealedStdioReaderRejectsOversizeBeforeSDKObservesBytes(t *testing.T) {
 	require.Equal(t, authorizedexecute.ReasonFrameLimit, authorizationError.Reason)
 }
 
+func TestStandardStdioRejectsOversizeAndMalformedFramesBeforeSDK(t *testing.T) {
+	for _, frame := range []string{
+		strings.Repeat("x", 65) + "\n",
+		"{bad}\n" + `{"jsonrpc":"2.0"}` + "\n",
+		`{"jsonrpc":"2.0"}` + "\r\n",
+	} {
+		reader := newBoundedJSONLineReader(readCloser{strings.NewReader(frame)}, 64)
+		buffer := make([]byte, 128)
+		count, err := reader.Read(buffer)
+		require.Error(t, err)
+		require.Zero(t, count)
+	}
+
+	var output bytes.Buffer
+	writer := newBoundedJSONLineWriter(&output, 64)
+	count, err := writer.Write([]byte(`{"jsonrpc":"2.0"}` + "\r\n"))
+	require.Error(t, err)
+	require.Zero(t, count)
+	require.Empty(t, output.Bytes())
+}
+
 func lengthPrefix(payload []byte) []byte {
 	result := make([]byte, 4+len(payload))
 	binary.BigEndian.PutUint32(result, uint32(len(payload)))

@@ -12,6 +12,9 @@ Set-StrictMode -Version Latest
 $transcriptStarted = $false
 $verifyReady = $false
 $sourceWasRunning = $false
+$createdTable = $false
+$createdDenyTable = $false
+$createdReader = $false
 
 function Step([string]$message) {
     Write-Host ('[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK'), $message)
@@ -240,6 +243,7 @@ try {
     $table = 'AGSQL_B65_' + (Get-Date -Format 'HHmmss')
     Step ("CRUD verification table=$table")
     Require-Disql 'create table' @("CREATE TABLE $table (ID INT PRIMARY KEY, PHONE VARCHAR(20), NOTE VARCHAR(64));") 'successfully' $adminPassword | Out-Null
+    $createdTable = $true
     Require-Disql 'insert' @("INSERT INTO $table (ID,PHONE,NOTE) VALUES (1,'13800135678','created');") 'affect rows 1' $adminPassword | Out-Null
     Require-Disql 'select' @("SELECT ID,PHONE,NOTE FROM $table WHERE ID=1;") '13800135678' $adminPassword | Out-Null
     Require-Disql 'update' @("UPDATE $table SET NOTE='updated' WHERE ID=1;") 'affect rows 1' $adminPassword | Out-Null
@@ -249,6 +253,7 @@ try {
     Require-Disql 'seed guard sample' @("INSERT INTO $table (ID,PHONE,NOTE) VALUES (2,'13800135678','guard');") 'affect rows 1' $adminPassword | Out-Null
     $denyTable = 'AGSQL_B65_D_' + (Get-Date -Format 'HHmmss')
     Require-Disql 'create ungranted policy target' @("CREATE TABLE $denyTable (ID INT PRIMARY KEY);") 'successfully' $adminPassword | Out-Null
+    $createdDenyTable = $true
     Require-Disql 'seed ungranted policy target' @("INSERT INTO $denyTable (ID) VALUES (7);") 'affect rows 1' $adminPassword | Out-Null
     Step 'Create least-privilege reader for the driver and AgentSQL probes'
     $reader = 'AGSQL_B65_R_' + (Get-Date -Format 'HHmmss')
@@ -257,6 +262,7 @@ try {
     try { $rng.GetBytes($random) } finally { $rng.Dispose() }
     $readerPassword = ([BitConverter]::ToString($random)).Replace('-', '').ToLowerInvariant()
     Require-Disql 'create reader' @('CREATE USER ' + $reader + ' IDENTIFIED BY "' + $readerPassword + '";') 'successfully' $adminPassword | Out-Null
+    $createdReader = $true
     Require-Disql 'grant session' @("GRANT CREATE SESSION TO $reader;") 'successfully' $adminPassword | Out-Null
     Require-Disql 'grant table select' @("GRANT SELECT ON SYSDBA.$table TO $reader;") 'successfully' $adminPassword | Out-Null
     Require-Disql 'grant second table select to database reader' @("GRANT SELECT ON SYSDBA.$denyTable TO $reader;") 'successfully' $adminPassword | Out-Null
@@ -480,7 +486,9 @@ mcp:
         params = @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'batch65'; version = '1' } }
     } | ConvertTo-Json -Depth 10 -Compress
     $initialResponse = Invoke-WebRequest -Uri "$agentURL/mcp" -Method Post -Headers $mcpHeaders -ContentType 'application/json' -Body $initialize -UseBasicParsing
-    $sessionID = $initialResponse.Headers['Mcp-Session-Id']
+    # PowerShell exposes response headers as string arrays; request headers
+    # must receive the scalar session ID or the SDK cannot find the session.
+    $sessionID = [string]@($initialResponse.Headers['Mcp-Session-Id'])[0]
     if (-not $sessionID) { throw 'MCP initialize returned no transport session' }
     $mcpHeaders['Mcp-Session-Id'] = $sessionID
 
@@ -516,8 +524,11 @@ mcp:
 
     Docker @('stop', $agentContainer) | Out-Null
     Require-Disql 'drop verification reader' @("DROP USER $reader CASCADE;") 'successfully' $adminPassword | Out-Null
+    $createdReader = $false
     Require-Disql 'drop verification table' @("DROP TABLE $table;") 'successfully' $adminPassword | Out-Null
+    $createdTable = $false
     Require-Disql 'drop ungranted-policy table' @("DROP TABLE $denyTable;") 'successfully' $adminPassword | Out-Null
+    $createdDenyTable = $false
     Step 'PASS: temporary DM8 user and tables removed; licensed DM8 container retained; AgentSQL container stopped'
 }
 catch {
@@ -525,6 +536,20 @@ catch {
     exit 1
 }
 finally {
+    if ($verifyReady) {
+        if ($createdReader) {
+            try { Require-Disql 'cleanup verification reader' @("DROP USER $reader CASCADE;") 'successfully' $adminPassword | Out-Null }
+            catch { Step ('Cleanup reader failed: ' + $_.Exception.Message) }
+        }
+        if ($createdTable) {
+            try { Require-Disql 'cleanup verification table' @("DROP TABLE $table;") 'successfully' $adminPassword | Out-Null }
+            catch { Step ('Cleanup table failed: ' + $_.Exception.Message) }
+        }
+        if ($createdDenyTable) {
+            try { Require-Disql 'cleanup ungranted-policy table' @("DROP TABLE $denyTable;") 'successfully' $adminPassword | Out-Null }
+            catch { Step ('Cleanup ungranted table failed: ' + $_.Exception.Message) }
+        }
+    }
     if (-not $verifyReady -and $sourceWasRunning) {
         $old = Inspect-Container $SourceContainer
         if ($null -ne $old -and -not $old.State.Running) {

@@ -66,6 +66,7 @@ func newRootCommand(logger zerolog.Logger) *cobra.Command {
 func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 	var configPath string
 	var apiKey string
+	var sealedStdio bool
 	command := &cobra.Command{
 		Use:   "mcp",
 		Short: "Run the authenticated AgentSQL MCP stdio server",
@@ -97,11 +98,12 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 			}
 			loaded.Redaction.Clear()
 			runError := mcpserver.RunStdio(ctx, mcpserver.Options{
-				APIKey:  boundKey,
-				Runtime: runtime,
-				Logger:  logger,
-				Version: version.Version,
-				B5:      productionB5Options(runtime),
+				APIKey:      boundKey,
+				Runtime:     runtime,
+				Logger:      logger,
+				Version:     version.Version,
+				B5:          productionB5Options(runtime),
+				SealedStdio: sealedStdio,
 			})
 			if errors.Is(runError, context.Canceled) {
 				runError = nil
@@ -115,6 +117,7 @@ func newMCPCommand(logger zerolog.Logger) *cobra.Command {
 	}
 	command.Flags().StringVarP(&configPath, "config", "c", "config.yaml", "path to the YAML configuration file")
 	command.Flags().StringVar(&apiKey, "api-key", "", "bind this stdio server to one Agent API key")
+	command.Flags().BoolVar(&sealedStdio, "sealed-stdio", false, "use the legacy length-prefixed stdio framing")
 	return command
 }
 

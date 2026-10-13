@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 发布状态：本文对应待发布的 AgentSQL v0.5.0。一键安装资产与 `ghcr.io/cuipengdba/agentsql:v0.5.0` 镜像将在发布日完成验收后可用；发布前可按本文「源码 / Live Demo」路径从本地构建体验。源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文对应 AgentSQL v0.5.1。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -12,7 +12,7 @@
 
 - 端点：`http://127.0.0.1:7780/mcp`
 - 身份头：`Authorization: Bearer <Agent API Key>`
-- MCP 协议版本：`2025-06-18`
+- MCP 协议版本：`2025-06-18` 或 `2025-11-25`（两者均为有状态握手协议；`2026-07-28` 暂不支持）
 - `Accept`：`application/json, text/event-stream`
 - 模式：默认 stateful（initialize 返回 `Mcp-Session-Id`）；可显式回退 stateless
 - 断线重放：stateful 旧协议默认持久化 SSE 事件；以 `GET /mcp` + `Last-Event-ID` 重连。若事件已因 TTL/容量回收，返回 HTTP 400，不返回部分事件
@@ -126,9 +126,9 @@ request_approval(reason 必填)
 
 因此，不要把 `deny`、`warn` 或 `approve` 当成网络错误自动重试。特别是写操作，盲目重试会产生重复审批或重复业务意图。
 
-## Claude Desktop 接入（stdio）
+## Claude Desktop 接入
 
-Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。`command` 建议填写 `agentsql` 可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致；Windows JSON 路径中的反斜杠需要写成 `\\`。
+Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。v0.5.1 的 `agentsql mcp` 默认使用标准 MCP stdio 逐行 JSON 消息格式；旧版自定义长度前缀客户端可显式加 `--sealed-stdio` 继续使用原帧格式。以下直启示例适用于能运行 AgentSQL Linux 二进制的桌面环境；当前正式资产只提供 Linux amd64/arm64，Windows 桌面请使用下面的 HTTP 桥接示例。`command` 建议填写可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致。
 
 ```json
 {
@@ -146,6 +146,35 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 ```
 
 上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，默认配置应能看到 7 个基础工具和 8 个 B5 工具；显式关闭 B5 时只显示基础工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
+
+### Windows Claude Desktop：连接已有 AgentSQL 服务
+
+先在本机或 SSH 本地转发端口运行 AgentSQL HTTP 服务，确认 `http://127.0.0.1:7780/healthz` 正常。Windows 客户端可用 [`mcp-remote`](https://github.com/geelen/mcp-remote) 把本地 stdio 转为 Streamable HTTP；它是独立的社区桥接程序，不包含在 AgentSQL 发布包中。下例使用已安装的 `mcp-remote`；配置文件中的 `command` 请改成实际的 Node.js 可执行文件绝对路径，`args` 第一个值请改成实际 `mcp-remote` 入口脚本的绝对路径。Windows JSON 路径中的反斜杠需写成 `\\`。
+
+```json
+{
+  "mcpServers": {
+    "agentsql": {
+      "command": "C:\\path\\to\\node.exe",
+      "args": [
+        "D:\\path\\to\\mcp-remote\\dist\\proxy.js",
+        "http://127.0.0.1:7780/mcp",
+        "--transport", "http-only",
+        "--header", "Authorization:${AGENTSQL_AUTH_HEADER}"
+      ],
+      "env": { "AGENTSQL_AUTH_HEADER": "Bearer <Agent API Key>" }
+    }
+  }
+}
+```
+
+这里只给桌面桥接进程一个 Agent API Key。不要将管理员 token 用于 MCP；不要把监听端口暴露公网。Claude 的云端自定义连接器从 Anthropic 云网络发起连接，无法使用这里的回环地址；本例是 Claude Desktop 本地进程。桌面客户端需要完成自身登录后才能在界面查看工具，本仓库的协议测试不等于已登录客户端的 UI 验收。
+
+## Dify 自托管接入（Streamable HTTP）
+
+在 Dify 的 MCP 工具管理界面新增服务，Server URL 填 Dify API 容器可达的 `http://<AgentSQL 内网地址>:7780/mcp`，请求头同时填写 `Authorization: Bearer <Agent API Key>` 和 `MCP-Protocol-Version: 2025-06-18`。Dify 1.17.1 的 MCP 客户端声明该版本，但其 HTTP transport 不自动添加后续请求要求的版本头，因此此项必须显式配置。保存后先检查工具发现，再从工作流调用 `list_datasources` 和仅获授权的只读 `query`；返回 `deny`、`approve` 或 `error` 时按业务决策处理，不作为可盲重试的网络异常。Dify API 容器内的 `127.0.0.1` 指向 Dify 自己，不能指向宿主机 AgentSQL。
+
+自托管 Dify 默认通过 SSRF 代理阻止访问私网地址；若 AgentSQL 位于同一受控内网，只在 Dify 的 `SSRF_PROXY_ALLOW_PRIVATE_IPS` 中加入 AgentSQL 实际地址的精确 `/32`，并保持 AgentSQL 对外端口受控。不要为接入测试放开全部 RFC1918 网段。Dify 的静态 MCP 请求头对应一个固定 Agent 身份；每位用户的独立 Agent 身份需要单独设计身份映射，不能把 Dify 工作区身份自动视为 AgentSQL 身份。
 
 ## Cursor 接入（stdio）
 
