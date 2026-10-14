@@ -20,7 +20,7 @@
 - `TestVastbaseBuild9PipelineRealE2E`：表授权、手机号脱敏、未授权表拒绝、危险 SQL 拒绝及 SQLite 持久审计通过。`TestVastbaseBuild9MCPRealE2E`：真实 MCP 工具调用、申请/批准/单次执行、脱敏、重复执行拒绝、数据源变更和策略撤销拒绝通过。
 - 尚未验证：正式生产许可证、TLS、不同操作系统和 CPU、其他 G100 Build、集群与故障转移、长时间负载、升级/回滚、目标客户端 Claude Desktop/Dify。容器验收不能替代这些条件。
 
-## 发布前必须完成
+## 扩大为完整生产支持前必须完成
 
 1. 获得正式许可证后核对授权范围；验证超时/取消、断库与恢复、列级策略拒绝以及数据库侧无副作用证据。
 2. 用 Claude Desktop 和 Dify 各完成真实工具调用、拒绝和审计关联。
