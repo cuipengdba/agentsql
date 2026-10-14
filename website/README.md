@@ -29,7 +29,7 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 
 - 只发布 `public/` 内容；不得把 `deploy/`、仓库根目录、`.git/` 或环境文件放入文档根。
 - 阶段 A 只监听 `127.0.0.1:8080`，通过 SSH 隧道预览；备案、DNS 和防火墙就绪后才切换阶段 B。
-- 页面与仓库版本口径统一为 `v0.4.0 GA`；Release 按钮已指向 `https://github.com/cuipengdba/agentsql/releases/latest`，仅在发布日确认最终 Release 已存在后生效。
+- v0.6.0 页面只在对应 GitHub Release 和镜像通过验收后部署；Release 按钮指向 `https://github.com/cuipengdba/agentsql/releases/latest`。
 - 站点没有 Cookie 或第三方统计。Caddy 访问日志默认按配置保留 720 小时。
 - 开源授权链接指向仓库 `LICENSE`；商业授权链接指向已存在的 `COMMERCIAL-LICENSE.md`。
 
@@ -51,9 +51,4 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 
 ## 发布日收录闸门
 
-预览与未发布阶段必须保留两处开关：`public/index.html` 和 `public/demo/index.html` 的 `<meta name="robots" content="noindex,nofollow">`，以及 `public/robots.txt` 的 `Disallow: /`。发布日由主控在 stage-b 切换前完成以下动作并重新运行静态验收：
-
-1. 确认 v0.4.0 最终 Release 已存在，`releases/latest` 已解析到该版本。
-2. 将两个 HTML 的 robots meta 改为 `index,follow`。
-3. 将 `public/robots.txt` 改为 `Allow: /`，保留 `https://agentsql.cn/sitemap.xml`。
-4. 仅在备案、DNS、证书与演示隔离全部就绪后部署 stage-b。
+官网已处于阶段 B：主页为 `index,follow`，演示页仍为 `noindex,nofollow`，`robots.txt` 允许主页并排除 `/demo/`。每次更新先确认对应正式 Release、镜像与 PDF 已就绪，再用 `verify-static.sh` 检查这些开关及站内引用，最后通过 `--content-only` 发布。

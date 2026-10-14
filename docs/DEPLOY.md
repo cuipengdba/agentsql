@@ -335,23 +335,23 @@ sudo ./install.sh uninstall --purge --yes
 离线安装可把已解压包目录传给 `--from`，或传入 tarball；传 tarball 时同目录必须有 `<tarball>.sha256`。从发布包根执行 `sudo ./install.sh install` 会自动使用当前已校验的包，不访问网络：
 
 ```bash
-sudo ./install.sh install --from /srv/releases/agentsql-v0.5.1-linux-amd64
-sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.5.1-linux-amd64.tar.gz
+sudo ./install.sh install --from /srv/releases/agentsql-v0.6.0-linux-amd64
+sudo ./install.sh upgrade --from /srv/releases/agentsql-v0.6.0-linux-amd64.tar.gz
 ```
 
 `--no-start` 只用于 chroot 或镜像预安装：允许在 systemd 不是 PID 1 时写入文件，但不会启动或健康检查，安装结果在 systemd 成功启动前不可用。升级默认只自动备份 `/var/lib/agentsql/agentsql.db` 及其 `-wal`、`-shm`；使用 PostgreSQL 控制面或自定义 SQLite 路径时，必须先完成外部一致性备份并明确传 `--external-backup-done`，安装器不会声称已备份外部数据库。若外部数据库升级后的健康检查失败，安装器会恢复二进制、unit、配置和环境文件，但会让旧服务保持停止；操作者必须先恢复外部数据库快照，再启动旧版本。
 
-下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-<amd64|arm64>.tar.gz[.sha256]` 提供同源文件，安装器按本机架构选择。建议同时明确 `--version`，例如：
+下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为自建 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-<amd64|arm64>.tar.gz[.sha256]` 提供同源文件，安装器按本机架构选择。正式包发布后建议明确 `--version`，例如：
 
 ```bash
-sudo env AGENTSQL_DOWNLOAD_BASE=https://agentsql.cn/releases sh ./install.sh install --version v0.5.1
+sudo sh ./install.sh install --version v0.6.0
 ```
 
 安装器若发现 `restorecon` 会恢复二进制、unit、配置和数据目录的 SELinux 默认上下文，不调用 `chcon`、不关闭 enforcing；遇到拒绝时用 `ausearch -m AVC` 调查。发布 tarball 的许可证位于包根 `LICENSE`，容器镜像内位于 `/usr/share/licenses/agentsql/LICENSE`。
 
 ## 方式三：systemd
 
-以下以已解压的 v0.5.1 Linux 发行包根目录为工作目录，安装二进制及服务文件：
+以下以已解压的 v0.6.0 Linux 发行包根目录为工作目录，安装二进制及服务文件：
 
 ```bash
 sudo useradd --system --user-group --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql
