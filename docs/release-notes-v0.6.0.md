@@ -13,4 +13,4 @@
 
 G100 验证使用安装程序生成的临时许可，有效期至 2027-01-12；它只支撑本次隔离测试。正式生产许可、TLS、HA、其他 Build、长时间负载和厂商认证均未完成，不能据此宣称 G100 完整生产支持。达梦与金仓沿用各自文档所述的指定版本证据，本次发布不扩大其方言或生产支持承诺。
 
-Claude Desktop 和 Dify 的完整图形界面验收仍需目标客户端环境。仓库的 SDK 与协议测试只证明对应自动化路径，不能当作这两个界面的人工验收记录。发布资产和部署说明以正式 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 页面为准。
+本版的实际客户端验收目标为 Dify 和 MCP Inspector 图形界面；Inspector 可验证 MCP 工具调用，但不是 AI 助手。Claude Desktop 因缺少账号尚未实测，其接入说明保留为配置指南，不作为本版兼容性验收结论。仓库的 SDK 与协议测试只证明对应自动化路径，不能代替实际客户端记录。发布资产和部署说明以正式 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 页面为准。

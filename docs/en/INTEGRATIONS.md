@@ -153,6 +153,10 @@ The repository CLI confirms these parameters: the subcommand is `mcp`, and the c
 
 For Windows Claude Desktop, run the AgentSQL HTTP service locally (or through an SSH port forward) and use [`mcp-remote`](https://github.com/geelen/mcp-remote) as a local stdio-to-HTTP bridge. Configure the bridge with the `/mcp` URL, `--transport http-only`, and an `Authorization: Bearer <Agent API Key>` header. On Windows, put the bearer value in an environment variable and pass `Authorization:${AGENTSQL_AUTH_HEADER}` as the `--header` argument to avoid argument parsing problems. The bridge is an independent community tool, not an AgentSQL release asset. Claude Desktop itself must be signed in for UI verification; the repository's bridge protocol test does not claim a logged-in UI test.
 
+## Local Acceptance with MCP Inspector (Streamable HTTP)
+
+On a test machine with Node.js/npm, run `npx --yes @modelcontextprotocol/inspector@2.11.0 --web` and open its local UI. Select Streamable HTTP, enter `http://127.0.0.1:7780/mcp`, and add the `Authorization: Bearer <Agent API Key>` header. Add `MCP-Protocol-Version: 2025-06-18` if the client requires an explicit version header. Check tool discovery, an authorized query, a denied query, and their audit IDs. Use a dedicated test Agent Key, never an administrator token, and keep the Inspector proxy port private. Inspector is an MCP development tool; it does not establish AI-assistant or Claude Desktop UI compatibility.
+
 ## Self-hosted Dify Integration (Streamable HTTP)
 
 In Dify's MCP tool configuration, set the server URL to `http://<AgentSQL address reachable from the Dify API container>:7780/mcp`. Set both `Authorization: Bearer <Agent API Key>` and `MCP-Protocol-Version: 2025-06-18` as static request headers. Dify 1.17.1 negotiates that version but does not automatically send its required header on later HTTP requests. Check tool discovery, then call `list_datasources` and an authorized read-only `query`. Dify's own `127.0.0.1` is not the host running AgentSQL.

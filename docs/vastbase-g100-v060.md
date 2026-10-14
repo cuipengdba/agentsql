@@ -18,10 +18,10 @@
 - 合成数据：`agentsql_v060.contacts` 包含测试手机号，`agentsql_v060.customers` 用于未授权表和驱动层查询。无客户数据。
 - `TestVastbaseBuild9Integration`：产品与模式校验、只读连接、绑定参数的固定元数据查询、有界单表查询、JSON EXPLAIN、写入/锁行/多语句拒绝通过。
 - `TestVastbaseBuild9PipelineRealE2E`：表授权、手机号脱敏、未授权表拒绝、危险 SQL 拒绝及 SQLite 持久审计通过。`TestVastbaseBuild9MCPRealE2E`：真实 MCP 工具调用、申请/批准/单次执行、脱敏、重复执行拒绝、数据源变更和策略撤销拒绝通过。
-- 尚未验证：正式生产许可证、TLS、不同操作系统和 CPU、其他 G100 Build、集群与故障转移、长时间负载、升级/回滚、目标客户端 Claude Desktop/Dify。容器验收不能替代这些条件。
+- 尚未验证：正式生产许可证、TLS、不同操作系统和 CPU、其他 G100 Build、集群与故障转移、长时间负载、升级/回滚、目标客户端 Dify/MCP Inspector；Claude Desktop UI 也未实测。容器验收不能替代这些条件。
 
 ## 扩大为完整生产支持前必须完成
 
 1. 获得正式许可证后核对授权范围；验证超时/取消、断库与恢复、列级策略拒绝以及数据库侧无副作用证据。
-2. 用 Claude Desktop 和 Dify 各完成真实工具调用、拒绝和审计关联。
+2. 用 Dify 和 MCP Inspector 各完成真实工具调用、拒绝和审计关联；如需宣称 Claude Desktop 兼容，再用已登录客户端单独验收。
 3. 验证安装、升级、回滚及故障恢复，并保留产品、版本、模式、驱动、账号权限和拓扑记录；在此之前不得宣称完整生产支持。

@@ -172,6 +172,10 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 
 这里只给桌面桥接进程一个 Agent API Key。不要将管理员 token 用于 MCP；不要把监听端口暴露公网。Claude 的云端自定义连接器从 Anthropic 云网络发起连接，无法使用这里的回环地址；本例是 Claude Desktop 本地进程。桌面客户端需要完成自身登录后才能在界面查看工具，本仓库的协议测试不等于已登录客户端的 UI 验收。
 
+## MCP Inspector 本地验收（Streamable HTTP）
+
+在装有 Node.js/npm 的验收机运行 `npx --yes @modelcontextprotocol/inspector@2.11.0 --web`，仅在本机打开其图形界面。传输选择 Streamable HTTP，地址填 `http://127.0.0.1:7780/mcp`，请求头填 `Authorization: Bearer <Agent API Key>`；若客户端要求显式版本头，再填 `MCP-Protocol-Version: 2025-06-18`。依次检查工具发现、授权查询、越权拒绝及对应审计 ID。使用单独的测试 Agent Key，不要填管理员 token，也不要把 Inspector 代理端口暴露到公网。Inspector 是 MCP 开发测试工具，不能替代 AI 助手或 Claude Desktop 的界面兼容性验收。
+
 ## Dify 自托管接入（Streamable HTTP）
 
 在 Dify 的 MCP 工具管理界面新增服务，Server URL 填 Dify API 容器可达的 `http://<AgentSQL 内网地址>:7780/mcp`，请求头同时填写 `Authorization: Bearer <Agent API Key>` 和 `MCP-Protocol-Version: 2025-06-18`。Dify 1.17.1 的 MCP 客户端声明该版本，但其 HTTP transport 不自动添加后续请求要求的版本头，因此此项必须显式配置。保存后先检查工具发现，再从工作流调用 `list_datasources` 和仅获授权的只读 `query`；返回 `deny`、`approve` 或 `error` 时按业务决策处理，不作为可盲重试的网络异常。Dify API 容器内的 `127.0.0.1` 指向 Dify 自己，不能指向宿主机 AgentSQL。
