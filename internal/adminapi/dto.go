@@ -417,22 +417,33 @@ func auditToStreamView(log model.AuditLog) auditStreamView {
 }
 
 type approvalView struct {
-	ID        string     `json:"id"`
-	AuditID   *int64     `json:"audit_id,omitempty"`
-	AgentID   *string    `json:"agent_id,omitempty"`
-	SQLRaw    *string    `json:"sql_raw,omitempty"`
-	Reason    *string    `json:"reason,omitempty"`
-	Status    string     `json:"status"`
-	Approver  *string    `json:"approver,omitempty"`
-	DecidedAt *time.Time `json:"decided_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID               string     `json:"id"`
+	AuditID          *int64     `json:"audit_id,omitempty"`
+	AgentID          *string    `json:"agent_id,omitempty"`
+	DatasourceID     *string    `json:"datasource_id,omitempty"`
+	SQLRaw           *string    `json:"sql_raw,omitempty"`
+	Reason           *string    `json:"reason,omitempty"`
+	RequestReason    *string    `json:"request_reason,omitempty"`
+	DecisionComment  *string    `json:"decision_comment,omitempty"`
+	Status           string     `json:"status"`
+	Approver         *string    `json:"approver,omitempty"`
+	DecidedAt        *time.Time `json:"decided_at,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	ClaimedAt        *time.Time `json:"claimed_at,omitempty"`
+	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+	ExecutionAuditID *int64     `json:"execution_audit_id,omitempty"`
+	OutcomeCode      *string    `json:"outcome_code,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 func approvalToView(approval model.Approval) approvalView {
 	return approvalView{
-		ID: approval.ID, AuditID: approval.AuditID, AgentID: approval.AgentID, SQLRaw: approval.SQLRaw,
-		Reason: approval.Reason, Status: approval.Status, Approver: approval.Approver, DecidedAt: approval.DecidedAt,
+		ID: approval.ID, AuditID: approval.AuditID, AgentID: approval.AgentID, DatasourceID: approval.DatasourceID, SQLRaw: approval.SQLRaw,
+		Reason: approval.Reason, RequestReason: approval.RequestReason, DecisionComment: approval.DecisionComment,
+		Status: approval.Status, Approver: approval.Approver, DecidedAt: approval.DecidedAt,
+		ExpiresAt: approval.ExpiresAt, ClaimedAt: approval.ClaimedAt, FinishedAt: approval.FinishedAt,
+		ExecutionAuditID: approval.ExecutionAuditID, OutcomeCode: approval.OutcomeCode,
 		CreatedAt: approval.CreatedAt, UpdatedAt: approval.UpdatedAt,
 	}
 }

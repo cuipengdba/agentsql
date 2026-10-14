@@ -261,7 +261,7 @@ export function Datasources() {
           <Form.Item name="id" label="数据源 ID" rules={[{ required: true, whitespace: true }]}><Input disabled={Boolean(editing)} /></Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
           <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={groupedOptions} disabled={types.length === 0} /></Form.Item>
-          {selectedType === "vastbase" ? <Alert type="warning" showIcon message="Vastbase G100 PG 适配仍待真库验收；当前仅允许明确 schema、带 WHERE 和 LIMIT 的单表只读 SELECT。请使用只读数据库账号。" /> : null}
+          {selectedType === "vastbase" ? <Alert type="warning" showIcon message="Vastbase G100 Build 9 的 PG 模式已完成受限只读真库验证；仅允许明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。请使用只读数据库账号；其他版本和完整生产支持尚未验收。" /> : null}
           {selectedSpec?.kind === "nosql" ? <Alert type="info" showIcon message={`${categoryLabels[selectedSpec.category]} · 默认端口 ${selectedSpec.default_port} · 连接级/低阶支持（nosql-connect）`} /> : null}
           <div className="cfg-form-grid">
             <Form.Item name="host" label="主机" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>

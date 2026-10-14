@@ -60,7 +60,7 @@ export const agentStatusMeta = {
 
 export const dbTypeMeta = {
   postgres: { label: "PostgreSQL", color: "blue" },
-  vastbase: { label: "Vastbase G100 PG · 待真库验收", color: "cyan" },
+  vastbase: { label: "Vastbase G100 Build 9 PG · 受限只读", color: "cyan" },
   mysql: { label: "MySQL", color: "gold" },
   sqlserver: { label: "SQL Server 2025", color: "purple" },
   all: { label: "通用", color: "default" },
@@ -92,7 +92,11 @@ export function configLabel(meta: Readonly<Record<string, Readonly<{ label: stri
 
 export const approvalStatusMeta = {
   pending: { label: "待审批", color: "orange" },
-  approved: { label: "已通过", color: "success" },
+  approved: { label: "已批准待执行", color: "success" },
+  claimed: { label: "执行已认领", color: "processing" },
+  completed: { label: "执行完成", color: "success" },
+  failed: { label: "执行失败", color: "error" },
+  unknown: { label: "结果待核查", color: "warning" },
   rejected: { label: "已拒绝", color: "error" },
   expired: { label: "已过期", color: "default" },
 } as const;

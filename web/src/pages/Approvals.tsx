@@ -223,7 +223,7 @@ export function Approvals() {
   return (
     <PageContainer
       title="审批"
-      subtitle="模型触发的转人工审批单；v0.1 记录审批结论与留痕，通过后不会自动重放 SQL（完整审批流在后续版本）"
+      subtitle="人工审批 SQL；批准后原 Agent 可凭审批单号单次执行，执行时重新核验当前权限并记录结果"
     >
       <div className="apv-toolbar">
         <Space wrap>

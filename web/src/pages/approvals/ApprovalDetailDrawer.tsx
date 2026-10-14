@@ -31,17 +31,25 @@ export function ApprovalDetailDrawer({ record, open, onClose }: ApprovalDetailDr
             className="apv-boundary-alert"
             type="info"
             showIcon
-            message="v0.1 通过或拒绝只记录审批结论与留痕，不会自动重放该 SQL。"
+            message="批准后，原 Agent 可用 execute_approved 和审批单号执行一次；执行前会重新检查权限、规则和数据源。旧审批单不可执行。"
           />
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="审批单号"><code>{record.id}</code></Descriptions.Item>
             <Descriptions.Item label="审计 ID">{record.audit_id ?? "—"}</Descriptions.Item>
             <Descriptions.Item label="Agent">{record.agent_id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="数据源">{record.datasource_id || "—"}</Descriptions.Item>
             <Descriptions.Item label="状态">{statusTag(record.status)}</Descriptions.Item>
-            <Descriptions.Item label="原因/备注">{record.reason || "—"}</Descriptions.Item>
+            <Descriptions.Item label="触发原因">{record.reason || "—"}</Descriptions.Item>
+            <Descriptions.Item label="申请说明">{record.request_reason || "—"}</Descriptions.Item>
+            <Descriptions.Item label="审批备注">{record.decision_comment || "—"}</Descriptions.Item>
             <Descriptions.Item label="审批人">{record.approver || "—"}</Descriptions.Item>
             <Descriptions.Item label="创建时间">{formatDateTime(record.created_at)}</Descriptions.Item>
             <Descriptions.Item label="决定时间">{formatDateTime(record.decided_at)}</Descriptions.Item>
+            <Descriptions.Item label="有效期至">{formatDateTime(record.expires_at)}</Descriptions.Item>
+            <Descriptions.Item label="认领时间">{formatDateTime(record.claimed_at)}</Descriptions.Item>
+            <Descriptions.Item label="完成时间">{formatDateTime(record.finished_at)}</Descriptions.Item>
+            <Descriptions.Item label="执行审计 ID">{record.execution_audit_id ?? "—"}</Descriptions.Item>
+            <Descriptions.Item label="结果代码">{record.outcome_code || "—"}</Descriptions.Item>
             <Descriptions.Item label="更新时间">{formatDateTime(record.updated_at)}</Descriptions.Item>
           </Descriptions>
           <section className="apv-detail-section">

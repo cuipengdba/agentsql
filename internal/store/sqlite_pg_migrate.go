@@ -218,7 +218,13 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "agent_id", kind: migrationText}, {name: "sql_raw", kind: migrationText},
 		{name: "reason", kind: migrationText}, {name: "status", kind: migrationText},
 		{name: "approver", kind: migrationText}, {name: "decided_at", kind: migrationTime},
-		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
+		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "tenant_id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
+		{name: "datasource_fingerprint", kind: migrationText}, {name: "sql_norm", kind: migrationText},
+		{name: "request_reason", kind: migrationText}, {name: "decision_comment", kind: migrationText},
+		{name: "expires_at", kind: migrationTime}, {name: "seal", kind: migrationText},
+		{name: "claimed_at", kind: migrationTime}, {name: "finished_at", kind: migrationTime},
+		{name: "execution_audit_id", kind: migrationInt64}, {name: "outcome_code", kind: migrationText},
 	}},
 	{name: "notification_settings", pkIndex: 1, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "tenant_id", kind: migrationText}, {name: "id", kind: migrationInt32}, {name: "enabled", kind: migrationBool},
@@ -700,12 +706,21 @@ func migrateCombinedTarget(ctx context.Context, lock *migrationLock, source *sql
 	if err != nil {
 		return summary, err
 	}
-	state := classifyMigrationGroup(sqliteToPostgresTables, sourceDigests, targetDigests)
+	permissionsSeeded, err := canonicalPermissionSeed(ctx, target)
+	if err != nil {
+		return summary, err
+	}
+	state := classifyMigrationGroup(sqliteToPostgresTables, sourceDigests, targetDigests, permissionsSeeded)
 	if state == migrationConflict {
 		return summary, errors.New("classify combined target: conflict (target business tables are non-empty and not exact)")
 	}
 	if state == migrationEmpty {
 		for _, table := range sqliteToPostgresTables {
+			if table.name == "permissions" {
+				if _, err := target.ExecContext(ctx, `DELETE FROM "public"."permissions"`); err != nil {
+					return summary, targetMigrationError("clear canonical permission seed")
+				}
+			}
 			if err := copyMigrationTable(ctx, source, target, table); err != nil {
 				return summary, err
 			}
@@ -771,8 +786,12 @@ func migrateSeparatedTargets(ctx context.Context, metadataLock, auditLock *migra
 	if err != nil {
 		return summary, err
 	}
-	metadataState := classifyMigrationGroup(metadataTables, sourceDigests, metadataDigests)
-	auditState := classifyMigrationGroup(auditTables, sourceDigests, auditDigests)
+	permissionsSeeded, err := canonicalPermissionSeed(ctx, metadataTx)
+	if err != nil {
+		return summary, err
+	}
+	metadataState := classifyMigrationGroup(metadataTables, sourceDigests, metadataDigests, permissionsSeeded)
+	auditState := classifyMigrationGroup(auditTables, sourceDigests, auditDigests, false)
 	if metadataState == migrationConflict {
 		return summary, errors.New("classify metadata target: conflict (target business tables are non-empty and not exact)")
 	}
@@ -781,6 +800,11 @@ func migrateSeparatedTargets(ctx context.Context, metadataLock, auditLock *migra
 	}
 	if metadataState == migrationEmpty {
 		for _, table := range metadataTables {
+			if table.name == "permissions" {
+				if _, err := metadataTx.ExecContext(ctx, `DELETE FROM "public"."permissions"`); err != nil {
+					return summary, targetMigrationError("clear canonical permission seed")
+				}
+			}
 			if err := copyMigrationTable(ctx, source, metadataTx, table); err != nil {
 				return summary, err
 			}
@@ -844,13 +868,16 @@ const (
 	migrationConflict migrationGroupState = "conflict"
 )
 
-func classifyMigrationGroup(tables []migrationTable, source, target map[string]migrationDigest) migrationGroupState {
+func classifyMigrationGroup(tables []migrationTable, source, target map[string]migrationDigest, permissionsSeeded bool) migrationGroupState {
 	empty := true
 	for _, table := range tables {
 		if table.name == "tenants" && target[table.name].rows == 1 {
 			// The tenant-ownership migration seeds tenant_default before any
 			// business FK can be populated. Treat that canonical seed as empty;
 			// exact digest verification after copy still detects any mismatch.
+			continue
+		}
+		if table.name == "permissions" && permissionsSeeded {
 			continue
 		}
 		if target[table.name].rows != 0 {
@@ -865,6 +892,25 @@ func classifyMigrationGroup(tables []migrationTable, source, target map[string]m
 		return migrationExact
 	}
 	return migrationConflict
+}
+
+// PostgreSQL schema migration seeds the built-in permission catalog. Only that
+// exact seed may be discarded before copying the SQLite snapshot.
+func canonicalPermissionSeed(ctx context.Context, target *sql.Tx) (bool, error) {
+	var total, matched int
+	err := target.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE (code, description) IN (
+('datasource.manage','Create, inspect, update, and delete data sources and agents'),
+('strategy.manage','Manage policies, rules, masking, discovery, and notifications'),
+('query.execute','Assess or execute queries and decide approvals'),
+('audit.view','View dashboards, audit records, streams, and integrity status'),
+('user.manage','Manage users and user-role assignments in the current tenant'),
+('role.manage','Manage roles, inheritance, and role permissions in the current tenant'),
+('tenant.manage','Manage tenant records through the bootstrap administrator boundary')
+)) FROM "public"."permissions"`).Scan(&total, &matched)
+	if err != nil {
+		return false, targetMigrationError("inspect canonical permission seed")
+	}
+	return total == 7 && matched == 7, nil
 }
 
 func digestTables(ctx context.Context, queryer migrationQueryer, tables []migrationTable, postgres bool) (map[string]migrationDigest, error) {

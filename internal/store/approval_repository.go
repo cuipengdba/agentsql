@@ -18,6 +18,13 @@ var ErrApprovalNotPending = errors.New("approval is no longer pending")
 // approval with the same ID but different immutable pending-request fields.
 var ErrApprovalReplayConflict = errors.New("approval replay conflicts with persisted record")
 
+var ErrApprovalNotExecutable = errors.New("approval is not executable")
+
+const approvalColumns = `id, tenant_id, audit_id, agent_id, datasource_id, datasource_fingerprint, sql_raw, sql_norm,
+       reason, request_reason, decision_comment, seal, status, approver, decided_at,
+       expires_at, claimed_at, finished_at, execution_audit_id, outcome_code,
+       created_at, updated_at`
+
 // ApprovalRepository provides CRUD operations for approval records.
 type ApprovalRepository struct {
 	repositoryBase
@@ -65,10 +72,7 @@ func (repository *ApprovalRepository) ListPage(
 	if err := repository.db.QueryRowContext(ctx, repository.bind(countQuery), args...).Scan(&total); err != nil {
 		return ApprovalPage{}, fmt.Errorf("count approvals: %w", err)
 	}
-	query := `
-SELECT id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
-       created_at, updated_at
-FROM approvals` + where + `
+	query := `SELECT ` + approvalColumns + ` FROM approvals` + where + `
 ORDER BY created_at DESC, id DESC
 LIMIT ? OFFSET ?`
 	selectArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
@@ -118,19 +122,32 @@ func (repository *ApprovalRepository) Create(ctx context.Context, approval model
 func insertApproval(ctx context.Context, executor sqlExecutor, dialect Dialect, approval model.Approval) error {
 	query := `
 INSERT INTO approvals (
-  id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at
+  id, tenant_id, audit_id, agent_id, datasource_id, datasource_fingerprint, sql_raw, sql_norm,
+  reason, request_reason, decision_comment, seal, status, approver, decided_at,
+  expires_at, claimed_at, finished_at, execution_audit_id, outcome_code
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := executor.ExecContext(ctx, repositoryBase{dialect: dialect}.bind(query),
 		approval.ID,
 		approval.TenantID,
 		optionalInt64(approval.AuditID),
 		optionalString(approval.AgentID),
+		optionalString(approval.DatasourceID),
+		optionalString(approval.DatasourceFingerprint),
 		optionalString(approval.SQLRaw),
+		optionalString(approval.SQLNorm),
 		optionalString(approval.Reason),
+		optionalString(approval.RequestReason),
+		optionalString(approval.DecisionComment),
+		optionalString(approval.Seal),
 		approval.Status,
 		optionalString(approval.Approver),
 		optionalTime(approval.DecidedAt),
+		optionalTime(approval.ExpiresAt),
+		optionalTime(approval.ClaimedAt),
+		optionalTime(approval.FinishedAt),
+		optionalInt64(approval.ExecutionAuditID),
+		optionalString(approval.OutcomeCode),
 	)
 	if err != nil {
 		return fmt.Errorf("create approval %q: %w", approval.ID, err)
@@ -148,11 +165,7 @@ func (repository *ApprovalRepository) Get(ctx context.Context, id string) (model
 }
 
 func getApproval(ctx context.Context, executor sqlExecutor, dialect Dialect, tenantID, id string) (model.Approval, error) {
-	query := `
-SELECT id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
-       created_at, updated_at
-FROM approvals
-WHERE id = ? AND tenant_id = ?`
+	query := `SELECT ` + approvalColumns + ` FROM approvals WHERE id = ? AND tenant_id = ?`
 	approval, err := scanApproval(executor.QueryRowContext(
 		ctx, repositoryBase{dialect: dialect}.bind(query), id, tenantID,
 	))
@@ -206,10 +219,11 @@ func (repository *ApprovalRepository) DecidePending(
 
 	matched, err := approvalCAS(ctx, tx, repository.dialect, `
 UPDATE approvals
-SET status = ?, approver = ?, decided_at = ?, reason = COALESCE(?, reason),
+SET status = ?, approver = ?, decided_at = ?, decision_comment = COALESCE(?, decision_comment),
     updated_at = CURRENT_TIMESTAMP
-WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
-		status, approver, decidedAt, optionalString(reason), id, tenantID,
+WHERE id = ? AND tenant_id = ? AND status = 'pending'
+  AND (seal IS NULL OR expires_at > ?)`,
+		status, approver, decidedAt, optionalString(reason), id, tenantID, decidedAt,
 	)
 	if err != nil {
 		return model.Approval{}, fmt.Errorf("decide approval %q: %w", id, err)
@@ -480,8 +494,14 @@ func samePendingApprovalReplay(expected, stored model.Approval) bool {
 		equalInt64Pointers(stored.AuditID, expected.AuditID) &&
 		stored.Status == "pending" &&
 		equalStringPointers(stored.AgentID, expected.AgentID) &&
+		equalStringPointers(stored.DatasourceID, expected.DatasourceID) &&
+		equalStringPointers(stored.DatasourceFingerprint, expected.DatasourceFingerprint) &&
 		equalStringPointers(stored.SQLRaw, expected.SQLRaw) &&
+		equalStringPointers(stored.SQLNorm, expected.SQLNorm) &&
 		equalStringPointers(stored.Reason, expected.Reason) &&
+		equalStringPointers(stored.RequestReason, expected.RequestReason) &&
+		equalStringPointers(stored.Seal, expected.Seal) &&
+		equalTimePointers(stored.ExpiresAt, expected.ExpiresAt) &&
 		stored.Approver == nil && stored.DecidedAt == nil
 }
 
@@ -509,7 +529,7 @@ func (repository *ApprovalRepository) Update(ctx context.Context, approval model
 UPDATE approvals
 SET audit_id = ?, agent_id = ?, sql_raw = ?, reason = ?, status = ?, approver = ?,
     decided_at = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ? AND tenant_id = ?`),
+WHERE id = ? AND tenant_id = ? AND seal IS NULL`),
 		optionalInt64(approval.AuditID),
 		optionalString(approval.AgentID),
 		optionalString(approval.SQLRaw),
@@ -539,7 +559,7 @@ func (repository *ApprovalRepository) Delete(ctx context.Context, id string) err
 	if err != nil {
 		return err
 	}
-	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM approvals WHERE id = ? AND tenant_id = ?"), id, tenantID)
+	result, err := repository.db.ExecContext(ctx, repository.bind("DELETE FROM approvals WHERE id = ? AND tenant_id = ? AND seal IS NULL"), id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete approval %q: %w", id, err)
 	}
@@ -551,19 +571,31 @@ func (repository *ApprovalRepository) Delete(ctx context.Context, id string) err
 
 func scanApproval(scanner rowScanner) (model.Approval, error) {
 	var approval model.Approval
-	var auditID sql.NullInt64
-	var agentID, sqlRaw, reason, approver sql.NullString
-	var decidedAt, createdAt, updatedAt databaseTimestamp
+	var auditID, executionAuditID sql.NullInt64
+	var agentID, datasourceID, datasourceFingerprint, sqlRaw, sqlNorm, reason, requestReason sql.NullString
+	var decisionComment, seal, approver, outcomeCode sql.NullString
+	var decidedAt, expiresAt, claimedAt, finishedAt, createdAt, updatedAt databaseTimestamp
 	if err := scanner.Scan(
 		&approval.ID,
 		&approval.TenantID,
 		&auditID,
 		&agentID,
+		&datasourceID,
+		&datasourceFingerprint,
 		&sqlRaw,
+		&sqlNorm,
 		&reason,
+		&requestReason,
+		&decisionComment,
+		&seal,
 		&approval.Status,
 		&approver,
 		&decidedAt,
+		&expiresAt,
+		&claimedAt,
+		&finishedAt,
+		&executionAuditID,
+		&outcomeCode,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -572,10 +604,21 @@ func scanApproval(scanner rowScanner) (model.Approval, error) {
 
 	approval.AuditID = int64Pointer(auditID)
 	approval.AgentID = stringPointer(agentID)
+	approval.DatasourceID = stringPointer(datasourceID)
+	approval.DatasourceFingerprint = stringPointer(datasourceFingerprint)
 	approval.SQLRaw = stringPointer(sqlRaw)
+	approval.SQLNorm = stringPointer(sqlNorm)
 	approval.Reason = stringPointer(reason)
+	approval.RequestReason = stringPointer(requestReason)
+	approval.DecisionComment = stringPointer(decisionComment)
+	approval.Seal = stringPointer(seal)
 	approval.Approver = stringPointer(approver)
 	approval.DecidedAt = decidedAt.pointer()
+	approval.ExpiresAt = expiresAt.pointer()
+	approval.ClaimedAt = claimedAt.pointer()
+	approval.FinishedAt = finishedAt.pointer()
+	approval.ExecutionAuditID = int64Pointer(executionAuditID)
+	approval.OutcomeCode = stringPointer(outcomeCode)
 	var err error
 	approval.CreatedAt, err = createdAt.required("approvals.created_at")
 	if err != nil {

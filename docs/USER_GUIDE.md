@@ -1,8 +1,8 @@
 # AgentSQL 使用手册
 
-> 本文对应 AgentSQL v0.5.1。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文对应 AgentSQL v0.6.0。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台真实菜单顺序说明 AgentSQL v0.5.1 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台真实菜单顺序说明 AgentSQL v0.6.0 的操作方式与能力边界。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 ## 1. 总览 `/`
 
@@ -259,7 +259,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ## 8. 审批 `/approvals`
 
-审批状态包括 `pending`、`approved`、`rejected`、`expired`。当前没有 TTL 或定时过期逻辑，`expired` 仅用于展示或种子数据。
+普通 SQL 审批状态包括 `pending`、`approved`、`claimed`、`completed`、`failed`、`unknown`、`rejected`、`expired`。新申请有 24 小时有效期；过期后即使状态仍显示 `approved` 也不能认领。旧申请缺少封存字段，不可执行。
 
 管理员只能决定 `pending` 单。决定请求体是：
 
@@ -272,14 +272,14 @@ Agent 是调用 AgentSQL 的独立身份。
 
 `decision` 只允许 `approve` 或 `reject`，保存后状态变为 `approved` 或 `rejected`。
 
-> **核心语义：审批不是执行器，也不是豁免票据。** `approved` 只是一条人工决策记录，不会自动执行 SQL，也不会解锁或消费下一次 `execute_write`。“审批后自动执行”是未来版本能力。
+> **核心语义：** 管理员批准不会自动执行 SQL。原 Agent 可在有效期内调用 `execute_approved(approval_id)` 一次；执行时重新核验身份、数据源、当前策略与规则。人工批准不能绕过拒绝规则。认领后的记录不得自动重试。
 
 工具层有两条路径：
 
 - `execute_write` 返回 `decision:"approve"` 时，系统已经自动创建 `pending` 单并返回 `approval_id`，不要再调用 `request_approval`。
 - 调用方主动希望先送审时，才使用 `request_approval`；它同样只建单、不执行。
 
-调用方传入的 `reason` 当前只写日志；审批单保存的是规则评估原因。
+调用方传入的 `reason` 保存为申请说明；规则评估原因、审批备注分别保存。普通 SQL 审批当前只接受字面 SQL，不提供参数数组输入。
 
 ## 9. 脱敏 `/mask-rules`
 
@@ -722,7 +722,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - 自定义规则只做配置记录，不进入执行引擎；`row_filter` 只持久化和展示，不参与决策。
 - 数据源没有 SSL mode、CA、客户端证书、连接超时或 DSN 附加参数字段。
 - R005 在普通生产动态阶段按 EXPLAIN 估算告警，并在通用执行与 PostgreSQL 列级授权路径实际触发 `row_limit` 截断时补充告警。
-- 审批不会自动执行 SQL，也不是后续执行的豁免票据。
+- 审批不会自动执行 SQL；原 Agent 可凭未过期审批单号单次执行封存请求，执行时重新核验当前权限和规则。
 - 脱敏是结果层按列名与可唯一解析的物理来源匹配，不是完整 DLP。全局列、表.列、模式.表.列规则均已支持；JOIN 裸列、`SELECT *` 和 CTE 外层等未解析投影在可能涉及受保护表时会 fail-closed 固定阻断为 `***`。函数包裹并改名、聚合、`CAST`、`UNION` 和视图重命名仍可能无法溯源；JOIN / 自连接的授权仍只到表级；`*` / `schema.*` 是整表全列授权。
 - `RETURNING` 走写屏障并只返回 `RowCount`，不经过结果脱敏。
 - `hash` 只处理业务库返回后的结果值，不参与数据库内的 JOIN/WHERE；确定性指纹泄漏相等关系和频率。v0.4 支持版本化历史核验与重启式计划切换，但不提供热加载、双写、在线轮换或自动重算；跨版本同明文指纹不相等。
@@ -730,7 +730,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - `range` 只对 `number` / `date` 开放并在结果层输出字符串；同桶值仍可关联，不承诺 k-匿名，也不减少数据库读取或限制数据库侧按原值过滤、关联和分组。
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
-- 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；具体实测范围与未决项见 [v0.5.1 发布说明](release-notes-v0.5.1.md)及[v0.5.0 历史记录](release-notes-v0.5.md)，不得视为完整方言支持或厂商认证。
+- 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；具体实测范围与未决项见 [v0.6.0 发布说明](release-notes-v0.6.0.md)及[v0.5.0 历史记录](release-notes-v0.5.md)，不得视为完整方言支持或厂商认证。
 - v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；GHCR tag 同时提供 linux/amd64 与 linux/arm64 multi-arch manifest。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。法规级 WORM、SIEM、HA、Kubernetes、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。
 ## 升级预检（只读）
 

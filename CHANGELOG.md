@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.6.0] - 2026-10-14
+
+- 增加用户、角色、租户控制台和首次接入向导，收紧管理 API 的租户与权限委派边界。
+- 普通 SQL 审批增加封存、过期、单次认领执行、重新授权和终态审计；MCP 基础工具增加 `execute_approved`。
+- 增加 Vastbase G100 V3.0 Build 9 PG 模式的指定版本受限只读适配，并用真实实例验证核心 MCP 防护链路。
+- 扩展 SQLite/PostgreSQL 审批迁移和 SQLite→PostgreSQL 升级路径，修复预置权限导致的空目标误判。
+
+范围与未测项见 [v0.6.0 发布说明](docs/release-notes-v0.6.0.md)。
+
 本项目的重要变化记录于此，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
 ## [v0.5.1] - 2026-10-13

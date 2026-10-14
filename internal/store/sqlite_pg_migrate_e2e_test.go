@@ -43,7 +43,7 @@ func TestPostgres18SQLiteToPostgresMigrationE2E(t *testing.T) {
 		require.Equal(t, int64(3), auditCount)
 		var approvalForeignKey int
 		require.NoError(t, target.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_schema='public' AND table_name='approvals' AND constraint_type='FOREIGN KEY'`).Scan(&approvalForeignKey))
-		require.Equal(t, 1, approvalForeignKey)
+		require.Equal(t, 2, approvalForeignKey)
 	})
 
 	t.Run("separated audit-first partial rerun", func(t *testing.T) {
@@ -87,7 +87,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		require.Equal(t, summary.Tables, rerun.Tables)
 		var approvalForeignKey int
 		require.NoError(t, metadata.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_schema='public' AND table_name='approvals' AND constraint_type='FOREIGN KEY'`).Scan(&approvalForeignKey))
-		require.Zero(t, approvalForeignKey)
+		require.Equal(t, 1, approvalForeignKey)
 		require.Zero(t, summary.Approvals.TargetOrphans)
 		var nextID int64
 		require.NoError(t, audit.QueryRowContext(ctx, `INSERT INTO "public"."audit_logs"("decision") VALUES('allow') RETURNING "id"`).Scan(&nextID))

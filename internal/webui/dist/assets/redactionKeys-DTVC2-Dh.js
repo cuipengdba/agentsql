@@ -1,1 +1,0 @@
-import{x as e}from"./index-BSkPWR35.js";function t(t){return e({method:`GET`,url:`/redaction/keys`,signal:t})}export{t};

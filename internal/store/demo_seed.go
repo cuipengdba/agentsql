@@ -405,9 +405,7 @@ func demoApprovalByAuditID(
 	auditID int64,
 ) (model.Approval, bool, error) {
 	rows, err := executor.QueryContext(ctx, repositoryBase{dialect: dialect}.bind(`
-SELECT id, tenant_id, audit_id, agent_id, sql_raw, reason, status, approver, decided_at,
-       created_at, updated_at
-FROM approvals
+SELECT `+approvalColumns+` FROM approvals
 WHERE audit_id = ? AND tenant_id = ?
 ORDER BY id`), auditID, tenantID)
 	if err != nil {

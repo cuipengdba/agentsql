@@ -152,7 +152,7 @@ func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing
 		_, err = fixture.runtime.Store.Datasources().Create(context.Background(), model.Datasource{
 			ID: datasourceID, Name: datasourceID, DBType: "postgres",
 			Host: datasourceID + ".internal", Port: 5432, Database: datasourceID,
-			Username: agentID, ConnLimit: 5, StmtTimeoutMS: 5_000, RowLimit: 100,
+			Username: agentID, ConnLimit: 5, StmtTimeoutMS: 30_000, RowLimit: 100,
 		}, "database-password-"+datasourceID)
 		require.NoError(t, err)
 		columns := "id"

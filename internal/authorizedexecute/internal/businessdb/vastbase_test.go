@@ -38,3 +38,20 @@ func TestVastbaseConstructorRejectsWrongType(t *testing.T) {
 		t.Fatal("wrong datasource type was accepted")
 	}
 }
+
+func TestVerifiedG100VersionIsExactBuild9V3(t *testing.T) {
+	for _, version := range []string{
+		"(Vastbase G100 V3.0 (Build 9) Release) compiled at 2026-01-22",
+	} {
+		if !verifiedG100Version.MatchString(version) {
+			t.Fatalf("expected accepted vendor version %q", version)
+		}
+	}
+	for _, version := range []string{
+		"PostgreSQL 9.2.4", "Vastbase G100 V3.0 Build 90", "Vastbase G100 V4.0 Build 9",
+	} {
+		if verifiedG100Version.MatchString(version) {
+			t.Fatalf("unexpected accepted vendor version %q", version)
+		}
+	}
+}

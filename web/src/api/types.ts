@@ -290,11 +290,19 @@ export interface ApprovalView {
   id: string;
   audit_id?: number | null;
   agent_id?: string | null;
+  datasource_id?: string | null;
   sql_raw?: string | null;
   reason?: string | null;
+  request_reason?: string | null;
+  decision_comment?: string | null;
   status: string;
   approver?: string | null;
   decided_at?: string | null;
+  expires_at?: string | null;
+  claimed_at?: string | null;
+  finished_at?: string | null;
+  execution_audit_id?: number | null;
+  outcome_code?: string | null;
   created_at: string;
   updated_at: string;
 }

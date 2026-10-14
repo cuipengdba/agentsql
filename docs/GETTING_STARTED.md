@@ -1,6 +1,6 @@
 # AgentSQL 快速上手
 
-> 本文对应 AgentSQL v0.5.1。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文对应 AgentSQL v0.6.0。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 AgentSQL 是放在 AI Agent 与业务数据库之间的数据库安全网关和生产级 MCP Server，让每条 SQL 在执行前经过身份、权限、规则和决策检查，并在可审计的边界内执行。
 
@@ -16,7 +16,7 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 - 按 Agent × 数据源 × 对象建立默认拒绝的授权策略。
 - 对单条 SQL 做解析、规则判断、受控执行、结果限行和基础脱敏。
 - 在控制台查看 `allow`、`deny`、`warn`、`approve`、`error` 的证据链与应用层审计。
-- 通过 Streamable HTTP 或 stdio 向 MCP 客户端提供 7 个固定基础工具；默认开启的 PostgreSQL B5 会话/计划事务另提供 8 个工具。
+- 通过 Streamable HTTP 或 stdio 向 MCP 客户端提供 8 个固定基础工具；默认开启的 PostgreSQL B5 会话/计划事务另提供 8 个工具。
 
 ## 明确不做什么
 
@@ -98,7 +98,7 @@ docker compose down -v
 curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
 ```
 
-除一键安装外，也可按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建；v0.5.1 发布后可运行 `docker pull ghcr.io/cuipengdba/agentsql:v0.5.1` 拉取会自动匹配 `linux/amd64` / `linux/arm64` 的多架构镜像；发布资产以 GitHub Releases 页面为准。
+除一键安装外，也可按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建；v0.6.0 发布后可运行 `docker pull ghcr.io/cuipengdba/agentsql:v0.6.0` 拉取会自动匹配 `linux/amd64` / `linux/arm64` 的多架构镜像；发布资产以 GitHub Releases 页面为准。
 
 ### 2. 登录控制台
 
@@ -177,6 +177,6 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 
 - [使用手册](USER_GUIDE.md)：按控制台菜单学习每项能力及边界。
 - [敏感列发现指南](DISCOVERY.md)：显式表范围、采样安全、置信度与脱敏草稿边界。
-- [MCP 接入指南](INTEGRATIONS.md)：两种传输、7 个基础工具、B5 会话/事务工具、调用时序和客户端配置。
+- [MCP 接入指南](INTEGRATIONS.md)：两种传输、8 个基础工具、B5 会话/事务工具、调用时序和客户端配置。
 - [部署指南](DEPLOY.md)：源码、Compose、systemd、升级、备份和控制面迁移。
 - [本地 Live Demo](DEMO.md)：完整演示凭据、重置脚本与安全清单。

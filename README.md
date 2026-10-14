@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Release v0.5.1](https://img.shields.io/badge/Release-v0.5.1-blue)
+![Release v0.6.0](https://img.shields.io/badge/Release-v0.6.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -11,9 +11,9 @@
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
-v0.5.1 聚焦 MCP 客户端互通、租户隔离、发布工具链与达梦/金仓真库复验。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
+v0.6.0 加入用户、角色和租户控制台、首次接入向导、普通 SQL 审批单次执行，以及 Vastbase G100 Build 9 PG 模式的受限只读适配。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
 
-版本变化与验证边界见 [v0.5.1 发布说明](docs/release-notes-v0.5.1.md)。
+版本变化与验证边界见 [v0.6.0 发布说明](docs/release-notes-v0.6.0.md)。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -23,20 +23,21 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 
 ## 核心特性
 
-- 双 MCP 承载：本机 `stdio` 与 Streamable HTTP `/mcp`，提供 7 个基础数据库工具；默认开启的 PostgreSQL B5 会话/计划事务另提供 8 个工具。
+- 双 MCP 承载：本机 `stdio` 与 Streamable HTTP `/mcp`，提供 8 个基础数据库工具；默认开启的 PostgreSQL B5 会话/计划事务另提供 8 个工具。
 - 默认拒绝的安全链路：API Key 认证、Agent 能力档位、对象/列授权、SQL AST 规则与 fail-closed 错误处理。
 - 受控读写：只读保护、危险 SQL 拦截、Explain 风险评估、超时、连接/QPS/结果行数限制和人工审批。
 - 基础数据保护：列级脱敏提供四种算法——六类 `mask` 部分遮蔽、九类均可用的带专用密钥 HMAC `hash` 指纹、无需密钥且把非空值统一替换为 `***` 的 `block` 整值阻断，以及仅用于 `number` / `date`、通过数值分桶或日期截断保留粗粒度分布且无需密钥的 `range`。数据源口令另由 32 字节 `AGENTSQL_SECRET` 加密保存。
 - 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出（面向机器的 JSONL，以及 Excel/WPS 可直接打开、带公式注入防护的中文 CSV）、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
-- 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批和脱敏规则管理。
+- 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批、脱敏规则、用户、角色、租户管理及首次接入向导。
 
 ## 生态与兼容
 
-AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.5.1 的主流国产数据库指定实例与协议路径验证范围见下表。
+AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL 与 MySQL。v0.6.0 新增 Vastbase G100 的指定版本只读子集；国产数据库的指定实例与协议路径验证范围见下表。
 
 | 数据库 | 适配状态 | 说明 |
 | --- | --- | --- |
+| 海量数据 Vastbase G100 | 🔵 指定版本受控只读 | G100 V3.0 Build 9、PG 模式、单实例合成表：独立 `vastbase` 类型、强制只读连接、单表有界 SELECT、表授权、手机号脱敏、MCP 审批单次执行及持久审计实测；临时许可仅用于验证，其他版本、TLS/HA/生产负载未测；见[验证记录](docs/vastbase-g100-v060.md) |
 | 中电科金仓 KingbaseES | 🟢 PG 协议基础闭环实测通过 | 仅 V9R1C10、PG 模式、单实例合成表：可写 license 卷启动、ksql CRUD/分页/标识符、pgx/v5 `$1` 绑定 + SCRAM、只读角色拒写 `42501`、受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计实测通过；见[真库验证记录](docs/kingbase-v9-verification.md) |
 | 瀚高 HighGo | 🟢 指定实例防护链路实测通过 | HighGo 9.0.10 企业版（PG 模式、单实例合成表）：解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝、allow/deny 审计链路实测通过；见[真库验证记录](docs/highgo-verification.md) |
 | IvorySQL | 已实测 | 社区版协议路径已实测通过 |
@@ -74,12 +75,12 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v0.5.1 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v0.6.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v0.5.1-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v0.5.1-linux-amd64.tar.gz
-cd agentsql-v0.5.1-linux-amd64
+sha256sum -c agentsql-v0.6.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.6.0-linux-amd64.tar.gz
+cd agentsql-v0.6.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -91,17 +92,17 @@ sudo ./install.sh install
 curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/main/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.5.1 精确 tag 命令可直接使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。以下 v0.6.0 精确 tag 命令可直接使用；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.5.1
+docker pull ghcr.io/cuipengdba/agentsql:v0.6.0
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.5.1
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.6.0
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -151,7 +152,7 @@ docker compose --profile observability up -d --build
 源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。正式发布脚本固定 Go 1.26.8；若人工调用 Makefile 的 Docker 发布目标，须显式传 `GO_VERSION=1.26.8`，不能依赖其历史默认值 `1.25.14`。普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 ```bash
-make build VERSION=v0.5.1
+make build VERSION=v0.6.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -218,7 +219,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 }
 ```
 
-网关始终提供 7 个基础 MCP 工具：`list_datasources`、`list_schema`、`explain_query`、`query`、`execute_write`、`request_approval`、`get_approval_result`。v0.4.0 默认开启的 PostgreSQL B5 会话/计划事务还会注册 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status` 8 个工具；显式关闭 `mcp.sessions.enabled` 后只保留基础工具。
+网关始终提供 8 个基础 MCP 工具：`list_datasources`、`list_schema`、`explain_query`、`query`、`execute_write`、`request_approval`、`get_approval_result`、`execute_approved`。v0.4.0 默认开启的 PostgreSQL B5 会话/计划事务还会注册 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status` 8 个工具；显式关闭 `mcp.sessions.enabled` 后只保留基础工具。
 
 ## 功能矩阵
 
@@ -240,7 +241,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v0.5.1 代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 与瀚高 HighGo 另列为指定环境已验证的 PG 协议基础闭环，不计入 27 款；分类表共 29 行。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；达梦、金仓与瀚高的绿色仅限所述实例和用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
+v0.6.0 代码的注册表覆盖 **8 大类、28 款数据库**（7 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 与瀚高 HighGo 另列为指定环境已验证的 PG 协议基础闭环，不计入 28 款；分类表共 30 行。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；达梦、金仓与瀚高的绿色仅限所述实例和用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
 
 | 类别 | 数据库 | 适配状态 | 边界说明 |
 | --- | --- | --- | --- |
@@ -250,8 +251,9 @@ v0.5.1 代码的注册表覆盖 **8 大类、27 款数据库**（6 款关系型 
 |  | 达梦 DM8 | 🟢 已适配 · 完整防护 | 仅限 Pack3、COMPATIBLE_MODE=0 指定链路 |
 |  | 崖山 YashanDB | 🔵 已适配 · 受控只读 | 标准 parser 接通，真库流水线通过 |
 |  | SQL Server 2025 | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
-|  | 金仓 KingbaseES V9（另列） | 🟢 已适配 · 完整防护 | V9R1C10 PG 模式基础闭环，不计入 27 |
-|  | 瀚高 HighGo（另列） | 🟢 已适配 · 完整防护 | HighGo 9.0.10 企业版 PG 模式、单实例合成表限定，不计入 27 |
+|  | Vastbase G100 | 🔵 指定版本受控只读 | V3.0 Build 9 PG 模式的有界单表 SELECT、表授权、脱敏及持久审计真库实测；见[验证记录](docs/vastbase-g100-v060.md) |
+|  | 金仓 KingbaseES V9（另列） | 🟢 已适配 · 完整防护 | V9R1C10 PG 模式基础闭环，不计入 28 |
+|  | 瀚高 HighGo（另列） | 🟢 已适配 · 完整防护 | HighGo 9.0.10 企业版 PG 模式、单实例合成表限定，不计入 28 |
 | 键值 | Redis | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
 |  | Valkey | 🔷 已适配 · 连接级 | 复用 Redis 适配 |
 |  | Memcached | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
@@ -324,7 +326,7 @@ NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.5.1
+make build VERSION=v0.6.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS idx_approvals_execution;
+ALTER TABLE approvals DROP COLUMN outcome_code;
+ALTER TABLE approvals DROP COLUMN execution_audit_id;
+ALTER TABLE approvals DROP COLUMN finished_at;
+ALTER TABLE approvals DROP COLUMN claimed_at;
+ALTER TABLE approvals DROP COLUMN seal;
+ALTER TABLE approvals DROP COLUMN expires_at;
+ALTER TABLE approvals DROP COLUMN decision_comment;
+ALTER TABLE approvals DROP COLUMN request_reason;
+ALTER TABLE approvals DROP COLUMN sql_norm;
+ALTER TABLE approvals DROP COLUMN datasource_id;
+ALTER TABLE approvals DROP COLUMN datasource_fingerprint;

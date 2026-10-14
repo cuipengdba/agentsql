@@ -1,0 +1,12 @@
+ALTER TABLE approvals ADD COLUMN datasource_id TEXT;
+ALTER TABLE approvals ADD COLUMN datasource_fingerprint TEXT;
+ALTER TABLE approvals ADD COLUMN sql_norm TEXT;
+ALTER TABLE approvals ADD COLUMN request_reason TEXT;
+ALTER TABLE approvals ADD COLUMN decision_comment TEXT;
+ALTER TABLE approvals ADD COLUMN expires_at TIMESTAMPTZ;
+ALTER TABLE approvals ADD COLUMN seal TEXT;
+ALTER TABLE approvals ADD COLUMN claimed_at TIMESTAMPTZ;
+ALTER TABLE approvals ADD COLUMN finished_at TIMESTAMPTZ;
+ALTER TABLE approvals ADD COLUMN execution_audit_id BIGINT;
+ALTER TABLE approvals ADD COLUMN outcome_code TEXT;
+CREATE INDEX idx_approvals_execution ON approvals(tenant_id, agent_id, status, expires_at);

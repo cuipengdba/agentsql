@@ -72,13 +72,14 @@ func New(ports Ports, secret []byte, options ...Option) (*Pipeline, error) {
 
 // Process runs auth, load, parse, two guard gates, execute, redact, and audit.
 func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Response, error) {
-	return pipeline.process(ctx, request, runModeProduction)
+	return pipeline.process(ctx, request, runModeProduction, nil)
 }
 
 func (pipeline *Pipeline) process(
 	ctx context.Context,
 	request Request,
 	mode pipelineRunMode,
+	approved *model.Approval,
 ) (Response, error) {
 	if pipeline == nil {
 		return Response{}, fmt.Errorf("process SQL request: %w", ErrInvalidRequest)
@@ -100,6 +101,10 @@ func (pipeline *Pipeline) process(
 			return err
 		}
 		run.agent = &agent
+		if mode == runModeApproved && (approved == nil || approved.AgentID == nil ||
+			*approved.AgentID != agent.ID || approved.TenantID != agent.TenantID) {
+			return ErrInvalidRequest
+		}
 		return nil
 	}); err != nil {
 		return run.finish(ctx, err)
@@ -117,6 +122,11 @@ func (pipeline *Pipeline) process(
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
+		if mode == runModeApproved && (approved.DatasourceID == nil ||
+			*approved.DatasourceID != datasource.ID || approved.DatasourceFingerprint == nil ||
+			*approved.DatasourceFingerprint != datasourceFingerprint(datasource)) {
+			return ErrInvalidRequest
+		}
 		if run.isDemo() {
 			if hit, denied := run.demoScopeDeny(); denied {
 				run.appendStructuralHit(hit)
@@ -181,6 +191,10 @@ func (pipeline *Pipeline) process(
 		}
 		if err := executor.NewBudget(executor.DefaultLimits).ChargeAST(ast); err != nil {
 			return err
+		}
+		if mode == runModeApproved && (approved == nil || approved.SQLNorm == nil ||
+			ast.Normalized != *approved.SQLNorm) {
+			return ErrInvalidRequest
 		}
 		return nil
 	}); err != nil {
@@ -260,6 +274,12 @@ func (pipeline *Pipeline) process(
 			enabled = router.ColumnAuthorizationEnabled(*run.datasource)
 		}
 		if enabled {
+			if request.RequireApproval || mode == runModeApproved {
+				run.response.Decision = model.DecisionDeny
+				run.response.Assessment.Decision = model.DecisionDeny
+				run.response.Assessment.Reason = "列级授权路径暂不支持审批执行"
+				return run.finish(ctx, nil)
+			}
 			return run.processColumnAuthorizedSelect(ctx, bindDeniedSelect)
 		}
 	}
@@ -370,6 +390,13 @@ func (pipeline *Pipeline) process(
 		)
 		recomputeAssessmentDecision(&run.response.Assessment)
 		run.response.Decision = run.response.Assessment.Decision
+	}
+	if mode == runModeApproved && run.response.Decision == model.DecisionApprove {
+		// The human decision only removes the approval wait. Every deny rule,
+		// object binding, database plan and live permission was re-evaluated.
+		run.response.Decision = model.DecisionAllow
+		run.response.Assessment.Decision = model.DecisionAllow
+		run.response.Assessment.Reason = "已批准请求重新通过当前安全检查"
 	}
 	if request.ExplainOnly {
 		if err := run.closeUnusedSession(); err != nil {
@@ -1039,12 +1066,34 @@ func (run *pipelineRun) approve(ctx context.Context) (Response, error) {
 			return err
 		}
 		approval = model.Approval{
-			ID:      approvalID,
-			AgentID: stringPointer(run.agent.ID),
-			SQLRaw:  stringPointer(run.request.SQL),
-			Reason:  stringPointer(run.response.Assessment.Reason),
-			Status:  "pending",
+			ID:       approvalID,
+			TenantID: run.agent.TenantID,
+			AgentID:  stringPointer(run.agent.ID),
+			SQLRaw:   stringPointer(run.request.SQL),
+			Reason:   stringPointer(run.response.Assessment.Reason),
+			Status:   "pending",
 		}
+		if approval.TenantID == "" {
+			approval.TenantID = "tenant_default"
+		}
+		if run.isDemo() {
+			// Demo approvals describe a simulation and must never become an
+			// executable grant in the production MCP path.
+			return nil
+		}
+		approval.DatasourceID = stringPointer(run.datasource.ID)
+		approval.DatasourceFingerprint = stringPointer(datasourceFingerprint(*run.datasource))
+		approval.SQLNorm = stringPointer(run.ast.Normalized)
+		if strings.TrimSpace(run.request.Reason) != "" {
+			approval.RequestReason = stringPointer(run.request.Reason)
+		}
+		expires := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+		approval.ExpiresAt = &expires
+		seal, err := sealApproval(run.pipeline.secret, approval)
+		if err != nil {
+			return err
+		}
+		approval.Seal = &seal
 		return nil
 	}); err != nil {
 		return run.finish(ctx, err)

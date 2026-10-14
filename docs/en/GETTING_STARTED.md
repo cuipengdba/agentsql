@@ -18,7 +18,7 @@ AgentSQL is not BI, an ORM, or Text2SQL. It does not convert natural language in
 - Default-deny authorization policies scoped by Agent × data source × object.
 - Parsing, rule evaluation, controlled execution, result row limits, and basic data masking for each single SQL statement.
 - An evidence trail and application-level SQL audit for `allow`, `deny`, `warn`, `approve`, and `error` decisions in the console.
-- Seven fixed base tools for MCP clients over Streamable HTTP or stdio, plus eight tools for the PostgreSQL B5 session/planned-transaction feature that is enabled by default.
+- Eight fixed base tools for MCP clients over Streamable HTTP or stdio, plus eight tools for the PostgreSQL B5 session/planned-transaction feature that is enabled by default.
 
 ## Explicit Non-Goals
 
@@ -179,6 +179,6 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 
 - [User Guide](../USER_GUIDE.md): learn each console feature and its boundaries.
 - [Sensitive Column Discovery Guide](../DISCOVERY.md): explicit table scope, sampling safety, confidence, and masking-draft boundaries.
-- [MCP Integration Guide](INTEGRATIONS.md): two transports, seven base tools, B5 session/transaction tools, call sequences, and client configuration.
+- [MCP Integration Guide](INTEGRATIONS.md): two transports, eight base tools, B5 session/transaction tools, call sequences, and client configuration.
 - [Deployment Guide](../DEPLOY.md): source, Compose, systemd, upgrades, backups, and control-plane migration.
 - [Local Live Demo](../DEMO.md): full demo credentials, reset scripts, and security checklist.

@@ -331,7 +331,7 @@ func TestRedactionReadinessRequiresFreshReconciliation(t *testing.T) {
 	require.Equal(t, http.StatusOK, health.Code)
 }
 
-func TestStreamableHTTPEndToEndSevenTools(t *testing.T) {
+func TestStreamableHTTPEndToEndEightTools(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	handler, registry, err := newHTTPHandlerWithRegistry(fixture.runtime, httpTestConfig(100), zerolog.Nop())
 	require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestStreamableHTTPEndToEndSevenTools(t *testing.T) {
 		if body == listToolsRequest {
 			for _, name := range []string{
 				"list_datasources", "list_schema", "explain_query", "query",
-				"execute_write", "request_approval", "get_approval_result",
+				"execute_write", "request_approval", "get_approval_result", "execute_approved",
 			} {
 				require.Equal(t, 1, strings.Count(responseBody, `"`+name+`"`), name)
 			}

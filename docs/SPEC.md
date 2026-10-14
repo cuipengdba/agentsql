@@ -88,7 +88,7 @@ Web 控制台 ──REST(/api/v1)──► adminapi ───┘                
 
 - **只读 `query`**：仅允许语义只读的 `SELECT`；执行后审计，审计未成功不返回结果。
 - **受控写 `execute_write`**：默认关闭，需要 `dml` 及以上等级的 Agent 与显式策略授权。写路径遵循**审计提交屏障**：可事务 DML 在业务事务内「先写审计再提交」，审计失败则回滚业务事务（业务库零变更）；DDL 等隐式提交 / 不可回滚语句在执行前先写入「授权意图」审计，意图审计失败则不执行。
-- **人工审批 `approve`**：策略裁决为「需审批」时生成审批单，**不执行 SQL**；管理员在控制台裁决（approved / rejected / expired）。
+- **人工审批 `approve`**：策略裁决为「需审批」时生成审批单，**不执行 SQL**；管理员在控制台裁决。批准后原 Agent 可凭未过期审批单号单次执行封存请求，执行时重新检查当前权限和规则。
 - **实时事件流**：进程内 SSE 端点 `/api/v1/stream`（管理端 Bearer 鉴权、仅同源、事件体为安全字段 allow-list 投影），审计成功落库后推送；浏览器断线自动重连，持续失败降级为轮询；**审计表与审计 API 始终是权威数据源**，前端按审计 ID 去重。SSE 为单实例 best-effort，跨实例广播在路线图中。
 
 ---
@@ -311,7 +311,7 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 
 敏感发现以物理来源键 `(datasource, schema, table, column)` 识别候选列。应用候选时，PostgreSQL 和 MySQL 均生成 `schema_name=""`、`table_name=<真实表名>`、`algo=mask`、`enabled=false` 的 table-only 草稿；不同表的同名列是多条独立草稿。若候选列已被启用的全局列规则覆盖，结果标为 `CoveredByGlobal` 并跳过创建；disabled 全局草稿不阻挡新的 table-only 草稿。
 
-### 6.4 MCP 工具（七个基础工具 + PostgreSQL B5 八个会话/计划事务工具）
+### 6.4 MCP 工具（八个基础工具 + PostgreSQL B5 八个会话/计划事务工具）
 
 | 工具 | 入参 | 行为 |
 |---|---|---|
@@ -322,8 +322,9 @@ SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类�
 | `execute_write` | `{datasource_id, sql, reason}` | 受控写，默认关闭，需 dml 及以上 + 授权 + 审计屏障 |
 | `request_approval` | `{datasource_id, sql, reason}` | 生成人工审批单，不执行 |
 | `get_approval_result` | `{approval_id}` | 查询审批状态 |
+| `execute_approved` | `{approval_id}` | 原 Agent 单次认领已批准且未过期的封存请求，重新经过授权和审计后执行 |
 
-PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status`；显式关闭 `mcp.sessions.enabled` 后仅保留上述七个基础工具。错误统一返回 `{decision, reason, suggestion}`，`suggestion` 用中文指导 AI 自我改写。**不提供 `execute_raw_sql` 之类的万能执行工具。**
+PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status`；显式关闭 `mcp.sessions.enabled` 后仅保留上述八个基础工具。错误统一返回 `{decision, reason, suggestion}`，`suggestion` 用中文指导 AI 自我改写。**不提供 `execute_raw_sql` 之类的万能执行工具。**
 
 ### 6.5 管理 REST API
 

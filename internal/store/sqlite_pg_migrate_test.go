@@ -155,11 +155,18 @@ func TestClassifyMigrationGroup(t *testing.T) {
 		"datasources": {rows: 1, hash: [32]byte{3}, primaryKey: [32]byte{4}},
 	}
 	empty := map[string]migrationDigest{"agents": {}, "datasources": {}}
-	require.Equal(t, migrationEmpty, classifyMigrationGroup(tables, source, empty))
+	require.Equal(t, migrationEmpty, classifyMigrationGroup(tables, source, empty, false))
 	exact := map[string]migrationDigest{"agents": source["agents"], "datasources": source["datasources"]}
-	require.Equal(t, migrationExact, classifyMigrationGroup(tables, source, exact))
+	require.Equal(t, migrationExact, classifyMigrationGroup(tables, source, exact, false))
 	conflict := map[string]migrationDigest{"agents": source["agents"], "datasources": {rows: 1, hash: [32]byte{9}}}
-	require.Equal(t, migrationConflict, classifyMigrationGroup(tables, source, conflict))
+	require.Equal(t, migrationConflict, classifyMigrationGroup(tables, source, conflict, false))
+	withPermissions := append(tables, sqliteToPostgresTableByName(t, "permissions"))
+	source["permissions"] = migrationDigest{rows: 8, hash: [32]byte{5}}
+	seeded := map[string]migrationDigest{"agents": {}, "datasources": {}, "permissions": {rows: 7, hash: [32]byte{6}}}
+	require.Equal(t, migrationConflict, classifyMigrationGroup(withPermissions, source, seeded, false))
+	require.Equal(t, migrationEmpty, classifyMigrationGroup(withPermissions, source, seeded, true))
+	seeded["datasources"] = migrationDigest{rows: 1}
+	require.Equal(t, migrationConflict, classifyMigrationGroup(withPermissions, source, seeded, true))
 }
 
 func TestSQLiteToPostgresMigrationManifestCoversMetadataTables(t *testing.T) {
@@ -314,6 +321,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=15 latest=16")
+		require.ErrorContains(t, err, "current=16 latest=17")
 	})
 }

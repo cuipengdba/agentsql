@@ -48,7 +48,7 @@ export function ApprovalDecideModal({
           <Alert
             type="info"
             showIcon
-            message="本次操作只记录审批结论与留痕，不会自动重放 SQL。"
+            message="本次批准不会自动执行 SQL。原 Agent 可在有效期内凭审批单号单次执行，执行时重新检查权限与规则。"
           />
           <Descriptions column={1} size="small">
             <Descriptions.Item label="审批单号"><code>{record.id}</code></Descriptions.Item>

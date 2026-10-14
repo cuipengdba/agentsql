@@ -105,6 +105,7 @@ func TestProcessDemoBoundedUpdateAndDeleteCreateApprovalWithoutExecution(t *test
 			require.Positive(t, response.AuditID)
 			require.Zero(t, fixture.executors.calls())
 			require.Equal(t, 1, fixture.approvals.calls())
+			require.Nil(t, fixture.approvals.created[0].Seal, "demo approval must not be executable")
 			require.Equal(t, "approve", fixture.audit.last().Decision)
 		})
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/policy"
+	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 )
 
@@ -59,10 +60,13 @@ type pipelineData struct {
 }
 
 type approvalData struct {
-	ID        string     `json:"id"`
-	Status    string     `json:"status"`
-	Approver  *string    `json:"approver,omitempty"`
-	DecidedAt *time.Time `json:"decided_at,omitempty"`
+	ID               string     `json:"id"`
+	Status           string     `json:"status"`
+	Approver         *string    `json:"approver,omitempty"`
+	DecidedAt        *time.Time `json:"decided_at,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	ExecutionAuditID *int64     `json:"execution_audit_id,omitempty"`
+	OutcomeCode      *string    `json:"outcome_code,omitempty"`
 }
 
 type toolHandlers struct {
@@ -231,6 +235,13 @@ func (handlers *toolHandlers) executeWrite(
 	}
 	ast, response := parseForTool(datasource.DBType, sql)
 	if response != nil {
+		if response.ErrorCode == string(executor.DBErrorCodeSyntax) {
+			// The pipeline records a durable rejection without reaching the
+			// business database. Keep this path consistent with query.
+			return handlers.process(ctx, pipeline.Request{
+				APIKey: handlers.apiKey, DatasourceID: datasourceID, SQL: sql, MCPTool: "execute_write",
+			})
+		}
 		return *response
 	}
 	switch ast.StmtType {
@@ -248,7 +259,7 @@ func (handlers *toolHandlers) executeWrite(
 		Str("reason", reason).
 		Msg("MCP write request")
 	return handlers.process(ctx, pipeline.Request{
-		APIKey: handlers.apiKey, DatasourceID: datasourceID, SQL: sql, MCPTool: "execute_write",
+		APIKey: handlers.apiKey, DatasourceID: datasourceID, SQL: sql, MCPTool: "execute_write", Reason: reason,
 	})
 }
 
@@ -269,7 +280,7 @@ func (handlers *toolHandlers) requestApproval(
 		Msg("MCP approval request")
 	return handlers.process(ctx, pipeline.Request{
 		APIKey: handlers.apiKey, DatasourceID: datasourceID, SQL: sql,
-		MCPTool: "request_approval", RequireApproval: true,
+		MCPTool: "request_approval", RequireApproval: true, Reason: reason,
 	})
 }
 
@@ -283,7 +294,22 @@ func (handlers *toolHandlers) getApprovalResult(ctx context.Context, approvalID 
 	}
 	return allowToolResponse("已返回审批单当前状态", approvalData{
 		ID: approval.ID, Status: approval.Status, Approver: approval.Approver, DecidedAt: approval.DecidedAt,
+		ExpiresAt: approval.ExpiresAt, ExecutionAuditID: approval.ExecutionAuditID, OutcomeCode: approval.OutcomeCode,
 	})
+}
+
+func (handlers *toolHandlers) executeApproved(ctx context.Context, approvalID string) ToolResponse {
+	if strings.TrimSpace(approvalID) == "" {
+		return errorToolResponse("approval_id 不能为空", "请提供 request_approval 返回的审批单号")
+	}
+	response, err := handlers.runtime.Pipeline.ExecuteApproved(ctx, handlers.apiKey, approvalID)
+	if errors.Is(err, store.ErrApprovalNotExecutable) {
+		return denyToolResponse("审批单不可执行", "请检查审批状态、有效期和归属；已认领请求不得重试")
+	}
+	if err != nil {
+		return handlers.internalError("execute_approved", err)
+	}
+	return pipelineToolResponse(response)
 }
 
 func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Request) ToolResponse {
@@ -291,6 +317,10 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 	if err != nil {
 		return handlers.internalError(request.MCPTool, err)
 	}
+	return pipelineToolResponse(response)
+}
+
+func pipelineToolResponse(response pipeline.Response) ToolResponse {
 	if response.Decision == model.DecisionError {
 		reason := response.ErrorMessage
 		if reason == "" {

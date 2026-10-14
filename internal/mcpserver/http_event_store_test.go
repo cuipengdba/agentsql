@@ -107,7 +107,7 @@ func TestStreamableHTTPRestartSignalsExpiredSessionAndReinitializes(t *testing.T
 	require.NotEqual(t, oldSessionID, newSessionID)
 	listed := serveMCPWithSession(t, restarted, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, newSessionID)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
-	require.Len(t, decodeToolNames(t, listed.Body.Bytes()), 7)
+	require.Len(t, decodeToolNames(t, listed.Body.Bytes()), 8)
 
 	_, _, err = fixture.runtime.Store.MCPStreamEvents().StreamEventsAfter(context.Background(), oldSessionID, "old", -1)
 	require.ErrorIs(t, err, store.ErrMCPStreamNotFound, "new activity must lazily reclaim expired crash residue")

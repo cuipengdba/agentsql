@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文对应 AgentSQL v0.5.1。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文对应 AgentSQL v0.6.0。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -42,7 +42,7 @@ AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
 
-`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：始终提供 7 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具。
+`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：始终提供 8 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具。
 
 > **重要：stdio 不是连接已运行 systemd 服务的代理。** 它会新建一套运行时，必须能读取配置、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。安装器生成的 `/etc/agentsql/agentsql.env` 权限为 `0600 root:root`，普通桌面用户读不到；已经安装并运行服务时请直接使用 HTTP。
 
@@ -52,7 +52,7 @@ stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI�
 
 所有 SQL 参数都只接受单条语句，不允许堆叠多语句。客户端必须读取结构化结果中的 `decision`。
 
-以下 7 个基础工具始终注册：
+以下 8 个基础工具始终注册：
 
 | 工具 | 用途 | 入参 | 可能的 decision 与关键语义 |
 | --- | --- | --- | --- |
@@ -63,8 +63,9 @@ stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI�
 | `execute_write` | 提交单条 `INSERT`、`UPDATE`、`DELETE` 或 DDL | `datasource_id`、`sql`、必填 `reason` | 管理类语句不走此工具；DDL 要求 Agent 为 `ddl`；`allow`/`warn` 才执行，`approve` 会自动创建 pending 审批单但不执行 |
 | `request_approval` | 主动把 SQL 送审 | `datasource_id`、`sql`、必填 `reason` | 只创建审批单，不执行 SQL；返回 `approval_id` |
 | `get_approval_result` | 查询审批状态 | `approval_id` | 只能查询当前 Agent 自己的单；其他 Agent 的单号按未找到处理 |
+| `execute_approved` | 执行已批准的封存请求 | `approval_id` | 原 Agent 单次认领；重新检查身份、数据源、策略和规则；拒绝重复调用 |
 
-`execute_write` 和 `request_approval` 的调用方 `reason` 当前会写日志；审批单保存的是规则评估原因，不是调用方原文。
+`execute_write` 和 `request_approval` 的调用方 `reason` 会作为申请说明保存；规则评估原因与审批备注单独保存。
 
 v0.4.0 的 B5 跨请求逻辑会话与 PostgreSQL 计划事务出厂默认开启，因此默认 `tools/list` 还会返回以下 8 个工具：
 
@@ -98,12 +99,12 @@ execute_write(reason 必填)
   → decision="approve" + approval_id（系统已自动创建 pending 单）
   → 管理员在控制台审批
   → get_approval_result
-  → approved 后由库外人工或另一个具备权限的流程执行
+  → approved 后原 Agent 调用 execute_approved(approval_id)
 ```
 
 收到 `execute_write` 返回的 `approval_id` 后，不要再调用 `request_approval`，否则会重复送审。
 
-审批不是执行器，也不是豁免票据。`approved` 只表示人工决策记录已通过：AgentSQL 不会自动执行原 SQL，也不会解锁或消费下一次 `execute_write`。如仍需变更，由管理员在库外执行，或让具备权限的独立流程重新发起并接受新的规则判断。
+`approved` 不会自动执行原 SQL。原 Agent 可在有效期内调用一次 `execute_approved`；该工具重新检查当前权限和规则，遇到拒绝或故障会关闭执行。旧审批单不可执行，单次认领后不得自动重试。
 
 ### 写操作：主动送审
 
@@ -112,9 +113,10 @@ request_approval(reason 必填)
   → approval_id
   → 管理员在控制台审批
   → get_approval_result
+  → approved 后调用 execute_approved(approval_id)
 ```
 
-主动送审适用于调用方明确希望先取得人工意见的场景；它从不执行 SQL。
+主动送审本身从不执行 SQL；仅 `execute_approved` 在批准后执行封存请求。
 
 ## 正确处理返回值
 
@@ -128,7 +130,7 @@ request_approval(reason 必填)
 
 ## Claude Desktop 接入
 
-Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。v0.5.1 的 `agentsql mcp` 默认使用标准 MCP stdio 逐行 JSON 消息格式；旧版自定义长度前缀客户端可显式加 `--sealed-stdio` 继续使用原帧格式。以下直启示例适用于能运行 AgentSQL Linux 二进制的桌面环境；当前正式资产只提供 Linux amd64/arm64，Windows 桌面请使用下面的 HTTP 桥接示例。`command` 建议填写可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致。
+Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。v0.6.0 的 `agentsql mcp` 默认使用标准 MCP stdio 逐行 JSON 消息格式；旧版自定义长度前缀客户端可显式加 `--sealed-stdio` 继续使用原帧格式。以下直启示例适用于能运行 AgentSQL Linux 二进制的桌面环境；当前正式资产只提供 Linux amd64/arm64，Windows 桌面请使用下面的 HTTP 桥接示例。`command` 建议填写可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致。
 
 ```json
 {
@@ -145,7 +147,7 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 }
 ```
 
-上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，默认配置应能看到 7 个基础工具和 8 个 B5 工具；显式关闭 B5 时只显示基础工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
+上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，默认配置应能看到 8 个基础工具和 8 个 B5 工具；显式关闭 B5 时只显示基础工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
 
 ### Windows Claude Desktop：连接已有 AgentSQL 服务
 

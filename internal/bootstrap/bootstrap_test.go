@@ -69,7 +69,7 @@ func TestAssembleWiresRuntimeAndStoreBackedRedactor(t *testing.T) {
 	require.NoError(t, err)
 	_, err = runtime.Store.Datasources().Create(context.Background(), model.Datasource{
 		ID: "ds-1", Name: "DB", DBType: "postgres", Host: "127.0.0.1", Port: 5432,
-		Database: "app", Username: "agentsql", ConnLimit: 5, StmtTimeoutMS: 5_000, RowLimit: 100,
+		Database: "app", Username: "agentsql", ConnLimit: 5, StmtTimeoutMS: 30_000, RowLimit: 100,
 	}, "password")
 	require.NoError(t, err)
 	_, err = runtime.Store.Policies().Create(context.Background(), model.Policy{

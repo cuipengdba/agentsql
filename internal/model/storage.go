@@ -217,15 +217,26 @@ type AuditLog struct {
 
 // Approval is a persisted decision request associated with an audit record.
 type Approval struct {
-	ID        string
-	TenantID  string
-	AuditID   *int64
-	AgentID   *string
-	SQLRaw    *string
-	Reason    *string
-	Status    string
-	Approver  *string
-	DecidedAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                    string
+	TenantID              string
+	AuditID               *int64
+	AgentID               *string
+	DatasourceID          *string
+	DatasourceFingerprint *string
+	SQLRaw                *string
+	SQLNorm               *string
+	Reason                *string
+	RequestReason         *string
+	DecisionComment       *string
+	Seal                  *string
+	Status                string
+	Approver              *string
+	DecidedAt             *time.Time
+	ExpiresAt             *time.Time
+	ClaimedAt             *time.Time
+	FinishedAt            *time.Time
+	ExecutionAuditID      *int64
+	OutcomeCode           *string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }

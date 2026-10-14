@@ -2,7 +2,7 @@
 
 # AgentSQL MCP Integration Guide
 
-> This guide covers AgentSQL v0.5.1. Use the latest published [GitHub Release](https://github.com/cuipengdba/agentsql/releases) for installation assets and images. The source repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v0.6.0. Use the latest published [GitHub Release](https://github.com/cuipengdba/agentsql/releases) for installation assets and images. The source repository is `github.com/cuipengdba/agentsql`.
 
 This guide explains how to connect an MCP client to AgentSQL. See the [User Guide](../USER_GUIDE.md) for identity, authorization, rules, approval, and capability boundaries, and [Getting Started](GETTING_STARTED.md) for a first deployment. See the [Notification Guide](../NOTIFICATIONS.md) to forward decision events to Webhook endpoints, alert groups, or Syslog.
 
@@ -44,7 +44,7 @@ AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
 
-`--config` can be abbreviated to `-c` and defaults to `config.yaml` in the current directory. Prefer providing the Key through `AGENTSQL_API_KEY`. Do not place it in `--api-key`, where it would appear in process arguments. stdio and HTTP use the same tool-registration rules: seven base tools are always available, and eight session/transaction tools are added when B5 is enabled, as it is by default.
+`--config` can be abbreviated to `-c` and defaults to `config.yaml` in the current directory. Prefer providing the Key through `AGENTSQL_API_KEY`. Do not place it in `--api-key`, where it would appear in process arguments. stdio and HTTP use the same tool-registration rules: eight base tools are always available, and eight session/transaction tools are added when B5 is enabled, as it is by default.
 
 > **Important: stdio is not a proxy to an AgentSQL service already running under systemd.** It creates a separate runtime that must be able to read the configuration and metadata/audit control-plane storage, and it must use the same `AGENTSQL_SECRET` that encrypts the data source credentials. The installer creates `/etc/agentsql/agentsql.env` with `0600 root:root` permissions, so an ordinary desktop user cannot read it. If the installed service is already running, use HTTP directly.
 
@@ -54,7 +54,7 @@ stdio mode disables the console and event stream; do not expect it to provide th
 
 Every SQL argument accepts exactly one statement; stacked statements are not allowed. Clients must inspect the `decision` field in the structured result.
 
-The following seven base tools are always registered:
+The following eight base tools are always registered:
 
 | Tool | Purpose | Inputs | Possible decisions and key semantics |
 | --- | --- | --- | --- |
@@ -65,8 +65,9 @@ The following seven base tools are always registered:
 | `execute_write` | Submit one `INSERT`, `UPDATE`, `DELETE`, or DDL statement | `datasource_id`, `sql`, required `reason` | Administrative statements do not use this tool; DDL requires the Agent’s `ddl` tier; only `allow`/`warn` executes, while `approve` creates a pending approval automatically without execution |
 | `request_approval` | Proactively send SQL for approval | `datasource_id`, `sql`, required `reason` | Creates an approval request without executing SQL and returns `approval_id` |
 | `get_approval_result` | Read approval status | `approval_id` | An Agent can query only its own requests; another Agent’s request ID is treated as not found |
+| `execute_approved` | Execute a sealed approved request | `approval_id` | The original Agent claims it once; identity, data source, policy and rules are checked again; replay is denied |
 
-The caller-supplied `reason` for `execute_write` and `request_approval` is currently written to logs. The approval record stores the rule-evaluation reason, not the caller’s original text.
+The caller-supplied `reason` is stored separately from the rule-evaluation reason and the administrator's decision comment.
 
 Because B5 cross-request logical sessions and PostgreSQL planned transactions are enabled by default in v0.4.0, `tools/list` also returns these eight tools by default:
 
@@ -100,12 +101,12 @@ execute_write(reason is required)
   -> decision="approve" + approval_id (a pending request already exists)
   -> administrator decides in the console
   -> get_approval_result
-  -> after approval, a human or separate authorized process acts outside this request
+  -> after approval, the original Agent calls execute_approved(approval_id)
 ```
 
 After `execute_write` returns an `approval_id`, do not call `request_approval` again; doing so creates a duplicate request.
 
-Approval is neither an executor nor an exemption ticket. `approved` records a positive human decision only: AgentSQL does not automatically execute the original SQL, and it does not unlock or consume a later `execute_write`. If the change is still required, an administrator must execute it outside AgentSQL, or an independent authorized process must submit it again and accept a new rule evaluation.
+Approval never automatically executes the original SQL. The original Agent may call `execute_approved` once before expiry. It rechecks current permissions and rules and fails closed on denial or dependency failure. Legacy approvals cannot execute; a claimed request cannot be retried automatically.
 
 ### Write: Proactive Approval Request
 
@@ -114,9 +115,10 @@ request_approval(reason is required)
   -> approval_id
   -> administrator decides in the console
   -> get_approval_result
+  -> after approval, execute_approved(approval_id)
 ```
 
-Use proactive approval when the caller explicitly wants human input first. It never executes SQL.
+The proactive request itself never executes SQL; only `execute_approved` can execute its sealed request after approval.
 
 ## Handle Return Values Correctly
 
@@ -130,7 +132,7 @@ Do not automatically retry `deny`, `warn`, or `approve` as if they were network 
 
 ## Claude Desktop Integration (stdio)
 
-Claude Desktop starts a local process from `mcpServers` in `claude_desktop_config.json`. AgentSQL v0.5.1 uses standard newline-delimited JSON for stdio by default; the earlier length-prefixed format is available only with `--sealed-stdio`. The direct executable example below needs a compatible Linux binary and access to the control-plane store. Current release assets do not include a native Windows executable; use the HTTP bridge example below on Windows. Use absolute paths for executables and configuration.
+Claude Desktop starts a local process from `mcpServers` in `claude_desktop_config.json`. AgentSQL v0.6.0 uses standard newline-delimited JSON for stdio by default; the earlier length-prefixed format is available only with `--sealed-stdio`. The direct executable example below needs a compatible Linux binary and access to the control-plane store. Current release assets do not include a native Windows executable; use the HTTP bridge example below on Windows. Use absolute paths for executables and configuration.
 
 ```json
 {
@@ -147,7 +149,7 @@ Claude Desktop starts a local process from `mcpServers` in `claude_desktop_confi
 }
 ```
 
-The repository CLI confirms these parameters: the subcommand is `mcp`, and the configuration option is `--config` (or `-c`). After saving the configuration and restarting Claude Desktop, the default configuration should expose seven base tools and eight B5 tools. If B5 is explicitly disabled, only the base tools appear. If they do not appear, confirm that the process launched by the desktop client can read the executable, configuration, and metadata/audit control-plane storage, and that it uses the same `AGENTSQL_SECRET` as the encrypted data source credentials.
+The repository CLI confirms these parameters: the subcommand is `mcp`, and the configuration option is `--config` (or `-c`). After saving the configuration and restarting Claude Desktop, the default configuration should expose eight base tools and eight B5 tools. If B5 is explicitly disabled, only the base tools appear. If they do not appear, confirm that the process launched by the desktop client can read the executable, configuration, and metadata/audit control-plane storage, and that it uses the same `AGENTSQL_SECRET` as the encrypted data source credentials.
 
 For Windows Claude Desktop, run the AgentSQL HTTP service locally (or through an SSH port forward) and use [`mcp-remote`](https://github.com/geelen/mcp-remote) as a local stdio-to-HTTP bridge. Configure the bridge with the `/mcp` URL, `--transport http-only`, and an `Authorization: Bearer <Agent API Key>` header. On Windows, put the bearer value in an environment variable and pass `Authorization:${AGENTSQL_AUTH_HEADER}` as the `--header` argument to avoid argument parsing problems. The bridge is an independent community tool, not an AgentSQL release asset. Claude Desktop itself must be signed in for UI verification; the repository's bridge protocol test does not claim a logged-in UI test.
 

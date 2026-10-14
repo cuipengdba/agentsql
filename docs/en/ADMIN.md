@@ -6,7 +6,7 @@
 
 The released v0.5.0 code contains the RBAC APIs and `agentsqlctl audit` implementation. The CLI help still labels audit query/report commands as “planned for v0.5,” which is known wording debt. The v0.5.0 installation assets are published.
 
-The embedded web console manages overview, audit, Agents, data sources, policies, rules, approvals, masking, B5 operations, and notification settings. User, role, permission, and tenant management is currently available through `/api/v1` management APIs; the current `web/src` tree does not contain dedicated user/role/tenant pages. This distinction prevents an API capability from being presented as an existing console screen.
+The embedded web console manages overview, audit, Agents, data sources, policies, rules, approvals, masking, B5 operations, notifications, users, roles, and tenants. Management APIs remain available through `/api/v1`.
 
 ## Sign In and Console Scope
 
@@ -28,7 +28,7 @@ The main console sections have these purposes:
 | Data Sources | Store PostgreSQL/MySQL connection settings and execution limits |
 | Permissions | Bind an Agent to allowed or denied data-source objects and columns |
 | Rules | Enable/disable built-in rules and store custom rule definitions |
-| Approvals | Record a human decision for pending requests; approval does not execute SQL |
+| Approvals | Decide pending requests; the original Agent can later execute a sealed approved request once through `execute_approved`, with current permissions checked again |
 | Masking Rules | Configure result-level `mask`, `hash`, `block`, or `range` transformations |
 
 ## Data Source Administration

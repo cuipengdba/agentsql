@@ -597,7 +597,8 @@ func TestAdminApprovalConcurrentDecideReturnsOneSuccessOneConflict(t *testing.T)
 	stored, err := fixture.store.Approvals().Get(context.Background(), "approval-concurrent")
 	require.NoError(t, err)
 	require.Contains(t, []string{"approved", "rejected"}, stored.Status)
-	require.Contains(t, []string{"admin-a", "admin-b"}, *stored.Reason)
+	require.NotNil(t, stored.DecisionComment)
+	require.Contains(t, []string{"admin-a", "admin-b"}, *stored.DecisionComment)
 
 	status, _ := fixture.request(
 		http.MethodPost,

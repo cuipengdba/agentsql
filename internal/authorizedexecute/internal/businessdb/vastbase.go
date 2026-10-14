@@ -3,6 +3,7 @@ package businessdb
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/model"
@@ -16,6 +17,8 @@ type VastbaseExecutor struct{ *PostgresExecutor }
 
 var _ Executor = (*VastbaseExecutor)(nil)
 
+var verifiedG100Version = regexp.MustCompile(`(?i)\bvastbase g100 v3\.0\b.*\bbuild 9\b`)
+
 func NewVastbaseExecutor(ctx context.Context, datasource model.Datasource, password string) (*VastbaseExecutor, error) {
 	if datasource.DBType != string(model.DialectVastbase) {
 		return nil, fmt.Errorf("open Vastbase datasource: incorrect database type")
@@ -26,9 +29,17 @@ func NewVastbaseExecutor(ctx context.Context, datasource model.Datasource, passw
 	}
 	probeContext, cancel := postgres.timeoutContext(ctx)
 	defer cancel()
-	var version, readOnlyState string
-	if err := postgres.pool.QueryRow(probeContext, "SELECT version()").Scan(&version); err != nil ||
-		!strings.Contains(strings.ToLower(version), "vastbase") {
+	var version, compatibility, readOnlyState string
+	// G100 reports a PostgreSQL compatibility string from version(). Probe the
+	// catalog-qualified vendor function so an ordinary search_path object
+	// cannot claim to identify the server.
+	if err := postgres.pool.QueryRow(probeContext, "SELECT pg_catalog.vb_version()").Scan(&version); err != nil ||
+		!verifiedG100Version.MatchString(version) {
+		_ = postgres.Close()
+		return nil, newDBError(DBErrorKindConnection, DBErrorCodeConnection, DBStageConnect, "", nil)
+	}
+	if err := postgres.pool.QueryRow(probeContext, "SHOW sql_compatibility").Scan(&compatibility); err != nil ||
+		!strings.EqualFold(compatibility, "PG") {
 		_ = postgres.Close()
 		return nil, newDBError(DBErrorKindConnection, DBErrorCodeConnection, DBStageConnect, "", nil)
 	}

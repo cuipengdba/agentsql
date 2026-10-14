@@ -16,13 +16,14 @@ type pipelineRunMode uint8
 const (
 	runModeProduction pipelineRunMode = iota
 	runModeDemo
+	runModeApproved
 )
 
 // ProcessDemo runs the production pipeline with immutable Live Demo safety
 // constraints. Only trusted server-side code should map a demo profile to the
 // API key carried by request.
 func (pipeline *Pipeline) ProcessDemo(ctx context.Context, request Request) (Response, error) {
-	return pipeline.process(ctx, request, runModeDemo)
+	return pipeline.process(ctx, request, runModeDemo, nil)
 }
 
 // WithDemoConfig installs the server-validated demo boundary on the pipeline.

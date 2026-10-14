@@ -42,6 +42,7 @@ type Request struct {
 	APIKey          string
 	DatasourceID    string
 	SQL             string
+	Reason          string
 	SessionID       string
 	ConversationID  *string
 	MCPTool         string

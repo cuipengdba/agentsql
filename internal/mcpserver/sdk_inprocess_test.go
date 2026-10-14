@@ -60,6 +60,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 	}
 	sort.Strings(names)
 	require.Equal(t, []string{
+		"execute_approved",
 		"execute_write",
 		"explain_query",
 		"get_approval_result",
@@ -78,6 +79,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 		{Name: "execute_write", Arguments: map[string]any{"datasource_id": "ds-allowed", "sql": "UPDATE public.customers SET phone='x' WHERE id=1", "reason": "test"}},
 		{Name: "request_approval", Arguments: map[string]any{"datasource_id": "ds-allowed", "sql": "SELECT phone FROM public.customers LIMIT 1", "reason": "test"}},
 		{Name: "get_approval_result", Arguments: map[string]any{"approval_id": "sdk-owned"}},
+		{Name: "execute_approved", Arguments: map[string]any{"approval_id": "sdk-owned"}},
 	}
 	for _, call := range calls {
 		result, err := session.CallTool(ctx, &call)

@@ -84,6 +84,13 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 		response := handlers.getApprovalResult(ctx, input.ApprovalID)
 		return protocolResult(response), response, nil
 	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "execute_approved",
+		Description: "对已批准且未过期的审批单执行一次封存 SQL；仅接受 approval_id，执行时重新检查身份、策略和规则。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input approvalResultInput) (*mcp.CallToolResult, ToolResponse, error) {
+		response := handlers.executeApproved(ctx, input.ApprovalID)
+		return protocolResult(response), response, nil
+	})
 }
 
 func protocolResult(response ToolResponse) *mcp.CallToolResult {
