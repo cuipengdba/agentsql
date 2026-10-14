@@ -60,7 +60,8 @@ docker compose up -d gateway
 
 ## Images
 
-- `ghcr.io/cuipengdba/agentsql:v0.5.0` — gateway / agentsqlctl.
+- `ghcr.io/cuipengdba/agentsql:v0.6.0` — gateway / agentsqlctl; both
+  Compose services use `AGENTSQL_DEMO_VERSION` (default `v0.6.0`).
 - `ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.5` — PostgreSQL 16 with
   the `agentsql_binder` extension.
 - `mysql:8` — upstream MySQL.
