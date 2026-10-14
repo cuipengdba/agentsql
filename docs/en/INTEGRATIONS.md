@@ -155,7 +155,17 @@ For Windows Claude Desktop, run the AgentSQL HTTP service locally (or through an
 
 ## Local Acceptance with MCP Inspector (Streamable HTTP)
 
-On a test machine with Node.js/npm, run `npx --yes @modelcontextprotocol/inspector@2.11.0 --web` and open its local UI. Select Streamable HTTP, enter `http://127.0.0.1:7780/mcp`, and add the `Authorization: Bearer <Agent API Key>` header. Add `MCP-Protocol-Version: 2025-06-18` if the client requires an explicit version header. Check tool discovery, an authorized query, a denied query, and their audit IDs. Use a dedicated test Agent Key, never an administrator token, and keep the Inspector proxy port private. Inspector is an MCP development tool; it does not establish AI-assistant or Claude Desktop UI compatibility.
+AgentSQL currently uses MCP `2025-06-18`. The verified combination is MCP Inspector `0.16.8` with its `@modelcontextprotocol/sdk` dependency pinned to `1.18.0`; newer Inspector versions negotiate a newer protocol by default and are not suitable for this release's acceptance run. Save this `package.json` in an isolated directory, run `npm install`, then start the local `node_modules/.bin/mcp-inspector` binary (on Windows PowerShell, `./node_modules/.bin/mcp-inspector.cmd`):
+
+```json
+{
+  "private": true,
+  "dependencies": {"@modelcontextprotocol/inspector": "0.16.8"},
+  "overrides": {"@modelcontextprotocol/sdk": "1.18.0"}
+}
+```
+
+On Windows PowerShell, set `$env:HOST='127.0.0.1'` and `$env:ALLOWED_ORIGINS='http://127.0.0.1:6274'` before starting Inspector, then open the local URL printed in its terminal. Select Streamable HTTP, enter `http://127.0.0.1:7780/mcp`, and add the complete `Authorization: Bearer <Agent API Key>` value under Authentication → Custom Headers. Do not manually add `MCP-Protocol-Version`: this SDK sends it after initialization, and adding it twice produces an invalid combined header. Check tool discovery, an authorized query, a denied query, and their audit IDs. Use a dedicated test Agent Key, never an administrator token, and keep the Inspector proxy port private. Inspector is an MCP development tool; it does not establish AI-assistant or Claude Desktop UI compatibility.
 
 ## Self-hosted Dify Integration (Streamable HTTP)
 

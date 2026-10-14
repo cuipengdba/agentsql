@@ -174,7 +174,17 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 
 ## MCP Inspector 本地验收（Streamable HTTP）
 
-在装有 Node.js/npm 的验收机运行 `npx --yes @modelcontextprotocol/inspector@2.11.0 --web`，仅在本机打开其图形界面。传输选择 Streamable HTTP，地址填 `http://127.0.0.1:7780/mcp`，请求头填 `Authorization: Bearer <Agent API Key>`；若客户端要求显式版本头，再填 `MCP-Protocol-Version: 2025-06-18`。依次检查工具发现、授权查询、越权拒绝及对应审计 ID。使用单独的测试 Agent Key，不要填管理员 token，也不要把 Inspector 代理端口暴露到公网。Inspector 是 MCP 开发测试工具，不能替代 AI 助手或 Claude Desktop 的界面兼容性验收。
+当前 AgentSQL 使用 MCP `2025-06-18`。验收过的组合为 MCP Inspector `0.16.8` 与其依赖 `@modelcontextprotocol/sdk` `1.18.0`；较新的 Inspector 默认协商更新协议，不能直接用于本版验收。在独立目录保存以下 `package.json`，运行 `npm install`，再启动本地 `node_modules/.bin/mcp-inspector`（Windows PowerShell 用 `./node_modules/.bin/mcp-inspector.cmd`）：
+
+```json
+{
+  "private": true,
+  "dependencies": {"@modelcontextprotocol/inspector": "0.16.8"},
+  "overrides": {"@modelcontextprotocol/sdk": "1.18.0"}
+}
+```
+
+在 Windows PowerShell 中先设置 `$env:HOST='127.0.0.1'` 和 `$env:ALLOWED_ORIGINS='http://127.0.0.1:6274'`，再启动 Inspector，按终端给出的本地 URL 打开界面。传输选择 Streamable HTTP，地址填 `http://127.0.0.1:7780/mcp`，在 Authentication → Custom Headers 中填写完整的 `Authorization: Bearer <Agent API Key>`。不要再手工添加 `MCP-Protocol-Version`，该 SDK 在初始化后会自动发送；重复添加会形成无效的合并头。依次检查工具发现、授权查询、越权拒绝及对应审计 ID。使用单独的测试 Agent Key，不要填管理员 token，也不要把 Inspector 代理端口暴露到公网。Inspector 是 MCP 开发测试工具，不能替代 AI 助手或 Claude Desktop 的界面兼容性验收。
 
 ## Dify 自托管接入（Streamable HTTP）
 
