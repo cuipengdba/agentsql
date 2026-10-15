@@ -1,8 +1,8 @@
-# AgentSQL v0.6.1 维护候选说明
+# AgentSQL v0.6.1 发布说明
 
-本维护候选修复 v0.6.0 在 PostgreSQL metadata/audit 分库时的管理审计路由：管理操作与流量操作均写入 audit 库的 `traffic` 链，metadata 库只保存 `management_audit_outbox` 待投递记录。管理 API 和 `agentsqlctl chain --domain management` 在分库配置下查询该 `traffic` 链；合并库仍使用 metadata 库的 `management` 链。
+v0.6.1 修复 v0.6.0 在 PostgreSQL metadata/audit 分库时的管理审计路由：管理操作与流量操作均写入 audit 库的 `traffic` 链，metadata 库只保存 `management_audit_outbox` 待投递记录。管理 API 和 `agentsqlctl chain --domain management` 在分库配置下查询该 `traffic` 链；合并库仍使用 metadata 库的 `management` 链。
 
-本次没有新增 migration，也不改变控制面 schema。v0.6.1 的 PostgreSQL 分库版本仍为 metadata `16`、audit `6`。除分库审计路由和版本标识外，不扩大 v0.6.0 的数据库支持或功能承诺。正式发布前必须完成分库服务启动、持久管理审计、两库备份恢复与回退演练；候选构建不等同于已发布资产。
+本次没有新增 migration，也不改变控制面 schema。v0.6.1 的 PostgreSQL 分库版本仍为 metadata `16`、audit `6`。除分库审计路由和版本标识外，不扩大 v0.6.0 的数据库支持或功能承诺。已在隔离的 PostgreSQL 分库环境验证服务启动、管理审计持久化、两库备份恢复与回退。
 
 ## 从 v0.6.0 更新到 v0.6.1
 
