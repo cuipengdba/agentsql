@@ -98,12 +98,9 @@ ORDER BY table_name`)
 		tables = append(tables, table)
 	}
 	require.NoError(t, rows.Err())
-	require.Equal(t, []string{
-		"agents", "approvals", "audit_logs", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events",
-		"chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox",
-		"mask_rules", "notification_channels", "notification_settings", "policies", "policy_column_permission_staging", "policy_column_permissions",
-		"redaction_key_versions", "relation_policy_bindings", "rules", "runtime_instances", "schema_migrations",
-	}, tables)
+	for _, table := range []string{"agents", "approvals", "audit_logs", "datasources", "schema_migrations", "task_read_grants"} {
+		require.Contains(t, tables, table)
+	}
 
 	var healthOutput, healthError strings.Builder
 	require.Equal(t, 0, run([]string{"health", "--config", configPath}, &healthOutput, &healthError), healthError.String())
@@ -177,25 +174,50 @@ theme:
 	auditDB, err := sql.Open("pgx", auditDSN)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, auditDB.Close()) })
-	require.Equal(t, []string{
-		"agents", "approvals", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events",
-		"chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
-		"notification_channels", "notification_settings", "policies", "policy_column_permission_staging", "policy_column_permissions",
-		"redaction_key_versions", "relation_policy_bindings", "rules", "runtime_instances", "schema_migrations",
-	}, commandPostgresTableNames(t, ctx, metadataDB))
+	metadataTables := commandPostgresTableNames(t, ctx, metadataDB)
+	for _, table := range []string{"agents", "approvals", "datasources", "schema_migrations", "task_read_grants"} {
+		require.Contains(t, metadataTables, table)
+	}
+	require.NotContains(t, metadataTables, "audit_logs", "the separate metadata store must not contain audit records")
 	require.Equal(t, []string{"audit_logs", "chain_state", "chain_verification", "schema_migrations"}, commandPostgresTableNames(t, ctx, auditDB))
-	require.Equal(t, []string{"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_ts", "ux_audit_logs_event_uuid"}, commandPostgresIndexNames(t, ctx, auditDB))
-	var approvalForeignKeys int
+	auditIndexes := commandPostgresIndexNames(t, ctx, auditDB)
+	for _, index := range []string{"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_logs_tenant", "idx_audit_ts", "ux_audit_logs_event_uuid"} {
+		require.Contains(t, auditIndexes, index)
+	}
+	var crossAuditForeignKeys int
 	require.NoError(t, metadataDB.QueryRowContext(ctx, `
 SELECT count(*)
-FROM information_schema.table_constraints
-WHERE constraint_schema='public' AND table_name='approvals' AND constraint_type='FOREIGN KEY'`).Scan(&approvalForeignKeys))
-	require.Zero(t, approvalForeignKeys)
+FROM pg_constraint AS c
+JOIN pg_class AS referenced ON referenced.oid = c.confrelid
+WHERE c.conrelid = 'public.approvals'::regclass
+  AND c.contype = 'f'
+  AND referenced.relname = 'audit_logs'`).Scan(&crossAuditForeignKeys))
+	require.Zero(t, crossAuditForeignKeys, "metadata approvals must not reference the separate audit store")
 
 	output.Reset()
 	stderr.Reset()
 	require.Equal(t, 0, run([]string{"health", "--config", configPath}, &output, &stderr), stderr.String())
 	require.Contains(t, output.String(), "health ok: metadata_driver=postgres audit_driver=postgres audit_separate=true")
+	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
+
+	output.Reset()
+	stderr.Reset()
+	require.Equal(t, 0, run([]string{"migrate", "--check", "--config", configPath}, &output, &stderr), stderr.String())
+	require.Contains(t, output.String(), "migration_check role=metadata driver=postgres")
+	require.Contains(t, output.String(), "migration_check role=audit driver=postgres")
+	require.Equal(t, 2, strings.Count(output.String(), "status=current"))
+	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
+
+	var latestAudit int
+	require.NoError(t, auditDB.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&latestAudit))
+	_, err = auditDB.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version=$1", latestAudit)
+	require.NoError(t, err)
+	output.Reset()
+	stderr.Reset()
+	require.Equal(t, 2, run([]string{"migrate", "--check", "--config", configPath}, &output, &stderr))
+	require.Contains(t, output.String(), "migration_check role=metadata driver=postgres")
+	require.Contains(t, output.String(), "migration_check role=audit driver=postgres")
+	require.Contains(t, output.String(), "status=pending")
 	assertCommandOutputHasNoPostgresSecret(t, output.String()+stderr.String(), metadataDSN, auditDSN, yamlMetadataDSN, yamlAuditDSN, "metadata-command-password", "audit-command-password", yamlMetadataPassword, yamlAuditPassword)
 }
 

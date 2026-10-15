@@ -17,6 +17,9 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 	ctx context.Context,
 	bindBeforePreliminaryDeny bool,
 ) (Response, error) {
+	if err := run.checkTaskReadGrant(ctx); err != nil {
+		return run.finish(ctx, err)
+	}
 	phaseStarted := time.Now()
 	previousPhase := "preflight_reservation"
 	phaseObserver, _ := run.pipeline.observer.(interface {
@@ -65,6 +68,9 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 		ControlRevisionDigest:     snapshot.RevisionDigest(), Limits: executor.DefaultLimits,
 		DurableAudit: run.columnDurableAudit(bindBeforePreliminaryDeny),
 		FinalFence: func(fenceContext context.Context) error {
+			if err := run.checkTaskReadGrant(fenceContext); err != nil {
+				return err
+			}
 			return snapshot.FinalCheck(fenceContext)
 		},
 		Observe: observePhase,
@@ -96,6 +102,9 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 		if closeErr != nil {
 			err = errors.Join(err, closeErr)
 		}
+		if run.agent.TaskGrantID != "" && run.auditAttempts > 0 {
+			return run.finishOutcome(ctx, err)
+		}
 		return run.finish(ctx, err)
 	}
 	if !outcomeOK {
@@ -121,6 +130,9 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 	}
 	if !selected.Seal.Verify(selected.Encoded) {
 		return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonDeliverySealFailed})
+	}
+	if err := run.checkTaskReadGrant(ctx); err != nil {
+		return run.finishOutcome(ctx, err)
 	}
 	result := cloneQueryResult(*run.response.Result)
 	run.response.Result = &result

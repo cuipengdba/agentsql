@@ -35,6 +35,16 @@ type approvalResultInput struct {
 }
 
 func registerTools(server *mcp.Server, handlers *toolHandlers) {
+	if handlers.agent.TaskGrantID != "" {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "query",
+			Description: "执行任务授权限定的单条 SELECT；按当前权限裁剪结果并记录审计。",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, input sqlInput) (*mcp.CallToolResult, ToolResponse, error) {
+			response := handlers.query(ctx, input.DatasourceID, input.SQL)
+			return protocolResult(response), response, nil
+		})
+		return
+	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_datasources",
 		Description: "列出当前 Agent 获授权的数据源；仅返回公开标识信息，不返回连接参数或密钥。",

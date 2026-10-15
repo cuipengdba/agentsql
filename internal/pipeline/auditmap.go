@@ -57,6 +57,12 @@ func mapAuditLog(
 			log.EstRows = int64Pointer(ast.Explain.EstScanRows)
 		}
 	}
+	if agent != nil && agent.TaskGrantID != "" {
+		// The grant stores only a digest. Traffic audit must not become a
+		// secondary copy of the exact SQL bound to the temporary key.
+		log.SQLRaw = nil
+		log.SQLNorm = nil
+	}
 	if executionResult != nil {
 		log.RowsReturned = intPointer(executionResult.RowCount)
 	}
@@ -69,6 +75,22 @@ func mapAuditLog(
 	details, err := auditEventDetailsJSON(response.auditPhase, response.relatedAuditID, response.Redact.HashKeyVersion, response.ColumnAuth)
 	if err != nil {
 		return model.AuditLog{}, err
+	}
+	if agent != nil && agent.TaskGrantID != "" {
+		var grantDetails auditEventDetails
+		if details != nil {
+			if err := json.Unmarshal([]byte(*details), &grantDetails); err != nil {
+				return model.AuditLog{}, fmt.Errorf("decode audit event details: %w", err)
+			}
+		}
+		grantDetails.TaskGrantID = agent.TaskGrantID
+		grantDetails.TaskGrantIssuerID = response.taskGrantIssuerID
+		encoded, err := json.Marshal(grantDetails)
+		if err != nil {
+			return model.AuditLog{}, fmt.Errorf("marshal task grant audit details: %w", err)
+		}
+		text := string(encoded)
+		details = &text
 	}
 	log.DetailsJSON = details
 	return log, nil
@@ -105,10 +127,12 @@ func isStableAuditErrorCode(code string) bool {
 }
 
 type auditEventDetails struct {
-	AuditPhase     string                             `json:"audit_phase,omitempty"`
-	RelatedAuditID int64                              `json:"related_audit_id,omitempty"`
-	KeyVersion     *int                               `json:"key_version,omitempty"`
-	ColumnAuth     *executor.ColumnAuthorizationAudit `json:"column_auth,omitempty"`
+	AuditPhase        string                             `json:"audit_phase,omitempty"`
+	RelatedAuditID    int64                              `json:"related_audit_id,omitempty"`
+	KeyVersion        *int                               `json:"key_version,omitempty"`
+	ColumnAuth        *executor.ColumnAuthorizationAudit `json:"column_auth,omitempty"`
+	TaskGrantID       string                             `json:"task_grant_id,omitempty"`
+	TaskGrantIssuerID string                             `json:"task_grant_issuer_id,omitempty"`
 }
 
 func auditEventDetailsJSON(phase auditPhase, relatedAuditID int64, keyVersion *int, columnAuth ...*executor.ColumnAuthorizationAudit) (*string, error) {

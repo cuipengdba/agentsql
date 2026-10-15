@@ -83,6 +83,18 @@ func buildBoundServerWithVersion(
 	version string,
 	b5Options ...B5Options,
 ) (*Server, error) {
+	return buildBoundServerWithOptions(agent, plainKey, runtime, logger, version, nil, b5Options...)
+}
+
+func buildBoundServerWithOptions(
+	agent model.Agent,
+	plainKey string,
+	runtime *bootstrap.Runtime,
+	logger zerolog.Logger,
+	version string,
+	sdkOptions *mcp.ServerOptions,
+	b5Options ...B5Options,
+) (*Server, error) {
 	if runtime == nil || runtime.Store == nil || runtime.Pipeline == nil {
 		return nil, fmt.Errorf("build bound MCP server: runtime is incomplete")
 	}
@@ -104,7 +116,7 @@ func buildBoundServerWithVersion(
 	if err := b5.validate(); err != nil {
 		return nil, fmt.Errorf("build bound MCP server: %w", err)
 	}
-	sdkServer := mcp.NewServer(&mcp.Implementation{Name: "agentsql", Version: version}, nil)
+	sdkServer := mcp.NewServer(&mcp.Implementation{Name: "agentsql", Version: version}, sdkOptions)
 	handlers := &toolHandlers{
 		runtime:   runtime,
 		agent:     cloneAgent(agent),
@@ -113,7 +125,9 @@ func buildBoundServerWithVersion(
 		schemaFor: runtime.ListDatasourceSchema,
 	}
 	registerTools(sdkServer, handlers)
-	if b5.B5Sessions {
+	// A task grant is a single-query capability. Excluding every other tool at
+	// registration prevents a temporary key from reaching approval or B5 paths.
+	if b5.B5Sessions && agent.TaskGrantID == "" {
 		registerB5Tools(sdkServer, handlers, b5)
 	}
 	return &Server{sdk: sdkServer, handlers: handlers, b5: b5}, nil

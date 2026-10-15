@@ -86,11 +86,11 @@ func TestPostgres18MetadataMigrationE2E(t *testing.T) {
 		ctx,
 		"SELECT count(*) FROM schema_migrations",
 	).Scan(&migrationCount))
-	require.Equal(t, 17, migrationCount)
+	require.Equal(t, 18, migrationCount)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 17, current)
-	require.Equal(t, 17, latest)
+	require.Equal(t, 18, current)
+	require.Equal(t, 18, latest)
 	require.NoError(t, opened.Notifications().Replace(ctx, completeNotificationConfig()))
 	storedNotifications, err := opened.Notifications().Get(ctx)
 	require.NoError(t, err)
@@ -134,16 +134,27 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 	require.Equal(t, 4, opened.auditDB.Stats().MaxOpenConnections)
 	require.Same(t, opened.metaDB, opened.Agents().db)
 	require.Same(t, opened.auditDB, opened.AuditLogs().db)
+	require.Same(t, opened.auditDB, opened.ManagementAuditLogs().db)
+	require.Equal(t, "traffic", opened.ManagementAuditLogs().chainID)
+	managementAction := "split_management_route"
+	_, err = opened.ManagementAuditLogs().Insert(ctx, model.AuditLog{
+		Decision: "allow", Action: &managementAction,
+	})
+	require.NoError(t, err, "management audit must append to the independent audit database")
+	var managementCount int
+	require.NoError(t, opened.auditDB.QueryRowContext(ctx,
+		`SELECT count(*) FROM audit_logs WHERE action = $1`, managementAction).Scan(&managementCount))
+	require.Equal(t, 1, managementCount)
 
 	require.Equal(t, []string{
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "management_audit_outbox", "mask_rules",
-		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "schema_migrations", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
+		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "schema_migrations", "task_read_grants", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
 	}, postgresTableNames(t, ctx, opened.metaDB))
 	require.Equal(t, []string{"audit_logs", "chain_state", "chain_verification", "schema_migrations"}, postgresTableNames(t, ctx, opened.auditDB))
 	metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 16, metadataCurrent)
-	require.Equal(t, 16, metadataLatest)
+	require.Equal(t, 17, metadataCurrent)
+	require.Equal(t, 17, metadataLatest)
 	assertPostgresMaskRuleRangeColumns(t, ctx, opened.metaDB)
 	auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 	require.NoError(t, err)
@@ -159,8 +170,8 @@ func TestPostgres18SeparatedMetadataAndAuditMigrationE2E(t *testing.T) {
 		"idx_agents_keyhash", "idx_agents_tenant", "idx_approvals_execution", "idx_approvals_status", "idx_approvals_tenant", "idx_auth_challenges_expiry", "idx_auth_identities_user", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_dml_grants_tenant", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_result_receipts_tenant", "idx_b5_sessions_owner", "idx_b5_sessions_tenant", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_transactions_tenant", "idx_b5_tx_events_audit", "idx_b5_tx_events_tenant",
 		"idx_chain_state_tenant", "idx_chain_verification_tenant", "idx_datasources_tenant", "idx_management_audit_outbox_tenant", "idx_mask_rules_tenant",
 		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
-		"idx_notification_channels_tenant", "idx_notification_settings_tenant", "idx_oidc_requests_expiry", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_user_roles_user", "idx_users_tenant",
-		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active",
+		"idx_notification_channels_tenant", "idx_notification_settings_tenant", "idx_oidc_requests_expiry", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_task_read_grants_agent", "idx_task_read_grants_tenant", "idx_user_roles_user", "idx_users_tenant",
+		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active", "ux_task_grant_agents_tenant", "ux_task_grant_datasources_tenant",
 	}, postgresNamedIndexes(t, ctx, opened.metaDB))
 	require.Equal(t, []string{
 		"idx_audit_agent_ts", "idx_audit_decision", "idx_audit_logs_tenant", "idx_audit_ts",
@@ -512,6 +523,7 @@ ORDER BY table_name`)
 		"rules",
 		"runtime_instances",
 		"schema_migrations",
+		"task_read_grants",
 		"tenants",
 		"user_mfa",
 		"user_mfa_recovery_codes",
@@ -558,9 +570,13 @@ WHERE schemaname = 'public'
 	'idx_mcp_stream_event_cursors_updated_at',
 	'idx_mcp_stream_events_created_at',
 	'idx_mcp_stream_events_session',
+	'idx_task_read_grants_agent',
+	'idx_task_read_grants_tenant',
 	'idx_oidc_requests_expiry',
     'ux_mask_rules_scope_column',
     'ux_redaction_key_versions_active',
+    'ux_task_grant_agents_tenant',
+    'ux_task_grant_datasources_tenant',
     'ux_audit_logs_event_uuid'
   )
 ORDER BY indexname`)
@@ -598,11 +614,15 @@ ORDER BY indexname`)
 		"idx_role_permissions_role",
 		"idx_roles_tenant",
 		"idx_runtime_instances_lease",
+		"idx_task_read_grants_agent",
+		"idx_task_read_grants_tenant",
 		"idx_user_roles_user",
 		"idx_users_tenant",
 		"ux_audit_logs_event_uuid",
 		"ux_mask_rules_scope_column",
 		"ux_redaction_key_versions_active",
+		"ux_task_grant_agents_tenant",
+		"ux_task_grant_datasources_tenant",
 	}, scanSingleStringColumn(t, rows))
 
 	rows, err = database.QueryContext(ctx, `
@@ -869,11 +889,11 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',TRUE)`)
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, testCase.separated)
 			require.NoError(t, err)
 			if testCase.separated {
-				require.Equal(t, 16, current)
-				require.Equal(t, 16, latest)
-			} else {
 				require.Equal(t, 17, current)
 				require.Equal(t, 17, latest)
+			} else {
+				require.Equal(t, 18, current)
+				require.Equal(t, 18, latest)
 			}
 			assertPostgresMaskRuleRangeColumns(t, ctx, database)
 			repository := &MaskRuleRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
@@ -909,8 +929,8 @@ func TestPostgres18VersionOneMetadataUpgradeE2E(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, false)
 	require.NoError(t, err)
-	require.Equal(t, 17, current)
-	require.Equal(t, 17, latest)
+	require.Equal(t, 18, current)
+	require.Equal(t, 18, latest)
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_settings")
 	require.Contains(t, postgresTableNames(t, ctx, database), "notification_channels")
 }

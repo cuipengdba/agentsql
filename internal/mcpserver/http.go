@@ -31,6 +31,8 @@ import (
 const (
 	agentServerRegistryLimit = 256
 	maxMCPRequestBodyBytes   = 4 << 20
+	modernMCPProtocolVersion = "2026-07-28"
+	modernMCPPath            = "/mcp/2026-07-28"
 	// MCPSessionExpiredHeader tells clients that a supplied transport session
 	// ID is no longer present and initialize must be performed again.
 	MCPSessionExpiredHeader = "Mcp-Session-Expired"
@@ -293,6 +295,40 @@ func newHTTPHandlerWithRegistry(
 			),
 		),
 	)
+	// The 2026-07-28 protocol is sessionless and cannot share the legacy
+	// transport handler. Both endpoints share the same per-Agent rate limiter.
+	// Build a fresh bound server per request so changes to Agent capabilities
+	// are visible immediately after authentication, even without a session.
+	modernSDKHandler := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
+		identity, ok := identityFromContext(request.Context())
+		if !ok {
+			logger.Error().Msg("stateless MCP request identity missing before SDK dispatch")
+			return nil
+		}
+		bound, err := buildBoundServerWithOptions(
+			identity.agent, identity.plainKey, runtime, logger, version.Version,
+			&mcp.ServerOptions{SupportedProtocolVersions: []string{modernMCPProtocolVersion}},
+		)
+		if err != nil {
+			logger.Error().Str("error_type", fmt.Sprintf("%T", err)).Msg("build stateless MCP server")
+			return nil
+		}
+		return bound.sdk
+	}, &mcp.StreamableHTTPOptions{
+		Stateless:           true,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: maxMCPRequestBodyBytes,
+		Logger:              sdkLogger,
+	})
+	modernMCPHandler := http.NewCrossOriginProtection().Handler(
+		authMiddleware(authenticator,
+			rateMiddleware(registry,
+				recoverMiddleware(logger,
+					accessLogMiddleware(logger, uniqueModernMetadataMiddleware(modernSDKHandler)),
+				),
+			),
+		),
+	)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthHandler(cfg, resolvedOptions.demoAdminUsername, resolvedOptions.demoAdminPassword, runtime))
 	mux.HandleFunc("GET /readyz", readinessHandler(runtime))
@@ -308,6 +344,7 @@ func newHTTPHandlerWithRegistry(
 		}
 		sealedMCPHandler.ServeHTTP(writer, request)
 	}))
+	mux.Handle(modernMCPPath, authorizedexecute.SealedHTTP(modernMCPHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
 	if resolvedOptions.adminAPI != nil {
 		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
 	}
@@ -548,7 +585,7 @@ func metricsMiddleware(hub *metrics.Metrics, next http.Handler) http.Handler {
 
 func classifyRoute(requestPath string) string {
 	switch requestPath {
-	case "/mcp", "/healthz", "/readyz", "/metrics":
+	case "/mcp", modernMCPPath, "/healthz", "/readyz", "/metrics":
 		return requestPath
 	}
 	const prefix = "/api/v1/"

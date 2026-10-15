@@ -22,7 +22,7 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 		"policy_column_permission_staging", "policy_column_permissions", "audit_logs", "approvals",
 		"notification_settings", "notification_channels", "redaction_key_versions", "management_audit_outbox",
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens",
-		"users", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
+		"users", "task_read_grants", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
 		"auth_identities", "user_mfa", "user_mfa_recovery_codes", "auth_login_challenges", "oidc_auth_requests",
 		"b5_sessions", "b5_transactions", "b5_dml_grants", "b5_result_receipts", "b5_tx_events",
 	}, names)
@@ -176,6 +176,10 @@ func TestSQLiteToPostgresMigrationManifestCoversMetadataTables(t *testing.T) {
 	require.Equal(t, []migrationTable{sqliteToPostgresTableByName(t, "audit_logs")}, auditTables)
 	require.Contains(t, migrationTableNames(metadataTables), "notification_settings")
 	require.Contains(t, migrationTableNames(metadataTables), "notification_channels")
+	require.Contains(t, migrationTableNames(metadataTables), "task_read_grants")
+	require.Equal(t, []string{"id", "tenant_id", "issuer_user_id", "agent_id", "datasource_id",
+		"sql_sha256", "key_hash", "expires_at", "revoked_at", "created_at"},
+		migrationColumnNames(sqliteToPostgresTableByName(t, "task_read_grants")))
 
 	ctx := context.Background()
 	t.Run("latest source with derived audit chain objects", func(t *testing.T) {
@@ -321,6 +325,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=16 latest=17")
+		require.ErrorContains(t, err, "current=17 latest=18")
 	})
 }

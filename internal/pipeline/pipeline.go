@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/cuipengdba/agentsql/internal/policy"
 	"github.com/cuipengdba/agentsql/internal/rules"
+	"github.com/cuipengdba/agentsql/internal/store"
 )
 
 // Pipeline is the immutable coordinator for one protected SQL flow.
@@ -101,6 +103,15 @@ func (pipeline *Pipeline) process(
 			return err
 		}
 		run.agent = &agent
+		if agent.TaskGrantID != "" {
+			// A task key was already bound to its issuer during authentication.
+			// Keep that attribution even when the exact SQL check rejects this
+			// request before Validate can return the grant row.
+			run.response.taskGrantIssuerID = agent.TaskGrantIssuerUserID
+		}
+		if agent.TaskGrantID != "" && (mode != runModeProduction || request.ExplainOnly || request.RequireApproval) {
+			return &executor.AuthError{Reason: executor.ReasonAgentDenied}
+		}
 		if mode == runModeApproved && (approved == nil || approved.AgentID == nil ||
 			*approved.AgentID != agent.ID || approved.TenantID != agent.TenantID) {
 			return ErrInvalidRequest
@@ -113,6 +124,11 @@ func (pipeline *Pipeline) process(
 	if err := run.measure(StageLoad, func() error {
 		datasource, err := pipeline.ports.Datasources.Get(ctx, request.DatasourceID)
 		if err != nil {
+			if run.agent != nil && run.agent.TaskGrantID != "" && errors.Is(err, store.ErrNotFound) {
+				// A task key must not reveal whether an out-of-scope datasource
+				// exists in another tenant. Its failed query is still audited.
+				return &executor.AuthError{Reason: executor.ReasonAgentDenied}
+			}
 			return err
 		}
 		if datasource.ID != request.DatasourceID {
@@ -122,6 +138,9 @@ func (pipeline *Pipeline) process(
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
+		if err := run.checkTaskReadGrant(ctx); err != nil {
+			return err
+		}
 		if mode == runModeApproved && (approved.DatasourceID == nil ||
 			*approved.DatasourceID != datasource.ID || approved.DatasourceFingerprint == nil ||
 			*approved.DatasourceFingerprint != datasourceFingerprint(datasource)) {
@@ -188,6 +207,9 @@ func (pipeline *Pipeline) process(
 		}
 		if ast == nil {
 			return fmt.Errorf("parser returned nil AST")
+		}
+		if run.agent.TaskGrantID != "" && !model.TaskReadOnlySelect(request.SQL, ast) {
+			return &executor.AuthError{Reason: executor.ReasonStatementClassDenied}
 		}
 		if err := executor.NewBudget(executor.DefaultLimits).ChargeAST(ast); err != nil {
 			return err
@@ -430,6 +452,9 @@ func (pipeline *Pipeline) process(
 
 	returnsRows := barrier == barrierRead
 	if err := run.measure(StageExecute, func() error {
+		if err := run.checkTaskReadGrant(ctx); err != nil {
+			return err
+		}
 		executionContext, cancel, err := statementContext(ctx, run.datasource.StmtTimeoutMS)
 		if err != nil {
 			return err
@@ -500,6 +525,9 @@ func (pipeline *Pipeline) process(
 		}); err != nil {
 			return run.finish(ctx, err)
 		}
+	}
+	if err := run.checkTaskReadGrant(ctx); err != nil {
+		return run.finish(ctx, err)
 	}
 	return run.finish(ctx, nil)
 }
@@ -627,6 +655,30 @@ type pipelineRun struct {
 	auditAttempts   int
 	auditAnchorID   int64
 	mode            pipelineRunMode
+}
+
+// A task grant only narrows the permanent Agent authority. Revalidation is
+// deliberately separate from the B2 policy snapshot contract.
+func (run *pipelineRun) checkTaskReadGrant(ctx context.Context) error {
+	if run.agent == nil || run.agent.TaskGrantID == "" {
+		return nil
+	}
+	if run.datasource == nil || isNilInterface(run.pipeline.ports.TaskReadGrants) {
+		return ErrTaskGrantUnavailable
+	}
+	digest := sha256.Sum256([]byte(run.request.SQL))
+	grant, err := run.pipeline.ports.TaskReadGrants.Validate(
+		ctx, run.agent.TaskGrantID, run.agent.TenantID, run.agent.ID,
+		run.datasource.ID, hex.EncodeToString(digest[:]), time.Now().UTC(),
+	)
+	if err != nil {
+		if errors.Is(err, store.ErrTaskReadGrantInvalid) {
+			return &executor.AuthError{Reason: executor.ReasonAgentDenied}
+		}
+		return fmt.Errorf("validate task read grant: %w", ErrTaskGrantUnavailable)
+	}
+	run.response.taskGrantIssuerID = grant.IssuerUserID
+	return nil
 }
 
 type auditPhase string
@@ -770,6 +822,24 @@ func (run *pipelineRun) finishWithAudit(
 	}
 	if authorizationFailure && expectedAuthorizationFailure(finalError) {
 		finalError = nil
+	}
+	// The ordinary read path writes its first durable audit after the last
+	// pre-delivery grant check. Recheck once more after that potentially slow
+	// write, before handing any result to the MCP transport. This narrows the
+	// revocation window but cannot make response transmission atomic with a
+	// concurrent revoke on another gateway instance.
+	if finalError == nil && run.agent != nil && run.agent.TaskGrantID != "" && run.response.Result != nil {
+		if grantErr := run.checkTaskReadGrant(ctx); grantErr != nil {
+			run.setFailure(grantErr)
+			decision := string(model.DecisionError)
+			if expectedAuthorizationFailure(grantErr) {
+				decision = string(model.DecisionDeny)
+			}
+			finalError = run.audit(ctx, decision, grantErr, auditPhaseOutcome)
+			if expectedAuthorizationFailure(finalError) {
+				finalError = nil
+			}
+		}
 	}
 	run.observe()
 	return run.response, finalError

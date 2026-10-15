@@ -199,6 +199,14 @@ func (handlers *toolHandlers) query(
 	datasourceID string,
 	sql string,
 ) ToolResponse {
+	if handlers.agent.TaskGrantID != "" {
+		// A task key is restricted again inside the pipeline. Send even malformed
+		// or unauthorized attempts through that gate so its denial is durably
+		// audited with the grant and issuer identity.
+		return handlers.process(ctx, pipeline.Request{
+			APIKey: handlers.apiKey, DatasourceID: datasourceID, SQL: sql, MCPTool: "query",
+		})
+	}
 	datasource, response := handlers.authorizedDatasource(ctx, datasourceID)
 	if response != nil {
 		return *response

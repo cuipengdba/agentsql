@@ -158,7 +158,7 @@ func TestChainMonitorCloseStopsTickerAndWaitsForRound(t *testing.T) {
 
 func TestConfiguredChainDomains(t *testing.T) {
 	require.Equal(t, []string{"management"}, configuredChainDomains(false))
-	require.Equal(t, []string{"management", "traffic"}, configuredChainDomains(true))
+	require.Equal(t, []string{"traffic"}, configuredChainDomains(true))
 }
 
 func TestChainMonitorIntervalJitterBounds(t *testing.T) {

@@ -88,9 +88,10 @@ type ChainAccess struct {
 	domain  string
 }
 
-// Chain returns the database view for one audit-chain domain. Management is
-// always stored with metadata. Traffic uses the independent audit database
-// when configured, and otherwise shares the metadata database.
+// Chain returns the database view for one audit-chain domain. Combined stores
+// use the metadata management chain. In the separated layout, the independent
+// audit database's traffic chain covers both traffic and management records;
+// callers should select that domain for audit verification.
 func (store *Store) Chain(domain string) (*ChainAccess, error) {
 	if store == nil || store.metaDB == nil || store.auditDB == nil {
 		return nil, fmt.Errorf("open audit chain %q: store is unavailable", domain)
@@ -495,6 +496,11 @@ func (store *Store) Agents() *AgentRepository {
 	return &AgentRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// TaskReadGrants returns tenant-scoped, exact-query temporary authorization.
+func (store *Store) TaskReadGrants() *TaskReadGrantRepository {
+	return &TaskReadGrantRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // RBAC returns the tenant-scoped identity and authorization repository.
 func (store *Store) RBAC() *RBACRepository {
 	return &RBACRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
@@ -578,12 +584,15 @@ func (store *Store) AuditLogs() *AuditLogRepository {
 	}
 }
 
-// ManagementAuditLogs returns the chain-aware repository for the metadata
-// database. It differs from AuditLogs only when traffic uses a separate audit
-// database.
+// ManagementAuditLogs returns the chain-aware management audit sink. In the
+// separated layout, management and traffic records share the audit database's
+// traffic chain; the metadata database contains only the delivery outbox.
 func (store *Store) ManagementAuditLogs() *AuditLogRepository {
 	if store == nil {
 		return &AuditLogRepository{}
+	}
+	if store.auditSeparate {
+		return store.AuditLogs()
 	}
 	return &AuditLogRepository{
 		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},

@@ -16,32 +16,32 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v0.6.0';
-const REPOSITORY_BLOB = 'https://github.com/cuipengdba/agentsql/blob/main';
+const VERSION = 'v0.7.0';
+const REPOSITORY_BLOB = `https://github.com/cuipengdba/agentsql/blob/${VERSION}`;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIR, '..', '..');
 const DOCS_ROOT = resolve(REPOSITORY_ROOT, 'docs');
 const OUTPUT_DIR = resolve(REPOSITORY_ROOT, 'website', 'public', 'assets', 'docs');
 const MINIMUM_PDF_BYTES = 20_000;
 // Fixed so repeated builds are byte-reproducible; update with the release date when it is finalized.
-const FIXED_PDF_DATE = "D:20261014000000+00'00'";
+const FIXED_PDF_DATE = "D:20261016000000+00'00'";
 
 const DOCUMENTS = [
   {
     source: resolve(DOCS_ROOT, 'GETTING_STARTED.md'),
-    output: 'agentsql-getting-started-v0.6.0.pdf',
+    output: 'agentsql-getting-started-v0.7.0.pdf',
     title: '快速上手',
     slug: 'getting-started',
   },
   {
     source: resolve(DOCS_ROOT, 'USER_GUIDE.md'),
-    output: 'agentsql-user-guide-v0.6.0.pdf',
+    output: 'agentsql-user-guide-v0.7.0.pdf',
     title: '使用手册',
     slug: 'user-guide',
   },
   {
     source: resolve(DOCS_ROOT, 'INTEGRATIONS.md'),
-    output: 'agentsql-mcp-integrations-v0.6.0.pdf',
+    output: 'agentsql-mcp-integrations-v0.7.0.pdf',
     title: 'MCP 接入指南',
     slug: 'mcp-integrations',
   },
@@ -777,6 +777,9 @@ async function main() {
       'agentsql-getting-started-v0.5.1.pdf',
       'agentsql-mcp-integrations-v0.5.1.pdf',
       'agentsql-user-guide-v0.5.1.pdf',
+      'agentsql-getting-started-v0.6.0.pdf',
+      'agentsql-mcp-integrations-v0.6.0.pdf',
+      'agentsql-user-guide-v0.6.0.pdf',
     ];
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles].sort();
     if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {

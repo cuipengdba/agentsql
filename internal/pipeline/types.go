@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"time"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/config"
@@ -35,6 +36,7 @@ var (
 	ErrInvalidRequest          = errors.New("invalid pipeline request")
 	ErrAuditUnavailable        = errors.New("audit unavailable")
 	ErrBusinessCommitUncertain = errors.New("business commit result uncertain")
+	ErrTaskGrantUnavailable    = errors.New("task read grant validation unavailable")
 )
 
 // Request is one protected SQL operation.
@@ -54,19 +56,20 @@ type Request struct {
 
 // Response is the complete guarded SQL outcome.
 type Response struct {
-	Decision       model.Decision
-	Assessment     model.Assessment
-	Result         *model.QueryResult
-	Redact         mask.RedactReport
-	ApprovalID     string
-	AuditID        int64
-	ErrorCode      string                             `json:"error_code,omitempty"`
-	ErrorStage     string                             `json:"error_stage,omitempty"`
-	ErrorMessage   string                             `json:"error_message,omitempty"`
-	Suggestion     string                             `json:"suggestion,omitempty"`
-	ColumnAuth     *executor.ColumnAuthorizationAudit `json:"column_auth,omitempty"`
-	auditPhase     auditPhase
-	relatedAuditID int64
+	Decision          model.Decision
+	Assessment        model.Assessment
+	Result            *model.QueryResult
+	Redact            mask.RedactReport
+	ApprovalID        string
+	AuditID           int64
+	ErrorCode         string                             `json:"error_code,omitempty"`
+	ErrorStage        string                             `json:"error_stage,omitempty"`
+	ErrorMessage      string                             `json:"error_message,omitempty"`
+	Suggestion        string                             `json:"suggestion,omitempty"`
+	ColumnAuth        *executor.ColumnAuthorizationAudit `json:"column_auth,omitempty"`
+	taskGrantIssuerID string
+	auditPhase        auditPhase
+	relatedAuditID    int64
 }
 
 type IdentityAuthenticator interface {
@@ -83,6 +86,12 @@ type PolicyLoader interface {
 		agentID string,
 		datasourceID string,
 	) ([]model.Policy, error)
+}
+
+// TaskReadGrantReader checks a temporary grant against trusted identity and
+// exact SQL digest at every admission, execution, and delivery gate.
+type TaskReadGrantReader interface {
+	Validate(context.Context, string, string, string, string, string, time.Time) (model.TaskReadGrant, error)
 }
 
 type ExecutorProvider interface {
@@ -150,14 +159,15 @@ type RuleOverrideReader interface {
 // Ports contains the seven required pipeline dependencies plus the optional
 // runtime rule-override reader. A nil RuleOverrides preserves built-in rules.
 type Ports struct {
-	Authenticator IdentityAuthenticator
-	Datasources   DatasourceReader
-	Policies      PolicyLoader
-	Executors     ExecutorProvider
-	Approvals     ApprovalWriter
-	Audit         AuditRecorder
-	Redactors     RedactorBuilder
-	RuleOverrides RuleOverrideReader
+	Authenticator  IdentityAuthenticator
+	Datasources    DatasourceReader
+	Policies       PolicyLoader
+	Executors      ExecutorProvider
+	Approvals      ApprovalWriter
+	Audit          AuditRecorder
+	Redactors      RedactorBuilder
+	RuleOverrides  RuleOverrideReader
+	TaskReadGrants TaskReadGrantReader
 }
 
 // Option configures immutable pipeline behavior at construction time.

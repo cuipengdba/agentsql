@@ -1,6 +1,6 @@
 # AgentSQL 快速上手
 
-> 本文对应 AgentSQL v0.6.0。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文的安装命令对应已发布的 AgentSQL v0.6.0；标注“v0.7.0 开发分支”的功能尚未发布。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 AgentSQL 是放在 AI Agent 与业务数据库之间的数据库安全网关和生产级 MCP Server，让每条 SQL 在执行前经过身份、权限、规则和决策检查，并在可审计的边界内执行。
 
@@ -126,6 +126,8 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/insta
 
 在「权限」中新建绑定该 Agent 与数据源的 `allow` 策略，从确实需要的单张表开始，例如 `public.customers` 或 `customers`。不要用 `*` 或 `schema.*` 做普通示例：两者虽然合法，却代表整表全列授权，会让列级白名单失效。
 
+**v0.7.0 开发分支：**控制台「接入向导」的「连接与权限预检」可选择当前租户的 Agent 和数据源，检查 Agent 是否启用/过期、数据库连接及策略是否存在。预检不执行 Agent SQL；策略数量大于零也不证明目标 SQL 已获授权。仍需用真实 MCP 客户端分别验证允许与拒绝请求，并核对持久审计。
+
 ### 6. 接入 MCP 客户端
 
 已由安装器或 systemd 运行服务时，首选 Streamable HTTP。按 [MCP 接入指南](INTEGRATIONS.md) 把下列最小骨架合并到客户端配置；客户端具体文件路径和 HTTP transport 键名以该客户端官方 MCP 文档为准：
@@ -159,6 +161,12 @@ UPDATE public.customers SET name = 'blocked-test';
 
 该请求应被 R002（无条件批量写）和/或 R003（只读 Agent 写操作）拒绝，不触达业务库；在审计页确认 `deny`。工具层前置拒绝可能发生在流水线之前，因此缺少 `reason` 等错误不保证产生审计；验收时必须填写 `reason`。
 
+**v0.7.0 开发分支的新 MCP 入口：**支持 `2026-07-28` 的客户端可改用 `http://127.0.0.1:7780/mcp/2026-07-28`。每次 POST 都要携带 Agent Bearer Key、`MCP-Protocol-Version: 2026-07-28`、`Mcp-Method`，调用工具时还要携带与工具名一致的 `Mcp-Name`；请求体 `params._meta` 要声明同版协议及客户端能力。该入口无需 `initialize`，也没有旧入口的传输会话、GET 事件流和 B5 会话/计划事务工具。现有客户端继续使用 `/mcp`；请求示例与版本边界见 [MCP 接入指南](INTEGRATIONS.md)。
+
+### v0.7.0 开发分支：为单次任务签发临时只读 Key
+
+控制台「临时只读授权」要求管理员同时具有 `strategy.manage` 和 `query.execute` 权限。选择已授权的 Agent、数据源、唯一允许的简单 `SELECT` 和最长 24 小时的到期时间后，保存只显示一次的任务 Key。该 Key 只能调用 MCP `query`，SQL 原始字节必须与签发时完全一致，空格或大小写变化也会被拒绝；原 Agent 的对象权限、规则、脱敏和数据库只读账号约束继续生效。用完可在同一页面撤销。撤销后的新请求被拒绝，但与正在返回的请求之间仍可能存在并发窗口。详细限制见 [任务级临时只读授权](task-read-grants.md)。
+
 ## 5 分钟验收清单
 
 - `GET /healthz` 返回 HTTP 200，JSON 中 `status` 为 `ok` 且包含 `version`。
@@ -173,10 +181,22 @@ curl -fsS http://127.0.0.1:7780/healthz
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 ```
 
+## v0.7.0 开发分支：升级前只读检查
+
+使用候选版 `agentsqlctl` 和目标环境的配置，先检查控制面 schema 版本：
+
+```bash
+agentsqlctl migrate --check --config /etc/agentsql/config.yaml
+```
+
+退出码 `0` 表示所有已配置迁移流均为当前版本，`2` 表示存在待执行迁移，`1` 表示配置、连接或迁移历史等错误。该检查只读，不执行 DDL，也不替代备份或数据库结构与数据一致性检查。升级前须停止写入，成对备份控制面数据库及 `AGENTSQL_SECRET`；PostgreSQL 分库部署要同时备份 metadata 和 audit 库。再由 migration owner 显式迁移，步骤见 [部署指南](DEPLOY.md#升级与回滚)与 [v0.7 运维手册](v0.7-operations-runbook.md)。已发布的 v0.6.0 安装包没有本节的新命令选项。
+
 ## 下一步
 
 - [使用手册](USER_GUIDE.md)：按控制台菜单学习每项能力及边界。
 - [敏感列发现指南](DISCOVERY.md)：显式表范围、采样安全、置信度与脱敏草稿边界。
 - [MCP 接入指南](INTEGRATIONS.md)：两种传输、8 个基础工具、B5 会话/事务工具、调用时序和客户端配置。
+- [任务级临时只读授权](task-read-grants.md)：v0.7.0 开发分支的签发、撤销、精确 SQL 与审计边界。
 - [部署指南](DEPLOY.md)：源码、Compose、systemd、升级、备份和控制面迁移。
+- [v0.7 运维手册](v0.7-operations-runbook.md)：候选版的迁移、审计故障与新旧 MCP 入口排查。
 - [本地 Live Demo](DEMO.md)：完整演示凭据、重置脚本与安全清单。

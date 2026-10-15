@@ -15,6 +15,8 @@ v0.6.0 加入用户、角色和租户控制台、首次接入向导、普通 SQL
 
 版本变化与验证边界见 [v0.6.0 发布说明](docs/release-notes-v0.6.0.md)。
 
+**开发分支提示：**本仓库正在准备 v0.7.0，新增独立的 MCP `2026-07-28` 无状态 HTTP 入口、任务级临时只读授权、控制面迁移版本只读检查，以及接入向导的连接与权限预检。这些功能目前仅属于候选源码和验收范围，尚无公开 v0.7.0 安装包或镜像；下文的 v0.6.0 下载命令不会取得它们。范围与当前验收状态见 [v0.7.0 候选发布说明](docs/release-notes-v0.7.0.md)。
+
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
                                   │
@@ -149,10 +151,12 @@ docker compose --profile observability up -d --build
 
 完整说明见 [可观测性示例](examples/observability/README.md)。`AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份；直接更换 SECRET 会让既有数据源口令无法解密。生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库，完整迁移、最小权限和回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
 
-源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。正式发布脚本固定 Go 1.26.8；若人工调用 Makefile 的 Docker 发布目标，须显式传 `GO_VERSION=1.26.8`，不能依赖其历史默认值 `1.25.14`。普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
+源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。当前 Makefile 与正式发布脚本默认使用 Go 1.26.9；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
+
+以下源码构建示例面向当前 v0.7.0 开发分支，产物不是正式发布资产：
 
 ```bash
-make build VERSION=v0.6.0
+make build VERSION=v0.7.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -204,7 +208,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ### Streamable HTTP
 
-本地端点为 `http://127.0.0.1:7780/mcp`；非本机部署必须在前面配置 HTTPS 反向代理。
+已发布的 v0.6.0 本地端点为 `http://127.0.0.1:7780/mcp`；非本机部署必须在前面配置 HTTPS 反向代理。
 
 ```json
 {
@@ -221,11 +225,20 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 网关始终提供 8 个基础 MCP 工具：`list_datasources`、`list_schema`、`explain_query`、`query`、`execute_write`、`request_approval`、`get_approval_result`、`execute_approved`。v0.4.0 默认开启的 PostgreSQL B5 会话/计划事务还会注册 `open_session`、`close_session`、`get_session_status`、`begin_transaction`、`execute_transaction_statement`、`commit_transaction`、`rollback_transaction`、`get_transaction_status` 8 个工具；显式关闭 `mcp.sessions.enabled` 后只保留基础工具。
 
+### v0.7.0 开发分支的接入变化
+
+- 支持 MCP `2026-07-28` 的客户端可使用独立的 `http://127.0.0.1:7780/mcp/2026-07-28`。每次请求重新验证 Agent API Key、租户及 QPS，要求版本 Header、`Mcp-Method`、适用时的 `Mcp-Name` 与请求体元数据一致；无需旧版 `initialize` 或传输会话。该入口只提供基础工具，暂不提供 B5 会话/计划事务工具；旧 `/mcp` 和 stdio 继续可用。请求示例见 [MCP 接入指南](docs/INTEGRATIONS.md)。
+- 控制台「临时只读授权」可由同时具有策略管理和查询执行权限的管理员，给一个 Agent、一个数据源、一条精确匹配的简单 `SELECT` 签发最长 24 小时的任务 Key，并可撤销。Key 只显示一次、只能调用 `query`，不能扩大原 Agent 的权限；原有规则、脱敏和进入 SQL 流水线的审计继续适用。见 [任务级临时只读授权](docs/task-read-grants.md)。
+- 「接入向导」增加 Agent 状态、数据库连接和策略存在性预检。预检不执行 SQL，策略存在不等于 SQL 已获授权；仍需在真实 MCP 客户端核对允许、拒绝和审计。升级候选源码前可用 `agentsqlctl migrate --check` 只读报告 schema 版本，退出码 `0` 为当前、`2` 为待迁移、`1` 为错误；备份及显式迁移步骤见 [部署指南](docs/DEPLOY.md#升级与回滚)。
+
 ## 功能矩阵
 
 | 能力 | 当前代码 | 说明 |
 | --- | --- | --- |
 | MCP stdio / Streamable HTTP | 支持 | HTTP 使用 Bearer API Key；stdio 绑定单个 Agent Key |
+| MCP `2026-07-28` 无状态 HTTP | v0.7.0 候选源码 | 独立路径 `/mcp/2026-07-28`，旧入口保持可用；新路径不注册 B5 工具 |
+| 任务级临时只读授权 | v0.7.0 候选源码 | 限 Agent、数据源、精确 SQL 与最长 24 小时；只允许 `query`，可撤销 |
+| 接入预检与迁移版本检查 | v0.7.0 候选源码 | 向导预检不执行 SQL；`migrate --check` 只读且不替代备份、真实请求验收 |
 | Agent 与数据源管理 | 支持 | API Key 仅创建/轮换时返回明文，库内保存哈希 |
 | PostgreSQL / MySQL SQL 解析 | 支持 | 结构化 AST 判定，不依赖文本正则代替解析 |
 | 表级与列级授权 | 支持 | 默认拒绝；特殊 JOIN/通配语义见“已知限制” |
@@ -299,6 +312,9 @@ NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查
 - [五分钟快速上手](docs/GETTING_STARTED.md)
 - [使用手册](docs/USER_GUIDE.md)
 - [MCP 接入指南](docs/INTEGRATIONS.md)
+- [任务级临时只读授权（v0.7.0 开发分支）](docs/task-read-grants.md)
+- [v0.7.0 候选发布说明与验收状态](docs/release-notes-v0.7.0.md)
+- [v0.7 运维手册](docs/v0.7-operations-runbook.md)
 - [敏感列发现与脱敏草稿](docs/DISCOVERY.md)
 - [Webhook / Syslog 通知外发与安全配置](docs/NOTIFICATIONS.md)
 - [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
@@ -326,7 +342,7 @@ NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.6.0
+make build VERSION=v0.7.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

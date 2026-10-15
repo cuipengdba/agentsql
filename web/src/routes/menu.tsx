@@ -17,6 +17,7 @@ import {
   ApartmentOutlined,
   IdcardOutlined,
   RocketOutlined,
+  ClockCircleOutlined,
 } from "@ant-design/icons";
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 
@@ -39,6 +40,7 @@ const Users = lazy(() => import("@/pages/Users").then(({ Users }) => ({ default:
 const Roles = lazy(() => import("@/pages/Roles").then(({ Roles }) => ({ default: Roles })));
 const Tenants = lazy(() => import("@/pages/Tenants").then(({ Tenants }) => ({ default: Tenants })));
 const Onboarding = lazy(() => import("@/pages/Onboarding").then(({ Onboarding }) => ({ default: Onboarding })));
+const TaskReadGrants = lazy(() => import("@/pages/TaskReadGrants").then(({ TaskReadGrants }) => ({ default: TaskReadGrants })));
 
 function RouteLoading() {
   return (
@@ -76,6 +78,7 @@ export interface MenuRoute {
   group?: "settings";
   feature?: "b5";
   permission?: string;
+  permissions?: string[];
 }
 
 export const menuRoutes: MenuRoute[] = [
@@ -99,6 +102,7 @@ export const menuRoutes: MenuRoute[] = [
     element: lazyElement(Datasources),
   },
   { key: "policies", path: "/policies", label: "权限", icon: <SafetyOutlined />, element: lazyElement(Policies) },
+  { key: "task-read-grants", path: "/task-read-grants", label: "临时只读授权", icon: <ClockCircleOutlined />, element: lazyElement(TaskReadGrants), permissions: ["strategy.manage", "query.execute"] },
   { key: "users", path: "/users", label: "用户", icon: <TeamOutlined />, element: lazyElement(Users), group: "settings", permission: "user.manage" },
   { key: "roles", path: "/roles", label: "角色", icon: <IdcardOutlined />, element: lazyElement(Roles), group: "settings", permission: "role.manage" },
   { key: "tenants", path: "/tenants", label: "租户", icon: <ApartmentOutlined />, element: lazyElement(Tenants), group: "settings", permission: "tenant.manage" },
@@ -160,5 +164,9 @@ export const menuRoutes: MenuRoute[] = [
 ];
 
 export function menuRoutesForFeatures(b5Enabled: boolean, permissions: string[] = []): MenuRoute[] {
-  return menuRoutes.filter((route) => (route.feature !== "b5" || b5Enabled) && (!route.permission || permissions.includes(route.permission)));
+  return menuRoutes.filter((route) =>
+    (route.feature !== "b5" || b5Enabled) &&
+    (!route.permission || permissions.includes(route.permission)) &&
+    (!route.permissions || route.permissions.every((permission) => permissions.includes(permission))),
+  );
 }

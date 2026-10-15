@@ -57,6 +57,28 @@ type Agent struct {
 	ExpiresAt  *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	// TaskGrantID is set only on an Agent authenticated with a temporary task
+	// key. It is never persisted as an Agent field.
+	TaskGrantID string
+	// TaskGrantIssuerUserID is bound from the authenticated task key before
+	// SQL validation so denied attempts retain their issuer in traffic audit.
+	// It is runtime-only and is never serialized or persisted as Agent data.
+	TaskGrantIssuerUserID string `json:"-"`
+}
+
+// TaskReadGrant narrows one Agent to one datasource and one exact SELECT text.
+// SQLSHA256 and KeyHash are digests; neither SQL nor the key is persisted.
+type TaskReadGrant struct {
+	ID           string
+	TenantID     string
+	IssuerUserID string
+	AgentID      string
+	DatasourceID string
+	SQLSHA256    string
+	KeyHash      string
+	ExpiresAt    time.Time
+	RevokedAt    *time.Time
+	CreatedAt    time.Time
 }
 
 // Datasource is a protected business-database connection target. SQL Server

@@ -80,6 +80,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		summary, err := MigrateSQLiteToPostgres(ctx, options)
 		require.NoError(t, err)
 		assertMigrationSummary(t, summary)
+		assertMigratedTaskReadGrants(t, ctx, metadata)
 		assertMigratedMaskRuleRanges(t, ctx, metadata)
 		assertMigratedRedactionStorage(t, ctx, metadata, audit)
 		rerun, err := MigrateSQLiteToPostgres(ctx, options)
@@ -97,6 +98,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 
 func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql.DB) {
 	t.Helper()
+	assertMigratedTaskReadGrants(t, ctx, target)
 	var apiKeyHash, passwordCipher string
 	require.NoError(t, target.QueryRowContext(ctx, `SELECT "api_key_hash" FROM "public"."agents" WHERE "id"='agent-1'`).Scan(&apiKeyHash))
 	require.NoError(t, target.QueryRowContext(ctx, `SELECT "password_enc" FROM "public"."datasources" WHERE "id"='ds-1'`).Scan(&passwordCipher))
@@ -133,6 +135,38 @@ func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql
 	require.NoError(t, err)
 	require.Equal(t, completeNotificationConfig(), notifications)
 	assertMigratedMaskRuleRanges(t, ctx, target)
+}
+
+func assertMigratedTaskReadGrants(t *testing.T, ctx context.Context, target *sql.DB) {
+	t.Helper()
+	rows, err := target.QueryContext(ctx, `
+SELECT id, issuer_user_id, agent_id, datasource_id, sql_sha256, key_hash, expires_at, revoked_at
+FROM "public"."task_read_grants" ORDER BY id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var seen []string
+	for rows.Next() {
+		var id, issuer, agent, datasource, sqlHash, keyHash string
+		var expiry time.Time
+		var revoked sql.NullTime
+		require.NoError(t, rows.Scan(&id, &issuer, &agent, &datasource, &sqlHash, &keyHash, &expiry, &revoked))
+		require.Equal(t, "task-issuer", issuer)
+		require.Equal(t, "agent-1", agent)
+		require.Equal(t, "ds-1", datasource)
+		require.Equal(t, strings.Repeat("a", 64), sqlHash)
+		require.Equal(t, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), expiry.UTC())
+		if id == "grant-active" {
+			require.Equal(t, strings.Repeat("b", 64), keyHash)
+			require.False(t, revoked.Valid)
+		} else {
+			require.Equal(t, "grant-revoked", id)
+			require.Equal(t, strings.Repeat("c", 64), keyHash)
+			require.True(t, revoked.Valid)
+		}
+		seen = append(seen, id)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []string{"grant-active", "grant-revoked"}, seen)
 }
 
 func assertMigratedRedactionStorage(t *testing.T, ctx context.Context, metadata, audit *sql.DB) {
@@ -217,6 +251,9 @@ func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
 	}{
 		{`INSERT INTO agents(id,name,owner,status,api_key_hash,level,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, []any{"agent-1", "Agent", nil, "active", "opaque-hash-not-rehashed", "readonly", "2026-09-17T20:34:56.123456789+08:00", "2026-09-17 12:00:00.987654321", "2026-09-17 12:00:01"}},
 		{`INSERT INTO datasources(id,name,db_type,host,port,database,username,password_enc,conn_limit,stmt_timeout_ms,row_limit,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{"ds-1", "DB", "postgres", "127.0.0.1", 5432, "app", "runtime", "opaque-ciphertext", 5, 5000, 1000, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO users(id,tenant_id,username,display_name,password_hash,status) VALUES(?,?,?,?,?,?)`, []any{"task-issuer", "tenant_default", "task-issuer", "Task Issuer", "opaque-password-hash", "active"}},
+		{`INSERT INTO task_read_grants(id,tenant_id,issuer_user_id,agent_id,datasource_id,sql_sha256,key_hash,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, []any{"grant-active", "tenant_default", "task-issuer", "agent-1", "ds-1", strings.Repeat("a", 64), strings.Repeat("b", 64), "2027-01-01 00:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO task_read_grants(id,tenant_id,issuer_user_id,agent_id,datasource_id,sql_sha256,key_hash,expires_at,revoked_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"grant-revoked", "tenant_default", "task-issuer", "agent-1", "ds-1", strings.Repeat("a", 64), strings.Repeat("c", 64), "2027-01-01 00:00:00", "2026-09-18 00:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO rules(id,db_type,title,risk_level,pattern_type,definition,enabled,builtin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"rule-1", "postgres", "Rule", 3, "ast_match", `{"shape":"text"}`, 1, 0, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO rules(id,db_type,title,risk_level,pattern_type,definition,enabled,builtin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"rule-2", "postgres", "Nullable", 1, "ast_match", "not-json", nil, nil, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO mask_rules(id,datasource_id,table_name,column_name,sensitive_type,algo,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, []any{"mask-1", nil, "users", "email", "email", "partial", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
@@ -273,10 +310,12 @@ func assertMigrationSummary(t *testing.T, summary SQLiteToPostgresSummary) {
 	require.Contains(t, seen, "notification_channels")
 	require.Contains(t, seen, "redaction_key_versions")
 	require.Contains(t, seen, "management_audit_outbox")
+	require.Contains(t, seen, "task_read_grants")
 	require.Equal(t, int64(1), seen["notification_settings"].SourceRows)
 	require.Equal(t, int64(6), seen["notification_channels"].SourceRows)
 	require.Equal(t, int64(2), seen["redaction_key_versions"].SourceRows)
 	require.Equal(t, int64(1), seen["management_audit_outbox"].SourceRows)
+	require.Equal(t, int64(2), seen["task_read_grants"].SourceRows)
 	require.Equal(t, int64(10), *audit.MinID)
 	require.Equal(t, int64(12), *audit.MaxID)
 	require.Equal(t, int64(12), summary.Sequence.LastValue)

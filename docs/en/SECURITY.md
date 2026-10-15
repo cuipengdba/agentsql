@@ -143,7 +143,7 @@ Do not disclose unpatched vulnerabilities, exploit payloads, real credentials, o
 - email: [87326549@qq.com](mailto:87326549@qq.com);
 - [GitHub private vulnerability reporting](https://github.com/cuipengdba/agentsql/security/advisories/new) when the repository Security page offers “Report a vulnerability”; otherwise use the email address above. Do not substitute a public Issue.
 
-The authoritative [security policy](../../SECURITY.md) plans to support v0.5.x after release until six months after v0.6.0 is released, but not earlier than 2027-10-31; the currently released v0.4.x remains supported through 2027-04-30. Versions 0.3.x and earlier are EOL and no longer receive security fixes.
+The authoritative [security policy](../../SECURITY.md) lists v0.6.x as the current supported release series; v0.6.0 is published, while v0.6.1 and v0.7.0 remain candidates as of 2026-10-16. The v0.6.x security-support end date has not been announced. v0.5.x is supported through 2027-10-31, v0.4.x through 2027-04-30, and 0.3.x and earlier are EOL. Consult [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) for the actual publication state.
 
 ## PolarDB-X (MySQL Protocol Path) Security Boundary
 

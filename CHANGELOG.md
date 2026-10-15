@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] - v0.7.0 candidate
+
+- Add a separate stateless MCP 2026-07-28 endpoint while retaining the existing MCP transports and their security boundaries.
+- Add task-scoped temporary read-only grants bound to one Agent, tenant, datasource, exact SQL statement, and expiry, with revocation and management audit.
+- Add read-only `agentsqlctl migrate --check` for upgrade preflight, and improve release Buildx plugin discovery in isolated Docker configurations.
+- Add onboarding checks for Agent, datasource, and policy readiness, plus an operations runbook for migrations, audit outages, and MCP protocol rejection.
+
+This is an unpublished development candidate. Verification status and support limits belong in [v0.7.0 release notes](docs/release-notes-v0.7.0.md).
+
 ## [v0.6.0] - 2026-10-14
 
 - 增加用户、角色、租户控制台和首次接入向导，收紧管理 API 的租户与权限委派边界。

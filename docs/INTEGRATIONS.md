@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文对应 AgentSQL v0.6.0。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文的 `/mcp` 说明对应已发布的 AgentSQL v0.6.0；`/mcp/2026-07-28` 是 v0.7.0 开发分支中的新增入口，尚未发布。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -12,7 +12,7 @@
 
 - 端点：`http://127.0.0.1:7780/mcp`
 - 身份头：`Authorization: Bearer <Agent API Key>`
-- MCP 协议版本：`2025-06-18` 或 `2025-11-25`（两者均为有状态握手协议；`2026-07-28` 暂不支持）
+- MCP 协议版本：`2025-06-18` 或 `2025-11-25`（两者均为旧版握手协议；新版本使用下述独立入口）
 - `Accept`：`application/json, text/event-stream`
 - 模式：默认 stateful（initialize 返回 `Mcp-Session-Id`）；可显式回退 stateless
 - 断线重放：stateful 旧协议默认持久化 SSE 事件；以 `GET /mcp` + `Last-Event-ID` 重连。若事件已因 TTL/容量回收，返回 HTTP 400，不返回部分事件
@@ -21,6 +21,24 @@
 Agent API Key 不是控制台管理员 token。Agent 被禁用、过期、删除或轮换 Key 后，旧 Key 立即失效。
 
 进程重启不会恢复 go-sdk 的内存 transport session。携带旧 `Mcp-Session-Id` 的请求会收到 HTTP 404 与 `Mcp-Session-Expired: 1`；客户端应丢弃旧 ID 并重新 `initialize`。新 session 不会读取旧 session 的事件。
+
+### 2026-07-28 无状态 HTTP：v0.7.0 开发分支
+
+新协议使用 `http://127.0.0.1:7780/mcp/2026-07-28`。该路径只接受 `2026-07-28`，不会协商为旧版；旧 `/mcp` 的行为和默认配置不变。新路径每个 POST 都重新验证 Agent API Key、由该 Key 确定租户，并与旧路径共用同一 Agent 的 QPS 限额。请求体仍限制为 4 MiB，响应继续遵守网关上限。
+
+客户端每次请求都要发送 `Authorization: Bearer <Agent API Key>`、`MCP-Protocol-Version: 2026-07-28`、`Mcp-Method`、`Content-Type: application/json` 与 `Accept: application/json, text/event-stream`；调用工具时还要发送与 `params.name` 一致的 `Mcp-Name`。`params._meta` 必须包含同版 `io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`。客户端可先调用 `server/discover` 查询能力，也可直接调用工具；无需 `initialize` 或 `notifications/initialized`。该路径没有 MCP 传输会话、独立 GET 事件流、DELETE 关闭或 `Last-Event-ID` 重放；收到旧 `Mcp-Session-Id` 或 `Last-Event-ID` 请求头时忽略它们。连接断开后由客户端决定是否使用新的请求 ID 重试。详见 [MCP 2026-07-28 HTTP 规范](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) 和 [Go SDK 协议指南](https://github.com/modelcontextprotocol/go-sdk/blob/main/docs/protocol.md)。
+
+新路径对普通 Agent Key 注册下面列出的 8 个基础工具，**暂不提供 B5 跨请求逻辑会话和计划事务工具**。任务级临时只读 Key 只注册 `query`，并且查询仍须通过临时授权和原 Agent 权限。B5 的业务会话与 MCP 传输会话是不同概念；需要 B5 时继续使用旧 `/mcp` 或 stdio。`mcp.http.stateful` 只控制旧路径，不改变新路径的无状态语义。客户端不得把管理员 token 或自报租户头当作 Agent 身份。
+
+```bash
+curl -fsS http://127.0.0.1:7780/mcp/2026-07-28 \
+  -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: server/discover' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"agentsql-smoke","version":"1.0.0"}}}}'
+```
 
 服务默认应只绑定回环地址。远程使用时，选择 SSH 本地转发或受控 TLS 反向代理；禁止让 `0.0.0.0:7780` 在公网裸奔。
 
@@ -42,7 +60,7 @@ AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
 
-`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：始终提供 8 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具。
+`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：普通 Agent Key 提供 8 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具；任务级临时只读 Key 只提供 `query`。
 
 > **重要：stdio 不是连接已运行 systemd 服务的代理。** 它会新建一套运行时，必须能读取配置、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。安装器生成的 `/etc/agentsql/agentsql.env` 权限为 `0600 root:root`，普通桌面用户读不到；已经安装并运行服务时请直接使用 HTTP。
 
@@ -52,7 +70,7 @@ stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI�
 
 所有 SQL 参数都只接受单条语句，不允许堆叠多语句。客户端必须读取结构化结果中的 `decision`。
 
-以下 8 个基础工具始终注册：
+普通 Agent Key 注册以下 8 个基础工具；任务级临时只读 Key 只注册 `query`：
 
 | 工具 | 用途 | 入参 | 可能的 decision 与关键语义 |
 | --- | --- | --- | --- |
@@ -308,6 +326,8 @@ Accept: application/json, text/event-stream
 ### MCP 握手失败
 
 确认端点是 `/mcp`，请求包含 `Content-Type: application/json`、`Accept: application/json, text/event-stream` 和 `MCP-Protocol-Version: 2025-06-18`。默认有状态模式下还要确认 initialize 响应包含 `Mcp-Session-Id`，且后续请求携带相同的值；同时检查客户端是否真的支持 Streamable HTTP，以及请求体是否超过 4 MiB。
+
+新入口 `/mcp/2026-07-28` 无需握手，每次请求必须携带版本 Header 和 `params._meta`；`server/discover` 只广告 `2026-07-28`。缺失、旧版或互相矛盾的版本元数据会返回 HTTP 400，超大请求体返回 413，跨站 Origin 返回 403。更多协议拒绝与升级排查见 [v0.7 运维手册](v0.7-operations-runbook.md)。
 
 ### 堆叠多语句被拒绝
 

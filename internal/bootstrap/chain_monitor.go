@@ -360,9 +360,10 @@ func uniqueChainDomains(domains []string) []string {
 }
 
 func configuredChainDomains(separate bool) []string {
-	domains := []string{"management"}
 	if separate {
-		domains = append(domains, "traffic")
+		// Both management and traffic audit rows are appended to the audit
+		// database's traffic chain in the separated layout.
+		return []string{"traffic"}
 	}
-	return domains
+	return []string{"management"}
 }

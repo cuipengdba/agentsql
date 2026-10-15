@@ -162,6 +162,14 @@ func TestAuditChainStatus(t *testing.T) {
 	require.Contains(t, missing.Body.String(), `domain \"management\"`)
 }
 
+func TestResolveAuditChainDomainUsesSharedAuditChainWhenSeparated(t *testing.T) {
+	require.Equal(t, chainDomainManagement, resolveAuditChainDomain(chainDomainAuto, false))
+	require.Equal(t, chainDomainManagement, resolveAuditChainDomain(chainDomainManagement, false))
+	require.Equal(t, chainDomainTraffic, resolveAuditChainDomain(chainDomainAuto, true))
+	require.Equal(t, chainDomainTraffic, resolveAuditChainDomain(chainDomainManagement, true))
+	require.Equal(t, chainDomainTraffic, resolveAuditChainDomain(chainDomainTraffic, true))
+}
+
 func TestAuditChainVerifyValidAndTamperedRemainHTTP200(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		harness := newAuditChainTestHarness(t)

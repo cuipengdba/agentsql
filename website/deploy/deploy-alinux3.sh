@@ -88,10 +88,18 @@ else
 fi
 caddy version
 
+previous_release=
+if [[ $content_only -eq 1 ]]; then
+  [[ -L "$SITE_DIR/current" ]] || { echo "阶段 B 内容发布要求 current 指向现有版本。" >&2; exit 1; }
+  previous_release=$(readlink -f -- "$SITE_DIR/current")
+  [[ -f "$previous_release/public/index.html" ]] || { echo "现有版本不完整: $previous_release" >&2; exit 1; }
+fi
+
 install -d -o root -g root -m 0755 "$SITE_DIR" "$SITE_DIR/releases"
 release_stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release_dir="$SITE_DIR/releases/$release_stamp"
 release_public="$release_dir/public"
+[[ ! -e "$release_dir" && ! -L "$release_dir" ]] || { echo "发布目录已存在: $release_dir" >&2; exit 1; }
 install -d -o root -g root -m 0755 "$release_public"
 
 # Publish only the explicit public allowlist. Never copy deploy/, .git/ or a release root wholesale.
@@ -109,20 +117,65 @@ find "$release_dir" -type f -exec chmod 0644 {} +
 
 bash "$script_dir/verify-static.sh" "$release_public"
 
-# GNU ln replaces the current release symlink without touching prior releases.
 if [[ -e "$SITE_DIR/current" && ! -L "$SITE_DIR/current" ]]; then
   echo "拒绝覆盖非符号链接: $SITE_DIR/current" >&2
   exit 1
 fi
-ln -sfn "$release_dir" "$SITE_DIR/current"
-chown -h root:root "$SITE_DIR/current"
 
 if [[ $content_only -eq 1 ]]; then
+  # cp -a can preserve the staging directory's SELinux label; relabel before exposing the release.
+  if command -v getenforce >/dev/null 2>&1 && [[ $(getenforce) != Disabled ]]; then
+    command -v restorecon >/dev/null 2>&1 || { echo "SELinux 已启用，但缺少 restorecon。" >&2; exit 1; }
+    command -v matchpathcon >/dev/null 2>&1 || { echo "SELinux 已启用，但缺少 matchpathcon。" >&2; exit 1; }
+    expected_context=$(matchpathcon -n "$release_public/index.html")
+    [[ $expected_context == *:httpd_sys_content_t:* ]] || { echo "官网目录缺少 httpd_sys_content_t 文件上下文规则。" >&2; exit 1; }
+    restorecon -Rv "$release_dir"
+  fi
+
+  # Validate before the switch, then use a same-directory rename for an atomic current update.
+  caddy validate --config /etc/caddy/Caddyfile
+
+  atomic_current_link() {
+    local target=$1 pending="$SITE_DIR/.current-$release_stamp-$$-$RANDOM"
+    ln -s -- "$target" "$pending" || return 1
+    if ! mv -Tf -- "$pending" "$SITE_DIR/current"; then
+      rm -f -- "$pending" || true
+      return 1
+    fi
+  }
+
+  rollback_content_only() {
+    local status=$? active
+    trap - EXIT HUP INT TERM
+    if [[ $status -ne 0 ]]; then
+      active=$(readlink -f -- "$SITE_DIR/current" 2>/dev/null || true)
+      if [[ $active != "$previous_release" ]]; then
+        if atomic_current_link "$previous_release"; then
+          chown -h root:root "$SITE_DIR/current" || true
+          echo "内容发布失败，已恢复原站点版本: $previous_release" >&2
+          systemctl reload caddy || echo "Caddy 回滚 reload 失败，请检查服务状态。" >&2
+        else
+          echo "内容发布失败，current 自动回滚失败，请手动恢复: $previous_release" >&2
+        fi
+      fi
+    fi
+    exit "$status"
+  }
+
+  trap rollback_content_only EXIT
+  trap 'exit 1' HUP INT TERM
+  atomic_current_link "$release_dir"
+  chown -h root:root "$SITE_DIR/current"
   caddy validate --config /etc/caddy/Caddyfile
   systemctl reload caddy
+  trap - EXIT HUP INT TERM
   echo "阶段 B 内容发布完成（未修改 /etc/caddy/Caddyfile）: $release_dir"
   exit 0
 fi
+
+# Initial stage deployment retains its existing install and service setup flow.
+ln -sfn "$release_dir" "$SITE_DIR/current"
+chown -h root:root "$SITE_DIR/current"
 
 install -d -o root -g root -m 0755 /etc/caddy
 install -m 0644 "$script_dir/Caddyfile.common" /etc/caddy/Caddyfile.common

@@ -220,6 +220,10 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("PUT /api/v1/agents/{id}", handler.agentsUpdate)
 	mux.HandleFunc("DELETE /api/v1/agents/{id}", handler.agentsDelete)
 	mux.HandleFunc("POST /api/v1/agents/{id}/rotate-key", handler.agentsRotate)
+	mux.HandleFunc("GET /api/v1/task-read-grants", handler.taskReadGrantsList)
+	mux.HandleFunc("POST /api/v1/task-read-grants", handler.taskReadGrantsCreate)
+	mux.HandleFunc("GET /api/v1/task-read-grants/{id}", handler.taskReadGrantsGet)
+	mux.HandleFunc("POST /api/v1/task-read-grants/{id}/revoke", handler.taskReadGrantsRevoke)
 	mux.HandleFunc("GET /api/v1/datasources", handler.datasourcesList)
 	mux.HandleFunc("GET /api/v1/datasource-types", handler.datasourceTypesList)
 	mux.HandleFunc("POST /api/v1/datasources", handler.datasourcesCreate)
@@ -378,6 +382,7 @@ func requiredPermission(method, path string) (string, bool) {
 	case strings.HasPrefix(path, "/api/v1/agents"), strings.HasPrefix(path, "/api/v1/datasources"), path == "/api/v1/datasource-types":
 		return rbac.PermissionDatasourceManage, true
 	case strings.HasPrefix(path, "/api/v1/policies"), strings.HasPrefix(path, "/api/v1/rules"),
+		strings.HasPrefix(path, "/api/v1/task-read-grants"),
 		strings.HasPrefix(path, "/api/v1/mask_rules"), strings.HasPrefix(path, "/api/v1/redaction"),
 		strings.HasPrefix(path, "/api/v1/integrations"):
 		return rbac.PermissionStrategyManage, true

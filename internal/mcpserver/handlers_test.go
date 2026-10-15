@@ -480,13 +480,14 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 	})
 	redactors := &staticRedactorBuilder{redactor: redactor}
 	flow, err := pipeline.New(pipeline.Ports{
-		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
-		Datasources:   metadataStore.Datasources(),
-		Policies:      metadataStore.Policies(),
-		Executors:     provider,
-		Approvals:     metadataStore.Approvals(),
-		Audit:         audit.NewRecorder(metadataStore.AuditLogs()),
-		Redactors:     redactors,
+		Authenticator:  auth.NewAuthenticator(metadataStore.Agents()),
+		Datasources:    metadataStore.Datasources(),
+		Policies:       metadataStore.Policies(),
+		Executors:      provider,
+		Approvals:      metadataStore.Approvals(),
+		Audit:          audit.NewRecorder(metadataStore.AuditLogs()),
+		Redactors:      redactors,
+		TaskReadGrants: metadataStore.TaskReadGrants(),
 	}, mcpTestSecret, pipeline.WithObserver(metricsHub))
 	require.NoError(t, err)
 	runtime := &bootstrap.Runtime{
