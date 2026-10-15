@@ -147,18 +147,26 @@ func (handler *Handler) auditChainAccess(writer http.ResponseWriter, request *ht
 		handler.auditChainFailure(writer, http.StatusBadRequest, "CHAIN_DOMAIN_INVALID", "domain must be auto, management, or traffic", 0)
 		return "", nil, false
 	}
-	if domain == chainDomainAuto {
-		domain = chainDomainManagement
-		if handler.deps.Config.Store.Audit != nil && handler.deps.Config.Store.Audit.Separate {
-			domain = chainDomainTraffic
-		}
-	}
+	domain = resolveAuditChainDomain(domain,
+		handler.deps.Config.Store.Audit != nil && handler.deps.Config.Store.Audit.Separate)
 	access, err := handler.deps.Runtime.Store.Chain(domain)
 	if err != nil {
 		handler.internal(writer, err)
 		return "", nil, false
 	}
 	return domain, access, true
+}
+
+func resolveAuditChainDomain(domain string, separate bool) string {
+	if separate && (domain == chainDomainAuto || domain == chainDomainManagement) {
+		// A separate audit database has one chain for both management and
+		// traffic records; metadata retains the durable delivery outbox.
+		return chainDomainTraffic
+	}
+	if domain == chainDomainAuto {
+		return chainDomainManagement
+	}
+	return domain
 }
 
 func (handler *Handler) beginChainVerification(writer http.ResponseWriter, domain string) bool {

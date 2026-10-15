@@ -411,6 +411,8 @@ curl --fail http://127.0.0.1:7780/readyz
 
 升级前先执行完整备份，盘点 enabled `hash` 规则并确认对应 `AGENTSQL_REDACTION_HASH_KEY` 已安全注入，然后停止当前实例、替换两个二进制或容器镜像并重新启动。`store.auto_migrate: true`（默认值）时，AgentSQL 启动会对当前配置的 SQLite 或 PostgreSQL metadata 存储自动、幂等地执行尚未应用的 migration；分库部署的 audit-only PostgreSQL 走独立迁移流。`auto_migrate: false` 时启动只核对版本、不执行 DDL，必须先由 migration owner 运行 `agentsqlctl migrate`。enabled `hash` 无 key 会在对外服务前拒绝启动。
 
+PostgreSQL metadata/audit 分库若使用 v0.6.1 维护候选作为后续升级的回退基线，应先按 [v0.6.1 维护说明](release-notes-v0.6.1.md) 验证双库备份、metadata 16/audit 6 schema、服务启动和 audit 库管理审计落库。原版 v0.6.0 分库服务有管理审计写错库的启动缺陷，不能把恢复旧数据库等同于服务可回退。
+
 ### v0.3 `range` 控制面迁移
 
 v0.3 为保存数值分桶和日期截断参数，在 `mask_rules` 增加 `range_bucket_width INTEGER`、`range_bucket_offset INTEGER`、`range_granularity TEXT` 三个可空列。三列都没有 `NOT NULL`、没有数据库默认值，迁移不回填，既有规则的三列自然为 `NULL`。四份 `0004` 的作用和真实 DDL 如下。

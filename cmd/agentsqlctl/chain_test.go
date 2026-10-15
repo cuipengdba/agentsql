@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -142,6 +144,25 @@ func TestChainDomainMappingAndMissingState(t *testing.T) {
 	stderr.Reset()
 	require.Equal(t, 1, run([]string{"chain", "status", "--domain", "invalid", "-c", configPath}, io.Discard, &stderr))
 	require.Contains(t, stderr.String(), "auto, management, or traffic")
+}
+
+func TestChainExplicitManagementUsesSeparateAuditDatabase(t *testing.T) {
+	configPath, _ := prepareChainSQLite(t)
+	contents, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	password := "chain-audit-password-must-not-appear"
+	auditDSN := "postgres://audit:" + password + "@127.0.0.1:1/audit?sslmode=disable&connect_timeout=1"
+	t.Setenv("AGENTSQL_STORE_AUDIT_DSN", auditDSN)
+	separateConfig := strings.Replace(string(contents), "  # audit:\n", fmt.Sprintf(
+		"  audit:\n    separate: true\n    driver: postgres\n    dsn: %q\n", auditDSN,
+	), 1)
+	require.NotEqual(t, string(contents), separateConfig)
+	separatePath := writeControlConfig(t, separateConfig)
+	var stdout, stderr strings.Builder
+	require.Equal(t, 1, run([]string{"chain", "status", "--domain", "management", "-c", separatePath}, &stdout, &stderr))
+	require.Contains(t, stderr.String(), `domain "traffic" in selected audit database`)
+	require.NotContains(t, stdout.String()+stderr.String(), password)
+	require.NotContains(t, stdout.String()+stderr.String(), auditDSN)
 }
 
 func TestChainKeyFlagValidation(t *testing.T) {
