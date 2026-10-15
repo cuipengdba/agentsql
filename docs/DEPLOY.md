@@ -431,7 +431,7 @@ agentsqlctl migrate --check --config /etc/agentsql/config.yaml
 3. 继续用候选 `agentsqlctl migrate --check --config /etc/agentsql/config.yaml`，要求退出码为 `0`，且每行 `current=latest`、`status=current`。为新表、索引和序列补齐运行账号的最小权限，再把 DSN 切回运行账号，并再次执行同一检查，确认运行账号能读取两个版本表。
 4. 替换服务二进制或镜像，启动后检查 `/readyz`，并验收适用的 allow、deny、脱敏、审批与持久审计写入。任一关键检查失败时停止服务，按升级前备份恢复数据库、对应 `AGENTSQL_SECRET` 和旧版程序；不要只回滚二进制后继续使用新 schema。
 
-针对 v0.7.0 候选升级，SQLite 合并库存量可在恢复升级前数据库与配对密钥后回到已发布的 v0.6.0。PostgreSQL metadata/audit 分库的隔离回退已由 v0.6.1 维护候选实测通过，但须先取得其正式发布资产，并在目标环境验证后才可作为可用回退版本；原 v0.6.0 分库服务存在启动缺陷，不可作为该拓扑的回退目标。旧程序不得直接读取已迁移的 v0.7.0 schema。
+针对 v0.7.0 候选升级，SQLite 合并库存量可在恢复升级前数据库与配对密钥后回到已发布的 v0.6.0。PostgreSQL metadata/audit 分库的隔离回退已由 v0.6.1 维护候选实测通过；使用它作为回退基线前，应按 [v0.6.1 维护说明](release-notes-v0.6.1.md) 验证双库备份、metadata 16/audit 6 schema、服务启动和 audit 库管理审计落库，并先取得正式发布资产、在目标环境验收。原 v0.6.0 分库服务有管理审计写错库的启动缺陷，不可作为该拓扑的回退目标；旧程序也不得直接读取已迁移的 v0.7.0 schema。
 
 `agentsqlctl upgrade apply --dry-run` 只验证下载产物和文件计划，不检查数据库版本，也不会替代上述预检或备份。`migrate --check` 验证迁移版本记录的连续性，不是数据库结构、数据内容或跨库一致性的完整校验。
 

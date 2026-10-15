@@ -351,8 +351,8 @@ func (cli *chainCLI) openDatabase(ctx context.Context) (*chainDatabase, error) {
 		return nil, fmt.Errorf("chain --domain must be auto, management, or traffic")
 	}
 	if !resolved.Audit.ReuseMetadata && (domain == chainDomainAuto || domain == chainDomainManagement) {
-		// Separated management and traffic audits share the audit database's
-		// traffic chain.
+		// Both management and traffic records share the audit database's
+		// traffic chain when the two stores are separated.
 		domain = chainDomainTraffic
 	} else if domain == chainDomainAuto {
 		domain = chainDomainManagement
