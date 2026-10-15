@@ -624,7 +624,7 @@ foreach ($architecture in @('amd64', 'arm64')) {
     )
     if (-not [string]::IsNullOrWhiteSpace($env:AGENTSQL_RELEASE_GO_CACHE_DIR)) {
         # A caller-owned, architecture-specific Go build cache makes repeated
-        local release checks practical without changing package contents.
+        # local release checks practical without changing package contents.
         $buildCacheDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:AGENTSQL_RELEASE_GO_CACHE_DIR "$architecture/gocache"))
         New-Item -ItemType Directory -Path $buildCacheDirectory -Force | Out-Null
         $dockerArguments += @('-v', "${buildCacheDirectory}:/tmp/gocache")

@@ -43,13 +43,14 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 | 中电科金仓 KingbaseES | 🟢 PG 协议基础闭环实测通过 | 仅 V9R1C10、PG 模式、单实例合成表：可写 license 卷启动、ksql CRUD/分页/标识符、pgx/v5 `$1` 绑定 + SCRAM、只读角色拒写 `42501`、受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计实测通过；见[真库验证记录](docs/kingbase-v9-verification.md) |
 | 瀚高 HighGo | 🟢 指定实例防护链路实测通过 | HighGo 9.0.10 企业版（PG 模式、单实例合成表）：解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝、allow/deny 审计链路实测通过；见[真库验证记录](docs/highgo-verification.md) |
 | IvorySQL | 已实测 | 社区版协议路径已实测通过 |
-| openGauss（GaussDB） | 已实测 | 社区版协议路径已实测通过 |
+| openGauss 社区版 | 指定版本协议路径已实测 | openGauss 7.0.0-RC3 社区版；GaussDB 商业版未实测，不能继承此结论 |
 | TiDB | 适配中 | 执行计划（EXPLAIN）适配实现中 |
 | OceanBase | 适配中 | 执行计划（EXPLAIN）适配实现中 |
-| TDSQL | 适配中 | 开源版 OpenTenBase 适配中；商用版待实测 |
+| TDSQL for PostgreSQL | 待目标环境验证 | PG 协议候选；商业版未实测，不能用 OpenTenBase 结果替代 |
+| TDSQL for MySQL | 待目标环境验证 | MySQL 协议候选；商业版未实测，不与 TDSQL for PostgreSQL 混同 |
 | OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
 | 崖山数据库 YashanDB | 🔵 受控只读 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
-| 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：v0.5.1 真库复验了 HTTP MCP 查询、列血缘、R010 表策略、手机号脱敏和持久化审计；R006 注释在解析阶段失败关闭，多行分页/JOIN/函数/系统目录未测，写入未放开 |
+| 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：v0.7.0 有界真库复验了 HTTP MCP 查询、列血缘、R010 表策略、手机号脱敏和持久化审计；R006 注释在解析阶段失败关闭，多行分页/JOIN/函数/系统目录未测，写入未放开 |
 | PolarDB for PostgreSQL | 协议路径已实测 | 指定 PG 15 社区镜像复用 `db_type=postgres`；非商业服务认证 |
 | PolarDB-X | 旧官方镜像有界实测 | `2.0.1` 单容器复用 `db_type=mysql`，两阶段 EXPLAIN 已适配；当前完整拓扑与商业服务待终验 |
 
@@ -261,12 +262,12 @@ v0.6.0 代码的注册表覆盖 **8 大类、28 款数据库**（7 款关系型 
 | 关系型 | PostgreSQL 14–18 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
 |  | MySQL 8.0 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
 |  | Oracle 23ai | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
-|  | 达梦 DM8 | 🟢 已适配 · 完整防护 | 仅限 Pack3、COMPATIBLE_MODE=0 指定链路 |
+|  | 达梦 DM8 | 🟢 指定场景闭环 | 仅限 Pack3、COMPATIBLE_MODE=0 指定链路 |
 |  | 崖山 YashanDB | 🔵 已适配 · 受控只读 | 标准 parser 接通，真库流水线通过 |
 |  | SQL Server 2025 | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
 |  | Vastbase G100 | 🔵 指定版本受控只读 | V3.0 Build 9 PG 模式的有界单表 SELECT、表授权、脱敏及持久审计真库实测；见[验证记录](docs/vastbase-g100-v060.md) |
-|  | 金仓 KingbaseES V9（另列） | 🟢 已适配 · 完整防护 | V9R1C10 PG 模式基础闭环，不计入 28 |
-|  | 瀚高 HighGo（另列） | 🟢 已适配 · 完整防护 | HighGo 9.0.10 企业版 PG 模式、单实例合成表限定，不计入 28 |
+|  | 金仓 KingbaseES V9（另列） | 🟢 指定场景闭环 | V9R1C10 PG 模式基础闭环，不计入 28 |
+|  | 瀚高 HighGo（另列） | 🟢 指定场景闭环 | HighGo 9.0.10 企业版 PG 模式、单实例合成表限定，不计入 28 |
 | 键值 | Redis | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
 |  | Valkey | 🔷 已适配 · 连接级 | 复用 Redis 适配 |
 |  | Memcached | 🔷 已适配 · 连接级 | ping / 版本 / Schema / 只读预览 |
