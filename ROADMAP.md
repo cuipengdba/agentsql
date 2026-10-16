@@ -16,8 +16,8 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v0.5.0、v0.5.1 | 已发布 | 身份与租户治理、数据库适配及国产数据库指定版本真库验证；各项边界见对应发布说明。 |
 | v0.6.0 | 已发布 | 审批封存与单次执行、管理控制台与接入向导、Vastbase G100 Build 9 PG 模式的受限只读适配；见 [v0.6.0 发布说明](docs/release-notes-v0.6.0.md)。 |
 | v0.6.1 | 已发布（2026-10-16；[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1)） | 修复 v0.6.0 PostgreSQL metadata/audit 分库管理审计路由，作为该拓扑升级到 v0.7.0 后的可验证回退基线；不改变 schema 或数据库支持范围。以两版正式包进行的隔离回退复测须在 v0.7.0 发行前完成；具体生产部署另需目标环境验收。 |
-| v0.7.0 | 功能范围已封定；发行状态以 GitHub Release 为准 | 无状态 MCP 新协议入口、任务级临时只读授权、迁移预检与升级恢复、接入与运维诊断、三种国产数据库指定版本回归。Dify 与 Inspector 的四次 GUI 查询已在兼容入口通过；范围与验收边界见[发布说明](docs/release-notes-v0.7.0.md)与[验收记录](docs/v0.7-acceptance.md)。 |
-| v0.8.0 | 开发中；尚未发布 | 任务授权申请/审批/签发闭环、决策与审计关联、MCP 真实客户端新入口验证、接入排障体验，以及 DM8 深度回归和 v0.7 升级恢复。阶段结果与未完成闸门见[开发验收记录](docs/v0.8-acceptance.md)；不预先提升数据库支持等级。 |
+| v0.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0)） | 无状态 MCP 新协议入口、任务级临时只读授权、迁移预检与升级恢复、接入与运维诊断、三种国产数据库指定版本回归；范围见[发布说明](docs/release-notes-v0.7.0.md)。 |
+| v0.8.0 | 功能验收完成；发行状态以 GitHub Release 为准 | 任务授权申请/异人审批/一次性领取、授权 ID 审计关联、MCP Inspector 新旧入口真调用、接入排障，以及 DM8、金仓、Vastbase 有界回归和 v0.7 升级恢复。证据与未完成闸门见[验收记录](docs/v0.8-acceptance.md)；不提升数据库支持等级。 |
 
 ## v0.7.0 验收与发布门槛
 

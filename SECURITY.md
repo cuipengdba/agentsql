@@ -6,13 +6,14 @@ AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否�
 
 | 版本 | 状态 | 安全修复支持截止 |
 | --- | --- | --- |
+| v0.8.x（以正式 Release 为准） | 支持 | 固定截止日期尚未公布；后续发布时更新本表 |
 | v0.7.x（以正式 Release 为准） | 支持 | 固定截止日期尚未公布；后续发布时更新本表 |
 | v0.6.x（已发布系列） | 支持 | 固定截止日期尚未公布；后续发布时更新本表 |
 | v0.5.x（已发布） | 支持 | 2027-10-31（原政策：v0.6.0 发布后 6 个月，且不早于此日期） |
 | v0.4.x（已发布） | 支持 | 2027-04-30 |
 | 0.3.x 及更早 | EOL | 不再提供安全修复 |
 
-v0.6.1 已于 2026-10-16 [正式发布](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1)，tag 与签名资产可公开核验；v0.7.0 的发行状态以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 为准。只有可核验的正式 Release 才计入已发布版本。本表只描述 AgentSQL 自身的安全修复维护期限，不构成下述数据库的完整生产支持承诺。
+v0.6.1 与 v0.7.0 均已[正式发布](https://github.com/cuipengdba/agentsql/releases)；v0.8.0 的发行状态以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 为准。只有可核验的正式 Release 才计入已发布版本。本表只描述 AgentSQL 自身的安全修复维护期限，不构成下述数据库的完整生产支持承诺。
 
 请先在可控环境复现，并尽量使用最新的受支持版本确认问题仍然存在。
 

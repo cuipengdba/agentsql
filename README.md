@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Version v0.7.0](https://img.shields.io/badge/Version-v0.7.0-blue)
+![Version v0.8.0](https://img.shields.io/badge/Version-v0.8.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -11,11 +11,11 @@
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
-v0.6.0 加入用户、角色和租户控制台、首次接入向导、普通 SQL 审批单次执行，以及 Vastbase G100 Build 9 PG 模式的受限只读适配。v0.7.0 加入独立的 MCP `2026-07-28` 无状态 HTTP 入口、任务级临时只读授权、迁移版本预检，以及接入向导的连接与权限预检。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
+v0.6.0 加入用户、角色和租户控制台、首次接入向导、普通 SQL 审批单次执行，以及 Vastbase G100 Build 9 PG 模式的受限只读适配。v0.7.0 加入独立的 MCP `2026-07-28` 无状态 HTTP 入口、任务级临时只读授权、迁移版本预检，以及接入向导的连接与权限预检。v0.8.0 将任务授权改为申请、异人审批与一次性领取，并增强 MCP 工具 schema 的客户端可移植性和审计关联。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用，详见下文许可更换声明。
 
-版本变化与验证边界见 [v0.7.0 发布说明](docs/release-notes-v0.7.0.md)。
+版本变化与验证边界见 [v0.8.0 发布说明](docs/release-notes-v0.8.0.md)。
 
-**v0.7.0 验证范围：**Dify 1.17.1 和 MCP Inspector 0.16.8 的图形界面已在兼容入口 `/mcp` 完成允许、拒绝、脱敏和持久审计的隔离验收；新入口由 Go SDK 协议测试覆盖。以下精确版本安装命令应在核对 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0)、签名及镜像匿名拉取后执行。范围与证据见[发布说明](docs/release-notes-v0.7.0.md)和[验收记录](docs/v0.7-acceptance.md)。
+**v0.8.0 验证范围：**Dify 1.17.1 的真实工作流在兼容入口 `/mcp` 完成允许、拒绝、脱敏和持久审计的隔离验收；MCP Inspector 2.11.0 在旧、新两个入口完成真实调用与严格 schema 校验。DM8、金仓 V9、Vastbase G100 的结论只覆盖指定实例、协议模式和合成数据。以下精确版本安装命令应在核对 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.8.0)、签名及镜像匿名拉取后执行。范围与证据见[发布说明](docs/release-notes-v0.8.0.md)和[验收记录](docs/v0.8-acceptance.md)。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -73,17 +73,17 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 v0.4.0 起提供 `linux/amd64` 与 `linux/arm64` 两种原生 glibc 包：`uname -m` 为 `x86_64` / `amd64` 时使用 amd64 包，为 `aarch64` / `arm64` 时使用 arm64 包。两者均要求 glibc 2.28+ 且 systemd 为 PID 1；安装器会自动选择本机架构、校验发布包外层与包内哈希，并安装为 systemd 服务。musl / Alpine 与 CentOS 7 仍不支持：
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v0.7.0/install.sh | sudo sh -s -- install --version v0.7.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v0.8.0/install.sh | sudo sh -s -- install --version v0.8.0
 ```
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v0.7.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v0.8.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v0.7.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v0.7.0-linux-amd64.tar.gz
-cd agentsql-v0.7.0-linux-amd64
+sha256sum -c agentsql-v0.8.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v0.8.0-linux-amd64.tar.gz
+cd agentsql-v0.8.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -92,20 +92,20 @@ sudo ./install.sh install
 脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag；该 tag 是 `linux/amd64` + `linux/arm64` 多架构镜像，Docker 会自动匹配运行架构。脚本生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v0.7.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v0.7.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v0.8.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v0.8.0
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v0.7.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v0.8.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v0.7.0
+docker pull ghcr.io/cuipengdba/agentsql:v0.8.0
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.7.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v0.8.0
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -114,7 +114,7 @@ docker run -d --name agentsql --restart unless-stopped --security-opt no-new-pri
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v0.7.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v0.8.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -157,7 +157,7 @@ docker compose --profile observability up -d --build
 以下源码构建示例仅生成本机可执行文件。自行构建的文件没有经过正式发布资产的签名与分发验收：
 
 ```bash
-make build VERSION=v0.7.0
+make build VERSION=v0.8.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -232,6 +232,12 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 - 控制台「临时只读授权」可由同时具有策略管理和查询执行权限的管理员，给一个 Agent、一个数据源、一条精确匹配的简单 `SELECT` 签发最长 24 小时的任务 Key，并可撤销。Key 只显示一次、只能调用 `query`，不能扩大原 Agent 的权限；原有规则、脱敏和进入 SQL 流水线的审计继续适用。见 [任务级临时只读授权](docs/task-read-grants.md)。
 - 「接入向导」增加 Agent 状态、数据库连接和策略存在性预检。预检不执行 SQL，策略存在不等于 SQL 已获授权；兼容入口 `/mcp` 已在真实 Dify 与 Inspector 客户端核对允许、拒绝和审计，新入口仍以 SDK 协议测试为证据。升级到 v0.7.0 前可用该版 `agentsqlctl migrate --check` 只读报告 schema 版本，退出码 `0` 为当前、`2` 为待迁移、`1` 为错误；备份及显式迁移步骤见 [部署指南](docs/DEPLOY.md#升级与回滚)。
 
+### v0.8.0 任务授权与兼容性变化
+
+- 任务 Key 现在由申请人提交精确 SQL、Agent、数据源和到期时间，另一位同租户审批人核对 SQL 后批准或拒绝；批准后原申请人一次性领取。旧直接签发 API 返回 HTTP 410，v0.7.0 已签发的 Key 继续按有效期与撤销规则生效。
+- 授权 ID 关联申请、审批、签发以及进入 SQL 流水线后的允许或拒绝审计。metadata/audit 分库时管理审计先在 metadata 库的 outbox 可靠排队，再投递到 audit 库；应监控积压。
+- Dify 1.17.1 真实工作流和 MCP Inspector 2.11.0 已完成指定链路复核，两个 MCP HTTP 入口的工具 schema 通过 Inspector 严格检查。升级前成套备份数据库与配对 `AGENTSQL_SECRET`，操作见 [v0.8.0 发布说明](docs/release-notes-v0.8.0.md)。
+
 ## 功能矩阵
 
 | 能力 | 当前代码 | 说明 |
@@ -239,6 +245,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 | MCP stdio / Streamable HTTP | 支持 | HTTP 使用 Bearer API Key；stdio 绑定单个 Agent Key |
 | MCP `2026-07-28` 无状态 HTTP | v0.7.0 | 独立路径 `/mcp/2026-07-28`，旧入口保持可用；新路径不注册 B5 工具 |
 | 任务级临时只读授权 | v0.7.0 | 限 Agent、数据源、精确 SQL 与最长 24 小时；只允许 `query`，可撤销 |
+| 任务授权异人审批与领取 | v0.8.0 | SQL 仅审批详情向有权审批者展示；原申请人一次性领取 Key |
 | 接入预检与迁移版本检查 | v0.7.0 | 向导预检不执行 SQL；`migrate --check` 只读且不替代备份、真实请求验收 |
 | Agent 与数据源管理 | 支持 | API Key 仅创建/轮换时返回明文，库内保存哈希 |
 | PostgreSQL / MySQL SQL 解析 | 支持 | 结构化 AST 判定，不依赖文本正则代替解析 |
@@ -255,7 +262,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v0.7.0 代码的注册表覆盖 **8 大类、28 款数据库**（7 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 与瀚高 HighGo 另列为指定环境已验证的 PG 协议基础闭环，不计入 28 款；分类表共 30 行。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；达梦、金仓与瀚高的绿色仅限所述实例和用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
+v0.8.0 代码的注册表覆盖 **8 大类、28 款数据库**（7 款关系型 + 21 款 NoSQL / 向量）。金仓 KingbaseES V9 与瀚高 HighGo 另列为指定环境已验证的 PG 协议基础闭环，不计入 28 款；分类表共 30 行。🟢 表示解析、授权、受控执行、脱敏、审计链路已在所述范围通过；达梦、金仓与瀚高的绿色仅限所述实例和用例，不代表完整方言兼容。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。
 
 | 类别 | 数据库 | 适配状态 | 边界说明 |
 | --- | --- | --- | --- |
@@ -343,7 +350,7 @@ NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v0.7.0
+make build VERSION=v0.8.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

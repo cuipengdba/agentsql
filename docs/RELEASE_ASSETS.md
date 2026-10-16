@@ -1,5 +1,29 @@
 # AgentSQL Release 资产清单
 
+## v0.8.0 预期资产
+
+`scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames` 是实际名称定义。v0.8.0 应上传恰好 15 项：
+
+```text
+agentsql-v0.8.0-linux-amd64.tar.gz
+agentsql-v0.8.0-linux-amd64.tar.gz.sha256
+agentsql-v0.8.0-linux-arm64.tar.gz
+agentsql-v0.8.0-linux-arm64.tar.gz.sha256
+agentsql-v0.8.0.spdx.json
+agentsql-v0.8.0.spdx.json.sig.json
+ed25519-release-public-key.json
+go-version-metadata.txt
+install.sh
+provenance.json
+provenance.json.sig.json
+SBOM-GENERATION.txt
+SHA256SUMS
+SHA256SUMS.sig.json
+VERIFYING-SIGNATURES.md
+```
+
+所有文件须来自同一 v0.8.0 封板提交；签名分别覆盖 SBOM、provenance 和清单，清单覆盖其余 13 项。公钥 key ID、三份 Ed25519 验签、源提交、双架构内容、YashanDB 客户端、GHCR 双架构及匿名拉取都须按 [发布流程](RELEASE_PROCESS.md) 核验。下方 v0.7.0 和 v0.5.0 数据仅为历史参考。
+
 ## v0.7.0 预期资产与正式校验门槛
 
 `scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames` 是资产名称的唯一可执行定义。v0.7.0 正式 GitHub Release 应恰好上传以下 15 个文件；不能复用旧版本文件或把本地 dry-run 占位签名上传：

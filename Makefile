@@ -1,5 +1,5 @@
 BINARY_DIR := bin
-VERSION ?= v0.7.0
+VERSION ?= v0.8.0
 GO_VERSION ?= 1.26.9
 GOPROXY ?= https://goproxy.cn,direct
 SOURCE_DATE_EPOCH ?= 1704067200

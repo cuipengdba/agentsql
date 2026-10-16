@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.8.0]
+
+- Require a same-tenant second reviewer to approve exact SQL before a requester can claim a task-scoped read-only API key; retire the direct-issue API with HTTP 410 while preserving existing grants.
+- Keep request, review, and issue actions in metadata transactions with management-audit outbox events and authorization-ID-linked traffic audits.
+- Make legacy and stateless MCP tool schemas portable to strict clients; add a control-console workflow and audit filter for the reviewed grants.
+- Extend onboarding diagnostics for authentication, permission, protocol, database, and audit failures.
+- Reverify Dify 1.17.1, MCP Inspector 2.11.0, DM8, KingbaseES V9, Vastbase G100, and isolated v0.7.0 upgrade and restore paths within the documented bounds.
+
+正式封板提交、CI、签名资产、GHCR 和官网结果，以 [v0.8.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.8.0) 为准。功能与限制见 [发布说明](docs/release-notes-v0.8.0.md)和[验收记录](docs/v0.8-acceptance.md)。
+
 ## [v0.7.0]
 
 - Add a separate stateless MCP 2026-07-28 endpoint while retaining the existing MCP transports and their security boundaries.

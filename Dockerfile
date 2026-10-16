@@ -2,7 +2,7 @@
 
 FROM golang:1.26.9-bookworm AS build
 
-ARG VERSION=v0.8.0-dev
+ARG VERSION=v0.8.0
 # Overridable module proxy for restricted networks, e.g.
 # `docker build --build-arg GOPROXY=https://goproxy.cn,direct`.
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -48,7 +48,7 @@ RUN mkdir -p /out \
 
 FROM debian:bookworm-slim AS runtime
 
-ARG VERSION=v0.8.0-dev
+ARG VERSION=v0.8.0
 ARG REVISION
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
