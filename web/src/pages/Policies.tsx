@@ -5,8 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { listAgents } from "@/api/agents";
 import { listDatasources } from "@/api/datasources";
-import { createPolicy, deletePolicy, listPolicies, updatePolicy } from "@/api/policies";
-import type { AgentView, DatasourceView, PolicyInput, PolicyView } from "@/api/types";
+import { createPolicy, deletePolicy, listPolicies, preflightPolicy, updatePolicy } from "@/api/policies";
+import type { AgentView, DatasourceView, PolicyInput, PolicyPreflightView, PolicyView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { configLabel, objectTypeMeta, policyActionMeta } from "@/constants/labels";
 
@@ -69,6 +69,9 @@ export function Policies() {
   const [changes, setChanges] = useState<PolicyChange[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [preflightSQL, setPreflightSQL] = useState("");
+  const [preflightResult, setPreflightResult] = useState<PolicyPreflightView | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
   const mountedRef = useRef(true);
   const listControllerRef = useRef<AbortController | null>(null);
   const listSequenceRef = useRef(0);
@@ -133,6 +136,21 @@ export function Policies() {
     setDatasourceID(nextDatasource);
     setChanges([]);
     setList([]);
+    setPreflightResult(null);
+  };
+
+  const runPreflight = async () => {
+    if (!agentID || !datasourceID || !preflightSQL.trim()) return;
+    setPreflightLoading(true);
+    setPreflightResult(null);
+    try {
+      const result = await preflightPolicy({ agent_id: agentID, datasource_id: datasourceID, sql: preflightSQL });
+      if (mountedRef.current) setPreflightResult(result);
+    } catch (error: unknown) {
+      if (mountedRef.current) void message.error(apiErrorMessage(error, "离线策略预检失败"));
+    } finally {
+      if (mountedRef.current) setPreflightLoading(false);
+    }
   };
 
   const openCreate = () => {
@@ -251,6 +269,19 @@ export function Policies() {
       {!agentID || !datasourceID ? <div className="cfg-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择 Agent 与数据源" /></div> : <>
         {failed ? <Alert className="cfg-inline-alert" type="error" showIcon message="策略加载失败" action={<Button size="small" onClick={() => void load()}>重试</Button>} /> : null}
         <div className="cfg-table"><Table<PolicyView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_050 }} /></div>
+        <section className="cfg-scope-filter" style={{ display: "block", marginTop: 20 }}>
+          <strong>SQL 策略离线预检</strong>
+          <p>按已保存的策略解析对象并运行支持的静态规则；仅能明确拒绝或给出待验证结论，不连接业务库，也不执行 SQL。待提交变更不参与预检。</p>
+          <Input.TextArea value={preflightSQL} onChange={(event) => { setPreflightSQL(event.target.value); setPreflightResult(null); }} rows={3} maxLength={16_384} placeholder="SELECT id FROM public.customers LIMIT 10" />
+          <Button style={{ marginTop: 8 }} onClick={() => void runPreflight()} loading={preflightLoading} disabled={!preflightSQL.trim()}>运行离线预检</Button>
+          {preflightResult ? <Alert style={{ marginTop: 12 }} showIcon type={preflightResult.decision === "deny" ? "error" : "warning"}
+            message={preflightResult.decision === "deny" ? "明确拒绝" : "尚不能确认允许"}
+            description={<><div>{preflightResult.reason}{preflightResult.static_rule ? `（${preflightResult.static_rule}）` : ""}</div>
+              {preflightResult.objects.map((object, index) => <div key={`${object.schema}.${object.table}.${index}`}>
+                {object.schema ? `${object.schema}.` : ""}{object.table}：{object.state === "deny" ? "拒绝" : "表级候选通过"}；允许策略 {object.allow_policy_ids.join(", ") || "无"}；拒绝策略 {object.deny_policy_ids.join(", ") || "无"}
+              </div>)}</>}
+          /> : null}
+        </section>
       </>}
 
       <Drawer open={drawerOpen} title={editing ? "编辑策略" : "新增策略"} width={540} destroyOnClose onClose={() => setDrawerOpen(false)} extra={<Button type="primary" onClick={() => void queueForm()}>加入待提交</Button>}>

@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.9.0]
+
+- Bound newly requested task read keys to one returned result by default, with a configurable 1–10 result budget and atomic cross-instance consumption before delivery; preserve legacy unbounded grants.
+- Expose tenant-scoped management-audit outbox backlog and retry status in the control console for separated audit stores.
+- Add a policy SQL preflight that reports definite denial or unknown without running SQL or claiming permission to execute.
+- Extend PostgreSQL/MySQL sensitive derived-output regression cases and correct current security documentation to match verified behavior and limits.
+- Upgrade combined metadata schema to 20 and separated metadata schema to 19; carry task-key budget fields through SQLite-to-PostgreSQL migration.
+
+Release scope and acceptance gates are recorded in the [v0.9.0 release notes](docs/release-notes-v0.9.0.md) and [acceptance record](docs/v0.9-acceptance.md). Final commit, CI, signed assets, GHCR, website, and Live Demo evidence is published with the GitHub Release.
+
 ## [v0.8.0]
 
 - Require a same-tenant second reviewer to approve exact SQL before a requester can claim a task-scoped read-only API key; retire the direct-issue API with HTTP 410 while preserving existing grants.

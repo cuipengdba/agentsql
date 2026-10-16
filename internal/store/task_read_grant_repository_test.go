@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,4 +88,52 @@ VALUES ('issuer-task', 'tenant_default', 'issuer-task', 'Issuer', 'test-hash', '
 	require.ErrorIs(t, check(DefaultTenantID, agent.ID, datasource.ID, grant.SQLSHA256, time.Now()), ErrTaskReadGrantInvalid)
 	_, err = opened.Agents().GetByAPIKeyHash(ctx, hash)
 	require.ErrorIs(t, err, ErrAgentNotFound)
+}
+
+func TestTaskReadGrantBudgetAtomicAcrossConcurrentResults(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	agent, datasource := createPolicyDependencies(t, opened)
+	_, err := opened.metaDB.ExecContext(ctx, `
+INSERT INTO users (id, tenant_id, username, display_name, password_hash, status)
+VALUES ('budget-issuer', 'tenant_default', 'budget-issuer', 'Budget Issuer', 'test-hash', 'active')`)
+	require.NoError(t, err)
+	_, hash, err := GenerateAPIKey()
+	require.NoError(t, err)
+	one := int64(1)
+	grant, err := opened.TaskReadGrants().Create(ctx, model.TaskReadGrant{
+		ID: "budget-one", TenantID: DefaultTenantID, IssuerUserID: "budget-issuer",
+		AgentID: agent.ID, DatasourceID: datasource.ID,
+		SQLSHA256: HashAPIKey("SELECT id FROM public.orders LIMIT 1"), KeyHash: hash,
+		MaxUses: &one, ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	const contenders = 16
+	results := make(chan error, contenders)
+	var group sync.WaitGroup
+	for range contenders {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			results <- opened.TaskReadGrants().Consume(ctx, grant.ID, grant.TenantID,
+				grant.AgentID, grant.DatasourceID, grant.SQLSHA256, time.Now())
+		}()
+	}
+	group.Wait()
+	close(results)
+	success := 0
+	for result := range results {
+		if result == nil {
+			success++
+		} else {
+			require.True(t, errors.Is(result, ErrTaskReadGrantInvalid), "unexpected consume error: %v", result)
+		}
+	}
+	require.Equal(t, 1, success)
+	stored, err := opened.TaskReadGrants().Get(ctx, grant.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stored.UsedCount)
+	require.EqualValues(t, 1, *stored.MaxUses)
+	require.ErrorIs(t, opened.TaskReadGrants().Consume(ctx, grant.ID, grant.TenantID,
+		grant.AgentID, "other-datasource", grant.SQLSHA256, time.Now()), ErrTaskReadGrantInvalid)
 }

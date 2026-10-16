@@ -120,8 +120,8 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"oidc_auth_requests":       {"state_hash", "nonce", "pkce_verifier", "return_to", "expires_at", "used_at", "created_at"},
 		"tenants":                  {"id", "name", "status", "created_at", "updated_at"},
 		"users":                    {"id", "tenant_id", "username", "display_name", "password_hash", "status", "auth_provider", "external_subject", "created_at", "updated_at"},
-		"task_read_grants":         {"id", "tenant_id", "issuer_user_id", "agent_id", "datasource_id", "sql_sha256", "key_hash", "expires_at", "revoked_at", "created_at"},
-		"task_read_grant_requests": {"id", "tenant_id", "requester_user_id", "agent_id", "datasource_id", "sql_sha256", "sql_ciphertext", "request_digest", "idempotency_key", "expires_at", "status", "reviewer_user_id", "reviewed_at", "issued_at", "grant_id", "created_at"},
+		"task_read_grants":         {"id", "tenant_id", "issuer_user_id", "agent_id", "datasource_id", "sql_sha256", "key_hash", "expires_at", "revoked_at", "created_at", "max_uses", "used_count"},
+		"task_read_grant_requests": {"id", "tenant_id", "requester_user_id", "agent_id", "datasource_id", "sql_sha256", "sql_ciphertext", "request_digest", "idempotency_key", "expires_at", "status", "reviewer_user_id", "reviewed_at", "issued_at", "grant_id", "created_at", "max_uses"},
 		"user_mfa":                 {"tenant_id", "user_id", "secret_ciphertext", "status", "last_counter", "created_at", "updated_at"},
 		"user_mfa_recovery_codes":  {"tenant_id", "user_id", "code_hash", "used_at", "created_at"},
 		"permissions":              {"code", "description"},
@@ -259,8 +259,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 19, current)
-	require.Equal(t, 19, latest)
+	require.Equal(t, 20, current)
+	require.Equal(t, 20, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -310,8 +310,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 18, current)
-	require.Equal(t, 18, latest)
+	require.Equal(t, 19, current)
+	require.Equal(t, 19, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -346,9 +346,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 19, current)
+				require.Equal(t, 20, current)
 			} else {
-				require.Equal(t, 18, current)
+				require.Equal(t, 19, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -413,9 +413,9 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 19, current)
+				require.Equal(t, 20, current)
 			} else {
-				require.Equal(t, 18, current)
+				require.Equal(t, 19, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",

@@ -17,6 +17,8 @@ type taskReadGrantView struct {
 	IssuerUserID string     `json:"issuer_user_id"`
 	AgentID      string     `json:"agent_id"`
 	DatasourceID string     `json:"datasource_id"`
+	MaxUses      *int64     `json:"max_uses,omitempty"`
+	UsedCount    int64      `json:"used_count"`
 	ExpiresAt    time.Time  `json:"expires_at"`
 	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -26,7 +28,7 @@ type taskReadGrantView struct {
 func taskReadGrantToView(grant model.TaskReadGrant, key string) taskReadGrantView {
 	return taskReadGrantView{ID: grant.ID, TenantID: grant.TenantID,
 		IssuerUserID: grant.IssuerUserID, AgentID: grant.AgentID,
-		DatasourceID: grant.DatasourceID, ExpiresAt: grant.ExpiresAt,
+		DatasourceID: grant.DatasourceID, MaxUses: grant.MaxUses, UsedCount: grant.UsedCount, ExpiresAt: grant.ExpiresAt,
 		RevokedAt: grant.RevokedAt, CreatedAt: grant.CreatedAt, APIKey: key}
 }
 

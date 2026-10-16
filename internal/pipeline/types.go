@@ -92,6 +92,7 @@ type PolicyLoader interface {
 // exact SQL digest at every admission, execution, and delivery gate.
 type TaskReadGrantReader interface {
 	Validate(context.Context, string, string, string, string, string, time.Time) (model.TaskReadGrant, error)
+	Consume(context.Context, string, string, string, string, string, time.Time) error
 }
 
 type ExecutorProvider interface {

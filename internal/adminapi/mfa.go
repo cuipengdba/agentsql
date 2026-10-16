@@ -27,11 +27,19 @@ import (
 const totpPeriod = int64(30)
 
 func (handler *Handler) authConfig(writer http.ResponseWriter, _ *http.Request) {
-	handler.ok(writer, map[string]any{
+	view := map[string]any{
 		"mfa_enabled":  handler.deps.Config.Auth.MFA.Enabled,
 		"oidc_enabled": handler.deps.Config.Auth.OIDC.Enabled,
 		"ldap_enabled": handler.deps.Config.Auth.LDAP.Enabled,
-	})
+	}
+	if handler.deps.Config.DemoEnabled() {
+		// Demo credentials are intentionally public for the isolated playground.
+		// Keep them on the login configuration endpoint, never on health probes.
+		view["demo_admin_username"] = handler.deps.AdminUsername
+		view["demo_admin_password"] = handler.deps.AdminPassword
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	handler.ok(writer, view)
 }
 
 func (handler *Handler) mfaStatus(writer http.ResponseWriter, request *http.Request) {

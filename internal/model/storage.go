@@ -76,6 +76,8 @@ type TaskReadGrant struct {
 	DatasourceID string
 	SQLSHA256    string
 	KeyHash      string
+	MaxUses      *int64
+	UsedCount    int64
 	ExpiresAt    time.Time
 	RevokedAt    *time.Time
 	CreatedAt    time.Time
@@ -94,6 +96,7 @@ type TaskReadGrantRequest struct {
 	SQLCiphertext   string
 	RequestDigest   string
 	IdempotencyKey  string
+	MaxUses         *int64
 	ExpiresAt       time.Time
 	Status          string
 	ReviewerUserID  *string

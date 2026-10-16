@@ -210,7 +210,6 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 					return errors.Join(webError, runtime.Close())
 				}
 				httpOptions = append(httpOptions, mcpserver.WithWebConsole(webHandler))
-				httpOptions = append(httpOptions, mcpserver.WithDemoAdminCredentials(adminUser, adminPassword))
 			}
 			handler, err := mcpserver.NewHTTPHandler(runtime, loaded, logger, httpOptions...)
 			if err != nil {

@@ -230,6 +230,30 @@ func (repository *ManagementAuditOutboxRepository) PendingStats(ctx context.Cont
 	return count, oldestAge, nil
 }
 
+// TenantPendingStats reports only the caller's undelivered management events.
+// It deliberately excludes event contents, errors and other tenants' counts.
+func (repository *ManagementAuditOutboxRepository) TenantPendingStats(ctx context.Context) (count, retrying int, oldestAge time.Duration, err error) {
+	tenantID, err := repository.requireTenant(ctx, "read management audit delivery stats")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	var oldest databaseTimestamp
+	err = repository.db.QueryRowContext(ctx, repository.bind(`SELECT COUNT(*),
+  COALESCE(SUM(CASE WHEN attempts > 0 THEN 1 ELSE 0 END), 0), MIN(created_at)
+FROM management_audit_outbox WHERE delivered_at IS NULL AND tenant_id = ?`), tenantID).
+		Scan(&count, &retrying, &oldest)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("read tenant management audit delivery stats: %w", err)
+	}
+	if count > 0 && oldest.valid {
+		oldestAge = time.Since(oldest.time)
+		if oldestAge < 0 {
+			oldestAge = 0
+		}
+	}
+	return count, retrying, oldestAge, nil
+}
+
 // Delivered reports whether one outbox event has been durably acknowledged.
 func (repository *ManagementAuditOutboxRepository) Delivered(ctx context.Context, eventUUID string) (bool, error) {
 	if err := repository.validate(ctx, "read delivery status"); err != nil {

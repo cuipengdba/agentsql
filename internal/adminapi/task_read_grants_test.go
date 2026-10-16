@@ -190,6 +190,7 @@ func TestTaskReadGrantIdempotencyTenantIsolationAndSingleIssue(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(raw), &created))
+	require.Contains(t, raw, `"max_uses":1`, "omitted budget must default to one result")
 	status, raw = fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", requester, body)
 	require.Equal(t, http.StatusOK, status, raw)
 	require.Contains(t, raw, created.Data.ID)
@@ -223,6 +224,7 @@ func TestTaskReadGrantIdempotencyTenantIsolationAndSingleIssue(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(raw), &issued))
 	require.NotEmpty(t, issued.Data.ID)
+	require.Contains(t, raw, `"max_uses":1`)
 	status, _ = fixture.request(http.MethodPost,
 		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/issue", requester, "")
 	require.Equal(t, http.StatusConflict, status)
@@ -236,6 +238,8 @@ func TestTaskReadGrantIdempotencyTenantIsolationAndSingleIssue(t *testing.T) {
 	grants, err := fixture.store.TaskReadGrants().List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, grants, 1)
+	require.NotNil(t, grants[0].MaxUses)
+	require.Equal(t, int64(1), *grants[0].MaxUses)
 }
 
 func TestTaskReadGrantAuditRecordsActorsWithoutSecrets(t *testing.T) {

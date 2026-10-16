@@ -1,5 +1,5 @@
 import { request } from "./client";
-import type { DeleteView, PageQuery, PageResp, PolicyInput, PolicyView } from "./types";
+import type { DeleteView, PageQuery, PageResp, PolicyInput, PolicyPreflightView, PolicyView } from "./types";
 
 export interface PolicyQuery extends PageQuery {
   agent_id?: string;
@@ -20,4 +20,8 @@ export function updatePolicy(id: string, input: PolicyInput): Promise<PolicyView
 
 export function deletePolicy(id: string): Promise<DeleteView> {
   return request<DeleteView>({ method: "DELETE", url: `/policies/${encodeURIComponent(id)}` });
+}
+
+export function preflightPolicy(input: { agent_id: string; datasource_id: string; sql: string }): Promise<PolicyPreflightView> {
+  return request<PolicyPreflightView>({ method: "POST", url: "/policies/preflight", data: input });
 }

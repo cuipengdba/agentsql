@@ -15,9 +15,25 @@ import (
 )
 
 type fakeTaskReadGrantReader struct {
-	grant  model.TaskReadGrant
-	calls  int
-	failAt int
+	grant        model.TaskReadGrant
+	calls        int
+	failAt       int
+	consumeCalls int
+}
+
+func (reader *fakeTaskReadGrantReader) Consume(
+	_ context.Context, id, tenantID, agentID, datasourceID, sqlSHA256 string, now time.Time,
+) error {
+	reader.consumeCalls++
+	if id != reader.grant.ID || tenantID != reader.grant.TenantID ||
+		agentID != reader.grant.AgentID || datasourceID != reader.grant.DatasourceID ||
+		sqlSHA256 != reader.grant.SQLSHA256 || reader.grant.RevokedAt != nil ||
+		!now.Before(reader.grant.ExpiresAt) || reader.grant.MaxUses == nil ||
+		reader.grant.UsedCount >= *reader.grant.MaxUses {
+		return store.ErrTaskReadGrantInvalid
+	}
+	reader.grant.UsedCount++
+	return nil
 }
 
 func (reader *fakeTaskReadGrantReader) Validate(
@@ -27,7 +43,8 @@ func (reader *fakeTaskReadGrantReader) Validate(
 	if reader.calls == reader.failAt || id != reader.grant.ID ||
 		tenantID != reader.grant.TenantID || agentID != reader.grant.AgentID ||
 		datasourceID != reader.grant.DatasourceID || sqlSHA256 != reader.grant.SQLSHA256 ||
-		reader.grant.RevokedAt != nil || !now.Before(reader.grant.ExpiresAt) {
+		reader.grant.RevokedAt != nil || !now.Before(reader.grant.ExpiresAt) ||
+		(reader.grant.MaxUses != nil && reader.grant.UsedCount >= *reader.grant.MaxUses) {
 		return model.TaskReadGrant{}, store.ErrTaskReadGrantInvalid
 	}
 	return reader.grant, nil
@@ -65,6 +82,36 @@ func TestTaskReadGrantAllowsOnlyExactSelectAndLinksAuditWithoutSQL(t *testing.T)
 	require.Nil(t, log.SQLNorm)
 	require.NotNil(t, log.DetailsJSON)
 	require.JSONEq(t, `{"task_grant_id":"grant-one","task_grant_issuer_id":"issuer-one"}`, *log.DetailsJSON)
+}
+
+func TestTaskReadGrantBudgetDeniesSecondResultBeforeExecution(t *testing.T) {
+	fixture, reader := newTaskReadPipelineFixture(t)
+	one := int64(1)
+	reader.grant.MaxUses = &one
+	first, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, first.Decision)
+	require.NotNil(t, first.Result)
+	second, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, second.Decision)
+	require.Nil(t, second.Result)
+	require.EqualValues(t, 1, reader.grant.UsedCount)
+	require.Equal(t, 1, reader.consumeCalls)
+	require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+	require.Equal(t, "deny", fixture.audit.last().Decision)
+}
+
+func TestTaskReadGrantBudgetAuditFailureDoesNotConsume(t *testing.T) {
+	fixture, reader := newTaskReadPipelineFixture(t)
+	one := int64(1)
+	reader.grant.MaxUses = &one
+	fixture.audit.err = errors.New("audit write failed")
+	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+	require.ErrorIs(t, err, ErrAuditUnavailable)
+	require.Nil(t, response.Result)
+	require.EqualValues(t, 0, reader.grant.UsedCount)
+	require.Zero(t, reader.consumeCalls)
 }
 
 func TestTaskReadGrantDenyMatrixNeverExecutesUnauthorizedSQL(t *testing.T) {
