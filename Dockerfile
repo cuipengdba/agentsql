@@ -49,10 +49,12 @@ RUN mkdir -p /out \
 FROM debian:bookworm-slim AS runtime
 
 ARG VERSION=v0.7.0
+ARG REVISION
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
 ENV LD_LIBRARY_PATH=/opt/yashandb-client/lib
 
 RUN apt-get update \

@@ -32,6 +32,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+. (Join-Path $PSScriptRoot 'release-provenance.ps1')
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $assetChecksReported = $false
 trap {
@@ -79,7 +80,7 @@ function Get-Sha256 {
 }
 
 function Get-ReleaseInputHashes {
-    $inputNames = @('go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json', 'Dockerfile', 'scripts/build-release-linux.sh', 'scripts/package-release.sh', 'scripts/install.sh', 'scripts/release-dryrun.ps1', 'scripts/build-ghcr-multiarch.ps1', 'Makefile')
+    $inputNames = @(Get-ReleaseInputNames)
     foreach ($name in $inputNames) {
         [pscustomobject][ordered]@{ name = $name; sha256 = Get-Sha256 (Join-Path $repositoryRoot $name) }
     }
@@ -414,16 +415,10 @@ function Test-ReleaseAssets {
     Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
     Assert-YashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
 
-    $provenanceDocument = Get-Content -LiteralPath (Join-Path $Directory 'provenance.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ([string]$provenanceDocument.version -ne $ReleaseVersion) {
-        throw "provenance.json version '$($provenanceDocument.version)' does not match '$ReleaseVersion'."
-    }
-    if ([string]$provenanceDocument.source.commit -ne $ExpectedCommit) {
-        throw "provenance.json source commit '$($provenanceDocument.source.commit)' does not match expected commit '$ExpectedCommit'."
-    }
-
     $publicDocument = Get-Content -LiteralPath (Join-Path $Directory 'ed25519-release-public-key.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $isDryRunSet = $publicDocument.PSObject.Properties['dryRun'] -and $publicDocument.dryRun -eq $true
+    Assert-ReleaseProvenance -Directory $Directory -Repository $repositoryRoot -ReleaseVersion $ReleaseVersion `
+        -ExpectedCommit $ExpectedCommit -Mode $(if ($isDryRunSet) { 'DryRun' } else { 'Production' })
     if ($isDryRunSet) {
         if ($publicDocument.signed -ne $false -or $publicDocument.PSObject.Properties['publicKeyBase64']) {
             throw 'Dry-run public-key placeholder must be unsigned and must not contain publicKeyBase64.'
@@ -451,6 +446,10 @@ function Test-ReleaseAssets {
     Write-Host 'RELEASE_DRYRUN_SHA256SUMS=PASS'
     Write-Host "RELEASE_DRYRUN_SIGNATURE_MODE=$(if ($isDryRunSet) { 'UNSIGNED_PLACEHOLDERS' } else { 'SIGNED_STRUCTURE_ONLY' })"
     return $report
+}
+
+if ($ProductionPrepare -and $SkipImages) {
+    throw '-ProductionPrepare cannot be combined with -SkipImages; all three local image archives are required before production preparation passes.'
 }
 
 if ($ValidateOnly) {
@@ -725,13 +724,7 @@ if ($LASTEXITCODE -ne 0 -or $branchStatus.Count -eq 0 -or $branchStatus[0] -notm
 $branch = $Matches[1]
 $dirtyOutput = @(& git -C $repositoryRoot status --porcelain --untracked-files=all)
 $inputs = @(Get-ReleaseInputHashes)
-$subjectNames = @(
-    "agentsql-$Version-linux-amd64.tar.gz",
-    "agentsql-$Version-linux-amd64.tar.gz.sha256",
-    "agentsql-$Version-linux-arm64.tar.gz",
-    "agentsql-$Version-linux-arm64.tar.gz.sha256",
-    'install.sh', $sbomName, 'go-version-metadata.txt', 'SBOM-GENERATION.txt'
-)
+$subjectNames = @(Get-ReleaseSubjectNames -ReleaseVersion $Version)
 $subjects = foreach ($name in $subjectNames) {
     $file = Get-Item -LiteralPath (Join-Path $assetsPath $name)
     [ordered]@{ name = $name; size = $file.Length; digest = [ordered]@{ sha256 = Get-Sha256 $file.FullName } }
@@ -825,9 +818,15 @@ before uploading any asset. Also run `scripts/release-dryrun.ps1 -ValidateOnly`
 against the completed 15-file directory from the sealed release commit.
 
 From a repository checkout at tag {VERSION}, set `$AssetDirectory to the
-download directory and run:
+download directory. Verification requires Go 1.26.x; do not let the host's
+persistent GOTOOLCHAIN setting silently select an older toolchain. Run:
 
 ```powershell
+$env:GOTOOLCHAIN = 'local'
+$goVersion = go version
+if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go version go1\.26\.') {
+    throw 'Go 1.26.x is required for release-signature verification.'
+}
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/{SBOM}" -signature "$AssetDirectory/{SBOM}.sig.json"
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/provenance.json" -signature "$AssetDirectory/provenance.json.sig.json"
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/SHA256SUMS" -signature "$AssetDirectory/SHA256SUMS.sig.json"
@@ -855,6 +854,8 @@ may be uploaded to a GitHub Release.
 Write-Utf8File -Path (Join-Path $assetsPath 'VERIFYING-SIGNATURES.md') -Content $verificationInstructions
 
 if ($ProductionPrepare) {
+    Assert-ReleaseProvenance -Directory $assetsPath -Repository $repositoryRoot -ReleaseVersion $Version `
+        -ExpectedCommit $commit -Mode Production
     Write-Host 'RELEASE_PREPARE_UNSIGNED_ASSET_COUNT=11'
     Write-Host 'RELEASE_PREPARE_SIGNING_REQUIRED=SBOM_PROVENANCE_SHA256SUMS'
 }

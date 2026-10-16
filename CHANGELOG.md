@@ -1,13 +1,14 @@
 # Changelog
 
-## [Unreleased] - v0.7.0 candidate
+## [v0.7.0]
 
 - Add a separate stateless MCP 2026-07-28 endpoint while retaining the existing MCP transports and their security boundaries.
 - Add task-scoped temporary read-only grants bound to one Agent, tenant, datasource, exact SQL statement, and expiry, with revocation and management audit.
 - Add read-only `agentsqlctl migrate --check` for upgrade preflight, and improve release Buildx plugin discovery in isolated Docker configurations.
 - Add onboarding checks for Agent, datasource, and policy readiness, plus an operations runbook for migrations, audit outages, and MCP protocol rejection.
+- Verify two allowed and two R010-denied queries in the MCP Inspector 0.16.8 and Dify 1.17.1 GUIs through the existing `/mcp` endpoint, including masked results and four linked persistent audits. The new protocol endpoint has separate Go SDK tests.
 
-This is an unpublished development candidate. Verification status and support limits belong in [v0.7.0 release notes](docs/release-notes-v0.7.0.md).
+正式封板提交、同提交 CI、发布日期、签名资产、GHCR 与官网上线结果，以 [v0.7.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0) 正文及发布证据为准。功能证据与支持边界见 [v0.7.0 发布说明](docs/release-notes-v0.7.0.md)和[验收记录](docs/v0.7-acceptance.md)。
 
 ## [v0.6.0] - 2026-10-14
 

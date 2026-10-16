@@ -2,7 +2,7 @@
 
 # AgentSQL MCP Integration Guide
 
-> This guide covers AgentSQL v0.6.0. Use the latest published [GitHub Release](https://github.com/cuipengdba/agentsql/releases) for installation assets and images. The source repository is `github.com/cuipengdba/agentsql`.
+> **Historical English guide for AgentSQL v0.6.0.** For the v0.7.0 MCP `2026-07-28` endpoint, client guidance, and current support limits, use the [Chinese MCP Integration Guide](../INTEGRATIONS.md) and [v0.7.0 release notes](../release-notes-v0.7.0.md). The examples below describe the v0.6.0 behavior; verify the exact [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.0) before using its assets.
 
 This guide explains how to connect an MCP client to AgentSQL. See the [User Guide](../USER_GUIDE.md) for identity, authorization, rules, approval, and capability boundaries, and [Getting Started](GETTING_STARTED.md) for a first deployment. See the [Notification Guide](../NOTIFICATIONS.md) to forward decision events to Webhook endpoints, alert groups, or Syslog.
 
@@ -14,7 +14,7 @@ When AgentSQL is already running through the installer, systemd, or Compose, con
 
 - Endpoint: `http://127.0.0.1:7780/mcp`
 - Identity header: `Authorization: Bearer <Agent API Key>`
-- MCP protocol version: `2025-06-18` or `2025-11-25` (both use the session handshake; `2026-07-28` is not yet supported)
+- MCP protocol version in v0.6.0: `2025-06-18` or `2025-11-25` (both use the session handshake). The `2026-07-28` protocol is available in v0.7.0 on a separate path; see the [current Chinese guide](../INTEGRATIONS.md).
 - `Accept`: `application/json, text/event-stream`
 - Mode: stateful by default (`initialize` returns `Mcp-Session-Id`), with an explicit stateless fallback
 - Resumption: legacy-protocol SSE events are persisted by default; reconnect with `GET /mcp` and `Last-Event-ID`. A TTL/capacity gap returns HTTP 400 without a partial suffix
@@ -155,7 +155,7 @@ For Windows Claude Desktop, run the AgentSQL HTTP service locally (or through an
 
 ## Local Acceptance with MCP Inspector (Streamable HTTP)
 
-AgentSQL currently uses MCP `2025-06-18`. The verified combination is MCP Inspector `0.16.8` with its `@modelcontextprotocol/sdk` dependency pinned to `1.18.0`; newer Inspector versions negotiate a newer protocol by default and are not suitable for this release's acceptance run. Save this `package.json` in an isolated directory, run `npm install`, then start the local `node_modules/.bin/mcp-inspector` binary (on Windows PowerShell, `./node_modules/.bin/mcp-inspector.cmd`):
+This historical v0.6.0 acceptance example uses MCP `2025-06-18`. Its verified combination was MCP Inspector `0.16.8` with its `@modelcontextprotocol/sdk` dependency pinned to `1.18.0`; newer Inspector versions negotiate a newer protocol by default and are not suitable for this historical run. For v0.7.0 evidence, see the [acceptance record](../v0.7-acceptance.md). Save this `package.json` in an isolated directory, run `npm install`, then start the local `node_modules/.bin/mcp-inspector` binary (on Windows PowerShell, `./node_modules/.bin/mcp-inspector.cmd`):
 
 ```json
 {

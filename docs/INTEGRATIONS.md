@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文的 `/mcp` 说明对应已发布的 AgentSQL v0.6.0；`/mcp/2026-07-28` 是 v0.7.0 开发分支中的新增入口，尚未发布。正式安装包与镜像以 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 的已发布版本为准；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v0.7.0 的 MCP 接入。安装或拉取 v0.7.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -22,7 +22,7 @@ Agent API Key 不是控制台管理员 token。Agent 被禁用、过期、删除
 
 进程重启不会恢复 go-sdk 的内存 transport session。携带旧 `Mcp-Session-Id` 的请求会收到 HTTP 404 与 `Mcp-Session-Expired: 1`；客户端应丢弃旧 ID 并重新 `initialize`。新 session 不会读取旧 session 的事件。
 
-### 2026-07-28 无状态 HTTP：v0.7.0 开发分支
+### 2026-07-28 无状态 HTTP（安装 v0.7.0 后）
 
 新协议使用 `http://127.0.0.1:7780/mcp/2026-07-28`。该路径只接受 `2026-07-28`，不会协商为旧版；旧 `/mcp` 的行为和默认配置不变。新路径每个 POST 都重新验证 Agent API Key、由该 Key 确定租户，并与旧路径共用同一 Agent 的 QPS 限额。请求体仍限制为 4 MiB，响应继续遵守网关上限。
 
@@ -148,7 +148,7 @@ request_approval(reason 必填)
 
 ## Claude Desktop 接入
 
-Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。v0.6.0 的 `agentsql mcp` 默认使用标准 MCP stdio 逐行 JSON 消息格式；旧版自定义长度前缀客户端可显式加 `--sealed-stdio` 继续使用原帧格式。以下直启示例适用于能运行 AgentSQL Linux 二进制的桌面环境；当前正式资产只提供 Linux amd64/arm64，Windows 桌面请使用下面的 HTTP 桥接示例。`command` 建议填写可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致。
+Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本机进程。v0.7.0 的 `agentsql mcp` 默认使用标准 MCP stdio 逐行 JSON 消息格式；旧版自定义长度前缀客户端可显式加 `--sealed-stdio` 继续使用原帧格式。以下直启示例适用于能运行 AgentSQL Linux 二进制的桌面环境；本版本发行资产的目标平台为 Linux amd64/arm64，实际下载须以完成验收的 Release 为准，Windows 桌面请使用下面的 HTTP 桥接示例。`command` 建议填写可执行文件的绝对路径，避免桌面应用与终端的 `PATH` 不一致。
 
 ```json
 {
@@ -192,7 +192,7 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 
 ## MCP Inspector 本地验收（Streamable HTTP）
 
-当前 AgentSQL 使用 MCP `2025-06-18`。验收过的组合为 MCP Inspector `0.16.8` 与其依赖 `@modelcontextprotocol/sdk` `1.18.0`；较新的 Inspector 默认协商更新协议，不能直接用于本版验收。在独立目录保存以下 `package.json`，运行 `npm install`，再启动本地 `node_modules/.bin/mcp-inspector`（Windows PowerShell 用 `./node_modules/.bin/mcp-inspector.cmd`）：
+旧 `/mcp` 入口支持 MCP `2025-06-18`。该入口验收过的组合为 MCP Inspector `0.16.8` 与其依赖 `@modelcontextprotocol/sdk` `1.18.0`；较新的 Inspector 默认协商更新协议，不能直接套用这组旧入口验收步骤。在独立目录保存以下 `package.json`，运行 `npm install`，再启动本地 `node_modules/.bin/mcp-inspector`（Windows PowerShell 用 `./node_modules/.bin/mcp-inspector.cmd`）：
 
 ```json
 {

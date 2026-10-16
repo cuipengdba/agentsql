@@ -1,0 +1,55 @@
+{
+  "candidate_package_sha256": "4c14eea7a0133d795cbe976179d820aca37fdae816d28bb13fa9e712cf10ca28",
+  "agentsql_version": "v0.7.0",
+  "image": "postgres:16",
+  "endpoint": "/mcp",
+  "audit_checks": [
+    {
+      "client": "inspector",
+      "client_version": "0.16.8",
+      "protocol_endpoint": "/mcp",
+      "agent_id": "gui-client-inspector",
+      "datasource_id": "gui-client-pg",
+      "audit_id": 1,
+      "decision": "allow",
+      "rule_r010": false,
+      "rows_returned": 1
+    },
+    {
+      "client": "inspector",
+      "client_version": "0.16.8",
+      "protocol_endpoint": "/mcp",
+      "agent_id": "gui-client-inspector",
+      "datasource_id": "gui-client-pg",
+      "audit_id": 2,
+      "decision": "deny",
+      "rule_r010": true,
+      "rows_returned": null
+    },
+    {
+      "client": "dify",
+      "client_version": "1.17.1",
+      "protocol_endpoint": "/mcp",
+      "agent_id": "gui-client-dify",
+      "datasource_id": "gui-client-pg",
+      "audit_id": 3,
+      "decision": "allow",
+      "rule_r010": false,
+      "rows_returned": 1
+    },
+    {
+      "client": "dify",
+      "client_version": "1.17.1",
+      "protocol_endpoint": "/mcp",
+      "agent_id": "gui-client-dify",
+      "datasource_id": "gui-client-pg",
+      "audit_id": 4,
+      "decision": "deny",
+      "rule_r010": true,
+      "rows_returned": null
+    }
+  ],
+  "all_four_audits_linked": true,
+  "audit_contains_fixture_credential": false,
+  "note": "Masking value and MaskedCells must also be captured in each real client result; this API check cannot infer response masking."
+}

@@ -27,6 +27,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$sourceRevision = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $sourceRevision -cnotmatch '^[0-9a-f]{40}$') {
+    throw 'Could not identify the Git source revision for OCI labels.'
+}
 if (-not $Output) {
     $Output = Join-Path $repositoryRoot "dist/ghcr-agentsql-$Version-oci.tar"
 }
@@ -170,6 +174,7 @@ function Invoke-MultiArchBuild {
         'buildx', 'build',
         '--platform', $platforms,
         '--build-arg', "VERSION=$Version",
+        '--build-arg', "REVISION=$sourceRevision",
         '--metadata-file', $MetadataFile
     )
     foreach ($tag in $Tags) {
@@ -237,7 +242,7 @@ USER agentsql
             demo = [ordered]@{
                 context    = $repositoryRoot
                 dockerfile = 'Dockerfile'
-                args       = [ordered]@{ VERSION = $Version }
+                args       = [ordered]@{ VERSION = $Version; REVISION = $sourceRevision }
                 platforms  = @('linux/amd64', 'linux/arm64')
                 tags       = @("${image}:$Version-demo")
                 output     = @(if ($Push) { 'type=registry' } else { "type=oci,dest=$demoArchive" })
@@ -297,6 +302,7 @@ $digestDocument = [ordered]@{
     schemaVersion = 1
     image         = $image
     version       = $Version
+    sourceRevision = $sourceRevision
     pushed        = [bool]$Push
     records       = @($records)
 }

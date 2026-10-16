@@ -1,8 +1,8 @@
 # AgentSQL Release 资产清单
 
-## v0.7.0 候选资产与当前门槛
+## v0.7.0 预期资产与正式校验门槛
 
-`scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames` 是资产名称的唯一可执行定义。v0.7.0 候选仍是恰好 15 个 GitHub Release 上传文件，不能复用旧版本文件或把本地 dry-run 占位签名上传：
+`scripts/release-dryrun.ps1` 的 `Get-ExpectedAssetNames` 是资产名称的唯一可执行定义。v0.7.0 正式 GitHub Release 应恰好上传以下 15 个文件；不能复用旧版本文件或把本地 dry-run 占位签名上传：
 
 ```text
 agentsql-v0.7.0-linux-amd64.tar.gz
@@ -22,11 +22,13 @@ SHA256SUMS.sig.json
 VERIFYING-SIGNATURES.md
 ```
 
-当前已完成的 v0.7.0 本地演练得到 15/15 文件校验通过，但签名和公钥仍是明确的 dry-run 占位文件，镜像构建曾以 `-SkipImages` 跳过；该产物来自未封板工作树，不能发布。最终必须先将源码、迁移、内嵌控制台及文档纳入同一提交，从该提交的全新干净工作树重建。运行 `-ProductionPrepare` 前后检查完整 `git status --porcelain --untracked-files=all` 与 HEAD；脚本会拒绝未跟踪非忽略文件，并在构建后复核关键输入哈希。`provenance.json` 必须指向最终提交且 `dirtyAtBuild=false`。
+当前已完成的 v0.7.0 本地演练得到 15/15 文件校验通过，但签名和公钥仍是明确的 dry-run 占位文件，镜像构建曾以 `-SkipImages` 跳过；该产物来自未封板工作树，不能发布。最终必须先将源码、迁移、内嵌控制台及文档纳入同一提交，从该提交的全新干净工作树重建。运行 `-ProductionPrepare` 前后检查完整 `git status --porcelain --untracked-files=all` 与 HEAD；脚本会拒绝未跟踪非忽略文件，并在构建后复核关键输入哈希。`-ProductionPrepare` 禁止与 `-SkipImages` 同用。`provenance.json` 必须指向最终提交且 `dirtyAtBuild=false`。
 
-正式准备首先生成 11 个待签名文件；用 `scripts/releasesign/main.go` 分别签 SPDX SBOM、`provenance.json`，再生成覆盖其余 13 个文件的 `SHA256SUMS` 并签清单，才形成 15 项。分别对三份签名做 `-mode verify` 密码学验签，再运行 `-ValidateOnly` 核对名称、摘要、YashanDB 客户端、来源和内容结构。`-ValidateOnly` 的 `SIGNED_STRUCTURE_ONLY` 不能替代验签。双架构 OCI、GHCR 精确 tag 的匿名拉取、`latest`、GitHub Release 回下载与官网均是单独闸门，见 [发布流程](RELEASE_PROCESS.md) 和 [部署指南](DEPLOY.md)。
+正式资产的封板提交 SHA、15 项实际摘要、独立核验的发布公钥 key ID、三份 Ed25519 验签退出码、GitHub Release 回下载结果，以及 GHCR 三个精确 tag 的双架构 digest 和匿名拉取结果，均以 [v0.7.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0) 正文及发布证据为准。上述本地演练不是这些字段的替代。
 
-v0.7.0 回滚资产也要分拓扑处理：SQLite 合并库恢复升级前备份与配对密钥后可回已发布的 v0.6.0；PostgreSQL metadata/audit 分库的回退目标是已通过隔离演练、但须先正式发布并在目标环境验收的 v0.6.1 维护版，不能使用有分库启动缺陷的原 v0.6.0。旧版不得直接读取新 schema。
+正式准备首先生成 11 个待签名文件；共用来源校验须在签名前确认正式 provenance 状态、8 个 subjects 的大小及 SHA-256、11 个输入与封板提交中 Git 对象的 SHA-256，并拒绝 dry-run 标记与说明。用 `scripts/releasesign/main.go` 分别签 SPDX SBOM、`provenance.json`，再生成覆盖其余 13 个文件的 `SHA256SUMS` 并签清单，才形成 15 项。分别对三份签名做 `-mode verify` 密码学验签，再运行 `-ValidateOnly` 复核名称、摘要、YashanDB 客户端、来源和内容结构；回下载与官网验收也须执行同一来源校验。`-ValidateOnly` 的 `SIGNED_STRUCTURE_ONLY` 不能替代验签。双架构 OCI、GHCR 精确 tag 的匿名拉取、`latest`、GitHub Release 回下载与官网均是单独闸门，见 [发布流程](RELEASE_PROCESS.md) 和 [部署指南](DEPLOY.md)。
+
+v0.7.0 回滚资产也要分拓扑处理：SQLite 合并库恢复升级前备份与配对密钥后可回已发布的 v0.6.0；PostgreSQL metadata/audit 分库的回退目标是已通过隔离演练的 v0.6.1 维护版，但其正式 Release 资产和目标环境验收证据**待填**。不能使用有分库启动缺陷的原 v0.6.0；旧版不得直接读取新 schema。
 
 ## v0.5.0 历史资产与演练记录
 
