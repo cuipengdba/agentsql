@@ -229,14 +229,15 @@ func assembleWithExecutorProvider(
 		}
 	}
 	flow, err := pipeline.New(pipeline.Ports{
-		Authenticator: auth.NewAuthenticator(metadataStore.Agents()),
-		Datasources:   metadataStore.Datasources(),
-		Policies:      metadataStore.Policies(),
-		Executors:     executorPort,
-		Approvals:     approvals,
-		Audit:         auditRecorder,
-		Redactors:     redactors,
-		RuleOverrides: metadataStore.Rules(),
+		Authenticator:  auth.NewAuthenticator(metadataStore.Agents()),
+		Datasources:    metadataStore.Datasources(),
+		Policies:       metadataStore.Policies(),
+		Executors:      executorPort,
+		Approvals:      approvals,
+		Audit:          auditRecorder,
+		Redactors:      redactors,
+		RuleOverrides:  metadataStore.Rules(),
+		TaskReadGrants: metadataStore.TaskReadGrants(),
 	}, secret, pipelineOptions...)
 	if err != nil {
 		events.Close()

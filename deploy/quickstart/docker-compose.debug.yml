@@ -1,6 +1,6 @@
 services:
   seed:
-    image: ghcr.io/cuipengdba/agentsql:v0.6.0-quickstart
+    image: ghcr.io/cuipengdba/agentsql:v0.7.0-quickstart
   gateway:
     image: agentsql-quickstart-gateway:debug
 volumes:

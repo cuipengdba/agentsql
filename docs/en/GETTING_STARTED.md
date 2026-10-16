@@ -2,7 +2,7 @@
 
 # Getting Started with AgentSQL
 
-> Release status: This document applies to the released AgentSQL v0.5.0. The one-command assets and the `ghcr.io/cuipengdba/agentsql:v0.5.0` image are available. The source repository is `github.com/cuipengdba/agentsql`.
+> **Historical English guide for AgentSQL v0.5.0.** For the v0.7.0 installation flow and current support limits, use the [Chinese Getting Started guide](../GETTING_STARTED.md) and [v0.7.0 release notes](../release-notes-v0.7.0.md). The examples below are pinned to v0.5.0 and do not include later features. Verify the corresponding [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.5.0) before running them.
 
 AgentSQL is a database security gateway and production-grade MCP Server placed between AI Agents and business databases. It checks identity, permissions, rules, and decisions before executing each SQL statement, then executes it within an auditable boundary.
 
@@ -50,7 +50,7 @@ You only need one `docker-compose.yml`. Run the following in any empty directory
 mkdir agentsql-demo && cd agentsql-demo
 
 # 2) Download the self-contained Compose file
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/main/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v0.5.0/deploy/quickstart/docker-compose.yml
 
 # 3) Start PostgreSQL, MySQL, the seed job, and the gateway
 docker compose up -d
@@ -60,7 +60,7 @@ Use these equivalent commands on Windows PowerShell:
 
 ```powershell
 New-Item -ItemType Directory -Force agentsql-demo | Out-Null; Set-Location agentsql-demo
-Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/main/deploy/quickstart/docker-compose.yml
+Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v0.5.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -97,7 +97,7 @@ Complete the following steps in order. Creating a data source and an Agent is no
 
 ```bash
 # Requires v0.4.0+, linux/amd64 or linux/arm64, glibc 2.28+, and systemd
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/latest/download/install.sh | sudo sh -s -- install
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v0.5.0/install.sh | sudo sh -s -- install --version v0.5.0
 ```
 
 Instead of the one-command installer, you can build from source or use Docker Compose as described in the [Deployment Guide](../DEPLOY.md). You can run `docker pull ghcr.io/cuipengdba/agentsql:v0.5.0` to pull the multi-arch image that automatically matches `linux/amd64` or `linux/arm64`. The GitHub Releases page is authoritative for release assets.

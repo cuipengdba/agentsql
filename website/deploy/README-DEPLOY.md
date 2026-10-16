@@ -175,7 +175,7 @@ export DEMO_PUBLIC_URL=https://demo.agentsql.cn/
 bash ./deploy/deploy-alinux3.sh --stage b --src . --content-only
 ```
 
-该模式只把公开白名单静态文件同步到新的 `releases/` 目录、执行静态校验、更新 `current` 软链、校验现有 Caddy 配置并 reload；它不会安装软件、systemd drop-in 或任何 Caddyfile，尤其不会覆盖 `/etc/caddy/Caddyfile`，因此不会把阶段 B 回退到阶段 A。`--content-only` 与 `--stage a` 组合会被拒绝。
+该模式只把公开白名单静态文件同步到新的 `releases/` 目录、执行静态校验、在 SELinux 启用时恢复新目录标签、校验现有 Caddy 配置、原子更新 `current` 软链并 reload。切换、再次校验或 reload 失败时，脚本会尝试恢复旧版本并再次 reload；若自动回滚失败，应按下文手动回滚步骤处理。它不会安装软件、systemd drop-in 或任何 Caddyfile，尤其不会覆盖 `/etc/caddy/Caddyfile`，因此不会把阶段 B 回退到阶段 A。`--content-only` 与 `--stage a` 组合会被拒绝。
 
 ## 5. SELinux 与 firewalld 排查
 

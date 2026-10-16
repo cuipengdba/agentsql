@@ -115,14 +115,49 @@ FROM agents` + indexHint(repository.dialect, " INDEXED BY idx_agents_keyhash") +
 WHERE api_key_hash = ?`
 	agent, err := scanAgent(repository.db.QueryRowContext(ctx, repository.bind(query), hash))
 	if errors.Is(err, sql.ErrNoRows) {
-		return model.Agent{}, fmt.Errorf(
-			"get agent by API key hash: %w",
-			errors.Join(ErrAgentNotFound, ErrNotFound, err),
-		)
+		return repository.getByTaskReadKeyHash(ctx, hash)
 	}
 	if err != nil {
 		return model.Agent{}, fmt.Errorf("get agent by API key hash: %w", err)
 	}
+	return agent, nil
+}
+
+// A task key resolves to the current Agent, so permanent status and expiry
+// continue to apply. Its hash and readonly level exist only in this result.
+func (repository *AgentRepository) getByTaskReadKeyHash(ctx context.Context, hash string) (model.Agent, error) {
+	var grantID, tenantID, agentID, issuerUserID string
+	var expiresAt databaseTimestamp
+	err := repository.db.QueryRowContext(ctx, repository.bind(`
+SELECT id, tenant_id, agent_id, issuer_user_id, expires_at FROM task_read_grants
+WHERE key_hash = ? AND revoked_at IS NULL`), hash).Scan(
+		&grantID, &tenantID, &agentID, &issuerUserID, &expiresAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Agent{}, fmt.Errorf("get agent by API key hash: %w", errors.Join(ErrAgentNotFound, ErrNotFound, err))
+	}
+	if err != nil {
+		return model.Agent{}, fmt.Errorf("get agent by task key hash: %w", err)
+	}
+	bound, err := WithTenant(ctx, tenantID)
+	if err != nil {
+		return model.Agent{}, err
+	}
+	agent, err := repository.Get(bound, agentID)
+	if err != nil || agent.TenantID != tenantID {
+		return model.Agent{}, fmt.Errorf("get agent by task key hash: %w", ErrAgentNotFound)
+	}
+	grantExpiry, err := expiresAt.required("task_read_grants.expires_at")
+	if err != nil {
+		return model.Agent{}, err
+	}
+	if agent.ExpiresAt == nil || grantExpiry.Before(*agent.ExpiresAt) {
+		agent.ExpiresAt = &grantExpiry
+	}
+	agent.APIKeyHash = hash
+	agent.Level = "readonly"
+	agent.TaskGrantID = grantID
+	agent.TaskGrantIssuerUserID = issuerUserID
 	return agent, nil
 }
 

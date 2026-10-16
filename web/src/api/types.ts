@@ -75,6 +75,25 @@ export interface AgentUpdateInput {
   expires_at?: string | null;
 }
 
+export interface TaskReadGrantView {
+  id: string;
+  tenant_id: string;
+  issuer_user_id: string;
+  agent_id: string;
+  datasource_id: string;
+  expires_at: string;
+  revoked_at?: string | null;
+  created_at: string;
+  api_key?: string;
+}
+
+export interface TaskReadGrantInput {
+  agent_id: string;
+  datasource_id: string;
+  sql: string;
+  expires_at: string;
+}
+
 export interface DatasourceView {
   id: string;
   name: string;
@@ -114,6 +133,8 @@ export interface DatasourceInput {
 export interface PingView {
   ok: boolean;
   latency_ms: number;
+  error_code?: string;
+  error_message?: string;
 }
 
 export interface DatasourceTypeView {

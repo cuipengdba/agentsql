@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -368,11 +369,28 @@ func newCheckConfigCommand() *cobra.Command {
 
 func newMigrateCommand() *cobra.Command {
 	var configPath string
+	var checkOnly bool
 	command := &cobra.Command{
 		Use:   "migrate",
-		Short: "Apply metadata-store migrations",
+		Short: "Apply or check metadata and audit store migrations",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if checkOnly {
+				results, checkErr := checkMigrations(command.Context(), configPath)
+				for _, result := range results {
+					status := "current"
+					if result.current < result.latest {
+						status = "pending"
+					} else if result.current > result.latest {
+						status = "ahead"
+					}
+					if _, err := fmt.Fprintf(command.OutOrStdout(), "migration_check role=%s driver=%s current=%d latest=%d status=%s\n",
+						result.role, result.driver, result.current, result.latest, status); err != nil {
+						return fmt.Errorf("write migration check result: %w", err)
+					}
+				}
+				return checkErr
+			}
 			results, err := migrate(command.Context(), configPath)
 			if err != nil {
 				return err
@@ -391,6 +409,7 @@ func newMigrateCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVarP(&configPath, "config", "c", defaultConfigPath, "path to the YAML configuration file")
+	command.Flags().BoolVar(&checkOnly, "check", false, "check both store migration streams without applying DDL (exit 2 when pending)")
 	return command
 }
 
@@ -400,7 +419,139 @@ type migrationResult struct {
 	current, latest int
 }
 
-func migrate(ctx context.Context, configPath string) ([]migrationResult, error) {
+type migrationsPendingError struct{}
+
+func (migrationsPendingError) Error() string {
+	return "schema migrations pending; stop writes, back up the configured stores, then run agentsqlctl migrate with a migration owner"
+}
+
+func (migrationsPendingError) ExitCode() int { return 2 }
+
+// checkMigrations uses the same embedded migration streams as migrate, but
+// performs no DDL. A pending version is reported separately from an invalid
+// or unreachable store so automation can distinguish the two cases.
+func checkMigrations(ctx context.Context, configPath string) ([]migrationResult, error) {
+	resolved, err := resolveMigrationConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+	separate := !resolved.Audit.ReuseMetadata
+	metadata, err := checkResolvedTarget(ctx, "metadata", resolved.Metadata, func(database *sql.DB) (int, int, error) {
+		return store.MetadataMigrationVersions(ctx, database, resolved.Metadata.Driver, separate)
+	})
+	if err != nil {
+		return nil, err
+	}
+	results := []migrationResult{metadata}
+	if separate {
+		audit, err := checkResolvedTarget(ctx, "audit", resolved.Audit, func(database *sql.DB) (int, int, error) {
+			return store.AuditMigrationVersions(ctx, database, resolved.Audit.Driver)
+		})
+		if err != nil {
+			return results, err
+		}
+		results = append(results, audit)
+	}
+	for _, result := range results {
+		if result.current > result.latest {
+			return results, fmt.Errorf("%s schema version is newer than this binary: current=%d latest=%d", result.role, result.current, result.latest)
+		}
+	}
+	for _, result := range results {
+		if result.current < result.latest {
+			return results, migrationsPendingError{}
+		}
+	}
+	return results, nil
+}
+
+func checkResolvedTarget(
+	ctx context.Context,
+	role string,
+	target config.ResolvedStoreTarget,
+	versions func(*sql.DB) (int, int, error),
+) (result migrationResult, resultErr error) {
+	result.role, result.driver = role, target.Driver
+	if target.Driver == store.DialectSQLite {
+		info, err := os.Stat(target.SQLitePath)
+		if err != nil {
+			return result, safeStoreError("inspect "+role+" migration target", target, err)
+		}
+		if !info.Mode().IsRegular() {
+			return result, fmt.Errorf("inspect %s migration target: driver=sqlite target is not a regular database file", role)
+		}
+	}
+	database, err := openReadOnlyMigrationDatabase(target)
+	if err != nil {
+		return result, safeStoreError("open "+role+" migration check connection", target, err)
+	}
+	defer func() {
+		if closeErr := database.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, safeStoreError("close "+role+" migration check connection", target, closeErr))
+		}
+	}()
+	if err := database.PingContext(ctx); err != nil {
+		return result, safeStoreError("ping "+role+" migration check connection", target, err)
+	}
+	result.current, result.latest, err = versions(database)
+	if err != nil {
+		return result, safeStoreError("read "+role+" migration version", target, err)
+	}
+	if result.current > result.latest {
+		return result, nil
+	}
+	if err := checkMigrationHistory(ctx, database, result.current); err != nil {
+		return result, safeStoreError("check "+role+" migration history", target, err)
+	}
+	return result, nil
+}
+
+func checkMigrationHistory(ctx context.Context, database *sql.DB, current int) error {
+	rows, err := database.QueryContext(ctx, "SELECT version FROM schema_migrations ORDER BY version")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	expected := 1
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return err
+		}
+		if version != expected {
+			return fmt.Errorf("non-contiguous schema_migrations history: expected=%d found=%d", expected, version)
+		}
+		expected++
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if expected-1 != current {
+		return fmt.Errorf("schema_migrations changed during check: expected current=%d found=%d", current, expected-1)
+	}
+	return nil
+}
+
+func openReadOnlyMigrationDatabase(target config.ResolvedStoreTarget) (*sql.DB, error) {
+	if target.Driver != store.DialectSQLite {
+		return openResolvedDatabase(target)
+	}
+	absolute, err := filepath.Abs(target.SQLitePath)
+	if err != nil {
+		return nil, err
+	}
+	escapedPath := (&url.URL{Path: filepath.ToSlash(absolute)}).EscapedPath()
+	uri := url.URL{Scheme: "file", Opaque: escapedPath, RawQuery: "mode=ro"}
+	database, err := sql.Open("sqlite", uri.String())
+	if err != nil {
+		return nil, err
+	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	return database, nil
+}
+
+func resolveMigrationConfig(configPath string) (*config.ResolvedStore, error) {
 	loaded, err := config.Load(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("load migration configuration: %w", err)
@@ -408,6 +559,14 @@ func migrate(ctx context.Context, configPath string) ([]migrationResult, error) 
 	resolved, err := config.ResolveStore(&loaded, os.LookupEnv)
 	if err != nil {
 		return nil, fmt.Errorf("resolve migration configuration: %w", err)
+	}
+	return resolved, nil
+}
+
+func migrate(ctx context.Context, configPath string) ([]migrationResult, error) {
+	resolved, err := resolveMigrationConfig(configPath)
+	if err != nil {
+		return nil, err
 	}
 	separate := !resolved.Audit.ReuseMetadata
 	metadataResult, err := migrateResolvedTarget(ctx, "metadata", resolved.Metadata, func(database *sql.DB) error {

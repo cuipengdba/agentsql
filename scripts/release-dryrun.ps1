@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')]
-    [string]$Version = 'v0.6.0',
+    [string]$Version = 'v0.7.0',
 
     [string]$OutputDirectory,
 
@@ -32,6 +32,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+. (Join-Path $PSScriptRoot 'release-provenance.ps1')
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $assetChecksReported = $false
 trap {
@@ -76,6 +77,42 @@ function Write-JsonFile {
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-ReleaseInputHashes {
+    $inputNames = @(Get-ReleaseInputNames)
+    foreach ($name in $inputNames) {
+        [pscustomobject][ordered]@{ name = $name; sha256 = Get-Sha256 (Join-Path $repositoryRoot $name) }
+    }
+}
+
+function Assert-ProductionSourceSealed {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit,
+        [Parameter(Mandatory = $true)][array]$ExpectedInputs
+    )
+
+    $currentCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentCommit -cne $ExpectedCommit) {
+        throw "Production source HEAD drifted from $ExpectedCommit to $currentCommit."
+    }
+    $currentStatus = @(& git -C $repositoryRoot status --porcelain --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not recheck the production source worktree state.'
+    }
+    if ($currentStatus.Count -gt 0) {
+        throw "Production source worktree changed during assembly. Found: $($currentStatus -join '; ')"
+    }
+    $currentInputs = @(Get-ReleaseInputHashes)
+    if ($currentInputs.Count -ne $ExpectedInputs.Count) {
+        throw 'Production release input list changed during assembly.'
+    }
+    for ($index = 0; $index -lt $ExpectedInputs.Count; $index++) {
+        if ($currentInputs[$index].name -cne $ExpectedInputs[$index].name -or
+            $currentInputs[$index].sha256 -cne $ExpectedInputs[$index].sha256) {
+            throw "Production release input changed during assembly: $($ExpectedInputs[$index].name)"
+        }
+    }
 }
 
 function Get-ExpectedAssetNames {
@@ -378,16 +415,10 @@ function Test-ReleaseAssets {
     Assert-NameSet -Actual $manifestNames -Expected $manifestExpected -Label 'SHA256SUMS'
     Assert-YashanRedistribution -Directory $Directory -ReleaseVersion $ReleaseVersion
 
-    $provenanceDocument = Get-Content -LiteralPath (Join-Path $Directory 'provenance.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ([string]$provenanceDocument.version -ne $ReleaseVersion) {
-        throw "provenance.json version '$($provenanceDocument.version)' does not match '$ReleaseVersion'."
-    }
-    if ([string]$provenanceDocument.source.commit -ne $ExpectedCommit) {
-        throw "provenance.json source commit '$($provenanceDocument.source.commit)' does not match expected commit '$ExpectedCommit'."
-    }
-
     $publicDocument = Get-Content -LiteralPath (Join-Path $Directory 'ed25519-release-public-key.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $isDryRunSet = $publicDocument.PSObject.Properties['dryRun'] -and $publicDocument.dryRun -eq $true
+    Assert-ReleaseProvenance -Directory $Directory -Repository $repositoryRoot -ReleaseVersion $ReleaseVersion `
+        -ExpectedCommit $ExpectedCommit -Mode $(if ($isDryRunSet) { 'DryRun' } else { 'Production' })
     if ($isDryRunSet) {
         if ($publicDocument.signed -ne $false -or $publicDocument.PSObject.Properties['publicKeyBase64']) {
             throw 'Dry-run public-key placeholder must be unsigned and must not contain publicKeyBase64.'
@@ -415,6 +446,10 @@ function Test-ReleaseAssets {
     Write-Host 'RELEASE_DRYRUN_SHA256SUMS=PASS'
     Write-Host "RELEASE_DRYRUN_SIGNATURE_MODE=$(if ($isDryRunSet) { 'UNSIGNED_PLACEHOLDERS' } else { 'SIGNED_STRUCTURE_ONLY' })"
     return $report
+}
+
+if ($ProductionPrepare -and $SkipImages) {
+    throw '-ProductionPrepare cannot be combined with -SkipImages; all three local image archives are required before production preparation passes.'
 }
 
 if ($ValidateOnly) {
@@ -471,13 +506,18 @@ if (-not $SourceDateEpoch) {
 }
 
 if ($ProductionPrepare) {
-    $productionDirty = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
+    $productionInitialCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $productionInitialCommit -notmatch '^[0-9a-f]{40}$') {
+        throw 'Could not identify the production source commit.'
+    }
+    $productionDirty = @(& git -C $repositoryRoot status --porcelain --untracked-files=all)
     if ($LASTEXITCODE -ne 0) {
         throw 'Could not verify the production source worktree state.'
     }
     if ($productionDirty.Count -gt 0) {
         throw "Production preparation requires a completely clean worktree. Found: $($productionDirty -join '; ')"
     }
+    $productionInputHashes = @(Get-ReleaseInputHashes)
     if (-not [System.IO.Path]::IsPathRooted($PublicKeyPath)) {
         $PublicKeyPath = Join-Path $repositoryRoot $PublicKeyPath
     }
@@ -494,12 +534,65 @@ if ($ProductionPrepare) {
     }
 }
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+$dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+if (-not $dockerCommand) {
     throw 'Docker CLI is required for a full release dry-run.'
 }
+# Keep release builds isolated from the user's Docker credentials while retaining
+# access to CLI plugins installed outside the isolated DOCKER_CONFIG directory.
+$originalDockerConfig = if ($env:DOCKER_CONFIG) {
+    $env:DOCKER_CONFIG
+}
+elseif ($env:USERPROFILE) {
+    Join-Path $env:USERPROFILE '.docker'
+}
+elseif ($env:HOME) {
+    Join-Path $env:HOME '.docker'
+}
+else {
+    ''
+}
+$pluginCandidates = @()
+if ($originalDockerConfig) {
+    $pluginCandidates += Join-Path $originalDockerConfig 'cli-plugins'
+    $originalConfigFile = Join-Path $originalDockerConfig 'config.json'
+    if (Test-Path -LiteralPath $originalConfigFile -PathType Leaf) {
+        $originalSettings = Get-Content -LiteralPath $originalConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($originalSettings.PSObject.Properties.Match('cliPluginsExtraDirs').Count -gt 0) {
+            $pluginCandidates += @($originalSettings.cliPluginsExtraDirs)
+        }
+    }
+}
+$dockerExecutableDirectory = Split-Path -Parent $dockerCommand.Source
+$pluginCandidates += Join-Path $dockerExecutableDirectory 'cli-plugins'
+$pluginCandidates += Join-Path (Split-Path -Parent $dockerExecutableDirectory) 'cli-plugins'
+$buildxPluginDirectories = @($pluginCandidates | Where-Object {
+    $_ -and [System.IO.Path]::IsPathRooted($_) -and
+    ((Test-Path -LiteralPath (Join-Path $_ 'docker-buildx') -PathType Leaf) -or
+     (Test-Path -LiteralPath (Join-Path $_ 'docker-buildx.exe') -PathType Leaf))
+} | ForEach-Object { [System.IO.Path]::GetFullPath($_) } | Select-Object -Unique)
 $dockerConfig = Join-Path $repositoryRoot '.docker-config'
 New-Item -ItemType Directory -Force -Path $dockerConfig | Out-Null
+if ($buildxPluginDirectories.Count -gt 0) {
+    $isolatedConfigFile = Join-Path $dockerConfig 'config.json'
+    $isolatedSettings = if (Test-Path -LiteralPath $isolatedConfigFile -PathType Leaf) {
+        Get-Content -LiteralPath $isolatedConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    else {
+        [pscustomobject]@{}
+    }
+    $configuredPluginDirectories = @()
+    if ($isolatedSettings.PSObject.Properties.Match('cliPluginsExtraDirs').Count -gt 0) {
+        $configuredPluginDirectories = @($isolatedSettings.cliPluginsExtraDirs)
+    }
+    $isolatedSettings | Add-Member -NotePropertyName 'cliPluginsExtraDirs' -NotePropertyValue @($configuredPluginDirectories + $buildxPluginDirectories | Select-Object -Unique) -Force
+    Write-JsonFile -Path $isolatedConfigFile -Value $isolatedSettings -Depth 8
+}
 $env:DOCKER_CONFIG = $dockerConfig
+docker buildx version *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw 'Docker Buildx CLI plugin is unavailable in the isolated release Docker configuration.'
+}
 docker info *> $null
 if ($LASTEXITCODE -ne 0) {
     throw 'Docker daemon is unavailable or the current user cannot access it.'
@@ -526,9 +619,16 @@ foreach ($architecture in @('amd64', 'arm64')) {
         '-e', "SOURCE_DATE_EPOCH=$SourceDateEpoch",
         '-v', "${repositoryRoot}:/src",
         '-w', '/src',
-        '-v', "${PSScriptRoot}:/buildscripts:ro",
-        $RockyImage, 'sh', '-c', $containerCommand
+        '-v', "${PSScriptRoot}:/buildscripts:ro"
     )
+    if (-not [string]::IsNullOrWhiteSpace($env:AGENTSQL_RELEASE_GO_CACHE_DIR)) {
+        # A caller-owned, architecture-specific Go build cache makes repeated
+        # local release checks practical without changing package contents.
+        $buildCacheDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:AGENTSQL_RELEASE_GO_CACHE_DIR "$architecture/gocache"))
+        New-Item -ItemType Directory -Path $buildCacheDirectory -Force | Out-Null
+        $dockerArguments += @('-v', "${buildCacheDirectory}:/tmp/gocache")
+    }
+    $dockerArguments += @($RockyImage, 'sh', '-c', $containerCommand)
     & docker @dockerArguments
     if ($LASTEXITCODE -ne 0) {
         throw "linux/$architecture release build failed."
@@ -614,23 +714,17 @@ $commit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') {
     throw 'Could not read git source identity.'
 }
+if ($ProductionPrepare) {
+    Assert-ProductionSourceSealed -ExpectedCommit $productionInitialCommit -ExpectedInputs $productionInputHashes
+}
 $branchStatus = @(& git -C $repositoryRoot status --porcelain=1 --branch)
 if ($LASTEXITCODE -ne 0 -or $branchStatus.Count -eq 0 -or $branchStatus[0] -notmatch '^## (.+?)(?:\.\.\..*)?$') {
     throw 'Could not read git branch from status.'
 }
 $branch = $Matches[1]
-$dirtyOutput = @(& git -C $repositoryRoot status --porcelain --untracked-files=no)
-$inputNames = @('go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json', 'Dockerfile', 'scripts/build-release-linux.sh', 'scripts/package-release.sh', 'scripts/install.sh', 'scripts/release-dryrun.ps1', 'scripts/build-ghcr-multiarch.ps1', 'Makefile')
-$inputs = foreach ($name in $inputNames) {
-    [ordered]@{ name = $name; sha256 = Get-Sha256 (Join-Path $repositoryRoot $name) }
-}
-$subjectNames = @(
-    "agentsql-$Version-linux-amd64.tar.gz",
-    "agentsql-$Version-linux-amd64.tar.gz.sha256",
-    "agentsql-$Version-linux-arm64.tar.gz",
-    "agentsql-$Version-linux-arm64.tar.gz.sha256",
-    'install.sh', $sbomName, 'go-version-metadata.txt', 'SBOM-GENERATION.txt'
-)
+$dirtyOutput = @(& git -C $repositoryRoot status --porcelain --untracked-files=all)
+$inputs = @(Get-ReleaseInputHashes)
+$subjectNames = @(Get-ReleaseSubjectNames -ReleaseVersion $Version)
 $subjects = foreach ($name in $subjectNames) {
     $file = Get-Item -LiteralPath (Join-Path $assetsPath $name)
     [ordered]@{ name = $name; size = $file.Length; digest = [ordered]@{ sha256 = Get-Sha256 $file.FullName } }
@@ -724,9 +818,15 @@ before uploading any asset. Also run `scripts/release-dryrun.ps1 -ValidateOnly`
 against the completed 15-file directory from the sealed release commit.
 
 From a repository checkout at tag {VERSION}, set `$AssetDirectory to the
-download directory and run:
+download directory. Verification requires Go 1.26.x; do not let the host's
+persistent GOTOOLCHAIN setting silently select an older toolchain. Run:
 
 ```powershell
+$env:GOTOOLCHAIN = 'local'
+$goVersion = go version
+if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go version go1\.26\.') {
+    throw 'Go 1.26.x is required for release-signature verification.'
+}
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/{SBOM}" -signature "$AssetDirectory/{SBOM}.sig.json"
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/provenance.json" -signature "$AssetDirectory/provenance.json.sig.json"
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/SHA256SUMS" -signature "$AssetDirectory/SHA256SUMS.sig.json"
@@ -754,6 +854,8 @@ may be uploaded to a GitHub Release.
 Write-Utf8File -Path (Join-Path $assetsPath 'VERIFYING-SIGNATURES.md') -Content $verificationInstructions
 
 if ($ProductionPrepare) {
+    Assert-ReleaseProvenance -Directory $assetsPath -Repository $repositoryRoot -ReleaseVersion $Version `
+        -ExpectedCommit $commit -Mode Production
     Write-Host 'RELEASE_PREPARE_UNSIGNED_ASSET_COUNT=11'
     Write-Host 'RELEASE_PREPARE_SIGNING_REQUIRED=SBOM_PROVENANCE_SHA256SUMS'
 }
@@ -800,6 +902,7 @@ else {
 }
 
 if ($ProductionPrepare) {
+    Assert-ProductionSourceSealed -ExpectedCommit $productionInitialCommit -ExpectedInputs $productionInputHashes
     Write-Host "RELEASE_PREPARE_OUTPUT=$OutputDirectory"
     Write-Host 'RELEASE_PREPARE_RESULT=PASS_UNSIGNED_REQUIRES_SIGNING'
 }

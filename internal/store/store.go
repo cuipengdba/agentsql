@@ -496,6 +496,11 @@ func (store *Store) Agents() *AgentRepository {
 	return &AgentRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// TaskReadGrants returns tenant-scoped, exact-query temporary authorization.
+func (store *Store) TaskReadGrants() *TaskReadGrantRepository {
+	return &TaskReadGrantRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // RBAC returns the tenant-scoped identity and authorization repository.
 func (store *Store) RBAC() *RBACRepository {
 	return &RBACRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
