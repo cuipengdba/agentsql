@@ -501,6 +501,15 @@ func (store *Store) TaskReadGrants() *TaskReadGrantRepository {
 	return &TaskReadGrantRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// TaskReadGrantRequests manages tenant-scoped approval before key issuance.
+func (store *Store) TaskReadGrantRequests() *TaskReadGrantRequestRepository {
+	return &TaskReadGrantRequestRepository{
+		repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver},
+		auditSeparate:  store.auditSeparate,
+		outbox:         &ManagementAuditOutboxRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}},
+	}
+}
+
 // RBAC returns the tenant-scoped identity and authorization repository.
 func (store *Store) RBAC() *RBACRepository {
 	return &RBACRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}

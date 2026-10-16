@@ -29,11 +29,14 @@ func TestApprovalExecutionSQLiteUpgradeRollbackFromV051(t *testing.T) {
 			_, err := db.ExecContext(ctx, `INSERT INTO approvals(id, tenant_id, status) VALUES('legacy', 'tenant_default', 'approved')`)
 			require.NoError(t, err)
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate))
+			_, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, tc.separate)
+			require.NoError(t, err)
 			var seal sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT seal FROM approvals WHERE id='legacy'`).Scan(&seal))
 			require.False(t, seal.Valid)
-			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.current+1))
-			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.current))
+			for version := latest; version >= tc.current; version-- {
+				require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, version))
+			}
 			var count int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM approvals WHERE id='legacy'`).Scan(&count))
 			require.Equal(t, 1, count)

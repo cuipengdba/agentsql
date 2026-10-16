@@ -1,30 +1,15 @@
 package adminapi
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/model"
-	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
-	"github.com/google/uuid"
 )
-
-type taskReadGrantInput struct {
-	AgentID      string    `json:"agent_id"`
-	DatasourceID string    `json:"datasource_id"`
-	SQL          string    `json:"sql"`
-	ExpiresAt    time.Time `json:"expires_at"`
-}
 
 type taskReadGrantView struct {
 	ID           string     `json:"id"`
@@ -59,80 +44,9 @@ func (handler *Handler) taskReadGrantPrincipal(writer http.ResponseWriter, reque
 }
 
 func (handler *Handler) taskReadGrantsCreate(writer http.ResponseWriter, request *http.Request) {
-	principal, ok := handler.taskReadGrantPrincipal(writer, request)
-	if !ok {
-		return
-	}
-	var input taskReadGrantInput
-	if decodeJSON(writer, request, &input) != nil {
-		handler.fail(writer, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	now := time.Now().UTC()
-	if strings.TrimSpace(input.AgentID) == "" || strings.TrimSpace(input.DatasourceID) == "" ||
-		strings.TrimSpace(input.SQL) == "" || !input.ExpiresAt.After(now) ||
-		input.ExpiresAt.After(now.Add(store.MaxTaskReadGrantDuration)) {
-		handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant")
-		return
-	}
-	agent, err := handler.deps.Runtime.Store.Agents().Get(request.Context(), input.AgentID)
-	if err != nil || agent.TenantID != principal.TenantID || agent.Status != "active" ||
-		(agent.ExpiresAt != nil && !now.Before(*agent.ExpiresAt)) {
-		handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant")
-		return
-	}
-	datasource, err := handler.deps.Runtime.Store.Datasources().Get(request.Context(), input.DatasourceID)
-	if err != nil || datasource.TenantID != principal.TenantID {
-		handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant")
-		return
-	}
-	if err := executor.ValidatePreParse(input.SQL, nil, executor.DefaultLimits); err != nil {
-		handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant")
-		return
-	}
-	sqlParser, err := parser.NewParser(model.DBDialect(datasource.DBType))
-	if err != nil {
-		handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant")
-		return
-	}
-	ast, err := sqlParser.Parse(input.SQL)
-	if err != nil || !model.TaskReadOnlySelect(input.SQL, ast) {
-		handler.fail(writer, http.StatusUnprocessableEntity, "only one SELECT is allowed")
-		return
-	}
-	key, hash, err := store.GenerateAPIKey()
-	if err != nil {
-		handler.internal(writer, err)
-		return
-	}
-	digest := sha256.Sum256([]byte(input.SQL))
-	grant, err := handler.deps.Runtime.Store.TaskReadGrants().Create(request.Context(), model.TaskReadGrant{
-		ID: uuid.NewString(), TenantID: principal.TenantID, IssuerUserID: principal.UserID,
-		AgentID: agent.ID, DatasourceID: datasource.ID, SQLSHA256: hex.EncodeToString(digest[:]),
-		KeyHash: hash, ExpiresAt: input.ExpiresAt.UTC(),
-	})
-	if err != nil {
-		if errors.Is(err, store.ErrTaskReadGrantInvalid) {
-			handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant")
-		} else {
-			handler.internal(writer, err)
-		}
-		return
-	}
-	if err := handler.recordTaskReadGrantAudit(request, principal, grant, "task_read_grant_create"); err != nil {
-		// Never disclose a usable key when the management audit could not be
-		// durably written. The client may already have disconnected, so use a
-		// bounded context that retains tenant identity for compensation.
-		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(request.Context()), 5*time.Second)
-		_, rollbackErr := handler.deps.Runtime.Store.TaskReadGrants().Revoke(rollbackContext, grant.ID)
-		cancel()
-		if rollbackErr != nil {
-			err = errors.Join(err, fmt.Errorf("revoke undisclosed task grant after audit failure: %w", rollbackErr))
-		}
-		handler.internal(writer, err)
-		return
-	}
-	handler.ok(writer, taskReadGrantToView(grant, key))
+	// Direct issuance would bypass the v0.8 separation of requester and
+	// reviewer. Existing clients receive an explicit migration signal.
+	handler.fail(writer, http.StatusGone, "use task-read-grant-requests approval workflow")
 }
 
 func (handler *Handler) taskReadGrantsList(writer http.ResponseWriter, request *http.Request) {
@@ -168,8 +82,22 @@ func (handler *Handler) taskReadGrantsGet(writer http.ResponseWriter, request *h
 }
 
 func (handler *Handler) taskReadGrantsRevoke(writer http.ResponseWriter, request *http.Request) {
-	principal, ok := handler.taskReadGrantPrincipal(writer, request)
-	if !ok {
+	principal, ok := requestPrincipal(request)
+	if !ok || !principal.Has(rbac.PermissionQueryExecute) {
+		handler.fail(writer, http.StatusForbidden, "forbidden")
+		return
+	}
+	existing, err := handler.deps.Runtime.Store.TaskReadGrants().Get(request.Context(), request.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		handler.notFound(writer)
+		return
+	}
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	if existing.IssuerUserID != principal.UserID && !principal.Has(rbac.PermissionStrategyManage) {
+		handler.notFound(writer)
 		return
 	}
 	grant, err := handler.deps.Runtime.Store.TaskReadGrants().Revoke(request.Context(), request.PathValue("id"))

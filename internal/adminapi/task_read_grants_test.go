@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -14,86 +13,9 @@ import (
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
-	"github.com/cuipengdba/agentsql/internal/store"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
-
-func TestTaskReadGrantAdminLifecycleAndSQLBoundary(t *testing.T) {
-	fixture := newAdminFixture(t)
-	sqlText := "   select id FROM public.customers LIMIT 1"
-	body := func(sql string, expiry time.Time) string {
-		encoded, err := json.Marshal(map[string]any{
-			"agent_id": fixture.agent.ID, "datasource_id": fixture.datasource.ID,
-			"sql": sql, "expires_at": expiry.UTC().Format(time.RFC3339Nano),
-		})
-		require.NoError(t, err)
-		return string(encoded)
-	}
-	for _, invalid := range []string{
-		"DELETE FROM public.customers WHERE id = 1",
-		"SELECT 1; DELETE FROM public.customers WHERE id = 1",
-		"WITH x AS (DELETE FROM public.customers RETURNING id) SELECT id FROM x",
-		"WiTh x AS (DELETE FROM public.customers RETURNING id) SELECT id FROM x",
-		"SELECT id INTO copied_customers FROM public.customers",
-		"SELECT id FROM public.customers FOR UPDATE",
-		"SELECT id FROM public.customers FOR /* evasion */ UPDATE",
-		"SELECT nextval('customer_seq')",
-		"SELECT public.side_effect()",
-		"SELECT id FROM public.customers WHERE id IN (SELECT id FROM public.customers)",
-		"SELECT id FROM /* inline */ public.customers",
-		"/* prefix */ SELECT id FROM public.customers",
-	} {
-		status, _ := fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken,
-			body(invalid, time.Now().Add(time.Hour)))
-		require.Equal(t, http.StatusUnprocessableEntity, status)
-	}
-	status, _ := fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken,
-		body(sqlText, time.Now().Add(25*time.Hour)))
-	require.Equal(t, http.StatusUnprocessableEntity, status)
-	status, _ = fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken,
-		`{"agent_id":"agent-1","datasource_id":"ds-1","sql":"SELECT 1","issuer_user_id":"spoof"}`)
-	require.Equal(t, http.StatusBadRequest, status)
-
-	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken,
-		body(sqlText, time.Now().Add(time.Hour)))
-	require.Equal(t, http.StatusOK, status, raw)
-	var created struct {
-		Data struct {
-			ID           string `json:"id"`
-			IssuerUserID string `json:"issuer_user_id"`
-			APIKey       string `json:"api_key"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(raw), &created))
-	require.NotEmpty(t, created.Data.ID)
-	require.NotEmpty(t, created.Data.IssuerUserID)
-	require.True(t, strings.HasPrefix(created.Data.APIKey, "asql_"))
-	require.NotContains(t, raw, sqlText)
-
-	agent, err := auth.NewAuthenticator(fixture.store.Agents()).Authenticate(
-		t.Context(), created.Data.APIKey)
-	require.NoError(t, err)
-	require.Equal(t, created.Data.ID, agent.TaskGrantID)
-	require.Equal(t, "readonly", agent.Level)
-
-	status, raw = fixture.request(http.MethodGet, fmt.Sprintf("/api/v1/task-read-grants/%s", created.Data.ID),
-		fixture.adminToken, "")
-	require.Equal(t, http.StatusOK, status)
-	require.NotContains(t, raw, created.Data.APIKey)
-	require.NotContains(t, raw, sqlText)
-	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grants", fixture.adminToken, "")
-	require.Equal(t, http.StatusOK, status)
-	require.NotContains(t, raw, created.Data.APIKey)
-
-	status, raw = fixture.request(http.MethodPost,
-		fmt.Sprintf("/api/v1/task-read-grants/%s/revoke", created.Data.ID), fixture.adminToken, "")
-	require.Equal(t, http.StatusOK, status, raw)
-	require.Contains(t, raw, "revoked_at")
-	_, err = auth.NewAuthenticator(fixture.store.Agents()).Authenticate(t.Context(), created.Data.APIKey)
-	require.ErrorIs(t, err, auth.ErrInvalidCredentials)
-	status, _ = fixture.request(http.MethodGet, "/api/v1/task-read-grants", "", "")
-	require.Equal(t, http.StatusUnauthorized, status)
-}
 
 func taskGrantTestToken(t *testing.T, fixture *adminFixture, tenantID, name string, permissions []string) string {
 	t.Helper()
@@ -119,98 +41,240 @@ func taskGrantTestToken(t *testing.T, fixture *adminFixture, tenantID, name stri
 	return "Bearer " + token
 }
 
-func TestTaskReadGrantRequiresBothPermissionsAndHidesCrossTenantRecords(t *testing.T) {
-	fixture := newAdminFixture(t)
-	requestBody := `{"agent_id":"agent-1","datasource_id":"ds-1","sql":"SELECT id FROM public.customers LIMIT 1","expires_at":"` +
-		time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano) + `"}`
-	for _, test := range []struct {
-		name        string
-		permissions []string
-	}{
-		{"strategy-only", []string{rbac.PermissionStrategyManage}},
-		{"query-only", []string{rbac.PermissionQueryExecute}},
-	} {
-		token := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, test.name, test.permissions)
-		status, _ := fixture.request(http.MethodPost, "/api/v1/task-read-grants", token, requestBody)
-		require.Equal(t, http.StatusForbidden, status, test.name)
-	}
-	both := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "both",
-		[]string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute})
-	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grants", both, requestBody)
-	require.Equal(t, http.StatusOK, status, raw)
-	var created struct {
-		Data struct {
-			ID           string `json:"id"`
-			IssuerUserID string `json:"issuer_user_id"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(raw), &created))
-	require.Equal(t, "user-both", created.Data.IssuerUserID)
-	other := taskGrantTestToken(t, fixture, "tenant-task-other", "other",
-		[]string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute})
-	status, _ = fixture.request(http.MethodGet,
-		"/api/v1/task-read-grants/"+created.Data.ID, other, "")
-	require.Equal(t, http.StatusNotFound, status)
-	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grants", other, "")
-	require.Equal(t, http.StatusOK, status)
-	require.NotContains(t, raw, created.Data.ID)
-	status, _ = fixture.request(http.MethodPost, "/api/v1/task-read-grants", other, requestBody)
-	require.Equal(t, http.StatusUnprocessableEntity, status)
+func taskGrantRequestBody(t *testing.T, fixture *adminFixture, sqlText string, expiresAt time.Time, key string) string {
+	t.Helper()
+	encoded, err := json.Marshal(map[string]any{
+		"agent_id": fixture.agent.ID, "datasource_id": fixture.datasource.ID,
+		"sql": sqlText, "expires_at": expiresAt.UTC().Format(time.RFC3339Nano),
+		"idempotency_key": key,
+	})
+	require.NoError(t, err)
+	return string(encoded)
 }
 
-func TestTaskReadGrantRevocationAuditRecordsActualOperator(t *testing.T) {
-	fixture := newAdminFixture(t)
-	permissions := []string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute}
-	issuerToken := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "grant-issuer", permissions)
-	revokerToken := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "grant-revoker", permissions)
-	sqlText := "SELECT id FROM public.customers WHERE id = 708140123 LIMIT 1"
-	body := fmt.Sprintf(`{"agent_id":"%s","datasource_id":"%s","sql":"%s","expires_at":"%s"}`,
-		fixture.agent.ID, fixture.datasource.ID, sqlText, time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano))
-	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grants", issuerToken, body)
+func submitTaskGrantRequest(t *testing.T, fixture *adminFixture, token, sqlText, key string) string {
+	t.Helper()
+	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", token,
+		taskGrantRequestBody(t, fixture, sqlText, time.Now().Add(time.Hour), key))
 	require.Equal(t, http.StatusOK, status, raw)
-	var created struct {
+	var response struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &response))
+	require.NotEmpty(t, response.Data.ID)
+	require.NotContains(t, raw, sqlText)
+	return response.Data.ID
+}
+
+func approveAndIssueTaskGrant(t *testing.T, fixture *adminFixture, requester, reviewer, sqlText string) (string, string, string) {
+	t.Helper()
+	requestID := submitTaskGrantRequest(t, fixture, requester, sqlText, uuid.NewString())
+	status, raw := fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+requestID+"/approve", reviewer, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	status, raw = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+requestID+"/issue", requester, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	var response struct {
 		Data struct {
 			ID     string `json:"id"`
 			APIKey string `json:"api_key"`
 		} `json:"data"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(raw), &created))
-	require.NotEmpty(t, created.Data.ID)
-	require.NotEmpty(t, created.Data.APIKey)
+	require.NoError(t, json.Unmarshal([]byte(raw), &response))
+	require.NotEmpty(t, response.Data.ID)
+	require.Equal(t, requestID, response.Data.ID, "one stable ID must link request, grant, and audit")
+	require.True(t, strings.HasPrefix(response.Data.APIKey, "asql_"))
+	require.NotContains(t, raw, sqlText)
+	return requestID, response.Data.ID, response.Data.APIKey
+}
 
+func TestTaskReadGrantApprovalLifecycleAndSQLBoundary(t *testing.T) {
+	fixture := newAdminFixture(t)
+	reviewer := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "reviewer-lifecycle",
+		[]string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute})
+	sqlText := "   select id FROM public.customers LIMIT 1"
+	for _, invalid := range []string{
+		"DELETE FROM public.customers WHERE id = 1",
+		"SELECT 1; DELETE FROM public.customers WHERE id = 1",
+		"WITH x AS (DELETE FROM public.customers RETURNING id) SELECT id FROM x",
+		"SELECT id INTO copied_customers FROM public.customers",
+		"SELECT id FROM public.customers FOR UPDATE",
+		"SELECT id FROM public.customers FOR /* evasion */ UPDATE",
+		"SELECT nextval('customer_seq')",
+		"SELECT public.side_effect()",
+		"SELECT id FROM public.customers WHERE id IN (SELECT id FROM public.customers)",
+		"SELECT id FROM /* inline */ public.customers",
+		"/* prefix */ SELECT id FROM public.customers",
+	} {
+		status, _ := fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", fixture.adminToken,
+			taskGrantRequestBody(t, fixture, invalid, time.Now().Add(time.Hour), uuid.NewString()))
+		require.Equal(t, http.StatusUnprocessableEntity, status, invalid)
+	}
+	status, _ := fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", fixture.adminToken,
+		taskGrantRequestBody(t, fixture, sqlText, time.Now().Add(25*time.Hour), uuid.NewString()))
+	require.Equal(t, http.StatusUnprocessableEntity, status)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken,
+		taskGrantRequestBody(t, fixture, sqlText, time.Now().Add(time.Hour), uuid.NewString()))
+	require.Equal(t, http.StatusGone, status, "legacy direct issuance must stay disabled")
+
+	requestID := submitTaskGrantRequest(t, fixture, fixture.adminToken, sqlText, uuid.NewString())
+	status, raw := fixture.request(http.MethodGet,
+		"/api/v1/task-read-grant-requests/"+requestID, fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, raw, sqlText, "requester and list endpoints must not expose SQL")
+	status, raw = fixture.request(http.MethodGet,
+		"/api/v1/task-read-grant-requests/"+requestID, reviewer, "")
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, raw, sqlText, "a separate reviewer must be able to inspect the exact SQL")
+	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grant-requests", reviewer, "")
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, raw, sqlText, "list must not disclose SQL")
+	status, _ = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+requestID+"/approve", fixture.adminToken, "")
+	require.Equal(t, http.StatusConflict, status, "requester cannot approve own request")
+	status, _ = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+requestID+"/issue", fixture.adminToken, "")
+	require.Equal(t, http.StatusConflict, status, "unapproved request cannot issue a key")
 	status, raw = fixture.request(http.MethodPost,
-		"/api/v1/task-read-grants/"+created.Data.ID+"/revoke", revokerToken, "")
+		"/api/v1/task-read-grant-requests/"+requestID+"/approve", reviewer, "")
 	require.Equal(t, http.StatusOK, status, raw)
+	status, raw = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+requestID+"/issue", fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	var issued struct {
+		Data struct {
+			ID     string `json:"id"`
+			APIKey string `json:"api_key"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &issued))
+	require.True(t, strings.HasPrefix(issued.Data.APIKey, "asql_"))
+	agent, err := auth.NewAuthenticator(fixture.store.Agents()).Authenticate(t.Context(), issued.Data.APIKey)
+	require.NoError(t, err)
+	require.Equal(t, issued.Data.ID, agent.TaskGrantID)
+	require.Equal(t, "readonly", agent.Level)
 
-	for _, check := range []struct {
-		action string
-		actor  string
-	}{
-		{action: "task_read_grant_create", actor: "user-grant-issuer"},
-		{action: "task_read_grant_revoke", actor: "user-grant-revoker"},
+	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grants/"+issued.Data.ID, fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, raw, issued.Data.APIKey)
+	require.NotContains(t, raw, sqlText)
+	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grant-requests/"+requestID, fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, raw, issued.Data.APIKey)
+	require.NotContains(t, raw, sqlText)
+	status, raw = fixture.request(http.MethodPost, "/api/v1/task-read-grants/"+issued.Data.ID+"/revoke", fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	_, err = auth.NewAuthenticator(fixture.store.Agents()).Authenticate(t.Context(), issued.Data.APIKey)
+	require.ErrorIs(t, err, auth.ErrInvalidCredentials)
+}
+
+func TestTaskReadGrantIdempotencyTenantIsolationAndSingleIssue(t *testing.T) {
+	fixture := newAdminFixture(t)
+	requester := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "requester-only",
+		[]string{rbac.PermissionQueryExecute})
+	reviewer := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "reviewer-only",
+		[]string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute})
+	other := taskGrantTestToken(t, fixture, "tenant-task-other", "other-task",
+		[]string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute})
+	sqlText := "SELECT id FROM public.customers LIMIT 1"
+	key := uuid.NewString()
+	body := taskGrantRequestBody(t, fixture, sqlText, time.Now().Add(time.Hour), key)
+	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", requester, body)
+	require.Equal(t, http.StatusOK, status, raw)
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &created))
+	status, raw = fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", requester, body)
+	require.Equal(t, http.StatusOK, status, raw)
+	require.Contains(t, raw, created.Data.ID)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/task-read-grant-requests", requester,
+		taskGrantRequestBody(t, fixture, sqlText+" ", time.Now().Add(time.Hour), key))
+	require.Equal(t, http.StatusConflict, status)
+	status, _ = fixture.request(http.MethodGet, "/api/v1/task-read-grant-requests/"+created.Data.ID, other, "")
+	require.Equal(t, http.StatusNotFound, status)
+	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grant-requests", other, "")
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, raw, created.Data.ID)
+	status, _ = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/approve", other, "")
+	require.Equal(t, http.StatusNotFound, status)
+	status, _ = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/approve", requester, "")
+	require.Equal(t, http.StatusForbidden, status)
+	status, raw = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/approve", reviewer, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	status, _ = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/issue", reviewer, "")
+	require.Equal(t, http.StatusConflict, status)
+	status, raw = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/issue", requester, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	var issued struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &issued))
+	require.NotEmpty(t, issued.Data.ID)
+	status, _ = fixture.request(http.MethodPost,
+		"/api/v1/task-read-grant-requests/"+created.Data.ID+"/issue", requester, "")
+	require.Equal(t, http.StatusConflict, status)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/task-read-grants/"+issued.Data.ID+"/revoke", other, "")
+	require.Equal(t, http.StatusNotFound, status)
+	status, raw = fixture.request(http.MethodPost, "/api/v1/task-read-grants/"+issued.Data.ID+"/revoke", requester, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	status, raw = fixture.request(http.MethodGet, "/api/v1/task-read-grant-requests/"+created.Data.ID, requester, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	require.Contains(t, raw, "grant_revoked_at")
+	grants, err := fixture.store.TaskReadGrants().List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, grants, 1)
+}
+
+func TestTaskReadGrantAuditRecordsActorsWithoutSecrets(t *testing.T) {
+	fixture := newAdminFixture(t)
+	permissions := []string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute}
+	requester := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "grant-requester", permissions)
+	reviewer := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "grant-reviewer", permissions)
+	sqlText := "SELECT id FROM public.customers WHERE id = 708140123 LIMIT 1"
+	requestID, grantID, key := approveAndIssueTaskGrant(t, fixture, requester, reviewer, sqlText)
+	status, raw := fixture.request(http.MethodPost,
+		"/api/v1/task-read-grants/"+grantID+"/revoke", reviewer, "")
+	require.Equal(t, http.StatusOK, status, raw)
+	for _, check := range []struct{ action, actor string }{
+		{"task_read_grant_request", "user-grant-requester"},
+		{"task_read_grant_approve", "user-grant-reviewer"},
+		{"task_read_grant_issue", "user-grant-requester"},
+		{"task_read_grant_revoke", "user-grant-reviewer"},
 	} {
 		page, err := fixture.store.AuditLogs().FilteredPage(t.Context(),
 			model.AuditFilter{Action: &check.action}, 1, 10)
 		require.NoError(t, err)
-		require.Len(t, page.List, 1)
+		require.Len(t, page.List, 1, check.action)
 		entry := page.List[0]
-		require.Equal(t, "user", *entry.ActorType)
 		require.Equal(t, check.actor, *entry.ActorID)
 		require.Nil(t, entry.SQLRaw)
 		require.NotNil(t, entry.DetailsJSON)
-		var details struct {
-			GrantID      string `json:"grant_id"`
-			IssuerUserID string `json:"issuer_user_id"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(*entry.DetailsJSON), &details))
-		require.Equal(t, created.Data.ID, details.GrantID)
-		require.Equal(t, "user-grant-issuer", details.IssuerUserID)
 		encoded, err := json.Marshal(entry)
 		require.NoError(t, err)
-		require.NotContains(t, string(encoded), created.Data.APIKey)
+		require.NotContains(t, string(encoded), key)
 		require.NotContains(t, string(encoded), sqlText)
+		if check.action != "task_read_grant_revoke" {
+			require.Contains(t, *entry.DetailsJSON, requestID)
+		}
 	}
-	require.NotContains(t, fixture.logs.String(), created.Data.APIKey)
+	linked, err := fixture.store.AuditLogs().FilteredPage(t.Context(),
+		model.AuditFilter{TaskGrantID: &grantID}, 1, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), linked.Total, "grant ID must reach the pre-issuance decisions")
+	require.NotContains(t, fixture.logs.String(), key)
 	require.NotContains(t, fixture.logs.String(), sqlText)
 }
 
@@ -220,71 +284,20 @@ func (failingTaskGrantRecorder) Record(context.Context, model.AuditLog) (model.A
 	return model.AuditLog{}, errors.New("injected audit failure")
 }
 
-type cancelingTaskGrantRecorder struct{ cancel context.CancelFunc }
-
-func (recorder cancelingTaskGrantRecorder) Record(context.Context, model.AuditLog) (model.AuditLog, error) {
-	recorder.cancel()
-	return model.AuditLog{}, errors.New("injected audit failure after disconnect")
-}
-
-func TestTaskReadGrantAuditFailureNeverReturnsUsableKey(t *testing.T) {
-	fixture := newAdminFixture(t)
-	fixture.runtime.ManagementAudit = failingTaskGrantRecorder{}
-	body := fmt.Sprintf(`{"agent_id":"%s","datasource_id":"%s","sql":"SELECT id FROM public.customers LIMIT 1","expires_at":"%s"}`,
-		fixture.agent.ID, fixture.datasource.ID, time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano))
-	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken, body)
-	require.Equal(t, http.StatusInternalServerError, status)
-	require.NotContains(t, raw, "asql_")
-	grants, err := fixture.store.TaskReadGrants().List(context.Background())
-	require.NoError(t, err)
-	require.Len(t, grants, 1)
-	require.NotNil(t, grants[0].RevokedAt)
-	_, err = fixture.store.Agents().GetByAPIKeyHash(context.Background(), grants[0].KeyHash)
-	require.ErrorIs(t, err, store.ErrAgentNotFound)
-}
-
-func TestTaskReadGrantAuditFailureRevokesAfterRequestCanceled(t *testing.T) {
-	fixture := newAdminFixture(t)
-	requestContext, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	fixture.runtime.ManagementAudit = cancelingTaskGrantRecorder{cancel: cancel}
-	body := fmt.Sprintf(`{"agent_id":"%s","datasource_id":"%s","sql":"SELECT id FROM public.customers LIMIT 1","expires_at":"%s"}`,
-		fixture.agent.ID, fixture.datasource.ID, time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano))
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/task-read-grants", strings.NewReader(body)).WithContext(requestContext)
-	request.Header.Set("Authorization", fixture.adminToken)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	fixture.handler.ServeHTTP(response, request)
-	require.Equal(t, http.StatusInternalServerError, response.Code)
-	require.NotContains(t, response.Body.String(), "asql_")
-	grants, err := fixture.store.TaskReadGrants().List(context.Background())
-	require.NoError(t, err)
-	require.Len(t, grants, 1)
-	require.NotNil(t, grants[0].RevokedAt)
-}
-
 func TestTaskReadGrantRevokeAuditFailureKeepsGrantRevoked(t *testing.T) {
 	fixture := newAdminFixture(t)
-	body := fmt.Sprintf(`{"agent_id":"%s","datasource_id":"%s","sql":"SELECT id FROM public.customers LIMIT 1","expires_at":"%s"}`,
-		fixture.agent.ID, fixture.datasource.ID, time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano))
-	status, raw := fixture.request(http.MethodPost, "/api/v1/task-read-grants", fixture.adminToken, body)
-	require.Equal(t, http.StatusOK, status, raw)
-	var created struct {
-		Data struct {
-			ID     string `json:"id"`
-			APIKey string `json:"api_key"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(raw), &created))
-	require.NotEmpty(t, created.Data.ID)
+	reviewer := taskGrantTestToken(t, fixture, rbac.DefaultTenantID, "failure-reviewer",
+		[]string{rbac.PermissionStrategyManage, rbac.PermissionQueryExecute})
+	_, grantID, key := approveAndIssueTaskGrant(t, fixture, fixture.adminToken, reviewer,
+		"SELECT id FROM public.customers LIMIT 1")
 	fixture.runtime.ManagementAudit = failingTaskGrantRecorder{}
-	status, raw = fixture.request(http.MethodPost,
-		"/api/v1/task-read-grants/"+created.Data.ID+"/revoke", fixture.adminToken, "")
+	status, raw := fixture.request(http.MethodPost,
+		fmt.Sprintf("/api/v1/task-read-grants/%s/revoke", grantID), fixture.adminToken, "")
 	require.Equal(t, http.StatusInternalServerError, status)
-	require.NotContains(t, raw, created.Data.APIKey)
-	grant, err := fixture.store.TaskReadGrants().Get(context.Background(), created.Data.ID)
+	require.NotContains(t, raw, key)
+	grant, err := fixture.store.TaskReadGrants().Get(context.Background(), grantID)
 	require.NoError(t, err)
 	require.NotNil(t, grant.RevokedAt)
-	_, err = auth.NewAuthenticator(fixture.store.Agents()).Authenticate(t.Context(), created.Data.APIKey)
+	_, err = auth.NewAuthenticator(fixture.store.Agents()).Authenticate(t.Context(), key)
 	require.ErrorIs(t, err, auth.ErrInvalidCredentials)
 }

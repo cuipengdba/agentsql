@@ -171,6 +171,10 @@ UPDATE public.customers SET name = 'blocked-test';
 
 控制台「临时只读授权」要求管理员同时具有 `strategy.manage` 和 `query.execute` 权限。选择已授权的 Agent、数据源、唯一允许的简单 `SELECT` 和最长 24 小时的到期时间后，保存只显示一次的任务 Key。该 Key 只能调用 MCP `query`，SQL 原始字节必须与签发时完全一致，空格或大小写变化也会被拒绝；原 Agent 的对象权限、规则、脱敏和数据库只读账号约束继续生效。用完可在同一页面撤销。撤销后的新请求被拒绝，但与正在返回的请求之间仍可能存在并发窗口。详细限制见 [任务级临时只读授权](task-read-grants.md)。
 
+### v0.8.0 开发分支：申请、异人审批和领取
+
+新版控制台先由具备 `query.execute` 的用户提交精确 SQL、Agent、数据源和到期时间。另一位同租户且同时具备 `strategy.manage` 与 `query.execute` 的用户查看 SQL 并批准或拒绝；批准后原申请人一次性领取任务 Key。列表只显示 SQL 哈希与状态，密钥只在领取成功的响应中出现。可在「审计」页按授权 ID 核对管理和执行记录。旧版直接签发 API 在 v0.8.0 返回 HTTP 410，既有 v0.7.0 Key 继续按到期与撤销规则生效。操作与恢复边界见 [任务级临时只读授权](task-read-grants.md)。
+
 ## 5 分钟验收清单
 
 - `GET /healthz` 返回 HTTP 200，JSON 中 `status` 为 `ok` 且包含 `version`。

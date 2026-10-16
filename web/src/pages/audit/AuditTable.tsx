@@ -4,7 +4,7 @@ import type { TableProps } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuditView } from "@/api/types";
-import { decisionMeta, getDecisionMeta, statementLabel } from "@/constants/labels";
+import { auditActivityLabel, decisionMeta, getDecisionMeta } from "@/constants/labels";
 import { palette } from "@/theme/tokens";
 
 interface AuditTableProps {
@@ -79,7 +79,7 @@ export function AuditTable({ list, loading, failed, onView, onRetry }: AuditTabl
     { title: "时间", dataIndex: "ts", width: 150, fixed: "left", render: (value: string | null | undefined) => <Tooltip title={displayText(value)}><span className="mono-text">{timeText(value)}</span></Tooltip> },
     { title: "Agent", dataIndex: "agent_id", width: 130, ellipsis: true, render: (value: string | null | undefined) => <Tooltip title={displayText(value)}>{shortText(value)}</Tooltip> },
     { title: "数据源", dataIndex: "datasource_id", width: 130, ellipsis: true, render: (value: string | null | undefined) => <Tooltip title={displayText(value)}>{shortText(value)}</Tooltip> },
-    { title: "类型", dataIndex: "stmt_type", width: 100, render: (value: string | null | undefined) => <Tag>{statementLabel(value)}</Tag> },
+    { title: "类型", dataIndex: "stmt_type", width: 110, render: (value: string | null | undefined, record: AuditView) => <Tag>{auditActivityLabel(value, record.action)}</Tag> },
     { title: "决策", dataIndex: "decision", width: 92, render: (value: string | null | undefined) => decisionTag(value) },
     {
       title: "风险",

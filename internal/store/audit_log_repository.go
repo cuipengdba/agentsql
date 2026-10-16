@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -433,6 +434,13 @@ func buildAuditWhereForDialect(dialect Dialect, filter model.AuditFilter) (claus
 	}
 	if filter.EventUUID != nil {
 		appendCondition("event_uuid = ?", *filter.EventUUID)
+	}
+	if filter.TaskGrantID != nil {
+		encoded, _ := json.Marshal(*filter.TaskGrantID)
+		appendCondition("(details_json LIKE ? ESCAPE '!' OR details_json LIKE ? ESCAPE '!' OR details_json LIKE ? ESCAPE '!')",
+			auditLikeArgument(`"task_grant_id":`+string(encoded)),
+			auditLikeArgument(`"grant_id":`+string(encoded)),
+			auditLikeArgument(`"request_id":`+string(encoded)))
 	}
 	if len(filter.Decisions) > 0 {
 		appendCondition("decision IN ("+auditPlaceholders(len(filter.Decisions))+")", stringsToAny(filter.Decisions)...)

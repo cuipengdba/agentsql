@@ -9,6 +9,7 @@ import { listPolicies } from "@/api/policies";
 import { PageContainer } from "@/components/PageContainer";
 
 import { OnboardingPreflight } from "./onboarding/Preflight";
+import { FailureGuide } from "./onboarding/FailureGuide";
 
 interface Counts { datasources: number; agents: number; policies: number }
 
@@ -53,6 +54,7 @@ export function Onboarding() {
         </Col>)}
       </Row>
       <OnboardingPreflight />
+      <FailureGuide />
       <Card title="连接 MCP 客户端" style={{ marginTop: 20 }}>
         <Typography.Paragraph>使用 Dify 自托管与 MCP Inspector 验收真实工具调用。Dify 1.17.1 连接 Streamable HTTP <code>/mcp</code>；Inspector 按客户端支持的协议版本选择旧入口或 <code>/mcp/2026-07-28</code>。两者均使用 Agent API Key，不能使用管理员登录 token。</Typography.Paragraph>
         <Alert type="info" showIcon message="客户端可达地址因部署拓扑而异" description="Dify 容器里的 127.0.0.1 指向 Dify 自身；仅为 AgentSQL 地址配置必要的内网访问。Dify 1.17.1 还需设置 MCP-Protocol-Version: 2025-06-18 请求头。Inspector 需核对其实际协商版本。" />

@@ -152,9 +152,12 @@ func TestB5S1bSQLiteCombinedAndMetadataDownReapply(t *testing.T) {
 				require.Equal(t, 1, count)
 			}
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate), "up migration reentry")
-			for _, version := range tc.versions {
+			_, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, tc.separate)
+			require.NoError(t, err)
+			for version := latest; version > tc.versions[len(tc.versions)-1]; version-- {
 				require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, version))
 			}
+			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.versions[len(tc.versions)-1]))
 			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.versions[len(tc.versions)-1]), "down migration reentry")
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate))
 		})

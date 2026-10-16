@@ -53,6 +53,15 @@ func TestUpgradeCheckAndDryRun(t *testing.T) {
 	require.ErrorContains(t, dryRunUpgrade(context.Background(), server.Client(), manifest, backup, config, executable, &output), "SHA-256 mismatch")
 }
 
+func TestCurrentDevelopmentVersionDoesNotRelaxManifestVersionValidation(t *testing.T) {
+	current, development, err := parseCurrentUpgradeVersion("v0.8.0-dev")
+	require.NoError(t, err)
+	require.True(t, development)
+	require.Equal(t, [3]uint64{0, 8, 0}, current)
+	_, err = parseUpgradeVersion("v0.8.0-dev")
+	require.Error(t, err, "remote upgrade manifests must still name stable releases")
+}
+
 func TestUpgradeRejectsUntrustedInputAndLiveApply(t *testing.T) {
 	for _, address := range []string{"http://example.com/manifest", "https://user:pass@example.com/manifest", "https://example.com/manifest?token=x"} {
 		_, _, err := checkUpgrade(context.Background(), http.DefaultClient, address)

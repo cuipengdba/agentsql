@@ -9,6 +9,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAuditTaskGrantIDFilterMatchesExactJSONValue(t *testing.T) {
+	opened := openTestStore(t)
+	ctx := context.Background()
+	for _, details := range []string{
+		`{"task_grant_id":"grant-1_%","task_grant_issuer_id":"issuer"}`,
+		`{"task_grant_id":"grant-1-XX","task_grant_issuer_id":"issuer"}`,
+		`{"task_grant_id":"grant-1_%extra"}`,
+		`{"grant_id":"grant-1_%","request_id":"request-one"}`,
+		`{"request_id":"grant-1_%","status":"approved"}`,
+	} {
+		_, err := opened.AuditLogs().Insert(ctx, model.AuditLog{Decision: "deny", DetailsJSON: &details})
+		require.NoError(t, err)
+	}
+	id := "grant-1_%"
+	page, err := opened.AuditLogs().FilteredPage(ctx, model.AuditFilter{TaskGrantID: &id}, 1, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), page.Total)
+	require.Len(t, page.List, 3)
+}
+
 func TestAuditLogRepositoryFilteredPage(t *testing.T) {
 	opened := openTestStore(t)
 	repository := opened.AuditLogs()

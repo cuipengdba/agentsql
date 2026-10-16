@@ -119,12 +119,12 @@ func registerB5Tools(server *mcp.Server, handlers *toolHandlers, options B5Optio
 	}
 	_ = add // typed registrations below keep SDK schemas precise.
 
-	mcp.AddTool(server, &mcp.Tool{Name: "open_session", Description: "创建显式 AgentSQL logical session；返回一次性 continuation secret。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5OpenSessionInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "open_session", Description: "创建显式 AgentSQL logical session；返回一次性 continuation secret。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5OpenSessionInput) (*mcp.CallToolResult, ToolResponse, error) {
 		view, err := options.Service.OpenSession(ctx, handlers.agent.ID, input)
 		response := b5SessionResponse(view, err)
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "close_session", Description: "使用 continuation proof 关闭显式 AgentSQL session。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5SessionInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "close_session", Description: "使用 continuation proof 关闭显式 AgentSQL session。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5SessionInput) (*mcp.CallToolResult, ToolResponse, error) {
 		view, err := options.Service.CloseSession(ctx, handlers.agent.ID, input)
 		response := b5SessionResponse(view, err)
 		if err == nil {
@@ -132,12 +132,12 @@ func registerB5Tools(server *mcp.Server, handlers *toolHandlers, options B5Optio
 		}
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "get_session_status", Description: "查询显式 AgentSQL session 状态；Mcp-Session-Id 仅为 transport metadata。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5SessionInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "get_session_status", Description: "查询显式 AgentSQL session 状态；Mcp-Session-Id 仅为 transport metadata。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5SessionInput) (*mcp.CallToolResult, ToolResponse, error) {
 		view, err := options.Service.SessionStatus(ctx, handlers.agent.ID, input)
 		response := b5SessionResponse(view, err)
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "begin_transaction", Description: "预检完整有序 DML 计划并开始 PostgreSQL transaction；不执行 statement。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5BeginInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "begin_transaction", Description: "预检完整有序 DML 计划并开始 PostgreSQL transaction；不执行 statement。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5BeginInput) (*mcp.CallToolResult, ToolResponse, error) {
 		// A client claiming MySQL can be rejected before any service or business
 		// connection is touched. All potentially enabling PostgreSQL claims are
 		// still ignored by the service, which resolves the datasource dialect and
@@ -164,22 +164,22 @@ func registerB5Tools(server *mcp.Server, handlers *toolHandlers, options B5Optio
 		response := b5ResultResponse(result, err)
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "execute_transaction_statement", Description: "按计划 ordinal 顺序执行一条已 seal 的 DML；SQL 不能在 execute 阶段替换。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5ExecuteInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "execute_transaction_statement", Description: "按计划 ordinal 顺序执行一条已 seal 的 DML；SQL 不能在 execute 阶段替换。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5ExecuteInput) (*mcp.CallToolResult, ToolResponse, error) {
 		result, err := options.Service.Execute(ctx, handlers.agent.ID, input)
 		response := b5ResultResponse(result, err)
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "commit_transaction", Description: "提交已完整执行计划的 transaction，并在 disposition 后执行 final fence。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5FinishInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "commit_transaction", Description: "提交已完整执行计划的 transaction，并在 disposition 后执行 final fence。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5FinishInput) (*mcp.CallToolResult, ToolResponse, error) {
 		result, err := options.Service.Commit(ctx, handlers.agent.ID, input)
 		response := b5ResultResponse(result, err)
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "rollback_transaction", Description: "回滚 transaction，并在 disposition 后执行 final fence。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5FinishInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "rollback_transaction", Description: "回滚 transaction，并在 disposition 后执行 final fence。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5FinishInput) (*mcp.CallToolResult, ToolResponse, error) {
 		result, err := options.Service.Rollback(ctx, handlers.agent.ID, input)
 		response := b5ResultResponse(result, err)
 		return protocolResult(response), response, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{Name: "get_transaction_status", Description: "幂等查询 transaction 状态与 outcome/audit/disposition 三轴。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5FinishInput) (*mcp.CallToolResult, ToolResponse, error) {
+	addAgentTool(server, &mcp.Tool{Name: "get_transaction_status", Description: "幂等查询 transaction 状态与 outcome/audit/disposition 三轴。"}, func(ctx context.Context, _ *mcp.CallToolRequest, input B5FinishInput) (*mcp.CallToolResult, ToolResponse, error) {
 		result, err := options.Service.TransactionStatus(ctx, handlers.agent.ID, input)
 		response := b5ResultResponse(result, err)
 		return protocolResult(response), response, nil

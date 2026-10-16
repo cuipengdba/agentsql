@@ -729,9 +729,15 @@ HEXTORAW('0A0B'),'clob-'||LEVEL FROM DUAL CONNECT BY LEVEL<=2505`,
 	require.Equal(t, [][]string{{"1", "K0001"}}, sessionResult.Rows)
 	require.NoError(t, session.Close())
 
-	_, lineageErr := parser.NewParser(model.DBDialect("dm"))
-	require.ErrorIs(t, lineageErr, parser.ErrUnsupportedDialect)
-	t.Log("DM lineage parser: fail-closed (unsupported dialect); no lineage PASS claimed")
+	sqlParser, err := parser.NewParser(model.DBDialect("dm"))
+	require.NoError(t, err)
+	parsed, err := sqlParser.Parse("SELECT ID,CODE FROM " + ownerName + ".DM28_DATA WHERE ID=1")
+	require.NoError(t, err)
+	require.Equal(t, model.StmtType("SELECT"), parsed.StmtType)
+	require.Len(t, parsed.Tables, 1)
+	require.Equal(t, "DM28_DATA", strings.ToUpper(parsed.Tables[0].Table))
+	require.Len(t, parsed.ProjectionLineages, 2)
+	t.Log("DM direct projection lineage parsed for the live test relation")
 }
 
 func TestOracleDiscoveryE2E(t *testing.T) {

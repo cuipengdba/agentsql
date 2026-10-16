@@ -37,6 +37,21 @@ export function statementLabel(stmtType: string | null | undefined): string {
   return stmtTypeLabels[normalized] || (normalized || "未知语句");
 }
 
+const taskGrantActionLabels: Record<string, string> = {
+  task_read_grant_request: "授权申请",
+  task_read_grant_approve: "授权批准",
+  task_read_grant_reject: "授权拒绝",
+  task_read_grant_issue: "密钥签发",
+  task_read_grant_create: "授权签发",
+  task_read_grant_revoke: "授权撤销",
+};
+
+export function auditActivityLabel(stmtType: string | null | undefined, action: string | null | undefined): string {
+  if (stmtType?.trim()) return statementLabel(stmtType);
+  if (action?.trim()) return taskGrantActionLabels[action] || "管理操作";
+  return statementLabel(stmtType);
+}
+
 export function getDecisionMeta(decision: string | null | undefined): DecisionMeta {
   const normalized = (decision || "").trim().toLowerCase();
   return decisionMeta[normalized as Decision] || {

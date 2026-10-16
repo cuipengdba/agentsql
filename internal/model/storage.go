@@ -81,6 +81,29 @@ type TaskReadGrant struct {
 	CreatedAt    time.Time
 }
 
+// TaskReadGrantRequest is the approval record for one exact-query grant. The
+// SQL is encrypted for authorized reviewer inspection; the execution key is
+// stored only as a digest on the issued grant.
+type TaskReadGrantRequest struct {
+	ID              string
+	TenantID        string
+	RequesterUserID string
+	AgentID         string
+	DatasourceID    string
+	SQLSHA256       string
+	SQLCiphertext   string
+	RequestDigest   string
+	IdempotencyKey  string
+	ExpiresAt       time.Time
+	Status          string
+	ReviewerUserID  *string
+	ReviewedAt      *time.Time
+	IssuedAt        *time.Time
+	GrantID         *string
+	GrantRevokedAt  *time.Time
+	CreatedAt       time.Time
+}
+
 // Datasource is a protected business-database connection target. SQL Server
 // TLS settings are intentionally explicit: an empty TLSMode is normalized to
 // strict by the SQL Server adapter, and plaintext transport is never accepted.

@@ -146,6 +146,15 @@ func parseUpgradeVersion(value string) ([3]uint64, error) {
 	return result, nil
 }
 
+func parseCurrentUpgradeVersion(value string) ([3]uint64, bool, error) {
+	development := strings.HasSuffix(value, "-dev")
+	if development {
+		value = strings.TrimSuffix(value, "-dev")
+	}
+	parsed, err := parseUpgradeVersion(value)
+	return parsed, development, err
+}
+
 func checkUpgrade(ctx context.Context, client *http.Client, address string) (upgradeManifest, string, error) {
 	var manifest upgradeManifest
 	if strings.TrimSpace(address) == "" {
@@ -180,7 +189,7 @@ func checkUpgrade(ctx context.Context, client *http.Client, address string) (upg
 	if _, err := hex.DecodeString(manifest.SHA256); err != nil {
 		return manifest, "", errors.New("manifest SHA-256 is invalid")
 	}
-	current, err := parseUpgradeVersion(version.Version)
+	current, development, err := parseCurrentUpgradeVersion(version.Version)
 	if err != nil {
 		return manifest, "", fmt.Errorf("invalid current version: %w", err)
 	}
@@ -195,6 +204,9 @@ func checkUpgrade(ctx context.Context, client *http.Client, address string) (upg
 		if available[i] < current[i] {
 			return manifest, "older-release", nil
 		}
+	}
+	if development {
+		return manifest, "update-available", nil
 	}
 	return manifest, "up-to-date", nil
 }

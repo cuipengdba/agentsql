@@ -22,13 +22,19 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 		"policy_column_permission_staging", "policy_column_permissions", "audit_logs", "approvals",
 		"notification_settings", "notification_channels", "redaction_key_versions", "management_audit_outbox",
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens",
-		"users", "task_read_grants", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
+		"users", "task_read_grants", "task_read_grant_requests", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
 		"auth_identities", "user_mfa", "user_mfa_recovery_codes", "auth_login_challenges", "oidc_auth_requests",
 		"b5_sessions", "b5_transactions", "b5_dml_grants", "b5_result_receipts", "b5_tx_events",
 	}, names)
 }
 
 func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
+	require.Equal(t, []string{
+		"id", "tenant_id", "requester_user_id", "agent_id", "datasource_id",
+		"sql_sha256", "sql_ciphertext", "request_digest", "idempotency_key",
+		"expires_at", "status", "reviewer_user_id", "reviewed_at", "issued_at",
+		"grant_id", "created_at",
+	}, migrationColumnNames(sqliteToPostgresTableByName(t, "task_read_grant_requests")))
 	maskRuleTable := sqliteToPostgresTableByName(t, "mask_rules")
 	require.Equal(t, []string{
 		"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",
@@ -325,6 +331,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=17 latest=18")
+		require.ErrorContains(t, err, "current=18 latest=19")
 	})
 }

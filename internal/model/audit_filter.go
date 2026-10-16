@@ -14,6 +14,7 @@ type AuditFilter struct {
 	Action       *string
 	ErrorCode    *string
 	EventUUID    *string
+	TaskGrantID  *string
 	Decisions    []string
 	StmtTypes    []string
 	RiskMin      *int
@@ -35,6 +36,7 @@ func (filter AuditFilter) IsEmpty() bool {
 		filter.Action == nil &&
 		filter.ErrorCode == nil &&
 		filter.EventUUID == nil &&
+		filter.TaskGrantID == nil &&
 		len(filter.Decisions) == 0 &&
 		len(filter.StmtTypes) == 0 &&
 		filter.RiskMin == nil &&

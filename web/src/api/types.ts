@@ -87,11 +87,30 @@ export interface TaskReadGrantView {
   api_key?: string;
 }
 
-export interface TaskReadGrantInput {
+export interface TaskReadGrantRequestInput {
   agent_id: string;
   datasource_id: string;
   sql: string;
   expires_at: string;
+  idempotency_key: string;
+}
+
+export interface TaskReadGrantRequestView {
+  id: string;
+  tenant_id: string;
+  requester_user_id: string;
+  agent_id: string;
+  datasource_id: string;
+  sql_sha256: string;
+  sql?: string;
+  expires_at: string;
+  status: "pending" | "approved" | "rejected" | "issued";
+  reviewer_user_id?: string | null;
+  reviewed_at?: string | null;
+  issued_at?: string | null;
+  grant_id?: string | null;
+  grant_revoked_at?: string | null;
+  created_at: string;
 }
 
 export interface DatasourceView {
@@ -299,6 +318,7 @@ export interface AuditQuery extends PageQuery {
   datasource_id?: string;
   session_id?: string;
   mcp_tool?: string;
+  task_grant_id?: string;
   decisions?: string;
   stmt_types?: string;
   risk_min?: number;

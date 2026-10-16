@@ -102,7 +102,7 @@ export const menuRoutes: MenuRoute[] = [
     element: lazyElement(Datasources),
   },
   { key: "policies", path: "/policies", label: "权限", icon: <SafetyOutlined />, element: lazyElement(Policies) },
-  { key: "task-read-grants", path: "/task-read-grants", label: "临时只读授权", icon: <ClockCircleOutlined />, element: lazyElement(TaskReadGrants), permissions: ["strategy.manage", "query.execute"] },
+  { key: "task-read-grants", path: "/task-read-grants", label: "任务授权", icon: <ClockCircleOutlined />, element: lazyElement(TaskReadGrants), permission: "query.execute" },
   { key: "users", path: "/users", label: "用户", icon: <TeamOutlined />, element: lazyElement(Users), group: "settings", permission: "user.manage" },
   { key: "roles", path: "/roles", label: "角色", icon: <IdcardOutlined />, element: lazyElement(Roles), group: "settings", permission: "role.manage" },
   { key: "tenants", path: "/tenants", label: "租户", icon: <ApartmentOutlined />, element: lazyElement(Tenants), group: "settings", permission: "tenant.manage" },

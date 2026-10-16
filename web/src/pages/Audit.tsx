@@ -56,7 +56,8 @@ export function Audit() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const focusParam = searchParams.get("focus");
-  const [appliedFilters, setAppliedFilters] = useState<AppliedAuditQuery>({});
+  const taskGrantParam = searchParams.get("task_grant_id");
+  const [appliedFilters, setAppliedFilters] = useState<AppliedAuditQuery>(() => taskGrantParam ? { task_grant_id: taskGrantParam } : {});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [list, setList] = useState<AuditView[]>([]);
@@ -267,12 +268,15 @@ export function Audit() {
   return (
     <PageContainer
       title="审计"
-      subtitle="追溯每一次模型数据库访问的完整证据链"
+      subtitle="追溯数据库访问与管理操作的完整证据链"
       extra={focusParam !== null ? (
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/playground")}>返回演示台</Button>
       ) : undefined}
     >
       <AuditFilters onApply={applyFilters} />
+      {appliedFilters.task_grant_id ? <Alert className="audit-focus-alert" type="info" showIcon
+        message={`正在查看任务授权 ${appliedFilters.task_grant_id} 的关联审计`}
+        action={<Button size="small" onClick={() => { setAppliedFilters({}); setPage(1); navigate("/audit"); }}>清除授权筛选</Button>} /> : null}
       {focusStatus === "searching" ? (
         <Alert className="audit-focus-alert" type="info" showIcon message={`正在定位审计记录 #${focusParam}…`} />
       ) : focusStatus === "invalid" ? (

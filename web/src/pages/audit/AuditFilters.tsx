@@ -16,6 +16,7 @@ interface FilterFormValues {
   datasource_id?: string;
   session_id?: string;
   mcp_tool?: string;
+  task_grant_id?: string;
   decisions?: string[];
   stmt_types?: string[];
   risk_min?: number;
@@ -51,6 +52,8 @@ function toQuery(values: FilterFormValues): AppliedAuditQuery {
   const mcpTool = compactText(values.mcp_tool);
   if (sessionID) query.session_id = sessionID;
   if (mcpTool) query.mcp_tool = mcpTool;
+  const taskGrantID = compactText(values.task_grant_id);
+  if (taskGrantID) query.task_grant_id = taskGrantID;
   if (values.decisions?.length) query.decisions = values.decisions.join(",");
   if (values.stmt_types?.length) query.stmt_types = values.stmt_types.join(",");
   if (values.risk_min !== undefined) query.risk_min = values.risk_min;
@@ -148,6 +151,11 @@ export function AuditFilters({ onApply }: AuditFiltersProps) {
             <Col xs={24} sm={12} xl={4}>
               <Form.Item name="mcp_tool" label="MCP 工具">
                 <Input allowClear placeholder="query / execute_write" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12} xl={5}>
+              <Form.Item name="task_grant_id" label="任务授权 ID">
+                <Input allowClear placeholder="精确授权 ID" />
               </Form.Item>
             </Col>
             <Col xs={12} sm={6} xl={3}>

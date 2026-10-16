@@ -224,6 +224,12 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/task-read-grants", handler.taskReadGrantsCreate)
 	mux.HandleFunc("GET /api/v1/task-read-grants/{id}", handler.taskReadGrantsGet)
 	mux.HandleFunc("POST /api/v1/task-read-grants/{id}/revoke", handler.taskReadGrantsRevoke)
+	mux.HandleFunc("GET /api/v1/task-read-grant-requests", handler.taskReadGrantRequestsList)
+	mux.HandleFunc("POST /api/v1/task-read-grant-requests", handler.taskReadGrantRequestsCreate)
+	mux.HandleFunc("GET /api/v1/task-read-grant-requests/{id}", handler.taskReadGrantRequestsGet)
+	mux.HandleFunc("POST /api/v1/task-read-grant-requests/{id}/approve", handler.taskReadGrantRequestsApprove)
+	mux.HandleFunc("POST /api/v1/task-read-grant-requests/{id}/reject", handler.taskReadGrantRequestsReject)
+	mux.HandleFunc("POST /api/v1/task-read-grant-requests/{id}/issue", handler.taskReadGrantRequestsIssue)
 	mux.HandleFunc("GET /api/v1/datasources", handler.datasourcesList)
 	mux.HandleFunc("GET /api/v1/datasource-types", handler.datasourceTypesList)
 	mux.HandleFunc("POST /api/v1/datasources", handler.datasourcesCreate)
@@ -381,6 +387,8 @@ func requiredPermission(method, path string) (string, bool) {
 		return rbac.PermissionTenantManage, true
 	case strings.HasPrefix(path, "/api/v1/agents"), strings.HasPrefix(path, "/api/v1/datasources"), path == "/api/v1/datasource-types":
 		return rbac.PermissionDatasourceManage, true
+	case method == http.MethodPost && strings.HasPrefix(path, "/api/v1/task-read-grants/") && strings.HasSuffix(path, "/revoke"):
+		return rbac.PermissionQueryExecute, true
 	case strings.HasPrefix(path, "/api/v1/policies"), strings.HasPrefix(path, "/api/v1/rules"),
 		strings.HasPrefix(path, "/api/v1/task-read-grants"),
 		strings.HasPrefix(path, "/api/v1/mask_rules"), strings.HasPrefix(path, "/api/v1/redaction"),
@@ -390,7 +398,8 @@ func requiredPermission(method, path string) (string, bool) {
 		return rbac.PermissionAuditView, true
 	case path == "/api/v1/system/release":
 		return rbac.PermissionAuditView, true
-	case strings.HasPrefix(path, "/api/v1/approvals"), strings.HasPrefix(path, "/api/v1/playground"), strings.HasPrefix(path, "/api/v1/b5"):
+	case strings.HasPrefix(path, "/api/v1/approvals"), strings.HasPrefix(path, "/api/v1/playground"), strings.HasPrefix(path, "/api/v1/b5"),
+		strings.HasPrefix(path, "/api/v1/task-read-grant-requests"):
 		return rbac.PermissionQueryExecute, true
 	default:
 		_ = method
@@ -1780,6 +1789,12 @@ func auditFilterFromRequest(request *http.Request) (model.AuditFilter, error) {
 	}
 	if value := q.Get("mcp_tool"); value != "" {
 		f.MCPTool = &value
+	}
+	if value := q.Get("task_grant_id"); value != "" {
+		if len(value) > 128 || strings.ContainsAny(value, "\r\n") {
+			return model.AuditFilter{}, fmt.Errorf("invalid task_grant_id")
+		}
+		f.TaskGrantID = &value
 	}
 	f.Decisions = splitCSV(q.Get("decisions"))
 	f.StmtTypes = splitCSV(q.Get("stmt_types"))
