@@ -1,5 +1,15 @@
 # AgentSQL 发布流程与 tag 含义
 
+## v0.9.0 发布执行顺序
+
+1. 完成[发布说明](release-notes-v0.9.0.md)、[验收记录](v0.9-acceptance.md)、官网和三份 v0.9.0 PDF；从同一个干净封板提交运行全仓测试、真实 MCP/数据库回归与同提交 CI。
+2. 从该提交运行双架构 dry-run、`-ProductionPrepare`、Ed25519 三签名及 15 项资产的来源/哈希校验；使用 v0.8.0 官方签名包演练 SQLite 合并库和 PostgreSQL metadata/audit 分库的升级及成套备份恢复。
+3. 推送 annotated `v0.9.0` tag，创建 GitHub Release draft，上传并匿名回下载全部资产验签。从同一 tag 推送 GHCR 主镜像、demo 与 quickstart 的精确版本标签，核对 public、amd64/arm64 manifest、匿名拉取、OCI revision 与运行时健康。
+4. 公开 GitHub Release，成套备份并升级独立 Live Demo 后端到同一精确 demo 镜像；以公网 `/healthz`、`/readyz`、真实演示查询和审计验证版本与链路一致。Demo 验收通过后再部署官网 v0.9.0 页面与 PDF；若升级失败，恢复旧后端及数据快照，不把旧后端展示为 v0.9.0。
+5. 上述入口通过后按已验收 digest 单独提升 GHCR `latest`，再次匿名拉取。记录最终提交、CI、15 项签名资产、镜像摘要、官网与 Demo 外网烟测。
+
+任何签名、升级恢复、匿名拉取或 Demo 实测失败都阻止宣布发布完成；按失败域修复并从新封板提交重新验收。
+
 ## v0.8.0 发布执行顺序
 
 v0.8.0 的功能与隔离验收见 [发布说明](release-notes-v0.8.0.md)和[验收记录](v0.8-acceptance.md)。发行脚本的资产来源、签名和公钥门槛沿用下方已验证流程，但每一项必须从 v0.8.0 最终封板提交重新构建和验收，不能复用 v0.7.0 产物。

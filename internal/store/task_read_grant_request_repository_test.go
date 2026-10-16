@@ -36,11 +36,14 @@ VALUES (?, 'tenant_default', ?, ?, 'test-hash', 'active')`, id, id, id)
 
 func TestTaskReadGrantRequestSeparationIdempotencyAndSingleIssue(t *testing.T) {
 	opened, input := taskGrantRequestFixture(t)
+	two := int64(2)
+	input.MaxUses = &two
 	ctx := context.Background()
 	repository := opened.TaskReadGrantRequests()
 	created, err := repository.Create(ctx, input)
 	require.NoError(t, err)
 	require.Equal(t, "pending", created.Status)
+	require.EqualValues(t, 2, *created.MaxUses)
 	duplicate := input
 	duplicate.ID = "task-request-duplicate"
 	resubmitted, err := repository.Create(ctx, duplicate)
@@ -49,6 +52,11 @@ func TestTaskReadGrantRequestSeparationIdempotencyAndSingleIssue(t *testing.T) {
 	changed := duplicate
 	changed.ID = "task-request-changed"
 	changed.SQLSHA256 = HashAPIKey("different SQL")
+	_, err = repository.Create(ctx, changed)
+	require.ErrorIs(t, err, ErrTaskReadGrantRequestConflict)
+	changed = duplicate
+	three := int64(3)
+	changed.MaxUses = &three
 	_, err = repository.Create(ctx, changed)
 	require.ErrorIs(t, err, ErrTaskReadGrantRequestConflict)
 	_, err = repository.Review(ctx, created.ID, input.RequesterUserID, true)
@@ -71,6 +79,8 @@ func TestTaskReadGrantRequestSeparationIdempotencyAndSingleIssue(t *testing.T) {
 	grants, err := opened.TaskReadGrants().List(ctx)
 	require.NoError(t, err)
 	require.Len(t, grants, 1)
+	require.EqualValues(t, 2, *grants[0].MaxUses)
+	require.Zero(t, grants[0].UsedCount)
 	matched, err := opened.Agents().GetByAPIKeyHash(ctx, HashAPIKey(key))
 	require.NoError(t, err)
 	require.Equal(t, "grant-from-request", matched.TaskGrantID)
@@ -122,12 +132,15 @@ func TestTaskReadGrantRequestRollbackRevokesIssuedKeys(t *testing.T) {
 	require.NoError(t, err)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 19, current)
+	require.Equal(t, 20, current)
 	require.Equal(t, current, latest)
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current))
-	grant, err := opened.TaskReadGrants().Get(ctx, "rollback-grant")
-	require.NoError(t, err)
-	require.NotNil(t, grant.RevokedAt)
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-1))
+	var revokedCount int
+	require.NoError(t, opened.metaDB.QueryRowContext(ctx,
+		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NOT NULL`,
+		"rollback-grant").Scan(&revokedCount))
+	require.Equal(t, 1, revokedCount)
 	require.NoError(t, MigrateMetadata(ctx, opened.metaDB, DialectSQLite, false))
 }
 
@@ -154,13 +167,14 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 
 	raw, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
+	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 20))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 19))
 	require.NoError(t, raw.Close())
 	backup, err := os.ReadFile(path)
 	require.NoError(t, err)
 	options := MetadataOptions{Driver: DialectSQLite, SQLitePath: path, AutoMigrate: false}
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=18 latest=19")
+	require.ErrorContains(t, err, "current=18 latest=20")
 	raw, err = sql.Open("sqlite", path)
 	require.NoError(t, err)
 	require.NoError(t, MigrateMetadata(ctx, raw, DialectSQLite, false))
@@ -179,7 +193,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 	current, latest, err := MetadataMigrationVersions(ctx, raw, DialectSQLite, false)
 	require.NoError(t, err)
 	require.Equal(t, 18, current)
-	require.Equal(t, 19, latest)
+	require.Equal(t, 20, latest)
 	var stillPresent int
 	require.NoError(t, raw.QueryRowContext(ctx,
 		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NULL`, legacy.ID).Scan(&stillPresent))

@@ -283,6 +283,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "datasource_id", kind: migrationText}, {name: "sql_sha256", kind: migrationText},
 		{name: "key_hash", kind: migrationText}, {name: "expires_at", kind: migrationTime},
 		{name: "revoked_at", kind: migrationTime}, {name: "created_at", kind: migrationTime},
+		{name: "max_uses", kind: migrationInt64}, {name: "used_count", kind: migrationInt64},
 	}},
 	{name: "task_read_grant_requests", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
@@ -293,6 +294,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "status", kind: migrationText}, {name: "reviewer_user_id", kind: migrationText},
 		{name: "reviewed_at", kind: migrationTime}, {name: "issued_at", kind: migrationTime},
 		{name: "grant_id", kind: migrationText}, {name: "created_at", kind: migrationTime},
+		{name: "max_uses", kind: migrationInt64},
 	}},
 	{name: "permissions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "code", kind: migrationText}, {name: "description", kind: migrationText},

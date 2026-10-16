@@ -29,7 +29,7 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 
 - 只发布 `public/` 内容；不得把 `deploy/`、仓库根目录、`.git/` 或环境文件放入文档根。
 - 阶段 A 只监听 `127.0.0.1:8080`，通过 SSH 隧道预览；备案、DNS 和防火墙就绪后才切换阶段 B。
-- v0.8.0 页面仅在对应 GitHub Release、双架构镜像和版本化 PDF 通过验收后部署；Release 按钮固定指向 `https://github.com/cuipengdba/agentsql/releases/tag/v0.8.0`。
+- v0.9.0 页面仅在对应 GitHub Release、双架构镜像和版本化 PDF 通过验收后部署；Release 按钮固定指向 `https://github.com/cuipengdba/agentsql/releases/tag/v0.9.0`。
 - 站点没有 Cookie 或第三方统计。Caddy 访问日志默认按配置保留 720 小时。
 - 开源授权链接指向仓库 `LICENSE`；商业授权链接指向已存在的 `COMMERCIAL-LICENSE.md`。
 

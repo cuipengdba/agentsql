@@ -16,6 +16,7 @@ import (
 var ErrTaskReadGrantInvalid = errors.New("invalid task read grant")
 
 const MaxTaskReadGrantDuration = 24 * time.Hour
+const MaxTaskReadGrantUses int64 = 10
 
 type TaskReadGrantRepository struct{ repositoryBase }
 
@@ -31,20 +32,21 @@ func (repository *TaskReadGrantRepository) Create(ctx context.Context, grant mod
 		strings.TrimSpace(grant.IssuerUserID) == "" || strings.TrimSpace(grant.AgentID) == "" ||
 		strings.TrimSpace(grant.DatasourceID) == "" || validateAPIKeyHash(grant.KeyHash) != nil ||
 		validateAPIKeyHash(grant.SQLSHA256) != nil || !grant.ExpiresAt.After(now) ||
-		grant.ExpiresAt.After(now.Add(MaxTaskReadGrantDuration)) || grant.RevokedAt != nil {
+		grant.ExpiresAt.After(now.Add(MaxTaskReadGrantDuration)) || grant.RevokedAt != nil ||
+		grant.UsedCount != 0 || (grant.MaxUses != nil && (*grant.MaxUses < 1 || *grant.MaxUses > MaxTaskReadGrantUses)) {
 		return model.TaskReadGrant{}, ErrTaskReadGrantInvalid
 	}
 	result, err := repository.db.ExecContext(ctx, repository.bind(`
 INSERT INTO task_read_grants
-  (id, tenant_id, issuer_user_id, agent_id, datasource_id, sql_sha256, key_hash, expires_at)
-SELECT ?, ?, ?, ?, ?, ?, ?, ?
+  (id, tenant_id, issuer_user_id, agent_id, datasource_id, sql_sha256, key_hash, expires_at, max_uses)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
 WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND tenant_id = ? AND status = 'active')
   AND EXISTS (SELECT 1 FROM tenants WHERE id = ? AND status = 'active')
   AND EXISTS (SELECT 1 FROM agents WHERE id = ? AND tenant_id = ? AND status = 'active'
               AND (expires_at IS NULL OR expires_at > ?))
   AND EXISTS (SELECT 1 FROM datasources WHERE id = ? AND tenant_id = ?)`),
 		grant.ID, tenantID, grant.IssuerUserID, grant.AgentID, grant.DatasourceID,
-		grant.SQLSHA256, grant.KeyHash, grant.ExpiresAt.UTC(),
+		grant.SQLSHA256, grant.KeyHash, grant.ExpiresAt.UTC(), grant.MaxUses,
 		grant.IssuerUserID, tenantID, tenantID, grant.AgentID, tenantID, now,
 		grant.DatasourceID, tenantID,
 	)
@@ -68,7 +70,7 @@ func (repository *TaskReadGrantRepository) Get(ctx context.Context, id string) (
 	}
 	grant, err := scanTaskReadGrant(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT id, tenant_id, issuer_user_id, agent_id, datasource_id, sql_sha256,
-       key_hash, expires_at, revoked_at, created_at
+       key_hash, expires_at, revoked_at, created_at, max_uses, used_count
 FROM task_read_grants WHERE id = ? AND tenant_id = ?`), id, tenantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.TaskReadGrant{}, ErrNotFound
@@ -91,7 +93,7 @@ func (repository *TaskReadGrantRepository) Validate(
 	}
 	grant, err := scanTaskReadGrant(repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT g.id, g.tenant_id, g.issuer_user_id, g.agent_id, g.datasource_id, g.sql_sha256,
-       g.key_hash, g.expires_at, g.revoked_at, g.created_at
+       g.key_hash, g.expires_at, g.revoked_at, g.created_at, g.max_uses, g.used_count
 FROM task_read_grants AS g
 JOIN agents AS a ON a.id = g.agent_id AND a.tenant_id = g.tenant_id
 JOIN datasources AS d ON d.id = g.datasource_id AND d.tenant_id = g.tenant_id
@@ -107,10 +109,47 @@ WHERE g.id = ? AND g.tenant_id = ? AND a.status = 'active' AND u.status = 'activ
 		return model.TaskReadGrant{}, fmt.Errorf("validate task read grant: %w", err)
 	}
 	if grant.AgentID != agentID || grant.DatasourceID != datasourceID ||
-		grant.SQLSHA256 != sqlSHA256 || grant.RevokedAt != nil || !now.Before(grant.ExpiresAt) {
+		grant.SQLSHA256 != sqlSHA256 || grant.RevokedAt != nil || !now.Before(grant.ExpiresAt) ||
+		(grant.MaxUses != nil && grant.UsedCount >= *grant.MaxUses) {
 		return model.TaskReadGrant{}, ErrTaskReadGrantInvalid
 	}
 	return grant, nil
+}
+
+// Consume claims one bounded result before the gateway returns it. The
+// conditional UPDATE is the cross-instance fence: concurrent requests may
+// execute, but no more than max_uses can return a result. A consumed slot is
+// deliberately not refunded after a later transport failure.
+func (repository *TaskReadGrantRepository) Consume(
+	ctx context.Context, id, tenantID, agentID, datasourceID, sqlSHA256 string, now time.Time,
+) error {
+	if ctx == nil || strings.TrimSpace(id) == "" || strings.TrimSpace(tenantID) == "" ||
+		strings.TrimSpace(agentID) == "" || strings.TrimSpace(datasourceID) == "" ||
+		validateAPIKeyHash(sqlSHA256) != nil || now.IsZero() {
+		return ErrTaskReadGrantInvalid
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
+UPDATE task_read_grants SET used_count = used_count + 1
+WHERE id = ? AND tenant_id = ? AND agent_id = ? AND datasource_id = ? AND sql_sha256 = ?
+  AND revoked_at IS NULL AND expires_at > ? AND max_uses IS NOT NULL AND used_count < max_uses
+  AND EXISTS (SELECT 1 FROM tenants WHERE id = ? AND status = 'active')
+  AND EXISTS (SELECT 1 FROM users WHERE id = issuer_user_id AND tenant_id = ? AND status = 'active')
+  AND EXISTS (SELECT 1 FROM agents WHERE id = ? AND tenant_id = ? AND status = 'active'
+              AND (expires_at IS NULL OR expires_at > ?))
+  AND EXISTS (SELECT 1 FROM datasources WHERE id = ? AND tenant_id = ?)`),
+		id, tenantID, agentID, datasourceID, sqlSHA256, now.UTC(),
+		tenantID, tenantID, agentID, tenantID, now.UTC(), datasourceID, tenantID)
+	if err != nil {
+		return fmt.Errorf("consume task read grant: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("consume task read grant: %w", err)
+	}
+	if affected != 1 {
+		return ErrTaskReadGrantInvalid
+	}
+	return nil
 }
 
 func (repository *TaskReadGrantRepository) List(ctx context.Context) ([]model.TaskReadGrant, error) {
@@ -120,7 +159,7 @@ func (repository *TaskReadGrantRepository) List(ctx context.Context) ([]model.Ta
 	}
 	rows, err := repository.db.QueryContext(ctx, repository.bind(`
 SELECT id, tenant_id, issuer_user_id, agent_id, datasource_id, sql_sha256,
-       key_hash, expires_at, revoked_at, created_at
+       key_hash, expires_at, revoked_at, created_at, max_uses, used_count
 FROM task_read_grants WHERE tenant_id = ? ORDER BY created_at DESC, id DESC`), tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list task read grants: %w", err)
@@ -161,10 +200,11 @@ WHERE id = ? AND tenant_id = ?`), time.Now().UTC(), id, tenantID)
 
 func scanTaskReadGrant(scanner rowScanner) (model.TaskReadGrant, error) {
 	var grant model.TaskReadGrant
+	var maxUses sql.NullInt64
 	var expiresAt, revokedAt, createdAt databaseTimestamp
 	if err := scanner.Scan(&grant.ID, &grant.TenantID, &grant.IssuerUserID,
 		&grant.AgentID, &grant.DatasourceID, &grant.SQLSHA256, &grant.KeyHash,
-		&expiresAt, &revokedAt, &createdAt); err != nil {
+		&expiresAt, &revokedAt, &createdAt, &maxUses, &grant.UsedCount); err != nil {
 		return model.TaskReadGrant{}, err
 	}
 	var err error
@@ -177,5 +217,8 @@ func scanTaskReadGrant(scanner rowScanner) (model.TaskReadGrant, error) {
 		return model.TaskReadGrant{}, err
 	}
 	grant.RevokedAt = revokedAt.pointer()
+	if maxUses.Valid {
+		grant.MaxUses = &maxUses.Int64
+	}
 	return grant, nil
 }

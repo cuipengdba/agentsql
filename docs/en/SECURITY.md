@@ -108,7 +108,7 @@ Never reuse or derive the redaction hash key from `AGENTSQL_SECRET`. `hash` is a
 
 For a direct top-level projection that can be mapped to a physical table, a table-scoped rule matches the source table and column. JOIN bare columns, `SELECT *`, and outer CTE projections can make lineage uncertain. If an unresolved result column matches a protected table-scoped column and that table may participate in the statement, AgentSQL fails closed for that cell by replacing every non-empty value with `***`; this fallback cannot be disabled.
 
-Qualify protected columns with a table name or alias and avoid `SELECT *`. Complex expressions, aliases, aggregation, casts, UNIONs, and view-internal renames can still defeat source-column attribution. Result masking is therefore not complete DLP.
+PostgreSQL/MySQL regression cases cover derived expressions, aliases, aggregation, casts, UNIONs, CTEs, and selected view references: proven lineage follows the column rule; uncertain lineage that may involve protected data is blocked with `***`. Unknown database functions, view internals, statistical side channels, and direct database access remain outside this result-layer guarantee. Result masking is not complete DLP.
 
 ## Secrets and Authentication
 

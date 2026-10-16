@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +24,7 @@ var (
 )
 
 const taskRequestColumns = `id, tenant_id, requester_user_id, agent_id, datasource_id,
-  sql_sha256, sql_ciphertext, request_digest, idempotency_key, expires_at, status,
+	  sql_sha256, sql_ciphertext, request_digest, idempotency_key, expires_at, max_uses, status,
 	  reviewer_user_id, reviewed_at, issued_at, grant_id, created_at,
 	  (SELECT revoked_at FROM task_read_grants WHERE id = task_read_grant_requests.grant_id)`
 
@@ -38,6 +39,10 @@ type TaskReadGrantRequestRepository struct {
 func taskRequestDigest(request model.TaskReadGrantRequest) string {
 	input := strings.Join([]string{request.AgentID, request.DatasourceID,
 		request.SQLSHA256, request.ExpiresAt.UTC().Format(time.RFC3339Nano)}, "\x00")
+	// Preserve v0.8 idempotency digests for requests without a usage budget.
+	if request.MaxUses != nil {
+		input += "\x00max_uses=" + strconv.FormatInt(*request.MaxUses, 10)
+	}
 	digest := sha256.Sum256([]byte(input))
 	return hex.EncodeToString(digest[:])
 }
@@ -53,7 +58,8 @@ func (repository *TaskReadGrantRequestRepository) Create(ctx context.Context, re
 		strings.TrimSpace(request.DatasourceID) == "" || validateAPIKeyHash(request.SQLSHA256) != nil ||
 		strings.TrimSpace(request.SQLCiphertext) == "" ||
 		!taskRequestKeyPattern.MatchString(request.IdempotencyKey) || !request.ExpiresAt.After(now) ||
-		request.ExpiresAt.After(now.Add(MaxTaskReadGrantDuration)) {
+		request.ExpiresAt.After(now.Add(MaxTaskReadGrantDuration)) ||
+		(request.MaxUses != nil && (*request.MaxUses < 1 || *request.MaxUses > MaxTaskReadGrantUses)) {
 		return model.TaskReadGrantRequest{}, ErrTaskReadGrantRequestInvalid
 	}
 	request.RequestDigest = taskRequestDigest(request)
@@ -66,8 +72,8 @@ func (repository *TaskReadGrantRequestRepository) Create(ctx context.Context, re
 	result, err := tx.ExecContext(ctx, repository.bind(`
 INSERT INTO task_read_grant_requests
   (id, tenant_id, requester_user_id, agent_id, datasource_id, sql_sha256,
-   sql_ciphertext, request_digest, idempotency_key, expires_at)
-SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+   sql_ciphertext, request_digest, idempotency_key, expires_at, max_uses)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND tenant_id = ? AND status = 'active')
   AND EXISTS (SELECT 1 FROM tenants WHERE id = ? AND status = 'active')
   AND EXISTS (SELECT 1 FROM agents WHERE id = ? AND tenant_id = ? AND status = 'active'
@@ -75,7 +81,7 @@ WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND tenant_id = ? AND status = 'a
   AND EXISTS (SELECT 1 FROM datasources WHERE id = ? AND tenant_id = ?)
 ON CONFLICT (tenant_id, requester_user_id, idempotency_key) DO NOTHING`),
 		request.ID, tenantID, request.RequesterUserID, request.AgentID, request.DatasourceID,
-		request.SQLSHA256, request.SQLCiphertext, request.RequestDigest, request.IdempotencyKey, request.ExpiresAt.UTC(),
+		request.SQLSHA256, request.SQLCiphertext, request.RequestDigest, request.IdempotencyKey, request.ExpiresAt.UTC(), request.MaxUses,
 		request.RequesterUserID, tenantID, tenantID, request.AgentID, tenantID, now,
 		request.DatasourceID, tenantID)
 	if err != nil {
@@ -246,8 +252,8 @@ WHERE id = ? AND tenant_id = ? AND requester_user_id = ? AND status = 'approved'
 	}
 	result, err = tx.ExecContext(ctx, repository.bind(`
 INSERT INTO task_read_grants
-  (id, tenant_id, issuer_user_id, agent_id, datasource_id, sql_sha256, key_hash, expires_at)
-SELECT ?, r.tenant_id, r.requester_user_id, r.agent_id, r.datasource_id, r.sql_sha256, ?, r.expires_at
+  (id, tenant_id, issuer_user_id, agent_id, datasource_id, sql_sha256, key_hash, expires_at, max_uses)
+SELECT ?, r.tenant_id, r.requester_user_id, r.agent_id, r.datasource_id, r.sql_sha256, ?, r.expires_at, r.max_uses
 FROM task_read_grant_requests AS r
 WHERE r.id = ? AND r.tenant_id = ? AND r.status = 'issued'
   AND EXISTS (SELECT 1 FROM agents WHERE id = r.agent_id AND tenant_id = r.tenant_id
@@ -283,8 +289,9 @@ func (repository *TaskReadGrantRequestRepository) writeAudit(ctx context.Context
 		RequestID string  `json:"request_id"`
 		GrantID   *string `json:"grant_id,omitempty"`
 		SQLSHA256 string  `json:"sql_sha256"`
+		MaxUses   *int64  `json:"max_uses,omitempty"`
 		Status    string  `json:"status"`
-	}{request.ID, request.GrantID, request.SQLSHA256, request.Status})
+	}{request.ID, request.GrantID, request.SQLSHA256, request.MaxUses, request.Status})
 	if err != nil {
 		return err
 	}
@@ -307,10 +314,11 @@ func (repository *TaskReadGrantRequestRepository) writeAudit(ctx context.Context
 func scanTaskReadGrantRequest(scanner rowScanner) (model.TaskReadGrantRequest, error) {
 	var request model.TaskReadGrantRequest
 	var reviewer, grantID sql.NullString
+	var maxUses sql.NullInt64
 	var expiresAt, reviewedAt, issuedAt, createdAt, grantRevokedAt databaseTimestamp
 	if err := scanner.Scan(&request.ID, &request.TenantID, &request.RequesterUserID,
 		&request.AgentID, &request.DatasourceID, &request.SQLSHA256, &request.SQLCiphertext,
-		&request.RequestDigest, &request.IdempotencyKey, &expiresAt, &request.Status,
+		&request.RequestDigest, &request.IdempotencyKey, &expiresAt, &maxUses, &request.Status,
 		&reviewer, &reviewedAt, &issuedAt, &grantID, &createdAt, &grantRevokedAt); err != nil {
 		return model.TaskReadGrantRequest{}, err
 	}
@@ -324,6 +332,9 @@ func scanTaskReadGrantRequest(scanner rowScanner) (model.TaskReadGrantRequest, e
 		return model.TaskReadGrantRequest{}, err
 	}
 	request.ReviewerUserID = stringPointer(reviewer)
+	if maxUses.Valid {
+		request.MaxUses = &maxUses.Int64
+	}
 	request.GrantID = stringPointer(grantID)
 	request.GrantRevokedAt = grantRevokedAt.pointer()
 	request.ReviewedAt = reviewedAt.pointer()

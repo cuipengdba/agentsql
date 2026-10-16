@@ -33,7 +33,7 @@ func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
 		"id", "tenant_id", "requester_user_id", "agent_id", "datasource_id",
 		"sql_sha256", "sql_ciphertext", "request_digest", "idempotency_key",
 		"expires_at", "status", "reviewer_user_id", "reviewed_at", "issued_at",
-		"grant_id", "created_at",
+		"grant_id", "created_at", "max_uses",
 	}, migrationColumnNames(sqliteToPostgresTableByName(t, "task_read_grant_requests")))
 	maskRuleTable := sqliteToPostgresTableByName(t, "mask_rules")
 	require.Equal(t, []string{
@@ -184,7 +184,7 @@ func TestSQLiteToPostgresMigrationManifestCoversMetadataTables(t *testing.T) {
 	require.Contains(t, migrationTableNames(metadataTables), "notification_channels")
 	require.Contains(t, migrationTableNames(metadataTables), "task_read_grants")
 	require.Equal(t, []string{"id", "tenant_id", "issuer_user_id", "agent_id", "datasource_id",
-		"sql_sha256", "key_hash", "expires_at", "revoked_at", "created_at"},
+		"sql_sha256", "key_hash", "expires_at", "revoked_at", "created_at", "max_uses", "used_count"},
 		migrationColumnNames(sqliteToPostgresTableByName(t, "task_read_grants")))
 
 	ctx := context.Background()
@@ -331,6 +331,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=18 latest=19")
+		require.ErrorContains(t, err, "current=19 latest=20")
 	})
 }

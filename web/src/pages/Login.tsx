@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { authConfig, ldapLogin, login, me, verifyMFA } from "@/api/auth";
-import { fetchDemoProjection } from "@/api/health";
 import type { HumanAuthConfig, LoginInput, LoginView } from "@/api/types";
 import { useAuthStore } from "@/store/authStore";
 
@@ -27,12 +26,14 @@ export function Login() {
 
   useEffect(() => {
     let active = true;
-    void authConfig().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
-    void fetchDemoProjection().then((demo) => {
-      if (!active || !demo?.adminUsername || !demo.adminPassword) return;
-      form.setFieldsValue({ username: demo.adminUsername, password: demo.adminPassword });
-      setDemoCredentialsLoaded(true);
-    });
+    void authConfig().then((value) => {
+      if (!active) return;
+      setConfiguration(value);
+      if (value.demo_admin_username && value.demo_admin_password) {
+        form.setFieldsValue({ username: value.demo_admin_username, password: value.demo_admin_password });
+        setDemoCredentialsLoaded(true);
+      }
+    }).catch(() => undefined);
     return () => { active = false; };
   }, [form]);
 

@@ -25,7 +25,7 @@ func TestTaskReadGrantRequestPostgresSplitAuditE2E(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 18, current)
+	require.Equal(t, 19, current)
 	require.Equal(t, current, latest)
 	agent, datasource := createPolicyDependencies(t, opened)
 	for _, id := range []string{"pg-requester", "pg-reviewer"} {
@@ -36,11 +36,12 @@ func TestTaskReadGrantRequestPostgresSplitAuditE2E(t *testing.T) {
 		require.NoError(t, err)
 	}
 	sqlDigest := sha256.Sum256([]byte("SELECT id FROM public.orders LIMIT 1"))
+	maxUses := int64(1)
 	input := model.TaskReadGrantRequest{
 		ID: "pg-request-one", TenantID: DefaultTenantID, RequesterUserID: "pg-requester",
 		AgentID: agent.ID, DatasourceID: datasource.ID, SQLSHA256: hex.EncodeToString(sqlDigest[:]),
 		SQLCiphertext: "encrypted-sql-test-value", IdempotencyKey: "pg-request-key-one",
-		ExpiresAt: time.Now().Add(time.Hour),
+		ExpiresAt: time.Now().Add(time.Hour), MaxUses: &maxUses,
 	}
 	repository := opened.TaskReadGrantRequests()
 	created, err := repository.Create(ctx, input)
@@ -57,7 +58,21 @@ func TestTaskReadGrantRequestPostgresSplitAuditE2E(t *testing.T) {
 	grant, err := opened.TaskReadGrants().Get(ctx, "pg-task-grant")
 	require.NoError(t, err)
 	require.Equal(t, input.SQLSHA256, grant.SQLSHA256)
+	require.NotNil(t, grant.MaxUses)
+	require.EqualValues(t, 1, *grant.MaxUses)
+	require.NoError(t, opened.TaskReadGrants().Consume(ctx, grant.ID, grant.TenantID, grant.AgentID, grant.DatasourceID, grant.SQLSHA256, time.Now()))
+	require.ErrorIs(t, opened.TaskReadGrants().Consume(ctx, grant.ID, grant.TenantID, grant.AgentID, grant.DatasourceID, grant.SQLSHA256, time.Now()), ErrTaskReadGrantInvalid)
+	consumed, err := opened.TaskReadGrants().Get(ctx, grant.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, consumed.UsedCount)
 	pending, _, err := opened.Outbox().PendingStats(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 3, pending, "request, approval, and issue must each enqueue one audit event")
+	tenantCtx, err := WithTenant(ctx, DefaultTenantID)
+	require.NoError(t, err)
+	tenantPending, retrying, oldestAge, err := opened.Outbox().TenantPendingStats(tenantCtx)
+	require.NoError(t, err)
+	require.Equal(t, pending, tenantPending)
+	require.Zero(t, retrying)
+	require.GreaterOrEqual(t, oldestAge, time.Duration(0))
 }

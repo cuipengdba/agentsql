@@ -22,6 +22,7 @@ type taskReadGrantRequestInput struct {
 	SQL            string    `json:"sql"`
 	ExpiresAt      time.Time `json:"expires_at"`
 	IdempotencyKey string    `json:"idempotency_key"`
+	MaxUses        *int64    `json:"max_uses,omitempty"`
 }
 
 type taskReadGrantRequestView struct {
@@ -31,6 +32,7 @@ type taskReadGrantRequestView struct {
 	AgentID         string     `json:"agent_id"`
 	DatasourceID    string     `json:"datasource_id"`
 	SQLSHA256       string     `json:"sql_sha256"`
+	MaxUses         *int64     `json:"max_uses,omitempty"`
 	SQL             string     `json:"sql,omitempty"`
 	ExpiresAt       time.Time  `json:"expires_at"`
 	Status          string     `json:"status"`
@@ -46,7 +48,7 @@ func taskReadGrantRequestToView(request model.TaskReadGrantRequest) taskReadGran
 	return taskReadGrantRequestView{
 		ID: request.ID, TenantID: request.TenantID, RequesterUserID: request.RequesterUserID,
 		AgentID: request.AgentID, DatasourceID: request.DatasourceID, SQLSHA256: request.SQLSHA256,
-		ExpiresAt: request.ExpiresAt, Status: request.Status,
+		MaxUses: request.MaxUses, ExpiresAt: request.ExpiresAt, Status: request.Status,
 		ReviewerUserID: request.ReviewerUserID, ReviewedAt: request.ReviewedAt,
 		IssuedAt: request.IssuedAt, GrantID: request.GrantID,
 		GrantRevokedAt: request.GrantRevokedAt, CreatedAt: request.CreatedAt,
@@ -79,9 +81,16 @@ func (handler *Handler) taskReadGrantRequestsCreate(writer http.ResponseWriter, 
 	now := time.Now().UTC()
 	if strings.TrimSpace(input.AgentID) == "" || strings.TrimSpace(input.DatasourceID) == "" ||
 		strings.TrimSpace(input.SQL) == "" || !input.ExpiresAt.After(now) ||
-		input.ExpiresAt.After(now.Add(store.MaxTaskReadGrantDuration)) {
+		input.ExpiresAt.After(now.Add(store.MaxTaskReadGrantDuration)) ||
+		(input.MaxUses != nil && (*input.MaxUses < 1 || *input.MaxUses > store.MaxTaskReadGrantUses)) {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid task read grant request")
 		return
+	}
+	// Newly requested keys are bounded even when older clients omit max_uses.
+	// NULL remains reserved for grants that already existed before v0.9.
+	if input.MaxUses == nil {
+		defaultUses := int64(1)
+		input.MaxUses = &defaultUses
 	}
 	agent, err := handler.deps.Runtime.Store.Agents().Get(request.Context(), input.AgentID)
 	if err != nil || agent.TenantID != principal.TenantID || agent.Status != "active" ||
@@ -118,7 +127,7 @@ func (handler *Handler) taskReadGrantRequestsCreate(writer http.ResponseWriter, 
 		ID: uuid.NewString(), TenantID: principal.TenantID, RequesterUserID: principal.UserID,
 		AgentID: agent.ID, DatasourceID: datasource.ID, SQLSHA256: hex.EncodeToString(digest[:]),
 		SQLCiphertext:  ciphertext,
-		IdempotencyKey: input.IdempotencyKey, ExpiresAt: input.ExpiresAt.UTC(),
+		IdempotencyKey: input.IdempotencyKey, MaxUses: input.MaxUses, ExpiresAt: input.ExpiresAt.UTC(),
 	})
 	if err != nil {
 		switch {
@@ -288,6 +297,6 @@ func (handler *Handler) taskReadGrantRequestsIssue(writer http.ResponseWriter, r
 	handler.ok(writer, taskReadGrantView{
 		ID: grantID, TenantID: item.TenantID, IssuerUserID: item.RequesterUserID,
 		AgentID: item.AgentID, DatasourceID: item.DatasourceID,
-		ExpiresAt: item.ExpiresAt, CreatedAt: *item.IssuedAt, APIKey: key,
+		MaxUses: item.MaxUses, ExpiresAt: item.ExpiresAt, CreatedAt: *item.IssuedAt, APIKey: key,
 	})
 }

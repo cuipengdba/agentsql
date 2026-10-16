@@ -638,23 +638,24 @@ func (run *pipelineRun) closeUnusedSession() error {
 }
 
 type pipelineRun struct {
-	pipeline        *Pipeline
-	request         Request
-	started         time.Time
-	stageLatency    map[string]int64
-	response        Response
-	agent           *model.Agent
-	datasource      *model.Datasource
-	policy          *model.PolicyDecision
-	ruleLayer       engine.RuleLayer
-	ast             *model.AST
-	statement       executor.Statement
-	executionResult *model.QueryResult
-	reservation     *requestLimiter
-	storedPolicies  []model.Policy
-	auditAttempts   int
-	auditAnchorID   int64
-	mode            pipelineRunMode
+	pipeline         *Pipeline
+	request          Request
+	started          time.Time
+	stageLatency     map[string]int64
+	response         Response
+	agent            *model.Agent
+	datasource       *model.Datasource
+	policy           *model.PolicyDecision
+	ruleLayer        engine.RuleLayer
+	ast              *model.AST
+	statement        executor.Statement
+	executionResult  *model.QueryResult
+	reservation      *requestLimiter
+	storedPolicies   []model.Policy
+	auditAttempts    int
+	auditAnchorID    int64
+	taskGrantMaxUses *int64
+	mode             pipelineRunMode
 }
 
 // A task grant only narrows the permanent Agent authority. Revalidation is
@@ -678,6 +679,24 @@ func (run *pipelineRun) checkTaskReadGrant(ctx context.Context) error {
 		return fmt.Errorf("validate task read grant: %w", ErrTaskGrantUnavailable)
 	}
 	run.response.taskGrantIssuerID = grant.IssuerUserID
+	run.taskGrantMaxUses = grant.MaxUses
+	return nil
+}
+
+func (run *pipelineRun) consumeTaskReadGrant(ctx context.Context) error {
+	if run.taskGrantMaxUses == nil {
+		return nil // v0.8 grants remain valid without a usage budget.
+	}
+	digest := sha256.Sum256([]byte(run.request.SQL))
+	err := run.pipeline.ports.TaskReadGrants.Consume(ctx, run.agent.TaskGrantID,
+		run.agent.TenantID, run.agent.ID, run.datasource.ID,
+		hex.EncodeToString(digest[:]), time.Now().UTC())
+	if errors.Is(err, store.ErrTaskReadGrantInvalid) {
+		return &executor.AuthError{Reason: executor.ReasonAgentDenied}
+	}
+	if err != nil {
+		return fmt.Errorf("consume task read grant: %w", ErrTaskGrantUnavailable)
+	}
 	return nil
 }
 
@@ -829,7 +848,11 @@ func (run *pipelineRun) finishWithAudit(
 	// revocation window but cannot make response transmission atomic with a
 	// concurrent revoke on another gateway instance.
 	if finalError == nil && run.agent != nil && run.agent.TaskGrantID != "" && run.response.Result != nil {
-		if grantErr := run.checkTaskReadGrant(ctx); grantErr != nil {
+		grantErr := run.checkTaskReadGrant(ctx)
+		if grantErr == nil {
+			grantErr = run.consumeTaskReadGrant(ctx)
+		}
+		if grantErr != nil {
 			run.setFailure(grantErr)
 			decision := string(model.DecisionError)
 			if expectedAuthorizationFailure(grantErr) {

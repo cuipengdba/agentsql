@@ -36,6 +36,8 @@ export interface HumanAuthConfig {
   mfa_enabled: boolean;
   oidc_enabled: boolean;
   ldap_enabled: boolean;
+  demo_admin_username?: string;
+  demo_admin_password?: string;
 }
 
 export interface AdminView {
@@ -81,6 +83,8 @@ export interface TaskReadGrantView {
   issuer_user_id: string;
   agent_id: string;
   datasource_id: string;
+  max_uses?: number | null;
+  used_count: number;
   expires_at: string;
   revoked_at?: string | null;
   created_at: string;
@@ -93,6 +97,7 @@ export interface TaskReadGrantRequestInput {
   sql: string;
   expires_at: string;
   idempotency_key: string;
+  max_uses?: number;
 }
 
 export interface TaskReadGrantRequestView {
@@ -102,6 +107,7 @@ export interface TaskReadGrantRequestView {
   agent_id: string;
   datasource_id: string;
   sql_sha256: string;
+  max_uses?: number | null;
   sql?: string;
   expires_at: string;
   status: "pending" | "approved" | "rejected" | "issued";
@@ -400,6 +406,22 @@ export interface DashboardSummary {
   risk_top: RiskTopEntry[];
   agent_ranking: AgentRankingItem[];
   battle_report: BattleReport;
+}
+
+export interface AuditOutboxStatus {
+  enabled: boolean;
+  state: "not_applicable" | "healthy" | "lagging" | "critical";
+  pending: number;
+  retrying: number;
+  oldest_age_seconds: number;
+}
+
+export interface PolicyPreflightView {
+  decision: "deny" | "unknown";
+  reason: string;
+  static_rule?: string;
+  objects: Array<{ schema: string; table: string; state: "deny" | "candidate"; allow_policy_ids: string[]; deny_policy_ids: string[] }>;
+  live_check: boolean;
 }
 
 export interface DeleteView {

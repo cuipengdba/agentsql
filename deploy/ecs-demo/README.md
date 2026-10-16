@@ -60,9 +60,9 @@ docker compose up -d gateway
 
 ## Images
 
-- `ghcr.io/cuipengdba/agentsql:v0.8.0-demo` — gateway / agentsqlctl; both
-  Compose services use `AGENTSQL_DEMO_VERSION` (default `v0.8.0-demo`). This
-  tag is available only after the v0.8.0 image has been published;
+- `ghcr.io/cuipengdba/agentsql:v0.9.0-demo` — gateway / agentsqlctl; both
+  Compose services use `AGENTSQL_DEMO_VERSION` (default `v0.9.0-demo`). This
+  tag is available only after the v0.9.0 image has been published;
   deploy the current published image by setting `AGENTSQL_DEMO_VERSION` to its
   exact `-demo` tag.
 - `ghcr.io/cuipengdba/agentsql-postgres-binder:16-0.5` — PostgreSQL 16 with

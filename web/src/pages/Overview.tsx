@@ -12,8 +12,8 @@ import { Alert, Badge, Button, Card, Col, Empty, Row, Segmented, Skeleton, Space
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getDashboardSummary } from "@/api/dashboard";
-import type { AuditStreamEvent, DashboardKPI, DashboardSummary, StreamStatus, TrendDay } from "@/api/types";
+import { getAuditOutboxStatus, getDashboardSummary } from "@/api/dashboard";
+import type { AuditOutboxStatus, AuditStreamEvent, DashboardKPI, DashboardSummary, StreamStatus, TrendDay } from "@/api/types";
 import type { Decision } from "@/constants/labels";
 import { PageContainer } from "@/components/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -174,6 +174,8 @@ export function Overview() {
   const [days, setDays] = useState<Days>(14);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [outbox, setOutbox] = useState<AuditOutboxStatus | null>(null);
+  const [outboxError, setOutboxError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -272,6 +274,18 @@ export function Overview() {
     }
   }, [days]);
 
+  const loadOutbox = useCallback(async () => {
+    try {
+      const status = await getAuditOutboxStatus();
+      if (mountedRef.current) {
+        setOutbox(status);
+        setOutboxError(false);
+      }
+    } catch {
+      if (mountedRef.current) setOutboxError(true);
+    }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -284,6 +298,12 @@ export function Overview() {
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  useEffect(() => {
+    void loadOutbox();
+    const timer = window.setInterval(() => void loadOutbox(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadOutbox]);
 
   useEffect(() => {
     if (!pollEnabled) return;
@@ -317,7 +337,7 @@ export function Overview() {
   const handleManualRefresh = async () => {
     reconnectNow();
     setRefreshToken((value) => value + 1);
-    await loadSummary();
+    await Promise.all([loadSummary(), loadOutbox()]);
   };
 
   const handleDaysChange = (nextDays: Days) => {
@@ -350,6 +370,14 @@ export function Overview() {
   return (
     <div className="overview-dashboard" ref={dashboardRef}>
       <PageContainer title="总览" subtitle="数据库访问安全态势" extra={pageExtra}>
+        {outboxError ? <Alert type="error" showIcon message="管理审计投递状态不可用" description="请检查元数据库连接和管理审计投递进程；当前无法确认积压情况。" style={{ marginBottom: 16 }} /> : null}
+        {!outboxError && outbox?.enabled ? <Alert
+          type={outbox.state === "critical" ? "error" : outbox.state === "lagging" ? "warning" : "success"}
+          showIcon
+          message={`管理审计投递：${outbox.state === "critical" ? "严重积压" : outbox.state === "lagging" ? "投递延迟" : "正常"}`}
+          description={`当前租户待投递 ${outbox.pending} 条，重试中 ${outbox.retrying} 条，最早待投递已等待 ${outbox.oldest_age_seconds} 秒。`}
+          style={{ marginBottom: 16 }}
+        /> : null}
         {loading && !summary ? <Card className="overview-loading" bordered><Skeleton active paragraph={{ rows: 8 }} /></Card> : error && !summary ? (
           <Alert type="error" showIcon message="总览数据加载失败" description="请检查管理 API 连接后重试。" action={<Button onClick={() => void loadSummary()}>重试</Button>} />
         ) : (

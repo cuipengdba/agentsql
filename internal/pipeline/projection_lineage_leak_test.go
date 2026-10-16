@@ -190,6 +190,9 @@ func projectionLineageLeakCases(dialect string) []lineageLeakCase {
 	}
 
 	cases = append(cases,
+		one("coalesce protected value", fmt.Sprintf("SELECT COALESCE(c.phone, '') AS leak FROM %s c LIMIT 1", customers), lineageLeakBlock, phone(), mask.TypePhone),
+		one("nullif protected value", fmt.Sprintf("SELECT NULLIF(c.phone, '') AS leak FROM %s c LIMIT 1", customers), lineageLeakBlock, phone(), mask.TypePhone),
+		one("hash protected value", fmt.Sprintf("SELECT MD5(c.phone) AS leak FROM %s c LIMIT 1", customers), lineageLeakBlock, generic(), mask.TypePhone),
 		one("case value dependency", fmt.Sprintf("SELECT CASE WHEN c.id > 0 THEN c.phone ELSE '' END AS leak FROM %s c LIMIT 1", customers), lineageLeakBlock, phone(), mask.TypePhone),
 		one("case control dependency", fmt.Sprintf("SELECT CASE WHEN c.phone <> '' THEN 'yes' ELSE 'no' END AS leak FROM %s c LIMIT 1", customers), lineageLeakBlock, generic(), mask.TypePhone),
 		one("count phone", fmt.Sprintf("SELECT COUNT(c.phone) AS leak FROM %s c", customers), lineageLeakBlock, generic(), mask.TypePhone),
