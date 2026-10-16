@@ -1,6 +1,8 @@
 # Build the linux/amd64 + linux/arm64 GHCR image locally as OCI archives.
 # Push is opt-in. -Push never moves latest; use -PromoteLatest only after the
 # exact version tag has passed the public, anonymous, dual-architecture gates.
+# Publishing requires a clean HEAD and the same annotated release tag locally
+# and on GitHub. Promoting latest also requires the accepted main-image digest.
 # GHCR package visibility has no REST API to change it; the owner must use the
 # package settings web page to make a package public.
 # Before using either publishing mode, the release owner must run on their device:
@@ -20,7 +22,10 @@ param(
 
     [switch]$Push,
 
-    [switch]$PromoteLatest
+    [switch]$PromoteLatest,
+
+    [ValidatePattern('^sha256:[0-9a-f]{64}$')]
+    [string]$AcceptedMainDigest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +35,65 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sourceRevision = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceRevision -cnotmatch '^[0-9a-f]{40}$') {
     throw 'Could not identify the Git source revision for OCI labels.'
+}
+
+function Assert-PublishedReleaseSource {
+    $currentHead = @(& git -C $repositoryRoot rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $currentHead.Count -ne 1 -or $currentHead[0] -cne $sourceRevision) {
+        throw "Publishing source HEAD changed after script start; expected $sourceRevision."
+    }
+    $status = @(& git -C $repositoryRoot status --porcelain --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $status.Count -ne 0) {
+        throw 'Publishing requires a clean Git working tree, including no untracked files.'
+    }
+
+    $tagRef = "refs/tags/$Version"
+    $localTagType = @(& git -C $repositoryRoot cat-file -t $tagRef)
+    if ($LASTEXITCODE -ne 0 -or $localTagType.Count -ne 1 -or $localTagType[0] -cne 'tag') {
+        throw "Publishing requires an annotated local tag $tagRef."
+    }
+    $localTagObject = @(& git -C $repositoryRoot rev-parse --verify $tagRef)
+    $localTaggedCommit = @(& git -C $repositoryRoot rev-parse --verify "${tagRef}^{commit}")
+    if ($LASTEXITCODE -ne 0 -or $localTagObject.Count -ne 1 -or $localTaggedCommit.Count -ne 1 -or
+        $localTagObject[0] -cnotmatch '^[0-9a-f]{40}$' -or $localTaggedCommit[0] -cne $sourceRevision) {
+        throw "Local annotated tag $tagRef does not resolve to HEAD $sourceRevision."
+    }
+
+    $originUrl = @(& git -C $repositoryRoot remote get-url origin)
+    if ($LASTEXITCODE -ne 0 -or $originUrl.Count -ne 1 -or
+        $originUrl[0] -notmatch '^(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)cuipengdba/agentsql(?:\.git)?/?$') {
+        throw 'Publishing requires origin to be the cuipengdba/agentsql GitHub repository.'
+    }
+
+    $remoteRefs = @(& git -C $repositoryRoot ls-remote --exit-code --tags origin $tagRef "${tagRef}^{}")
+    if ($LASTEXITCODE -ne 0 -or $remoteRefs.Count -ne 2) {
+        throw "Publishing requires the annotated tag $tagRef on origin GitHub."
+    }
+    $remoteTagObject = ''
+    $remoteTaggedCommit = ''
+    foreach ($line in $remoteRefs) {
+        $fields = $line -split "`t"
+        if ($fields.Count -ne 2 -or $fields[0] -cnotmatch '^[0-9a-f]{40}$') {
+            throw "Invalid GitHub tag reference returned for $tagRef."
+        }
+        if ($fields[1] -ceq $tagRef) {
+            $remoteTagObject = $fields[0]
+        }
+        elseif ($fields[1] -ceq "${tagRef}^{}") {
+            $remoteTaggedCommit = $fields[0]
+        }
+        else {
+            throw "Unexpected GitHub tag reference returned for $tagRef."
+        }
+    }
+    if ($remoteTagObject -cne $localTagObject[0] -or $remoteTaggedCommit -cne $sourceRevision) {
+        throw "GitHub tag $tagRef differs from the local annotated tag or HEAD $sourceRevision."
+    }
+    Write-Host "RELEASE_SOURCE_VERIFIED=$Version $sourceRevision"
+}
+
+if ($Push -or $PromoteLatest) {
+    Assert-PublishedReleaseSource
 }
 if (-not $Output) {
     $Output = Join-Path $repositoryRoot "dist/ghcr-agentsql-$Version-oci.tar"
@@ -65,26 +129,107 @@ if ($PromoteLatest) {
     if ($Push -or $IncludeAuxiliaryTags) {
         throw '-PromoteLatest cannot be combined with -Push or -IncludeAuxiliaryTags.'
     }
-    & docker buildx imagetools create --tag "${image}:latest" "${image}:$Version"
+    if (-not $AcceptedMainDigest) {
+        throw '-PromoteLatest requires -AcceptedMainDigest from the validated exact main image tag.'
+    }
+
+    function Get-RegistryDigest {
+        param([Parameter(Mandatory = $true)][string]$Reference)
+
+        $inspection = @(& docker buildx imagetools inspect $Reference)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect registry image $Reference."
+        }
+        $digestLines = @($inspection | Where-Object { $_ -match '^\s*Digest:\s+(sha256:[0-9a-f]{64})\s*$' })
+        if ($digestLines.Count -ne 1) {
+            throw "Registry image $Reference does not have one valid top-level sha256 digest."
+        }
+        return [regex]::Match($digestLines[0], 'sha256:[0-9a-f]{64}').Value
+    }
+
+    $exactReference = "${image}:$Version"
+    $exactDigest = Get-RegistryDigest -Reference $exactReference
+    if ($exactDigest -cne $AcceptedMainDigest) {
+        throw "Exact tag $exactReference has digest $exactDigest, not accepted digest $AcceptedMainDigest."
+    }
+    $rawIndex = @(& docker buildx imagetools inspect --raw "${image}@$AcceptedMainDigest")
     if ($LASTEXITCODE -ne 0) {
-        throw "Could not promote ${image}:$Version to ${image}:latest."
+        throw "Could not inspect raw multi-architecture index for $exactReference."
     }
-    $versionInspect = @(& docker buildx imagetools inspect "${image}:$Version")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect ${image}:$Version after promotion."
+    $index = ($rawIndex -join "`n") | ConvertFrom-Json
+    if (-not $index.manifests) {
+        throw "$exactReference does not contain a multi-architecture manifest index."
     }
-    $latestInspect = @(& docker buildx imagetools inspect "${image}:latest")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect ${image}:latest after promotion."
+    $targetPlatforms = @($index.manifests | Where-Object { $_.platform } |
+        ForEach-Object { "$($_.platform.os)/$($_.platform.architecture)" })
+    foreach ($requiredPlatform in @('linux/amd64', 'linux/arm64')) {
+        if ($targetPlatforms -cnotcontains $requiredPlatform) {
+            throw "$exactReference is missing required platform $requiredPlatform."
+        }
     }
-    $versionDigestLine = @($versionInspect | Where-Object { $_ -match '^\s*Digest:\s+(sha256:[0-9a-f]{64})\s*$' })
-    $versionDigest = if ($versionDigestLine.Count -gt 0) { [regex]::Match($versionDigestLine[0], 'sha256:[0-9a-f]{64}').Value } else { '' }
-    $latestDigestLine = @($latestInspect | Where-Object { $_ -match '^\s*Digest:\s+(sha256:[0-9a-f]{64})\s*$' })
-    $latestDigest = if ($latestDigestLine.Count -gt 0) { [regex]::Match($latestDigestLine[0], 'sha256:[0-9a-f]{64}').Value } else { '' }
-    if ($versionDigest -notmatch '^sha256:[0-9a-f]{64}$' -or $latestDigest -ne $versionDigest) {
-        throw "latest digest '$latestDigest' does not match the exact version digest '$versionDigest'."
+    $oldLatestDigest = Get-RegistryDigest -Reference "${image}:latest"
+    Write-Host "LATEST_PREVIOUS_DIGEST=$oldLatestDigest"
+    Write-Host "LATEST_TARGET_DIGEST=$AcceptedMainDigest"
+    if ($oldLatestDigest -ceq $AcceptedMainDigest) {
+        Write-Host "${image}:latest already has accepted digest $AcceptedMainDigest."
+        exit 0
     }
-    Write-Host "Promoted ${image}:latest to ${image}:$Version at $versionDigest."
+
+    Assert-PublishedReleaseSource
+    $preCreateExactDigest = Get-RegistryDigest -Reference $exactReference
+    if ($preCreateExactDigest -cne $AcceptedMainDigest) {
+        throw "Exact tag $exactReference changed to $preCreateExactDigest before promotion; no write was attempted."
+    }
+    $preCreateDigest = Get-RegistryDigest -Reference "${image}:latest"
+    if ($preCreateDigest -cne $oldLatestDigest) {
+        throw "latest changed from $oldLatestDigest to $preCreateDigest before promotion; no write was attempted."
+    }
+
+    try {
+        & docker buildx imagetools create --tag "${image}:latest" "${image}@$AcceptedMainDigest"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not promote accepted digest $AcceptedMainDigest to ${image}:latest."
+        }
+        $latestDigest = Get-RegistryDigest -Reference "${image}:latest"
+        if ($latestDigest -cne $AcceptedMainDigest) {
+            throw "latest digest $latestDigest does not match accepted digest $AcceptedMainDigest."
+        }
+    }
+    catch {
+        $promotionError = $_.Exception.Message
+        try {
+            $currentLatestDigest = Get-RegistryDigest -Reference "${image}:latest"
+        }
+        catch {
+            throw "PromoteLatest failed: $promotionError Could not inspect current latest digest; automatic restore was skipped: $($_.Exception.Message)"
+        }
+        if ($currentLatestDigest -ceq $oldLatestDigest) {
+            throw "PromoteLatest failed: $promotionError latest still has previous digest $oldLatestDigest; no restore was needed."
+        }
+        if ($currentLatestDigest -cne $AcceptedMainDigest) {
+            throw "PromoteLatest failed: $promotionError latest now has third-party digest $currentLatestDigest; automatic restore was refused."
+        }
+
+        $restoreError = $null
+        try {
+            & docker buildx imagetools create --tag "${image}:latest" "${image}@$oldLatestDigest"
+            if ($LASTEXITCODE -ne 0) {
+                throw "Could not restore previous digest $oldLatestDigest."
+            }
+            $restoredDigest = Get-RegistryDigest -Reference "${image}:latest"
+            if ($restoredDigest -cne $oldLatestDigest) {
+                throw "Restore returned digest $restoredDigest instead of $oldLatestDigest."
+            }
+        }
+        catch {
+            $restoreError = $_.Exception.Message
+        }
+        if ($restoreError) {
+            throw "PromoteLatest failed: $promotionError Automatic restore of previous latest digest $oldLatestDigest also failed: $restoreError"
+        }
+        throw "PromoteLatest failed: $promotionError Previous latest digest $oldLatestDigest was restored."
+    }
+    Write-Host "Promoted ${image}:latest to ${image}:$Version at $AcceptedMainDigest."
     exit 0
 }
 
@@ -188,6 +333,9 @@ function Invoke-MultiArchBuild {
     }
     $arguments += $repositoryRoot
 
+    if ($Push) {
+        Assert-PublishedReleaseSource
+    }
     & docker @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Multi-architecture build failed for $($Tags -join ', ')."
@@ -260,6 +408,9 @@ USER agentsql
     $bakeJson = ($bakeDocument | ConvertTo-Json -Depth 12) + "`n"
     [System.IO.File]::WriteAllText($bakePath, $bakeJson, (New-Object System.Text.UTF8Encoding($false)))
     try {
+        if ($Push) {
+            Assert-PublishedReleaseSource
+        }
         & docker buildx bake --builder $Builder --file $bakePath --metadata-file $auxiliaryMetadata demo quickstart
         if ($LASTEXITCODE -ne 0) {
             throw 'Multi-architecture auxiliary image build failed.'

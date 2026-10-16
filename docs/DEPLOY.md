@@ -433,7 +433,7 @@ agentsqlctl migrate --check --config /etc/agentsql/config.yaml
 3. 继续用待部署版本的 `agentsqlctl migrate --check --config /etc/agentsql/config.yaml`，要求退出码为 `0`，且每行 `current=latest`、`status=current`。为新表、索引和序列补齐运行账号的最小权限，再把 DSN 切回运行账号，并再次执行同一检查，确认运行账号能读取两个版本表。
 4. 替换服务二进制或镜像，启动后检查 `/readyz`，并验收适用的 allow、deny、脱敏、审批与持久审计写入。任一关键检查失败时停止服务，按升级前备份恢复数据库、对应 `AGENTSQL_SECRET` 和旧版程序；不要只回滚二进制后继续使用新 schema。
 
-针对 v0.7.0 升级，SQLite 合并库存量可在恢复升级前数据库与配对密钥后回到已发布的 v0.6.0。PostgreSQL metadata/audit 分库的隔离回退已由 v0.6.1 维护构建实测通过；其正式 Release 资产与目标环境验收证据**待填**。使用它作为回退基线前，应按 [v0.6.1 维护说明](release-notes-v0.6.1.md) 验证双库备份、metadata 16/audit 6 schema、服务启动和 audit 库管理审计落库，并先取得正式发布资产、在目标环境验收。原 v0.6.0 分库服务有管理审计写错库的启动缺陷，不可作为该拓扑的回退目标；旧程序也不得直接读取已迁移的 v0.7.0 schema。
+针对 v0.7.0 升级，SQLite 合并库存量可在恢复升级前数据库与配对密钥后回到已发布的 v0.6.0。PostgreSQL metadata/audit 分库的隔离回退已由 v0.6.1 维护构建实测通过；[v0.6.1 正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1) 提供签名资产。使用它作为回退基线前，应按 [v0.6.1 维护说明](release-notes-v0.6.1.md) 验证双库备份、metadata 16/audit 6 schema、服务启动和 audit 库管理审计落库，并使用已验签的正式资产。v0.7.0 正式包的隔离升级回退复测结果以其 GitHub Release 正文为准；具体生产部署还须在目标环境单独演练成套备份与恢复。原 v0.6.0 分库服务有管理审计写错库的启动缺陷，不可作为该拓扑的回退目标；旧程序也不得直接读取已迁移的 v0.7.0 schema。
 
 `agentsqlctl upgrade apply --dry-run` 只验证下载产物和文件计划，不检查数据库版本，也不会替代上述预检或备份。`migrate --check` 验证迁移版本记录的连续性，不是数据库结构、数据内容或跨库一致性的完整校验。
 
@@ -891,10 +891,11 @@ pwsh ./scripts/release-dryrun.ps1 -Version v0.7.0 -ProductionPrepare -PublicKeyP
 pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.7.0 -IncludeAuxiliaryTags -Push
 
 # 精确 tag 完成 public + 匿名双架构验收后，才单独移动 latest
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.7.0 -PromoteLatest
+$acceptedMainDigest = '<独立核对的 v0.7.0 主镜像顶层 sha256:digest>'
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v0.7.0 -PromoteLatest -AcceptedMainDigest $acceptedMainDigest
 ```
 
-多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.7.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag，并查询和报告 GHCR package 是否为 public；若不是 public，须在 package 设置中处理并重新做匿名拉取验收。推送前须具备 `write:packages` 权限。`latest` 只能由独立的 `-PromoteLatest` 在精确 tag 验收后移动。之后必须按顺序完成：
+多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v0.7.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag，并查询和报告 GHCR package 是否为 public；若不是 public，须在 package 设置中处理并重新做匿名拉取验收。推送前须具备 `write:packages` 权限，脚本会强制核对干净工作树、本地 annotated tag、远端 GitHub tag 与 HEAD 一致。`latest` 只能由独立的 `-PromoteLatest` 在精确 tag 验收后按已核对的主镜像 digest 移动；脚本会记录旧 digest，并在失败时仅对仍属于本次操作的值尝试恢复。之后必须按顺序完成：
 
 1. 核对 GHCR 中 `v0.7.0`、`v0.7.0-demo`、`v0.7.0-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
 2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v0.7.0`；两边均以回环端口启动，验证 `/healthz` 返回 `v0.7.0` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。

@@ -28,7 +28,7 @@ VERIFYING-SIGNATURES.md
 
 正式准备首先生成 11 个待签名文件；共用来源校验须在签名前确认正式 provenance 状态、8 个 subjects 的大小及 SHA-256、11 个输入与封板提交中 Git 对象的 SHA-256，并拒绝 dry-run 标记与说明。用 `scripts/releasesign/main.go` 分别签 SPDX SBOM、`provenance.json`，再生成覆盖其余 13 个文件的 `SHA256SUMS` 并签清单，才形成 15 项。分别对三份签名做 `-mode verify` 密码学验签，再运行 `-ValidateOnly` 复核名称、摘要、YashanDB 客户端、来源和内容结构；回下载与官网验收也须执行同一来源校验。`-ValidateOnly` 的 `SIGNED_STRUCTURE_ONLY` 不能替代验签。双架构 OCI、GHCR 精确 tag 的匿名拉取、`latest`、GitHub Release 回下载与官网均是单独闸门，见 [发布流程](RELEASE_PROCESS.md) 和 [部署指南](DEPLOY.md)。
 
-v0.7.0 回滚资产也要分拓扑处理：SQLite 合并库恢复升级前备份与配对密钥后可回已发布的 v0.6.0；PostgreSQL metadata/audit 分库的回退目标是已通过隔离演练的 v0.6.1 维护版，但其正式 Release 资产和目标环境验收证据**待填**。不能使用有分库启动缺陷的原 v0.6.0；旧版不得直接读取新 schema。
+v0.7.0 回滚资产也要分拓扑处理：SQLite 合并库恢复升级前备份与配对密钥后可回已发布的 v0.6.0；PostgreSQL metadata/audit 分库的回退目标是已通过隔离演练的 [v0.6.1 正式维护版](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1)。两版正式包的隔离升级回退复测结果以 v0.7.0 GitHub Release 正文为准。不能使用有分库启动缺陷的原 v0.6.0；旧版不得直接读取新 schema。具体生产部署还须在目标环境单独演练成套备份与恢复。
 
 ## v0.5.0 历史资产与演练记录
 

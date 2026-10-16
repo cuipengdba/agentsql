@@ -4,13 +4,13 @@
 
 ## v0.7.0 发布执行顺序
 
-Dify 与 MCP Inspector 的四次兼容入口 GUI 查询已有隔离验收证据；功能与回滚边界见[发布说明](release-notes-v0.7.0.md)和[验收记录](v0.7-acceptance.md)，15 项资产名称见[发布资产清单](RELEASE_ASSETS.md)。v0.6.1 正式资产、v0.7.0 封板提交及同提交 CI、最终回退演练和 tag 后的资产、GHCR、官网结果均须写入 [v0.7.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0) 正文及发布证据；本地未提交代码或旧 dry-run 的 PASS 不能替代。
+Dify 与 MCP Inspector 的四次兼容入口 GUI 查询已有隔离验收证据；功能与回滚边界见[发布说明](release-notes-v0.7.0.md)和[验收记录](v0.7-acceptance.md)，15 项资产名称见[发布资产清单](RELEASE_ASSETS.md)。[v0.6.1 正式资产](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1)、v0.7.0 封板提交及同提交 CI、最终回退演练和 tag 后的资产、GHCR、官网结果均须写入 [v0.7.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0) 正文及发布证据；本地未提交代码或旧 dry-run 的 PASS 不能替代。
 
 1. 核对代码、真库与真实 MCP 客户端验收，整理版本说明。SQLite 合并库从升级前数据库和配对 `AGENTSQL_SECRET` 恢复后可回已发布的 v0.6.0。PostgreSQL metadata/audit 分库须以 v0.6.1 为旧版目标；发行前取得其正式资产，并使用本版已签名资产完成隔离双库升级回退复测。具体生产部署仍须在目标环境核验成套备份和恢复。原 v0.6.0 分库服务不能作为可用回退目标；旧版不能直接读取 v0.7.0 新 schema。
 2. 将所有 v0.7.0 源码、迁移、内嵌控制台产物和文档纳入最终封板提交。推荐从该提交建立全新工作树，构建前后核对 `git rev-parse HEAD` 和 `git status --porcelain --untracked-files=all`，要求 HEAD 不变、状态无输出。`-ProductionPrepare` 会在开始时拒绝已跟踪和未跟踪的非忽略文件，并在包、SBOM 和镜像构建后再次检查工作树、HEAD 与关键输入哈希。
 3. 从封板提交运行完整双架构 dry-run，要求 15 项本地资产和三个 OCI 归档通过；其中公钥和签名是占位文件，不能发布。然后以受控的正式公钥运行 `-ProductionPrepare` 生成 11 个待签名文件；此模式禁止与 `-SkipImages` 同用。签名前使用共用来源校验核对正式 provenance 状态、8 个 subjects 的大小与 SHA-256，以及 11 个构建输入相对封板 Git 对象的 SHA-256。对 SPDX SBOM、`provenance.json` 签名，生成覆盖其余 13 项的 `SHA256SUMS`，最后签该清单。分别运行三次 `scripts/releasesign/main.go -mode verify`，再以 `-ValidateOnly` 校验恰好 15 项并复核来源。`SIGNED_STRUCTURE_ONLY` 不代表密码学验签。
 4. 确认 `provenance.json` 的提交与封板提交一致、`dirtyAtBuild=false`，并核对 tar 内二进制版本、ELF/GLIBC、YashanDB 客户端、包内清单与 SBOM。先创建指向同一提交的本地 annotated tag，以 v0.6.0/v0.6.1 正式包和本版已签名包完成 SQLite 与 PostgreSQL 分库的升级回退复测；通过后再推送 tag、创建 GitHub Release draft，上传 15 项资产。回下载到新目录重算摘要、验签与复核，暂时保留 draft。
-5. 从同一封板提交的干净工作树构建并推送 GHCR `v0.7.0`、`v0.7.0-demo`、`v0.7.0-quickstart` 精确 tag。记录构建推送 digest，并与公开 manifest digest 逐项比对；确认三个 tag 均公开，可在未登录的 amd64/arm64 环境拉取，六个镜像配置的 OCI revision 均等于封板 tag SHA，且完成健康及适用业务链路验收。准备 v0.7.0 官网内容和 PDF，在预发布环境验证静态资源；上述闸门通过后将 GitHub Release draft 转正式、部署官网，并执行发布后烟测。记录原 `latest` digest，待正式 Release 与官网烟测通过后，再单独把 `latest` 提升到已验收的精确 tag，并核对 digest；必要时使用原 digest 回退。
+5. 从同一封板提交的干净工作树构建并推送 GHCR `v0.7.0`、`v0.7.0-demo`、`v0.7.0-quickstart` 精确 tag。推送脚本强制校验本地与 GitHub annotated tag 均指向该提交。记录构建推送 digest，并与公开 manifest digest 逐项比对；确认三个 tag 均公开，可在未登录的 amd64/arm64 环境拉取，六个镜像配置的 OCI revision 均等于封板 tag SHA，且完成健康及适用业务链路验收。准备 v0.7.0 官网内容和 PDF，在预发布环境验证静态资源；上述闸门通过后将 GitHub Release draft 转正式、部署官网，并执行发布后烟测。记录原 `latest` digest，待正式 Release 与官网烟测通过后，使用已验收的主镜像顶层 digest 作为 `-AcceptedMainDigest` 单独提升 `latest`，核对结果；失败时仅对仍属于本次操作的值尝试恢复旧 digest。
 
 本地命令示例（输出目录须是全新路径；正式公钥路径由发布负责人在仓库外提供）：
 

@@ -10,6 +10,13 @@
 
 正式封板提交、同提交 CI、发布日期、签名资产、GHCR 与官网上线结果，以 [v0.7.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0) 正文及发布证据为准。功能证据与支持边界见 [v0.7.0 发布说明](docs/release-notes-v0.7.0.md)和[验收记录](docs/v0.7-acceptance.md)。
 
+## [v0.6.1] - 2026-10-16
+
+- 修复 PostgreSQL metadata/audit 分库时管理审计写错库而导致服务无法作为回退目标的缺陷；管理与流量审计写入 audit 库的 `traffic` 链，metadata 库保留待投递 outbox。
+- 保持 metadata `16`、audit `6` schema，不增加 migration 或扩大数据库支持范围。隔离双库环境已验证服务启动、管理审计持久化、审计链与成套备份恢复。
+
+正式资产与适用边界见 [v0.6.1 Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1) 和 [维护说明](docs/release-notes-v0.6.1.md)。具体生产部署仍须在目标环境验证备份与恢复。
+
 ## [v0.6.0] - 2026-10-14
 
 - 增加用户、角色、租户控制台和首次接入向导，收紧管理 API 的租户与权限委派边界。
