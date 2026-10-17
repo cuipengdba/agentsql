@@ -105,6 +105,24 @@ func (manager *Manager) GetOrOpen(
 		return existing, nil
 	}
 
+	executor, err := manager.openNew(datasource, secret, manager.readOnly)
+	if err != nil {
+		return nil, err
+	}
+	manager.executors[datasource.ID] = executor
+	return executor, nil
+}
+
+// OpenFreshReadOnly creates a request-owned, read-only pool rather than
+// reusing a cached datasource pool. The caller closes it when the request ends.
+func (manager *Manager) OpenFreshReadOnly(datasource model.Datasource, secret []byte) (Executor, error) {
+	return manager.openNew(datasource, secret, true)
+}
+
+func (manager *Manager) openNew(datasource model.Datasource, secret []byte, readOnly bool) (Executor, error) {
+	if manager == nil || isNilFunction(manager.opener) || strings.TrimSpace(datasource.ID) == "" {
+		return nil, fmt.Errorf("open fresh executor: manager or datasource is unavailable")
+	}
 	cipher, err := store.NewPasswordCipher(secret)
 	if err != nil {
 		return nil, safeError("initialize datasource decryption", ErrDatasourceUnreachable, err)
@@ -113,7 +131,7 @@ func (manager *Manager) GetOrOpen(
 	if err != nil {
 		return nil, safeError("decrypt datasource credential", ErrDatasourceUnreachable, err)
 	}
-	executor, err := manager.opener(datasource, password, manager.readOnly)
+	executor, err := manager.opener(datasource, password, readOnly)
 	if err != nil {
 		var databaseError *DBError
 		if errors.As(err, &databaseError) {
@@ -124,7 +142,6 @@ func (manager *Manager) GetOrOpen(
 	if isNilExecutor(executor) {
 		return nil, safeError("open datasource", ErrDatasourceUnreachable, errors.New("opener returned nil executor"))
 	}
-	manager.executors[datasource.ID] = executor
 	return executor, nil
 }
 

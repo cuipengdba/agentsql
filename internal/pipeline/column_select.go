@@ -61,7 +61,7 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 	ctx = executor.WithReservationScope(ctx, run.agent.ID, tenant)
 	lockedContext, cancelLocked := executor.WithLockDeadline(ctx, executor.DefaultRequestWall)
 	defer cancelLocked()
-	columnContext := executor.WithColumnAuthorization(lockedContext, executor.ColumnAuthorizationRequest{
+	columnRequest := executor.ColumnAuthorizationRequest{
 		Agent: *run.agent, Policies: snapshot.Policies(), Redactor: redactor, RowLimit: rowLimit,
 		PreliminaryAllowed:        run.response.Decision == model.DecisionAllow || run.response.Decision == model.DecisionWarn,
 		BindBeforePreliminaryDeny: bindBeforePreliminaryDeny,
@@ -74,7 +74,16 @@ func (run *pipelineRun) processColumnAuthorizedSelect(
 			return snapshot.FinalCheck(fenceContext)
 		},
 		Observe: observePhase,
-	})
+	}
+	if run.datasource.DBType == "mysql" {
+		credentials, ok := snapshot.(interface{ MySQLMetadataCredentials() (string, string) })
+		if !ok {
+			_ = snapshot.Close()
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable})
+		}
+		columnRequest.MySQLMetadataUsername, columnRequest.MySQLMetadataPassword = credentials.MySQLMetadataCredentials()
+	}
+	columnContext := executor.WithColumnAuthorization(lockedContext, columnRequest)
 	statement, err := run.pipeline.ports.Executors.AuthorizedExecute(
 		columnContext, *run.datasource, append([]byte(nil), run.pipeline.secret...), run.request.SQL, "",
 	)

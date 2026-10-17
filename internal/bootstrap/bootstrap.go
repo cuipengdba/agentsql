@@ -47,19 +47,21 @@ type Runtime struct {
 	// mcp.sessions.enabled is effective.
 	B5 *B5Runtime
 
-	mu           sync.Mutex
-	secret       []byte
-	redactors    *redactorBuilder
-	names        *notificationNameResolver
-	redaction    *redactionRuntime
-	groupSink    *audit.GroupCommitSink
-	business     *executor.Gateway
-	businessRead *executor.Gateway
-	b2           *b2Runtime
-	b5Probe      func(context.Context) (B5Status, error)
-	relayCancel  context.CancelFunc
-	relayWait    sync.WaitGroup
-	closed       bool
+	mu                 sync.Mutex
+	secret             []byte
+	redactors          *redactorBuilder
+	names              *notificationNameResolver
+	redaction          *redactionRuntime
+	groupSink          *audit.GroupCommitSink
+	business           *executor.Gateway
+	businessRead       *executor.Gateway
+	b2                 *b2Runtime
+	mysqlColumnEnabled bool
+	mysqlAccounts      map[string]config.MySQLMetadataAccount
+	b5Probe            func(context.Context) (B5Status, error)
+	relayCancel        context.CancelFunc
+	relayWait          sync.WaitGroup
+	closed             bool
 }
 
 // Assemble validates configuration and wires the required pipeline ports and
@@ -181,17 +183,19 @@ func assembleWithExecutorProvider(
 		}
 	}()
 	if cfg.ColumnAuthorization.Enabled || cfg.ColumnAuthorization.DryRun {
+		mysqlRuntime := mysqlB2RuntimeOptions{enabled: cfg.ColumnAuthorization.MySQLSingleTableEnabled,
+			accounts: cfg.ColumnAuthorization.MySQLMetadataAccounts}
 		var activationErr error
 		if cfg.ColumnAuthorization.DryRun {
 			b2Manager, activationErr = dryRunB2Runtime(ctx, metadataStore, manager, secret,
 				strings.TrimSpace(cfg.ColumnAuthorization.InstanceID),
 				time.Duration(cfg.ColumnAuthorization.LeaseMS)*time.Millisecond,
-				time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond)
+				time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond, mysqlRuntime)
 		} else {
 			b2Manager, activationErr = activateB2Runtime(ctx, metadataStore, manager, secret,
 				strings.TrimSpace(cfg.ColumnAuthorization.InstanceID),
 				time.Duration(cfg.ColumnAuthorization.LeaseMS)*time.Millisecond,
-				time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond)
+				time.Duration(cfg.ColumnAuthorization.HeartbeatIntervalMS)*time.Millisecond, mysqlRuntime)
 		}
 		b2Manager.attachStateObserver(metricsHub.SetB2State)
 		status := b2Manager.snapshot()
@@ -220,6 +224,7 @@ func assembleWithExecutorProvider(
 		if cfg.ColumnAuthorization.Enabled {
 			columnController = &columnAuthorizationController{
 				fence: metadataStore.Fence(), redactors: redactors, instanceID: strings.TrimSpace(cfg.ColumnAuthorization.InstanceID), runtime: b2Manager,
+				mysqlAccounts: cfg.ColumnAuthorization.MySQLMetadataAccounts,
 			}
 			pipelineOptions = append(pipelineOptions, pipeline.WithColumnAuthorization(columnController))
 			_ = readOnlyManager.CloseAll()
@@ -269,21 +274,23 @@ func assembleWithExecutorProvider(
 		return nil, closeAfterAssemblyError(manager, metadataStore, groupSink, fmt.Errorf("start notification manager: %w", err))
 	}
 	runtime := &Runtime{
-		Pipeline:        flow,
-		ControlledRead:  controlled,
-		ManagementAudit: managementRecorder,
-		Store:           metadataStore,
-		Metrics:         metricsHub,
-		Events:          events,
-		Notifications:   notifications,
-		secret:          append([]byte(nil), secret...),
-		redactors:       redactors,
-		names:           names,
-		redaction:       redactionRuntime,
-		groupSink:       groupSink,
-		business:        manager,
-		businessRead:    readOnlyManager,
-		b2:              b2Manager,
+		Pipeline:           flow,
+		ControlledRead:     controlled,
+		ManagementAudit:    managementRecorder,
+		Store:              metadataStore,
+		Metrics:            metricsHub,
+		Events:             events,
+		Notifications:      notifications,
+		secret:             append([]byte(nil), secret...),
+		redactors:          redactors,
+		names:              names,
+		redaction:          redactionRuntime,
+		groupSink:          groupSink,
+		business:           manager,
+		businessRead:       readOnlyManager,
+		b2:                 b2Manager,
+		mysqlColumnEnabled: cfg.ColumnAuthorization.MySQLSingleTableEnabled,
+		mysqlAccounts:      cfg.ColumnAuthorization.MySQLMetadataAccounts,
 	}
 	b5Runtime, err := assembleB5Runtime(ctx, cfg, resolvedStore, metadataStore, secret)
 	if err != nil {

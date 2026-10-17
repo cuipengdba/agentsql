@@ -31,6 +31,24 @@ func TestResolverMergesPoliciesWithDenyPriority(t *testing.T) {
 	require.Equal(t, []string{"id", "total", "status"}, decision.ColumnACL["public.orders"])
 }
 
+func TestResolverUsesOnlyHealthyFormalOutputNamesForCoarseColumnGate(t *testing.T) {
+	bindingID := "bound"
+	policy := model.Policy{ID: "p", ObjectType: "column", ObjectName: "app.customers", Action: "allow",
+		RelationBindingID: &bindingID, RelationBinding: &model.RelationPolicyBinding{ID: bindingID, Status: "healthy"},
+		ColumnPermissions: []model.PolicyColumnPermission{
+			{RelationEnrollmentID: bindingID, ColumnName: "id", Usage: "output"},
+			{RelationEnrollmentID: bindingID, ColumnName: "phone", Usage: "output"},
+			{RelationEnrollmentID: bindingID, ColumnName: "secret", Usage: "reference"},
+		}}
+	decision, err := NewResolver().Resolve([]model.Policy{{ObjectType: "table", ObjectName: "app.customers", Action: "allow"}, policy}, "readonly")
+	require.NoError(t, err)
+	require.Equal(t, []string{"app.customers"}, decision.AllowedTables)
+	require.Equal(t, []string{"id", "phone"}, decision.ColumnACL["app.customers"])
+	policy.RelationBinding.Status = "staging"
+	_, err = NewResolver().Resolve([]model.Policy{policy}, "readonly")
+	require.Error(t, err)
+}
+
 func TestResolverReturnsNonNilDefaultDenyDecision(t *testing.T) {
 	decision, err := NewResolver().Resolve(nil, "readonly")
 

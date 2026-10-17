@@ -93,6 +93,7 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 	loaded, err := Parse([]byte(base))
 	require.NoError(t, err)
 	require.True(t, loaded.ColumnAuthorization.Enabled, "PostgreSQL B2 factory default must be on")
+	require.False(t, loaded.ColumnAuthorization.MySQLSingleTableEnabled, "MySQL column authorization must default off")
 	require.False(t, loaded.ColumnAuthorization.DryRun, "factory dry-run must remain off")
 	require.Empty(t, loaded.ColumnAuthorization.InstanceID, "Parse must not create persistent state")
 
@@ -107,6 +108,10 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, loaded.ColumnAuthorization.Enabled)
 	require.Equal(t, "runtime-1", loaded.ColumnAuthorization.InstanceID)
+	loaded, err = Parse([]byte(base + "column_authorization:\n  enabled: true\n  mysql_single_table_enabled: true\n  instance_id: runtime-1\n  mysql_metadata_accounts:\n    ds-mysql:\n      username: metadata_reader\n      password_env: AGENTSQL_MYSQL_META_PASSWORD\n"))
+	require.NoError(t, err)
+	require.True(t, loaded.ColumnAuthorization.MySQLSingleTableEnabled)
+	require.Equal(t, "AGENTSQL_MYSQL_META_PASSWORD", loaded.ColumnAuthorization.MySQLMetadataAccounts["ds-mysql"].PasswordEnv)
 
 	for _, invalid := range []string{
 		base + "column_authorization:\n  enabled: true\n  instance_id: \"\"\n",
@@ -115,6 +120,8 @@ func TestColumnAuthorizationActivationConfigIsExplicitAndBounded(t *testing.T) {
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  instance_id_file: runtime.id\n",
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: 1000\n  heartbeat_interval_ms: 1000\n",
 		base + "column_authorization:\n  enabled: true\n  instance_id: runtime-1\n  lease_ms: -1\n",
+		base + "column_authorization:\n  enabled: false\n  mysql_single_table_enabled: true\n",
+		base + "column_authorization:\n  mysql_metadata_accounts:\n    ds-mysql:\n      username: metadata_reader\n      password_env: bad-lowercase\n",
 	} {
 		_, err = Parse([]byte(invalid))
 		require.Error(t, err)
