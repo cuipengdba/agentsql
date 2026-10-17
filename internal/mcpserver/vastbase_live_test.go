@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -32,7 +33,12 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 		port = parsed
 	}
 	fixture := newMCPFixture(t, "readonly")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testTimeout := 30 * time.Second
+	faultDir := os.Getenv("AGENTSQL_TEST_G100_FAULT_DIR")
+	if faultDir != "" {
+		testTimeout = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 	_, err := fixture.runtime.Store.Datasources().Create(ctx, model.Datasource{
 		ID: "ds-g100", Name: "G100 Build 9 test", DBType: "vastbase", Host: host, Port: port,
@@ -57,8 +63,12 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 		Redactors:     fixture.redactors,
 	}, mcpTestSecret)
 	require.NoError(t, err)
+	logger := zerolog.Nop()
+	if faultDir != "" {
+		logger = zerolog.New(os.Stderr)
+	}
 	server, err := NewServer(ctx, Options{
-		APIKey: fixture.handlers.apiKey, Runtime: fixture.runtime, Logger: zerolog.Nop(),
+		APIKey: fixture.handlers.apiKey, Runtime: fixture.runtime, Logger: logger,
 	})
 	require.NoError(t, err)
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
@@ -162,4 +172,58 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 	revoked, err := fixture.runtime.Store.Approvals().Get(ctx, approval.ID)
 	require.NoError(t, err)
 	require.Equal(t, "failed", revoked.Status)
+	if faultDir == "" {
+		return
+	}
+	_, err = fixture.runtime.Store.Policies().Create(ctx, model.Policy{
+		ID: "g100-contact-table-recovery", AgentID: fixture.agent.ID, DatasourceID: "ds-g100",
+		ObjectType: "table", ObjectName: "agentsql_v060.contacts", Action: "allow",
+	})
+	require.NoError(t, err)
+	signal := func(name string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(faultDir, name), []byte("ready\n"), 0o600))
+	}
+	waitSignal := func(name string) {
+		t.Helper()
+		path := filepath.Join(faultDir, name)
+		for {
+			if _, statErr := os.Stat(path); statErr == nil {
+				return
+			} else if !os.IsNotExist(statErr) {
+				require.NoError(t, statErr)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for Vastbase fault signal: " + name)
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}
+	signal("ready")
+	waitSignal("down")
+	outageResult, outageErr := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "query", Arguments: map[string]any{
+			"datasource_id": "ds-g100", "sql": "SELECT phone FROM agentsql_v060.contacts WHERE id = 1 LIMIT 1",
+		},
+	})
+	if outageErr == nil {
+		outage, marshalErr := json.Marshal(outageResult)
+		require.NoError(t, marshalErr)
+		require.NotContains(t, string(outage), "13812345678")
+		require.NotContains(t, string(outage), `"decision":"allow"`)
+	} else {
+		t.Logf("Vastbase outage failed at MCP transport: %v", outageErr)
+	}
+	t.Log("Vastbase server outage did not return an allowed sensitive result")
+	signal("down_checked")
+	waitSignal("up")
+	recovered := call("query", "SELECT phone FROM agentsql_v060.contacts WHERE id = 1 LIMIT 1")
+	require.Contains(t, recovered, `"decision":"allow"`)
+	require.Contains(t, recovered, "138****5678")
+	require.NotContains(t, recovered, "13812345678")
+	page, err = fixture.runtime.Store.AuditLogs().Page(ctx, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, "allow", page.List[0].Decision)
+	t.Log("Vastbase server recovery returned a masked result with persisted audit")
 }
