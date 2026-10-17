@@ -284,16 +284,16 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ## 方式二：本机二进制
 
-从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v1.0.0 发布脚本固定使用 Go 1.26.9。`pg_query_go` 必须启用 cgo。
+从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v1.1.0 发布脚本固定使用 Go 1.26.9。`pg_query_go` 必须启用 cgo。
 
 ### 预编译二进制系统要求
 
 官方原生包在对应架构的 Rocky Linux 8（glibc 2.28）工具链中构建。`linux/amd64` 对应 `uname -m` 的 `x86_64` / `amd64`；v0.4.0 起提供 `linux/arm64` 原生 glibc 包，对应 `aarch64` / `arm64`。amd64 包适用于 x86_64 的 RHEL/Rocky/Alma/CentOS 8 系、Alibaba Cloud Linux 3、麒麟 V10、统信 UOS、Ubuntu 20.04、Debian 11 及更新版本，并已在 Alibaba Cloud Linux 3（glibc 2.32）真机验证；CentOS 7（glibc 2.17）明确不支持。
 
-预编译二进制不支持 musl（Alpine）或 amd64 / arm64 之外的架构。这些环境请使用基于 Debian bookworm、内含 glibc 的 amd64 / arm64 多架构容器镜像，或在目标机运行 `make build` 本机编译。v1.0.0 源码可用 `make release-linux-amd64 VERSION=v1.0.0` 或 `make release-linux-arm64 VERSION=v1.0.0` 在同架构容器内构建、测试并打包；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。正式发布时 `ROCKY_IMAGE` 必须固定为审核过的 `@sha256` digest。
+预编译二进制不支持 musl（Alpine）或 amd64 / arm64 之外的架构。这些环境请使用基于 Debian bookworm、内含 glibc 的 amd64 / arm64 多架构容器镜像，或在目标机运行 `make build` 本机编译。v1.1.0 源码可用 `make release-linux-amd64 VERSION=v1.1.0` 或 `make release-linux-arm64 VERSION=v1.1.0` 在同架构容器内构建、测试并打包；构建脚本会校验产物所需 GLIBC 符号不高于 2.28。正式发布时 `ROCKY_IMAGE` 必须固定为审核过的 `@sha256` digest。
 
 ```bash
-make build VERSION=v1.0.0
+make build VERSION=v1.1.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -317,10 +317,10 @@ $passwordBytes = [byte[]]::new(24); $passwordRng = [System.Security.Cryptography
 
 一键安装器支持 Linux amd64（`uname -m` 为 `x86_64` / `amd64`）与 arm64（`aarch64` / `arm64`）原生 glibc 包；v0.4.0 起提供 linux/arm64 原生 glibc 包。两者均要求 glibc 2.28+，普通安装还要求 systemd 为 PID 1；Alpine / musl、CentOS 7 和其他架构不会进入下载、解压或系统变更阶段。推荐命令：
 
-执行前先核对 [v1.0.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.0.0) 的资产、哈希和签名；发布结果以 Release 正文及可复核资产为准。
+执行前先核对 [v1.1.0 GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.1.0) 的资产、哈希和签名；发布结果以 Release 正文及可复核资产为准。
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v1.0.0/install.sh | sudo sh -s -- install --version v1.0.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v1.1.0/install.sh | sudo sh -s -- install --version v1.1.0
 ```
 
 安装器会创建受限系统账号、回环监听配置、`0600` 环境文件和 systemd unit，并对 tarball 外层 sidecar、包内 `SHA256SUMS`、版本号与 ELF 架构逐层校验。自动生成的是持续有效的管理员密码，不是一次性口令。stdout 为 TTY 时首次创建凭据会显示一次密码；管道、CI 等非 TTY 默认不显示，可由 root 查看 `/etc/agentsql/agentsql.env`，或明确传入 `--show-password`。v0.5.1 发行包构建放入匹配架构、经 SHA-256 校验的独立 YashanDB C 客户端，安装器将其放到 `/usr/local/lib/agentsql/yashandb`；正式资产还须通过包内内容检查。
@@ -328,34 +328,34 @@ curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v1.0.0/insta
 常用生命周期命令（使用前核对目标版本的正式资产与签名）：
 
 ```bash
-sudo ./install.sh install --version v1.0.0
-sudo ./install.sh upgrade --version v1.0.0
+sudo ./install.sh install --version v1.1.0
+sudo ./install.sh upgrade --version v1.1.0
 sudo ./install.sh uninstall
 sudo ./install.sh uninstall --purge --yes
 ```
 
 默认卸载删除两个二进制、unit 和受管 YashanDB 客户端目录，保留 `/etc/agentsql`、`/var/lib/agentsql` 及系统账号。升级快照保存在 root 专用的 `/var/backups/agentsql`，即使 `--purge` 也会保留，确认不再需要后应由管理员单独归档或清理。`--purge` 只删除前述配置和数据两个固定目录，不跟随配置中的外部数据库、证书或其他路径；非交互环境必须同时传 `--yes`。只有账号确由安装器创建且已无其他文件归属时，额外的 `--remove-user` 才会删除它。失败升级留下的快照中，`agentsql.db` 等文件保留了 agentsql 属主（用于原样回滚），因此 `uninstall --purge --remove-user` 会据此拒绝删账号并点名残留文件；确认快照不再需要后，先执行 `sudo chown -R root:root /var/backups/agentsql`（或归档后删除该目录）再重跑卸载命令，即可连同系统账号一并删除。全新安装、从未发生过失败升级的主机不存在该快照，`uninstall --purge --yes --remove-user` 可一次清空二进制、unit、配置、数据和账号。
 
-离线安装可把已解压包目录传给 `--from`，或传入 tarball；传 tarball 时同目录必须有 `<tarball>.sha256`。从发布包根执行 `sudo ./install.sh install` 会自动使用当前已校验的包，不访问网络。以下是 v1.0.0 资产路径格式示例；使用前须完成正式 Release 下载与验签：
+离线安装可把已解压包目录传给 `--from`，或传入 tarball；传 tarball 时同目录必须有 `<tarball>.sha256`。从发布包根执行 `sudo ./install.sh install` 会自动使用当前已校验的包，不访问网络。以下是 v1.1.0 资产路径格式示例；使用前须完成正式 Release 下载与验签：
 
 ```bash
-sudo ./install.sh install --from /srv/releases/agentsql-v1.0.0-linux-amd64
-sudo ./install.sh upgrade --from /srv/releases/agentsql-v1.0.0-linux-amd64.tar.gz
+sudo ./install.sh install --from /srv/releases/agentsql-v1.1.0-linux-amd64
+sudo ./install.sh upgrade --from /srv/releases/agentsql-v1.1.0-linux-amd64.tar.gz
 ```
 
 `--no-start` 只用于 chroot 或镜像预安装：允许在 systemd 不是 PID 1 时写入文件，但不会启动或健康检查，安装结果在 systemd 成功启动前不可用。升级默认只自动备份 `/var/lib/agentsql/agentsql.db` 及其 `-wal`、`-shm`；使用 PostgreSQL 控制面或自定义 SQLite 路径时，必须先完成外部一致性备份并明确传 `--external-backup-done`，安装器不会声称已备份外部数据库。若外部数据库升级后的健康检查失败，安装器会恢复二进制、unit、配置和环境文件，但会让旧服务保持停止；操作者必须先恢复外部数据库快照，再启动旧版本。
 
-下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为自建 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-<amd64|arm64>.tar.gz[.sha256]` 提供同源文件，安装器按本机架构选择。安装 v1.0.0 时应明确 `--version`，例如：
+下载默认只使用 GitHub Release，不会在校验失败时切换镜像。受控网络可显式设置 `AGENTSQL_DOWNLOAD_BASE` 为自建 HTTPS 资产根；该根需按 `<base>/<version>/agentsql-<version>-linux-<amd64|arm64>.tar.gz[.sha256]` 提供同源文件，安装器按本机架构选择。安装 v1.1.0 时应明确 `--version`，例如：
 
 ```bash
-sudo sh ./install.sh install --version v1.0.0
+sudo sh ./install.sh install --version v1.1.0
 ```
 
 安装器若发现 `restorecon` 会恢复二进制、unit、配置和数据目录的 SELinux 默认上下文，不调用 `chcon`、不关闭 enforcing；遇到拒绝时用 `ausearch -m AVC` 调查。发布 tarball 的许可证位于包根 `LICENSE`，容器镜像内位于 `/usr/share/licenses/agentsql/LICENSE`。
 
 ## 方式三：systemd
 
-以下以已下载、解压并完成验签的 v1.0.0 Linux 发行包根目录为工作目录，安装二进制及服务文件：
+以下以已下载、解压并完成验签的 v1.1.0 Linux 发行包根目录为工作目录，安装二进制及服务文件：
 
 ```bash
 sudo useradd --system --user-group --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql
@@ -437,7 +437,9 @@ agentsqlctl migrate --check --config /etc/agentsql/config.yaml
 
 针对 v0.9.0 升级，先用 v0.8.0 正式签名包与配对密钥在隔离环境做成套备份，再停止写入并运行 `agentsqlctl migrate --check`。SQLite 合并库 metadata 19 → 20；PostgreSQL 独立 metadata 18 → 19，audit-only 保持 6。新增 `max_uses`（可空）与 `used_count`（默认 0）；旧授权空预算继续有效。回退必须恢复升级前 metadata、audit（分库时）与 `AGENTSQL_SECRET` 的同一快照，再由 v0.8.0 启动；直接执行新版 schema 上的旧二进制不受支持。SQLite 仍须一致性备份，生产环境需单独验证表锁、备份恢复和实际数据量。
 
-针对 v1.0.0 升级，先备份 v0.9.0 的 metadata、audit（若分库）及配对 `AGENTSQL_SECRET`，再用新版 `agentsqlctl migrate --check` 验证两条迁移流。本版没有新增 schema 迁移，SQLite metadata 维持 20，PostgreSQL 独立 metadata 维持 19、audit-only 维持 6。启动前核对已有列策略和 PostgreSQL B2 健康：配置列策略但 B2 不可用的 SELECT 在 v1.0.0 会执行前拒绝。人员委托默认关闭；启用前先验证客户端可安全地设置第二个 HTTP 请求头，并演练令牌撤销。回退须停止新服务并恢复成套备份和旧版程序，不得只替换二进制。
+针对 v1.0.0 升级，先备份 v0.9.0 的 metadata、audit（若分库）及配对 `AGENTSQL_SECRET`，再用新版 `agentsqlctl migrate --check` 验证两条迁移流。该版没有新增 schema 迁移，SQLite metadata 维持 20，PostgreSQL 独立 metadata 维持 19、audit-only 维持 6。启动前核对已有列策略和 PostgreSQL B2 健康：配置列策略但 B2 不可用的 SELECT 在 v1.0.0 会执行前拒绝。人员委托默认关闭；启用前先验证客户端可安全地设置第二个 HTTP 请求头。回退须停止新服务并恢复成套备份和旧版程序，不得只替换二进制。
+
+针对 v1.1.0 升级，从 v1.0.0 正式包及其 metadata、audit（若分库）、`AGENTSQL_SECRET` 的同一快照开始。先运行 `agentsqlctl migrate --check`，停写并完成一致性备份，再执行新版本迁移。SQLite 与 PostgreSQL 合并库 schema 20 → 21；独立 PostgreSQL metadata 19 → 20，audit-only 仍为 6。新列 `approvals.requester_user_id` 对旧审批单为空；旧版程序无法读取新版 schema，因此回退须停止服务、恢复整套升级前快照与 v1.0.0 二进制，再验证审计链与审批状态。启用双身份审批或 B5 前，应核对客户端的第二请求头、同用户续接、错用户拒绝及令牌撤销。
 
 历史 v0.7.0 回退：SQLite 合并库在恢复升级前数据库与配对密钥后可回 v0.6.0；PostgreSQL metadata/audit 分库回退到 [v0.6.1 正式版](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.1)。原 v0.6.0 分库服务有管理审计路由缺陷，不能作为该拓扑的回退目标。历史细节见 [v0.7.0 发布说明](release-notes-v0.7.0.md)。
 
@@ -883,29 +885,27 @@ COMMIT;
 
 ## 发布与分发
 
-发布者应按以下顺序构建、验证并分发 v1.0.0。版本范围和验收边界见[发布说明](release-notes-v1.0.0.md)，15 项资产见[发布资产清单](RELEASE_ASSETS.md)；v0.5.0 的签名示例见[历史发布日清单](release-day-checklist-v0.5.md)。正式生产准备须从最终封板提交的完整干净工作树启动，执行前后核对 `git rev-parse HEAD` 与 `git status --porcelain --untracked-files=all`；脚本还会检查关键输入哈希并在构建结束前再次拒绝源码漂移。正式发布必须使用 `scripts/release-dryrun.ps1` 已固定并审核的 Rocky Linux 与 Syft digest；禁止把未固定的 `rockylinux:8` 默认值用于正式产物：
+发布者应按以下顺序构建、验证并分发 v1.1.0。版本范围和验收边界见[发布说明](release-notes-v1.1.0.md)，15 项资产见[发布资产清单](RELEASE_ASSETS.md)；v0.5.0 的签名示例见[历史发布日清单](release-day-checklist-v0.5.md)。正式生产准备须从最终封板提交的完整干净工作树启动，执行前后核对 `git rev-parse HEAD` 与 `git status --porcelain --untracked-files=all`；脚本还会检查关键输入哈希并在构建结束前再次拒绝源码漂移。正式发布必须使用 `scripts/release-dryrun.ps1` 已固定并审核的 Rocky Linux 与 Syft digest；禁止把未固定的 `rockylinux:8` 默认值用于正式产物：
 
 ```powershell
 # 无私钥、无 push 的完整双架构预演：15 个不可发布 dry-run 资产 + 三个 OCI 证据
-pwsh ./scripts/release-dryrun.ps1 -Version v1.0.0
+pwsh ./scripts/release-dryrun.ps1 -Version v1.1.0
 
 # 发布准备：由受控正式公钥生成 11 个待签名生产候选；随后签名并组成 15 项
 $trustedReleasePublicKey = '<独立核验的发布公钥绝对路径>'
-pwsh ./scripts/release-dryrun.ps1 -Version v1.0.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
+pwsh ./scripts/release-dryrun.ps1 -Version v1.1.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
 
 # 负责人取得 write:packages 后，只推精确版本和辅助 tag，不移动 latest
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v1.0.0 -IncludeAuxiliaryTags -Push
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v1.1.0 -IncludeAuxiliaryTags -Push
 
-# 精确 tag 完成 public + 匿名双架构验收后，才单独移动 latest
-$acceptedMainDigest = '<独立核对的 v1.0.0 主镜像顶层 sha256:digest>'
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v1.0.0 -PromoteLatest -AcceptedMainDigest $acceptedMainDigest
+# 本轮官网与公网 Demo 延至 v1.5.0，v1.1.0 不执行 -PromoteLatest。
 ```
 
-多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v1.0.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag，并查询和报告 GHCR package 是否为 public；若不是 public，须在 package 设置中处理并重新做匿名拉取验收。推送前须具备 `write:packages` 权限，脚本会强制核对干净工作树、本地 annotated tag、远端 GitHub tag 与 HEAD 一致。`latest` 只能由独立的 `-PromoteLatest` 在精确 tag 验收后按已核对的主镜像 digest 移动；脚本会记录旧 digest，并在失败时仅对仍属于本次操作的值尝试恢复。之后必须按顺序完成：
+多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v1.1.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag，并查询和报告 GHCR package 是否为 public；若不是 public，须在 package 设置中处理并重新做匿名拉取验收。推送前须具备 `write:packages` 权限，脚本会强制核对干净工作树、本地 annotated tag、远端 GitHub tag 与 HEAD 一致。本轮 v1.1.0–v1.4.0 的官网、Live Demo 和 `latest` 保持 v1.0.0，待 v1.5.0 一次更新。之后必须按顺序完成：
 
-1. 核对 GHCR 中 `v1.0.0`、`v1.0.0-demo`、`v1.0.0-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
-2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v1.0.0`；两边均以回环端口启动，验证 `/healthz` 返回 `v1.0.0` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。
-3. 只有第 1–2 步通过后才执行 `-PromoteLatest`，并核对 `latest` 与 `v1.0.0` 顶层 digest 相同；随后再做一次匿名 pull。
+1. 核对 GHCR 中 `v1.1.0`、`v1.1.0-demo`、`v1.1.0-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
+2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v1.1.0`；两边均以回环端口启动，验证 `/healthz` 返回 `v1.1.0` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。
+3. 保留 `latest` 指向 v1.0.0，核对其摘要未因本版精确 tag 发布而变化。
 4. GitHub Release 必须上传发布日清单定义的恰好 15 个文件，而不是仅上传 tar、sidecar 和安装器。draft 回下载后重算外层/包内 SHA-256、执行三份 Ed25519 密码学验签、核对 provenance commit、两个二进制版本及 Yashan driver/client 双架构内容；全部通过后才转正式。
 
 `scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。

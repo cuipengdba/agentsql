@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -54,6 +55,15 @@ func TestHumanDelegationVerifierRequiresLiveAuthorizedSession(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(body), &issued))
 	require.NotEmpty(t, issued.Data.Token)
+	legacyPayload, err := parseDelegationToken(verifier.key, issued.Data.Token, time.Now())
+	require.NoError(t, err)
+	legacyPayload.JTI = ""
+	legacyJSON, err := json.Marshal(legacyPayload)
+	require.NoError(t, err)
+	legacyPart := base64.RawURLEncoding.EncodeToString(legacyJSON)
+	legacyToken := legacyPart + "." + base64.RawURLEncoding.EncodeToString(signToken(verifier.key, legacyPart))
+	_, err = verifier.Verify(context.Background(), legacyToken, "agent-1")
+	require.NoError(t, err, "v1.0.0 delegated tokens must remain valid until their original expiry")
 	_, err = parseDelegationToken(verifier.key, issued.Data.Token, time.Now().Add(31*time.Minute))
 	require.ErrorIs(t, err, ErrInvalidAdminToken, "a delegation cannot survive its 30-minute cap")
 	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 100)
@@ -105,6 +115,21 @@ func TestHumanDelegationVerifierRequiresLiveAuthorizedSession(t *testing.T) {
 	require.NoError(t, err)
 	_, err = verifier.Verify(context.Background(), issued.Data.Token, "agent-1")
 	require.NoError(t, err)
+	status, body = fixture.request(http.MethodPost, "/api/v1/auth/delegation-token", "Bearer "+login.Data.Token, `{"agent_id":"agent-1"}`)
+	require.Equal(t, http.StatusOK, status)
+	var second struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &second))
+	require.NotEmpty(t, second.Data.Token)
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/delegation-token/revoke", "Bearer "+login.Data.Token, `{"token":"`+second.Data.Token+`"}`)
+	require.Equal(t, http.StatusOK, status)
+	_, err = verifier.Verify(context.Background(), second.Data.Token, "agent-1")
+	require.ErrorIs(t, err, ErrInvalidAdminToken)
+	_, err = verifier.Verify(context.Background(), issued.Data.Token, "agent-1")
+	require.NoError(t, err, "revoking one token must not revoke the parent session or sibling token")
 	recorder := fixture.runtime.ManagementAudit
 	fixture.runtime.ManagementAudit = nil
 	status, body = fixture.request(http.MethodPost, "/api/v1/auth/delegation-token", "Bearer "+login.Data.Token, `{"agent_id":"agent-1"}`)

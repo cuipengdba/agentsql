@@ -260,12 +260,6 @@ func newHTTPHandlerWithRegistry(
 	}
 	mcpConfig := cfg.EffectiveMCP()
 	b5Tools := resolvedOptions.b5
-	if mcpConfig.Delegation.RequireHumanToken {
-		// B5's cross-request principal contract currently binds only the
-		// Agent. Do not expose it under a human-delegated session until its
-		// plan, continuation, and audit also bind the verified human.
-		b5Tools = B5Options{}
-	}
 	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent, b5Tools)
 	getServer := func(request *http.Request) *mcp.Server {
 		identity, ok := identityFromContext(request.Context())

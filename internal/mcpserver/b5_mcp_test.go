@@ -18,8 +18,9 @@ import (
 )
 
 type b5ServiceSpy struct {
-	mu    sync.Mutex
-	calls []string
+	mu         sync.Mutex
+	calls      []string
+	humanUsers []string
 }
 
 func (spy *b5ServiceSpy) called(name string) {
@@ -27,8 +28,13 @@ func (spy *b5ServiceSpy) called(name string) {
 	spy.calls = append(spy.calls, name)
 	spy.mu.Unlock()
 }
-func (spy *b5ServiceSpy) OpenSession(context.Context, string, B5OpenSessionInput) (B5SessionView, error) {
+func (spy *b5ServiceSpy) OpenSession(ctx context.Context, _ string, _ B5OpenSessionInput) (B5SessionView, error) {
 	spy.called("open")
+	if human, present := delegatedHumanFromContext(ctx); present {
+		spy.mu.Lock()
+		spy.humanUsers = append(spy.humanUsers, human.userID)
+		spy.mu.Unlock()
+	}
 	return B5SessionView{SessionID: "as-session", ContinuationSecret: "once", OwnerEpoch: 1, Status: b5.SessionReady}, nil
 }
 func (spy *b5ServiceSpy) CloseSession(context.Context, string, B5SessionInput) (B5SessionView, error) {

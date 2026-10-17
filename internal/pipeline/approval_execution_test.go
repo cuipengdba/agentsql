@@ -29,6 +29,7 @@ func TestApprovalSealBindsImmutableRequestFields(t *testing.T) {
 		"normalized_sql": func(a *model.Approval) { other := "SELECT 2"; a.SQLNorm = &other },
 		"reason":         func(a *model.Approval) { other := "changed"; a.Reason = &other },
 		"request_reason": func(a *model.Approval) { other := "changed"; a.RequestReason = &other },
+		"requester_user": func(a *model.Approval) { other := "user-1"; a.RequesterUserID = &other },
 		"expiry":         func(a *model.Approval) { other := expires.Add(time.Hour); a.ExpiresAt = &other },
 	} {
 		t.Run(name, func(t *testing.T) {

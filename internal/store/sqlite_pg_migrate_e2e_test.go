@@ -26,6 +26,7 @@ func TestPostgres18SQLiteToPostgresMigrationE2E(t *testing.T) {
 		require.NoError(t, err)
 		assertMigrationSummary(t, first)
 		assertMigratedSemanticValues(t, ctx, target)
+		assertMigratedApprovalRequester(t, ctx, target)
 
 		second, err := MigrateSQLiteToPostgres(ctx, options)
 		require.NoError(t, err)
@@ -81,6 +82,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		require.NoError(t, err)
 		assertMigrationSummary(t, summary)
 		assertMigratedTaskReadGrants(t, ctx, metadata)
+		assertMigratedApprovalRequester(t, ctx, metadata)
 		assertMigratedMaskRuleRanges(t, ctx, metadata)
 		assertMigratedRedactionStorage(t, ctx, metadata, audit)
 		rerun, err := MigrateSQLiteToPostgres(ctx, options)
@@ -94,6 +96,13 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		require.NoError(t, audit.QueryRowContext(ctx, `INSERT INTO "public"."audit_logs"("decision") VALUES('allow') RETURNING "id"`).Scan(&nextID))
 		require.Equal(t, int64(13), nextID)
 	})
+}
+
+func assertMigratedApprovalRequester(t *testing.T, ctx context.Context, target *sql.DB) {
+	t.Helper()
+	var requester string
+	require.NoError(t, target.QueryRowContext(ctx, `SELECT requester_user_id FROM approvals WHERE id='approval-1'`).Scan(&requester))
+	require.Equal(t, "task-issuer", requester)
 }
 
 func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql.DB) {
@@ -268,7 +277,7 @@ func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
 		{`INSERT INTO policies(id,agent_id,datasource_id,object_type,object_name,columns,row_filter,action,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"policy-1", "agent-1", "ds-1", "table", "public.users", "", `{"tenant":1}`, "allow", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO audit_logs(id,ts,agent_id,datasource_id,sql_raw,sql_norm,objects,decision,rule_hits,risk_level,est_rows,rows_returned,latency_ms,error_msg,event_uuid) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{int64(10), "2026-09-17 12:00:00.123456789", "agent-1", "ds-1", strings.Repeat("S", 1<<20), strings.Repeat("N", 1<<20), `[{"table":"users"}]`, "deny", "[]", 3, int64(1 << 40), 0, int64(25), "", "migration-event-10"}},
 		{`INSERT INTO audit_logs(id,ts,decision,objects,rule_hits,error_msg) VALUES(?,?,?,?,?,?)`, []any{int64(12), "2026-09-17T20:00:00.999999999+08:00", "approve", "not-json", nil, nil}},
-		{`INSERT INTO approvals(id,audit_id,agent_id,sql_raw,reason,status,approver,decided_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, []any{"approval-1", int64(12), "agent-1", "UPDATE users SET active=1", "review", "pending", nil, nil, "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
+		{`INSERT INTO approvals(id,audit_id,agent_id,sql_raw,reason,status,approver,decided_at,created_at,updated_at,requester_user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, []any{"approval-1", int64(12), "agent-1", "UPDATE users SET active=1", "review", "pending", nil, nil, "2026-09-17 12:00:00", "2026-09-17 12:00:00", "task-issuer"}},
 		{`INSERT INTO redaction_key_versions(id,state,commitment,label,config_revision,created_at,updated_at,activated_at) VALUES(?,?,?,?,?,?,?,?)`, []any{"2", "active", testCommitment2, "active", "r1", "2026-09-17 12:00:00", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO redaction_key_versions(id,state,commitment,label,config_revision,created_at,updated_at,retired_at) VALUES(?,?,?,?,?,?,?,?)`, []any{"10", "retired", strings.Repeat("a", 64), "retired", "r0", "2026-09-16 12:00:00", "2026-09-17 12:00:00", "2026-09-17 12:00:00"}},
 		{`INSERT INTO management_audit_outbox(event_uuid,action,actor_type,actor_id,details_json,created_at,attempts,claimed_by,claimed_at,last_error,next_attempt_at,delivered_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, []any{"outbox-migration-1", "redaction.switch", "admin", "operator", `{"id":"2"}`, "2026-09-17 12:00:00", 2, "worker-1", "2026-09-17 12:01:00", "retry", "2026-09-17 12:03:00", nil}},

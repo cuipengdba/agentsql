@@ -15,6 +15,7 @@ import (
 
 type approvalExecutionStore interface {
 	ClaimApproved(context.Context, string, string, time.Time) (model.Approval, error)
+	ClaimApprovedForRequester(context.Context, string, string, string, time.Time) (model.Approval, error)
 	CompleteClaim(context.Context, string, string, string, *int64, *string, time.Time) (model.Approval, error)
 }
 
@@ -28,6 +29,7 @@ type approvalSealPayload struct {
 	SQLNorm               string `json:"sql_norm"`
 	Reason                string `json:"reason"`
 	RequestReason         string `json:"request_reason"`
+	RequesterUserID       string `json:"requester_user_id,omitempty"`
 	ExpiresAt             string `json:"expires_at"`
 }
 
@@ -53,7 +55,8 @@ func sealApproval(secret []byte, approval model.Approval) (string, error) {
 		DatasourceFingerprint: *approval.DatasourceFingerprint,
 		SQLRaw:                *approval.SQLRaw, SQLNorm: *approval.SQLNorm,
 		Reason: approvalValue(approval.Reason), RequestReason: approvalValue(approval.RequestReason),
-		ExpiresAt: approval.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		RequesterUserID: approvalValue(approval.RequesterUserID),
+		ExpiresAt:       approval.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -87,6 +90,19 @@ func datasourceFingerprint(datasource model.Datasource) string {
 // ExecuteApproved atomically consumes a DBA-approved request before any
 // business database access. A crash leaves it claimed for manual review.
 func (pipeline *Pipeline) ExecuteApproved(ctx context.Context, apiKey, approvalID string) (Response, error) {
+	return pipeline.executeApproved(ctx, apiKey, approvalID, "", "")
+}
+
+// ExecuteApprovedDelegated binds an approved write to the same live human
+// identity that created the request. The store checks this before claiming.
+func (pipeline *Pipeline) ExecuteApprovedDelegated(ctx context.Context, apiKey, approvalID, userID, tenantID string) (Response, error) {
+	if userID == "" || tenantID == "" {
+		return Response{}, ErrInvalidRequest
+	}
+	return pipeline.executeApproved(ctx, apiKey, approvalID, userID, tenantID)
+}
+
+func (pipeline *Pipeline) executeApproved(ctx context.Context, apiKey, approvalID, userID, tenantID string) (Response, error) {
 	if pipeline == nil || ctx == nil || apiKey == "" || approvalID == "" {
 		return Response{}, ErrInvalidRequest
 	}
@@ -98,7 +114,20 @@ func (pipeline *Pipeline) ExecuteApproved(ctx context.Context, apiKey, approvalI
 	if err != nil {
 		return Response{}, err
 	}
-	claimed, err := workflow.ClaimApproved(ctx, approvalID, agent.ID, time.Now().UTC())
+	// Temporary read grants never authorize a claimed write. Reject before
+	// the irreversible claim so a mismatched key cannot consume an approval.
+	if agent.TaskGrantID != "" {
+		return Response{}, ErrInvalidRequest
+	}
+	if userID != "" && tenantID != agent.TenantID {
+		return Response{}, ErrInvalidRequest
+	}
+	var claimed model.Approval
+	if userID == "" {
+		claimed, err = workflow.ClaimApproved(ctx, approvalID, agent.ID, time.Now().UTC())
+	} else {
+		claimed, err = workflow.ClaimApprovedForRequester(ctx, approvalID, agent.ID, userID, time.Now().UTC())
+	}
 	if err != nil {
 		return Response{}, err
 	}
@@ -112,9 +141,14 @@ func (pipeline *Pipeline) ExecuteApproved(ctx context.Context, apiKey, approvalI
 	if err != nil || claimed.Seal == nil ||
 		!hmac.Equal([]byte(expectedSeal), []byte(*claimed.Seal)) ||
 		claimed.AgentID == nil || *claimed.AgentID != agent.ID || claimed.TenantID != agent.TenantID ||
+		approvalValue(claimed.RequesterUserID) != userID ||
 		claimed.ExpiresAt == nil || !claimed.ExpiresAt.After(time.Now().UTC()) {
 		invalid := "APPROVAL_SEAL_INVALID"
 		return Response{}, errors.Join(ErrInvalidRequest, finalize("failed", nil, &invalid))
+	}
+	claimDetails := fmt.Sprintf(`{"approval_id":%q}`, claimed.ID)
+	if userID != "" {
+		claimDetails = fmt.Sprintf(`{"approval_id":%q,"delegated_user_id":%q}`, claimed.ID, userID)
 	}
 	claimEvent := model.AuditLog{
 		TenantID: claimed.TenantID, TS: time.Now().UTC(),
@@ -122,7 +156,7 @@ func (pipeline *Pipeline) ExecuteApproved(ctx context.Context, apiKey, approvalI
 		SQLRaw: claimed.SQLRaw, SQLNorm: claimed.SQLNorm,
 		Decision: "approve", Action: stringPointer("approval_claim"),
 		ActorType: stringPointer("agent"), ActorID: claimed.AgentID,
-		DetailsJSON: stringPointer(fmt.Sprintf(`{"approval_id":%q}`, claimed.ID)),
+		DetailsJSON: stringPointer(claimDetails),
 	}
 	if _, err := pipeline.ports.Audit.Record(ctx, claimEvent); err != nil {
 		code := "AUDIT_UNAVAILABLE"
@@ -131,6 +165,7 @@ func (pipeline *Pipeline) ExecuteApproved(ctx context.Context, apiKey, approvalI
 	response, runErr := pipeline.process(ctx, Request{
 		APIKey: apiKey, DatasourceID: *claimed.DatasourceID,
 		SQL: *claimed.SQLRaw, MCPTool: "execute_approved",
+		DelegatedUserID: userID, DelegatedTenantID: tenantID,
 	}, runModeApproved, &claimed)
 	status := "completed"
 	if runErr != nil || response.Decision == model.DecisionError {

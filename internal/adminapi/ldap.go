@@ -76,6 +76,10 @@ func (handler *Handler) ldapLogin(writer http.ResponseWriter, request *http.Requ
 		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	if !handler.loginAttempts.allow(handler.ldap.config.TenantID, input.Username) {
+		handler.fail(writer, http.StatusTooManyRequests, "login rate limit exceeded")
+		return
+	}
 	identity, err := handler.ldap.authenticate(request.Context(), input.Username, input.Password)
 	if err != nil {
 		handler.logger.Warn().Str("error_type", fmt.Sprintf("%T", err)).Msg("LDAP authentication rejected")

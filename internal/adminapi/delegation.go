@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,6 +23,7 @@ const delegationTokenLifetime = 30 * time.Minute
 
 type delegationTokenPayload struct {
 	Purpose   string `json:"purpose"`
+	JTI       string `json:"jti,omitempty"`
 	IssuedAt  int64  `json:"iat"`
 	Expires   int64  `json:"exp"`
 	UserID    string `json:"sub"`
@@ -66,8 +68,12 @@ func issueDelegationToken(adminTokenKey []byte, now time.Time, parent tokenPaylo
 	if !expires.After(now) {
 		return "", time.Time{}, ErrInvalidAdminToken
 	}
+	jti, err := randomHex(16)
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	payload := delegationTokenPayload{
-		Purpose: delegationTokenPurpose, IssuedAt: now.Unix(), Expires: expires.Unix(),
+		Purpose: delegationTokenPurpose, JTI: jti, IssuedAt: now.Unix(), Expires: expires.Unix(),
 		UserID: principal.UserID, TenantID: principal.TenantID, Username: principal.Username,
 		AgentID: agentID, ParentJTI: parent.JTI, ParentSID: parent.SessionID,
 	}
@@ -96,6 +102,7 @@ func parseDelegationToken(key []byte, token string, now time.Time) (delegationTo
 		return delegationTokenPayload{}, ErrInvalidAdminToken
 	}
 	var payload delegationTokenPayload
+	var jtiBytes []byte
 	if json.Unmarshal(contents, &payload) != nil || payload.Purpose != delegationTokenPurpose ||
 		payload.IssuedAt <= 0 || payload.Expires <= payload.IssuedAt ||
 		payload.Expires-payload.IssuedAt > int64(delegationTokenLifetime.Seconds()) ||
@@ -103,6 +110,14 @@ func parseDelegationToken(key []byte, token string, now time.Time) (delegationTo
 		payload.UserID == "" || payload.TenantID == "" || payload.Username == "" ||
 		payload.AgentID == "" || payload.ParentJTI == "" || payload.ParentSID == "" {
 		return delegationTokenPayload{}, ErrInvalidAdminToken
+	}
+	// v1.0.0 tokens had no JTI. Keep them valid for their remaining (at most
+	// 30-minute) lifetime; only newly issued tokens support individual revoke.
+	if payload.JTI != "" {
+		jtiBytes, err = hex.DecodeString(payload.JTI)
+		if err != nil || len(jtiBytes) != 16 || hex.EncodeToString(jtiBytes) != payload.JTI {
+			return delegationTokenPayload{}, ErrInvalidAdminToken
+		}
 	}
 	return payload, nil
 }
@@ -121,6 +136,12 @@ func (verifier *HumanDelegationVerifier) Verify(ctx context.Context, token, agen
 	valid, err := verifier.sessions.ValidateAccessToken(ctx, payload.ParentJTI, payload.ParentSID, now)
 	if err != nil || !valid {
 		return rbac.Principal{}, ErrInvalidAdminToken
+	}
+	if payload.JTI != "" {
+		valid, err = verifier.sessions.ValidateAccessToken(ctx, payload.JTI, payload.ParentSID, now)
+		if err != nil || !valid {
+			return rbac.Principal{}, ErrInvalidAdminToken
+		}
 	}
 	principal, err := verifier.rbac.Principal(ctx, payload.TenantID, payload.UserID)
 	if err != nil || principal.Username != payload.Username || !principal.Has(rbac.PermissionQueryExecute) {
@@ -165,7 +186,12 @@ func (handler *Handler) delegationTokenIssue(writer http.ResponseWriter, request
 		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
 		return
 	}
-	details, err := json.Marshal(map[string]string{"agent_id": agent.ID, "expires_at": expires.Format(time.RFC3339)})
+	issuedPayload, err := parseDelegationToken(deriveDelegationKey(handler.tokenKey), token, time.Now().UTC())
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	details, err := json.Marshal(map[string]string{"agent_id": agent.ID, "token_id": issuedPayload.JTI, "expires_at": expires.Format(time.RFC3339)})
 	if err != nil {
 		handler.internal(writer, err)
 		return
@@ -181,5 +207,52 @@ func (handler *Handler) delegationTokenIssue(writer http.ResponseWriter, request
 	}
 	handler.deps.Runtime.PublishManagementAudit(recorded)
 	writer.Header().Set("Cache-Control", "no-store")
-	handler.ok(writer, map[string]string{"token": token, "expires_at": expires.Format(time.RFC3339), "agent_id": agent.ID})
+	handler.ok(writer, map[string]string{"token": token, "token_id": issuedPayload.JTI, "expires_at": expires.Format(time.RFC3339), "agent_id": agent.ID})
+}
+
+func (handler *Handler) delegationTokenRevoke(writer http.ResponseWriter, request *http.Request) {
+	if !handler.deps.Config.EffectiveMCP().Delegation.RequireHumanToken {
+		handler.fail(writer, http.StatusForbidden, "human delegation is disabled")
+		return
+	}
+	principal, principalOK := requestPrincipal(request)
+	parent, parentOK := requestTokenPayload(request)
+	if !principalOK || !parentOK || !principal.Has(rbac.PermissionQueryExecute) {
+		handler.fail(writer, http.StatusForbidden, "forbidden")
+		return
+	}
+	var input struct {
+		Token string `json:"token"`
+	}
+	if err := decodeJSON(writer, request, &input); err != nil {
+		handler.fail(writer, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	now := time.Now().UTC()
+	payload, err := parseDelegationToken(deriveDelegationKey(handler.tokenKey), input.Token, now)
+	if err != nil || payload.JTI == "" || payload.UserID != principal.UserID || payload.TenantID != principal.TenantID ||
+		payload.ParentJTI != parent.JTI || payload.ParentSID != parent.SessionID {
+		handler.fail(writer, http.StatusForbidden, "forbidden")
+		return
+	}
+	if err := handler.deps.Runtime.Store.AdminSessions().RevokeAccessJTI(request.Context(), payload.JTI, time.Unix(payload.Expires, 0), now); err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	if handler.deps.Runtime.ManagementAudit == nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
+		return
+	}
+	details, _ := json.Marshal(map[string]string{"agent_id": payload.AgentID, "token_id": payload.JTI})
+	action, actorType, decision, encoded := "mcp_human_delegation_revoke", "user", string(model.DecisionAllow), string(details)
+	recorded, err := handler.deps.Runtime.ManagementAudit.Record(request.Context(), model.AuditLog{
+		AgentID: &payload.AgentID, Decision: decision, Action: &action, ActorType: &actorType,
+		ActorID: &principal.UserID, DetailsJSON: &encoded,
+	})
+	if err != nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
+		return
+	}
+	handler.deps.Runtime.PublishManagementAudit(recorded)
+	handler.ok(writer, map[string]bool{"revoked": true})
 }

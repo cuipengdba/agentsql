@@ -17,6 +17,8 @@ func TestT16AgentRulePolicyApprovalListMethods(t *testing.T) {
 		_, err = opened.Agents().Create(context.Background(), model.Agent{ID: id, Name: id, Status: "active", APIKeyHash: hash, Level: "dml"})
 		require.NoError(t, err)
 	}
+	_, err := opened.metaDB.ExecContext(context.Background(), `UPDATE agents SET created_at='2026-01-01 00:00:00' WHERE id IN ('agent-a','agent-b')`)
+	require.NoError(t, err)
 	agents, err := opened.Agents().List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, agents, 2)

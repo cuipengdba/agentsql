@@ -16,6 +16,23 @@ import (
 func (repository *ApprovalRepository) ClaimApproved(
 	ctx context.Context, id, agentID string, now time.Time,
 ) (claimed model.Approval, err error) {
+	return repository.claimApproved(ctx, id, agentID, "", now)
+}
+
+// ClaimApprovedForRequester atomically checks the delegated human owner.
+// A mismatch leaves the approval untouched and therefore cannot consume it.
+func (repository *ApprovalRepository) ClaimApprovedForRequester(
+	ctx context.Context, id, agentID, requesterUserID string, now time.Time,
+) (model.Approval, error) {
+	if strings.TrimSpace(requesterUserID) == "" {
+		return model.Approval{}, ErrApprovalNotExecutable
+	}
+	return repository.claimApproved(ctx, id, agentID, requesterUserID, now)
+}
+
+func (repository *ApprovalRepository) claimApproved(
+	ctx context.Context, id, agentID, requesterUserID string, now time.Time,
+) (claimed model.Approval, err error) {
 	if repository == nil || repository.db == nil || ctx == nil ||
 		strings.TrimSpace(id) == "" || strings.TrimSpace(agentID) == "" || now.IsZero() {
 		return model.Approval{}, ErrApprovalNotExecutable
@@ -37,11 +54,17 @@ func (repository *ApprovalRepository) ClaimApproved(
 			}
 		}
 	}()
+	ownerClause := " AND requester_user_id IS NULL"
+	args := []any{now, id, tenantID, agentID, now}
+	if requesterUserID != "" {
+		ownerClause = " AND requester_user_id=?"
+		args = append(args, requesterUserID)
+	}
 	matched, err := approvalCAS(ctx, tx, repository.dialect, `
 UPDATE approvals SET status='claimed', claimed_at=?, updated_at=CURRENT_TIMESTAMP
 WHERE id=? AND tenant_id=? AND agent_id=? AND status='approved'
   AND seal IS NOT NULL AND sql_raw IS NOT NULL AND sql_norm IS NOT NULL
-  AND datasource_id IS NOT NULL AND expires_at>?`, now, id, tenantID, agentID, now)
+  AND datasource_id IS NOT NULL AND expires_at>?`+ownerClause, args...)
 	if err != nil {
 		return model.Approval{}, fmt.Errorf("claim approval: %w", err)
 	}

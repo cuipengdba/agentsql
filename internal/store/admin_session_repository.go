@@ -112,6 +112,21 @@ SELECT expires_at,revoked_at FROM admin_refresh_families WHERE family_id=?`), fa
 	return revokedAt.pointer() == nil && now.Before(expiresAt), nil
 }
 
+// RevokeAccessJTI revokes one short-lived delegated token without ending the
+// parent console session or other delegations in its refresh family.
+func (repository *AdminSessionRepository) RevokeAccessJTI(ctx context.Context, jti string, expiresAt, now time.Time) error {
+	if ctx == nil || !validLowerHex(jti, 16) || now.IsZero() || !now.Before(expiresAt) {
+		return errors.New("revoke delegated token: invalid input")
+	}
+	_, err := repository.db.ExecContext(ctx, repository.bind(`
+INSERT INTO admin_access_revocations(jti,expires_at,revoked_at) VALUES(?,?,?)
+ON CONFLICT(jti) DO UPDATE SET expires_at=excluded.expires_at,revoked_at=excluded.revoked_at`), jti, expiresAt, now)
+	if err != nil {
+		return fmt.Errorf("revoke delegated token: persist revocation: %w", err)
+	}
+	return nil
+}
+
 // RotateRefreshToken consumes oldHash and inserts newHash atomically. Reuse of
 // a consumed token revokes every token in the family before returning.
 func (repository *AdminSessionRepository) RotateRefreshToken(ctx context.Context, oldHash, newHash string, now time.Time) (AdminRefreshSession, error) {

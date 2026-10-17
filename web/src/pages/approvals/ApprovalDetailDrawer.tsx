@@ -31,12 +31,13 @@ export function ApprovalDetailDrawer({ record, open, onClose }: ApprovalDetailDr
             className="apv-boundary-alert"
             type="info"
             showIcon
-            message="批准后，原 Agent 可用 execute_approved 和审批单号执行一次；执行前会重新检查权限、规则和数据源。旧审批单不可执行。"
+            message="批准后，原 Agent 可用 execute_approved 和审批单号执行一次；委托审批单还要求原申请用户的有效身份。执行前会重新检查权限、规则和数据源。旧审批单不可执行。"
           />
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="审批单号"><code>{record.id}</code></Descriptions.Item>
             <Descriptions.Item label="审计 ID">{record.audit_id ?? "—"}</Descriptions.Item>
             <Descriptions.Item label="Agent">{record.agent_id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="委托申请用户">{record.requester_user_id || "—"}</Descriptions.Item>
             <Descriptions.Item label="数据源">{record.datasource_id || "—"}</Descriptions.Item>
             <Descriptions.Item label="状态">{statusTag(record.status)}</Descriptions.Item>
             <Descriptions.Item label="触发原因">{record.reason || "—"}</Descriptions.Item>

@@ -23,7 +23,7 @@ var ErrApprovalNotExecutable = errors.New("approval is not executable")
 const approvalColumns = `id, tenant_id, audit_id, agent_id, datasource_id, datasource_fingerprint, sql_raw, sql_norm,
        reason, request_reason, decision_comment, seal, status, approver, decided_at,
        expires_at, claimed_at, finished_at, execution_audit_id, outcome_code,
-       created_at, updated_at`
+       created_at, updated_at, requester_user_id`
 
 // ApprovalRepository provides CRUD operations for approval records.
 type ApprovalRepository struct {
@@ -124,9 +124,9 @@ func insertApproval(ctx context.Context, executor sqlExecutor, dialect Dialect, 
 INSERT INTO approvals (
   id, tenant_id, audit_id, agent_id, datasource_id, datasource_fingerprint, sql_raw, sql_norm,
   reason, request_reason, decision_comment, seal, status, approver, decided_at,
-  expires_at, claimed_at, finished_at, execution_audit_id, outcome_code
+  expires_at, claimed_at, finished_at, execution_audit_id, outcome_code, requester_user_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := executor.ExecContext(ctx, repositoryBase{dialect: dialect}.bind(query),
 		approval.ID,
 		approval.TenantID,
@@ -148,6 +148,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		optionalTime(approval.FinishedAt),
 		optionalInt64(approval.ExecutionAuditID),
 		optionalString(approval.OutcomeCode),
+		optionalString(approval.RequesterUserID),
 	)
 	if err != nil {
 		return fmt.Errorf("create approval %q: %w", approval.ID, err)
@@ -500,6 +501,7 @@ func samePendingApprovalReplay(expected, stored model.Approval) bool {
 		equalStringPointers(stored.SQLNorm, expected.SQLNorm) &&
 		equalStringPointers(stored.Reason, expected.Reason) &&
 		equalStringPointers(stored.RequestReason, expected.RequestReason) &&
+		equalStringPointers(stored.RequesterUserID, expected.RequesterUserID) &&
 		equalStringPointers(stored.Seal, expected.Seal) &&
 		equalTimePointers(stored.ExpiresAt, expected.ExpiresAt) &&
 		stored.Approver == nil && stored.DecidedAt == nil
@@ -573,7 +575,7 @@ func scanApproval(scanner rowScanner) (model.Approval, error) {
 	var approval model.Approval
 	var auditID, executionAuditID sql.NullInt64
 	var agentID, datasourceID, datasourceFingerprint, sqlRaw, sqlNorm, reason, requestReason sql.NullString
-	var decisionComment, seal, approver, outcomeCode sql.NullString
+	var decisionComment, seal, approver, outcomeCode, requesterUserID sql.NullString
 	var decidedAt, expiresAt, claimedAt, finishedAt, createdAt, updatedAt databaseTimestamp
 	if err := scanner.Scan(
 		&approval.ID,
@@ -598,6 +600,7 @@ func scanApproval(scanner rowScanner) (model.Approval, error) {
 		&outcomeCode,
 		&createdAt,
 		&updatedAt,
+		&requesterUserID,
 	); err != nil {
 		return model.Approval{}, fmt.Errorf("scan approval: %w", err)
 	}
@@ -610,6 +613,7 @@ func scanApproval(scanner rowScanner) (model.Approval, error) {
 	approval.SQLNorm = stringPointer(sqlNorm)
 	approval.Reason = stringPointer(reason)
 	approval.RequestReason = stringPointer(requestReason)
+	approval.RequesterUserID = stringPointer(requesterUserID)
 	approval.DecisionComment = stringPointer(decisionComment)
 	approval.Seal = stringPointer(seal)
 	approval.Approver = stringPointer(approver)

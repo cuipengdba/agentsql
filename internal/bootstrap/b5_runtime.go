@@ -396,7 +396,9 @@ func (router *b5DatasourceRouter) AnalyzerFor(ctx context.Context, request b5coo
 	if err != nil {
 		return nil, err
 	}
-	provider := router.policyProvider(request.PrincipalID, request.DatasourceID)
+	// DML grants remain attached to the authenticated Agent. A delegated
+	// human narrows the session/plan principal, but cannot add Agent grants.
+	provider := router.policyProvider(request.AgentID, request.PrincipalID, request.DatasourceID)
 	var runtime executor.B5PostgresRuntime
 	if authority.Mode == "NATIVE_C_V1" {
 		runtime, err = router.gateway.NewB5PostgresRuntimeWithPolicyProvider(ctx, datasource, router.secret, provider)
@@ -439,9 +441,9 @@ func b5EngineKey(principal, datasource string, authority B5DatasourceAuthority) 
 		authority.ServerMajor, authority.KeyRevision, authority.DatasourceRevision, authority.PolicyRevision)
 }
 
-func (router *b5DatasourceRouter) policyProvider(principal, datasource string) executor.B5DMLPolicyProvider {
+func (router *b5DatasourceRouter) policyProvider(grantPrincipal, planPrincipal, datasource string) executor.B5DMLPolicyProvider {
 	return func(ctx context.Context, facts b5dml.StatementFacts, _ b5coordinator.StatementRequest, _ int) (executor.B5DMLAuthorizationConfig, error) {
-		rows, err := router.metadata.B5DMLGrants().List(ctx, principal, datasource, facts.Action, 1000)
+		rows, err := router.metadata.B5DMLGrants().List(ctx, grantPrincipal, datasource, facts.Action, 1000)
 		if err != nil {
 			return executor.B5DMLAuthorizationConfig{}, err
 		}
@@ -449,7 +451,12 @@ func (router *b5DatasourceRouter) policyProvider(principal, datasource string) e
 		if err != nil {
 			return executor.B5DMLAuthorizationConfig{}, err
 		}
-		return executor.B5DMLAuthorizationConfig{PrincipalID: principal, DatasourceID: datasource, Policies: policies,
+		// The binder compares every policy principal to the sealed plan. Map
+		// only grants already proven for this Agent into the narrower identity.
+		for index := range policies {
+			policies[index].PrincipalID = planPrincipal
+		}
+		return executor.B5DMLAuthorizationConfig{PrincipalID: planPrincipal, DatasourceID: datasource, Policies: policies,
 			Decision: b5coordinator.DecisionAllow, PreliminaryAllowed: true, DatasourceSupported: true, PolicySnapshotDigest: digest}, nil
 	}
 }

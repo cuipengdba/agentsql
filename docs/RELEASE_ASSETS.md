@@ -1,5 +1,29 @@
 # AgentSQL Release 资产清单
 
+## v1.1.0 预期资产
+
+15 项正式资产须来自 v1.1.0 同一干净封板提交：
+
+```text
+agentsql-v1.1.0-linux-amd64.tar.gz
+agentsql-v1.1.0-linux-amd64.tar.gz.sha256
+agentsql-v1.1.0-linux-arm64.tar.gz
+agentsql-v1.1.0-linux-arm64.tar.gz.sha256
+agentsql-v1.1.0.spdx.json
+agentsql-v1.1.0.spdx.json.sig.json
+ed25519-release-public-key.json
+go-version-metadata.txt
+install.sh
+provenance.json
+provenance.json.sig.json
+SBOM-GENERATION.txt
+SHA256SUMS
+SHA256SUMS.sig.json
+VERIFYING-SIGNATURES.md
+```
+
+三份 Ed25519 签名分别覆盖 SBOM、provenance、清单；清单覆盖其余 13 项。正式上传后须匿名回下载并复验公钥 ID、签名、哈希与源提交。
+
 ## v1.0.0 预期资产
 
 `scripts/release-dryrun.ps1` 定义 15 项正式资产，均须来自 v1.0.0 同一干净封板提交：
