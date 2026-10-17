@@ -1,4 +1,4 @@
-# AgentSQL v1.4.0 发布说明（候选）
+# AgentSQL v1.4.0 发布说明
 
 ## 范围
 
@@ -12,4 +12,4 @@ PostgreSQL metadata 部署中的控制台密码与 LDAP 登录改用共享尝试
 
 ## 发布验收
 
-正式发布前必须取得共享预算并发/故障、双节点审计恢复、上一版正式包升级/备份恢复、Go/Web/安全 CI、Ed25519 签名双架构资产、GHCR 精确 tag 匿名双架构拉取的证据；详见[验收记录](v1.4.0-acceptance.md)。官网、公网 Demo 和 GHCR `latest` 按分阶段计划维持 v1.0.0，待 v1.5.0 完成后统一更新。
+共享预算并发/故障、双节点审计恢复、上一版正式包升级/备份恢复、Go/Web/安全 CI、Ed25519 签名双架构资产、GHCR 三个精确 tag 的匿名双架构拉取均已通过；详见[验收记录](v1.4.0-acceptance.md)和[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.4.0)。官网、公网 Demo 和 GHCR `latest` 按分阶段计划维持 v1.0.0，待 v1.5.0 完成后统一更新。
