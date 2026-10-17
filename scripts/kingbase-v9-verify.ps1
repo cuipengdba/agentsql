@@ -3,7 +3,8 @@
     [string]$LicenseFile = 'D:\ruanjiansheji\db-images\jincang\license_4_V009R001C-企业版-180天.dat',
     [string]$DockerExe = 'E:\Docker\DockerDesktop\resources\bin\docker.exe',
     [string]$ContainerName = 'kingbase-v9-batch72',
-    [int]$ReadyTimeoutSeconds = 120
+    [int]$ReadyTimeoutSeconds = 120,
+    [switch]$FaultProbe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -550,6 +551,58 @@ if ($allowed.decision -ne 'allow' -or $allowed.data.redact.MaskedCells -ne 1 -or
     throw 'AgentSQL V9 guard-chain assertions failed'
 }
 Step 'PASS: V9 PG protocol, readonly account, AgentSQL query, scoped masking, R006 and audit'
+if ($FaultProbe) {
+    Step 'Isolate KingbaseES from the private gateway network without restarting the vendor entrypoint'
+    Docker @('network', 'disconnect', $network, $ContainerName) | Out-Null
+    try {
+        $outageResponse = $null
+        $transportFailed = $false
+        try {
+            $outageResponse = Call-MCP 3 'query' @{
+                datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
+            }
+        }
+        catch {
+            $transportFailed = $true
+            Step ('KingbaseES outage request failed at transport: ' + $_.Exception.GetType().Name)
+        }
+        if (-not $transportFailed) {
+            $outageBody = $outageResponse | ConvertTo-Json -Depth 12 -Compress
+            if ($outageBody.Contains('13800135678') -or $outageBody -match '"decision"\s*:\s*"allow"') {
+                throw 'KingbaseES outage delivered an unmasked or allowed result'
+            }
+            Step ('KingbaseES outage returned a non-allow MCP response, bytes=' + $outageBody.Length)
+        }
+        Step 'PASS: KingbaseES network outage did not deliver the sensitive row'
+    }
+    finally {
+        Docker @('network', 'connect', $network, $ContainerName) | Out-Null
+    }
+
+    $recovered = $false
+    $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
+    do {
+        try {
+            $probe = @(& $DockerExe @ksql '-c' 'SELECT 1;' 2>&1)
+            if ($LASTEXITCODE -eq 0 -and ($probe -join ' ') -match '1') { $recovered = $true }
+        }
+        catch { }
+        if (-not $recovered) { Start-Sleep -Seconds 2 }
+    } while (-not $recovered -and (Get-Date) -lt $deadline)
+    if (-not $recovered) { throw 'KingbaseES did not recover after the outage probe' }
+    $recoveredResult = (Call-MCP 4 'query' @{
+        datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
+    }).result.structuredContent
+    if ($recoveredResult.decision -ne 'allow' -or $recoveredResult.data.redact.MaskedCells -ne 1 -or
+        (@($recoveredResult.data.result.rows)[0] -join '|') -notmatch '138\*\*\*\*5678') {
+        throw 'KingbaseES recovery did not restore a masked allow result'
+    }
+    $recoveryAudits = Api 'GET' '/api/v1/audit?agent_id=kb-v9-agent&page_size=20' $null $token
+    if (@($recoveryAudits.list | Where-Object { $_.decision -eq 'allow' -and $_.rows_returned -eq 1 }).Count -lt 2) {
+        throw 'KingbaseES recovery result has no corresponding persisted allow audit'
+    }
+    Step 'PASS: KingbaseES recovered masked query and persisted a second allow audit'
+}
 Cleanup
 Stop-Transcript | Out-Null
 exit 0
