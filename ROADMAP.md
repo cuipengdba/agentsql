@@ -22,8 +22,8 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.0.0 | 已发布 | 列策略失败关闭、可选的 MCP 人员委托、运维解释和完整交付链；范围与门槛见[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.0.0)及[验收记录](docs/v1.0-acceptance.md)。 |
 | v1.1.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.1.0)） | 双身份扩展至 B5 会话与审批闭环、令牌单独撤销及登录限流；见[验收记录](docs/v1.1.0-acceptance.md)。 |
 | v1.2.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.2.0)） | MCP OAuth/OIDC 标准互通与新旧协议实测；见[验收记录](docs/v1.2.0-acceptance.md)。 |
-| v1.3.0 | 开发中 | MySQL 8 可证明的列策略 SELECT 子集及故障关闭。 |
-| v1.4.0 | 规划 | 多实例可靠性、持久审计与恢复演练。 |
+| v1.3.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.3.0)） | MySQL 8.0/8.4 可证明的单表 InnoDB SELECT 列策略子集及故障关闭；见[验收记录](docs/v1.3.0-acceptance.md)。 |
+| v1.4.0 | 开发中 | 多实例可靠性、持久审计与恢复演练。 |
 | v1.5.0 | 规划 | 国产数据库指定版本深度验收，完成后官网与公网 Demo 从 v1.0.0 直接更新到 v1.5.0。 |
 
 ## v0.7.0 验收与发布门槛

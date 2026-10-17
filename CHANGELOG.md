@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.3.0]
+
+- Add an opt-in, single-table InnoDB `SELECT` column-authorization subset for verified MySQL 8.0 and 8.4 builds. Keep unsupported expressions, joins, views and table shapes closed before execution.
+- Bind enrollment and execution to a stable InnoDB table ID with separate PROCESS-only metadata and SELECT-only business accounts, a read-only transaction, metadata lock, post-execution catalog check and final audit/control fence.
+- Verify allow, mask, deny, DDL races, same-name table rebuild, privilege revocation and durable MCP audit against isolated MySQL 8.0.46 and 8.4.11 instances; retain the prior table-only route when no column policy applies.
+
+See the [v1.3.0 design](docs/v1.3.0-design.md), [release notes](docs/release-notes-v1.3.0.md) and [acceptance record](docs/v1.3.0-acceptance.md) for scope and evidence. The public website, Live Demo and GHCR `latest` remain at v1.0.0 until v1.5.0.
+
 ## [v1.2.0]
 
 - Add an optional MCP OAuth protected resource at `/mcp/oauth` with discovery metadata and standard Bearer challenges. Preserve both existing Agent Key endpoints.

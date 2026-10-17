@@ -1,4 +1,4 @@
-# AgentSQL v1.3.0 发布说明（候选）
+# AgentSQL v1.3.0 发布说明
 
 ## 范围
 
@@ -14,4 +14,4 @@ v1.3.0 为 MySQL 8.0 与 8.4 增加默认关闭的单表 InnoDB `SELECT` 列级�
 
 ## 验收和发布节奏
 
-MySQL 8.0/8.4 的真实数据库请求、脱敏、拒绝、审计、DDL 竞争和故障关闭，Go/Web/安全 CI，正式升级/恢复、Ed25519 签名发行物和 GHCR 精确版本双架构镜像，必须在发布前独立验收；未完成的项目不能写作通过。官网、公网 Demo 与 GHCR `latest` 按约定保持 v1.0.0，待 v1.5.0 统一更新。
+MySQL 8.0.46/8.4.11 隔离真库的请求、脱敏、拒绝、审计、DDL 竞争和故障关闭已通过；Go/Web/govulncheck 同提交 CI、v1.2.0 正式包至本版的 SQLite 与 PostgreSQL 分库升级/备份恢复、15 项 Ed25519 签名资产及双架构 OCI 归档均已通过。正式 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.3.0) 已发布；GHCR 三个精确版本标签的双架构 manifest 与六种匿名拉取均通过，详见[验收记录](v1.3.0-acceptance.md)。官网、公网 Demo 与 GHCR `latest` 按约定保持 v1.0.0，待 v1.5.0 统一更新。
