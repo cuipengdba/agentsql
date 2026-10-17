@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	loginWindow      = time.Minute
-	loginMaxAttempts = 10
-	loginMaxBuckets  = 8192
+	loginWindow               = time.Minute
+	loginMaxAttempts          = 10
+	loginMaxBuckets           = 8192
+	sharedLoginAttemptTimeout = 5 * time.Second
 )
 
 type loginAttemptBucket struct {
@@ -38,7 +39,9 @@ func (handler *Handler) allowLoginAttempt(ctx context.Context, tenant, username 
 	if shared == nil {
 		return handler.loginAttempts.allow(tenant, username), nil
 	}
-	return shared.Allow(ctx, loginAttemptDigest(handler.tokenKey, tenant, username))
+	attemptCtx, cancel := context.WithTimeout(ctx, sharedLoginAttemptTimeout)
+	defer cancel()
+	return shared.Allow(attemptCtx, loginAttemptDigest(handler.tokenKey, tenant, username))
 }
 
 func loginAttemptDigest(secret []byte, tenant, username string) [sha256.Size]byte {

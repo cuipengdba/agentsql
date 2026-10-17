@@ -160,6 +160,7 @@ func TestB2LegacyCSVStagingMigrationAndPreflightRollback(t *testing.T) {
 func TestB2SQLiteDownAndReapplyAreSafe(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 22))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 21))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 20))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 19))

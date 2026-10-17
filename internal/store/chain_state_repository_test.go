@@ -100,6 +100,7 @@ func TestSQLiteToPostgresManifestExcludesAuditChainDerivedData(t *testing.T) {
 			"chain_state":              {},
 			"chain_verification":       {},
 			"control_plane_compat":     {},
+			"login_attempt_budgets":    {},
 			"mcp_stream_event_cursors": {},
 			"mcp_stream_events":        {},
 			"runtime_instances":        {},
