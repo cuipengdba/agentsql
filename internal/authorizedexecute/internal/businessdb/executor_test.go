@@ -97,6 +97,37 @@ func TestManagerCloseAndCloseAll(t *testing.T) {
 	require.NoError(t, manager.Close("missing"))
 }
 
+func TestManagerOpenFreshDoesNotReuseCachedExecutor(t *testing.T) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	datasource := encryptedDatasource(t, secret, "ds_mysql_column", "mysql")
+	var opened []*fakeExecutor
+	manager := newManager(true, func(datasource model.Datasource, password string, readOnly bool) (Executor, error) {
+		require.Equal(t, "database-password", password)
+		require.True(t, readOnly)
+		executor := &fakeExecutor{dialect: datasource.DBType}
+		opened = append(opened, executor)
+		return executor, nil
+	})
+	cached, err := manager.GetOrOpen(datasource, secret)
+	require.NoError(t, err)
+	freshOne, err := manager.OpenFreshReadOnly(datasource, secret)
+	require.NoError(t, err)
+	freshTwo, err := manager.OpenFreshReadOnly(datasource, secret)
+	require.NoError(t, err)
+	require.NotSame(t, cached, freshOne)
+	require.NotSame(t, freshOne, freshTwo)
+	again, err := manager.GetOrOpen(datasource, secret)
+	require.NoError(t, err)
+	require.Same(t, cached, again)
+	require.Len(t, opened, 3)
+	require.NoError(t, freshOne.Close())
+	require.NoError(t, freshTwo.Close())
+	require.NoError(t, manager.CloseAll())
+	for _, executor := range opened {
+		require.Equal(t, 1, executor.closeCount())
+	}
+}
+
 func TestManagerFailsClosedAndRedactsCredentials(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	datasource := encryptedDatasource(t, secret, "ds_failure", "postgres")

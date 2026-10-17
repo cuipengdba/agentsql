@@ -13,6 +13,7 @@ import (
 	"time"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
@@ -63,24 +64,35 @@ type b2Runtime struct {
 	wait            sync.WaitGroup
 	stateObserver   func(string)
 	enabled         bool
+	mysqlEnabled    bool
+}
+
+type mysqlB2RuntimeOptions struct {
+	enabled  bool
+	accounts map[string]config.MySQLMetadataAccount
 }
 
 func featureOffB2Status() B2Status {
 	return B2Status{State: B2StateFeatureOff, Reason: B2ReasonFeatureOff, Protocol: 2}
 }
 
-func activateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration) (*b2Runtime, error) {
-	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, true)
+func activateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, mysqlOptions ...mysqlB2RuntimeOptions) (*b2Runtime, error) {
+	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, true, mysqlOptions...)
 }
 
 // dryRunB2Runtime executes the same probes and phase-one snapshot as
 // activation, but never changes the control fence or registers a runtime.
-func dryRunB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration) (*b2Runtime, error) {
-	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, false)
+func dryRunB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, mysqlOptions ...mysqlB2RuntimeOptions) (*b2Runtime, error) {
+	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, false, mysqlOptions...)
 }
 
-func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, activate bool) (*b2Runtime, error) {
-	manager := &b2Runtime{fence: metadata.Fence(), lease: lease, interval: interval, enabled: activate}
+func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, activate bool, mysqlOptions ...mysqlB2RuntimeOptions) (*b2Runtime, error) {
+	var mysqlOption mysqlB2RuntimeOptions
+	if len(mysqlOptions) != 0 {
+		mysqlOption = mysqlOptions[0]
+	}
+	manager := &b2Runtime{fence: metadata.Fence(), lease: lease, interval: interval, enabled: activate,
+		mysqlEnabled: mysqlOption.enabled}
 	if lease <= 0 {
 		lease = 15 * time.Second
 		manager.lease = lease
@@ -112,7 +124,32 @@ func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *exec
 	capabilityDigests := make([]string, 0, len(datasources))
 	postgresCount := 0
 	readyPostgresCount := 0
+	mysqlCount := 0
+	readyMySQLCount := 0
 	for _, datasource := range datasources {
+		if datasource.DBType == "mysql" && mysqlOption.enabled {
+			mysqlCount++
+			account, configured := mysqlOption.accounts[datasource.ID]
+			password, present := os.LookupEnv(account.PasswordEnv)
+			if !configured || !present {
+				unsupported[datasource.ID] = B2ReasonBinderUnsupported
+				continue
+			}
+			digest, probeErr := gateway.ProbeMySQLSingleTableB2(ctx, datasource, secret, account.Username, password)
+			if probeErr != nil {
+				unsupported[datasource.ID] = B2ReasonBinderProbeFailed
+				continue
+			}
+			readyMySQLCount++
+			modes[datasource.ID] = "mysql-single-table"
+			capabilityDigests = append(capabilityDigests, strings.Join([]string{datasource.ID, "mysql-single-table", digest}, "\x00"))
+			if err := gateway.ProbeReservation(datasource.ID); err != nil {
+				manager.status = B2Status{State: B2StateDegraded, Reason: B2ReasonReservationUnavailable, Protocol: 2,
+					UnsupportedDatasources: unsupported, DatasourceModes: modes}
+				return manager, err
+			}
+			continue
+		}
 		if datasource.DBType != "postgres" {
 			unsupported[datasource.ID] = B2ReasonDatasourceUnsupported
 			continue
@@ -141,12 +178,12 @@ func evaluateB2Runtime(ctx context.Context, metadata *store.Store, gateway *exec
 			return manager, err
 		}
 	}
-	if postgresCount == 0 {
+	if postgresCount+mysqlCount == 0 {
 		manager.status = B2Status{State: B2StateUnsupported, Reason: B2ReasonNoPostgresDatasource, Protocol: 2,
 			UnsupportedDatasources: unsupported, DatasourceModes: modes}
 		return manager, store.ErrActivationGate
 	}
-	if readyPostgresCount == 0 {
+	if readyPostgresCount+readyMySQLCount == 0 {
 		manager.status = B2Status{State: B2StateUnsupported, Reason: B2ReasonBinderProbeFailed, Protocol: 2,
 			UnsupportedDatasources: unsupported, DatasourceModes: modes}
 		return manager, store.ErrActivationGate
@@ -271,7 +308,8 @@ func (runtime *b2Runtime) snapshot() B2Status {
 
 func (runtime *b2Runtime) allow(datasource model.Datasource) bool {
 	status := runtime.snapshot()
-	if status.State != B2StateActive || status.Protocol != 3 || datasource.DBType != "postgres" {
+	if status.State != B2StateActive || status.Protocol != 3 ||
+		(datasource.DBType != "postgres" && !(datasource.DBType == "mysql" && runtime.mysqlEnabled)) {
 		return false
 	}
 	_, unsupported := status.UnsupportedDatasources[datasource.ID]
@@ -280,7 +318,7 @@ func (runtime *b2Runtime) allow(datasource model.Datasource) bool {
 }
 
 func (runtime *b2Runtime) route(datasource model.Datasource) bool {
-	if runtime == nil || datasource.DBType != "postgres" {
+	if runtime == nil || (datasource.DBType != "postgres" && !(datasource.DBType == "mysql" && runtime.mysqlEnabled)) {
 		return false
 	}
 	return runtime.enabled

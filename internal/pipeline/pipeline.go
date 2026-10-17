@@ -260,8 +260,14 @@ func (pipeline *Pipeline) process(
 		if run.datasource.DBType == "vastbase" {
 			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonVastbaseColumnUnsupported})
 		}
-		if run.datasource.DBType != "postgres" {
+		if run.datasource.DBType != "postgres" && run.datasource.DBType != "mysql" {
 			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
+		}
+		if run.datasource.DBType == "mysql" {
+			router, ok := pipeline.column.(ColumnAuthorizationRouter)
+			if !ok || !router.ColumnAuthorizationEnabled(*run.datasource) {
+				return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
+			}
 		}
 		if isNilInterface(pipeline.column) {
 			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable})
@@ -314,15 +320,15 @@ func (pipeline *Pipeline) process(
 		return run.finish(ctx, nil)
 	}
 	if run.ast.StmtType == model.StmtType("SELECT") && !isNilInterface(pipeline.column) {
-		if run.datasource.DBType == "mysql" && columnAuthorizationConfigured(pipeline.column) && hasB2ColumnPolicy(run.storedPolicies) {
-			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
-		}
 		if run.datasource.DBType == "vastbase" && columnAuthorizationConfigured(pipeline.column) && hasB2ColumnPolicy(run.storedPolicies) {
 			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonVastbaseColumnUnsupported})
 		}
 		enabled := true
 		if router, ok := pipeline.column.(ColumnAuthorizationRouter); ok {
 			enabled = router.ColumnAuthorizationEnabled(*run.datasource)
+		}
+		if run.datasource.DBType == "mysql" && !hasB2ColumnPolicy(run.storedPolicies) {
+			enabled = false
 		}
 		if enabled {
 			if request.RequireApproval || mode == runModeApproved {

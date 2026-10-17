@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
@@ -15,10 +17,11 @@ import (
 )
 
 type columnAuthorizationController struct {
-	fence      *store.FenceRepository
-	redactors  *redactorBuilder
-	instanceID string
-	runtime    *b2Runtime
+	fence         *store.FenceRepository
+	redactors     *redactorBuilder
+	instanceID    string
+	runtime       *b2Runtime
+	mysqlAccounts map[string]config.MySQLMetadataAccount
 }
 
 func (controller *columnAuthorizationController) Begin(ctx context.Context, agent model.Agent, datasource model.Datasource) (pipeline.ColumnAuthorizationSnapshot, error) {
@@ -40,8 +43,19 @@ func (controller *columnAuthorizationController) Begin(ctx context.Context, agen
 		_ = snapshot.Close()
 		return nil, err
 	}
+	var metadataUsername, metadataPassword string
+	if datasource.DBType == "mysql" {
+		account, configured := controller.mysqlAccounts[datasource.ID]
+		password, present := os.LookupEnv(account.PasswordEnv)
+		if !configured || !present || account.Username == "" {
+			_ = snapshot.Close()
+			return nil, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable}
+		}
+		metadataUsername, metadataPassword = account.Username, password
+	}
 	return &columnAuthorizationSnapshot{snapshot: snapshot, policies: state.Policies, redactor: redactor,
-		revisionDigest: state.RevisionDigest, runtime: controller.runtime, datasource: datasource}, nil
+		revisionDigest: state.RevisionDigest, runtime: controller.runtime, datasource: datasource,
+		mysqlMetadataUsername: metadataUsername, mysqlMetadataPassword: metadataPassword}, nil
 }
 
 func (controller *columnAuthorizationController) ColumnAuthorizationEnabled(datasource model.Datasource) bool {
@@ -53,12 +67,14 @@ func (controller *columnAuthorizationController) ColumnAuthorizationConfigured()
 }
 
 type columnAuthorizationSnapshot struct {
-	snapshot       *store.ControlSnapshot
-	policies       []model.Policy
-	redactor       mask.Redactor
-	revisionDigest string
-	runtime        *b2Runtime
-	datasource     model.Datasource
+	snapshot              *store.ControlSnapshot
+	policies              []model.Policy
+	redactor              mask.Redactor
+	revisionDigest        string
+	runtime               *b2Runtime
+	datasource            model.Datasource
+	mysqlMetadataUsername string
+	mysqlMetadataPassword string
 }
 
 func (snapshot *columnAuthorizationSnapshot) Policies() []model.Policy {
@@ -66,6 +82,9 @@ func (snapshot *columnAuthorizationSnapshot) Policies() []model.Policy {
 }
 func (snapshot *columnAuthorizationSnapshot) Redactor() mask.Redactor { return snapshot.redactor }
 func (snapshot *columnAuthorizationSnapshot) RevisionDigest() string  { return snapshot.revisionDigest }
+func (snapshot *columnAuthorizationSnapshot) MySQLMetadataCredentials() (string, string) {
+	return snapshot.mysqlMetadataUsername, snapshot.mysqlMetadataPassword
+}
 func (snapshot *columnAuthorizationSnapshot) FinalCheck(ctx context.Context) error {
 	if snapshot.runtime == nil || !snapshot.runtime.allow(snapshot.datasource) {
 		return store.ErrFenceLost
@@ -116,6 +135,14 @@ func (provider *controlledReadColumnAuthorizationProvider) BeginColumnAuthorizat
 			return recordErr
 		},
 		FinalFence: snapshot.FinalCheck,
+	}
+	if datasource.DBType == "mysql" {
+		bound, ok := snapshot.(*columnAuthorizationSnapshot)
+		if !ok {
+			_ = snapshot.Close()
+			return executor.ColumnAuthorizationRequest{}, nil, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable}
+		}
+		request.MySQLMetadataUsername, request.MySQLMetadataPassword = bound.MySQLMetadataCredentials()
 	}
 	return request, snapshot.Close, nil
 }

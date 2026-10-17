@@ -995,3 +995,38 @@ mcp:
 ### 已有数据源突然无法连接
 
 确认服务使用的 `AGENTSQL_SECRET` 与创建这些数据源时完全一致。恢复 SQLite 备份时必须同步恢复对应密钥。
+
+## v1.3.0 MySQL 8 单表列策略 SELECT 子集
+
+此功能默认关闭，只覆盖 MySQL 8.0/8.4 的显式列、单个 InnoDB 基础表 `SELECT`。在隔离测试库先准备两种独立账号：业务账号只授予所需表的 `SELECT`，元数据账号只授予实例级 `PROCESS`。二者须连接同一实例，且不要向业务账号授予 `PROCESS`。示例：
+
+```sql
+CREATE USER 'agentsql_reader'@'%' IDENTIFIED BY '<business-secret>';
+GRANT SELECT ON app.customers TO 'agentsql_reader'@'%';
+CREATE USER 'agentsql_identity'@'%' IDENTIFIED BY '<metadata-secret>';
+GRANT PROCESS ON *.* TO 'agentsql_identity'@'%';
+```
+
+把业务账号放入正常数据源，把元数据密码放入环境变量 `AGENTSQL_MYSQL_IDENTITY_PASSWORD`。配置中以数据源 ID 精确关联：
+
+```yaml
+column_authorization:
+  enabled: true
+  mysql_single_table_enabled: true
+  mysql_metadata_accounts:
+    mysql-prod-1:
+      username: agentsql_identity
+      password_env: AGENTSQL_MYSQL_IDENTITY_PASSWORD
+```
+
+为同一 Agent 和数据源创建 `object_type: table`、`object_name: app.customers` 的 allow 策略，以及 `object_type: column`、`object_name: app.customers` 的 allow 策略。读取列策略响应的 `ETag`，用管理员或具备 `strategy.manage` 权限的身份提交真库列绑定：
+
+```http
+POST /api/v1/policies/{id}/bind-mysql
+If-Match: "policy-id-r1"
+Content-Type: application/json
+
+{"schema":"app","table":"customers","grants":[{"column":"id","usage":"output"},{"column":"id","usage":"reference"},{"column":"phone","usage":"output"}]}
+```
+
+接口从真库发现后在控制事务中再次持 MDL 验证，提交健康绑定、对象 ID 和列权限；若版本变化或表已重建则返回冲突并需重新读取策略。启用开关后，持有列策略的 MySQL 请求只进入列授权路径；缺少元数据凭据、权限、健康绑定、列授权、审计或最终控制面检查时失败关闭。既有不含列策略的 MySQL 请求继续使用原表级路径。登记完成后重启 AgentSQL，使启动探针重新计算 B2 就绪状态。

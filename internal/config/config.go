@@ -209,23 +209,46 @@ func (config Config) EffectiveMCP() MCPConfig {
 	return value
 }
 
-// ColumnAuthorizationConfig controls the PostgreSQL protocol-3 path. Enabled
-// defaults on for parsed YAML, while an explicitly configured false remains an
-// authoritative rollback switch. Load resolves an omitted InstanceID from a
-// persistent per-deployment random identity before production assembly.
+// ColumnAuthorizationConfig controls the PostgreSQL protocol-3 path and the
+// separately gated MySQL single-table subset. Enabled defaults on for parsed
+// YAML, while an explicitly configured false remains an authoritative rollback
+// switch. The MySQL subset always defaults off. Load resolves an omitted
+// InstanceID from a persistent per-deployment random identity before assembly.
 type ColumnAuthorizationConfig struct {
-	Enabled             bool   `yaml:"enabled"`
-	DryRun              bool   `yaml:"dry_run"`
-	InstanceID          string `yaml:"instance_id"`
-	InstanceIDFile      string `yaml:"instance_id_file"`
-	LeaseMS             int    `yaml:"lease_ms"`
-	HeartbeatIntervalMS int    `yaml:"heartbeat_interval_ms"`
+	Enabled                 bool                            `yaml:"enabled"`
+	MySQLSingleTableEnabled bool                            `yaml:"mysql_single_table_enabled"`
+	MySQLMetadataAccounts   map[string]MySQLMetadataAccount `yaml:"mysql_metadata_accounts"`
+	DryRun                  bool                            `yaml:"dry_run"`
+	InstanceID              string                          `yaml:"instance_id"`
+	InstanceIDFile          string                          `yaml:"instance_id_file"`
+	LeaseMS                 int                             `yaml:"lease_ms"`
+	HeartbeatIntervalMS     int                             `yaml:"heartbeat_interval_ms"`
 
 	enabledSet               bool
 	instanceIDSet            bool
 	instanceIDFileSet        bool
 	instanceIDDefaultPending bool
 	instanceIDResolvedFile   bool
+}
+
+// MySQLMetadataAccount is a separate, explicitly configured identity-only
+// credential. PasswordEnv names an environment variable, not a YAML secret.
+type MySQLMetadataAccount struct {
+	Username    string `yaml:"username"`
+	PasswordEnv string `yaml:"password_env"`
+}
+
+func validEnvironmentVariableName(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	for index, ch := range name {
+		if ch == '_' || ch >= 'A' && ch <= 'Z' || index > 0 && ch >= '0' && ch <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // ServerConfig controls the shared HTTP listener and console availability.
@@ -487,6 +510,16 @@ func (config Config) validateNonStore() error {
 	}
 	if config.ColumnAuthorization.Enabled && config.ColumnAuthorization.DryRun {
 		return fmt.Errorf("validate column_authorization: enabled and dry_run are mutually exclusive")
+	}
+	if config.ColumnAuthorization.MySQLSingleTableEnabled && !config.ColumnAuthorization.Enabled {
+		return fmt.Errorf("validate column_authorization: mysql_single_table_enabled requires enabled")
+	}
+	for datasourceID, account := range config.ColumnAuthorization.MySQLMetadataAccounts {
+		if datasourceID == "" || strings.TrimSpace(datasourceID) != datasourceID || len(datasourceID) > 128 ||
+			account.Username == "" || strings.TrimSpace(account.Username) != account.Username || len(account.Username) > 128 ||
+			!validEnvironmentVariableName(account.PasswordEnv) {
+			return fmt.Errorf("validate column_authorization: invalid mysql_metadata_accounts entry")
+		}
 	}
 	if strings.TrimSpace(config.ColumnAuthorization.InstanceID) != "" && strings.TrimSpace(config.ColumnAuthorization.InstanceIDFile) != "" &&
 		!config.ColumnAuthorization.instanceIDResolvedFile {

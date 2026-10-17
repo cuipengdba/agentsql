@@ -45,6 +45,10 @@ type ColumnAuthorizationRequest struct {
 	DurableAudit              func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error
 	FinalFence                func(context.Context) error
 	Observe                   func(SelectPhase)
+	// These credentials are supplied by the local, per-datasource configuration
+	// and are used only by the fixed PROCESS-only TABLE_ID inspector.
+	MySQLMetadataUsername string
+	MySQLMetadataPassword string
 }
 
 type authorizedSelectRequest struct {
@@ -123,6 +127,9 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	limits := NormalizeLimits(request.Limits)
 	if err := ValidatePreParse(request.SQL, nil, limits); err != nil {
 		return AuthorizedSelectResult{}, err
+	}
+	if request.Datasource.DBType == "mysql" {
+		return gateway.authorizedMySQLSelect(ctx, request)
 	}
 	rowLimit := request.RowLimit
 	if rowLimit <= 0 {
@@ -526,6 +533,8 @@ func hashColumnIdentity(column columnauth.ColumnIdentity) string {
 
 func stableSite(site string) string {
 	switch {
+	case site == "target":
+		return "output"
 	case strings.HasPrefix(site, "target."):
 		return "output"
 	case site == "join_where":

@@ -70,6 +70,22 @@ func (resolver *Resolver) Resolve(
 				)
 			}
 			columns, err := policyColumns(stored.Columns)
+			if stored.Columns == nil && stored.RelationBinding != nil &&
+				stored.RelationBinding.Status == "healthy" && stored.RelationBindingID != nil &&
+				*stored.RelationBindingID == stored.RelationBinding.ID {
+				// Formal grants can be narrower by usage than the legacy CSV. The
+				// R010 projection gate uses only output names as a coarse check;
+				// the B2 authorizer remains authoritative for every reference.
+				columns = nil
+				for _, permission := range stored.ColumnPermissions {
+					if permission.RelationEnrollmentID == stored.RelationBinding.ID && permission.Usage == "output" {
+						columns = append(columns, permission.ColumnName)
+					}
+				}
+				if len(columns) != 0 {
+					err = nil
+				}
+			}
 			if err != nil {
 				return nil, fmt.Errorf("resolve policy at position %d: %w", index, err)
 			}

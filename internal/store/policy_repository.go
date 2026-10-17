@@ -28,6 +28,9 @@ type policyQueryer interface {
 type RevalidatedColumnBinding struct {
 	Binding     model.RelationPolicyBinding
 	Permissions []model.PolicyColumnPermission
+	// Release keeps the business metadata lock alive through the control-plane
+	// CAS and commit. It is invoked on both success and failure after revalidate.
+	Release func() error
 }
 
 // FinalizeColumnBindingTwoPhase enforces discovery-without-control followed by
@@ -39,7 +42,7 @@ func (repository *PolicyRepository) FinalizeColumnBindingTwoPhase(
 	expectedRevision int64,
 	discover func(context.Context) error,
 	revalidate func(context.Context) (RevalidatedColumnBinding, error),
-) (model.Policy, error) {
+) (saved model.Policy, returnedErr error) {
 	tenantID, tenantErr := repository.requireTenant(ctx, "finalize policy binding")
 	if tenantErr != nil {
 		return model.Policy{}, tenantErr
@@ -68,6 +71,19 @@ func (repository *PolicyRepository) FinalizeColumnBindingTwoPhase(
 	if err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, fmt.Errorf("binding revalidation: %w", err))
 	}
+	releaseHeld := bound.Release != nil
+	if bound.Release != nil {
+		defer func() {
+			if releaseHeld {
+				releaseErr := bound.Release()
+				if releaseErr == nil {
+					return
+				}
+				saved = model.Policy{}
+				returnedErr = errors.Join(returnedErr, fmt.Errorf("release business binding lock: %w", releaseErr))
+			}
+		}()
+	}
 	parent, err := scanPolicy(tx.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=? AND tenant_id=?`), policyID, tenantID))
 	if err != nil {
 		return model.Policy{}, rollbackPolicyTx(tx, err)
@@ -85,6 +101,13 @@ func (repository *PolicyRepository) FinalizeColumnBindingTwoPhase(
 	}
 	if err := tx.Commit(); err != nil {
 		return model.Policy{}, fmt.Errorf("commit two-phase binding: %w", err)
+	}
+	if releaseHeld {
+		releaseErr := bound.Release()
+		releaseHeld = false
+		if releaseErr != nil {
+			return model.Policy{}, fmt.Errorf("release business binding lock: %w", releaseErr)
+		}
 	}
 	return repository.Get(ctx, policyID)
 }

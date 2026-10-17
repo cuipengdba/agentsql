@@ -80,7 +80,7 @@ func TestB2StagingFinalizesWithDiscoveryThenControlBusinessRevalidation(t *testi
 	})
 	require.NoError(t, err)
 	require.Len(t, created.ColumnStaging, 2)
-	events := make([]string, 0, 2)
+	events := make([]string, 0, 3)
 	finalized, err := opened.Policies().FinalizeColumnBindingTwoPhase(context.Background(), created.ID, created.Revision,
 		func(context.Context) error { events = append(events, "discovery-released"); return nil },
 		func(context.Context) (RevalidatedColumnBinding, error) {
@@ -91,13 +91,30 @@ func TestB2StagingFinalizesWithDiscoveryThenControlBusinessRevalidation(t *testi
 					{RelationEnrollmentID: "e1", ColumnOrdinal: 1, ColumnName: "id", ColumnTypeDigest: "int8", Usage: "output"},
 					{RelationEnrollmentID: "e1", ColumnOrdinal: 1, ColumnName: "id", ColumnTypeDigest: "int8", Usage: "reference"},
 				},
+				Release: func() error { events = append(events, "business-lock-released-after-commit"); return nil },
 			}, nil
 		})
 	require.NoError(t, err)
-	require.Equal(t, []string{"discovery-released", "control-then-business-revalidated"}, events)
+	require.Equal(t, []string{"discovery-released", "control-then-business-revalidated",
+		"business-lock-released-after-commit"}, events)
 	require.Empty(t, finalized.ColumnStaging)
 	require.Len(t, finalized.ColumnPermissions, 2)
 	require.Equal(t, created.Revision+1, finalized.Revision)
+	releasedOnFailure := false
+	_, err = opened.Policies().FinalizeColumnBindingTwoPhase(context.Background(), finalized.ID, finalized.Revision,
+		func(context.Context) error { return nil },
+		func(context.Context) (RevalidatedColumnBinding, error) {
+			return RevalidatedColumnBinding{Binding: model.RelationPolicyBinding{ID: "binding-invalid", Status: "healthy"},
+				Permissions: []model.PolicyColumnPermission{{RelationEnrollmentID: "e2", ColumnOrdinal: 1,
+					ColumnName: "id", ColumnTypeDigest: "int8", Usage: "invalid"}},
+				Release: func() error { releasedOnFailure = true; return nil }}, nil
+		})
+	require.ErrorContains(t, err, "invalid column permission")
+	require.True(t, releasedOnFailure, "business metadata lock must be released on rollback")
+	unchanged, err := opened.Policies().Get(context.Background(), finalized.ID)
+	require.NoError(t, err)
+	require.Equal(t, finalized.Revision, unchanged.Revision)
+	require.Equal(t, finalized.RelationBindingID, unchanged.RelationBindingID)
 }
 
 func TestB2LegacyCSVStagingMigrationAndPreflightRollback(t *testing.T) {
