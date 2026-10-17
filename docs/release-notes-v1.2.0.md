@@ -1,4 +1,4 @@
-# AgentSQL v1.2.0 发布说明（候选）
+# AgentSQL v1.2.0 发布说明
 
 ## 范围
 
@@ -10,7 +10,7 @@ v1.2.0 增加可选的 MCP OAuth 受保护资源入口 `/mcp/oauth`，面向 MCP
 
 `mcp.oauth.enabled` 默认为 `false`。启用时配置 `issuer_url`、`resource_url`、`tenant_id` 和单个 `required_scope`；issuer 与 tenant 必须匹配 `auth.oidc`。生产 URI 使用 HTTPS，本地回环测试可用 HTTP。OAuth Access Token 放在标准 `Authorization: Bearer`，Agent Key 放在 `X-AgentSQL-Agent-Key`。控制台会话令牌和旧人员委托令牌不可替代 OAuth Access Token。
 
-本版不预计修改数据库 schema。仍需按正式包完成 SQLite 与 PostgreSQL 分库升级、恢复和回退验证。数据库支持级别不因本版改变。
+本版未修改数据库 schema。SQLite 与 PostgreSQL 元数据/审计分库均用正式 v1.1.0 包和与正式 Release 同哈希的 v1.2.0 发行包完成升级、备份恢复和检查。数据库支持级别不因本版改变。
 
 前端构建所用的间接依赖 `source-map-js` 更新至 1.2.2；本版锁文件经 `npm audit` 检查为 0 项漏洞。
 
