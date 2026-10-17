@@ -5,7 +5,8 @@
     [string]$ContainerName = 'kingbase-v9-batch72',
     [int]$ReadyTimeoutSeconds = 120,
     [switch]$FaultProbe,
-    [switch]$ClientProbe
+    [switch]$ClientProbe,
+    [switch]$PermissionProbe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -474,6 +475,19 @@ $sessionID = [string]@($initialResponse.Headers['Mcp-Session-Id'])[0]
 if (-not $sessionID) { throw 'MCP initialize returned no transport session' }
 $mcpHeaders['Mcp-Session-Id'] = $sessionID
 
+function Reset-MCPSession {
+    $freshHeaders = @{
+        Authorization = "Bearer $apiKey"
+        Accept = 'application/json, text/event-stream'
+        'MCP-Protocol-Version' = '2025-06-18'
+    }
+    $response = Invoke-WebRequest -Uri "$agentURL/mcp" -Method Post -Headers $freshHeaders `
+        -ContentType 'application/json' -Body $initialize -UseBasicParsing
+    $freshID = [string]@($response.Headers['Mcp-Session-Id'])[0]
+    if (-not $freshID) { throw 'KingbaseES MCP reconnect returned no session ID' }
+    $mcpHeaders['Mcp-Session-Id'] = $freshID
+}
+
 function Call-MCP([int]$id, [string]$tool, $arguments) {
     $payload = @{ jsonrpc = '2.0'; id = $id; method = 'tools/call'; params = @{ name = $tool; arguments = $arguments } } | ConvertTo-Json -Depth 12 -Compress
     $response = Invoke-WebRequest -Uri "$agentURL/mcp" -Method Post -Headers $mcpHeaders -ContentType 'application/json' -Body $payload -UseBasicParsing -TimeoutSec 30
@@ -563,6 +577,69 @@ if ($ClientProbe) {
     $clientAudits = Api 'GET' '/api/v1/audit?agent_id=kb-v9-agent&page_size=20' $null $token
     if ($clientAudits.total -lt 6) { throw 'KingbaseES external client calls did not persist four audit rows' }
     Step ("PASS: KingbaseES external client calls persisted audit total=$($clientAudits.total)")
+}
+if ($PermissionProbe) {
+    Step 'Revoke the Agent table policy and database SELECT grant, then verify fail-closed and masked recovery'
+    $policyURL = "$agentURL/api/v1/policies/kb-v9-table"
+    $policyGet = Invoke-WebRequest -Uri $policyURL -Method Get -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing
+    $policyETag = [string]@($policyGet.Headers['ETag'])[0]
+    if (-not $policyETag) { throw 'KingbaseES policy response has no ETag for safe revocation' }
+    $deleteResponse = Invoke-RestMethod -Uri $policyURL -Method Delete -Headers @{
+        Authorization = "Bearer $token"; 'If-Match' = $policyETag
+    }
+    if ($deleteResponse.code -ne 0) { throw 'KingbaseES policy revocation failed' }
+    Reset-MCPSession
+    $revokedPolicy = Call-MCP 10 'query' @{
+        datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
+    }
+    $revokedBody = $revokedPolicy | ConvertTo-Json -Depth 12 -Compress
+    Step ('KingbaseES revoked-policy response: ' + $revokedBody)
+    if ($revokedBody.Contains('13812345678') -or $revokedBody -match '"decision"\s*:\s*"allow"') {
+        throw 'KingbaseES policy revocation delivered a sensitive result'
+    }
+    Api 'POST' '/api/v1/policies' @{
+        id = 'kb-v9-table'; agent_id = 'kb-v9-agent'; datasource_id = 'kb-v9'
+        object_type = 'table'; object_name = 'public.agentsql_batch72_verify'; action = 'allow'
+    } $token | Out-Null
+    Reset-MCPSession
+    $policyRecovered = (Call-MCP 11 'query' @{
+        datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
+    }).result.structuredContent
+    if ($policyRecovered.decision -ne 'allow' -or
+        (@($policyRecovered.data.result.rows)[0] -join '|') -notmatch '138\*\*\*\*5678') {
+        throw 'KingbaseES policy recovery did not restore masked access'
+    }
+    Docker ($ksql + @('-c', 'REVOKE SELECT ON TABLE public.agentsql_batch72_verify FROM agentsql_ro;')) | Out-Null
+    try {
+        $grantTransportFailed = $false
+        try {
+            $revokedGrant = Call-MCP 12 'query' @{
+                datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
+            }
+        }
+        catch {
+            $grantTransportFailed = $true
+        }
+        if (-not $grantTransportFailed) {
+            $grantBody = $revokedGrant | ConvertTo-Json -Depth 12 -Compress
+            if ($grantBody.Contains('13812345678') -or $grantBody -match '"decision"\s*:\s*"allow"') {
+                throw 'KingbaseES database grant revocation delivered a sensitive result'
+            }
+        }
+    }
+    finally {
+        Docker ($ksql + @('-c', 'GRANT SELECT ON TABLE public.agentsql_batch72_verify TO agentsql_ro;')) | Out-Null
+    }
+    $grantRecovered = (Call-MCP 13 'query' @{
+        datasource_id = 'kb-v9'; sql = 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10'
+    }).result.structuredContent
+    if ($grantRecovered.decision -ne 'allow' -or
+        (@($grantRecovered.data.result.rows)[0] -join '|') -notmatch '138\*\*\*\*5678') {
+        throw 'KingbaseES database privilege recovery did not restore masked access'
+    }
+    $permissionAudits = Api 'GET' '/api/v1/audit?agent_id=kb-v9-agent&page_size=30' $null $token
+    if ($permissionAudits.total -lt 4) { throw 'KingbaseES permission recovery audit rows missing' }
+    Step ("PASS: KingbaseES policy and database privilege revocation fail closed; masked recovery and audit total=$($permissionAudits.total)")
 }
 if ($FaultProbe) {
     Step 'Isolate KingbaseES from the private gateway network without restarting the vendor entrypoint'

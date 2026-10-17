@@ -37,7 +37,8 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 	testTimeout := 30 * time.Second
 	faultDir := os.Getenv("AGENTSQL_TEST_G100_FAULT_DIR")
 	clientDir := os.Getenv("AGENTSQL_TEST_G100_CLIENT_DIR")
-	if faultDir != "" || clientDir != "" {
+	permissionDir := os.Getenv("AGENTSQL_TEST_G100_PERMISSION_DIR")
+	if faultDir != "" || clientDir != "" || permissionDir != "" {
 		testTimeout = 8 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -213,6 +214,60 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 		require.NoError(t, pageErr)
 		require.Equal(t, beforeClients.Total+4, afterClients.Total)
 		t.Log("Vastbase MCP Inspector and Dify calls persisted four additional audit rows")
+	}
+	if permissionDir != "" {
+		if clientDir == "" {
+			_, err = fixture.runtime.Store.Policies().Create(ctx, model.Policy{
+				ID: "g100-contact-table-permissions", AgentID: fixture.agent.ID, DatasourceID: "ds-g100",
+				ObjectType: "table", ObjectName: "agentsql_v060.contacts", Action: "allow",
+			})
+			require.NoError(t, err)
+		}
+		signalPermission := func(name string) {
+			t.Helper()
+			require.NoError(t, os.WriteFile(filepath.Join(permissionDir, name), []byte("ready\n"), 0o600))
+		}
+		waitPermission := func(name string) {
+			t.Helper()
+			path := filepath.Join(permissionDir, name)
+			for {
+				if _, statErr := os.Stat(path); statErr == nil {
+					return
+				} else if !os.IsNotExist(statErr) {
+					require.NoError(t, statErr)
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("timed out waiting for Vastbase permission signal: " + name)
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+		}
+		signalPermission("ready")
+		waitPermission("revoked")
+		revokedResult, revokedErr := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "query", Arguments: map[string]any{
+				"datasource_id": "ds-g100", "sql": "SELECT phone FROM agentsql_v060.contacts WHERE id = 1 LIMIT 1",
+			},
+		})
+		if revokedErr == nil {
+			encoded, marshalErr := json.Marshal(revokedResult)
+			require.NoError(t, marshalErr)
+			require.NotContains(t, string(encoded), "13812345678")
+			require.NotContains(t, string(encoded), `"decision":"allow"`)
+		} else {
+			t.Logf("Vastbase revoked SELECT failed at MCP transport: %v", revokedErr)
+		}
+		signalPermission("revoked_checked")
+		waitPermission("restored")
+		recoveredGrant := call("query", "SELECT phone FROM agentsql_v060.contacts WHERE id = 1 LIMIT 1")
+		require.Contains(t, recoveredGrant, `"decision":"allow"`)
+		require.Contains(t, recoveredGrant, "138****5678")
+		require.NotContains(t, recoveredGrant, "13812345678")
+		page, err = fixture.runtime.Store.AuditLogs().Page(ctx, 1, 20)
+		require.NoError(t, err)
+		require.Equal(t, "allow", page.List[0].Decision)
+		t.Log("Vastbase SELECT grant revocation failed closed and recovery persisted a masked result")
 	}
 	if faultDir == "" {
 		return
