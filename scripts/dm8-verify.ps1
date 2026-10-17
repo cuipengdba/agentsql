@@ -4,6 +4,9 @@ param(
     [string]$VerifyContainer = 'dm8-b65',
     [string]$DockerExe = 'E:\Docker\DockerDesktop\resources\bin\docker.exe',
     [int]$ReadyTimeoutSeconds = 180,
+    [switch]$FaultProbe,
+    [switch]$ClientProbe,
+    [switch]$PermissionProbe,
     [string]$LogPath = (Join-Path $env:TEMP 'agentsql-dm8-b65-verify.log')
 )
 
@@ -492,6 +495,19 @@ mcp:
     if (-not $sessionID) { throw 'MCP initialize returned no transport session' }
     $mcpHeaders['Mcp-Session-Id'] = $sessionID
 
+    function Reset-MCPSession {
+        $freshHeaders = @{
+            Authorization = "Bearer $apiKey"
+            Accept = 'application/json, text/event-stream'
+            'MCP-Protocol-Version' = '2025-06-18'
+        }
+        $response = Invoke-WebRequest -Uri "$agentURL/mcp" -Method Post -Headers $freshHeaders `
+            -ContentType 'application/json' -Body $initialize -UseBasicParsing
+        $freshID = [string]@($response.Headers['Mcp-Session-Id'])[0]
+        if (-not $freshID) { throw 'DM8 MCP reconnect returned no session ID' }
+        $mcpHeaders['Mcp-Session-Id'] = $freshID
+    }
+
     Step 'Verify DM8 SELECT, parser lineage, phone mask, R010 denial, and audit'
     $allowedResponse = Call-MCP 1 'query' @{ datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2" }
     $allowed = $allowedResponse.result.structuredContent
@@ -521,6 +537,128 @@ mcp:
         throw 'AgentSQL DM8 audit records did not match all three probe decisions'
     }
     Step 'PASS: SELECT, column lineage, R010 denial, phone mask, parse failure, and three audit rows'
+
+    if ($ClientProbe) {
+        Step 'Use MCP Inspector 0.16.8 CLI and Dify 1.17.1 MCPClient against the live DM8 gateway'
+        & (Join-Path $PSScriptRoot 'v1.5-mcp-client-probes.ps1') `
+            -Network $network -Gateway $agentContainer -ApiKey $apiKey -DatasourceID 'dm8-b65' `
+            -AllowSQL "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2" `
+            -DenySQL "SELECT ID FROM SYSDBA.$denyTable WHERE ID=7" -DenyRule 'R010' |
+            ForEach-Object { Step $_ }
+        if ($LASTEXITCODE -ne 0) { throw 'DM8 external MCP client probe failed' }
+        $clientAudits = Api 'GET' '/api/v1/audit?agent_id=dm8-b65-agent&page_size=20' $null $token
+        if ($clientAudits.total -lt 7) { throw 'DM8 external client calls did not persist four audit rows' }
+        Step ("PASS: DM8 external client calls persisted audit total=$($clientAudits.total)")
+    }
+
+    if ($PermissionProbe) {
+        Step 'Revoke the Agent table policy and database SELECT grant, then verify each fail-closed and masked recovery'
+        $policyURL = "$agentURL/api/v1/policies/dm8-b65-table"
+        $policyGet = Invoke-WebRequest -Uri $policyURL -Method Get -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing
+        $policyETag = [string]@($policyGet.Headers['ETag'])[0]
+        if (-not $policyETag) { throw 'DM8 policy response has no ETag for safe revocation' }
+        $deleteResponse = Invoke-RestMethod -Uri $policyURL -Method Delete -Headers @{
+            Authorization = "Bearer $token"; 'If-Match' = $policyETag
+        }
+        if ($deleteResponse.code -ne 0) { throw 'DM8 policy revocation failed' }
+        Reset-MCPSession
+        $revokedPolicy = Call-MCP 10 'query' @{
+            datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2"
+        }
+        $revokedBody = $revokedPolicy | ConvertTo-Json -Depth 12 -Compress
+        Step ('DM8 revoked-policy response: ' + $revokedBody)
+        if ($revokedBody.Contains('13800135678') -or $revokedBody -match '"decision"\s*:\s*"allow"') {
+            throw 'DM8 policy revocation delivered a sensitive result'
+        }
+        Api 'POST' '/api/v1/policies' @{
+            id = 'dm8-b65-table'; agent_id = 'dm8-b65-agent'; datasource_id = 'dm8-b65'
+            object_type = 'table'; object_name = "SYSDBA.$table"; action = 'allow'
+        } $token | Out-Null
+        Reset-MCPSession
+        $policyRecovered = (Call-MCP 11 'query' @{
+            datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2"
+        }).result.structuredContent
+        if ($policyRecovered.decision -ne 'allow' -or $policyRecovered.data.result.Rows[0][1] -ne '138****5678') {
+            throw 'DM8 policy recovery did not restore masked access'
+        }
+        Require-Disql 'revoke reader SELECT' @("REVOKE SELECT ON $table FROM $reader;") 'successfully' $adminPassword | Out-Null
+        try {
+            $grantTransportFailed = $false
+            try {
+                $revokedGrant = Call-MCP 12 'query' @{
+                    datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2"
+                }
+            }
+            catch {
+                $grantTransportFailed = $true
+            }
+            if (-not $grantTransportFailed) {
+                $grantBody = $revokedGrant | ConvertTo-Json -Depth 12 -Compress
+                if ($grantBody.Contains('13800135678') -or $grantBody -match '"decision"\s*:\s*"allow"') {
+                    throw 'DM8 database grant revocation delivered a sensitive result'
+                }
+            }
+        }
+        finally {
+            Require-Disql 'restore reader SELECT' @("GRANT SELECT ON $table TO $reader;") 'successfully' $adminPassword | Out-Null
+        }
+        $grantRecovered = (Call-MCP 13 'query' @{
+            datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2"
+        }).result.structuredContent
+        if ($grantRecovered.decision -ne 'allow' -or $grantRecovered.data.result.Rows[0][1] -ne '138****5678') {
+            throw 'DM8 database privilege recovery did not restore masked access'
+        }
+        $permissionAudits = Api 'GET' '/api/v1/audit?agent_id=dm8-b65-agent&page_size=30' $null $token
+        if ($permissionAudits.total -lt 5) { throw 'DM8 permission recovery audit rows missing' }
+        Step ("PASS: DM8 policy and database privilege revocation fail closed; masked recovery and audit total=$($permissionAudits.total)")
+    }
+
+    if ($FaultProbe) {
+        Step 'Stop the licensed DM8 instance to verify a business database outage cannot deliver sensitive results'
+        Docker @('stop', $VerifyContainer) | Out-Null
+        try {
+            $outageResponse = $null
+            $transportFailed = $false
+            try {
+                $outageResponse = Call-MCP 4 'query' @{ datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2" }
+            }
+            catch {
+                $transportFailed = $true
+                Step ('DM8 outage request failed at transport: ' + $_.Exception.GetType().Name)
+            }
+            if (-not $transportFailed) {
+                $outageBody = $outageResponse | ConvertTo-Json -Depth 12 -Compress
+                if ($outageBody.Contains('13800135678') -or $outageBody -match '"decision"\s*:\s*"allow"') {
+                    throw 'DM8 outage delivered an unmasked or allowed result'
+                }
+                Step ('DM8 outage returned a non-allow MCP response, bytes=' + $outageBody.Length)
+            }
+            Step 'PASS: DM8 business database outage did not deliver the sensitive row'
+        }
+        finally {
+            Docker @('start', $VerifyContainer) | Out-Null
+        }
+
+        $recovered = $false
+        $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
+        do {
+            try {
+                Require-Disql 'DM8 recovery readiness' @('SELECT 1 AS READY FROM DUAL;') 'READY' $adminPassword | Out-Null
+                $recovered = $true
+            }
+            catch { Start-Sleep -Seconds 2 }
+        } while (-not $recovered -and (Get-Date) -lt $deadline)
+        if (-not $recovered) { throw 'DM8 did not recover after the outage probe' }
+        $recoveredResponse = (Call-MCP 5 'query' @{ datasource_id = 'dm8-b65'; sql = "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2" }).result.structuredContent
+        if ($recoveredResponse.decision -ne 'allow' -or $recoveredResponse.data.result.Rows[0][1] -ne '138****5678') {
+            throw 'DM8 recovery did not restore a masked allow result'
+        }
+        $recoveryAudits = Api 'GET' '/api/v1/audit?agent_id=dm8-b65-agent&page_size=20' $null $token
+        if (@($recoveryAudits.list | Where-Object { $_.decision -eq 'allow' -and $_.rows_returned -eq 1 }).Count -lt 2) {
+            throw 'DM8 recovery result has no corresponding persisted allow audit'
+        }
+        Step 'PASS: DM8 recovered masked query and persisted a second allow audit'
+    }
 
     Docker @('stop', $agentContainer) | Out-Null
     Require-Disql 'drop verification reader' @("DROP USER $reader CASCADE;") 'successfully' $adminPassword | Out-Null
