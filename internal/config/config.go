@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/google/uuid"
@@ -57,6 +59,7 @@ type Config struct {
 type MCPConfig struct {
 	HTTP         MCPHTTPConfig         `yaml:"http"`
 	Delegation   MCPDelegationConfig   `yaml:"delegation"`
+	OAuth        MCPOAuthConfig        `yaml:"oauth"`
 	Sessions     MCPSessionsConfig     `yaml:"sessions"`
 	Transactions MCPTransactionsConfig `yaml:"transactions"`
 
@@ -72,6 +75,60 @@ type MCPConfig struct {
 // login and validates it independently of the Agent API key.
 type MCPDelegationConfig struct {
 	RequireHumanToken bool `yaml:"require_human_token"`
+}
+
+// MCPOAuthConfig enables a separate MCP protected resource backed by an
+// external OIDC/OAuth authorization server. It never changes the legacy
+// Agent-Key endpoints or makes the console login token an OAuth access token.
+type MCPOAuthConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	IssuerURL     string `yaml:"issuer_url"`
+	ResourceURL   string `yaml:"resource_url"`
+	TenantID      string `yaml:"tenant_id"`
+	RequiredScope string `yaml:"required_scope"`
+}
+
+func (value MCPOAuthConfig) Validate() error {
+	if !value.Enabled {
+		return nil
+	}
+	if value.TenantID == "" || len(value.TenantID) > 128 || strings.TrimSpace(value.TenantID) != value.TenantID {
+		return errors.New("tenant_id must be a nonempty tenant identifier")
+	}
+	if value.RequiredScope == "" || len(value.RequiredScope) > 128 || strings.IndexFunc(value.RequiredScope, unicode.IsSpace) >= 0 {
+		return errors.New("required_scope must be one nonempty scope")
+	}
+	_, err := validateMCPOAuthURL(value.IssuerURL)
+	if err != nil {
+		return fmt.Errorf("issuer_url: %w", err)
+	}
+	resource, err := validateMCPOAuthURL(value.ResourceURL)
+	if err != nil {
+		return fmt.Errorf("resource_url: %w", err)
+	}
+	if resource.EscapedPath() != "/mcp/oauth" {
+		return errors.New("resource_url path must be /mcp/oauth")
+	}
+	return nil
+}
+
+func validateMCPOAuthURL(raw string) (*url.URL, error) {
+	if raw == "" || len(raw) > 2048 || strings.TrimSpace(raw) != raw {
+		return nil, errors.New("URL must be nonempty and at most 2048 bytes")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Opaque != "" || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawFragment != "" {
+		return nil, errors.New("URL must be absolute without credentials, query or fragment")
+	}
+	if parsed.Scheme != "https" {
+		host := parsed.Hostname()
+		address := net.ParseIP(host)
+		if parsed.Scheme != "http" || !(strings.EqualFold(host, "localhost") || address != nil && address.IsLoopback()) {
+			return nil, errors.New("URL must use HTTPS except for loopback development")
+		}
+	}
+	return parsed, nil
 }
 
 // MCPHTTPConfig controls protocol-level Streamable HTTP sessions. These
@@ -107,6 +164,9 @@ type MCPTransactionsConfig struct {
 // authoritative because Parse fills the non-boolean defaults before decode.
 func (config Config) EffectiveMCP() MCPConfig {
 	value := config.MCP
+	if value.OAuth.RequiredScope == "" {
+		value.OAuth.RequiredScope = "agentsql:mcp"
+	}
 	if !value.httpStatefulSet {
 		value.HTTP.Stateful = true
 	}
@@ -446,6 +506,14 @@ func (config Config) validateNonStore() error {
 	mcp := config.EffectiveMCP()
 	if mcp.Delegation.RequireHumanToken && !config.Server.ConsoleEnabled {
 		return fmt.Errorf("validate mcp.delegation: require_human_token requires server.console_enabled")
+	}
+	if err := mcp.OAuth.Validate(); err != nil {
+		return fmt.Errorf("validate mcp.oauth: %w", err)
+	}
+	if mcp.OAuth.Enabled && (!config.Auth.OIDC.Enabled ||
+		config.Auth.OIDC.IssuerURL != mcp.OAuth.IssuerURL ||
+		config.Auth.OIDC.TenantID != mcp.OAuth.TenantID) {
+		return errors.New("validate mcp.oauth: issuer and tenant must match enabled control-plane OIDC identity provider")
 	}
 	if mcp.HTTP.SessionTimeoutMS <= 0 || mcp.HTTP.SessionTimeoutMS > 30*60*1000 {
 		return fmt.Errorf("validate mcp.http: session_timeout_ms must be positive and <= 30m")

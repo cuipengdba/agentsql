@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文说明 AgentSQL v1.0.0 的 MCP 接入。安装或拉取 v1.0.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v1.2.0 的 MCP 接入。安装或拉取 v1.2.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -20,7 +20,7 @@
 
 Agent API Key 不是控制台管理员 token。Agent 被禁用、过期、删除或轮换 Key 后，旧 Key 立即失效。
 
-### v1.0.0 可选的人员身份委托
+### 可选的人员身份委托（v1.0.0 起，v1.1.0 扩展）
 
 管理员可在配置中启用 `mcp.delegation.require_human_token: true`，同时保持 `server.console_enabled: true`。启用后，两个 HTTP MCP 入口的每次请求都要分别带 Agent Key 和人员委托令牌：
 
@@ -40,11 +40,11 @@ curl -fsS -X POST http://127.0.0.1:7780/api/v1/auth/delegation-token \
 
 响应里的 `data.token` 只适用于指定 Agent，最长 30 分钟，不能访问控制台 API；普通控制台登录令牌不能直接填入 MCP 第二个请求头。原登录会话退出或失效、用户停用、`query.execute` 被撤销时，委托令牌立即失效。有状态 `/mcp` 会话绑定人员身份，换人需重新 `initialize`。任务级 Key 还要求令牌所属用户与授权签发者一致。令牌签发需要管理审计可写，否则失败关闭。
 
-该模式暂不提供 B5 跨请求工具、`request_approval` 和 `execute_approved` 的人员归属链路；普通 Agent 模式仍保持既有工具。请先确认 MCP 客户端可安全配置两个自定义 HTTP 头，再启用此开关。公开 Live Demo 不使用这一模式。
+自 v1.1.0 起，审批申请与执行、B5 跨请求会话也绑定发起人员、Agent 与租户；跨人复用或原人员权限失效时拒绝。请先确认 MCP 客户端可安全配置两个 HTTP 身份头，再启用此开关。公开 Live Demo 不使用这一模式。
 
 进程重启不会恢复 go-sdk 的内存 transport session。携带旧 `Mcp-Session-Id` 的请求会收到 HTTP 404 与 `Mcp-Session-Expired: 1`；客户端应丢弃旧 ID 并重新 `initialize`。新 session 不会读取旧 session 的事件。
 
-### 2026-07-28 无状态 HTTP（安装 v1.0.0 后）
+### 2026-07-28 无状态 HTTP（v0.7.0 起）
 
 新协议使用 `http://127.0.0.1:7780/mcp/2026-07-28`。该路径只接受 `2026-07-28`，不会协商为旧版；旧 `/mcp` 的行为和默认配置不变。新路径每个 POST 都重新验证 Agent API Key、由该 Key 确定租户，并与旧路径共用同一 Agent 的 QPS 限额。请求体仍限制为 4 MiB，响应继续遵守网关上限。
 
@@ -59,8 +59,40 @@ curl -fsS http://127.0.0.1:7780/mcp/2026-07-28 \
   -H 'Accept: application/json, text/event-stream' \
   -H 'MCP-Protocol-Version: 2026-07-28' \
   -H 'Mcp-Method: server/discover' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"agentsql-smoke","version":"1.0.0"}}}}'
+  --data '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"agentsql-smoke","version":"1.2.0"}}}}'
 ```
+
+### v1.2.0 可选的 MCP OAuth 入口
+
+`/mcp/oauth` 是独立的 MCP `2026-07-28` 受保护资源入口，默认关闭。启用前先配置控制台 OIDC 身份源，并在同一租户创建对应的受管 OIDC 用户；`mcp.oauth.issuer_url` 和 `tenant_id` 必须与控制台 OIDC 配置完全一致。授权服务器须给该资源签发 RS256 JWT Access Token，其 `aud` 包含**精确的** `resource_url`，scope 包含配置的单个 `required_scope`。生产环境的 issuer 和 resource URL 必须使用 HTTPS；HTTP 仅用于本机回环测试。
+
+```yaml
+mcp:
+  oauth:
+    enabled: true
+    issuer_url: "https://id.example.com/realms/agentsql"
+    resource_url: "https://mcp.example.com/mcp/oauth"
+    tenant_id: "tenant_default"
+    required_scope: "agentsql:mcp"
+```
+
+客户端预注册在授权服务器中，负责授权码、PKCE 和 `resource` 参数。MCP Inspector 2.11.0 的 `mcp.json` 可使用以下形式；其中 `scopes` 必须是字符串，Agent Key 与 OAuth Access Token 是两种独立凭据：
+
+```json
+{
+  "mcpServers": {
+    "agentsql-oauth": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp/oauth",
+      "protocolEra": "modern",
+      "headers": {"X-AgentSQL-Agent-Key": "<Agent API Key>"},
+      "oauth": {"clientId": "<预注册客户端 ID>", "scopes": "agentsql:mcp"}
+    }
+  }
+}
+```
+
+未带 Access Token 时，服务器通过 `WWW-Authenticate` 指向 `/.well-known/oauth-protected-resource/mcp/oauth`。用户、Agent、租户和 `query.execute` 权限每次请求重新验证；控制台会话令牌、旧人员委托令牌、其他资源的令牌和 URL 查询参数都不能替代本入口的 Access Token。当前仅实测 Keycloak 26.4.6 + Inspector 2.11.0；Dify 1.17.1 只验证了旧 `/mcp` 入口。结果及边界见 [v1.2.0 验收记录](v1.2.0-acceptance.md)。
 
 服务默认应只绑定回环地址。远程使用时，选择 SSH 本地转发或受控 TLS 反向代理；禁止让 `0.0.0.0:7780` 在公网裸奔。
 

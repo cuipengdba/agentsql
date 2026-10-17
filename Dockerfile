@@ -2,7 +2,7 @@
 
 FROM golang:1.26.9-bookworm AS build
 
-ARG VERSION=v1.1.0
+ARG VERSION=v1.2.0
 # Overridable module proxy for restricted networks, e.g.
 # `docker build --build-arg GOPROXY=https://goproxy.cn,direct`.
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -37,7 +37,7 @@ RUN case "${TARGETARCH}" in \
 
 # The repository includes internal/webui/dist; frontend tooling is not run here.
 COPY . .
-RUN mkdir -p /out \
+RUN --mount=type=cache,target=/root/.cache/go-build mkdir -p /out \
     && GOFLAGS= CGO_ENABLED=1 go build -tags yashan -trimpath \
         -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
         -o /out/agentsql ./cmd/agentsql \
@@ -48,7 +48,7 @@ RUN mkdir -p /out \
 
 FROM debian:bookworm-slim AS runtime
 
-ARG VERSION=v1.1.0
+ARG VERSION=v1.2.0
 ARG REVISION
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \

@@ -61,13 +61,22 @@ column_authorization:
   # instance_id: "gateway-replica-a"
   # instance_id_file: "./data/instance-id" # 与 instance_id 互斥；只读配置目录可使用此项
 
-# B5 MCP 跨请求逻辑会话与 PostgreSQL 计划事务默认开启。MySQL v0.4 固定不支持，
+# B5 MCP 跨请求逻辑会话与 PostgreSQL 计划事务默认开启。MySQL B5 事务目前不支持，
 # 配置为 true 会中文报错并拒绝启动；显式 enabled/postgres=false 可独立回退。
 mcp:
   # 可选：HTTP MCP 同时校验 Agent Key 与指定 Agent 的短时人员委托令牌。
-  # 开启时必须启用 Web 控制台；B5 和审批执行在委托模式下关闭。
+  # 开启时必须启用 Web 控制台；审批和 B5 会话均绑定同一用户、Agent 与租户。
   delegation:
     require_human_token: false
+  # 可选的 MCP 2026-07-28 OAuth 受保护资源。授权服务器与租户必须与已启用的
+  # auth.oidc 身份源一致；客户端须另外发送固定 X-AgentSQL-Agent-Key 请求头。
+  # 仅接受面向 resource_url 的 RS256 JWT Access Token 和 agentsql:mcp scope。
+  oauth:
+    enabled: false
+    # issuer_url: "https://id.example.com/realms/agentsql"
+    # resource_url: "https://mcp.example.com/mcp/oauth"
+    # tenant_id: "tenant_default"
+    required_scope: "agentsql:mcp"
   # Streamable HTTP transport sessions are independent from B5 logical sessions.
   # Stateful mode is the default; set false only as a compatibility rollback.
   http:

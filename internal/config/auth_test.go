@@ -20,6 +20,12 @@ func TestAuthConfigFailClosedValidation(t *testing.T) {
 	badOIDC := validOIDC
 	badOIDC.IssuerURL = "http://id.example.test"
 	require.ErrorContains(t, (AuthConfig{OIDC: badOIDC}).Validate(), "HTTPS")
+	loopbackOIDC := validOIDC
+	loopbackOIDC.IssuerURL = "http://127.0.0.1:8180/realms/agentsql"
+	loopbackOIDC.RedirectURL = "http://localhost:7780/api/v1/auth/oidc/callback"
+	require.NoError(t, (AuthConfig{OIDC: loopbackOIDC}).Validate())
+	loopbackOIDC.IssuerURL = "http://db.internal/realms/agentsql"
+	require.ErrorContains(t, (AuthConfig{OIDC: loopbackOIDC}).Validate(), "HTTPS")
 
 	badLDAP := plaintextLDAP
 	badLDAP.StartTLS = true
