@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.5.0]
+
+- Deepen bounded live verification for DM8 Pack3, KingbaseES V9R1C10 PG mode and Vastbase G100 Build 9 PG mode: minimum privilege, masked allow, policy deny, durable audit, permission revocation and database outage/recovery.
+- Exercise an allow and a deny call per database through MCP Inspector 0.16.8 CLI and Dify 1.17.1 MCPClient. Keep per-vendor query timeout/cancel and separate audit-store outage explicitly unverified.
+- Verify official v1.4.0 package upgrade with unchanged SQLite schema 22 and separated PostgreSQL metadata/audit schemas 21/6, preserved data, old-binary read-only checks and paired backup restore.
+- Publish dual-architecture signed packages and exact GHCR tags, then update the public website, Live Demo and `latest` from v1.0.0 directly to v1.5.0.
+
+See the [v1.5.0 design](docs/v1.5.0-design.md), [release notes](docs/release-notes-v1.5.0.md) and [acceptance record](docs/v1.5.0-acceptance.md) for exact versions, evidence and remaining limits.
+
 ## [v1.4.0]
 
 - Share console password and LDAP login-attempt budgets across gateways backed by PostgreSQL metadata, using an HMAC account key, database-clock window and atomic transaction. Fail closed on metadata outage and bound the network wait.
