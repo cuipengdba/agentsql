@@ -70,14 +70,12 @@ func newOIDCProviderWithClient(ctx context.Context, value config.OIDCConfig, cli
 		return nil, errors.New("discovery issuer does not exactly match configured issuer")
 	}
 	for name, raw := range map[string]string{"authorization_endpoint": provider.metadata.AuthorizationEndpoint, "token_endpoint": provider.metadata.TokenEndpoint, "jwks_uri": provider.metadata.JWKSURI} {
-		parsed, err := url.Parse(raw)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		if !config.ValidOIDCEndpoint(raw) {
 			return nil, fmt.Errorf("discovery %s is not an absolute HTTPS URL", name)
 		}
 	}
 	if endpoint := provider.metadata.EndSessionEndpoint; endpoint != "" {
-		parsed, parseErr := url.Parse(endpoint)
-		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		if !config.ValidOIDCEndpoint(endpoint) {
 			return nil, errors.New("discovery end_session_endpoint is not an absolute HTTPS URL")
 		}
 	}

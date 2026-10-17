@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.2.0]
+
+- Add an optional MCP OAuth protected resource at `/mcp/oauth` with discovery metadata and standard Bearer challenges. Preserve both existing Agent Key endpoints.
+- Verify RS256 access tokens for the exact resource audience and required scope against the configured OIDC issuer's JWKS. Bind a separate Agent Key, active local OIDC user, tenant and live query permission on each request.
+- Require the MCP OAuth issuer and tenant to match the configured console OIDC identity source; support loopback HTTP only for local OIDC testing. Document the bounded interoperability claim and rollback path.
+
+See the [v1.2.0 design](docs/v1.2.0-design.md) and [release notes](docs/release-notes-v1.2.0.md) for scope and verification.
+
 ## [v1.1.0]
 
 - Bind delegated approval requests and single-use execution to the verified human user, Agent and tenant; enforce owner checks in the atomic claim and preserve the old Agent-only path.

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"sort"
 	"strings"
@@ -75,20 +76,42 @@ func (config OIDCConfig) validate() error {
 	}
 	for name, raw := range map[string]string{"issuer_url": config.IssuerURL, "redirect_url": config.RedirectURL} {
 		parsed, err := url.Parse(raw)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-			return fmt.Errorf("oidc.%s must be an absolute HTTPS URL", name)
+		if err != nil || !validOIDCURL(parsed) {
+			return fmt.Errorf("oidc.%s must be an absolute HTTPS URL (HTTP only on loopback)", name)
 		}
 	}
 	if config.PostLogoutURL != "" {
 		parsed, err := url.Parse(config.PostLogoutURL)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-			return errors.New("oidc.post_logout_url must be an absolute HTTPS URL")
+		if err != nil || !validOIDCURL(parsed) {
+			return errors.New("oidc.post_logout_url must be an absolute HTTPS URL (HTTP only on loopback)")
 		}
 	}
 	if config.UsernameClaim == "" || config.GroupsClaim == "" {
 		return errors.New("oidc username_claim and groups_claim are required")
 	}
 	return validateRoleMap("oidc.group_role_map", config.GroupRoleMap)
+}
+
+func validOIDCURL(parsed *url.URL) bool {
+	if parsed == nil || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil || parsed.Opaque != "" || parsed.Fragment != "" {
+		return false
+	}
+	if parsed.Scheme == "https" {
+		return true
+	}
+	if parsed.Scheme != "http" {
+		return false
+	}
+	host := parsed.Hostname()
+	address := net.ParseIP(host)
+	return strings.EqualFold(host, "localhost") || address != nil && address.IsLoopback()
+}
+
+// ValidOIDCEndpoint applies the same HTTPS-or-loopback rule to URLs returned
+// by the configured identity provider's discovery document.
+func ValidOIDCEndpoint(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && validOIDCURL(parsed)
 }
 
 func (config LDAPConfig) validate() error {

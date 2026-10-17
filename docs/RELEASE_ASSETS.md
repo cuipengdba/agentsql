@@ -1,16 +1,16 @@
 # AgentSQL Release 资产清单
 
-## v1.1.0 预期资产
+## v1.2.0 预期资产
 
-15 项正式资产须来自 v1.1.0 同一干净封板提交：
+15 项正式资产须来自 v1.2.0 同一干净封板提交：
 
 ```text
-agentsql-v1.1.0-linux-amd64.tar.gz
-agentsql-v1.1.0-linux-amd64.tar.gz.sha256
-agentsql-v1.1.0-linux-arm64.tar.gz
-agentsql-v1.1.0-linux-arm64.tar.gz.sha256
-agentsql-v1.1.0.spdx.json
-agentsql-v1.1.0.spdx.json.sig.json
+agentsql-v1.2.0-linux-amd64.tar.gz
+agentsql-v1.2.0-linux-amd64.tar.gz.sha256
+agentsql-v1.2.0-linux-arm64.tar.gz
+agentsql-v1.2.0-linux-arm64.tar.gz.sha256
+agentsql-v1.2.0.spdx.json
+agentsql-v1.2.0.spdx.json.sig.json
 ed25519-release-public-key.json
 go-version-metadata.txt
 install.sh

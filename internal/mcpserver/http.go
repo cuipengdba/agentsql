@@ -186,6 +186,7 @@ type httpHandlerOptions struct {
 	webConsole http.Handler
 	b5         B5Options
 	delegation HumanDelegationVerifier
+	oauth      HumanDelegationVerifier
 }
 
 // HTTPOption extends the T15 mux without changing its default routes.
@@ -226,6 +227,14 @@ func WithHumanDelegation(verifier HumanDelegationVerifier) HTTPOption {
 	}
 }
 
+// WithOAuthAccessVerifier overrides external issuer discovery for a trusted
+// test or deployment verifier.
+func WithOAuthAccessVerifier(verifier HumanDelegationVerifier) HTTPOption {
+	return func(configuration *httpHandlerOptions) {
+		configuration.oauth = verifier
+	}
+}
+
 func newHTTPHandlerWithRegistry(
 	runtime *bootstrap.Runtime,
 	cfg config.Config,
@@ -259,6 +268,17 @@ func newHTTPHandlerWithRegistry(
 		return nil, nil, fmt.Errorf("create MCP HTTP handler: human delegation verifier is required")
 	}
 	mcpConfig := cfg.EffectiveMCP()
+	var oauthVerifier HumanDelegationVerifier
+	if mcpConfig.OAuth.Enabled {
+		oauthVerifier = resolvedOptions.oauth
+		if oauthVerifier == nil {
+			var oauthErr error
+			oauthVerifier, oauthErr = newOAuthAccessVerifier(context.Background(), mcpConfig.OAuth, runtime)
+			if oauthErr != nil {
+				return nil, nil, fmt.Errorf("create MCP HTTP handler: initialize OAuth verifier: %w", oauthErr)
+			}
+		}
+	}
 	b5Tools := resolvedOptions.b5
 	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent, b5Tools)
 	getServer := func(request *http.Request) *mcp.Server {
@@ -360,6 +380,24 @@ func newHTTPHandlerWithRegistry(
 		sealedMCPHandler.ServeHTTP(writer, request)
 	}))
 	mux.Handle(modernMCPPath, authorizedexecute.SealedHTTP(modernMCPHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
+	if mcpConfig.OAuth.Enabled {
+		var oauthInner http.Handler = uniqueModernMetadataMiddleware(modernSDKHandler)
+		oauthInner = accessLogMiddleware(logger, oauthInner)
+		oauthInner = recoverMiddleware(logger, oauthInner)
+		oauthInner = rateMiddleware(registry, oauthInner)
+		oauthInner = oauthHumanMiddleware(mcpConfig.OAuth, oauthVerifier, oauthInner)
+		oauthInner = oauthAgentAuthMiddleware(mcpConfig.OAuth, authenticator, oauthInner)
+		oauthMCPHandler := http.NewCrossOriginProtection().Handler(oauthInner)
+		mux.Handle(oauthMCPPath, authorizedexecute.SealedHTTP(oauthMCPHandler, authorizedexecute.DefaultLimits.EnvelopeBytes))
+		mux.Handle("GET "+oauthMetadataPath, oauthMetadataHandler(mcpConfig.OAuth))
+	} else {
+		mux.HandleFunc(oauthMCPPath, func(writer http.ResponseWriter, _ *http.Request) {
+			writeHTTPError(writer, http.StatusNotFound, "not found")
+		})
+		mux.HandleFunc(oauthMetadataPath, func(writer http.ResponseWriter, _ *http.Request) {
+			writeHTTPError(writer, http.StatusNotFound, "not found")
+		})
+	}
 	if resolvedOptions.adminAPI != nil {
 		mux.Handle("/api/v1/", resolvedOptions.adminAPI)
 	}
