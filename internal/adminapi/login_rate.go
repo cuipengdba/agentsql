@@ -1,6 +1,8 @@
 package adminapi
 
 import (
+	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"strings"
 	"sync"
@@ -20,11 +22,33 @@ type loginAttemptBucket struct {
 
 // loginAttemptLimiter bounds password attempts per tenant/account, including
 // unknown accounts, without relying on untrusted proxy forwarding headers.
-// This is local to one instance; cross-instance admission is a v1.4.0 gate.
+// This is used only for SQLite single-instance deployments. PostgreSQL uses
+// the shared metadata repository instead.
 type loginAttemptLimiter struct {
 	mu      sync.Mutex
 	buckets map[[32]byte]loginAttemptBucket
 	now     func() time.Time
+}
+
+func (handler *Handler) allowLoginAttempt(ctx context.Context, tenant, username string) (bool, error) {
+	if strings.TrimSpace(tenant) == "" || strings.TrimSpace(username) == "" {
+		return false, nil
+	}
+	shared := handler.deps.Runtime.Store.SharedLoginAttempts()
+	if shared == nil {
+		return handler.loginAttempts.allow(tenant, username), nil
+	}
+	return shared.Allow(ctx, loginAttemptDigest(handler.tokenKey, tenant, username))
+}
+
+func loginAttemptDigest(secret []byte, tenant, username string) [sha256.Size]byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(strings.ToLower(strings.TrimSpace(tenant))))
+	mac.Write([]byte{0})
+	mac.Write([]byte(strings.ToLower(strings.TrimSpace(username))))
+	var digest [sha256.Size]byte
+	copy(digest[:], mac.Sum(nil))
+	return digest
 }
 
 func newLoginAttemptLimiter() *loginAttemptLimiter {

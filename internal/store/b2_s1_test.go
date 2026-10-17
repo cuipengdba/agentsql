@@ -176,13 +176,13 @@ func TestB2SQLiteDownAndReapplyAreSafe(t *testing.T) {
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
 	require.Equal(t, 8, current)
-	require.Equal(t, 21, latest)
+	require.Equal(t, 22, latest)
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, 9), "same down is idempotent")
 	require.NoError(t, Migrate(ctx, opened.metaDB, DialectSQLite))
 	current, latest, err = MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 21, current)
-	require.Equal(t, 21, latest)
+	require.Equal(t, 22, current)
+	require.Equal(t, 22, latest)
 }
 
 func TestB2FenceLeaseExpiryIsFailClosed(t *testing.T) {

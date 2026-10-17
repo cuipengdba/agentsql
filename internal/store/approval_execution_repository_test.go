@@ -67,6 +67,7 @@ func TestDelegatedApprovalMigrationPreservesLegacyRowsAndRollsBack(t *testing.T)
 			var requester sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT requester_user_id FROM approvals WHERE id='old-approval'`).Scan(&requester))
 			require.False(t, requester.Valid)
+			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.current+1))
 			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.current))
 			var count int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM approvals WHERE id='old-approval'`).Scan(&count))

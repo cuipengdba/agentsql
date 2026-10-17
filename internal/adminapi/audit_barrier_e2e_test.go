@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,7 +26,7 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("three-postgres audit outage E2E is an integration test")
 	}
-	ctx := adminDockerTestContext(t)
+	ctx := adminDockerTestContext(t, 6*time.Minute)
 	const (
 		username      = "agentsql"
 		password      = "agentsql-three-pg-password"
@@ -69,6 +70,11 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 	runtime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	chainDB, err := sql.Open("pgx", auditDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, chainDB.Close()) })
+	require.NoError(t, store.NewChainProvisioner(chainDB, store.DialectPostgres, "traffic",
+		store.KeylessChainManifest{}, store.BackfillConfig{}).Provision(ctx, "two-node-audit-rehearsal"))
 
 	adminHandler, err := NewHandler(Deps{
 		Runtime: runtime, Config: cfg, AdminUsername: "admin", AdminPassword: adminPassword,
@@ -108,6 +114,25 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 		adminE2ERequest(t, ctx, server.Client(), server.URL, http.MethodPost,
 			"/api/v1/policies", authorization, policy)
 	}
+	secondConfig := cfg
+	secondConfig.MCP.Sessions.InstanceID = "audit-barrier-node-2"
+	secondRuntime, err := bootstrap.Assemble(ctx, secondConfig, []byte(adminTestSecret))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, secondRuntime.Close()) })
+	secondAdmin, err := NewHandler(Deps{
+		Runtime: secondRuntime, Config: secondConfig, AdminUsername: "admin", AdminPassword: adminPassword,
+		TokenKey: DeriveTokenKey([]byte(adminTestSecret)),
+	}, zerolog.Nop())
+	require.NoError(t, err)
+	secondHandler, err := mcpserver.NewHTTPHandler(secondRuntime, secondConfig, zerolog.Nop(), mcpserver.WithAdminAPI(secondAdmin))
+	require.NoError(t, err)
+	secondServer := httptest.NewServer(secondHandler)
+	t.Cleanup(secondServer.Close)
+	secondSession := adminE2EMCPInitialize(t, ctx, secondServer.Client(), secondServer.URL, dmlKey, 200)
+	secondBaseline := adminE2EMCPCall(t, ctx, secondServer.Client(), secondServer.URL, dmlKey, secondSession, 201,
+		"query", map[string]any{"datasource_id": "barrier-business", "sql": "SELECT id,balance FROM public.accounts ORDER BY id LIMIT 10"})
+	require.Equal(t, "allow", secondBaseline.Decision)
+	require.NotEmpty(t, secondBaseline.Data)
 
 	before := auditBarrierBusinessRows(t, ctx, businessPool)
 	var approvalsBefore int64
@@ -152,6 +177,10 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 	require.Empty(t, queryFailure.Data)
 	require.NotContains(t, queryFailure.Reason, auditDSN)
 	require.NotContains(t, queryFailure.Reason, password)
+	secondQueryFailure := adminE2EMCPCall(t, ctx, secondServer.Client(), secondServer.URL, dmlKey, secondSession, 202,
+		"query", map[string]any{"datasource_id": "barrier-business", "sql": "SELECT id,balance FROM public.accounts ORDER BY id LIMIT 10"})
+	require.Equal(t, "error", secondQueryFailure.Decision)
+	require.Empty(t, secondQueryFailure.Data)
 
 	writeFailure := adminE2EMCPCall(t, ctx, server.Client(), server.URL, dmlKey, dmlSession, 102,
 		"execute_write", map[string]any{
@@ -218,9 +247,29 @@ func TestThreePostgresAuditOutageFailClosedE2E(t *testing.T) {
 	var linkedAuditID int64
 	require.NoError(t, metaPool.QueryRow(ctx, "SELECT audit_id FROM approvals WHERE id=$1", approvalData.ApprovalID).Scan(&linkedAuditID))
 	require.Equal(t, approvalData.AuditID, linkedAuditID)
+	server.Close() // one gateway leaves service; the second remains independently usable
+	secondRecovered := adminE2EMCPCall(t, ctx, secondServer.Client(), secondServer.URL, dmlKey, secondSession, 203,
+		"query", map[string]any{"datasource_id": "barrier-business", "sql": "SELECT id,balance FROM public.accounts ORDER BY id LIMIT 10"})
+	require.Equal(t, "allow", secondRecovered.Decision)
+	require.NotEmpty(t, secondRecovered.Data)
 	var auditCount int64
 	require.NoError(t, auditPool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_logs").Scan(&auditCount))
 	require.GreaterOrEqual(t, auditCount, int64(3))
+	chain, err := secondRuntime.Store.Chain("traffic")
+	require.NoError(t, err)
+	verified, err := chain.Verifier(store.KeylessChainManifest{}).Verify(ctx)
+	require.NoError(t, err)
+	require.True(t, verified.Valid, "recovered two-node traffic chain must verify: status=%s result=%s reason=%s",
+		verified.Status, verified.Result, verified.BreakReason)
+	require.Positive(t, verified.HeadSeq)
+	require.Eventually(t, func() bool {
+		var pending int
+		if queryErr := metaPool.QueryRow(context.Background(),
+			"SELECT count(*) FROM management_audit_outbox WHERE delivered_at IS NULL").Scan(&pending); queryErr != nil {
+			return false
+		}
+		return pending == 0
+	}, 15*time.Second, 200*time.Millisecond, "management audit outbox must drain after recovery")
 }
 
 func startAuditBarrierPostgres(t *testing.T, ctx context.Context, database, username, password string) (testcontainers.Container, string) {
