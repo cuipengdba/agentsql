@@ -5,6 +5,7 @@ param(
     [string]$DockerExe = 'E:\Docker\DockerDesktop\resources\bin\docker.exe',
     [int]$ReadyTimeoutSeconds = 180,
     [switch]$FaultProbe,
+    [switch]$ClientProbe,
     [string]$LogPath = (Join-Path $env:TEMP 'agentsql-dm8-b65-verify.log')
 )
 
@@ -522,6 +523,19 @@ mcp:
         throw 'AgentSQL DM8 audit records did not match all three probe decisions'
     }
     Step 'PASS: SELECT, column lineage, R010 denial, phone mask, parse failure, and three audit rows'
+
+    if ($ClientProbe) {
+        Step 'Use MCP Inspector 0.16.8 CLI and Dify 1.17.1 MCPClient against the live DM8 gateway'
+        & (Join-Path $PSScriptRoot 'v1.5-mcp-client-probes.ps1') `
+            -Network $network -Gateway $agentContainer -ApiKey $apiKey -DatasourceID 'dm8-b65' `
+            -AllowSQL "SELECT ID, PHONE FROM SYSDBA.$table WHERE ID=2" `
+            -DenySQL "SELECT ID FROM SYSDBA.$denyTable WHERE ID=7" -DenyRule 'R010' |
+            ForEach-Object { Step $_ }
+        if ($LASTEXITCODE -ne 0) { throw 'DM8 external MCP client probe failed' }
+        $clientAudits = Api 'GET' '/api/v1/audit?agent_id=dm8-b65-agent&page_size=20' $null $token
+        if ($clientAudits.total -lt 7) { throw 'DM8 external client calls did not persist four audit rows' }
+        Step ("PASS: DM8 external client calls persisted audit total=$($clientAudits.total)")
+    }
 
     if ($FaultProbe) {
         Step 'Stop the licensed DM8 instance to verify a business database outage cannot deliver sensitive results'

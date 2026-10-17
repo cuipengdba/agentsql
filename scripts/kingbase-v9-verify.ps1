@@ -4,7 +4,8 @@
     [string]$DockerExe = 'E:\Docker\DockerDesktop\resources\bin\docker.exe',
     [string]$ContainerName = 'kingbase-v9-batch72',
     [int]$ReadyTimeoutSeconds = 120,
-    [switch]$FaultProbe
+    [switch]$FaultProbe,
+    [switch]$ClientProbe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -551,6 +552,18 @@ if ($allowed.decision -ne 'allow' -or $allowed.data.redact.MaskedCells -ne 1 -or
     throw 'AgentSQL V9 guard-chain assertions failed'
 }
 Step 'PASS: V9 PG protocol, readonly account, AgentSQL query, scoped masking, R006 and audit'
+if ($ClientProbe) {
+    Step 'Use MCP Inspector 0.16.8 CLI and Dify 1.17.1 MCPClient against the live KingbaseES gateway'
+    & (Join-Path $PSScriptRoot 'v1.5-mcp-client-probes.ps1') `
+        -Network $network -Gateway $agentContainer -ApiKey $apiKey -DatasourceID 'kb-v9' `
+        -AllowSQL 'SELECT id, name, phone FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 10' `
+        -DenySQL 'SELECT /* batch72-r006 */ id FROM public.agentsql_batch72_verify WHERE id = 1 LIMIT 1' `
+        -DenyRule 'R006' | ForEach-Object { Step $_ }
+    if ($LASTEXITCODE -ne 0) { throw 'KingbaseES external MCP client probe failed' }
+    $clientAudits = Api 'GET' '/api/v1/audit?agent_id=kb-v9-agent&page_size=20' $null $token
+    if ($clientAudits.total -lt 6) { throw 'KingbaseES external client calls did not persist four audit rows' }
+    Step ("PASS: KingbaseES external client calls persisted audit total=$($clientAudits.total)")
+}
 if ($FaultProbe) {
     Step 'Isolate KingbaseES from the private gateway network without restarting the vendor entrypoint'
     Docker @('network', 'disconnect', $network, $ContainerName) | Out-Null

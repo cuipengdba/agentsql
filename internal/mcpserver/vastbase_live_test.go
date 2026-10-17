@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,8 +36,9 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 	fixture := newMCPFixture(t, "readonly")
 	testTimeout := 30 * time.Second
 	faultDir := os.Getenv("AGENTSQL_TEST_G100_FAULT_DIR")
-	if faultDir != "" {
-		testTimeout = 2 * time.Minute
+	clientDir := os.Getenv("AGENTSQL_TEST_G100_CLIENT_DIR")
+	if faultDir != "" || clientDir != "" {
+		testTimeout = 8 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -172,6 +174,46 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 	revoked, err := fixture.runtime.Store.Approvals().Get(ctx, approval.ID)
 	require.NoError(t, err)
 	require.Equal(t, "failed", revoked.Status)
+	if clientDir != "" {
+		_, err = fixture.runtime.Store.Policies().Create(ctx, model.Policy{
+			ID: "g100-contact-table-clients", AgentID: fixture.agent.ID, DatasourceID: "ds-g100",
+			ObjectType: "table", ObjectName: "agentsql_v060.contacts", Action: "allow",
+		})
+		require.NoError(t, err)
+		beforeClients, pageErr := fixture.runtime.Store.AuditLogs().Page(ctx, 1, 50)
+		require.NoError(t, pageErr)
+		handler, handlerErr := NewHTTPHandler(fixture.runtime, statefulHTTPTestConfig(100), logger)
+		require.NoError(t, handlerErr)
+		httpServer := httptest.NewServer(handler)
+		defer httpServer.Close()
+		clientInfo, marshalErr := json.Marshal(map[string]string{
+			"url": httpServer.URL + "/mcp", "api_key": fixture.handlers.apiKey,
+			"datasource_id": "ds-g100",
+			"allow_sql":     "SELECT phone FROM agentsql_v060.contacts WHERE id = 1 LIMIT 1",
+			"deny_sql":      "SELECT secret FROM agentsql_v060.customers WHERE id = 1 LIMIT 1",
+			"deny_rule":     "R010",
+		})
+		require.NoError(t, marshalErr)
+		infoPath := filepath.Join(clientDir, "client.json")
+		require.NoError(t, os.WriteFile(infoPath, clientInfo, 0o600))
+		defer os.Remove(infoPath)
+		for {
+			if _, statErr := os.Stat(filepath.Join(clientDir, "clients_done")); statErr == nil {
+				break
+			} else if !os.IsNotExist(statErr) {
+				require.NoError(t, statErr)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for Vastbase external MCP clients")
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+		afterClients, pageErr := fixture.runtime.Store.AuditLogs().Page(ctx, 1, 50)
+		require.NoError(t, pageErr)
+		require.Equal(t, beforeClients.Total+4, afterClients.Total)
+		t.Log("Vastbase MCP Inspector and Dify calls persisted four additional audit rows")
+	}
 	if faultDir == "" {
 		return
 	}

@@ -3,13 +3,14 @@ param(
     [string]$GoCache = 'D:\CodexLS\cache\go',
     [string]$LogPath = 'D:\CodexLS\tmp\agentsql-v150\vastbase-verify.log',
     [switch]$FaultProbe,
+    [switch]$ClientProbe,
     [switch]$SkipBaseline
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if ($SkipBaseline -and -not $FaultProbe) { throw '-SkipBaseline requires -FaultProbe' }
+if ($SkipBaseline -and -not ($FaultProbe -or $ClientProbe)) { throw '-SkipBaseline requires -FaultProbe or -ClientProbe' }
 if (-not (Test-Path -LiteralPath $GoCache -PathType Container)) { throw "Go cache missing: $GoCache" }
 $initialState = (& docker inspect $Container --format '{{.State.Status}}').Trim()
 if ($LASTEXITCODE -ne 0 -or $initialState -notin @('running', 'exited')) {
@@ -67,6 +68,51 @@ try {
             ./internal/authorizedexecute/internal/businessdb ./internal/pipeline ./internal/mcpserver
         if ($LASTEXITCODE -ne 0) { throw 'Vastbase G100 Build 9 live regression failed' }
         Write-Output 'V150_VASTBASE_BUILD9_BASELINE=PASS'
+    }
+    if ($ClientProbe) {
+        $clientDir = Join-Path 'D:\CodexLS\tmp\agentsql-v150' ('vastbase-clients-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $clientDir -Force | Out-Null
+        $clientContainer = 'agentsql-v150-g100-clients-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        & docker run -d --name $clientContainer --network "container:$Container" `
+            -v "${repoRoot}:/src:ro" -v "${GoCache}:/go/cache" -v "${clientDir}:/clients" `
+            -w /src -e GOCACHE=/go/cache/build -e GOMODCACHE=/go/cache/mod -e GOPROXY=off `
+            -e AGENTSQL_TEST_G100_HOST=127.0.0.1 -e AGENTSQL_TEST_G100_PORT=5432 `
+            -e "AGENTSQL_TEST_G100_PASSWORD=$password" -e AGENTSQL_TEST_G100_CLIENT_DIR=/clients `
+            golang:1.26-bookworm go test -mod=readonly -p 1 -timeout 10m -count=1 -v `
+            -run '^TestVastbaseBuild9MCPRealE2E$' ./internal/mcpserver | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not start Vastbase external client gateway test' }
+        try {
+            $clientInfoPath = Join-Path $clientDir 'client.json'
+            $deadline = (Get-Date).AddMinutes(8)
+            while (-not (Test-Path -LiteralPath $clientInfoPath)) {
+                $running = (& docker inspect $clientContainer --format '{{.State.Running}}').Trim()
+                if ($LASTEXITCODE -ne 0 -or $running -ne 'true') {
+                    & docker logs $clientContainer
+                    throw 'Vastbase HTTP gateway exited before external clients connected'
+                }
+                if ((Get-Date) -ge $deadline) { throw 'Timed out waiting for Vastbase HTTP gateway' }
+                Start-Sleep -Seconds 1
+            }
+            $clientInfo = Get-Content -LiteralPath $clientInfoPath -Raw | ConvertFrom-Json
+            & (Join-Path $PSScriptRoot 'v1.5-mcp-client-probes.ps1') `
+                -Network "container:$Container" -MCPURL $clientInfo.url -ApiKey $clientInfo.api_key `
+                -DatasourceID $clientInfo.datasource_id -AllowSQL $clientInfo.allow_sql `
+                -DenySQL $clientInfo.deny_sql -DenyRule $clientInfo.deny_rule
+            Set-Content -LiteralPath (Join-Path $clientDir 'clients_done') -Value 'four calls completed'
+            $deadline = (Get-Date).AddMinutes(2)
+            while ((& docker inspect $clientContainer --format '{{.State.Running}}').Trim() -eq 'true') {
+                if ((Get-Date) -ge $deadline) { throw 'Vastbase external client regression did not exit' }
+                Start-Sleep -Seconds 1
+            }
+            $clientExit = (& docker inspect $clientContainer --format '{{.State.ExitCode}}').Trim()
+            & docker logs $clientContainer
+            if ($clientExit -ne '0') { throw "Vastbase external client regression failed: exit=$clientExit" }
+            Write-Output 'V150_VASTBASE_BUILD9_INSPECTOR_DIFY=PASS'
+        }
+        finally {
+            & docker rm -f $clientContainer | Out-Null
+            Remove-Item -LiteralPath (Join-Path $clientDir 'client.json') -Force -ErrorAction SilentlyContinue
+        }
     }
     if ($FaultProbe) {
         $faultDir = Join-Path 'D:\CodexLS\tmp\agentsql-v150' ('vastbase-fault-' + [guid]::NewGuid().ToString('N'))
