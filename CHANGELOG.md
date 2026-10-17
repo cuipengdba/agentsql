@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.4.0]
+
+- Share console password and LDAP login-attempt budgets across gateways backed by PostgreSQL metadata, using an HMAC account key, database-clock window and atomic transaction. Fail closed on metadata outage and bound the network wait.
+- Verify two-gateway restart, rate-limit and metadata-outage behavior, and three-PostgreSQL audit outage/recovery with a durable audit chain and drained outbox.
+- Add SQLite/combined PostgreSQL metadata migration 22 and separated PostgreSQL metadata migration 21; keep audit-only migration 6. Verify official v1.3.0 package upgrade and paired backup restoration.
+
+See the [v1.4.0 design](docs/v1.4.0-design.md), [release notes](docs/release-notes-v1.4.0.md) and [acceptance record](docs/v1.4.0-acceptance.md). The public website, Live Demo and GHCR `latest` remain at v1.0.0 until v1.5.0.
+
 ## [v1.3.0]
 
 - Add an opt-in, single-table InnoDB `SELECT` column-authorization subset for verified MySQL 8.0 and 8.4 builds. Keep unsupported expressions, joins, views and table shapes closed before execution.
