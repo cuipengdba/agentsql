@@ -65,6 +65,18 @@ func TestAdminLoginAndAuthenticationIsolation(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, status)
 }
 
+func TestAdminPasswordLoginRateLimit(t *testing.T) {
+	fixture := newAdminFixture(t)
+	for range loginMaxAttempts {
+		status, _ := fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"admin","password":"wrong"}`)
+		require.Equal(t, http.StatusUnauthorized, status)
+	}
+	status, _ := fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"admin","password":"password"}`)
+	require.Equal(t, http.StatusTooManyRequests, status, "a correct guess after the budget must wait")
+	status, _ = fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"other","password":"wrong"}`)
+	require.Equal(t, http.StatusUnauthorized, status, "one account must not exhaust another")
+}
+
 func TestAdminRefreshRotationReplayAndLogoutE2E(t *testing.T) {
 	fixture := newAdminFixture(t)
 	status, body := fixture.request(http.MethodPost, "/api/v1/auth/login", "", `{"username":"admin","password":"password"}`)

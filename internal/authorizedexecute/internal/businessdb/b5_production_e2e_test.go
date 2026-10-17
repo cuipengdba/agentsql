@@ -3,8 +3,11 @@ package businessdb_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,8 +20,10 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	mysqlcontainer "github.com/testcontainers/testcontainers-go/modules/mysql"
@@ -153,6 +158,49 @@ func TestB5ProductionOrdinaryPostgresNoExtensionCrossRequestAndFailClosed(t *tes
 	require.NoError(t, setup.QueryRow(ctx, `SELECT value FROM b5prod.items WHERE id=1`).Scan(&value))
 	require.Equal(t, 15, value)
 
+	// Real PostgreSQL and the production B5 router exercise the delegated
+	// principal/grant mapping. The HTTP verifier below supplies a fixed test
+	// identity; signed token lifecycle has separate admin API coverage.
+	delegatedConfig := cfg
+	delegatedConfig.Server.ConsoleEnabled = true
+	delegatedConfig.MCP.Delegation.RequireHumanToken = true
+	delegatedHandler, err := mcpserver.NewHTTPHandler(runtime, delegatedConfig, zerolog.Nop(),
+		mcpserver.WithB5Sessions(mcpserver.B5Options{B5Sessions: true, B5TxPostgres: true, Service: service}),
+		mcpserver.WithHumanDelegation(productionHumanVerifier{tenantID: "tenant_default"}))
+	require.NoError(t, err)
+	delegatedServer := httptest.NewServer(delegatedHandler)
+	t.Cleanup(delegatedServer.Close)
+	userA := &matrixHTTPClient{t: t, client: delegatedServer.Client(), url: delegatedServer.URL + "/mcp", apiKey: apiKey, humanToken: "user-a"}
+	userB := &matrixHTTPClient{t: t, client: delegatedServer.Client(), url: delegatedServer.URL + "/mcp", apiKey: apiKey, humanToken: "user-b"}
+	userA.initialize()
+	userB.initialize()
+	openResponse := userA.tool("open_session", mcpserver.B5OpenSessionInput{})
+	require.Equal(t, "allow", openResponse.Decision, openResponse.ErrorCode)
+	var delegatedSession mcpserver.B5SessionView
+	require.NoError(t, json.Unmarshal(openResponse.Data, &delegatedSession))
+	storedSession, err := runtime.Store.B5Sessions().Get(ctx, delegatedSession.SessionID)
+	require.NoError(t, err)
+	require.Equal(t, "tenant_default", storedSession.TenantID)
+	require.True(t, strings.HasPrefix(storedSession.PrincipalID, "delegated:user-a:"))
+	delegatedBegin := mcpserver.B5BeginInput{B5Continuation: mcpserver.B5Continuation{SessionID: delegatedSession.SessionID, OwnerEpoch: delegatedSession.OwnerEpoch, RequestID: "begin-delegated"},
+		TransactionID: "b5-production-delegated", DatasourceID: datasourceID, Dialect: "postgres", ServerMajor: 18,
+		Statements: []mcpserver.B5PlanStatement{{OperationID: "update-delegated", SQL: statementSQL, Reason: "delegated PostgreSQL transaction"}}}
+	signMatrix(t, delegatedSession.ContinuationSecret, "begin_transaction", &delegatedBegin.B5Continuation, delegatedBegin)
+	require.NotEqual(t, "allow", userB.tool("begin_transaction", delegatedBegin).Decision)
+	require.NoError(t, setup.QueryRow(ctx, `SELECT value FROM b5prod.items WHERE id=1`).Scan(&value))
+	require.Equal(t, 15, value, "a different human must not acquire the write connection")
+	require.Equal(t, "allow", userA.tool("begin_transaction", delegatedBegin).Decision)
+	delegatedExecute := mcpserver.B5ExecuteInput{B5Continuation: mcpserver.B5Continuation{SessionID: delegatedSession.SessionID, OwnerEpoch: delegatedSession.OwnerEpoch, RequestID: "execute-delegated"},
+		TransactionID: delegatedBegin.TransactionID, OperationID: "update-delegated", Ordinal: 0}
+	signMatrix(t, delegatedSession.ContinuationSecret, "execute_transaction_statement", &delegatedExecute.B5Continuation, delegatedExecute)
+	require.Equal(t, "allow", userA.tool("execute_transaction_statement", delegatedExecute).Decision)
+	delegatedCommit := mcpserver.B5FinishInput{B5Continuation: mcpserver.B5Continuation{SessionID: delegatedSession.SessionID, OwnerEpoch: delegatedSession.OwnerEpoch, RequestID: "commit-delegated"}, TransactionID: delegatedBegin.TransactionID}
+	signMatrix(t, delegatedSession.ContinuationSecret, "commit_transaction", &delegatedCommit.B5Continuation, delegatedCommit)
+	committedResponse := userA.tool("commit_transaction", delegatedCommit)
+	require.Equal(t, string(b5.OutcomeCommitted), committedResponse.DBOutcome, committedResponse.ErrorCode)
+	require.NoError(t, setup.QueryRow(ctx, `SELECT value FROM b5prod.items WHERE id=1`).Scan(&value))
+	require.Equal(t, 20, value)
+
 	second, err := service.OpenSession(ctx, agentID, mcpserver.B5OpenSessionInput{})
 	require.NoError(t, err)
 	invalid := mcpserver.B5BeginInput{B5Continuation: mcpserver.B5Continuation{SessionID: second.SessionID, OwnerEpoch: second.OwnerEpoch, RequestID: "begin-out-of-bounds"},
@@ -169,6 +217,15 @@ func TestB5ProductionOrdinaryPostgresNoExtensionCrossRequestAndFailClosed(t *tes
 	}(), store.ErrNotFound)
 	require.NoError(t, setup.QueryRow(ctx, `SELECT value FROM b5prod.items WHERE id=2`).Scan(&value))
 	require.Equal(t, 20, value)
+}
+
+type productionHumanVerifier struct{ tenantID string }
+
+func (verifier productionHumanVerifier) Verify(_ context.Context, token, agentID string) (rbac.Principal, error) {
+	if agentID == "" || token != "user-a" && token != "user-b" {
+		return rbac.Principal{}, fmt.Errorf("invalid test delegation")
+	}
+	return rbac.Principal{UserID: token, TenantID: verifier.tenantID}, nil
 }
 
 func TestB5ProductionMySQLContainerUnsupported(t *testing.T) {

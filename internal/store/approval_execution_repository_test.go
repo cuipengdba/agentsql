@@ -47,6 +47,37 @@ func TestApprovalExecutionSQLiteUpgradeRollbackFromV051(t *testing.T) {
 	}
 }
 
+func TestDelegatedApprovalMigrationPreservesLegacyRowsAndRollsBack(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		separate          bool
+		previous, current int
+		directory         string
+	}{
+		{"combined", false, 20, 21, "migrations/sqlite"},
+		{"metadata", true, 19, 20, "migrations/metadata/sqlite"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db := openSQLiteMigrationTestDB(t)
+			migrateSQLiteThroughVersion(t, ctx, db, tc.directory, tc.previous)
+			_, err := db.ExecContext(ctx, `INSERT INTO approvals(id, tenant_id, status) VALUES('old-approval', 'tenant_default', 'pending')`)
+			require.NoError(t, err)
+			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate))
+			var requester sql.NullString
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT requester_user_id FROM approvals WHERE id='old-approval'`).Scan(&requester))
+			require.False(t, requester.Valid)
+			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, tc.separate, tc.current))
+			var count int
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM approvals WHERE id='old-approval'`).Scan(&count))
+			require.Equal(t, 1, count)
+			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, tc.separate))
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT requester_user_id FROM approvals WHERE id='old-approval'`).Scan(&requester))
+			require.False(t, requester.Valid)
+		})
+	}
+}
+
 func TestSealedApprovalClaimSurvivesRestartAndCannotReplay(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "approval.db")
@@ -147,4 +178,32 @@ func TestSealedApprovalConcurrentClaimsHaveOneWinner(t *testing.T) {
 	stored, err := opened.Approvals().Get(ctx, "concurrent-claim")
 	require.NoError(t, err)
 	require.Equal(t, "claimed", stored.Status)
+}
+
+func TestDelegatedApprovalClaimChecksHumanBeforeConsumption(t *testing.T) {
+	ctx := context.Background()
+	opened := openTestStore(t)
+	agent, user, datasource, sqlRaw, seal := "agent-1", "user-1", "ds-1", "SELECT 1", "test-seal"
+	now := time.Now().UTC()
+	expires := now.Add(time.Hour)
+	_, err := opened.Approvals().Create(ctx, model.Approval{
+		ID: "delegated-claim", AgentID: &agent, RequesterUserID: &user,
+		DatasourceID: &datasource, SQLRaw: &sqlRaw, SQLNorm: &sqlRaw,
+		Seal: &seal, ExpiresAt: &expires, Status: "pending",
+	})
+	require.NoError(t, err)
+	_, err = opened.Approvals().DecidePending(ctx, "delegated-claim", "approved", "admin", nil, now)
+	require.NoError(t, err)
+	_, err = opened.Approvals().ClaimApproved(ctx, "delegated-claim", agent, now)
+	require.ErrorIs(t, err, ErrApprovalNotExecutable)
+	_, err = opened.Approvals().ClaimApprovedForRequester(ctx, "delegated-claim", agent, "user-2", now)
+	require.ErrorIs(t, err, ErrApprovalNotExecutable)
+	_, err = opened.Approvals().ClaimApprovedForRequester(ctx, "delegated-claim", "agent-2", user, now)
+	require.ErrorIs(t, err, ErrApprovalNotExecutable)
+	stored, err := opened.Approvals().Get(ctx, "delegated-claim")
+	require.NoError(t, err)
+	require.Equal(t, "approved", stored.Status)
+	claimed, err := opened.Approvals().ClaimApprovedForRequester(ctx, "delegated-claim", agent, user, now)
+	require.NoError(t, err)
+	require.Equal(t, "claimed", claimed.Status)
 }

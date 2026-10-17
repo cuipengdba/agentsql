@@ -267,6 +267,7 @@ type AuditLog struct {
 type Approval struct {
 	ID                    string
 	TenantID              string
+	RequesterUserID       *string
 	AuditID               *int64
 	AgentID               *string
 	DatasourceID          *string

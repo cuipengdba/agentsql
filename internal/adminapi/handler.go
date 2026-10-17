@@ -104,6 +104,7 @@ type Handler struct {
 	chainLastStart map[string]time.Time
 	oidc           *oidcProvider
 	ldap           *ldapAuthenticator
+	loginAttempts  *loginAttemptLimiter
 }
 
 func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
@@ -158,7 +159,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	}
 	handler := &Handler{deps: deps, logger: logger, adminUser: deps.AdminUsername,
 		adminPassword: deps.AdminPassword, tokenKey: append([]byte(nil), deps.TokenKey...), rbac: deps.RBAC,
-		chainVerifying: make(map[string]bool), chainLastStart: make(map[string]time.Time)}
+		chainVerifying: make(map[string]bool), chainLastStart: make(map[string]time.Time), loginAttempts: newLoginAttemptLimiter()}
 	if deps.Config.Auth.OIDC.Enabled {
 		provider, providerErr := newOIDCProvider(context.Background(), deps.Config.Auth.OIDC)
 		if providerErr != nil {
@@ -197,6 +198,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/auth/me", handler.me)
 	mux.HandleFunc("POST /api/v1/auth/logout", handler.logout)
 	mux.HandleFunc("POST /api/v1/auth/delegation-token", handler.delegationTokenIssue)
+	mux.HandleFunc("POST /api/v1/auth/delegation-token/revoke", handler.delegationTokenRevoke)
 	mux.HandleFunc("GET /api/v1/permissions", handler.permissionsList)
 	mux.HandleFunc("GET /api/v1/users", handler.usersList)
 	mux.HandleFunc("POST /api/v1/users", handler.usersCreate)
@@ -382,7 +384,7 @@ func requestTokenPayload(request *http.Request) (tokenPayload, bool) {
 
 func requiredPermission(method, path string) (string, bool) {
 	switch {
-	case method == http.MethodPost && path == "/api/v1/auth/delegation-token":
+	case method == http.MethodPost && (path == "/api/v1/auth/delegation-token" || path == "/api/v1/auth/delegation-token/revoke"):
 		return rbac.PermissionQueryExecute, true
 	case strings.HasPrefix(path, "/api/v1/users"):
 		return rbac.PermissionUserManage, true
@@ -476,6 +478,10 @@ func (handler *Handler) login(writer http.ResponseWriter, request *http.Request)
 	}
 	if input.TenantID == "" {
 		input.TenantID = rbac.DefaultTenantID
+	}
+	if !handler.loginAttempts.allow(input.TenantID, input.Username) {
+		handler.fail(writer, http.StatusTooManyRequests, "login rate limit exceeded")
+		return
 	}
 	principal, err := handler.rbac.Authenticate(request.Context(), input.TenantID, input.Username, input.Password)
 	if err != nil {

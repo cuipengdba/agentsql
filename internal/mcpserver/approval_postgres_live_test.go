@@ -35,7 +35,7 @@ func TestPostgresApprovedWriteRealE2E(t *testing.T) {
 		require.NoError(t, err)
 		port = parsed
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	fixture := newMCPFixture(t, "dml")
 	datasource, err := fixture.runtime.Store.Datasources().Get(ctx, "ds-allowed")
@@ -116,4 +116,51 @@ func TestPostgresApprovedWriteRealE2E(t *testing.T) {
 	require.NotNil(t, completed.ExecutionAuditID)
 	require.Contains(t, call("execute_approved", executeArgs), `"decision":"deny"`)
 	require.Equal(t, "after", readPhone())
+
+	_, err = business.ExecContext(ctx, "UPDATE public.customers SET phone='before-delegated' WHERE id=1")
+	require.NoError(t, err)
+	delegatedContext := func(userID string) context.Context {
+		return context.WithValue(ctx, delegatedHumanContextKey{}, delegatedHuman{
+			userID: userID, tenantID: fixture.handlers.agent.TenantID,
+		})
+	}
+	owner := delegatedContext("approval-user-a")
+	other := delegatedContext("approval-user-b")
+	requestResult := fixture.handlers.requestApproval(owner, "ds-allowed",
+		"UPDATE public.customers SET phone='delegated-after' WHERE id=1", "delegated approved-write integration test")
+	require.Equal(t, "approve", requestResult.Decision)
+	require.Equal(t, "before-delegated", readPhone(), "requesting delegated approval must not write")
+	pending, err = fixture.runtime.Store.Approvals().ListPage(ctx, "pending", 1, 10)
+	require.NoError(t, err)
+	require.Len(t, pending.List, 1)
+	delegatedApproval := pending.List[0]
+	require.NotNil(t, delegatedApproval.RequesterUserID)
+	require.Equal(t, "approval-user-a", *delegatedApproval.RequesterUserID)
+	_, err = fixture.runtime.Store.Approvals().DecidePending(ctx, delegatedApproval.ID, "approved", "test-dba", nil, time.Now().UTC())
+	require.NoError(t, err)
+	require.Equal(t, "deny", fixture.handlers.getApprovalResult(other, delegatedApproval.ID).Decision)
+	require.Equal(t, "deny", fixture.handlers.executeApproved(other, delegatedApproval.ID).Decision)
+	require.Equal(t, "deny", fixture.handlers.executeApproved(ctx, delegatedApproval.ID).Decision)
+	require.Equal(t, "before-delegated", readPhone(), "wrong identity must fail before a business write")
+	stillApproved, err := fixture.runtime.Store.Approvals().Get(ctx, delegatedApproval.ID)
+	require.NoError(t, err)
+	require.Equal(t, "approved", stillApproved.Status, "wrong identity must not consume approval")
+	require.Equal(t, "allow", fixture.handlers.executeApproved(owner, delegatedApproval.ID).Decision)
+	require.Equal(t, "delegated-after", readPhone())
+	completed, err = fixture.runtime.Store.Approvals().Get(ctx, delegatedApproval.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", completed.Status)
+	require.NotNil(t, completed.ExecutionAuditID)
+	auditPage, err := fixture.runtime.Store.AuditLogs().Page(ctx, 1, 100)
+	require.NoError(t, err)
+	var delegatedAuditFound bool
+	for _, row := range auditPage.List {
+		if row.ID == *completed.ExecutionAuditID {
+			require.NotNil(t, row.DetailsJSON)
+			require.Contains(t, *row.DetailsJSON, `"delegated_user_id":"approval-user-a"`)
+			delegatedAuditFound = true
+		}
+	}
+	require.True(t, delegatedAuditFound, "executed write must have a durable human-bound audit row")
+	require.Equal(t, "deny", fixture.handlers.executeApproved(owner, delegatedApproval.ID).Decision)
 }

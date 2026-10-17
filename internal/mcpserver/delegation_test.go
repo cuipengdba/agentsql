@@ -99,3 +99,37 @@ func TestHumanDelegationStatefulSessionCannotChangeUser(t *testing.T) {
 	require.Contains(t, swapped.Body.String(), "session user mismatch")
 	require.Equal(t, http.StatusOK, serve(initializeRequest, "").Code, "the new human can create a separate session")
 }
+
+func TestDelegatedSessionExposesB5AfterHumanVerification(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	cfg := statefulHTTPTestConfig(1_000)
+	cfg.Server.ConsoleEnabled = true
+	cfg.MCP.Delegation.RequireHumanToken = true
+	verifier := &testHumanVerifier{principal: rbac.Principal{TenantID: fixture.agent.TenantID, UserID: "user-1"}}
+	spy := &b5ServiceSpy{}
+	handler, err := NewHTTPHandler(fixture.runtime, cfg, zerolog.Nop(),
+		WithHumanDelegation(verifier), WithB5Sessions(B5Options{B5Sessions: true, B5TxPostgres: true, Service: spy}))
+	require.NoError(t, err)
+	serve := func(body, sessionID string, includeHuman bool) *httptest.ResponseRecorder {
+		request := newMCPRequest(fixture.handlers.apiKey, http.MethodPost, body, sessionID)
+		if includeHuman {
+			request.Header.Set(humanDelegationHeader, "Bearer human-token")
+		}
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder
+	}
+	initialized := serve(initializeRequest, "", true)
+	require.Equal(t, http.StatusOK, initialized.Code, initialized.Body.String())
+	sessionID := initialized.Header().Get(mcpSessionIDHeader)
+	require.NotEmpty(t, sessionID)
+	listed := serve(listToolsRequest, sessionID, true)
+	require.Contains(t, listed.Body.String(), `"open_session"`)
+	opened := serve(toolCall("open_session", map[string]any{}), sessionID, true)
+	require.Contains(t, opened.Body.String(), `"session_id":"as-session"`)
+	require.Equal(t, []string{"open"}, spy.calls)
+	require.Equal(t, []string{"user-1"}, spy.humanUsers)
+	unauthorized := serve(toolCall("open_session", map[string]any{}), sessionID, false)
+	require.Equal(t, http.StatusUnauthorized, unauthorized.Code)
+	require.Equal(t, []string{"open"}, spy.calls)
+}

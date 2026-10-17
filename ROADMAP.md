@@ -19,7 +19,12 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v0.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0)） | 无状态 MCP 新协议入口、任务级临时只读授权、迁移预检与升级恢复、接入与运维诊断、三种国产数据库指定版本回归；范围见[发布说明](docs/release-notes-v0.7.0.md)。 |
 | v0.8.0 | 已发布 | 任务授权申请/异人审批/一次性领取、授权 ID 审计关联、MCP Inspector 新旧入口真调用、接入排障，以及 DM8、金仓、Vastbase 有界回归和 v0.7 升级恢复；见[验收记录](docs/v0.8-acceptance.md)。 |
 | v0.9.0 | 已发布 | 任务 Key 结果预算、管理审计投递状态和策略离线预检；见[发布说明](docs/release-notes-v0.9.0.md)。 |
-| v1.0.0 | 发布验收中 | 列策略失败关闭、可选的 MCP 人员委托、运维解释和完整交付链；范围与门槛见[设计](docs/v1.0-design.md)及[验收记录](docs/v1.0-acceptance.md)。 |
+| v1.0.0 | 已发布 | 列策略失败关闭、可选的 MCP 人员委托、运维解释和完整交付链；范围与门槛见[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.0.0)及[验收记录](docs/v1.0-acceptance.md)。 |
+| v1.1.0 | 开发中 | 双身份扩展至 B5 会话与审批闭环、令牌单独撤销及登录限流；见[设计](docs/v1.1.0-design.md)。 |
+| v1.2.0 | 规划 | MCP OAuth/OIDC 标准互通与新旧协议实测。 |
+| v1.3.0 | 规划 | MySQL 8 可证明的列策略 SELECT 子集及故障关闭。 |
+| v1.4.0 | 规划 | 多实例可靠性、持久审计与恢复演练。 |
+| v1.5.0 | 规划 | 国产数据库指定版本深度验收，完成后官网与公网 Demo 从 v1.0.0 直接更新到 v1.5.0。 |
 
 ## v0.7.0 验收与发布门槛
 

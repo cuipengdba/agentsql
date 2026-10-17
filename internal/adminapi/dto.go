@@ -418,6 +418,7 @@ func auditToStreamView(log model.AuditLog) auditStreamView {
 
 type approvalView struct {
 	ID               string     `json:"id"`
+	RequesterUserID  *string    `json:"requester_user_id,omitempty"`
 	AuditID          *int64     `json:"audit_id,omitempty"`
 	AgentID          *string    `json:"agent_id,omitempty"`
 	DatasourceID     *string    `json:"datasource_id,omitempty"`
@@ -439,7 +440,7 @@ type approvalView struct {
 
 func approvalToView(approval model.Approval) approvalView {
 	return approvalView{
-		ID: approval.ID, AuditID: approval.AuditID, AgentID: approval.AgentID, DatasourceID: approval.DatasourceID, SQLRaw: approval.SQLRaw,
+		ID: approval.ID, AuditID: approval.AuditID, AgentID: approval.AgentID, RequesterUserID: approval.RequesterUserID, DatasourceID: approval.DatasourceID, SQLRaw: approval.SQLRaw,
 		Reason: approval.Reason, RequestReason: approval.RequestReason, DecisionComment: approval.DecisionComment,
 		Status: approval.Status, Approver: approval.Approver, DecidedAt: approval.DecidedAt,
 		ExpiresAt: approval.ExpiresAt, ClaimedAt: approval.ClaimedAt, FinishedAt: approval.FinishedAt,

@@ -29,6 +29,8 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 }
 
 func TestSQLiteToPostgresManifestIncludesDiscoveryDraftColumns(t *testing.T) {
+	approval := sqliteToPostgresTableByName(t, "approvals")
+	require.Equal(t, "requester_user_id", approval.columns[len(approval.columns)-1].name)
 	require.Equal(t, []string{
 		"id", "tenant_id", "requester_user_id", "agent_id", "datasource_id",
 		"sql_sha256", "sql_ciphertext", "request_digest", "idempotency_key",
@@ -331,6 +333,6 @@ func TestVerifyMigrationSourceRejectsNonLatestAndOrphan(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback()
 		err = verifyMigrationSource(ctx, tx)
-		require.ErrorContains(t, err, "current=19 latest=20")
+		require.ErrorContains(t, err, "current=20 latest=21")
 	})
 }

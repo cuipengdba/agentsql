@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { listAgents } from "@/api/agents";
-import { authConfig, issueMCPDelegationToken, me } from "@/api/auth";
+import { authConfig, issueMCPDelegationToken, me, revokeMCPDelegationToken } from "@/api/auth";
 import { listDatasources } from "@/api/datasources";
 import {
   approveTaskReadGrantRequest, createTaskReadGrantRequest, getTaskReadGrantRequest, issueTaskReadGrantRequest,
@@ -62,6 +62,8 @@ export function TaskReadGrants() {
   const [delegationToken, setDelegationToken] = useState("");
   const [delegationExpiry, setDelegationExpiry] = useState("");
   const [issuingDelegation, setIssuingDelegation] = useState(false);
+  const [revokeDelegationInput, setRevokeDelegationInput] = useState("");
+  const [revokingDelegation, setRevokingDelegation] = useState(false);
   const idempotencyKey = useRef("");
   const mounted = useRef(true);
   const canReview = Boolean(principal?.permissions.includes("strategy.manage"));
@@ -115,6 +117,23 @@ export function TaskReadGrants() {
       void message.error(apiErrorMessage(error, "签发 MCP 用户委托令牌失败"));
     } finally {
       if (mounted.current) setIssuingDelegation(false);
+    }
+  };
+
+  const revokeDelegation = async () => {
+    const token = revokeDelegationInput.trim();
+    if (!token || revokingDelegation) return;
+    setRevokingDelegation(true);
+    try {
+      await revokeMCPDelegationToken(token);
+      if (mounted.current) {
+        setRevokeDelegationInput("");
+        void message.success("用户委托令牌已撤销");
+      }
+    } catch (error: unknown) {
+      void message.error(apiErrorMessage(error, "撤销用户委托令牌失败"));
+    } finally {
+      if (mounted.current) setRevokingDelegation(false);
     }
   };
 
@@ -262,6 +281,10 @@ export function TaskReadGrants() {
       <Space wrap>
         <AutoComplete style={{ width: 280 }} value={delegationAgentID} onChange={setDelegationAgentID} placeholder="选择或输入 Agent ID" options={agents.map((agent) => ({ value: agent.id, label: `${agent.name} (${agent.id})` }))} filterOption={(input, option) => String(option?.label || "").toLowerCase().includes(input.toLowerCase())} />
         <Button onClick={() => void issueDelegation()} loading={issuingDelegation} disabled={!delegationAgentID.trim()}>签发用户令牌</Button>
+      </Space>
+      <Space wrap style={{ marginTop: 12 }}>
+        <Input.Password style={{ width: 360 }} value={revokeDelegationInput} onChange={(event) => setRevokeDelegationInput(event.target.value)} placeholder="粘贴要撤销的用户令牌" autoComplete="off" />
+        <Button danger icon={<StopOutlined />} loading={revokingDelegation} disabled={!revokeDelegationInput.trim()} onClick={() => void revokeDelegation()}>撤销令牌</Button>
       </Space>
     </section>}
     <Alert type="info" showIcon message="授权范围仍受原策略约束" description={<span>一位申请人、另一位审批人；最长 24 小时，只允许一条精确匹配的简单 SELECT。新申请可设 1–10 次结果预算；预算在返回结果前原子扣减，传输失败不退还。原 Agent 的权限、规则、脱敏和审计继续逐次生效。先在 <Link to="/onboarding">接入向导</Link>检查配置。</span>} style={{ marginBottom: 16 }} />

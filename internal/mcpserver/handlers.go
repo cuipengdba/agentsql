@@ -277,9 +277,6 @@ func (handlers *toolHandlers) requestApproval(
 	sql string,
 	reason string,
 ) ToolResponse {
-	if _, delegated := delegatedHumanFromContext(ctx); delegated {
-		return denyToolResponse("用户委托模式暂不支持审批申请", "请由管理员在控制台提交审批")
-	}
 	if strings.TrimSpace(reason) == "" {
 		return errorToolResponse("reason 不能为空", "请说明审批原因、预计影响和回滚方案后重试")
 	}
@@ -303,6 +300,13 @@ func (handlers *toolHandlers) getApprovalResult(ctx context.Context, approvalID 
 	if err != nil || approval.AgentID == nil || *approval.AgentID != handlers.agent.ID {
 		return denyToolResponse("未找到可访问的审批单", "请检查审批单号，并确认它属于当前 Agent")
 	}
+	if human, delegated := delegatedHumanFromContext(ctx); delegated {
+		if approval.RequesterUserID == nil || *approval.RequesterUserID != human.userID || approval.TenantID != human.tenantID {
+			return denyToolResponse("未找到可访问的审批单", "请检查审批单号及委托用户身份")
+		}
+	} else if approval.RequesterUserID != nil {
+		return denyToolResponse("未找到可访问的审批单", "此审批单需要原委托用户身份")
+	}
 	return allowToolResponse("已返回审批单当前状态", approvalData{
 		ID: approval.ID, Status: approval.Status, Approver: approval.Approver, DecidedAt: approval.DecidedAt,
 		ExpiresAt: approval.ExpiresAt, ExecutionAuditID: approval.ExecutionAuditID, OutcomeCode: approval.OutcomeCode,
@@ -310,13 +314,16 @@ func (handlers *toolHandlers) getApprovalResult(ctx context.Context, approvalID 
 }
 
 func (handlers *toolHandlers) executeApproved(ctx context.Context, approvalID string) ToolResponse {
-	if _, delegated := delegatedHumanFromContext(ctx); delegated {
-		return denyToolResponse("用户委托模式暂不支持审批单执行", "请使用专用 Agent 身份完成审批单执行")
-	}
 	if strings.TrimSpace(approvalID) == "" {
 		return errorToolResponse("approval_id 不能为空", "请提供 request_approval 返回的审批单号")
 	}
-	response, err := handlers.runtime.Pipeline.ExecuteApproved(ctx, handlers.apiKey, approvalID)
+	var response pipeline.Response
+	var err error
+	if human, delegated := delegatedHumanFromContext(ctx); delegated {
+		response, err = handlers.runtime.Pipeline.ExecuteApprovedDelegated(ctx, handlers.apiKey, approvalID, human.userID, human.tenantID)
+	} else {
+		response, err = handlers.runtime.Pipeline.ExecuteApproved(ctx, handlers.apiKey, approvalID)
+	}
 	if errors.Is(err, store.ErrApprovalNotExecutable) {
 		return denyToolResponse("审批单不可执行", "请检查审批状态、有效期和归属；已认领请求不得重试")
 	}

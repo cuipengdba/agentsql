@@ -1195,6 +1195,9 @@ func (run *pipelineRun) approve(ctx context.Context) (Response, error) {
 			Reason:   stringPointer(run.response.Assessment.Reason),
 			Status:   "pending",
 		}
+		if run.request.DelegatedUserID != "" {
+			approval.RequesterUserID = stringPointer(run.request.DelegatedUserID)
+		}
 		if approval.TenantID == "" {
 			approval.TenantID = "tenant_default"
 		}

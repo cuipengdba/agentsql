@@ -203,6 +203,27 @@ type matrixHTTPClient struct {
 	t           *testing.T
 	client      *http.Client
 	url, apiKey string
+	humanToken  string
+	sessionID   string
+}
+
+func (client *matrixHTTPClient) initialize() {
+	client.t.Helper()
+	request, err := http.NewRequest(http.MethodPost, client.url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"b5-e2e","version":"1"}}}`))
+	require.NoError(client.t, err)
+	request.Header.Set("Authorization", "Bearer "+client.apiKey)
+	request.Header.Set("X-AgentSQL-User-Authorization", "Bearer "+client.humanToken)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	response, err := client.client.Do(request)
+	require.NoError(client.t, err)
+	defer response.Body.Close()
+	wire, err := io.ReadAll(response.Body)
+	require.NoError(client.t, err)
+	require.Equal(client.t, http.StatusOK, response.StatusCode, string(wire))
+	client.sessionID = response.Header.Get("Mcp-Session-Id")
+	require.NotEmpty(client.t, client.sessionID, string(wire))
 }
 
 func (client *matrixHTTPClient) tool(name string, arguments any) matrixToolResponse {
@@ -214,15 +235,21 @@ func (client *matrixHTTPClient) call(method string, params any) matrixToolRespon
 	request, err := http.NewRequest(http.MethodPost, client.url, strings.NewReader(string(body)))
 	require.NoError(client.t, err)
 	request.Header.Set("Authorization", "Bearer "+client.apiKey)
+	if client.humanToken != "" {
+		request.Header.Set("X-AgentSQL-User-Authorization", "Bearer "+client.humanToken)
+	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("MCP-Protocol-Version", "2025-06-18")
+	if client.sessionID != "" {
+		request.Header.Set("Mcp-Session-Id", client.sessionID)
+	}
 	response, err := client.client.Do(request)
 	require.NoError(client.t, err)
 	defer response.Body.Close()
-	require.Equal(client.t, http.StatusOK, response.StatusCode)
 	wire, err := io.ReadAll(response.Body)
 	require.NoError(client.t, err)
+	require.Equal(client.t, http.StatusOK, response.StatusCode, string(wire))
 	return decodeMatrixResponse(client.t, wire)
 }
 

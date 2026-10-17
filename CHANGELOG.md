@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.1.0]
+
+- Bind delegated approval requests and single-use execution to the verified human user, Agent and tenant; enforce owner checks in the atomic claim and preserve the old Agent-only path.
+- Enable B5 logical sessions for delegated MCP requests with a persisted human/Agent/tenant principal and identity-bound continuation and transaction plan; reuse only the authenticated Agent's existing DML grants.
+- Add per-token delegation revocation, console display of approval ownership, and bounded password/LDAP login attempts. Existing v1.0.0 delegation tokens remain valid until their original short expiry.
+
+See the [v1.1.0 design](docs/v1.1.0-design.md) and [release notes](docs/release-notes-v1.1.0.md) for exact scope and verification.
+
 ## [v1.0.0]
 
 - Fail closed for SELECTs with column policies unless PostgreSQL B2 can provide a verified binder path; do not fall back to table-only authorization for JOINs, self-joins, predicates, or wildcard projections.

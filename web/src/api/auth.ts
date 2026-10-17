@@ -53,3 +53,7 @@ export interface MCPDelegationTokenView {
 export function issueMCPDelegationToken(agentID: string): Promise<MCPDelegationTokenView> {
   return request<MCPDelegationTokenView>({ method: "POST", url: "/auth/delegation-token", data: { agent_id: agentID } });
 }
+
+export function revokeMCPDelegationToken(token: string): Promise<{ revoked: boolean }> {
+  return request<{ revoked: boolean }>({ method: "POST", url: "/auth/delegation-token/revoke", data: { token } });
+}

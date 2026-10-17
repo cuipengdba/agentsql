@@ -335,6 +335,7 @@ export interface AuditQuery extends PageQuery {
 }
 
 export interface ApprovalView {
+	requester_user_id?: string | null;
   id: string;
   audit_id?: number | null;
   agent_id?: string | null;

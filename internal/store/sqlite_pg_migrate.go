@@ -225,6 +225,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "expires_at", kind: migrationTime}, {name: "seal", kind: migrationText},
 		{name: "claimed_at", kind: migrationTime}, {name: "finished_at", kind: migrationTime},
 		{name: "execution_audit_id", kind: migrationInt64}, {name: "outcome_code", kind: migrationText},
+		{name: "requester_user_id", kind: migrationText},
 	}},
 	{name: "notification_settings", pkIndex: 1, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "tenant_id", kind: migrationText}, {name: "id", kind: migrationInt32}, {name: "enabled", kind: migrationBool},
