@@ -480,7 +480,13 @@ func (handler *Handler) login(writer http.ResponseWriter, request *http.Request)
 	if input.TenantID == "" {
 		input.TenantID = rbac.DefaultTenantID
 	}
-	if !handler.loginAttempts.allow(input.TenantID, input.Username) {
+	allowed, attemptErr := handler.allowLoginAttempt(request.Context(), input.TenantID, input.Username)
+	if attemptErr != nil {
+		handler.logger.Error().Err(attemptErr).Msg("shared login budget unavailable")
+		handler.fail(writer, http.StatusServiceUnavailable, "login temporarily unavailable")
+		return
+	}
+	if !allowed {
 		handler.fail(writer, http.StatusTooManyRequests, "login rate limit exceeded")
 		return
 	}

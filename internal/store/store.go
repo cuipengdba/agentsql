@@ -525,6 +525,15 @@ func (store *Store) HumanAuth() *HumanAuthRepository {
 	return &HumanAuthRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
 }
 
+// SharedLoginAttempts uses the metadata database so every gateway sees the
+// same password and LDAP attempt budget. SQLite deployments remain single-node.
+func (store *Store) SharedLoginAttempts() *LoginAttemptRepository {
+	if store == nil || store.metaDriver != DialectPostgres {
+		return nil
+	}
+	return &LoginAttemptRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // MCPStreamEvents returns the persistent Streamable HTTP event repository.
 func (store *Store) MCPStreamEvents() *MCPStreamEventRepository {
 	return &MCPStreamEventRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}

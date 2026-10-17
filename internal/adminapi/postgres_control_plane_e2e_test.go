@@ -913,7 +913,7 @@ func adminE2EDecisionCounts(items []store.DecisionCount) map[string]int64 {
 	return counts
 }
 
-func adminDockerTestContext(t *testing.T) context.Context {
+func adminDockerTestContext(t *testing.T, requestedTimeout ...time.Duration) context.Context {
 	t.Helper()
 	unavailable, err := probeAdminDockerAvailable()
 	if unavailable {
@@ -921,7 +921,11 @@ func adminDockerTestContext(t *testing.T) context.Context {
 		t.Skip("docker daemon unavailable")
 	}
 	require.NoError(t, err, "Docker probe failed after the client connected")
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	timeout := 3 * time.Minute
+	if len(requestedTimeout) > 0 {
+		timeout = requestedTimeout[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(cancel)
 	return ctx
 }

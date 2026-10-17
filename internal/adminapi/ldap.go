@@ -76,7 +76,13 @@ func (handler *Handler) ldapLogin(writer http.ResponseWriter, request *http.Requ
 		handler.fail(writer, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if !handler.loginAttempts.allow(handler.ldap.config.TenantID, input.Username) {
+	allowed, attemptErr := handler.allowLoginAttempt(request.Context(), handler.ldap.config.TenantID, input.Username)
+	if attemptErr != nil {
+		handler.logger.Error().Err(attemptErr).Msg("shared login budget unavailable")
+		handler.fail(writer, http.StatusServiceUnavailable, "login temporarily unavailable")
+		return
+	}
+	if !allowed {
 		handler.fail(writer, http.StatusTooManyRequests, "login rate limit exceeded")
 		return
 	}

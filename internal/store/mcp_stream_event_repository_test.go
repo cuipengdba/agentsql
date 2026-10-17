@@ -142,10 +142,10 @@ func TestMCPStreamEventRepositoryPostgresExternal(t *testing.T) {
 
 	require.NoError(t, MigrateMetadata(ctx, database, DialectPostgres, separate))
 	require.NoError(t, MigrateMetadata(ctx, database, DialectPostgres, separate), "full up chain must be idempotent")
-	wantLatest := 14
+	wantLatest := 22
 	streamVersion := 13
 	if separate {
-		wantLatest = 13
+		wantLatest = 21
 		streamVersion = 12
 	}
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectPostgres, separate)
@@ -180,7 +180,9 @@ func TestMCPStreamEventRepositoryPostgresExternal(t *testing.T) {
 	require.Empty(t, events)
 	t.Log("PostgreSQL append/after/capacity-purge behavior passed")
 
-	require.NoError(t, RollbackMetadataMigration(ctx, database, DialectPostgres, separate, wantLatest))
+	for version := wantLatest; version > streamVersion; version-- {
+		require.NoError(t, RollbackMetadataMigration(ctx, database, DialectPostgres, separate, version))
+	}
 	require.NoError(t, RollbackMetadataMigration(ctx, database, DialectPostgres, separate, streamVersion))
 	require.NoError(t, RollbackMetadataMigration(ctx, database, DialectPostgres, separate, streamVersion), "stream down must be idempotent")
 	for _, table := range []string{"mcp_stream_event_cursors", "mcp_stream_events"} {

@@ -20,3 +20,12 @@ func TestLoginAttemptLimiterBoundsAccountAndResetsAfterWindow(t *testing.T) {
 	now = now.Add(loginWindow)
 	require.True(t, limiter.allow("tenant-1", "alice"))
 }
+
+func TestSharedLoginAttemptDigestNormalizesScopeAndHidesNames(t *testing.T) {
+	secret := []byte("shared-token-secret")
+	first := loginAttemptDigest(secret, " Tenant-1 ", " Alice ")
+	require.Equal(t, first, loginAttemptDigest(secret, "tenant-1", "alice"))
+	require.NotEqual(t, first, loginAttemptDigest(secret, "tenant-2", "alice"))
+	require.NotEqual(t, first, loginAttemptDigest(secret, "tenant-1", "bob"))
+	require.NotEqual(t, first, loginAttemptDigest([]byte("rotated-token-secret"), "tenant-1", "alice"))
+}

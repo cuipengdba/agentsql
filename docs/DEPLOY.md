@@ -1030,3 +1030,13 @@ Content-Type: application/json
 ```
 
 接口从真库发现后在控制事务中再次持 MDL 验证，提交健康绑定、对象 ID 和列权限；若版本变化或表已重建则返回冲突并需重新读取策略。启用开关后，持有列策略的 MySQL 请求只进入列授权路径；缺少元数据凭据、权限、健康绑定、列授权、审计或最终控制面检查时失败关闭。既有不含列策略的 MySQL 请求继续使用原表级路径。登记完成后重启 AgentSQL，使启动探针重新计算 B2 就绪状态。
+
+## v1.4.0 双网关共享登录预算与升级
+
+本版在 PostgreSQL metadata 中持久化控制台密码和 LDAP 登录尝试预算：租户与账号规范化后使用部署密钥计算 HMAC，表中只有 32 字节摘要、窗口起点和次数。同一账号从首次尝试起的 60 秒内最多 10 次；两个网关原子共享。metadata 连接或写入失败时返回 503，不回退到节点内存。SQLite 仍只支持单节点本地预算。预算表最多保留 8192 个未过期账号桶，达到上限时新账号登录失败关闭。
+
+两个网关必须指向同一 PostgreSQL metadata 与 audit，使用一致的 `AGENTSQL_SECRET`、身份和审计配置，并给每个网关配置不同的 `mcp.sessions.instance_id`；若启用列授权，还须配置不同的 `column_authorization.instance_id`。上线前在受控环境核对两节点密钥版本和配置承诺值，执行跨节点登录限流、审计失败关闭及恢复后的链验证。不要混用 v1.3.0 和 v1.4.0 节点承接登录：旧节点只有限流内存桶，会绕过共享预算。
+
+升级时先停止旧网关的登录和 SQL 流量，对 metadata、audit（若独立）及配对密钥做一致性备份。v1.3.0 的 SQLite/合并 PostgreSQL metadata 版本为 21，独立 PostgreSQL metadata 为 20，audit-only 为 6。用 v1.4.0 正式包执行 `agentsqlctl migrate --check` 并确认只有预计的待迁移版本，再执行 `agentsqlctl migrate`；迁移后 SQLite/合并 PostgreSQL metadata 为 22，独立 PostgreSQL metadata 为 21，audit-only 仍为 6。运行账号需要预算表的 SELECT、INSERT、UPDATE、DELETE 权限。再次执行只读 `migrate --check`，要求全部 `current=latest`，再先后启动两个 v1.4.0 网关。旧节点内存中的预算不会搬迁，因此切换必须在停流维护窗口内完成。
+
+回退时停止全部 v1.4.0 网关，恢复升级前同一时点的 metadata、audit 和 `AGENTSQL_SECRET`，再启动 v1.3.0 程序并复核审计链及审批/授权状态。只替换旧二进制或仅恢复 metadata 不构成回退。双节点可靠性只覆盖经验证的共享 PostgreSQL 控制面拓扑，不改变业务数据库支持声明。

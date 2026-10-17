@@ -95,6 +95,9 @@ const (
 )
 
 var sqliteDerivedExcludedTables = map[string]struct{}{
+	// SQLite login budgets are process-local; a one-shot database move must
+	// start a new PostgreSQL shared budget instead of treating them as identities.
+	"login_attempt_budgets":    {},
 	"chain_state":              {},
 	"chain_verification":       {},
 	"control_plane_compat":     {},
