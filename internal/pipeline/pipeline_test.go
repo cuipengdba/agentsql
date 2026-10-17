@@ -98,6 +98,36 @@ func TestPipelineFailurePathsDoNotExecuteBusinessSQL(t *testing.T) {
 	}
 }
 
+func TestPipelineDelegatedHumanIsBoundAndAudited(t *testing.T) {
+	fixture := newPipelineFixture(t)
+	fixture.authenticator.agent.TenantID = "tenant-1"
+	request := defaultRequest()
+	request.DelegatedUserID = "user-1"
+	request.DelegatedTenantID = "tenant-1"
+	response, err := fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, response.Decision)
+	require.Equal(t, 1, fixture.audit.calls())
+	require.NotNil(t, fixture.audit.last().DetailsJSON)
+	var details map[string]any
+	require.NoError(t, json.Unmarshal([]byte(*fixture.audit.last().DetailsJSON), &details))
+	require.Equal(t, "user-1", details["delegated_user_id"])
+
+	request.DelegatedTenantID = "other-tenant"
+	response, err = fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Equal(t, 1, fixture.executors.calls(), "tenant mismatch must stop before DB work")
+
+	fixture.authenticator.agent.TaskGrantID = "grant-1"
+	fixture.authenticator.agent.TaskGrantIssuerUserID = "other-user"
+	request.DelegatedTenantID = "tenant-1"
+	response, err = fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Equal(t, 1, fixture.executors.calls(), "grant issuer mismatch must stop before DB work")
+}
+
 func TestPipelineRejectsMySQLValuesBeforeExecutor(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -489,7 +519,7 @@ func TestPipelineAllowedWriteUsesExecuteWithoutRedactor(t *testing.T) {
 	require.Equal(t, 1, *fixture.audit.last().RowsReturned)
 }
 
-func TestPipelineColumnPolicyDenyOnlyChecksObjectExistence(t *testing.T) {
+func TestPipelineColumnPolicyWithoutBinderFailsClosed(t *testing.T) {
 	fixture := newPipelineFixture(t)
 	columns := "id"
 	fixture.policies.policies = append(fixture.policies.policies, model.Policy{
@@ -502,18 +532,17 @@ func TestPipelineColumnPolicyDenyOnlyChecksObjectExistence(t *testing.T) {
 		Action:       "allow",
 	})
 	response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
-	require.NoError(t, err)
+	require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
 	require.Equal(t, model.DecisionDeny, response.Decision)
-	require.Contains(t, response.Assessment.Reason, "public.customers.phone")
-	require.Equal(t, 1, fixture.executors.calls())
+	require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+	require.Zero(t, fixture.executors.calls())
 	calls := fixture.executor.callsSnapshot()
-	require.Equal(t, 1, calls.explain)
-	require.Zero(t, calls.query+calls.execute)
-	require.Equal(t, "deny", fixture.audit.last().Decision)
+	require.Zero(t, calls.explain+calls.query+calls.execute)
+	require.Equal(t, "error", fixture.audit.last().Decision)
 }
 
-func TestPipelineProjectionColumnAuthorization(t *testing.T) {
-	t.Run("predicate-only N106 column is allowed", func(t *testing.T) {
+func TestPipelineColumnPoliciesNeverFallBackToTableAuthorization(t *testing.T) {
+	t.Run("predicate-only column is denied without binder", func(t *testing.T) {
 		fixture := newPipelineFixture(t, WithRuleLayers(engine.RuleLayers{
 			Agent: engine.RuleLayer{
 				"R008": {Thresholds: map[string]float64{
@@ -531,12 +560,11 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 			context.Background(),
 			requestWithSQL("SELECT id,name,amount FROM public.orders WHERE user_id=1 LIMIT 10"),
 		)
-		require.NoError(t, err)
-		require.Equal(t, model.DecisionAllow, response.Decision)
-		for _, hit := range response.Assessment.Hits {
-			require.NotEqual(t, "POLICY_COLUMN", hit.RuleID)
-		}
-		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+		require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+		require.Zero(t, fixture.executors.calls())
+		require.Equal(t, "error", fixture.audit.last().Decision)
 	})
 
 	t.Run("unauthorized projection is denied before query", func(t *testing.T) {
@@ -546,9 +574,10 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 			model.Policy{ID: "employees-columns", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "column", ObjectName: "public.employees", Columns: stringPointer("id"), Action: "allow"},
 		)
 		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT salary FROM public.employees"))
-		require.NoError(t, err)
+		require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
 		require.Equal(t, model.DecisionDeny, response.Decision)
-		require.Contains(t, response.Assessment.Reason, "salary")
+		require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+		require.Zero(t, fixture.executors.calls())
 		require.Zero(t, fixture.executor.callsSnapshot().query)
 	})
 
@@ -560,13 +589,12 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 			ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "allow",
 		})
 		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT public.orders.* FROM public.orders"))
-		require.NoError(t, err)
+		require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
 		require.Equal(t, model.DecisionDeny, response.Decision)
-		require.Contains(t, response.Assessment.Reason, "SELECT *")
-		require.Equal(t, 1, fixture.executors.calls())
+		require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+		require.Zero(t, fixture.executors.calls())
 		calls := fixture.executor.callsSnapshot()
-		require.Equal(t, 1, calls.explain)
-		require.Zero(t, calls.query+calls.execute)
+		require.Zero(t, calls.explain+calls.query+calls.execute)
 	})
 
 	t.Run("star projection is allowed with table-only grant", func(t *testing.T) {
@@ -577,7 +605,7 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
 	})
 
-	t.Run("wildcard table grant keeps broad column semantics", func(t *testing.T) {
+	t.Run("wildcard table grant cannot bypass column policy without binder", func(t *testing.T) {
 		fixture := newPipelineFixture(t)
 		columns := "id"
 		fixture.policies.policies = append(fixture.policies.policies,
@@ -585,12 +613,13 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 			model.Policy{ID: "orders-columns", AgentID: "agent-1", DatasourceID: "datasource-1", ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "allow"},
 		)
 		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL("SELECT * FROM public.orders LIMIT 1"))
-		require.NoError(t, err)
-		require.Equal(t, model.DecisionAllow, response.Decision)
-		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+		require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+		require.Zero(t, fixture.executors.calls())
 	})
 
-	t.Run("join keeps v0.1 table-only behavior", func(t *testing.T) {
+	t.Run("join cannot fall back to table-only authorization", func(t *testing.T) {
 		fixture := newPipelineFixture(t)
 		ordersColumns, customerColumns := "id", "id"
 		fixture.policies.policies = append(fixture.policies.policies,
@@ -600,9 +629,11 @@ func TestPipelineProjectionColumnAuthorization(t *testing.T) {
 		response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(
 			"SELECT o.total,c.phone FROM public.orders o JOIN public.customers c ON c.id=o.customer_id LIMIT 1",
 		))
-		require.NoError(t, err)
-		require.Equal(t, model.DecisionAllow, response.Decision)
-		require.Equal(t, 1, fixture.executor.callsSnapshot().query)
+		require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Equal(t, string(executor.ReasonColumnAuthUnavailable), response.ErrorCode)
+		require.Zero(t, fixture.executors.calls())
+		require.Equal(t, "error", fixture.audit.last().Decision)
 	})
 }
 

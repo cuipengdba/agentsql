@@ -1,5 +1,17 @@
 # AgentSQL 发布流程与 tag 含义
 
+## v1.0.0 发布执行顺序
+
+按[每版交付流程](RELEASE_ROUTINE.md)和[v1.0.0 验收记录](v1.0-acceptance.md)执行；人员委托、列策略失败关闭及审计故障是阻断项。
+
+1. 封板设计、代码、内嵌控制台、官网与三份 v1.0.0 PDF；同提交 Go/Web/官网、真实 MCP 客户端和数据库回归通过。
+2. 使用 v0.9.0 正式包和配对密钥演练 SQLite 合并库与 PostgreSQL metadata/audit 分库升级及成套恢复；本版没有新增迁移。
+3. 从干净提交运行双架构 dry-run 和生产准备，签署 SPDX、provenance、SHA256SUMS 并完成三次 Ed25519 验签；推送指向同一提交的 annotated tag，发布 15 项资产并匿名回下载验证。
+4. 推送 GHCR `v1.0.0`、`v1.0.0-demo`、`v1.0.0-quickstart` 精确标签，核对 amd64/arm64、OCI revision、匿名拉取和运行时健康；再公开 GitHub Release。
+5. 备份并升级独立 Live Demo，在公网验证版本、允许、拒绝、脱敏和持久审计；随后部署官网文案、下载和 PDF，并进行公网静态安全校验。所有入口通过后单独提升 `latest` 并再次匿名拉取。
+
+任一阻断项失败则修复后重新验收，不把候选版本标为已发布。
+
 ## v0.9.0 发布执行顺序
 
 1. 完成[发布说明](release-notes-v0.9.0.md)、[验收记录](v0.9-acceptance.md)、官网和三份 v0.9.0 PDF；从同一个干净封板提交运行全仓测试、真实 MCP/数据库回归与同提交 CI。

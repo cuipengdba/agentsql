@@ -103,6 +103,14 @@ func (pipeline *Pipeline) process(
 			return err
 		}
 		run.agent = &agent
+		if request.DelegatedUserID != "" {
+			if request.DelegatedTenantID != agent.TenantID ||
+				agent.TaskGrantID != "" && agent.TaskGrantIssuerUserID != request.DelegatedUserID {
+				return &executor.AuthError{Reason: executor.ReasonAgentDenied}
+			}
+		} else if request.DelegatedTenantID != "" {
+			return &executor.AuthError{Reason: executor.ReasonAgentDenied}
+		}
 		if agent.TaskGrantID != "" {
 			// A task key was already bound to its issuer during authentication.
 			// Keep that attribution even when the exact SQL check rejects this
@@ -241,6 +249,27 @@ func (pipeline *Pipeline) process(
 			))
 		}
 		return run.finish(ctx, err)
+	}
+	// A stored column policy must never fall through to the table-only path.
+	// R010's legacy projection check cannot bind every reference in JOINs,
+	// predicates, subqueries, or wildcard expansions to a physical column.
+	// PostgreSQL can enforce these policies only through the active B2 binder;
+	// other dialects remain explicitly unsupported until they have an
+	// equivalent, database-backed authorization proof.
+	if run.ast.StmtType == model.StmtType("SELECT") && hasB2ColumnPolicy(run.storedPolicies) {
+		if run.datasource.DBType == "vastbase" {
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonVastbaseColumnUnsupported})
+		}
+		if run.datasource.DBType != "postgres" {
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnsupported})
+		}
+		if isNilInterface(pipeline.column) {
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable})
+		}
+		router, ok := pipeline.column.(ColumnAuthorizationRouter)
+		if !ok || !router.ColumnAuthorizationEnabled(*run.datasource) {
+			return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonColumnAuthUnavailable})
+		}
 	}
 
 	if err := run.measure(StageGuardStatic, func() error {
@@ -967,8 +996,8 @@ func internalFailurePresentation(cause error) (executor.DBErrorCode, string, str
 		switch stable.Reason {
 		case executor.ReasonColumnAuthUnsupported:
 			return executor.DBErrorCode(stable.Reason),
-				"MySQL 列级授权在 v0.4 中暂不支持",
-				"请改用 PostgreSQL 演示列级授权，或移除 MySQL 列级策略并使用表级保护"
+				"MySQL 等数据源的列级授权暂不支持，已拒绝执行",
+				"请仅使用表级保护；列级策略须在具备 B2 绑定器的 PostgreSQL 数据源上使用"
 		case executor.ReasonVastbaseColumnUnsupported:
 			return executor.DBErrorCode(stable.Reason),
 				"Vastbase G100 的列级授权尚未完成真库验收，已拒绝执行",

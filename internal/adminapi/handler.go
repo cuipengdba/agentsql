@@ -196,6 +196,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/auth/ldap/login", handler.ldapLogin)
 	mux.HandleFunc("GET /api/v1/auth/me", handler.me)
 	mux.HandleFunc("POST /api/v1/auth/logout", handler.logout)
+	mux.HandleFunc("POST /api/v1/auth/delegation-token", handler.delegationTokenIssue)
 	mux.HandleFunc("GET /api/v1/permissions", handler.permissionsList)
 	mux.HandleFunc("GET /api/v1/users", handler.usersList)
 	mux.HandleFunc("POST /api/v1/users", handler.usersCreate)
@@ -381,6 +382,8 @@ func requestTokenPayload(request *http.Request) (tokenPayload, bool) {
 
 func requiredPermission(method, path string) (string, bool) {
 	switch {
+	case method == http.MethodPost && path == "/api/v1/auth/delegation-token":
+		return rbac.PermissionQueryExecute, true
 	case strings.HasPrefix(path, "/api/v1/users"):
 		return rbac.PermissionUserManage, true
 	case strings.HasPrefix(path, "/api/v1/roles"), path == "/api/v1/permissions":

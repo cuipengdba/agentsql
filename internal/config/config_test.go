@@ -48,6 +48,18 @@ func TestParseValidConfigDoesNotCreateSQLiteDirectory(t *testing.T) {
 	require.True(t, errors.Is(err, os.ErrNotExist))
 }
 
+func TestHumanDelegationRequiresConsole(t *testing.T) {
+	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
+	base := fmt.Sprintf(validConfig, databasePath)
+	loaded, err := Parse([]byte(base + "mcp:\n  delegation:\n    require_human_token: true\n"))
+	require.NoError(t, err)
+	require.True(t, loaded.EffectiveMCP().Delegation.RequireHumanToken)
+
+	withoutConsole := strings.Replace(base, "console_enabled: true", "console_enabled: false", 1)
+	_, err = Parse([]byte(withoutConsole + "mcp:\n  delegation:\n    require_human_token: true\n"))
+	require.Error(t, err)
+}
+
 func TestParseDefaultsConsoleAndRejectsUnknownOrTrailingDocuments(t *testing.T) {
 	databasePath := filepath.ToSlash(filepath.Join(t.TempDir(), "agentsql.db"))
 	withoutConsole := fmt.Sprintf(`server:

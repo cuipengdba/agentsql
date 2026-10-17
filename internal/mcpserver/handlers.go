@@ -277,6 +277,9 @@ func (handlers *toolHandlers) requestApproval(
 	sql string,
 	reason string,
 ) ToolResponse {
+	if _, delegated := delegatedHumanFromContext(ctx); delegated {
+		return denyToolResponse("用户委托模式暂不支持审批申请", "请由管理员在控制台提交审批")
+	}
 	if strings.TrimSpace(reason) == "" {
 		return errorToolResponse("reason 不能为空", "请说明审批原因、预计影响和回滚方案后重试")
 	}
@@ -307,6 +310,9 @@ func (handlers *toolHandlers) getApprovalResult(ctx context.Context, approvalID 
 }
 
 func (handlers *toolHandlers) executeApproved(ctx context.Context, approvalID string) ToolResponse {
+	if _, delegated := delegatedHumanFromContext(ctx); delegated {
+		return denyToolResponse("用户委托模式暂不支持审批单执行", "请使用专用 Agent 身份完成审批单执行")
+	}
 	if strings.TrimSpace(approvalID) == "" {
 		return errorToolResponse("approval_id 不能为空", "请提供 request_approval 返回的审批单号")
 	}
@@ -321,6 +327,10 @@ func (handlers *toolHandlers) executeApproved(ctx context.Context, approvalID st
 }
 
 func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Request) ToolResponse {
+	if human, delegated := delegatedHumanFromContext(ctx); delegated {
+		request.DelegatedUserID = human.userID
+		request.DelegatedTenantID = human.tenantID
+	}
 	response, err := handlers.runtime.Pipeline.Process(ctx, request)
 	if err != nil {
 		return handlers.internalError(request.MCPTool, err)
@@ -438,8 +448,13 @@ func (handlers *toolHandlers) internalError(tool string, err error) ToolResponse
 	var authorizationError *executor.AuthError
 	if errors.As(err, &authorizationError) && authorizationError.Reason == executor.ReasonColumnAuthUnsupported {
 		return ToolResponse{Decision: "deny", ErrorCode: string(executor.ReasonColumnAuthUnsupported),
-			Reason:     "MySQL 列级授权在 v0.4 中暂不支持",
-			Suggestion: "请改用 PostgreSQL 演示列级授权；MySQL 请求不会连接或执行真实业务 SQL"}
+			Reason:     "MySQL 等数据源的列级授权暂不支持，已拒绝执行",
+			Suggestion: "请仅使用表级保护；列级策略须在具备 B2 绑定器的 PostgreSQL 数据源上使用"}
+	}
+	if errors.As(err, &authorizationError) && authorizationError.Reason == executor.ReasonColumnAuthUnavailable {
+		return ToolResponse{Decision: "deny", ErrorCode: string(executor.ReasonColumnAuthUnavailable),
+			Reason:     "PostgreSQL 列级授权当前不可用，已拒绝执行",
+			Suggestion: "请检查 B2 健康状态、策略绑定和数据源 catalog 权限后重试"}
 	}
 	handlers.logger.Error().
 		Str("tool", tool).

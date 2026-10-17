@@ -127,7 +127,7 @@ func TestMySQLB2RoutingRejectsOnlyColumnPolicies(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, model.DecisionDeny, response.Decision)
 		require.Equal(t, string(executor.ReasonColumnAuthUnsupported), response.ErrorCode)
-		require.Equal(t, "MySQL 列级授权在 v0.4 中暂不支持", response.ErrorMessage)
+		require.Equal(t, "MySQL 等数据源的列级授权暂不支持，已拒绝执行", response.ErrorMessage)
 		require.Contains(t, response.Suggestion, "表级保护")
 		require.Zero(t, controller.beginCalls)
 		require.Zero(t, fixture.executors.calls())

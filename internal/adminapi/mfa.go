@@ -28,9 +28,10 @@ const totpPeriod = int64(30)
 
 func (handler *Handler) authConfig(writer http.ResponseWriter, _ *http.Request) {
 	view := map[string]any{
-		"mfa_enabled":  handler.deps.Config.Auth.MFA.Enabled,
-		"oidc_enabled": handler.deps.Config.Auth.OIDC.Enabled,
-		"ldap_enabled": handler.deps.Config.Auth.LDAP.Enabled,
+		"mfa_enabled":              handler.deps.Config.Auth.MFA.Enabled,
+		"oidc_enabled":             handler.deps.Config.Auth.OIDC.Enabled,
+		"ldap_enabled":             handler.deps.Config.Auth.LDAP.Enabled,
+		"human_delegation_enabled": handler.deps.Config.EffectiveMCP().Delegation.RequireHumanToken,
 	}
 	if handler.deps.Config.DemoEnabled() {
 		// Demo credentials are intentionally public for the isolated playground.

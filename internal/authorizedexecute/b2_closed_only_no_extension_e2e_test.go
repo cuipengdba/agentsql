@@ -183,13 +183,45 @@ EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')`).
 		APIKey: offAPIKey, DatasourceID: offDatasource.ID, SQL: matviewSQL, MCPTool: "query",
 	})
 	require.NoError(t, err)
-	require.Equal(t, model.DecisionAllow, tableLevel.Decision)
+	// The legacy table-only route may emit a scan-cost warning depending on
+	// PostgreSQL planner estimates. Both outcomes must still execute here.
+	require.Contains(t, []model.Decision{model.DecisionAllow, model.DecisionWarn}, tableLevel.Decision)
 	require.Nil(t, tableLevel.ColumnAuth, "explicit off must restore the table-level path")
 	require.NotNil(t, tableLevel.Result)
 	require.Len(t, tableLevel.Result.Rows, 2)
 	lastValue, called = sequenceState(t, ctx, setup)
 	require.Equal(t, int64(101), lastValue)
 	require.True(t, called, "the explicit-off table-level query must reach PostgreSQL")
+
+	// An operator may intentionally disable B2 while old column policies are
+	// still stored. In v1.0.0 that configuration must close before a SELECT
+	// with a side effect reaches PostgreSQL, and the denial must be audited.
+	_, err = setup.Exec(ctx, `ALTER SEQUENCE closed_e2e.execution_probe RESTART WITH 100`)
+	require.NoError(t, err)
+	protectedDatasource := datasource
+	protectedDatasource.ID = datasourceID + "-off-protected"
+	protectedConfig := loadClosedOnlyConfig(t, true)
+	protectedKey, _ := seedClosedOnlyMetadata(t, ctx, protectedConfig.Store.SQLitePath, secret,
+		protectedDatasource, password, facts, true)
+	protectedRuntime, err := bootstrap.Assemble(ctx, protectedConfig, secret)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, protectedRuntime.Close()) })
+	protected, err := protectedRuntime.Pipeline.Process(ctx, pipeline.Request{
+		APIKey: protectedKey, DatasourceID: protectedDatasource.ID, SQL: matviewSQL, MCPTool: "query",
+	})
+	require.ErrorContains(t, err, string(executor.ReasonColumnAuthUnavailable))
+	require.Equal(t, model.DecisionDeny, protected.Decision)
+	require.Equal(t, string(executor.ReasonColumnAuthUnavailable), protected.ErrorCode)
+	require.Nil(t, protected.Result)
+	lastValue, called = sequenceState(t, ctx, setup)
+	require.Equal(t, int64(100), lastValue)
+	require.False(t, called, "stored column policy with B2 off must not execute SQL")
+	page, err := protectedRuntime.Store.AuditLogs().Page(ctx, 1, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, page.Total)
+	require.Equal(t, "error", page.List[0].Decision)
+	require.Nil(t, page.List[0].ErrorCode, "authorization reasons are not database error codes")
+	require.NotNil(t, page.List[0].ErrorMsg)
 }
 
 func bindClosedFacts(t *testing.T, ctx context.Context, datasource model.Datasource, password, sqlText string) businessdb.SemanticFacts {

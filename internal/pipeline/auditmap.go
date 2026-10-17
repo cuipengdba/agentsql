@@ -76,15 +76,18 @@ func mapAuditLog(
 	if err != nil {
 		return model.AuditLog{}, err
 	}
-	if agent != nil && agent.TaskGrantID != "" {
+	if request.DelegatedUserID != "" || agent != nil && agent.TaskGrantID != "" {
 		var grantDetails auditEventDetails
 		if details != nil {
 			if err := json.Unmarshal([]byte(*details), &grantDetails); err != nil {
 				return model.AuditLog{}, fmt.Errorf("decode audit event details: %w", err)
 			}
 		}
-		grantDetails.TaskGrantID = agent.TaskGrantID
-		grantDetails.TaskGrantIssuerID = response.taskGrantIssuerID
+		grantDetails.DelegatedUserID = request.DelegatedUserID
+		if agent != nil && agent.TaskGrantID != "" {
+			grantDetails.TaskGrantID = agent.TaskGrantID
+			grantDetails.TaskGrantIssuerID = response.taskGrantIssuerID
+		}
 		encoded, err := json.Marshal(grantDetails)
 		if err != nil {
 			return model.AuditLog{}, fmt.Errorf("marshal task grant audit details: %w", err)
@@ -127,6 +130,7 @@ func isStableAuditErrorCode(code string) bool {
 }
 
 type auditEventDetails struct {
+	DelegatedUserID   string                             `json:"delegated_user_id,omitempty"`
 	AuditPhase        string                             `json:"audit_phase,omitempty"`
 	RelatedAuditID    int64                              `json:"related_audit_id,omitempty"`
 	KeyVersion        *int                               `json:"key_version,omitempty"`

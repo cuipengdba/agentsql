@@ -41,17 +41,19 @@ var (
 
 // Request is one protected SQL operation.
 type Request struct {
-	APIKey          string
-	DatasourceID    string
-	SQL             string
-	Reason          string
-	SessionID       string
-	ConversationID  *string
-	MCPTool         string
-	ClientIP        *string
-	ModelName       *string
-	ExplainOnly     bool
-	RequireApproval bool
+	APIKey            string
+	DatasourceID      string
+	SQL               string
+	Reason            string
+	SessionID         string
+	ConversationID    *string
+	MCPTool           string
+	ClientIP          *string
+	ModelName         *string
+	DelegatedUserID   string
+	DelegatedTenantID string
+	ExplainOnly       bool
+	RequireApproval   bool
 }
 
 // Response is the complete guarded SQL outcome.
