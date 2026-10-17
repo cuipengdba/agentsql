@@ -20,6 +20,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/cuipengdba/agentsql/internal/version"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -40,6 +41,18 @@ const (
 )
 
 type requestIdentityContextKey struct{}
+type delegatedHumanContextKey struct{}
+
+type delegatedHuman struct {
+	userID   string
+	tenantID string
+}
+
+// HumanDelegationVerifier validates a live human access token independently
+// of the MCP Agent API key.
+type HumanDelegationVerifier interface {
+	Verify(context.Context, string, string) (rbac.Principal, error)
+}
 
 type requestIdentity struct {
 	agent    model.Agent
@@ -172,6 +185,7 @@ type httpHandlerOptions struct {
 	adminAPI   http.Handler
 	webConsole http.Handler
 	b5         B5Options
+	delegation HumanDelegationVerifier
 }
 
 // HTTPOption extends the T15 mux without changing its default routes.
@@ -204,6 +218,14 @@ func WithB5Sessions(options B5Options) HTTPOption {
 	}
 }
 
+// WithHumanDelegation supplies the live human-session verifier used when
+// mcp.delegation.require_human_token is enabled.
+func WithHumanDelegation(verifier HumanDelegationVerifier) HTTPOption {
+	return func(configuration *httpHandlerOptions) {
+		configuration.delegation = verifier
+	}
+}
+
 func newHTTPHandlerWithRegistry(
 	runtime *bootstrap.Runtime,
 	cfg config.Config,
@@ -233,8 +255,18 @@ func newHTTPHandlerWithRegistry(
 	if err := resolvedOptions.b5.validate(); err != nil {
 		return nil, nil, fmt.Errorf("create MCP HTTP handler: %w", err)
 	}
-	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent, resolvedOptions.b5)
+	if cfg.EffectiveMCP().Delegation.RequireHumanToken && resolvedOptions.delegation == nil {
+		return nil, nil, fmt.Errorf("create MCP HTTP handler: human delegation verifier is required")
+	}
 	mcpConfig := cfg.EffectiveMCP()
+	b5Tools := resolvedOptions.b5
+	if mcpConfig.Delegation.RequireHumanToken {
+		// B5's cross-request principal contract currently binds only the
+		// Agent. Do not expose it under a human-delegated session until its
+		// plan, continuation, and audit also bind the verified human.
+		b5Tools = B5Options{}
+	}
+	registry := newAgentServerRegistry(runtime, logger, cfg.Defaults.QPSPerAgent, b5Tools)
 	getServer := func(request *http.Request) *mcp.Server {
 		identity, ok := identityFromContext(request.Context())
 		if !ok {
@@ -272,7 +304,7 @@ func newHTTPHandlerWithRegistry(
 	authenticator := internalauth.NewAuthenticator(runtime.Store.Agents())
 	mcpHandler := authMiddleware(
 		authenticator,
-		mcpSessionIdentityMiddleware(
+		humanDelegationMiddleware(mcpConfig.Delegation.RequireHumanToken, resolvedOptions.delegation, mcpSessionIdentityMiddleware(
 			rateMiddleware(
 				registry,
 				recoverMiddleware(
@@ -282,7 +314,7 @@ func newHTTPHandlerWithRegistry(
 					)),
 				),
 			),
-		),
+		)),
 	)
 	// The 2026-07-28 protocol is sessionless and cannot share the legacy
 	// transport handler. Both endpoints share the same per-Agent rate limiter.
@@ -311,11 +343,11 @@ func newHTTPHandlerWithRegistry(
 	})
 	modernMCPHandler := http.NewCrossOriginProtection().Handler(
 		authMiddleware(authenticator,
-			rateMiddleware(registry,
+			humanDelegationMiddleware(mcpConfig.Delegation.RequireHumanToken, resolvedOptions.delegation, rateMiddleware(registry,
 				recoverMiddleware(logger,
 					accessLogMiddleware(logger, uniqueModernMetadataMiddleware(modernSDKHandler)),
 				),
-			),
+			)),
 		),
 	)
 	mux := http.NewServeMux()
@@ -441,7 +473,11 @@ func mcpSessionIdentityMiddleware(next http.Handler) http.Handler {
 			if !ok || token != identity.plainKey {
 				return nil, mcpauth.ErrInvalidToken
 			}
-			return &mcpauth.TokenInfo{UserID: agentServerKey(identity.agent)}, nil
+			userID := agentServerKey(identity.agent)
+			if human, present := delegatedHumanFromContext(ctx); present {
+				userID += "|human:" + human.tenantID + ":" + human.userID
+			}
+			return &mcpauth.TokenInfo{UserID: userID}, nil
 		},
 		&mcpauth.RequireBearerTokenOptions{AllowMissingExpiration: true},
 	)(next)
@@ -716,6 +752,51 @@ func authMiddleware(authenticator identityAuthenticator, next http.Handler) http
 		ctx := context.WithValue(tenantContext, requestIdentityContextKey{}, identity)
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
+}
+
+const humanDelegationHeader = "X-AgentSQL-User-Authorization"
+
+func humanDelegationMiddleware(required bool, verifier HumanDelegationVerifier, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		values := request.Header.Values(humanDelegationHeader)
+		if !required {
+			// A caller-supplied identity must not appear to be authenticated when
+			// the deployment has not enabled the second identity gate.
+			if len(values) != 0 {
+				writeHTTPError(writer, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+			next.ServeHTTP(writer, request)
+			return
+		}
+		identity, ok := identityFromContext(request.Context())
+		if !ok || verifier == nil || len(values) != 1 {
+			writeHTTPError(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		token, ok := bearerKey(values[0])
+		if !ok {
+			writeHTTPError(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		principal, err := verifier.Verify(request.Context(), token, identity.agent.ID)
+		if err != nil || principal.UserID == "" || principal.TenantID != identity.agent.TenantID ||
+			identity.agent.TaskGrantID != "" && identity.agent.TaskGrantIssuerUserID != principal.UserID {
+			writeHTTPError(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		human := delegatedHuman{userID: principal.UserID, tenantID: principal.TenantID}
+		ctx := context.WithValue(request.Context(), delegatedHumanContextKey{}, human)
+		next.ServeHTTP(writer, request.WithContext(ctx))
+	})
+}
+
+func delegatedHumanFromContext(ctx context.Context) (delegatedHuman, bool) {
+	if ctx == nil {
+		return delegatedHuman{}, false
+	}
+	human, ok := ctx.Value(delegatedHumanContextKey{}).(delegatedHuman)
+	return human, ok && human.userID != "" && human.tenantID != ""
 }
 
 func rateMiddleware(registry *agentServerRegistry, next http.Handler) http.Handler {

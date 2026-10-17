@@ -155,16 +155,13 @@ func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing
 			Username: agentID, ConnLimit: 5, StmtTimeoutMS: 30_000, RowLimit: 100,
 		}, "database-password-"+datasourceID)
 		require.NoError(t, err)
-		columns := "id"
-		for _, policy := range []model.Policy{
-			{ID: "table-" + agentID, AgentID: agentID, DatasourceID: datasourceID, ObjectType: "table", ObjectName: "public.customers", Action: "allow"},
-			{ID: "column-" + agentID, AgentID: agentID, DatasourceID: datasourceID, ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow"},
-		} {
-			_, err = fixture.runtime.Store.Policies().Create(context.Background(), policy)
-			require.NoError(t, err)
-		}
+		_, err = fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+			ID: "table-" + agentID, AgentID: agentID, DatasourceID: datasourceID,
+			ObjectType: "table", ObjectName: "public.customers", Action: "allow",
+		})
+		require.NoError(t, err)
 		spy := &mcpSpyExecutor{queryResult: model.QueryResult{
-			Columns: []string{"tenant_marker"}, Rows: [][]string{{datasourceID}}, RowCount: 1,
+			Columns: []string{"id"}, Rows: [][]string{{datasourceID}}, RowCount: 1,
 		}}
 		executorsByDatasource[datasourceID] = spy
 		tenants = append(tenants, tenant{

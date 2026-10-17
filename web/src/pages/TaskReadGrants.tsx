@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { listAgents } from "@/api/agents";
-import { me } from "@/api/auth";
+import { authConfig, issueMCPDelegationToken, me } from "@/api/auth";
 import { listDatasources } from "@/api/datasources";
 import {
   approveTaskReadGrantRequest, createTaskReadGrantRequest, getTaskReadGrantRequest, issueTaskReadGrantRequest,
@@ -57,6 +57,11 @@ export function TaskReadGrants() {
   const [reviewing, setReviewing] = useState<TaskReadGrantRequestView | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [oneTimeKey, setOneTimeKey] = useState("");
+  const [delegationEnabled, setDelegationEnabled] = useState(false);
+  const [delegationAgentID, setDelegationAgentID] = useState("");
+  const [delegationToken, setDelegationToken] = useState("");
+  const [delegationExpiry, setDelegationExpiry] = useState("");
+  const [issuingDelegation, setIssuingDelegation] = useState(false);
   const idempotencyKey = useRef("");
   const mounted = useRef(true);
   const canReview = Boolean(principal?.permissions.includes("strategy.manage"));
@@ -91,8 +96,27 @@ export function TaskReadGrants() {
   useEffect(() => {
     mounted.current = true;
     void load();
+    void authConfig().then((config) => {
+      if (mounted.current) setDelegationEnabled(Boolean(config.human_delegation_enabled));
+    }).catch(() => { if (mounted.current) setDelegationEnabled(false); });
     return () => { mounted.current = false; };
   }, [load]);
+
+  const issueDelegation = async () => {
+    const agentID = delegationAgentID.trim();
+    if (!agentID || issuingDelegation) return;
+    setIssuingDelegation(true);
+    try {
+      const issued = await issueMCPDelegationToken(agentID);
+      if (!mounted.current) return;
+      setDelegationToken(issued.token);
+      setDelegationExpiry(issued.expires_at);
+    } catch (error: unknown) {
+      void message.error(apiErrorMessage(error, "签发 MCP 用户委托令牌失败"));
+    } finally {
+      if (mounted.current) setIssuingDelegation(false);
+    }
+  };
 
   const openCreate = () => {
     form.resetFields();
@@ -232,6 +256,14 @@ export function TaskReadGrants() {
     <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新</Button>
     <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建申请</Button>
   </Space>}>
+    {delegationEnabled && <section style={{ marginBottom: 24 }}>
+      <Typography.Title level={4}>MCP 用户身份委托</Typography.Title>
+      <Alert type="info" showIcon message="Agent 密钥与用户令牌同时校验" description="为指定 Agent 签发 30 分钟内有效的用户令牌。它只用于 MCP 请求，不能登录控制台；退出登录、停用账号或撤销查询权限后立即失效。客户端需分别配置 Authorization: Bearer <Agent Key> 与 X-AgentSQL-User-Authorization: Bearer <用户令牌>。" style={{ marginBottom: 12 }} />
+      <Space wrap>
+        <AutoComplete style={{ width: 280 }} value={delegationAgentID} onChange={setDelegationAgentID} placeholder="选择或输入 Agent ID" options={agents.map((agent) => ({ value: agent.id, label: `${agent.name} (${agent.id})` }))} filterOption={(input, option) => String(option?.label || "").toLowerCase().includes(input.toLowerCase())} />
+        <Button onClick={() => void issueDelegation()} loading={issuingDelegation} disabled={!delegationAgentID.trim()}>签发用户令牌</Button>
+      </Space>
+    </section>}
     <Alert type="info" showIcon message="授权范围仍受原策略约束" description={<span>一位申请人、另一位审批人；最长 24 小时，只允许一条精确匹配的简单 SELECT。新申请可设 1–10 次结果预算；预算在返回结果前原子扣减，传输失败不退还。原 Agent 的权限、规则、脱敏和审计继续逐次生效。先在 <Link to="/onboarding">接入向导</Link>检查配置。</span>} style={{ marginBottom: 16 }} />
     {failed && <Alert type="error" showIcon message="授权流程加载失败" description="检查账号的查询执行权限及服务状态。" action={<Button size="small" onClick={() => void load()}>重试</Button>} style={{ marginBottom: 16 }} />}
     <Typography.Title level={4}>授权申请</Typography.Title>
@@ -281,6 +313,11 @@ export function TaskReadGrants() {
       <Alert type="warning" showIcon message="密钥只显示一次" description="关闭后无法再次查看。请放在目标客户端的安全凭据配置中，到期或撤销后立即失效。" />
       <div className="cfg-credential-value" style={{ marginTop: 16 }}><code>{oneTimeKey}</code><Button icon={<CopyOutlined />} onClick={() => void copyText(oneTimeKey).then(() => { void message.success("临时 Key 已复制"); }).catch(() => { void message.error("复制失败，请手动选择密钥"); })}>复制</Button></div>
       <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>该 Key 只能调用 MCP 的 query 工具，领取只展示一次；调用次数遵守申请时的结果预算。使用前请确认原 Agent 对目标对象已有只读权限。</Typography.Paragraph>
+    </Modal>
+    <Modal open={Boolean(delegationToken)} title="保存 MCP 用户令牌" closable={false} maskClosable={false} footer={<Button type="primary" onClick={() => { setDelegationToken(""); setDelegationExpiry(""); }}>我已妥善保存</Button>}>
+      <Alert type="warning" showIcon message="此令牌仅在本窗口展示" description={`有效期至 ${formatDateTime(delegationExpiry)}。请只放入可信 MCP 客户端的安全凭据配置；退出控制台后会失效。`} />
+      <div className="cfg-credential-value" style={{ marginTop: 16 }}><code>{delegationToken}</code><Button icon={<CopyOutlined />} onClick={() => void copyText(delegationToken).then(() => { void message.success("用户令牌已复制"); }).catch(() => { void message.error("复制失败，请手动选择令牌"); })}>复制</Button></div>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>令牌只适用于所选 Agent，不能代替 Agent API Key，且不能访问控制台 API。</Typography.Paragraph>
     </Modal>
   </PageContainer>;
 }

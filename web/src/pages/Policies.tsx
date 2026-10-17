@@ -260,6 +260,9 @@ export function Policies() {
     { title: "操作", key: "action", width: 150, render: (_: unknown, row: PolicyView) => <Space size={4}><Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button><Popconfirm title="加入待删除清单？" onConfirm={() => queueDelete(row)}><Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button></Popconfirm></Space> },
   ];
 
+  const selectedDatasource = datasources.find((source) => source.id === datasourceID);
+  const hasColumnPolicy = list.some((policy) => policy.object_type === "column") || changes.some((change) => change.after?.object_type === "column");
+
   return (
     <PageContainer title="权限" subtitle="配置 Agent 可访问的数据库对象与列级白名单" extra={<Space><Button icon={<SaveOutlined />} disabled={changes.length === 0} onClick={() => setPreviewOpen(true)}>提交变更 ({changes.length})</Button><Button type="primary" icon={<PlusOutlined />} disabled={!agentID || !datasourceID} onClick={openCreate}>新增策略</Button></Space>}>
       <section className="cfg-scope-filter">
@@ -268,6 +271,11 @@ export function Policies() {
       </section>
       {!agentID || !datasourceID ? <div className="cfg-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择 Agent 与数据源" /></div> : <>
         {failed ? <Alert className="cfg-inline-alert" type="error" showIcon message="策略加载失败" action={<Button size="small" onClick={() => void load()}>重试</Button>} /> : null}
+        {hasColumnPolicy && <Alert className="cfg-inline-alert" type={selectedDatasource?.db_type === "postgres" ? "warning" : "error"} showIcon
+          message={selectedDatasource?.db_type === "postgres" ? "列级策略要求 PostgreSQL B2 绑定器可用" : "当前数据源的列级授权尚无可验证路径"}
+          description={selectedDatasource?.db_type === "postgres"
+            ? "B2 不可用时，带列级策略的 SELECT 会在执行前失败关闭；多表 JOIN、自连接、谓词和通配列不会退回表级授权。上线前请在目标数据源验证 B2 健康状态与拒绝审计。"
+            : "保存列级策略后，相关 SELECT 会在执行前被拒绝；请使用表级策略及数据库账号最小权限，不要把离线预检当作执行许可。"} />}
         <div className="cfg-table"><Table<PolicyView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_050 }} /></div>
         <section className="cfg-scope-filter" style={{ display: "block", marginTop: 20 }}>
           <strong>SQL 策略离线预检</strong>

@@ -36,6 +36,7 @@ export interface HumanAuthConfig {
   mfa_enabled: boolean;
   oidc_enabled: boolean;
   ldap_enabled: boolean;
+  human_delegation_enabled?: boolean;
   demo_admin_username?: string;
   demo_admin_password?: string;
 }

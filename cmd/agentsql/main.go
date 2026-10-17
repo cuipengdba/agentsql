@@ -17,6 +17,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mcpserver"
+	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/version"
 	"github.com/cuipengdba/agentsql/internal/webui"
 	"github.com/rs/zerolog"
@@ -187,6 +188,7 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			if err != nil {
 				return errors.Join(err, runtime.Close())
 			}
+			adminDeps.RBAC = rbac.NewService(runtime.Store.RBAC())
 			var httpOptions []mcpserver.HTTPOption
 			if runtime.B5 != nil {
 				b5Admin, b5AdminErr := adminapi.NewStoreB5AdminWithStatus(runtime.Store, func(statusContext context.Context) (adminapi.B5StatusView, error) {
@@ -210,6 +212,15 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 					return errors.Join(webError, runtime.Close())
 				}
 				httpOptions = append(httpOptions, mcpserver.WithWebConsole(webHandler))
+			}
+			if loaded.EffectiveMCP().Delegation.RequireHumanToken {
+				verifier, verifierErr := adminapi.NewHumanDelegationVerifier(
+					adminDeps.TokenKey, runtime.Store.AdminSessions(), adminDeps.RBAC,
+				)
+				if verifierErr != nil {
+					return errors.Join(verifierErr, runtime.Close())
+				}
+				httpOptions = append(httpOptions, mcpserver.WithHumanDelegation(verifier))
 			}
 			handler, err := mcpserver.NewHTTPHandler(runtime, loaded, logger, httpOptions...)
 			if err != nil {

@@ -43,3 +43,13 @@ export function me(): Promise<AdminView> {
 export function logout(): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>({ method: "POST", url: "/auth/logout" });
 }
+
+export interface MCPDelegationTokenView {
+  token: string;
+  expires_at: string;
+  agent_id: string;
+}
+
+export function issueMCPDelegationToken(agentID: string): Promise<MCPDelegationTokenView> {
+  return request<MCPDelegationTokenView>({ method: "POST", url: "/auth/delegation-token", data: { agent_id: agentID } });
+}

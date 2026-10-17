@@ -41,12 +41,6 @@ func TestHTTPAgentTenantScopesExecutionAndAudit(t *testing.T) {
 		ObjectType: "table", ObjectName: "public.customers", Action: "allow",
 	})
 	require.NoError(t, err)
-	columns := "id,phone"
-	_, err = fixture.runtime.Store.Policies().Create(tenantB, model.Policy{
-		ID: "tenant-b-columns", AgentID: agentB.ID, DatasourceID: "ds-b",
-		ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow",
-	})
-	require.NoError(t, err)
 	_, err = fixture.runtime.Store.Approvals().Create(tenantB, model.Approval{
 		ID: "tenant-b-approval", AgentID: &agentB.ID, Status: "pending",
 	})

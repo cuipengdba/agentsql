@@ -56,6 +56,7 @@ type Config struct {
 // explicit logical sessions, and planned multi-request transactions.
 type MCPConfig struct {
 	HTTP         MCPHTTPConfig         `yaml:"http"`
+	Delegation   MCPDelegationConfig   `yaml:"delegation"`
 	Sessions     MCPSessionsConfig     `yaml:"sessions"`
 	Transactions MCPTransactionsConfig `yaml:"transactions"`
 
@@ -64,6 +65,13 @@ type MCPConfig struct {
 	sessionsEnabledSet   bool
 	transactionsPGSet    bool
 	transactionsMySQLSet bool
+}
+
+// MCPDelegationConfig requires a second, scoped human delegation token on
+// each HTTP MCP request. AgentSQL issues it from a live local, LDAP, or OIDC
+// login and validates it independently of the Agent API key.
+type MCPDelegationConfig struct {
+	RequireHumanToken bool `yaml:"require_human_token"`
 }
 
 // MCPHTTPConfig controls protocol-level Streamable HTTP sessions. These
@@ -436,6 +444,9 @@ func (config Config) validateNonStore() error {
 		return fmt.Errorf("validate column_authorization: heartbeat interval must be less than lease")
 	}
 	mcp := config.EffectiveMCP()
+	if mcp.Delegation.RequireHumanToken && !config.Server.ConsoleEnabled {
+		return fmt.Errorf("validate mcp.delegation: require_human_token requires server.console_enabled")
+	}
 	if mcp.HTTP.SessionTimeoutMS <= 0 || mcp.HTTP.SessionTimeoutMS > 30*60*1000 {
 		return fmt.Errorf("validate mcp.http: session_timeout_ms must be positive and <= 30m")
 	}

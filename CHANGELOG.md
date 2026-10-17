@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.0]
+
+- Fail closed for SELECTs with column policies unless PostgreSQL B2 can provide a verified binder path; do not fall back to table-only authorization for JOINs, self-joins, predicates, or wildcard projections.
+- Add optional Agent-bound, short-lived human delegation tokens for both HTTP MCP endpoints, with live session/RBAC checks, stateful session identity binding, and audit attribution. Console access tokens cannot substitute for these tokens.
+- Expose delegation issuance in the console, clarify column-policy limits, and record a repeatable design-to-Demo release routine. Keep database support claims within existing verified scopes.
+
+See the [v1.0.0 release notes](docs/release-notes-v1.0.0.md) and [acceptance record](docs/v1.0-acceptance.md) for compatibility, evidence, and remaining limits.
+
 ## [v0.9.0]
 
 - Bound newly requested task read keys to one returned result by default, with a configurable 1–10 result budget and atomic cross-instance consumption before delivery; preserve legacy unbounded grants.

@@ -42,6 +42,12 @@ func TestHandlersListAuthorizedDatasourcesWithoutCredentials(t *testing.T) {
 
 func TestHandlersListSchemaFiltersColumnsAndRejectsIdentifiers(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
+	columnsAllowed := "id,phone"
+	_, err := fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+		ID: "schema-columns", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "column", ObjectName: "public.customers", Columns: &columnsAllowed, Action: "allow",
+	})
+	require.NoError(t, err)
 	response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "public.customers")
 	require.Equal(t, "allow", response.Decision)
 	columns := response.Data.([]publicSchemaColumn)
@@ -440,14 +446,11 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 		_, err = metadataStore.Datasources().Create(context.Background(), datasource, "database-password")
 		require.NoError(t, err)
 	}
-	columns := "id,phone,name,id_card,legacy_id_card,pan_plain,pan_formatted,client_ip,ip_network,birth_date"
-	for _, stored := range []model.Policy{
-		{ID: "table", AgentID: agent.ID, DatasourceID: "ds-allowed", ObjectType: "table", ObjectName: "public.customers", Action: "allow"},
-		{ID: "columns", AgentID: agent.ID, DatasourceID: "ds-allowed", ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow"},
-	} {
-		_, err = metadataStore.Policies().Create(context.Background(), stored)
-		require.NoError(t, err)
-	}
+	_, err = metadataStore.Policies().Create(context.Background(), model.Policy{
+		ID: "table", AgentID: agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "table", ObjectName: "public.customers", Action: "allow",
+	})
+	require.NoError(t, err)
 	redactor, err := mask.NewRedactor([]mask.Rule{
 		{Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask},
 		{Column: "id_card", SensitiveType: mask.TypeIDCard, Algorithm: mask.AlgoMask},
