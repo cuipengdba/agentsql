@@ -29,6 +29,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.7.0)） | 金仓 V9R1C10 PG 模式指定实例的证书校验、证书及凭据轮换；瀚高 HighGo 9.0.10 PG 模式有界只读路径。达梦可验证 TLS 与正式主备切换仍未验证；见[正式发布验收](docs/v1.7.0-release-evidence.md)、[达梦与金仓验收](docs/v1.7.0-dm-kingbase-depth-acceptance.md)及[瀚高验收](docs/v1.7.0-acceptance.md)。 |
 | v1.8.0 | 已发布 | Vastbase G100 V3.0 Build 9 PG 模式指定实例的 `verify-full`、证书及凭据轮换与 MCP Inspector / Dify 真调用复验；正式双架构资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v1.8.0-release-evidence.md)。临时许可不代表正式许可和主备切换验收。 |
 | v1.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.9.0)） | Dify / MCP Inspector 接入说明、目标 SQL 离线解释、真实调用审计定位；正式资产、升级、GHCR、官网与 Demo 见[发布证据](docs/v1.9.0-release-evidence.md)。未取得真实客户首次接入任务完成率。 |
+| v2.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.0.0)） | 固定双网关 Kubernetes 部署及 PostgreSQL 单表列策略管理端登记；正式资产、双节点、升级恢复、GHCR、官网与 Demo 见[发布证据](docs/v2.0.0-release-evidence.md)。不承诺无停机滚动升级或任意水平扩容。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
