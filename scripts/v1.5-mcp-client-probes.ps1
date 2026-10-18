@@ -54,18 +54,28 @@ function Invoke-Inspector([string]$sql, [string]$decision) {
 Invoke-Inspector $AllowSQL 'allow'
 Invoke-Inspector $DenySQL 'deny'
 
-$difyOutput = @(& $dockerExe run --rm --network $Network `
-    --mount "type=bind,source=$probeScript,target=/probe.py,readonly" `
-    --workdir /app/api --entrypoint python `
-    --env PYTHONPATH=/app/api `
-    --env "AGENTSQL_TEST_MCP_URL=$MCPURL" `
-    --env "AGENTSQL_TEST_MCP_KEY=$ApiKey" `
-    --env "AGENTSQL_TEST_DATASOURCE_ID=$DatasourceID" `
-    --env "AGENTSQL_TEST_ALLOW_SQL=$AllowSQL" `
-    --env "AGENTSQL_TEST_DENY_SQL=$DenySQL" `
-    --env "AGENTSQL_TEST_DENY_RULE=$DenyRule" `
-    langgenius/dify-api:1.17.1 /probe.py 2>&1)
-if ($LASTEXITCODE -ne 0 -or ($difyOutput -join "`n") -notmatch 'V150_DIFY_MCP_CLIENT=PASS') {
+$previousErrorPreference = $ErrorActionPreference
+try {
+    # Dify 1.17.1 can emit its HTTP 204 cleanup warning on stderr even when
+    # both calls passed. Capture the process result before deciding success.
+    $ErrorActionPreference = 'Continue'
+    $difyOutput = @(& $dockerExe run --rm --network $Network `
+        --mount "type=bind,source=$probeScript,target=/probe.py,readonly" `
+        --workdir /app/api --entrypoint python `
+        --env PYTHONPATH=/app/api `
+        --env "AGENTSQL_TEST_MCP_URL=$MCPURL" `
+        --env "AGENTSQL_TEST_MCP_KEY=$ApiKey" `
+        --env "AGENTSQL_TEST_DATASOURCE_ID=$DatasourceID" `
+        --env "AGENTSQL_TEST_ALLOW_SQL=$AllowSQL" `
+        --env "AGENTSQL_TEST_DENY_SQL=$DenySQL" `
+        --env "AGENTSQL_TEST_DENY_RULE=$DenyRule" `
+        langgenius/dify-api:1.17.1 /probe.py 2>&1)
+    $difyExitCode = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $previousErrorPreference
+}
+if ($difyExitCode -ne 0 -or ($difyOutput -join "`n") -notmatch 'V150_DIFY_MCP_CLIENT=PASS') {
     throw "Dify MCPClient calls failed: $($difyOutput -join ' ')"
 }
 $safeDify = @($difyOutput | Where-Object { $_ -match '^\{|^V150_|^DIFY_SESSION_' })

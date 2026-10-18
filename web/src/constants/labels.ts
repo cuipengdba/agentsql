@@ -76,6 +76,7 @@ export const agentStatusMeta = {
 export const dbTypeMeta = {
   postgres: { label: "PostgreSQL", color: "blue" },
   vastbase: { label: "Vastbase G100 Build 9 PG · 受限只读", color: "cyan" },
+  highgo: { label: "瀚高 V9.0.10 企业版 PG · 受限只读", color: "geekblue" },
   mysql: { label: "MySQL", color: "gold" },
   sqlserver: { label: "SQL Server 2025", color: "purple" },
   all: { label: "通用", color: "default" },

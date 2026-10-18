@@ -200,6 +200,8 @@ func openExecutor(
 		return NewPostgresExecutor(context.Background(), datasource, password, readOnly)
 	case "vastbase":
 		return NewVastbaseExecutor(context.Background(), datasource, password)
+	case "highgo":
+		return NewHighGoExecutor(context.Background(), datasource, password)
 	case "mysql":
 		return NewMySQLExecutor(context.Background(), datasource, password, readOnly)
 	case "dm":

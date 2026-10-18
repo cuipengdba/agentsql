@@ -25,6 +25,8 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.3.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.3.0)） | MySQL 8.0/8.4 可证明的单表 InnoDB SELECT 列策略子集及故障关闭；见[验收记录](docs/v1.3.0-acceptance.md)。 |
 | v1.4.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.4.0)） | PostgreSQL 多网关共享登录尝试预算、双节点审计故障与恢复；见[验收记录](docs/v1.4.0-acceptance.md)。 |
 | v1.5.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.5.0)） | 达梦 DM8 Pack3、金仓 V9R1C10 PG 模式和 Vastbase G100 Build 9 PG 模式的指定实例深度验收；官网与公网 Demo 从 v1.0.0 直接更新至 v1.5.0。范围和未验证项见[验收记录](docs/v1.5.0-acceptance.md)。 |
+| v1.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.6.0)） | 对达梦、金仓与 Vastbase 指定实例补齐独立审计库故障、锁等待超时、客户端取消和恢复后的脱敏复验；见[验收记录](docs/v1.6.0-acceptance.md)。 |
+| v1.7.0 | 开发与发行验收中 | 瀚高 HighGo 9.0.10 企业版 PG 模式的独立 `highgo` 类型、有界只读 SELECT、真库客户端和故障链路；最终支持范围以[设计](docs/v1.7.0-design.md)与[验收记录](docs/v1.7.0-acceptance.md)为准。 |
 
 ## v0.7.0 验收与发布门槛
 

@@ -10,7 +10,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')]
-    [string]$Version = 'v1.2.0',
+    [string]$Version = 'v1.7.0',
 
     [string]$Builder = 'agentsql-multiarch',
 

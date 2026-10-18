@@ -103,6 +103,9 @@ func assembleRules(
 	case model.DialectVastbase:
 		// Vastbase PG mode uses only dialect-neutral rules plus its narrow parser
 		// and a permanently read-only executor. PostgreSQL B2/B5 are not inherited.
+	case model.DialectHighGo:
+		// HighGo PG mode has an independent narrow parser and read-only executor.
+		// PostgreSQL B2/B5 and dialect-specific rules are not inherited.
 	default:
 		return nil, fmt.Errorf("unsupported rule dialect %q", dialect)
 	}

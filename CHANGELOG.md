@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.7.0]
+
+- Add an independent, read-only `highgo` datasource for the verified HighGo 9.0.10 Enterprise PG-mode instance. Check vendor identity, mode and read-only state on every new pool connection; deny PostgreSQL-only B2/B5 capabilities and SQL outside the bounded single-table SELECT subset.
+- Verify live schema/query/EXPLAIN, minimum database privilege, masked MCP allow and policy deny, durable audit, and Inspector/Dify client interoperability. Exercise database grant revocation, outage/recovery, independent audit-store outage, lock timeout and client cancellation on the isolated instance.
+- Keep other HighGo versions, modes, TLS, HA, extended types and production load unverified; see the [design](docs/v1.7.0-design.md), [release notes](docs/release-notes-v1.7.0.md) and [acceptance record](docs/v1.7.0-acceptance.md).
+
 ## [v1.6.0]
 
 - Close audit-store outage, database lock timeout, client cancellation, fail-closed result delivery and masked recovery paths on bounded DM8 Pack3, KingbaseES V9R1C10 PG mode and Vastbase G100 Build 9 PG mode instances.

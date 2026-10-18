@@ -1,0 +1,58 @@
+package businessdb
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/cuipengdba/agentsql/internal/model"
+)
+
+func TestHighGoExecutorRejectsWriteAndUnsafeReadWithoutPool(t *testing.T) {
+	executor := &HighGoExecutor{}
+	if executor.Dialect() != "highgo" {
+		t.Fatal("incorrect dialect")
+	}
+	if _, err := executor.Execute(context.Background(), `DELETE FROM public.accounts`); !errors.Is(err, ErrReadOnlyViolated) {
+		t.Fatalf("write was not rejected: %v", err)
+	}
+	if _, err := executor.BeginWriteTx(context.Background()); !errors.Is(err, ErrReadOnlyViolated) {
+		t.Fatalf("transaction was not rejected: %v", err)
+	}
+	if _, err := executor.OpenSession(context.Background(), "s"); !errors.Is(err, ErrReadOnlyViolated) {
+		t.Fatalf("session bypass was not rejected: %v", err)
+	}
+	if _, err := executor.Query(context.Background(), `SELECT * FROM public.accounts`, 10); err == nil {
+		t.Fatal("unsafe query was not rejected")
+	}
+	if _, err := executor.Explain(context.Background(), `EXPLAIN ANALYZE DELETE FROM public.accounts`); err == nil {
+		t.Fatal("unsafe explain was not rejected")
+	}
+	if _, err := executor.Query(context.Background(), `SELECT id FROM public.accounts WHERE id=1 LIMIT 10`, 10); err == nil {
+		t.Fatal("missing pool was not rejected")
+	}
+}
+
+func TestHighGoConstructorRejectsWrongType(t *testing.T) {
+	if _, err := NewHighGoExecutor(context.Background(), model.Datasource{DBType: "postgres"}, ""); err == nil {
+		t.Fatal("wrong datasource type was accepted")
+	}
+}
+
+func TestHighGoIdentityIsExactVersionAndPGMode(t *testing.T) {
+	for _, item := range []struct {
+		version, mode string
+		allowed       bool
+	}{
+		{verifiedHighGoVersion, "pg", true},
+		{verifiedHighGoVersion, "PG", true},
+		{verifiedHighGoVersion, "oracle", false},
+		{"瀚高数据库管理系统V9.0-企业版-9.0.11", "pg", false},
+		{"PostgreSQL 14.23", "pg", false},
+		{"HighGo Database Management System 4.5", "pg", false},
+	} {
+		if actual := highGoIdentityAllowed(item.version, item.mode); actual != item.allowed {
+			t.Fatalf("unexpected HighGo identity result for version=%q mode=%q", item.version, item.mode)
+		}
+	}
+}

@@ -70,7 +70,7 @@ func TestVendorIndependentAuditFaultE2E(t *testing.T) {
 			t.Fatal("vendor lock target is missing administrator credentials")
 		}
 		switch target.DBType {
-		case "dm", "postgres", "vastbase":
+		case "dm", "postgres", "vastbase", "highgo":
 		default:
 			t.Fatal("unsupported vendor audit target database type")
 		}

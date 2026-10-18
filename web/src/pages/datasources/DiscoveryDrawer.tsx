@@ -126,10 +126,10 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
     nextKeyRef.current = 2;
     setTables([{
       key: 1,
-      schema: datasource.db_type === "postgres" || datasource.db_type === "vastbase" ? "public" : datasource.db_type === "sqlserver" ? "dbo" : datasource.database,
+      schema: datasource.db_type === "postgres" || datasource.db_type === "vastbase" || datasource.db_type === "highgo" ? "public" : datasource.db_type === "sqlserver" ? "dbo" : datasource.database,
       table: "",
     }]);
-    setSampling(datasource.db_type !== "vastbase");
+    setSampling(datasource.db_type !== "vastbase" && datasource.db_type !== "highgo");
     setSampleRows(10);
     setResult(null);
     setSelectedKeys([]);
@@ -157,7 +157,7 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
     const key = nextKeyRef.current++;
     setTables((current) => [...current, {
       key,
-      schema: datasource?.db_type === "postgres" || datasource?.db_type === "vastbase" ? "public" : datasource?.db_type === "sqlserver" ? "dbo" : (datasource?.database || ""),
+      schema: datasource?.db_type === "postgres" || datasource?.db_type === "vastbase" || datasource?.db_type === "highgo" ? "public" : datasource?.db_type === "sqlserver" ? "dbo" : (datasource?.database || ""),
       table: "",
     }]);
   };
@@ -299,11 +299,11 @@ export function DiscoveryDrawer({ open, datasource, onClose }: DiscoveryDrawerPr
         <div className="dsc-sampling">
           <div>
             <Typography.Text strong>样本校验</Typography.Text>
-            <Typography.Text type="secondary">{datasource?.db_type === "vastbase" ? "G100 当前只支持元数据发现；样本校验等待真库验收。" : "开启后提升识别置信度；关闭采样时最高为中置信度。"}</Typography.Text>
+            <Typography.Text type="secondary">{datasource?.db_type === "vastbase" || datasource?.db_type === "highgo" ? "该类型当前只支持元数据发现；样本校验尚未验收。" : "开启后提升识别置信度；关闭采样时最高为中置信度。"}</Typography.Text>
           </div>
           <Space>
-            <Switch checked={sampling} disabled={datasource?.db_type === "vastbase"} checkedChildren="开启" unCheckedChildren="关闭" onChange={setSampling} />
-            <InputNumber value={sampleRows} min={1} max={20} disabled={!sampling || datasource?.db_type === "vastbase"} addonAfter="行" onChange={(value) => setSampleRows(typeof value === "number" ? value : 10)} />
+            <Switch checked={sampling} disabled={datasource?.db_type === "vastbase" || datasource?.db_type === "highgo"} checkedChildren="开启" unCheckedChildren="关闭" onChange={setSampling} />
+            <InputNumber value={sampleRows} min={1} max={20} disabled={!sampling || datasource?.db_type === "vastbase" || datasource?.db_type === "highgo"} addonAfter="行" onChange={(value) => setSampleRows(typeof value === "number" ? value : 10)} />
           </Space>
         </div>
       </section>

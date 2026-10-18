@@ -74,6 +74,16 @@ func NewPostgresExecutor(
 	password string,
 	readOnly bool,
 ) (*PostgresExecutor, error) {
+	return newPostgresExecutor(ctx, datasource, password, readOnly, nil)
+}
+
+func newPostgresExecutor(
+	ctx context.Context,
+	datasource model.Datasource,
+	password string,
+	readOnly bool,
+	verifyConnection func(context.Context, *pgx.Conn) error,
+) (*PostgresExecutor, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("open PostgreSQL datasource: context is nil")
 	}
@@ -112,6 +122,7 @@ func NewPostgresExecutor(
 	// NOTICE/WARNING payloads are database-controlled diagnostics and must not
 	// cross the capability boundary or enter ordinary logs.
 	config.ConnConfig.OnNotice = func(*pgconn.PgConn, *pgconn.Notice) {}
+	config.AfterConnect = verifyConnection
 	if readOnly {
 		config.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	}
