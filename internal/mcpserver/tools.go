@@ -112,7 +112,7 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 	})
 	addAgentTool(server, &mcp.Tool{
 		Name:        "explain_query",
-		Description: "只评估和 EXPLAIN 一条 SQL，不执行；可能返回拒绝、告警或需审批结论。",
+		Description: "只评估一条 SQL，不执行查询；已验证计划能力的方言会附带执行计划，可能返回拒绝、告警或需审批结论。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input sqlInput) (*mcp.CallToolResult, ToolResponse, error) {
 		response := handlers.explainQuery(ctx, input.DatasourceID, input.SQL)
 		return protocolResult(response), response, nil

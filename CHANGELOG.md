@@ -1,6 +1,11 @@
 # Changelog
 
-## [v2.1.0] (unreleased)
+## [v2.2.0]
+
+- Connect the existing Oracle Free native driver and narrow SELECT parser to the HTTP MCP authorization, masking, and durable audit path on one named `FREEPDB1` instance. Verify a least-privilege account, Inspector/Dify calls, policy and database privilege revocation, plus business and independent audit database outages.
+- Keep Oracle pre-execution `EXPLAIN PLAN` disabled for the least-privilege account until its plan-object permissions are proven. Do not extend B2/B5, write operations, commercial-edition support, TCPS, HA, or full production support from this synthetic case. See the [candidate acceptance record](docs/v2.2.0-acceptance.md).
+
+## [v2.1.0]
 
 - Join the bounded YashanDB 23.4.1.109 read-only path with a real least-privilege database account, HTTP MCP, masking, policy denial and durable audit in one live regression.
 - Verify MCP Inspector 0.16.8 and Dify MCPClient 1.17.1 against the isolated instance. Rehearse database SELECT revocation, business database outage and independent PostgreSQL audit-store outage without delivering unmasked results.

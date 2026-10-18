@@ -31,6 +31,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.9.0)） | Dify / MCP Inspector 接入说明、目标 SQL 离线解释、真实调用审计定位；正式资产、升级、GHCR、官网与 Demo 见[发布证据](docs/v1.9.0-release-evidence.md)。未取得真实客户首次接入任务完成率。 |
 | v2.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.0.0)） | 固定双网关 Kubernetes 部署及 PostgreSQL 单表列策略管理端登记；正式资产、双节点、升级恢复、GHCR、官网与 Demo 见[发布证据](docs/v2.0.0-release-evidence.md)。不承诺无停机滚动升级或任意水平扩容。 |
 | v2.1.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.1.0)） | 崖山 23.4.1.109 指定实例的最小权限账号、真实 HTTP MCP、脱敏、R010、独立持久审计与故障关闭；范围和未验证项见[验收记录](docs/v2.1.0-acceptance.md)，正式交付见[发布证据](docs/v2.1.0-release-evidence.md)。 |
+| v2.2.0 | 开发中 | Oracle AI Database 26ai Free、`FREEPDB1`、服务端 `23.26.3.0.0` 指定实例的受控只读 MCP、最小权限、脱敏、R010、持久审计和故障关闭；当前真库候选见[验收记录](docs/v2.2.0-acceptance.md)。商业版、预执行计划和完整生产支持未验证。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
@@ -41,7 +42,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.9.0 | Dify 与 MCP Inspector 的接入体验、策略解释和向导 | 两客户端真实允许/拒绝调用、首次接入与排障任务完成率 |
 | v2.0.0 | 多网关、Kubernetes、管理 API 与运维 | 双节点共享状态、故障转移、升级回滚、容量与审计一致性 |
 | v2.1.0 | 崖山 YashanDB 指定版本深化 | 原生驱动、许可、权限/执行/脱敏/审计与故障关闭的真库证据 |
-| v2.2.0 | Oracle 指定版本深化 | 原生方言、最小权限、计划、授权与审计；按许可和实例范围声明 |
+| v2.2.0 | Oracle 指定版本深化 | 原生窄方言、最小权限、授权、脱敏与审计；明确记录最小权限账号的预执行计划限制，按许可和实例范围声明 |
 | v2.3.0 | SQL Server 指定版本深化 | 证书、TDS 权限、查询和故障恢复矩阵 |
 | v2.4.0 | openGauss 指定版本适配 | PG 兼容差异、类型/计划、TLS、权限和执行边界 |
 | v2.5.0 | MongoDB 受控只读能力 | 命令白名单、集合授权、字段脱敏与持久审计 |

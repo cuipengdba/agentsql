@@ -142,7 +142,7 @@ func (pipeline *Pipeline) process(
 		if datasource.ID != request.DatasourceID {
 			return fmt.Errorf("datasource reader returned ID %q for %q", datasource.ID, request.DatasourceID)
 		}
-		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "highgo" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "yashan" {
+		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "highgo" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "oracle" && datasource.DBType != "yashan" {
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
@@ -1334,9 +1334,10 @@ func hasB2ColumnPolicy(policies []model.Policy) bool {
 }
 
 func shouldExplain(ast *model.AST) bool {
-	// Yashan has no verified plan decoder. Its row limit still applies at
-	// execution, but plan-based R004/R005 estimates are unavailable.
-	if ast == nil || ast.Dialect == model.DialectYashan {
+	// Yashan has no verified plan decoder; Oracle's least-privilege account
+	// has no proven PLAN_TABLE write privilege. Row limits still apply, but
+	// plan-based R004/R005 estimates are unavailable on these paths.
+	if ast == nil || ast.Dialect == model.DialectYashan || ast.Dialect == model.DialectOracle {
 		return false
 	}
 	switch ast.StmtType {
@@ -1348,8 +1349,9 @@ func shouldExplain(ast *model.AST) bool {
 }
 
 func shouldBindDeniedSelect(ast *model.AST, assessment model.Assessment) bool {
-	// Without a verified Yashan EXPLAIN binder, a static R010 deny is final.
-	if ast == nil || ast.Dialect == model.DialectYashan || ast.StmtType != model.StmtType("SELECT") || assessment.Decision != model.DecisionDeny {
+	// Without a verified Yashan or least-privilege Oracle plan binder, a
+	// static R010 deny is final and must not touch the database for a plan.
+	if ast == nil || ast.Dialect == model.DialectYashan || ast.Dialect == model.DialectOracle || ast.StmtType != model.StmtType("SELECT") || assessment.Decision != model.DecisionDeny {
 		return false
 	}
 	foundObjectDeny := false
