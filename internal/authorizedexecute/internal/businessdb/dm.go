@@ -358,6 +358,11 @@ func buildDMDSN(datasource model.Datasource, password string) (string, error) {
 	if datasource.StmtTimeoutMS > 0 {
 		query += "&connectTimeout=" + strconv.Itoa(datasource.StmtTimeoutMS)
 	}
+	timeoutMS, err := normalizedStatementTimeout(datasource.StmtTimeoutMS)
+	if err != nil {
+		return "", err
+	}
+	query += "&dialName=" + registerDMBoundedDial(timeoutMS)
 	return "dm://" + datasource.Username + ":" + password + "@" +
 		net.JoinHostPort(datasource.Host, strconv.Itoa(datasource.Port)) + "?" + query, nil
 }

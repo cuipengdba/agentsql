@@ -3,6 +3,19 @@ export interface DemoProjection {
   banner: string;
 }
 
+export type GatewayReadiness = "ready" | "not_ready" | "unreachable";
+
+export async function fetchGatewayReadiness(): Promise<GatewayReadiness> {
+  try {
+    const response = await fetch("/readyz", { cache: "no-store" });
+    if (response.ok) return "ready";
+    if (response.status === 503) return "not_ready";
+    return "unreachable";
+  } catch {
+    return "unreachable";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

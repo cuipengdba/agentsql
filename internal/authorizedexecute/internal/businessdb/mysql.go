@@ -240,6 +240,9 @@ func (executor *MySQLExecutor) queryWithRunner(
 	if err != nil {
 		return model.QueryResult{}, mysqlDatabaseError(timedContext, DBStageReadRows, "read MySQL query result", err)
 	}
+	if err := timedContext.Err(); err != nil {
+		return model.QueryResult{}, mysqlDatabaseError(timedContext, DBStageReadRows, "read MySQL query result", err)
+	}
 	result.LatencyMS = time.Since(started).Milliseconds()
 	return result, nil
 }

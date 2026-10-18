@@ -24,7 +24,7 @@ func TestBuildDMDSNHandlesDriverCredentialRules(t *testing.T) {
 	}
 	dsn, err := buildDMDSN(datasource, "p@ss:/word")
 	require.NoError(t, err)
-	require.Equal(t, "dm://user@tenant:p@ss:/word@127.0.0.1:5236?schema=APP&connectTimeout=5000", dsn)
+	require.Equal(t, "dm://user@tenant:p@ss:/word@127.0.0.1:5236?schema=APP&connectTimeout=5000&dialName=agentsql-dm-5000", dsn)
 
 	datasource.Username = "user:name"
 	_, err = buildDMDSN(datasource, "password")

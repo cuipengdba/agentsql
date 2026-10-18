@@ -353,7 +353,10 @@ func newHTTPHandlerWithRegistry(
 		Stateless:           true,
 		JSONResponse:        true,
 		MaxRequestBodyBytes: maxMCPRequestBodyBytes,
-		Logger:              sdkLogger,
+		// This endpoint has no persistent B5 transaction session. Disconnects
+		// may cancel in-flight reads and release their database resources.
+		PropagateRequestCancellation: true,
+		Logger:                       sdkLogger,
 	})
 	modernMCPHandler := http.NewCrossOriginProtection().Handler(
 		authMiddleware(authenticator,
