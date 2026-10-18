@@ -3,7 +3,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: agentsql-schema-check-v2-0-0
+  name: agentsql-schema-check-v2-1-0
   labels:
     app.kubernetes.io/name: agentsql
 spec:
@@ -20,7 +20,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: schema-check
-          image: ghcr.io/cuipengdba/agentsql:v2.0.0
+          image: ghcr.io/cuipengdba/agentsql:v2.1.0
           command:
             - /usr/local/bin/agentsqlctl
             - migrate

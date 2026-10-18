@@ -1,8 +1,8 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v2.0.0 的功能与操作。安装或拉取 v2.0.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.1.0 的功能与操作。安装或拉取 v2.1.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v2.0.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.0.0 发布说明](release-notes-v2.0.0.md)和[验收记录](v2.0.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v2.1.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.1.0 发布说明](release-notes-v2.1.0.md)和[验收记录](v2.1.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 ## 1. 总览 `/`
 
@@ -34,6 +34,12 @@
 v1.9.0 在同一页面增加 Dify 1.17.1 / MCP Inspector 0.16.8 的接入说明、目标 SQL 离线解释和审计 ID 定位。先填写客户端可达的 AgentSQL 根地址，复制包含 `<Agent API Key>` 占位符的配置说明，再到客户端安全填写真实 Key；控制台不接收 Key。远端明文 HTTP 会传输 Key，应使用 HTTPS 或限定在隔离内网。Dify 需要显式 `MCP-Protocol-Version: 2025-06-18`，Inspector 0.16.8 初始化后自动添加，不能重复手工设置。Dify 容器里的 `127.0.0.1` 指向 Dify 自己，需使用容器可达地址。
 
 离线解释只返回“明确拒绝”或“尚不能确认允许”，并可列出对象、匹配策略 ID 与静态规则；它不连接业务库，也不执行 SQL。最后在真实客户端分别发起允许与拒绝请求，将响应的正整数审计 ID 填入向导直达审计详情，核对 Agent、数据源、决策、规则及脱敏。没有审计 ID 时按错误码先查认证、协议或依赖故障。向导不能替代逐对象授权、执行链路或生产支持验收。
+
+## v2.1.0：崖山指定实例受控只读验证
+
+本版在 YashanDB Enterprise Edition 23.4.1.109、`COMPAT_VECTOR=yashan` 的隔离实例中，使用临时最小权限账号验证真实 HTTP MCP、表策略 R010 拒绝、手机号脱敏和持久审计。MCP Inspector 与 Dify 的允许/拒绝调用、数据库 SELECT 撤权、业务库及独立审计库停机也经过合成数据测试。该结论限指定版本、模式和窄 SELECT 子集；写入、事务、EXPLAIN、服务端 TLS、主备、客户端取消/超时仍未验证或保持关闭。详见 [候选验收](v2.1.0-acceptance.md) 与 [YashanDB 方言边界](yashan-dialect.md)。
+
+已认证 Agent 对不可见数据源调用 `query` 或 `execute_write` 时，网关先写入无原始 SQL 的预检拒绝审计，再返回审计 ID；审计库故障时返回错误且不交付数据。`list_schema` 等非 SQL 工具与身份认证失败不属于该交通审计路径。
 
 ## v2.0.0：固定双网关与 PostgreSQL 列策略登记
 
@@ -769,7 +775,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
 - 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；达梦 DM8 Pack3、金仓 V9R1C10 PG 模式、Vastbase G100 Build 9 PG 模式在 v1.5.0 完成指定实例的真实客户端、权限撤销和断库恢复复验，v1.6.0 在相同范围内通过独立审计库故障、真实锁等待超时、客户端取消、数据库端终止和恢复后脱敏复验。v1.7.0 的独立 HighGo 类型仅限 9.0.10 企业版 PG 模式有界 SELECT；金仓 TLS 仅限 V9R1C10 PG 模式指定实例。范围见[瀚高验收](v1.7.0-acceptance.md)与[金仓 TLS 验收](v1.7.0-dm-kingbase-depth-acceptance.md)，不得视为完整方言支持或厂商认证。
 - v1.0.0 的 `/mcp/2026-07-28` 是独立无状态 HTTP 入口：每次 POST 都重新验证 Agent Key、由 Key 确定租户并与旧入口共用 Agent QPS；版本 Header、`Mcp-Method`、适用时的 `Mcp-Name` 必须与请求体匹配。旧 `/mcp` 与 stdio 继续服务旧协议；新入口没有 B5 跨请求逻辑会话或计划事务工具。客户端配置和请求示例见 [MCP 接入指南](INTEGRATIONS.md)。
-- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；v2.0.0 GHCR tag 须在公开发布并通过双架构 manifest 与匿名拉取验收后使用。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。v2.0.0 的 Kubernetes 清单限固定双网关与指定无状态只读路径；PostgreSQL 自身 HA、法规级 WORM、SIEM、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。
+- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；v2.1.0 GHCR tag 须在公开发布并通过双架构 manifest 与匿名拉取验收后使用。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。v2.1.0 的 Kubernetes 清单限固定双网关与指定无状态只读路径；PostgreSQL 自身 HA、法规级 WORM、SIEM、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。
 ## 在线安装包升级预演（与 schema 检查不同）
 
 准备可信渠道提供的 HTTPS 清单，JSON 字段为 `version`、同源 HTTPS `url` 和下载内容的 `sha256`。当前仅支持版本检查和只读预演：
