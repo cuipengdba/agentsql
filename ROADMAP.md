@@ -28,7 +28,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.6.0)） | 对达梦、金仓与 Vastbase 指定实例补齐独立审计库故障、锁等待超时、客户端取消和恢复后的脱敏复验；见[验收记录](docs/v1.6.0-acceptance.md)。 |
 | v1.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.7.0)） | 金仓 V9R1C10 PG 模式指定实例的证书校验、证书及凭据轮换；瀚高 HighGo 9.0.10 PG 模式有界只读路径。达梦可验证 TLS 与正式主备切换仍未验证；见[正式发布验收](docs/v1.7.0-release-evidence.md)、[达梦与金仓验收](docs/v1.7.0-dm-kingbase-depth-acceptance.md)及[瀚高验收](docs/v1.7.0-acceptance.md)。 |
 | v1.8.0 | 已发布 | Vastbase G100 V3.0 Build 9 PG 模式指定实例的 `verify-full`、证书及凭据轮换与 MCP Inspector / Dify 真调用复验；正式双架构资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v1.8.0-release-evidence.md)。临时许可不代表正式许可和主备切换验收。 |
-| v1.9.0 | 开发中，尚未发布 | Dify / MCP Inspector 接入说明、目标 SQL 离线解释、真实调用审计定位；以[设计说明](docs/v1.9.0-onboarding-design.md)与[验收记录](docs/v1.9.0-acceptance.md)为准。 |
+| v1.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.9.0)） | Dify / MCP Inspector 接入说明、目标 SQL 离线解释、真实调用审计定位；正式资产、升级、GHCR、官网与 Demo 见[发布证据](docs/v1.9.0-release-evidence.md)。未取得真实客户首次接入任务完成率。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
