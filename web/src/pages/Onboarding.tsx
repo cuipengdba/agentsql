@@ -10,6 +10,9 @@ import { PageContainer } from "@/components/PageContainer";
 
 import { OnboardingPreflight } from "./onboarding/Preflight";
 import { FailureGuide } from "./onboarding/FailureGuide";
+import { ClientSetup } from "./onboarding/ClientSetup";
+import { PolicyExplain } from "./onboarding/PolicyExplain";
+import { AuditJump } from "./onboarding/AuditJump";
 
 interface Counts { datasources: number; agents: number; policies: number }
 
@@ -21,6 +24,8 @@ const actions = [
 ];
 
 export function Onboarding() {
+  const [agentID, setAgentID] = useState("");
+  const [datasourceID, setDatasourceID] = useState("");
   const [counts, setCounts] = useState<Counts | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -53,13 +58,11 @@ export function Onboarding() {
           </Card>
         </Col>)}
       </Row>
-      <OnboardingPreflight />
+      <OnboardingPreflight agentID={agentID} datasourceID={datasourceID} onAgentIDChange={setAgentID} onDatasourceIDChange={setDatasourceID} />
+      <ClientSetup agentID={agentID} />
+      <PolicyExplain agentID={agentID} datasourceID={datasourceID} />
+      <AuditJump />
       <FailureGuide />
-      <Card title="连接 MCP 客户端" style={{ marginTop: 20 }}>
-        <Typography.Paragraph>使用 Dify 自托管与 MCP Inspector 验收真实工具调用。Dify 1.17.1 连接 Streamable HTTP <code>/mcp</code>；Inspector 按客户端支持的协议版本选择旧入口或 <code>/mcp/2026-07-28</code>。两者均使用 Agent API Key，不能使用管理员登录 token。</Typography.Paragraph>
-        <Alert type="info" showIcon message="客户端可达地址因部署拓扑而异" description="Dify 容器里的 127.0.0.1 指向 Dify 自身；仅为 AgentSQL 地址配置必要的内网访问。Dify 1.17.1 还需设置 MCP-Protocol-Version: 2025-06-18 请求头。Inspector 需核对其实际协商版本。" />
-        <Typography.Paragraph style={{ marginTop: 14, marginBottom: 0 }}><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noreferrer">查看 Dify 与 MCP Inspector 接入步骤</a></Typography.Paragraph>
-      </Card>
       <Card title="遇到拒绝或故障时" style={{ marginTop: 20 }}>
         <Row gutter={[16, 16]}>
           <Col xs={24} md={12}><Alert type="warning" showIcon message="请求被拒绝" description={<span>先在 <Link to="/audit">审计记录</Link>核对 Agent、数据源和错误码，再检查 <Link to="/policies">对象与列权限</Link>；不要直接扩大通配授权。</span>} /></Col>

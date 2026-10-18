@@ -36,13 +36,18 @@ function checkConnection(datasource: DatasourceView, result: PingView): Check {
   return { status: "pass", title: "数据库连接", detail: `${datasource.name} 连接通过，耗时 ${Math.max(0, result.latency_ms)} ms。此检查不执行 Agent SQL。`, path: "/datasources", action: "查看数据源" };
 }
 
-export function OnboardingPreflight() {
+interface OnboardingPreflightProps {
+  agentID: string;
+  datasourceID: string;
+  onAgentIDChange: (value: string) => void;
+  onDatasourceIDChange: (value: string) => void;
+}
+
+export function OnboardingPreflight({ agentID, datasourceID, onAgentIDChange, onDatasourceIDChange }: OnboardingPreflightProps) {
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [datasources, setDatasources] = useState<DatasourceView[]>([]);
   const [types, setTypes] = useState<DatasourceTypeView[]>([]);
   const [catalogError, setCatalogError] = useState(false);
-  const [agentID, setAgentID] = useState("");
-  const [datasourceID, setDatasourceID] = useState("");
   const [checks, setChecks] = useState<Check[] | null>(null);
   const [checking, setChecking] = useState(false);
   const sequence = useRef(0);
@@ -108,8 +113,8 @@ export function OnboardingPreflight() {
     <Typography.Paragraph type="secondary">选择当前租户中的 Agent 和数据源，或输入完整 ID。预检读取配置并使用保存的数据库账号测试连接；不会执行 SQL。</Typography.Paragraph>
     {catalogError && <Alert type="error" showIcon message="配置目录加载失败" description="可手动输入 Agent 与数据源 ID；若数据库类型未加载，请刷新页面后重试。" style={{ marginBottom: 12 }} />}
     <Space wrap>
-      <AutoComplete aria-label="Agent ID" placeholder="Agent ID" style={{ width: 240 }} value={agentID} options={agents.map((agent) => ({ value: agent.id, label: `${agent.name} (${agent.id})` }))} filterOption={(input, option) => String(option?.label || "").toLowerCase().includes(input.toLowerCase())} onChange={(value) => { sequence.current += 1; setAgentID(value); setChecks(null); setChecking(false); }} />
-      <AutoComplete aria-label="数据源 ID" placeholder="数据源 ID" style={{ width: 240 }} value={datasourceID} options={datasources.map((datasource) => ({ value: datasource.id, label: `${datasource.name} (${datasource.id})` }))} filterOption={(input, option) => String(option?.label || "").toLowerCase().includes(input.toLowerCase())} onChange={(value) => { sequence.current += 1; setDatasourceID(value); setChecks(null); setChecking(false); }} />
+      <AutoComplete aria-label="Agent ID" placeholder="Agent ID" style={{ width: 240 }} value={agentID} options={agents.map((agent) => ({ value: agent.id, label: `${agent.name} (${agent.id})` }))} filterOption={(input, option) => String(option?.label || "").toLowerCase().includes(input.toLowerCase())} onChange={(value) => { sequence.current += 1; onAgentIDChange(value); setChecks(null); setChecking(false); }} />
+      <AutoComplete aria-label="数据源 ID" placeholder="数据源 ID" style={{ width: 240 }} value={datasourceID} options={datasources.map((datasource) => ({ value: datasource.id, label: `${datasource.name} (${datasource.id})` }))} filterOption={(input, option) => String(option?.label || "").toLowerCase().includes(input.toLowerCase())} onChange={(value) => { sequence.current += 1; onDatasourceIDChange(value); setChecks(null); setChecking(false); }} />
       <Button type="primary" loading={checking} disabled={!agentID.trim() || !datasourceID.trim()} onClick={() => void run()}>运行预检</Button>
     </Space>
     {checks && <Space direction="vertical" size={10} style={{ width: "100%", marginTop: 16 }}>
