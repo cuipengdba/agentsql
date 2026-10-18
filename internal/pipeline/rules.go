@@ -98,6 +98,9 @@ func assembleRules(
 	case model.DialectDM:
 		// DM8 uses the generic rules. Its parser and executor independently
 		// enforce the documented read-only SELECT subset.
+	case model.DialectOracle:
+		// Oracle Free uses generic rules. The separate parser and executor keep
+		// the verified read-only SELECT boundary.
 	case model.DialectYashan:
 		// Yashan uses generic rules; its parser and executor reject unproved SQL.
 	case model.DialectVastbase:

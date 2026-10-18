@@ -296,6 +296,12 @@ func TestDeniedSelectBindingExceptionOnlyAppliesToR010(t *testing.T) {
 		Decision: model.DecisionDeny,
 		Hits:     []model.RuleHit{otherDeny},
 	}))
+	oracleAST := &model.AST{Dialect: model.DialectOracle, StmtType: model.StmtType("SELECT")}
+	require.False(t, shouldExplain(oracleAST))
+	require.False(t, shouldBindDeniedSelect(oracleAST, model.Assessment{
+		Decision: model.DecisionDeny,
+		Hits:     []model.RuleHit{r010},
+	}))
 }
 
 func TestFunctionQualificationFailureIsAuditedAuthorizationDeny(t *testing.T) {

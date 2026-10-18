@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文说明 AgentSQL v2.1.0 的 MCP 接入。安装或拉取 v2.1.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.2.0 的 MCP 接入。安装或拉取 v2.2.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -132,7 +132,7 @@ stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI�
 | --- | --- | --- | --- |
 | `list_datasources` | 列出当前 Agent 已获授权的数据源 | 无 | 成功返回公开标识信息，不返回 host、密码或连接参数；失败为 `error` |
 | `list_schema` | 读取已授权结构并按列权限裁剪 | `datasource_id`；`table` 可选 | 成功通常为 `allow`；`table` 只接受字母、数字、下划线，以及至多一个点的 `table` 或 `schema.table`，不支持引号和特殊标识符；结果超过 10000 行时必须缩小到具体表 |
-| `explain_query` | 解析、评估并做只读 EXPLAIN，不执行 SQL | `datasource_id`、`sql` | 可返回 `allow`、`deny`、`warn`、`approve` 或 `error`；即使 `allow` 也没有执行 SQL |
+| `explain_query` | 解析并评估 SQL；已验证计划能力的方言附带执行计划，不执行查询 | `datasource_id`、`sql` | 可返回 `allow`、`deny`、`warn`、`approve` 或 `error`；即使 `allow` 也没有执行 SQL。Oracle Free 与崖山指定只读路径不预执行计划。 |
 | `query` | 执行受保护的单条 `SELECT` | `datasource_id`、`sql` | 仅查询；结果自动按数据源 `row_limit` 限行并做结果层脱敏；危险查询可 `deny` 或 `approve` |
 | `execute_write` | 提交单条 `INSERT`、`UPDATE`、`DELETE` 或 DDL | `datasource_id`、`sql`、必填 `reason` | 管理类语句不走此工具；DDL 要求 Agent 为 `ddl`；`allow`/`warn` 才执行，`approve` 会自动创建 pending 审批单但不执行 |
 | `request_approval` | 主动把 SQL 送审 | `datasource_id`、`sql`、必填 `reason` | 只创建审批单，不执行 SQL；返回 `approval_id` |

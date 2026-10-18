@@ -38,7 +38,7 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 
 - 🟢 **PostgreSQL 14–18**：原生 `postgres` 路径；B2/B5 仍受自身版本、目录和能力检查约束。
 - 🟢 **MySQL 8.0**：原生 `mysql` 路径；不继承 PostgreSQL B2/B5 证明。
-- 🔵 **Oracle 23ai**：独立 `oracle` 严格 SELECT 子集；不能据此推断企业版或完整 Oracle 方言已通过。
+- 🔵 **Oracle AI Database 26ai Free，服务端 23.26.3.0.0**：`FREEPDB1` 指定合成实例的临时最小权限账号经 HTTP MCP 完成窄 SELECT、R010、手机号脱敏、Inspector/Dify 调用与持久审计；数据库权限撤销、业务库和独立审计库故障均按无原始结果交付验证。运行账号未验证 `PLAN_TABLE` 写权限，本路径不预执行计划；商业版、TCPS、主备、复杂 SQL 与完整生产支持未验证，见 [v2.2.0 候选验收](docs/v2.2.0-acceptance.md)。
 - 🟢 **达梦 DM8**：Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。
 - 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` parser 与窄 SELECT 路径已接通；在 Linux x86_64、`COMPAT_VECTOR=yashan` 和独立 C 客户端 23.4.7.100 上，最小权限账号经真实 HTTP MCP 完成允许、R010 拒绝、手机号脱敏和持久审计，MCP Inspector/Dify 各完成允许与拒绝。数据库 SELECT 撤权、业务库断线及独立审计库停机均验证无原始行交付。仅为指定实例及合成数据的受控只读子集；TLS、取消/超时、主备、写入、事务和 EXPLAIN 未验证或关闭，见 [v2.1.0 候选验收](docs/v2.1.0-acceptance.md)。
 - 🔵 **SQL Server 2025（17.x）**：独立 `sqlserver` 严格只读子集；不提供完整 T-SQL、写入、B2/B5 或厂商认证。

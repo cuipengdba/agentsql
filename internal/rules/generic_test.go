@@ -340,7 +340,7 @@ func TestGenericRulesFailClosed(t *testing.T) {
 		{name: "missing agent level", ruleID: "R003", context: engine.EvalContext{AST: astWith("postgres", "SELECT", "SELECT 1")}},
 		{name: "negative explain rows", ruleID: "R004", context: engine.EvalContext{AST: astWithExplain(-1)}},
 		{name: "invalid threshold", ruleID: "R005", context: mergeContext(astWithExplain(2), thresholds(ThresholdRowLimit, -1))},
-		{name: "unsupported dialect", ruleID: "R007", context: engine.EvalContext{AST: astWith("oracle", "SELECT", "SELECT 1")}},
+		{name: "unsupported dialect", ruleID: "R007", context: engine.EvalContext{AST: astWith("unknown", "SELECT", "SELECT 1")}},
 		{name: "nil limiter", ruleID: "R008", context: rateContext("ag_nil", 1, 1)},
 		{name: "fractional concurrency", ruleID: "R008", limiter: mustLimiter(t, newFakeClock()), context: rateContext("ag_fraction", 1, 1.5)},
 		{name: "malformed complexity", ruleID: "R009", context: engine.EvalContext{AST: mutateAST(astWith("postgres", "SELECT", "SELECT 1"), operation(OperationUnionCount+":many"))}},

@@ -424,6 +424,7 @@ var dangerousFunctions = map[string]map[string]struct{}{
 		"waitfor":        {},
 	},
 	"dm":       {}, // The DM8 parser rejects function calls in its SELECT subset.
+	"oracle":   {}, // The Oracle parser rejects function calls in its SELECT subset.
 	"yashan":   {}, // The Yashan parser rejects function calls in its SELECT subset.
 	"vastbase": {}, // The Vastbase PG-mode parser rejects all function calls.
 	"highgo":   {}, // The HighGo PG-mode parser rejects all function calls.
@@ -634,6 +635,7 @@ func requiredAST(context engine.EvalContext) (*model.AST, error) {
 		context.AST.Dialect != model.DBDialect("mysql") &&
 		context.AST.Dialect != model.DBDialect("sqlserver") &&
 		context.AST.Dialect != model.DialectDM &&
+		context.AST.Dialect != model.DialectOracle &&
 		context.AST.Dialect != model.DialectVastbase &&
 		context.AST.Dialect != model.DialectHighGo &&
 		context.AST.Dialect != model.DialectYashan {
