@@ -1042,3 +1042,9 @@ Content-Type: application/json
 升级时先停止旧网关的登录和 SQL 流量，对 metadata、audit（若独立）及配对密钥做一致性备份。v1.3.0 的 SQLite/合并 PostgreSQL metadata 版本为 21，独立 PostgreSQL metadata 为 20，audit-only 为 6。用 v1.4.0 正式包执行 `agentsqlctl migrate --check` 并确认只有预计的待迁移版本，再执行 `agentsqlctl migrate`；迁移后 SQLite/合并 PostgreSQL metadata 为 22，独立 PostgreSQL metadata 为 21，audit-only 仍为 6。运行账号需要预算表的 SELECT、INSERT、UPDATE、DELETE 权限。再次执行只读 `migrate --check`，要求全部 `current=latest`，再先后启动两个 v1.4.0 网关。旧节点内存中的预算不会搬迁，因此切换必须在停流维护窗口内完成。
 
 回退时停止全部 v1.4.0 网关，恢复升级前同一时点的 metadata、audit 和 `AGENTSQL_SECRET`，再启动 v1.3.0 程序并复核审计链及审批/授权状态。只替换旧二进制或仅恢复 metadata 不构成回退。双节点可靠性只覆盖经验证的共享 PostgreSQL 控制面拓扑，不改变业务数据库支持声明。
+
+## v1.7.0 候选：PostgreSQL 协议数据源的证书校验
+
+新建 `postgres` 数据源时，控制台默认引导使用 `tls_mode: verify-full`。把信任的 CA 证书以只读文件挂载到**每一个网关容器**，在数据源中填写容器内绝对路径 `tls_ca_file`。`tls_server_name` 可选；省略时校验证书中的连接主机名，填写时须与证书 SAN 匹配。网关会拒绝缺失 CA、相对路径、未验证证书信任开关及不受支持的 TLS 模式，不会为 `verify-full` 回退到明文。服务端需要启用 TLS 并配置相应证书；防火墙或数据库访问规则应拒绝不符合部署要求的明文连接。
+
+金仓 KingbaseES V9R1C10 的上述能力仅在 PG 模式、隔离单实例和合成数据上验证。使用 `postgres` 协议路径不意味着金仓其他模式或版本获得 PostgreSQL 的完整权限与执行保证。现有数据源的空 `tls_mode` 仍保留旧连接行为，**不能**视为已验证 TLS；迁移前先在隔离环境准备 CA、测试服务器证书主机名和故障拒绝，再显式更新数据源。证书轮换时提交新的 CA 路径和主机名，逐节点检查挂载与查询；更新数据库账号密码后用新连接复核 MCP 查询、脱敏与持久审计。达梦 DM8 当前驱动无法验证服务端证书，管理 API 继续拒绝其显式 TLS 选项。

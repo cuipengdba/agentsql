@@ -13,7 +13,7 @@ AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制
 
 v0.6.0 加入治理控制台、审批单次执行和 Vastbase G100 的受限只读适配；v0.7.0 加入独立的 MCP `2026-07-28` 入口与任务级临时只读授权；v0.8.0 加入异人审批；v0.9.0 为新申请加入 1–10 次结果预算、管理审计投递状态和策略离线预检。v1.0.0 收紧列策略的失败关闭，并加入可选的 Agent 与人员双身份 HTTP MCP 验证。v1.1.0 将双身份扩展到审批与 B5 会话，并加入委托令牌单独撤销。v1.2.0 增加可选的 MCP OAuth 受保护资源入口。v1.3.0 增加默认关闭的 MySQL 8.0/8.4 单表 InnoDB SELECT 列授权子集。v1.4.0 在 PostgreSQL metadata 部署中共享控制台密码和 LDAP 登录尝试预算，并验证双网关审计故障恢复。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用。
 
-v1.5.0 对达梦、金仓和 Vastbase 的指定实例深入验证真实 MCP 客户端、权限撤销、断库恢复及审计。v1.6.0 在相同指定实例和受控只读子集内补齐故障关闭。v1.7.0 为瀚高 9.0.10 企业版 PG 模式增加独立 `highgo` 类型及有界只读路径，并完成指定实例的客户端与故障链路验证；详情见 [v1.7.0 发布说明](docs/release-notes-v1.7.0.md)。
+v1.5.0 对达梦、金仓和 Vastbase 的指定实例深入验证真实 MCP 客户端、权限撤销、断库恢复及审计。v1.6.0 在相同指定实例和受控只读子集内补齐故障关闭。v1.7.0 候选代码为瀚高 9.0.10 企业版 PG 模式增加独立 `highgo` 类型及有界只读路径，并为金仓 V9R1C10 PG 模式补充经真库验证的 TLS 和凭据轮换；正式支持范围以[发布说明](docs/release-notes-v1.7.0.md)和[验收记录](docs/v1.7.0-dm-kingbase-depth-acceptance.md)为准。
 
 **验证范围：**v1.0.0 的列策略、人员委托及真实客户端结果见[验收记录](docs/v1.0-acceptance.md)；v1.1.0 的审批与 B5 双身份结果见[验收记录](docs/v1.1.0-acceptance.md)；v1.2.0 的 OAuth 互通结果见[验收记录](docs/v1.2.0-acceptance.md)；v1.3.0 的 MySQL 列授权边界见[验收记录](docs/v1.3.0-acceptance.md)；v1.4.0 的共享登录预算与双节点恢复见[验收记录](docs/v1.4.0-acceptance.md)；v1.5.0 的三款国产数据库指定子集深度验证见[验收记录](docs/v1.5.0-acceptance.md)；v1.6.0 的故障关闭与恢复证据见[验收记录](docs/v1.6.0-acceptance.md)；v1.7.0 的瀚高独立类型和故障链路见[本版验收记录](docs/v1.7.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.7.0)、签名及镜像匿名拉取验收为准。
 
@@ -62,7 +62,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 
 > "已实测"仅指对应版本、镜像/拓扑与用例，非数据库厂商官方认证；"适配中 / 待实测 / 待厂商环境"为进行中的工作，不代表当前版本已支持。欢迎各数据库厂商联系开展兼容性认证与合作：请通过交流群、仓库 Discussion 或邮件 87326549@qq.com 联系我们。
 
-> **金仓 V9 绿色边界：**仅限上述 PG 模式、单实例合成表的只读受控基础闭环；实际 license 到期日未确认。V9 Oracle 模式、原生驱动、V8、多行/深度分页、JOIN、聚合/函数、复杂表达式、类型 OID、系统目录、EXPLAIN、TLS/加密、HA/故障切换、备份恢复、B2 列级授权、多角色并发及生产负载未测。显式 `GRANT CREATE SESSION` 被拒；会话能力经 `LOGIN` + `CONNECT` 验证。非厂商认证或生产支持承诺；详见[真库验证记录](docs/kingbase-v9-verification.md)。
+> **金仓 V9 绿色边界：**仅限上述 PG 模式、单实例合成表的只读受控基础闭环；实际 license 到期日未确认。v1.7.0 候选验证了同一 V9R1C10 PG 模式隔离实例的 `verify-full`、错误 CA/主机名拒绝、证书和账号密码轮换，以及 MCP 脱敏与审计。V9 Oracle 模式、原生驱动、V8、多行/深度分页、JOIN、聚合/函数、复杂表达式、类型 OID、系统目录、EXPLAIN、HA/故障切换、备份恢复、B2 列级授权及生产负载未测。显式 `GRANT CREATE SESSION` 被拒；会话能力经 `LOGIN` + `CONNECT` 验证。非厂商认证或生产支持承诺；详见[真库验证记录](docs/kingbase-v9-verification.md)和[候选验收](docs/v1.7.0-dm-kingbase-depth-acceptance.md)。
 
 > **HighGo 支持边界：**仅限上述 9.0.10 企业版、PG 模式、单实例合成表的明确 schema、非恒真 WHERE、LIMIT 单表 SELECT。TLS、连接池故障切换、扩展类型/OID、其他模式及版本、生产负载、B2/B5 未验证；不代表厂商认证或完整生产支持。
 

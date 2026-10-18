@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -930,14 +931,17 @@ func (handler *Handler) datasourcesUpdate(writer http.ResponseWriter, request *h
 	if input.RowLimit == 0 {
 		input.RowLimit = current.RowLimit
 	}
+	// A supplied TLS mode is a complete replacement of its certificate settings.
+	// Inheriting a previous CA or server name would make verify-full -> disable
+	// impossible and could silently retain an obsolete trust root after rotation.
 	if input.TLSMode == "" {
 		input.TLSMode = current.TLSMode
-	}
-	if input.TLSServerName == "" {
-		input.TLSServerName = current.TLSServerName
-	}
-	if input.TLSCAFile == "" {
-		input.TLSCAFile = current.TLSCAFile
+		if input.TLSServerName == "" {
+			input.TLSServerName = current.TLSServerName
+		}
+		if input.TLSCAFile == "" {
+			input.TLSCAFile = current.TLSCAFile
+		}
 	}
 	password := input.Password
 	if password == "" {
@@ -1056,7 +1060,35 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
 			return model.Datasource{}, fmt.Errorf("DM/Oracle TLS options are not supported by the current drivers")
 		}
-		if !model.IsNative(input.DBType) {
+		if input.DBType == "highgo" &&
+			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
+			return model.Datasource{}, fmt.Errorf("HighGo TLS options have not been verified")
+		}
+		if input.DBType == "postgres" {
+			if input.TrustServerCertificate {
+				return model.Datasource{}, fmt.Errorf("PostgreSQL cannot trust an unverified server certificate")
+			}
+			switch input.TLSMode {
+			case "":
+				if input.TLSServerName != "" || input.TLSCAFile != "" {
+					return model.Datasource{}, fmt.Errorf("PostgreSQL tls_mode is required with certificate options")
+				}
+			case "disable":
+				if input.TLSServerName != "" || input.TLSCAFile != "" {
+					return model.Datasource{}, fmt.Errorf("PostgreSQL disabled TLS cannot use certificate options")
+				}
+			case "verify-full":
+				if input.TLSCAFile == "" {
+					return model.Datasource{}, fmt.Errorf("PostgreSQL verify-full requires a CA file")
+				}
+				if !filepath.IsAbs(input.TLSCAFile) {
+					return model.Datasource{}, fmt.Errorf("PostgreSQL CA file path must be absolute")
+				}
+			default:
+				return model.Datasource{}, fmt.Errorf("PostgreSQL tls_mode must be disable or verify-full")
+			}
+		}
+		if input.DBType != "postgres" && !model.IsNative(input.DBType) {
 			input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
 		}
 		input.TrustServerCertificate = false

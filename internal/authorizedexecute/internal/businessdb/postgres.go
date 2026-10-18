@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -105,6 +106,37 @@ func newPostgresExecutor(
 		Host:   net.JoinHostPort(datasource.Host, strconv.Itoa(datasource.Port)),
 		Path:   "/" + datasource.Database,
 	}
+	if datasource.DBType == "highgo" &&
+		(datasource.TLSMode != "" || datasource.TLSServerName != "" || datasource.TLSCAFile != "" || datasource.TrustServerCertificate) {
+		return nil, fmt.Errorf("open HighGo datasource: TLS options are not verified for this adapter")
+	}
+	if datasource.TrustServerCertificate {
+		return nil, fmt.Errorf("open PostgreSQL datasource: trusting an unverified server certificate is not supported")
+	}
+	query := connectionURL.Query()
+	switch datasource.TLSMode {
+	case "":
+		if datasource.TLSServerName != "" || datasource.TLSCAFile != "" {
+			return nil, fmt.Errorf("open PostgreSQL datasource: tls_mode is required with certificate options")
+		}
+	case "disable":
+		if datasource.TLSServerName != "" || datasource.TLSCAFile != "" {
+			return nil, fmt.Errorf("open PostgreSQL datasource: disabled TLS cannot use certificate options")
+		}
+		query.Set("sslmode", "disable")
+	case "verify-full":
+		if datasource.TLSCAFile == "" {
+			return nil, fmt.Errorf("open PostgreSQL datasource: verify-full requires a CA file")
+		}
+		if !filepath.IsAbs(datasource.TLSCAFile) {
+			return nil, fmt.Errorf("open PostgreSQL datasource: CA file path must be absolute")
+		}
+		query.Set("sslmode", "verify-full")
+		query.Set("sslrootcert", datasource.TLSCAFile)
+	default:
+		return nil, fmt.Errorf("open PostgreSQL datasource: unsupported TLS mode")
+	}
+	connectionURL.RawQuery = query.Encode()
 	config, err := pgxpool.ParseConfig(connectionURL.String())
 	if err != nil {
 		return nil, safeError(
@@ -112,6 +144,17 @@ func newPostgresExecutor(
 			ErrDatasourceUnreachable,
 			err,
 		)
+	}
+	if datasource.TLSMode == "verify-full" {
+		// pgx defaults to sslmode=prefer when no mode is supplied. An explicit
+		// verified connection must never inherit a plaintext fallback.
+		if config.ConnConfig.TLSConfig == nil || config.ConnConfig.TLSConfig.InsecureSkipVerify ||
+			len(config.ConnConfig.Fallbacks) != 0 {
+			return nil, fmt.Errorf("open PostgreSQL datasource: verified TLS configuration is unavailable")
+		}
+		if datasource.TLSServerName != "" {
+			config.ConnConfig.TLSConfig.ServerName = datasource.TLSServerName
+		}
 	}
 	config.MaxConns = int32(connectionLimit)
 	if config.ConnConfig.RuntimeParams == nil {
