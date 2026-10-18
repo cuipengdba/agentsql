@@ -108,8 +108,9 @@ type TaskReadGrantRequest struct {
 }
 
 // Datasource is a protected business-database connection target. SQL Server
-// TLS settings are intentionally explicit: an empty TLSMode is normalized to
-// strict by the SQL Server adapter, and plaintext transport is never accepted.
+// normalizes an empty TLSMode to strict. PostgreSQL supports an explicit
+// verify-full mode with a CA file; an empty mode keeps the legacy connection
+// behavior for existing datasources and must not be described as verified TLS.
 type Datasource struct {
 	ID            string
 	TenantID      string

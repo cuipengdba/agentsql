@@ -251,10 +251,19 @@ export function Datasources() {
             if (dbType) {
               setSelectedType(dbType);
               form.setFieldValue("port", typeByKey[dbType]?.default_port);
+              form.setFieldsValue({ tls_server_name: undefined, tls_ca_file: undefined });
               if (dbType === "sqlserver") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
+              } else if (dbType === "postgres") {
+                form.setFieldValue("tls_mode", "verify-full");
+                form.setFieldValue("trust_server_certificate", false);
+              } else {
+                form.setFieldsValue({ tls_mode: undefined, tls_server_name: undefined, tls_ca_file: undefined, trust_server_certificate: false });
               }
+            }
+            if (changed.tls_mode === "disable") {
+              form.setFieldsValue({ tls_server_name: undefined, tls_ca_file: undefined });
             }
           }}
         >
@@ -281,6 +290,15 @@ export function Datasources() {
               <Form.Item name="tls_ca_file" label="CA / 服务器证书文件（服务端路径，可选）"><Input /></Form.Item>
               {getFieldValue("tls_mode") === "verify-full" ?
                 <Form.Item name="trust_server_certificate" valuePropName="checked"><Checkbox>信任未验证证书（仅限受控开发环境）</Checkbox></Form.Item> : null}
+            </> : getFieldValue("db_type") === "postgres" ? <>
+              <Alert className="cfg-inline-alert" type="info" showIcon message="PostgreSQL 协议路径（含已验证的金仓 PG 模式）可显式启用证书和主机名校验；金仓其他模式与完整生产支持仍需单独验收。" />
+              <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>
+                <Select options={[{ value: "verify-full", label: "verify-full（推荐，校验 CA 和主机名）" }, { value: "disable", label: "disable（仅限隔离测试）" }]} />
+              </Form.Item>
+              {getFieldValue("tls_mode") === "verify-full" ? <>
+                <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/root.crt" /></Form.Item>
+                <Form.Item name="tls_server_name" label="证书主机名（可选，默认连接主机）"><Input placeholder="db.example.com" /></Form.Item>
+              </> : null}
             </> : null}
           </Form.Item>
           <div className="cfg-form-grid cfg-form-grid-three">

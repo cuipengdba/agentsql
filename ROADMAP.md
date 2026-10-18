@@ -26,7 +26,27 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.4.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.4.0)） | PostgreSQL 多网关共享登录尝试预算、双节点审计故障与恢复；见[验收记录](docs/v1.4.0-acceptance.md)。 |
 | v1.5.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.5.0)） | 达梦 DM8 Pack3、金仓 V9R1C10 PG 模式和 Vastbase G100 Build 9 PG 模式的指定实例深度验收；官网与公网 Demo 从 v1.0.0 直接更新至 v1.5.0。范围和未验证项见[验收记录](docs/v1.5.0-acceptance.md)。 |
 | v1.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.6.0)） | 对达梦、金仓与 Vastbase 指定实例补齐独立审计库故障、锁等待超时、客户端取消和恢复后的脱敏复验；见[验收记录](docs/v1.6.0-acceptance.md)。 |
-| v1.7.0 | 开发与发行验收中 | 瀚高 HighGo 9.0.10 企业版 PG 模式的独立 `highgo` 类型、有界只读 SELECT、真库客户端和故障链路；最终支持范围以[设计](docs/v1.7.0-design.md)与[验收记录](docs/v1.7.0-acceptance.md)为准。 |
+| v1.7.0 | 开发与发行验收中 | 达梦与金仓部署边界深化：金仓 V9R1C10 PG 模式已完成指定实例的证书校验、轮换和 MCP 凭据轮换；达梦可验证 TLS 与主备切换仍需独立证据。主分支已合入的瀚高 HighGo 9.0.10 有界只读路径一并作为候选能力。见[达梦与金仓设计](docs/v1.7.0-dm-kingbase-depth-design.md)、[候选验收](docs/v1.7.0-dm-kingbase-depth-acceptance.md)及[瀚高验收](docs/v1.7.0-acceptance.md)。 |
+
+## v1.8.0–v3.0.0 候选开发顺序
+
+下表是产品方向，不等于已发布承诺。每版独立设计、隔离开发、真库与客户端验证、升级恢复、封版 CI、签名资产、GHCR、官网与 Live Demo 验收。上一版的未验证项不会自动因版本号提升而变成已支持；涉及许可或目标拓扑的缺口须先取得可复核条件，届时可调整范围并记录理由。
+
+| 版本 | 主要目标 | 发布前关键证据 |
+| --- | --- | --- |
+| v1.8.0 | Vastbase G100 的许可、TLS、HA、查询子集与部署深度 | 指定 Build、协议模式、证书错误路径、主备故障终态、最小权限与审计 |
+| v1.9.0 | Dify 与 MCP Inspector 的接入体验、策略解释和向导 | 两客户端真实允许/拒绝调用、首次接入与排障任务完成率 |
+| v2.0.0 | 多网关、Kubernetes、管理 API 与运维 | 双节点共享状态、故障转移、升级回滚、容量与审计一致性 |
+| v2.1.0 | 崖山 YashanDB 指定版本深化 | 原生驱动、许可、权限/执行/脱敏/审计与故障关闭的真库证据 |
+| v2.2.0 | Oracle 指定版本深化 | 原生方言、最小权限、计划、授权与审计；按许可和实例范围声明 |
+| v2.3.0 | SQL Server 指定版本深化 | 证书、TDS 权限、查询和故障恢复矩阵 |
+| v2.4.0 | openGauss 指定版本适配 | PG 兼容差异、类型/计划、TLS、权限和执行边界 |
+| v2.5.0 | MongoDB 受控只读能力 | 命令白名单、集合授权、字段脱敏与持久审计 |
+| v2.6.0 | Redis/Valkey 受控命令能力 | ACL、键范围、危险命令拒绝、结果脱敏与审计 |
+| v2.7.0 | ClickHouse 查询治理 | 查询子集、配额、角色、资源取消和审计终态 |
+| v2.8.0 | Milvus 向量检索治理 | 集合/字段授权、过滤表达式、结果保护和审计 |
+| v2.9.0 | 策略即代码、审计与多租户治理 | 变更评审、策略回放、租户隔离与审计完整性 |
+| v3.0.0 | 统一治理与交付体验 | 跨适配器一致的能力声明、升级迁移、运维与客户端验收 |
 
 ## v0.7.0 验收与发布门槛
 
