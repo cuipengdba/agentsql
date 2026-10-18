@@ -287,7 +287,7 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	clientInfo, err := json.Marshal(map[string]string{
 		"url": httpServer.URL + "/mcp", "api_key": fixture.handlers.apiKey,
 		"datasource_id": datasourceID, "allow_sql": allowSQL,
-		"deny_sql": "SELECT PHONE FROM SYSTEM." + deniedTable + " WHERE ID = 1",
+		"deny_sql":  "SELECT PHONE FROM SYSTEM." + deniedTable + " WHERE ID = 1",
 		"deny_rule": "R010",
 	})
 	require.NoError(t, err)
