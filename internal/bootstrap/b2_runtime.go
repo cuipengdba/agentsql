@@ -77,7 +77,22 @@ func featureOffB2Status() B2Status {
 }
 
 func activateB2Runtime(ctx context.Context, metadata *store.Store, gateway *executor.Gateway, secret []byte, instanceID string, lease, interval time.Duration, mysqlOptions ...mysqlB2RuntimeOptions) (*b2Runtime, error) {
-	return evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, true, mysqlOptions...)
+	// Two fresh replicas may observe the same activation ETag. The first
+	// activation advances the fence revision, so the other must re-read the
+	// readiness snapshot before retrying. Persistent digest incompatibility
+	// or dependency failure remains closed after this bounded window.
+	for attempt := 0; ; attempt++ {
+		manager, err := evaluateB2Runtime(ctx, metadata, gateway, secret, instanceID, lease, interval, true, mysqlOptions...)
+		if err == nil || manager == nil || manager.status.Reason != B2ReasonControlFenceUnavailable || attempt >= 9 {
+			return manager, err
+		}
+		wait := time.Duration(attempt+1) * 50 * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return manager, errors.Join(err, ctx.Err())
+		case <-time.After(wait):
+		}
+	}
 }
 
 // dryRunB2Runtime executes the same probes and phase-one snapshot as

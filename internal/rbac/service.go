@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -101,6 +102,39 @@ func VerifyPassword(hash, password string) bool {
 // exactly when missing. The password is accepted from the existing environment
 // credential source and is persisted only as a bcrypt hash.
 func (service *Service) Bootstrap(ctx context.Context, username, password string) error {
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		err = service.bootstrapOnce(ctx, username, password)
+		if err == nil || !bootstrapRace(err) {
+			return err
+		}
+		wait := time.Duration(attempt+1) * 50 * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return errors.Join(err, ctx.Err())
+		case <-time.After(wait):
+		}
+	}
+	return err
+}
+
+// Concurrent gateways can both observe missing bootstrap rows. A bounded
+// retry re-reads the winner's committed rows instead of treating that normal
+// first-start race as a permanently failed gateway.
+func bootstrapRace(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "sqlstate 23505") ||
+		strings.Contains(message, "sqlstate 40001") ||
+		strings.Contains(message, "sqlstate 40p01") ||
+		strings.Contains(message, "unique constraint failed") ||
+		strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "sqlite_busy")
+}
+
+func (service *Service) bootstrapOnce(ctx context.Context, username, password string) error {
 	if service == nil || service.repository == nil || ctx == nil {
 		return errors.New("bootstrap RBAC: service is unavailable")
 	}

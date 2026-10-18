@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentsql-gateway-config
+  labels:
+    app.kubernetes.io/name: agentsql
+data:
+  config.yaml: |
+    server:
+      http_listen: "0.0.0.0:7780"
+      console_enabled: true
+      event_stream: false
+    store:
+      metadata:
+        driver: postgres
+        dsn: ""
+        max_open_conns: 10
+        max_idle_conns: 5
+        conn_max_lifetime: "30m"
+      audit:
+        separate: true
+        driver: postgres
+        dsn: ""
+        max_open_conns: 10
+        max_idle_conns: 5
+      auto_migrate: false
+    column_authorization:
+      enabled: true
+      dry_run: false
+      instance_id_file: "/var/lib/agentsql/instance-id"
+    mcp:
+      http:
+        stateful: false
+        event_store_enabled: false
+      sessions:
+        enabled: false
+      transactions:
+        postgres: false
+        mysql: false
+    defaults:
+      statement_timeout_ms: 5000
+      row_limit: 1000
+      max_conns_per_datasource: 5
+      # Two fixed replicas: each enforces 10 QPS, so the cluster upper bound is 20.
+      qps_per_agent: 10
+    theme:
+      default: "dark"

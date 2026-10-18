@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.0.0]
+
+- Add a fixed two-replica Kubernetes deployment for stateless read-only MCP traffic backed by shared PostgreSQL metadata and a separate audit database. Keep B5 transactions, stateful sessions and event replay disabled in this topology.
+- Add a management API to enroll one regular PostgreSQL table's explicit columns under a locked catalog proof and policy revision CAS. Enrollment SQL is analyzed without execution; unsupported native, join, view and wildcard cases fail closed.
+- Bound concurrent RBAC bootstrap and B2 activation retries, and rehearse two-node failover, dependency outages, paired backup restore and a maintenance-window rollback to v1.9.0. The [v2.0.0 acceptance record](docs/v2.0.0-acceptance.md) limits these claims to the tested synthetic environment.
+
 ## [v1.9.0]
 
 - Add an onboarding flow for Dify 1.17.1 and MCP Inspector 0.16.8 with client-reachable gateway URLs and key-free connection instructions.
