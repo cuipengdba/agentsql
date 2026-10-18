@@ -53,7 +53,7 @@ func TestHighGoV9010MCPRealE2E(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, gateway.CloseAll()) })
 	fixture.runtime.Pipeline, err = pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(fixture.runtime.Store.Agents()),
-		Datasources: fixture.runtime.Store.Datasources(), Policies: fixture.runtime.Store.Policies(),
+		Datasources:   fixture.runtime.Store.Datasources(), Policies: fixture.runtime.Store.Policies(),
 		Executors: gateway, Approvals: fixture.runtime.Store.Approvals(),
 		Audit: audit.NewRecorder(fixture.runtime.Store.AuditLogs()), Redactors: fixture.redactors,
 	}, mcpTestSecret)
