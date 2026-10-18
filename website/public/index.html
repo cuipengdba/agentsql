@@ -75,14 +75,14 @@
     <section id="top" class="hero section">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v1.5.0</div>
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v1.6.0</div>
           <h1>AI Agent 的数据库安全网关</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">v1.5.0 延续列级策略的失败关闭、双身份 MCP 和共享登录预算，并对达梦、金仓、Vastbase 的指定实例完成真实客户端、权限撤销及断库恢复复验。Live Demo 使用同版合成数据环境；适配结论限于已验证的只读子集。</p>
+          <p class="positioning">v1.6.0 在达梦、金仓和 Vastbase 的指定只读实例上补齐审计库故障、真实查询超时、客户端取消与恢复后的脱敏复验。Live Demo 使用同版合成数据环境；适配结论限于已验证的版本、模式和只读子集。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
-            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v1.5.0.md" target="_blank" rel="noopener noreferrer">v1.5.0 发布说明</a>
+            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v1.6.0.md" target="_blank" rel="noopener noreferrer">v1.6.0 发布说明</a>
           </div>
           <p class="badge-line">v0.5.0 起 Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
           <p class="positioning">它不是 BI，也不是 ORM 或 Text2SQL，而是模型与数据库之间一道默认拒绝的安全闸门。</p>
@@ -200,24 +200,24 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">文档 / 下载</p><h2 id="docs-title">从本地演示到 MCP 接入</h2><p>按真实部署状态选择入口。文档对应源码仓库 <code>github.com/cuipengdba/agentsql</code>。</p></div>
         <div class="feature-grid">
-          <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v1.5.0.pdf" download="AgentSQL-快速上手-v1.5.0.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
-          <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v1.5.0.pdf" download="AgentSQL-使用手册-v1.5.0.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>
-          <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v1.5.0.pdf" download="AgentSQL-MCP接入指南-v1.5.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v1.6.0.pdf" download="AgentSQL-快速上手-v1.6.0.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v1.6.0.pdf" download="AgentSQL-使用手册-v1.6.0.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v1.6.0.pdf" download="AgentSQL-MCP接入指南-v1.6.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="/demo/">在线演示说明</a></p><p>v1.5.0 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v1.5.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v1.5.0/install.sh | sudo sh -s -- install --version v1.5.0</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
-          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v1.5.0" target="_blank" rel="noopener noreferrer">GitHub Release（v1.5.0）</a></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="/demo/">在线演示说明</a></p><p>v1.6.0 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v1.6.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v1.6.0/install.sh | sudo sh -s -- install --version v1.6.0</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v1.6.0" target="_blank" rel="noopener noreferrer">GitHub Release（v1.6.0）</a></div>
         </div>
       </div>
     </section>
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>v1.5.0 兼容矩阵</h2><p>本版未增加数据库类型，也未将任何库升级为完整生产支持；下表按既有能力与指定环境实测范围分档。</p></div>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>v1.6.0 兼容矩阵</h2><p>本版未增加数据库类型，也未将任何库升级为完整生产支持；下表按既有能力与指定环境实测范围分档。</p></div>
         <div class="compat-summary"><strong>8 大类 / 28 款已注册</strong><span>另列金仓 KingbaseES V9、瀚高 HighGo 两款指定环境实测的 PG 协议基础闭环</span></div>
         <div class="table-wrap">
           <table class="compat-table">
-            <caption>AgentSQL v1.5.0 数据库兼容矩阵：沿用 8 大类、28 款已注册数据库，金仓 KingbaseES V9 与瀚高 HighGo 另列，共 30 行。</caption>
+            <caption>AgentSQL v1.6.0 数据库兼容矩阵：沿用 8 大类、28 款已注册数据库，金仓 KingbaseES V9 与瀚高 HighGo 另列，共 30 行。</caption>
             <thead><tr><th scope="col">类别</th><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">边界说明</th></tr></thead>
             <tbody>
               <tr><th scope="rowgroup" rowspan="9" class="compat-category">关系型</th><td>PostgreSQL 14–18</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>全链路实测通过</td></tr>
@@ -258,22 +258,22 @@
           <span><strong class="tier-read">受控只读</strong>：连接 / 元数据 / 只读查询子集</span>
           <span><strong class="tier-conn">连接级</strong>：ping / 版本 / Schema / 只读预览</span>
         </div>
-        <p class="ecosystem-note">v1.5.0 对 DM8 Pack3、金仓 V9R1C10 与 Vastbase G100 Build 9 的指定模式和合成数据完成真实 MCP 客户端、权限撤销及断库恢复复验；查询超时/取消和独立审计库故障尚未逐库验证。结论不外推到其他版本、生产负载或厂商认证。NoSQL / 向量仍为连接级低阶支持；所有库须经网关并使用专用最小权限账号。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.5.0-acceptance.md">v1.5.0 验收记录</a>与<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
+        <p class="ecosystem-note">v1.5.0 对 DM8 Pack3、金仓 V9R1C10 与 Vastbase G100 Build 9 的指定模式完成客户端、权限撤销和断库恢复复验；v1.6.0 在同一范围内通过独立审计库故障、真实锁等待超时、客户端取消、数据库端终止及恢复后脱敏复验。结论不外推到其他版本、生产负载或厂商认证。NoSQL / 向量仍为连接级低阶支持；所有库须经网关并使用专用最小权限账号。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.6.0-acceptance.md">v1.6.0 验收记录</a>与<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
       </div>
     </section>
 
     <section id="ecosystem" class="section">
       <div class="container">
-        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.5.0 深入复验达梦、金仓和 Vastbase 的指定版本：真实客户端允许与拒绝、最小权限、脱敏审计、权限撤销和断库恢复。没有新增数据库类型，也没有扩大为完整生产支持。欢迎数据库厂商联合验证。</p></div>
+        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.6.0 对达梦、金仓和 Vastbase 的指定版本增加审计故障、锁等待超时、取消、数据库端终止及恢复验证。没有新增数据库类型，也没有扩大为完整生产支持。欢迎数据库厂商联合验证。</p></div>
         <div class="ecosystem-panel">
-          <p class="ecosystem-label">国产数据库生态适配矩阵（v1.5.0）</p>
+          <p class="ecosystem-label">国产数据库生态适配矩阵（v1.6.0）</p>
           <p class="table-scroll-hint">表格可左右滑动，查看完整验证说明。</p>
           <div class="table-wrap">
             <table class="eco-table">
-              <caption>AgentSQL v1.5.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
+              <caption>AgentSQL v1.6.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
-                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.5.0 进一步通过 MCP Inspector 与 Dify 客户端、策略及业务账号权限撤销、网络隔离和恢复。其他模式、复杂查询、逐库超时/取消、独立审计故障、TLS、HA 与生产负载未验证。</td></tr>
+                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.5.0 完成客户端、权限撤销与网络恢复，v1.6.0 补齐独立审计库故障、锁等待超时、客户端取消和恢复复验。其他模式、复杂查询、TLS、HA 与生产负载未验证。</td></tr>
                 <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status ok">🟢 指定实例防护链路实测通过</span></td><td class="eco-desc">HighGo 9.0.10 企业版（PG 模式、单实例合成表）：解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝、allow/deny 审计链路实测通过；TLS、连接池故障切换、取消/超时、EXPLAIN、扩展类型/OID、系统目录差异、B2 列级授权、parse-error 审计分支（本轮未触发）、跨版本与生产负载未测。非厂商认证或生产支持承诺。</td></tr>
                 <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
                 <tr><td class="eco-db">openGauss 社区版</td><td><span class="eco-status ok">指定版本协议路径已实测</span></td><td class="eco-desc">openGauss 7.0.0-RC3 社区版；GaussDB 商业版未实测，不能继承此结论。</td></tr>
@@ -283,8 +283,8 @@
                 <tr><td class="eco-db">TDSQL for MySQL</td><td><span class="eco-status wip">待目标环境验证</span></td><td class="eco-desc">MySQL 协议候选；商业版未实测，不与 TDSQL for PostgreSQL 混同。</td></tr>
                 <tr><td class="eco-db">OpenTenBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划兼容修复实现中。</td></tr>
                 <tr><td class="eco-db">崖山数据库 YashanDB</td><td><span class="eco-status wip">🔵 受控只读</span></td><td class="eco-desc">独立 <code>yashan</code> parser 与窄 SELECT 路径已接通；独立客户端真库流水线测试通过 SELECT、列血缘、R010、表列定向手机号脱敏及三条测试审计，最小权限账号写入拒绝经原生探针验证。C 客户端再分发目前仅有厂家口头授权、尚无书面文件；正式双架构 Linux 包按发布脚本封装对应架构客户端。源码自构建仍须准备匹配客户端并用 <code>CGO_ENABLED=1</code> 和 <code>-tags yashan</code> 编译，缺运行库 fail-closed。HTTP/MCP、持久化审计、EXPLAIN、写入未测或未放开。</td></tr>
-                <tr><td class="eco-db">达梦数据库 DM</td><td><span class="eco-status ok">🟢 指定实例防护链路通过</span></td><td class="eco-desc">DM8 Pack3、COMPATIBLE_MODE 0：有界 HTTP MCP 真库复验覆盖查询、R010 表策略、手机号脱敏及持久审计；v1.5.0 进一步通过 MCP Inspector 与 Dify 客户端、策略及业务账号权限撤销、停库和恢复。多行分页、JOIN、函数、逐库超时/取消、独立审计故障与生产负载未验证；写入未放开。</td></tr>
-                <tr><td class="eco-db">Vastbase G100</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">V3.0 Build 9、PG 模式、单实例合成表：独立 vastbase 类型强制只读，有界 SELECT、表授权、手机号脱敏、MCP 审批单次执行及持久审计实测；v1.5.0 进一步通过 MCP Inspector 与 Dify 客户端、业务账号权限撤销、停库和恢复。使用临时许可；逐库超时/取消、独立审计故障、TLS、HA、其他 Build 与生产负载未测。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.5.0-acceptance.md">验收记录</a>。</td></tr>
+                <tr><td class="eco-db">达梦数据库 DM</td><td><span class="eco-status ok">🟢 指定实例防护链路通过</span></td><td class="eco-desc">DM8 Pack3、COMPATIBLE_MODE 0：有界 HTTP MCP 真库复验覆盖查询、R010 表策略、手机号脱敏及持久审计；v1.5.0 完成客户端、权限撤销与停库恢复，v1.6.0 补齐独立审计库故障、锁等待超时、客户端取消和恢复复验。多行分页、JOIN、函数、TLS、HA 与生产负载未验证；写入未放开。</td></tr>
+                <tr><td class="eco-db">Vastbase G100</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">V3.0 Build 9、PG 模式、单实例合成表：独立 vastbase 类型强制只读，有界 SELECT、表授权、手机号脱敏、MCP 审批单次执行及持久审计实测；v1.5.0 完成客户端、权限撤销与停库恢复，v1.6.0 补齐独立审计库故障、锁等待超时、客户端取消和恢复复验。使用临时许可；TLS、HA、其他 Build 与生产负载未测。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.6.0-acceptance.md">验收记录</a>。</td></tr>
                 <tr><td class="eco-db">PolarDB</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">PolarDB for PostgreSQL 15，指定社区镜像经 <code>postgres</code> 路径完成最小闭环；商业服务、HA、TLS、B2/B5 未覆盖。</td></tr>
                 <tr><td class="eco-db">PolarDB-X</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">旧官方 <code>polardbx/polardb-x:2.0.1</code> 单容器经 <code>mysql</code> 路径有界实测；通过 <code>db_type=mysql</code> 接入，不新增 polardbx 数据源类型。两阶段 EXPLAIN：普通 EXPLAIN 返回单列逻辑计划，<code>EXPLAIN EXECUTE</code> 返回标准 MySQL 列；路由 Hint、DRDS/TDDL 管理语句、分布式 DDL、存储过程 fail-closed。完整 CN/DN/CDC、商业服务、分布式语义、B2/B5 未证明。</td></tr>
               </tbody>
@@ -300,11 +300,11 @@
         <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker 与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。GHCR tag 会自动匹配 linux/amd64 或 linux/arm64；源码路径仍以仓库 README 为准。</p></div>
         <div class="quick-grid">
           <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker 自动选择当前平台镜像</span>
-docker pull ghcr.io/cuipengdba/agentsql:v1.5.0
+docker pull ghcr.io/cuipengdba/agentsql:v1.6.0
 
 <span class="comment"># 推荐使用仓库 quickstart 生成凭据并启动</span>
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v1.5.0/scripts/quickstart.sh -o quickstart.sh
-sh quickstart.sh --version v1.5.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v1.6.0/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v1.6.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
           <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>合成数据</span></div><pre><code><span class="comment"># 复制演示环境样例并替换占位凭据</span>
 cp examples/docker/demo.env.example demo/demo.env
 
@@ -350,7 +350,8 @@ bash ./demo/reset.sh
           <li class="complete"><span>v0.9.0</span><strong>任务 Key 结果预算、管理审计投递状态与策略离线预检</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v1.0.0</span><strong>列策略失败关闭与可选人员委托</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v1.1–v1.4</span><strong>双身份、OAuth、MySQL 列授权与共享登录预算</strong><small>已发布阶段</small></li>
-          <li class="current"><span>v1.5.0</span><strong>三款国产数据库指定子集深度复验</strong><small>当前正式版本</small></li>
+          <li class="complete"><span>v1.5.0</span><strong>三款国产数据库指定子集深度复验</strong><small>已发布阶段</small></li>
+          <li class="current"><span>v1.6.0</span><strong>查询超时、取消与审计故障关闭</strong><small>当前正式版本</small></li>
           <li><span>下一阶段</span><strong>国产与商业数据库适配</strong></li>
           <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
           <li><span>后续方向</span><strong>高可用与集中管控</strong></li>

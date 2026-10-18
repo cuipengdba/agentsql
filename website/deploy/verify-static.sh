@@ -197,9 +197,9 @@ fi
 
 pdf_fail=0
 for pdf in \
-  assets/docs/agentsql-getting-started-v1.5.0.pdf \
-  assets/docs/agentsql-user-guide-v1.5.0.pdf \
-  assets/docs/agentsql-mcp-integrations-v1.5.0.pdf; do
+  assets/docs/agentsql-getting-started-v1.6.0.pdf \
+  assets/docs/agentsql-user-guide-v1.6.0.pdf \
+  assets/docs/agentsql-mcp-integrations-v1.6.0.pdf; do
   pdf_path="$SITE_ROOT/$pdf"
   if [[ ! -f $pdf_path ]]; then
     printf '      缺失 PDF: %s\n' "$pdf"
