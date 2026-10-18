@@ -75,8 +75,8 @@ function Cleanup {
 
 $script:agentContainer = 'kingbase-v9-agentsql-batch72'
 $script:agentDataVolume = 'kingbase-v9-batch72-agentsql-data'
-$script:licenseHelper = 'kingbase-v9-license-copy-b72'
-$script:licenseVolume = 'kingbase_v9_license_b72'
+$script:licenseHelper = if ($ContainerName -eq 'kingbase-v9-batch72') { 'kingbase-v9-license-copy-b72' } else { "${ContainerName}-license-copy" }
+$script:licenseVolume = if ($ContainerName -eq 'kingbase-v9-batch72') { 'kingbase_v9_license_b72' } else { 'kingbase_v9_license_' + ($ContainerName -replace '[^A-Za-z0-9_.-]', '_') }
 $script:LicenseHash = $null
 trap {
     Step ("FAIL: {0}" -f $_.Exception.Message)
