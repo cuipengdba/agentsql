@@ -1064,31 +1064,35 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
 			return model.Datasource{}, fmt.Errorf("HighGo TLS options have not been verified")
 		}
-		if input.DBType == "postgres" {
+		if input.DBType == "postgres" || input.DBType == string(model.DialectVastbase) {
+			databaseLabel := "PostgreSQL"
+			if input.DBType == string(model.DialectVastbase) {
+				databaseLabel = "Vastbase"
+			}
 			if input.TrustServerCertificate {
-				return model.Datasource{}, fmt.Errorf("PostgreSQL cannot trust an unverified server certificate")
+				return model.Datasource{}, fmt.Errorf("%s cannot trust an unverified server certificate", databaseLabel)
 			}
 			switch input.TLSMode {
 			case "":
 				if input.TLSServerName != "" || input.TLSCAFile != "" {
-					return model.Datasource{}, fmt.Errorf("PostgreSQL tls_mode is required with certificate options")
+					return model.Datasource{}, fmt.Errorf("%s tls_mode is required with certificate options", databaseLabel)
 				}
 			case "disable":
 				if input.TLSServerName != "" || input.TLSCAFile != "" {
-					return model.Datasource{}, fmt.Errorf("PostgreSQL disabled TLS cannot use certificate options")
+					return model.Datasource{}, fmt.Errorf("%s disabled TLS cannot use certificate options", databaseLabel)
 				}
 			case "verify-full":
 				if input.TLSCAFile == "" {
-					return model.Datasource{}, fmt.Errorf("PostgreSQL verify-full requires a CA file")
+					return model.Datasource{}, fmt.Errorf("%s verify-full requires a CA file", databaseLabel)
 				}
 				if !filepath.IsAbs(input.TLSCAFile) {
-					return model.Datasource{}, fmt.Errorf("PostgreSQL CA file path must be absolute")
+					return model.Datasource{}, fmt.Errorf("%s CA file path must be absolute", databaseLabel)
 				}
 			default:
-				return model.Datasource{}, fmt.Errorf("PostgreSQL tls_mode must be disable or verify-full")
+				return model.Datasource{}, fmt.Errorf("%s tls_mode must be disable or verify-full", databaseLabel)
 			}
 		}
-		if input.DBType != "postgres" && !model.IsNative(input.DBType) {
+		if input.DBType != "postgres" && input.DBType != string(model.DialectVastbase) && !model.IsNative(input.DBType) {
 			input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
 		}
 		input.TrustServerCertificate = false

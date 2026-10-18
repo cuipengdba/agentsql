@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.8.0]
+
+- Allow independent Vastbase G100 Build 9 PG-mode datasources to use `verify-full` with an absolute CA path and verified certificate hostname; reject missing or unsafe TLS options in the management API and guide new console configuration toward verified TLS.
+- Verify an isolated G100 V3.0 Build 9 instance using a read-only account, correct/wrong CA, wrong hostname, plaintext rejection, certificate and credential rotation, masked MCP allow/R010 deny, durable audit, MCP Inspector and Dify 1.17.1. The bounded single-table SELECT contract remains unchanged.
+- Document the measured `require_ssl=on` protocol 3.0 incompatibility and the tested `ssl=on` plus account-specific `hostnossl ... reject` deployment. Trial licensing, formal HA and production capacity remain unverified; see the [release notes](docs/release-notes-v1.8.0.md) and [acceptance record](docs/v1.8.0-acceptance.md).
+
 ## [v1.7.0]
 
 - Add explicit CA and hostname verification for PostgreSQL-wire datasources; verify the bounded KingbaseES V9R1C10 PG-mode path against a real TLS instance, including wrong-certificate rejection, certificate and credential rotation, masked MCP allow/deny, and durable audit. DM8 server-verified TLS and HA remain unverified.

@@ -27,6 +27,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v1.5.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.5.0)） | 达梦 DM8 Pack3、金仓 V9R1C10 PG 模式和 Vastbase G100 Build 9 PG 模式的指定实例深度验收；官网与公网 Demo 从 v1.0.0 直接更新至 v1.5.0。范围和未验证项见[验收记录](docs/v1.5.0-acceptance.md)。 |
 | v1.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.6.0)） | 对达梦、金仓与 Vastbase 指定实例补齐独立审计库故障、锁等待超时、客户端取消和恢复后的脱敏复验；见[验收记录](docs/v1.6.0-acceptance.md)。 |
 | v1.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v1.7.0)） | 金仓 V9R1C10 PG 模式指定实例的证书校验、证书及凭据轮换；瀚高 HighGo 9.0.10 PG 模式有界只读路径。达梦可验证 TLS 与正式主备切换仍未验证；见[正式发布验收](docs/v1.7.0-release-evidence.md)、[达梦与金仓验收](docs/v1.7.0-dm-kingbase-depth-acceptance.md)及[瀚高验收](docs/v1.7.0-acceptance.md)。 |
+| v1.8.0 | 开发中 | Vastbase G100 V3.0 Build 9 PG 模式指定实例的 `verify-full`、证书及凭据轮换与真实 MCP 客户端复验；临时许可不能替代正式许可和主备切换验收，边界见[设计说明](docs/v1.8.0-vastbase-design.md)。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
@@ -34,7 +35,6 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 
 | 版本 | 主要目标 | 发布前关键证据 |
 | --- | --- | --- |
-| v1.8.0 | Vastbase G100 的许可、TLS、HA、查询子集与部署深度 | 指定 Build、协议模式、证书错误路径、主备故障终态、最小权限与审计 |
 | v1.9.0 | Dify 与 MCP Inspector 的接入体验、策略解释和向导 | 两客户端真实允许/拒绝调用、首次接入与排障任务完成率 |
 | v2.0.0 | 多网关、Kubernetes、管理 API 与运维 | 双节点共享状态、故障转移、升级回滚、容量与审计一致性 |
 | v2.1.0 | 崖山 YashanDB 指定版本深化 | 原生驱动、许可、权限/执行/脱敏/审计与故障关闭的真库证据 |
