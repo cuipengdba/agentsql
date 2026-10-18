@@ -1,8 +1,8 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v1.6.0 的功能与操作。安装或拉取 v1.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v1.7.0 的功能与操作。安装或拉取 v1.7.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v1.6.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v1.6.0 发布说明](release-notes-v1.6.0.md)和[验收记录](v1.6.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v1.7.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v1.7.0 发布说明](release-notes-v1.7.0.md)和[验收记录](v1.7.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 ## 1. 总览 `/`
 
@@ -143,9 +143,9 @@ Agent 是调用 AgentSQL 的独立身份。
 | --- | --- |
 | `id` | 必填，创建后不可修改 |
 | `name` | 显示名称 |
-| `db_type` | `postgres` 或 `mysql` |
+| `db_type` | 从控制台已注册类型中选择；`highgo` 为 9.0.10 企业版 PG 模式限定只读类型 |
 | `host` | 数据库主机 |
-| `port` | 1–65535；PostgreSQL 默认 5432，MySQL 默认 3306 |
+| `port` | 1–65535；PostgreSQL 默认 5432，MySQL 默认 3306，HighGo 默认 5866 |
 | `database` | 数据库名 |
 | `username` | 运行账号 |
 | `password` | 新建必填；编辑留空保留原值；API 永不回显 |
@@ -154,6 +154,8 @@ Agent 是调用 AgentSQL 的独立身份。
 | `row_limit` | 默认 1000 |
 
 保存后用「测试连接」验证。MySQL 驱动关闭 multi-statements；AgentSQL 本身也只接受单条 SQL。
+
+选择 `highgo` 时，使用独立的最小 SELECT 权限账号。当前仅验证 9.0.10 企业版 PG 模式、单实例合成数据环境；连接逐次校验厂商版本、模式和只读事务状态，只接受显式 schema、单表直接列、非恒真 WHERE 与 LIMIT 的 SELECT。元数据发现可用，样本采集与 PostgreSQL B2/B5 能力均不开放；详见 [v1.7.0 验收记录](v1.7.0-acceptance.md)。
 
 > **TLS 边界：**当前没有 SSL mode、CA、客户端证书、连接超时或 DSN 附加参数字段，不能宣称可在控制台完成数据库链路 TLS 校验。远程链路需要由部署网络与受控代理另行保障。
 
@@ -199,7 +201,7 @@ Agent 是调用 AgentSQL 的独立身份。
 - 至少填写一列。
 - 动作只能是 `allow`。
 
-v1.0.0 起，有列策略的 SELECT 不再退回仅校验表名的路径。PostgreSQL 必须由已启用且可用的 B2 绑定器核对投影、谓词、JOIN 和自连接中的列引用；B2 不可用会在执行前失败关闭。MySQL、Vastbase 等没有等价列绑定证明的数据源不能依赖列策略。权限页会提示这一边界；离线预检只证明明确拒绝或未知，不代表真实执行许可。
+v1.0.0 起，有列策略的 SELECT 不再退回仅校验表名的路径。PostgreSQL 必须由已启用且可用的 B2 绑定器核对投影、谓词、JOIN 和自连接中的列引用；B2 不可用会在执行前失败关闭。HighGo、Vastbase 等没有等价列绑定证明的数据源不能依赖列策略；MySQL 仅在其独立受限 B2 子集启用后可用。权限页会提示这一边界；离线预检只证明明确拒绝或未知，不代表真实执行许可。
 
 ### `row_filter`
 
@@ -752,9 +754,9 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 - `range` 只对 `number` / `date` 开放并在结果层输出字符串；同桶值仍可关联，不承诺 k-匿名，也不减少数据库读取或限制数据库侧按原值过滤、关联和分组。
 - 审计是应用层记录，不是法规级 WORM，也不能防止 DBA 或其他高权限账号直连数据库。
 - PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束。
-- 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；达梦 DM8 Pack3、金仓 V9R1C10 PG 模式、Vastbase G100 Build 9 PG 模式在 v1.5.0 完成指定实例的真实客户端、权限撤销和断库恢复复验，v1.6.0 在相同范围内通过独立审计库故障、真实锁等待超时、客户端取消、数据库端终止和恢复后脱敏复验。范围见 [v1.6.0 验收记录](v1.6.0-acceptance.md)，不得视为完整方言支持或厂商认证。
+- 完整原生路径仍以 PostgreSQL 14–18 与 MySQL 8 为主。DM、Oracle、YashanDB 的独立最小 dialect，以及 OpenTenBase、PolarDB 等协议兼容路径均受严格边界约束；达梦 DM8 Pack3、金仓 V9R1C10 PG 模式、Vastbase G100 Build 9 PG 模式在 v1.5.0 完成指定实例的真实客户端、权限撤销和断库恢复复验，v1.6.0 在相同范围内通过独立审计库故障、真实锁等待超时、客户端取消、数据库端终止和恢复后脱敏复验。v1.7.0 的独立 HighGo 类型仅限 9.0.10 企业版 PG 模式有界 SELECT；范围见 [v1.7.0 验收记录](v1.7.0-acceptance.md)，不得视为完整方言支持或厂商认证。
 - v1.0.0 的 `/mcp/2026-07-28` 是独立无状态 HTTP 入口：每次 POST 都重新验证 Agent Key、由 Key 确定租户并与旧入口共用 Agent QPS；版本 Header、`Mcp-Method`、适用时的 `Mcp-Name` 必须与请求体匹配。旧 `/mcp` 与 stdio 继续服务旧协议；新入口没有 B5 跨请求逻辑会话或计划事务工具。客户端配置和请求示例见 [MCP 接入指南](INTEGRATIONS.md)。
-- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；v1.6.0 GHCR tag 须在公开发布并通过双架构 manifest 与匿名拉取验收后使用。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。法规级 WORM、SIEM、HA、Kubernetes、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。
+- v0.4.0 起提供 linux/arm64 原生 glibc 包（`aarch64` / `arm64`），并继续提供 linux/amd64 包（`x86_64` / `amd64`）；v1.7.0 GHCR tag 须在公开发布并通过双架构 manifest 与匿名拉取验收后使用。v0.5.0 已提供可选的 TOTP MFA、OIDC 和 LDAP/AD 人员认证；配置与限制见 [身份认证指南](AUTHENTICATION.md)。法规级 WORM、SIEM、HA、Kubernetes、musl / Alpine 或 CentOS 7 原生一键安装仍不支持，RBAC / 多租户能力仍是 MVP。
 ## 在线安装包升级预演（与 schema 检查不同）
 
 准备可信渠道提供的 HTTPS 清单，JSON 字段为 `version`、同源 HTTPS `url` 和下载内容的 `sha256`。当前仅支持版本检查和只读预演：

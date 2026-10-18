@@ -426,6 +426,7 @@ var dangerousFunctions = map[string]map[string]struct{}{
 	"dm":       {}, // The DM8 parser rejects function calls in its SELECT subset.
 	"yashan":   {}, // The Yashan parser rejects function calls in its SELECT subset.
 	"vastbase": {}, // The Vastbase PG-mode parser rejects all function calls.
+	"highgo":   {}, // The HighGo PG-mode parser rejects all function calls.
 }
 
 // 攻击场景：单个 Agent 以突发 QPS 或过高并发压垮数据库连接池。
@@ -634,6 +635,7 @@ func requiredAST(context engine.EvalContext) (*model.AST, error) {
 		context.AST.Dialect != model.DBDialect("sqlserver") &&
 		context.AST.Dialect != model.DialectDM &&
 		context.AST.Dialect != model.DialectVastbase &&
+		context.AST.Dialect != model.DialectHighGo &&
 		context.AST.Dialect != model.DialectYashan {
 		return nil, fmt.Errorf("unsupported dialect %q", context.AST.Dialect)
 	}

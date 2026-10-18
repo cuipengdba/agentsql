@@ -25,7 +25,7 @@ const nativeResponseBytes = 64 << 10
 // The registry currently has no enumeration API. Keep this key list checked
 // against TypeSpecFor so metadata continues to come from the model registry.
 var datasourceTypeKeys = []string{
-	"postgres", "vastbase", "mysql", "dm", "oracle", "yashan", "sqlserver",
+	"postgres", "vastbase", "highgo", "mysql", "dm", "oracle", "yashan", "sqlserver",
 	"redis", "valkey", "memcached", "mongodb", "couchbase", "couchdb",
 	"cassandra", "scylla", "hbase", "neo4j", "janusgraph", "nebula",
 	"influxdb", "prometheus", "timescaledb", "clickhouse", "doris", "starrocks",

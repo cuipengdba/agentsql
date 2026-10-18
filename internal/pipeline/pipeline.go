@@ -142,7 +142,7 @@ func (pipeline *Pipeline) process(
 		if datasource.ID != request.DatasourceID {
 			return fmt.Errorf("datasource reader returned ID %q for %q", datasource.ID, request.DatasourceID)
 		}
-		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "yashan" {
+		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "highgo" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "yashan" {
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
@@ -328,6 +328,10 @@ func (pipeline *Pipeline) process(
 			enabled = router.ColumnAuthorizationEnabled(*run.datasource)
 		}
 		if run.datasource.DBType == "mysql" && !hasB2ColumnPolicy(run.storedPolicies) {
+			enabled = false
+		}
+		if run.datasource.DBType == "vastbase" || run.datasource.DBType == "highgo" {
+			// PG wire compatibility does not grant the PostgreSQL B2 binder.
 			enabled = false
 		}
 		if enabled {

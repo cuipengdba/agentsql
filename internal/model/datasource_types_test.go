@@ -3,8 +3,8 @@ package model
 import "testing"
 
 func TestDatasourceRegistry(t *testing.T) {
-	if len(datasourceTypes) != 28 {
-		t.Fatalf("registered %d types, want 28", len(datasourceTypes))
+	if len(datasourceTypes) != 29 {
+		t.Fatalf("registered %d types, want 29", len(datasourceTypes))
 	}
 	for name, spec := range datasourceTypes {
 		if spec.DefaultPort < 1 || spec.DefaultPort > 65535 || spec.DisplayName == "" {
@@ -21,7 +21,7 @@ func TestDatasourceRegistry(t *testing.T) {
 			t.Errorf("incorrect native classification for %s", name)
 		}
 	}
-	for _, name := range []string{"postgres", "vastbase", "mysql", "dm", "oracle", "yashan", "sqlserver"} {
+	for _, name := range []string{"postgres", "vastbase", "highgo", "mysql", "dm", "oracle", "yashan", "sqlserver"} {
 		spec, ok := TypeSpecFor(name)
 		if !ok || spec.Category != CategoryRelational || !spec.RequiresDatabase || !spec.RequiresUsername || !spec.RequiresPassword {
 			t.Errorf("relational spec changed: %s", name)

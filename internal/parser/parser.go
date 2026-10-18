@@ -40,6 +40,8 @@ func NewParser(dialect model.DBDialect) (Parser, error) {
 		return &postgresParser{}, nil
 	case model.DialectVastbase:
 		return &vastbaseParser{}, nil
+	case model.DialectHighGo:
+		return &highgoParser{}, nil
 	case mysqlDialect:
 		return newMySQLParser()
 	case dmDialect, oracleDialect, sqlserverDialect:
