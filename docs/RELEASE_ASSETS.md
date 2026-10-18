@@ -1,5 +1,9 @@
 # AgentSQL Release 资产清单
 
+## v2.0.0 预期资产
+
+`scripts/release-dryrun.ps1` 定义正式版本恰好 15 项资产：Linux amd64/arm64 安装包与各自 SHA256 文件、SPDX SBOM 与签名、provenance 与签名、SHA256SUMS 与签名、公钥、安装器、Go 版本元数据、SBOM 生成说明和验签指南。全部资产必须来自同一个干净封版提交。上传后应从 GitHub 匿名回下载，核对字节数、SHA256、Ed25519 签名、源提交及双架构实际内容；v2.0.0 的结果记录在[正式发布证据](v2.0.0-release-evidence.md)。
+
 ## v1.2.0 预期资产
 
 15 项正式资产须来自 v1.2.0 同一干净封板提交：

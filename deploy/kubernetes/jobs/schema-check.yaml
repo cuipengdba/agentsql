@@ -1,0 +1,54 @@
+# Read-only schema preflight. Run this before a version change. It does not
+# execute DDL or use the migration owner's credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentsql-schema-check-v2-0-0
+  labels:
+    app.kubernetes.io/name: agentsql
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: schema-check
+          image: ghcr.io/cuipengdba/agentsql:v2.0.0
+          command:
+            - /usr/local/bin/agentsqlctl
+            - migrate
+            - --check
+            - --config
+            - /etc/agentsql/config.yaml
+          envFrom:
+            - secretRef:
+                name: agentsql-runtime
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentsql/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/agentsql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: agentsql-gateway-config
+        - name: state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

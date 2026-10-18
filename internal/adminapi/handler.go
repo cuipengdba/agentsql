@@ -253,6 +253,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("PUT /api/v1/policies/{id}", handler.policiesUpdate)
 	mux.HandleFunc("DELETE /api/v1/policies/{id}", handler.policiesDelete)
 	mux.HandleFunc("POST /api/v1/policies/{id}/bind-mysql", handler.policiesBindMySQL)
+	mux.HandleFunc("POST /api/v1/policies/{id}/bind-postgres", handler.policiesBindPostgres)
 	mux.HandleFunc("GET /api/v1/rules", handler.rulesList)
 	mux.HandleFunc("POST /api/v1/rules", handler.rulesCreate)
 	mux.HandleFunc("PUT /api/v1/rules/{id}", handler.rulesUpdate)

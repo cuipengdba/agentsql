@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agentsql
+  labels:
+    app.kubernetes.io/name: agentsql
+spec:
+  serviceName: agentsql-headless
+  replicas: 2
+  minReadySeconds: 10
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentsql
+  updateStrategy:
+    # B2 rejects two simultaneously active binary digests. Operators must
+    # drain both replicas and wait for their leases to expire before upgrade.
+    type: OnDelete
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentsql
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: agentsql
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: schema-check
+          image: ghcr.io/cuipengdba/agentsql:v2.0.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/agentsqlctl
+            - migrate
+            - --check
+            - --config
+            - /etc/agentsql/config.yaml
+          envFrom:
+            - secretRef:
+                name: agentsql-runtime
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentsql/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/agentsql
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: gateway
+          image: ghcr.io/cuipengdba/agentsql:v2.0.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve
+            - --config
+            - /etc/agentsql/config.yaml
+          ports:
+            - name: http
+              containerPort: 7780
+          envFrom:
+            - secretRef:
+                name: agentsql-runtime
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentsql/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/agentsql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: agentsql-gateway-config
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
