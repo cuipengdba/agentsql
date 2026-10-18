@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.6.0]
+
+- Close audit-store outage, database lock timeout, client cancellation, fail-closed result delivery and masked recovery paths on bounded DM8 Pack3, KingbaseES V9R1C10 PG mode and Vastbase G100 Build 9 PG mode instances.
+- Propagate cancellation through the stateless MCP endpoint, bound DM socket waits and expose distinct gateway readiness and datasource Ping states in the console.
+- Verify MCP Inspector and Dify SDK allow/deny/masking on all three instances, and recheck signed dual-architecture packages, v1.5.0 upgrade and backup restore, GHCR anonymous pulls, website and Live Demo before promoting `latest`.
+
+See the [v1.6.0 design](docs/v1.6.0-design.md), [release notes](docs/release-notes-v1.6.0.md) and [acceptance record](docs/v1.6.0-acceptance.md) for exact versions, evidence and remaining limits.
+
 ## [v1.5.0]
 
 - Deepen bounded live verification for DM8 Pack3, KingbaseES V9R1C10 PG mode and Vastbase G100 Build 9 PG mode: minimum privilege, masked allow, policy deny, durable audit, permission revocation and database outage/recovery.
