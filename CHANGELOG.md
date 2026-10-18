@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.9.0]
+
+- Add an onboarding flow for Dify 1.17.1 and MCP Inspector 0.16.8 with client-reachable gateway URLs and key-free connection instructions.
+- Reuse the selected Agent and datasource for connection and policy preflight; explain one SQL statement as an offline deny or unknown result, then link a real client audit ID to the audit console.
+- Expand connection and failure guidance without changing Agent identity, authorization, execution, masking, or audit contracts. Real-client and release acceptance are recorded separately in the [v1.9.0 acceptance record](docs/v1.9.0-acceptance.md).
+
 ## [v1.8.0]
 
 - Allow independent Vastbase G100 Build 9 PG-mode datasources to use `verify-full` with an absolute CA path and verified certificate hostname; reject missing or unsafe TLS options in the management API and guide new console configuration toward verified TLS.
