@@ -82,3 +82,30 @@ func TestDatasourceFromInputHighGoRejectsUnverifiedTLS(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "HighGo TLS")
 }
+
+func TestDatasourceFromInputVastbaseVerifiedTLS(t *testing.T) {
+	input := datasourceInput{
+		ID: "vastbase-g100", Name: "Vastbase G100 Build 9", DBType: "vastbase",
+		Host: "vastbase.internal.test", Database: "vastbase", Username: "reader",
+		TLSMode: "verify-full", TLSCAFile: "/etc/agentsql/certs/vastbase-ca.crt",
+		TLSServerName: "vastbase.internal.test",
+	}
+	datasource, err := datasourceFromInput(input)
+	require.NoError(t, err)
+	require.Equal(t, "verify-full", datasource.TLSMode)
+	require.Equal(t, input.TLSCAFile, datasource.TLSCAFile)
+	require.Equal(t, input.TLSServerName, datasource.TLSServerName)
+	require.False(t, datasource.TrustServerCertificate)
+
+	for _, change := range []func(*datasourceInput){
+		func(in *datasourceInput) { in.TLSCAFile = "" },
+		func(in *datasourceInput) { in.TLSCAFile = "relative.crt" },
+		func(in *datasourceInput) { in.TLSMode = "require" },
+		func(in *datasourceInput) { in.TrustServerCertificate = true },
+	} {
+		invalid := input
+		change(&invalid)
+		_, err := datasourceFromInput(invalid)
+		require.Error(t, err)
+	}
+}

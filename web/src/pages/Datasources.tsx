@@ -255,7 +255,7 @@ export function Datasources() {
               if (dbType === "sqlserver") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
-              } else if (dbType === "postgres") {
+              } else if (dbType === "postgres" || dbType === "vastbase") {
                 form.setFieldValue("tls_mode", "verify-full");
                 form.setFieldValue("trust_server_certificate", false);
               } else {
@@ -270,7 +270,7 @@ export function Datasources() {
           <Form.Item name="id" label="数据源 ID" rules={[{ required: true, whitespace: true }]}><Input disabled={Boolean(editing)} /></Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
           <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={groupedOptions} disabled={types.length === 0} /></Form.Item>
-          {selectedType === "vastbase" ? <Alert type="warning" showIcon message="Vastbase G100 Build 9 的 PG 模式已完成受限只读真库验证；仅允许明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。请使用只读数据库账号；其他版本和完整生产支持尚未验收。" /> : null}
+          {selectedType === "vastbase" ? <Alert type="warning" showIcon message="Vastbase G100 Build 9 的 PG 模式仅支持指定实例的受限只读路径：明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。启用 TLS 时请配置 CA 与主机名校验，并在服务端为只读账号拒绝明文连接；主备切换与完整生产支持尚未验收。" /> : null}
           {selectedType === "highgo" ? <Alert type="warning" showIcon message="瀚高 V9.0.10 企业版 PG 模式仅支持指定单实例的受限只读查询：明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。请使用最小权限只读账号；其他版本、模式和完整生产支持尚未验收。" /> : null}
           {selectedSpec?.kind === "nosql" ? <Alert type="info" showIcon message={`${categoryLabels[selectedSpec.category]} · 默认端口 ${selectedSpec.default_port} · 连接级/低阶支持（nosql-connect）`} /> : null}
           <div className="cfg-form-grid">
@@ -290,8 +290,8 @@ export function Datasources() {
               <Form.Item name="tls_ca_file" label="CA / 服务器证书文件（服务端路径，可选）"><Input /></Form.Item>
               {getFieldValue("tls_mode") === "verify-full" ?
                 <Form.Item name="trust_server_certificate" valuePropName="checked"><Checkbox>信任未验证证书（仅限受控开发环境）</Checkbox></Form.Item> : null}
-            </> : getFieldValue("db_type") === "postgres" ? <>
-              <Alert className="cfg-inline-alert" type="info" showIcon message="PostgreSQL 协议路径（含已验证的金仓 PG 模式）可显式启用证书和主机名校验；金仓其他模式与完整生产支持仍需单独验收。" />
+            </> : getFieldValue("db_type") === "postgres" || getFieldValue("db_type") === "vastbase" ? <>
+              <Alert className="cfg-inline-alert" type="info" showIcon message={getFieldValue("db_type") === "vastbase" ? "Vastbase G100 Build 9 PG 模式可在指定隔离实例使用 verify-full。该实例须启用 ssl 并通过账号访问规则拒绝明文；require_ssl=on 会拒绝当前 PG 驱动协议，不能用于这条适配路径。" : "PostgreSQL 协议路径（含已验证的金仓 PG 模式）可显式启用证书和主机名校验；金仓其他模式与完整生产支持仍需单独验收。"} />
               <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>
                 <Select options={[{ value: "verify-full", label: "verify-full（推荐，校验 CA 和主机名）" }, { value: "disable", label: "disable（仅限隔离测试）" }]} />
               </Form.Item>
