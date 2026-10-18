@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文说明 AgentSQL v1.5.0 的 MCP 接入。安装或拉取 v1.5.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v1.6.0 的 MCP 接入。安装或拉取 v1.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -51,6 +51,8 @@ curl -fsS -X POST http://127.0.0.1:7780/api/v1/auth/delegation-token \
 客户端每次请求都要发送 `Authorization: Bearer <Agent API Key>`、`MCP-Protocol-Version: 2026-07-28`、`Mcp-Method`、`Content-Type: application/json` 与 `Accept: application/json, text/event-stream`；调用工具时还要发送与 `params.name` 一致的 `Mcp-Name`。`params._meta` 必须包含同版 `io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`。客户端可先调用 `server/discover` 查询能力，也可直接调用工具；无需 `initialize` 或 `notifications/initialized`。该路径没有 MCP 传输会话、独立 GET 事件流、DELETE 关闭或 `Last-Event-ID` 重放；收到旧 `Mcp-Session-Id` 或 `Last-Event-ID` 请求头时忽略它们。连接断开后由客户端决定是否使用新的请求 ID 重试。详见 [MCP 2026-07-28 HTTP 规范](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) 和 [Go SDK 协议指南](https://github.com/modelcontextprotocol/go-sdk/blob/main/docs/protocol.md)。
 
 新路径对普通 Agent Key 注册下面列出的 8 个基础工具，**暂不提供 B5 跨请求逻辑会话和计划事务工具**。任务级临时只读 Key 只注册 `query`，并且查询仍须通过临时授权和原 Agent 权限。B5 的业务会话与 MCP 传输会话是不同概念；需要 B5 时继续使用旧 `/mcp` 或 stdio。`mcp.http.stateful` 只控制旧路径，不改变新路径的无状态语义。客户端不得把管理员 token 或自报租户头当作 Agent 身份。
+
+v1.6.0 起，这个无状态入口会把 HTTP 客户端断连传给执行中的只读查询；网关在交付结果前再次检查超时或取消状态。旧有状态 `/mcp` 继续按服务端语句超时终止请求，以保留 B5 会话回滚约束。若客户端断连后重试，应使用新的请求 ID，并按审计记录确认前一请求的终态；不要把断连视为查询已经成功。
 
 ```bash
 curl -fsS http://127.0.0.1:7780/mcp/2026-07-28 \
