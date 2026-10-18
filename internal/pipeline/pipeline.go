@@ -330,6 +330,10 @@ func (pipeline *Pipeline) process(
 		if run.datasource.DBType == "mysql" && !hasB2ColumnPolicy(run.storedPolicies) {
 			enabled = false
 		}
+		if run.datasource.DBType == "vastbase" || run.datasource.DBType == "highgo" {
+			// PG wire compatibility does not grant the PostgreSQL B2 binder.
+			enabled = false
+		}
 		if enabled {
 			if request.RequireApproval || mode == runModeApproved {
 				run.response.Decision = model.DecisionDeny
