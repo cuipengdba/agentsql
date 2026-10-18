@@ -209,7 +209,7 @@ func (handlers *toolHandlers) query(
 	}
 	datasource, response := handlers.authorizedDatasource(ctx, datasourceID)
 	if response != nil {
-		return *response
+		return handlers.auditDatasourcePreflightDenial(ctx, datasourceID, "query", *response)
 	}
 	ast, response := parseForTool(datasource.DBType, sql)
 	if response != nil {
@@ -239,7 +239,7 @@ func (handlers *toolHandlers) executeWrite(
 	}
 	datasource, response := handlers.authorizedDatasource(ctx, datasourceID)
 	if response != nil {
-		return *response
+		return handlers.auditDatasourcePreflightDenial(ctx, datasourceID, "execute_write", *response)
 	}
 	ast, response := parseForTool(datasource.DBType, sql)
 	if response != nil {
@@ -423,6 +423,37 @@ func (handlers *toolHandlers) authorizedDatasource(
 	}
 	denied := denyToolResponse("当前 Agent 无权访问该数据源", "请先调用 list_datasources，并仅使用返回的数据源 ID")
 	return model.Datasource{}, &denied
+}
+
+// auditDatasourcePreflightDenial records SQL-tool attempts rejected before the
+// pipeline can load a datasource. Do not persist the unparsed SQL: it may
+// contain credentials or literals and has not passed the normal SQL guards.
+func (handlers *toolHandlers) auditDatasourcePreflightDenial(
+	ctx context.Context,
+	datasourceID string,
+	tool string,
+	response ToolResponse,
+) ToolResponse {
+	if response.Decision != string(model.DecisionDeny) {
+		return response
+	}
+	agentID := handlers.agent.ID
+	action := "datasource_visibility_deny"
+	details := `{"phase":"mcp_datasource_preflight"}`
+	hits := `[]`
+	inserted, err := handlers.runtime.Store.AuditLogs().Insert(ctx, model.AuditLog{
+		AgentID: &agentID, DatasourceID: &datasourceID, MCPTool: &tool,
+		Decision: string(model.DecisionDeny), RuleHits: &hits,
+		Action: &action, DetailsJSON: &details,
+	})
+	if err != nil {
+		handlers.logger.Error().Str("tool", tool).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Msg("MCP datasource preflight audit failed")
+		return errorToolResponse("审计库不可用，已拒绝请求", "请稍后重试；若持续失败，请联系管理员")
+	}
+	response.Data = pipelineData{AuditID: inserted.ID}
+	return response
 }
 
 func parseForTool(dialect, sql string) (*model.AST, *ToolResponse) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.1.0] (unreleased)
+
+- Join the bounded YashanDB 23.4.1.109 read-only path with a real least-privilege database account, HTTP MCP, masking, policy denial and durable audit in one live regression.
+- Verify MCP Inspector 0.16.8 and Dify MCPClient 1.17.1 against the isolated instance. Rehearse database SELECT revocation, business database outage and independent PostgreSQL audit-store outage without delivering unmasked results.
+- Keep writes, transactions, EXPLAIN, unverified SQL forms, server-verified TLS, HA and complete production support outside this release's YashanDB claim. See the [candidate acceptance record](docs/v2.1.0-acceptance.md).
+
 ## [v2.0.0]
 
 - Add a fixed two-replica Kubernetes deployment for stateless read-only MCP traffic backed by shared PostgreSQL metadata and a separate audit database. Keep B5 transactions, stateful sessions and event replay disabled in this topology.

@@ -40,7 +40,7 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 - 🟢 **MySQL 8.0**：原生 `mysql` 路径；不继承 PostgreSQL B2/B5 证明。
 - 🔵 **Oracle 23ai**：独立 `oracle` 严格 SELECT 子集；不能据此推断企业版或完整 Oracle 方言已通过。
 - 🟢 **达梦 DM8**：Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。
-- 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` parser 与窄 SELECT 路径已接通；独立客户端真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏及三条测试审计，最小权限账号的数据库写入拒绝另经原生探针验证。HTTP/MCP、持久化审计及最小权限账号与流水线的组合未测；EXPLAIN、写入继续失败关闭。
+- 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` parser 与窄 SELECT 路径已接通；在 Linux x86_64、`COMPAT_VECTOR=yashan` 和独立 C 客户端 23.4.7.100 上，最小权限账号经真实 HTTP MCP 完成允许、R010 拒绝、手机号脱敏和持久审计，MCP Inspector/Dify 各完成允许与拒绝。数据库 SELECT 撤权、业务库断线及独立审计库停机均验证无原始行交付。仅为指定实例及合成数据的受控只读子集；TLS、取消/超时、主备、写入、事务和 EXPLAIN 未验证或关闭，见 [v2.1.0 候选验收](docs/v2.1.0-acceptance.md)。
 - 🔵 **SQL Server 2025（17.x）**：独立 `sqlserver` 严格只读子集；不提供完整 T-SQL、写入、B2/B5 或厂商认证。
 - 🟢 **金仓 KingbaseES V9（PG 模式、单实例）**：仅 V9R1C10 合成表的 PG 协议基础闭环；可写 license 卷下启动成功，ksql CRUD/分页/标识符、宿主机 pgx/v5 `$1` 参数绑定 + SCRAM、只读角色拒写 `42501`、AgentSQL 受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计链路实测通过；复用 `db_type=postgres`。见[真库验证记录](docs/kingbase-v9-verification.md)。
 
@@ -88,7 +88,7 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 - **TiDB 7.5.1 / OceanBase CE 4.4.2.1**：MySQL 兼容候选，EXPLAIN 适配与回归 fixture 已落地；fixture 不是目标环境完整闭环或厂商认证。
 - **PolarDB-X**：旧官方 `2.0.1` 单容器经 `mysql` 路径有界实测；完整 CN/DN/CDC、商业服务、分布式语义及 B2/B5 未证明。
 
-> **YashanDB 客户端再分发授权：**既有记录为厂家口头授权（C 客户端再分发），仓库无书面授权文件。v0.5.1 的 Linux 发行包与 GHCR 镜像已使用独立客户端 23.4.7.100；v0.7.0 正式资产须逐架构核对客户端内容与 SHA-256，结果以 GitHub Release 证据为准。服务器镜像自带库在既有 Go 驱动真库探针中返回 `YAS-02143`；独立客户端 23.4.7.100 通过既有原生驱动和真实数据库流水线测试。自行从源码构建时应取得匹配架构的独立客户端，在启动前设置 `LD_LIBRARY_PATH`，并以 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动；缺驱动或运行库时连接失败关闭。上述流水线测试未覆盖 HTTP/MCP 接口或持久化审计库。
+> **YashanDB 客户端再分发授权：**既有记录为厂家口头授权（C 客户端再分发），仓库无书面授权文件。正式 Linux 包与 GHCR 镜像须逐架构核对独立客户端 23.4.7.100 的内容与 SHA-256，结果以对应 Release 证据为准。服务器镜像自带库在早期 Go 驱动探针中返回 `YAS-02143`；本轮使用独立客户端通过真实 HTTP MCP 与持久审计测试。自行从源码构建时应取得匹配架构的客户端，在启动前设置 `LD_LIBRARY_PATH`，并以 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动；缺驱动或运行库时连接失败关闭。候选版补齐已认证 SQL 工具的数据源可见性预检拒绝审计，未解析 SQL 不写入该记录；验收边界见对应文档。
 
 接入状态的可复现证据见[兼容性调研](docs/ecosystem-db-compat-research.md)、[v0.5 发布说明](docs/release-notes-v0.5.md)和[金仓/瀚高联合案例](docs/joint-case-kingbase-highgo.md)。产品线区分参见腾讯官方的 [TDSQL PostgreSQL 版](https://cloud.tencent.com/document/product/1129)、[TDSQL MySQL 版](https://cloud.tencent.com/product/dcdb)以及 OpenTenBase 的[独立 TXSQL 下载入口](https://docs.opentenbase.org/en/download/)；协议相容不等于安全语义相同。
 

@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Version v2.0.0](https://img.shields.io/badge/Version-v2.0.0-blue)
+![Version v2.1.0](https://img.shields.io/badge/Version-v2.1.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -15,7 +15,9 @@ v0.6.0 加入治理控制台、审批单次执行和 Vastbase G100 的受限只�
 
 v1.5.0 对达梦、金仓和 Vastbase 的指定实例深入验证真实 MCP 客户端、权限撤销、断库恢复及审计。v1.6.0 在相同指定实例和受控只读子集内补齐故障关闭。v1.7.0 为瀚高 9.0.10 企业版 PG 模式增加独立 `highgo` 类型及有界只读路径，并为金仓 V9R1C10 PG 模式补充证书校验与凭据轮换。v1.8.0 在指定 Vastbase G100 Build 9 PG 模式实例验证 `verify-full`、证书和账号轮换、MCP 双客户端、脱敏与审计；主备高可用和完整生产支持仍未验收，见[发布说明](docs/release-notes-v1.8.0.md)。v1.9.0 增加 Dify / MCP Inspector 接入说明、复用 Agent 与数据源的目标 SQL 离线解释及真实调用审计定位；见[发布说明](docs/release-notes-v1.9.0.md)。v2.0.0 增加固定双网关 Kubernetes 配置和 PostgreSQL 单表列策略正式登记 API，见[发布说明](docs/release-notes-v2.0.0.md)及[双网关操作指南](deploy/kubernetes/README.md)。
 
-**验证范围：**v1.0.0 的列策略、人员委托及真实客户端结果见[验收记录](docs/v1.0-acceptance.md)；v1.1.0 的审批与 B5 双身份结果见[验收记录](docs/v1.1.0-acceptance.md)；v1.2.0 的 OAuth 互通结果见[验收记录](docs/v1.2.0-acceptance.md)；v1.3.0 的 MySQL 列授权边界见[验收记录](docs/v1.3.0-acceptance.md)；v1.4.0 的共享登录预算与双节点恢复见[验收记录](docs/v1.4.0-acceptance.md)；v1.5.0 的三款国产数据库指定子集深度验证见[验收记录](docs/v1.5.0-acceptance.md)；v1.6.0 的故障关闭与恢复证据见[验收记录](docs/v1.6.0-acceptance.md)；v1.7.0 的瀚高和金仓证据见[正式发布验收](docs/v1.7.0-release-evidence.md)；v1.8.0 的 Vastbase TLS 范围见[本版验收](docs/v1.8.0-acceptance.md)；v1.9.0 接入向导改进见[本版验收](docs/v1.9.0-acceptance.md)；v2.0.0 双网关与管理端列登记见[本版验收](docs/v2.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.0.0)、签名及镜像匿名拉取验收为准。
+v2.1.0 在 YashanDB 23.4.1.109 指定实例、独立客户端 23.4.7.100 和受限只读 SQL 子集内，验证最小权限账号的真实 HTTP MCP、R010、脱敏、独立持久审计、MCP Inspector/Dify 以及断库恢复；并补齐已认证 SQL 工具的数据源可见性预检拒绝审计。其他崖山版本、TLS、主备和完整生产支持未验证，见[发布说明](docs/release-notes-v2.1.0.md)与[候选验收](docs/v2.1.0-acceptance.md)。
+
+**验证范围：**v1.0.0 的列策略、人员委托及真实客户端结果见[验收记录](docs/v1.0-acceptance.md)；v1.1.0 的审批与 B5 双身份结果见[验收记录](docs/v1.1.0-acceptance.md)；v1.2.0 的 OAuth 互通结果见[验收记录](docs/v1.2.0-acceptance.md)；v1.3.0 的 MySQL 列授权边界见[验收记录](docs/v1.3.0-acceptance.md)；v1.4.0 的共享登录预算与双节点恢复见[验收记录](docs/v1.4.0-acceptance.md)；v1.5.0 的三款国产数据库指定子集深度验证见[验收记录](docs/v1.5.0-acceptance.md)；v1.6.0 的故障关闭与恢复证据见[验收记录](docs/v1.6.0-acceptance.md)；v1.7.0 的瀚高和金仓证据见[正式发布验收](docs/v1.7.0-release-evidence.md)；v1.8.0 的 Vastbase TLS 范围见[本版验收](docs/v1.8.0-acceptance.md)；v1.9.0 接入向导改进见[本版验收](docs/v1.9.0-acceptance.md)；v2.0.0 双网关与管理端列登记见[本版验收](docs/v2.0.0-acceptance.md)；v2.1.0 崖山指定实例和入口拒绝审计见[本版验收](docs/v2.1.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.1.0)、签名及镜像匿名拉取验收为准。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -39,6 +41,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - v1.3.0 MySQL 列授权：显式开启后，MySQL 8.0/8.4 指定 InnoDB 基表的受限单表 SELECT 使用独立只读业务账号与 PROCESS-only 元数据账号、表 ID 和 metadata lock 证明列权限；不扩大为所有 MySQL SELECT。
 - v1.4.0 多网关登录预算：PostgreSQL metadata 部署对密码和 LDAP 登录使用共享的 60 秒 10 次预算；数据库故障返回 503，预算耗尽返回 429，SQLite 单实例仍使用本地预算。
 - v2.0.0 固定双网关部署：两个 Kubernetes 网关共享 PostgreSQL metadata 与独立审计库，分开保存 B2 实例标识；无状态 MCP 只读请求通过 Service 转发，升级与回退需维护窗口。管理端可对 PostgreSQL 闭合绑定模式的单张普通表登记列策略。公开 Live Demo 仍采用单网关合成数据环境。
+- v2.1.0 崖山指定实例深度验证：临时最小权限账号在真实 MCP 中完成窄 SELECT、R010、手机号脱敏及持久审计；数据库权限撤销、业务库和独立审计库断线均按无原始结果交付验收。已认证的 SQL 工具对不可见数据源的预检拒绝也会记录无原始 SQL 的审计。
 
 ## 生态与兼容
 
@@ -56,7 +59,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 | TDSQL for PostgreSQL | 待目标环境验证 | PG 协议候选；商业版未实测，不能用 OpenTenBase 结果替代 |
 | TDSQL for MySQL | 待目标环境验证 | MySQL 协议候选；商业版未实测，不与 TDSQL for PostgreSQL 混同 |
 | OpenTenBase | 适配中 | 执行计划兼容修复实现中 |
-| 崖山数据库 YashanDB | 🔵 受控只读 | 标准 parser 与窄 SELECT 路径已接通；独立客户端 23.4.7.100 的真库流水线测试通过 SELECT、列血缘、R010、手机号脱敏和三条测试审计；HTTP/MCP 与持久化审计未测 |
+| 崖山数据库 YashanDB | 🔵 指定版本受控只读 | 23.4.1.109、`COMPAT_VECTOR=yashan`、独立客户端 23.4.7.100：最小权限账号经 HTTP MCP 完成受限 SELECT、R010、手机号脱敏、双客户端和独立持久审计；权限与故障关闭见[v2.1.0 验收](docs/v2.1.0-acceptance.md)。TLS、取消/超时、主备与完整生产支持未验证 |
 | 达梦数据库 DM | 🟢 指定实例防护链路实测通过 | DM8 Pack3、`COMPATIBLE_MODE=0`：v0.7.0 有界真库复验了 HTTP MCP 查询、列血缘、R010 表策略、手机号脱敏和持久化审计；R006 注释在解析阶段失败关闭，多行分页/JOIN/函数/系统目录未测，写入未放开 |
 | PolarDB for PostgreSQL | 协议路径已实测 | 指定 PG 15 社区镜像复用 `db_type=postgres`；非商业服务认证 |
 | PolarDB-X | 旧官方镜像有界实测 | `2.0.1` 单容器复用 `db_type=mysql`，两阶段 EXPLAIN 已适配；当前完整拓扑与商业服务待终验 |
@@ -67,7 +70,7 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 
 > **HighGo 支持边界：**仅限上述 9.0.10 企业版、PG 模式、单实例合成表的明确 schema、非恒真 WHERE、LIMIT 单表 SELECT。TLS、连接池故障切换、扩展类型/OID、其他模式及版本、生产负载、B2/B5 未验证；不代表厂商认证或完整生产支持。
 
-> **崖山客户端授权与运行：**已获厂家口头授权（C 客户端再分发），仓库无书面授权文件。v0.5.1 的 Linux 发行包与 GHCR 镜像构建使用独立客户端 23.4.7.100，并校验匹配架构的 SHA-256；正式资产须通过双架构内容与运行库检查后发布。自行从源码构建时需取得同版客户端、启用 `yashan` 构建标签并配置 `LD_LIBRARY_PATH`；缺少驱动或运行库时明确失败关闭。既有真库验证限于独立客户端的参数绑定、只读 SELECT、写入拒绝及指定流水线场景，详见 [YashanDB 驱动说明](docs/yashan-dialect.md#batch-71-integration)。
+> **崖山客户端授权与运行：**已获厂家口头授权（C 客户端再分发），仓库无书面授权文件。v0.5.1 的 Linux 发行包与 GHCR 镜像构建使用独立客户端 23.4.7.100，并校验匹配架构的 SHA-256；正式资产须通过双架构内容与运行库检查后发布。自行从源码构建时需取得同版客户端、启用 `yashan` 构建标签并配置 `LD_LIBRARY_PATH`；缺少驱动或运行库时明确失败关闭。v2.1.0 指定实例的真实 MCP 与故障注入证据见 [YashanDB 驱动说明](docs/yashan-dialect.md#v210-指定实例-http-mcp-候选验收)和[验收记录](docs/v2.1.0-acceptance.md)。
 
 首批金仓 + 瀚高的证据边界、复现 SQL 与待厂商项见[联合案例验证记录](docs/joint-case-kingbase-highgo.md)；公众号与技术群文案见[社区运营口径](docs/joint-case-operations.md)。
 
@@ -80,17 +83,17 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 v0.4.0 起提供 `linux/amd64` 与 `linux/arm64` 两种原生 glibc 包：`uname -m` 为 `x86_64` / `amd64` 时使用 amd64 包，为 `aarch64` / `arm64` 时使用 arm64 包。两者均要求 glibc 2.28+ 且 systemd 为 PID 1；安装器会自动选择本机架构、校验发布包外层与包内哈希，并安装为 systemd 服务。musl / Alpine 与 CentOS 7 仍不支持：
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v2.0.0/install.sh | sudo sh -s -- install --version v2.0.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v2.1.0/install.sh | sudo sh -s -- install --version v2.1.0
 ```
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v2.0.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v2.1.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v2.0.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v2.0.0-linux-amd64.tar.gz
-cd agentsql-v2.0.0-linux-amd64
+sha256sum -c agentsql-v2.1.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v2.1.0-linux-amd64.tar.gz
+cd agentsql-v2.1.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -99,20 +102,20 @@ sudo ./install.sh install
 脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag；该 tag 是 `linux/amd64` + `linux/arm64` 多架构镜像，Docker 会自动匹配运行架构。脚本生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v2.0.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v2.0.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v2.1.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v2.1.0
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v2.0.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v2.1.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v2.0.0
+docker pull ghcr.io/cuipengdba/agentsql:v2.1.0
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v2.0.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v2.1.0
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -121,7 +124,7 @@ docker run -d --name agentsql --restart unless-stopped --security-opt no-new-pri
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v2.0.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v2.1.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -164,7 +167,7 @@ docker compose --profile observability up -d --build
 以下源码构建示例仅生成本机可执行文件。自行构建的文件没有经过正式发布资产的签名与分发验收：
 
 ```bash
-make build VERSION=v2.0.0
+make build VERSION=v2.1.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -269,7 +272,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v2.0.0 代码的注册表覆盖 **8 大类、29 款数据库**（8 款关系型 + 21 款 NoSQL / 向量）。瀚高 HighGo 已作为独立的限定只读类型计入；金仓 KingbaseES V9 另列为指定实例 PG 协议路径，不计入 29 款；分类表共 30 行。🟢 表示解析、授权、受控执行、脱敏、审计链路在所述范围通过；🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。指定实例闭环不代表完整生产支持。
+v2.1.0 代码的注册表覆盖 **8 大类、29 款数据库**（8 款关系型 + 21 款 NoSQL / 向量）。瀚高 HighGo 已作为独立的限定只读类型计入；金仓 KingbaseES V9 另列为指定实例 PG 协议路径，不计入 29 款；分类表共 30 行。🟢 表示解析、授权、受控执行、脱敏、审计链路在所述范围通过；🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。指定实例闭环不代表完整生产支持。
 
 | 类别 | 数据库 | 适配状态 | 边界说明 |
 | --- | --- | --- | --- |
@@ -277,7 +280,7 @@ v2.0.0 代码的注册表覆盖 **8 大类、29 款数据库**（8 款关系型 
 |  | MySQL 8.0 | 🟢 已适配 · 完整防护 | 全链路实测通过 |
 |  | Oracle 23ai | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
 |  | 达梦 DM8 | 🟢 指定场景闭环 | Pack3、COMPATIBLE_MODE=0：v1.5.0 完成客户端与权限撤销；v1.6.0 补齐审计故障、锁等待超时、取消与恢复复验；见[验收记录](docs/v1.6.0-acceptance.md) |
-|  | 崖山 YashanDB | 🔵 已适配 · 受控只读 | 标准 parser 接通，真库流水线通过 |
+|  | 崖山 YashanDB | 🔵 已适配 · 指定版本受控只读 | 23.4.1.109 指定实例的最小权限 HTTP MCP、R010、脱敏、持久审计和故障关闭通过；其他版本及生产拓扑未验证 |
 |  | SQL Server 2025 | 🔵 已适配 · 受控只读 | 连接 / 元数据 / 只读查询子集 |
 |  | Vastbase G100 | 🔵 指定版本受控只读 | V3.0 Build 9 PG 模式的有界 SELECT、表授权、脱敏、持久审计、客户端、权限撤销与停库恢复实测；v1.6.0 补齐故障关闭复验，v1.8.0 验证 `verify-full`、证书及凭据轮换和双客户端真调用；正式主备、其他 Build 与生产负载未测，见[验收记录](docs/v1.8.0-acceptance.md)。 |
 |  | 瀚高 HighGo | 🔵 指定版本受控只读 | 独立 `highgo` 类型：9.0.10 企业版 PG 模式、单实例合成表的有界 SELECT、客户端、权限撤销、审计与故障关闭；见[验收记录](docs/v1.7.0-acceptance.md) |
@@ -304,7 +307,7 @@ v2.0.0 代码的注册表覆盖 **8 大类、29 款数据库**（8 款关系型 
 |  | Qdrant | 🔷 已适配 · 连接级 | 同口径 |
 |  | Weaviate | 🔷 已适配 · 连接级 | 同口径 |
 
-NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM8、金仓、Vastbase 的指定实例在 v1.5.0 通过受控只读查询、真实 MCP 客户端、权限撤销、断库恢复、脱敏和持久审计；v1.6.0 在同一范围通过独立审计库故障、锁等待超时、客户端取消、数据库端终止及恢复复验，仍不声明完整生产支持。DM8 的 R006、多行分页、JOIN、函数和系统目录未验证，写入未放开。Oracle 仍限于既有有界证据。YashanDB 真库流水线测试已通过 SELECT、列血缘、R010、表列定向手机号脱敏及三条测试审计；该测试的认证、策略、审计存储端口为测试夹具，HTTP/MCP、持久化审计和最小权限账号与流水线的组合未测，见 [DM/Oracle 方言边界](docs/dm-oracle-dialect.md)及 [YashanDB 方言边界](docs/yashan-dialect.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
+NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查询、检索或服务端安全能力。21 款注册类型、默认端口及 HBase/Couchbase 的实际连接端口边界见 [NoSQL 支持范围](docs/nosql-support.md)。DM8、金仓、Vastbase 的指定实例在 v1.5.0 通过受控只读查询、真实 MCP 客户端、权限撤销、断库恢复、脱敏和持久审计；v1.6.0 在同一范围通过独立审计库故障、锁等待超时、客户端取消、数据库端终止及恢复复验，仍不声明完整生产支持。DM8 的 R006、多行分页、JOIN、函数和系统目录未验证，写入未放开。Oracle 仍限于既有有界证据。YashanDB 在 v2.1.0 指定实例中，使用真实最小权限账号、HTTP MCP 与独立持久审计库完成窄 SELECT、R010、手机号脱敏、双客户端、权限撤销和故障关闭；写入、事务、EXPLAIN、TLS、主备及完整生产支持仍未验证，见 [YashanDB 方言边界](docs/yashan-dialect.md)和[本版验收](docs/v2.1.0-acceptance.md)。所有实测仅基于指定容器镜像与合成用例，**并非数据库厂商官方认证**；协议兼容不等于安全语义相同。所有数据库请求须经 AgentSQL 网关，并使用专用最小权限账号；解析、授权或能力事实不明时一律 fail-closed。详情见 [SECURITY.md](SECURITY.md)。
 
 控制面存储另计：SQLite 默认零配置，可 combined 存储；PostgreSQL 15+ 可 combined 或独立 metadata / audit 库（PG18 为基准）。使用 `agentsqlctl migrate-sqlite-to-postgres` 可从 SQLite 迁至单库或独立双库。
 
@@ -357,7 +360,7 @@ NoSQL / 向量目前是连接级、低阶支持；只读预览不代表完整查
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v2.0.0
+make build VERSION=v2.1.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

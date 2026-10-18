@@ -40,6 +40,38 @@ func TestHandlersListAuthorizedDatasourcesWithoutCredentials(t *testing.T) {
 	require.NotContains(t, string(encoded), "PasswordEnc")
 }
 
+func TestHandlersAuditDatasourceVisibilityDenials(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	ctx := context.Background()
+	require.NoError(t, fixture.runtime.Store.Policies().Delete(ctx, "table"))
+	query := "SELECT phone FROM public.customers LIMIT 1"
+	known := fixture.handlers.query(ctx, "ds-allowed", query)
+	unknown := fixture.handlers.query(ctx, "ds-not-present", query)
+	write := fixture.handlers.executeWrite(ctx, "ds-hidden", "UPDATE public.customers SET phone='x'", "visibility check")
+	for _, response := range []ToolResponse{known, unknown, write} {
+		require.Equal(t, "deny", response.Decision)
+		require.Positive(t, response.Data.(pipelineData).AuditID)
+	}
+	require.Equal(t, known.Reason, unknown.Reason)
+	require.Zero(t, fixture.provider.calls())
+	page, err := fixture.runtime.Store.AuditLogs().Page(ctx, 1, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), page.Total)
+	for _, event := range page.List {
+		require.Equal(t, "deny", event.Decision)
+		require.Nil(t, event.SQLRaw)
+		require.Equal(t, "datasource_visibility_deny", *event.Action)
+		require.Equal(t, fixture.agent.ID, *event.AgentID)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	failedAudit := fixture.handlers.auditDatasourcePreflightDenial(
+		canceled, "ds-hidden", "query", denyToolResponse("denied", "retry"),
+	)
+	require.Equal(t, "error", failedAudit.Decision)
+	require.Nil(t, failedAudit.Data)
+}
+
 func TestHandlersListSchemaFiltersColumnsAndRejectsIdentifiers(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	columnsAllowed := "id,phone"
@@ -421,17 +453,25 @@ func TestHandlersAreRaceSafe(t *testing.T) {
 }
 
 type mcpFixture struct {
-	runtime   *bootstrap.Runtime
-	handlers  *toolHandlers
-	agent     model.Agent
-	executor  *mcpSpyExecutor
-	provider  *mcpExecutorProvider
-	redactors *staticRedactorBuilder
+	runtime      *bootstrap.Runtime
+	databasePath string
+	handlers     *toolHandlers
+	agent        model.Agent
+	executor     *mcpSpyExecutor
+	provider     *mcpExecutorProvider
+	redactors    *staticRedactorBuilder
 }
 
 func newMCPFixture(t *testing.T, level string) *mcpFixture {
+	return newMCPFixtureWithOpener(t, level, func(path string) (*store.Store, error) {
+		return store.OpenWithSecret(context.Background(), path, mcpTestSecret)
+	})
+}
+
+func newMCPFixtureWithOpener(t *testing.T, level string, open func(string) (*store.Store, error)) *mcpFixture {
 	t.Helper()
-	metadataStore, err := store.OpenWithSecret(context.Background(), filepath.Join(t.TempDir(), "agentsql.db"), mcpTestSecret)
+	databasePath := filepath.Join(t.TempDir(), "agentsql.db")
+	metadataStore, err := open(databasePath)
 	require.NoError(t, err)
 	plaintext, hash, err := store.GenerateAPIKey()
 	require.NoError(t, err)
@@ -529,7 +569,7 @@ func newMCPFixture(t *testing.T, level string) *mcpFixture {
 			return columns, nil
 		},
 	}
-	return &mcpFixture{runtime: runtime, handlers: handlers, agent: agent, executor: spy, provider: provider, redactors: redactors}
+	return &mcpFixture{runtime: runtime, databasePath: databasePath, handlers: handlers, agent: agent, executor: spy, provider: provider, redactors: redactors}
 }
 
 type staticRedactorBuilder struct{ redactor mask.Redactor }

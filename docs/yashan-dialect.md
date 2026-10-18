@@ -305,3 +305,9 @@ fixed sanitized transcript path is
 `C:\Users\Administrator\AppData\Local\Temp\agentsql-yashan-b71-verify.log`.
 The detailed current results and untested cases are in
 [the batch 71 verification report](yashan-verification-b71.md).
+
+## v2.1.0 指定实例 HTTP MCP 候选验收
+
+在上述 23.4.1.109 x86_64 实例和独立客户端 23.4.7.100 上，`TestYashanHTTPMCPRealE2E` 使用临时只读账号作为 AgentSQL 数据源，而不再以 SYS 作为业务连接。它经新版 HTTP MCP 的 Go SDK 验证单表 SELECT、R010、手机号脱敏、越界 SQL 拒绝、策略及数据库 SELECT 权限撤销/恢复，并重连读取持久审计。MCP Inspector 0.16.8 与 Dify 1.17.1 则经现有 `/mcp` 入口各完成 allow/deny 真调用。独立 PostgreSQL 审计库停机、崖山业务库断线及恢复也分别通过无原始结果交付的故障注入。详见 [v2.1.0 候选验收](v2.1.0-acceptance.md)。
+
+这仍是指定版本、模式、合成数据和受限只读 SQL 子集的证据。书面再分发授权、厂商认证、服务端 TLS、客户端取消/超时、主备切换、其他平台服务端及持续负载尚未取得证据。候选补丁还会对已认证 Agent 的 SQL 工具记录数据源可见性预检拒绝；该审计不保存未经解析的 SQL，须以本版重跑结果为准。
