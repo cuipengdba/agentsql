@@ -196,6 +196,12 @@ func TestPostgresClassificationPriorityAndCancellation(t *testing.T) {
 		requireDBError(t, err, DBErrorKindTimeout, DBErrorCodeTimeout, DBStageQuery)
 		require.ErrorIs(t, err, ErrQueryTimeout)
 	})
+	t.Run("57014 server statement timeout", func(t *testing.T) {
+		err := postgresDatabaseError(context.Background(), DBStageQuery, "query", &pgconn.PgError{
+			Code: "57014", Message: "canceling statement due to statement timeout",
+		})
+		requireDBError(t, err, DBErrorKindTimeout, DBErrorCodeTimeout, DBStageQuery)
+	})
 	t.Run("57014 explicit cancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()

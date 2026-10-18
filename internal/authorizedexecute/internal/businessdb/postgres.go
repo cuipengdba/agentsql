@@ -279,6 +279,11 @@ func (executor *PostgresExecutor) queryWithRunner(
 	if err != nil {
 		return model.QueryResult{}, postgresDatabaseError(timedContext, DBStageReadRows, "read PostgreSQL query result", err)
 	}
+	// A driver may finish iteration without surfacing a concurrent cancellation.
+	// Never pass a partially read result to the masking and audit pipeline.
+	if err := timedContext.Err(); err != nil {
+		return model.QueryResult{}, postgresDatabaseError(timedContext, DBStageReadRows, "read PostgreSQL query result", err)
+	}
 	result.LatencyMS = time.Since(started).Milliseconds()
 	return result, nil
 }
@@ -799,6 +804,13 @@ func classifyPostgresError(ctx context.Context, stage DBStage, cause error) (err
 
 	var postgresError *pgconn.PgError
 	if errors.As(cause, &postgresError) {
+		// SQLSTATE 57014 also covers explicit cancellation. PostgreSQL and
+		// compatible vendors identify a server-enforced statement timeout by
+		// this fixed message; do not treat every 57014 as a timeout.
+		if postgresError.Code == "57014" &&
+			postgresError.Message == "canceling statement due to statement timeout" {
+			return newDBError(DBErrorKindTimeout, DBErrorCodeTimeout, stage, postgresError.Code, ErrQueryTimeout), true
+		}
 		// The native binder deliberately uses a fixed SQLSTATE/message pair for
 		// this authorization precondition. Match both values exactly: 0A000 is
 		// otherwise a broad PostgreSQL feature-not-supported class and must keep

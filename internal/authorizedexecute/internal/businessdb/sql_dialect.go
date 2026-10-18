@@ -100,7 +100,14 @@ func newLimitedSQLExecutorWithDialect(
 		)
 	}
 	database.SetMaxOpenConns(connectionLimit)
-	database.SetMaxIdleConns(connectionLimit)
+	// DM's driver waits for a synchronous rollback before closing a canceled
+	// query. A fresh physical connection per request keeps its DialContext tied
+	// to that request so dmDeadlineConn can close the socket immediately.
+	if dialect == "dm" {
+		database.SetMaxIdleConns(0)
+	} else {
+		database.SetMaxIdleConns(connectionLimit)
+	}
 	database.SetConnMaxLifetime(mysqlConnectionMaxLifetime)
 	executor := &limitedSQLExecutor{
 		database:   database,
@@ -344,6 +351,10 @@ func (executor *limitedSQLExecutor) queryWithRunner(
 	}
 	result, err := collectRows(&mysqlRowSource{rows: rows}, rowLimit)
 	if err != nil {
+		return model.QueryResult{}, executor.databaseError(timedContext, DBStageReadRows, err)
+	}
+	// Do not trust an empty Rows.Err when the request expired during iteration.
+	if err := timedContext.Err(); err != nil {
 		return model.QueryResult{}, executor.databaseError(timedContext, DBStageReadRows, err)
 	}
 	result.LatencyMS = time.Since(started).Milliseconds()

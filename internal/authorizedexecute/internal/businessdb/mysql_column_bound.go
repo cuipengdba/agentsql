@@ -149,6 +149,9 @@ func (prepared *PreparedMySQLColumnSelect) Execute(ctx context.Context, rowLimit
 	if err != nil {
 		return model.QueryResult{}, mysqlDatabaseError(timed, DBStageReadRows, "read MySQL bound SELECT", err)
 	}
+	if err := timed.Err(); err != nil {
+		return model.QueryResult{}, mysqlDatabaseError(timed, DBStageReadRows, "read MySQL bound SELECT", err)
+	}
 	if len(result.Columns) != len(prepared.shape.Outputs) {
 		return model.QueryResult{}, NewCapabilityFailure("AUTH_MYSQL_COLUMN_OUTPUT_MISMATCH")
 	}

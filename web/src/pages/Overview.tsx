@@ -11,13 +11,17 @@ import {
 import { Alert, Badge, Button, Card, Col, Empty, Row, Segmented, Skeleton, Space, Statistic, Switch, Tooltip, message } from "antd";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { getAuditOutboxStatus, getDashboardSummary } from "@/api/dashboard";
+import { listDatasources, pingDatasource } from "@/api/datasources";
+import { fetchGatewayReadiness, type GatewayReadiness } from "@/api/health";
 import type { AuditOutboxStatus, AuditStreamEvent, DashboardKPI, DashboardSummary, StreamStatus, TrendDay } from "@/api/types";
 import type { Decision } from "@/constants/labels";
 import { PageContainer } from "@/components/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
 import { useAuthStore } from "@/store/authStore";
+import { selectIsDemo, useDemoStore } from "@/store/demoStore";
 import { palette, type ThemeMode } from "@/theme/tokens";
 import { useThemeStore } from "@/theme/useThemeStore";
 
@@ -168,8 +172,52 @@ function DecisionPanel({ data, mode }: { data: DashboardSummary["decision_distri
   );
 }
 
+function DemoReadiness({ refreshToken }: { refreshToken: number }) {
+  const [readiness, setReadiness] = useState<GatewayReadiness | "checking">("checking");
+  const [sources, setSources] = useState<Array<{ id: string; name: string; ready: boolean }> | null>(null);
+  const [sourceCheckedAt, setSourceCheckedAt] = useState<Date | null>(null);
+  useEffect(() => {
+    let active = true;
+    const refreshGateway = async () => {
+      const next = await fetchGatewayReadiness();
+      if (active) setReadiness(next);
+    };
+    const refreshSources = async () => {
+      try {
+        const page = await listDatasources({ page: 1, page_size: 100 });
+        const checks = await Promise.allSettled(page.list.map((source) => pingDatasource(source.id)));
+        if (active) {
+          setSources(page.total > page.list.length ? null : page.list.map((source, index) => ({
+            id: source.id, name: source.name,
+            ready: checks[index].status === "fulfilled" && checks[index].value.ok,
+          })));
+          setSourceCheckedAt(new Date());
+        }
+      } catch {
+        if (active) { setSources(null); setSourceCheckedAt(new Date()); }
+      }
+    };
+    void refreshGateway();
+    void refreshSources();
+    const timer = window.setInterval(() => void refreshGateway(), 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [refreshToken]);
+  const status = readiness === "ready" ? "网关依赖就绪" : readiness === "not_ready" ? "网关依赖未就绪" : readiness === "checking" ? "正在检查网关依赖" : "网关就绪状态不可确认";
+  return <Alert
+    type={readiness === "ready" ? "info" : readiness === "checking" ? "warning" : "error"}
+    showIcon
+    message={`Live Demo：${status}`}
+    description={<Space direction="vertical" size={4}>
+      <span><code>/healthz</code> 仅表示服务存活；<code>/readyz</code> 检查网关依赖。网关就绪不代表每个演示数据源可用。</span>
+      <span>演示数据源：{sources === null ? "状态尚未确认" : sources.length === 0 ? "尚未配置" : sources.map((source) => `${source.name} ${source.ready ? "连接正常" : "连接不可用"}`).join("；")}。{sourceCheckedAt ? `检查于 ${sourceCheckedAt.toLocaleTimeString("zh-CN")}` : "正在检查"}；可在 <Link to="/datasources">数据源</Link> 页面复测。</span>
+    </Space>}
+    style={{ marginBottom: 16 }}
+  />;
+}
+
 export function Overview() {
   const mode = useThemeStore((state) => state.mode);
+  const demoEnabled = useDemoStore(selectIsDemo);
   const streamEnabled = useAuthStore((state) => Boolean(state.token) && state.isAuthenticated());
   const [days, setDays] = useState<Days>(14);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -354,7 +402,7 @@ export function Overview() {
     { label: "拦截", value: finiteNumber(kpi.blocked), icon: <WarningOutlined />, color: palette.semantic.deny, change: kpi.blocked_change_pct },
     { label: "待审批", value: finiteNumber(kpi.pending_approvals), icon: <AuditOutlined />, color: palette.semantic.approve },
     { label: "活跃 Agent", value: finiteNumber(kpi.active_agents), icon: <RobotOutlined />, color: palette[mode].brand },
-    { label: "在线数据源", value: finiteNumber(kpi.datasources_total), icon: <DatabaseOutlined />, color: palette[mode].brand },
+    { label: "已配置数据源", value: finiteNumber(kpi.datasources_total), icon: <DatabaseOutlined />, color: palette[mode].brand },
   ], [kpi.active_agents, kpi.blocked, kpi.blocked_change_pct, kpi.datasources_total, kpi.pending_approvals, kpi.total_requests, kpi.total_requests_change_pct, mode]);
 
   const pageExtra = (
@@ -370,6 +418,7 @@ export function Overview() {
   return (
     <div className="overview-dashboard" ref={dashboardRef}>
       <PageContainer title="总览" subtitle="数据库访问安全态势" extra={pageExtra}>
+        {demoEnabled ? <DemoReadiness refreshToken={refreshToken} /> : null}
         {outboxError ? <Alert type="error" showIcon message="管理审计投递状态不可用" description="请检查元数据库连接和管理审计投递进程；当前无法确认积压情况。" style={{ marginBottom: 16 }} /> : null}
         {!outboxError && outbox?.enabled ? <Alert
           type={outbox.state === "critical" ? "error" : outbox.state === "lagging" ? "warning" : "success"}

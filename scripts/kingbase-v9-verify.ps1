@@ -6,7 +6,8 @@
     [int]$ReadyTimeoutSeconds = 120,
     [switch]$FaultProbe,
     [switch]$ClientProbe,
-    [switch]$PermissionProbe
+    [switch]$PermissionProbe,
+    [switch]$KeepDatabase
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,11 +42,12 @@ function Docker-Exists([string[]]$arguments) {
 }
 
 function Cleanup {
-    Step 'Cleanup: stop AgentSQL and remove temporary V9 database container and license volume'
+    param([switch]$PreserveDatabase)
+    Step 'Cleanup: stop AgentSQL and release temporary resources'
     if ($script:agentContainer -and (Docker-Exists @('container', 'inspect', $script:agentContainer))) {
         Docker @('rm', '-f', $script:agentContainer) | Out-Null
     }
-    if ($script:ContainerName -and (Docker-Exists @('container', 'inspect', $script:ContainerName))) {
+    if (-not $PreserveDatabase -and $script:ContainerName -and (Docker-Exists @('container', 'inspect', $script:ContainerName))) {
         # The database data directory is container-local. Removing the
         # container removes this run's synthetic role and table even if SQL
         # cleanup failed before the server became available.
@@ -57,19 +59,24 @@ function Cleanup {
     if ($script:licenseHelper -and (Docker-Exists @('container', 'inspect', $script:licenseHelper))) {
         Docker @('rm', '-f', $script:licenseHelper) | Out-Null
     }
-    if ($script:licenseVolume -and (Docker-Exists @('volume', 'inspect', $script:licenseVolume))) {
+    if (-not $PreserveDatabase -and $script:licenseVolume -and (Docker-Exists @('volume', 'inspect', $script:licenseVolume))) {
         Docker @('volume', 'rm', $script:licenseVolume) | Out-Null
     }
     if ($script:LicenseHash -and (Get-FileHash -LiteralPath $script:LicenseFile -Algorithm SHA256).Hash -ne $script:LicenseHash) {
         throw 'Source license SHA-256 changed during verification'
     }
-    Step 'PASS: temporary containers, synthetic role/table and license named volume removed'
+    if ($PreserveDatabase) {
+        Step 'PASS: AgentSQL helper removed; isolated database and license volume retained for follow-up verification'
+    }
+    else {
+        Step 'PASS: temporary containers, synthetic role/table and license named volume removed'
+    }
 }
 
 $script:agentContainer = 'kingbase-v9-agentsql-batch72'
 $script:agentDataVolume = 'kingbase-v9-batch72-agentsql-data'
-$script:licenseHelper = 'kingbase-v9-license-copy-b72'
-$script:licenseVolume = 'kingbase_v9_license_b72'
+$script:licenseHelper = if ($ContainerName -eq 'kingbase-v9-batch72') { 'kingbase-v9-license-copy-b72' } else { "${ContainerName}-license-copy" }
+$script:licenseVolume = if ($ContainerName -eq 'kingbase-v9-batch72') { 'kingbase_v9_license_b72' } else { 'kingbase_v9_license_' + ($ContainerName -replace '[^A-Za-z0-9_.-]', '_') }
 $script:LicenseHash = $null
 trap {
     Step ("FAIL: {0}" -f $_.Exception.Message)
@@ -693,6 +700,6 @@ if ($FaultProbe) {
     }
     Step 'PASS: KingbaseES recovered masked query and persisted a second allow audit'
 }
-Cleanup
+Cleanup -PreserveDatabase:$KeepDatabase
 Stop-Transcript | Out-Null
 exit 0
