@@ -78,7 +78,7 @@
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v1.7.0</div>
           <h1>AI Agent 的数据库安全网关</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">v1.7.0 为瀚高 HighGo 9.0.10 企业版 PG 模式增加独立数据源类型与受限只读路径，完成真库授权、脱敏、审计、客户端和故障恢复验证。Live Demo 使用同版合成数据环境；数据库结论仅限已验证实例与 SQL 子集。</p>
+          <p class="positioning">v1.7.0 为瀚高 HighGo 9.0.10 企业版 PG 模式增加独立受限只读路径，并对金仓 KingbaseES V9R1C10 PG 模式补充证书校验与凭据轮换。真库授权、脱敏与审计仅覆盖已验证的指定实例和 SQL 子集；Live Demo 使用同版合成数据环境。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
@@ -258,13 +258,13 @@
           <span><strong class="tier-read">受控只读</strong>：连接 / 元数据 / 只读查询子集</span>
           <span><strong class="tier-conn">连接级</strong>：ping / 版本 / Schema / 只读预览</span>
         </div>
-        <p class="ecosystem-note">v1.5.0 对 DM8、金仓与 Vastbase 的指定模式完成客户端、权限撤销和断库恢复；v1.6.0 补齐三款数据库的独立审计库故障、锁等待超时与取消。v1.7.0 为瀚高指定版本增加独立限定只读路径及同类故障验证。结论不外推到其他版本、生产负载或厂商认证。NoSQL / 向量仍为连接级低阶支持；所有库须经网关并使用专用最小权限账号。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-acceptance.md">v1.7.0 验收记录</a>与<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
+        <p class="ecosystem-note">v1.5.0 对 DM8、金仓与 Vastbase 的指定模式完成客户端、权限撤销和断库恢复；v1.6.0 补齐三款数据库的独立审计库故障、锁等待超时与取消。v1.7.0 为瀚高指定版本增加独立限定只读路径，并在金仓指定 PG 模式实例验证证书校验与凭据轮换。达梦 TLS 与正式主备切换仍未验证。结论不外推到其他版本、生产负载或厂商认证。NoSQL / 向量仍为连接级低阶支持；所有库须经网关并使用专用最小权限账号。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-dm-kingbase-depth-acceptance.md">v1.7.0 金仓验收记录</a>、<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-acceptance.md">瀚高验收记录</a>与<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
       </div>
     </section>
 
     <section id="ecosystem" class="section">
       <div class="container">
-        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.7.0 将瀚高 HighGo 9.0.10 企业版 PG 模式作为独立受限只读类型，完成指定单实例真库与故障链路验证。其他版本、模式和完整生产支持仍须单独验证。欢迎数据库厂商联合验证。</p></div>
+        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.7.0 将瀚高 HighGo 9.0.10 企业版 PG 模式作为独立受限只读类型，并补充金仓 V9R1C10 PG 模式的 TLS 证书校验与凭据轮换。其他版本、模式、主备切换和完整生产支持仍须单独验证。欢迎数据库厂商联合验证。</p></div>
         <div class="ecosystem-panel">
           <p class="ecosystem-label">国产数据库生态适配矩阵（v1.7.0）</p>
           <p class="table-scroll-hint">表格可左右滑动，查看完整验证说明。</p>
@@ -273,7 +273,7 @@
               <caption>AgentSQL v1.7.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
-                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.5.0 完成客户端、权限撤销与网络恢复，v1.6.0 补齐独立审计库故障、锁等待超时、客户端取消和恢复复验。其他模式、复杂查询、TLS、HA 与生产负载未验证。</td></tr>
+                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.6.0 补齐故障关闭，v1.7.0 验证 CA 与主机名校验、错误证书拒绝、证书及账号密码轮换。其他模式、复杂查询、正式主备切换与生产负载未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-dm-kingbase-depth-acceptance.md">验收记录</a>。</td></tr>
                 <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">9.0.10 企业版 PG 模式、单实例合成表：独立 highgo 类型仅接受有界单表 SELECT；厂商身份与模式逐连接复核，表级授权、手机号脱敏、Inspector/Dify、持久审计、授权撤销、停库及锁等待故障链路通过。TLS、HA、其他版本和生产负载未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-acceptance.md">验收记录</a>。</td></tr>
                 <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
                 <tr><td class="eco-db">openGauss 社区版</td><td><span class="eco-status ok">指定版本协议路径已实测</span></td><td class="eco-desc">openGauss 7.0.0-RC3 社区版；GaussDB 商业版未实测，不能继承此结论。</td></tr>
@@ -352,7 +352,7 @@ bash ./demo/reset.sh
           <li class="complete"><span>v1.1–v1.4</span><strong>双身份、OAuth、MySQL 列授权与共享登录预算</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v1.5.0</span><strong>三款国产数据库指定子集深度复验</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v1.6.0</span><strong>查询超时、取消与审计故障关闭</strong><small>已发布阶段</small></li>
-          <li class="current"><span>v1.7.0</span><strong>瀚高独立受限只读适配与真库故障验证</strong><small>当前正式版本</small></li>
+          <li class="current"><span>v1.7.0</span><strong>瀚高限定只读与金仓指定实例证书校验</strong><small>当前正式版本</small></li>
           <li><span>下一阶段</span><strong>国产与商业数据库适配</strong></li>
           <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
           <li><span>后续方向</span><strong>高可用与集中管控</strong></li>
