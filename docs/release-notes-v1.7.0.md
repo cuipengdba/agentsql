@@ -16,8 +16,8 @@ v1.7.0 为瀚高 HighGo 增加独立数据源类型和受限只读执行路径�
 
 - 管理 API 与 MCP 工具格式未改变；metadata/audit schema 无新增迁移。正式安装仍须先备份 metadata、audit 和密钥，按 [验收记录](v1.7.0-acceptance.md)复核升级及恢复。
 - 使用 pgx/v5 的 PostgreSQL wire protocol 是驱动选择，不代表继承 PostgreSQL 的完整语义或支持级别。
-- 达梦 DM8 当前 Go 驱动的 TLS 握手不验证服务端证书，AgentSQL 继续拒绝达梦显式 TLS 配置。达梦和金仓的正式主备切换、生产负载及更多 SQL 方言尚未完成，均保持未验证；单实例断线恢复不等于 HA。证据与阻断项见[达梦/金仓候选验收记录](v1.7.0-dm-kingbase-depth-acceptance.md)。
+- 达梦 DM8 当前 Go 驱动的 TLS 握手不验证服务端证书，AgentSQL 继续拒绝达梦显式 TLS 配置。达梦和金仓的正式主备切换、生产负载及更多 SQL 方言尚未完成，均保持未验证；单实例断线恢复不等于 HA。证据与边界见[达梦/金仓验收记录](v1.7.0-dm-kingbase-depth-acceptance.md)。
 - 未验证 HighGo Oracle/MySQL 模式、其他版本、分布式和 HA、TLS、连接池故障切换、扩展类型/OID、生产负载、厂商认证及长期许可。上述能力保持未验证。
 - 已注册数据库类型由 28 款增加至 29 款；金仓 KingbaseES V9 仍单列为指定实例 PG 协议路径，不计入注册类型。
 
-正式发布证据、提交 SHA、签名资产、镜像摘要、官网和 Live Demo 状态以 [v1.7.0 验收记录](v1.7.0-acceptance.md)为准。
+正式发布证据、提交 SHA、签名资产、镜像摘要、官网和 Live Demo 状态见 [v1.7.0 正式发布验收](v1.7.0-release-evidence.md)；瀚高与金仓的真库边界分别见其专项验收。
