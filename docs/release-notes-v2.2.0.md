@@ -11,4 +11,4 @@ v2.2.0 将已有 Oracle 原生连接、受限 SELECT 解析器和执行器接入
 - 本版没有 metadata/audit schema 变更。从 v2.1.0 升级仍须先对 SQLite 或 PostgreSQL metadata/audit 分库做成套备份、只读预检和隔离恢复演练。双网关 Kubernetes 仍需维护窗口，不能混跑新旧镜像。
 - Oracle Free 指定容器的合成测试不等于 Oracle 19c、商业 23ai/26ai、RAC、Data Guard、TCPS、持续负载或客户生产部署认证；本版不声称完整生产支持或厂商认证。官网 Live Demo 继续使用固定合成 PostgreSQL 数据，不把它展示为 Oracle 真库实例。
 
-正式发行 CI、安装包、签名、GHCR、官网和公网 Live Demo 的发布后证据将在封版后另行记录。
+正式发行 CI、安装包、签名、GHCR、官网和公网 Live Demo 的发布后结果见[正式发布证据](v2.2.0-release-evidence.md)。
