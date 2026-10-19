@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.3.0]
+
+- Verify SQL Server 2025 Developer on one isolated Linux x86_64 instance with strict certificate validation, a login granted only target-table SELECT and database SHOWPLAN, real HTTP MCP masking and R010 denial, durable audit, and Inspector/Dify calls.
+- Stop static SQL Server R010 denials before database SHOWPLAN so a reader without access to the denied table receives the policy decision without touching that table. Exercise SELECT/SHOWPLAN revocation, mismatched CA and certificate name, SQL Server outage, and independent audit-store outage.
+- Keep complex T-SQL, writes, B2/B5, other server versions, Windows/Always On, production certificate rotation, and full production support outside the tested boundary. See the [candidate acceptance record](docs/v2.3.0-acceptance.md).
+
 ## [v2.2.0]
 
 - Connect the existing Oracle Free native driver and narrow SELECT parser to the HTTP MCP authorization, masking, and durable audit path on one named `FREEPDB1` instance. Verify a least-privilege account, Inspector/Dify calls, policy and database privilege revocation, plus business and independent audit database outages.

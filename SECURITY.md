@@ -30,18 +30,20 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 
 ## 数据库接入状态与安全边界（v0.5.0 GA）
 
-以下分组保留 **AgentSQL v0.5.0 已发布代码**的历史接入范围与证据，不作为 v0.6.x 当前数据库支持矩阵，也不是数据库厂商的认证清单；当前版本的能力和限制须按对应发布说明核对。注册表共 8 类 27 款（6 款关系型 + 21 款 NoSQL / 向量）；KingbaseES V9 已在下述 PG 协议基础闭环范围验证，仍不计入 27 款注册类型。
+以下分组按当前代码和对应版本验收记录陈述，不是数据库厂商的认证清单；具体能力仍须按相应发布说明核对。注册表共 8 类 29 款（8 款关系型 + 21 款 NoSQL / 向量）；KingbaseES V9 在指定 PG 模式合成实例中另列验证，仍不计入 29 款注册类型。
 
 档位：🟢 解析、授权、受控执行、脱敏、审计链路在所述范围通过；DM8 绿色仅限指定 Pack3 实例与用例，不代表完整方言兼容。HighGo 绿色仅限 9.0.10 企业版 PG 模式、单实例合成表用例，不代表完整方言兼容。金仓 V9 绿色仅限 V9R1C10、PG 模式、单实例合成表的只读受控基础闭环。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。所有实测仅表示指定容器镜像、拓扑及合成用例通过，**非数据库厂商官方认证或生产支持承诺**。所有数据库必须经 AgentSQL 网关，使用专用最小权限账号；解析、目录、执行计划或授权事实不明时 fail-closed。协议兼容不等于安全语义相同；PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
 
-### 关系型（6 款已注册 + 1 款额外验证）
+### 关系型（8 款已注册 + 1 款额外验证）
 
 - 🟢 **PostgreSQL 14–18**：原生 `postgres` 路径；B2/B5 仍受自身版本、目录和能力检查约束。
 - 🟢 **MySQL 8.0**：原生 `mysql` 路径；不继承 PostgreSQL B2/B5 证明。
 - 🔵 **Oracle AI Database 26ai Free，服务端 23.26.3.0.0**：`FREEPDB1` 指定合成实例的临时最小权限账号经 HTTP MCP 完成窄 SELECT、R010、手机号脱敏、Inspector/Dify 调用与持久审计；数据库权限撤销、业务库和独立审计库故障均按无原始结果交付验证。运行账号未验证 `PLAN_TABLE` 写权限，本路径不预执行计划；商业版、TCPS、主备、复杂 SQL 与完整生产支持未验证，见 [v2.2.0 候选验收](docs/v2.2.0-acceptance.md)。
 - 🟢 **达梦 DM8**：Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。
 - 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` parser 与窄 SELECT 路径已接通；在 Linux x86_64、`COMPAT_VECTOR=yashan` 和独立 C 客户端 23.4.7.100 上，最小权限账号经真实 HTTP MCP 完成允许、R010 拒绝、手机号脱敏和持久审计，MCP Inspector/Dify 各完成允许与拒绝。数据库 SELECT 撤权、业务库断线及独立审计库停机均验证无原始行交付。仅为指定实例及合成数据的受控只读子集；TLS、取消/超时、主备、写入、事务和 EXPLAIN 未验证或关闭，见 [v2.1.0 候选验收](docs/v2.1.0-acceptance.md)。
-- 🔵 **SQL Server 2025（17.x）**：独立 `sqlserver` 严格只读子集；不提供完整 T-SQL、写入、B2/B5 或厂商认证。
+- 🔵 **SQL Server 2025 Developer（17.x）**：指定 Linux x86_64 单实例用本地测试 CA 严格校验证书，以仅获目标表 `SELECT` 和数据库级 `SHOWPLAN` 的账号经 HTTP MCP 验证窄 SELECT、R010、手机号脱敏、Inspector/Dify 和持久审计；SELECT/SHOWPLAN 撤权、业务库及独立审计库停机均按无原始结果交付验证。只覆盖合成数据；其他版本、Windows、Always On、生产证书轮换、完整 T-SQL、写入、B2/B5、厂商认证和完整生产支持未验证，见 [v2.3.0 候选验收](docs/v2.3.0-acceptance.md)。
+- 🔵 **Vastbase G100 V3.0 Build 9**：`vastbase` 独立类型在指定 PG 模式实例完成有界只读、权限、脱敏、审计与证书及凭据轮换验证；临时许可不代表正式许可，主备、生产负载和完整生产支持未验证，见 [v1.8.0 发布证据](docs/v1.8.0-release-evidence.md)。
+- 🔵 **瀚高 HighGo 9.0.10**：`highgo` 独立类型在指定企业版 PG 模式合成实例完成有界只读、权限、脱敏、客户端与故障链路；其他版本和完整生产支持未验证，见 [v1.7.0 发布证据](docs/v1.7.0-release-evidence.md)。
 - 🟢 **金仓 KingbaseES V9（PG 模式、单实例）**：仅 V9R1C10 合成表的 PG 协议基础闭环；可写 license 卷下启动成功，ksql CRUD/分页/标识符、宿主机 pgx/v5 `$1` 参数绑定 + SCRAM、只读角色拒写 `42501`、AgentSQL 受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计链路实测通过；复用 `db_type=postgres`。见[真库验证记录](docs/kingbase-v9-verification.md)。
 
 > **金仓 V9 绿色边界：**实际 license 到期日未确认（服务器仅报告 180 天和含义未明的日期字段）。V9 Oracle 模式、原生 Kingbase 驱动、V8 未测；多行数据/深度分页、JOIN、聚合/函数、复杂表达式、类型 OID、系统目录、EXPLAIN 未测；TLS/加密传输、HA/故障切换、备份恢复、B2 列级授权、多角色并发、生产负载未测。显式 `GRANT CREATE SESSION` 语法被服务器拒绝；会话能力经 `LOGIN` + `CONNECT`、SCRAM 登录及查询验证。绿色仅指上述只读受控链路，不代表 V9 全模式、长期授权、厂商认证或生产支持承诺；未知能力继续 fail-closed。

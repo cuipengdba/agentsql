@@ -1,6 +1,6 @@
-# AgentSQL v2.2.0 双网关 Kubernetes 部署
+# AgentSQL v2.3.0 双网关 Kubernetes 部署
 
-此清单只针对**两个节点、固定两个副本、无状态 MCP 只读请求**。运行配置把 HTTP 状态会话、事件续传和 B5 事务关闭；这不是已有单节点 B5 能力的迁移方案。双网关拓扑以[v2.0.0 设计与验收](../../docs/v2.0.0-design.md)为基线，v2.2.0 的数据库支持边界见[本版发布说明](../../docs/release-notes-v2.2.0.md)。
+此清单只针对**两个节点、固定两个副本、无状态 MCP 只读请求**。运行配置把 HTTP 状态会话、事件续传和 B5 事务关闭；这不是已有单节点 B5 能力的迁移方案。双网关拓扑以[v2.0.0 设计与验收](../../docs/v2.0.0-design.md)为基线，v2.3.0 的数据库支持边界见[本版发布说明](../../docs/release-notes-v2.3.0.md)。
 
 ## 准备
 
@@ -20,7 +20,7 @@ kubectl -n agentsql apply -f deploy/kubernetes/configmap.yaml
 
 ## 首次安装或从 v2.0.0 升级
 
-先对两个 PostgreSQL 库做成套备份并记录旧镜像摘要。`migrate` 可能执行 DDL；即使本版 schema 未变，也要记录检查结果。Job 不在基础 `kustomization.yaml` 中，避免普通部署隐式迁移。**B2 对活跃网关的二进制摘要要求一致，v2.1.0 与 v2.2.0 不能混合提供服务；此部署使用 `OnDelete`，版本切换必须安排维护窗口。**
+先对两个 PostgreSQL 库做成套备份并记录旧镜像摘要。`migrate` 可能执行 DDL；即使本版 schema 未变，也要记录检查结果。Job 不在基础 `kustomization.yaml` 中，避免普通部署隐式迁移。**B2 对活跃网关的二进制摘要要求一致，v2.2.0 与 v2.3.0 不能混合提供服务；此部署使用 `OnDelete`，版本切换必须安排维护窗口。**
 
 从 v2.0.0 升级时，先执行下列维护窗口操作；首次安装跳过这一段。
 
