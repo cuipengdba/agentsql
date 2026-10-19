@@ -1065,10 +1065,15 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
 			return model.Datasource{}, fmt.Errorf("HighGo TLS options have not been verified")
 		}
-		if input.DBType == "postgres" || input.DBType == string(model.DialectVastbase) {
+		if input.DBType == "postgres" || input.DBType == string(model.DialectVastbase) || input.DBType == string(model.DialectOpenGauss) {
 			databaseLabel := "PostgreSQL"
 			if input.DBType == string(model.DialectVastbase) {
 				databaseLabel = "Vastbase"
+			} else if input.DBType == string(model.DialectOpenGauss) {
+				databaseLabel = "openGauss"
+			}
+			if input.DBType == string(model.DialectOpenGauss) && input.TLSMode != "verify-full" {
+				return model.Datasource{}, fmt.Errorf("openGauss requires verify-full TLS")
 			}
 			if input.TrustServerCertificate {
 				return model.Datasource{}, fmt.Errorf("%s cannot trust an unverified server certificate", databaseLabel)
@@ -1093,7 +1098,7 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 				return model.Datasource{}, fmt.Errorf("%s tls_mode must be disable or verify-full", databaseLabel)
 			}
 		}
-		if input.DBType != "postgres" && input.DBType != string(model.DialectVastbase) && !model.IsNative(input.DBType) {
+		if input.DBType != "postgres" && input.DBType != string(model.DialectVastbase) && input.DBType != string(model.DialectOpenGauss) && !model.IsNative(input.DBType) {
 			input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
 		}
 		input.TrustServerCertificate = false

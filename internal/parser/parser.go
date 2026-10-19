@@ -42,6 +42,8 @@ func NewParser(dialect model.DBDialect) (Parser, error) {
 		return &vastbaseParser{}, nil
 	case model.DialectHighGo:
 		return &highgoParser{}, nil
+	case model.DialectOpenGauss:
+		return &openGaussParser{}, nil
 	case mysqlDialect:
 		return newMySQLParser()
 	case dmDialect, oracleDialect, sqlserverDialect:

@@ -30,11 +30,11 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 
 ## 数据库接入状态与安全边界（v0.5.0 GA）
 
-以下分组按当前代码和对应版本验收记录陈述，不是数据库厂商的认证清单；具体能力仍须按相应发布说明核对。注册表共 8 类 29 款（8 款关系型 + 21 款 NoSQL / 向量）；KingbaseES V9 在指定 PG 模式合成实例中另列验证，仍不计入 29 款注册类型。
+以下分组按当前代码和对应版本验收记录陈述，不是数据库厂商的认证清单；具体能力仍须按相应发布说明核对。注册表共 8 类 30 款（9 款关系型 + 21 款 NoSQL / 向量）；KingbaseES V9 在指定 PG 模式合成实例中另列验证，仍不计入 30 款注册类型。
 
 档位：🟢 解析、授权、受控执行、脱敏、审计链路在所述范围通过；DM8 绿色仅限指定 Pack3 实例与用例，不代表完整方言兼容。HighGo 绿色仅限 9.0.10 企业版 PG 模式、单实例合成表用例，不代表完整方言兼容。金仓 V9 绿色仅限 V9R1C10、PG 模式、单实例合成表的只读受控基础闭环。🔵 受控只读＝连接、元数据、只读查询子集；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。所有实测仅表示指定容器镜像、拓扑及合成用例通过，**非数据库厂商官方认证或生产支持承诺**。所有数据库必须经 AgentSQL 网关，使用专用最小权限账号；解析、目录、执行计划或授权事实不明时 fail-closed。协议兼容不等于安全语义相同；PostgreSQL B2 列级授权和 B5 受控事务不能因线协议相似而自动扩展到其他产品。
 
-### 关系型（8 款已注册 + 1 款额外验证）
+### 关系型（9 款已注册 + 1 款额外验证）
 
 - 🟢 **PostgreSQL 14–18**：原生 `postgres` 路径；B2/B5 仍受自身版本、目录和能力检查约束。
 - 🟢 **MySQL 8.0**：原生 `mysql` 路径；不继承 PostgreSQL B2/B5 证明。
@@ -42,6 +42,7 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 - 🟢 **达梦 DM8**：Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010 表策略、审计和手机号脱敏实测通过；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。
 - 🔵 **崖山 YashanDB 23.4.1.109**：独立 `yashan` parser 与窄 SELECT 路径已接通；在 Linux x86_64、`COMPAT_VECTOR=yashan` 和独立 C 客户端 23.4.7.100 上，最小权限账号经真实 HTTP MCP 完成允许、R010 拒绝、手机号脱敏和持久审计，MCP Inspector/Dify 各完成允许与拒绝。数据库 SELECT 撤权、业务库断线及独立审计库停机均验证无原始行交付。仅为指定实例及合成数据的受控只读子集；TLS、取消/超时、主备、写入、事务和 EXPLAIN 未验证或关闭，见 [v2.1.0 候选验收](docs/v2.1.0-acceptance.md)。
 - 🔵 **SQL Server 2025 Developer（17.x）**：指定 Linux x86_64 单实例用本地测试 CA 严格校验证书，以仅获目标表 `SELECT` 和数据库级 `SHOWPLAN` 的账号经 HTTP MCP 验证窄 SELECT、R010、手机号脱敏、Inspector/Dify 和持久审计；SELECT/SHOWPLAN 撤权、业务库及独立审计库停机均按无原始结果交付验证。只覆盖合成数据；其他版本、Windows、Always On、生产证书轮换、完整 T-SQL、写入、B2/B5、厂商认证和完整生产支持未验证，见 [v2.3.0 候选验收](docs/v2.3.0-acceptance.md)。
+- 🔵 **openGauss 社区版 7.0.0 LTS**：独立 `opengauss` 类型在官方 openEuler 24.03 x86_64 指定构建和合成单实例上要求 `verify-full` 与只读会话，仅允许 `FROM ONLY` 普通物理单表的有界直接列 SELECT。最小权限账号经真实 MCP 完成 R010、脱敏、审批、双客户端及持久审计，SELECT 撤权和两类断库故障均不交付原始结果。其他构建、GaussDB 商业版、主备、写入、B2/B5、生产证书轮换与完整生产支持未验证，见 [v2.4.0 候选验收](docs/v2.4.0-acceptance.md)。
 - 🔵 **Vastbase G100 V3.0 Build 9**：`vastbase` 独立类型在指定 PG 模式实例完成有界只读、权限、脱敏、审计与证书及凭据轮换验证；临时许可不代表正式许可，主备、生产负载和完整生产支持未验证，见 [v1.8.0 发布证据](docs/v1.8.0-release-evidence.md)。
 - 🔵 **瀚高 HighGo 9.0.10**：`highgo` 独立类型在指定企业版 PG 模式合成实例完成有界只读、权限、脱敏、客户端与故障链路；其他版本和完整生产支持未验证，见 [v1.7.0 发布证据](docs/v1.7.0-release-evidence.md)。
 - 🟢 **金仓 KingbaseES V9（PG 模式、单实例）**：仅 V9R1C10 合成表的 PG 协议基础闭环；可写 license 卷下启动成功，ksql CRUD/分页/标识符、宿主机 pgx/v5 `$1` 参数绑定 + SCRAM、只读角色拒写 `42501`、AgentSQL 受控 SELECT allow + 手机号脱敏 + 列血缘 + R006 注释拒绝 + allow/deny 审计链路实测通过；复用 `db_type=postgres`。见[真库验证记录](docs/kingbase-v9-verification.md)。
@@ -80,7 +81,7 @@ v0.6.1 至 v0.9.0 的发布状态以 [GitHub Releases](https://github.com/cuipen
 
 - **PolarDB for PostgreSQL 15**：指定社区镜像经 `postgres` 路径完成最小闭环；商业服务、HA、TLS 与 B2/B5 终验未覆盖。
 - **IvorySQL 5.3**：指定社区版 PG 协议路径完成最小闭环；Oracle 兼容模式和 HighGo 商业版不继承此结论。
-- **openGauss 7.0.0-RC3**：指定社区版 PG 协议路径完成最小闭环；GaussDB 商业版和 B2/B5 未终验。
+- **openGauss 7.0.0-RC3（历史预检）**：此前只在指定社区版 PG 协议路径完成最小闭环；v2.4.0 的 7.0.0 LTS 独立类型与受控只读证据见上文。RC3 结果不能替代 LTS、GaussDB 商业版或 B2/B5 验收。
 - **HighGo SEE 4.5**：指定第三方镜像 PG 协议路径完成最小闭环；该旧记录与下述 V9.0.10 企业版真库验证分别成立。
 - 🟢 **瀚高 HighGo 9.0.10 企业版**：PG 模式、单实例合成表范围内，解析/列血缘、表级授权、受控只读 SELECT、手机号脱敏、R006 拒绝、allow/deny 审计链路实测通过；复用 `postgres` 数据源路径。未测 TLS、连接池故障切换、取消/超时、EXPLAIN、扩展类型/OID、系统目录差异、B2 列级授权、parse-error 审计分支（本轮未触发）、跨版本与生产负载；不代表厂商认证或生产支持承诺。证据见[HighGo 9.0 真库验证](docs/highgo-verification.md)。
 - **OpenTenBase v2.5.0**：指定单机 GTM/CN/DN 拓扑和已知计划形态完成最小闭环；生产拓扑、其他计划形态及 B2/B5 未证明。

@@ -174,6 +174,8 @@ func ProbeDatasource(ctx context.Context, datasource model.Datasource, password 
 		opened, err = businessdb.NewVastbaseExecutor(ctx, datasource, password)
 	case "highgo":
 		opened, err = businessdb.NewHighGoExecutor(ctx, datasource, password)
+	case "opengauss":
+		opened, err = businessdb.NewOpenGaussExecutor(ctx, datasource, password)
 	case "mysql":
 		opened, err = businessdb.NewMySQLExecutor(ctx, datasource, password, true)
 	case "sqlserver":

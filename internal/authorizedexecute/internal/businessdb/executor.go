@@ -202,6 +202,8 @@ func openExecutor(
 		return NewVastbaseExecutor(context.Background(), datasource, password)
 	case "highgo":
 		return NewHighGoExecutor(context.Background(), datasource, password)
+	case "opengauss":
+		return NewOpenGaussExecutor(context.Background(), datasource, password)
 	case "mysql":
 		return NewMySQLExecutor(context.Background(), datasource, password, readOnly)
 	case "dm":
