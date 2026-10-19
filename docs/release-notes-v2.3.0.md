@@ -10,4 +10,4 @@ v2.3.0 深化 SQL Server 2025 Developer 的受控只读能力。已有 TDS 连�
 - B2 列级授权与 B5 会话不扩展到 SQL Server。本版未改变 metadata/audit schema；从 v2.2.0 升级仍须先对 SQLite 或 PostgreSQL metadata/audit 分库做成套备份、只读检查和隔离恢复演练。固定双网关 Kubernetes 部署仍需维护窗口，不能混跑新旧镜像。
 - 单个 Developer 容器的合成测试不等于其他 SQL Server 版本、Windows、Always On、生产证书生命周期、长期负载或客户生产部署认证；不声明完整生产支持或厂商认证。官网 Live Demo 继续使用固定合成 PostgreSQL 数据，不展示 SQL Server 真库实例。
 
-正式发行 CI、安装包、签名、GHCR、官网和公网 Live Demo 的发布后证据将在封版后另行记录。
+正式发行 CI、安装包、签名、GHCR、官网和公网 Live Demo 的发布后结果见[正式发布证据](v2.3.0-release-evidence.md)。
