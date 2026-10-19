@@ -175,7 +175,7 @@ redaction:
 ### 6.2 核心枚举与模型
 
 ```go
-type DBDialect string // 业务库类型标识；注册表共 27 款，能进入 NewParser 的范围另受方言入口限制
+type DBDialect string // 业务库类型标识；注册表共 29 款，能进入 NewParser 的范围另受方言入口限制
 type StmtType  string // SELECT / INSERT / UPDATE / DELETE / DDL / ADMIN / UNKNOWN
 type Decision  string // allow / warn / approve / deny
 type RiskLevel int    // 1 拒绝 / 2 审批 / 3 告警 / 4 提示
@@ -350,9 +350,9 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 | 维度 | 支持情况 |
 |---|---|
 | 完整防护业务库（🟢） | MySQL 8.0；PostgreSQL 14 / 15 / 16 / 17 / **18** |
-| 受控只读注册项（🔵） | `oracle`、`dm`、`yashan`、`sqlserver`；连接/元数据及各自限定的只读子集，不继承 PostgreSQL/MySQL 完整防护闭环 |
+| 受控只读注册项（🔵） | `oracle`、`dm`、`yashan`、`sqlserver`、`vastbase`、`highgo`；连接/元数据及各自限定的只读子集，不继承 PostgreSQL/MySQL 完整防护闭环 |
 | 连接级注册项（🔷） | 7 类 21 款 NoSQL / 向量数据源；ping、版本、Schema 与只读预览按适配器有界提供，不承诺完整检索或写入 |
-| 待验证候选（🟡） | KingbaseES V9，等厂商环境；不计入 27 款注册表 |
+| 另列指定实例（不计入注册表） | KingbaseES V9R1C10 PG 模式已按指定合成场景验收；其他版本、模式与完整生产支持未验证 |
 | 控制面 / 元数据库 | SQLite（默认）；PostgreSQL 15+，基准与推荐 **PG18**（开源免费） |
 | 审计库 | 随元数据库，或独立 PostgreSQL（最小权限仅 INSERT/SELECT） |
 | MCP 传输 | stdio；Streamable HTTP `/mcp`（MCP 2025-06-18） |
@@ -362,7 +362,7 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
 | 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
 
-注册表的 27 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM8 Pack3、`COMPATIBLE_MODE=0` 的只读 SELECT、列血缘、R010、审计及手机号脱敏已在批六十五真库链路通过；R006、多行分页/JOIN/函数/系统目录仍未验证，写入未放开。Oracle 的完整网关授权/脱敏闭环仍未证明。YashanDB 标准 `NewParser` 与窄 SELECT 路径已接通；本轮独立客户端直连真库参数绑定和只读写入拒绝通过，另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计。HTTP/MCP、持久化审计及最小权限账号与流水线的组合未测。SQL Server、达梦、Oracle、YashanDB 及其他协议候选的完整方言或商业版认证均未宣称；各自证据边界见 [Release Notes](release-notes-v0.5.md) 与 [SECURITY.md](../SECURITY.md)。
+注册表的 29 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM8、金仓、Vastbase、瀚高、崖山、Oracle Free 和 SQL Server 2025 的指定实例证据范围各不相同，分别见对应版本的[路线图与验收链接](../ROADMAP.md)和 [SECURITY.md](../SECURITY.md)。其中 v2.3.0 SQL Server 2025 Developer 的最小权限、严格 TLS、HTTP MCP、R010、脱敏、持久审计和故障关闭只覆盖隔离 x86_64 合成实例与窄 SELECT；不继承 PostgreSQL 的 B2/B5，也不表示厂商认证或完整生产支持。无法证明的方言和拓扑继续失败关闭。
 
 ---
 

@@ -62,6 +62,42 @@ func TestSQLServer2025ExecutorE2E(t *testing.T) {
 	require.Equal(t, [][]string{{"1", "alpha"}}, result.Rows)
 }
 
+func TestSQLServer2025StrictTLSRejectsWrongAuthorityAndNameE2E(t *testing.T) {
+	if testing.Short() || os.Getenv("AGENTSQL_SQLSERVER_2025_E2E") != "1" {
+		t.Skip("set AGENTSQL_SQLSERVER_2025_E2E=1 and SQL Server connection variables to run")
+	}
+	port, err := strconv.Atoi(requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_PORT"))
+	require.NoError(t, err)
+	base := model.Datasource{
+		ID: "sqlserver-2025-tls", Name: "SQL Server 2025 TLS E2E", DBType: "sqlserver",
+		Host: requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_HOST"), Port: port,
+		Database: requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_DATABASE"),
+		Username: requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_USERNAME"),
+		TLSMode:  "strict", TLSCAFile: requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_TLS_CA_FILE"),
+		ConnLimit: 1, StmtTimeoutMS: 5_000, RowLimit: 10,
+	}
+	password := requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_PASSWORD")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	wrongCA := base
+	wrongCA.TLSCAFile = requiredSQLServerTestEnv(t, "AGENTSQL_SQLSERVER_BAD_CA_FILE")
+	badExecutor, err := NewSQLServerExecutor(ctx, wrongCA, password, true)
+	require.Error(t, err, "an unrelated CA must not authenticate the server")
+	require.Nil(t, badExecutor)
+
+	wrongName := base
+	wrongName.TLSServerName = "wrong-sqlserver-name.invalid"
+	badExecutor, err = NewSQLServerExecutor(ctx, wrongName, password, true)
+	require.Error(t, err, "a mismatched certificate hostname must not authenticate the server")
+	require.Nil(t, badExecutor)
+
+	executor, err := NewSQLServerExecutor(ctx, base, password, true)
+	require.NoError(t, err, "the authorized CA and server name must connect")
+	t.Cleanup(func() { require.NoError(t, executor.Close()) })
+	require.NoError(t, executor.Ping(ctx))
+}
+
 func requiredSQLServerTestEnv(t *testing.T, key string) string {
 	t.Helper()
 	value := os.Getenv(key)

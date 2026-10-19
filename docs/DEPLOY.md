@@ -2,7 +2,7 @@
 
 AgentSQL 是面向 AI Agent 的数据库安全网关和生产级 MCP Server。元数据与审计记录默认保存在本地 SQLite，也可使用 PostgreSQL 控制面；业务数据库仍使用各自的 PostgreSQL 或 MySQL 连接。
 
-当前精确安装版本、下载链接和升级前检查见 [快速上手](GETTING_STARTED.md)与 [v2.2.0 发布说明](release-notes-v2.2.0.md)。固定双网关 Kubernetes 部署另见 [v2.2.0 操作指南](../deploy/kubernetes/README.md)。本文后部标有 v1.2.0 或其他旧版本号的发布命令与分阶段上线记录是历史示例；执行前须使用正式 Release 的同版资产、签名及镜像摘要。
+当前精确安装版本、下载链接和升级前检查见 [快速上手](GETTING_STARTED.md)与 [v2.3.0 发布说明](release-notes-v2.3.0.md)。固定双网关 Kubernetes 部署另见 [v2.3.0 操作指南](../deploy/kubernetes/README.md)。本文后部标有 v1.2.0 或其他旧版本号的发布命令与分阶段上线记录是历史示例；执行前须使用正式 Release 的同版资产、签名及镜像摘要。
 
 ## 目录约定
 

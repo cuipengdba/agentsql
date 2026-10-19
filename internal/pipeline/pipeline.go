@@ -1349,9 +1349,12 @@ func shouldExplain(ast *model.AST) bool {
 }
 
 func shouldBindDeniedSelect(ast *model.AST, assessment model.Assessment) bool {
-	// Without a verified Yashan or least-privilege Oracle plan binder, a
-	// static R010 deny is final and must not touch the database for a plan.
-	if ast == nil || ast.Dialect == model.DialectYashan || ast.Dialect == model.DialectOracle || ast.StmtType != model.StmtType("SELECT") || assessment.Decision != model.DecisionDeny {
+	// A least-privilege SQL Server account cannot SHOWPLAN a table for which
+	// it has no SELECT grant. As with Yashan and Oracle, a static R010 deny is
+	// final and must not turn into a database permission error during binding.
+	if ast == nil || ast.Dialect == model.DialectYashan || ast.Dialect == model.DialectOracle ||
+		ast.Dialect == model.DialectSQLServer || ast.StmtType != model.StmtType("SELECT") ||
+		assessment.Decision != model.DecisionDeny {
 		return false
 	}
 	foundObjectDeny := false

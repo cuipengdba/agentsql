@@ -20,7 +20,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: schema-check
-          image: ghcr.io/cuipengdba/agentsql:v2.2.0
+          image: ghcr.io/cuipengdba/agentsql:v2.3.0
           command:
             - /usr/local/bin/agentsqlctl
             - migrate
