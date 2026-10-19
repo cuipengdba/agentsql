@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v2.3.0';
+const VERSION = 'v2.4.0';
 const REPOSITORY_BLOB = `https://github.com/cuipengdba/agentsql/blob/${VERSION}`;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIR, '..', '..');
@@ -29,19 +29,19 @@ const FIXED_PDF_DATE = "D:20261019000000+00'00'";
 const DOCUMENTS = [
   {
     source: resolve(DOCS_ROOT, 'GETTING_STARTED.md'),
-    output: 'agentsql-getting-started-v2.3.0.pdf',
+    output: 'agentsql-getting-started-v2.4.0.pdf',
     title: '快速上手',
     slug: 'getting-started',
   },
   {
     source: resolve(DOCS_ROOT, 'USER_GUIDE.md'),
-    output: 'agentsql-user-guide-v2.3.0.pdf',
+    output: 'agentsql-user-guide-v2.4.0.pdf',
     title: '使用手册',
     slug: 'user-guide',
   },
   {
     source: resolve(DOCS_ROOT, 'INTEGRATIONS.md'),
-    output: 'agentsql-mcp-integrations-v2.3.0.pdf',
+    output: 'agentsql-mcp-integrations-v2.4.0.pdf',
     title: 'MCP 接入指南',
     slug: 'mcp-integrations',
   },
@@ -816,6 +816,9 @@ async function main() {
       'agentsql-getting-started-v2.2.0.pdf',
       'agentsql-mcp-integrations-v2.2.0.pdf',
       'agentsql-user-guide-v2.2.0.pdf',
+      'agentsql-getting-started-v2.3.0.pdf',
+      'agentsql-mcp-integrations-v2.3.0.pdf',
+      'agentsql-user-guide-v2.3.0.pdf',
     ];
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles].sort();
     if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {

@@ -142,7 +142,7 @@ func (pipeline *Pipeline) process(
 		if datasource.ID != request.DatasourceID {
 			return fmt.Errorf("datasource reader returned ID %q for %q", datasource.ID, request.DatasourceID)
 		}
-		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "highgo" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "oracle" && datasource.DBType != "yashan" {
+		if datasource.DBType != "postgres" && datasource.DBType != "vastbase" && datasource.DBType != "highgo" && datasource.DBType != "opengauss" && datasource.DBType != "mysql" && datasource.DBType != "sqlserver" && datasource.DBType != "dm" && datasource.DBType != "oracle" && datasource.DBType != "yashan" {
 			return fmt.Errorf("datasource %q has unsupported dialect %q", datasource.ID, datasource.DBType)
 		}
 		run.datasource = &datasource
@@ -330,7 +330,7 @@ func (pipeline *Pipeline) process(
 		if run.datasource.DBType == "mysql" && !hasB2ColumnPolicy(run.storedPolicies) {
 			enabled = false
 		}
-		if run.datasource.DBType == "vastbase" || run.datasource.DBType == "highgo" {
+		if run.datasource.DBType == "vastbase" || run.datasource.DBType == "highgo" || run.datasource.DBType == "opengauss" {
 			// PG wire compatibility does not grant the PostgreSQL B2 binder.
 			enabled = false
 		}
@@ -1353,7 +1353,8 @@ func shouldBindDeniedSelect(ast *model.AST, assessment model.Assessment) bool {
 	// it has no SELECT grant. As with Yashan and Oracle, a static R010 deny is
 	// final and must not turn into a database permission error during binding.
 	if ast == nil || ast.Dialect == model.DialectYashan || ast.Dialect == model.DialectOracle ||
-		ast.Dialect == model.DialectSQLServer || ast.StmtType != model.StmtType("SELECT") ||
+		ast.Dialect == model.DialectSQLServer || ast.Dialect == model.DialectOpenGauss ||
+		ast.StmtType != model.StmtType("SELECT") ||
 		assessment.Decision != model.DecisionDeny {
 		return false
 	}

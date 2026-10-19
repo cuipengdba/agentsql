@@ -175,7 +175,7 @@ redaction:
 ### 6.2 核心枚举与模型
 
 ```go
-type DBDialect string // 业务库类型标识；注册表共 29 款，能进入 NewParser 的范围另受方言入口限制
+type DBDialect string // 业务库类型标识；注册表共 30 款，能进入 NewParser 的范围另受方言入口限制
 type StmtType  string // SELECT / INSERT / UPDATE / DELETE / DDL / ADMIN / UNKNOWN
 type Decision  string // allow / warn / approve / deny
 type RiskLevel int    // 1 拒绝 / 2 审批 / 3 告警 / 4 提示
@@ -362,7 +362,7 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 | 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
 | 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
 
-注册表的 29 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM8、金仓、Vastbase、瀚高、崖山、Oracle Free 和 SQL Server 2025 的指定实例证据范围各不相同，分别见对应版本的[路线图与验收链接](../ROADMAP.md)和 [SECURITY.md](../SECURITY.md)。其中 v2.3.0 SQL Server 2025 Developer 的最小权限、严格 TLS、HTTP MCP、R010、脱敏、持久审计和故障关闭只覆盖隔离 x86_64 合成实例与窄 SELECT；不继承 PostgreSQL 的 B2/B5，也不表示厂商认证或完整生产支持。无法证明的方言和拓扑继续失败关闭。
+注册表的 30 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM8、金仓、Vastbase、瀚高、崖山、Oracle Free、SQL Server 2025 和 openGauss 7.0.0 LTS 的指定实例证据范围各不相同，分别见对应版本的[路线图与验收链接](../ROADMAP.md)和 [SECURITY.md](../SECURITY.md)。其中 v2.3.0 SQL Server 2025 Developer 的最小权限、严格 TLS、HTTP MCP、R010、脱敏、持久审计和故障关闭只覆盖隔离 x86_64 合成实例与窄 SELECT；不继承 PostgreSQL 的 B2/B5，也不表示厂商认证或完整生产支持。v2.4.0 openGauss 仅在官方 7.0.0 LTS 指定构建开放独立受限只读类型，强制 `verify-full`、精确身份、只读会话和普通物理单表有界 SELECT；GaussDB 商业版及 B2/B5 未验证。无法证明的方言和拓扑继续失败关闭。
 
 ---
 

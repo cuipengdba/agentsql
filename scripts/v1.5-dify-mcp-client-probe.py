@@ -25,7 +25,7 @@ def check_result(result, expected_decision: str, rule: str | None = None) -> dic
     if not isinstance(data, dict) or not isinstance(data.get("audit_id"), int):
         raise AssertionError("MCP response has no audit ID")
     serialized = json.dumps(result.model_dump(), ensure_ascii=False)
-    if "13812345678" in serialized or "13800135678" in serialized:
+    if "13812345678" in serialized or "13800135678" in serialized or "13800105678" in serialized:
         raise AssertionError("unmasked synthetic phone reached Dify")
     if expected_decision == "allow":
         if data.get("redact", {}).get("MaskedCells") != 1:

@@ -109,3 +109,29 @@ func TestDatasourceFromInputVastbaseVerifiedTLS(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestDatasourceFromInputOpenGaussRequiresVerifiedTLS(t *testing.T) {
+	input := datasourceInput{
+		ID: "og-lts", Name: "openGauss 7.0.0 LTS", DBType: "opengauss",
+		Host: "og.example.test", Database: "agentsql", Username: "reader",
+		TLSMode: "verify-full", TLSCAFile: "/etc/agentsql/certs/og-ca.crt",
+		TLSServerName: "og.example.test",
+	}
+	datasource, err := datasourceFromInput(input)
+	require.NoError(t, err)
+	require.Equal(t, "verify-full", datasource.TLSMode)
+	require.Equal(t, input.TLSCAFile, datasource.TLSCAFile)
+	require.Equal(t, input.TLSServerName, datasource.TLSServerName)
+	for _, change := range []func(*datasourceInput){
+		func(in *datasourceInput) { in.TLSMode = "" },
+		func(in *datasourceInput) { in.TLSMode = "disable" },
+		func(in *datasourceInput) { in.TLSCAFile = "" },
+		func(in *datasourceInput) { in.TLSCAFile = "relative.crt" },
+		func(in *datasourceInput) { in.TrustServerCertificate = true },
+	} {
+		invalid := input
+		change(&invalid)
+		_, err := datasourceFromInput(invalid)
+		require.Error(t, err)
+	}
+}

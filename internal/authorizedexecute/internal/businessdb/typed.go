@@ -94,6 +94,18 @@ func ListSchema(ctx context.Context, executor Executor, database string, tables 
 			return nil, postgresDatabaseError(metadataContext, DBStageMetadata, "read HighGo metadata", queryErr)
 		}
 		result, err = collectRows(&postgresRowSource{rows: rows}, typedSchemaRowLimit)
+	case *OpenGaussExecutor:
+		if typed.PostgresExecutor == nil || typed.pool == nil {
+			return nil, newDBError(DBErrorKindConnection, DBErrorCodeConnection, DBStageMetadata, "", nil)
+		}
+		query, args := postgresSchemaQuery(tables)
+		metadataContext, cancel := typed.timeoutContext(ctx)
+		defer cancel()
+		rows, queryErr := typed.pool.Query(metadataContext, query, args...)
+		if queryErr != nil {
+			return nil, postgresDatabaseError(metadataContext, DBStageMetadata, "read openGauss metadata", queryErr)
+		}
+		result, err = collectRows(&postgresRowSource{rows: rows}, typedSchemaRowLimit)
 	case *MySQLExecutor:
 		query, args := mysqlSchemaQuery(database, tables)
 		rows, queryErr := typed.database.QueryContext(ctx, query, args...)

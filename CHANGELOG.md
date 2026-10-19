@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.4.0]
+
+- Add a separate `opengauss` type for the checksum-verified openGauss 7.0.0 LTS build, with verified TLS, read-only connection checks, a bounded `FROM ONLY` physical-table SELECT parser, and no PostgreSQL B2/B5 inheritance.
+- Verify a least-privilege account through real HTTP MCP, masking, R010 denial, single-use approval, durable audit, Inspector/Dify clients, SELECT revocation, business and audit outages, and `gs_dump`/`gs_restore` of synthetic data.
+- Keep other builds, GaussDB commercial editions, HA, writes, broad SQL, production certificate rotation, and full production support outside the tested boundary. See the [candidate acceptance record](docs/v2.4.0-acceptance.md).
+
 ## [v2.3.0]
 
 - Verify SQL Server 2025 Developer on one isolated Linux x86_64 instance with strict certificate validation, a login granted only target-table SELECT and database SHOWPLAN, real HTTP MCP masking and R010 denial, durable audit, and Inspector/Dify calls.

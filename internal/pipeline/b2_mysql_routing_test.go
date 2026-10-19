@@ -212,6 +212,26 @@ func TestHighGoDoesNotInheritColumnAuthorizationRouter(t *testing.T) {
 	})
 }
 
+func TestOpenGaussDoesNotInheritColumnAuthorizationRouter(t *testing.T) {
+	controller := &enabledB2Controller{}
+	fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+	fixture.datasources.datasource.DBType = "opengauss"
+	fixture.executor.dialect = "opengauss"
+	columns := "phone"
+	fixture.policies.policies = append(fixture.policies.policies, model.Policy{
+		ID: "opengauss-columns", AgentID: "agent-1", DatasourceID: "datasource-1",
+		ObjectType: "column", ObjectName: "public.customers", Columns: &columns, Action: "allow",
+	})
+	response, err := fixture.pipeline.Process(context.Background(), requestWithSQL(
+		"SELECT id FROM ONLY public.customers WHERE id = 1 LIMIT 10",
+	))
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Equal(t, string(executor.ReasonColumnAuthUnsupported), response.ErrorCode)
+	require.Zero(t, controller.beginCalls)
+	require.Zero(t, fixture.executors.calls())
+}
+
 func TestPostgresB2BinderDistinguishesMissingAndUnauthorizedObjects(t *testing.T) {
 	redactor, err := mask.NewRedactor(nil)
 	require.NoError(t, err)
@@ -305,6 +325,11 @@ func TestDeniedSelectBindingExceptionOnlyAppliesToR010(t *testing.T) {
 	sqlServerAST := &model.AST{Dialect: model.DialectSQLServer, StmtType: model.StmtType("SELECT")}
 	require.True(t, shouldExplain(sqlServerAST))
 	require.False(t, shouldBindDeniedSelect(sqlServerAST, model.Assessment{
+		Decision: model.DecisionDeny,
+		Hits:     []model.RuleHit{r010},
+	}))
+	openGaussAST := &model.AST{Dialect: model.DialectOpenGauss, StmtType: model.StmtType("SELECT")}
+	require.False(t, shouldBindDeniedSelect(openGaussAST, model.Assessment{
 		Decision: model.DecisionDeny,
 		Hits:     []model.RuleHit{r010},
 	}))

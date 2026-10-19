@@ -38,7 +38,7 @@ function Invoke-Inspector([string]$sql, [string]$decision) {
     }
     if ($null -eq $content.data.audit_id) { throw 'MCP Inspector result has no audit ID' }
     $serialized = $result | ConvertTo-Json -Depth 20 -Compress
-    if ($serialized.Contains('13800135678') -or $serialized.Contains('13812345678')) {
+    if ($serialized.Contains('13800135678') -or $serialized.Contains('13812345678') -or $serialized.Contains('13800105678')) {
         throw 'Unmasked phone reached MCP Inspector'
     }
     if ($decision -eq 'allow') {

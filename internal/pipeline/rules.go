@@ -109,6 +109,9 @@ func assembleRules(
 	case model.DialectHighGo:
 		// HighGo PG mode has an independent narrow parser and read-only executor.
 		// PostgreSQL B2/B5 and dialect-specific rules are not inherited.
+	case model.DialectOpenGauss:
+		// openGauss has its own narrow parser and permanently read-only executor.
+		// PostgreSQL B2/B5 and dialect-specific rules are not inherited.
 	default:
 		return nil, fmt.Errorf("unsupported rule dialect %q", dialect)
 	}

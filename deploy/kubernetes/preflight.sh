@@ -25,14 +25,14 @@ done
 rendered="$(kubectl kustomize "$script_dir")"
 if ! grep -Fq 'replicas: 2' <<<"$rendered" ||
    ! grep -Fq 'type: OnDelete' <<<"$rendered" ||
-   ! grep -Fq 'image: ghcr.io/cuipengdba/agentsql:v2.3.0' <<<"$rendered" ||
+   ! grep -Fq 'image: ghcr.io/cuipengdba/agentsql:v2.4.0' <<<"$rendered" ||
    ! grep -Fq 'instance_id_file: "/var/lib/agentsql/instance-id"' <<<"$rendered" ||
    [[ "$(grep -Fc 'driver: postgres' <<<"$rendered")" -lt 2 ]] ||
    grep -Fq 'sqlite_path:' <<<"$rendered" ||
    ! grep -Fq 'stateful: false' <<<"$rendered" ||
    ! grep -Fq 'event_store_enabled: false' <<<"$rendered" ||
    ! grep -Fq 'auto_migrate: false' <<<"$rendered"; then
-  echo 'preflight failed: expected fixed two-replica v2.3.0 safety profile is missing' >&2
+  echo 'preflight failed: expected fixed two-replica v2.4.0 safety profile is missing' >&2
   exit 1
 fi
 

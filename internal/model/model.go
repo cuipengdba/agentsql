@@ -9,6 +9,7 @@ const (
 	DialectPostgres    DBDialect = "postgres"
 	DialectVastbase    DBDialect = "vastbase"
 	DialectHighGo      DBDialect = "highgo"
+	DialectOpenGauss   DBDialect = "opengauss"
 	DialectMySQL       DBDialect = "mysql"
 	DialectDM          DBDialect = "dm"
 	DialectOracle      DBDialect = "oracle"

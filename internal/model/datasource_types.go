@@ -28,6 +28,7 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"postgres":  {CategoryRelational, "PostgreSQL", 5432, true, true, true},
 	"vastbase":  {CategoryRelational, "Vastbase G100 Build 9 PG（限定只读）", 5432, true, true, true},
 	"highgo":    {CategoryRelational, "HighGo 9.0.10 企业版 PG（限定只读）", 5866, true, true, true},
+	"opengauss": {CategoryRelational, "openGauss 7.0.0 LTS（限定只读）", 5432, true, true, true},
 	"mysql":     {CategoryRelational, "MySQL", 3306, true, true, true},
 	"dm":        {CategoryRelational, "DM", 5236, true, true, true},
 	"oracle":    {CategoryRelational, "Oracle", 1521, true, true, true},
