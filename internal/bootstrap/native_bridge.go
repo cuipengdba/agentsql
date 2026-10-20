@@ -70,6 +70,18 @@ func (runtime *Runtime) ClickHouseReadControlled(ctx context.Context, datasource
 	return runtime.businessRead.ClickHouseReadControlled(ctx, datasource, append([]byte(nil), runtime.secret...), request)
 }
 
+func (runtime *Runtime) MilvusSearchControlled(ctx context.Context, datasource model.Datasource, request executor.MilvusSearchRequest) (model.QueryResult, error) {
+	if runtime == nil {
+		return model.QueryResult{}, fmt.Errorf("runtime is nil")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed || runtime.businessRead == nil {
+		return model.QueryResult{}, fmt.Errorf("runtime is closed")
+	}
+	return runtime.businessRead.MilvusSearchControlled(ctx, datasource, append([]byte(nil), runtime.secret...), request)
+}
+
 func (runtime *Runtime) RedisReadControlled(ctx context.Context, datasource model.Datasource, request executor.RedisReadRequest) (model.QueryResult, error) {
 	if runtime == nil {
 		return model.QueryResult{}, fmt.Errorf("runtime is nil")

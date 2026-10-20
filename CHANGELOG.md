@@ -1,5 +1,10 @@
 # Changelog
 
+## [v2.8.0]
+
+- Add a bounded Milvus 2.6.25 `search_vectors` MCP capability for a TLS standalone instance and the `default` database. Require an authenticated non-root account, exact collection and vector/output field grants, finite single-vector input, dimension and COSINE index checks, source-aware masking, and durable preflight and terminal audit.
+- Verify real HTTP MCP, MCP Inspector and Dify calls, database least privilege, policy revocation, wrong-CA denial, independent audit-store outage, Milvus outage, and recovery on synthetic data. Other Milvus versions, clusters, replication, hybrid search, writes, and full production support remain unverified. See the [candidate acceptance record](docs/v2.8.0-acceptance.md).
+
 ## [v2.7.0]
 
 - Add a bounded ClickHouse 26.8.31.2 `query_analytics` MCP capability for a single TLS node and MergeTree table. Require exact table and explicit column grants, a read-only role, String equality filters, server-enforced resource limits, source-aware masking, and durable preflight and terminal audit.

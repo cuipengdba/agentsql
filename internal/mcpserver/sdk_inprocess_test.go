@@ -69,6 +69,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 		"list_schema",
 		"query",
 		"query_analytics",
+		"search_vectors",
 		"read_key",
 		"request_approval",
 	}, names)

@@ -17,6 +17,7 @@ type NativeNamespace = businessdb.NativeNamespace
 type MongoFindRequest = businessdb.MongoFindRequest
 type RedisReadRequest = businessdb.RedisReadRequest
 type ClickHouseReadRequest = businessdb.ClickHouseReadRequest
+type MilvusSearchRequest = businessdb.MilvusSearchRequest
 
 var ErrNativeUnsupported = errors.New("native capability unsupported")
 
@@ -26,6 +27,44 @@ func ValidateMongoFind(request MongoFindRequest) error {
 
 func ValidateClickHouseRead(request ClickHouseReadRequest) error {
 	return businessdb.ValidateClickHouseRead(request)
+}
+
+func ValidateMilvusSearch(request MilvusSearchRequest) error {
+	return businessdb.ValidateMilvusSearch(request)
+}
+
+func (gateway *Gateway) MilvusSearchControlled(ctx context.Context, datasource model.Datasource, secret []byte, request MilvusSearchRequest) (model.QueryResult, error) {
+	if gateway == nil || !gateway.readOnly {
+		return model.QueryResult{}, ErrNativeUnsupported
+	}
+	cipher, err := store.NewPasswordCipher(secret)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	password, err := cipher.Decrypt(datasource.PasswordEnc)
+	if err != nil || password == "" {
+		return model.QueryResult{}, fixedExecutionError(fmt.Errorf("controlled Milvus credentials unavailable"))
+	}
+	result, err := businessdb.MilvusSearchControlled(ctx, datasource, password, request)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	return result, nil
+}
+
+func (gateway *Gateway) MilvusPingControlled(ctx context.Context, datasource model.Datasource, secret []byte) error {
+	if gateway == nil {
+		return ErrNativeUnsupported
+	}
+	cipher, err := store.NewPasswordCipher(secret)
+	if err != nil {
+		return fixedExecutionError(err)
+	}
+	password, err := cipher.Decrypt(datasource.PasswordEnc)
+	if err != nil || password == "" {
+		return fixedExecutionError(fmt.Errorf("controlled Milvus credentials unavailable"))
+	}
+	return fixedExecutionError(businessdb.MilvusPingControlled(ctx, datasource, password))
 }
 
 func (gateway *Gateway) ClickHouseReadControlled(ctx context.Context, datasource model.Datasource, secret []byte, request ClickHouseReadRequest) (model.QueryResult, error) {
