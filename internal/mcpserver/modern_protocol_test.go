@@ -346,7 +346,7 @@ func TestModernHTTPGoSDKInteroperabilityAndB5Isolation(t *testing.T) {
 	require.Equal(t, modernMCPProtocolVersion, session.InitializeResult().ProtocolVersion)
 	listed, err := session.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, listed.Tools, 11)
+	require.Len(t, listed.Tools, 12)
 	for _, tool := range listed.Tools {
 		require.NotContains(t, b5ToolNames(), tool.Name)
 	}
@@ -364,7 +364,7 @@ func TestModernHTTPGoSDKInteroperabilityAndB5Isolation(t *testing.T) {
 	require.NotEmpty(t, sessionID)
 	legacyTools := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusOK, legacyTools.Code, legacyTools.Body.String())
-	require.Len(t, decodeToolNames(t, legacyTools.Body.Bytes()), 19)
+	require.Len(t, decodeToolNames(t, legacyTools.Body.Bytes()), 20)
 }
 
 func TestModernHTTPRejectsAmbiguousOrInvalidProtocolBeforeToolDispatch(t *testing.T) {

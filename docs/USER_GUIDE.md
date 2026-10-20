@@ -1,8 +1,12 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v2.7.0 的功能与操作。安装或拉取 v2.7.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.8.0 的功能与操作。安装或拉取 v2.8.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v2.7.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.7.0 发布说明](release-notes-v2.7.0.md)和[验收记录](v2.7.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v2.8.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.8.0 发布说明](release-notes-v2.8.0.md)和[验收记录](v2.8.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+
+## v2.8.0 Milvus 受控向量检索
+
+在数据源中选择 Milvus，填写 `default` 数据库、2.6.25 实例的 gRPC TLS 端口、网关可读取的 CA 绝对路径、匹配证书的主机名及非 `root` 账号密码。数据库账号应只获目标 collection 的 Search 权限。为 Agent 建立精确 `default.collection` 表授权和同一对象的列白名单，白名单须包含向量字段及每个返回字段。MCP `search_vectors` 提交一个有限 float32 向量、显式标量字段和 1–20 的 `top_k`；网关核对维度与 COSINE 索引，并在脱敏、持久预检和终态审计成功后交付。原有管理预览与通用 SQL `query` 均不是此能力入口，参见[v2.8.0 设计](v2.8.0-design.md)和[候选验收](v2.8.0-acceptance.md)。
 
 ## v2.7.0 ClickHouse 受控分析查询
 

@@ -1065,6 +1065,15 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
 			return model.Datasource{}, fmt.Errorf("HighGo TLS options have not been verified")
 		}
+		if input.DBType == "milvus" && (input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "") {
+			if (input.TLSMode != "strict" && input.TLSMode != "verify-full") || input.TLSCAFile == "" ||
+				!filepath.IsAbs(input.TLSCAFile) || input.TrustServerCertificate {
+				return model.Datasource{}, fmt.Errorf("controlled Milvus requires verified TLS and an absolute CA path")
+			}
+			if input.Database != "default" || input.Username == "" || input.Username == "root" {
+				return model.Datasource{}, fmt.Errorf("controlled Milvus requires default database and a non-root account")
+			}
+		}
 		if input.DBType == "postgres" || input.DBType == string(model.DialectVastbase) || input.DBType == string(model.DialectOpenGauss) {
 			databaseLabel := "PostgreSQL"
 			if input.DBType == string(model.DialectVastbase) {

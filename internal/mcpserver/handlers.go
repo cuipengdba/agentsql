@@ -82,6 +82,8 @@ type toolHandlers struct {
 	keyAuditIdentity  func(string, int, string) (string, error)
 	analyticsRead     func(context.Context, model.Datasource, executor.ClickHouseReadRequest) (model.QueryResult, error)
 	analyticsRedactor func(context.Context, string) (mask.Redactor, error)
+	vectorSearch      func(context.Context, model.Datasource, executor.MilvusSearchRequest) (model.QueryResult, error)
+	vectorRedactor    func(context.Context, string) (mask.Redactor, error)
 }
 
 func (handlers *toolHandlers) listDatasources(ctx context.Context) ToolResponse {

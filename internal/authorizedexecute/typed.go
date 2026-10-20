@@ -207,6 +207,9 @@ func (gateway *Gateway) openNative(ctx context.Context, datasource model.Datasou
 }
 
 func (gateway *Gateway) Ping(ctx context.Context, datasource model.Datasource, secret []byte) error {
+	if datasource.DBType == "milvus" && (datasource.TLSMode == "strict" || datasource.TLSMode == "verify-full") {
+		return gateway.MilvusPingControlled(ctx, datasource, secret)
+	}
 	category, ok := model.CategoryOf(datasource.DBType)
 	if !ok {
 		return &AuthError{Reason: ReasonDatasourceUnsupported}

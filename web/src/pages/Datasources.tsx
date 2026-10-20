@@ -276,7 +276,7 @@ export function Datasources() {
           {selectedType === "vastbase" ? <Alert type="warning" showIcon message="Vastbase G100 Build 9 的 PG 模式仅支持指定实例的受限只读路径：明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。启用 TLS 时请配置 CA 与主机名校验，并在服务端为只读账号拒绝明文连接；主备切换与完整生产支持尚未验收。" /> : null}
           {selectedType === "highgo" ? <Alert type="warning" showIcon message="瀚高 V9.0.10 企业版 PG 模式仅支持指定单实例的受限只读查询：明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。请使用最小权限只读账号；其他版本、模式和完整生产支持尚未验收。" /> : null}
           {selectedType === "opengauss" ? <Alert type="warning" showIcon message="openGauss 7.0.0 LTS 仅开放指定实例的受限只读路径：明确 schema、FROM ONLY、带 WHERE 和整数 LIMIT 的单表 SELECT。必须配置 verify-full、可信 CA 和最小权限账号；GaussDB 商业版、主备和完整生产支持尚未验收。" /> : null}
-          {selectedType === "clickhouse" ? <Alert type="info" showIcon message="ClickHouse 管理端仍提供连接级预览；Agent 查询请使用独立的 MCP query_analytics 受控入口。" /> : selectedSpec?.kind === "nosql" ? <Alert type="info" showIcon message={`${categoryLabels[selectedSpec.category]} · 默认端口 ${selectedSpec.default_port} · 连接级/低阶支持（nosql-connect）`} /> : null}
+          {selectedType === "clickhouse" ? <Alert type="info" showIcon message="ClickHouse 管理端仍提供连接级预览；Agent 查询请使用独立的 MCP query_analytics 受控入口。" /> : selectedType === "milvus" ? <Alert type="warning" showIcon message="Milvus 受控检索仅限 2.6.25 单机 default 数据库、TLS 与最小权限账号。Agent 使用 MCP search_vectors；管理端原有连接级预览不支持此 TLS 路径。" /> : selectedSpec?.kind === "nosql" ? <Alert type="info" showIcon message={`${categoryLabels[selectedSpec.category]} · 默认端口 ${selectedSpec.default_port} · 连接级/低阶支持（nosql-connect）`} /> : null}
           <div className="cfg-form-grid">
             <Form.Item name="host" label="主机" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
             <Form.Item name="port" label="端口" rules={[{ required: true }]}><InputNumber min={1} max={65535} className="cfg-full-width" /></Form.Item>
@@ -300,6 +300,10 @@ export function Datasources() {
               {getFieldValue("tls_mode") === "strict" || getFieldValue("tls_mode") === "verify-full" ?
                 <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/clickhouse-ca.crt" /></Form.Item> : null}
               <Form.Item name="tls_server_name" label="证书主机名（可选，默认连接主机）"><Input placeholder="clickhouse.example.com" /></Form.Item>
+            </> : getFieldValue("db_type") === "milvus" ? <>
+              <Form.Item name="tls_mode" label="TLS 模式"><Select options={[{ value: "strict", label: "strict（受控检索，校验 CA 和主机名）" }, { value: "verify-full", label: "verify-full（受控检索）" }]} /></Form.Item>
+              <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/milvus-ca.pem" /></Form.Item>
+              <Form.Item name="tls_server_name" label="证书主机名（可选，默认连接主机）"><Input placeholder="milvus.example.com" /></Form.Item>
             </> : getFieldValue("db_type") === "postgres" || getFieldValue("db_type") === "vastbase" || getFieldValue("db_type") === "opengauss" ? <>
               <Alert className="cfg-inline-alert" type="info" showIcon message={getFieldValue("db_type") === "opengauss" ? "openGauss 7.0.0 LTS 必须使用 verify-full、可信 CA 和匹配的证书主机名。" : getFieldValue("db_type") === "vastbase" ? "Vastbase G100 Build 9 PG 模式可在指定隔离实例使用 verify-full。该实例须启用 ssl 并通过账号访问规则拒绝明文；require_ssl=on 会拒绝当前 PG 驱动协议，不能用于这条适配路径。" : "PostgreSQL 协议路径（含已验证的金仓 PG 模式）可显式启用证书和主机名校验；金仓其他模式与完整生产支持仍需单独验收。"} />
               <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>

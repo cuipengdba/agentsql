@@ -41,6 +41,15 @@ type analyticsInput struct {
 	Limit        int               `json:"limit" jsonschema:"最多返回 1 到 100 行"`
 }
 
+type vectorSearchInput struct {
+	DatasourceID string    `json:"datasource_id" jsonschema:"授权的 Milvus 数据源 ID"`
+	Collection   string    `json:"collection" jsonschema:"精确授权的单个 collection 名称"`
+	VectorField  string    `json:"vector_field" jsonschema:"FloatVector 字段名称"`
+	Vector       []float32 `json:"vector" jsonschema:"一个有限 float32 查询向量，维度与字段一致"`
+	Fields       []string  `json:"fields" jsonschema:"1 到 16 个显式返回的标量字段"`
+	TopK         int       `json:"top_k" jsonschema:"最多返回 1 到 20 个命中"`
+}
+
 type writeInput struct {
 	DatasourceID string `json:"datasource_id" jsonschema:"授权数据源 ID"`
 	SQL          string `json:"sql" jsonschema:"单条 INSERT、UPDATE、DELETE 或 DDL"`
@@ -164,6 +173,13 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 		Description: "在精确授权的 ClickHouse MergeTree 单表读取显式列；限制等值过滤、资源和返回行数，执行脱敏及持久审计。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input analyticsInput) (*mcp.CallToolResult, ToolResponse, error) {
 		response := handlers.queryAnalytics(ctx, input)
+		return protocolResult(response), response, nil
+	})
+	addAgentTool(server, &mcp.Tool{
+		Name:        "search_vectors",
+		Description: "在精确授权的 Milvus 2.6.25 集合中进行单向量相似度检索；只返回显式授权的标量字段，执行脱敏与持久审计。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input vectorSearchInput) (*mcp.CallToolResult, ToolResponse, error) {
+		response := handlers.searchVectors(ctx, input)
 		return protocolResult(response), response, nil
 	})
 	addAgentTool(server, &mcp.Tool{
