@@ -70,11 +70,13 @@ type approvalData struct {
 }
 
 type toolHandlers struct {
-	runtime   *bootstrap.Runtime
-	agent     model.Agent
-	apiKey    string
-	logger    zerolog.Logger
-	schemaFor func(context.Context, model.Datasource, []executor.TableRef) ([]executor.SchemaColumn, error)
+	runtime       *bootstrap.Runtime
+	agent         model.Agent
+	apiKey        string
+	logger        zerolog.Logger
+	schemaFor     func(context.Context, model.Datasource, []executor.TableRef) ([]executor.SchemaColumn, error)
+	mongoFind     func(context.Context, model.Datasource, executor.MongoFindRequest) (model.QueryResult, error)
+	mongoRedactor func(context.Context, string) (mask.Redactor, error)
 }
 
 func (handlers *toolHandlers) listDatasources(ctx context.Context) ToolResponse {

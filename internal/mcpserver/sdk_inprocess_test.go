@@ -63,6 +63,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 		"execute_approved",
 		"execute_write",
 		"explain_query",
+		"find_documents",
 		"get_approval_result",
 		"list_datasources",
 		"list_schema",

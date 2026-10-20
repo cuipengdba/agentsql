@@ -7,14 +7,57 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/authorizedexecute/internal/businessdb"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/store"
 )
 
 type NativeQueryRequest = businessdb.NativeQueryRequest
 type NativeQueryResult = businessdb.NativeQueryResult
 type NativeCatalog = businessdb.NativeCatalog
 type NativeNamespace = businessdb.NativeNamespace
+type MongoFindRequest = businessdb.MongoFindRequest
 
 var ErrNativeUnsupported = errors.New("native capability unsupported")
+
+func ValidateMongoFind(request MongoFindRequest) error {
+	return businessdb.ValidateMongoFind(request)
+}
+
+// MongoFindControlled is an exact MongoDB read capability. It never accepts a
+// generic native command or a caller-controlled namespace.
+func (gateway *Gateway) MongoFindControlled(ctx context.Context, datasource model.Datasource, secret []byte, request MongoFindRequest) (model.QueryResult, error) {
+	if gateway == nil || !gateway.readOnly || datasource.DBType != "mongodb" ||
+		(datasource.TLSMode != "strict" && datasource.TLSMode != "verify-full") ||
+		datasource.TrustServerCertificate || datasource.Username == "" || datasource.Database == "" {
+		return model.QueryResult{}, ErrNativeUnsupported
+	}
+	if err := ValidateMongoFind(request); err != nil {
+		return model.QueryResult{}, err
+	}
+	// The general native manager caches by datasource ID. A controlled read must
+	// bind to the current host, database, certificate and credentials on every
+	// request, including immediately after an administrator edits the source.
+	cipher, err := store.NewPasswordCipher(secret)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	password := ""
+	if datasource.PasswordEnc != "" {
+		password, err = cipher.Decrypt(datasource.PasswordEnc)
+		if err != nil {
+			return model.QueryResult{}, fixedExecutionError(err)
+		}
+	}
+	mongo, err := businessdb.NewMongoExecutorWithContext(ctx, datasource, password, true)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	defer mongo.Close()
+	result, err := mongo.FindControlled(ctx, request)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	return result, nil
+}
 
 func ClassifyNativeCommand(dbType string, request NativeQueryRequest) (string, error) {
 	return businessdb.ClassifyNativeCommand(dbType, request)

@@ -20,6 +20,14 @@ type sqlInput struct {
 	SQL          string `json:"sql" jsonschema:"单条 SQL，不允许堆叠多语句"`
 }
 
+type mongoFindInput struct {
+	DatasourceID string            `json:"datasource_id" jsonschema:"授权的 MongoDB 数据源 ID"`
+	Collection   string            `json:"collection" jsonschema:"指定数据库中的集合名，只允许简单标识符"`
+	Fields       []string          `json:"fields" jsonschema:"显式返回的顶层标量字段，1 到 32 个"`
+	Filter       map[string]string `json:"filter" jsonschema:"1 到 8 个字符串等值过滤条件，不接受操作符"`
+	Limit        int               `json:"limit" jsonschema:"最多返回 1 到 100 条文档"`
+}
+
 type writeInput struct {
 	DatasourceID string `json:"datasource_id" jsonschema:"授权数据源 ID"`
 	SQL          string `json:"sql" jsonschema:"单条 INSERT、UPDATE、DELETE 或 DDL"`
@@ -122,6 +130,13 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 		Description: "执行受保护的单条 SELECT；结果自动限行和脱敏，危险查询可能被拦截或转审批。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input sqlInput) (*mcp.CallToolResult, ToolResponse, error) {
 		response := handlers.query(ctx, input.DatasourceID, input.SQL)
+		return protocolResult(response), response, nil
+	})
+	addAgentTool(server, &mcp.Tool{
+		Name:        "find_documents",
+		Description: "在授权 MongoDB 集合执行受控只读查询；仅返回指定字段，按规则脱敏并写入持久审计。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input mongoFindInput) (*mcp.CallToolResult, ToolResponse, error) {
+		response := handlers.findDocuments(ctx, input)
 		return protocolResult(response), response, nil
 	})
 	addAgentTool(server, &mcp.Tool{
