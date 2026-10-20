@@ -1,6 +1,6 @@
 # AgentSQL v2.7.0 发布说明
 
-状态：候选版；正式发布资产、GitHub Release、GHCR、官网和公网 Demo 须在封版 CI 与升级恢复验收后更新。
+状态：正式发布。封版 CI、升级恢复、签名资产、GHCR、官网和公网 Demo 的实际结果见[发布证据](v2.7.0-release-evidence.md)。
 
 ## 本版范围
 
@@ -11,6 +11,6 @@
 
 ## 验证边界
 
-真实 HTTP MCP、MCP Inspector 0.16.8、Dify MCPClient 1.17.1、最小权限、参数绑定、错误 CA、权限撤销、独立审计库及业务库停机恢复已在单节点合成环境通过；详见[候选验收](v2.7.0-acceptance.md)。正式包升级与公开发布链的结果将在[发布证据](v2.7.0-release-evidence.md)中记录。
+真实 HTTP MCP、MCP Inspector 0.16.8、Dify MCPClient 1.17.1、最小权限、参数绑定、错误 CA、权限撤销、独立审计库及业务库停机恢复已在单节点合成环境通过；详见[候选验收](v2.7.0-acceptance.md)。正式包升级与公开发布链的结果见[发布证据](v2.7.0-release-evidence.md)。
 
 其他版本、集群/复制、生产证书轮换、长期负载、生产数据及完整生产支持未验证。公网 Demo 继续使用合成 PostgreSQL 数据。
