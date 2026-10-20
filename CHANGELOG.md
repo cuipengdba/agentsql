@@ -1,5 +1,10 @@
 # Changelog
 
+## [v2.7.0]
+
+- Add a bounded ClickHouse 26.8.31.2 `query_analytics` MCP capability for a single TLS node and MergeTree table. Require exact table and explicit column grants, a read-only role, String equality filters, server-enforced resource limits, source-aware masking, and durable preflight and terminal audit.
+- Verify real HTTP MCP, Inspector and Dify calls, policy revocation, parameter binding, wrong-CA denial, cancellation, and independent audit-store and business-database outages against synthetic data. Other ClickHouse versions, clusters, replication, writes, broad SQL, and full production support remain unverified. See the [candidate acceptance record](docs/v2.7.0-acceptance.md).
+
 ## [v2.6.0]
 
 - Add a separate Redis 8.2.9 / Valkey 8.1.10 `read_key` capability for an exact UTF-8 string key under strict TLS, least-privilege ACL, Agent key policy, bounded result size, source-aware masking, and durable preflight/terminal audit.

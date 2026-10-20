@@ -58,6 +58,18 @@ func (runtime *Runtime) MongoFindControlled(ctx context.Context, datasource mode
 	return runtime.businessRead.MongoFindControlled(ctx, datasource, append([]byte(nil), runtime.secret...), request)
 }
 
+func (runtime *Runtime) ClickHouseReadControlled(ctx context.Context, datasource model.Datasource, request executor.ClickHouseReadRequest) (model.QueryResult, error) {
+	if runtime == nil {
+		return model.QueryResult{}, fmt.Errorf("runtime is nil")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed || runtime.businessRead == nil {
+		return model.QueryResult{}, fmt.Errorf("runtime is closed")
+	}
+	return runtime.businessRead.ClickHouseReadControlled(ctx, datasource, append([]byte(nil), runtime.secret...), request)
+}
+
 func (runtime *Runtime) RedisReadControlled(ctx context.Context, datasource model.Datasource, request executor.RedisReadRequest) (model.QueryResult, error) {
 	if runtime == nil {
 		return model.QueryResult{}, fmt.Errorf("runtime is nil")

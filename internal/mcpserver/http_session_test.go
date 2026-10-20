@@ -56,7 +56,7 @@ func TestStreamableHTTPStatefulSessionLifecycleAndTenantBinding(t *testing.T) {
 	listed := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	toolNames := decodeToolNames(t, listed.Body.Bytes())
-	require.Len(t, toolNames, 10, "the current non-B5 server surface has ten tools")
+	require.Len(t, toolNames, 11, "the current non-B5 server surface has eleven tools")
 	t.Logf("tools/list response: status=%d tools=%d", listed.Code, len(toolNames))
 
 	called := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listSourcesRequest, sessionID)

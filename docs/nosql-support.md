@@ -1,6 +1,6 @@
 # NoSQL 数据源支持范围
 
-注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。多数仍仅有**连接级/低阶支持**；MongoDB 7.0.43 和 Redis 8.2.9 / Valkey 8.1.10 的指定单实例另有受限 Agent MCP 只读路径。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
+注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。多数仍仅有**连接级/低阶支持**；MongoDB 7.0.43、Redis 8.2.9 / Valkey 8.1.10 和 ClickHouse 26.8.31.2 的指定单实例另有受限 Agent MCP 只读路径。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
 
 | 类别 | 数据源 | 适配器协议 | 默认端口 | 低阶能力 |
 | --- | --- | --- | ---: | --- |
@@ -19,7 +19,7 @@
 | 时序 | InfluxDB | HTTP API | 8086 | 同上 |
 | 时序 | Prometheus | HTTP API | 9090 | 同上 |
 | 时序 | TimescaleDB | PostgreSQL 协议 | 5432 | 同上 |
-| OLAP | ClickHouse | 原生客户端协议 | 9000 | 同上 |
+| OLAP | ClickHouse | 原生客户端协议 | 9000 | 连接级预览保留原默认端口；指定 26.8.31.2 的 `query_analytics` 使用原生 TLS 端口 9440 |
 | OLAP | Doris | MySQL 协议 | 9030 | 同上 |
 | OLAP | StarRocks | MySQL 协议 | 9030 | 同上 |
 | 向量 | Milvus | Milvus 客户端协议 | 19530 | 同上 |
@@ -40,6 +40,10 @@
 ## Redis / Valkey 的 Agent MCP 受控路径
 
 v2.6.0 新增的 `read_key` 与上面的管理员原生命令预览分离。只在 Redis 8.2.9 或 Valkey 8.1.10、严格 TLS、ACL 账号和指定单实例上开放；每次请求固定数据库与当前连接配置，并重验 Agent/租户和 `key` 策略。策略 `dbN:exact-key` 或 `dbN:bounded-prefix*` 与 SQL 表权限互不替代，拒绝优先。请求只接受精确 ASCII 键名，固定调用 `TYPE` 与有界 `GETRANGE`；超过 64 KiB、非 UTF-8、非字符串、通配符、危险命令和跨库操作均拒绝。按键值来源应用脱敏，持久预检与终态审计使用 HMAC 键标识。独立审计库或业务库故障时不交付值；详情和未测范围见[v2.6.0 验收](v2.6.0-acceptance.md)。
+
+## ClickHouse 的 Agent MCP 受控路径
+
+v2.7.0 的 `query_analytics` 与管理员原生命令预览分离，只针对 ClickHouse 26.8.31.2、严格 TLS、`readonly=1` 最小权限角色和指定单节点。网关逐次核验精确 `database.table` 表授权及显式列白名单（包含过滤列），只读取 MergeTree 表的显式列和 String 等值过滤，返回 1–100 行；服务器生成参数化 SQL，附加查询时间、读行/字节、内存、输出行及线程上限，结果还受 1 MiB 和 UTF-8 边界约束。脱敏和持久预检/终态审计成功后才交付。任意 SQL、视图、Distributed、表函数、JOIN、聚合、写入、跨库和完整生产支持未开放；证据见[v2.7.0 候选验收](v2.7.0-acceptance.md)。
 
 ## 控制台与 HTTP API
 

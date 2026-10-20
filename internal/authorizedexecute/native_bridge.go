@@ -16,11 +16,35 @@ type NativeCatalog = businessdb.NativeCatalog
 type NativeNamespace = businessdb.NativeNamespace
 type MongoFindRequest = businessdb.MongoFindRequest
 type RedisReadRequest = businessdb.RedisReadRequest
+type ClickHouseReadRequest = businessdb.ClickHouseReadRequest
 
 var ErrNativeUnsupported = errors.New("native capability unsupported")
 
 func ValidateMongoFind(request MongoFindRequest) error {
 	return businessdb.ValidateMongoFind(request)
+}
+
+func ValidateClickHouseRead(request ClickHouseReadRequest) error {
+	return businessdb.ValidateClickHouseRead(request)
+}
+
+func (gateway *Gateway) ClickHouseReadControlled(ctx context.Context, datasource model.Datasource, secret []byte, request ClickHouseReadRequest) (model.QueryResult, error) {
+	if gateway == nil || !gateway.readOnly {
+		return model.QueryResult{}, ErrNativeUnsupported
+	}
+	cipher, err := store.NewPasswordCipher(secret)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	password, err := cipher.Decrypt(datasource.PasswordEnc)
+	if err != nil || password == "" {
+		return model.QueryResult{}, fixedExecutionError(fmt.Errorf("controlled ClickHouse credentials unavailable"))
+	}
+	result, err := businessdb.ClickHouseReadControlled(ctx, datasource, password, request)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	return result, nil
 }
 
 func RedisDatabaseNumber(datasource model.Datasource) (int, error) {

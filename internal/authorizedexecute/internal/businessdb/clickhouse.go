@@ -30,6 +30,9 @@ func clickHouseOptions(ds model.Datasource, password string) (*clickhouse.Option
 	port := ds.Port
 	if port == 0 {
 		port = 9000
+		if ds.TLSMode == "strict" || ds.TLSMode == "verify-full" {
+			port = 9440
+		}
 	}
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("clickhouse port is invalid")
@@ -81,10 +84,9 @@ func clickHouseOptions(ds model.Datasource, password string) (*clickhouse.Option
 			if readErr != nil {
 				return nil, readErr
 			}
-			roots, poolErr := x509.SystemCertPool()
-			if poolErr != nil {
-				roots = x509.NewCertPool()
-			}
+			// A configured CA is a trust boundary for controlled reads. Do not
+			// silently fall back to the operating system trust store.
+			roots := x509.NewCertPool()
 			if !roots.AppendCertsFromPEM(pem) {
 				return nil, fmt.Errorf("invalid clickhouse TLS CA")
 			}

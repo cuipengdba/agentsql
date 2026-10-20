@@ -1,8 +1,12 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v2.6.0 的功能与操作。安装或拉取 v2.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.7.0 的功能与操作。安装或拉取 v2.7.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v2.6.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.6.0 发布说明](release-notes-v2.6.0.md)和[验收记录](v2.6.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v2.7.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.7.0 发布说明](release-notes-v2.7.0.md)和[验收记录](v2.7.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+
+## v2.7.0 ClickHouse 受控分析查询
+
+在数据源中选择 ClickHouse，填写指定数据库、原生 TLS 端口、可验证 CA、证书主机名及只读账号。数据库角色需固定 `readonly=1` 并限制查询时间、读行/字节、内存、输出行和线程。为 Agent 建立精确 `database.table` 表授权及同一对象的列白名单，白名单须包括返回列和过滤列。MCP `query_analytics` 只接受表名、显式列、String 列的等值条件与 1–100 行上限；网关仅查询 MergeTree 单表、逐次重验权限并在脱敏和持久预检/终态审计成功后交付。通用 `query` SQL 工具不是此能力入口。支持范围以[v2.7.0 设计](v2.7.0-design.md)及完成后的验收为准。
 
 ## v2.6.0 Redis / Valkey 受控键读取
 

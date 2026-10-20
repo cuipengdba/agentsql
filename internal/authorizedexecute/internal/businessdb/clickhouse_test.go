@@ -16,7 +16,7 @@ func TestClickHouseOptionsAndPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.Addr[0] != "localhost:9000" || opts.Auth.Database != "analytics" || opts.Auth.Username != "reader" || opts.Auth.Password != "secret" || opts.TLS == nil || opts.TLS.InsecureSkipVerify {
+	if opts.Addr[0] != "localhost:9440" || opts.Auth.Database != "analytics" || opts.Auth.Username != "reader" || opts.Auth.Password != "secret" || opts.TLS == nil || opts.TLS.InsecureSkipVerify {
 		t.Fatalf("options %+v", opts)
 	}
 	for _, tc := range []struct {
