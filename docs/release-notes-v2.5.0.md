@@ -1,9 +1,9 @@
-# AgentSQL v2.5.0 发布说明（候选）
+# AgentSQL v2.5.0 发布说明
 
 v2.5.0 为 MongoDB 7.0 指定单实例增加 Agent 级受控只读 MCP 工具 `find_documents`。管理员为 Agent 精确授权 `database.collection`，可进一步限定返回和过滤字段；调用方只提交显式字段、字符串等值过滤条件及 1–100 行上限。网关在读取前写入持久预检审计，读取后按当前脱敏规则处理并写入终态审计；审计不可用时不交付结果。
 
 受控路径每次使用当前数据源配置建立严格 TLS、认证且只读的连接，避免管理员修改主机、证书、账号或数据库后继续沿用旧连接。集合/字段名中的操作符和嵌套路径、任意命令、聚合、写入及非指定 MongoDB 版本均不开放。旧的管理端连接级预览不计入这条 Agent 级安全链路。
 
-在 MongoDB 7.0.43 Linux x86_64 Docker 单实例、测试 CA、只获目标集合 `find` 权限的账号和合成数据上，真库、真实 HTTP MCP、MCP Inspector 0.16.8 与 Dify MCPClient 1.17.1 的允许/拒绝调用已通过。原始合成手机号未交付，策略撤销、错误证书、错误密码和无权集合均失败关闭。详情见[候选验收](v2.5.0-acceptance.md)。
+在 MongoDB 7.0.43 Linux x86_64 Docker 单实例、测试 CA、只获目标集合 `find` 权限的账号和合成数据上，真库、真实 HTTP MCP、MCP Inspector 0.16.8 与 Dify MCPClient 1.17.1 的允许/拒绝调用已通过。原始合成手机号未交付，策略撤销、错误证书、错误密码和无权集合均失败关闭。详情见[候选验收](v2.5.0-acceptance.md)与[正式发布证据](v2.5.0-release-evidence.md)。
 
-本版不增加 AgentSQL metadata/audit schema；升级仍需对现有控制面数据与独立审计库成套备份、检查和恢复。副本集、分片、生产证书轮换、长期负载、客户拓扑和完整生产支持未验证。公网 Live Demo 继续使用合成 PostgreSQL 数据。正式 CI、签名资产、GHCR、官网与 Demo 的完成状态以后续正式发布证据为准。
+本版不增加 AgentSQL metadata/audit schema；升级仍需对现有控制面数据与独立审计库成套备份、检查和恢复。副本集、分片、生产证书轮换、长期负载、客户拓扑和完整生产支持未验证。公网 Live Demo 继续使用合成 PostgreSQL 数据。正式 CI、签名资产、GHCR、官网与 Demo 的实际结果见[正式发布证据](v2.5.0-release-evidence.md)。
