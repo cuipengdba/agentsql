@@ -35,7 +35,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v2.3.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.3.0)） | SQL Server 2025 Developer 指定 Linux x86_64 实例的严格 TLS、最小权限 HTTP MCP、窄 SELECT、R010、脱敏、持久审计、双客户端及故障关闭；见[候选验收](docs/v2.3.0-acceptance.md)与[正式发布证据](docs/v2.3.0-release-evidence.md)。其他版本、Windows/Always On、生产证书轮换和完整生产支持未验证。 |
 | v2.4.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.4.0)） | openGauss 社区版 7.0.0 LTS 指定构建的独立类型、严格 TLS、窄单表 SELECT、真实 MCP 与故障关闭；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.4.0-release-evidence.md)。其他版本、主备与完整生产支持未验证。 |
 | v2.5.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.5.0)） | MongoDB 7.0.43 指定单实例的 Agent 级集合/字段受控只读、严格 TLS、脱敏、持久审计与故障关闭；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.5.0-release-evidence.md)。副本集、分片、写入与完整生产支持未验证。 |
-| v2.6.0 | 候选验收中 | Redis 8.2.9 / Valkey 8.1.10 指定 TLS/ACL 单实例的 Agent 级精确键受控读取；真库、双客户端、脱敏、持久审计、故障关闭与上一版数据升级候选已通过，正式发布与公开入口仍待验收。见[设计](docs/v2.6.0-design.md)和[候选验收](docs/v2.6.0-acceptance.md)。 |
+| v2.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.6.0)） | Redis 8.2.9 / Valkey 8.1.10 指定 TLS/ACL 单实例的 Agent 级精确键受控读取；真库、双客户端、脱敏、持久审计、故障关闭、正式资产、上一版升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.6.0-release-evidence.md)。其他版本、Cluster/Sentinel 与完整生产支持未验证。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 

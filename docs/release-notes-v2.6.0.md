@@ -10,6 +10,6 @@
 
 ## 验证边界
 
-隔离环境使用 Redis 8.2.9 与 Valkey 8.1.10 的 Linux x86_64 Docker 镜像、测试 CA、TLS、最小 ACL 和合成数据。两款产品的真实 HTTP MCP 允许与拒绝、脱敏、错误 CA、策略撤销，以及独立审计库和业务库停机、恢复后再次脱敏读取已通过。MCP Inspector 0.16.8 与 Dify MCPClient 1.17.1 分别对两款数据库完成真实允许和拒绝调用；正式包升级与公开发布链的最终结果以[验收记录](v2.6.0-acceptance.md)为准。
+隔离环境使用 Redis 8.2.9 与 Valkey 8.1.10 的 Linux x86_64 Docker 镜像、测试 CA、TLS、最小 ACL 和合成数据。两款产品的真实 HTTP MCP 允许与拒绝、脱敏、错误 CA、策略撤销，以及独立审计库和业务库停机、恢复后再次脱敏读取已通过。MCP Inspector 0.16.8 与 Dify MCPClient 1.17.1 分别对两款数据库完成真实允许和拒绝调用；正式包升级与公开发布链的最终结果见[发布证据](v2.6.0-release-evidence.md)，测试细节见[候选验收](v2.6.0-acceptance.md)。
 
 其他版本、Sentinel、Cluster、生产证书轮换、持久化策略、长期负载、二进制值、列表/哈希/集合/有序集合、写入及完整生产支持未验证。公网 Demo 继续使用合成 PostgreSQL 数据，不提供公网 Redis/Valkey。
