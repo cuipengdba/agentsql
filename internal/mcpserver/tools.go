@@ -33,6 +33,14 @@ type keyReadInput struct {
 	Key          string `json:"key" jsonschema:"精确键名，不接受通配符或原生命令"`
 }
 
+type analyticsInput struct {
+	DatasourceID string            `json:"datasource_id" jsonschema:"授权的 ClickHouse 数据源 ID"`
+	Table        string            `json:"table" jsonschema:"当前数据库内已精确授权的 MergeTree 表名"`
+	Fields       []string          `json:"fields" jsonschema:"1 到 16 个显式返回列"`
+	Filter       map[string]string `json:"filter" jsonschema:"1 到 8 个 String 列的等值条件"`
+	Limit        int               `json:"limit" jsonschema:"最多返回 1 到 100 行"`
+}
+
 type writeInput struct {
 	DatasourceID string `json:"datasource_id" jsonschema:"授权数据源 ID"`
 	SQL          string `json:"sql" jsonschema:"单条 INSERT、UPDATE、DELETE 或 DDL"`
@@ -149,6 +157,13 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 		Description: "读取授权 Redis/Valkey 单个 UTF-8 字符串键；最多 64 KiB，按键权限、脱敏规则和持久审计处理。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input keyReadInput) (*mcp.CallToolResult, ToolResponse, error) {
 		response := handlers.readKey(ctx, input)
+		return protocolResult(response), response, nil
+	})
+	addAgentTool(server, &mcp.Tool{
+		Name:        "query_analytics",
+		Description: "在精确授权的 ClickHouse MergeTree 单表读取显式列；限制等值过滤、资源和返回行数，执行脱敏及持久审计。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input analyticsInput) (*mcp.CallToolResult, ToolResponse, error) {
+		response := handlers.queryAnalytics(ctx, input)
 		return protocolResult(response), response, nil
 	})
 	addAgentTool(server, &mcp.Tool{

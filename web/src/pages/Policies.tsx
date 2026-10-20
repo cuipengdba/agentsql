@@ -272,11 +272,13 @@ export function Policies() {
       </section>
       {!agentID || !datasourceID ? <div className="cfg-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择 Agent 与数据源" /></div> : <>
         {failed ? <Alert className="cfg-inline-alert" type="error" showIcon message="策略加载失败" action={<Button size="small" onClick={() => void load()}>重试</Button>} /> : null}
-        {hasColumnPolicy && <Alert className="cfg-inline-alert" type={selectedDatasource?.db_type === "postgres" ? "warning" : "error"} showIcon
-          message={selectedDatasource?.db_type === "postgres" ? "列级策略要求 PostgreSQL B2 绑定器可用" : "当前数据源的列级授权尚无可验证路径"}
+        {hasColumnPolicy && <Alert className="cfg-inline-alert" type={selectedDatasource?.db_type === "postgres" || selectedDatasource?.db_type === "clickhouse" ? "warning" : "error"} showIcon
+          message={selectedDatasource?.db_type === "postgres" ? "列级策略要求 PostgreSQL B2 绑定器可用" : selectedDatasource?.db_type === "clickhouse" ? "ClickHouse query_analytics 必须同时配置精确表授权和显式列授权" : "当前数据源的列级授权尚无可验证路径"}
           description={selectedDatasource?.db_type === "postgres"
             ? "B2 不可用时，带列级策略的 SELECT 会在执行前失败关闭；多表 JOIN、自连接、谓词和通配列不会退回表级授权。上线前请在目标数据源验证 B2 健康状态与拒绝审计。"
-            : "保存列级策略后，相关 SELECT 会在执行前被拒绝；请使用表级策略及数据库账号最小权限，不要把离线预检当作执行许可。"} />}
+            : selectedDatasource?.db_type === "clickhouse"
+              ? "表对象请填写 database.table，列策略使用相同对象；返回列和过滤列均须在白名单内。通用 query SQL 路径不适用于 ClickHouse 的受控查询。"
+              : "保存列级策略后，相关 SELECT 会在执行前被拒绝；请使用表级策略及数据库账号最小权限，不要把离线预检当作执行许可。"} />}
         <div className="cfg-table"><Table<PolicyView> rowKey="id" columns={columns} dataSource={list} loading={loading} pagination={false} scroll={{ x: 1_050 }} /></div>
         <section className="cfg-scope-filter" style={{ display: "block", marginTop: 20 }}>
           <strong>SQL 策略离线预检</strong>

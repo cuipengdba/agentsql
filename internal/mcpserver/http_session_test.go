@@ -56,7 +56,7 @@ func TestStreamableHTTPStatefulSessionLifecycleAndTenantBinding(t *testing.T) {
 	listed := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	toolNames := decodeToolNames(t, listed.Body.Bytes())
-	require.Len(t, toolNames, 10, "the current non-B5 server surface has ten tools")
+	require.Len(t, toolNames, 11, "the current non-B5 server surface has eleven tools")
 	t.Logf("tools/list response: status=%d tools=%d", listed.Code, len(toolNames))
 
 	called := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listSourcesRequest, sessionID)
@@ -172,7 +172,7 @@ func TestStreamableHTTPStatefulToolsListWithB5(t *testing.T) {
 	listed := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, sessionID)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	names := decodeToolNames(t, listed.Body.Bytes())
-	require.Len(t, names, 18, "ten base tools plus eight B5 tools must be listed")
+	require.Len(t, names, 19, "eleven base tools plus eight B5 tools must be listed")
 	for _, name := range b5ToolNames() {
 		require.Contains(t, names, name)
 	}
@@ -189,7 +189,7 @@ func TestStreamableHTTPExplicitStatelessRollback(t *testing.T) {
 
 	listed := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listToolsRequest, "")
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
-	require.Len(t, decodeToolNames(t, listed.Body.Bytes()), 10)
+	require.Len(t, decodeToolNames(t, listed.Body.Bytes()), 11)
 	called := serveMCPWithSession(t, handler, fixture.handlers.apiKey, http.MethodPost, listSourcesRequest, "ignored-by-stateless")
 	require.Equal(t, http.StatusOK, called.Code, called.Body.String())
 	require.Contains(t, called.Body.String(), "ds-allowed")

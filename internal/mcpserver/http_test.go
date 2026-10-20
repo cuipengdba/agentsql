@@ -336,7 +336,7 @@ func TestStreamableHTTPEndToEndNineTools(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, responseBody)
 		if body == listToolsRequest {
 			for _, name := range []string{
-				"list_datasources", "list_schema", "explain_query", "query", "find_documents",
+				"list_datasources", "list_schema", "explain_query", "query", "find_documents", "read_key", "query_analytics",
 				"execute_write", "request_approval", "get_approval_result", "execute_approved",
 			} {
 				require.Equal(t, 1, strings.Count(responseBody, `"`+name+`"`), name)

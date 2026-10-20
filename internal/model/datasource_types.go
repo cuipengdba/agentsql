@@ -55,9 +55,10 @@ var datasourceTypes = map[string]DatasourceTypeSpec{
 	"influxdb":    {CategoryTimeSeries, "InfluxDB", 8086, false, false, false},
 	"prometheus":  {CategoryTimeSeries, "Prometheus", 9090, false, false, false},
 	"timescaledb": {CategoryTimeSeries, "TimescaleDB", 5432, true, true, true},
-	// OLAP adapters provide bounded connection-level operations. Credentials
-	// and initial database are optional at registration; servers may require them.
-	"clickhouse": {CategoryOLAP, "ClickHouse", 9000, false, false, false},
+	// OLAP adapters retain bounded connection-level operations. ClickHouse
+	// controlled MCP reads separately require a database, credentials and TLS.
+	// Registration remains optional for legacy native-preview sources.
+	"clickhouse": {CategoryOLAP, "ClickHouse（26.8.31.2 指定实例受控查询）", 9000, false, false, false},
 	"doris":      {CategoryOLAP, "Doris", 9030, false, false, false},
 	"starrocks":  {CategoryOLAP, "StarRocks", 9030, false, false, false},
 	// Vector credentials and database are optional at registration.
