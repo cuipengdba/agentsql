@@ -68,6 +68,7 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 		"list_datasources",
 		"list_schema",
 		"query",
+		"read_key",
 		"request_approval",
 	}, names)
 	require.NotContains(t, names, "execute_raw_sql")

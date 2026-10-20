@@ -1,6 +1,6 @@
 # AgentSQL MCP 接入指南
 
-> 本文说明 AgentSQL v2.5.0 的 MCP 接入。安装或拉取 v2.5.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.6.0 的 MCP 接入。安装或拉取 v2.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -50,7 +50,7 @@ curl -fsS -X POST http://127.0.0.1:7780/api/v1/auth/delegation-token \
 
 客户端每次请求都要发送 `Authorization: Bearer <Agent API Key>`、`MCP-Protocol-Version: 2026-07-28`、`Mcp-Method`、`Content-Type: application/json` 与 `Accept: application/json, text/event-stream`；调用工具时还要发送与 `params.name` 一致的 `Mcp-Name`。`params._meta` 必须包含同版 `io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`。客户端可先调用 `server/discover` 查询能力，也可直接调用工具；无需 `initialize` 或 `notifications/initialized`。该路径没有 MCP 传输会话、独立 GET 事件流、DELETE 关闭或 `Last-Event-ID` 重放；收到旧 `Mcp-Session-Id` 或 `Last-Event-ID` 请求头时忽略它们。连接断开后由客户端决定是否使用新的请求 ID 重试。详见 [MCP 2026-07-28 HTTP 规范](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) 和 [Go SDK 协议指南](https://github.com/modelcontextprotocol/go-sdk/blob/main/docs/protocol.md)。
 
-新路径对普通 Agent Key 注册下面列出的 9 个基础工具，**暂不提供 B5 跨请求逻辑会话和计划事务工具**。任务级临时只读 Key 只注册 `query`，并且查询仍须通过临时授权和原 Agent 权限。B5 的业务会话与 MCP 传输会话是不同概念；需要 B5 时继续使用旧 `/mcp` 或 stdio。`mcp.http.stateful` 只控制旧路径，不改变新路径的无状态语义。客户端不得把管理员 token 或自报租户头当作 Agent 身份。
+新路径对普通 Agent Key 注册下面列出的 10 个基础工具，**暂不提供 B5 跨请求逻辑会话和计划事务工具**。任务级临时只读 Key 只注册 `query`，并且查询仍须通过临时授权和原 Agent 权限。B5 的业务会话与 MCP 传输会话是不同概念；需要 B5 时继续使用旧 `/mcp` 或 stdio。`mcp.http.stateful` 只控制旧路径，不改变新路径的无状态语义。客户端不得把管理员 token 或自报租户头当作 Agent 身份。
 
 v1.6.0 起，这个无状态入口会把 HTTP 客户端断连传给执行中的只读查询；网关在交付结果前再次检查超时或取消状态。旧有状态 `/mcp` 继续按服务端语句超时终止请求，以保留 B5 会话回滚约束。若客户端断连后重试，应使用新的请求 ID，并按审计记录确认前一请求的终态；不要把断连视为查询已经成功。
 
@@ -116,7 +116,7 @@ AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
 
-`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：普通 Agent Key 提供 9 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具；任务级临时只读 Key 只提供 `query`。
+`--config` 可缩写为 `-c`，默认是当前目录的 `config.yaml`。Key 优先通过 `AGENTSQL_API_KEY` 提供；不要把 Key 放进 `--api-key`，否则会出现在进程参数中。stdio 与 HTTP 使用同一套工具注册规则：普通 Agent Key 提供 10 个基础工具，默认开启 B5 时再提供 8 个会话/事务工具；任务级临时只读 Key 只提供 `query`。
 
 > **重要：stdio 不是连接已运行 systemd 服务的代理。** 它会新建一套运行时，必须能读取配置、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。安装器生成的 `/etc/agentsql/agentsql.env` 权限为 `0600 root:root`，普通桌面用户读不到；已经安装并运行服务时请直接使用 HTTP。
 
@@ -126,10 +126,11 @@ stdio 模式会关闭控制台与事件流；不要期待它提供控制台 UI�
 
 所有 SQL 参数都只接受单条语句，不允许堆叠多语句。客户端必须读取结构化结果中的 `decision`。
 
-普通 Agent Key 注册以下 9 个基础工具；任务级临时只读 Key 只注册 `query`：
+普通 Agent Key 注册以下 10 个基础工具；任务级临时只读 Key 只注册 `query`：
 
 | 工具 | 用途 | 入参 | 可能的 decision 与关键语义 |
 | --- | --- | --- | --- |
+| `read_key` | 读取 Redis/Valkey 指定单实例的精确键 | `datasource_id`、`key` | 只接受严格 TLS/ACL、独立 `key` 策略授权的 UTF-8 字符串；固定 `TYPE`/有界 `GETRANGE`，先脱敏和持久审计后交付，不接受通配符、原生命令、写入或跨库 |
 | `find_documents` | 从指定 MongoDB 集合读取显式顶层标量字段 | `datasource_id`、`collection`、`fields`、`filter`、`limit` | 仅接受 1–8 个字符串等值过滤条件及 1–100 行上限；需要精确集合授权、严格 TLS、认证账号，返回前脱敏并写入持久审计；不接受聚合、任意操作符或写入 |
 | `list_datasources` | 列出当前 Agent 已获授权的数据源 | 无 | 成功返回公开标识信息，不返回 host、密码或连接参数；失败为 `error` |
 | `list_schema` | 读取已授权结构并按列权限裁剪 | `datasource_id`；`table` 可选 | 成功通常为 `allow`；`table` 只接受字母、数字、下划线，以及至多一个点的 `table` 或 `schema.table`，不支持引号和特殊标识符；结果超过 10000 行时必须缩小到具体表 |
@@ -222,7 +223,7 @@ Claude Desktop 使用 `claude_desktop_config.json` 中的 `mcpServers` 启动本
 }
 ```
 
-上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，默认配置应能看到 9 个基础工具和 8 个 B5 工具；显式关闭 B5 时只显示基础工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
+上述参数已经由仓库 CLI 实现确认：子命令是 `mcp`，配置参数是 `--config`（可缩写为 `-c`）。保存配置并重启 Claude Desktop 后，默认配置应能看到 10 个基础工具和 8 个 B5 工具；显式关闭 B5 时只显示基础工具。若没有出现，先确认桌面客户端启动的进程能够读取可执行文件、配置文件、metadata/audit 控制面存储，并使用与加密数据源凭据相同的 `AGENTSQL_SECRET`。
 
 ### Windows Claude Desktop：连接已有 AgentSQL 服务
 

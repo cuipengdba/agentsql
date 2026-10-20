@@ -31,6 +31,8 @@ func (resolver *Resolver) Resolve(
 	decision := &model.PolicyDecision{
 		AllowedTables: []string{},
 		DeniedTables:  []string{},
+		AllowedKeys:   []string{},
+		DeniedKeys:    []string{},
 		ColumnACL:     make(map[string][]string),
 		Level:         level,
 	}
@@ -54,6 +56,20 @@ func (resolver *Resolver) Resolve(
 				index,
 				stored.Action,
 			)
+		}
+		if objectType == "key" {
+			if err := ValidateKeyScope(stored.ObjectName); err != nil {
+				return nil, fmt.Errorf("resolve policy at position %d: %w", index, err)
+			}
+			if stored.Columns != nil || stored.RowFilter != nil || stored.RelationBindingID != nil || len(stored.ColumnPermissions) != 0 {
+				return nil, fmt.Errorf("resolve policy at position %d: key policy cannot carry SQL constraints", index)
+			}
+			if action == "deny" {
+				decision.DeniedKeys = append(decision.DeniedKeys, stored.ObjectName)
+			} else {
+				decision.AllowedKeys = append(decision.AllowedKeys, stored.ObjectName)
+			}
+			continue
 		}
 		if err := ValidateTablePatterns([]string{stored.ObjectName}); err != nil {
 			return nil, fmt.Errorf("resolve policy at position %d: %w", index, err)
@@ -144,7 +160,7 @@ func validLevel(level string) bool {
 
 func validObjectType(objectType string) bool {
 	switch objectType {
-	case "database", "schema", "table", "column":
+	case "database", "schema", "table", "column", "key":
 		return true
 	default:
 		return false

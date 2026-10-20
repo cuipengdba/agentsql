@@ -5,6 +5,8 @@ package model
 type PolicyDecision struct {
 	AllowedTables []string
 	DeniedTables  []string
+	AllowedKeys   []string
+	DeniedKeys    []string
 	ColumnACL     map[string][]string
 	Level         string
 }

@@ -1,6 +1,6 @@
 # NoSQL 数据源支持范围
 
-注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。后者提供**连接级/低阶支持，非完整检索/管理能力**。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
+注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。多数仍仅有**连接级/低阶支持**；MongoDB 7.0.43 和 Redis 8.2.9 / Valkey 8.1.10 的指定单实例另有受限 Agent MCP 只读路径。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
 
 | 类别 | 数据源 | 适配器协议 | 默认端口 | 低阶能力 |
 | --- | --- | --- | ---: | --- |
@@ -36,6 +36,10 @@
 适配器按数据源分别执行命令白名单和参数校验。例如 Redis/Valkey 的只读子集包括 `GET`、`MGET`、`SCAN`、`INFO`；Memcached 包括 `GET`、`MGET`、`STATS`；Cassandra/Scylla 包括受限的 `SELECT`、`LIST TABLES`；ClickHouse、Doris、StarRocks 包括受限的 `SELECT`、`SHOW`、`DESCRIBE`。Milvus、Qdrant、Weaviate 有各自受限的 `GET`、`DESCRIBE`、`SEARCH` 等命令。图、文档、时序适配器还有各自的语法与边界，具体以对应 `businessdb` 适配器代码为准。
 
 写命令如 Redis `SET`、Qdrant `UPSERT` 在只读连接中拒绝。白名单之外、超限、不安全的语法也拒绝。适配器中的原生查询审计仅记录命令决定，不记录键、参数值或凭证。
+
+## Redis / Valkey 的 Agent MCP 受控路径
+
+v2.6.0 新增的 `read_key` 与上面的管理员原生命令预览分离。只在 Redis 8.2.9 或 Valkey 8.1.10、严格 TLS、ACL 账号和指定单实例上开放；每次请求固定数据库与当前连接配置，并重验 Agent/租户和 `key` 策略。策略 `dbN:exact-key` 或 `dbN:bounded-prefix*` 与 SQL 表权限互不替代，拒绝优先。请求只接受精确 ASCII 键名，固定调用 `TYPE` 与有界 `GETRANGE`；超过 64 KiB、非 UTF-8、非字符串、通配符、危险命令和跨库操作均拒绝。按键值来源应用脱敏，持久预检与终态审计使用 HMAC 键标识。独立审计库或业务库故障时不交付值；详情和未测范围见[v2.6.0 验收](v2.6.0-acceptance.md)。
 
 ## 控制台与 HTTP API
 
