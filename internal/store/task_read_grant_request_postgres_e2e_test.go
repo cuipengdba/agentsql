@@ -25,7 +25,7 @@ func TestTaskReadGrantRequestPostgresSplitAuditE2E(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, opened.Close()) })
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 	require.NoError(t, err)
-	require.Equal(t, 21, current)
+	require.Equal(t, 22, current)
 	require.Equal(t, current, latest)
 	agent, datasource := createPolicyDependencies(t, opened)
 	for _, id := range []string{"pg-requester", "pg-reviewer"} {

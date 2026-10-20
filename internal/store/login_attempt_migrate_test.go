@@ -24,10 +24,12 @@ func TestSharedLoginBudgetSQLiteMigrationAndDown(t *testing.T) {
 			require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, scenario.separate))
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, scenario.separate)
 			require.NoError(t, err)
-			require.Equal(t, scenario.next, current)
-			require.Equal(t, scenario.next, latest)
+			require.Equal(t, latest, current)
+			require.GreaterOrEqual(t, latest, scenario.next)
 			require.Equal(t, []string{"key_hash", "started_at", "attempts"}, tableColumnNames(t, database, "login_attempt_budgets"))
-			require.NoError(t, RollbackMetadataMigration(ctx, database, DialectSQLite, scenario.separate, scenario.next))
+			for version := latest; version >= scenario.next; version-- {
+				require.NoError(t, RollbackMetadataMigration(ctx, database, DialectSQLite, scenario.separate, version))
+			}
 			require.NotContains(t, businessTableNames(t, database), "login_attempt_budgets")
 			current, _, err = MetadataMigrationVersions(ctx, database, DialectSQLite, scenario.separate)
 			require.NoError(t, err)

@@ -25,6 +25,7 @@ func TestChainStatusDisabledAndJSON(t *testing.T) {
 	require.Contains(t, stdout.String(), "mode=null")
 	require.Contains(t, stdout.String(), "head_seq=0")
 	require.Contains(t, stdout.String(), "head_id=null")
+	require.Contains(t, stdout.String(), "head_hash=null")
 	require.Contains(t, stdout.String(), "protected_since=null")
 	require.Contains(t, stdout.String(), "genesis_at=null")
 	require.Contains(t, stdout.String(), "observed_instance=null")
@@ -43,7 +44,7 @@ func TestChainStatusDisabledAndJSON(t *testing.T) {
 	require.Nil(t, decoded["mode"])
 	require.Equal(t, float64(0), decoded["head_seq"])
 	for _, field := range []string{
-		"head_id", "protected_since", "genesis_at", "observed_instance",
+		"head_id", "head_hash", "protected_since", "genesis_at", "observed_instance",
 		"result", "last_verified_at", "break_seq", "break_reason",
 	} {
 		_, present := decoded[field]
