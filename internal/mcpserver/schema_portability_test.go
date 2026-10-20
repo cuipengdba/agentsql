@@ -29,7 +29,7 @@ func TestAdvertisedToolSchemasUseConcretePortableTypes(t *testing.T) {
 		} `json:"result"`
 	}
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &response))
-	require.Len(t, response.Result.Tools, 19)
+	require.Len(t, response.Result.Tools, 20)
 	for _, tool := range response.Result.Tools {
 		t.Run(tool.Name, func(t *testing.T) {
 			inputProperties, _ := tool.InputSchema["properties"].(map[string]any)

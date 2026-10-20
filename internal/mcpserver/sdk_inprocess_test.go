@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
+func TestSDKInProcessListsCurrentAndCallsSelectedTools(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	_, err := fixture.runtime.Store.Approvals().Create(context.Background(), model.Approval{
 		ID: "sdk-owned", AgentID: stringPointerForMCP(fixture.agent.ID), Status: "pending",
@@ -69,9 +69,9 @@ func TestSDKInProcessListsAndCallsSevenTools(t *testing.T) {
 		"list_schema",
 		"query",
 		"query_analytics",
-		"search_vectors",
 		"read_key",
 		"request_approval",
+		"search_vectors",
 	}, names)
 	require.NotContains(t, names, "execute_raw_sql")
 
