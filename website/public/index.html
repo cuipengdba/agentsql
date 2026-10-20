@@ -75,14 +75,14 @@
     <section id="top" class="hero section">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v2.8.0</div>
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v2.9.0</div>
           <h1>AI Agent 的数据库安全网关</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">v2.8.0 为 Milvus 2.6.25 指定 TLS 单机增加受控向量检索：Agent 只提交精确 collection、一个有限 FloatVector、显式标量字段和命中上限；网关核验精确 collection/字段授权、维度与 COSINE 索引，执行来源脱敏和持久审计。MCP Inspector 与 Dify 的允许/拒绝及撤权已在合成数据上验证。其他版本、集群和完整生产支持未验证；公网 Live Demo 使用合成 PostgreSQL 数据。</p>
+          <p class="positioning">v2.9.0 增加租户策略包治理：导出当前策略与摘要，离线查看差异和保守表级回放，再由异人审批并原子应用；直接策略改动可通过批准基线发现漂移。审计 ZIP 可由独立保存的 Ed25519 密钥签署外部见证。真实 SQL 仍需通过网关授权、脱敏和持久审计；公网 Live Demo 使用合成 PostgreSQL 数据。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
-            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v2.8.0.md" target="_blank" rel="noopener noreferrer">v2.8.0 发布说明</a>
+            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v2.9.0.md" target="_blank" rel="noopener noreferrer">v2.9.0 发布说明</a>
           </div>
           <p class="badge-line">v0.5.0 起 Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
           <p class="positioning">它不是 BI，也不是 ORM 或 Text2SQL，而是模型与数据库之间一道默认拒绝的安全闸门。</p>
@@ -200,24 +200,24 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">文档 / 下载</p><h2 id="docs-title">从本地演示到 MCP 接入</h2><p>按真实部署状态选择入口。文档对应源码仓库 <code>github.com/cuipengdba/agentsql</code>。</p></div>
         <div class="feature-grid">
-          <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v2.8.0.pdf" download="AgentSQL-快速上手-v2.8.0.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
-          <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v2.8.0.pdf" download="AgentSQL-使用手册-v2.8.0.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>
-          <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v2.8.0.pdf" download="AgentSQL-MCP接入指南-v2.8.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v2.9.0.pdf" download="AgentSQL-快速上手-v2.9.0.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v2.9.0.pdf" download="AgentSQL-使用手册-v2.9.0.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v2.9.0.pdf" download="AgentSQL-MCP接入指南-v2.9.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="/demo/">在线演示说明</a></p><p>v2.8.0 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v2.8.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v2.8.0/install.sh | sudo sh -s -- install --version v2.8.0</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
-          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v2.8.0" target="_blank" rel="noopener noreferrer">GitHub Release（v2.8.0）</a></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="/demo/">在线演示说明</a></p><p>v2.9.0 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v2.9.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v2.9.0/install.sh | sudo sh -s -- install --version v2.9.0</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0" target="_blank" rel="noopener noreferrer">GitHub Release（v2.9.0）</a></div>
         </div>
       </div>
     </section>
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>v2.8.0 兼容矩阵</h2><p>本版新增 Milvus 2.6.25 指定 TLS 单机的受控向量检索证据；ClickHouse、Redis、Valkey 与 MongoDB 等范围沿用此前验收。下表按实际能力与指定环境证据分档。</p></div>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>v2.9.0 兼容矩阵</h2><p>本版增加跨适配器的策略评审与审计外部见证；Milvus、ClickHouse、Redis、Valkey 与 MongoDB 等数据库适配范围沿用对应版本的指定环境验收，不因治理功能升级而扩大。下表按实际能力与证据分档。</p></div>
         <div class="compat-summary"><strong>8 大类 / 30 款已注册</strong><span>openGauss 与瀚高 HighGo 已计入；另列金仓 KingbaseES V9 的指定实例 PG 协议验证</span></div>
         <div class="table-wrap">
           <table class="compat-table">
-            <caption>AgentSQL v2.8.0 数据库兼容矩阵：8 大类、30 款已注册数据库，金仓 KingbaseES V9 另列，共 31 行。</caption>
+            <caption>AgentSQL v2.9.0 数据库兼容矩阵：8 大类、30 款已注册数据库，金仓 KingbaseES V9 另列，共 31 行。</caption>
             <thead><tr><th scope="col">类别</th><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">边界说明</th></tr></thead>
             <tbody>
               <tr><th scope="rowgroup" rowspan="10" class="compat-category">关系型</th><td>PostgreSQL 14–18</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>全链路实测通过</td></tr>
@@ -267,11 +267,11 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.8.0 在 Vastbase G100 Build 9 PG 模式的指定实例补充 TLS 服务端身份校验、证书与凭据轮换。其他版本、模式、正式主备切换和完整生产支持仍须单独验证。欢迎数据库厂商联合验证。</p></div>
         <div class="ecosystem-panel">
-          <p class="ecosystem-label">国产数据库生态适配矩阵（v2.8.0）</p>
+          <p class="ecosystem-label">国产数据库生态适配矩阵（v2.9.0）</p>
           <p class="table-scroll-hint">表格可左右滑动，查看完整验证说明。</p>
           <div class="table-wrap">
             <table class="eco-table">
-              <caption>AgentSQL v2.8.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
+              <caption>AgentSQL v2.9.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
                 <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.6.0 补齐故障关闭，v1.7.0 验证 CA 与主机名校验、错误证书拒绝、证书及账号密码轮换。其他模式、复杂查询、正式主备切换与生产负载未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-dm-kingbase-depth-acceptance.md">验收记录</a>。</td></tr>
@@ -301,11 +301,11 @@
         <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker 与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。GHCR tag 会自动匹配 linux/amd64 或 linux/arm64；源码路径仍以仓库 README 为准。</p></div>
         <div class="quick-grid">
           <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker 自动选择当前平台镜像</span>
-docker pull ghcr.io/cuipengdba/agentsql:v2.8.0
+docker pull ghcr.io/cuipengdba/agentsql:v2.9.0
 
 <span class="comment"># 推荐使用仓库 quickstart 生成凭据并启动</span>
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v2.8.0/scripts/quickstart.sh -o quickstart.sh
-sh quickstart.sh --version v2.8.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v2.9.0/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v2.9.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
           <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>合成数据</span></div><pre><code><span class="comment"># 复制演示环境样例并替换占位凭据</span>
 cp examples/docker/demo.env.example demo/demo.env
 
@@ -364,8 +364,9 @@ bash ./demo/reset.sh
           <li class="complete"><span>v2.5.0</span><strong>MongoDB 7.0.43 指定实例受控只读</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v2.6.0</span><strong>Redis / Valkey 指定实例受控键读取</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v2.7.0</span><strong>ClickHouse 指定实例受控分析查询</strong><small>已发布阶段</small></li>
-          <li class="current"><span>v2.8.0</span><strong>Milvus 指定实例受控向量检索</strong><small>当前正式版本</small></li>
-          <li><span>下一阶段</span><strong>更多数据库的受控治理链路</strong></li>
+          <li class="complete"><span>v2.8.0</span><strong>Milvus 指定实例受控向量检索</strong><small>已发布阶段</small></li>
+          <li class="current"><span>v2.9.0</span><strong>租户策略评审与外部审计见证</strong><small>当前正式版本</small></li>
+          <li><span>下一阶段</span><strong>跨适配器统一治理与交付体验</strong></li>
           <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
           <li><span>后续方向</span><strong>高可用与集中管控</strong></li>
         </ol>

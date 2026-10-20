@@ -1,8 +1,25 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v2.8.0 的功能与操作。安装或拉取 v2.8.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.9.0 的功能与操作。安装或拉取 v2.9.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v2.8.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.8.0 发布说明](release-notes-v2.8.0.md)和[验收记录](v2.8.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v2.9.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.9.0 发布说明](release-notes-v2.9.0.md)和[验收记录](v2.9.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+
+## v2.9.0 策略包治理与外部审计见证
+
+“策略包治理”页面导出当前租户策略包与摘要。编辑 JSON 后生成差异计划，可以填写最多 32 个精确 Agent/数据源/表案例查看离线表策略候选变化。发起人提交提案后，把提案 ID 交给另一位具有“策略管理”和“审计查看”权限的管理员审批；只有审批人可应用。应用时若源策略已变更，需重新导出、生成计划和审批。批准后直接改动策略会显示为 `drifted`。本版可变更的范围和 128 条策略、32 项变更上限见[设计](v2.9.0-design.md)。
+
+独立审计见证的简例（密钥和见证文件应放在数据库及网关数据卷之外）：
+
+```sh
+agentsqlctl audit checkpoint-keygen --private-seed-out /secure/audit-checkpoint-seed.hex --public-key-out /secure/audit-checkpoint-public.hex
+agentsqlctl chain verify --domain traffic --config /etc/agentsql/config.yaml
+agentsqlctl chain status --domain traffic --json --config /etc/agentsql/config.yaml
+agentsqlctl audit report --format archive --out /secure/audit-export.zip --config /etc/agentsql/config.yaml
+agentsqlctl audit checkpoint-create --in /secure/audit-export.zip --out /secure/audit-checkpoint.json --private-seed-file /secure/audit-checkpoint-seed.hex --chain-id traffic --head-seq "$HEAD_SEQ" --head-hash "$HEAD_HASH"
+agentsqlctl audit checkpoint-verify --in /secure/audit-export.zip --checkpoint /secure/audit-checkpoint.json --public-key-file /secure/audit-checkpoint-public.hex --max-age 24h
+```
+
+先从 `chain status --json` 核对并设置 `HEAD_SEQ` 和 `HEAD_HASH`；不要直接复制未核实的值。后续见证需把上一份 `checkpoint-create` 输出的 `sha256` 作为 `--previous-sha256`；核验时从独立可信记录提供同一值给 `--expected-previous-sha256`。归档可包含筛选结果，因此链头值是经过 `chain verify` 单独核对后的**声明**，工具不会从筛选归档重算完整链头。该文件不是 WORM 或可信时间戳。
 
 ## v2.8.0 Milvus 受控向量检索
 

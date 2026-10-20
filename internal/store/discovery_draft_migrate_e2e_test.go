@@ -12,6 +12,9 @@ import (
 )
 
 func TestDiscoveryPostgresMetadataMigrationE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("PostgreSQL container migration is an integration test")
+	}
 	for _, testCase := range []struct {
 		name      string
 		directory string
@@ -121,8 +124,8 @@ SELECT action, actor_type, actor_id, details_json FROM audit_logs LIMIT 1`).Scan
 		t.Cleanup(func() { require.NoError(t, opened.Close()) })
 		metadataCurrent, metadataLatest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectPostgres, true)
 		require.NoError(t, err)
-		require.Equal(t, 21, metadataCurrent)
-		require.Equal(t, 21, metadataLatest)
+		require.Equal(t, 22, metadataCurrent)
+		require.Equal(t, 22, metadataLatest)
 		auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 		require.NoError(t, err)
 		require.Equal(t, 6, auditCurrent)

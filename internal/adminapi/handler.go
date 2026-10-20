@@ -247,6 +247,14 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/datasources/{id}/discover", handler.datasourcesDiscover)
 	mux.HandleFunc("POST /api/v1/datasources/{id}/discover/apply", handler.datasourcesDiscoverApply)
 	mux.HandleFunc("GET /api/v1/policies", handler.policiesList)
+	mux.HandleFunc("GET /api/v1/policy-bundles/current", handler.policyBundlesCurrent)
+	mux.HandleFunc("POST /api/v1/policy-bundles/plan", handler.policyBundlesPlan)
+	mux.HandleFunc("GET /api/v1/policy-bundles/status", handler.policyBundlesStatus)
+	mux.HandleFunc("POST /api/v1/policy-bundles/proposals", handler.policyBundlesPropose)
+	mux.HandleFunc("GET /api/v1/policy-bundles/proposals/{id}", handler.policyBundlesProposalGet)
+	mux.HandleFunc("POST /api/v1/policy-bundles/proposals/{id}/approve", handler.policyBundlesApprove)
+	mux.HandleFunc("POST /api/v1/policy-bundles/proposals/{id}/reject", handler.policyBundlesReject)
+	mux.HandleFunc("POST /api/v1/policy-bundles/proposals/{id}/apply", handler.policyBundlesApply)
 	mux.HandleFunc("POST /api/v1/policies/preflight", handler.policiesPreflight)
 	mux.HandleFunc("POST /api/v1/policies", handler.policiesCreate)
 	mux.HandleFunc("GET /api/v1/policies/{id}", handler.policiesGet)
@@ -399,7 +407,7 @@ func requiredPermission(method, path string) (string, bool) {
 		return rbac.PermissionDatasourceManage, true
 	case method == http.MethodPost && strings.HasPrefix(path, "/api/v1/task-read-grants/") && strings.HasSuffix(path, "/revoke"):
 		return rbac.PermissionQueryExecute, true
-	case strings.HasPrefix(path, "/api/v1/policies"), strings.HasPrefix(path, "/api/v1/rules"),
+	case strings.HasPrefix(path, "/api/v1/policies"), strings.HasPrefix(path, "/api/v1/policy-bundles"), strings.HasPrefix(path, "/api/v1/rules"),
 		strings.HasPrefix(path, "/api/v1/task-read-grants"),
 		strings.HasPrefix(path, "/api/v1/mask_rules"), strings.HasPrefix(path, "/api/v1/redaction"),
 		strings.HasPrefix(path, "/api/v1/integrations"):

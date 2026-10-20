@@ -27,6 +27,7 @@ const Playground = lazy(() => import("@/pages/Playground").then(({ Playground })
 const Agents = lazy(() => import("@/pages/Agents").then(({ Agents }) => ({ default: Agents })));
 const Datasources = lazy(() => import("@/pages/Datasources").then(({ Datasources }) => ({ default: Datasources })));
 const Policies = lazy(() => import("@/pages/Policies").then(({ Policies }) => ({ default: Policies })));
+const PolicyBundles = lazy(() => import("@/pages/PolicyBundles").then(({ PolicyBundles }) => ({ default: PolicyBundles })));
 const Rules = lazy(() => import("@/pages/Rules").then(({ Rules }) => ({ default: Rules })));
 const Approvals = lazy(() => import("@/pages/Approvals").then(({ Approvals }) => ({ default: Approvals })));
 const MaskRules = lazy(() => import("@/pages/MaskRules").then(({ MaskRules }) => ({ default: MaskRules })));
@@ -102,6 +103,7 @@ export const menuRoutes: MenuRoute[] = [
     element: lazyElement(Datasources),
   },
   { key: "policies", path: "/policies", label: "权限", icon: <SafetyOutlined />, element: lazyElement(Policies) },
+  { key: "policy-bundles", path: "/policy-bundles", label: "策略包治理", icon: <SafetyCertificateOutlined />, element: lazyElement(PolicyBundles), permission: "strategy.manage" },
   { key: "task-read-grants", path: "/task-read-grants", label: "任务授权", icon: <ClockCircleOutlined />, element: lazyElement(TaskReadGrants), permission: "query.execute" },
   { key: "users", path: "/users", label: "用户", icon: <TeamOutlined />, element: lazyElement(Users), group: "settings", permission: "user.manage" },
   { key: "roles", path: "/roles", label: "角色", icon: <IdcardOutlined />, element: lazyElement(Roles), group: "settings", permission: "role.manage" },

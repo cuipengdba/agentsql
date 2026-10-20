@@ -262,6 +262,18 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "claimed_at", kind: migrationTime}, {name: "last_error", kind: migrationText},
 		{name: "next_attempt_at", kind: migrationTime}, {name: "delivered_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 	}},
+	{name: "policy_bundle_proposals", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
+		{name: "base_digest", kind: migrationText}, {name: "desired_digest", kind: migrationText},
+		{name: "desired_json", kind: migrationText}, {name: "author_user_id", kind: migrationText},
+		{name: "reviewer_user_id", kind: migrationText}, {name: "status", kind: migrationText},
+		{name: "created_at", kind: migrationTime}, {name: "reviewed_at", kind: migrationTime},
+		{name: "applied_at", kind: migrationTime},
+	}},
+	{name: "policy_bundle_baselines", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "digest", kind: migrationText},
+		{name: "proposal_id", kind: migrationText}, {name: "updated_at", kind: migrationTime},
+	}},
 	{name: "admin_access_revocations", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "jti", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
 	}},

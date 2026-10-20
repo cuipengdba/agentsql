@@ -106,6 +106,7 @@ type chainStatusOutput struct {
 	Mode             *string    `json:"mode"`
 	HeadSeq          int64      `json:"head_seq"`
 	HeadID           *int64     `json:"head_id"`
+	HeadHash         *string    `json:"head_hash"`
 	ProtectedSince   *int64     `json:"protected_since"`
 	GenesisAt        *time.Time `json:"genesis_at"`
 	ObservedInstance *string    `json:"observed_instance"`
@@ -169,6 +170,7 @@ func (cli *chainCLI) newStatusCommand() *cobra.Command {
 				Mode:             state.Mode,
 				HeadSeq:          state.HeadSeq,
 				HeadID:           state.HeadID,
+				HeadHash:         state.HeadHash,
 				ProtectedSince:   state.ProtectedSinceID,
 				GenesisAt:        state.GenesisAt,
 				ObservedInstance: verification.ObservedInstanceID,
@@ -446,12 +448,13 @@ func writeChainStatus(writer io.Writer, output chainStatusOutput, structured boo
 	}
 	_, err := fmt.Fprintf(
 		writer,
-		"chain_id=%s status=%s mode=%s head_seq=%d head_id=%s protected_since=%s genesis_at=%s observed_instance=%s result=%s last_verified_at=%s break_seq=%s break_reason=%s\n",
+		"chain_id=%s status=%s mode=%s head_seq=%d head_id=%s head_hash=%s protected_since=%s genesis_at=%s observed_instance=%s result=%s last_verified_at=%s break_seq=%s break_reason=%s\n",
 		output.ChainID,
 		output.Status,
 		formatStringPointer(output.Mode),
 		output.HeadSeq,
 		formatInt64Pointer(output.HeadID),
+		formatStringPointer(output.HeadHash),
 		formatInt64Pointer(output.ProtectedSince),
 		formatTimePointer(output.GenesisAt),
 		formatStringPointer(output.ObservedInstance),

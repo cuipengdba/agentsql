@@ -124,6 +124,9 @@ func newAuditCommand() *cobra.Command {
 	command.AddCommand(newAuditQueryCommand())
 	command.AddCommand(newAuditReportCommand())
 	command.AddCommand(newAuditVerifyArchiveCommand())
+	command.AddCommand(newAuditCreateCheckpointCommand())
+	command.AddCommand(newAuditVerifyCheckpointCommand())
+	command.AddCommand(newAuditCheckpointKeygenCommand())
 	return command
 }
 

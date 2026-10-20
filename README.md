@@ -1,6 +1,6 @@
 # AgentSQL
 
-![Version v2.8.0](https://img.shields.io/badge/Version-v2.8.0-blue)
+![Version v2.9.0](https://img.shields.io/badge/Version-v2.9.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -31,7 +31,9 @@ v2.7.0 为 ClickHouse 26.8.31.2 指定严格 TLS 单节点增加 Agent MCP `quer
 
 v2.8.0 为 Milvus 2.6.25 指定 TLS 单机增加 Agent MCP `search_vectors`：只接收精确 collection、一个有限 FloatVector、显式标量字段和 1–20 的命中上限。网关逐次核验精确 collection 与字段授权、CA/主机名、维度及 COSINE 索引，在来源脱敏和持久预检、终态审计成功后交付。真实 HTTP MCP、MCP Inspector 0.16.8、Dify MCPClient 1.17.1、最小权限和撤权已在合成数据上验证；集群、其他版本与完整生产支持未验证。见[发布说明](docs/release-notes-v2.8.0.md)和[候选验收](docs/v2.8.0-acceptance.md)。
 
-**验证范围：**v1.0.0 的列策略、人员委托及真实客户端结果见[验收记录](docs/v1.0-acceptance.md)；v1.1.0 的审批与 B5 双身份结果见[验收记录](docs/v1.1.0-acceptance.md)；v1.2.0 的 OAuth 互通结果见[验收记录](docs/v1.2.0-acceptance.md)；v1.3.0 的 MySQL 列授权边界见[验收记录](docs/v1.3.0-acceptance.md)；v1.4.0 的共享登录预算与双节点恢复见[验收记录](docs/v1.4.0-acceptance.md)；v1.5.0 的三款国产数据库指定子集深度验证见[验收记录](docs/v1.5.0-acceptance.md)；v1.6.0 的故障关闭与恢复证据见[验收记录](docs/v1.6.0-acceptance.md)；v1.7.0 的瀚高和金仓证据见[正式发布验收](docs/v1.7.0-release-evidence.md)；v1.8.0 的 Vastbase TLS 范围见[本版验收](docs/v1.8.0-acceptance.md)；v1.9.0 接入向导改进见[本版验收](docs/v1.9.0-acceptance.md)；v2.0.0 双网关与管理端列登记见[本版验收](docs/v2.0.0-acceptance.md)；v2.1.0 崖山指定实例和入口拒绝审计见[本版验收](docs/v2.1.0-acceptance.md)；v2.2.0 Oracle Free 指定实例见[验收记录](docs/v2.2.0-acceptance.md)；v2.3.0 SQL Server 2025 指定实例见[验收记录](docs/v2.3.0-acceptance.md)；v2.4.0 openGauss 7.0.0 LTS 指定实例见[验收记录](docs/v2.4.0-acceptance.md)；v2.5.0 MongoDB 7.0.43 指定实例见[验收记录](docs/v2.5.0-acceptance.md)；v2.6.0 Redis/Valkey 指定实例见[验收记录](docs/v2.6.0-acceptance.md)；v2.7.0 ClickHouse 指定实例见[验收记录](docs/v2.7.0-acceptance.md)；v2.8.0 Milvus 指定实例见[本版验收](docs/v2.8.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.8.0)、签名及镜像匿名拉取验收为准。
+v2.9.0 增加租户策略包导出、差异计划、保守表级回放、异人审批和原子应用；批准基线可提示直接修改造成的漂移。外部保存的 Ed25519 密钥可对合规审计 ZIP 及声明的审计链头签署见证。策略包修改仅支持无 B2 绑定和列/行约束的表级 allow/deny；离线回放不代表真实 SQL 可执行，见[发布说明](docs/release-notes-v2.9.0.md)与[验收记录](docs/v2.9.0-acceptance.md)。
+
+**验证范围：**v1.0.0 的列策略、人员委托及真实客户端结果见[验收记录](docs/v1.0-acceptance.md)；v1.1.0 的审批与 B5 双身份结果见[验收记录](docs/v1.1.0-acceptance.md)；v1.2.0 的 OAuth 互通结果见[验收记录](docs/v1.2.0-acceptance.md)；v1.3.0 的 MySQL 列授权边界见[验收记录](docs/v1.3.0-acceptance.md)；v1.4.0 的共享登录预算与双节点恢复见[验收记录](docs/v1.4.0-acceptance.md)；v1.5.0 的三款国产数据库指定子集深度验证见[验收记录](docs/v1.5.0-acceptance.md)；v1.6.0 的故障关闭与恢复证据见[验收记录](docs/v1.6.0-acceptance.md)；v1.7.0 的瀚高和金仓证据见[正式发布验收](docs/v1.7.0-release-evidence.md)；v1.8.0 的 Vastbase TLS 范围见[本版验收](docs/v1.8.0-acceptance.md)；v1.9.0 接入向导改进见[本版验收](docs/v1.9.0-acceptance.md)；v2.0.0 双网关与管理端列登记见[本版验收](docs/v2.0.0-acceptance.md)；v2.1.0 崖山指定实例和入口拒绝审计见[本版验收](docs/v2.1.0-acceptance.md)；v2.2.0 Oracle Free 指定实例见[验收记录](docs/v2.2.0-acceptance.md)；v2.3.0 SQL Server 2025 指定实例见[验收记录](docs/v2.3.0-acceptance.md)；v2.4.0 openGauss 7.0.0 LTS 指定实例见[验收记录](docs/v2.4.0-acceptance.md)；v2.5.0 MongoDB 7.0.43 指定实例见[验收记录](docs/v2.5.0-acceptance.md)；v2.6.0 Redis/Valkey 指定实例见[验收记录](docs/v2.6.0-acceptance.md)；v2.7.0 ClickHouse 指定实例见[验收记录](docs/v2.7.0-acceptance.md)；v2.8.0 Milvus 指定实例见[本版验收](docs/v2.8.0-acceptance.md)；v2.9.0 策略评审与审计见证见[本版验收](docs/v2.9.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0)、签名及镜像匿名拉取验收为准。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -63,6 +65,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - v2.6.0 Redis/Valkey 指定实例受控键读取：`read_key` 仅读取键级授权的 UTF-8 字符串；严格 TLS、最小 ACL、脱敏、持久审计、双客户端与故障关闭在合成单实例通过。
 - v2.7.0 ClickHouse 指定实例受控分析查询：`query_analytics` 只读取精确授权的 MergeTree 单表与显式列；严格 TLS、只读角色、资源预算、脱敏、持久审计、双客户端与故障关闭在合成单节点通过。
 - v2.8.0 Milvus 指定实例受控向量检索：`search_vectors` 只读取精确授权 collection 的一个 FloatVector 与显式标量字段；严格 TLS、最小权限、维度与索引校验、脱敏、持久审计及双客户端在合成单机通过。
+- v2.9.0 租户策略治理：规范策略包、来源摘要、异人评审与事务应用，并通过批准基线提示漂移；审计 ZIP 可签署外部见证，其链头声明仍须独立核实。
 
 ## 生态与兼容
 
@@ -104,17 +107,17 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 v0.4.0 起提供 `linux/amd64` 与 `linux/arm64` 两种原生 glibc 包：`uname -m` 为 `x86_64` / `amd64` 时使用 amd64 包，为 `aarch64` / `arm64` 时使用 arm64 包。两者均要求 glibc 2.28+ 且 systemd 为 PID 1；安装器会自动选择本机架构、校验发布包外层与包内哈希，并安装为 systemd 服务。musl / Alpine 与 CentOS 7 仍不支持：
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v2.8.0/install.sh | sudo sh -s -- install --version v2.8.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v2.9.0/install.sh | sudo sh -s -- install --version v2.9.0
 ```
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v2.8.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v2.9.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v2.8.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v2.8.0-linux-amd64.tar.gz
-cd agentsql-v2.8.0-linux-amd64
+sha256sum -c agentsql-v2.9.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v2.9.0-linux-amd64.tar.gz
+cd agentsql-v2.9.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -123,20 +126,20 @@ sudo ./install.sh install
 脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag；该 tag 是 `linux/amd64` + `linux/arm64` 多架构镜像，Docker 会自动匹配运行架构。脚本生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v2.8.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v2.8.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v2.9.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v2.9.0
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v2.8.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v2.9.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v2.8.0
+docker pull ghcr.io/cuipengdba/agentsql:v2.9.0
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v2.8.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v2.9.0
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -145,7 +148,7 @@ docker run -d --name agentsql --restart unless-stopped --security-opt no-new-pri
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v2.8.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v2.9.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -188,7 +191,7 @@ docker compose --profile observability up -d --build
 以下源码构建示例仅生成本机可执行文件。自行构建的文件没有经过正式发布资产的签名与分发验收：
 
 ```bash
-make build VERSION=v2.8.0
+make build VERSION=v2.9.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -293,7 +296,7 @@ v0.5 审计报表支持 CSV、JSONL、纯 Go 生成的 PDF，以及包含四类�
 
 ## 数据库兼容矩阵
 
-v2.8.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 + 21 款 NoSQL / 向量）。openGauss 与瀚高 HighGo 均作为独立的限定只读类型计入；金仓 KingbaseES V9 另列为指定实例 PG 协议路径，不计入 30 款；分类表共 31 行。🟢 表示解析、授权、受控执行、脱敏、审计链路在所述范围通过；🔵 受控只读＝指定实例上的受限查询、脱敏与持久审计链路；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。指定实例闭环不代表完整生产支持。
+v2.9.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 + 21 款 NoSQL / 向量）。openGauss 与瀚高 HighGo 均作为独立的限定只读类型计入；金仓 KingbaseES V9 另列为指定实例 PG 协议路径，不计入 30 款；分类表共 31 行。🟢 表示解析、授权、受控执行、脱敏、审计链路在所述范围通过；🔵 受控只读＝指定实例上的受限查询、脱敏与持久审计链路；🔷 连接级＝ping、版本、Schema、只读预览；🟡 待验证＝等厂商环境。指定实例闭环不代表完整生产支持。
 
 | 类别 | 数据库 | 适配状态 | 边界说明 |
 | --- | --- | --- | --- |
@@ -382,7 +385,7 @@ v2.8.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v2.8.0
+make build VERSION=v2.9.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

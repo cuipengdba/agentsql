@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.9.0] (candidate)
+
+- Add canonical tenant policy bundles, bounded metadata-only diffs and replay probes, separate author/reviewer approval, atomic table-policy application, and drift status. Preserve existing B2 and column policies unchanged in exported bundles.
+- Add externally held Ed25519 audit archive checkpoints with key generation, signed archive and chain-head declarations, trusted predecessor checking, and age limits. A checkpoint does not prove WORM storage or independently recompute a filtered archive's chain head.
+- Increase combined metadata schema 22→23 and separated metadata schema 21→22; independent audit schema remains 6. See [design](docs/v2.9.0-design.md) and [candidate acceptance](docs/v2.9.0-acceptance.md).
+
 ## [v2.8.0]
 
 - Add a bounded Milvus 2.6.25 `search_vectors` MCP capability for a TLS standalone instance and the `default` database. Require an authenticated non-root account, exact collection and vector/output field grants, finite single-vector input, dimension and COSINE index checks, source-aware masking, and durable preflight and terminal audit.
