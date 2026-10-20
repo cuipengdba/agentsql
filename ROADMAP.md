@@ -33,7 +33,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v2.1.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.1.0)） | 崖山 23.4.1.109 指定实例的最小权限账号、真实 HTTP MCP、脱敏、R010、独立持久审计与故障关闭；范围和未验证项见[验收记录](docs/v2.1.0-acceptance.md)，正式交付见[发布证据](docs/v2.1.0-release-evidence.md)。 |
 | v2.2.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.2.0)） | Oracle AI Database 26ai Free、`FREEPDB1`、服务端 `23.26.3.0.0` 指定实例的受控只读 MCP、最小权限、脱敏、R010、持久审计和故障关闭；见[验收记录](docs/v2.2.0-acceptance.md)与[正式发布证据](docs/v2.2.0-release-evidence.md)。商业版、预执行计划和完整生产支持未验证。 |
 | v2.3.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.3.0)） | SQL Server 2025 Developer 指定 Linux x86_64 实例的严格 TLS、最小权限 HTTP MCP、窄 SELECT、R010、脱敏、持久审计、双客户端及故障关闭；见[候选验收](docs/v2.3.0-acceptance.md)与[正式发布证据](docs/v2.3.0-release-evidence.md)。其他版本、Windows/Always On、生产证书轮换和完整生产支持未验证。 |
-| v2.4.0 | 开发验收中 | openGauss 社区版 7.0.0 LTS 指定构建的独立类型、严格 TLS、窄单表 SELECT、真实 MCP 与故障关闭；完成正式 CI、升级、签名资产、GHCR、官网和 Demo 前不视为已发布。见[设计](docs/v2.4.0-design.md)与[候选验收](docs/v2.4.0-acceptance.md)。 |
+| v2.4.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.4.0)） | openGauss 社区版 7.0.0 LTS 指定构建的独立类型、严格 TLS、窄单表 SELECT、真实 MCP 与故障关闭；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.4.0-release-evidence.md)。其他版本、主备与完整生产支持未验证。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
