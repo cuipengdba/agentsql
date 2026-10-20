@@ -60,8 +60,8 @@ docker compose up -d gateway
 
 ## Images
 
-- `ghcr.io/cuipengdba/agentsql:v1.0.0-demo` — gateway / agentsqlctl; both
-  Compose services use `AGENTSQL_DEMO_VERSION` (default `v1.0.0-demo`). This
+- `ghcr.io/cuipengdba/agentsql:v2.8.0-demo` — gateway / agentsqlctl; both
+  Compose services use `AGENTSQL_DEMO_VERSION` (default `v2.8.0-demo`). This
   tag is available only after the v1.0.0 image has been published;
   deploy the current published image by setting `AGENTSQL_DEMO_VERSION` to its
   exact `-demo` tag.
