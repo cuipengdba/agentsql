@@ -1,5 +1,16 @@
 # Changelog
 
+## [v2.6.0]
+
+- Add a separate Redis 8.2.9 / Valkey 8.1.10 `read_key` capability for an exact UTF-8 string key under strict TLS, least-privilege ACL, Agent key policy, bounded result size, source-aware masking, and durable preflight/terminal audit.
+- Verify real HTTP MCP calls with Inspector and Dify, policy revocation, wrong CA, Redis/Valkey and independent audit-store outages, AOF recovery, and fail-closed result delivery on isolated synthetic instances.
+- Publish signed dual-architecture packages, exact GHCR tags, the official website and Live Demo, then promote the accepted image digest to `latest`. See the [release evidence](docs/v2.6.0-release-evidence.md) for tested versions and limits.
+
+## [v2.5.0]
+
+- Add a bounded MongoDB 7.0.43 single-instance `find_documents` capability with Agent collection/field authorization, strict TLS, least-privilege credentials, masked projection, durable audit and fail-closed error handling.
+- Verify real MCP clients, policy and database privilege revocation, business and independent audit-store outages, and recovery on synthetic data. See the [release evidence](docs/v2.5.0-release-evidence.md); replica sets, sharding, writes and full production support remain unverified.
+
 ## [v2.4.0]
 
 - Add a separate `opengauss` type for the checksum-verified openGauss 7.0.0 LTS build, with verified TLS, read-only connection checks, a bounded `FROM ONLY` physical-table SELECT parser, and no PostgreSQL B2/B5 inheritance.
