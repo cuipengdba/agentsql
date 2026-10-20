@@ -23,6 +23,7 @@ type MongoExecutor struct {
 	client                 *mongo.Client
 	database, datasourceID string
 	readOnly               bool
+	statementTimeout       time.Duration
 }
 
 func mongoURI(ds model.Datasource, password string) (string, error) {
@@ -52,6 +53,16 @@ func mongoURI(ds model.Datasource, password string) (string, error) {
 }
 
 func NewMongoExecutor(ds model.Datasource, password string, readOnly bool) (*MongoExecutor, error) {
+	return NewMongoExecutorWithContext(context.Background(), ds, password, readOnly)
+}
+
+func NewMongoExecutorWithContext(ctx context.Context, ds model.Datasource, password string, readOnly bool) (*MongoExecutor, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("mongodb context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if ds.DBType != "mongodb" {
 		return nil, fmt.Errorf("invalid mongodb dialect")
 	}
@@ -95,7 +106,7 @@ func NewMongoExecutor(ds model.Datasource, password string, readOnly bool) (*Mon
 		}
 		opts.SetTLSConfig(cfg)
 	}
-	client, err := mongo.Connect(context.Background(), opts)
+	client, err := mongo.Connect(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +114,8 @@ func NewMongoExecutor(ds model.Datasource, password string, readOnly bool) (*Mon
 	if database == "" {
 		database = "admin"
 	}
-	executor := &MongoExecutor{client: client, database: database, datasourceID: ds.ID, readOnly: readOnly}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	executor := &MongoExecutor{client: client, database: database, datasourceID: ds.ID, readOnly: readOnly, statementTimeout: time.Duration(timeout) * time.Millisecond}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	if err := executor.Ping(ctx); err != nil {
 		_ = client.Disconnect(context.Background())
@@ -118,7 +129,7 @@ func (e *MongoExecutor) Ping(ctx context.Context) error     { return e.client.Pi
 func (e *MongoExecutor) Close() error                       { return e.client.Disconnect(context.Background()) }
 func (e *MongoExecutor) ServerVersion(ctx context.Context) (string, error) {
 	var status bson.M
-	if err := e.client.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&status); err != nil {
+	if err := e.client.Database("admin").RunCommand(ctx, bson.D{{Key: "buildInfo", Value: 1}}).Decode(&status); err != nil {
 		return "", err
 	}
 	return parseMongoVersion(status)
