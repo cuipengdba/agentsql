@@ -28,6 +28,11 @@ type mongoFindInput struct {
 	Limit        int               `json:"limit" jsonschema:"最多返回 1 到 100 条文档"`
 }
 
+type keyReadInput struct {
+	DatasourceID string `json:"datasource_id" jsonschema:"授权的 Redis 或 Valkey 数据源 ID"`
+	Key          string `json:"key" jsonschema:"精确键名，不接受通配符或原生命令"`
+}
+
 type writeInput struct {
 	DatasourceID string `json:"datasource_id" jsonschema:"授权数据源 ID"`
 	SQL          string `json:"sql" jsonschema:"单条 INSERT、UPDATE、DELETE 或 DDL"`
@@ -137,6 +142,13 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 		Description: "在授权 MongoDB 集合执行受控只读查询；仅返回指定字段，按规则脱敏并写入持久审计。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input mongoFindInput) (*mcp.CallToolResult, ToolResponse, error) {
 		response := handlers.findDocuments(ctx, input)
+		return protocolResult(response), response, nil
+	})
+	addAgentTool(server, &mcp.Tool{
+		Name:        "read_key",
+		Description: "读取授权 Redis/Valkey 单个 UTF-8 字符串键；最多 64 KiB，按键权限、脱敏规则和持久审计处理。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input keyReadInput) (*mcp.CallToolResult, ToolResponse, error) {
+		response := handlers.readKey(ctx, input)
 		return protocolResult(response), response, nil
 	})
 	addAgentTool(server, &mcp.Tool{

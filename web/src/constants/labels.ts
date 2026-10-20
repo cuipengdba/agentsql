@@ -93,6 +93,7 @@ export const objectTypeMeta = {
   schema: { label: "模式", color: "geekblue" },
   table: { label: "表", color: "cyan" },
   column: { label: "列(列级白名单)", color: "orange" },
+	key: { label: "Redis/Valkey 键", color: "green" },
 } as const;
 
 export const riskLevelMeta = {

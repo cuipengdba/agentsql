@@ -24,6 +24,13 @@ type RedisExecutor struct {
 }
 
 func NewRedisExecutor(datasource model.Datasource, password string, readOnly bool) (*RedisExecutor, error) {
+	return NewRedisExecutorWithContext(context.Background(), datasource, password, readOnly)
+}
+
+func NewRedisExecutorWithContext(ctx context.Context, datasource model.Datasource, password string, readOnly bool) (*RedisExecutor, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("redis context is required")
+	}
 	if datasource.DBType != "redis" && datasource.DBType != "valkey" {
 		return nil, fmt.Errorf("invalid Redis dialect")
 	}
@@ -82,7 +89,7 @@ func NewRedisExecutor(datasource model.Datasource, password string, readOnly boo
 	}
 	client := redis.NewClient(options)
 	executor := &RedisExecutor{client: client, dialect: model.DBDialect(datasource.DBType), datasourceID: datasource.ID, database: db, readOnly: readOnly}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMS)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
 	if err := executor.Ping(ctx); err != nil {
 		_ = client.Close()

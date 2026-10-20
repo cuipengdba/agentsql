@@ -1183,6 +1183,21 @@ func validatePolicyInput(input policyInput) error {
 	return err
 }
 
+func (handler *Handler) validateKeyPolicyDatasource(ctx context.Context, input policyInput) error {
+	if input.ObjectType != "key" {
+		return nil
+	}
+	datasource, err := handler.deps.Runtime.Store.Datasources().Get(ctx, input.DatasourceID)
+	if err != nil || (datasource.DBType != "redis" && datasource.DBType != "valkey") {
+		return fmt.Errorf("key policies require a Redis or Valkey datasource")
+	}
+	database, err := executor.RedisDatabaseNumber(datasource)
+	if err != nil || !strings.HasPrefix(input.ObjectName, "db"+strconv.Itoa(database)+":") {
+		return fmt.Errorf("key policy database must match datasource")
+	}
+	return nil
+}
+
 var errPolicyRepresentationsConflict = errors.New("legacy columns and column_permissions conflict")
 
 func legacyColumnTokens(columns *string) ([]string, error) {
@@ -1259,6 +1274,10 @@ func (handler *Handler) policiesCreate(writer http.ResponseWriter, request *http
 		handler.fail(writer, 422, "invalid policy")
 		return
 	}
+	if err := handler.validateKeyPolicyDatasource(request.Context(), input); err != nil {
+		handler.fail(writer, 422, "invalid key policy datasource")
+		return
+	}
 	normalizePolicyRepresentations(&input)
 	policyModel := policyFromInput(input)
 	policyModel.LegacyUnrepresentable = input.ColumnPermissions != nil && input.Columns == nil
@@ -1312,6 +1331,10 @@ func (handler *Handler) policiesUpdate(writer http.ResponseWriter, request *http
 	}
 	if err := validatePolicyInput(input); err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid policy")
+		return
+	}
+	if err := handler.validateKeyPolicyDatasource(request.Context(), input); err != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, "invalid key policy datasource")
 		return
 	}
 	normalizePolicyRepresentations(&input)

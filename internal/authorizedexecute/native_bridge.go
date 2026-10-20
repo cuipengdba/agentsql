@@ -15,11 +15,45 @@ type NativeQueryResult = businessdb.NativeQueryResult
 type NativeCatalog = businessdb.NativeCatalog
 type NativeNamespace = businessdb.NativeNamespace
 type MongoFindRequest = businessdb.MongoFindRequest
+type RedisReadRequest = businessdb.RedisReadRequest
 
 var ErrNativeUnsupported = errors.New("native capability unsupported")
 
 func ValidateMongoFind(request MongoFindRequest) error {
 	return businessdb.ValidateMongoFind(request)
+}
+
+func RedisDatabaseNumber(datasource model.Datasource) (int, error) {
+	return businessdb.RedisDatabaseNumber(datasource)
+}
+
+func (gateway *Gateway) RedisReadControlled(ctx context.Context, datasource model.Datasource, secret []byte, request RedisReadRequest) (model.QueryResult, error) {
+	if gateway == nil || !gateway.readOnly || (datasource.DBType != "redis" && datasource.DBType != "valkey") ||
+		(datasource.TLSMode != "strict" && datasource.TLSMode != "verify-full") ||
+		datasource.TrustServerCertificate || datasource.TLSCAFile == "" || datasource.Username == "" || datasource.PasswordEnc == "" {
+		return model.QueryResult{}, ErrNativeUnsupported
+	}
+	if _, err := RedisDatabaseNumber(datasource); err != nil {
+		return model.QueryResult{}, err
+	}
+	cipher, err := store.NewPasswordCipher(secret)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	password, err := cipher.Decrypt(datasource.PasswordEnc)
+	if err != nil || password == "" {
+		return model.QueryResult{}, fixedExecutionError(fmt.Errorf("controlled key credentials unavailable"))
+	}
+	opened, err := businessdb.NewRedisExecutorWithContext(ctx, datasource, password, true)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	defer opened.Close()
+	result, err := opened.ReadKeyControlled(ctx, request)
+	if err != nil {
+		return model.QueryResult{}, fixedExecutionError(err)
+	}
+	return result, nil
 }
 
 // MongoFindControlled is an exact MongoDB read capability. It never accepts a

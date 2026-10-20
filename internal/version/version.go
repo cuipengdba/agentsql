@@ -2,4 +2,4 @@
 package version
 
 // Version is overridden in release builds through -ldflags -X.
-var Version = "v2.5.0"
+var Version = "v2.6.0"

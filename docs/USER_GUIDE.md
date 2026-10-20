@@ -1,8 +1,12 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v2.4.0 的功能与操作。安装或拉取 v2.4.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v2.6.0 的功能与操作。安装或拉取 v2.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v2.4.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.4.0 发布说明](release-notes-v2.4.0.md)和[验收记录](v2.4.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v2.6.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.6.0 发布说明](release-notes-v2.6.0.md)和[验收记录](v2.6.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+
+## v2.6.0 Redis / Valkey 受控键读取
+
+在数据源中选 Redis 或 Valkey，配置固定 DB、严格 TLS、可验证 CA 和最小 ACL 账号；为普通 Agent 建立 `key` 策略，范围写作 `dbN:exact-key` 或有界 `dbN:prefix*`。MCP `read_key` 只填写 `datasource_id` 和精确 `key`。策略拒绝优先，SQL 表策略不能代替键授权。服务端固定 `TYPE` 和最多 64 KiB 的 `GETRANGE`，只接受 UTF-8 字符串；脱敏及持久预检、终态审计成功后交付。拒绝或错误时可用响应审计 ID 定位，不在审计记录保存原始键名或值。仅 Redis 8.2.9 / Valkey 8.1.10 TLS/ACL 单实例合成环境已验证，详见[本版验收](v2.6.0-acceptance.md)。
 
 ## 1. 总览 `/`
 
@@ -26,6 +30,7 @@
 趋势图用于观察决策数量随时间变化；实时事件流通过 `GET /api/v1/stream` 使用 SSE 推送新审计事件。反向代理该路径时必须关闭缓存、响应压缩和 buffering，并把空闲超时设为大于 25 秒。`server.event_stream_max_connections` 控制并发 SSE 连接上限。
 
 注意：工具层前置拒绝可能尚未进入流水线，因此并非每一个失败都会出现在事件流或审计页。
+
 
 ## 接入向导 `/onboarding`（v1.9.0）
 
