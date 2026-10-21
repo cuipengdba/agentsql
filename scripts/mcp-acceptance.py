@@ -24,8 +24,8 @@ def endpoint(value):
         raise ValueError("MCP endpoint must use HTTPS, except for loopback testing")
     if parsed.username or parsed.password or parsed.query or parsed.fragment or not parsed.hostname:
         raise ValueError("MCP endpoint must not contain credentials, query, or fragment")
-    if parsed.path not in {"/mcp", "/mcp/2026-07-28"}:
-        raise ValueError("MCP endpoint path must be /mcp or /mcp/2026-07-28")
+    if parsed.path != "/mcp":
+        raise ValueError("this acceptance script requires the legacy /mcp endpoint")
     return value
 
 
