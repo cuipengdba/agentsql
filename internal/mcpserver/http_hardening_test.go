@@ -241,8 +241,10 @@ func TestHTTPMultiTenantTenAgentsFiftySynchronizedRequestsAreIsolated(t *testing
 		if result.kind == "list" {
 			var listed []publicDatasource
 			require.NoError(t, json.Unmarshal(response.Result.StructuredContent.Data, &listed))
+			support, ok := model.SupportFor("postgres")
+			require.True(t, ok)
 			require.Equal(t, []publicDatasource{{
-				ID: result.tenant.datasource, Name: result.tenant.datasource, DBType: "postgres",
+				ID: result.tenant.datasource, Name: result.tenant.datasource, DBType: "postgres", Support: support,
 			}}, listed)
 		} else {
 			var data struct {
