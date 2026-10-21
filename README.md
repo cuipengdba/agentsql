@@ -189,7 +189,7 @@ docker compose --profile observability up -d --build
 
 完整说明见 [可观测性示例](examples/observability/README.md)。`AGENTSQL_SECRET` 必须与 `agentsql.db` 成对备份；直接更换 SECRET 会让既有数据源口令无法解密。生产控制面可将 metadata 与 audit 分别放入独立的 PostgreSQL 15+ 数据库，完整迁移、最小权限和回滚流程见 [部署指南](docs/DEPLOY.md#postgresql-控制面部署)。
 
-源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。当前 Makefile 与正式发布脚本默认使用 Go 1.26.9；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
+源码二进制构建按 `go.mod` 需要 Go 1.26、cgo、C 编译器和 glibc 兼容环境；本地 `make build` 使用 `PATH` 中的 Go，须先确认版本。当前 Makefile 与正式发布脚本默认使用 Go 1.26.10；普通构建直接使用仓库已有的内嵌控制台产物，不需要 Node.js。
 
 以下源码构建示例仅生成本机可执行文件。自行构建的文件没有经过正式发布资产的签名与分发验收：
 
