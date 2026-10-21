@@ -39,7 +39,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v2.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.7.0)） | ClickHouse 26.8.31.2 指定单节点原生 TLS 的受控查询，正式资产、真库、双客户端、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.7.0-release-evidence.md)；完整生产支持未验证。 |
 | v2.8.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.8.0)） | Milvus 2.6.25 指定单节点 TLS 的受控向量检索，正式资产、真库、双客户端、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.8.0-release-evidence.md)；集群和完整生产支持未验证。 |
 | v2.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0)） | 租户策略包、异人评审、表级原子应用、保守离线回放、批准基线漂移提示与外部签名审计见证；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.9.0-release-evidence.md)。数据库适配级别未扩大。 |
-| v3.0.0 | 开发与验收中 | 30 款已注册数据库的统一能力目录、只读交付诊断、可复核 MCP 合成场景验收；不新增数据库驱动或完整生产支持声明，见[设计](docs/v3.0.0-design.md)。 |
+| v3.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.0)） | 30 款已注册数据库的统一能力目录、只读交付诊断、可复核 MCP 合成场景验收；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v3.0.0-release-evidence.md)。不新增数据库驱动或完整生产支持声明。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
