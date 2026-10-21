@@ -38,9 +38,10 @@ type ToolResponse struct {
 }
 
 type publicDatasource struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	DBType string `json:"db_type"`
+	ID      string                  `json:"id"`
+	Name    string                  `json:"name"`
+	DBType  string                  `json:"db_type"`
+	Support model.DatasourceSupport `json:"support"`
 }
 
 type publicSchemaColumn struct {
@@ -93,7 +94,11 @@ func (handlers *toolHandlers) listDatasources(ctx context.Context) ToolResponse 
 	}
 	data := make([]publicDatasource, 0, len(allowed))
 	for _, datasource := range allowed {
-		data = append(data, publicDatasource{ID: datasource.ID, Name: datasource.Name, DBType: datasource.DBType})
+		support, ok := model.SupportFor(datasource.DBType)
+		if !ok {
+			return handlers.internalError("list_datasources", errors.New("datasource support registry is unavailable"))
+		}
+		data = append(data, publicDatasource{ID: datasource.ID, Name: datasource.Name, DBType: datasource.DBType, Support: support})
 	}
 	return allowToolResponse("已返回当前 Agent 获授权的数据源", data)
 }

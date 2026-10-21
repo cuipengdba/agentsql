@@ -1,5 +1,5 @@
 import { ApiOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
-import { Alert, Button, Checkbox, Drawer, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tag, message } from "antd";
+import { Alert, Button, Checkbox, Drawer, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tag, Tooltip, message } from "antd";
 import type { TableProps } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -20,6 +20,12 @@ const categoryLabels: Record<string, string> = {
   graph: "图", timeseries: "时序", olap: "OLAP", vector: "向量",
 };
 const categoryOrder = ["relational", "keyvalue", "document", "widecolumn", "graph", "timeseries", "olap", "vector"];
+const supportLabels: Record<DatasourceTypeView["support"]["level"], string> = {
+  controlled_sql: "受控 SQL 子集",
+  bounded_sql: "指定实例有界只读",
+  controlled_read_tool: "指定工具受控读取",
+  connection_preview: "连接 / 管理预览",
+};
 
 const defaultDatasource: Partial<DatasourceFormValues> = {
   db_type: "postgres",
@@ -96,7 +102,7 @@ export function Datasources() {
   const groupedOptions = categoryOrder.map((category) => ({
     label: categoryLabels[category],
     options: types.filter((type) => type.category === category).map((type) => ({
-      value: type.key, label: `${type.display_name} · ${type.default_port} · ${type.capability}`,
+      value: type.key, label: `${type.display_name} · ${type.default_port} · ${supportLabels[type.support.level]}`,
     })),
   })).filter((group) => group.options.length > 0);
 
@@ -216,7 +222,7 @@ export function Datasources() {
     { title: "ID", dataIndex: "id", width: 140, ellipsis: true, render: (value: string) => <code>{value}</code> },
     { title: "名称", dataIndex: "name", width: 140, ellipsis: true },
     { title: "类型", dataIndex: "db_type", width: 190, render: (value: string) => { const spec = typeByKey[value]; return <Space size={4}><Tag color={spec?.kind === "nosql" ? "cyan" : "blue"}>{spec?.display_name || configLabel(dbTypeMeta, value)}</Tag>{spec?.kind === "nosql" ? <Tag>{categoryLabels[spec.category]}</Tag> : null}</Space>; } },
-    { title: "能力档位", dataIndex: "db_type", width: 150, render: (value: string) => typeByKey[value]?.capability || "未知" },
+    { title: "能力档位", dataIndex: "db_type", width: 175, render: (value: string) => { const support = typeByKey[value]?.support; return support ? <Tooltip title={support.scope}><Tag color={support.level === "connection_preview" ? "default" : "blue"}>{supportLabels[support.level]}</Tag></Tooltip> : "未知"; } },
     { title: "地址", key: "address", width: 190, render: (_: unknown, row: DatasourceView) => <code>{row.host}:{row.port}</code> },
     { title: "数据库", dataIndex: "database", width: 130, ellipsis: true },
     { title: "用户名", dataIndex: "username", width: 120, ellipsis: true },
@@ -273,10 +279,15 @@ export function Datasources() {
           <Form.Item name="id" label="数据源 ID" rules={[{ required: true, whitespace: true }]}><Input disabled={Boolean(editing)} /></Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
           <Form.Item name="db_type" label="数据库类型" rules={[{ required: true }]}><Select options={groupedOptions} disabled={types.length === 0} /></Form.Item>
+          {selectedSpec?.support ? <Alert type="info" showIcon message={supportLabels[selectedSpec.support.level]} description={<>
+            <div>{selectedSpec.support.scope}</div>
+            <div>Agent 工具入口：{selectedSpec.support.agent_tools.length ? selectedSpec.support.agent_tools.join("、") : "无"}。每次调用仍需通过身份、权限与审计检查。</div>
+            <a href={`https://github.com/cuipengdba/agentsql/blob/main/${selectedSpec.support.evidence_doc}`} target="_blank" rel="noopener noreferrer">查看验收证据</a>
+          </>} /> : null}
           {selectedType === "vastbase" ? <Alert type="warning" showIcon message="Vastbase G100 Build 9 的 PG 模式仅支持指定实例的受限只读路径：明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。启用 TLS 时请配置 CA 与主机名校验，并在服务端为只读账号拒绝明文连接；主备切换与完整生产支持尚未验收。" /> : null}
           {selectedType === "highgo" ? <Alert type="warning" showIcon message="瀚高 V9.0.10 企业版 PG 模式仅支持指定单实例的受限只读查询：明确 schema、带 WHERE 和 LIMIT 的单表 SELECT。请使用最小权限只读账号；其他版本、模式和完整生产支持尚未验收。" /> : null}
           {selectedType === "opengauss" ? <Alert type="warning" showIcon message="openGauss 7.0.0 LTS 仅开放指定实例的受限只读路径：明确 schema、FROM ONLY、带 WHERE 和整数 LIMIT 的单表 SELECT。必须配置 verify-full、可信 CA 和最小权限账号；GaussDB 商业版、主备和完整生产支持尚未验收。" /> : null}
-          {selectedType === "clickhouse" ? <Alert type="info" showIcon message="ClickHouse 管理端仍提供连接级预览；Agent 查询请使用独立的 MCP query_analytics 受控入口。" /> : selectedType === "milvus" ? <Alert type="warning" showIcon message="Milvus 受控检索仅限 2.6.25 单机 default 数据库、TLS 与最小权限账号。Agent 使用 MCP search_vectors；管理端原有连接级预览不支持此 TLS 路径。" /> : selectedSpec?.kind === "nosql" ? <Alert type="info" showIcon message={`${categoryLabels[selectedSpec.category]} · 默认端口 ${selectedSpec.default_port} · 连接级/低阶支持（nosql-connect）`} /> : null}
+          {selectedType === "clickhouse" ? <Alert type="info" showIcon message="ClickHouse 管理端仍提供连接级预览；Agent 查询请使用独立的 MCP query_analytics 受控入口。" /> : selectedType === "milvus" ? <Alert type="warning" showIcon message="Milvus 受控检索仅限 2.6.25 单机 default 数据库、TLS 与最小权限账号。Agent 使用 MCP search_vectors；管理端原有连接级预览不支持此 TLS 路径。" /> : null}
           <div className="cfg-form-grid">
             <Form.Item name="host" label="主机" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
             <Form.Item name="port" label="端口" rules={[{ required: true }]}><InputNumber min={1} max={65535} className="cfg-full-width" /></Form.Item>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.0.0]
+
+- Add a single server-maintained capability catalog for all 30 registered datasource types, exposed through the management API, the datasource console, and authorized MCP datasource listings. The four levels distinguish controlled SQL, bounded SQL, dedicated read tools, and connection-only preview without expanding database support claims.
+- Add read-only `agentsqlctl doctor` with structured migration readiness and fixed exit codes; it never creates missing SQLite files or persists a gateway instance ID. Add a synthetic MCP acceptance script for tool discovery, allow/deny, masking, and durable audit IDs.
+- Preserve v2.9.0 schema versions (combined metadata 23, separate metadata 22, audit 6); verify package upgrade and paired restore. See [design](docs/v3.0.0-design.md), [acceptance](docs/v3.0.0-acceptance.md), and [release notes](docs/release-notes-v3.0.0.md).
+
 ## [v2.9.0]
 
 - Add canonical tenant policy bundles, bounded metadata-only diffs and replay probes, separate author/reviewer approval, atomic table-policy application, and drift status. Preserve existing B2 and column policies unchanged in exported bundles.
