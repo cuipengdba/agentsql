@@ -105,6 +105,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newChainCommand())
 	command.AddCommand(newAuditCommand())
 	command.AddCommand(newUpgradeCommand())
+	command.AddCommand(newDoctorCommand())
 	return command
 }
 
@@ -435,6 +436,10 @@ func checkMigrations(ctx context.Context, configPath string) ([]migrationResult,
 	if err != nil {
 		return nil, err
 	}
+	return checkMigrationsResolved(ctx, resolved)
+}
+
+func checkMigrationsResolved(ctx context.Context, resolved *config.ResolvedStore) ([]migrationResult, error) {
 	separate := !resolved.Audit.ReuseMetadata
 	metadata, err := checkResolvedTarget(ctx, "metadata", resolved.Metadata, func(database *sql.DB) (int, int, error) {
 		return store.MetadataMigrationVersions(ctx, database, resolved.Metadata.Driver, separate)

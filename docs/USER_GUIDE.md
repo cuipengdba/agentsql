@@ -1,8 +1,14 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v2.9.0 的功能与操作。安装或拉取 v2.9.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.0.0 的功能与操作。安装或拉取 v3.0.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v2.9.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v2.9.0 发布说明](release-notes-v2.9.0.md)和[验收记录](v2.9.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v3.0.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.0.0 发布说明](release-notes-v3.0.0.md)和[验收记录](v3.0.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+
+## v3.0.0 能力目录与交付诊断
+
+控制台「数据源」页按类型显示 Agent 能力层级、入口工具、限定范围和验收文档。`/api/v1/datasource-types` 的 `support` 字段来自同一服务端目录；MCP `list_datasources` 只为当前 Agent 可见的数据源附带同一说明。层级依次为 `controlled_sql`、`bounded_sql`、`controlled_read_tool` 和 `connection_preview`。最后一层仅表示连接或管理预览，不能作为 Agent 读权限使用。任何层级都不自动授权真实请求，仍需逐次通过身份、对象及列策略、执行、脱敏和持久审计。
+
+升级前在隔离环境以目标配置运行 `agentsqlctl doctor --config /etc/agentsql/config.yaml --format json`。退出码 0 表示已配置存储的迁移历史就绪，2 表示有待执行迁移，1 表示配置或存储检查失败。该命令不迁移 schema、不创建缺失 SQLite 库，也不输出 DSN、密码或密钥；迁移历史就绪不等于业务数据完整或生产可用，仍要按[部署指南](DEPLOY.md)备份与恢复。可用 `--format text` 查看简短的人读结果。
 
 ## v2.9.0 策略包治理与外部审计见证
 

@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')]
-    [string]$Version = 'v2.9.0',
+    [string]$Version = 'v3.0.0',
 
     [string]$OutputDirectory,
 
@@ -614,7 +614,7 @@ foreach ($architecture in @('amd64', 'arm64')) {
         'run', '--rm', '--platform', "linux/$architecture",
         '-e', "ARCH=$architecture",
         '-e', "VERSION=$Version",
-        '-e', 'GO_VERSION=1.26.9',
+        '-e', 'GO_VERSION=1.26.10',
         '-e', 'GOPROXY=https://goproxy.cn,direct',
         '-e', "SOURCE_DATE_EPOCH=$SourceDateEpoch",
         '-v', "${repositoryRoot}:/src",
@@ -746,7 +746,7 @@ $provenance = [ordered]@{
     builder       = [ordered]@{
         kind       = if ($ProductionPrepare) { 'local Docker production preparation' } else { 'local Docker dry-run' }
         rockyImage = $RockyImage
-        go         = '1.26.9'
+        go         = '1.26.10'
         syftImage  = $SyftImage
         cgo        = $true
     }

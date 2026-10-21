@@ -39,6 +39,7 @@ type datasourceTypeView struct {
 	DefaultPort      int                      `json:"default_port"`
 	Kind             string                   `json:"kind"`
 	Capability       string                   `json:"capability"`
+	Support          model.DatasourceSupport  `json:"support"`
 	RequiresDatabase bool                     `json:"requires_database"`
 	RequiresUsername bool                     `json:"requires_username"`
 	RequiresPassword bool                     `json:"requires_password"`
@@ -52,12 +53,17 @@ func (handler *Handler) datasourceTypesList(writer http.ResponseWriter, _ *http.
 			handler.fail(writer, http.StatusServiceUnavailable, "datasource type registry is unavailable")
 			return
 		}
+		support, ok := model.SupportFor(key)
+		if !ok {
+			handler.fail(writer, http.StatusServiceUnavailable, "datasource support registry is unavailable")
+			return
+		}
 		kind, capability := "nosql", "nosql-connect"
 		if !model.IsNative(key) {
 			kind, capability = "relational", "relational"
 		}
 		views = append(views, datasourceTypeView{Key: key, DisplayName: spec.DisplayName,
-			Category: spec.Category, DefaultPort: spec.DefaultPort, Kind: kind, Capability: capability,
+			Category: spec.Category, DefaultPort: spec.DefaultPort, Kind: kind, Capability: capability, Support: support,
 			RequiresDatabase: spec.RequiresDatabase, RequiresUsername: spec.RequiresUsername,
 			RequiresPassword: spec.RequiresPassword})
 	}

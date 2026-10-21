@@ -35,6 +35,9 @@ func TestDatasourceTypesEndpoint(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, spec.Category, item.Category)
 		require.Equal(t, spec.DefaultPort, item.DefaultPort)
+		support, ok := model.SupportFor(item.Key)
+		require.True(t, ok)
+		require.Equal(t, support, item.Support)
 		if model.IsNative(item.Key) {
 			require.Equal(t, "nosql-connect", item.Capability)
 		} else {

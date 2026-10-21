@@ -170,6 +170,12 @@ export interface DatasourceTypeView {
   default_port: number;
   kind: "relational" | "nosql";
   capability: "relational" | "nosql-connect";
+  support: {
+    level: "controlled_sql" | "bounded_sql" | "controlled_read_tool" | "connection_preview";
+    agent_tools: string[];
+    scope: string;
+    evidence_doc: string;
+  };
   requires_database: boolean;
   requires_username: boolean;
   requires_password: boolean;

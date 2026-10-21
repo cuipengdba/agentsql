@@ -111,7 +111,7 @@ function Assert-ReleaseProvenance {
         $document.source.sourceDateEpoch -lt 0) {
         throw 'Release provenance source identity, epoch, or dirty state is invalid.'
     }
-    if ($document.builder.go -cne '1.26.9' -or $document.builder.cgo -isnot [bool] -or
+    if ($document.builder.go -cne '1.26.10' -or $document.builder.cgo -isnot [bool] -or
         $document.builder.cgo -ne $true -or
         $document.builder.rockyImage -cnotmatch '^[^\s]+@sha256:[0-9a-f]{64}$' -or
         $document.builder.syftImage -cnotmatch '^[^\s]+@sha256:[0-9a-f]{64}$') {
