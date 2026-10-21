@@ -38,7 +38,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v2.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.6.0)） | Redis 8.2.9 / Valkey 8.1.10 指定 TLS/ACL 单实例的 Agent 级精确键受控读取；真库、双客户端、脱敏、持久审计、故障关闭、正式资产、上一版升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.6.0-release-evidence.md)。其他版本、Cluster/Sentinel 与完整生产支持未验证。 |
 | v2.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.7.0)） | ClickHouse 26.8.31.2 指定单节点原生 TLS 的受控查询，正式资产、真库、双客户端、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.7.0-release-evidence.md)；完整生产支持未验证。 |
 | v2.8.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.8.0)） | Milvus 2.6.25 指定单节点 TLS 的受控向量检索，正式资产、真库、双客户端、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.8.0-release-evidence.md)；集群和完整生产支持未验证。 |
-| v2.9.0 | 开发中 | 租户策略包、异人评审、表级原子应用、保守离线回放、批准基线漂移提示与外部签名审计见证；见[设计](docs/v2.9.0-design.md)，发布验收未完成。 |
+| v2.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0)） | 租户策略包、异人评审、表级原子应用、保守离线回放、批准基线漂移提示与外部签名审计见证；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.9.0-release-evidence.md)。数据库适配级别未扩大。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 
