@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import {
   BellOutlined,
   DeleteOutlined,
@@ -570,7 +571,7 @@ export function Notifications() {
   const validateConfig = (): string | null => {
     if (!config) return "通知配置尚未加载";
     if (!Number.isInteger(config.queue_size) || config.queue_size < 1 || config.queue_size > MAX_QUEUE_SIZE) {
-      return `队列长度必须是 1–${MAX_QUEUE_SIZE.toLocaleString("zh-CN")} 的整数`;
+      return `队列长度必须是 1–${MAX_QUEUE_SIZE.toLocaleString(currentLocale())} 的整数`;
     }
     for (const channel of config.channels) {
       const error = validateChannel(channel, config.channels);
@@ -635,9 +636,9 @@ export function Notifications() {
 
   const healthColumns: TableProps<NotificationHealthChannel>["columns"] = [
     { title: "通道 ID", dataIndex: "id", width: 210, render: (value: string) => <code>{value}</code> },
-    { title: "已发送", dataIndex: "sent", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString("zh-CN") },
-    { title: "失败", dataIndex: "failed", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString("zh-CN") },
-    { title: "丢弃", dataIndex: "dropped", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString("zh-CN") },
+    { title: "已发送", dataIndex: "sent", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString(currentLocale()) },
+    { title: "失败", dataIndex: "failed", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString(currentLocale()) },
+    { title: "丢弃", dataIndex: "dropped", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString(currentLocale()) },
     {
       title: "最近错误",
       dataIndex: "last_error",

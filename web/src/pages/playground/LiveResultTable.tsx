@@ -1,3 +1,4 @@
+import { currentLocale, localeText, useLocaleStore } from "@/i18n/locale";
 import {
   AuditOutlined,
   CheckCircleFilled,
@@ -55,6 +56,7 @@ function displayCell(column: string, index: number, value: string, touched: Reco
 }
 
 export function LiveResultTable({ result }: LiveResultTableProps) {
+  const locale = useLocaleStore((state) => state.locale);
   const navigate = useNavigate();
   const responseDecision = (result.decision || "").trim().toLowerCase();
   const assessmentDecision = (result.assessment?.decision || "").trim().toLowerCase();
@@ -79,13 +81,13 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
   const touchedColumns = Object.entries(touchedColumnMap);
 
   const tableColumns = useMemo<TableProps<LiveTableRow>["columns"]>(() => columns.map((column, index) => ({
-    title: column?.trim() || `第 ${index + 1} 列`,
+    title: <span data-no-translate>{column?.trim() || localeText(`第 ${index + 1} 列`, `Column ${index + 1}`, locale)}</span>,
     key: `column-${index}`,
     ellipsis: true,
     render: (_value: unknown, record: LiveTableRow) => (
-      <span className="mono-text">{displayCell(column, index, record.cells[index] ?? "", touchedColumnMap)}</span>
+      <span className="mono-text" data-no-translate>{displayCell(column, index, record.cells[index] ?? "", touchedColumnMap)}</span>
     ),
-  })), [columns, touchedColumnMap]);
+  })), [columns, touchedColumnMap, locale]);
 
   const tableRows = useMemo<LiveTableRow[]>(() => rows.map((row, rowIndex) => ({
     key: `row-${rowIndex}`,
@@ -131,8 +133,8 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
         <span className="live-result-decision">{decisionIcon}<Tag color={decisionInfo.tagColor}>{decisionInfo.label}</Tag></span>
         <Tag>{statementLabel(result.assessment?.stmt_type)}</Tag>
         <span>风险 <strong>{finiteNumber(result.assessment?.risk)}</strong></span>
-        <span>预估扫描 <strong>{finiteNumber(result.assessment?.est_scan_rows).toLocaleString("zh-CN")}</strong> 行</span>
-        {decision !== "error" ? <span>执行耗时 <strong>{finiteNumber(result.result?.latency_ms).toLocaleString("zh-CN")}</strong> ms</span> : null}
+        <span>预估扫描 <strong>{finiteNumber(result.assessment?.est_scan_rows).toLocaleString(currentLocale())}</strong> 行</span>
+        {decision !== "error" ? <span>执行耗时 <strong>{finiteNumber(result.result?.latency_ms).toLocaleString(currentLocale())}</strong> ms</span> : null}
         <span className="live-result-audit mono-text">audit_id：{auditID ?? "—"}</span>
         <Button
           size="small"
@@ -228,9 +230,9 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
           ) : null}
 
           <div className="live-table-meta">
-            <span>返回行数：<strong>{finiteNumber(result.result?.row_count, tableRows.length).toLocaleString("zh-CN")}</strong></span>
-            <span>当前展示：<strong>{tableRows.length.toLocaleString("zh-CN")}</strong> 行</span>
-            <span>耗时：<strong>{finiteNumber(result.result?.latency_ms).toLocaleString("zh-CN")}</strong> ms</span>
+            <span>返回行数：<strong>{finiteNumber(result.result?.row_count, tableRows.length).toLocaleString(currentLocale())}</strong></span>
+            <span>当前展示：<strong>{tableRows.length.toLocaleString(currentLocale())}</strong> 行</span>
+            <span>耗时：<strong>{finiteNumber(result.result?.latency_ms).toLocaleString(currentLocale())}</strong> ms</span>
           </div>
 
           {columns.length > 0 && tableRows.length > 0 ? (
@@ -248,7 +250,7 @@ export function LiveResultTable({ result }: LiveResultTableProps) {
 
           <section className="live-redact-panel">
             <div><EyeInvisibleOutlined /><strong>脱敏信息</strong></div>
-            <span>已掩码单元格：<strong>{finiteNumber(result.redact?.masked_cells).toLocaleString("zh-CN")}</strong></span>
+            <span>已掩码单元格：<strong>{finiteNumber(result.redact?.masked_cells).toLocaleString(currentLocale())}</strong></span>
             <div className="live-redact-columns">
               {touchedColumns.length > 0
                 ? touchedColumns.map(([columnIndex, sensitiveType]) => {

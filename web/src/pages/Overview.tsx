@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import {
   AuditOutlined,
   DatabaseOutlined,
@@ -129,7 +130,7 @@ function StreamStatusBadge({ status }: { status: StreamStatus }) {
 
 function CountValue({ value }: { value: number }) {
   const count = useCountUp(value);
-  return <>{Math.round(count).toLocaleString("zh-CN")}</>;
+  return <>{Math.round(count).toLocaleString(currentLocale())}</>;
 }
 
 interface KPIItem {
@@ -209,7 +210,7 @@ function DemoReadiness({ refreshToken }: { refreshToken: number }) {
     message={`Live Demo：${status}`}
     description={<Space direction="vertical" size={4}>
       <span><code>/healthz</code> 仅表示服务存活；<code>/readyz</code> 检查网关依赖。网关就绪不代表每个演示数据源可用。</span>
-      <span>演示数据源：{sources === null ? "状态尚未确认" : sources.length === 0 ? "尚未配置" : sources.map((source) => `${source.name} ${source.ready ? "连接正常" : "连接不可用"}`).join("；")}。{sourceCheckedAt ? `检查于 ${sourceCheckedAt.toLocaleTimeString("zh-CN")}` : "正在检查"}；可在 <Link to="/datasources">数据源</Link> 页面复测。</span>
+      <span>演示数据源：{sources === null ? "状态尚未确认" : sources.length === 0 ? "尚未配置" : sources.map((source) => `${source.name} ${source.ready ? "连接正常" : "连接不可用"}`).join("；")}。{sourceCheckedAt ? `检查于 ${sourceCheckedAt.toLocaleTimeString(currentLocale())}` : "正在检查"}；可在 <Link to="/datasources">数据源</Link> 页面复测。</span>
     </Space>}
     style={{ marginBottom: 16 }}
   />;

@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
 Disallow: /demo/
+Disallow: /en/demo/
 
 Sitemap: https://agentsql.cn/sitemap.xml

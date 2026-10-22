@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { Alert, Descriptions, Drawer, Empty, Tag } from "antd";
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo } from "react";
@@ -33,12 +34,12 @@ function text(value: string | null | undefined): string {
 
 function numberText(value: number | null | undefined, suffix = ""): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return `${value.toLocaleString("zh-CN")}${suffix}`;
+  return `${value.toLocaleString(currentLocale())}${suffix}`;
 }
 
 function dateTime(value: string): string {
   const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString("zh-CN", { hour12: false }) : "—";
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString(currentLocale(), { hour12: false }) : "—";
 }
 
 function knownDecision(value: string): boolean {

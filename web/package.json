@@ -1,14 +1,15 @@
 {
   "name": "agentsql-web",
   "private": true,
-  "version": "1.2.0",
+  "version": "3.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:i18n": "node scripts/check-i18n.cjs"
   },
   "dependencies": {
     "@ant-design/icons": "5.5.1",

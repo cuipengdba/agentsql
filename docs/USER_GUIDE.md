@@ -1,10 +1,12 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v3.0.0 的功能与操作。安装或拉取 v3.0.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.0.1 的功能与操作。安装或拉取 v3.0.1 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v3.0.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.0.0 发布说明](release-notes-v3.0.0.md)和[验收记录](v3.0.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v3.0.1 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.0.1 发布说明](release-notes-v3.0.1.md)和[验收记录](v3.0.1-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
-## v3.0.0 能力目录与交付诊断
+控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。英文使用手册尚未完整翻译，以中文文档及对应版本验收记录为准。
+
+## v3.0.1 能力目录与交付诊断
 
 控制台「数据源」页按类型显示 Agent 能力层级、入口工具、限定范围和验收文档。`/api/v1/datasource-types` 的 `support` 字段来自同一服务端目录；MCP `list_datasources` 只为当前 Agent 可见的数据源附带同一说明。层级依次为 `controlled_sql`、`bounded_sql`、`controlled_read_tool` 和 `connection_preview`。最后一层仅表示连接或管理预览，不能作为 Agent 读权限使用。任何层级都不自动授权真实请求，仍需逐次通过身份、对象及列策略、执行、脱敏和持久审计。
 

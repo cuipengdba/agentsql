@@ -1,10 +1,10 @@
 # AgentSQL MCP 接入指南
 
-> 本文说明 AgentSQL v3.0.0 的 MCP 接入。安装或拉取 v3.0.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.0.1 的 MCP 接入。安装或拉取 v3.0.1 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
-v3.0.0 的 `list_datasources` 为当前 Agent 可见的数据源增加 `support` 声明：层级、可用工具、限定范围及证据文档。它只描述已验证的入口，不代替逐次授权。隔离的合成数据环境可运行 `scripts/mcp-acceptance.py` 检查工具发现、允许、R010 拒绝、脱敏和两个持久审计 ID；API Key 仅从 `AGENTSQL_MCP_ACCEPTANCE_KEY` 环境变量读取。示例：
+v3.0.1 的 `list_datasources` 为当前 Agent 可见的数据源增加 `support` 声明：层级、可用工具、限定范围及证据文档。它只描述已验证的入口，不代替逐次授权。隔离的合成数据环境可运行 `scripts/mcp-acceptance.py` 检查工具发现、允许、R010 拒绝、脱敏和两个持久审计 ID；API Key 仅从 `AGENTSQL_MCP_ACCEPTANCE_KEY` 环境变量读取。示例：
 
 ```bash
 AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py \

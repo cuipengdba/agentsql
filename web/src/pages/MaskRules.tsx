@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Empty, Pagination, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from "antd";
 import type { TableProps } from "antd";
@@ -423,7 +424,7 @@ export function MaskRules() {
             }))}
             onChange={changeDatasource}
           />
-          <Typography.Text>共 <strong className="mono-text">{safeTotal(total).toLocaleString("zh-CN")}</strong> 条</Typography.Text>
+          <Typography.Text>共 <strong className="mono-text">{safeTotal(total).toLocaleString(currentLocale())}</strong> 条</Typography.Text>
         </Space>
         <Tooltip title="刷新当前页">
           <Button icon={<ReloadOutlined />} loading={loading} disabled={loading} onClick={refresh}>刷新</Button>
@@ -456,7 +457,7 @@ export function MaskRules() {
           pageSizeOptions={[20, 50, 100]}
           showSizeChanger
           showQuickJumper
-          showTotal={(value) => `共 ${safeTotal(value).toLocaleString("zh-CN")} 条`}
+          showTotal={(value) => `共 ${safeTotal(value).toLocaleString(currentLocale())} 条`}
           onChange={changePage}
         />
       </div>

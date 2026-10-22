@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentSQL | Database security gateway for AI agents</title>
+  <meta name="description" content="AgentSQL is a self-hosted database security gateway and MCP server for AI agents, with identity checks, authorization, controlled execution, masking, and application-level audit.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://agentsql.cn/en/">
+  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/">
+  <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AgentSQL">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="AgentSQL | Database security gateway for AI agents">
+  <meta property="og:description" content="Control AI-agent database access through identity, permissions, SQL checks, execution limits, masking, and audit.">
+  <meta property="og:url" content="https://agentsql.cn/en/">
+  <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <div class="container nav-shell">
+      <a class="brand" href="#top" aria-label="AgentSQL home"><img src="/favicon.svg" width="36" height="36" alt="" aria-hidden="true"><span>AgentSQL</span></a>
+      <button class="nav-toggle" type="button" aria-controls="primary-nav" aria-expanded="false"><span class="sr-only">Open navigation</span><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <nav id="primary-nav" class="primary-nav" aria-label="Main navigation">
+        <a href="#product">Product</a><a href="/en/demo/">Demo</a><a href="#features">Features</a><a href="#docs">Docs</a><a href="#compatibility">Databases</a><a href="#quickstart">Quick start</a><a href="#security">Security</a>
+        <a class="language-link" href="/" lang="zh-CN" hreflang="zh-CN" aria-label="切换为中文">中文</a>
+        <a class="button button-small button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <section id="top" class="hero section"><div class="container hero-grid"><div class="hero-copy">
+      <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v3.0.1</div>
+      <h1>A database security gateway for AI agents</h1>
+      <p class="hero-lead">AgentSQL is a self-hosted MCP server and database security gateway. Before an agent's request reaches a supported database, AgentSQL authenticates the caller, checks permissions and SQL risk, makes an allow/warn/deny/approve decision, controls execution, masks configured result columns, and records an application-level audit.</p>
+      <p class="positioning">v3.0.1 adds Chinese/English switching to the website and Web console and makes the console's left menu scroll within short viewports. It retains the v3.0.0 capability catalog and read-only delivery diagnostics. Registration in the catalog does not mean full production support; every real read still goes through identity, permissions, rules, masking, and audit checks.</p>
+      <div class="hero-actions"><a class="button button-primary" href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md" target="_blank" rel="noopener noreferrer">View on GitHub</a><a class="button button-secondary" href="#quickstart">Get started</a><a class="button button-ghost" href="/en/demo/">Try the Live Demo</a></div>
+      <p class="badge-line">Apache-2.0 open-source core since v0.5.0 · self-hosted · Go single-binary delivery · no third-party telemetry dependency</p>
+    </div><div class="gateway-visual" role="img" aria-label="AI agent to AgentSQL gateway to database"><div class="callout"><h2>One controlled path</h2><p>AI agent → MCP client → AgentSQL → supported database</p><p>Authenticate → parse → check → decide → execute and mask → audit</p><p>Database-side least privilege, read-only accounts, safe views, and network isolation remain necessary.</p></div></div></div></section>
+
+    <section id="product" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Why a gateway?</p><h2>Make agent database access controllable, explainable, and traceable</h2></div><div class="risk-grid">
+      <article class="risk-card"><span class="risk-index">01</span><h3>Risky SQL</h3><p>Generated SQL can contain unsafe writes, including UPDATE or DELETE without WHERE. Whether it is blocked depends on enabled rules, policy, and agent capability.</p></article>
+      <article class="risk-card"><span class="risk-index">02</span><h3>Unauthorized access</h3><p>Check the agent, data source, object, and column permissions before execution.</p></article>
+      <article class="risk-card"><span class="risk-index">03</span><h3>Sensitive results</h3><p>Configured masking can obscure selected phone and email fields before the result enters model context.</p></article>
+      <article class="risk-card"><span class="risk-index">04</span><h3>Missing evidence</h3><p>Keep the identity, SQL, rule matches, decision, and execution status needed to explain a request.</p></article>
+    </div><div class="boundary-note"><strong>Defense in depth:</strong> The gateway does not replace database privileges or network controls.</div></div></section>
+
+    <section class="section"><div class="container"><div class="section-heading"><p class="kicker">Six stages</p><h2>From identity to audit</h2></div><ol class="pipeline">
+      <li><span class="step-number">01</span><div><h3>Authenticate</h3><p>Validate the API key and load the agent, data source, and policy. Fail closed when required checks fail.</p></div></li>
+      <li><span class="step-number">02</span><div><h3>Parse</h3><p>Build a dialect-aware SQL AST. Rules reject malformed or multi-statement requests.</p></div></li>
+      <li><span class="step-number">03</span><div><h3>Inspect</h3><p>Run static checks first. Where allowed, use a controlled connection for read-only EXPLAIN or metadata checks.</p></div></li>
+      <li><span class="step-number">04</span><div><h3>Decide</h3><p>Combine decisions in deny &gt; approve &gt; warn &gt; allow order.</p></div></li>
+      <li><span class="step-number">05</span><div><h3>Execute and mask</h3><p>Execute only allow/warn decisions, with limits on connections, time, and rows; mask configured result columns.</p></div></li>
+      <li><span class="step-number">06</span><div><h3>Audit</h3><p>Persist decisions in the SQL pipeline. Audit failure closes that path; some earlier tool-level rejections may not have a persistent traffic audit record.</p></div></li>
+    </ol></div></section>
+
+    <section id="features" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Capabilities</p><h2>Controlled access from MCP to audit</h2></div><div class="feature-grid">
+      <article class="feature-card"><h3>MCP transports</h3><p>Local stdio, stateful Streamable HTTP at <code>/mcp</code>, and a separate stateless MCP 2026-07-28 endpoint at <code>/mcp/2026-07-28</code>. The new endpoint reauthenticates each request and does not expose cross-request B5 tools.</p></article>
+      <article class="feature-card"><h3>Default-deny controls</h3><p>API keys, agent capability tiers, object and column permissions, SQL AST rules, and fail-closed behavior for critical failures.</p></article>
+      <article class="feature-card"><h3>Execution limits</h3><p>Read-only protection, hazardous SQL checks, EXPLAIN risk checks, timeouts, connection/QPS/result limits, and human approval.</p></article>
+      <article class="feature-card"><h3>Data protection</h3><p>Configurable column masking is basic protection, not complete DLP. Data-source passwords are encrypted with AES-256-GCM.</p></article>
+      <article class="feature-card"><h3>Control plane</h3><p>SQLite by default; optional PostgreSQL 15+ control plane with single- or split-database layouts. PostgreSQL 18 is the baseline.</p></article>
+      <article class="feature-card"><h3>Operations</h3><p>Web console, Prometheus metrics, health/readiness probes, Grafana dashboard, task-scoped temporary read grants, onboarding guide, and a read-only migration check.</p></article>
+    </div></div></section>
+
+    <section id="docs" class="section"><div class="container"><div class="section-heading"><p class="kicker">Documentation</p><h2>Start with the evidence and deployment limits</h2><p>The detailed manuals and bundled PDFs are currently in Chinese. The <a href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md">English README</a> covers the architecture, supported scope, and first steps.</p></div><div class="feature-grid">
+      <article class="feature-card"><h3>Getting started</h3><p>Try the synthetic Live Demo, then configure your own database with least privilege.</p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">Read the Chinese guide</a></article>
+      <article class="feature-card"><h3>User guide</h3><p>Control-console menus, auditing, data sources, permissions, rules, approvals, and masking limits.</p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">Read the Chinese guide</a></article>
+      <article class="feature-card"><h3>MCP integration</h3><p>Choose a transport based on the client and the needed tools.</p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">Read the Chinese guide</a></article>
+    </div><div class="license-panel callout"><div class="docs-callout-copy"><h3>v3.0.1 packages</h3><p>Linux amd64 and arm64 installers and a multi-architecture GHCR image are available. Back up the control database and matching keys before upgrading.</p><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v3.0.1</code></pre><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.0.1/install.sh | sudo sh -s -- install --version v3.0.1</code></pre><p class="install-conditions">Linux glibc ≥ 2.28 · systemd · sudo/root for the installer</p></div><div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v3.0.1" target="_blank" rel="noopener noreferrer">GitHub Release v3.0.1</a></div></div></div></section>
+
+    <section id="compatibility" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Compatibility</p><h2>Versioned, evidence-based support</h2><p>The v3.0.1 catalog registers 30 databases in eight families; KingbaseES V9 appears separately for a specified PG-protocol instance. Each adapter has its own tested versions, modes, operations, and failure behavior. Catalog registration alone is not a production-support claim.</p></div><div class="feature-grid">
+      <article class="feature-card"><h3>Core SQL paths</h3><p>PostgreSQL and MySQL use the main SQL gateway with distinct dialect, permission, and column-binding rules. The README and release evidence state the tested boundaries.</p></article>
+      <article class="feature-card"><h3>Specified-instance paths</h3><p>Vastbase, HighGo, openGauss, Oracle Free, SQL Server 2025 Developer, Yashan, and other adapters have narrower version- and scenario-specific acceptance evidence.</p></article>
+      <article class="feature-card"><h3>Non-SQL paths</h3><p>MongoDB, Redis/Valkey, ClickHouse, and Milvus expose restricted read tools with explicit object and field scope; they are not general-purpose database proxies.</p></article>
+    </div><p><a href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md#database-support" target="_blank" rel="noopener noreferrer">Read the English compatibility summary</a> · <a href="/#compatibility" lang="zh-CN">查看中文完整兼容矩阵</a></p></div></section>
+
+    <section id="quickstart" class="section"><div class="container"><div class="section-heading"><p class="kicker">Quick start</p><h2>Try AgentSQL with synthetic data</h2><p>The public Live Demo is a single-gateway, non-production environment. It does not connect to real customer databases and is reset periodically.</p></div><div class="hero-actions"><a class="button button-primary" href="/en/demo/">Read demo safety rules</a><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md#quick-start" target="_blank" rel="noopener noreferrer">Local setup instructions</a></div></div></section>
+
+    <section id="security" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Security limits</p><h2>Use database controls alongside the gateway</h2><p>Masking is not complete DLP or anonymization. Application-level audit is not a regulatory WORM log. A database owner or superuser can still alter underlying data. Direct connections bypass AgentSQL. Use least-privilege database accounts, safe views, network isolation, backups, and independent audit controls as appropriate.</p></div></div></section>
+
+    <section id="licensing" class="section"><div class="container"><div class="section-heading"><p class="kicker">License</p><h2>Apache-2.0 open-source core and separate commercial terms</h2><p>Versions v0.4.0 and earlier retain their original licenses. From v0.5.0, the open-source core is Apache License 2.0, which permits commercial use, closed-source integration, SaaS use, and redistribution under its terms. Trademark rights are separate. For trademark permission or enterprise capabilities, contact <a href="mailto:87326549@qq.com">87326549@qq.com</a>.</p></div></div></section>
+
+    <section id="faq" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">FAQ</p><h2>Common questions</h2></div><div class="faq-list">
+      <details><summary>Is AgentSQL itself an MCP server?</summary><p>Yes. It exposes database tools through supported MCP transports.</p></details>
+      <details><summary>Does it generate SQL from natural language?</summary><p>No. It checks and controls database requests; it is not a BI tool, ORM, or Text2SQL product.</p></details>
+      <details><summary>Does it support every registered database in production?</summary><p>No. Check the specific version, operation, transport, and acceptance evidence for each adapter.</p></details>
+    </div></div></section>
+
+    <section id="community" class="section"><div class="container"><div class="section-heading"><p class="kicker">Community</p><h2>Join the project</h2><p>Read the source, report reproducible issues, or contact the maintainer about validation and commercial licensing.</p></div><div class="hero-actions"><a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub repository</a><a class="button button-secondary" href="mailto:87326549@qq.com">Email the maintainer</a></div></div></section>
+  </main>
+  <footer class="site-footer"><div class="container footer-bottom"><span>© <span data-current-year>2026</span> Cui Peng · Personal open-source technology project for technical exchange</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">黑ICP备2026011740号-1</a> · <a href="https://beian.mps.gov.cn/#/query/webSearch?code=23010302002016" target="_blank" rel="noopener noreferrer">黑公网安备23010302002016号</a></span></div></footer>
+</body>
+</html>

@@ -14,6 +14,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { logout as logoutRequest, me } from "@/api/auth";
 import { getB5Status } from "@/api/b5";
+import { localeText, useLocaleStore } from "@/i18n/locale";
 import { menuRoutes, menuRoutesForFeatures } from "@/routes/menu";
 import { useAuthStore } from "@/store/authStore";
 import { selectIsDemo, useDemoStore } from "@/store/demoStore";
@@ -35,13 +36,17 @@ export function MainLayout() {
   const toggleTheme = useThemeStore((state) => state.toggle);
   const demoEnabled = useDemoStore(selectIsDemo);
   const demoBanner = useDemoStore((state) => state.banner);
+  const locale = useLocaleStore((state) => state.locale);
+  const setLocale = useLocaleStore((state) => state.setLocale);
+  const tr = (zh: string, en: string) => localeText(zh, en, locale);
   const currentRoute = menuRoutes.find((route) => route.path === location.pathname);
-  const menuItem = ({ key, label, icon }: (typeof menuRoutes)[number]): NonNullable<MenuProps["items"]>[number] => ({
+  const menuItem = ({ key, label, labelEn, icon }: (typeof menuRoutes)[number]): NonNullable<MenuProps["items"]>[number] => ({
     key,
     icon,
+    // Route metadata stays stable; only the displayed label changes.
     label: key === "playground" && demoEnabled
-      ? <span className="demo-menu-label"><span>{label}</span><Tag color="processing">Live Demo</Tag></span>
-      : label,
+      ? <span className="demo-menu-label"><span>{locale === "en-US" ? labelEn : label}</span><Tag color="processing">Live Demo</Tag></span>
+      : locale === "en-US" ? labelEn : label,
   });
   const visibleRoutes = menuRoutesForFeatures(b5Enabled, permissions).filter((route) => route.key !== "tenants" || bootstrapAdmin);
   const primaryRoutes = visibleRoutes.filter((route) => route.group !== "settings");
@@ -50,7 +55,7 @@ export function MainLayout() {
     ...primaryRoutes.map(menuItem),
     ...(settingsRoutes.length > 0 ? [{
       type: "group" as const,
-      label: "设置与集成",
+      label: tr("设置与集成", "Settings & integrations"),
       children: settingsRoutes.map(menuItem),
     }] : []),
   ];
@@ -85,11 +90,12 @@ export function MainLayout() {
   return (
     <Layout className="app-shell">
       <Sider className="app-sider" theme="dark" width={224} collapsedWidth={72} collapsed={collapsed}>
-        <button className="brand" type="button" onClick={() => navigate("/")} aria-label="返回总览">
+        <button className="brand" type="button" onClick={() => navigate("/")} aria-label={tr("返回总览", "Go to overview")}>
           <SafetyCertificateFilled className="brand-icon" />
-          {!collapsed ? <span>AgentSQL 智盾</span> : null}
+          {!collapsed ? <span>{tr("AgentSQL 智盾", "AgentSQL")}</span> : null}
         </button>
-        <Menu
+        <nav className="app-sider-scroll" aria-label={tr("主导航", "Main navigation")} tabIndex={0}>
+          <Menu
           theme="dark"
           mode="inline"
           selectedKeys={[currentRoute?.key || ""]}
@@ -100,45 +106,56 @@ export function MainLayout() {
               navigate(target.path);
             }
           }}
-        />
+          />
+        </nav>
       </Sider>
       <Layout>
         <Header className="app-header">
           <Space size={12}>
-            <Tooltip title={collapsed ? "展开导航" : "收起导航"}>
+            <Tooltip title={collapsed ? tr("展开导航", "Expand navigation") : tr("收起导航", "Collapse navigation")}>
               <Button
                 type="text"
                 className="header-icon-button"
                 icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                 onClick={() => setCollapsed((value) => !value)}
-                aria-label={collapsed ? "展开导航" : "收起导航"}
+                aria-label={collapsed ? tr("展开导航", "Expand navigation") : tr("收起导航", "Collapse navigation")}
               />
             </Tooltip>
-            <Typography.Text className="current-page-title">{currentRoute?.label || "AgentSQL"}</Typography.Text>
+            <Typography.Text className="current-page-title">{currentRoute ? (locale === "en-US" ? currentRoute.labelEn : currentRoute.label) : "AgentSQL"}</Typography.Text>
             {demoEnabled ? <Tag color="processing" className="live-demo-tag">Live Demo</Tag> : null}
           </Space>
           <Space size={12}>
-            <Tooltip title={themeMode === "dark" ? "切换浅色主题" : "切换深色主题"}>
+            <Button
+              type="text"
+              className="locale-button"
+              data-no-translate
+              onClick={() => setLocale(locale === "zh-CN" ? "en-US" : "zh-CN")}
+              aria-label={tr("切换为英文", "Switch to Chinese")}
+              title={tr("切换为英文", "Switch to Chinese")}
+            >
+              {locale === "zh-CN" ? "EN" : "中文"}
+            </Button>
+            <Tooltip title={themeMode === "dark" ? tr("切换浅色主题", "Switch to light theme") : tr("切换深色主题", "Switch to dark theme")}>
               <Button
                 type="text"
                 className="header-icon-button"
                 icon={themeMode === "dark" ? <SunOutlined /> : <MoonOutlined />}
                 onClick={toggleTheme}
-                aria-label="切换主题"
+                aria-label={tr("切换主题", "Toggle theme")}
               />
             </Tooltip>
             <span className="admin-identity">
               <Avatar size={28} icon={<UserOutlined />} />
               <span>{username || "admin"}</span>
             </span>
-            <Tooltip title="退出登录">
+            <Tooltip title={tr("退出登录", "Sign out")}>
               <Button
                 type="text"
                 danger
                 className="header-icon-button"
                 icon={<LogoutOutlined />}
                 onClick={() => void handleLogout()}
-                aria-label="退出登录"
+                aria-label={tr("退出登录", "Sign out")}
               />
             </Tooltip>
           </Space>

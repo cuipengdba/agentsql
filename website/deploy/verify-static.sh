@@ -42,6 +42,20 @@ if [[ $local_only -eq 0 ]]; then
     fail "/demo/ 状态或安全须知不正确（状态 $status）"
   fi
 
+  status=$(fetch "$BASE_URL/en/" english_home)
+  if [[ $status == 200 ]] && grep -q 'Database security gateway for AI agents' "$tmp_dir/english_home.body"; then
+    pass "英文首页返回 200"
+  else
+    fail "英文首页状态或内容不正确（状态 $status）"
+  fi
+
+  status=$(fetch "$BASE_URL/en/demo/" english_demo)
+  if [[ $status == 200 ]] && grep -q 'Never enter real data or secrets' "$tmp_dir/english_demo.body"; then
+    pass "英文 Demo 安全落地页返回 200"
+  else
+    fail "英文 Demo 安全落地页状态或内容不正确（状态 $status）"
+  fi
+
   status=$(fetch "$BASE_URL/demo/console" demo_entry)
   if [[ $status == 302 ]] && grep -Eiq '^location: *https?://' "$tmp_dir/demo_entry.headers"; then
     pass "/demo/console 跳转到独立演示源"
@@ -88,6 +102,12 @@ else
   fail "Demo 落地页缺失或安全边界不完整"
 fi
 
+if [[ -f $SITE_ROOT/en/index.html ]] && grep -q 'hreflang="zh-CN"' "$SITE_ROOT/en/index.html" && [[ -f $SITE_ROOT/en/demo/index.html ]] && grep -q 'Never enter real data or secrets' "$SITE_ROOT/en/demo/index.html"; then
+  pass "英文首页与 Demo 安全须知存在"
+else
+  fail "英文首页或 Demo 安全须知缺失"
+fi
+
 # 预览阶段：主页与 demo 均 noindex，robots 全 Disallow
 if grep -q '<meta name="robots" content="noindex,nofollow">' "$SITE_ROOT/index.html" && grep -q '<meta name="robots" content="noindex,nofollow">' "$demo_page" && grep -q '^Disallow: /$' "$SITE_ROOT/robots.txt"; then
   pass "预览阶段 meta 与 robots.txt 保持 noindex"
@@ -107,7 +127,7 @@ fi
 origin_fail=0
 while IFS= read -r hit; do
   case "$hit" in
-    https://agentsql.cn/*|https://github.com/*|https://raw.githubusercontent.com/*|https://beian.miit.gov.cn*|https://beian.mps.gov.cn*|http://127.0.0.1:*|mailto:*) ;;
+    https://agentsql.cn/*|https://demo.agentsql.cn/*|https://github.com/*|https://raw.githubusercontent.com/*|https://beian.miit.gov.cn*|https://beian.mps.gov.cn*|http://127.0.0.1:*|mailto:*) ;;
     *) printf '      非白名单引用: %s\n' "$hit"; origin_fail=1 ;;
   esac
 done < <(grep -RhoE --include='*.html' --include='security.txt' 'https?://[^"<>()[:space:]]+|mailto:[^"<>()[:space:]]+' "$SITE_ROOT" 2>/dev/null | sort -u)
@@ -197,9 +217,9 @@ fi
 
 pdf_fail=0
 for pdf in \
-  assets/docs/agentsql-getting-started-v3.0.0.pdf \
-  assets/docs/agentsql-user-guide-v3.0.0.pdf \
-  assets/docs/agentsql-mcp-integrations-v3.0.0.pdf; do
+  assets/docs/agentsql-getting-started-v3.0.1.pdf \
+  assets/docs/agentsql-user-guide-v3.0.1.pdf \
+  assets/docs/agentsql-mcp-integrations-v3.0.1.pdf; do
   pdf_path="$SITE_ROOT/$pdf"
   if [[ ! -f $pdf_path ]]; then
     printf '      缺失 PDF: %s\n' "$pdf"

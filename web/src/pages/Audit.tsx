@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { ArrowLeftOutlined, DownloadOutlined, FileExcelOutlined, FilePdfOutlined, FileZipOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Pagination, Space, Tooltip, Typography, message } from "antd";
 import axios from "axios";
@@ -223,7 +224,7 @@ export function Audit() {
   const toolbar = (
     <div className="audit-toolbar">
       <Space size={12}>
-        <Typography.Text>共 <strong className="mono-text">{safeTotal(total).toLocaleString("zh-CN")}</strong> 条</Typography.Text>
+        <Typography.Text>共 <strong className="mono-text">{safeTotal(total).toLocaleString(currentLocale())}</strong> 条</Typography.Text>
         <Tooltip title="按当前筛选刷新">
           <Button icon={<ReloadOutlined />} loading={loading} onClick={refresh}>刷新</Button>
         </Tooltip>
@@ -299,7 +300,7 @@ export function Audit() {
           pageSizeOptions={[20, 50, 100]}
           showSizeChanger
           showQuickJumper
-          showTotal={(value) => `共 ${safeTotal(value).toLocaleString("zh-CN")} 条`}
+          showTotal={(value) => `共 ${safeTotal(value).toLocaleString(currentLocale())} 条`}
           onChange={changePage}
         />
       </div>

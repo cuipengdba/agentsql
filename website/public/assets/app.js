@@ -8,7 +8,9 @@
     toggle.setAttribute('aria-expanded', String(open));
     nav.classList.toggle('is-open', open);
     var label = toggle.querySelector('.sr-only');
-    if (label) label.textContent = open ? '关闭导航' : '打开导航';
+    if (label) label.textContent = document.documentElement.lang === 'en'
+      ? (open ? 'Close navigation' : 'Open navigation')
+      : (open ? '关闭导航' : '打开导航');
     if (!open && returnFocus) toggle.focus();
   }
   if (toggle && nav) {
