@@ -1,5 +1,7 @@
 # Web UI gap inventory (2026-10-05)
 
+**语言 / Language:** [简体中文](WEBUI_GAP.md) | [English](en/WEBUI_GAP.md)
+
 Scope: `internal/adminapi` routes, `web/src/api`, `web/src/pages`, and the embedded `internal/webui/dist` snapshot. The workspace is on `feature/v0.4`, while `web/package.json` and `internal/version` report v0.5.0. The committed `dist` is a separate build artifact and was not regenerated in this change.
 
 | Priority | Capability | API evidence | UI evidence | Status / next step |

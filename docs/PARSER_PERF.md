@@ -1,5 +1,7 @@
 # PostgreSQL parser 性能复核（2026-10-05）
 
+**语言 / Language:** [简体中文](PARSER_PERF.md) | [English](en/PARSER_PERF.md)
+
 ## 口径与复现
 
 发布闸门仍是 `TestParseProjectionLineageP99Budget/postgres`：8 个 `UNION ALL` 分支、每分支 8 列，单轮 2,000 次完整 `Parser.Parse`，最近秩 P99 必须 **≤ 5 ms**，连续 5 轮全过。它测量完整解析与血缘，不是数据库执行延迟。标准 Go benchmark 的 `ns/op` 是均值，不能代替 P99。测试源码中的门槛和样本数没有修改。

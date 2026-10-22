@@ -98,6 +98,29 @@ func TestHandlersListSchemaFiltersColumnsAndRejectsIdentifiers(t *testing.T) {
 	require.Equal(t, "deny", response.Decision)
 }
 
+func TestListSchemaTypesOnlyForAuthorizedColumns(t *testing.T) {
+	fixture := newMCPFixture(t, "dml")
+	allowed := "id"
+	_, err := fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+		ID: "typed-schema-columns", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "column", ObjectName: "public.customers", Columns: &allowed, Action: "allow",
+	})
+	require.NoError(t, err)
+	fixture.handlers.schemaFor = func(context.Context, model.Datasource, []executor.TableRef) ([]executor.SchemaColumn, error) {
+		return []executor.SchemaColumn{
+			{Schema: "public", Table: "customers", Column: "id", DataType: "bigint"},
+			{Schema: "public", Table: "customers", Column: "secret", DataType: "private_enum"},
+		}, nil
+	}
+	response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "public.customers")
+	require.Equal(t, "allow", response.Decision)
+	columns := response.Data.([]publicSchemaColumn)
+	require.Equal(t, []publicSchemaColumn{{Schema: "public", Table: "customers", Column: "id", DataType: "bigint"}}, columns)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "private_enum")
+}
+
 func TestHandlersToolStatementGates(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	before := fixture.provider.calls()

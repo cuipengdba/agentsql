@@ -1,5 +1,7 @@
 # AgentSQL 安全政策
 
+**语言 / Language:** [简体中文](SECURITY.md) | [English](SECURITY.en.md)
+
 ## 支持版本
 
 AgentSQL 仅为下表列出的维护系列评估和提供安全修复；是否为某个问题提供补丁，还会结合影响范围、修复风险和发布状态判断。

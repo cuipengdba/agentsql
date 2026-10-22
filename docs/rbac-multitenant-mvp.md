@@ -1,5 +1,7 @@
 # RBAC / 多租户 / SSO MVP 设计（v0.5）
 
+**语言 / Language:** [简体中文](rbac-multitenant-mvp.md) | [English](en/rbac-multitenant-mvp.md)
+
 ## 1. 现状调研
 
 ### 1.1 认证与用户现状

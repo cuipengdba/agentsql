@@ -1,5 +1,7 @@
 # Vastbase G100 v0.6.0 适配边界
 
+**语言 / Language:** [简体中文](vastbase-g100-v060.md) | [English](en/vastbase-g100-v060.md)
+
 状态：已在真实 **Vastbase G100 V3.0 Build 9、PG 兼容模式、x86_64** 实例完成受限只读路径的开发验收；尚未达到完整生产支持或厂商认证。数据库类型独立使用 `vastbase`。下列结论仅适用于已测版本、模式和受限 SQL 子集。
 
 ## 当前实现

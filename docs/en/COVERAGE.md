@@ -1,59 +1,196 @@
-# English Documentation Coverage Inventory
+# Full English documentation inventory
 
-This inventory records the Markdown documentation present under `docs/` after the v0.5 English-documentation pass. Image files under `docs/images/` are assets for the Chinese Live Demo guide, not standalone documents.
+Every entry below has a full English counterpart. Executable examples and historical version facts are retained. Translation parity is checked against source hashes, headings, table rows and code blocks.
 
-Status meanings:
-
-- **Full**: a dedicated English counterpart exists.
-- **Core**: the release-critical facts are covered in a broader English guide, but the source is not translated line by line.
-- **English source**: the document is already written in English.
-- **Gap**: no English counterpart exists yet.
-
-| Document and title | Purpose | English coverage |
-| --- | --- | --- |
-| `docs/AUDIT_REPORTING.md`<br>审计查询与合规报表（v0.5 规划/新增） | v0.5 audit query/report CLI contract | Core: [Administration](ADMIN.md) |
-| `docs/b2-s8-release-gate.md`<br>B2 S8 release reliability gate | B2 release reliability gates and fallback drill | English source |
-| `docs/B5_S10_RELIABILITY.md`<br>B5 S10 executable reliability evidence | B5 fault matrix and soak evidence | English source |
-| `docs/DEMO.md`<br>AgentSQL 本地 Live Demo | Local synthetic Live Demo, scenarios, reset, and exposure checklist | Gap; quick-start coverage only in [Quick Start](QUICKSTART.md) and [Getting Started](GETTING_STARTED.md) |
-| `docs/DEPLOY.md`<br>AgentSQL 部署指南 | Compose, binary, systemd, PostgreSQL control plane, upgrade, rollback, and backup | Core installation/operations coverage; full translation remains a gap |
-| `docs/DISCOVERY.md`<br>AgentSQL 敏感列发现指南 | Sensitive-column discovery, sampling, drafts, and limitations | Gap |
-| `docs/ecosystem-db-compat-research.md`<br>国产数据库适配预研 | Chinese-database compatibility research and test records | Core status matrix in [root English README](../../README.en.md); research detail remains a gap |
-| `docs/ecosystem-partnership-outline.md`<br>国产数据库联合案例大纲 | Joint vendor case-study and partnership outline | Gap |
-| `docs/GETTING_STARTED.md`<br>AgentSQL 快速上手 | Installation, own-database flow, first query, and acceptance | Full: [Getting Started](GETTING_STARTED.md); concise path: [Quick Start](QUICKSTART.md) |
-| `docs/INTEGRATIONS.md`<br>AgentSQL MCP 接入指南 | MCP transports, tools, clients, session handling, and troubleshooting | Full: [MCP Integration](INTEGRATIONS.md) |
-| `docs/mcp-session-fix.md`<br>MCP Streamable HTTP 会话修复设计 | Streamable HTTP session model, errors, and compatibility | Core: [MCP Integration](INTEGRATIONS.md) |
-| `docs/NOTIFICATIONS.md`<br>AgentSQL 通知外发指南 | Webhook/Syslog configuration, security, and delivery behavior | Gap |
-| `docs/perf/README.md`<br>T25 网关开销基线 | Performance evidence index and reproduction entry points | Gap |
-| `docs/perf/b2-column-auth-s5-20260925.md`<br>AgentSQL v0.4 B2 S5 列级 SELECT 负载观测 | B2 column-authorization load observations | Gap |
-| `docs/perf/chain-load-s5c-20260924.md`<br>AgentSQL v0.4 B6 S5c 正式容量基线 | Audit-chain capacity baseline | Gap |
-| `docs/perf/t25_bench_result.md`<br>T25 网关只读路径开销基线（实测存档） | Gateway read-path benchmark archive | Gap |
-| `docs/rbac-multitenant-mvp.md`<br>RBAC / 多租户 / SSO MVP 设计（v0.5） | v0.5 RBAC, tenant isolation, API, and OIDC boundary | Core: [Administration](ADMIN.md) |
-| `docs/release-notes-v0.2.0.md`<br>AgentSQL v0.2.0 | v0.2.0 release notes and checksums | Gap; historical, not part of the current core path |
-| `docs/SPEC.md`<br>AgentSQL 架构与工程规格 | Architecture, contracts, rule model, compatibility, and quality gates | Core: [root English README](../../README.en.md) and [Security](SECURITY.md); full engineering translation remains a gap |
-| `docs/USER_GUIDE.md`<br>AgentSQL 使用手册 | Full console, policy, rules, masking, configuration, and operations guide | Core: [Administration](ADMIN.md) and [Security](SECURITY.md); full page-by-page translation remains a gap |
-| `docs/v0.5-known-issues-task7.md`<br>v0.5 已知问题修复（任务 #7） | v0.5 task-specific fixes and verification notes | Gap; engineering history |
-| `docs/en/README.md`<br>AgentSQL | Earlier long-form English README translation and navigation | English source |
-| `docs/en/GETTING_STARTED.md`<br>Getting Started with AgentSQL | Detailed English getting-started guide | English source |
-| `docs/en/INTEGRATIONS.md`<br>AgentSQL MCP Integration Guide | Detailed English MCP guide | English source |
-| `docs/en/QUICKSTART.md`<br>AgentSQL Five-Minute Quick Start | Concise five-minute English path | English source |
-| `docs/en/ADMIN.md`<br>AgentSQL Administration Guide | English administration, v0.5 RBAC, audit, and operations | English source |
-| `docs/en/SECURITY.md`<br>AgentSQL Security Model | English threat model, rules, masking, audit, and reporting | English source |
-| `docs/en/COVERAGE.md`<br>English Documentation Coverage Inventory | This source-to-English inventory and gap analysis | English source |
-
-## Core Gap Decision
-
-The release-critical user journey is covered in English:
-
-```text
-install/start -> configure a data source -> authorize and query -> inspect audit
-              -> connect through MCP -> operate within documented security boundaries
-```
-
-The remaining gaps are specialized references: full deployment internals, discovery, notifications, the complete console/configuration manual, detailed engineering specifications, performance evidence, and historical notes. They were intentionally not expanded during this core-only pass.
-
-## Known Source Discrepancies
-
-- The v0.5.0 source is licensed under Apache-2.0 (see `LICENSE` and `NOTICE`), with a separate commercial license (`COMMERCIAL-LICENSE.md`). Existing v0.4.0 and earlier artifacts retain their original license; historical v0.2.0 release notes retain the AGPLv3 wording that applied at that time.
-- The v0.5.0 installation assets are published; `server.json` and the repository release-preparation material identify v0.5.0. The audit CLI itself still says “planned for v0.5,” which is tracked as wording debt rather than evidence of a published release.
-- The security support matrix is now authoritative and synchronized: v0.5.x is the current supported line, v0.4.x is supported through 2027-04-30, and 0.3.x and earlier are EOL.
-- RBAC user/role/tenant APIs exist, but the current frontend source has no dedicated pages for them. The English administration guide documents them as APIs, not console screens.
+| Source | English |
+| --- | --- |
+| [README.md](../../README.md) | [English](../../README.en.md) |
+| [CHANGELOG.md](../../CHANGELOG.md) | [English](../../CHANGELOG.en.md) |
+| [ROADMAP.md](../../ROADMAP.md) | [English](../../ROADMAP.en.md) |
+| [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) | [English](../../CODE_OF_CONDUCT.en.md) |
+| [COMMERCIAL-LICENSE.md](../../COMMERCIAL-LICENSE.md) | [English](../../COMMERCIAL-LICENSE.en.md) |
+| [CONTRIBUTING.md](../../CONTRIBUTING.md) | [English](../../CONTRIBUTING.en.md) |
+| [SECURITY.md](../../SECURITY.md) | [English](../../SECURITY.en.md) |
+| [docs/assets/acceptance-v0.7.0/dify-gui-query-evidence.md](../assets/acceptance-v0.7.0/dify-gui-query-evidence.md) | [English](assets/acceptance-v0.7.0/dify-gui-query-evidence.md) |
+| [docs/assets/acceptance-v0.7.0/inspector-gui-query-evidence.md](../assets/acceptance-v0.7.0/inspector-gui-query-evidence.md) | [English](assets/acceptance-v0.7.0/inspector-gui-query-evidence.md) |
+| [docs/AUDIT_REPORTING.md](../AUDIT_REPORTING.md) | [English](AUDIT_REPORTING.md) |
+| [docs/AUTHENTICATION-REFERENCE.md](../AUTHENTICATION-REFERENCE.md) | [English](AUTHENTICATION-REFERENCE.md) |
+| [docs/AUTHENTICATION.md](../AUTHENTICATION.md) | [English](AUTHENTICATION.md) |
+| [docs/b2-s8-release-gate.md](../b2-s8-release-gate.md) | [English](b2-s8-release-gate.md) |
+| [docs/B5_S10_RELIABILITY.md](../B5_S10_RELIABILITY.md) | [English](B5_S10_RELIABILITY.md) |
+| [docs/BRAND.md](../BRAND.md) | [English](BRAND.md) |
+| [docs/DEMO.md](../DEMO.md) | [English](DEMO.md) |
+| [docs/DEPLOY.md](../DEPLOY.md) | [English](DEPLOY.md) |
+| [docs/DISCOVERY.md](../DISCOVERY.md) | [English](DISCOVERY.md) |
+| [docs/dm-oracle-dialect.md](../dm-oracle-dialect.md) | [English](dm-oracle-dialect.md) |
+| [docs/dm8-verification.md](../dm8-verification.md) | [English](dm8-verification.md) |
+| [docs/ecosystem-db-compat-research.md](../ecosystem-db-compat-research.md) | [English](ecosystem-db-compat-research.md) |
+| [docs/ecosystem-partnership-outline.md](../ecosystem-partnership-outline.md) | [English](ecosystem-partnership-outline.md) |
+| [docs/GETTING_STARTED.md](../GETTING_STARTED.md) | [English](GETTING_STARTED.md) |
+| [docs/highgo-verification.md](../highgo-verification.md) | [English](highgo-verification.md) |
+| [docs/i18n-ui.md](../i18n-ui.md) | [English](i18n-ui.md) |
+| [docs/INTEGRATIONS.md](../INTEGRATIONS.md) | [English](INTEGRATIONS.md) |
+| [docs/joint-case-kingbase-highgo.md](../joint-case-kingbase-highgo.md) | [English](joint-case-kingbase-highgo.md) |
+| [docs/joint-case-operations.md](../joint-case-operations.md) | [English](joint-case-operations.md) |
+| [docs/kingbase-v9-verification.md](../kingbase-v9-verification.md) | [English](kingbase-v9-verification.md) |
+| [docs/known-issues-fixes.md](../known-issues-fixes.md) | [English](known-issues-fixes.md) |
+| [docs/mcp-session-fix.md](../mcp-session-fix.md) | [English](mcp-session-fix.md) |
+| [docs/nosql-support.md](../nosql-support.md) | [English](nosql-support.md) |
+| [docs/NOTIFICATIONS.md](../NOTIFICATIONS.md) | [English](NOTIFICATIONS.md) |
+| [docs/opentenbase-dual-kernel.md](../opentenbase-dual-kernel.md) | [English](opentenbase-dual-kernel.md) |
+| [docs/OPERATIONS.md](../OPERATIONS.md) | [English](OPERATIONS.md) |
+| [docs/PARSER_PERF.md](../PARSER_PERF.md) | [English](PARSER_PERF.md) |
+| [docs/perf/b2-column-auth-s5-20260925.md](../perf/b2-column-auth-s5-20260925.md) | [English](perf/b2-column-auth-s5-20260925.md) |
+| [docs/perf/chain-load-s5c-20260924.md](../perf/chain-load-s5c-20260924.md) | [English](perf/chain-load-s5c-20260924.md) |
+| [docs/perf/README.md](../perf/README.md) | [English](perf/README.md) |
+| [docs/perf/t25_bench_result.md](../perf/t25_bench_result.md) | [English](perf/t25_bench_result.md) |
+| [docs/postrelease-hardening-post2-report.md](../postrelease-hardening-post2-report.md) | [English](postrelease-hardening-post2-report.md) |
+| [docs/postrelease-post3-report.md](../postrelease-post3-report.md) | [English](postrelease-post3-report.md) |
+| [docs/postrelease-post4-report.md](../postrelease-post4-report.md) | [English](postrelease-post4-report.md) |
+| [docs/postrelease-post4b-report.md](../postrelease-post4b-report.md) | [English](postrelease-post4b-report.md) |
+| [docs/rbac-multitenant-mvp.md](../rbac-multitenant-mvp.md) | [English](rbac-multitenant-mvp.md) |
+| [docs/README.md](../README.md) | [English](README.md) |
+| [docs/release-assets-history.md](../release-assets-history.md) | [English](release-assets-history.md) |
+| [docs/release-b81-report.md](../release-b81-report.md) | [English](release-b81-report.md) |
+| [docs/release-b82-report.md](../release-b82-report.md) | [English](release-b82-report.md) |
+| [docs/release-b82b-report.md](../release-b82b-report.md) | [English](release-b82b-report.md) |
+| [docs/release-b82c-report.md](../release-b82c-report.md) | [English](release-b82c-report.md) |
+| [docs/release-b83a-report.md](../release-b83a-report.md) | [English](release-b83a-report.md) |
+| [docs/release-b83b-report.md](../release-b83b-report.md) | [English](release-b83b-report.md) |
+| [docs/release-day-checklist-v0.5.md](../release-day-checklist-v0.5.md) | [English](release-day-checklist-v0.5.md) |
+| [docs/release-gate-b75-report.md](../release-gate-b75-report.md) | [English](release-gate-b75-report.md) |
+| [docs/release-gate-b76-report.md](../release-gate-b76-report.md) | [English](release-gate-b76-report.md) |
+| [docs/release-gate-b77-report.md](../release-gate-b77-report.md) | [English](release-gate-b77-report.md) |
+| [docs/release-notes-v0.2.0.md](../release-notes-v0.2.0.md) | [English](release-notes-v0.2.0.md) |
+| [docs/release-notes-v0.5.1.md](../release-notes-v0.5.1.md) | [English](release-notes-v0.5.1.md) |
+| [docs/release-notes-v0.5.md](../release-notes-v0.5.md) | [English](release-notes-v0.5.md) |
+| [docs/release-notes-v0.6.0.md](../release-notes-v0.6.0.md) | [English](release-notes-v0.6.0.md) |
+| [docs/release-notes-v0.6.1.md](../release-notes-v0.6.1.md) | [English](release-notes-v0.6.1.md) |
+| [docs/release-notes-v0.7.0.md](../release-notes-v0.7.0.md) | [English](release-notes-v0.7.0.md) |
+| [docs/release-notes-v0.8.0.md](../release-notes-v0.8.0.md) | [English](release-notes-v0.8.0.md) |
+| [docs/release-notes-v0.9.0.md](../release-notes-v0.9.0.md) | [English](release-notes-v0.9.0.md) |
+| [docs/release-notes-v1.0.0.md](../release-notes-v1.0.0.md) | [English](release-notes-v1.0.0.md) |
+| [docs/release-notes-v1.1.0.md](../release-notes-v1.1.0.md) | [English](release-notes-v1.1.0.md) |
+| [docs/release-notes-v1.2.0.md](../release-notes-v1.2.0.md) | [English](release-notes-v1.2.0.md) |
+| [docs/release-notes-v1.3.0.md](../release-notes-v1.3.0.md) | [English](release-notes-v1.3.0.md) |
+| [docs/release-notes-v1.4.0.md](../release-notes-v1.4.0.md) | [English](release-notes-v1.4.0.md) |
+| [docs/release-notes-v1.5.0.md](../release-notes-v1.5.0.md) | [English](release-notes-v1.5.0.md) |
+| [docs/release-notes-v1.6.0.md](../release-notes-v1.6.0.md) | [English](release-notes-v1.6.0.md) |
+| [docs/release-notes-v1.7.0.md](../release-notes-v1.7.0.md) | [English](release-notes-v1.7.0.md) |
+| [docs/release-notes-v1.8.0.md](../release-notes-v1.8.0.md) | [English](release-notes-v1.8.0.md) |
+| [docs/release-notes-v1.9.0.md](../release-notes-v1.9.0.md) | [English](release-notes-v1.9.0.md) |
+| [docs/release-notes-v2.0.0.md](../release-notes-v2.0.0.md) | [English](release-notes-v2.0.0.md) |
+| [docs/release-notes-v2.1.0.md](../release-notes-v2.1.0.md) | [English](release-notes-v2.1.0.md) |
+| [docs/release-notes-v2.2.0.md](../release-notes-v2.2.0.md) | [English](release-notes-v2.2.0.md) |
+| [docs/release-notes-v2.3.0.md](../release-notes-v2.3.0.md) | [English](release-notes-v2.3.0.md) |
+| [docs/release-notes-v2.4.0.md](../release-notes-v2.4.0.md) | [English](release-notes-v2.4.0.md) |
+| [docs/release-notes-v2.5.0.md](../release-notes-v2.5.0.md) | [English](release-notes-v2.5.0.md) |
+| [docs/release-notes-v2.6.0.md](../release-notes-v2.6.0.md) | [English](release-notes-v2.6.0.md) |
+| [docs/release-notes-v2.7.0.md](../release-notes-v2.7.0.md) | [English](release-notes-v2.7.0.md) |
+| [docs/release-notes-v2.8.0.md](../release-notes-v2.8.0.md) | [English](release-notes-v2.8.0.md) |
+| [docs/release-notes-v2.9.0.md](../release-notes-v2.9.0.md) | [English](release-notes-v2.9.0.md) |
+| [docs/release-notes-v3.0.0.md](../release-notes-v3.0.0.md) | [English](release-notes-v3.0.0.md) |
+| [docs/release-notes-v3.0.1.md](../release-notes-v3.0.1.md) | [English](release-notes-v3.0.1.md) |
+| [docs/release-notes-v3.0.2.md](../release-notes-v3.0.2.md) | [English](release-notes-v3.0.2.md) |
+| [docs/release-prepare-b78-report.md](../release-prepare-b78-report.md) | [English](release-prepare-b78-report.md) |
+| [docs/release-prepare-b79-report.md](../release-prepare-b79-report.md) | [English](release-prepare-b79-report.md) |
+| [docs/release-prepare-b80-report.md](../release-prepare-b80-report.md) | [English](release-prepare-b80-report.md) |
+| [docs/release-prepare-b80b-report.md](../release-prepare-b80b-report.md) | [English](release-prepare-b80b-report.md) |
+| [docs/release-process-history.md](../release-process-history.md) | [English](release-process-history.md) |
+| [docs/RELEASE_ASSETS.md](../RELEASE_ASSETS.md) | [English](RELEASE_ASSETS.md) |
+| [docs/RELEASE_PROCESS.md](../RELEASE_PROCESS.md) | [English](RELEASE_PROCESS.md) |
+| [docs/RELEASE_ROUTINE.md](../RELEASE_ROUTINE.md) | [English](RELEASE_ROUTINE.md) |
+| [docs/runner-b80r-report.md](../runner-b80r-report.md) | [English](runner-b80r-report.md) |
+| [docs/security-scan-v0.5.md](../security-scan-v0.5.md) | [English](security-scan-v0.5.md) |
+| [docs/SPEC.md](../SPEC.md) | [English](SPEC.md) |
+| [docs/SQLBOT.md](../SQLBOT.md) | [English](SQLBOT.md) |
+| [docs/task-read-grants.md](../task-read-grants.md) | [English](task-read-grants.md) |
+| [docs/test-coverage-notes.md](../test-coverage-notes.md) | [English](test-coverage-notes.md) |
+| [docs/USER_GUIDE.md](../USER_GUIDE.md) | [English](USER_GUIDE.md) |
+| [docs/v0.5-known-issues-task7.md](../v0.5-known-issues-task7.md) | [English](v0.5-known-issues-task7.md) |
+| [docs/v0.6.0-approval-contract.md](../v0.6.0-approval-contract.md) | [English](v0.6.0-approval-contract.md) |
+| [docs/v0.6.0-development-plan.md](../v0.6.0-development-plan.md) | [English](v0.6.0-development-plan.md) |
+| [docs/v0.7-acceptance.md](../v0.7-acceptance.md) | [English](v0.7-acceptance.md) |
+| [docs/v0.7-operations-runbook.md](../v0.7-operations-runbook.md) | [English](v0.7-operations-runbook.md) |
+| [docs/v0.8-acceptance.md](../v0.8-acceptance.md) | [English](v0.8-acceptance.md) |
+| [docs/v0.9-acceptance.md](../v0.9-acceptance.md) | [English](v0.9-acceptance.md) |
+| [docs/v1.0-acceptance.md](../v1.0-acceptance.md) | [English](v1.0-acceptance.md) |
+| [docs/v1.0-design.md](../v1.0-design.md) | [English](v1.0-design.md) |
+| [docs/v1.1.0-acceptance.md](../v1.1.0-acceptance.md) | [English](v1.1.0-acceptance.md) |
+| [docs/v1.1.0-design.md](../v1.1.0-design.md) | [English](v1.1.0-design.md) |
+| [docs/v1.2.0-acceptance.md](../v1.2.0-acceptance.md) | [English](v1.2.0-acceptance.md) |
+| [docs/v1.2.0-design.md](../v1.2.0-design.md) | [English](v1.2.0-design.md) |
+| [docs/v1.3.0-acceptance.md](../v1.3.0-acceptance.md) | [English](v1.3.0-acceptance.md) |
+| [docs/v1.3.0-design.md](../v1.3.0-design.md) | [English](v1.3.0-design.md) |
+| [docs/v1.4.0-acceptance.md](../v1.4.0-acceptance.md) | [English](v1.4.0-acceptance.md) |
+| [docs/v1.4.0-design.md](../v1.4.0-design.md) | [English](v1.4.0-design.md) |
+| [docs/v1.5.0-acceptance.md](../v1.5.0-acceptance.md) | [English](v1.5.0-acceptance.md) |
+| [docs/v1.5.0-design.md](../v1.5.0-design.md) | [English](v1.5.0-design.md) |
+| [docs/v1.6.0-acceptance.md](../v1.6.0-acceptance.md) | [English](v1.6.0-acceptance.md) |
+| [docs/v1.6.0-design.md](../v1.6.0-design.md) | [English](v1.6.0-design.md) |
+| [docs/v1.7.0-acceptance.md](../v1.7.0-acceptance.md) | [English](v1.7.0-acceptance.md) |
+| [docs/v1.7.0-design.md](../v1.7.0-design.md) | [English](v1.7.0-design.md) |
+| [docs/v1.7.0-dm-kingbase-depth-acceptance.md](../v1.7.0-dm-kingbase-depth-acceptance.md) | [English](v1.7.0-dm-kingbase-depth-acceptance.md) |
+| [docs/v1.7.0-dm-kingbase-depth-design.md](../v1.7.0-dm-kingbase-depth-design.md) | [English](v1.7.0-dm-kingbase-depth-design.md) |
+| [docs/v1.7.0-release-evidence.md](../v1.7.0-release-evidence.md) | [English](v1.7.0-release-evidence.md) |
+| [docs/v1.8.0-acceptance.md](../v1.8.0-acceptance.md) | [English](v1.8.0-acceptance.md) |
+| [docs/v1.8.0-release-evidence.md](../v1.8.0-release-evidence.md) | [English](v1.8.0-release-evidence.md) |
+| [docs/v1.8.0-vastbase-design.md](../v1.8.0-vastbase-design.md) | [English](v1.8.0-vastbase-design.md) |
+| [docs/v1.9.0-acceptance.md](../v1.9.0-acceptance.md) | [English](v1.9.0-acceptance.md) |
+| [docs/v1.9.0-onboarding-design.md](../v1.9.0-onboarding-design.md) | [English](v1.9.0-onboarding-design.md) |
+| [docs/v1.9.0-release-evidence.md](../v1.9.0-release-evidence.md) | [English](v1.9.0-release-evidence.md) |
+| [docs/v2.0.0-acceptance.md](../v2.0.0-acceptance.md) | [English](v2.0.0-acceptance.md) |
+| [docs/v2.0.0-design.md](../v2.0.0-design.md) | [English](v2.0.0-design.md) |
+| [docs/v2.0.0-release-evidence.md](../v2.0.0-release-evidence.md) | [English](v2.0.0-release-evidence.md) |
+| [docs/v2.1.0-acceptance.md](../v2.1.0-acceptance.md) | [English](v2.1.0-acceptance.md) |
+| [docs/v2.1.0-design.md](../v2.1.0-design.md) | [English](v2.1.0-design.md) |
+| [docs/v2.1.0-release-evidence.md](../v2.1.0-release-evidence.md) | [English](v2.1.0-release-evidence.md) |
+| [docs/v2.2.0-acceptance.md](../v2.2.0-acceptance.md) | [English](v2.2.0-acceptance.md) |
+| [docs/v2.2.0-design.md](../v2.2.0-design.md) | [English](v2.2.0-design.md) |
+| [docs/v2.2.0-release-evidence.md](../v2.2.0-release-evidence.md) | [English](v2.2.0-release-evidence.md) |
+| [docs/v2.3.0-acceptance.md](../v2.3.0-acceptance.md) | [English](v2.3.0-acceptance.md) |
+| [docs/v2.3.0-design.md](../v2.3.0-design.md) | [English](v2.3.0-design.md) |
+| [docs/v2.3.0-release-evidence.md](../v2.3.0-release-evidence.md) | [English](v2.3.0-release-evidence.md) |
+| [docs/v2.4.0-acceptance.md](../v2.4.0-acceptance.md) | [English](v2.4.0-acceptance.md) |
+| [docs/v2.4.0-design.md](../v2.4.0-design.md) | [English](v2.4.0-design.md) |
+| [docs/v2.4.0-release-evidence.md](../v2.4.0-release-evidence.md) | [English](v2.4.0-release-evidence.md) |
+| [docs/v2.5.0-acceptance.md](../v2.5.0-acceptance.md) | [English](v2.5.0-acceptance.md) |
+| [docs/v2.5.0-design.md](../v2.5.0-design.md) | [English](v2.5.0-design.md) |
+| [docs/v2.5.0-release-evidence.md](../v2.5.0-release-evidence.md) | [English](v2.5.0-release-evidence.md) |
+| [docs/v2.6.0-acceptance.md](../v2.6.0-acceptance.md) | [English](v2.6.0-acceptance.md) |
+| [docs/v2.6.0-design.md](../v2.6.0-design.md) | [English](v2.6.0-design.md) |
+| [docs/v2.6.0-release-evidence.md](../v2.6.0-release-evidence.md) | [English](v2.6.0-release-evidence.md) |
+| [docs/v2.7.0-acceptance.md](../v2.7.0-acceptance.md) | [English](v2.7.0-acceptance.md) |
+| [docs/v2.7.0-design.md](../v2.7.0-design.md) | [English](v2.7.0-design.md) |
+| [docs/v2.7.0-release-evidence.md](../v2.7.0-release-evidence.md) | [English](v2.7.0-release-evidence.md) |
+| [docs/v2.8.0-acceptance.md](../v2.8.0-acceptance.md) | [English](v2.8.0-acceptance.md) |
+| [docs/v2.8.0-design.md](../v2.8.0-design.md) | [English](v2.8.0-design.md) |
+| [docs/v2.8.0-release-evidence.md](../v2.8.0-release-evidence.md) | [English](v2.8.0-release-evidence.md) |
+| [docs/v2.9.0-acceptance.md](../v2.9.0-acceptance.md) | [English](v2.9.0-acceptance.md) |
+| [docs/v2.9.0-design.md](../v2.9.0-design.md) | [English](v2.9.0-design.md) |
+| [docs/v2.9.0-release-evidence.md](../v2.9.0-release-evidence.md) | [English](v2.9.0-release-evidence.md) |
+| [docs/v2.9.0-upgrade.md](../v2.9.0-upgrade.md) | [English](v2.9.0-upgrade.md) |
+| [docs/v3.0.0-acceptance.md](../v3.0.0-acceptance.md) | [English](v3.0.0-acceptance.md) |
+| [docs/v3.0.0-design.md](../v3.0.0-design.md) | [English](v3.0.0-design.md) |
+| [docs/v3.0.0-release-evidence.md](../v3.0.0-release-evidence.md) | [English](v3.0.0-release-evidence.md) |
+| [docs/v3.0.0-upgrade.md](../v3.0.0-upgrade.md) | [English](v3.0.0-upgrade.md) |
+| [docs/v3.0.1-acceptance.md](../v3.0.1-acceptance.md) | [English](v3.0.1-acceptance.md) |
+| [docs/v3.0.1-design.md](../v3.0.1-design.md) | [English](v3.0.1-design.md) |
+| [docs/v3.0.1-release-evidence.md](../v3.0.1-release-evidence.md) | [English](v3.0.1-release-evidence.md) |
+| [docs/v3.0.2-acceptance.md](../v3.0.2-acceptance.md) | [English](v3.0.2-acceptance.md) |
+| [docs/v3.0.2-design.md](../v3.0.2-design.md) | [English](v3.0.2-design.md) |
+| [docs/v3.0.2-release-evidence.md](../v3.0.2-release-evidence.md) | [English](v3.0.2-release-evidence.md) |
+| [docs/vastbase-g100-v060.md](../vastbase-g100-v060.md) | [English](vastbase-g100-v060.md) |
+| [docs/WEBUI_GAP.md](../WEBUI_GAP.md) | [English](WEBUI_GAP.md) |
+| [docs/yashan-dialect.md](../yashan-dialect.md) | [English](yashan-dialect.md) |
+| [docs/yashan-verification-b71.md](../yashan-verification-b71.md) | [English](yashan-verification-b71.md) |
+| [website/README.md](../../website/README.md) | [English](../../website/README.en.md) |
+| [website/deploy/README-DEPLOY.md](../../website/deploy/README-DEPLOY.md) | [English](../../website/deploy/README-DEPLOY.en.md) |
+| [deploy/kubernetes/README.md](../../deploy/kubernetes/README.md) | [English](../../deploy/kubernetes/README.en.md) |
+| [deploy/ecs-demo/README.md](../../deploy/ecs-demo/README.md) | [English](../../deploy/ecs-demo/README.en.md) |
+| [dbext/packaging/README.md](../../dbext/packaging/README.md) | [English](../../dbext/packaging/README.en.md) |
+| [examples/observability/README.md](../../examples/observability/README.md) | [English](../../examples/observability/README.en.md) |
+| [internal/b5wal/CONTRACT.md](../../internal/b5wal/CONTRACT.md) | [English](../../internal/b5wal/CONTRACT.en.md) |
+| [internal/b5dml/CONTRACT.md](../../internal/b5dml/CONTRACT.md) | [English](../../internal/b5dml/CONTRACT.en.md) |
+| [internal/authorizedexecute/internal/businessdb/dm_oracle_deep.md](../../internal/authorizedexecute/internal/businessdb/dm_oracle_deep.md) | [English](../../internal/authorizedexecute/internal/businessdb/dm_oracle_deep.en.md) |
+| [internal/store/testdata/s5c-release-notes-snippet.md](../../internal/store/testdata/s5c-release-notes-snippet.md) | [English](../../internal/store/testdata/s5c-release-notes-snippet.en.md) |

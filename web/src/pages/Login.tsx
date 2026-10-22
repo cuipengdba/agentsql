@@ -1,4 +1,4 @@
-import { LockOutlined, SafetyCertificateFilled, SafetyOutlined, UserOutlined } from "@ant-design/icons";
+import { LockOutlined, SafetyOutlined, UserOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Divider, Form, Input, Segmented, Space, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { authConfig, ldapLogin, login, me, verifyMFA } from "@/api/auth";
 import type { HumanAuthConfig, LoginInput, LoginView } from "@/api/types";
 import { localeText, useLocaleStore } from "@/i18n/locale";
 import { useAuthStore } from "@/store/authStore";
+import brandMark from "@/assets/agentsql-mark.svg";
 
 type LoginMode = "local" | "ldap";
 
@@ -89,7 +90,7 @@ export function Login() {
       </button>
       <Card className="login-card" bordered>
         <div className="login-brand">
-          <span className="login-brand-mark" aria-hidden="true"><SafetyCertificateFilled /></span>
+          <img className="login-brand-mark" src={brandMark} alt="" aria-hidden="true" width={56} height={56} />
           <Typography.Title level={2}>{tr("AgentSQL 智盾", "AgentSQL")}</Typography.Title>
           <Typography.Paragraph>{tr("控制平面身份验证 · 最小权限 · 全程审计", "Control plane authentication · Least privilege · Complete audit trail")}</Typography.Paragraph>
         </div>

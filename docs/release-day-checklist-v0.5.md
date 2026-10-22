@@ -1,5 +1,7 @@
 # AgentSQL v0.5.0 发布日最终执行清单
 
+**语言 / Language:** [简体中文](release-day-checklist-v0.5.md) | [English](en/release-day-checklist-v0.5.md)
+
 > 闸门时间：2026-10-16 16:00 CST（北京时间，UTC+08:00）
 >
 > 历史核对批次：批三十三，2026-10-04，基线提交 `e8777079a342dd9d92c29989e0cd37e35846553e`；批三十一发布工程证据继续保留

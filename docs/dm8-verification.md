@@ -1,5 +1,7 @@
 # DM8 厂商 license 真库验证（批六十五）
 
+**语言 / Language:** [简体中文](dm8-verification.md) | [English](en/dm8-verification.md)
+
 验证时间：2026-10-08（Asia/Shanghai）。本报告只记录本机 `dm8_single:dm8_20241022_rev244896_x86_rh6_64` 的本次结果。完整一次通过的终端 transcript 位于 `C:\Users\Administrator\AppData\Local\Temp\agentsql-dm8-b65-verify.log`；脚本每次重跑覆盖该日志。日志不含数据库密码、API key 或 license 内容。
 
 ## 复现与环境

@@ -26,3 +26,6 @@ demo/reset.sh
 # The embedded console is a required Go build input.
 !internal/webui/dist/
 !internal/webui/dist/**
+# Python integration bytecode is never a source artifact.
+**/__pycache__
+**/*.pyc

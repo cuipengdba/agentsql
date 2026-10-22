@@ -2,7 +2,12 @@
 
 **语言 / Language:** [简体中文](README.md) | [English](README.en.md)
 
-![Version v3.0.1](https://img.shields.io/badge/Version-v3.0.1-blue)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/agentsql-wordmark-dark.svg">
+  <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
+</picture>
+
+![Version v3.0.2](https://img.shields.io/badge/Version-v3.0.2-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
@@ -39,7 +44,9 @@ v3.0.0 将 30 款已注册数据库的受控 SQL、有界 SQL、专用读取工�
 
 v3.0.1 为官网、GitHub 文档与 Web 控制台增加中英文入口和英文界面，并修复左侧导航在有效视口高度不足时底部菜单无法滚动的问题。此补丁不修改数据库协议、权限、执行或审计契约；兼容范围沿用 v3.0.0 的证据。见[发布说明](docs/release-notes-v3.0.1.md)。
 
-**验证范围：**v1.0.0–v2.8.0 的数据库及安全能力分别见各版验收记录；v2.9.0 策略评审与审计见[验收记录](docs/v2.9.0-acceptance.md)；v3.0.0 能力目录、诊断与客户端见[验收记录](docs/v3.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.1)、签名及镜像匿名拉取验收为准。
+v3.0.2 补齐 GitHub 与官网的完整英文对应内容，新增当前运维手册与文档索引，修复浅色主题下左侧导航配色，并提供 SQLBot v1.10.2 PostgreSQL 执行层适配。接入仍执行原有授权、脱敏与持久审计；只覆盖验收所列版本和场景。见[SQLBot 接入指南](docs/SQLBOT.md)与[发布说明](docs/release-notes-v3.0.2.md)。
+
+**验证范围：**v1.0.0–v2.8.0 的数据库及安全能力分别见各版验收记录；v2.9.0 策略评审与审计见[验收记录](docs/v2.9.0-acceptance.md)；v3.0.0 能力目录、诊断与客户端见[验收记录](docs/v3.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.2)、签名及镜像匿名拉取验收为准。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -55,7 +62,7 @@ AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
 - 基础数据保护：列级脱敏提供四种算法——六类 `mask` 部分遮蔽、九类均可用的带专用密钥 HMAC `hash` 指纹、无需密钥且把非空值统一替换为 `***` 的 `block` 整值阻断，以及仅用于 `number` / `date`、通过数值分桶或日期截断保留粗粒度分布且无需密钥的 `range`。数据源口令另由 32 字节 `AGENTSQL_SECRET` 加密保存。
 - 可追溯运维：默认零配置 SQLite；可选 PostgreSQL 15+ 控制面（PostgreSQL 18 为基准，metadata 与 audit 可分库）；支持审计导出（面向机器的 JSONL，以及 Excel/WPS 可直接打开、带公式注入防护的中文 CSV）、审批决策闭环、Prometheus 指标与健康/就绪探针。
 - 安全事件通知：按决策过滤并以 Webhook 或 Syslog 旁路外发；默认关闭、默认不含 SQL，通知失败不影响审计与 SQL 决策。
-- 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批、脱敏规则、用户、角色、租户管理及首次接入向导；v3.0.1 支持中英文切换和可滚动左侧导航。
+- 内嵌 Web 控制台：总览、审计、演示台、Agent、数据源、权限、规则、审批、脱敏规则、用户、角色、租户管理及首次接入向导；v3.0.2 支持中英文切换和可滚动左侧导航。
 - v0.9.0 受控查询加固：新任务 Key 默认一次结果预算（最多 10 次）、原子扣减；总览展示本租户分库管理审计投递积压；权限页提供只给出拒绝或未知的 SQL 离线预检。
 - v1.0.0 安全边界：有列策略的 SELECT 不退回表级放行；可选的 HTTP MCP 人员令牌逐请求验证并与 Agent Key、租户、任务授权绑定。
 - v1.1.0 双身份闭环：委托审批单只能由原用户和 Agent 单次执行；B5 会话与计划绑定人类用户、Agent 和租户；新签发的委托令牌可单独撤销。
@@ -114,17 +121,17 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 v0.4.0 起提供 `linux/amd64` 与 `linux/arm64` 两种原生 glibc 包：`uname -m` 为 `x86_64` / `amd64` 时使用 amd64 包，为 `aarch64` / `arm64` 时使用 arm64 包。两者均要求 glibc 2.28+ 且 systemd 为 PID 1；安装器会自动选择本机架构、校验发布包外层与包内哈希，并安装为 systemd 服务。musl / Alpine 与 CentOS 7 仍不支持：
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.0.1/install.sh | sudo sh -s -- install --version v3.0.1
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.0.2/install.sh | sudo sh -s -- install --version v3.0.2
 ```
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v3.0.1 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v3.0.2 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v3.0.1-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v3.0.1-linux-amd64.tar.gz
-cd agentsql-v3.0.1-linux-amd64
+sha256sum -c agentsql-v3.0.2-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v3.0.2-linux-amd64.tar.gz
+cd agentsql-v3.0.2-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -133,20 +140,20 @@ sudo ./install.sh install
 脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag；该 tag 是 `linux/amd64` + `linux/arm64` 多架构镜像，Docker 会自动匹配运行架构。脚本生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v3.0.1/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v3.0.1
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v3.0.2/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v3.0.2
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v3.0.1` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v3.0.2` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v3.0.1
+docker pull ghcr.io/cuipengdba/agentsql:v3.0.2
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v3.0.1
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v3.0.2
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -155,7 +162,7 @@ docker run -d --name agentsql --restart unless-stopped --security-opt no-new-pri
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v3.0.1/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v3.0.2/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -198,7 +205,7 @@ docker compose --profile observability up -d --build
 以下源码构建示例仅生成本机可执行文件。自行构建的文件没有经过正式发布资产的签名与分发验收：
 
 ```bash
-make build VERSION=v3.0.1
+make build VERSION=v3.0.2
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -362,9 +369,10 @@ v3.0.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 
 - [五分钟快速上手](docs/GETTING_STARTED.md)
 - [使用手册](docs/USER_GUIDE.md)
 - [MCP 接入指南](docs/INTEGRATIONS.md)
-- [任务级临时只读授权（v0.7.0）](docs/task-read-grants.md)
-- [v0.7.0 发布说明与验收记录](docs/release-notes-v0.7.0.md)
-- [v0.7 运维手册](docs/v0.7-operations-runbook.md)
+- [当前版本文档索引](docs/README.md)
+- [任务级临时只读授权](docs/task-read-grants.md)
+- [v3.0.2 发布说明与验收记录](docs/release-notes-v3.0.2.md)
+- [当前版本运维手册](docs/OPERATIONS.md)
 - [敏感列发现与脱敏草稿](docs/DISCOVERY.md)
 - [Webhook / Syslog 通知外发与安全配置](docs/NOTIFICATIONS.md)
 - [部署、PostgreSQL 控制面、升级、备份与 systemd](docs/DEPLOY.md)
@@ -379,20 +387,17 @@ v3.0.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 
 
 ### 加入社区（微信）
 
-| 交流群 #2 | 交流群 #3 | 公众号 | 个人微信 |
-| --- | --- | --- | --- |
-| ![PG x AgentSQL 交流群 #2](website/public/assets/community/wechat-group-2.png) | ![PG x AgentSQL 交流群 #3](website/public/assets/community/wechat-group-3.png) | ![CP 的 PostgreSQL 厨房](website/public/assets/community/wechat-official-account.png) | ![崔鹏 个人微信](website/public/assets/community/wechat-personal.png) |
-| 扫码进群 | 扫码进群 | 扫码关注 | 扫码加好友 |
-
-> **交流群 #1 已超过 200 人，无法扫码加入**：请先添加作者个人微信（崔鹏），备注「AgentSQL」，由群主拉你进群。
-> 群二维码 7 天内有效；若过期请添加个人微信或关注公众号获取最新入群方式。
+| 公众号 | 个人微信 |
+| --- | --- |
+| ![CP 的 PostgreSQL 厨房](website/public/assets/community/wechat-official-account.png) | ![崔鹏个人微信](website/public/assets/community/wechat-personal.png) |
+| 扫码关注 | 扫码添加作者，备注「AgentSQL」 |
 
 ## 构建与贡献
 
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v3.0.0
+make build VERSION=v3.0.2
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

@@ -1,5 +1,7 @@
 # AgentSQL 商业授权说明（COMMERCIAL LICENSE）
 
+**语言 / Language:** [简体中文](COMMERCIAL-LICENSE.md) | [English](COMMERCIAL-LICENSE.en.md)
+
 本项目开源版本依据 **Apache License, Version 2.0（Apache-2.0，见 [LICENSE](LICENSE)）** 授权。本文件概述商业授权的适用情形与商标政策，**不构成完整合同**；正式商业授权以双方签署的书面协议为准。
 
 ## 1. 开源版（Apache-2.0）允许

@@ -1,5 +1,7 @@
 # AgentSQL v0.4 B2 S5 列级 SELECT 负载观测
 
+**语言 / Language:** [简体中文](b2-column-auth-s5-20260925.md) | [English](../en/perf/b2-column-auth-s5-20260925.md)
+
 日期：2026-09-25
 
 本报告是 S5 的短窗口工程证据，不是 GA 或发布默认开启结论。B2 出厂默认仍为 off。

@@ -40,3 +40,7 @@ artifacts/
 .tmp/
 
 .design/
+
+# Python integration tooling
+__pycache__/
+*.py[cod]

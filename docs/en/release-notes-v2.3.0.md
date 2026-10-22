@@ -1,0 +1,15 @@
+# AgentSQL v2.3.0 Release Notes
+
+**Language:** [English](release-notes-v2.3.0.md) | [Simplified Chinese](../release-notes-v2.3.0.md)
+
+v2.3.0 Deepens the controlled read-only capabilities of SQL Server 2025 Developer. Already equipped with TDS connections, metadata and narrow SELECT executors, this version uses the specified Linux x86_64 real database to connect strict certificate verification, least privilege accounts, Agent table authorization, execution plans, masking and persistent auditing into a reviewable HTTP MCP link. The static R010 of the unprivileged table is terminated at the gateway to prevent the database permission error from being generated when the minimum privileged account executes `SHOWPLAN` on the unprivileged table.
+
+The candidate environment uses the official SQL Server 2025 Developer image, service log build `17.00.5015`, a server certificate signed by a local test CA, and random synthetic data. The read account only obtains the target table `SELECT` and the database `SHOWPLAN`, and the SQL Server server refuses to write. The allowed query of the real HTTP MCP returns masked mobile phone numbers; unauthorized table R010, SELECT/SHOWPLAN deprivation, independent audit library shutdown, and SQL Server shutdown will not deliver the original results. MCP Inspector 0.16.8 and Dify MCPClient 1.17.1 allow and deny calls respectively; incorrect CA and mismatched certificate hostnames are rejected. For specific evidence and rerun process after failure, see [ Candidate Acceptance ](v2.3.0-acceptance.md).
+
+## Security and Compatibility Boundaries
+
+- Only narrow SELECTs that are confirmed by parser, object grant, plan and executor are open; write, batch, stored procedure, dynamic source, complex T-SQL, system catalog and unconfirmed structure remain denied. SQL Server's `SHOWPLAN` is a database-level permission. In this version, the unprivileged table R010 is statically terminated first, and the SA management account is not used to replace the running account.
+- B2 column-level authorization with B5 sessions does not extend to SQL Server. The metadata/audit schema has not been changed in this version; upgrading from v2.2.0 still requires a complete set of backups, read-only checks, and isolation recovery drills for the SQLite or PostgreSQL metadata/audit sub-library. Fixed dual-gateway Kubernetes deployment still requires a maintenance window, and new and old images cannot be mixed.
+- Synthetic testing of a single Developer container is not equivalent to other SQL Server versions, Windows, Always On, production certificate lifecycle, long-term load, or customer production deployment certification; no claims are made about full production support or vendor certification. The official website Live Demo continues to use fixed synthetic PostgreSQL data and does not display real SQL Server database instances.
+
+The post-release results of the officially released CI, installation package, signature, GHCR, official website and public website Live Demo can be found in [, the official release evidence ](v2.3.0-release-evidence.md).

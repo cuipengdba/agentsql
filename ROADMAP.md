@@ -1,5 +1,7 @@
 # AgentSQL 路线图
 
+**语言 / Language:** [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
+
 > 本文区分已发布、正在开发和后续方向。开发分支上的功能、测试结果及计划日期均不是公开版本承诺；正式支持范围以对应版本的发布说明和可复核证据为准。
 
 ## 产品定位
@@ -41,6 +43,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v2.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0)） | 租户策略包、异人评审、表级原子应用、保守离线回放、批准基线漂移提示与外部签名审计见证；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v2.9.0-release-evidence.md)。数据库适配级别未扩大。 |
 | v3.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.0)） | 30 款已注册数据库的统一能力目录、只读交付诊断、可复核 MCP 合成场景验收；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v3.0.0-release-evidence.md)。不新增数据库驱动或完整生产支持声明。 |
 | v3.0.1 | 已发布 | 官网、GitHub 项目文档和 Web 控制台的中英文入口，控制台菜单滚动修复；不改变数据库支持范围。见[设计](docs/v3.0.1-design.md)、[发布说明](docs/release-notes-v3.0.1.md)与[发布记录](docs/v3.0.1-release-evidence.md)。 |
+| v3.0.2 | 本版交付 | 全量中英文文档、当前运维入口、SQLBot v1.10.2 PostgreSQL 执行层适配、浅色导航与统一 Logo；见[发布说明](docs/release-notes-v3.0.2.md)和[验收记录](docs/v3.0.2-acceptance.md)。 |
 
 ## v1.8.0–v3.0.0 候选开发顺序
 

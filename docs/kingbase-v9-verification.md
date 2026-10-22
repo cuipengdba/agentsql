@@ -1,5 +1,7 @@
 # KingbaseES V9 真库验证：批七十二（可写 license 卷）
 
+**语言 / Language:** [简体中文](kingbase-v9-verification.md) | [English](en/kingbase-v9-verification.md)
+
 验证日期：2026-10-08（Asia/Shanghai）。一键脚本：[kingbase-v9-verify.ps1](../scripts/kingbase-v9-verify.ps1)。最终运行的完整终端 transcript：`C:\Users\Administrator\AppData\Local\Temp\kingbase-v9-batch72-transcript.txt`（7,877 bytes，14 条带时间戳的 PASS、0 条 FAIL，最终退出码 **0**）。早期调试失败已被最终 transcript 覆盖，其关键失败结论在下文单列。批七十二未改矩阵、README、SECURITY.md 或 `internal/`；批七十四依据 2026-10-09 用户决定同步矩阵档位。
 
 ## 结论与矩阵档位

@@ -1,6 +1,6 @@
 # Self-contained Live Demo gateway: demo config + seed manifest baked in.
 # Demo-only. Do not use for production.
-FROM ghcr.io/cuipengdba/agentsql:v3.0.1-demo
+FROM ghcr.io/cuipengdba/agentsql:v3.0.2-demo
 
 USER root
 COPY config.demo.yaml /etc/agentsql/config.demo.yaml

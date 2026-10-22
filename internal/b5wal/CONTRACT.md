@@ -1,5 +1,7 @@
 # B5 S7a/S7b emergency WAL contract and wiring (feature off)
 
+**语言 / Language:** [简体中文](CONTRACT.md) | [English](CONTRACT.en.md)
+
 This package includes the S7a wire contract and the S7b production-facing WAL
 service. It is not imported by any MCP/HTTP production entry point and has no
 activation flag; S6 will call it in a later slice. `CanonicalEvent` means already-canonical

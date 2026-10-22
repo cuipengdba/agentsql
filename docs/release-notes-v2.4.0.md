@@ -1,5 +1,7 @@
 # AgentSQL v2.4.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.4.0.md) | [English](en/release-notes-v2.4.0.md)
+
 v2.4.0 为 openGauss 社区版 7.0.0 LTS 指定构建增加独立的 `opengauss` 数据源类型和受控只读 MCP 路径。适配器要求 `verify-full` TLS、精确服务端构建身份和只读会话；只接受明确 schema、`FROM ONLY` 普通物理单表、直接列投影、非恒真 WHERE、整数 LIMIT 1–10000 的 SELECT。无法证明来源、对象类型或语义的请求执行前拒绝。
 
 在官方 openEuler 24.03 x86_64 归档加载的 7.0.0 LTS 单实例及合成数据中，专用只读账号完成真实 MCP 允许、R010 表拒绝、手机号脱敏、审批单次消费、持久审计和策略撤销。MCP Inspector 0.16.8 与 Dify MCPClient 1.17.1 分别完成允许及拒绝调用。错误 CA、错误证书主机名和明文连接失败；数据库 SELECT 撤权、业务库及独立审计库断线期间不交付原始结果。openGauss 合成数据另经 `gs_dump` 与 `gs_restore` 完成恢复验证。逐项环境与结果见[候选验收](v2.4.0-acceptance.md)。

@@ -1,5 +1,7 @@
 # AgentSQL v0.8.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v0.8.0.md) | [English](en/release-notes-v0.8.0.md)
+
 v0.8.0 将任务级临时只读 Key 改为“申请 → 异人核对精确 SQL 并审批 → 原申请人一次性领取”。现有 v0.7.0 Key 仍按到期和撤销规则生效；旧直接签发 API 返回 HTTP 410。新版同时改善 MCP 工具 schema 的客户端可移植性、控制台审计关联和接入故障排查。
 
 ## 功能与安全边界

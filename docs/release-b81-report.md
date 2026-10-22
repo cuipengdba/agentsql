@@ -1,5 +1,7 @@
 # Batch 81：v0.5.0 annotated tag、Release 草稿与远端资产复验报告
 
+**语言 / Language:** [简体中文](release-b81-report.md) | [English](en/release-b81-report.md)
+
 **结果：VERIFIED；Release 保持 draft，未转正式。** 记录时间为 2026-10-09 Asia/Shanghai。完整带时间戳日志位于 `dist/release-b81/tag-and-push.log`、`dist/release-b81/release-draft.log` 和 `dist/release-b81/redownload-verify.log`。
 
 ## 前置条件与 tag

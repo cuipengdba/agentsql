@@ -1,0 +1,955 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "source": "README.md",
+      "english": "README.en.md",
+      "source_sha256": "ac0803b3863c90a8dfdfc804a7377a71c299a05a58c35b0cbd69d32cf27c2689"
+    },
+    {
+      "source": "CHANGELOG.md",
+      "english": "CHANGELOG.en.md",
+      "source_sha256": "cb5fdf4d3daab9c0791012187af08fd9c5be83cf63992f9c126852bd1207b1c6"
+    },
+    {
+      "source": "ROADMAP.md",
+      "english": "ROADMAP.en.md",
+      "source_sha256": "6b6fa6c1a9bc8b79e9a147318c920a2a89873a04e24f669c5948bdc0952dd567"
+    },
+    {
+      "source": "CODE_OF_CONDUCT.md",
+      "english": "CODE_OF_CONDUCT.en.md",
+      "source_sha256": "2db4b4a398ee78953720f5043422bf90e86ebc606183af51b46ad350a5199fe6"
+    },
+    {
+      "source": "COMMERCIAL-LICENSE.md",
+      "english": "COMMERCIAL-LICENSE.en.md",
+      "source_sha256": "72d59bb0854e7377f06d151025108fe3dd3475ffcfac8f759b89f395f63edde4"
+    },
+    {
+      "source": "CONTRIBUTING.md",
+      "english": "CONTRIBUTING.en.md",
+      "source_sha256": "acba993293263c0578656e2327f4eafe97aa4f91d79ccbcf7bc6c29e1121ba3e"
+    },
+    {
+      "source": "SECURITY.md",
+      "english": "SECURITY.en.md",
+      "source_sha256": "de06cc4dc78022358b348833dabba823444da52bc03bdd38c9c3ac5dcfe631a1"
+    },
+    {
+      "source": "docs/assets/acceptance-v0.7.0/dify-gui-query-evidence.md",
+      "english": "docs/en/assets/acceptance-v0.7.0/dify-gui-query-evidence.md",
+      "source_sha256": "54f63bedb4446b6cae061be776cb57aab12cb1969cece775a204c80f700d90e5"
+    },
+    {
+      "source": "docs/assets/acceptance-v0.7.0/inspector-gui-query-evidence.md",
+      "english": "docs/en/assets/acceptance-v0.7.0/inspector-gui-query-evidence.md",
+      "source_sha256": "5bb64be471d540e524f981602d2b157bc5ab46956085e3278378e52ae7770d26"
+    },
+    {
+      "source": "docs/AUDIT_REPORTING.md",
+      "english": "docs/en/AUDIT_REPORTING.md",
+      "source_sha256": "0a768f930c5ca0d364637dfa1d04c5f92a13e24c736c5959a78e0066b30c38e5"
+    },
+    {
+      "source": "docs/AUTHENTICATION-REFERENCE.md",
+      "english": "docs/en/AUTHENTICATION-REFERENCE.md",
+      "source_sha256": "b657776812701bff1a68c14270a39426a3f21e07d87191f9aa23012361b24a58"
+    },
+    {
+      "source": "docs/AUTHENTICATION.md",
+      "english": "docs/en/AUTHENTICATION.md",
+      "source_sha256": "51ed853c103a7611aee4f6410c69507707a01c807851c4f5eec71ef98028f751"
+    },
+    {
+      "source": "docs/b2-s8-release-gate.md",
+      "english": "docs/en/b2-s8-release-gate.md",
+      "source_sha256": "e9f0ef9b6c14dea2606f28f57273a2327479f6dc42c890cfc40a15201d30850b"
+    },
+    {
+      "source": "docs/B5_S10_RELIABILITY.md",
+      "english": "docs/en/B5_S10_RELIABILITY.md",
+      "source_sha256": "2691380759f2920bdeaa93012b35a3eeb614c54bd650484fc8f9d7cc8bc79291"
+    },
+    {
+      "source": "docs/BRAND.md",
+      "english": "docs/en/BRAND.md",
+      "source_sha256": "dbe2d913a05c3b43388822367ff3b5930b3da5a9a6565f1408d84e0fcb9ec550"
+    },
+    {
+      "source": "docs/DEMO.md",
+      "english": "docs/en/DEMO.md",
+      "source_sha256": "83b08a65c642f66c4dd8c4d795366c0cf2c760a604df04b901c5285136b83c25"
+    },
+    {
+      "source": "docs/DEPLOY.md",
+      "english": "docs/en/DEPLOY.md",
+      "source_sha256": "e13c637cc2927d5e62d6b6e8b1bd3b55c244785a1a1a636cfafa3e75ac3c69bc"
+    },
+    {
+      "source": "docs/DISCOVERY.md",
+      "english": "docs/en/DISCOVERY.md",
+      "source_sha256": "7ddc14ac528e7372d4407dac06d6e1be495688be105d23c559081890a6a94dd8"
+    },
+    {
+      "source": "docs/dm-oracle-dialect.md",
+      "english": "docs/en/dm-oracle-dialect.md",
+      "source_sha256": "e3ba434ba057f4d74e76aa946882fdcdccf43f53f18586f608a536281d0da798"
+    },
+    {
+      "source": "docs/dm8-verification.md",
+      "english": "docs/en/dm8-verification.md",
+      "source_sha256": "b43b419dac1eff6e08b362b657e2ef8fbb5ce7f562591684dce055348339dada"
+    },
+    {
+      "source": "docs/ecosystem-db-compat-research.md",
+      "english": "docs/en/ecosystem-db-compat-research.md",
+      "source_sha256": "372b1c57cd7a63abed338459ddc4ef7a2e9e5d5b1c5ae012f326272052b03182"
+    },
+    {
+      "source": "docs/ecosystem-partnership-outline.md",
+      "english": "docs/en/ecosystem-partnership-outline.md",
+      "source_sha256": "48482c818a3897c024badc86ff15048ffb80d689bf96297f2a8240a05f3b3e24"
+    },
+    {
+      "source": "docs/GETTING_STARTED.md",
+      "english": "docs/en/GETTING_STARTED.md",
+      "source_sha256": "97ecf5c785ad6c26d013fa369d31b020cf7f1f67306305fac3400cddd82eeacc"
+    },
+    {
+      "source": "docs/highgo-verification.md",
+      "english": "docs/en/highgo-verification.md",
+      "source_sha256": "61bd735b00e68fc852ef710c15fd30a0b5bd6e4ace9c82a78c754730b72154ab"
+    },
+    {
+      "source": "docs/i18n-ui.md",
+      "english": "docs/en/i18n-ui.md",
+      "source_sha256": "a82073dbea35ec7cc83655299562bd95c8e518c40d4da177926179b9c2984912"
+    },
+    {
+      "source": "docs/INTEGRATIONS.md",
+      "english": "docs/en/INTEGRATIONS.md",
+      "source_sha256": "f7450950411acd4929bf29584727c814e5d02e5ce37ae0490f1aa311a1b785fb"
+    },
+    {
+      "source": "docs/joint-case-kingbase-highgo.md",
+      "english": "docs/en/joint-case-kingbase-highgo.md",
+      "source_sha256": "ff915069a43fa83d3e4d66c15bdb16343d93f6de7869984d43bd4c228ff9f6ec"
+    },
+    {
+      "source": "docs/joint-case-operations.md",
+      "english": "docs/en/joint-case-operations.md",
+      "source_sha256": "317d4099eb256e4678795f9fb23c839532662518b88b856f3db92572611afb17"
+    },
+    {
+      "source": "docs/kingbase-v9-verification.md",
+      "english": "docs/en/kingbase-v9-verification.md",
+      "source_sha256": "427842a026c39069f659c013d8d0ef4993aed77911227cd44f4e4e207192236e"
+    },
+    {
+      "source": "docs/known-issues-fixes.md",
+      "english": "docs/en/known-issues-fixes.md",
+      "source_sha256": "81255c2f0da8ea3c123aa5b27dbd1b60149b8ff1a5cbaa81cb2009fec8779c54"
+    },
+    {
+      "source": "docs/mcp-session-fix.md",
+      "english": "docs/en/mcp-session-fix.md",
+      "source_sha256": "97ca09580b6046ad82bdfe89aa29ee89775140b017f256c9e11ab193d60ed063"
+    },
+    {
+      "source": "docs/nosql-support.md",
+      "english": "docs/en/nosql-support.md",
+      "source_sha256": "3e60b54c09260d4e967bbcefb49802f50850ee7d3e503f4c3d6ee49e197b2c8d"
+    },
+    {
+      "source": "docs/NOTIFICATIONS.md",
+      "english": "docs/en/NOTIFICATIONS.md",
+      "source_sha256": "bde8e273d6885277fe3caedcab0062d5f57c4c236fae6918383ac3267321057e"
+    },
+    {
+      "source": "docs/opentenbase-dual-kernel.md",
+      "english": "docs/en/opentenbase-dual-kernel.md",
+      "source_sha256": "14724b1e7ec6d3527175b39ee0b72d6be0c91b1242c96f8dccb776b77ba19491"
+    },
+    {
+      "source": "docs/OPERATIONS.md",
+      "english": "docs/en/OPERATIONS.md",
+      "source_sha256": "f75c1d933656272bc7e36c61cb03ce4d94af5bac00d174b4341f8aa9f0fb43e0"
+    },
+    {
+      "source": "docs/PARSER_PERF.md",
+      "english": "docs/en/PARSER_PERF.md",
+      "source_sha256": "d600e205e022db9122d1dde22fec9da7548958c0d1e5041f5f36ecaf1f5c5058"
+    },
+    {
+      "source": "docs/perf/b2-column-auth-s5-20260925.md",
+      "english": "docs/en/perf/b2-column-auth-s5-20260925.md",
+      "source_sha256": "b8c68e2a11a116ac96c0a888878a9d997be25fe2e5d4d46c7a8c8233d687e0fa"
+    },
+    {
+      "source": "docs/perf/chain-load-s5c-20260924.md",
+      "english": "docs/en/perf/chain-load-s5c-20260924.md",
+      "source_sha256": "f980f9473f2a146aad504a24caba97f277ead63437946863c3167687cefce4f3"
+    },
+    {
+      "source": "docs/perf/README.md",
+      "english": "docs/en/perf/README.md",
+      "source_sha256": "a3d451b2ac5045668015fe52d30f0347628bb0cbd613048e3efabb06b353ef1c"
+    },
+    {
+      "source": "docs/perf/t25_bench_result.md",
+      "english": "docs/en/perf/t25_bench_result.md",
+      "source_sha256": "cd218aa2c128d18be832eca02412496abc310e3e3ca528e10dceb04158957b19"
+    },
+    {
+      "source": "docs/postrelease-hardening-post2-report.md",
+      "english": "docs/en/postrelease-hardening-post2-report.md",
+      "source_sha256": "de26805007f47575a6e5d03bac8b98592ffb9f5f41f7c077ece371dac2dd747e"
+    },
+    {
+      "source": "docs/postrelease-post3-report.md",
+      "english": "docs/en/postrelease-post3-report.md",
+      "source_sha256": "ce05ba0dc012815dc4a31c99fd03f2f9c9d7a8f36e059d4f9a393e398715674d"
+    },
+    {
+      "source": "docs/postrelease-post4-report.md",
+      "english": "docs/en/postrelease-post4-report.md",
+      "source_sha256": "ae396014740e26c95c092a80ccba8e6e61a8251a154fc5cdda3bd513cc27dd1e"
+    },
+    {
+      "source": "docs/postrelease-post4b-report.md",
+      "english": "docs/en/postrelease-post4b-report.md",
+      "source_sha256": "bd0476d6b5caf174ec5efa795ca4bcfe2f27d7871f580eff325a1207fdd7467c"
+    },
+    {
+      "source": "docs/rbac-multitenant-mvp.md",
+      "english": "docs/en/rbac-multitenant-mvp.md",
+      "source_sha256": "ccba19e2a13656ca495d65d5e53ab17eb37968ce82b923c878dfbbe4825315dd"
+    },
+    {
+      "source": "docs/README.md",
+      "english": "docs/en/README.md",
+      "source_sha256": "2f637de8bf537f9678cfda379270f179a4e0ab08603912b2f22e33e52e4633aa"
+    },
+    {
+      "source": "docs/release-assets-history.md",
+      "english": "docs/en/release-assets-history.md",
+      "source_sha256": "7b9acf28a2307a7d596049a0e1ead0ca46fce4aac6e4a1e9755d234a4cf99e1f"
+    },
+    {
+      "source": "docs/release-b81-report.md",
+      "english": "docs/en/release-b81-report.md",
+      "source_sha256": "7f453095c5c9570a442298df6e9a6e81cfedb936f8f6528052543118bde88295"
+    },
+    {
+      "source": "docs/release-b82-report.md",
+      "english": "docs/en/release-b82-report.md",
+      "source_sha256": "c073da4e807b227b1283d6764382fd76052f4ad797c1ed2c0e4bdb0288d819f3"
+    },
+    {
+      "source": "docs/release-b82b-report.md",
+      "english": "docs/en/release-b82b-report.md",
+      "source_sha256": "4bbe9e978801b9a8944b727f78ca4d0e3f7ddb56c11d7f0b10613b316df19c42"
+    },
+    {
+      "source": "docs/release-b82c-report.md",
+      "english": "docs/en/release-b82c-report.md",
+      "source_sha256": "b282ed0eaa5b3eb23246463eb404a00b193e91e572a8a17673fbb3fdaf06e542"
+    },
+    {
+      "source": "docs/release-b83a-report.md",
+      "english": "docs/en/release-b83a-report.md",
+      "source_sha256": "23c396d0fe22d4bec0851f64c5941b3051377f3f95993e46317726ac56c038e4"
+    },
+    {
+      "source": "docs/release-b83b-report.md",
+      "english": "docs/en/release-b83b-report.md",
+      "source_sha256": "4ad0e709f56f9414d73ab1c27f88d0621ef8048c9946d3674d4066a4fb8df22e"
+    },
+    {
+      "source": "docs/release-day-checklist-v0.5.md",
+      "english": "docs/en/release-day-checklist-v0.5.md",
+      "source_sha256": "fb9c998b4397a24e69732a388d048b969c8bac992a13275a52c94e50ac580bb3"
+    },
+    {
+      "source": "docs/release-gate-b75-report.md",
+      "english": "docs/en/release-gate-b75-report.md",
+      "source_sha256": "6c16f7f157fb2c3221b34b20b27be2d8fb351d79fbff1657aa54bcd1b2626472"
+    },
+    {
+      "source": "docs/release-gate-b76-report.md",
+      "english": "docs/en/release-gate-b76-report.md",
+      "source_sha256": "c18d8f4cccf9319cde5ef226e404938a8be4d8a54af7aeaacc9b2fd52e0fa9f4"
+    },
+    {
+      "source": "docs/release-gate-b77-report.md",
+      "english": "docs/en/release-gate-b77-report.md",
+      "source_sha256": "ab955eed555e3e6abedd3294c71235db3453b6b1b950ae7d2267f8e71d45019d"
+    },
+    {
+      "source": "docs/release-notes-v0.2.0.md",
+      "english": "docs/en/release-notes-v0.2.0.md",
+      "source_sha256": "2ade83d91a3004fad12942c3e4c4bcd38285a56082665b5b1cafcb90abcfaf7e"
+    },
+    {
+      "source": "docs/release-notes-v0.5.1.md",
+      "english": "docs/en/release-notes-v0.5.1.md",
+      "source_sha256": "d6bf0569d18626b2083e7d3db3682ce1ff5995807398f7854fecec951fb5d0b8"
+    },
+    {
+      "source": "docs/release-notes-v0.5.md",
+      "english": "docs/en/release-notes-v0.5.md",
+      "source_sha256": "3b010e0588fdef295a00a1c5b5970968d1abd05db4d12aceb917dbd5d5579644"
+    },
+    {
+      "source": "docs/release-notes-v0.6.0.md",
+      "english": "docs/en/release-notes-v0.6.0.md",
+      "source_sha256": "c48de3237d4844498b8a19b31cbd6e77b6d4e7c7b28dcf1940c8d1bcab5f2ca4"
+    },
+    {
+      "source": "docs/release-notes-v0.6.1.md",
+      "english": "docs/en/release-notes-v0.6.1.md",
+      "source_sha256": "22956e2aa70b1c06917ff368281c9ed23215347e137684ed66d05d90aef41c61"
+    },
+    {
+      "source": "docs/release-notes-v0.7.0.md",
+      "english": "docs/en/release-notes-v0.7.0.md",
+      "source_sha256": "5c1cb278287b222dc9111abf0358320bcdca20dc7ea9123e6935fa66eada65df"
+    },
+    {
+      "source": "docs/release-notes-v0.8.0.md",
+      "english": "docs/en/release-notes-v0.8.0.md",
+      "source_sha256": "168e597098842e0ad656f0196e240955837dbe57ec296135111db6629e80988e"
+    },
+    {
+      "source": "docs/release-notes-v0.9.0.md",
+      "english": "docs/en/release-notes-v0.9.0.md",
+      "source_sha256": "0c5df67b591a79e3c6db26afa9490514f8f41bd212f5cebf72a3fa44588a60d0"
+    },
+    {
+      "source": "docs/release-notes-v1.0.0.md",
+      "english": "docs/en/release-notes-v1.0.0.md",
+      "source_sha256": "aa0c7ba029754df757fdb59d7538867fd2571470ca6c0fde1e92ded7e7d135e0"
+    },
+    {
+      "source": "docs/release-notes-v1.1.0.md",
+      "english": "docs/en/release-notes-v1.1.0.md",
+      "source_sha256": "b89e2c8bafd1e557209f82050bd40e3fa8b1c8fac15b7e5b0c1a37cf2ed68d89"
+    },
+    {
+      "source": "docs/release-notes-v1.2.0.md",
+      "english": "docs/en/release-notes-v1.2.0.md",
+      "source_sha256": "b995349993e9caac2bb9b45cf7b177137cf8eefc56f90143e24024845f5f249d"
+    },
+    {
+      "source": "docs/release-notes-v1.3.0.md",
+      "english": "docs/en/release-notes-v1.3.0.md",
+      "source_sha256": "45b44fee4eed5f7b87e457713354d607c6a929128617fd0aebd116d8f3d920ca"
+    },
+    {
+      "source": "docs/release-notes-v1.4.0.md",
+      "english": "docs/en/release-notes-v1.4.0.md",
+      "source_sha256": "ccd327387ef972e8e91746b7ba92cbe7628c459b7d698ae2953cec01da45591f"
+    },
+    {
+      "source": "docs/release-notes-v1.5.0.md",
+      "english": "docs/en/release-notes-v1.5.0.md",
+      "source_sha256": "8c254d0f6a899a93a5c1697bd13caa341546cf69532b30015c54c82349f40ada"
+    },
+    {
+      "source": "docs/release-notes-v1.6.0.md",
+      "english": "docs/en/release-notes-v1.6.0.md",
+      "source_sha256": "edc8ce7b52f26b024611abf2fa7a25c6edd6a8cfdfd9f087478f1e59cf5eae41"
+    },
+    {
+      "source": "docs/release-notes-v1.7.0.md",
+      "english": "docs/en/release-notes-v1.7.0.md",
+      "source_sha256": "b56f18567de4e59296407eb94202730a9f9feb8f5708c9920190542a00fea62f"
+    },
+    {
+      "source": "docs/release-notes-v1.8.0.md",
+      "english": "docs/en/release-notes-v1.8.0.md",
+      "source_sha256": "156b3418a32a61f06f60e7cb24beb9b59a7b574781c12cdfe56113df496c9f1f"
+    },
+    {
+      "source": "docs/release-notes-v1.9.0.md",
+      "english": "docs/en/release-notes-v1.9.0.md",
+      "source_sha256": "3b8f7bce3a1cde80907d5685e8bbdc14627dbd97a3c145f36ac5d78d42d70375"
+    },
+    {
+      "source": "docs/release-notes-v2.0.0.md",
+      "english": "docs/en/release-notes-v2.0.0.md",
+      "source_sha256": "8c2458f5c95f2462f21cacc7f2c96523b8e5e35f84902a9836e64e23fa23b492"
+    },
+    {
+      "source": "docs/release-notes-v2.1.0.md",
+      "english": "docs/en/release-notes-v2.1.0.md",
+      "source_sha256": "ba582f71eb7c69520a6cb62d3416cf766ce680c15c9bd1c92628cecf0f351cb1"
+    },
+    {
+      "source": "docs/release-notes-v2.2.0.md",
+      "english": "docs/en/release-notes-v2.2.0.md",
+      "source_sha256": "620fec34577004a1cde182a210eb4f277b95799866cc02578308f2880a3477bd"
+    },
+    {
+      "source": "docs/release-notes-v2.3.0.md",
+      "english": "docs/en/release-notes-v2.3.0.md",
+      "source_sha256": "917204d4875e7521bc1116e6aa1135b5c485f93a6e875ca1836ccd4b983130a8"
+    },
+    {
+      "source": "docs/release-notes-v2.4.0.md",
+      "english": "docs/en/release-notes-v2.4.0.md",
+      "source_sha256": "7487382bd0ac2bcc8e40742f31f65312f9f0d100c27b65d21e873b0527f59f9a"
+    },
+    {
+      "source": "docs/release-notes-v2.5.0.md",
+      "english": "docs/en/release-notes-v2.5.0.md",
+      "source_sha256": "2952ac85cd49e64703cc3a9713c8b23a3e79bf269feae36eb0706c488f2c90fe"
+    },
+    {
+      "source": "docs/release-notes-v2.6.0.md",
+      "english": "docs/en/release-notes-v2.6.0.md",
+      "source_sha256": "c388122d06c9895c1f6f5f29cff0789d1112f862e603488a532d20b28f11897c"
+    },
+    {
+      "source": "docs/release-notes-v2.7.0.md",
+      "english": "docs/en/release-notes-v2.7.0.md",
+      "source_sha256": "ca99596498523c50e2614fd61d4a3499b0b52f22dbca8fdab073625317a498ab"
+    },
+    {
+      "source": "docs/release-notes-v2.8.0.md",
+      "english": "docs/en/release-notes-v2.8.0.md",
+      "source_sha256": "52fc8aa9df0cd97047a3d194550066750f285ee017c76e9f317a9a736969feb6"
+    },
+    {
+      "source": "docs/release-notes-v2.9.0.md",
+      "english": "docs/en/release-notes-v2.9.0.md",
+      "source_sha256": "5ca8b15d8629dc15ebf438834cfc59f034a7a8d0bf5b7f75fb84c062bbdcee22"
+    },
+    {
+      "source": "docs/release-notes-v3.0.0.md",
+      "english": "docs/en/release-notes-v3.0.0.md",
+      "source_sha256": "03abc5909dd804e6da04d54bb5d3ae00e61be69ef92e7e2bb20f04883906e8ee"
+    },
+    {
+      "source": "docs/release-notes-v3.0.1.md",
+      "english": "docs/en/release-notes-v3.0.1.md",
+      "source_sha256": "031186d35ca687d57d7412731c73aee9d5c9ecbcd5e63309cf8f144fdb4bc430"
+    },
+    {
+      "source": "docs/release-notes-v3.0.2.md",
+      "english": "docs/en/release-notes-v3.0.2.md",
+      "source_sha256": "a2cf135c90f1106686023f80db7f7d243ed094502e3e2d70f2f3073d0873650b"
+    },
+    {
+      "source": "docs/release-prepare-b78-report.md",
+      "english": "docs/en/release-prepare-b78-report.md",
+      "source_sha256": "6d1bbb06ccc17d3c80eb70ec2a598266242b2d5ce169ae54cdead13fb14b1a32"
+    },
+    {
+      "source": "docs/release-prepare-b79-report.md",
+      "english": "docs/en/release-prepare-b79-report.md",
+      "source_sha256": "60db46a6f0db8d63a1a10cacc52a075266c3213a1a3b39d84fb21d8b59eb2198"
+    },
+    {
+      "source": "docs/release-prepare-b80-report.md",
+      "english": "docs/en/release-prepare-b80-report.md",
+      "source_sha256": "8363d58049180c8eb6ee3ffc654b5c07a196ecac61764edf80222bdf52ff3681"
+    },
+    {
+      "source": "docs/release-prepare-b80b-report.md",
+      "english": "docs/en/release-prepare-b80b-report.md",
+      "source_sha256": "0feca965d66012964f5801c5b643a8b597dea99b7f381b0c374d3280143c8595"
+    },
+    {
+      "source": "docs/release-process-history.md",
+      "english": "docs/en/release-process-history.md",
+      "source_sha256": "ae72dab9983edbe807b7bac42990dfccca8f6085a5d6161230b4f8de896e1d5c"
+    },
+    {
+      "source": "docs/RELEASE_ASSETS.md",
+      "english": "docs/en/RELEASE_ASSETS.md",
+      "source_sha256": "bbf9c3624ffce9d5bc92ed521f5bcd0a8f17190c4dc7ffd0b1813b3044cb5de6"
+    },
+    {
+      "source": "docs/RELEASE_PROCESS.md",
+      "english": "docs/en/RELEASE_PROCESS.md",
+      "source_sha256": "5db50e964c541c23c0c4a1954f61cd6c0fa99278bd227174eec7ce36730251e4"
+    },
+    {
+      "source": "docs/RELEASE_ROUTINE.md",
+      "english": "docs/en/RELEASE_ROUTINE.md",
+      "source_sha256": "60896c31bd668401825323267192281d29f660212c348983433a9d0238d2e86f"
+    },
+    {
+      "source": "docs/runner-b80r-report.md",
+      "english": "docs/en/runner-b80r-report.md",
+      "source_sha256": "459636cd9a4cf1a8aa2f63300bcb138e98c5fd02312c71342c9831433812a338"
+    },
+    {
+      "source": "docs/security-scan-v0.5.md",
+      "english": "docs/en/security-scan-v0.5.md",
+      "source_sha256": "afeec207a6fc46598e73ffb6a8a391d5f554204b6ae9838aa22a2906fa9bba08"
+    },
+    {
+      "source": "docs/SPEC.md",
+      "english": "docs/en/SPEC.md",
+      "source_sha256": "271329fc175eaf4d37c0fb607b05de8b80c2862d08d4569d1ddcd74ed2e97da4"
+    },
+    {
+      "source": "docs/SQLBOT.md",
+      "english": "docs/en/SQLBOT.md",
+      "source_sha256": "d32c63a0796e5353463dd9e8f638cfaf9b75e821ec6f030a07517086683dd699"
+    },
+    {
+      "source": "docs/task-read-grants.md",
+      "english": "docs/en/task-read-grants.md",
+      "source_sha256": "16fa8b3a7e1fc9bd8aa152c059f906a0ff77142f571ea332bdf9855b5beb691c"
+    },
+    {
+      "source": "docs/test-coverage-notes.md",
+      "english": "docs/en/test-coverage-notes.md",
+      "source_sha256": "e446ec871406ea82983c830b650f08203f4e1c1dd07b4ec8c6b5a2dc001b9286"
+    },
+    {
+      "source": "docs/USER_GUIDE.md",
+      "english": "docs/en/USER_GUIDE.md",
+      "source_sha256": "4a94b303b76bd38636595ea897964475cd731e70ed6833c1e38134bc2dc0893a"
+    },
+    {
+      "source": "docs/v0.5-known-issues-task7.md",
+      "english": "docs/en/v0.5-known-issues-task7.md",
+      "source_sha256": "f9f197ff9a646560aa6d1d076fc25a88832867ba787b143269ce4d1afa390751"
+    },
+    {
+      "source": "docs/v0.6.0-approval-contract.md",
+      "english": "docs/en/v0.6.0-approval-contract.md",
+      "source_sha256": "6e8d7c04f8ce1b1cfa187e9431c58303d91907865739cbb55f119354fa0cf360"
+    },
+    {
+      "source": "docs/v0.6.0-development-plan.md",
+      "english": "docs/en/v0.6.0-development-plan.md",
+      "source_sha256": "07f3de27b127cde17568dc4e0734a32800201e8105398f27080e932c7400dc4d"
+    },
+    {
+      "source": "docs/v0.7-acceptance.md",
+      "english": "docs/en/v0.7-acceptance.md",
+      "source_sha256": "4a182314451c0251d1f19e7b2883a43fccff8dca1f326c713794262536b07c27"
+    },
+    {
+      "source": "docs/v0.7-operations-runbook.md",
+      "english": "docs/en/v0.7-operations-runbook.md",
+      "source_sha256": "de8b3d302406b731cbbc61f17fcb51649aede2a852b738cbf07a7cb124a9f56f"
+    },
+    {
+      "source": "docs/v0.8-acceptance.md",
+      "english": "docs/en/v0.8-acceptance.md",
+      "source_sha256": "5290a16f022401d9e8fae79f0cdb72a7b1a2627e5451e7401b4b85ac34fcd11f"
+    },
+    {
+      "source": "docs/v0.9-acceptance.md",
+      "english": "docs/en/v0.9-acceptance.md",
+      "source_sha256": "aa0e56f23f0717b0fbdd4e3f52ec40e1b364b438534a47e2213fc3f990853d99"
+    },
+    {
+      "source": "docs/v1.0-acceptance.md",
+      "english": "docs/en/v1.0-acceptance.md",
+      "source_sha256": "0ed1175df0c53afcac3844b7ce26848f7db11740e39e912c86bf196fe9ea80de"
+    },
+    {
+      "source": "docs/v1.0-design.md",
+      "english": "docs/en/v1.0-design.md",
+      "source_sha256": "b91a8afa3f4c8dede5606345a9a1a5074a5119479eea596153d87d5ec9b765e5"
+    },
+    {
+      "source": "docs/v1.1.0-acceptance.md",
+      "english": "docs/en/v1.1.0-acceptance.md",
+      "source_sha256": "a7b388a70412318538e2b4fca31a8772029a38888c9341b2a9d5691476c96772"
+    },
+    {
+      "source": "docs/v1.1.0-design.md",
+      "english": "docs/en/v1.1.0-design.md",
+      "source_sha256": "8af1320bb475897a253c1bf82f7126bdc441beb78949ba5446c6150937be17b6"
+    },
+    {
+      "source": "docs/v1.2.0-acceptance.md",
+      "english": "docs/en/v1.2.0-acceptance.md",
+      "source_sha256": "37dffc11df7c7b99e06357f54db0ecbfac35892cfd97c1944144b495a534046d"
+    },
+    {
+      "source": "docs/v1.2.0-design.md",
+      "english": "docs/en/v1.2.0-design.md",
+      "source_sha256": "3e3c279b255e1d1930ee24e8d46e45b072ce0859cf54220e335fe7a588911cae"
+    },
+    {
+      "source": "docs/v1.3.0-acceptance.md",
+      "english": "docs/en/v1.3.0-acceptance.md",
+      "source_sha256": "f014b84c8f1ab851138ae4de2fe5a85397eda94bcddcf573f3d051bbe5b7542c"
+    },
+    {
+      "source": "docs/v1.3.0-design.md",
+      "english": "docs/en/v1.3.0-design.md",
+      "source_sha256": "4c5709cc66ccf667c5a4fc3b9bd463aa1a47c6d64ac7a4625d9732ff7f0cf528"
+    },
+    {
+      "source": "docs/v1.4.0-acceptance.md",
+      "english": "docs/en/v1.4.0-acceptance.md",
+      "source_sha256": "8ab4beb91811fb4d478a40ad8d4e104ac6dc016525707e3c179b8a53244580ae"
+    },
+    {
+      "source": "docs/v1.4.0-design.md",
+      "english": "docs/en/v1.4.0-design.md",
+      "source_sha256": "9e5924736d876b03ffd68b3f54b8f963cc3b034a56b792d3073f37da4e9d93a2"
+    },
+    {
+      "source": "docs/v1.5.0-acceptance.md",
+      "english": "docs/en/v1.5.0-acceptance.md",
+      "source_sha256": "8155cdf125599a0d7dfb801d6d94fd93fc33f86b81d9d6abfeb01e29fe3f53ac"
+    },
+    {
+      "source": "docs/v1.5.0-design.md",
+      "english": "docs/en/v1.5.0-design.md",
+      "source_sha256": "02f263733b11b862df21e9499332406658720b0a6c01766b6333ad5b2afe088b"
+    },
+    {
+      "source": "docs/v1.6.0-acceptance.md",
+      "english": "docs/en/v1.6.0-acceptance.md",
+      "source_sha256": "77a41f9ce867019a53e04626fc7be220d46f63bc43f285f8dd11c49a7701e792"
+    },
+    {
+      "source": "docs/v1.6.0-design.md",
+      "english": "docs/en/v1.6.0-design.md",
+      "source_sha256": "faa7bc3c25f1279adbc9e6e6cfa337d2dd00e4a87b7586308fe0564a6e1ea58e"
+    },
+    {
+      "source": "docs/v1.7.0-acceptance.md",
+      "english": "docs/en/v1.7.0-acceptance.md",
+      "source_sha256": "1f4ad54a8c821657cb7b3e6a6be26ade5372f1c08ba841d3f0819da04c5e7fdf"
+    },
+    {
+      "source": "docs/v1.7.0-design.md",
+      "english": "docs/en/v1.7.0-design.md",
+      "source_sha256": "cd13e518955b5e6209e451b61aa4bbc23945cd99eabaee2dc309320e9ac7477a"
+    },
+    {
+      "source": "docs/v1.7.0-dm-kingbase-depth-acceptance.md",
+      "english": "docs/en/v1.7.0-dm-kingbase-depth-acceptance.md",
+      "source_sha256": "a54f57b0869c25aea1162b8f27d431201c8b9b8e9057092a79a3e10ee99a83f9"
+    },
+    {
+      "source": "docs/v1.7.0-dm-kingbase-depth-design.md",
+      "english": "docs/en/v1.7.0-dm-kingbase-depth-design.md",
+      "source_sha256": "1cf57f67621bda041654521ae8fd38654597057363ea54eb5e983216150453b9"
+    },
+    {
+      "source": "docs/v1.7.0-release-evidence.md",
+      "english": "docs/en/v1.7.0-release-evidence.md",
+      "source_sha256": "c90f07f2e1855502c8e206e2c364b4f90e5b457d40a0cb5c1189380c51e75848"
+    },
+    {
+      "source": "docs/v1.8.0-acceptance.md",
+      "english": "docs/en/v1.8.0-acceptance.md",
+      "source_sha256": "ef02b00a397faa952406b4cbd17112ae594b5c14c2708e395ac364267c5456f1"
+    },
+    {
+      "source": "docs/v1.8.0-release-evidence.md",
+      "english": "docs/en/v1.8.0-release-evidence.md",
+      "source_sha256": "40a8bf7b2233f456865d318c019a1e317308d7c99010c60bd604656c17e35cf8"
+    },
+    {
+      "source": "docs/v1.8.0-vastbase-design.md",
+      "english": "docs/en/v1.8.0-vastbase-design.md",
+      "source_sha256": "0466921bcd6fe8696153a8c4b131438e65c1a64cd163f5716a44bb56b64752e5"
+    },
+    {
+      "source": "docs/v1.9.0-acceptance.md",
+      "english": "docs/en/v1.9.0-acceptance.md",
+      "source_sha256": "68a66f167eb8771618bf7b16f3f044e2a65c108d916a679087087b4b8c9bd5b9"
+    },
+    {
+      "source": "docs/v1.9.0-onboarding-design.md",
+      "english": "docs/en/v1.9.0-onboarding-design.md",
+      "source_sha256": "b652132c4410b378dcabaf399e6b64f5ca8e81eb6c6b96a1e4b0e3a8911a6d9f"
+    },
+    {
+      "source": "docs/v1.9.0-release-evidence.md",
+      "english": "docs/en/v1.9.0-release-evidence.md",
+      "source_sha256": "4541df13dd66562b19977214b3acca8c3a5ce0d54b281798b9c609ad08346e32"
+    },
+    {
+      "source": "docs/v2.0.0-acceptance.md",
+      "english": "docs/en/v2.0.0-acceptance.md",
+      "source_sha256": "fffcdb6bb8300f8f9198cdf3ee3e23c7a2f20ee7d32151d2fb8063c52631ec87"
+    },
+    {
+      "source": "docs/v2.0.0-design.md",
+      "english": "docs/en/v2.0.0-design.md",
+      "source_sha256": "87d9803e33980dd101ea889547bfab7e25e531f126656c34c457a26b78ef860b"
+    },
+    {
+      "source": "docs/v2.0.0-release-evidence.md",
+      "english": "docs/en/v2.0.0-release-evidence.md",
+      "source_sha256": "365a1083052f927a70b27eeec341e6866f027206e25302bf6f5a48385ac9bb60"
+    },
+    {
+      "source": "docs/v2.1.0-acceptance.md",
+      "english": "docs/en/v2.1.0-acceptance.md",
+      "source_sha256": "8a36aa3c5a3cd54ba0e0ada0923b43ffec368f3520e63f8807afc065d32f730a"
+    },
+    {
+      "source": "docs/v2.1.0-design.md",
+      "english": "docs/en/v2.1.0-design.md",
+      "source_sha256": "2ab51006800c0cd80fb729e79228b7d48b2fbb843e723f48b3c353f04a2e4263"
+    },
+    {
+      "source": "docs/v2.1.0-release-evidence.md",
+      "english": "docs/en/v2.1.0-release-evidence.md",
+      "source_sha256": "ba39fdf121f020411a6deca01f2329702798e7094078fe2d91b0418c444b7dfb"
+    },
+    {
+      "source": "docs/v2.2.0-acceptance.md",
+      "english": "docs/en/v2.2.0-acceptance.md",
+      "source_sha256": "690275cb5b9013cc3a492851af79846c62d483bb2853f79d2ff742877df2f533"
+    },
+    {
+      "source": "docs/v2.2.0-design.md",
+      "english": "docs/en/v2.2.0-design.md",
+      "source_sha256": "b3fdc540389cd66f9aba8b66f22a63d6292c219e1e1e8107d775f72c6b986a83"
+    },
+    {
+      "source": "docs/v2.2.0-release-evidence.md",
+      "english": "docs/en/v2.2.0-release-evidence.md",
+      "source_sha256": "40e11ace5a18f782f3715c389f4d996b711ba7b2641c29509cee823d8ddd77d2"
+    },
+    {
+      "source": "docs/v2.3.0-acceptance.md",
+      "english": "docs/en/v2.3.0-acceptance.md",
+      "source_sha256": "9d8dac2100583437125b8f70599486053c575fadcd72cff2de73e3443d81d58d"
+    },
+    {
+      "source": "docs/v2.3.0-design.md",
+      "english": "docs/en/v2.3.0-design.md",
+      "source_sha256": "c94501a14a86dbc78aaa3964689cbb0fbe8791f251152001eac8866b6c220f0f"
+    },
+    {
+      "source": "docs/v2.3.0-release-evidence.md",
+      "english": "docs/en/v2.3.0-release-evidence.md",
+      "source_sha256": "d70851f9886549eaa4f6e09e4d9cdd9a9ce7a341bc4b7671fe10a8d416765fc2"
+    },
+    {
+      "source": "docs/v2.4.0-acceptance.md",
+      "english": "docs/en/v2.4.0-acceptance.md",
+      "source_sha256": "6216774f7af5ada7a10fab4c784d246c5e1d3f3e010d2c666d44ac9f4e4fdcd2"
+    },
+    {
+      "source": "docs/v2.4.0-design.md",
+      "english": "docs/en/v2.4.0-design.md",
+      "source_sha256": "a46ce414d666f11e09dfe4ccf16ff2ecc8f10bcce913a01e5efe815ef6832cf4"
+    },
+    {
+      "source": "docs/v2.4.0-release-evidence.md",
+      "english": "docs/en/v2.4.0-release-evidence.md",
+      "source_sha256": "d1a73f2b99a75e0071cf36d5e25c0db33eac690d91ef25a7539994ee7be1079a"
+    },
+    {
+      "source": "docs/v2.5.0-acceptance.md",
+      "english": "docs/en/v2.5.0-acceptance.md",
+      "source_sha256": "97720e5ce752746e6a3edc37eeb75565e34ae0652dc1544d18f02717d9113057"
+    },
+    {
+      "source": "docs/v2.5.0-design.md",
+      "english": "docs/en/v2.5.0-design.md",
+      "source_sha256": "76259a525037c993fa5604588bebd173352c70ccd6bf734b9fc3524a2585c91a"
+    },
+    {
+      "source": "docs/v2.5.0-release-evidence.md",
+      "english": "docs/en/v2.5.0-release-evidence.md",
+      "source_sha256": "c097f338c19f752cc16dd2cd825334b01732f19a90a6bbf5a01d2715b0c23456"
+    },
+    {
+      "source": "docs/v2.6.0-acceptance.md",
+      "english": "docs/en/v2.6.0-acceptance.md",
+      "source_sha256": "cfb4ebf99b1907df32403283276781f2105b9f33350bc4aac6cf8af67a0ddca2"
+    },
+    {
+      "source": "docs/v2.6.0-design.md",
+      "english": "docs/en/v2.6.0-design.md",
+      "source_sha256": "09c26aaa2fdc67d8e0ee9941e6b24a879ff327f1b0dad08fa9948e265b26da50"
+    },
+    {
+      "source": "docs/v2.6.0-release-evidence.md",
+      "english": "docs/en/v2.6.0-release-evidence.md",
+      "source_sha256": "66c39f8fcf2d42c8919963f5f735bd600418ac55126cb6a34486d13c0415baa9"
+    },
+    {
+      "source": "docs/v2.7.0-acceptance.md",
+      "english": "docs/en/v2.7.0-acceptance.md",
+      "source_sha256": "b8743fe7cddd2cb3d4ddaaad957f1e6135910b1feb99397ed22e67451dec335b"
+    },
+    {
+      "source": "docs/v2.7.0-design.md",
+      "english": "docs/en/v2.7.0-design.md",
+      "source_sha256": "572d8cb9d1b8cd3cbd961a9ed5b7d2770c271cd968c810a0a79621abf3e13bc3"
+    },
+    {
+      "source": "docs/v2.7.0-release-evidence.md",
+      "english": "docs/en/v2.7.0-release-evidence.md",
+      "source_sha256": "0d4201867be2b594dbd6adc0297fc359d79b2dd44748aa4cd29b682a4c52ea20"
+    },
+    {
+      "source": "docs/v2.8.0-acceptance.md",
+      "english": "docs/en/v2.8.0-acceptance.md",
+      "source_sha256": "e47a0a57fbad282a740a86d7ac64c6b4a11fbaf8b61db5bb4d08e641f33eeda9"
+    },
+    {
+      "source": "docs/v2.8.0-design.md",
+      "english": "docs/en/v2.8.0-design.md",
+      "source_sha256": "0f9856bea2f2dc8efc1a752604ad5f4c7348b30be444f97a16b62cb6020567ff"
+    },
+    {
+      "source": "docs/v2.8.0-release-evidence.md",
+      "english": "docs/en/v2.8.0-release-evidence.md",
+      "source_sha256": "83775081281fafaff6188011e72c4e40a5252f417fd00e3b26f5695c937384ff"
+    },
+    {
+      "source": "docs/v2.9.0-acceptance.md",
+      "english": "docs/en/v2.9.0-acceptance.md",
+      "source_sha256": "b232ad3e132c1b2aed8eb6dda558a1ed528d835f2eb6336c280c1342faeade2b"
+    },
+    {
+      "source": "docs/v2.9.0-design.md",
+      "english": "docs/en/v2.9.0-design.md",
+      "source_sha256": "89a779023f954e05562a62aff462477245f9f175599c971a596ec528f89af75f"
+    },
+    {
+      "source": "docs/v2.9.0-release-evidence.md",
+      "english": "docs/en/v2.9.0-release-evidence.md",
+      "source_sha256": "7a6933ebc798613919e04c9ca8cbd2063a43df8d25c48b0ff40fbcc2dfb5fb42"
+    },
+    {
+      "source": "docs/v2.9.0-upgrade.md",
+      "english": "docs/en/v2.9.0-upgrade.md",
+      "source_sha256": "635887bb7bf4dcba0a2e2f597649621f62e33427e54b476ee034b71f504cc840"
+    },
+    {
+      "source": "docs/v3.0.0-acceptance.md",
+      "english": "docs/en/v3.0.0-acceptance.md",
+      "source_sha256": "28d6e2085e03cc419ac78301a4de74ff9859f64d3d76d0a23cc34b00b16d3844"
+    },
+    {
+      "source": "docs/v3.0.0-design.md",
+      "english": "docs/en/v3.0.0-design.md",
+      "source_sha256": "f54666253756284d316e15437461a0acfc8a1fd2e6745f194172b69c99a6e0b8"
+    },
+    {
+      "source": "docs/v3.0.0-release-evidence.md",
+      "english": "docs/en/v3.0.0-release-evidence.md",
+      "source_sha256": "3d09bb592466868c6b1cc3876a056357e6ba372354d3efa772ea93967d4c4d3f"
+    },
+    {
+      "source": "docs/v3.0.0-upgrade.md",
+      "english": "docs/en/v3.0.0-upgrade.md",
+      "source_sha256": "58c9713c11f5c532a074c4b444c0190ecb36e88b45001a97c05e4c32f8241aa8"
+    },
+    {
+      "source": "docs/v3.0.1-acceptance.md",
+      "english": "docs/en/v3.0.1-acceptance.md",
+      "source_sha256": "36b6066fe60af64e604c63cc4a6d92eccea065d4af2ef31a2872f268a8adaed2"
+    },
+    {
+      "source": "docs/v3.0.1-design.md",
+      "english": "docs/en/v3.0.1-design.md",
+      "source_sha256": "3c095d0612539bec67f89287c889a5bb1caafa51fdf64b624578c76f708cae19"
+    },
+    {
+      "source": "docs/v3.0.1-release-evidence.md",
+      "english": "docs/en/v3.0.1-release-evidence.md",
+      "source_sha256": "d446946f237cbd959ecf984d16b596c9c434a97f11740cdf82ae9236772535f9"
+    },
+    {
+      "source": "docs/v3.0.2-acceptance.md",
+      "english": "docs/en/v3.0.2-acceptance.md",
+      "source_sha256": "fd4bb0373af748ef9119c4d2f8646cbe9019531b90cea8dd3436991ac7bb3508"
+    },
+    {
+      "source": "docs/v3.0.2-design.md",
+      "english": "docs/en/v3.0.2-design.md",
+      "source_sha256": "6bd25f55ea87963b9fa5597c40e5f2aa3703dfcfc96babce4d0a0ee0522f3dce"
+    },
+    {
+      "source": "docs/v3.0.2-release-evidence.md",
+      "english": "docs/en/v3.0.2-release-evidence.md",
+      "source_sha256": "659cd79053849a3a60244e14c6b1dfb49025a6c7ac9d2bb37f738e688a457f53"
+    },
+    {
+      "source": "docs/vastbase-g100-v060.md",
+      "english": "docs/en/vastbase-g100-v060.md",
+      "source_sha256": "0f56aa5d5323fcbede19085d1286dca3c47c29784cb5174bb5431e766361112d"
+    },
+    {
+      "source": "docs/WEBUI_GAP.md",
+      "english": "docs/en/WEBUI_GAP.md",
+      "source_sha256": "e8029c1fb553bf63e6496d0a03049475c53868bf025dd1ce78bca0fe69848139"
+    },
+    {
+      "source": "docs/yashan-dialect.md",
+      "english": "docs/en/yashan-dialect.md",
+      "source_sha256": "a417be412453a22cd29558143f6fcf6ccece3f9459bb64237aad005cd85baf8b"
+    },
+    {
+      "source": "docs/yashan-verification-b71.md",
+      "english": "docs/en/yashan-verification-b71.md",
+      "source_sha256": "8bf85edac62ea82820c16cd0b627e1a678dc8fb0a3441fffb337318e802272fc"
+    },
+    {
+      "source": "website/README.md",
+      "english": "website/README.en.md",
+      "source_sha256": "19b3ec3cd890ab52567253a7a8badf7af6971ba43f2b086508fdaa7cf58160a4"
+    },
+    {
+      "source": "website/deploy/README-DEPLOY.md",
+      "english": "website/deploy/README-DEPLOY.en.md",
+      "source_sha256": "0d4911010fb3870cc2f401e2e66560bf82a9385cb6ca5d1d65f9ba25189d3be8"
+    },
+    {
+      "source": "deploy/kubernetes/README.md",
+      "english": "deploy/kubernetes/README.en.md",
+      "source_sha256": "07c7bce1ba07649877147fc9f7a21b586198f4cd5a17e2290e12744958672320"
+    },
+    {
+      "source": "deploy/ecs-demo/README.md",
+      "english": "deploy/ecs-demo/README.en.md",
+      "source_sha256": "8e1418b68226c7b785dd2334a664f27f8f94caaadb0adfb0eaf7f193f4705cfb"
+    },
+    {
+      "source": "dbext/packaging/README.md",
+      "english": "dbext/packaging/README.en.md",
+      "source_sha256": "24f72668ffed9b06871018289b6eb1b61eb9c258001c501b31420d840c8e8477"
+    },
+    {
+      "source": "examples/observability/README.md",
+      "english": "examples/observability/README.en.md",
+      "source_sha256": "a61e1387afaffc74e5338f6a0f1306f7caad57760ab2aff35c60ac94e74f65e6"
+    },
+    {
+      "source": "internal/b5wal/CONTRACT.md",
+      "english": "internal/b5wal/CONTRACT.en.md",
+      "source_sha256": "eee23dfad6013827ac8c604d5234a03bd36cda16c2220885ff2be46c78f4d6fb"
+    },
+    {
+      "source": "internal/b5dml/CONTRACT.md",
+      "english": "internal/b5dml/CONTRACT.en.md",
+      "source_sha256": "a90829336346e255b59e84165bd99de6be2deefd50f144a2b31d373b573967b7"
+    },
+    {
+      "source": "internal/authorizedexecute/internal/businessdb/dm_oracle_deep.md",
+      "english": "internal/authorizedexecute/internal/businessdb/dm_oracle_deep.en.md",
+      "source_sha256": "92b5bb318d54066fc9821a867aa0a0195a312696e5bd8ce3472ef7f88d3a678e"
+    },
+    {
+      "source": "internal/store/testdata/s5c-release-notes-snippet.md",
+      "english": "internal/store/testdata/s5c-release-notes-snippet.en.md",
+      "source_sha256": "ab4538bf3b14724e059e2c5794110c3e955a6e2b5c23ca08cd09f18727cbe862"
+    }
+  ]
+}

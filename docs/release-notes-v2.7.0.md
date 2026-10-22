@@ -1,5 +1,7 @@
 # AgentSQL v2.7.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.7.0.md) | [English](en/release-notes-v2.7.0.md)
+
 状态：正式发布。封版 CI、升级恢复、签名资产、GHCR、官网和公网 Demo 的实际结果见[发布证据](v2.7.0-release-evidence.md)。
 
 ## 本版范围

@@ -1,5 +1,7 @@
 # 崖山 YashanDB 批七十一接入验证
 
+**语言 / Language:** [简体中文](yashan-verification-b71.md) | [English](en/yashan-verification-b71.md)
+
 验证日期：2026-10-08（Asia/Shanghai）。本报告只针对本机
 `yashandb:yashandb-image-23.4.1.109-linux-x86_64`、容器 `yashan-v06`、
 崖山模式及列出的合成 SQL。**已获厂家口头授权（C 客户端再分发）**；仓库

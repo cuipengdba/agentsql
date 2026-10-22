@@ -1,12 +1,16 @@
 # AgentSQL 使用手册
 
-> 本文说明 AgentSQL v3.0.1 的功能与操作。安装或拉取 v3.0.1 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+**语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-本手册按控制台主要菜单说明 v3.0.1 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.0.1 发布说明](release-notes-v3.0.1.md)和[验收记录](v3.0.1-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+
+> 本文说明 AgentSQL v3.0.2 的功能与操作。安装或拉取 v3.0.2 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+
+本手册按控制台主要菜单说明 v3.0.2 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.0.2 发布说明](release-notes-v3.0.2.md)和[验收记录](v3.0.2-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。英文使用手册尚未完整翻译，以中文文档及对应版本验收记录为准。
 
-## v3.0.1 能力目录与交付诊断
+## v3.0.2 能力目录与交付诊断
 
 控制台「数据源」页按类型显示 Agent 能力层级、入口工具、限定范围和验收文档。`/api/v1/datasource-types` 的 `support` 字段来自同一服务端目录；MCP `list_datasources` 只为当前 Agent 可见的数据源附带同一说明。层级依次为 `controlled_sql`、`bounded_sql`、`controlled_read_tool` 和 `connection_preview`。最后一层仅表示连接或管理预览，不能作为 Agent 读权限使用。任何层级都不自动授权真实请求，仍需逐次通过身份、对象及列策略、执行、脱敏和持久审计。
 
@@ -800,7 +804,7 @@ agentsqlctl health --config /etc/agentsql/config.yaml --timeout 3s
 
 升级器会做预检、备份和失败回滚；具体命令、服务状态检查和离线包流程见 [DEPLOY.md](DEPLOY.md)。不要跳过外部备份确认。
 
-v1.0.0 可在迁移窗口前使用 `agentsqlctl migrate --check --config /etc/agentsql/config.yaml` 读取已配置的 metadata/audit schema 版本。退出码 `0` 为全部当前版本，`2` 为待迁移，`1` 为配置、连接或迁移历史错误。`--check` 不执行 DDL，不创建缺失的 SQLite 库，也不验证全部数据库结构或跨库一致性；待迁移状态不能直接启动新版服务。完成成套备份并停止写入后，由 migration owner 运行 `agentsqlctl migrate`，再用运行账号复核 `--check` 为 `0`。PostgreSQL 分库要成对备份 metadata、audit 和对应 `AGENTSQL_SECRET`；详细顺序见 [部署指南](DEPLOY.md#升级与回滚)和 [v0.7 运维手册](v0.7-operations-runbook.md)。v0.6.0 安装包不含 `migrate --check`。
+v1.0.0 可在迁移窗口前使用 `agentsqlctl migrate --check --config /etc/agentsql/config.yaml` 读取已配置的 metadata/audit schema 版本。退出码 `0` 为全部当前版本，`2` 为待迁移，`1` 为配置、连接或迁移历史错误。`--check` 不执行 DDL，不创建缺失的 SQLite 库，也不验证全部数据库结构或跨库一致性；待迁移状态不能直接启动新版服务。完成成套备份并停止写入后，由 migration owner 运行 `agentsqlctl migrate`，再用运行账号复核 `--check` 为 `0`。PostgreSQL 分库要成对备份 metadata、audit 和对应 `AGENTSQL_SECRET`；详细顺序见 [部署指南](DEPLOY.md#升级与回滚)和 [当前版本运维手册](OPERATIONS.md)。v0.6.0 安装包不含 `migrate --check`。
 
 备份铁律：**控制面数据库与生成其数据源密码密文的 `AGENTSQL_SECRET` 必须成对备份、成对恢复。** 仅有数据库或仅有 SECRET 都不能恢复已有数据源密码。
 

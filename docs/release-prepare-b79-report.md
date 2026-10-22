@@ -1,5 +1,7 @@
 # Batch 79 ProductionPrepare 与签名复验报告
 
+**语言 / Language:** [简体中文](release-prepare-b79-report.md) | [English](en/release-prepare-b79-report.md)
+
 **状态：本地 15 项候选资产和 C 节校验通过；发布来源审计仍有一项遗留。** 时间均为 2026-10-09 Asia/Shanghai。本批没有执行 git add/commit/tag/merge/push、上传或发布。
 
 ## Gate 修复与运行方式

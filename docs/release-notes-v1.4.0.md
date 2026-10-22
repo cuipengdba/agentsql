@@ -1,5 +1,7 @@
 # AgentSQL v1.4.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.4.0.md) | [English](en/release-notes-v1.4.0.md)
+
 ## 范围
 
 PostgreSQL metadata 部署中的控制台密码与 LDAP 登录改用共享尝试预算。每个规范化租户/账号从首次尝试起的 60 秒内最多 10 次，两个网关在数据库事务中共同裁定；预算键为部署密钥计算的 HMAC，不存账号明文。metadata 故障返回 503，预算耗尽返回 429。SQLite 单节点仍使用本地预算。

@@ -1,5 +1,7 @@
 # MCP Streamable HTTP 会话修复设计
 
+**语言 / Language:** [简体中文](mcp-session-fix.md) | [English](en/mcp-session-fix.md)
+
 ## 范围与现状
 
 本设计只处理 MCP server 的传输会话、路由与错误响应，不改变 stdio / Streamable HTTP 两种既有协议形态，也不改变数据库查询、授权、审计或脱敏链路。

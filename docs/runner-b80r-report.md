@@ -1,5 +1,7 @@
 # batch80r runner 改造报告
 
+**语言 / Language:** [简体中文](runner-b80r-report.md) | [English](en/runner-b80r-report.md)
+
 日期：2026-10-09。只改造了 `scripts/codex-batch-runner.ps1`；没有运行发布任务、联网或执行 git 写操作。
 
 ## 用法

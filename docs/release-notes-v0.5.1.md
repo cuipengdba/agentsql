@@ -1,5 +1,7 @@
 # AgentSQL v0.5.1 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v0.5.1.md) | [English](en/release-notes-v0.5.1.md)
+
 ## 本次更新
 
 - MCP stdio 默认采用标准逐行 JSON 消息，供标准 MCP 客户端连接；已有自定义长度前缀客户端可显式使用 `agentsql mcp --sealed-stdio`。HTTP MCP 允许 `2025-06-18` 与 `2025-11-25` 两个已验证的有状态握手版本，并拒绝未知版本及相互冲突的版本声明。

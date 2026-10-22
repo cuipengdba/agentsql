@@ -1,5 +1,7 @@
 # AgentSQL v0.2.0
 
+**语言 / Language:** [简体中文](release-notes-v0.2.0.md) | [English](en/release-notes-v0.2.0.md)
+
 > 面向 AI Agent 的数据库安全网关 / 生产级 MCP Server。让模型发出的每一条 PostgreSQL/MySQL 请求，在到达数据库前先过一道「鉴权 → 解析 → 授权 → 规则 → 审批 → 执行 → 脱敏 → 审计」的安全闸。
 >
 > 中文品牌名：智盾（控制台显示为「AgentSQL 智盾控制台」）。

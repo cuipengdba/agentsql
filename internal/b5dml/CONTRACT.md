@@ -1,5 +1,7 @@
 # B5 S5a DML/begin contract (feature off)
 
+**语言 / Language:** [简体中文](CONTRACT.md) | [English](CONTRACT.en.md)
+
 This package is an isolated contract implementation. The feature-off S5b
 adapter in `internal/authorizedexecute/internal/businessdb/postgres_dml_binder.go`
 is its only non-test consumer. There is still no production caller, migration,

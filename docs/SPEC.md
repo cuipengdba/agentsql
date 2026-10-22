@@ -1,6 +1,10 @@
 # AgentSQL 架构与工程规格
 
-> 版本：v0.5.0（已发布）｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
+**语言 / Language:** [简体中文](SPEC.md) | [English](en/SPEC.md)
+
+> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+
+> 版本：v3.0.2｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
 > 完整可运行的配置样例见 `examples/`，完整建表 DDL 见 `internal/store/migrations/`；当本文与源码出现分歧时，以源码与测试为准并提 issue 修正本文。
 
 ---
@@ -38,7 +42,7 @@ AgentSQL 是**网关层**防护，必须如实理解其边界：
 - `range` 把数值泛化为等宽区间、把日期截断到年/季/月，以保留粗粒度分布；它不是匿名化，同一桶内的值仍可关联，也不承诺 k-匿名。数值区间、日期时段与空值状态仍然可见，小桶、细粒度、小样本、多 offset 或辅助查询可能带来重识别风险，敏感场景应配合 `block` 或审批。
 - 四种脱敏都在数据库执行后处理，不减少数据库读取，也不阻止数据库侧使用原值执行 WHERE/JOIN/GROUP BY；它们只改变向调用方返回的结果单元。
 - 审计是**应用层只追加（append-only）记录**，不是法规级 WORM，不防 DBA 直接改库；v0.4 审计完整性链的证明范围与信任边界见下一节，签名 / WORM 保留锁仍属企业版路线图。
-- PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束；多副本高可用、跨实例事件广播属企业版路线图。
+- PostgreSQL 的 B2 列级授权、B5 跨请求逻辑会话与计划事务均出厂默认开启；MySQL 不进入 B2 PostgreSQL 路径，且不支持 B5 跨请求事务。每个 operation 仍只允许一条顶层 SQL，并受预检计划和会话安全边界约束；已验证的双网关无状态只读拓扑见 [Kubernetes 参考](../deploy/kubernetes/README.md)，不扩展为 B5 有状态事务的高可用承诺。
 - 安全默认 **fail-closed**：无法解析、无法判定、或审计 / 数据库等依赖不可用时，**拒绝执行**，而不是放行。
 
 ### 1.4 审计完整性链：信任边界与不检测范围
@@ -345,24 +349,22 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 
 ---
 
-## 8. 兼容矩阵（v0.5.0）
+## 8. 当前兼容性与能力声明
 
-| 维度 | 支持情况 |
-|---|---|
-| 完整防护业务库（🟢） | MySQL 8.0；PostgreSQL 14 / 15 / 16 / 17 / **18** |
-| 受控只读注册项（🔵） | `oracle`、`dm`、`yashan`、`sqlserver`、`vastbase`、`highgo`；连接/元数据及各自限定的只读子集，不继承 PostgreSQL/MySQL 完整防护闭环 |
-| 连接级注册项（🔷） | 7 类 21 款 NoSQL / 向量数据源；ping、版本、Schema 与只读预览按适配器有界提供，不承诺完整检索或写入 |
-| 另列指定实例（不计入注册表） | KingbaseES V9R1C10 PG 模式已按指定合成场景验收；其他版本、模式与完整生产支持未验证 |
-| 控制面 / 元数据库 | SQLite（默认）；PostgreSQL 15+，基准与推荐 **PG18**（开源免费） |
-| 审计库 | 随元数据库，或独立 PostgreSQL（最小权限仅 INSERT/SELECT） |
-| MCP 传输 | stdio；Streamable HTTP `/mcp`（MCP 2025-06-18） |
-| 控制台 | 深色 / 浅色双主题，单二进制内嵌，默认仅回环 |
-| 部署 | Docker / Docker Compose、Linux systemd 单二进制 |
-| 可观测 | Prometheus 指标 + Grafana 面板 + 健康 / 就绪探针 |
-| 演示 | 一键自托管 Live Demo（只读、每日重置、六剧本） |
-| 列级脱敏 | 支持全局列、表.列、模式.表.列三档作用域，唯一归属时精确匹配，未解析且可能涉及受保护表时固定阻断 `***`；九类型能力矩阵：六类支持 `mask` / `hash` / `block`，`generic` 支持 `hash` / `block`，`number` / `date` 支持 `hash` / `block` / `range`；无 key 时 `mask` / `block` / `range` 正常运行；discovery 只生成六类 `mask` table-only disabled 草稿 |
+能力目录以 `internal/model/datasource_capabilities.go` 为可执行定义。管理 API、Web 和授权后的 MCP `list_datasources` 共用这份目录；声明本身不授予权限。
 
-注册表的 30 款类型、类别与默认端口以 `internal/model/datasource_types.go` 为准；21 款 NoSQL / 向量的逐项对照及 HBase/Couchbase 端口例外见 [NoSQL 支持范围](nosql-support.md)。DM8、金仓、Vastbase、瀚高、崖山、Oracle Free、SQL Server 2025 和 openGauss 7.0.0 LTS 的指定实例证据范围各不相同，分别见对应版本的[路线图与验收链接](../ROADMAP.md)和 [SECURITY.md](../SECURITY.md)。其中 v2.3.0 SQL Server 2025 Developer 的最小权限、严格 TLS、HTTP MCP、R010、脱敏、持久审计和故障关闭只覆盖隔离 x86_64 合成实例与窄 SELECT；不继承 PostgreSQL 的 B2/B5，也不表示厂商认证或完整生产支持。v2.4.0 openGauss 仅在官方 7.0.0 LTS 指定构建开放独立受限只读类型，强制 `verify-full`、精确身份、只读会话和普通物理单表有界 SELECT；GaussDB 商业版及 B2/B5 未验证。无法证明的方言和拓扑继续失败关闭。
+| 能力层级 | 当前边界 |
+| --- | --- |
+| `controlled_sql` | PostgreSQL 14–18、MySQL 8.0/8.4 的已验证受控 SQL 子集；列策略、审批和事务仍受具体配置、表结构与授权限制。 |
+| `bounded_sql` | Oracle、DM、YashanDB、SQL Server、Vastbase、HighGo、openGauss 等各自指定版本与窄 SELECT；不继承 PostgreSQL B2/B5。 |
+| `controlled_read_tool` | MongoDB `find_documents`、Redis/Valkey `read_key`、ClickHouse `query_analytics`、Milvus `search_vectors`；各自需要精确授权、来源脱敏和持久审计。 |
+| `connection_preview` | 其他注册项只提供各自连接与元数据预览；没有对应 Agent 业务查询工具，不表示完整生产支持。 |
+| 控制面 | SQLite 默认合库 schema 23；PostgreSQL 分库 metadata schema 22、audit schema 6。 |
+| MCP 与客户端 | stdio、带握手的 `/mcp` 与独立无状态 `/mcp/2026-07-28`；具体工具和身份要求见 [接入指南](INTEGRATIONS.md)。 |
+| 控制台 | 中英文、浅色/深色主题、独立滚动导航、单二进制内嵌。 |
+| SQLBot | v1.10.2 PostgreSQL 执行层适配；固定工作空间映射、Agent Key、授权后的字段类型、脱敏和持久审计，不退回业务直连。 |
+
+30 款注册类型、端口与类别见 `internal/model/datasource_types.go`。完整逐项矩阵与当前证据入口见 [README](../README.md)、[当前运维手册](OPERATIONS.md)和 [数据库支持说明](nosql-support.md)。KingbaseES V9 PG 模式另列指定实例，不按一个新注册类型计算。厂商版本、模式、集群、主备、许可与生产负载必须逐项验证；文档更新不扩大支持范围。
 
 ---
 
@@ -374,14 +376,14 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 - **真实库 E2E**：用 testcontainers 拉起真实 PostgreSQL 18 与 MySQL 8，覆盖只读放行、越权拒绝、无 WHERE 写拦截、脱敏、审批、审计可查；控制面在 SQLite 与 PostgreSQL 两种布局下双跑。
 - **「写攻击零触库」双证据**：以假执行器（fake executor）相关方法零调用，加上真实业务库执行前后行数 / 校验和不变，共同证明危险写与 DDL 不触库。
 - **性能口径（避免误导）**：文档中的只读 P99 延迟是**剥离了真实数据库网络与 I/O 的网关 CPU 路径微基准**（假执行器、固定并发、内存态），用于守住网关自身 CPU 预算，**不代表端到端延迟**；受控写因新增事务与审计往返，真实延迟必然更高，只记录不套用该门限。
-- **当前证据与保留项**：批六十一 PostgreSQL parser 的 5 ms P99 闸门在指定 Linux 环境两组各 5/5 通过，但发布日仍须按相同门槛独占复测；全仓 short tests 尚未形成 PASS。批六十七新增 parser malformed/并发错误路径与 pipeline 执行前拒绝测试，覆盖范围和离线限制见 [测试覆盖说明](test-coverage-notes.md)。
+- **当前证据与保留项**：批六十一 PostgreSQL parser 的 5 ms P99 闸门在指定 Linux 环境两组各 5/5 通过，但发布日仍须按相同门槛独占复测；历史批次当时未形成全仓 short tests PASS；当前正式版 Go/Web/漏洞检查状态须查看对应 Release 的提交与 CI，不能沿用历史待办作为当前结论。批六十七新增 parser malformed/并发错误路径与 pipeline 执行前拒绝测试，覆盖范围和离线限制见 [测试覆盖说明](test-coverage-notes.md)。
 
 ---
 
 ## 10. 授权、版本与路线图
 
 - 源代码采用 **Apache License 2.0**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
-- **当前已发布代码**：第 8 章的能力档位按各自边界提供；RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 与审计哈希链已有实现，不能再列作整体未交付。实际启用条件、未完成的 Agent 租户传播与身份系统终验见 [Release Notes](release-notes-v0.5.md)。
+- **当前已发布代码**：第 8 章的能力档位按各自边界提供；RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 与审计哈希链已有实现，不能再列作整体未交付。当前启用条件见 [身份指南](AUTHENTICATION.md)、[MCP 接入](INTEGRATIONS.md)与 [本版验收](v3.0.2-acceptance.md)；旧版本验收只作为引入时证据。
 - **后续方向**：完整国产/商业数据库方言与厂商目标环境终验、法规级 WORM / 外置 SIEM、多副本 HA、K8s Operator、跨实例集中管控等仍需后续验证或实现；本规格不将其计作已交付能力。
 - 商业合作：**87326549@qq.com** ｜ **https://agentsql.cn**
 

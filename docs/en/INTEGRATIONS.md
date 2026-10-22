@@ -1,89 +1,178 @@
-> Source: [../INTEGRATIONS.md](../INTEGRATIONS.md)
+# AgentSQL MCP Access Guide
 
-# AgentSQL MCP Integration Guide
+**Language:** [English](INTEGRATIONS.md) | [Simplified Chinese](../INTEGRATIONS.md)
 
-> **Historical English guide for AgentSQL v0.6.0.** For the v0.7.0 MCP `2026-07-28` endpoint, client guidance, and current support limits, use the [Chinese MCP Integration Guide](../INTEGRATIONS.md) and [v0.7.0 release notes](../release-notes-v0.7.0.md). The examples below describe the v0.6.0 behavior; verify the exact [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.6.0) before using its assets.
+> This article explains the MCP access of AgentSQL v3.0.2. Before installing or pulling v3.0.2, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
 
-This guide explains how to connect an MCP client to AgentSQL. See the [User Guide](../USER_GUIDE.md) for identity, authorization, rules, approval, and capability boundaries, and [Getting Started](GETTING_STARTED.md) for a first deployment. See the [Notification Guide](../NOTIFICATIONS.md) to forward decision events to Webhook endpoints, alert groups, or Syslog.
+This article explains how to connect the MCP client to AgentSQL. For identity, authorization, rules, approval and capability boundaries, see the [ user manual ](USER_GUIDE.md). For first-time deployment, see [ for quick start ](GETTING_STARTED.md). For outsourcing decision-making events to Webhook, alarm groups or Syslog, see [ notification outgoing guide ](NOTIFICATIONS.md).
 
-## Choose a Transport
+v3.0.2of`list_datasources`Adds data sources visible to the current Agent`support`Statement: Hierarchy, available tools, scope, and evidence documentation. It only describes authenticated entries and does not replace progressive authorization. Isolated synthetic data environment to run`scripts/mcp-acceptance.py`Check tool discovery, allow, R010 deny, mask, and two persistent audit IDs; API Key is only available from`AGENTSQL_MCP_ACCEPTANCE_KEY`Environment variables are read. Example:
 
-### Streamable HTTP: Preferred for a Running Service
+```bash
+AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py \
+  --mcp-url https://demo.agentsql.cn/mcp --datasource-id "$DEMO_DATASOURCE_ID" \
+  --allow-sql 'SELECT id, name, phone FROM public.users LIMIT 2' \
+  --deny-sql 'DELETE FROM public.users WHERE id = 1' --deny-rule R010
+```
 
-When AgentSQL is already running through the installer, systemd, or Compose, connect directly with:
+The actual data source ID and synthetic script SQL of the actual demo should be based on the current configuration of the environment; do not send real customer data to the public network demo. The script only outputs the verdict, audit ID, and number of masked cells.
+
+## Select transfer method
+
+### Streamable HTTP: preferred when the service is already running
+
+When the installer, systemd or Compose is already running AgentSQL, connect directly:
 
 - Endpoint: `http://127.0.0.1:7780/mcp`
 - Identity header: `Authorization: Bearer <Agent API Key>`
-- MCP protocol version in v0.6.0: `2025-06-18` or `2025-11-25` (both use the session handshake). The `2026-07-28` protocol is available in v0.7.0 on a separate path; see the [current Chinese guide](../INTEGRATIONS.md).
-- `Accept`: `application/json, text/event-stream`
-- Mode: stateful by default (`initialize` returns `Mcp-Session-Id`), with an explicit stateless fallback
-- Resumption: legacy-protocol SSE events are persisted by default; reconnect with `GET /mcp` and `Last-Event-ID`. A TTL/capacity gap returns HTTP 400 without a partial suffix
-- Maximum request body: 4 MiB
+- MCP protocol version: `2025-06-18` or `2025-11-25` (both are old handshake protocols; the new version uses the following independent entrance)
+- `Accept`：`application/json, text/event-stream`
+- Mode: Default stateful (initialize returns `Mcp-Session-Id`); can explicitly fall back to stateless
+- Disconnection replay: The old stateful protocol persists SSE events by default; reconnect with `GET /mcp` + `Last-Event-ID`. If the event has been recycled due to TTL/capacity, HTTP 400 will be returned, and some events will not be returned.
+- Single request body limit: 4 MiB
 
-An Agent API Key is not a console administrator token. Disabling, expiring, or deleting an Agent, or rotating its Key, invalidates the old Key immediately.
+Agent API Key is not a console administrator token. After the Agent is disabled, expires, deletes or rotates the Key, the old Key becomes invalid immediately.
 
-The go-sdk transport-session map remains process-local. After a process restart, a request carrying an old `Mcp-Session-Id` receives HTTP 404 plus `Mcp-Session-Expired: 1`; discard that ID and run `initialize` again. The new session never consumes events from the old session.
+### Optional personnel identity delegation (from v1.0.0, extended to v1.1.0)
 
-The service should bind only to the loopback address by default. For remote access, use SSH local forwarding or a controlled TLS reverse proxy. Never expose `0.0.0.0:7780` directly to the public internet.
+Administrators can enable `mcp.delegation.require_human_token: true` in the configuration while maintaining `server.console_enabled: true`. After enabling, each request of the two HTTP MCP portals must carry the Agent Key and the human delegation token respectively:
+
+```http
+Authorization: Bearer <Agent API Key>
+X-AgentSQL-User-Authorization: Bearer <人员委托令牌>
+```
+
+Personnel with `query.execute` authority first log in through the console (local account, LDAP or OIDC), and then issue by Agent ID in "Task Authorization → MCP User Identity Delegation"; they can also be called with a console login token:
 
 ```bash
-# Requires remote AgentSQL to listen on 127.0.0.1:7780 and a configured SSH identity
+curl -fsS -X POST http://127.0.0.1:7780/api/v1/auth/delegation-token \
+  -H "Authorization: Bearer ${AGENTSQL_ADMIN_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  --data '{"agent_id":"<Agent ID>"}'
+```
+
+`data.token` in the response is only applicable to the specified Agent, and cannot access the console API for up to 30 minutes; ordinary console login tokens cannot be directly filled in the second MCP request header. When the original login session exits or expires, the user is deactivated, or `query.execute` is revoked, the delegation token becomes invalid immediately. The stateful `/mcp` session is bound to the person's identity, and replacement requires `initialize` again. The task-level Key also requires that the user to whom the token belongs is consistent with the authorized issuer. Token issuance requires management auditing to be writable, otherwise it fails to close.
+
+Starting from v1.1.0, approval application and execution, and B5 cross-request sessions are also bound to the initiator, agent, and tenant; cross-person reuse or when the original personnel's permissions expire are rejected. Please confirm that the MCP client can safely configure two HTTP identity headers before enabling this switch. Public Live Demos do not use this mode.
+
+Process restart will not restore go-sdk's memory transport session. Requests carrying the old `Mcp-Session-Id` will receive an HTTP 404 with `Mcp-Session-Expired: 1`; the client should discard the old ID and retry `initialize`. The new session will not read events from the old session.
+
+### 2026-07-28 Stateless HTTP (from v0.7.0)
+
+The new protocol uses `http://127.0.0.1:7780/mcp/2026-07-28`. This path only accepts `2026-07-28` and will not negotiate to the old version; the behavior and default configuration of the old `/mcp` remain unchanged. Each POST of the new path re-verifies the Agent API Key, determines the tenant by this key, and shares the same Agent's QPS limit with the old path. Request bodies are still limited to 4 MiB, and responses continue to adhere to gateway caps.
+
+The client must send every request`Authorization: Bearer <Agent API Key>`、`MCP-Protocol-Version: 2026-07-28`、`Mcp-Method`、`Content-Type: application/json`with`Accept: application/json, text/event-stream`;When calling the tool, you also need to send the`params.name`consistent`Mcp-Name`。`params._meta`Must contain the same version`io.modelcontextprotocol/protocolVersion`and`io.modelcontextprotocol/clientCapabilities`. The client can first call`server/discover`query capability, you can also call the tool directly; no need`initialize`or`notifications/initialized`. This path has no MCP transport session, independent GET event stream, DELETE close or`Last-Event-ID`replay; receive old`Mcp-Session-Id`or`Last-Event-ID`Ignore them when requesting headers. After the connection is disconnected, it is up to the client to decide whether to try again with a new request ID. See details[MCP 2026-07-28 HTTP Specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)and[Go SDK Protocol Guide](https://github.com/modelcontextprotocol/go-sdk/blob/main/docs/protocol.md)。
+
+The new path registers the 12 basic tools listed below for ordinary Agent Key. **does not currently provide the B5 cross-request logical session and planned transaction tool**. The task-level temporary read-only Key only registers `query`, and queries must still pass temporary authorization and original Agent permissions. The business session of B5 is a different concept from the MCP transmission session; continue to use the old `/mcp` or stdio when B5 is needed. `mcp.http.stateful` only controls the old path and does not change the stateless semantics of the new path. The client shall not regard the administrator token or self-reported tenant header as the Agent identity.
+
+Starting from v1.6.0, this stateless portal will pass the HTTP client disconnect to the executing read-only query; the gateway will check again for timeout or cancellation status before delivering the results. The old state `/mcp` continues to terminate the request according to the server statement timeout to preserve the B5 session rollback constraints. If the client tries again after disconnecting, it should use a new request ID and confirm the final status of the previous request according to the audit record; do not regard the disconnection as the query has been successful.
+
+```bash
+curl -fsS http://127.0.0.1:7780/mcp/2026-07-28 \
+  -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: server/discover' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"agentsql-smoke","version":"1.2.0"}}}}'
+```
+
+### v1.2.0 Optional MCP OAuth entry
+
+`/mcp/oauth`is an independent MCP`2026-07-28`Protected resource entry, closed by default. Before enabling, configure the console OIDC identity source and create the corresponding managed OIDC user in the same tenant;`mcp.oauth.issuer_url`and`tenant_id`Must match the console OIDC configuration exactly. The authorization server must issue an RS256 JWT Access Token to the resource, which`aud`Include**precise** `resource_url`, scope contains a single configured`required_scope`. Production issuer and resource URLs must use HTTPS; HTTP is only used for native loopback testing.
+
+```yaml
+mcp:
+  oauth:
+    enabled: true
+    issuer_url: "https://id.example.com/realms/agentsql"
+    resource_url: "https://mcp.example.com/mcp/oauth"
+    tenant_id: "tenant_default"
+    required_scope: "agentsql:mcp"
+```
+
+The client is pre-registered in the authorization server and is responsible for the authorization code, PKCE and `resource` parameters. `mcp.json` of MCP Inspector 2.11.0 can use the following form; where `scopes` must be a string, and Agent Key and OAuth Access Token are two independent credentials:
+
+```json
+{
+  "mcpServers": {
+    "agentsql-oauth": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp/oauth",
+      "protocolEra": "modern",
+      "headers": {"X-AgentSQL-Agent-Key": "<Agent API Key>"},
+      "oauth": {"clientId": "<预注册客户端 ID>", "scopes": "agentsql:mcp"}
+    }
+  }
+}
+```
+
+Without Access Token, the server passes`WWW-Authenticate`point to`/.well-known/oauth-protected-resource/mcp/oauth`. User, Agent, Tenant and`query.execute`Permissions are requested to be re-verified each time; console session tokens, old personnel delegation tokens, tokens from other resources and URL query parameters cannot replace the Access Token of this entrance. Currently, only Keycloak 26.4.6 + Inspector 2.11.0 is tested; Dify 1.17.1 only verifies the old version.`/mcp`entrance. See results and boundaries[v1.2.0Acceptance record](v1.2.0-acceptance.md)。
+
+The service should only bind to the loopback address by default. When using it remotely, select SSH local forwarding or controlled TLS reverse proxy; prohibit `0.0.0.0:7780` from streaking on the public network.
+
+```bash
+# Applicable premise: the remote AgentSQL only listens to 127.0.0.1:7780; the local machine has configured SSH identity
 ssh -N -L 7780:127.0.0.1:7780 user@agentsql-host
 ```
 
-The client then continues to connect to `http://127.0.0.1:7780/mcp`. A reverse proxy must provide TLS, access control, and rate limiting. Do not log the `Authorization` header.
+Then the client still connects to `http://127.0.0.1:7780/mcp`. TLS, access control, and flow limiting must be configured when using a reverse proxy; do not log the `Authorization` header.
 
-### stdio: A Local Desktop Agent
+### stdio: stand-alone desktop agent
 
-stdio starts a new AgentSQL runtime:
+stdio will start a new AgentSQL runtime:
 
 ```bash
-# Requires a local agentsql binary and access to the absolute config and control-plane storage paths
-AGENTSQL_SECRET='<EXACTLY_32_BYTES_PAIRED_WITH_THE_CONTROL_PLANE>' \
+# Applicable prerequisite: agentsql has been installed on this machine; the current user can read the absolute path configuration and control plane storage
+AGENTSQL_SECRET='<与控制面配对的恰好 32 字节值>' \
 AGENTSQL_API_KEY='<Agent API Key>' \
 agentsql mcp --config /absolute/path/config.yaml
 ```
 
-`--config` can be abbreviated to `-c` and defaults to `config.yaml` in the current directory. Prefer providing the Key through `AGENTSQL_API_KEY`. Do not place it in `--api-key`, where it would appear in process arguments. stdio and HTTP use the same tool-registration rules: eight base tools are always available, and eight session/transaction tools are added when B5 is enabled, as it is by default.
+`--config` can be abbreviated as `-c`, and the default is `config.yaml` in the current directory. Key is provided first through `AGENTSQL_API_KEY`; do not put Key into `--api-key`, otherwise it will appear in the process parameters. stdio and HTTP use the same set of tool registration rules: ordinary Agent Key provides 12 basic tools, and 8 session/transaction tools are provided when B5 is turned on by default; task-level temporary read-only Key only provides `query`.
 
-> **Important: stdio is not a proxy to an AgentSQL service already running under systemd.** It creates a separate runtime that must be able to read the configuration and metadata/audit control-plane storage, and it must use the same `AGENTSQL_SECRET` that encrypts the data source credentials. The installer creates `/etc/agentsql/agentsql.env` with `0600 root:root` permissions, so an ordinary desktop user cannot read it. If the installed service is already running, use HTTP directly.
+> **Important: stdio is not a proxy to a running systemd service.** It creates a new set of runtimes that must be able to read configuration, metadata/audit control plane storage, and use the same `AGENTSQL_SECRET` credentials as the encrypted data source. The `/etc/agentsql/agentsql.env` permission generated by the installer is `0600 root:root`, which cannot be read by ordinary desktop users; please use HTTP directly when the service has been installed and running.
 
-stdio mode disables the console and event stream; do not expect it to provide the console UI.
+stdio mode turns off the console and event streaming; don't expect it to provide a console UI.
 
-## MCP Tools
+## MCP tools
 
-Every SQL argument accepts exactly one statement; stacked statements are not allowed. Clients must inspect the `decision` field in the structured result.
+All SQL parameters only accept a single statement, stacking of multiple statements is not allowed. The client must read `decision` in the structured result.
 
-The following eight base tools are always registered:
+Ordinary Agent Key registers the following 12 basic tools; task-level temporary read-only Key only registers `query`:
 
-| Tool | Purpose | Inputs | Possible decisions and key semantics |
+| Tools | Purpose | Add ginseng | Possible decisions and key semantics |
 | --- | --- | --- | --- |
-| `list_datasources` | List data sources authorized for the current Agent | None | A successful response contains public identifiers, never the host, password, or connection parameters; failures return `error` |
-| `list_schema` | Read authorized schema information, filtered by column permissions | `datasource_id`; optional `table` | Success normally returns `allow`; `table` accepts only letters, digits, underscores, and at most one dot in `table` or `schema.table`, without quoted or special identifiers; narrow the request to a specific table if the result would exceed 10,000 rows |
-| `explain_query` | Parse, evaluate, and run read-only EXPLAIN without executing the SQL | `datasource_id`, `sql` | Can return `allow`, `deny`, `warn`, `approve`, or `error`; SQL is not executed even when the result is `allow` |
-| `query` | Execute one protected `SELECT` | `datasource_id`, `sql` | Queries only; the data source `row_limit` truncates results and result-level data masking is applied automatically; risky queries can return `deny` or `approve` |
-| `execute_write` | Submit one `INSERT`, `UPDATE`, `DELETE`, or DDL statement | `datasource_id`, `sql`, required `reason` | Administrative statements do not use this tool; DDL requires the Agent’s `ddl` tier; only `allow`/`warn` executes, while `approve` creates a pending approval automatically without execution |
-| `request_approval` | Proactively send SQL for approval | `datasource_id`, `sql`, required `reason` | Creates an approval request without executing SQL and returns `approval_id` |
-| `get_approval_result` | Read approval status | `approval_id` | An Agent can query only its own requests; another Agent’s request ID is treated as not found |
-| `execute_approved` | Execute a sealed approved request | `approval_id` | The original Agent claims it once; identity, data source, policy and rules are checked again; replay is denied |
+| `read_key` | Read Redis/Valkey to specify the exact key of a single instance | `datasource_id`、`key` | Only accepts UTF-8 strings authorized by strict TLS/ACL, independent `key` policy; fixed `TYPE`/bounded `GETRANGE`, masked and persistently audited before delivery, does not accept wildcards, native commands, writes or cross-repositories |
+| `find_documents` | Read an explicit top-level scalar field from the specified MongoDB collection | `datasource_id`、`collection`、`fields`、`filter`、`limit` | Only accepts 1–8 string equivalent filter conditions and an upper limit of 1–100 rows; requires accurate set authorization, strict TLS, authenticated accounts, masking before return, and written persistent audit; does not accept aggregation, arbitrary operators or writes |
+| `query_analytics` | Read explicit columns from specified ClickHouse MergeTree table | `datasource_id`、`table`、`fields`、`filter`、`limit` | Limit 26.8.31.2 Single instance, strict TLS, read-only accounts, exact table and column authorization, String equivalent filtering and 1-100 rows; the gateway sets the resource limit and delivers it after successful masking and persistent auditing, does not accept native SQL, views or distributed tables |
+| `search_vectors` | Perform a single vector similarity search on the specified Milvus collection | `datasource_id`、`collection`、`vector_field`、`vector`、`fields`、`top_k` | Limited to 2.6.25 TLS standalone, `default` database, exact collection with field authorization, a limited FloatVector, and 1–20 hits; only returns masked scalars, does not accept expressions, partitions, writes, or mixed retrievals |
+| `list_datasources` | List the data sources that the current Agent has been authorized to use | None | Public identification information is returned successfully, but no host, password or connection parameters are returned; failure is `error` |
+| `list_schema` | Read authorized structure and trim by column permissions | `datasource_id`; `table` optional | Success is usually `allow`; `table` only accepts letters, numbers, underscores, and at most one dot `table` or `schema.table`, quotes and special identifiers are not supported; results exceeding 10,000 rows must be reduced to a specific table |
+| `explain_query` | Parses and evaluates SQL; dialects with proven planning capabilities ship with execution plans and do not execute queries | `datasource_id`、`sql` | `allow`, `deny`, `warn`, `approve`, or `error` can be returned; even `allow` did not execute the SQL. Oracle Free and YashanDB specify read-only paths and do not pre-execute the plan. |
+| `query` | Execute protected single `SELECT` | `datasource_id`、`sql` | Only query; the results are automatically restricted according to the data source `row_limit` and the result layer is masked; dangerous queries can be `deny` or `approve` |
+| `execute_write` | Submit a single `INSERT`, `UPDATE`, `DELETE` or DDL | `datasource_id`, `sql`, required `reason` | Management statements do not use this tool; DDL requires Agent to be `ddl`; `allow`/`warn` can only be executed. `approve` will automatically create a pending approval form but will not execute it. |
+| `request_approval` | Take the initiative to submit SQL for review | `datasource_id`, `sql`, required `reason` | Only create approval form, do not execute SQL; return `approval_id` |
+| `get_approval_result` | Check approval status | `approval_id` | Only the current Agent's own orders can be queried; the order numbers of other Agents are treated as not found. |
+| `execute_approved` | Execute an approved archive request | `approval_id` | Single claim of the original Agent; recheck identity, data sources, policies and rules; reject repeated calls |
 
-The caller-supplied `reason` is stored separately from the rule-evaluation reason and the administrator's decision comment.
+`execute_write`and`request_approval`the caller`reason`It will be saved as an application description; the reasons for rule evaluation and approval notes will be saved separately.
 
-Because B5 cross-request logical sessions and PostgreSQL planned transactions are enabled by default in v0.4.0, `tools/list` also returns these eight tools by default:
+v0.4.0's B5 cross-request logical session and PostgreSQL planned transactions are enabled by factory default, so by default `tools/list` will also return the following 8 tools:
 
-| Tool | Purpose |
+| Tools | Purpose |
 | --- | --- |
-| `open_session` / `close_session` / `get_session_status` | Create, close, and inspect an explicit AgentSQL logical session; do not confuse it with the HTTP `Mcp-Session-Id` transport session |
-| `begin_transaction` | Preflight and seal a complete ordered DML plan, then begin a PostgreSQL transaction; this step executes no statement |
-| `execute_transaction_statement` | Execute one sealed `INSERT`, `UPDATE`, or `DELETE` at its planned ordinal; the SQL cannot be replaced during execution |
-| `commit_transaction` / `rollback_transaction` | Commit or roll back and complete the terminal-state fence |
-| `get_transaction_status` | Idempotently query the transaction outcome, audit, and disposition status |
+| `open_session` / `close_session` / `get_session_status` | Create, close, and query explicit AgentSQL logical sessions; do not mix this with HTTP `Mcp-Session-Id` transport sessions |
+| `begin_transaction` | Preflight and archive the complete ordered DML plan, then start the PostgreSQL transaction; no statements are executed at this step |
+| `execute_transaction_statement` | Execute a sealed `INSERT`, `UPDATE` or `DELETE` according to plan ordinal. SQL cannot be replaced during the execution phase. |
+| `commit_transaction` / `rollback_transaction` | Commit or rollback and complete the final state fence |
+| `get_transaction_status` | Idempotent query transaction outcome, audit and disposition status |
 
-Each B5 operation still accepts only one top-level SQL statement. B5 does not support `SELECT`, `RETURNING`, or DDL within a transaction, or MySQL cross-request transactions. Explicitly setting `mcp.sessions.enabled: false` hides these eight tools and also requires `mcp.transactions.postgres` to be disabled. The actual available tool set is always determined by `tools/list`.
+B5 still only allows one top-level SQL per operation, and does not support `SELECT`, `RETURNING`, DDL or MySQL cross-request transactions within a transaction. Explicitly setting `mcp.sessions.enabled: false` will hide these 8 tools and require `mcp.transactions.postgres` to be closed at the same time; the actual available set will always be based on `tools/list`.
 
-## Call Sequences
+## Call timing
 
-### Read-Only Query
+### read-only query
 
 ```text
 list_datasources
@@ -92,47 +181,47 @@ list_datasources
   → query
 ```
 
-Confirm the data source and visible schema first, evaluate the SQL, and only then execute it. An `allow` from `explain_query` means the evaluation passed; it does not mean a query ran.
+First confirm the data source and visible structure, then evaluate, and finally execute.`explain_query`of`allow`It only means that the evaluation has passed, but it does not mean that the query has been completed.
 
-### Write: Automatic Approval Routing
-
-```text
-execute_write(reason is required)
-  -> decision="approve" + approval_id (a pending request already exists)
-  -> administrator decides in the console
-  -> get_approval_result
-  -> after approval, the original Agent calls execute_approved(approval_id)
-```
-
-After `execute_write` returns an `approval_id`, do not call `request_approval` again; doing so creates a duplicate request.
-
-Approval never automatically executes the original SQL. The original Agent may call `execute_approved` once before expiry. It rechecks current permissions and rules and fails closed on denial or dependency failure. Legacy approvals cannot execute; a claimed request cannot be retried automatically.
-
-### Write: Proactive Approval Request
+### Write operation: automatically transferred to approval
 
 ```text
-request_approval(reason is required)
-  -> approval_id
-  -> administrator decides in the console
-  -> get_approval_result
-  -> after approval, execute_approved(approval_id)
+execute_write(reason required)
+  → decision="approve" + approval_id (the system has automatically created a pending order)
+  → The administrator approves in the console
+  → get_approval_result
+  → After approved, the original Agent calls execute_approved(approval_id)
 ```
 
-The proactive request itself never executes SQL; only `execute_approved` can execute its sealed request after approval.
+After receiving `approval_id` returned by `execute_write`, do not call `request_approval` again, otherwise it will be submitted for review again.
 
-## Handle Return Values Correctly
+`approved` will not automatically execute the original SQL. The original Agent can call `execute_approved` once within the validity period; the tool rechecks the current permissions and rules, and will close execution if it encounters rejection or failure. The old approval form cannot be executed and cannot be automatically retried after a single claim.
 
-- `decision:"allow"`: allowed; an execution tool has performed the action defined by its semantics.
-- `decision:"warn"`: returns successfully with a warning; an execution tool may already have run, and the warning must still be recorded.
-- `decision:"deny"`: rejected by a policy or rule; this is a successful tool result, not a transport error.
-- `decision:"approve"`: requires human handling; the SQL was not executed.
-- `decision:"error"`: processing failed; this is the only decision that sets MCP `IsError=true`.
+### Write operation: actively submit for review
 
-Do not automatically retry `deny`, `warn`, or `approve` as if they were network errors. Blindly retrying a write can create duplicate approvals or duplicate business intent.
+```text
+request_approval(reason required)
+  → approval_id
+  → The administrator approves in the console
+  → get_approval_result
+  → Call execute_approved(approval_id) after approval
+```
 
-## Claude Desktop Integration (stdio)
+Active submission itself never executes SQL; only `execute_approved` executes the archive request upon approval.
 
-Claude Desktop starts a local process from `mcpServers` in `claude_desktop_config.json`. AgentSQL v0.6.0 uses standard newline-delimited JSON for stdio by default; the earlier length-prefixed format is available only with `--sealed-stdio`. The direct executable example below needs a compatible Linux binary and access to the control-plane store. Current release assets do not include a native Windows executable; use the HTTP bridge example below on Windows. Use absolute paths for executables and configuration.
+## Correctly handle return values
+
+- `decision:"allow"`: Allowed, the execution tool has been executed according to its semantics.
+- `decision:"warn"`: Returns successfully with an alarm; execution tools can be executed, but warnings still need to be recorded.
+- `decision:"deny"`: Policy or rule denial; is a tool result returned successfully, not a transmission error.
+- `decision:"approve"`: Manual processing is required; SQL is not executed.
+- `decision:"error"`: Processing failed; this is the only decision that sets MCP `IsError=true`.
+
+Therefore, do not treat `deny`, `warn`, or `approve` as network errors with automatic retries. Especially for write operations, blind retry will result in repeated approvals or repeated business intentions.
+
+## Claude Desktop access
+
+Claude Desktop use`claude_desktop_config.json`in`mcpServers`Start the native process.v1.0.0of`agentsql mcp`The standard MCP stdio line-by-line JSON message format is used by default; legacy custom length prefix clients can explicitly add`--sealed-stdio`Continue to use the original frame format. The following direct examples are applicable to desktop environments that can run AgentSQL Linux binaries; the target platform of this version's release assets is Linux amd64/arm64. The actual download must be based on the Release that has completed acceptance. For Windows desktops, please use the following HTTP bridging example.`command`It is recommended to fill in the absolute path of the executable file to avoid conflicts between desktop applications and terminals.`PATH`Inconsistent.
 
 ```json
 {
@@ -141,7 +230,7 @@ Claude Desktop starts a local process from `mcpServers` in `claude_desktop_confi
       "command": "/absolute/path/to/agentsql",
       "args": ["mcp", "--config", "/absolute/path/config.yaml"],
       "env": {
-        "AGENTSQL_SECRET": "<EXACTLY_32_BYTES_PAIRED_WITH_THE_CONTROL_PLANE>",
+        "AGENTSQL_SECRET": "<与控制面配对的恰好 32 字节值>",
         "AGENTSQL_API_KEY": "<Agent API Key>"
       }
     }
@@ -149,13 +238,34 @@ Claude Desktop starts a local process from `mcpServers` in `claude_desktop_confi
 }
 ```
 
-The repository CLI confirms these parameters: the subcommand is `mcp`, and the configuration option is `--config` (or `-c`). After saving the configuration and restarting Claude Desktop, the default configuration should expose eight base tools and eight B5 tools. If B5 is explicitly disabled, only the base tools appear. If they do not appear, confirm that the process launched by the desktop client can read the executable, configuration, and metadata/audit control-plane storage, and that it uses the same `AGENTSQL_SECRET` as the encrypted data source credentials.
+The above parameters have been confirmed by the repository CLI implementation: the subcommand is `mcp` and the configuration parameter is `--config` (can be abbreviated to `-c`). After saving the configuration and restarting Claude Desktop, you should be able to see 12 basic tools and 8 B5 tools by default according to the tool registration rules (this version has not been tested in Claude Desktop, real client acceptance uses MCP Inspector and Dify); only basic tools are displayed when B5 is explicitly closed. If it does not appear, first confirm that the process launched by the desktop client can read the executable file, configuration file, metadata/audit control plane storage, and uses the same `AGENTSQL_SECRET` as the encrypted data source credentials.
 
-For Windows Claude Desktop, run the AgentSQL HTTP service locally (or through an SSH port forward) and use [`mcp-remote`](https://github.com/geelen/mcp-remote) as a local stdio-to-HTTP bridge. Configure the bridge with the `/mcp` URL, `--transport http-only`, and an `Authorization: Bearer <Agent API Key>` header. On Windows, put the bearer value in an environment variable and pass `Authorization:${AGENTSQL_AUTH_HEADER}` as the `--header` argument to avoid argument parsing problems. The bridge is an independent community tool, not an AgentSQL release asset. Claude Desktop itself must be signed in for UI verification; the repository's bridge protocol test does not claim a logged-in UI test.
+### Windows Claude Desktop: Connect to an existing AgentSQL service
 
-## Local Acceptance with MCP Inspector (Streamable HTTP)
+First run the AgentSQL HTTP service on the local machine or the SSH local forwarding port to confirm that `http://127.0.0.1:7780/healthz` is normal. Windows clients can use [`mcp-remote`](https://github.com/geelen/mcp-remote) to convert local stdio to Streamable HTTP; it is a separate community bridge program and is not included in the AgentSQL release package. The following example uses the installed `mcp-remote`; please change `command` in the configuration file to the actual absolute path of the Node.js executable file, and change the first value of `args` to the absolute path of the actual `mcp-remote` entry script. Backslashes in Windows JSON paths need to be written `\\`.
 
-This historical v0.6.0 acceptance example uses MCP `2025-06-18`. Its verified combination was MCP Inspector `0.16.8` with its `@modelcontextprotocol/sdk` dependency pinned to `1.18.0`; newer Inspector versions negotiate a newer protocol by default and are not suitable for this historical run. For v0.7.0 evidence, see the [acceptance record](../v0.7-acceptance.md). Save this `package.json` in an isolated directory, run `npm install`, then start the local `node_modules/.bin/mcp-inspector` binary (on Windows PowerShell, `./node_modules/.bin/mcp-inspector.cmd`):
+```json
+{
+  "mcpServers": {
+    "agentsql": {
+      "command": "C:\\path\\to\\node.exe",
+      "args": [
+        "D:\\path\\to\\mcp-remote\\dist\\proxy.js",
+        "http://127.0.0.1:7780/mcp",
+        "--transport", "http-only",
+        "--header", "Authorization:${AGENTSQL_AUTH_HEADER}"
+      ],
+      "env": { "AGENTSQL_AUTH_HEADER": "Bearer <Agent API Key>" }
+    }
+  }
+}
+```
+
+Here only one Agent API Key is given to the desktop bridging process. Do not use administrator tokens for MCP; do not expose listening ports to the public network. Claude's cloud custom connector initiates the connection from the Anthropic cloud network and cannot use the loopback address here; in this case, it is the Claude Desktop local process. The desktop client needs to complete its own login before it can view the tools on the interface. The protocol testing of this repository is not equal to the UI acceptance of the logged-in client.
+
+## MCP Inspector local acceptance (Streamable HTTP)
+
+The old `/mcp` portal supports MCP `2025-06-18`. The accepted combination of this entrance is MCP Inspector `0.16.8` and its dependency `@modelcontextprotocol/sdk` `1.18.0`; the newer Inspector negotiates the update protocol by default and cannot directly apply this set of old entrance acceptance steps. Save the following `package.json` in a separate directory, run `npm install`, and then start the local `node_modules/.bin/mcp-inspector` (Windows PowerShell uses `./node_modules/.bin/mcp-inspector.cmd`):
 
 ```json
 {
@@ -165,17 +275,17 @@ This historical v0.6.0 acceptance example uses MCP `2025-06-18`. Its verified co
 }
 ```
 
-On Windows PowerShell, set `$env:HOST='127.0.0.1'` and `$env:ALLOWED_ORIGINS='http://127.0.0.1:6274'` before starting Inspector, then open the local URL printed in its terminal. Select Streamable HTTP, enter `http://127.0.0.1:7780/mcp`, and add the complete `Authorization: Bearer <Agent API Key>` value under Authentication → Custom Headers. Do not manually add `MCP-Protocol-Version`: this SDK sends it after initialization, and adding it twice produces an invalid combined header. Check tool discovery, an authorized query, a denied query, and their audit IDs. Use a dedicated test Agent Key, never an administrator token, and keep the Inspector proxy port private. Inspector is an MCP development tool; it does not establish AI-assistant or Claude Desktop UI compatibility.
+First set `$env:HOST='127.0.0.1'` and `$env:ALLOWED_ORIGINS='http://127.0.0.1:6274'` in Windows PowerShell, then start Inspector and open the interface according to the local URL given by the terminal. Select Streamable HTTP for transmission, fill in `http://127.0.0.1:7780/mcp` for the address, and fill in the complete `Authorization: Bearer <Agent API Key>` in Authentication → Custom Headers. Do not add `MCP-Protocol-Version` manually, the SDK will automatically send it after initialization; repeated addition will form an invalid merge header. Check tool discovery, authorization query, unauthorized denial and corresponding audit ID in sequence. Use a separate test Agent Key, do not fill in the administrator token, and do not expose the Inspector agent port to the public network. Inspector is an MCP development testing tool and is not a replacement for AI Assistant or Claude Desktop's interface compatibility acceptance.
 
-## Self-hosted Dify Integration (Streamable HTTP)
+## Dify self-hosted access (Streamable HTTP)
 
-In Dify's MCP tool configuration, set the server URL to `http://<AgentSQL address reachable from the Dify API container>:7780/mcp`. Set both `Authorization: Bearer <Agent API Key>` and `MCP-Protocol-Version: 2025-06-18` as static request headers. Dify 1.17.1 negotiates that version but does not automatically send its required header on later HTTP requests. Check tool discovery, then call `list_datasources` and an authorized read-only `query`. Dify's own `127.0.0.1` is not the host running AgentSQL.
+Add a new service in Dify's MCP tool management interface, fill in the Server URL with `http://<AgentSQL 内网地址>:7780/mcp` that is reachable by the Dify API container, and fill in both `Authorization: Bearer <Agent API Key>` and `MCP-Protocol-Version: 2025-06-18` in the request header. The MCP client of Dify 1.17.1 declares this version, but its HTTP transport does not automatically add the version header required by subsequent requests, so this must be configured explicitly. After saving, check the tool discovery first, and then call `list_datasources` and authorized read-only `query` from the workflow; when returning `deny`, `approve` or `error`, it will be handled according to the business decision and will not be regarded as a network exception that can be blindly retried. `127.0.0.1` in the Dify API container points to Dify itself and cannot point to the host AgentSQL.
 
-Self-hosted Dify's SSRF proxy blocks private destinations by default. If AgentSQL is on a controlled private network, allow only its exact address as a `/32` in `SSRF_PROXY_ALLOW_PRIVATE_IPS` and keep the AgentSQL listener private. A static header represents one Agent identity; per-user identities need a separate mapping design.
+Self-hosted Dify blocks access to private addresses through SSRF proxy by default; if AgentSQL is located on the same controlled intranet, only add the precise `/32` of AgentSQL's actual address to Dify's `SSRF_PROXY_ALLOW_PRIVATE_IPS`, and keep AgentSQL's external port controlled. Do not release the entire RFC1918 network segment for access testing. Dify's static MCP request header corresponds to a fixed Agent identity; each user's independent Agent identity requires a separate identity mapping design, and the Dify workspace identity cannot be automatically regarded as the AgentSQL identity.
 
-## Cursor Integration (stdio)
+## Cursor access (stdio)
 
-Cursor can use the same `mcpServers` fragment in the user-level `~/.cursor/mcp.json` or project-level `.cursor/mcp.json`. In a team project, commit only a template without secrets. Store the real Key and SECRET using the secret-injection mechanism supported by the current Cursor version or in an untracked local configuration.
+Cursor can put the same `mcpServers` fragment into user-level `~/.cursor/mcp.json`, or project-level `.cursor/mcp.json`. Team projects prefer to only submit configuration templates that do not contain secrets; the real Key and SECRET use the secret injection method provided by the current version of Cursor or are only saved in local configurations that are not included in version control.
 
 ```json
 {
@@ -184,7 +294,7 @@ Cursor can use the same `mcpServers` fragment in the user-level `~/.cursor/mcp.j
       "command": "/absolute/path/to/agentsql",
       "args": ["mcp", "--config", "/absolute/path/config.yaml"],
       "env": {
-        "AGENTSQL_SECRET": "<EXACTLY_32_BYTES_PAIRED_WITH_THE_CONTROL_PLANE>",
+        "AGENTSQL_SECRET": "<与控制面配对的恰好 32 字节值>",
         "AGENTSQL_API_KEY": "<Agent API Key>"
       }
     }
@@ -192,21 +302,21 @@ Cursor can use the same `mcpServers` fragment in the user-level `~/.cursor/mcp.j
 }
 ```
 
-Relative paths in a project-level file are sensitive to the working directory, so use absolute paths for both `command` and `--config`. Refresh the MCP Server using the procedure for the current Cursor version. If the configuration entry point or outer fields have changed, follow Cursor’s official MCP documentation.
+Relative paths in project-level files are easily affected by the working directory. It is recommended to use absolute paths for the values ​​of `command` and `--config`. After saving, refresh the MCP Server according to the current Cursor version; if the configuration entry or outer fields of the client version change, the Cursor official MCP document shall prevail.
 
-## Doubao (豆包) and Other Remote MCP Clients (Streamable HTTP)
+## Doubao and other remote MCP clients (Streamable HTTP)
 
-The client must explicitly support **Streamable HTTP** and allow custom headers for an MCP Server. Enter the following on the MCP Server configuration page in Doubao or another client:
+Clients must explicitly support **Streamable HTTP** and allow custom headers to be added to the MCP Server. Fill in the following on the MCP Server configuration page of Doubao or other clients:
 
-| Setting | Public demo | Production self-hosting |
+| Configuration items | Public network demonstration | Production self-hosted |
 | --- | --- | --- |
-| Server URL | `https://demo.agentsql.cn/mcp` | `https://<your-gateway>/mcp` |
+| Server URL | `https://demo.agentsql.cn/mcp` | `https://<你的网关>/mcp` |
 | Header name | `Authorization` | `Authorization` |
-| Header value | `Bearer <demo Agent API Key>` | `Bearer <self-hosted Agent API Key>` |
+| Header value | `Bearer <演示环境 Agent API Key>` | `Bearer <自托管 Agent API Key>` |
 
-The demo Key is an Agent API Key, not the demo console’s administrator token. When using the prefilled demo administrator account on the sign-in page, confirm the current read-only Key for the selected demo Agent. If the demo Key is not public, verify against a self-hosted environment instead; never guess it or reuse an administrator token. The demo environment is for integration testing only. Production must be self-hosted with your own secrets. A client that lacks custom-header support, supports only legacy SSE, or has an unknown Streamable HTTP version cannot connect this way. Never place the Key in a URL query parameter.
+The demo Key is the Agent API Key, not the administrator token of the demo console; when using the demo administrator account prefilled on the login page, you should confirm the current read-only Key corresponding to the selected demo Agent. If the demo key is not public, use self-hosted environment verification instead, and do not guess or reuse administrator tokens. The demo environment is for local access testing only, production must be self-hosted and use its own keys. If a client does not support custom headers, only supports older versions of SSE, or its Streamable HTTP version cannot be confirmed, it cannot be directly connected in this way; do not put the Key in the URL query parameter.
 
-The following is a generic field skeleton. Use the client’s current official documentation for Doubao’s or another client’s configuration entry point, outer JSON structure, and any required `type` or `transport` field:
+The following is the general field skeleton, the configuration entry of Doubao and other clients, the outer JSON structure, and the `type` or `transport` field required by some versions. The current official documentation of the client shall prevail:
 
 ```json
 {
@@ -221,36 +331,36 @@ The following is a generic field skeleton. Use the client’s current official d
 }
 ```
 
-If AgentSQL is already running locally, you can replace the URL with `http://127.0.0.1:7780/mcp`. A non-local production deployment must use a controlled HTTPS entry point and must not expose the listening port directly to the public internet.
+When the native AgentSQL service is already running, you can also change the URL to `http://127.0.0.1:7780/mcp`. Non-native production deployment must use a controlled HTTPS entrance, and the listening port must not be exposed directly to the public network.
 
-- Cursor: for remote access, confirm the HTTP transport fields in the official MCP documentation for that version.
-- Claude Desktop: confirm in the official MCP documentation whether that version supports Streamable HTTP; if it supports only stdio, use the Claude Desktop configuration above.
-- Cline: confirm the configuration entry point, `mcpServers` structure, and HTTP transport fields in the official documentation.
+- Cursor: When accessing remotely, use the official MCP document of this version to confirm the HTTP transport field.
+- Claude Desktop: Use the official MCP document to confirm whether this version supports Streamable HTTP; if it only supports stdio, use the previous Claude Desktop configuration.
+- Cline: Use the official MCP document to confirm the configuration entry, `mcpServers` structure and HTTP transport field.
 
-For these clients, `command`, `args`, and `env` (stdio), and `url` and `headers` (HTTP), are the information AgentSQL requires. Follow the client’s current documentation for the outer structure and transport declaration.
+The `command`, `args`, `env` (stdio) and `url`, `headers` (HTTP) of these clients are the information required for AgentSQL connection; the outer structure and transport statement are subject to the current version of the client.
 
-## Find AgentSQL in MCP Registry / Glama
+## Find from MCP Registry / Glama
 
-AgentSQL is listed in the official MCP Registry with active status. Search for **AgentSQL**, verify the entry name `io.github.cuipengdba/agentsql`, version, and repository, and then connect using a method supported by the client. The repository does not provide a stable direct URL for the Registry entry, so this guide does not invent one.
+AgentSQL has been included in the MCP official Registry (status is active). Search for **AgentSQL** in the MCP Registry, check the entry name `io.github.cuipengdba/agentsql`, version and repository address, and then access it according to the method supported by the client; the repository does not provide a direct URL to the Registry entry that can be relied on for a long time, so this article does not make up links.
 
-AgentSQL is also listed on Glama. Find it in the [Glama AgentSQL search results](https://glama.ai/mcp/servers?query=AgentSQL). Endpoints, versions, or Header examples in third-party directories can lag behind. This repository’s documentation, the actual deployment configuration, and MCP `tools/list` are authoritative.
+AgentSQL has also been included in Glama and is available at[AgentSQL search results for Glama](https://glama.ai/mcp/servers?query=AgentSQL)Find in . Endpoints, versions, or header examples in third-party directories may lag, ultimately resulting in this repository documentation, actual deployment configuration, and MCP`tools/list`Subject to return.
 
-## Client Integration Security Reminders
+## Client access security reminder
 
-- The public demo connects only to synthetic demo databases and is intended for feature evaluation and client connectivity testing. Do not send real business SQL, data, or credentials to it.
-- Production must be self-hosted with your own data sources, Agents, and API Keys. Put TLS, access control, and rate limiting in front of the gateway.
-- Never put an API Key, `AGENTSQL_SECRET`, or a data source password in public configuration, screenshots, logs, or a code repository. Keep placeholders only in public projects, and rotate a secret immediately after exposure.
-- A stdio configuration creates a new local AgentSQL runtime. If a controlled service already exists, prefer its Streamable HTTP endpoint to avoid copying production secret files or loosening their permissions.
-- Give a client only the minimum Agent capabilities and data source permissions it needs. Always handle `deny`, `warn`, `approve`, and `error`; do not treat security decisions as network failures and retry them automatically.
+- The public network demo only connects to the synthetic demonstration library for functional experience and client connectivity testing; do not send real business SQL, data or credentials to the demo.
+- The production environment must self-host AgentSQL and use its own data source, Agent and API Key; configure TLS, access control and current limiting in front of the gateway.
+- API Key, `AGENTSQL_SECRET`, and data source password must not be written into public configurations, screenshots, logs, or code repositories. Only placeholders are kept in public projects and rotated immediately after leaks.
+- The stdio configuration will create a new AgentSQL runtime on the local machine; if there is already a controlled service, its Streamable HTTP endpoint will be connected first to avoid copying or relaxing production secret file permissions.
+- Clients should only obtain the minimum Agent capabilities and data source authorization required to complete the task; always handle `deny`, `warn`, `approve`, `error`, and do not treat security decisions as network failures and automatically retry.
 
-## Custom Clients
+## Self-developed client
 
-### Raw HTTP `initialize` Example
+### initialize naked HTTP example
 
-Set the Key first. The following request applies to a Streamable HTTP service already running locally:
+Set the Key first; the following request applies to the Streamable HTTP service that is already running on this machine:
 
 ```bash
-# Requires a local running AgentSQL service and AGENTSQL_API_KEY exported as a valid Agent Key
+# Applicable premise: the local AgentSQL is running; AGENTSQL_API_KEY has been exported as a valid Agent Key
 curl -fsS -D /tmp/agentsql-mcp-headers http://127.0.0.1:7780/mcp \
   -H "Authorization: Bearer ${AGENTSQL_API_KEY}" \
   -H 'Content-Type: application/json' \
@@ -258,11 +368,11 @@ curl -fsS -D /tmp/agentsql-mcp-headers http://127.0.0.1:7780/mcp \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"agentsql-smoke","version":"1.0.0"}}}'
 ```
 
-Streamable HTTP is stateful by default. Read `Mcp-Session-Id` from the `initialize` response and send it unchanged on later `tools/list`, `tools/call`, GET, and DELETE requests. The first `initialize` negotiates its version in `params.protocolVersion`, so its HTTP protocol-version header is optional; later POST requests must send `MCP-Protocol-Version: 2025-06-18`. The server still revalidates the Bearer token on every request. `mcp.http.stateful: false` is a compatibility fallback: it returns no session header and accepts POST only. In either mode, every request must include the Bearer token and correct `Accept` header, and a body no larger than 4 MiB.
+Streamable HTTP transports are stateful by default. Read `Mcp-Session-Id` in the initialize response and carry it unchanged in subsequent `tools/list`, `tools/call`, GET and DELETE requests. The first initialize negotiates the version via `params.protocolVersion`, so its HTTP protocol version header can be omitted; subsequent POSTs must send `MCP-Protocol-Version: 2025-06-18`. The server will still re-verify the Bearer for each request. `mcp.http.stateful: false` is only used for compatibility fallback, in which session headers will not be returned and only POST will be accepted. Regardless of mode, each request must send a Bearer and the correct `Accept`, and keep the request body within 4 MiB.
 
 ### Go SDK
 
-Use `StreamableClientTransport` from `github.com/modelcontextprotocol/go-sdk`, with a custom `http.RoundTripper` that injects the following on every request:
+It is recommended to use `StreamableClientTransport` of `github.com/modelcontextprotocol/go-sdk` and inject it for each request by customizing `http.RoundTripper`:
 
 ```text
 Authorization: Bearer <Agent API Key>
@@ -270,34 +380,40 @@ MCP-Protocol-Version: 2025-06-18
 Accept: application/json, text/event-stream
 ```
 
-Do not log complete headers, and do not treat `deny` as a transport error.
+Do not output the complete header in the log, and do not treat `deny` as a transport error.
 
 ## Troubleshooting
 
 ### `401 unauthorized`
 
-Check whether an administrator token was used by mistake or the Agent Key is wrong. Disabling, expiring, or deleting an Agent, or rotating its Key, invalidates the old Key. Rotation has no overlap period.
+Check whether the administrator token has been misused or the Agent Key is incorrect. After the Agent is disabled, expires, deleted, or rotated, the old Key will become invalid; rotation will not retain the concurrent validity period.
 
-### stdio Has No Console UI
+### stdio has no console UI
 
-This is expected. stdio disables `console_enabled` and the event stream. For an installed service, use HTTP so the systemd-managed instance continues to provide the console.
+This is expected behavior. stdio will close `console_enabled` and the event stream. Installed services should use HTTP so that the console continues to be served by the systemd running instance.
 
-### Access Works Only on the Server Itself
+### Can only be accessed locally on the server
 
-Loopback binding is the secure default. Use SSH `-L` or a controlled TLS reverse proxy. Do not change it to a public, unprotected `0.0.0.0` binding.
+The default loopback binding is safe by design. Use SSH `-L`, or access after controlled TLS reversion; do not change to the public network `0.0.0.0` for streaking.
 
-### MCP Handshake Fails
+### MCP handshake failed
 
-Confirm that the endpoint is `/mcp` and the request includes `Content-Type: application/json`, `Accept: application/json, text/event-stream`, and `MCP-Protocol-Version: 2025-06-18`. In the default stateful mode, also confirm that the `initialize` response contains `Mcp-Session-Id` and later requests send the same value. Check that the client actually supports Streamable HTTP and that the request body does not exceed 4 MiB.
+Confirm that the endpoint is `/mcp` and the request contains `Content-Type: application/json`, `Accept: application/json, text/event-stream`, and `MCP-Protocol-Version: 2025-06-18`. In the default stateful mode, also confirm that the initialize response contains `Mcp-Session-Id`, and subsequent requests carry the same value; also check whether the client really supports Streamable HTTP, and whether the request body exceeds 4 MiB.
 
-### Stacked Statements Are Rejected
+The new entry `/mcp/2026-07-28` does not require a handshake, and each request must carry the version header and `params._meta`; `server/discover` only advertises `2026-07-28`. Missing, old, or conflicting version metadata returns HTTP 400, oversized request bodies return 413, and cross-site Origin returns 403. For more protocol rejection and upgrade troubleshooting, see [ current version operation and maintenance manual ](OPERATIONS.md).
 
-This is the expected R001 behavior. Send only one SQL statement at a time; do not append a second statement after a valid query.
+### Stacked multiple statements are rejected
 
-### A Write Reports a Missing `reason`
+This is the expected behavior of R001. Send only one SQL statement at a time; do not append a second statement to a legitimate query.
 
-Both `execute_write` and `request_approval` require a non-empty `reason`. This tool-level rejection occurs before entering the pipeline and might not create an audit record. Add the purpose, affected scope, and rollback plan, then submit again.
+### Write operation prompt is missing `reason`
 
-### stdio Cannot Reach the Control Plane or Decrypt a Data Source
+Both `execute_write` and `request_approval` require non-empty `reason`. This type of early rejection at the tool layer occurs before entering the pipeline and may not have an audit record; resubmit after supplementing the purpose, scope of impact, and rollback plan.
 
-Check whether the process can read the configuration and SQLite/PG control plane and whether it uses the same `AGENTSQL_SECRET` paired with the encrypted data source credentials. The installer creates `/etc/agentsql/agentsql.env` as `0600 root:root`. If an ordinary desktop user cannot read it, do not copy the production secret file or loosen its permissions; use the running service’s HTTP endpoint instead.
+### stdio cannot connect to the control plane or cannot decrypt the data source
+
+Check that the process can read the configuration and SQLite/PG control plane and is using the same `AGENTSQL_SECRET` paired with the data source ciphertext. The installer's `/etc/agentsql/agentsql.env` is `0600 root:root`; do not copy or loosen the production secret file if it cannot be read by regular desktop users, use the HTTP endpoint of the running service instead.
+
+## SQLBot
+
+The PostgreSQL execution layer of SQLBot v1.10.2 is connected through the adapter with fixed source code hash in this repository; just because SQLBot provides MCP Server itself does not mean that it calls AgentSQL by default. Deployment mapping, failed shutdown, auditing, and explicit numerical aliases are described in the [SQLBot Access Guide ](SQLBOT.md).

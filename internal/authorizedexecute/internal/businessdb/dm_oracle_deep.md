@@ -1,5 +1,7 @@
 # DM8 / Oracle dialect 深化边界（v0.5 批十三）
 
+**语言 / Language:** [简体中文](dm_oracle_deep.md) | [English](dm_oracle_deep.en.md)
+
 状态日期：2026-10-02。本文只记录已经由代码、单测或指定容器验证的事实；未验证项单独列出。
 
 ## 1. 环境证据

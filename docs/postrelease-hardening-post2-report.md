@@ -1,5 +1,7 @@
 # 发布后加固 post2 报告
 
+**语言 / Language:** [简体中文](postrelease-hardening-post2-report.md) | [English](en/postrelease-hardening-post2-report.md)
+
 日期：2026-10-11。下列容器时间戳均为 UTC（北京时间加 8 小时）。所有 Go 验收均使用本机已有的 `golang:1.26-bookworm` 镜像，`--network none`，源码根 `D:\ruanjiansheji\agentsql-v04` 只读挂载到 `/workspace`，宿主模块缓存 `C:\Users\Administrator\go\pkg\mod` 只读挂载到 `/go/pkg/mod`，仓库 `.gocache` 挂载到 `/gocache`，并设置 `GOCACHE=/gocache`、`GOPROXY=off`。容器工作目录为 `/workspace`。未删除 `dist/`。
 
 ## 修复

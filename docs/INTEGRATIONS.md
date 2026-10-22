@@ -1,10 +1,12 @@
 # AgentSQL MCP 接入指南
 
-> 本文说明 AgentSQL v3.0.1 的 MCP 接入。安装或拉取 v3.0.1 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+**语言 / Language:** [简体中文](INTEGRATIONS.md) | [English](en/INTEGRATIONS.md)
+
+> 本文说明 AgentSQL v3.0.2 的 MCP 接入。安装或拉取 v3.0.2 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
-v3.0.1 的 `list_datasources` 为当前 Agent 可见的数据源增加 `support` 声明：层级、可用工具、限定范围及证据文档。它只描述已验证的入口，不代替逐次授权。隔离的合成数据环境可运行 `scripts/mcp-acceptance.py` 检查工具发现、允许、R010 拒绝、脱敏和两个持久审计 ID；API Key 仅从 `AGENTSQL_MCP_ACCEPTANCE_KEY` 环境变量读取。示例：
+v3.0.2 的 `list_datasources` 为当前 Agent 可见的数据源增加 `support` 声明：层级、可用工具、限定范围及证据文档。它只描述已验证的入口，不代替逐次授权。隔离的合成数据环境可运行 `scripts/mcp-acceptance.py` 检查工具发现、允许、R010 拒绝、脱敏和两个持久审计 ID；API Key 仅从 `AGENTSQL_MCP_ACCEPTANCE_KEY` 环境变量读取。示例：
 
 ```bash
 AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py \
@@ -398,7 +400,7 @@ Accept: application/json, text/event-stream
 
 确认端点是 `/mcp`，请求包含 `Content-Type: application/json`、`Accept: application/json, text/event-stream` 和 `MCP-Protocol-Version: 2025-06-18`。默认有状态模式下还要确认 initialize 响应包含 `Mcp-Session-Id`，且后续请求携带相同的值；同时检查客户端是否真的支持 Streamable HTTP，以及请求体是否超过 4 MiB。
 
-新入口 `/mcp/2026-07-28` 无需握手，每次请求必须携带版本 Header 和 `params._meta`；`server/discover` 只广告 `2026-07-28`。缺失、旧版或互相矛盾的版本元数据会返回 HTTP 400，超大请求体返回 413，跨站 Origin 返回 403。更多协议拒绝与升级排查见 [v0.7 运维手册](v0.7-operations-runbook.md)。
+新入口 `/mcp/2026-07-28` 无需握手，每次请求必须携带版本 Header 和 `params._meta`；`server/discover` 只广告 `2026-07-28`。缺失、旧版或互相矛盾的版本元数据会返回 HTTP 400，超大请求体返回 413，跨站 Origin 返回 403。更多协议拒绝与升级排查见 [当前版本运维手册](OPERATIONS.md)。
 
 ### 堆叠多语句被拒绝
 
@@ -411,3 +413,7 @@ Accept: application/json, text/event-stream
 ### stdio 连不上控制面或无法解密数据源
 
 检查进程是否能读配置和 SQLite/PG 控制面，是否使用与数据源密文配对的同一个 `AGENTSQL_SECRET`。安装器的 `/etc/agentsql/agentsql.env` 是 `0600 root:root`；普通桌面用户读不到时不要复制或放宽生产秘密文件，改用已运行服务的 HTTP 端点。
+
+## SQLBot
+
+SQLBot v1.10.2 的 PostgreSQL 执行层通过本仓库固定源码哈希的适配器接入；SQLBot 自己提供 MCP Server 不代表它默认调用 AgentSQL。部署映射、失败关闭、审计和明确数值别名见 [SQLBot 接入指南](SQLBOT.md)。

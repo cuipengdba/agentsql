@@ -1,6 +1,10 @@
-# 审计查询与合规报表（v0.5 规划/新增）
+# 审计查询与合规报表（v3.0.x）
 
-> 本文描述 AgentSQL v0.5 规划中的 `agentsqlctl audit` 能力。v0.4 已发布命令的行为不受影响。
+**语言 / Language:** [简体中文](AUDIT_REPORTING.md) | [English](en/AUDIT_REPORTING.md)
+
+> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+
+> 本文描述当前 `agentsqlctl audit` 的只读能力。具体参数以本版 `agentsqlctl audit --help` 为准；合规归档与外部见证边界见 [v2.9.0 设计](v2.9.0-design.md)。
 
 `agentsqlctl audit` 直接读取配置所指向的审计存储：共享存储时读取 metadata 数据库中的 `audit_logs`，启用独立审计存储时读取 audit PostgreSQL。命令只读数据库，不执行迁移。
 

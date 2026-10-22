@@ -1,5 +1,7 @@
 # AgentSQL v1.3.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.3.0.md) | [English](en/release-notes-v1.3.0.md)
+
 ## 范围
 
 v1.3.0 为 MySQL 8.0 与 8.4 增加默认关闭的单表 InnoDB `SELECT` 列级授权子集。只有显式投影和受限的 `WHERE`、限定列名的 `ORDER BY`、有界 `LIMIT` 会进入新路径。JOIN、视图、生成列、函数、子查询等未证明语法在执行前拒绝。既有无列策略的 MySQL 查询仍走原表级路径；PostgreSQL B2 和其他数据库的支持口径不变。

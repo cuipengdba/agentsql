@@ -1,5 +1,7 @@
 # AgentSQL v1.1.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.1.0.md) | [English](en/release-notes-v1.1.0.md)
+
 ## 本版能力
 
 - MCP 双身份模式扩展到审批申请、审批单读取和 `execute_approved`。审批单不可变 seal 包含申请用户；数据库在单次领取时同时检查租户、Agent 和申请用户。错误用户或旧单 Agent 请求无法消耗委托审批单。

@@ -1,5 +1,7 @@
 # AgentSQL v0.5.0 Release Notes / 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v0.5.md) | [English](en/release-notes-v0.5.md)
+
 > 发布闸门 / Release gate: **2026-10-16 16:00 CST (UTC+08:00)**
 >
 > 状态 / Status: **已发布 / Released**

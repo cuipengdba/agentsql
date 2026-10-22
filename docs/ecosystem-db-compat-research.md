@@ -1,5 +1,7 @@
 # 国产数据库适配预研
 
+**语言 / Language:** [简体中文](ecosystem-db-compat-research.md) | [English](en/ecosystem-db-compat-research.md)
+
 > 文档状态：预研与实验性协议路径实测，不是兼容性认证或支持声明。2026-10-01 的实测结论仅适用于下文列出的社区版本、拓扑与用例；商业版本及未验证项仍需厂商提供与目标版本一致的测试环境、驱动和文档后确认。
 
 AgentSQL 当前的完整方言路径为 PostgreSQL 与 MySQL；另有 SQL Server 2025 的受限、fail-closed 只读路径。后者不是完整 T-SQL 支持。本预研用于拆分其他数据库接入工作、安排联合验证顺序，不应作为“已支持”或“已完成适配”的对外依据。即使数据库宣称兼容 PostgreSQL、MySQL 或 Oracle，也不能直接推导出其 SQL 方言、系统目录、驱动行为和安全能力与对应数据库完全一致。

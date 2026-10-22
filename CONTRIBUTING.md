@@ -1,5 +1,7 @@
 # 为 AgentSQL 做贡献
 
+**语言 / Language:** [简体中文](CONTRIBUTING.md) | [English](CONTRIBUTING.en.md)
+
 感谢你参与 AgentSQL。提交贡献即表示你愿意遵守 [行为准则](CODE_OF_CONDUCT.md)，并按本指南保持变更可审查、可复现。
 
 安全漏洞不要提交到公开 Issue；请按 [安全政策](SECURITY.md) 使用私密渠道报告。

@@ -1,5 +1,7 @@
 # Batch 83b（batch831）：v0.5.0 正式发布与发布后烟测
 
+**语言 / Language:** [简体中文](release-b83b-report.md) | [English](en/release-b83b-report.md)
+
 日期：2026-10-10（Asia/Shanghai）。最终烟测记录：`dist/release-b83b/post-release-smoke.log`；首次脚本错误的记录保留在 `dist/release-b83b/post-release-smoke-attempt1.log`。
 
 ## Release 转正式

@@ -3,46 +3,69 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL Live Demo | Safety notice</title>
-  <meta name="description" content="AgentSQL Live Demo uses synthetic data and controlled scenarios. Never enter real data, credentials, tokens, or other secrets.">
+  <title>AgentSQL Live Demo｜Security Instructions</title>
+  <meta name="description" content="AgentSQL Live Demo secure entrance: synthetic data only, read-only or controlled demo, periodic reset, no real data or secrets allowed.">
   <meta name="robots" content="noindex,nofollow">
   <link rel="canonical" href="https://agentsql.cn/en/demo/">
-  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/demo/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/demo/">
+  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/demo/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="AgentSQL Live Demo | Safety notice">
-  <meta property="og:description" content="Synthetic data only. Never enter real data or secrets.">
+  <meta property="og:title" content="AgentSQL Live Demo｜Security Instructions">
+  <meta property="og:description" content="Synthetic data only, read-only or controlled presentations, periodic resets; no entry of real data or secrets.">
   <meta property="og:url" content="https://agentsql.cn/en/demo/">
-  <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png">
+  <meta property="og:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.0.2">
+  <meta property="og:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="/assets/app.css">
-  <script src="/assets/app.js" defer></script>
+  <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.0.2">
+  <link rel="icon" href="/favicon.svg?v=3.0.2" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=3.0.2">
+  <link rel="stylesheet" href="/assets/app.css?v=3.0.2">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
-  <header class="site-header"><div class="container nav-shell">
-    <a class="brand" href="/en/" aria-label="AgentSQL home"><img src="/favicon.svg" width="36" height="36" alt="" aria-hidden="true"><span>AgentSQL</span></a>
-    <button class="nav-toggle" type="button" aria-controls="primary-nav" aria-expanded="false"><span class="sr-only">Open navigation</span><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-    <nav id="primary-nav" class="primary-nav" aria-label="Demo navigation"><a href="/en/">Home</a><a href="/en/#docs">Docs & downloads</a><a href="/en/#security">Security limits</a><a class="language-link" href="/demo/" lang="zh-CN" hreflang="zh-CN" aria-label="切换为中文">中文</a></nav>
-  </div></header>
-  <main id="main"><section class="hero section"><div class="container narrow">
-    <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> AgentSQL v3.0.1 · Live Demo</div>
-    <h1>Read the limits before entering the demo</h1>
-    <p class="hero-lead">This environment is only for trying the AgentSQL control console and six preset security scenarios. It is not a production service and does not connect to real business databases.</p>
-    <div class="callout callout-warning" role="note"><strong>Never enter real data or secrets:</strong> Do not submit business SQL, personal information, database addresses, usernames, passwords, API keys, access tokens, private keys, or other confidential content.</div>
-    <ul class="boundary-grid" aria-label="Live Demo limits">
-      <li><strong>Synthetic data only</strong><span>Identities, orders, and audit records in the demo database are fictitious.</span></li>
-      <li><strong>Read-only or controlled scenarios</strong><span>Only preset read-only or policy-controlled scenarios are available. This is not a general database endpoint.</span></li>
-      <li><strong>Regular reset</strong><span>Demo data and state are reset periodically. Do not rely on persistent storage here.</span></li>
-      <li><strong>Non-production configuration</strong><span>Availability, capacity, retention, and security settings are not production guarantees or an SLA.</span></li>
-    </ul>
-    <div class="hero-actions"><a class="button button-primary" href="https://demo.agentsql.cn/?lang=en">I understand; enter the demo</a><a class="button button-secondary" href="/en/">Back to the website</a></div>
-    <p class="quiet-line">The console runs from a separate single-gateway demo origin. The public entry remains <code>https://agentsql.cn/demo/</code>. The public demo does not run the two-gateway Kubernetes layout or optional human-delegation mode. See the <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v3.0.1.md" target="_blank" rel="noopener noreferrer">v3.0.1 release notes (Chinese)</a> for version limits.</p>
-  </div></section></main>
-  <footer class="site-footer"><div class="container footer-bottom"><span>© <span data-current-year>2026</span> Cui Peng · Personal open-source technology project for technical exchange</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">黑ICP备2026011740号-1</a> · <a href="https://beian.mps.gov.cn/#/query/webSearch?code=23010302002016" target="_blank" rel="noopener noreferrer">黑公网安备23010302002016号</a></span></div></footer>
+  <header class="site-header">
+    <div class="container nav-shell">
+      <a class="brand" href="/en/" aria-label="Return to AgentSQL official website homepage">
+        <img src="/assets/brand/agentsql-mark.svg" width="36" height="36" loading="eager" decoding="async" alt="" aria-hidden="true">
+        <span>AgentSQL</span>
+      </a>
+      <nav class="primary-nav" aria-label="Demo page navigation">
+        <a href="/en/">Official website home page</a>
+        <a href="/#docs">Docs / Downloads</a>
+        <a href="/#security">Security</a>
+        <a class="language-link" href="/demo/" lang="zh-CN" hreflang="zh-CN" aria-label="Switch to Chinese">中文</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero section">
+      <div class="container narrow">
+        <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> AgentSQL v3.0.2 · Live Demo Security Entry</div>
+        <h1>Confirm the boundaries first before entering the demo</h1>
+        <p class="hero-lead">This environment is only used to experience the AgentSQL console and six preset security scripts. It is not a production service and does not connect to any real business database.</p>
+        <div class="callout callout-warning" role="note">
+          <strong>Never enter real data or secrets:</strong>Please do not submit business SQL, personal information, database address, account password, API Key, access token, private key or other confidential content.
+        </div>
+        <ul class="boundary-grid" aria-label="Live Demo uses boundaries">
+          <li><strong>Synthetic data only</strong><span>The identities, orders, and audit records in the demo library are fictitious data.</span></li>
+          <li><strong>Read-only/controlled demo</strong><span>Only preset read-only or policy-restricted scripts are open and are not used as general database entries.</span></li>
+          <li><strong>reset periodically</strong><span>Data and presentation state are restored periodically and should not be relied upon to persist anything.</span></li>
+          <li><strong>non-production configuration</strong><span>Availability, capacity, retention, and security configurations do not represent production commitments or SLAs.</span></li>
+        </ul>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://demo.agentsql.cn/?lang=en">I understand, enter the demo</a>
+          <a class="button button-secondary" href="/en/">Return to official website</a>
+        </div>
+        <p class="quiet-line">The console is provided by a separate single-gateway demo source; the entry address remains <code>https://agentsql.cn/demo/</code>. Public demo does not enable dual-gateway Kubernetes configuration or optional human delegation mode; see version boundaries<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/release-notes-v3.0.2.md" target="_blank" rel="noopener noreferrer">Release Notes</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-bottom"><span>© <span data-current-year>2026</span> Cui Peng · This site is a personal open source technology project and is only used for technical exchanges</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">Heilongjiang ICP Filing No. 2026011740-1</a> · <a href="https://beian.mps.gov.cn/#/query/webSearch?code=23010302002016" target="_blank" rel="noopener noreferrer">Heilongjiang Public Security Filing No. 23010302002016</a></span></div>
+  </footer>
 </body>
 </html>

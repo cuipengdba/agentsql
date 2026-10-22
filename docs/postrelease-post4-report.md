@@ -1,5 +1,7 @@
 # post4 文档发布后措辞更新报告
 
+**语言 / Language:** [简体中文](postrelease-post4-report.md) | [English](en/postrelease-post4-report.md)
+
 核对日期：2026-10-12。按任务给定事实，v0.5.0 已于 2026-10-10 正式发布（Release 非 draft、GHCR 全 public、官网已切 v0.5.0）。本批只调整文档中的当前发布状态和时态；未执行发布资产、镜像或官网的外部复验。
 
 ## 逐文件改动

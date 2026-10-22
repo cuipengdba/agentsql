@@ -1,5 +1,7 @@
 # B5 S10 executable reliability evidence
 
+**语言 / Language:** [简体中文](B5_S10_RELIABILITY.md) | [English](en/B5_S10_RELIABILITY.md)
+
 All programs and tests in this document are feature-flag independent. They do
 not enable `b5_sessions`, `b5_tx_postgres`, or `b5_tx_mysql`.
 

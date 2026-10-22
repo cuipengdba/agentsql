@@ -1,5 +1,7 @@
 # Batch 78 发布资产准备报告
 
+**语言 / Language:** [简体中文](release-prepare-b78-report.md) | [English](en/release-prepare-b78-report.md)
+
 **结论：FAIL / 已停止。** 2026-10-09 12:51（Asia/Shanghai），正式密钥已生成，但生产候选脚本在构建前的干净工作区检查退出 1。没有生成、签名或验证 Release 资产。此报告不能作为 batch79 发布依据。
 
 ## 密钥与运行证据

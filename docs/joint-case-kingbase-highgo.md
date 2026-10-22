@@ -1,5 +1,7 @@
 # 金仓 KingbaseES + 瀚高 HighGo 联合案例验证记录
 
+**语言 / Language:** [简体中文](joint-case-kingbase-highgo.md) | [English](en/joint-case-kingbase-highgo.md)
+
 > 记录日期：2026-10-02（Asia/Shanghai）
 >
 > 文档性质：可复核的工程验证记录，不是厂商认证、厂商背书、兼容性证书或生产支持承诺。

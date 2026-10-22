@@ -1,5 +1,7 @@
 # Batch 83a（batch830）发布核验报告
 
+**语言 / Language:** [简体中文](release-b83a-report.md) | [English](en/release-b83a-report.md)
+
 日期：2026-10-10
 
 ## Live Demo v0.5.0

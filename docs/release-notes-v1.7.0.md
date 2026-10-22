@@ -1,5 +1,7 @@
 # AgentSQL v1.7.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.7.0.md) | [English](en/release-notes-v1.7.0.md)
+
 v1.7.0 为瀚高 HighGo 增加独立数据源类型和受限只读执行路径，并对金仓 KingbaseES V9R1C10 PG 模式补充有服务端身份校验的 TLS 和凭据轮换。支持声明限定为已验证的指定实例、协议模式、单实例与合成数据；本版不宣称完整生产支持。
 
 ## 新增与改进

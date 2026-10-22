@@ -1,5 +1,7 @@
 # AgentSQL v1.2.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.2.0.md) | [English](en/release-notes-v1.2.0.md)
+
 ## 范围
 
 v1.2.0 增加可选的 MCP OAuth 受保护资源入口 `/mcp/oauth`，面向 MCP 2026-07-28 的无状态 HTTP 调用。原 `/mcp` 和 `/mcp/2026-07-28` 入口保留。新入口要求外部授权服务器签发面向精确资源 URI 的 RS256 JWT Access Token，同时要求独立的 Agent Key 请求头。用户映射、租户和 `query.execute` 权限每次请求重新核验，Agent 权限不因 OAuth 增加。

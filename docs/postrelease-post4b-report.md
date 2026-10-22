@@ -1,5 +1,7 @@
 # post4b README.en.md 发布后措辞报告
 
+**语言 / Language:** [简体中文](postrelease-post4b-report.md) | [English](en/postrelease-post4b-report.md)
+
 核对日期：2026-10-12。按本批任务给定事实，v0.5.0 已于 2026-10-10 发布。本批修改的既有文件仅为根目录 `README.en.md`；本报告为新增交付文件。
 
 ## 改动摘要

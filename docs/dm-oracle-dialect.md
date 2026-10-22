@@ -1,5 +1,7 @@
 # DM8 / Oracle dialect 能力与验证边界
 
+**语言 / Language:** [简体中文](dm-oracle-dialect.md) | [English](en/dm-oracle-dialect.md)
+
 > 状态：v0.5 历史批次能力说明；最近 DM8 真库闭环为 2026-10-08 批六十五，批七十一按其证据将 DM8 矩阵转绿。绿色仅限指定 Pack3、`COMPATIBLE_MODE=0` 实例的只读 SELECT、列血缘、R010、审计和手机号脱敏；R006 未验证，多行分页/JOIN/函数/系统目录未测，写入未放开。不是完整兼容或生产认证声明。
 
 ## 批六十三：离线 parser 边界

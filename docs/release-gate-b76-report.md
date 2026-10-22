@@ -1,5 +1,7 @@
 # v0.5.0 发布闸门：batch76 联网补依赖与全量验证
 
+**语言 / Language:** [简体中文](release-gate-b76-report.md) | [English](en/release-gate-b76-report.md)
+
 验证日期：2026-10-09（Asia/Shanghai）；基线提交：`81c40aa`。**总判定：FAIL，不满足本批发布 B 闸门。** 两种全仓构建均通过，依赖与许可证核查通过；parser P99 五轮中三轮超过 5 ms，全仓 short tests 有 7 个失败包。本批没有 tag、merge、push、Release、镜像推送、官网部署或 PVR 操作。
 
 ## 环境与证据

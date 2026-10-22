@@ -1,5 +1,17 @@
 # Changelog
 
+**语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
+
+## [v3.0.2]
+
+- Introduce a shared SVG AgentSQL logo across the website, GitHub README, login page, sidebar and browser icons.
+
+- Complete the English mirrors of the README, documentation and official website, preserving section/table/code coverage. Add current operations and documentation indexes.
+- Apply the selected light/dark theme to the entire console sidebar and retain independent menu scrolling.
+- Add a pinned SQLBot v1.10.2 PostgreSQL execution adapter with workspace mapping, permission-filtered typed schema, masking, durable audit checks and no direct database fallback.
+- Remove group QR images from current GitHub and website pages; retain the author and official-account contact channels.
+- Preserve metadata/audit schemas 23/22/6 and all existing database support boundaries. See [release notes](docs/release-notes-v3.0.2.md).
+
 ## [v3.0.1]
 
 - Add Chinese/English switching to the official website, Live Demo entry pages, and Web console. Keep the GitHub README in both languages; GitHub's own site language remains a user account preference.

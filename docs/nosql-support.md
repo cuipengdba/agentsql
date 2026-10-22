@@ -1,5 +1,7 @@
 # NoSQL 数据源支持范围
 
+**语言 / Language:** [简体中文](nosql-support.md) | [English](en/nosql-support.md)
+
 注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。多数仍仅有**连接级/低阶支持**；MongoDB 7.0.43、Redis 8.2.9 / Valkey 8.1.10、ClickHouse 26.8.31.2 和 Milvus 2.6.25 的指定单实例另有受限 Agent MCP 只读路径。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
 
 | 类别 | 数据源 | 适配器协议 | 默认端口 | 低阶能力 |

@@ -1,5 +1,7 @@
 # post3：官网首页 v0.5.0 版本位与 content-only 重发报告
 
+**语言 / Language:** [简体中文](postrelease-post3-report.md) | [English](en/postrelease-post3-report.md)
+
 执行日期：2026-10-12（Asia/Shanghai）。
 
 ## A 类：当前版本语境（10/10 通过）
