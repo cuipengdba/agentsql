@@ -869,7 +869,7 @@
     {
       "source": "docs/v3.0.2-acceptance.md",
       "english": "docs/en/v3.0.2-acceptance.md",
-      "source_sha256": "fd4bb0373af748ef9119c4d2f8646cbe9019531b90cea8dd3436991ac7bb3508"
+      "source_sha256": "44e481a98e99f22f406b72de41ca7a12edfc2baa03e08bff2d45a227e2e71b1a"
     },
     {
       "source": "docs/v3.0.2-design.md",
@@ -879,7 +879,7 @@
     {
       "source": "docs/v3.0.2-release-evidence.md",
       "english": "docs/en/v3.0.2-release-evidence.md",
-      "source_sha256": "659cd79053849a3a60244e14c6b1dfb49025a6c7ac9d2bb37f738e688a457f53"
+      "source_sha256": "aaa207a23a04701a6294bac8ad18c5d2feed19900ae22433cbf49632d77613da"
     },
     {
       "source": "docs/vastbase-g100-v060.md",
