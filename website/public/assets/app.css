@@ -137,6 +137,15 @@ h3 { margin-bottom: 9px; font-size: 1.13rem; line-height: 1.42; }
 .icon-box { display: grid; width: 46px; height: 46px; margin-bottom: 28px; place-items: center; border: 1px solid #28627f; border-radius: 11px; background: var(--accent-soft); color: var(--accent); }
 .icon-box svg { width: 25px; height: 25px; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.compat-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; margin: 0 0 18px; color: var(--text); }
+.compat-summary strong { color: var(--accent); font-size: clamp(1.3rem, 3vw, 1.8rem); }
+.compat-table th, .compat-table td { vertical-align: middle; }
+.compat-table .compat-category { font-weight: 700; text-align: center; }
+.compat-table .compat-status { display: inline-block; white-space: nowrap; font-weight: 700; }
+.compat-table .tier-full, .compat-legend .tier-full { color: var(--green); }
+.compat-table .tier-read, .compat-legend .tier-read { color: var(--blue); }
+.compat-table .tier-conn, .compat-legend .tier-conn { color: var(--accent); }
+.compat-legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 18px 0 22px; color: var(--muted); }
 table { width: 100%; min-width: 820px; border-collapse: collapse; }
 caption { padding: 18px 20px; border-bottom: 1px solid var(--line); color: #d8e7f6; font-weight: 750; text-align: left; }
 th, td { padding: 17px 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
