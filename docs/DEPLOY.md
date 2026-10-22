@@ -286,7 +286,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ## 方式二：本机二进制
 
-从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.0.0 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
+从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.0.1 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
 
 ### 预编译二进制系统要求
 

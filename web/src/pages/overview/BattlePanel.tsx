@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { SafetyCertificateFilled } from "@ant-design/icons";
 import { Card, Empty, Tabs } from "antd";
 import type { TabsProps } from "antd";
@@ -11,7 +12,7 @@ function finiteNumber(value: number | null | undefined): number {
 
 export function formatRows(value: number | null | undefined): string {
   const rows = finiteNumber(value);
-  return rows >= 10_000 ? `${(rows / 10_000).toFixed(1)} 万` : rows.toLocaleString("zh-CN");
+  return rows >= 10_000 ? `${(rows / 10_000).toFixed(1)} 万` : rows.toLocaleString(currentLocale());
 }
 
 function AgentRanking({ ranking }: { ranking: AgentRankingItem[] }) {
@@ -25,7 +26,7 @@ function AgentRanking({ ranking }: { ranking: AgentRankingItem[] }) {
             const blocked = finiteNumber(item.blocked_count);
             return (
               <div className="ranking-item" key={item.agent_id}>
-                <div className="ranking-line"><span title={item.agent_id}>{name}</span><span className="mono-text">{blocked.toLocaleString("zh-CN")}</span></div>
+                <div className="ranking-line"><span title={item.agent_id}>{name}</span><span className="mono-text">{blocked.toLocaleString(currentLocale())}</span></div>
                 <div className="ranking-track"><span style={{ width: `${Math.min(100, (blocked / maxBlocked) * 100)}%` }} /></div>
               </div>
             );
@@ -43,7 +44,7 @@ function RiskRanking({ risks }: { risks: RiskTopEntry[] }) {
         <div className="risk-list">
           {risks.slice(0, 5).map((item) => {
             const meta = getRuleMeta(item.rule_id);
-            return <div className="risk-item" key={item.rule_id}><span className="risk-id mono-text">{meta.id}</span><span className="risk-title" title={meta.title}>{meta.title}</span><span className="risk-count mono-text">{finiteNumber(item.count).toLocaleString("zh-CN")}</span></div>;
+            return <div className="risk-item" key={item.rule_id}><span className="risk-id mono-text">{meta.id}</span><span className="risk-title" title={meta.title}>{meta.title}</span><span className="risk-count mono-text">{finiteNumber(item.count).toLocaleString(currentLocale())}</span></div>;
           })}
         </div>
       )}
@@ -71,7 +72,7 @@ export function BattlePanel({ summary }: { summary: DashboardSummary | null }) {
     >
       <div className="battle-hero">
         <div className="battle-metric battle-metric-primary">
-          <div className="battle-number">{finiteNumber(report?.blocked_count).toLocaleString("zh-CN")}</div>
+          <div className="battle-number">{finiteNumber(report?.blocked_count).toLocaleString(currentLocale())}</div>
           <div className="battle-label">已拦截次数</div>
         </div>
         <div className="battle-metric battle-metric-secondary">

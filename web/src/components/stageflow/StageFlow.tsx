@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import {
   CheckCircleFilled,
   CloseCircleFilled,
@@ -98,7 +99,7 @@ function normalizeSteps(data: StageFlowData): StageStep[] {
 }
 
 function finalSummary(data: StageFlowData): string {
-  const rows = Math.max(0, Number.isFinite(data.rowsReturned) ? data.rowsReturned || 0 : 0).toLocaleString("zh-CN");
+  const rows = Math.max(0, Number.isFinite(data.rowsReturned) ? data.rowsReturned || 0 : 0).toLocaleString(currentLocale());
   const total = safeMilliseconds(data.totalLatencyMs);
   const latency = total > 0 ? ` · 总耗时 ${total.toFixed(total < 10 ? 1 : 0)} ms` : "";
   switch (data.decision) {

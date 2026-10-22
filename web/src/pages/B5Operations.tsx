@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -59,7 +60,7 @@ const emptyMetrics: B5Metrics = {
 function when(value?: string): string {
   if (!value) return "—";
   const parsed = new Date(value);
-  return Number.isNaN(parsed.valueOf()) ? "—" : parsed.toLocaleString("zh-CN", { hour12: false });
+  return Number.isNaN(parsed.valueOf()) ? "—" : parsed.toLocaleString(currentLocale(), { hour12: false });
 }
 
 function short(value?: string): string {

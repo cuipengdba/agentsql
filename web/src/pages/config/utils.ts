@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import type { ApiResponse } from "@/api/types";
 
 interface HTTPErrorLike {
@@ -31,7 +32,7 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
 
 export function formatDateTime(value: string | null | undefined, empty = "—"): string {
   const timestamp = Date.parse(value || "");
-  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString("zh-CN", { hour12: false }) : empty;
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString(currentLocale(), { hour12: false }) : empty;
 }
 
 export async function copyText(value: string): Promise<void> {

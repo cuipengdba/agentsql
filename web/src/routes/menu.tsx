@@ -74,6 +74,7 @@ export interface MenuRoute {
   key: string;
   path: string;
   label: string;
+  labelEn: string;
   icon: ReactNode;
   element: ReactNode;
   group?: "settings";
@@ -83,36 +84,39 @@ export interface MenuRoute {
 }
 
 export const menuRoutes: MenuRoute[] = [
-  { key: "upgrade", path: "/settings/upgrade", label: "版本与升级", icon: <CloudDownloadOutlined />, element: lazyElement(Upgrade), group: "settings" },
-  { key: "overview", path: "/", label: "总览", icon: <DashboardOutlined />, element: lazyElement(Overview) },
-  { key: "onboarding", path: "/onboarding", label: "接入向导", icon: <RocketOutlined />, element: lazyElement(Onboarding), permission: "datasource.manage" },
-  { key: "audit", path: "/audit", label: "审计", icon: <FileSearchOutlined />, element: lazyElement(Audit) },
+  { key: "upgrade", path: "/settings/upgrade", label: "版本与升级", labelEn: "Version & upgrade", icon: <CloudDownloadOutlined />, element: lazyElement(Upgrade), group: "settings" },
+  { key: "overview", path: "/", label: "总览", labelEn: "Overview", icon: <DashboardOutlined />, element: lazyElement(Overview) },
+  { key: "onboarding", path: "/onboarding", label: "接入向导", labelEn: "Setup guide", icon: <RocketOutlined />, element: lazyElement(Onboarding), permission: "datasource.manage" },
+  { key: "audit", path: "/audit", label: "审计", labelEn: "Audit", icon: <FileSearchOutlined />, element: lazyElement(Audit) },
   {
     key: "playground",
     path: "/playground",
     label: "演示台",
+    labelEn: "Playground",
     icon: <ExperimentOutlined />,
     element: lazyElement(Playground),
   },
-  { key: "agents", path: "/agents", label: "Agent", icon: <RobotOutlined />, element: lazyElement(Agents) },
+  { key: "agents", path: "/agents", label: "Agent", labelEn: "Agents", icon: <RobotOutlined />, element: lazyElement(Agents) },
   {
     key: "datasources",
     path: "/datasources",
     label: "数据源",
+    labelEn: "Data sources",
     icon: <DatabaseOutlined />,
     element: lazyElement(Datasources),
   },
-  { key: "policies", path: "/policies", label: "权限", icon: <SafetyOutlined />, element: lazyElement(Policies) },
-  { key: "policy-bundles", path: "/policy-bundles", label: "策略包治理", icon: <SafetyCertificateOutlined />, element: lazyElement(PolicyBundles), permission: "strategy.manage" },
-  { key: "task-read-grants", path: "/task-read-grants", label: "任务授权", icon: <ClockCircleOutlined />, element: lazyElement(TaskReadGrants), permission: "query.execute" },
-  { key: "users", path: "/users", label: "用户", icon: <TeamOutlined />, element: lazyElement(Users), group: "settings", permission: "user.manage" },
-  { key: "roles", path: "/roles", label: "角色", icon: <IdcardOutlined />, element: lazyElement(Roles), group: "settings", permission: "role.manage" },
-  { key: "tenants", path: "/tenants", label: "租户", icon: <ApartmentOutlined />, element: lazyElement(Tenants), group: "settings", permission: "tenant.manage" },
-  { key: "rules", path: "/rules", label: "规则", icon: <FilterOutlined />, element: lazyElement(Rules) },
+  { key: "policies", path: "/policies", label: "权限", labelEn: "Permissions", icon: <SafetyOutlined />, element: lazyElement(Policies) },
+  { key: "policy-bundles", path: "/policy-bundles", label: "策略包治理", labelEn: "Policy bundles", icon: <SafetyCertificateOutlined />, element: lazyElement(PolicyBundles), permission: "strategy.manage" },
+  { key: "task-read-grants", path: "/task-read-grants", label: "任务授权", labelEn: "Task grants", icon: <ClockCircleOutlined />, element: lazyElement(TaskReadGrants), permission: "query.execute" },
+  { key: "users", path: "/users", label: "用户", labelEn: "Users", icon: <TeamOutlined />, element: lazyElement(Users), group: "settings", permission: "user.manage" },
+  { key: "roles", path: "/roles", label: "角色", labelEn: "Roles", icon: <IdcardOutlined />, element: lazyElement(Roles), group: "settings", permission: "role.manage" },
+  { key: "tenants", path: "/tenants", label: "租户", labelEn: "Tenants", icon: <ApartmentOutlined />, element: lazyElement(Tenants), group: "settings", permission: "tenant.manage" },
+  { key: "rules", path: "/rules", label: "规则", labelEn: "Rules", icon: <FilterOutlined />, element: lazyElement(Rules) },
   {
     key: "approvals",
     path: "/approvals",
     label: "审批",
+    labelEn: "Approvals",
     icon: <AuditOutlined />,
     element: lazyElement(Approvals),
   },
@@ -120,6 +124,7 @@ export const menuRoutes: MenuRoute[] = [
     key: "b5-operations",
     path: "/b5-operations",
     label: "会话/事务",
+    labelEn: "Sessions & transactions",
     icon: <SwapOutlined />,
     element: lazyElement(B5Operations),
     feature: "b5",
@@ -128,6 +133,7 @@ export const menuRoutes: MenuRoute[] = [
     key: "mask-rules",
     path: "/mask-rules",
     label: "脱敏",
+    labelEn: "Masking",
     icon: <EyeInvisibleOutlined />,
     element: lazyElement(MaskRules),
   },
@@ -135,6 +141,7 @@ export const menuRoutes: MenuRoute[] = [
     key: "redaction-keys",
     path: "/settings/redaction-keys",
     label: "脱敏密钥",
+    labelEn: "Masking keys",
     icon: <KeyOutlined />,
     element: lazyElement(RedactionKeys),
     group: "settings",
@@ -143,6 +150,7 @@ export const menuRoutes: MenuRoute[] = [
     key: "audit-chain",
     path: "/settings/audit-chain",
     label: "审计完整性链",
+    labelEn: "Audit integrity chain",
     icon: <SafetyCertificateOutlined />,
     element: lazyElement(AuditChain),
     group: "settings",
@@ -151,6 +159,7 @@ export const menuRoutes: MenuRoute[] = [
     key: "security",
     path: "/settings/security",
     label: "登录安全",
+    labelEn: "Sign-in security",
     icon: <SafetyCertificateOutlined />,
     element: lazyElement(Security),
     group: "settings",
@@ -159,6 +168,7 @@ export const menuRoutes: MenuRoute[] = [
     key: "notifications",
     path: "/settings/notifications",
     label: "通知设置",
+    labelEn: "Notifications",
     icon: <BellOutlined />,
     element: lazyElement(Notifications),
     group: "settings",

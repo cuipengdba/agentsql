@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { ReloadOutlined } from "@ant-design/icons";
 import { Button, Empty, Input, List, Pagination, Select, Skeleton, Tag, Tooltip, message } from "antd";
 import { motion } from "framer-motion";
@@ -30,7 +31,7 @@ const decisionOrder: Decision[] = ["allow", "warn", "approve", "deny", "error"];
 function formatTime(value: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return "--:--:--";
-  return new Date(timestamp).toLocaleTimeString("zh-CN", {
+  return new Date(timestamp).toLocaleTimeString(currentLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",

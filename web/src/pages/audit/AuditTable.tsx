@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { EyeOutlined } from "@ant-design/icons";
 import { Button, Empty, Table, Tag, Tooltip } from "antd";
 import type { TableProps } from "antd";
@@ -25,7 +26,7 @@ function shortText(value: string | null | undefined, max = 12): string {
 }
 
 function numberText(value: number | null | undefined): string {
-  return value !== null && value !== undefined && Number.isFinite(value) ? value.toLocaleString("zh-CN") : "—";
+  return value !== null && value !== undefined && Number.isFinite(value) ? value.toLocaleString(currentLocale()) : "—";
 }
 
 function timeText(value: string | null | undefined): string {
@@ -98,7 +99,7 @@ export function AuditTable({ list, loading, failed, onView, onRetry }: AuditTabl
     },
     { title: "预估行", dataIndex: "est_rows", width: 105, align: "right", render: numberText },
     { title: "行数", dataIndex: "rows_returned", width: 90, align: "right", render: numberText },
-    { title: "耗时", dataIndex: "latency_ms", width: 100, align: "right", render: (value: number | null) => value !== null && value !== undefined && Number.isFinite(value) ? `${value.toLocaleString("zh-CN")} ms` : "—" },
+    { title: "耗时", dataIndex: "latency_ms", width: 100, align: "right", render: (value: number | null) => value !== null && value !== undefined && Number.isFinite(value) ? `${value.toLocaleString(currentLocale())} ms` : "—" },
     { title: "会话", dataIndex: "session_id", width: 120, ellipsis: true, render: (value: string | null | undefined) => <Tooltip title={displayText(value)}><span className="mono-text">{shortText(value, 10)}</span></Tooltip> },
     { title: "操作", key: "action", width: 76, fixed: "right", render: (_value: unknown, record: AuditView) => <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => onView(record)}>查看</Button> },
   ], [onView]);

@@ -64,6 +64,8 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npm run typecheck
+      - name: Check English UI catalog
+        run: npm run check:i18n
       - name: Test
         run: npm test
       - name: Build

@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +28,7 @@ export function buildDecisionOption(data: DecisionCount[], mode: ThemeMode, narr
   return {
     animationDuration: 450,
     title: {
-      text: total.toLocaleString("zh-CN"),
+      text: total.toLocaleString(currentLocale()),
       subtext: "总次数",
       left: centerX,
       top: centerY,
@@ -46,7 +47,7 @@ export function buildDecisionOption(data: DecisionCount[], mode: ThemeMode, narr
       textStyle: { color: colors.text },
       formatter: (item: unknown) => {
         const candidate = item as { name?: string; value?: number; percent?: number };
-        return `${candidate.name || "未知"}\n${safeCount(candidate.value).toLocaleString("zh-CN")}（${Number.isFinite(candidate.percent) ? candidate.percent : 0}%）`;
+        return `${candidate.name || "未知"}\n${safeCount(candidate.value).toLocaleString(currentLocale())}（${Number.isFinite(candidate.percent) ? candidate.percent : 0}%）`;
       },
     },
     legend: {
@@ -67,7 +68,7 @@ export function buildDecisionOption(data: DecisionCount[], mode: ThemeMode, narr
         const decision = decisionOrder.find((item) => decisionMeta[item].label === name);
         if (!decision) return name;
         const count = counts.get(decision) || 0;
-        const countText = count.toLocaleString("zh-CN");
+        const countText = count.toLocaleString(currentLocale());
         if (narrow) return `{name|${name}}  {count|${countText}}`;
         const percent = total > 0 ? ((count / total) * 100).toFixed(1) : "0.0";
         return `{name|${name}}  {count|${countText}}  {pct|${percent}%}`;
@@ -103,8 +104,8 @@ export function DecisionDonut({ data, mode }: DecisionDonutProps) {
     [data],
   );
   const total = decisionOrder.reduce((sum, decision) => sum + (counts.get(decision) || 0), 0);
-  const ariaLabel = `决策分布，共 ${total.toLocaleString("zh-CN")} 次：${decisionOrder
-    .map((decision) => `${decisionMeta[decision].label} ${(counts.get(decision) || 0).toLocaleString("zh-CN")}`)
+  const ariaLabel = `决策分布，共 ${total.toLocaleString(currentLocale())} 次：${decisionOrder
+    .map((decision) => `${decisionMeta[decision].label} ${(counts.get(decision) || 0).toLocaleString(currentLocale())}`)
     .join("、")}`;
 
   useEffect(() => {

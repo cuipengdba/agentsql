@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import { useEffect, useRef } from "react";
@@ -132,12 +133,12 @@ export function TrendChart({ data, mode }: TrendChartProps) {
             }
             return [
               category,
-              `总计：${finiteCount(row.total).toLocaleString("zh-CN")}`,
-              `放行：${finiteCount(row.allow).toLocaleString("zh-CN")}`,
-              `告警：${finiteCount(row.warn).toLocaleString("zh-CN")}`,
-              `待审批：${finiteCount(row.approve).toLocaleString("zh-CN")}`,
-              `拦截：${finiteCount(row.deny).toLocaleString("zh-CN")}`,
-              `执行错误：${errorCount(row).toLocaleString("zh-CN")}`,
+              `总计：${finiteCount(row.total).toLocaleString(currentLocale())}`,
+              `放行：${finiteCount(row.allow).toLocaleString(currentLocale())}`,
+              `告警：${finiteCount(row.warn).toLocaleString(currentLocale())}`,
+              `待审批：${finiteCount(row.approve).toLocaleString(currentLocale())}`,
+              `拦截：${finiteCount(row.deny).toLocaleString(currentLocale())}`,
+              `执行错误：${errorCount(row).toLocaleString(currentLocale())}`,
             ].join("\n");
           },
         },

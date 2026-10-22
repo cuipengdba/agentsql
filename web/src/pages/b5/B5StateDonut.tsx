@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import { useEffect, useMemo, useRef } from "react";
@@ -14,7 +15,7 @@ export function buildB5StateOption(data: B5StateDatum[], mode: ThemeMode): EChar
   const total = safe.reduce((sum, item) => sum + item.value, 0);
   return {
     animationDuration: 400,
-    title: { text: total.toLocaleString("zh-CN"), subtext: "总数", left: "center", top: "37%", textAlign: "center", textStyle: { color: colors.text, fontSize: 23 }, subtextStyle: { color: colors.textSecondary } },
+    title: { text: total.toLocaleString(currentLocale()), subtext: "总数", left: "center", top: "37%", textAlign: "center", textStyle: { color: colors.text, fontSize: 23 }, subtextStyle: { color: colors.textSecondary } },
     tooltip: { trigger: "item", backgroundColor: colors.elevated, borderColor: colors.border, textStyle: { color: colors.text } },
     legend: { type: "scroll", bottom: 0, left: "center", textStyle: { color: colors.textSecondary }, pageTextStyle: { color: colors.textSecondary } },
     series: [{ type: "pie", radius: ["52%", "72%"], center: ["50%", "43%"], label: { show: false }, itemStyle: { borderColor: colors.surface, borderWidth: 2 }, data: safe.map((item, index) => ({ ...item, itemStyle: { color: stateColors[index % stateColors.length] } })) }],

@@ -52,6 +52,7 @@ code { color: #c7edff; }
 .nav-toggle { display: none; width: 48px; height: 48px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; }
 .nav-toggle svg, .icon-box svg, .button svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-nav .button-small { padding-inline: 15px; margin-left: 8px; }
+.primary-nav > .language-link { border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); }
 .hero { position: relative; overflow: hidden; padding: 100px 0 92px; background: var(--bg); }
 .hero-grid { display: grid; grid-template-columns: 1.06fr .94fr; gap: 56px; align-items: center; }
 .eyebrow, .kicker { color: var(--accent); font-size: .82rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }

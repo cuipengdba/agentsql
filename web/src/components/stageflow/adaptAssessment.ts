@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n/locale";
 import { getRuleMeta } from "@/constants/ruleMeta";
 
 import { stageNodes } from "./stageNodes";
@@ -143,7 +144,7 @@ export function adaptAssessment(assessment: AssessmentLike, errorStage?: string 
   const steps = stageNodes.map((node) => {
     const latencyMs = node.latencyKeys.reduce((sum, key) => sum + safeLatency(latency[key as BackendStageKey]), 0);
     let note = node.subtitle;
-    if (node.key === "guard" && scanRows > 0) note = `预估扫描 ${Math.round(scanRows).toLocaleString("zh-CN")} 行`;
+    if (node.key === "guard" && scanRows > 0) note = `预估扫描 ${Math.round(scanRows).toLocaleString(currentLocale())} 行`;
     if (node.key === "decide" && decision === "approve") note = "转人工审批";
     if (node.key === "execute" && decision === "deny") note = "用户 SQL 未执行";
     if (node.key === failedNode) note = errorStageNote(errorStage);

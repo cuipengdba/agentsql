@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.0.1]
+
+- Add Chinese/English switching to the official website, Live Demo entry pages, and Web console. Keep the GitHub README in both languages; GitHub's own site language remains a user account preference.
+- Translate the console shell and existing static UI copy, switch Ant Design, date, and number locales, and persist the user's language choice. Preserve raw SQL and query result values.
+- Make the left navigation independently scrollable so its bottom entries remain reachable in short viewports and at high display scaling. No database protocol or schema changes; see [design](docs/v3.0.1-design.md), [release notes](docs/release-notes-v3.0.1.md), and [acceptance](docs/v3.0.1-acceptance.md).
+
 ## [v3.0.0]
 
 - Add a single server-maintained capability catalog for all 30 registered datasource types, exposed through the management API, the datasource console, and authorized MCP datasource listings. The four levels distinguish controlled SQL, bounded SQL, dedicated read tools, and connection-only preview without expanding database support claims.
