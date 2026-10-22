@@ -1,5 +1,7 @@
 # Batch 82：GHCR v0.5.0 精确 tag 推送与发布闸门报告
 
+**语言 / Language:** [简体中文](release-b82-report.md) | [English](en/release-b82-report.md)
+
 **结论：PARTIAL / FAIL-CLOSED。** 记录时间为 2026-10-09 Asia/Shanghai。三个精确 tag 已推送、双架构 OCI 索引与匿名 pull 均通过，主镜像及 quickstart 镜像的单容器验证通过。`deploy/quickstart/docker-compose.yml` 所需数据库镜像未满足匿名拉取条件，seed → gateway 链路未完成；因此未执行 `PromoteLatest`，`latest` 未移动。Release 仍为 draft；未部署官网、未宣传。
 
 ## 前置条件与构建

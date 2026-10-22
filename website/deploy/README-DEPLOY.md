@@ -1,5 +1,7 @@
 # AgentSQL 官网部署说明
 
+**语言 / Language:** [简体中文](README-DEPLOY.md) | [English](README-DEPLOY.en.md)
+
 目标系统为 Alibaba Cloud Linux 3，流程兼容 RHEL 8 系的 `dnf`、systemd、firewalld 与 SELinux enforcing。站点分两个阶段上线：阶段 A 仅回环预览，阶段 B 在备案与 DNS 就绪后启用正式域名和自动 HTTPS。
 
 ## 1. 前置与网络边界

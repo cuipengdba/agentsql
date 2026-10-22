@@ -1,5 +1,7 @@
 # v0.5 已知问题修复记录（批十四 / #36）
 
+**语言 / Language:** [简体中文](known-issues-fixes.md) | [English](en/known-issues-fixes.md)
+
 ## 批八十六（WorkBuddy 接管自验）：问题复核结论
 
 来源：WorkBuddy 在“不动代码、不破坏环境”前提下对 `feature/v0.4` 做端到端自验

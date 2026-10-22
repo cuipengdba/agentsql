@@ -1,5 +1,7 @@
 # AgentSQL v0.7.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v0.7.0.md) | [English](en/release-notes-v0.7.0.md)
+
 > 本文件描述版本功能与隔离验收范围。封板提交、对应 CI、正式发布日期、GitHub Release 资产验签、GHCR 匿名双架构验收及官网外部烟测属于 tag 后的发行证据，以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v0.7.0) 正文记录的实际结果为准；本文件不预记其通过结论，也不代表生产环境验收。执行顺序见[发布流程](RELEASE_PROCESS.md)。
 
 ## 本版范围

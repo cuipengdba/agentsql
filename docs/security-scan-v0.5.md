@@ -1,5 +1,7 @@
 # AgentSQL v0.5 发布前只读加固核验（批二十三）
 
+**语言 / Language:** [简体中文](security-scan-v0.5.md) | [English](en/security-scan-v0.5.md)
+
 核验日期：2026-10-03（Asia/Shanghai）
 分支：`feature/v0.4`
 核验提交：`13f2dbdef115ad1953dea1f4b613c7e13b2082a8`

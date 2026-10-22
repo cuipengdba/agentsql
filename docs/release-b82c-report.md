@@ -1,5 +1,7 @@
 # Batch 82c 验收报告
 
+**语言 / Language:** [简体中文](release-b82c-report.md) | [English](en/release-b82c-report.md)
+
 状态：**VERIFIED — latest 已指向 v0.5.0**。以下时间均为 2026-10-10（UTC+08:00）。
 
 ## 前置检查与匿名拉取

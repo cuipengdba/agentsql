@@ -1,5 +1,9 @@
 # AgentSQL 部署指南
 
+**语言 / Language:** [简体中文](DEPLOY.md) | [English](en/DEPLOY.md)
+
+> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+
 AgentSQL 是面向 AI Agent 的数据库安全网关和生产级 MCP Server。元数据与审计记录默认保存在本地 SQLite，也可使用 PostgreSQL 控制面；业务数据库仍使用各自的 PostgreSQL 或 MySQL 连接。
 
 当前精确安装版本、下载链接和升级前检查见 [快速上手](GETTING_STARTED.md)与 [v2.4.0 发布说明](release-notes-v2.4.0.md)。固定双网关 Kubernetes 部署另见 [v2.4.0 操作指南](../deploy/kubernetes/README.md)。本文后部标有 v1.2.0 或其他旧版本号的发布命令与分阶段上线记录是历史示例；执行前须使用正式 Release 的同版资产、签名及镜像摘要。
@@ -286,7 +290,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ## 方式二：本机二进制
 
-从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.0.1 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
+从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.0.2 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
 
 ### 预编译二进制系统要求
 
@@ -447,7 +451,7 @@ agentsqlctl migrate --check --config /etc/agentsql/config.yaml
 
 `agentsqlctl upgrade apply --dry-run` 只验证下载产物和文件计划，不检查数据库版本，也不会替代上述预检或备份。`migrate --check` 验证迁移版本记录的连续性，不是数据库结构、数据内容或跨库一致性的完整校验。
 
-完整的值班操作与故障处理步骤见 [v0.7 运维手册](v0.7-operations-runbook.md)。
+完整的值班操作与故障处理步骤见 [当前版本运维手册](OPERATIONS.md)。
 
 ### v0.3 `range` 控制面迁移
 
@@ -887,40 +891,23 @@ COMMIT;
 
 ## 发布与分发
 
-发布者应按以下顺序构建、验证并分发 v1.2.0。版本范围和验收边界见[发布说明](release-notes-v1.2.0.md)，15 项资产见[发布资产清单](RELEASE_ASSETS.md)；v0.5.0 的签名示例见[历史发布日清单](release-day-checklist-v0.5.md)。正式生产准备须从最终封板提交的完整干净工作树启动，执行前后核对 `git rev-parse HEAD` 与 `git status --porcelain --untracked-files=all`；脚本还会检查关键输入哈希并在构建结束前再次拒绝源码漂移。正式发布必须使用 `scripts/release-dryrun.ps1` 已固定并审核的 Rocky Linux 与 Syft digest；禁止把未固定的 `rockylinux:8` 默认值用于正式产物：
+当前正式版本为 v3.0.2，维护版本按[每版交付流程](RELEASE_ROUTINE.md)执行。当前资产与验签步骤见[发行资产](RELEASE_ASSETS.md)，实际结果见[发布证据](v3.0.2-release-evidence.md)。发布前须锁定完整干净提交，执行前后核对源码、测试与构建输入；不能复用旧包或占位签名。
 
 ```powershell
-# 无私钥、无 push 的完整双架构预演：15 个不可发布 dry-run 资产 + 三个 OCI 证据
-pwsh ./scripts/release-dryrun.ps1 -Version v1.2.0
+# 不签名、不推送的完整双架构预演。
+pwsh ./scripts/release-dryrun.ps1 -Version v3.0.2
 
-# 发布准备：由受控正式公钥生成 11 个待签名生产候选；随后签名并组成 15 项
-$trustedReleasePublicKey = '<独立核验的发布公钥绝对路径>'
-pwsh ./scripts/release-dryrun.ps1 -Version v1.2.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
+# 正式生产准备：必须使用独立核验过的受控公钥。
+$trustedReleasePublicKey = '<trusted-public-key-absolute-path>'
+pwsh ./scripts/release-dryrun.ps1 -Version v3.0.2 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
 
-# 负责人取得 write:packages 后，只推精确版本和辅助 tag，不移动 latest
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v1.2.0 -IncludeAuxiliaryTags -Push
-
-# 本轮官网与公网 Demo 延至 v1.5.0，v1.2.0 不执行 -PromoteLatest。
+# 签名并验收后，从同一带注释标签推送精确版本镜像。
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.0.2 -IncludeAuxiliaryTags -Push
 ```
 
-多架构脚本默认只把 `linux/amd64` + `linux/arm64` manifest 导出到 `dist/ghcr-agentsql-v1.2.0-oci.tar`，不登录、不推送，并解析 OCI index 断言两个目标平台。`-IncludeAuxiliaryTags` 通过同一个 Buildx Bake 构建图生成 demo base 与叠加 `config.demo.yaml` / `demo-seed.yaml` 的 quickstart 镜像。`-Push` 只推精确 tag，并查询和报告 GHCR package 是否为 public；若不是 public，须在 package 设置中处理并重新做匿名拉取验收。推送前须具备 `write:packages` 权限，脚本会强制核对干净工作树、本地 annotated tag、远端 GitHub tag 与 HEAD 一致。本轮 v1.2.0–v1.4.0 的官网、Live Demo 和 `latest` 保持 v1.0.0，待 v1.5.0 一次更新。之后必须按顺序完成：
+生产准备生成 11 项待签名资产，签署 SBOM、provenance、SHA256SUMS 后共 15 项。执行三个 Ed25519 验签，核对包、源提交、版本、双架构、运行库和匿名下载。GHCR 主镜像、Demo、quickstart 必须公开并含 amd64/arm64；在无登录环境拉取、运行并记录实际 digest。官网和 Demo 通过后再用已验收主镜像摘要单独提升 `latest`，并重新匿名验证。过去 v1.1–v1.4 暂缓官网的分阶段策略已经结束，不能作为当前版本跳过官网与 Demo 的依据。
 
-1. 核对 GHCR 中 `v1.2.0`、`v1.2.0-demo`、`v1.2.0-quickstart` 都是 public 且包含 `linux/amd64`、`linux/arm64`。quickstart 镜像必须实际包含两份 demo 配置。
-2. 分别在 amd64 与 arm64 的无 GHCR 登录干净环境执行 `docker pull ghcr.io/cuipengdba/agentsql:v1.2.0`；两边均以回环端口启动，验证 `/healthz` 返回 `v1.2.0` 且 `/readyz` 就绪，并完成 quickstart seed/gateway/reset 验收。
-3. 保留 `latest` 指向 v1.0.0，核对其摘要未因本版精确 tag 发布而变化。
-4. GitHub Release 必须上传发布日清单定义的恰好 15 个文件，而不是仅上传 tar、sidecar 和安装器。draft 回下载后重算外层/包内 SHA-256、执行三份 Ed25519 密码学验签、核对 provenance commit、两个二进制版本及 Yashan driver/client 双架构内容；全部通过后才转正式。
-
-`scripts/package-release.sh` 不读取或覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 可覆盖确定性 tar 的固定时间。GitHub 的 latest 不包含 prerelease，一键安装器也只接受严格的 `vX.Y.Z`。
-
-| 环境 | 原生发布包 | Docker 快速启动 |
-| --- | --- | --- |
-| x86_64 + glibc 2.28+ + systemd PID 1 | 支持 | 支持 |
-| x86_64 + glibc 2.28+，无 systemd PID 1 | 仅 `--no-start` 预安装 | 支持 |
-| aarch64 / arm64 + glibc 2.28+ + systemd PID 1 | v0.4.0 起支持 | 支持，GHCR 自动选择 arm64 |
-| aarch64 / arm64 + glibc 2.28+，无 systemd PID 1 | v0.4.0 起仅 `--no-start` 预安装 | 支持，GHCR 自动选择 arm64 |
-| CentOS 7 / glibc 2.17 | 不支持 | 使用 Debian/glibc 镜像 |
-| Alpine / musl | 不支持 | 使用 Debian/glibc 镜像 |
-| amd64 / arm64 之外的架构 | 无原生包 | 本快速脚本不支持 |
+`scripts/package-release.sh` 不覆盖既有 `bin/SHA256SUMS`；`SOURCE_DATE_EPOCH` 控制可复现 tar 时间。GitHub 正式版和安装器使用严格的 `vX.Y.Z`。构建仍须遵守 glibc、CGO 与厂商运行库要求，详见本页的预编译二进制系统要求。
 
 ## 备份铁律
 

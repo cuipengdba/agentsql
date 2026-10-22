@@ -1,5 +1,7 @@
 # AgentSQL 产品官网
 
+**语言 / Language:** [简体中文](README.md) | [English](README.en.md)
+
 纯静态、无构建步骤的产品官网。站点公开根目录是 `public/`，Caddy 与 Alibaba Cloud Linux 3 部署材料位于 `deploy/`。
 
 ## 目录职责

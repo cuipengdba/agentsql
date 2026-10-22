@@ -1,5 +1,7 @@
 # 批七十：瀚高 HighGo 9.0 企业版真库验证
 
+**语言 / Language:** [简体中文](highgo-verification.md) | [English](en/highgo-verification.md)
+
 验证日期：2026-10-08（Asia/Shanghai）。完整终端记录：`C:\Users\Administrator\AppData\Local\Temp\highgo-batch70-transcript.txt`。本批未执行 git 命令，未修改矩阵、README、SECURITY.md 或 `internal/` 业务代码。
 
 ## 输入与镜像

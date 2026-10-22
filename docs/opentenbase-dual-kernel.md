@@ -1,5 +1,7 @@
 # OpenTenBase 双内核深化记录（v0.5 批十二）
 
+**语言 / Language:** [简体中文](opentenbase-dual-kernel.md) | [English](en/opentenbase-dual-kernel.md)
+
 > 实测日期：2026-10-02。本文的“通过”只覆盖列出的镜像、拓扑、版本与合成用例，不构成厂商认证或生产兼容性声明。未获得真实环境证据的路径明确标为“待官方环境实测/未实现”。
 
 ## 1. 结论与边界

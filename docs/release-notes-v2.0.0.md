@@ -1,5 +1,7 @@
 # AgentSQL v2.0.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.0.0.md) | [English](en/release-notes-v2.0.0.md)
+
 v2.0.0 增加固定双网关 Kubernetes 部署方案。两个网关共享 PostgreSQL 元数据库与独立审计库，各自保存 B2 运行时实例标识；无状态 MCP 只读请求在一个网关不可用时由另一个网关继续受控处理。部署包含非 root 运行、独立 PVC、节点反亲和、Service、就绪探针、手动迁移 Job、只读 schema 检查和部署前检查脚本。
 
 PostgreSQL 列策略新增管理端 `POST /api/v1/policies/{id}/bind-postgres`。管理员提交策略当前 `ETag` 和一条登记用 SELECT；网关先发现目录，再在控制面策略版本锁下持有业务表目录锁，复核对象与列身份后原子提交正式绑定。登记 SQL 不执行。本版仅支持 `CATALOG_CLOSED_V1`、单张普通表和明确列投影；原生扩展模式、跨表、视图及通配投影的管理端登记仍会拒绝。

@@ -1,5 +1,7 @@
 # 批次七十五：v0.5.0 发布闸门离线验证报告
 
+**语言 / Language:** [简体中文](release-gate-b75-report.md) | [English](en/release-gate-b75-report.md)
+
 验证日期：2026-10-09（CST，UTC+08:00）。基线：`bfc743ad6f8ab3241b6051248e5d530ca630c4a0`，分支 `feature/v0.4`。本批只验证，未修改业务代码、未执行 git 写操作、未联网、未签名。所有容器运行均使用 `--network none --pull never`，Go 命令使用 `GOPROXY=off` 与 `GOTOOLCHAIN=local`。原始日志均有开始/结束时间和退出码，位于 [`dist/release-gate-b75/`](../dist/release-gate-b75/)。
 
 **总判定：发布 B 闸门未通过。** 当前离线环境缺 Go 模块缓存，P99 五轮、两次全仓构建和定向三包测试均未完成；全仓 short tests 命令退出 1。15 资产 dry-run 在本批禁网及文件范围约束下未执行。以下 PASS 仅代表对应命令实际通过，不代表发布资产可用。

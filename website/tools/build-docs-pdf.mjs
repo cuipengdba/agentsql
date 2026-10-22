@@ -16,7 +16,10 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v3.0.1';
+const VERSION = 'v3.0.2';
+const LANGUAGE = process.env.AGENTSQL_DOCS_LANGUAGE || 'zh';
+if (!['zh', 'en'].includes(LANGUAGE)) throw new Error('AGENTSQL_DOCS_LANGUAGE must be zh or en');
+const ENGLISH = LANGUAGE === 'en';
 const REPOSITORY_BLOB = `https://github.com/cuipengdba/agentsql/blob/${VERSION}`;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = resolve(SCRIPT_DIR, '..', '..');
@@ -28,21 +31,21 @@ const FIXED_PDF_DATE = "D:20261022000000+08'00'";
 
 const DOCUMENTS = [
   {
-    source: resolve(DOCS_ROOT, 'GETTING_STARTED.md'),
-    output: 'agentsql-getting-started-v3.0.1.pdf',
-    title: '快速上手',
+    source: resolve(DOCS_ROOT, ENGLISH ? 'en/GETTING_STARTED.md' : 'GETTING_STARTED.md'),
+    output: `agentsql-getting-started-${ENGLISH ? 'en-' : ''}${VERSION}.pdf`,
+    title: ENGLISH ? 'Getting Started' : '快速上手',
     slug: 'getting-started',
   },
   {
-    source: resolve(DOCS_ROOT, 'USER_GUIDE.md'),
-    output: 'agentsql-user-guide-v3.0.1.pdf',
-    title: '使用手册',
+    source: resolve(DOCS_ROOT, ENGLISH ? 'en/USER_GUIDE.md' : 'USER_GUIDE.md'),
+    output: `agentsql-user-guide-${ENGLISH ? 'en-' : ''}${VERSION}.pdf`,
+    title: ENGLISH ? 'User Guide' : '使用手册',
     slug: 'user-guide',
   },
   {
-    source: resolve(DOCS_ROOT, 'INTEGRATIONS.md'),
-    output: 'agentsql-mcp-integrations-v3.0.1.pdf',
-    title: 'MCP 接入指南',
+    source: resolve(DOCS_ROOT, ENGLISH ? 'en/INTEGRATIONS.md' : 'INTEGRATIONS.md'),
+    output: `agentsql-mcp-integrations-${ENGLISH ? 'en-' : ''}${VERSION}.pdf`,
+    title: ENGLISH ? 'MCP Integration Guide' : 'MCP 接入指南',
     slug: 'mcp-integrations',
   },
 ];
@@ -515,13 +518,14 @@ function markdownToHtml(markdown, sourcePath) {
 }
 
 function renderToc(toc) {
-  if (toc.length === 0) return '<p>本手册没有二级或三级标题。</p>';
+  if (toc.length === 0) return ENGLISH ? '<p>No second- or third-level headings.</p>' : '<p>本手册没有二级或三级标题。</p>';
   return `<ol>${toc.map((entry) => `<li class="toc-level-${entry.level}"><a href="#${entry.id}">${escapeHtml(entry.text)}</a></li>`).join('')}</ol>`;
 }
 
 function htmlDocument(document, rendered) {
+  const logo = readFileSync(resolve(REPOSITORY_ROOT, 'brand/agentsql-mark.svg')).toString('base64');
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${ENGLISH ? 'en' : 'zh-CN'}">
 <head>
   <meta charset="utf-8">
   <title>AgentSQL ${escapeHtml(document.title)} ${VERSION}</title>
@@ -536,6 +540,7 @@ function htmlDocument(document, rendered) {
     body { margin: 0; line-height: 1.7; }
     .cover { min-height: 240mm; display: flex; flex-direction: column; justify-content: center; text-align: center; break-after: page; page-break-after: always; }
     .brand { margin: 0 0 8mm; color: #075985; font-size: 31pt; font-weight: 800; letter-spacing: .02em; }
+    .cover-logo { width: 28mm; height: 28mm; margin: 0 auto 5mm; }
     .brand-cn { margin: 0 0 18mm; color: #475569; font-size: 16pt; letter-spacing: .28em; }
     .cover h1 { margin: 0 0 10mm; color: #0f172a; font-size: 27pt; line-height: 1.3; }
     .cover-meta { margin: 2.5mm 0; color: #475569; font-size: 11pt; }
@@ -575,15 +580,16 @@ function htmlDocument(document, rendered) {
 </head>
 <body>
   <section class="cover">
+    <img class="cover-logo" src="data:image/svg+xml;base64,${logo}" alt="AgentSQL">
     <p class="brand">AgentSQL</p>
-    <p class="brand-cn">智盾</p>
+    <p class="brand-cn">${ENGLISH ? 'Zhidun' : '智盾'}</p>
     <h1>${escapeHtml(document.title)}</h1>
     <p class="cover-meta">${VERSION}</p>
     <p class="cover-meta">agentsql.cn</p>
-    <span class="release-candidate">${VERSION} 使用文档</span>
+    <span class="release-candidate">${VERSION} ${ENGLISH ? 'Documentation' : '使用文档'}</span>
   </section>
-  <nav class="toc" aria-label="目录">
-    <h1>目录</h1>
+  <nav class="toc" aria-label="${ENGLISH ? 'Contents' : '目录'}">
+    <h1>${ENGLISH ? 'Contents' : '目录'}</h1>
     ${renderToc(rendered.toc)}
   </nav>
   <main>${rendered.body}</main>
@@ -614,7 +620,7 @@ function validateHtml(html, document, rendered, temporaryDirectory) {
   if (document.slug === 'user-guide' && !html.includes('page=1&amp;page_size=20')) {
     throw new Error('Ampersand text was not escaped');
   }
-  if (document.slug === 'user-guide' && !html.includes('脱敏密钥轮换与等值边界')) {
+  if (!ENGLISH && document.slug === 'user-guide' && !html.includes('脱敏密钥轮换与等值边界')) {
     throw new Error('User Guide is missing the redaction key rotation and equality-boundary chapter');
   }
 }
@@ -841,7 +847,9 @@ async function main() {
       'agentsql-mcp-integrations-v3.0.0.pdf',
       'agentsql-user-guide-v3.0.0.pdf',
     ];
-    const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles].sort();
+    archivedFiles.push('agentsql-getting-started-v3.0.1.pdf', 'agentsql-mcp-integrations-v3.0.1.pdf', 'agentsql-user-guide-v3.0.1.pdf');
+    const otherLanguage = actualFiles.filter((name) => new RegExp(`^agentsql-(getting-started|user-guide|mcp-integrations)-${ENGLISH ? '' : 'en-'}${VERSION.replaceAll('.', '\\.')}\\.pdf$`).test(name));
+    const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles, ...otherLanguage].sort();
     if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
       throw new Error(`Unexpected files in ${OUTPUT_DIR}: ${actualFiles.join(', ')}`);
     }

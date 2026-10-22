@@ -1,5 +1,7 @@
 # v0.5 测试覆盖与离线限制（已发布）
 
+**语言 / Language:** [简体中文](test-coverage-notes.md) | [English](en/test-coverage-notes.md)
+
 本文记录批六十七新增边界/错误路径测试的**源码覆盖范围**，不把测试文件存在或本次文档核对写成测试通过、真库通过或发布闸门通过。发布日执行要求见 [发布日清单](release-day-checklist-v0.5.md)。
 
 ## 批六十七新增范围

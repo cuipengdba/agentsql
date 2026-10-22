@@ -1,5 +1,7 @@
 # 金仓 + 瀚高联合案例社区运营口径
 
+**语言 / Language:** [简体中文](joint-case-operations.md) | [English](en/joint-case-operations.md)
+
 > 适用渠道：公众号、技术群、官网 / GitHub 更新说明。
 >
 > 发布前提：事实状态必须与 [联合案例验证记录](joint-case-kingbase-highgo.md) 一致；未经厂商书面确认，不使用暗示背书、认证或正式合作完成的措辞。

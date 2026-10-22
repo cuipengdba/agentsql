@@ -1,5 +1,7 @@
 # AgentSQL v0.7.0 — Dify 1.17.1 GUI query evidence
 
+**语言 / Language:** [简体中文](dify-gui-query-evidence.md) | [English](../../en/assets/acceptance-v0.7.0/dify-gui-query-evidence.md)
+
 - Client: Dify 1.17.1, isolated local browser GUI and an existing `query` workflow tool node.
 - Source package: candidate commit `9429b25f800de1333d63feab72cc550fdb23f54f`, Linux amd64 package SHA-256 `4c14eea7a0133d795cbe976179d820aca37fdae816d28bb13fa9e712cf10ca28`.
 - Transport: Dify API container to AgentSQL compatibility endpoint `/mcp` on the isolated network; request headers included Dify's own Bearer key and `MCP-Protocol-Version: 2025-06-18`. Credential values are omitted.

@@ -1,5 +1,7 @@
 # AgentSQL v2.2.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.2.0.md) | [English](en/release-notes-v2.2.0.md)
+
 v2.2.0 将已有 Oracle 原生连接、受限 SELECT 解析器和执行器接入 AgentSQL 的完整只读 MCP 安全链路。此前 Oracle 虽可做底层连接、发现和少量查询，但没有通过网关方言、规则、授权、脱敏和持久审计的同链路证明；本版只按实际验证的 Oracle AI Database 26ai Free 指定实例声明能力。
 
 本版候选实例为 `FREEPDB1`、服务端 `23.26.3.0.0`、`go-ora/v2`、x86_64 Docker 单实例。随机合成表和临时账号只获 `CREATE SESSION` 与目标表 `SELECT`。真实 HTTP MCP 允许查询返回遮蔽手机号；无权表 R010 拒绝、写入阻断、数据库 SELECT 撤销、Agent 策略撤销、独立审计库停机和 Oracle 断线均按不交付原始结果验证。MCP Inspector 和 Dify 也各自完成允许和拒绝调用。详细结果见[候选验收](v2.2.0-acceptance.md)。

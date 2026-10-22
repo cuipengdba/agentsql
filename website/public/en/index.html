@@ -3,99 +3,418 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL | Database security gateway for AI agents</title>
-  <meta name="description" content="AgentSQL is a self-hosted database security gateway and MCP server for AI agents, with identity checks, authorization, controlled execution, masking, and application-level audit.">
+  <title>AgentSQL (Chinese name: Zhidun)｜AI Agent database security gateway</title>
+  <meta name="description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/en/">
-  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
+  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=3.0.2">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="AgentSQL | Database security gateway for AI agents">
-  <meta property="og:description" content="Control AI-agent database access through identity, permissions, SQL checks, execution limits, masking, and audit.">
+  <meta property="og:title" content="AgentSQL·AI Agent&#x27;s database security gateway">
+  <meta property="og:description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
   <meta property="og:url" content="https://agentsql.cn/en/">
-  <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png">
+  <meta property="og:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.0.2">
+  <meta property="og:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="/assets/app.css">
-  <script src="/assets/app.js" defer></script>
+  <meta name="twitter:title" content="AgentSQL·AI Agent&#x27;s database security gateway">
+  <meta name="twitter:description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.0.2">
+  <meta name="twitter:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
+  <link rel="icon" href="/favicon.svg?v=3.0.2" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v=3.0.2">
+  <script src="/assets/app.js?v=3.0.2" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
+
   <header class="site-header">
     <div class="container nav-shell">
-      <a class="brand" href="#top" aria-label="AgentSQL home"><img src="/favicon.svg" width="36" height="36" alt="" aria-hidden="true"><span>AgentSQL</span></a>
-      <button class="nav-toggle" type="button" aria-controls="primary-nav" aria-expanded="false"><span class="sr-only">Open navigation</span><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <a class="brand" href="#top" aria-label="AgentSQL Home Page">
+        <img src="/assets/brand/agentsql-mark.svg" width="36" height="36" loading="eager" decoding="async" alt="" aria-hidden="true">
+        <span>AgentSQL</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-controls="primary-nav" aria-expanded="false">
+        <span class="sr-only">Open navigation</span>
+        <svg viewbox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+      </button>
       <nav id="primary-nav" class="primary-nav" aria-label="Main navigation">
-        <a href="#product">Product</a><a href="/en/demo/">Demo</a><a href="#features">Features</a><a href="#docs">Docs</a><a href="#compatibility">Databases</a><a href="#quickstart">Quick start</a><a href="#security">Security</a>
-        <a class="language-link" href="/" lang="zh-CN" hreflang="zh-CN" aria-label="切换为中文">中文</a>
-        <a class="button button-small button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="#product">Product</a>
+        <a href="/en/demo/">Demo</a>
+        <a href="#features">Features</a>
+        <a href="#docs">Docs / Downloads</a>
+        <a href="#compatibility">Compatibility</a>
+        <a href="#ecosystem">Ecosystem</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="#security">Security</a>
+        <a href="#licensing">Licensing</a>
+        <a href="#community">Community</a>
+        <a href="#faq">FAQ</a>
+        <a class="language-link" href="/" lang="zh-CN" hreflang="zh-CN" aria-label="Switch to Chinese">中文</a>
+        <a class="button button-small button-ghost" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">
+          <svg viewbox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.56 4.93.36.31.68.92.68 1.86V21c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
+          GitHub
+        </a>
       </nav>
     </div>
   </header>
+
   <main id="main">
-    <section id="top" class="hero section"><div class="container hero-grid"><div class="hero-copy">
-      <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v3.0.1</div>
-      <h1>A database security gateway for AI agents</h1>
-      <p class="hero-lead">AgentSQL is a self-hosted MCP server and database security gateway. Before an agent's request reaches a supported database, AgentSQL authenticates the caller, checks permissions and SQL risk, makes an allow/warn/deny/approve decision, controls execution, masks configured result columns, and records an application-level audit.</p>
-      <p class="positioning">v3.0.1 adds Chinese/English switching to the website and Web console and makes the console's left menu scroll within short viewports. It retains the v3.0.0 capability catalog and read-only delivery diagnostics. Registration in the catalog does not mean full production support; every real read still goes through identity, permissions, rules, masking, and audit checks.</p>
-      <div class="hero-actions"><a class="button button-primary" href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md" target="_blank" rel="noopener noreferrer">View on GitHub</a><a class="button button-secondary" href="#quickstart">Get started</a><a class="button button-ghost" href="/en/demo/">Try the Live Demo</a></div>
-      <p class="badge-line">Apache-2.0 open-source core since v0.5.0 · self-hosted · Go single-binary delivery · no third-party telemetry dependency</p>
-    </div><div class="gateway-visual" role="img" aria-label="AI agent to AgentSQL gateway to database"><div class="callout"><h2>One controlled path</h2><p>AI agent → MCP client → AgentSQL → supported database</p><p>Authenticate → parse → check → decide → execute and mask → audit</p><p>Database-side least privilege, read-only accounts, safe views, and network isolation remain necessary.</p></div></div></div></section>
+    <section id="top" class="hero section">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v3.0.2</div>
+          <h1>Database security gateway for AI agents</h1>
+          <p class="hero-lead">AgentSQL (Chinese name: Zhidun) is a database security gateway and MCP Server for AI Agents. PostgreSQL/MySQL requests issued by the model go through identity authentication, SQL parsing, static and dynamic risk checks, four-state decision-making and controlled execution before reaching the database; the results are masked according to the configuration, and a persistent audit is left at the application layer.</p>
+          <p class="positioning">v3.0.2 completes the English website and GitHub documentation, adds a current operations guide and a SQLBot v1.10.2 PostgreSQL execution adapter, and fixes sidebar colors in the light theme. The v3.0.0 capability catalog, read-only delivery diagnostics and synthetic MCP acceptance scenarios remain available. Every actual read is still checked against identity, authorization, rules, masking and durable audit requirements.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">Check it out on GitHub</a>
+            <a class="button button-secondary" href="#quickstart">Quick Start</a>
+            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/release-notes-v3.0.2.md" target="_blank" rel="noopener noreferrer">v3.0.2 Release Notes</a>
+          </div>
+          <p class="badge-line">Starting from v0.5.0 Apache-2.0 Open Source · Go single binary delivery (glibc/cgo build) · Self-hosted · No third-party telemetry dependencies</p>
+          <p class="positioning">It's not BI, it's not an ORM or Text2SQL, it's a default-deny security gate between the model and the database.</p>
+        </div>
+        <div class="gateway-visual" aria-label="Request processing link through AgentSQL gateway">
+          <svg viewbox="0 0 720 430" role="img" aria-labelledby="flow-title flow-desc">
+            <title id="flow-title">AgentSQL request link</title>
+            <desc id="flow-desc">AI Agent connects to the AgentSQL gateway through LLM or MCP Client, and then accesses PostgreSQL or MySQL; the gateway includes six stages: authentication, parsing, security inspection, decision-making, execution masking, and leaving traces.</desc>
+            <g class="flow-line"><path d="M133 96h72M330 96h65M520 96h67M458 144v56" /><path class="arrow-head" d="m197 91 8 5-8 5Zm190 0 8 5-8 5Zm192 0 8 5-8 5Zm-5 101 5 8 5-8Z" /></g>
+            <g class="flow-node"><rect x="24" y="61" width="110" height="70" rx="12" /><text x="79" y="90">AI Agent</text><text class="flow-sub" x="79" y="112">Make a request</text></g>
+            <g class="flow-node"><rect x="206" y="61" width="125" height="70" rx="12" /><text x="268" y="88">LLM / MCP</text><text class="flow-sub" x="268" y="112">Client</text></g>
+            <g class="flow-node flow-node-accent"><rect x="396" y="48" width="126" height="96" rx="14" /><text x="459" y="86">AgentSQL</text><text class="flow-sub" x="459" y="112">Deny gateway by default</text></g>
+            <g class="flow-node"><rect x="588" y="61" width="108" height="70" rx="12" /><text x="642" y="88">PostgreSQL</text><text class="flow-sub" x="642" y="112">/ MySQL</text></g>
+            <g class="stage-box">
+              <rect x="83" y="205" width="554" height="172" rx="18" />
+              <text class="stage-label" x="115" y="250">01 Authentication</text><text class="stage-label" x="278" y="250">02 Analysis</text><text class="stage-label" x="441" y="250">03 Security check</text>
+              <text class="stage-label" x="115" y="318">04 Decision</text><text class="stage-label" x="278" y="318">05 Execution and masking</text><text class="stage-label" x="491" y="318">06 Leave a trace</text>
+              <path d="M115 270h490" />
+            </g>
+          </svg>
+          <div class="visual-note"><span class="pulse" aria-hidden="true"></span> Requests only enter the execution phase if allowed by the policy</div>
+        </div>
+      </div>
+    </section>
 
-    <section id="product" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Why a gateway?</p><h2>Make agent database access controllable, explainable, and traceable</h2></div><div class="risk-grid">
-      <article class="risk-card"><span class="risk-index">01</span><h3>Risky SQL</h3><p>Generated SQL can contain unsafe writes, including UPDATE or DELETE without WHERE. Whether it is blocked depends on enabled rules, policy, and agent capability.</p></article>
-      <article class="risk-card"><span class="risk-index">02</span><h3>Unauthorized access</h3><p>Check the agent, data source, object, and column permissions before execution.</p></article>
-      <article class="risk-card"><span class="risk-index">03</span><h3>Sensitive results</h3><p>Configured masking can obscure selected phone and email fields before the result enters model context.</p></article>
-      <article class="risk-card"><span class="risk-index">04</span><h3>Missing evidence</h3><p>Keep the identity, SQL, rule matches, decision, and execution status needed to explain a request.</p></article>
-    </div><div class="boundary-note"><strong>Defense in depth:</strong> The gateway does not replace database privileges or network controls.</div></div></section>
+    <section id="product" class="section section-muted">
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">Why you need a safety gate</p>
+          <h2>Make the model’s database access constrained, explainable, and traceable</h2>
+          <p>The SQL generated by the model is non-deterministic. AgentSQL puts identity, permissions, syntax, risk and execution control in one request link to reduce the following common risks.</p>
+        </div>
+        <div class="risk-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>Dangerous statement</h3><p>Illusions may result in dangerous writing methods such as UPDATE / DELETE that lack WHERE; whether to intercept depends on the enabled rules, policies and Agent capability configuration.</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>Unauthorized access</h3><p>The model may query unauthorized tables or columns and needs to be judged based on Agent, data source, object and column permissions before execution.</p></article>
+          <article class="risk-card"><span class="risk-index">03</span><h3>Sensitive data returned</h3><p>Fields such as mobile phone number and email address may enter the model context in plain text and need to be coded according to the configuration before the results are returned.</p></article>
+          <article class="risk-card"><span class="risk-index">04</span><h3>It is difficult to assign blame afterwards</h3><p>In the absence of request identity, SQL, rule hits, and decision records, it is difficult to restore why an access was allowed or denied.</p></article>
+        </div>
+        <div class="boundary-note"><strong>Common Line of Defense:</strong>The security gateway cannot replace the minimum permissions, read-only accounts, security views and network isolation on the database side.</div>
+      </div>
+    </section>
 
-    <section class="section"><div class="container"><div class="section-heading"><p class="kicker">Six stages</p><h2>From identity to audit</h2></div><ol class="pipeline">
-      <li><span class="step-number">01</span><div><h3>Authenticate</h3><p>Validate the API key and load the agent, data source, and policy. Fail closed when required checks fail.</p></div></li>
-      <li><span class="step-number">02</span><div><h3>Parse</h3><p>Build a dialect-aware SQL AST. Rules reject malformed or multi-statement requests.</p></div></li>
-      <li><span class="step-number">03</span><div><h3>Inspect</h3><p>Run static checks first. Where allowed, use a controlled connection for read-only EXPLAIN or metadata checks.</p></div></li>
-      <li><span class="step-number">04</span><div><h3>Decide</h3><p>Combine decisions in deny &gt; approve &gt; warn &gt; allow order.</p></div></li>
-      <li><span class="step-number">05</span><div><h3>Execute and mask</h3><p>Execute only allow/warn decisions, with limits on connections, time, and rows; mask configured result columns.</p></div></li>
-      <li><span class="step-number">06</span><div><h3>Audit</h3><p>Persist decisions in the SQL pipeline. Audit failure closes that path; some earlier tool-level rejections may not have a persistent traffic audit record.</p></div></li>
-    </ol></div></section>
+    <section class="section" aria-labelledby="pipeline-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">six-segment link</p><h2 id="pipeline-title">From identity to traces, tightening access step by step</h2><p>QPS/connection limit is controlled by entrance and rules.</p></div>
+        <ol class="pipeline">
+          <li><span class="step-number">01</span><div><h3>Authentication</h3><p>Verify API Key, load Agent, data source and policy, and close if failed.</p></div></li>
+          <li><span class="step-number">02</span><div><h3>parse</h3><p>AST is built according to PostgreSQL/MySQL dialect, and exceptions such as malformation/multiple statements are rejected according to rules.</p></div></li>
+          <li><span class="step-number">03</span><div><h3>Security check</h3><p>Do a static check that does not touch the library first. Only when the static check is not rejected, establish a controlled connection and do dynamic checks such as read-only EXPLAIN/metadata.</p></div></li>
+          <li><span class="step-number">04</span><div><h3>decision making</h3><p>press deny &gt; approve &gt; warn &gt; allow is aggregated into release/alarm/interception/transfer to manual.</p></div></li>
+          <li><span class="step-number">05</span><div><h3>Execution and masking</h3><p>Only allow/warn is executed to limit the connection, timeout and number of result rows, and the results are coded by column before returning.</p></div></li>
+          <li><span class="step-number">06</span><div><h3>leave traces</h3><p>The allow/warn/deny/approve/error decision that enters the SQL pipeline is synchronously written into the application layer audit. Audit failures are fail-closed by design; tool layer pre-denials may not have persistent traffic auditing.</p></div></li>
+        </ol>
+      </div>
+    </section>
 
-    <section id="features" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Capabilities</p><h2>Controlled access from MCP to audit</h2></div><div class="feature-grid">
-      <article class="feature-card"><h3>MCP transports</h3><p>Local stdio, stateful Streamable HTTP at <code>/mcp</code>, and a separate stateless MCP 2026-07-28 endpoint at <code>/mcp/2026-07-28</code>. The new endpoint reauthenticates each request and does not expose cross-request B5 tools.</p></article>
-      <article class="feature-card"><h3>Default-deny controls</h3><p>API keys, agent capability tiers, object and column permissions, SQL AST rules, and fail-closed behavior for critical failures.</p></article>
-      <article class="feature-card"><h3>Execution limits</h3><p>Read-only protection, hazardous SQL checks, EXPLAIN risk checks, timeouts, connection/QPS/result limits, and human approval.</p></article>
-      <article class="feature-card"><h3>Data protection</h3><p>Configurable column masking is basic protection, not complete DLP. Data-source passwords are encrypted with AES-256-GCM.</p></article>
-      <article class="feature-card"><h3>Control plane</h3><p>SQLite by default; optional PostgreSQL 15+ control plane with single- or split-database layouts. PostgreSQL 18 is the baseline.</p></article>
-      <article class="feature-card"><h3>Operations</h3><p>Web console, Prometheus metrics, health/readiness probes, Grafana dashboard, task-scoped temporary read grants, onboarding guide, and a read-only migration check.</p></article>
-    </div></div></section>
+    <section id="demo" class="section section-muted">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Reproducible demonstration</p><h2>Demonstration and actual running screenshots</h2><p>Live Demo only connects to the synthetic demo library, provides read-only or controlled playbooks and resets periodically; no real data, credentials, tokens or other secrets may be entered.</p><p class="quiet-line">This is a non-production configuration. Please read first<a href="/en/demo/">Demonstration safety instructions</a>Enter the console again.</p></div>
+        <p><a class="button button-primary" href="/en/demo/">Open the Live Demo entrance</a></p>
+        <div class="demo-overview media-frame">
+          <a href="/assets/screenshots/demo-scenarios.png" target="_blank" rel="noopener noreferrer" aria-label="View the original image of Live Demo&#x27;s six controlled script cards overview in a new tab">
+            <img src="/assets/screenshots/demo-scenarios.png" width="924" height="872" loading="lazy" decoding="async" alt="Live Demo Overview of Six Controlled Script Cards">
+          </a>
+        </div>
+        <div class="demo-grid">
+          <details><summary><span>Scene 1</span>Read-only query release</summary><div class="detail-body"><p>The controlled read-only query returns 5 rows and generates an audit number.</p><a class="media-frame" href="/assets/screenshots/scenario-allow.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-allow.png" width="1265" height="960" loading="lazy" decoding="async" alt="Read-only query is released, returns 5 rows and generates an audit number"></a></div></details>
+          <details><summary><span>Scene 2</span>None WHERE write request rejected</summary><div class="detail-body"><p>No WHERE write request is ultimately denied; hits include deny-level R002, R010, DEMO_NON_SELECT, and approve-level R202 (R202 itself is not a deny rule).</p><a class="media-frame" href="/assets/screenshots/scenario-deny-no-where.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-deny-no-where.png" width="924" height="857" loading="lazy" decoding="async" alt="No WHERE update was rejected by multiple rules before touching the database, and the statement was not executed."></a></div></details>
+          <details><summary><span>Scene 3</span>Sensitive result coding</summary><div class="detail-body"><p>The mobile phone number and email address are matched according to the final result list, and basic coding is performed before returning.</p><a class="media-frame" href="/assets/screenshots/scenario-mask.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-mask.png" width="939" height="857" loading="lazy" decoding="async" alt="The mobile phone number and email result columns are coded, with a total of 10 cells."></a></div></details>
+          <details><summary><span>Scene 4</span>Big result risk warning</summary><div class="detail-body"><p>R005 gives a warning for a no-LIMIT query that is estimated to be about 600 rows, and only returns the first 20 rows.</p><a class="media-frame" href="/assets/screenshots/scenario-warn-large-result.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-warn-large-result.png" width="939" height="872" loading="lazy" decoding="async" alt="R005 Alerts for query without LIMIT, which is estimated to be about 600 rows, and only returns the first 20 rows"></a></div></details>
+          <details><summary><span>Scene 5</span>Unauthorized object denied</summary><div class="detail-body"><p>Query for unauthorized internal_notes was rejected by R010 and not executed.</p><a class="media-frame" href="/assets/screenshots/scenario-deny-unauthorized.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/scenario-deny-unauthorized.png" width="939" height="857" loading="lazy" decoding="async" alt="Unauthorized query internal_notes rejected by R010 and not executed"></a></div></details>
+          <details><summary><span>Scene 6</span>audit evidence chain</summary><div class="detail-body"><p>The audit details record basic information, six time lines, SQL original text, normalized SQL, hit rules, and clearly mark blocked statements as not executed.</p><div class="evidence-pair"><a class="media-frame" href="/assets/screenshots/audit-detail-top.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-top.png" width="939" height="872" loading="lazy" decoding="async" alt="Audit details, basic information and six time periods online"></a><a class="media-frame" href="/assets/screenshots/audit-detail-bottom.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-bottom.png" width="939" height="872" loading="lazy" decoding="async" alt="The blocked statement is marked as not executed, and the original SQL text, normalized SQL and hit rules are retained."></a></div></div></details>
+        </div>
+      </div>
+    </section>
 
-    <section id="docs" class="section"><div class="container"><div class="section-heading"><p class="kicker">Documentation</p><h2>Start with the evidence and deployment limits</h2><p>The detailed manuals and bundled PDFs are currently in Chinese. The <a href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md">English README</a> covers the architecture, supported scope, and first steps.</p></div><div class="feature-grid">
-      <article class="feature-card"><h3>Getting started</h3><p>Try the synthetic Live Demo, then configure your own database with least privilege.</p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">Read the Chinese guide</a></article>
-      <article class="feature-card"><h3>User guide</h3><p>Control-console menus, auditing, data sources, permissions, rules, approvals, and masking limits.</p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">Read the Chinese guide</a></article>
-      <article class="feature-card"><h3>MCP integration</h3><p>Choose a transport based on the client and the needed tools.</p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">Read the Chinese guide</a></article>
-    </div><div class="license-panel callout"><div class="docs-callout-copy"><h3>v3.0.1 packages</h3><p>Linux amd64 and arm64 installers and a multi-architecture GHCR image are available. Back up the control database and matching keys before upgrading.</p><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v3.0.1</code></pre><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.0.1/install.sh | sudo sh -s -- install --version v3.0.1</code></pre><p class="install-conditions">Linux glibc ≥ 2.28 · systemd · sudo/root for the installer</p></div><div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v3.0.1" target="_blank" rel="noopener noreferrer">GitHub Release v3.0.1</a></div></div></div></section>
+    <section class="section" aria-labelledby="dashboard-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Real-time big screen</p><h2 id="dashboard-title">Put risk changes into observable views</h2><p>Recent risk events are pushed in real time via authenticated SSE (/api/v1/stream), and polling is performed when disconnection occurs; KPIs, trends and distributions support manual and automatic refresh in about 30 seconds; Prometheus indicators can be connected to existing monitoring.</p></div>
+        <div class="screenshot-grid">
+          <a class="media-frame" href="/assets/screenshots/dashboard-kpi-trend.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/dashboard-kpi-trend.png" width="924" height="872" loading="lazy" decoding="async" alt="KPIs such as total requests, interceptions, pending approval, and recent request trends"></a>
+          <a class="media-frame" href="/assets/screenshots/dashboard-decisions-events.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/dashboard-decisions-events.png" width="924" height="872" loading="lazy" decoding="async" alt="Decision distribution donut diagram and recent risk event flow"></a>
+        </div>
+      </div>
+    </section>
 
-    <section id="compatibility" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Compatibility</p><h2>Versioned, evidence-based support</h2><p>The v3.0.1 catalog registers 30 databases in eight families; KingbaseES V9 appears separately for a specified PG-protocol instance. Each adapter has its own tested versions, modes, operations, and failure behavior. Catalog registration alone is not a production-support claim.</p></div><div class="feature-grid">
-      <article class="feature-card"><h3>Core SQL paths</h3><p>PostgreSQL and MySQL use the main SQL gateway with distinct dialect, permission, and column-binding rules. The README and release evidence state the tested boundaries.</p></article>
-      <article class="feature-card"><h3>Specified-instance paths</h3><p>Vastbase, HighGo, openGauss, Oracle Free, SQL Server 2025 Developer, Yashan, and other adapters have narrower version- and scenario-specific acceptance evidence.</p></article>
-      <article class="feature-card"><h3>Non-SQL paths</h3><p>MongoDB, Redis/Valkey, ClickHouse, and Milvus expose restricted read tools with explicit object and field scope; they are not general-purpose database proxies.</p></article>
-    </div><p><a href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md#database-support" target="_blank" rel="noopener noreferrer">Read the English compatibility summary</a> · <a href="/#compatibility" lang="zh-CN">查看中文完整兼容矩阵</a></p></div></section>
+    <section class="section section-muted" aria-labelledby="audit-title">
+      <div class="container audit-layout">
+        <div class="section-heading"><p class="kicker">Audit and traces</p><h2 id="audit-title">Review the complete evidence chain from the decision list</h2><p>Provides application layer audit list, combination filtering, evidence chain viewing and JSONL export to facilitate traceability and security analysis; PDF compliance report is in the roadmap. It is not a regulatory-level WORM, and it cannot prevent the database owner/superuser from directly changing the underlying data.</p></div>
+        <div class="audit-gallery">
+          <a class="media-frame media-featured" href="/assets/screenshots/audit-list.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-list.png" width="924" height="872" loading="lazy" decoding="async" alt="Audit list combination filtering and JSONL export interface; the PDF button in the interface corresponds to the roadmap function"></a>
+          <div class="audit-stack"><a class="media-frame" href="/assets/screenshots/audit-detail-top.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-top.png" width="939" height="872" loading="lazy" decoding="async" alt="Audit details, basic information and six time periods online"></a><a class="media-frame" href="/assets/screenshots/audit-detail-bottom.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/audit-detail-bottom.png" width="939" height="872" loading="lazy" decoding="async" alt="The second half of the evidence chain that the blocked statement was not executed, including SQL and rule hits"></a></div>
+        </div>
+      </div>
+    </section>
 
-    <section id="quickstart" class="section"><div class="container"><div class="section-heading"><p class="kicker">Quick start</p><h2>Try AgentSQL with synthetic data</h2><p>The public Live Demo is a single-gateway, non-production environment. It does not connect to real customer databases and is reset periodically.</p></div><div class="hero-actions"><a class="button button-primary" href="/en/demo/">Read demo safety rules</a><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/README.en.md#quick-start" target="_blank" rel="noopener noreferrer">Local setup instructions</a></div></div></section>
+    <section id="features" class="section">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Core features</p><h2>Full path for controlled database access</h2></div>
+        <div class="feature-grid">
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M7 8h10M7 12h10M7 16h6M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /></svg></div><h3>MCP dual entrance</h3><p>Preserving stdio with stateful Streamable HTTP <code>/mcp</code>;Add independent MCP 2026-07-28 stateless HTTP entry <code>/mcp/2026-07-28</code>, re-authenticate each request. The new portal does not currently provide the B5 cross-request tool.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 7v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7l8-4Z" /><path d="m9 12 2 2 4-5" /></svg></div><h3>Deny by default</h3><p>Combine API Key, Agent capability level, object/column authorization and AST rules; fail-closed by design when exceptions or key dependencies fail.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 11h14v9H5z" /><path d="M9 15h6" /></svg></div><h3>controlled literacy</h3><p>Provides read-only protection, dangerous SQL interception, EXPLAIN risk, timeout, connection/QPS/result row limit and manual approval.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z" /><path d="m4 4 16 16" /></svg></div><h3>Result masking</h3><p>The mobile phone number/email address is basically coded based on column name matching, which is not a complete DLP; the data source password is stored in AES-256-GCM encryption using a 32-byte key.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" /></svg></div><h3>control surface</h3><p>Default zero configuration SQLite, optional PostgreSQL 15+; PG18 is the baseline. Supports single database or independent metadata/audit dual databases and SQLite→PG migration. The independent audit database is an optional layout rather than the default.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3" /><path d="M2 19h22" /></svg></div><h3>Observables and consoles</h3><p>Provides Prometheus metrics, health/readiness probes, Grafana dashboards, and an embedded web console.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M7 8h10M7 15h10" /></svg></div><h3>Task-level temporary read-only authorization</h3><p>The applicant submits an Agent, a data source and a simple SELECT that completely matches; another authorized user of the same tenant checks and approves. After approval, the applicant can receive a key for up to 24 hours at a time. Key can be revoked, and original object permissions, rules, masking and auditing are still in effect.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></div><h3>Access wizard</h3><p>In the same process, select the Agent and data source, check the connection, generate Dify/Inspector keyless access instructions, interpret the target SQL offline, and locate the record with the audit ID of the real call. Preflight does not execute Agent SQL.</p></article>
+          <article class="feature-card"><div class="icon-box"><svg viewbox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M12 4v16" /></svg></div><h3>Version check before upgrade</h3><p><code>agentsqlctl migrate --check</code> Read-only reporting controls the schema status of the control library; production upgrades still require backing up the database and pairing keys, and then the migration account explicitly performs the migration.</p></article>
+        </div>
+      </div>
+    </section>
 
-    <section id="security" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">Security limits</p><h2>Use database controls alongside the gateway</h2><p>Masking is not complete DLP or anonymization. Application-level audit is not a regulatory WORM log. A database owner or superuser can still alter underlying data. Direct connections bypass AgentSQL. Use least-privilege database accounts, safe views, network isolation, backups, and independent audit controls as appropriate.</p></div></div></section>
+    <section id="docs" class="section section-muted" aria-labelledby="docs-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Docs / Downloads</p><h2 id="docs-title">From local demo to MCP access</h2><p>Select the entrance according to the actual deployment status. Document corresponding source code repository <code>github.com/cuipengdba/agentsql</code>.</p></div>
+        <div class="feature-grid">
+          <article class="feature-card"><span class="risk-index">01</span><h3>Get started quickly</h3><p>Use the local Live Demo to see the effect, and then access your database in the order of default rejection.</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">Read online</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-en-v3.0.2.pdf" download="agentsql-getting-started-en-v3.0.2.pdf" aria-label="Download &quot;Getting Started Quickly&quot; PDF">PDF download</a></div></article>
+          <article class="feature-card"><span class="risk-index">02</span><h3>User manual</h3><p>Press the console menu to learn about auditing, agents, data sources, permissions, rules, approval and masking boundaries.</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">Read online</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-en-v3.0.2.pdf" download="agentsql-user-guide-en-v3.0.2.pdf" aria-label="Download the User Manual PDF">PDF download</a></div></article>
+          <article class="feature-card"><span class="risk-index">03</span><h3>MCP Access Guide</h3><p>Select existing ones based on client capabilities <code>/mcp</code>, independent and stateless <code>/mcp/2026-07-28</code> or stdio, view tools with reject boundaries.</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">Read online</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-en-v3.0.2.pdf" download="agentsql-mcp-integrations-en-v3.0.2.pdf" aria-label="Download the MCP Access Guide PDF">PDF download</a></div></article>
+        </div>
+        <div class="license-panel callout">
+          <div class="docs-callout-copy"><h3>More information</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/DEPLOY.md" target="_blank" rel="noopener noreferrer">Deployment Guide</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/OPERATIONS.md" target="_blank" rel="noopener noreferrer">Current operation and maintenance manual</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot access</a> · <a href="/en/demo/">Online demo instructions</a></p><p>v3.0.2 provides Linux amd64/arm64 installation packages and multi-architecture images; the Live Demo entry only uses synthetic data.</p><h4>GHCR multi-architecture pull (automatically matches amd64/arm64)</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v3.0.2</code></pre><h4>One-click installation (Linux amd64/arm64)</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.0.2/install.sh | sudo sh -s -- install --version v3.0.2</code></pre><p class="install-conditions">linux/arm64 native glibc package is provided starting from v0.4.0 · x86_64 / amd64 or aarch64 / arm64 · glibc ≥ 2.28 · systemd · requires sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v3.0.2" target="_blank" rel="noopener noreferrer">GitHub Release（v3.0.2）</a></div>
+        </div>
+      </div>
+    </section>
 
-    <section id="licensing" class="section"><div class="container"><div class="section-heading"><p class="kicker">License</p><h2>Apache-2.0 open-source core and separate commercial terms</h2><p>Versions v0.4.0 and earlier retain their original licenses. From v0.5.0, the open-source core is Apache License 2.0, which permits commercial use, closed-source integration, SaaS use, and redistribution under its terms. Trademark rights are separate. For trademark permission or enterprise capabilities, contact <a href="mailto:87326549@qq.com">87326549@qq.com</a>.</p></div></div></section>
+    <section id="compatibility" class="section section-muted">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Compatibility</p><h2>v3.0.2 compatible matrix</h2><p>This version adds cross-adapter capability declaration and pre-delivery read-only diagnosis; the adaptation scope of databases such as Milvus, ClickHouse, Redis, Valkey and MongoDB will continue to use the designated environment acceptance of the corresponding version and will not be expanded due to the upgrade of governance functions. The table below is divided into categories according to actual ability and evidence.</p></div>
+        <div class="compat-summary"><strong>8 categories / 30 models registered</strong><span>openGauss and HighGo HighGo have been included; another designated instance of KingbaseES KingbaseES V9 is listed for PG protocol verification</span></div>
+        <div class="table-wrap">
+          <table class="compat-table">
+            <caption>AgentSQL v3.0.2 database compatibility matrix: 8 categories, 30 registered databases, KingbaseES KingbaseES V9 is listed separately, with a total of 31 rows.</caption>
+            <thead><tr><th scope="col">Category</th><th scope="col">database</th><th scope="col">Adaptation status</th><th scope="col">Boundary description</th></tr></thead>
+            <tbody>
+              <tr><th scope="rowgroup" rowspan="10" class="compat-category">Relational</th><td>PostgreSQL 14–18</td><td><span class="compat-status tier-full">🟢 Adapted · Complete protection</span></td><td>Passed the actual test of the whole link</td></tr>
+              <tr><td>MySQL 8.0</td><td><span class="compat-status tier-full">🟢 Adapted · Complete protection</span></td><td>Passed the actual test of the whole link</td></tr>
+              <tr><td>Oracle AI Database 26ai Free</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>FREEPDB1, server 23.26.3.0.0: minimum privilege HTTP MCP, R010, masking, dual client, permission revocation and fault shutdown passed; pre-execution plan, commercial version and full production support have not been verified</td></tr>
+              <tr><td>Dameng DM8</td><td><span class="compat-status tier-full">🟢 Specify scene closed loop</span></td><td>Pack3, COMPATIBLE_MODE=0 real database read-only link</td></tr>
+              <tr><td>YashanDB YashanDB</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>23.4.1.109 Specified instance: least privilege HTTP MCP, R010, masking, dual client and independent persistent audit passed; TLS, active and backup and full production support not verified</td></tr>
+              <tr><td>SQL Server 2025 Developer</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>Linux x86_64 single instance synthetic data: Strict TLS, Least Privilege HTTP MCP, R010, masking, Dual Client, SELECT/SHOWPLAN Revoke and Fault Shutdown passed; other versions, Windows/Always On, Production Certificate Rotation and Full Production Support not verified</td></tr>
+              <tr><td>openGauss Community Edition 7.0.0 LTS</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>Independent type, build 2397a86f specifies single instance: strict TLS, ordinary physical single table narrow SELECT, real MCP, R010, masking, approval, dual client, permission revocation and fault shutdown passed; GaussDB commercial version, primary and backup and full production support have not been verified</td></tr>
+              <tr><td>Vastbase G100</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>V3.0 Build 9 PG mode: Bounded single table SELECT, authorization, masking, MCP and persistent audit testing; v1.8.0 verifies TLS, certificate and credential rotation. Temporary license, untested for HA, other versions and production loads</td></tr>
+              <tr><td>HighGo HighGo</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>Standalone highgo type; 9.0.10 Enterprise PG mode bounded SELECT, permissions, masks, clients and failed link pass-through</td></tr>
+              <tr><td>KingbaseES KingbaseES V9 (separate list)</td><td><span class="compat-status tier-full">🟢 Specify scene closed loop</span></td><td>V9R1C10 PG mode basic closed loop, not included in 30</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">key value</th><td>Redis</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>8.2.9 TLS/ACL single instance: Independent key policy, exact key UTF-8 reads, masking, persistent auditing, dual clients, and fail-close; Cluster, Sentinel, writes, and full production support not verified</td></tr>
+              <tr><td>Valkey</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>8.1.10 TLS/ACL single instance and Redis have the same narrow reading contract, independent real database and dual client verification; other topologies and complete production support have not been verified</td></tr>
+              <tr><td>Memcached</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>ping /version/schema/read-only preview</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">Documentation</th><td>MongoDB</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>7.0.43 Single instance: Exact set and optional field authorization, strict TLS, least privilege find, explicit projection, bounded equal filtering, masking, persistent auditing, dual clients and fail-close pass; replica sets, sharding, writes and full production support not verified</td></tr>
+              <tr><td>Couchbase</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><td>CouchDB</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">wide column</th><td>Cassandra</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>ping /version/schema/read-only preview</td></tr>
+              <tr><td>ScyllaDB</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><td>HBase</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">Figure</th><td>Neo4j</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>ping /version/schema/read-only preview</td></tr>
+              <tr><td>JanusGraph</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><td>NebulaGraph</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">Timing</th><td>InfluxDB</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>ping /version/schema/read-only preview</td></tr>
+              <tr><td>Prometheus</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><td>TimescaleDB</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">OLAP</th><td>ClickHouse</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>26.8.31.2. TLS single node: MergeTree single table explicit column and String equivalence conditions; minimum permissions, masking, persistent auditing and dual client pass. Clustering, other versions, and full production support are not verified.</td></tr>
+              <tr><td>Apache Doris</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><td>StarRocks</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><th scope="rowgroup" rowspan="3" class="compat-category">Vector</th><td>Milvus</td><td><span class="compat-status tier-read">🔵 Specify version controlled read-only</span></td><td>2.6.25 TLS standalone: precise collection/field authorization, single-vector COSINE retrieval, source masking, and persistent auditing; other versions, clusters, and full production support not verified</td></tr>
+              <tr><td>Qdrant</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+              <tr><td>Weaviate</td><td><span class="compat-status tier-conn">🔷 Adapted · Connection level</span></td><td>Same caliber</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="compat-legend" aria-label="Support gear">
+          <span><strong class="tier-full">Complete protection</strong>: Parsing / Authorization / Controlled Execution / masking / Audit</span>
+          <span><strong class="tier-read">Controlled read-only</strong>: Connection/Metadata/Read-only query subset</span>
+          <span><strong class="tier-conn">connection level</strong>:ping /version/schema/read-only preview</span>
+        </div>
+        <p class="ecosystem-note">v1.5.0 completes the client, permission revocation and database break recovery for the specified modes of DM8, KingbaseES and Vastbase; v1.6.0 completes the independent audit library failure, lock wait timeout and cancellation of the three databases. v1.7.0 adds HighGo to limit read-only paths and verifies KingbaseES certificate verification and rotation; v1.8.0 specifies Build in Vastbase to verify that the isolated instance can verify TLS, rotation, dual clients, masking and persistent auditing. Dameng TLS and formal active/standby switchover are still unproven. Conclusions do not extrapolate to other versions, production loads, or vendor certifications. MongoDB, Redis, Valkey, ClickHouse and Milvus are only open for controlled read-only in their respective specified versions and topologies; other NoSQL/vectors are still connected-level low-level support; all libraries must go through the gateway and use a dedicated minimum-privileged account. See details <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.8.0-acceptance.md">v1.8.0 Vastbase acceptance record</a>、<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.7.0-dm-kingbase-depth-acceptance.md">KingbaseES acceptance record</a>and<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.en.md">Security</a>.</p>
+      </div>
+    </section>
 
-    <section id="faq" class="section section-muted"><div class="container"><div class="section-heading"><p class="kicker">FAQ</p><h2>Common questions</h2></div><div class="faq-list">
-      <details><summary>Is AgentSQL itself an MCP server?</summary><p>Yes. It exposes database tools through supported MCP transports.</p></details>
-      <details><summary>Does it generate SQL from natural language?</summary><p>No. It checks and controls database requests; it is not a BI tool, ORM, or Text2SQL product.</p></details>
-      <details><summary>Does it support every registered database in production?</summary><p>No. Check the specific version, operation, transport, and acceptance evidence for each adapter.</p></details>
-    </div></div></section>
+    <section id="ecosystem" class="section">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Ecological and compatible</p><h2>Progress in ecological adaptation of domestic databases</h2><p>v1.8.0 adds TLS server-side authentication, certificate and credential rotation on designated instances of Vastbase G100 Build 9 PG mode. Other versions, modes, formal active/standby switchover and full production support must still be verified separately. Database vendors are welcome to jointly verify.</p></div>
+        <div class="ecosystem-panel">
+          <p class="ecosystem-label">Domestic database ecological adaptation matrix (v3.0.2)</p>
+          <p class="table-scroll-hint">The form can be swiped left or right to view complete verification instructions.</p>
+          <div class="table-wrap">
+            <table class="eco-table">
+              <caption>AgentSQL v3.0.2 Ecological adaptation progress of domestic databases; status is subject to specified version, mirror, topology and repository evidence.</caption>
+              <thead><tr><th scope="col">database</th><th scope="col">Adaptation status</th><th scope="col">Description</th></tr></thead>
+              <tbody>
+                <tr><td class="eco-db">CETC KingbaseES KingbaseES</td><td><span class="eco-status ok">🟢 The specified subset of PG protocol passed the actual test</span></td><td class="eco-desc">Only V9R1C10, PG mode, single instance synthesis table: read-only role write rejection, controlled SELECT, mobile phone number masking, R006 rejection and persistent audit pass; v1.6.0 complements fault shutdown, v1.7.0 verifies CA and host name verification, incorrect certificate rejection, certificate and account password rotation. Other modes, complex queries, formal active/standby switchover and production load have not been verified.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.7.0-dm-kingbase-depth-acceptance.md">Acceptance record</a>.</td></tr>
+                <tr><td class="eco-db">HighGo HighGo</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">9.0.10 Enterprise version PG mode, single instance synthetic table: the independent highgo type only accepts bounded single table SELECT; vendor identity and mode are reviewed on a connection-by-connection basis, table-level authorization, mobile phone number masking, Inspector/Dify, persistent audit, authorization revocation, database parking and lock waiting for failed links to pass. TLS, HA, other versions and production loads are not verified.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.7.0-acceptance.md">Acceptance record</a>.</td></tr>
+                <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">Measured</span></td><td class="eco-desc">The community version protocol path has been tested and passed.</td></tr>
+                <tr><td class="eco-db">openGauss Community Edition</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">Official openGauss 7.0.0 LTS openEuler 24.03 x86_64, build 2397a86f: independent type, strict TLS, physical single table narrow SELECT with least privilege account, real MCP, R010, masking, approval, persistent auditing and two types of fault shutdown pass in synthetic single instance; other builds, GaussDB commercial version, active standby and full production support are not verified.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v2.4.0-acceptance.md">Acceptance Boundary</a>.</td></tr>
+                <tr><td class="eco-db">TiDB</td><td><span class="eco-status wip">Adapting</span></td><td class="eco-desc">Execution plan (EXPLAIN) adaptation is being implemented.</td></tr>
+                <tr><td class="eco-db">OceanBase</td><td><span class="eco-status wip">Adapting</span></td><td class="eco-desc">Execution plan (EXPLAIN) adaptation is being implemented.</td></tr>
+                <tr><td class="eco-db">TDSQL for PostgreSQL</td><td><span class="eco-status wip">To be verified by the target environment</span></td><td class="eco-desc">PG protocol candidate; the commercial version has not been tested and cannot be replaced by OpenTenBase results.</td></tr>
+                <tr><td class="eco-db">TDSQL for MySQL</td><td><span class="eco-status wip">To be verified by the target environment</span></td><td class="eco-desc">MySQL protocol candidate; the commercial version has not been tested and is not to be confused with TDSQL for PostgreSQL.</td></tr>
+                <tr><td class="eco-db">OpenTenBase</td><td><span class="eco-status wip">Adapting</span></td><td class="eco-desc">Execution plan compatibility fix is being implemented.</td></tr>
+                <tr><td class="eco-db">YashanDB database YashanDB</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">Enterprise Edition 23.4.1.109、<code>COMPAT_VECTOR=yashan</code>, Independent client 23.4.7.100: The minimum privilege account passes narrow SELECT, R010, mobile phone number masking and persistent audit via HTTP MCP; Inspector/Dify completes permission and denial. SELECT revocation, business database disconnection, and independent audit database shutdown all verify that no original results are delivered. C Client redistribution has only verbal authorization from the manufacturer and no written documentation from the repository; TLS, client cancellation/timeout, primary/backup, write, transaction, EXPLAIN and full production support are not verified or closed.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v2.1.0-acceptance.md">Acceptance Boundary</a>.</td></tr>
+                <tr><td class="eco-db">Dameng Database DM</td><td><span class="eco-status ok">🟢 Specified instance protection link passes</span></td><td class="eco-desc">DM8 Pack3, COMPATIBLE_MODE 0: Bounded HTTP MCP real database revalidation coverage query, R010 table policy, mobile phone number masking and persistent audit; v1.5.0 completes client, permission revocation and database suspension recovery, v1.6.0 completes independent audit database failure, lock waiting timeout, client cancellation and recovery revalidation. Multi-row paging, JOIN, functions, TLS, HA and production loads are not verified; writes are not released.</td></tr>
+                <tr><td class="eco-db">Vastbase G100</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">V3.0 Build 9, PG mode, single-instance synthetic table: independent vastbase type forced read-only, bounded SELECT, table authorization, mobile phone number masking, MCP approval single execution and persistent audit actual measurement; v1.6.0 complements fault shutdown, v1.8.0 verifies correct and incorrect certificates, host names, plain text rejections, certificate and password rotation, and Inspector/Dify real calls. Use temporary license; formal primary and secondary, other Build and production loads have not been tested.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.8.0-acceptance.md">Acceptance record</a>.</td></tr>
+                <tr><td class="eco-db">PolarDB</td><td><span class="eco-status ok">Measured</span></td><td class="eco-desc">PolarDB for PostgreSQL 15, designated community mirror <code>postgres</code> The path completes the minimum closed loop; commercial services, HA, TLS, and B2/B5 are not covered.</td></tr>
+                <tr><td class="eco-db">PolarDB-X</td><td><span class="eco-status ok">Measured</span></td><td class="eco-desc">old official <code>polardbx/polardb-x:2.0.1</code> single container <code>mysql</code> The path is bounded and measured; passed <code>db_type=mysql</code> Access, no new polardbx data source type is added. Two-phase EXPLAIN: Normal EXPLAIN returns a single-column logical plan,<code>EXPLAIN EXECUTE</code> Returns standard MySQL columns; routing Hints, DRDS/TDDL management statements, distributed DDL, stored procedures fail-closed. Full CN/DN/CDC, commercial services, distributed semantics, B2/B5 not certified.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="ecosystem-note">*"Tested" only refers to the database version, image/topology and use cases described, and does not represent manufacturer certification or production support commitment; "Adapting" does not mean that the current version is supported. See the evidence and untested boundaries of KingbaseES and HighGo<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/kingbase-v9-verification.md" target="_blank" rel="noopener noreferrer">KingbaseES V9 real database verification record</a>and<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/highgo-verification.md" target="_blank" rel="noopener noreferrer">HighGo verification records</a>;Other protocol paths and bounded actual measurements can be seen<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/ecosystem-db-compat-research.md" target="_blank" rel="noopener noreferrer">Database compatibility survey</a>and<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.en.md" target="_blank" rel="noopener noreferrer">Security</a>. Welcome to contact us for target environment verification and cooperation:<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
+        </div>
+      </div>
+    </section>
 
-    <section id="community" class="section"><div class="container"><div class="section-heading"><p class="kicker">Community</p><h2>Join the project</h2><p>Read the source, report reproducible issues, or contact the maintainer about validation and commercial licensing.</p></div><div class="hero-actions"><a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub repository</a><a class="button button-secondary" href="mailto:87326549@qq.com">Email the maintainer</a></div></div></section>
+    <section id="quickstart" class="section">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Get started</p><h2>Quick Start</h2><p>It usually takes a few minutes to complete (subject to the network environment) when Docker and the dependent network are ready. GHCR tag will automatically match linux/amd64 or linux/arm64; the source code path is still subject to the repository README.</p></div>
+        <div class="quick-grid">
+          <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker selects the image for the current platform automatically</span>
+docker pull ghcr.io/cuipengdba/agentsql:v3.0.2
+
+<span class="comment"># Use the repository quickstart to generate credentials and start the demo</span>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v3.0.2/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v3.0.2</code></pre><div class="terminal-foot">Default only binds <code>127.0.0.1:7780</code></div></article>
+          <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>synthetic data</span></div><pre><code><span class="comment"># Copy the demo environment example and replace the placeholder credentials</span>
+cp examples/docker/demo.env.example demo/demo.env
+
+<span class="comment"># Start or reset the demo environment</span>
+bash ./demo/reset.sh
+
+<span class="comment"># Windows PowerShell</span>
+.\demo\reset.ps1</code></pre><div class="terminal-foot">use <code>docker-compose.demo.yml</code>, visit <code>http://127.0.0.1:17880</code></div></article>
+        </div>
+        <div class="callout callout-warning"><strong>Deployment tips:</strong>Default only binds loopback; do not submit <code>.env</code>; SECRET and database should be backed up in pairs; do not expose 7780, 17880 or database ports to the public network.</div>
+      </div>
+    </section>
+
+    <section id="security" class="section section-muted">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Security</p><h2>Clarify the scope of capabilities and then design defense in depth</h2><p>The following restrictions should be evaluated in conjunction with database permissions, network policies, backup and operational controls.</p></div>
+        <ul class="boundary-grid">
+          <li><strong>Connection range</strong><span>Only connections through the gateway are protected. Directly connected owner/superuser/DBA are not within the scope.</span></li>
+          <li><strong>Result masking</strong><span>Mask results using verified column provenance, conservatively blocking values when provenance cannot be proven. This is not complete DLP.</span></li>
+          <li><strong>Application audit</strong><span>The audit leaves traces at the application layer, non-regulatory level WORM, and does not protect against high-privileged DBAs.</span></li>
+          <li><strong>JOIN authorization</strong><span>Table authorization always applies. Supported PostgreSQL B2 paths also verify provable projection-column provenance and reject unproven cases; this does not extend to every dialect.</span></li>
+          <li><strong>Wildcard permissions</strong><span><code>*</code> / <code>schema.*</code> These are broad grants and require care. Applicable table/column policies, rules and database privileges still constrain actual results.</span></li>
+          <li><strong>Column name lookback</strong><span>Verified expression, aggregate, CAST, set-operation and CTE paths track protected sources. Unknown view or function internals are not fully proven; non-null values whose safety cannot be established are conservatively blocked.</span></li>
+          <li><strong>SQL/Transaction Boundaries</strong><span>B2 column-level authorization for PostgreSQL, old <code>/mcp</code> The portal's B5 cross-request logical session and scheduled transactions are enabled by factory default; the new stateless portal does not provide B5 tools. MySQL does not enter the B2 PostgreSQL path and does not support B5 cross-request transactions. Only one top-level SQL is still allowed per operation, subject to preflight plans and session security boundaries.</span></li>
+          <li><strong>mission authority boundaries</strong><span>Temporary Key only applies to a simple SELECT that matches exactly; it does not grant permission to write or bypass Agents, objects, rules, and database accounts.</span></li>
+          <li><strong>Approval boundaries</strong><span>SQL will not be automatically executed when the approval is passed; the original Agent can be called with the approval order number within the validity period <code>execute_approved</code> Once. Re-verify identities, policies and data sources before execution, and will not automatically retry when rejected or the result is unknown.</span></li>
+          <li><strong>Demo environment</strong><span>The public Demo uses only synthetic data and read-only or controlled scenarios. It does not connect to real business databases.</span></li>
+          <li><strong>Deployment boundaries</strong><span>The read-only two-gateway topology, OAuth/OIDC and tenant governance have acceptance evidence in specified environments. Arbitrary replica counts, HA for stateful transactions and unverified vendor production support are not promised.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="roadmap-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Technical route</p><h2 id="roadmap-title">roadmap</h2><p>Released stages and future directions are listed below. Actual capabilities and support boundaries follow the acceptance evidence for each version.</p></div>
+        <ol class="roadmap">
+          <li class="complete"><span>v0.1</span><strong>core gateway</strong></li>
+          <li class="complete"><span>v0.2</span><strong>Real-time large screen / PostgreSQL control surface / One-click Live Demo</strong><small>Completed stage</small></li>
+          <li class="complete"><span>v0.3</span><strong>Security incident notification/Sensitive column discovery/Table.column aware masking</strong><small>Completed stage</small></li>
+          <li class="complete"><span>v0.6.0</span><strong>Governance console, approval single execution and G100 bounded adaptation</strong><small>Published stage</small></li>
+          <li class="complete"><span>v0.7.0</span><strong>Stateless MCP entry, task-level temporary read-only authorization and migration pre-checking</strong><small>Published stage</small></li>
+          <li class="complete"><span>v0.8.0</span><strong>Dual approval of task authorization, MCP compatibility and audit correlation</strong><small>Published stage</small></li>
+          <li class="complete"><span>v0.9.0</span><strong>Task Key Result Budget, Management Audit Delivery Status and Strategy Offline Pre-Check</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.0.0</span><strong>Column policy fails to close with optional human delegation</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.1–v1.4</span><strong>Dual identity, OAuth, MySQL column authorization and shared login budget</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.5.0</span><strong>In-depth re-examination of specified subsets of three domestic databases</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.6.0</span><strong>Query timeout, cancellation and audit failure closure</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.7.0</span><strong>HighGo restricted read-only and KingbaseES specified instance certificate verification</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.8.0</span><strong>Vastbase specified instance can verify TLS and rotation</strong><small>Published stage</small></li>
+          <li class="complete"><span>v1.9.0</span><strong>Dify/Inspector access wizard and audit positioning</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.0.0</span><strong>Fixed dual gateway deployment with PostgreSQL column policy registration</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.1.0</span><strong>YashanDB specified instance controlled read-only and preflight rejection audit</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.2.0</span><strong>Oracle Free designated instance controlled read-only and failed shutdown</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.3.0</span><strong>SQL Server 2025 designated instance strict TLS and controlled read-only</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.4.0</span><strong>openGauss 7.0.0 LTS designated instance controlled read-only</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.5.0</span><strong>MongoDB 7.0.43 specifies instance controlled read-only</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.6.0</span><strong>Redis/Valkey specified instance controlled key reading</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.7.0</span><strong>ClickHouse specified instance controlled analysis query</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.8.0</span><strong>Milvus specified instance controlled vector retrieval</strong><small>Published stage</small></li>
+          <li class="complete"><span>v2.9.0</span><strong>Tenant strategy review and external audit witness</strong><small>Published stage</small></li><li class="complete"><span>v3.0.0</span><strong>Unified capability statement and pre-delivery read-only diagnostics</strong><small>Published stage</small></li><li class="complete"><span>v3.0.1</span><strong>Chinese and English switching and console menu scrolling repair</strong><small>Published stage</small></li><li class="current"><span>v3.0.2</span><strong>Complete bilingual documentation, SQLBot access and light navigation repairs</strong><small>Current official version</small></li>
+
+          <li><span>Follow-up direction</span><strong>Corporate Identity and Audit Enhancement</strong><small>SSO/RBAC, WORM options</small></li>
+          <li><span>Follow-up direction</span><strong>High availability and centralized management and control</strong></li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="licensing" class="section section-muted">
+      <div class="container license-panel">
+        <div><p class="kicker">Authorization mode</p><h2>Open source core and commercial dual licensing</h2><p><strong>License replacement statement:</strong>The existing source code, tags and release packages of v0.4.0 and earlier versions maintain the original license applicable when they were released and can continue to be used under the original license. Historical tags will not be re-tagged and historical assets will not be re-issued. Starting from v0.5.0, the AgentSQL open source core is switched to Apache License 2.0, and independent commercial licensing instructions are provided. Apache-2.0 allows closed source integration, SaaS commercial use and redistribution, but does not include trademark use rights. If you need a trademark license or enterprise capabilities for team/large-scale deployment, you can inquire about commercial authorization by email:<a href="mailto:87326549@qq.com">87326549@qq.com</a>.</p><p class="commercial-note">If you need trademark permission, corporate capabilities or commercial authorization, please contact 87326549@qq.com via email</p></div>
+        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">View Apache-2.0</a><a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/COMMERCIAL-LICENSE.en.md" target="_blank" rel="noopener noreferrer">View commercial licensing instructions</a></div>
+      </div>
+    </section>
+
+    <section id="faq" class="section">
+      <div class="container narrow">
+        <div class="section-heading"><p class="kicker">FAQ</p><h2>FAQ</h2></div>
+        <div class="faq-list">
+          <details><summary>How does it relate to MCP?</summary><p>It is itself an MCP Server; MCP is the standard protocol for model communication with external tools/data.</p></details>
+          <details><summary>Can't the model be connected to the database without MCP?</summary><p>Yes, applications can also use self-developed APIs, database agents or server-side managed credentials to connect; AgentSQL provides a unified identity, policy, controlled execution and audit entrance for MCP, not the only connection method.</p></details>
+          <details><summary>Is it BI/ORM/Text2SQL?</summary><p>None; it is not responsible for the business experience of natural language generated SQL, nor does it replace ORM, and is responsible for safe execution and traces.</p></details>
+          <details><summary>How is the performance?</summary><p>Static determination is at the millisecond level; in the benchmark of in-memory fake executor, 20 workers / 200,000 samples, stripping the real database network and execution time, the gateway CPU path P99 is about 1.81 ms. This number is not the end-to-end query delay. The real delay depends on the connection, EXPLAIN, database execution and audit storage.</p></details>
+          <details><summary>Can individuals/companies use it for free?</summary><p>v0.4.0 and earlier versions continue to be subject to the original license when they were released; v0.5.0 and later can be used for free, closed source integration, SaaS commercial use and redistribution under the terms of Apache-2.0. For trademark licensing, corporate capabilities or official guarantees, please email us for commercial authorization.</p></details>
+          <details><summary>What databases/clients are supported?</summary><p>Please see above<a href="#compatibility">Compatibility matrix</a>, which lists the business database, control plane, MCP transport, host and deployment scope.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section id="community" class="section section-muted">
+      <div class="container">
+        <div class="section-heading">
+          <p class="kicker">Community / Contact</p>
+          <h2>Follow the public account or contact the author directly</h2>
+          <p>Follow the WeChat official account to learn about PostgreSQL/AgentSQL and database security technology, or add the author's personal WeChat account and note "AgentSQL".</p>
+        </div>
+        <div class="community-grid">
+          <figure class="community-card">
+            <img src="/assets/community/wechat-official-account.png" loading="lazy" decoding="async" alt="WeChat public account CP&#x27;s PostgreSQL Kitchen QR code">
+            <figcaption><strong>Public account: CP's PostgreSQL Kitchen</strong><span>Scan the QR code to follow</span></figcaption>
+          </figure>
+          <figure class="community-card">
+            <img src="/assets/community/wechat-personal.png" loading="lazy" decoding="async" alt="Author Cui Peng’s personal WeChat QR code">
+            <figcaption><strong>Personal WeChat: Cui Peng</strong><span>Scan the QR code to add friends</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
   </main>
-  <footer class="site-footer"><div class="container footer-bottom"><span>© <span data-current-year>2026</span> Cui Peng · Personal open-source technology project for technical exchange</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">黑ICP备2026011740号-1</a> · <a href="https://beian.mps.gov.cn/#/query/webSearch?code=23010302002016" target="_blank" rel="noopener noreferrer">黑公网安备23010302002016号</a></span></div></footer>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div><a class="brand" href="#top"><img src="/assets/brand/agentsql-mark.svg" width="34" height="34" loading="lazy" decoding="async" alt="" aria-hidden="true"><span>AgentSQL</span></a><p>Default-deny security gate between model and database.</p></div>
+      <nav aria-label="Footer navigation"><a href="#product">Product</a><a href="/en/demo/">Demo</a><a href="#features">Features</a><a href="#docs">Docs / Downloads</a><a href="#compatibility">Compatibility</a><a href="#ecosystem">Ecosystem</a><a href="#security">Security</a><a href="#community">Community</a><a href="#faq">FAQ</a></nav>
+      <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
+    </div>
+    <div id="privacy" class="container privacy"><p>This site does not use cookies and third-party statistics; the server only records access IP, time, path, status code and User-Agent for security and troubleshooting. The logs are retained for up to 30 days and are subject to the upper limit of 10 MiB for a single file and a maximum of 10 rotating files (may be eliminated early during high traffic). Contact us <a href="mailto:87326549@qq.com">87326549@qq.com</a>.</p></div>
+    <div class="container footer-bottom"><span>© <span data-current-year>2026</span> Cui Peng · This site is a personal open source technology project and is only used for technical exchanges</span> · <span class="filings"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">Heilongjiang ICP Filing No. 2026011740-1</a> · <a href="https://beian.mps.gov.cn/#/query/webSearch?code=23010302002016" target="_blank" rel="noopener noreferrer">Heilongjiang Public Security Filing No. 23010302002016</a></span></div>
+  </footer>
 </body>
 </html>

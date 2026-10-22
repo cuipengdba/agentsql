@@ -8,6 +8,7 @@
   --color-brand: #3b9eff;
   --color-text: #f1f5fb;
   --color-text-secondary: #9dafc6;
+  --color-scrollbar: #526987;
   --color-allow: #52c41a;
   --color-warn: #faad14;
   --color-approve: #fa8c16;
@@ -25,6 +26,7 @@
   --color-brand: #1677ff;
   --color-text: #172033;
   --color-text-secondary: #66758a;
+  --color-scrollbar: #9aa8b9;
 }
 
 * {
@@ -69,8 +71,11 @@ pre {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  border-right: 1px solid #2a3b55;
+  background: var(--color-surface) !important;
+  border-right: 1px solid var(--color-border);
 }
+
+.app-sider .ant-menu { background: transparent; }
 
 .app-sider .ant-layout-sider-children {
   display: flex;
@@ -84,11 +89,11 @@ pre {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: #526987 transparent;
+  scrollbar-color: var(--color-scrollbar) transparent;
 }
 
 .app-sider-scroll:focus-visible {
-  outline: 2px solid #3b9eff;
+  outline: 2px solid var(--color-brand);
   outline-offset: -2px;
 }
 
@@ -98,7 +103,7 @@ pre {
 
 .app-sider-scroll::-webkit-scrollbar-thumb {
   border-radius: 4px;
-  background: #526987;
+  background: var(--color-scrollbar);
 }
 
 .brand {
@@ -110,19 +115,22 @@ pre {
   height: 64px;
   padding: 0 22px;
   overflow: hidden;
-  color: #f1f5fb;
+  color: var(--color-text);
   font-weight: 650;
   white-space: nowrap;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #2a3b55;
+  border-bottom: 1px solid var(--color-border);
   cursor: pointer;
 }
 
 .brand-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   margin-right: 12px;
-  color: #3b9eff;
+  color: var(--color-brand);
   font-size: 24px;
 }
 
@@ -370,14 +378,9 @@ pre {
 }
 
 .login-brand-mark {
-  display: inline-grid;
-  width: 52px;
-  height: 52px;
-  color: #3b9eff;
-  font-size: 30px;
-  border: 1px solid #2a3b55;
-  border-radius: 8px;
-  place-items: center;
+  display: inline-block;
+  width: 56px;
+  height: 56px;
 }
 
 @media (max-width: 720px) {

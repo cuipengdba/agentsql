@@ -1,5 +1,7 @@
 # AgentSQL v3.0.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v3.0.0.md) | [English](en/release-notes-v3.0.0.md)
+
 状态：已正式发布。发布门禁与可复核结果见[验收记录](v3.0.0-acceptance.md)和[发布证据](v3.0.0-release-evidence.md)。
 
 ## 本版范围

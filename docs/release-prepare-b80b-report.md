@@ -1,5 +1,7 @@
 # Batch 80b：v0.5.0 生产候选重建与签名报告
 
+**语言 / Language:** [简体中文](release-prepare-b80b-report.md) | [English](en/release-prepare-b80b-report.md)
+
 **结果：本批 7 项目标全部通过。** 本文时间为 2026-10-09 Asia/Shanghai。构建封板为 `fe36c7cdecb9a68426727153ff2dc90487c40ca7`。最终资产位于 `dist/release-prepare/v0.5.0-final/assets/`，恰好 15 个普通文件，无额外文件或子目录。完整带时间戳证据位于 `dist/release-b80b/`。
 
 ## 构建和签名

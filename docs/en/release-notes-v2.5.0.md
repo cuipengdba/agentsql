@@ -1,0 +1,11 @@
+# AgentSQL v2.5.0 Release Notes
+
+**Language:** [English](release-notes-v2.5.0.md) | [Simplified Chinese](../release-notes-v2.5.0.md)
+
+v2.5.0 Adds Agent-level controlled read-only MCP tool `find_documents` for MongoDB 7.0 designated single instance. The administrator can further restrict the returned and filtered fields by granting `database.collection` to the Agent; the caller only submits explicit fields, string equivalent filter conditions, and an upper limit of 1–100 rows. The gateway writes a persistent preflight audit before reading, and processes it according to the current masking rules after reading and writes a final audit; no results are delivered when the audit is unavailable.
+
+The controlled path uses the current data source configuration to establish a strict TLS, authenticated, and read-only connection each time, preventing the administrator from continuing to use the old connection after modifying the host, certificate, account, or database. Operators and nested paths in collection/field names, arbitrary commands, aggregations, writes, and non-specified MongoDB versions are not allowed. Old management-side connection-level previews do not count toward this Agent-level secure link.
+
+Allow/deny calls to real database, real HTTP MCP, MCP Inspector 0.16.8 and Dify MCPClient 1.17.1 passed on MongoDB 7.0.43 Linux x86_64 Docker single instance, test CA, account with only target set `find` permissions, and synthetic data. The original synthetic mobile phone number was not delivered, and policy revocation, wrong certificate, wrong password, and unauthorized collection all failed to close. For details, see [ Candidate Acceptance ](v2.5.0-acceptance.md) and [ Official Release Evidence ](v2.5.0-release-evidence.md).
+
+This version does not add AgentSQL metadata/audit schema; the upgrade still requires complete backup, inspection and recovery of existing control plane data and independent audit databases. Replica sets, sharding, production certificate rotation, long-term loads, customer topologies, and full production support are not verified. The public network Live Demo continues to use synthetic PostgreSQL data. For the actual results of formal CI, signature assets, GHCR, official website and demo, see [. Official release evidence ](v2.5.0-release-evidence.md).

@@ -1,5 +1,7 @@
 # AgentSQL 可观测性示例
 
+**语言 / Language:** [简体中文](README.md) | [English](README.en.md)
+
 根目录的 `docker-compose.yml` 是默认 SQLite、可观测性和简易 demo profiles 的主文件；PostgreSQL 控制面需要另行叠加 `docker-compose.controlplane.yml`。以下一条命令只使用主文件启动 AgentSQL、Prometheus 和 Grafana：
 
 ```bash

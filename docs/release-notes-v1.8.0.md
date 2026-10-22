@@ -1,5 +1,7 @@
 # AgentSQL v1.8.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.8.0.md) | [English](en/release-notes-v1.8.0.md)
+
 v1.8.0 深化 Vastbase G100 V3.0 Build 9 的 PG 兼容、受限只读路径。控制台和管理 API 现在可以为独立的 `vastbase` 数据源保存 `verify-full`、CA 文件与证书主机名，在指定隔离实例验证服务端身份。该能力仅适用于验收记录中已测的 Build、协议模式、账号和单实例拓扑；不代表完整生产支持。
 
 ## 新增与改进

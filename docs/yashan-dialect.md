@@ -1,5 +1,7 @@
 # YashanDB dialect boundary
 
+**语言 / Language:** [简体中文](yashan-dialect.md) | [English](en/yashan-dialect.md)
+
 This document records the historical batch-eleven to batch-sixty-six evidence and
 the batch-seventy-one integration status for native YashanDB. It is intentionally a separate `yashan` dialect: the tested server
 uses YashanDB's native protocol and `COMPAT_VECTOR=yashan`, not PostgreSQL or

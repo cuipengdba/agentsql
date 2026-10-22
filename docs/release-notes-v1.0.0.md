@@ -1,5 +1,7 @@
 # AgentSQL v1.0.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.0.0.md) | [English](en/release-notes-v1.0.0.md)
+
 v1.0.0 收紧列级授权失败关闭，新增可选的 HTTP MCP 人员委托身份，并把设计、验证、发布、官网和 Live Demo 固定为每版交付流程。此版本不增加数据库类型，也不扩大国产数据库的生产支持声明。
 
 ## 新增与变更

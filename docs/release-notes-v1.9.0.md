@@ -1,5 +1,7 @@
 # AgentSQL v1.9.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.9.0.md) | [English](en/release-notes-v1.9.0.md)
+
 v1.9.0 改进管理员首次接入 Dify 与 MCP Inspector 的操作路径。控制台「接入向导」将 Agent、数据源、连接预检、目标 SQL 离线策略解释和真实调用后的审计定位放在同一流程中。此版不改变网关的授权、执行、脱敏或审计合同，也不扩大数据库支持范围。
 
 ## 新增与改进

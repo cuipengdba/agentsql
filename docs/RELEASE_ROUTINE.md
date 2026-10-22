@@ -1,5 +1,7 @@
 # AgentSQL 每版交付流程
 
+**语言 / Language:** [简体中文](RELEASE_ROUTINE.md) | [English](en/RELEASE_ROUTINE.md)
+
 本流程适用于功能版和修复版。版本负责人负责设计、实现、验证、发布、官网与 Live Demo 的完整闭环；不能把 GitHub Release 创建视为交付结束。所有结果必须注明提交 SHA、环境和未测边界。
 
 v1.1.0–v1.4.0 按产品负责人确定的分阶段节奏逐版创建正式 GitHub Release，官网、Live Demo 与 GHCR `latest` 保持 v1.0.0；各版验收仍须完成独立升级、客户端、真库及精确版本资产验证。v1.5.0 完成后一次性更新这三个默认入口并做公网复验。

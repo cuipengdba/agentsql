@@ -1,5 +1,7 @@
 # AgentSQL v1.6.0 发布说明（候选稿）
 
+**语言 / Language:** [简体中文](release-notes-v1.6.0.md) | [English](en/release-notes-v1.6.0.md)
+
 v1.6.0 聚焦已接入的达梦、金仓与 Vastbase 指定实例的故障关闭证据。此文在正式 Release、签名资产、官网和 Live Demo 全部验收前仅为候选稿。
 
 ## 改进

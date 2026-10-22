@@ -3,7 +3,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
-  SafetyCertificateFilled,
   SunOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -18,6 +17,7 @@ import { localeText, useLocaleStore } from "@/i18n/locale";
 import { menuRoutes, menuRoutesForFeatures } from "@/routes/menu";
 import { useAuthStore } from "@/store/authStore";
 import { selectIsDemo, useDemoStore } from "@/store/demoStore";
+import brandMark from "@/assets/agentsql-mark.svg";
 import { useThemeStore } from "@/theme/useThemeStore";
 
 const { Header, Sider, Content } = Layout;
@@ -89,14 +89,14 @@ export function MainLayout() {
 
   return (
     <Layout className="app-shell">
-      <Sider className="app-sider" theme="dark" width={224} collapsedWidth={72} collapsed={collapsed}>
+      <Sider className="app-sider" theme={themeMode} width={224} collapsedWidth={72} collapsed={collapsed}>
         <button className="brand" type="button" onClick={() => navigate("/")} aria-label={tr("返回总览", "Go to overview")}>
-          <SafetyCertificateFilled className="brand-icon" />
+          <img className="brand-icon" src={brandMark} alt="" aria-hidden="true" width={32} height={32} />
           {!collapsed ? <span>{tr("AgentSQL 智盾", "AgentSQL")}</span> : null}
         </button>
         <nav className="app-sider-scroll" aria-label={tr("主导航", "Main navigation")} tabIndex={0}>
           <Menu
-          theme="dark"
+          theme={themeMode}
           mode="inline"
           selectedKeys={[currentRoute?.key || ""]}
           items={menuItems}

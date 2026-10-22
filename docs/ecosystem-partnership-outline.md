@@ -1,5 +1,7 @@
 # 国产数据库联合案例大纲
 
+**语言 / Language:** [简体中文](ecosystem-partnership-outline.md) | [English](en/ecosystem-partnership-outline.md)
+
 > 文档状态：对外合作讨论框架，不是兼容性认证或支持声明。AgentSQL 当前原生支持 PostgreSQL 与 MySQL；首批联合厂商规划为电科金仓与瀚高，均须在厂商提供的目标版本环境完成端到端验证并经双方确认后，才能形成联合发布结论。
 
 ## 1. 联合案例价值主张

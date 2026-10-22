@@ -1,5 +1,7 @@
 # Batch 80 新封板重建预检报告（阻断）
 
+**语言 / Language:** [简体中文](release-prepare-b80-report.md) | [English](en/release-prepare-b80-report.md)
+
 状态：**未完成，禁止发布现存资产**。预检时间：2026-10-09 16:21:02 +08:00（Asia/Shanghai）。本批未运行 ProductionPrepare、签名、ValidateOnly、架构提取或回下载复验，也未执行任何上传或发布操作。下表仅记录上一批留在目标目录的旧资产，**不是 batch80 重建产物**。
 
 ## 阻断原因

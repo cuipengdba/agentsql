@@ -45,9 +45,10 @@ type publicDatasource struct {
 }
 
 type publicSchemaColumn struct {
-	Schema string `json:"schema"`
-	Table  string `json:"table"`
-	Column string `json:"column"`
+	Schema   string `json:"schema"`
+	Table    string `json:"table"`
+	Column   string `json:"column"`
+	DataType string `json:"data_type,omitempty"`
 }
 
 type pipelineData struct {
@@ -137,8 +138,10 @@ func (handlers *toolHandlers) listSchema(
 		return handlers.internalError("list_schema", err)
 	}
 	policyColumns := make([]policy.SchemaColumn, len(columns))
+	columnTypes := make(map[[3]string]string, len(columns))
 	for index, column := range columns {
 		policyColumns[index] = policy.SchemaColumn{Schema: column.Schema, Table: column.Table, Column: column.Column}
+		columnTypes[[3]string{column.Schema, column.Table, column.Column}] = column.DataType
 	}
 	filtered, err := policy.FilterColumnsForSchema(policyColumns, decision)
 	if err != nil {
@@ -147,9 +150,10 @@ func (handlers *toolHandlers) listSchema(
 	data := make([]publicSchemaColumn, 0, len(filtered))
 	for _, column := range filtered {
 		data = append(data, publicSchemaColumn{
-			Schema: column.Schema,
-			Table:  column.Table,
-			Column: column.Column,
+			Schema:   column.Schema,
+			Table:    column.Table,
+			Column:   column.Column,
+			DataType: columnTypes[[3]string{column.Schema, column.Table, column.Column}],
 		})
 	}
 	return allowToolResponse("已按 Agent 的表级和列级权限裁剪结构", data)

@@ -1,5 +1,7 @@
 # AgentSQL v2.1.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.1.0.md) | [English](en/release-notes-v2.1.0.md)
+
 v2.1.0 深化崖山 YashanDB 指定实例的受控只读验证。此前已有独立驱动、窄 SELECT 方言和测试夹具流水线；本版把真实最小权限账号、HTTP MCP、表权限、脱敏及持久审计串成同一条可重复的测试链，并用 MCP Inspector 与 Dify 实际调用。业务库断线和独立审计库停机均按无原始结果交付的原则验证。
 
 验证对象为 YashanDB Enterprise Edition 23.4.1.109、`COMPAT_VECTOR=yashan`、`yashandb-go v1.4.4` 和独立 C 客户端 23.4.7.100 的 Linux x86_64 实例。AgentSQL 数据源使用临时只读账号，服务器自身拒绝 INSERT。单张表、明确列投影和有界 WHERE 的 SELECT 子集可按 Agent 策略执行；越权表 R010 拒绝，手机号按表列规则脱敏，决策写入持久审计库。适配器仍不开放写入、事务和 EXPLAIN。

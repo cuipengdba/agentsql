@@ -1,5 +1,7 @@
 # AgentSQL v0.7.0 — MCP Inspector GUI query evidence
 
+**语言 / Language:** [简体中文](inspector-gui-query-evidence.md) | [English](../../en/assets/acceptance-v0.7.0/inspector-gui-query-evidence.md)
+
 - Client: MCP Inspector 0.16.8, local browser GUI
 - Transport: Streamable HTTP, `http://127.0.0.1:61781/mcp`
 - Authentication: AgentSQL Bearer key supplied through Inspector's custom Authorization header; secret value omitted

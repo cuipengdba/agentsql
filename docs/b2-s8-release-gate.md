@@ -1,5 +1,7 @@
 # B2 S8 release reliability gate
 
+**语言 / Language:** [简体中文](b2-s8-release-gate.md) | [English](en/b2-s8-release-gate.md)
+
 This workflow produces engineering evidence only. It does not enable a
 production flag and it does not replace the release owner's decision.
 

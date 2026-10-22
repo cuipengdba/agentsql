@@ -1,5 +1,7 @@
 # batch77 发布闸门报告
 
+**语言 / Language:** [简体中文](release-gate-b77-report.md) | [English](en/release-gate-b77-report.md)
+
 ## 改动与交付文件
 
 代码、测试和清单：

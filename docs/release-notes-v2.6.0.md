@@ -1,5 +1,7 @@
 # AgentSQL v2.6.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.6.0.md) | [English](en/release-notes-v2.6.0.md)
+
 状态：候选版；正式发布资产、GitHub Release、GHCR、官网和公网 Demo 须在封版 CI 与升级恢复验收后更新。
 
 ## 本版范围

@@ -1,5 +1,7 @@
 # AgentSQL v0.4 B6 S5c 正式容量基线
 
+**语言 / Language:** [简体中文](chain-load-s5c-20260924.md) | [English](../en/perf/chain-load-s5c-20260924.md)
+
 日期：2026-09-24
 
 结论：**S5 容量门 GO**。目标负载下未观察到 fail-closed、`AUDIT_OVERLOADED` 或结构性断链；3,799,725 行审计数据的 `chain_seq` 连续唯一，且 `chain_state.head_seq` 与提交总数一致。目标 goodput 与追加延迟在同环境短窗口中达到发布阈值。

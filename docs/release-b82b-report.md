@@ -1,5 +1,7 @@
 # Batch 82b 重试（batch824）执行报告
 
+**语言 / Language:** [简体中文](release-b82b-report.md) | [English](en/release-b82b-report.md)
+
 - 执行日期：2026-10-09（Asia/Shanghai）
 - 源码 HEAD：`7e587d0bfbe85f7b9b84cd2f3175205ea06a0f36`
 - 构建器：`agentsql-multiarch`

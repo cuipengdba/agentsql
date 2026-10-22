@@ -1,5 +1,7 @@
 # AgentSQL v2.9.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v2.9.0.md) | [English](en/release-notes-v2.9.0.md)
+
 状态：已发布。[GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0) 与[正式发布证据](v2.9.0-release-evidence.md)记录资产、镜像、官网及 Live Demo 验收。
 
 ## 本版范围

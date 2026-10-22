@@ -1,5 +1,7 @@
 # AgentSQL v1.5.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v1.5.0.md) | [English](en/release-notes-v1.5.0.md)
+
 ## 范围
 
 本版对达梦 DM8 Pack3（`dm8_20241022_x86_rh6_64_single`、COMPATIBLE_MODE=0）、金仓 KingbaseES V9R1C10（PG 模式）和 Vastbase G100 V3.0 Build 9 commit 30156（PG 模式）的指定实例完成深度验收。各自使用最小权限只读账号和合成数据，验证受控 SELECT、表级授权、手机号脱敏、规则拒绝、持久审计、策略与业务账号权限撤销、数据库断连的失败关闭和恢复。

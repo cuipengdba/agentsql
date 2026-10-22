@@ -1,5 +1,7 @@
 # AgentSQL v0.6.0 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v0.6.0.md) | [English](en/release-notes-v0.6.0.md)
+
 ## 本次更新
 
 - 控制台增加用户、角色、租户管理入口和首次接入向导。管理 API 继续按调用者租户和角色约束读写，权限委派不能超过调用者已有权限。

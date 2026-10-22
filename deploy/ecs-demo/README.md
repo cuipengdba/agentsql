@@ -1,5 +1,7 @@
 # AgentSQL Live Demo on ECS (Aliyun Linux 3)
 
+**语言 / Language:** [简体中文](README.md) | [English](README.en.md)
+
 This directory deploys the public **Live Demo** as a Docker Compose stack:
 a PostgreSQL instance (with the `agentsql_binder` native extension), a MySQL
 instance, and the AgentSQL gateway. The demo control plane is deliberately

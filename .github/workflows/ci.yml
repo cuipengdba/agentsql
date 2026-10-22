@@ -17,6 +17,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  docs-and-integrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check full English documentation parity
+        run: python scripts/check-docs-i18n.py
+      - name: Check shared brand assets
+        run: python scripts/sync-brand.py --check
+      - name: Test SQLBot adapter failure boundaries
+        run: python -m unittest discover -s integrations/sqlbot -p 'test_*.py' -v
+
   go:
     runs-on: ubuntu-latest
     # The -tags=yashan build requires the vendor C client (CGO), which GitHub runners lack.

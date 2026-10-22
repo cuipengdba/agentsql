@@ -1,5 +1,7 @@
 # AgentSQL binder local supply chain (S5, feature off)
 
+**语言 / Language:** [简体中文](README.md) | [English](README.en.md)
+
 This directory builds the optional `agentsql_binder` server extension. Every
 compile occurs in a Linux container against the target PostgreSQL major; the
 Windows host never compiles or links the C module. Nothing in these scripts

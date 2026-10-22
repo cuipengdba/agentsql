@@ -1,5 +1,7 @@
 # AgentSQL v3.0.1 发布说明
 
+**语言 / Language:** [简体中文](release-notes-v3.0.1.md) | [English](en/release-notes-v3.0.1.md)
+
 状态：已发布（2026-10-22）。[GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.1)、[官网](https://agentsql.cn/)和[Live Demo](https://demo.agentsql.cn/)已更新。验收细节见[发布记录](v3.0.1-release-evidence.md)。
 
 ## 本版变化
