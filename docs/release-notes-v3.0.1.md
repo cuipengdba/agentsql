@@ -1,6 +1,6 @@
 # AgentSQL v3.0.1 发布说明
 
-状态：发布验收中；正式资产和公网入口通过验收后更新此状态。
+状态：已发布（2026-10-22）。[GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.1)、[官网](https://agentsql.cn/)和[Live Demo](https://demo.agentsql.cn/)已更新。验收细节见[发布记录](v3.0.1-release-evidence.md)。
 
 ## 本版变化
 
