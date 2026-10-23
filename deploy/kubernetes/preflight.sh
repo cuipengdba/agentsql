@@ -26,7 +26,7 @@ rendered="$(kubectl kustomize "$script_dir")"
 if ! grep -Fq 'replicas: 3' <<<"$rendered" ||
    ! grep -Fq 'minAvailable: 2' <<<"$rendered" ||
    ! grep -Fq 'type: OnDelete' <<<"$rendered" ||
-   ! grep -Fq 'image: ghcr.io/cuipengdba/agentsql:v3.5.0' <<<"$rendered" ||
+   [[ "$(grep -Fc 'image: ghcr.io/cuipengdba/agentsql:v3.5.0' <<<"$rendered")" -ne 2 ]] ||
    ! grep -Fq 'instance_id_file: "/var/lib/agentsql/instance-id"' <<<"$rendered" ||
    [[ "$(grep -Fc 'driver: postgres' <<<"$rendered")" -lt 2 ]] ||
    grep -Fq 'sqlite_path:' <<<"$rendered" ||
