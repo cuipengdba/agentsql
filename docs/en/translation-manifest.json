@@ -9,12 +9,12 @@
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "3e401acd5e6cf4dd122f61f847f7c5078723e35a1f2dced4f2b577af52ceefb4"
+      "source_sha256": "595b223a664fbb5a7c578ba617ed9ca94cf5d92be48740833f1df461859d9204"
     },
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "fa20e9e046f1251c7a89a4fc00ae7943b2ba8c97d2b96e946c1a7b0d2b7ce060"
+      "source_sha256": "6aebbda662f57630f5866f7109dd36245dc0cbc2b418ac3d73da54d9dc60f735"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -84,7 +84,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "76cf997b0639c9f236e774f202514125c2af7115edf55c82f7954deab81e039b"
+      "source_sha256": "6ea5bbd88aeb195be6791dfd8c8a5919c4a5441bc82805a9a144e45413c01b50"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "29a12b77fabcf83db43dce2e22adb4d552debfd8d6620f1b636e563b5776cf9d"
+      "source_sha256": "2fa8f6c925183cef82223bb69fd53066ccbce42a1c7e0d2f3daa5a56aee63c16"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -469,12 +469,12 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "5bbcf0d2ffa8d8b771983d547346a8d0bec8d831014b18b8397edd5d715bedcc"
+      "source_sha256": "599bc9be13e4ebcc2edff6b0a5393a9067784f9d346d02f56c3a1393ac5c49bf"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
       "english": "docs/en/RELEASE_PROCESS.md",
-      "source_sha256": "90c3f4390a9bc1e23023d94fb593ede411184d73049fdf5d56c916d6f6b83ab9"
+      "source_sha256": "f6d60f6331477edda6fe9484c6112b7d7c8e9c603b6321b7f7934e02883ec3e8"
     },
     {
       "source": "docs/RELEASE_ROUTINE.md",
@@ -984,12 +984,17 @@
     {
       "source": "docs/v3.2.0-acceptance.md",
       "english": "docs/en/v3.2.0-acceptance.md",
-      "source_sha256": "b3edb6e8f311c94827753f1a9168f4c8d965ffe6939e3484f418aa2f0133bd00"
+      "source_sha256": "8c993cd71f6e0eac0dca706e84304f81213d88e6dc62869c7645c3dfd9b883a4"
     },
     {
       "source": "docs/release-notes-v3.2.0.md",
       "english": "docs/en/release-notes-v3.2.0.md",
-      "source_sha256": "9d2cc1b3456d4bbb03ba73d050cf5465dcabc4425519e9afa77f9df81cb53c8f"
+      "source_sha256": "7055388fd68b303253ee49c44c3bd5d139c696703a582a59f598da9c65bb0f61"
+    },
+    {
+      "source": "docs/v3.2.0-release-evidence.md",
+      "english": "docs/en/v3.2.0-release-evidence.md",
+      "source_sha256": "1c0240443f97691a676d291b0fa55985b68f3bad03c0a56df885d57c959e08c2"
     }
   ]
 }

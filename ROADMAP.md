@@ -45,7 +45,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.0.1 | 已发布 | 官网、GitHub 项目文档和 Web 控制台的中英文入口，控制台菜单滚动修复；不改变数据库支持范围。见[设计](docs/v3.0.1-design.md)、[发布说明](docs/release-notes-v3.0.1.md)与[发布记录](docs/v3.0.1-release-evidence.md)。 |
 | v3.0.2 | 已发布 | 全量中英文文档、当前运维入口、SQLBot v1.10.2 PostgreSQL 执行层适配、浅色导航与统一 Logo；见[发布说明](docs/release-notes-v3.0.2.md)和[验收记录](docs/v3.0.2-acceptance.md)。 |
 | v3.1.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.1.0)） | SQLBot v2 普通登录用户绑定、PostgreSQL 业务接入、只读审批接续、中英文映射管理；见[设计](docs/v3.1.0-design.md)、[验收](docs/v3.1.0-acceptance.md)与[发布证据](docs/v3.1.0-release-evidence.md)。B2 开启时只读审批仍失败关闭。 |
-| v3.2.0 | 待开发 | PostgreSQL B2 列授权与只读审批安全组合、PostgreSQL/MySQL 查询与列授权深化、SQLBot MySQL 接入、策略影响分析和派生结果保护。 |
+| v3.2.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.2.0)） | PostgreSQL B2 列授权与只读审批安全组合、SQLBot MySQL 真模型问数、策略影响预览和派生结果保护；见[验收](docs/v3.2.0-acceptance.md)与[发布证据](docs/v3.2.0-release-evidence.md)。 |
 | v3.3.0 | 待开发 | 达梦指定版本的 TLS、查询子集、成本控制、负载与恢复验证。 |
 | v3.4.0 | 待开发 | 金仓与 Vastbase 的查询、类型、列级授权及运维专项深化。 |
 | v3.5.0 | 待开发 | 三副本多网关、跨实例事件、会话路由、滚动升级与容量治理。 |

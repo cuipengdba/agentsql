@@ -7,7 +7,7 @@
 - PostgreSQL B2 只读审批在批准后重跑实时列授权、对象绑定、脱敏和持久审计；申请阶段不读取业务行。
 - SQLBot v1.10.2 个人绑定增加指定 MySQL 只读数据源，双重解析允许合法反引号标识符，写入和副作用函数失败关闭。
 - 控制台增加表级策略包影响预览，显示 Agent、数据源、对象和列，并提示执行时重新验证；完善中英文接入说明。
-- 实测范围与正式交付状态见 [v3.2.0 发布说明](docs/release-notes-v3.2.0.md)和[候选验收](docs/v3.2.0-acceptance.md)。
+- 实测范围与正式交付见 [v3.2.0 发布说明](docs/release-notes-v3.2.0.md)、[验收记录](docs/v3.2.0-acceptance.md)和[发布证据](docs/v3.2.0-release-evidence.md)。
 
 ## [v3.1.0]
 
