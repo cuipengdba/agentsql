@@ -43,6 +43,7 @@ type SQLBotBinding struct {
 	AgentKeyEnv        string    `json:"agent_key_env"`
 	ConnectorTokenEnv  string    `json:"connector_token_env"`
 	ConnectorTokenHash string    `json:"-"`
+	DatasourceDBType   string    `json:"-"` // Resolved for the verified request; never stored or accepted from JSON.
 	Enabled            bool      `json:"enabled"`
 	Revision           int64     `json:"revision"`
 	CreatedAt          time.Time `json:"created_at"`
@@ -140,11 +141,11 @@ func (r *SQLBotBindingRepository) validateReferences(ctx context.Context, tx *sq
 			return ErrSQLBotBindingInvalid
 		}
 	}
-	var kind string
-	if err := tx.QueryRowContext(ctx, r.bind(`SELECT db_type FROM datasources WHERE id=? AND tenant_id=?`), b.DatasourceID, b.TenantID).Scan(&kind); err != nil {
+	var kind, databaseName string
+	if err := tx.QueryRowContext(ctx, r.bind(`SELECT db_type,database FROM datasources WHERE id=? AND tenant_id=?`), b.DatasourceID, b.TenantID).Scan(&kind, &databaseName); err != nil {
 		return err
 	}
-	if kind != "postgres" {
+	if kind != "postgres" && (kind != "mysql" || b.SchemaName != databaseName) {
 		return ErrSQLBotBindingInvalid
 	}
 	return nil

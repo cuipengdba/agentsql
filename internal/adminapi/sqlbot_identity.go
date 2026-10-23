@@ -108,9 +108,11 @@ func (v *SQLBotDelegationVerifier) VerifySQLBot(ctx context.Context, token, agen
 		return deny()
 	}
 	ds, err := v.store.Datasources().Get(tenantCtx, b.DatasourceID)
-	if err != nil || ds.DBType != "postgres" || ds.TenantID != p.TenantID {
+	if err != nil || (ds.DBType != "postgres" && ds.DBType != "mysql") || ds.TenantID != p.TenantID ||
+		ds.DBType == "mysql" && b.SchemaName != ds.Database {
 		return deny()
 	}
+	b.DatasourceDBType = ds.DBType
 	return principal, b, nil
 }
 
@@ -174,7 +176,11 @@ func (handler *Handler) sqlbotResolve(writer http.ResponseWriter, request *http.
 		return
 	}
 	handler.deps.Runtime.PublishManagementAudit(recorded)
+	dialect := "pg"
+	if current.DatasourceDBType == "mysql" {
+		dialect = "mysql"
+	}
 	handler.ok(writer, map[string]any{"binding_id": current.ID, "revision": current.Revision, "agent_id": current.AgentID,
 		"datasource_id": current.DatasourceID, "schema": current.SchemaName, "numeric_columns": current.NumericColumns,
-		"user_token": token, "expires_at": expires.Format(time.RFC3339)})
+		"dialect": dialect, "user_token": token, "expires_at": expires.Format(time.RFC3339)})
 }

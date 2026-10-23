@@ -89,7 +89,7 @@ export function MainLayout() {
 
   return (
     <Layout className="app-shell">
-      <Sider className="app-sider" theme={themeMode} width={224} collapsedWidth={72} collapsed={collapsed}>
+      <Sider className="app-sider" theme={themeMode} width={224} collapsedWidth={72} collapsed={collapsed} breakpoint="md" onBreakpoint={setCollapsed}>
         <button className="brand" type="button" onClick={() => navigate("/")} aria-label={tr("返回总览", "Go to overview")}>
           <img className="brand-icon" src={brandMark} alt="" aria-hidden="true" width={32} height={32} />
           {!collapsed ? <span>{tr("AgentSQL 智盾", "AgentSQL")}</span> : null}

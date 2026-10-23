@@ -175,13 +175,23 @@ func (handler *Handler) sqlbotBindingsExport(w http.ResponseWriter, r *http.Requ
 	agentEnvs := map[string]string{}
 	for _, b := range items {
 		if b.Enabled {
+			datasource, err := handler.deps.Runtime.Store.Datasources().Get(r.Context(), b.DatasourceID)
+			if err != nil || (datasource.DBType != "postgres" && datasource.DBType != "mysql") ||
+				datasource.DBType == "mysql" && b.SchemaName != datasource.Database {
+				handler.fail(w, http.StatusConflict, "SQLBot datasource mapping is unavailable")
+				return
+			}
+			dialect := "pg"
+			if datasource.DBType == "mysql" {
+				dialect = "mysql"
+			}
 			if connectorEnvs[b.ConnectorTokenEnv] || connectorEnvs[b.AgentKeyEnv] || agentEnvs[b.ConnectorTokenEnv] != "" || agentEnvs[b.AgentKeyEnv] != "" && agentEnvs[b.AgentKeyEnv] != b.AgentID {
 				handler.fail(w, http.StatusConflict, "SQLBot mappings need distinct credential environment variables")
 				return
 			}
 			connectorEnvs[b.ConnectorTokenEnv] = true
 			agentEnvs[b.AgentKeyEnv] = b.AgentID
-			bindings = append(bindings, map[string]any{"id": b.ID, "workspace_id": b.WorkspaceID, "datasource_name": b.DatasourceName, "sqlbot_user_id": b.SQLBotUserID, "connector_token_env": b.ConnectorTokenEnv, "agent_key_env": b.AgentKeyEnv})
+			bindings = append(bindings, map[string]any{"id": b.ID, "workspace_id": b.WorkspaceID, "datasource_name": b.DatasourceName, "sqlbot_user_id": b.SQLBotUserID, "dialect": dialect, "connector_token_env": b.ConnectorTokenEnv, "agent_key_env": b.AgentKeyEnv})
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -200,7 +210,7 @@ func (handler *Handler) sqlbotBindingsDiagnostics(w http.ResponseWriter, r *http
 	checks := []map[string]any{
 		{"code": "binding_enabled", "ok": b.Enabled},
 		{"code": "agent_readonly_active", "ok": agentErr == nil && agent.Status == "active" && agent.Level == "readonly" && agent.TaskGrantID == "" && (agent.ExpiresAt == nil || agent.ExpiresAt.After(time.Now()))},
-		{"code": "postgres_datasource", "ok": dsErr == nil && ds.DBType == "postgres"},
+		{"code": "supported_datasource", "ok": dsErr == nil && (ds.DBType == "postgres" || ds.DBType == "mysql" && b.SchemaName == ds.Database)},
 		{"code": "user_query_permission", "ok": userErr == nil && p.Has(rbac.PermissionQueryExecute)},
 	}
 	ready := true

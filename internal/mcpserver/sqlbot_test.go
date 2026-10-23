@@ -55,7 +55,7 @@ func TestSQLBotScopedIdentityIsAlwaysVerified(t *testing.T) {
 
 func TestSQLBotScopeRejectsOtherDatasourcesAndWriteTools(t *testing.T) {
 	gate := sqlbotHTTPGate{}
-	b := store.SQLBotBinding{DatasourceID: "ds", SchemaName: "public"}
+	b := store.SQLBotBinding{DatasourceID: "ds", SchemaName: "public", DatasourceDBType: "postgres"}
 	cases := []struct {
 		name, body string
 		allowed    bool
@@ -100,4 +100,38 @@ func TestSQLBotReadOnlyRejectsSideEffectShapes(t *testing.T) {
 	} {
 		require.True(t, sqlbotReadOnly(sql), sql)
 	}
+}
+
+func TestSQLBotMySQLReadOnlyIsBoundedToSelectsAndKnownFunctions(t *testing.T) {
+	gate := sqlbotHTTPGate{}
+	mysqlBinding := store.SQLBotBinding{DatasourceID: "mysql-ds", SchemaName: "app", DatasourceDBType: "mysql"}
+	mysqlRequest := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"method":"tools/call","params":{"name":"query","arguments":{"datasource_id":"mysql-ds","sql":"SELECT COUNT(*) AS total FROM app.orders"}}}`))
+	require.True(t, gate.allowed(mysqlRequest, mysqlBinding))
+	mysqlBinding.DatasourceDBType = ""
+	mysqlRequest = httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"method":"tools/call","params":{"name":"query","arguments":{"datasource_id":"mysql-ds","sql":"SELECT COUNT(*) AS total FROM app.orders"}}}`))
+	require.False(t, gate.allowed(mysqlRequest, mysqlBinding), "missing verified datasource type fails closed")
+
+	for _, sql := range []string{
+		"SELECT id, amount FROM app.orders WHERE id > 0 LIMIT 10",
+		"SELECT city, SUM(amount) AS total FROM app.orders GROUP BY city LIMIT 20",
+		"SELECT COUNT(*) AS total FROM app.orders WHERE id > 0",
+		"SELECT COUNT(`o`.`id`) AS `order_count` FROM `app`.`orders` `o` LIMIT 1000",
+	} {
+		require.True(t, sqlbotReadOnlyForDatasource(sql, "mysql"), sql)
+	}
+	for _, sql := range []string{
+		"SELECT id FROM app.orders INTO OUTFILE '/tmp/rows'",
+		"SELECT id FROM app.orders FOR UPDATE",
+		"SELECT GET_LOCK('side_effect', 10)",
+		"SELECT id FROM app.orders WHERE GET_LOCK('side_effect', 10) = 1",
+		"SELECT LOAD_FILE('/etc/passwd')",
+		"SELECT id FROM app.orders WHERE SLEEP(1) = 0",
+		"SELECT @x := id FROM app.orders",
+		"SELECT id FROM app.orders; DELETE FROM app.orders",
+		"WITH d AS (DELETE FROM app.orders RETURNING id) SELECT id FROM d",
+		"EXPLAIN SELECT id FROM app.orders",
+	} {
+		require.False(t, sqlbotReadOnlyForDatasource(sql, "mysql"), sql)
+	}
+	require.False(t, sqlbotReadOnlyForDatasource("SELECT 1", "unknown"))
 }

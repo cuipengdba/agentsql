@@ -18,7 +18,7 @@ export function SQLBotDiagnosticsView({ data }: { data: SQLBotDiagnostics }) {
   const labels: Record<string, string> = {
     binding_enabled: tr("映射已启用", "Mapping enabled"),
     agent_readonly_active: tr("只读 Agent 有效", "Readonly Agent active"),
-    postgres_datasource: tr("PostgreSQL 数据源存在", "PostgreSQL datasource exists"),
+    supported_datasource: tr("PostgreSQL/MySQL 数据源与模式匹配", "PostgreSQL/MySQL datasource and schema match"),
     user_query_permission: tr("映射人员具有查询权限", "Mapped user has query permission"),
   };
   return <Space direction="vertical" style={{ width: "100%" }}>
@@ -43,6 +43,8 @@ export function SQLBot() {
   const [endpoint, setEndpoint] = useState(() => typeof window === "undefined" ? "" : `${window.location.origin}/mcp`);
   const [exportText, setExportText] = useState("");
   const [form] = Form.useForm<BindingForm>();
+  const selectedDatasourceID = Form.useWatch("datasource_id", form);
+  const selectedDatasource = sources.find((source) => source.id === selectedDatasourceID);
   const refresh = useCallback(async () => setBindings(await listSQLBotBindings()), []);
   useEffect(() => {
     let active = true;
@@ -76,7 +78,7 @@ export function SQLBot() {
     const url = URL.createObjectURL(new Blob([exportText + "\n"], { type: "application/json" }));
     const link = document.createElement("a"); link.href = url; link.download = "agentsql-sqlbot-config.json"; link.click(); URL.revokeObjectURL(url);
   };
-  return <PageContainer title={tr("SQLBot 接入", "SQLBot integration")} subtitle={tr("将 SQLBot 工作空间与人员映射到本租户的只读 Agent 和 PostgreSQL 数据源。", "Map SQLBot workspaces and users to this tenant's readonly Agents and PostgreSQL datasources.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
+  return <PageContainer title={tr("SQLBot 接入", "SQLBot integration")} subtitle={tr("将 SQLBot 工作空间与人员映射到本租户的只读 Agent 和 PostgreSQL/MySQL 数据源。", "Map SQLBot workspaces and users to this tenant's readonly Agents and PostgreSQL/MySQL datasources.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Alert showIcon type="warning" message={tr("仅信任受控的 SQLBot 服务器", "Trust only a controlled SQLBot server")} description={tr("连接凭据允许 SQLBot 服务器代表映射人员查询。请核对工作空间和人员 ID，使用专用只读 Agent；Agent Key 与连接凭据分别保存到服务器环境。禁用、修改或轮换映射后，旧人员令牌立即失效。", "The connector credential allows the SQLBot server to query for the mapped user. Verify workspace and user IDs, use a dedicated readonly Agent, and store the Agent Key and connector credential separately in the server environment. Disabling, editing or rotating a mapping invalidates its old user tokens.")} />
       <Card title={tr("工作空间与人员映射", "Workspace and user mappings")}>
@@ -108,8 +110,8 @@ export function SQLBot() {
         <Form.Item name="sqlbot_user_id" label={tr("SQLBot 用户 ID", "SQLBot user ID")} rules={[{ required: true, pattern: /^[1-9][0-9]{0,18}$/ }]}><Input /></Form.Item>
         <Form.Item name="agentsql_user_id" label={tr("AgentSQL 人员", "AgentSQL user")} rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={users.filter((u) => u.status === "active").map((u) => ({ value: u.id, label: `${u.username} (${u.id})` }))} /></Form.Item>
         <Form.Item name="agent_id" label={tr("专用只读 Agent", "Dedicated readonly Agent")} rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={agents.filter((a) => a.status === "active" && a.level === "readonly").map((a) => ({ value: a.id, label: `${a.name} (${a.id})` }))} /></Form.Item>
-        <Form.Item name="datasource_id" label={tr("PostgreSQL 数据源", "PostgreSQL datasource")} rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={sources.filter((s) => s.db_type === "postgres").map((s) => ({ value: s.id, label: `${s.name} (${s.id})` }))} /></Form.Item>
-        <Form.Item name="schema_name" label={tr("数据库模式", "Database schema")} rules={[{ required: true, pattern: /^[A-Za-z_][A-Za-z0-9_]{0,62}$/ }]}><Input /></Form.Item>
+        <Form.Item name="datasource_id" label={tr("PostgreSQL/MySQL 数据源", "PostgreSQL/MySQL datasource")} rules={[{ required: true }]}><Select showSearch optionFilterProp="label" onChange={(id: string) => { const source = sources.find((item) => item.id === id); if (source?.db_type === "mysql") form.setFieldValue("schema_name", source.database); }} options={sources.filter((s) => s.db_type === "postgres" || s.db_type === "mysql").map((s) => ({ value: s.id, label: `${s.name} (${s.db_type}, ${s.id})` }))} /></Form.Item>
+        <Form.Item name="schema_name" label={tr("数据库模式", "Database schema")} extra={selectedDatasource?.db_type === "mysql" ? tr("MySQL 模式固定为当前数据源的数据库名称。", "For MySQL, the schema equals this datasource's database name.") : undefined} rules={[{ required: true, pattern: /^[A-Za-z_][A-Za-z0-9_]{0,62}$/ }]}><Input readOnly={selectedDatasource?.db_type === "mysql"} /></Form.Item>
         <Form.Item name="numeric_columns" label={tr("图表数值列别名", "Numeric chart aliases")} extra={tr("仅填写需要按数值展示的输出列别名；脱敏值和无法精确转换的值仍按文本返回。", "Only list output aliases that should be numeric. Masked values and values that cannot be converted exactly remain text.")}><Select mode="tags" tokenSeparators={[","]} /></Form.Item>
         <Form.Item name="agent_key_env" label={tr("Agent Key 环境变量名称", "Agent Key environment variable")} rules={[{ required: true, pattern: /^[A-Z_][A-Z0-9_]{0,95}$/ }]}><Input /></Form.Item>
         <Form.Item name="connector_token_env" label={tr("连接凭据环境变量名称", "Connector credential environment variable")} rules={[{ required: true, pattern: /^[A-Z_][A-Z0-9_]{0,95}$/ }]}><Input /></Form.Item>

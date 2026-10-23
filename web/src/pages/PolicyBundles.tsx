@@ -8,6 +8,7 @@ import {
   type PolicyBundleSnapshot, type PolicyBundleStatus,
 } from "@/api/policyBundles";
 import { PageContainer } from "@/components/PageContainer";
+import { localeText, useLocaleStore } from "@/i18n/locale";
 
 const { Text } = Typography;
 
@@ -22,6 +23,8 @@ function parseBundle(text: string): PolicyBundle {
 }
 
 export function PolicyBundles() {
+  const locale = useLocaleStore((state) => state.locale);
+  const tr = (zh: string, en: string) => localeText(zh, en, locale);
   const [snapshot, setSnapshot] = useState<PolicyBundleSnapshot | null>(null);
   const [status, setStatus] = useState<PolicyBundleStatus | null>(null);
   const [jsonText, setJsonText] = useState("");
@@ -143,6 +146,15 @@ export function PolicyBundles() {
             <Table size="small" rowKey="id" pagination={false} dataSource={plan.changes} columns={[
               { title: "策略 ID", dataIndex: "id" }, { title: "操作", dataIndex: "operation" },
               { title: "放宽权限", dataIndex: "broadens_grant", render: (value: boolean) => value ? <Tag color="orange">需重点复核</Tag> : "否" },
+            ]} />
+            <Alert type="warning" showIcon message="影响范围仅来自当前策略快照" description="对象、列和权限结果还受数据库对象绑定、实时规则、脱敏与审计影响；策略变更后，旧计划的源摘要会失效。" />
+            <Table size="small" rowKey="policy_id" pagination={false} scroll={{ x: 780 }} dataSource={plan.affected} columns={[
+              { title: "策略 ID", dataIndex: "policy_id" }, { title: "Agent", dataIndex: "agent_id" },
+              { title: "数据源", dataIndex: "datasource_id" },
+              { title: "变更前对象", dataIndex: "before_object", render: (value?: string) => value || "—" },
+              { title: "变更后对象", dataIndex: "after_object", render: (value?: string) => value || "—" },
+              { title: "列范围", render: (_, item) => `${item.before_columns.join(", ") || tr("未声明", "Not specified")} → ${item.after_columns.join(", ") || tr("未声明", "Not specified")}` },
+              { title: "结论", render: () => <Tag color="orange">需实时复验</Tag> },
             ]} />
             {plan.replay?.length ? <Table size="small" rowKey={(row) => `${row.agent_id}/${row.datasource_id}/${row.object_name}`} pagination={false} dataSource={plan.replay} columns={[
               { title: "Agent", dataIndex: "agent_id" }, { title: "数据源", dataIndex: "datasource_id" },

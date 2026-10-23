@@ -9,6 +9,7 @@ import (
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,6 +95,46 @@ type functionQualificationError struct{}
 func (functionQualificationError) Error() string { return "AUTH_FUNCTION_QUALIFICATION_REQUIRED" }
 func (functionQualificationError) AuthorizationReason() string {
 	return "AUTH_FUNCTION_QUALIFICATION_REQUIRED"
+}
+
+func TestPostgresB2ApprovalDoesNotReadBeforeReviewAndRechecksAfterApproval(t *testing.T) {
+	controller := &enabledB2Controller{}
+	fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+	controller.snapshot = &routingB2Snapshot{redactor: fixture.redactors.redactor}
+	provider := &routingB2ExecutorProvider{delegate: fixture.executor}
+	fixture.pipeline.ports.Executors = provider
+
+	request := defaultRequest()
+	request.RequireApproval = true
+	request.MCPTool = "request_approval"
+	pending, err := fixture.pipeline.Process(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionApprove, pending.Decision)
+	require.NotEmpty(t, pending.ApprovalID)
+	require.Nil(t, pending.Result)
+	require.Zero(t, controller.beginCalls, "approval request must not open a B2 snapshot")
+	require.Zero(t, provider.calls, "approval request must not reach the database")
+	require.Equal(t, 1, fixture.approvals.calls())
+
+	p, err := parser.NewParser(model.DBDialect("postgres"))
+	require.NoError(t, err)
+	ast, err := p.Parse(request.SQL)
+	require.NoError(t, err)
+	approval := model.Approval{
+		TenantID:              fixture.authenticator.agent.TenantID,
+		AgentID:               stringPointer(fixture.authenticator.agent.ID),
+		DatasourceID:          stringPointer(fixture.datasources.datasource.ID),
+		DatasourceFingerprint: stringPointer(datasourceFingerprint(fixture.datasources.datasource)),
+		SQLNorm:               stringPointer(ast.Normalized),
+	}
+	request.RequireApproval = false
+	request.MCPTool = "execute_approved"
+	response, err := fixture.pipeline.process(context.Background(), request, runModeApproved, &approval)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionDeny, response.Decision)
+	require.Nil(t, response.Result)
+	require.Equal(t, 1, controller.beginCalls, "approved execution must open a fresh B2 snapshot")
+	require.Equal(t, 1, provider.calls, "approved execution must use B2 authorization")
 }
 
 func TestMySQLB2RoutingRejectsOnlyColumnPolicies(t *testing.T) {

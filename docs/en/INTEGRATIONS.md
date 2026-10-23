@@ -2,11 +2,11 @@
 
 **Language:** [English](INTEGRATIONS.md) | [Simplified Chinese](../INTEGRATIONS.md)
 
-> This article explains the MCP access of AgentSQL v3.1.0. Before installing or pulling v3.1.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> This article explains the MCP access of AgentSQL v3.2.0. Before installing or pulling v3.2.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
 
 This article explains how to connect the MCP client to AgentSQL. For identity, authorization, rules, approval and capability boundaries, see the [ user manual ](USER_GUIDE.md). For first-time deployment, see [ for quick start ](GETTING_STARTED.md). For outsourcing decision-making events to Webhook, alarm groups or Syslog, see [ notification outgoing guide ](NOTIFICATIONS.md).
 
-v3.1.0of`list_datasources`Adds data sources visible to the current Agent`support`Statement: Hierarchy, available tools, scope, and evidence documentation. It only describes authenticated entries and does not replace progressive authorization. Isolated synthetic data environment to run`scripts/mcp-acceptance.py`Check tool discovery, allow, R010 deny, mask, and two persistent audit IDs; API Key is only available from`AGENTSQL_MCP_ACCEPTANCE_KEY`Environment variables are read. Example:
+v3.2.0of`list_datasources`Adds data sources visible to the current Agent`support`Statement: Hierarchy, available tools, scope, and evidence documentation. It only describes authenticated entries and does not replace progressive authorization. Isolated synthetic data environment to run`scripts/mcp-acceptance.py`Check tool discovery, allow, R010 deny, mask, and two persistent audit IDs; API Key is only available from`AGENTSQL_MCP_ACCEPTANCE_KEY`Environment variables are read. Example:
 
 ```bash
 AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py \
@@ -416,6 +416,6 @@ Check that the process can read the configuration and SQLite/PG control plane an
 
 ## SQLBot
 
-The v2 adapter in v3.1.0 maps each ordinary SQLBot v1.10.2 login user, workspace, and datasource to an AgentSQL person and read-only Agent. Administrators can configure bindings, export configuration without secrets, rotate connector credentials, and inspect configuration diagnostics in the console. The trusted SQLBot server supplies the current user identity; every call rechecks the binding and current permissions. Missing bindings or identity cause rejection.
+The v2 adapter in v3.2.0 maps each ordinary SQLBot v1.10.2 login user, workspace, and datasource to an AgentSQL person and read-only Agent. Administrators can configure bindings, export configuration without secrets, rotate connector credentials, and inspect configuration diagnostics in the console. The trusted SQLBot server supplies the current user identity; every call rechecks the binding and current permissions. Missing bindings or identity cause rejection.
 
-This release is limited to PostgreSQL, pinned source hashes, and a specified read-only SQL subset. It includes model metadata filtering, structured denial references, and read-only approvals explicitly initiated by users. SQLBot providing its own MCP Server does not mean it calls AgentSQL by default. See the [SQLBot Integration Guide](SQLBOT.md) for installation, independent Agent Key configuration, TLS, the approval console, and migration boundaries for legacy v1 configuration.
+Personal bindings cover specified PostgreSQL and MySQL read-only scenarios, pinned source hashes, and controlled SQL subsets. They include model metadata filtering, structured denial references, and read-only approvals explicitly initiated by users. For MySQL, the discovery schema must match the datasource database name. SQLBot providing its own MCP Server does not mean it calls AgentSQL by default. See the [SQLBot Integration Guide](SQLBOT.md) for installation, independent Agent Key configuration, TLS, the approval console, and legacy v1 migration boundaries.

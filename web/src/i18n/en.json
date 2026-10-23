@@ -1452,5 +1452,17 @@
   "保存本次凭据": "Save this credential",
   "已保存，关闭": "Saved, close",
   "凭据仅显示一次，请安全保存；不要放入配置 JSON、聊天或日志。": "This credential is shown once. Store it securely; do not put it in configuration JSON, chat or logs.",
-  "SQLBot 接入诊断": "SQLBot integration diagnostics"
+  "SQLBot 接入诊断": "SQLBot integration diagnostics",
+  "影响范围仅来自当前策略快照": "Affected scope comes from the current policy snapshot only",
+  "对象、列和权限结果还受数据库对象绑定、实时规则、脱敏与审计影响；策略变更后，旧计划的源摘要会失效。": "Objects, columns and access also depend on live database bindings, rules, masking and audit. A policy change invalidates the old plan's source digest.",
+  "变更前对象": "Object before",
+  "变更后对象": "Object after",
+  "列范围": "Column scope",
+  "结论": "Conclusion",
+  "需实时复验": "Requires live verification",
+  "未声明": "Not specified",
+  "PostgreSQL/MySQL 数据源与模式匹配": "PostgreSQL/MySQL datasource and schema match",
+  "将 SQLBot 工作空间与人员映射到本租户的只读 Agent 和 PostgreSQL/MySQL 数据源。": "Map SQLBot workspaces and users to this tenant's readonly Agents and PostgreSQL/MySQL datasources.",
+  "PostgreSQL/MySQL 数据源": "PostgreSQL/MySQL datasource",
+  "MySQL 模式固定为当前数据源的数据库名称。": "For MySQL, the schema equals this datasource's database name."
 }

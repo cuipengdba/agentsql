@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v3.1.0';
+const VERSION = 'v3.2.0';
 const LANGUAGE = process.env.AGENTSQL_DOCS_LANGUAGE || 'zh';
 if (!['zh', 'en'].includes(LANGUAGE)) throw new Error('AGENTSQL_DOCS_LANGUAGE must be zh or en');
 const ENGLISH = LANGUAGE === 'en';
@@ -27,7 +27,7 @@ const DOCS_ROOT = resolve(REPOSITORY_ROOT, 'docs');
 const OUTPUT_DIR = resolve(REPOSITORY_ROOT, 'website', 'public', 'assets', 'docs');
 const MINIMUM_PDF_BYTES = 20_000;
 // Fixed so repeated builds are byte-reproducible; update with the release date when it is finalized.
-const FIXED_PDF_DATE = "D:20261022000000+08'00'";
+const FIXED_PDF_DATE = "D:20261023000000+08'00'";
 
 const DOCUMENTS = [
   {
@@ -850,6 +850,7 @@ async function main() {
     archivedFiles.push('agentsql-getting-started-v3.0.1.pdf', 'agentsql-mcp-integrations-v3.0.1.pdf', 'agentsql-user-guide-v3.0.1.pdf');
     for (const prefix of ['', 'en-']) {
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.0.2.pdf`));
+      archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.1.0.pdf`));
     }
     const otherLanguage = actualFiles.filter((name) => new RegExp(`^agentsql-(getting-started|user-guide|mcp-integrations)-${ENGLISH ? '' : 'en-'}${VERSION.replaceAll('.', '\\.')}\\.pdf$`).test(name));
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles, ...otherLanguage].sort();

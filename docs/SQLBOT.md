@@ -2,7 +2,7 @@
 
 [中文](SQLBOT.md) | [English](en/SQLBOT.md)
 
-v3.1.0 增加配置版本 2：按 SQLBot 实际登录用户管理绑定，将 SQLBot 的 PostgreSQL 问数请求交给 AgentSQL 做身份、授权、脱敏、审批和审计。适配目标固定为 SQLBot **v1.10.2**，源码基准为 `aa41fc1033bb974a703df9200a98ec8b9eec5f25`。具体已完成的实测项目以 [v3.1.0 验收记录](v3.1.0-acceptance.md) 为准；兼容检查通过不等于所有模型、图表和 SQL 都经过验证。
+v3.2.0 沿用配置版本 2 的真实登录用户绑定，并把指定 MySQL 只读问数加入 PostgreSQL 路径。适配目标固定为 SQLBot **v1.10.2**，源码基准为 `aa41fc1033bb974a703df9200a98ec8b9eec5f25`。完成的真链路项目见 [v3.2.0 验收记录](v3.2.0-acceptance.md)；兼容检查通过不等于所有模型、图表和 SQL 都经过验证。
 
 ```text
 SQLBot 普通账号登录 → 工作空间与数据源权限 → 自然语言生成 SQL
@@ -14,16 +14,16 @@ SQLBot 普通账号登录 → 工作空间与数据源权限 → 自然语言生
 
 ## 支持范围与信任边界
 
-- 本版托管绑定仅支持 **PostgreSQL 只读查询**。不支持 MySQL、写操作、B5、动态数据源或 Excel 直连。SQLBot 自身的 PostgreSQL 元数据库仍由 SQLBot 使用，与业务数据库分开。
+- 本版托管绑定支持已验收的 **PostgreSQL/MySQL 只读查询**。不支持写操作、B5、动态数据源或 Excel 直连。SQLBot 自身的 PostgreSQL 元数据库仍由 SQLBot 使用，与业务数据库分开。
 - 仅接受 SQLBot 服务端认证后的普通登录身份（`X-SQLBOT-TOKEN`）。拒绝 assistant、embedded 和 ask token 身份。不能把浏览器、模型、请求正文自行提供的用户 ID 当成认证身份。
-- 一条绑定对应一个 SQLBot 工作空间、数据源名称和用户，并映射一个 AgentSQL 人员、只读 Agent 和 PostgreSQL 数据源。不同人员需要不同数据范围时，应分配不同 Agent 策略。SQLBot 服务端和连接凭据属于可信部署边界：持有凭据的服务器能为该绑定指定的人员取得令牌。
+- 一条绑定对应一个 SQLBot 工作空间、数据源名称和用户，并映射一个 AgentSQL 人员、只读 Agent 和 PostgreSQL 或 MySQL 数据源。MySQL 的发现 schema 必须等于该数据源的数据库名。不同人员需要不同数据范围时，应分配不同 Agent 策略。SQLBot 服务端和连接凭据属于可信部署边界：持有凭据的服务器能为该绑定指定的人员取得令牌。
 - 每次操作重新解析绑定；每个 MCP 请求检查绑定状态和修订号、人员权限、租户状态及 Agent。禁用、修改和轮换使旧令牌失效。即使网关没有全局要求人员委托令牌，配置版本 2 仍验证其专用令牌；普通人员令牌原有规则不变。
 - `schema` 限定元数据发现范围，**不单独构成 SQL 授权边界**；实际 SQL 数据范围仍由 Agent 策略和数据库权限控制。已有 SQLBot 元数据还会与当前人员在 AgentSQL 可见的表、列取交集，避免较宽管理员缓存进入模型上下文。
-- 托管查询额外限制为单条 PostgreSQL `SELECT`，拒绝 `SELECT INTO`、`EXPLAIN` 语句、修改数据的 CTE、锁定读及 `FROM` 中的函数。函数仅允许 `count`、`sum`、`avg`、`min`、`max`、`abs`、`round`、`ceil`、`ceiling`、`floor`、`lower`、`upper`、`length`、`date_trunc`、`date_part`、`to_char`。当前 PostgreSQL B2 执行器要求函数显式使用 `pg_catalog` 限定名，例如 `pg_catalog.count(*)`；模型生成 `COUNT(*)` 时会被拒绝并留有审计记录，适配器不会自动改写 SQL。解析树限制为 128 层和 20,000 个节点。这是附加限制，AgentSQL 原有策略、对象授权和数据库最小权限仍然生效。
+- 托管查询额外限制为单条 `SELECT`。PostgreSQL 拒绝 `SELECT INTO`、`EXPLAIN`、修改数据的 CTE、锁定读及 `FROM` 中的函数；MySQL 拒绝写入、多语句、锁定读、副作用函数和无法证明只读性的语法，允许经双重解析的反引号标识符。两种方言都只放行短名单中的函数。PostgreSQL B2 执行器要求函数显式使用 `pg_catalog` 限定名，例如 `pg_catalog.count(*)`；模型生成未限定 `COUNT(*)` 时会被拒绝，适配器不会自动改写。解析树限制为 128 层和 20,000 个节点。AgentSQL 原有策略、对象授权和数据库最小权限仍然生效。
 
 ## 1. 准备网关并建立个人绑定
 
-1. 启动 v3.1.0 AgentSQL 管理控制台和 HTTP MCP，配置 PostgreSQL 业务数据源及最小权限数据库账号。
+1. 启动 v3.2.0 AgentSQL 管理控制台和 HTTP MCP，配置 PostgreSQL 或 MySQL 业务数据源及最小权限数据库账号。
 2. 创建同租户、启用的 **readonly 普通 Agent**（不能是临时任务 Agent），配置允许的表、列、脱敏和审批策略。创建或选择具有 `query.execute` 权限的 AgentSQL 人员。
 3. 在控制台左侧 **SQLBot** 页面建立绑定。创建、修改和轮换要求同时具备 `strategy.manage`、`datasource.manage`、`user.manage` 权限。填写 SQLBot 工作空间 ID、用户 ID、数据源名称、AgentSQL 人员、Agent、业务数据源、发现 schema 和可选数值列别名。
 4. SQLBot 的 Snowflake ID 可能超过 JavaScript 安全整数，配置和 API 中工作空间 ID、用户 ID 必须使用**十进制字符串**；不要转为浮点数。数据源名称必须与 SQLBot 中完全一致。
@@ -37,8 +37,8 @@ SQLBot 普通账号登录 → 工作空间与数据源权限 → 自然语言生
 在 AgentSQL 仓库根目录执行：
 
 ```sh
-docker build -f integrations/sqlbot/Dockerfile -t agentsql-sqlbot:1.10.2-v3.1.0 .
-docker run --rm --entrypoint python3 agentsql-sqlbot:1.10.2-v3.1.0 /tmp/agentsql-sqlbot/install.py --sqlbot-app /opt/sqlbot/app --check
+docker build -f integrations/sqlbot/Dockerfile -t agentsql-sqlbot:1.10.2-v3.2.0 .
+docker run --rm --entrypoint python3 agentsql-sqlbot:1.10.2-v3.2.0 /tmp/agentsql-sqlbot/install.py --sqlbot-app /opt/sqlbot/app --check
 ```
 
 Dockerfile 固定上游镜像 digest；安装器校验四个上游文件的源码哈希后才修改。补丁覆盖数据库调用、问数线程身份传递、元数据过滤和审批操作页，禁止适配路径绕过网关直连业务库。策略拒绝或需要审批时终止本次问数，避免 SQLBot 自动修复 SQL 并重试。
@@ -78,11 +78,11 @@ Dockerfile 固定上游镜像 digest；安装器校验四个上游文件的源�
 
 ## 4. 验证完整问数
 
-使用与绑定一致的 SQLBot 普通账号和工作空间，建立同名 PostgreSQL 数据源，执行连接检查、表发现，再配置模型进行自然语言问数和图表生成。现有 SQLBot 工作空间及数据权限检查保留；执行 SQL 的最终许可由网关决定。
+使用与绑定一致的 SQLBot 普通账号和工作空间，建立同名 PostgreSQL 或 MySQL 数据源，执行连接检查、表发现，再配置模型进行自然语言问数和图表生成。MySQL 表权限使用 `数据库.表名`；现有 SQLBot 工作空间及数据权限检查保留，执行 SQL 的最终许可由网关决定。
 
-返回结果保留 SQLBot 需要的 `fields`、`data`、`fields_info`，同时带有 `agentsql.audit_id`。查询列别名必须唯一。需要图表数值类型时，在绑定的 `numeric_columns` 中明确列出**查询结果别名**；仅对能精确、安全表示的有限数值做转换，脱敏值和不安全高精度数值保持字符串。不要用通用强制转换破坏财务精度或脱敏结果。
+适配器向 SQLBot 返回 `fields`、`data`、`fields_info` 和内部扩展字段 `agentsql.audit_id`；SQLBot 聊天记录可能不保存该扩展字段，持久审计应到 AgentSQL 网关查询。查询列别名必须唯一。需要图表数值类型时，在绑定的 `numeric_columns` 中明确列出**查询结果别名**；仅对能精确、安全表示的有限数值做转换，脱敏值和不安全高精度数值保持字符串。不要用通用强制转换破坏财务精度或脱敏结果。
 
-一次连接成功不能代替完整验收：至少检查真实模型生成 SQL、网关执行、脱敏结果回传、图表和持久化审计。发布实测范围见 [验收记录](v3.1.0-acceptance.md)。
+一次连接成功不能代替完整验收：至少检查真实模型生成 SQL、网关执行、脱敏结果回传、图表和持久化审计。发布实测范围见 [验收记录](v3.2.0-acceptance.md)。
 
 ## 5. 拒绝、审批与一次执行
 
@@ -95,7 +95,7 @@ SQLBot 同源操作页：**`/api/v1/agentsql/console.html`**（配置了 context
 3. 已有审批 ID 时查询状态；需要新申请时，用户明确填写 SQL 和原因并勾选确认，点击提交。网关封存这份 SQL，提交本身不执行它。
 4. 审批者在 AgentSQL 原有审批界面处理。批准后由原申请人员、原 Agent、原数据源执行，操作页只发送审批 ID，不允许替换 SQL。当前授权仍须有效，封存请求最多执行一次。
 
-当前 PostgreSQL B2 列级授权开启时，网关拒绝审批申请，操作页显示拒绝结果；不会为了审批自动关闭 B2 或绕过列策略。只读审批完整链路已在隔离的 B2 关闭配置中验收。生产启用 B2 的部署应将审批路径视为暂不支持，使用受控直接查询及现有策略。后续版本再补齐 B2 与审批的安全组合。
+PostgreSQL B2 列级授权开启时，审批申请仅封存原 SQL、身份和数据源，不读取业务行；批准后由原申请人单次执行，并重跑实时 B2 列授权、对象绑定、脱敏和持久审计。无法证明当前权限、审计或租约时失败关闭，不会为了审批自动关闭 B2。该组合的真库测试见 [v3.2.0 验收记录](v3.2.0-acceptance.md)。
 5. 结果在操作页单独显示；**不会自动改写原 SQLBot 对话或重新生成图表**。
 
 所有操作 API 使用普通登录认证。审批提交、状态查询和执行均为 POST JSON；变更操作必须显式确认，不允许 GET 触发执行。自定义登录头、同源检查和不使用 Cookie 自动携带凭据共同限制跨站请求。操作页是绑定和 Agent 策略约束下的明确 SQL 操作入口，不应将其视为 SQLBot 模型自定义行过滤器的替代品。

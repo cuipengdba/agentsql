@@ -85,12 +85,14 @@ def _binding(ds):
         if len(matches) != 1:
             raise AdapterError("AgentSQL datasource/workspace/user mapping is missing or ambiguous", code="mapping_missing")
         binding = dict(matches[0])
-        if getattr(ds, "type", None) != "pg":
-            raise AdapterError("This adapter requires a PostgreSQL datasource mapping")
         if config["version"] == 2:
+            if binding.get("dialect") not in ("pg", "mysql") or getattr(ds, "type", None) != binding["dialect"]:
+                raise AdapterError("SQLBot datasource type does not match the managed mapping", code="mapping_mismatch")
             binding = _resolve(config, binding, user)
-        if binding.get("dialect") != "pg":
-            raise AdapterError("This adapter requires a PostgreSQL datasource mapping")
+        elif getattr(ds, "type", None) != "pg":
+            raise AdapterError("Legacy configuration supports PostgreSQL only")
+        if binding.get("dialect") not in ("pg", "mysql") or binding["dialect"] != getattr(ds, "type", None):
+            raise AdapterError("SQLBot datasource dialect does not match the verified mapping", code="mapping_mismatch")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", binding.get("schema", "")):
             raise ValueError()
         if not binding.get("datasource_id") or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", binding.get("key_env", "")):
@@ -178,6 +180,8 @@ def _resolve(config, binding, user):
             raise ValueError()
         if not isinstance(data.get("datasource_id"), str) or not data["datasource_id"] or not isinstance(data.get("schema"), str):
             raise ValueError()
+        if data.get("dialect") not in ("pg", "mysql") or data["dialect"] != binding.get("dialect"):
+            raise ValueError()
         columns = data.get("numeric_columns", [])
         if not isinstance(columns, list) or not all(isinstance(c, str) for c in columns):
             raise ValueError()
@@ -188,8 +192,8 @@ def _resolve(config, binding, user):
         raise AdapterError("AgentSQL binding service is unavailable; request was not retried", code="gateway_unavailable") from None
     except (ValueError, TypeError, KeyError):
         raise AdapterError("AgentSQL binding service returned an invalid response", code="protocol_invalid") from None
-    return dict(binding, **{k: data[k] for k in ("agent_id", "datasource_id", "schema", "revision", "user_token")},
-                numeric_columns=columns, dialect="pg", key_env=binding["agent_key_env"])
+    return dict(binding, **{k: data[k] for k in ("agent_id", "datasource_id", "schema", "dialect", "revision", "user_token")},
+                numeric_columns=columns, key_env=binding["agent_key_env"])
 
 
 class Client:
@@ -359,9 +363,10 @@ def dispatch(operation, ds, *, sql=None, origin_column=False, table_name=None, i
     config, binding = _binding(ds)
     with Client(config, binding) as client:
         sources = client.tool("list_datasources", {})
+        db_type = {"pg": "postgres", "mysql": "mysql"}[binding["dialect"]]
         if not isinstance(sources, list) or not any(s.get("id") == binding["datasource_id"]
-                and s.get("db_type") == "postgres" for s in sources if isinstance(s, dict)):
-            raise AdapterError("AgentSQL PostgreSQL datasource is not authorized for this Agent")
+                and s.get("db_type") == db_type for s in sources if isinstance(s, dict)):
+            raise AdapterError("AgentSQL datasource is not authorized for this Agent")
         if operation == "check_connection":
             return True
         if operation == "get_version":

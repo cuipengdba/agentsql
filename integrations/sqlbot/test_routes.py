@@ -24,7 +24,7 @@ class ApprovalRouteTests(unittest.TestCase):
 
     def setUp(self):
         self.user = SimpleNamespace(id=7518977644151443457, oid=7518977644151443456, status=1)
-        self.binding = {"id": "binding-a", "workspace_id": str(self.user.oid), "datasource_name": "Reporting", "sqlbot_user_id": str(self.user.id)}
+        self.binding = {"id": "binding-a", "workspace_id": str(self.user.oid), "datasource_name": "Reporting", "sqlbot_user_id": str(self.user.id), "dialect": "pg"}
         app = FastAPI()
         app.include_router(routes.router, prefix="/api/v1")
         self.client = TestClient(app)
@@ -39,6 +39,10 @@ class ApprovalRouteTests(unittest.TestCase):
         self.assertEqual(response.json()["bindings"][0]["workspace_id"], "7518977644151443456")
         self.binding["sqlbot_user_id"] = "7518977644151443458"
         self.assertEqual(self.client.get("/api/v1/agentsql/bindings").json()["bindings"], [])
+
+    def test_managed_mysql_route_uses_exported_dialect(self):
+        self.binding["dialect"] = "mysql"
+        self.assertEqual(routes._datasource(self.user, "binding-a").type, "mysql")
 
     def test_mutations_require_post_explicit_confirmation_and_json(self):
         with patch.object(routes, "dispatch") as dispatch:

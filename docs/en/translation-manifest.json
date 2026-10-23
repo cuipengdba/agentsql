@@ -4,12 +4,12 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "db8e9241a3e674c74536bedea3684f22e51bc7977d6b746dc773050114effdf5"
+      "source_sha256": "a8b0adcdc180d0214147268e7a4664e98ca619e25cdb7ba952b726e3861511e7"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "234be47c4747a527dff8a16a070c69b866b9a58bcd72f230be1447812f7b9218"
+      "source_sha256": "3e401acd5e6cf4dd122f61f847f7c5078723e35a1f2dced4f2b577af52ceefb4"
     },
     {
       "source": "ROADMAP.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "fe0b662816b29c356048e02b23d7bda123969334efb69f6f8b58a539cf713071"
+      "source_sha256": "e22d7895a915ee62bbcfe04fe1f0a432539587b9e628817047b397d605b11b02"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "f2819ae5e6750395c4f3bc9fef9c5c270b31a47be1748d28ee18dc6137a8160d"
+      "source_sha256": "d09e7910a392b7a27aabb3dd6c20f85ee398170a81d62ca8164a3d81adef2ee1"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -499,7 +499,7 @@
     {
       "source": "docs/SQLBOT.md",
       "english": "docs/en/SQLBOT.md",
-      "source_sha256": "4856233969db7aa989bac4ba13cc510b963f4d8208ede0339e511c3d47c93c11"
+      "source_sha256": "175ec6aeee0e103e5761513f67c8f11a5b994474e4d35b827da7b48bd7e07890"
     },
     {
       "source": "docs/task-read-grants.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "719db46c79b401764cbe38662c0dce3b11e57f6a82a35065b7d64efd9451a9a3"
+      "source_sha256": "a55f6defdc92433719795b0c98525aaf86ef76020405e1eff5d1261b2491c1e5"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -975,6 +975,21 @@
       "source": "docs/v3.1.0-upgrade.md",
       "english": "docs/en/v3.1.0-upgrade.md",
       "source_sha256": "b678002853f7c0951871ba5dc3d26537931f265feafcbad0f398ac055a43279c"
+    },
+    {
+      "source": "docs/v3.2.0-design.md",
+      "english": "docs/en/v3.2.0-design.md",
+      "source_sha256": "5d81face29da03ef7e9ab8bfb1d0c6ba0fb4941bf4fbe9bd8ca8e64dd6f21805"
+    },
+    {
+      "source": "docs/v3.2.0-acceptance.md",
+      "english": "docs/en/v3.2.0-acceptance.md",
+      "source_sha256": "b3edb6e8f311c94827753f1a9168f4c8d965ffe6939e3484f418aa2f0133bd00"
+    },
+    {
+      "source": "docs/release-notes-v3.2.0.md",
+      "english": "docs/en/release-notes-v3.2.0.md",
+      "source_sha256": "9d2cc1b3456d4bbb03ba73d050cf5465dcabc4425519e9afa77f9df81cb53c8f"
     }
   ]
 }

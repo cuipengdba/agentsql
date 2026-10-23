@@ -2,6 +2,13 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.2.0]
+
+- PostgreSQL B2 read approvals rerun live column authorization, object binding, masking, and durable audit after approval. Requests do not read business rows.
+- Personal SQLBot v1.10.2 bindings add specified MySQL read-only datasources. Dual parsing accepts valid backtick identifiers; writes and side-effecting functions fail closed.
+- The console previews table-level policy bundle impact across Agents, datasources, objects, and columns while requiring live revalidation. Bilingual integration guidance is updated.
+- See the [v3.2.0 release notes](docs/en/release-notes-v3.2.0.md) and [candidate acceptance](docs/en/v3.2.0-acceptance.md) for tested scope and formal delivery status.
+
 ## [v3.1.0]
 
 - Add tenant-scoped SQLBot user, workspace and datasource mapping management with diagnostics, export, disabling and connector credential rotation.

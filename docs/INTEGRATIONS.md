@@ -2,11 +2,11 @@
 
 **语言 / Language:** [简体中文](INTEGRATIONS.md) | [English](en/INTEGRATIONS.md)
 
-> 本文说明 AgentSQL v3.1.0 的 MCP 接入。安装或拉取 v3.1.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.2.0 的 MCP 接入。安装或拉取 v3.2.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
-v3.1.0 的 `list_datasources` 为当前 Agent 可见的数据源增加 `support` 声明：层级、可用工具、限定范围及证据文档。它只描述已验证的入口，不代替逐次授权。隔离的合成数据环境可运行 `scripts/mcp-acceptance.py` 检查工具发现、允许、R010 拒绝、脱敏和两个持久审计 ID；API Key 仅从 `AGENTSQL_MCP_ACCEPTANCE_KEY` 环境变量读取。示例：
+v3.2.0 的 `list_datasources` 为当前 Agent 可见的数据源增加 `support` 声明：层级、可用工具、限定范围及证据文档。它只描述已验证的入口，不代替逐次授权。隔离的合成数据环境可运行 `scripts/mcp-acceptance.py` 检查工具发现、允许、R010 拒绝、脱敏和两个持久审计 ID；API Key 仅从 `AGENTSQL_MCP_ACCEPTANCE_KEY` 环境变量读取。示例：
 
 ```bash
 AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py \
@@ -416,6 +416,6 @@ Accept: application/json, text/event-stream
 
 ## SQLBot
 
-v3.1.0 的 v2 适配器把 SQLBot v1.10.2 普通登录用户、工作空间和数据源逐条映射到 AgentSQL 人员与只读 Agent。管理员可在控制台配置绑定、导出不含密钥的配置、轮换连接凭据并查看配置诊断。可信 SQLBot 服务端提供当前用户身份，每次调用重新验证映射与当前权限；没有绑定或身份时拒绝执行。
+v3.2.0 的 v2 适配器把 SQLBot v1.10.2 普通登录用户、工作空间和数据源逐条映射到 AgentSQL 人员与只读 Agent。管理员可在控制台配置绑定、导出不含密钥的配置、轮换连接凭据并查看配置诊断。可信 SQLBot 服务端提供当前用户身份，每次调用重新验证映射与当前权限；没有绑定或身份时拒绝执行。
 
-本版限定 PostgreSQL、固定源码哈希和指定只读 SQL 子集，包含模型元数据过滤、结构化拒绝定位及用户主动发起的只读审批。SQLBot 自己提供 MCP Server 不代表它默认调用 AgentSQL。安装、独立 Agent Key 配置、TLS、审批操作页以及旧 v1 配置的迁移边界见 [SQLBot 接入指南](SQLBOT.md)。
+本版个人绑定覆盖指定 PostgreSQL 和 MySQL 只读场景、固定源码哈希和受控 SQL 子集，包含模型元数据过滤、结构化拒绝定位及用户主动发起的只读审批。MySQL 的发现 schema 必须等于数据源数据库名；SQLBot 自己提供 MCP Server 不代表它默认调用 AgentSQL。安装、独立 Agent Key、TLS、审批操作页及旧 v1 配置的迁移边界见 [SQLBot 接入指南](SQLBOT.md)。

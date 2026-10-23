@@ -2,7 +2,7 @@
 
 [Simplified Chinese](../SQLBOT.md) | [English](SQLBOT.md)
 
-v3.1.0 adds configuration version 2: bindings use the actual signed-in SQLBot user and send PostgreSQL questions through AgentSQL identity, authorization, masking, approval, and audit controls. The adapter targets SQLBot **v1.10.2**, source baseline `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. See the [v3.1.0 acceptance record](v3.1.0-acceptance.md) for completed live tests. Passing a compatibility check does not establish coverage for every model, chart, or SQL statement.
+v3.2.0 keeps configuration version 2 and its signed-in user bindings, and adds specified MySQL read-only questions alongside PostgreSQL. The adapter targets SQLBot **v1.10.2**, source baseline `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. See the [v3.2.0 acceptance record](v3.2.0-acceptance.md) for completed live tests. Passing a compatibility check does not establish coverage for every model, chart, or SQL statement.
 
 ```text
 SQLBot ordinary login → workspace and datasource permissions → natural-language SQL
@@ -14,16 +14,16 @@ SQLBot ordinary login → workspace and datasource permissions → natural-langu
 
 ## Scope and trust boundaries
 
-- Managed bindings in this version support **PostgreSQL read-only queries**. MySQL, writes, B5, dynamic datasources, and direct Excel access are excluded. SQLBot continues to use its own PostgreSQL metadata database, separately from business databases.
+- Managed bindings support the accepted **PostgreSQL/MySQL read-only queries**. Writes, B5, dynamic datasources, and direct Excel access are excluded. SQLBot continues to use its own PostgreSQL metadata database, separately from business databases.
 - Only ordinary SQLBot identities authenticated on its server through `X-SQLBOT-TOKEN` are accepted. Assistant, embedded, and ask-token identities are rejected. Browser, model, or request-body user IDs are not authentication evidence.
-- Each binding maps one SQLBot workspace, datasource name, and user to one AgentSQL user, read-only Agent, and PostgreSQL datasource. Assign different Agent policies when users need different data scopes. The SQLBot server and connector credential are trusted deployment components: a server holding a credential can obtain a token for the user fixed in that binding.
+- Each binding maps one SQLBot workspace, datasource name, and user to one AgentSQL user, read-only Agent, and PostgreSQL or MySQL datasource. For MySQL, the discovery schema must equal the datasource database name. Assign different Agent policies when users need different data scopes. The SQLBot server and connector credential are trusted deployment components: a server holding a credential can obtain a token for the user fixed in that binding.
 - Every operation resolves the current binding; every MCP request validates its status and revision, user permissions, tenant status, and Agent. Disabling, modifying, or rotating the binding invalidates old tokens. Configuration version 2 validates its dedicated human token even when human delegation is not globally required. Existing ordinary delegation rules remain unchanged.
 - `schema` limits metadata discovery; **it is not an independent SQL authorization boundary**. Agent policies and database privileges control SQL data access. Existing SQLBot metadata is intersected with the current user's AgentSQL-visible tables and columns so broader administrator caches do not enter the model context.
-- Managed queries additionally require a single PostgreSQL `SELECT`. `SELECT INTO`, `EXPLAIN` statements, modifying CTEs, locking reads, and functions in `FROM` are rejected. Allowed functions are `count`, `sum`, `avg`, `min`, `max`, `abs`, `round`, `ceil`, `ceiling`, `floor`, `lower`, `upper`, `length`, `date_trunc`, `date_part`, and `to_char`. The current PostgreSQL B2 executor requires explicit `pg_catalog` qualification, such as `pg_catalog.count(*)`. Model-generated `COUNT(*)` is denied and audited; the adapter does not silently rewrite SQL. The parse tree is limited to 128 levels and 20,000 nodes. These are additional restrictions; existing AgentSQL policies, object authorization, and least-privilege database access still apply.
+- Managed queries require a single `SELECT`. PostgreSQL rejects `SELECT INTO`, `EXPLAIN`, modifying CTEs, locking reads, and functions in `FROM`. MySQL rejects writes, multiple statements, locking reads, side-effecting functions, and syntax without a read-only proof; backtick-quoted identifiers pass dual parsing. Both dialects use short function allowlists. The PostgreSQL B2 executor requires explicit `pg_catalog` qualification, such as `pg_catalog.count(*)`; an unqualified model-generated `COUNT(*)` is rejected rather than rewritten. The parse tree is limited to 128 levels and 20,000 nodes. Existing AgentSQL policies, object authorization, and least-privilege database access still apply.
 
 ## 1. Prepare the gateway and personal bindings
 
-1. Start the v3.1.0 AgentSQL console and HTTP MCP endpoint. Configure the PostgreSQL business datasource with a least-privilege database account.
+1. Start the v3.2.0 AgentSQL console and HTTP MCP endpoint. Configure the PostgreSQL or MySQL business datasource with a least-privilege database account.
 2. Create an enabled, ordinary **readonly Agent** in the same tenant; temporary task Agents are excluded. Configure permitted tables, columns, masking, and approval policies. Create or select an AgentSQL user with `query.execute` permission.
 3. Open **SQLBot** in the console navigation and create a binding. Creation, modification, and rotation require all three permissions: `strategy.manage`, `datasource.manage`, and `user.manage`. Enter SQLBot workspace ID, user ID, datasource name, AgentSQL user, Agent, business datasource, discovery schema, and optional numeric column aliases.
 4. SQLBot Snowflake IDs can exceed JavaScript's safe integer range. Use exact **decimal strings** for workspace and user IDs in configuration and APIs, never floating-point conversion. The datasource name must exactly match SQLBot.
@@ -37,8 +37,8 @@ Verify allowed queries, denials, masking, and audit with a tool such as MCP Insp
 Run from the AgentSQL repository root:
 
 ```sh
-docker build -f integrations/sqlbot/Dockerfile -t agentsql-sqlbot:1.10.2-v3.1.0 .
-docker run --rm --entrypoint python3 agentsql-sqlbot:1.10.2-v3.1.0 /tmp/agentsql-sqlbot/install.py --sqlbot-app /opt/sqlbot/app --check
+docker build -f integrations/sqlbot/Dockerfile -t agentsql-sqlbot:1.10.2-v3.2.0 .
+docker run --rm --entrypoint python3 agentsql-sqlbot:1.10.2-v3.2.0 /tmp/agentsql-sqlbot/install.py --sqlbot-app /opt/sqlbot/app --check
 ```
 
 The Dockerfile pins the upstream image digest. The installer validates four upstream source hashes before changing files. Patches cover database dispatch, identity propagation into question workers, metadata filtering, and the approval operations page. Adapted paths cannot fall back to direct business-database connections. Policy denials and approval requirements terminate the question instead of triggering automatic SQL repair and retry.
@@ -78,11 +78,11 @@ Example configuration version 2; normally use the console export:
 
 ## 4. Verify complete questions
 
-Sign in with the ordinary SQLBot user and workspace specified by the binding. Create a PostgreSQL datasource with the matching name, run its connection check and table discovery, then configure the model for natural-language questions and charts. Existing SQLBot workspace and data permission checks remain; the gateway makes the final SQL execution decision.
+Sign in with the ordinary SQLBot user and workspace specified by the binding. Create a PostgreSQL or MySQL datasource with the matching name, run its connection check and table discovery, then configure the model for natural-language questions and charts. MySQL table permissions use `database.table`. Existing SQLBot workspace and data permission checks remain; the gateway makes the final SQL execution decision.
 
-Results preserve SQLBot's `fields`, `data`, and `fields_info`, and include `agentsql.audit_id`. Query column aliases must be unique. If charts need numeric types, explicitly list **result aliases** in `numeric_columns`. Only finite numbers that can be represented safely and precisely are converted; masked values and unsafe high-precision numbers remain strings. Avoid blanket conversion that breaks financial precision or masking.
+The adapter returns SQLBot's `fields`, `data`, and `fields_info` along with an internal `agentsql.audit_id` extension. SQLBot chat storage may discard that extension; inspect durable audit records at the AgentSQL gateway. Query column aliases must be unique. If charts need numeric types, explicitly list **result aliases** in `numeric_columns`. Only finite numbers that can be represented safely and precisely are converted; masked values and unsafe high-precision numbers remain strings. Avoid blanket conversion that breaks financial precision or masking.
 
-A successful connection check is insufficient. Verify real model-generated SQL, gateway execution, masked result delivery, charts, and durable audit. See the [acceptance record](v3.1.0-acceptance.md) for release test coverage.
+A successful connection check is insufficient. Verify real model-generated SQL, gateway execution, masked result delivery, charts, and durable audit. See the [acceptance record](v3.2.0-acceptance.md) for release test coverage.
 
 ## 5. Denials, approval, and single execution
 
@@ -95,7 +95,7 @@ The same-origin SQLBot operations page is **`/api/v1/agentsql/console.html`**, w
 3. Check an existing approval ID, or explicitly enter SQL and a reason, confirm, and submit a new request. The gateway seals that SQL; submission does not execute it.
 4. A reviewer acts in the existing AgentSQL approval interface. After approval, the original user, Agent, and datasource execute it. The operations page sends only the approval ID, preventing SQL substitution. Current authorization must remain valid, and the sealed request can execute at most once.
 
-With PostgreSQL B2 column authorization enabled, the gateway rejects approval requests and the operations page reports that denial. It never disables B2 or bypasses column policies to obtain approval. The complete read-approval flow has been accepted in an isolated configuration with B2 explicitly disabled. Treat approvals as unsupported when B2 is enabled in production; controlled direct queries remain subject to existing policies. A later release must complete the safe B2 and approval combination.
+With PostgreSQL B2 column authorization enabled, an approval request seals the original SQL, identity, and datasource without reading business rows. The original requester claims an approval once, and execution rechecks live B2 column permissions, object binding, masking, and durable audit. It fails closed if current permissions, audit, or lease cannot be proven, and it never disables B2. See the real-database test in the [v3.2.0 acceptance record](v3.2.0-acceptance.md).
 5. Results appear separately on this page; **the original SQLBot conversation and chart are not automatically rewritten or regenerated**.
 
 All operations APIs require ordinary login authentication. Approval submission, status, and execution use POST JSON; mutations require explicit confirmation, and GET cannot trigger execution. The custom login header, same-origin validation, and omission of automatic Cookie credentials restrict cross-site requests. This page is an explicit SQL entry point constrained by the binding and Agent policy, not a replacement for SQLBot model-specific row-filter rewriting.
