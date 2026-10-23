@@ -2,6 +2,12 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.4.0]
+
+- Restricted single-table SELECT passed live B2 column authorization on Kingbase V9R1C10 PG mode. B5 affected-row semantics diverged, so write entry points fail closed.
+- Pinned Vastbase G100 Build 9 passed multiline version identity, physical scan estimates, types, verified TLS, rotations, permission revocation, outage recovery and bounded load. B2 column authorization stays closed.
+- Scope and gaps are in the [v3.4.0 release notes](docs/en/release-notes-v3.4.0.md), [live acceptance](docs/en/v3.4.0-acceptance.md) and [release evidence](docs/en/v3.4.0-release-evidence.md).
+
 ## [v3.3.0]
 
 - Verified server-certificate TLS for a pinned DM8 Pack3 build fails closed on wrong CAs, wrong names, and plaintext downgrade.

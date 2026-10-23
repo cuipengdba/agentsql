@@ -89,8 +89,15 @@ function Read-DatabaseLog {
     param([string]$dataDir)
     $tempLog = Join-Path $env:TEMP ('kingbase-batch72-' + [Guid]::NewGuid().ToString('N') + '.log')
     try {
-        Docker @('cp', ("${ContainerName}:${dataDir}/logfile"), $tempLog) | Out-Null
-        return (Get-Content -LiteralPath $tempLog -Raw)
+        try {
+            Docker @('cp', ("${ContainerName}:${dataDir}/logfile"), $tempLog) | Out-Null
+            return (Get-Content -LiteralPath $tempLog -Raw)
+        }
+        catch {
+            # initdb can fail before sys_ctl creates logfile. Preserve its
+            # stdout/stderr diagnostic before the trap removes the container.
+            return ((Docker @('logs', $ContainerName)) -join "`n")
+        }
     }
     finally {
         Remove-Item -LiteralPath $tempLog -ErrorAction SilentlyContinue
@@ -233,7 +240,11 @@ do {
 if (-not $ready) {
     $dbLog = Read-DatabaseLog -dataDir $dataDir
     Step 'FAIL: database did not become ready; database logfile follows'
-    @($dbLog -split "`n" | Where-Object { $_ -match '(?i)FATAL|license|productVersion|starting KingbaseES' }) | ForEach-Object { Write-Output $_.TrimEnd() }
+    $diagnostics = @($dbLog -split "`n" | Where-Object { $_ -match '(?i)FATAL|ERROR|license|productVersion|starting KingbaseES' })
+    if ($diagnostics.Count -eq 0) {
+        $diagnostics = @($dbLog -split "`n" | Select-Object -Last 25)
+    }
+    $diagnostics | ForEach-Object { Write-Output $_.TrimEnd() }
     throw 'V9 readiness/license verification failed; PG protocol and AgentSQL checks were not run'
 }
 Step 'PASS: database ready and license accepted by server startup'

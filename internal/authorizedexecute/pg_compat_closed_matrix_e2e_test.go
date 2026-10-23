@@ -37,7 +37,9 @@ type pgCompatClosedTarget struct {
 	Password     string `json:"password"`
 	ServerMajor  int    `json:"server_major"`
 	ExpectClosed bool   `json:"expect_closed"`
-	ExpectReason string `json:"expect_reason,omitempty"`
+	// A vendor may qualify the SELECT/column binder without qualifying B5 DML.
+	SkipClosedDML bool   `json:"skip_closed_dml,omitempty"`
+	ExpectReason  string `json:"expect_reason,omitempty"`
 }
 
 // TestPGCompatibleClosedOnlyMatrix exercises real vendor kernels. It is
@@ -106,12 +108,12 @@ func TestPGCompatibleClosedOnlyMatrix(t *testing.T) {
 			require.Empty(t, capability.NativeDigest)
 			require.Empty(t, capability.ABI)
 			require.Empty(t, capability.ExtensionVersion)
-			exercisePGCompatibleClosedMatrix(t, ctx, gateway, datasource, secret, target.Password, target.ServerMajor, index)
+			exercisePGCompatibleClosedMatrix(t, ctx, gateway, datasource, secret, target.Password, target.ServerMajor, index, target.SkipClosedDML)
 		})
 	}
 }
 
-func exercisePGCompatibleClosedMatrix(t *testing.T, ctx context.Context, gateway *executor.Gateway, datasource model.Datasource, secret []byte, password string, serverMajor, index int) {
+func exercisePGCompatibleClosedMatrix(t *testing.T, ctx context.Context, gateway *executor.Gateway, datasource model.Datasource, secret []byte, password string, serverMajor, index int, skipClosedDML bool) {
 	t.Helper()
 	connectionURL := url.URL{Scheme: "postgres", User: url.UserPassword(datasource.Username, password),
 		Host: net.JoinHostPort(datasource.Host, strconv.Itoa(datasource.Port)), Path: "/" + datasource.Database}
@@ -153,16 +155,20 @@ func exercisePGCompatibleClosedMatrix(t *testing.T, ctx context.Context, gateway
 	require.NoError(t, prepared.Close(ctx))
 
 	exercisePGCompatibleColumnAuthorization(t, ctx, datasource, secret, password, schema, query, program.Facts)
-	exercisePGCompatibleClosedDML(t, ctx, gateway, datasource, secret, schema, serverMajor, setup)
-
-	unsafeSQL := fmt.Sprintf("UPDATE %s.indexed_probe SET label='unsafe' WHERE id=1", schema)
-	unsafe, unsafeErr := binder.BindClosedDML(ctx, businessdb.BindRequest{RawSQL: unsafeSQL,
-		Identity: businessdb.SemanticIdentity{DatasourceIdentity: datasource.ID}}, executor.NewBudget(executor.DefaultLimits))
-	if unsafe != nil {
-		_ = unsafe.Close(ctx)
+	if !skipClosedDML {
+		exercisePGCompatibleClosedDML(t, ctx, gateway, datasource, secret, schema, serverMajor, setup)
 	}
-	require.Error(t, unsafeErr, "indexed DML must fail closed before execution")
-	require.Equal(t, "AUTH_IMPLICIT_OBJECT_UNSUPPORTED", string(executor.StableError(unsafeErr).Reason))
+
+	if !skipClosedDML {
+		unsafeSQL := fmt.Sprintf("UPDATE %s.indexed_probe SET label='unsafe' WHERE id=1", schema)
+		unsafe, unsafeErr := binder.BindClosedDML(ctx, businessdb.BindRequest{RawSQL: unsafeSQL,
+			Identity: businessdb.SemanticIdentity{DatasourceIdentity: datasource.ID}}, executor.NewBudget(executor.DefaultLimits))
+		if unsafe != nil {
+			_ = unsafe.Close(ctx)
+		}
+		require.Error(t, unsafeErr, "indexed DML must fail closed before execution")
+		require.Equal(t, "AUTH_IMPLICIT_OBJECT_UNSUPPORTED", string(executor.StableError(unsafeErr).Reason))
+	}
 }
 
 func exercisePGCompatibleColumnAuthorization(t *testing.T, ctx context.Context, datasource model.Datasource,

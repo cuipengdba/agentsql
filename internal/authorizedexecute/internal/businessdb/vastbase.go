@@ -2,6 +2,7 @@ package businessdb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -17,7 +18,10 @@ type VastbaseExecutor struct{ *PostgresExecutor }
 
 var _ Executor = (*VastbaseExecutor)(nil)
 
-var verifiedG100Version = regexp.MustCompile(`(?i)\bvastbase g100 v3\.0\b.*\bbuild 9\b`)
+// The G100 adapter was accepted against one vendor build and commit. A
+// different patch can change catalog or wire behavior without changing the
+// user-facing Build 9 label, so do not silently inherit that acceptance.
+var verifiedG100Version = regexp.MustCompile(`(?is)\bvastbase g100 v3\.0\b.*\bbuild 9\b.*\bcommit:30156\b`)
 
 func NewVastbaseExecutor(ctx context.Context, datasource model.Datasource, password string) (*VastbaseExecutor, error) {
 	if datasource.DBType != string(model.DialectVastbase) {
@@ -82,7 +86,50 @@ func (executor *VastbaseExecutor) Explain(ctx context.Context, sql string) (mode
 	if executor == nil || executor.PostgresExecutor == nil {
 		return model.ExplainInfo{}, newDBError(DBErrorKindConnection, DBErrorCodeConnection, DBStageExplain, "", nil)
 	}
-	return executor.PostgresExecutor.Explain(ctx, sql)
+	// The PostgreSQL parser reports only the root estimate. A LIMIT above a
+	// large scan must not turn the scan into an apparently cheap statement.
+	root, err := executor.PostgresExecutor.Explain(ctx, sql)
+	if err != nil {
+		return model.ExplainInfo{}, err
+	}
+	return parseVastbaseExplainJSON([]byte(root.Raw))
+}
+
+func parseVastbaseExplainJSON(raw []byte) (model.ExplainInfo, error) {
+	if err := validateExplainPayload(raw); err != nil {
+		return model.ExplainInfo{}, err
+	}
+	var documents []postgresExplainDocument
+	if err := json.Unmarshal(raw, &documents); err != nil || len(documents) != 1 {
+		return model.ExplainInfo{}, fmt.Errorf("unsupported Vastbase JSON plan")
+	}
+	if err := validateVastbasePlanNodes(documents[0].Plan, 0); err != nil {
+		return model.ExplainInfo{}, err
+	}
+	info, nodes, scans, err := summarizePostgresCompatPlan(documents[0].Plan, 0)
+	if err != nil || nodes == 0 || scans == 0 || nodes > maxExplainPlanNodes {
+		return model.ExplainInfo{}, fmt.Errorf("unsupported Vastbase plan estimates")
+	}
+	info.Raw = string(raw)
+	return info, nil
+}
+
+func validateVastbasePlanNodes(plan postgresExplainPlan, depth int) error {
+	if depth > maxExplainPlanNodes {
+		return fmt.Errorf("Vastbase plan exceeds node limit")
+	}
+	switch plan.NodeType {
+	case "Limit", "Result", "Seq Scan", "Index Scan", "Index Only Scan",
+		"Bitmap Heap Scan", "Bitmap Index Scan", "Tid Scan":
+	default:
+		return fmt.Errorf("unsupported Vastbase plan node")
+	}
+	for _, child := range plan.Plans {
+		if err := validateVastbasePlanNodes(child, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateVastbaseSQL(sql string) error {

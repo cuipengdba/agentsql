@@ -31,7 +31,11 @@ function Invoke-Inspector([string]$sql, [string]$decision) {
         --tool-arg "datasource_id=$DatasourceID" --tool-arg "sql=$sql" `
         --header "Authorization: Bearer $ApiKey" 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "MCP Inspector $decision call failed: $($output -join ' ')" }
-    $result = (($output -join "`n") | ConvertFrom-Json)
+    # Inspector may print a startup notice before its JSON result. Only the
+    # JSON object is protocol evidence; never parse the notice as response.
+    $jsonOutput = [regex]::Match(($output -join "`n"), '(?s)\{.*\}')
+    if (-not $jsonOutput.Success) { throw "MCP Inspector $decision call produced no JSON result" }
+    $result = ($jsonOutput.Value | ConvertFrom-Json)
     $content = $result.structuredContent
     if ($null -eq $content -or $content.decision -ne $decision) {
         throw "MCP Inspector returned an unexpected $decision decision"

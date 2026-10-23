@@ -1,6 +1,6 @@
 # AgentSQL 文档
 
-当前正式版本：**v3.3.0**。本目录的现行指南随 3.3.x 维护版更新；版本化发布说明、测试报告、性能记录保留原始版本和时间，不重写历史结论。
+当前正式版本：**v3.4.0**。本目录的现行指南随 3.4.x 维护版更新；版本化发布说明、测试报告、性能记录保留原始版本和时间，不重写历史结论。
 
 **语言 / Language:** [简体中文](README.md) | [English](en/README.md)
 
@@ -19,7 +19,7 @@
 | 任务级临时授权 | [临时只读授权](task-read-grants.md) |
 | 架构与安全合同 | [工程规格](SPEC.md)、[安全政策](../SECURITY.md) |
 | 发行与签名核验 | [交付流程](RELEASE_ROUTINE.md)、[发行流程](RELEASE_PROCESS.md)、[资产清单](RELEASE_ASSETS.md) |
-| 当前发布证据 | [v3.3.0 发布说明](release-notes-v3.3.0.md)、[发布验收](v3.3.0-release-evidence.md) |
+| 当前发布证据 | [v3.4.0 发布说明](release-notes-v3.4.0.md)、[发布验收](v3.4.0-release-evidence.md) |
 
 英文版按同一份中文源文档逐节对照，保留可执行示例与历史证据，不用摘要替代全文。当前版本的运维入口为 `OPERATIONS.md`。
 

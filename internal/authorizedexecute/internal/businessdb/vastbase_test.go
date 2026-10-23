@@ -41,17 +41,43 @@ func TestVastbaseConstructorRejectsWrongType(t *testing.T) {
 
 func TestVerifiedG100VersionIsExactBuild9V3(t *testing.T) {
 	for _, version := range []string{
-		"(Vastbase G100 V3.0 (Build 9) Release) compiled at 2026-01-22",
+		"(Vastbase G100 V3.0 (Build 9) Release) compiled at 2026-01-22 10:41:11 commit 30156 last mr\n product name:Vastbase G100\n version:V3.0 (Build 9) Release\n patch:0\n commit:30156\n openGauss version:6.0.0",
 	} {
 		if !verifiedG100Version.MatchString(version) {
 			t.Fatalf("expected accepted vendor version %q", version)
 		}
 	}
 	for _, version := range []string{
-		"PostgreSQL 9.2.4", "Vastbase G100 V3.0 Build 90", "Vastbase G100 V4.0 Build 9",
+		"PostgreSQL 9.2.4", "Vastbase G100 V3.0 Build 90 commit:30156", "Vastbase G100 V4.0 Build 9 commit:30156",
+		"Vastbase G100 V3.0 Build 9 commit:30157", "Vastbase G100 V3.0 Build 9",
 	} {
 		if verifiedG100Version.MatchString(version) {
 			t.Fatalf("unexpected accepted vendor version %q", version)
+		}
+	}
+}
+
+func TestVastbaseExplainCountsPhysicalScanUnderLimit(t *testing.T) {
+	raw := []byte(`[{"Plan":{"Node Type":"Limit","Plan Rows":1,"Total Cost":1,"Plans":[{"Node Type":"Seq Scan","Plan Rows":2505,"Total Cost":180}]}}]`)
+	info, err := parseVastbaseExplainJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.EstScanRows != 2505 || info.EstCost != 180 || !info.SeqScan {
+		t.Fatalf("limit hid physical scan: %+v", info)
+	}
+}
+
+func TestVastbaseExplainRejectsUnknownOrInvalidPlans(t *testing.T) {
+	for _, raw := range []string{
+		`[{"Plan":{"Node Type":"Vendor Remote Scan","Plan Rows":1,"Total Cost":1}}]`,
+		`[{"Plan":{"Node Type":"Seq Scan","Plan Rows":-1,"Total Cost":1}}]`,
+		`[{"Plan":{"Node Type":"Seq Scan","Plan Rows":1e30,"Total Cost":1}}]`,
+		`[{"Plan":{"Node Type":"Result","Plan Rows":1,"Total Cost":1}}]`,
+		`[]`,
+	} {
+		if _, err := parseVastbaseExplainJSON([]byte(raw)); err == nil {
+			t.Fatalf("unsafe plan was accepted: %s", raw)
 		}
 	}
 }

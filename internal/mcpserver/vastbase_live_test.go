@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,7 +40,8 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 	faultDir := os.Getenv("AGENTSQL_TEST_G100_FAULT_DIR")
 	clientDir := os.Getenv("AGENTSQL_TEST_G100_CLIENT_DIR")
 	permissionDir := os.Getenv("AGENTSQL_TEST_G100_PERMISSION_DIR")
-	if faultDir != "" || clientDir != "" || permissionDir != "" {
+	boundedLoad := os.Getenv("AGENTSQL_TEST_G100_BOUNDED_LOAD") == "1"
+	if faultDir != "" || clientDir != "" || permissionDir != "" || boundedLoad {
 		testTimeout = 8 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -268,6 +271,57 @@ func TestVastbaseBuild9MCPRealE2E(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "allow", page.List[0].Decision)
 		t.Log("Vastbase SELECT grant revocation failed closed and recovery persisted a masked result")
+	}
+	if boundedLoad {
+		_, err = fixture.runtime.Store.Policies().Create(ctx, model.Policy{
+			ID: "g100-contact-table-load", AgentID: fixture.agent.ID, DatasourceID: "ds-g100",
+			ObjectType: "table", ObjectName: "agentsql_v060.contacts", Action: "allow",
+		})
+		require.NoError(t, err)
+		before, pageErr := fixture.runtime.Store.AuditLogs().Page(ctx, 1, 1)
+		require.NoError(t, pageErr)
+		type loadResult struct {
+			elapsed time.Duration
+			body    string
+			err     error
+		}
+		results := make(chan loadResult, 12)
+		active := make(chan struct{}, 2)
+		var waiting sync.WaitGroup
+		for range 12 {
+			waiting.Add(1)
+			go func() {
+				defer waiting.Done()
+				active <- struct{}{}
+				defer func() { <-active }()
+				started := time.Now()
+				response, callErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "query", Arguments: map[string]any{
+					"datasource_id": "ds-g100", "sql": "SELECT phone FROM agentsql_v060.contacts WHERE id = 1 LIMIT 1",
+				}})
+				encoded, marshalErr := json.Marshal(response)
+				if callErr == nil {
+					callErr = marshalErr
+				}
+				results <- loadResult{elapsed: time.Since(started), body: string(encoded), err: callErr}
+			}()
+		}
+		waiting.Wait()
+		close(results)
+		latencies := make([]time.Duration, 0, 12)
+		for result := range results {
+			require.NoError(t, result.err)
+			require.Contains(t, result.body, `"decision":"allow"`)
+			require.Contains(t, result.body, "138****5678")
+			require.NotContains(t, result.body, "13812345678")
+			latencies = append(latencies, result.elapsed)
+		}
+		require.Len(t, latencies, 12)
+		after, pageErr := fixture.runtime.Store.AuditLogs().Page(ctx, 1, 1)
+		require.NoError(t, pageErr)
+		require.EqualValues(t, 12, after.Total-before.Total)
+		sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+		t.Logf("Vastbase bounded load: 12/12 masked, audited; concurrency=2 pool=2 p50=%s p95=%s max=%s",
+			latencies[5], latencies[11], latencies[11])
 	}
 	if faultDir == "" {
 		return
