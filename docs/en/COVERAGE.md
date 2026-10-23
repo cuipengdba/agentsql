@@ -194,3 +194,8 @@ Every entry below has a full English counterpart. Executable examples and histor
 | [internal/b5dml/CONTRACT.md](../../internal/b5dml/CONTRACT.md) | [English](../../internal/b5dml/CONTRACT.en.md) |
 | [internal/authorizedexecute/internal/businessdb/dm_oracle_deep.md](../../internal/authorizedexecute/internal/businessdb/dm_oracle_deep.md) | [English](../../internal/authorizedexecute/internal/businessdb/dm_oracle_deep.en.md) |
 | [internal/store/testdata/s5c-release-notes-snippet.md](../../internal/store/testdata/s5c-release-notes-snippet.md) | [English](../../internal/store/testdata/s5c-release-notes-snippet.en.md) |
+| [docs/release-notes-v3.1.0.md](../release-notes-v3.1.0.md) | [English](release-notes-v3.1.0.md) |
+| [docs/v3.1.0-acceptance.md](../v3.1.0-acceptance.md) | [English](v3.1.0-acceptance.md) |
+| [docs/v3.1.0-design.md](../v3.1.0-design.md) | [English](v3.1.0-design.md) |
+| [docs/v3.1.0-release-evidence.md](../v3.1.0-release-evidence.md) | [English](v3.1.0-release-evidence.md) |
+| [docs/v3.1.0-upgrade.md](../v3.1.0-upgrade.md) | [English](v3.1.0-upgrade.md) |

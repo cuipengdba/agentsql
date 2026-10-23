@@ -2,6 +2,14 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v3.1.0]
+
+- 新增租户隔离的 SQLBot 用户、工作空间与数据源映射管理，支持诊断、导出、禁用和连接凭据轮换。
+- SQLBot managed v2 使用独立用途的短期人员令牌；MCP 逐请求验证当前映射、人员、只读 Agent 与数据源范围。
+- 将可信 SQLBot 普通登录身份传递到模型线程，按当前权限过滤模型元数据，并停止安全拒绝后的自动 SQL 改写重试。
+- 增加中英文只读审批操作页、固定上游哈希及安装完整性检查；数据库范围沿用实际验收边界。
+- 新增映射元数据：组合 schema 24、分库 metadata 23、audit 6。升级与发布状态见 [v3.1.0 发布说明](docs/release-notes-v3.1.0.md)。
+
 ## [v3.0.2]
 
 - Introduce a shared SVG AgentSQL logo across the website, GitHub README, login page, sidebar and browser icons.

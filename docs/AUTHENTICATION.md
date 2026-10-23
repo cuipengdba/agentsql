@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](AUTHENTICATION.md) | [English](en/AUTHENTICATION.md)
 
-> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.1.0 及兼容的 3.1.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
 v0.5 在原有本地密码、访问令牌和 refresh token 轮换之上，新增可选的 TOTP MFA、OIDC 与 LDAP/AD 登录。详细配置、威胁边界、OpenLDAP/AD 示例及迁移回滚说明见 [详细认证配置参考](AUTHENTICATION-REFERENCE.md)。
 

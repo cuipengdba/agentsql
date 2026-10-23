@@ -2,7 +2,7 @@
 
 **Language:** [English](AUTHENTICATION.md) | [Simplified Chinese](../AUTHENTICATION.md)
 
-> Current guidance: Applies to v3.0.2 and compatible 3.0.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 v0.5 adds optional TOTP MFA, OIDC and LDAP/AD login on top of the original local password, access token and refresh token rotation. For detailed configuration, threat boundary, OpenLDAP/AD examples and migration rollback instructions, see [. For detailed authentication configuration, refer to ](AUTHENTICATION-REFERENCE.md).
 

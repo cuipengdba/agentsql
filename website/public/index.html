@@ -9,25 +9,25 @@
   <link rel="canonical" href="https://agentsql.cn/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
   <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/">
-  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=3.0.2">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=3.1.0">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="zh_CN">
   <meta property="og:title" content="AgentSQL · AI Agent 的数据库安全网关">
   <meta property="og:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
   <meta property="og:url" content="https://agentsql.cn/">
-  <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png?v=3.0.2">
+  <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png?v=3.1.0">
   <meta property="og:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AgentSQL · AI Agent 的数据库安全网关">
   <meta name="twitter:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
-  <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.0.2">
+  <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.1.0">
   <meta name="twitter:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
-  <link rel="icon" href="/favicon.svg?v=3.0.2" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/app.css?v=3.0.2">
-  <script src="/assets/app.js?v=3.0.2" defer></script>
+  <link rel="icon" href="/favicon.svg?v=3.1.0" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v=3.1.0">
+  <script src="/assets/app.js?v=3.1.0" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -67,14 +67,14 @@
     <section id="top" class="hero section">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v3.0.2</div>
+          <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v3.1.0</div>
           <h1>AI Agent 的数据库安全网关</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">v3.0.2 补齐官网与 GitHub 全量英文文档，新增当前运维手册和 SQLBot v1.10.2 PostgreSQL 执行层适配，并修复浅色主题导航配色。v3.0.0 的能力目录、只读交付诊断与 MCP 合成场景验收继续保留；实际读取仍由身份、授权、规则、脱敏和持久审计逐次判定。</p>
+          <p class="positioning">v3.1.0 增加 SQLBot 用户与工作空间映射、逐请求身份校验、接入诊断和只读审批接续。自然语言生成的 SQL 通过 AgentSQL 授权、脱敏和持久审计后返回 SQLBot；数据库范围以版本验收为准。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
-            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v3.0.2.md" target="_blank" rel="noopener noreferrer">v3.0.2 发布说明</a>
+            <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v3.1.0.md" target="_blank" rel="noopener noreferrer">v3.1.0 发布说明</a>
           </div>
           <p class="badge-line">v0.5.0 起 Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
           <p class="positioning">它不是 BI，也不是 ORM 或 Text2SQL，而是模型与数据库之间一道默认拒绝的安全闸门。</p>
@@ -192,24 +192,24 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">文档 / 下载</p><h2 id="docs-title">从本地演示到 MCP 接入</h2><p>按真实部署状态选择入口。文档对应源码仓库 <code>github.com/cuipengdba/agentsql</code>。</p></div>
         <div class="feature-grid">
-          <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v3.0.2.pdf" download="AgentSQL-快速上手-v3.0.2.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
-          <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v3.0.2.pdf" download="AgentSQL-使用手册-v3.0.2.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>
-          <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v3.0.2.pdf" download="AgentSQL-MCP接入指南-v3.0.2.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v3.1.0.pdf" download="AgentSQL-快速上手-v3.1.0.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v3.1.0.pdf" download="AgentSQL-使用手册-v3.1.0.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>
+          <article class="feature-card"><span class="risk-index">03</span><h3>MCP 接入指南</h3><p>对照客户端能力选择现有 <code>/mcp</code>、独立无状态 <code>/mcp/2026-07-28</code> 或 stdio，查看工具与拒绝边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/INTEGRATIONS.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-mcp-integrations-v3.1.0.pdf" download="AgentSQL-MCP接入指南-v3.1.0.pdf" aria-label="下载《MCP 接入指南》PDF">PDF 下载</a></div></article>
         </div>
         <div class="license-panel callout">
-          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/OPERATIONS.md" target="_blank" rel="noopener noreferrer">当前运维手册</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot 接入</a> · <a href="/demo/">在线演示说明</a></p><p>v3.0.2 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v3.0.2</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.0.2/install.sh | sudo sh -s -- install --version v3.0.2</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
-          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v3.0.2" target="_blank" rel="noopener noreferrer">GitHub Release（v3.0.2）</a></div>
+          <div class="docs-callout-copy"><h3>更多资料</h3><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener noreferrer">部署指南</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/OPERATIONS.md" target="_blank" rel="noopener noreferrer">当前运维手册</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/SQLBOT.md" target="_blank" rel="noopener noreferrer">SQLBot 接入</a> · <a href="/demo/">在线演示说明</a></p><p>v3.1.0 提供 Linux amd64 / arm64 安装包与多架构镜像；Live Demo 入口仅使用合成数据。</p><h4>GHCR 多架构拉取（自动匹配 amd64 / arm64）</h4><pre class="install-command"><code>docker pull ghcr.io/cuipengdba/agentsql:v3.1.0</code></pre><h4>一键安装（Linux amd64 / arm64）</h4><pre class="install-command"><code>curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v3.1.0/install.sh | sudo sh -s -- install --version v3.1.0</code></pre><p class="install-conditions">v0.4.0 起提供 linux/arm64 原生 glibc 包 · x86_64 / amd64 或 aarch64 / arm64 · glibc ≥ 2.28 · systemd · 需要 sudo/root</p></div>
+          <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/releases/tag/v3.1.0" target="_blank" rel="noopener noreferrer">GitHub Release（v3.1.0）</a></div>
         </div>
       </div>
     </section>
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>v3.0.2 兼容矩阵</h2><p>本版增加跨适配器的能力声明与交付前只读诊断；Milvus、ClickHouse、Redis、Valkey 与 MongoDB 等数据库适配范围沿用对应版本的指定环境验收，不因治理功能升级而扩大。下表按实际能力与证据分档。</p></div>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>v3.1.0 兼容矩阵</h2><p>本版增加跨适配器的能力声明与交付前只读诊断；Milvus、ClickHouse、Redis、Valkey 与 MongoDB 等数据库适配范围沿用对应版本的指定环境验收，不因治理功能升级而扩大。下表按实际能力与证据分档。</p></div>
         <div class="compat-summary"><strong>8 大类 / 30 款已注册</strong><span>openGauss 与瀚高 HighGo 已计入；另列金仓 KingbaseES V9 的指定实例 PG 协议验证</span></div>
         <div class="table-wrap">
           <table class="compat-table">
-            <caption>AgentSQL v3.0.2 数据库兼容矩阵：8 大类、30 款已注册数据库，金仓 KingbaseES V9 另列，共 31 行。</caption>
+            <caption>AgentSQL v3.1.0 数据库兼容矩阵：8 大类、30 款已注册数据库，金仓 KingbaseES V9 另列，共 31 行。</caption>
             <thead><tr><th scope="col">类别</th><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">边界说明</th></tr></thead>
             <tbody>
               <tr><th scope="rowgroup" rowspan="10" class="compat-category">关系型</th><td>PostgreSQL 14–18</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>全链路实测通过</td></tr>
@@ -259,11 +259,11 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.8.0 在 Vastbase G100 Build 9 PG 模式的指定实例补充 TLS 服务端身份校验、证书与凭据轮换。其他版本、模式、正式主备切换和完整生产支持仍须单独验证。欢迎数据库厂商联合验证。</p></div>
         <div class="ecosystem-panel">
-          <p class="ecosystem-label">国产数据库生态适配矩阵（v3.0.2）</p>
+          <p class="ecosystem-label">国产数据库生态适配矩阵（v3.1.0）</p>
           <p class="table-scroll-hint">表格可左右滑动，查看完整验证说明。</p>
           <div class="table-wrap">
             <table class="eco-table">
-              <caption>AgentSQL v3.0.2 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
+              <caption>AgentSQL v3.1.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
               <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
               <tbody>
                 <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.6.0 补齐故障关闭，v1.7.0 验证 CA 与主机名校验、错误证书拒绝、证书及账号密码轮换。其他模式、复杂查询、正式主备切换与生产负载未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-dm-kingbase-depth-acceptance.md">验收记录</a>。</td></tr>
@@ -293,11 +293,11 @@
         <div class="section-heading"><p class="kicker">开始使用</p><h2>快速开始</h2><p>在 Docker 与依赖网络已就绪时通常数分钟可完成（受网络环境影响）。GHCR tag 会自动匹配 linux/amd64 或 linux/arm64；源码路径仍以仓库 README 为准。</p></div>
         <div class="quick-grid">
           <article class="terminal-card"><div class="terminal-head"><span>GHCR</span><span>amd64 / arm64</span></div><pre><code><span class="comment"># Docker 自动选择当前平台镜像</span>
-docker pull ghcr.io/cuipengdba/agentsql:v3.0.2
+docker pull ghcr.io/cuipengdba/agentsql:v3.1.0
 
 <span class="comment"># 推荐使用仓库 quickstart 生成凭据并启动</span>
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v3.0.2/scripts/quickstart.sh -o quickstart.sh
-sh quickstart.sh --version v3.0.2</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v3.1.0/scripts/quickstart.sh -o quickstart.sh
+sh quickstart.sh --version v3.1.0</code></pre><div class="terminal-foot">默认仅绑定 <code>127.0.0.1:7780</code></div></article>
           <article class="terminal-card"><div class="terminal-head"><span>Live Demo</span><span>合成数据</span></div><pre><code><span class="comment"># 复制演示环境样例并替换占位凭据</span>
 cp examples/docker/demo.env.example demo/demo.env
 
@@ -357,7 +357,7 @@ bash ./demo/reset.sh
           <li class="complete"><span>v2.6.0</span><strong>Redis / Valkey 指定实例受控键读取</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v2.7.0</span><strong>ClickHouse 指定实例受控分析查询</strong><small>已发布阶段</small></li>
           <li class="complete"><span>v2.8.0</span><strong>Milvus 指定实例受控向量检索</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.9.0</span><strong>租户策略评审与外部审计见证</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.0</span><strong>统一能力声明与交付前只读诊断</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.1</span><strong>中英文切换与控制台菜单滚动修复</strong><small>已发布阶段</small></li><li class="current"><span>v3.0.2</span><strong>完整双语文档、SQLBot 接入与浅色导航修复</strong><small>当前正式版本</small></li>
+          <li class="complete"><span>v2.9.0</span><strong>租户策略评审与外部审计见证</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.0</span><strong>统一能力声明与交付前只读诊断</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.1</span><strong>中英文切换与控制台菜单滚动修复</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.2</span><strong>完整双语文档、SQLBot 接入与浅色导航修复</strong><small>已发布阶段</small></li><li class="current"><span>v3.1.0</span><strong>SQLBot 用户映射、问数与只读审批</strong><small>当前正式版本</small></li>
 
           <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
           <li><span>后续方向</span><strong>高可用与集中管控</strong></li>

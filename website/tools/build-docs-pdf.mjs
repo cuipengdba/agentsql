@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v3.0.2';
+const VERSION = 'v3.1.0';
 const LANGUAGE = process.env.AGENTSQL_DOCS_LANGUAGE || 'zh';
 if (!['zh', 'en'].includes(LANGUAGE)) throw new Error('AGENTSQL_DOCS_LANGUAGE must be zh or en');
 const ENGLISH = LANGUAGE === 'en';
@@ -848,6 +848,9 @@ async function main() {
       'agentsql-user-guide-v3.0.0.pdf',
     ];
     archivedFiles.push('agentsql-getting-started-v3.0.1.pdf', 'agentsql-mcp-integrations-v3.0.1.pdf', 'agentsql-user-guide-v3.0.1.pdf');
+    for (const prefix of ['', 'en-']) {
+      archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.0.2.pdf`));
+    }
     const otherLanguage = actualFiles.filter((name) => new RegExp(`^agentsql-(getting-started|user-guide|mcp-integrations)-${ENGLISH ? '' : 'en-'}${VERSION.replaceAll('.', '\\.')}\\.pdf$`).test(name));
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles, ...otherLanguage].sort();
     if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {

@@ -149,6 +149,9 @@ func (handlers *toolHandlers) listSchema(
 	}
 	data := make([]publicSchemaColumn, 0, len(filtered))
 	for _, column := range filtered {
+		if binding, scoped := sqlbotScope(ctx); scoped && column.Schema != binding.SchemaName {
+			continue
+		}
 		data = append(data, publicSchemaColumn{
 			Schema:   column.Schema,
 			Table:    column.Table,
@@ -415,6 +418,9 @@ func (handlers *toolHandlers) authorizedDatasources(
 	}
 	allowed := make([]model.Datasource, 0, len(allowedIDs))
 	for _, datasource := range datasources {
+		if binding, scoped := sqlbotScope(ctx); scoped && datasource.ID != binding.DatasourceID {
+			continue
+		}
 		if _, exists := allowedIDs[datasource.ID]; exists {
 			allowed = append(allowed, datasource)
 		}

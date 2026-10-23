@@ -2,7 +2,7 @@
 
 **Language:** [English](AUDIT_REPORTING.md) | [Simplified Chinese](../AUDIT_REPORTING.md)
 
-> Current guidance: Applies to v3.0.2 and compatible 3.0.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 > This article describes the current read-only capabilities of `agentsqlctl audit`. The specific parameters are subject to this version `agentsqlctl audit --help`; for the boundaries of compliance archiving and external witness, see [v2.9.0 design ](v2.9.0-design.md).
 

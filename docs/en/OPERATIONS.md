@@ -2,7 +2,7 @@
 
 **Language:** [English](OPERATIONS.md) | [Simplified Chinese](../OPERATIONS.md)
 
-Applicable versions: v3.0.2 and compatible 3.0.x maintenance versions. The specific release submission, tool chain and acceptance results are subject to the corresponding official Release. This article replaces the v0.7 operation and maintenance manual in the daily portal; the historical report still retains its current version and facts.
+Applicable versions: v3.1.0 and compatible 3.1.x maintenance versions. The specific release submission, tool chain and acceptance results are subject to the corresponding official Release. This article replaces the v0.7 operation and maintenance manual in the daily portal; the historical report still retains its current version and facts.
 
 ## On-duty inspection and version verification
 
@@ -17,7 +17,7 @@ curl --fail http://127.0.0.1:7780/readyz
 
 `doctor` Read-only checks the configuration, connections, and configured migration flows. It does not perform DDL, create missing SQLite files, or check the consistency of all table data. The exit code `0` means ready, `2` means pending migration, and `1` means blocking error. `2` or `1` cannot be regarded as online. `/healthz` indicates survival, and `/readyz` also checks service dependencies; locates the problem with the actual returned subsystem status.
 
-v3.0.2 There is no new schema: the latest version of the SQLite merge library is 23, the PostgreSQL metadata is 22, and the independent audit is 6. The current binary `doctor`/`migrate --check` output shall prevail, and the migration version table shall not be modified manually.
+v3.1.0 adds SQLBot binding metadata: the combined SQLite schema is 24, separate PostgreSQL metadata is 23, and independent audit remains 6. The current binary `doctor`/`migrate --check` output shall prevail, and the migration version table shall not be modified manually.
 
 ## Backup, upgrade and recovery
 

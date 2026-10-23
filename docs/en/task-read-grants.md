@@ -2,7 +2,7 @@
 
 **Language:** [English](task-read-grants.md) | [Simplified Chinese](../task-read-grants.md)
 
-> Current guidance: Applies to v3.0.2 and compatible 3.0.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 v0.8.0 changes temporary authorization to application, approval and one-time collection; v0.9.0 increases the result return budget for new applications. Applicants need
 `query.execute`; the approver needs `query.execute` and `strategy.manage`, and must be

@@ -2,7 +2,7 @@
 
 **Language:** [English](DEMO.md) | [Simplified Chinese](../DEMO.md)
 
-> Current guidance: Applies to v3.0.2 and compatible 3.0.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 This environment is only used for local loopback demonstration. It creates independent PostgreSQL 16, MySQL 8, SQLite control plane, and AgentSQL gateway; it does not and should not connect to real data or real databases.
 

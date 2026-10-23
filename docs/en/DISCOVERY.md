@@ -2,7 +2,7 @@
 
 **Language:** [English](DISCOVERY.md) | [Simplified Chinese](../DISCOVERY.md)
 
-> Current guidance: Applies to v3.0.2 and compatible 3.0.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 AgentSQL's sensitive column discovery is targeted at DBAs and security administrators. It performs a controlled, synchronous, read-only check on a small number of basic tables explicitly designated by the administrator, combines column names and optional samples to find suspected sensitive columns, and can generate draft masking rules that are ineffective by default for currently supported categories.
 

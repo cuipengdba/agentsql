@@ -1,17 +1,16 @@
 {
-  "version": 1,
+  "version": 2,
   "endpoint": "https://your-agentsql.example/mcp",
   "timeout_seconds": 30,
   "min_interval_seconds": 0.6,
   "bindings": [
     {
-      "workspace_id": 1,
+      "id": "binding-id-from-agentsql-console",
+      "workspace_id": "1",
       "datasource_name": "AgentSQL PostgreSQL",
-      "dialect": "pg",
-      "datasource_id": "ds-example",
-      "schema": "public",
-      "numeric_columns": ["id", "total", "amount"],
-      "key_env": "AGENTSQL_SQLBOT_READONLY_KEY"
+      "sqlbot_user_id": "1",
+      "agent_key_env": "AGENTSQL_SQLBOT_READONLY_KEY",
+      "connector_token_env": "AGENTSQL_SQLBOT_CONNECTOR_TOKEN"
     }
   ]
 }

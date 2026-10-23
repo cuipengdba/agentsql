@@ -274,6 +274,16 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "tenant_id", kind: migrationText}, {name: "digest", kind: migrationText},
 		{name: "proposal_id", kind: migrationText}, {name: "updated_at", kind: migrationTime},
 	}},
+	{name: "sqlbot_bindings", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
+		{name: "workspace_id", kind: migrationText}, {name: "datasource_name", kind: migrationText},
+		{name: "sqlbot_user_id", kind: migrationText}, {name: "agentsql_user_id", kind: migrationText},
+		{name: "agent_id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
+		{name: "schema_name", kind: migrationText}, {name: "numeric_columns", kind: migrationText},
+		{name: "agent_key_env", kind: migrationText}, {name: "connector_token_env", kind: migrationText},
+		{name: "connector_token_hash", kind: migrationText}, {name: "enabled", kind: migrationBool},
+		{name: "revision", kind: migrationInt64}, {name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+	}},
 	{name: "admin_access_revocations", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "jti", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
 	}},

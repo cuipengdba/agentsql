@@ -49,7 +49,7 @@ services:
           - demo-mysql
 
   seed:
-    image: ghcr.io/cuipengdba/agentsql:v3.0.2-quickstart
+    image: ghcr.io/cuipengdba/agentsql:v3.1.0-quickstart
     container_name: agentsql-quickstart-seed
     restart: "no"
     entrypoint: ["/usr/local/bin/agentsqlctl"]
@@ -77,7 +77,7 @@ services:
         condition: service_healthy
 
   gateway:
-    image: ghcr.io/cuipengdba/agentsql:v3.0.2-quickstart
+    image: ghcr.io/cuipengdba/agentsql:v3.1.0-quickstart
     container_name: agentsql-quickstart-gateway
     restart: unless-stopped
     environment:

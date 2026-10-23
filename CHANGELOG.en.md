@@ -2,6 +2,14 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.1.0]
+
+- Add tenant-scoped SQLBot user, workspace and datasource mapping management with diagnostics, export, disabling and connector credential rotation.
+- SQLBot managed v2 uses purpose-scoped short-lived user tokens. MCP checks the live binding, person, read-only Agent and datasource scope on every request.
+- Propagate trusted SQLBot ordinary-login identity into model workers, filter model metadata by current permissions and stop automatic SQL rewriting after security rejection.
+- Add a bilingual read-only approval page, pinned upstream hashes and installation integrity checks. Database scope follows actual acceptance evidence.
+- Add binding metadata: combined schema 24, separate metadata 23 and audit 6. See [v3.1.0 release notes](docs/en/release-notes-v3.1.0.md) for upgrades and publication status.
+
 ## [v3.0.2]
 
 - Introduce a shared SVG AgentSQL logo across the website, GitHub README, login page, sidebar and browser icons.

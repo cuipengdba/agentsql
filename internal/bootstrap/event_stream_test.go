@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
@@ -79,6 +80,20 @@ func TestPublishingApprovalWorkflowContainsPublisherPanic(t *testing.T) {
 	require.Equal(t, int64(44), recorded.ID)
 }
 
+func TestPublishingApprovalWorkflowPreservesExecutionStore(t *testing.T) {
+	inner := &fakeApprovalWorkflow{}
+	decorated := &publishingApprovalWorkflow{inner: inner}
+	now := time.Now().UTC()
+	claimed, err := decorated.ClaimApprovedForRequester(context.Background(), "approval-1", "agent-1", "user-1", now)
+	require.NoError(t, err)
+	require.Equal(t, "approval-1", claimed.ID)
+	require.Equal(t, "user-1", inner.requesterUserID)
+	completed, err := decorated.CompleteClaim(context.Background(), "approval-1", "agent-1", "completed", nil, nil, now)
+	require.NoError(t, err)
+	require.Equal(t, "completed", completed.Status)
+	require.Equal(t, "completed", inner.executionStatus)
+}
+
 type fakeAuditSink struct {
 	recorded model.AuditLog
 	err      error
@@ -89,9 +104,11 @@ func (sink *fakeAuditSink) Insert(context.Context, model.AuditLog) (model.AuditL
 }
 
 type fakeApprovalWorkflow struct {
-	created  model.Approval
-	recorded model.AuditLog
-	err      error
+	created         model.Approval
+	recorded        model.AuditLog
+	err             error
+	requesterUserID string
+	executionStatus string
 }
 
 func (workflow *fakeApprovalWorkflow) Create(_ context.Context, approval model.Approval) (model.Approval, error) {
@@ -100,6 +117,20 @@ func (workflow *fakeApprovalWorkflow) Create(_ context.Context, approval model.A
 
 func (workflow *fakeApprovalWorkflow) CreatePendingWithAudit(context.Context, model.Approval, model.AuditLog) (model.Approval, model.AuditLog, error) {
 	return workflow.created, workflow.recorded, workflow.err
+}
+
+func (workflow *fakeApprovalWorkflow) ClaimApproved(_ context.Context, id, _ string, _ time.Time) (model.Approval, error) {
+	return model.Approval{ID: id, Status: "claimed"}, workflow.err
+}
+
+func (workflow *fakeApprovalWorkflow) ClaimApprovedForRequester(_ context.Context, id, _, requesterUserID string, _ time.Time) (model.Approval, error) {
+	workflow.requesterUserID = requesterUserID
+	return model.Approval{ID: id, Status: "claimed"}, workflow.err
+}
+
+func (workflow *fakeApprovalWorkflow) CompleteClaim(_ context.Context, id, _, status string, _ *int64, _ *string, _ time.Time) (model.Approval, error) {
+	workflow.executionStatus = status
+	return model.Approval{ID: id, Status: status}, workflow.err
 }
 
 type recordingEventPublisher struct{ ids []int64 }

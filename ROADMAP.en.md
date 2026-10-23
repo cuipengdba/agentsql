@@ -43,35 +43,39 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 | v2.9.0 | Released ([ Official Release](https://github.com/cuipengdba/agentsql/releases/tag/v2.9.0)) | Tenant policy package, alien review, table-level atomic application, conservative offline playback, approval baseline drift prompt and external signature audit witness; formal assets, upgrade recovery, GHCR, official website and Demo acceptance see [ release evidence ](docs/en/v2.9.0-release-evidence.md). The database adaptation level is not expanded. |
 | v3.0.0 | Released ([ Official Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.0)) | Unified capability catalog of 30 registered databases, read-only delivery diagnosis, reviewable MCP synthesis scenario acceptance; formal asset, upgrade recovery, GHCR, official website and Demo acceptance see [ release evidence ](docs/en/v3.0.0-release-evidence.md). No new database drivers or full production support statements will be added. |
 | v3.0.1 | Published | The Chinese and English portals of the official website, GitHub project documents and Web console, and the scrolling of the console menu are fixed; the database support range is not changed. See [ design ](docs/en/v3.0.1-design.md), [ release notes ](docs/en/release-notes-v3.0.1.md) and [ release record ](docs/en/v3.0.1-release-evidence.md). |
-| v3.0.2 | Delivery of this version | Full Chinese and English documentation, current operation and maintenance portal, SQLBot v1.10.2 PostgreSQL execution layer adaptation, light-colored navigation and unified logo; see [ release notes ](docs/en/release-notes-v3.0.2.md) and [ acceptance record ](docs/en/v3.0.2-acceptance.md). |
+| v3.0.2 | Released | Full Chinese and English documentation, current operation and maintenance portal, SQLBot v1.10.2 PostgreSQL execution layer adaptation, light-colored navigation and unified logo; see [ release notes ](docs/en/release-notes-v3.0.2.md) and [ acceptance record ](docs/en/v3.0.2-acceptance.md). |
+| v3.1.0 | Under development and validation | SQLBot v2 ordinary logged-in user bindings, PostgreSQL business integration, readonly approval continuation and bilingual mapping management; see [design](docs/en/v3.1.0-design.md) and [acceptance](docs/en/v3.1.0-acceptance.md). |
+| v3.2.0 | Planned | Safe composition of PostgreSQL B2 column authorization and read approvals, deeper PostgreSQL/MySQL queries and column authorization, SQLBot MySQL integration, policy impact analysis and derived result protection. |
+| v3.3.0 | Planned | TLS, query subset, cost controls, load and recovery validation for a specified Dameng version. |
+| v3.4.0 | Planned | Focused Kingbase and Vastbase improvements for queries, types, column authorization and operations. |
+| v3.5.0 | Planned | Three-gateway deployment, cross-instance events, session routing, rolling upgrades and capacity governance. |
+| v3.6.0 | Planned | Cross-environment policy delivery, reliable event dispatch and verifiable long-term audit archives. |
+| v3.7.0 | Planned | Bounded MongoDB reads and replica sets; Redis/Valkey Hash field authorization and Sentinel validation. |
+| v3.8.0 | Planned | ClickHouse analysis query resource limits; stronger Milvus scalar filters and tenant isolation. |
+| v3.9.0 | Planned | Oracle and SQL Server certificates, plans, queries and specified topology validation. |
+| v4.0.0 | Planned | Enterprise delivery and long-term maintenance baseline from the original tenth release: offline packages, multi-version upgrades, diagnostics and unified acceptance. |
 
-## v1.8.0–v3.0.0 candidate development sequence
+## v3.1.0 current development and acceptance scope
 
-The table below is product direction and does not equate to published commitments. Each version is designed independently, developed in isolation, real database and client verification, upgrade recovery, version closure CI, signed assets, GHCR, official website and Live Demo acceptance. Unverified items in the previous version will not automatically become supported due to the version number upgrade; gaps involving licensing or target topology must first obtain reviewable conditions, and the scope can be adjusted and the reasons recorded.
+The user's 2026-10-23 instruction authorizes sequential delivery of ten releases from v3.1.0 through v4.0.0; v3.1.0 comes first. The original plan numbered the tenth release v3.10.0; its enterprise delivery and long-term maintenance scope now belongs to v4.0.0. The table below describes v3.1.0 development and validation targets, not completed claims. See the [design](docs/en/v3.1.0-design.md), [acceptance](docs/en/v3.1.0-acceptance.md) and [upgrade guide](docs/en/v3.1.0-upgrade.md).
 
-| version | main goal | Key evidence before release |
+| Feature | v3.1.0 scope | Required release evidence |
 | --- | --- | --- |
-| v1.9.0 | Dify and MCP Inspector’s access experience, policy explanations and wizards | The actual allow/deny call, first access and troubleshooting task completion rate of the two clients |
-| v2.0.0 | Multi-gateway, Kubernetes, management API and operation and maintenance | Dual-node shared status, failover, upgrade rollback, capacity and audit consistency |
-| v2.1.0 | YashanDB YashanDB specified version deepening | real database evidence of native drivers, permissions, permissions/execution/masking/auditing and fault closure |
-| v2.2.0 | Oracle specified version deepening | Native narrow dialect, least privilege, authorization, masking and auditing; clearly record pre-execution plan restrictions for least privilege accounts, declared by license and instance scope |
-| v2.3.0 | SQL Server specified version deepening | Certificates, TDS Permissions, Query and Recovery Matrix |
-| v2.4.0 | openGauss specified version adaptation | PG compatibility differences, types/plans, TLS, permissions and execution boundaries |
-| v2.5.0 | MongoDB controlled read-only capability | Command whitelist, collective authorization, field masking and persistent auditing |
-| v2.6.0 | Redis/Valkey controlled command capabilities | ACL, key range, dangerous command rejection, result masking and auditing |
-| v2.7.0 | ClickHouse Query Management | Query subsets, quotas, roles, resource cancellation and audit final status |
-| v2.8.0 | Milvus vector search governance | Collection/field authorization, filter expressions, result protection and auditing |
-| v2.9.0 | Policy as code, auditing and multi-tenant governance | Change review, policy replay, tenant isolation and audit integrity |
-| v3.0.0 | Unify governance and delivery experience | Consistent capability declaration, upgrade migration, operation and client acceptance across adapters |
+| SQLBot business integration | Official v1.10.2, ordinary logged-in users, PostgreSQL and real model questions; installer checks version and source hashes | Real SQLBot, model and database complete natural-language queries, tables and selected charts; embedded assistant / ask-token and unvalidated charts are excluded |
+| Workspace and human mappings | Bilingual tenant-scoped console maps workspaces, datasources and SQLBot users to existing humans and dedicated readonly Agents | Cross-tenant, cross-user and cross-workspace negative tests; exact large integer IDs; permission requirements and auditing |
+| Credentials and revocation | Separate connector credential shown once and stored only as a hash; independent Agent Key; two-minute purpose-restricted human token | Rotation, disablement, deletion, revision changes and human revocation reject subsequent calls; no secret disclosure |
+| Schema and query governance | Permission-filtered metadata reaches the model; readonly queries for the selected datasource pass existing authorization, masking and audit | Unauthorized fields never reach the model; denials trigger no automatic SQL rewrite; failures never fall back to direct database access |
+| Readonly approval continuation | Explicit user request; original human and Agent resume the sealed SQL once after approval | Identity substitution, SQL changes, expiration, revocation and replay are denied; persistent audit is correlated |
+| Configuration and diagnostics | v2 export contains only the endpoint, mappings and environment variable names; configuration checks are distinguished from live query validation | No Key or connector credential in export; conflicting environment names rejected; real browser operations with multiple user mappings |
+| Upgrade and delivery | Combined schema 23→24, separate metadata 22→23, audit remains 6; official builds use Go 1.26.10 | Fresh databases, both upgrade topologies and complete backup restoration; Go/Web/Python/docs and CI, signed dual-architecture assets, GHCR, website and public Demo all pass |
 
-## v0.7.0 acceptance and release threshold
+## v3.1.0 release gates
 
-1. The old MCP client and the new protocol entrance maintain independent agent identities, tenants, current limits, and authorizations; requests entering the SQL pipeline are subject to persistent auditing according to the original contract, and the new entrance is not open to B5 for the time being. Dify and MCP Inspector record the real client call version, allow and deny results respectively.
-2. Temporary read-only authorization can only narrow the original Agent permissions; check precise SQL, object authorization, expiration, revocation and audit failure closure one by one. The management key is only displayed once and is not allowed to be echoed in the audit or response history.
-3. SQLite verifies the upgrade and rollback from v0.6.0; the PostgreSQL metadata/audit sub-library verifies the upgrade and rollback from the v0.6.1 maintenance baseline. Both types of topologies cover pre-upgrade checks, explicit migration, `auto_migrate:false` startup protection and complete backup and recovery.
-4. DM8 Pack3, KingbaseES V9R1C10, and Vastbase G100 Build 9 use independent instances to verify connection, allow query, unauthorized denial, masking, auditing, and fault shutdown; only describe the results according to the actual completed version and mode.
-5. The code, front-end and upgrade documents are submitted for acceptance with a sealed board; the release build, dual-architecture assets, signatures, GHCR and official website are verified separately after tagging, and recorded in the GitHub Release text and release evidence. Thresholds that are not passed must not be written as published on the website or support matrix.
-
+1. Automated and real integration evidence covers management permissions, tenant and human isolation, credential lifecycle, expired and stale tokens, and audit fail-closed behavior.
+2. Ordinary SQLBot requests, model threads, schema discovery and approvals use the same authenticated human. Missing context is rejected; model or browser self-declared identity is not accepted.
+3. Fixed-version real model business scenarios pass. Successful configuration diagnostics or simulated SQL responses do not replace business acceptance. Legacy v1 configuration retains only its previous workspace-level compatibility boundary.
+4. Migration and restoration separately cover combined and split storage. Old binaries must not open the new schema; rollback restores the complete matching backup set.
+5. Mark the version released only after sealed-commit CI, official signatures, public images, website, Live Demo and public smoke tests pass. Existing database support tiers are unchanged.
 ## Follow-up direction
 
 | direction | Start condition |

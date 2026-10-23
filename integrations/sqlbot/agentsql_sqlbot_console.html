@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentSQL · SQLBot</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#162941;background:#f3f6fa;color-scheme:light dark}body{margin:0}main{max-width:900px;margin:auto;padding:32px 20px}header{display:flex;justify-content:space-between;align-items:center;gap:16px}h1{font-size:26px;margin:0}h2{font-size:18px}p{line-height:1.7;color:#52637a}.card{padding:24px;margin:20px 0;background:white;border:1px solid #dce4ef;border-radius:14px}label{display:block;margin:14px 0 6px}input,select,textarea,button{font:inherit;border:1px solid #aab9cd;border-radius:6px;padding:10px;box-sizing:border-box}input,select,textarea{width:100%;background:white;color:#162941}textarea{min-height:120px;font-family:ui-monospace,monospace}button{background:#1765c1;color:white;cursor:pointer;margin:6px 6px 0 0}button:disabled{opacity:.5;cursor:wait}.secondary{background:white;color:#23466d}.confirmation{display:flex;gap:10px;align-items:flex-start;line-height:1.6}.confirmation input{width:auto;margin-top:5px}pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;max-height:500px;overflow:auto}.hint{font-size:13px}.error{color:#a12a30}a{color:#1765c1}@media(prefers-color-scheme:dark){:root{background:#101926;color:#e2eaf6}.card{background:#192638;border-color:#3a4b63}p{color:#b7c5d9}input,select,textarea,.secondary{background:#111d2c;color:#e2eaf6;border-color:#65748c}.error{color:#ffabb0}}
+</style></head><body><main>
+<header><h1>AgentSQL · SQLBot</h1><button class="secondary" id="language">English</button></header>
+<p data-i18n="intro"></p><a id="login" data-i18n="login"></a>
+<section class="card"><h2 data-i18n="connection"></h2>
+<p class="hint" data-i18n="loginHint"></p>
+<label for="token" data-i18n="token"></label><input id="token" type="password" autocomplete="off">
+<button id="load" data-i18n="load"></button>
+<label for="binding" data-i18n="binding"></label><select id="binding"></select>
+<button id="diagnose" class="secondary" data-i18n="diagnose"></button></section>
+<section class="card"><h2 data-i18n="requestTitle"></h2><p data-i18n="requestHint"></p>
+<label for="sql">SQL</label><textarea id="sql" spellcheck="false"></textarea>
+<label for="reason" data-i18n="reason"></label><input id="reason" maxlength="2000">
+<label class="confirmation"><input type="checkbox" id="confirmRequest"><span data-i18n="confirmRequest"></span></label>
+<button id="request" data-i18n="request"></button></section>
+<section class="card"><h2 data-i18n="continueTitle"></h2>
+<label for="approval" data-i18n="approval"></label><input id="approval" maxlength="128" autocomplete="off">
+<button id="status" class="secondary" data-i18n="status"></button>
+<label class="confirmation"><input type="checkbox" id="confirmExecute"><span data-i18n="confirmExecute"></span></label>
+<button id="execute" data-i18n="execute"></button><p class="hint" data-i18n="executeHint"></p></section>
+<section class="card" aria-live="polite"><h2 data-i18n="result"></h2><pre id="result"></pre></section>
+</main><script>
+/* AGENTSQL_RUNTIME */
+const messages={zh:{intro:'查看当前身份的接入状态，并由你明确发起或继续审批。查询始终经过 AgentSQL 的授权、脱敏和审计。',login:'打开 SQLBot 登录页',connection:'接入诊断',loginHint:'优先使用此站点现有的 SQLBot 登录。若无法读取登录信息，可粘贴个人 SQLBot 登录令牌；仅在当前页面内存中使用。',token:'SQLBot 登录令牌（可选）',load:'读取我的绑定',binding:'工作空间与数据源',diagnose:'检查连接与权限',requestTitle:'提交只读查询审批',requestHint:'填写准确 SQL 和原因。提交后封存请求，后续执行不接受 SQL 替换。',reason:'审批原因',confirmRequest:'我确认提交以上 SQL 供审批；此操作不会执行查询。',request:'提交审批',continueTitle:'继续已有审批',approval:'审批单号',status:'查询状态',confirmExecute:'我确认执行此审批封存的原始请求。只执行一次，失败后不自动重试。',execute:'执行已批准请求',executeHint:'必须使用原申请人、Agent 和数据源。批准、有效期和当前权限由网关再次检查。',result:'操作结果',missingToken:'请先登录 SQLBot，或填写个人登录令牌。',missingBinding:'请先选择可用绑定。',confirm:'请勾选对应的确认项。',failed:'请求失败；未自动重试。'},en:{intro:'Check your connection and explicitly request or continue an approval. Queries remain subject to AgentSQL authorization, masking and durable audit.',login:'Open SQLBot login',connection:'Connection diagnostics',loginHint:'Uses your existing SQLBot login on this origin. If unavailable, paste your personal SQLBot login token; it stays in this page’s memory only.',token:'SQLBot login token (optional)',load:'Load my bindings',binding:'Workspace and datasource',diagnose:'Check connection and permissions',requestTitle:'Request approval for a read-only query',requestHint:'Enter the exact SQL and purpose. The request is sealed; execution does not accept replacement SQL.',reason:'Approval reason',confirmRequest:'I confirm submitting this exact SQL for review. This action does not execute the query.',request:'Request approval',continueTitle:'Continue an existing approval',approval:'Approval ID',status:'Check status',confirmExecute:'I confirm executing the original sealed request once. Failures are never automatically retried.',execute:'Execute approved request',executeHint:'Use the original requester, Agent and datasource. The gateway rechecks approval, expiry and current permissions.',result:'Result',missingToken:'Sign in to SQLBot or enter your personal login token.',missingBinding:'Select an available binding first.',confirm:'Select the matching confirmation checkbox first.',failed:'Request failed; no automatic retry.'}};
+let language=navigator.language.startsWith('zh')?'zh':'en';
+const $=id=>document.getElementById(id);
+function render(){document.documentElement.lang=language==='zh'?'zh-CN':'en';document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=messages[language][el.dataset.i18n]);$('language').textContent=language==='zh'?'English':'中文';$('login').href=runtime.context_path+'/#/login';}
+$('language').onclick=()=>{language=language==='zh'?'en':'zh';render();};render();
+function token(){if($('token').value.trim())return $('token').value.trim().replace(/^Bearer\s+/i,'');const prefix=runtime.context_path?runtime.context_path.split('/').filter(Boolean)[0]+'_':'sqlbot_v1_';try{const raw=localStorage.getItem(prefix+'user.token');if(!raw)return '';const parsed=JSON.parse(raw);return typeof parsed==='string'?parsed:typeof parsed.v==='string'?parsed.v:'';}catch{return '';}}
+async function call(path,body){const credential=token();if(!credential)throw Error(messages[language].missingToken);const headers={[runtime.token_header]:'Bearer '+credential,'Accept':'application/json'};if(body)headers['Content-Type']='application/json';const response=await fetch(runtime.context_path+'/api/v1/agentsql/'+path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined,credentials:'omit',cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value?.error?.message||messages[language].failed);return value;}
+function action(handler){return async()=>{const buttons=[...document.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);$('result').className='';try{$('result').textContent=JSON.stringify(await handler(),null,2);}catch(error){$('result').className='error';$('result').textContent=error.message;}finally{buttons.forEach(b=>b.disabled=false);}};}
+function selected(){const id=$('binding').value;if(!id)throw Error(messages[language].missingBinding);return {binding_id:id};}
+$('load').onclick=action(async()=>{const data=await call('bindings');$('binding').replaceChildren();for(const b of data.bindings){const option=document.createElement('option');option.value=b.id;option.textContent=b.workspace_id+' · '+b.datasource_name;$('binding').append(option);}return {bindings:data.bindings.length};});
+$('diagnose').onclick=action(()=>call('diagnostics',selected()));
+$('request').onclick=action(async()=>{if(!$('confirmRequest').checked)throw Error(messages[language].confirm);const result=await call('approvals/request',{...selected(),sql:$('sql').value,reason:$('reason').value,confirmed:true});$('confirmRequest').checked=false;if(result.approval_id)$('approval').value=result.approval_id;return result;});
+$('status').onclick=action(()=>call('approvals/status',{...selected(),approval_id:$('approval').value.trim()}));
+$('execute').onclick=action(async()=>{if(!$('confirmExecute').checked)throw Error(messages[language].confirm);$('confirmExecute').checked=false;return call('approvals/execute',{...selected(),approval_id:$('approval').value.trim(),confirmed:true});});
+</script></body></html>

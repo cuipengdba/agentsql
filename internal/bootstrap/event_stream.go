@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
@@ -38,6 +39,9 @@ func (sink *publishingAuditSink) Insert(ctx context.Context, log model.AuditLog)
 type approvalWorkflowWriter interface {
 	pipeline.ApprovalWriter
 	pipeline.ApprovalWorkflow
+	ClaimApproved(context.Context, string, string, time.Time) (model.Approval, error)
+	ClaimApprovedForRequester(context.Context, string, string, string, time.Time) (model.Approval, error)
+	CompleteClaim(context.Context, string, string, string, *int64, *string, time.Time) (model.Approval, error)
 }
 
 type publishingApprovalWorkflow struct {
@@ -60,6 +64,18 @@ func (workflow *publishingApprovalWorkflow) CreatePendingWithAudit(
 	}
 	bestEffortPublish(workflow.publisher, recorded)
 	return created, recorded, nil
+}
+
+func (workflow *publishingApprovalWorkflow) ClaimApproved(ctx context.Context, id, agentID string, now time.Time) (model.Approval, error) {
+	return workflow.inner.ClaimApproved(ctx, id, agentID, now)
+}
+
+func (workflow *publishingApprovalWorkflow) ClaimApprovedForRequester(ctx context.Context, id, agentID, requesterUserID string, now time.Time) (model.Approval, error) {
+	return workflow.inner.ClaimApprovedForRequester(ctx, id, agentID, requesterUserID, now)
+}
+
+func (workflow *publishingApprovalWorkflow) CompleteClaim(ctx context.Context, id, agentID, status string, auditID *int64, outcomeCode *string, now time.Time) (model.Approval, error) {
+	return workflow.inner.CompleteClaim(ctx, id, agentID, status, auditID, outcomeCode, now)
 }
 
 func bestEffortPublish(publisher eventPublisher, recorded model.AuditLog) {

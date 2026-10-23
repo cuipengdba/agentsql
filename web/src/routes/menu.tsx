@@ -32,6 +32,7 @@ const Rules = lazy(() => import("@/pages/Rules").then(({ Rules }) => ({ default:
 const Approvals = lazy(() => import("@/pages/Approvals").then(({ Approvals }) => ({ default: Approvals })));
 const MaskRules = lazy(() => import("@/pages/MaskRules").then(({ MaskRules }) => ({ default: MaskRules })));
 const Notifications = lazy(() => import("@/pages/Notifications").then(({ Notifications }) => ({ default: Notifications })));
+const SQLBot = lazy(() => import("@/pages/SQLBot").then(({ SQLBot }) => ({ default: SQLBot })));
 const RedactionKeys = lazy(() => import("@/pages/RedactionKeys").then(({ RedactionKeys }) => ({ default: RedactionKeys })));
 const AuditChain = lazy(() => import("@/pages/AuditChain").then(({ AuditChain }) => ({ default: AuditChain })));
 const B5Operations = lazy(() => import("@/pages/B5Operations").then(({ B5Operations }) => ({ default: B5Operations })));
@@ -84,6 +85,7 @@ export interface MenuRoute {
 }
 
 export const menuRoutes: MenuRoute[] = [
+  { key: "sqlbot", path: "/settings/sqlbot", label: "SQLBot 接入", labelEn: "SQLBot integration", icon: <RobotOutlined />, element: lazyElement(SQLBot), group: "settings", permissions: ["strategy.manage", "user.manage", "datasource.manage"] },
   { key: "upgrade", path: "/settings/upgrade", label: "版本与升级", labelEn: "Version & upgrade", icon: <CloudDownloadOutlined />, element: lazyElement(Upgrade), group: "settings" },
   { key: "overview", path: "/", label: "总览", labelEn: "Overview", icon: <DashboardOutlined />, element: lazyElement(Overview) },
   { key: "onboarding", path: "/onboarding", label: "接入向导", labelEn: "Setup guide", icon: <RocketOutlined />, element: lazyElement(Onboarding), permission: "datasource.manage" },
