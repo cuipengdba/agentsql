@@ -40,6 +40,9 @@ func (executor *PostgresExecutor) BindClosedDML(ctx context.Context, request Bin
 	if executor == nil || ctx == nil || budget == nil || request.Identity.DatasourceIdentity == "" {
 		return nil, NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
+	if executor.restrictedVendorDML {
+		return nil, executor.vendorWriteError(DBStageParse)
+	}
 	parsed, err := parseClosedDMLForBinding(request.RawSQL, budget)
 	if err != nil {
 		return nil, err

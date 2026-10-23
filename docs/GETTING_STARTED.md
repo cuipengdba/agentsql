@@ -2,9 +2,9 @@
 
 **语言 / Language:** [简体中文](GETTING_STARTED.md) | [English](en/GETTING_STARTED.md)
 
-> 现行指南：适用于 v3.3.0 及兼容的 3.3.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.4.0 及兼容的 3.4.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v3.3.0 的安装与使用。执行下列固定 v3.3.0 tag 的安装、Demo 和镜像命令前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产及签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.4.0 的安装与使用。执行下列固定 v3.4.0 tag 的安装、Demo 和镜像命令前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产及签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 AgentSQL 是放在 AI Agent 与业务数据库之间的数据库安全网关和生产级 MCP Server，让每条 SQL 在执行前经过身份、权限、规则和决策检查，并在可审计的边界内执行。
 
@@ -35,15 +35,15 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 | 范围 | 当前支持 | 说明 |
 | --- | --- | --- |
 | 一键安装宿主 | `linux/amd64`、`linux/arm64`；glibc 2.28+、systemd | v0.4.0 起提供 linux/arm64 原生 glibc 包；`x86_64` / `amd64` 对应 amd64，`aarch64` / `arm64` 对应 arm64 |
-| 其他宿主 | Docker / Docker Compose | v3.3.0 GHCR tag 须经 `linux/amd64` + `linux/arm64` multi-arch manifest 与匿名拉取核验；musl / Alpine、CentOS 7 与上述两种架构之外的平台不提供原生包 |
+| 其他宿主 | Docker / Docker Compose | v3.4.0 GHCR tag 须经 `linux/amd64` + `linux/arm64` multi-arch manifest 与匿名拉取核验；musl / Alpine、CentOS 7 与上述两种架构之外的平台不提供原生包 |
 | 业务数据库 | MySQL 8；PostgreSQL 14–18 | 为 AgentSQL 创建独立、最小权限运行账号 |
 | 控制面存储 | SQLite；PostgreSQL 15+ | SQLite 为默认；PostgreSQL 可分离 metadata 与 audit |
 | 浏览器控制台 | `http://127.0.0.1:7780` | 默认绑定回环地址 |
-| 本地 Live Demo | Docker Engine / Docker Desktop、Docker Compose v2 | 使用 v3.3.0 精确 tag 的 Compose 和经核验的 GHCR 镜像；无需克隆源码或构建 |
+| 本地 Live Demo | Docker Engine / Docker Desktop、Docker Compose v2 | 使用 v3.4.0 精确 tag 的 Compose 和经核验的 GHCR 镜像；无需克隆源码或构建 |
 
 ## 路径 A：5 分钟零配置看效果（一条命令）
 
-这是 v3.3.0 专用 Demo 模式：使用合成数据和固定演示身份，无需克隆源码、无需编辑任何配置、无需构建镜像。执行前须核对 v3.3.0 Git tag 中的 Compose 文件与其引用的三个 GHCR 镜像均已公开且可匿名拉取；首次启动会拉取镜像并播种固定演示数据。
+这是 v3.4.0 专用 Demo 模式：使用合成数据和固定演示身份，无需克隆源码、无需编辑任何配置、无需构建镜像。执行前须核对 v3.4.0 Git tag 中的 Compose 文件与其引用的三个 GHCR 镜像均已公开且可匿名拉取；首次启动会拉取镜像并播种固定演示数据。
 
 只需一个 `docker-compose.yml`（在任意空目录执行）：
 
@@ -52,7 +52,7 @@ AgentSQL 不是 BI、ORM 或 Text2SQL，不负责把自然语言转换成 SQL，
 mkdir agentsql-demo && cd agentsql-demo
 
 # 2) 下载自包含 compose（仅这一个文件，约 2KB）
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v3.3.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v3.4.0/deploy/quickstart/docker-compose.yml
 
 # 3) 一条命令拉起全部容器（postgres + mysql + seed + gateway）
 docker compose up -d
@@ -62,7 +62,7 @@ Windows（PowerShell）用等价命令：
 
 ```powershell
 New-Item -ItemType Directory -Force agentsql-demo | Out-Null; Set-Location agentsql-demo
-Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v3.3.0/deploy/quickstart/docker-compose.yml
+Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v3.4.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -97,16 +97,16 @@ docker compose down -v
 
 **v0.4.0 起提供 linux/arm64 原生 glibc 包：**一键安装支持 `linux/amd64`（`uname -m` 为 `x86_64` / `amd64`）和 `linux/arm64`（`aarch64` / `arm64`），均要求 glibc 2.28+、systemd，且命令需要 root 权限：
 
-以下示例固定 v3.3.0。执行前先确认正式 Release 提供该版本的 `install.sh`、`SHA256SUMS` 和签名；按 [发布资产说明](RELEASE_ASSETS.md) 使用独立核验的公钥验签清单，再用清单中的哈希核验安装器。
+以下示例固定 v3.4.0。执行前先确认正式 Release 提供该版本的 `install.sh`、`SHA256SUMS` 和签名；按 [发布资产说明](RELEASE_ASSETS.md) 使用独立核验的公钥验签清单，再用清单中的哈希核验安装器。
 
 ```bash
 # 适用前提：linux/amd64 或 linux/arm64 + glibc 2.28+ + systemd
-curl -fsSLo install.sh https://github.com/cuipengdba/agentsql/releases/download/v3.3.0/install.sh
+curl -fsSLo install.sh https://github.com/cuipengdba/agentsql/releases/download/v3.4.0/install.sh
 # 先用已验签的 SHA256SUMS 核验 install.sh，再运行：
-sudo sh ./install.sh install --version v3.3.0
+sudo sh ./install.sh install --version v3.4.0
 ```
 
-除一键安装外，也可按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建。确认 v3.3.0 镜像已公开、双架构 manifest 和匿名拉取均通过后，运行 `docker pull ghcr.io/cuipengdba/agentsql:v3.3.0`；manifest 应匹配 `linux/amd64` / `linux/arm64`。发布状态和资产以 GitHub Releases 页面为准。
+除一键安装外，也可按 [部署指南](DEPLOY.md) 使用源码或 Docker Compose 构建。确认 v3.4.0 镜像已公开、双架构 manifest 和匿名拉取均通过后，运行 `docker pull ghcr.io/cuipengdba/agentsql:v3.4.0`；manifest 应匹配 `linux/amd64` / `linux/arm64`。发布状态和资产以 GitHub Releases 页面为准。
 
 ### 2. 登录控制台
 
@@ -134,7 +134,7 @@ PostgreSQL 与 Vastbase G100 Build 9 PG 模式的指定实例可在数据源表�
 
 在「权限」中新建绑定该 Agent 与数据源的 `allow` 策略，从确实需要的单张表开始，例如 `public.customers` 或 `customers`。不要用 `*` 或 `schema.*` 做普通示例：两者虽然合法，却代表整表全列授权，会让列级白名单失效。
 
-安装 v3.3.0 后，控制台「接入向导」可复用同一个 Agent 和数据源选择做连接与权限预检、目标 SQL 离线解释，并生成 Dify 1.17.1 或 MCP Inspector 0.16.8 的无密钥接入说明。预检不执行 Agent SQL；策略数量大于零或离线结论为“未知”都不证明目标 SQL 已获授权。请在真实客户端分别验证允许与拒绝请求，再用响应中的审计 ID 跳转到审计详情核对。配置步骤与客户端可达地址的限制见[使用手册](USER_GUIDE.md#接入向导-onboardingv190)。
+安装 v3.4.0 后，控制台「接入向导」可复用同一个 Agent 和数据源选择做连接与权限预检、目标 SQL 离线解释，并生成 Dify 1.17.1 或 MCP Inspector 0.16.8 的无密钥接入说明。预检不执行 Agent SQL；策略数量大于零或离线结论为“未知”都不证明目标 SQL 已获授权。请在真实客户端分别验证允许与拒绝请求，再用响应中的审计 ID 跳转到审计详情核对。配置步骤与客户端可达地址的限制见[使用手册](USER_GUIDE.md#接入向导-onboardingv190)。
 
 ### 6. 接入 MCP 客户端
 
@@ -189,9 +189,9 @@ curl -fsS http://127.0.0.1:7780/healthz
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 ```
 
-## v3.3.0：升级前只读检查
+## v3.4.0：升级前只读检查
 
-正式发布并取得 v3.3.0 `agentsqlctl` 后，使用目标环境的配置先检查控制面 schema 版本。v3.3.0 不增加 schema 迁移；从 v2.9.0 升级仍须成套备份、只读检查并在隔离环境演练恢复。双网关 Kubernetes 部署另须按[维护窗口操作指南](../deploy/kubernetes/README.md)停止旧版双副本、等待 B2 租约到期后再启动新版，不支持新旧二进制同时活跃：
+正式发布并取得 v3.4.0 `agentsqlctl` 后，使用目标环境的配置先检查控制面 schema 版本。v3.4.0 不增加 schema 迁移；从 v2.9.0 升级仍须成套备份、只读检查并在隔离环境演练恢复。双网关 Kubernetes 部署另须按[维护窗口操作指南](../deploy/kubernetes/README.md)停止旧版双副本、等待 B2 租约到期后再启动新版，不支持新旧二进制同时活跃：
 
 ```bash
 agentsqlctl doctor --config /etc/agentsql/config.yaml --format json

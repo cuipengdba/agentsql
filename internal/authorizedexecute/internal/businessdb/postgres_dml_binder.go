@@ -125,6 +125,9 @@ func (executor *PostgresExecutor) EnrollPostgresDML(ctx context.Context, rawSQL,
 	if executor == nil || executor.pool == nil || ctx == nil || budget == nil || datasourceID == "" {
 		return PostgresDMLEnrollment{}, catalogAuthError("AUTH_CATALOG_INCOMPLETE")
 	}
+	if executor.restrictedVendorDML {
+		return PostgresDMLEnrollment{}, executor.vendorWriteError(DBStageParse)
+	}
 	manifest, frame, facts, err := executor.discoverPostgresDML(ctx, rawSQL, datasourceID, budget)
 	if err != nil {
 		return PostgresDMLEnrollment{}, err
@@ -190,6 +193,9 @@ func (executor *PostgresExecutor) discoverPostgresDML(ctx context.Context, rawSQ
 func (executor *PostgresExecutor) PrepareBoundPostgresDML(ctx context.Context, native *PostgresDMLNativeTx, rawSQL string, enrollment *PostgresDMLEnrollment, auth PostgresDMLAuthorization, budget PostgresCatalogBudget) (*PostgresPreparedDML, b5dml.AuthorizationDecision, error) {
 	if executor == nil || ctx == nil || native == nil || native.tx == nil || enrollment == nil || budget == nil || strings.TrimSpace(rawSQL) == "" {
 		return nil, b5dml.AuthorizationDecision{}, catalogAuthError("AUTH_CATALOG_INCOMPLETE")
+	}
+	if executor.restrictedVendorDML {
+		return nil, b5dml.AuthorizationDecision{}, executor.vendorWriteError(DBStageParse)
 	}
 	native.mu.Lock()
 	defer native.mu.Unlock()

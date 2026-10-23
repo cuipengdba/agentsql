@@ -21,7 +21,7 @@ var _ Executor = (*VastbaseExecutor)(nil)
 // The G100 adapter was accepted against one vendor build and commit. A
 // different patch can change catalog or wire behavior without changing the
 // user-facing Build 9 label, so do not silently inherit that acceptance.
-var verifiedG100Version = regexp.MustCompile(`(?i)\bvastbase g100 v3\.0\b.*\bbuild 9\b.*\bcommit:30156\b`)
+var verifiedG100Version = regexp.MustCompile(`(?is)\bvastbase g100 v3\.0\b.*\bbuild 9\b.*\bcommit:30156\b`)
 
 func NewVastbaseExecutor(ctx context.Context, datasource model.Datasource, password string) (*VastbaseExecutor, error) {
 	if datasource.DBType != string(model.DialectVastbase) {

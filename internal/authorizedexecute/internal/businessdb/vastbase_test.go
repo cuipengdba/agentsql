@@ -41,7 +41,7 @@ func TestVastbaseConstructorRejectsWrongType(t *testing.T) {
 
 func TestVerifiedG100VersionIsExactBuild9V3(t *testing.T) {
 	for _, version := range []string{
-		"(Vastbase G100 V3.0 (Build 9) Release) compiled at 2026-01-22 10:41:11 commit 30156 last mr product name:Vastbase G100 version:V3.0 (Build 9) Release patch:0 commit:30156 openGauss version:6.0.0",
+		"(Vastbase G100 V3.0 (Build 9) Release) compiled at 2026-01-22 10:41:11 commit 30156 last mr\n product name:Vastbase G100\n version:V3.0 (Build 9) Release\n patch:0\n commit:30156\n openGauss version:6.0.0",
 	} {
 		if !verifiedG100Version.MatchString(version) {
 			t.Fatalf("expected accepted vendor version %q", version)

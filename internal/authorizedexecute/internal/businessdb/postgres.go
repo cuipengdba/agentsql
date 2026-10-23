@@ -59,7 +59,10 @@ type PostgresExecutor struct {
 	resourcesMu   sync.Mutex
 	resources     map[postgresExecutorResource]struct{}
 	serverVersion string
-	closed        bool
+	// A protocol-compatible vendor may pass SELECT catalog binding while its
+	// DML row-count or transaction semantics are not PostgreSQL-compatible.
+	restrictedVendorDML bool
+	closed              bool
 }
 
 type postgresRunner interface {
@@ -193,7 +196,18 @@ func newPostgresExecutor(
 	versionContext, versionCancel := executor.timeoutContext(ctx)
 	defer versionCancel()
 	_ = pool.QueryRow(versionContext, "SHOW server_version").Scan(&executor.serverVersion)
+	var productVersion string
+	if err := pool.QueryRow(versionContext, "SELECT pg_catalog.version()").Scan(&productVersion); err != nil {
+		// If the identity probe fails, do not enable the write/session paths.
+		executor.restrictedVendorDML = true
+	} else {
+		executor.restrictedVendorDML = strings.HasPrefix(strings.ToLower(strings.TrimSpace(productVersion)), "kingbasees ")
+	}
 	return executor, nil
+}
+
+func (executor *PostgresExecutor) vendorWriteError(stage DBStage) error {
+	return newDBError(DBErrorKindReadOnly, DBErrorCodeReadOnly, stage, "", ErrReadOnlyViolated)
 }
 
 func newBoundedPostgresFrontend(reader io.Reader, writer io.Writer) *pgproto3.Frontend {
@@ -243,6 +257,9 @@ func (executor *PostgresExecutor) OpenSession(
 	if executor == nil || executor.pool == nil || ctx == nil {
 		return nil, fmt.Errorf("open PostgreSQL session: executor or context is unavailable")
 	}
+	if executor.restrictedVendorDML {
+		return nil, executor.vendorWriteError(DBStageAcquire)
+	}
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(sessionID) != sessionID {
 		return nil, fmt.Errorf("open PostgreSQL session: invalid session ID")
 	}
@@ -285,7 +302,7 @@ func (executor *PostgresExecutor) BeginWriteTx(ctx context.Context) (WriteTx, er
 	if executor == nil || executor.pool == nil || ctx == nil {
 		return nil, fmt.Errorf("begin PostgreSQL write transaction: executor or context is unavailable")
 	}
-	if executor.readOnly {
+	if executor.readOnly || executor.restrictedVendorDML {
 		return nil, newDBError(
 			DBErrorKindReadOnly,
 			DBErrorCodeReadOnly,
@@ -347,7 +364,7 @@ func (executor *PostgresExecutor) Execute(
 	ctx context.Context,
 	sql string,
 ) (model.QueryResult, error) {
-	if executor != nil && executor.readOnly {
+	if executor != nil && (executor.readOnly || executor.restrictedVendorDML) {
 		return model.QueryResult{}, newDBError(
 			DBErrorKindReadOnly,
 			DBErrorCodeReadOnly,

@@ -47,7 +47,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.1.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.1.0)） | SQLBot v2 普通登录用户绑定、PostgreSQL 业务接入、只读审批接续、中英文映射管理；见[设计](docs/v3.1.0-design.md)、[验收](docs/v3.1.0-acceptance.md)与[发布证据](docs/v3.1.0-release-evidence.md)。B2 开启时只读审批仍失败关闭。 |
 | v3.2.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.2.0)） | PostgreSQL B2 列授权与只读审批安全组合、SQLBot MySQL 真模型问数、策略影响预览和派生结果保护；见[验收](docs/v3.2.0-acceptance.md)与[发布证据](docs/v3.2.0-release-evidence.md)。 |
 | v3.3.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.3.0)） | 达梦指定版本的验证 TLS、查询子集、扫描成本、有界负载与恢复；见[设计](docs/v3.3.0-design.md)、[验收](docs/v3.3.0-acceptance.md)及[发布证据](docs/v3.3.0-release-evidence.md)。 |
-| v3.4.0 | 待开发 | 金仓与 Vastbase 的查询、类型、列级授权及运维专项深化。 |
+| v3.4.0 | 发布候选 | 金仓受限单表 SELECT 列授权、写入关闭；Vastbase 固定构建的类型、物理扫描、验证 TLS、撤权和恢复，B2 列授权仍关闭。见[验收](docs/v3.4.0-acceptance.md)。 |
 | v3.5.0 | 待开发 | 三副本多网关、跨实例事件、会话路由、滚动升级与容量治理。 |
 | v3.6.0 | 待开发 | 策略跨环境交付、可靠事件投递与可验证的长期审计归档。 |
 | v3.7.0 | 待开发 | MongoDB 有界读取及副本集、Redis/Valkey Hash 字段授权与 Sentinel 验证。 |

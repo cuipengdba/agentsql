@@ -2,6 +2,12 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v3.4.0]
+
+- 金仓 V9R1C10 PG 模式的受限单表 SELECT 通过真实 B2 列授权验证；B5 行数合同不一致，写入入口失败关闭。
+- Vastbase G100 Build 9 固定 commit 的多行版本识别、物理扫描估算、类型、验证 TLS、轮换、权限撤销、断连恢复及有界负载通过；B2 列授权继续关闭。
+- 范围和未验事项见 [v3.4.0 发布说明](docs/release-notes-v3.4.0.md)、[真库验收](docs/v3.4.0-acceptance.md)及[发布证据](docs/v3.4.0-release-evidence.md)。
+
 ## [v3.3.0]
 
 - 达梦 DM8 Pack3 指定构建增加验证服务端证书的 TLS 连接，错误 CA/主机名及明文降级失败关闭。
