@@ -1,6 +1,6 @@
 # AgentSQL documentation
 
-The current official version: **v3.4.0**. The current guidelines of this catalog are updated with the 3.4.x maintenance version; versioned release notes, test reports, and performance records retain the original version and time, and historical conclusions are not rewritten.
+The current official version: **v3.4.1**. The current guidelines of this catalog are updated with the 3.4.x maintenance version; versioned release notes, test reports, and performance records retain the original version and time, and historical conclusions are not rewritten.
 
 **Language:** [English](README.md) | [Simplified Chinese](../README.md)
 
@@ -19,7 +19,7 @@ The current official version: **v3.4.0**. The current guidelines of this catalog
 | Task-level temporary authorization | [Temporary read-only authorization](task-read-grants.md) |
 | Architecture and Security Contracts | [Engineering Specifications](SPEC.md), [Safety Policy](../../SECURITY.en.md) |
 | Issuance and signature verification | [ delivery process ](RELEASE_ROUTINE.md), [ issuance process ](RELEASE_PROCESS.md), [ asset list ](RELEASE_ASSETS.md) |
-| Current release evidence | [v3.4.0 Release Notes ](release-notes-v3.4.0.md), [ Release Acceptance ](v3.4.0-release-evidence.md) |
+| Current release evidence | [v3.4.1 Release Notes ](release-notes-v3.4.1.md), [ Release Acceptance ](v3.4.1-release-evidence.md) |
 
 The English version is compared section by section with the same Chinese source document, retaining executable examples and historical evidence, without replacing the full text with an abstract. The operation and maintenance entrance of the current version is `OPERATIONS.md`.
 

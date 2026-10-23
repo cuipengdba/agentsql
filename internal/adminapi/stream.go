@@ -16,6 +16,11 @@ import (
 const streamWriteTimeout = 5 * time.Second
 
 func (handler *Handler) stream(writer http.ResponseWriter, request *http.Request) {
+	principal, authenticated := requestPrincipal(request)
+	if !authenticated {
+		handler.fail(writer, http.StatusForbidden, "forbidden")
+		return
+	}
 	if !supportsFlush(writer) {
 		handler.fail(writer, http.StatusInternalServerError, "streaming unsupported")
 		return
@@ -53,7 +58,13 @@ func (handler *Handler) stream(writer http.ResponseWriter, request *http.Request
 	for {
 		select {
 		case event, open := <-events:
-			if !open || handler.writeAuditEvent(controller, writer, event) != nil {
+			if !open {
+				return
+			}
+			if event.Audit.TenantID != principal.TenantID {
+				continue
+			}
+			if handler.writeAuditEvent(controller, writer, event) != nil {
 				return
 			}
 		default:
@@ -71,6 +82,9 @@ live:
 		case event, open := <-events:
 			if !open {
 				return
+			}
+			if event.Audit.TenantID != principal.TenantID {
+				continue
 			}
 			if err := handler.writeAuditEvent(controller, writer, event); err != nil {
 				return
