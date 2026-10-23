@@ -2,11 +2,11 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
-## [v3.3.0] 候选版
+## [v3.3.0]
 
 - 达梦 DM8 Pack3 指定构建增加验证服务端证书的 TLS 连接，错误 CA/主机名及明文降级失败关闭。
 - 指定构建的 `TOPN2` 查询计划和物理扫描行数得到有界识别；MCP 真库验证覆盖权限、脱敏、审计、有限并发及网络中断恢复。
-- 测试边界见 [v3.3.0 发布说明](docs/release-notes-v3.3.0.md)及[候选验收](docs/v3.3.0-acceptance.md)；尚未宣称正式发布。
+- 测试边界与正式交付见 [v3.3.0 发布说明](docs/release-notes-v3.3.0.md)、[验收记录](docs/v3.3.0-acceptance.md)及[发布证据](docs/v3.3.0-release-evidence.md)。
 
 ## [v3.2.0]
 

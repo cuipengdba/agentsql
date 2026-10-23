@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](release-notes-v3.3.0.md) | [English](en/release-notes-v3.3.0.md)
 
-状态：候选版；正式发布以 [验收记录](v3.3.0-acceptance.md) 和发布证据为准。
+状态：**已正式发布**。交付以[验收记录](v3.3.0-acceptance.md)和[发布证据](v3.3.0-release-evidence.md)为准。
 
 ## 本版改进
 
