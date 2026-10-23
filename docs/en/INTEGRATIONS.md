@@ -2,20 +2,20 @@
 
 **Language:** [English](INTEGRATIONS.md) | [Simplified Chinese](../INTEGRATIONS.md)
 
-> This article explains the MCP access of AgentSQL v3.2.0. Before installing or pulling v3.2.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> This article explains the MCP access of AgentSQL v3.3.0. Before installing or pulling v3.3.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
 
 This article explains how to connect the MCP client to AgentSQL. For identity, authorization, rules, approval and capability boundaries, see the [ user manual ](USER_GUIDE.md). For first-time deployment, see [ for quick start ](GETTING_STARTED.md). For outsourcing decision-making events to Webhook, alarm groups or Syslog, see [ notification outgoing guide ](NOTIFICATIONS.md).
 
-v3.2.0of`list_datasources`Adds data sources visible to the current Agent`support`Statement: Hierarchy, available tools, scope, and evidence documentation. It only describes authenticated entries and does not replace progressive authorization. Isolated synthetic data environment to run`scripts/mcp-acceptance.py`Check tool discovery, allow, R010 deny, mask, and two persistent audit IDs; API Key is only available from`AGENTSQL_MCP_ACCEPTANCE_KEY`Environment variables are read. Example:
+In the current version, `list_datasources` returns a `support` declaration for data sources visible to the Agent, including the support tier, available tools, scope, and evidence documentation. Every request still goes through authorization. After seeding an isolated environment with the repository's demo manifest, run `scripts/mcp-acceptance.py` to check tool discovery, an allowed query, an R010 denial, masking, and two durable audit IDs. The API key is read only from `AGENTSQL_MCP_ACCEPTANCE_KEY`:
 
 ```bash
 AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py \
-  --mcp-url https://demo.agentsql.cn/mcp --datasource-id "$DEMO_DATASOURCE_ID" \
-  --allow-sql 'SELECT id, name, phone FROM public.users LIMIT 2' \
-  --deny-sql 'DELETE FROM public.users WHERE id = 1' --deny-rule R010
+  --mcp-url http://127.0.0.1:7780/mcp --datasource-id ds-demo-pg \
+  --allow-sql 'SELECT c.id, c.full_name, c.phone, c.email, c.region, o.status FROM public.demo_b2_customers c JOIN public.demo_b2_orders o ON o.customer_id=c.id WHERE o.id=1' \
+  --deny-sql 'SELECT * FROM public.demo_b2_customers WHERE id = 1' --deny-rule R010
 ```
 
-The actual data source ID and synthetic script SQL of the actual demo should be based on the current configuration of the environment; do not send real customer data to the public network demo. The script only outputs the verdict, audit ID, and number of masked cells.
+This example depends on the column grants in `examples/docker/demo-seed.yaml`. For another environment, choose an authorized query and a query rejected by R010. Do not send real customer data to the public demo. The script prints only the decision, audit IDs, and masked-cell count.
 
 ## Select transfer method
 

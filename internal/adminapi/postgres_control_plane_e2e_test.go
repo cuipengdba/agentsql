@@ -733,9 +733,11 @@ type adminE2EPage[T any] struct {
 }
 
 type adminE2EMCPResponse struct {
-	Decision string
-	Reason   string
-	Data     json.RawMessage
+	Decision   string
+	Reason     string
+	Data       json.RawMessage
+	ErrorCode  string
+	ErrorStage string
 }
 
 type adminE2EPipelineData struct {
@@ -855,9 +857,11 @@ func adminE2EMCPCall(
 	var decoded struct {
 		Result struct {
 			StructuredContent struct {
-				Decision string          `json:"decision"`
-				Reason   string          `json:"reason"`
-				Data     json.RawMessage `json:"data"`
+				Decision   string          `json:"decision"`
+				Reason     string          `json:"reason"`
+				Data       json.RawMessage `json:"data"`
+				ErrorCode  string          `json:"error_code"`
+				ErrorStage string          `json:"error_stage"`
 			} `json:"structuredContent"`
 		} `json:"result"`
 		Error *struct {
@@ -869,9 +873,11 @@ func adminE2EMCPCall(
 	require.Nil(t, decoded.Error, string(contents))
 	require.NotEmpty(t, decoded.Result.StructuredContent.Decision, string(contents))
 	return adminE2EMCPResponse{
-		Decision: decoded.Result.StructuredContent.Decision,
-		Reason:   decoded.Result.StructuredContent.Reason,
-		Data:     decoded.Result.StructuredContent.Data,
+		Decision:   decoded.Result.StructuredContent.Decision,
+		Reason:     decoded.Result.StructuredContent.Reason,
+		Data:       decoded.Result.StructuredContent.Data,
+		ErrorCode:  decoded.Result.StructuredContent.ErrorCode,
+		ErrorStage: decoded.Result.StructuredContent.ErrorStage,
 	}
 }
 

@@ -2,6 +2,12 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.3.0] Candidate
+
+- Verified server-certificate TLS for a pinned DM8 Pack3 build fails closed on wrong CAs, wrong names, and plaintext downgrade.
+- Bounded recognition of `TOPN2` plans and physical scan rows. Live MCP checks cover permission, masking, audit, limited concurrency, and network failure/recovery.
+- See the [v3.3.0 release notes](docs/en/release-notes-v3.3.0.md) and [candidate acceptance](docs/en/v3.3.0-acceptance.md) for the tested boundary; formal publication is pending.
+
 ## [v3.2.0]
 
 - PostgreSQL B2 read approvals rerun live column authorization, object binding, masking, and durable audit after approval. Requests do not read business rows.

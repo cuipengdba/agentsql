@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -68,6 +69,7 @@ var dmExplainOperators = map[string]struct{}{
 	"NSET2":                 {},
 	"PRJT2":                 {},
 	"SLCT2":                 {},
+	"TOPN2":                 {},
 	"CSCN":                  {},
 	"CSCN2":                 {},
 	"CSEK":                  {},
@@ -292,6 +294,7 @@ func normalizeDMPlan(nodes []dmPlanNode) (model.ExplainInfo, error) {
 
 	info := model.ExplainInfo{EstScanRows: nodes[0].rows, EstCost: nodes[0].cost}
 	var normalized strings.Builder
+	var physicalScanRows int64
 	for _, node := range nodes {
 		switch node.operation {
 		case "CSEK", "CSEK2", "SSEK", "SSEK2", "SSCN", "SSCN2", "BLKUP", "BLKUP2":
@@ -299,11 +302,21 @@ func normalizeDMPlan(nodes []dmPlanNode) (model.ExplainInfo, error) {
 		case "CSCN", "CSCN2":
 			info.SeqScan = true
 		}
+		switch node.operation {
+		case "CSCN", "CSCN2", "SSCN", "SSCN2", "CSEK", "CSEK2", "SSEK", "SSEK2":
+			if node.rows > math.MaxInt64-physicalScanRows {
+				return model.ExplainInfo{}, fmt.Errorf("DM EXPLAIN scan row estimate overflow")
+			}
+			physicalScanRows += node.rows
+		}
 		fmt.Fprintf(
 			&normalized, "%d|%d|%s|%d|%s\n",
 			node.id, node.level, node.operation, node.rows,
 			strconv.FormatFloat(node.cost, 'g', -1, 64),
 		)
+	}
+	if physicalScanRows > info.EstScanRows {
+		info.EstScanRows = physicalScanRows
 	}
 	info.Raw = strings.TrimSuffix(normalized.String(), "\n")
 	return info, nil
@@ -344,6 +357,25 @@ func classifyDMError(ctx context.Context, stage DBStage, cause error) (error, bo
 }
 
 func buildDMDSN(datasource model.Datasource, password string) (string, error) {
+	if datasource.TrustServerCertificate {
+		return "", fmt.Errorf("build DM connection configuration: unverified server certificates are forbidden")
+	}
+	switch datasource.TLSMode {
+	case "":
+		if datasource.TLSCAFile != "" || datasource.TLSServerName != "" {
+			return "", fmt.Errorf("build DM connection configuration: TLS certificate options require verify-full")
+		}
+	case "verify-full":
+		if datasource.TLSCAFile == "" || !filepath.IsAbs(datasource.TLSCAFile) ||
+			datasource.TLSServerName == "" ||
+			strings.ContainsAny(datasource.TLSCAFile, "?&") ||
+			strings.ContainsAny(datasource.TLSServerName, "?&=") ||
+			containsControl(datasource.TLSCAFile) || containsControl(datasource.TLSServerName) {
+			return "", fmt.Errorf("build DM connection configuration: verify-full requires an absolute CA file and safe server name")
+		}
+	default:
+		return "", fmt.Errorf("build DM connection configuration: unsupported TLS mode")
+	}
 	// dm8 v8.1.4.80 splits this DSN itself and does not URL-decode userinfo.
 	// An '@' in the password is safe because the driver uses LastIndex("@"),
 	// while '?' and control characters cannot be represented unambiguously.
@@ -363,6 +395,9 @@ func buildDMDSN(datasource model.Datasource, password string) (string, error) {
 		return "", err
 	}
 	query += "&dialName=" + registerDMBoundedDial(timeoutMS)
+	if datasource.TLSMode == "verify-full" {
+		query += "&sslCaPath=" + datasource.TLSCAFile + "&sslServerName=" + datasource.TLSServerName
+	}
 	return "dm://" + datasource.Username + ":" + password + "@" +
 		net.JoinHostPort(datasource.Host, strconv.Itoa(datasource.Port)) + "?" + query, nil
 }

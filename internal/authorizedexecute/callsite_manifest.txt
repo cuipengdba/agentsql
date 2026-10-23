@@ -12,3 +12,5 @@ cmd/agentsqlctl/
 scripts/highgo/pgx-probe/main.go
 # Build-tagged native-driver binding and least-privilege probe on disposable objects.
 scripts/yashan-native-probe.go
+# Pinned MIT DM driver implementation; product callers remain inside businessdb.
+third_party/gorm-dameng/dm8/

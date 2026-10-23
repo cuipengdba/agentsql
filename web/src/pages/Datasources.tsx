@@ -264,7 +264,7 @@ export function Datasources() {
               } else if (dbType === "sqlserver") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
-              } else if (dbType === "postgres" || dbType === "vastbase" || dbType === "opengauss") {
+              } else if (dbType === "postgres" || dbType === "vastbase" || dbType === "opengauss" || dbType === "dm") {
                 form.setFieldValue("tls_mode", "verify-full");
                 form.setFieldValue("trust_server_certificate", false);
               } else {
@@ -315,6 +315,13 @@ export function Datasources() {
               <Form.Item name="tls_mode" label="TLS 模式"><Select options={[{ value: "strict", label: "strict（受控检索，校验 CA 和主机名）" }, { value: "verify-full", label: "verify-full（受控检索）" }]} /></Form.Item>
               <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/milvus-ca.pem" /></Form.Item>
               <Form.Item name="tls_server_name" label="证书主机名（可选，默认连接主机）"><Input placeholder="milvus.example.com" /></Form.Item>
+            </> : getFieldValue("db_type") === "dm" ? <>
+              <Alert className="cfg-inline-alert" type="warning" showIcon message="达梦 DM8 Pack3 指定实例的受限只读路径。新建连接须在服务器启用加密并配置可验证证书；旧版未设置 TLS 的数据源只保留兼容行为，不代表安全连接已验证。" />
+              <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>
+                <Select options={[{ value: "verify-full", label: "verify-full（校验 CA 和主机名）" }]} />
+              </Form.Item>
+              <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/dm-ca.pem" /></Form.Item>
+              <Form.Item name="tls_server_name" label="证书主机名" rules={[{ required: true, whitespace: true }]}><Input placeholder="dm.example.com" /></Form.Item>
             </> : getFieldValue("db_type") === "postgres" || getFieldValue("db_type") === "vastbase" || getFieldValue("db_type") === "opengauss" ? <>
               <Alert className="cfg-inline-alert" type="info" showIcon message={getFieldValue("db_type") === "opengauss" ? "openGauss 7.0.0 LTS 必须使用 verify-full、可信 CA 和匹配的证书主机名。" : getFieldValue("db_type") === "vastbase" ? "Vastbase G100 Build 9 PG 模式可在指定隔离实例使用 verify-full。该实例须启用 ssl 并通过账号访问规则拒绝明文；require_ssl=on 会拒绝当前 PG 驱动协议，不能用于这条适配路径。" : "PostgreSQL 协议路径（含已验证的金仓 PG 模式）可显式启用证书和主机名校验；金仓其他模式与完整生产支持仍需单独验收。"} />
               <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>

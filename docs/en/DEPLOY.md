@@ -2,7 +2,7 @@
 
 **Language:** [English](DEPLOY.md) | [Simplified Chinese](../DEPLOY.md)
 
-> Current guidance: Applies to v3.2.0 and compatible 3.2.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.3.0 and compatible 3.3.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 AgentSQL is a database security gateway and production-grade MCP Server for AI Agents. Metadata and audit records are saved locally in SQLite by default, and the PostgreSQL control plane can also be used; business databases still use their respective PostgreSQL or MySQL connections.
 
@@ -290,7 +290,7 @@ Stop the control plane service, restore the original SQLite configuration, resto
 
 ## Method 2: Native binary
 
-Building from source code relies on Go 1.26, C compiler and glibc compatible environment; the official release script of v3.2.0 uses Go 1.26.10. `pg_query_go` cgo must be enabled.
+Building from source code relies on Go 1.26, C compiler and glibc compatible environment; the official release script of v3.3.0 uses Go 1.26.10. `pg_query_go` cgo must be enabled.
 
 ### Precompiled binary system requirements
 
@@ -891,18 +891,18 @@ If the SQLite CLI of the operation and maintenance environment does not support 
 
 ## Publish and distribute
 
-The current official version is v3.2.0, and the maintenance version is executed according to the [ each version delivery process ](RELEASE_ROUTINE.md). For the current assets and verification steps, see [ for issuing assets ](RELEASE_ASSETS.md), and for actual results, see [ for issuing evidence ](v3.2.0-release-evidence.md). Complete and clean submissions must be locked before release, and source code, testing and build input must be checked before and after execution; old packages or placeholder signatures cannot be reused.
+The current official version is v3.3.0, and the maintenance version is executed according to the [ each version delivery process ](RELEASE_ROUTINE.md). For the current assets and verification steps, see [ for issuing assets ](RELEASE_ASSETS.md), and for actual results, see [ for issuing evidence ](v3.3.0-release-evidence.md). Complete and clean submissions must be locked before release, and source code, testing and build input must be checked before and after execution; old packages or placeholder signatures cannot be reused.
 
 ```powershell
 # A complete dual-architecture preview without signing or pushing.
-pwsh ./scripts/release-dryrun.ps1 -Version v3.2.0
+pwsh ./scripts/release-dryrun.ps1 -Version v3.3.0
 
 # Production ready: Independently verified controlled public keys must be used.
 $trustedReleasePublicKey = '<trusted-public-key-absolute-path>'
-pwsh ./scripts/release-dryrun.ps1 -Version v3.2.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
+pwsh ./scripts/release-dryrun.ps1 -Version v3.3.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
 
 # After signing and acceptance, push the exact version image from the same annotated tag.
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.2.0 -IncludeAuxiliaryTags -Push
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.3.0 -IncludeAuxiliaryTags -Push
 ```
 
 Production preparation generates 11 assets to be signed, 15 in total after signing SBOM, provenance, and SHA256SUMS. Perform three Ed25519 signature verifications to check packages, source submissions, versions, dual architectures, runtime libraries and anonymous downloads. GHCR main image, Demo, quickstart must be public and contain amd64/arm64; pull, run and record the actual digest in a non-login environment. After the official website and demo are passed, use the accepted master image summary to separately upgrade `latest`, and re-verify anonymously. In the past, the phased strategy of suspending the official website for v1.1–v1.4 has ended and cannot be used as a basis for skipping the official website and demo in the current version.
@@ -1034,7 +1034,7 @@ When rolling back, stop all v1.4.0 gateways, restore the metadata, audit, and `A
 
 New`postgres`When using the data source, the console bootstraps using`tls_mode: verify-full`. Mount the trusted CA certificate as a read-only file to**Each gateway container**, fill in the absolute path within the container in the data source`tls_ca_file`。`tls_server_name`Optional; when omitting the connection host name in the certificate, it must match the certificate SAN when filled in. The gateway will reject missing CAs, relative paths, unvalidated certificate trust switches, and unsupported TLS modes and will not`verify-full`Fallback to clear text. The server needs to enable TLS and configure the corresponding certificate; the firewall or database access rules should deny clear-text connections that do not meet the deployment requirements.
 
-The above capabilities of KingbaseES KingbaseES V9R1C10 are only verified on PG mode, isolated single instance and synthetic data. Using the `postgres` protocol path does not mean that other modes or versions of KingbaseES obtain the full permissions and execution guarantees of PostgreSQL. An empty `tls_mode` of an existing data source still retains the old connection behavior, and **cannot be** considered as verified TLS; before migrating, prepare the CA, test server certificate hostname and failure rejection in the isolation environment, and then explicitly update the data source. Submit the new CA path and host name when rotating the certificate, and check the mounting and querying node by node; after updating the database account password, use the new connection to review the MCP query, masking and persistent auditing. Dameng DM8 The current driver cannot verify the server certificate and the management API continues to reject its explicit TLS option.
+The above capabilities of KingbaseES KingbaseES V9R1C10 are only verified on PG mode, isolated single instance and synthetic data. Using the `postgres` protocol path does not mean that other modes or versions of KingbaseES obtain the full permissions and execution guarantees of PostgreSQL. An empty `tls_mode` of an existing data source still retains the old connection behavior, and **cannot be** considered as verified TLS; before migrating, prepare the CA, test server certificate hostname and failure rejection in the isolation environment, and then explicitly update the data source. Submit the new CA path and host name when rotating the certificate, and check the mounting and querying node by node; after updating the database account password, use the new connection to review the MCP query, masking and persistent auditing. The pinned DM8 Pack3 build in v3.3.0 uses a pinned driver copy to verify the server certificate. Set `ENABLE_ENCRYPT=1` and `MIN_SSL_VERSION=771` on the server. Give the gateway an absolute path to the trusted CA and the expected certificate name, and explicitly set `tls_mode=verify-full`, `tls_ca_file`, and `tls_server_name` on the datasource. Empty legacy mode remains compatible but unverified; wrong CAs, names, or encryption modes fail before execution. Acceptance covers one synthetic single-instance environment; see [v3.3.0 acceptance](v3.3.0-acceptance.md).
 
 ## v1.8.0: TLS deployment boundaries for Vastbase G100 Build 9
 

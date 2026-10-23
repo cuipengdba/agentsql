@@ -1464,5 +1464,8 @@
   "PostgreSQL/MySQL 数据源与模式匹配": "PostgreSQL/MySQL datasource and schema match",
   "将 SQLBot 工作空间与人员映射到本租户的只读 Agent 和 PostgreSQL/MySQL 数据源。": "Map SQLBot workspaces and users to this tenant's readonly Agents and PostgreSQL/MySQL datasources.",
   "PostgreSQL/MySQL 数据源": "PostgreSQL/MySQL datasource",
-  "MySQL 模式固定为当前数据源的数据库名称。": "For MySQL, the schema equals this datasource's database name."
+  "MySQL 模式固定为当前数据源的数据库名称。": "For MySQL, the schema equals this datasource's database name.",
+  "达梦 DM8 Pack3 指定实例的受限只读路径。新建连接须在服务器启用加密并配置可验证证书；旧版未设置 TLS 的数据源只保留兼容行为，不代表安全连接已验证。": "Limited read-only access for the pinned DM8 Pack3 instance. New connections require server-side encryption and a verifiable certificate. Older datasources without TLS retain compatibility behavior without verified connection security.",
+  "verify-full（校验 CA 和主机名）": "verify-full (verify CA and hostname)",
+  "证书主机名": "Certificate hostname"
 }

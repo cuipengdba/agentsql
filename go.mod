@@ -1,5 +1,7 @@
 module github.com/cuipengdba/agentsql
 
+replace github.com/godoes/gorm-dameng => ./third_party/gorm-dameng
+
 go 1.26.0
 
 // The Qdrant SDK lists a newer testcontainers release for its own tests;
