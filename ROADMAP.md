@@ -44,7 +44,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.0)） | 30 款已注册数据库的统一能力目录、只读交付诊断、可复核 MCP 合成场景验收；正式资产、升级恢复、GHCR、官网和 Demo 验收见[发布证据](docs/v3.0.0-release-evidence.md)。不新增数据库驱动或完整生产支持声明。 |
 | v3.0.1 | 已发布 | 官网、GitHub 项目文档和 Web 控制台的中英文入口，控制台菜单滚动修复；不改变数据库支持范围。见[设计](docs/v3.0.1-design.md)、[发布说明](docs/release-notes-v3.0.1.md)与[发布记录](docs/v3.0.1-release-evidence.md)。 |
 | v3.0.2 | 已发布 | 全量中英文文档、当前运维入口、SQLBot v1.10.2 PostgreSQL 执行层适配、浅色导航与统一 Logo；见[发布说明](docs/release-notes-v3.0.2.md)和[验收记录](docs/v3.0.2-acceptance.md)。 |
-| v3.1.0 | 开发与验收中 | SQLBot v2 普通登录用户绑定、PostgreSQL 业务接入、只读审批接续、中英文映射管理；见[设计](docs/v3.1.0-design.md)与[验收](docs/v3.1.0-acceptance.md)。 |
+| v3.1.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.1.0)） | SQLBot v2 普通登录用户绑定、PostgreSQL 业务接入、只读审批接续、中英文映射管理；见[设计](docs/v3.1.0-design.md)、[验收](docs/v3.1.0-acceptance.md)与[发布证据](docs/v3.1.0-release-evidence.md)。B2 开启时只读审批仍失败关闭。 |
 | v3.2.0 | 待开发 | PostgreSQL B2 列授权与只读审批安全组合、PostgreSQL/MySQL 查询与列授权深化、SQLBot MySQL 接入、策略影响分析和派生结果保护。 |
 | v3.3.0 | 待开发 | 达梦指定版本的 TLS、查询子集、成本控制、负载与恢复验证。 |
 | v3.4.0 | 待开发 | 金仓与 Vastbase 的查询、类型、列级授权及运维专项深化。 |
@@ -55,9 +55,9 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.9.0 | 待开发 | Oracle 和 SQL Server 的证书、计划、查询与指定拓扑验证。 |
 | v4.0.0 | 待开发 | 原规划第十版的企业交付与长期维护基线：离线包、跨版本升级、诊断与统一验收。 |
 
-## v3.1.0 当前开发与验收范围
+## v3.1.0 设计与验收范围
 
-按用户 2026-10-23 的指令依次实施 v3.1.0～v4.0.0 共十版；当前先完成 v3.1.0。原规划第十版编号为 v3.10.0，企业交付与长期维护内容现由 v4.0.0 承接。下表仅列 v3.1.0 开发与验收目标，不作为完成声明。范围依据见[设计](docs/v3.1.0-design.md)、[验收](docs/v3.1.0-acceptance.md)与[升级指南](docs/v3.1.0-upgrade.md)。
+按用户 2026-10-23 的指令依次实施 v3.1.0～v4.0.0 共十版；v3.1.0 已完成正式交付。原规划第十版编号为 v3.10.0，企业交付与长期维护内容现由 v4.0.0 承接。下表保留本版设计与验收目标，实际完成情况以[发布证据](docs/v3.1.0-release-evidence.md)为准；范围依据见[设计](docs/v3.1.0-design.md)、[验收](docs/v3.1.0-acceptance.md)与[升级指南](docs/v3.1.0-upgrade.md)。
 
 | 功能 | v3.1.0 范围 | 发布前关键证据 |
 | --- | --- | --- |

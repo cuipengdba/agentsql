@@ -44,7 +44,7 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 | v3.0.0 | Released ([ Official Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.0.0)) | Unified capability catalog of 30 registered databases, read-only delivery diagnosis, reviewable MCP synthesis scenario acceptance; formal asset, upgrade recovery, GHCR, official website and Demo acceptance see [ release evidence ](docs/en/v3.0.0-release-evidence.md). No new database drivers or full production support statements will be added. |
 | v3.0.1 | Published | The Chinese and English portals of the official website, GitHub project documents and Web console, and the scrolling of the console menu are fixed; the database support range is not changed. See [ design ](docs/en/v3.0.1-design.md), [ release notes ](docs/en/release-notes-v3.0.1.md) and [ release record ](docs/en/v3.0.1-release-evidence.md). |
 | v3.0.2 | Released | Full Chinese and English documentation, current operation and maintenance portal, SQLBot v1.10.2 PostgreSQL execution layer adaptation, light-colored navigation and unified logo; see [ release notes ](docs/en/release-notes-v3.0.2.md) and [ acceptance record ](docs/en/v3.0.2-acceptance.md). |
-| v3.1.0 | Under development and validation | SQLBot v2 ordinary logged-in user bindings, PostgreSQL business integration, readonly approval continuation and bilingual mapping management; see [design](docs/en/v3.1.0-design.md) and [acceptance](docs/en/v3.1.0-acceptance.md). |
+| v3.1.0 | Released ([formal Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.1.0)) | SQLBot v2 ordinary logged-in user bindings, PostgreSQL business integration, read approval continuation and bilingual mapping management; see [design](docs/en/v3.1.0-design.md), [acceptance](docs/en/v3.1.0-acceptance.md) and [release evidence](docs/en/v3.1.0-release-evidence.md). Read approvals still fail closed with B2 enabled. |
 | v3.2.0 | Planned | Safe composition of PostgreSQL B2 column authorization and read approvals, deeper PostgreSQL/MySQL queries and column authorization, SQLBot MySQL integration, policy impact analysis and derived result protection. |
 | v3.3.0 | Planned | TLS, query subset, cost controls, load and recovery validation for a specified Dameng version. |
 | v3.4.0 | Planned | Focused Kingbase and Vastbase improvements for queries, types, column authorization and operations. |
@@ -55,9 +55,9 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 | v3.9.0 | Planned | Oracle and SQL Server certificates, plans, queries and specified topology validation. |
 | v4.0.0 | Planned | Enterprise delivery and long-term maintenance baseline from the original tenth release: offline packages, multi-version upgrades, diagnostics and unified acceptance. |
 
-## v3.1.0 current development and acceptance scope
+## v3.1.0 design and acceptance scope
 
-The user's 2026-10-23 instruction authorizes sequential delivery of ten releases from v3.1.0 through v4.0.0; v3.1.0 comes first. The original plan numbered the tenth release v3.10.0; its enterprise delivery and long-term maintenance scope now belongs to v4.0.0. The table below describes v3.1.0 development and validation targets, not completed claims. See the [design](docs/en/v3.1.0-design.md), [acceptance](docs/en/v3.1.0-acceptance.md) and [upgrade guide](docs/en/v3.1.0-upgrade.md).
+The user's 2026-10-23 instruction authorizes sequential delivery of ten releases from v3.1.0 through v4.0.0; v3.1.0 has now been formally delivered. The original plan numbered the tenth release v3.10.0; its enterprise delivery and long-term maintenance scope now belongs to v4.0.0. The table below retains this release's design and acceptance targets; actual delivery is documented in the [release evidence](docs/en/v3.1.0-release-evidence.md). See also the [design](docs/en/v3.1.0-design.md), [acceptance](docs/en/v3.1.0-acceptance.md) and [upgrade guide](docs/en/v3.1.0-upgrade.md).
 
 | Feature | v3.1.0 scope | Required release evidence |
 | --- | --- | --- |

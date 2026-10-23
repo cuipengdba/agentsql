@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](RELEASE_PROCESS.md) | [English](en/RELEASE_PROCESS.md)
 
-当前正式基线：v3.0.2；v3.1.0 正在候选验收。每次维护版按[每版交付流程](RELEASE_ROUTINE.md)完成设计、代码、测试、升级恢复、CI、签名产物、GitHub Release、GHCR、官网和 Demo 的完整交付。
+当前正式基线：v3.1.0，交付证据见[发布记录](v3.1.0-release-evidence.md)。每次维护版按[每版交付流程](RELEASE_ROUTINE.md)完成设计、代码、测试、升级恢复、CI、签名产物、GitHub Release、GHCR、官网和 Demo 的完整交付。
 
 1. 核对上一正式版和本版范围，编写设计与验收用例。数据库支持声明绑定指定版本、模式、操作与实测证据。
 2. 在隔离分支完成代码、内嵌 Web、文档、官网和 PDF。执行 Go/Web、适用安全负向集、真实集成以及升级恢复检查。
@@ -17,4 +17,4 @@
 
 任一必需门禁失败就修复并重新验证对应候选。若线上切换失败，恢复旧配置与成套数据备份，不把候选写成已通过。历史发布物及其许可、摘要和签名保持不变。
 
-v3.1.0 的候选与发布进度见[发布记录](v3.1.0-release-evidence.md)。[早期发布执行记录](release-process-history.md)保留原始时间与版本，不能代替本轮验收。
+v3.1.0 的正式交付见[发布记录](v3.1.0-release-evidence.md)。[早期发布执行记录](release-process-history.md)保留原始时间与版本，不能代替本轮验收。
