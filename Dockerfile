@@ -2,7 +2,6 @@
 
 FROM golang:1.26.10-bookworm AS build
 
-ARG VERSION=v3.4.1
 # Overridable module proxy for restricted networks, e.g.
 # `docker build --build-arg GOPROXY=https://goproxy.cn,direct`.
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -14,7 +13,7 @@ ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc binutils libc6-dev ca-certificates curl \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc binutils libc6-dev ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
@@ -40,6 +39,7 @@ RUN case "${TARGETARCH}" in \
 
 # The repository includes internal/webui/dist; frontend tooling is not run here.
 COPY . .
+ARG VERSION=v3.5.0
 RUN --mount=type=cache,target=/root/.cache/go-build mkdir -p /out \
     && GOFLAGS= CGO_ENABLED=1 go build -tags yashan -trimpath \
         -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build mkdir -p /out \
 
 FROM debian:bookworm-slim AS runtime
 
-ARG VERSION=v3.4.1
+ARG VERSION=v3.5.0
 ARG REVISION
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \
@@ -61,7 +61,7 @@ LABEL org.opencontainers.image.title="AgentSQL" \
 ENV LD_LIBRARY_PATH=/opt/yashandb-client/lib
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system agentsql \
     && useradd --system --gid agentsql --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql \
