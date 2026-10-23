@@ -2,7 +2,7 @@
 
 **Language:** [English](release-notes-v3.3.0.md) | [Chinese](../release-notes-v3.3.0.md)
 
-Status: release candidate. Formal publication depends on the [acceptance record](v3.3.0-acceptance.md) and release evidence.
+Status: **formally released**. Delivery is documented in the [acceptance record](v3.3.0-acceptance.md) and [release evidence](v3.3.0-release-evidence.md).
 
 ## Changes
 

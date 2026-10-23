@@ -9,12 +9,12 @@
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "9dbe9ccfc8b322eea51c8ccf453d5c1981efca8e6be129186455711bfbaeaed7"
+      "source_sha256": "e1c337b3a3cdc0420364e19cbf5345f3d98cb0b8bd09deb53f2a2b0e1fa0e5a5"
     },
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "7a2cceadfb3a4ea91b7c553e0db588fbe1bc5fa0f22ca600ffa3672873a844e8"
+      "source_sha256": "e6dffe7efdc92756bdc29bb0272c6de51dfc7c4b57faf402493851cc15a4446f"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -999,17 +999,22 @@
     {
       "source": "docs/v3.3.0-design.md",
       "english": "docs/en/v3.3.0-design.md",
-      "source_sha256": "8e86bf02ac5f069dab6eb894c89fffb4758bd3e71f53c9c38a52cf6e30cebfcb"
+      "source_sha256": "3ec71a98416a701765b56cc2607c5f1b91405295feca4c11e2019b1b94dc5d6a"
     },
     {
       "source": "docs/release-notes-v3.3.0.md",
       "english": "docs/en/release-notes-v3.3.0.md",
-      "source_sha256": "be222c9b93278878f71c26e7a3600fd218f4ea0d4f31241ec936842b55758953"
+      "source_sha256": "fcab7a88fbe85f30a3253f0e692e431d2073065667bb8f328387657e423278ab"
     },
     {
       "source": "docs/v3.3.0-acceptance.md",
       "english": "docs/en/v3.3.0-acceptance.md",
-      "source_sha256": "694732562c2bfe943ce192d9b35b3e9b57fed4b0347e15e24d826f1d70d1618f"
+      "source_sha256": "58156ead6b943d1626b4a2601a3a0835c2ce3d14679a96dd0bb2632c1b26d62a"
+    },
+    {
+      "source": "docs/v3.3.0-release-evidence.md",
+      "english": "docs/en/v3.3.0-release-evidence.md",
+      "source_sha256": "3bc5a835fc3c5c77d08c8a4a7a7610fc4deb2df050b70288824c6696f37ae33b"
     }
   ]
 }
