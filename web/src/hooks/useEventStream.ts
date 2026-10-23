@@ -119,18 +119,20 @@ const optionalStringFields = [
 
 const optionalNumberFields = ["risk_level", "est_rows", "rows_returned", "latency_ms"] as const;
 
-function parseAudit(frame: SSEFrame): AuditStreamEvent | null {
+export function parseAudit(frame: SSEFrame): AuditStreamEvent | null {
   try {
     const value: unknown = JSON.parse(frame.data);
     if (!isRecord(value) || !Number.isSafeInteger(value.id) || typeof value.ts !== "string" || typeof value.decision !== "string") {
       return null;
     }
     const frameIDText = frame.id?.trim();
-    if (!frameIDText) {
+    if (!frameIDText || !/^[1-9]\d*$/.test(frameIDText)) {
       return null;
     }
     const frameID = Number(frameIDText);
-    if (!Number.isSafeInteger(frameID) || frameID !== value.id) {
+    // In a shared audit store, SSE id is a tenant-local resume cursor while
+    // data.id remains the immutable audit record ID. They can differ.
+    if (!Number.isSafeInteger(frameID) || frameID < 1) {
       return null;
     }
 
@@ -183,6 +185,7 @@ export function useEventStream({ enabled = true, onAudit, onHello }: EventStream
   const lastActivityRef = useRef(0);
   const authFailureHandledRef = useRef(false);
   const fallbackModeRef = useRef(false);
+  const cursorRef = useRef<string | null>(null);
   const reconnectRequestRef = useRef<() => void>(() => undefined);
 
   onAuditRef.current = onAudit;
@@ -201,6 +204,7 @@ export function useEventStream({ enabled = true, onAudit, onHello }: EventStream
     disposedRef.current = false;
     authFailureHandledRef.current = false;
     fallbackModeRef.current = false;
+    cursorRef.current = null;
 
     const isCurrent = (generation: number) => !disposedRef.current && generationRef.current === generation;
 
@@ -238,6 +242,7 @@ export function useEventStream({ enabled = true, onAudit, onHello }: EventStream
     const stopForUnauthorized = (generation: number) => {
       if (!isCurrent(generation) || authFailureHandledRef.current) return;
       authFailureHandledRef.current = true;
+      cursorRef.current = null;
       clearRetryTimer();
       cancelConnection();
       generationRef.current += 1;
@@ -296,7 +301,10 @@ export function useEventStream({ enabled = true, onAudit, onHello }: EventStream
       void (async () => {
         try {
           const response = await fetch("/api/v1/stream", {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(cursorRef.current ? { "Last-Event-ID": cursorRef.current } : {}),
+            },
             signal: controller.signal,
           });
           if (!isCurrent(generation)) return;
@@ -347,6 +355,7 @@ export function useEventStream({ enabled = true, onAudit, onHello }: EventStream
               if (frame.event === "audit") {
                 const audit = parseAudit(frame);
                 if (!audit) return;
+                cursorRef.current = frame.id!.trim();
                 try {
                   onAuditRef.current?.(audit);
                 } catch {

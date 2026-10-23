@@ -75,4 +75,21 @@ func TestDurableAuditStreamAcrossGatewaysManual(t *testing.T) {
 	live := readSSEFrame(t, reader)
 	require.True(t, strings.Contains(live, "id: 2\n"), live)
 	require.NotContains(t, live, `"decision":"deny"`)
+	require.NoError(t, response.Body.Close())
+	for _, cursor := range []string{"invalid", "999"} {
+		invalidRequest, requestErr := http.NewRequest(http.MethodGet, server.URL, nil)
+		require.NoError(t, requestErr)
+		invalidRequest.Header.Set("Last-Event-ID", cursor)
+		invalidResponse, responseErr := client.Do(invalidRequest)
+		require.NoError(t, responseErr)
+		require.Equal(t, http.StatusBadRequest, invalidResponse.StatusCode)
+		require.NoError(t, invalidResponse.Body.Close())
+	}
+	require.NoError(t, second.Close())
+	unavailableRequest, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	unavailableResponse, err := client.Do(unavailableRequest)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, unavailableResponse.StatusCode)
+	require.NoError(t, unavailableResponse.Body.Close())
 }

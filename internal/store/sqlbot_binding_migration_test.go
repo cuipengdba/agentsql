@@ -70,7 +70,7 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 				auditDSN := startPostgres18StoreContainer(t, ctx, "sqlbot_upgrade_audit", "synthetic-audit-password")
 				auditDB, err := sql.Open("pgx", auditDSN)
 				require.NoError(t, err)
-				migratePostgresThroughVersion(t, ctx, auditDB, "migrations/audit/postgres", 6)
+			migratePostgresThroughVersion(t, ctx, auditDB, "migrations/audit/postgres", 6)
 				_, err = auditDB.ExecContext(ctx, `INSERT INTO audit_logs(decision,error_msg) VALUES('deny','pre-sqlbot-safe-audit')`)
 				require.NoError(t, err)
 				require.NoError(t, auditDB.Close())
@@ -81,7 +81,11 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, s.Close()) })
 			current, latest, err := MetadataMigrationVersions(ctx, s.metaDB, DialectPostgres, separate)
 			require.NoError(t, err)
-			require.Equal(t, previous+1, current)
+			expected := previous + 1
+			if !separate {
+				expected++ // v3.5 adds the combined-store audit stream migration.
+			}
+			require.Equal(t, expected, current)
 			require.Equal(t, current, latest)
 			var count int
 			require.NoError(t, s.metaDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM approvals WHERE id='pre-sqlbot-approval'`).Scan(&count))
@@ -89,8 +93,8 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 			if separate {
 				auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, s.auditDB, DialectPostgres)
 				require.NoError(t, err)
-				require.Equal(t, 6, auditCurrent)
-				require.Equal(t, 6, auditLatest)
+				require.Equal(t, 7, auditCurrent)
+				require.Equal(t, 7, auditLatest)
 				require.NoError(t, s.auditDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs WHERE error_msg='pre-sqlbot-safe-audit'`).Scan(&count))
 				require.Equal(t, 1, count)
 			}

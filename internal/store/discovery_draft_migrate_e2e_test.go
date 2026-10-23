@@ -128,8 +128,8 @@ SELECT action, actor_type, actor_id, details_json FROM audit_logs LIMIT 1`).Scan
 		require.Equal(t, 23, metadataLatest)
 		auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, opened.auditDB, DialectPostgres)
 		require.NoError(t, err)
-		require.Equal(t, 6, auditCurrent)
-		require.Equal(t, 6, auditLatest)
+		require.Equal(t, 7, auditCurrent)
+		require.Equal(t, 7, auditLatest)
 	})
 }
 
