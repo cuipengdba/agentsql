@@ -31,7 +31,7 @@ def _datasource(user, binding_id):
     if len(matches) != 1:
         raise AdapterError("No unique binding is available to this signed-in user", code="mapping_missing")
     binding = matches[0]
-    return SimpleNamespace(oid=binding["workspace_id"], name=binding["datasource_name"], type="pg")
+    return SimpleNamespace(oid=binding["workspace_id"], name=binding["datasource_name"], type=binding.get("dialect"))
 
 
 async def _body(request):

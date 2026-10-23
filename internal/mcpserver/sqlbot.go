@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
@@ -14,6 +16,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
 	pgquery "github.com/pganalyze/pg_query_go/v5"
+	"vitess.io/vitess/go/vt/sqlparser"
 )
 
 type sqlbotScopeContextKey struct{}
@@ -116,7 +119,7 @@ func (gate sqlbotHTTPGate) allowed(request *http.Request, b store.SQLBotBinding)
 		parts := strings.Split(a.Table, ".")
 		return len(parts) == 1 || len(parts) == 2 && parts[0] == b.SchemaName
 	case "query", "explain_query", "request_approval":
-		return a.DatasourceID == b.DatasourceID && sqlbotReadOnly(a.SQL)
+		return a.DatasourceID == b.DatasourceID && sqlbotReadOnlyForDatasource(a.SQL, b.DatasourceDBType)
 	case "get_approval_result", "execute_approved":
 		if gate.runtime == nil || gate.runtime.Store == nil {
 			return false
@@ -124,7 +127,100 @@ func (gate sqlbotHTTPGate) allowed(request *http.Request, b store.SQLBotBinding)
 		approval, err := gate.runtime.Store.Approvals().Get(request.Context(), a.ApprovalID)
 		return err == nil && approval.TenantID == b.TenantID && approval.AgentID != nil && *approval.AgentID == b.AgentID &&
 			approval.RequesterUserID != nil && *approval.RequesterUserID == b.AgentSQLUserID && approval.DatasourceID != nil &&
-			*approval.DatasourceID == b.DatasourceID && approval.SQLRaw != nil && sqlbotReadOnly(*approval.SQLRaw)
+			*approval.DatasourceID == b.DatasourceID && approval.SQLRaw != nil && sqlbotReadOnlyForDatasource(*approval.SQLRaw, b.DatasourceDBType)
+	default:
+		return false
+	}
+}
+
+func sqlbotReadOnlyForDatasource(sql, dbType string) bool {
+	if dbType == "mysql" {
+		return sqlbotMySQLReadOnly(sql)
+	}
+	if dbType != "postgres" {
+		return false
+	}
+	return sqlbotReadOnly(sql)
+}
+
+func sqlbotMySQLReadOnly(sql string) bool {
+	trimmed := strings.TrimSpace(sql)
+	if len(sql) > 65536 || strings.ContainsAny(sql, "@#`") || strings.Contains(sql, "--") ||
+		strings.Contains(sql, "/*") || strings.Contains(sql, ":=") ||
+		len(trimmed) <= len("SELECT") || !strings.EqualFold(trimmed[:len("SELECT")], "SELECT") ||
+		!strings.ContainsAny(trimmed[len("SELECT"):len("SELECT")+1], " \t\r\n") {
+		return false
+	}
+	p, err := parser.NewParser(model.DBDialect("mysql"))
+	if err != nil {
+		return false
+	}
+	ast, err := p.Parse(sql)
+	if err != nil || ast == nil || ast.IsMulti || ast.StmtType != model.StmtType("SELECT") {
+		return false
+	}
+	for _, op := range ast.Operations {
+		if op == "SQL_COMMENT" || op == "INTO OUTFILE" || op == "INTO DUMPFILE" ||
+			strings.HasPrefix(op, "EXPLAIN") {
+			return false
+		}
+	}
+	for _, function := range ast.Functions {
+		if !sqlbotMySQLFunctionAllowed(function) {
+			return false
+		}
+	}
+	for _, projection := range ast.ProjectionLineages {
+		for _, arm := range projection.Arms {
+			if arm.Status != model.LineageResolved && arm.Status != model.LineageSourceFree {
+				return false
+			}
+		}
+	}
+	vitessParser, err := sqlparser.New(sqlparser.Options{MySQLServerVersion: "8.0.30"})
+	if err != nil {
+		return false
+	}
+	parsed, err := vitessParser.Parse(sql)
+	if err != nil {
+		return false
+	}
+	if _, ok := parsed.(*sqlparser.Select); !ok {
+		return false
+	}
+	err = sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
+		switch expression := node.(type) {
+		case *sqlparser.Select:
+			if expression.With != nil || expression.Into != nil || expression.Lock != 0 {
+				return false, errors.New("SQLBot MySQL SELECT has unsupported side effects")
+			}
+		case *sqlparser.FuncExpr:
+			if !expression.Qualifier.IsEmpty() || !sqlbotMySQLFunctionAllowed(expression.Name.String()) {
+				return false, errors.New("SQLBot MySQL function is unsupported")
+			}
+		case sqlparser.AggrFunc:
+			if !sqlbotMySQLFunctionAllowed(expression.AggrName()) {
+				return false, errors.New("SQLBot MySQL aggregate is unsupported")
+			}
+		default:
+			// Vitess models several functions outside FuncExpr. Unknown function
+			// node types cannot inherit the short allowlist by accident.
+			if strings.Contains(strings.ToLower(reflect.TypeOf(node).String()), "func") {
+				return false, errors.New("SQLBot MySQL function node is unsupported")
+			}
+		}
+		return true, nil
+	}, parsed)
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+func sqlbotMySQLFunctionAllowed(name string) bool {
+	switch strings.ToLower(name) {
+	case "count", "sum", "avg", "min", "max", "abs", "round", "ceil", "ceiling", "floor", "lower", "upper", "length":
+		return true
 	default:
 		return false
 	}

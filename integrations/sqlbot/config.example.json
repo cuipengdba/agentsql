@@ -8,6 +8,7 @@
       "id": "binding-id-from-agentsql-console",
       "workspace_id": "1",
       "datasource_name": "AgentSQL PostgreSQL",
+      "dialect": "pg",
       "sqlbot_user_id": "1",
       "agent_key_env": "AGENTSQL_SQLBOT_READONLY_KEY",
       "connector_token_env": "AGENTSQL_SQLBOT_CONNECTOR_TOKEN"

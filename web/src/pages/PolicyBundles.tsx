@@ -144,6 +144,15 @@ export function PolicyBundles() {
               { title: "策略 ID", dataIndex: "id" }, { title: "操作", dataIndex: "operation" },
               { title: "放宽权限", dataIndex: "broadens_grant", render: (value: boolean) => value ? <Tag color="orange">需重点复核</Tag> : "否" },
             ]} />
+            <Alert type="warning" showIcon message="影响范围仅来自当前策略快照" description="对象、列和权限结果还受数据库对象绑定、实时规则、脱敏与审计影响；策略变更后，旧计划的源摘要会失效。" />
+            <Table size="small" rowKey="policy_id" pagination={false} scroll={{ x: 780 }} dataSource={plan.affected} columns={[
+              { title: "策略 ID", dataIndex: "policy_id" }, { title: "Agent", dataIndex: "agent_id" },
+              { title: "数据源", dataIndex: "datasource_id" },
+              { title: "变更前对象", dataIndex: "before_object", render: (value?: string) => value || "—" },
+              { title: "变更后对象", dataIndex: "after_object", render: (value?: string) => value || "—" },
+              { title: "列范围", render: (_, item) => `${item.before_columns.join(", ") || "未声明"} → ${item.after_columns.join(", ") || "未声明"}` },
+              { title: "结论", render: () => <Tag color="orange">需实时复验</Tag> },
+            ]} />
             {plan.replay?.length ? <Table size="small" rowKey={(row) => `${row.agent_id}/${row.datasource_id}/${row.object_name}`} pagination={false} dataSource={plan.replay} columns={[
               { title: "Agent", dataIndex: "agent_id" }, { title: "数据源", dataIndex: "datasource_id" },
               { title: "精确表名", dataIndex: "object_name" }, { title: "变更前", dataIndex: "before" }, { title: "变更后", dataIndex: "after" },

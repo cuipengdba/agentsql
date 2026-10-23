@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/stretchr/testify/require"
@@ -81,6 +82,41 @@ func TestSQLBotResolveAuthenticatesExactMappingAndLiveIdentity(t *testing.T) {
 		}
 	}
 	require.True(t, found)
+}
+
+func TestSQLBotMySQLBindingUsesVerifiedDialectAndExactDatabase(t *testing.T) {
+	f := newAdminFixture(t)
+	agent := f.agent
+	agent.Level = "readonly"
+	_, err := f.store.Agents().Update(context.Background(), agent)
+	require.NoError(t, err)
+	datasource, err := f.store.Datasources().Create(context.Background(), model.Datasource{
+		ID: "sqlbot-mysql", Name: "SQLBot MySQL", DBType: "mysql", Host: "mysql", Port: 3306,
+		Database: "app", Username: "reader", ConnLimit: 5, StmtTimeoutMS: 5000, RowLimit: 100,
+	}, "database-password")
+	require.NoError(t, err)
+	input := store.SQLBotBinding{WorkspaceID: "1", DatasourceName: "sales-mysql", SQLBotUserID: "42",
+		AgentSQLUserID: rbac.BootstrapUserID, AgentID: agent.ID, DatasourceID: datasource.ID,
+		SchemaName: "other", Enabled: true}
+	_, _, err = f.store.SQLBotBindings().Create(context.Background(), input, rbac.BootstrapUserID)
+	require.ErrorIs(t, err, store.ErrSQLBotBindingInvalid)
+	input.SchemaName = "app"
+	binding, credential, err := f.store.SQLBotBindings().Create(context.Background(), input, rbac.BootstrapUserID)
+	require.NoError(t, err)
+	v := NewSQLBotDelegationVerifier(DeriveTokenKey([]byte(adminTestSecret)), f.store, rbac.NewService(f.store.RBAC()))
+	token, _, err := v.issue(binding, time.Now().UTC())
+	require.NoError(t, err)
+	_, verified, err := v.VerifySQLBot(context.Background(), token, agent.ID)
+	require.NoError(t, err)
+	require.Equal(t, "mysql", verified.DatasourceDBType)
+	body, _ := json.Marshal(map[string]string{"binding_id": binding.ID, "workspace_id": "1", "datasource_name": "sales-mysql", "sqlbot_user_id": "42"})
+	status, response := f.request(http.MethodPost, "/api/v1/integrations/sqlbot/resolve", "Bearer "+credential, string(body))
+	require.Equal(t, http.StatusOK, status, response)
+	require.Contains(t, response, `"dialect":"mysql"`)
+	status, response = f.request(http.MethodPost, "/api/v1/integrations/sqlbot/export", f.adminToken, `{"endpoint":"https://gateway.example/mcp"}`)
+	require.Equal(t, http.StatusOK, status, response)
+	require.Contains(t, response, `"dialect":"mysql"`)
+	require.NotContains(t, response, credential)
 }
 
 func TestSQLBotIdentityRevokesOnUserAgentAndBindingChanges(t *testing.T) {

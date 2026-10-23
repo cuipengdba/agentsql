@@ -335,11 +335,35 @@ func (pipeline *Pipeline) process(
 			enabled = false
 		}
 		if enabled {
-			if request.RequireApproval || mode == runModeApproved {
+			if run.datasource.DBType != "postgres" && (request.RequireApproval || mode == runModeApproved) {
 				run.response.Decision = model.DecisionDeny
 				run.response.Assessment.Decision = model.DecisionDeny
 				run.response.Assessment.Reason = "列级授权路径暂不支持审批执行"
 				return run.finish(ctx, nil)
+			}
+			if request.RequireApproval {
+				// This records a pending request only. No B2 snapshot or business
+				// query is opened before the human decision. The claimed request
+				// must pass the current B2 proof before a row can be delivered.
+				if staticAssessment.Decision == model.DecisionDeny {
+					return run.finish(ctx, nil)
+				}
+				run.response.Assessment.Hits = append(run.response.Assessment.Hits, model.RuleHit{
+					RuleID: "REQUEST_APPROVAL", Risk: model.RiskApprove,
+					Decision:   model.DecisionApprove,
+					Message:    "调用方要求本次 SQL 进入人工审批",
+					Suggestion: "请等待 DBA 完成审批后再继续，不要绕过审批重复提交",
+				})
+				recomputeAssessmentDecision(&run.response.Assessment)
+				run.response.Decision = run.response.Assessment.Decision
+				return run.approve(ctx)
+			}
+			if mode == runModeApproved && run.response.Decision == model.DecisionApprove {
+				// Approval removes only the wait. The B2 snapshot, object
+				// binding, masking and durable audit still run from scratch.
+				run.response.Decision = model.DecisionAllow
+				run.response.Assessment.Decision = model.DecisionAllow
+				run.response.Assessment.Reason = "已批准请求重新通过当前安全检查"
 			}
 			return run.processColumnAuthorizedSelect(ctx, bindDeniedSelect)
 		}

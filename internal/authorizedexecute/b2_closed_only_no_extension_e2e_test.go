@@ -66,9 +66,9 @@ func TestB2ClosedOnlyNoExtensionProductionE2E(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, setup.Close(context.Background())) })
 	_, err = setup.Exec(ctx, `
 CREATE SCHEMA closed_e2e;
-CREATE TABLE closed_e2e.accounts(id integer, label text);
+CREATE TABLE closed_e2e.accounts(id integer, label text, secret text);
 CREATE TABLE closed_e2e.notes(id integer, note text);
-INSERT INTO closed_e2e.accounts VALUES (1,'alpha'),(2,'beta');
+INSERT INTO closed_e2e.accounts VALUES (1,'alpha','private-one'),(2,'beta','private-two');
 INSERT INTO closed_e2e.notes VALUES (1,'first'),(2,'second');
 CREATE SEQUENCE closed_e2e.execution_probe START WITH 100;
 CREATE MATERIALIZED VIEW closed_e2e.account_snapshot AS
@@ -149,6 +149,43 @@ EXISTS(SELECT 1 FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')`).
 	require.NotNil(t, positive.ColumnAuth, "the production pipeline must use B2, not table-level execution")
 	require.NotNil(t, positive.Result)
 	require.Equal(t, [][]string{{"alpha", "first"}}, positive.Result.Rows)
+
+	// The pending record is sealed before touching the business database.
+	// Claiming it must use the same live B2 path as an ordinary query.
+	pending, err := runtime.Pipeline.Process(ctx, pipeline.Request{
+		APIKey: apiKey, DatasourceID: datasourceID, SQL: positiveSQL,
+		MCPTool: "request_approval", Reason: "verify B2 read approval", RequireApproval: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionApprove, pending.Decision)
+	require.NotEmpty(t, pending.ApprovalID)
+	require.Nil(t, pending.Result)
+	require.Nil(t, pending.ColumnAuth)
+	_, err = runtime.Store.Approvals().DecidePending(ctx, pending.ApprovalID, "approved", "b2-reviewer", nil, time.Now().UTC())
+	require.NoError(t, err)
+	approved, err := runtime.Pipeline.ExecuteApproved(ctx, apiKey, pending.ApprovalID)
+	require.NoError(t, err)
+	require.Equal(t, model.DecisionAllow, approved.Decision)
+	require.NotNil(t, approved.ColumnAuth)
+	require.NotNil(t, approved.Result)
+	require.Equal(t, [][]string{{"alpha", "first"}}, approved.Result.Rows)
+	require.Positive(t, approved.AuditID)
+	_, err = runtime.Pipeline.ExecuteApproved(ctx, apiKey, pending.ApprovalID)
+	require.Error(t, err, "an approved request is single-use")
+	for _, sqlText := range []string{
+		`SELECT pg_catalog.count(*) FROM closed_e2e.accounts a WHERE a.secret='private-one'`,
+		`SELECT a.label FROM closed_e2e.accounts a ORDER BY a.secret`,
+		`SELECT pg_catalog.length(a.secret) FROM closed_e2e.accounts a`,
+	} {
+		derived, queryErr := runtime.Pipeline.Process(ctx, pipeline.Request{
+			APIKey: apiKey, DatasourceID: datasourceID, SQL: sqlText, MCPTool: "query",
+		})
+		require.NoError(t, queryErr, sqlText)
+		require.Equal(t, model.DecisionDeny, derived.Decision, sqlText)
+		require.Nil(t, derived.Result, sqlText)
+		require.NotContains(t, derived.Assessment.Reason, "private-one")
+		require.Positive(t, derived.AuditID, sqlText)
+	}
 
 	_, err = setup.Exec(ctx, `ALTER SEQUENCE closed_e2e.execution_probe RESTART WITH 100`)
 	require.NoError(t, err)

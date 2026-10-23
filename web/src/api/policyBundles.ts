@@ -23,6 +23,7 @@ export interface PolicyBundlePlan {
   base_digest: string;
   desired_digest: string;
   changes: PolicyBundleChange[];
+  affected: Array<{ policy_id: string; agent_id: string; datasource_id: string; before_object?: string; after_object?: string; before_columns: string[]; after_columns: string[]; uncertain: boolean }>;
   replay: Array<{ agent_id: string; datasource_id: string; object_name: string; before: string; after: string; reason: string }>;
   live_check: boolean;
   notice: string;

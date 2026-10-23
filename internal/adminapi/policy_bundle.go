@@ -3,6 +3,7 @@ package adminapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/policybundle"
 	"github.com/cuipengdba/agentsql/internal/rbac"
@@ -26,9 +27,66 @@ type policyBundlePlanView struct {
 	BaseDigest    string                      `json:"base_digest"`
 	DesiredDigest string                      `json:"desired_digest"`
 	Changes       []policybundle.Change       `json:"changes"`
+	Affected      []policyBundleAffected      `json:"affected"`
 	Replay        []policybundle.ReplayResult `json:"replay"`
 	LiveCheck     bool                        `json:"live_check"`
 	Notice        string                      `json:"notice"`
+}
+
+// Affected is a metadata-only scope. It deliberately does not predict which
+// queries will pass the live database binder, masking or audit checks.
+type policyBundleAffected struct {
+	PolicyID      string   `json:"policy_id"`
+	AgentID       string   `json:"agent_id"`
+	DatasourceID  string   `json:"datasource_id"`
+	BeforeObject  string   `json:"before_object,omitempty"`
+	AfterObject   string   `json:"after_object,omitempty"`
+	BeforeColumns []string `json:"before_columns"`
+	AfterColumns  []string `json:"after_columns"`
+	Uncertain     bool     `json:"uncertain"`
+}
+
+func policyBundleAffectedScopes(current, desired policybundle.Bundle, changes []policybundle.Change) []policyBundleAffected {
+	before := make(map[string]policybundle.Entry, len(current.Policies))
+	after := make(map[string]policybundle.Entry, len(desired.Policies))
+	for _, entry := range current.Policies {
+		before[entry.ID] = entry
+	}
+	for _, entry := range desired.Policies {
+		after[entry.ID] = entry
+	}
+	result := make([]policyBundleAffected, 0, len(changes))
+	for _, change := range changes {
+		old, hadOld := before[change.ID]
+		next, hasNext := after[change.ID]
+		item := policyBundleAffected{PolicyID: change.ID, BeforeColumns: []string{}, AfterColumns: []string{}, Uncertain: true}
+		if hadOld {
+			item.AgentID, item.DatasourceID = old.AgentID, old.DatasourceID
+			item.BeforeObject = old.ObjectName
+			if old.Columns != nil {
+				item.BeforeColumns = splitPolicyColumns(*old.Columns)
+			}
+		}
+		if hasNext {
+			item.AgentID, item.DatasourceID = next.AgentID, next.DatasourceID
+			item.AfterObject = next.ObjectName
+			if next.Columns != nil {
+				item.AfterColumns = splitPolicyColumns(*next.Columns)
+			}
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func splitPolicyColumns(value string) []string {
+	result := make([]string, 0)
+	for _, column := range strings.Split(value, ",") {
+		if column = strings.TrimSpace(column); column != "" {
+			result = append(result, column)
+		}
+	}
+	return result
 }
 
 func (handler *Handler) currentPolicyBundle(request *http.Request) (policyBundleSnapshot, error) {
@@ -91,7 +149,8 @@ func (handler *Handler) policyBundlesPlan(writer http.ResponseWriter, request *h
 		return
 	}
 	handler.ok(writer, policyBundlePlanView{
-		BaseDigest: snapshot.Digest, DesiredDigest: digest, Changes: changes, Replay: replay,
+		BaseDigest: snapshot.Digest, DesiredDigest: digest, Changes: changes,
+		Affected: policyBundleAffectedScopes(snapshot.Bundle, input.Desired, changes), Replay: replay,
 		LiveCheck: true, Notice: "metadata-only plan; database permission, SQL parsing, audit and execution must be verified through the gateway",
 	})
 }

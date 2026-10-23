@@ -19,7 +19,7 @@ class ManagedTests(unittest.TestCase):
     def setUp(self):
         self.user = SimpleNamespace(id=23, oid=7, status=1, language="en")
         self.ds = SimpleNamespace(oid=7, name="Reporting", type="pg")
-        self.binding = {"id": "binding-a", "workspace_id": 7, "datasource_name": "Reporting", "sqlbot_user_id": "23",
+        self.binding = {"id": "binding-a", "workspace_id": 7, "datasource_name": "Reporting", "sqlbot_user_id": "23", "dialect": "pg",
                         "agent_key_env": "TEST_AGENT_KEY", "connector_token_env": "TEST_CONNECTOR_TOKEN"}
         self.config = {"version": 2, "endpoint": "https://gateway.example/mcp", "bindings": [self.binding]}
         self.resolved = dict(self.binding, dialect="pg", schema="public", datasource_id="source-a",
@@ -51,9 +51,21 @@ class ManagedTests(unittest.TestCase):
                 self.assertEqual(adapter._binding(self.ds)[1]["id"], "binding-b")
             self.assertEqual(resolve.call_count, 3)
 
+    def test_mysql_mapping_requires_both_sqlbot_type_and_verified_server_dialect(self):
+        self.binding["dialect"] = "mysql"
+        resolved = dict(self.resolved, dialect="mysql", schema="app")
+        with patch.object(adapter, "_read_config", return_value=self.config), patch.object(adapter, "_resolve", return_value=resolved) as resolve:
+            with context.verified_scope(self.user):
+                with self.assertRaises(adapter.AdapterError): adapter._binding(self.ds)
+                self.assertEqual(resolve.call_count, 0)
+                self.ds.type = "mysql"
+                self.assertEqual(adapter._binding(self.ds)[1]["dialect"], "mysql")
+                with patch.object(adapter, "_resolve", return_value=dict(resolved, dialect="pg")):
+                    with self.assertRaises(adapter.AdapterError): adapter._binding(self.ds)
+
     def test_resolver_credential_and_identity_never_use_agent_key_as_connector(self):
         data = {"binding_id": "binding-a", "revision": 2, "agent_id": "agent-a", "datasource_id": "source-a",
-                "schema": "public", "numeric_columns": ["total"], "user_token": "scoped-token", "expires_at": "2099-01-01T00:00:00Z"}
+                "schema": "public", "dialect": "pg", "numeric_columns": ["total"], "user_token": "scoped-token", "expires_at": "2099-01-01T00:00:00Z"}
         calls = []
         class Response:
             def __enter__(self): return self
@@ -143,6 +155,25 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(calls[-1], ("execute_approved", {"approval_id": "ap-test"}))
         self.assertEqual(result["data"][0]["phone"], "138****5678")
         self.assertEqual(result["sql"], "")
+
+    def test_mysql_dispatch_requires_matching_gateway_source_and_audited_result(self):
+        self.ds.type = "mysql"
+        resolved = dict(self.resolved, dialect="mysql", schema="app", numeric_columns=["total"])
+        class Client:
+            source_type = "mysql"
+            def __init__(self, *args): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def tool(self, name, args):
+                if name == "list_datasources": return [{"id": "source-a", "db_type": self.source_type}]
+                return {"audit_id": 41, "result": {"Columns": ["total"], "Rows": [["3"]]}}
+        with patch.object(adapter, "_binding", return_value=(self.config, resolved)), patch.object(adapter, "Client", Client):
+            result = adapter.dispatch("exec_sql", self.ds, sql="SELECT COUNT(*) AS total FROM app.orders")
+            self.assertEqual(result["data"], [{"total": 3}])
+            self.assertEqual(result["agentsql"]["audit_id"], 41)
+            Client.source_type = "postgres"
+            with self.assertRaises(adapter.AdapterError):
+                adapter.dispatch("exec_sql", self.ds, sql="SELECT COUNT(*) AS total FROM app.orders")
 
 
 class ContextTests(unittest.TestCase):
