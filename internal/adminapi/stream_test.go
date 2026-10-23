@@ -17,6 +17,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	errorCode := "DB_OBJECT_NOT_FOUND"
 	for id := int64(1); id <= 2; id++ {
 		log := model.AuditLog{
-			ID: id, TS: time.Unix(id, 0).UTC(), Decision: "deny", SQLRaw: &sentinelSQL,
+			ID: id, TenantID: store.DefaultTenantID, TS: time.Unix(id, 0).UTC(), Decision: "deny", SQLRaw: &sentinelSQL,
 			ErrorMsg: &sentinelError, ClientIP: &sentinelIP, SessionID: &hashRawSentinel,
 		}
 		if id == 1 {
@@ -96,7 +97,7 @@ func TestStreamHelloHistoryLiveHeadersAndSafeProjection(t *testing.T) {
 	require.NotContains(t, combined, "sql_raw")
 	require.NotContains(t, combined, "error_msg")
 
-	runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{ID: 3, TS: time.Now(), Decision: "allow"}})
+	runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{ID: 3, TenantID: store.DefaultTenantID, TS: time.Now(), Decision: "allow"}})
 	live := readSSEFrame(t, reader)
 	require.Contains(t, live, "event: audit\n")
 	require.Contains(t, live, "id: 3\n")
@@ -131,6 +132,39 @@ func TestSSEEventBoundaryResistsCRLFAndEventInjection(t *testing.T) {
 	require.NotContains(t, frame, "\r")
 	require.NotContains(t, frame, "\nevent: smuggled")
 	require.Contains(t, frame, `safe\r\n\r\nevent: smuggled\ndata:`)
+}
+
+func TestStreamNeverEmitsAnotherTenantsHistoryOrLiveAudit(t *testing.T) {
+	handler, token, runtime, cleanup := newStreamTestHandler(t, 1, 10*time.Millisecond)
+	defer cleanup()
+	other := model.AuditLog{ID: 41, TenantID: "tenant_other", TS: time.Now().UTC(), Decision: "deny"}
+	runtime.Events.Publish(eventbus.Event{Audit: other})
+	runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{ID: 42, TenantID: store.DefaultTenantID, TS: time.Now().UTC(), Decision: "allow"}})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	request, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/stream", nil)
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := server.Client().Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	require.Contains(t, readSSEFrame(t, reader), "event: hello")
+	first := readSSEFrame(t, reader)
+	require.Contains(t, first, "id: 42\n")
+	require.NotContains(t, first, "id: 41\n")
+	other.ID = 43
+	runtime.Events.Publish(eventbus.Event{Audit: other})
+	require.Equal(t, ": ping\n\n", readSSEFrame(t, reader))
+	runtime.Events.Publish(eventbus.Event{Audit: model.AuditLog{ID: 44, TenantID: store.DefaultTenantID, TS: time.Now().UTC(), Decision: "allow"}})
+	for range 10 {
+		frame := readSSEFrame(t, reader)
+		require.NotContains(t, frame, "id: 43\n")
+		if strings.Contains(frame, "id: 44\n") {
+			return
+		}
+	}
+	t.Fatal("own-tenant live audit was not emitted")
 }
 
 func TestStreamHeartbeatConnectionLimitAndSlotReuse(t *testing.T) {
@@ -223,7 +257,7 @@ func TestStreamFailuresAndCancellationReleaseSubscriptionAndSlot(t *testing.T) {
 			writer.panicFlush = test.panicFlush
 			handler.recover(http.HandlerFunc(handler.stream)).ServeHTTP(
 				writer,
-				httptest.NewRequest(http.MethodGet, "/api/v1/stream", nil),
+				httptest.NewRequest(http.MethodGet, "/api/v1/stream", nil).WithContext(streamTestPrincipalContext(context.Background())),
 			)
 			require.Zero(t, hub.SubscriberCount())
 			require.Len(t, handler.streamSlots, 0)
@@ -238,7 +272,7 @@ func TestStreamFailuresAndCancellationReleaseSubscriptionAndSlot(t *testing.T) {
 		logger: zerolog.Nop(), streamSlots: make(chan struct{}, 1), heartbeat: time.Hour,
 	}
 	writer := newControlledStreamWriter()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(streamTestPrincipalContext(context.Background()))
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/stream", nil).WithContext(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -258,6 +292,10 @@ func TestStreamFailuresAndCancellationReleaseSubscriptionAndSlot(t *testing.T) {
 	}
 	require.Zero(t, hub.SubscriberCount())
 	require.Len(t, handler.streamSlots, 0)
+}
+
+func streamTestPrincipalContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, principalContextKey{}, rbac.Principal{UserID: rbac.BootstrapUserID, TenantID: store.DefaultTenantID})
 }
 
 type writerWithoutFlusher struct{ http.ResponseWriter }
