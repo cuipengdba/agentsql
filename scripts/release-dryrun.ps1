@@ -606,7 +606,7 @@ New-Item -ItemType Directory -Path $evidencePath -Force | Out-Null
 $releaseDnf = 'dnf -y install --nodocs --setopt=install_weak_deps=False gcc glibc-devel glibc-common curl binutils file findutils gawk tar gzip grep sed'
 # The upstream mirrorlist can select a very slow mirror for this build host.
 # Keep Rocky's gpgcheck=1 and only replace the repository download URLs.
-$rockyMirrorSetup = 'sed -i -e ''s|^mirrorlist=|#mirrorlist=|'' -e ''s|^#baseurl=http://dl.rockylinux.org/\$contentdir/|baseurl=https://mirrors.aliyun.com/rockylinux/|'' /etc/yum.repos.d/Rocky-*.repo'
+$rockyMirrorSetup = 'sed -i -e ''s|^mirrorlist=|#mirrorlist=|'' -e ''s|^#baseurl=http://dl.rockylinux.org/\$contentdir/|baseurl=https://dl.rockylinux.org/pub/rocky/|'' /etc/yum.repos.d/Rocky-*.repo'
 foreach ($architecture in @('amd64', 'arm64')) {
     Write-Host "==> Building and packaging linux/$architecture with $RockyImage"
     $containerCommand = "$rockyMirrorSetup && $releaseDnf && tr -d '\r' < /buildscripts/build-release-linux.sh | sh && tr -d '\r' < /buildscripts/package-release.sh | sh && /usr/local/go/bin/go version -m /src/bin/agentsql-linux-$architecture /src/bin/agentsqlctl-linux-$architecture > /src/dist/go-version-metadata-$architecture.txt"

@@ -959,7 +959,7 @@
     {
       "source": "docs/v3.1.0-acceptance.md",
       "english": "docs/en/v3.1.0-acceptance.md",
-      "source_sha256": "65f387ba979f159873dcb996d26a77a2ee57777bdb260d91dd2f2b8e3e7fae55"
+      "source_sha256": "b010cda1e78e759c4b4688d4bd1eb98390249b278953ff58a8dd8288dc39bc8a"
     },
     {
       "source": "docs/v3.1.0-design.md",
