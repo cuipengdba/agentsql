@@ -191,7 +191,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 
 ## v3.4.1：升级前只读检查
 
-正式发布并取得 v3.4.1 `agentsqlctl` 后，使用目标环境的配置先检查控制面 schema 版本。v3.4.1 不增加 schema 迁移；从 v2.9.0 升级仍须成套备份、只读检查并在隔离环境演练恢复。双网关 Kubernetes 部署另须按[维护窗口操作指南](../deploy/kubernetes/README.md)停止旧版双副本、等待 B2 租约到期后再启动新版，不支持新旧二进制同时活跃：
+使用已发布的 v3.4.1 `agentsqlctl` 后，使用目标环境的配置先检查控制面 schema 版本。v3.4.1 不增加 schema 迁移；从 v2.9.0 升级仍须成套备份、只读检查并在隔离环境演练恢复。双网关 Kubernetes 部署另须按[维护窗口操作指南](../deploy/kubernetes/README.md)停止旧版双副本、等待 B2 租约到期后再启动新版，不支持新旧二进制同时活跃：
 
 ```bash
 agentsqlctl doctor --config /etc/agentsql/config.yaml --format json

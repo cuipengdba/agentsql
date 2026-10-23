@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "8eaae0db8dc18fbc24e1461f03f731665ecf2d174ff9345f49716dc456562744"
+      "source_sha256": "de5c8f80fb306199ed829b345f837cf5111fbb9ad2b11cd68a912442b2564197"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "a2955859eda270ce89054abe8c64ee03941e7dbf5388e6bc83f44f0a9da4f539"
+      "source_sha256": "8c9338674e251696921d1c4ceffade5ae649cd1e693b39e03d3eca2293bc9a71"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -1044,12 +1044,12 @@
     {
       "source": "docs/v3.4.1-release-evidence.md",
       "english": "docs/en/v3.4.1-release-evidence.md",
-      "source_sha256": "40767ccc7fde42730ed376cce8c34f1769d53551f026318b548668137fa92dff"
+      "source_sha256": "77bcc4b3a008a8735ad4b873cde3ee836656b4657456532a6a48477b2e68bb89"
     },
     {
       "source": "docs/v3.4.1-acceptance.md",
       "english": "docs/en/v3.4.1-acceptance.md",
-      "source_sha256": "60b16a7002b3828d3680e1c949d0e34bb6023f9af88ad6b7debf451ea9e73560"
+      "source_sha256": "0e6cf1ea4f0ea739989a4455344d3fae75e14954849b2bf4dc77b9f9864f99f5"
     }
   ]
 }

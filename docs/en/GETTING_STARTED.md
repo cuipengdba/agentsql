@@ -191,7 +191,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 
 ## v3.4.1: Read-only check before upgrade
 
-After officially releasing and obtaining v3.4.1 `agentsqlctl`, use the configuration of the target environment to first check the control plane schema version. v3.4.1 does not add schema migration; upgrading from v2.9.0 still requires complete backups, read-only checks and recovery exercises in an isolated environment. Dual gateway Kubernetes deployment must also stop the old version of the dual copy according to the [ maintenance window operation guide ](../../deploy/kubernetes/README.en.md), wait for the B2 lease to expire before starting the new version, and the new and old binaries are not supported to be active at the same time:
+When using the released v3.4.1 `agentsqlctl`, use the configuration of the target environment to first check the control plane schema version. v3.4.1 does not add schema migration; upgrading from v2.9.0 still requires complete backups, read-only checks and recovery exercises in an isolated environment. Dual gateway Kubernetes deployment must also stop the old version of the dual copy according to the [ maintenance window operation guide ](../../deploy/kubernetes/README.en.md), wait for the B2 lease to expire before starting the new version, and the new and old binaries are not supported to be active at the same time:
 
 ```bash
 agentsqlctl doctor --config /etc/agentsql/config.yaml --format json
