@@ -41,7 +41,7 @@ data:
       statement_timeout_ms: 5000
       row_limit: 1000
       max_conns_per_datasource: 5
-      # Two fixed replicas: each enforces 10 QPS, so the cluster upper bound is 20.
+      # Three fixed replicas: each enforces 10 QPS, so the cluster upper bound is 30.
       qps_per_agent: 10
     theme:
       default: "dark"

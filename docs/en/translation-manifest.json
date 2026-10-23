@@ -914,7 +914,7 @@
     {
       "source": "deploy/kubernetes/README.md",
       "english": "deploy/kubernetes/README.en.md",
-      "source_sha256": "07c7bce1ba07649877147fc9f7a21b586198f4cd5a17e2290e12744958672320"
+      "source_sha256": "b06848df181dd0ab58d467096b7c07a12687921ca2ab86e65a0c1bf13fd865bc"
     },
     {
       "source": "deploy/ecs-demo/README.md",
