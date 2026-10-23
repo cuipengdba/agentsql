@@ -2,11 +2,11 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v3.4.0 及兼容的 3.4.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.4.1 及兼容的 3.4.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v3.4.0 的功能与操作。安装或拉取 v3.4.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.4.1 的功能与操作。安装或拉取 v3.4.1 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v3.4.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.4.0 发布说明](release-notes-v3.4.0.md)和[验收记录](v3.4.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v3.4.1 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.4.1 发布说明](release-notes-v3.4.1.md)和[验收记录](v3.4.1-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
 
@@ -286,7 +286,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 v1.0.0 起，有列策略的 SELECT 不再退回仅校验表名的路径。PostgreSQL 必须由已启用且可用的 B2 绑定器核对投影、谓词、JOIN 和自连接中的列引用；B2 不可用会在执行前失败关闭。HighGo、Vastbase 等没有等价列绑定证明的数据源不能依赖列策略；MySQL 仅在其独立受限 B2 子集启用后可用。权限页会提示这一边界；离线预检只证明明确拒绝或未知，不代表真实执行许可。
 
-v3.4.0 仅在指定 KingbaseES V9R1C10 PG 模式单实例验证了 PostgreSQL 协议路径的受限单表 `SELECT` B2 列授权。接入时先检查实例版本、B2 就绪和实时列允许/拒绝；视图、JOIN、函数及无法证明列来源的语句仍拒绝。该内核的 B5 写入行数合同未通过，网关写入与会话入口关闭。Vastbase G100 Build 9 的 B2 探测未通过，列策略继续失败关闭；两者均不得套用“完整 PostgreSQL 支持”的声明，见[真库验收](v3.4.0-acceptance.md)。
+v3.4.1 仅在指定 KingbaseES V9R1C10 PG 模式单实例验证了 PostgreSQL 协议路径的受限单表 `SELECT` B2 列授权。接入时先检查实例版本、B2 就绪和实时列允许/拒绝；视图、JOIN、函数及无法证明列来源的语句仍拒绝。该内核的 B5 写入行数合同未通过，网关写入与会话入口关闭。Vastbase G100 Build 9 的 B2 探测未通过，列策略继续失败关闭；两者均不得套用“完整 PostgreSQL 支持”的声明，见[真库验收](v3.4.1-acceptance.md)。
 
 ### `row_filter`
 

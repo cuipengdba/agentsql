@@ -2,6 +2,11 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v3.4.1]
+
+- 修复管理审计 SSE 历史与实时事件的租户隔离；其他租户事件不再发送到已认证的审计查看者连接。
+- 不变更数据库 schema；多租户部署建议升级，详见[安全修复说明](docs/release-notes-v3.4.1.md)。
+
 ## [v3.4.0]
 
 - 金仓 V9R1C10 PG 模式的受限单表 SELECT 通过真实 B2 列授权验证；B5 行数合同不一致，写入入口失败关闭。

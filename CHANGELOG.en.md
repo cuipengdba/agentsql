@@ -2,6 +2,11 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.4.1]
+
+- Fixed tenant isolation for both historical and live management audit SSE events; other tenants' events are no longer sent to an authenticated audit viewer's connection.
+- No database schema change. Multi-tenant deployments should upgrade; see the [security fix notes](docs/en/release-notes-v3.4.1.md).
+
 ## [v3.4.0]
 
 - Restricted single-table SELECT passed live B2 column authorization on Kingbase V9R1C10 PG mode. B5 affected-row semantics diverged, so write entry points fail closed.
