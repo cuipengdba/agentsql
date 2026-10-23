@@ -145,7 +145,7 @@ func sqlbotReadOnlyForDatasource(sql, dbType string) bool {
 
 func sqlbotMySQLReadOnly(sql string) bool {
 	trimmed := strings.TrimSpace(sql)
-	if len(sql) > 65536 || strings.ContainsAny(sql, "@#`") || strings.Contains(sql, "--") ||
+	if len(sql) > 65536 || strings.ContainsAny(sql, "@#") || strings.Contains(sql, "--") ||
 		strings.Contains(sql, "/*") || strings.Contains(sql, ":=") ||
 		len(trimmed) <= len("SELECT") || !strings.EqualFold(trimmed[:len("SELECT")], "SELECT") ||
 		!strings.ContainsAny(trimmed[len("SELECT"):len("SELECT")+1], " \t\r\n") {

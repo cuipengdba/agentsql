@@ -115,6 +115,7 @@ func TestSQLBotMySQLReadOnlyIsBoundedToSelectsAndKnownFunctions(t *testing.T) {
 		"SELECT id, amount FROM app.orders WHERE id > 0 LIMIT 10",
 		"SELECT city, SUM(amount) AS total FROM app.orders GROUP BY city LIMIT 20",
 		"SELECT COUNT(*) AS total FROM app.orders WHERE id > 0",
+		"SELECT COUNT(`o`.`id`) AS `order_count` FROM `app`.`orders` `o` LIMIT 1000",
 	} {
 		require.True(t, sqlbotReadOnlyForDatasource(sql, "mysql"), sql)
 	}
