@@ -87,8 +87,8 @@ func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 				require.Equal(t, 23, current)
 				require.Equal(t, 23, latest)
 			} else {
-				require.Equal(t, 24, current)
-				require.Equal(t, 24, latest)
+				require.Equal(t, 25, current)
+				require.Equal(t, 25, latest)
 			}
 			assertSQLiteNotificationTables(t, ctx, database)
 			require.NoError(t, database.Close())
@@ -111,7 +111,7 @@ func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 		require.NoError(t, Migrate(ctx, database, DialectSQLite))
 		var after int
 		require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&after))
-		require.Equal(t, 24, after)
+		require.Equal(t, 25, after)
 		assertSQLiteNotificationTables(t, ctx, database)
 		require.NoError(t, database.Close())
 	})

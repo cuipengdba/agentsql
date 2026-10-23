@@ -27,7 +27,11 @@ func TestSQLBotSQLiteUpgradeFromV302(t *testing.T) {
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, separate))
 			current, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, separate)
 			require.NoError(t, err)
-			require.Equal(t, previous+1, current)
+			expected := previous + 1
+			if !separate {
+				expected++ // v3.5 adds the combined-store audit stream migration.
+			}
+			require.Equal(t, expected, current)
 			require.Equal(t, current, latest)
 			require.NoError(t, VerifyMetadataSchema(ctx, db, DialectSQLite, separate))
 			var count int

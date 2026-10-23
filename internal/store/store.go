@@ -602,6 +602,13 @@ func (store *Store) AuditLogs() *AuditLogRepository {
 	}
 }
 
+// DurableAuditStream reports whether the audit target is shared PostgreSQL.
+// A gateway must use the database stream in this mode so a subscriber can
+// observe audits committed by every gateway, including after a restart.
+func (store *Store) DurableAuditStream() bool {
+	return store != nil && store.auditDB != nil && store.auditDriver == DialectPostgres
+}
+
 // ManagementAuditLogs returns the chain-aware management audit sink. In the
 // separated layout, management and traffic records share the audit database's
 // traffic chain; the metadata database contains only the delivery outbox.
