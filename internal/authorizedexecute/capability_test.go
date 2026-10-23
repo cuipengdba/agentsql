@@ -65,7 +65,10 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			// The build-tagged Yashan native-driver probe verifies binding and
 			// least-privilege denial against disposable database objects.
 			allowedYashanProbe := normalized == "scripts/yashan-native-probe.go"
-			require.Truef(t, allowedBusiness || allowedControl || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe, "%s imports driver capability %s", relative, name)
+			// This exact pinned module is the DM driver implementation itself;
+			// product code must still access it only through businessdb.
+			allowedPinnedDMDriver := strings.HasPrefix(normalized, "third_party/gorm-dameng/dm8/")
+			require.Truef(t, allowedBusiness || allowedControl || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
 		}
 		return nil
 	})

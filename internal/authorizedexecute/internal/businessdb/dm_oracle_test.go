@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,35 @@ func TestBuildDMDSNHandlesDriverCredentialRules(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDMOracleExecutorRejectsUnimplementedTLSBeforeConnecting(t *testing.T) {
+func TestBuildDMDSNRequiresVerifiedTLSConfiguration(t *testing.T) {
+	datasource := model.Datasource{
+		Host: "127.0.0.1", Port: 5236, Database: "APP", Username: "reader",
+		TLSMode: "verify-full", TLSCAFile: filepath.Join(t.TempDir(), "ca.pem"),
+		TLSServerName: "dm.example.test", StmtTimeoutMS: 5000,
+	}
+	dsn, err := buildDMDSN(datasource, "password")
+	require.NoError(t, err)
+	require.Contains(t, dsn, "&sslCaPath="+datasource.TLSCAFile)
+	require.Contains(t, dsn, "&sslServerName=dm.example.test")
+
+	for name, change := range map[string]func(*model.Datasource){
+		"missing CA":       func(ds *model.Datasource) { ds.TLSCAFile = "" },
+		"relative CA":      func(ds *model.Datasource) { ds.TLSCAFile = "ca.pem" },
+		"missing name":     func(ds *model.Datasource) { ds.TLSServerName = "" },
+		"query injection":  func(ds *model.Datasource) { ds.TLSServerName = "dm.test&sslCaPath=other" },
+		"trust bypass":     func(ds *model.Datasource) { ds.TrustServerCertificate = true },
+		"unsupported mode": func(ds *model.Datasource) { ds.TLSMode = "require" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			broken := datasource
+			change(&broken)
+			_, err := buildDMDSN(broken, "password")
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestDMOracleExecutorRejectsUnsupportedTLSBeforeConnecting(t *testing.T) {
 	for _, dialect := range []string{"dm", "oracle"} {
 		datasource := model.Datasource{
 			ID: dialect, DBType: dialect, Host: "127.0.0.1", Port: 1521,
@@ -46,7 +75,11 @@ func TestDMOracleExecutorRejectsUnimplementedTLSBeforeConnecting(t *testing.T) {
 		} else {
 			_, err = NewOracleExecutor(context.Background(), datasource, "password", true)
 		}
-		require.ErrorContains(t, err, "TLS options are not supported")
+		if dialect == "oracle" {
+			require.ErrorContains(t, err, "TLS options are not supported")
+		} else {
+			require.ErrorContains(t, err, "unsupported TLS mode")
+		}
 	}
 }
 
@@ -220,7 +253,7 @@ Predicate Information (identified by operation id):
 
 	info, err := parseDMExplainText(complexPlan)
 	require.NoError(t, err)
-	require.Equal(t, int64(28), info.EstScanRows)
+	require.Equal(t, int64(1155), info.EstScanRows)
 	require.Equal(t, float64(1), info.EstCost)
 	require.True(t, info.UsesIndex)
 	require.True(t, info.SeqScan)
@@ -236,7 +269,7 @@ Predicate Information (identified by operation id):
 5           #SSCN: [1, 16, 108]; INDEX1(ADDRESS); btr_scan(1); is_global(0)`
 	info, err = parseDMExplainText(indexPlan)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), info.EstScanRows)
+	require.Equal(t, int64(16), info.EstScanRows)
 	require.True(t, info.UsesIndex)
 	require.False(t, info.SeqScan)
 	require.NotContains(t, info.Raw, "INDEX1")
@@ -259,7 +292,7 @@ func TestParseDMExplainForOfficialManualFixture(t *testing.T) {
 
 	info, err := parseDMExplainFor(result)
 	require.NoError(t, err)
-	require.Equal(t, int64(65), info.EstScanRows)
+	require.Equal(t, int64(1103), info.EstScanRows)
 	require.Equal(t, float64(1), info.EstCost)
 	require.False(t, info.UsesIndex)
 	require.True(t, info.SeqScan)
@@ -267,7 +300,35 @@ func TestParseDMExplainForOfficialManualFixture(t *testing.T) {
 	require.NotContains(t, info.Raw, "SYSOBJECTS")
 }
 
+func TestDMExplainLimitOperatorFromPinnedPack3(t *testing.T) {
+	// The pinned DM8 Pack3 live instance emits TOPN2 for EXPLAIN FOR SELECT
+	// with LIMIT. Its physical scan can exceed the returned TOPN cardinality.
+	makeRow := func(level, operation, rows string) []string {
+		row := make([]string, len(dmExplainColumns))
+		row[0], row[3], row[4], row[9], row[11] = "7", level, operation, rows, "1"
+		return row
+	}
+	result := model.QueryResult{Columns: append([]string{}, dmExplainColumns...), Rows: [][]string{
+		makeRow("0", "NSET2", "1"),
+		makeRow("1", "PRJT2", "1"),
+		makeRow("2", "TOPN2", "1"),
+		makeRow("3", "CSCN2", "2505"),
+	}}
+	info, err := parseDMExplainFor(result)
+	require.NoError(t, err)
+	require.Equal(t, int64(2505), info.EstScanRows)
+	require.True(t, info.SeqScan)
+	require.Contains(t, info.Raw, "TOPN2")
+}
+
 func TestParseDMExplainFailsClosed(t *testing.T) {
+	_, err := normalizeDMPlan([]dmPlanNode{
+		{id: 1, level: 0, operation: "NSET2", rows: 1, cost: 1},
+		{id: 2, level: 1, operation: "CSCN2", rows: int64(^uint64(0) >> 1), cost: 1},
+		{id: 3, level: 1, operation: "CSEK2", rows: 1, cost: 1},
+	})
+	require.Error(t, err, "physical scan estimates must not overflow into an allowed budget")
+
 	valid := "1   #NSET2: [1, 1, 4]\n2     #PRJT2: [1, 1, 4]\n3       #CSCN2: [1, 1, 4]"
 	textCases := map[string]string{
 		"unknown operator": strings.Replace(valid, "PRJT2", "MYSTERY2", 1),
@@ -450,11 +511,20 @@ func TestDMDiscoveryE2E(t *testing.T) {
 		t.Skip("set AGENTSQL_DM_E2E=1 to run against DM8")
 	}
 	adminPassword := os.Getenv("DM_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = os.Getenv("SYSDBA_PWD")
+	}
 	require.NotEmpty(t, adminPassword, "DM_PASSWORD is required")
 	adminDatasource := model.Datasource{
 		ID: "dm-e2e-admin", DBType: "dm", Host: envOrDefault("DM_HOST", "127.0.0.1"),
 		Port: 5236, Database: envOrDefault("DM_SCHEMA", "SYSDBA"),
 		Username: envOrDefault("DM_USER", "SYSDBA"), ConnLimit: 1, StmtTimeoutMS: 15_000,
+	}
+	if ca := os.Getenv("DM_TLS_CA_FILE"); ca != "" {
+		adminDatasource.TLSMode = "verify-full"
+		adminDatasource.TLSCAFile = ca
+		adminDatasource.TLSServerName = os.Getenv("DM_TLS_SERVER_NAME")
+		require.NotEmpty(t, adminDatasource.TLSServerName)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -464,6 +534,16 @@ func TestDMDiscoveryE2E(t *testing.T) {
 	require.NoError(t, err)
 	admin.SetMaxOpenConns(1)
 	require.NoError(t, admin.PingContext(ctx))
+	if wrongCA := os.Getenv("DM_TLS_BAD_CA_FILE"); wrongCA != "" {
+		invalidCA := adminDatasource
+		invalidCA.TLSCAFile = wrongCA
+		_, err = NewDMExecutor(ctx, invalidCA, adminPassword, true)
+		require.Error(t, err, "wrong CA must fail before business query")
+		invalidName := adminDatasource
+		invalidName.TLSServerName = "wrong-dm-host.example"
+		_, err = NewDMExecutor(ctx, invalidName, adminPassword, true)
+		require.Error(t, err, "wrong hostname must fail before business query")
+	}
 
 	suffix := fmt.Sprintf("%X", time.Now().UnixNano())
 	ownerName := "AGSQL_D28_O_" + suffix

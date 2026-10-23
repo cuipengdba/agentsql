@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](DEPLOY.md) | [English](en/DEPLOY.md)
 
-> 现行指南：适用于 v3.2.0 及兼容的 3.2.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.3.0 及兼容的 3.3.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
 AgentSQL 是面向 AI Agent 的数据库安全网关和生产级 MCP Server。元数据与审计记录默认保存在本地 SQLite，也可使用 PostgreSQL 控制面；业务数据库仍使用各自的 PostgreSQL 或 MySQL 连接。
 
@@ -290,7 +290,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ## 方式二：本机二进制
 
-从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.2.0 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
+从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.3.0 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
 
 ### 预编译二进制系统要求
 
@@ -891,18 +891,18 @@ COMMIT;
 
 ## 发布与分发
 
-当前正式版本为 v3.2.0，维护版本按[每版交付流程](RELEASE_ROUTINE.md)执行。当前资产与验签步骤见[发行资产](RELEASE_ASSETS.md)，实际结果见[发布证据](v3.2.0-release-evidence.md)。发布前须锁定完整干净提交，执行前后核对源码、测试与构建输入；不能复用旧包或占位签名。
+当前正式版本为 v3.3.0，维护版本按[每版交付流程](RELEASE_ROUTINE.md)执行。当前资产与验签步骤见[发行资产](RELEASE_ASSETS.md)，实际结果见[发布证据](v3.3.0-release-evidence.md)。发布前须锁定完整干净提交，执行前后核对源码、测试与构建输入；不能复用旧包或占位签名。
 
 ```powershell
 # 不签名、不推送的完整双架构预演。
-pwsh ./scripts/release-dryrun.ps1 -Version v3.2.0
+pwsh ./scripts/release-dryrun.ps1 -Version v3.3.0
 
 # 正式生产准备：必须使用独立核验过的受控公钥。
 $trustedReleasePublicKey = '<trusted-public-key-absolute-path>'
-pwsh ./scripts/release-dryrun.ps1 -Version v3.2.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
+pwsh ./scripts/release-dryrun.ps1 -Version v3.3.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
 
 # 签名并验收后，从同一带注释标签推送精确版本镜像。
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.2.0 -IncludeAuxiliaryTags -Push
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.3.0 -IncludeAuxiliaryTags -Push
 ```
 
 生产准备生成 11 项待签名资产，签署 SBOM、provenance、SHA256SUMS 后共 15 项。执行三个 Ed25519 验签，核对包、源提交、版本、双架构、运行库和匿名下载。GHCR 主镜像、Demo、quickstart 必须公开并含 amd64/arm64；在无登录环境拉取、运行并记录实际 digest。官网和 Demo 通过后再用已验收主镜像摘要单独提升 `latest`，并重新匿名验证。过去 v1.1–v1.4 暂缓官网的分阶段策略已经结束，不能作为当前版本跳过官网与 Demo 的依据。
@@ -1034,7 +1034,7 @@ Content-Type: application/json
 
 新建 `postgres` 数据源时，控制台默认引导使用 `tls_mode: verify-full`。把信任的 CA 证书以只读文件挂载到**每一个网关容器**，在数据源中填写容器内绝对路径 `tls_ca_file`。`tls_server_name` 可选；省略时校验证书中的连接主机名，填写时须与证书 SAN 匹配。网关会拒绝缺失 CA、相对路径、未验证证书信任开关及不受支持的 TLS 模式，不会为 `verify-full` 回退到明文。服务端需要启用 TLS 并配置相应证书；防火墙或数据库访问规则应拒绝不符合部署要求的明文连接。
 
-金仓 KingbaseES V9R1C10 的上述能力仅在 PG 模式、隔离单实例和合成数据上验证。使用 `postgres` 协议路径不意味着金仓其他模式或版本获得 PostgreSQL 的完整权限与执行保证。现有数据源的空 `tls_mode` 仍保留旧连接行为，**不能**视为已验证 TLS；迁移前先在隔离环境准备 CA、测试服务器证书主机名和故障拒绝，再显式更新数据源。证书轮换时提交新的 CA 路径和主机名，逐节点检查挂载与查询；更新数据库账号密码后用新连接复核 MCP 查询、脱敏与持久审计。达梦 DM8 当前驱动无法验证服务端证书，管理 API 继续拒绝其显式 TLS 选项。
+金仓 KingbaseES V9R1C10 的上述能力仅在 PG 模式、隔离单实例和合成数据上验证。使用 `postgres` 协议路径不意味着金仓其他模式或版本获得 PostgreSQL 的完整权限与执行保证。现有数据源的空 `tls_mode` 仍保留旧连接行为，**不能**视为已验证 TLS；迁移前先在隔离环境准备 CA、测试服务器证书主机名和故障拒绝，再显式更新数据源。证书轮换时提交新的 CA 路径和主机名，逐节点检查挂载与查询；更新数据库账号密码后用新连接复核 MCP 查询、脱敏与持久审计。v3.3.0 的达梦 DM8 Pack3 指定构建使用固定驱动副本校验服务端证书。服务端启用 `ENABLE_ENCRYPT=1` 和 `MIN_SSL_VERSION=771`，向网关提供受信 CA 绝对路径及匹配的证书主机名，在数据源中显式配置 `tls_mode=verify-full`、`tls_ca_file`、`tls_server_name`。旧空模式保留兼容但未经验证；错误 CA、名称或加密模式会在执行前失败关闭。仅限单实例合成数据验收，见[v3.3.0 验收](v3.3.0-acceptance.md)。
 
 ## v1.8.0：Vastbase G100 Build 9 的 TLS 部署边界
 

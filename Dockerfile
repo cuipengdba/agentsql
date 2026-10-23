@@ -2,7 +2,7 @@
 
 FROM golang:1.26.10-bookworm AS build
 
-ARG VERSION=v3.2.0
+ARG VERSION=v3.3.0
 # Overridable module proxy for restricted networks, e.g.
 # `docker build --build-arg GOPROXY=https://goproxy.cn,direct`.
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -18,6 +18,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
+# The root module replaces the pinned Dameng driver with this reviewed copy;
+# make its go.mod available before resolving the module graph.
+COPY third_party/gorm-dameng ./third_party/gorm-dameng
 RUN go mod download
 
 RUN case "${TARGETARCH}" in \
@@ -48,7 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build mkdir -p /out \
 
 FROM debian:bookworm-slim AS runtime
 
-ARG VERSION=v3.2.0
+ARG VERSION=v3.3.0
 ARG REVISION
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \

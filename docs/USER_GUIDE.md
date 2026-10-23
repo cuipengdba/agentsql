@@ -2,11 +2,11 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v3.2.0 及兼容的 3.2.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.3.0 及兼容的 3.3.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v3.2.0 的功能与操作。安装或拉取 v3.2.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.3.0 的功能与操作。安装或拉取 v3.3.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v3.2.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.2.0 发布说明](release-notes-v3.2.0.md)和[验收记录](v3.2.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v3.3.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.3.0 发布说明](release-notes-v3.3.0.md)和[验收记录](v3.3.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
 
@@ -240,7 +240,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 选择 `highgo` 时，使用独立的最小 SELECT 权限账号。当前仅验证 9.0.10 企业版 PG 模式、单实例合成数据环境；连接逐次校验厂商版本、模式和只读事务状态，只接受显式 schema、单表直接列、非恒真 WHERE 与 LIMIT 的 SELECT。元数据发现可用，样本采集与 PostgreSQL B2/B5 能力均不开放；详见 [v1.7.0 验收记录](v1.7.0-acceptance.md)。
 
-> **TLS 边界：**v1.7.0 在 KingbaseES V9R1C10 PG 模式隔离单实例验证了 PostgreSQL 协议路径的 `verify-full`、错误 CA/主机名拒绝和证书轮换；v1.8.0 在指定 Vastbase G100 Build 9 PG 模式实例完成独立验收。Vastbase 服务端需要启用 `ssl=on`，并为只读账号设置优先于普通规则的 `hostnossl ... reject`；该 Build 的 `require_ssl=on` 不兼容当前 pgx 协议 3.0 启动包。既有数据源空模式保留旧行为，不视为已验证 TLS。HighGo 与 DM8 的显式 TLS 选项仍被拒绝；其他数据库不能继承这些验证结论。证书部署见[部署指南](DEPLOY.md#v170postgresql-协议数据源的证书校验)及[v1.8.0 设计说明](v1.8.0-vastbase-design.md)。
+> **TLS 边界：**v1.7.0 在 KingbaseES V9R1C10 PG 模式隔离单实例验证了 PostgreSQL 协议路径的 `verify-full`、错误 CA/主机名拒绝和证书轮换；v1.8.0 在指定 Vastbase G100 Build 9 PG 模式实例完成独立验收。Vastbase 服务端需要启用 `ssl=on`，并为只读账号设置优先于普通规则的 `hostnossl ... reject`；该 Build 的 `require_ssl=on` 不兼容当前 pgx 协议 3.0 启动包。既有数据源空模式保留旧行为，不视为已验证 TLS。HighGo 的显式 TLS 选项仍被拒绝；v3.3.0 起仅指定 DM8 Pack3 构建可显式选择 `verify-full` 并提供网关本地绝对 CA 路径和证书主机名，错误证书或加密降级拒绝；其他数据库不能继承这些验证结论。证书部署见[部署指南](DEPLOY.md#v170postgresql-协议数据源的证书校验)及[v1.8.0 设计说明](v1.8.0-vastbase-design.md)。
 
 数据源密码使用 `AGENTSQL_SECRET` 加密。丢失或更换 SECRET 会导致已有密码无法解密；数据库/控制面备份与 SECRET 必须成对保存，详见 [部署指南](DEPLOY.md)。
 

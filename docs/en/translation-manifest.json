@@ -4,17 +4,17 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "a8b0adcdc180d0214147268e7a4664e98ca619e25cdb7ba952b726e3861511e7"
+      "source_sha256": "c55ea152080029ecf6a7ef4a420b8e46331da152fadfd662ec7f321aeb8f67d2"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "595b223a664fbb5a7c578ba617ed9ca94cf5d92be48740833f1df461859d9204"
+      "source_sha256": "9dbe9ccfc8b322eea51c8ccf453d5c1981efca8e6be129186455711bfbaeaed7"
     },
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "6aebbda662f57630f5866f7109dd36245dc0cbc2b418ac3d73da54d9dc60f735"
+      "source_sha256": "7a2cceadfb3a4ea91b7c553e0db588fbe1bc5fa0f22ca600ffa3672873a844e8"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -84,7 +84,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "6ea5bbd88aeb195be6791dfd8c8a5919c4a5441bc82805a9a144e45413c01b50"
+      "source_sha256": "bfdd173581603cc7a7ad5bcd226cb04dc7ab77440de8ff9242f51ca3ad9c7a53"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "e22d7895a915ee62bbcfe04fe1f0a432539587b9e628817047b397d605b11b02"
+      "source_sha256": "ddebf678488f825fc6a15d01e4a346d8afd1e5b54facfe5d2208378f72b9252a"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "d09e7910a392b7a27aabb3dd6c20f85ee398170a81d62ca8164a3d81adef2ee1"
+      "source_sha256": "f42eb67f33d2dda1a50493f9d51ddf986ed06829333c79e7b852862f40b50fc3"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "2fa8f6c925183cef82223bb69fd53066ccbce42a1c7e0d2f3daa5a56aee63c16"
+      "source_sha256": "3e8fdef7511a6b321f8d83037983f99f3625c00a81b3227be69004e9aa68b544"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -469,7 +469,7 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "599bc9be13e4ebcc2edff6b0a5393a9067784f9d346d02f56c3a1393ac5c49bf"
+      "source_sha256": "1bce9f08ac346d34fc879092c3fb05a0a2b01106125e69cde6d993a78242278d"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "a55f6defdc92433719795b0c98525aaf86ef76020405e1eff5d1261b2491c1e5"
+      "source_sha256": "88d4d56ac03b69d429127c533ad387d03d3cc3ee2ac4f1233841804da4620c0b"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -995,6 +995,21 @@
       "source": "docs/v3.2.0-release-evidence.md",
       "english": "docs/en/v3.2.0-release-evidence.md",
       "source_sha256": "1c0240443f97691a676d291b0fa55985b68f3bad03c0a56df885d57c959e08c2"
+    },
+    {
+      "source": "docs/v3.3.0-design.md",
+      "english": "docs/en/v3.3.0-design.md",
+      "source_sha256": "8e86bf02ac5f069dab6eb894c89fffb4758bd3e71f53c9c38a52cf6e30cebfcb"
+    },
+    {
+      "source": "docs/release-notes-v3.3.0.md",
+      "english": "docs/en/release-notes-v3.3.0.md",
+      "source_sha256": "be222c9b93278878f71c26e7a3600fd218f4ea0d4f31241ec936842b55758953"
+    },
+    {
+      "source": "docs/v3.3.0-acceptance.md",
+      "english": "docs/en/v3.3.0-acceptance.md",
+      "source_sha256": "694732562c2bfe943ce192d9b35b3e9b57fed4b0347e15e24d826f1d70d1618f"
     }
   ]
 }
