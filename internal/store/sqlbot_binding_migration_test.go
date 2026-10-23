@@ -70,7 +70,7 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 				auditDSN := startPostgres18StoreContainer(t, ctx, "sqlbot_upgrade_audit", "synthetic-audit-password")
 				auditDB, err := sql.Open("pgx", auditDSN)
 				require.NoError(t, err)
-			migratePostgresThroughVersion(t, ctx, auditDB, "migrations/audit/postgres", 6)
+				migratePostgresThroughVersion(t, ctx, auditDB, "migrations/audit/postgres", 6)
 				_, err = auditDB.ExecContext(ctx, `INSERT INTO audit_logs(decision,error_msg) VALUES('deny','pre-sqlbot-safe-audit')`)
 				require.NoError(t, err)
 				require.NoError(t, auditDB.Close())

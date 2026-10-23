@@ -4,7 +4,7 @@
 
 本目录是 v3.5.0 固定三网关**候选清单**，以已验收的 v2.4.0 双网关样例为起点。正式能力以[本版设计](../../docs/v3.5.0-design.md)及真三节点验收为准；生产升级须核对[当前运维手册](../../docs/OPERATIONS.md)并在目标环境演练。
 
-此清单只针对**三个节点、固定三个副本、无状态 MCP 只读请求**。运行配置仍关闭 HTTP 状态会话、事件续传和 B5 事务；独立会话归属与跨实例事件链路通过真拓扑验收之前不得开启。当前三副本清单本身不证明这些能力已交付。
+此清单只针对**三个节点、固定三个副本、无状态 MCP 只读请求**。管理端事件流从独立 PostgreSQL audit 库按租户续传，单节点最多 50 条 SSE 连接；HTTP 状态会话与 B5 事务仍关闭，不能把管理端事件游标当作 MCP 会话续传。当前三副本清单本身不证明状态会话的跨实例归属。
 
 ## 准备
 
@@ -60,7 +60,7 @@ kubectl -n agentsql wait --for=condition=Ready pod/agentsql-0 pod/agentsql-1 pod
 
 新建 PostgreSQL 列级策略时，先创建同对象的表级允许策略，再创建 `object_type: column`、`action: allow`、明确 `columns` 清单的列策略。读取该列策略的 `ETag`，以 `If-Match` 调用 `POST /api/v1/policies/{id}/bind-postgres`，请求体为 `{"sql":"SELECT id,name,phone FROM public.customers"}`。登记 SQL 只用于目录证明，不执行；本版只接受 PostgreSQL `CATALOG_CLOSED_V1` 的单张普通表、明确列投影，且所有引用列必须在策略清单中。返回的新策略修订和正式绑定须经三节点 MCP 允许/拒绝复验。原生扩展模式、视图、跨表或通配投影的管理端登记仍不开放；失败时不会把未绑定列策略当作表授权执行。
 
-部署验收应分别读取 `agentsql-0`、`agentsql-1` 和 `agentsql-2` 的 `/healthz`、`/readyz`，确认不同 B2 实例 ID；通过 Service 各做允许、拒绝、脱敏及持久审计测试。再停止一个 Pod，确认剩余两个 Pod 继续处理、丢失节点上的活跃请求按失败处理且不会静默续接。审计或 metadata 故障时请求须关闭，恢复后再复测。不要把 HTTP 200 作为完整安全验收。
+部署验收应分别读取 `agentsql-0`、`agentsql-1` 和 `agentsql-2` 的 `/healthz`、`/readyz`，确认不同 B2 实例 ID；通过 Service 各做允许、拒绝、脱敏及持久审计测试。从不同网关连接管理 SSE，核对另一个网关生成的新审计 ID、租户游标、断线续接和跨租户隔离。再停止一个 Pod，确认剩余两个 Pod 继续处理、丢失节点上的活跃请求按失败处理且不会静默续接。审计或 metadata 故障时请求须关闭，恢复后再复测。不要把 HTTP 200 作为完整安全验收。
 
 如果 metadata 中断超过 B2 租约，现存进程会保持 `B2_RUNTIME_HEARTBEAT_FAILED` 或 `B2_RUNTIME_LEASE_EXPIRED` 降级；恢复数据库后按维护流程重建三个 Pod，并再次确认三者 `B2_READY`、允许/拒绝/脱敏和持久审计。仅数据库重新连通不能视为能力恢复。
 
@@ -70,7 +70,7 @@ kubectl -n agentsql get endpointslice -l kubernetes.io/service-name=agentsql
 kubectl -n agentsql port-forward pod/agentsql-0 17780:7780
 ```
 
-三个副本各有独立 1 GiB PVC，用于持久 B2 实例标识。不得把同一 PVC 挂载给两个副本，不得在普通升级时删除 PVC。固定三副本每节点 Agent QPS 上限为 10，集群理论上界为 30；单节点故障时上界为 20，分布不均可能更早限流。改变副本数和预算前必须重新设计并验证。
+三个副本各有独立 1 GiB PVC，用于持久 B2 实例标识。不得把同一 PVC 挂载给两个副本，不得在普通升级时删除 PVC。固定三副本每节点 Agent QPS 上限为 10，集群理论上界为 30；单节点故障时上界为 20，分布不均可能更早限流。每节点管理 SSE 上限为 50，三节点理论上界为 150；连接断开后客户端持本租户 `Last-Event-ID` 重连，超过 1000 条积压或出现序列缺口时必须改用审计 API 重新读取。改变副本数和预算前必须重新设计并验证。
 
 ## 变更、回滚和凭据
 

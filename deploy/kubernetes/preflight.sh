@@ -31,6 +31,9 @@ if ! grep -Fq 'replicas: 3' <<<"$rendered" ||
    [[ "$(grep -Fc 'driver: postgres' <<<"$rendered")" -lt 2 ]] ||
    grep -Fq 'sqlite_path:' <<<"$rendered" ||
    ! grep -Fq 'stateful: false' <<<"$rendered" ||
+   ! grep -Fq 'event_stream: true' <<<"$rendered" ||
+   ! grep -Fq 'event_stream_max_connections: 50' <<<"$rendered" ||
+   ! grep -Fq 'separate: true' <<<"$rendered" ||
    ! grep -Fq 'event_store_enabled: false' <<<"$rendered" ||
    ! grep -Fq 'auto_migrate: false' <<<"$rendered"; then
   echo 'preflight failed: expected fixed three-replica v3.5.0 safety profile is missing' >&2

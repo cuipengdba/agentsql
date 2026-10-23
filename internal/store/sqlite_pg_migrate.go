@@ -106,8 +106,8 @@ var sqliteDerivedExcludedTables = map[string]struct{}{
 	"runtime_instances":        {},
 	// These rows are derived from audit_logs by the target migration trigger.
 	// Copying them separately would duplicate the cursor sequence.
-	"audit_stream_state":       {},
-	"audit_stream_events":      {},
+	"audit_stream_state":  {},
+	"audit_stream_events": {},
 }
 
 var sqliteDerivedExcludedColumns = map[string]map[string]struct{}{
