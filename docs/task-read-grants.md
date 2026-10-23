@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](task-read-grants.md) | [English](en/task-read-grants.md)
 
-> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.1.0 及兼容的 3.1.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
 v0.8.0 将临时授权改为申请、审批和一次性领取；v0.9.0 为新申请增加结果返回预算。申请人需要
 `query.execute`；审批人需要 `query.execute` 与 `strategy.manage`，且必须是

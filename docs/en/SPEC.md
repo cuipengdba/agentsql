@@ -2,9 +2,9 @@
 
 **Language:** [English](SPEC.md) | [Simplified Chinese](../SPEC.md)
 
-> Current guidance: Applies to v3.0.2 and compatible 3.0.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current specification: v3.0.2 is released. This document also records v3.1.0 contracts under development and validation; new capabilities become released scope only after [version acceptance](v3.1.0-acceptance.md). Historical records retain their original facts. Start with the [documentation index](README.md).
 
-> Version: v3.0.2｜This article describes the system architecture, external contracts, security model and compatibility boundaries of AgentSQL, for users and contributors.
+> Version: v3.1.0 development specification | This document describes AgentSQL architecture, external contracts, security model and compatibility boundaries for users and contributors.
 > For a complete runnable configuration example, see `examples/`, and for complete table creation DDL, see `internal/store/migrations/`; when there are differences between this article and the source code, the source code and testing shall prevail and an issue will be raised to correct this article.
 
 ---
@@ -99,7 +99,7 @@ Web 控制台 ──REST(/api/v1)──► adminapi ───┘                
 
 ## 4. Technology stack
 
-**backend (`go.mod` declared Go 1.26.0; official release script fixed Go 1.26.8)**
+**Backend (`go.mod` declares Go 1.26.0; official release scripts pin Go 1.26.10)**
 
 | Purpose | Depend on |
 |---|---|
@@ -114,27 +114,27 @@ Web 控制台 ──REST(/api/v1)──► adminapi ───┘                
 | Current Limit/Indicator | `golang.org/x/time`、`prometheus/client_golang` |
 | test | `stretchr/testify` + `testcontainers-go` (real PostgreSQL 18/MySQL 8) |
 
-**Frontend (`web/`)**: React 18 + TypeScript 5 + Vite 5 + Ant Design 5 + ECharts 5 + framer-motion + zustand + react-router-dom + axios. The front-end does not introduce a single test framework. The front-end quality gate is `tsc --noEmit` type check and `vite` production build. The built product is entered into a single binary by the back-end `go:embed`.
+**Frontend (`web/`)**: React 18 + TypeScript 5 + Vite 8 + Ant Design 5 + ECharts 6 + framer-motion + zustand + react-router-dom + axios. Quality gates include `tsc --noEmit`, Vitest, English catalog checks and a Vite production build. Output goes to `internal/webui/dist` and is embedded in the single binary with `go:embed`.
 
 ---
 
 ## 5. Code structure
 
-```
+```text
 cmd/
-  agentsql/        # 网关 / MCP / 控制台进程
-  agentsqlctl/     # 运维 CLI（init-config / check-config / migrate / health / demo-seed 等）
+  agentsql/        # Gateway / MCP / console process
+  agentsqlctl/     # Operations CLI (init-config / check-config / migrate / health / demo-seed)
 internal/
   config/ model/ store/ auth/ policy/ parser/ engine/ rules/
   executor/ mask/ audit/ pipeline/ mcpserver/ adminapi/
   eventbus/ metrics/ demoseed/ bootstrap/ server/ webui/ version/
-web/               # React 控制台源码（构建到 web/dist，由 internal/webui 内嵌）
-deploy/systemd/    # systemd unit 与加固样例
-examples/          # docker-compose、配置样例、环境变量样例
-demo/              # 一键自托管在线演示套件与 reset 脚本
-tests/corpus/      # SQL 解析与决策回归语料
-website/           # 产品官网（静态站，不打入二进制）
-docs/              # 文档
+web/               # React console source (built to internal/webui/dist and embedded)
+deploy/systemd/    # systemd units and hardening examples
+examples/          # Docker Compose, configuration and environment examples
+demo/              # Self-hosted demo and reset scripts
+tests/corpus/      # SQL parser and decision regression corpus
+website/           # Product website (static, not embedded in the binary)
+docs/              # Documentation
 ```
 
 `internal/store/migrations/` organizes migration scripts according to the "metadata/audit" layout and the "sqlite/postgres" dialect. The two dialect schema semantics, constraints, and indexes are equivalent.
@@ -293,7 +293,7 @@ Identifier semantics are differentiated by dialect:
 
 ### 6.3 Control plane data model
 
-Seven business tables plus migration ledger `schema_migrations`:
+Core data tables are listed below; the migration directories contain the complete inventory. v3.1.0 uses combined schema 24, separate metadata schema 23 and audit schema 6. The v3.0.2 baseline is 23, 22 and 6 respectively.
 
 | table | Purpose / Key Invariants |
 |---|---|
@@ -304,6 +304,7 @@ Seven business tables plus migration ledger `schema_migrations`:
 | `mask_rules` | Three-level scope masking rules and algorithms by data source/schema/table/column |
 | `audit_logs` | **audit core, only append**; the warehousing layer does not provide UPDATE / DELETE interface; only this table and index in the independent audit library |
 | `approvals` | Approval form (pending/approved/rejected/expired), associated audit ID |
+| `sqlbot_bindings` | Tenant-scoped workspace, datasource and SQLBot user mapping to an existing human and readonly Agent; connector credentials use SHA-256 storage, and revisions revoke old tokens |
 
 The two sets of DDL of SQLite and PostgreSQL are semantically equivalent (auto-increment keys, Boolean, time types, and placeholders are translated according to dialects); the audit ID is `BIGINT GENERATED ALWAYS AS IDENTITY` on the PG, and the original audit ID is retained during data migration.
 
@@ -332,10 +333,23 @@ When PostgreSQL B5 is enabled by default, `open_session`, `close_session`, `get_
 
 ### 6.5 Management REST API
 
-- The prefix is ​​`/api/v1`. Except for `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh`, the management end Bearer token is required; the refresh endpoint uses rotating refresh token authentication. Unified response envelope `{code,msg,data}`, paginated as `{total,page,page_size,list}`.
+- The prefix is `/api/v1`. Management resources require an admin Bearer token and current permissions; login, refresh and external identity flows use their own authentication contracts. `POST /api/v1/integrations/sqlbot/resolve` accepts only a dedicated connector credential, not an admin token in its place. Responses use `{code,msg,data}`, with pagination `{total,page,page_size,list}`.
 - Endpoint family: authentication (login, refresh, me, logout; server-side persistent revocation of access jti and refresh family), agents (including rotate-key), datasources (including connectivity ping, sensitive discovery and NoSQL `native-ping` / `native-schema` / `native-query`), `datasource-types`, policies, rules, mask_rules (three-level scope) CRUD), audit (paging/filtering/CSV/JSONL/PDF/ZIP export), approvals (list/ruling), dashboard/summary (KPI/trend/distribution/ranking), playground (static evaluation, demo mode also has controlled trial run), stream (SSE). The NoSQL native command only opens the controlled subset in the adapter whitelist. For details, see [NoSQL support scope ](nosql-support.md).
 - masking rules `POST /api/v1/mask_rules` and `PUT /api/v1/mask_rules/{id}` accept `schema_name`, `table_name`, `column_name`, `sensitive_type`, `algo`, `enabled` and optional `datasource_id` / `range_*` fields. Scope fields prohibit leading and trailing blanks, NUL/control characters, `*`, `%` and `.` within a single field, up to 128 Unicode characters; retain the original case and allow legal quotation mark identifiers such as Chinese.
 - Probes: `/healthz` (survival), `/readyz` (storage ready, double pinging of control plane and audit library), `/metrics` (Prometheus).
+
+---
+
+### 6.6 SQLBot v2 human bindings (v3.1.0 under development and validation)
+
+The target is fixed to ordinary logged-in users of official SQLBot v1.10.2 and PostgreSQL. The installer verifies version and source hashes. Embedded assistant / ask-token flows, other SQLBot versions, other databases and unvalidated charts are outside this release's support claim.
+
+- Each mapping precisely links a workspace ID, SQLBot datasource name, SQLBot user ID, existing AgentSQL human, dedicated readonly Agent and PostgreSQL datasource within one tenant. External IDs are stored as decimal strings so browsers preserve Snowflake integer precision. `schema_name` restricts schema discovery; existing policies still authorize SQL objects.
+- The SQLBot server obtains identity from authenticated `current_user` and explicitly passes it to model worker threads. The connector credential represents trust in that server's identity assertions. Browser parameters, custom HTTP user headers and model output are not identity sources.
+- Creating, editing and rotating mappings require `strategy.manage`, `user.manage` and `datasource.manage`. `/api/v1/integrations/sqlbot/bindings` provides tenant-scoped CRUD, enable/disable, diagnostics and credential rotation. `/api/v1/integrations/sqlbot/export` exports v2 configuration containing only the endpoint, bindings and environment variable names.
+- The independent connector credential is shown only when created or rotated; the database stores SHA-256 only. After checking the live binding, human RBAC and Agent, `resolve` issues a two-minute SQLBot-specific human token that cannot log in to management APIs. Every MCP request checks the Agent Key, human token and binding revision, and restricts calls to read, discovery and readonly approval tools for the designated datasource.
+- Disabling, deleting, editing or rotating a binding invalidates its old tokens on subsequent requests. Agent Keys retain their independent lifecycle; revoke the Key to stop all access by that Agent. Schema and fields are permission-filtered before reaching the model. Denials do not trigger automatic model SQL rewrites; approvals require an explicit user request and resume the sealed query once.
+- Configuration diagnostics execute no query and do not prove network, model or business success. Release acceptance requires real SQLBot, a model and PostgreSQL, covering allow, deny, masking, audit, revocation, fail-closed behavior and approval replay. Failed management audits roll back the mutation transaction; runtime failures never fall back to a direct database connection. See the [v3.1.0 upgrade guide](v3.1.0-upgrade.md) for migration and full backup restoration.
 
 ---
 
@@ -359,10 +373,10 @@ The capability directory uses `internal/model/datasource_capabilities.go` as the
 | `bounded_sql` | Oracle, DM, YashanDB, SQL Server, Vastbase, HighGo, openGauss, etc. have their own specified versions and narrow SELECT; they do not inherit PostgreSQL B2/B5. |
 | `controlled_read_tool` | MongoDB `find_documents`, Redis/Valkey `read_key`, ClickHouse `query_analytics`, Milvus `search_vectors`; each requires precise authorization, source masking and persistent auditing. |
 | `connection_preview` | Other registration items only provide respective connections and metadata previews; there is no corresponding Agent business query tool and does not mean complete production support. |
-| control surface | SQLite defaults to combined database schema 23; PostgreSQL branch database metadata schema 22, audit schema 6. |
+| Control plane | v3.1.0 combined schema 24; separate metadata schema 23 and audit schema 6. Upgrade and recovery require acceptance for the target topology. |
 | MCP and client | stdio, `/mcp` with handshake and independent stateless `/mcp/2026-07-28`; see [ access guide ](INTEGRATIONS.md) for specific tools and identity requirements. |
 | console | Chinese and English, light/dark theme, independent scroll navigation, single binary embed. |
-| SQLBot | v1.10.2 PostgreSQL execution layer adaptation; fixed workspace mapping, Agent Key, authorized field types, masking and persistent auditing, no return to direct business connection. |
+| SQLBot | v2 integration under development and validation, fixed to SQLBot v1.10.2, ordinary logged-in users and PostgreSQL; workspace/datasource/human mappings, separate connector credentials, short-lived human tokens, readonly approval, masking and persistent audit, with no direct database fallback. |
 
 See `internal/model/datasource_types.go` for 30 registration types, ports and categories. For the complete itemized matrix and current evidence entry, see [README](../../README.en.md), [ current operation and maintenance manual ](OPERATIONS.md), and [ database support instructions ](nosql-support.md). KingbaseES V9 PG mode lists designated instances separately and is not calculated as a new registration type. Vendor versions, modes, clusters, active and standby, licenses and production loads must be verified one by one; document updates do not expand the scope of support.
 
@@ -383,7 +397,8 @@ See `internal/model/datasource_types.go` for 30 registration types, ports and ca
 ## 10. Authorization, Versions and Roadmap
 
 - The source code adopts **Apache License 2.0**; for commercial authorization, SLA and trademark retention, see [LICENSE](../../LICENSE), [NOTICE](../../NOTICE) and [COMMERCIAL-LICENSE.md](../../COMMERCIAL-LICENSE.en.md). The trademark **AgentSQL** and the Chinese name **Zhidun** are owned by the copyright holder. Forks/derivative works may not use its name or logo without written permission.
-- **has currently released code**: The capability tiers of Chapter 8 are provided according to their respective boundaries; RBAC/multi-tenant MVP, TOTP MFA, OIDC, LDAP/AD, audit PDF/ZIP and audit hash chain have been implemented and can no longer be listed as undelivered as a whole. For the current activation conditions, see [ Identity Guide ](AUTHENTICATION.md), [MCP to access ](INTEGRATIONS.md) and [. This version is accepted by ](v3.0.2-acceptance.md); the acceptance of the old version is only used as evidence for introduction.
+- **Version status**: v3.0.2 is released; see its [release evidence](v3.0.2-release-evidence.md). v3.1.0 is under development and validation; its new SQLBot v2 contract is described in section 6.6 and [version acceptance](v3.1.0-acceptance.md). Existing RBAC / multi-tenant MVP, TOTP MFA, OIDC, LDAP/AD, PDF/ZIP audit export and audit chain retain their established boundaries. Enablement requirements are in [identity guidance](AUTHENTICATION.md) and [MCP integration](INTEGRATIONS.md).
+- **Current scope**: implement v3.1.0 only. Later versions await user instructions; real customer pilots await identified customers and testing authorization.
 - **Follow-up direction**: The complete domestic/commercial database dialect and final verification of the manufacturer's target environment, regulatory-level WORM/external SIEM, multi-copy HA, K8s Operator, cross-instance centralized management and control, etc. still need to be subsequently verified or implemented; this specification does not count them as delivered capabilities.
 - Business cooperation: **87326549@qq.com** | **https://agentsql.cn**
 

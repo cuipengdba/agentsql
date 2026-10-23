@@ -2,7 +2,7 @@
 
 **Language:** [English](RELEASE_PROCESS.md) | [Simplified Chinese](../RELEASE_PROCESS.md)
 
-The current official baseline: v3.0.2. Each maintenance version follows the [ per version delivery process ](RELEASE_ROUTINE.md) to complete the complete delivery of design, code, testing, upgrade recovery, CI, signed products, GitHub Release, GHCR, official website and Demo.
+The current official baseline is v3.0.2; v3.1.0 remains in candidate acceptance. Each maintenance version follows the [per-version delivery process](RELEASE_ROUTINE.md) for design, code, testing, upgrade recovery, CI, signed assets, GitHub Release, GHCR, website and Demo.
 
 1. Check the scope of the previous official version and this version, and write design and acceptance use cases. The database supports declaration binding to specified versions, modes, operations and measured evidence.
 2. Complete the code, embedded web, documentation, official website and PDF in the isolated branch. Perform Go/Web, applicable safe negative sets, true integration, and upgrade recovery checks.
@@ -17,4 +17,4 @@ The current official baseline: v3.0.2. Each maintenance version follows the [ pe
 
 If any required access fails, repair and re-verify the corresponding candidate. If the online switching fails, restore the old configuration and complete data backup, and do not write the candidate as passed. Historical publications, their licenses, abstracts and signatures remain unchanged.
 
-For evidence of the current version, see [v3.0.2 and official release record ](v3.0.2-release-evidence.md). [ early release execution record ](release-process-history.md) retains the original time and version and cannot replace this round of acceptance.
+For v3.1.0 candidate and release progress, see the [release record](v3.1.0-release-evidence.md). The [earlier release execution record](release-process-history.md) retains historical dates and versions and cannot replace this acceptance.

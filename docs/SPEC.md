@@ -2,9 +2,9 @@
 
 **语言 / Language:** [简体中文](SPEC.md) | [English](en/SPEC.md)
 
-> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行规格：v3.0.2 已发布；本文同时记录开发验证中的 v3.1.0 契约，新增能力须通过[本版验收](v3.1.0-acceptance.md)后才列为正式交付。历史记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 版本：v3.0.2｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
+> 版本：v3.1.0 开发规格｜本文描述 AgentSQL 的系统架构、对外契约、安全模型与兼容边界，面向使用者与贡献者。
 > 完整可运行的配置样例见 `examples/`，完整建表 DDL 见 `internal/store/migrations/`；当本文与源码出现分歧时，以源码与测试为准并提 issue 修正本文。
 
 ---
@@ -99,7 +99,7 @@ Web 控制台 ──REST(/api/v1)──► adminapi ───┘                
 
 ## 4. 技术栈
 
-**后端（`go.mod` 声明 Go 1.26.0；正式发布脚本固定 Go 1.26.8）**
+**后端（`go.mod` 声明 Go 1.26.0；正式发布脚本固定 Go 1.26.10）**
 
 | 用途 | 依赖 |
 |---|---|
@@ -114,13 +114,13 @@ Web 控制台 ──REST(/api/v1)──► adminapi ───┘                
 | 限流 / 指标 | `golang.org/x/time`、`prometheus/client_golang` |
 | 测试 | `stretchr/testify` + `testcontainers-go`（真实 PostgreSQL 18 / MySQL 8） |
 
-**前端（`web/`）**：React 18 + TypeScript 5 + Vite 5 + Ant Design 5 + ECharts 5 + framer-motion + zustand + react-router-dom + axios。前端不引入单测框架，前端质量门为 `tsc --noEmit` 类型检查与 `vite` 生产构建，构建产物由后端 `go:embed` 打入单二进制。
+**前端（`web/`）**：React 18 + TypeScript 5 + Vite 8 + Ant Design 5 + ECharts 6 + framer-motion + zustand + react-router-dom + axios。前端质量门包括 `tsc --noEmit` 类型检查、Vitest、英文词条检查与 Vite 生产构建；产物输出到 `internal/webui/dist`，由后端 `go:embed` 打入单二进制。
 
 ---
 
 ## 5. 代码结构
 
-```
+```text
 cmd/
   agentsql/        # 网关 / MCP / 控制台进程
   agentsqlctl/     # 运维 CLI（init-config / check-config / migrate / health / demo-seed 等）
@@ -128,7 +128,7 @@ internal/
   config/ model/ store/ auth/ policy/ parser/ engine/ rules/
   executor/ mask/ audit/ pipeline/ mcpserver/ adminapi/
   eventbus/ metrics/ demoseed/ bootstrap/ server/ webui/ version/
-web/               # React 控制台源码（构建到 web/dist，由 internal/webui 内嵌）
+web/               # React 控制台源码（构建到 internal/webui/dist 并内嵌）
 deploy/systemd/    # systemd unit 与加固样例
 examples/          # docker-compose、配置样例、环境变量样例
 demo/              # 一键自托管在线演示套件与 reset 脚本
@@ -293,7 +293,7 @@ type Algorithm string // mask | hash | block | range
 
 ### 6.3 控制面数据模型
 
-七张业务表加迁移账本 `schema_migrations`：
+核心数据表如下，完整清单以迁移目录为准。v3.1.0 合库 schema 为 24，分库 metadata 为 23、audit 为 6；v3.0.2 基线分别为 23、22、6。
 
 | 表 | 用途 / 关键不变量 |
 |---|---|
@@ -304,6 +304,7 @@ type Algorithm string // mask | hash | block | range
 | `mask_rules` | 按数据源 / schema / 表 / 列的三档作用域脱敏规则与算法 |
 | `audit_logs` | **审计核心，只追加**；仓储层不提供 UPDATE / DELETE 接口；独立审计库中仅此表与索引 |
 | `approvals` | 审批单（pending/approved/rejected/expired），关联审计 ID |
+| `sqlbot_bindings` | 租户内工作空间、数据源、SQLBot 用户与既有人类/只读 Agent 的绑定；连接凭据仅存 SHA-256，修订号用于撤销旧令牌 |
 
 SQLite 与 PostgreSQL 两套 DDL 语义等价（自增键、布尔、时间类型、占位符按方言翻译）；审计 ID 在 PG 上为 `BIGINT GENERATED ALWAYS AS IDENTITY`，数据迁移保留原审计 ID。
 
@@ -332,10 +333,23 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 
 ### 6.5 管理 REST API
 
-- 前缀 `/api/v1`，除 `POST /api/v1/auth/login` 与 `POST /api/v1/auth/refresh` 外均需管理端 Bearer 令牌；refresh 端点以轮换式 refresh token 认证。统一响应信封 `{code,msg,data}`，分页为 `{total,page,page_size,list}`。
+- 前缀为 `/api/v1`。管理资源需要管理端 Bearer 令牌和当前权限；登录、刷新及外部身份流程采用各自认证契约。`POST /api/v1/integrations/sqlbot/resolve` 仅接受专用连接凭据，不接受管理令牌代替。统一响应包络 `{code,msg,data}`，分页为 `{total,page,page_size,list}`。
 - 端点族：认证（login、refresh、me、logout；服务端持久化撤销 access jti 与 refresh family）、agents（含 rotate-key）、datasources（含连通性 ping、敏感发现及 NoSQL 的 `native-ping` / `native-schema` / `native-query`）、`datasource-types`、policies、rules、mask_rules（三档作用域 CRUD）、audit（分页 / 筛选 / CSV/JSONL/PDF/ZIP 导出）、approvals（列表 / 裁决）、dashboard/summary（KPI / 趋势 / 分布 / 排行）、playground（静态评估，演示模式另有受控试运行）、stream（SSE）。NoSQL 原生命令只开放适配器白名单内的受控子集，详见 [NoSQL 支持范围](nosql-support.md)。
 - 脱敏规则 `POST /api/v1/mask_rules` 与 `PUT /api/v1/mask_rules/{id}` 接受 `schema_name`、`table_name`、`column_name`、`sensitive_type`、`algo`、`enabled` 及可选 `datasource_id` / `range_*` 字段。作用域字段禁止首尾空白、NUL / 控制字符、`*`、`%` 和单字段内的 `.`，最长 128 个 Unicode 字符；保留原始大小写并允许中文等合法引号标识符。
 - 探针：`/healthz`（存活）、`/readyz`（存储就绪，控制面与审计库双 Ping）、`/metrics`（Prometheus）。
+
+---
+
+### 6.6 SQLBot v2 人员绑定（v3.1.0 开发验证中）
+
+适配范围固定为官方 SQLBot v1.10.2 的普通登录用户和 PostgreSQL。安装器核对版本与源码哈希；嵌入式 assistant / ask-token、其他 SQLBot 版本、其他数据库和未验收图表不进入本版支持声明。
+
+- 每条映射精确关联本租户的工作空间 ID、SQLBot 数据源名称、SQLBot 用户 ID、已有 AgentSQL 人员、专用只读 Agent 和 PostgreSQL 数据源。外部 ID 以十进制字符串保存，避免浏览器丢失 Snowflake 整数精度。`schema_name` 限制结构发现，SQL 对象授权仍由既有策略判定。
+- SQLBot 服务端从已认证 `current_user` 取得身份，并显式传递到模型工作线程。连接凭据代表对该服务器身份断言的信任，不能把浏览器参数、HTTP 自定义用户头或模型输出当作身份。
+- 创建、修改、轮换映射要求 `strategy.manage`、`user.manage`、`datasource.manage`。`/api/v1/integrations/sqlbot/bindings` 提供租户隔离 CRUD、启停、诊断和凭据轮换；`/api/v1/integrations/sqlbot/export` 导出 v2 配置，仅含端点、绑定及环境变量名。
+- 独立连接凭据仅创建或轮换时展示一次，数据库只存 SHA-256。`resolve` 检查当前绑定、人员 RBAC 和 Agent 后签发 2 分钟 SQLBot 专用人员令牌；它不能登录管理 API。MCP 每请求同时检查 Agent Key、人员令牌及绑定 revision，并限制为指定数据源的读取、发现和只读审批工具。
+- 禁用、删除、编辑和轮换使旧绑定令牌在后续请求失效。Agent Key 按原生命周期独立管理；停止该 Agent 的全部访问需撤销其 Key。结构和字段按权限过滤后才送入模型；拒绝不触发模型自动改写 SQL 重试，审批只能由用户主动提交并按封存请求单次接续。
+- 配置诊断不执行查询，也不证明网络、模型或业务成功。正式验收要求真实 SQLBot、模型及 PostgreSQL，覆盖允许、拒绝、脱敏、审计、撤权、故障关闭和审批重放。管理变更审计失败则事务回滚；运行期不回退数据库直连。升级与成套备份恢复见 [v3.1.0 升级指南](v3.1.0-upgrade.md)。
 
 ---
 
@@ -359,10 +373,10 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 | `bounded_sql` | Oracle、DM、YashanDB、SQL Server、Vastbase、HighGo、openGauss 等各自指定版本与窄 SELECT；不继承 PostgreSQL B2/B5。 |
 | `controlled_read_tool` | MongoDB `find_documents`、Redis/Valkey `read_key`、ClickHouse `query_analytics`、Milvus `search_vectors`；各自需要精确授权、来源脱敏和持久审计。 |
 | `connection_preview` | 其他注册项只提供各自连接与元数据预览；没有对应 Agent 业务查询工具，不表示完整生产支持。 |
-| 控制面 | SQLite 默认合库 schema 23；PostgreSQL 分库 metadata schema 22、audit schema 6。 |
+| 控制面 | v3.1.0 合库 schema 24；分库 metadata schema 23、audit schema 6；升级和恢复须按目标拓扑验收。 |
 | MCP 与客户端 | stdio、带握手的 `/mcp` 与独立无状态 `/mcp/2026-07-28`；具体工具和身份要求见 [接入指南](INTEGRATIONS.md)。 |
 | 控制台 | 中英文、浅色/深色主题、独立滚动导航、单二进制内嵌。 |
-| SQLBot | v1.10.2 PostgreSQL 执行层适配；固定工作空间映射、Agent Key、授权后的字段类型、脱敏和持久审计，不退回业务直连。 |
+| SQLBot | 开发验证中的 v2 接入固定 SQLBot v1.10.2、普通登录用户和 PostgreSQL；工作空间/数据源/人员映射、独立连接凭据、短期人员令牌、只读审批、脱敏和持久审计，不退回业务直连。 |
 
 30 款注册类型、端口与类别见 `internal/model/datasource_types.go`。完整逐项矩阵与当前证据入口见 [README](../README.md)、[当前运维手册](OPERATIONS.md)和 [数据库支持说明](nosql-support.md)。KingbaseES V9 PG 模式另列指定实例，不按一个新注册类型计算。厂商版本、模式、集群、主备、许可与生产负载必须逐项验证；文档更新不扩大支持范围。
 
@@ -383,7 +397,8 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 ## 10. 授权、版本与路线图
 
 - 源代码采用 **Apache License 2.0**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
-- **当前已发布代码**：第 8 章的能力档位按各自边界提供；RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 与审计哈希链已有实现，不能再列作整体未交付。当前启用条件见 [身份指南](AUTHENTICATION.md)、[MCP 接入](INTEGRATIONS.md)与 [本版验收](v3.0.2-acceptance.md)；旧版本验收只作为引入时证据。
+- **版本状态**：v3.0.2 已发布，见[发布记录](v3.0.2-release-evidence.md)。v3.1.0 正在开发验证，新增 SQLBot v2 契约见第 6.6 节及[本版验收](v3.1.0-acceptance.md)。既有 RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 和审计链按原边界保留；启用条件见[身份指南](AUTHENTICATION.md)与 [MCP 接入](INTEGRATIONS.md)。
+- **本次范围**：只实施 v3.1.0；后续版本等待用户指令，真实客户试点等待明确客户与测试授权。
 - **后续方向**：完整国产/商业数据库方言与厂商目标环境终验、法规级 WORM / 外置 SIEM、多副本 HA、K8s Operator、跨实例集中管控等仍需后续验证或实现；本规格不将其计作已交付能力。
 - 商业合作：**87326549@qq.com** ｜ **https://agentsql.cn**
 

@@ -15,6 +15,13 @@ const targets = [
     height: 630,
   },
   {
+    name: "OG (English)",
+    url: "http://127.0.0.1:8767/tools/og-cover-en.html",
+    output: resolve(websiteDirectory, "public/assets/og-cover-en.png"),
+    width: 1200,
+    height: 630,
+  },
+  {
     name: "icon",
     url: "http://127.0.0.1:8767/tools/icon.html",
     output: resolve(websiteDirectory, "public/apple-touch-icon.png"),

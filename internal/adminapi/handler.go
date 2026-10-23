@@ -292,6 +292,15 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/b5/reconciliation", handler.b5ReconciliationList)
 	mux.HandleFunc("POST /api/v1/b5/reconciliation", handler.b5Reconcile)
 	mux.HandleFunc("GET /api/v1/integrations/notifications", handler.notificationsGet)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/resolve", handler.sqlbotResolve)
+	mux.HandleFunc("GET /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsList)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsCreate)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/export", handler.sqlbotBindingsExport)
+	mux.HandleFunc("GET /api/v1/integrations/sqlbot/bindings/{id}", handler.sqlbotBindingsGet)
+	mux.HandleFunc("PUT /api/v1/integrations/sqlbot/bindings/{id}", handler.sqlbotBindingsUpdate)
+	mux.HandleFunc("DELETE /api/v1/integrations/sqlbot/bindings/{id}", handler.sqlbotBindingsDelete)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/bindings/{id}/rotate", handler.sqlbotBindingsRotate)
+	mux.HandleFunc("GET /api/v1/integrations/sqlbot/bindings/{id}/diagnostics", handler.sqlbotBindingsDiagnostics)
 	mux.HandleFunc("PUT /api/v1/integrations/notifications", handler.notificationsPut)
 	mux.HandleFunc("POST /api/v1/integrations/notifications/test", handler.notificationsTest)
 	mux.HandleFunc("GET /api/v1/integrations/notifications/health", handler.notificationsHealth)
@@ -331,6 +340,12 @@ func bootstrapRBAC(service *rbac.Service, username, password string) error {
 
 func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// This exact route authenticates its connector credential and Agent Key
+		// inside sqlbotResolve. No management route accepts connector credentials.
+		if request.Method == http.MethodPost && request.URL.Path == "/api/v1/integrations/sqlbot/resolve" {
+			next.ServeHTTP(writer, request)
+			return
+		}
 		if (request.Method == http.MethodPost && (request.URL.Path == "/api/v1/auth/login" || request.URL.Path == "/api/v1/auth/refresh" || request.URL.Path == "/api/v1/auth/mfa/verify" || request.URL.Path == "/api/v1/auth/ldap/login")) ||
 			(request.Method == http.MethodGet && (request.URL.Path == "/api/v1/auth/config" || request.URL.Path == "/api/v1/auth/oidc/start" || request.URL.Path == "/api/v1/auth/oidc/callback")) {
 			next.ServeHTTP(writer, request)

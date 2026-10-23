@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](AUDIT_REPORTING.md) | [English](en/AUDIT_REPORTING.md)
 
-> 现行指南：适用于 v3.0.2 及兼容的 3.0.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.1.0 及兼容的 3.1.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
 > 本文描述当前 `agentsqlctl audit` 的只读能力。具体参数以本版 `agentsqlctl audit --help` 为准；合规归档与外部见证边界见 [v2.9.0 设计](v2.9.0-design.md)。
 

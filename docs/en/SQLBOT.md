@@ -1,76 +1,123 @@
-# SQLBot access AgentSQL
+# Connect SQLBot to AgentSQL
 
-**Language:** [English](SQLBOT.md) | [Simplified Chinese](../SQLBOT.md)
+[Simplified Chinese](../SQLBOT.md) | [English](SQLBOT.md)
 
-Supported integration target: [official DataEase SQLBot v1.10.2](https://github.com/dataease/SQLBot/tree/v1.10.2), upstream commit `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. This adapter is provided with AgentSQL v3.0.2. The v3.0.1 `list_schema` response does not include field types and cannot replace the newer version for field discovery.
-
-## Access methods and boundaries
-
-SQLBot provides its own MCP Server, and its database queries will not call other MCP Servers. An independent Python adapter and fixed source hash installer are provided here. When building a SQLBot derived image, table/field discovery, connection checking and generated SQL execution are sent to AgentSQL `/mcp`. No changes are made to SQLBot's logo, copyright or large model generation logic.
+v3.1.0 adds configuration version 2: bindings use the actual signed-in SQLBot user and send PostgreSQL questions through AgentSQL identity, authorization, masking, approval, and audit controls. The adapter targets SQLBot **v1.10.2**, source baseline `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. See the [v3.1.0 acceptance record](v3.1.0-acceptance.md) for completed live tests. Passing a compatibility check does not establish coverage for every model, chart, or SQL statement.
 
 ```text
-SQLBot User → Workspace/Data Source Permissions → SQLBot Generate SQL
-  → Fixed workspace and data source mapping → AgentSQL Agent Key
-  → MCP → Permissions/Rules → Controlled Execution → masking → Persistent Auditing → SQLBot Chart Data
+SQLBot ordinary login → workspace and datasource permissions → natural-language SQL
+  → trusted server user + personal binding → short-lived human token
+  → local Agent Key + human token → AgentSQL MCP
+  → current binding / user / tenant / Agent policy → execution → masking and durable audit
+  → SQLBot results and charts
 ```
 
-The initial adapter supports PostgreSQL datasources, simple identifiers and an explicit schema. Queries must satisfy AgentSQL's existing SELECT subset and authorization rules. This integration does not expand B2/B5 capabilities or database support boundaries. The adapter has no business database account and never connects directly to a business database. Missing mappings, revoked keys, deny/warn/approval-required/unknown decisions, a missing audit ID, or an unavailable gateway all fail closed. It does not retry SQL, perform writes or approval execution, or forward SQLBot passwords.
+## Scope and trust boundaries
 
-SQLBot internal metadata PostgreSQL is still stored by SQLBot itself. The gateway's Agent identity corresponds to the SQLBot workspace and data source configured by the operator, and is not equivalent to the personal identity of each SQLBot end user; when user-level authorization is required, independent mapping and identity schemes must be configured. External dynamic data sources, Excel business reading, and unconfigured data sources are denied direct connections in this deployment.
+- Managed bindings in this version support **PostgreSQL read-only queries**. MySQL, writes, B5, dynamic datasources, and direct Excel access are excluded. SQLBot continues to use its own PostgreSQL metadata database, separately from business databases.
+- Only ordinary SQLBot identities authenticated on its server through `X-SQLBOT-TOKEN` are accepted. Assistant, embedded, and ask-token identities are rejected. Browser, model, or request-body user IDs are not authentication evidence.
+- Each binding maps one SQLBot workspace, datasource name, and user to one AgentSQL user, read-only Agent, and PostgreSQL datasource. Assign different Agent policies when users need different data scopes. The SQLBot server and connector credential are trusted deployment components: a server holding a credential can obtain a token for the user fixed in that binding.
+- Every operation resolves the current binding; every MCP request validates its status and revision, user permissions, tenant status, and Agent. Disabling, modifying, or rotating the binding invalidates old tokens. Configuration version 2 validates its dedicated human token even when human delegation is not globally required. Existing ordinary delegation rules remain unchanged.
+- `schema` limits metadata discovery; **it is not an independent SQL authorization boundary**. Agent policies and database privileges control SQL data access. Existing SQLBot metadata is intersected with the current user's AgentSQL-visible tables and columns so broader administrator caches do not enter the model context.
+- Managed queries additionally require a single PostgreSQL `SELECT`. `SELECT INTO`, `EXPLAIN` statements, modifying CTEs, locking reads, and functions in `FROM` are rejected. Allowed functions are `count`, `sum`, `avg`, `min`, `max`, `abs`, `round`, `ceil`, `ceiling`, `floor`, `lower`, `upper`, `length`, `date_trunc`, `date_part`, and `to_char`. The current PostgreSQL B2 executor requires explicit `pg_catalog` qualification, such as `pg_catalog.count(*)`. Model-generated `COUNT(*)` is denied and audited; the adapter does not silently rewrite SQL. The parse tree is limited to 128 levels and 20,000 nodes. These are additional restrictions; existing AgentSQL policies, object authorization, and least-privilege database access still apply.
 
-## 1. Prepare AgentSQL
+## 1. Prepare the gateway and personal bindings
 
-1. Use v3.0.2 or a later compatible version of AgentSQL to register a PostgreSQL data source for a dedicated read-only database account.
-2. Create a dedicated read-only Agent, grant the minimum permissions according to the required schema, tables, and columns, and configure masking rules and persistent auditing. Do not grant `*` for access and do not use the console administrator token.
-3. First use MCP Inspector to verify `list_datasources`, `list_schema`, an allowed SELECT and an unauthorized rejection. `list_schema` Output `data_type` only for authorized columns.
-4. Store the Agent Key in SQLBot's server environment or a secrets management system. Do not put it in the SQLBot UI, source code, image, URL or configuration JSON. Use HTTPS with a valid, verified certificate. Loopback HTTP is permitted only for isolated tests on the same host.
+1. Start the v3.1.0 AgentSQL console and HTTP MCP endpoint. Configure the PostgreSQL business datasource with a least-privilege database account.
+2. Create an enabled, ordinary **readonly Agent** in the same tenant; temporary task Agents are excluded. Configure permitted tables, columns, masking, and approval policies. Create or select an AgentSQL user with `query.execute` permission.
+3. Open **SQLBot** in the console navigation and create a binding. Creation, modification, and rotation require all three permissions: `strategy.manage`, `datasource.manage`, and `user.manage`. Enter SQLBot workspace ID, user ID, datasource name, AgentSQL user, Agent, business datasource, discovery schema, and optional numeric column aliases.
+4. SQLBot Snowflake IDs can exceed JavaScript's safe integer range. Use exact **decimal strings** for workspace and user IDs in configuration and APIs, never floating-point conversion. The datasource name must exactly match SQLBot.
+5. Save the connector credential returned on creation. Only its hash is stored; plaintext is returned only when creating or rotating it. Rotate if lost. The Agent Key is a separate credential with an independent lifecycle.
+6. Export the configuration. Exports contain bindings and environment variable names, **not credentials**. Console diagnostics reporting `configuration_ready` establish configuration prerequisites, not successful live business queries.
 
-## 2. Build a derived image
+Verify allowed queries, denials, masking, and audit with a tool such as MCP Inspector before connecting SQLBot. Never put database credentials, gateway administration tokens, or connector credentials into prompts, chats, or browser code.
 
-Execute in the root directory of the AgentSQL repository:
+## 2. Build the pinned derivative image
 
-```bash
-docker build -f integrations/sqlbot/Dockerfile -t agentsql-sqlbot:1.10.2 .
+Run from the AgentSQL repository root:
+
+```sh
+docker build -f integrations/sqlbot/Dockerfile -t agentsql-sqlbot:1.10.2-v3.1.0 .
+docker run --rm --entrypoint python3 agentsql-sqlbot:1.10.2-v3.1.0 /tmp/agentsql-sqlbot/install.py --sqlbot-app /opt/sqlbot/app --check
 ```
 
-The installer only accepts the verified upstream `apps/db/db.py` hash and retains the original file backup in the image; if the version or file does not match, it will stop immediately. It replaces six high-level entrances and blocks seven lower-level business connection entrances. Don't skip hash checking or force support for other SQLBot versions with an old installer. Derived images comply with SQLBot upstream license, logo, and copyright requirements; this project does not relicense the upstream code to Apache-2.0.
+The Dockerfile pins the upstream image digest. The installer validates four upstream source hashes before changing files. Patches cover database dispatch, identity propagation into question workers, metadata filtering, and the approval operations page. Adapted paths cannot fall back to direct business-database connections. Policy denials and approval requirements terminate the question instead of triggering automatic SQL repair and retry.
 
-## 3. Configure mapping and deploy
+`--check` compares eight installed files with the installation manifest and fails on version or file drift. This is a deployment consistency check, not a substitute for image signatures or provenance verification. An SQLBot upgrade requires updated patches, hash checks, and acceptance testing; do not bypass version checks. Preserve upstream copyright, branding, and license requirements.
 
-Copy the configuration from [config.example.json](../../integrations/sqlbot/config.example.json). `workspace_id` is the SQLBot workspace ID, `datasource_name` is exactly the same as the name on the page, and `datasource_id` is the AgentSQL data source ID. They are locked by server-side configuration; ambiguous mappings across workspaces or with duplicate names are rejected.
+## 3. Mount configuration and server credentials
+
+Example configuration version 2; normally use the console export:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "endpoint": "https://your-agentsql.example/mcp",
   "timeout_seconds": 30,
   "min_interval_seconds": 0.6,
-  "bindings": [{
-    "workspace_id": 1,
-    "datasource_name": "AgentSQL PostgreSQL",
-    "dialect": "pg",
-    "datasource_id": "ds-example",
-    "schema": "public",
-    "key_env": "AGENTSQL_SQLBOT_READONLY_KEY",
-    "numeric_columns": ["total", "amount"]
-  }]
+  "bindings": [
+    {
+      "id": "binding-id-from-agentsql-console",
+      "workspace_id": "7518977644151443456",
+      "datasource_name": "AgentSQL PostgreSQL",
+      "sqlbot_user_id": "7518977644151443457",
+      "agent_key_env": "AGENTSQL_SQLBOT_READONLY_KEY",
+      "connector_token_env": "AGENTSQL_SQLBOT_CONNECTOR_TOKEN"
+    }
+  ]
 }
 ```
 
-Mount the file read-only to SQLBot, such as `/run/agentsql-sqlbot/config.json`, and set `AGENTSQL_SQLBOT_CONFIG` to this path; provide `AGENTSQL_SQLBOT_READONLY_KEY` through the server environment. Private CAs can specify read-only `ca_file` in the configuration and cannot turn off TLS verification. The current limiting interval is a conservative request rhythm within a single process. When multiple workers share the Agent, they must still be planned according to the gateway current limiting; HTTP 429 does not automatically retry.
+- Mount the file read-only into SQLBot and set `AGENTSQL_SQLBOT_CONFIG` to its container path. Inject the two referenced environment values through protected deployment configuration or secrets; never commit them to Git.
+- Each operation sends the connector credential and binding ID, workspace ID, datasource name, and trusted user ID to `/api/v1/integrations/sqlbot/resolve` on the same gateway origin. All four identifiers must match. Success returns a dedicated two-minute human token, current revision, and datasource information. The Agent Key always comes from the local environment and is never returned by the resolver.
+- MCP requests carry the Agent Key and `X-AgentSQL-User-Authorization: Bearer <short-lived token>`. This token is scoped to its binding and cannot replace administration login, ordinary human tokens, or another binding's token.
+- HTTPS is required except for `localhost`, `127.0.0.1`, and `::1`. Redirects and environment proxies are disabled. Set top-level `ca_file` for a private CA; do not disable certificate verification.
+- Keep SQLBot's existing persistent volumes, metadata database, and model configuration. Its business datasource can use a placeholder host such as `agentsql.invalid`; do not configure real business-database credentials. Production networking should also block direct SQLBot access to business databases. Models receive authorized metadata and masked results; choose model deployment locations according to organizational data requirements.
+- After changing a binding or rotating credentials, update server secrets and recreate/restart containers to load new environment values, preserving volumes. Re-export configuration after changing SQLBot datasource names or user mappings. The adapter reads configuration on each operation.
+- `min_interval_seconds` provides per-process pacing, not cluster coordination. Timeouts, HTTP 429, connection failures, and policy denials do not automatically retry business SQL.
 
-Use the persistence directory and model configuration of SQLBot's official deployment, and replace the base image with the derived image built above. Limit the direct network connection of SQLBot to the business database, allowing it to only access AgentSQL's HTTPS and its own metadata storage; separately configure TLS, account and access control when providing SQLBot to the outside world.
+## 4. Verify complete questions
 
-## 4. Create a data source in SQLBot
+Sign in with the ordinary SQLBot user and workspace specified by the binding. Create a PostgreSQL datasource with the matching name, run its connection check and table discovery, then configure the model for natural-language questions and charts. Existing SQLBot workspace and data permission checks remain; the gateway makes the final SQL execution decision.
 
-Create a PostgreSQL data source, the workspace and name are consistent with the mapping; schema fills in the configured schema. The business database host, username, and password in the connection form are not used for the adapter. `agentsql.invalid` and non-permission placeholder values ​​can be used, and the real business credentials are not saved. Connection check, table selection and field discovery will call the gateway; after renaming or changing the workspace, the operator must synchronize the server mapping.
+Results preserve SQLBot's `fields`, `data`, and `fields_info`, and include `agentsql.audit_id`. Query column aliases must be unique. If charts need numeric types, explicitly list **result aliases** in `numeric_columns`. Only finite numbers that can be represented safely and precisely are converted; masked values and unsafe high-precision numbers remain strings. Avoid blanket conversion that breaks financial precision or masking.
 
-The normal query returns SQLBot's `fields`, `data`, `fields_info` and SQL encoding, with an additional `agentsql.audit_id` for correlation. Values ​​that are masked to strings will not be incorrectly labeled as numbers; unique aliases must be used to repeatedly output column names to avoid overwriting of chart results.
+A successful connection check is insufficient. Verify real model-generated SQL, gateway execution, masked result delivery, charts, and durable audit. See the [acceptance record](v3.1.0-acceptance.md) for release test coverage.
 
-Gateway current row results using string. When numeric charts are required, query output aliases are explicitly listed in `numeric_columns` in the server-side mapping; the adapter only converts a limited number of numeric values ​​that can be accurately represented under these aliases. Mobile phone numbers, serial numbers, etc. are retained as strings by default; masked values, mixed types, and values ​​exceeding safe precision will not be forced to convert. Undeclared numeric columns can still be displayed as table text.
+## 5. Denials, approval, and single execution
 
-## Acceptance and inspection
+Denial feedback contains filtered decisions, audit IDs, approval IDs, and rule identifiers, without raw gateway errors, credentials, or hidden data. The model does not automatically submit approval requests, rewrite denied SQL for retry, or execute approved requests.
 
-It is necessary to perform allow query, unauthorized denial, field pruning, sensitive value masking and persistent audit verification on the actual deployment; then revoke the Agent Key, remove the mapping, disconnect the gateway, and confirm that there is no direct connection or automatic retry. Rediscover and refresh cached table/field metadata in SQLBot after modifying permissions.
+The same-origin SQLBot operations page is **`/api/v1/agentsql/console.html`**, with the configured context-path prefix when applicable. It supports Chinese and English.
 
-Adapter errors only print the stable error and audit ID when applicable, and do not echo the Key, DSN, original response, or result lines. SQLBot itself may record generated SQL, and its log access and retention policies need to be configured independently. The official source code, actual summary of the image, actual test environment and untested items are recorded in this version of the acceptance report; execution layer verification without a model account is not equivalent to complete natural language questions or acceptance of all chart types.
+1. Sign in with an ordinary SQLBot account. The page can use the existing same-origin login, or accept your personal SQLBot login token temporarily in page memory. Never enter an Agent Key, connector credential, or gateway administration token.
+2. Load your current workspace's bindings and run diagnostics. Diagnostics check connectivity and authorized metadata without executing business queries.
+3. Check an existing approval ID, or explicitly enter SQL and a reason, confirm, and submit a new request. The gateway seals that SQL; submission does not execute it.
+4. A reviewer acts in the existing AgentSQL approval interface. After approval, the original user, Agent, and datasource execute it. The operations page sends only the approval ID, preventing SQL substitution. Current authorization must remain valid, and the sealed request can execute at most once.
+
+With PostgreSQL B2 column authorization enabled, the gateway rejects approval requests and the operations page reports that denial. It never disables B2 or bypasses column policies to obtain approval. The complete read-approval flow has been accepted in an isolated configuration with B2 explicitly disabled. Treat approvals as unsupported when B2 is enabled in production; controlled direct queries remain subject to existing policies. A later release must complete the safe B2 and approval combination.
+5. Results appear separately on this page; **the original SQLBot conversation and chart are not automatically rewritten or regenerated**.
+
+All operations APIs require ordinary login authentication. Approval submission, status, and execution use POST JSON; mutations require explicit confirmation, and GET cannot trigger execution. The custom login header, same-origin validation, and omission of automatic Cookie credentials restrict cross-site requests. This page is an explicit SQL entry point constrained by the binding and Agent policy, not a replacement for SQLBot model-specific row-filter rewriting.
+
+## Troubleshooting and acceptance
+
+| Symptom | Check |
+| --- | --- |
+| No binding available | Ordinary login; exact workspace/user ID strings; datasource name; enabled binding |
+| Resolve or MCP authentication fails | Connector credential versus Agent Key; environment after rotation; user `query.execute`; tenant and Agent status |
+| Tables or columns missing | Current Agent table/column permissions, discovery schema, SQLBot metadata cache, datasource permissions |
+| SQL denied | Agent policy, the read-only SQL subset, function allowlist; investigate using the audit ID rather than automatic retry |
+| Incorrect chart numeric types | Unique aliases, `numeric_columns`, masked values, high-precision strings |
+| Approved request cannot execute | Original requester/Agent/datasource, current permissions, approval state, previous consumption |
+| Compatibility check fails | Upstream version, source hashes, installed file drift; rebuild and test the pinned image |
+
+Acceptance should cover two users, different workspaces or data scopes, real questions and charts, allow/deny, blocked writes, masking, audit, disabling/modification/rotation, revoked user permissions, replay prevention, and gateway failure closure. Revocation blocks new requests; it does not erase results already stored in SQLBot. SQLBot manages their retention and removal.
+
+Adapter tests: `python -m unittest discover -s integrations/sqlbot -p 'test_*.py' -v`. Route tests depend on FastAPI and SQLBot runtime libraries and skip when unavailable; run the complete suite in the pinned SQLBot image. Keep real credentials and unauthorized business data out of tests and logs.
+
+## Historical configuration version 1 and migration
+
+v3.0.2 configuration version 1 matches workspace and datasource name and uses `workspace_id`, `datasource_name`, `dialect: "pg"`, `datasource_id`, `schema`, `key_env`, and `numeric_columns`. It is a workspace-level Agent Key integration and **does not provide this version's personal mapping, short-lived human token, or managed approval operations page**. Historical validation is recorded in [v3.0.2 acceptance](v3.0.2-acceptance.md).
+
+To migrate, create version 2 personal bindings, save the one-time credentials, and export configuration. Then switch the derivative image and server secrets and complete acceptance testing. Retain old configuration only for controlled recovery; deployments requiring personal identity governance must not use version 1 to bypass identity verification. SQLBot users absent from the bindings must fail closed.

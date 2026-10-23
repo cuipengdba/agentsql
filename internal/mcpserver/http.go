@@ -186,6 +186,7 @@ type httpHandlerOptions struct {
 	webConsole http.Handler
 	b5         B5Options
 	delegation HumanDelegationVerifier
+	sqlbot     SQLBotDelegationVerifier
 	oauth      HumanDelegationVerifier
 }
 
@@ -328,7 +329,7 @@ func newHTTPHandlerWithRegistry(
 					)),
 				),
 			),
-		)),
+		), sqlbotHTTPGate{verifier: resolvedOptions.sqlbot, runtime: runtime}),
 	)
 	// The 2026-07-28 protocol is sessionless and cannot share the legacy
 	// transport handler. Both endpoints share the same per-Agent rate limiter.
@@ -364,7 +365,7 @@ func newHTTPHandlerWithRegistry(
 				recoverMiddleware(logger,
 					accessLogMiddleware(logger, uniqueModernMetadataMiddleware(modernSDKHandler)),
 				),
-			)),
+			), sqlbotHTTPGate{verifier: resolvedOptions.sqlbot, runtime: runtime}),
 		),
 	)
 	mux := http.NewServeMux()
@@ -511,6 +512,9 @@ func mcpSessionIdentityMiddleware(next http.Handler) http.Handler {
 			userID := agentServerKey(identity.agent)
 			if human, present := delegatedHumanFromContext(ctx); present {
 				userID += "|human:" + human.tenantID + ":" + human.userID
+			}
+			if binding, present := sqlbotScope(ctx); present {
+				userID += "|sqlbot:" + binding.ID + ":" + strconv.FormatInt(binding.Revision, 10)
 			}
 			return &mcpauth.TokenInfo{UserID: userID}, nil
 		},
@@ -791,8 +795,11 @@ func authMiddleware(authenticator identityAuthenticator, next http.Handler) http
 
 const humanDelegationHeader = "X-AgentSQL-User-Authorization"
 
-func humanDelegationMiddleware(required bool, verifier HumanDelegationVerifier, next http.Handler) http.Handler {
+func humanDelegationMiddleware(required bool, verifier HumanDelegationVerifier, next http.Handler, sqlbotGates ...sqlbotHTTPGate) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if len(sqlbotGates) == 1 && sqlbotGates[0].serve(writer, request, next) {
+			return
+		}
 		values := request.Header.Values(humanDelegationHeader)
 		if !required {
 			// A caller-supplied identity must not appear to be authenticated when

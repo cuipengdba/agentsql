@@ -190,6 +190,9 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 			}
 			adminDeps.RBAC = rbac.NewService(runtime.Store.RBAC())
 			var httpOptions []mcpserver.HTTPOption
+			httpOptions = append(httpOptions, mcpserver.WithSQLBotDelegation(
+				adminapi.NewSQLBotDelegationVerifier(adminDeps.TokenKey, runtime.Store, adminDeps.RBAC),
+			))
 			if runtime.B5 != nil {
 				b5Admin, b5AdminErr := adminapi.NewStoreB5AdminWithStatus(runtime.Store, func(statusContext context.Context) (adminapi.B5StatusView, error) {
 					status, statusErr := runtime.B5.Status(statusContext)
