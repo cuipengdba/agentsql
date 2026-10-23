@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](release-notes-v3.2.0.md) | [English](en/release-notes-v3.2.0.md)
 
-状态：候选版。正式交付以 GitHub Release、签名资产和[验收记录](v3.2.0-acceptance.md)为准。
+状态：已正式发布。正式交付和验收门禁见[发布证据](v3.2.0-release-evidence.md)，功能边界见[验收记录](v3.2.0-acceptance.md)。
 
 ## 本版改进
 

@@ -2,7 +2,7 @@
 
 **Language:** [English](release-notes-v3.2.0.md) | [Simplified Chinese](../release-notes-v3.2.0.md)
 
-Status: release candidate. Formal delivery depends on the GitHub Release, signed assets, and the [acceptance record](v3.2.0-acceptance.md).
+Status: formally released. Delivery gates are recorded in the [release evidence](v3.2.0-release-evidence.md), and capability boundaries remain in the [acceptance record](v3.2.0-acceptance.md).
 
 ## Changes
 
