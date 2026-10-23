@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "4255ef83c20667c97a31f0bfe8637185f23cb33a437740dc20704ebd0200c5b1"
+      "source_sha256": "94f6732443de97d6dd78ae406cbe377cb6365409de56ba01b6e53e7e65df9772"
     },
     {
       "source": "CHANGELOG.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "c9d39a4656a5b56a0593c5cf8254eb27af69024ab5aae901859c2b3173aa9f13"
+      "source_sha256": "908acba9db3c33dcdef1cb381b6c6b7922641321a9730153a8393e4352cb3c97"
     },
     {
       "source": "docs/release-assets-history.md",
