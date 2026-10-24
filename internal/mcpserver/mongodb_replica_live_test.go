@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
+	"github.com/cuipengdba/agentsql/internal/config"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -26,10 +27,24 @@ func TestMongoReplicaControlledRealHTTPMCP(t *testing.T) {
 	}
 	password, err := os.ReadFile("/fixtures/reader.pass")
 	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	clientDir := os.Getenv("AGENTSQL_V370_MONGO_CLIENT_DIR")
+	auditDSN := os.Getenv("AGENTSQL_V370_MONGO_AUDIT_DSN")
+	auditFaultDir := os.Getenv("AGENTSQL_V370_MONGO_AUDIT_FAULT_DIR")
+	businessFaultDir := os.Getenv("AGENTSQL_V370_MONGO_BUSINESS_FAULT_DIR")
+	if auditFaultDir != "" || businessFaultDir != "" {
+		require.NotEmpty(t, auditDSN, "fault tests require an independent audit store")
+	}
+	testTimeout := 60 * time.Second
+	if clientDir != "" || auditFaultDir != "" || businessFaultDir != "" {
+		testTimeout = 8 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 	cfg := httpTestConfig(100)
 	cfg.Store.SQLitePath = filepath.Join(t.TempDir(), "mongo-replica-mcp.db")
+	if auditDSN != "" {
+		cfg.Store.Audit = &config.AuditStoreConfig{Separate: true, Driver: "postgres", DSN: auditDSN}
+	}
 	runtime, err := bootstrap.Assemble(ctx, cfg, mcpTestSecret)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
@@ -89,5 +104,78 @@ func TestMongoReplicaControlledRealHTTPMCP(t *testing.T) {
 	for _, event := range page.List {
 		require.NotNil(t, event.DetailsJSON)
 		require.False(t, strings.Contains(*event.DetailsJSON, "13800000007"))
+	}
+	if clientDir != "" || auditFaultDir != "" || businessFaultDir != "" {
+		_, err = runtime.Store.Policies().Create(ctx, model.Policy{ID: "mongo-replica-clients-grant", AgentID: agent.ID, DatasourceID: ds.ID, ObjectType: "table", ObjectName: "agv370.customers", Action: "allow"})
+		require.NoError(t, err)
+	}
+	signal := func(dir, name string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("ready\n"), 0o600))
+	}
+	waitSignal := func(dir, name string) {
+		t.Helper()
+		for {
+			if _, statErr := os.Stat(filepath.Join(dir, name)); statErr == nil {
+				return
+			} else if !os.IsNotExist(statErr) {
+				require.NoError(t, statErr)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for MongoDB replica fault signal: " + name)
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}
+	if auditFaultDir != "" {
+		before := page.Total
+		signal(auditFaultDir, "audit_ready")
+		waitSignal(auditFaultDir, "audit_down")
+		failed := call("customers", map[string]string{"customer_id": "C7"})
+		require.Contains(t, failed, `"decision":"error"`)
+		require.NotContains(t, failed, "138****0007")
+		signal(auditFaultDir, "audit_down_checked")
+		waitSignal(auditFaultDir, "audit_up")
+		require.Contains(t, call("customers", map[string]string{"customer_id": "C7"}), `"decision":"allow"`)
+		page, err = runtime.Store.AuditLogs().Page(ctx, 1, 30)
+		require.NoError(t, err)
+		require.EqualValues(t, before+2, page.Total)
+	}
+	if businessFaultDir != "" {
+		before := page.Total
+		signal(businessFaultDir, "mongo_ready")
+		waitSignal(businessFaultDir, "mongo_down")
+		failed := call("customers", map[string]string{"customer_id": "C7"})
+		require.Contains(t, failed, `"decision":"error"`)
+		require.NotContains(t, failed, "138****0007")
+		signal(businessFaultDir, "mongo_down_checked")
+		waitSignal(businessFaultDir, "mongo_up")
+		require.Contains(t, call("customers", map[string]string{"customer_id": "C7"}), `"decision":"allow"`)
+		page, err = runtime.Store.AuditLogs().Page(ctx, 1, 30)
+		require.NoError(t, err)
+		require.EqualValues(t, before+4, page.Total)
+	}
+	if clientDir != "" {
+		info, err := json.Marshal(map[string]string{"url": server.URL + "/mcp", "api_key": key, "datasource_id": ds.ID})
+		require.NoError(t, err)
+		infoPath := filepath.Join(clientDir, "mongo-client.json")
+		require.NoError(t, os.WriteFile(infoPath, info, 0o600))
+		defer os.Remove(infoPath)
+		for {
+			if _, statErr := os.Stat(filepath.Join(clientDir, "mongo-clients_done")); statErr == nil {
+				break
+			} else if !os.IsNotExist(statErr) {
+				require.NoError(t, statErr)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for MongoDB replica MCP clients")
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+		clientsPage, err := runtime.Store.AuditLogs().Page(ctx, 1, 30)
+		require.NoError(t, err)
+		require.EqualValues(t, page.Total+6, clientsPage.Total)
 	}
 }

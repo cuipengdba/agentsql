@@ -142,6 +142,7 @@ func TestTaskReadGrantRequestRollbackRevokesIssuedKeys(t *testing.T) {
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-5))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-6))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-7))
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-8))
 	var revokedCount int
 	require.NoError(t, opened.metaDB.QueryRowContext(ctx,
 		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NOT NULL`,

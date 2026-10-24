@@ -303,7 +303,8 @@ export function Datasources() {
           <Form.Item name="password" label="密码 / 令牌" rules={!editing && selectedSpec?.requires_password ? [{ required: true }] : []}><Input.Password placeholder={editing ? "留空表示不修改" : "依数据源要求填写"} /></Form.Item>
           {selectedType === "mongodb" || selectedType === "redis" || selectedType === "valkey" ? <>
             <Alert type="info" showIcon message={selectedType === "mongodb" ? "MongoDB 副本集受控读取" : "Redis / Valkey Sentinel 受控读取"}
-              description={selectedType === "mongodb" ? "填写三个受信成员、replica_set 和允许的集合索引；成员须使用可验证 TLS 证书。{} 保留原有单实例路径。JSON 中不得包含密码。" : `填写三个受信 Sentinel、允许的主节点及单独的 Sentinel ACL 用户；密码由运维放入与数据源绑定的网关环境变量${editing?.sentinel_password_env ? ` ${editing.sentinel_password_env}` : "（保存后编辑可查看变量名）"}。{} 保留原有单实例路径。`} />
+              description={selectedType === "mongodb" ? "填写三个受信成员、replica_set 和允许的集合索引；成员须使用可验证 TLS 证书。{} 保留原有单实例路径。JSON 中不得包含密码。" : "填写三个受信 Sentinel、允许的主节点及单独的 Sentinel ACL 用户；密码由运维放入与数据源绑定的网关环境变量。{} 保留原有单实例路径。保存后编辑可查看变量名。"} />
+            {editing?.sentinel_password_env && selectedType !== "mongodb" ? <code>{editing.sentinel_password_env}</code> : null}
             <Form.Item name="read_control_json" label="拓扑与读取约束 JSON" rules={[{ required: true, whitespace: true }]}>
               <Input.TextArea rows={7} spellCheck={false} placeholder={selectedType === "mongodb" ? '{"mongo":{"replica_set":"rs0","members":["mongo1.example:27017","mongo2.example:27017","mongo3.example:27017"],"indexes":[{"collection":"customers","name":"customer_id_1","fields":["customer_id"]}]}}' : '{"redis_sentinel":{"master_name":"mymaster","sentinels":["sentinel1.example:26379","sentinel2.example:26379","sentinel3.example:26379"],"allowed_masters":["redis1.example:6379","redis2.example:6379"],"sentinel_username":"sentinel_reader"}}'} />
             </Form.Item>

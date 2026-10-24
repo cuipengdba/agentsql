@@ -31,7 +31,12 @@ func TestRedisHashControlledRealHTTPMCP(t *testing.T) {
 			if host == "" {
 				t.Skip("isolated Hash server host unavailable")
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			clientDir := os.Getenv("AGENTSQL_TEST_HASH_CLIENT_DIR")
+			testTimeout := 60 * time.Second
+			if clientDir != "" {
+				testTimeout = 8 * time.Minute
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 			defer cancel()
 			cfg := httpTestConfig(100)
 			cfg.Store.SQLitePath = filepath.Join(t.TempDir(), "hash-mcp.db")
@@ -110,6 +115,28 @@ func TestRedisHashControlledRealHTTPMCP(t *testing.T) {
 			for _, event := range page.List {
 				require.Equal(t, "read_hash_fields", *event.MCPTool)
 				require.NotContains(t, *event.DetailsJSON, "13812345678")
+			}
+			if clientDir != "" {
+				info, marshalErr := json.Marshal(map[string]string{"url": server.URL + "/mcp", "api_key": key, "datasource_id": datasource.ID})
+				require.NoError(t, marshalErr)
+				infoPath := filepath.Join(clientDir, dialect+"-hash-client.json")
+				require.NoError(t, os.WriteFile(infoPath, info, 0o600))
+				defer os.Remove(infoPath)
+				for {
+					if _, statErr := os.Stat(filepath.Join(clientDir, dialect+"-hash-clients_done")); statErr == nil {
+						break
+					} else if !os.IsNotExist(statErr) {
+						require.NoError(t, statErr)
+					}
+					select {
+					case <-ctx.Done():
+						t.Fatal("timed out waiting for Hash MCP clients")
+					case <-time.After(250 * time.Millisecond):
+					}
+				}
+				clientsPage, pageErr := runtime.Store.AuditLogs().Page(ctx, 1, 30)
+				require.NoError(t, pageErr)
+				require.EqualValues(t, page.Total+6, clientsPage.Total)
 			}
 		})
 	}

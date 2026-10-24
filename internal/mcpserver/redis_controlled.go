@@ -173,5 +173,7 @@ func (handlers *toolHandlers) keyAuditWithTool(ctx context.Context, datasource m
 	if object != "" {
 		result.Objects = &object
 	}
-	return handlers.runtime.Store.AuditLogs().Insert(ctx, result)
+	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return handlers.runtime.Store.AuditLogs().Insert(bounded, result)
 }

@@ -51,7 +51,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"id", "name", "db_type", "host", "port", "database", "username",
 			"password_enc", "conn_limit", "stmt_timeout_ms", "row_limit", "created_at",
 			"updated_at", "tenant_id", "tls_mode", "tls_server_name", "tls_ca_file",
-			"trust_server_certificate",
+			"trust_server_certificate", "read_control_json",
 		},
 		"policies": {
 			"id", "agent_id", "datasource_id", "object_type", "object_name", "columns",
