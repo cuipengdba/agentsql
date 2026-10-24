@@ -39,7 +39,7 @@ RUN case "${TARGETARCH}" in \
 
 # The repository includes internal/webui/dist; frontend tooling is not run here.
 COPY . .
-ARG VERSION=v3.6.0
+ARG VERSION=v3.7.0
 RUN --mount=type=cache,target=/root/.cache/go-build mkdir -p /out \
     && GOFLAGS= CGO_ENABLED=1 go build -tags yashan -trimpath \
         -ldflags "-s -w -X github.com/cuipengdba/agentsql/internal/version.Version=${VERSION}" \
@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build mkdir -p /out \
 
 FROM debian:bookworm-slim AS runtime
 
-ARG VERSION=v3.6.0
+ARG VERSION=v3.7.0
 ARG REVISION
 LABEL org.opencontainers.image.title="AgentSQL" \
       org.opencontainers.image.source="https://github.com/cuipengdba/agentsql" \

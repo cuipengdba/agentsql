@@ -2,7 +2,7 @@
 
 **Language:** [English](nosql-support.md) | [Simplified Chinese](../nosql-support.md)
 
-The registry `internal/model/datasource_types.go` registers a total of 30 models in 8 categories: 9 relational models, and 21 NoSQL/vector data sources in 7 categories in the table below. Most still only have **connection level/low-level support for**; designated single instances of MongoDB 7.0.43, Redis 8.2.9 / Valkey 8.1.10, ClickHouse 26.8.31.2 and Milvus 2.6.25 also have restricted Agent MCP read-only paths. The adapter implements connections, health checks, metadata enumeration, and a subset of controlled commands; each capability is restricted by service version, credential permissions, request boundaries, and adapter whitelist. "Supported" here does not mean that all native commands, search syntax, management operations, or vendor certifications are available.
+The registry `internal/model/datasource_types.go` registers 30 products across 8 categories: 9 relational products and the 21 NoSQL/vector products listed below. Most retain connection-level support only. Specified standalone versions of MongoDB 7.0.43, Redis 8.2.9 / Valkey 8.1.10, ClickHouse 26.8.31.2, and Milvus 2.6.25 have restricted Agent MCP read paths. v3.7.0 also verifies controlled reads on a specified MongoDB 7.0.45 replica set and Redis/Valkey Sentinel topologies. Adapters provide connections, health checks, metadata enumeration, and controlled command subsets subject to version, credentials, request bounds, and allowlists. Support does not imply all native commands, queries, administration, or vendor certification.
 
 | Category | data source | adapter protocol | Default port | low-level abilities |
 | --- | --- | --- | ---: | --- |
@@ -38,6 +38,12 @@ The 21 names, categories and number ports in the above table have been compared 
 The adapter performs command whitelisting and parameter verification based on data sources. For example, the read-only subset of Redis/Valkey includes `GET`, `MGET`, `SCAN`, and `INFO`; Memcached includes `GET`, `MGET`, and `STATS`; Cassandra/Scylla includes restricted `SELECT`, `LIST TABLES`; ClickHouse, Doris, StarRocks including restricted `SELECT`, `SHOW`, `DESCRIBE`. Milvus, Qdrant, and Weaviate have their own restricted commands such as `GET`, `DESCRIBE`, and `SEARCH`. Diagrams, documents, and timing adapters also have their own syntax and boundaries. For details, please refer to the corresponding `businessdb` adapter code.
 
 Write commands such as Redis `SET`, Qdrant `UPSERT` are rejected on read-only connections. Syntax that is outside the whitelist, exceeds limits, and is unsafe will also be rejected. Native query auditing in the adapter only logs command decisions, not keys, parameter values, or credentials.
+
+## v3.7.0 MongoDB replica and Sentinel scope
+
+On the specified MongoDB 7.0.45 three-member replica set, `find_documents` accepts only approved members, collections, and equality-filter index fields. Before reading, `executionStats` must show the approved `IXSCAN`, with keys and documents examined each no greater than `min(request rows×10, 1000)`. A removed index, unknown member, invalid certificate, or unsettled election causes denial. The previous 7.0.43 standalone path remains separate. Sharding, aggregation, and writes are unavailable.
+
+On the specified Redis 8.2.9 / Valkey 8.1.10 two-data-node, three-Sentinel topologies, `read_hash_fields` requires an exact key grant and a separate grant for every field. A fixed `EVAL_RO` script enforces type, field presence, and byte limits on the server. Discovery checks exact address allowlists before TLS and a separate Sentinel ACL. Read-only data ACLs, masking, and durable preflight and terminal audits remain required. Redis Cluster, Valkey Cluster, arbitrary Hash enumeration, and writes are unavailable. Tested images, failover, ACL revocation, faults, and clients are recorded in the [v3.7.0 acceptance record](v3.7.0-acceptance.md).
 
 ## Agent MCP controlled path for Redis/Valkey
 

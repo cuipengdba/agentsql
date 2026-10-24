@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](nosql-support.md) | [English](en/nosql-support.md)
 
-注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。多数仍仅有**连接级/低阶支持**；MongoDB 7.0.43、Redis 8.2.9 / Valkey 8.1.10、ClickHouse 26.8.31.2 和 Milvus 2.6.25 的指定单实例另有受限 Agent MCP 只读路径。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
+注册表 `internal/model/datasource_types.go` 共登记 8 类 30 款：关系型 9 款，以及下表 7 类 21 款 NoSQL / 向量数据源。多数仍仅有**连接级/低阶支持**；MongoDB 7.0.43、Redis 8.2.9 / Valkey 8.1.10、ClickHouse 26.8.31.2 和 Milvus 2.6.25 的指定单实例另有受限 Agent MCP 只读路径。v3.7.0 另验证了指定 MongoDB 7.0.45 副本集及 Redis/Valkey Sentinel 受控读取。适配器实现了连接、健康检查、元数据枚举和受控命令子集；各能力受服务版本、凭证权限、请求边界及适配器白名单限制。这里的“支持”不代表所有原生命令、检索语法、管理操作或厂商认证均可用。
 
 | 类别 | 数据源 | 适配器协议 | 默认端口 | 低阶能力 |
 | --- | --- | --- | ---: | --- |
@@ -38,6 +38,12 @@
 适配器按数据源分别执行命令白名单和参数校验。例如 Redis/Valkey 的只读子集包括 `GET`、`MGET`、`SCAN`、`INFO`；Memcached 包括 `GET`、`MGET`、`STATS`；Cassandra/Scylla 包括受限的 `SELECT`、`LIST TABLES`；ClickHouse、Doris、StarRocks 包括受限的 `SELECT`、`SHOW`、`DESCRIBE`。Milvus、Qdrant、Weaviate 有各自受限的 `GET`、`DESCRIBE`、`SEARCH` 等命令。图、文档、时序适配器还有各自的语法与边界，具体以对应 `businessdb` 适配器代码为准。
 
 写命令如 Redis `SET`、Qdrant `UPSERT` 在只读连接中拒绝。白名单之外、超限、不安全的语法也拒绝。适配器中的原生查询审计仅记录命令决定，不记录键、参数值或凭证。
+
+## v3.7.0 的 MongoDB 副本集与 Sentinel 范围
+
+在指定 MongoDB 7.0.45 三成员副本集中，`find_documents` 仅接受管理员批准的成员、集合和索引等值字段组合。读取前通过 `executionStats` 要求实际使用批准的 `IXSCAN`，键与文档扫描各不超过 `min(请求行数×10, 1000)`；删除索引、未知成员、错误证书或主节点切换未收敛时拒绝。已有 7.0.43 单实例路径仍独立保留。分片、聚合及写入未开放。
+
+在指定 Redis 8.2.9 / Valkey 8.1.10 双数据节点、三 Sentinel 拓扑中，`read_hash_fields` 要求精确键和每个字段分别授权。固定 `EVAL_RO` 脚本在服务端限制类型、字段存在性和字节数；发现地址先过精确白名单，再校验 TLS 和独立 Sentinel ACL。只读数据 ACL、脱敏、持久预检与终态审计继续必需。Redis Cluster、Valkey Cluster、任意 Hash 枚举和写入未开放。实际镜像、切主、ACL 撤销、故障与客户端证据见[v3.7.0 验收记录](v3.7.0-acceptance.md)。
 
 ## Redis / Valkey 的 Agent MCP 受控路径
 

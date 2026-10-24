@@ -159,7 +159,7 @@
     {
       "source": "docs/nosql-support.md",
       "english": "docs/en/nosql-support.md",
-      "source_sha256": "3e60b54c09260d4e967bbcefb49802f50850ee7d3e503f4c3d6ee49e197b2c8d"
+      "source_sha256": "197ce09255f3585a2ed98e91800e1168613b9175423e7309983846d08300c878"
     },
     {
       "source": "docs/NOTIFICATIONS.md",
@@ -1105,6 +1105,21 @@
       "source": "docs/v3.7.0-design.md",
       "english": "docs/en/v3.7.0-design.md",
       "source_sha256": "f528c22559172896362732726e238471074f65c3e63c2f28b95bf14d9e97c38b"
+    },
+    {
+      "source": "docs/release-notes-v3.7.0.md",
+      "english": "docs/en/release-notes-v3.7.0.md",
+      "source_sha256": "04b4bdb77bb630ef3a9194504ec8f98e5080d468554d4043ab7e6c0b594f1537"
+    },
+    {
+      "source": "docs/v3.7.0-acceptance.md",
+      "english": "docs/en/v3.7.0-acceptance.md",
+      "source_sha256": "5c6e4623198fa9da8780c2d07dfb0134b13135c51b6e4b7184ed46f396758132"
+    },
+    {
+      "source": "docs/v3.7.0-upgrade.md",
+      "english": "docs/en/v3.7.0-upgrade.md",
+      "source_sha256": "3e7f53c31f0dcabfa05674650f9d6323942c25bdfa68a5f2b45ac93af7d3712b"
     }
   ]
 }
