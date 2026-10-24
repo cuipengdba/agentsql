@@ -1,4 +1,4 @@
-import { Alert, Card, Descriptions, Skeleton, Space, Typography } from "antd";
+import { Alert, Card, Descriptions, Skeleton, Space, Typography, theme } from "antd";
 import { useEffect, useState } from "react";
 
 import { getSystemRelease, type SystemRelease } from "@/api/systemRelease";
@@ -6,6 +6,7 @@ import { PageContainer } from "@/components/PageContainer";
 import { useLocaleStore } from "@/i18n/locale";
 
 export function Upgrade() {
+  const { token } = theme.useToken();
   const locale = useLocaleStore((state) => state.locale);
   const [release, setRelease] = useState<SystemRelease | null>(null);
   const [failed, setFailed] = useState(false);
@@ -49,7 +50,7 @@ export function Upgrade() {
           <Typography.Paragraph type="secondary">
             验签会核对发行清单、三份 Ed25519 签名及源码来源，不下载、解包或运行文件。校验期间及安装前请保持目录内容不变。
           </Typography.Paragraph>
-          <Typography.Link href={`https://github.com/cuipengdba/agentsql/blob/main/docs/${locale === "en-US" ? "en/" : ""}v4.0.0-delivery.md`} target="_blank" rel="noreferrer">
+          <Typography.Link style={{ color: token.colorText, textDecoration: "underline" }} href={`https://github.com/cuipengdba/agentsql/blob/main/docs/${locale === "en-US" ? "en/" : ""}v4.0.0-delivery.md`} target="_blank" rel="noreferrer">
             离线交付与跨版本升级指南
           </Typography.Link>
         </Card>

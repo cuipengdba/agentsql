@@ -61,7 +61,7 @@ function Invoke-Inspector([string]$Sql, [string]$Decision, [object]$Info) {
 }
 
 try {
-    & docker run -d --name $testContainer --network agentsql-v390 --env-file $testEnv `
+    & docker run -d --name $testContainer --network agentsql-v390 --env-file $testEnv --tmpfs /tmp:rw,exec,size=1g `
         --env $clientEnv --env GOTOOLCHAIN=local --env GOMAXPROCS=2 `
         --mount "type=bind,source=$repo,target=/src,readonly" `
         --mount "type=bind,source=$certs,target=/certs,readonly" `

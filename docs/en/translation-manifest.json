@@ -1189,12 +1189,12 @@
     {
       "source": "docs/v4.0.0-upgrade.md",
       "english": "docs/en/v4.0.0-upgrade.md",
-      "source_sha256": "258beb87d4e35850ef1b6dfd946e3bd29c609df28945233da904b0ea879975c4"
+      "source_sha256": "7de48085f750edd9945d86b87f86f226ae21eeeca25cbb154fbf18330aa64451"
     },
     {
       "source": "docs/v4.0.0-acceptance.md",
       "english": "docs/en/v4.0.0-acceptance.md",
-      "source_sha256": "484eaa592d1aed76305a1746d51b856ca8b77bc1dbcb700949a116f54ae900f9"
+      "source_sha256": "6e47d2dd4fb41b0e213623ee491e33ccf1e466dc5fda6137ad34ae311f11c286"
     },
     {
       "source": "docs/v4.0.0-release-evidence.md",
