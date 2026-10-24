@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](NOTIFICATIONS.md) | [English](en/NOTIFICATIONS.md)
 
-> 现行指南：适用于 v3.7.0。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.8.0。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
 AgentSQL 可以把已经写入审计库的决策事件，以 Webhook 或 Syslog 方式旁路发送到告警群、SIEM 或自建接收端。本文面向负责部署、网络边界和密钥管理的运维与安全工程师。
 

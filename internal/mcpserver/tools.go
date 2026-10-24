@@ -48,12 +48,13 @@ type analyticsInput struct {
 }
 
 type vectorSearchInput struct {
-	DatasourceID string    `json:"datasource_id" jsonschema:"授权的 Milvus 数据源 ID"`
-	Collection   string    `json:"collection" jsonschema:"精确授权的单个 collection 名称"`
-	VectorField  string    `json:"vector_field" jsonschema:"FloatVector 字段名称"`
-	Vector       []float32 `json:"vector" jsonschema:"一个有限 float32 查询向量，维度与字段一致"`
-	Fields       []string  `json:"fields" jsonschema:"1 到 16 个显式返回的标量字段"`
-	TopK         int       `json:"top_k" jsonschema:"最多返回 1 到 20 个命中"`
+	DatasourceID string            `json:"datasource_id" jsonschema:"授权的 Milvus 数据源 ID"`
+	Collection   string            `json:"collection" jsonschema:"精确授权的单个 collection 名称"`
+	VectorField  string            `json:"vector_field" jsonschema:"FloatVector 字段名称"`
+	Vector       []float32         `json:"vector" jsonschema:"一个有限 float32 查询向量，维度与字段一致"`
+	Fields       []string          `json:"fields" jsonschema:"1 到 16 个显式返回的标量字段"`
+	Filter       map[string]string `json:"filter,omitempty" jsonschema:"仅租户隔离配置批准的标量字段，最多四个精确等值条件；租户值由网关提供"`
+	TopK         int               `json:"top_k" jsonschema:"最多返回 1 到 20 个命中"`
 }
 
 type writeInput struct {

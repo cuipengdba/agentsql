@@ -1104,6 +1104,16 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			return model.Datasource{}, fmt.Errorf("Redis Sentinel control requires an allowed master, verified per-node TLS, and separate ACL identities")
 		}
 	}
+	if readControl.ClickHouse != nil || readControl.Milvus != nil {
+		if (input.TLSMode != "strict" && input.TLSMode != "verify-full") ||
+			input.TrustServerCertificate || input.TLSCAFile == "" || !filepath.IsAbs(input.TLSCAFile) ||
+			input.Username == "" {
+			return model.Datasource{}, fmt.Errorf("controlled read profile requires verified TLS CA and an authenticated account")
+		}
+		if readControl.Milvus != nil && (input.Database != "default" || input.Username == "root") {
+			return model.Datasource{}, fmt.Errorf("Milvus tenant scope requires the default database and a non-root account")
+		}
+	}
 	if input.DBType == string(model.DialectSQLServer) {
 		if input.TLSMode == "" {
 			input.TLSMode = "strict"

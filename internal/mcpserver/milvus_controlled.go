@@ -35,9 +35,17 @@ func (handlers *toolHandlers) searchVectors(ctx context.Context, input vectorSea
 		return handlers.vectorDeny(ctx, datasource, "当前 Agent 身份已失效")
 	}
 	request := executor.MilvusSearchRequest{Collection: input.Collection, VectorField: input.VectorField,
-		Vector: input.Vector, Fields: input.Fields, TopK: input.TopK}
+		Vector: input.Vector, Fields: input.Fields, Filter: input.Filter, TopK: input.TopK,
+		TenantID: current.TenantID}
 	if executor.ValidateMilvusSearch(request) != nil {
 		return handlers.vectorDeny(ctx, datasource, "Milvus 向量检索参数不符合受控范围")
+	}
+	readControl, err := model.ParseNativeReadControl(datasource.ReadControlJSON, datasource.DBType)
+	if err != nil {
+		return handlers.vectorDeny(ctx, datasource, "Milvus 租户隔离配置无效")
+	}
+	if readControl.Milvus == nil && len(request.Filter) != 0 {
+		return handlers.vectorDeny(ctx, datasource, "Milvus 标量过滤需要管理员启用租户隔离配置")
 	}
 	policies, err := handlers.runtime.Store.Policies().ListByAgentAndDatasource(ctx, handlers.agent.ID, datasource.ID)
 	if err != nil {
@@ -70,6 +78,20 @@ func (handlers *toolHandlers) searchVectors(ctx context.Context, input vectorSea
 	for _, field := range request.Fields {
 		if !mongoFieldGranted(allowed, field) {
 			return handlers.vectorDeny(ctx, datasource, "当前 Agent 没有返回字段的授权")
+		}
+	}
+	if readControl.Milvus != nil {
+		if !mongoFieldGranted(allowed, readControl.Milvus.TenantField) {
+			return handlers.vectorDeny(ctx, datasource, "Milvus 租户字段必须显式授权")
+		}
+		approved := make(map[string]bool, len(readControl.Milvus.FilterFields))
+		for _, field := range readControl.Milvus.FilterFields {
+			approved[field] = true
+		}
+		for field := range request.Filter {
+			if !approved[field] || !mongoFieldGranted(allowed, field) {
+				return handlers.vectorDeny(ctx, datasource, "Milvus 过滤字段未经管理员与 Agent 双重授权")
+			}
 		}
 	}
 	if _, err := handlers.vectorAudit(ctx, datasource, object, "allow", "vector_preflight", 0, 0); err != nil {

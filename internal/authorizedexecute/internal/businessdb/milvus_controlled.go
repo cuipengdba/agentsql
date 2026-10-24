@@ -10,6 +10,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,8 +31,12 @@ type MilvusSearchRequest struct {
 	VectorField string
 	Vector      []float32
 	Fields      []string
+	Filter      map[string]string
+	TenantID    string // authoritative Agent tenant; never accepted from MCP input
 	TopK        int
 }
+
+var milvusSafeEqualityValue = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 
 func ValidateMilvusSearch(request MilvusSearchRequest) error {
 	if !vectorName.MatchString(request.Collection) || !vectorName.MatchString(request.VectorField) ||
@@ -50,11 +56,27 @@ func ValidateMilvusSearch(request MilvusSearchRequest) error {
 			return errors.New("Milvus vector must contain finite values")
 		}
 	}
+	if len(request.Filter) > 4 {
+		return errors.New("Milvus scalar filter exceeds limit")
+	}
+	for field, value := range request.Filter {
+		if !vectorName.MatchString(field) || !milvusSafeEqualityValue.MatchString(value) {
+			return errors.New("Milvus scalar filter is invalid")
+		}
+	}
 	return nil
 }
 
 func MilvusSearchControlled(ctx context.Context, ds model.Datasource, password string, request MilvusSearchRequest) (model.QueryResult, error) {
 	if err := ValidateMilvusSearch(request); err != nil {
+		return model.QueryResult{}, err
+	}
+	control, err := model.ParseNativeReadControl(ds.ReadControlJSON, ds.DBType)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	expression, expected, err := controlledMilvusFilter(request, control.Milvus)
+	if err != nil {
 		return model.QueryResult{}, err
 	}
 	client, err := milvusControlledClient(ctx, ds, password)
@@ -88,6 +110,13 @@ func MilvusSearchControlled(ctx context.Context, ds model.Datasource, password s
 			return model.QueryResult{}, errors.New("Milvus output field is unsupported")
 		}
 	}
+	for name := range expected {
+		field := fields[name]
+		if field == nil || field.IsDynamic || field.IsPartitionKey || field.IsClusteringKey ||
+			(field.DataType != entity.FieldTypeString && field.DataType != entity.FieldTypeVarChar) {
+			return model.QueryResult{}, errors.New("Milvus filter field is not a static string scalar")
+		}
+	}
 	indexes, err := client.DescribeIndex(ctx, request.Collection, request.VectorField)
 	if err != nil || len(indexes) != 1 {
 		return model.QueryResult{}, errors.New("Milvus vector index is unavailable")
@@ -100,21 +129,58 @@ func MilvusSearchControlled(ctx context.Context, ds model.Datasource, password s
 		return model.QueryResult{}, err
 	}
 	started := time.Now()
-	hits, err := client.Search(ctx, request.Collection, nil, "", request.Fields,
+	searchFields := append([]string(nil), request.Fields...)
+	for name := range expected {
+		if !containsMilvusField(searchFields, name) {
+			searchFields = append(searchFields, name)
+		}
+	}
+	hits, err := client.Search(ctx, request.Collection, nil, expression, searchFields,
 		[]entity.Vector{entity.FloatVector(request.Vector)}, request.VectorField, entity.COSINE, request.TopK, sp)
 	if err != nil || len(hits) != 1 {
 		return model.QueryResult{}, errors.New("Milvus search failed")
 	}
 	hit := hits[0]
-	if hit.Err != nil || hit.ResultCount < 0 || hit.ResultCount > request.TopK || hit.IDs == nil || hit.IDs.Len() != hit.ResultCount ||
+	// SDK v2.4.2 reports a decoder error for a valid zero-hit response from
+	// Milvus 2.6.25 because the server omits empty field data. Accept only this
+	// exact empty shape; all other decoding failures remain closed.
+	if hit.ResultCount == 0 && hit.Err != nil && hit.Err.Error() == "FieldData type not matched" &&
+		hit.IDs != nil && hit.IDs.Len() == 0 && len(hit.Scores) == 0 && len(hit.Fields) == 0 {
+		if ctx.Err() != nil {
+			return model.QueryResult{}, ctx.Err()
+		}
+		return model.QueryResult{Columns: append([]string(nil), request.Fields...), Rows: [][]string{},
+			LatencyMS: time.Since(started).Milliseconds()}, nil
+	}
+	if hit.Err != nil || hit.ResultCount < 0 || hit.ResultCount > request.TopK ||
+		hit.IDs == nil || hit.IDs.Len() != hit.ResultCount ||
 		len(hit.Scores) != hit.ResultCount {
 		return model.QueryResult{}, errors.New("Milvus search result is incomplete")
 	}
 	result := model.QueryResult{Columns: append([]string(nil), request.Fields...), Rows: make([][]string, 0, hit.ResultCount)}
 	columns := make([][]string, len(request.Fields))
 	totalBytes := 0
+	for name, want := range expected {
+		column := hit.Fields.GetColumn(name)
+		if hit.ResultCount == 0 && column == nil {
+			continue
+		}
+		if column == nil || column.Len() != hit.ResultCount {
+			return model.QueryResult{}, errors.New("Milvus filter result column is missing")
+		}
+		for row := 0; row < hit.ResultCount; row++ {
+			value, err := column.Get(row)
+			if err != nil || value == nil || fmt.Sprint(value) != want {
+				return model.QueryResult{}, errors.New("Milvus filter result does not match authoritative scope")
+			}
+		}
+	}
 	for i, name := range request.Fields {
 		column := hit.Fields.GetColumn(name)
+		if hit.ResultCount == 0 && column == nil {
+			columns[i] = []string{}
+			continue
+		}
 		if column == nil || column.Len() != hit.ResultCount {
 			return model.QueryResult{}, errors.New("Milvus output column is missing")
 		}
@@ -145,6 +211,51 @@ func MilvusSearchControlled(ctx context.Context, ds model.Datasource, password s
 		return model.QueryResult{}, ctx.Err()
 	}
 	return result, nil
+}
+
+// controlledMilvusFilter constructs a deliberately tiny expression language:
+// equality on administrator-approved static string fields. Values use a strict
+// literal alphabet so no escaping or caller-provided expression is possible.
+func controlledMilvusFilter(request MilvusSearchRequest, profile *model.MilvusReadControl) (string, map[string]string, error) {
+	if profile == nil {
+		if len(request.Filter) != 0 {
+			return "", nil, errors.New("Milvus scalar filter requires tenant scope")
+		}
+		return "", nil, nil
+	}
+	if !milvusSafeEqualityValue.MatchString(request.TenantID) {
+		return "", nil, errors.New("Milvus authoritative tenant ID is unsupported")
+	}
+	approved := make(map[string]bool, len(profile.FilterFields))
+	for _, field := range profile.FilterFields {
+		approved[field] = true
+	}
+	expected := map[string]string{profile.TenantField: request.TenantID}
+	for field, value := range request.Filter {
+		if !approved[field] || field == profile.TenantField || !milvusSafeEqualityValue.MatchString(value) {
+			return "", nil, errors.New("Milvus scalar filter is not approved")
+		}
+		expected[field] = value
+	}
+	names := make([]string, 0, len(expected))
+	for name := range expected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	clauses := make([]string, 0, len(names))
+	for _, name := range names {
+		clauses = append(clauses, name+` == "`+expected[name]+`"`)
+	}
+	return strings.Join(clauses, " && "), expected, nil
+}
+
+func containsMilvusField(fields []string, target string) bool {
+	for _, field := range fields {
+		if field == target {
+			return true
+		}
+	}
+	return false
 }
 
 func MilvusPingControlled(ctx context.Context, ds model.Datasource, password string) error {

@@ -2,6 +2,11 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.8.0]
+
+- Added administrator-tightened read rows, bytes, and memory budgets with overflow errors for specified single-node ClickHouse 26.8.31.2; missing readonly-role settings fail closed.
+- Added vector search scoped to the authoritative Agent tenant ID for specified standalone Milvus 2.6.25, plus approved static-string equality filters, exact column grants, and returned-hit rechecks. See the [release notes](docs/en/release-notes-v3.8.0.md) and [acceptance record](docs/en/v3.8.0-acceptance.md).
+
 ## [v3.7.0]
 
 - Added member allowlists, verified certificates and approved-index bounded reads for a specified three-member MongoDB 7.0.45 replica set; index removal, unknown members and audit outages deny delivery.

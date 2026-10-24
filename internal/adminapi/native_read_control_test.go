@@ -34,3 +34,29 @@ func TestDatasourceNativeReadControlValidation(t *testing.T) {
 		t.Fatal("shared Redis and Sentinel ACL identity accepted")
 	}
 }
+
+func TestDatasourceResourceAndTenantProfilesRequireVerifiedTLS(t *testing.T) {
+	clickhouse := datasourceInput{ID: "ch-budget", Name: "ClickHouse budget", DBType: "clickhouse",
+		Host: "clickhouse.test", Port: 9440, Database: "app", Username: "reader", TLSMode: "strict",
+		TLSCAFile:       "/etc/agentsql/ch-ca.pem",
+		ReadControlJSON: `{"clickhouse":{"max_rows_to_read":1000,"max_bytes_to_read":262144,"max_memory_usage":33554432}}`}
+	if _, err := datasourceFromInput(clickhouse); err != nil {
+		t.Fatalf("valid ClickHouse budget rejected: %v", err)
+	}
+	clickhouse.TLSMode = "disable"
+	if _, err := datasourceFromInput(clickhouse); err == nil {
+		t.Fatal("insecure ClickHouse budget accepted")
+	}
+
+	milvus := datasourceInput{ID: "milvus-scoped", Name: "Milvus scoped", DBType: "milvus",
+		Host: "milvus.test", Port: 19530, Database: "default", Username: "agent_reader", TLSMode: "strict",
+		TLSCAFile:       "/etc/agentsql/milvus-ca.pem",
+		ReadControlJSON: `{"milvus":{"tenant_field":"tenant_id","filter_fields":["status"]}}`}
+	if _, err := datasourceFromInput(milvus); err != nil {
+		t.Fatalf("valid Milvus scope rejected: %v", err)
+	}
+	milvus.Username = "root"
+	if _, err := datasourceFromInput(milvus); err == nil {
+		t.Fatal("root Milvus scope accepted")
+	}
+}

@@ -56,6 +56,10 @@ func ClickHouseReadControlled(ctx context.Context, ds model.Datasource, password
 	if err := ValidateClickHouseRead(request); err != nil {
 		return model.QueryResult{}, err
 	}
+	control, err := model.ParseNativeReadControl(ds.ReadControlJSON, ds.DBType)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
 	if ds.DBType != "clickhouse" || ds.Database == "" || !clickHouseControlledIdentifier.MatchString(ds.Database) ||
 		(ds.TLSMode != "strict" && ds.TLSMode != "verify-full") || ds.TrustServerCertificate ||
 		ds.TLSCAFile == "" || ds.Username == "" || password == "" {
@@ -111,7 +115,18 @@ func ClickHouseReadControlled(ctx context.Context, ds model.Datasource, password
 		conditions[i] = "`" + field + "` = ?"
 		args[i] = request.Filter[field]
 	}
-	statement := fmt.Sprintf("SELECT %s FROM `%s`.`%s` WHERE %s LIMIT %d SETTINGS max_execution_time=2, max_rows_to_read=10000, max_bytes_to_read=1048576, max_memory_usage=134217728, max_result_rows=100, max_threads=2", strings.Join(projection, ","), ds.Database, request.Table, strings.Join(conditions, " AND "), request.Limit)
+	rowsBudget, bytesBudget, memoryBudget := 10000, 1048576, 134217728
+	if control.ClickHouse != nil {
+		rowsBudget = control.ClickHouse.MaxRowsToRead
+		bytesBudget = control.ClickHouse.MaxBytesToRead
+		memoryBudget = control.ClickHouse.MaxMemoryUsage
+	}
+	statement := fmt.Sprintf("SELECT %s FROM `%s`.`%s` WHERE %s LIMIT %d SETTINGS max_execution_time=2, max_rows_to_read=%d, max_bytes_to_read=%d, max_memory_usage=%d, max_result_rows=100, max_threads=2", strings.Join(projection, ","), ds.Database, request.Table, strings.Join(conditions, " AND "), request.Limit, rowsBudget, bytesBudget, memoryBudget)
+	if control.ClickHouse != nil {
+		// An explicit profile requires the DBA to allow these five per-query
+		// settings for the readonly role. A missing constraint fails closed.
+		statement += ", read_overflow_mode='throw', result_overflow_mode='throw'"
+	}
 	start := time.Now()
 	rows, err := db.QueryContext(ctx, statement, args...)
 	if err != nil {
@@ -174,9 +189,15 @@ func controlledClickHouseColumns(ctx context.Context, db *sql.DB, database, tabl
 	defer rows.Close()
 	columns := make(map[string]string)
 	for rows.Next() {
+		if len(columns) >= 128 {
+			return nil, errors.New("ClickHouse table exceeds metadata column limit")
+		}
 		var name, dataType string
 		if err := rows.Scan(&name, &dataType); err != nil {
 			return nil, err
+		}
+		if len(name) > 64 || len(dataType) > 128 {
+			return nil, errors.New("ClickHouse column metadata exceeds size limit")
 		}
 		columns[name] = dataType
 	}

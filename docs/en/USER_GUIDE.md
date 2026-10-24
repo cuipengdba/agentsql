@@ -2,13 +2,18 @@
 
 **Language:** [English](USER_GUIDE.md) | [Simplified Chinese](../USER_GUIDE.md)
 
-> Current guidance: Applies to v3.7.0 and compatible 3.7.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.8.0 and compatible 3.8.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
-> This article explains the functionality and operation of AgentSQL v3.7.0. Before installing or pulling v3.7.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v3.8.0. Before installing or pulling v3.8.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
 
-This manual describes the capabilities and operation of the v3.7.0 by console main menu. For first-time use, please complete [ to quickly get started with ](GETTING_STARTED.md); for MCP client configuration, see [ access guide ](INTEGRATIONS.md); for version range and acceptance status, see [v3.7.0 Release notes ](release-notes-v3.7.0.md) and [ acceptance record ](v3.7.0-acceptance.md); for Webhooks, Syslog and security boundaries of "Settings and Integration → Notification Settings", see [ notification outgoing guide ](NOTIFICATIONS.md).
+This manual follows the v3.8.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v3.8.0 release notes](release-notes-v3.8.0.md) and [acceptance record](v3.8.0-acceptance.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
 
 The console login page and the language button in the upper right corner after logging in can switch between Chinese and English, and the selection will be saved in the current browser; `?lang=en` or `?lang=zh` can specify the first opening language. The left menu can be scrolled independently when the effective viewport height is insufficient, and the bottom options can also be accessed with the keyboard after focusing the menu. Language switching only changes the interface copy and does not modify the SQL, query results and audit records. Complete English documentation is available through the language link at the top. Capability claims are bounded by the corresponding acceptance record.
+
+## v3.8.0 ClickHouse budgets and Milvus tenant filters
+
+- On the datasource page, select ClickHouse or Milvus and fill in optional `read_control_json`. ClickHouse budgets tighten rows read, bytes read, and memory; the DBA must first configure constrained per-query settings on the readonly role. For Milvus, identify the tenant field and approved equality-filter fields. Collection tenant values must match AgentSQL tenant IDs.
+- Grant the Agent exact tables or collections and all output, filter, and Milvus tenant fields. Call MCP `query_analytics` or `search_vectors` to verify allow, deny, masking, audit, and cross-tenant isolation. The public Demo does not include these native databases. See the [design](v3.8.0-design.md), [upgrade guide](v3.8.0-upgrade.md), and [acceptance record](v3.8.0-acceptance.md) for configuration and limits.
 
 ## v3.7.0 MongoDB and Sentinel controlled reads
 
