@@ -1506,5 +1506,12 @@
   "Redis 8.2.9 指定 TLS/ACL 单实例和两数据节点/三 Sentinel 拓扑的精确键与 Hash 字段读取；Cluster 未验收。": "Redis 8.2.9 exact key and Hash-field reads on specified TLS/ACL single-instance and two-data-node/three-Sentinel topologies. Cluster is unverified.",
   "Valkey 8.1.10 指定 TLS/ACL 单实例和两数据节点/三 Sentinel 拓扑的精确键与 Hash 字段读取；Cluster 未验收。": "Valkey 8.1.10 exact key and Hash-field reads on specified TLS/ACL single-instance and two-data-node/three-Sentinel topologies. Cluster is unverified.",
   "ClickHouse 26.8.31.2 指定原生 TLS 单节点的有界 MergeTree 查询，可显式收紧读取预算。": "ClickHouse 26.8.31.2 bounded MergeTree queries on a specified native-TLS single node, with optional tighter read budgets.",
-  "Milvus 2.6.25 指定 TLS 单机的单向量 COSINE 检索，可显式启用权威 Agent 租户范围和获准字段等值过滤。": "Milvus 2.6.25 single-vector COSINE search on a specified TLS standalone instance, with opt-in authoritative Agent tenant scope and approved-field equality filters."
+  "Milvus 2.6.25 指定 TLS 单机的单向量 COSINE 检索，可显式启用权威 Agent 租户范围和获准字段等值过滤。": "Milvus 2.6.25 single-vector COSINE search on a specified TLS standalone instance, with opt-in authoritative Agent tenant scope and approved-field equality filters.",
+  "离线发行包验签": "Verify an offline release",
+  "将完整的 15 项发行资产放入同一目录。公钥须从独立可信渠道获取，保存在该目录之外；明确指定要安装的版本，验签通过后再执行离线安装。": "Place all 15 release assets in one directory. Obtain the public key through an independently trusted channel and keep it outside that directory. Specify the intended version and verify it before installing offline.",
+  "验签会核对发行清单、三份 Ed25519 签名及源码来源，不下载、解包或运行文件。校验期间及安装前请保持目录内容不变。": "Verification checks the release inventory, three Ed25519 signatures and source provenance. It does not download, extract or execute files. Keep the directory immutable during verification and until installation.",
+  "离线交付与跨版本升级指南": "Offline delivery and cross-version upgrade guide",
+  "导出诊断包": "Export a support bundle",
+  "在服务器上导出只读诊断，便于排查元数据库和审计库的版本及可用性。输出只含固定检查结果和产品能力证据，不包含连接串、凭据、SQL、日志或业务数据。": "Export read-only diagnostics on the server to inspect metadata and audit store versions and availability. The output contains fixed check results and product capability evidence, without connection strings, credentials, SQL, logs or business data.",
+  "输出路径必须是新文件；已有文件和符号链接会被拒绝。返回码 0 表示就绪，2 表示待迁移，1 表示检查受阻；检查受阻时也会保存诊断结果。": "The output must be a new file; existing files and symlinks are refused. Exit code 0 means ready, 2 means migrations pending, and 1 means blocked. Blocked checks also produce a diagnostic report."
 }

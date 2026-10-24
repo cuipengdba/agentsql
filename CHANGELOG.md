@@ -2,6 +2,11 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v4.0.0]
+
+- 增加离线发行验签、验签后的运输包组装及固定字段只读诊断包。
+- 增加跨版本升级/恢复演练、控制台指引与双语交付维护文档；见[发布说明](docs/release-notes-v4.0.0.md)。
+
 ## [v3.9.0]
 
 - 为指定 Oracle 26ai Free 增加严格 TCPS 与可选有界 PLAN_TABLE 预检；go-ora 升级到 v3.0.1，并为每条物理连接隔离 TLS 状态。
