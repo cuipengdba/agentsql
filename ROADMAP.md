@@ -50,7 +50,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.4.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.4.0)） | 金仓受限单表 SELECT 列授权、写入关闭；Vastbase 固定构建的类型、物理扫描、验证 TLS、撤权和恢复，B2 列授权仍关闭。见[验收](docs/v3.4.0-acceptance.md)与[发布证据](docs/v3.4.0-release-evidence.md)。 |
 | v3.4.1 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.4.1)） | 管理审计 SSE 的历史与实时事件按已认证租户过滤；不变更数据库 schema 或支持范围。见[修复说明](docs/release-notes-v3.4.1.md)与[发布证据](docs/v3.4.1-release-evidence.md)。 |
 | v3.5.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.5.0)） | 三副本无状态网关样例、跨网关审计事件续接、单节点故障与双库故障关闭、成套备份回退及有界容量验证；正式样例关闭 B5 会话，不支持 B2 混合版本滚动升级。见[设计](docs/v3.5.0-design.md)、[验收](docs/v3.5.0-acceptance.md)与[发布证据](docs/v3.5.0-release-evidence.md)。 |
-| v3.6.0 | 待开发 | 策略跨环境交付、可靠事件投递与可验证的长期审计归档。 |
+| v3.6.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.6.0)） | 签名的简单表级策略跨环境交付、已提交审计流的可靠 Webhook、长期审计归档 checkpoint 链核验；见[设计](docs/v3.6.0-design.md)、[验收](docs/v3.6.0-acceptance.md)及[发布证据](docs/v3.6.0-release-evidence.md)。 |
 | v3.7.0 | 待开发 | MongoDB 有界读取及副本集、Redis/Valkey Hash 字段授权与 Sentinel 验证。 |
 | v3.8.0 | 待开发 | ClickHouse 分析查询资源约束、Milvus 标量过滤及租户隔离深化。 |
 | v3.9.0 | 待开发 | Oracle 和 SQL Server 的证书、计划、查询与指定拓扑验证。 |

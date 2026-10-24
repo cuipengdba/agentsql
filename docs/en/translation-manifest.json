@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "90ea90eb684ae0c66d6569a39e4aadcc8c377f1f615c6d360be384c686d11490"
+      "source_sha256": "37e166235bf12da8d80e795739b91366a4f8d8ccb47085e5c09c2a1235e2b2a2"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -1074,7 +1074,7 @@
     {
       "source": "docs/release-notes-v3.6.0.md",
       "english": "docs/en/release-notes-v3.6.0.md",
-      "source_sha256": "b45ee73a54906c4d15d6a85c13269de60db2f76bcebb966e373e372e9f1e5d39"
+      "source_sha256": "6903dfe807050bf4bf91bacc7b1fd22ab7c5a57dcabf44d916dde27da11501ba"
     },
     {
       "source": "docs/v3.6.0-design.md",
@@ -1094,7 +1094,12 @@
     {
       "source": "docs/v3.6.0-acceptance.md",
       "english": "docs/en/v3.6.0-acceptance.md",
-      "source_sha256": "89b1d7d87ca2950a212fa4e43385ec4ed7c56933e39794ef1d1dc1de9eca4678"
+      "source_sha256": "03393e6261db23226e55fc467a23a18d5f2f9e1aa5ad9901126fd7fdeeb44953"
+    },
+    {
+      "source": "docs/v3.6.0-release-evidence.md",
+      "english": "docs/en/v3.6.0-release-evidence.md",
+      "source_sha256": "a18b4f249393be8b722be3fe9acb24ad289cece453c29411d7cf3950501357c1"
     },
     {
       "source": "docs/v3.7.0-design.md",
