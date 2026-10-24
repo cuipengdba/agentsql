@@ -32,6 +32,10 @@ func (handler *Handler) stream(writer http.ResponseWriter, request *http.Request
 		handler.fail(writer, http.StatusServiceUnavailable, "event stream connection limit reached")
 		return
 	}
+	if handler.deps.Runtime.Store.DurableAuditStream() {
+		handler.streamDurable(writer, request, principal.TenantID)
+		return
+	}
 
 	hub := handler.deps.Runtime.Events
 	events, cancel := hub.Subscribe()

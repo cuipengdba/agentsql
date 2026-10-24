@@ -82,6 +82,8 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"action", "actor_type", "actor_id", "details_json", "error_code", "event_uuid",
 			"chain_seq", "prev_hash", "self_hash", "chain_key_version", "chain_format_version", "tenant_id",
 		},
+		"audit_stream_state":  {"tenant_id", "next_seq"},
+		"audit_stream_events": {"tenant_id", "seq", "audit_id"},
 		"chain_state": {
 			"tenant_id", "chain_id", "chain_instance_id", "status", "mode", "head_seq", "head_id",
 			"head_hash", "genesis_at", "protected_since_id", "build_owner", "build_lease_until",
@@ -268,8 +270,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 24, current)
-	require.Equal(t, 24, latest)
+	require.Equal(t, 25, current)
+	require.Equal(t, 25, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -355,7 +357,7 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 24, current)
+				require.Equal(t, 25, current)
 			} else {
 				require.Equal(t, 23, current)
 			}
@@ -422,7 +424,7 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 24, current)
+				require.Equal(t, 25, current)
 			} else {
 				require.Equal(t, 23, current)
 			}

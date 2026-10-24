@@ -217,12 +217,12 @@ fi
 
 pdf_fail=0
 for pdf in \
-  assets/docs/agentsql-getting-started-v3.0.2.pdf \
-  assets/docs/agentsql-user-guide-v3.0.2.pdf \
-  assets/docs/agentsql-mcp-integrations-v3.0.2.pdf \
-  assets/docs/agentsql-getting-started-en-v3.0.2.pdf \
-  assets/docs/agentsql-user-guide-en-v3.0.2.pdf \
-  assets/docs/agentsql-mcp-integrations-en-v3.0.2.pdf; do
+  assets/docs/agentsql-getting-started-v3.5.0.pdf \
+  assets/docs/agentsql-user-guide-v3.5.0.pdf \
+  assets/docs/agentsql-mcp-integrations-v3.5.0.pdf \
+  assets/docs/agentsql-getting-started-en-v3.5.0.pdf \
+  assets/docs/agentsql-user-guide-en-v3.5.0.pdf \
+  assets/docs/agentsql-mcp-integrations-en-v3.5.0.pdf; do
   pdf_path="$SITE_ROOT/$pdf"
   if [[ ! -f $pdf_path ]]; then
     printf '      缺失 PDF: %s\n' "$pdf"

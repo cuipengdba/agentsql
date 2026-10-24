@@ -2,6 +2,12 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v3.5.0]
+
+- 提供三网关 Kubernetes 部署样例：三个工作节点、独立持久卷和稳定实例 ID；全停升级、预检与只读 schema 检查。
+- PostgreSQL 审计事件以租户提交游标跨网关续接，管理端 SSE 支持有界 `Last-Event-ID` 重放并对跨租户游标失败关闭。
+- 隔离环境验证单节点故障、双库故障关闭和从 v3.4.1 成套备份回退；B5 状态会话在正式三网关样例中继续关闭。详见[发布说明](docs/release-notes-v3.5.0.md)与[验收记录](docs/v3.5.0-acceptance.md)。
+
 ## [v3.4.1]
 
 - 修复管理审计 SSE 历史与实时事件的租户隔离；其他租户事件不再发送到已认证的审计查看者连接。

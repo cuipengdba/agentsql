@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/name: agentsql
 spec:
   serviceName: agentsql-headless
-  replicas: 2
+  replicas: 3
   minReadySeconds: 10
   podManagementPolicy: Parallel
   selector:
@@ -14,7 +14,7 @@ spec:
       app.kubernetes.io/name: agentsql
   updateStrategy:
     # B2 rejects two simultaneously active binary digests. Operators must
-    # drain both replicas and wait for their leases to expire before upgrade.
+    # drain all replicas and wait for their leases to expire before upgrade.
     type: OnDelete
   template:
     metadata:
@@ -39,7 +39,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       initContainers:
         - name: schema-check
-          image: ghcr.io/cuipengdba/agentsql:v2.4.0
+          image: ghcr.io/cuipengdba/agentsql:v3.5.0
           imagePullPolicy: IfNotPresent
           command:
             - /usr/local/bin/agentsqlctl
@@ -66,7 +66,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: gateway
-          image: ghcr.io/cuipengdba/agentsql:v2.4.0
+          image: ghcr.io/cuipengdba/agentsql:v3.5.0
           imagePullPolicy: IfNotPresent
           args:
             - serve

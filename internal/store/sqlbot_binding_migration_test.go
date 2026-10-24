@@ -27,7 +27,11 @@ func TestSQLBotSQLiteUpgradeFromV302(t *testing.T) {
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, separate))
 			current, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, separate)
 			require.NoError(t, err)
-			require.Equal(t, previous+1, current)
+			expected := previous + 1
+			if !separate {
+				expected++ // v3.5 adds the combined-store audit stream migration.
+			}
+			require.Equal(t, expected, current)
 			require.Equal(t, current, latest)
 			require.NoError(t, VerifyMetadataSchema(ctx, db, DialectSQLite, separate))
 			var count int
@@ -77,7 +81,11 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, s.Close()) })
 			current, latest, err := MetadataMigrationVersions(ctx, s.metaDB, DialectPostgres, separate)
 			require.NoError(t, err)
-			require.Equal(t, previous+1, current)
+			expected := previous + 1
+			if !separate {
+				expected++ // v3.5 adds the combined-store audit stream migration.
+			}
+			require.Equal(t, expected, current)
 			require.Equal(t, current, latest)
 			var count int
 			require.NoError(t, s.metaDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM approvals WHERE id='pre-sqlbot-approval'`).Scan(&count))
@@ -85,8 +93,8 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 			if separate {
 				auditCurrent, auditLatest, err := AuditMigrationVersions(ctx, s.auditDB, DialectPostgres)
 				require.NoError(t, err)
-				require.Equal(t, 6, auditCurrent)
-				require.Equal(t, 6, auditLatest)
+				require.Equal(t, 7, auditCurrent)
+				require.Equal(t, 7, auditLatest)
 				require.NoError(t, s.auditDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs WHERE error_msg='pre-sqlbot-safe-audit'`).Scan(&count))
 				require.Equal(t, 1, count)
 			}

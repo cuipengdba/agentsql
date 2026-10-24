@@ -4,17 +4,17 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "94f6732443de97d6dd78ae406cbe377cb6365409de56ba01b6e53e7e65df9772"
+      "source_sha256": "d300703ff29c754fa5fe523c7d1b10c17f3aeba3423c0be9530f7bc1e5388ca2"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "f4d2ce74a28d8548ae67e13db289ccc6e596baf76817f5c4b5417622b8d1d607"
+      "source_sha256": "c44b692b930854c2a13d6029eb03f657225daef583fdd6a7e61891a9cdf5c200"
     },
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "de5c8f80fb306199ed829b345f837cf5111fbb9ad2b11cd68a912442b2564197"
+      "source_sha256": "71395275847115a94e87b26eb7104a60ce19ae952aa65f9bd59c4cbc70be37fe"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -84,7 +84,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "d971269c92cec7924b6ee74de20f9ed23878760dadfa3f522daff0d4082feb6c"
+      "source_sha256": "f3f9cc3f08832f77e88213b54a70ad1eb5d0506422a98901ebd821e199cbcfa1"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "8c9338674e251696921d1c4ceffade5ae649cd1e693b39e03d3eca2293bc9a71"
+      "source_sha256": "1a770b477efcff9660178ea54054a5f438a6c45ea4799825c6ae4e67f3c78b25"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "2047ed856f4b63927f86b475afbb7f6fb5140d56d73b1dea91c687a5a204322b"
+      "source_sha256": "23ee5c3c352b7cd1443fdf83d88ca27c54bc6e1f5ed5b73e58f4deb84f2fbb1f"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "908acba9db3c33dcdef1cb381b6c6b7922641321a9730153a8393e4352cb3c97"
+      "source_sha256": "381b32c4bfdb9b598aa0fcd624fb4da6f2c33c1ac8288ea83159cf9f6dadea7d"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -469,12 +469,12 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "161dbd13d95f27d35d4c189e9888dde1db7d37b96ce18b66c868bbacaa6c5e23"
+      "source_sha256": "eb3e417abcee8ed082f8c8b615136189d96c4040de1010a8beda75a4d7c9f912"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
       "english": "docs/en/RELEASE_PROCESS.md",
-      "source_sha256": "f6d60f6331477edda6fe9484c6112b7d7c8e9c603b6321b7f7934e02883ec3e8"
+      "source_sha256": "36dad5bfca0181b265e23f80357ec8050ada4109a8c3f52fb1f1c6742e4671c0"
     },
     {
       "source": "docs/RELEASE_ROUTINE.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "39ced029e9ddda98440c7b966a4d578f3ae71b55797618ff3ea7e3cc28aaf370"
+      "source_sha256": "6c0ec619feca77c1e6a4f90153f59e2021859c1cf553152ad26ce054c08e4f27"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -914,12 +914,12 @@
     {
       "source": "deploy/kubernetes/README.md",
       "english": "deploy/kubernetes/README.en.md",
-      "source_sha256": "07c7bce1ba07649877147fc9f7a21b586198f4cd5a17e2290e12744958672320"
+      "source_sha256": "e7eb4a15b375beb5993cbf7a0882abfb3cf7acb18999b5aabdab77b864fd9e09"
     },
     {
       "source": "deploy/ecs-demo/README.md",
       "english": "deploy/ecs-demo/README.en.md",
-      "source_sha256": "8e1418b68226c7b785dd2334a664f27f8f94caaadb0adfb0eaf7f193f4705cfb"
+      "source_sha256": "ed25819e5547c1406e5aad35ee577895ca63a2b90ba3ad27a6f084ae600d3df5"
     },
     {
       "source": "dbext/packaging/README.md",
@@ -1050,6 +1050,21 @@
       "source": "docs/v3.4.1-acceptance.md",
       "english": "docs/en/v3.4.1-acceptance.md",
       "source_sha256": "0e6cf1ea4f0ea739989a4455344d3fae75e14954849b2bf4dc77b9f9864f99f5"
+    },
+    {
+      "source": "docs/v3.5.0-design.md",
+      "english": "docs/en/v3.5.0-design.md",
+      "source_sha256": "059e690416b80264832306005422764955e7f7599e62e85fa26203cfa9e9f243"
+    },
+    {
+      "source": "docs/v3.5.0-acceptance.md",
+      "english": "docs/en/v3.5.0-acceptance.md",
+      "source_sha256": "1d8c3b96e81bb20449d706d0bccb8b8487ca79a643b5036e71ce00202a11ccdb"
+    },
+    {
+      "source": "docs/release-notes-v3.5.0.md",
+      "english": "docs/en/release-notes-v3.5.0.md",
+      "source_sha256": "e49ea4b234502815124dafb77b6d87959c5fe279d9b54452e3d9cb2e97cc6d0e"
     }
   ]
 }

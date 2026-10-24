@@ -276,6 +276,12 @@ func (service *B5CoordinatorService) continuation(ctx context.Context, agentID, 
 func b5RequestIdentity(ctx context.Context, agentID string) (principalID, tenantID string) {
 	human, delegated := delegatedHumanFromContext(ctx)
 	if !delegated {
+		// The repository binds authenticated MCP requests to the Agent's tenant.
+		// Use that same tenant before sealing the continuation key: Create must
+		// not persist a different tenant than the one included in its AAD.
+		if identity, ok := identityFromContext(ctx); ok && identity.agent.ID == agentID && identity.agent.TenantID != "" {
+			return agentID, identity.agent.TenantID
+		}
 		return agentID, agentID
 	}
 	encoded, _ := json.Marshal([]string{"agentsql.b5.delegated.v1", human.tenantID, agentID, human.userID})

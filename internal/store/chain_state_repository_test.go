@@ -99,6 +99,8 @@ func TestSQLiteToPostgresManifestExcludesAuditChainDerivedData(t *testing.T) {
 		require.Equal(t, map[string]struct{}{
 			"chain_state":              {},
 			"chain_verification":       {},
+			"audit_stream_state":       {},
+			"audit_stream_events":      {},
 			"control_plane_compat":     {},
 			"login_attempt_budgets":    {},
 			"mcp_stream_event_cursors": {},
