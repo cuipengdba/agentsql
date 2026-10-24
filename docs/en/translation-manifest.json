@@ -919,7 +919,7 @@
     {
       "source": "deploy/ecs-demo/README.md",
       "english": "deploy/ecs-demo/README.en.md",
-      "source_sha256": "ed25819e5547c1406e5aad35ee577895ca63a2b90ba3ad27a6f084ae600d3df5"
+      "source_sha256": "4d5b40bec921811d149257025f70934e81eaa7cd178a32814dee1b03eebed183"
     },
     {
       "source": "dbext/packaging/README.md",
