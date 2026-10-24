@@ -54,6 +54,13 @@ func (repository *AuditLogRepository) StreamAfter(ctx context.Context, after int
 	if err != nil {
 		return nil, err
 	}
+	// Pin the committed tail before reading the page. A missing final event
+	// must not look like an empty stream to durable consumers. New events
+	// committed after this read will be picked up on the next page/poll.
+	latestAtStart, err := repository.LatestStreamSequence(ctx)
+	if err != nil {
+		return nil, err
+	}
 	query := `
 SELECT e.seq, a.id, a.tenant_id, a.ts, a.agent_id, a.datasource_id, a.session_id,
        a.conversation_id, a.mcp_tool, a.db_type, a.sql_raw, a.sql_norm,
@@ -88,6 +95,9 @@ LIMIT ?`
 	closeErr := rows.Close()
 	if iterationErr != nil || closeErr != nil {
 		return nil, fmt.Errorf("finish audit stream: %w", errors.Join(iterationErr, closeErr))
+	}
+	if len(items) < limit && latestAtStart > after+int64(len(items)) {
+		return nil, errors.New("read audit stream: committed sequence gap")
 	}
 	return items, nil
 }
