@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "1d1424bfeb790951b488c9be470b2a27bea1583ad946d97a7605c8d557fe2e17"
+      "source_sha256": "0885cc44a4aad30aaa082afb58a84f62b368e59e4e1ab43fc2b11f0963948743"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "6f57962a910c0d7ed4e11be03a032ea739c20e8a298676c9867fce95ee960b03"
+      "source_sha256": "8f8e8af6dbd5e1098256b766b6002d9e214fb47aef9c0e6d069f895ec71bb26d"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",

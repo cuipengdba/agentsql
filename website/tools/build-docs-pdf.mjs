@@ -557,7 +557,7 @@ function htmlDocument(document, rendered) {
     h4 { margin: 5mm 0 2mm; color: #334155; font-size: 11pt; }
     p { margin: 0 0 3.5mm; orphans: 3; widows: 3; }
     ul, ol { margin: 2mm 0 4mm; padding-left: 7mm; }
-    li { margin: 1.3mm 0; orphans: 3; widows: 3; }
+    li { margin: 1.3mm 0; orphans: 3; widows: 3; break-inside: avoid; page-break-inside: avoid; }
     a { color: #0369a1; text-decoration: underline; text-underline-offset: 1px; }
     strong { color: #0f172a; }
     code { padding: .2mm .9mm; border-radius: 1mm; background: #eef2f7; color: #7c2d12; font-family: Consolas, "Courier New", monospace; font-size: .9em; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }

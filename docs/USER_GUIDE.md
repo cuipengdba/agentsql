@@ -10,6 +10,11 @@
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
 
+## v3.7.0 MongoDB 与 Sentinel 受控读取
+
+- 在数据源页面设置仅含拓扑和批准索引元数据的 `read_control_json`。MongoDB 副本集须明确列出三个受信成员与集合索引；Redis/Valkey Sentinel 须列出三个 Sentinel、允许主节点及独立 ACL 用户名。Sentinel 密码由详情页显示的 `sentinel_password_env` 对应环境变量注入每个网关，不写入 JSON。
+- 为 Agent 精确授权 MongoDB 集合和所需字段，或 Redis/Valkey 逻辑库、Hash 键与每个字段。通过 MCP `find_documents` 或 `read_hash_fields` 调用，核对允许、拒绝、脱敏与审计 ID；错误证书、未知成员、索引缺失、ACL 撤销及审计故障必须拒绝。公开 Demo 不含这些原生拓扑，配置格式和已测边界见[NoSQL 支持范围](nosql-support.md)、[升级指南](v3.7.0-upgrade.md)与[验收记录](v3.7.0-acceptance.md)。
+
 ## v3.2.0 SQLBot 接入 `/sqlbot`
 
 在「设置与集成 → SQLBot 接入」配置普通登录用户、工作空间、数据源名称到既有 AgentSQL 人员、只读 Agent 和 PostgreSQL 或 MySQL 数据源的精确映射。MySQL 发现 schema 固定为该数据源的数据库名。工作空间及用户 ID 按字符串填写；绑定创建、修改和连接凭据轮换要求同时拥有策略、人员和数据源管理权限。人员必须保有查询执行权限，Agent 必须处于有效只读状态。

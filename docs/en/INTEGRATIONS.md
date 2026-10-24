@@ -17,6 +17,11 @@ AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py 
 
 This example depends on the column grants in `examples/docker/demo-seed.yaml`. For another environment, choose an authorized query and a query rejected by R010. Do not send real customer data to the public demo. The script prints only the decision, audit IDs, and masked-cell count.
 
+## v3.7.0 native database tools
+
+- `find_documents` accepts `datasource_id`, `collection`, explicit top-level `fields`, string equality `filter`, and a `limit` of 1–100. Replica set mode requires the filter field set to match an administrator-approved index. Aggregation, arbitrary commands and writes are unavailable.
+- `read_hash_fields` accepts `datasource_id`, an exact `key`, and 1–16 explicit `fields`. Each Hash field needs a separate grant. The response is capped at 64 KiB, masked by field source and delivered only after durable terminal audit. The public Demo only shows synthetic PostgreSQL/MySQL scenarios; see the [NoSQL support scope](nosql-support.md) and [v3.7.0 acceptance](v3.7.0-acceptance.md) for live connection steps and limits.
+
 ## Select transfer method
 
 ### Streamable HTTP: preferred when the service is already running
