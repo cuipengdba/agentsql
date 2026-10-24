@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](RELEASE_PROCESS.md) | [English](en/RELEASE_PROCESS.md)
 
-当前正式基线：v3.5.0，交付范围见[验收记录](v3.5.0-acceptance.md)，分发与公网结果见[发布证据](v3.5.0-release-evidence.md)。每次维护版按[每版交付流程](RELEASE_ROUTINE.md)完成设计、代码、测试、升级恢复、CI、签名产物、GitHub Release、GHCR、官网和 Demo 的完整交付。
+当前正式基线：v3.6.0，交付范围见[验收记录](v3.6.0-acceptance.md)，分发与公网结果见[发布证据](v3.6.0-release-evidence.md)。每次维护版按[每版交付流程](RELEASE_ROUTINE.md)完成设计、代码、测试、升级恢复、CI、签名产物、GitHub Release、GHCR、官网和 Demo 的完整交付。
 
 1. 核对上一正式版和本版范围，编写设计与验收用例。数据库支持声明绑定指定版本、模式、操作与实测证据。
 2. 在隔离分支完成代码、内嵌 Web、文档、官网和 PDF。执行 Go/Web、适用安全负向集、真实集成以及升级恢复检查。

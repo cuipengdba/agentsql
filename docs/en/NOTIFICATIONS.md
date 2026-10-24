@@ -2,15 +2,15 @@
 
 **Language:** [English](NOTIFICATIONS.md) | [Simplified Chinese](../NOTIFICATIONS.md)
 
-> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.6.0. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
 AgentSQL can bypass the decision-making events written into the audit database and send them to the alarm group, SIEM or self-built receiver in the form of Webhook or Syslog. This article is intended for operations and security engineers responsible for deployment, network perimeter, and key management.
 
-> **Important: Notifications are best-effort copies, and the audit library is the authoritative record.** Notification failures, queuing drops, process restarts, or brief gaps during configuration hot reloading will never block or overwrite SQL decision-making, controlled execution, and audit rollout. Do not treat notification receipt records as a complete audit ledger.
+> **Important: The audit database is the authoritative record.** Ordinary webhooks and Syslog are best-effort copies; v3.6.0 can enable a durable cursor and at-least-once delivery for a webhook. A notification target failure does not change a committed SQL decision or audit. Do not treat notification receipts as a complete audit ledger.
 
 ## Function positioning and data flow
 
-Notifications only consume audit events after successful persistence, and use subscriptions that are only real-time and do not play back history:
+Ordinary channels consume audit events after successful persistence through a live subscription that does not replay history:
 
 ```text
 SQL request → Authentication / Parsing / Authorization / Rules / Execution → Audit library (authoritative record)
@@ -27,7 +27,9 @@ SQL request → Authentication / Parsing / Authorization / Rules / Execution →
                                          Webhook POST       Syslog UDP/TCP
 ```
 
-Saving the configuration hot-loads the notifier. Hot reloading cancels the old live subscription and establishes a new subscription without replaying the history in the event bus; a very small amount of events are allowed to be lost at the moment of switching. Notifiers do not subscribe to the event bus when notifications are turned off globally or when there is no channel enabled.
+Saving the configuration hot-reloads the ordinary notifier. The old live subscription is replaced without replaying event-bus history, so a small gap is possible. The notifier does not subscribe to the event bus when notifications are globally disabled or no ordinary channel is enabled.
+
+Reliable webhooks read the committed tenant audit stream in order. Durable cursors, leases, and retry state in the metadata database coordinate gateway workers; this path does not depend on the in-process queue above. Audits predating channel creation are not automatically replayed.
 
 ## Default security posture
 
@@ -500,6 +502,8 @@ The above description of Feishu/Qiwei/Slack is "the platform verifies the creden
 
 ## Delivery semantics and reliability
 
+### Ordinary webhooks and Syslog
+
 - Each enabled channel has independent workers and bounded memory queues; slow channels do not synchronously block the SQL main link or other channels.
 - When the queue is full, new notifications will be discarded in a non-blocking manner and the channel `dropped` will be added; no disk placement or reissue will be performed.
 - Notifications only subscribe to new events after startup/hot reloading, and do not replay history. Notification copies can be lost during process stop, event bus congestion, subscriber removal, or hot reload switching.
@@ -510,11 +514,19 @@ The above description of Feishu/Qiwei/Slack is "the platform verifies the creden
 - Webhooks do not follow redirects, and environment proxies are explicitly disabled. When an enterprise egress proxy is required, controlled forwarding should be configured at the network layer for explicit destinations rather than relying on `HTTP_PROXY`/`HTTPS_PROXY`.
 - TCP Syslog notifies each new connection and closes after writing; UDP/TCP has no application layer confirmation, idempotent key or persistent retry queue.
 
-Therefore this function does not guarantee order, uniqueness or guaranteed arrival. If the receiving end needs to remove duplicates, it can use `audit_id`; the integrity check must be returned to the audit library.
+Ordinary channels therefore do not guarantee ordering, uniqueness, or arrival. A receiver can use `audit_id` for deduplication; completeness must be checked against the audit database.
+
+### Reliable webhooks
+
+- Enable “reliable delivery” on an individual webhook channel and use an HTTPS receiver. This mode consumes final events from the committed tenant audit stream and resumes through a durable tenant/channel cursor after process restarts or across gateways. It does not apply to Syslog.
+- Every request carries a stable `X-AgentSQL-Delivery-ID`; generic JSON also contains `delivery_id`. Receivers must process this ID idempotently. A crash after remote success but before local acknowledgement can resend, so delivery is at least once, with no exactly-once or guaranteed receiver acceptance claim.
+- Failures use bounded backoff; after five failures the cursor enters a dead-letter state without advancing. Administrators can inspect backlog, bounded failure category, and oldest pending event in notification health. Replaying a dead letter requires authorization and a durable management audit first.
+- A new channel starts at the committed stream tail read before configuration publication; earlier events are not automatically replayed. A gap between separate metadata and audit databases may replay a few events. To change endpoint, credentials, or filter, create a new channel ID, drain the old channel, then disable it.
+- After restoring older metadata and audit backups, use a new channel ID before re-enabling delivery so divergent new events cannot reuse an old sequence's Delivery ID. Restore paired backups and reconcile receiver deduplication records separately.
 
 ## Health status and observability
 
-The health endpoint fields are the accumulated values in the current AgentSQL process and will be cleared after the process is restarted:
+The following ordinary-channel counters are process-local and reset on restart. Reliable channels also show the durable cursor, backlog, failures, next retry, and dead-letter state in notification health:
 
 | Field | meaning |
 | --- | --- |
@@ -540,11 +552,11 @@ It is recommended to at least warn: the failure count continues to increase, the
 
 ## Persistence, migration and key rotation
 
-Notification settings are located in the `notification_settings`, `notification_channels` tables of the control plane metadata store, created by `0002_notifications.sql`:
+Notification settings live in the metadata database's `notification_settings` and `notification_channels` tables, created by `0002_notifications.sql`. Reliable delivery also uses `notification_delivery_cursors`, added in v3.6.0:
 
 - Default/combined deployment: in SQLite with other metadata and auditing, or in PostgreSQL.
 - Detached PostgreSQL: Notification configuration only enters the metadata library and does not enter the independent audit library.
-- The SQLite → PostgreSQL migration copies both notification tables, including the encrypted webhook fields.
+- SQLite → PostgreSQL migration copies notification settings, encrypted webhook fields, and reliable delivery cursors.
 
 The encrypted ciphertext relies on `AGENTSQL_SECRET` when it was generated. When migrating or switching the control plane database, the target instance must use the same SECRET of exactly 32 bytes; otherwise, the notification secret cannot be authenticated and decrypted, and the service startup and loading notification configuration will fail. Back up the control plane database and environment files first, then migrate them, and use GET, send test and real `deny` event verification before cutting the flow.
 
@@ -608,6 +620,6 @@ After verification is complete, stop the receiving end, delete the `local_verify
 
 - It does not replace the audit library, database native logs, or SIEM's complete collection link.
 - No email, SMS, PagerDuty, two-way bots, platform callbacks, manual receipts, or workflow orchestration are provided.
-- There are no guaranteed, sequential, or exact-once guarantees; there are no disk queues, dead letter queues, or historical reissues.
+- Ordinary channels have no guaranteed arrival, ordering, or exactly-once delivery. Reliable webhooks use durable cursors, retries, and dead letters, but still do not guarantee exactly-once receiver handling or automatically replay events predating enablement.
 - No result sets are sent, no full DLP is done, and no SQL decisions for `allow`, `warn`, `approve`, `deny`, `error` are changed due to notification failure.
 - TLS Syslog/mTLS is not provided; sensitive or cross-network Syslog should be forwarded through a controlled secure tunnel/local relay, or use HTTPS generic webhook in preference.
