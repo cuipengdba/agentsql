@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/notify"
@@ -71,6 +72,47 @@ UPDATE notification_channels SET created_at='2000-01-02 03:04:05' WHERE id='gene
 		"SELECT created_at FROM notification_channels WHERE id='generic'",
 	).Scan(&createdAt))
 	require.Contains(t, createdAt, "2000-01-02")
+}
+
+func TestNotificationConfigurationAndCursorCommitAtomically(t *testing.T) {
+	ctx := context.Background()
+	opened, err := OpenWithSecret(ctx, filepath.Join(t.TempDir(), "atomic-notifications.db"), []byte(testSecret))
+	require.NoError(t, err)
+	defer opened.Close()
+	delivery := opened.NotificationDelivery()
+	digestA, digestB, digestWrong := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	require.NoError(t, delivery.Ensure(ctx, "b", digestB, 0))
+	channel := func(id string) notify.ChannelConfig {
+		return notify.ChannelConfig{ID: id, Enabled: true, Reliable: true, Kind: notify.ChannelWebhook,
+			Decisions: []string{"deny"}, Webhook: &notify.WebhookConfig{Template: notify.WebhookGeneric, URL: "https://example.test/hook"}}
+	}
+	config := notify.Config{Enabled: true, QueueSize: 4, Channels: []notify.ChannelConfig{channel("a"), channel("b")}}
+	_, err = opened.Notifications().ReplaceWithCursors(ctx, config, []NotificationCursorSeed{
+		{ChannelID: "a", ConfigDigest: digestA}, {ChannelID: "b", ConfigDigest: digestWrong},
+	})
+	require.ErrorContains(t, err, "configuration changed")
+	_, err = delivery.Status(ctx, "a")
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	stored, err := opened.Notifications().Get(ctx)
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+	require.Empty(t, stored.Channels)
+
+	config.Channels = config.Channels[:1]
+	seed := NotificationCursorSeed{ChannelID: "a", ConfigDigest: digestA, InitialSequence: 2}
+	created, err := opened.Notifications().ReplaceWithCursors(ctx, config, []NotificationCursorSeed{seed})
+	require.NoError(t, err)
+	require.Equal(t, []NotificationCursorSeed{seed}, created)
+	created, err = opened.Notifications().ReplaceWithCursors(ctx, config, []NotificationCursorSeed{seed})
+	require.NoError(t, err)
+	require.Empty(t, created)
+	discarded, err := delivery.DiscardUnpublished(ctx, seed)
+	require.NoError(t, err)
+	require.False(t, discarded)
+	require.NoError(t, opened.Notifications().Replace(ctx, notify.Config{Enabled: false, QueueSize: 4}))
+	discarded, err = delivery.DiscardUnpublished(ctx, seed)
+	require.NoError(t, err)
+	require.True(t, discarded)
 }
 
 func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {

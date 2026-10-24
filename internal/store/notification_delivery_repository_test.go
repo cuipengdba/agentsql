@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,12 +23,13 @@ func TestPostgres18NotificationDeliveryLeaseE2E(t *testing.T) {
 	defer database.Close()
 	require.NoError(t, Migrate(ctx, database, DialectPostgres))
 	repository := &NotificationDeliveryRepository{repositoryBase: repositoryBase{db: database, dialect: DialectPostgres}}
-	require.NoError(t, repository.Ensure(ctx, "hook", strings.Repeat("d", 64), 3))
+	digest := strings.Repeat("d", 64)
+	require.NoError(t, repository.Ensure(ctx, "hook", digest, 3))
 	now := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
-	claim, err := repository.Claim(ctx, "hook", now, 5*time.Second)
+	claim, err := repository.Claim(ctx, "hook", digest, now, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, claim)
-	blocked, err := repository.Claim(ctx, "hook", now.Add(time.Second), 5*time.Second)
+	blocked, err := repository.Claim(ctx, "hook", digest, now.Add(time.Second), 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
 	changed, err := repository.Acknowledge(ctx, "hook", *claim, 4, now.Add(2*time.Second))
@@ -36,6 +38,50 @@ func TestPostgres18NotificationDeliveryLeaseE2E(t *testing.T) {
 	status, err := repository.Status(ctx, "hook")
 	require.NoError(t, err)
 	require.Equal(t, int64(4), status.LastSequence)
+	// Three independent gateway connections race for the same tenant/channel.
+	// The shared metadata lease must have exactly one winner.
+	var databases []*sql.DB
+	repositories := []*NotificationDeliveryRepository{repository}
+	for range 2 {
+		other, openErr := sql.Open("pgx", dsn)
+		require.NoError(t, openErr)
+		databases = append(databases, other)
+		repositories = append(repositories, &NotificationDeliveryRepository{repositoryBase: repositoryBase{db: other, dialect: DialectPostgres}})
+	}
+	defer func() {
+		for _, other := range databases {
+			require.NoError(t, other.Close())
+		}
+	}()
+	results := make(chan *NotificationDeliveryClaim, len(repositories))
+	errors := make(chan error, len(repositories))
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	for _, contender := range repositories {
+		wait.Add(1)
+		go func(candidate *NotificationDeliveryRepository) {
+			defer wait.Done()
+			<-start
+			claimed, claimErr := candidate.Claim(ctx, "hook", digest, now.Add(3*time.Second), 5*time.Second)
+			results <- claimed
+			errors <- claimErr
+		}(contender)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	close(errors)
+	winners := 0
+	for claimErr := range errors {
+		require.NoError(t, claimErr)
+	}
+	for claimed := range results {
+		if claimed != nil {
+			winners++
+			require.Equal(t, int64(4), claimed.LastSequence)
+		}
+	}
+	require.Equal(t, 1, winners)
 }
 
 func TestNotificationDeliveryLeaseAndTenantIsolation(t *testing.T) {
@@ -57,19 +103,19 @@ func TestNotificationDeliveryLeaseAndTenantIsolation(t *testing.T) {
 	require.ErrorContains(t, repository.Ensure(a, "webhook", strings.Repeat("b", 64), 0), "configuration changed")
 
 	now := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
-	first, err := repository.Claim(a, "webhook", now, 2*time.Second)
+	first, err := repository.Claim(a, "webhook", digest, now, 2*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, first)
 	require.Equal(t, int64(4), first.LastSequence)
-	blocked, err := repository.Claim(a, "webhook", now.Add(time.Second), 2*time.Second)
+	blocked, err := repository.Claim(a, "webhook", digest, now.Add(time.Second), 2*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
-	other, err := repository.Claim(b, "webhook", now, 2*time.Second)
+	other, err := repository.Claim(b, "webhook", digest, now, 2*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, other)
 	require.Equal(t, int64(1), other.LastSequence)
 
-	second, err := repository.Claim(a, "webhook", now.Add(3*time.Second), 2*time.Second)
+	second, err := repository.Claim(a, "webhook", digest, now.Add(3*time.Second), 2*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.NotEqual(t, first.Token, second.Token)
@@ -91,9 +137,10 @@ func TestNotificationDeliveryRetryDeadLetterAndReplay(t *testing.T) {
 	opened := openTestStore(t)
 	ctx := context.Background()
 	repository := opened.NotificationDelivery()
-	require.NoError(t, repository.Ensure(ctx, "hook", strings.Repeat("c", 64), 0))
+	digest := strings.Repeat("c", 64)
+	require.NoError(t, repository.Ensure(ctx, "hook", digest, 0))
 	now := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
-	claim, err := repository.Claim(ctx, "hook", now, 5*time.Second)
+	claim, err := repository.Claim(ctx, "hook", digest, now, 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, claim)
 	_, err = repository.Fail(ctx, "hook", *claim, "https://secret.example", now.Add(time.Second), now.Add(10*time.Second), 2)
@@ -101,10 +148,10 @@ func TestNotificationDeliveryRetryDeadLetterAndReplay(t *testing.T) {
 	changed, err := repository.Fail(ctx, "hook", *claim, "timeout", now.Add(time.Second), now.Add(10*time.Second), 2)
 	require.NoError(t, err)
 	require.True(t, changed)
-	blocked, err := repository.Claim(ctx, "hook", now.Add(5*time.Second), 5*time.Second)
+	blocked, err := repository.Claim(ctx, "hook", digest, now.Add(5*time.Second), 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
-	claim, err = repository.Claim(ctx, "hook", now.Add(10*time.Second), 5*time.Second)
+	claim, err = repository.Claim(ctx, "hook", digest, now.Add(10*time.Second), 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, claim)
 	require.Equal(t, 1, claim.Failures)
@@ -116,19 +163,19 @@ func TestNotificationDeliveryRetryDeadLetterAndReplay(t *testing.T) {
 	require.True(t, status.DeadLetter)
 	require.Equal(t, 2, status.Failures)
 	require.Equal(t, int64(0), status.LastSequence)
-	blocked, err = repository.Claim(ctx, "hook", now.Add(time.Hour), 5*time.Second)
+	blocked, err = repository.Claim(ctx, "hook", digest, now.Add(time.Hour), 5*time.Second)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
 	changed, err = repository.ReplayDeadLetter(ctx, "hook")
 	require.NoError(t, err)
 	require.True(t, changed)
-	claim, err = repository.Claim(ctx, "hook", now.Add(time.Hour), 5*time.Second)
+	claim, err = repository.Claim(ctx, "hook", digest, now.Add(time.Hour), 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, claim)
 	changed, err = repository.Release(ctx, "hook", *claim, now.Add(time.Hour+time.Second))
 	require.NoError(t, err)
 	require.True(t, changed)
-	claim, err = repository.Claim(ctx, "hook", now.Add(time.Hour+2*time.Second), 5*time.Second)
+	claim, err = repository.Claim(ctx, "hook", digest, now.Add(time.Hour+2*time.Second), 5*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, claim)
 	changed, err = repository.Acknowledge(ctx, "hook", *claim, 1, now.Add(time.Hour+3*time.Second))

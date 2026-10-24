@@ -46,6 +46,20 @@ ON CONFLICT(tenant_id,channel_id) DO NOTHING`), tenantID, channelID, initialSequ
 	if err != nil {
 		return fmt.Errorf("ensure notification delivery cursor: %w", err)
 	}
+	return repository.AssertConfig(ctx, channelID, configDigest)
+}
+
+// AssertConfig rejects an absent cursor or a channel rebound to a different
+// endpoint. Workers must not invent a starting cursor after configuration is
+// already live, because that could skip committed audits.
+func (repository *NotificationDeliveryRepository) AssertConfig(ctx context.Context, channelID, configDigest string) error {
+	tenantID, err := repository.requireTenant(ctx, "verify notification delivery configuration")
+	if err != nil {
+		return err
+	}
+	if !validNotificationDeliveryIdentity(channelID, configDigest) {
+		return errors.New("verify notification delivery configuration: invalid identity")
+	}
 	var existing string
 	if err := repository.db.QueryRowContext(ctx, repository.bind(`
 SELECT config_digest FROM notification_delivery_cursors WHERE tenant_id=? AND channel_id=?`), tenantID, channelID).Scan(&existing); err != nil {
@@ -60,12 +74,12 @@ SELECT config_digest FROM notification_delivery_cursors WHERE tenant_id=? AND ch
 // Claim leases the next sequence to at most one live worker at a time.
 // A lease expiry may duplicate a remote success; the delivery ID must be
 // deduplicated by the receiver. A dead-letter cursor is never claimed.
-func (repository *NotificationDeliveryRepository) Claim(ctx context.Context, channelID string, now time.Time, lease time.Duration) (*NotificationDeliveryClaim, error) {
+func (repository *NotificationDeliveryRepository) Claim(ctx context.Context, channelID, configDigest string, now time.Time, lease time.Duration) (*NotificationDeliveryClaim, error) {
 	tenantID, err := repository.requireTenant(ctx, "claim notification delivery")
 	if err != nil {
 		return nil, err
 	}
-	if channelID == "" || now.IsZero() || lease < time.Second || lease > 10*time.Minute {
+	if !validNotificationDeliveryIdentity(channelID, configDigest) || now.IsZero() || lease < time.Second || lease > 10*time.Minute {
 		return nil, errors.New("claim notification delivery: invalid lease")
 	}
 	random := make([]byte, 16)
@@ -78,10 +92,10 @@ func (repository *NotificationDeliveryRepository) Claim(ctx context.Context, cha
 	err = repository.db.QueryRowContext(ctx, repository.bind(`
 UPDATE notification_delivery_cursors
 SET lease_token=?, lease_until_ms=?, updated_at=CURRENT_TIMESTAMP
-WHERE tenant_id=? AND channel_id=? AND dead_letter=?
+WHERE tenant_id=? AND channel_id=? AND config_digest=? AND dead_letter=?
   AND retry_after_ms<=? AND (lease_token IS NULL OR lease_until_ms<=?)
 RETURNING last_seq,failures`), token, now.Add(lease).UTC().UnixMilli(),
-		tenantID, channelID, false, nowMS, nowMS).Scan(&claim.LastSequence, &claim.Failures)
+		tenantID, channelID, configDigest, false, nowMS, nowMS).Scan(&claim.LastSequence, &claim.Failures)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -155,6 +169,32 @@ SET dead_letter=?, failures=0, retry_after_ms=0, last_error_reason='',
 WHERE tenant_id=? AND channel_id=? AND dead_letter=?`), false, tenantID, channelID, true)
 	if err != nil {
 		return false, fmt.Errorf("replay notification dead letter: %w", err)
+	}
+	return changedRow(result)
+}
+
+// DiscardUnpublished removes a newly seeded cursor only when the published
+// configuration no longer contains a reliable channel with this ID. It never
+// removes a cursor that a worker has leased or advanced.
+func (repository *NotificationDeliveryRepository) DiscardUnpublished(ctx context.Context, seed NotificationCursorSeed) (bool, error) {
+	tenantID, err := repository.requireTenant(ctx, "discard unpublished notification cursor")
+	if err != nil {
+		return false, err
+	}
+	if !validNotificationDeliveryIdentity(seed.ChannelID, seed.ConfigDigest) || seed.InitialSequence < 0 {
+		return false, errors.New("discard unpublished notification cursor: invalid seed")
+	}
+	result, err := repository.db.ExecContext(ctx, repository.bind(`
+DELETE FROM notification_delivery_cursors
+WHERE tenant_id=? AND channel_id=? AND config_digest=? AND last_seq=?
+  AND lease_token IS NULL AND failures=0 AND dead_letter=?
+  AND NOT EXISTS (
+    SELECT 1 FROM notification_channels c
+    WHERE c.tenant_id=? AND c.id=? AND c.reliable_enabled=?
+  )`), tenantID, seed.ChannelID, seed.ConfigDigest, seed.InitialSequence, false,
+		tenantID, seed.ChannelID, true)
+	if err != nil {
+		return false, fmt.Errorf("discard unpublished notification cursor: %w", err)
 	}
 	return changedRow(result)
 }

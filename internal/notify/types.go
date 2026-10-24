@@ -47,6 +47,7 @@ type Config struct {
 type ChannelConfig struct {
 	ID                    string
 	Enabled               bool
+	Reliable              bool
 	Kind                  ChannelKind
 	Decisions             []string
 	IncludeSQL            bool
@@ -192,6 +193,9 @@ func normalizeConfig(config Config) (Config, error) {
 				return Config{}, fmt.Errorf("notification channel %q: %w", channel.ID, err)
 			}
 		case ChannelSyslog:
+			if channel.Reliable {
+				return Config{}, fmt.Errorf("notification channel %q: reliable delivery requires a webhook", channel.ID)
+			}
 			if channel.Syslog == nil || channel.Webhook != nil {
 				return Config{}, fmt.Errorf("notification channel %q must contain only syslog config", channel.ID)
 			}

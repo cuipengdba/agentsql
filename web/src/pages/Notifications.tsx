@@ -32,6 +32,7 @@ import {
   getNotificationConfig,
   getNotificationHealth,
   putNotificationConfig,
+  replayNotificationChannel,
   testNotificationChannel,
 } from "@/api/notifications";
 import type {
@@ -125,6 +126,7 @@ function sanitizeConfig(config: NotificationConfig): ConfigDraft {
     channels: (config.channels || []).map((channel) => ({
       id: channel.id || "",
       enabled: Boolean(channel.enabled),
+      reliable: Boolean(channel.reliable),
       kind: channel.kind,
       decisions: channel.decisions?.filter((item): item is NotificationDecision =>
         acceptedDecisionValues.has(item as NotificationDecision)) || [],
@@ -155,6 +157,7 @@ function toChannelDTO(channel: ChannelDraft): NotificationChannel {
   const base: NotificationChannel = {
     id: channel.id.trim(),
     enabled: channel.enabled,
+    reliable: channel.reliable,
     kind: channel.kind,
     decisions: channel.decisions,
     include_sql: channel.include_sql,
@@ -209,6 +212,7 @@ function newChannel(kind: NotificationChannelKind): ChannelDraft {
   return {
     id: `notify_${Date.now().toString(36)}_${draftSequence}`,
     enabled: true,
+    reliable: false,
     kind,
     decisions: ["deny", "error"],
     include_sql: false,
@@ -223,6 +227,7 @@ function validateChannel(channel: ChannelDraft, allChannels: ChannelDraft[]): st
   if (!id) return "请填写通道 ID";
   if (allChannels.filter((item) => item.id.trim() === id).length > 1) return `通道 ID“${id}”重复`;
   if (channel.decisions.length === 0) return `通道“${id}”至少选择一个触发决策`;
+  if (channel.reliable && channel.kind !== "webhook") return `通道“${id}”的可靠投递仅支持 Webhook`;
   if (channel.kind === "webhook") {
     const webhook = channel.webhook;
     if (!webhook) return `通道“${id}”缺少 Webhook 配置`;
@@ -278,6 +283,7 @@ function ChannelCard({ channel, index, channels, testing, onChange, onDelete, on
   const changeKind = (kind: NotificationChannelKind) => {
     patchChannel({
       kind,
+      reliable: kind === "webhook" ? channel.reliable : false,
       webhook: kind === "webhook" ? newWebhook() : undefined,
       syslog: kind === "syslog" ? newSyslog() : undefined,
     });
@@ -370,6 +376,15 @@ function ChannelCard({ channel, index, channels, testing, onChange, onDelete, on
       </div>
 
       <div className="ntf-toggle-grid">
+        {channel.kind === "webhook" ? (
+          <div className="ntf-toggle-option">
+            <Switch checked={channel.reliable} onChange={(reliable) => patchChannel({ reliable })} />
+            <div>
+              <strong>可靠投递</strong>
+              <span>按租户持久审计游标至少一次投递；接收端须按 Delivery ID 去重，失败达到上限后等待人工重放。</span>
+            </div>
+          </div>
+        ) : null}
         <div className="ntf-toggle-option">
           <Switch checked={channel.include_sql} onChange={(include_sql) => patchChannel({ include_sql })} />
           <div>
@@ -492,6 +507,8 @@ function ChannelCard({ channel, index, channels, testing, onChange, onDelete, on
 export function Notifications() {
   const [config, setConfig] = useState<ConfigDraft | null>(null);
   const [health, setHealth] = useState<NotificationHealthChannel[]>([]);
+  const [workerError, setWorkerError] = useState("");
+  const [replayingID, setReplayingID] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -530,7 +547,10 @@ export function Notifications() {
     setHealthFailed(false);
     try {
       const response = await getNotificationHealth(controller.signal);
-      if (!controller.signal.aborted && mountedRef.current) setHealth(response.channels || []);
+      if (!controller.signal.aborted && mountedRef.current) {
+        setHealth(response.channels || []);
+        setWorkerError(response.worker_error || "");
+      }
     } catch (error: unknown) {
       if (!controller.signal.aborted && mountedRef.current && !isCanceled(error)) setHealthFailed(true);
     } finally {
@@ -634,11 +654,29 @@ export function Notifications() {
     }
   };
 
+  const replayDeadLetter = async (channelID: string) => {
+    setReplayingID(channelID);
+    try {
+      await replayNotificationChannel(channelID);
+      if (mountedRef.current) {
+        void message.success("死信已重新排队");
+        void loadHealth();
+      }
+    } catch (error: unknown) {
+      if (mountedRef.current) void message.error(apiErrorMessage(error, "死信重放失败"));
+    } finally {
+      if (mountedRef.current) setReplayingID("");
+    }
+  };
+
   const healthColumns: TableProps<NotificationHealthChannel>["columns"] = [
     { title: "通道 ID", dataIndex: "id", width: 210, render: (value: string) => <code>{value}</code> },
     { title: "已发送", dataIndex: "sent", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString(currentLocale()) },
     { title: "失败", dataIndex: "failed", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString(currentLocale()) },
     { title: "丢弃", dataIndex: "dropped", width: 110, align: "right", render: (value: number) => Number(value || 0).toLocaleString(currentLocale()) },
+    { title: "可靠投递积压", width: 150, align: "right", render: (_, row) => row.reliable ? Number(row.reliable.backlog).toLocaleString(currentLocale()) : "—" },
+    { title: "最老待投递", width: 190, render: (_, row) => row.reliable?.oldest_pending_at ? formatDateTime(row.reliable.oldest_pending_at) : "—" },
+    { title: "死信", width: 130, render: (_, row) => row.reliable?.dead_letter ? <Button size="small" danger loading={replayingID === row.id} onClick={() => void replayDeadLetter(row.id)}>重放</Button> : "—" },
     {
       title: "最近错误",
       dataIndex: "last_error",
@@ -658,15 +696,15 @@ export function Notifications() {
   return (
     <PageContainer
       title="通知设置"
-      subtitle="配置安全事件的 Webhook 与 Syslog 旁路通知"
+      subtitle="配置安全事件的 Webhook 与 Syslog 通知"
       extra={<Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={!config || loading} onClick={() => void save()}>保存</Button>}
     >
       <Alert
         className="ntf-notice"
         type="info"
         showIcon
-        message="通知是 best-effort 旁路副本，审计库才是权威记录"
-        description="默认只发送 deny/error 且最小化外发内容。保存前会校验目标地址，回环、内网和云元数据地址默认被拒绝。"
+        message="审计库是权威记录；可靠 Webhook 从持久游标至少一次投递"
+        description="默认只发送 deny/error 且最小化外发内容。接收端须按 Delivery ID 去重。可靠通道变更端点或筛选条件时请创建新通道 ID，旧通道待积压清空后停用。"
       />
 
       {loadFailed ? (
@@ -703,7 +741,7 @@ export function Notifications() {
                   value={config.queue_size}
                   onChange={(queue_size) => setConfig({ ...config, queue_size: queue_size || 0 })}
                 />
-                <small>每个通道的内存队列，建议 1–65,535，默认 64；队列满时按 best-effort 语义丢弃。</small>
+                <small>普通通道使用内存队列，建议 1–65,535，默认 64；可靠 Webhook 使用持久游标和重试。</small>
               </label>
             </div>
           </Card>
@@ -748,6 +786,7 @@ export function Notifications() {
         <Typography.Paragraph type="secondary" className="ntf-health-note">
           计数为当前服务进程内累计值，重启后不作为持久化历史。
         </Typography.Paragraph>
+        {workerError ? <Alert className="ntf-card-alert" type="warning" showIcon message={`可靠投递工作器异常：${workerError}`} /> : null}
         {healthFailed ? (
           <Alert
             className="ntf-card-alert"
@@ -764,7 +803,7 @@ export function Notifications() {
           dataSource={health}
           loading={healthLoading}
           pagination={false}
-          scroll={{ x: 930 }}
+          scroll={{ x: 1400 }}
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无运行中通道状态" /> }}
         />
       </Card>

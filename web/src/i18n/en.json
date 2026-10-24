@@ -1467,5 +1467,17 @@
   "MySQL 模式固定为当前数据源的数据库名称。": "For MySQL, the schema equals this datasource's database name.",
   "达梦 DM8 Pack3 指定实例的受限只读路径。新建连接须在服务器启用加密并配置可验证证书；旧版未设置 TLS 的数据源只保留兼容行为，不代表安全连接已验证。": "Limited read-only access for the pinned DM8 Pack3 instance. New connections require server-side encryption and a verifiable certificate. Older datasources without TLS retain compatibility behavior without verified connection security.",
   "verify-full（校验 CA 和主机名）": "verify-full (verify CA and hostname)",
-  "证书主机名": "Certificate hostname"
+  "证书主机名": "Certificate hostname",
+  "可靠投递": "Reliable delivery",
+  "按租户持久审计游标至少一次投递；接收端须按 Delivery ID 去重，失败达到上限后等待人工重放。": "Deliver at least once from the tenant audit cursor. Receivers must deduplicate by Delivery ID; exhausted retries await manual replay.",
+  "普通通道使用内存队列，建议 1–65,535，默认 64；可靠 Webhook 使用持久游标和重试。": "Standard channels use an in-memory queue (1–65,535; default 64). Reliable webhooks use durable cursors and retries.",
+  "配置安全事件的 Webhook 与 Syslog 通知": "Configure security event webhooks and syslog notifications",
+  "审计库是权威记录；可靠 Webhook 从持久游标至少一次投递": "The audit database is authoritative; reliable webhooks deliver at least once from a durable cursor",
+  "默认只发送 deny/error 且最小化外发内容。接收端须按 Delivery ID 去重。可靠通道变更端点或筛选条件时请创建新通道 ID，旧通道待积压清空后停用。": "By default, only deny/error events are sent with minimal data. Receivers must deduplicate by Delivery ID. To change a reliable channel endpoint or filter, create a new channel ID and disable the old channel after its backlog drains.",
+  "可靠投递积压": "Reliable backlog",
+  "最老待投递": "Oldest pending",
+  "死信": "Dead letter",
+  "重放": "Replay",
+  "死信已重新排队": "Dead letter queued for retry",
+  "死信重放失败": "Dead letter replay failed"
 }

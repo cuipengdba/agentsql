@@ -304,6 +304,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("PUT /api/v1/integrations/notifications", handler.notificationsPut)
 	mux.HandleFunc("POST /api/v1/integrations/notifications/test", handler.notificationsTest)
 	mux.HandleFunc("GET /api/v1/integrations/notifications/health", handler.notificationsHealth)
+	mux.HandleFunc("POST /api/v1/integrations/notifications/{id}/replay", handler.notificationsReplay)
 	mux.HandleFunc("POST /api/v1/playground/assess", handler.playgroundAssess)
 	if deps.Config.DemoEnabled() {
 		mux.HandleFunc("POST /api/v1/playground/run", handler.playgroundRun)

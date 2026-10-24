@@ -1,3 +1,4 @@
+ALTER TABLE notification_channels ADD COLUMN reliable_enabled INTEGER NOT NULL DEFAULT 0 CHECK(reliable_enabled IN (0, 1));
 CREATE TABLE notification_delivery_cursors (
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   channel_id TEXT NOT NULL,

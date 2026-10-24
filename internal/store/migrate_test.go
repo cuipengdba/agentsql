@@ -107,7 +107,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"allow_private_endpoints", "webhook_present", "webhook_template",
 			"webhook_url_enc", "webhook_bearer_token_enc", "webhook_headers_enc",
 			"webhook_secret_enc", "syslog_present", "syslog_host", "syslog_port",
-			"syslog_transport", "syslog_facility", "created_at", "updated_at",
+			"syslog_transport", "syslog_facility", "created_at", "updated_at", "reliable_enabled",
 		},
 		"notification_delivery_cursors": {
 			"tenant_id", "channel_id", "last_seq", "config_digest", "lease_token",

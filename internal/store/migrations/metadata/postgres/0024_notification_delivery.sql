@@ -1,3 +1,4 @@
+ALTER TABLE notification_channels ADD COLUMN reliable_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE TABLE notification_delivery_cursors (
   tenant_id TEXT NOT NULL REFERENCES tenants(id),
   channel_id TEXT NOT NULL,
