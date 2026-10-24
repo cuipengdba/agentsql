@@ -2,7 +2,7 @@
 
 **Language:** [English](INTEGRATIONS.md) | [Simplified Chinese](../INTEGRATIONS.md)
 
-> This article explains the MCP access of AgentSQL v3.6.0. Before installing or pulling v3.6.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> This article explains the MCP access of AgentSQL v3.7.0. Before installing or pulling v3.7.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
 
 This article explains how to connect the MCP client to AgentSQL. For identity, authorization, rules, approval and capability boundaries, see the [ user manual ](USER_GUIDE.md). For first-time deployment, see [ for quick start ](GETTING_STARTED.md). For outsourcing decision-making events to Webhook, alarm groups or Syslog, see [ notification outgoing guide ](NOTIFICATIONS.md).
 
@@ -16,6 +16,11 @@ AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py 
 ```
 
 This example depends on the column grants in `examples/docker/demo-seed.yaml`. For another environment, choose an authorized query and a query rejected by R010. Do not send real customer data to the public demo. The script prints only the decision, audit IDs, and masked-cell count.
+
+## v3.7.0 native database tools
+
+- `find_documents` accepts `datasource_id`, `collection`, explicit top-level `fields`, string equality `filter`, and a `limit` of 1–100. Replica set mode requires the filter field set to match an administrator-approved index. Aggregation, arbitrary commands and writes are unavailable.
+- `read_hash_fields` accepts `datasource_id`, an exact `key`, and 1–16 explicit `fields`. Each Hash field needs a separate grant. The response is capped at 64 KiB, masked by field source and delivered only after durable terminal audit. The public Demo only shows synthetic PostgreSQL/MySQL scenarios; see the [NoSQL support scope](nosql-support.md) and [v3.7.0 acceptance](v3.7.0-acceptance.md) for live connection steps and limits.
 
 ## Select transfer method
 

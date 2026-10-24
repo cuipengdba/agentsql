@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v3.6.0';
+const VERSION = 'v3.7.0';
 const LANGUAGE = process.env.AGENTSQL_DOCS_LANGUAGE || 'zh';
 if (!['zh', 'en'].includes(LANGUAGE)) throw new Error('AGENTSQL_DOCS_LANGUAGE must be zh or en');
 const ENGLISH = LANGUAGE === 'en';
@@ -557,7 +557,7 @@ function htmlDocument(document, rendered) {
     h4 { margin: 5mm 0 2mm; color: #334155; font-size: 11pt; }
     p { margin: 0 0 3.5mm; orphans: 3; widows: 3; }
     ul, ol { margin: 2mm 0 4mm; padding-left: 7mm; }
-    li { margin: 1.3mm 0; orphans: 3; widows: 3; }
+    li { margin: 1.3mm 0; orphans: 3; widows: 3; break-inside: avoid; page-break-inside: avoid; }
     a { color: #0369a1; text-decoration: underline; text-underline-offset: 1px; }
     strong { color: #0f172a; }
     code { padding: .2mm .9mm; border-radius: 1mm; background: #eef2f7; color: #7c2d12; font-family: Consolas, "Courier New", monospace; font-size: .9em; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
@@ -856,6 +856,7 @@ async function main() {
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.4.0.pdf`));
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.4.1.pdf`));
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.5.0.pdf`));
+      archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.6.0.pdf`));
     }
     const otherLanguage = actualFiles.filter((name) => new RegExp(`^agentsql-(getting-started|user-guide|mcp-integrations)-${ENGLISH ? '' : 'en-'}${VERSION.replaceAll('.', '\\.')}\\.pdf$`).test(name));
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles, ...otherLanguage].sort();

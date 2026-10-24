@@ -110,8 +110,16 @@ func (e *MongoExecutor) FindControlled(ctx context.Context, request MongoFindReq
 		filter[field] = value
 	}
 	started := time.Now()
+	hint, err := e.checkMongoIndex(ctx, request, filter, projection)
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+	findOptions := options.Find().SetProjection(projection).SetLimit(int64(request.Limit)).SetMaxTime(e.statementTimeout).SetBatchSize(int32(min(request.Limit, 32)))
+	if hint != "" {
+		findOptions.SetHint(hint)
+	}
 	cursor, err := e.client.Database(e.database).Collection(request.Collection).Find(ctx, filter,
-		options.Find().SetProjection(projection).SetLimit(int64(request.Limit)).SetMaxTime(e.statementTimeout))
+		findOptions)
 	if err != nil {
 		return model.QueryResult{}, err
 	}

@@ -33,3 +33,28 @@ func TestKeyPolicyAPIRequiresMatchingRedisDatabase(t *testing.T) {
 		})
 	}
 }
+
+func TestHashFieldPolicyAPIRequiresExactKeyAndMatchingDatasource(t *testing.T) {
+	fixture := newAdminFixture(t)
+	ctx := context.Background()
+	_, err := fixture.store.Datasources().Create(ctx, model.Datasource{ID: "redis-hash-policy", Name: "Redis Hash policy",
+		DBType: "redis", Host: "redis.test", Port: 6379, Database: "0", Username: "agent_reader",
+		TLSMode: "strict", TLSCAFile: "ca.crt", ConnLimit: 2, StmtTimeoutMS: 2000}, "test-password")
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name, datasource, scope string
+		status                  int
+	}{
+		{"allowed field", "redis-hash-policy", "db0:customers:1#phone", http.StatusOK},
+		{"wrong database", "redis-hash-policy", "db1:customers:1#phone", http.StatusUnprocessableEntity},
+		{"prefix key", "redis-hash-policy", "db0:customers:*#phone", http.StatusUnprocessableEntity},
+		{"sql datasource", "ds-1", "db0:customers:1#phone", http.StatusUnprocessableEntity},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `{"id":"hash-` + test.name + `","agent_id":"agent-1","datasource_id":"` + test.datasource +
+				`","object_type":"key_field","object_name":"` + test.scope + `","action":"allow"}`
+			status, response := fixture.request(http.MethodPost, "/api/v1/policies", fixture.adminToken, body)
+			require.Equal(t, test.status, status, response)
+		})
+	}
+}

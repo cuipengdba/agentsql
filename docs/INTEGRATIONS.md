@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](INTEGRATIONS.md) | [English](en/INTEGRATIONS.md)
 
-> 本文说明 AgentSQL v3.6.0 的 MCP 接入。安装或拉取 v3.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.7.0 的 MCP 接入。安装或拉取 v3.7.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -16,6 +16,11 @@ AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py 
 ```
 
 该示例依赖 `examples/docker/demo-seed.yaml` 中的列级授权剧本；其他环境需换成已授权的允许查询及可被 R010 拒绝的查询。不要把真实客户数据送往公网 Demo。脚本仅输出判定、审计 ID 和脱敏单元格数。
+
+## v3.7.0 原生数据库工具
+
+- `find_documents` 接收 `datasource_id`、`collection`、显式顶层 `fields`、字符串等值 `filter` 和 1–100 的 `limit`。副本集模式要求过滤字段组合命中管理员批准的索引；禁止聚合、命令和写入。
+- `read_hash_fields` 接收 `datasource_id`、精确 `key` 与 1–16 个显式 `fields`。每个 Hash 字段需要独立授权，返回最多 64 KiB，按字段来源脱敏并在持久终态审计后交付。公网 Demo 只展示 PostgreSQL/MySQL 合成场景；真实连接步骤与边界见[NoSQL 支持范围](nosql-support.md)和[v3.7.0 验收](v3.7.0-acceptance.md)。
 
 ## 选择传输方式
 

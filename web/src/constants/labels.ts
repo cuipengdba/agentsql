@@ -94,6 +94,7 @@ export const objectTypeMeta = {
   table: { label: "表", color: "cyan" },
   column: { label: "列(列级白名单)", color: "orange" },
 	key: { label: "Redis/Valkey 键", color: "green" },
+	key_field: { label: "Redis/Valkey Hash 字段", color: "lime" },
 } as const;
 
 export const riskLevelMeta = {

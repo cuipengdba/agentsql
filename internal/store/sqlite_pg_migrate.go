@@ -156,6 +156,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "updated_at", kind: migrationTime}, {name: "tenant_id", kind: migrationText},
 		{name: "tls_mode", kind: migrationText}, {name: "tls_server_name", kind: migrationText},
 		{name: "tls_ca_file", kind: migrationText}, {name: "trust_server_certificate", kind: migrationBool},
+		{name: "read_control_json", kind: migrationText},
 	}},
 	{name: "rules", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "db_type", kind: migrationText},

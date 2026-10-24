@@ -7,6 +7,7 @@ type PolicyDecision struct {
 	DeniedTables  []string
 	AllowedKeys   []string
 	DeniedKeys    []string
+	HashFieldACL  map[string][]string
 	ColumnACL     map[string][]string
 	Level         string
 }

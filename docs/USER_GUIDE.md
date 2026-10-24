@@ -2,13 +2,18 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v3.6.0 及兼容的 3.6.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.7.0 及兼容的 3.7.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v3.6.0 的功能与操作。安装或拉取 v3.6.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.7.0 的功能与操作。安装或拉取 v3.7.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v3.6.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.6.0 发布说明](release-notes-v3.6.0.md)和[验收记录](v3.6.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v3.7.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.7.0 发布说明](release-notes-v3.7.0.md)和[验收记录](v3.7.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
+
+## v3.7.0 MongoDB 与 Sentinel 受控读取
+
+- 在数据源页面设置仅含拓扑和批准索引元数据的 `read_control_json`。MongoDB 副本集须明确列出三个受信成员与集合索引；Redis/Valkey Sentinel 须列出三个 Sentinel、允许主节点及独立 ACL 用户名。Sentinel 密码由详情页显示的 `sentinel_password_env` 对应环境变量注入每个网关，不写入 JSON。
+- 为 Agent 精确授权 MongoDB 集合和所需字段，或 Redis/Valkey 逻辑库、Hash 键与每个字段。通过 MCP `find_documents` 或 `read_hash_fields` 调用，核对允许、拒绝、脱敏与审计 ID；错误证书、未知成员、索引缺失、ACL 撤销及审计故障必须拒绝。公开 Demo 不含这些原生拓扑，配置格式和已测边界见[NoSQL 支持范围](nosql-support.md)、[升级指南](v3.7.0-upgrade.md)与[验收记录](v3.7.0-acceptance.md)。
 
 ## v3.2.0 SQLBot 接入 `/sqlbot`
 

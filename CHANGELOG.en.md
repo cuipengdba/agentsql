@@ -2,6 +2,16 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.7.0]
+
+- Added member allowlists, verified certificates and approved-index bounded reads for a specified three-member MongoDB 7.0.45 replica set; index removal, unknown members and audit outages deny delivery.
+- Added separate Sentinel ACL, allowed-master lists and exact Hash field grants for specified Redis 8.2.9 and Valkey 8.1.10 Sentinel topologies; failover and recovery passed. See the [release notes](docs/en/release-notes-v3.7.0.md) and [acceptance record](docs/en/v3.7.0-acceptance.md).
+
+## [v3.6.0]
+
+- Added signed cross-environment delivery of simple table policies, reliable webhooks from the durable audit stream, and externally pinned archive-chain verification.
+- Completed signed asset, dual-architecture image, website and public Demo acceptance; see the [release notes](docs/en/release-notes-v3.6.0.md) and [release evidence](docs/en/v3.6.0-release-evidence.md) for scope and deployment limits.
+
 ## [v3.5.0]
 
 - Added a three-gateway Kubernetes deployment example with three workers, separate persistent volumes, stable instance IDs, all-stop upgrades, preflight and read-only schema checks.

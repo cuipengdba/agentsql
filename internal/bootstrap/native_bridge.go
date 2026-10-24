@@ -94,6 +94,18 @@ func (runtime *Runtime) RedisReadControlled(ctx context.Context, datasource mode
 	return runtime.businessRead.RedisReadControlled(ctx, datasource, append([]byte(nil), runtime.secret...), request)
 }
 
+func (runtime *Runtime) RedisHashReadControlled(ctx context.Context, datasource model.Datasource, request executor.RedisHashReadRequest) (model.QueryResult, error) {
+	if runtime == nil {
+		return model.QueryResult{}, fmt.Errorf("runtime is nil")
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed || runtime.businessRead == nil {
+		return model.QueryResult{}, fmt.Errorf("runtime is closed")
+	}
+	return runtime.businessRead.RedisHashReadControlled(ctx, datasource, append([]byte(nil), runtime.secret...), request)
+}
+
 func (runtime *Runtime) NativeRedactorFor(ctx context.Context, datasourceID string) (mask.Redactor, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is nil")

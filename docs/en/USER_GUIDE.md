@@ -2,13 +2,18 @@
 
 **Language:** [English](USER_GUIDE.md) | [Simplified Chinese](../USER_GUIDE.md)
 
-> Current guidance: Applies to v3.6.0 and compatible 3.6.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.7.0 and compatible 3.7.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
-> This article explains the functionality and operation of AgentSQL v3.6.0. Before installing or pulling v3.6.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> This article explains the functionality and operation of AgentSQL v3.7.0. Before installing or pulling v3.7.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
 
-This manual describes the capabilities and operation of the v3.6.0 by console main menu. For first-time use, please complete [ to quickly get started with ](GETTING_STARTED.md); for MCP client configuration, see [ access guide ](INTEGRATIONS.md); for version range and acceptance status, see [v3.6.0 Release notes ](release-notes-v3.6.0.md) and [ acceptance record ](v3.6.0-acceptance.md); for Webhooks, Syslog and security boundaries of "Settings and Integration → Notification Settings", see [ notification outgoing guide ](NOTIFICATIONS.md).
+This manual describes the capabilities and operation of the v3.7.0 by console main menu. For first-time use, please complete [ to quickly get started with ](GETTING_STARTED.md); for MCP client configuration, see [ access guide ](INTEGRATIONS.md); for version range and acceptance status, see [v3.7.0 Release notes ](release-notes-v3.7.0.md) and [ acceptance record ](v3.7.0-acceptance.md); for Webhooks, Syslog and security boundaries of "Settings and Integration → Notification Settings", see [ notification outgoing guide ](NOTIFICATIONS.md).
 
 The console login page and the language button in the upper right corner after logging in can switch between Chinese and English, and the selection will be saved in the current browser; `?lang=en` or `?lang=zh` can specify the first opening language. The left menu can be scrolled independently when the effective viewport height is insufficient, and the bottom options can also be accessed with the keyboard after focusing the menu. Language switching only changes the interface copy and does not modify the SQL, query results and audit records. Complete English documentation is available through the language link at the top. Capability claims are bounded by the corresponding acceptance record.
+
+## v3.7.0 MongoDB and Sentinel controlled reads
+
+- In the datasource page, set `read_control_json` with topology and approved-index metadata only. A MongoDB replica set must list three trusted members and collection indexes; Redis/Valkey Sentinel must list three Sentinels, allowed masters and a separate ACL username. Provision the Sentinel password to each gateway using the `sentinel_password_env` shown in datasource details, never in JSON.
+- Grant the Agent the exact MongoDB collection and required fields, or the Redis/Valkey logical database, Hash key and each field. Call MCP `find_documents` or `read_hash_fields` and check allowed and denied outcomes, masking and audit IDs. Wrong certificates, unknown members, missing indexes, revoked ACLs and audit outages must deny delivery. The public Demo does not include these native topologies. See the [NoSQL support scope](nosql-support.md), [upgrade guide](v3.7.0-upgrade.md) and [acceptance record](v3.7.0-acceptance.md) for configuration and tested boundaries.
 
 ## v3.2.0 SQLBot Integration `/sqlbot`
 

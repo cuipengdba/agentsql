@@ -51,7 +51,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"id", "name", "db_type", "host", "port", "database", "username",
 			"password_enc", "conn_limit", "stmt_timeout_ms", "row_limit", "created_at",
 			"updated_at", "tenant_id", "tls_mode", "tls_server_name", "tls_ca_file",
-			"trust_server_certificate",
+			"trust_server_certificate", "read_control_json",
 		},
 		"policies": {
 			"id", "agent_id", "datasource_id", "object_type", "object_name", "columns",
@@ -276,8 +276,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 26, current)
-	require.Equal(t, 26, latest)
+	require.Equal(t, 27, current)
+	require.Equal(t, 27, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -294,6 +294,34 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.Len(t, page.List, 2)
 	require.Equal(t, "DB_OBJECT_NOT_FOUND", *page.List[0].ErrorCode)
 	require.Nil(t, page.List[1].ErrorCode)
+}
+
+func TestNativeReadControlMigrationFromV360(t *testing.T) {
+	for _, testCase := range []struct {
+		name, directory string
+		old, next       int
+		migrate         func(context.Context, *sql.DB) error
+	}{
+		{name: "combined", directory: "migrations/sqlite", old: 26, next: 27, migrate: func(ctx context.Context, db *sql.DB) error { return Migrate(ctx, db, DialectSQLite) }},
+		{name: "separate", directory: "migrations/metadata/sqlite", old: 24, next: 25, migrate: func(ctx context.Context, db *sql.DB) error { return MigrateMetadata(ctx, db, DialectSQLite, true) }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			db := openSQLiteMigrationTestDB(t)
+			migrateSQLiteThroughVersion(t, ctx, db, testCase.directory, testCase.old)
+			_, err := db.ExecContext(ctx, `INSERT INTO datasources(id,name,db_type,host,port,database,username,password_enc) VALUES('v360-ds','v360','mongodb','mongo1',27017,'app','reader','encrypted')`)
+			require.NoError(t, err)
+			require.NoError(t, testCase.migrate(ctx, db))
+			var profile string
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT read_control_json FROM datasources WHERE id='v360-ds'`).Scan(&profile))
+			require.Equal(t, "{}", profile)
+			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, testCase.name == "separate", testCase.next))
+			require.NotContains(t, tableColumnNames(t, db, "datasources"), "read_control_json")
+			require.NoError(t, testCase.migrate(ctx, db))
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT read_control_json FROM datasources WHERE id='v360-ds'`).Scan(&profile))
+			require.Equal(t, "{}", profile)
+		})
+	}
 }
 
 func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *testing.T) {
@@ -327,8 +355,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 24, current)
-	require.Equal(t, 24, latest)
+	require.Equal(t, 25, current)
+	require.Equal(t, 25, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -363,9 +391,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 26, current)
+				require.Equal(t, 27, current)
 			} else {
-				require.Equal(t, 24, current)
+				require.Equal(t, 25, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -430,9 +458,9 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 26, current)
+				require.Equal(t, 27, current)
 			} else {
-				require.Equal(t, 24, current)
+				require.Equal(t, 25, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",

@@ -2,6 +2,16 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v3.7.0]
+
+- 为指定 MongoDB 7.0.45 三成员副本集增加成员白名单、证书验证和批准索引的有界读取；索引删除、未知成员与审计故障时拒绝交付。
+- 为指定 Redis 8.2.9、Valkey 8.1.10 Sentinel 拓扑增加独立 Sentinel ACL、允许主节点清单与精确 Hash 字段授权；完成切主和故障恢复验收。详见[发布说明](docs/release-notes-v3.7.0.md)与[验收记录](docs/v3.7.0-acceptance.md)。
+
+## [v3.6.0]
+
+- 增加简单表策略的跨环境签名交付、基于持久审计流的可靠 Webhook，以及外部固定的审计归档链验证。
+- 完成签名资产、双架构镜像、官网及公网 Demo 验收；能力与部署边界见[发布说明](docs/release-notes-v3.6.0.md)和[发布证据](docs/v3.6.0-release-evidence.md)。
+
 ## [v3.5.0]
 
 - 提供三网关 Kubernetes 部署样例：三个工作节点、独立持久卷和稳定实例 ID；全停升级、预检与只读 schema 检查。

@@ -1479,5 +1479,16 @@
   "死信": "Dead letter",
   "重放": "Replay",
   "死信已重新排队": "Dead letter queued for retry",
-  "死信重放失败": "Dead letter replay failed"
+  "死信重放失败": "Dead letter replay failed",
+  "Redis/Valkey Hash 字段": "Redis/Valkey Hash field",
+  "Hash 字段须为 db0:customers:1#phone，键必须精确且字段不能含通配符": "Use db0:customers:1#phone; the key must be exact and the field cannot contain a wildcard",
+  "Hash 字段须逐个授权，并同时给同一精确键添加键策略；前缀键授权不会开放 Hash 字段。": "Grant each Hash field and add a key policy for the same exact key; a prefix key grant does not open Hash fields.",
+  "MongoDB 副本集受控读取": "Controlled MongoDB replica reads",
+  "Redis / Valkey Sentinel 受控读取": "Controlled Redis / Valkey Sentinel reads",
+  "填写三个受信成员、replica_set 和允许的集合索引；成员须使用可验证 TLS 证书。{} 保留原有单实例路径。JSON 中不得包含密码。": "Enter three trusted members, the replica_set, and approved collection indexes. Each member needs a verifiable TLS certificate. {} retains the existing standalone path. Keep passwords out of JSON.",
+  "填写三个受信 Sentinel、允许的主节点及单独的 Sentinel ACL 用户；密码由运维放入与数据源绑定的网关环境变量。{} 保留原有单实例路径。保存后编辑可查看变量名。": "Enter three trusted Sentinels, approved masters, and a separate Sentinel ACL user. Operations must set the datasource-bound gateway environment variable for the password. {} retains the existing standalone path. Save and edit to see the variable name.",
+  "拓扑与读取约束 JSON": "Topology and read controls JSON",
+  "strict（校验 CA 和成员主机名）": "strict (verify CA and member hostname)",
+  "verify-full（校验 CA 和成员主机名）": "verify-full (verify CA and member hostname)",
+  "固定证书主机名（副本集或 Sentinel 模式必须留空）": "Fixed certificate hostname (leave empty for replica set or Sentinel)"
 }

@@ -127,6 +127,9 @@ type Datasource struct {
 	TLSMode       string
 	TLSServerName string
 	TLSCAFile     string
+	// ReadControlJSON holds bounded, administrator-approved native read topology
+	// and index metadata. It must never contain credentials.
+	ReadControlJSON string
 	// TrustServerCertificate is only accepted with SQL Server verify-full mode
 	// for controlled development environments. It must remain false in
 	// production because it disables server identity verification.

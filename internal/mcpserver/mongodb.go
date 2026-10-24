@@ -203,5 +203,7 @@ func (handlers *toolHandlers) mongoAudit(ctx context.Context, datasource model.D
 	if objectName != "" {
 		audit.Objects = &objectName
 	}
-	return handlers.runtime.Store.AuditLogs().Insert(ctx, audit)
+	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return handlers.runtime.Store.AuditLogs().Insert(bounded, audit)
 }

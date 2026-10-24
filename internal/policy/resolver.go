@@ -33,6 +33,7 @@ func (resolver *Resolver) Resolve(
 		DeniedTables:  []string{},
 		AllowedKeys:   []string{},
 		DeniedKeys:    []string{},
+		HashFieldACL:  make(map[string][]string),
 		ColumnACL:     make(map[string][]string),
 		Level:         level,
 	}
@@ -56,6 +57,18 @@ func (resolver *Resolver) Resolve(
 				index,
 				stored.Action,
 			)
+		}
+		if objectType == "key_field" {
+			keyScope, field, err := ParseHashFieldScope(stored.ObjectName)
+			if err != nil {
+				return nil, fmt.Errorf("resolve policy at position %d: %w", index, err)
+			}
+			if action != "allow" || stored.Columns != nil || stored.RowFilter != nil ||
+				stored.RelationBindingID != nil || len(stored.ColumnPermissions) != 0 {
+				return nil, fmt.Errorf("resolve policy at position %d: invalid Hash field grant", index)
+			}
+			decision.HashFieldACL[keyScope] = append(decision.HashFieldACL[keyScope], field)
+			continue
 		}
 		if objectType == "key" {
 			if err := ValidateKeyScope(stored.ObjectName); err != nil {
@@ -160,7 +173,7 @@ func validLevel(level string) bool {
 
 func validObjectType(objectType string) bool {
 	switch objectType {
-	case "database", "schema", "table", "column", "key":
+	case "database", "schema", "table", "column", "key", "key_field":
 		return true
 	default:
 		return false

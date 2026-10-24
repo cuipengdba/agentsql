@@ -69,6 +69,7 @@ func TestSDKInProcessListsCurrentAndCallsSelectedTools(t *testing.T) {
 		"list_schema",
 		"query",
 		"query_analytics",
+		"read_hash_fields",
 		"read_key",
 		"request_approval",
 		"search_vectors",
