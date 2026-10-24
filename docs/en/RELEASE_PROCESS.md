@@ -2,7 +2,7 @@
 
 **Language:** [English](RELEASE_PROCESS.md) | [Simplified Chinese](../RELEASE_PROCESS.md)
 
-The current official baseline is v3.5.0; the [acceptance record](v3.5.0-acceptance.md) describes its scope. Each maintenance version follows the [per-version delivery process](RELEASE_ROUTINE.md) for design, code, testing, upgrade recovery, CI, signed assets, GitHub Release, GHCR, website and Demo.
+The current official baseline is v3.5.0. Its scope is in the [acceptance record](v3.5.0-acceptance.md), and distribution and public results are in the [release evidence](v3.5.0-release-evidence.md). Each maintenance version follows the [per-version delivery process](RELEASE_ROUTINE.md) for design, code, testing, upgrade recovery, CI, signed assets, GitHub Release, GHCR, website, and Demo.
 
 1. Check the scope of the previous official version and this version, and write design and acceptance use cases. The database supports declaration binding to specified versions, modes, operations and measured evidence.
 2. Complete the code, embedded web, documentation, official website and PDF in the isolated branch. Perform Go/Web, applicable safe negative sets, true integration, and upgrade recovery checks.

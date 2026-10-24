@@ -37,4 +37,4 @@ pwsh ./scripts/release-dryrun.ps1 -Version v3.5.0 -ValidateOnly -AssetsDirectory
 
 Successful production preparation only means that the assets to be signed and the three dual-architecture OCI archives have been generated; the formal signature, cryptographic verification, GitHub upload, anonymous re-download, GHCR and online acceptance can only be announced before being released. `-ValidateOnly`'s signature structure check does not replace cryptographic signature verification using a trusted public key.
 
-The actual v3.5.0 package summary, CI, signature, GHCR, official website and Demo evidence can be found in [ official release record ](v3.5.0-acceptance.md). [ Historical asset plan ](release-assets-history.md) is for retrospective purposes only.
+The actual v3.5.0 package digests, CI, signatures, GHCR, website, and Demo evidence are in the [release record](v3.5.0-release-evidence.md). The [historical asset plan](release-assets-history.md) is retained for reference.
