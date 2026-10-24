@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "b97b2e5f886335ffef21f8d340ca4ad949e47211d9b927c12e1fb35f9b190bd8"
+      "source_sha256": "fe343534f871da9b64bb9e9c3ed19592a33b463e16ec088f1fe01ccec1bc561b"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -469,7 +469,7 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "cd987520431c02a72d40fd51a85b6dd8733dae4d9840d12d404cfca355da83bc"
+      "source_sha256": "86e41fce60a1056f2323736510b0e3dc8335d0c93d830d226e75ec81ea120186"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
@@ -1129,12 +1129,12 @@
     {
       "source": "docs/release-notes-v3.8.0.md",
       "english": "docs/en/release-notes-v3.8.0.md",
-      "source_sha256": "c3cbe2ad017570087a73a406d63efa67f230f383fcdcb7c6e8b2c46831ee70cc"
+      "source_sha256": "f21159bfb541c2c1d3aa47c44372279605487b8be935cfd75bc7d5b660b87667"
     },
     {
       "source": "docs/v3.8.0-acceptance.md",
       "english": "docs/en/v3.8.0-acceptance.md",
-      "source_sha256": "30806615e03a35cb4e450b96925695d243a16b60eed6c2f44ee5d63e88a5a94b"
+      "source_sha256": "d64685d2d65e808027560e2544a431bcd11f5bd0e6d860a6ccfd4142a5e907da"
     },
     {
       "source": "docs/v3.8.0-design.md",
@@ -1144,7 +1144,7 @@
     {
       "source": "docs/v3.8.0-release-evidence.md",
       "english": "docs/en/v3.8.0-release-evidence.md",
-      "source_sha256": "99d6210cc8de59ed5b76370bab8c0b457a39c22f961db969b2f9ee08942fccec"
+      "source_sha256": "2893eb19375eb31d058e43bc90f8b14b4f943ef725a530ebb355953205289e82"
     },
     {
       "source": "docs/v3.8.0-upgrade.md",

@@ -35,6 +35,6 @@ pwsh ./scripts/release-dryrun.ps1 -Version v3.8.0 -ProductionPrepare -PublicKeyP
 pwsh ./scripts/release-dryrun.ps1 -Version v3.8.0 -ValidateOnly -AssetsDirectory '<signed-assets-directory>'
 ```
 
-Successful production preparation only means that the assets to be signed and the three dual-architecture OCI archives have been generated; the formal signature, cryptographic verification, GitHub upload, anonymous re-download, GHCR and online acceptance can only be announced before being released. `-ValidateOnly`'s signature structure check does not replace cryptographic signature verification using a trusted public key.
+Successful production preparation only means that the assets to be signed and the three dual-architecture OCI archives have been generated. Formal signatures, cryptographic verification, GitHub upload, anonymous re-download, GHCR, and online acceptance must pass before a release is declared. The `-ValidateOnly` signature structure check does not replace verification with a trusted public key.
 
-The v3.8.0 package digests, CI, signatures, GHCR, website, and Demo results will be recorded after formal release; see the current [candidate acceptance](v3.8.0-acceptance.md). The [historical asset plan](release-assets-history.md) is retained for reference.
+The actual v3.8.0 package, CI, signature, GHCR, website, and Demo results are in the [formal release evidence](v3.8.0-release-evidence.md) and [acceptance record](v3.8.0-acceptance.md). The [historical asset plan](release-assets-history.md) is retained for reference.
