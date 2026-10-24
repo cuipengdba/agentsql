@@ -5,12 +5,37 @@ import (
 	"database/sql"
 	"io/fs"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/stretchr/testify/require"
 )
+
+func TestReliableNotificationTenantInventoryDoesNotStopAtOneThousand(t *testing.T) {
+	ctx := context.Background()
+	opened, err := OpenWithSecret(ctx, filepath.Join(t.TempDir(), "notification-inventory.db"), []byte(testSecret))
+	require.NoError(t, err)
+	defer opened.Close()
+
+	transaction, err := opened.metaDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	for index := 0; index < 1001; index++ {
+		id := "tenant_inventory_" + strconv.Itoa(index)
+		_, err = transaction.ExecContext(ctx, "INSERT INTO tenants(id,name,status) VALUES(?,?,'active')", id, id)
+		require.NoError(t, err)
+		_, err = transaction.ExecContext(ctx, "INSERT INTO notification_settings(tenant_id,id,enabled,queue_size) VALUES(?,1,1,1)", id)
+		require.NoError(t, err)
+		_, err = transaction.ExecContext(ctx, "INSERT INTO notification_channels(tenant_id,id,position,enabled,reliable_enabled,kind,decisions) VALUES(?,'webhook',0,1,1,'webhook','deny')", id)
+		require.NoError(t, err)
+	}
+	require.NoError(t, transaction.Commit())
+
+	tenants, err := opened.Notifications().ListReliableTenants(ctx)
+	require.NoError(t, err)
+	require.Len(t, tenants, 1001)
+}
 
 func TestNotificationRepositorySQLite(t *testing.T) {
 	ctx := context.Background()

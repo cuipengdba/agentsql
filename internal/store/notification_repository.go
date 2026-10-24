@@ -29,7 +29,7 @@ func (repository *NotificationRepository) ListReliableTenants(ctx context.Contex
 SELECT DISTINCT c.tenant_id
 FROM notification_channels c JOIN notification_settings s ON s.tenant_id=c.tenant_id
 WHERE s.enabled=? AND c.enabled=? AND c.reliable_enabled=? AND c.kind='webhook'
-ORDER BY c.tenant_id LIMIT 1001`), true, true, true)
+ORDER BY c.tenant_id`), true, true, true)
 	if err != nil {
 		return nil, fmt.Errorf("list reliable notification tenants: %w", err)
 	}
@@ -44,9 +44,6 @@ ORDER BY c.tenant_id LIMIT 1001`), true, true, true)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("finish reliable notification tenants: %w", err)
-	}
-	if len(tenants) > 1000 {
-		return nil, errors.New("reliable notification tenant inventory exceeds limit")
 	}
 	return tenants, nil
 }
