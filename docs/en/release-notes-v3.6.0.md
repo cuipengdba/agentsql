@@ -2,7 +2,7 @@
 
 **Language:** [English](release-notes-v3.6.0.md) | [Simplified Chinese](../release-notes-v3.6.0.md)
 
-Status: release candidate; the final acceptance record and GitHub Release are authoritative.
+Status: released. See the [release evidence](v3.6.0-release-evidence.md) and [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.6.0).
 
 ## Changes
 

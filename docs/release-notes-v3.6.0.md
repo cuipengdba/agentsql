@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](release-notes-v3.6.0.md) | [English](en/release-notes-v3.6.0.md)
 
-状态：发布候选；以最终验收记录和 GitHub Release 为准。
+状态：已发布。正式交付结果见[发布证据](v3.6.0-release-evidence.md)和 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.6.0)。
 
 ## 本版改进
 
