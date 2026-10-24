@@ -43,9 +43,14 @@ func TestRedisHashControlledRealHTTPMCP(t *testing.T) {
 			agent, err := runtime.Store.Agents().Create(ctx, model.Agent{ID: "hash-http-agent", Name: "Hash HTTP Agent",
 				Status: "active", Level: "readonly", APIKeyHash: hash})
 			require.NoError(t, err)
+			readControl := os.Getenv("AGENTSQL_TEST_HASH_" + dialect + "_READ_CONTROL_JSON")
+			tlsServerName := host
+			if readControl != "" {
+				tlsServerName = ""
+			}
 			datasource, err := runtime.Store.Datasources().Create(ctx, model.Datasource{ID: "hash-http-datasource",
 				Name: "Hash HTTP test", DBType: dialect, Host: host, Port: 6379, Database: "0",
-				Username: "agent_reader", TLSMode: "strict", TLSCAFile: ca, TLSServerName: host,
+				Username: "agent_reader", TLSMode: "strict", TLSCAFile: ca, TLSServerName: tlsServerName, ReadControlJSON: readControl,
 				StmtTimeoutMS: 3000, ConnLimit: 2, RowLimit: 1}, password)
 			require.NoError(t, err)
 			for _, grant := range []model.Policy{

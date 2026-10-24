@@ -139,6 +139,21 @@ func TestDatasourceRepositoryCRUDAndEncryptedPasswordStorage(t *testing.T) {
 	require.True(t, errors.Is(err, ErrNotFound))
 }
 
+func TestDatasourceReadControlRoundTrip(t *testing.T) {
+	opened := openTestStore(t)
+	repository := opened.Datasources()
+	profile := `{"mongo":{"replica_set":"rs0","members":["mongo1.test:27017","mongo2.test:27017","mongo3.test:27017"],"indexes":[{"collection":"customers","name":"customer_id_1","fields":["customer_id"]}]}}`
+	datasource := model.Datasource{ID: "mongo-profile", Name: "Mongo profile", DBType: "mongodb", Host: "mongo1.test", Port: 27017,
+		Database: "app", Username: "reader", ReadControlJSON: profile}
+	created, err := repository.Create(context.Background(), datasource, "test-password")
+	require.NoError(t, err)
+	require.Equal(t, profile, created.ReadControlJSON)
+	created.ReadControlJSON = "{}"
+	updated, err := repository.Update(context.Background(), created, "test-password")
+	require.NoError(t, err)
+	require.Equal(t, "{}", updated.ReadControlJSON)
+}
+
 func TestPolicyRepositoryCRUD(t *testing.T) {
 	opened := openTestStore(t)
 	agent, datasource := createPolicyDependencies(t, opened)

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
@@ -956,6 +957,9 @@ func (handler *Handler) datasourcesUpdate(writer http.ResponseWriter, request *h
 	if input.RowLimit == 0 {
 		input.RowLimit = current.RowLimit
 	}
+	if input.ReadControlJSON == "" {
+		input.ReadControlJSON = current.ReadControlJSON
+	}
 	// A supplied TLS mode is a complete replacement of its certificate settings.
 	// Inheriting a previous CA or server name would make verify-full -> disable
 	// impossible and could silently retain an obsolete trust root after rotation.
@@ -1046,6 +1050,7 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 	input.TLSMode = strings.TrimSpace(input.TLSMode)
 	input.TLSServerName = strings.TrimSpace(input.TLSServerName)
 	input.TLSCAFile = strings.TrimSpace(input.TLSCAFile)
+	input.ReadControlJSON = strings.TrimSpace(input.ReadControlJSON)
 	if input.ID == "" || input.Name == "" || input.Host == "" {
 		return model.Datasource{}, fmt.Errorf("datasource identity and connection fields are required")
 	}
@@ -1068,6 +1073,35 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			if err != nil || db < 0 || db > 15 {
 				return model.Datasource{}, fmt.Errorf("redis database must be a number from 0 to 15")
 			}
+		}
+	}
+	readControl, err := model.ParseNativeReadControl(input.ReadControlJSON, input.DBType)
+	if err != nil {
+		return model.Datasource{}, err
+	}
+	if readControl.Mongo != nil {
+		member := net.JoinHostPort(input.Host, strconv.Itoa(input.Port))
+		allowed := false
+		for _, address := range readControl.Mongo.Members {
+			allowed = allowed || address == member
+		}
+		if !allowed || (input.TLSMode != "strict" && input.TLSMode != "verify-full") ||
+			input.TLSCAFile == "" || !filepath.IsAbs(input.TLSCAFile) || input.TLSServerName != "" ||
+			input.TrustServerCertificate {
+			return model.Datasource{}, fmt.Errorf("MongoDB replica control requires an allowed seed, verified TLS CA, and per-member certificate names")
+		}
+	}
+	if readControl.Redis != nil {
+		master := net.JoinHostPort(input.Host, strconv.Itoa(input.Port))
+		allowed := false
+		for _, address := range readControl.Redis.AllowedMasters {
+			allowed = allowed || address == master
+		}
+		if !allowed || (input.TLSMode != "strict" && input.TLSMode != "verify-full") ||
+			input.TLSCAFile == "" || !filepath.IsAbs(input.TLSCAFile) || input.TLSServerName != "" ||
+			input.TrustServerCertificate || input.Username == "" ||
+			input.Username == readControl.Redis.SentinelUsername {
+			return model.Datasource{}, fmt.Errorf("Redis Sentinel control requires an allowed master, verified per-node TLS, and separate ACL identities")
 		}
 	}
 	if input.DBType == string(model.DialectSQLServer) {
@@ -1158,6 +1192,7 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 		Port: input.Port, Database: input.Database, Username: input.Username,
 		ConnLimit: input.ConnLimit, StmtTimeoutMS: input.StmtTimeoutMS, RowLimit: input.RowLimit,
 		TLSMode: input.TLSMode, TLSServerName: input.TLSServerName, TLSCAFile: input.TLSCAFile,
+		ReadControlJSON:        input.ReadControlJSON,
 		TrustServerCertificate: input.TrustServerCertificate,
 	}, nil
 }

@@ -93,6 +93,8 @@ type datasourceView struct {
 	TLSMode                string `json:"tls_mode,omitempty"`
 	TLSServerName          string `json:"tls_server_name,omitempty"`
 	TLSCAFile              string `json:"tls_ca_file,omitempty"`
+	ReadControlJSON        string `json:"read_control_json,omitempty"`
+	SentinelPasswordEnv    string `json:"sentinel_password_env,omitempty"`
 	TrustServerCertificate bool   `json:"trust_server_certificate"`
 	HasPassword            bool   `json:"has_password"`
 }
@@ -112,6 +114,7 @@ type datasourceInput struct {
 	TLSMode                string `json:"tls_mode,omitempty"`
 	TLSServerName          string `json:"tls_server_name,omitempty"`
 	TLSCAFile              string `json:"tls_ca_file,omitempty"`
+	ReadControlJSON        string `json:"read_control_json,omitempty"`
 	TrustServerCertificate bool   `json:"trust_server_certificate,omitempty"`
 }
 
@@ -307,10 +310,16 @@ func agentToView(agent model.Agent, plaintext string) agentView {
 }
 
 func datasourceToView(datasource model.Datasource) datasourceView {
+	sentinelEnv := ""
+	if control, err := model.ParseNativeReadControl(datasource.ReadControlJSON, datasource.DBType); err == nil && control.Redis != nil {
+		sentinelEnv = model.SentinelSecretEnvName(datasource.TenantID, datasource.ID)
+	}
 	return datasourceView{ID: datasource.ID, Name: datasource.Name, DBType: datasource.DBType,
 		Host: datasource.Host, Port: datasource.Port, Database: datasource.Database, Username: datasource.Username,
 		ConnLimit: datasource.ConnLimit, StmtTimeout: datasource.StmtTimeoutMS, RowLimit: datasource.RowLimit,
 		TLSMode: datasource.TLSMode, TLSServerName: datasource.TLSServerName, TLSCAFile: datasource.TLSCAFile,
+		ReadControlJSON:        datasource.ReadControlJSON,
+		SentinelPasswordEnv:    sentinelEnv,
 		TrustServerCertificate: datasource.TrustServerCertificate,
 		HasPassword:            datasource.PasswordEnc != ""}
 }

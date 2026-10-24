@@ -78,6 +78,9 @@ func (e *RedisExecutor) ReadHashControlled(ctx context.Context, request RedisHas
 	if err := ValidateRedisHashRead(request); err != nil {
 		return model.QueryResult{}, err
 	}
+	if err := e.verifyCurrentMaster(ctx); err != nil {
+		return model.QueryResult{}, err
+	}
 	version, err := e.ServerVersion(ctx)
 	if err != nil || (e.dialect == "redis" && version != "8.2.9") ||
 		(e.dialect == "valkey" && version != "8.1.10") {

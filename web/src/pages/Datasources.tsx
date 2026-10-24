@@ -33,6 +33,7 @@ const defaultDatasource: Partial<DatasourceFormValues> = {
   conn_limit: 5,
   stmt_timeout_ms: 5_000,
   row_limit: 1_000,
+  read_control_json: "{}",
   trust_server_certificate: false,
 };
 
@@ -132,6 +133,7 @@ export function Datasources() {
       tls_mode: datasource.tls_mode,
       tls_server_name: datasource.tls_server_name,
       tls_ca_file: datasource.tls_ca_file,
+      read_control_json: datasource.read_control_json || "{}",
       trust_server_certificate: datasource.trust_server_certificate,
     });
     setDrawerOpen(true);
@@ -162,6 +164,7 @@ export function Datasources() {
       tls_mode: values.tls_mode,
       tls_server_name: values.tls_server_name?.trim(),
       tls_ca_file: values.tls_ca_file?.trim(),
+      read_control_json: values.read_control_json?.trim() || "{}",
       trust_server_certificate: Boolean(values.trust_server_certificate),
     };
     if (values.password) input.password = values.password;
@@ -257,11 +260,14 @@ export function Datasources() {
             if (dbType) {
               setSelectedType(dbType);
               form.setFieldValue("port", dbType === "clickhouse" ? 9440 : typeByKey[dbType]?.default_port);
-              form.setFieldsValue({ tls_server_name: undefined, tls_ca_file: undefined });
+              form.setFieldsValue({ tls_server_name: undefined, tls_ca_file: undefined, read_control_json: "{}" });
               if (dbType === "clickhouse") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
               } else if (dbType === "sqlserver") {
+                form.setFieldValue("tls_mode", "strict");
+                form.setFieldValue("trust_server_certificate", false);
+              } else if (dbType === "mongodb" || dbType === "redis" || dbType === "valkey") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
               } else if (dbType === "postgres" || dbType === "vastbase" || dbType === "opengauss" || dbType === "dm") {
@@ -295,6 +301,13 @@ export function Datasources() {
           <Form.Item name="database" label="数据库 / 命名空间" rules={selectedSpec?.requires_database ? [{ required: true, whitespace: true }] : []}><Input /></Form.Item>
           <Form.Item name="username" label="用户名" rules={selectedSpec?.requires_username ? [{ required: true, whitespace: true }] : []}><Input /></Form.Item>
           <Form.Item name="password" label="密码 / 令牌" rules={!editing && selectedSpec?.requires_password ? [{ required: true }] : []}><Input.Password placeholder={editing ? "留空表示不修改" : "依数据源要求填写"} /></Form.Item>
+          {selectedType === "mongodb" || selectedType === "redis" || selectedType === "valkey" ? <>
+            <Alert type="info" showIcon message={selectedType === "mongodb" ? "MongoDB 副本集受控读取" : "Redis / Valkey Sentinel 受控读取"}
+              description={selectedType === "mongodb" ? "填写三个受信成员、replica_set 和允许的集合索引；成员须使用可验证 TLS 证书。{} 保留原有单实例路径。JSON 中不得包含密码。" : `填写三个受信 Sentinel、允许的主节点及单独的 Sentinel ACL 用户；密码由运维放入与数据源绑定的网关环境变量${editing?.sentinel_password_env ? ` ${editing.sentinel_password_env}` : "（保存后编辑可查看变量名）"}。{} 保留原有单实例路径。`} />
+            <Form.Item name="read_control_json" label="拓扑与读取约束 JSON" rules={[{ required: true, whitespace: true }]}>
+              <Input.TextArea rows={7} spellCheck={false} placeholder={selectedType === "mongodb" ? '{"mongo":{"replica_set":"rs0","members":["mongo1.example:27017","mongo2.example:27017","mongo3.example:27017"],"indexes":[{"collection":"customers","name":"customer_id_1","fields":["customer_id"]}]}}' : '{"redis_sentinel":{"master_name":"mymaster","sentinels":["sentinel1.example:26379","sentinel2.example:26379","sentinel3.example:26379"],"allowed_masters":["redis1.example:6379","redis2.example:6379"],"sentinel_username":"sentinel_reader"}}'} />
+            </Form.Item>
+          </> : null}
           <Form.Item noStyle shouldUpdate={(previous, current) => previous.db_type !== current.db_type || previous.tls_mode !== current.tls_mode}>
             {({ getFieldValue }) => getFieldValue("db_type") === "sqlserver" ? <>
               <Alert className="cfg-inline-alert" type="info" showIcon message="SQL Server 2025 仅开放受控只读 SELECT；TLS 不可关闭，默认使用 TDS 8.0 strict。" />
@@ -315,6 +328,10 @@ export function Datasources() {
               <Form.Item name="tls_mode" label="TLS 模式"><Select options={[{ value: "strict", label: "strict（受控检索，校验 CA 和主机名）" }, { value: "verify-full", label: "verify-full（受控检索）" }]} /></Form.Item>
               <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/milvus-ca.pem" /></Form.Item>
               <Form.Item name="tls_server_name" label="证书主机名（可选，默认连接主机）"><Input placeholder="milvus.example.com" /></Form.Item>
+            </> : getFieldValue("db_type") === "mongodb" || getFieldValue("db_type") === "redis" || getFieldValue("db_type") === "valkey" ? <>
+              <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}><Select options={[{ value: "strict", label: "strict（校验 CA 和成员主机名）" }, { value: "verify-full", label: "verify-full（校验 CA 和成员主机名）" }]} /></Form.Item>
+              <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/native-ca.pem" /></Form.Item>
+              <Form.Item name="tls_server_name" label="固定证书主机名（副本集或 Sentinel 模式必须留空）"><Input /></Form.Item>
             </> : getFieldValue("db_type") === "dm" ? <>
               <Alert className="cfg-inline-alert" type="warning" showIcon message="达梦 DM8 Pack3 指定实例的受限只读路径。新建连接须在服务器启用加密并配置可验证证书；旧版未设置 TLS 的数据源只保留兼容行为，不代表安全连接已验证。" />
               <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>

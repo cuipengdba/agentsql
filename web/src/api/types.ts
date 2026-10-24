@@ -134,6 +134,8 @@ export interface DatasourceView {
   tls_mode?: string;
   tls_server_name?: string;
   tls_ca_file?: string;
+  read_control_json?: string;
+  sentinel_password_env?: string;
   trust_server_certificate: boolean;
   has_password: boolean;
 }
@@ -153,6 +155,7 @@ export interface DatasourceInput {
   tls_mode?: string;
   tls_server_name?: string;
   tls_ca_file?: string;
+  read_control_json?: string;
   trust_server_certificate?: boolean;
 }
 

@@ -24,6 +24,19 @@ type MongoExecutor struct {
 	database, datasourceID string
 	readOnly               bool
 	statementTimeout       time.Duration
+	readControl            *model.MongoReadControl
+}
+
+type mongoAllowedDialer struct {
+	allowed map[string]bool
+	base    net.Dialer
+}
+
+func (d mongoAllowedDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if network != "tcp" || !d.allowed[address] {
+		return nil, fmt.Errorf("MongoDB discovered an unapproved member")
+	}
+	return d.base.DialContext(ctx, network, address)
 }
 
 func mongoURI(ds model.Datasource, password string) (string, error) {
@@ -66,6 +79,10 @@ func NewMongoExecutorWithContext(ctx context.Context, ds model.Datasource, passw
 	if ds.DBType != "mongodb" {
 		return nil, fmt.Errorf("invalid mongodb dialect")
 	}
+	readControl, err := model.ParseNativeReadControl(ds.ReadControlJSON, ds.DBType)
+	if err != nil {
+		return nil, err
+	}
 	uri, err := mongoURI(ds, password)
 	if err != nil {
 		return nil, err
@@ -88,6 +105,19 @@ func NewMongoExecutorWithContext(ctx context.Context, ds model.Datasource, passw
 		return nil, fmt.Errorf("mongodb TLS settings require tls_mode")
 	}
 	opts := options.Client().ApplyURI(uri).SetServerSelectionTimeout(time.Duration(timeout) * time.Millisecond).SetConnectTimeout(time.Duration(timeout) * time.Millisecond).SetSocketTimeout(time.Duration(timeout) * time.Millisecond).SetTimeout(time.Duration(timeout) * time.Millisecond).SetMaxPoolSize(uint64(limit))
+	if readControl.Mongo != nil {
+		seed := net.JoinHostPort(ds.Host, strconv.Itoa(ds.Port))
+		allowed := make(map[string]bool, len(readControl.Mongo.Members))
+		for _, member := range readControl.Mongo.Members {
+			allowed[member] = true
+		}
+		if !allowed[seed] || ds.TLSCAFile == "" || ds.TLSServerName != "" ||
+			(ds.TLSMode != "strict" && ds.TLSMode != "verify-full") {
+			return nil, fmt.Errorf("MongoDB replica read control requires an allowed seed and verified per-member TLS")
+		}
+		opts.SetHosts(readControl.Mongo.Members).SetReplicaSet(readControl.Mongo.ReplicaSet)
+		opts.SetDialer(mongoAllowedDialer{allowed: allowed, base: net.Dialer{Timeout: time.Duration(timeout) * time.Millisecond}})
+	}
 	if ds.TLSMode != "" {
 		cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: ds.TLSServerName}
 		if ds.TLSCAFile != "" {
@@ -114,7 +144,7 @@ func NewMongoExecutorWithContext(ctx context.Context, ds model.Datasource, passw
 	if database == "" {
 		database = "admin"
 	}
-	executor := &MongoExecutor{client: client, database: database, datasourceID: ds.ID, readOnly: readOnly, statementTimeout: time.Duration(timeout) * time.Millisecond}
+	executor := &MongoExecutor{client: client, database: database, datasourceID: ds.ID, readOnly: readOnly, statementTimeout: time.Duration(timeout) * time.Millisecond, readControl: readControl.Mongo}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	if err := executor.Ping(ctx); err != nil {

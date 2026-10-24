@@ -21,6 +21,23 @@ type RedisExecutor struct {
 	datasourceID string
 	database     int
 	readOnly     bool
+	sentinel     *model.RedisSentinelReadControl
+}
+
+func sentinelAllowedDialer(control *model.RedisSentinelReadControl, config *tls.Config, timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+	allowed := make(map[string]bool, len(control.Sentinels)+len(control.AllowedMasters))
+	for _, address := range control.Sentinels {
+		allowed[address] = true
+	}
+	for _, address := range control.AllowedMasters {
+		allowed[address] = true
+	}
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		if network != "tcp" || !allowed[address] {
+			return nil, fmt.Errorf("Redis Sentinel discovered an unapproved address")
+		}
+		return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: timeout}, Config: config}).DialContext(ctx, network, address)
+	}
 }
 
 func NewRedisExecutor(datasource model.Datasource, password string, readOnly bool) (*RedisExecutor, error) {
@@ -33,6 +50,10 @@ func NewRedisExecutorWithContext(ctx context.Context, datasource model.Datasourc
 	}
 	if datasource.DBType != "redis" && datasource.DBType != "valkey" {
 		return nil, fmt.Errorf("invalid Redis dialect")
+	}
+	readControl, err := model.ParseNativeReadControl(datasource.ReadControlJSON, datasource.DBType)
+	if err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(datasource.Host) == "" {
 		return nil, fmt.Errorf("redis host is required")
@@ -87,8 +108,34 @@ func NewRedisExecutorWithContext(ctx context.Context, datasource model.Datasourc
 	} else if datasource.TLSServerName != "" || datasource.TLSCAFile != "" {
 		return nil, fmt.Errorf("Redis TLS settings require tls_mode")
 	}
-	client := redis.NewClient(options)
-	executor := &RedisExecutor{client: client, dialect: model.DBDialect(datasource.DBType), datasourceID: datasource.ID, database: db, readOnly: readOnly}
+	var client *redis.Client
+	if readControl.Redis != nil {
+		control := readControl.Redis
+		master := net.JoinHostPort(datasource.Host, strconv.Itoa(port))
+		allowedMaster := false
+		for _, address := range control.AllowedMasters {
+			allowedMaster = allowedMaster || address == master
+		}
+		sentinelPassword, present := os.LookupEnv(model.SentinelSecretEnvName(datasource.TenantID, datasource.ID))
+		if datasource.ID == "" || !allowedMaster || options.TLSConfig == nil || datasource.TLSCAFile == "" ||
+			datasource.TLSServerName != "" || datasource.Username == "" || password == "" ||
+			!present || sentinelPassword == "" || datasource.Username == control.SentinelUsername {
+			return nil, fmt.Errorf("Redis Sentinel controlled credentials or verified TLS are unavailable")
+		}
+		client = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName: control.MasterName, SentinelAddrs: control.Sentinels,
+			SentinelUsername: control.SentinelUsername, SentinelPassword: sentinelPassword,
+			Username: datasource.Username, Password: password, DB: db, PoolSize: limit,
+			DialTimeout:  time.Duration(timeoutMS) * time.Millisecond,
+			ReadTimeout:  time.Duration(timeoutMS) * time.Millisecond,
+			WriteTimeout: time.Duration(timeoutMS) * time.Millisecond,
+			TLSConfig:    options.TLSConfig,
+			Dialer:       sentinelAllowedDialer(control, options.TLSConfig, time.Duration(timeoutMS)*time.Millisecond),
+		})
+	} else {
+		client = redis.NewClient(options)
+	}
+	executor := &RedisExecutor{client: client, dialect: model.DBDialect(datasource.DBType), datasourceID: datasource.ID, database: db, readOnly: readOnly, sentinel: readControl.Redis}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
 	if err := executor.Ping(ctx); err != nil {
@@ -104,6 +151,21 @@ func (executor *RedisExecutor) Ping(ctx context.Context) error {
 	return executor.client.Ping(ctx).Err()
 }
 func (executor *RedisExecutor) Close() error { return executor.client.Close() }
+func (executor *RedisExecutor) verifyCurrentMaster(ctx context.Context) error {
+	if executor.sentinel == nil {
+		return nil
+	}
+	info, err := executor.client.Info(ctx, "replication").Result()
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(info, "\n") {
+		if strings.TrimSpace(line) == "role:master" {
+			return nil
+		}
+	}
+	return fmt.Errorf("Redis Sentinel target is not the current master")
+}
 func (executor *RedisExecutor) ServerVersion(ctx context.Context) (string, error) {
 	info, err := executor.client.Info(ctx, "server").Result()
 	if err != nil {
