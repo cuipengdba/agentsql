@@ -2,6 +2,12 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.5.0]
+
+- Added a three-gateway Kubernetes deployment example with three workers, separate persistent volumes, stable instance IDs, all-stop upgrades, preflight and read-only schema checks.
+- Tenant-scoped PostgreSQL audit commit cursors enable bounded cross-gateway SSE replay with `Last-Event-ID`; foreign-tenant cursors fail closed.
+- Isolated acceptance covered single-node loss, metadata and audit outage closure, and paired-backup rollback to v3.4.1. B5 stateful sessions remain disabled in the official three-gateway example. See the [release notes](docs/en/release-notes-v3.5.0.md) and [acceptance record](docs/en/v3.5.0-acceptance.md).
+
 ## [v3.4.1]
 
 - Fixed tenant isolation for both historical and live management audit SSE events; other tenants' events are no longer sent to an authenticated audit viewer's connection.

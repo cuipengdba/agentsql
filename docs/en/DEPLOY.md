@@ -2,7 +2,7 @@
 
 **Language:** [English](DEPLOY.md) | [Simplified Chinese](../DEPLOY.md)
 
-> Current guidance: Applies to v3.4.1 and compatible 3.4.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v3.5.0 and compatible 3.5.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 AgentSQL is a database security gateway and production-grade MCP Server for AI Agents. Metadata and audit records are saved locally in SQLite by default, and the PostgreSQL control plane can also be used; business databases still use their respective PostgreSQL or MySQL connections.
 
@@ -290,7 +290,7 @@ Stop the control plane service, restore the original SQLite configuration, resto
 
 ## Method 2: Native binary
 
-Building from source code relies on Go 1.26, C compiler and glibc compatible environment; the official release script of v3.4.1 uses Go 1.26.10. `pg_query_go` cgo must be enabled.
+Building from source code relies on Go 1.26, C compiler and glibc compatible environment; the official release script of v3.5.0 uses Go 1.26.10. `pg_query_go` cgo must be enabled.
 
 ### Precompiled binary system requirements
 
@@ -891,18 +891,18 @@ If the SQLite CLI of the operation and maintenance environment does not support 
 
 ## Publish and distribute
 
-The current official version is v3.4.1, and the maintenance version is executed according to the [ each version delivery process ](RELEASE_ROUTINE.md). For the current assets and verification steps, see [ for issuing assets ](RELEASE_ASSETS.md), and for actual results, see [ for issuing evidence ](v3.4.1-release-evidence.md). Complete and clean submissions must be locked before release, and source code, testing and build input must be checked before and after execution; old packages or placeholder signatures cannot be reused.
+The current official version is v3.5.0, and the maintenance version is executed according to the [ each version delivery process ](RELEASE_ROUTINE.md). For the current assets and verification steps, see [ for issuing assets ](RELEASE_ASSETS.md), and for actual results, see [ for issuing evidence ](v3.5.0-acceptance.md). Complete and clean submissions must be locked before release, and source code, testing and build input must be checked before and after execution; old packages or placeholder signatures cannot be reused.
 
 ```powershell
 # A complete dual-architecture preview without signing or pushing.
-pwsh ./scripts/release-dryrun.ps1 -Version v3.4.1
+pwsh ./scripts/release-dryrun.ps1 -Version v3.5.0
 
 # Production ready: Independently verified controlled public keys must be used.
 $trustedReleasePublicKey = '<trusted-public-key-absolute-path>'
-pwsh ./scripts/release-dryrun.ps1 -Version v3.4.1 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
+pwsh ./scripts/release-dryrun.ps1 -Version v3.5.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
 
 # After signing and acceptance, push the exact version image from the same annotated tag.
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.4.1 -IncludeAuxiliaryTags -Push
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.5.0 -IncludeAuxiliaryTags -Push
 ```
 
 Production preparation generates 11 assets to be signed, 15 in total after signing SBOM, provenance, and SHA256SUMS. Perform three Ed25519 signature verifications to check packages, source submissions, versions, dual architectures, runtime libraries and anonymous downloads. GHCR main image, Demo, quickstart must be public and contain amd64/arm64; pull, run and record the actual digest in a non-login environment. After the official website and demo are passed, use the accepted master image summary to separately upgrade `latest`, and re-verify anonymously. In the past, the phased strategy of suspending the official website for v1.1–v1.4 has ended and cannot be used as a basis for skipping the official website and demo in the current version.
