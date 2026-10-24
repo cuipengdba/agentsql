@@ -80,7 +80,7 @@ func newDoctorCommand() *cobra.Command {
 // an absent database file.
 func inspectDeployment(ctx context.Context, path string) doctorReport {
 	report := doctorReport{Version: version.Version, ReadOnly: true, Status: "blocked", Checks: []doctorCheck{}}
-	contents, err := os.ReadFile(path)
+	contents, err := readDiagnosticConfig(path)
 	if err != nil {
 		report.Checks = append(report.Checks, doctorCheck{Name: "config", Status: "blocked", Action: "read the selected configuration file"})
 		return report
@@ -142,6 +142,27 @@ func inspectDeployment(ctx context.Context, path string) doctorReport {
 		report.Checks = append(report.Checks, doctorCheck{Name: role, Status: "blocked", Action: "inspect store availability and contiguous migration history"})
 	}
 	return report
+}
+
+func readDiagnosticConfig(path string) ([]byte, error) {
+	before, err := os.Stat(path)
+	if err != nil || !before.Mode().IsRegular() || before.Size() > 1<<20 {
+		return nil, errors.New("invalid diagnostic configuration file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("cannot read diagnostic configuration")
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || !os.SameFile(before, info) || info.Size() > 1<<20 {
+		return nil, errors.New("invalid diagnostic configuration file")
+	}
+	contents, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	if err != nil || len(contents) > 1<<20 {
+		return nil, errors.New("cannot read bounded diagnostic configuration")
+	}
+	return contents, nil
 }
 
 func writeDoctorReport(writer io.Writer, report doctorReport, format string) error {

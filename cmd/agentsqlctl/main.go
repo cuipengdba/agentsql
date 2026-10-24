@@ -107,6 +107,8 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newPolicyTransferCommand())
 	command.AddCommand(newUpgradeCommand())
 	command.AddCommand(newDoctorCommand())
+	command.AddCommand(newReleaseCommand())
+	command.AddCommand(newSupportBundleCommand())
 	return command
 }
 
