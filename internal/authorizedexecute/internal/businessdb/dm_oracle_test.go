@@ -14,7 +14,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
 	dm8 "github.com/godoes/gorm-dameng/dm8"
-	gooranetwork "github.com/sijms/go-ora/v2/network"
+	gooranetwork "github.com/sijms/go-ora/v3/network"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,7 +76,7 @@ func TestDMOracleExecutorRejectsUnsupportedTLSBeforeConnecting(t *testing.T) {
 			_, err = NewOracleExecutor(context.Background(), datasource, "password", true)
 		}
 		if dialect == "oracle" {
-			require.ErrorContains(t, err, "TLS options are not supported")
+			require.ErrorContains(t, err, "unsupported TLS mode")
 		} else {
 			require.ErrorContains(t, err, "unsupported TLS mode")
 		}

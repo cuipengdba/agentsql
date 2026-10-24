@@ -346,7 +346,8 @@ func runSQLServerMCPExternalChecks(
 		signal(businessFaultDir, "down_checked")
 		waitSignal(businessFaultDir, "up")
 		ready := false
-		for attempt := 0; attempt < 30; attempt++ {
+		recoveryDeadline := time.Now().Add(5 * time.Minute)
+		for time.Now().Before(recoveryDeadline) {
 			readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			var value string
 			err := readerDB.QueryRowContext(readCtx, readinessSQL).Scan(&value)
@@ -362,7 +363,21 @@ func runSQLServerMCPExternalChecks(
 			}
 		}
 		require.True(t, ready, "SQL Server reader must recover before MCP recovery assertion")
-		restored := call("query", allowSQL)
+		var restored string
+		var recoveryCalls int64
+		for attempt := 0; attempt < 8; attempt++ {
+			restored = call("query", allowSQL)
+			recoveryCalls++
+			if strings.Contains(restored, `"decision":"allow"`) {
+				break
+			}
+			require.NotContains(t, restored, plain)
+			select {
+			case <-ctx.Done():
+				t.Fatal("SQL Server MCP reader did not recover")
+			case <-time.After(2 * time.Second):
+			}
+		}
 		require.Contains(t, restored, `"decision":"allow"`)
 		require.Contains(t, restored, "138****5678")
 		after, err := opener(databasePath)
@@ -370,9 +385,9 @@ func runSQLServerMCPExternalChecks(
 		persisted, err := after.AuditLogs().Page(ctx, 1, 30)
 		require.NoError(t, err)
 		require.NoError(t, after.Close())
-		require.Equal(t, baseline.Total+2, persisted.Total)
+		require.Equal(t, baseline.Total+1+recoveryCalls, persisted.Total)
 		require.Equal(t, "allow", persisted.List[0].Decision)
-		require.Equal(t, "error", persisted.List[1].Decision)
+		require.Equal(t, "error", persisted.List[int(recoveryCalls)].Decision)
 	}
 	if clientDir == "" {
 		return

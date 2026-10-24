@@ -417,7 +417,11 @@ func (pipeline *Pipeline) process(
 		}
 		run.statement = statement
 		metadata := any(statement)
-		if shouldExplain(run.ast) {
+		explainRequired, err := shouldExplain(run.ast, *run.datasource)
+		if err != nil {
+			return err
+		}
+		if explainRequired {
 			explain, err := statement.Explain(dynamicContext)
 			if err != nil {
 				return err
@@ -1357,18 +1361,22 @@ func hasB2ColumnPolicy(policies []model.Policy) bool {
 	return false
 }
 
-func shouldExplain(ast *model.AST) bool {
-	// Yashan has no verified plan decoder; Oracle's least-privilege account
-	// has no proven PLAN_TABLE write privilege. Row limits still apply, but
-	// plan-based R004/R005 estimates are unavailable on these paths.
-	if ast == nil || ast.Dialect == model.DialectYashan || ast.Dialect == model.DialectOracle {
-		return false
+func shouldExplain(ast *model.AST, datasource model.Datasource) (bool, error) {
+	if ast == nil || ast.Dialect == model.DialectYashan {
+		return false, nil
+	}
+	if ast.Dialect == model.DialectOracle {
+		profile, err := model.ParseNativeReadControl(datasource.ReadControlJSON, datasource.DBType)
+		if err != nil {
+			return false, fmt.Errorf("Oracle plan profile: %w", err)
+		}
+		return profile.Oracle != nil && profile.Oracle.Explain && ast.StmtType == model.StmtType("SELECT"), nil
 	}
 	switch ast.StmtType {
 	case model.StmtType("SELECT"), model.StmtType("INSERT"), model.StmtType("UPDATE"), model.StmtType("DELETE"):
-		return true
+		return true, nil
 	default:
-		return false
+		return false, nil
 	}
 }
 

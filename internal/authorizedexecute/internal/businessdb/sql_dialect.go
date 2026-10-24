@@ -68,12 +68,31 @@ func newLimitedSQLExecutorWithDialect(
 	classifier limitedDialectErrorClassifier,
 	explainer limitedDialectExplainer,
 ) (*limitedSQLExecutor, error) {
+	if dialect == "oracle" &&
+		(datasource.TLSMode != "" || datasource.TLSServerName != "" || datasource.TLSCAFile != "" || datasource.TrustServerCertificate) {
+		return nil, fmt.Errorf("open %s datasource: TLS options require the Oracle verified connector", dialect)
+	}
+	return newLimitedSQLExecutorWithOpener(
+		ctx, datasource, dialect, password, readOnly, classifier, explainer,
+		func() (*sql.DB, error) { return sql.Open(driverName, dsn) },
+	)
+}
+
+func newLimitedSQLExecutorWithOpener(
+	ctx context.Context,
+	datasource model.Datasource,
+	dialect string,
+	password string,
+	readOnly bool,
+	classifier limitedDialectErrorClassifier,
+	explainer limitedDialectExplainer,
+	openDatabase func() (*sql.DB, error),
+) (*limitedSQLExecutor, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("open %s datasource: context is nil", dialect)
 	}
-	if dialect == "oracle" &&
-		(datasource.TLSMode != "" || datasource.TLSServerName != "" || datasource.TLSCAFile != "" || datasource.TrustServerCertificate) {
-		return nil, fmt.Errorf("open %s datasource: TLS options are not supported by the current driver", dialect)
+	if openDatabase == nil {
+		return nil, fmt.Errorf("open %s datasource: connection opener is required", dialect)
 	}
 	if err := validateDatasource(datasource); err != nil {
 		return nil, fmt.Errorf("open %s datasource: %w", dialect, err)
@@ -89,7 +108,7 @@ func newLimitedSQLExecutorWithDialect(
 	if err != nil {
 		return nil, fmt.Errorf("open %s datasource: %w", dialect, err)
 	}
-	database, err := sql.Open(driverName, dsn)
+	database, err := openDatabase()
 	if err != nil {
 		return nil, newDBError(
 			DBErrorKindConnection,

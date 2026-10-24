@@ -270,7 +270,7 @@ export function Datasources() {
               } else if (dbType === "mongodb" || dbType === "redis" || dbType === "valkey") {
                 form.setFieldValue("tls_mode", "strict");
                 form.setFieldValue("trust_server_certificate", false);
-              } else if (dbType === "postgres" || dbType === "vastbase" || dbType === "opengauss" || dbType === "dm") {
+              } else if (dbType === "postgres" || dbType === "vastbase" || dbType === "opengauss" || dbType === "dm" || dbType === "oracle") {
                 form.setFieldValue("tls_mode", "verify-full");
                 form.setFieldValue("trust_server_certificate", false);
               } else {
@@ -320,6 +320,17 @@ export function Datasources() {
               <Form.Item name="tls_ca_file" label="CA / 服务器证书文件（服务端路径，可选）"><Input /></Form.Item>
               {getFieldValue("tls_mode") === "verify-full" ?
                 <Form.Item name="trust_server_certificate" valuePropName="checked"><Checkbox>信任未验证证书（仅限受控开发环境）</Checkbox></Form.Item> : null}
+            </> : getFieldValue("db_type") === "oracle" ? <>
+              <Alert className="cfg-inline-alert" type="warning" showIcon message="Oracle 指定实例可使用验证证书的 TCPS 只读连接。证书主机名须与连接主机一致；旧版未设置 TLS 的数据源仅保留兼容行为。" />
+              <Form.Item name="tls_mode" label="TLS 模式" rules={[{ required: true }]}>
+                <Select options={[{ value: "verify-full", label: "verify-full（校验 CA 和主机名）" }]} />
+              </Form.Item>
+              <Form.Item name="tls_ca_file" label="CA 证书文件（网关服务端绝对路径）" rules={[{ required: true, whitespace: true }]}><Input placeholder="/etc/agentsql/certs/oracle-ca.pem" /></Form.Item>
+              <Form.Item name="tls_server_name" label="证书主机名（须与连接主机一致）" rules={[{ required: true, whitespace: true }]}><Input placeholder="oracle.example.com" /></Form.Item>
+              <Alert className="cfg-inline-alert" type="info" showIcon message="可选：启用 Oracle 计划预检" description="使用专用只读账号，先确认该实例的 PLAN_TABLE 可供账号读写。填写配置后，计划检查失败会阻断查询；保留 {} 则沿用原有只读路径。" />
+              <Form.Item name="read_control_json" label="Oracle 计划配置 JSON" rules={[{ required: true, whitespace: true }]}>
+                <Input.TextArea rows={3} spellCheck={false} placeholder='{"oracle":{"explain":true}}' />
+              </Form.Item>
             </> : getFieldValue("db_type") === "clickhouse" ? <>
               <Alert className="cfg-inline-alert" type="warning" showIcon message="ClickHouse 受控查询仅限已验收的 26.8.31.2 单实例；需配置原生 TLS 端口 9440、数据库/账号密码、可验证 CA 和 readonly=1 的最小权限角色。原有明文连接仅保留管理预览。" />
               <Form.Item name="tls_mode" label="TLS 模式"><Select options={[{ value: "strict", label: "strict（受控查询，校验 CA 和主机名）" }, { value: "verify-full", label: "verify-full（受控查询）" }, { value: "disable", label: "disable（仅管理预览）" }]} /></Form.Item>

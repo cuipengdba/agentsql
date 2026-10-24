@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v3.8.0';
+const VERSION = 'v3.9.0';
 const LANGUAGE = process.env.AGENTSQL_DOCS_LANGUAGE || 'zh';
 if (!['zh', 'en'].includes(LANGUAGE)) throw new Error('AGENTSQL_DOCS_LANGUAGE must be zh or en');
 const ENGLISH = LANGUAGE === 'en';

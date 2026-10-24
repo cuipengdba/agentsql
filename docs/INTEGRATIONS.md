@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](INTEGRATIONS.md) | [English](en/INTEGRATIONS.md)
 
-> 本文说明 AgentSQL v3.8.0 的 MCP 接入。安装或拉取 v3.8.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.9.0 的 MCP 接入。安装或拉取 v3.9.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
 本文说明如何把 MCP 客户端接到 AgentSQL。身份、授权、规则、审批与能力边界见 [使用手册](USER_GUIDE.md)，首次部署见 [快速上手](GETTING_STARTED.md)；把决策事件外发到 Webhook、告警群或 Syslog 见 [通知外发指南](NOTIFICATIONS.md)。
 
@@ -16,6 +16,12 @@ AGENTSQL_MCP_ACCEPTANCE_KEY="$DEMO_AGENT_KEY" python3 scripts/mcp-acceptance.py 
 ```
 
 该示例依赖 `examples/docker/demo-seed.yaml` 中的列级授权剧本；其他环境需换成已授权的允许查询及可被 R010 拒绝的查询。不要把真实客户数据送往公网 Demo。脚本仅输出判定、审计 ID 和脱敏单元格数。
+
+## v3.9.0 Oracle 与 SQL Server 受控读取
+
+- 对指定 Oracle 26ai Free 选择 `verify-full`、填写绝对路径 CA 文件，并使用与证书名称匹配的连接主机名。网关每次新建连接均验证证书。Oracle 钱包、mTLS 与 RAC 不在本次验收范围。
+- 仅在专用非系统只读账号与已验证的 `PLAN_TABLE` 就绪后，在 `read_control_json` 启用 `{"oracle":{"explain":true}}`。获准的窄 SELECT 随后进行有界计划预检；无法取得计划或计划无效时失败关闭。既有 Oracle 数据源默认仍不启用计划预检。
+- Oracle 与 SQL Server 都使用 MCP `query`。SQL Server 保持严格证书校验和限定 SELECT/SHOWPLAN 权限，轮换及恢复后分别核对允许、拒绝、脱敏和持久审计 ID。公网 Demo 仍为 PostgreSQL/MySQL 合成数据。见[发布说明](release-notes-v3.9.0.md)、[升级指南](v3.9.0-upgrade.md)和[验收记录](v3.9.0-acceptance.md)。
 
 ## v3.8.0 原生数据库工具
 

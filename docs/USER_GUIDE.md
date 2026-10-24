@@ -2,13 +2,19 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v3.8.0 及兼容的 3.8.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.9.0 及兼容的 3.9.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v3.8.0 的功能与操作。安装或拉取 v3.8.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v3.9.0 的功能与操作。安装或拉取 v3.9.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v3.8.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.8.0 发布说明](release-notes-v3.8.0.md)和[验收记录](v3.8.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v3.9.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v3.9.0 发布说明](release-notes-v3.9.0.md)和[验收记录](v3.9.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
+
+## v3.9.0 Oracle 与 SQL Server 受控读取
+
+- 对指定 Oracle 26ai Free 选择 `verify-full`、填写绝对路径 CA 文件，并使用与证书名称匹配的连接主机名。网关每次新建连接均验证证书。Oracle 钱包、mTLS 与 RAC 不在本次验收范围。
+- 仅在专用非系统只读账号与已验证的 `PLAN_TABLE` 就绪后，在 `read_control_json` 启用 `{"oracle":{"explain":true}}`。获准的窄 SELECT 随后进行有界计划预检；无法取得计划或计划无效时失败关闭。既有 Oracle 数据源默认仍不启用计划预检。
+- Oracle 与 SQL Server 都使用 MCP `query`。SQL Server 保持严格证书校验和限定 SELECT/SHOWPLAN 权限，轮换及恢复后分别核对允许、拒绝、脱敏和持久审计 ID。公网 Demo 仍为 PostgreSQL/MySQL 合成数据。见[发布说明](release-notes-v3.9.0.md)、[升级指南](v3.9.0-upgrade.md)和[验收记录](v3.9.0-acceptance.md)。
 
 ## v3.8.0 ClickHouse 预算与 Milvus 租户过滤
 

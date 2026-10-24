@@ -1494,5 +1494,10 @@
   "ClickHouse 查询资源预算": "ClickHouse query resource budget",
   "Milvus 租户隔离与标量过滤": "Milvus tenant isolation and scalar filters",
   "配置只会收紧已有查询资源上限。{} 保留默认预算。": "This profile only tightens existing query resource limits. {} keeps the default budget.",
-  "配置租户字段后，网关从当前 Agent 绑定租户生成过滤条件；可另批准最多八个标量过滤字段。{} 保留旧版无行级租户过滤的路径。": "With a tenant field configured, the gateway derives its filter from the current Agent's tenant. You may also approve up to eight scalar filter fields. {} retains the legacy path without row-level tenant filtering."
+  "配置租户字段后，网关从当前 Agent 绑定租户生成过滤条件；可另批准最多八个标量过滤字段。{} 保留旧版无行级租户过滤的路径。": "With a tenant field configured, the gateway derives its filter from the current Agent's tenant. You may also approve up to eight scalar filter fields. {} retains the legacy path without row-level tenant filtering.",
+  "Oracle 指定实例可使用验证证书的 TCPS 只读连接。证书主机名须与连接主机一致；旧版未设置 TLS 的数据源仅保留兼容行为。": "The specified Oracle instance can use a certificate-verified TCPS read-only connection. The certificate hostname must match the connection host; older datasources without TLS retain compatibility behavior only.",
+  "证书主机名（须与连接主机一致）": "Certificate hostname (must match the connection host)",
+  "可选：启用 Oracle 计划预检": "Optional: enable Oracle plan preflight",
+  "使用专用只读账号，先确认该实例的 PLAN_TABLE 可供账号读写。填写配置后，计划检查失败会阻断查询；保留 {} 则沿用原有只读路径。": "Use a dedicated read-only account and first confirm it can read and write PLAN_TABLE on this instance. When enabled, a failed plan check blocks the query; {} keeps the existing read-only path.",
+  "Oracle 计划配置 JSON": "Oracle plan configuration JSON"
 }

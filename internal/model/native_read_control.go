@@ -18,6 +18,14 @@ type NativeReadControl struct {
 	Redis      *RedisSentinelReadControl `json:"redis_sentinel,omitempty"`
 	ClickHouse *ClickHouseReadControl    `json:"clickhouse,omitempty"`
 	Milvus     *MilvusReadControl        `json:"milvus,omitempty"`
+	Oracle     *OracleReadControl        `json:"oracle,omitempty"`
+}
+
+// OracleReadControl opts a verified, least-privilege Oracle datasource into
+// transactional PLAN_TABLE preflight. The administrator provisions the plan
+// table before enabling this profile; the gateway never creates it.
+type OracleReadControl struct {
+	Explain bool `json:"explain"`
 }
 
 // ClickHouseReadControl can only tighten the gateway's established per-query
@@ -114,13 +122,19 @@ func ParseNativeReadControl(raw, dbType string) (NativeReadControl, error) {
 		return NativeReadControl{}, fmt.Errorf("native read control has trailing data")
 	}
 	profileCount := 0
-	for _, present := range []bool{control.Mongo != nil, control.Redis != nil, control.ClickHouse != nil, control.Milvus != nil} {
+	for _, present := range []bool{control.Mongo != nil, control.Redis != nil, control.ClickHouse != nil, control.Milvus != nil, control.Oracle != nil} {
 		if present {
 			profileCount++
 		}
 	}
 	if profileCount > 1 {
 		return NativeReadControl{}, fmt.Errorf("native read control must contain one datasource profile")
+	}
+	if control.Oracle != nil {
+		if dbType != string(DialectOracle) || !control.Oracle.Explain {
+			return NativeReadControl{}, fmt.Errorf("Oracle plan control requires an enabled Oracle datasource")
+		}
+		return control, nil
 	}
 	if control.ClickHouse != nil {
 		budget := control.ClickHouse

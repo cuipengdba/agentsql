@@ -358,13 +358,22 @@ func TestDeniedSelectBindingExceptionOnlyAppliesToR010(t *testing.T) {
 		Hits:     []model.RuleHit{otherDeny},
 	}))
 	oracleAST := &model.AST{Dialect: model.DialectOracle, StmtType: model.StmtType("SELECT")}
-	require.False(t, shouldExplain(oracleAST))
+	explain, explainErr := shouldExplain(oracleAST, model.Datasource{DBType: "oracle"})
+	require.NoError(t, explainErr)
+	require.False(t, explain)
+	explain, explainErr = shouldExplain(oracleAST, model.Datasource{DBType: "oracle", ReadControlJSON: `{"oracle":{"explain":true}}`})
+	require.NoError(t, explainErr)
+	require.True(t, explain)
+	_, explainErr = shouldExplain(oracleAST, model.Datasource{DBType: "oracle", ReadControlJSON: `{"oracle":{"explain":false}}`})
+	require.Error(t, explainErr)
 	require.False(t, shouldBindDeniedSelect(oracleAST, model.Assessment{
 		Decision: model.DecisionDeny,
 		Hits:     []model.RuleHit{r010},
 	}))
 	sqlServerAST := &model.AST{Dialect: model.DialectSQLServer, StmtType: model.StmtType("SELECT")}
-	require.True(t, shouldExplain(sqlServerAST))
+	explain, explainErr = shouldExplain(sqlServerAST, model.Datasource{DBType: "sqlserver"})
+	require.NoError(t, explainErr)
+	require.True(t, explain)
 	require.False(t, shouldBindDeniedSelect(sqlServerAST, model.Assessment{
 		Decision: model.DecisionDeny,
 		Hits:     []model.RuleHit{r010},

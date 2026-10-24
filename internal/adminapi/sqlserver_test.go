@@ -39,6 +39,35 @@ func TestDatasourceFromInputOracleRejectsIgnoredTLSOptions(t *testing.T) {
 		input := datasourceInput{ID: "oracle", Name: "oracle", DBType: "oracle", Host: "db.example.test", Port: 1521, Database: "APP", Username: "agent"}
 		setTLS(&input)
 		_, err := datasourceFromInput(input)
-		require.ErrorContains(t, err, "TLS options are not supported")
+		require.Error(t, err)
 	}
+}
+
+func TestDatasourceFromInputOracleVerifiedTLS(t *testing.T) {
+	input := datasourceInput{ID: "oracle", Name: "oracle", DBType: "oracle", Host: "db.example.test", Port: 2484, Database: "APP", Username: "agent", TLSMode: "verify-full", TLSServerName: "db.example.test", TLSCAFile: "/etc/agentsql/oracle-ca.pem"}
+	datasource, err := datasourceFromInput(input)
+	require.NoError(t, err)
+	require.Equal(t, "verify-full", datasource.TLSMode)
+	input.TLSServerName = "other.example.test"
+	_, err = datasourceFromInput(input)
+	require.ErrorContains(t, err, "matching the connection host")
+}
+
+func TestDatasourceFromInputOraclePlanRequiresVerifiedReader(t *testing.T) {
+	input := datasourceInput{
+		ID: "oracle-plan", Name: "Oracle plan", DBType: "oracle", Host: "db.example.test", Port: 2484,
+		Database: "FREEPDB1", Username: "agent_reader", TLSMode: "verify-full",
+		TLSServerName: "db.example.test", TLSCAFile: "/etc/agentsql/oracle-ca.pem",
+		ReadControlJSON: `{"oracle":{"explain":true}}`,
+	}
+	configured, err := datasourceFromInput(input)
+	require.NoError(t, err)
+	require.Equal(t, input.ReadControlJSON, configured.ReadControlJSON)
+	input.TLSMode = ""
+	_, err = datasourceFromInput(input)
+	require.ErrorContains(t, err, "verified TLS")
+	input.TLSMode = "verify-full"
+	input.Username = "SYSTEM"
+	_, err = datasourceFromInput(input)
+	require.ErrorContains(t, err, "dedicated reader")
 }

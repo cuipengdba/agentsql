@@ -2,13 +2,19 @@
 
 **Language:** [English](USER_GUIDE.md) | [Simplified Chinese](../USER_GUIDE.md)
 
-> Current guidance: Applies to v3.8.0 and compatible 3.8.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
+> Current guidance: Applies to v3.9.0 and compatible 3.9.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
-> This guide covers AgentSQL v3.8.0. Before installing or pulling v3.8.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v3.9.0. Before installing or pulling v3.9.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
 
-This manual follows the v3.8.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v3.8.0 release notes](release-notes-v3.8.0.md) and [acceptance record](v3.8.0-acceptance.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
+This manual follows the v3.9.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v3.9.0 release notes](release-notes-v3.9.0.md) and [acceptance record](v3.9.0-acceptance.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
 
 The console login page and the language button in the upper right corner after logging in can switch between Chinese and English, and the selection will be saved in the current browser; `?lang=en` or `?lang=zh` can specify the first opening language. The left menu can be scrolled independently when the effective viewport height is insufficient, and the bottom options can also be accessed with the keyboard after focusing the menu. Language switching only changes the interface copy and does not modify the SQL, query results and audit records. Complete English documentation is available through the language link at the top. Capability claims are bounded by the corresponding acceptance record.
+
+## v3.9.0 Oracle and SQL Server controlled reads
+
+- For specified Oracle 26ai Free, choose `verify-full`, supply an absolute CA file path, and use a connection host matching the certificate name. The gateway verifies the certificate on every new connection. Oracle wallets, mTLS and RAC remain outside this acceptance scope.
+- Enable `{"oracle":{"explain":true}}` in `read_control_json` only with a dedicated non-system readonly account and a verified `PLAN_TABLE`. Authorized narrow SELECTs then receive bounded plan checks; unavailable or invalid plans fail closed. Existing Oracle sources keep plan checks disabled by default.
+- Use MCP `query` for both Oracle and SQL Server. On SQL Server, keep strict certificate validation and scoped SELECT/SHOWPLAN grants. Validate allowed and denied calls, masking and durable audit IDs after certificate rotation and recovery. The public Demo remains synthetic PostgreSQL/MySQL. See the [release notes](release-notes-v3.9.0.md), [upgrade guide](v3.9.0-upgrade.md) and [acceptance record](v3.9.0-acceptance.md).
 
 ## v3.8.0 ClickHouse budgets and Milvus tenant filters
 

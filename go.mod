@@ -33,7 +33,7 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/shirou/gopsutil/v4 v4.26.6
-	github.com/sijms/go-ora/v2 v2.9.0
+	github.com/sijms/go-ora/v3 v3.0.1
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.37.0
