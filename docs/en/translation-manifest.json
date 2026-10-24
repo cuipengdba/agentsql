@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "de5c8f80fb306199ed829b345f837cf5111fbb9ad2b11cd68a912442b2564197"
+      "source_sha256": "71395275847115a94e87b26eb7104a60ce19ae952aa65f9bd59c4cbc70be37fe"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -919,7 +919,7 @@
     {
       "source": "deploy/ecs-demo/README.md",
       "english": "deploy/ecs-demo/README.en.md",
-      "source_sha256": "8e1418b68226c7b785dd2334a664f27f8f94caaadb0adfb0eaf7f193f4705cfb"
+      "source_sha256": "ed25819e5547c1406e5aad35ee577895ca63a2b90ba3ad27a6f084ae600d3df5"
     },
     {
       "source": "dbext/packaging/README.md",
