@@ -262,19 +262,21 @@ Agent 是调用 AgentSQL 的独立身份。
 
 ### YashanDB 客户端配置
 
-崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。v0.5.1 Linux 发行包和 GHCR 镜像构建使用独立客户端 23.4.7.100，并校验匹配架构的 SHA-256；正式资产仍须通过双架构内容检查。自行从源码构建时，需取得同版客户端，使用 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动 v1.4.4，并配置客户端运行库目录。详见 [部署指南](DEPLOY.md#方式三systemd)。
+崖山 C 客户端再分发已获厂家口头授权；仓库无书面授权文件。当前 Linux 发行包和 GHCR 镜像包含独立客户端 23.4.7.100，正式发行验收核对 amd64/arm64 架构、库文件和哈希。自行从源码构建时，需取得同版客户端，使用 `CGO_ENABLED=1` 与 `-tags yashan` 编入 Go 驱动 v1.4.4，并配置客户端运行库目录。详见[部署指南](DEPLOY.md#方式三systemd)。
 
-- 自行安装客户端后，在启动 AgentSQL 前设置客户端库目录，例如：
+自行安装客户端后，在启动 AgentSQL 前设置客户端库目录，例如：
 
-  ```bash
-  export LD_LIBRARY_PATH="/path/to/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  ./agentsql --version
-  ./agentsql serve -c ./deploy/systemd/config.yaml
-  ```
+```bash
+export LD_LIBRARY_PATH="/path/to/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+./agentsql --version
+./agentsql serve -c ./deploy/systemd/config.yaml
+```
 
-- v0.5.1 Linux 发行包将客户端放在 `lib/yashandb`，安装器写入 `/usr/local/lib/agentsql/yashandb`；GHCR 镜像中的路径为 `/opt/yashandb-client/lib`。使用前应按正式资产的清单和签名核对文件与架构。
+Linux 发行包将客户端放在 `lib/yashandb`，安装器写入 `/usr/local/lib/agentsql/yashandb`；GHCR 镜像中的路径为 `/opt/yashandb-client/lib`。使用前按正式资产的清单、签名与独立可信公钥核对文件和架构。
 
-客户端缺失或动态加载失败时，YashanDB 连接失败关闭；其他数据源的使用不依赖该客户端。标准 parser、通用规则与窄 SELECT 查询路径已接通；历史隔离验证使用的独立客户端通过真库直连、参数绑定、最小权限 SELECT 与写入拒绝探针。另以真实数据库执行器和测试夹具审计端口验证 SELECT、列血缘、R010、手机号脱敏及三条审计；HTTP/MCP、持久化审计和最小权限账号与流水线组合仍未测。写入、事务、EXPLAIN 和未知输出继续失败关闭。批三十历史真库记录仅证明当时的连接、元数据发现及普通 Query 拒绝行为，不能作为新查询路径通过证据。出现 `libyascli.so: cannot open shared object file` 时检查实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、独立客户端、服务器版本与 CPU 架构。
+客户端缺失或动态加载失败时，YashanDB 连接失败关闭；其他数据源的使用不依赖该客户端。v2.1.0 已在 Enterprise Edition 23.4.1.109、`COMPAT_VECTOR=yashan`、x86_64 单实例合成数据上验证最小权限 HTTP MCP、窄 SELECT、R010 拒绝、手机号脱敏、Inspector/Dify、持久审计、SELECT 撤权，以及业务库和独立审计库故障关闭与恢复。参见[指定实例验收](v2.1.0-acceptance.md)与[正式发布证据](v2.1.0-release-evidence.md)。
+
+TLS、客户端取消、SQL 超时、主备、持续生产负载与 aarch64 崖山服务端仍未验证；写入、事务、EXPLAIN 和未知输出继续拒绝，不据此声明完整生产支持。出现 `libyascli.so: cannot open shared object file` 时检查实际进程的 `LD_LIBRARY_PATH`；出现未定义符号、架构错误或 `YAS-02143` 时，核对 Go 驱动、独立客户端、服务器版本与 CPU 架构。
 
 ## 6. 权限 `/policies`
 
@@ -302,7 +304,7 @@ Agent 是调用 AgentSQL 的独立身份。
 
 v1.0.0 起，有列策略的 SELECT 不再退回仅校验表名的路径。PostgreSQL 必须由已启用且可用的 B2 绑定器核对投影、谓词、JOIN 和自连接中的列引用；B2 不可用会在执行前失败关闭。HighGo、Vastbase 等没有等价列绑定证明的数据源不能依赖列策略；MySQL 仅在其独立受限 B2 子集启用后可用。权限页会提示这一边界；离线预检只证明明确拒绝或未知，不代表真实执行许可。
 
-v3.4.1 仅在指定 KingbaseES V9R1C10 PG 模式单实例验证了 PostgreSQL 协议路径的受限单表 `SELECT` B2 列授权。接入时先检查实例版本、B2 就绪和实时列允许/拒绝；视图、JOIN、函数及无法证明列来源的语句仍拒绝。该内核的 B5 写入行数合同未通过，网关写入与会话入口关闭。Vastbase G100 Build 9 的 B2 探测未通过，列策略继续失败关闭；两者均不得套用“完整 PostgreSQL 支持”的声明，见[真库验收](v3.4.1-acceptance.md)。
+v3.4.0 仅在指定 KingbaseES V9R1C10 PG 模式单实例验证了 PostgreSQL 协议路径的受限单表 `SELECT` B2 列授权。接入时先检查实例版本、B2 就绪和实时列允许/拒绝；视图、JOIN、函数及无法证明列来源的语句仍拒绝。该内核的 B5 写入行数合同未通过，网关写入与会话入口关闭。Vastbase G100 Build 9 的 B2 探测未通过，列策略继续失败关闭；两者均不得套用“完整 PostgreSQL 支持”的声明，见[真库验收](v3.4.0-acceptance.md)。
 
 ### `row_filter`
 

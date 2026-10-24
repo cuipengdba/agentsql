@@ -54,7 +54,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.7.0)） | MongoDB 有界读取及副本集、Redis/Valkey Hash 字段授权与 Sentinel 验证；见[验收](docs/v3.7.0-acceptance.md)与[发布证据](docs/v3.7.0-release-evidence.md)。 |
 | v3.8.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.8.0)） | 指定 ClickHouse 分析查询资源约束及 Milvus 标量过滤和行级租户范围；见[设计](docs/v3.8.0-design.md)、[验收](docs/v3.8.0-acceptance.md)与[发布证据](docs/v3.8.0-release-evidence.md)。 |
 | v3.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.9.0)） | Oracle 和 SQL Server 指定单实例的证书、计划预算、查询与故障恢复；见[验收](docs/v3.9.0-acceptance.md)与[发布证据](docs/v3.9.0-release-evidence.md)。 |
-| v4.0.0 | 开发与验收中 | 原规划第十版的企业交付与长期维护基线：离线包、跨版本升级、诊断与统一验收。 |
+| v4.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.0.0)） | 原十版计划完成：15 项资产本地验签、离线运输包、最小诊断、六条跨版本升级/恢复与双语维护指引；见[验收](docs/v4.0.0-acceptance.md)及[发布证据](docs/v4.0.0-release-evidence.md)。不扩大数据库支持等级或承诺固定 LTS/SLA。 |
 
 ## v3.1.0 设计与验收范围
 

@@ -2,7 +2,7 @@
 
 **Language:** [Simplified Chinese](../release-notes-v4.0.0.md) | [English](release-notes-v4.0.0.md)
 
-This release improves isolated-network delivery, cross-version upgrades and maintenance diagnostics, completing the authorized ten-release v3.1.0–v4.0.0 plan. Formal publication status is recorded in [release evidence](v4.0.0-release-evidence.md).
+This release improves isolated-network delivery, cross-version upgrades and maintenance diagnostics, completing the authorized ten-release v3.1.0–v4.0.0 plan. This release is formally published; see [release evidence](v4.0.0-release-evidence.md) for the completed delivery gates.
 
 | Change | User-visible result |
 | --- | --- |
