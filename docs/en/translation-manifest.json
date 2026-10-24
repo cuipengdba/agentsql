@@ -1114,7 +1114,7 @@
     {
       "source": "docs/v3.7.0-acceptance.md",
       "english": "docs/en/v3.7.0-acceptance.md",
-      "source_sha256": "5c6e4623198fa9da8780c2d07dfb0134b13135c51b6e4b7184ed46f396758132"
+      "source_sha256": "c2c93ff20c5ccd9140416f50073f1babc2052a21b082abdf3fa02ab0c8f958d9"
     },
     {
       "source": "docs/v3.7.0-upgrade.md",
