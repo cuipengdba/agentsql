@@ -2,17 +2,17 @@
 
 **Language:** [English](RELEASE_ASSETS.md) | [Simplified Chinese](../RELEASE_ASSETS.md)
 
-Current official version: v3.6.0. Each maintenance release is rebuilt from its official closure commit, with the asset name's executable definition as `scripts/release-dryrun.ps1`; historical packages, placeholder signatures, or old provenance cannot be reused.
+Current release candidate: v3.7.0. Each maintenance release is rebuilt from its official closure commit, with the asset name's executable definition as `scripts/release-dryrun.ps1`; historical packages, placeholder signatures, or old provenance cannot be reused.
 
 ## formal assets
 
 ```text
-agentsql-v3.6.0-linux-amd64.tar.gz
-agentsql-v3.6.0-linux-amd64.tar.gz.sha256
-agentsql-v3.6.0-linux-arm64.tar.gz
-agentsql-v3.6.0-linux-arm64.tar.gz.sha256
-agentsql-v3.6.0.spdx.json
-agentsql-v3.6.0.spdx.json.sig.json
+agentsql-v3.7.0-linux-amd64.tar.gz
+agentsql-v3.7.0-linux-amd64.tar.gz.sha256
+agentsql-v3.7.0-linux-arm64.tar.gz
+agentsql-v3.7.0-linux-arm64.tar.gz.sha256
+agentsql-v3.7.0.spdx.json
+agentsql-v3.7.0.spdx.json.sig.json
 ed25519-release-public-key.json
 go-version-metadata.txt
 install.sh
@@ -31,10 +31,10 @@ Official packages also need to verify the binary version, OCI revision, actual G
 ## Maintenance version production preparation
 
 ```powershell
-pwsh ./scripts/release-dryrun.ps1 -Version v3.6.0 -ProductionPrepare -PublicKeyPath '<trusted-public-key-absolute-path>'
-pwsh ./scripts/release-dryrun.ps1 -Version v3.6.0 -ValidateOnly -AssetsDirectory '<signed-assets-directory>'
+pwsh ./scripts/release-dryrun.ps1 -Version v3.7.0 -ProductionPrepare -PublicKeyPath '<trusted-public-key-absolute-path>'
+pwsh ./scripts/release-dryrun.ps1 -Version v3.7.0 -ValidateOnly -AssetsDirectory '<signed-assets-directory>'
 ```
 
 Successful production preparation only means that the assets to be signed and the three dual-architecture OCI archives have been generated; the formal signature, cryptographic verification, GitHub upload, anonymous re-download, GHCR and online acceptance can only be announced before being released. `-ValidateOnly`'s signature structure check does not replace cryptographic signature verification using a trusted public key.
 
-The actual v3.6.0 package digests, CI, signatures, GHCR, website, and Demo evidence are in the [release record](v3.6.0-release-evidence.md). The [historical asset plan](release-assets-history.md) is retained for reference.
+The v3.7.0 package digests, CI, signatures, GHCR, website, and Demo results will be recorded after formal release; see the current [candidate acceptance](v3.7.0-acceptance.md). The [historical asset plan](release-assets-history.md) is retained for reference.

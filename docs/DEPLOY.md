@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](DEPLOY.md) | [English](en/DEPLOY.md)
 
-> 现行指南：适用于 v3.6.0 及兼容的 3.6.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v3.7.0 及兼容的 3.7.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
 AgentSQL 是面向 AI Agent 的数据库安全网关和生产级 MCP Server。元数据与审计记录默认保存在本地 SQLite，也可使用 PostgreSQL 控制面；业务数据库仍使用各自的 PostgreSQL 或 MySQL 连接。
 
@@ -290,7 +290,7 @@ pg_restore --no-owner --no-privileges --dbname "$AGENTSQL_STORE_AUDIT_DSN" agent
 
 ## 方式二：本机二进制
 
-从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.6.0 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
+从源码构建依赖 Go 1.26、C 编译器与 glibc 兼容环境；v3.7.0 正式发布脚本固定使用 Go 1.26.10。`pg_query_go` 必须启用 cgo。
 
 ### 预编译二进制系统要求
 
@@ -891,18 +891,18 @@ COMMIT;
 
 ## 发布与分发
 
-当前正式版本为 v3.6.0，维护版本按[每版交付流程](RELEASE_ROUTINE.md)执行。当前资产与验签步骤见[发行资产](RELEASE_ASSETS.md)，实际结果见[发布证据](v3.6.0-acceptance.md)。发布前须锁定完整干净提交，执行前后核对源码、测试与构建输入；不能复用旧包或占位签名。
+当前发布候选版本为 v3.7.0，维护版本按[每版交付流程](RELEASE_ROUTINE.md)执行。当前资产与验签步骤见[发行资产](RELEASE_ASSETS.md)，实际结果见[发布证据](v3.7.0-acceptance.md)。发布前须锁定完整干净提交，执行前后核对源码、测试与构建输入；不能复用旧包或占位签名。
 
 ```powershell
 # 不签名、不推送的完整双架构预演。
-pwsh ./scripts/release-dryrun.ps1 -Version v3.6.0
+pwsh ./scripts/release-dryrun.ps1 -Version v3.7.0
 
 # 正式生产准备：必须使用独立核验过的受控公钥。
 $trustedReleasePublicKey = '<trusted-public-key-absolute-path>'
-pwsh ./scripts/release-dryrun.ps1 -Version v3.6.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
+pwsh ./scripts/release-dryrun.ps1 -Version v3.7.0 -ProductionPrepare -PublicKeyPath $trustedReleasePublicKey
 
 # 签名并验收后，从同一带注释标签推送精确版本镜像。
-pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.6.0 -IncludeAuxiliaryTags -Push
+pwsh ./scripts/build-ghcr-multiarch.ps1 -Version v3.7.0 -IncludeAuxiliaryTags -Push
 ```
 
 生产准备生成 11 项待签名资产，签署 SBOM、provenance、SHA256SUMS 后共 15 项。执行三个 Ed25519 验签，核对包、源提交、版本、双架构、运行库和匿名下载。GHCR 主镜像、Demo、quickstart 必须公开并含 amd64/arm64；在无登录环境拉取、运行并记录实际 digest。官网和 Demo 通过后再用已验收主镜像摘要单独提升 `latest`，并重新匿名验证。过去 v1.1–v1.4 暂缓官网的分阶段策略已经结束，不能作为当前版本跳过官网与 Demo 的依据。

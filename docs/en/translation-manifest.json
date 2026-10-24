@@ -84,7 +84,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "52ba1c1cfa344152a1bf1c2db7c0234898d8cd7f930c7aa9ef2792a3de3e54a4"
+      "source_sha256": "c74adcb56947a0262588eddbd66a801c54672b05a6f07ee87591337ca9a8ee08"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "12736a4b1534538380b681c16d65517344ccf732e65ea97fd514e5aaf2645bdb"
+      "source_sha256": "2c0fdcdc037abe4bab55a5c66dee74c0bc441293457497e7a171ffa6afdf05cc"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "fef17dd532729ffde9427c36187b603335e005c3b60accd5f8de8e475e291483"
+      "source_sha256": "1d1424bfeb790951b488c9be470b2a27bea1583ad946d97a7605c8d557fe2e17"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -164,7 +164,7 @@
     {
       "source": "docs/NOTIFICATIONS.md",
       "english": "docs/en/NOTIFICATIONS.md",
-      "source_sha256": "8b978a659175402a86b54ffa6747bc99d8b2a4bd8062c2b715c0457758ba1a81"
+      "source_sha256": "6b262c8a614df3c3327e8b7e7e009f2bc275d726d45a700122a0fa098d7ea973"
     },
     {
       "source": "docs/opentenbase-dual-kernel.md",
@@ -174,7 +174,7 @@
     {
       "source": "docs/OPERATIONS.md",
       "english": "docs/en/OPERATIONS.md",
-      "source_sha256": "1286d54bece3b9e32e22284fe0f2591314836179abb6f0870f0288e3ef3f2fcf"
+      "source_sha256": "f17128d0deea5ce288637053c026f59e3ff4a8804c5fdc2f01b835dd16d71440"
     },
     {
       "source": "docs/PARSER_PERF.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "606df26a8f31dce03c4ebc92c0851c5ba623821f52b66dc88c917cf7c1770943"
+      "source_sha256": "c529c47857eb1df02340b01ef2c3c812c13f3b6fb92bc46750e89c2a3f2b2f6c"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -469,12 +469,12 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "5b4ffe2ffcad6077d070dceebcd5f94788355305fac0ca0c3591ec61fb2e7393"
+      "source_sha256": "a0186d70a5f3da015720445d2eaeab9ba3cbe051531967edfbb29d953015875e"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
       "english": "docs/en/RELEASE_PROCESS.md",
-      "source_sha256": "239992cfe993b46983db3cfa4253db6b70872a75fffda91808462ce5da60eb32"
+      "source_sha256": "50f736abbc92e9114a40b9640451d812ffc7d85728c09d94f672a1985fb58eca"
     },
     {
       "source": "docs/RELEASE_ROUTINE.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "40c74beb03fc6e3aeae3d7e6227fbbd3007518e6264863fdcd2606b0c6776f5c"
+      "source_sha256": "6f57962a910c0d7ed4e11be03a032ea739c20e8a298676c9867fce95ee960b03"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
