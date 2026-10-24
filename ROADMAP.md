@@ -54,7 +54,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.7.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.7.0)） | MongoDB 有界读取及副本集、Redis/Valkey Hash 字段授权与 Sentinel 验证；见[验收](docs/v3.7.0-acceptance.md)与[发布证据](docs/v3.7.0-release-evidence.md)。 |
 | v3.8.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.8.0)） | 指定 ClickHouse 分析查询资源约束及 Milvus 标量过滤和行级租户范围；见[设计](docs/v3.8.0-design.md)、[验收](docs/v3.8.0-acceptance.md)与[发布证据](docs/v3.8.0-release-evidence.md)。 |
 | v3.9.0 | 候选验收中 | Oracle 和 SQL Server 的证书、计划、查询与指定拓扑验证。 |
-| v4.0.0 | 待开发 | 原规划第十版的企业交付与长期维护基线：离线包、跨版本升级、诊断与统一验收。 |
+| v4.0.0 | 开发与验收中 | 原规划第十版的企业交付与长期维护基线：离线包、跨版本升级、诊断与统一验收。 |
 
 ## v3.1.0 设计与验收范围
 
