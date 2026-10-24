@@ -98,6 +98,10 @@ func (sender *webhookSender) Send(ctx context.Context, payload Payload) error {
 	for name, value := range sender.config.Headers {
 		request.Header.Set(name, value)
 	}
+	if payload.DeliveryID != "" {
+		// Override user-defined headers so a retry retains the worker's stable key.
+		request.Header.Set("X-AgentSQL-Delivery-ID", payload.DeliveryID)
+	}
 	if sender.config.Template == WebhookGeneric && sender.config.Secret != "" {
 		timestamp := strconv.FormatInt(sender.now().Unix(), 10)
 		request.Header.Set("X-AgentSQL-Timestamp", timestamp)
