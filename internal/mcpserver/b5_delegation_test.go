@@ -35,7 +35,7 @@ func TestB5RequestIdentityBindsHumanAgentAndTenant(t *testing.T) {
 
 func TestB5RequestIdentityUsesAuthenticatedAgentTenant(t *testing.T) {
 	ctx := context.WithValue(context.Background(), requestIdentityContextKey{}, requestIdentity{
-		agent: model.Agent{ID: "agent-1", TenantID: "tenant-1"},
+		agent: model.Agent{ID: "agent-1", TenantID: "tenant-1"}, plainKey: "test-key",
 	})
 	principal, tenant := b5RequestIdentity(ctx, "agent-1")
 	require.Equal(t, "agent-1", principal)
