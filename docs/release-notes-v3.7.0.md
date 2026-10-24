@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](release-notes-v3.7.0.md) | [English](en/release-notes-v3.7.0.md)
 
-状态：发布候选；正式发布与公网验收完成后再更新结论。
+状态：已发布。正式资产、GHCR、官网及公网 Demo 的结果见[发布证据](v3.7.0-release-evidence.md)。
 
 ## 本版能力
 
@@ -15,4 +15,4 @@
 
 原有 MongoDB、Redis、Valkey 单实例受控读取路径继续保留；新拓扑必须由管理员显式配置。支持结论仅覆盖验收记录中的镜像版本、TLS/ACL 配置和合成数据。MongoDB 分片、Redis/Valkey Cluster、任意聚合/命令/写入、厂商认证及完整生产 SLA 均未纳入本版结论。公开 Demo 仍只展示已部署的 PostgreSQL/MySQL 合成场景。
 
-升级、回退与配置步骤见[升级指南](v3.7.0-upgrade.md)，实际测试和未完成项见[验收记录](v3.7.0-acceptance.md)。
+升级、回退与配置步骤见[升级指南](v3.7.0-upgrade.md)；实际测试和未验证范围见[验收记录](v3.7.0-acceptance.md)。

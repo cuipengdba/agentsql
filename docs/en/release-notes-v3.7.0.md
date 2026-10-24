@@ -2,7 +2,7 @@
 
 **Language:** [English](release-notes-v3.7.0.md) | [Simplified Chinese](../release-notes-v3.7.0.md)
 
-Status: release candidate; the conclusion will be updated after formal release and public acceptance.
+Status: released. See [release evidence](v3.7.0-release-evidence.md) for formal assets, GHCR, website, and public Demo results.
 
 ## Capabilities
 
@@ -15,4 +15,4 @@ Status: release candidate; the conclusion will be updated after formal release a
 
 Existing controlled standalone MongoDB, Redis, and Valkey reads remain available. New topologies require explicit administrator configuration. Support conclusions cover only the tested image versions, TLS/ACL configuration, and synthetic data in the acceptance record. MongoDB sharding, Redis/Valkey Cluster, arbitrary aggregation/commands/writes, vendor certification, and a complete production SLA are outside this release. The public Demo still presents only its deployed synthetic PostgreSQL/MySQL scenarios.
 
-See the [upgrade guide](v3.7.0-upgrade.md) for configuration and rollback, and the [acceptance record](v3.7.0-acceptance.md) for actual tests and remaining work.
+See the [upgrade guide](v3.7.0-upgrade.md) for configuration and rollback, and the [acceptance record](v3.7.0-acceptance.md) for actual tests and unverified scope.
