@@ -46,7 +46,7 @@ v3.0.1 为官网、GitHub 文档与 Web 控制台增加中英文入口和英文�
 
 v3.0.2 补齐 GitHub 与官网的完整英文对应内容，新增当前运维手册与文档索引，修复浅色主题下左侧导航配色，并提供 SQLBot v1.10.2 PostgreSQL 执行层适配。接入仍执行原有授权、脱敏与持久审计；只覆盖验收所列版本和场景。见[SQLBot 接入指南](docs/SQLBOT.md)与[发布说明](docs/release-notes-v3.0.2.md)。
 
-v3.2.0 把指定 MySQL 只读问数接入 SQLBot 个人绑定，打通 PostgreSQL B2 列授权与只读审批，并增加表级策略影响预览；详见[该版发布说明](docs/release-notes-v3.2.0.md)。v3.3.0 为指定达梦 DM8 Pack3 增加服务端证书验证与扫描成本边界。v3.4.0 深化指定金仓与 Vastbase 的受控读取、计划和运维验证，金仓写入与 Vastbase 列授权继续关闭；见[该版发布说明](docs/release-notes-v3.4.0.md)与[验收记录](docs/v3.4.0-acceptance.md)。v3.4.1 修复管理审计 SSE 的跨租户事件隔离；见[安全修复说明](docs/release-notes-v3.4.1.md)。v3.5.0 增加三网关部署样例和跨网关租户审计游标，详见[发布说明](docs/release-notes-v3.5.0.md)与[验收记录](docs/v3.5.0-acceptance.md)。
+v3.2.0 把指定 MySQL 只读问数接入 SQLBot 个人绑定，打通 PostgreSQL B2 列授权与只读审批，并增加表级策略影响预览；详见[该版发布说明](docs/release-notes-v3.2.0.md)。v3.3.0 为指定达梦 DM8 Pack3 增加服务端证书验证与扫描成本边界。v3.4.0 深化指定金仓与 Vastbase 的受控读取、计划和运维验证，金仓写入与 Vastbase 列授权继续关闭；见[该版发布说明](docs/release-notes-v3.4.0.md)与[验收记录](docs/v3.4.0-acceptance.md)。v3.4.1 修复管理审计 SSE 的跨租户事件隔离；见[安全修复说明](docs/release-notes-v3.4.1.md)。v3.5.0 增加三网关部署样例和跨网关租户审计游标，详见[发布说明](docs/release-notes-v3.5.0.md)、[验收记录](docs/v3.5.0-acceptance.md)与[发布证据](docs/v3.5.0-release-evidence.md)。
 
 **验证范围：**v1.0.0–v2.8.0 的数据库及安全能力分别见各版验收记录；v2.9.0 策略评审与审计见[验收记录](docs/v2.9.0-acceptance.md)；v3.0.0 能力目录、诊断与客户端见[验收记录](docs/v3.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.5.0)、签名及镜像匿名拉取验收为准。
 

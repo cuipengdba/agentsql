@@ -37,4 +37,4 @@ pwsh ./scripts/release-dryrun.ps1 -Version v3.5.0 -ValidateOnly -AssetsDirectory
 
 生产准备成功只表示待签资产和三种双架构 OCI 归档已生成；正式签名、密码学验证、GitHub 上传、匿名重下、GHCR 和线上验收分别完成后才可宣称发布。`-ValidateOnly` 的签名结构检查不替代使用受信公钥的密码学验签。
 
-实际 v3.5.0 包摘要、CI、签名、GHCR、官网与 Demo 证据见[正式发布记录](v3.5.0-acceptance.md)。[历史资产计划](release-assets-history.md)仅供追溯。
+实际 v3.5.0 包摘要、CI、签名、GHCR、官网与 Demo 证据见[正式发布记录](v3.5.0-release-evidence.md)。[历史资产计划](release-assets-history.md)仅供追溯。
