@@ -1090,6 +1090,11 @@
       "source": "docs/v3.6.0-audit-archive.md",
       "english": "docs/en/v3.6.0-audit-archive.md",
       "source_sha256": "e2e129f445ddc96b445c767be1665acc1faa8ce1160493b03513a539471c6361"
+    },
+    {
+      "source": "docs/v3.6.0-acceptance.md",
+      "english": "docs/en/v3.6.0-acceptance.md",
+      "source_sha256": "c91f21868562a55812ee0d24418cfdb87e036003f4a966ccb5fe1822208e56a9"
     }
   ]
 }
