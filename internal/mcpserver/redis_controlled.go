@@ -151,6 +151,10 @@ func (handlers *toolHandlers) keyTerminalAudit(datasource model.Datasource, obje
 }
 
 func (handlers *toolHandlers) keyAudit(ctx context.Context, datasource model.Datasource, object, decision, phase string, rows, masked int) (model.AuditLog, error) {
+	return handlers.keyAuditWithTool(ctx, datasource, "read_key", object, decision, phase, rows, masked)
+}
+
+func (handlers *toolHandlers) keyAuditWithTool(ctx context.Context, datasource model.Datasource, toolName, object, decision, phase string, rows, masked int) (model.AuditLog, error) {
 	if handlers == nil || handlers.runtime == nil || handlers.runtime.Store == nil || ctx == nil || datasource.ID == "" {
 		return model.AuditLog{}, errors.New("key audit unavailable")
 	}
@@ -164,7 +168,7 @@ func (handlers *toolHandlers) keyAudit(ctx context.Context, datasource model.Dat
 	}
 	result := model.AuditLog{AgentID: &handlers.agent.ID, DatasourceID: &datasource.ID, DBType: &datasource.DBType,
 		Decision: decision, Action: &phase, RowsReturned: &rows}
-	tool, hits, details := "read_key", "[]", string(detailsBytes)
+	tool, hits, details := toolName, "[]", string(detailsBytes)
 	result.MCPTool, result.RuleHits, result.DetailsJSON = &tool, &hits, &details
 	if object != "" {
 		result.Objects = &object

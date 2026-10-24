@@ -80,6 +80,7 @@ type toolHandlers struct {
 	mongoFind         func(context.Context, model.Datasource, executor.MongoFindRequest) (model.QueryResult, error)
 	mongoRedactor     func(context.Context, string) (mask.Redactor, error)
 	keyRead           func(context.Context, model.Datasource, executor.RedisReadRequest) (model.QueryResult, error)
+	hashRead          func(context.Context, model.Datasource, executor.RedisHashReadRequest) (model.QueryResult, error)
 	keyRedactor       func(context.Context, string) (mask.Redactor, error)
 	keyAuditIdentity  func(string, int, string) (string, error)
 	analyticsRead     func(context.Context, model.Datasource, executor.ClickHouseReadRequest) (model.QueryResult, error)

@@ -33,6 +33,12 @@ type keyReadInput struct {
 	Key          string `json:"key" jsonschema:"精确键名，不接受通配符或原生命令"`
 }
 
+type hashReadInput struct {
+	DatasourceID string   `json:"datasource_id" jsonschema:"授权的 Redis 或 Valkey 数据源 ID"`
+	Key          string   `json:"key" jsonschema:"精确 Hash 键名，不接受通配符或原生命令"`
+	Fields       []string `json:"fields" jsonschema:"显式授权的 Hash 字段，1 到 16 个"`
+}
+
 type analyticsInput struct {
 	DatasourceID string            `json:"datasource_id" jsonschema:"授权的 ClickHouse 数据源 ID"`
 	Table        string            `json:"table" jsonschema:"当前数据库内已精确授权的 MergeTree 表名"`
@@ -166,6 +172,13 @@ func registerTools(server *mcp.Server, handlers *toolHandlers) {
 		Description: "读取授权 Redis/Valkey 单个 UTF-8 字符串键；最多 64 KiB，按键权限、脱敏规则和持久审计处理。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input keyReadInput) (*mcp.CallToolResult, ToolResponse, error) {
 		response := handlers.readKey(ctx, input)
+		return protocolResult(response), response, nil
+	})
+	addAgentTool(server, &mcp.Tool{
+		Name:        "read_hash_fields",
+		Description: "读取授权 Redis/Valkey 精确 Hash 键的显式字段；最多 16 个字段和 64 KiB，按字段授权、脱敏与持久审计处理。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input hashReadInput) (*mcp.CallToolResult, ToolResponse, error) {
+		response := handlers.readHashFields(ctx, input)
 		return protocolResult(response), response, nil
 	})
 	addAgentTool(server, &mcp.Tool{

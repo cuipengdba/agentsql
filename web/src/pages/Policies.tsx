@@ -22,7 +22,7 @@ interface PolicyChange {
 }
 
 interface PolicyFormValues {
-  object_type: "database" | "schema" | "table" | "column" | "key";
+  object_type: "database" | "schema" | "table" | "column" | "key" | "key_field";
   object_name: string;
   action: "allow" | "deny";
   columns?: string[];
@@ -37,6 +37,7 @@ function validateObjectPattern(value: string, objectType: PolicyFormValues["obje
   if (!value) return "对象名不能为空";
   if (value.trim() !== value) return "对象名首尾不能包含空格";
   if (objectType === "key") return /^db(?:[0-9]|1[0-5]):[A-Za-z0-9][A-Za-z0-9:_-]{2,126}\*?$/.test(value) ? null : "键范围须为 db0:customers:1 或 db0:customers:*，不能授予全库";
+  if (objectType === "key_field") return /^db(?:[0-9]|1[0-5]):[A-Za-z0-9][A-Za-z0-9:_-]{2,126}#[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value) ? null : "Hash 字段须为 db0:customers:1#phone，键必须精确且字段不能含通配符";
   const parts = value.split(".");
   if (parts.length > 2 || parts.some((part) => !part)) return "对象名只能是裸名称、schema.table 或 schema.*";
   if (parts.length === 2 && parts[0] === "*") return "不允许 *.x 形式的通配符";
@@ -204,10 +205,10 @@ export function Policies() {
       datasource_id: datasourceID,
       object_type: values.object_type,
       object_name: objectName,
-      action: values.object_type === "column" ? "allow" : values.action,
+      action: values.object_type === "column" || values.object_type === "key_field" ? "allow" : values.action,
     };
     if (values.object_type === "column") input.columns = columns.join(",");
-    if (values.object_type !== "key" && values.row_filter?.trim()) input.row_filter = values.row_filter.trim();
+    if (values.object_type !== "key" && values.object_type !== "key_field" && values.row_filter?.trim()) input.row_filter = values.row_filter.trim();
     queueChange({ kind: editing ? "update" : "create", id: input.id, before: editing || undefined, after: input });
     setDrawerOpen(false);
     void message.success("变更已加入待提交清单");
@@ -299,14 +300,15 @@ export function Policies() {
 
       <Drawer open={drawerOpen} title={editing ? "编辑策略" : "新增策略"} width={540} destroyOnClose onClose={() => setDrawerOpen(false)} extra={<Button type="primary" onClick={() => void queueForm()}>加入待提交</Button>}>
         <Descriptions className="cfg-scope-summary" size="small" column={1} bordered><Descriptions.Item label="Agent">{agentID}</Descriptions.Item><Descriptions.Item label="数据源">{datasourceID}</Descriptions.Item></Descriptions>
-        <Form<PolicyFormValues> className="cfg-form" form={form} layout="vertical" onValuesChange={(changed: Partial<PolicyFormValues>) => { if (changed.object_type === "column") form.setFieldValue("action", "allow"); }}>
+        <Form<PolicyFormValues> className="cfg-form" form={form} layout="vertical" onValuesChange={(changed: Partial<PolicyFormValues>) => { if (changed.object_type === "column" || changed.object_type === "key_field") form.setFieldValue("action", "allow"); }}>
           <Form.Item name="object_type" label="对象类型" rules={[{ required: true }]}><Select options={Object.entries(objectTypeMeta).map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item>
-          <Form.Item name="object_name" label="对象名" rules={[{ required: true, message: "请输入对象名" }]}><Input placeholder={objectType === "key" ? "db0:customers:1 / db0:customers:*" : "* / schema.* / schema.table / table"} /></Form.Item>
-          <Form.Item name="action" label="动作" rules={[{ required: true }]}><Radio.Group disabled={objectType === "column"} options={Object.entries(policyActionMeta).map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item>
+          <Form.Item name="object_name" label="对象名" rules={[{ required: true, message: "请输入对象名" }]}><Input placeholder={objectType === "key_field" ? "db0:customers:1#phone" : objectType === "key" ? "db0:customers:1 / db0:customers:*" : "* / schema.* / schema.table / table"} /></Form.Item>
+          <Form.Item name="action" label="动作" rules={[{ required: true }]}><Radio.Group disabled={objectType === "column" || objectType === "key_field"} options={Object.entries(policyActionMeta).map(([value, meta]) => ({ value, label: meta.label }))} /></Form.Item>
           {objectType === "column" ? <Alert className="cfg-form-note" type="info" showIcon message="列级策略只支持 allow，拒绝列请从白名单中移除" /> : null}
           {objectType === "key" ? <Alert className="cfg-form-note" type="info" showIcon message="键策略只适用于 Redis/Valkey；dbN 取自数据源。前缀末尾可用 *，拒绝规则优先。" /> : null}
+          {objectType === "key_field" ? <Alert className="cfg-form-note" type="info" showIcon message="Hash 字段须逐个授权，并同时给同一精确键添加键策略；前缀键授权不会开放 Hash 字段。" /> : null}
           {objectType === "column" ? <Form.Item name="columns" label="授权列" rules={[{ required: true, type: "array", min: 1 }]}><Select mode="tags" tokenSeparators={[","]} placeholder="输入列名后回车" /></Form.Item> : null}
-          {objectType !== "key" ? <Form.Item name="row_filter" label="行过滤"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} /></Form.Item> : null}
+          {objectType !== "key" && objectType !== "key_field" ? <Form.Item name="row_filter" label="行过滤"><Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} /></Form.Item> : null}
         </Form>
       </Drawer>
 

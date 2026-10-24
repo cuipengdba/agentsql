@@ -1234,15 +1234,23 @@ func validatePolicyInput(input policyInput) error {
 }
 
 func (handler *Handler) validateKeyPolicyDatasource(ctx context.Context, input policyInput) error {
-	if input.ObjectType != "key" {
+	if input.ObjectType != "key" && input.ObjectType != "key_field" {
 		return nil
+	}
+	objectName := input.ObjectName
+	if input.ObjectType == "key_field" {
+		var err error
+		objectName, _, err = policy.ParseHashFieldScope(input.ObjectName)
+		if err != nil {
+			return err
+		}
 	}
 	datasource, err := handler.deps.Runtime.Store.Datasources().Get(ctx, input.DatasourceID)
 	if err != nil || (datasource.DBType != "redis" && datasource.DBType != "valkey") {
 		return fmt.Errorf("key policies require a Redis or Valkey datasource")
 	}
 	database, err := executor.RedisDatabaseNumber(datasource)
-	if err != nil || !strings.HasPrefix(input.ObjectName, "db"+strconv.Itoa(database)+":") {
+	if err != nil || !strings.HasPrefix(objectName, "db"+strconv.Itoa(database)+":") {
 		return fmt.Errorf("key policy database must match datasource")
 	}
 	return nil
