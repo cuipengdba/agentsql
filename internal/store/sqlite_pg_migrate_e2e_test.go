@@ -82,6 +82,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_migration_commit()`)
 		require.NoError(t, err)
 		assertMigrationSummary(t, summary)
 		assertMigratedTaskReadGrants(t, ctx, metadata)
+		assertMigratedNotificationDelivery(t, ctx, metadata)
 		assertMigratedApprovalRequester(t, ctx, metadata)
 		assertMigratedMaskRuleRanges(t, ctx, metadata)
 		assertMigratedRedactionStorage(t, ctx, metadata, audit)
@@ -108,6 +109,7 @@ func assertMigratedApprovalRequester(t *testing.T, ctx context.Context, target *
 func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql.DB) {
 	t.Helper()
 	assertMigratedTaskReadGrants(t, ctx, target)
+	assertMigratedNotificationDelivery(t, ctx, target)
 	var apiKeyHash, passwordCipher string
 	require.NoError(t, target.QueryRowContext(ctx, `SELECT "api_key_hash" FROM "public"."agents" WHERE "id"='agent-1'`).Scan(&apiKeyHash))
 	require.NoError(t, target.QueryRowContext(ctx, `SELECT "password_enc" FROM "public"."datasources" WHERE "id"='ds-1'`).Scan(&passwordCipher))
@@ -144,6 +146,19 @@ func assertMigratedSemanticValues(t *testing.T, ctx context.Context, target *sql
 	require.NoError(t, err)
 	require.Equal(t, completeNotificationConfig(), notifications)
 	assertMigratedMaskRuleRanges(t, ctx, target)
+}
+
+func assertMigratedNotificationDelivery(t *testing.T, ctx context.Context, target *sql.DB) {
+	t.Helper()
+	var sequence int64
+	var failures int
+	var reason string
+	require.NoError(t, target.QueryRowContext(ctx, `
+SELECT last_seq, failures, last_error_reason FROM notification_delivery_cursors
+WHERE tenant_id='tenant_default' AND channel_id='migration-hook'`).Scan(&sequence, &failures, &reason))
+	require.Equal(t, int64(2), sequence)
+	require.Equal(t, 1, failures)
+	require.Equal(t, "timeout", reason)
 }
 
 func assertMigratedTaskReadGrants(t *testing.T, ctx context.Context, target *sql.DB) {
@@ -291,6 +306,10 @@ func seedSQLiteMigrationSource(t *testing.T, ctx context.Context) string {
 	require.NoError(t, (&NotificationRepository{
 		repositoryBase: repositoryBase{db: database, dialect: DialectSQLite}, cipher: cipher,
 	}).Replace(ctx, completeNotificationConfig()))
+	_, err = database.ExecContext(ctx, `
+INSERT INTO notification_delivery_cursors(tenant_id,channel_id,last_seq,config_digest,failures,retry_after_ms,last_error_reason)
+VALUES('tenant_default','migration-hook',2,?,1,1790000000000,'timeout')`, strings.Repeat("a", 64))
+	require.NoError(t, err)
 	require.NoError(t, database.Close())
 	return path
 }

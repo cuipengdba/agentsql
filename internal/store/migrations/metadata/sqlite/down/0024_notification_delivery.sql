@@ -1,0 +1,2 @@
+DROP INDEX idx_notification_delivery_due;
+DROP TABLE notification_delivery_cursors;

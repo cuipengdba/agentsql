@@ -555,6 +555,11 @@ func (store *Store) Notifications() *NotificationRepository {
 	}
 }
 
+// NotificationDelivery returns the durable per-tenant webhook cursor repository.
+func (store *Store) NotificationDelivery() *NotificationDeliveryRepository {
+	return &NotificationDeliveryRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
+}
+
 // Policies returns the policy repository.
 func (store *Store) Policies() *PolicyRepository {
 	return &PolicyRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}}
