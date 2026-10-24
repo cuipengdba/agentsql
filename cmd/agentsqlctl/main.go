@@ -104,6 +104,7 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newRedactionKeyCommand())
 	command.AddCommand(newChainCommand())
 	command.AddCommand(newAuditCommand())
+	command.AddCommand(newPolicyTransferCommand())
 	command.AddCommand(newUpgradeCommand())
 	command.AddCommand(newDoctorCommand())
 	return command
