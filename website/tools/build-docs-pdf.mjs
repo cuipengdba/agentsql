@@ -858,6 +858,7 @@ async function main() {
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.5.0.pdf`));
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.6.0.pdf`));
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.7.0.pdf`));
+      archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.8.0.pdf`));
     }
     const otherLanguage = actualFiles.filter((name) => new RegExp(`^agentsql-(getting-started|user-guide|mcp-integrations)-${ENGLISH ? '' : 'en-'}${VERSION.replaceAll('.', '\\.')}\\.pdf$`).test(name));
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles, ...otherLanguage].sort();
