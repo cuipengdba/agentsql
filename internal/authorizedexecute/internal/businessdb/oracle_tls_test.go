@@ -2,15 +2,31 @@ package businessdb
 
 import (
 	"encoding/pem"
+	"net"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOracleTransportDiscardsSocketAfterTimeout(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+	conn := &oracleBoundedConn{Conn: client}
+	defer conn.Close()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(20*time.Millisecond)))
+	_, err := conn.Read(make([]byte, 1))
+	require.Error(t, err)
+	// Resetting deadlines for protocol cleanup must not revive the socket.
+	require.Error(t, conn.SetDeadline(time.Time{}))
+	_, err = conn.Write([]byte("cleanup"))
+	require.Error(t, err)
+}
 
 func TestOracleVerifiedTLSConfig(t *testing.T) {
 	server := httptest.NewTLSServer(nil)

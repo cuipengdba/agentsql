@@ -311,7 +311,11 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	if businessFaultDir != "" {
 		signal(businessFaultDir, "ready")
 		waitSignal(businessFaultDir, "down")
+		faultStarted := time.Now()
 		failedBusiness := call("query", allowSQL)
+		if os.Getenv("AGENTSQL_TEST_ORACLE_EXPECT_TIMEOUT") == "1" {
+			require.Less(t, time.Since(faultStarted), 20*time.Second, "paused business database must respect the statement deadline")
+		}
 		require.NotContains(t, failedBusiness, `"decision":"allow"`)
 		require.NotContains(t, failedBusiness, plain)
 		signal(businessFaultDir, "down_checked")
@@ -369,6 +373,26 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 		require.NoError(t, pageErr)
 		require.Equal(t, after.Total+2, planPage.Total)
 		after = planPage
+	}
+	if os.Getenv("AGENTSQL_TEST_ORACLE_PLAN_BUDGET") == "1" {
+		require.NotEmpty(t, tlsCA)
+		// Set synthetic optimizer statistics on this temporary table only.
+		// A real plan, rather than a stub, must trigger R004 before row delivery.
+		_, err = admin.ExecContext(ctx, "BEGIN DBMS_STATS.SET_TABLE_STATS('SYSTEM', '"+table+"', NUMROWS=>200001, NUMBLKS=>2000); END;")
+		require.NoError(t, err)
+		budgetDenied := call("query", "SELECT PHONE FROM SYSTEM."+table)
+		require.NotContains(t, budgetDenied, `"decision":"allow"`)
+		require.Contains(t, budgetDenied, `"RuleID":"R004"`)
+		require.NotContains(t, budgetDenied, plain)
+		_, err = admin.ExecContext(ctx, "BEGIN DBMS_STATS.SET_TABLE_STATS('SYSTEM', '"+table+"', NUMROWS=>1, NUMBLKS=>1); END;")
+		require.NoError(t, err)
+		recovered := call("query", allowSQL)
+		require.Contains(t, recovered, `"decision":"allow"`)
+		require.Contains(t, recovered, "138****5678")
+		budgetPage, pageErr := reopened.AuditLogs().Page(ctx, 1, 20)
+		require.NoError(t, pageErr)
+		require.Equal(t, after.Total+2, budgetPage.Total)
+		after = budgetPage
 	}
 	if clientDir == "" {
 		return

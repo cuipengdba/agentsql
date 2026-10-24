@@ -150,7 +150,11 @@ var _ = authorizedexecute.NewManager
 			directory, err := os.MkdirTemp("", "capabilitycompile")
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, os.RemoveAll(directory)) })
-			module := "module github.com/cuipengdba/agentsql/capabilitycompile\n\ngo 1.26.0\n\nrequire github.com/cuipengdba/agentsql v0.0.0\n\nreplace github.com/cuipengdba/agentsql => " + filepath.ToSlash(root) + "\n"
+			module := "module github.com/cuipengdba/agentsql/capabilitycompile\n\ngo 1.26.0\n\nrequire github.com/cuipengdba/agentsql v0.0.0\n\nreplace github.com/cuipengdba/agentsql => " + strconv.Quote(filepath.ToSlash(root)) + "\n"
+			// A dependency's replace directives are not inherited by the main
+			// module. Compile against the same reviewed local DM fork as the
+			// application, without depending on an unrelated module-cache entry.
+			module += "replace github.com/godoes/gorm-dameng => " + strconv.Quote(filepath.ToSlash(filepath.Join(root, "third_party", "gorm-dameng"))) + "\n"
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(module), 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "illegal.go"), []byte(testCase.source), 0o600))
 			command := exec.Command("go", "test", "-mod=mod", ".")

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,9 +42,11 @@ func NewOracleExecutor(
 		if datasource.TLSServerName != "" || datasource.TLSCAFile != "" || datasource.TrustServerCertificate {
 			return nil, fmt.Errorf("open oracle datasource: certificate options require verify-full")
 		}
-		executor, err = newLimitedSQLExecutorWithDialect(
-			ctx, datasource, "oracle", dsn, "oracle", password, readOnly,
+		connector := &oracleVerifiedConnector{dsn: dsn, driver: goora.NewConnector(dsn).Driver()}
+		executor, err = newLimitedSQLExecutorWithOpener(
+			ctx, datasource, "oracle", password, readOnly,
 			classifyOracleError, explainOracleSelect,
+			func() (*sql.DB, error) { return sql.OpenDB(connector), nil },
 		)
 	case "verify-full":
 		verifiedTLS, tlsErr := oracleVerifiedTLSConfig(datasource)
@@ -79,16 +82,50 @@ type oracleVerifiedConnector struct {
 }
 
 func (connector *oracleVerifiedConnector) Connect(ctx context.Context) (driver.Conn, error) {
-	underlying := goora.NewConnector(connector.dsn)
-	configured, ok := underlying.(interface{ WithTLSConfig(*tls.Config) })
+	underlying, ok := goora.NewConnector(connector.dsn).(*goora.OracleConnector)
 	if !ok {
-		return nil, fmt.Errorf("Oracle driver does not support verified TLS")
+		return nil, fmt.Errorf("Oracle driver does not support bounded transport")
 	}
-	configured.WithTLSConfig(connector.tlsConfig.Clone())
+	underlying.Dialer(oracleBoundedDialer{})
+	if connector.tlsConfig != nil {
+		underlying.WithTLSConfig(connector.tlsConfig.Clone())
+	}
 	return underlying.Connect(ctx)
 }
 
 func (connector *oracleVerifiedConnector) Driver() driver.Driver { return connector.driver }
+
+type oracleBoundedDialer struct{}
+
+func (oracleBoundedDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &oracleBoundedConn{Conn: conn}, nil
+}
+
+// go-ora attempts protocol cleanup after an I/O timeout, resetting the socket
+// deadline for each cleanup exchange. A nonresponsive server can therefore
+// multiply a statement timeout. Once transport I/O fails, close that physical
+// socket so rollback/logoff cannot start another wait or reuse uncertain state.
+type oracleBoundedConn struct{ net.Conn }
+
+func (conn *oracleBoundedConn) Read(buffer []byte) (int, error) {
+	n, err := conn.Conn.Read(buffer)
+	if err != nil {
+		_ = conn.Conn.Close()
+	}
+	return n, err
+}
+
+func (conn *oracleBoundedConn) Write(buffer []byte) (int, error) {
+	n, err := conn.Conn.Write(buffer)
+	if err != nil {
+		_ = conn.Conn.Close()
+	}
+	return n, err
+}
 
 func oracleVerifiedTLSConfig(datasource model.Datasource) (*tls.Config, error) {
 	if datasource.TLSMode != "verify-full" || datasource.TrustServerCertificate ||

@@ -1154,12 +1154,12 @@
     {
       "source": "docs/release-notes-v3.9.0.md",
       "english": "docs/en/release-notes-v3.9.0.md",
-      "source_sha256": "28e6231cd9f64f155326bec02173fc628474de0432c3202ff2384561db747d48"
+      "source_sha256": "d80e2bcc3ce441aab19cf457a9dc463322864c7cce5eda1b6fe2a7d6912d16df"
     },
     {
       "source": "docs/v3.9.0-design.md",
       "english": "docs/en/v3.9.0-design.md",
-      "source_sha256": "735a9855d4187a5cee905447a3b7bc2b47fbed418cea49191016ea76ea980089"
+      "source_sha256": "b982db622d9e1b4c3adb58db00e63220267cd45fe0101a4ba3f46cffdb715f7c"
     },
     {
       "source": "docs/v3.9.0-upgrade.md",
@@ -1169,7 +1169,7 @@
     {
       "source": "docs/v3.9.0-acceptance.md",
       "english": "docs/en/v3.9.0-acceptance.md",
-      "source_sha256": "74a0c5d63a195f85fadb07329ac99a3f881b777f19feca6fe1d546f0cf3fc85f"
+      "source_sha256": "464880f91e177c3b0eabd698fca5d96591be1ebc2a04c41eed08cf1edfb66c0a"
     },
     {
       "source": "docs/v3.9.0-release-evidence.md",
