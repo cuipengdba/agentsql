@@ -2,7 +2,7 @@
 
 **Language:** [English](OPERATIONS.md) | [Simplified Chinese](../OPERATIONS.md)
 
-Applicable version: v3.9.0. The official Release identifies the specific commit, toolchain, and acceptance results. This is the current operations entry point; historical manuals retain the facts and versions recorded at the time.
+Applicable version: v4.0.0. The official Release identifies the specific commit, toolchain, and acceptance results. This is the current operations entry point; historical manuals retain the facts and versions recorded at the time.
 
 ## On-duty inspection and version verification
 
@@ -17,7 +17,7 @@ curl --fail http://127.0.0.1:7780/readyz
 
 `doctor` Read-only checks the configuration, connections, and configured migration flows. It does not perform DDL, create missing SQLite files, or check the consistency of all table data. The exit code `0` means ready, `2` means pending migration, and `1` means blocking error. `2` or `1` cannot be regarded as online. `/healthz` indicates survival, and `/readyz` also checks service dependencies; locates the problem with the actual returned subsystem status.
 
-In v3.9.0 the combined SQLite schema is 27; separate PostgreSQL metadata is 25 and audit is 7. Use the current binary's `doctor`/`migrate --check` output as the authority, and do not edit migration tables manually.
+In v4.0.0 the combined SQLite schema is 27; separate PostgreSQL metadata is 25 and audit is 7. Use the current binary's `doctor`/`migrate --check` output as the authority, and do not edit migration tables manually.
 
 ## Backup, upgrade and recovery
 
@@ -69,3 +69,7 @@ SQLBot adaptation is installed and verified separately according to [SQLBot acce
 ## historical information
 
 [v0.7 Operation and maintenance report ](v0.7-operations-runbook.md) and historical version acceptance are records of the environment at that time. To troubleshoot the current version, give priority to using this article, the current deployment guide and the corresponding official Release; historical passing conclusions cannot be used as acceptance of this customer environment.
+
+## v4.0.0 maintenance delivery
+
+For isolated-network installation, verify three signatures, 15 assets and the source version first. Share fixed-field diagnostics with `agentsqlctl support-bundle`, which collects no business data or credentials. See the [maintenance guide](v4.0.0-delivery.md) and [upgrade guide](v4.0.0-upgrade.md) for the matrix, paired backups and old-version rollback.

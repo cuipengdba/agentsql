@@ -4,17 +4,17 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "6a5207df90aebba4749ed607205847f3b3ebb11c231307bdefbb17b3e85900ee"
+      "source_sha256": "cac46a5b152fb5c95891a6f3d6563cb9ec03252ab13fd76a4a633f23d545542a"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "d3b4233b0ef4f96c7f31ad028e625d54bf498fe47dd1709a87ca772e914e1d0f"
+      "source_sha256": "2c92ec90274522ba177fe97fa0df08a62b075056a70e45b78ea51e427ca77dac"
     },
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "b9693f285c307703e12d276a5682a270fb28b46134afa5d1c11119dc124cdedc"
+      "source_sha256": "92a5b4d0835556e2ac39100d49c5a36032f07036775a389ec0e02598feb97c9e"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -84,7 +84,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "78b5689cf69d5ca0713ac79b4ecbe414fe28846002f1927e1ffdbb72636632e7"
+      "source_sha256": "7cb2c3f48fc1fe2041793c2ac33bb145be64052226d6ae5b827dfa92413dc455"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "02d19a21de09f08359ec7161debb159c4cf30972b20ef30ee5b55a908b2b5385"
+      "source_sha256": "9ee55e0bb6ed70667ac7b2e31b05d1ce6793f0e1c2cd82fa877189b34816a795"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "31c36ca18c2e8241bc39739efa3e1e763d5eeb9fc015a1fbf979818b82b464d0"
+      "source_sha256": "3a7505bd2f714653614e5e112e54365e0578711411b15c4ef45d43bdb41303b9"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -164,7 +164,7 @@
     {
       "source": "docs/NOTIFICATIONS.md",
       "english": "docs/en/NOTIFICATIONS.md",
-      "source_sha256": "37633a8bc58dd69ec3e69f8acf663f637145f24d6918ae886034e864af05616a"
+      "source_sha256": "c3dc5adcdb0f5fe6abdc238211e3451b61d8f4f785a8eb84163dafd371546f0d"
     },
     {
       "source": "docs/opentenbase-dual-kernel.md",
@@ -174,7 +174,7 @@
     {
       "source": "docs/OPERATIONS.md",
       "english": "docs/en/OPERATIONS.md",
-      "source_sha256": "52ffef07da82e860eda122c581c84cc0e42ec9178d8b49c1e8f9eec4e85a036d"
+      "source_sha256": "512ef77d3f2e22d2e0ded0a476213e168f8c99328dd73ca61f7fffbff03b6a09"
     },
     {
       "source": "docs/PARSER_PERF.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "983b3efe3501a174f1b5d024f3b8f3ae4dd2ba623e0b9f2c7fcc2d53e0fd1fb3"
+      "source_sha256": "8db7c590f843224abdf41317922d1dc6863f64343a5685392a6ed9a120363790"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -469,12 +469,12 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "12df2a9f1b7d80869e356ced435b7f92f65149a9324fdb1688b2625b3c0682d1"
+      "source_sha256": "d33f4590ab40e2b46a1e258092dc3f12fc8efe8dc94b7e7f3e58752b2ae7b430"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
       "english": "docs/en/RELEASE_PROCESS.md",
-      "source_sha256": "38da35859276994005baf7ee60ed8ff0df6184ac5b5c1c51f0a3b41820c506cb"
+      "source_sha256": "2525cad39fe945bfb626ad6b23a2d1d3968d469d76d1f2875e1a934748ae537e"
     },
     {
       "source": "docs/RELEASE_ROUTINE.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "8dfb3b18fa72a68d497b63e1be5ffe3f0e888829c0820480f577e84c0acfd510"
+      "source_sha256": "32c4b5787688c656d1da408534e5a6025d828a3cc83ddcd6672eb4f84ed52ae7"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -919,7 +919,7 @@
     {
       "source": "deploy/ecs-demo/README.md",
       "english": "deploy/ecs-demo/README.en.md",
-      "source_sha256": "555f28c9292b0946ddf47d9b838c016d057eb174487c2bf2bcc6e7f32f61729f"
+      "source_sha256": "a1be166ad64b09fecaeb3b31f3d025f19de4ec9e62b2c1667172c9fcedc90fbb"
     },
     {
       "source": "dbext/packaging/README.md",
@@ -1175,6 +1175,36 @@
       "source": "docs/v3.9.0-release-evidence.md",
       "english": "docs/en/v3.9.0-release-evidence.md",
       "source_sha256": "5d97d01cf91b4382e06fbbb2c45c60f0ed73edb721b7a8a95a851e226bb2a67c"
+    },
+    {
+      "source": "docs/v4.0.0-design.md",
+      "english": "docs/en/v4.0.0-design.md",
+      "source_sha256": "941867c18bdb4b976a9f8e126437ff9844d7865cbc338901ce628b23da0ee213"
+    },
+    {
+      "source": "docs/v4.0.0-delivery.md",
+      "english": "docs/en/v4.0.0-delivery.md",
+      "source_sha256": "a1b3088626038cab050211d73f3858455c8675d4746151ee7efeab6219da0eb6"
+    },
+    {
+      "source": "docs/v4.0.0-upgrade.md",
+      "english": "docs/en/v4.0.0-upgrade.md",
+      "source_sha256": "427b4aa9fe0cdecf29d2b29feb3cc2e542fb2b5081d6bc270cd5a034fc63d7e9"
+    },
+    {
+      "source": "docs/v4.0.0-acceptance.md",
+      "english": "docs/en/v4.0.0-acceptance.md",
+      "source_sha256": "46f6dec859c49640ec5dc0e51739c73726393501220ccc1d70eaf47c8d7d60eb"
+    },
+    {
+      "source": "docs/v4.0.0-release-evidence.md",
+      "english": "docs/en/v4.0.0-release-evidence.md",
+      "source_sha256": "e5c5498fbd4f4668f4846683030fdd7f93189f30f4215a26e88a5f2df4c8ec62"
+    },
+    {
+      "source": "docs/release-notes-v4.0.0.md",
+      "english": "docs/en/release-notes-v4.0.0.md",
+      "source_sha256": "5ec7e3552c966e67bb2b8f112fd0dc7c24a37e2328878acb0402df6c176c9f2e"
     }
   ]
 }

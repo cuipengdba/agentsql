@@ -2,6 +2,11 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v4.0.0]
+
+- Added offline release verification, authenticated transport assembly and fixed-field read-only support bundles.
+- Added cross-version upgrade/restore rehearsals, console guidance and bilingual delivery/maintenance documentation. See [release notes](docs/en/release-notes-v4.0.0.md).
+
 ## [v3.9.0]
 
 - Added strict TCPS and opt-in bounded PLAN_TABLE checks for specified Oracle 26ai Free; upgraded go-ora to v3.0.1 and isolated TLS state per physical connection.

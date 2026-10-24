@@ -54,7 +54,7 @@ Default rejection is the prerequisite for each database adaptation. Connection o
 | v3.7.0 | Released ([formal Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.7.0)) | Bounded MongoDB reads and replica sets; Redis/Valkey Hash field authorization and Sentinel validation. See [acceptance](docs/en/v3.7.0-acceptance.md) and [release evidence](docs/en/v3.7.0-release-evidence.md). |
 | v3.8.0 | Released ([formal Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.8.0)) | Specified ClickHouse analysis query budgets and Milvus scalar filters with row-level tenant scope; see [design](docs/en/v3.8.0-design.md), [acceptance](docs/en/v3.8.0-acceptance.md), and [release evidence](docs/en/v3.8.0-release-evidence.md). |
 | v3.9.0 | Released ([formal Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.9.0)) | Certificates, plan budgets, queries and failure recovery on specified Oracle and SQL Server single instances; see [acceptance](docs/en/v3.9.0-acceptance.md) and [release evidence](docs/en/v3.9.0-release-evidence.md). |
-| v4.0.0 | Planned | Enterprise delivery and long-term maintenance baseline from the original tenth release: offline packages, multi-version upgrades, diagnostics and unified acceptance. |
+| v4.0.0 | In development and acceptance | Enterprise delivery and long-term maintenance baseline from the original tenth release: offline packages, multi-version upgrades, diagnostics and unified acceptance. |
 
 ## v3.1.0 design and acceptance scope
 

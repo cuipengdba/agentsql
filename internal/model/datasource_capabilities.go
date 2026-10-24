@@ -68,3 +68,12 @@ func SupportFor(dbType string) (DatasourceSupport, bool) {
 	support.AgentTools = append([]string{}, support.AgentTools...)
 	return support, true
 }
+
+// SupportCatalog returns static product evidence, never configured connections.
+func SupportCatalog() map[string]DatasourceSupport {
+	catalog := make(map[string]DatasourceSupport, len(datasourceTypes))
+	for name := range datasourceTypes {
+		catalog[name], _ = SupportFor(name)
+	}
+	return catalog
+}
