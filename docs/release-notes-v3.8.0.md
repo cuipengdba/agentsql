@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](release-notes-v3.8.0.md) | [English](en/release-notes-v3.8.0.md)
 
-状态：候选验收中；正式发布以[发布证据](v3.8.0-release-evidence.md)为准。
+状态：已正式发布；完整结果见[发布证据](v3.8.0-release-evidence.md)。
 
 ## 本版能力
 

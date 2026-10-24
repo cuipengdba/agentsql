@@ -2,7 +2,7 @@
 
 **Language:** [English](release-notes-v3.8.0.md) | [Simplified Chinese](../release-notes-v3.8.0.md)
 
-Status: candidate acceptance in progress; the formal outcome is recorded in the [release evidence](v3.8.0-release-evidence.md).
+Status: formally released; the full outcome is recorded in the [release evidence](v3.8.0-release-evidence.md).
 
 ## Changes
 
