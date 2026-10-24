@@ -1059,7 +1059,12 @@
     {
       "source": "docs/v3.5.0-acceptance.md",
       "english": "docs/en/v3.5.0-acceptance.md",
-      "source_sha256": "390a62e51a1e8a4c161715457c02577bf51ad1c8ab8e7d6614d68c5a0b561ef5"
+      "source_sha256": "1d8c3b96e81bb20449d706d0bccb8b8487ca79a643b5036e71ce00202a11ccdb"
+    },
+    {
+      "source": "docs/release-notes-v3.5.0.md",
+      "english": "docs/en/release-notes-v3.5.0.md",
+      "source_sha256": "e49ea4b234502815124dafb77b6d87959c5fe279d9b54452e3d9cb2e97cc6d0e"
     }
   ]
 }

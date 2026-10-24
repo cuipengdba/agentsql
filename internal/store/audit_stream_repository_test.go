@@ -61,4 +61,9 @@ func TestAuditStreamTenantCursorBackfillAndRollback(t *testing.T) {
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 25))
 	require.NoError(t, Migrate(ctx, opened.auditDB, DialectSQLite))
 	assertStream()
+	// A damaged stream must stop at the first missing committed tenant sequence.
+	_, err = opened.auditDB.ExecContext(ctx, "DELETE FROM audit_stream_events WHERE tenant_id=? AND seq=?", DefaultTenantID, 1)
+	require.NoError(t, err)
+	_, err = repository.StreamAfter(tenantA, 0, 10)
+	require.ErrorContains(t, err, "sequence gap")
 }
