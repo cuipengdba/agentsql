@@ -176,7 +176,7 @@ func (manager *Manager) prepare(ctx context.Context, config Config) (*generation
 	}
 	var enabled []ChannelConfig
 	for _, channel := range normalized.Channels {
-		if channel.Enabled {
+		if channel.Enabled && !channel.Reliable {
 			enabled = append(enabled, channel)
 		}
 	}

@@ -1070,6 +1070,31 @@
       "source": "docs/release-notes-v3.5.0.md",
       "english": "docs/en/release-notes-v3.5.0.md",
       "source_sha256": "e49ea4b234502815124dafb77b6d87959c5fe279d9b54452e3d9cb2e97cc6d0e"
+    },
+    {
+      "source": "docs/release-notes-v3.6.0.md",
+      "english": "docs/en/release-notes-v3.6.0.md",
+      "source_sha256": "b45ee73a54906c4d15d6a85c13269de60db2f76bcebb966e373e372e9f1e5d39"
+    },
+    {
+      "source": "docs/v3.6.0-design.md",
+      "english": "docs/en/v3.6.0-design.md",
+      "source_sha256": "3180d3572299f2e56b523e59ca1e2f347a750599c42df59a911070ac906a4d53"
+    },
+    {
+      "source": "docs/v3.6.0-policy-transfer.md",
+      "english": "docs/en/v3.6.0-policy-transfer.md",
+      "source_sha256": "992a31ea2e77fd528a1679cd1eabee2358196804df3ae3b16928d04f5a0f6452"
+    },
+    {
+      "source": "docs/v3.6.0-audit-archive.md",
+      "english": "docs/en/v3.6.0-audit-archive.md",
+      "source_sha256": "e2e129f445ddc96b445c767be1665acc1faa8ce1160493b03513a539471c6361"
+    },
+    {
+      "source": "docs/v3.6.0-acceptance.md",
+      "english": "docs/en/v3.6.0-acceptance.md",
+      "source_sha256": "89b1d7d87ca2950a212fa4e43385ec4ed7c56933e39794ef1d1dc1de9eca4678"
     }
   ]
 }

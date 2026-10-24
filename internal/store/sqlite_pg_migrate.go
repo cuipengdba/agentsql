@@ -250,6 +250,15 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "syslog_host", kind: migrationText}, {name: "syslog_port", kind: migrationInt32},
 		{name: "syslog_transport", kind: migrationText}, {name: "syslog_facility", kind: migrationInt32},
 		{name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
+		{name: "reliable_enabled", kind: migrationBool},
+	}},
+	{name: "notification_delivery_cursors", pkIndex: 1, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "tenant_id", kind: migrationText}, {name: "channel_id", kind: migrationText},
+		{name: "last_seq", kind: migrationInt64}, {name: "config_digest", kind: migrationText},
+		{name: "lease_token", kind: migrationText}, {name: "lease_until_ms", kind: migrationInt64},
+		{name: "failures", kind: migrationInt32}, {name: "retry_after_ms", kind: migrationInt64},
+		{name: "dead_letter", kind: migrationBool}, {name: "last_error_reason", kind: migrationText},
+		{name: "updated_at", kind: migrationTime},
 	}},
 	{name: "redaction_key_versions", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "id", kind: migrationText}, {name: "state", kind: migrationText},

@@ -42,7 +42,10 @@ type Runtime struct {
 	// Events is the in-process stream of successfully persisted audits.
 	Events *eventbus.Hub
 	// Notifications is the process-local best-effort notification manager.
-	Notifications *notify.Manager
+	Notifications  *notify.Manager
+	reliableHealth reliableNotificationHealth
+	reliableCancel context.CancelFunc
+	reliableWait   sync.WaitGroup
 	// B5 owns the production logical-session and planned-transaction graph when
 	// mcp.sessions.enabled is effective.
 	B5 *B5Runtime
@@ -62,6 +65,15 @@ type Runtime struct {
 	relayCancel        context.CancelFunc
 	relayWait          sync.WaitGroup
 	closed             bool
+}
+
+// ReliableNotificationHealth reports only a bounded worker category and poll
+// timestamp; destination URLs, payloads, and transport errors never escape.
+func (runtime *Runtime) ReliableNotificationHealth() (string, time.Time) {
+	if runtime == nil {
+		return "unavailable", time.Time{}
+	}
+	return runtime.reliableHealth.snapshot()
 }
 
 // Assemble validates configuration and wires the required pipeline ports and
@@ -323,6 +335,7 @@ func assembleWithExecutorProvider(
 			_ = relay.Run(relayContext, 10*time.Second)
 		}()
 	}
+	runtime.startReliableNotifications()
 	b2HandedOff = true
 	return runtime, nil
 }
@@ -512,6 +525,10 @@ func (runtime *Runtime) Close() error {
 		if err := runtime.Notifications.Close(); err != nil {
 			closeErrors = append(closeErrors, err)
 		}
+	}
+	if runtime.reliableCancel != nil {
+		runtime.reliableCancel()
+		runtime.reliableWait.Wait()
 	}
 	if runtime.business != nil {
 		if err := runtime.business.CloseAll(); err != nil {

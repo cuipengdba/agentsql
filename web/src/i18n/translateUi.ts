@@ -26,6 +26,8 @@ const dynamicEnglish: Array<[RegExp, (...values: string[]) => string]> = [
   [/^有效期至 (.+)。请只放入可信 MCP 客户端的安全凭据配置；退出控制台后会失效。$/, (expiry) => `Valid until ${expiry}. Store it only in a trusted MCP client's secure credential settings; it expires when you sign out.`],
   [/^已成功提交 ([\d,]+) 项策略变更$/, (count) => `Submitted ${count} policy changes`],
   [/^通道 ID“(.+)”重复$/, (id) => `Duplicate channel ID “${id}”`],
+  [/^通道“(.+)”的可靠投递仅支持 Webhook$/, (id) => `Channel “${id}” supports reliable delivery only for webhooks`],
+  [/^可靠投递工作器异常：(.+)$/, (reason) => `Reliable delivery worker error: ${reason}`],
   [/^环比 ([↑↓→]) ([\d.]+)%$/, (direction, percent) => `Change ${direction} ${percent}%`],
   [/^总计：([\d,]+)$/, (count) => `Total: ${count}`],
   [/^放行：([\d,]+)$/, (count) => `Allowed: ${count}`],

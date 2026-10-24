@@ -107,7 +107,12 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 			"allow_private_endpoints", "webhook_present", "webhook_template",
 			"webhook_url_enc", "webhook_bearer_token_enc", "webhook_headers_enc",
 			"webhook_secret_enc", "syslog_present", "syslog_host", "syslog_port",
-			"syslog_transport", "syslog_facility", "created_at", "updated_at",
+			"syslog_transport", "syslog_facility", "created_at", "updated_at", "reliable_enabled",
+		},
+		"notification_delivery_cursors": {
+			"tenant_id", "channel_id", "last_seq", "config_digest", "lease_token",
+			"lease_until_ms", "failures", "retry_after_ms", "dead_letter",
+			"last_error_reason", "updated_at",
 		},
 		"redaction_key_versions": {
 			"id", "state", "commitment", "label", "config_revision", "created_at",
@@ -200,6 +205,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_mcp_stream_events_created_at",
 		"idx_mcp_stream_events_session",
 		"idx_notification_channels_tenant",
+		"idx_notification_delivery_due",
 		"idx_notification_settings_tenant",
 		"idx_oidc_requests_expiry",
 		"idx_policies_agent_ds",
@@ -270,8 +276,8 @@ func TestSQLiteAuditErrorCodeMigrationFromV5(t *testing.T) {
 	require.NoError(t, Migrate(ctx, database, DialectSQLite))
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 25, current)
-	require.Equal(t, 25, latest)
+	require.Equal(t, 26, current)
+	require.Equal(t, 26, latest)
 	require.Contains(t, tableColumnNames(t, database, "audit_logs"), "error_code")
 
 	var legacyCode sql.NullString
@@ -302,14 +308,14 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.Equal(t, []string{
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "login_attempt_budgets", "management_audit_outbox", "mask_rules",
-		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_bundle_baselines", "policy_bundle_proposals", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "sqlbot_bindings", "task_read_grant_requests", "task_read_grants", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
+		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_delivery_cursors", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_bundle_baselines", "policy_bundle_proposals", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "sqlbot_bindings", "task_read_grant_requests", "task_read_grants", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{
 		"idx_admin_access_revocations_expiry", "idx_admin_refresh_families_expiry", "idx_admin_refresh_tokens_family",
 		"idx_agents_keyhash", "idx_agents_tenant", "idx_approvals_execution", "idx_approvals_requester_user", "idx_approvals_status", "idx_approvals_tenant", "idx_auth_challenges_expiry", "idx_auth_identities_user", "idx_b5_dml_grants_identity", "idx_b5_dml_grants_lookup", "idx_b5_dml_grants_tenant", "idx_b5_result_receipts_delivery", "idx_b5_result_receipts_event", "idx_b5_result_receipts_reconcile", "idx_b5_result_receipts_tenant", "idx_b5_sessions_owner", "idx_b5_sessions_tenant", "idx_b5_sessions_ttl", "idx_b5_transactions_datasource", "idx_b5_transactions_deadline", "idx_b5_transactions_one_live_session", "idx_b5_transactions_tenant", "idx_b5_tx_events_audit", "idx_b5_tx_events_tenant",
 		"idx_chain_state_tenant", "idx_chain_verification_tenant", "idx_datasources_tenant", "idx_login_attempt_budgets_started", "idx_management_audit_outbox_tenant", "idx_mask_rules_tenant",
 		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
-		"idx_notification_channels_tenant", "idx_notification_settings_tenant", "idx_oidc_requests_expiry", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_bundle_proposals_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_sqlbot_bindings_agent", "idx_sqlbot_bindings_tenant", "idx_task_read_grant_requests_tenant_status", "idx_task_read_grants_agent", "idx_task_read_grants_tenant", "idx_user_roles_user", "idx_users_tenant",
+		"idx_notification_channels_tenant", "idx_notification_delivery_due", "idx_notification_settings_tenant", "idx_oidc_requests_expiry", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_bundle_proposals_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_sqlbot_bindings_agent", "idx_sqlbot_bindings_tenant", "idx_task_read_grant_requests_tenant_status", "idx_task_read_grants_agent", "idx_task_read_grants_tenant", "idx_user_roles_user", "idx_users_tenant",
 		"ux_mask_rules_scope_column", "ux_redaction_key_versions_active", "ux_task_grant_agents_tenant", "ux_task_grant_datasources_tenant", "ux_task_read_grant_requests_idempotency",
 	}, businessIndexNames(t, database))
 
@@ -321,8 +327,8 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 
 	current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, true)
 	require.NoError(t, err)
-	require.Equal(t, 23, current)
-	require.Equal(t, 23, latest)
+	require.Equal(t, 24, current)
+	require.Equal(t, 24, latest)
 	require.NoError(t, VerifyMetadataSchema(ctx, database, DialectSQLite, true))
 }
 
@@ -357,9 +363,9 @@ VALUES('legacy','ds-1','users',' Email ','email','mask')`)
 			var current, enabled int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 25, current)
+				require.Equal(t, 26, current)
 			} else {
-				require.Equal(t, 23, current)
+				require.Equal(t, 24, current)
 			}
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT enabled FROM mask_rules WHERE id='legacy'").Scan(&enabled))
 			require.Equal(t, 1, enabled)
@@ -424,9 +430,9 @@ VALUES('legacy-v3','ds-1','users','phone','phone','mask',1)`)
 			var current int
 			require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&current))
 			if testCase.hasAudit {
-				require.Equal(t, 25, current)
+				require.Equal(t, 26, current)
 			} else {
-				require.Equal(t, 23, current)
+				require.Equal(t, 24, current)
 			}
 			require.Equal(t, []string{
 				"id", "datasource_id", "table_name", "column_name", "sensitive_type", "algo",

@@ -463,6 +463,7 @@ export interface NotificationSyslog {
 export interface NotificationChannel {
   id: string;
   enabled: boolean;
+  reliable: boolean;
   kind: NotificationChannelKind;
   decisions: NotificationDecision[];
   include_sql: boolean;
@@ -490,10 +491,22 @@ export interface NotificationHealthChannel {
   dropped: number;
   last_error?: string;
   last_success_at?: string;
+  reliable?: {
+    last_sequence: number;
+    latest_sequence: number;
+    backlog: number;
+    oldest_pending_at?: string;
+    failures: number;
+    dead_letter: boolean;
+    retry_after?: string;
+    last_error?: string;
+  };
 }
 
 export interface NotificationHealth {
   channels: NotificationHealthChannel[];
+  worker_error?: string;
+  last_poll?: string;
 }
 
 export interface PlaygroundAssessRequest {

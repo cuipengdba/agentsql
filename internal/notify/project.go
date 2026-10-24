@@ -13,6 +13,7 @@ import (
 // Payload is the complete outbound whitelist. Adding any field here requires a
 // security review; AuditLog must never be marshaled directly.
 type Payload struct {
+	DeliveryID    string   `json:"delivery_id,omitempty"`
 	AuditID       int64    `json:"audit_id"`
 	Timestamp     string   `json:"timestamp"`
 	Decision      string   `json:"decision"`

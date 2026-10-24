@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/audit"
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
@@ -47,6 +48,78 @@ func TestNotificationsGETRedactsSecretsAndRequiresBearer(t *testing.T) {
 	require.True(t, webhook.SecretConfigured)
 	require.Equal(t, notificationSecretMask, webhook.Headers["Authorization"])
 	require.True(t, webhook.HeadersConfigured)
+}
+
+func TestReliableNotificationDeadLetterReplayRequiresAudit(t *testing.T) {
+	fixture := newAdminFixture(t)
+	config := notificationTestConfig("https://hooks.example.test/replay")
+	config.Channels[0].Reliable = true
+	require.NoError(t, fixture.store.Notifications().Replace(context.Background(), config))
+	digest, err := notify.ChannelDigest(config.Channels[0])
+	require.NoError(t, err)
+	delivery := fixture.store.NotificationDelivery()
+	require.NoError(t, delivery.Ensure(context.Background(), config.Channels[0].ID, digest, 0))
+	now := time.Now().UTC()
+	claim, err := delivery.Claim(context.Background(), config.Channels[0].ID, digest, now, time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+	changed, err := delivery.Fail(context.Background(), config.Channels[0].ID, *claim, "http_status", now.Add(time.Second), now.Add(2*time.Second), 1)
+	require.NoError(t, err)
+	require.True(t, changed)
+	path := "/api/v1/integrations/notifications/" + config.Channels[0].ID + "/replay"
+	status, _ := fixture.request(http.MethodPost, path, "", "")
+	require.Equal(t, http.StatusUnauthorized, status)
+	fixture.runtime.ManagementAudit = nil
+	status, _ = fixture.request(http.MethodPost, path, fixture.adminToken, "")
+	require.Equal(t, http.StatusServiceUnavailable, status)
+	state, err := delivery.Status(context.Background(), config.Channels[0].ID)
+	require.NoError(t, err)
+	require.True(t, state.DeadLetter)
+	fixture.runtime.ManagementAudit = audit.NewRecorder(fixture.store.AuditLogs())
+	status, body := fixture.request(http.MethodPost, path, fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status, body)
+	state, err = delivery.Status(context.Background(), config.Channels[0].ID)
+	require.NoError(t, err)
+	require.False(t, state.DeadLetter)
+	page, err := fixture.store.AuditLogs().Page(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, page.List)
+	require.Equal(t, "notification_dead_letter_replay_request", *page.List[0].Action)
+	status, _ = fixture.request(http.MethodPost, path, fixture.adminToken, "")
+	require.Equal(t, http.StatusConflict, status)
+}
+
+func TestReliableNotificationPUTSeedsCursorAndHealth(t *testing.T) {
+	fixture := newAdminFixture(t)
+	receiver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer receiver.Close()
+	config := notificationTestConfig(receiver.URL)
+	config.Channels[0].Reliable = true
+	input := notificationConfigToDTO(config)
+	input.Channels[0].Webhook.URL = receiver.URL
+	status, body := fixture.request(http.MethodPut, "/api/v1/integrations/notifications", fixture.adminToken, mustJSON(t, input))
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, `"reliable":true`)
+	state, err := fixture.store.NotificationDelivery().Status(context.Background(), config.Channels[0].ID)
+	require.NoError(t, err)
+	require.Zero(t, state.LastSequence)
+	status, body = fixture.request(http.MethodGet, "/api/v1/integrations/notifications/health", fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, `"backlog":0`)
+	_, err = audit.NewRecorder(fixture.store.AuditLogs()).Record(context.Background(), model.AuditLog{
+		TS: time.Now().UTC(), Decision: string(model.DecisionDeny),
+	})
+	require.NoError(t, err)
+	status, body = fixture.request(http.MethodGet, "/api/v1/integrations/notifications/health", fixture.adminToken, "")
+	require.Equal(t, http.StatusOK, status, body)
+	require.Contains(t, body, `"backlog":1`)
+	require.Contains(t, body, `"oldest_pending_at":`)
+	changed := input
+	changed.Channels[0].Webhook.URL = receiver.URL + "/changed"
+	status, _ = fixture.request(http.MethodPut, "/api/v1/integrations/notifications", fixture.adminToken, mustJSON(t, changed))
+	require.Equal(t, http.StatusConflict, status, "same channel ID must not silently rebind a durable cursor")
 }
 
 func TestNotificationsPUTPreservesBlankSecretsAndRejectsUnsafeTargets(t *testing.T) {

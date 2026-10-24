@@ -2,15 +2,50 @@ package adminapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cuipengdba/agentsql/internal/eventbus"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/notify"
+	"github.com/cuipengdba/agentsql/internal/store"
 )
+
+func (handler *Handler) prepareReliableNotificationCursors(ctx context.Context, config notify.Config) ([]store.NotificationCursorSeed, error) {
+	seeds := make([]store.NotificationCursorSeed, 0)
+	if !config.Enabled {
+		return seeds, nil
+	}
+	var tail int64
+	tailLoaded := false
+	for _, channel := range config.Channels {
+		if !channel.Enabled || !channel.Reliable {
+			continue
+		}
+		if !tailLoaded {
+			// Read the committed audit tail before publishing the channel.
+			// Cross-database gap events may replay, but cannot be skipped.
+			var err error
+			tail, err = handler.deps.Runtime.Store.AuditLogs().LatestStreamSequence(ctx)
+			if err != nil {
+				return nil, err
+			}
+			tailLoaded = true
+		}
+		digest, err := notify.ChannelDigest(channel)
+		if err != nil {
+			return nil, err
+		}
+		seeds = append(seeds, store.NotificationCursorSeed{
+			ChannelID: channel.ID, ConfigDigest: digest, InitialSequence: tail,
+		})
+	}
+	return seeds, nil
+}
 
 const notificationSecretMask = "********"
 
@@ -23,6 +58,7 @@ type notificationConfigDTO struct {
 type notificationChannelDTO struct {
 	ID                    string                  `json:"id"`
 	Enabled               bool                    `json:"enabled"`
+	Reliable              bool                    `json:"reliable"`
 	Kind                  notify.ChannelKind      `json:"kind"`
 	Decisions             []string                `json:"decisions"`
 	IncludeSQL            bool                    `json:"include_sql"`
@@ -56,10 +92,24 @@ type notificationTestResult struct {
 type notificationHealthChannel struct {
 	ID string `json:"id"`
 	notify.ChannelStatus
+	Reliable *notificationDeliveryHealth `json:"reliable,omitempty"`
+}
+
+type notificationDeliveryHealth struct {
+	LastSequence    int64  `json:"last_sequence"`
+	LatestSequence  int64  `json:"latest_sequence"`
+	Backlog         int64  `json:"backlog"`
+	OldestPendingAt string `json:"oldest_pending_at,omitempty"`
+	Failures        int    `json:"failures"`
+	DeadLetter      bool   `json:"dead_letter"`
+	RetryAfter      string `json:"retry_after,omitempty"`
+	LastError       string `json:"last_error,omitempty"`
 }
 
 type notificationHealthView struct {
-	Channels []notificationHealthChannel `json:"channels"`
+	Channels    []notificationHealthChannel `json:"channels"`
+	WorkerError string                      `json:"worker_error,omitempty"`
+	LastPoll    string                      `json:"last_poll,omitempty"`
 }
 
 func (handler *Handler) notificationsGet(writer http.ResponseWriter, request *http.Request) {
@@ -95,8 +145,16 @@ func (handler *Handler) notificationsPut(writer http.ResponseWriter, request *ht
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid notification configuration")
 		return
 	}
-	if err := repository.Replace(request.Context(), next); err != nil {
-		handler.internal(writer, err)
+	seeds, err := handler.prepareReliableNotificationCursors(request.Context(), next)
+	if err != nil {
+		handler.logger.Error().Str("error_type", "notification_cursor_preflight").
+			Msg("reliable notification cursor could not be prepared")
+		handler.fail(writer, http.StatusConflict, "reliable notification cursor is unavailable or bound to another configuration")
+		return
+	}
+	created, err := repository.ReplaceWithCursors(request.Context(), next, seeds)
+	if err != nil {
+		handler.fail(writer, http.StatusConflict, "reliable notification cursor is unavailable or bound to another configuration")
 		return
 	}
 	reloadContext, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
@@ -105,13 +163,20 @@ func (handler *Handler) notificationsPut(writer http.ResponseWriter, request *ht
 	if reloadErr != nil {
 		rollbackContext, cancelRollback := context.WithTimeout(context.Background(), 5*time.Second)
 		rollbackErr := repository.Replace(rollbackContext, previous)
-		cancelRollback()
 		if rollbackErr != nil {
+			cancelRollback()
 			handler.logger.Error().Str("error_type", "notification_reload_and_rollback").
 				Msg("notification reload failed and persisted configuration rollback failed")
 			handler.fail(writer, http.StatusInternalServerError, "notification reload failed and rollback failed")
 			return
 		}
+		for _, seed := range created {
+			if _, cleanupErr := handler.deps.Runtime.Store.NotificationDelivery().DiscardUnpublished(rollbackContext, seed); cleanupErr != nil {
+				handler.logger.Error().Str("error_type", "notification_cursor_cleanup").
+					Msg("notification reload rollback left an unpublished cursor")
+			}
+		}
+		cancelRollback()
 		handler.logger.Error().Str("error_type", "notification_reload").
 			Msg("notification reload failed; previous persisted configuration restored")
 		handler.fail(writer, http.StatusInternalServerError, "notification reload failed; previous configuration restored")
@@ -139,6 +204,7 @@ func (handler *Handler) notificationsTest(writer http.ResponseWriter, request *h
 	}
 	channel := merged.Channels[0]
 	channel.Enabled = true
+	channel.Reliable = false // A manual test always sends immediately.
 	channel.Decisions = []string{"deny"}
 	result, err := sendNotificationTest(request.Context(), channel)
 	if err != nil {
@@ -148,22 +214,143 @@ func (handler *Handler) notificationsTest(writer http.ResponseWriter, request *h
 	handler.ok(writer, result)
 }
 
-func (handler *Handler) notificationsHealth(writer http.ResponseWriter, _ *http.Request) {
+func (handler *Handler) notificationsHealth(writer http.ResponseWriter, request *http.Request) {
 	if handler.deps.Runtime.Notifications == nil {
 		handler.fail(writer, http.StatusServiceUnavailable, "notification manager is unavailable")
 		return
 	}
 	statuses := handler.deps.Runtime.Notifications.Status()
+	config, err := handler.deps.Runtime.Store.Notifications().Get(request.Context())
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	var latest int64
+	for _, channel := range config.Channels {
+		if config.Enabled && channel.Enabled && channel.Reliable {
+			latest, err = handler.deps.Runtime.Store.AuditLogs().LatestStreamSequence(request.Context())
+			if err != nil {
+				handler.internal(writer, err)
+				return
+			}
+			break
+		}
+	}
 	ids := make([]string, 0, len(statuses))
 	for id := range statuses {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	view := notificationHealthView{Channels: make([]notificationHealthChannel, 0, len(ids))}
+	workerError, lastPoll := handler.deps.Runtime.ReliableNotificationHealth()
+	view.WorkerError = workerError
+	if !lastPoll.IsZero() {
+		view.LastPoll = lastPoll.Format(time.RFC3339)
+	}
+	byID := make(map[string]int)
 	for _, id := range ids {
+		byID[id] = len(view.Channels)
 		view.Channels = append(view.Channels, notificationHealthChannel{ID: id, ChannelStatus: statuses[id]})
 	}
+	for _, channel := range config.Channels {
+		if !config.Enabled || !channel.Enabled || !channel.Reliable {
+			continue
+		}
+		row, found := byID[channel.ID]
+		if !found {
+			row = len(view.Channels)
+			byID[channel.ID] = row
+			view.Channels = append(view.Channels, notificationHealthChannel{ID: channel.ID})
+		}
+		delivery, statusErr := handler.deps.Runtime.Store.NotificationDelivery().Status(request.Context(), channel.ID)
+		if statusErr != nil {
+			view.Channels[row].Reliable = &notificationDeliveryHealth{LatestSequence: latest, LastError: "cursor_unavailable"}
+			continue
+		}
+		backlog := latest - delivery.LastSequence
+		if backlog < 0 {
+			backlog = 0
+		}
+		state := &notificationDeliveryHealth{
+			LastSequence: delivery.LastSequence, LatestSequence: latest, Backlog: backlog,
+			Failures: delivery.Failures, DeadLetter: delivery.DeadLetter, LastError: delivery.LastError,
+		}
+		if !delivery.RetryAfter.IsZero() {
+			state.RetryAfter = delivery.RetryAfter.Format(time.RFC3339)
+		}
+		if backlog > 0 {
+			page, streamErr := handler.deps.Runtime.Store.AuditLogs().StreamAfter(request.Context(), delivery.LastSequence, 1)
+			if streamErr != nil || len(page) == 0 {
+				state.LastError = "audit_stream_unavailable"
+			} else if !page[0].Audit.TS.IsZero() {
+				state.OldestPendingAt = page[0].Audit.TS.UTC().Format(time.RFC3339)
+			}
+		}
+		view.Channels[row].Reliable = state
+	}
 	handler.ok(writer, view)
+}
+
+// notificationsReplay retries the pending audit event only after a durable
+// management audit of the administrator's intent. The endpoint never accepts
+// an event sequence or payload supplied by the caller.
+func (handler *Handler) notificationsReplay(writer http.ResponseWriter, request *http.Request) {
+	channelID := request.PathValue("id")
+	principal, ok := requestPrincipal(request)
+	if !ok || channelID == "" || len(channelID) > 128 {
+		handler.fail(writer, http.StatusBadRequest, "invalid channel")
+		return
+	}
+	config, err := handler.deps.Runtime.Store.Notifications().Get(request.Context())
+	if err != nil {
+		handler.internal(writer, err)
+		return
+	}
+	found := false
+	for _, channel := range config.Channels {
+		if channel.ID == channelID && channel.Enabled && channel.Reliable && channel.Kind == notify.ChannelWebhook {
+			found = true
+			break
+		}
+	}
+	if !found || !config.Enabled {
+		handler.fail(writer, http.StatusNotFound, "reliable channel not found")
+		return
+	}
+	status, err := handler.deps.Runtime.Store.NotificationDelivery().Status(request.Context(), channelID)
+	if err != nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "notification cursor unavailable")
+		return
+	}
+	if !status.DeadLetter {
+		handler.fail(writer, http.StatusConflict, "notification channel has no dead letter")
+		return
+	}
+	if handler.deps.Runtime.ManagementAudit == nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
+		return
+	}
+	action, actorType, decision := "notification_dead_letter_replay_request", "user", string(model.DecisionAllow)
+	details := `{"channel_id":` + strconv.Quote(channelID) + `}`
+	recorded, err := handler.deps.Runtime.ManagementAudit.Record(request.Context(), model.AuditLog{
+		Decision: decision, Action: &action, ActorType: &actorType,
+		ActorID: &principal.UserID, DetailsJSON: &details,
+	})
+	if err != nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "audit unavailable")
+		return
+	}
+	handler.deps.Runtime.PublishManagementAudit(recorded)
+	changed, err := handler.deps.Runtime.Store.NotificationDelivery().ReplayDeadLetter(request.Context(), channelID)
+	if err != nil {
+		handler.fail(writer, http.StatusServiceUnavailable, "notification cursor unavailable")
+		return
+	}
+	if !changed {
+		handler.fail(writer, http.StatusConflict, "notification channel has no dead letter")
+		return
+	}
+	handler.ok(writer, map[string]string{"channel_id": channelID, "status": "queued"})
 }
 
 func validateNotificationConfig(ctx context.Context, config notify.Config) error {
@@ -171,7 +358,11 @@ func validateNotificationConfig(ctx context.Context, config notify.Config) error
 	validation.Enabled = true
 	validation.Channels = append([]notify.ChannelConfig(nil), config.Channels...)
 	for index := range validation.Channels {
+		if validation.Channels[index].Reliable && validation.Channels[index].Kind != notify.ChannelWebhook {
+			return errors.New("reliable notification requires a webhook")
+		}
 		validation.Channels[index].Enabled = true
+		validation.Channels[index].Reliable = false // Validate endpoint reachability for both modes.
 	}
 	hub, err := eventbus.New(eventbus.Options{HistorySize: 1, SubscriberBuffer: 1})
 	if err != nil {
@@ -238,7 +429,7 @@ func notificationConfigToDTO(config notify.Config) notificationConfigDTO {
 		Channels: make([]notificationChannelDTO, 0, len(config.Channels))}
 	for _, channel := range config.Channels {
 		view := notificationChannelDTO{
-			ID: channel.ID, Enabled: channel.Enabled, Kind: channel.Kind,
+			ID: channel.ID, Enabled: channel.Enabled, Reliable: channel.Reliable, Kind: channel.Kind,
 			Decisions: append([]string(nil), channel.Decisions...), IncludeSQL: channel.IncludeSQL,
 			AllowPrivateEndpoints: channel.AllowPrivateEndpoints,
 		}
@@ -272,7 +463,7 @@ func notificationDTOToConfig(input notificationConfigDTO) notify.Config {
 
 func notificationDTOToChannel(input notificationChannelDTO) notify.ChannelConfig {
 	channel := notify.ChannelConfig{
-		ID: input.ID, Enabled: input.Enabled, Kind: input.Kind,
+		ID: input.ID, Enabled: input.Enabled, Reliable: input.Reliable, Kind: input.Kind,
 		Decisions: append([]string(nil), input.Decisions...), IncludeSQL: input.IncludeSQL,
 		AllowPrivateEndpoints: input.AllowPrivateEndpoints,
 	}

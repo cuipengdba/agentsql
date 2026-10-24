@@ -43,3 +43,11 @@ export function getNotificationHealth(signal?: AbortSignal): Promise<Notificatio
     suppressErrorMessage: true,
   });
 }
+
+export function replayNotificationChannel(channelID: string): Promise<{channel_id: string; status: string}> {
+  return request<{channel_id: string; status: string}>({
+    method: "POST",
+    url: `${baseURL}/${encodeURIComponent(channelID)}/replay`,
+    suppressErrorMessage: true,
+  });
+}

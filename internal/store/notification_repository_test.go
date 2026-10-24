@@ -5,11 +5,37 @@ import (
 	"database/sql"
 	"io/fs"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/notify"
 	"github.com/stretchr/testify/require"
 )
+
+func TestReliableNotificationTenantInventoryDoesNotStopAtOneThousand(t *testing.T) {
+	ctx := context.Background()
+	opened, err := OpenWithSecret(ctx, filepath.Join(t.TempDir(), "notification-inventory.db"), []byte(testSecret))
+	require.NoError(t, err)
+	defer opened.Close()
+
+	transaction, err := opened.metaDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	for index := 0; index < 1001; index++ {
+		id := "tenant_inventory_" + strconv.Itoa(index)
+		_, err = transaction.ExecContext(ctx, "INSERT INTO tenants(id,name,status) VALUES(?,?,'active')", id, id)
+		require.NoError(t, err)
+		_, err = transaction.ExecContext(ctx, "INSERT INTO notification_settings(tenant_id,id,enabled,queue_size) VALUES(?,1,1,1)", id)
+		require.NoError(t, err)
+		_, err = transaction.ExecContext(ctx, "INSERT INTO notification_channels(tenant_id,id,position,enabled,reliable_enabled,kind,decisions) VALUES(?,'webhook',0,1,1,'webhook','deny')", id)
+		require.NoError(t, err)
+	}
+	require.NoError(t, transaction.Commit())
+
+	tenants, err := opened.Notifications().ListReliableTenants(ctx)
+	require.NoError(t, err)
+	require.Len(t, tenants, 1001)
+}
 
 func TestNotificationRepositorySQLite(t *testing.T) {
 	ctx := context.Background()
@@ -73,6 +99,47 @@ UPDATE notification_channels SET created_at='2000-01-02 03:04:05' WHERE id='gene
 	require.Contains(t, createdAt, "2000-01-02")
 }
 
+func TestNotificationConfigurationAndCursorCommitAtomically(t *testing.T) {
+	ctx := context.Background()
+	opened, err := OpenWithSecret(ctx, filepath.Join(t.TempDir(), "atomic-notifications.db"), []byte(testSecret))
+	require.NoError(t, err)
+	defer opened.Close()
+	delivery := opened.NotificationDelivery()
+	digestA, digestB, digestWrong := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	require.NoError(t, delivery.Ensure(ctx, "b", digestB, 0))
+	channel := func(id string) notify.ChannelConfig {
+		return notify.ChannelConfig{ID: id, Enabled: true, Reliable: true, Kind: notify.ChannelWebhook,
+			Decisions: []string{"deny"}, Webhook: &notify.WebhookConfig{Template: notify.WebhookGeneric, URL: "https://example.test/hook"}}
+	}
+	config := notify.Config{Enabled: true, QueueSize: 4, Channels: []notify.ChannelConfig{channel("a"), channel("b")}}
+	_, err = opened.Notifications().ReplaceWithCursors(ctx, config, []NotificationCursorSeed{
+		{ChannelID: "a", ConfigDigest: digestA}, {ChannelID: "b", ConfigDigest: digestWrong},
+	})
+	require.ErrorContains(t, err, "configuration changed")
+	_, err = delivery.Status(ctx, "a")
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	stored, err := opened.Notifications().Get(ctx)
+	require.NoError(t, err)
+	require.False(t, stored.Enabled)
+	require.Empty(t, stored.Channels)
+
+	config.Channels = config.Channels[:1]
+	seed := NotificationCursorSeed{ChannelID: "a", ConfigDigest: digestA, InitialSequence: 2}
+	created, err := opened.Notifications().ReplaceWithCursors(ctx, config, []NotificationCursorSeed{seed})
+	require.NoError(t, err)
+	require.Equal(t, []NotificationCursorSeed{seed}, created)
+	created, err = opened.Notifications().ReplaceWithCursors(ctx, config, []NotificationCursorSeed{seed})
+	require.NoError(t, err)
+	require.Empty(t, created)
+	discarded, err := delivery.DiscardUnpublished(ctx, seed)
+	require.NoError(t, err)
+	require.False(t, discarded)
+	require.NoError(t, opened.Notifications().Replace(ctx, notify.Config{Enabled: false, QueueSize: 4}))
+	discarded, err = delivery.DiscardUnpublished(ctx, seed)
+	require.NoError(t, err)
+	require.True(t, discarded)
+}
+
 func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 	ctx := context.Background()
 	t.Run("fresh combined and separated metadata", func(t *testing.T) {
@@ -84,11 +151,11 @@ func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 			current, latest, err := MetadataMigrationVersions(ctx, database, DialectSQLite, separated)
 			require.NoError(t, err)
 			if separated {
-				require.Equal(t, 23, current)
-				require.Equal(t, 23, latest)
+				require.Equal(t, 24, current)
+				require.Equal(t, 24, latest)
 			} else {
-				require.Equal(t, 25, current)
-				require.Equal(t, 25, latest)
+				require.Equal(t, 26, current)
+				require.Equal(t, 26, latest)
 			}
 			assertSQLiteNotificationTables(t, ctx, database)
 			require.NoError(t, database.Close())
@@ -111,7 +178,7 @@ func TestNotificationMigrationsSQLiteFreshAndVersionOneUpgrade(t *testing.T) {
 		require.NoError(t, Migrate(ctx, database, DialectSQLite))
 		var after int
 		require.NoError(t, database.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&after))
-		require.Equal(t, 25, after)
+		require.Equal(t, 26, after)
 		assertSQLiteNotificationTables(t, ctx, database)
 		require.NoError(t, database.Close())
 	})

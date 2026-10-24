@@ -58,6 +58,7 @@ func TestAuditStreamTenantCursorBackfillAndRollback(t *testing.T) {
 	require.NoError(t, transaction.Rollback())
 	assertStream()
 
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 26))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 25))
 	require.NoError(t, Migrate(ctx, opened.auditDB, DialectSQLite))
 	assertStream()
@@ -65,5 +66,10 @@ func TestAuditStreamTenantCursorBackfillAndRollback(t *testing.T) {
 	_, err = opened.auditDB.ExecContext(ctx, "DELETE FROM audit_stream_events WHERE tenant_id=? AND seq=?", DefaultTenantID, 1)
 	require.NoError(t, err)
 	_, err = repository.StreamAfter(tenantA, 0, 10)
+	require.ErrorContains(t, err, "sequence gap")
+	// A missing tail record has no later row to expose the gap in a page.
+	_, err = opened.auditDB.ExecContext(ctx, "DELETE FROM audit_stream_events WHERE tenant_id=? AND seq=?", DefaultTenantID, 2)
+	require.NoError(t, err)
+	_, err = repository.StreamAfter(tenantA, 1, 10)
 	require.ErrorContains(t, err, "sequence gap")
 }
