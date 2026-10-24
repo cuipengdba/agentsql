@@ -1129,7 +1129,7 @@
     {
       "source": "docs/release-notes-v3.8.0.md",
       "english": "docs/en/release-notes-v3.8.0.md",
-      "source_sha256": "9a775fb620a7103b1fafd53a413a2ddef6551e59d0112770f71b5f530a7dd95f"
+      "source_sha256": "c3cbe2ad017570087a73a406d63efa67f230f383fcdcb7c6e8b2c46831ee70cc"
     },
     {
       "source": "docs/v3.8.0-acceptance.md",
