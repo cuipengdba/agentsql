@@ -1055,6 +1055,11 @@
       "source": "docs/v3.5.0-design.md",
       "english": "docs/en/v3.5.0-design.md",
       "source_sha256": "059e690416b80264832306005422764955e7f7599e62e85fa26203cfa9e9f243"
+    },
+    {
+      "source": "docs/v3.5.0-acceptance.md",
+      "english": "docs/en/v3.5.0-acceptance.md",
+      "source_sha256": "390a62e51a1e8a4c161715457c02577bf51ad1c8ab8e7d6614d68c5a0b561ef5"
     }
   ]
 }
