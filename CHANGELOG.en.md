@@ -2,6 +2,12 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v3.9.0]
+
+- Added strict TCPS and opt-in bounded PLAN_TABLE checks for specified Oracle 26ai Free; upgraded go-ora to v3.0.1 and isolated TLS state per physical connection.
+- Deepened certificate rotation, least-privilege plans, audit outages and business-database recovery verification for specified Oracle and SQL Server instances. See the [release notes](docs/en/release-notes-v3.9.0.md) and [acceptance record](docs/en/v3.9.0-acceptance.md).
+- Updated the bilingual console, current manuals, website and Demo version. The public Demo continues to use synthetic PostgreSQL/MySQL data.
+
 ## [v3.8.0]
 
 - Added administrator-tightened read rows, bytes, and memory budgets with overflow errors for specified single-node ClickHouse 26.8.31.2; missing readonly-role settings fail closed.

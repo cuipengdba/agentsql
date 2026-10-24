@@ -1494,5 +1494,17 @@
   "ClickHouse 查询资源预算": "ClickHouse query resource budget",
   "Milvus 租户隔离与标量过滤": "Milvus tenant isolation and scalar filters",
   "配置只会收紧已有查询资源上限。{} 保留默认预算。": "This profile only tightens existing query resource limits. {} keeps the default budget.",
-  "配置租户字段后，网关从当前 Agent 绑定租户生成过滤条件；可另批准最多八个标量过滤字段。{} 保留旧版无行级租户过滤的路径。": "With a tenant field configured, the gateway derives its filter from the current Agent's tenant. You may also approve up to eight scalar filter fields. {} retains the legacy path without row-level tenant filtering."
+  "配置租户字段后，网关从当前 Agent 绑定租户生成过滤条件；可另批准最多八个标量过滤字段。{} 保留旧版无行级租户过滤的路径。": "With a tenant field configured, the gateway derives its filter from the current Agent's tenant. You may also approve up to eight scalar filter fields. {} retains the legacy path without row-level tenant filtering.",
+  "Oracle 指定实例可使用验证证书的 TCPS 只读连接。证书主机名须与连接主机一致；旧版未设置 TLS 的数据源仅保留兼容行为。": "The specified Oracle instance can use a certificate-verified TCPS read-only connection. The certificate hostname must match the connection host; older datasources without TLS retain compatibility behavior only.",
+  "证书主机名（须与连接主机一致）": "Certificate hostname (must match the connection host)",
+  "可选：启用 Oracle 计划预检": "Optional: enable Oracle plan preflight",
+  "使用专用只读账号，先确认该实例的 PLAN_TABLE 可供账号读写。填写配置后，计划检查失败会阻断查询；保留 {} 则沿用原有只读路径。": "Use a dedicated read-only account and first confirm it can read and write PLAN_TABLE on this instance. When enabled, a failed plan check blocks the query; {} keeps the existing read-only path.",
+  "Oracle 计划配置 JSON": "Oracle plan configuration JSON",
+  "Oracle 26ai Free 23.26.3.0.0 指定单服务的有界只读 SELECT；支持验证 TCPS 与显式启用的 PLAN_TABLE 预检，RAC/mTLS 未验收。": "Oracle 26ai Free 23.26.3.0.0 bounded readonly SELECT on the specified single service; verified TCPS and opt-in PLAN_TABLE preflight. RAC and mTLS are unverified.",
+  "SQL Server 2025 17.0.5015 Linux 单实例、严格 TLS 与 SHOWPLAN 的受控只读 SELECT；隔离证书轮换和恢复已验证，Always On 未验收。": "SQL Server 2025 17.0.5015 Linux single-instance controlled readonly SELECT with strict TLS and SHOWPLAN; isolated certificate rotation and recovery verified. Always On is unverified.",
+  "MongoDB 7.0.43 单实例与 7.0.45 三成员副本集的严格 TLS 精确集合/字段读取；副本集须批准索引，分片未验收。": "MongoDB 7.0.43 single-instance and 7.0.45 three-member replica-set reads with strict TLS and exact collection/field grants; replica sets require approved indexes. Sharding is unverified.",
+  "Redis 8.2.9 指定 TLS/ACL 单实例和两数据节点/三 Sentinel 拓扑的精确键与 Hash 字段读取；Cluster 未验收。": "Redis 8.2.9 exact key and Hash-field reads on specified TLS/ACL single-instance and two-data-node/three-Sentinel topologies. Cluster is unverified.",
+  "Valkey 8.1.10 指定 TLS/ACL 单实例和两数据节点/三 Sentinel 拓扑的精确键与 Hash 字段读取；Cluster 未验收。": "Valkey 8.1.10 exact key and Hash-field reads on specified TLS/ACL single-instance and two-data-node/three-Sentinel topologies. Cluster is unverified.",
+  "ClickHouse 26.8.31.2 指定原生 TLS 单节点的有界 MergeTree 查询，可显式收紧读取预算。": "ClickHouse 26.8.31.2 bounded MergeTree queries on a specified native-TLS single node, with optional tighter read budgets.",
+  "Milvus 2.6.25 指定 TLS 单机的单向量 COSINE 检索，可显式启用权威 Agent 租户范围和获准字段等值过滤。": "Milvus 2.6.25 single-vector COSINE search on a specified TLS standalone instance, with opt-in authoritative Agent tenant scope and approved-field equality filters."
 }

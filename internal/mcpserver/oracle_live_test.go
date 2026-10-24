@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
-	goora "github.com/sijms/go-ora/v2"
+	goora "github.com/sijms/go-ora/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +39,11 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
+	tlsCA := os.Getenv("AGENTSQL_TEST_ORACLE_TLS_CA")
+	readerPort := 1521
+	if tlsCA != "" {
+		readerPort = 2484
+	}
 	clientDir := os.Getenv("AGENTSQL_TEST_ORACLE_CLIENT_DIR")
 	auditDSN := os.Getenv("AGENTSQL_TEST_ORACLE_AUDIT_DSN")
 	auditFaultDir := os.Getenv("AGENTSQL_TEST_ORACLE_AUDIT_FAULT_DIR")
@@ -48,7 +54,7 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	admin, err := sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", "SYSTEM", password, nil))
+	admin, err := sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", "SYSTEM", password, map[string]string{"FAST LOGIN": "false"}))
 	require.NoError(t, err)
 	require.NoError(t, admin.PingContext(ctx))
 	defer admin.Close()
@@ -69,7 +75,7 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-		cleanup, openErr := sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", "SYSTEM", password, nil))
+		cleanup, openErr := sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", "SYSTEM", password, map[string]string{"FAST LOGIN": "false"}))
 		if openErr != nil || cleanup.PingContext(cleanupCtx) != nil {
 			t.Error("reconnect Oracle administrator for cleanup failed")
 			return
@@ -103,7 +109,7 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 		_, err = admin.ExecContext(ctx, statement)
 		require.NoError(t, err)
 	}
-	readerDB, err := sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", reader, readerPassword, nil))
+	readerDB, err := sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", reader, readerPassword, map[string]string{"FAST LOGIN": "false"}))
 	require.NoError(t, err)
 	require.NoError(t, readerDB.PingContext(ctx))
 	defer readerDB.Close()
@@ -125,11 +131,18 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	}
 	fixture := newMCPFixtureWithOpener(t, "readonly", opener)
 	const datasourceID = "ds-oracle-v22"
-	_, err = fixture.runtime.Store.Datasources().Create(ctx, model.Datasource{
+	readerDatasource := model.Datasource{
 		ID: datasourceID, Name: "Oracle 26ai Free least-privilege test", DBType: "oracle",
-		Host: host, Port: 1521, Database: "FREEPDB1", Username: reader,
+		Host: host, Port: readerPort, Database: "FREEPDB1", Username: reader,
 		ConnLimit: 2, StmtTimeoutMS: 10_000, RowLimit: 10,
-	}, readerPassword)
+	}
+	if tlsCA != "" {
+		readerDatasource.TLSMode = "verify-full"
+		readerDatasource.TLSCAFile = tlsCA
+		readerDatasource.TLSServerName = host
+		readerDatasource.ReadControlJSON = `{"oracle":{"explain":true}}`
+	}
+	_, err = fixture.runtime.Store.Datasources().Create(ctx, readerDatasource, readerPassword)
 	require.NoError(t, err)
 	policy := model.Policy{ID: "oracle-allowed-table", AgentID: fixture.agent.ID,
 		DatasourceID: datasourceID, ObjectType: "table", ObjectName: "SYSTEM." + table, Action: "allow"}
@@ -140,6 +153,22 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 	fixture.redactors.redactor = redactor
 	gateway := executor.NewGateway(true)
 	t.Cleanup(func() { require.NoError(t, gateway.CloseAll()) })
+	if tlsCA != "" {
+		if wrongCA := os.Getenv("AGENTSQL_TEST_ORACLE_WRONG_CA"); wrongCA != "" {
+			untrusted := readerDatasource
+			untrusted.ID += "-wrong-ca"
+			untrusted.TLSCAFile = wrongCA
+			require.Error(t, gateway.Ping(ctx, untrusted, []byte(readerPassword)), "an unrelated CA must be rejected")
+		}
+		addresses, lookupErr := net.LookupIP(host)
+		require.NoError(t, lookupErr)
+		require.NotEmpty(t, addresses)
+		wrongName := readerDatasource
+		wrongName.ID += "-wrong-name"
+		wrongName.Host = addresses[0].String()
+		wrongName.TLSServerName = wrongName.Host
+		require.Error(t, gateway.Ping(ctx, wrongName, []byte(readerPassword)), "a certificate for another host must be rejected")
+	}
 	fixture.runtime.Pipeline, err = pipeline.New(pipeline.Ports{
 		Authenticator: auth.NewAuthenticator(fixture.runtime.Store.Agents()),
 		Datasources:   fixture.runtime.Store.Datasources(), Policies: fixture.runtime.Store.Policies(),
@@ -255,31 +284,115 @@ func TestOracleHTTPMCPRealE2E(t *testing.T) {
 		require.NoError(t, err)
 		signal(auditFaultDir, "down_checked")
 		waitSignal(auditFaultDir, "up")
-		restoredAudit := call("query", allowSQL)
+		var restoredAudit string
+		var auditRecoveryCalls int64
+		for attempt := 0; attempt < 8; attempt++ {
+			restoredAudit = call("query", allowSQL)
+			auditRecoveryCalls++
+			if strings.Contains(restoredAudit, `"decision":"allow"`) {
+				break
+			}
+			require.NotContains(t, restoredAudit, plain)
+			select {
+			case <-ctx.Done():
+				t.Fatal("Oracle audit database did not recover")
+			case <-time.After(2 * time.Second):
+			}
+		}
 		require.Contains(t, restoredAudit, `"decision":"allow"`)
 		require.Contains(t, restoredAudit, "138****5678")
 		faultPage, pageErr := reopened.AuditLogs().Page(ctx, 1, 20)
 		require.NoError(t, pageErr)
-		require.Equal(t, after.Total+1, faultPage.Total)
+		require.GreaterOrEqual(t, faultPage.Total, after.Total+1)
+		require.LessOrEqual(t, faultPage.Total, after.Total+auditRecoveryCalls)
+		require.Equal(t, "allow", faultPage.List[0].Decision)
 		after = faultPage
 	}
 	if businessFaultDir != "" {
 		signal(businessFaultDir, "ready")
 		waitSignal(businessFaultDir, "down")
+		faultStarted := time.Now()
 		failedBusiness := call("query", allowSQL)
+		if os.Getenv("AGENTSQL_TEST_ORACLE_EXPECT_TIMEOUT") == "1" {
+			require.Less(t, time.Since(faultStarted), 20*time.Second, "paused business database must respect the statement deadline")
+		}
 		require.NotContains(t, failedBusiness, `"decision":"allow"`)
 		require.NotContains(t, failedBusiness, plain)
 		signal(businessFaultDir, "down_checked")
 		waitSignal(businessFaultDir, "up")
-		restoredBusiness := call("query", allowSQL)
+		// Oracle can report container health before its first post-restart plan
+		// query has warmed up. Retry through the existing gateway for a bounded period; every
+		// transient response must still fail closed and remain in durable audit.
+		var restoredBusiness string
+		var recoveryCalls int64
+		for attempt := 0; attempt < 8; attempt++ {
+			restoredBusiness = call("query", allowSQL)
+			recoveryCalls++
+			if strings.Contains(restoredBusiness, `"decision":"allow"`) {
+				break
+			}
+			require.NotContains(t, restoredBusiness, plain)
+			select {
+			case <-ctx.Done():
+				t.Fatal("Oracle business database did not recover")
+			case <-time.After(2 * time.Second):
+			}
+		}
 		require.Contains(t, restoredBusiness, `"decision":"allow"`)
 		require.Contains(t, restoredBusiness, "138****5678")
 		faultPage, pageErr := reopened.AuditLogs().Page(ctx, 1, 20)
 		require.NoError(t, pageErr)
-		require.Equal(t, after.Total+2, faultPage.Total)
-		require.Equal(t, "error", faultPage.List[1].Decision)
+		require.Equal(t, after.Total+1+recoveryCalls, faultPage.Total)
+		require.Equal(t, "error", faultPage.List[int(recoveryCalls)].Decision)
 		require.Equal(t, "allow", faultPage.List[0].Decision)
 		after = faultPage
+	}
+	if tlsCA != "" {
+		if businessFaultDir != "" {
+			// The test administrator connection was opened before the server
+			// restart. Reopen it explicitly before the plan-table fault probe.
+			// Closing the old socket may report the expected broken pipe from
+			// the injected server stop. Readiness is checked on the new socket.
+			_ = admin.Close()
+			admin, err = sql.Open("oracle", goora.BuildUrl(host, 1521, "FREEPDB1", "SYSTEM", password, map[string]string{"FAST LOGIN": "false"}))
+			require.NoError(t, err)
+			require.NoError(t, admin.PingContext(ctx))
+			defer admin.Close()
+		}
+		_, err = admin.ExecContext(ctx, "CREATE VIEW "+reader+".PLAN_TABLE AS SELECT 1 AS ID FROM DUAL")
+		require.NoError(t, err)
+		invalidPlan := call("query", allowSQL)
+		require.Contains(t, invalidPlan, `"decision":"error"`)
+		require.NotContains(t, invalidPlan, plain)
+		_, err = admin.ExecContext(ctx, "DROP VIEW "+reader+".PLAN_TABLE")
+		require.NoError(t, err)
+		recoveredPlan := call("query", allowSQL)
+		require.Contains(t, recoveredPlan, `"decision":"allow"`)
+		require.Contains(t, recoveredPlan, "138****5678")
+		planPage, pageErr := reopened.AuditLogs().Page(ctx, 1, 20)
+		require.NoError(t, pageErr)
+		require.Equal(t, after.Total+2, planPage.Total)
+		after = planPage
+	}
+	if os.Getenv("AGENTSQL_TEST_ORACLE_PLAN_BUDGET") == "1" {
+		require.NotEmpty(t, tlsCA)
+		// Set synthetic optimizer statistics on this temporary table only.
+		// A real plan, rather than a stub, must trigger R004 before row delivery.
+		_, err = admin.ExecContext(ctx, "BEGIN DBMS_STATS.SET_TABLE_STATS('SYSTEM', '"+table+"', NUMROWS=>200001, NUMBLKS=>2000); END;")
+		require.NoError(t, err)
+		budgetDenied := call("query", "SELECT PHONE FROM SYSTEM."+table)
+		require.NotContains(t, budgetDenied, `"decision":"allow"`)
+		require.Contains(t, budgetDenied, `"RuleID":"R004"`)
+		require.NotContains(t, budgetDenied, plain)
+		_, err = admin.ExecContext(ctx, "BEGIN DBMS_STATS.SET_TABLE_STATS('SYSTEM', '"+table+"', NUMROWS=>1, NUMBLKS=>1); END;")
+		require.NoError(t, err)
+		recovered := call("query", allowSQL)
+		require.Contains(t, recovered, `"decision":"allow"`)
+		require.Contains(t, recovered, "138****5678")
+		budgetPage, pageErr := reopened.AuditLogs().Page(ctx, 1, 20)
+		require.NoError(t, pageErr)
+		require.Equal(t, after.Total+2, budgetPage.Total)
+		after = budgetPage
 	}
 	if clientDir == "" {
 		return

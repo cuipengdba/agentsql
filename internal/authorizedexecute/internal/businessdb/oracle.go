@@ -2,9 +2,16 @@ package businessdb
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -12,8 +19,8 @@ import (
 	"unicode"
 
 	"github.com/cuipengdba/agentsql/internal/model"
-	goora "github.com/sijms/go-ora/v2"
-	gooranetwork "github.com/sijms/go-ora/v2/network"
+	goora "github.com/sijms/go-ora/v3"
+	gooranetwork "github.com/sijms/go-ora/v3/network"
 )
 
 // OracleExecutor supports connection lifecycle, typed metadata, narrowly
@@ -28,10 +35,33 @@ func NewOracleExecutor(
 	readOnly bool,
 ) (*OracleExecutor, error) {
 	dsn := buildOracleDSN(datasource, password)
-	executor, err := newLimitedSQLExecutorWithDialect(
-		ctx, datasource, "oracle", dsn, "oracle", password, readOnly,
-		classifyOracleError, explainOracleSelect,
-	)
+	var executor *limitedSQLExecutor
+	var err error
+	switch datasource.TLSMode {
+	case "":
+		if datasource.TLSServerName != "" || datasource.TLSCAFile != "" || datasource.TrustServerCertificate {
+			return nil, fmt.Errorf("open oracle datasource: certificate options require verify-full")
+		}
+		connector := &oracleVerifiedConnector{dsn: dsn, driver: goora.NewConnector(dsn).Driver()}
+		executor, err = newLimitedSQLExecutorWithOpener(
+			ctx, datasource, "oracle", password, readOnly,
+			classifyOracleError, explainOracleSelect,
+			func() (*sql.DB, error) { return sql.OpenDB(connector), nil },
+		)
+	case "verify-full":
+		verifiedTLS, tlsErr := oracleVerifiedTLSConfig(datasource)
+		if tlsErr != nil {
+			return nil, tlsErr
+		}
+		connector := &oracleVerifiedConnector{dsn: dsn, tlsConfig: verifiedTLS, driver: goora.NewConnector(dsn).Driver()}
+		executor, err = newLimitedSQLExecutorWithOpener(
+			ctx, datasource, "oracle", password, readOnly,
+			classifyOracleError, explainOracleSelect,
+			func() (*sql.DB, error) { return sql.OpenDB(connector), nil },
+		)
+	default:
+		return nil, fmt.Errorf("open oracle datasource: unsupported TLS mode")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +70,78 @@ func NewOracleExecutor(
 		return nil, err
 	}
 	return &OracleExecutor{limitedSQLExecutor: executor}, nil
+}
+
+// go-ora mutates the supplied TLS config's ServerName during negotiation.
+// Give each physical connection a private clone so concurrent pool connects do
+// not race and cannot inherit another connection's certificate state.
+type oracleVerifiedConnector struct {
+	dsn       string
+	tlsConfig *tls.Config
+	driver    driver.Driver
+}
+
+func (connector *oracleVerifiedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	underlying, ok := goora.NewConnector(connector.dsn).(*goora.OracleConnector)
+	if !ok {
+		return nil, fmt.Errorf("Oracle driver does not support bounded transport")
+	}
+	underlying.Dialer(oracleBoundedDialer{})
+	if connector.tlsConfig != nil {
+		underlying.WithTLSConfig(connector.tlsConfig.Clone())
+	}
+	return underlying.Connect(ctx)
+}
+
+func (connector *oracleVerifiedConnector) Driver() driver.Driver { return connector.driver }
+
+type oracleBoundedDialer struct{}
+
+func (oracleBoundedDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return &oracleBoundedConn{Conn: conn}, nil
+}
+
+// go-ora attempts protocol cleanup after an I/O timeout, resetting the socket
+// deadline for each cleanup exchange. A nonresponsive server can therefore
+// multiply a statement timeout. Once transport I/O fails, close that physical
+// socket so rollback/logoff cannot start another wait or reuse uncertain state.
+type oracleBoundedConn struct{ net.Conn }
+
+func (conn *oracleBoundedConn) Read(buffer []byte) (int, error) {
+	n, err := conn.Conn.Read(buffer)
+	if err != nil {
+		_ = conn.Conn.Close()
+	}
+	return n, err
+}
+
+func (conn *oracleBoundedConn) Write(buffer []byte) (int, error) {
+	n, err := conn.Conn.Write(buffer)
+	if err != nil {
+		_ = conn.Conn.Close()
+	}
+	return n, err
+}
+
+func oracleVerifiedTLSConfig(datasource model.Datasource) (*tls.Config, error) {
+	if datasource.TLSMode != "verify-full" || datasource.TrustServerCertificate ||
+		datasource.TLSCAFile == "" || !filepath.IsAbs(datasource.TLSCAFile) ||
+		datasource.TLSServerName == "" || !strings.EqualFold(datasource.TLSServerName, datasource.Host) {
+		return nil, fmt.Errorf("Oracle verify-full requires an absolute CA path and a certificate name matching the connection host")
+	}
+	caPEM, err := os.ReadFile(datasource.TLSCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read Oracle CA: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("Oracle CA contains no valid certificates")
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: datasource.TLSServerName}, nil
 }
 
 func classifyOracleError(ctx context.Context, stage DBStage, cause error) (error, bool) {
@@ -265,7 +367,14 @@ func parseOraclePlanTable(result model.QueryResult) (model.ExplainInfo, error) {
 }
 
 func buildOracleDSN(datasource model.Datasource, password string) string {
-	options := map[string]string{}
+	// go-ora v3's fast-login cache is shared across connections by service.
+	// Disable it so different database accounts and transports cannot reuse
+	// stale negotiation state.
+	options := map[string]string{"FAST LOGIN": "false"}
+	if datasource.TLSMode == "verify-full" {
+		options["SSL"] = "true"
+		options["SSL VERIFY"] = "true"
+	}
 	if datasource.StmtTimeoutMS > 0 {
 		seconds := (datasource.StmtTimeoutMS + 999) / 1_000
 		options["CONNECTION TIMEOUT"] = strconv.Itoa(seconds)

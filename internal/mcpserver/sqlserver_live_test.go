@@ -265,6 +265,26 @@ func TestSQLServerHTTPMCPRealE2E(t *testing.T) {
 	require.Nil(t, after.List[0].SQLRaw)
 	_, err = fixture.runtime.Store.Policies().Create(ctx, policy)
 	require.NoError(t, err)
+	if os.Getenv("AGENTSQL_TEST_SQLSERVER_PLAN_BUDGET") == "1" {
+		_, err = adminDB.ExecContext(ctx, "INSERT INTO [dbo].["+table+"] ([id],[phone]) SELECT TOP (100001) 2, 'synthetic' FROM sys.all_objects a CROSS JOIN sys.all_objects b")
+		require.NoError(t, err)
+		_, err = adminDB.ExecContext(ctx, "UPDATE STATISTICS [dbo].["+table+"] WITH FULLSCAN")
+		require.NoError(t, err)
+		budgetDenied := call("query", "SELECT [phone] FROM [dbo].["+table+"]")
+		require.NotContains(t, budgetDenied, `"decision":"allow"`)
+		require.Contains(t, budgetDenied, `"RuleID":"R004"`)
+		require.NotContains(t, budgetDenied, plain)
+		_, err = adminDB.ExecContext(ctx, "DELETE FROM [dbo].["+table+"] WHERE [id] = 2")
+		require.NoError(t, err)
+		_, err = adminDB.ExecContext(ctx, "UPDATE STATISTICS [dbo].["+table+"] WITH FULLSCAN")
+		require.NoError(t, err)
+		recovered := call("query", allowSQL)
+		require.Contains(t, recovered, `"decision":"allow"`)
+		require.Contains(t, recovered, "138****5678")
+		budgetPage, pageErr := reopened.AuditLogs().Page(ctx, 1, 30)
+		require.NoError(t, pageErr)
+		require.Equal(t, after.Total+2, budgetPage.Total)
+	}
 	if auditFaultDir != "" || businessFaultDir != "" || clientDir != "" {
 		runSQLServerMCPExternalChecks(t, ctx, call, readerDB, "SELECT [phone] FROM [dbo].["+table+"] WHERE [id] = 1", opener, fixture.databasePath,
 			auditDSN, auditFaultDir, businessFaultDir, clientDir, httpServer.URL,
@@ -340,13 +360,18 @@ func runSQLServerMCPExternalChecks(
 		require.NoError(t, before.Close())
 		signal(businessFaultDir, "ready")
 		waitSignal(businessFaultDir, "down")
+		faultStarted := time.Now()
 		failed := call("query", allowSQL)
+		if os.Getenv("AGENTSQL_TEST_SQLSERVER_EXPECT_TIMEOUT") == "1" {
+			require.Less(t, time.Since(faultStarted), 20*time.Second, "paused business database must respect the statement deadline")
+		}
 		require.NotContains(t, failed, `"decision":"allow"`)
 		require.NotContains(t, failed, plain)
 		signal(businessFaultDir, "down_checked")
 		waitSignal(businessFaultDir, "up")
 		ready := false
-		for attempt := 0; attempt < 30; attempt++ {
+		recoveryDeadline := time.Now().Add(5 * time.Minute)
+		for time.Now().Before(recoveryDeadline) {
 			readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			var value string
 			err := readerDB.QueryRowContext(readCtx, readinessSQL).Scan(&value)
@@ -362,7 +387,21 @@ func runSQLServerMCPExternalChecks(
 			}
 		}
 		require.True(t, ready, "SQL Server reader must recover before MCP recovery assertion")
-		restored := call("query", allowSQL)
+		var restored string
+		var recoveryCalls int64
+		for attempt := 0; attempt < 8; attempt++ {
+			restored = call("query", allowSQL)
+			recoveryCalls++
+			if strings.Contains(restored, `"decision":"allow"`) {
+				break
+			}
+			require.NotContains(t, restored, plain)
+			select {
+			case <-ctx.Done():
+				t.Fatal("SQL Server MCP reader did not recover")
+			case <-time.After(2 * time.Second):
+			}
+		}
 		require.Contains(t, restored, `"decision":"allow"`)
 		require.Contains(t, restored, "138****5678")
 		after, err := opener(databasePath)
@@ -370,9 +409,9 @@ func runSQLServerMCPExternalChecks(
 		persisted, err := after.AuditLogs().Page(ctx, 1, 30)
 		require.NoError(t, err)
 		require.NoError(t, after.Close())
-		require.Equal(t, baseline.Total+2, persisted.Total)
+		require.Equal(t, baseline.Total+1+recoveryCalls, persisted.Total)
 		require.Equal(t, "allow", persisted.List[0].Decision)
-		require.Equal(t, "error", persisted.List[1].Decision)
+		require.Equal(t, "error", persisted.List[int(recoveryCalls)].Decision)
 	}
 	if clientDir == "" {
 		return

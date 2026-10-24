@@ -29,7 +29,8 @@ func TestDatasourceSupportCoversRegistryWithoutClaimingPreviewExecution(t *testi
 	_, ok := SupportFor("unknown")
 	require.False(t, ok)
 	require.Equal(t, []string{"find_documents"}, mustSupport(t, "mongodb").AgentTools)
-	require.Equal(t, []string{"read_key"}, mustSupport(t, "redis").AgentTools)
+	require.Equal(t, []string{"read_key", "read_hash_fields"}, mustSupport(t, "redis").AgentTools)
+	require.Equal(t, []string{"read_key", "read_hash_fields"}, mustSupport(t, "valkey").AgentTools)
 	require.Equal(t, []string{"query_analytics"}, mustSupport(t, "clickhouse").AgentTools)
 	require.Equal(t, []string{"search_vectors"}, mustSupport(t, "milvus").AgentTools)
 

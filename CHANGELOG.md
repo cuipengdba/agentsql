@@ -2,6 +2,12 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v3.9.0]
+
+- 为指定 Oracle 26ai Free 增加严格 TCPS 与可选有界 PLAN_TABLE 预检；go-ora 升级到 v3.0.1，并为每条物理连接隔离 TLS 状态。
+- 深化指定 Oracle 与 SQL Server 实例的证书轮换、最小权限计划、审计故障与业务库恢复验证。见[发布说明](docs/release-notes-v3.9.0.md)与[验收记录](docs/v3.9.0-acceptance.md)。
+- 更新双语控制台、现行手册、官网与 Demo 版本；公网 Demo 继续使用 PostgreSQL/MySQL 合成数据。
+
 ## [v3.8.0]
 
 - 为指定 ClickHouse 26.8.31.2 单节点增加管理员收紧的查询读取行数、字节与内存预算，超限抛错；只读角色设置缺失时失败关闭。

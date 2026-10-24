@@ -1114,6 +1114,14 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			return model.Datasource{}, fmt.Errorf("Milvus tenant scope requires the default database and a non-root account")
 		}
 	}
+	if readControl.Oracle != nil {
+		if input.TLSMode != "verify-full" || input.TLSCAFile == "" ||
+			!filepath.IsAbs(input.TLSCAFile) || input.Username == "" ||
+			strings.EqualFold(input.Username, "SYS") || strings.EqualFold(input.Username, "SYSTEM") ||
+			strings.EqualFold(input.Username, "PDBADMIN") {
+			return model.Datasource{}, fmt.Errorf("Oracle plan control requires verified TLS and a dedicated reader account")
+		}
+	}
 	if input.DBType == string(model.DialectSQLServer) {
 		if input.TLSMode == "" {
 			input.TLSMode = "strict"
@@ -1125,9 +1133,23 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 			return model.Datasource{}, fmt.Errorf("strict TLS cannot trust an unverified server certificate")
 		}
 	} else {
-		if input.DBType == string(model.DialectOracle) &&
-			(input.TLSMode != "" || input.TLSServerName != "" || input.TLSCAFile != "" || input.TrustServerCertificate) {
-			return model.Datasource{}, fmt.Errorf("Oracle TLS options are not supported by the current driver")
+		if input.DBType == string(model.DialectOracle) {
+			if input.TrustServerCertificate {
+				return model.Datasource{}, fmt.Errorf("Oracle cannot trust an unverified server certificate")
+			}
+			switch input.TLSMode {
+			case "":
+				if input.TLSServerName != "" || input.TLSCAFile != "" {
+					return model.Datasource{}, fmt.Errorf("Oracle certificate options require verify-full")
+				}
+			case "verify-full":
+				if input.TLSCAFile == "" || !filepath.IsAbs(input.TLSCAFile) ||
+					input.TLSServerName == "" || !strings.EqualFold(input.TLSServerName, input.Host) {
+					return model.Datasource{}, fmt.Errorf("Oracle verify-full requires an absolute CA path and a certificate name matching the connection host")
+				}
+			default:
+				return model.Datasource{}, fmt.Errorf("Oracle tls_mode must be verify-full")
+			}
 		}
 		if input.DBType == string(model.DialectDM) {
 			if input.TrustServerCertificate {
@@ -1192,7 +1214,7 @@ func datasourceFromInput(input datasourceInput) (model.Datasource, error) {
 				return model.Datasource{}, fmt.Errorf("%s tls_mode must be disable or verify-full", databaseLabel)
 			}
 		}
-		if input.DBType != "postgres" && input.DBType != string(model.DialectVastbase) && input.DBType != string(model.DialectOpenGauss) && input.DBType != string(model.DialectDM) && !model.IsNative(input.DBType) {
+		if input.DBType != "postgres" && input.DBType != string(model.DialectVastbase) && input.DBType != string(model.DialectOpenGauss) && input.DBType != string(model.DialectDM) && input.DBType != string(model.DialectOracle) && !model.IsNative(input.DBType) {
 			input.TLSMode, input.TLSServerName, input.TLSCAFile = "", "", ""
 		}
 		input.TrustServerCertificate = false

@@ -77,3 +77,23 @@ func TestParseClickHouseAndMilvusReadControl(t *testing.T) {
 		}
 	}
 }
+
+func TestParseOraclePlanReadControl(t *testing.T) {
+	profile, err := ParseNativeReadControl(`{"oracle":{"explain":true}}`, "oracle")
+	if err != nil || profile.Oracle == nil || !profile.Oracle.Explain {
+		t.Fatalf("Oracle plan profile rejected: %+v %v", profile, err)
+	}
+	for _, raw := range []string{
+		`{"oracle":{}}`,
+		`{"oracle":{"explain":false}}`,
+		`{"oracle":{"explain":true,"plan_table":"SYSTEM.PLAN_TABLE"}}`,
+		`{"oracle":{"explain":true},"milvus":{"tenant_field":"tenant_id"}}`,
+	} {
+		if _, err := ParseNativeReadControl(raw, "oracle"); err == nil {
+			t.Errorf("unsafe Oracle profile accepted: %s", raw)
+		}
+	}
+	if _, err := ParseNativeReadControl(`{"oracle":{"explain":true}}`, "sqlserver"); err == nil {
+		t.Fatal("Oracle plan profile accepted for SQL Server")
+	}
+}
