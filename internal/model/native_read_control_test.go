@@ -50,3 +50,30 @@ func TestParseRedisSentinelReadControl(t *testing.T) {
 		t.Fatal("Sentinel secret names must bind to tenant and datasource")
 	}
 }
+
+func TestParseClickHouseAndMilvusReadControl(t *testing.T) {
+	clickhouse := `{"clickhouse":{"max_rows_to_read":1000,"max_bytes_to_read":262144,"max_memory_usage":33554432}}`
+	profile, err := ParseNativeReadControl(clickhouse, "clickhouse")
+	if err != nil || profile.ClickHouse == nil || profile.ClickHouse.MaxRowsToRead != 1000 {
+		t.Fatalf("valid ClickHouse budget rejected: %+v %v", profile, err)
+	}
+	milvus := `{"milvus":{"tenant_field":"tenant_id","filter_fields":["status","region"]}}`
+	profile, err = ParseNativeReadControl(milvus, "milvus")
+	if err != nil || profile.Milvus == nil || profile.Milvus.TenantField != "tenant_id" {
+		t.Fatalf("valid Milvus profile rejected: %+v %v", profile, err)
+	}
+	for _, test := range []struct{ raw, dbType string }{
+		{clickhouse, "milvus"},
+		{milvus, "clickhouse"},
+		{`{"clickhouse":{"max_rows_to_read":10001,"max_bytes_to_read":262144,"max_memory_usage":33554432}}`, "clickhouse"},
+		{`{"clickhouse":{"max_rows_to_read":1000,"max_bytes_to_read":1048577,"max_memory_usage":33554432}}`, "clickhouse"},
+		{`{"milvus":{"tenant_field":"tenant_id","filter_fields":["tenant_id"]}}`, "milvus"},
+		{`{"milvus":{"tenant_field":"tenant_id","filter_fields":["status","status"]}}`, "milvus"},
+		{`{"milvus":{"tenant_field":"tenant_id","filter_fields":[],"password":"secret"}}`, "milvus"},
+		{`{"milvus":{"tenant_field":"tenant_id","filter_fields":[]},"mongo":{"replica_set":"rs0"}}`, "milvus"},
+	} {
+		if _, err := ParseNativeReadControl(test.raw, test.dbType); err == nil {
+			t.Errorf("unsafe %s profile accepted: %s", test.dbType, test.raw)
+		}
+	}
+}

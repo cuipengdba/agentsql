@@ -14,8 +14,26 @@ import (
 // NativeReadControl is deliberately metadata-only. Credentials stay in the
 // encrypted datasource password fields and must not appear in this JSON.
 type NativeReadControl struct {
-	Mongo *MongoReadControl         `json:"mongo,omitempty"`
-	Redis *RedisSentinelReadControl `json:"redis_sentinel,omitempty"`
+	Mongo      *MongoReadControl         `json:"mongo,omitempty"`
+	Redis      *RedisSentinelReadControl `json:"redis_sentinel,omitempty"`
+	ClickHouse *ClickHouseReadControl    `json:"clickhouse,omitempty"`
+	Milvus     *MilvusReadControl        `json:"milvus,omitempty"`
+}
+
+// ClickHouseReadControl can only tighten the gateway's established per-query
+// scan and memory ceilings. A missing profile retains the previous limits.
+type ClickHouseReadControl struct {
+	MaxRowsToRead  int `json:"max_rows_to_read"`
+	MaxBytesToRead int `json:"max_bytes_to_read"`
+	MaxMemoryUsage int `json:"max_memory_usage"`
+}
+
+// MilvusReadControl enables server-derived tenant filtering for every collection
+// reached through the configured datasource.
+// The tenant value never comes from the MCP request or this administrator JSON.
+type MilvusReadControl struct {
+	TenantField  string   `json:"tenant_field"`
+	FilterFields []string `json:"filter_fields"`
 }
 
 type RedisSentinelReadControl struct {
@@ -94,6 +112,38 @@ func ParseNativeReadControl(raw, dbType string) (NativeReadControl, error) {
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return NativeReadControl{}, fmt.Errorf("native read control has trailing data")
+	}
+	profileCount := 0
+	for _, present := range []bool{control.Mongo != nil, control.Redis != nil, control.ClickHouse != nil, control.Milvus != nil} {
+		if present {
+			profileCount++
+		}
+	}
+	if profileCount > 1 {
+		return NativeReadControl{}, fmt.Errorf("native read control must contain one datasource profile")
+	}
+	if control.ClickHouse != nil {
+		budget := control.ClickHouse
+		if dbType != "clickhouse" || budget.MaxRowsToRead < 100 || budget.MaxRowsToRead > 10000 ||
+			budget.MaxBytesToRead < 65536 || budget.MaxBytesToRead > 1048576 ||
+			budget.MaxMemoryUsage < 16777216 || budget.MaxMemoryUsage > 134217728 {
+			return NativeReadControl{}, fmt.Errorf("ClickHouse read budget is invalid or exceeds gateway limits")
+		}
+		return control, nil
+	}
+	if control.Milvus != nil {
+		profile := control.Milvus
+		if dbType != "milvus" || !simpleNativeName(profile.TenantField) || len(profile.FilterFields) > 8 {
+			return NativeReadControl{}, fmt.Errorf("Milvus tenant filter profile is invalid")
+		}
+		seen := map[string]bool{profile.TenantField: true}
+		for _, field := range profile.FilterFields {
+			if !simpleNativeName(field) || seen[field] {
+				return NativeReadControl{}, fmt.Errorf("Milvus filter field approval is invalid")
+			}
+			seen[field] = true
+		}
+		return control, nil
 	}
 	if control.Redis != nil {
 		if control.Mongo != nil || (dbType != "redis" && dbType != "valkey") {

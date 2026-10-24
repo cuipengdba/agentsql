@@ -67,6 +67,44 @@ func TestMilvusControlledAuthorizationMaskAuditAndRevocation(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
+func TestMilvusTenantScopeCannotBeSuppliedByCaller(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	ctx := context.Background()
+	ds := model.Datasource{ID: "milvus-scoped", Name: "Milvus scoped", DBType: "milvus",
+		Host: "milvus.test", Port: 19530, Database: "default", Username: "agent_reader", TLSMode: "strict",
+		TLSCAFile: "test-ca.pem", StmtTimeoutMS: 5000, ConnLimit: 1, RowLimit: 20,
+		ReadControlJSON: `{"milvus":{"tenant_field":"tenant_id","filter_fields":["status"]}}`}
+	_, err := fixture.runtime.Store.Datasources().Create(ctx, ds, "test-password")
+	require.NoError(t, err)
+	_, err = fixture.runtime.Store.Policies().Create(ctx, model.Policy{ID: "milvus-scoped-table", AgentID: fixture.agent.ID,
+		DatasourceID: ds.ID, ObjectType: "table", ObjectName: "default.events", Action: "allow"})
+	require.NoError(t, err)
+	columns := "embedding,name,tenant_id,status"
+	_, err = fixture.runtime.Store.Policies().Create(ctx, model.Policy{ID: "milvus-scoped-columns", AgentID: fixture.agent.ID,
+		DatasourceID: ds.ID, ObjectType: "column", ObjectName: "default.events", Columns: &columns, Action: "allow"})
+	require.NoError(t, err)
+	redactor, err := mask.NewRedactor([]mask.Rule{})
+	require.NoError(t, err)
+	fixture.handlers.vectorRedactor = func(context.Context, string) (mask.Redactor, error) { return redactor, nil }
+	calls := 0
+	fixture.handlers.vectorSearch = func(_ context.Context, selected model.Datasource, request executor.MilvusSearchRequest) (model.QueryResult, error) {
+		calls++
+		require.Equal(t, ds.ID, selected.ID)
+		require.Equal(t, fixture.agent.TenantID, request.TenantID)
+		require.Equal(t, map[string]string{"status": "active"}, request.Filter)
+		return model.QueryResult{Columns: []string{"name"}, Rows: [][]string{{"alice"}}, RowCount: 1}, nil
+	}
+	input := vectorSearchInput{DatasourceID: ds.ID, Collection: "events", VectorField: "embedding",
+		Vector: []float32{1, 0, 0, 0}, Fields: []string{"name"}, Filter: map[string]string{"status": "active"}, TopK: 2}
+	require.Equal(t, "allow", fixture.handlers.searchVectors(ctx, input).Decision)
+	require.Equal(t, 1, calls)
+	input.Filter = map[string]string{"tenant_id": "other-tenant"}
+	require.Equal(t, "deny", fixture.handlers.searchVectors(ctx, input).Decision)
+	input.Filter = map[string]string{"secret_status": "active"}
+	require.Equal(t, "deny", fixture.handlers.searchVectors(ctx, input).Decision)
+	require.Equal(t, 1, calls)
+}
+
 func TestMilvusControlledInvalidVectorRejectedBeforeDB(t *testing.T) {
 	for _, request := range []executor.MilvusSearchRequest{
 		{Collection: "events", VectorField: "embedding", Vector: []float32{}, Fields: []string{"name"}, TopK: 2},

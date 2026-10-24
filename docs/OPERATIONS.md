@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](OPERATIONS.md) | [English](en/OPERATIONS.md)
 
-适用版本：v3.7.0。具体发行提交、工具链与验收结果以对应正式 Release 为准。本文是当前日常运维入口；历史手册仍保留其当时的版本与事实。
+适用版本：v3.8.0。具体发行提交、工具链与验收结果以对应正式 Release 为准。本文是当前日常运维入口；历史手册仍保留其当时的版本与事实。
 
 ## 值班检查与版本核对
 
@@ -17,7 +17,7 @@ curl --fail http://127.0.0.1:7780/readyz
 
 `doctor` 只读检查配置、连接与已配置迁移流，不执行 DDL、不创建缺失 SQLite 文件，也不检查所有表数据的一致性。退出码 `0` 表示就绪，`2` 表示待迁移，`1` 表示阻断错误。不能把 `2` 或 `1` 当成可上线状态。`/healthz` 表示存活，`/readyz` 还检查服务依赖；以实际返回的子系统状态定位问题。
 
-v3.7.0 的 SQLite 合并库 schema 为 27，独立 PostgreSQL metadata 为 25、audit 为 7。以当前二进制的 `doctor`/`migrate --check` 输出为准，不手工修改迁移版本表。
+v3.8.0 的 SQLite 合并库 schema 为 27，独立 PostgreSQL metadata 为 25、audit 为 7。以当前二进制的 `doctor`/`migrate --check` 输出为准，不手工修改迁移版本表。
 
 ## 备份、升级与恢复
 

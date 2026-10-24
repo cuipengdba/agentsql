@@ -1490,5 +1490,9 @@
   "拓扑与读取约束 JSON": "Topology and read controls JSON",
   "strict（校验 CA 和成员主机名）": "strict (verify CA and member hostname)",
   "verify-full（校验 CA 和成员主机名）": "verify-full (verify CA and member hostname)",
-  "固定证书主机名（副本集或 Sentinel 模式必须留空）": "Fixed certificate hostname (leave empty for replica set or Sentinel)"
+  "固定证书主机名（副本集或 Sentinel 模式必须留空）": "Fixed certificate hostname (leave empty for replica set or Sentinel)",
+  "ClickHouse 查询资源预算": "ClickHouse query resource budget",
+  "Milvus 租户隔离与标量过滤": "Milvus tenant isolation and scalar filters",
+  "配置只会收紧已有查询资源上限。{} 保留默认预算。": "This profile only tightens existing query resource limits. {} keeps the default budget.",
+  "配置租户字段后，网关从当前 Agent 绑定租户生成过滤条件；可另批准最多八个标量过滤字段。{} 保留旧版无行级租户过滤的路径。": "With a tenant field configured, the gateway derives its filter from the current Agent's tenant. You may also approve up to eight scalar filter fields. {} retains the legacy path without row-level tenant filtering."
 }

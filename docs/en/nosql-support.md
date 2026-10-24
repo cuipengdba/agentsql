@@ -53,9 +53,13 @@ v2.6.0 The new `read_key` is separated from the administrator native command pre
 
 v2.7.0of`query_analytics`Separated from admin native command preview, only for ClickHouse 26.8.31.2, strict TLS,`readonly=1`Least privilege roles and designated single nodes. The gateway verifies accuracy one by one`database.table`Table authorization and explicit column whitelist (including filter columns), only read explicit columns of the MergeTree table and String equal value filtering, return 1-100 rows; server generates parameterized SQL, additional query time, read rows/bytes, memory, output rows and thread limit, the results are also subject to 1 MiB and UTF-8 boundaries. Delivery after successful masking and persistent pre-check/final audit. Arbitrary SQL, views, distributed, table functions, JOIN, aggregation, write, cross-database and full production support are not open; for evidence, see[v2.7.0Candidate for acceptance](v2.7.0-acceptance.md)。
 
+v3.8.0 can tighten per-query rows read, bytes read, and memory through `read_control_json`, require overflow to throw, and limit table metadata to 128 columns. The readonly role must permit these five query settings within DBA constraints; missing configuration fails closed. See the [v3.8.0 design](v3.8.0-design.md).
+
 ## Milvus' Agent MCP controlled path
 
 v2.8.0of`search_vectors`Separated from administrator native command preview, only for Milvus 2.6.25,`default`Database, strict TLS, authenticated non-admin accounts, and designated single nodes. The gateway verifies accuracy one by one`default.collection`Table authorization and vector fields, column whitelist of all output fields. The request only accepts a limited FloatVector, 1–20`top_k`with explicit scalar fields; the server checks dimensions and COSINE indexes, and always calls Search without filter expressions. Results are subject to time limits, hit counts, and 1 MiB boundaries, and are delivered only after source field masking and persistent preflight/final state auditing are successful. Hybrid retrieval, arbitrary expressions, writing, clustering, and full production support are not yet available; see for evidence[v2.8.0Candidate for acceptance](v2.8.0-acceptance.md)。
+
+v3.8.0 can enable an authoritative equality scope using the current Agent's tenant ID in a shared collection, plus up to four administrator-approved static string field equality filters. Tenant and filter fields need exact column grants. The gateway rechecks each hit and withholds internal fields. The unconfigured `{}` path retains only control-plane tenant isolation. See the [v3.8.0 design](v3.8.0-design.md).
 
 ## Console and HTTP API
 

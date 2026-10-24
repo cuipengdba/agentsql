@@ -68,7 +68,8 @@ func TestClickHouseControlledRealHTTPMCP(t *testing.T) {
 	datasource, err := runtime.Store.Datasources().Create(ctx, model.Datasource{ID: "clickhouse-http-datasource",
 		Name: "ClickHouse HTTP test", DBType: "clickhouse", Host: host, Port: port, Database: "analytics",
 		Username: "agent_reader", TLSMode: "strict", TLSCAFile: ca, TLSServerName: "clickhouse-v270",
-		StmtTimeoutMS: 2000, ConnLimit: 1, RowLimit: 100}, password)
+		StmtTimeoutMS: 2000, ConnLimit: 1, RowLimit: 100,
+		ReadControlJSON: os.Getenv("AGENTSQL_TEST_CLICKHOUSE_CONTROL")}, password)
 	require.NoError(t, err)
 	grant, err := runtime.Store.Policies().Create(ctx, model.Policy{ID: "clickhouse-http-table",
 		AgentID: agent.ID, DatasourceID: datasource.ID, ObjectType: "table", ObjectName: "analytics.events", Action: "allow"})
@@ -107,6 +108,19 @@ func TestClickHouseControlledRealHTTPMCP(t *testing.T) {
 	require.Contains(t, allowed, "138****5678")
 	require.NotContains(t, allowed, "13812345678")
 	require.NotContains(t, allowed, "synthetic-secret-canary")
+	if datasource.ReadControlJSON != "" {
+		_, err = runtime.Store.Policies().Create(ctx, model.Policy{ID: "clickhouse-http-budget-table",
+			AgentID: agent.ID, DatasourceID: datasource.ID, ObjectType: "table", ObjectName: "analytics.budget_events", Action: "allow"})
+		require.NoError(t, err)
+		budgetColumns := "name,region"
+		_, err = runtime.Store.Policies().Create(ctx, model.Policy{ID: "clickhouse-http-budget-columns",
+			AgentID: agent.ID, DatasourceID: datasource.ID, ObjectType: "column", ObjectName: "analytics.budget_events",
+			Columns: &budgetColumns, Action: "allow"})
+		require.NoError(t, err)
+		budgetDenied := call("budget_events", []string{"name"}, map[string]string{"region": "bulk"})
+		require.Contains(t, budgetDenied, `"decision":"error"`)
+		require.NotContains(t, budgetDenied, "synthetic-secret-canary")
+	}
 	injected := call("events", []string{"name", "phone"}, map[string]string{"region": "CN' OR '1'='1"})
 	require.Contains(t, injected, `"decision":"allow"`)
 	require.NotContains(t, injected, "138****5678", "filter values must be bound, not injected into SQL")
@@ -123,6 +137,9 @@ func TestClickHouseControlledRealHTTPMCP(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, call("events", []string{"name", "phone"}, map[string]string{"region": "CN"}), `"decision":"allow"`)
 	expectedAudits := int64(11)
+	if datasource.ReadControlJSON != "" {
+		expectedAudits += 2
+	}
 	if faultDir != "" {
 		signal := func(name string) {
 			t.Helper()
