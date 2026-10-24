@@ -1,6 +1,6 @@
 # AgentSQL documentation
 
-The current release candidate: **v4.0.0**. The current guidelines in this catalog are updated with the 4.0.x release; versioned release notes, test reports, and performance records retain their original version and time, and historical conclusions are not rewritten.
+The current release: **v4.0.0**. The current guidelines in this catalog are updated with the 4.0.x release; versioned release notes, test reports, and performance records retain their original version and time, and historical conclusions are not rewritten.
 
 **Language:** [English](README.md) | [Simplified Chinese](../README.md)
 

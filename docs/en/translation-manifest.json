@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "92a5b4d0835556e2ac39100d49c5a36032f07036775a389ec0e02598feb97c9e"
+      "source_sha256": "8c7087eb6beaa87725d576035d6e3eebef6cbd7f16716ad691314a23e3f891ec"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "8db7c590f843224abdf41317922d1dc6863f64343a5685392a6ed9a120363790"
+      "source_sha256": "3761a2fd20241398957996118eaaf5f103559d614dee434734fec9fb1909b98a"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "32c4b5787688c656d1da408534e5a6025d828a3cc83ddcd6672eb4f84ed52ae7"
+      "source_sha256": "8b6f51f9e218cafad613ff57a7d55778dd8f1188731500e10b673d987870845e"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -1194,17 +1194,17 @@
     {
       "source": "docs/v4.0.0-acceptance.md",
       "english": "docs/en/v4.0.0-acceptance.md",
-      "source_sha256": "46f6dec859c49640ec5dc0e51739c73726393501220ccc1d70eaf47c8d7d60eb"
+      "source_sha256": "880cf627947d4374aade2e2fd3952637e0eae761543d22406de7a9eea56dcc37"
     },
     {
       "source": "docs/v4.0.0-release-evidence.md",
       "english": "docs/en/v4.0.0-release-evidence.md",
-      "source_sha256": "e5c5498fbd4f4668f4846683030fdd7f93189f30f4215a26e88a5f2df4c8ec62"
+      "source_sha256": "dd8298428441e0a595f570eee360a36d51d3f90b261682a185c87e8abfa7d9f1"
     },
     {
       "source": "docs/release-notes-v4.0.0.md",
       "english": "docs/en/release-notes-v4.0.0.md",
-      "source_sha256": "5ec7e3552c966e67bb2b8f112fd0dc7c24a37e2328878acb0402df6c176c9f2e"
+      "source_sha256": "6d0d0a5d58660525102781b7c136c591a6b17017bb426862856f793a148ff320"
     }
   ]
 }

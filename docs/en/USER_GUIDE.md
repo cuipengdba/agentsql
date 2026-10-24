@@ -262,19 +262,21 @@ The data source password is encrypted using `AGENTSQL_SECRET`. Losing or replaci
 
 ### YashanDB client configuration
 
-Redistribution of YashanDB C client has been verbally authorized by the manufacturer; the repository does not have written authorization documents. The v0.5.1 Linux distribution and GHCR image are built using the standalone client 23.4.7.100 and verify SHA-256 matching the architecture; official assets must still pass dual-arch content checks. When building from source code, you need to obtain the same version of the client, use `CGO_ENABLED=1` and `-tags yashan` to compile the Go driver v1.4.4, and configure the client runtime directory. For details, see [ Deployment Guide ](DEPLOY.md#method-3-systemd).
+The vendor has verbally authorized redistribution of the YashanDB C client; no written authorization is stored in the repository. Current Linux packages and GHCR images include client 23.4.7.100. Formal release checks cover amd64/arm64 architecture, library inclusion and hashes. Source builds require the same client, `CGO_ENABLED=1`, the `yashan` build tag, Go driver v1.4.4 and the runtime library directory. See the [deployment guide](DEPLOY.md#method-3-systemd).
 
-- After installing the client yourself, set the client library directory before starting AgentSQL, for example:
+For a manually installed client, set the library directory before starting AgentSQL:
 
-  ```bash
-  export LD_LIBRARY_PATH="/path/to/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  ./agentsql --version
-  ./agentsql serve -c ./deploy/systemd/config.yaml
-  ```
+```bash
+export LD_LIBRARY_PATH="/path/to/yashandb-client/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+./agentsql --version
+./agentsql serve -c ./deploy/systemd/config.yaml
+```
 
-- The v0.5.1 Linux distribution package places the client at `lib/yashandb`, and the installer writes `/usr/local/lib/agentsql/yashandb`; the path in the GHCR image is `/opt/yashandb-client/lib`. Documents and structures should be checked against the official asset list and signatures before use.
+Linux archives include the client under `lib/yashandb`; the installer places it under `/usr/local/lib/agentsql/yashandb`. GHCR images use `/opt/yashandb-client/lib`. Verify the official inventory, signatures, independently trusted public key and target architecture before use.
 
-When the client is missing or dynamic loading fails, the YashanDB connection fails to close; the use of other data sources does not depend on the client. Standard parser, general rules and narrow SELECT query paths are connected; the independent client used by historical isolation verification uses real database direct connection, parameter binding, least privilege SELECT and write rejection probe. In addition, the real database executor and test fixture audit port are used to verify SELECT, lineage, R010, mobile phone number masking and three audits; HTTP/MCP, persistence audit and minimum privilege account and pipeline combination are still untested. Writes, transactions, EXPLAIN, and unknown output continue to fail to close. The batch 30 historical real database records only prove the connection, metadata discovery and ordinary Query rejection behavior at that time, and cannot be used as evidence that the new query path passed. When `libyascli.so: cannot open shared object file` appears, check the `LD_LIBRARY_PATH` of the actual process; when undefined symbols, architecture errors, or `YAS-02143` appear, check the Go driver, independent client, server version, and CPU architecture.
+YashanDB connections fail closed when the client is missing or cannot be loaded; other data sources do not depend on it. v2.1.0 validated a single x86_64 Enterprise Edition 23.4.1.109 instance with `COMPAT_VECTOR=yashan` and synthetic data: least-privilege HTTP MCP, narrow SELECT, R010 denial, phone-number masking, Inspector/Dify, persistent audit, SELECT revocation, and fail-closed recovery from business-database and separate-audit-database outages. See [instance acceptance](v2.1.0-acceptance.md) and [formal release evidence](v2.1.0-release-evidence.md).
+
+TLS, client cancellation, SQL timeouts, active/standby operation, sustained production loads and aarch64 YashanDB servers remain unverified. Writes, transactions, EXPLAIN and unknown output remain denied; these results do not establish complete production support. For `libyascli.so: cannot open shared object file`, check the actual process environment for `LD_LIBRARY_PATH`. For undefined symbols, architecture errors or `YAS-02143`, check the Go driver, independent client, server version and CPU architecture.
 
 ## 6. Permission `/policies`
 
@@ -291,7 +293,7 @@ A policy binds an Agent to a data source. The default is denial without authoriz
 
 The three object types `database`, `schema`, and `table` currently use the same set of table schema matching, and do not have independent database level or schema level parsing semantics.
 
-### Ranked whitelist
+### Column allowlist
 
 Column-level policies must satisfy:
 
@@ -300,9 +302,9 @@ Column-level policies must satisfy:
 - Fill in at least one column.
 - The action can only be `allow`.
 
-Starting from v1.0.0, SELECT with column policy no longer returns a path that only verifies the table name. PostgreSQL must reconcile column references in projections, predicates, JOINs, and self-joins with an enabled and available B2 binder; B2 unavailability will fail to shut down before execution. Data sources such as HighGo and Vastbase that do not have equivalent column binding proof cannot rely on column policies; MySQL is only available with its independent restricted B2 subset enabled. The permission page will prompt this boundary; the offline pre-check only proves that the permission is explicitly denied or unknown, and does not represent the actual execution of the permission.
+Since v1.0.0, SELECT requests with column policies cannot fall back to table-only authorization. PostgreSQL requires an enabled, available B2 binder to validate column references in projections, predicates, JOINs and self-joins; when B2 is unavailable, requests fail closed before execution. HighGo and Vastbase cannot rely on column policies without equivalent column-binding evidence. MySQL requires its separate, restricted B2 subset to be enabled. The permissions page explains this boundary. Offline preflight can identify explicit denial or an unknown outcome; it does not establish authorization for actual execution.
 
-v3.4.1 verified B2 column authorization only for restricted single-table `SELECT` through the PostgreSQL-protocol path on the pinned KingbaseES V9R1C10 PG-mode single instance. Check the kernel version, B2 readiness, and live allowed/denied columns before connection; views, joins, functions and statements without provable column lineage remain denied. B5 affected-row semantics did not pass on this kernel, so gateway write and session entry points are closed. The Vastbase G100 Build 9 B2 probe did not pass, and column policies remain fail closed. Neither result implies complete PostgreSQL support; see [live acceptance](v3.4.1-acceptance.md).
+v3.4.0 verified B2 column authorization only for restricted single-table `SELECT` through the PostgreSQL-protocol path on the pinned KingbaseES V9R1C10 PG-mode single instance. Check the kernel version, B2 readiness, and live allowed/denied columns before connection; views, joins, functions and statements without provable column lineage remain denied. B5 affected-row semantics did not pass on this kernel, so gateway write and session entry points are closed. The Vastbase G100 Build 9 B2 probe did not pass, and column policies remain fail closed. Neither result implies complete PostgreSQL support; see [live acceptance](v3.4.0-acceptance.md).
 
 ### `row_filter`
 
@@ -310,7 +312,7 @@ v3.4.1 verified B2 column authorization only for restricted single-table `SELECT
 
 ### Usage boundary of temporary read-only authorization `/task-read-grants` (v1.0.0)
 
-have`query.execute`Applicants submit an Agent, a data source and an exact matching simple`SELECT`, valid for up to 24 hours; another tenant with the same`strategy.manage`and`query.execute`The user checks the SQL and approves it. After approval, the original applicant receives the Key in one go. The list only displays the SQL hash and status, and the approval details only display the original SQL text to those who have the authority to approve. Task Key is in the old`/mcp`and new`/mcp/2026-07-28`All only register`query`, does not provide writing, approval, or B5 tools. It only narrows the original Agent permissions, and the original object policies, rules, masking and database read-only account constraints continue to take effect.
+An applicant with `query.execute` submits one Agent, one data source and one exact simple `SELECT`, valid for at most 24 hours. Another user in the same tenant with both `strategy.manage` and `query.execute` reviews and approves the SQL. The original applicant then claims the Key once. The list shows only the SQL hash and status; the original SQL is visible only to authorized reviewers in the approval details. Task Keys expose only `query` on both `/mcp` and `/mcp/2026-07-28`, with no write, approval or B5 tools. They only narrow existing Agent permissions; object policies, rules, masking and the database read-only account continue to apply.
 
 The original SQL bytes when called must be the same as when issued; spaces, case, parameters or comment changes may cause the request to be rejected. Currently only a single entry, a conservative subset starting with `SELECT` and without parentheses, is accepted. Functions, subqueries, `WITH`, `EXPLAIN`, row locks and writes are not applicable. After the task is completed, it is canceled on the same page; new requests after the cancellation are rejected, and there is still a concurrency window for results already in progress. Task requests entering the SQL pipeline will record the authorization ID and issuer, and the task key or SQL original text will not be written to the traffic audit; the tool layer's preemptive rejection may not have a persistent record. For complete boundaries, see [ task-level temporary read-only authorization ](task-read-grants.md).
 
