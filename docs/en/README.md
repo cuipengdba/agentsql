@@ -1,6 +1,6 @@
 # AgentSQL documentation
 
-The current release: **v4.0.0**. The current guidelines in this catalog are updated with the 4.0.x release; versioned release notes, test reports, and performance records retain their original version and time, and historical conclusions are not rewritten.
+The current release: **v4.1.0**. The current guidelines in this catalog are updated with the 4.1.x release; versioned release notes, test reports, and performance records retain their original version and time, and historical conclusions are not rewritten.
 
 **Language:** [English](README.md) | [Simplified Chinese](../README.md)
 
@@ -11,6 +11,7 @@ The current release: **v4.0.0**. The current guidelines in this catalog are upda
 | MCP protocol and client | [ Access Guide](INTEGRATIONS.md) |
 | Logo and brand usage | [Brand logo](BRAND.md) |
 | SQLBot access AgentSQL | [SQLBot adapts to ](SQLBOT.md) |
+| Native data Q&A and identity migration | [Go Q&A service](CHATBI.md) |
 | Deployment, upgrades, backup and recovery | [ Deployment Guide ](DEPLOY.md), [ Current Operation and Maintenance Manual ](OPERATIONS.md) |
 | Identity authentication and personnel delegation | [Identity authentication](AUTHENTICATION.md) |
 | Sensitive column discovery and drafting | [ Sensitive discovery ](DISCOVERY.md) |
@@ -19,7 +20,7 @@ The current release: **v4.0.0**. The current guidelines in this catalog are upda
 | Task-level temporary authorization | [Temporary read-only authorization](task-read-grants.md) |
 | Architecture and Security Contracts | [Engineering Specifications](SPEC.md), [Safety Policy](../../SECURITY.en.md) |
 | Issuance and signature verification | [ delivery process ](RELEASE_ROUTINE.md), [ issuance process ](RELEASE_PROCESS.md), [ asset list ](RELEASE_ASSETS.md) |
-| Current release evidence | [v4.0.0 Release Notes](release-notes-v4.0.0.md), [Release Acceptance](v4.0.0-acceptance.md) |
+| Current release evidence | [v4.1.0 Release Notes](release-notes-v4.1.0.md), [Release Acceptance](v4.1.0-acceptance.md) |
 
 The English version is compared section by section with the same Chinese source document, retaining executable examples and historical evidence, without replacing the full text with an abstract. The operation and maintenance entrance of the current version is `OPERATIONS.md`.
 

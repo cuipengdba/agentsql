@@ -1,0 +1,388 @@
+package chatbi
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var ErrBusy = errors.New("this conversation already has a running question")
+
+type Chat struct {
+	ID               ID        `json:"id"`
+	Workspace        ID        `json:"oid"`
+	Creator          ID        `json:"create_by"`
+	Created          time.Time `json:"create_time"`
+	Latest           time.Time `json:"latest_record_time"`
+	Brief            string    `json:"brief"`
+	Type             string    `json:"chat_type"`
+	Datasource       ID        `json:"datasource"`
+	Engine           string    `json:"engine_type"`
+	DSType           string    `json:"ds_type"`
+	DatasourceName   string    `json:"datasource_name"`
+	DatasourceExists bool      `json:"datasource_exists"`
+	Origin           int       `json:"origin"`
+	Records          []Record  `json:"records"`
+	LeaseUntil       time.Time `json:"lease_until,omitempty"`
+}
+
+type Record struct {
+	ID          ID         `json:"id"`
+	Chat        ID         `json:"chat_id"`
+	Datasource  ID         `json:"datasource"`
+	Question    string     `json:"question"`
+	Created     time.Time  `json:"create_time"`
+	FinishedAt  *time.Time `json:"finish_time"`
+	SQL         string     `json:"sql"`
+	SQLAnswer   string     `json:"sql_answer"`
+	Data        *QueryData `json:"data,omitempty"`
+	Finish      bool       `json:"finish"`
+	Error       string     `json:"error"`
+	ErrorStage  string     `json:"error_stage,omitempty"`
+	TotalTokens int        `json:"total_tokens"`
+	Duration    float64    `json:"duration"`
+}
+
+type Service struct {
+	Store    *Store
+	Identity *Identity
+	Gateway  Gateway
+	Model    Generator
+}
+
+func newID() (ID, error) {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", ErrUnavailable
+	}
+	n := binary.BigEndian.Uint64(raw[:]) & 0x7fffffffffffffff
+	if n == 0 {
+		return newID()
+	}
+	return ID(strconv.FormatUint(n, 10)), nil
+}
+
+func chatKey(p Principal, id ID) objectKey {
+	return objectKey{"chat", string(p.Workspace), string(p.User.ID), string(id)}
+}
+func bindingKey(p Principal, id ID) objectKey {
+	return objectKey{"binding", string(p.Workspace), string(p.User.ID), string(id)}
+}
+
+func recordKey(p Principal, id ID) objectKey {
+	return objectKey{"record-index", string(p.Workspace), string(p.User.ID), string(id)}
+}
+
+func (service *Service) Record(ctx context.Context, p Principal, id ID, withData bool) (Record, error) {
+	if err := service.live(ctx, p); err != nil {
+		return Record{}, err
+	}
+	var chatID ID
+	if _, err := service.Store.get(ctx, recordKey(p, id), &chatID); err != nil {
+		return Record{}, err
+	}
+	chat, _, err := service.chat(ctx, p, chatID)
+	if err != nil {
+		return Record{}, err
+	}
+	for _, record := range chat.Records {
+		if record.ID == id {
+			record.Data = nil
+			if withData && record.Finish && record.Error == "" {
+				binding, err := service.binding(ctx, p, chat.Datasource)
+				if err != nil {
+					return Record{}, err
+				}
+				data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
+				if err != nil {
+					return Record{}, err
+				}
+				record.Data = &data
+			}
+			if err := service.live(ctx, p); err != nil {
+				return Record{}, err
+			}
+			return record, nil
+		}
+	}
+	return Record{}, ErrNotFound
+}
+
+func (service *Service) live(ctx context.Context, p Principal) error {
+	user, _, err := service.Store.User(ctx, p.User.ID)
+	if err != nil || user.AuthRevision != p.User.AuthRevision || !user.canUse(p.Workspace) {
+		return ErrUnauthenticated
+	}
+	return nil
+}
+
+func (service *Service) binding(ctx context.Context, p Principal, id ID) (Binding, error) {
+	if err := service.live(ctx, p); err != nil {
+		return Binding{}, err
+	}
+	var binding Binding
+	if _, err := service.Store.get(ctx, bindingKey(p, id), &binding); err != nil {
+		return Binding{}, err
+	}
+	if binding.User != p.User.ID || binding.Workspace != p.Workspace || binding.Datasource != id {
+		return Binding{}, ErrUnavailable
+	}
+	return binding, nil
+}
+
+func (service *Service) Start(ctx context.Context, p Principal, datasource ID, question string, origin int) (Chat, error) {
+	if len(question) > 16000 || origin != 0 {
+		return Chat{}, errors.New("unsupported chat request")
+	}
+	binding, err := service.binding(ctx, p, datasource)
+	if err != nil {
+		return Chat{}, err
+	}
+	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+		return Chat{}, err
+	}
+	if err := service.live(ctx, p); err != nil {
+		return Chat{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return Chat{}, err
+	}
+	brief := []rune(strings.TrimSpace(question))
+	if len(brief) > 64 {
+		brief = brief[:64]
+	}
+	if len(brief) == 0 {
+		brief = []rune(binding.Name)
+	}
+	now := time.Now().UTC()
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, Records: []Record{}}
+	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
+		return Chat{}, err
+	}
+	return chat, nil
+}
+
+func (service *Service) chat(ctx context.Context, p Principal, id ID) (Chat, int64, error) {
+	if err := service.live(ctx, p); err != nil {
+		return Chat{}, 0, err
+	}
+	var chat Chat
+	rev, err := service.Store.get(ctx, chatKey(p, id), &chat)
+	if err != nil {
+		return Chat{}, 0, err
+	}
+	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
+		return Chat{}, 0, ErrUnavailable
+	}
+	return chat, rev, nil
+}
+
+func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) {
+	if err := service.live(ctx, p); err != nil {
+		return nil, err
+	}
+	raw, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
+	if err != nil {
+		return nil, err
+	}
+	chats := make([]Chat, 0, len(raw))
+	for _, entry := range raw {
+		var chat Chat
+		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
+			return nil, ErrUnavailable
+		}
+		chat.Records = nil
+		chat.LeaseUntil = time.Time{}
+		chats = append(chats, chat)
+	}
+	return chats, nil
+}
+
+// ReadChat never replays persisted rows under stale permissions. Until gateway
+// policy snapshot attestations are available, requesting data reexecutes each
+// read through the current live authorization/masking/audit boundary.
+func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withData bool) (Chat, error) {
+	chat, _, err := service.chat(ctx, p, id)
+	if err != nil {
+		return Chat{}, err
+	}
+	binding, err := service.binding(ctx, p, chat.Datasource)
+	if err != nil {
+		return Chat{}, err
+	}
+	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+		return Chat{}, err
+	}
+	for i := range chat.Records {
+		record := &chat.Records[i]
+		record.Data = nil
+		if withData && record.Finish && record.Error == "" && record.SQL != "" {
+			data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
+			if err != nil {
+				return Chat{}, err
+			}
+			record.Data = &data
+		}
+	}
+	if err := service.live(ctx, p); err != nil {
+		return Chat{}, err
+	}
+	chat.LeaseUntil = time.Time{}
+	return chat, nil
+}
+
+func (service *Service) Rename(ctx context.Context, p Principal, id ID, brief string) error {
+	if strings.TrimSpace(brief) == "" || len([]rune(brief)) > 64 {
+		return errors.New("invalid conversation name")
+	}
+	chat, rev, err := service.chat(ctx, p, id)
+	if err != nil {
+		return err
+	}
+	if chat.LeaseUntil.After(time.Now()) {
+		return ErrBusy
+	}
+	chat.Brief = brief
+	return service.Store.put(ctx, chatKey(p, id), chat, rev)
+}
+
+func (service *Service) Delete(ctx context.Context, p Principal, id ID) error {
+	chat, rev, err := service.chat(ctx, p, id)
+	if err != nil {
+		return err
+	}
+	if chat.LeaseUntil.After(time.Now()) {
+		return ErrBusy
+	}
+	return service.Store.delete(ctx, chatKey(p, id), rev)
+}
+
+// Ask commits both start and terminal state. Results are delivered only after
+// successful gateway audit, local persistence and a final identity check.
+func (service *Service) Ask(ctx context.Context, p Principal, id ID, question string, check func(context.Context) error, onStart func(ID) error) (Record, error) {
+	ctx, cancelRequest := context.WithTimeout(ctx, 4*time.Minute)
+	defer cancelRequest()
+	if check == nil {
+		return Record{}, ErrUnauthenticated
+	}
+	if len(strings.TrimSpace(question)) == 0 || len(question) > 16000 {
+		return Record{}, errors.New("invalid question")
+	}
+	if err := check(ctx); err != nil {
+		return Record{}, err
+	}
+	chat, revision, err := service.chat(ctx, p, id)
+	if err != nil {
+		return Record{}, err
+	}
+	if chat.LeaseUntil.After(time.Now()) {
+		return Record{}, ErrBusy
+	}
+	if len(chat.Records) >= 200 {
+		return Record{}, errors.New("conversation record limit reached")
+	}
+	binding, err := service.binding(ctx, p, chat.Datasource)
+	if err != nil {
+		return Record{}, err
+	}
+	var model ModelConfig
+	if _, err := service.Store.get(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &model); err != nil {
+		return Record{}, err
+	}
+	recordID, err := newID()
+	if err != nil {
+		return Record{}, err
+	}
+	now := time.Now().UTC()
+	for i := range chat.Records {
+		if !chat.Records[i].Finish {
+			chat.Records[i].Finish = true
+			chat.Records[i].Error = "interrupted before completion"
+			chat.Records[i].FinishedAt = &now
+			chat.Records[i].Data = nil
+		}
+	}
+	record := Record{ID: recordID, Chat: id, Datasource: chat.Datasource, Question: question, Created: now}
+	chat.Records = append(chat.Records, record)
+	chat.LeaseUntil = now.Add(5 * time.Minute)
+	chat.Latest = now
+	if err := service.Store.put(ctx, recordKey(p, recordID), id, 0); err != nil {
+		return Record{}, err
+	}
+	if err := service.Store.put(ctx, chatKey(p, id), chat, revision); err != nil {
+		_ = service.Store.delete(context.WithoutCancel(ctx), recordKey(p, recordID), 1)
+		return Record{}, err
+	}
+	revision++
+	stage := "metadata"
+	run := func() error {
+		if onStart != nil {
+			if err := onStart(recordID); err != nil {
+				return err
+			}
+		}
+		columns, err := service.Gateway.Schema(ctx, p, binding)
+		if err != nil {
+			return err
+		}
+		if err := check(ctx); err != nil {
+			return err
+		}
+		stage = "model"
+		generated, err := service.Model.Generate(ctx, model, binding.Dialect, question, columns)
+		if err != nil {
+			return err
+		}
+		record.SQL, record.SQLAnswer, record.TotalTokens = generated.SQL, generated.SQL, generated.TotalTokens
+		if err := check(ctx); err != nil {
+			return err
+		}
+		stage = "controlled_query"
+		data, err := service.Gateway.Query(ctx, p, binding, generated.SQL)
+		if err != nil {
+			return err
+		}
+		if data.AuditID <= 0 {
+			return ErrGateway
+		}
+		if err := check(ctx); err != nil {
+			return err
+		}
+		record.Data = &data
+		return nil
+	}
+	runErr := run()
+	finished := time.Now().UTC()
+	record.Finish = true
+	record.FinishedAt = &finished
+	record.Duration = finished.Sub(now).Seconds()
+	if runErr != nil {
+		record.Data = nil
+		record.Error = "request did not complete; no result was released"
+		record.ErrorStage = stage
+		record.SQL = ""
+		record.SQLAnswer = ""
+	}
+	chat.Records[len(chat.Records)-1] = record
+	chat.LeaseUntil = time.Time{}
+	chat.Latest = finished
+	// A cancelled client still gets a durable interrupted state, bounded to 5s.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := service.Store.put(saveCtx, chatKey(p, id), chat, revision); err != nil {
+		return Record{}, err
+	}
+	if runErr != nil {
+		return record, runErr
+	}
+	if err := check(ctx); err != nil {
+		return Record{}, err
+	}
+	return record, nil
+}

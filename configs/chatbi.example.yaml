@@ -1,0 +1,9 @@
+# Separate listener preserves SQLBot's /api/v1 paths without mixing identities
+# with the AgentSQL management API. Terminate HTTPS at the deployment ingress.
+listen: "127.0.0.1:8000"
+store_path: "/var/lib/agentsql/chatbi.db"
+secret_env: "AGENTSQL_CHATBI_SECRET"
+gateway: "https://127.0.0.1:8090/mcp"
+gateway_ca_file: "/etc/agentsql/gateway-ca.pem"
+allow_gateway_http: false
+max_concurrent_data_requests: 16

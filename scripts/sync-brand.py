@@ -17,6 +17,7 @@ def main():
         'website/public/assets/brand/agentsql-mark.svg': mark,
         'web/public/favicon.svg': mark,
         'web/src/assets/agentsql-mark.svg': mark,
+        'internal/chatbi/ui/mark.svg': mark,
     }
     for variant, color in [('light', '#142033'), ('dark', '#f0f6ff')]:
         wordmark = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 88" role="img" aria-label="AgentSQL">\n'

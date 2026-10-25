@@ -1,0 +1,22 @@
+[Unit]
+Description=AgentSQL native data Q&A
+Wants=network-online.target
+After=network-online.target agentsql.service
+
+[Service]
+Type=simple
+User=agentsql
+Group=agentsql
+EnvironmentFile=/etc/agentsql/chatbi.env
+Environment="LD_LIBRARY_PATH=/usr/local/lib/agentsql/yashandb"
+ExecStart=/usr/local/lib/agentsql/chatbi/agentsql chatbi serve --config /etc/agentsql/chatbi.yaml
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/agentsql
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

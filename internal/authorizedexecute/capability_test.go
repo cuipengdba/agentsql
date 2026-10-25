@@ -27,6 +27,7 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 		"github.com/jackc/pgx/v5":         true,
 		"github.com/jackc/pgx/v5/pgconn":  true,
 		"github.com/jackc/pgx/v5/pgxpool": true,
+		"modernc.org/sqlite":              true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -57,6 +58,10 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			allowedBusiness := strings.HasPrefix(filepath.ToSlash(relative), "internal/authorizedexecute/internal/businessdb/")
 			allowedControl := strings.HasPrefix(filepath.ToSlash(relative), "internal/store/") || strings.HasPrefix(filepath.ToSlash(relative), "cmd/agentsqlctl/")
 			normalized := filepath.ToSlash(relative)
+			// ChatBI owns a separate encrypted control-plane SQLite document
+			// store. This exact file may open only SQLite; model/business SQL
+			// still travels through the controlled gateway, never this store.
+			allowedChatBIStore := normalized == "internal/chatbi/store.go" && (name == "database/sql" || name == "modernc.org/sqlite")
 			allowedB5S3 := normalized == "internal/b5session/sql_ledger.go" || normalized == "internal/b5session/tombstone.go" || normalized == "internal/b5session/pg_inventory.go"
 			allowedSoak := normalized == "internal/b5soak/postgres.go"
 			// The standalone HighGo probe verifies that a read-only database role
@@ -68,7 +73,7 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			// This exact pinned module is the DM driver implementation itself;
 			// product code must still access it only through businessdb.
 			allowedPinnedDMDriver := strings.HasPrefix(normalized, "third_party/gorm-dameng/dm8/")
-			require.Truef(t, allowedBusiness || allowedControl || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
+			require.Truef(t, allowedBusiness || allowedControl || allowedChatBIStore || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
 		}
 		return nil
 	})

@@ -7,7 +7,7 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.0.0](https://img.shields.io/badge/Version-v4.0.0-blue)
+![Version v4.1.0](https://img.shields.io/badge/Version-v4.1.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.en.md)
@@ -52,7 +52,9 @@ v3.9.0 adds verified TCPS and opt-in execution-plan checks for specified Oracle 
 
 v4.0.0 adds local verification of all signed release assets, offline transport assembly, bounded read-only support bundles and cross-version upgrade/restore procedures. See the [delivery guide](docs/en/v4.0.0-delivery.md) and [acceptance record](docs/en/v4.0.0-acceptance.md).
 
-**verification scope:**v1.0.0–v2.8.0. For the database and security capabilities, see the acceptance records of each version respectively; for v2.9.0 strategy review and audit, see [ acceptance records ](docs/en/v2.9.0-acceptance.md); v3.0.0 For the capability catalog, diagnostics and client see [ acceptance record ](docs/en/v3.0.0-acceptance.md). Vendor conclusions only cover specified instances, patterns, and synthetic data. The following commands are subject to [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.0.0), signature and image anonymous pull acceptance.
+v4.1.0 adds native Go data Q&A with ordinary-account login compatibility, PostgreSQL/MySQL single-turn queries, encrypted conversations, a bilingual interface and offline native-service installation. It is the first of five SQLBot Community replacement milestones; full feature and integration compatibility remains pending. See the [Q&A guide](docs/en/CHATBI.md) and [release notes](docs/en/release-notes-v4.1.0.md).
+
+**verification scope:**v1.0.0–v2.8.0. For the database and security capabilities, see the acceptance records of each version respectively; for v2.9.0 strategy review and audit, see [ acceptance records ](docs/en/v2.9.0-acceptance.md); v3.0.0 For the capability catalog, diagnostics and client see [ acceptance record ](docs/en/v3.0.0-acceptance.md). Vendor conclusions only cover specified instances, patterns, and synthetic data. The following commands are subject to [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.1.0), signature and image anonymous pull acceptance.
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL Gateway → PostgreSQL / MySQL
@@ -127,17 +129,17 @@ The following three paths all listen only on the host's loopback address by defa
 v0.4.0 provides two native glibc packages: `linux/amd64` and `linux/arm64`: `uname -m` uses the amd64 package when it is `x86_64` / `amd64`, and uses the arm64 package when it is `aarch64` / `arm64`. Both require glibc 2.28+ and systemd as PID 1; the installer will automatically select the native architecture, verify the outer and inner package hashes of the release package, and install it as a systemd service. musl/Alpine and CentOS 7 are still not supported:
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.0.0/install.sh | sudo sh -s -- install --version v4.0.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.1.0/install.sh | sudo sh -s -- install --version v4.1.0
 ```
 
 Non-TTY output from pipelines and CIs does not show the automatically generated administrator password; root can view it at `/etc/agentsql/agentsql.env`. The interactive terminal is displayed once when credentials are first created, or `--show-password` can be added explicitly. After obtaining the tarball and the `.sha256` with the same name at the same time in the offline environment, verify, decompress and install from the package root:
 
-The following is an example of the amd64 asset name of v4.0.0; arm64 hosts starting from v0.4.0 use the `-linux-arm64` asset name of the same version.
+The following is an example of the amd64 asset name of v4.1.0; arm64 hosts starting from v0.4.0 use the `-linux-arm64` asset name of the same version.
 
 ```bash
-sha256sum -c agentsql-v4.0.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v4.0.0-linux-amd64.tar.gz
-cd agentsql-v4.0.0-linux-amd64
+sha256sum -c agentsql-v4.1.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v4.1.0-linux-amd64.tar.gz
+cd agentsql-v4.1.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -146,20 +148,20 @@ sudo ./install.sh install
 By default, the script pulls the exact GHCR tag corresponding to the latest stable Release from GitHub; the tag is `linux/amd64` + `linux/arm64` multi-architecture image, and Docker will automatically match the running architecture. The script generates `.env` with permission `0600`, uses `agentsql-data` to name the volume, and fixes the bound loopback address:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.0.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.0.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.1.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.1.0
 ```
 
-The GHCR package must be set to public by the publisher so that the above command can be pulled anonymously in a non-logged-in environment. First check the public status of the precise tag `v4.0.0` and the dual-architecture manifest; Docker will automatically select `linux/amd64` or `linux/arm64` from the manifest list:
+The GHCR package must be set to public by the publisher so that the above command can be pulled anonymously in a non-logged-in environment. First check the public status of the precise tag `v4.1.0` and the dual-architecture manifest; Docker will automatically select `linux/amd64` or `linux/arm64` from the manifest list:
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v4.0.0
+docker pull ghcr.io/cuipengdba/agentsql:v4.1.0
 ```
 
 The equivalent single `docker run` is as follows; the random value is only passed in through the current shell environment and is not written into the command line parameters:
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v4.0.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v4.1.0
 ```
 
 ### 3. Local Live Demo (one command, no source code required)
@@ -168,7 +170,7 @@ This self-contained environment only connects to synthetic PostgreSQL/MySQL demo
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.0.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.1.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -211,7 +213,7 @@ The source binary build according to `go.mod` requires Go 1.26, cgo, C compiler 
 The following source build example only produces native executables. Self-built files have not been signed and distributed for formal release of assets:
 
 ```bash
-make build VERSION=v4.0.0
+make build VERSION=v4.1.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -403,7 +405,7 @@ Please do not submit real keys, passwords, connection strings or details of unfi
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v4.0.0
+make build VERSION=v4.1.0
 ```
 
 `pg_query_go` requires cgo; do not build with `CGO_ENABLED=0` or Alpine/musl. Please read [SPEC](docs/en/SPEC.md) before submitting changes to test for behavioral changes and keep the `tests/corpus` decision-making corpus from being unintentionally rewritten.

@@ -2,7 +2,7 @@
 
 **Language:** [English](NOTIFICATIONS.md) | [Simplified Chinese](../NOTIFICATIONS.md)
 
-> Current guidance: Applies to v4.0.0. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
+> Current guidance: Applies to v4.1.0. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
 AgentSQL can bypass the decision-making events written into the audit database and send them to the alarm group, SIEM or self-built receiver in the form of Webhook or Syslog. This article is intended for operations and security engineers responsible for deployment, network perimeter, and key management.
 

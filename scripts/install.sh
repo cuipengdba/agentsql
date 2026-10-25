@@ -21,6 +21,7 @@ ACTION=
 VERSION=
 FROM_PATH=
 NO_START=0
+WITH_CHATBI=0
 SHOW_PASSWORD=0
 ASSUME_YES=0
 EXTERNAL_BACKUP_DONE=0
@@ -68,8 +69,8 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  install.sh install   [--version vX.Y.Z | --from PATH] [--no-start] [--show-password] [--yes] [--external-backup-done]
-  install.sh upgrade   [--version vX.Y.Z | --from PATH] [--no-start] [--external-backup-done]
+  install.sh install   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--no-start] [--show-password] [--yes] [--external-backup-done]
+  install.sh upgrade   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--no-start] [--external-backup-done]
   install.sh uninstall [--purge] [--yes] [--remove-user]
 EOF
   exit 2
@@ -160,6 +161,11 @@ parse_arguments() {
       --no-start)
         [ "$ACTION" != uninstall ] || usage
         NO_START=1
+        shift
+        ;;
+      --with-chatbi)
+        [ "$ACTION" != uninstall ] || usage
+        WITH_CHATBI=1
         shift
         ;;
       --show-password)
@@ -947,7 +953,29 @@ version_compare() {
   printf '%s\n' 0
 }
 
+chatbi_package_preflight() {
+  if [ -f "$CONFIG_DIR/chatbi-install-state" ]; then WITH_CHATBI=1; fi
+  if [ "$WITH_CHATBI" -eq 1 ]; then
+    [ -f "$PKG_ROOT/install-chatbi.sh" ] &&
+    [ -f "$PKG_ROOT/deploy/systemd/chatbi.yaml" ] &&
+    [ -f "$PKG_ROOT/deploy/systemd/agentsql-chatbi.service" ] || die "This package does not include the requested ChatBI component."
+  fi
+}
+
+install_chatbi_component() {
+  [ "$WITH_CHATBI" -eq 1 ] || return 0
+  icc_mode=start
+  [ "$ACTION" != upgrade ] || icc_mode=upgrade
+  [ "$NO_START" -eq 0 ] || icc_mode=no-start
+  LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" sh "$PKG_ROOT/install-chatbi.sh" "$PKG_ROOT" "$icc_mode" || {
+    warn "ChatBI installation failed; restoring the gateway transaction."
+    rollback_transaction || true
+    die "The complete AgentSQL installation did not pass."
+  }
+}
+
 install_action() {
+  chatbi_package_preflight
   ia_current=$(current_installed_version 2>/dev/null || true)
   if [ -n "$ia_current" ] && [ "$ia_current" != "$VERSION" ]; then
     die "AgentSQL $ia_current is already installed. Use the upgrade subcommand to install $VERSION."
@@ -987,6 +1015,7 @@ install_action() {
       die "AgentSQL failed to become healthy. Inspect: systemctl status agentsql and journalctl -u agentsql"
     fi
   fi
+  install_chatbi_component
   write_install_state
   TX_ACTIVE=0
   remove_transaction_backups
@@ -1019,6 +1048,7 @@ backup_upgrade_files() {
 }
 
 upgrade_action() {
+  chatbi_package_preflight
   is_managed_install || die "No installer-managed AgentSQL installation was found. Run install first."
   CURRENT_VERSION=$(current_installed_version 2>/dev/null || true)
   is_version "$CURRENT_VERSION" || die "Could not determine the installed AgentSQL version."
@@ -1065,6 +1095,7 @@ upgrade_action() {
       fi
     fi
   fi
+  install_chatbi_component
   write_install_state
   TX_ACTIVE=0
   SERVICE_GUARD=0
@@ -1127,6 +1158,10 @@ uninstall_action() {
   ua_created_user=$(state_value CREATED_USER 2>/dev/null || printf '0')
   ua_created_group=$(state_value CREATED_GROUP 2>/dev/null || printf '0')
   if systemd_available; then
+    if [ -f "$CONFIG_DIR/chatbi-install-state" ] && [ -f /etc/systemd/system/agentsql-chatbi.service ]; then
+      systemctl stop agentsql-chatbi || die "Could not stop ChatBI before uninstall."
+      systemctl disable agentsql-chatbi >/dev/null 2>&1 || true
+    fi
     systemctl stop agentsql >/dev/null 2>&1 || true
     systemctl disable agentsql >/dev/null 2>&1 || true
   fi
@@ -1134,6 +1169,13 @@ uninstall_action() {
     [ ! -L "$ua_path" ] || die "Refusing to remove symbolic link at managed path: $ua_path"
     rm -f "$ua_path"
   done
+  if [ -f "$CONFIG_DIR/chatbi-install-state" ]; then
+    for ua_path in /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql; do
+      [ ! -L "$ua_path" ] || die "Refusing to remove symbolic link at managed path: $ua_path"
+      rm -f "$ua_path"
+    done
+    rmdir /usr/local/lib/agentsql/chatbi 2>/dev/null || true
+  fi
   [ ! -L "$YASHAN_LIB_DIR" ] || die "Refusing to remove symbolic link at managed path: $YASHAN_LIB_DIR"
   rm -rf "$YASHAN_LIB_DIR"
   rmdir "$YASHAN_LIB_PARENT" 2>/dev/null || true

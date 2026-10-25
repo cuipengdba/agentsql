@@ -2,6 +2,11 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v4.1.0]
+
+- Added native Go Q&A, encrypted identity/session storage, SQLBot v1.10.2 ordinary login foundations and live controlled PostgreSQL/MySQL queries.
+- Added bilingual Q&A UI, private connection configuration, identity migration preflight and optional offline systemd installation with rollback. Full SQLBot replacement is not yet claimed; see [release notes](docs/en/release-notes-v4.1.0.md).
+
 ## [v4.0.0]
 
 - Added offline release verification, authenticated transport assembly and fixed-field read-only support bundles.

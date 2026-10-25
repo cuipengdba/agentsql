@@ -61,6 +61,7 @@ func newRootCommand(logger zerolog.Logger) *cobra.Command {
 	command.AddCommand(newVersionCommand())
 	command.AddCommand(newServeCommand(logger))
 	command.AddCommand(newMCPCommand(logger))
+	command.AddCommand(newChatBICommand(logger))
 	return command
 }
 

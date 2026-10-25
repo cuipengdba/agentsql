@@ -5,7 +5,9 @@ function Get-ReleaseInputNames {
     @(
         'go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json',
         'Dockerfile', 'scripts/build-release-linux.sh', 'scripts/package-release.sh',
-        'scripts/install.sh', 'scripts/release-dryrun.ps1',
+        'scripts/install.sh', 'scripts/install-chatbi.sh',
+        'deploy/systemd/agentsql-chatbi.service', 'deploy/systemd/chatbi.yaml',
+        'scripts/release-dryrun.ps1',
         'scripts/build-ghcr-multiarch.ps1', 'Makefile'
     )
 }
