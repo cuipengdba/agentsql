@@ -13,6 +13,9 @@ import (
 )
 
 func TestSemanticWorkbookContainsLiteralStringsAndValidOOXML(t *testing.T) {
+	if semanticHeaders("terminology", "en", true)[0] != "Terminology Name (Required)" || semanticHeaders("sql-example", "zh-CN", true)[1] != "示例 SQL（必填）" {
+		t.Fatal("template columns drifted from pinned SQLBot locale")
+	}
 	data, err := semanticWorkbook([][]string{{"term", "description"}, {"=HYPERLINK(\"https://example.invalid\")", "GMV < total & tax"}})
 	if err != nil {
 		t.Fatal(err)

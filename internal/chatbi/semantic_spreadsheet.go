@@ -98,18 +98,30 @@ func spreadsheetColumn(index int) string {
 	return result
 }
 
-func semanticHeaders(kind string, language string) []string {
+func semanticHeaders(kind string, language string, template bool) []string {
 	english := strings.HasPrefix(strings.ToLower(language), "en")
 	if kind == "terminology" {
 		if english {
-			return []string{"Term", "Synonyms", "Description", "Effective data sources", "All data sources", "Advanced application"}
+			if template {
+				return []string{"Terminology Name (Required)", `Synonyms (Multiple supported, separated by ",")`, "Terminology Description (Required)", `Effective Data Sources (Multiple supported, separated by ",")`, "All Data Sources (Y: Apply to all data sources, N: Apply to specified data sources)", "Advanced Application"}
+			}
+			return []string{"Terminology Name", "Synonyms", "Terminology Description", "Effective Data Sources", "All Data Sources", "Advanced Application"}
 		}
-		return []string{"术语名称", "同义词", "术语描述", "生效数据源", "全部数据源", "高级应用"}
+		if template {
+			return []string{"术语名称（必填）", `同义词（支持多个，用","分割）`, "术语描述（必填）", `生效数据源（支持多个，用","分割）`, "所有数据源（Y：应用到全部数据源，N：应用到指定数据源）", "高级应用"}
+		}
+		return []string{"术语名称", "同义词", "术语描述", "生效数据源", "所有数据源", "高级应用"}
 	}
 	if english {
-		return []string{"Question", "Sample SQL", "Effective data source", "Advanced application"}
+		if template {
+			return []string{"Problem Description (Required)", "Sample SQL (Required)", "Effective Data Sources", "Advanced Application"}
+		}
+		return []string{"Problem Description", "Sample SQL", "Effective Data Sources", "Advanced Application"}
 	}
-	return []string{"问题描述", "样例 SQL", "生效数据源", "高级应用"}
+	if template {
+		return []string{"问题描述（必填）", "示例 SQL（必填）", "生效数据源", "高级应用"}
+	}
+	return []string{"问题描述", "示例 SQL", "生效数据源", "高级应用"}
 }
 
 func (h *Handler) sendSemanticWorkbook(w http.ResponseWriter, r *http.Request, p Principal, token, kind string, rows [][]string, audit bool) {
@@ -148,12 +160,22 @@ func (service *Service) auditSemanticExport(ctx context.Context, p Principal, ki
 }
 
 func (h *Handler) terminologyTemplate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	rows := [][]string{semanticHeaders("terminology", p.User.Language), {"GMV", "成交额", "订单金额总和", "", "Y", ""}}
+	rows := [][]string{semanticHeaders("terminology", p.User.Language, true)}
+	if strings.HasPrefix(strings.ToLower(p.User.Language), "en") {
+		rows = append(rows, []string{"Term1", "Synonym1, Synonym2", "Term1 Description", "Datasource1, Datasource2", "N", ""}, []string{"Term2", "Synonym3", "Term2 Description", "", "Y", ""})
+	} else {
+		rows = append(rows, []string{"术语1", "同义词1, 同义词2", "术语1描述", "生效数据源1, 生效数据源2", "N", ""}, []string{"术语2", "同义词3", "术语2描述", "", "Y", ""})
+	}
 	h.sendSemanticWorkbook(w, r, p, token, "terminology-template", rows, false)
 }
 
 func (h *Handler) exampleTemplate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	rows := [][]string{semanticHeaders("sql-example", p.User.Language), {"查询销售额", "SELECT amount FROM sales", "销售数据源", ""}}
+	rows := [][]string{semanticHeaders("sql-example", p.User.Language, true)}
+	if strings.HasPrefix(strings.ToLower(p.User.Language), "en") {
+		rows = append(rows, []string{"Query all IDs in the TEST table", "SELECT id FROM TEST", "Effective Datasource 1", ""})
+	} else {
+		rows = append(rows, []string{"查询TEST表内所有ID", "SELECT id FROM TEST", "生效数据源1", ""})
+	}
 	h.sendSemanticWorkbook(w, r, p, token, "sql-example-template", rows, false)
 }
 
@@ -164,7 +186,7 @@ func (h *Handler) terminologyExport(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("word")))
-	rows := [][]string{semanticHeaders("terminology", p.User.Language)}
+	rows := [][]string{semanticHeaders("terminology", p.User.Language, false)}
 	for _, term := range terms {
 		if filter != "" && !strings.Contains(strings.ToLower(term.Word), filter) {
 			continue
@@ -185,7 +207,7 @@ func (h *Handler) exampleExport(w http.ResponseWriter, r *http.Request, p Princi
 		return
 	}
 	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("question")))
-	rows := [][]string{semanticHeaders("sql-example", p.User.Language)}
+	rows := [][]string{semanticHeaders("sql-example", p.User.Language, false)}
 	for _, example := range examples {
 		if filter == "" || strings.Contains(strings.ToLower(example.Question), filter) {
 			rows = append(rows, []string{example.Question, example.Description, example.DatasourceName, ""})
