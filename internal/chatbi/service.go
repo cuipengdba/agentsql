@@ -411,9 +411,18 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err != nil {
 			return err
 		}
+		var examples []ExampleHint
+		if _, ok := service.Model.(GroundedGenerator); ok {
+			examples, err = service.SafeExamples(ctx, p, chat.Datasource, binding.Dialect, columns, question)
+			if err != nil {
+				return err
+			}
+		}
 		stage = "model"
 		var generated SQLGeneration
-		if semantic, ok := service.Model.(SemanticGenerator); ok {
+		if grounded, ok := service.Model.(GroundedGenerator); ok {
+			generated, err = grounded.GenerateWithGrounding(ctx, model, binding.Dialect, question, columns, history, hints, examples)
+		} else if semantic, ok := service.Model.(SemanticGenerator); ok {
 			generated, err = semantic.GenerateWithSemantics(ctx, model, binding.Dialect, question, columns, history, hints)
 		} else if contextual, ok := service.Model.(ContextualGenerator); ok {
 			generated, err = contextual.GenerateWithHistory(ctx, model, binding.Dialect, question, columns, history)
