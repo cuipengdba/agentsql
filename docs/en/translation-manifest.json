@@ -1209,7 +1209,7 @@
     {
       "source": "docs/v4.1.0-design.md",
       "english": "docs/en/v4.1.0-design.md",
-      "source_sha256": "1aa53bbc4e19622d63dcec3502cd458618159691fdc19936d4d0b4c370166f7a"
+      "source_sha256": "2c2b50e0d0365ad11a5c829e7401bcd5df92bf558ae041a7ad733dbc5c22bcd9"
     },
     {
       "source": "docs/CHATBI.md",
@@ -1219,12 +1219,12 @@
     {
       "source": "docs/release-notes-v4.1.0.md",
       "english": "docs/en/release-notes-v4.1.0.md",
-      "source_sha256": "bef84b8522006e673f012b48cd2e1a65ab608d0694ab9c2e4b2336a03c041e47"
+      "source_sha256": "86d99c279829ff7eeeff6af27855afcbbc0c05ca79ec85cb6539fed9f347849a"
     },
     {
       "source": "docs/v4.1.0-acceptance.md",
       "english": "docs/en/v4.1.0-acceptance.md",
-      "source_sha256": "dd16e1fec0b8c75471578b2bcf2035d9de0956394f4b9ad9199bddc7559de30f"
+      "source_sha256": "c52d18cd15464640d969b856cec6c4eb525e2941c2803ad58fb50a23d578f958"
     },
     {
       "source": "docs/v4.2.0-design.md",
