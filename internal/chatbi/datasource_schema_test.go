@@ -14,9 +14,9 @@ func TestDatasourceSchemaRoutesUseCurrentBindingAndFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := func(path string) *httptest.ResponseRecorder {
+	request := func(method, path string) *httptest.ResponseRecorder {
 		t.Helper()
-		r := httptest.NewRequest(http.MethodPost, path, nil)
+		r := httptest.NewRequest(method, path, nil)
 		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
@@ -26,18 +26,21 @@ func TestDatasourceSchemaRoutesUseCurrentBindingAndFailClosed(t *testing.T) {
 		"/api/v1/datasource/getTables/10":       `"tableName":"sales"`,
 		"/api/v1/datasource/getFields/10/sales": `"fieldName":"amount"`,
 	} {
-		w := request(path)
+		w := request(http.MethodPost, path)
 		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), expected) {
 			t.Fatalf("visible schema response for %s: %d %s", path, w.Code, w.Body.String())
 		}
 	}
-	if w := request("/api/v1/datasource/getFields/10/hidden"); w.Code == http.StatusOK {
+	if w := request(http.MethodGet, "/api/v1/datasource/check/10"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"data":true`) {
+		t.Fatal("bound datasource health did not use the live gateway")
+	}
+	if w := request(http.MethodPost, "/api/v1/datasource/getFields/10/hidden"); w.Code == http.StatusOK {
 		t.Fatal("unknown table exposed a successful response")
 	}
-	if w := request("/api/v1/datasource/getTables/11"); w.Code == http.StatusOK {
+	if w := request(http.MethodPost, "/api/v1/datasource/getTables/11"); w.Code == http.StatusOK {
 		t.Fatal("unbound datasource exposed metadata")
 	}
-	if gateway.schemaCalls != 3 {
+	if gateway.schemaCalls != 4 {
 		t.Fatalf("unexpected schema calls: %d", gateway.schemaCalls)
 	}
 	gateway.afterSchema = func() {
@@ -46,7 +49,7 @@ func TestDatasourceSchemaRoutesUseCurrentBindingAndFailClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if w := request("/api/v1/datasource/getTables/10"); w.Code == http.StatusOK || strings.Contains(w.Body.String(), "sales") {
+	if w := request(http.MethodPost, "/api/v1/datasource/getTables/10"); w.Code == http.StatusOK || strings.Contains(w.Body.String(), "sales") {
 		t.Fatal("revoked binding released metadata after a remote schema read")
 	}
 }

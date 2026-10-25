@@ -70,6 +70,13 @@ func (h *Handler) datasourceTables(w http.ResponseWriter, r *http.Request, p Pri
 	okay(w, result)
 }
 
+func (h *Handler) datasourceCheck(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if _, ok := h.datasourceSchema(w, r, p, token); !ok {
+		return
+	}
+	okay(w, true)
+}
+
 func (h *Handler) datasourceFields(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	table := r.PathValue("table")
 	if table == "" || len(table) > 256 || strings.ContainsAny(table, "/\\\x00") {
