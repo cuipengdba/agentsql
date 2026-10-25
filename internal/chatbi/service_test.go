@@ -103,6 +103,55 @@ func TestQuestionHistoryExcludesFailuresAndOtherChats(t *testing.T) {
 	}
 }
 
+func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	first, err := service.Start(ctx, principal, "10", "first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, question := range []string{"first", "second"} {
+		if _, err := service.Ask(ctx, principal, first.ID, question, check, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gateway.queryErr = ErrGateway
+	if _, err := service.Ask(ctx, principal, first.ID, "failed", check, nil); err == nil {
+		t.Fatal("expected query failure")
+	}
+	gateway.queryErr = nil
+	second, err := service.Start(ctx, principal, "10", "second", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Ask(ctx, principal, second.ID, "first", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	questions, err := service.RecentQuestions(ctx, principal, "10")
+	if err != nil || len(questions) != 3 || questions[0] != "first" || questions[1] != "failed" || questions[2] != "second" {
+		t.Fatalf("recent questions mismatch: %#v, %v", questions, err)
+	}
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "123") || !strings.Contains(response.Body.String(), "failed") {
+		t.Fatal("recent question route leaked result rows or lost the user's question")
+	}
+	revision, err := service.Store.get(ctx, bindingKey(principal, "10"), new(Binding))
+	if err != nil || service.Store.delete(ctx, bindingKey(principal, "10"), revision) != nil {
+		t.Fatal("could not revoke binding")
+	}
+	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("revoked datasource returned history")
+	}
+}
+
 func (m *fakeModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
 	m.calls++
 	if m.after != nil {

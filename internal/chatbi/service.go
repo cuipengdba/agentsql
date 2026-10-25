@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -202,6 +203,58 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		chats = append(chats, chat)
 	}
 	return chats, nil
+}
+
+// RecentQuestions returns only this user's questions for a currently bound
+// datasource. Historical result rows never enter this suggestion list.
+func (service *Service) RecentQuestions(ctx context.Context, p Principal, datasource ID) ([]string, error) {
+	if _, err := service.binding(ctx, p, datasource); err != nil {
+		return nil, err
+	}
+	items, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
+	if err != nil {
+		return nil, err
+	}
+	type recent struct {
+		question string
+		created  time.Time
+	}
+	unique := map[string]time.Time{}
+	for _, raw := range items {
+		var chat Chat
+		if json.Unmarshal(raw, &chat) != nil || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
+			return nil, ErrUnavailable
+		}
+		if chat.Datasource != datasource {
+			continue
+		}
+		for _, record := range chat.Records {
+			if record.Datasource != datasource || strings.TrimSpace(record.Question) == "" {
+				continue
+			}
+			if previous, found := unique[record.Question]; !found || record.Created.After(previous) {
+				unique[record.Question] = record.Created
+			}
+		}
+	}
+	ordered := make([]recent, 0, len(unique))
+	for question, created := range unique {
+		ordered = append(ordered, recent{question, created})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].created.Equal(ordered[j].created) {
+			return ordered[i].question < ordered[j].question
+		}
+		return ordered[i].created.After(ordered[j].created)
+	})
+	if len(ordered) > 10 {
+		ordered = ordered[:10]
+	}
+	questions := make([]string, 0, len(ordered))
+	for _, item := range ordered {
+		questions = append(questions, item.question)
+	}
+	return questions, nil
 }
 
 // ReadChat never replays persisted rows under stale permissions. Until gateway

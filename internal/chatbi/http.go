@@ -69,6 +69,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	// This fixed-prefix route overlaps /chat/{id}/with_data in ServeMux's
+	// wildcard precedence rules, so dispatch it before the general chat mux.
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/chat/recent_questions/") {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/chat/recent_questions/")
+		if !ID(id).Valid() {
+			http.NotFound(w, r)
+			return
+		}
+		r.SetPathValue("id", id)
+		h.auth(h.recentQuestions)(w, r)
+		return
+	}
 	// No permissive CORS or cookie-based authority. Future embedded origins use
 	// explicit application policies; the ordinary Q&A API needs a bearer header.
 	h.mux.ServeHTTP(w, r)
@@ -308,6 +320,15 @@ func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ s
 		return
 	}
 	okay(w, chats)
+}
+
+func (h *Handler) recentQuestions(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	questions, err := h.service.RecentQuestions(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, questions)
 }
 
 func (h *Handler) recordData(w http.ResponseWriter, r *http.Request, p Principal, token string) {
