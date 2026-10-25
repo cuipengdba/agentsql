@@ -2,7 +2,7 @@
 
 **Language:** [Simplified Chinese](../release-notes-v4.1.0.md) | [English](release-notes-v4.1.0.md)
 
-Candidate version; release acceptance is in progress. GitHub Release and the [acceptance record](v4.1.0-acceptance.md) determine the final status.
+Formally [released on 2026-10-26](https://github.com/cuipengdba/agentsql/releases/tag/v4.1.0). See the [acceptance record](v4.1.0-acceptance.md) for the delivered scope and validation boundaries.
 
 ## New capabilities
 
@@ -34,6 +34,6 @@ The Go implementation is independently written from protocols and observed behav
 
 ## Validation and publication
 
-Candidate validation uses synthetic PostgreSQL/MySQL data, real local models, original SQLBot login identities, Edge and isolated Linux installation environments. Publication additionally requires current-commit CI, signed dual-architecture assets, images, website and Demo checks. See the [acceptance record](v4.1.0-acceptance.md).
+Candidate validation used synthetic PostgreSQL/MySQL data, real local models, original SQLBot login identities, Edge and isolated Linux installation environments. Final-commit CI, signed dual-architecture assets, public images, website and Demo checks passed. The official amd64 package passed SQLite and PostgreSQL upgrade/restore; installation on physical arm64 hardware and a real-model rerun from the final package remain unverified. See the [acceptance record](v4.1.0-acceptance.md).
 
-The public Q&A page is an explicitly labelled browser-only simulation with no model or database connection. Live-model Q&A is validated in a local installation.
+The public Q&A page is an explicitly labelled browser-only simulation with no model or database connection. Live-model Q&A was validated with a local candidate installation.

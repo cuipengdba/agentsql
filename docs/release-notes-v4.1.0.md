@@ -2,7 +2,7 @@
 
 **语言 / Language:** [简体中文](release-notes-v4.1.0.md) | [English](en/release-notes-v4.1.0.md)
 
-候选版本，发布验收进行中。正式状态以 GitHub Release 和[验收记录](v4.1.0-acceptance.md)为准。
+已于 2026-10-26 [正式发布](https://github.com/cuipengdba/agentsql/releases/tag/v4.1.0)。发布范围和验证边界见[验收记录](v4.1.0-acceptance.md)。
 
 ## 新增能力
 
@@ -34,6 +34,6 @@
 
 ## 验证与发布
 
-候选验证使用合成 PostgreSQL/MySQL 数据、真实本地模型、原 SQLBot 登录身份、Edge 浏览器和隔离 Linux 安装环境。发布还要求当前提交的 CI、双架构签名产物、镜像、官网和 Demo 复验，详见[验收记录](v4.1.0-acceptance.md)。
+候选验证使用合成 PostgreSQL/MySQL 数据、真实本地模型、原 SQLBot 登录身份、Edge 浏览器和隔离 Linux 安装环境。正式提交的 CI、双架构签名产物、公开镜像、官网和 Demo 均已复验；正式包完成 amd64 的 SQLite 与 PostgreSQL 升级回退，尚未在实体 arm64 主机安装或从正式包重跑真实模型问数。详见[验收记录](v4.1.0-acceptance.md)。
 
 公网问数页面仅提供明确标注的浏览器内模拟演示，未接入模型或数据库；真实模型问数功能在本地安装环境验证。
