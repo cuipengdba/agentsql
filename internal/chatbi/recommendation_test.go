@@ -2,12 +2,35 @@ package chatbi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestEmptyRecommendationShapeMatchesPinnedSQLBot(t *testing.T) {
+	service, _, _, _, token := serviceFixture(t)
+	router, err := NewHandler(service, "v4.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/recommended_problem/get_datasource_recommended_base/10", nil)
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var envelope struct {
+		Data struct {
+			DatasourceID int64  `json:"datasource_id"`
+			Mode         int    `json:"recommended_config"`
+			Questions    string `json:"questions"`
+		} `json:"data"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &envelope) != nil || envelope.Data.DatasourceID != 10 || envelope.Data.Mode != 0 || envelope.Data.Questions != "[]" {
+		t.Fatal("empty recommendation response differs from pinned SQLBot")
+	}
+}
 
 func TestRecommendationsRequireCurrentBindingAndAtomicConfiguration(t *testing.T) {
 	ctx := context.Background()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -261,7 +262,21 @@ func (h *Handler) recommendedProblems(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	okay(w, config.Questions)
+	datasourceID, err := strconv.ParseInt(string(config.Datasource), 10, 64)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	items := make([]map[string]any, 0, len(config.Questions))
+	for _, item := range config.Questions {
+		id, err := strconv.ParseInt(string(item.ID), 10, 64)
+		if err != nil {
+			failure(w, ErrUnavailable)
+			return
+		}
+		items = append(items, map[string]any{"id": id, "datasource_id": datasourceID, "question": item.Question, "remark": item.Remark, "sort": item.Sort, "create_time": nil, "create_by": nil})
+	}
+	okay(w, items)
 }
 
 func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
@@ -270,20 +285,21 @@ func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Prin
 		failure(w, err)
 		return
 	}
-	var questions any
-	if config.Mode == 2 {
-		items := make([]string, 0, len(config.Questions))
-		for _, item := range config.Questions {
-			items = append(items, item.Question)
-		}
-		encoded, err := json.Marshal(items)
-		if err != nil {
-			failure(w, ErrUnavailable)
-			return
-		}
-		questions = string(encoded)
+	items := make([]string, 0, len(config.Questions))
+	for _, item := range config.Questions {
+		items = append(items, item.Question)
 	}
-	okay(w, map[string]any{"datasource_id": config.Datasource, "recommended_config": config.Mode, "questions": questions})
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	datasourceID, err := strconv.ParseInt(string(config.Datasource), 10, 64)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	okay(w, map[string]any{"datasource_id": datasourceID, "recommended_config": config.Mode, "questions": string(encoded)})
 }
 func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	chats, err := h.service.Chats(r.Context(), p)
