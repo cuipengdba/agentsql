@@ -1,0 +1,6 @@
+listen: "127.0.0.1:8000"
+store_path: "/var/lib/agentsql/chatbi.db"
+secret_env: "AGENTSQL_CHATBI_SECRET"
+gateway: "http://127.0.0.1:7780/mcp"
+allow_gateway_http: true
+max_concurrent_data_requests: 16

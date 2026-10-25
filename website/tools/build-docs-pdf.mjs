@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const VERSION = 'v4.0.0';
+const VERSION = 'v4.1.0';
 const LANGUAGE = process.env.AGENTSQL_DOCS_LANGUAGE || 'zh';
 if (!['zh', 'en'].includes(LANGUAGE)) throw new Error('AGENTSQL_DOCS_LANGUAGE must be zh or en');
 const ENGLISH = LANGUAGE === 'en';
@@ -555,7 +555,7 @@ function htmlDocument(document, rendered) {
     h2 { margin: 10mm 0 3.5mm; padding-bottom: 2mm; border-bottom: .35mm solid #cbd5e1; color: #0f3c5c; font-size: 17pt; line-height: 1.35; break-after: avoid-page; page-break-after: avoid; }
     h3 { margin: 7mm 0 2.5mm; color: #164e63; font-size: 13pt; line-height: 1.4; break-after: avoid-page; page-break-after: avoid; }
     h4 { margin: 5mm 0 2mm; color: #334155; font-size: 11pt; }
-    p { margin: 0 0 3.5mm; orphans: 3; widows: 3; }
+    p { margin: 0 0 3.5mm; orphans: 3; widows: 3; break-inside: avoid-page; }
     ul, ol { margin: 2mm 0 4mm; padding-left: 7mm; }
     li { margin: 1.3mm 0; orphans: 3; widows: 3; break-inside: avoid; page-break-inside: avoid; }
     a { color: #0369a1; text-decoration: underline; text-underline-offset: 1px; }
@@ -860,6 +860,7 @@ async function main() {
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.7.0.pdf`));
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.8.0.pdf`));
       archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v3.9.0.pdf`));
+      archivedFiles.push(...['getting-started', 'mcp-integrations', 'user-guide'].map((slug) => `agentsql-${slug}-${prefix}v4.0.0.pdf`));
     }
     const otherLanguage = actualFiles.filter((name) => new RegExp(`^agentsql-(getting-started|user-guide|mcp-integrations)-${ENGLISH ? '' : 'en-'}${VERSION.replaceAll('.', '\\.')}\\.pdf$`).test(name));
     const expectedFiles = [...DOCUMENTS.map((document) => document.output), ...archivedFiles, ...otherLanguage].sort();

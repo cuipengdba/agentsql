@@ -43,23 +43,25 @@
   <main id="main">
     <section class="hero section">
       <div class="container narrow">
-        <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> AgentSQL v4.0.0 · Live Demo Security Entry</div>
+        <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> AgentSQL v4.1.0 · Live Demo Security Entry</div>
         <h1>Confirm the boundaries first before entering the demo</h1>
-        <p class="hero-lead">This environment is only used to experience the AgentSQL console and six preset security scripts. It is not a production service and does not connect to any real business database.</p>
+        <p class="hero-lead">Try the console, six preset security scenarios and native Go data Q&amp;A. This environment uses synthetic data only. It is not a production service and does not connect to real business databases.</p>
         <div class="callout callout-warning" role="note">
           <strong>Never enter real data or secrets:</strong>Please do not submit business SQL, personal information, database address, account password, API Key, access token, private key or other confidential content.
         </div>
         <ul class="boundary-grid" aria-label="Live Demo uses boundaries">
           <li><strong>Synthetic data only</strong><span>The identities, orders, and audit records in the demo library are fictitious data.</span></li>
-          <li><strong>Read-only/controlled demo</strong><span>Only preset read-only or policy-restricted scripts are open and are not used as general database entries.</span></li>
+          <li><strong>Read-only/controlled demo</strong><span>The console offers preset scenarios. Native Q&amp;A can only read authorized synthetic PostgreSQL data; it is not a general database entry point.</span></li>
           <li><strong>reset periodically</strong><span>Data and presentation state are restored periodically and should not be relied upon to persist anything.</span></li>
           <li><strong>non-production configuration</strong><span>Availability, capacity, retention, and security configurations do not represent production commitments or SLAs.</span></li>
         </ul>
         <div class="hero-actions">
           <a class="button button-primary" href="https://demo.agentsql.cn/?lang=en">I understand, enter the demo</a>
+          <a class="button button-secondary" href="https://demo.agentsql.cn/chatbi/?lang=en">Try native Go Q&amp;A</a>
           <a class="button button-secondary" href="/en/">Return to official website</a>
         </div>
-        <p class="quiet-line">The console comes from a separate single-gateway Demo at <code>https://agentsql.cn/demo/</code>. It uses synthetic PostgreSQL/MySQL data and does not demonstrate Oracle/SQL Server certificate and plan validation, ClickHouse query budgets, tenant filters in shared Milvus collections, MongoDB replica sets, or Redis/Valkey Sentinel topologies. See the <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/release-notes-v4.0.0.md" target="_blank" rel="noopener noreferrer">release notes</a> for the verified scope.</p>
+        <p class="quiet-line">Q&amp;A demo account: <code>demo</code>; password: <code>AgentSQL-Demo-410</code>. This is a public shared account, so other visitors can see its conversation history. Enter demonstration questions only. Example: list id and status from public.demo_b2_orders. The demo uses a small local model and processes one data request at a time; expect some waiting. The model may misunderstand questions, so review the SQL and results.</p>
+        <p class="quiet-line">The console comes from a separate single-gateway Demo at <code>https://agentsql.cn/demo/</code>. It uses synthetic PostgreSQL/MySQL data and does not demonstrate Oracle/SQL Server certificate and plan validation, ClickHouse query budgets, tenant filters in shared Milvus collections, MongoDB replica sets, or Redis/Valkey Sentinel topologies. See the <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/release-notes-v4.1.0.md" target="_blank" rel="noopener noreferrer">release notes</a> for the verified scope.</p>
       </div>
     </section>
   </main>

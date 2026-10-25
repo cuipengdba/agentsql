@@ -1,0 +1,317 @@
+package chatbi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// These fakes exercise failure boundaries; they are never live model/database
+// acceptance evidence. Release acceptance separately uses real services.
+type fakeGateway struct {
+	schemaErr, queryErr error
+	queries             int
+	audit               int64
+	afterQuery          func()
+}
+
+func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, error) {
+	if g.schemaErr != nil {
+		return nil, g.schemaErr
+	}
+	return []Column{{"public", "sales", "amount", "numeric"}}, nil
+}
+func (g *fakeGateway) Query(context.Context, Principal, Binding, string) (QueryData, error) {
+	g.queries++
+	if g.afterQuery != nil {
+		g.afterQuery()
+	}
+	return QueryData{Fields: []string{"amount"}, Data: []map[string]any{{"amount": "123"}}, AuditID: g.audit}, g.queryErr
+}
+
+type fakeModel struct {
+	calls int
+	err   error
+	after func()
+}
+
+func (m *fakeModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
+	m.calls++
+	if m.after != nil {
+		m.after()
+	}
+	return SQLGeneration{SQL: "SELECT amount FROM public.sales", TotalTokens: 12}, m.err
+}
+
+func serviceFixture(t *testing.T) (*Service, Principal, *fakeGateway, *fakeModel, string) {
+	t.Helper()
+	ctx := context.Background()
+	store := testStore(t)
+	user := testUser(t, "1", "analyst")
+	if err := store.CreateUser(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	identity := testIdentity(t, store)
+	_, token, err := identity.Login(ctx, user.Account, "Synthetic-password-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := identity.Verify(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := Binding{Datasource: "10", Workspace: "1", User: "1", Name: "fixture", Dialect: "pg", BindingID: "binding", ConnectorToken: "fixture-connector", AgentKey: "fixture-agent"}
+	if err := store.put(ctx, bindingKey(p, "10"), b, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.put(ctx, objectKey{"model", "1", "workspace", "default"}, ModelConfig{ID: "20", Model: "fixture", Endpoint: "http://127.0.0.1/v1"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	g := &fakeGateway{audit: 1}
+	m := &fakeModel{}
+	return &Service{store, identity, g, m}, p, g, m, token
+}
+
+func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
+	s, _, gateway, _, token := serviceFixture(t)
+	router, err := NewHandler(s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := router.(*Handler)
+	for i := 0; i < cap(h.slots); i++ {
+		h.slots <- struct{}{}
+	}
+	for _, path := range []string{"/api/v1/chat/1/with_data", "/api/v1/chat/record/1/data", "/api/v1/chat/record/1/data_live"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusTooManyRequests || gateway.queries != 0 {
+			t.Fatal("historical query bypassed admission limit")
+		}
+	}
+	// Lightweight health probes remain available while data slots are occupied.
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatal("data load blocked health probe")
+	}
+}
+
+func TestHistoricalHTTPReadRechecksLogoutBeforeReleasingResults(t *testing.T) {
+	for _, route := range []string{"chat", "record", "live"} {
+		t.Run(route, func(t *testing.T) {
+			s, p, gateway, _, token := serviceFixture(t)
+			ctx := context.Background()
+			chat, err := s.Start(ctx, p, "10", "fixture", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, err := s.Ask(ctx, p, chat.ID, "fixture", func(context.Context) error { return nil }, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gateway.afterQuery = func() {
+				if err := s.Identity.Logout(ctx, token); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := "/api/v1/chat/" + string(chat.ID) + "/with_data"
+			if route != "chat" {
+				path = "/api/v1/chat/record/" + string(record.ID) + "/data"
+				if route == "live" {
+					path += "_live"
+				}
+			}
+			router, err := NewHandler(s, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), "123") {
+				t.Fatal("logout during a historical query did not suppress the response")
+			}
+		})
+	}
+}
+
+func TestConfiguredAdmissionLimitAndStaticAssetBoundary(t *testing.T) {
+	s, _, _, _, _ := serviceFixture(t)
+	for _, limit := range []int{0, -1, 17} {
+		if _, err := NewHandlerWithLimit(s, "test", limit); err == nil {
+			t.Fatal("invalid concurrency limit accepted")
+		}
+	}
+	router, err := NewHandlerWithLimit(s, "test", 1)
+	if err != nil || cap(router.(*Handler).slots) != 1 {
+		t.Fatal("configured admission budget not applied")
+	}
+	for path, expected := range map[string]int{"/": 200, "/ui/app.js": 200, "/ui/app.css": 200, "/ui/mark.svg": 200, "/ui/index.html": 404, "/ui/": 404} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != expected {
+			t.Fatalf("asset %s: %d, expected %d", path, response.Code, expected)
+		}
+	}
+}
+
+func TestQuestionFailureBoundariesAndTerminalPersistence(t *testing.T) {
+	for _, stage := range []string{"schema", "model", "gateway", "missing-audit", "revoked-after-model", "revoked-after-query", "storage"} {
+		t.Run(stage, func(t *testing.T) {
+			ctx := context.Background()
+			s, p, g, m, token := serviceFixture(t)
+			chat, err := s.Start(ctx, p, "10", "amount", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch stage {
+			case "schema":
+				g.schemaErr = ErrGateway
+			case "model":
+				m.err = ErrModel
+			case "gateway":
+				g.queryErr = ErrGateway
+			case "missing-audit":
+				g.audit = 0
+			case "revoked-after-model":
+				m.after = func() {
+					if err := s.Identity.Logout(ctx, token); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "revoked-after-query":
+				g.afterQuery = func() {
+					if err := s.Identity.Logout(ctx, token); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "storage":
+				g.afterQuery = func() { _ = s.Store.Close() }
+			}
+			check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+			record, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+			if err == nil || record.Data != nil {
+				t.Fatal("failed operation released data")
+			}
+			if stage == "schema" && m.calls != 0 {
+				t.Fatal("model saw unauthorized schema")
+			}
+			if (stage == "schema" || stage == "model" || stage == "revoked-after-model") && g.queries != 0 {
+				t.Fatal("database query ran after failed prerequisite")
+			}
+			if stage != "storage" {
+				stored, _, err := s.chat(ctx, p, chat.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(stored.Records) != 1 || !stored.Records[0].Finish || stored.Records[0].Error == "" || stored.Records[0].Data != nil || !stored.LeaseUntil.IsZero() {
+					t.Fatal("failure state was not durable")
+				}
+			}
+		})
+	}
+}
+
+func TestQuestionPersistsBeforeDeliveryAndProtectsHistory(t *testing.T) {
+	ctx := context.Background()
+	s, p, g, _, token := serviceFixture(t)
+	chat, err := s.Start(ctx, p, "10", "amount", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	record, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+	if err != nil || record.Data == nil || record.Data.AuditID != 1 {
+		t.Fatalf("question: %v", err)
+	}
+	stored, _, err := s.chat(ctx, p, chat.ID)
+	if err != nil || stored.Records[0].ID != record.ID || stored.Records[0].Data == nil {
+		t.Fatal("result delivered before persistence")
+	}
+	without, err := s.ReadChat(ctx, p, chat.ID, false)
+	if err != nil || without.Records[0].Data != nil {
+		t.Fatal("metadata history leaked cached rows")
+	}
+	g.queryErr = ErrGateway
+	if _, err := s.ReadChat(ctx, p, chat.ID, true); !errors.Is(err, ErrGateway) {
+		t.Fatal("cached rows bypassed current permissions")
+	}
+	other := testUser(t, "2", "other")
+	if err := s.Store.CreateUser(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReadChat(ctx, Principal{other, "1"}, chat.ID, true); !errors.Is(err, ErrNotFound) {
+		t.Fatal("cross-user history read")
+	}
+}
+
+func TestQuestionLeaseRejectsConcurrentWork(t *testing.T) {
+	ctx := context.Background()
+	s, p, _, _, token := serviceFixture(t)
+	chat, err := s.Start(ctx, p, "10", "amount", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	_, err = s.Ask(ctx, p, chat.ID, "amount", check, func(ID) error {
+		if _, err := s.Ask(ctx, p, chat.ID, "concurrent", check, nil); !errors.Is(err, ErrBusy) {
+			t.Fatal("concurrent question was not rejected")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPIdentityScopeAndSSE(t *testing.T) {
+	s, p, _, _, token := serviceFixture(t)
+	handler, err := NewHandler(s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, body, auth string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		if auth != "" {
+			r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+auth)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	if r := request("GET", "/api/v1/user/info", "", ""); r.Code != 401 {
+		t.Fatal("missing credentials accepted")
+	}
+	if r := request("POST", "/api/v1/login/access-token", "username=analyst&password=Synthetic-password-1", ""); r.Code != 400 {
+		t.Fatal("legacy encrypted login accepted plaintext")
+	}
+	r := request("GET", "/api/v1/user/info", "", token)
+	if r.Code != 200 || strings.Contains(r.Body.String(), "password") || strings.Contains(r.Body.String(), "hash") {
+		t.Fatal("userinfo leaked credentials")
+	}
+	chat, err := s.Start(context.Background(), p, "10", "amount", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"chat_id": chat.ID, "question": "amount"})
+	r = request("POST", "/api/v1/chat/question", string(body), token)
+	if r.Code != 200 || r.Header().Get("Content-Type") != "text/event-stream" || !strings.Contains(r.Body.String(), `"type":"finish"`) || strings.Contains(r.Body.String(), "fixture-agent") {
+		t.Fatalf("stream: %d %s", r.Code, r.Body.String())
+	}
+	r = request(http.MethodPost, "/api/v1/login/logout", "{}", token)
+	if r.Code != 200 {
+		t.Fatal("logout failed")
+	}
+	if r = request("GET", "/api/v1/chat/list", "", token); r.Code != 401 {
+		t.Fatal("revoked session accepted")
+	}
+}

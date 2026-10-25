@@ -3,6 +3,13 @@
 internal/authorizedexecute/internal/businessdb/
 internal/authorizedexecute/statement.go
 internal/store/
+# Encrypted ChatBI control-plane documents: fixed local SQLite statements with
+# bound parameters. These files never open business datasource connections.
+internal/chatbi/store.go
+internal/chatbi/identity.go
+internal/chatbi/setup.go
+# Query calls here are the controlled gateway interface, not a database driver.
+internal/chatbi/service.go
 internal/b5session/sql_ledger.go
 internal/b5session/tombstone.go
 internal/b5session/pg_inventory.go

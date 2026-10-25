@@ -61,6 +61,14 @@ jobs:
         env:
           GOMAXPROCS: '2'
         run: go test -short -p 1 -timeout 20m ./... -count=1
+      - name: Verify native Q&A offline installation and rollback
+        run: |
+          go build -o "$RUNNER_TEMP/agentsql-chatbi-installer" ./cmd/agentsql
+          docker run --rm --network none \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/src,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/agentsql-chatbi-installer,dst=/candidate,readonly" \
+            --entrypoint sh golang:1.26.10-bookworm \
+            /src/scripts/test-chatbi-installer.sh /candidate /src
 
   web:
     runs-on: ubuntu-latest

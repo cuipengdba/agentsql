@@ -3,7 +3,7 @@
 set -eu
 umask 022
 
-VERSION=${VERSION:-v4.0.0}
+VERSION=${VERSION:-v4.1.0}
 ARCH=${ARCH:-amd64}
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
 
@@ -154,6 +154,9 @@ mkdir -p "$STAGE/lib/yashandb"
 cp "$AGENTSQL_BINARY" "$STAGE/agentsql"
 cp "$CTL_BINARY" "$STAGE/agentsqlctl"
 cp scripts/install.sh "$STAGE/install.sh"
+cp scripts/install-chatbi.sh "$STAGE/install-chatbi.sh"
+cp deploy/systemd/agentsql-chatbi.service "$STAGE/deploy/systemd/agentsql-chatbi.service"
+cp deploy/systemd/chatbi.yaml "$STAGE/deploy/systemd/chatbi.yaml"
 cp deploy/systemd/agentsql.service "$STAGE/deploy/systemd/agentsql.service"
 cp deploy/systemd/config.yaml "$STAGE/deploy/systemd/config.yaml"
 cp -R docs/. "$STAGE/docs/"
@@ -161,6 +164,8 @@ cp -LR /opt/yashandb-client/lib/. "$STAGE/lib/yashandb/"
 cp LICENSE "$STAGE/LICENSE"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 chmod 0755 "$STAGE/agentsql" "$STAGE/agentsqlctl" "$STAGE/install.sh"
+chmod 0755 "$STAGE/install-chatbi.sh"
+chmod 0644 "$STAGE/deploy/systemd/agentsql-chatbi.service" "$STAGE/deploy/systemd/chatbi.yaml"
 chmod 0644 "$STAGE/deploy/systemd/agentsql.service" "$STAGE/deploy/systemd/config.yaml" "$STAGE/LICENSE" "$STAGE/VERSION"
 find "$STAGE/docs" -type d -exec chmod 0755 {} \;
 find "$STAGE/docs" -type f -exec chmod 0644 {} \;

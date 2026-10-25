@@ -45,7 +45,7 @@ export function Upgrade() {
             将完整的 15 项发行资产放入同一目录。公钥须从独立可信渠道获取，保存在该目录之外；明确指定要安装的版本，验签通过后再执行离线安装。
           </Typography.Paragraph>
           <Typography.Paragraph code copyable>
-            {`agentsqlctl release verify --directory ./release-assets --public-key ./trusted-release-key.json --version ${/^v\d+\.\d+\.\d+$/.test(release.version) ? release.version : "v4.0.0"}`}
+            {`agentsqlctl release verify --directory ./release-assets --public-key ./trusted-release-key.json --version ${/^v\d+\.\d+\.\d+$/.test(release.version) ? release.version : "v4.1.0"}`}
           </Typography.Paragraph>
           <Typography.Paragraph type="secondary">
             验签会核对发行清单、三份 Ed25519 签名及源码来源，不下载、解包或运行文件。校验期间及安装前请保持目录内容不变。

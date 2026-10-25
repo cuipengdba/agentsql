@@ -2,6 +2,11 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v4.1.0]
+
+- 增加 Go 原生问数、加密身份与会话、SQLBot v1.10.2 普通登录兼容基础及 PostgreSQL/MySQL 真实受控查询。
+- 增加双语问数界面、私有连接配置、身份迁移预检及可选的离线 systemd 安装和回滚；尚不宣称完整替换 SQLBot，见[发布说明](docs/release-notes-v4.1.0.md)。
+
 ## [v4.0.0]
 
 - 增加离线发行验签、验签后的运输包组装及固定字段只读诊断包。
