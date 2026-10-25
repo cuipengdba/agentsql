@@ -61,3 +61,26 @@ func TestLiveSemanticVocabularyModel(t *testing.T) {
 	}
 	t.Logf("semantic SQL: %s", result.SQL)
 }
+
+func TestLiveGroupedAggregateModel(t *testing.T) {
+	endpoint := os.Getenv("AGENTSQL_LOCAL_MODEL_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("local model endpoint is not configured")
+	}
+	modelName := os.Getenv("AGENTSQL_LOCAL_MODEL_NAME")
+	if modelName == "" {
+		modelName = "agentsql-local-qwen"
+	}
+	model := OpenAIModel{}
+	config := ModelConfig{Model: modelName, Endpoint: endpoint, AllowHTTP: true}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"}, {Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	result, err := model.GenerateWithHistory(context.Background(), config, "pg", "在 public.sales 中按 region 分组汇总 amount，按汇总金额降序，只显示前 3 个地区", columns, nil)
+	if err != nil {
+		t.Fatalf("local aggregate model request failed: %v", err)
+	}
+	sql := strings.ToLower(result.SQL)
+	if !strings.Contains(sql, "group by") || !strings.Contains(sql, "region") || !strings.Contains(sql, "pg_catalog.sum(amount)") || !strings.Contains(sql, "limit 3") {
+		t.Fatalf("local model missed the aggregate request: %s", result.SQL)
+	}
+	t.Logf("aggregate SQL: %s", result.SQL)
+}

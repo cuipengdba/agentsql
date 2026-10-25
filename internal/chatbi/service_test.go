@@ -17,6 +17,7 @@ type fakeGateway struct {
 	schemaCalls         int
 	queries             int
 	audit               int64
+	lastQuery           string
 	afterQuery          func()
 	afterSchema         func()
 }
@@ -31,8 +32,9 @@ func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, err
 	}
 	return []Column{{"public", "sales", "amount", "numeric"}}, nil
 }
-func (g *fakeGateway) Query(context.Context, Principal, Binding, string) (QueryData, error) {
+func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query string) (QueryData, error) {
 	g.queries++
+	g.lastQuery = query
 	if g.afterQuery != nil {
 		g.afterQuery()
 	}
