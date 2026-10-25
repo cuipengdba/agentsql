@@ -57,6 +57,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/data-training/template", h.auth(h.exampleTemplate))
 	h.mux.HandleFunc("GET /api/v1/system/data-training/export", h.auth(h.exampleExport))
 	h.mux.HandleFunc("POST /api/v1/system/data-training/uploadExcel", h.bounded(h.auth(h.exampleUpload)))
+	h.mux.HandleFunc("POST /api/v1/system/download-fail-info", h.bounded(h.auth(h.downloadSemanticError)))
 	h.mux.HandleFunc("PUT /api/v1/system/data-training", h.auth(h.saveExample))
 	h.mux.HandleFunc("DELETE /api/v1/system/data-training", h.auth(h.deleteExamples))
 	h.mux.HandleFunc("GET /api/v1/chat/list", h.auth(h.chats))

@@ -126,6 +126,7 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		}
 	}
 	report := semanticUploadReport{FailedRecords: []map[string]any{}}
+	failedRows := make([][]string, 0)
 	for rowIndex, row := range rows {
 		blank := true
 		for _, value := range row {
@@ -188,6 +189,7 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		if invalid {
 			report.FailedCount++
 			report.FailedRecords = append(report.FailedRecords, map[string]any{"row": rowIndex + 2, "reason": "invalid or unsupported metadata"})
+			failedRows = append(failedRows, append(append([]string(nil), row...), "invalid or unsupported metadata"))
 			continue
 		}
 		if err != nil {
@@ -198,6 +200,18 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		}
 		report.SuccessCount++
 		known[key] = true
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	if len(failedRows) > 0 {
+		filename, err := h.service.saveSemanticErrorReport(r.Context(), p, kind, failedRows)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		report.ErrorExcelFile = &filename
 	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
