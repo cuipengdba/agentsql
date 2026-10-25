@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>AgentSQL 模拟问数演示</title>
+  <meta name="description" content="AgentSQL 浏览器内模拟问数演示；未接入模型或数据库。">
+  <link rel="canonical" href="https://agentsql.cn/demo/qa/">
+  <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/demo/qa/">
+  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/demo/qa/">
+  <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v=3.6.0">
+  <link rel="stylesheet" href="/assets/qa-demo.css?v=4.1.0">
+  <script src="/assets/qa-demo.js?v=4.1.0" defer></script>
+</head>
+<body data-qa-lang="zh">
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header">
+    <div class="container nav-shell">
+      <a class="brand" href="/" aria-label="返回 AgentSQL 官网首页"><img src="/assets/brand/agentsql-mark.svg" width="36" height="36" alt="" aria-hidden="true"><span>AgentSQL</span></a>
+      <nav class="primary-nav" aria-label="演示页导航"><a href="/demo/">演示须知</a><a href="/">官网</a><a class="language-link" href="/en/demo/qa/" lang="en" hreflang="en" aria-label="Switch to English">EN</a></nav>
+    </div>
+  </header>
+  <main id="main" class="qa-page container">
+    <div class="qa-heading"><p class="eyebrow">AgentSQL · Web 界面演示</p><h1>智能问数界面</h1><p>选择一个预置问题，查看问数、SQL 和表格的界面流程。</p></div>
+    <div class="qa-disclosure" role="note"><strong>模拟演示 · 未接入真实大模型或数据库</strong><span>所有问题、SQL、答复、表格及状态均为浏览器内预置的虚构内容。页面不会发送问题，也不会执行 SQL。请勿输入真实业务数据或秘密。</span></div>
+    <div class="qa-shell">
+      <aside class="qa-sidebar" aria-label="演示问题">
+        <h2>预置问题</h2><p>点击切换模拟场景。</p>
+        <button type="button" class="qa-choice" data-qa-example="revenue" aria-pressed="true">按地区统计订单金额</button>
+        <button type="button" class="qa-choice" data-qa-example="customers" aria-pressed="false">查看消费最高的客户</button>
+        <button type="button" class="qa-choice" data-qa-example="denied" aria-pressed="false">请求敏感字段</button>
+        <div class="qa-sidebar-note">本地安装版可连接经授权的数据库和模型；此公网页面仅演示交互外观。</div>
+      </aside>
+      <section class="qa-workspace" aria-label="模拟回答">
+        <div class="qa-toolbar"><span class="qa-status"><span aria-hidden="true">●</span> 本地静态模拟</span><span>DEMO DATA</span></div>
+        <div class="qa-conversation" aria-live="polite">
+          <div class="qa-bubble qa-user"><span>演示问题</span><p id="qa-question"></p></div>
+          <div class="qa-bubble qa-answer"><span>模拟回答 · 非模型生成</span><p id="qa-answer"></p></div>
+        </div>
+        <div class="qa-results">
+          <div class="qa-result-head"><h2>模拟执行视图</h2><span id="qa-policy" class="qa-policy"></span></div>
+          <div class="qa-sql"><span>预置 SQL 示意 · 未执行</span><pre id="qa-sql"></pre></div>
+          <div id="qa-table-wrap" class="qa-table-wrap"><table><caption>虚构结果表，不代表数据库查询</caption><thead id="qa-head"></thead><tbody id="qa-body"></tbody></table></div>
+          <p id="qa-result-note" class="qa-result-note"></p>
+        </div>
+      </section>
+    </div>
+    <p class="qa-footer-note">真实功能与受控执行请在本地安装 AgentSQL，并按照<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md">快速上手</a>配置授权数据源和模型。公网演示不提供模型调用。</p>
+  </main>
+  <footer class="site-footer"><div class="container footer-bottom">© 2026 崔鹏 · AgentSQL 开源技术演示</div></footer>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>AgentSQL Simulated Q&amp;A Demo</title>
+  <meta name="description" content="AgentSQL browser-only simulated Q&amp;A; no model or database is connected.">
+  <link rel="canonical" href="https://agentsql.cn/en/demo/qa/">
+  <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/demo/qa/">
+  <link rel="alternate" hreflang="en" href="https://agentsql.cn/en/demo/qa/">
+  <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v=3.6.0">
+  <link rel="stylesheet" href="/assets/qa-demo.css?v=4.1.0">
+  <script src="/assets/qa-demo.js?v=4.1.0" defer></script>
+</head>
+<body data-qa-lang="en">
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <div class="container nav-shell">
+      <a class="brand" href="/en/" aria-label="Return to AgentSQL home"><img src="/assets/brand/agentsql-mark.svg" width="36" height="36" alt="" aria-hidden="true"><span>AgentSQL</span></a>
+      <nav class="primary-nav" aria-label="Demo navigation"><a href="/en/demo/">Demo notice</a><a href="/en/">Home</a><a class="language-link" href="/demo/qa/" lang="zh-CN" hreflang="zh-CN" aria-label="切换到中文">中文</a></nav>
+    </div>
+  </header>
+  <main id="main" class="qa-page container">
+    <div class="qa-heading"><p class="eyebrow">AgentSQL · Web interface preview</p><h1>Data Q&amp;A interface</h1><p>Select a preset question to preview the question, SQL and table workflow.</p></div>
+    <div class="qa-disclosure" role="note"><strong>Simulated demo · No live model or database connected</strong><span>All questions, SQL, answers, tables and statuses are fictional content stored in your browser. This page sends no questions and executes no SQL. Do not enter real business data or secrets.</span></div>
+    <div class="qa-shell">
+      <aside class="qa-sidebar" aria-label="Demo questions">
+        <h2>Preset questions</h2><p>Choose a simulated scenario.</p>
+        <button type="button" class="qa-choice" data-qa-example="revenue" aria-pressed="true">Order amount by region</button>
+        <button type="button" class="qa-choice" data-qa-example="customers" aria-pressed="false">Top customers by spending</button>
+        <button type="button" class="qa-choice" data-qa-example="denied" aria-pressed="false">Request sensitive fields</button>
+        <div class="qa-sidebar-note">A local installation can use an authorized database and model. This public page previews the interface only.</div>
+      </aside>
+      <section class="qa-workspace" aria-label="Simulated answer">
+        <div class="qa-toolbar"><span class="qa-status"><span aria-hidden="true">●</span> Browser-only simulation</span><span>DEMO DATA</span></div>
+        <div class="qa-conversation" aria-live="polite">
+          <div class="qa-bubble qa-user"><span>Demo question</span><p id="qa-question"></p></div>
+          <div class="qa-bubble qa-answer"><span>Simulated answer · Not model-generated</span><p id="qa-answer"></p></div>
+        </div>
+        <div class="qa-results">
+          <div class="qa-result-head"><h2>Simulated execution view</h2><span id="qa-policy" class="qa-policy"></span></div>
+          <div class="qa-sql"><span>Preset SQL illustration · Never executed</span><pre id="qa-sql"></pre></div>
+          <div id="qa-table-wrap" class="qa-table-wrap"><table><caption>Fictional result table; not a database query</caption><thead id="qa-head"></thead><tbody id="qa-body"></tbody></table></div>
+          <p id="qa-result-note" class="qa-result-note"></p>
+        </div>
+      </section>
+    </div>
+    <p class="qa-footer-note">To use real controlled execution, install AgentSQL locally and configure an authorized data source and model with the <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/GETTING_STARTED.md">getting started guide</a>. The public demo does not call a model.</p>
+  </main>
+  <footer class="site-footer"><div class="container footer-bottom">© 2026 Cui Peng · AgentSQL open source technical demo</div></footer>
+</body>
+</html>
