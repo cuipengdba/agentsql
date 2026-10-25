@@ -35,3 +35,5 @@ The Go implementation is independently written from protocols and observed behav
 ## Validation and publication
 
 Candidate validation uses synthetic PostgreSQL/MySQL data, real local models, original SQLBot login identities, Edge and isolated Linux installation environments. Publication additionally requires current-commit CI, signed dual-architecture assets, images, website and Demo checks. See the [acceptance record](v4.1.0-acceptance.md).
+
+The public Q&A page is an explicitly labelled browser-only simulation with no model or database connection. Live-model Q&A is validated in a local installation.

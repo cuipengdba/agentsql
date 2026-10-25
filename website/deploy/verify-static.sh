@@ -108,6 +108,16 @@ else
   fail "英文首页或 Demo 安全须知缺失"
 fi
 
+if [[ -f $SITE_ROOT/demo/qa/index.html ]] && [[ -f $SITE_ROOT/en/demo/qa/index.html ]] && [[ -f $SITE_ROOT/assets/qa-demo.js ]] && \
+  grep -q '未接入真实大模型或数据库' "$SITE_ROOT/demo/qa/index.html" && \
+  grep -q 'No live model or database connected' "$SITE_ROOT/en/demo/qa/index.html" && \
+  grep -q '页面不会发送问题' "$SITE_ROOT/demo/qa/index.html" && \
+  ! grep -Eq 'fetch\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon' "$SITE_ROOT/assets/qa-demo.js"; then
+  pass "双语问数演示明确标注模拟，浏览器脚本不发起网络请求"
+else
+  fail "双语模拟问数边界或静态脚本检查失败"
+fi
+
 # 预览阶段：主页与 demo 均 noindex，robots 全 Disallow
 if grep -q '<meta name="robots" content="noindex,nofollow">' "$SITE_ROOT/index.html" && grep -q '<meta name="robots" content="noindex,nofollow">' "$demo_page" && grep -q '^Disallow: /$' "$SITE_ROOT/robots.txt"; then
   pass "预览阶段 meta 与 robots.txt 保持 noindex"

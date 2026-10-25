@@ -45,7 +45,7 @@
       <div class="container narrow">
         <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> AgentSQL v4.1.0 · Live Demo Security Entry</div>
         <h1>Confirm the boundaries first before entering the demo</h1>
-        <p class="hero-lead">This environment demonstrates the AgentSQL console and six preset security scenarios. It is not a production service and does not connect to real business databases. Native Go Q&amp;A can be tried in a separate environment using the deployment guide; it is not currently available in the public Demo.</p>
+        <p class="hero-lead">This environment demonstrates the AgentSQL console and six preset security scenarios. It is not a production service and does not connect to real business databases. The Q&amp;A page shows browser-only simulated results. No live model runs in the public Demo; try native Go Q&amp;A in a local deployment.</p>
         <div class="callout callout-warning" role="note">
           <strong>Never enter real data or secrets:</strong>Please do not submit business SQL, personal information, database address, account password, API Key, access token, private key or other confidential content.
         </div>
@@ -57,8 +57,10 @@
         </ul>
         <div class="hero-actions">
           <a class="button button-primary" href="https://demo.agentsql.cn/?lang=en">I understand, enter the demo</a>
+          <a class="button button-secondary" href="/en/demo/qa/">View simulated Q&amp;A</a>
           <a class="button button-secondary" href="/en/">Return to official website</a>
         </div>
+        <p class="quiet-line">Public Q&amp;A is a simulation only: no model or database is connected. Preset answers, SQL and tables are fictional and do not represent live inference.</p>
         <p class="quiet-line">The console comes from a separate single-gateway Demo at <code>https://agentsql.cn/demo/</code>. It uses synthetic PostgreSQL/MySQL data and does not demonstrate Oracle/SQL Server certificate and plan validation, ClickHouse query budgets, tenant filters in shared Milvus collections, MongoDB replica sets, or Redis/Valkey Sentinel topologies. See the <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/release-notes-v4.1.0.md" target="_blank" rel="noopener noreferrer">release notes</a> for the verified scope.</p>
       </div>
     </section>

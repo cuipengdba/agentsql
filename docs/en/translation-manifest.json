@@ -1219,12 +1219,12 @@
     {
       "source": "docs/release-notes-v4.1.0.md",
       "english": "docs/en/release-notes-v4.1.0.md",
-      "source_sha256": "594460ca8596c7e38a5505ec5052868cce3bb227a0d74239ace02292e2d2dcdf"
+      "source_sha256": "bef84b8522006e673f012b48cd2e1a65ab608d0694ab9c2e4b2336a03c041e47"
     },
     {
       "source": "docs/v4.1.0-acceptance.md",
       "english": "docs/en/v4.1.0-acceptance.md",
-      "source_sha256": "da6eb5e67869702ea271165ffc08d166acd339fcd5dbafa446875d92b7b41bf3"
+      "source_sha256": "dd16e1fec0b8c75471578b2bcf2035d9de0956394f4b9ad9199bddc7559de30f"
     }
   ]
 }

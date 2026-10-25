@@ -45,7 +45,7 @@
       <div class="container narrow">
         <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> AgentSQL v4.1.0 · Live Demo 安全入口</div>
         <h1>先确认边界，再进入演示</h1>
-        <p class="hero-lead">此环境只用于体验 AgentSQL 的控制台与六个预置安全剧本，不是生产服务，也不连接任何真实业务数据库。Go 原生问数可按部署指南在独立环境体验，当前未在公网 Demo 开放。</p>
+        <p class="hero-lead">此环境只用于体验 AgentSQL 的控制台与六个预置安全剧本，不是生产服务，也不连接任何真实业务数据库。问数页面仅展示浏览器内的模拟结果，线上未接入真实大模型；Go 原生问数请在本地部署体验。</p>
         <div class="callout callout-warning" role="note">
           <strong>禁止输入真实数据或秘密：</strong>请勿提交业务 SQL、个人信息、数据库地址、账号密码、API Key、访问令牌、私钥或其他机密内容。
         </div>
@@ -57,8 +57,10 @@
         </ul>
         <div class="hero-actions">
           <a class="button button-primary" href="/demo/console">我已了解，进入演示</a>
+          <a class="button button-secondary" href="/demo/qa/">查看模拟问数界面</a>
           <a class="button button-secondary" href="/">返回官网</a>
         </div>
+        <p class="quiet-line">线上问数仅提供模拟演示，未接入模型或数据库；预置问答、SQL 与表格均为虚构内容，不代表真实推理结果。</p>
         <p class="quiet-line">控制台由独立的单网关演示源提供；入口地址保持为 <code>https://agentsql.cn/demo/</code>。公开演示使用 PostgreSQL/MySQL 合成数据，不包含 Oracle/SQL Server 证书与计划验证、ClickHouse 查询预算、Milvus 共享集合租户过滤、MongoDB 副本集或 Redis/Valkey Sentinel 拓扑；版本边界见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/release-notes-v4.1.0.md" target="_blank" rel="noopener noreferrer">发布说明</a>。</p>
       </div>
     </section>
