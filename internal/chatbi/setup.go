@@ -34,8 +34,9 @@ func NewInstallation(account, password string) (Snapshot, error) {
 }
 
 type ConnectionConfig struct {
-	Bindings []Binding        `json:"bindings"`
-	Models   []WorkspaceModel `json:"models"`
+	Bindings        []Binding              `json:"bindings"`
+	Models          []WorkspaceModel       `json:"models"`
+	Recommendations []RecommendationConfig `json:"recommendations"`
 }
 
 func ReadConnections(path string) (ConnectionConfig, error) {
@@ -50,7 +51,7 @@ func ReadConnections(path string) (ConnectionConfig, error) {
 	if decoder.Decode(&config) != nil || decoder.Decode(new(any)) != io.EOF {
 		return ConnectionConfig{}, errors.New("invalid private connection configuration")
 	}
-	if len(config.Bindings) == 0 && len(config.Models) == 0 {
+	if len(config.Bindings) == 0 && len(config.Models) == 0 && len(config.Recommendations) == 0 {
 		return config, errors.New("no connection changes provided")
 	}
 	return config, nil
@@ -94,11 +95,19 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 			return err
 		}
 	}
+	for _, recommendation := range config.Recommendations {
+		if err := validateRecommendations(recommendation); err != nil {
+			return err
+		}
+		if err := appendEntry(recommendationKey(recommendation.Workspace, recommendation.Datasource), recommendation); err != nil {
+			return err
+		}
+	}
 	id, err := newID()
 	if err != nil {
 		return err
 	}
-	if err := appendEntry(objectKey{"management-audit", "system", "system", string(id)}, map[string]any{"action": "connections.configure", "time": time.Now().UTC(), "models": len(config.Models), "bindings": len(config.Bindings)}); err != nil {
+	if err := appendEntry(objectKey{"management-audit", "system", "system", string(id)}, map[string]any{"action": "connections.configure", "time": time.Now().UTC(), "models": len(config.Models), "bindings": len(config.Bindings), "recommendations": len(config.Recommendations)}); err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

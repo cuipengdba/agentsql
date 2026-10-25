@@ -40,6 +40,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
+	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.auth(h.recommendedProblems))
+	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.auth(h.recommendedBase))
 	h.mux.HandleFunc("GET /api/v1/chat/list", h.auth(h.chats))
 	h.mux.HandleFunc("POST /api/v1/chat/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/question", h.bounded(h.auth(h.question)))
@@ -251,6 +253,37 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": b.Dialect})
 	}
 	okay(w, result)
+}
+
+func (h *Handler) recommendedProblems(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	config, err := h.service.Recommendations(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, config.Questions)
+}
+
+func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	config, err := h.service.Recommendations(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	var questions any
+	if config.Mode == 2 {
+		items := make([]string, 0, len(config.Questions))
+		for _, item := range config.Questions {
+			items = append(items, item.Question)
+		}
+		encoded, err := json.Marshal(items)
+		if err != nil {
+			failure(w, ErrUnavailable)
+			return
+		}
+		questions = string(encoded)
+	}
+	okay(w, map[string]any{"datasource_id": config.Datasource, "recommended_config": config.Mode, "questions": questions})
 }
 func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	chats, err := h.service.Chats(r.Context(), p)
