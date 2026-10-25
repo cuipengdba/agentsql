@@ -43,6 +43,12 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.auth(h.recommendedProblems))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.auth(h.recommendedBase))
+	h.mux.HandleFunc("GET /api/v1/system/terminology/page/{page}/{size}", h.auth(h.terminologyPage))
+	h.mux.HandleFunc("PUT /api/v1/system/terminology", h.auth(h.saveTerminology))
+	h.mux.HandleFunc("DELETE /api/v1/system/terminology", h.auth(h.deleteTerminologies))
+	h.mux.HandleFunc("GET /api/v1/system/data-training/page/{page}/{size}", h.auth(h.examplePage))
+	h.mux.HandleFunc("PUT /api/v1/system/data-training", h.auth(h.saveExample))
+	h.mux.HandleFunc("DELETE /api/v1/system/data-training", h.auth(h.deleteExamples))
 	h.mux.HandleFunc("GET /api/v1/chat/list", h.auth(h.chats))
 	h.mux.HandleFunc("POST /api/v1/chat/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/question", h.bounded(h.auth(h.question)))
@@ -69,6 +75,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Enable routes overlap the paged list templates in ServeMux. Parse the
+	// literal middle segment before the generic mux gets a chance to dispatch.
+	if r.Method == http.MethodGet {
+		for _, route := range []struct {
+			prefix  string
+			handler authorizedHandler
+		}{{"/api/v1/system/terminology/", h.enableTerminology}, {"/api/v1/system/data-training/", h.enableExample}} {
+			if !strings.HasPrefix(r.URL.Path, route.prefix) {
+				continue
+			}
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, route.prefix), "/")
+			if len(parts) == 3 && parts[1] == "enable" {
+				r.SetPathValue("id", parts[0])
+				r.SetPathValue("enabled", parts[2])
+				h.auth(route.handler)(w, r)
+				return
+			}
+		}
+	}
 	// This fixed-prefix route overlaps /chat/{id}/with_data in ServeMux's
 	// wildcard precedence rules, so dispatch it before the general chat mux.
 	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/chat/recent_questions/") {
@@ -120,6 +145,8 @@ func failure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
 		status, message = 401, "Not authenticated"
+	case errors.Is(err, ErrInvalidSemantic):
+		status, message = 422, "Invalid semantic metadata"
 	case errors.Is(err, ErrNotFound):
 		status, message = 404, "Resource not found"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):
