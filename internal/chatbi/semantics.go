@@ -175,10 +175,13 @@ func (service *Service) SaveTerminology(ctx context.Context, p Principal, term T
 	if !validTerm(term) {
 		return 0, ErrInvalidSemantic
 	}
+	names := make([]string, 0, len(term.DatasourceIDs))
 	for _, id := range term.DatasourceIDs {
-		if _, err := service.binding(ctx, p, ID(strconv.FormatInt(id, 10))); err != nil {
+		binding, err := service.binding(ctx, p, ID(strconv.FormatInt(id, 10)))
+		if err != nil {
 			return 0, err
 		}
+		names = append(names, binding.Name)
 	}
 	var revision int64
 	if term.ID == 0 {
@@ -203,7 +206,7 @@ func (service *Service) SaveTerminology(ctx context.Context, p Principal, term T
 	if term.DatasourceIDs == nil {
 		term.DatasourceIDs = []int64{}
 	}
-	term.DatasourceNames = []string{}
+	term.DatasourceNames = names
 	return term.ID, service.Store.writeSemantic(ctx, semanticKey("terminology", p.Workspace, term.ID), term, revision, "terminology.save")
 }
 
