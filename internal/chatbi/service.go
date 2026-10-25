@@ -407,9 +407,15 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
+		hints, err := service.Vocabulary(ctx, p, chat.Datasource, question)
+		if err != nil {
+			return err
+		}
 		stage = "model"
 		var generated SQLGeneration
-		if contextual, ok := service.Model.(ContextualGenerator); ok {
+		if semantic, ok := service.Model.(SemanticGenerator); ok {
+			generated, err = semantic.GenerateWithSemantics(ctx, model, binding.Dialect, question, columns, history, hints)
+		} else if contextual, ok := service.Model.(ContextualGenerator); ok {
 			generated, err = contextual.GenerateWithHistory(ctx, model, binding.Dialect, question, columns, history)
 		} else {
 			generated, err = service.Model.Generate(ctx, model, binding.Dialect, question, columns)

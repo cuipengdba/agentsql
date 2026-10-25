@@ -27,6 +27,12 @@ type Terminology struct {
 	AdvancedApplicationName *string   `json:"advanced_application_name"`
 }
 
+type SemanticHint struct {
+	Word        string   `json:"word"`
+	Description string   `json:"description"`
+	OtherWords  []string `json:"other_words"`
+}
+
 type SQLExample struct {
 	ID                      int64     `json:"id"`
 	Workspace               int64     `json:"oid"`
@@ -271,6 +277,67 @@ func (service *Service) Examples(ctx context.Context, p Principal) ([]SQLExample
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID > result[j].ID })
 	return result, nil
+}
+
+// Vocabulary selects only enabled terms from the current workspace and the
+// bound datasource. Matching is deterministic and bounded before model use.
+// Terms carry no SQL and never replace the gateway's live schema decision.
+func (service *Service) Vocabulary(ctx context.Context, p Principal, datasource ID, question string) ([]SemanticHint, error) {
+	if _, err := service.binding(ctx, p, datasource); err != nil {
+		return nil, err
+	}
+	raw, err := service.Store.list(ctx, "terminology", string(p.Workspace), "workspace")
+	if err != nil {
+		return nil, err
+	}
+	query := strings.ToLower(question)
+	hints := make([]SemanticHint, 0, 8)
+	bytesUsed := 2
+	for _, item := range raw {
+		var term Terminology
+		if json.Unmarshal(item, &term) != nil || !validTerm(term) || term.ID <= 0 {
+			return nil, ErrUnavailable
+		}
+		if !term.Enabled {
+			continue
+		}
+		if term.SpecificDS {
+			matched := false
+			for _, id := range term.DatasourceIDs {
+				if ID(strconv.FormatInt(id, 10)) == datasource {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		found := strings.Contains(query, strings.ToLower(term.Word))
+		for _, synonym := range term.OtherWords {
+			if strings.Contains(query, strings.ToLower(synonym)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		hint := SemanticHint{Word: term.Word, Description: term.Description, OtherWords: term.OtherWords}
+		encoded, err := json.Marshal(hint)
+		if err != nil {
+			return nil, ErrUnavailable
+		}
+		if bytesUsed+len(encoded)+1 > 4096 {
+			continue
+		}
+		bytesUsed += len(encoded) + 1
+		hints = append(hints, hint)
+		if len(hints) == 8 {
+			break
+		}
+	}
+	return hints, nil
 }
 
 func (service *Service) SetSemanticEnabled(ctx context.Context, p Principal, kind string, id int64, enabled bool) error {

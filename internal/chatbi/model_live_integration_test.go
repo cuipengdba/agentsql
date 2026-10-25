@@ -37,3 +37,27 @@ func TestLiveMultiTurnModel(t *testing.T) {
 	t.Logf("first SQL: %s", first.SQL)
 	t.Logf("follow-up SQL: %s", second.SQL)
 }
+
+func TestLiveSemanticVocabularyModel(t *testing.T) {
+	endpoint := os.Getenv("AGENTSQL_LOCAL_MODEL_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("local model endpoint is not configured")
+	}
+	modelName := os.Getenv("AGENTSQL_LOCAL_MODEL_NAME")
+	if modelName == "" {
+		modelName = "agentsql-local-qwen"
+	}
+	model := OpenAIModel{}
+	config := ModelConfig{Model: modelName, Endpoint: endpoint, AllowHTTP: true}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"}, {Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	hints := []SemanticHint{{Word: "GMV", Description: "GMV means the total of the amount column in the currently authorized sales table."}}
+	result, err := model.GenerateWithSemantics(context.Background(), config, "pg", "What is the GMV of public.sales? Return one row.", columns, nil, hints)
+	if err != nil {
+		t.Fatalf("local semantic model request failed: %v", err)
+	}
+	sql := strings.ToLower(result.SQL)
+	if !strings.Contains(sql, "pg_catalog.sum") || !strings.Contains(sql, "amount") || !strings.Contains(sql, "sales") {
+		t.Fatalf("local model did not apply the business term: %s", result.SQL)
+	}
+	t.Logf("semantic SQL: %s", result.SQL)
+}
