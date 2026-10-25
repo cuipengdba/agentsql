@@ -85,6 +85,18 @@ agentsql chatbi serve --config chatbi.yaml
 
 该工具不导出历史会话、API Key、助手密钥、文件、仪表板或全部权限。`complete_migration` 固定为 `false`，不能用于宣称生产零改动替换已经完成。保留原 SQLBot 服务，先在隔离环境验证。
 
+## 历史问题元数据迁移预演
+
+`scripts/sqlbot-export-history.py` 在固定的 SQLBot 社区版 v1.10.2 环境中以只读事务导出会话 ID、所属用户/工作空间/数据源、标题和问题 ID/时间。它不导出旧 SQL、查询结果、图表、模型提示词或凭据。问题文本可能含业务敏感信息，导出文件必须按私有数据管理。先完成身份迁移和个人数据源绑定，再在隔离的 AgentSQL 环境执行：
+
+```sh
+python scripts/sqlbot-export-history.py --output history.private.json --limit 1000
+agentsql chatbi history-preflight --from history.private.json
+agentsql chatbi import-history --config chatbi.yaml --from history.private.json
+```
+
+导出文件采用仅创建写入和 `0600` 权限。每批最多 1000 个会话，每会话最多 200 个有问题文本的记录；超过限制、缺少目标身份或绑定、ID 冲突、审计故障都会拒绝导入，单批事务回滚。原记录 ID 保留，旧记录仅用于展示历史问题，不会重放旧 SQL、返回旧结果或进入新一轮模型上下文。SQLBot 的无时区时间戳暂按 UTC 解释，迁移前须与原系统时区核对。导出报告会列出跳过的记录及下一批起点；`complete_migration` 仍为 `false`，不等于完整历史或零改动替换验收。
+
 ## 升级、恢复与边界
 
 已安装问数组件的受管安装，在后续 `install.sh upgrade --from PATH` 时自动包含该组件。安装器停止问数服务后备份数据库、WAL、配置、密钥、二进制与服务单元；启动或版本健康检查失败时恢复该组件原有数据和服务状态。网关与问数使用各自备份，不能把两次组件安装解释为跨数据库分布式事务。

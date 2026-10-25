@@ -85,6 +85,18 @@ agentsql chatbi serve --config chatbi.yaml
 
 This tool does not export historical conversations, API keys, assistant secrets, files, dashboards or all permissions. `complete_migration` remains `false` and cannot substantiate a completed production replacement without business changes. Retain the original SQLBot service and validate in isolation first.
 
+## Historical question metadata rehearsal
+
+`scripts/sqlbot-export-history.py` reads chat IDs, owners, workspaces, datasources, titles, and question IDs/timestamps in a read-only transaction against the pinned SQLBot Community v1.10.2. It omits old SQL, result rows, charts, model prompts and credentials. Question text can contain sensitive business data; handle the export as private data. Import identities and configure personal datasource bindings first, then use an isolated AgentSQL installation:
+
+```sh
+python scripts/sqlbot-export-history.py --output history.private.json --limit 1000
+agentsql chatbi history-preflight --from history.private.json
+agentsql chatbi import-history --config chatbi.yaml --from history.private.json
+```
+
+The exporter creates a new file with `0600` permissions. A batch supports at most 1,000 chats and 200 question-bearing records per chat. Exceeding a limit, a missing target identity or binding, an ID conflict, or an audit failure rejects the batch and rolls back its transaction. Original record IDs remain available, but imported turns only display past questions: they never replay old SQL, return stale results or enter new model context. SQLBot's timestamps without a timezone are provisionally interpreted as UTC; verify this against the source system before migration. The export report lists skipped records and the next page cursor. `complete_migration` remains `false` and this is not full-history or zero-change replacement acceptance.
+
 ## Upgrade, recovery and boundaries
 
 A managed installation with the Q&A component automatically includes it in subsequent `install.sh upgrade --from PATH` operations. The installer stops Q&A before backing up its database, WAL, configuration, key, binary and unit; a startup or version-health failure restores that component's prior data and service state. Gateway and Q&A have separate backups; two component installations are not a distributed database transaction.

@@ -20,7 +20,7 @@ import (
 
 func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	root := &cobra.Command{Use: "chatbi", Short: "Run native data Q&A and SQLBot compatibility services"}
-	var configuration, snapshot string
+	var configuration, snapshot, historyPath string
 	root.PersistentFlags().StringVar(&configuration, "config", "chatbi.yaml", "ChatBI YAML configuration")
 	preflight := &cobra.Command{Use: "preflight", Short: "Validate a private SQLBot identity snapshot without changing either system", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		_, report, err := chatbi.ReadSnapshot(snapshot)
@@ -128,7 +128,43 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	configure.Flags().StringVar(&connections, "from", "", "private connection configuration JSON")
 	_ = configure.MarkFlagRequired("from")
-	root.AddCommand(preflight, importCommand, initCommand, configure, serve)
+	historyPreflight := &cobra.Command{Use: "history-preflight", Short: "Validate a metadata-only SQLBot history export without writing", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		input, err := chatbi.ReadHistory(historyPath)
+		if err != nil {
+			return err
+		}
+		questions := 0
+		for _, item := range input.Chats {
+			questions += len(item.Records)
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(chatbi.HistoryReport{ImportedChats: len(input.Chats), ImportedQuestions: questions, CompleteMigration: false, HistoricalRowsUsed: false})
+	}}
+	historyPreflight.Flags().StringVar(&historyPath, "from", "", "private metadata-only SQLBot history export")
+	_ = historyPreflight.MarkFlagRequired("from")
+	var importHistoryPath string
+	historyImport := &cobra.Command{Use: "import-history", Short: "Atomically import metadata-only SQLBot chat history into an initialized ChatBI store", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		input, err := chatbi.ReadHistory(importHistoryPath)
+		if err != nil {
+			return err
+		}
+		config, err := chatbi.LoadConfig(configuration)
+		if err != nil {
+			return err
+		}
+		service, err := chatbi.Assemble(cmd.Context(), config)
+		if err != nil {
+			return err
+		}
+		defer service.Store.Close()
+		report, err := service.Store.ImportHistory(cmd.Context(), input)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+	}}
+	historyImport.Flags().StringVar(&importHistoryPath, "from", "", "private metadata-only SQLBot history export")
+	_ = historyImport.MarkFlagRequired("from")
+	root.AddCommand(preflight, importCommand, initCommand, configure, historyPreflight, historyImport, serve)
 	return root
 }
 
