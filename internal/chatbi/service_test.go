@@ -14,12 +14,14 @@ import (
 // acceptance evidence. Release acceptance separately uses real services.
 type fakeGateway struct {
 	schemaErr, queryErr error
+	schemaCalls         int
 	queries             int
 	audit               int64
 	afterQuery          func()
 }
 
 func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, error) {
+	g.schemaCalls++
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
 	}
@@ -37,6 +39,68 @@ type fakeModel struct {
 	calls int
 	err   error
 	after func()
+}
+
+type historyModel struct {
+	histories [][]TurnContext
+}
+
+func (m *historyModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
+	return SQLGeneration{}, errors.New("contextual generator was bypassed")
+}
+
+func (m *historyModel) GenerateWithHistory(_ context.Context, _ ModelConfig, _, _ string, _ []Column, history []TurnContext) (SQLGeneration, error) {
+	m.histories = append(m.histories, append([]TurnContext(nil), history...))
+	return SQLGeneration{SQL: "SELECT amount FROM public.sales"}, nil
+}
+
+func TestQuestionHistoryExcludesFailuresAndOtherChats(t *testing.T) {
+	ctx := context.Background()
+	s, p, gateway, _, token := serviceFixture(t)
+	model := &historyModel{}
+	s.Model = model
+	chat, err := s.Start(ctx, p, "10", "first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	if _, err := s.Ask(ctx, p, chat.ID, "first", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ask(ctx, p, chat.ID, "second", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	gateway.queryErr = ErrGateway
+	if _, err := s.Ask(ctx, p, chat.ID, "failed", check, nil); err == nil {
+		t.Fatal("expected gateway failure")
+	}
+	gateway.queryErr = nil
+	if _, err := s.Ask(ctx, p, chat.ID, "fourth", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.Start(ctx, p, "10", "separate", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ask(ctx, p, other.ID, "separate", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.histories) != 5 || len(model.histories[0]) != 0 || len(model.histories[1]) != 1 || len(model.histories[3]) != 2 || len(model.histories[4]) != 0 {
+		t.Fatalf("history scope mismatch: %#v", model.histories)
+	}
+	if model.histories[3][0].Question != "first" || model.histories[3][1].Question != "second" {
+		t.Fatal("failed or out-of-order turn included in context")
+	}
+	if gateway.schemaCalls != 7 { // Two chat starts and all five questions.
+		t.Fatal("current authorized schema was not fetched for every turn")
+	}
+	revision, err := s.Store.get(ctx, bindingKey(p, "10"), new(Binding))
+	if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {
+		t.Fatal("could not revoke binding")
+	}
+	if _, err := s.Ask(ctx, p, chat.ID, "after revocation", check, nil); err == nil || len(model.histories) != 5 {
+		t.Fatal("revoked binding reached the model")
+	}
 }
 
 func (m *fakeModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {

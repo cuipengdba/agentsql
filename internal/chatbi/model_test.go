@@ -72,3 +72,34 @@ func TestModelCancellationAndEndpointPolicy(t *testing.T) {
 		t.Fatal("cancelled model request ran")
 	}
 }
+
+func TestModelHistoryIsBoundedContextWithoutResultRows(t *testing.T) {
+	called := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called++
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || len(payload.Messages) != 2 {
+			t.Fatal("invalid model payload")
+		}
+		prompt := payload.Messages[1].Content
+		if !strings.Contains(prompt, "previous question") || !strings.Contains(prompt, "SELECT amount FROM public.sales") || !strings.Contains(prompt, "current question") || strings.Contains(prompt, "SECRET_ROW") {
+			t.Fatal("context was missing or result data reached the model")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales"}`}}}})
+	}))
+	defer server.Close()
+	model := OpenAIModel{}
+	config := ModelConfig{Model: "fixture", Endpoint: server.URL + "/v1"}
+	_, err := model.GenerateWithHistory(context.Background(), config, "pg", "current question", []Column{{"public", "sales", "amount", "numeric"}}, []TurnContext{{Question: "previous question", SQL: "SELECT amount FROM public.sales"}})
+	if err != nil || called != 1 {
+		t.Fatalf("contextual generation failed: %v", err)
+	}
+	tooMany := []TurnContext{{Question: "a", SQL: "SELECT 1"}, {Question: "b", SQL: "SELECT 2"}, {Question: "c", SQL: "SELECT 3"}, {Question: "d", SQL: "SELECT 4"}}
+	if _, err := model.GenerateWithHistory(context.Background(), config, "pg", "current question", []Column{{"public", "sales", "amount", "numeric"}}, tooMany); err == nil || called != 1 {
+		t.Fatal("oversized history reached provider")
+	}
+}

@@ -287,6 +287,26 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if len(chat.Records) >= 200 {
 		return Record{}, errors.New("conversation record limit reached")
 	}
+	// The chat is scoped to the authenticated principal. Send only successful
+	// questions and SQL from this same datasource; never send result rows or
+	// failed/interrupted attempts back to the model.
+	history := make([]TurnContext, 0, 3)
+	historyBytes := 0
+	for i := len(chat.Records) - 1; i >= 0 && len(history) < 3; i-- {
+		prior := chat.Records[i]
+		if !prior.Finish || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
+			continue
+		}
+		length := len(prior.Question) + len(prior.SQL)
+		if length > 4000 || historyBytes+length > 10000 {
+			continue
+		}
+		history = append(history, TurnContext{Question: prior.Question, SQL: prior.SQL})
+		historyBytes += length
+	}
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
 	binding, err := service.binding(ctx, p, chat.Datasource)
 	if err != nil {
 		return Record{}, err
@@ -335,7 +355,12 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			return err
 		}
 		stage = "model"
-		generated, err := service.Model.Generate(ctx, model, binding.Dialect, question, columns)
+		var generated SQLGeneration
+		if contextual, ok := service.Model.(ContextualGenerator); ok {
+			generated, err = contextual.GenerateWithHistory(ctx, model, binding.Dialect, question, columns, history)
+		} else {
+			generated, err = service.Model.Generate(ctx, model, binding.Dialect, question, columns)
+		}
 		if err != nil {
 			return err
 		}
