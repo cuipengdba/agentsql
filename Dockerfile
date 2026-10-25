@@ -61,7 +61,7 @@ LABEL org.opencontainers.image.title="AgentSQL" \
 ENV LD_LIBRARY_PATH=/opt/yashandb-client/lib
 
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system agentsql \
     && useradd --system --gid agentsql --home-dir /var/lib/agentsql --shell /usr/sbin/nologin agentsql \
