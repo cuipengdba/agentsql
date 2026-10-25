@@ -18,10 +18,14 @@ type fakeGateway struct {
 	queries             int
 	audit               int64
 	afterQuery          func()
+	afterSchema         func()
 }
 
 func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, error) {
 	g.schemaCalls++
+	if g.afterSchema != nil {
+		g.afterSchema()
+	}
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
 	}

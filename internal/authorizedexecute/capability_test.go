@@ -59,9 +59,11 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			allowedControl := strings.HasPrefix(filepath.ToSlash(relative), "internal/store/") || strings.HasPrefix(filepath.ToSlash(relative), "cmd/agentsqlctl/")
 			normalized := filepath.ToSlash(relative)
 			// ChatBI owns a separate encrypted control-plane SQLite document
-			// store. This exact file may open only SQLite; model/business SQL
-			// still travels through the controlled gateway, never this store.
+			// store. Only store.go may open SQLite. The semantic transaction
+			// code uses database/sql solely for this store's metadata audit;
+			// model/business SQL still travels through the controlled gateway.
 			allowedChatBIStore := normalized == "internal/chatbi/store.go" && (name == "database/sql" || name == "modernc.org/sqlite")
+			allowedChatBISemantics := normalized == "internal/chatbi/semantics.go" && name == "database/sql"
 			allowedB5S3 := normalized == "internal/b5session/sql_ledger.go" || normalized == "internal/b5session/tombstone.go" || normalized == "internal/b5session/pg_inventory.go"
 			allowedSoak := normalized == "internal/b5soak/postgres.go"
 			// The standalone HighGo probe verifies that a read-only database role
@@ -73,7 +75,7 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			// This exact pinned module is the DM driver implementation itself;
 			// product code must still access it only through businessdb.
 			allowedPinnedDMDriver := strings.HasPrefix(normalized, "third_party/gorm-dameng/dm8/")
-			require.Truef(t, allowedBusiness || allowedControl || allowedChatBIStore || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
+			require.Truef(t, allowedBusiness || allowedControl || allowedChatBIStore || allowedChatBISemantics || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
 		}
 		return nil
 	})
