@@ -75,6 +75,13 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	reader.Host, reader.Port, reader.Database = u.Hostname(), port, strings.TrimPrefix(u.Path, "/")
 	reader, err = runtime.Store.Datasources().Update(ctx, reader, "reader-password")
 	require.NoError(t, err)
+	baseBinding := binding
+	binding, _, err = runtime.Store.SQLBotBindings().Create(ctx, store.SQLBotBinding{
+		WorkspaceID: baseBinding.WorkspaceID, DatasourceName: "managed-file-e2e-child",
+		SQLBotUserID: baseBinding.SQLBotUserID, AgentSQLUserID: baseBinding.AgentSQLUserID,
+		AgentID: baseBinding.AgentID, DatasourceID: baseBinding.DatasourceID, SchemaName: "agentsql_files", Enabled: true,
+	}, principal.UserID)
+	require.NoError(t, err)
 	writer := reader
 	writer.ID = "managed-provisioner"
 	writer.Username = "file_writer"
@@ -91,6 +98,10 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 		binding.AgentID, binding.AgentSQLUserID, tables[0].Name)
 	require.NoError(t, err)
 	require.True(t, visible)
+	baseVisible, err := runtime.Store.ManagedFileImports().PublishedTableOwner(ctx, baseBinding.ID, baseBinding.DatasourceID,
+		baseBinding.AgentID, baseBinding.AgentSQLUserID, tables[0].Name)
+	require.NoError(t, err)
+	require.False(t, baseVisible, "a separate SQLBot datasource binding must not see the child's imported table")
 	readerConn, err := pgx.Connect(ctx, "postgres://file_reader:reader-password@"+u.Host+u.Path+"?sslmode=disable")
 	require.NoError(t, err)
 	defer readerConn.Close(context.Background())
@@ -123,6 +134,7 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	current, err := runtime.Store.ManagedFileImports().Get(ctx, published.ID)
 	require.NoError(t, err)
 	require.Equal(t, "deleted", current.Status)
+	require.NoError(t, runtime.DeleteSQLBotFile(ctx, principal, binding, published.ID, physical), "a client retry after physical deletion is idempotent")
 	var stillExists bool
 	require.NoError(t, admin.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "agentsql_files."+tables[0].Name).Scan(&stillExists))
 	require.False(t, stillExists)

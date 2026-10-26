@@ -41,6 +41,9 @@ func (runtime *Runtime) DeleteSQLBotFile(ctx context.Context, principal rbac.Pri
 		item.DatasourceID != current.DatasourceID || item.SheetCount < 1 || item.SheetCount > 8 {
 		return ErrManagedFileStage
 	}
+	if item.Status == "deleted" {
+		return nil
+	}
 	if item.Status == "published" {
 		item, err = journal.Advance(tenantCtx, item.ID, item.Revision, "published", "deleting", principal.UserID)
 		if err != nil {

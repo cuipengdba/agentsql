@@ -44,8 +44,29 @@ func TestManagedFileGatewayUsesSeparateAgentAndHumanCredentials(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{"code": 0, "data": map[string]any{
-				"operation_id": "11111111111111111111111111111111",
-				"sheets":       []map[string]any{{"sheetName": "Sheet1", "tableName": "agentsql_file_22222222222222222222222222222222", "tableComment": "", "rows": 1}},
+				"operation_id":    "11111111111111111111111111111111",
+				"binding_id":      "11111111-1111-4111-8111-111111111111",
+				"datasource_name": "agentsql-import-33333333333333333333333333333333",
+				"connector_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+				"sheets":          []map[string]any{{"sheetName": "Sheet1", "tableName": "agentsql_file_22222222222222222222222222222222", "tableComment": "", "rows": 1}},
+			}})
+		case "/api/v1/integrations/sqlbot/managed-files/delete":
+			if request.Header.Get("Authorization") != "Bearer agent-secret" ||
+				request.Header.Get("X-AgentSQL-User-Authorization") != "Bearer SQB1.fixture" {
+				http.Error(writer, "denied", http.StatusUnauthorized)
+				return
+			}
+			var payload struct {
+				BindingID   string `json:"binding_id"`
+				OperationID string `json:"operation_id"`
+			}
+			if json.NewDecoder(request.Body).Decode(&payload) != nil || payload.BindingID != "binding-1" ||
+				payload.OperationID != "11111111111111111111111111111111" {
+				http.Error(writer, "invalid", http.StatusUnprocessableEntity)
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"operation_id": payload.OperationID, "status": "deleted",
 			}})
 		default:
 			http.NotFound(writer, request)
@@ -61,10 +82,13 @@ func TestManagedFileGatewayUsesSeparateAgentAndHumanCredentials(t *testing.T) {
 	p := Principal{User: User{ID: "7"}, Workspace: "1"}
 	b := Binding{Datasource: "10", Workspace: "1", User: "7", Name: "Managed", Dialect: "pg",
 		BindingID: "binding-1", ConnectorToken: "connector-secret", AgentKey: "agent-secret"}
-	sheets, err := gateway.ImportFile(context.Background(), p, b, stage, selection, plan)
+	result, err := gateway.ImportFile(context.Background(), p, b, stage, selection, plan)
 	require.NoError(t, err)
 	require.Equal(t, 1, requests)
-	require.Equal(t, "agentsql_file_22222222222222222222222222222222", sheets[0].TableName)
+	require.Equal(t, "11111111111111111111111111111111", result.OperationID)
+	require.Equal(t, "agentsql_file_22222222222222222222222222222222", result.Sheets[0].TableName)
+	require.NoError(t, gateway.DeleteFile(context.Background(), p, b, result.OperationID))
+	require.ErrorIs(t, gateway.DeleteFile(context.Background(), p, b, "../forged"), ErrGateway)
 	stage.FilePath = "../forged.csv"
 	_, err = gateway.ImportFile(context.Background(), p, b, stage, selection, plan)
 	require.ErrorIs(t, err, ErrGateway)

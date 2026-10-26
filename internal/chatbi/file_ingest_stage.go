@@ -21,6 +21,23 @@ type fileStage struct {
 	Expires  time.Time `json:"expires"`
 }
 
+// The encrypted receipt is the bridge between SQLBot's importToDb response
+// and its later datasource/add call. A browser never supplies the operation ID.
+type managedFileReceipt struct {
+	OperationID       string              `json:"operation_id"`
+	BindingID         string              `json:"binding_id"`
+	DatasourceName    string              `json:"datasource_name"`
+	ConnectorToken    string              `json:"connector_token"`
+	Filename          string              `json:"filename"`
+	Sheets            []importedFileSheet `json:"sheets"`
+	Created           time.Time           `json:"created"`
+	ClaimedDatasource ID                  `json:"claimed_datasource,omitempty"`
+}
+
+func managedFileReceiptKey(p Principal, filePath string) objectKey {
+	return objectKey{"managed-file-receipt", string(p.Workspace), string(p.User.ID), filePath}
+}
+
 func fileStageKey(p Principal) objectKey {
 	return objectKey{"file-stage", string(p.Workspace), string(p.User.ID), "latest"}
 }
@@ -124,25 +141,51 @@ func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal
 		failure(w, ErrGateway)
 		return
 	}
-	sheets, err := importer.ImportFile(r.Context(), p, binding, stage, request, plan)
+	result, err := importer.ImportFile(r.Context(), p, binding, stage, request, plan)
 	if err != nil {
 		failure(w, err)
 		return
 	}
+	undo := func(cause error) error {
+		deleter, ok := h.service.Gateway.(managedFileDeleter)
+		if !ok {
+			return cause
+		}
+		child := binding
+		child.BindingID = result.ChildBindingID
+		child.Name = result.ChildName
+		child.ConnectorToken = result.ConnectorToken
+		recovery, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 45*time.Second)
+		defer cancel()
+		return errors.Join(cause, deleter.DeleteFile(recovery, p, child, result.OperationID))
+	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
-		failure(w, err)
+		failure(w, undo(err))
 		return
 	}
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
-		failure(w, err)
+		failure(w, undo(err))
 		return
 	}
 	current, err := h.service.binding(r.Context(), p, h.service.ManagedFileDatasource)
 	if err != nil || current != binding {
-		failure(w, ErrGateway)
+		failure(w, undo(ErrGateway))
 		return
 	}
-	okay(w, map[string]any{"filename": stage.FilePath, "sheets": sheets})
+	if !managedFileOperationPattern.MatchString(result.OperationID) || len(result.Sheets) != len(plan.Sheets) ||
+		result.ChildBindingID == "" || !managedFileChildNamePattern.MatchString(result.ChildName) || result.ConnectorToken == "" {
+		failure(w, undo(ErrGateway))
+		return
+	}
+	receipt := managedFileReceipt{OperationID: result.OperationID, BindingID: result.ChildBindingID,
+		DatasourceName: result.ChildName, ConnectorToken: result.ConnectorToken,
+		Filename: stage.FilePath, Sheets: result.Sheets, Created: time.Now().UTC()}
+	if err := h.service.Store.writeSemanticWithDetails(r.Context(), managedFileReceiptKey(p, stage.FilePath), receipt, 0,
+		"file-import.published", map[string]any{"operation_id": result.OperationID, "sheets": len(result.Sheets)}); err != nil {
+		failure(w, undo(err))
+		return
+	}
+	okay(w, map[string]any{"filename": stage.FilePath, "sheets": result.Sheets})
 }
 
 func (service *Service) saveFileStage(ctx context.Context, p Principal, stage fileStage, sheets []FileSheet) error {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,9 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
+	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.auth(h.getExcelDatasource))
+	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
 	h.mux.HandleFunc("GET /api/v1/datasource/check/{id}", h.bounded(h.auth(h.datasourceCheck)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTables/{id}", h.bounded(h.auth(h.datasourceTables)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getFields/{id}/{table}", h.bounded(h.auth(h.datasourceFields)))
@@ -303,8 +307,23 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			failure(w, ErrUnavailable)
 			return
 		}
-		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": b.Dialect})
+		if b.Type == "excel" {
+			item, err := legacyExcelDatasource(b)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			result = append(result, item)
+			continue
+		}
+		kind := b.Type
+		if kind == "" {
+			kind = b.Dialect
+		}
+		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind,
+			"description": b.Description, "configuration": b.Configuration, "status": "Success"})
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	okay(w, result)
 }
 
