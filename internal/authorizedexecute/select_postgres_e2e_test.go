@@ -176,6 +176,12 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 			require.Equal(t, "1", selected.Result.Rows[0][0])
 			require.Equal(t, digest, audited.RowFilterDigest)
 			require.Equal(t, 3, audited.Version)
+			selected, err = executeColumnAuthorized(ctx, gateway, datasource, secret,
+				`SELECT id, phone FROM s4.a WHERE id = 1 OR id = 2`, request)
+			require.NoError(t, err)
+			require.True(t, selected.Allowed)
+			require.Len(t, selected.Result.Rows, 1, "caller OR must remain inside the row-rule AND")
+			require.Equal(t, "1", selected.Result.Rows[0][0])
 
 			request.Policies = removeUsage(rowPolicies, "reference")
 			selected, err = executeColumnAuthorized(ctx, gateway, datasource, secret, sqlText, request)

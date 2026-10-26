@@ -23,6 +23,7 @@ import (
 
 const (
 	ColumnAuditVersion    = 2
+	RowFilterAuditVersion = 3
 	columnAuditMaxDetails = 256
 	columnAuditMaxBytes   = 32 << 10
 )
@@ -504,7 +505,7 @@ func failedMaskCandidate(uses []columnauth.BoundColumnUse, capability bool) []co
 func buildColumnAuthorizationAudit(input columnauth.Input, plan columnauth.ProtectionPlan) ColumnAuthorizationAudit {
 	audit := ColumnAuthorizationAudit{Version: ColumnAuditVersion, Decision: "deny", Reason: string(plan.Reason()), PlanDigest: plan.Digest(), BinderDigest: input.BinderDigest, FpreDigest: input.CatalogDigest, RowFilterDigest: input.AppliedRowFilterDigest}
 	if audit.RowFilterDigest != "" {
-		audit.Version = 3
+		audit.Version = RowFilterAuditVersion
 	}
 	if plan.Allowed() {
 		audit.Decision = "allow"

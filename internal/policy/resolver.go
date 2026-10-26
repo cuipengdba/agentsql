@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 )
 
 // Resolver merges already-loaded policy rows without accessing storage.
@@ -21,6 +22,18 @@ func (resolver *Resolver) Resolve(
 	policies []model.Policy,
 	level string,
 ) (*model.PolicyDecision, error) {
+	return resolver.resolve(policies, level, false)
+}
+
+// ResolveWithPostgresRowPolicies validates the narrow PostgreSQL row-rule
+// shape for policy configuration and B2 preflight. For data queries, callers
+// must also route the exact SELECT through the active B2 binder; this coarse
+// decision alone cannot authorize or execute a row-filtered SQL.
+func (resolver *Resolver) ResolveWithPostgresRowPolicies(policies []model.Policy, level string) (*model.PolicyDecision, error) {
+	return resolver.resolve(policies, level, true)
+}
+
+func (resolver *Resolver) resolve(policies []model.Policy, level string, allowRowFilters bool) (*model.PolicyDecision, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("resolve policies: nil resolver")
 	}
@@ -59,7 +72,16 @@ func (resolver *Resolver) Resolve(
 			)
 		}
 		if stored.RowFilter != nil {
-			return nil, fmt.Errorf("resolve policy at position %d: row filters are not yet executable", index)
+			parts := strings.Split(stored.ObjectName, ".")
+			if !allowRowFilters || objectType != "table" || action != "allow" || stored.Columns != nil ||
+				stored.RelationBindingID != nil || stored.RelationBinding != nil ||
+				len(stored.ColumnPermissions) != 0 || len(stored.ColumnStaging) != 0 || stored.LegacyUnrepresentable ||
+				len(parts) != 2 || parts[0] == "" || parts[1] == "" || parts[0] == "*" || parts[1] == "*" {
+				return nil, fmt.Errorf("resolve policy at position %d: row filter requires an exact B2 table allow", index)
+			}
+			if _, err := rowfilter.CompilePredicate(*stored.RowFilter); err != nil {
+				return nil, fmt.Errorf("resolve policy at position %d: unsupported row filter: %w", index, err)
+			}
 		}
 		if objectType == "key_field" {
 			keyScope, field, err := ParseHashFieldScope(stored.ObjectName)

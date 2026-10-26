@@ -98,6 +98,21 @@ func TestHandlersListSchemaFiltersColumnsAndRejectsIdentifiers(t *testing.T) {
 	require.Equal(t, "deny", response.Decision)
 }
 
+func TestListSchemaWithRowRuleFailsClosedUntilBoundColumnMetadata(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	filter := "id = 1"
+	_, err := fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+		ID: "schema-row-rule", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "table", ObjectName: "public.customers", RowFilter: &filter, Action: "allow",
+	})
+	require.NoError(t, err)
+	before := fixture.executor.snapshot()
+	response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "public.customers")
+	require.NotEqual(t, "allow", response.Decision)
+	require.Nil(t, response.Data)
+	require.Equal(t, before, fixture.executor.snapshot())
+}
+
 func TestListSchemaTypesOnlyForAuthorizedColumns(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	allowed := "id"

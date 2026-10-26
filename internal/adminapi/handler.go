@@ -1301,8 +1301,23 @@ func validatePolicyInput(input policyInput) error {
 			return errPolicyRepresentationsConflict
 		}
 	}
-	_, err = policy.NewResolver().Resolve([]model.Policy{policyFromInput(input)}, "readonly")
+	if input.RowFilter != nil {
+		_, err = policy.NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{policyFromInput(input)}, "readonly")
+	} else {
+		_, err = policy.NewResolver().Resolve([]model.Policy{policyFromInput(input)}, "readonly")
+	}
 	return err
+}
+
+func (handler *Handler) validateRowFilterDatasource(ctx context.Context, input policyInput) error {
+	if input.RowFilter == nil {
+		return nil
+	}
+	datasource, err := handler.deps.Runtime.Store.Datasources().Get(ctx, input.DatasourceID)
+	if err != nil || datasource.DBType != "postgres" {
+		return fmt.Errorf("row filters require a PostgreSQL datasource")
+	}
+	return nil
 }
 
 func (handler *Handler) validateKeyPolicyDatasource(ctx context.Context, input policyInput) error {
@@ -1408,6 +1423,10 @@ func (handler *Handler) policiesCreate(writer http.ResponseWriter, request *http
 		handler.fail(writer, 422, "invalid key policy datasource")
 		return
 	}
+	if err := handler.validateRowFilterDatasource(request.Context(), input); err != nil {
+		handler.fail(writer, 422, "invalid row filter datasource")
+		return
+	}
 	normalizePolicyRepresentations(&input)
 	policyModel := policyFromInput(input)
 	policyModel.LegacyUnrepresentable = input.ColumnPermissions != nil && input.Columns == nil
@@ -1465,6 +1484,10 @@ func (handler *Handler) policiesUpdate(writer http.ResponseWriter, request *http
 	}
 	if err := handler.validateKeyPolicyDatasource(request.Context(), input); err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid key policy datasource")
+		return
+	}
+	if err := handler.validateRowFilterDatasource(request.Context(), input); err != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, "invalid row filter datasource")
 		return
 	}
 	normalizePolicyRepresentations(&input)

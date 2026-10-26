@@ -104,6 +104,29 @@ func TestResolverRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestResolverForBoundSelectAdmitsOnlyExactSafeRowRules(t *testing.T) {
+	filter := "id = 1"
+	base := model.Policy{ObjectType: "table", ObjectName: "public.orders", RowFilter: &filter, Action: "allow"}
+	_, err := NewResolver().Resolve([]model.Policy{base}, "readonly")
+	require.Error(t, err, "the ordinary resolver must remain fail-closed")
+	decision, err := NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{base}, "readonly")
+	require.NoError(t, err)
+	require.Equal(t, []string{"public.orders"}, decision.AllowedTables)
+	for _, mutate := range []func(*model.Policy){
+		func(p *model.Policy) { p.ObjectName = "public.*" },
+		func(p *model.Policy) { p.Action = "deny" },
+		func(p *model.Policy) { p.ObjectType = "column" },
+		func(p *model.Policy) { p.RelationBindingID = &filter },
+		func(p *model.Policy) { p.LegacyUnrepresentable = true },
+		func(p *model.Policy) { bad := "id = 1 OR id = 2"; p.RowFilter = &bad },
+	} {
+		bad := base
+		mutate(&bad)
+		_, err := NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{bad}, "readonly")
+		require.Error(t, err)
+	}
+}
+
 func TestSharedTableMatcher(t *testing.T) {
 	table := model.ObjectRef{Schema: "public", Table: "orders", Alias: "o"}
 	require.True(t, MatchesAnyTable([]string{"public.orders"}, table))

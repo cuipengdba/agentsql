@@ -175,6 +175,64 @@ func TestMySQLB2RoutingRejectsOnlyColumnPolicies(t *testing.T) {
 	})
 }
 
+func TestRowFilterRoutesOnlyPostgresSelectThroughActiveB2(t *testing.T) {
+	filter := "id = 1"
+	rowPolicy := model.Policy{ID: "row-customers", AgentID: "agent-1", DatasourceID: "datasource-1",
+		ObjectType: "table", ObjectName: "public.customers", RowFilter: &filter, Action: "allow"}
+
+	t.Run("inactive binder rejects before business access", func(t *testing.T) {
+		fixture := newPipelineFixture(t)
+		fixture.policies.policies = append(fixture.policies.policies, rowPolicy)
+		response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.NoError(t, err)
+		require.Equal(t, string(executor.ReasonRowFilterUnsupported), response.ErrorCode)
+		require.Zero(t, fixture.executors.calls())
+	})
+
+	t.Run("active binder receives SELECT", func(t *testing.T) {
+		controller := &enabledB2Controller{}
+		fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+		controller.snapshot = &routingB2Snapshot{redactor: fixture.redactors.redactor}
+		fixture.policies.policies = append(fixture.policies.policies, rowPolicy)
+		provider := &routingB2ExecutorProvider{delegate: fixture.executor}
+		fixture.pipeline.ports.Executors = provider
+		response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.NoError(t, err)
+		require.Equal(t, model.DecisionDeny, response.Decision)
+		require.Equal(t, 1, controller.beginCalls)
+		require.Equal(t, 1, provider.calls)
+	})
+
+	t.Run("other dialect rejects even with a controller", func(t *testing.T) {
+		controller := &enabledB2Controller{}
+		fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+		fixture.datasources.datasource.DBType = "mysql"
+		fixture.executor.dialect = "mysql"
+		fixture.policies.policies = append(fixture.policies.policies, rowPolicy)
+		response, err := fixture.pipeline.Process(context.Background(), defaultRequest())
+		require.NoError(t, err)
+		require.Equal(t, string(executor.ReasonRowFilterUnsupported), response.ErrorCode)
+		require.Zero(t, controller.beginCalls)
+		require.Zero(t, fixture.executors.calls())
+	})
+
+	t.Run("non-SELECT and explain-only reject before business access", func(t *testing.T) {
+		for _, request := range []Request{
+			requestWithSQL("UPDATE public.customers SET phone = 'x' WHERE id = 1"),
+			func() Request { r := defaultRequest(); r.ExplainOnly = true; return r }(),
+		} {
+			controller := &enabledB2Controller{}
+			fixture := newPipelineFixture(t, WithColumnAuthorization(controller))
+			fixture.policies.policies = append(fixture.policies.policies, rowPolicy)
+			response, err := fixture.pipeline.Process(context.Background(), request)
+			require.NoError(t, err)
+			require.Equal(t, string(executor.ReasonRowFilterUnsupported), response.ErrorCode)
+			require.Zero(t, controller.beginCalls)
+			require.Zero(t, fixture.executors.calls())
+		}
+	})
+}
+
 func TestVastbaseB2ColumnPolicyFailsBeforeDatabaseAccess(t *testing.T) {
 	controller := &configuredMySQLB2Controller{}
 	fixture := newPipelineFixture(t, WithColumnAuthorization(controller))

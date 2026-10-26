@@ -181,7 +181,16 @@ func (pipeline *Pipeline) process(
 			return err
 		}
 		run.storedPolicies = append([]model.Policy(nil), storedPolicies...)
-		decision, err := pipeline.resolver.Resolve(storedPolicies, run.agent.Level)
+		var decision *model.PolicyDecision
+		if hasStoredRowFilter(storedPolicies) {
+			router, ok := pipeline.column.(ColumnAuthorizationRouter)
+			if datasource.DBType != "postgres" || !ok || isNilInterface(pipeline.column) || !router.ColumnAuthorizationEnabled(datasource) {
+				return &executor.AuthError{Reason: executor.ReasonRowFilterUnsupported}
+			}
+			decision, err = pipeline.resolver.ResolveWithPostgresRowPolicies(storedPolicies, run.agent.Level)
+		} else {
+			decision, err = pipeline.resolver.Resolve(storedPolicies, run.agent.Level)
+		}
 		if err != nil {
 			return err
 		}
@@ -254,6 +263,9 @@ func (pipeline *Pipeline) process(
 	}
 	if err := run.checkManagedFileOwnership(ctx); err != nil {
 		return run.finish(ctx, err)
+	}
+	if hasStoredRowFilter(run.storedPolicies) && (run.ast.StmtType != model.StmtType("SELECT") || request.ExplainOnly) {
+		return run.finish(ctx, &executor.AuthError{Reason: executor.ReasonRowFilterUnsupported})
 	}
 	// A stored column policy must never fall through to the table-only path.
 	// R010's legacy projection check cannot bind every reference in JOINs,
@@ -959,6 +971,7 @@ func expectedAuthorizationFailure(err error) bool {
 		executor.ReasonBinderModeRequired,
 		executor.ReasonBinderModeUnsupported,
 		executor.ReasonRelationDenied,
+		executor.ReasonRowFilterUnsupported,
 		executor.ReasonRelationGrantMissing,
 		executor.ReasonIdentityUnproven,
 		executor.ReasonColumnGrantMissing,
@@ -1359,7 +1372,16 @@ func columnAuthorizationConfigured(controller ColumnAuthorizationController) boo
 func hasB2ColumnPolicy(policies []model.Policy) bool {
 	for _, stored := range policies {
 		if strings.EqualFold(strings.TrimSpace(stored.ObjectType), "column") ||
-			len(stored.ColumnPermissions) != 0 || len(stored.ColumnStaging) != 0 {
+			len(stored.ColumnPermissions) != 0 || len(stored.ColumnStaging) != 0 || stored.RowFilter != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStoredRowFilter(policies []model.Policy) bool {
+	for _, stored := range policies {
+		if stored.RowFilter != nil {
 			return true
 		}
 	}
