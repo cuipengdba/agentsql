@@ -1,0 +1,126 @@
+package chatbi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestForecastOrderedSeriesAndRejectsUnorderedOrMasked(t *testing.T) {
+	series := QueryData{Fields: []string{"day", "amount"}, AuditID: 8, Data: []map[string]any{
+		{"day": "2026-01-01", "amount": 10},
+		{"day": "2026-01-02", "amount": 20},
+		{"day": "2026-01-03", "amount": 30},
+	}}
+	forecast, err := forecastData("12", series)
+	if err != nil || len(forecast.Points) != 3 || forecast.Points[0].Label != "2026-01-04" || forecast.Points[0].Value != 40 || forecast.Points[2].Value != 60 || forecast.AuditID != 8 {
+		t.Fatalf("linear forecast: %#v, %v", forecast, err)
+	}
+	series.Data[1]["amount"] = "***"
+	if _, err := forecastData("12", series); !errors.Is(err, ErrForecastUnavailable) {
+		t.Fatalf("masked value accepted: %v", err)
+	}
+	series.Data[1]["amount"] = 20
+	series.Data[1]["day"] = "west"
+	if _, err := forecastData("12", series); !errors.Is(err, ErrForecastUnavailable) {
+		t.Fatalf("unordered categories accepted: %v", err)
+	}
+	series.Data[1]["day"] = "2026-01-02"
+	series.Truncated = true
+	if _, err := forecastData("12", series); !errors.Is(err, ErrForecastUnavailable) {
+		t.Fatalf("truncated source accepted: %v", err)
+	}
+}
+
+func TestLegacyPredictStreamAndFreshData(t *testing.T) {
+	service, p, _, _, token := serviceFixture(t)
+	service.Gateway = &forecastGateway{data: QueryData{Fields: []string{"month", "amount"}, Data: []map[string]any{
+		{"month": "2026-01", "amount": 4}, {"month": "2026-02", "amount": 6}, {"month": "2026-03", "amount": 8},
+	}}}
+	service.Model = &narrativeFixtureModel{}
+	record := finishedFixtureRecord(t, service, p, token)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/chat/record/"+string(record.ID)+"/predict", strings.NewReader("{}"))
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("predict stream status=%d body=%s", response.Code, response.Body.String())
+	}
+	events := make([]map[string]any, 0)
+	for _, line := range strings.Split(response.Body.String(), "\n") {
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		var event map[string]any
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data:")), &event) != nil {
+			t.Fatal("invalid event JSON")
+		}
+		events = append(events, event)
+	}
+	if len(events) != 4 || events[0]["type"] != "id" || events[1]["type"] != "predict-result" || events[2]["type"] != "predict-success" || events[3]["type"] != "predict_finish" {
+		t.Fatalf("predict event contract: %#v", events)
+	}
+	childID, ok := events[0]["id"].(string)
+	if !ok || childID == string(record.ID) {
+		t.Fatalf("invalid child ID: %#v", events[0])
+	}
+	get := httptest.NewRequest(http.MethodGet, "/api/v1/chat/record/"+childID+"/predict_data", nil)
+	get.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	dataResponse := httptest.NewRecorder()
+	handler.ServeHTTP(dataResponse, get)
+	if dataResponse.Code != 200 {
+		t.Fatalf("predict data status=%d body=%s", dataResponse.Code, dataResponse.Body.String())
+	}
+	var envelope struct {
+		Data []map[string]any `json:"data"`
+	}
+	if json.Unmarshal(dataResponse.Body.Bytes(), &envelope) != nil || len(envelope.Data) != 3 || envelope.Data[0]["amount"] != float64(10) {
+		t.Fatalf("predict data: %#v", envelope.Data)
+	}
+}
+
+type forecastGateway struct {
+	fakeGateway
+	data QueryData
+}
+
+func (g *forecastGateway) Query(_ context.Context, _ Principal, _ Binding, _ string) (QueryData, error) {
+	g.queries++
+	if g.queryErr != nil {
+		return QueryData{}, g.queryErr
+	}
+	result := g.data
+	result.AuditID = int64(g.queries)
+	return result, nil
+}
+
+func TestForecastRecordReauthorizesAndAudits(t *testing.T) {
+	ctx := context.Background()
+	service, p, _, _, token := serviceFixture(t)
+	gateway := &forecastGateway{data: QueryData{Fields: []string{"month", "amount"}, Data: []map[string]any{
+		{"month": "2026-01", "amount": 4}, {"month": "2026-02", "amount": 6}, {"month": "2026-03", "amount": 8},
+	}}}
+	service.Gateway = gateway
+	record := finishedFixtureRecord(t, service, p, token)
+	before := gateway.queries
+	result, err := service.ForecastRecord(ctx, p, record.ID)
+	if err != nil || gateway.queries != before+1 || result.AuditID <= 0 || result.Points[0].Label != "2026-04" || result.Points[0].Value != 10 {
+		t.Fatalf("audited forecast: %#v, queries=%d, err=%v", result, gateway.queries-before, err)
+	}
+	revision, err := service.Store.get(ctx, bindingKey(p, "10"), new(Binding))
+	if err != nil || service.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {
+		t.Fatal("could not revoke source")
+	}
+	before = gateway.queries
+	if _, err := service.ForecastRecord(ctx, p, record.ID); err == nil || gateway.queries != before {
+		t.Fatalf("revoked forecast reached gateway: %v", err)
+	}
+}

@@ -113,6 +113,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/agentsql/record/{id}/predict", h.boundedHistory(h.nativeNarrative))
 	h.mux.HandleFunc("POST /api/v1/chat/record/{id}/analysis", h.boundedHistory(h.legacyNarrative))
 	h.mux.HandleFunc("POST /api/v1/chat/record/{id}/predict", h.boundedHistory(h.legacyNarrative))
+	h.mux.HandleFunc("GET /api/v1/agentsql/record/{id}/forecast", h.boundedHistory(h.nativeForecast))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/predict_data", h.boundedHistory(h.legacyForecastData))
 	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
@@ -261,6 +263,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 422, "Invalid semantic metadata"
 	case errors.Is(err, ErrInvalidDashboard):
 		status, message = 422, "Invalid dashboard configuration"
+	case errors.Is(err, ErrForecastUnavailable):
+		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):
 		status, message = 404, "Resource not found"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):

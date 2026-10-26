@@ -54,7 +54,9 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 	if err != nil {
 		return Narrative{}, err
 	}
-	if base.Action != "" || !base.Finish || base.Error != "" || base.SQL == "" { return Narrative{}, ErrModel }
+	if base.Action != "" || !base.Finish || base.Error != "" || base.SQL == "" {
+		return Narrative{}, ErrModel
+	}
 	binding, revision, digest, err := service.bindingSnapshot(ctx, p, base.Datasource)
 	if err != nil {
 		return Narrative{}, err
@@ -106,7 +108,9 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 		return Narrative{}, err
 	}
 	dataDigest := resultDigest(*fresh.Data)
-	if dataDigest == "" { return Narrative{}, ErrGateway }
+	if dataDigest == "" {
+		return Narrative{}, ErrGateway
+	}
 	return Narrative{RecordID: id, Kind: kind, Content: content, Method: "local_model_answer_from_authorized_sample", AnalyzedRows: len(rows), TotalRows: len(record.Data.Data), Truncated: record.Data.Truncated || len(rows) < len(record.Data.Data), AuditID: fresh.Data.AuditID, GeneratedAt: time.Now().UTC(), digest: dataDigest}, nil
 }
 

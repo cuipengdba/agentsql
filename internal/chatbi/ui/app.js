@@ -21,8 +21,8 @@ Object.assign(copy['zh-CN'], {chartTable:'表格',chartBar:'柱状图',chartLine
 Object.assign(copy.en, {chartTable:'Table',chartBar:'Bar',chartLine:'Line',chartPie:'Pie'});
 Object.assign(copy['zh-CN'], {dashboardNav:'仪表板',dashboardTitle:'仪表板',dashboardIntro:'保存画布配置。每次打开都按当前权限重新查询并审计。',dashboardNew:'新建仪表板',dashboardName:'名称',dashboardAddText:'添加文字',dashboardAddChart:'添加当前对话结果',dashboardCardTitle:'卡片标题',dashboardText:'文字',dashboardChart:'图表',dashboardPending:'保存后按当前权限加载结果。',dashboardNoChart:'这份结果不能生成所选图表。',dashboardEmpty:'暂无仪表板',dashboardSaving:'正在保存…',dashboardSaved:'已保存，并重新按当前权限读取。',dashboardDeleted:'仪表板已删除。',dashboardConfirmDelete:'确定删除这个仪表板？'});
 Object.assign(copy.en, {dashboardNav:'Dashboards',dashboardTitle:'Dashboards',dashboardIntro:'Save canvas configuration. Opening a dashboard reruns every query under current permissions with an audit.',dashboardNew:'New dashboard',dashboardName:'Name',dashboardAddText:'Add text',dashboardAddChart:'Add current conversation result',dashboardCardTitle:'Card title',dashboardText:'Text',dashboardChart:'Chart',dashboardPending:'Save to load this result under current permissions.',dashboardNoChart:'This result cannot produce the selected chart.',dashboardEmpty:'No dashboards yet',dashboardSaving:'Saving…',dashboardSaved:'Saved and refreshed under current permissions.',dashboardDeleted:'Dashboard deleted.',dashboardConfirmDelete:'Delete this dashboard?'});
-Object.assign(copy['zh-CN'], {analyze:'分析结果',predict:'趋势判断',narrativeScope:'分析行数',narrativeMethod:'方法：基于当前授权样本的模型回答',narrativeCaution:'模型回答可能有误，请结合 SQL 和数据核实；趋势判断不产生数值预测行。',narrativeStale:'当前数据或权限已变化，历史模型回答不再显示。'});
-Object.assign(copy.en, {analyze:'Analyze result',predict:'Trend outlook',narrativeScope:'Analyzed rows',narrativeMethod:'Method: model answer from a currently authorized sample',narrativeCaution:'The model can be wrong. Verify against the SQL and data; the outlook does not generate numeric forecast rows.',narrativeStale:'Current data or permissions changed. The historical model answer is hidden.'});
+Object.assign(copy['zh-CN'], {analyze:'分析结果',predict:'趋势判断',narrativeScope:'分析行数',narrativeMethod:'方法：基于当前授权样本的模型回答',narrativeCaution:'模型回答可能有误，请结合 SQL 和数据核实；数值趋势只是线性外推示意。',narrativeStale:'当前数据或权限已变化，历史模型回答不再显示。',forecastUnavailable:'当前结果不是至少三行的有序时间或数值序列，只提供文字判断。',forecastMethod:'线性趋势示意'});
+Object.assign(copy.en, {analyze:'Analyze result',predict:'Trend outlook',narrativeScope:'Analyzed rows',narrativeMethod:'Method: model answer from a currently authorized sample',narrativeCaution:'The model can be wrong. Verify against the SQL and data; numeric trends are illustrative linear extrapolations.',narrativeStale:'Current data or permissions changed. The historical model answer is hidden.',forecastUnavailable:'This result is not an ordered numeric or date series with at least three rows. Only a text outlook is available.',forecastMethod:'Illustrative linear trend'});
 Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSource:'推荐问题的数据源',recommendationQuestions:'每行一个问题，最多 20 个',recommendationPlaceholder:'例如：按地区查看销售额',recommendationNote:'推荐问题只填入提问框；点击发送后仍按当前权限执行并审计。',recommendationInvalid:'最多 20 个问题，每个问题不超过 500 字。'});
 Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
 Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exportXLSX:'导出 XLSX',exporting:'正在按当前权限准备导出…'});
@@ -45,7 +45,7 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok)throw new Error(t('failed'));const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
@@ -173,6 +173,16 @@ function show(chat){
             if(!answer.isConnected)return;
             result.replaceChildren(node('strong',t(kind==='analysis'?'analyze':'predict')),node('p',data.content),node('small',`${t('narrativeScope')}: ${data.analyzed_rows}/${data.total_rows} · ${t('audit')} #${data.audit_id} · ${t('narrativeMethod')}`));
             result.append(node('small',t('narrativeCaution')));
+            if(kind==='predict'){
+              try{
+                const forecast=await api('/agentsql/record/'+encodeURIComponent(String(record.id))+'/forecast');
+                if(!answer.isConnected)return;
+                const table=node('table'),head=node('tr'),body=node('tbody');
+                head.append(node('th',forecast.label_field),node('th',forecast.value_field));table.append(node('thead'));table.tHead.append(head);
+                for(const point of forecast.points){const row=node('tr');row.append(node('td',point.label),node('td',String(point.value)));body.append(row);}
+                table.append(body);const wrap=node('div',undefined,'table-wrap');wrap.append(table);result.append(node('small',`${t('forecastMethod')} · ${t('audit')} #${forecast.audit_id}`),wrap);
+              }catch(error){if(!answer.isConnected)return;if(error.status===422)result.append(node('small',t('forecastUnavailable')));else result.replaceChildren(node('p',t('failed'),'error'));}
+            }
           }catch{if(answer.isConnected)result.replaceChildren(node('p',t('failed'),'error'));}finally{button.disabled=false;}
         };
         answer.append(button);

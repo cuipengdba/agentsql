@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -46,6 +47,16 @@ func (h *Handler) legacyNarrative(w http.ResponseWriter, r *http.Request, p Prin
 	if !ok {
 		return
 	}
+	forecastAvailable := false
+	if result.Kind == "predict" {
+		_, err := h.service.ForecastRecord(r.Context(), p, result.RecordID)
+		if err == nil {
+			forecastAvailable = true
+		} else if !errors.Is(err, ErrForecastUnavailable) {
+			failure(w, err)
+			return
+		}
+	}
 	childID, err := h.service.SaveNarrative(r.Context(), p, result)
 	if err != nil {
 		failure(w, err)
@@ -71,5 +82,13 @@ func (h *Handler) legacyNarrative(w http.ResponseWriter, r *http.Request, p Prin
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(append(append([]byte("data:"), idEvent...), '\n', '\n'))
 	_, _ = w.Write(append(append([]byte("data:"), first...), '\n', '\n'))
+	if result.Kind == "predict" {
+		name := "predict-failed"
+		if forecastAvailable {
+			name = "predict-success"
+		}
+		state, _ := json.Marshal(map[string]any{"type": name})
+		_, _ = w.Write(append(append([]byte("data:"), state...), '\n', '\n'))
+	}
 	_, _ = w.Write(append(append([]byte("data:"), last...), '\n', '\n'))
 }
