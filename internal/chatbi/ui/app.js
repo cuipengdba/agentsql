@@ -12,18 +12,59 @@ Object.assign(copy.en, {
   semanticNav:'Business semantics',semanticTitle:'Business semantics',semanticIntro:'Terms and SQL examples provide context for authorized Q&A; they never bypass current database permissions.',semanticAdd:'Add',terms:'Terms',examples:'SQL examples',search:'Search',termWord:'Term',description:'Description',aliases:'Aliases (comma separated)',termSources:'Limit to datasources (optional)',exampleQuestion:'Example question',exampleSQL:'Example SQL',exampleSource:'Datasource',enabled:'Enabled',disabled:'Disabled',save:'Save',formCancel:'Cancel',previous:'Previous',next:'Next',edit:'Edit',remove:'Delete',disable:'Disable',enable:'Enable',noSemantic:'No records yet',semanticSaved:'Saved',semanticDeleted:'Deleted',confirmDelete:'Delete this record?',items:'items',newTerm:'Add term',editTerm:'Edit term',newExample:'Add SQL example',editExample:'Edit SQL example',sourceRequired:'Configure an authorized datasource first.'
 });
 Object.assign(copy.en, {sourceNav:'Datasources',sourceTitle:'Datasources',sourceIntro:'Explore your currently authorized datasources, tables, and fields. Previews still run through the controlled gateway.',sourceEmpty:'No datasources are available',tableEmpty:'No visible tables',fieldEmpty:'No visible fields',previewEmpty:'No rows returned for this preview',previewTitle:'Preview (up to 100 rows)',sourceLoading:'Loading metadata under current permissions…'});
+Object.assign(copy['zh-CN'], {suggestions:'推荐问题',positioning:'AgentSQL 提供独立问数页面，也可作为现有 SQLBot 的数据库安全网关。可用范围以当前发布说明为准。',renameChat:'重命名',deleteChat:'删除',renamePrompt:'对话名称（最多 64 个字）',deletePrompt:'确定删除这个对话？',invalidChatName:'对话名称须为 1–64 个字。'});
+Object.assign(copy.en, {suggestions:'Suggested questions',positioning:'AgentSQL has its own Q&A interface and can also secure database access for an existing SQLBot deployment. See the current release notes for verified scope.',renameChat:'Rename',deleteChat:'Delete',renamePrompt:'Conversation name (up to 64 characters)',deletePrompt:'Delete this conversation?',invalidChatName:'The conversation name must be 1–64 characters.'});
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0;
 const t=key=>copy[lang][key];
-function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
+function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok)throw new Error(t('failed'));const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
-async function history(){const items=await api('/chat/list');$('history').replaceChildren();items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));for(const item of items){const button=node('button',item.brief);button.classList.toggle('active',String(item.id)===String(current));button.onclick=()=>open(item.id);$('history').append(button);}}
+async function loadSuggestions(){
+  const epoch=++suggestionEpoch,source=$('datasource').value;
+  $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
+  if(!source||!token)return;
+  try{
+    const questions=await api('/recommended_problem/get_datasource_recommended/'+encodeURIComponent(source));
+    if(epoch!==suggestionEpoch||$('datasource').value!==source||!token)return;
+    for(const item of questions){
+      if(typeof item.question!=='string'||!item.question.trim())continue;
+      const button=node('button',item.question.trim());button.type='button';
+      button.onclick=()=>{$('question').value=item.question.trim();$('question').focus();};
+      $('suggestion-list').append(button);
+    }
+    $('suggestions').hidden=!$('suggestion-list').childElementCount;
+  }catch{ /* Suggestions are optional; authorization failures never expose stale items. */ }
+}
+async function history(){
+  const items=await api('/chat/list');$('history').replaceChildren();
+  items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));
+  for(const item of items){
+    const row=node('div',undefined,'history-row');
+    const button=node('button',item.brief,'history-open');button.type='button';
+    button.classList.toggle('active',String(item.id)===String(current));button.onclick=()=>open(item.id);
+    const rename=node('button',t('renameChat'),'history-action');rename.type='button';rename.title=t('renameChat');rename.dataset.i18n='renameChat';
+    rename.onclick=async()=>{
+      if(controller)return;
+      const brief=window.prompt(t('renamePrompt'),item.brief);if(brief===null)return;
+      const name=brief.trim();if(!name||[...name].length>64){status(t('invalidChatName'),true);return;}
+      try{await api('/chat/rename',{id:item.id,brief:name});await history();status('');}catch{status(t('failed'),true);}
+    };
+    const remove=node('button',t('deleteChat'),'history-action');remove.type='button';remove.title=t('deleteChat');remove.dataset.i18n='deleteChat';
+    remove.onclick=async()=>{
+      if(controller||!window.confirm(t('deletePrompt')))return;
+      try{await api('/chat/'+encodeURIComponent(String(item.id)),undefined,'DELETE');
+        if(String(item.id)===String(current)){$('new-chat').click();}else await history();status('');
+      }catch{status(t('failed'),true);}
+    };
+    row.append(button,rename,remove);$('history').append(row);
+  }
+}
 async function enter(){
   const user=await api('/user/info');
   $('account-name').textContent=user.name||user.account;
@@ -39,6 +80,7 @@ async function enter(){
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
   if(!sourceList.length)status(t('empty'),true);
   await history();
+  void loadSuggestions();
 }
 function show(chat){$('welcome').hidden=true;$('conversation').replaceChildren();for(const record of chat.records||[]){const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));const answer=node('div',undefined,'answer');if(record.error){answer.append(node('p',t('failed'),'error'));}else if(!record.finish){answer.append(node('p',t('unfinished')));}else if(record.data){const data=record.data;if(!data.data?.length){answer.append(node('p',t('noRows')));}else{const wrap=node('div',undefined,'table-wrap');const table=node('table');const head=node('thead');const hrow=node('tr');for(const field of data.fields||[])hrow.append(node('th',field));head.append(hrow);table.append(head);const body=node('tbody');for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}table.append(body);wrap.append(table);answer.append(wrap);}answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));}if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}turn.append(answer);$('conversation').append(turn);}$('conversation').scrollTop=$('conversation').scrollHeight;}
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
@@ -197,10 +239,11 @@ async function saveSemantic(event){
 function closeMenu(){document.documentElement.dataset.menu='closed';$('menu').setAttribute('aria-expanded','false');}
 $('menu').onclick=()=>{const visible=document.documentElement.dataset.menu!=='open';document.documentElement.dataset.menu=visible?'open':'closed';$('menu').setAttribute('aria-expanded',String(visible));};
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
-async function open(id){if(controller)return;closeMenu();showQA();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;show(chat);await history();status('');}catch{status(t('failed'),true);}}
+async function open(id){if(controller)return;closeMenu();showQA();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;void loadSuggestions();show(chat);await history();status('');}catch{status(t('failed'),true);}}
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
-$('logout').onclick=async()=>{controller?.abort();try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
-$('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));$('question').focus();};
+$('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
+$('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));void loadSuggestions();$('question').focus();};
+$('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('sources-nav').onclick=()=>{void showSources();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
