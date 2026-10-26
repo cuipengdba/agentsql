@@ -18,12 +18,14 @@ Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSourc
 Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
 Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exporting:'正在按当前权限准备 CSV…'});
 Object.assign(copy.en, {exportCSV:'Export CSV',exporting:'Preparing CSV under current permissions…'});
+Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
+Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -91,6 +93,7 @@ async function enter(){
     }
   }
   $('semantics-nav').hidden=!user.isAdmin;
+  $('source-import').hidden=!user.isAdmin;
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
   if(!sourceList.length)status(t('empty'),true);
   await history();
@@ -156,6 +159,57 @@ async function saveRecommendationSettings(event){
   }catch{semanticStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 function sourceStatus(value,error=false){$('source-status').textContent=value;$('source-status').classList.toggle('error',error);}
+function clearImportStage(){importStage=null;$('import-sheets').replaceChildren();$('import-save').hidden=true;}
+function renderImportStage(sheets){
+  const target=$('import-sheets');target.replaceChildren();
+  for(const sheet of sheets){
+    const section=node('section',undefined,'import-sheet');
+    const label=node('label'),check=node('input');check.type='checkbox';check.checked=true;check.className='import-sheet-choice';
+    label.append(check,document.createTextNode(' '+sheet.sheetName+' · '+sheet.rows+' '+t('importRows')));section.append(label);
+    const fields=node('div',undefined,'import-fields');
+    for(const field of sheet.fields||[]){
+      const item=node('label',undefined,'import-field'),select=node('select');select.dataset.fieldName=field.fieldName;
+      for(const type of ['string','int','float','datetime']){const option=node('option',type);option.value=type;select.append(option);}
+      select.value=field.fieldType;
+      item.append(node('span',field.fieldName),select);fields.append(item);
+    }
+    section.append(fields);
+    if(sheet.data?.length){const wrap=node('div',undefined,'table-wrap'),table=node('table'),head=node('thead'),headRow=node('tr');
+      for(const field of sheet.fields||[])headRow.append(node('th',field.fieldName));head.append(headRow);table.append(head);
+      const body=node('tbody');for(const row of sheet.data){const tr=node('tr');for(const field of sheet.fields||[])tr.append(node('td',String(row[field.fieldName]??'')));body.append(tr);}table.append(body);wrap.append(table);section.append(wrap);
+    }
+    target.append(section);
+  }
+  $('import-save').hidden=false;
+}
+async function previewImport(){
+  const file=$('import-file').files?.[0],button=$('import-preview');
+  if(!file||file.size>4*1024*1024){sourceStatus(t('failed'),true);return;}
+  clearImportStage();button.disabled=true;sourceStatus(t('sourceLoading'));
+  try{
+    const form=new FormData();form.append('file',file);
+    const response=await fetch(apiRoot+'/datasource/parseExcel',{method:'POST',headers:{'X-SQLBOT-TOKEN':'Bearer '+token},body:form});
+    if(!response.ok)throw new Error('preview');
+    const envelope=await response.json();if(envelope.code!==0||!envelope.data?.filePath||!Array.isArray(envelope.data.data))throw new Error('preview');
+    importStage=envelope.data;renderImportStage(importStage.data);
+    if(!$('import-name').value.trim())$('import-name').value=file.name.replace(/\.(csv|xlsx)$/i,'').slice(0,50);
+    sourceStatus(t('importReady'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+async function saveImport(event){
+  event.preventDefault();if(!importStage){sourceStatus(t('importFileChanged'),true);return;}
+  const sections=[...$('import-sheets').querySelectorAll('.import-sheet')];
+  const sheets=sections.map((section,index)=>({section,sheet:importStage.data[index]})).filter(item=>item.section.querySelector('.import-sheet-choice').checked).map(({section,sheet})=>({sheetName:sheet.sheetName,fields:[...section.querySelectorAll('select')].map(select=>({fieldName:select.dataset.fieldName,fieldType:select.value}))}));
+  if(!sheets.length){sourceStatus(t('importNoSheets'),true);return;}
+  const button=$('import-save');button.disabled=true;sourceStatus(t('importWorking'));
+  try{
+    const filePath=importStage.filePath;
+    await api('/datasource/importToDb',{filePath,sheets});
+    await api('/agentsql/datasource/claim-import',{filePath,name:$('import-name').value.trim(),description:$('import-description').value.trim()});
+    clearImportStage();$('source-import-form').reset();$('source-import').open=false;
+    await enter();await showSources();sourceStatus(t('importDone'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
 function renderSourceList(){
   const list=$('source-list');list.replaceChildren();
   const query=$('source-search').value.trim().toLocaleLowerCase();
@@ -312,6 +366,9 @@ $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('sources-nav').onclick=()=>{void showSources();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
+$('import-file').onchange=()=>{clearImportStage();sourceStatus(t('importFileChanged'));};
+$('import-preview').onclick=()=>{void previewImport();};
+$('source-import-form').onsubmit=event=>{void saveImport(event);};
 $('semantic-terms').onclick=()=>{semanticKind='terms';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
 $('semantic-examples').onclick=()=>{semanticKind='examples';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
 $('semantic-recommendations').onclick=()=>{semanticKind='recommendations';semanticStatus('');hideSemanticForm();void loadSemantics();};

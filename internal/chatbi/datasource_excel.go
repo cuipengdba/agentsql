@@ -24,24 +24,72 @@ func newSQLBotDatasourceID() (ID, error) {
 	return ID(strconv.FormatUint(value, 10)), nil
 }
 
+type excelDatasourceInput struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Type          string `json:"type"`
+	Configuration string `json:"configuration"`
+	Tables        []struct {
+		Name    string `json:"table_name"`
+		Comment string `json:"table_comment"`
+	} `json:"tables"`
+}
+
 // addExcelDatasource accepts the pinned SQLBot client's datasource/add shape
 // only after a matching, one-use import receipt has been stored locally. The
 // browser's AES configuration carries no authority over SQL, tables or DB
 // credentials; the distinct child binding came from the gateway.
 func (h *Handler) addExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	var input struct {
-		Name          string `json:"name"`
-		Description   string `json:"description"`
-		Type          string `json:"type"`
-		Configuration string `json:"configuration"`
-		Tables        []struct {
-			Name    string `json:"table_name"`
-			Comment string `json:"table_comment"`
-		} `json:"tables"`
-	}
+	var input excelDatasourceInput
 	if !readBody(w, r, &input) {
 		return
 	}
+	h.createExcelDatasource(w, r, p, token, input)
+}
+
+// Claim an import from AgentSQL's own UI. The browser provides only a lookup
+// token and display metadata; the tables and legacy wire configuration are
+// derived from the server-owned receipt and checked again by the common path.
+func (h *Handler) claimNativeFileDatasource(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	var request struct {
+		FilePath    string `json:"filePath"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if !readBody(w, r, &request) {
+		return
+	}
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	if request.FilePath == "" || strings.ContainsAny(request.FilePath, "/\\\x00") || len(request.FilePath) > 128 {
+		failure(w, ErrNotFound)
+		return
+	}
+	var receipt managedFileReceipt
+	_, err := h.service.Store.get(r.Context(), managedFileReceiptKey(p, request.FilePath), &receipt)
+	if err != nil || receipt.ClaimedDatasource != "" || receipt.Filename != request.FilePath {
+		failure(w, ErrNotFound)
+		return
+	}
+	configuration, err := encodeSQLBotExcelConfig(receipt.Filename, receipt.Sheets)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	input := excelDatasourceInput{Name: request.Name, Description: request.Description,
+		Type: "excel", Configuration: configuration}
+	for _, sheet := range receipt.Sheets {
+		input.Tables = append(input.Tables, struct {
+			Name    string `json:"table_name"`
+			Comment string `json:"table_comment"`
+		}{Name: sheet.TableName})
+	}
+	h.createExcelDatasource(w, r, p, token, input)
+}
+
+func (h *Handler) createExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, token string, input excelDatasourceInput) {
 	if input.Type != "excel" || input.Name == "" || strings.TrimSpace(input.Name) != input.Name ||
 		len(input.Name) > 50 || len(input.Description) > 512 || strings.ContainsAny(input.Name, "/\\\r\n\x00") {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid Excel datasource")

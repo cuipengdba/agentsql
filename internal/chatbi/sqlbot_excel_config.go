@@ -4,9 +4,38 @@ import (
 	"crypto/aes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 )
+
+// The native UI cannot use WebCrypto for SQLBot's legacy ECB wire format.
+// Generate that format only from a server-owned, unclaimed import receipt.
+func encodeSQLBotExcelConfig(filename string, sheets []importedFileSheet) (string, error) {
+	if filename == "" || strings.ContainsAny(filename, "/\\\x00") || len(sheets) == 0 || len(sheets) > 8 {
+		return "", errFileImport
+	}
+	plain, err := json.Marshal(struct {
+		Filename string              `json:"filename"`
+		Sheets   []importedFileSheet `json:"sheets"`
+	}{Filename: filename, Sheets: sheets})
+	if err != nil || len(plain) > 48000 {
+		return "", errFileImport
+	}
+	block, err := aes.NewCipher([]byte("SQLBot1234567890"))
+	if err != nil {
+		return "", errors.Join(errFileImport, err)
+	}
+	padding := aes.BlockSize - len(plain)%aes.BlockSize
+	for range padding {
+		plain = append(plain, byte(padding))
+	}
+	encoded := make([]byte, len(plain))
+	for offset := 0; offset < len(plain); offset += aes.BlockSize {
+		block.Encrypt(encoded[offset:offset+aes.BlockSize], plain[offset:offset+aes.BlockSize])
+	}
+	return base64.StdEncoding.EncodeToString(encoded), nil
+}
 
 // SQLBot Community v1.10.2's browser uses a public, fixed AES-ECB key for
 // datasource configuration. This is a wire-format decoder, not a secret or an
