@@ -7,13 +7,15 @@ const copy = {
 Object.assign(copy['zh-CN'], {
   semanticNav:'业务语义',semanticTitle:'业务语义',semanticIntro:'术语和 SQL 示例只作为已授权问数的参考，不会绕过当前数据库权限。',semanticAdd:'新增',terms:'术语',examples:'SQL 示例',search:'搜索',termWord:'术语',description:'说明',aliases:'别名（逗号分隔）',termSources:'限定数据源（可不选）',exampleQuestion:'示例问题',exampleSQL:'示例 SQL',exampleSource:'数据源',enabled:'启用',disabled:'已停用',save:'保存',formCancel:'取消',previous:'上一页',next:'下一页',edit:'编辑',remove:'删除',disable:'停用',enable:'启用',noSemantic:'暂无记录',semanticSaved:'已保存',semanticDeleted:'已删除',confirmDelete:'确定删除这条记录？',items:'条',newTerm:'新增术语',editTerm:'编辑术语',newExample:'新增 SQL 示例',editExample:'编辑 SQL 示例',sourceRequired:'请先配置有权限的数据源。'
 });
+Object.assign(copy['zh-CN'], {sourceNav:'数据源',sourceTitle:'数据源',sourceIntro:'查看当前有权访问的数据源、表和字段。预览仍通过受控网关执行。',sourceEmpty:'没有可用的数据源',tableEmpty:'当前没有可见表',fieldEmpty:'当前没有可见字段',previewEmpty:'预览没有返回数据',previewTitle:'预览（最多 100 行）',sourceLoading:'正在读取当前权限下的元数据…'});
 Object.assign(copy.en, {
   semanticNav:'Business semantics',semanticTitle:'Business semantics',semanticIntro:'Terms and SQL examples provide context for authorized Q&A; they never bypass current database permissions.',semanticAdd:'Add',terms:'Terms',examples:'SQL examples',search:'Search',termWord:'Term',description:'Description',aliases:'Aliases (comma separated)',termSources:'Limit to datasources (optional)',exampleQuestion:'Example question',exampleSQL:'Example SQL',exampleSource:'Datasource',enabled:'Enabled',disabled:'Disabled',save:'Save',formCancel:'Cancel',previous:'Previous',next:'Next',edit:'Edit',remove:'Delete',disable:'Disable',enable:'Enable',noSemantic:'No records yet',semanticSaved:'Saved',semanticDeleted:'Deleted',confirmDelete:'Delete this record?',items:'items',newTerm:'Add term',editTerm:'Edit term',newExample:'Add SQL example',editExample:'Edit SQL example',sourceRequired:'Configure an authorized datasource first.'
 });
+Object.assign(copy.en, {sourceNav:'Datasources',sourceTitle:'Datasources',sourceIntro:'Explore your currently authorized datasources, tables, and fields. Previews still run through the controlled gateway.',sourceEmpty:'No datasources are available',tableEmpty:'No visible tables',fieldEmpty:'No visible fields',previewEmpty:'No rows returned for this preview',previewTitle:'Preview (up to 100 rows)',sourceLoading:'Loading metadata under current permissions…'});
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -42,15 +44,80 @@ function show(chat){$('welcome').hidden=true;$('conversation').replaceChildren()
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function showQA(){
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
   $('semantics-nav').classList.remove('active');
   $('conversation').hidden=false;$('welcome').hidden=!!current;
 }
 async function showSemantics(){
   if(controller||$('semantics-nav').hidden)return;
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
   await loadSemantics();
+}
+function sourceStatus(value,error=false){$('source-status').textContent=value;$('source-status').classList.toggle('error',error);}
+function renderSourceList(){
+  const list=$('source-list');list.replaceChildren();
+  const query=$('source-search').value.trim().toLocaleLowerCase();
+  const matches=sourceList.filter(source=>String(source.name||'').toLocaleLowerCase().includes(query));
+  for(const source of matches){
+    const button=node('button',undefined,'source-card');button.type='button';
+    button.classList.toggle('active',String(source.id)===String(selectedSource?.id));
+    button.append(node('strong',source.name),node('small',source.type||''));
+    button.onclick=()=>{void loadSource(source);};list.append(button);
+  }
+  if(!matches.length)list.append(node('p',t('sourceEmpty'),'semantic-empty'));
+}
+async function showSources(){
+  if(controller)return;
+  closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  const epoch=++sourceEpoch;sourceStatus(t('sourceLoading'));
+  try{sourceList=await api('/datasource/list');if(!sourceVisible||epoch!==sourceEpoch)return;
+    selectedSource=null;$('source-detail').hidden=true;renderSourceList();sourceStatus('');
+  }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+}
+async function loadSource(source){
+  selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
+  $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
+  $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
+  try{
+    const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
+    if(!sourceVisible||epoch!==sourceEpoch)return;
+    for(const table of tables){
+      const button=node('button',table.table_name,'source-table');button.type='button';
+      button.onclick=()=>{void loadSourceTable(source,table);};$('source-tables').append(button);
+    }
+    if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
+    sourceStatus('');
+  }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+}
+function renderPreview(result){
+  const target=$('source-preview');target.replaceChildren();target.append(node('h3',t('previewTitle')));
+  if(!result.data?.length){target.append(node('p',t('previewEmpty'),'semantic-empty'));return;}
+  const wrap=node('div',undefined,'table-wrap'),table=node('table'),head=node('thead'),heading=node('tr');
+  for(const field of result.fields||[])heading.append(node('th',field));head.append(heading);table.append(head);
+  const body=node('tbody');for(const item of result.data){const row=node('tr');
+    for(const field of result.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));
+    body.append(row);
+  }table.append(body);wrap.append(table);target.append(wrap);
+}
+async function loadSourceTable(source,table){
+  const epoch=++sourceEpoch;sourceStatus(t('sourceLoading'));
+  $('source-fields').replaceChildren();$('source-preview').replaceChildren();
+  for(const button of $('source-tables').querySelectorAll('button'))button.classList.toggle('active',button.textContent===table.table_name);
+  try{
+    const id=encodeURIComponent(String(source.id)),tableID=encodeURIComponent(String(table.id));
+    const fields=await api('/datasource/fieldList/'+id+'/'+tableID,{fieldName:''},'POST');
+    if(!sourceVisible||epoch!==sourceEpoch)return;
+    for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));$('source-fields').append(row);}
+    if(!fields.length)$('source-fields').append(node('p',t('fieldEmpty'),'semantic-empty'));
+    const result=await api('/datasource/previewData/'+id,{table:{id:String(table.id),table_name:table.table_name}},'POST');
+    if(!sourceVisible||epoch!==sourceEpoch)return;
+    renderPreview(result);sourceStatus('');
+  }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
 }
 function semanticAction(label,callback){const button=node('button',label);button.type='button';button.onclick=callback;return button;}
 function openSemanticForm(item=null){
@@ -135,6 +202,8 @@ $('login-form').onsubmit=async event=>{event.preventDefault();const button=event
 $('logout').onclick=async()=>{controller?.abort();try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
 $('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));$('question').focus();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
+$('sources-nav').onclick=()=>{void showSources();};
+$('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
 $('semantic-terms').onclick=()=>{semanticKind='terms';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
 $('semantic-examples').onclick=()=>{semanticKind='examples';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
 $('semantic-add').onclick=()=>openSemanticForm();
@@ -143,7 +212,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(current)open(current);};
+$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current)open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
