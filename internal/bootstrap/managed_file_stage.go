@@ -42,7 +42,7 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 		return store.ManagedFileImport{}, nil, ErrManagedFileStage
 	}
 	current, err := runtime.Store.SQLBotBindings().ValidateRuntime(tenantCtx, binding.ID, binding.Revision, binding.AgentID, binding.AgentSQLUserID)
-	if err != nil || current.DatasourceID != physical.ReadDatasourceID() || current.TenantID != principal.TenantID {
+	if err != nil || current.DatasourceID != physical.ReadDatasourceID() || current.TenantID != principal.TenantID || current.SchemaName != "agentsql_files" {
 		return store.ManagedFileImport{}, nil, ErrManagedFileStage
 	}
 	datasource, err := runtime.Store.Datasources().Get(tenantCtx, current.DatasourceID)

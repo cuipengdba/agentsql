@@ -48,6 +48,7 @@ func TestManagedFileStagePostgresIsolation(t *testing.T) {
 		cleanup, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
 		if roleCreated {
+			_, _ = connection.Exec(cleanup, `REVOKE postgres FROM `+pgx.Identifier{reader}.Sanitize())
 			_, _ = connection.Exec(cleanup, `ALTER DEFAULT PRIVILEGES IN SCHEMA agentsql_files REVOKE SELECT ON TABLES FROM `+pgx.Identifier{reader}.Sanitize())
 			_, _ = connection.Exec(cleanup, `REVOKE USAGE ON SCHEMA agentsql_files FROM `+pgx.Identifier{reader}.Sanitize())
 		}
@@ -66,7 +67,7 @@ func TestManagedFileStagePostgresIsolation(t *testing.T) {
 	sheets := []ManagedFileSheet{{Columns: []ManagedFileColumn{{Name: "region", Type: "string"}, {Name: "amount", Type: "int"}},
 		Rows: [][]any{{"east", int64(10)}, {"west", int64(20)}}},
 		{Columns: []ManagedFileColumn{{Name: "sold_at", Type: "datetime"}}, Rows: [][]any{{time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}}}}
-	tables, err := StageManagedFiles(ctx, datasource, password, operation, sheets)
+	tables, err := StageManagedFiles(ctx, datasource, password, reader, operation, sheets)
 	require.NoError(t, err)
 	require.Len(t, tables, 2)
 	for index, table := range tables {
@@ -92,8 +93,16 @@ func TestManagedFileStagePostgresIsolation(t *testing.T) {
 	require.NoError(t, err)
 	otherOperation, err := NewManagedFileOperationID()
 	require.NoError(t, err)
-	_, err = StageManagedFiles(ctx, datasource, password, otherOperation, sheets[:1])
+	_, err = StageManagedFiles(ctx, datasource, password, reader, otherOperation, sheets[:1])
 	require.ErrorIs(t, err, ErrManagedFileInvalid)
+	_, err = connection.Exec(ctx, `ALTER DEFAULT PRIVILEGES IN SCHEMA agentsql_files REVOKE SELECT ON TABLES FROM `+pgx.Identifier{reader}.Sanitize())
+	require.NoError(t, err)
+	_, err = connection.Exec(ctx, `GRANT postgres TO `+pgx.Identifier{reader}.Sanitize())
+	require.NoError(t, err)
+	otherOperation, err = NewManagedFileOperationID()
+	require.NoError(t, err)
+	_, err = StageManagedFiles(ctx, datasource, password, reader, otherOperation, sheets[:1])
+	require.ErrorIs(t, err, ErrManagedFileInvalid, "inherited owner access must roll back the new table")
 	var count int
 	require.NoError(t, connection.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='r'`, ManagedFileSchema).Scan(&count))
 	require.Equal(t, 2, count, "rejected default grant must not leave a table")

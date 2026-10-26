@@ -163,8 +163,9 @@ func ManagedFileName(operation ManagedFileOperationID, sheet int) (string, error
 // separate from every read-only Agent datasource role. No SELECT grant is made
 // here; publication requires a later policy/audit commit and explicit grant.
 // A crash after this commit leaves hidden tables for journal reconciliation.
-func StageManagedFiles(ctx context.Context, datasource model.Datasource, secret string, operation ManagedFileOperationID, sheets []ManagedFileSheet) ([]ManagedFileTable, error) {
-	if ctx == nil || datasource.DBType != "postgres" || operation == (ManagedFileOperationID{}) || validateManagedFileSheets(sheets) != nil {
+func StageManagedFiles(ctx context.Context, datasource model.Datasource, secret, readRole string, operation ManagedFileOperationID, sheets []ManagedFileSheet) ([]ManagedFileTable, error) {
+	if ctx == nil || datasource.DBType != "postgres" || readRole == "" || readRole == datasource.Username ||
+		operation == (ManagedFileOperationID{}) || validateManagedFileSheets(sheets) != nil {
 		return nil, ErrManagedFileInvalid
 	}
 	executor, err := NewPostgresExecutor(ctx, datasource, secret, false)
@@ -216,6 +217,16 @@ func StageManagedFiles(ctx context.Context, datasource model.Datasource, secret 
 			JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
 			CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r',c.relowner))) a
 			WHERE n.nspname=$1 AND c.relname=$2 AND a.grantee<>c.relowner`, ManagedFileSchema, name).Scan(&foreignGrants); err != nil || foreignGrants != 0 {
+			return nil, ErrManagedFileInvalid
+		}
+		// A different login name is insufficient isolation: a reader can
+		// inherit the owner's privileges through PostgreSQL role membership.
+		// Check the effective privilege on each freshly created relation
+		// before committing any data or returning a successful stage.
+		var readerCanSelect bool
+		if err := tx.QueryRow(ctx, `SELECT pg_catalog.has_table_privilege($1::name,c.oid,'SELECT')
+			FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+			WHERE n.nspname=$2 AND c.relname=$3`, readRole, ManagedFileSchema, name).Scan(&readerCanSelect); err != nil || readerCanSelect {
 			return nil, ErrManagedFileInvalid
 		}
 		if len(sheet.Rows) > 0 {

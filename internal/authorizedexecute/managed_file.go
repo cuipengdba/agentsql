@@ -64,7 +64,7 @@ func (p *ManagedFileProvisioner) Stage(ctx context.Context, journalID string, sh
 	if err != nil {
 		return nil, err
 	}
-	return businessdb.StageManagedFiles(ctx, p.target, p.secret, id, sheets)
+	return businessdb.StageManagedFiles(ctx, p.target, p.secret, p.readDatasource.Username, id, sheets)
 }
 
 func (p *ManagedFileProvisioner) Drop(ctx context.Context, journalID string, sheetCount int) error {
