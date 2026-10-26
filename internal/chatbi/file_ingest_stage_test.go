@@ -59,6 +59,12 @@ func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, data, stage.Data)
 	require.Equal(t, payload.Data.FilePath, stage.FilePath)
+	var importRequest FileImportRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"filePath":"placeholder","sheets":[{"sheetName":"Sheet1","fields":[{"fieldName":"region","fieldType":"string"},{"fieldName":"amount","fieldType":"int"}]}]}`), &importRequest))
+	importRequest.FilePath = stage.FilePath
+	plan, err := service.prepareFileImport(ctx, p, importRequest)
+	require.NoError(t, err)
+	require.Equal(t, []any{"east", int64(10)}, plan.Sheets[0].Rows[0])
 	audits, err := service.Store.list(ctx, "management-audit", "system", "system")
 	require.NoError(t, err)
 	foundAudit := false
@@ -78,7 +84,10 @@ func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {
 	other := testUser(t, "2", "other-admin")
 	other.Admin = true
 	require.NoError(t, service.Store.CreateUser(ctx, other))
-	_, err = service.Store.get(ctx, fileStageKey(Principal{User: other, Workspace: other.Workspace}), &fileStage{})
+	otherPrincipal := Principal{User: other, Workspace: other.Workspace}
+	_, err = service.Store.get(ctx, fileStageKey(otherPrincipal), &fileStage{})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.prepareFileImport(ctx, otherPrincipal, importRequest)
 	require.ErrorIs(t, err, ErrNotFound)
 
 	_, err = service.Store.db.ExecContext(ctx, `CREATE TRIGGER reject_file_stage_audit BEFORE INSERT ON chatbi_objects
@@ -95,4 +104,10 @@ func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, upload("invalid.xls", []byte("legacy")).Code)
 	_, err = service.Store.get(ctx, fileStageKey(p), &retained)
 	require.False(t, errors.Is(err, ErrNotFound))
+	user, revision, err = service.Store.User(ctx, p.User.ID)
+	require.NoError(t, err)
+	user.Admin = false
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	_, err = service.prepareFileImport(ctx, p, importRequest)
+	require.ErrorIs(t, err, ErrUnauthenticated)
 }

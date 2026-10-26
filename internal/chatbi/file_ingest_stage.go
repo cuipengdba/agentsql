@@ -118,3 +118,23 @@ func (service *Service) saveFileStage(ctx context.Context, p Principal, stage fi
 		map[string]any{"file_path": stage.FilePath, "file_sha256": hex.EncodeToString(digest[:]),
 			"size_bytes": len(stage.Data), "sheets": len(sheets), "rows": rows})
 }
+
+// prepareFileImport reads only the current user's encrypted stage. It neither
+// provisions a table nor confers an execution capability.
+func (service *Service) prepareFileImport(ctx context.Context, p Principal, request FileImportRequest) (fileImportPlan, error) {
+	if err := service.semanticAdmin(ctx, p); err != nil {
+		return fileImportPlan{}, err
+	}
+	var stage fileStage
+	if _, err := service.Store.get(ctx, fileStageKey(p), &stage); err != nil {
+		return fileImportPlan{}, err
+	}
+	plan, err := planFileImport(stage, request, time.Now().UTC())
+	if err != nil {
+		return fileImportPlan{}, err
+	}
+	if err := service.semanticAdmin(ctx, p); err != nil {
+		return fileImportPlan{}, err
+	}
+	return plan, nil
+}
