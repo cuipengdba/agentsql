@@ -2,11 +2,11 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v4.2.0 及兼容的 4.2.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v4.3.0 及兼容的 4.3.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v4.2.0 的功能与操作。安装或拉取 v4.2.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v4.3.0 的功能与操作。安装或拉取 v4.3.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v4.2.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v4.2.0 发布说明](release-notes-v4.2.0.md)和[设计与验收记录](v4.2.0-design.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v4.3.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v4.3.0 发布说明](release-notes-v4.3.0.md)和[设计与验收记录](v4.3.0-design.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
 
@@ -878,3 +878,7 @@ agentsqlctl upgrade apply --manifest-url https://example.org/releases/manifest.j
 ## v4.2.0 原生问数
 
 通过 `install.sh install --with-chatbi` 部署 Go 问数服务，配置工作空间模型与个人网关映射后，打开其独立入口。中英文界面展示 SQL、表格结果与持久审计编号；v4.2.0 支持最多三轮成功问数语境、术语与推荐问题、受控 CSV/XLSX 文件数据源和当前权限下的 CSV/XLSX 导出。原版 SQLBot 页面只在已记录的合成流程中对照通过。身份导入、离线安装、恢复和待完成的兼容范围见[问数指南](CHATBI.md)。
+
+## v4.3.0 图表、仪表板与嵌入应用
+
+问数页可将当前授权结果呈现为表格、柱状图、折线图或饼图；历史图表重新查询当前权限并写审计。自有仪表板支持文字、记录图表、布局、Tab、搜索、预览和不含结果行的配置导入导出。嵌入应用管理页提供创建、编辑、启停、签名密钥轮换和删除。应用令牌绑定现有非管理员用户、工作空间与应用状态，不同应用的会话隔离。原版 SQLBot v1.10.2 页面和 SDK 仅在指定合成流程完成对照；复杂 SQL、全部页面、全部接入方式及真实业务零改动替换仍待验证。详见[本版发布说明](release-notes-v4.3.0.md)和[验收记录](v4.3.0-acceptance.md)。
