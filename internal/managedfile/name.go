@@ -52,3 +52,13 @@ func PolicyID(id OperationID, sheet int) (string, error) {
 	}
 	return "agentsql-managed-file-" + hex.EncodeToString(id[:]) + "-" + strconv.Itoa(sheet), nil
 }
+
+// TablePolicyID is the exact table grant paired with a managed file's
+// column policy. A schema-wide grant would bypass the column restriction.
+func TablePolicyID(id OperationID, sheet int) (string, error) {
+	columnID, err := PolicyID(id, sheet)
+	if err != nil {
+		return "", err
+	}
+	return columnID + "-table", nil
+}

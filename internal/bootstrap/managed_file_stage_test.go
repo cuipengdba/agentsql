@@ -110,6 +110,12 @@ func TestManagedFileRecoveryRemovesBoundPolicyAfterUnpublishedGrant(t *testing.T
 	require.NoError(t, err)
 	policyID, err := managedfile.PolicyID(operation, 0)
 	require.NoError(t, err)
+	tablePolicyID, err := managedfile.TablePolicyID(operation, 0)
+	require.NoError(t, err)
+	_, err = runtime.Store.Policies().Create(ctx, model.Policy{ID: tablePolicyID, AgentID: binding.AgentID,
+		DatasourceID: binding.DatasourceID, ObjectType: "table", ObjectName: "agentsql_files." + tables[0].Name,
+		Action: "allow"})
+	require.NoError(t, err)
 	columns := "amount"
 	created, err := runtime.Store.Policies().Create(ctx, model.Policy{ID: policyID, AgentID: binding.AgentID,
 		DatasourceID: binding.DatasourceID, ObjectType: "column", ObjectName: "agentsql_files." + tables[0].Name,
@@ -137,6 +143,8 @@ func TestManagedFileRecoveryRemovesBoundPolicyAfterUnpublishedGrant(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, 1, cleaned)
 	_, err = runtime.Store.Policies().Get(ctx, policyID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	_, err = runtime.Store.Policies().Get(ctx, tablePolicyID)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	latest, err := runtime.Store.ManagedFileImports().Get(ctx, staged.ID)
 	require.NoError(t, err)

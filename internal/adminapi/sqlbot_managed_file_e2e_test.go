@@ -3,7 +3,10 @@ package adminapi
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"encoding/base64"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +20,9 @@ import (
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 	"github.com/cuipengdba/agentsql/internal/bootstrap"
+	"github.com/cuipengdba/agentsql/internal/chatbi"
+	"github.com/cuipengdba/agentsql/internal/config"
+	"github.com/cuipengdba/agentsql/internal/mcpserver"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -64,6 +70,7 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	}()
 
 	cfg := adminTestConfig(filepath.Join(t.TempDir(), "managed-http.db"))
+	cfg.ColumnAuthorization = config.ColumnAuthorizationConfig{Enabled: true, InstanceID: "managed-http-test"}
 	runtime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, runtime.Close()) }()
@@ -88,7 +95,7 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 		return handler
 	}
 	handler := newHandler()
-	base, _, err := runtime.Store.SQLBotBindings().Create(ctx, store.SQLBotBinding{
+	base, baseToken, err := runtime.Store.SQLBotBindings().Create(ctx, store.SQLBotBinding{
 		WorkspaceID: "1", DatasourceName: "managed-http-root", SQLBotUserID: "1",
 		AgentSQLUserID: rbac.BootstrapUserID, AgentID: agent.ID, DatasourceID: reader.ID,
 		SchemaName: "agentsql_files", Enabled: true}, rbac.BootstrapUserID)
@@ -195,6 +202,150 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	require.Equal(t, http.StatusConflict, status, "changed valid sheet selection must not republish the same staged file")
 	require.NoError(t, admin.QueryRow(ctx, `SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='agentsql_files'`).Scan(&physicalTables))
 	require.Equal(t, 1, physicalTables)
+	runOriginalSQLBotFileLifecycle(t, ctx, runtime, cfg, handler, base, baseToken, apiKey, data, admin)
+}
+
+// Exercise the exact parse/import/add/get/list/delete request shapes emitted
+// by the pinned v1.10.2 browser, through ChatBI, the real gateway MCP/admin
+// handlers, the dedicated PostgreSQL writer, and the control-plane journal.
+func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *bootstrap.Runtime,
+	cfg config.Config, adminHandler http.Handler, base store.SQLBotBinding, baseToken, apiKey string,
+	data []byte, admin *pgx.Conn,
+) {
+	t.Helper()
+	verifier := NewSQLBotDelegationVerifier(DeriveTokenKey([]byte(adminTestSecret)), runtime.Store,
+		rbac.NewService(runtime.Store.RBAC()))
+	mcpHandler, err := mcpserver.NewHTTPHandler(runtime, cfg, zerolog.Nop(),
+		mcpserver.WithAdminAPI(adminHandler), mcpserver.WithSQLBotDelegation(verifier))
+	require.NoError(t, err)
+	gateway := httptest.NewServer(mcpHandler)
+	defer gateway.Close()
+	chatPath := filepath.Join(t.TempDir(), "sqlbot-client.db")
+	chatStore, err := chatbi.OpenStore(ctx, chatPath, []byte(adminTestSecret))
+	require.NoError(t, err)
+	installation, err := chatbi.NewInstallation("sqlbot-admin", "Synthetic-SQLBot-password-42")
+	require.NoError(t, err)
+	require.NoError(t, chatStore.ImportSnapshot(ctx, installation))
+	require.NoError(t, chatStore.ConfigureConnections(ctx, chatbi.ConnectionConfig{Bindings: []chatbi.Binding{{
+		Datasource: "10", Workspace: "1", User: "1", Name: base.DatasourceName, Dialect: "pg",
+		BindingID: base.ID, ConnectorToken: baseToken, AgentKey: apiKey,
+	}}}))
+	require.NoError(t, chatStore.Close())
+	t.Setenv("AGENTSQL_TEST_CHATBI_SECRET", adminTestSecret)
+	service, err := chatbi.Assemble(ctx, chatbi.Config{StorePath: chatPath, SecretEnv: "AGENTSQL_TEST_CHATBI_SECRET",
+		Gateway: gateway.URL + "/mcp", AllowGatewayHTTP: true, ManagedFileDatasource: "10"})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, service.Store.Close()) }()
+	clientHandler, err := chatbi.NewHandler(service, "v4.2.0")
+	require.NoError(t, err)
+	_, userToken, err := service.Identity.Login(ctx, "sqlbot-admin", "Synthetic-SQLBot-password-42")
+	require.NoError(t, err)
+	call := func(method, path string, body []byte, contentType string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(method, path, bytes.NewReader(body))
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+userToken)
+		if contentType != "" {
+			request.Header.Set("Content-Type", contentType)
+		}
+		response := httptest.NewRecorder()
+		clientHandler.ServeHTTP(response, request)
+		return response
+	}
+	var upload bytes.Buffer
+	form := multipart.NewWriter(&upload)
+	file, err := form.CreateFormFile("file", "source.csv")
+	require.NoError(t, err)
+	_, err = file.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, form.Close())
+	parsed := call(http.MethodPost, "/api/v1/datasource/parseExcel", upload.Bytes(), form.FormDataContentType())
+	require.Equal(t, http.StatusOK, parsed.Code, parsed.Body.String())
+	var parseEnvelope struct {
+		Data struct {
+			FilePath string             `json:"filePath"`
+			Sheets   []chatbi.FileSheet `json:"data"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(parsed.Body.Bytes(), &parseEnvelope))
+	require.Len(t, parseEnvelope.Data.Sheets, 1)
+	selection := map[string]any{"filePath": parseEnvelope.Data.FilePath,
+		"sheets": []map[string]any{{"sheetName": parseEnvelope.Data.Sheets[0].Name,
+			"fields": parseEnvelope.Data.Sheets[0].Fields}}}
+	selectionBody, err := json.Marshal(selection)
+	require.NoError(t, err)
+	imported := call(http.MethodPost, "/api/v1/datasource/importToDb", selectionBody, "application/json")
+	require.Equal(t, http.StatusOK, imported.Code, imported.Body.String())
+	var importEnvelope struct {
+		Data struct {
+			Filename string `json:"filename"`
+			Sheets   []struct {
+				SheetName    string `json:"sheetName"`
+				TableName    string `json:"tableName"`
+				TableComment string `json:"tableComment"`
+				Rows         int    `json:"rows"`
+			} `json:"sheets"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(imported.Body.Bytes(), &importEnvelope))
+	require.Equal(t, parseEnvelope.Data.FilePath, importEnvelope.Data.Filename)
+	require.Len(t, importEnvelope.Data.Sheets, 1)
+	require.Equal(t, 2, importEnvelope.Data.Sheets[0].Rows)
+	configBody, err := json.Marshal(map[string]any{"host": "", "port": 0, "username": "", "password": "", "database": "",
+		"extraJdbc": "", "dbSchema": "", "filename": importEnvelope.Data.Filename, "sheets": importEnvelope.Data.Sheets,
+		"mode": "service_name", "timeout": 30, "lowVersion": false, "ssl": false, "poolSize": 5})
+	require.NoError(t, err)
+	configuration := encryptSQLBotClientConfig(t, configBody)
+	addBody, err := json.Marshal(map[string]any{"name": "SyntheticSQLBot", "description": "synthetic source client flow",
+		"type": "excel", "configuration": configuration,
+		"tables": []map[string]string{{"table_name": importEnvelope.Data.Sheets[0].TableName, "table_comment": ""}}})
+	require.NoError(t, err)
+	added := call(http.MethodPost, "/api/v1/datasource/add", addBody, "application/json")
+	require.Equal(t, http.StatusOK, added.Code, added.Body.String())
+	var addEnvelope struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(added.Body.Bytes(), &addEnvelope))
+	require.Greater(t, addEnvelope.Data.ID, int64(0))
+	id := strconv.FormatInt(addEnvelope.Data.ID, 10)
+	got := call(http.MethodPost, "/api/v1/datasource/get/"+id, []byte(`{}`), "application/json")
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	require.Contains(t, got.Body.String(), `"SyntheticSQLBot"`)
+	listed := call(http.MethodGet, "/api/v1/datasource/list", nil, "")
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	require.Contains(t, listed.Body.String(), `"SyntheticSQLBot"`)
+	tables := call(http.MethodPost, "/api/v1/datasource/getTables/"+id, []byte(`{}`), "application/json")
+	require.Equal(t, http.StatusOK, tables.Code, tables.Body.String())
+	require.Contains(t, tables.Body.String(), importEnvelope.Data.Sheets[0].TableName)
+	fields := call(http.MethodPost, "/api/v1/datasource/getFields/"+id+"/"+importEnvelope.Data.Sheets[0].TableName,
+		[]byte(`{}`), "application/json")
+	require.Equal(t, http.StatusOK, fields.Code, fields.Body.String())
+	require.Contains(t, fields.Body.String(), `"region"`)
+	previewBody, err := json.Marshal(map[string]any{"table": map[string]string{
+		"id": "1", "table_name": importEnvelope.Data.Sheets[0].TableName}})
+	require.NoError(t, err)
+	preview := call(http.MethodPost, "/api/v1/datasource/previewData/"+id, previewBody, "application/json")
+	require.Equal(t, http.StatusOK, preview.Code, preview.Body.String())
+	require.Contains(t, preview.Body.String(), `"east"`)
+	deleted := call(http.MethodPost, "/api/v1/datasource/delete/"+id+"/SyntheticSQLBot", []byte(`{}`), "application/json")
+	require.Equal(t, http.StatusOK, deleted.Code, deleted.Body.String())
+	var remaining int
+	require.NoError(t, admin.QueryRow(ctx, `SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='agentsql_files'`).Scan(&remaining))
+	require.Equal(t, 1, remaining, "deleting the SQLBot datasource must drop only its own physical table")
+}
+
+func encryptSQLBotClientConfig(t *testing.T, plain []byte) string {
+	t.Helper()
+	block, err := aes.NewCipher([]byte("SQLBot1234567890"))
+	require.NoError(t, err)
+	padding := aes.BlockSize - len(plain)%aes.BlockSize
+	plain = append(plain, bytes.Repeat([]byte{byte(padding)}, padding)...)
+	encrypted := make([]byte, len(plain))
+	for offset := 0; offset < len(plain); offset += aes.BlockSize {
+		block.Encrypt(encrypted[offset:offset+aes.BlockSize], plain[offset:offset+aes.BlockSize])
+	}
+	return base64.StdEncoding.EncodeToString(encrypted)
 }
 
 func TestManagedFileImportReplayChildProcess(t *testing.T) {

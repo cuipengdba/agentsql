@@ -94,6 +94,15 @@ func (runtime *Runtime) PublishSQLBotFile(ctx context.Context, principal rbac.Pr
 		if idErr != nil {
 			return cleanup(idErr)
 		}
+		tablePolicyID, idErr := managedfile.TablePolicyID(operation, index)
+		if idErr != nil {
+			return cleanup(idErr)
+		}
+		if _, err := runtime.Store.Policies().Create(tenantCtx, model.Policy{ID: tablePolicyID,
+			AgentID: staged.AgentID, DatasourceID: staged.DatasourceID, ObjectType: "table",
+			ObjectName: "agentsql_files." + tables[index].Name, Action: "allow"}); err != nil {
+			return cleanup(err)
+		}
 		columns := strings.Join(columnNames, ",")
 		policy, err := runtime.Store.Policies().Create(tenantCtx, model.Policy{ID: policyID, AgentID: staged.AgentID,
 			DatasourceID: staged.DatasourceID, ObjectType: "column", ObjectName: "agentsql_files." + tables[index].Name,

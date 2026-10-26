@@ -330,6 +330,10 @@ func (r *ManagedFileImportRepository) advanceWithPolicyEvidence(ctx context.Cont
 func (r *ManagedFileImportRepository) policyEvidence(ctx context.Context, tx *sql.Tx, item ManagedFileImport, table, policyID string) bool {
 	var count int
 	err := tx.QueryRowContext(ctx, r.bind(`SELECT COUNT(*) FROM policies p
+		JOIN policies t ON t.id=(p.id || '-table') AND t.tenant_id=p.tenant_id
+			AND t.agent_id=p.agent_id AND t.datasource_id=p.datasource_id
+			AND t.object_type='table' AND t.object_name=p.object_name AND t.action='allow'
+			AND t.row_filter IS NULL AND t.columns IS NULL
 		JOIN relation_policy_bindings e ON e.id=p.relation_binding_id AND e.policy_id=p.id AND e.tenant_id=p.tenant_id
 		JOIN policy_column_permissions c ON c.policy_id=p.id AND c.relation_enrollment_id=e.id AND c.parent_revision=p.revision
 		WHERE p.id=? AND p.tenant_id=? AND p.agent_id=? AND p.datasource_id=? AND p.object_type='column'
@@ -402,6 +406,10 @@ func (r *ManagedFileImportRepository) PublishedTableOwner(ctx context.Context, b
 		JOIN policies p ON p.id=t.policy_id AND p.tenant_id=t.tenant_id AND p.agent_id=i.agent_id
 			AND p.datasource_id=i.datasource_id AND p.object_type='column' AND p.action='allow'
 			AND p.object_name=('agentsql_files.' || t.table_name) AND p.row_filter IS NULL
+		JOIN policies tp ON tp.id=(p.id || '-table') AND tp.tenant_id=p.tenant_id
+			AND tp.agent_id=p.agent_id AND tp.datasource_id=p.datasource_id
+			AND tp.object_type='table' AND tp.object_name=p.object_name AND tp.action='allow'
+			AND tp.row_filter IS NULL AND tp.columns IS NULL
 		JOIN relation_policy_bindings e ON e.id=p.relation_binding_id AND e.policy_id=p.id
 			AND e.tenant_id=p.tenant_id AND e.datasource_id=i.datasource_id AND e.schema_name='agentsql_files'
 			AND e.relation_name=t.table_name AND e.status='healthy'

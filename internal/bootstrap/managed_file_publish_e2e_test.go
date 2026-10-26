@@ -11,6 +11,7 @@ import (
 	"time"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/managedfile"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -97,6 +98,14 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	published, err := runtime.PublishSQLBotFile(ctx, principal, binding, staged, tables, sheets, physical)
 	require.NoError(t, err)
 	require.Equal(t, "published", published.Status)
+	operation, err := managedfile.ParseOperationID(published.ID)
+	require.NoError(t, err)
+	tablePolicyID, err := managedfile.TablePolicyID(operation, 0)
+	require.NoError(t, err)
+	tablePolicy, err := runtime.Store.Policies().Get(ctx, tablePolicyID)
+	require.NoError(t, err)
+	require.Equal(t, "table", tablePolicy.ObjectType)
+	require.Equal(t, "agentsql_files."+tables[0].Name, tablePolicy.ObjectName)
 	replayed, err := runtime.Store.ManagedFileImports().GetByRequestKey(ctx, binding.ID)
 	require.NoError(t, err)
 	require.Equal(t, published.ID, replayed.ID)
@@ -152,6 +161,8 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	current, err := runtime.Store.ManagedFileImports().Get(ctx, published.ID)
 	require.NoError(t, err)
 	require.Equal(t, "deleted", current.Status)
+	_, err = runtime.Store.Policies().Get(ctx, tablePolicyID)
+	require.ErrorIs(t, err, store.ErrNotFound)
 	require.NoError(t, runtime.DeleteSQLBotFile(ctx, principal, binding, published.ID, physical), "a client retry after physical deletion is idempotent")
 	var stillExists bool
 	require.NoError(t, admin.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "agentsql_files."+tables[0].Name).Scan(&stillExists))

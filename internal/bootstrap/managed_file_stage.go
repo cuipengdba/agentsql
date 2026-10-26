@@ -162,20 +162,27 @@ func (runtime *Runtime) cleanupOneUnpublishedSQLBotFile(ctx context.Context, ite
 		if err != nil {
 			return err
 		}
+		tablePolicyID, err := managedfile.TablePolicyID(operation, sheet)
+		if err != nil {
+			return err
+		}
 		tableName, err := managedfile.TableName(operation, sheet)
 		if err != nil {
 			return err
 		}
-		policy, err := runtime.Store.Policies().Get(ctx, policyID)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil || policy.AgentID != item.AgentID || policy.DatasourceID != item.DatasourceID ||
-			policy.ObjectName != "agentsql_files."+tableName {
-			return ErrManagedFileStage
-		}
-		if err := runtime.Store.Policies().DeleteIfRevision(ctx, policyID, policy.Revision); err != nil {
-			return err
+		for _, expected := range []struct{ id, objectType string }{{policyID, "column"}, {tablePolicyID, "table"}} {
+			policy, err := runtime.Store.Policies().Get(ctx, expected.id)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil || policy.AgentID != item.AgentID || policy.DatasourceID != item.DatasourceID ||
+				policy.ObjectType != expected.objectType || policy.Action != "allow" ||
+				policy.ObjectName != "agentsql_files."+tableName {
+				return ErrManagedFileStage
+			}
+			if err := runtime.Store.Policies().DeleteIfRevision(ctx, expected.id, policy.Revision); err != nil {
+				return err
+			}
 		}
 	}
 	_, err = journal.Advance(ctx, item.ID, item.Revision, "cleanup_needed", "deleted", item.OwnerUserID)
