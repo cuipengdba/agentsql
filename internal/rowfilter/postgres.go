@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -16,6 +17,41 @@ import (
 var ErrUnsupported = errors.New("row filter cannot be proven for this SQL shape")
 
 const maxPredicateBytes = 4096
+
+// CompileForPolicies selects applicable stored row policies from one control
+// snapshot. Until the caller also seals this result into B2 authorization and
+// audit, it must not use the returned SQL for execution. Unrelated policies
+// from other agents or datasources are ignored; every applicable row policy
+// must describe the same exact physical table, otherwise the request closes.
+func CompileForPolicies(rawSQL, agentID, datasourceID string, policies []model.Policy) (string, string, string, error) {
+	var schema, table string
+	filters := make([]string, 0)
+	for _, policy := range policies {
+		if policy.RowFilter == nil ||
+			(policy.AgentID != "" && policy.AgentID != agentID) ||
+			(policy.DatasourceID != "" && policy.DatasourceID != datasourceID) {
+			continue
+		}
+		parts := strings.Split(policy.ObjectName, ".")
+		if policy.ObjectType != "table" || policy.Action != "allow" || policy.Columns != nil ||
+			policy.RelationBindingID != nil || policy.RelationBinding != nil ||
+			len(policy.ColumnPermissions) != 0 || len(policy.ColumnStaging) != 0 || policy.LegacyUnrepresentable ||
+			len(parts) != 2 || parts[0] == "" || parts[1] == "" || parts[0] == "*" || parts[1] == "*" ||
+			(schema != "" && (schema != parts[0] || table != parts[1])) {
+			return "", "", "", ErrUnsupported
+		}
+		schema, table = parts[0], parts[1]
+		filters = append(filters, *policy.RowFilter)
+	}
+	if len(filters) == 0 {
+		return rawSQL, "", "", nil
+	}
+	rewritten, digest, err := RewriteSingleTable(rawSQL, schema, table, filters)
+	if err != nil {
+		return "", "", "", err
+	}
+	return rewritten, digest, schema + "." + table, nil
+}
 
 // CompilePredicate accepts only comparisons of one unqualified column with a
 // literal, IS [NOT] NULL, and conjunctions of those expressions. In

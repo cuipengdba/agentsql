@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/lockrank"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -29,15 +31,31 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 	ctx := s4DockerTestContext(t)
 	root, err := filepath.Abs(filepath.Join("..", "..", "dbext", "postgres", "agentsql_binder"))
 	require.NoError(t, err)
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{Context: root, Dockerfile: "Dockerfile.test", Repo: "agentsql-s4-test", Tag: "pg" + major, BuildArgs: map[string]*string{"PG_MAJOR": &major}, KeepImage: true},
-			Env:            map[string]string{"POSTGRES_DB": "agentsql", "POSTGRES_USER": "agentsql", "POSTGRES_PASSWORD": "agentsql-password"},
-			ExposedPorts:   []string{"5432/tcp"},
-			WaitingFor:     wait.ForAll(wait.ForListeningPort("5432/tcp"), wait.ForLog("database system is ready to accept connections").WithOccurrence(2)).WithDeadline(90 * time.Second),
-		}, Started: true,
-	})
+	database := "agentsql"
+	image := ""
+	if major == "16" {
+		image = os.Getenv("AGENTSQL_TEST_S4_PG16_IMAGE")
+	}
+	if image != "" {
+		database = "agentsql_demo"
+	}
+	containerRequest := testcontainers.ContainerRequest{
+		Env:          map[string]string{"POSTGRES_DB": database, "POSTGRES_USER": "agentsql", "POSTGRES_PASSWORD": "agentsql-password"},
+		ExposedPorts: []string{"5432/tcp"},
+		WaitingFor:   wait.ForAll(wait.ForListeningPort("5432/tcp"), wait.ForLog("database system is ready to accept connections").WithOccurrence(2)).WithDeadline(90 * time.Second),
+	}
+	if image != "" {
+		containerRequest.Image = image
+		containerRequest.Env["DEMO_PG_RO_PASSWORD"] = "test-readonly-password"
+		containerRequest.Env["DEMO_ANCHOR_DATE"] = "2026-01-01"
+	} else {
+		containerRequest.FromDockerfile = testcontainers.FromDockerfile{Context: root, Dockerfile: "Dockerfile.test", Repo: "agentsql-s4-test", Tag: "pg" + major, BuildArgs: map[string]*string{"PG_MAJOR": &major}, KeepImage: true}
+	}
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: containerRequest, Started: true})
 	if err != nil {
+		if image != "" {
+			require.NoError(t, err, "prebuilt PostgreSQL fixture must start; a skipped test is not an acceptance result")
+		}
 		t.Skipf("docker unavailable: %v", err)
 	}
 	testcontainers.CleanupContainer(t, container)
@@ -50,12 +68,12 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 	require.NoError(t, err)
 	encrypted, err := cipher.Encrypt("agentsql-password")
 	require.NoError(t, err)
-	datasource := model.Datasource{ID: "s4-pg-" + major, DBType: "postgres", Host: host, Port: port.Int(), Database: "agentsql", Username: "agentsql", PasswordEnc: encrypted, ConnLimit: 8, StmtTimeoutMS: 5_000, RowLimit: 100}
+	datasource := model.Datasource{ID: "s4-pg-" + major, DBType: "postgres", Host: host, Port: port.Int(), Database: database, Username: "agentsql", PasswordEnc: encrypted, ConnLimit: 8, StmtTimeoutMS: 5_000, RowLimit: 100}
 	gateway := NewGateway(false)
 	t.Cleanup(func() { require.NoError(t, gateway.CloseAll()) })
 	for _, statement := range []string{
-		`CREATE SCHEMA agentsql_catalog`,
-		`CREATE EXTENSION agentsql_binder WITH SCHEMA agentsql_catalog`,
+		`CREATE SCHEMA IF NOT EXISTS agentsql_catalog`,
+		`CREATE EXTENSION IF NOT EXISTS agentsql_binder WITH SCHEMA agentsql_catalog`,
 		`CREATE SCHEMA s4`,
 		`CREATE TABLE s4.a(id integer, phone text)`,
 		`CREATE TABLE s4.b(id integer, note text)`,
@@ -130,6 +148,61 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 	policies := policiesForEnrollment(datasource.ID, enrollment)
 	redactor, err := mask.NewRedactor([]mask.Rule{{Schema: "s4", Table: "a", Column: "phone", SensitiveType: mask.TypePhone, Algorithm: mask.AlgoMask}})
 	require.NoError(t, err)
+	if major == "16" {
+		t.Run("single-table-row-filter-rewrites-and-requires-reference-grant", func(t *testing.T) {
+			const sqlText = `SELECT id, phone FROM s4.a`
+			filter := "id = 1"
+			rowPolicy := model.Policy{ID: "row-s4-a", AgentID: "agent", DatasourceID: datasource.ID,
+				ObjectType: "table", ObjectName: "s4.a", RowFilter: &filter, Action: "allow", Revision: 1}
+			rewritten, digest, relation, err := rowfilter.CompileForPolicies(sqlText, "agent", datasource.ID, []model.Policy{rowPolicy})
+			require.NoError(t, err)
+			require.Equal(t, "s4.a", relation)
+			enrolled, err := gateway.EnrollPostgresSelect(ctx, datasource, secret, rewritten, DefaultLimits)
+			require.NoError(t, err)
+			rowPolicies := append(policiesForEnrollment(datasource.ID, enrolled), rowPolicy)
+			var audited ColumnAuthorizationAudit
+			request := ColumnAuthorizationRequest{
+				Agent: model.Agent{ID: "agent", Status: "active", Level: "readonly"}, Policies: rowPolicies,
+				Redactor: redactor, RowLimit: 10, PreliminaryAllowed: true, ControlRevisionDigest: "row-revision",
+				DurableAudit: func(_ context.Context, detail ColumnAuthorizationAudit, _ *model.QueryResult, _ mask.RedactReport) error {
+					audited = detail
+					return nil
+				}, FinalFence: func(context.Context) error { return nil },
+			}
+			selected, err := executeColumnAuthorized(ctx, gateway, datasource, secret, sqlText, request)
+			require.NoError(t, err)
+			require.True(t, selected.Allowed, "reason=%s", selected.Reason)
+			require.Len(t, selected.Result.Rows, 1)
+			require.Equal(t, "1", selected.Result.Rows[0][0])
+			require.Equal(t, digest, audited.RowFilterDigest)
+			require.Equal(t, 3, audited.Version)
+
+			request.Policies = removeUsage(rowPolicies, "reference")
+			selected, err = executeColumnAuthorized(ctx, gateway, datasource, secret, sqlText, request)
+			require.NoError(t, err)
+			require.False(t, selected.Allowed)
+			require.Equal(t, ReasonColumnGrantMissing, selected.Reason)
+
+			request.Policies = rowPolicies
+			request.DurableAudit = func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error {
+				return errors.New("audit storage unavailable")
+			}
+			selected, err = executeColumnAuthorized(ctx, gateway, datasource, secret, sqlText, request)
+			require.Empty(t, selected.Encoded)
+			var authError *AuthError
+			require.ErrorAs(t, err, &authError)
+			require.Equal(t, ReasonAuditUnavailable, authError.Reason)
+
+			request.DurableAudit = func(context.Context, ColumnAuthorizationAudit, *model.QueryResult, mask.RedactReport) error {
+				return nil
+			}
+			request.FinalFence = func(context.Context) error { return errors.New("control snapshot revoked") }
+			selected, err = executeColumnAuthorized(ctx, gateway, datasource, secret, sqlText, request)
+			require.Empty(t, selected.Encoded)
+			require.ErrorAs(t, err, &authError)
+			require.Equal(t, ReasonFinalFenceFailed, authError.Reason)
+		})
+	}
 
 	t.Run("preliminary-object-deny-binds-but-never-executes", func(t *testing.T) {
 		var audited ColumnAuthorizationAudit

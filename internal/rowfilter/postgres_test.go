@@ -5,8 +5,42 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
+
+func TestCompileForPoliciesClosesAmbiguousScopeAndCombinesRules(t *testing.T) {
+	west, positive, east := "region = 'west'", "amount > 0", "region = 'east'"
+	base := model.Policy{ID: "p1", AgentID: "agent", DatasourceID: "ds", ObjectType: "table", ObjectName: "public.sales", RowFilter: &west, Action: "allow"}
+	second := base
+	second.ID, second.RowFilter = "p2", &positive
+	unrelated := base
+	unrelated.ID, unrelated.AgentID, unrelated.RowFilter = "p3", "other-agent", &east
+	sql := "SELECT region FROM public.sales"
+	got, digest, relation, err := CompileForPolicies(sql, "agent", "ds", []model.Policy{base, second, unrelated})
+	if err != nil || relation != "public.sales" || len(digest) != 64 ||
+		!strings.Contains(got, "region = 'west'") || !strings.Contains(got, "amount > 0") || strings.Contains(got, "region = 'east'") {
+		t.Fatalf("incorrect scoped row rule: sql=%q digest=%q relation=%q err=%v", got, digest, relation, err)
+	}
+	for _, mutation := range []func(*model.Policy){
+		func(p *model.Policy) { p.ObjectName = "public.*" },
+		func(p *model.Policy) { p.ObjectName = "private.sales" },
+		func(p *model.Policy) { p.ObjectType = "column" },
+		func(p *model.Policy) { p.Action = "deny" },
+		func(p *model.Policy) { p.Columns = &positive },
+		func(p *model.Policy) { p.RelationBindingID = &positive },
+		func(p *model.Policy) { p.LegacyUnrepresentable = true },
+	} {
+		bad := base
+		mutation(&bad)
+		if _, _, _, err := CompileForPolicies(sql, "agent", "ds", []model.Policy{base, bad}); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("ambiguous row policy did not close: %+v err=%v", bad, err)
+		}
+	}
+	if got, digest, relation, err := CompileForPolicies(sql, "agent", "ds", []model.Policy{unrelated}); err != nil || got != sql || digest != "" || relation != "" {
+		t.Fatalf("unrelated policy affected caller: sql=%q digest=%q relation=%q err=%v", got, digest, relation, err)
+	}
+}
 
 func TestRewriteSingleTableConjoinsFilterAfterCallerOr(t *testing.T) {
 	got, digest, err := RewriteSingleTable(

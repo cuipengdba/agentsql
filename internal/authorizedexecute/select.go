@@ -18,6 +18,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/lockrank"
 	"github.com/cuipengdba/agentsql/internal/mask"
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 )
 
 const (
@@ -80,16 +81,17 @@ type ColumnAuditDetail struct {
 }
 
 type ColumnAuthorizationAudit struct {
-	Version        int                 `json:"version"`
-	Decision       string              `json:"decision"`
-	Reason         string              `json:"reason"`
-	PlanDigest     string              `json:"plan_digest"`
-	BinderDigest   string              `json:"binder_digest"`
-	FpreDigest     string              `json:"fpre_digest"`
-	FpostDigest    string              `json:"fpost_digest,omitempty"`
-	Details        []ColumnAuditDetail `json:"details,omitempty"`
-	Truncated      bool                `json:"truncated,omitempty"`
-	CompleteDigest string              `json:"complete_digest,omitempty"`
+	Version         int                 `json:"version"`
+	Decision        string              `json:"decision"`
+	Reason          string              `json:"reason"`
+	PlanDigest      string              `json:"plan_digest"`
+	BinderDigest    string              `json:"binder_digest"`
+	FpreDigest      string              `json:"fpre_digest"`
+	RowFilterDigest string              `json:"row_filter_digest,omitempty"`
+	FpostDigest     string              `json:"fpost_digest,omitempty"`
+	Details         []ColumnAuditDetail `json:"details,omitempty"`
+	Truncated       bool                `json:"truncated,omitempty"`
+	CompleteDigest  string              `json:"complete_digest,omitempty"`
 }
 
 // DeliverySeal has no exported constructor or fields. It binds the exact
@@ -153,6 +155,15 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 		}
 		return AuthorizedSelectResult{Allowed: false, Reason: reasonFromColumn(preflight.Reason()), Audit: audit}, nil
 	}
+	effectiveSQL, rowFilterDigest, rowFilterRelation, rowFilterErr := rowfilter.CompileForPolicies(
+		request.SQL, request.Agent.ID, request.Datasource.ID, request.Policies,
+	)
+	if rowFilterErr != nil {
+		return AuthorizedSelectResult{}, &AuthError{Reason: ReasonRowFilterUnsupported}
+	}
+	if err := ValidatePreParse(effectiveSQL, nil, limits); err != nil {
+		return AuthorizedSelectResult{}, err
+	}
 	scope := scopeFromContext(ctx)
 	reservation, err := gateway.reservations.Reserve(scope.agent, scope.tenant, request.Datasource.ID, defaultStatementMemoryReservation())
 	if err != nil {
@@ -188,7 +199,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	var verifyPrepared func(context.Context, businessdb.PostgresCatalogBudget) (string, error)
 	var closePrepared func(context.Context, bool) error
 	if handshake.NativeHealth == "healthy" && handshake.Native.Available {
-		prepared, prepareErr := postgres.PrepareBoundPostgresSelect(ctx, request.SQL, nil, budget)
+		prepared, prepareErr := postgres.PrepareBoundPostgresSelect(ctx, effectiveSQL, nil, budget)
 		if prepareErr != nil {
 			return AuthorizedSelectResult{}, fixedExecutionError(prepareErr)
 		}
@@ -207,7 +218,7 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 		}
 		closePrepared = prepared.Close
 	} else {
-		prepared, prepareErr := postgres.BindClosedSelect(ctx, businessdb.BindRequest{RawSQL: request.SQL,
+		prepared, prepareErr := postgres.BindClosedSelect(ctx, businessdb.BindRequest{RawSQL: effectiveSQL,
 			Identity: businessdb.SemanticIdentity{DatasourceIdentity: request.Datasource.ID}}, budget)
 		if prepareErr != nil {
 			return AuthorizedSelectResult{}, fixedExecutionError(prepareErr)
@@ -235,6 +246,8 @@ func (gateway *Gateway) authorizedSelect(ctx context.Context, request authorized
 	if err != nil {
 		return AuthorizedSelectResult{}, err
 	}
+	columnInput.AppliedRowFilterDigest = rowFilterDigest
+	columnInput.AppliedRowFilterRelation = rowFilterRelation
 	maskPlans, maskPlanErr := redactor.BuildIdentityPlan(identityRequests)
 	if maskPlanErr == nil {
 		columnInput.Masks = columnMaskCandidates(maskPlans, columnInput.Uses)
@@ -489,7 +502,10 @@ func failedMaskCandidate(uses []columnauth.BoundColumnUse, capability bool) []co
 }
 
 func buildColumnAuthorizationAudit(input columnauth.Input, plan columnauth.ProtectionPlan) ColumnAuthorizationAudit {
-	audit := ColumnAuthorizationAudit{Version: ColumnAuditVersion, Decision: "deny", Reason: string(plan.Reason()), PlanDigest: plan.Digest(), BinderDigest: input.BinderDigest, FpreDigest: input.CatalogDigest}
+	audit := ColumnAuthorizationAudit{Version: ColumnAuditVersion, Decision: "deny", Reason: string(plan.Reason()), PlanDigest: plan.Digest(), BinderDigest: input.BinderDigest, FpreDigest: input.CatalogDigest, RowFilterDigest: input.AppliedRowFilterDigest}
+	if audit.RowFilterDigest != "" {
+		audit.Version = 3
+	}
 	if plan.Allowed() {
 		audit.Decision = "allow"
 	}
