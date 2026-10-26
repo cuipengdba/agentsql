@@ -23,6 +23,12 @@ func TestPostgresColumnEnrollmentRejectsUnprovenIdentity(t *testing.T) {
 	require.Equal(t, "pg:1:2", *bound.Binding.StableObjectID)
 	require.Len(t, bound.Permissions, 4)
 	require.Equal(t, "pg:type=25;typmod=-1;collation=100", bound.Permissions[2].ColumnTypeDigest)
+	native := base
+	native.Mode = "NATIVE_C_V1"
+	nativeBound, err := postgresColumnEnrollment(policy, requested, native, "binding-2")
+	require.NoError(t, err)
+	require.Equal(t, "pg:1:2", *nativeBound.Binding.StableObjectID)
+	require.Len(t, nativeBound.Permissions, 4)
 
 	for name, mutate := range map[string]func(*executor.PostgresPolicyEnrollment){
 		"unknown relation": func(v *executor.PostgresPolicyEnrollment) { v.Relations[0].Name = "internal_notes" },

@@ -91,8 +91,15 @@ func (gateway *Gateway) EnrollPostgresPolicySelect(ctx context.Context, datasour
 // an executable authorization proof, so map the already validated manifest
 // and catalog directly instead of pretending it is a sealed BoundProgram.
 func publicNativeSelectPolicyEnrollment(mode string, enrollment businessdb.PostgresEnrollment) (PostgresPolicyEnrollment, error) {
-	manifest, frame := enrollment.Manifest, enrollment.Catalog
-	if mode == "" || manifest.CommandType != "SELECT" || manifest.PlanGeneration != 0 || manifest.Invalidated ||
+	return publicNativePolicyEnrollment(mode, enrollment.Manifest, enrollment.Catalog, false)
+}
+
+func publicNativePreparedPolicyEnrollment(mode string, manifest businessdb.PostgresPreparedManifest, frame businessdb.PostgresCatalogFrame) (PostgresPolicyEnrollment, error) {
+	return publicNativePolicyEnrollment(mode, manifest, frame, true)
+}
+
+func publicNativePolicyEnrollment(mode string, manifest businessdb.PostgresPreparedManifest, frame businessdb.PostgresCatalogFrame, prepared bool) (PostgresPolicyEnrollment, error) {
+	if mode != "NATIVE_C_V1" || manifest.CommandType != "SELECT" || (prepared && manifest.PlanGeneration == 0) || (!prepared && manifest.PlanGeneration != 0) || manifest.Invalidated ||
 		manifest.AnalyzedDigest == "" || manifest.DependencyDigest == "" || frame.DatabaseOID == 0 || frame.Fingerprint == "" {
 		return PostgresPolicyEnrollment{}, &AuthError{Reason: ReasonBinderIncomplete}
 	}
