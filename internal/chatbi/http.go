@@ -2,7 +2,11 @@ package chatbi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
@@ -20,6 +24,8 @@ type Handler struct {
 	loginLimit *rate.Limiter
 	slots      chan struct{}
 	version    string
+	keySalt    string
+	keySince   int64
 }
 
 func NewHandler(service *Service, version string) (http.Handler, error) {
@@ -33,14 +39,22 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	if limit < 1 || limit > 16 {
 		return nil, errors.New("ChatBI concurrent data limit must be between 1 and 16")
 	}
-	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), slots: make(chan struct{}, limit), version: version}
+	var salt [8]byte
+	if _, err := rand.Read(salt[:]); err != nil {
+		return nil, errors.New("cannot initialize ChatBI login key metadata")
+	}
+	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10),
+		slots: make(chan struct{}, limit), version: version,
+		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli()}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": h.version, "service": "chatbi"})
 	})
 	h.mux.HandleFunc("POST /api/v1/login/access-token", h.login)
+	h.mux.HandleFunc("GET /api/v1/system/config/key", h.publicLoginKey)
 	h.mux.HandleFunc("POST /api/v1/agentsql/login", h.nativeLogin)
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
+	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
 	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
 	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.auth(h.getExcelDatasource))
@@ -88,6 +102,21 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	})
 	h.mux.Handle("GET /{$}", uiHandler())
 	return h, nil
+}
+
+func (h *Handler) publicLoginKey(w http.ResponseWriter, _ *http.Request) {
+	if h.service.Identity.privateKey == nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	der, err := x509.MarshalPKIXPublicKey(&h.service.Identity.privateKey.PublicKey)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	publicKey := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	okay(w, map[string]any{"id": 1, "public_key": publicKey, "salt": h.keySalt,
+		"create_time": h.keySince, "update_time": h.keySince})
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +324,23 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 		}
 	}
 	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
+}
+
+func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Principal, _ string) {
+	result := make([]map[string]any, 0, len(p.User.Memberships))
+	for _, membership := range p.User.Memberships {
+		id, err := strconv.ParseInt(string(membership.Workspace), 10, 64)
+		if err != nil || id < 1 || id > maxSQLBotBrowserID {
+			failure(w, ErrUnavailable)
+			return
+		}
+		name := membership.Name
+		if name == "" {
+			name = "Workspace " + string(membership.Workspace)
+		}
+		result = append(result, map[string]any{"id": id, "name": name})
+	}
+	okay(w, result)
 }
 func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	items, err := h.service.Store.list(r.Context(), "binding", string(p.Workspace), string(p.User.ID))
