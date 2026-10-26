@@ -1,3 +1,7 @@
+import { chartSeries, renderChart } from './chart.js';
+import { setupDashboard } from './dashboard.js';
+import { setupAssistants } from './assistants.js';
+
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
 const copy = {
@@ -14,6 +18,12 @@ Object.assign(copy.en, {
 Object.assign(copy.en, {sourceNav:'Datasources',sourceTitle:'Datasources',sourceIntro:'Explore your currently authorized datasources, tables, and fields. Previews still run through the controlled gateway.',sourceEmpty:'No datasources are available',tableEmpty:'No visible tables',fieldEmpty:'No visible fields',previewEmpty:'No rows returned for this preview',previewTitle:'Preview (up to 100 rows)',sourceLoading:'Loading metadata under current permissions…'});
 Object.assign(copy['zh-CN'], {suggestions:'推荐问题',positioning:'AgentSQL 提供独立问数页面，也可作为现有 SQLBot 的数据库安全网关。可用范围以当前发布说明为准。',renameChat:'重命名',deleteChat:'删除',renamePrompt:'对话名称（最多 64 个字）',deletePrompt:'确定删除这个对话？',invalidChatName:'对话名称须为 1–64 个字。',searchChats:'搜索对话',noMatchingChats:'没有匹配的对话'});
 Object.assign(copy.en, {suggestions:'Suggested questions',positioning:'AgentSQL has its own Q&A interface and can also secure database access for an existing SQLBot deployment. See the current release notes for verified scope.',renameChat:'Rename',deleteChat:'Delete',renamePrompt:'Conversation name (up to 64 characters)',deletePrompt:'Delete this conversation?',invalidChatName:'The conversation name must be 1–64 characters.',searchChats:'Search conversations',noMatchingChats:'No matching conversations'});
+Object.assign(copy['zh-CN'], {chartTable:'表格',chartBar:'柱状图',chartLine:'折线图',chartPie:'饼图'});
+Object.assign(copy.en, {chartTable:'Table',chartBar:'Bar',chartLine:'Line',chartPie:'Pie'});
+Object.assign(copy['zh-CN'], {dashboardNav:'仪表板',dashboardTitle:'仪表板',dashboardIntro:'保存画布配置。每次打开都按当前权限重新查询并审计。',dashboardNew:'新建仪表板',dashboardName:'名称',dashboardAddText:'添加文字',dashboardAddChart:'添加当前对话结果',dashboardCardTitle:'卡片标题',dashboardText:'文字',dashboardChart:'图表',dashboardPending:'保存后按当前权限加载结果。',dashboardNoChart:'这份结果不能生成所选图表。',dashboardEmpty:'暂无仪表板',dashboardSaving:'正在保存…',dashboardSaved:'已保存，并重新按当前权限读取。',dashboardDeleted:'仪表板已删除。',dashboardConfirmDelete:'确定删除这个仪表板？'});
+Object.assign(copy.en, {dashboardNav:'Dashboards',dashboardTitle:'Dashboards',dashboardIntro:'Save canvas configuration. Opening a dashboard reruns every query under current permissions with an audit.',dashboardNew:'New dashboard',dashboardName:'Name',dashboardAddText:'Add text',dashboardAddChart:'Add current conversation result',dashboardCardTitle:'Card title',dashboardText:'Text',dashboardChart:'Chart',dashboardPending:'Save to load this result under current permissions.',dashboardNoChart:'This result cannot produce the selected chart.',dashboardEmpty:'No dashboards yet',dashboardSaving:'Saving…',dashboardSaved:'Saved and refreshed under current permissions.',dashboardDeleted:'Dashboard deleted.',dashboardConfirmDelete:'Delete this dashboard?'});
+Object.assign(copy['zh-CN'], {analyze:'分析结果',predict:'趋势判断',narrativeScope:'分析行数',narrativeMethod:'方法：基于当前授权样本的模型回答',narrativeCaution:'模型回答可能有误，请结合 SQL 和数据核实；数值趋势只是线性外推示意。',narrativeStale:'当前数据或权限已变化，历史模型回答不再显示。',forecastUnavailable:'当前结果不是至少三行的有序时间或数值序列，只提供文字判断。',forecastMethod:'线性趋势示意'});
+Object.assign(copy.en, {analyze:'Analyze result',predict:'Trend outlook',narrativeScope:'Analyzed rows',narrativeMethod:'Method: model answer from a currently authorized sample',narrativeCaution:'The model can be wrong. Verify against the SQL and data; numeric trends are illustrative linear extrapolations.',narrativeStale:'Current data or permissions changed. The historical model answer is hidden.',forecastUnavailable:'This result is not an ordered numeric or date series with at least three rows. Only a text outlook is available.',forecastMethod:'Illustrative linear trend'});
 Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSource:'推荐问题的数据源',recommendationQuestions:'每行一个问题，最多 20 个',recommendationPlaceholder:'例如：按地区查看销售额',recommendationNote:'推荐问题只填入提问框；点击发送后仍按当前权限执行并审计。',recommendationInvalid:'最多 20 个问题，每个问题不超过 500 字。'});
 Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
 Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exportXLSX:'导出 XLSX',exporting:'正在按当前权限准备导出…'});
@@ -36,7 +46,9 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok)throw new Error(t('failed'));const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+const dashboard=setupDashboard({api,t,node,get:$});
+const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -98,6 +110,8 @@ async function enter(){
     }
   }
   $('semantics-nav').hidden=!isAdmin;
+  assistants.setAdmin(isAdmin);
+  assistants.setSources(sourceList);
   $('source-import').hidden=!isAdmin;
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
   if(!sourceList.length)status(t('empty'),true);
@@ -106,8 +120,17 @@ async function enter(){
 }
 function show(chat){
   $('welcome').hidden=true;$('conversation').replaceChildren();
+  dashboard.setRecords(chat);
   for(const record of chat.records||[]){
     if(record.first_chat&&!record.question)continue;
+    if(record.action==='analysis'||record.action==='predict'){
+      const turn=node('article',undefined,'turn'),answer=node('div',undefined,'answer');
+      answer.append(node('strong',t(record.action==='analysis'?'analyze':'predict')));
+      const content=record.action==='analysis'?record.analysis:record.predict_content;
+      answer.append(node('p',content||t('narrativeStale'),'narrative-history'));
+      if(content&&record.data)answer.append(node('small',`${t('audit')} #${record.data.audit_id}`,'dashboard-audit'));
+      turn.append(answer);$('conversation').append(turn);continue;
+    }
     const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));
     const answer=node('div',undefined,'answer');
     if(record.error){answer.append(node('p',t('failed'),'error'));}
@@ -121,12 +144,52 @@ function show(chat){
         head.append(hrow);table.append(head);
         const body=node('tbody');
         for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}
-        table.append(body);wrap.append(table);answer.append(wrap);
+        table.append(body);wrap.append(table);
+        const series=chartSeries(data);
+        if(series){
+          const tabs=node('div',undefined,'chart-tabs'),plot=node('div',undefined,'chart-plot');
+          const views={table:wrap,bar:renderChart(series,'bar'),line:renderChart(series,'line')};
+          const kinds=[['table','chartTable'],['bar','chartBar'],['line','chartLine']];
+          if(series.items.some(item=>item.value>0)){views.pie=renderChart(series,'pie');kinds.push(['pie','chartPie']);}
+          for(const [type,key] of kinds){
+            const button=node('button',t(key));button.type='button';button.className='chart-tab';
+            button.setAttribute('aria-pressed',String(type==='table'));
+            button.onclick=()=>{
+              for(const sibling of tabs.children)sibling.setAttribute('aria-pressed',String(sibling===button));
+              plot.replaceChildren(views[type]);
+            };
+            tabs.append(button);
+          }
+          plot.append(wrap);answer.append(tabs,plot);
+        }else answer.append(wrap);
       }
       answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));
       for(const format of ['csv','xlsx']){
         const exportButton=node('button',t(format==='csv'?'exportCSV':'exportXLSX'),'export-button');
         exportButton.type='button';exportButton.onclick=()=>void downloadExport(record.id,chat.id,format,exportButton);answer.append(exportButton);
+      }
+      for(const kind of ['analysis','predict']){
+        const button=node('button',t(kind==='analysis'?'analyze':'predict'),'export-button');button.type='button';
+        const result=node('div',undefined,'narrative-result');
+        button.onclick=async()=>{
+          button.disabled=true;result.replaceChildren(node('p',t('reading')));answer.append(result);
+          try{const data=await api('/agentsql/record/'+encodeURIComponent(String(record.id))+'/'+kind);
+            if(!answer.isConnected)return;
+            result.replaceChildren(node('strong',t(kind==='analysis'?'analyze':'predict')),node('p',data.content),node('small',`${t('narrativeScope')}: ${data.analyzed_rows}/${data.total_rows} · ${t('audit')} #${data.audit_id} · ${t('narrativeMethod')}`));
+            result.append(node('small',t('narrativeCaution')));
+            if(kind==='predict'){
+              try{
+                const forecast=await api('/agentsql/record/'+encodeURIComponent(String(record.id))+'/forecast');
+                if(!answer.isConnected)return;
+                const table=node('table'),head=node('tr'),body=node('tbody');
+                head.append(node('th',forecast.label_field),node('th',forecast.value_field));table.append(node('thead'));table.tHead.append(head);
+                for(const point of forecast.points){const row=node('tr');row.append(node('td',point.label),node('td',String(point.value)));body.append(row);}
+                table.append(body);const wrap=node('div',undefined,'table-wrap');wrap.append(table);result.append(node('small',`${t('forecastMethod')} · ${t('audit')} #${forecast.audit_id}`),wrap);
+              }catch(error){if(!answer.isConnected)return;if(error.status===422)result.append(node('small',t('forecastUnavailable')));else result.replaceChildren(node('p',t('failed'),'error'));}
+            }
+          }catch{if(answer.isConnected)result.replaceChildren(node('p',t('failed'),'error'));}finally{button.disabled=false;}
+        };
+        answer.append(button);
       }
     }
     if(record.finish){
@@ -170,6 +233,8 @@ async function downloadExport(id,chatID,format,button){
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function showQA(){
+  dashboard.hide();
+  assistants.hide();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
   $('semantics-nav').classList.remove('active');
@@ -177,6 +242,8 @@ function showQA(){
 }
 async function showSemantics(){
   if(controller||$('semantics-nav').hidden)return;
+  dashboard.hide();
+  assistants.hide();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
@@ -276,6 +343,8 @@ function renderSourceList(){
 }
 async function showSources(){
   if(controller)return;
+  dashboard.hide();
+  assistants.hide();
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -284,6 +353,21 @@ async function showSources(){
     selectedSource=null;$('source-detail').hidden=true;renderSourceList();sourceStatus('');
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
 }
+async function showDashboards(){
+  if(controller)return;
+  assistants.hide();
+  closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  $('sources').hidden=true;$('sources-nav').classList.remove('active');
+  $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  await dashboard.show();
+}
+document.addEventListener('agentsql:show-assistants',()=>{
+  dashboard.hide();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  $('sources').hidden=true;$('sources-nav').classList.remove('active');
+  $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+});
 async function loadSource(source){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
@@ -426,6 +510,7 @@ $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('sources-nav').onclick=()=>{void showSources();};
+$('dashboards-nav').onclick=()=>{void showDashboards();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
 $('source-delete').onclick=()=>{void deleteSelectedSource();};
 $('import-file').onchange=()=>{clearImportStage();sourceStatus(t('importFileChanged'));};
@@ -442,7 +527,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current)open(current);};
+$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;

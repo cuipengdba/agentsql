@@ -84,3 +84,20 @@ func TestLiveGroupedAggregateModel(t *testing.T) {
 	}
 	t.Logf("aggregate SQL: %s", result.SQL)
 }
+
+func TestLiveNarrativeModel(t *testing.T) {
+	endpoint := os.Getenv("AGENTSQL_LOCAL_MODEL_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("local model endpoint is not configured")
+	}
+	modelName := os.Getenv("AGENTSQL_LOCAL_MODEL_NAME")
+	if modelName == "" {
+		modelName = "agentsql-local-qwen"
+	}
+	data := QueryData{Fields: []string{"region", "amount"}, Data: []map[string]any{{"region": "east", "amount": 10}, {"region": "west", "amount": 20}}, AuditID: 1}
+	answer, err := (OpenAIModel{}).Narrate(context.Background(), ModelConfig{Model: modelName, Endpoint: endpoint, AllowHTTP: true}, "analysis", "比较东部和西部金额", data)
+	if err != nil || strings.TrimSpace(answer) == "" {
+		t.Fatalf("local narrative model failed: %v", err)
+	}
+	t.Logf("local narrative returned %d runes", len([]rune(answer)))
+}

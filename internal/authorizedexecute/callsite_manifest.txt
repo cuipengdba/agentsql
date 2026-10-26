@@ -11,6 +11,12 @@ internal/chatbi/setup.go
 internal/chatbi/semantics.go
 internal/chatbi/history_import.go
 internal/chatbi/managed_file_claim.go
+# Embedded-app batch deletion updates only encrypted local control-plane records
+# and their management audit entries; it cannot reach business datasources.
+internal/chatbi/assistant.go
+# Public embed metadata lookup scans bounded encrypted local control-plane rows.
+# The method never opens a business datasource connection.
+internal/chatbi/http_embedded_public.go
 # The managed-file helper checks selected sheets before forwarding the query
 # through the controlled gateway interface; it does not open a SQL driver.
 internal/chatbi/managed_file_subset.go

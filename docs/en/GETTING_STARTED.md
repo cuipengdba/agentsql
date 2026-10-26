@@ -2,9 +2,9 @@
 
 **Language:** [English](GETTING_STARTED.md) | [Simplified Chinese](../GETTING_STARTED.md)
 
-> Current guidance: Applies to v4.2.0 and compatible 4.2.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v4.3.0 and compatible 4.3.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
-> This article explains the installation and use of AgentSQL v4.2.0. Before executing the following installation, demo and mirroring commands to fix the v4.2.0 tag, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR mirror can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> This article explains the installation and use of AgentSQL v4.3.0. Before executing the following installation, demo and mirroring commands to fix the v4.3.0 tag, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR mirror can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
 
 AgentSQL is a database security gateway and production-level MCP Server placed between the AI Agent and the business database, allowing each SQL to pass identity, permissions, rules and decision-making checks before execution, and execute within auditable boundaries.
 
@@ -35,15 +35,15 @@ AgentSQL provides both a database security gateway and its own data Q&A interfac
 | range | Currently supported | Description |
 | --- | --- | --- |
 | Install the host with one click | `linux/amd64`、`linux/arm64`；glibc 2.28+、systemd | The linux/arm64 native glibc package is provided starting from v0.4.0; `x86_64` / `amd64` corresponds to amd64, `aarch64` / `arm64` corresponds to arm64 |
-| other hosts | Docker / Docker Compose | v4.2.0 GHCR tag is subject to `linux/amd64` + `linux/arm64` multi-arch manifest and anonymous pull verification; musl / Alpine, CentOS 7 and platforms other than the above two architectures do not provide native packages |
+| other hosts | Docker / Docker Compose | v4.3.0 GHCR tag is subject to `linux/amd64` + `linux/arm64` multi-arch manifest and anonymous pull verification; musl / Alpine, CentOS 7 and platforms other than the above two architectures do not provide native packages |
 | business database | MySQL 8；PostgreSQL 14–18 | Create an independent, least privileged running account for AgentSQL |
 | Control plane storage | SQLite；PostgreSQL 15+ | SQLite is the default; PostgreSQL can separate metadata and audit |
 | Browser console | `http://127.0.0.1:7780` | Default bound loopback address |
-| Local Live Demo | Docker Engine / Docker Desktop、Docker Compose v2 | Compose and verified GHCR images using the v4.2.0 exact tag; no source code cloning or building required |
+| Local Live Demo | Docker Engine / Docker Desktop、Docker Compose v2 | Compose and verified GHCR images using the v4.3.0 exact tag; no source code cloning or building required |
 
 ## Path A: 5 minutes of zero configuration to see the effect (one command)
 
-This is the dedicated Demo mode for v4.2.0: using synthetic data and fixed demo identity, there is no need to clone the source code, edit any configuration, or build an image. Before execution, you must check that the Compose file in the v4.2.0 Git tag and the three GHCR images it references are public and can be pulled anonymously; the first startup will pull the image and seed fixed demo data.
+This is the dedicated Demo mode for v4.3.0: using synthetic data and fixed demo identity, there is no need to clone the source code, edit any configuration, or build an image. Before execution, you must check that the Compose file in the v4.3.0 Git tag and the three GHCR images it references are public and can be pulled anonymously; the first startup will pull the image and seed fixed demo data.
 
 Just one `docker-compose.yml` (execute in any empty directory):
 
@@ -52,7 +52,7 @@ Just one `docker-compose.yml` (execute in any empty directory):
 mkdir agentsql-demo && cd agentsql-demo
 
 # 2) Download the self-contained compose (only this file, about 2KB)
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.2.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.3.0/deploy/quickstart/docker-compose.yml
 
 # 3) One command to pull up all containers (postgres + mysql + seed + gateway)
 docker compose up -d
@@ -62,7 +62,7 @@ Equivalent command for Windows (PowerShell):
 
 ```powershell
 New-Item -ItemType Directory -Force agentsql-demo | Out-Null; Set-Location agentsql-demo
-Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.2.0/deploy/quickstart/docker-compose.yml
+Invoke-WebRequest -OutFile docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.3.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -97,16 +97,16 @@ The following steps must be completed in order. If the authorization policy is m
 
 The linux/arm64 native glibc package is provided starting from **v0.4.0:** one-click installation supports `linux/amd64` (`uname -m` is `x86_64` / `amd64`) and `linux/arm64` (`aarch64` / `arm64`), both require glibc 2.28+, systemd, and the command requires root permissions:
 
-The following example fixesv4.2.0. Before executing, confirm that the official Release provides this version.`install.sh`、`SHA256SUMS`and signature; press[Publish asset description](RELEASE_ASSETS.md)Use an independently verified public key to verify the signature manifest, and then use the hash in the manifest to verify the installer.
+The following example fixesv4.3.0. Before executing, confirm that the official Release provides this version.`install.sh`、`SHA256SUMS`and signature; press[Publish asset description](RELEASE_ASSETS.md)Use an independently verified public key to verify the signature manifest, and then use the hash in the manifest to verify the installer.
 
 ```bash
 # Applicable prerequisites: linux/amd64 or linux/arm64 + glibc 2.28+ + systemd
-curl -fsSLo install.sh https://github.com/cuipengdba/agentsql/releases/download/v4.2.0/install.sh
+curl -fsSLo install.sh https://github.com/cuipengdba/agentsql/releases/download/v4.3.0/install.sh
 # First use the verified SHA256SUMS to verify install.sh, and then run:
-sudo sh ./install.sh install --version v4.2.0
+sudo sh ./install.sh install --version v4.3.0
 ```
 
-In addition to one-click installation, you can also build using source code or Docker Compose according to the [ deployment guide ](DEPLOY.md). After confirming that the v4.2.0 image has been made public and that the dual-architecture manifest and anonymous pull have passed, run `docker pull ghcr.io/cuipengdba/agentsql:v4.2.0`; the manifest should match `linux/amd64` / `linux/arm64`. Release status and assets are available on the GitHub Releases page.
+In addition to one-click installation, you can also build using source code or Docker Compose according to the [ deployment guide ](DEPLOY.md). After confirming that the v4.3.0 image has been made public and that the dual-architecture manifest and anonymous pull have passed, run `docker pull ghcr.io/cuipengdba/agentsql:v4.3.0`; the manifest should match `linux/amd64` / `linux/arm64`. Release status and assets are available on the GitHub Releases page.
 
 ### 2. Log in to the console
 
@@ -134,7 +134,7 @@ Save the API Key that will be displayed only once after creation. Please put it 
 
 Create a new `allow` policy that binds the Agent and the data source in "Permissions", starting from the single table you really need, such as `public.customers` or `customers`. Do not use `*` or `schema.*` as ordinary examples: although both are legal, they represent full column authorization for the entire table, which will invalidate the column-level whitelist.
 
-After installing v4.2.0, the console "Access Wizard" can reuse the same Agent and data source selection to do connection and permission pre-checking, target SQL offline interpretation, and generate keyless access instructions for Dify 1.17.1 or MCP Inspector 0.16.8. Preflight does not execute Agent SQL; the number of policies greater than zero or the offline conclusion being "unknown" does not prove that the target SQL is authorized. Please verify the allow and deny requests respectively on the real client, and then use the audit ID in the response to jump to the audit details for verification. For configuration steps and restrictions on client reachable addresses, see [ user manual ](USER_GUIDE.md#access-wizard-onboarding-v190).
+After installing v4.3.0, the console "Access Wizard" can reuse the same Agent and data source selection to do connection and permission pre-checking, target SQL offline interpretation, and generate keyless access instructions for Dify 1.17.1 or MCP Inspector 0.16.8. Preflight does not execute Agent SQL; the number of policies greater than zero or the offline conclusion being "unknown" does not prove that the target SQL is authorized. Please verify the allow and deny requests respectively on the real client, and then use the audit ID in the response to jump to the audit details for verification. For configuration steps and restrictions on client reachable addresses, see [ user manual ](USER_GUIDE.md#access-wizard-onboarding-v190).
 
 ### 6. Connect to MCP client
 
@@ -189,9 +189,9 @@ curl -fsS http://127.0.0.1:7780/healthz
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7780/readyz
 ```
 
-## v4.2.0: Read-only check before upgrade
+## v4.3.0: Read-only check before upgrade
 
-Use v4.2.0 `agentsqlctl` with the target configuration to check control-plane schema versions first. This release adds migrations for managed file operations and SQLBot child-binding parent records: combined metadata advances to 29, separate metadata to 27, while audit remains at 7. Upgrades from v4.1.0 or earlier require paired metadata and audit backups, stopping the old gateways and Q&A service, waiting for the B2 lease to expire, and a paired restore exercise in isolation. Follow the [maintenance-window guide](../../deploy/kubernetes/README.en.md) for the three-gateway topology; do not run old and new binaries together:
+Use v4.3.0 `agentsqlctl` with the target configuration to check control-plane schema versions first. Migrations for managed file operations and SQLBot child-binding parent records were introduced in v4.2.0; v4.3.0 retains combined metadata schema 29, separate metadata schema 27, and audit schema 7. Upgrades from v4.1.0 or earlier require paired metadata and audit backups, stopping the old gateways and Q&A service, waiting for the B2 lease to expire, and a paired restore exercise in isolation. Follow the [maintenance-window guide](../../deploy/kubernetes/README.en.md) for the three-gateway topology; do not run old and new binaries together:
 
 ```bash
 agentsqlctl doctor --config /etc/agentsql/config.yaml --format json

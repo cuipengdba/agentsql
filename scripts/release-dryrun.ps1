@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')]
-    [string]$Version = 'v4.2.0',
+    [string]$Version = 'v4.3.0',
 
     [string]$OutputDirectory,
 

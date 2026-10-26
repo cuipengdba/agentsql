@@ -2,17 +2,17 @@
 
 **Language:** [English](RELEASE_ASSETS.md) | [Simplified Chinese](../RELEASE_ASSETS.md)
 
-Current release candidate: v4.2.0. Each maintenance release is rebuilt from its official closure commit, with the asset name's executable definition as `scripts/release-dryrun.ps1`; historical packages, placeholder signatures, or old provenance cannot be reused.
+Current release candidate: v4.3.0. Each maintenance release is rebuilt from its official closure commit, with the asset name's executable definition as `scripts/release-dryrun.ps1`; historical packages, placeholder signatures, or old provenance cannot be reused.
 
 ## formal assets
 
 ```text
-agentsql-v4.2.0-linux-amd64.tar.gz
-agentsql-v4.2.0-linux-amd64.tar.gz.sha256
-agentsql-v4.2.0-linux-arm64.tar.gz
-agentsql-v4.2.0-linux-arm64.tar.gz.sha256
-agentsql-v4.2.0.spdx.json
-agentsql-v4.2.0.spdx.json.sig.json
+agentsql-v4.3.0-linux-amd64.tar.gz
+agentsql-v4.3.0-linux-amd64.tar.gz.sha256
+agentsql-v4.3.0-linux-arm64.tar.gz
+agentsql-v4.3.0-linux-arm64.tar.gz.sha256
+agentsql-v4.3.0.spdx.json
+agentsql-v4.3.0.spdx.json.sig.json
 ed25519-release-public-key.json
 go-version-metadata.txt
 install.sh
@@ -31,18 +31,18 @@ Official packages also need to verify the binary version, OCI revision, actual G
 ## Maintenance version production preparation
 
 ```powershell
-pwsh ./scripts/release-dryrun.ps1 -Version v4.2.0 -ProductionPrepare -PublicKeyPath '<trusted-public-key-absolute-path>'
-pwsh ./scripts/release-dryrun.ps1 -Version v4.2.0 -ValidateOnly -AssetsDirectory '<signed-assets-directory>'
+pwsh ./scripts/release-dryrun.ps1 -Version v4.3.0 -ProductionPrepare -PublicKeyPath '<trusted-public-key-absolute-path>'
+pwsh ./scripts/release-dryrun.ps1 -Version v4.3.0 -ValidateOnly -AssetsDirectory '<signed-assets-directory>'
 ```
 
 Successful production preparation only means that the assets to be signed and the three dual-architecture OCI archives have been generated. Formal signatures, cryptographic verification, GitHub upload, anonymous re-download, GHCR, and online acceptance must pass before a release is declared. The `-ValidateOnly` signature structure check does not replace verification with a trusted public key.
 
-The v4.2.0 package, CI, signature, GHCR, website, and Demo gates are pending; track them in the [release acceptance record](v4.2.0-acceptance.md). The [historical asset plan](release-assets-history.md) is retained for reference.
+The v4.3.0 package, CI, signature, GHCR, website, and Demo gates are pending; track them in the [release acceptance record](v4.3.0-acceptance.md). The [historical asset plan](release-assets-history.md) is retained for reference.
 
-## v4.2.0 local verification entrypoint
+## v4.3.0 local verification entrypoint
 
 Run this command with an independently verified tool. Obtain the trusted public key separately and keep it outside the asset directory; see the [offline delivery guide](v4.0.0-delivery.md) for bootstrapping tool trust. Verification does not execute packaged programs and reports the source commit and key ID.
 
 ```sh
-agentsqlctl release verify --directory ./release-assets --public-key ./trusted-release-key.json --version v4.2.0
+agentsqlctl release verify --directory ./release-assets --public-key ./trusted-release-key.json --version v4.3.0
 ```

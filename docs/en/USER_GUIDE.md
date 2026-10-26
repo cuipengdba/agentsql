@@ -2,11 +2,11 @@
 
 **Language:** [English](USER_GUIDE.md) | [Simplified Chinese](../USER_GUIDE.md)
 
-> Current guidance: Applies to v4.2.0 and compatible 4.2.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
+> Current guidance: Applies to v4.3.0 and compatible 4.3.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
-> This guide covers AgentSQL v4.2.0. Before installing or pulling v4.2.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v4.3.0. Before installing or pulling v4.3.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
 
-This manual follows the v4.2.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v4.2.0 release notes](release-notes-v4.2.0.md) and [design and acceptance record](v4.2.0-design.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
+This manual follows the v4.3.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v4.3.0 release notes](release-notes-v4.3.0.md) and [design and acceptance record](v4.3.0-design.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
 
 The console login page and the language button in the upper right corner after logging in can switch between Chinese and English, and the selection will be saved in the current browser; `?lang=en` or `?lang=zh` can specify the first opening language. The left menu can be scrolled independently when the effective viewport height is insufficient, and the bottom options can also be accessed with the keyboard after focusing the menu. Language switching only changes the interface copy and does not modify the SQL, query results and audit records. Complete English documentation is available through the language link at the top. Capability claims are bounded by the corresponding acceptance record.
 
@@ -878,3 +878,7 @@ The console Version and Upgrade page provides offline verification for the runni
 ## v4.2.0 native data Q&A
 
 Deploy the Go Q&A service with `install.sh install --with-chatbi`, configure a workspace model and personal gateway mappings, and open its separate listener. The Chinese/English interface displays SQL, table results and durable audit IDs. The released v4.2.0 supports up to three successful turns of Q&A context, terms and recommended questions, controlled CSV/XLSX file datasources, and CSV/XLSX export under current permissions. The original SQLBot page has been compared only for the recorded synthetic flows. See the [Q&A guide](CHATBI.md) for identity import, offline installation, recovery and remaining compatibility work.
+
+## v4.3.0 charts, dashboards and embedded applications
+
+The Q&A page can display the current authorized result as a table, bar chart, line chart or pie chart. Opening a historical chart runs a fresh query under current permissions and writes an audit event. AgentSQL's own dashboard supports text and record-chart cards, layout, tabs, search, preview, and configuration import/export without result rows. The embedded application management page supports creation, edits, enable/disable, signing-key rotation and deletion. Application tokens bind an existing non-admin user, workspace and application state, and conversations remain isolated by application. Only selected synthetic flows of the original SQLBot v1.10.2 page and SDK have been compared. Complex SQL, all pages, all integrations and zero-change replacement of a real business application remain unverified. See the [current release notes](release-notes-v4.3.0.md) and [acceptance record](v4.3.0-acceptance.md).

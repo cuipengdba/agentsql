@@ -28,6 +28,7 @@ type Chat struct {
 	DatasourceName   string    `json:"datasource_name"`
 	DatasourceExists bool      `json:"datasource_exists"`
 	Origin           int       `json:"origin"`
+	EmbeddedApp      ID        `json:"embedded_app,omitempty"`
 	Records          []Record  `json:"records"`
 	LeaseUntil       time.Time `json:"lease_until,omitempty"`
 }
@@ -42,6 +43,12 @@ type Record struct {
 	SQL         string     `json:"sql"`
 	SQLAnswer   string     `json:"sql_answer"`
 	Chart       string     `json:"chart,omitempty"`
+	Analysis    string     `json:"analysis,omitempty"`
+	PredictText string     `json:"predict_content,omitempty"`
+	AnalysisOf  ID         `json:"analysis_record_id,omitempty"`
+	PredictOf   ID         `json:"predict_record_id,omitempty"`
+	Action      string     `json:"action,omitempty"`
+	DataDigest  string     `json:"data_digest,omitempty"`
 	Data        *QueryData `json:"data,omitempty"`
 	Finish      bool       `json:"finish"`
 	FirstChat   bool       `json:"first_chat,omitempty"`
@@ -117,6 +124,9 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 	for _, record := range chat.Records {
 		if record.ID == id {
 			record.Data = nil
+			if !withData {
+				record.Analysis, record.PredictText = "", ""
+			}
 			if withData && record.Finish && record.Error == "" {
 				binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 				if err != nil {
@@ -133,7 +143,12 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 					return Record{}, err
 				}
 				record.Data = &data
+				if record.Action != "" && record.DataDigest != resultDigest(data) {
+					record.Data = nil
+					record.Analysis, record.PredictText = "", ""
+				}
 			}
+			record.DataDigest = ""
 			if err := service.live(ctx, p); err != nil {
 				return Record{}, err
 			}
@@ -148,6 +163,16 @@ func (service *Service) live(ctx context.Context, p Principal) error {
 	if err != nil || user.AuthRevision != p.User.AuthRevision || !user.canUse(p.Workspace) {
 		return ErrUnauthenticated
 	}
+	if p.EmbeddedApp != "" {
+		if !p.EmbeddedApp.Valid() || p.EmbeddedRevision < 1 || user.Admin {
+			return ErrUnauthenticated
+		}
+		var app AssistantApplication
+		revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
+		if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != 4 || !app.Enabled {
+			return ErrUnauthenticated
+		}
+	}
 	return nil
 }
 
@@ -158,6 +183,9 @@ func (service *Service) binding(ctx context.Context, p Principal, id ID) (Bindin
 
 func (service *Service) bindingSnapshot(ctx context.Context, p Principal, id ID) (Binding, int64, [32]byte, error) {
 	if err := service.live(ctx, p); err != nil {
+		return Binding{}, 0, [32]byte{}, err
+	}
+	if err := service.embeddedSourceAllowed(ctx, p, id); err != nil {
 		return Binding{}, 0, [32]byte{}, err
 	}
 	var binding Binding
@@ -186,7 +214,7 @@ func (service *Service) bindingUnchanged(ctx context.Context, p Principal, bindi
 }
 
 func (service *Service) Start(ctx context.Context, p Principal, datasource ID, question string, origin int) (Chat, error) {
-	if len(question) > 16000 || origin != 0 {
+	if len(question) > 16000 || (origin != 0 && origin != 2) || (origin == 2) != (p.EmbeddedApp != "") {
 		return Chat{}, errors.New("unsupported chat request")
 	}
 	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
@@ -214,7 +242,7 @@ func (service *Service) Start(ctx context.Context, p Principal, datasource ID, q
 		brief = []rune(binding.Name)
 	}
 	now := time.Now().UTC()
-	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, Records: []Record{}}
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, EmbeddedApp: p.EmbeddedApp, Records: []Record{}}
 	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
 		return Chat{}, err
 	}
@@ -230,7 +258,7 @@ func (service *Service) chat(ctx context.Context, p Principal, id ID) (Chat, int
 	if err != nil {
 		return Chat{}, 0, err
 	}
-	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
+	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID || chat.EmbeddedApp != p.EmbeddedApp {
 		return Chat{}, 0, ErrUnavailable
 	}
 	return chat, rev, nil
@@ -249,6 +277,9 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		var chat Chat
 		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
 			return nil, ErrUnavailable
+		}
+		if chat.EmbeddedApp != p.EmbeddedApp {
+			continue
 		}
 		chat.Records = []Record{}
 		chat.LeaseUntil = time.Time{}
@@ -277,6 +308,9 @@ func (service *Service) RecentQuestions(ctx context.Context, p Principal, dataso
 		var chat Chat
 		if json.Unmarshal(raw, &chat) != nil || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
 			return nil, ErrUnavailable
+		}
+		if chat.EmbeddedApp != p.EmbeddedApp {
+			continue
 		}
 		if chat.Datasource != datasource {
 			continue
@@ -331,6 +365,9 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	for i := range chat.Records {
 		record := &chat.Records[i]
 		record.Data = nil
+		if !withData {
+			record.Analysis, record.PredictText = "", ""
+		}
 		if withData && record.Finish && record.Error == "" && record.SQL != "" {
 			data, err := service.query(ctx, p, binding, record.SQL)
 			if err != nil {
@@ -340,7 +377,12 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 				return Chat{}, ErrGateway
 			}
 			record.Data = &data
+			if record.Action != "" && record.DataDigest != resultDigest(data) {
+				record.Data = nil
+				record.Analysis, record.PredictText = "", ""
+			}
 		}
+		record.DataDigest = ""
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 		return Chat{}, err
@@ -409,7 +451,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	historyBytes := 0
 	for i := len(chat.Records) - 1; i >= 0 && len(history) < 3; i-- {
 		prior := chat.Records[i]
-		if !prior.Finish || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
+		if !prior.Finish || prior.Action != "" || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
 			continue
 		}
 		length := len(prior.Question) + len(prior.SQL)

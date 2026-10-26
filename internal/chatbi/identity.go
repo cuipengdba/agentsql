@@ -82,8 +82,10 @@ func (user User) canUse(workspace ID) bool {
 }
 
 type Principal struct {
-	User      User
-	Workspace ID
+	User             User
+	Workspace        ID
+	EmbeddedApp      ID
+	EmbeddedRevision int64
 }
 
 func userKey(id ID) objectKey { return objectKey{"user", "system", "system", string(id)} }
@@ -370,7 +372,7 @@ func (identity *Identity) Verify(ctx context.Context, token string) (Principal, 
 	if !errors.Is(err, ErrNotFound) {
 		return deny()
 	}
-	return Principal{user, claims.Workspace}, nil
+	return Principal{User: user, Workspace: claims.Workspace}, nil
 }
 
 func (identity *Identity) Logout(ctx context.Context, token string) error {

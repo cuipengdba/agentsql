@@ -53,6 +53,9 @@ func semanticKey(kind string, workspace ID, id int64) objectKey {
 }
 
 func (service *Service) semanticAdmin(ctx context.Context, p Principal) error {
+	if p.EmbeddedApp != "" {
+		return ErrUnauthenticated
+	}
 	user, _, err := service.Store.User(ctx, p.User.ID)
 	if err != nil || user.AuthRevision != p.User.AuthRevision || !user.Admin || !user.canUse(p.Workspace) {
 		return ErrUnauthenticated

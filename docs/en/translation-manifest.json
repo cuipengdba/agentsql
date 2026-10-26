@@ -4,12 +4,12 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "ed94122d1b4e487c7d0f7fabe654ef2f71bc4c83819f9ee18840f3c05c56312d"
+      "source_sha256": "f96d2419968f08d98be3d550bd9baf1917a6761048c009f4b77e949d537640eb"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "75f1e5c5598c4ace420be304b269a2a6e1205a8c4607f0d35286c6213417acbb"
+      "source_sha256": "9e765f93c55d0737af2f11b2e8914a66dbd7381797d5e1436966bf5fdac9e633"
     },
     {
       "source": "ROADMAP.md",
@@ -84,7 +84,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "8dc241e239f461932e450fe9458692645cfebe06e0d119bff2a12bce6230320d"
+      "source_sha256": "c827186963b5b30a032b8d8ecee2b9b8f70c9a24e3fab48db8c7f17d0fb8e09b"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -114,7 +114,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "9e750564d13aba7821ac9184eedfbcfa70e3eecd7da77ad811cb4397314a56d5"
+      "source_sha256": "d23a7f941ff90a64b9877eca83d1ab49c05fd76fa831e893ba6d16126903a967"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -129,7 +129,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "f70f36f0a4144a1b072ee189004e88ee93fe58d2d6fb01f655e75d30f98e99f3"
+      "source_sha256": "7f2f783f919512da03341ed7a483c1e52b5e9e4578f0b211ddffe14e5a6e8feb"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -174,7 +174,7 @@
     {
       "source": "docs/OPERATIONS.md",
       "english": "docs/en/OPERATIONS.md",
-      "source_sha256": "1469cecd6de39b1b0c29e84409f0af05cdd24fb221851de2c2ab9d989b049fef"
+      "source_sha256": "76a6c5ec5ceebac7fcb1c255e513ffef1679f876d78029d55ef063bfb19148fd"
     },
     {
       "source": "docs/PARSER_PERF.md",
@@ -229,7 +229,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "3452fc2be72bc70dd8ab5cfe24065135fa7234634aa9b76131e3c3fb1e159335"
+      "source_sha256": "1ee9244c08e8149836acd0d86a28d298740f70904282eb9befa9d7852cfca421"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -469,12 +469,12 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "0f5137c5b92f0327d07b2f15b129b06ded69cc38603050fd123cbcc59dfaa40f"
+      "source_sha256": "d0076a907346c01386141c85aa283cfdf04f462f768edcd29cc842192fc2f69e"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
       "english": "docs/en/RELEASE_PROCESS.md",
-      "source_sha256": "4e9453da3be85dd0b39aa124d46fe0d1875639daeec6f0832a945b6d5280dc47"
+      "source_sha256": "7bfcf116f100eb0a4153786da9172e3508ac4a6b0190f813bb227805416a65c2"
     },
     {
       "source": "docs/RELEASE_ROUTINE.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "fd36c8aacb81569b7094345c5c5f5ce8f78157f12d6c66b6d185416c6759f482"
+      "source_sha256": "8a86f44c2c90c76119bba20a27ade1417d434c623db9195217a38ca70f1afd3b"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -1245,6 +1245,21 @@
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
       "source_sha256": "e3a5e2318422edfefd7b29f4d9e24a5caf6507743be794becaa502f9daba3cee"
+    },
+    {
+      "source": "docs/v4.3.0-design.md",
+      "english": "docs/en/v4.3.0-design.md",
+      "source_sha256": "b5c95468b8a2d525a38e88c850b4ff7fea7fe7994bc7ee7f271140025cd1053b"
+    },
+    {
+      "source": "docs/release-notes-v4.3.0.md",
+      "english": "docs/en/release-notes-v4.3.0.md",
+      "source_sha256": "2d4aa0bd65fe1af3000aa1e68424e0f66d4ca1787fd3ad9015c5aae7f1476f4f"
+    },
+    {
+      "source": "docs/v4.3.0-acceptance.md",
+      "english": "docs/en/v4.3.0-acceptance.md",
+      "source_sha256": "f8b1c455dfa8889c4cb80dd7680db0881dee756145df9354ac1847695697c321"
     }
   ]
 }
