@@ -73,6 +73,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/datasource/importToDb", h.bounded(h.auth(h.importToDb)))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.auth(h.recommendedProblems))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.auth(h.recommendedBase))
+	h.mux.HandleFunc("GET /api/v1/agentsql/recommendations/{id}", h.auth(h.nativeRecommendationRead))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/recommendations/{id}", h.auth(h.nativeRecommendationSave))
 	h.mux.HandleFunc("GET /api/v1/system/terminology/page/{page}/{size}", h.auth(h.terminologyPage))
 	h.mux.HandleFunc("GET /api/v1/system/terminology/template", h.auth(h.terminologyTemplate))
 	h.mux.HandleFunc("GET /api/v1/system/terminology/export", h.auth(h.terminologyExport))
@@ -389,9 +391,13 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 	okay(w, result)
 }
 
-func (h *Handler) recommendedProblems(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) recommendedProblems(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	config, err := h.service.Recommendations(r.Context(), p, ID(r.PathValue("id")))
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
 	}
@@ -412,9 +418,13 @@ func (h *Handler) recommendedProblems(w http.ResponseWriter, r *http.Request, p 
 	okay(w, items)
 }
 
-func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	config, err := h.service.Recommendations(r.Context(), p, ID(r.PathValue("id")))
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
 	}

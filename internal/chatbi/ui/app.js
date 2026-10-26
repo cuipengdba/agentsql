@@ -14,10 +14,14 @@ Object.assign(copy.en, {
 Object.assign(copy.en, {sourceNav:'Datasources',sourceTitle:'Datasources',sourceIntro:'Explore your currently authorized datasources, tables, and fields. Previews still run through the controlled gateway.',sourceEmpty:'No datasources are available',tableEmpty:'No visible tables',fieldEmpty:'No visible fields',previewEmpty:'No rows returned for this preview',previewTitle:'Preview (up to 100 rows)',sourceLoading:'Loading metadata under current permissions…'});
 Object.assign(copy['zh-CN'], {suggestions:'推荐问题',positioning:'AgentSQL 提供独立问数页面，也可作为现有 SQLBot 的数据库安全网关。可用范围以当前发布说明为准。',renameChat:'重命名',deleteChat:'删除',renamePrompt:'对话名称（最多 64 个字）',deletePrompt:'确定删除这个对话？',invalidChatName:'对话名称须为 1–64 个字。'});
 Object.assign(copy.en, {suggestions:'Suggested questions',positioning:'AgentSQL has its own Q&A interface and can also secure database access for an existing SQLBot deployment. See the current release notes for verified scope.',renameChat:'Rename',deleteChat:'Delete',renamePrompt:'Conversation name (up to 64 characters)',deletePrompt:'Delete this conversation?',invalidChatName:'The conversation name must be 1–64 characters.'});
+Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSource:'推荐问题的数据源',recommendationQuestions:'每行一个问题，最多 20 个',recommendationPlaceholder:'例如：按地区查看销售额',recommendationNote:'推荐问题只填入提问框；点击发送后仍按当前权限执行并审计。',recommendationInvalid:'最多 20 个问题，每个问题不超过 500 字。'});
+Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
+copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
+copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[];
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -69,10 +73,10 @@ async function enter(){
   const user=await api('/user/info');
   $('account-name').textContent=user.name||user.account;
   sourceList=await api('/datasource/list');
-  $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();
+  $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();$('recommendation-source').replaceChildren();
   for(const source of sourceList){
     const label=source.name+' · '+source.type;
-    for(const target of [$('datasource'),$('term-sources'),$('example-source')]){
+    for(const target of [$('datasource'),$('term-sources'),$('example-source'),$('recommendation-source')]){
       const option=node('option',label);option.value=String(source.id);target.append(option);
     }
   }
@@ -97,6 +101,34 @@ async function showSemantics(){
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
   await loadSemantics();
+}
+async function loadRecommendationSettings(){
+  const epoch=++recommendationEpoch,source=$('recommendation-source').value;
+  recommendationRevision=null;recommendationItems=[];$('recommendation-questions').value='';
+  if(!source){semanticStatus(t('sourceRequired'),true);return;}
+  semanticStatus('');
+  try{
+    const result=await api('/agentsql/recommendations/'+encodeURIComponent(source));
+    if(epoch!==recommendationEpoch||!semanticVisible||semanticKind!=='recommendations'||$('recommendation-source').value!==source)return;
+    recommendationRevision=result.revision;recommendationItems=result.questions||[];
+    $('recommendation-questions').value=recommendationItems.map(item=>item.question).join('\n');
+  }catch{if(epoch===recommendationEpoch)semanticStatus(t('failed'),true);}
+}
+async function saveRecommendationSettings(event){
+  event.preventDefault();
+  const source=$('recommendation-source').value,revision=recommendationRevision,epoch=recommendationEpoch;
+  if(!source||revision===null)return;
+  const lines=$('recommendation-questions').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+  if(lines.length>20||lines.some(value=>value.length>500)){semanticStatus(t('recommendationInvalid'),true);return;}
+  const button=$('recommendation-form').querySelector('button[type=submit]');button.disabled=true;
+  try{
+    const questions=lines.map((question,index)=>({...((recommendationItems[index]?.id)?{id:recommendationItems[index].id}:{}),question}));
+    const result=await api('/agentsql/recommendations/'+encodeURIComponent(source),{revision,questions},'PUT');
+    if(epoch!==recommendationEpoch||$('recommendation-source').value!==source||!semanticVisible||semanticKind!=='recommendations')return;
+    recommendationRevision=result.revision;recommendationItems=result.questions||[];
+    $('recommendation-questions').value=recommendationItems.map(item=>item.question).join('\n');
+    semanticStatus(t('semanticSaved'));void loadSuggestions();
+  }catch{semanticStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 function sourceStatus(value,error=false){$('source-status').textContent=value;$('source-status').classList.toggle('error',error);}
 function renderSourceList(){
@@ -204,6 +236,13 @@ async function loadSemantics(){
   if(!semanticVisible)return;
   $('semantic-terms').classList.toggle('active',semanticKind==='terms');
   $('semantic-examples').classList.toggle('active',semanticKind==='examples');
+  $('semantic-recommendations').classList.toggle('active',semanticKind==='recommendations');
+  const recommendations=semanticKind==='recommendations';
+  $('semantic-add').hidden=recommendations;$('semantic-search-form').hidden=recommendations;
+  $('semantic-list').hidden=recommendations;$('semantic-prev').parentElement.hidden=recommendations;
+  $('recommendation-form').hidden=!recommendations;
+  if(recommendations){await loadRecommendationSettings();return;}
+  recommendationEpoch++;
   try{
     const query=new URLSearchParams({page:String(semanticPage),size:'20',q:$('semantic-search').value.trim()});
     const result=await api('/agentsql/'+semanticKind+'?'+query);
@@ -249,6 +288,9 @@ $('sources-nav').onclick=()=>{void showSources();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
 $('semantic-terms').onclick=()=>{semanticKind='terms';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
 $('semantic-examples').onclick=()=>{semanticKind='examples';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
+$('semantic-recommendations').onclick=()=>{semanticKind='recommendations';semanticStatus('');hideSemanticForm();void loadSemantics();};
+$('recommendation-source').onchange=()=>{void loadRecommendationSettings();};
+$('recommendation-form').onsubmit=event=>{void saveRecommendationSettings(event);};
 $('semantic-add').onclick=()=>openSemanticForm();
 $('semantic-cancel').onclick=()=>hideSemanticForm();
 $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
