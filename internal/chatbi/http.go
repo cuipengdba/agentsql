@@ -113,10 +113,15 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
+	h.mux.HandleFunc("GET /api/v1/agentsql/dashboards", h.auth(h.dashboardList))
+	h.mux.HandleFunc("POST /api/v1/agentsql/dashboards", h.auth(h.dashboardSave))
+	h.mux.HandleFunc("GET /api/v1/agentsql/dashboards/{id}", h.boundedHistory(h.dashboardRead))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/dashboards/{id}", h.auth(h.dashboardSave))
+	h.mux.HandleFunc("DELETE /api/v1/agentsql/dashboards/{id}", h.auth(h.dashboardDelete))
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {
-		case "app.js", "app.css", "mark.svg":
+		case "app.js", "chart.js", "dashboard.js", "app.css", "mark.svg":
 			assets.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
@@ -250,6 +255,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 401, "Not authenticated"
 	case errors.Is(err, ErrInvalidSemantic):
 		status, message = 422, "Invalid semantic metadata"
+	case errors.Is(err, ErrInvalidDashboard):
+		status, message = 422, "Invalid dashboard configuration"
 	case errors.Is(err, ErrNotFound):
 		status, message = 404, "Resource not found"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):
