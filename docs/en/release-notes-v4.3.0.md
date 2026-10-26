@@ -2,9 +2,9 @@
 
 **Language:** [Chinese](../release-notes-v4.3.0.md) | [English](release-notes-v4.3.0.md)
 
-Status: release candidate, not yet published. The release state will be updated after formal assets and public acceptance are complete. See the [v4.3.0 design record](v4.3.0-design.md) for scope and boundaries.
+Status: published on 2026-10-26 UTC. The [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.3.0) contains signed assets. See the [v4.3.0 design record](v4.3.0-design.md) for scope and the [release acceptance record](v4.3.0-acceptance.md) for evidence.
 
-## Delivered in this candidate
+## Delivered
 
 | Capability | Verified scope |
 | --- | --- |
@@ -24,4 +24,4 @@ The current column-authorization mode rejects aggregation, sorting and complex S
 
 ## Upgrade and release
 
-Back up metadata, audit, managed-file databases and encryption keys before upgrading. After publication, rely on the acceptance record for signed packages, dual-architecture images, the GitHub Release, website and Demo from the same source commit. These candidate notes do not establish release acceptance.
+Back up metadata, audit, managed-file databases and encryption keys before upgrading. The local synthetic v4.2.0-to-v4.3.0 upgrade, failed-start rollback and formal asset verification passed; the website and public Demo now serve v4.3.0. Use the signed packages, dual-architecture images, GitHub Release and [release acceptance record](v4.3.0-acceptance.md) from the same source commit.

@@ -9,7 +9,7 @@
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "9e765f93c55d0737af2f11b2e8914a66dbd7381797d5e1436966bf5fdac9e633"
+      "source_sha256": "15a9da8ea15957e6c009638dac7bdcbc81ab42a01fa5e7e71f9fcbaa88309099"
     },
     {
       "source": "ROADMAP.md",
@@ -1254,12 +1254,12 @@
     {
       "source": "docs/release-notes-v4.3.0.md",
       "english": "docs/en/release-notes-v4.3.0.md",
-      "source_sha256": "2d4aa0bd65fe1af3000aa1e68424e0f66d4ca1787fd3ad9015c5aae7f1476f4f"
+      "source_sha256": "d9e9d82b7d11059dab1059628cd79e4fe66bf7a7090c6f9fbfb5d4fc666d279d"
     },
     {
       "source": "docs/v4.3.0-acceptance.md",
       "english": "docs/en/v4.3.0-acceptance.md",
-      "source_sha256": "f8b1c455dfa8889c4cb80dd7680db0881dee756145df9354ac1847695697c321"
+      "source_sha256": "d8ee57facbc98e22fa2b6accd9b65572f83494d580ecdc9afe9d686eb656e754"
     }
   ]
 }
