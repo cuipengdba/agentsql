@@ -2,10 +2,16 @@ package chatbi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +23,10 @@ type Handler struct {
 	mux        *http.ServeMux
 	loginLimit *rate.Limiter
 	slots      chan struct{}
+	readQueue  chan struct{}
 	version    string
+	keySalt    string
+	keySince   int64
 }
 
 func NewHandler(service *Service, version string) (http.Handler, error) {
@@ -31,23 +40,78 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	if limit < 1 || limit > 16 {
 		return nil, errors.New("ChatBI concurrent data limit must be between 1 and 16")
 	}
-	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), slots: make(chan struct{}, limit), version: version}
+	var salt [8]byte
+	if _, err := rand.Read(salt[:]); err != nil {
+		return nil, errors.New("cannot initialize ChatBI login key metadata")
+	}
+	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10),
+		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
+		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli()}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": h.version, "service": "chatbi"})
 	})
 	h.mux.HandleFunc("POST /api/v1/login/access-token", h.login)
+	h.mux.HandleFunc("GET /api/v1/system/config/key", h.publicLoginKey)
+	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)
+	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
+	h.mux.HandleFunc("GET /api/v1/system/parameter/chat", h.auth(h.sqlbotChatParameters))
+	h.mux.HandleFunc("GET /api/v1/system/aimodel/default", h.auth(h.sqlbotDefaultModel))
 	h.mux.HandleFunc("POST /api/v1/agentsql/login", h.nativeLogin)
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
+	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
+	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.auth(h.getExcelDatasource))
+	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
+	h.mux.HandleFunc("GET /api/v1/datasource/check/{id}", h.bounded(h.auth(h.datasourceCheck)))
+	h.mux.HandleFunc("POST /api/v1/datasource/getTables/{id}", h.bounded(h.auth(h.datasourceTables)))
+	h.mux.HandleFunc("POST /api/v1/datasource/getFields/{id}/{table}", h.bounded(h.auth(h.datasourceFields)))
+	h.mux.HandleFunc("POST /api/v1/datasource/tableList/{id}", h.bounded(h.auth(h.datasourceTableList)))
+	h.mux.HandleFunc("POST /api/v1/datasource/fieldList/{id}/{tableID}", h.bounded(h.auth(h.datasourceFieldList)))
+	h.mux.HandleFunc("POST /api/v1/datasource/previewData/{id}", h.bounded(h.auth(h.datasourcePreview)))
+	h.mux.HandleFunc("POST /api/v1/datasource/parseExcel", h.bounded(h.auth(h.parseExcel)))
+	h.mux.HandleFunc("POST /api/v1/datasource/importToDb", h.bounded(h.auth(h.importToDb)))
+	h.mux.HandleFunc("POST /api/v1/agentsql/datasource/claim-import", h.bounded(h.auth(h.claimNativeFileDatasource)))
+	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.auth(h.recommendedProblems))
+	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.auth(h.recommendedBase))
+	h.mux.HandleFunc("POST /api/v1/recommended_problem/save_recommended_problem", h.auth(h.legacySaveRecommendations))
+	h.mux.HandleFunc("GET /api/v1/agentsql/recommendations/{id}", h.auth(h.nativeRecommendationRead))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/recommendations/{id}", h.auth(h.nativeRecommendationSave))
+	h.mux.HandleFunc("GET /api/v1/system/terminology/page/{page}/{size}", h.auth(h.terminologyPage))
+	h.mux.HandleFunc("GET /api/v1/system/terminology/template", h.auth(h.terminologyTemplate))
+	h.mux.HandleFunc("GET /api/v1/system/terminology/export", h.auth(h.terminologyExport))
+	h.mux.HandleFunc("POST /api/v1/system/terminology/uploadExcel", h.bounded(h.auth(h.terminologyUpload)))
+	h.mux.HandleFunc("PUT /api/v1/system/terminology", h.auth(h.saveTerminology))
+	h.mux.HandleFunc("DELETE /api/v1/system/terminology", h.auth(h.deleteTerminologies))
+	h.mux.HandleFunc("GET /api/v1/system/data-training/page/{page}/{size}", h.auth(h.examplePage))
+	h.mux.HandleFunc("GET /api/v1/agentsql/terms", h.auth(h.nativeTerminologies))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/terms", h.auth(h.nativeSaveTerminology))
+	h.mux.HandleFunc("DELETE /api/v1/agentsql/terms/{id}", h.auth(h.nativeDeleteTerminology))
+	h.mux.HandleFunc("POST /api/v1/agentsql/terms/{id}/enabled", h.auth(h.nativeEnableTerminology))
+	h.mux.HandleFunc("GET /api/v1/agentsql/examples", h.auth(h.nativeExamples))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/examples", h.auth(h.nativeSaveExample))
+	h.mux.HandleFunc("DELETE /api/v1/agentsql/examples/{id}", h.auth(h.nativeDeleteExample))
+	h.mux.HandleFunc("POST /api/v1/agentsql/examples/{id}/enabled", h.auth(h.nativeEnableExample))
+	h.mux.HandleFunc("GET /api/v1/system/data-training/template", h.auth(h.exampleTemplate))
+	h.mux.HandleFunc("GET /api/v1/system/data-training/export", h.auth(h.exampleExport))
+	h.mux.HandleFunc("POST /api/v1/system/data-training/uploadExcel", h.bounded(h.auth(h.exampleUpload)))
+	h.mux.HandleFunc("POST /api/v1/system/download-fail-info", h.bounded(h.auth(h.downloadSemanticError)))
+	h.mux.HandleFunc("PUT /api/v1/system/data-training", h.auth(h.saveExample))
+	h.mux.HandleFunc("DELETE /api/v1/system/data-training", h.auth(h.deleteExamples))
 	h.mux.HandleFunc("GET /api/v1/chat/list", h.auth(h.chats))
 	h.mux.HandleFunc("POST /api/v1/chat/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/question", h.bounded(h.auth(h.question)))
 	h.mux.HandleFunc("POST /api/v1/chat/rename", h.auth(h.rename))
-	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.bounded(h.auth(h.recordData)))
-	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data_live", h.bounded(h.auth(h.recordData)))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.boundedHistory(h.recordData))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data_live", h.boundedHistory(h.recordData))
+	h.mux.HandleFunc("GET /api/v1/agentsql/record/{id}/export.csv", h.boundedHistory(h.exportCSV))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/excel/export/{chatID}", h.boundedHistory(h.exportSQLBotWorkbook))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/usage", h.auth(h.recordUsage))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/log", h.auth(h.recordUsage))
+	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
-	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.bounded(h.auth(h.read)))
+	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
@@ -62,10 +126,56 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	return h, nil
 }
 
+func (h *Handler) publicLoginKey(w http.ResponseWriter, _ *http.Request) {
+	if h.service.Identity.privateKey == nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	der, err := x509.MarshalPKIXPublicKey(&h.service.Identity.privateKey.PublicKey)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	publicKey := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	okay(w, map[string]any{"id": 1, "public_key": publicKey, "salt": h.keySalt,
+		"create_time": h.keySince, "update_time": h.keySince})
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Enable routes overlap the paged list templates in ServeMux. Parse the
+	// literal middle segment before the generic mux gets a chance to dispatch.
+	if r.Method == http.MethodGet {
+		for _, route := range []struct {
+			prefix  string
+			handler authorizedHandler
+		}{{"/api/v1/system/terminology/", h.enableTerminology}, {"/api/v1/system/data-training/", h.enableExample}} {
+			if !strings.HasPrefix(r.URL.Path, route.prefix) {
+				continue
+			}
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, route.prefix), "/")
+			if len(parts) == 3 && parts[1] == "enable" {
+				r.SetPathValue("id", parts[0])
+				r.SetPathValue("enabled", parts[2])
+				h.auth(route.handler)(w, r)
+				return
+			}
+		}
+	}
+	// This fixed-prefix route overlaps /chat/{id}/with_data in ServeMux's
+	// wildcard precedence rules, so dispatch it before the general chat mux.
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/chat/recent_questions/") {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/chat/recent_questions/")
+		if !ID(id).Valid() {
+			http.NotFound(w, r)
+			return
+		}
+		r.SetPathValue("id", id)
+		h.auth(h.recentQuestions)(w, r)
+		return
+	}
 	// No permissive CORS or cookie-based authority. Future embedded origins use
 	// explicit application policies; the ordinary Q&A API needs a bearer header.
 	h.mux.ServeHTTP(w, r)
@@ -92,6 +202,39 @@ func (h *Handler) bounded(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// The original SQLBot page loads several historical result cards at once.
+// Admit only authenticated requests to a bounded queue, then use the same
+// query slots as new questions. Every queued request has a four-minute total
+// deadline and must still have a live session before it reaches the gateway.
+func (h *Handler) boundedHistory(next authorizedHandler) http.HandlerFunc {
+	return h.auth(func(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+		defer cancel()
+		select {
+		case h.readQueue <- struct{}{}:
+			defer func() { <-h.readQueue }()
+		default:
+			writeJSON(w, http.StatusTooManyRequests, "Too many historical data requests")
+			return
+		}
+		select {
+		case h.slots <- struct{}{}:
+			defer func() { <-h.slots }()
+		case <-ctx.Done():
+			writeJSON(w, http.StatusTooManyRequests, "Historical data request timed out")
+			return
+		}
+		if err := h.currentIdentity(ctx, p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		deadline, _ := ctx.Deadline()
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline.Add(5 * time.Second))
+		defer func() { _ = http.NewResponseController(w).SetWriteDeadline(time.Time{}) }()
+		next(w, r.WithContext(ctx), p, token)
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -105,6 +248,8 @@ func failure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
 		status, message = 401, "Not authenticated"
+	case errors.Is(err, ErrInvalidSemantic):
+		status, message = 422, "Invalid semantic metadata"
 	case errors.Is(err, ErrNotFound):
 		status, message = 404, "Resource not found"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):
@@ -235,6 +380,23 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 	}
 	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
 }
+
+func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Principal, _ string) {
+	result := make([]map[string]any, 0, len(p.User.Memberships))
+	for _, membership := range p.User.Memberships {
+		id, err := strconv.ParseInt(string(membership.Workspace), 10, 64)
+		if err != nil || id < 1 || id > maxSQLBotBrowserID {
+			failure(w, ErrUnavailable)
+			return
+		}
+		name := membership.Name
+		if name == "" {
+			name = "Workspace " + string(membership.Workspace)
+		}
+		result = append(result, map[string]any{"id": id, "name": name})
+	}
+	okay(w, result)
+}
 func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	items, err := h.service.Store.list(r.Context(), "binding", string(p.Workspace), string(p.User.ID))
 	if err != nil {
@@ -248,9 +410,78 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			failure(w, ErrUnavailable)
 			return
 		}
-		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": b.Dialect})
+		if b.Type == "excel" {
+			item, err := legacyExcelDatasource(b)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			result = append(result, item)
+			continue
+		}
+		kind := b.Type
+		if kind == "" {
+			kind = b.Dialect
+		}
+		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind,
+			"description": b.Description, "configuration": b.Configuration, "status": "Success"})
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	okay(w, result)
+}
+
+func (h *Handler) recommendedProblems(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	config, err := h.service.Recommendations(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	datasourceID, err := strconv.ParseInt(string(config.Datasource), 10, 64)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	items := make([]map[string]any, 0, len(config.Questions))
+	for _, item := range config.Questions {
+		id, err := strconv.ParseInt(string(item.ID), 10, 64)
+		if err != nil {
+			failure(w, ErrUnavailable)
+			return
+		}
+		items = append(items, map[string]any{"id": id, "datasource_id": datasourceID, "question": item.Question, "remark": item.Remark, "sort": item.Sort, "create_time": nil, "create_by": nil})
+	}
+	okay(w, items)
+}
+
+func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	config, err := h.service.Recommendations(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	items := make([]string, 0, len(config.Questions))
+	for _, item := range config.Questions {
+		items = append(items, item.Question)
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	datasourceID, err := strconv.ParseInt(string(config.Datasource), 10, 64)
+	if err != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	okay(w, map[string]any{"datasource_id": datasourceID, "recommended_config": config.Mode, "questions": string(encoded)})
 }
 func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	chats, err := h.service.Chats(r.Context(), p)
@@ -259,6 +490,15 @@ func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ s
 		return
 	}
 	okay(w, chats)
+}
+
+func (h *Handler) recentQuestions(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	questions, err := h.service.RecentQuestions(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, questions)
 }
 
 func (h *Handler) recordData(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -296,7 +536,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, p Principal, tok
 		failure(w, err)
 		return
 	}
-	okay(w, chat)
+	okay(w, sqlbotChatView(chat))
 }
 func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	id := ID(r.PathValue("id"))
@@ -313,7 +553,7 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, toke
 		failure(w, err)
 		return
 	}
-	okay(w, chat)
+	okay(w, sqlbotChatView(chat))
 }
 func (h *Handler) rename(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	var input struct {
@@ -393,6 +633,11 @@ func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, 
 	}
 	if err := event(map[string]any{"type": "sql", "content": record.SQL}); err != nil {
 		return
+	}
+	if record.Chart != "" {
+		if err := event(map[string]any{"type": "chart", "content": record.Chart}); err != nil {
+			return
+		}
 	}
 	if err := event(map[string]any{"type": "sql-data", "content": "execute-success"}); err != nil {
 		return

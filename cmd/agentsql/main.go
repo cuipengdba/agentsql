@@ -190,6 +190,10 @@ func newServeCommand(logger zerolog.Logger) *cobra.Command {
 				return errors.Join(err, runtime.Close())
 			}
 			adminDeps.RBAC = rbac.NewService(runtime.Store.RBAC())
+			adminDeps.ManagedFiles, err = runtime.ConfigureManagedFiles(ctx, loaded.ManagedFiles)
+			if err != nil {
+				return errors.Join(fmt.Errorf("configure managed file imports: %w", err), runtime.Close())
+			}
 			var httpOptions []mcpserver.HTTPOption
 			httpOptions = append(httpOptions, mcpserver.WithSQLBotDelegation(
 				adminapi.NewSQLBotDelegationVerifier(adminDeps.TokenKey, runtime.Store, adminDeps.RBAC),

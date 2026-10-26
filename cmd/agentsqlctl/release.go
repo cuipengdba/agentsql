@@ -21,7 +21,7 @@ func newReleaseCommand() *cobra.Command {
 	}
 	verify.Flags().StringVar(&directory, "directory", "", "local, immutable directory containing exactly 15 release assets")
 	verify.Flags().StringVar(&publicKey, "public-key", "", "independently trusted release public-key JSON outside the asset directory")
-	verify.Flags().StringVar(&version, "version", "", "expected version, for example v4.1.0 (required; prevents accidental downgrade)")
+	verify.Flags().StringVar(&version, "version", "", "expected version, for example v4.2.0 (required; prevents accidental downgrade)")
 	for _, name := range []string{"directory", "public-key", "version"} {
 		_ = verify.MarkFlagRequired(name)
 	}

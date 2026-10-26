@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,8 +41,10 @@ type Record struct {
 	FinishedAt  *time.Time `json:"finish_time"`
 	SQL         string     `json:"sql"`
 	SQLAnswer   string     `json:"sql_answer"`
+	Chart       string     `json:"chart,omitempty"`
 	Data        *QueryData `json:"data,omitempty"`
 	Finish      bool       `json:"finish"`
+	FirstChat   bool       `json:"first_chat,omitempty"`
 	Error       string     `json:"error"`
 	ErrorStage  string     `json:"error_stage,omitempty"`
 	TotalTokens int        `json:"total_tokens"`
@@ -49,10 +52,11 @@ type Record struct {
 }
 
 type Service struct {
-	Store    *Store
-	Identity *Identity
-	Gateway  Gateway
-	Model    Generator
+	Store                 *Store
+	Identity              *Identity
+	Gateway               Gateway
+	Model                 Generator
+	ManagedFileDatasource ID
 }
 
 func newID() (ID, error) {
@@ -78,6 +82,26 @@ func recordKey(p Principal, id ID) objectKey {
 	return objectKey{"record-index", string(p.Workspace), string(p.User.ID), string(id)}
 }
 
+// A table is the conservative visualization of an authorized query result.
+// Its field labels come from the gateway response; rows never enter this
+// persistent chart description.
+func tableChartConfig(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	columns := make([]map[string]string, 0, len(fields))
+	for _, field := range fields {
+		columns = append(columns, map[string]string{"name": field, "value": field})
+	}
+	raw, err := json.Marshal(map[string]any{
+		"type": "table", "title": "", "columns": columns, "axis": map[string]any{},
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 func (service *Service) Record(ctx context.Context, p Principal, id ID, withData bool) (Record, error) {
 	if err := service.live(ctx, p); err != nil {
 		return Record{}, err
@@ -94,12 +118,18 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 		if record.ID == id {
 			record.Data = nil
 			if withData && record.Finish && record.Error == "" {
-				binding, err := service.binding(ctx, p, chat.Datasource)
+				binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 				if err != nil {
 					return Record{}, err
 				}
-				data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
+				data, err := service.query(ctx, p, binding, record.SQL)
 				if err != nil {
+					return Record{}, err
+				}
+				if data.AuditID <= 0 {
+					return Record{}, ErrGateway
+				}
+				if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
 					return Record{}, err
 				}
 				record.Data = &data
@@ -122,28 +152,51 @@ func (service *Service) live(ctx context.Context, p Principal) error {
 }
 
 func (service *Service) binding(ctx context.Context, p Principal, id ID) (Binding, error) {
+	binding, _, _, err := service.bindingSnapshot(ctx, p, id)
+	return binding, err
+}
+
+func (service *Service) bindingSnapshot(ctx context.Context, p Principal, id ID) (Binding, int64, [32]byte, error) {
 	if err := service.live(ctx, p); err != nil {
-		return Binding{}, err
+		return Binding{}, 0, [32]byte{}, err
 	}
 	var binding Binding
-	if _, err := service.Store.get(ctx, bindingKey(p, id), &binding); err != nil {
-		return Binding{}, err
+	revision, digest, err := service.Store.getWithDigest(ctx, bindingKey(p, id), &binding)
+	if err != nil {
+		return Binding{}, 0, [32]byte{}, err
 	}
 	if binding.User != p.User.ID || binding.Workspace != p.Workspace || binding.Datasource != id {
-		return Binding{}, ErrUnavailable
+		return Binding{}, 0, [32]byte{}, ErrUnavailable
 	}
-	return binding, nil
+	return binding, revision, digest, nil
+}
+
+// A result may be released only while the encrypted local binding used for
+// its schema/query still matches the current object and revision. This also
+// catches credential or datasource replacement at the same external ID.
+func (service *Service) bindingUnchanged(ctx context.Context, p Principal, binding Binding, revision int64, digest [32]byte) error {
+	current, currentRevision, currentDigest, err := service.bindingSnapshot(ctx, p, binding.Datasource)
+	if err != nil {
+		return err
+	}
+	if currentRevision != revision || currentDigest != digest || current != binding {
+		return ErrGateway
+	}
+	return nil
 }
 
 func (service *Service) Start(ctx context.Context, p Principal, datasource ID, question string, origin int) (Chat, error) {
 	if len(question) > 16000 || origin != 0 {
 		return Chat{}, errors.New("unsupported chat request")
 	}
-	binding, err := service.binding(ctx, p, datasource)
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
 	if err != nil {
 		return Chat{}, err
 	}
-	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+	if _, err := service.schema(ctx, p, binding); err != nil {
+		return Chat{}, err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {
@@ -197,11 +250,67 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
 			return nil, ErrUnavailable
 		}
-		chat.Records = nil
+		chat.Records = []Record{}
 		chat.LeaseUntil = time.Time{}
 		chats = append(chats, chat)
 	}
 	return chats, nil
+}
+
+// RecentQuestions returns only this user's questions for a currently bound
+// datasource. Historical result rows never enter this suggestion list.
+func (service *Service) RecentQuestions(ctx context.Context, p Principal, datasource ID) ([]string, error) {
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
+		return nil, err
+	}
+	items, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
+	if err != nil {
+		return nil, err
+	}
+	type recent struct {
+		question string
+		created  time.Time
+	}
+	unique := map[string]time.Time{}
+	for _, raw := range items {
+		var chat Chat
+		if json.Unmarshal(raw, &chat) != nil || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
+			return nil, ErrUnavailable
+		}
+		if chat.Datasource != datasource {
+			continue
+		}
+		for _, record := range chat.Records {
+			if record.Datasource != datasource || strings.TrimSpace(record.Question) == "" {
+				continue
+			}
+			if previous, found := unique[record.Question]; !found || record.Created.After(previous) {
+				unique[record.Question] = record.Created
+			}
+		}
+	}
+	ordered := make([]recent, 0, len(unique))
+	for question, created := range unique {
+		ordered = append(ordered, recent{question, created})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].created.Equal(ordered[j].created) {
+			return ordered[i].question < ordered[j].question
+		}
+		return ordered[i].created.After(ordered[j].created)
+	})
+	if len(ordered) > 10 {
+		ordered = ordered[:10]
+	}
+	questions := make([]string, 0, len(ordered))
+	for _, item := range ordered {
+		questions = append(questions, item.question)
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return nil, err
+	}
+	return questions, nil
 }
 
 // ReadChat never replays persisted rows under stale permissions. Until gateway
@@ -212,23 +321,29 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	binding, err := service.binding(ctx, p, chat.Datasource)
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
 		return Chat{}, err
 	}
-	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+	if _, err := service.schema(ctx, p, binding); err != nil {
 		return Chat{}, err
 	}
 	for i := range chat.Records {
 		record := &chat.Records[i]
 		record.Data = nil
 		if withData && record.Finish && record.Error == "" && record.SQL != "" {
-			data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
+			data, err := service.query(ctx, p, binding, record.SQL)
 			if err != nil {
 				return Chat{}, err
 			}
+			if data.AuditID <= 0 {
+				return Chat{}, ErrGateway
+			}
 			record.Data = &data
 		}
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {
 		return Chat{}, err
@@ -287,7 +402,27 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if len(chat.Records) >= 200 {
 		return Record{}, errors.New("conversation record limit reached")
 	}
-	binding, err := service.binding(ctx, p, chat.Datasource)
+	// The chat is scoped to the authenticated principal. Send only successful
+	// questions and SQL from this same datasource; never send result rows or
+	// failed/interrupted attempts back to the model.
+	history := make([]TurnContext, 0, 3)
+	historyBytes := 0
+	for i := len(chat.Records) - 1; i >= 0 && len(history) < 3; i-- {
+		prior := chat.Records[i]
+		if !prior.Finish || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
+			continue
+		}
+		length := len(prior.Question) + len(prior.SQL)
+		if length > 4000 || historyBytes+length > 10000 {
+			continue
+		}
+		history = append(history, TurnContext{Question: prior.Question, SQL: prior.SQL})
+		historyBytes += length
+	}
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
 		return Record{}, err
 	}
@@ -327,15 +462,38 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 				return err
 			}
 		}
-		columns, err := service.Gateway.Schema(ctx, p, binding)
+		columns, err := service.schema(ctx, p, binding)
 		if err != nil {
+			return err
+		}
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
 		}
 		if err := check(ctx); err != nil {
 			return err
 		}
+		hints, err := service.Vocabulary(ctx, p, chat.Datasource, question)
+		if err != nil {
+			return err
+		}
+		var examples []ExampleHint
+		if _, ok := service.Model.(GroundedGenerator); ok {
+			examples, err = service.SafeExamples(ctx, p, chat.Datasource, binding.Dialect, columns, question)
+			if err != nil {
+				return err
+			}
+		}
 		stage = "model"
-		generated, err := service.Model.Generate(ctx, model, binding.Dialect, question, columns)
+		var generated SQLGeneration
+		if grounded, ok := service.Model.(GroundedGenerator); ok {
+			generated, err = grounded.GenerateWithGrounding(ctx, model, binding.Dialect, question, columns, history, hints, examples)
+		} else if semantic, ok := service.Model.(SemanticGenerator); ok {
+			generated, err = semantic.GenerateWithSemantics(ctx, model, binding.Dialect, question, columns, history, hints)
+		} else if contextual, ok := service.Model.(ContextualGenerator); ok {
+			generated, err = contextual.GenerateWithHistory(ctx, model, binding.Dialect, question, columns, history)
+		} else {
+			generated, err = service.Model.Generate(ctx, model, binding.Dialect, question, columns)
+		}
 		if err != nil {
 			return err
 		}
@@ -343,8 +501,11 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
 		stage = "controlled_query"
-		data, err := service.Gateway.Query(ctx, p, binding, generated.SQL)
+		data, err := service.query(ctx, p, binding, generated.SQL)
 		if err != nil {
 			return err
 		}
@@ -354,7 +515,11 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
 		record.Data = &data
+		record.Chart = tableChartConfig(data.Fields)
 		return nil
 	}
 	runErr := run()
@@ -368,6 +533,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		record.ErrorStage = stage
 		record.SQL = ""
 		record.SQLAnswer = ""
+		record.Chart = ""
 	}
 	chat.Records[len(chat.Records)-1] = record
 	chat.LeaseUntil = time.Time{}
@@ -382,6 +548,9 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		return record, runErr
 	}
 	if err := check(ctx); err != nil {
+		return Record{}, err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 		return Record{}, err
 	}
 	return record, nil

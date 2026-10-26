@@ -277,7 +277,7 @@ func (parser *postgresClosedParser) parseClosedDMLExpression(value any, depth in
 	if err != nil {
 		return nil, err
 	}
-	if postgresClosedContainsSubquery(expression) {
+	if postgresClosedDMLUnsafeExpression(expression) {
 		return nil, postgresClosedFailure(PostgresClosedModeRequired)
 	}
 	return expression, nil
@@ -326,15 +326,17 @@ func postgresClosedDMLLiteral(value *PostgresClosedExpr) bool {
 	}
 }
 
-func postgresClosedContainsSubquery(value *PostgresClosedExpr) bool {
+func postgresClosedDMLUnsafeExpression(value *PostgresClosedExpr) bool {
 	if value == nil {
 		return false
 	}
-	if value.Kind == PostgresClosedSubquery || value.Subquery != nil {
+	// DML literals are admitted only by postgresClosedDMLConstant above.
+	// Keep nested strings closed here even as SELECT gains a text comparison.
+	if value.Kind == PostgresClosedSubquery || value.Subquery != nil || value.Kind == PostgresClosedString {
 		return true
 	}
 	for _, argument := range value.Args {
-		if postgresClosedContainsSubquery(argument) {
+		if postgresClosedDMLUnsafeExpression(argument) {
 			return true
 		}
 	}

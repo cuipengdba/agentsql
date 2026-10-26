@@ -93,12 +93,37 @@ func TestResolverRejectsInvalidInputs(t *testing.T) {
 		{name: "column with empty identifier", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.orders", Columns: stringPointer("id,,total"), Action: "allow"}}},
 		{name: "column wildcard object", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.*", Columns: &columns, Action: "allow"}}},
 		{name: "column deny unsupported", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "deny"}}},
+		{name: "table row filter cannot be silently ignored", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "table", ObjectName: "public.orders", RowFilter: stringPointer("region = 'west'"), Action: "allow"}}},
+		{name: "column row filter cannot be silently ignored", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.orders", Columns: &columns, RowFilter: stringPointer(""), Action: "allow"}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := test.resolver.Resolve(test.policies, test.level)
 			require.Error(t, err)
 		})
+	}
+}
+
+func TestResolverForBoundSelectAdmitsOnlyExactSafeRowRules(t *testing.T) {
+	filter := "id = 1"
+	base := model.Policy{ObjectType: "table", ObjectName: "public.orders", RowFilter: &filter, Action: "allow"}
+	_, err := NewResolver().Resolve([]model.Policy{base}, "readonly")
+	require.Error(t, err, "the ordinary resolver must remain fail-closed")
+	decision, err := NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{base}, "readonly")
+	require.NoError(t, err)
+	require.Equal(t, []string{"public.orders"}, decision.AllowedTables)
+	for _, mutate := range []func(*model.Policy){
+		func(p *model.Policy) { p.ObjectName = "public.*" },
+		func(p *model.Policy) { p.Action = "deny" },
+		func(p *model.Policy) { p.ObjectType = "column" },
+		func(p *model.Policy) { p.RelationBindingID = &filter },
+		func(p *model.Policy) { p.LegacyUnrepresentable = true },
+		func(p *model.Policy) { bad := "id = 1 OR id = 2"; p.RowFilter = &bad },
+	} {
+		bad := base
+		mutate(&bad)
+		_, err := NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{bad}, "readonly")
+		require.Error(t, err)
 	}
 }
 

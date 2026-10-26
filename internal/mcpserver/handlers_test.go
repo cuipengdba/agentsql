@@ -19,6 +19,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/metrics"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
+	"github.com/cuipengdba/agentsql/internal/policy"
 	"github.com/cuipengdba/agentsql/internal/rules"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
@@ -98,6 +99,78 @@ func TestHandlersListSchemaFiltersColumnsAndRejectsIdentifiers(t *testing.T) {
 	require.Equal(t, "deny", response.Decision)
 }
 
+func TestListSchemaWithRowRuleFailsClosedUntilBoundColumnMetadata(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	filter := "id = 1"
+	_, err := fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+		ID: "schema-row-rule", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "table", ObjectName: "public.customers", RowFilter: &filter, Action: "allow",
+	})
+	require.NoError(t, err)
+	before := fixture.executor.snapshot()
+	response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "public.customers")
+	require.NotEqual(t, "allow", response.Decision)
+	require.Nil(t, response.Data)
+	require.Equal(t, before, fixture.executor.snapshot())
+}
+
+func TestRowFilteredSchemaRequiresAuditedB2ProofForEachOutput(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	ctx := context.Background()
+	filter := "id = 1"
+	_, err := fixture.runtime.Store.Policies().Create(ctx, model.Policy{
+		ID: "schema-row-proof", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "table", ObjectName: "public.customers", RowFilter: &filter, Action: "allow",
+	})
+	require.NoError(t, err)
+	stored, err := fixture.runtime.Store.Policies().ListByAgentAndDatasource(ctx, fixture.agent.ID, "ds-allowed")
+	require.NoError(t, err)
+	datasource := model.Datasource{ID: "ds-allowed", DBType: "postgres"}
+	columns := []policy.SchemaColumn{
+		{Schema: "public", Table: "customers", Column: "id"},
+		{Schema: "public", Table: "customers", Column: "secret"},
+		{Schema: "public", Table: "customers", Column: `odd"name`},
+		{Schema: "public", Table: "other", Column: "unrelated"},
+	}
+	var probes []string
+	proved, err := fixture.handlers.proveRowFilteredSchema(ctx, datasource, columns, stored,
+		func(_ context.Context, sql string) ToolResponse {
+			probes = append(probes, sql)
+			if strings.Contains(sql, `"secret"`) {
+				return ToolResponse{Decision: "deny", ErrorCode: string(executor.ReasonColumnGrantMissing)}
+			}
+			name := "id"
+			if strings.Contains(sql, `"odd""name"`) {
+				name = `odd"name`
+			}
+			return ToolResponse{Decision: "allow", Data: pipelineData{
+				AuditID: 1, Result: &model.QueryResult{Columns: []string{name}},
+			}}
+		})
+	require.NoError(t, err)
+	require.Equal(t, []policy.SchemaColumn{columns[0], columns[2]}, proved)
+	require.Len(t, probes, 3)
+	require.Contains(t, probes[0], `WHERE "id" IS NULL AND "id" IS NOT NULL LIMIT 1`)
+	require.Contains(t, probes[2], `"odd""name"`)
+	for _, bad := range []ToolResponse{
+		{Decision: "allow", Data: pipelineData{Result: &model.QueryResult{}}},
+		{Decision: "allow", Data: pipelineData{AuditID: 1, Result: &model.QueryResult{Columns: []string{"id"}, Rows: [][]string{{"1"}}}}},
+		{Decision: "error"},
+	} {
+		result, proofErr := fixture.handlers.proveRowFilteredSchema(ctx, datasource, columns[:1], stored,
+			func(context.Context, string) ToolResponse { return bad })
+		require.Error(t, proofErr)
+		require.Nil(t, result)
+	}
+	result, proofErr := fixture.handlers.proveRowFilteredSchema(ctx, datasource, columns[:1], stored,
+		func(context.Context, string) ToolResponse {
+			require.NoError(t, fixture.runtime.Store.Policies().Delete(ctx, "schema-row-proof"))
+			return ToolResponse{Decision: "allow", Data: pipelineData{AuditID: 1, Result: &model.QueryResult{Columns: []string{"id"}}}}
+		})
+	require.Error(t, proofErr)
+	require.Nil(t, result)
+}
+
 func TestListSchemaTypesOnlyForAuthorizedColumns(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	allowed := "id"
@@ -119,6 +192,27 @@ func TestListSchemaTypesOnlyForAuthorizedColumns(t *testing.T) {
 	encoded, err := json.Marshal(response)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "private_enum")
+}
+
+func TestManagedFileSchemaStaysHiddenWithoutPublishedOwner(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	name := "agentsql_file_11111111111111111111111111111111"
+	_, err := fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+		ID: "managed-table-policy", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "table", ObjectName: "agentsql_files." + name, Action: "allow",
+	})
+	require.NoError(t, err)
+	fixture.handlers.schemaFor = func(context.Context, model.Datasource, []executor.TableRef) ([]executor.SchemaColumn, error) {
+		return []executor.SchemaColumn{{Schema: "agentsql_files", Table: name, Column: "amount", DataType: "bigint"}}, nil
+	}
+	response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "agentsql_files."+name)
+	require.Equal(t, "allow", response.Decision)
+	require.Empty(t, response.Data.([]publicSchemaColumn), "Agent policy alone cannot reveal a managed table")
+	binding := store.SQLBotBinding{ID: "missing-binding", TenantID: store.DefaultTenantID, AgentSQLUserID: "human", DatasourceID: "ds-allowed", SchemaName: "agentsql_files"}
+	ctx := context.WithValue(context.Background(), sqlbotScopeContextKey{}, binding)
+	response = fixture.handlers.listSchema(ctx, "ds-allowed", "agentsql_files."+name)
+	require.Equal(t, "allow", response.Decision)
+	require.Empty(t, response.Data.([]publicSchemaColumn), "unpublished table is hidden even with connector scope")
 }
 
 func TestHandlersToolStatementGates(t *testing.T) {

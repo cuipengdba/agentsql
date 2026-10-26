@@ -24,6 +24,7 @@ const (
 	ReasonStatementDenied       Reason = "AUTH_STATEMENT_CLASS_DENIED"
 	ReasonDatasourceUnsupported Reason = "AUTH_DATASOURCE_UNSUPPORTED"
 	ReasonRelationDenied        Reason = "AUTH_RELATION_DENIED"
+	ReasonRowFilterUnsupported  Reason = "AUTH_ROW_FILTER_UNSUPPORTED"
 	ReasonRelationGrantMissing  Reason = "AUTH_RELATION_GRANT_MISSING"
 	ReasonIdentityUnproven      Reason = "AUTH_IDENTITY_UNPROVEN"
 	ReasonColumnGrantMissing    Reason = "AUTH_COLUMN_GRANT_MISSING"
@@ -103,12 +104,16 @@ type Input struct {
 	BinderDigest          string
 	CatalogDigest         string
 	ControlRevisionDigest string
-	Relations             []RelationIdentity
-	Uses                  []BoundColumnUse
-	Policies              []model.Policy
-	Masks                 []MaskCandidate
-	Nonce                 []byte
-	Now                   time.Time
+	// These are set only by AuthorizedSelect after compiling the current
+	// snapshot's row policies into the exact SQL submitted to B2.
+	AppliedRowFilterDigest   string
+	AppliedRowFilterRelation string
+	Relations                []RelationIdentity
+	Uses                     []BoundColumnUse
+	Policies                 []model.Policy
+	Masks                    []MaskCandidate
+	Nonce                    []byte
+	Now                      time.Time
 }
 
 type OutputMask struct {
@@ -183,6 +188,26 @@ func Authorize(input Input) ProtectionPlan {
 				return deny(ReasonRelationDenied)
 			}
 		}
+	}
+	rowFilterMatched := false
+	for _, relation := range input.Relations {
+		for _, policy := range input.Policies {
+			if policyApplies(policy, input) && policy.RowFilter != nil && relationPolicyMatches(policy, relation) {
+				if policy.ObjectType != "table" || policy.Action != "allow" ||
+					policy.ObjectName != relation.Schema+"."+relation.Name ||
+					len(input.Relations) != 1 || relation.ViewPath != "" ||
+					input.AppliedRowFilterRelation != policy.ObjectName || len(input.AppliedRowFilterDigest) != 64 {
+					return deny(ReasonRowFilterUnsupported)
+				}
+				if _, err := hex.DecodeString(input.AppliedRowFilterDigest); err != nil {
+					return deny(ReasonRowFilterUnsupported)
+				}
+				rowFilterMatched = true
+			}
+		}
+	}
+	if input.AppliedRowFilterDigest != "" && !rowFilterMatched {
+		return deny(ReasonRowFilterUnsupported)
 	}
 	for _, relation := range input.Relations {
 		allowed := false
@@ -411,6 +436,8 @@ func digestInput(input Input, includeUses, includeMasks bool) [32]byte {
 	writeString(h, input.BinderDigest)
 	writeString(h, input.CatalogDigest)
 	writeString(h, input.ControlRevisionDigest)
+	writeString(h, input.AppliedRowFilterDigest)
+	writeString(h, input.AppliedRowFilterRelation)
 	relations := append([]RelationIdentity(nil), input.Relations...)
 	sort.Slice(relations, func(i, j int) bool { return relationKey(relations[i]) < relationKey(relations[j]) })
 	for _, relation := range relations {

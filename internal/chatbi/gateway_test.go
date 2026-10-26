@@ -79,3 +79,33 @@ func TestControlledGatewayUsesAuthenticatedIdentityAndDurableAudit(t *testing.T)
 		})
 	}
 }
+
+func TestGatewayResolveUsesManagedChildNameBehindExcelDisplayName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/integrations/sqlbot/resolve" ||
+			r.Header.Get("Authorization") != "Bearer child-connector" {
+			t.Error("child connector identity was not used")
+			http.Error(w, "invalid", http.StatusForbidden)
+			return
+		}
+		var body map[string]string
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body["datasource_name"] != "agentsql-import-33333333333333333333333333333333" ||
+			body["binding_id"] != "child-binding" {
+			t.Error("display name was confused with child binding identity")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": resolvedBinding{
+			ID: "child-binding", Revision: 1, Agent: "agent-1", Datasource: "read-1", Schema: "agentsql_files",
+			Dialect: "pg", Token: "SQB1.synthetic", Expires: time.Now().Add(time.Minute),
+		}})
+	}))
+	defer server.Close()
+	gateway := &ControlledGateway{Endpoint: server.URL + "/mcp", AllowHTTP: true}
+	p := Principal{User: User{ID: "7"}, Workspace: "1"}
+	b := Binding{Datasource: "123", Workspace: "1", User: "7", Name: "Sales CSV", Type: "excel",
+		ResolveName: "agentsql-import-33333333333333333333333333333333", Dialect: "pg",
+		BindingID: "child-binding", ConnectorToken: "child-connector", AgentKey: "agent-secret"}
+	_, err := gateway.resolve(context.Background(), p, b)
+	if err != nil {
+		t.Fatalf("child binding could not resolve: %v", err)
+	}
+}

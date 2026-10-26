@@ -14,8 +14,8 @@ import (
 )
 
 // BindPostgresColumnPolicy enrolls a regular PostgreSQL table using the
-// closed binder. Discovery holds no control lock; the final catalog proof
-// retains the business relation lock through the metadata CAS and commit.
+// selected native or closed binder. Discovery holds no control lock; the
+// final catalog proof retains the business relation lock through commit.
 func (runtime *Runtime) BindPostgresColumnPolicy(ctx context.Context, policyID string, expectedRevision int64, rawSQL string) (model.Policy, error) {
 	if runtime == nil || runtime.Store == nil || runtime.business == nil || policyID == "" || expectedRevision <= 0 || strings.TrimSpace(rawSQL) == "" {
 		return model.Policy{}, errors.New("PostgreSQL column enrollment is unavailable or invalid")
@@ -77,9 +77,9 @@ func (runtime *Runtime) BindPostgresColumnPolicy(ctx context.Context, policyID s
 }
 
 func postgresColumnEnrollment(policy model.Policy, requested map[string]struct{}, enrollment executor.PostgresPolicyEnrollment, bindingID string) (store.RevalidatedColumnBinding, error) {
-	if enrollment.Mode != "CATALOG_CLOSED_V1" || enrollment.StatementClass != "SELECT" ||
+	if (enrollment.Mode != "CATALOG_CLOSED_V1" && enrollment.Mode != "NATIVE_C_V1") || enrollment.StatementClass != "SELECT" ||
 		len(enrollment.Relations) != 1 || len(enrollment.ColumnUses) == 0 || len(enrollment.WriteTargets) != 0 {
-		return store.RevalidatedColumnBinding{}, errors.New("PostgreSQL closed SELECT enrollment is required")
+		return store.RevalidatedColumnBinding{}, errors.New("PostgreSQL bound SELECT enrollment is required")
 	}
 	relation := enrollment.Relations[0]
 	if relation.DatabaseOID == 0 || relation.RelationOID == 0 || relation.Kind != 'r' ||

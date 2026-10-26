@@ -78,8 +78,15 @@ export function SQLBot() {
     const url = URL.createObjectURL(new Blob([exportText + "\n"], { type: "application/json" }));
     const link = document.createElement("a"); link.href = url; link.download = "agentsql-sqlbot-config.json"; link.click(); URL.revokeObjectURL(url);
   };
-  return <PageContainer title={tr("SQLBot 接入", "SQLBot integration")} subtitle={tr("将 SQLBot 工作空间与人员映射到本租户的只读 Agent 和 PostgreSQL/MySQL 数据源。", "Map SQLBot workspaces and users to this tenant's readonly Agents and PostgreSQL/MySQL datasources.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
+  return <PageContainer title={tr("AgentSQL 问数与 SQLBot", "AgentSQL Q&A and SQLBot")} subtitle={tr("原生问数与现有 SQLBot 安全网关是 AgentSQL 的两种使用方式。", "AgentSQL offers native Q&A and a security gateway for an existing SQLBot deployment.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Card title={tr("两种使用方式", "Two ways to use AgentSQL")} size="small">
+        <Space direction="vertical" size={8}>
+          <Text><Text strong>{tr("独立问数：", "Standalone Q&A: ")}</Text>{tr("AgentSQL 自己提供 Go 问数服务、Web 页面与兼容 API，查询仍通过受控网关。当前能力以已发布版本说明为准。", "AgentSQL provides its own Go Q&A service, Web page, and compatible API. Queries still pass through the controlled gateway. Refer to the released version for the currently available scope.")}</Text>
+          <Text><Text strong>{tr("SQLBot 安全网关：", "SQLBot security gateway: ")}</Text>{tr("保留现有 SQLBot 界面，通过下方映射让数据库访问由 AgentSQL 授权、受控执行并审计。", "Keep the existing SQLBot interface and use the mappings below so AgentSQL authorizes, controls, and audits database access.")}</Text>
+          <Text type="secondary">{tr("完整页面功能和现有业务零改动替换按 v4.5.0 验收矩阵逐项验证，通过前不作完成声明。", "Complete page functionality and zero-change replacement of existing applications are verified item by item against the v4.5.0 acceptance matrix before being claimed.")}</Text>
+        </Space>
+      </Card>
       <Alert showIcon type="warning" message={tr("仅信任受控的 SQLBot 服务器", "Trust only a controlled SQLBot server")} description={tr("连接凭据允许 SQLBot 服务器代表映射人员查询。请核对工作空间和人员 ID，使用专用只读 Agent；Agent Key 与连接凭据分别保存到服务器环境。禁用、修改或轮换映射后，旧人员令牌立即失效。", "The connector credential allows the SQLBot server to query for the mapped user. Verify workspace and user IDs, use a dedicated readonly Agent, and store the Agent Key and connector credential separately in the server environment. Disabling, editing or rotating a mapping invalidates its old user tokens.")} />
       <Card title={tr("工作空间与人员映射", "Workspace and user mappings")}>
         <Table<SQLBotBinding> rowKey="id" dataSource={bindings} loading={busy} scroll={{ x: 1000 }} pagination={{ pageSize: 10 }} columns={[

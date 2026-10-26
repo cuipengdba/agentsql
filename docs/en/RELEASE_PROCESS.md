@@ -2,7 +2,7 @@
 
 **Language:** [English](RELEASE_PROCESS.md) | [Simplified Chinese](../RELEASE_PROCESS.md)
 
-The current release candidate baseline is v4.1.0. Its scope and remaining gates are in the [acceptance record](v4.0.0-acceptance.md); distribution and public results will be recorded after formal release. Each maintenance version follows the [per-version delivery process](RELEASE_ROUTINE.md) for design, code, testing, upgrade recovery, CI, signed assets, GitHub Release, GHCR, website, and Demo.
+The current release candidate baseline is v4.2.0. Its scope and remaining gates are in the [acceptance record](v4.2.0-acceptance.md); distribution and public results will be recorded after formal release. Each maintenance version follows the [per-version delivery process](RELEASE_ROUTINE.md) for design, code, testing, upgrade recovery, CI, signed assets, GitHub Release, GHCR, website, and Demo.
 
 1. Check the scope of the previous official version and this version, and write design and acceptance use cases. The database supports declaration binding to specified versions, modes, operations and measured evidence.
 2. Complete the code, embedded web, documentation, official website and PDF in the isolated branch. Perform Go/Web, applicable safe negative sets, true integration, and upgrade recovery checks.

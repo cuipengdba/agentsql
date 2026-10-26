@@ -185,7 +185,8 @@ func assembleWithExecutorProvider(
 			publisher: events,
 		})
 	}
-	pipelineOptions := []pipeline.Option{pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo)}
+	pipelineOptions := []pipeline.Option{pipeline.WithObserver(metricsHub), pipeline.WithDemoConfig(cfg.Demo),
+		pipeline.WithManagedFileAccess(metadataStore.ManagedFileImports())}
 	var columnController *columnAuthorizationController
 	var b2Manager *b2Runtime
 	b2HandedOff := false

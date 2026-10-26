@@ -2,11 +2,11 @@
 
 **语言 / Language:** [简体中文](USER_GUIDE.md) | [English](en/USER_GUIDE.md)
 
-> 现行指南：适用于 v4.1.0 及兼容的 4.1.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
+> 现行指南：适用于 v4.2.0 及兼容的 4.2.x 维护版本。历史引入版本与验收记录保留原始事实；日常入口见[文档索引](README.md)。
 
-> 本文说明 AgentSQL v4.1.0 的功能与操作。安装或拉取 v4.1.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
+> 本文说明 AgentSQL v4.2.0 的功能与操作。安装或拉取 v4.2.0 前，先在 [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) 核对正式资产与签名，并确认对应 GHCR 镜像可以匿名拉取；源码仓库为 `github.com/cuipengdba/agentsql`。
 
-本手册按控制台主要菜单说明 v4.1.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v4.1.0 发布说明](release-notes-v4.0.0.md)和[验收记录](v4.0.0-acceptance.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
+本手册按控制台主要菜单说明 v4.2.0 的能力和操作。首次使用请先完成 [快速上手](GETTING_STARTED.md)；MCP 客户端配置见 [接入指南](INTEGRATIONS.md)；版本范围与验收状态见 [v4.2.0 发布说明](release-notes-v4.2.0.md)和[设计与验收记录](v4.2.0-design.md)；「设置与集成 → 通知设置」的 Webhook、Syslog 与安全边界见 [通知外发指南](NOTIFICATIONS.md)。
 
 控制台登录页和登录后右上角的语言按钮可在中文和英文之间切换，选择会保存在当前浏览器；`?lang=en` 或 `?lang=zh` 可指定首次打开语言。左侧菜单在有效视口高度不足时可以独立滚动，聚焦菜单后也可用键盘访问底部选项。语言切换仅改变界面文案，不修改 SQL、查询结果和审计记录。完整英文文档可通过文首语言链接访问；版本能力以对应验收记录为准。
 
@@ -308,7 +308,7 @@ v3.4.0 仅在指定 KingbaseES V9R1C10 PG 模式单实例验证了 PostgreSQL �
 
 ### `row_filter`
 
-`row_filter` 当前只会持久化和展示，决策引擎完全不使用它。它不是行级安全，本版本不要配置、不要宣传，也不能用它替代数据库 RLS 或安全视图。
+`row_filter` 尚未实现行级执行。当前候选版拒绝新增含该字段的策略；遇到旧数据中命中的行筛选策略，策略解析和 B2 列授权均失败关闭，不能按未筛选结果执行。它不是已支持的行级安全，不要配置、宣传或用它替代数据库 RLS 或安全视图。
 
 ### 临时只读授权的使用边界 `/task-read-grants`（v1.0.0）
 
@@ -846,7 +846,7 @@ SQLite → PostgreSQL 控制面迁移要点：停止旧服务写入；备份 SQL
 
 - 默认无授权即拒绝；必须显式创建 Agent × 数据源策略。
 - 缺 `reason`、用 `query` 发写语句、SQL 在工具层解析失败等前置拒绝发生在进入流水线之前，不保证每条失败都有审计。
-- 自定义规则只做配置记录，不进入执行引擎；`row_filter` 只持久化和展示，不参与决策。
+- 自定义规则只做配置记录，不进入执行引擎；`row_filter` 不执行，当前候选版拒绝新增并对命中的旧策略失败关闭。
 - 数据源没有 SSL mode、CA、客户端证书、连接超时或 DSN 附加参数字段。
 - R005 在普通生产动态阶段按 EXPLAIN 估算告警，并在通用执行与 PostgreSQL 列级授权路径实际触发 `row_limit` 截断时补充告警。
 - 审批不会自动执行 SQL；原 Agent 可凭未过期审批单号单次执行封存请求，执行时重新核验当前权限和规则。
@@ -871,10 +871,10 @@ agentsqlctl upgrade apply --manifest-url https://example.org/releases/manifest.j
 
 第二条命令要求备份目标是尚不存在的目录，并读取下载内容校验 SHA-256，但不会创建目录、备份文件、停止服务或安装程序。`--yes` 不能开启安装。清单及摘要须经独立可信渠道核对；详见 [在线升级安全边界](../SECURITY.md#在线升级安全边界--online-upgrade-security-boundary)。
 
-## v4.1.0 离线交付与诊断
+## v4.2.0 离线交付与诊断
 
 控制台「版本与升级」提供当前版本的离线验签命令和诊断导出命令。先用独立受信公钥验证 15 项正式资产，再安装；`support-bundle` 只导出固定 schema 检查结果和产品证据，拒绝覆盖已有文件。完整操作、返回码和跨版本恢复步骤见[交付指南](v4.0.0-delivery.md)。
 
-## v4.1.0 原生问数
+## v4.2.0 原生问数
 
-通过 `install.sh install --with-chatbi` 部署 Go 问数服务，配置工作空间模型与个人网关映射后，打开其独立入口。中英文界面展示 SQL、表格结果与持久审计编号。当前支持 PostgreSQL/MySQL 单轮问数；身份导入、离线安装、恢复和待完成的 SQLBot 兼容范围见[问数指南](CHATBI.md)。
+通过 `install.sh install --with-chatbi` 部署 Go 问数服务，配置工作空间模型与个人网关映射后，打开其独立入口。中英文界面展示 SQL、表格结果与持久审计编号；v4.2.0 候选支持最多三轮成功问数语境、术语与推荐问题、受控 CSV/XLSX 文件数据源和当前权限下的 CSV/XLSX 导出。原版 SQLBot 页面只在已记录的合成流程中对照通过。身份导入、离线安装、恢复和待完成的兼容范围见[问数指南](CHATBI.md)。

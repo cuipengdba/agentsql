@@ -85,7 +85,7 @@ export interface MenuRoute {
 }
 
 export const menuRoutes: MenuRoute[] = [
-  { key: "sqlbot", path: "/settings/sqlbot", label: "SQLBot 接入", labelEn: "SQLBot integration", icon: <RobotOutlined />, element: lazyElement(SQLBot), group: "settings", permissions: ["strategy.manage", "user.manage", "datasource.manage"] },
+  { key: "sqlbot", path: "/settings/sqlbot", label: "问数与 SQLBot", labelEn: "Q&A and SQLBot", icon: <RobotOutlined />, element: lazyElement(SQLBot), group: "settings", permissions: ["strategy.manage", "user.manage", "datasource.manage"] },
   { key: "upgrade", path: "/settings/upgrade", label: "版本与升级", labelEn: "Version & upgrade", icon: <CloudDownloadOutlined />, element: lazyElement(Upgrade), group: "settings" },
   { key: "overview", path: "/", label: "总览", labelEn: "Overview", icon: <DashboardOutlined />, element: lazyElement(Overview) },
   { key: "onboarding", path: "/onboarding", label: "接入向导", labelEn: "Setup guide", icon: <RocketOutlined />, element: lazyElement(Onboarding), permission: "datasource.manage" },

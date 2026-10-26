@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
@@ -165,10 +166,24 @@ func (parser *postgresClosedParser) parseSelect(value any, depth int) (*Postgres
 		return nil, postgresClosedFailure(PostgresClosedModeRequired)
 	}
 	for _, field := range []string{"larg", "rarg", "sortClause", "distinctClause", "groupClause", "havingClause",
-		"windowClause", "valuesLists", "limitOffset", "limitCount", "lockingClause", "withClause", "intoClause"} {
+		"windowClause", "valuesLists", "limitOffset", "lockingClause", "withClause", "intoClause"} {
 		if closedPresent(node[field]) {
 			return nil, postgresClosedFailure(PostgresClosedModeRequired)
 		}
+	}
+	// A bounded literal LIMIT changes only cardinality. It has no extra
+	// relations, column references, or executable expression to authorize.
+	if closedPresent(node["limitCount"]) {
+		limit, err := parser.parseExpr(node["limitCount"], depth+1)
+		if err != nil || limit == nil || limit.Kind != PostgresClosedInteger || limit.Integer < 1 || limit.Integer > 1000 {
+			return nil, postgresClosedFailure(PostgresClosedModeRequired)
+		}
+		option, _ := node["limitOption"].(string)
+		if option != "" && option != "LIMIT_OPTION_COUNT" {
+			return nil, postgresClosedFailure(PostgresClosedModeRequired)
+		}
+	} else if option, _ := node["limitOption"].(string); option != "" && option != "LIMIT_OPTION_DEFAULT" {
+		return nil, postgresClosedFailure(PostgresClosedModeRequired)
 	}
 	if groupDistinct, _ := node["groupDistinct"].(bool); groupDistinct {
 		return nil, postgresClosedFailure(PostgresClosedModeRequired)
@@ -446,6 +461,15 @@ func postgresClosedConstant(node map[string]any) (*PostgresClosedExpr, error) {
 			return nil, postgresClosedFailure(PostgresClosedModeRequired)
 		}
 		return &PostgresClosedExpr{Kind: PostgresClosedBoolean, Boolean: value}, nil
+	}
+	if wrapper, ok := node["sval"].(map[string]any); ok {
+		value, valid := wrapper["sval"].(string)
+		if !valid || len(value) > 4096 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return nil, postgresClosedFailure(PostgresClosedModeRequired)
+		}
+		// The literal text is intentionally not retained in the closed tree.
+		// Only text-column comparisons may later give it a proven type.
+		return &PostgresClosedExpr{Kind: PostgresClosedString}, nil
 	}
 	return nil, postgresClosedFailure(PostgresClosedModeRequired)
 }

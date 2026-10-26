@@ -77,6 +77,8 @@ func TestParsePostgresClosedDMLEscapeCorpus(t *testing.T) {
 		`UPDATE app.items SET (name,n)=('x',1) WHERE id=1`,
 		`DELETE FROM app.items i WHERE i.* IS NOT NULL`,
 		`DELETE FROM app.items WHERE ctid='(0,1)'`,
+		`DELETE FROM app.items WHERE name='east'`,
+		`UPDATE app.items SET name='x' WHERE name='east'`,
 		`INSERT INTO app.items (id) VALUES ($1)`,
 		`INSERT INTO app.items (id) VALUES (1 /* hidden */ + 0)`,
 	} {

@@ -52,6 +52,7 @@ type Config struct {
 	ColumnAuthorization ColumnAuthorizationConfig `yaml:"column_authorization"`
 	MCP                 MCPConfig                 `yaml:"mcp"`
 	Auth                AuthConfig                `yaml:"auth"`
+	ManagedFiles        ManagedFileConfig         `yaml:"managed_files"`
 }
 
 // MCPConfig is the production configuration root for the MCP HTTP transport,
@@ -501,6 +502,9 @@ func (config Config) Validate() error {
 }
 
 func (config Config) validateNonStore() error {
+	if err := config.ManagedFiles.Validate(config); err != nil {
+		return fmt.Errorf("validate managed_files: %w", err)
+	}
 	if err := config.Auth.Validate(); err != nil {
 		return fmt.Errorf("validate auth: %w", err)
 	}

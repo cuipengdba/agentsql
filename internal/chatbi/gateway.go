@@ -20,14 +20,21 @@ var ErrGateway = errors.New("controlled gateway rejected or could not complete t
 // Binding is server-owned and encrypted at rest. External datasource IDs are
 // never accepted as gateway datasource IDs, and browser requests never set keys.
 type Binding struct {
-	Datasource     ID     `json:"datasource"`
-	Workspace      ID     `json:"workspace"`
-	User           ID     `json:"user"`
-	Name           string `json:"name"`
-	Dialect        string `json:"dialect"`
-	BindingID      string `json:"binding_id"`
-	ConnectorToken string `json:"connector_token"`
-	AgentKey       string `json:"agent_key"`
+	Datasource     ID        `json:"datasource"`
+	Workspace      ID        `json:"workspace"`
+	User           ID        `json:"user"`
+	Name           string    `json:"name"`
+	ResolveName    string    `json:"resolve_name,omitempty"`
+	Type           string    `json:"type,omitempty"`
+	Description    string    `json:"description,omitempty"`
+	Configuration  string    `json:"configuration,omitempty"`
+	ManagedFileID  string    `json:"managed_file_id,omitempty"`
+	SelectedTables string    `json:"selected_tables,omitempty"`
+	Created        time.Time `json:"created,omitempty"`
+	Dialect        string    `json:"dialect"`
+	BindingID      string    `json:"binding_id"`
+	ConnectorToken string    `json:"connector_token"`
+	AgentKey       string    `json:"agent_key"`
 }
 
 type QueryData struct {
@@ -75,7 +82,11 @@ func (gateway *ControlledGateway) resolve(ctx context.Context, p Principal, b Bi
 	if err != nil || !strings.HasSuffix(u.Path, "/mcp") {
 		return resolvedBinding{}, ErrGateway
 	}
-	payload, _ := json.Marshal(map[string]string{"binding_id": b.BindingID, "workspace_id": string(p.Workspace), "sqlbot_user_id": string(p.User.ID), "datasource_name": b.Name})
+	resolveName := b.Name
+	if b.ResolveName != "" {
+		resolveName = b.ResolveName
+	}
+	payload, _ := json.Marshal(map[string]string{"binding_id": b.BindingID, "workspace_id": string(p.Workspace), "sqlbot_user_id": string(p.User.ID), "datasource_name": resolveName})
 	u.Path = strings.TrimSuffix(u.Path, "/mcp") + "/api/v1/integrations/sqlbot/resolve"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(payload))
 	if err != nil {
@@ -196,12 +207,15 @@ func (gateway *ControlledGateway) Schema(ctx context.Context, p Principal, b Bin
 	if len(visible) == 0 {
 		return nil, ErrGateway
 	}
-	return visible, nil
+	return filterManagedFileSchema(b, visible)
 }
 
 func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Binding, query string) (QueryData, error) {
 	if len(strings.TrimSpace(query)) == 0 || len(query) > 65536 {
 		return QueryData{}, ErrGateway
+	}
+	if err := authorizeManagedFileSQL(b, query); err != nil {
+		return QueryData{}, err
 	}
 	raw, _, err := gateway.call(ctx, p, b, "query", func(r resolvedBinding) map[string]any {
 		return map[string]any{"datasource_id": r.Datasource, "sql": query}

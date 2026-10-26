@@ -2,6 +2,11 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v4.2.0] (candidate)
+
+- Added up to three completed Q&A turns of context, business terms, SQL examples and recommended questions; each turn still uses current identity, authorization and controlled gateway execution.
+- Added bounded CSV/XLSX managed datasources, selected-sheet subsets, CSV/XLSX export under current permissions and narrow PostgreSQL row rules. Synthetic workflows were compared in the original SQLBot v1.10.2 browser; complete page and zero-change business-system replacement remain unverified. See the [release notes](docs/en/release-notes-v4.2.0.md).
+
 ## [v4.1.0]
 
 - Added native Go Q&A, encrypted identity/session storage, SQLBot v1.10.2 ordinary login foundations and live controlled PostgreSQL/MySQL queries.

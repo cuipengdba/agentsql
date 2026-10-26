@@ -8,25 +8,34 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These fakes exercise failure boundaries; they are never live model/database
 // acceptance evidence. Release acceptance separately uses real services.
 type fakeGateway struct {
 	schemaErr, queryErr error
+	schemaCalls         int
 	queries             int
 	audit               int64
+	lastQuery           string
 	afterQuery          func()
+	afterSchema         func()
 }
 
 func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, error) {
+	g.schemaCalls++
+	if g.afterSchema != nil {
+		g.afterSchema()
+	}
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
 	}
 	return []Column{{"public", "sales", "amount", "numeric"}}, nil
 }
-func (g *fakeGateway) Query(context.Context, Principal, Binding, string) (QueryData, error) {
+func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query string) (QueryData, error) {
 	g.queries++
+	g.lastQuery = query
 	if g.afterQuery != nil {
 		g.afterQuery()
 	}
@@ -37,6 +46,117 @@ type fakeModel struct {
 	calls int
 	err   error
 	after func()
+}
+
+type historyModel struct {
+	histories [][]TurnContext
+}
+
+func (m *historyModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
+	return SQLGeneration{}, errors.New("contextual generator was bypassed")
+}
+
+func (m *historyModel) GenerateWithHistory(_ context.Context, _ ModelConfig, _, _ string, _ []Column, history []TurnContext) (SQLGeneration, error) {
+	m.histories = append(m.histories, append([]TurnContext(nil), history...))
+	return SQLGeneration{SQL: "SELECT amount FROM public.sales"}, nil
+}
+
+func TestQuestionHistoryExcludesFailuresAndOtherChats(t *testing.T) {
+	ctx := context.Background()
+	s, p, gateway, _, token := serviceFixture(t)
+	model := &historyModel{}
+	s.Model = model
+	chat, err := s.Start(ctx, p, "10", "first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	if _, err := s.Ask(ctx, p, chat.ID, "first", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ask(ctx, p, chat.ID, "second", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	gateway.queryErr = ErrGateway
+	if _, err := s.Ask(ctx, p, chat.ID, "failed", check, nil); err == nil {
+		t.Fatal("expected gateway failure")
+	}
+	gateway.queryErr = nil
+	if _, err := s.Ask(ctx, p, chat.ID, "fourth", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.Start(ctx, p, "10", "separate", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Ask(ctx, p, other.ID, "separate", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.histories) != 5 || len(model.histories[0]) != 0 || len(model.histories[1]) != 1 || len(model.histories[3]) != 2 || len(model.histories[4]) != 0 {
+		t.Fatalf("history scope mismatch: %#v", model.histories)
+	}
+	if model.histories[3][0].Question != "first" || model.histories[3][1].Question != "second" {
+		t.Fatal("failed or out-of-order turn included in context")
+	}
+	if gateway.schemaCalls != 7 { // Two chat starts and all five questions.
+		t.Fatal("current authorized schema was not fetched for every turn")
+	}
+	revision, err := s.Store.get(ctx, bindingKey(p, "10"), new(Binding))
+	if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {
+		t.Fatal("could not revoke binding")
+	}
+	if _, err := s.Ask(ctx, p, chat.ID, "after revocation", check, nil); err == nil || len(model.histories) != 5 {
+		t.Fatal("revoked binding reached the model")
+	}
+}
+
+func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	first, err := service.Start(ctx, principal, "10", "first", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, question := range []string{"first", "second"} {
+		if _, err := service.Ask(ctx, principal, first.ID, question, check, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gateway.queryErr = ErrGateway
+	if _, err := service.Ask(ctx, principal, first.ID, "failed", check, nil); err == nil {
+		t.Fatal("expected query failure")
+	}
+	gateway.queryErr = nil
+	second, err := service.Start(ctx, principal, "10", "second", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Ask(ctx, principal, second.ID, "first", check, nil); err != nil {
+		t.Fatal(err)
+	}
+	questions, err := service.RecentQuestions(ctx, principal, "10")
+	if err != nil || len(questions) != 3 || questions[0] != "first" || questions[1] != "failed" || questions[2] != "second" {
+		t.Fatalf("recent questions mismatch: %#v, %v", questions, err)
+	}
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "123") || !strings.Contains(response.Body.String(), "failed") {
+		t.Fatal("recent question route leaked result rows or lost the user's question")
+	}
+	revision, err := service.Store.get(ctx, bindingKey(principal, "10"), new(Binding))
+	if err != nil || service.Store.delete(ctx, bindingKey(principal, "10"), revision) != nil {
+		t.Fatal("could not revoke binding")
+	}
+	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("revoked datasource returned history")
+	}
 }
 
 func (m *fakeModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
@@ -73,7 +193,7 @@ func serviceFixture(t *testing.T) (*Service, Principal, *fakeGateway, *fakeModel
 	}
 	g := &fakeGateway{audit: 1}
 	m := &fakeModel{}
-	return &Service{store, identity, g, m}, p, g, m, token
+	return &Service{Store: store, Identity: identity, Gateway: g, Model: m}, p, g, m, token
 }
 
 func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
@@ -87,12 +207,14 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 		h.slots <- struct{}{}
 	}
 	for _, path := range []string{"/api/v1/chat/1/with_data", "/api/v1/chat/record/1/data", "/api/v1/chat/record/1/data_live"} {
-		request := httptest.NewRequest(http.MethodGet, path, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		request := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
 		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
+		cancel()
 		if response.Code != http.StatusTooManyRequests || gateway.queries != 0 {
-			t.Fatal("historical query bypassed admission limit")
+			t.Fatal("historical query bypassed bounded admission")
 		}
 	}
 	// Lightweight health probes remain available while data slots are occupied.
@@ -100,6 +222,55 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if response.Code != http.StatusOK {
 		t.Fatal("data load blocked health probe")
+	}
+}
+
+func TestHistoricalReadQueueDrainsAndRechecksSession(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "queued_read", true: "revoked_while_queued"}[revoked], func(t *testing.T) {
+			s, _, _, _, token := serviceFixture(t)
+			router, err := NewHandlerWithLimit(s, "test", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := router.(*Handler)
+			h.slots <- struct{}{}
+			handler := h.boundedHistory(func(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
+				writeJSON(w, http.StatusOK, "complete")
+			})
+			request := httptest.NewRequest(http.MethodGet, "/history", nil)
+			request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+			response := httptest.NewRecorder()
+			done := make(chan struct{})
+			go func() { handler(response, request); close(done) }()
+			deadline := time.After(time.Second)
+			for len(h.readQueue) == 0 {
+				select {
+				case <-deadline:
+					t.Fatal("history request never entered the queue")
+				default:
+					time.Sleep(time.Millisecond)
+				}
+			}
+			if revoked {
+				if err := s.Identity.Logout(context.Background(), token); err != nil {
+					t.Fatal(err)
+				}
+			}
+			<-h.slots
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("queued history did not finish")
+			}
+			want := http.StatusOK
+			if revoked {
+				want = http.StatusUnauthorized
+			}
+			if response.Code != want || len(h.readQueue) != 0 || len(h.slots) != 0 {
+				t.Fatalf("queued history status %d, expected %d", response.Code, want)
+			}
+		})
 	}
 }
 
@@ -140,6 +311,101 @@ func TestHistoricalHTTPReadRechecksLogoutBeforeReleasingResults(t *testing.T) {
 				t.Fatal("logout during a historical query did not suppress the response")
 			}
 		})
+	}
+}
+
+func TestBindingChangeDuringQueryNeverReleasesRows(t *testing.T) {
+	for _, path := range []string{"ask", "chat_history", "record_history"} {
+		t.Run(path, func(t *testing.T) {
+			ctx := context.Background()
+			s, p, gateway, _, token := serviceFixture(t)
+			chat, err := s.Start(ctx, p, "10", "fixture", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+			var record Record
+			if path != "ask" {
+				record, err = s.Ask(ctx, p, chat.ID, "amount", check, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			gateway.afterQuery = func() {
+				var binding Binding
+				revision, err := s.Store.get(ctx, bindingKey(p, "10"), &binding)
+				if err != nil {
+					t.Fatal(err)
+				}
+				binding.ConnectorToken = "replacement-connector"
+				if err := s.Store.put(ctx, bindingKey(p, "10"), binding, revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch path {
+			case "ask":
+				returned, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+				if !errors.Is(err, ErrGateway) || returned.Data != nil {
+					t.Fatalf("binding changed during ask: %v, %#v", err, returned.Data)
+				}
+				stored, _, err := s.chat(ctx, p, chat.ID)
+				if err != nil || len(stored.Records) != 1 || stored.Records[0].Error == "" || stored.Records[0].Data != nil {
+					t.Fatal("binding replacement did not persist a safe terminal state")
+				}
+			case "chat_history":
+				returned, err := s.ReadChat(ctx, p, chat.ID, true)
+				if !errors.Is(err, ErrGateway) || len(returned.Records) != 0 {
+					t.Fatalf("binding changed during history: %v, %#v", err, returned.Records)
+				}
+			case "record_history":
+				returned, err := s.Record(ctx, p, record.ID, true)
+				if !errors.Is(err, ErrGateway) || returned.Data != nil {
+					t.Fatalf("binding changed during record replay: %v, %#v", err, returned.Data)
+				}
+			}
+		})
+	}
+}
+
+func TestBindingRevokedDuringSchemaStopsBeforeModel(t *testing.T) {
+	ctx := context.Background()
+	s, p, gateway, model, token := serviceFixture(t)
+	chat, err := s.Start(ctx, p, "10", "fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.afterSchema = func() {
+		var binding Binding
+		revision, err := s.Store.get(ctx, bindingKey(p, "10"), &binding)
+		if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {
+			t.Fatal("could not revoke binding during schema")
+		}
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	record, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+	if !errors.Is(err, ErrNotFound) || record.Data != nil || model.calls != 0 || gateway.queries != 0 {
+		t.Fatalf("revoked schema reached model or query: %v", err)
+	}
+}
+
+func TestBindingDeleteAndRecreateAtSameRevisionCannotReleaseRows(t *testing.T) {
+	ctx := context.Background()
+	s, p, gateway, _, token := serviceFixture(t)
+	chat, err := s.Start(ctx, p, "10", "fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.afterQuery = func() {
+		var binding Binding
+		revision, err := s.Store.get(ctx, bindingKey(p, "10"), &binding)
+		if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil || s.Store.put(ctx, bindingKey(p, "10"), binding, 0) != nil {
+			t.Fatal("could not recreate the identical binding at revision one")
+		}
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	record, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+	if !errors.Is(err, ErrGateway) || record.Data != nil {
+		t.Fatalf("same-revision binding recreation released rows: %v", err)
 	}
 }
 
@@ -232,8 +498,18 @@ func TestQuestionPersistsBeforeDeliveryAndProtectsHistory(t *testing.T) {
 	if err != nil || record.Data == nil || record.Data.AuditID != 1 {
 		t.Fatalf("question: %v", err)
 	}
+	var chart struct {
+		Type    string `json:"type"`
+		Columns []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"columns"`
+	}
+	if json.Unmarshal([]byte(record.Chart), &chart) != nil || chart.Type != "table" || len(chart.Columns) != 1 || chart.Columns[0].Value != "amount" || strings.Contains(record.Chart, "123") {
+		t.Fatalf("controlled result did not produce metadata-only table chart: %s", record.Chart)
+	}
 	stored, _, err := s.chat(ctx, p, chat.ID)
-	if err != nil || stored.Records[0].ID != record.ID || stored.Records[0].Data == nil {
+	if err != nil || stored.Records[0].ID != record.ID || stored.Records[0].Data == nil || stored.Records[0].Chart != record.Chart {
 		t.Fatal("result delivered before persistence")
 	}
 	without, err := s.ReadChat(ctx, p, chat.ID, false)
@@ -243,6 +519,11 @@ func TestQuestionPersistsBeforeDeliveryAndProtectsHistory(t *testing.T) {
 	g.queryErr = ErrGateway
 	if _, err := s.ReadChat(ctx, p, chat.ID, true); !errors.Is(err, ErrGateway) {
 		t.Fatal("cached rows bypassed current permissions")
+	}
+	g.queryErr = nil
+	g.audit = 0
+	if _, err := s.ReadChat(ctx, p, chat.ID, true); !errors.Is(err, ErrGateway) {
+		t.Fatal("historical read accepted a result without durable query audit")
 	}
 	other := testUser(t, "2", "other")
 	if err := s.Store.CreateUser(ctx, other); err != nil {

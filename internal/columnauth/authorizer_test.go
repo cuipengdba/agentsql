@@ -1,6 +1,7 @@
 package columnauth
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,14 @@ func TestAuthorizeFrozenPriorityAndProof(t *testing.T) {
 		{"wide deny beats exact allow", func(input *Input) {
 			input.Policies = append(input.Policies, model.Policy{ObjectType: "schema", ObjectName: "public.*", Action: "deny"})
 		}, ReasonRelationDenied},
+		{"row filter cannot be silently ignored", func(input *Input) {
+			filter := "region = 'west'"
+			input.Policies[0].RowFilter = &filter
+		}, ReasonRowFilterUnsupported},
+		{"column row filter cannot be silently ignored", func(input *Input) {
+			filter := ""
+			input.Policies[1].RowFilter = &filter
+		}, ReasonRowFilterUnsupported},
 		{"missing relation before catalog", func(input *Input) {
 			input.Policies = nil
 			input.CatalogConsistent = false
@@ -80,6 +89,38 @@ func TestAuthorizeFrozenPriorityAndProof(t *testing.T) {
 	otherAgent := base
 	otherAgent.Policies = append(otherAgent.Policies, model.Policy{AgentID: "other", DatasourceID: "ds", ObjectType: "schema", ObjectName: "public.*", Action: "deny"})
 	requireDecision(t, otherAgent, true, ReasonAllow)
+	filter := "region = 'west'"
+	otherAgent.Policies = append(otherAgent.Policies, model.Policy{AgentID: "other", DatasourceID: "ds", ObjectType: "table", ObjectName: "public.customers", RowFilter: &filter, Action: "allow"})
+	requireDecision(t, otherAgent, true, ReasonAllow)
+}
+
+func TestAuthorizeRowFilterRequiresExactBoundCompilerReceipt(t *testing.T) {
+	base := authorizedInputFixture()
+	filter := "phone = 'west'"
+	base.Policies = append(base.Policies, model.Policy{
+		ID: "row-policy", AgentID: "agent", DatasourceID: "ds", ObjectType: "table",
+		ObjectName: "public.customers", RowFilter: &filter, Action: "allow", Revision: 3,
+	})
+	base.AppliedRowFilterDigest = strings.Repeat("a", 64)
+	base.AppliedRowFilterRelation = "public.customers"
+	requireDecision(t, base, true, ReasonAllow)
+	proof := Authorize(base)
+	changed := base
+	changed.AppliedRowFilterDigest = strings.Repeat("b", 64)
+	require.False(t, proof.Verify(changed))
+
+	for _, mutate := range []func(*Input){
+		func(in *Input) { in.AppliedRowFilterDigest = "" },
+		func(in *Input) { in.AppliedRowFilterDigest = "not-a-digest" },
+		func(in *Input) { in.AppliedRowFilterRelation = "public.other" },
+		func(in *Input) { in.Policies[len(in.Policies)-1].ObjectName = "public.*" },
+		func(in *Input) { in.Relations = append(in.Relations, in.Relations[0]) },
+	} {
+		input := base
+		input.Policies = append([]model.Policy(nil), base.Policies...)
+		mutate(&input)
+		requireDecision(t, input, false, ReasonRowFilterUnsupported)
+	}
 }
 
 func TestAuthorizeViewAndSelfJoinRequireEveryIdentityUsage(t *testing.T) {

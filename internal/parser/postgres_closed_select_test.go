@@ -14,6 +14,8 @@ func TestParsePostgresClosedSelectAcceptedSubset(t *testing.T) {
 		{"left-join-expression", `SELECT a.id + b.id FROM app.accounts a LEFT JOIN app.other b ON a.id = b.id WHERE NOT (a.id = 0)`, 2},
 		{"exists", `SELECT a.id FROM app.accounts a WHERE EXISTS (SELECT b.id FROM app.other b WHERE b.id = a.id)`, 2},
 		{"in-subquery", `SELECT a.id FROM app.accounts a WHERE a.id IN (SELECT b.id FROM app.other b WHERE b.id > 0)`, 2},
+		{"bounded-limit", `SELECT a.id, a.note FROM app.accounts a LIMIT 100`, 1},
+		{"text-literal-comparison", `SELECT a.note FROM app.accounts a WHERE a.note = 'east'`, 1},
 	}
 	for _, test := range tests {
 		test := test
@@ -45,6 +47,11 @@ func TestParsePostgresClosedSelectFailClosedCorpus(t *testing.T) {
 		`SELECT count(a.id) FROM app.accounts a`,
 		`SELECT a.id FROM app.accounts a GROUP BY a.id`,
 		`SELECT a.id FROM app.accounts a ORDER BY a.id`,
+		`SELECT a.id FROM app.accounts a LIMIT 0`,
+		`SELECT a.id FROM app.accounts a LIMIT 1001`,
+		`SELECT a.id FROM app.accounts a LIMIT 1 OFFSET 1`,
+		`SELECT a.id FROM app.accounts a LIMIT pg_catalog.length('x')`,
+		`SELECT a.id FROM app.accounts a LIMIT ALL`,
 		`SELECT a.id INTO app.copy FROM app.accounts a`,
 		`SELECT a.id FROM app.accounts a FOR UPDATE`,
 		`SELECT a.id FROM app.accounts a RIGHT JOIN app.other b ON a.id=b.id`,

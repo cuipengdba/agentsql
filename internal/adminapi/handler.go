@@ -35,6 +35,7 @@ import (
 
 type Deps struct {
 	Runtime          *bootstrap.Runtime
+	ManagedFiles     bootstrap.ManagedFilePhysical
 	Config           config.Config
 	AdminUsername    string
 	AdminPassword    string
@@ -294,6 +295,8 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/b5/reconciliation", handler.b5Reconcile)
 	mux.HandleFunc("GET /api/v1/integrations/notifications", handler.notificationsGet)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/resolve", handler.sqlbotResolve)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/managed-files/import", handler.sqlbotManagedFileImport)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/managed-files/delete", handler.sqlbotManagedFileDelete)
 	mux.HandleFunc("GET /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsList)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsCreate)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/export", handler.sqlbotBindingsExport)
@@ -344,7 +347,9 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// This exact route authenticates its connector credential and Agent Key
 		// inside sqlbotResolve. No management route accepts connector credentials.
-		if request.Method == http.MethodPost && request.URL.Path == "/api/v1/integrations/sqlbot/resolve" {
+		if request.Method == http.MethodPost && (request.URL.Path == "/api/v1/integrations/sqlbot/resolve" ||
+			request.URL.Path == "/api/v1/integrations/sqlbot/managed-files/import" ||
+			request.URL.Path == "/api/v1/integrations/sqlbot/managed-files/delete") {
 			next.ServeHTTP(writer, request)
 			return
 		}
@@ -1296,8 +1301,23 @@ func validatePolicyInput(input policyInput) error {
 			return errPolicyRepresentationsConflict
 		}
 	}
-	_, err = policy.NewResolver().Resolve([]model.Policy{policyFromInput(input)}, "readonly")
+	if input.RowFilter != nil {
+		_, err = policy.NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{policyFromInput(input)}, "readonly")
+	} else {
+		_, err = policy.NewResolver().Resolve([]model.Policy{policyFromInput(input)}, "readonly")
+	}
 	return err
+}
+
+func (handler *Handler) validateRowFilterDatasource(ctx context.Context, input policyInput) error {
+	if input.RowFilter == nil {
+		return nil
+	}
+	datasource, err := handler.deps.Runtime.Store.Datasources().Get(ctx, input.DatasourceID)
+	if err != nil || datasource.DBType != "postgres" {
+		return fmt.Errorf("row filters require a PostgreSQL datasource")
+	}
+	return nil
 }
 
 func (handler *Handler) validateKeyPolicyDatasource(ctx context.Context, input policyInput) error {
@@ -1403,6 +1423,10 @@ func (handler *Handler) policiesCreate(writer http.ResponseWriter, request *http
 		handler.fail(writer, 422, "invalid key policy datasource")
 		return
 	}
+	if err := handler.validateRowFilterDatasource(request.Context(), input); err != nil {
+		handler.fail(writer, 422, "invalid row filter datasource")
+		return
+	}
 	normalizePolicyRepresentations(&input)
 	policyModel := policyFromInput(input)
 	policyModel.LegacyUnrepresentable = input.ColumnPermissions != nil && input.Columns == nil
@@ -1460,6 +1484,10 @@ func (handler *Handler) policiesUpdate(writer http.ResponseWriter, request *http
 	}
 	if err := handler.validateKeyPolicyDatasource(request.Context(), input); err != nil {
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid key policy datasource")
+		return
+	}
+	if err := handler.validateRowFilterDatasource(request.Context(), input); err != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, "invalid row filter datasource")
 		return
 	}
 	normalizePolicyRepresentations(&input)
