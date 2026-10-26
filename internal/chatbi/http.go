@@ -23,6 +23,7 @@ type Handler struct {
 	mux        *http.ServeMux
 	loginLimit *rate.Limiter
 	slots      chan struct{}
+	readQueue  chan struct{}
 	version    string
 	keySalt    string
 	keySince   int64
@@ -44,7 +45,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 		return nil, errors.New("cannot initialize ChatBI login key metadata")
 	}
 	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10),
-		slots: make(chan struct{}, limit), version: version,
+		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
 		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli()}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": h.version, "service": "chatbi"})
@@ -100,13 +101,13 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/chat/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/question", h.bounded(h.auth(h.question)))
 	h.mux.HandleFunc("POST /api/v1/chat/rename", h.auth(h.rename))
-	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.bounded(h.auth(h.recordData)))
-	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data_live", h.bounded(h.auth(h.recordData)))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.boundedHistory(h.recordData))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data_live", h.boundedHistory(h.recordData))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/usage", h.auth(h.recordUsage))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/log", h.auth(h.recordUsage))
 	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
-	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.bounded(h.auth(h.read)))
+	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +196,39 @@ func (h *Handler) bounded(next http.HandlerFunc) http.HandlerFunc {
 		defer func() { _ = http.NewResponseController(w).SetWriteDeadline(time.Time{}) }()
 		next(w, r.WithContext(ctx))
 	}
+}
+
+// The original SQLBot page loads several historical result cards at once.
+// Admit only authenticated requests to a bounded queue, then use the same
+// query slots as new questions. Every queued request has a four-minute total
+// deadline and must still have a live session before it reaches the gateway.
+func (h *Handler) boundedHistory(next authorizedHandler) http.HandlerFunc {
+	return h.auth(func(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+		defer cancel()
+		select {
+		case h.readQueue <- struct{}{}:
+			defer func() { <-h.readQueue }()
+		default:
+			writeJSON(w, http.StatusTooManyRequests, "Too many historical data requests")
+			return
+		}
+		select {
+		case h.slots <- struct{}{}:
+			defer func() { <-h.slots }()
+		case <-ctx.Done():
+			writeJSON(w, http.StatusTooManyRequests, "Historical data request timed out")
+			return
+		}
+		if err := h.currentIdentity(ctx, p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		deadline, _ := ctx.Deadline()
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline.Add(5 * time.Second))
+		defer func() { _ = http.NewResponseController(w).SetWriteDeadline(time.Time{}) }()
+		next(w, r.WithContext(ctx), p, token)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

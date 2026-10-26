@@ -144,22 +144,30 @@ func (s *Store) decode(key objectKey, body []byte, value any) error {
 }
 
 func (s *Store) get(ctx context.Context, key objectKey, value any) (int64, error) {
+	revision, _, err := s.getWithDigest(ctx, key, value)
+	return revision, err
+}
+
+// getWithDigest identifies this exact encrypted revision. An object deleted
+// and recreated at revision one gets a fresh AEAD nonce and therefore a new
+// digest even if its plaintext happens to be identical.
+func (s *Store) getWithDigest(ctx context.Context, key objectKey, value any) (int64, [32]byte, error) {
 	if !key.valid() {
-		return 0, ErrNotFound
+		return 0, [32]byte{}, ErrNotFound
 	}
 	var body []byte
 	var revision int64
 	err := s.db.QueryRowContext(ctx, `SELECT revision, body FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`, key.Kind, key.Scope, key.Owner, key.ID).Scan(&revision, &body)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
+		return 0, [32]byte{}, ErrNotFound
 	}
 	if err != nil {
-		return 0, ErrUnavailable
+		return 0, [32]byte{}, ErrUnavailable
 	}
 	if err = s.decode(key, body, value); err != nil {
-		return 0, err
+		return 0, [32]byte{}, err
 	}
-	return revision, nil
+	return revision, sha256.Sum256(body), nil
 }
 
 // put is insert-only at revision zero and compare-and-swap otherwise.

@@ -118,12 +118,15 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 		if record.ID == id {
 			record.Data = nil
 			if withData && record.Finish && record.Error == "" {
-				binding, err := service.binding(ctx, p, chat.Datasource)
+				binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 				if err != nil {
 					return Record{}, err
 				}
 				data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
 				if err != nil {
+					return Record{}, err
+				}
+				if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
 					return Record{}, err
 				}
 				record.Data = &data
@@ -146,28 +149,51 @@ func (service *Service) live(ctx context.Context, p Principal) error {
 }
 
 func (service *Service) binding(ctx context.Context, p Principal, id ID) (Binding, error) {
+	binding, _, _, err := service.bindingSnapshot(ctx, p, id)
+	return binding, err
+}
+
+func (service *Service) bindingSnapshot(ctx context.Context, p Principal, id ID) (Binding, int64, [32]byte, error) {
 	if err := service.live(ctx, p); err != nil {
-		return Binding{}, err
+		return Binding{}, 0, [32]byte{}, err
 	}
 	var binding Binding
-	if _, err := service.Store.get(ctx, bindingKey(p, id), &binding); err != nil {
-		return Binding{}, err
+	revision, digest, err := service.Store.getWithDigest(ctx, bindingKey(p, id), &binding)
+	if err != nil {
+		return Binding{}, 0, [32]byte{}, err
 	}
 	if binding.User != p.User.ID || binding.Workspace != p.Workspace || binding.Datasource != id {
-		return Binding{}, ErrUnavailable
+		return Binding{}, 0, [32]byte{}, ErrUnavailable
 	}
-	return binding, nil
+	return binding, revision, digest, nil
+}
+
+// A result may be released only while the encrypted local binding used for
+// its schema/query still matches the current object and revision. This also
+// catches credential or datasource replacement at the same external ID.
+func (service *Service) bindingUnchanged(ctx context.Context, p Principal, binding Binding, revision int64, digest [32]byte) error {
+	current, currentRevision, currentDigest, err := service.bindingSnapshot(ctx, p, binding.Datasource)
+	if err != nil {
+		return err
+	}
+	if currentRevision != revision || currentDigest != digest || current != binding {
+		return ErrGateway
+	}
+	return nil
 }
 
 func (service *Service) Start(ctx context.Context, p Principal, datasource ID, question string, origin int) (Chat, error) {
 	if len(question) > 16000 || origin != 0 {
 		return Chat{}, errors.New("unsupported chat request")
 	}
-	binding, err := service.binding(ctx, p, datasource)
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
 	if err != nil {
 		return Chat{}, err
 	}
 	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+		return Chat{}, err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {
@@ -231,7 +257,8 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 // RecentQuestions returns only this user's questions for a currently bound
 // datasource. Historical result rows never enter this suggestion list.
 func (service *Service) RecentQuestions(ctx context.Context, p Principal, datasource ID) ([]string, error) {
-	if _, err := service.binding(ctx, p, datasource); err != nil {
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
 		return nil, err
 	}
 	items, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
@@ -277,6 +304,9 @@ func (service *Service) RecentQuestions(ctx context.Context, p Principal, dataso
 	for _, item := range ordered {
 		questions = append(questions, item.question)
 	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return nil, err
+	}
 	return questions, nil
 }
 
@@ -288,7 +318,7 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	binding, err := service.binding(ctx, p, chat.Datasource)
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
 		return Chat{}, err
 	}
@@ -305,6 +335,9 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 			}
 			record.Data = &data
 		}
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {
 		return Chat{}, err
@@ -383,7 +416,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
 	}
-	binding, err := service.binding(ctx, p, chat.Datasource)
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
 		return Record{}, err
 	}
@@ -427,6 +460,9 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err != nil {
 			return err
 		}
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
 		if err := check(ctx); err != nil {
 			return err
 		}
@@ -459,6 +495,9 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
 		stage = "controlled_query"
 		data, err := service.Gateway.Query(ctx, p, binding, generated.SQL)
 		if err != nil {
@@ -468,6 +507,9 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			return ErrGateway
 		}
 		if err := check(ctx); err != nil {
+			return err
+		}
+		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
 		}
 		record.Data = &data
@@ -500,6 +542,9 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		return record, runErr
 	}
 	if err := check(ctx); err != nil {
+		return Record{}, err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 		return Record{}, err
 	}
 	return record, nil

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These fakes exercise failure boundaries; they are never live model/database
@@ -206,12 +207,14 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 		h.slots <- struct{}{}
 	}
 	for _, path := range []string{"/api/v1/chat/1/with_data", "/api/v1/chat/record/1/data", "/api/v1/chat/record/1/data_live"} {
-		request := httptest.NewRequest(http.MethodGet, path, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		request := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
 		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
+		cancel()
 		if response.Code != http.StatusTooManyRequests || gateway.queries != 0 {
-			t.Fatal("historical query bypassed admission limit")
+			t.Fatal("historical query bypassed bounded admission")
 		}
 	}
 	// Lightweight health probes remain available while data slots are occupied.
@@ -219,6 +222,55 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if response.Code != http.StatusOK {
 		t.Fatal("data load blocked health probe")
+	}
+}
+
+func TestHistoricalReadQueueDrainsAndRechecksSession(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "queued_read", true: "revoked_while_queued"}[revoked], func(t *testing.T) {
+			s, _, _, _, token := serviceFixture(t)
+			router, err := NewHandlerWithLimit(s, "test", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := router.(*Handler)
+			h.slots <- struct{}{}
+			handler := h.boundedHistory(func(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
+				writeJSON(w, http.StatusOK, "complete")
+			})
+			request := httptest.NewRequest(http.MethodGet, "/history", nil)
+			request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+			response := httptest.NewRecorder()
+			done := make(chan struct{})
+			go func() { handler(response, request); close(done) }()
+			deadline := time.After(time.Second)
+			for len(h.readQueue) == 0 {
+				select {
+				case <-deadline:
+					t.Fatal("history request never entered the queue")
+				default:
+					time.Sleep(time.Millisecond)
+				}
+			}
+			if revoked {
+				if err := s.Identity.Logout(context.Background(), token); err != nil {
+					t.Fatal(err)
+				}
+			}
+			<-h.slots
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("queued history did not finish")
+			}
+			want := http.StatusOK
+			if revoked {
+				want = http.StatusUnauthorized
+			}
+			if response.Code != want || len(h.readQueue) != 0 || len(h.slots) != 0 {
+				t.Fatalf("queued history status %d, expected %d", response.Code, want)
+			}
+		})
 	}
 }
 
@@ -259,6 +311,101 @@ func TestHistoricalHTTPReadRechecksLogoutBeforeReleasingResults(t *testing.T) {
 				t.Fatal("logout during a historical query did not suppress the response")
 			}
 		})
+	}
+}
+
+func TestBindingChangeDuringQueryNeverReleasesRows(t *testing.T) {
+	for _, path := range []string{"ask", "chat_history", "record_history"} {
+		t.Run(path, func(t *testing.T) {
+			ctx := context.Background()
+			s, p, gateway, _, token := serviceFixture(t)
+			chat, err := s.Start(ctx, p, "10", "fixture", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+			var record Record
+			if path != "ask" {
+				record, err = s.Ask(ctx, p, chat.ID, "amount", check, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			gateway.afterQuery = func() {
+				var binding Binding
+				revision, err := s.Store.get(ctx, bindingKey(p, "10"), &binding)
+				if err != nil {
+					t.Fatal(err)
+				}
+				binding.ConnectorToken = "replacement-connector"
+				if err := s.Store.put(ctx, bindingKey(p, "10"), binding, revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch path {
+			case "ask":
+				returned, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+				if !errors.Is(err, ErrGateway) || returned.Data != nil {
+					t.Fatalf("binding changed during ask: %v, %#v", err, returned.Data)
+				}
+				stored, _, err := s.chat(ctx, p, chat.ID)
+				if err != nil || len(stored.Records) != 1 || stored.Records[0].Error == "" || stored.Records[0].Data != nil {
+					t.Fatal("binding replacement did not persist a safe terminal state")
+				}
+			case "chat_history":
+				returned, err := s.ReadChat(ctx, p, chat.ID, true)
+				if !errors.Is(err, ErrGateway) || len(returned.Records) != 0 {
+					t.Fatalf("binding changed during history: %v, %#v", err, returned.Records)
+				}
+			case "record_history":
+				returned, err := s.Record(ctx, p, record.ID, true)
+				if !errors.Is(err, ErrGateway) || returned.Data != nil {
+					t.Fatalf("binding changed during record replay: %v, %#v", err, returned.Data)
+				}
+			}
+		})
+	}
+}
+
+func TestBindingRevokedDuringSchemaStopsBeforeModel(t *testing.T) {
+	ctx := context.Background()
+	s, p, gateway, model, token := serviceFixture(t)
+	chat, err := s.Start(ctx, p, "10", "fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.afterSchema = func() {
+		var binding Binding
+		revision, err := s.Store.get(ctx, bindingKey(p, "10"), &binding)
+		if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {
+			t.Fatal("could not revoke binding during schema")
+		}
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	record, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+	if !errors.Is(err, ErrNotFound) || record.Data != nil || model.calls != 0 || gateway.queries != 0 {
+		t.Fatalf("revoked schema reached model or query: %v", err)
+	}
+}
+
+func TestBindingDeleteAndRecreateAtSameRevisionCannotReleaseRows(t *testing.T) {
+	ctx := context.Background()
+	s, p, gateway, _, token := serviceFixture(t)
+	chat, err := s.Start(ctx, p, "10", "fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.afterQuery = func() {
+		var binding Binding
+		revision, err := s.Store.get(ctx, bindingKey(p, "10"), &binding)
+		if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil || s.Store.put(ctx, bindingKey(p, "10"), binding, 0) != nil {
+			t.Fatal("could not recreate the identical binding at revision one")
+		}
+	}
+	check := func(ctx context.Context) error { _, err := s.Identity.Verify(ctx, token); return err }
+	record, err := s.Ask(ctx, p, chat.ID, "amount", check, nil)
+	if !errors.Is(err, ErrGateway) || record.Data != nil {
+		t.Fatalf("same-revision binding recreation released rows: %v", err)
 	}
 }
 
