@@ -22,7 +22,7 @@ var errSemanticWorkbook = errors.New("semantic workbook exceeds supported bounds
 // semanticWorkbook writes a deliberately small, formula-free XLSX. Every cell
 // is an OOXML inline string, including SQL text and strings beginning with '='.
 func semanticWorkbook(rows [][]string) ([]byte, error) {
-	if len(rows) == 0 || len(rows) > 10001 || len(rows[0]) == 0 || len(rows[0]) > 16 {
+	if len(rows) == 0 || len(rows) > 10001 || len(rows[0]) == 0 || len(rows[0]) > 256 {
 		return nil, errSemanticWorkbook
 	}
 	var output bytes.Buffer
