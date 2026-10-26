@@ -126,7 +126,22 @@ func (handlers *toolHandlers) listSchema(
 	if err != nil {
 		return handlers.internalError("list_schema", err)
 	}
-	decision, err := policy.NewResolver().Resolve(storedPolicies, handlers.agent.Level)
+	rowFiltered := false
+	for _, stored := range storedPolicies {
+		if stored.RowFilter != nil {
+			rowFiltered = true
+			break
+		}
+	}
+	if rowFiltered && !handlers.runtime.Pipeline.PostgresColumnAuthorizationEnabled(datasource) {
+		return handlers.internalError("list_schema", fmt.Errorf("row-filtered schema requires active PostgreSQL B2"))
+	}
+	var decision *model.PolicyDecision
+	if rowFiltered && datasource.DBType == "postgres" {
+		decision, err = policy.NewResolver().ResolveWithPostgresRowPolicies(storedPolicies, handlers.agent.Level)
+	} else {
+		decision, err = policy.NewResolver().Resolve(storedPolicies, handlers.agent.Level)
+	}
 	if err != nil {
 		return handlers.internalError("list_schema", err)
 	}
@@ -147,6 +162,17 @@ func (handlers *toolHandlers) listSchema(
 	filtered, err := policy.FilterColumnsForSchema(policyColumns, decision)
 	if err != nil {
 		return handlers.internalError("list_schema", err)
+	}
+	if rowFiltered {
+		filtered, err = handlers.proveRowFilteredSchema(ctx, datasource, filtered, storedPolicies,
+			func(probeContext context.Context, sql string) ToolResponse {
+				return handlers.process(probeContext, pipeline.Request{
+					APIKey: handlers.apiKey, DatasourceID: datasource.ID, SQL: sql, MCPTool: "list_schema",
+				})
+			})
+		if err != nil {
+			return handlers.internalError("list_schema", err)
+		}
 	}
 	data := make([]publicSchemaColumn, 0, len(filtered))
 	binding, scoped := sqlbotScope(ctx)
@@ -186,6 +212,71 @@ func (handlers *toolHandlers) listSchema(
 		})
 	}
 	return allowToolResponse("已按 Agent 的表级和列级权限裁剪结构", data)
+}
+
+// Row-filtered metadata is released only after the same active B2 query path
+// proves each output column and every predicate reference. The probe selects
+// zero rows, and its audit must be durable before a column name is returned.
+// This narrow mode exposes only the one exact relation supported by the row
+// compiler; additional relations fail closed rather than using coarse ACLs.
+func (handlers *toolHandlers) proveRowFilteredSchema(
+	ctx context.Context, datasource model.Datasource, columns []policy.SchemaColumn, stored []model.Policy,
+	probe func(context.Context, string) ToolResponse,
+) ([]policy.SchemaColumn, error) {
+	if datasource.DBType != "postgres" || probe == nil {
+		return nil, fmt.Errorf("row-filtered schema requires PostgreSQL B2")
+	}
+	relation := ""
+	for _, item := range stored {
+		if item.RowFilter == nil {
+			continue
+		}
+		if relation != "" && relation != item.ObjectName {
+			return nil, fmt.Errorf("row-filtered schema has multiple relations")
+		}
+		relation = item.ObjectName
+	}
+	parts := strings.Split(relation, ".")
+	if len(parts) != 2 || !validSchemaIdentifier(parts[0]) || !validSchemaIdentifier(parts[1]) {
+		return nil, fmt.Errorf("row-filtered schema has invalid relation")
+	}
+	const maxProbes = 256
+	proved := make([]policy.SchemaColumn, 0, len(columns))
+	probes := 0
+	for _, column := range columns {
+		if column.Schema+"."+column.Table != relation {
+			continue
+		}
+		probes++
+		if probes > maxProbes {
+			return nil, fmt.Errorf("row-filtered schema exceeds bounded column probe count")
+		}
+		if column.Column == "" || strings.ContainsRune(column.Column, 0) {
+			return nil, fmt.Errorf("row-filtered schema has invalid column")
+		}
+		quotedColumn := `"` + strings.ReplaceAll(column.Column, `"`, `""`) + `"`
+		sql := fmt.Sprintf("SELECT %s FROM \"%s\".\"%s\" WHERE 1 = 0 LIMIT 1", quotedColumn, parts[0], parts[1])
+		response := probe(ctx, sql)
+		if response.Decision == string(model.DecisionDeny) &&
+			response.ErrorCode == string(executor.ReasonColumnGrantMissing) {
+			continue
+		}
+		data, ok := response.Data.(pipelineData)
+		if response.Decision != string(model.DecisionAllow) || !ok || data.AuditID <= 0 ||
+			data.Result == nil || len(data.Result.Rows) != 0 ||
+			len(data.Result.Columns) != 1 || data.Result.Columns[0] != column.Column {
+			return nil, fmt.Errorf("row-filtered schema B2 column proof failed")
+		}
+		proved = append(proved, column)
+	}
+	current, err := handlers.runtime.Store.Policies().ListByAgentAndDatasource(ctx, handlers.agent.ID, datasource.ID)
+	if err != nil || !reflect.DeepEqual(stored, current) {
+		return nil, fmt.Errorf("row-filtered schema policy changed during proof")
+	}
+	if _, response := handlers.authorizedDatasource(ctx, datasource.ID); response != nil {
+		return nil, fmt.Errorf("row-filtered schema authorization changed during proof")
+	}
+	return proved, nil
 }
 
 func (handlers *toolHandlers) listSchemaColumns(

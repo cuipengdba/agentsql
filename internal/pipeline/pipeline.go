@@ -79,6 +79,17 @@ func (pipeline *Pipeline) Process(ctx context.Context, request Request) (Respons
 	return pipeline.process(ctx, request, runModeProduction, nil)
 }
 
+// PostgresColumnAuthorizationEnabled lets metadata callers fail before any
+// catalog read when a row rule requires the active database-backed B2 path.
+// The query itself must still pass through Process for binding and audit.
+func (pipeline *Pipeline) PostgresColumnAuthorizationEnabled(datasource model.Datasource) bool {
+	if pipeline == nil || datasource.DBType != "postgres" || isNilInterface(pipeline.column) {
+		return false
+	}
+	router, ok := pipeline.column.(ColumnAuthorizationRouter)
+	return ok && router.ColumnAuthorizationEnabled(datasource)
+}
+
 func (pipeline *Pipeline) process(
 	ctx context.Context,
 	request Request,

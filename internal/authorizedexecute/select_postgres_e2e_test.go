@@ -176,6 +176,17 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 			require.Equal(t, "1", selected.Result.Rows[0][0])
 			require.Equal(t, digest, audited.RowFilterDigest)
 			require.Equal(t, 3, audited.Version)
+			const metadataProbe = `SELECT id FROM s4.a WHERE 1 = 0 LIMIT 1`
+			probeSQL, _, _, err := rowfilter.CompileForPolicies(metadataProbe, "agent", datasource.ID, []model.Policy{rowPolicy})
+			require.NoError(t, err)
+			probeEnrollment, err := gateway.EnrollPostgresSelect(ctx, datasource, secret, probeSQL, DefaultLimits)
+			require.NoError(t, err)
+			probeRequest := request
+			probeRequest.Policies = append(policiesForEnrollment(datasource.ID, probeEnrollment), rowPolicy)
+			probeResult, err := executeColumnAuthorized(ctx, gateway, datasource, secret, metadataProbe, probeRequest)
+			require.NoError(t, err)
+			require.True(t, probeResult.Allowed, "schema proof must bind the output and predicate columns")
+			require.Empty(t, probeResult.Result.Rows, "schema proof must not read or release business rows")
 			selected, err = executeColumnAuthorized(ctx, gateway, datasource, secret,
 				`SELECT id, phone FROM s4.a WHERE id = 1 OR id = 2`, request)
 			require.NoError(t, err)
