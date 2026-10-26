@@ -1,6 +1,9 @@
 package chatbi
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // These read-only responses match the SQLBot Community v1.10.2 browser
 // bootstrap contract. The license record is SQLBot-specific and is not an
@@ -15,6 +18,43 @@ func (h *Handler) sqlbotLicenseStatus(w http.ResponseWriter, _ *http.Request) {
 
 func (h *Handler) sqlbotProtocolVersion(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
 	okay(w, "1.10.2")
+}
+
+// SQLBot's browser checks this endpoint before it opens the chat picker. The
+// original endpoint has no response payload; model details and API keys must
+// not be exposed by this compatibility probe.
+func (h *Handler) sqlbotDefaultModel(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	var model ModelConfig
+	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			failure(w, ErrNotFound)
+		} else {
+			failure(w, ErrUnavailable)
+		}
+		return
+	}
+	if validateModelConfig(model) != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	okay(w, nil)
+}
+
+// The SQLBot Community browser renders the question composer only when a
+// conversation contains its initial, completed placeholder record. Keep that
+// placeholder in the compatibility response, never in the query history or
+// persisted AgentSQL record index. It has no SQL, data or execution authority.
+func sqlbotChatView(chat Chat) Chat {
+	if len(chat.Records) != 0 && chat.Records[0].FirstChat {
+		return chat
+	}
+	first := Record{
+		ID: chat.ID, Chat: chat.ID, Datasource: chat.Datasource,
+		Created: chat.Created, Finish: true, FirstChat: true,
+	}
+	chat.Records = append([]Record{first}, chat.Records...)
+	return chat
 }
 
 type sqlbotChatParameter struct {

@@ -54,6 +54,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)
 	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
 	h.mux.HandleFunc("GET /api/v1/system/parameter/chat", h.auth(h.sqlbotChatParameters))
+	h.mux.HandleFunc("GET /api/v1/system/aimodel/default", h.auth(h.sqlbotDefaultModel))
 	h.mux.HandleFunc("POST /api/v1/agentsql/login", h.nativeLogin)
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
@@ -99,6 +100,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/chat/rename", h.auth(h.rename))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.bounded(h.auth(h.recordData)))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data_live", h.bounded(h.auth(h.recordData)))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/usage", h.auth(h.recordUsage))
+	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.bounded(h.auth(h.read)))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
@@ -484,7 +487,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, p Principal, tok
 		failure(w, err)
 		return
 	}
-	okay(w, chat)
+	okay(w, sqlbotChatView(chat))
 }
 func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	id := ID(r.PathValue("id"))
@@ -501,7 +504,7 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, toke
 		failure(w, err)
 		return
 	}
-	okay(w, chat)
+	okay(w, sqlbotChatView(chat))
 }
 func (h *Handler) rename(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	var input struct {
@@ -581,6 +584,11 @@ func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, 
 	}
 	if err := event(map[string]any{"type": "sql", "content": record.SQL}); err != nil {
 		return
+	}
+	if record.Chart != "" {
+		if err := event(map[string]any{"type": "chart", "content": record.Chart}); err != nil {
+			return
+		}
 	}
 	if err := event(map[string]any{"type": "sql-data", "content": "execute-success"}); err != nil {
 		return

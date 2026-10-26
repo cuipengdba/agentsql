@@ -351,8 +351,18 @@ func TestQuestionPersistsBeforeDeliveryAndProtectsHistory(t *testing.T) {
 	if err != nil || record.Data == nil || record.Data.AuditID != 1 {
 		t.Fatalf("question: %v", err)
 	}
+	var chart struct {
+		Type    string `json:"type"`
+		Columns []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"columns"`
+	}
+	if json.Unmarshal([]byte(record.Chart), &chart) != nil || chart.Type != "table" || len(chart.Columns) != 1 || chart.Columns[0].Value != "amount" || strings.Contains(record.Chart, "123") {
+		t.Fatalf("controlled result did not produce metadata-only table chart: %s", record.Chart)
+	}
 	stored, _, err := s.chat(ctx, p, chat.ID)
-	if err != nil || stored.Records[0].ID != record.ID || stored.Records[0].Data == nil {
+	if err != nil || stored.Records[0].ID != record.ID || stored.Records[0].Data == nil || stored.Records[0].Chart != record.Chart {
 		t.Fatal("result delivered before persistence")
 	}
 	without, err := s.ReadChat(ctx, p, chat.ID, false)

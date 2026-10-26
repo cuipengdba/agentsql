@@ -41,8 +41,10 @@ type Record struct {
 	FinishedAt  *time.Time `json:"finish_time"`
 	SQL         string     `json:"sql"`
 	SQLAnswer   string     `json:"sql_answer"`
+	Chart       string     `json:"chart,omitempty"`
 	Data        *QueryData `json:"data,omitempty"`
 	Finish      bool       `json:"finish"`
+	FirstChat   bool       `json:"first_chat,omitempty"`
 	Error       string     `json:"error"`
 	ErrorStage  string     `json:"error_stage,omitempty"`
 	TotalTokens int        `json:"total_tokens"`
@@ -78,6 +80,26 @@ func bindingKey(p Principal, id ID) objectKey {
 
 func recordKey(p Principal, id ID) objectKey {
 	return objectKey{"record-index", string(p.Workspace), string(p.User.ID), string(id)}
+}
+
+// A table is the conservative visualization of an authorized query result.
+// Its field labels come from the gateway response; rows never enter this
+// persistent chart description.
+func tableChartConfig(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	columns := make([]map[string]string, 0, len(fields))
+	for _, field := range fields {
+		columns = append(columns, map[string]string{"name": field, "value": field})
+	}
+	raw, err := json.Marshal(map[string]any{
+		"type": "table", "title": "", "columns": columns, "axis": map[string]any{},
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func (service *Service) Record(ctx context.Context, p Principal, id ID, withData bool) (Record, error) {
@@ -199,7 +221,7 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
 			return nil, ErrUnavailable
 		}
-		chat.Records = nil
+		chat.Records = []Record{}
 		chat.LeaseUntil = time.Time{}
 		chats = append(chats, chat)
 	}
@@ -449,6 +471,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			return err
 		}
 		record.Data = &data
+		record.Chart = tableChartConfig(data.Fields)
 		return nil
 	}
 	runErr := run()
@@ -462,6 +485,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		record.ErrorStage = stage
 		record.SQL = ""
 		record.SQLAnswer = ""
+		record.Chart = ""
 	}
 	chat.Records[len(chat.Records)-1] = record
 	chat.LeaseUntil = time.Time{}

@@ -1229,12 +1229,12 @@
     {
       "source": "docs/v4.2.0-design.md",
       "english": "docs/en/v4.2.0-design.md",
-      "source_sha256": "b8ca08e0ddfd214d9a2a396a3d2793ad6280cd4bb9f49613b8b507fcbac51903"
+      "source_sha256": "6872ce2d5951b6994c5e431a1a0506f473180573ceb428045992ce0a7c2efc50"
     },
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "a124976cbedb1dcbb44a71263690820ca464b61cf686b7dfb7c6ceb2694041ce"
+      "source_sha256": "a18f539c4d2fdd324db411fe16734e57d138135cf23314f509fb809fcd80a57d"
     }
   ]
 }
