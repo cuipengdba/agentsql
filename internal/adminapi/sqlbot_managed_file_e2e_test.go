@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,7 +27,7 @@ import (
 
 // Run only against a disposable PostgreSQL database. The first HTTP response
 // is deliberately discarded after publication, then the exact request is
-// retried after closing and reopening the runtime against the durable store.
+// retried in a separate process against the same durable store.
 func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	dsn := os.Getenv("AGENTSQL_MANAGED_FILE_PG_URL")
 	if dsn == "" {
@@ -111,13 +112,32 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, lostResponse := call(body)
 	require.Equal(t, http.StatusOK, status, string(lostResponse))
-	// Reopen the control store and runtime to rule out an in-memory receipt.
+	// Restart the runtime in another OS process before replaying the request.
 	require.NoError(t, runtime.Close())
+	requestPath := filepath.Join(t.TempDir(), "replay-request.json")
+	responsePath := filepath.Join(t.TempDir(), "replay-response.json")
+	require.NoError(t, os.WriteFile(requestPath, body, 0600))
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestManagedFileImportReplayChildProcess$")
+	child.Env = append(os.Environ(), "AGENTSQL_TEST_MANAGED_REPLAY=1",
+		"AGENTSQL_TEST_REPLAY_STORE="+cfg.Store.SQLitePath,
+		"AGENTSQL_TEST_REPLAY_REQUEST="+requestPath,
+		"AGENTSQL_TEST_REPLAY_RESPONSE="+responsePath,
+		"AGENTSQL_TEST_REPLAY_API_KEY="+apiKey,
+		"AGENTSQL_TEST_REPLAY_HUMAN_TOKEN="+humanToken)
+	output, err := child.CombinedOutput()
+	require.NoError(t, err, string(output))
+	rawReply, err := os.ReadFile(responsePath)
+	require.NoError(t, err)
+	var childReply struct {
+		Status int    `json:"status"`
+		Body   []byte `json:"body"`
+	}
+	require.NoError(t, json.Unmarshal(rawReply, &childReply))
 	runtime, err = bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
 	require.NoError(t, err)
 	handler = newHandler()
-	status, replay := call(body)
-	require.Equal(t, http.StatusOK, status, string(replay))
+	replay := childReply.Body
+	require.Equal(t, http.StatusOK, childReply.Status, string(replay))
 	require.JSONEq(t, string(lostResponse), string(replay))
 	var result struct {
 		Data struct {
@@ -148,4 +168,39 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	require.Equal(t, http.StatusConflict, status, "changed valid sheet selection must not republish the same staged file")
 	require.NoError(t, admin.QueryRow(ctx, `SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='agentsql_files'`).Scan(&physicalTables))
 	require.Equal(t, 1, physicalTables)
+}
+
+func TestManagedFileImportReplayChildProcess(t *testing.T) {
+	if os.Getenv("AGENTSQL_TEST_MANAGED_REPLAY") != "1" {
+		t.Skip("only launched by the managed-file process-restart test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cfg := adminTestConfig(os.Getenv("AGENTSQL_TEST_REPLAY_STORE"))
+	runtime, err := bootstrap.Assemble(ctx, cfg, []byte(adminTestSecret))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, runtime.Close()) }()
+	reader, err := runtime.Store.Datasources().Get(ctx, "managed-http-read")
+	require.NoError(t, err)
+	writer := reader
+	writer.ID, writer.Username = "managed-http-writer", "file_writer"
+	physical, err := executor.NewManagedFileProvisioner(reader, writer, "writer-password")
+	require.NoError(t, err)
+	handler, err := NewHandler(Deps{Runtime: runtime, ManagedFiles: physical, Config: cfg,
+		AdminUsername: "admin", AdminPassword: "password", TokenKey: DeriveTokenKey([]byte(adminTestSecret))}, zerolog.Nop())
+	require.NoError(t, err)
+	body, err := os.ReadFile(os.Getenv("AGENTSQL_TEST_REPLAY_REQUEST"))
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/integrations/sqlbot/managed-files/import", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+os.Getenv("AGENTSQL_TEST_REPLAY_API_KEY"))
+	request.Header.Set("X-AgentSQL-User-Authorization", "Bearer "+os.Getenv("AGENTSQL_TEST_REPLAY_HUMAN_TOKEN"))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	reply, err := json.Marshal(struct {
+		Status int    `json:"status"`
+		Body   []byte `json:"body"`
+	}{Status: response.Code, Body: response.Body.Bytes()})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(os.Getenv("AGENTSQL_TEST_REPLAY_RESPONSE"), reply, 0600))
 }
