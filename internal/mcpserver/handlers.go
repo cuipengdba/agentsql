@@ -149,8 +149,33 @@ func (handlers *toolHandlers) listSchema(
 		return handlers.internalError("list_schema", err)
 	}
 	data := make([]publicSchemaColumn, 0, len(filtered))
+	binding, scoped := sqlbotScope(ctx)
+	managedVisible := map[string]bool{}
 	for _, column := range filtered {
-		if binding, scoped := sqlbotScope(ctx); scoped && column.Schema != binding.SchemaName {
+		managedSchema := strings.EqualFold(column.Schema, "agentsql_files")
+		managedName := strings.HasPrefix(strings.ToLower(column.Table), "agentsql_file_")
+		if managedSchema || managedName {
+			if column.Schema != "agentsql_files" || !managedName || !scoped || binding.SchemaName != "agentsql_files" {
+				continue
+			}
+			visible, checked := managedVisible[column.Table]
+			if !checked {
+				tenantCtx, err := store.WithTenant(ctx, binding.TenantID)
+				if err != nil {
+					return handlers.internalError("list_schema", err)
+				}
+				visible, err = handlers.runtime.Store.ManagedFileImports().PublishedTableOwner(tenantCtx,
+					binding.ID, datasource.ID, handlers.agent.ID, binding.AgentSQLUserID, column.Table)
+				if err != nil {
+					return handlers.internalError("list_schema", err)
+				}
+				managedVisible[column.Table] = visible
+			}
+			if !visible {
+				continue
+			}
+		}
+		if scoped && column.Schema != binding.SchemaName {
 			continue
 		}
 		data = append(data, publicSchemaColumn{
@@ -359,6 +384,9 @@ func (handlers *toolHandlers) process(ctx context.Context, request pipeline.Requ
 	if human, delegated := delegatedHumanFromContext(ctx); delegated {
 		request.DelegatedUserID = human.userID
 		request.DelegatedTenantID = human.tenantID
+	}
+	if binding, scoped := sqlbotScope(ctx); scoped {
+		request.DelegatedBindingID = binding.ID
 	}
 	response, err := handlers.runtime.Pipeline.Process(ctx, request)
 	if err != nil {

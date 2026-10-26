@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuipengdba/agentsql/internal/managedfile"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,33 +45,47 @@ func TestManagedFileImportJournalTenantCASAndAuditRollback(t *testing.T) {
 	require.ErrorIs(t, err, ErrManagedFileState)
 	_, err = r.Advance(ctx, item.ID, item.Revision, "preparing", "staged", "other-user")
 	require.ErrorIs(t, err, ErrManagedFileState)
+	operation, err := managedfile.ParseOperationID(item.ID)
+	require.NoError(t, err)
+	first, err := managedfile.TableName(operation, 0)
+	require.NoError(t, err)
+	second, err := managedfile.TableName(operation, 1)
+	require.NoError(t, err)
+	tables := []ManagedFileTableRecord{{Name: first, Rows: 1}, {Name: second, Rows: 2}}
 	_, err = s.metaDB.Exec(`CREATE TRIGGER fail_managed_file_audit BEFORE INSERT ON management_audit_outbox WHEN NEW.action LIKE 'managed_file.%' BEGIN SELECT RAISE(FAIL,'audit unavailable'); END`)
 	require.NoError(t, err)
-	_, err = r.Advance(ctx, item.ID, item.Revision, "preparing", "staged", b.AgentSQLUserID)
+	_, err = r.MarkStaged(ctx, item.ID, item.Revision, tables, b.AgentSQLUserID)
 	require.Error(t, err)
 	current, err := r.Get(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, "preparing", current.Status)
 	require.Equal(t, item.Revision, current.Revision)
+	var recorded int
+	require.NoError(t, s.metaDB.QueryRow(`SELECT COUNT(*) FROM managed_file_tables WHERE operation_id=?`, item.ID).Scan(&recorded))
+	require.Zero(t, recorded, "audit outage must roll back table mappings")
 	items, err = r.ListPending(ctx, 100)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	_, err = s.metaDB.Exec(`DROP TRIGGER fail_managed_file_audit`)
 	require.NoError(t, err)
-	for _, next := range []string{"staged", "policy_ready", "published", "deleting", "deleted"} {
+	_, err = r.MarkStaged(ctx, item.ID, item.Revision, []ManagedFileTableRecord{{Name: "agentsql_file_invalid", Rows: 1}}, b.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrManagedFileState)
+	current, err = r.MarkStaged(ctx, item.ID, item.Revision, tables, b.AgentSQLUserID)
+	require.NoError(t, err)
+	allowed, err := r.PublishedTableOwner(ctx, b.ID, b.DatasourceID, b.AgentID, b.AgentSQLUserID, first)
+	require.NoError(t, err)
+	require.False(t, allowed, "staged tables are not published")
+	_, err = r.Advance(ctx, item.ID, current.Revision, "staged", "policy_ready", b.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrManagedFileState, "policy publication has no evidence-bearing implementation yet")
+	_, err = r.Advance(ctx, item.ID, current.Revision, "staged", "published", b.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrManagedFileState)
+	for _, next := range []string{"cleanup_needed", "deleted"} {
 		current, err = r.Advance(ctx, item.ID, current.Revision, current.Status, next, b.AgentSQLUserID)
 		require.NoError(t, err)
 		require.Equal(t, next, current.Status)
-		if next == "policy_ready" {
-			pending, err := r.ListRecoverableByDatasource(ctx, b.DatasourceID, 100)
-			require.NoError(t, err)
-			require.Empty(t, pending, "policy-ready tables need a separate grant recovery path")
-		}
-		if next == "published" {
-			pending, err := r.ListPending(ctx, 100)
-			require.NoError(t, err)
-			require.Empty(t, pending)
-		}
+		allowed, err = r.PublishedTableOwner(ctx, b.ID, b.DatasourceID, b.AgentID, b.AgentSQLUserID, first)
+		require.NoError(t, err)
+		require.False(t, allowed)
 	}
 	items, err = r.ListPending(ctx, 100)
 	require.NoError(t, err)
@@ -86,7 +101,7 @@ func TestManagedFileImportJournalTenantCASAndAuditRollback(t *testing.T) {
 	require.NoError(t, err)
 	var audits int
 	require.NoError(t, s.metaDB.QueryRow(`SELECT COUNT(*) FROM management_audit_outbox WHERE action LIKE 'managed_file.%'`).Scan(&audits))
-	require.Equal(t, 6, audits)
+	require.Equal(t, 4, audits)
 }
 
 func TestManagedFileImportJournalRequiresCurrentBindingAndExactOwner(t *testing.T) {
@@ -113,7 +128,11 @@ func TestManagedFileImportJournalRequiresCurrentBindingAndExactOwner(t *testing.
 	}
 	journal, err := r.Begin(ctx, b, hash, 1, 1, b.AgentSQLUserID)
 	require.NoError(t, err)
-	journal, err = r.Advance(ctx, journal.ID, journal.Revision, "preparing", "staged", b.AgentSQLUserID)
+	operation, err := managedfile.ParseOperationID(journal.ID)
+	require.NoError(t, err)
+	name, err := managedfile.TableName(operation, 0)
+	require.NoError(t, err)
+	journal, err = r.MarkStaged(ctx, journal.ID, journal.Revision, []ManagedFileTableRecord{{Name: name, Rows: 0}}, b.AgentSQLUserID)
 	require.NoError(t, err)
 	rotated, _, err := s.SQLBotBindings().Rotate(ctx, b.ID, b.Revision, "operator")
 	require.NoError(t, err)
@@ -126,4 +145,52 @@ func TestManagedFileImportJournalRequiresCurrentBindingAndExactOwner(t *testing.
 	require.NoError(t, err)
 	_, err = r.Begin(ctx, rotated, hash, 1, 1, b.AgentSQLUserID)
 	require.ErrorIs(t, err, ErrManagedFileState)
+}
+
+func TestManagedFilePublishedOwnerPredicateRequiresCurrentBinding(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	b, _, err := s.SQLBotBindings().Create(ctx, sqlbotTestBinding(t, s), "operator")
+	require.NoError(t, err)
+	r := s.ManagedFileImports()
+	item, err := r.Begin(ctx, b, strings.Repeat("a", 64), 1, 1, b.AgentSQLUserID)
+	require.NoError(t, err)
+	operation, err := managedfile.ParseOperationID(item.ID)
+	require.NoError(t, err)
+	name, err := managedfile.TableName(operation, 0)
+	require.NoError(t, err)
+	_, err = r.MarkStaged(ctx, item.ID, item.Revision, []ManagedFileTableRecord{{Name: name, Rows: 1}}, b.AgentSQLUserID)
+	require.NoError(t, err)
+	// The production state machine cannot publish yet. Set the fixture state
+	// directly to verify the read-side predicate for a future evidence-bearing
+	// publication coordinator, without representing this as a release flow.
+	_, err = s.metaDB.Exec(`UPDATE managed_file_imports SET status='published' WHERE id=?`, item.ID)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		datasource, agent, owner, table string
+		allowed                         bool
+	}{
+		{b.DatasourceID, b.AgentID, b.AgentSQLUserID, name, true},
+		{b.DatasourceID, b.AgentID, "another-user", name, false},
+		{b.DatasourceID, "another-agent", b.AgentSQLUserID, name, false},
+		{"another-datasource", b.AgentID, b.AgentSQLUserID, name, false},
+		{b.DatasourceID, b.AgentID, b.AgentSQLUserID, "agentsql_file_11111111111111111111111111111111", false},
+	} {
+		allowed, err := r.PublishedTableOwner(ctx, b.ID, test.datasource, test.agent, test.owner, test.table)
+		require.NoError(t, err)
+		require.Equal(t, test.allowed, allowed)
+	}
+	allowed, err := r.PublishedTableOwner(ctx, "another-binding", b.DatasourceID, b.AgentID, b.AgentSQLUserID, name)
+	require.NoError(t, err)
+	require.False(t, allowed, "workspace binding is part of file ownership")
+	otherTenant, err := WithTenant(ctx, "another-tenant")
+	require.NoError(t, err)
+	allowed, err = r.PublishedTableOwner(otherTenant, b.ID, b.DatasourceID, b.AgentID, b.AgentSQLUserID, name)
+	require.NoError(t, err)
+	require.False(t, allowed)
+	_, _, err = s.SQLBotBindings().Rotate(ctx, b.ID, b.Revision, "operator")
+	require.NoError(t, err)
+	allowed, err = r.PublishedTableOwner(ctx, b.ID, b.DatasourceID, b.AgentID, b.AgentSQLUserID, name)
+	require.NoError(t, err)
+	require.False(t, allowed)
 }

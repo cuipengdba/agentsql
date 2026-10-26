@@ -27,7 +27,7 @@ func TestSQLBotSQLiteUpgradeFromV302(t *testing.T) {
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, separate))
 			current, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, separate)
 			require.NoError(t, err)
-			expected := previous + 3 // v3.6 adds durable notification state; v3.7 adds native read controls.
+			expected := previous + 4 // Durable notifications, native read controls, and v4.2 managed files.
 			if !separate {
 				expected++ // v3.5 adds the combined-store audit stream migration.
 			}
@@ -81,7 +81,7 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, s.Close()) })
 			current, latest, err := MetadataMigrationVersions(ctx, s.metaDB, DialectPostgres, separate)
 			require.NoError(t, err)
-			expected := previous + 2 // v3.6 adds durable notification delivery state.
+			expected := previous + 4 // Durable notifications, native read controls, and v4.2 managed files.
 			if !separate {
 				expected++ // v3.5 adds the combined-store audit stream migration.
 			}

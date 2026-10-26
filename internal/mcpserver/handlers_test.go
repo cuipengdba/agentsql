@@ -121,6 +121,27 @@ func TestListSchemaTypesOnlyForAuthorizedColumns(t *testing.T) {
 	require.NotContains(t, string(encoded), "private_enum")
 }
 
+func TestManagedFileSchemaStaysHiddenWithoutPublishedOwner(t *testing.T) {
+	fixture := newMCPFixture(t, "readonly")
+	name := "agentsql_file_11111111111111111111111111111111"
+	_, err := fixture.runtime.Store.Policies().Create(context.Background(), model.Policy{
+		ID: "managed-table-policy", AgentID: fixture.agent.ID, DatasourceID: "ds-allowed",
+		ObjectType: "table", ObjectName: "agentsql_files." + name, Action: "allow",
+	})
+	require.NoError(t, err)
+	fixture.handlers.schemaFor = func(context.Context, model.Datasource, []executor.TableRef) ([]executor.SchemaColumn, error) {
+		return []executor.SchemaColumn{{Schema: "agentsql_files", Table: name, Column: "amount", DataType: "bigint"}}, nil
+	}
+	response := fixture.handlers.listSchema(context.Background(), "ds-allowed", "agentsql_files."+name)
+	require.Equal(t, "allow", response.Decision)
+	require.Empty(t, response.Data.([]publicSchemaColumn), "Agent policy alone cannot reveal a managed table")
+	binding := store.SQLBotBinding{ID: "missing-binding", TenantID: store.DefaultTenantID, AgentSQLUserID: "human", DatasourceID: "ds-allowed", SchemaName: "agentsql_files"}
+	ctx := context.WithValue(context.Background(), sqlbotScopeContextKey{}, binding)
+	response = fixture.handlers.listSchema(ctx, "ds-allowed", "agentsql_files."+name)
+	require.Equal(t, "allow", response.Decision)
+	require.Empty(t, response.Data.([]publicSchemaColumn), "unpublished table is hidden even with connector scope")
+}
+
 func TestHandlersToolStatementGates(t *testing.T) {
 	fixture := newMCPFixture(t, "dml")
 	before := fixture.provider.calls()

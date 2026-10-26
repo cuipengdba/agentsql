@@ -20,7 +20,7 @@ func TestSQLiteToPostgresTableOrderIsFrozen(t *testing.T) {
 	require.Equal(t, []string{
 		"tenants", "agents", "datasources", "rules", "mask_rules", "policies", "relation_policy_bindings",
 		"policy_column_permission_staging", "policy_column_permissions", "audit_logs", "approvals",
-		"notification_settings", "notification_channels", "notification_delivery_cursors", "redaction_key_versions", "management_audit_outbox", "policy_bundle_proposals", "policy_bundle_baselines", "sqlbot_bindings",
+		"notification_settings", "notification_channels", "notification_delivery_cursors", "redaction_key_versions", "management_audit_outbox", "policy_bundle_proposals", "policy_bundle_baselines", "sqlbot_bindings", "managed_file_imports", "managed_file_tables",
 		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens",
 		"users", "task_read_grants", "task_read_grant_requests", "permissions", "roles", "user_roles", "role_permissions", "role_inheritance",
 		"auth_identities", "user_mfa", "user_mfa_recovery_codes", "auth_login_challenges", "oidc_auth_requests",

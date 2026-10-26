@@ -120,8 +120,8 @@ func convertFileValue(kind, raw string) (any, error) {
 	case "datetime":
 		value := strings.TrimSpace(raw)
 		for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02"} {
-			if _, err := time.Parse(layout, value); err == nil {
-				return value, nil
+			if instant, err := time.ParseInLocation(layout, value, time.UTC); err == nil && instant.Year() >= 1 && instant.Year() <= 9999 {
+				return instant.UTC(), nil
 			}
 		}
 		return nil, errFileImport

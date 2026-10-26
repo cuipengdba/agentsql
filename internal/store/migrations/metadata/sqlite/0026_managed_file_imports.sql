@@ -19,3 +19,13 @@ CREATE INDEX idx_managed_file_imports_open ON managed_file_imports(tenant_id,sta
 CREATE INDEX idx_managed_file_imports_owner ON managed_file_imports(tenant_id,workspace_id,owner_user_id,created_at);
 CREATE UNIQUE INDEX ux_managed_file_import_active_owner ON managed_file_imports(tenant_id,workspace_id,owner_user_id)
   WHERE status IN ('preparing','staged','policy_ready','cleanup_needed');
+CREATE TABLE managed_file_tables (
+  id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL REFERENCES managed_file_imports(id) ON DELETE RESTRICT,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  sheet_index INTEGER NOT NULL CHECK(sheet_index >= 0 AND sheet_index < 8),
+  table_name TEXT NOT NULL CHECK(length(table_name)=46),
+  row_count INTEGER NOT NULL CHECK(row_count >= 0 AND row_count <= 1000),
+  UNIQUE(operation_id,sheet_index),
+  UNIQUE(tenant_id,table_name)
+);

@@ -53,3 +53,15 @@ func TestFileImportPlanRejectsNumericOverflowAndUnsupportedType(t *testing.T) {
 	_, err = planFileImport(stage, request, now)
 	require.ErrorIs(t, err, errFileImport)
 }
+
+func TestFileImportPlanProducesTypedUTCInstants(t *testing.T) {
+	now := time.Now().UTC()
+	stage := fileStage{FilePath: "agentsql-file-dates.csv", Original: "dates.csv",
+		Data: []byte("occurred\n2026-10-26T09:30:00+08:00\n2026-10-27 12:00:00\n"), Expires: now.Add(time.Hour)}
+	var request FileImportRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"filePath":"agentsql-file-dates.csv","sheets":[{"sheetName":"Sheet1","fields":[{"fieldName":"occurred","fieldType":"datetime"}]}]}`), &request))
+	plan, err := planFileImport(stage, request, now)
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2026, 10, 26, 1, 30, 0, 0, time.UTC), plan.Sheets[0].Rows[0][0])
+	require.Equal(t, time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC), plan.Sheets[0].Rows[1][0])
+}

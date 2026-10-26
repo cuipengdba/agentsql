@@ -41,19 +41,20 @@ var (
 
 // Request is one protected SQL operation.
 type Request struct {
-	APIKey            string
-	DatasourceID      string
-	SQL               string
-	Reason            string
-	SessionID         string
-	ConversationID    *string
-	MCPTool           string
-	ClientIP          *string
-	ModelName         *string
-	DelegatedUserID   string
-	DelegatedTenantID string
-	ExplainOnly       bool
-	RequireApproval   bool
+	APIKey             string
+	DatasourceID       string
+	SQL                string
+	Reason             string
+	SessionID          string
+	ConversationID     *string
+	MCPTool            string
+	ClientIP           *string
+	ModelName          *string
+	DelegatedUserID    string
+	DelegatedBindingID string
+	DelegatedTenantID  string
+	ExplainOnly        bool
+	RequireApproval    bool
 }
 
 // Response is the complete guarded SQL outcome.
@@ -159,6 +160,13 @@ type RuleOverrideReader interface {
 	List(ctx context.Context, dbType string) ([]model.Rule, error)
 }
 
+// ManagedFileAccess is a control-store gate for the dedicated file schema.
+// It never grants access by itself; regular SQL, policy, and audit checks still
+// apply after it confirms the current delegated human owns a published table.
+type ManagedFileAccess interface {
+	PublishedTableOwner(ctx context.Context, bindingID, datasourceID, agentID, ownerUserID, tableName string) (bool, error)
+}
+
 // Ports contains the seven required pipeline dependencies plus the optional
 // runtime rule-override reader. A nil RuleOverrides preserves built-in rules.
 type Ports struct {
@@ -177,10 +185,21 @@ type Ports struct {
 type Option func(*pipelineOptions) error
 
 type pipelineOptions struct {
-	ruleLayers engine.RuleLayers
-	observer   DecisionObserver
-	demo       config.DemoConfig
-	column     ColumnAuthorizationController
+	ruleLayers  engine.RuleLayers
+	observer    DecisionObserver
+	demo        config.DemoConfig
+	column      ColumnAuthorizationController
+	managedFile ManagedFileAccess
+}
+
+func WithManagedFileAccess(access ManagedFileAccess) Option {
+	return func(options *pipelineOptions) error {
+		if isNilInterface(access) {
+			return ErrInvalidOption
+		}
+		options.managedFile = access
+		return nil
+	}
 }
 
 // WithColumnAuthorization enables the feature-gated S4 SELECT path. Normal

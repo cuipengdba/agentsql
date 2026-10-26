@@ -2,9 +2,6 @@ package businessdb
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -14,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cuipengdba/agentsql/internal/managedfile"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/jackc/pgx/v5"
 )
@@ -41,26 +39,16 @@ type ManagedFileTable struct {
 	Rows   int
 }
 
-type ManagedFileOperationID [16]byte
+type ManagedFileOperationID = managedfile.OperationID
 
 func NewManagedFileOperationID() (ManagedFileOperationID, error) {
-	var id ManagedFileOperationID
-	_, err := rand.Read(id[:])
-	return id, err
+	return managedfile.NewOperationID()
 }
 
 func ParseManagedFileOperationID(value string) (ManagedFileOperationID, error) {
-	var id ManagedFileOperationID
-	if len(value) != 32 || strings.ToLower(value) != value {
-		return id, ErrManagedFileInvalid
-	}
-	decoded, err := hex.DecodeString(value)
-	if err != nil || len(decoded) != len(id) {
-		return id, ErrManagedFileInvalid
-	}
-	copy(id[:], decoded)
-	if id == (ManagedFileOperationID{}) {
-		return id, ErrManagedFileInvalid
+	id, err := managedfile.ParseOperationID(value)
+	if err != nil {
+		return ManagedFileOperationID{}, ErrManagedFileInvalid
 	}
 	return id, nil
 }
@@ -150,12 +138,11 @@ func validManagedFileValue(kind string, value any) bool {
 // Every table name is recoverable after a process crash without listing or
 // guessing tables in an unrelated schema.
 func ManagedFileName(operation ManagedFileOperationID, sheet int) (string, error) {
-	if operation == (ManagedFileOperationID{}) || sheet < 0 || sheet >= 8 {
+	name, err := managedfile.TableName(operation, sheet)
+	if err != nil {
 		return "", ErrManagedFileInvalid
 	}
-	seed := append(operation[:], byte(sheet))
-	digest := sha256.Sum256(seed)
-	return "agentsql_file_" + hex.EncodeToString(digest[:16]), nil
+	return name, nil
 }
 
 // StageManagedFiles creates and loads all sheets in one PostgreSQL transaction.

@@ -26,15 +26,16 @@ import (
 
 // Pipeline is the immutable coordinator for one protected SQL flow.
 type Pipeline struct {
-	ports    Ports
-	secret   []byte
-	resolver *policy.Resolver
-	engine   engine.Engine
-	limiter  rules.RateLimiter
-	layers   engine.RuleLayers
-	observer DecisionObserver
-	demo     config.DemoConfig
-	column   ColumnAuthorizationController
+	ports       Ports
+	secret      []byte
+	resolver    *policy.Resolver
+	engine      engine.Engine
+	limiter     rules.RateLimiter
+	layers      engine.RuleLayers
+	observer    DecisionObserver
+	demo        config.DemoConfig
+	column      ColumnAuthorizationController
+	managedFile ManagedFileAccess
 }
 
 // New validates all seven ports and constructs the shared guard components.
@@ -60,15 +61,16 @@ func New(ports Ports, secret []byte, options ...Option) (*Pipeline, error) {
 		return nil, fmt.Errorf("construct pipeline rule layers: %w", errors.Join(ErrInvalidOption, err))
 	}
 	return &Pipeline{
-		ports:    ports,
-		secret:   append([]byte(nil), secret...),
-		resolver: policy.NewResolver(),
-		engine:   engine.Engine{},
-		limiter:  rules.NewDefaultTokenBucketLimiter(),
-		layers:   configuration.ruleLayers,
-		observer: configuration.observer,
-		demo:     configuration.demo,
-		column:   configuration.column,
+		ports:       ports,
+		secret:      append([]byte(nil), secret...),
+		resolver:    policy.NewResolver(),
+		engine:      engine.Engine{},
+		limiter:     rules.NewDefaultTokenBucketLimiter(),
+		layers:      configuration.ruleLayers,
+		observer:    configuration.observer,
+		demo:        configuration.demo,
+		column:      configuration.column,
+		managedFile: configuration.managedFile,
 	}, nil
 }
 
@@ -248,6 +250,9 @@ func (pipeline *Pipeline) process(
 				executor.DBStageParse,
 			))
 		}
+		return run.finish(ctx, err)
+	}
+	if err := run.checkManagedFileOwnership(ctx); err != nil {
 		return run.finish(ctx, err)
 	}
 	// A stored column policy must never fall through to the table-only path.

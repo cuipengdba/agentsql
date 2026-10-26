@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cuipengdba/agentsql/internal/managedfile"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/google/uuid"
 )
@@ -32,6 +34,11 @@ type ManagedFileImport struct {
 	Revision        int64
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type ManagedFileTableRecord struct {
+	Name string
+	Rows int
 }
 
 type ManagedFileImportRepository struct {
@@ -109,10 +116,58 @@ func (r *ManagedFileImportRepository) Begin(ctx context.Context, binding SQLBotB
 	return r.Get(ctx, id)
 }
 
+// MarkStaged atomically records every service-derived physical table name,
+// advances the journal, and writes management audit. A missing or altered
+// sheet cannot later receive policy_ready status.
+func (r *ManagedFileImportRepository) MarkStaged(ctx context.Context, id string, revision int64, tables []ManagedFileTableRecord, actor string) (ManagedFileImport, error) {
+	tenant, err := r.requireTenant(ctx, "mark managed file staged")
+	if err != nil {
+		return ManagedFileImport{}, err
+	}
+	operation, err := managedfile.ParseOperationID(id)
+	if err != nil || revision < 1 || actor == "" || len(tables) == 0 || len(tables) > 8 {
+		return ManagedFileImport{}, ErrManagedFileState
+	}
+	for index, table := range tables {
+		expected, nameErr := managedfile.TableName(operation, index)
+		if nameErr != nil || table.Name != expected || table.Rows < 0 || table.Rows > 1000 {
+			return ManagedFileImport{}, ErrManagedFileState
+		}
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ManagedFileImport{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, r.bind(`UPDATE managed_file_imports SET status='staged',revision=revision+1,updated_at=CURRENT_TIMESTAMP
+		WHERE id=? AND tenant_id=? AND owner_user_id=? AND revision=? AND status='preparing' AND sheet_count=?`),
+		id, tenant, actor, revision, len(tables))
+	if err != nil {
+		return ManagedFileImport{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		return ManagedFileImport{}, ErrManagedFileState
+	}
+	for index, table := range tables {
+		_, err := tx.ExecContext(ctx, r.bind(`INSERT INTO managed_file_tables(id,operation_id,tenant_id,sheet_index,table_name,row_count) VALUES(?,?,?,?,?,?)`),
+			id+"-"+strconv.Itoa(index), id, tenant, index, table.Name, table.Rows)
+		if err != nil {
+			return ManagedFileImport{}, err
+		}
+	}
+	if err := r.audit(ctx, tx, id, "staged", actor, "", 0, 0); err != nil {
+		return ManagedFileImport{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ManagedFileImport{}, err
+	}
+	return r.Get(ctx, id)
+}
+
 var managedFileNextStatus = map[string]map[string]bool{
-	"preparing":      {"staged": true, "cleanup_needed": true},
-	"staged":         {"policy_ready": true, "cleanup_needed": true},
-	"policy_ready":   {"published": true, "cleanup_needed": true},
+	"preparing":      {"cleanup_needed": true},
+	"staged":         {"cleanup_needed": true},
+	"policy_ready":   {"cleanup_needed": true},
 	"published":      {"deleting": true},
 	"deleting":       {"deleted": true, "cleanup_needed": true},
 	"cleanup_needed": {"deleted": true},
@@ -135,9 +190,6 @@ func (r *ManagedFileImportRepository) Advance(ctx context.Context, id string, re
 	}
 	defer tx.Rollback()
 	query := `UPDATE managed_file_imports SET status=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND owner_user_id=? AND revision=? AND status=?`
-	if to == "policy_ready" || to == "published" {
-		query += ` AND EXISTS (SELECT 1 FROM sqlbot_bindings b WHERE b.id=managed_file_imports.binding_id AND b.tenant_id=managed_file_imports.tenant_id AND b.revision=managed_file_imports.binding_revision AND b.enabled=TRUE)`
-	}
 	result, err := tx.ExecContext(ctx, r.bind(query),
 		to, id, tenant, actor, revision, from)
 	if err != nil {
@@ -153,6 +205,28 @@ func (r *ManagedFileImportRepository) Advance(ctx context.Context, id string, re
 		return ManagedFileImport{}, err
 	}
 	return r.Get(ctx, id)
+}
+
+// PublishedTableOwner checks an exact table mapping and current binding. It
+// returns false for all unfinished, revoked, foreign-user, or unknown tables.
+// The caller must still validate SQL and database-backed column policy.
+func (r *ManagedFileImportRepository) PublishedTableOwner(ctx context.Context, bindingID, datasourceID, agentID, ownerUserID, tableName string) (bool, error) {
+	tenant, err := r.requireTenant(ctx, "check managed file table owner")
+	if err != nil {
+		return false, err
+	}
+	if bindingID == "" || datasourceID == "" || agentID == "" || ownerUserID == "" || !strings.HasPrefix(tableName, "agentsql_file_") || len(tableName) != 46 {
+		return false, ErrManagedFileState
+	}
+	var count int
+	err = r.db.QueryRowContext(ctx, r.bind(`SELECT COUNT(*) FROM managed_file_tables t
+		JOIN managed_file_imports i ON i.id=t.operation_id AND i.tenant_id=t.tenant_id
+		JOIN sqlbot_bindings b ON b.id=i.binding_id AND b.tenant_id=i.tenant_id
+		WHERE t.tenant_id=? AND t.table_name=? AND i.binding_id=? AND i.datasource_id=? AND i.agent_id=? AND i.owner_user_id=?
+		AND i.status='published' AND b.enabled=TRUE AND b.revision=i.binding_revision
+		AND b.agent_id=i.agent_id AND b.datasource_id=i.datasource_id AND b.agentsql_user_id=i.owner_user_id`),
+		tenant, tableName, bindingID, datasourceID, agentID, ownerUserID).Scan(&count)
+	return count == 1, err
 }
 
 // ListPending excludes successfully published imports so old file tables do

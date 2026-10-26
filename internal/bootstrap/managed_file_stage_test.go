@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/managedfile"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -26,8 +27,12 @@ func (probe *managedFilePhysicalProbe) ReadDatasourceID() string { return probe.
 func (probe *managedFilePhysicalProbe) MatchesReadDatasource(value model.Datasource) bool {
 	return value.ID == probe.read.ID && value.Host == probe.read.Host && value.Database == probe.read.Database
 }
-func (*managedFilePhysicalProbe) ExpectedTableName(_ string, _ int) (string, error) {
-	return "agentsql_file_11111111111111111111111111111111", nil
+func (*managedFilePhysicalProbe) ExpectedTableName(operation string, sheet int) (string, error) {
+	id, err := managedfile.ParseOperationID(operation)
+	if err != nil {
+		return "", err
+	}
+	return managedfile.TableName(id, sheet)
 }
 func (probe *managedFilePhysicalProbe) Stage(_ context.Context, operation string, sheets []executor.ManagedFileSheet) ([]executor.ManagedFileTable, error) {
 	probe.operation = operation
@@ -35,7 +40,11 @@ func (probe *managedFilePhysicalProbe) Stage(_ context.Context, operation string
 	if probe.stageErr != nil {
 		return nil, probe.stageErr
 	}
-	return []executor.ManagedFileTable{{Schema: "agentsql_files", Name: "agentsql_file_11111111111111111111111111111111", Rows: len(sheets[0].Rows)}}, nil
+	name, err := probe.ExpectedTableName(operation, 0)
+	if err != nil {
+		return nil, err
+	}
+	return []executor.ManagedFileTable{{Schema: "agentsql_files", Name: name, Rows: len(sheets[0].Rows)}}, nil
 }
 func (probe *managedFilePhysicalProbe) Drop(_ context.Context, operation string, _ int) error {
 	probe.operation = operation

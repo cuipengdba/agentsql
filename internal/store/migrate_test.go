@@ -61,6 +61,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"policy_bundle_baselines":          {"tenant_id", "digest", "proposal_id", "updated_at"},
 		"sqlbot_bindings":                  {"id", "tenant_id", "workspace_id", "datasource_name", "sqlbot_user_id", "agentsql_user_id", "agent_id", "datasource_id", "schema_name", "numeric_columns", "agent_key_env", "connector_token_env", "connector_token_hash", "enabled", "revision", "created_at", "updated_at"},
 		"managed_file_imports":             {"id", "tenant_id", "binding_id", "binding_revision", "workspace_id", "owner_user_id", "agent_id", "datasource_id", "file_sha256", "file_bytes", "sheet_count", "status", "revision", "created_at", "updated_at"},
+		"managed_file_tables":              {"id", "operation_id", "tenant_id", "sheet_index", "table_name", "row_count"},
 		"relation_policy_bindings":         {"id", "policy_id", "datasource_id", "schema_name", "relation_name", "stable_object_id", "catalog_fingerprint", "status", "revision", "created_at", "updated_at", "tenant_id"},
 		"policy_column_permission_staging": {"policy_id", "token_ordinal", "legacy_token", "requested_usage", "source_csv_sha256", "bind_status", "error_code", "tenant_id"},
 		"policy_column_permissions":        {"policy_id", "relation_enrollment_id", "column_ordinal", "column_name", "column_type_digest", "usage", "parent_revision", "tenant_id"},
@@ -340,7 +341,7 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.NoError(t, MigrateMetadata(ctx, database, DialectSQLite, true))
 	require.Equal(t, []string{
-		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "login_attempt_budgets", "managed_file_imports", "management_audit_outbox", "mask_rules",
+		"admin_access_revocations", "admin_refresh_families", "admin_refresh_tokens", "agents", "approvals", "auth_identities", "auth_login_challenges", "b5_dml_grants", "b5_result_receipts", "b5_sessions", "b5_transactions", "b5_tx_events", "chain_state", "chain_verification", "control_plane_compat", "datasources", "login_attempt_budgets", "managed_file_imports", "managed_file_tables", "management_audit_outbox", "mask_rules",
 		"mcp_stream_event_cursors", "mcp_stream_events", "notification_channels", "notification_delivery_cursors", "notification_settings", "oidc_auth_requests", "permissions", "policies", "policy_bundle_baselines", "policy_bundle_proposals", "policy_column_permission_staging", "policy_column_permissions", "redaction_key_versions", "relation_policy_bindings", "role_inheritance", "role_permissions", "roles", "rules", "runtime_instances", "sqlbot_bindings", "task_read_grant_requests", "task_read_grants", "tenants", "user_mfa", "user_mfa_recovery_codes", "user_roles", "users",
 	}, businessTableNames(t, database))
 	require.Equal(t, []string{

@@ -79,7 +79,11 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 			return cleanup(ErrManagedFileStage)
 		}
 	}
-	staged, err := journal.Advance(tenantCtx, operation.ID, operation.Revision, "preparing", "staged", principal.UserID)
+	registered := make([]store.ManagedFileTableRecord, len(tables))
+	for index, table := range tables {
+		registered[index] = store.ManagedFileTableRecord{Name: table.Name, Rows: table.Rows}
+	}
+	staged, err := journal.MarkStaged(tenantCtx, operation.ID, operation.Revision, registered, principal.UserID)
 	if err != nil {
 		return cleanup(err)
 	}
