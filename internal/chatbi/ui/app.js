@@ -30,6 +30,8 @@ Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exportXLSX:'导出 XLSX',ex
 Object.assign(copy.en, {exportCSV:'Export CSV',exportXLSX:'Export XLSX',exporting:'Preparing export under current permissions…'});
 Object.assign(copy['zh-CN'], {usage:'执行详情',usageStarted:'开始时间',usageFinished:'完成时间',usageDuration:'耗时',usageTokens:'消耗 Token',usageStepsEmpty:'暂无阶段明细',seconds:'秒'});
 Object.assign(copy.en, {usage:'Execution details',usageStarted:'Started',usageFinished:'Finished',usageDuration:'Duration',usageTokens:'Tokens used',usageStepsEmpty:'No step trace is available',seconds:'seconds'});
+Object.assign(copy['zh-CN'], {accountSettings:'账号设置',passwordNote:'修改密码后，当前会话及其他已登录会话都需要重新登录。',currentPassword:'当前密码',newPassword:'新密码',changePassword:'修改密码',passwordChanged:'密码已修改，请重新登录。'});
+Object.assign(copy.en, {accountSettings:'Account settings',passwordNote:'Changing your password signs out this and all other sessions.',currentPassword:'Current password',newPassword:'New password',changePassword:'Change password',passwordChanged:'Password changed. Sign in again.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -101,6 +103,15 @@ async function enter(){
   const user=await api('/user/info');
   isAdmin=Boolean(user.isAdmin);
   $('account-name').textContent=user.name||user.account;
+  if(!requestedLang){
+    const saved=localStorage.getItem('agentsql-chatbi-language');
+    const server=user.language==='en'||user.language==='en-US'?'en':user.language==='zh-CN'?'zh-CN':null;
+    if(saved==='en'||saved==='zh-CN'){
+      lang=saved;
+      if(server&&server!==saved)try{await api('/user/language',{language:saved},'PUT');}catch{ /* Keep the local display preference if account persistence fails. */ }
+    }else if(server){lang=server;localStorage.setItem('agentsql-chatbi-language',lang);}
+    translate();
+  }
   sourceList=await api('/datasource/list');
   $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();$('recommendation-source').replaceChildren();
   for(const source of sourceList){
@@ -505,6 +516,17 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();
 async function open(id){if(controller)return;closeMenu();showQA();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;void loadSuggestions();show(chat);await history();status('');}catch{status(t('failed'),true);}}
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
+$('account-settings').onclick=()=>{$('account-form').reset();$('account-status').textContent='';$('account-dialog').showModal();};
+$('account-close').onclick=()=>$('account-dialog').close();
+$('account-form').onsubmit=async event=>{
+  event.preventDefault();const submit=$('account-form').querySelector('button[type=submit]');submit.disabled=true;
+  $('account-status').textContent='';
+  try{
+    await api('/user/pwd',{pwd:$('current-password').value,new_pwd:$('new-password').value},'PUT');
+    $('account-dialog').close();token='';sessionStorage.removeItem('agentsql-chatbi-token');
+    $('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;$('login-error').textContent=t('passwordChanged');
+  }catch{$('account-status').textContent=t('failed');}finally{submit.disabled=false;$('account-form').reset();}
+};
 $('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));void loadSuggestions();$('question').focus();};
 $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
@@ -527,7 +549,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;

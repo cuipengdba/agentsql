@@ -52,6 +52,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": h.version, "service": "chatbi"})
 	})
 	h.mux.HandleFunc("POST /api/v1/login/access-token", h.login)
+	h.mux.HandleFunc("POST /api/v1/login/change-pwd", h.changePasswordAtLogin)
 	h.mux.HandleFunc("GET /api/v1/system/config/key", h.publicLoginKey)
 	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)
 	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
@@ -60,6 +61,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/agentsql/login", h.nativeLogin)
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
+	h.mux.HandleFunc("PUT /api/v1/user/pwd", h.auth(h.changeOwnPassword))
+	h.mux.HandleFunc("PUT /api/v1/user/language", h.auth(h.changeOwnLanguage))
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
 	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
@@ -295,6 +298,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 422, "Invalid dashboard configuration"
 	case errors.Is(err, ErrInvalidAssistant):
 		status, message = 422, "Invalid assistant application"
+	case errors.Is(err, ErrInvalidAccountChange):
+		status, message = 422, "Invalid account change"
 	case errors.Is(err, ErrForecastUnavailable):
 		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):
