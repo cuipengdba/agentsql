@@ -20,12 +20,14 @@ Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exporting:'正在按当前�
 Object.assign(copy.en, {exportCSV:'Export CSV',exporting:'Preparing CSV under current permissions…'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
+Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
+Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -83,6 +85,7 @@ async function history(){
 }
 async function enter(){
   const user=await api('/user/info');
+  isAdmin=Boolean(user.isAdmin);
   $('account-name').textContent=user.name||user.account;
   sourceList=await api('/datasource/list');
   $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();$('recommendation-source').replaceChildren();
@@ -92,8 +95,8 @@ async function enter(){
       const option=node('option',label);option.value=String(source.id);target.append(option);
     }
   }
-  $('semantics-nav').hidden=!user.isAdmin;
-  $('source-import').hidden=!user.isAdmin;
+  $('semantics-nav').hidden=!isAdmin;
+  $('source-import').hidden=!isAdmin;
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
   if(!sourceList.length)status(t('empty'),true);
   await history();
@@ -235,6 +238,7 @@ async function showSources(){
 async function loadSource(source){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
+  $('source-delete').hidden=!(isAdmin&&source.type==='excel');
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
@@ -246,6 +250,14 @@ async function loadSource(source){
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+}
+async function deleteSelectedSource(){
+  const source=selectedSource;if(!isAdmin||!sourceVisible||source?.type!=='excel'||!window.confirm(t('deleteSourcePrompt')))return;
+  const button=$('source-delete');button.disabled=true;
+  try{
+    await api('/datasource/delete/'+encodeURIComponent(String(source.id))+'/'+encodeURIComponent(source.name),{},'POST');
+    selectedSource=null;$('source-detail').hidden=true;await enter();await showSources();sourceStatus(t('sourceDeleted'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 function renderPreview(result){
   const target=$('source-preview');target.replaceChildren();target.append(node('h3',t('previewTitle')));
@@ -366,6 +378,7 @@ $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('sources-nav').onclick=()=>{void showSources();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
+$('source-delete').onclick=()=>{void deleteSelectedSource();};
 $('import-file').onchange=()=>{clearImportStage();sourceStatus(t('importFileChanged'));};
 $('import-preview').onclick=()=>{void previewImport();};
 $('source-import-form').onsubmit=event=>{void saveImport(event);};
