@@ -2,6 +2,9 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -52,7 +55,12 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 		return store.ManagedFileImport{}, nil, ErrManagedFileStage
 	}
 	journal := runtime.Store.ManagedFileImports()
-	operation, err := journal.Begin(tenantCtx, current, fileSHA256, fileBytes, len(sheets), principal.UserID)
+	selectionBytes, err := json.Marshal(sheets)
+	if err != nil {
+		return store.ManagedFileImport{}, nil, ErrManagedFileStage
+	}
+	selectionDigest := sha256.Sum256(selectionBytes)
+	operation, err := journal.Begin(tenantCtx, current, fileSHA256, fileBytes, len(sheets), principal.UserID, hex.EncodeToString(selectionDigest[:]))
 	if err != nil {
 		return store.ManagedFileImport{}, nil, err
 	}

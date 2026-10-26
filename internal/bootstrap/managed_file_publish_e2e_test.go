@@ -76,12 +76,14 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	reader, err = runtime.Store.Datasources().Update(ctx, reader, "reader-password")
 	require.NoError(t, err)
 	baseBinding := binding
-	binding, _, err = runtime.Store.SQLBotBindings().Create(ctx, store.SQLBotBinding{
-		WorkspaceID: baseBinding.WorkspaceID, DatasourceName: "managed-file-e2e-child",
+	childName, childToken, err := runtime.DeriveSQLBotImportIdentity(baseBinding, principal, "agentsql-file-123.xlsx")
+	require.NoError(t, err)
+	binding, err = runtime.Store.SQLBotBindings().CreateDerived(ctx, store.SQLBotBinding{
+		WorkspaceID: baseBinding.WorkspaceID, DatasourceName: childName,
 		SQLBotUserID: baseBinding.SQLBotUserID, AgentSQLUserID: baseBinding.AgentSQLUserID,
 		AgentID: baseBinding.AgentID, DatasourceID: baseBinding.DatasourceID, SchemaName: "agentsql_files", Enabled: true,
 		ParentBindingID: baseBinding.ID, ParentRevision: baseBinding.Revision,
-	}, principal.UserID)
+	}, principal.UserID, childToken)
 	require.NoError(t, err)
 	writer := reader
 	writer.ID = "managed-provisioner"
@@ -95,6 +97,21 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	published, err := runtime.PublishSQLBotFile(ctx, principal, binding, staged, tables, sheets, physical)
 	require.NoError(t, err)
 	require.Equal(t, "published", published.Status)
+	replayed, err := runtime.Store.ManagedFileImports().GetByRequestKey(ctx, binding.ID)
+	require.NoError(t, err)
+	require.Equal(t, published.ID, replayed.ID)
+	require.Equal(t, "published", replayed.Status)
+	require.Len(t, replayed.SelectionSHA256, 64)
+	replayedTables, err := runtime.Store.ManagedFileImports().ListTables(ctx, replayed)
+	require.NoError(t, err)
+	require.Equal(t, tables[0].Name, replayedTables[0].Name)
+	replayedName, replayedToken, err := runtime.DeriveSQLBotImportIdentity(baseBinding, principal, "agentsql-file-123.xlsx")
+	require.NoError(t, err)
+	require.Equal(t, childName, replayedName)
+	require.Equal(t, childToken, replayedToken)
+	replayedBinding, err := runtime.Store.SQLBotBindings().ResolveConnector(ctx, replayedToken)
+	require.NoError(t, err)
+	require.Equal(t, binding.ID, replayedBinding.ID)
 	visible, err := runtime.Store.ManagedFileImports().PublishedTableOwner(ctx, binding.ID, binding.DatasourceID,
 		binding.AgentID, binding.AgentSQLUserID, tables[0].Name)
 	require.NoError(t, err)
@@ -139,6 +156,15 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	var stillExists bool
 	require.NoError(t, admin.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "agentsql_files."+tables[0].Name).Scan(&stillExists))
 	require.False(t, stillExists)
+	childName, childToken, err = runtime.DeriveSQLBotImportIdentity(baseBinding, principal, "agentsql-file-124.xlsx")
+	require.NoError(t, err)
+	binding, err = runtime.Store.SQLBotBindings().CreateDerived(ctx, store.SQLBotBinding{
+		WorkspaceID: baseBinding.WorkspaceID, DatasourceName: childName,
+		SQLBotUserID: baseBinding.SQLBotUserID, AgentSQLUserID: baseBinding.AgentSQLUserID,
+		AgentID: baseBinding.AgentID, DatasourceID: baseBinding.DatasourceID, SchemaName: "agentsql_files", Enabled: true,
+		ParentBindingID: baseBinding.ID, ParentRevision: baseBinding.Revision,
+	}, principal.UserID, childToken)
+	require.NoError(t, err)
 	staged, tables, err = runtime.StageSQLBotFile(ctx, principal, binding, strings.Repeat("b", 64), 64, sheets, physical)
 	require.NoError(t, err)
 	published, err = runtime.PublishSQLBotFile(ctx, principal, binding, staged, tables, sheets, physical)

@@ -105,7 +105,16 @@ func TestSQLBotChildBindingInheritsParentRevocation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = r.ValidateRuntime(ctx, child.ID, child.Revision, child.AgentID, child.AgentSQLUserID)
 	require.NoError(t, err)
-	journal, err := s.ManagedFileImports().Begin(ctx, child, strings.Repeat("a", 64), 1, 1, child.AgentSQLUserID)
+	_, err = s.metaDB.Exec(`CREATE TRIGGER fail_import_replay_audit BEFORE INSERT ON management_audit_outbox WHEN NEW.action='managed_file.replay' BEGIN SELECT RAISE(FAIL,'audit unavailable'); END`)
+	require.NoError(t, err)
+	require.Error(t, r.RecordImportReplay(ctx, child, child.AgentSQLUserID))
+	_, err = s.metaDB.Exec(`DROP TRIGGER fail_import_replay_audit`)
+	require.NoError(t, err)
+	require.NoError(t, r.RecordImportReplay(ctx, child, child.AgentSQLUserID))
+	var replayAudits int
+	require.NoError(t, s.metaDB.QueryRow(`SELECT COUNT(*) FROM management_audit_outbox WHERE action='managed_file.replay' AND actor_id=?`, child.AgentSQLUserID).Scan(&replayAudits))
+	require.Equal(t, 1, replayAudits)
+	journal, err := s.ManagedFileImports().Begin(ctx, child, strings.Repeat("a", 64), 1, 1, child.AgentSQLUserID, strings.Repeat("c", 64))
 	require.NoError(t, err)
 	journal, err = s.ManagedFileImports().Advance(ctx, journal.ID, journal.Revision, "preparing", "cleanup_needed", child.AgentSQLUserID)
 	require.NoError(t, err)
@@ -125,7 +134,8 @@ func TestSQLBotChildBindingInheritsParentRevocation(t *testing.T) {
 	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
 	_, err = r.ValidateRuntime(ctx, child.ID, child.Revision, child.AgentID, child.AgentSQLUserID)
 	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
-	_, err = s.ManagedFileImports().Begin(ctx, child, strings.Repeat("b", 64), 1, 1, child.AgentSQLUserID)
+	require.ErrorIs(t, r.RecordImportReplay(ctx, child, child.AgentSQLUserID), ErrSQLBotBindingDenied)
+	_, err = s.ManagedFileImports().Begin(ctx, child, strings.Repeat("b", 64), 1, 1, child.AgentSQLUserID, strings.Repeat("d", 64))
 	require.ErrorIs(t, err, ErrManagedFileState)
 
 	// A child update cannot silently adopt the parent's new revision.

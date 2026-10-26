@@ -148,6 +148,42 @@ func TestManagedFileImportJournalRequiresCurrentBindingAndExactOwner(t *testing.
 	require.ErrorIs(t, err, ErrManagedFileState)
 }
 
+func TestManagedFileImportRequestKeySurvivesDeletionAndCannotBeReused(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	parent, _, err := s.SQLBotBindings().Create(ctx, sqlbotTestBinding(t, s), "operator")
+	require.NoError(t, err)
+	childInput := parent
+	childInput.DatasourceName = "agentsql-import-request-key"
+	childInput.ParentBindingID, childInput.ParentRevision = parent.ID, parent.Revision
+	child, err := s.SQLBotBindings().CreateDerived(ctx, childInput, "operator", strings.Repeat("A", 42)+"E")
+	require.NoError(t, err)
+	journal := s.ManagedFileImports()
+	fileHash, selectionHash := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	_, err = journal.Begin(ctx, child, fileHash, 4, 1, child.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrManagedFileState, "child operations require a selection digest")
+	item, err := journal.Begin(ctx, child, fileHash, 4, 1, child.AgentSQLUserID, selectionHash)
+	require.NoError(t, err)
+	require.Equal(t, child.ID, item.RequestKey)
+	require.Equal(t, selectionHash, item.SelectionSHA256)
+	found, err := journal.GetByRequestKey(ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, item.ID, found.ID)
+	item, err = journal.Advance(ctx, item.ID, item.Revision, "preparing", "cleanup_needed", child.AgentSQLUserID)
+	require.NoError(t, err)
+	item, err = journal.Advance(ctx, item.ID, item.Revision, "cleanup_needed", "deleted", child.AgentSQLUserID)
+	require.NoError(t, err)
+	_, err = journal.Begin(ctx, child, fileHash, 4, 1, child.AgentSQLUserID, selectionHash)
+	require.Error(t, err, "a deleted operation cannot silently become a new import for the same file request")
+	found, err = journal.GetByRequestKey(ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", found.Status)
+	otherTenant, err := WithTenant(ctx, "another-tenant")
+	require.NoError(t, err)
+	_, err = journal.GetByRequestKey(otherTenant, child.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestManagedFilePublishedOwnerPredicateRequiresCurrentBinding(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -159,7 +195,7 @@ func TestManagedFilePublishedOwnerPredicateRequiresCurrentBinding(t *testing.T) 
 	b, _, err = s.SQLBotBindings().Create(ctx, b, "operator")
 	require.NoError(t, err)
 	r := s.ManagedFileImports()
-	item, err := r.Begin(ctx, b, strings.Repeat("a", 64), 1, 1, b.AgentSQLUserID)
+	item, err := r.Begin(ctx, b, strings.Repeat("a", 64), 1, 1, b.AgentSQLUserID, strings.Repeat("b", 64))
 	require.NoError(t, err)
 	operation, err := managedfile.ParseOperationID(item.ID)
 	require.NoError(t, err)

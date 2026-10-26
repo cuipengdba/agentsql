@@ -60,7 +60,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"policy_bundle_proposals":          {"id", "tenant_id", "base_digest", "desired_digest", "desired_json", "author_user_id", "reviewer_user_id", "status", "created_at", "reviewed_at", "applied_at"},
 		"policy_bundle_baselines":          {"tenant_id", "digest", "proposal_id", "updated_at"},
 		"sqlbot_bindings":                  {"id", "tenant_id", "workspace_id", "datasource_name", "sqlbot_user_id", "agentsql_user_id", "agent_id", "datasource_id", "schema_name", "numeric_columns", "agent_key_env", "connector_token_env", "connector_token_hash", "enabled", "revision", "created_at", "updated_at", "parent_binding_id", "parent_binding_revision"},
-		"managed_file_imports":             {"id", "tenant_id", "binding_id", "binding_revision", "workspace_id", "owner_user_id", "agent_id", "datasource_id", "file_sha256", "file_bytes", "sheet_count", "status", "revision", "created_at", "updated_at"},
+		"managed_file_imports":             {"id", "tenant_id", "binding_id", "binding_revision", "workspace_id", "owner_user_id", "agent_id", "datasource_id", "file_sha256", "request_key", "selection_sha256", "file_bytes", "sheet_count", "status", "revision", "created_at", "updated_at"},
 		"managed_file_tables":              {"id", "operation_id", "tenant_id", "sheet_index", "table_name", "row_count", "policy_id"},
 		"relation_policy_bindings":         {"id", "policy_id", "datasource_id", "schema_name", "relation_name", "stable_object_id", "catalog_fingerprint", "status", "revision", "created_at", "updated_at", "tenant_id"},
 		"policy_column_permission_staging": {"policy_id", "token_ordinal", "legacy_token", "requested_usage", "source_csv_sha256", "bind_status", "error_code", "tenant_id"},
@@ -235,6 +235,7 @@ func TestMigrateIsIdempotentAndMatchesFrozenSchema(t *testing.T) {
 		"idx_users_tenant",
 		"ux_audit_logs_event_uuid",
 		"ux_managed_file_import_active_owner",
+		"ux_managed_file_import_request",
 		"ux_managed_file_tables_policy",
 		"ux_mask_rules_scope_column",
 		"ux_redaction_key_versions_active",
@@ -356,7 +357,7 @@ func TestSQLiteSeparatedMetadataMigrationOmitsAuditAndApprovalForeignKey(t *test
 		"idx_chain_state_tenant", "idx_chain_verification_tenant", "idx_datasources_tenant", "idx_login_attempt_budgets_started", "idx_managed_file_imports_open", "idx_managed_file_imports_owner", "idx_management_audit_outbox_tenant", "idx_mask_rules_tenant",
 		"idx_mcp_stream_event_cursors_updated_at", "idx_mcp_stream_events_created_at", "idx_mcp_stream_events_session",
 		"idx_notification_channels_tenant", "idx_notification_delivery_due", "idx_notification_settings_tenant", "idx_oidc_requests_expiry", "idx_policies_agent_ds", "idx_policies_tenant", "idx_policy_bundle_proposals_tenant", "idx_policy_column_permission_staging_tenant", "idx_policy_column_permissions_policy", "idx_policy_column_permissions_tenant", "idx_redaction_key_versions_tenant", "idx_relation_policy_bindings_datasource", "idx_relation_policy_bindings_tenant", "idx_role_permissions_role", "idx_roles_tenant", "idx_rules_tenant", "idx_runtime_instances_lease", "idx_sqlbot_bindings_agent", "idx_sqlbot_bindings_parent", "idx_sqlbot_bindings_tenant", "idx_task_read_grant_requests_tenant_status", "idx_task_read_grants_agent", "idx_task_read_grants_tenant", "idx_user_roles_user", "idx_users_tenant",
-		"ux_managed_file_import_active_owner", "ux_managed_file_tables_policy", "ux_mask_rules_scope_column", "ux_redaction_key_versions_active", "ux_task_grant_agents_tenant", "ux_task_grant_datasources_tenant", "ux_task_read_grant_requests_idempotency",
+		"ux_managed_file_import_active_owner", "ux_managed_file_import_request", "ux_managed_file_tables_policy", "ux_mask_rules_scope_column", "ux_redaction_key_versions_active", "ux_task_grant_agents_tenant", "ux_task_grant_datasources_tenant", "ux_task_read_grant_requests_idempotency",
 	}, businessIndexNames(t, database))
 
 	rows, err := database.QueryContext(ctx, "PRAGMA foreign_key_list(approvals)")

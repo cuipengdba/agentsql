@@ -8,6 +8,8 @@ CREATE TABLE managed_file_imports (
   agent_id TEXT NOT NULL,
   datasource_id TEXT NOT NULL,
   file_sha256 TEXT NOT NULL CHECK(length(file_sha256)=64),
+  request_key TEXT NOT NULL DEFAULT '',
+  selection_sha256 TEXT NOT NULL DEFAULT '',
   file_bytes BIGINT NOT NULL CHECK(file_bytes > 0 AND file_bytes <= 4194304),
   sheet_count INTEGER NOT NULL CHECK(sheet_count > 0 AND sheet_count <= 8),
   status TEXT NOT NULL DEFAULT 'preparing' CHECK(status IN ('preparing','staged','policy_ready','published','deleting','deleted','cleanup_needed')),
@@ -17,6 +19,7 @@ CREATE TABLE managed_file_imports (
 );
 CREATE INDEX idx_managed_file_imports_open ON managed_file_imports(tenant_id,status,created_at);
 CREATE INDEX idx_managed_file_imports_owner ON managed_file_imports(tenant_id,workspace_id,owner_user_id,created_at);
+CREATE UNIQUE INDEX ux_managed_file_import_request ON managed_file_imports(tenant_id,request_key) WHERE request_key <> '';
 CREATE UNIQUE INDEX ux_managed_file_import_active_owner ON managed_file_imports(tenant_id,workspace_id,owner_user_id)
   WHERE status IN ('preparing','staged','policy_ready','cleanup_needed');
 CREATE TABLE managed_file_tables (

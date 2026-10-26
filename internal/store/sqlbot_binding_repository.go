@@ -193,6 +193,22 @@ func (r *SQLBotBindingRepository) audit(ctx context.Context, tx *sql.Tx, b SQLBo
 }
 
 func (r *SQLBotBindingRepository) Create(ctx context.Context, b SQLBotBinding, actorID string) (SQLBotBinding, string, error) {
+	return r.create(ctx, b, actorID, "")
+}
+
+// CreateDerived accepts only a gateway-derived 256-bit child credential. It
+// allows the same authenticated file request to recover its connector after a
+// lost response without persisting token plaintext in the control database.
+func (r *SQLBotBindingRepository) CreateDerived(ctx context.Context, b SQLBotBinding, actorID, plainToken string) (SQLBotBinding, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(plainToken)
+	if b.ParentBindingID == "" || len(plainToken) != 43 || err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != plainToken {
+		return SQLBotBinding{}, ErrSQLBotBindingInvalid
+	}
+	created, _, err := r.create(ctx, b, actorID, plainToken)
+	return created, err
+}
+
+func (r *SQLBotBindingRepository) create(ctx context.Context, b SQLBotBinding, actorID, derivedToken string) (SQLBotBinding, string, error) {
 	tenant, err := r.requireTenant(ctx, "create SQLBot binding")
 	if err != nil {
 		return SQLBotBinding{}, "", err
@@ -206,9 +222,15 @@ func (r *SQLBotBindingRepository) Create(ctx context.Context, b SQLBotBinding, a
 	}
 	b.ID = uuid.NewString()
 	b.Revision = 1
-	plain, hash, err := sqlbotCredential()
-	if err != nil {
-		return SQLBotBinding{}, "", err
+	plain, hash := derivedToken, ""
+	if plain == "" {
+		plain, hash, err = sqlbotCredential()
+		if err != nil {
+			return SQLBotBinding{}, "", err
+		}
+	} else {
+		digest := sha256.Sum256([]byte(plain))
+		hash = hex.EncodeToString(digest[:])
 	}
 	b.ConnectorTokenHash = hash
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -368,6 +390,38 @@ func (r *SQLBotBindingRepository) ResolveConnector(ctx context.Context, plainTok
 		return SQLBotBinding{}, ErrSQLBotBindingDenied
 	}
 	return b, nil
+}
+
+// RecordImportReplay audits the release of an already issued child token. A
+// revoked parent or changed child cannot pass the read check in this audit
+// transaction, and an audit failure prevents the token response.
+func (r *SQLBotBindingRepository) RecordImportReplay(ctx context.Context, child SQLBotBinding, actor string) error {
+	tenant, err := r.requireTenant(ctx, "replay SQLBot import credential")
+	if err != nil || tenant != child.TenantID || child.ParentBindingID == "" ||
+		actor == "" || actor != child.AgentSQLUserID || child.Revision < 1 {
+		return ErrSQLBotBindingDenied
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var count int
+	err = tx.QueryRowContext(ctx, r.bind(`SELECT COUNT(*) FROM sqlbot_bindings b WHERE b.id=? AND b.tenant_id=?
+		AND b.enabled=TRUE AND b.revision=? AND b.agentsql_user_id=? AND b.agent_id=?
+		AND b.datasource_id=? AND b.workspace_id=? AND b.parent_binding_id=?
+		AND b.parent_binding_revision=? AND `+sqlbotParentActive),
+		child.ID, tenant, child.Revision, actor, child.AgentID, child.DatasourceID,
+		child.WorkspaceID, child.ParentBindingID, child.ParentRevision).Scan(&count)
+	if err != nil || count != 1 {
+		return ErrSQLBotBindingDenied
+	}
+	details, _ := json.Marshal(map[string]any{"binding_id": child.ID, "parent_binding_id": child.ParentBindingID})
+	if err := r.outbox.Append(ctx, tx, model.ManagementAuditOutbox{EventUUID: uuid.NewString(),
+		Action: "managed_file.replay", ActorType: "user", ActorID: actor, DetailsJSON: string(details)}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *SQLBotBindingRepository) ValidateRuntime(ctx context.Context, id string, revision int64, agentID, userID string) (SQLBotBinding, error) {

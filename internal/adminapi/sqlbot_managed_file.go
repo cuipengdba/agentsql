@@ -1,14 +1,13 @@
 package adminapi
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/cuipengdba/agentsql/internal/auth"
 	"github.com/cuipengdba/agentsql/internal/chatbi"
@@ -78,10 +77,9 @@ func (handler *Handler) sqlbotManagedFileImport(writer http.ResponseWriter, requ
 		handler.fail(writer, http.StatusUnprocessableEntity, "invalid managed file contents")
 		return
 	}
-	// SQLBot calls importToDb before datasource/add. Issue a distinct binding
-	// for this import now, so later Excel datasources cannot discover or query
-	// each other's tables even when they share the same physical reader role.
-	seed, err := managedfile.NewOperationID()
+	// SQLBot calls importToDb before datasource/add. Derive one child identity
+	// from the authenticated staged-file ID so a lost response can be replayed.
+	name, connectorToken, err := handler.deps.Runtime.DeriveSQLBotImportIdentity(binding, principal, input.Selection.FilePath)
 	if err != nil {
 		handler.fail(writer, http.StatusServiceUnavailable, "managed file identity unavailable")
 		return
@@ -91,48 +89,81 @@ func (handler *Handler) sqlbotManagedFileImport(writer http.ResponseWriter, requ
 		handler.fail(writer, http.StatusForbidden, "managed file identity unavailable")
 		return
 	}
-	child, connectorToken, err := handler.deps.Runtime.Store.SQLBotBindings().Create(tenantCtx, store.SQLBotBinding{
-		WorkspaceID: binding.WorkspaceID, DatasourceName: "agentsql-import-" + hex.EncodeToString(seed[:]),
+	child, err := handler.deps.Runtime.Store.SQLBotBindings().CreateDerived(tenantCtx, store.SQLBotBinding{
+		WorkspaceID: binding.WorkspaceID, DatasourceName: name,
 		SQLBotUserID: binding.SQLBotUserID, AgentSQLUserID: binding.AgentSQLUserID,
 		AgentID: binding.AgentID, DatasourceID: binding.DatasourceID, SchemaName: "agentsql_files",
 		ParentBindingID: binding.ID, ParentRevision: binding.Revision,
 		AgentKeyEnv: binding.AgentKeyEnv, ConnectorTokenEnv: binding.ConnectorTokenEnv, Enabled: true,
-	}, principal.UserID)
+	}, principal.UserID, connectorToken)
 	if err != nil {
-		handler.fail(writer, http.StatusServiceUnavailable, "managed file identity unavailable")
-		return
-	}
-	cleanupChild := func(operationID string) {
-		// A failed publication cannot leave a live, reusable child connector.
-		// An ambiguous publish commit may already be visible; fence and delete
-		// that operation before revoking its binding. Keep the binding if the
-		// physical delete fails, so the owner can retry.
-		recovery, cancel := context.WithTimeout(context.WithoutCancel(tenantCtx), 30*time.Second)
-		defer cancel()
-		if operationID != "" {
-			item, getErr := handler.deps.Runtime.Store.ManagedFileImports().Get(recovery, operationID)
-			if getErr != nil {
-				return
-			}
-			if item.Status == "published" {
-				if handler.deps.Runtime.DeleteSQLBotFile(recovery, principal, child, operationID, handler.deps.ManagedFiles) != nil {
-					return
-				}
-			}
+		child, err = handler.deps.Runtime.Store.SQLBotBindings().ResolveConnector(tenantCtx, connectorToken)
+		if err != nil || child.DatasourceName != name || child.ParentBindingID != binding.ID ||
+			child.ParentRevision != binding.Revision || child.TenantID != binding.TenantID ||
+			child.WorkspaceID != binding.WorkspaceID || child.SQLBotUserID != binding.SQLBotUserID ||
+			child.AgentSQLUserID != binding.AgentSQLUserID || child.AgentID != binding.AgentID ||
+			child.DatasourceID != binding.DatasourceID || child.SchemaName != "agentsql_files" ||
+			child.Revision != 1 || !child.Enabled {
+			handler.fail(writer, http.StatusServiceUnavailable, "managed file identity unavailable")
+			return
 		}
-		_ = handler.deps.Runtime.Store.SQLBotBindings().Delete(recovery, child.ID, child.Revision, principal.UserID)
 	}
 	digest := sha256.Sum256(input.FileData)
+	selectionBytes, err := json.Marshal(sheets)
+	if err != nil {
+		handler.fail(writer, http.StatusUnprocessableEntity, "invalid managed file contents")
+		return
+	}
+	selectionDigest := sha256.Sum256(selectionBytes)
+	journal := handler.deps.Runtime.Store.ManagedFileImports()
+	previous, err := journal.GetByRequestKey(tenantCtx, child.ID)
+	if err == nil {
+		if previous.Status != "published" || previous.FileSHA256 != hex.EncodeToString(digest[:]) ||
+			previous.SelectionSHA256 != hex.EncodeToString(selectionDigest[:]) || previous.RequestKey != child.ID ||
+			previous.BindingID != child.ID || previous.BindingRevision != child.Revision ||
+			previous.TenantID != principal.TenantID || previous.WorkspaceID != child.WorkspaceID ||
+			previous.OwnerUserID != principal.UserID || previous.AgentID != child.AgentID ||
+			previous.DatasourceID != child.DatasourceID || previous.FileBytes != int64(len(input.FileData)) ||
+			previous.SheetCount != len(sheets) {
+			handler.fail(writer, http.StatusConflict, "managed file request already used")
+			return
+		}
+		storedTables, tableErr := journal.ListTables(tenantCtx, previous)
+		operation, idErr := managedfile.ParseOperationID(previous.ID)
+		if tableErr != nil || idErr != nil || len(storedTables) != len(sheets) {
+			handler.fail(writer, http.StatusServiceUnavailable, "managed file replay unavailable")
+			return
+		}
+		result := make([]map[string]any, len(storedTables))
+		for index, table := range storedTables {
+			expected, nameErr := managedfile.TableName(operation, index)
+			allowed, ownerErr := journal.PublishedTableOwner(tenantCtx, child.ID, child.DatasourceID, child.AgentID, principal.UserID, table.Name)
+			if nameErr != nil || table.Name != expected || table.Rows != len(sheets[index].Rows) || ownerErr != nil || !allowed {
+				handler.fail(writer, http.StatusServiceUnavailable, "managed file replay unavailable")
+				return
+			}
+			result[index] = map[string]any{"sheetName": names[index], "tableName": table.Name, "tableComment": "", "rows": table.Rows}
+		}
+		if err := handler.deps.Runtime.Store.SQLBotBindings().RecordImportReplay(tenantCtx, child, principal.UserID); err != nil {
+			handler.fail(writer, http.StatusServiceUnavailable, "managed file replay unavailable")
+			return
+		}
+		handler.ok(writer, map[string]any{"operation_id": previous.ID, "sheets": result,
+			"binding_id": child.ID, "datasource_name": child.DatasourceName, "connector_token": connectorToken})
+		return
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		handler.fail(writer, http.StatusServiceUnavailable, "managed file request unavailable")
+		return
+	}
 	staged, tables, err := handler.deps.Runtime.StageSQLBotFile(request.Context(), principal, child,
 		hex.EncodeToString(digest[:]), int64(len(input.FileData)), sheets, handler.deps.ManagedFiles)
 	if err != nil {
-		cleanupChild("")
 		handler.fail(writer, http.StatusServiceUnavailable, "managed file staging failed")
 		return
 	}
 	published, err := handler.deps.Runtime.PublishSQLBotFile(request.Context(), principal, child, staged, tables, sheets, handler.deps.ManagedFiles)
 	if err != nil {
-		cleanupChild(staged.ID)
 		handler.fail(writer, http.StatusServiceUnavailable, "managed file publication failed")
 		return
 	}

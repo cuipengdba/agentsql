@@ -192,7 +192,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 	require.NoError(t, err)
 	options := MetadataOptions{Driver: DialectSQLite, SQLitePath: path, AutoMigrate: false}
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=18 latest=28")
+	require.ErrorContains(t, err, "current=18 latest=29")
 	raw, err = sql.Open("sqlite", path)
 	require.NoError(t, err)
 	require.NoError(t, MigrateMetadata(ctx, raw, DialectSQLite, false))

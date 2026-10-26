@@ -28,6 +28,8 @@ type ManagedFileImport struct {
 	AgentID         string
 	DatasourceID    string
 	FileSHA256      string
+	RequestKey      string
+	SelectionSHA256 string
 	FileBytes       int64
 	SheetCount      int
 	Status          string
@@ -50,12 +52,12 @@ func (store *Store) ManagedFileImports() *ManagedFileImportRepository {
 	return &ManagedFileImportRepository{repositoryBase: repositoryBase{db: store.metaDB, dialect: store.metaDriver}, outbox: store.Outbox()}
 }
 
-const managedFileImportColumns = `id,tenant_id,binding_id,binding_revision,workspace_id,owner_user_id,agent_id,datasource_id,file_sha256,file_bytes,sheet_count,status,revision,created_at,updated_at`
+const managedFileImportColumns = `id,tenant_id,binding_id,binding_revision,workspace_id,owner_user_id,agent_id,datasource_id,file_sha256,request_key,selection_sha256,file_bytes,sheet_count,status,revision,created_at,updated_at`
 
 func scanManagedFileImport(row rowScanner) (ManagedFileImport, error) {
 	var item ManagedFileImport
 	err := row.Scan(&item.ID, &item.TenantID, &item.BindingID, &item.BindingRevision, &item.WorkspaceID,
-		&item.OwnerUserID, &item.AgentID, &item.DatasourceID, &item.FileSHA256, &item.FileBytes,
+		&item.OwnerUserID, &item.AgentID, &item.DatasourceID, &item.FileSHA256, &item.RequestKey, &item.SelectionSHA256, &item.FileBytes,
 		&item.SheetCount, &item.Status, &item.Revision, &item.CreatedAt, &item.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ManagedFileImport{}, ErrNotFound
@@ -71,10 +73,58 @@ func (r *ManagedFileImportRepository) Get(ctx context.Context, id string) (Manag
 	return scanManagedFileImport(r.db.QueryRowContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports WHERE id=? AND tenant_id=?`), id, tenant))
 }
 
+// GetByRequestKey locates the one durable operation reserved for a derived
+// child binding. The caller must independently verify the current parent,
+// owner, file hash, selection hash, and published state before replay.
+func (r *ManagedFileImportRepository) GetByRequestKey(ctx context.Context, bindingID string) (ManagedFileImport, error) {
+	tenant, err := r.requireTenant(ctx, "get managed file request")
+	if err != nil {
+		return ManagedFileImport{}, err
+	}
+	if bindingID == "" {
+		return ManagedFileImport{}, ErrManagedFileState
+	}
+	return scanManagedFileImport(r.db.QueryRowContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports WHERE tenant_id=? AND request_key=? AND binding_id=?`), tenant, bindingID, bindingID))
+}
+
+func (r *ManagedFileImportRepository) ListTables(ctx context.Context, item ManagedFileImport) ([]ManagedFileTableRecord, error) {
+	tenant, err := r.requireTenant(ctx, "list managed file tables")
+	if err != nil {
+		return nil, err
+	}
+	if item.TenantID != tenant || item.ID == "" || item.SheetCount < 1 || item.SheetCount > 8 {
+		return nil, ErrManagedFileState
+	}
+	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT sheet_index,table_name,row_count FROM managed_file_tables WHERE tenant_id=? AND operation_id=? ORDER BY sheet_index`), tenant, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tables := make([]ManagedFileTableRecord, 0, item.SheetCount)
+	for rows.Next() {
+		var index int
+		var table ManagedFileTableRecord
+		if err := rows.Scan(&index, &table.Name, &table.Rows); err != nil {
+			return nil, err
+		}
+		if index != len(tables) {
+			return nil, ErrManagedFileState
+		}
+		tables = append(tables, table)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(tables) != item.SheetCount {
+		return nil, ErrManagedFileState
+	}
+	return tables, nil
+}
+
 // Begin writes a recoverable operation ID and audit before any physical table
 // is created. The SQLBot binding is checked in the same transaction; a stale
 // or disabled connector cannot reserve a managed file operation.
-func (r *ManagedFileImportRepository) Begin(ctx context.Context, binding SQLBotBinding, fileSHA256 string, fileBytes int64, sheetCount int, actor string) (ManagedFileImport, error) {
+func (r *ManagedFileImportRepository) Begin(ctx context.Context, binding SQLBotBinding, fileSHA256 string, fileBytes int64, sheetCount int, actor string, selectionDigest ...string) (ManagedFileImport, error) {
 	tenant, err := r.requireTenant(ctx, "begin managed file import")
 	if err != nil {
 		return ManagedFileImport{}, err
@@ -84,6 +134,20 @@ func (r *ManagedFileImportRepository) Begin(ctx context.Context, binding SQLBotB
 		len(fileSHA256) != 64 || err != nil || len(digest) != 32 || strings.ToLower(fileSHA256) != fileSHA256 ||
 		fileBytes < 1 || fileBytes > 4<<20 || sheetCount < 1 || sheetCount > 8 || strings.TrimSpace(actor) == "" || actor != binding.AgentSQLUserID {
 		return ManagedFileImport{}, ErrManagedFileState
+	}
+	if len(selectionDigest) > 1 || (binding.ParentBindingID != "" && len(selectionDigest) != 1) {
+		return ManagedFileImport{}, ErrManagedFileState
+	}
+	selectionHash, requestKey := "", ""
+	if len(selectionDigest) == 1 {
+		selectionHash = selectionDigest[0]
+		decoded, decodeErr := hex.DecodeString(selectionHash)
+		if len(selectionHash) != 64 || decodeErr != nil || len(decoded) != 32 || strings.ToLower(selectionHash) != selectionHash {
+			return ManagedFileImport{}, ErrManagedFileState
+		}
+	}
+	if binding.ParentBindingID != "" {
+		requestKey = binding.ID
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -96,10 +160,10 @@ func (r *ManagedFileImportRepository) Begin(ctx context.Context, binding SQLBotB
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, r.bind(`INSERT INTO managed_file_imports
-  (id,tenant_id,binding_id,binding_revision,workspace_id,owner_user_id,agent_id,datasource_id,file_sha256,file_bytes,sheet_count,status,revision)
-  SELECT ?,tenant_id,id,revision,workspace_id,agentsql_user_id,agent_id,datasource_id,?,?,?,'preparing',1
+	(id,tenant_id,binding_id,binding_revision,workspace_id,owner_user_id,agent_id,datasource_id,file_sha256,request_key,selection_sha256,file_bytes,sheet_count,status,revision)
+	SELECT ?,tenant_id,id,revision,workspace_id,agentsql_user_id,agent_id,datasource_id,?,?,?,?,?,'preparing',1
   FROM sqlbot_bindings b WHERE b.id=? AND b.tenant_id=? AND b.enabled=? AND b.revision=? AND b.workspace_id=?
-    AND b.agentsql_user_id=? AND b.agent_id=? AND b.datasource_id=? AND `+sqlbotParentActive), id, fileSHA256, fileBytes, sheetCount,
+    AND b.agentsql_user_id=? AND b.agent_id=? AND b.datasource_id=? AND `+sqlbotParentActive), id, fileSHA256, requestKey, selectionHash, fileBytes, sheetCount,
 		binding.ID, tenant, true, binding.Revision, binding.WorkspaceID, binding.AgentSQLUserID, binding.AgentID, binding.DatasourceID)
 	if err != nil {
 		return ManagedFileImport{}, err
