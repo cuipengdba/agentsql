@@ -22,7 +22,7 @@ type Chat struct {
 	Latest           time.Time `json:"latest_record_time"`
 	Brief            string    `json:"brief"`
 	Type             string    `json:"chat_type"`
-	Datasource       ID        `json:"datasource"`
+	Datasource       ID        `json:"datasource,omitempty"`
 	Engine           string    `json:"engine_type"`
 	DSType           string    `json:"ds_type"`
 	DatasourceName   string    `json:"datasource_name"`
@@ -71,7 +71,9 @@ func newID() (ID, error) {
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", ErrUnavailable
 	}
-	n := binary.BigEndian.Uint64(raw[:]) & 0x7fffffffffffffff
+	// SQLBot clients send IDs through JavaScript numbers. Keep new IDs exactly
+	// representable while retaining 53 bits of random collision resistance.
+	n := binary.BigEndian.Uint64(raw[:]) & maxSQLBotBrowserID
 	if n == 0 {
 		return newID()
 	}
@@ -249,6 +251,59 @@ func (service *Service) Start(ctx context.Context, p Principal, datasource ID, q
 	return chat, nil
 }
 
+// StartMCP records a source-less original MCP session. The first question
+// must select a live, owned datasource before any schema or model call.
+func (service *Service) StartMCP(ctx context.Context, p Principal) (Chat, error) {
+	if p.EmbeddedApp != "" {
+		return Chat{}, ErrUnauthenticated
+	}
+	if err := service.live(ctx, p); err != nil {
+		return Chat{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return Chat{}, err
+	}
+	now := time.Now().UTC()
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now,
+		Brief: "New conversation", Type: "chat", Origin: 1, Records: []Record{}}
+	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
+		return Chat{}, err
+	}
+	return chat, nil
+}
+
+// BindMCPSource uses the same authorization and schema gate as ordinary
+// conversations. A source cannot change after a question has been recorded.
+func (service *Service) BindMCPSource(ctx context.Context, p Principal, chatID, datasource ID) error {
+	chat, revision, err := service.chat(ctx, p, chatID)
+	if err != nil {
+		return err
+	}
+	if chat.Origin != 1 || chat.EmbeddedApp != "" || len(chat.Records) != 0 || chat.LeaseUntil.After(time.Now()) {
+		return ErrConflict
+	}
+	if chat.Datasource != "" {
+		if chat.Datasource == datasource {
+			return nil
+		}
+		return ErrConflict
+	}
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
+		return err
+	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
+		return err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return err
+	}
+	chat.Datasource, chat.DatasourceName, chat.DatasourceExists = datasource, binding.Name, true
+	chat.Engine, chat.DSType = binding.Dialect, binding.Dialect
+	return service.Store.put(ctx, chatKey(p, chatID), chat, revision)
+}
+
 func (service *Service) chat(ctx context.Context, p Principal, id ID) (Chat, int64, error) {
 	if err := service.live(ctx, p); err != nil {
 		return Chat{}, 0, err
@@ -354,6 +409,13 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	chat, _, err := service.chat(ctx, p, id)
 	if err != nil {
 		return Chat{}, err
+	}
+	if chat.Origin == 1 && chat.Datasource == "" && len(chat.Records) == 0 {
+		if err := service.live(ctx, p); err != nil {
+			return Chat{}, err
+		}
+		chat.LeaseUntil = time.Time{}
+		return chat, nil
 	}
 	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
