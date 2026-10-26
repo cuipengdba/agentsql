@@ -20,11 +20,19 @@ type DashboardCard struct {
 	Title    string `json:"title"`
 	Text     string `json:"text,omitempty"`
 	RecordID ID     `json:"record_id,omitempty"`
+	TabID    string `json:"tab_id,omitempty"`
+	Span     int    `json:"span,omitempty"`
+}
+
+type DashboardTab struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type Dashboard struct {
 	ID       string          `json:"id"`
 	Name     string          `json:"name"`
+	Tabs     []DashboardTab  `json:"tabs,omitempty"`
 	Cards    []DashboardCard `json:"cards"`
 	Created  time.Time       `json:"created_at"`
 	Updated  time.Time       `json:"updated_at"`
@@ -48,13 +56,23 @@ func validDashboardID(id string) bool {
 	return err == nil && id == strings.ToLower(id)
 }
 
-func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, cards []DashboardCard) error {
+func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, tabs []DashboardTab, cards []DashboardCard) error {
 	if len(cards) > 32 {
 		return ErrInvalidDashboard
 	}
+	if len(tabs) > 8 {
+		return ErrInvalidDashboard
+	}
+	tabIDs := make(map[string]bool, len(tabs))
+	for _, tab := range tabs {
+		if !validDashboardID(tab.ID) || tabIDs[tab.ID] || strings.TrimSpace(tab.Name) == "" || len([]rune(tab.Name)) > 80 {
+			return ErrInvalidDashboard
+		}
+		tabIDs[tab.ID] = true
+	}
 	seen := make(map[string]bool, len(cards))
 	for _, card := range cards {
-		if !validDashboardID(card.ID) || seen[card.ID] || len([]rune(card.Title)) > 120 || len([]rune(card.Text)) > 4000 {
+		if !validDashboardID(card.ID) || seen[card.ID] || len([]rune(card.Title)) > 120 || len([]rune(card.Text)) > 4000 || card.Span < 0 || card.Span > 2 || (card.TabID != "" && !tabIDs[card.TabID]) {
 			return ErrInvalidDashboard
 		}
 		seen[card.ID] = true
@@ -149,7 +167,7 @@ func (service *Service) SaveDashboard(ctx context.Context, p Principal, item Das
 	if item.Name == "" || len([]rune(item.Name)) > 120 || item.Revision < 0 {
 		return Dashboard{}, ErrInvalidDashboard
 	}
-	if err := service.dashboardCardsValid(ctx, p, item.Cards); err != nil {
+	if err := service.dashboardCardsValid(ctx, p, item.Tabs, item.Cards); err != nil {
 		return Dashboard{}, err
 	}
 	if item.ID == "" {

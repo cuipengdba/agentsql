@@ -124,10 +124,15 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/agentsql/dashboards/{id}", h.boundedHistory(h.dashboardRead))
 	h.mux.HandleFunc("PUT /api/v1/agentsql/dashboards/{id}", h.auth(h.dashboardSave))
 	h.mux.HandleFunc("DELETE /api/v1/agentsql/dashboards/{id}", h.auth(h.dashboardDelete))
+	h.mux.HandleFunc("GET /api/v1/agentsql/assistants", h.auth(h.assistantList))
+	h.mux.HandleFunc("POST /api/v1/agentsql/assistants", h.auth(h.assistantSave))
+	h.mux.HandleFunc("GET /api/v1/agentsql/assistants/{id}", h.auth(h.assistantRead))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/assistants/{id}", h.auth(h.assistantSave))
+	h.mux.HandleFunc("DELETE /api/v1/agentsql/assistants/{id}", h.auth(h.assistantDelete))
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {
-		case "app.js", "chart.js", "dashboard.js", "app.css", "mark.svg":
+		case "app.js", "chart.js", "dashboard.js", "assistants.js", "app.css", "mark.svg":
 			assets.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
@@ -263,6 +268,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 422, "Invalid semantic metadata"
 	case errors.Is(err, ErrInvalidDashboard):
 		status, message = 422, "Invalid dashboard configuration"
+	case errors.Is(err, ErrInvalidAssistant):
+		status, message = 422, "Invalid assistant application"
 	case errors.Is(err, ErrForecastUnavailable):
 		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):

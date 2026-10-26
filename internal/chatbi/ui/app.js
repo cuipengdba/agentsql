@@ -1,5 +1,6 @@
 import { chartSeries, renderChart } from './chart.js';
 import { setupDashboard } from './dashboard.js';
+import { setupAssistants } from './assistants.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -47,6 +48,7 @@ function status(message,error=false){$('status').textContent=message;$('status')
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
+const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -108,6 +110,8 @@ async function enter(){
     }
   }
   $('semantics-nav').hidden=!isAdmin;
+  assistants.setAdmin(isAdmin);
+  assistants.setSources(sourceList);
   $('source-import').hidden=!isAdmin;
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
   if(!sourceList.length)status(t('empty'),true);
@@ -230,6 +234,7 @@ function semanticStatus(value,error=false){$('semantic-status').textContent=valu
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function showQA(){
   dashboard.hide();
+  assistants.hide();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
   $('semantics-nav').classList.remove('active');
@@ -238,6 +243,7 @@ function showQA(){
 async function showSemantics(){
   if(controller||$('semantics-nav').hidden)return;
   dashboard.hide();
+  assistants.hide();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
@@ -338,6 +344,7 @@ function renderSourceList(){
 async function showSources(){
   if(controller)return;
   dashboard.hide();
+  assistants.hide();
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -348,12 +355,19 @@ async function showSources(){
 }
 async function showDashboards(){
   if(controller)return;
+  assistants.hide();
   closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   await dashboard.show();
 }
+document.addEventListener('agentsql:show-assistants',()=>{
+  dashboard.hide();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  $('sources').hidden=true;$('sources-nav').classList.remove('active');
+  $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+});
 async function loadSource(source){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
@@ -513,7 +527,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();if(dashboard.visible()){dashboard.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current)open(current);};
+$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;

@@ -19,7 +19,9 @@ func TestDashboardRequeriesAndFailsClosedAfterRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	card := DashboardCard{ID: "11111111111111111111111111111111", Kind: "bar", Title: "Sales", RecordID: record.ID}
-	item, err := service.SaveDashboard(ctx, principal, Dashboard{Name: "Regional sales", Cards: []DashboardCard{card}})
+	tab := DashboardTab{ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Name: "Regional results"}
+	card.TabID, card.Span = tab.ID, 2
+	item, err := service.SaveDashboard(ctx, principal, Dashboard{Name: "Regional sales", Tabs: []DashboardTab{tab}, Cards: []DashboardCard{card}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +30,7 @@ func TestDashboardRequeriesAndFailsClosedAfterRevocation(t *testing.T) {
 	}
 	before := gateway.queries
 	view, err := service.Dashboard(ctx, principal, item.ID, true)
-	if err != nil || gateway.queries != before+1 || view.Results[card.ID].AuditID != gateway.audit {
+	if err != nil || gateway.queries != before+1 || view.Results[card.ID].AuditID != gateway.audit || len(view.Tabs) != 1 || view.Cards[0].Span != 2 || view.Cards[0].TabID != tab.ID {
 		t.Fatalf("dashboard did not requery with audit: view=%#v, err=%v", view, err)
 	}
 	items, err := service.Dashboards(ctx, principal)
@@ -66,6 +68,9 @@ func TestDashboardRejectsInvalidAndForeignRecords(t *testing.T) {
 		{Name: "empty card ID", Cards: []DashboardCard{{Kind: "text", Text: "hello"}}},
 		{Name: "HTML reference", Cards: []DashboardCard{{ID: "22222222222222222222222222222222", Kind: "bar", RecordID: "999"}}},
 		{Name: "raw SQL", Cards: []DashboardCard{{ID: "33333333333333333333333333333333", Kind: "sql", Text: "select *"}}},
+		{Name: "unknown tab", Cards: []DashboardCard{{ID: "44444444444444444444444444444444", Kind: "text", TabID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
+		{Name: "invalid span", Cards: []DashboardCard{{ID: "55555555555555555555555555555555", Kind: "text", Span: 3}}},
+		{Name: "duplicate tab", Tabs: []DashboardTab{{ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Name: "One"}, {ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Name: "Two"}}},
 	}
 	for _, item := range cases {
 		if _, err := service.SaveDashboard(ctx, principal, item); err == nil {
