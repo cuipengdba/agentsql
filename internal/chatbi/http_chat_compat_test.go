@@ -67,6 +67,10 @@ func TestSQLBotRecommendationStreamAndUsageStayOwned(t *testing.T) {
 	if json.Unmarshal(usage.Body.Bytes(), &body) != nil || body.Data.TotalTokens != 12 || len(body.Data.Steps) != 0 {
 		t.Fatalf("usage summary mismatch: %s", usage.Body.String())
 	}
+	log := request(http.MethodGet, "/api/v1/chat/record/"+string(record.ID)+"/log", token)
+	if log.Code != http.StatusOK || strings.Contains(log.Body.String(), "123") || !strings.Contains(log.Body.String(), `"steps":[]`) {
+		t.Fatalf("execution drawer released rows or fake steps: %d %s", log.Code, log.Body.String())
+	}
 	if got := request(http.MethodGet, "/api/v1/chat/record/"+string(record.ID)+"/usage", ""); got.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous usage returned %d", got.Code)
 	}
@@ -76,5 +80,10 @@ func TestSQLBotRecommendationStreamAndUsageStayOwned(t *testing.T) {
 	}
 	if got := request(http.MethodPost, path, token); got.Code != http.StatusNotFound {
 		t.Fatalf("revoked recommendation returned %d", got.Code)
+	}
+	for _, suffix := range []string{"usage", "log"} {
+		if got := request(http.MethodGet, "/api/v1/chat/record/"+string(record.ID)+"/"+suffix, token); got.Code != http.StatusNotFound {
+			t.Fatalf("revoked %s metadata returned %d", suffix, got.Code)
+		}
 	}
 }

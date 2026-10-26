@@ -7,8 +7,9 @@ import (
 	"strconv"
 )
 
-// SQLBot's usage widget reads metadata for the caller's own persisted turn.
-// It must never replay or expose cached result rows.
+// SQLBot's usage widget and execution drawer read aggregate metadata for the
+// caller's own persisted turn. Detailed step traces are not yet available;
+// never synthesize them or expose cached result rows.
 func (h *Handler) recordUsage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	id := ID(r.PathValue("id"))
 	if !id.Valid() {
@@ -17,6 +18,10 @@ func (h *Handler) recordUsage(w http.ResponseWriter, r *http.Request, p Principa
 	}
 	record, err := h.service.Record(r.Context(), p, id, false)
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if _, err := h.service.binding(r.Context(), p, record.Datasource); err != nil {
 		failure(w, err)
 		return
 	}

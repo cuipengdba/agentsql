@@ -103,6 +103,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.bounded(h.auth(h.recordData)))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data_live", h.bounded(h.auth(h.recordData)))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/usage", h.auth(h.recordUsage))
+	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/log", h.auth(h.recordUsage))
 	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.bounded(h.auth(h.read)))
