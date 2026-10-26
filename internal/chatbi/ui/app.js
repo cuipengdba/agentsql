@@ -4,10 +4,16 @@ const copy = {
   'zh-CN': {menu:'菜单',loginTitle:'与数据对话',loginSubtitle:'使用你的账号登录 AgentSQL',account:'账号',password:'密码',login:'登录',qa:'问数',newChat:'＋ 新建对话',history:'最近对话',logout:'退出',protected:'受控数据访问',theme:'切换主题',title:'让每个问题，都有数据依据。',subtitle:'选择数据源，用自然语言探索业务数据。',feature1:'按权限查询',feature2:'敏感信息脱敏',feature3:'全程可追溯',datasource:'数据源',question:'你的问题',placeholder:'例如：按地区汇总销售额',review:'请结合 SQL 与结果核实模型回答。',cancel:'停止',send:'发送 ↗',refreshNotice:'历史结果会按当前权限重新读取。',working:'正在生成并验证查询…',reading:'正在读取结果…',empty:'没有可用的数据源，请联系管理员配置访问权限。',failed:'请求未完成，请检查权限或稍后重试。',cancelled:'已停止请求。',sql:'查看 SQL',rows:'行',audit:'审计记录',noRows:'查询成功，没有匹配的数据。',unfinished:'请求尚未完成。',loginFailed:'登录失败，请检查账号和密码。'},
   en: {menu:'Menu',loginTitle:'Talk to your data',loginSubtitle:'Sign in to AgentSQL with your account',account:'Account',password:'Password',login:'Sign in',qa:'Q&A',newChat:'+ New conversation',history:'Recent conversations',logout:'Sign out',protected:'Controlled data access',theme:'Toggle theme',title:'Give every question a data-backed answer.',subtitle:'Choose a datasource and explore your business data in natural language.',feature1:'Permission-aware queries',feature2:'Sensitive data masking',feature3:'Traceable results',datasource:'Datasource',question:'Your question',placeholder:'For example: summarize sales by region',review:'Review the SQL and results to verify model answers.',cancel:'Stop',send:'Send ↗',refreshNotice:'Historical results are refreshed under current permissions.',working:'Generating and checking your query…',reading:'Loading results…',empty:'No datasources are available. Ask your administrator to configure access.',failed:'The request did not complete. Check permissions or try again later.',cancelled:'Request stopped.',sql:'View SQL',rows:'rows',audit:'Audit record',noRows:'The query succeeded with no matching rows.',unfinished:'This request has not completed.',loginFailed:'Sign-in failed. Check your account and password.'}
 };
+Object.assign(copy['zh-CN'], {
+  semanticNav:'业务语义',semanticTitle:'业务语义',semanticIntro:'术语和 SQL 示例只作为已授权问数的参考，不会绕过当前数据库权限。',semanticAdd:'新增',terms:'术语',examples:'SQL 示例',search:'搜索',termWord:'术语',description:'说明',aliases:'别名（逗号分隔）',termSources:'限定数据源（可不选）',exampleQuestion:'示例问题',exampleSQL:'示例 SQL',exampleSource:'数据源',enabled:'启用',disabled:'已停用',save:'保存',formCancel:'取消',previous:'上一页',next:'下一页',edit:'编辑',remove:'删除',disable:'停用',enable:'启用',noSemantic:'暂无记录',semanticSaved:'已保存',semanticDeleted:'已删除',confirmDelete:'确定删除这条记录？',items:'条',newTerm:'新增术语',editTerm:'编辑术语',newExample:'新增 SQL 示例',editExample:'编辑 SQL 示例',sourceRequired:'请先配置有权限的数据源。'
+});
+Object.assign(copy.en, {
+  semanticNav:'Business semantics',semanticTitle:'Business semantics',semanticIntro:'Terms and SQL examples provide context for authorized Q&A; they never bypass current database permissions.',semanticAdd:'Add',terms:'Terms',examples:'SQL examples',search:'Search',termWord:'Term',description:'Description',aliases:'Aliases (comma separated)',termSources:'Limit to datasources (optional)',exampleQuestion:'Example question',exampleSQL:'Example SQL',exampleSource:'Datasource',enabled:'Enabled',disabled:'Disabled',save:'Save',formCancel:'Cancel',previous:'Previous',next:'Next',edit:'Edit',remove:'Delete',disable:'Disable',enable:'Enable',noSemantic:'No records yet',semanticSaved:'Saved',semanticDeleted:'Deleted',confirmDelete:'Delete this record?',items:'items',newTerm:'Add term',editTerm:'Edit term',newExample:'Add SQL example',editExample:'Edit SQL example',sourceRequired:'Configure an authorized datasource first.'
+});
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null;
+let current=null,controller=null,sourceList=[],semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -16,16 +22,128 @@ function status(message,error=false){$('status').textContent=message;$('status')
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok)throw new Error(t('failed'));const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 async function history(){const items=await api('/chat/list');$('history').replaceChildren();items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));for(const item of items){const button=node('button',item.brief);button.classList.toggle('active',String(item.id)===String(current));button.onclick=()=>open(item.id);$('history').append(button);}}
-async function enter(){const user=await api('/user/info');$('account-name').textContent=user.name||user.account;const sources=await api('/datasource/list');$('datasource').replaceChildren();for(const source of sources){const option=node('option',source.name+' · '+source.type);option.value=String(source.id);$('datasource').append(option);}$('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;if(!sources.length)status(t('empty'),true);await history();}
+async function enter(){
+  const user=await api('/user/info');
+  $('account-name').textContent=user.name||user.account;
+  sourceList=await api('/datasource/list');
+  $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();
+  for(const source of sourceList){
+    const label=source.name+' · '+source.type;
+    for(const target of [$('datasource'),$('term-sources'),$('example-source')]){
+      const option=node('option',label);option.value=String(source.id);target.append(option);
+    }
+  }
+  $('semantics-nav').hidden=!user.isAdmin;
+  $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
+  if(!sourceList.length)status(t('empty'),true);
+  await history();
+}
 function show(chat){$('welcome').hidden=true;$('conversation').replaceChildren();for(const record of chat.records||[]){const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));const answer=node('div',undefined,'answer');if(record.error){answer.append(node('p',t('failed'),'error'));}else if(!record.finish){answer.append(node('p',t('unfinished')));}else if(record.data){const data=record.data;if(!data.data?.length){answer.append(node('p',t('noRows')));}else{const wrap=node('div',undefined,'table-wrap');const table=node('table');const head=node('thead');const hrow=node('tr');for(const field of data.fields||[])hrow.append(node('th',field));head.append(hrow);table.append(head);const body=node('tbody');for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}table.append(body);wrap.append(table);answer.append(wrap);}answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));}if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}turn.append(answer);$('conversation').append(turn);}$('conversation').scrollTop=$('conversation').scrollHeight;}
+function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
+function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
+function showQA(){
+  semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
+  $('semantics-nav').classList.remove('active');
+  $('conversation').hidden=false;$('welcome').hidden=!!current;
+}
+async function showSemantics(){
+  if(controller||$('semantics-nav').hidden)return;
+  closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  $('semantics').hidden=false;$('semantics-nav').classList.add('active');
+  await loadSemantics();
+}
+function semanticAction(label,callback){const button=node('button',label);button.type='button';button.onclick=callback;return button;}
+function openSemanticForm(item=null){
+  if(semanticKind==='examples'&&!sourceList.length){semanticStatus(t('sourceRequired'),true);return;}
+  const form=$('semantic-form');form.reset();semanticEditing=item?.id||null;
+  $('term-fields').hidden=semanticKind!=='terms';$('example-fields').hidden=semanticKind!=='examples';
+  $('semantic-form-title').textContent=t(semanticKind==='terms'?(item?'editTerm':'newTerm'):(item?'editExample':'newExample'));
+  $('semantic-enabled').checked=item?item.enabled:true;
+  if(item&&semanticKind==='terms'){
+    $('term-word').value=item.word;$('term-description').value=item.description;
+    $('term-aliases').value=(item.other_words||[]).join(', ');
+    for(const option of $('term-sources').options)option.selected=(item.datasource_ids||[]).includes(option.value);
+  }
+  if(item&&semanticKind==='examples'){
+    $('example-question').value=item.question;$('example-sql').value=item.description;
+    $('example-source').value=item.datasource;
+  }
+  form.hidden=false;form.scrollIntoView({block:'nearest'});
+  (semanticKind==='terms'?$('term-word'):$('example-question')).focus();
+}
+function renderSemanticItem(item){
+  const article=node('article',undefined,'semantic-item');
+  const head=node('header');head.append(node('h2',semanticKind==='terms'?item.word:item.question));article.append(head);
+  article.append(node(semanticKind==='terms'?'p':'pre',item.description,semanticKind==='terms'?'':'semantic-sql'));
+  if(semanticKind==='terms'&&(item.other_words||[]).length)article.append(node('small',item.other_words.join(' · ')));
+  if(semanticKind==='examples')article.append(node('small',item.datasource_name||item.datasource));
+  article.append(node('small',' · '+t(item.enabled?'enabled':'disabled')));
+  const actions=node('div',undefined,'semantic-actions');
+  actions.append(semanticAction(t('edit'),()=>openSemanticForm(item)));
+  actions.append(semanticAction(t(item.enabled?'disable':'enable'),async()=>{
+    try{await api('/agentsql/'+semanticKind+'/'+encodeURIComponent(item.id)+'/enabled',{enabled:!item.enabled});await loadSemantics();}
+    catch{semanticStatus(t('failed'),true);}
+  }));
+  actions.append(semanticAction(t('remove'),async()=>{
+    if(!window.confirm(t('confirmDelete')))return;
+    try{await api('/agentsql/'+semanticKind+'/'+encodeURIComponent(item.id),undefined,'DELETE');semanticStatus(t('semanticDeleted'));await loadSemantics();}
+    catch{semanticStatus(t('failed'),true);}
+  }));
+  article.append(actions);return article;
+}
+async function loadSemantics(){
+  if(!semanticVisible)return;
+  $('semantic-terms').classList.toggle('active',semanticKind==='terms');
+  $('semantic-examples').classList.toggle('active',semanticKind==='examples');
+  try{
+    const query=new URLSearchParams({page:String(semanticPage),size:'20',q:$('semantic-search').value.trim()});
+    const result=await api('/agentsql/'+semanticKind+'?'+query);
+    semanticTotalPages=result.total_pages;
+    if(semanticPage>semanticTotalPages&&semanticTotalPages>0){semanticPage=semanticTotalPages;return loadSemantics();}
+    const list=$('semantic-list');list.replaceChildren();
+    for(const item of result.data||[])list.append(renderSemanticItem(item));
+    if(!result.data?.length)list.append(node('p',t('noSemantic'),'semantic-empty'));
+    $('semantic-count').textContent=`${semanticPage}/${Math.max(1,semanticTotalPages)} · ${result.total_count} ${t('items')}`;
+    $('semantic-prev').disabled=semanticPage<=1;$('semantic-next').disabled=semanticPage>=semanticTotalPages;
+  }catch{semanticStatus(t('failed'),true);}
+}
+async function saveSemantic(event){
+  event.preventDefault();
+  const save=$('semantic-form').querySelector('button[type=submit]');save.disabled=true;
+  try{
+    let input;
+    if(semanticKind==='terms'){
+      input={word:$('term-word').value.trim(),description:$('term-description').value.trim(),
+        other_words:$('term-aliases').value.split(',').map(value=>value.trim()).filter(Boolean),
+        datasource_ids:[...$('term-sources').selectedOptions].map(option=>option.value),enabled:$('semantic-enabled').checked};
+      if(!input.word)throw new Error('term');
+    }else{
+      input={question:$('example-question').value.trim(),description:$('example-sql').value.trim(),
+        datasource:$('example-source').value,enabled:$('semantic-enabled').checked};
+      if(!input.question||!input.description||!input.datasource)throw new Error('example');
+    }
+    if(semanticEditing)input.id=semanticEditing;
+    await api('/agentsql/'+semanticKind,input,'PUT');
+    hideSemanticForm();semanticStatus(t('semanticSaved'));await loadSemantics();
+  }catch{semanticStatus(t('failed'),true);}finally{save.disabled=false;}
+}
 function closeMenu(){document.documentElement.dataset.menu='closed';$('menu').setAttribute('aria-expanded','false');}
 $('menu').onclick=()=>{const visible=document.documentElement.dataset.menu!=='open';document.documentElement.dataset.menu=visible?'open':'closed';$('menu').setAttribute('aria-expanded',String(visible));};
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
-async function open(id){if(controller)return;closeMenu();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;show(chat);await history();status('');}catch{status(t('failed'),true);}}
+async function open(id){if(controller)return;closeMenu();showQA();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;show(chat);await history();status('');}catch{status(t('failed'),true);}}
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{controller?.abort();try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
-$('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));$('question').focus();};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();if(current)open(current);};
+$('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));$('question').focus();};
+$('semantics-nav').onclick=()=>{void showSemantics();};
+$('semantic-terms').onclick=()=>{semanticKind='terms';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
+$('semantic-examples').onclick=()=>{semanticKind='examples';semanticPage=1;$('semantic-search').value='';semanticStatus('');hideSemanticForm();void loadSemantics();};
+$('semantic-add').onclick=()=>openSemanticForm();
+$('semantic-cancel').onclick=()=>hideSemanticForm();
+$('semantic-form').onsubmit=event=>{void saveSemantic(event);};
+$('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
+$('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
+$('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
+$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(current)open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
