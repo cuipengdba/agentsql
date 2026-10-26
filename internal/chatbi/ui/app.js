@@ -18,6 +18,8 @@ Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSourc
 Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
 Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exportXLSX:'导出 XLSX',exporting:'正在按当前权限准备导出…'});
 Object.assign(copy.en, {exportCSV:'Export CSV',exportXLSX:'Export XLSX',exporting:'Preparing export under current permissions…'});
+Object.assign(copy['zh-CN'], {usage:'执行详情',usageStarted:'开始时间',usageFinished:'完成时间',usageDuration:'耗时',usageTokens:'消耗 Token',usageStepsEmpty:'暂无阶段明细',seconds:'秒'});
+Object.assign(copy.en, {usage:'Execution details',usageStarted:'Started',usageFinished:'Finished',usageDuration:'Duration',usageTokens:'Tokens used',usageStepsEmpty:'No step trace is available',seconds:'seconds'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -102,7 +104,53 @@ async function enter(){
   await history();
   void loadSuggestions();
 }
-function show(chat){$('welcome').hidden=true;$('conversation').replaceChildren();for(const record of chat.records||[]){const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));const answer=node('div',undefined,'answer');if(record.error){answer.append(node('p',t('failed'),'error'));}else if(!record.finish){answer.append(node('p',t('unfinished')));}else if(record.data){const data=record.data;if(!data.data?.length){answer.append(node('p',t('noRows')));}else{const wrap=node('div',undefined,'table-wrap');const table=node('table');const head=node('thead');const hrow=node('tr');for(const field of data.fields||[])hrow.append(node('th',field));head.append(hrow);table.append(head);const body=node('tbody');for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}table.append(body);wrap.append(table);answer.append(wrap);}answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));for(const format of ['csv','xlsx']){const exportButton=node('button',t(format==='csv'?'exportCSV':'exportXLSX'),'export-button');exportButton.type='button';exportButton.onclick=()=>void downloadExport(record.id,chat.id,format,exportButton);answer.append(exportButton);}}if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}turn.append(answer);$('conversation').append(turn);}$('conversation').scrollTop=$('conversation').scrollHeight;}
+function show(chat){
+  $('welcome').hidden=true;$('conversation').replaceChildren();
+  for(const record of chat.records||[]){
+    if(record.first_chat&&!record.question)continue;
+    const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));
+    const answer=node('div',undefined,'answer');
+    if(record.error){answer.append(node('p',t('failed'),'error'));}
+    else if(!record.finish){answer.append(node('p',t('unfinished')));}
+    else if(record.data){
+      const data=record.data;
+      if(!data.data?.length){answer.append(node('p',t('noRows')));}
+      else{
+        const wrap=node('div',undefined,'table-wrap'),table=node('table'),head=node('thead'),hrow=node('tr');
+        for(const field of data.fields||[])hrow.append(node('th',field));
+        head.append(hrow);table.append(head);
+        const body=node('tbody');
+        for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}
+        table.append(body);wrap.append(table);answer.append(wrap);
+      }
+      answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));
+      for(const format of ['csv','xlsx']){
+        const exportButton=node('button',t(format==='csv'?'exportCSV':'exportXLSX'),'export-button');
+        exportButton.type='button';exportButton.onclick=()=>void downloadExport(record.id,chat.id,format,exportButton);answer.append(exportButton);
+      }
+    }
+    if(record.finish){
+      const usage=node('details',undefined,'usage-details'),summary=node('summary',t('usage')),content=node('div',undefined,'usage-content');
+      usage.append(summary,content);usage.addEventListener('toggle',()=>{if(usage.open)void loadUsage(record.id,usage,content);});answer.append(usage);
+    }
+    if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}
+    turn.append(answer);$('conversation').append(turn);
+  }
+  $('conversation').scrollTop=$('conversation').scrollHeight;
+}
+async function loadUsage(id,details,content){
+  content.replaceChildren(node('p',t('reading')));
+  try{
+    const data=await api('/chat/record/'+encodeURIComponent(String(id))+'/log');
+    if(!details.isConnected||!details.open)return;
+    const lines=[];
+    if(data.start_time)lines.push(`${t('usageStarted')}: ${new Date(data.start_time).toLocaleString(lang)}`);
+    if(data.finish_time)lines.push(`${t('usageFinished')}: ${new Date(data.finish_time).toLocaleString(lang)}`);
+    if(Number.isFinite(data.duration))lines.push(`${t('usageDuration')}: ${data.duration} ${t('seconds')}`);
+    if(Number.isSafeInteger(data.total_tokens)&&data.total_tokens>=0)lines.push(`${t('usageTokens')}: ${data.total_tokens}`);
+    content.replaceChildren(...lines.map(line=>node('p',line)),node('p',t('usageStepsEmpty')));
+  }catch{if(details.isConnected&&details.open)content.replaceChildren(node('p',t('failed'),'error'));}
+}
 async function downloadExport(id,chatID,format,button){
   if(controller||!token)return;
   button.disabled=true;status(t('exporting'));
