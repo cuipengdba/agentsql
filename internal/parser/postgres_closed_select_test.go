@@ -15,6 +15,7 @@ func TestParsePostgresClosedSelectAcceptedSubset(t *testing.T) {
 		{"exists", `SELECT a.id FROM app.accounts a WHERE EXISTS (SELECT b.id FROM app.other b WHERE b.id = a.id)`, 2},
 		{"in-subquery", `SELECT a.id FROM app.accounts a WHERE a.id IN (SELECT b.id FROM app.other b WHERE b.id > 0)`, 2},
 		{"bounded-limit", `SELECT a.id, a.note FROM app.accounts a LIMIT 100`, 1},
+		{"text-literal-comparison", `SELECT a.note FROM app.accounts a WHERE a.note = 'east'`, 1},
 	}
 	for _, test := range tests {
 		test := test

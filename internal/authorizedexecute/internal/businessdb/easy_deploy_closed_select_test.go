@@ -19,6 +19,7 @@ func TestClosedSelectResolverDirectJoinAndExpressions(t *testing.T) {
 		relations  int
 	}{
 		{"direct", `SELECT a.id, a.note FROM app.accounts a WHERE a.id > 0 AND a.note IS NOT NULL`, 2, 2, 1},
+		{"text-literal-comparison", `SELECT a.note FROM app.accounts a WHERE a.note = 'east'`, 1, 1, 1},
 		{"self-join", `SELECT a.id, b.note FROM app.accounts a INNER JOIN app.accounts b ON a.id=b.id WHERE b.id > 0`, 2, 1, 1},
 		{"left-join", `SELECT a.id + b.id FROM app.accounts a LEFT JOIN app.other b ON a.id=b.id WHERE b.id IS NOT NULL`, 2, 2, 2},
 		{"exists-correlated", `SELECT a.id FROM app.accounts a WHERE EXISTS (SELECT b.id FROM app.other b WHERE b.id=a.id)`, 1, 3, 2},
@@ -74,6 +75,9 @@ func TestClosedSelectResolverFailClosedNameAndShapeCorpus(t *testing.T) {
 		{"type-mismatch", `SELECT a.id + b.big_id FROM app.accounts a JOIN app.other b ON a.id=b.id`, BinderCodeModeRequired},
 		{"user-type", `SELECT a.composite_value FROM app.accounts a`, "AUTH_COLUMN_SHAPE_UNSUPPORTED"},
 		{"user-collation", `SELECT a.custom_collation FROM app.accounts a`, "AUTH_COLUMN_SHAPE_UNSUPPORTED"},
+		{"string-against-integer", `SELECT a.id FROM app.accounts a WHERE a.id = '1'`, BinderCodeModeRequired},
+		{"two-unknown-strings", `SELECT a.id FROM app.accounts a WHERE 'a' = 'b'`, BinderCodeModeRequired},
+		{"standalone-string", `SELECT 'secret' FROM app.accounts a`, BinderCodeModeRequired},
 	}
 	for _, test := range tests {
 		parsed, err := closedparser.ParsePostgresClosedSelect(test.sql)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
 
@@ -61,6 +62,33 @@ func TestRewriteSingleTableConjoinsFilterAfterCallerOr(t *testing.T) {
 	}
 	if !strings.Contains(got, "region = 'west'") || !strings.Contains(got, "amount IS NOT NULL") {
 		t.Fatalf("rewritten predicate missing: %s", got)
+	}
+}
+
+func TestProbeColumnUsesValidatedRowPredicate(t *testing.T) {
+	for _, item := range []struct{ filter, column string }{
+		{"region = 'east'", "region"},
+		{"id IS NOT NULL AND region = 'east'", "id"},
+		{`"quoted name" IS NULL`, "quoted name"},
+	} {
+		got, err := ProbeColumn(item.filter)
+		if err != nil || got != item.column {
+			t.Fatalf("filter=%q got=%q err=%v", item.filter, got, err)
+		}
+	}
+	if _, err := ProbeColumn("region = 'east' OR region = 'west'"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unsupported predicate entered metadata probe: %v", err)
+	}
+}
+
+func TestMetadataProbeAfterRowRewriteUsesClosedBinderGrammar(t *testing.T) {
+	query := `SELECT "region" FROM "agentsql_files"."agentsql_file_feac83eafebb5564a5d14c7419aab486" WHERE "region" IS NULL AND "region" IS NOT NULL LIMIT 1`
+	rewritten, _, err := RewriteSingleTable(query, "agentsql_files", "agentsql_file_feac83eafebb5564a5d14c7419aab486", []string{"region = 'east'"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.ParsePostgresClosedSelect(rewritten); err != nil {
+		t.Fatalf("closed binder cannot parse metadata probe %q: %v", rewritten, err)
 	}
 }
 

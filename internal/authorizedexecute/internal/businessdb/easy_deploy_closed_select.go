@@ -389,20 +389,47 @@ func (resolver *closedSelectResolver) resolveOperatorExpr(expression *closedpars
 	if len(expression.Args) != 2 {
 		return closedResolvedType{}, NewPrecisionFailure(BinderCodeModeRequired)
 	}
-	left, err := resolver.resolveExpr(expression.Args[0], scope, usage, site, outputIndex, queryDepth)
-	if err != nil {
-		return closedResolvedType{}, err
-	}
-	right, err := resolver.resolveExpr(expression.Args[1], scope, usage, site, outputIndex, queryDepth)
-	if err != nil {
-		return closedResolvedType{}, err
-	}
-	if left.OID == 0 || left.OID == 705 || left.OID != right.OID || left.Collation != right.Collation {
-		return closedResolvedType{}, NewPrecisionFailure(BinderCodeModeRequired)
-	}
 	name := expression.Operator
 	if name == "!=" {
 		name = "<>"
+	}
+	var left, right closedResolvedType
+	var err error
+	leftString := expression.Args[0].Kind == closedparser.PostgresClosedString
+	rightString := expression.Args[1].Kind == closedparser.PostgresClosedString
+	if leftString || rightString {
+		// PostgreSQL coerces an unknown string literal to the type and
+		// collation of a text operand. Prove only this exact built-in case;
+		// casts, two literals, non-text operands and arithmetic stay closed.
+		if leftString == rightString || !closedComparisonOperator(name) {
+			return closedResolvedType{}, NewPrecisionFailure(BinderCodeModeRequired)
+		}
+		if leftString {
+			right, err = resolver.resolveExpr(expression.Args[1], scope, usage, site, outputIndex, queryDepth)
+			left = right
+		} else {
+			left, err = resolver.resolveExpr(expression.Args[0], scope, usage, site, outputIndex, queryDepth)
+			right = left
+		}
+		if err != nil {
+			return closedResolvedType{}, err
+		}
+		if left.OID != 25 || left.Collation >= 16384 {
+			return closedResolvedType{}, NewPrecisionFailure(BinderCodeModeRequired)
+		}
+		resolver.addObject("type", 25)
+	} else {
+		left, err = resolver.resolveExpr(expression.Args[0], scope, usage, site, outputIndex, queryDepth)
+		if err != nil {
+			return closedResolvedType{}, err
+		}
+		right, err = resolver.resolveExpr(expression.Args[1], scope, usage, site, outputIndex, queryDepth)
+		if err != nil {
+			return closedResolvedType{}, err
+		}
+	}
+	if left.OID == 0 || left.OID == 705 || left.OID != right.OID || left.Collation != right.Collation {
+		return closedResolvedType{}, NewPrecisionFailure(BinderCodeModeRequired)
 	}
 	expected := left.OID
 	if closedComparisonOperator(name) {

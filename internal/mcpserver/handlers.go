@@ -15,6 +15,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/parser"
 	"github.com/cuipengdba/agentsql/internal/pipeline"
 	"github.com/cuipengdba/agentsql/internal/policy"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 	"github.com/cuipengdba/agentsql/internal/store"
 	"github.com/rs/zerolog"
 )
@@ -227,6 +228,7 @@ func (handlers *toolHandlers) proveRowFilteredSchema(
 		return nil, fmt.Errorf("row-filtered schema requires PostgreSQL B2")
 	}
 	relation := ""
+	predicateColumn := ""
 	for _, item := range stored {
 		if item.RowFilter == nil {
 			continue
@@ -235,14 +237,22 @@ func (handlers *toolHandlers) proveRowFilteredSchema(
 			return nil, fmt.Errorf("row-filtered schema has multiple relations")
 		}
 		relation = item.ObjectName
+		if predicateColumn == "" {
+			var err error
+			predicateColumn, err = rowfilter.ProbeColumn(*item.RowFilter)
+			if err != nil {
+				return nil, fmt.Errorf("row-filtered schema has invalid predicate")
+			}
+		}
 	}
 	parts := strings.Split(relation, ".")
-	if len(parts) != 2 || !validSchemaIdentifier(parts[0]) || !validSchemaIdentifier(parts[1]) {
+	if len(parts) != 2 || !validSchemaIdentifier(parts[0]) || !validSchemaIdentifier(parts[1]) || predicateColumn == "" {
 		return nil, fmt.Errorf("row-filtered schema has invalid relation")
 	}
 	const maxProbes = 256
 	proved := make([]policy.SchemaColumn, 0, len(columns))
 	probes := 0
+	quotedPredicate := `"` + strings.ReplaceAll(predicateColumn, `"`, `""`) + `"`
 	for _, column := range columns {
 		if column.Schema+"."+column.Table != relation {
 			continue
@@ -255,7 +265,8 @@ func (handlers *toolHandlers) proveRowFilteredSchema(
 			return nil, fmt.Errorf("row-filtered schema has invalid column")
 		}
 		quotedColumn := `"` + strings.ReplaceAll(column.Column, `"`, `""`) + `"`
-		sql := fmt.Sprintf("SELECT %s FROM \"%s\".\"%s\" WHERE 1 = 0 LIMIT 1", quotedColumn, parts[0], parts[1])
+		sql := fmt.Sprintf("SELECT %s FROM \"%s\".\"%s\" WHERE %s IS NULL AND %s IS NOT NULL LIMIT 1",
+			quotedColumn, parts[0], parts[1], quotedPredicate, quotedPredicate)
 		response := probe(ctx, sql)
 		if response.Decision == string(model.DecisionDeny) &&
 			response.ErrorCode == string(executor.ReasonColumnGrantMissing) {
@@ -265,7 +276,12 @@ func (handlers *toolHandlers) proveRowFilteredSchema(
 		if response.Decision != string(model.DecisionAllow) || !ok || data.AuditID <= 0 ||
 			data.Result == nil || len(data.Result.Rows) != 0 ||
 			len(data.Result.Columns) != 1 || data.Result.Columns[0] != column.Column {
-			return nil, fmt.Errorf("row-filtered schema B2 column proof failed")
+			columnCount, rowCount := 0, 0
+			if data.Result != nil {
+				columnCount, rowCount = len(data.Result.Columns), len(data.Result.Rows)
+			}
+			return nil, fmt.Errorf("row-filtered schema B2 column proof failed: decision=%s code=%s audit=%t columns=%d rows=%d",
+				response.Decision, response.ErrorCode, data.AuditID > 0, columnCount, rowCount)
 		}
 		proved = append(proved, column)
 	}

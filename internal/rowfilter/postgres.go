@@ -73,6 +73,30 @@ func CompilePredicate(filter string) (*pg_query.Node, error) {
 	return selectStmt.WhereClause, nil
 }
 
+// ProbeColumn returns a column already referenced by a valid row rule. A
+// zero-row metadata probe can use this column in a type-independent null
+// contradiction without requiring reference rights on every output column.
+func ProbeColumn(filter string) (string, error) {
+	node, err := CompilePredicate(filter)
+	if err != nil {
+		return "", err
+	}
+	for node.GetBoolExpr() != nil {
+		node = node.GetBoolExpr().Args[0]
+	}
+	var column *pg_query.Node
+	if expression := node.GetAExpr(); expression != nil {
+		column = expression.Lexpr
+	} else if expression := node.GetNullTest(); expression != nil {
+		column = expression.Arg
+	}
+	if column == nil || column.GetColumnRef() == nil || len(column.GetColumnRef().Fields) != 1 ||
+		column.GetColumnRef().Fields[0].GetString_() == nil {
+		return "", ErrUnsupported
+	}
+	return column.GetColumnRef().Fields[0].GetString_().Sval, nil
+}
+
 func validPredicate(node *pg_query.Node, depth int) bool {
 	if node == nil || depth > 16 {
 		return false

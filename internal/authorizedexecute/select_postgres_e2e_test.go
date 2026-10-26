@@ -176,7 +176,7 @@ func runAuthorizedSelectS4Postgres(t *testing.T, major string) {
 			require.Equal(t, "1", selected.Result.Rows[0][0])
 			require.Equal(t, digest, audited.RowFilterDigest)
 			require.Equal(t, 3, audited.Version)
-			const metadataProbe = `SELECT id FROM s4.a WHERE 1 = 0 LIMIT 1`
+			const metadataProbe = `SELECT id FROM s4.a WHERE id IS NULL AND id IS NOT NULL LIMIT 1`
 			probeSQL, _, _, err := rowfilter.CompileForPolicies(metadataProbe, "agent", datasource.ID, []model.Policy{rowPolicy})
 			require.NoError(t, err)
 			probeEnrollment, err := gateway.EnrollPostgresSelect(ctx, datasource, secret, probeSQL, DefaultLimits)

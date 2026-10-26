@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	pg_query "github.com/pganalyze/pg_query_go/v5"
 )
@@ -460,6 +461,15 @@ func postgresClosedConstant(node map[string]any) (*PostgresClosedExpr, error) {
 			return nil, postgresClosedFailure(PostgresClosedModeRequired)
 		}
 		return &PostgresClosedExpr{Kind: PostgresClosedBoolean, Boolean: value}, nil
+	}
+	if wrapper, ok := node["sval"].(map[string]any); ok {
+		value, valid := wrapper["sval"].(string)
+		if !valid || len(value) > 4096 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return nil, postgresClosedFailure(PostgresClosedModeRequired)
+		}
+		// The literal text is intentionally not retained in the closed tree.
+		// Only text-column comparisons may later give it a proven type.
+		return &PostgresClosedExpr{Kind: PostgresClosedString}, nil
 	}
 	return nil, postgresClosedFailure(PostgresClosedModeRequired)
 }

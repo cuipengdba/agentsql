@@ -150,7 +150,7 @@ func TestRowFilteredSchemaRequiresAuditedB2ProofForEachOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []policy.SchemaColumn{columns[0], columns[2]}, proved)
 	require.Len(t, probes, 3)
-	require.Contains(t, probes[0], `WHERE 1 = 0 LIMIT 1`)
+	require.Contains(t, probes[0], `WHERE "id" IS NULL AND "id" IS NOT NULL LIMIT 1`)
 	require.Contains(t, probes[2], `"odd""name"`)
 	for _, bad := range []ToolResponse{
 		{Decision: "allow", Data: pipelineData{Result: &model.QueryResult{}}},
