@@ -42,6 +42,12 @@ type Record struct {
 	SQL         string     `json:"sql"`
 	SQLAnswer   string     `json:"sql_answer"`
 	Chart       string     `json:"chart,omitempty"`
+	Analysis    string     `json:"analysis,omitempty"`
+	PredictText string     `json:"predict_content,omitempty"`
+	AnalysisOf  ID         `json:"analysis_record_id,omitempty"`
+	PredictOf   ID         `json:"predict_record_id,omitempty"`
+	Action      string     `json:"action,omitempty"`
+	DataDigest  string     `json:"data_digest,omitempty"`
 	Data        *QueryData `json:"data,omitempty"`
 	Finish      bool       `json:"finish"`
 	FirstChat   bool       `json:"first_chat,omitempty"`
@@ -117,6 +123,9 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 	for _, record := range chat.Records {
 		if record.ID == id {
 			record.Data = nil
+			if !withData {
+				record.Analysis, record.PredictText = "", ""
+			}
 			if withData && record.Finish && record.Error == "" {
 				binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 				if err != nil {
@@ -133,7 +142,12 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 					return Record{}, err
 				}
 				record.Data = &data
+				if record.Action != "" && record.DataDigest != resultDigest(data) {
+					record.Data = nil
+					record.Analysis, record.PredictText = "", ""
+				}
 			}
+			record.DataDigest = ""
 			if err := service.live(ctx, p); err != nil {
 				return Record{}, err
 			}
@@ -331,6 +345,9 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	for i := range chat.Records {
 		record := &chat.Records[i]
 		record.Data = nil
+		if !withData {
+			record.Analysis, record.PredictText = "", ""
+		}
 		if withData && record.Finish && record.Error == "" && record.SQL != "" {
 			data, err := service.query(ctx, p, binding, record.SQL)
 			if err != nil {
@@ -340,7 +357,12 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 				return Chat{}, ErrGateway
 			}
 			record.Data = &data
+			if record.Action != "" && record.DataDigest != resultDigest(data) {
+				record.Data = nil
+				record.Analysis, record.PredictText = "", ""
+			}
 		}
+		record.DataDigest = ""
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 		return Chat{}, err
@@ -409,7 +431,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	historyBytes := 0
 	for i := len(chat.Records) - 1; i >= 0 && len(history) < 3; i-- {
 		prior := chat.Records[i]
-		if !prior.Finish || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
+		if !prior.Finish || prior.Action != "" || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
 			continue
 		}
 		length := len(prior.Question) + len(prior.SQL)

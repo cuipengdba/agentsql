@@ -1245,6 +1245,11 @@
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
       "source_sha256": "e3a5e2318422edfefd7b29f4d9e24a5caf6507743be794becaa502f9daba3cee"
+    },
+    {
+      "source": "docs/v4.3.0-design.md",
+      "english": "docs/en/v4.3.0-design.md",
+      "source_sha256": "0afe707e4ad18c4464954f39f80a0f8b6b6ac6d54163a85136333d3baad2dd36"
     }
   ]
 }

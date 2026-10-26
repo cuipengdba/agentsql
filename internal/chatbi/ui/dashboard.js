@@ -61,7 +61,7 @@ export function setupDashboard({ api, t, node, get }) {
         else {
           const series = chartSeries(data);
           if (card.kind === 'table') shell.append(renderTable(data));
-          else if (series) shell.append(renderChart(series, card.kind));
+          else if (series && (card.kind !== 'pie' || series.items.some(item => item.value > 0))) shell.append(renderChart(series, card.kind));
           else shell.append(node('p', t('dashboardNoChart'), 'dashboard-note'));
           shell.append(node('small', `${t('audit')} #${data.audit_id}`, 'dashboard-audit'));
         }
@@ -139,7 +139,7 @@ export function setupDashboard({ api, t, node, get }) {
   return {
     show, hide: hidden, visible: () => active,
     setRecords(chat) {
-      records = (chat?.records || []).filter(record => record.finish && !record.error && record.sql);
+      records = (chat?.records || []).filter(record => record.finish && !record.error && !record.action && record.sql);
       if (active) renderRecordChoices();
     },
     language() { if (active) { renderList(); renderCards(); renderRecordChoices(); } }
