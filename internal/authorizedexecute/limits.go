@@ -67,6 +67,7 @@ const (
 	ReasonFunctionQualification     Reason = "AUTH_FUNCTION_QUALIFICATION_REQUIRED"
 	ReasonColumnAuthUnavailable     Reason = "AUTH_COLUMN_AUTHORIZATION_UNAVAILABLE"
 	ReasonRelationDenied            Reason = "AUTH_RELATION_DENIED"
+	ReasonRowFilterUnsupported      Reason = "AUTH_ROW_FILTER_UNSUPPORTED"
 	ReasonRelationGrantMissing      Reason = "AUTH_RELATION_GRANT_MISSING"
 	ReasonIdentityUnproven          Reason = "AUTH_IDENTITY_UNPROVEN"
 	ReasonColumnGrantMissing        Reason = "AUTH_COLUMN_GRANT_MISSING"

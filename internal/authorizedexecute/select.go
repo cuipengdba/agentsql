@@ -556,6 +556,8 @@ func reasonFromColumn(reason columnauth.Reason) Reason {
 		return ReasonDatasourceUnsupported
 	case columnauth.ReasonRelationDenied:
 		return ReasonRelationDenied
+	case columnauth.ReasonRowFilterUnsupported:
+		return ReasonRowFilterUnsupported
 	case columnauth.ReasonRelationGrantMissing:
 		return ReasonRelationGrantMissing
 	case columnauth.ReasonIdentityUnproven:

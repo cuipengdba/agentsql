@@ -44,3 +44,7 @@ func TestP0ENoBusinessToControlReverseEdge(t *testing.T) {
 	business.Release()
 	require.NoError(t, proveBusinessEnded(ctx))
 }
+
+func TestRowFilterDenialRetainsStableExecutionReason(t *testing.T) {
+	require.Equal(t, ReasonRowFilterUnsupported, reasonFromColumn(columnauth.ReasonRowFilterUnsupported))
+}
