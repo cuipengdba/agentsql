@@ -298,6 +298,16 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "connector_token_hash", kind: migrationText}, {name: "enabled", kind: migrationBool},
 		{name: "revision", kind: migrationInt64}, {name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
+	{name: "managed_file_imports", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
+		{name: "id", kind: migrationText}, {name: "tenant_id", kind: migrationText},
+		{name: "binding_id", kind: migrationText}, {name: "binding_revision", kind: migrationInt64},
+		{name: "workspace_id", kind: migrationText}, {name: "owner_user_id", kind: migrationText},
+		{name: "agent_id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
+		{name: "file_sha256", kind: migrationText}, {name: "file_bytes", kind: migrationInt64},
+		{name: "sheet_count", kind: migrationInt32}, {name: "status", kind: migrationText},
+		{name: "revision", kind: migrationInt64}, {name: "created_at", kind: migrationTime},
+		{name: "updated_at", kind: migrationTime},
+	}},
 	{name: "admin_access_revocations", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "jti", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},
 	}},

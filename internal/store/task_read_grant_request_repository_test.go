@@ -132,7 +132,7 @@ func TestTaskReadGrantRequestRollbackRevokesIssuedKeys(t *testing.T) {
 	require.NoError(t, err)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 27, current)
+	require.Equal(t, 28, current)
 	require.Equal(t, current, latest)
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-1))
@@ -143,6 +143,7 @@ func TestTaskReadGrantRequestRollbackRevokesIssuedKeys(t *testing.T) {
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-6))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-7))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-8))
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-9))
 	var revokedCount int
 	require.NoError(t, opened.metaDB.QueryRowContext(ctx,
 		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NOT NULL`,
@@ -174,6 +175,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 
 	raw, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
+	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 28))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 27))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 26))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 25))
@@ -188,7 +190,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 	require.NoError(t, err)
 	options := MetadataOptions{Driver: DialectSQLite, SQLitePath: path, AutoMigrate: false}
 	_, err = OpenMetadata(ctx, options, []byte(testSecret))
-	require.ErrorContains(t, err, "current=18 latest=27")
+	require.ErrorContains(t, err, "current=18 latest=28")
 	raw, err = sql.Open("sqlite", path)
 	require.NoError(t, err)
 	require.NoError(t, MigrateMetadata(ctx, raw, DialectSQLite, false))
@@ -207,7 +209,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 	current, latest, err := MetadataMigrationVersions(ctx, raw, DialectSQLite, false)
 	require.NoError(t, err)
 	require.Equal(t, 18, current)
-	require.Equal(t, 27, latest)
+	require.Equal(t, 28, latest)
 	var stillPresent int
 	require.NoError(t, raw.QueryRowContext(ctx,
 		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NULL`, legacy.ID).Scan(&stillPresent))
