@@ -1232,6 +1232,11 @@
       "source_sha256": "be419a37af03dc60d43f737f6dc53ec49c13154345e91574632dbcad3c5809de"
     },
     {
+      "source": "docs/release-notes-v4.2.0.md",
+      "english": "docs/en/release-notes-v4.2.0.md",
+      "source_sha256": "b2af43f49548107843011b37ff2a5eeadbdb48f93c330a713cc15480d175d5ef"
+    },
+    {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
       "source_sha256": "e3a5e2318422edfefd7b29f4d9e24a5caf6507743be794becaa502f9daba3cee"

@@ -83,6 +83,15 @@ func TestFileImportParserRejectsUnsafeOrAmbiguousData(t *testing.T) {
 	})
 	_, err = parseFileImport("formula.xlsx", formula)
 	require.ErrorIs(t, err, errFileImport)
+	bomb := rewriteFileWorkbook(t, workbook, func(name, body string) string {
+		if name == "xl/worksheets/sheet1.xml" {
+			return body + strings.Repeat(" ", (8<<20)+1)
+		}
+		return body
+	})
+	require.Less(t, len(bomb), maxFileUpload, "compressed input must fit the upload limit")
+	_, err = parseFileImport("compressed-bomb.xlsx", bomb)
+	require.ErrorIs(t, err, errFileImport)
 	for _, target := range []string{"../worksheets/sheet1.xml", "/xl/worksheets/../worksheets/sheet1.xml", "//xl/worksheets/sheet1.xml", "https://example.invalid/sheet1.xml"} {
 		t.Run(target, func(t *testing.T) {
 			changed := rewriteFileWorkbook(t, workbook, func(name, body string) string {
