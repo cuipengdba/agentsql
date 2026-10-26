@@ -31,6 +31,15 @@ func TestManagedFileImportJournalTenantCASAndAuditRollback(t *testing.T) {
 	items, err := r.ListPending(otherTenant, 100)
 	require.NoError(t, err)
 	require.Empty(t, items)
+	items, err = r.ListRecoverableByDatasource(otherTenant, b.DatasourceID, 100)
+	require.NoError(t, err)
+	require.Empty(t, items)
+	items, err = r.ListRecoverableByDatasource(ctx, "another-datasource", 100)
+	require.NoError(t, err)
+	require.Empty(t, items)
+	items, err = r.ListRecoverableByDatasource(ctx, b.DatasourceID, 100)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
 	_, err = r.Advance(ctx, item.ID, item.Revision, "preparing", "published", b.AgentSQLUserID)
 	require.ErrorIs(t, err, ErrManagedFileState)
 	_, err = r.Advance(ctx, item.ID, item.Revision, "preparing", "staged", "other-user")
@@ -52,6 +61,11 @@ func TestManagedFileImportJournalTenantCASAndAuditRollback(t *testing.T) {
 		current, err = r.Advance(ctx, item.ID, current.Revision, current.Status, next, b.AgentSQLUserID)
 		require.NoError(t, err)
 		require.Equal(t, next, current.Status)
+		if next == "policy_ready" {
+			pending, err := r.ListRecoverableByDatasource(ctx, b.DatasourceID, 100)
+			require.NoError(t, err)
+			require.Empty(t, pending, "policy-ready tables need a separate grant recovery path")
+		}
 		if next == "published" {
 			pending, err := r.ListPending(ctx, 100)
 			require.NoError(t, err)

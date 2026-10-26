@@ -19,6 +19,7 @@ type managedFilePhysicalProbe struct {
 	stages    int
 	drops     int
 	stageErr  error
+	dropErr   error
 }
 
 func (probe *managedFilePhysicalProbe) ReadDatasourceID() string { return probe.read.ID }
@@ -39,7 +40,47 @@ func (probe *managedFilePhysicalProbe) Stage(_ context.Context, operation string
 func (probe *managedFilePhysicalProbe) Drop(_ context.Context, operation string, _ int) error {
 	probe.operation = operation
 	probe.drops++
-	return nil
+	return probe.dropErr
+}
+
+func TestManagedFileRecoveryFencesAndRetriesOnlyUnpublishedTables(t *testing.T) {
+	runtime, principal, binding, physical := managedFileStageFixture(t)
+	ctx := context.Background()
+	digest := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sheets := []executor.ManagedFileSheet{{Columns: []executor.ManagedFileColumn{{Name: "amount", Type: "int"}}, Rows: [][]any{{int64(10)}}}}
+	staged, _, err := runtime.StageSQLBotFile(ctx, principal, binding, digest, 16, sheets, physical)
+	require.NoError(t, err)
+	physical.dropErr = errors.New("temporary database failure")
+	count, err := runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.ErrorContains(t, err, "temporary database failure")
+	require.Zero(t, count)
+	current, err := runtime.Store.ManagedFileImports().Get(ctx, staged.ID)
+	require.NoError(t, err)
+	require.Equal(t, "cleanup_needed", current.Status)
+	physical.dropErr = nil
+	count, err = runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	current, err = runtime.Store.ManagedFileImports().Get(ctx, staged.ID)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", current.Status)
+	count, err = runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.NoError(t, err)
+	require.Zero(t, count)
+
+	preparing, err := runtime.Store.ManagedFileImports().Begin(ctx, binding, digest, 16, 1, principal.UserID)
+	require.NoError(t, err)
+	physical.read.Host = "changed-host"
+	count, err = runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.ErrorIs(t, err, ErrManagedFileStage)
+	require.Zero(t, count)
+	physical.read.Host = "127.0.0.1"
+	count, err = runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	current, err = runtime.Store.ManagedFileImports().Get(ctx, preparing.ID)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", current.Status)
 }
 
 func managedFileStageFixture(t *testing.T) (*Runtime, rbac.Principal, store.SQLBotBinding, *managedFilePhysicalProbe) {

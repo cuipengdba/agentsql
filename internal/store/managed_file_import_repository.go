@@ -181,6 +181,32 @@ func (r *ManagedFileImportRepository) ListPending(ctx context.Context, limit int
 	return items, rows.Err()
 }
 
+// ListRecoverableByDatasource bounds recovery to never-published rows on one
+// managed datasource. policy_ready and deleting need separate grant handling.
+func (r *ManagedFileImportRepository) ListRecoverableByDatasource(ctx context.Context, datasourceID string, limit int) ([]ManagedFileImport, error) {
+	tenant, err := r.requireTenant(ctx, "list pending managed file imports by datasource")
+	if err != nil {
+		return nil, err
+	}
+	if datasourceID == "" || limit < 1 || limit > 1000 {
+		return nil, ErrManagedFileState
+	}
+	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports WHERE tenant_id=? AND datasource_id=? AND status IN ('preparing','staged','cleanup_needed') ORDER BY created_at,id LIMIT ?`), tenant, datasourceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ManagedFileImport{}
+	for rows.Next() {
+		item, err := scanManagedFileImport(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (r *ManagedFileImportRepository) audit(ctx context.Context, tx *sql.Tx, id, status, actor, fileHash string, bytes int64, sheets int) error {
 	details, _ := json.Marshal(map[string]any{"operation_id": id, "status": status, "file_sha256": fileHash, "file_bytes": bytes, "sheet_count": sheets})
 	return r.outbox.Append(ctx, tx, model.ManagementAuditOutbox{EventUUID: uuid.NewString(), Action: "managed_file." + status,

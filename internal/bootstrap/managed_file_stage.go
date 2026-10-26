@@ -85,3 +85,49 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 	}
 	return staged, tables, nil
 }
+
+// RecoverUnpublishedSQLBotFiles removes abandoned, never-published tables for
+// one explicitly selected tenant and managed datasource. Call it before
+// accepting new imports for that datasource. The journal transition fences a
+// concurrent publisher before a physical table is dropped; an interrupted
+// cleanup remains retryable. policy_ready and deleting need their own policy
+// and grant revocation flow and are deliberately left untouched here.
+func (runtime *Runtime) RecoverUnpublishedSQLBotFiles(ctx context.Context, tenantID string, physical ManagedFilePhysical) (int, error) {
+	if runtime == nil || runtime.Store == nil || ctx == nil || tenantID == "" || physical == nil || physical.ReadDatasourceID() == "" {
+		return 0, ErrManagedFileStage
+	}
+	tenantCtx, err := store.WithTenant(ctx, tenantID)
+	if err != nil {
+		return 0, ErrManagedFileStage
+	}
+	datasource, err := runtime.Store.Datasources().Get(tenantCtx, physical.ReadDatasourceID())
+	if err != nil || !physical.MatchesReadDatasource(datasource) {
+		return 0, ErrManagedFileStage
+	}
+	journal := runtime.Store.ManagedFileImports()
+	cleaned := 0
+	for {
+		items, err := journal.ListRecoverableByDatasource(tenantCtx, physical.ReadDatasourceID(), 1000)
+		if err != nil {
+			return cleaned, err
+		}
+		if len(items) == 0 {
+			return cleaned, nil
+		}
+		for _, item := range items {
+			if item.Status != "cleanup_needed" {
+				item, err = journal.Advance(tenantCtx, item.ID, item.Revision, item.Status, "cleanup_needed", item.OwnerUserID)
+				if err != nil {
+					return cleaned, err
+				}
+			}
+			if err := physical.Drop(tenantCtx, item.ID, item.SheetCount); err != nil {
+				return cleaned, err
+			}
+			if _, err := journal.Advance(tenantCtx, item.ID, item.Revision, "cleanup_needed", "deleted", item.OwnerUserID); err != nil {
+				return cleaned, err
+			}
+			cleaned++
+		}
+	}
+}
