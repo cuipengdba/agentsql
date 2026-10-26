@@ -2,6 +2,11 @@
 
 **语言 / Language:** [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [v4.2.0]（候选）
+
+- 增加最多三轮已完成问数上下文、业务术语、SQL 示例和推荐问题；每轮仍经当前身份、授权与受控网关执行。
+- 增加有界 CSV/XLSX 托管数据源、工作表子集选择、当前权限下的 CSV/XLSX 导出，以及 PostgreSQL 窄范围行规则。原版 SQLBot v1.10.2 浏览器的合成流程已对照；完整页面与业务系统零改动替换仍待验收。见[发布说明](docs/release-notes-v4.2.0.md)。
+
 ## [v4.1.0]
 
 - 增加 Go 原生问数、加密身份与会话、SQLBot v1.10.2 普通登录兼容基础及 PostgreSQL/MySQL 真实受控查询。

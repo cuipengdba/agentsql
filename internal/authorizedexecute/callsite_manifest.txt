@@ -11,6 +11,9 @@ internal/chatbi/setup.go
 internal/chatbi/semantics.go
 internal/chatbi/history_import.go
 internal/chatbi/managed_file_claim.go
+# The managed-file helper checks selected sheets before forwarding the query
+# through the controlled gateway interface; it does not open a SQL driver.
+internal/chatbi/managed_file_subset.go
 # Query calls here are the controlled gateway interface, not a database driver.
 internal/chatbi/service.go
 internal/chatbi/datasource_schema.go

@@ -2,7 +2,7 @@
 
 [Simplified Chinese](../CHATBI.md) | [English](CHATBI.md)
 
-v4.1.0 adds a separate Go Q&A service. It reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. It currently provides ordinary account login, single-turn PostgreSQL/MySQL questions, conversation history, SQL and table results, and Chinese/English and light/dark interfaces. This does not yet replace every SQLBot Community feature; see the [version design](v4.1.0-design.md) for the five-release goal.
+v4.1.0 introduced a separate Go Q&A service; the v4.2.0 candidate adds multi-turn context, business terms, recommended questions and controlled CSV/XLSX file datasources. The service reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. Current functionality includes ordinary-account login, PostgreSQL/MySQL questions, conversation history, SQL and table results, and Chinese/English and light/dark interfaces. This does not yet replace every SQLBot Community feature; see the [version design](v4.1.0-design.md) for the five-release goal.
 
 ## Installation and startup
 
@@ -68,7 +68,7 @@ Inject `AGENTSQL_CHATBI_SECRET` into the command environment using your controll
 agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.private.json
 ```
 
-Configuration and its local management audit commit together. Credentials are encrypted, and the next question reads the updated configuration. Successful configuration does not prove live queries work; validate allowed, denied, masked, audited and failure cases. v4.1.0 uses one default model per workspace and manages personal bindings through the CLI.
+Configuration and its local management audit commit together. Credentials are encrypted, and the next question reads the updated configuration. Successful configuration does not prove live queries work; validate allowed, denied, masked, audited and failure cases. The current service uses one default model per workspace and manages personal bindings through the CLI.
 
 ## Rehearse an identity migration
 
@@ -97,12 +97,18 @@ agentsql chatbi import-history --config chatbi.yaml --from history.private.json
 
 The exporter creates a new file with `0600` permissions. A batch supports at most 1,000 chats and 200 question-bearing records per chat. Exceeding a limit, a missing target identity or binding, an ID conflict, or an audit failure rejects the batch and rolls back its transaction. Original record IDs remain available, but imported turns only display past questions: they never replay old SQL, return stale results or enter new model context. SQLBot's timestamps without a timezone are provisionally interpreted as UTC; verify this against the source system before migration. The export report lists skipped records and the next page cursor. `complete_migration` remains `false` and this is not full-history or zero-change replacement acceptance.
 
+## v4.2.0 file data and Q&A boundaries
+
+Administrators can upload CSV/XLSX files in AgentSQL's own Q&A page, preview sheets, select field types and publish into a preconfigured isolated PostgreSQL managed datasource. The original SQLBot v1.10.2 browser was also checked locally with synthetic CSV/XLSX import, sheet selection, controlled preview and deletion. Original file bytes are staged encrypted for the current user. The server reparses the original file and publishes through a separate child binding, exact table/column policies and durable audit. Browser-supplied connections, table names or SQL do not broaden authorization. When only some sheets are selected, unselected tables cannot be queried through that datasource.
+
+The three-turn Q&A context uses only successful questions and SQL, never historical result rows. Terms, examples and recommended questions are retrieved only for the currently authorized datasource; SQL examples are model references, while final queries still pass through the controlled gateway. Historical results and CSV/XLSX exports requery and audit under the current identity, binding and policies. PostgreSQL row rules admit only the verified narrow single-table predicates; queries that cannot be proved are rejected. See the [v4.2.0 candidate release notes](release-notes-v4.2.0.md) for details and open items.
+
 ## Upgrade, recovery and boundaries
 
 A managed installation with the Q&A component automatically includes it in subsequent `install.sh upgrade --from PATH` operations. The installer stops Q&A before backing up its database, WAL, configuration, key, binary and unit; a startup or version-health failure restores that component's prior data and service state. Gateway and Q&A have separate backups; two component installations are not a distributed database transaction.
 
 Retain the backed-up database, encryption key and matching binary version as one recovery set. Stop the service before restoration; a copy of an active SQLite main file alone is not a complete backup. Instances with custom store paths, secret-variable names or listener addresses do not use default-path automatic upgrades and need a separately reviewed backup and recovery procedure. Uninstall preserves configuration and data by default; only `--purge` deletes default configuration and data directories.
 
-In v4.1.0, historical data requests reexecute readonly SQL under current authorization to prevent cached results from bypassing revoked access, so historical values may change with business data. This differs from SQLBot's cached-result semantics and must converge in later compatibility releases. A conversation holds at most 200 questions; expensive data requests share concurrency slots and a four-minute timeout. The `max_concurrent_data_requests` setting defaults to 16 and accepts 1–16; use 1 on small servers. Oversized listings are rejected. Gateway denial or audit failure releases no results and does not trigger automatic SQL rewriting or retries.
+Historical data requests reexecute readonly SQL under current authorization to prevent cached results from bypassing revoked access, so historical values may change with business data. This differs from SQLBot's cached-result semantics and must converge in later compatibility releases. A conversation holds at most 200 questions; expensive data requests share concurrency slots and a four-minute timeout. The `max_concurrent_data_requests` setting defaults to 16 and accepts 1–16; use 1 on small servers. Oversized listings are rejected. Gateway denial or audit failure releases no results and does not trigger automatic SQL rewriting or retries.
 
-Pending areas include multi-turn semantics, charts and export, embedded and assistant SDKs, SQLBot MCP, full management and database matrices, and complete data migration. Existing AgentSQL gateway MCP remains available but is not SQLBot MCP interface compatibility. Verify model-generated SQL and results against business meaning; controlled execution does not guarantee correct model understanding.
+Pending areas include complete charts, analysis and prediction, dashboards, embedding and assistant SDKs, SQLBot MCP, full management and database matrices, and complete data migration. Existing AgentSQL gateway MCP remains available but is not SQLBot MCP interface compatibility. Verify model-generated SQL and results against business meaning; controlled execution does not guarantee correct model understanding.
