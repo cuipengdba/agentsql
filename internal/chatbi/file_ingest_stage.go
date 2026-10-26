@@ -96,6 +96,55 @@ func (h *Handler) parseExcel(w http.ResponseWriter, r *http.Request, p Principal
 	okay(w, map[string]any{"filePath": stage.FilePath, "data": sheets})
 }
 
+func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if h.service.ManagedFileDatasource == "" {
+		writeJSON(w, http.StatusServiceUnavailable, "Managed file import is not configured")
+		return
+	}
+	var request FileImportRequest
+	if !readBody(w, r, &request) {
+		return
+	}
+	stage, plan, err := h.service.prepareFileImportWithStage(r.Context(), p, request)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	binding, err := h.service.binding(r.Context(), p, h.service.ManagedFileDatasource)
+	if err != nil || binding.Dialect != "pg" {
+		failure(w, ErrGateway)
+		return
+	}
+	importer, ok := h.service.Gateway.(managedFileImporter)
+	if !ok {
+		failure(w, ErrGateway)
+		return
+	}
+	sheets, err := importer.ImportFile(r.Context(), p, binding, stage, request, plan)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	current, err := h.service.binding(r.Context(), p, h.service.ManagedFileDatasource)
+	if err != nil || current != binding {
+		failure(w, ErrGateway)
+		return
+	}
+	okay(w, map[string]any{"filename": stage.FilePath, "sheets": sheets})
+}
+
 func (service *Service) saveFileStage(ctx context.Context, p Principal, stage fileStage, sheets []FileSheet) error {
 	if err := service.semanticAdmin(ctx, p); err != nil {
 		return err
@@ -122,19 +171,24 @@ func (service *Service) saveFileStage(ctx context.Context, p Principal, stage fi
 // prepareFileImport reads only the current user's encrypted stage. It neither
 // provisions a table nor confers an execution capability.
 func (service *Service) prepareFileImport(ctx context.Context, p Principal, request FileImportRequest) (fileImportPlan, error) {
+	_, plan, err := service.prepareFileImportWithStage(ctx, p, request)
+	return plan, err
+}
+
+func (service *Service) prepareFileImportWithStage(ctx context.Context, p Principal, request FileImportRequest) (fileStage, fileImportPlan, error) {
 	if err := service.semanticAdmin(ctx, p); err != nil {
-		return fileImportPlan{}, err
+		return fileStage{}, fileImportPlan{}, err
 	}
 	var stage fileStage
 	if _, err := service.Store.get(ctx, fileStageKey(p), &stage); err != nil {
-		return fileImportPlan{}, err
+		return fileStage{}, fileImportPlan{}, err
 	}
 	plan, err := planFileImport(stage, request, time.Now().UTC())
 	if err != nil {
-		return fileImportPlan{}, err
+		return fileStage{}, fileImportPlan{}, err
 	}
 	if err := service.semanticAdmin(ctx, p); err != nil {
-		return fileImportPlan{}, err
+		return fileStage{}, fileImportPlan{}, err
 	}
-	return plan, nil
+	return stage, plan, nil
 }

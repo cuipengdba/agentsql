@@ -6,6 +6,7 @@ import (
 	"time"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
+	"github.com/cuipengdba/agentsql/internal/managedfile"
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
@@ -20,6 +21,7 @@ type ManagedFilePhysical interface {
 	MatchesReadDatasource(model.Datasource) bool
 	ExpectedTableName(string, int) (string, error)
 	Stage(context.Context, string, []executor.ManagedFileSheet) ([]executor.ManagedFileTable, error)
+	GrantRead(context.Context, string, int) error
 	Drop(context.Context, string, int) error
 }
 
@@ -94,8 +96,7 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 // one explicitly selected tenant and managed datasource. Call it before
 // accepting new imports for that datasource. The journal transition fences a
 // concurrent publisher before a physical table is dropped; an interrupted
-// cleanup remains retryable. policy_ready and deleting need their own policy
-// and grant revocation flow and are deliberately left untouched here.
+// cleanup remains retryable. Published deletion needs its own owner path.
 func (runtime *Runtime) RecoverUnpublishedSQLBotFiles(ctx context.Context, tenantID string, physical ManagedFilePhysical) (int, error) {
 	if runtime == nil || runtime.Store == nil || ctx == nil || tenantID == "" || physical == nil || physical.ReadDatasourceID() == "" {
 		return 0, ErrManagedFileStage
@@ -119,19 +120,51 @@ func (runtime *Runtime) RecoverUnpublishedSQLBotFiles(ctx context.Context, tenan
 			return cleaned, nil
 		}
 		for _, item := range items {
-			if item.Status != "cleanup_needed" {
-				item, err = journal.Advance(tenantCtx, item.ID, item.Revision, item.Status, "cleanup_needed", item.OwnerUserID)
-				if err != nil {
-					return cleaned, err
-				}
-			}
-			if err := physical.Drop(tenantCtx, item.ID, item.SheetCount); err != nil {
-				return cleaned, err
-			}
-			if _, err := journal.Advance(tenantCtx, item.ID, item.Revision, "cleanup_needed", "deleted", item.OwnerUserID); err != nil {
+			if err := runtime.cleanupOneUnpublishedSQLBotFile(tenantCtx, item, physical); err != nil {
 				return cleaned, err
 			}
 			cleaned++
 		}
 	}
+}
+
+func (runtime *Runtime) cleanupOneUnpublishedSQLBotFile(ctx context.Context, item store.ManagedFileImport, physical ManagedFilePhysical) error {
+	journal := runtime.Store.ManagedFileImports()
+	if item.Status != "cleanup_needed" {
+		var err error
+		item, err = journal.Advance(ctx, item.ID, item.Revision, item.Status, "cleanup_needed", item.OwnerUserID)
+		if err != nil {
+			return err
+		}
+	}
+	if err := physical.Drop(ctx, item.ID, item.SheetCount); err != nil {
+		return err
+	}
+	operation, err := managedfile.ParseOperationID(item.ID)
+	if err != nil {
+		return err
+	}
+	for sheet := 0; sheet < item.SheetCount; sheet++ {
+		policyID, err := managedfile.PolicyID(operation, sheet)
+		if err != nil {
+			return err
+		}
+		tableName, err := managedfile.TableName(operation, sheet)
+		if err != nil {
+			return err
+		}
+		policy, err := runtime.Store.Policies().Get(ctx, policyID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil || policy.AgentID != item.AgentID || policy.DatasourceID != item.DatasourceID ||
+			policy.ObjectName != "agentsql_files."+tableName {
+			return ErrManagedFileStage
+		}
+		if err := runtime.Store.Policies().DeleteIfRevision(ctx, policyID, policy.Revision); err != nil {
+			return err
+		}
+	}
+	_, err = journal.Advance(ctx, item.ID, item.Revision, "cleanup_needed", "deleted", item.OwnerUserID)
+	return err
 }

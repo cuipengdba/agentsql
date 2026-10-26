@@ -39,4 +39,6 @@ func TestManagedFileProvisionerRejectsSharedOrMismatchedTargets(t *testing.T) {
 	_, err = provisioner.Stage(context.Background(), "../../fake", nil)
 	require.Error(t, err, "invalid operation ID must fail before opening a connection")
 	require.ErrorIs(t, (*ManagedFileProvisioner)(nil).Drop(context.Background(), "", 1), ErrManagedFileTarget)
+	require.ErrorIs(t, (*ManagedFileProvisioner)(nil).GrantRead(context.Background(), "", 1), ErrManagedFileTarget)
+	require.Error(t, provisioner.GrantRead(context.Background(), "../../fake", 1), "invalid operation ID must fail before opening a connection")
 }

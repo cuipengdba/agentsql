@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cuipengdba/agentsql/internal/managedfile"
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -159,13 +160,35 @@ func TestManagedFilePublishedOwnerPredicateRequiresCurrentBinding(t *testing.T) 
 	require.NoError(t, err)
 	name, err := managedfile.TableName(operation, 0)
 	require.NoError(t, err)
-	_, err = r.MarkStaged(ctx, item.ID, item.Revision, []ManagedFileTableRecord{{Name: name, Rows: 1}}, b.AgentSQLUserID)
+	item, err = r.MarkStaged(ctx, item.ID, item.Revision, []ManagedFileTableRecord{{Name: name, Rows: 1}}, b.AgentSQLUserID)
 	require.NoError(t, err)
-	// The production state machine cannot publish yet. Set the fixture state
-	// directly to verify the read-side predicate for a future evidence-bearing
-	// publication coordinator, without representing this as a release flow.
-	_, err = s.metaDB.Exec(`UPDATE managed_file_imports SET status='published' WHERE id=?`, item.ID)
+	_, err = r.Publish(ctx, item.ID, item.Revision, b.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrManagedFileState, "unbound staged tables cannot publish")
+	policyID, err := managedfile.PolicyID(operation, 0)
 	require.NoError(t, err)
+	columns := "amount"
+	created, err := s.Policies().Create(ctx, model.Policy{ID: policyID, AgentID: b.AgentID, DatasourceID: b.DatasourceID,
+		ObjectType: "column", ObjectName: "agentsql_files." + name, Columns: &columns, Action: "allow"})
+	require.NoError(t, err)
+	stable, fingerprint := "1:2", "fixture-catalog"
+	bound, err := s.Policies().FinalizeColumnBindingTwoPhase(ctx, policyID, created.Revision,
+		func(context.Context) error { return nil },
+		func(context.Context) (RevalidatedColumnBinding, error) {
+			return RevalidatedColumnBinding{Binding: model.RelationPolicyBinding{ID: policyID + "-binding", SchemaName: "agentsql_files",
+				RelationName: name, StableObjectID: &stable, CatalogFingerprint: &fingerprint, Status: "healthy"},
+				Permissions: []model.PolicyColumnPermission{{RelationEnrollmentID: policyID + "-binding", ColumnOrdinal: 1,
+					ColumnName: "amount", ColumnTypeDigest: "int8", Usage: "output"}}}, nil
+		})
+	require.NoError(t, err)
+	require.NotNil(t, bound.RelationBinding)
+	item, err = r.MarkPolicyReady(ctx, item.ID, item.Revision, b.AgentSQLUserID)
+	require.NoError(t, err)
+	require.Equal(t, "policy_ready", item.Status)
+	// This store-level fixture stands in for the separate physical grant; the
+	// runtime publication coordinator must verify that grant before Publish.
+	item, err = r.Publish(ctx, item.ID, item.Revision, b.AgentSQLUserID)
+	require.NoError(t, err)
+	require.Equal(t, "published", item.Status)
 	for _, test := range []struct {
 		datasource, agent, owner, table string
 		allowed                         bool

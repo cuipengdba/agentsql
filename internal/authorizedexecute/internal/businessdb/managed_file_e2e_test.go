@@ -87,6 +87,16 @@ func TestManagedFileStagePostgresIsolation(t *testing.T) {
 		require.ErrorAs(t, denied, &pgError)
 		require.Equal(t, "42501", pgError.Code)
 	}
+	require.NoError(t, GrantManagedFileRead(ctx, datasource, password, reader, operation, len(sheets)))
+	require.NoError(t, GrantManagedFileRead(ctx, datasource, password, reader, operation, len(sheets)), "grant retry is idempotent")
+	_, err = connection.Exec(ctx, `SET ROLE `+pgx.Identifier{reader}.Sanitize())
+	require.NoError(t, err)
+	var importedRows int
+	readErr := connection.QueryRow(ctx, `SELECT count(*) FROM `+pgx.Identifier{ManagedFileSchema, tables[0].Name}.Sanitize()).Scan(&importedRows)
+	_, resetErr := connection.Exec(ctx, `RESET ROLE`)
+	require.NoError(t, resetErr)
+	require.NoError(t, readErr)
+	require.Equal(t, 2, importedRows)
 	// PostgreSQL default privileges can silently grant a new table to a
 	// reader. The staging transaction must detect and roll back that table.
 	_, err = connection.Exec(ctx, `ALTER DEFAULT PRIVILEGES IN SCHEMA agentsql_files GRANT SELECT ON TABLES TO `+pgx.Identifier{reader}.Sanitize())

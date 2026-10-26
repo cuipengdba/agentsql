@@ -279,6 +279,86 @@ func DropManagedFiles(ctx context.Context, datasource model.Datasource, secret s
 	return tx.Commit(ctx)
 }
 
+// GrantManagedFileRead is the physical publication step. It accepts only
+// journal-derived names and grants SELECT to the configured read role after
+// proving that every table is still owned by the provisioning role. The
+// control-store owner, policy and audit gates must run before this method;
+// until the journal is published, the gateway still denies reads.
+func GrantManagedFileRead(ctx context.Context, datasource model.Datasource, secret, readRole string, operation ManagedFileOperationID, sheetCount int) error {
+	if ctx == nil || datasource.DBType != "postgres" || readRole == "" || readRole == datasource.Username ||
+		operation == (ManagedFileOperationID{}) || sheetCount < 1 || sheetCount > 8 {
+		return ErrManagedFileInvalid
+	}
+	executor, err := NewPostgresExecutor(ctx, datasource, secret, false)
+	if err != nil {
+		return err
+	}
+	defer executor.Close()
+	if executor.restrictedVendorDML {
+		return ErrManagedFileInvalid
+	}
+	tx, err := executor.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if !managedFilePostgresIdentity(ctx, tx) {
+		return ErrManagedFileInvalid
+	}
+	var ownsSchema bool
+	if err := tx.QueryRow(ctx, `SELECT n.nspowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+		FROM pg_catalog.pg_namespace n WHERE n.nspname=$1`, ManagedFileSchema).Scan(&ownsSchema); err != nil || !ownsSchema {
+		return ErrManagedFileInvalid
+	}
+	var readerCanUseSchema bool
+	if err := tx.QueryRow(ctx, `SELECT pg_catalog.has_schema_privilege($1::name,$2,'USAGE')`, readRole, ManagedFileSchema).Scan(&readerCanUseSchema); err != nil || !readerCanUseSchema {
+		return ErrManagedFileInvalid
+	}
+	for index := 0; index < sheetCount; index++ {
+		name, err := ManagedFileName(operation, index)
+		if err != nil {
+			return err
+		}
+		qualified := pgx.Identifier{ManagedFileSchema, name}.Sanitize()
+		if _, err := tx.Exec(ctx, "LOCK TABLE "+qualified+" IN SHARE ROW EXCLUSIVE MODE"); err != nil {
+			return ErrManagedFileInvalid
+		}
+		var ownerIsCurrent bool
+		err = tx.QueryRow(ctx, `SELECT c.relkind='r' AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+			FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+			WHERE n.nspname=$1 AND c.relname=$2`, ManagedFileSchema, name).Scan(&ownerIsCurrent)
+		if err != nil || !ownerIsCurrent {
+			return ErrManagedFileInvalid
+		}
+		// A role with inherited owner privileges cannot be safely isolated
+		// by revoking the explicit grant later.
+		var inheritedOwner bool
+		err = tx.QueryRow(ctx, `SELECT pg_catalog.pg_has_role($1::name,c.relowner,'USAGE')
+			FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+			WHERE n.nspname=$2 AND c.relname=$3`, readRole, ManagedFileSchema, name).Scan(&inheritedOwner)
+		if err != nil || inheritedOwner {
+			return ErrManagedFileInvalid
+		}
+		var foreignGrants int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_class c
+			JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+			CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
+			WHERE n.nspname=$1 AND c.relname=$2 AND a.grantee<>c.relowner
+			AND (a.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=$3) OR a.privilege_type<>'SELECT')`,
+			ManagedFileSchema, name, readRole).Scan(&foreignGrants); err != nil || foreignGrants != 0 {
+			return ErrManagedFileInvalid
+		}
+		if _, err := tx.Exec(ctx, "GRANT SELECT ON TABLE "+qualified+" TO "+pgx.Identifier{readRole}.Sanitize()); err != nil {
+			return err
+		}
+		var readable bool
+		if err := tx.QueryRow(ctx, `SELECT pg_catalog.has_table_privilege($1::name,$2,'SELECT')`, readRole, qualified).Scan(&readable); err != nil || !readable {
+			return ErrManagedFileInvalid
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func managedFilePostgresIdentity(ctx context.Context, tx pgx.Tx) bool {
 	var product string
 	return tx.QueryRow(ctx, `SELECT pg_catalog.version()`).Scan(&product) == nil && strings.HasPrefix(product, "PostgreSQL ")

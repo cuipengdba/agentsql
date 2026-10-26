@@ -17,13 +17,14 @@ import (
 )
 
 type Config struct {
-	Listen           string `yaml:"listen"`
-	StorePath        string `yaml:"store_path"`
-	SecretEnv        string `yaml:"secret_env"`
-	Gateway          string `yaml:"gateway"`
-	AllowGatewayHTTP bool   `yaml:"allow_gateway_http"`
-	GatewayCA        string `yaml:"gateway_ca_file"`
-	MaxDataRequests  int    `yaml:"max_concurrent_data_requests"`
+	Listen                string `yaml:"listen"`
+	StorePath             string `yaml:"store_path"`
+	SecretEnv             string `yaml:"secret_env"`
+	Gateway               string `yaml:"gateway"`
+	AllowGatewayHTTP      bool   `yaml:"allow_gateway_http"`
+	GatewayCA             string `yaml:"gateway_ca_file"`
+	MaxDataRequests       int    `yaml:"max_concurrent_data_requests"`
+	ManagedFileDatasource ID     `yaml:"managed_file_datasource_id"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -61,6 +62,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if _, err := validateEndpoint(config.Gateway, config.AllowGatewayHTTP); err != nil || !strings.HasSuffix(config.Gateway, "/mcp") {
 		return config, errors.New("ChatBI gateway must be an allowed /mcp endpoint")
+	}
+	if config.ManagedFileDatasource != "" && !config.ManagedFileDatasource.Valid() {
+		return config, errors.New("ChatBI managed_file_datasource_id must be a valid datasource ID")
 	}
 	return config, nil
 }
@@ -207,5 +211,5 @@ func Assemble(ctx context.Context, config Config) (*Service, error) {
 		}
 		transport.TLSClientConfig.RootCAs = roots
 	}
-	return &Service{Store: store, Identity: identity, Gateway: &ControlledGateway{Endpoint: config.Gateway, AllowHTTP: config.AllowGatewayHTTP, Transport: transport}, Model: OpenAIModel{}}, nil
+	return &Service{Store: store, Identity: identity, Gateway: &ControlledGateway{Endpoint: config.Gateway, AllowHTTP: config.AllowGatewayHTTP, Transport: transport}, Model: OpenAIModel{}, ManagedFileDatasource: config.ManagedFileDatasource}, nil
 }

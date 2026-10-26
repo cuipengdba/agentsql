@@ -50,10 +50,11 @@ type Record struct {
 }
 
 type Service struct {
-	Store    *Store
-	Identity *Identity
-	Gateway  Gateway
-	Model    Generator
+	Store                 *Store
+	Identity              *Identity
+	Gateway               Gateway
+	Model                 Generator
+	ManagedFileDatasource ID
 }
 
 func newID() (ID, error) {

@@ -8,10 +8,65 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type fakeManagedFileGateway struct {
+	*fakeGateway
+	calls int
+}
+
+func (gateway *fakeManagedFileGateway) ImportFile(_ context.Context, _ Principal, _ Binding,
+	stage fileStage, _ FileImportRequest, plan fileImportPlan) ([]importedFileSheet, error) {
+	gateway.calls++
+	if string(stage.Data) != "region,amount\neast,10\nwest,20\n" || len(plan.Sheets) != 1 || len(plan.Sheets[0].Rows) != 2 {
+		return nil, ErrGateway
+	}
+	return []importedFileSheet{{SheetName: "Sheet1", TableName: "agentsql_file_11111111111111111111111111111111", Rows: 2}}, nil
+}
+
+func TestImportToDbUsesCurrentEncryptedStageAndManagedGateway(t *testing.T) {
+	ctx := context.Background()
+	service, principal, fake, _, token := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Admin = true
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	principal, err = service.Identity.Verify(ctx, token)
+	require.NoError(t, err)
+	service.ManagedFileDatasource = "10"
+	managed := &fakeManagedFileGateway{fakeGateway: fake}
+	service.Gateway = managed
+	stage := fileStage{FilePath: "agentsql-file-123.csv", Original: "source.csv",
+		Data: []byte("region,amount\neast,10\nwest,20\n"), Expires: time.Now().UTC().Add(time.Hour)}
+	sheets, err := parseFileImport(stage.Original, stage.Data)
+	require.NoError(t, err)
+	require.NoError(t, service.saveFileStage(ctx, principal, stage, sheets))
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	requestBody := `{"filePath":"agentsql-file-123.csv","sheets":[{"sheetName":"Sheet1","fields":[{"fieldName":"region","fieldType":"string"},{"fieldName":"amount","fieldType":"int"}]}]}`
+	call := func(body, authorization string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/importToDb", bytes.NewBufferString(body))
+		if authorization != "" {
+			request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+authorization)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	response := call(requestBody, token)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), `"filename":"agentsql-file-123.csv"`)
+	require.Contains(t, response.Body.String(), `"tableName":"agentsql_file_11111111111111111111111111111111"`)
+	require.Equal(t, 1, managed.calls)
+	require.Equal(t, http.StatusUnauthorized, call(requestBody, "").Code)
+	require.NotEqual(t, http.StatusOK, call(strings.Replace(requestBody, "agentsql-file-123.csv", "../other.csv", 1), token).Code)
+	require.Equal(t, 1, managed.calls, "invalid stage must not reach the gateway")
+}
 
 func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {
 	ctx := context.Background()

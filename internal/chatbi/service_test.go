@@ -192,7 +192,7 @@ func serviceFixture(t *testing.T) (*Service, Principal, *fakeGateway, *fakeModel
 	}
 	g := &fakeGateway{audit: 1}
 	m := &fakeModel{}
-	return &Service{store, identity, g, m}, p, g, m, token
+	return &Service{Store: store, Identity: identity, Gateway: g, Model: m}, p, g, m, token
 }
 
 func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {

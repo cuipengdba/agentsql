@@ -312,6 +312,7 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "id", kind: migrationText}, {name: "operation_id", kind: migrationText},
 		{name: "tenant_id", kind: migrationText}, {name: "sheet_index", kind: migrationInt32},
 		{name: "table_name", kind: migrationText}, {name: "row_count", kind: migrationInt32},
+		{name: "policy_id", kind: migrationText},
 	}},
 	{name: "admin_access_revocations", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{
 		{name: "jti", kind: migrationText}, {name: "expires_at", kind: migrationTime}, {name: "revoked_at", kind: migrationTime},

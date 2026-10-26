@@ -78,6 +78,17 @@ func (p *ManagedFileProvisioner) Drop(ctx context.Context, journalID string, she
 	return businessdb.DropManagedFiles(ctx, p.target, p.secret, id, sheetCount)
 }
 
+func (p *ManagedFileProvisioner) GrantRead(ctx context.Context, journalID string, sheetCount int) error {
+	if p == nil {
+		return ErrManagedFileTarget
+	}
+	id, err := businessdb.ParseManagedFileOperationID(journalID)
+	if err != nil {
+		return err
+	}
+	return businessdb.GrantManagedFileRead(ctx, p.target, p.secret, p.readDatasource.Username, id, sheetCount)
+}
+
 func (p *ManagedFileProvisioner) ExpectedTableName(journalID string, sheet int) (string, error) {
 	if p == nil {
 		return "", ErrManagedFileTarget

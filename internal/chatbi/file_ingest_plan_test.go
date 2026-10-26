@@ -65,3 +65,16 @@ func TestFileImportPlanProducesTypedUTCInstants(t *testing.T) {
 	require.Equal(t, time.Date(2026, 10, 26, 1, 30, 0, 0, time.UTC), plan.Sheets[0].Rows[0][0])
 	require.Equal(t, time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC), plan.Sheets[0].Rows[1][0])
 }
+
+func TestGatewayReparsesOriginalFileInsteadOfAcceptingClientRows(t *testing.T) {
+	data := []byte("region,amount\neast,10\nwest,20\n")
+	var request FileImportRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"filePath":"agentsql-file-123.csv","sheets":[{"sheetName":"Sheet1","fields":[{"fieldName":"region","fieldType":"string"},{"fieldName":"amount","fieldType":"int"}]}]}`), &request))
+	sheets, names, err := BuildManagedFileSheets("source.csv", data, request)
+	require.NoError(t, err)
+	require.Equal(t, []string{"Sheet1"}, names)
+	require.Equal(t, []any{"east", int64(10)}, sheets[0].Rows[0])
+	request.Sheets[0].Fields[1].Name = "admin_only"
+	_, _, err = BuildManagedFileSheets("source.csv", data, request)
+	require.ErrorIs(t, err, errFileImport)
+}

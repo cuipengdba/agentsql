@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 )
 
@@ -42,4 +43,12 @@ func TableName(id OperationID, sheet int) (string, error) {
 	seed := append(id[:], byte(sheet))
 	digest := sha256.Sum256(seed)
 	return "agentsql_file_" + hex.EncodeToString(digest[:16]), nil
+}
+
+// PolicyID ties a generated table to exactly one control-plane column policy.
+func PolicyID(id OperationID, sheet int) (string, error) {
+	if id == (OperationID{}) || sheet < 0 || sheet >= 8 {
+		return "", ErrInvalidOperation
+	}
+	return "agentsql-managed-file-" + hex.EncodeToString(id[:]) + "-" + strconv.Itoa(sheet), nil
 }

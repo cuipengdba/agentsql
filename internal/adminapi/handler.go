@@ -35,6 +35,7 @@ import (
 
 type Deps struct {
 	Runtime          *bootstrap.Runtime
+	ManagedFiles     bootstrap.ManagedFilePhysical
 	Config           config.Config
 	AdminUsername    string
 	AdminPassword    string
@@ -294,6 +295,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/b5/reconciliation", handler.b5Reconcile)
 	mux.HandleFunc("GET /api/v1/integrations/notifications", handler.notificationsGet)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/resolve", handler.sqlbotResolve)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/managed-files/import", handler.sqlbotManagedFileImport)
 	mux.HandleFunc("GET /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsList)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsCreate)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/export", handler.sqlbotBindingsExport)
@@ -344,7 +346,8 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// This exact route authenticates its connector credential and Agent Key
 		// inside sqlbotResolve. No management route accepts connector credentials.
-		if request.Method == http.MethodPost && request.URL.Path == "/api/v1/integrations/sqlbot/resolve" {
+		if request.Method == http.MethodPost && (request.URL.Path == "/api/v1/integrations/sqlbot/resolve" ||
+			request.URL.Path == "/api/v1/integrations/sqlbot/managed-files/import") {
 			next.ServeHTTP(writer, request)
 			return
 		}

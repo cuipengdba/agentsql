@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
@@ -20,7 +21,9 @@ type managedFilePhysicalProbe struct {
 	stages    int
 	drops     int
 	stageErr  error
+	grantErr  error
 	dropErr   error
+	grants    int
 }
 
 func (probe *managedFilePhysicalProbe) ReadDatasourceID() string { return probe.read.ID }
@@ -50,6 +53,11 @@ func (probe *managedFilePhysicalProbe) Drop(_ context.Context, operation string,
 	probe.operation = operation
 	probe.drops++
 	return probe.dropErr
+}
+func (probe *managedFilePhysicalProbe) GrantRead(_ context.Context, operation string, _ int) error {
+	probe.operation = operation
+	probe.grants++
+	return probe.grantErr
 }
 
 func TestManagedFileRecoveryFencesAndRetriesOnlyUnpublishedTables(t *testing.T) {
@@ -90,6 +98,49 @@ func TestManagedFileRecoveryFencesAndRetriesOnlyUnpublishedTables(t *testing.T) 
 	current, err = runtime.Store.ManagedFileImports().Get(ctx, preparing.ID)
 	require.NoError(t, err)
 	require.Equal(t, "deleted", current.Status)
+}
+
+func TestManagedFileRecoveryRemovesBoundPolicyAfterUnpublishedGrant(t *testing.T) {
+	runtime, principal, binding, physical := managedFileStageFixture(t)
+	ctx := context.Background()
+	sheets := []executor.ManagedFileSheet{{Columns: []executor.ManagedFileColumn{{Name: "amount", Type: "int"}}, Rows: [][]any{{int64(10)}}}}
+	staged, tables, err := runtime.StageSQLBotFile(ctx, principal, binding, strings.Repeat("a", 64), 16, sheets, physical)
+	require.NoError(t, err)
+	operation, err := managedfile.ParseOperationID(staged.ID)
+	require.NoError(t, err)
+	policyID, err := managedfile.PolicyID(operation, 0)
+	require.NoError(t, err)
+	columns := "amount"
+	created, err := runtime.Store.Policies().Create(ctx, model.Policy{ID: policyID, AgentID: binding.AgentID,
+		DatasourceID: binding.DatasourceID, ObjectType: "column", ObjectName: "agentsql_files." + tables[0].Name,
+		Columns: &columns, Action: "allow"})
+	require.NoError(t, err)
+	stable, fingerprint := "1:2", "fixture-catalog"
+	_, err = runtime.Store.Policies().FinalizeColumnBindingTwoPhase(ctx, policyID, created.Revision,
+		func(context.Context) error { return nil },
+		func(context.Context) (store.RevalidatedColumnBinding, error) {
+			return store.RevalidatedColumnBinding{Binding: model.RelationPolicyBinding{ID: policyID + "-binding",
+				SchemaName: "agentsql_files", RelationName: tables[0].Name, StableObjectID: &stable,
+				CatalogFingerprint: &fingerprint, Status: "healthy"},
+				Permissions: []model.PolicyColumnPermission{{RelationEnrollmentID: policyID + "-binding", ColumnOrdinal: 1,
+					ColumnName: "amount", ColumnTypeDigest: "int8", Usage: "output"}}}, nil
+		})
+	require.NoError(t, err)
+	ready, err := runtime.Store.ManagedFileImports().MarkPolicyReady(ctx, staged.ID, staged.Revision, principal.UserID)
+	require.NoError(t, err)
+	require.Equal(t, "policy_ready", ready.Status)
+	physical.dropErr = errors.New("temporary cleanup failure")
+	_, err = runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.ErrorContains(t, err, "temporary cleanup failure")
+	physical.dropErr = nil
+	cleaned, err := runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.NoError(t, err)
+	require.Equal(t, 1, cleaned)
+	_, err = runtime.Store.Policies().Get(ctx, policyID)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	latest, err := runtime.Store.ManagedFileImports().Get(ctx, staged.ID)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", latest.Status)
 }
 
 func managedFileStageFixture(t *testing.T) (*Runtime, rbac.Principal, store.SQLBotBinding, *managedFilePhysicalProbe) {

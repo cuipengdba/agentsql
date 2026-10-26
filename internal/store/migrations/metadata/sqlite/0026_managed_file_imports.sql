@@ -26,6 +26,8 @@ CREATE TABLE managed_file_tables (
   sheet_index INTEGER NOT NULL CHECK(sheet_index >= 0 AND sheet_index < 8),
   table_name TEXT NOT NULL CHECK(length(table_name)=46),
   row_count INTEGER NOT NULL CHECK(row_count >= 0 AND row_count <= 1000),
+  policy_id TEXT NOT NULL DEFAULT '',
   UNIQUE(operation_id,sheet_index),
   UNIQUE(tenant_id,table_name)
 );
+CREATE UNIQUE INDEX ux_managed_file_tables_policy ON managed_file_tables(tenant_id,policy_id) WHERE policy_id <> '';

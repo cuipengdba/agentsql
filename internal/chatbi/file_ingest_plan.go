@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	executor "github.com/cuipengdba/agentsql/internal/authorizedexecute"
 )
 
 type FileImportRequest struct {
@@ -25,6 +27,28 @@ type fileImportSheet struct {
 	Name   string
 	Fields []FileField
 	Rows   [][]any
+}
+
+// BuildManagedFileSheets independently reparses the original bytes at the
+// gateway boundary. The caller may assert a file path and field types, but
+// cannot provide physical table names, SQL or trusted converted rows.
+func BuildManagedFileSheets(filename string, data []byte, request FileImportRequest) ([]executor.ManagedFileSheet, []string, error) {
+	stage := fileStage{FilePath: request.FilePath, Original: filename, Data: data, Expires: time.Now().UTC().Add(time.Minute)}
+	plan, err := planFileImport(stage, request, time.Now().UTC())
+	if err != nil {
+		return nil, nil, err
+	}
+	sheets := make([]executor.ManagedFileSheet, len(plan.Sheets))
+	names := make([]string, len(plan.Sheets))
+	for index, sheet := range plan.Sheets {
+		names[index] = sheet.Name
+		columns := make([]executor.ManagedFileColumn, len(sheet.Fields))
+		for columnIndex, field := range sheet.Fields {
+			columns[columnIndex] = executor.ManagedFileColumn{Name: field.Name, Type: field.Type}
+		}
+		sheets[index] = executor.ManagedFileSheet{Columns: columns, Rows: sheet.Rows}
+	}
+	return sheets, names, nil
 }
 
 var decimalImportValue = regexp.MustCompile(`^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]{1,3})?$`)
