@@ -246,7 +246,10 @@ func parseXLSXSheets(data []byte) ([]FileSheet, error) {
 		if !strings.HasSuffix(relation.Type, "/worksheet") {
 			continue
 		}
-		target := path.Clean(path.Join("xl", relation.Target))
+		target, err := workbookSheetTarget(relation.Target)
+		if err != nil {
+			return nil, errFileImport
+		}
 		if relation.ID == "" || !strings.HasPrefix(target, "xl/worksheets/") || paths[relation.ID] != "" {
 			return nil, errFileImport
 		}
@@ -296,6 +299,31 @@ func parseXLSXSheets(data []byte) ([]FileSheet, error) {
 		sheets = append(sheets, sheet)
 	}
 	return sheets, nil
+}
+
+// OOXML relationships may use a path relative to xl/workbook.xml or an
+// absolute package path. Accept both without allowing navigation segments,
+// alternate separators, URLs, or a target outside the worksheet directory.
+func workbookSheetTarget(raw string) (string, error) {
+	if raw == "" || strings.ContainsAny(raw, "\\\x00?#") || strings.HasPrefix(raw, "//") {
+		return "", errFileImport
+	}
+	absolute := strings.HasPrefix(raw, "/")
+	if absolute {
+		raw = strings.TrimPrefix(raw, "/")
+	}
+	for _, segment := range strings.Split(raw, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return "", errFileImport
+		}
+	}
+	if !absolute {
+		raw = path.Join("xl", raw)
+	}
+	if !strings.HasPrefix(raw, "xl/worksheets/") || path.Clean(raw) != raw {
+		return "", errFileImport
+	}
+	return raw, nil
 }
 
 func parseFileSheetXML(body []byte, shared []string) ([][]string, error) {

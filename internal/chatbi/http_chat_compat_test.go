@@ -55,22 +55,34 @@ func TestSQLBotRecommendationStreamAndUsageStayOwned(t *testing.T) {
 		t.Fatalf("record recommendation stream: %d %s", followup.Code, followup.Body.String())
 	}
 	usage := request(http.MethodGet, "/api/v1/chat/record/"+string(record.ID)+"/usage", token)
-	if usage.Code != http.StatusOK || strings.Contains(usage.Body.String(), "123") {
-		t.Fatalf("usage exposed result data: %d %s", usage.Code, usage.Body.String())
+	assertSummary := func(label string, result *httptest.ResponseRecorder) {
+		t.Helper()
+		var body struct {
+			Data map[string]json.RawMessage `json:"data"`
+		}
+		if result.Code != http.StatusOK || json.Unmarshal(result.Body.Bytes(), &body) != nil {
+			t.Fatalf("%s summary response: %d %s", label, result.Code, result.Body.String())
+		}
+		allowed := map[string]bool{"start_time": true, "finish_time": true, "duration": true,
+			"total_tokens": true, "steps": true}
+		if len(body.Data) != len(allowed) {
+			t.Fatalf("%s exposed extra data or omitted summary fields: %s", label, result.Body.String())
+		}
+		for field := range body.Data {
+			if !allowed[field] {
+				t.Fatalf("%s exposed unexpected field %q", label, field)
+			}
+		}
+		var tokens int
+		var steps []any
+		if json.Unmarshal(body.Data["total_tokens"], &tokens) != nil || tokens != 12 ||
+			json.Unmarshal(body.Data["steps"], &steps) != nil || len(steps) != 0 {
+			t.Fatalf("%s summary mismatch: %s", label, result.Body.String())
+		}
 	}
-	var body struct {
-		Data struct {
-			TotalTokens int   `json:"total_tokens"`
-			Steps       []any `json:"steps"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(usage.Body.Bytes(), &body) != nil || body.Data.TotalTokens != 12 || len(body.Data.Steps) != 0 {
-		t.Fatalf("usage summary mismatch: %s", usage.Body.String())
-	}
+	assertSummary("usage", usage)
 	log := request(http.MethodGet, "/api/v1/chat/record/"+string(record.ID)+"/log", token)
-	if log.Code != http.StatusOK || strings.Contains(log.Body.String(), "123") || !strings.Contains(log.Body.String(), `"steps":[]`) {
-		t.Fatalf("execution drawer released rows or fake steps: %d %s", log.Code, log.Body.String())
-	}
+	assertSummary("execution drawer", log)
 	if got := request(http.MethodGet, "/api/v1/chat/record/"+string(record.ID)+"/usage", ""); got.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous usage returned %d", got.Code)
 	}

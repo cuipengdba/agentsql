@@ -29,6 +29,15 @@ func TestFileImportParserCSVAndXLSX(t *testing.T) {
 	require.Equal(t, 2, sheets[0].Count)
 	require.Equal(t, []FileField{{Name: "region", Type: "string"}, {Name: "amount", Type: "int"}}, sheets[0].Fields)
 	require.Equal(t, int64(20), sheets[0].Preview[1]["amount"])
+	absoluteTarget := rewriteFileWorkbook(t, workbook, func(name, body string) string {
+		if name == "xl/_rels/workbook.xml.rels" {
+			return strings.Replace(body, `Target="worksheets/sheet1.xml"`, `Target="/xl/worksheets/sheet1.xml"`, 1)
+		}
+		return body
+	})
+	sheets, err = parseFileImport("absolute.xlsx", absoluteTarget)
+	require.NoError(t, err, "common XLSX writers use package-absolute worksheet targets")
+	require.Equal(t, int64(20), sheets[0].Preview[1]["amount"])
 	sparse := rewriteFileWorkbook(t, workbook, func(name, body string) string {
 		if name == "xl/worksheets/sheet1.xml" {
 			const cell = `<c r="B2" t="inlineStr"><is><t xml:space="preserve">10</t></is></c>`
@@ -74,6 +83,18 @@ func TestFileImportParserRejectsUnsafeOrAmbiguousData(t *testing.T) {
 	})
 	_, err = parseFileImport("formula.xlsx", formula)
 	require.ErrorIs(t, err, errFileImport)
+	for _, target := range []string{"../worksheets/sheet1.xml", "/xl/worksheets/../worksheets/sheet1.xml", "//xl/worksheets/sheet1.xml", "https://example.invalid/sheet1.xml"} {
+		t.Run(target, func(t *testing.T) {
+			changed := rewriteFileWorkbook(t, workbook, func(name, body string) string {
+				if name == "xl/_rels/workbook.xml.rels" {
+					return strings.Replace(body, `Target="worksheets/sheet1.xml"`, `Target="`+target+`"`, 1)
+				}
+				return body
+			})
+			_, err := parseFileImport("unsafe.xlsx", changed)
+			require.ErrorIs(t, err, errFileImport)
+		})
+	}
 }
 
 func rewriteFileWorkbook(t *testing.T, original []byte, rewrite func(name, body string) string) []byte {
