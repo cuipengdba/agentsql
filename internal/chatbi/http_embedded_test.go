@@ -102,3 +102,51 @@ func TestOriginalPageEmbedManagementIsScopedAndAudited(t *testing.T) {
 		t.Fatalf("expected audited create, rotate, update, delete; got %d: %v", len(logs), err)
 	}
 }
+
+func TestPublicEmbedHandshakeChecksOriginAndNeverRevealsSecret(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Admin = true
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal.User = user
+	app, err := service.SaveAssistant(ctx, principal, AssistantApplication{Name: "Page", Type: 4, Domain: "https://app.example", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, origin, appID string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "/api/v1/system/assistant/app/"+appID, nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+	if got := call(http.MethodGet, "https://app.example.evil", app.AppID); got.Code != 403 {
+		t.Fatalf("forged subdomain returned %d", got.Code)
+	}
+	if got := call(http.MethodGet, "", app.AppID); got.Code != 403 {
+		t.Fatalf("missing origin returned %d", got.Code)
+	}
+	if got := call(http.MethodGet, "https://app.example", "unknown-app-id"); got.Code != 404 {
+		t.Fatalf("unknown app returned %d", got.Code)
+	}
+	got := call(http.MethodGet, "https://app.example", app.AppID)
+	if got.Code != 200 || bytes.Contains(got.Body.Bytes(), []byte(app.AppSecret)) || got.Header().Get("Access-Control-Allow-Origin") != "https://app.example" {
+		t.Fatal("public handshake failed or disclosed signing material")
+	}
+	preflight := call(http.MethodOptions, "https://app.example", app.AppID)
+	if preflight.Code != 204 || preflight.Header().Get("Access-Control-Allow-Origin") != "https://app.example" {
+		t.Fatal("SDK preflight rejected")
+	}
+}

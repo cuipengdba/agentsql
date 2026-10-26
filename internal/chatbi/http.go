@@ -19,14 +19,15 @@ import (
 )
 
 type Handler struct {
-	service    *Service
-	mux        *http.ServeMux
-	loginLimit *rate.Limiter
-	slots      chan struct{}
-	readQueue  chan struct{}
-	version    string
-	keySalt    string
-	keySince   int64
+	service        *Service
+	mux            *http.ServeMux
+	loginLimit     *rate.Limiter
+	appLookupLimit *rate.Limiter
+	slots          chan struct{}
+	readQueue      chan struct{}
+	version        string
+	keySalt        string
+	keySince       int64
 }
 
 func NewHandler(service *Service, version string) (http.Handler, error) {
@@ -44,7 +45,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	if _, err := rand.Read(salt[:]); err != nil {
 		return nil, errors.New("cannot initialize ChatBI login key metadata")
 	}
-	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10),
+	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), appLookupLimit: rate.NewLimiter(20, 100),
 		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
 		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli()}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +104,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("DELETE /api/v1/system/data-training", h.auth(h.deleteExamples))
 	h.mux.HandleFunc("GET /api/v1/chat/list", h.auth(h.chats))
 	h.mux.HandleFunc("POST /api/v1/chat/start", h.bounded(h.auth(h.start)))
+	h.mux.HandleFunc("POST /api/v1/chat/assistant/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/question", h.bounded(h.auth(h.question)))
 	h.mux.HandleFunc("POST /api/v1/chat/rename", h.auth(h.rename))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/data", h.boundedHistory(h.recordData))
@@ -141,6 +143,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("DELETE /api/v1/agentsql/assistants/{id}", h.auth(h.assistantDelete))
 	h.mux.HandleFunc("GET /api/v1/system/assistant", h.auth(h.legacyAssistantList))
 	h.mux.HandleFunc("GET /api/v1/system/assistant/advanced_application", h.auth(h.legacyAssistantList))
+	h.mux.HandleFunc("GET /api/v1/system/assistant/app/{appID}", h.publicEmbeddedApplication)
+	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/app/{appID}", h.publicEmbeddedApplication)
 	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("DELETE /api/v1/system/assistant/{id}", h.auth(h.legacyAssistantDelete))
@@ -337,15 +341,75 @@ func requestToken(r *http.Request) (string, error) {
 type authorizedHandler func(http.ResponseWriter, *http.Request, Principal, string)
 
 func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string) error {
-	current, err := h.service.Identity.Verify(ctx, token)
-	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace {
+	var current Principal
+	var err error
+	if p.EmbeddedApp != "" {
+		if !strings.HasPrefix(token, "Embedded ") {
+			return ErrUnauthenticated
+		}
+		current, err = h.service.Identity.VerifyEmbedded(ctx, strings.TrimPrefix(token, "Embedded "))
+	} else {
+		current, err = h.service.Identity.Verify(ctx, token)
+	}
+	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision {
 		return ErrUnauthenticated
 	}
 	return nil
 }
 
+func embeddedRouteAllowed(r *http.Request) bool {
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/api/v1/chat/") {
+		return r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodDelete
+	}
+	if r.Method == http.MethodGet {
+		switch path {
+		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
+			return true
+		}
+		return strings.HasPrefix(path, "/api/v1/datasource/ws/") || strings.HasPrefix(path, "/api/v1/datasource/check/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended_base/")
+	}
+	if r.Method == http.MethodPost {
+		for _, prefix := range []string{"/api/v1/datasource/get/", "/api/v1/datasource/getTables/", "/api/v1/datasource/getFields/", "/api/v1/datasource/tableList/", "/api/v1/datasource/fieldList/", "/api/v1/datasource/previewData/"} {
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if values := r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN"); len(values) != 0 {
+			if len(values) != 1 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 || len(r.Header.Values("Authorization")) != 0 || !embeddedRouteAllowed(r) {
+				failure(w, ErrUnauthenticated)
+				return
+			}
+			parts := strings.Fields(values[0])
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Embedded") {
+				failure(w, ErrUnauthenticated)
+				return
+			}
+			p, err := h.service.Identity.VerifyEmbedded(r.Context(), parts[1])
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			if origins := r.Header.Values("X-SQLBOT-HOST-ORIGIN"); len(origins) != 0 {
+				if len(origins) != 1 {
+					failure(w, ErrUnauthenticated)
+					return
+				}
+				var app AssistantApplication
+				if _, err := h.service.Store.get(r.Context(), assistantKey(p.Workspace, p.EmbeddedApp), &app); err != nil || !assistantOriginAllowed(app.Domain, origins[0]) {
+					failure(w, ErrUnauthenticated)
+					return
+				}
+			}
+			next(w, r, p, "Embedded "+parts[1])
+			return
+		}
 		token, err := requestToken(r)
 		if err != nil {
 			failure(w, err)
@@ -416,7 +480,9 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 	weight := 0
 	oids := make([]ID, 0, len(p.User.Memberships))
 	for _, member := range p.User.Memberships {
-		oids = append(oids, member.Workspace)
+		if p.EmbeddedApp == "" || member.Workspace == p.Workspace {
+			oids = append(oids, member.Workspace)
+		}
 		if member.Workspace == p.Workspace {
 			weight = member.Weight
 		}
@@ -427,6 +493,9 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Principal, _ string) {
 	result := make([]map[string]any, 0, len(p.User.Memberships))
 	for _, membership := range p.User.Memberships {
+		if p.EmbeddedApp != "" && membership.Workspace != p.Workspace {
+			continue
+		}
 		id, err := strconv.ParseInt(string(membership.Workspace), 10, 64)
 		if err != nil || id < 1 || id > maxSQLBotBrowserID {
 			failure(w, ErrUnavailable)
@@ -441,6 +510,10 @@ func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Princ
 	okay(w, result)
 }
 func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	if err := h.service.live(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
 	items, err := h.service.Store.list(r.Context(), "binding", string(p.Workspace), string(p.User.ID))
 	if err != nil {
 		failure(w, err)
@@ -451,6 +524,13 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 		var b Binding
 		if json.Unmarshal(raw, &b) != nil || b.Workspace != p.Workspace || b.User != p.User.ID {
 			failure(w, ErrUnavailable)
+			return
+		}
+		if err := h.service.embeddedSourceAllowed(r.Context(), p, b.Datasource); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			failure(w, err)
 			return
 		}
 		if b.Type == "excel" {
@@ -470,6 +550,10 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			"description": b.Description, "configuration": b.Configuration, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
+	if err := h.service.live(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
 	okay(w, result)
 }
 
@@ -568,6 +652,15 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, p Principal, tok
 		Origin     int    `json:"origin"`
 	}
 	if !readBody(w, r, &input) {
+		return
+	}
+	if r.URL.Path == "/api/v1/chat/assistant/start" {
+		if p.EmbeddedApp == "" || input.Origin != 2 {
+			failure(w, ErrUnauthenticated)
+			return
+		}
+	} else if p.EmbeddedApp != "" || input.Origin != 0 {
+		failure(w, ErrUnauthenticated)
 		return
 	}
 	chat, err := h.service.Start(r.Context(), p, input.Datasource, input.Question, input.Origin)

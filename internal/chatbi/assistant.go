@@ -75,6 +75,42 @@ func validAssistantDomain(raw string) bool {
 	return true
 }
 
+func assistantOriginAllowed(domains, asserted string) bool {
+	if !validAssistantDomain(domains) || !validAssistantDomain(asserted) || strings.ContainsAny(asserted, ",;") {
+		return false
+	}
+	asserted = strings.TrimSuffix(asserted, "/")
+	for _, part := range strings.Split(strings.ReplaceAll(domains, ";", ","), ",") {
+		if strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(part), "/"), asserted) {
+			return true
+		}
+	}
+	return false
+}
+
+// A page application with an explicit datasource list cannot use the other
+// bindings of the account named in its token. An empty list keeps the original
+// page-embed behavior: the account's currently authorized sources are visible.
+func (service *Service) embeddedSourceAllowed(ctx context.Context, p Principal, datasource ID) error {
+	if p.EmbeddedApp == "" {
+		return nil
+	}
+	var app AssistantApplication
+	revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
+	if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != 4 || !app.Enabled {
+		return ErrUnauthenticated
+	}
+	if len(app.DatasourceIDs) == 0 {
+		return nil
+	}
+	for _, allowed := range app.DatasourceIDs {
+		if allowed == datasource {
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func (service *Service) Assistants(ctx context.Context, p Principal) ([]AssistantApplication, error) {
 	if err := service.semanticAdmin(ctx, p); err != nil {
 		return nil, err

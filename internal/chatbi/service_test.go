@@ -529,7 +529,7 @@ func TestQuestionPersistsBeforeDeliveryAndProtectsHistory(t *testing.T) {
 	if err := s.Store.CreateUser(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ReadChat(ctx, Principal{other, "1"}, chat.ID, true); !errors.Is(err, ErrNotFound) {
+	if _, err := s.ReadChat(ctx, Principal{User: other, Workspace: "1"}, chat.ID, true); !errors.Is(err, ErrNotFound) {
 		t.Fatal("cross-user history read")
 	}
 }
