@@ -144,6 +144,12 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("DELETE /api/v1/system/assistant/{id}", h.auth(h.legacyAssistantDelete))
+	h.mux.HandleFunc("GET /api/v1/system/embedded/{page}/{size}", h.auth(h.legacyEmbeddedList))
+	h.mux.HandleFunc("GET /api/v1/system/embedded/{id}", h.auth(h.legacyEmbeddedRead))
+	h.mux.HandleFunc("POST /api/v1/system/embedded", h.auth(h.legacyEmbeddedSave))
+	h.mux.HandleFunc("PUT /api/v1/system/embedded", h.auth(h.legacyEmbeddedSave))
+	h.mux.HandleFunc("DELETE /api/v1/system/embedded", h.auth(h.legacyEmbeddedDelete))
+	h.mux.HandleFunc("PATCH /api/v1/system/embedded/secret/{id}", h.auth(h.legacyEmbeddedRotate))
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {

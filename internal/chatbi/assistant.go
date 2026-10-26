@@ -2,6 +2,8 @@ package chatbi
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
@@ -27,6 +29,8 @@ type AssistantApplication struct {
 	UseCustomModel bool      `json:"enable_custom_model"`
 	CustomModel    *ID       `json:"custom_model,omitempty"`
 	Enabled        bool      `json:"enabled"`
+	AppID          string    `json:"app_id,omitempty"`
+	AppSecret      string    `json:"app_secret,omitempty"`
 	Created        time.Time `json:"created_at"`
 	Updated        time.Time `json:"updated_at"`
 	Revision       int64     `json:"revision"`
@@ -34,6 +38,14 @@ type AssistantApplication struct {
 
 func assistantKey(workspace, id ID) objectKey {
 	return objectKey{"assistant", string(workspace), "workspace", string(id)}
+}
+
+func newAssistantCredential(size int) (string, error) {
+	raw := make([]byte, size)
+	if _, err := rand.Read(raw); err != nil {
+		return "", ErrUnavailable
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func validAssistantDomain(raw string) bool {
@@ -143,11 +155,24 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 		if app.Revision != 0 {
 			return AssistantApplication{}, ErrInvalidAssistant
 		}
+		if app.AppID != "" || app.AppSecret != "" {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
 		id, err := newID()
 		if err != nil {
 			return AssistantApplication{}, err
 		}
 		app.ID = id
+		if app.Type == 4 {
+			app.AppID, err = newAssistantCredential(18)
+			if err != nil {
+				return AssistantApplication{}, err
+			}
+			app.AppSecret, err = newAssistantCredential(32)
+			if err != nil {
+				return AssistantApplication{}, err
+			}
+		}
 		app.Created = time.Now().UTC()
 	} else {
 		if !app.ID.Valid() || app.Revision < 1 {
@@ -163,6 +188,10 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 		if revision != app.Revision {
 			return AssistantApplication{}, ErrConflict
 		}
+		if previous.Type != app.Type {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+		app.AppID, app.AppSecret = previous.AppID, previous.AppSecret
 		app.Created = previous.Created
 	}
 	app.Updated = time.Now().UTC()
@@ -170,6 +199,31 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 		return AssistantApplication{}, err
 	}
 	if err := service.Store.writeSemantic(ctx, assistantKey(p.Workspace, app.ID), app, app.Revision, "assistant.save"); err != nil {
+		return AssistantApplication{}, err
+	}
+	app.Revision++
+	return app, nil
+}
+
+// RotateAssistantSecret invalidates the previous page-embed credential with an
+// audited compare-and-swap write. Callers never choose their own credential.
+func (service *Service) RotateAssistantSecret(ctx context.Context, p Principal, id ID) (AssistantApplication, error) {
+	app, err := service.Assistant(ctx, p, id)
+	if err != nil {
+		return AssistantApplication{}, err
+	}
+	if app.Type != 4 || app.AppID == "" || app.AppSecret == "" {
+		return AssistantApplication{}, ErrInvalidAssistant
+	}
+	app.AppSecret, err = newAssistantCredential(32)
+	if err != nil {
+		return AssistantApplication{}, err
+	}
+	app.Updated = time.Now().UTC()
+	if err := service.semanticAdmin(ctx, p); err != nil {
+		return AssistantApplication{}, err
+	}
+	if err := service.Store.writeSemantic(ctx, assistantKey(p.Workspace, id), app, app.Revision, "assistant.secret.rotate"); err != nil {
 		return AssistantApplication{}, err
 	}
 	app.Revision++
@@ -184,4 +238,64 @@ func (service *Service) DeleteAssistant(ctx context.Context, p Principal, id ID,
 		return ErrInvalidAssistant
 	}
 	return service.Store.deleteSemantic(ctx, assistantKey(p.Workspace, id), revision, "assistant.delete")
+}
+
+// DeleteEmbeddedBatch commits all removals and their management audits in a
+// single transaction, so the original UI's multi-selection never half-succeeds.
+func (service *Service) DeleteEmbeddedBatch(ctx context.Context, p Principal, apps []AssistantApplication) error {
+	if err := service.semanticAdmin(ctx, p); err != nil {
+		return err
+	}
+	if len(apps) == 0 || len(apps) > 100 {
+		return ErrInvalidAssistant
+	}
+	seen := make(map[ID]bool, len(apps))
+	for _, app := range apps {
+		if !app.ID.Valid() || app.Type != 4 || app.Workspace != p.Workspace || app.Revision < 1 || seen[app.ID] {
+			return ErrInvalidAssistant
+		}
+		seen[app.ID] = true
+		current, err := service.Assistant(ctx, p, app.ID)
+		if err != nil {
+			return err
+		}
+		if current.Type != 4 || current.Revision != app.Revision {
+			return ErrConflict
+		}
+	}
+	tx, err := service.Store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer tx.Rollback()
+	for _, app := range apps {
+		key := assistantKey(p.Workspace, app.ID)
+		auditID, err := newID()
+		if err != nil {
+			return err
+		}
+		auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
+		audit, err := service.Store.seal(auditKey, map[string]any{"action": "assistant.delete", "workspace": key.Scope, "id": key.ID, "time": time.Now().UTC()})
+		if err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`, key.Kind, key.Scope, key.Owner, key.ID, app.Revision)
+		if err != nil {
+			return ErrUnavailable
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return ErrUnavailable
+		}
+		if count != 1 {
+			return ErrConflict
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`, auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
+			return ErrUnavailable
+		}
+	}
+	if tx.Commit() != nil {
+		return ErrUnavailable
+	}
+	return nil
 }
