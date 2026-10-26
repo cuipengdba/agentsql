@@ -18,6 +18,7 @@ func runClosedSelectDifferentialScenarios(t *testing.T, ctx context.Context, exe
 		sql  string
 	}{
 		{"direct", `SELECT a.id,a.secret FROM s3.base_a a WHERE a.id > 0`},
+		{"text-literal-comparison", `SELECT a.secret FROM s3.base_a a WHERE a.secret='alpha'`},
 		{"self-join", `SELECT a.id,b.secret FROM s3.base_a a INNER JOIN s3.base_a b ON a.id=b.id WHERE b.id > 0`},
 		{"inner-join", `SELECT a.id,b.note FROM s3.base_a a INNER JOIN s3.base_b b ON a.id=b.id WHERE b.note IS NOT NULL`},
 		{"left-join", `SELECT a.id+b.id FROM s3.base_a a LEFT JOIN s3.base_b b ON a.id=b.id WHERE a.id > 0`},
@@ -56,7 +57,7 @@ func runClosedSelectDifferentialScenarios(t *testing.T, ctx context.Context, exe
 		{"function", `SELECT pg_catalog.lower(a.secret) FROM s3.base_a a`},
 		{"aggregate", `SELECT pg_catalog.count(a.id) FROM s3.base_a a`},
 		{"cast", `SELECT a.id::bigint FROM s3.base_a a`},
-		{"unknown-coercion", `SELECT a.secret FROM s3.base_a a WHERE a.secret='alpha'`},
+		{"non-text-unknown-coercion", `SELECT a.id FROM s3.base_a a WHERE a.id='1'`},
 		{"distinct", `SELECT DISTINCT a.id FROM s3.base_a a`},
 		{"group", `SELECT a.id FROM s3.base_a a GROUP BY a.id`},
 		{"sort", `SELECT a.id FROM s3.base_a a ORDER BY a.id`},

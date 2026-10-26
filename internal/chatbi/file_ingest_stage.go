@@ -168,7 +168,7 @@ func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal
 		child := binding
 		child.Type, child.Name, child.ResolveName = "excel", prior.DatasourceName, prior.DatasourceName
 		child.BindingID, child.ConnectorToken = prior.BindingID, prior.ConnectorToken
-		columns, schemaErr := h.service.Gateway.Schema(r.Context(), p, child)
+		columns, schemaErr := h.service.schema(r.Context(), p, child)
 		if schemaErr != nil {
 			failure(w, ErrGateway)
 			return

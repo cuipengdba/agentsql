@@ -122,7 +122,7 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 				if err != nil {
 					return Record{}, err
 				}
-				data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
+				data, err := service.query(ctx, p, binding, record.SQL)
 				if err != nil {
 					return Record{}, err
 				}
@@ -193,7 +193,7 @@ func (service *Service) Start(ctx context.Context, p Principal, datasource ID, q
 	if err != nil {
 		return Chat{}, err
 	}
-	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+	if _, err := service.schema(ctx, p, binding); err != nil {
 		return Chat{}, err
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
@@ -325,14 +325,14 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	if _, err := service.Gateway.Schema(ctx, p, binding); err != nil {
+	if _, err := service.schema(ctx, p, binding); err != nil {
 		return Chat{}, err
 	}
 	for i := range chat.Records {
 		record := &chat.Records[i]
 		record.Data = nil
 		if withData && record.Finish && record.Error == "" && record.SQL != "" {
-			data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
+			data, err := service.query(ctx, p, binding, record.SQL)
 			if err != nil {
 				return Chat{}, err
 			}
@@ -462,7 +462,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 				return err
 			}
 		}
-		columns, err := service.Gateway.Schema(ctx, p, binding)
+		columns, err := service.schema(ctx, p, binding)
 		if err != nil {
 			return err
 		}
@@ -505,7 +505,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			return err
 		}
 		stage = "controlled_query"
-		data, err := service.Gateway.Query(ctx, p, binding, generated.SQL)
+		data, err := service.query(ctx, p, binding, generated.SQL)
 		if err != nil {
 			return err
 		}

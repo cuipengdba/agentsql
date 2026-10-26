@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -125,23 +126,21 @@ func (h *Handler) createExcelDatasource(w http.ResponseWriter, r *http.Request, 
 	if err != nil || receipt.ClaimedDatasource != "" || receipt.Filename != filename ||
 		!managedFileOperationPattern.MatchString(receipt.OperationID) ||
 		!managedFileChildNamePattern.MatchString(receipt.DatasourceName) || receipt.BindingID == "" ||
-		!reflect.DeepEqual(configuredSheets, receipt.Sheets) || len(input.Tables) != len(receipt.Sheets) {
+		!reflect.DeepEqual(configuredSheets, receipt.Sheets) || len(input.Tables) == 0 || len(input.Tables) > len(receipt.Sheets) {
 		failure(w, ErrNotFound)
 		return
 	}
+	imported := make(map[string]bool, len(receipt.Sheets))
+	for _, sheet := range receipt.Sheets {
+		imported[sheet.TableName] = true
+	}
 	selected := map[string]bool{}
 	for _, table := range input.Tables {
-		if !managedFileNamePattern.MatchString(table.Name) || table.Comment != "" || selected[table.Name] {
+		if !managedFileNamePattern.MatchString(table.Name) || table.Comment != "" || selected[table.Name] || !imported[table.Name] {
 			writeJSON(w, http.StatusUnprocessableEntity, "Invalid Excel tables")
 			return
 		}
 		selected[table.Name] = true
-	}
-	for _, sheet := range receipt.Sheets {
-		if !selected[sheet.TableName] {
-			writeJSON(w, http.StatusUnprocessableEntity, "Invalid Excel tables")
-			return
-		}
 	}
 	base, err := h.service.binding(r.Context(), p, h.service.ManagedFileDatasource)
 	if err != nil || base.Dialect != "pg" || base.BindingID == receipt.BindingID {
@@ -158,7 +157,15 @@ func (h *Handler) createExcelDatasource(w http.ResponseWriter, r *http.Request, 
 		Configuration: input.Configuration, ManagedFileID: receipt.OperationID,
 		Dialect: "pg", BindingID: receipt.BindingID, ConnectorToken: receipt.ConnectorToken, AgentKey: base.AgentKey,
 		Created: time.Now().UTC()}
-	columns, err := h.service.Gateway.Schema(r.Context(), p, child)
+	if len(selected) < len(receipt.Sheets) {
+		names := make([]string, 0, len(selected))
+		for name := range selected {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		child.SelectedTables = strings.Join(names, ",")
+	}
+	columns, err := h.service.schema(r.Context(), p, child)
 	if err != nil {
 		failure(w, err)
 		return
@@ -171,7 +178,7 @@ func (h *Handler) createExcelDatasource(w http.ResponseWriter, r *http.Request, 
 		}
 		visible[column.Table] = true
 	}
-	if len(visible) != len(receipt.Sheets) {
+	if len(visible) != len(selected) {
 		failure(w, ErrGateway)
 		return
 	}
@@ -220,10 +227,27 @@ func legacyExcelDatasource(binding Binding) (map[string]any, error) {
 	if err != nil {
 		return nil, ErrUnavailable
 	}
+	selectedCount := len(sheets)
+	if binding.SelectedTables != "" {
+		selected, err := managedFileSelectedTables(binding)
+		if err != nil {
+			return nil, ErrUnavailable
+		}
+		imported := make(map[string]bool, len(sheets))
+		for _, sheet := range sheets {
+			imported[sheet.TableName] = true
+		}
+		for name := range selected {
+			if !imported[name] {
+				return nil, ErrUnavailable
+			}
+		}
+		selectedCount = len(selected)
+	}
 	return map[string]any{"id": numericID, "name": binding.Name, "description": binding.Description,
 		"type": "excel", "type_name": "Excel/CSV", "configuration": binding.Configuration,
 		"oid": workspaceID, "create_by": userID, "create_time": binding.Created,
-		"status": "Success", "num": strconv.Itoa(len(sheets)) + "/" + strconv.Itoa(len(sheets)),
+		"status": "Success", "num": strconv.Itoa(selectedCount) + "/" + strconv.Itoa(len(sheets)),
 		"recommended_config": 1, "embedding": nil, "table_relation": nil}, nil
 }
 

@@ -20,6 +20,7 @@ type fakeManagedFileGateway struct {
 	*fakeGateway
 	calls   int
 	deletes int
+	columns []Column
 }
 
 func (gateway *fakeManagedFileGateway) DeleteFile(_ context.Context, _ Principal, binding Binding, operationID string) error {
@@ -31,10 +32,13 @@ func (gateway *fakeManagedFileGateway) DeleteFile(_ context.Context, _ Principal
 	return nil
 }
 
-func (*fakeManagedFileGateway) Schema(_ context.Context, _ Principal, binding Binding) ([]Column, error) {
+func (gateway *fakeManagedFileGateway) Schema(_ context.Context, _ Principal, binding Binding) ([]Column, error) {
 	if binding.Type != "excel" || binding.BindingID != "22222222-2222-4222-8222-222222222222" ||
 		binding.ResolveName != "agentsql-import-33333333333333333333333333333333" {
 		return nil, ErrGateway
+	}
+	if gateway.columns != nil {
+		return gateway.columns, nil
 	}
 	return []Column{{Schema: "agentsql_files", Table: "agentsql_file_11111111111111111111111111111111", Name: "region"},
 		{Schema: "agentsql_files", Table: "agentsql_file_11111111111111111111111111111111", Name: "amount"}}, nil
@@ -185,6 +189,64 @@ func TestImportToDbUsesCurrentEncryptedStageAndManagedGateway(t *testing.T) {
 	require.True(t, actions["file-import.published"])
 	require.True(t, actions["file-import.claim"])
 	require.True(t, actions["file-import.datasource-delete"])
+}
+
+func TestOriginalExcelClaimKeepsOnlyBrowserSelectedSheetVisible(t *testing.T) {
+	ctx := context.Background()
+	service, principal, fake, _, token := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Admin = true
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	principal, err = service.Identity.Verify(ctx, token)
+	require.NoError(t, err)
+	service.ManagedFileDatasource = "10"
+	const east = "agentsql_file_11111111111111111111111111111111"
+	const west = "agentsql_file_22222222222222222222222222222222"
+	managed := &fakeManagedFileGateway{fakeGateway: fake, columns: []Column{
+		{Schema: "agentsql_files", Table: east, Name: "region", DataType: "text"},
+		{Schema: "agentsql_files", Table: west, Name: "region", DataType: "text"},
+	}}
+	service.Gateway = managed
+	const filename = "agentsql-file-123.xlsx"
+	sheets := []importedFileSheet{{SheetName: "East", TableName: east, Rows: 1}, {SheetName: "West", TableName: west, Rows: 1}}
+	receipt := managedFileReceipt{OperationID: "22222222222222222222222222222222",
+		BindingID:      "22222222-2222-4222-8222-222222222222",
+		DatasourceName: "agentsql-import-33333333333333333333333333333333",
+		ConnectorToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		Filename:       filename, Sheets: sheets, Created: time.Now().UTC()}
+	require.NoError(t, service.Store.put(ctx, managedFileReceiptKey(principal, filename), receipt, 0))
+	configuration, err := encodeSQLBotExcelConfig(filename, sheets)
+	require.NoError(t, err)
+	input, err := json.Marshal(map[string]any{"name": "West only", "type": "excel", "configuration": configuration,
+		"tables": []map[string]string{{"table_name": west, "table_comment": ""}}})
+	require.NoError(t, err)
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/add", bytes.NewReader(input))
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var envelope struct {
+		Data map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	require.Equal(t, "1/2", envelope.Data["num"])
+	id := ID(strconv.FormatInt(int64(envelope.Data["id"].(float64)), 10))
+	claimed, err := service.binding(ctx, principal, id)
+	require.NoError(t, err)
+	require.Equal(t, west, claimed.SelectedTables)
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/datasource/getTables/"+string(id), nil)
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), west)
+	require.NotContains(t, response.Body.String(), east)
+	_, err = service.query(ctx, principal, claimed, "SELECT region FROM agentsql_files."+east)
+	require.ErrorIs(t, err, ErrGateway)
 }
 
 func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {

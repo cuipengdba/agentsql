@@ -162,7 +162,7 @@ func (h *Handler) datasourceSchema(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, err)
 		return nil, false
 	}
-	columns, err := h.service.Gateway.Schema(r.Context(), p, binding)
+	columns, err := h.service.schema(r.Context(), p, binding)
 	if err != nil {
 		failure(w, err)
 		return nil, false
@@ -303,7 +303,7 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 		selected[index] = quote(name)
 	}
 	sql := "SELECT " + strings.Join(selected, ", ") + " FROM " + from + " LIMIT 100"
-	result, err := h.service.Gateway.Query(r.Context(), p, binding, sql)
+	result, err := h.service.query(r.Context(), p, binding, sql)
 	if err != nil {
 		failure(w, err)
 		return
