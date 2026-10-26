@@ -93,6 +93,13 @@ func TestImportToDbUsesCurrentEncryptedStageAndManagedGateway(t *testing.T) {
 	require.Equal(t, "22222222-2222-4222-8222-222222222222", receipt.BindingID)
 	require.Len(t, receipt.Sheets, 1)
 	require.Equal(t, 1, managed.calls)
+	retry := call(requestBody, token)
+	require.Equal(t, http.StatusOK, retry.Code, retry.Body.String())
+	require.JSONEq(t, response.Body.String(), retry.Body.String(), "a lost browser response must replay the same committed receipt")
+	require.Equal(t, 1, managed.calls, "retry must not publish another physical table")
+	changedSelection := strings.Replace(requestBody, `"fieldType":"int"`, `"fieldType":"float"`, 1)
+	require.NotEqual(t, http.StatusOK, call(changedSelection, token).Code)
+	require.Equal(t, 1, managed.calls, "a changed selection must not claim the old receipt or create a new table")
 	require.Equal(t, http.StatusUnauthorized, call(requestBody, "").Code)
 	require.NotEqual(t, http.StatusOK, call(strings.Replace(requestBody, "agentsql-file-123.csv", "../other.csv", 1), token).Code)
 	require.Equal(t, 1, managed.calls, "invalid stage must not reach the gateway")
@@ -135,6 +142,8 @@ func TestImportToDbUsesCurrentEncryptedStageAndManagedGateway(t *testing.T) {
 			return keys
 		}())
 	require.NotEqual(t, http.StatusOK, add().Code, "the same import receipt is one-use")
+	require.NotEqual(t, http.StatusOK, call(requestBody, token).Code, "a claimed receipt cannot be reused for another import")
+	require.Equal(t, 1, managed.calls)
 	list := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/datasource/list", nil)
 		req.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)

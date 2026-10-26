@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -29,6 +30,8 @@ type managedFileReceipt struct {
 	DatasourceName    string              `json:"datasource_name"`
 	ConnectorToken    string              `json:"connector_token"`
 	Filename          string              `json:"filename"`
+	FileSHA256        string              `json:"file_sha256"`
+	SelectionSHA256   string              `json:"selection_sha256"`
 	Sheets            []importedFileSheet `json:"sheets"`
 	Created           time.Time           `json:"created"`
 	ClaimedDatasource ID                  `json:"claimed_datasource,omitempty"`
@@ -36,6 +39,15 @@ type managedFileReceipt struct {
 
 func managedFileReceiptKey(p Principal, filePath string) objectKey {
 	return objectKey{"managed-file-receipt", string(p.Workspace), string(p.User.ID), filePath}
+}
+
+func fileSelectionDigest(request FileImportRequest) (string, error) {
+	encoded, err := json.Marshal(request.Sheets)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func fileStageKey(p Principal) objectKey {
@@ -136,6 +148,70 @@ func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal
 		failure(w, ErrGateway)
 		return
 	}
+	selectionHash, err := fileSelectionDigest(request)
+	if err != nil {
+		failure(w, errFileImport)
+		return
+	}
+	fileHash := sha256.Sum256(stage.Data)
+	var prior managedFileReceipt
+	_, err = h.service.Store.get(r.Context(), managedFileReceiptKey(p, stage.FilePath), &prior)
+	if err == nil {
+		if prior.ClaimedDatasource != "" || prior.Filename != stage.FilePath ||
+			prior.FileSHA256 != hex.EncodeToString(fileHash[:]) || prior.SelectionSHA256 != selectionHash ||
+			!managedFileOperationPattern.MatchString(prior.OperationID) ||
+			!managedFileChildNamePattern.MatchString(prior.DatasourceName) || prior.BindingID == "" ||
+			len(prior.Sheets) != len(plan.Sheets) {
+			failure(w, ErrConflict)
+			return
+		}
+		child := binding
+		child.Type, child.Name, child.ResolveName = "excel", prior.DatasourceName, prior.DatasourceName
+		child.BindingID, child.ConnectorToken = prior.BindingID, prior.ConnectorToken
+		columns, schemaErr := h.service.Gateway.Schema(r.Context(), p, child)
+		if schemaErr != nil {
+			failure(w, ErrGateway)
+			return
+		}
+		visible := map[string]bool{}
+		for _, column := range columns {
+			if column.Schema != "agentsql_files" || column.Table == "" {
+				failure(w, ErrGateway)
+				return
+			}
+			visible[column.Table] = true
+		}
+		if len(visible) != len(prior.Sheets) {
+			failure(w, ErrGateway)
+			return
+		}
+		for index, sheet := range prior.Sheets {
+			if sheet.SheetName != plan.Sheets[index].Name || sheet.Rows != len(plan.Sheets[index].Rows) ||
+				sheet.TableComment != "" || !managedFileNamePattern.MatchString(sheet.TableName) || !visible[sheet.TableName] {
+				failure(w, ErrGateway)
+				return
+			}
+		}
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+			failure(w, err)
+			return
+		}
+		current, currentErr := h.service.binding(r.Context(), p, h.service.ManagedFileDatasource)
+		if currentErr != nil || current != binding {
+			failure(w, ErrGateway)
+			return
+		}
+		okay(w, map[string]any{"filename": stage.FilePath, "sheets": prior.Sheets})
+		return
+	}
+	if !errors.Is(err, ErrNotFound) {
+		failure(w, err)
+		return
+	}
 	importer, ok := h.service.Gateway.(managedFileImporter)
 	if !ok {
 		failure(w, ErrGateway)
@@ -179,7 +255,8 @@ func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	receipt := managedFileReceipt{OperationID: result.OperationID, BindingID: result.ChildBindingID,
 		DatasourceName: result.ChildName, ConnectorToken: result.ConnectorToken,
-		Filename: stage.FilePath, Sheets: result.Sheets, Created: time.Now().UTC()}
+		Filename: stage.FilePath, FileSHA256: hex.EncodeToString(fileHash[:]), SelectionSHA256: selectionHash,
+		Sheets: result.Sheets, Created: time.Now().UTC()}
 	if err := h.service.Store.writeSemanticWithDetails(r.Context(), managedFileReceiptKey(p, stage.FilePath), receipt, 0,
 		"file-import.published", map[string]any{"operation_id": result.OperationID, "sheets": len(result.Sheets)}); err != nil {
 		failure(w, undo(err))
