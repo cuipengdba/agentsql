@@ -69,6 +69,9 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("PUT /api/v1/user/pwd", h.auth(h.changeOwnPassword))
 	h.mux.HandleFunc("PUT /api/v1/user/language", h.auth(h.changeOwnLanguage))
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
+	h.mux.HandleFunc("GET /api/v1/user/pager/{page}/{size}", h.auth(h.legacyUserPage))
+	h.mux.HandleFunc("GET /api/v1/user/{id}", h.auth(h.legacyUserRead))
+	h.mux.HandleFunc("PATCH /api/v1/user/status", h.auth(h.legacyUserStatus))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
 	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/list/by_ws", h.auth(h.assistantWorkspaceModels))
@@ -497,7 +500,7 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 			weight = member.Weight
 		}
 	}
-	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
+	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "email": p.User.Email, "create_time": p.User.Created, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
 }
 
 func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Principal, _ string) {

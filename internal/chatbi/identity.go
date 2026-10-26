@@ -57,6 +57,8 @@ type User struct {
 	ID                ID           `json:"id"`
 	Account           string       `json:"account"`
 	Name              string       `json:"name"`
+	Email             string       `json:"email,omitempty"`
+	Created           int64        `json:"create_time,omitempty"`
 	Workspace         ID           `json:"oid"`
 	Language          string       `json:"language"`
 	Status            int          `json:"status"`

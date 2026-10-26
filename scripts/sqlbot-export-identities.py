@@ -53,7 +53,7 @@ async def export():
     with engine.connect() as connection:
         connection.execute(text("SET TRANSACTION READ ONLY"))
         users = connection.execute(text(
-            "SELECT id, account, name, oid, language, status, origin, password FROM sys_user ORDER BY id"
+            "SELECT id, account, name, email, create_time, oid, language, status, origin, password FROM sys_user ORDER BY id"
         )).mappings().all()
         workspaces = dict(connection.execute(text("SELECT id, name FROM sys_workspace")).all())
         memberships = connection.execute(text("SELECT uid, oid, weight FROM sys_user_ws")).mappings().all()
@@ -74,6 +74,7 @@ async def export():
             raise RuntimeError("An unsupported password format needs explicit migration handling")
         exported.append({
             "id": str(user["id"]), "account": user["account"], "name": user["name"],
+            "email": user["email"], "create_time": user["create_time"],
             "oid": str(user["oid"]), "language": user["language"], "status": user["status"],
             "origin": user["origin"], "isAdmin": user["id"] == 1, "memberships": members,
             "password_hash": password, "password_format": password_format,

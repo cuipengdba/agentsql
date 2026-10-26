@@ -240,3 +240,30 @@ func TestMCPQuestionReleasesNothingWithoutGatewayAudit(t *testing.T) {
 		t.Fatalf("unaudited MCP query released data: %d %s", answer.Code, answer.Body.String())
 	}
 }
+
+func TestMCPQuestionRequiresDatasourceChoiceWhenAmbiguous(t *testing.T) {
+	service, p, gateway, _, token := serviceFixture(t)
+	second := Binding{Datasource: "11", Workspace: p.Workspace, User: p.User.ID, Name: "second", Dialect: "pg", BindingID: "b2", ConnectorToken: "hidden", AgentKey: "hidden"}
+	if err := service.Store.put(context.Background(), bindingKey(p, "11"), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+	var output struct {
+		Chat ID `json:"chat_id"`
+	}
+	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil {
+		t.Fatalf("MCP start: %d %s", started.Code, started.Body.String())
+	}
+	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
+	if answer.Code != http.StatusUnprocessableEntity || gateway.schemaCalls != 0 || gateway.queries != 0 {
+		t.Fatalf("ambiguous datasource was guessed: %d %s", answer.Code, answer.Body.String())
+	}
+	selected := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","datasource_id":11,"stream":false}`, "")
+	if selected.Code != http.StatusOK || gateway.queries != 1 {
+		t.Fatalf("explicit owned datasource was not used: %d %s", selected.Code, selected.Body.String())
+	}
+}
