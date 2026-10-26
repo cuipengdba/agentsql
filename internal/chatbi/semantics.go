@@ -90,6 +90,10 @@ func validExample(example SQLExample, workspace ID) bool {
 // writeSemantic and deleteSemantic commit the object and management audit in
 // one SQLite transaction. A failed audit must also roll back the object change.
 func (s *Store) writeSemantic(ctx context.Context, key objectKey, value any, expected int64, action string) error {
+	return s.writeSemanticWithDetails(ctx, key, value, expected, action, nil)
+}
+
+func (s *Store) writeSemanticWithDetails(ctx context.Context, key objectKey, value any, expected int64, action string, details map[string]any) error {
 	sealed, err := s.seal(key, value)
 	if err != nil {
 		return err
@@ -99,7 +103,14 @@ func (s *Store) writeSemantic(ctx context.Context, key objectKey, value any, exp
 		return err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
-	audit, err := s.seal(auditKey, map[string]any{"action": action, "workspace": key.Scope, "id": key.ID, "time": time.Now().UTC()})
+	auditBody := map[string]any{"action": action, "workspace": key.Scope, "owner": key.Owner, "id": key.ID, "time": time.Now().UTC()}
+	for name, value := range details {
+		if name == "action" || name == "workspace" || name == "owner" || name == "id" || name == "time" {
+			return ErrUnavailable
+		}
+		auditBody[name] = value
+	}
+	audit, err := s.seal(auditKey, auditBody)
 	if err != nil {
 		return err
 	}
