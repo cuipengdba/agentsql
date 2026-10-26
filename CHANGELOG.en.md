@@ -2,10 +2,10 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
-## [v4.3.0] (candidate)
+## [v4.3.0]
 
 - Expanded the local synthetic verification of the independent AgentSQL Q&A table and chart views, dashboards, analysis and trends under current authorization.
-- Added basic, advanced and page-embed application management and original-client comparisons. Embed tokens are scoped by workspace, user, application and configured datasources; secret rotation and deletion have management audits. Complete SQLBot functionality and zero-change replacement of the user's application remain for later acceptance. See the [candidate release notes](docs/en/release-notes-v4.3.0.md).
+- Added basic, advanced and page-embed application management and original-client comparisons. Embed tokens are scoped by workspace, user, application and configured datasources; secret rotation and deletion have management audits. Complete SQLBot functionality and zero-change replacement of the user's application remain for later acceptance. See the [release notes](docs/en/release-notes-v4.3.0.md).
 
 ## [v4.2.0]
 

@@ -2,7 +2,7 @@
 
 **语言 / Language：** [简体中文](release-notes-v4.3.0.md) | [English](en/release-notes-v4.3.0.md)
 
-状态：候选版，尚未发布。正式资产和公网验收完成后更新本页的发布状态。设计范围与边界见 [v4.3.0 设计记录](v4.3.0-design.md)。
+状态：已于 2026-10-27（北京时间）发布。[GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.3.0) 提供已签名资产；设计范围与边界见 [v4.3.0 设计记录](v4.3.0-design.md)，逐项验证见 [发布验收记录](v4.3.0-acceptance.md)。
 
 ## 本版交付
 
@@ -24,4 +24,4 @@ AgentSQL 是独立实现的数据库安全与问数产品：既可为现有 SQLB
 
 ## 升级与发布
 
-升级前备份元数据库、审计库、托管数据库和加密密钥。正式发布后，以同一源码提交的签名包、双架构镜像、GitHub Release、官网及 Demo 验收记录为准；本候选说明不等于发布验收完成。
+升级前备份元数据库、审计库、托管数据库和加密密钥。v4.2.0 到 v4.3.0 的本地合成升级、失败回滚及正式资产验签已通过；官网和公网 Demo 已切换至 v4.3.0。请以同一源码提交的签名包、双架构镜像、GitHub Release 和 [发布验收记录](v4.3.0-acceptance.md) 为准。
