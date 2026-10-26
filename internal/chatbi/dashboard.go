@@ -22,6 +22,10 @@ type DashboardCard struct {
 	RecordID ID     `json:"record_id,omitempty"`
 	TabID    string `json:"tab_id,omitempty"`
 	Span     int    `json:"span,omitempty"`
+	X        int    `json:"x,omitempty"`
+	Y        int    `json:"y,omitempty"`
+	SizeX    int    `json:"size_x,omitempty"`
+	SizeY    int    `json:"size_y,omitempty"`
 }
 
 type DashboardTab struct {
@@ -32,6 +36,7 @@ type DashboardTab struct {
 type Dashboard struct {
 	ID       string          `json:"id"`
 	Name     string          `json:"name"`
+	ParentID string          `json:"parent_id,omitempty"`
 	Tabs     []DashboardTab  `json:"tabs,omitempty"`
 	Cards    []DashboardCard `json:"cards"`
 	Created  time.Time       `json:"created_at"`
@@ -56,6 +61,14 @@ func validDashboardID(id string) bool {
 	return err == nil && id == strings.ToLower(id)
 }
 
+func newDashboardID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", ErrUnavailable
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
 func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, tabs []DashboardTab, cards []DashboardCard) error {
 	if len(cards) > 32 {
 		return ErrInvalidDashboard
@@ -72,7 +85,7 @@ func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, ta
 	}
 	seen := make(map[string]bool, len(cards))
 	for _, card := range cards {
-		if !validDashboardID(card.ID) || seen[card.ID] || len([]rune(card.Title)) > 120 || len([]rune(card.Text)) > 4000 || card.Span < 0 || card.Span > 2 || (card.TabID != "" && !tabIDs[card.TabID]) {
+		if !(validDashboardID(card.ID) || ID(card.ID).Valid()) || seen[card.ID] || len([]rune(card.Title)) > 120 || len([]rune(card.Text)) > 4000 || card.Span < 0 || card.Span > 2 || card.X < 0 || card.X > 10000 || card.Y < 0 || card.Y > 10000 || card.SizeX < 0 || card.SizeX > 10000 || card.SizeY < 0 || card.SizeY > 10000 || (card.TabID != "" && !tabIDs[card.TabID]) {
 			return ErrInvalidDashboard
 		}
 		seen[card.ID] = true
@@ -167,15 +180,23 @@ func (service *Service) SaveDashboard(ctx context.Context, p Principal, item Das
 	if item.Name == "" || len([]rune(item.Name)) > 120 || item.Revision < 0 {
 		return Dashboard{}, ErrInvalidDashboard
 	}
+	if item.ParentID == "" {
+		item.ParentID = "root"
+	}
+	if item.ParentID != "root" {
+		if _, err := service.DashboardFolder(ctx, p, item.ParentID); err != nil {
+			return Dashboard{}, err
+		}
+	}
 	if err := service.dashboardCardsValid(ctx, p, item.Tabs, item.Cards); err != nil {
 		return Dashboard{}, err
 	}
 	if item.ID == "" {
-		var raw [16]byte
-		if _, err := rand.Read(raw[:]); err != nil {
-			return Dashboard{}, ErrUnavailable
+		var err error
+		item.ID, err = newDashboardID()
+		if err != nil {
+			return Dashboard{}, err
 		}
-		item.ID = hex.EncodeToString(raw[:])
 		item.Created = time.Now().UTC()
 		item.Revision = 0
 	} else if !validDashboardID(item.ID) || item.Revision < 1 {
