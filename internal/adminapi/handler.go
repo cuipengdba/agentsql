@@ -296,6 +296,7 @@ func NewHandler(deps Deps, logger zerolog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /api/v1/integrations/notifications", handler.notificationsGet)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/resolve", handler.sqlbotResolve)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/managed-files/import", handler.sqlbotManagedFileImport)
+	mux.HandleFunc("POST /api/v1/integrations/sqlbot/managed-files/delete", handler.sqlbotManagedFileDelete)
 	mux.HandleFunc("GET /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsList)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/bindings", handler.sqlbotBindingsCreate)
 	mux.HandleFunc("POST /api/v1/integrations/sqlbot/export", handler.sqlbotBindingsExport)
@@ -347,7 +348,8 @@ func (handler *Handler) adminAuth(next http.Handler) http.Handler {
 		// This exact route authenticates its connector credential and Agent Key
 		// inside sqlbotResolve. No management route accepts connector credentials.
 		if request.Method == http.MethodPost && (request.URL.Path == "/api/v1/integrations/sqlbot/resolve" ||
-			request.URL.Path == "/api/v1/integrations/sqlbot/managed-files/import") {
+			request.URL.Path == "/api/v1/integrations/sqlbot/managed-files/import" ||
+			request.URL.Path == "/api/v1/integrations/sqlbot/managed-files/delete") {
 			next.ServeHTTP(writer, request)
 			return
 		}

@@ -11,8 +11,13 @@ import (
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/rbac"
 	"github.com/cuipengdba/agentsql/internal/store"
-	"github.com/jackc/pgx/v5"
 )
+
+// PostgreSQL identifier quoting here only formats names that the physical
+// capability already validated and created. It does not open a DB connection.
+func quoteManagedIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
 
 // PublishSQLBotFile runs the physical grant, formal column enrollment and
 // audited visibility transition for one already staged operation. No client
@@ -79,11 +84,11 @@ func (runtime *Runtime) PublishSQLBotFile(ctx context.Context, principal rbac.Pr
 		columnNames := make([]string, len(sheet.Columns))
 		quoted := make([]string, len(sheet.Columns))
 		for columnIndex, column := range sheet.Columns {
-			if column.Name == "" || strings.Contains(column.Name, ",") || strings.TrimSpace(column.Name) != column.Name {
+			if column.Name == "" || strings.ContainsAny(column.Name, ",\x00") || strings.TrimSpace(column.Name) != column.Name {
 				return cleanup(ErrManagedFileStage)
 			}
 			columnNames[columnIndex] = column.Name
-			quoted[columnIndex] = pgx.Identifier{column.Name}.Sanitize()
+			quoted[columnIndex] = quoteManagedIdentifier(column.Name)
 		}
 		policyID, idErr := managedfile.PolicyID(operation, index)
 		if idErr != nil {
@@ -96,7 +101,7 @@ func (runtime *Runtime) PublishSQLBotFile(ctx context.Context, principal rbac.Pr
 		if err != nil {
 			return cleanup(err)
 		}
-		query := "SELECT " + strings.Join(quoted, ",") + " FROM " + pgx.Identifier{"agentsql_files", tables[index].Name}.Sanitize()
+		query := "SELECT " + strings.Join(quoted, ",") + " FROM " + quoteManagedIdentifier("agentsql_files") + "." + quoteManagedIdentifier(tables[index].Name)
 		if _, err := runtime.BindPostgresColumnPolicy(tenantCtx, policyID, policy.Revision, query); err != nil {
 			return cleanup(err)
 		}

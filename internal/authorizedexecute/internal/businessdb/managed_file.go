@@ -230,7 +230,8 @@ func StageManagedFiles(ctx context.Context, datasource model.Datasource, secret,
 	return results, nil
 }
 
-// DropManagedFiles is idempotent cleanup for a journaled, unpublished import.
+// DropManagedFiles is idempotent cleanup for a journaled import after its
+// control-store state has been fenced from query visibility.
 // It only addresses exact names derived from one operation, refuses tables
 // owned by another role, and never uses CASCADE.
 func DropManagedFiles(ctx context.Context, datasource model.Datasource, secret string, operation ManagedFileOperationID, sheetCount int) error {
@@ -361,5 +362,13 @@ func GrantManagedFileRead(ctx context.Context, datasource model.Datasource, secr
 
 func managedFilePostgresIdentity(ctx context.Context, tx pgx.Tx) bool {
 	var product string
-	return tx.QueryRow(ctx, `SELECT pg_catalog.version()`).Scan(&product) == nil && strings.HasPrefix(product, "PostgreSQL ")
+	if tx.QueryRow(ctx, `SELECT pg_catalog.version()`).Scan(&product) != nil || !strings.HasPrefix(product, "PostgreSQL ") {
+		return false
+	}
+	// A superuser or role administrator defeats the isolated schema and the
+	// table ACL checks, even when its login name differs from the read role.
+	var privileged bool
+	err := tx.QueryRow(ctx, `SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls OR rolreplication
+		FROM pg_catalog.pg_roles WHERE rolname=current_user`).Scan(&privileged)
+	return err == nil && !privileged
 }

@@ -376,8 +376,8 @@ func (r *ManagedFileImportRepository) ListPending(ctx context.Context, limit int
 	return items, rows.Err()
 }
 
-// ListRecoverableByDatasource bounds recovery to never-published rows on one
-// managed datasource. Published deletion needs a separate owner path.
+// ListRecoverableByDatasource bounds recovery to unfinished imports and
+// published operations whose audited deletion has already begun.
 func (r *ManagedFileImportRepository) ListRecoverableByDatasource(ctx context.Context, datasourceID string, limit int) ([]ManagedFileImport, error) {
 	tenant, err := r.requireTenant(ctx, "list pending managed file imports by datasource")
 	if err != nil {
@@ -386,7 +386,7 @@ func (r *ManagedFileImportRepository) ListRecoverableByDatasource(ctx context.Co
 	if datasourceID == "" || limit < 1 || limit > 1000 {
 		return nil, ErrManagedFileState
 	}
-	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports WHERE tenant_id=? AND datasource_id=? AND status IN ('preparing','staged','policy_ready','cleanup_needed') ORDER BY created_at,id LIMIT ?`), tenant, datasourceID, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports WHERE tenant_id=? AND datasource_id=? AND status IN ('preparing','staged','policy_ready','deleting','cleanup_needed') ORDER BY created_at,id LIMIT ?`), tenant, datasourceID, limit)
 	if err != nil {
 		return nil, err
 	}

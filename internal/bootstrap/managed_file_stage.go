@@ -92,11 +92,9 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 	return staged, tables, nil
 }
 
-// RecoverUnpublishedSQLBotFiles removes abandoned, never-published tables for
-// one explicitly selected tenant and managed datasource. Call it before
-// accepting new imports for that datasource. The journal transition fences a
-// concurrent publisher before a physical table is dropped; an interrupted
-// cleanup remains retryable. Published deletion needs its own owner path.
+// RecoverUnpublishedSQLBotFiles removes abandoned imports and resumes
+// previously requested published deletions for one managed datasource.
+// It never selects an otherwise healthy published operation.
 func (runtime *Runtime) RecoverUnpublishedSQLBotFiles(ctx context.Context, tenantID string, physical ManagedFilePhysical) (int, error) {
 	if runtime == nil || runtime.Store == nil || ctx == nil || tenantID == "" || physical == nil || physical.ReadDatasourceID() == "" {
 		return 0, ErrManagedFileStage
