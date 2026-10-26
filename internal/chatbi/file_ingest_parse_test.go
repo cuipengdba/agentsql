@@ -95,6 +95,14 @@ func TestFileImportParserRejectsUnsafeOrAmbiguousData(t *testing.T) {
 			require.ErrorIs(t, err, errFileImport)
 		})
 	}
+	externalMode := rewriteFileWorkbook(t, workbook, func(name, body string) string {
+		if name == "xl/_rels/workbook.xml.rels" {
+			return strings.Replace(body, `Target="worksheets/sheet1.xml"`, `Target="worksheets/sheet1.xml" TargetMode="External"`, 1)
+		}
+		return body
+	})
+	_, err = parseFileImport("external.xlsx", externalMode)
+	require.ErrorIs(t, err, errFileImport)
 }
 
 func rewriteFileWorkbook(t *testing.T, original []byte, rewrite func(name, body string) string) []byte {

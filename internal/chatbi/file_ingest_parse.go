@@ -185,9 +185,10 @@ type fileWorkbook struct {
 
 type fileRelationships struct {
 	Items []struct {
-		ID     string `xml:"Id,attr"`
-		Type   string `xml:"Type,attr"`
-		Target string `xml:"Target,attr"`
+		ID         string `xml:"Id,attr"`
+		Type       string `xml:"Type,attr"`
+		Target     string `xml:"Target,attr"`
+		TargetMode string `xml:"TargetMode,attr"`
 	} `xml:"Relationship"`
 }
 
@@ -245,6 +246,9 @@ func parseXLSXSheets(data []byte) ([]FileSheet, error) {
 	for _, relation := range links.Items {
 		if !strings.HasSuffix(relation.Type, "/worksheet") {
 			continue
+		}
+		if relation.TargetMode != "" && relation.TargetMode != "Internal" {
+			return nil, errFileImport
 		}
 		target, err := workbookSheetTarget(relation.Target)
 		if err != nil {
