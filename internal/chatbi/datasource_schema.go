@@ -1,10 +1,153 @@
 package chatbi
 
 import (
+	"encoding/base64"
+	"hash/fnv"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+const maxSQLBotBrowserID = (1 << 53) - 1
+
+type visibleBrowserTable struct {
+	name, schema string
+	id           int64
+	columns      []Column
+}
+
+// SQLBot's datasource detail page uses numeric table IDs. Derive them from
+// the current datasource and qualified table name, so a changed or revoked
+// schema cannot make an old ID select another table by list position.
+func browserTableID(datasource ID, schema, table string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(datasource))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(schema))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(table))
+	return int64(h.Sum64()%maxSQLBotBrowserID) + 1
+}
+
+func browserFieldID(tableID int64, name string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strconv.FormatInt(tableID, 10)))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(name))
+	return int64(h.Sum64()%maxSQLBotBrowserID) + 1
+}
+
+func visibleBrowserTables(datasource ID, columns []Column) ([]visibleBrowserTable, bool) {
+	byName := make(map[string]*visibleBrowserTable)
+	byID := make(map[int64]string)
+	for _, column := range columns {
+		if column.Schema == "" || column.Table == "" || column.Name == "" || len(column.Name) > 256 {
+			return nil, false
+		}
+		qualified := column.Schema + "\x00" + column.Table
+		table, exists := byName[column.Table]
+		if exists && table.schema != column.Schema { // Preview names cannot disambiguate schemas.
+			return nil, false
+		}
+		if !exists {
+			id := browserTableID(datasource, column.Schema, column.Table)
+			if other, collision := byID[id]; collision && other != qualified {
+				return nil, false
+			}
+			byID[id] = qualified
+			table = &visibleBrowserTable{name: column.Table, schema: column.Schema, id: id}
+			byName[column.Table] = table
+		}
+		for _, prior := range table.columns {
+			if prior.Name == column.Name {
+				return nil, false
+			}
+		}
+		table.columns = append(table.columns, column)
+	}
+	tables := make([]visibleBrowserTable, 0, len(byName))
+	for _, table := range byName {
+		tables = append(tables, *table)
+	}
+	sort.Slice(tables, func(i, j int) bool { return tables[i].name < tables[j].name })
+	return tables, true
+}
+
+func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	columns, ok := h.datasourceSchema(w, r, p, token)
+	if !ok {
+		return
+	}
+	datasource := ID(r.PathValue("id"))
+	numeric, err := strconv.ParseInt(string(datasource), 10, 64)
+	tables, valid := visibleBrowserTables(datasource, columns)
+	if err != nil || numeric > maxSQLBotBrowserID || !valid {
+		failure(w, ErrGateway)
+		return
+	}
+	result := make([]map[string]any, 0, len(tables))
+	for _, table := range tables {
+		result = append(result, map[string]any{"id": table.id, "table_name": table.name,
+			"table_comment": "", "custom_comment": "", "embedding": nil,
+			"ds_id": numeric, "checked": true})
+	}
+	okay(w, result)
+}
+
+func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	tableID, err := strconv.ParseInt(r.PathValue("tableID"), 10, 64)
+	if err != nil || tableID < 1 || tableID > maxSQLBotBrowserID || strconv.FormatInt(tableID, 10) != r.PathValue("tableID") {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid table ID")
+		return
+	}
+	var input struct {
+		FieldName string `json:"fieldName"`
+	}
+	if !readBody(w, r, &input) {
+		return
+	}
+	if len(input.FieldName) > 256 {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid field name")
+		return
+	}
+	columns, ok := h.datasourceSchema(w, r, p, token)
+	if !ok {
+		return
+	}
+	datasource := ID(r.PathValue("id"))
+	numeric, err := strconv.ParseInt(string(datasource), 10, 64)
+	tables, valid := visibleBrowserTables(datasource, columns)
+	if err != nil || numeric > maxSQLBotBrowserID || !valid {
+		failure(w, ErrGateway)
+		return
+	}
+	for _, table := range tables {
+		if table.id != tableID {
+			continue
+		}
+		result := make([]map[string]any, 0, len(table.columns))
+		ids := make(map[int64]bool)
+		for index, column := range table.columns {
+			id := browserFieldID(tableID, column.Name)
+			if ids[id] {
+				failure(w, ErrGateway)
+				return
+			}
+			ids[id] = true
+			if !strings.Contains(strings.ToLower(column.Name), strings.ToLower(input.FieldName)) {
+				continue
+			}
+			result = append(result, map[string]any{"id": id, "field_name": column.Name,
+				"field_type": column.DataType, "field_index": index,
+				"field_comment": nil, "custom_comment": nil,
+				"ds_id": numeric, "table_id": tableID, "checked": true})
+		}
+		okay(w, result)
+		return
+	}
+	failure(w, ErrNotFound)
+}
 
 // These SQLBot-compatible metadata reads expose only the gateway's current
 // visible schema. They never inspect a database directly or return credentials.
@@ -183,5 +326,6 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, ErrGateway)
 		return
 	}
-	okay(w, map[string]any{"fields": result.Fields, "data": result.Data, "sql": sql})
+	okay(w, map[string]any{"fields": result.Fields, "data": result.Data,
+		"sql": base64.StdEncoding.EncodeToString([]byte(sql))})
 }

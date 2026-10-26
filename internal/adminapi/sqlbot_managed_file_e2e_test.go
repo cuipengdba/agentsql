@@ -172,6 +172,27 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	require.NoError(t, err)
 	handler = newHandler()
 	replay := childReply.Body
+	if childReply.Status != http.StatusOK {
+		var firstReply struct {
+			Data struct {
+				BindingID string `json:"binding_id"`
+				Sheets    []struct {
+					TableName string `json:"tableName"`
+				} `json:"sheets"`
+			} `json:"data"`
+		}
+		_ = json.Unmarshal(lostResponse, &firstReply)
+		tenantCtx, tenantErr := store.WithTenant(ctx, base.TenantID)
+		if tenantErr == nil {
+			item, itemErr := runtime.Store.ManagedFileImports().GetByRequestKey(tenantCtx, firstReply.Data.BindingID)
+			if itemErr == nil && len(firstReply.Data.Sheets) > 0 {
+				allowed, ownerErr := runtime.Store.ManagedFileImports().PublishedTableOwner(tenantCtx, firstReply.Data.BindingID, item.DatasourceID, item.AgentID, item.OwnerUserID, firstReply.Data.Sheets[0].TableName)
+				t.Logf("replay diagnostics: import=%s owner=%t ownerErr=%v", item.Status, allowed, ownerErr)
+			} else {
+				t.Logf("replay diagnostics: importErr=%v", itemErr)
+			}
+		}
+	}
 	require.Equal(t, http.StatusOK, childReply.Status, string(replay))
 	require.JSONEq(t, string(lostResponse), string(replay))
 	var result struct {
@@ -339,8 +360,26 @@ func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *
 		[]byte(`{}`), "application/json")
 	require.Equal(t, http.StatusOK, fields.Code, fields.Body.String())
 	require.Contains(t, fields.Body.String(), `"region"`)
+	// These are the paths sent by the unmodified SQLBot v1.10.2 datasource
+	// detail page, which uses numeric table IDs rather than getTables/getFields.
+	browserTables := call(http.MethodPost, "/api/v1/datasource/tableList/"+id, nil, "")
+	require.Equal(t, http.StatusOK, browserTables.Code, browserTables.Body.String())
+	var browserEnvelope struct {
+		Data []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"table_name"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(browserTables.Body.Bytes(), &browserEnvelope))
+	require.Len(t, browserEnvelope.Data, 1)
+	require.Equal(t, importEnvelope.Data.Sheets[0].TableName, browserEnvelope.Data[0].Name)
+	browserTableID := strconv.FormatInt(browserEnvelope.Data[0].ID, 10)
+	browserFields := call(http.MethodPost, "/api/v1/datasource/fieldList/"+id+"/"+browserTableID,
+		[]byte(`{"fieldName":""}`), "application/json")
+	require.Equal(t, http.StatusOK, browserFields.Code, browserFields.Body.String())
+	require.Contains(t, browserFields.Body.String(), `"field_name":"region"`)
 	previewBody, err := json.Marshal(map[string]any{"table": map[string]string{
-		"id": "1", "table_name": importEnvelope.Data.Sheets[0].TableName}})
+		"id": browserTableID, "table_name": importEnvelope.Data.Sheets[0].TableName}})
 	require.NoError(t, err)
 	preview := call(http.MethodPost, "/api/v1/datasource/previewData/"+id, previewBody, "application/json")
 	require.Equal(t, http.StatusOK, preview.Code, preview.Body.String())

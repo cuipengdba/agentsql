@@ -2,11 +2,69 @@ package chatbi
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestOriginalSQLBotBrowserDatasourceDetailRoutes(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	tables := request("/api/v1/datasource/tableList/10", "")
+	var tableResponse struct {
+		Data []struct {
+			ID      int64  `json:"id"`
+			Name    string `json:"table_name"`
+			Checked bool   `json:"checked"`
+			DSID    int64  `json:"ds_id"`
+		} `json:"data"`
+	}
+	if tables.Code != http.StatusOK || json.Unmarshal(tables.Body.Bytes(), &tableResponse) != nil || len(tableResponse.Data) != 1 ||
+		tableResponse.Data[0].ID < 1 || tableResponse.Data[0].ID > maxSQLBotBrowserID || tableResponse.Data[0].Name != "sales" ||
+		!tableResponse.Data[0].Checked || tableResponse.Data[0].DSID != 10 {
+		t.Fatalf("browser table list: %d %s", tables.Code, tables.Body.String())
+	}
+	tableID := strconv.FormatInt(tableResponse.Data[0].ID, 10)
+	fields := request("/api/v1/datasource/fieldList/10/"+tableID, `{"fieldName":"am"}`)
+	if fields.Code != http.StatusOK || !strings.Contains(fields.Body.String(), `"field_name":"amount"`) ||
+		!strings.Contains(fields.Body.String(), `"table_id":`+tableID) || !strings.Contains(fields.Body.String(), `"field_type":"numeric"`) {
+		t.Fatalf("browser field list: %d %s", fields.Code, fields.Body.String())
+	}
+	unknownID := tableResponse.Data[0].ID + 1
+	if unknownID > maxSQLBotBrowserID {
+		unknownID = 1
+	}
+	if w := request("/api/v1/datasource/fieldList/10/"+strconv.FormatInt(unknownID, 10), `{"fieldName":""}`); w.Code == http.StatusOK {
+		t.Fatal("unknown table ID selected visible columns")
+	}
+	if w := request("/api/v1/datasource/fieldList/11/"+tableID, `{"fieldName":""}`); w.Code == http.StatusOK {
+		t.Fatal("another datasource exposed table metadata")
+	}
+	gateway.afterSchema = func() {
+		gateway.afterSchema = nil
+		if err := service.Store.delete(context.Background(), bindingKey(principal, "10"), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := request("/api/v1/datasource/fieldList/10/"+tableID, `{"fieldName":""}`); w.Code == http.StatusOK || strings.Contains(w.Body.String(), "amount") {
+		t.Fatal("revoked browser field list leaked metadata")
+	}
+}
 
 func TestDatasourceSchemaRoutesUseCurrentBindingAndFailClosed(t *testing.T) {
 	service, p, gateway, _, token := serviceFixture(t)
@@ -92,6 +150,18 @@ func TestDatasourcePreviewUsesCurrentSchemaAndControlledQuery(t *testing.T) {
 	w := request("10", "sales")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"amount":"123"`) || gateway.lastQuery != `SELECT "amount" FROM "public"."sales" LIMIT 100` {
 		t.Fatalf("preview failed current controlled query: %d %s sql=%s", w.Code, w.Body.String(), gateway.lastQuery)
+	}
+	var preview struct {
+		Data struct {
+			SQL string `json:"sql"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(preview.Data.SQL)
+	if err != nil || string(decoded) != gateway.lastQuery {
+		t.Fatalf("original browser expects Base64 SQL: %s, %v", preview.Data.SQL, err)
 	}
 	before := gateway.queries
 	if w := request("10", "hidden"); w.Code == http.StatusOK || gateway.queries != before {

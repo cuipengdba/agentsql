@@ -1209,7 +1209,7 @@
     {
       "source": "docs/v4.1.0-design.md",
       "english": "docs/en/v4.1.0-design.md",
-      "source_sha256": "2c2b50e0d0365ad11a5c829e7401bcd5df92bf558ae041a7ad733dbc5c22bcd9"
+      "source_sha256": "78650705567b04ba755efb6f027f45e80274e4ada27b65f32de9b18f95a34cfb"
     },
     {
       "source": "docs/CHATBI.md",
@@ -1229,7 +1229,7 @@
     {
       "source": "docs/v4.2.0-design.md",
       "english": "docs/en/v4.2.0-design.md",
-      "source_sha256": "78ea5620127ac037f3d3770a5d647f104e2d3eb8f0d28d9db6d7e5c53b7d979b"
+      "source_sha256": "c61019540609581904f12cf3b208183d343885ce5cd800c4ac914fdb32f7fc0c"
     }
   ]
 }
