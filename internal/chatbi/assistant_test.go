@@ -9,7 +9,8 @@ import (
 func TestAssistantConfigurationIsScopedAuditedAndRevocable(t *testing.T) {
 	ctx := context.Background()
 	service, principal, _, _, _ := serviceFixture(t)
-	base := AssistantApplication{Name: "Sales assistant", Type: 1, Domain: "https://example.com", DatasourceIDs: []ID{"10"}, Configuration: `{"hint":"sales"}`, Enabled: true}
+	modelID := ID("20")
+	base := AssistantApplication{Name: "Sales assistant", Type: 1, Domain: "https://example.com", DatasourceIDs: []ID{"10"}, Configuration: `{"hint":"sales"}`, UseCustomModel: true, CustomModel: &modelID, Enabled: true}
 	if _, err := service.SaveAssistant(ctx, principal, base); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("non-admin create: %v", err)
 	}
@@ -63,6 +64,13 @@ func TestAssistantConfigurationIsScopedAuditedAndRevocable(t *testing.T) {
 	if _, err := service.SaveAssistant(ctx, principal, bad); !errors.Is(err, ErrInvalidAssistant) {
 		t.Fatalf("invalid config: %v", err)
 	}
+	bad = app
+	bad.ID, bad.Revision = "", 0
+	otherModelID := ID("21")
+	bad.CustomModel = &otherModelID
+	if _, err := service.SaveAssistant(ctx, principal, bad); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("unconfigured model: %v", err)
+	}
 	if err := service.DeleteAssistant(ctx, principal, app.ID, 1); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale delete: %v", err)
 	}
@@ -75,5 +83,16 @@ func TestAssistantConfigurationIsScopedAuditedAndRevocable(t *testing.T) {
 	logs, err := service.Store.list(ctx, "management-audit", "system", "system")
 	if err != nil || len(logs) != 3 {
 		t.Fatalf("management audit count %d: %v", len(logs), err)
+	}
+}
+
+func TestAssistantDomainsAcceptOriginalSemicolonListButRejectInsecureOrigins(t *testing.T) {
+	if !validAssistantDomain("https://one.example;https://two.example") || !validAssistantDomain("http://localhost:3000") {
+		t.Fatal("valid original-client domain list rejected")
+	}
+	for _, raw := range []string{"https://one.example;;https://two.example", "http://outside.example", "https://one.example/path", "https://one.example;https://one.example"} {
+		if validAssistantDomain(raw) {
+			t.Fatalf("invalid origin accepted: %q", raw)
+		}
 	}
 }

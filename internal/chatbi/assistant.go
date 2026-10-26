@@ -16,18 +16,20 @@ var ErrInvalidAssistant = errors.New("invalid assistant application")
 // AssistantApplication is a workspace-owned application configuration. It is
 // never a database credential or an authorization grant by itself.
 type AssistantApplication struct {
-	ID            ID        `json:"id,omitempty"`
-	Workspace     ID        `json:"oid,omitempty"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description,omitempty"`
-	Type          int       `json:"type"` // 0 basic, 1 advanced, 4 page embed
-	Domain        string    `json:"domain"`
-	DatasourceIDs []ID      `json:"datasource_ids"`
-	Configuration string    `json:"configuration,omitempty"`
-	Enabled       bool      `json:"enabled"`
-	Created       time.Time `json:"created_at"`
-	Updated       time.Time `json:"updated_at"`
-	Revision      int64     `json:"revision"`
+	ID             ID        `json:"id,omitempty"`
+	Workspace      ID        `json:"oid,omitempty"`
+	Name           string    `json:"name"`
+	Description    string    `json:"description,omitempty"`
+	Type           int       `json:"type"` // 0 basic, 1 advanced, 4 page embed
+	Domain         string    `json:"domain"`
+	DatasourceIDs  []ID      `json:"datasource_ids"`
+	Configuration  string    `json:"configuration,omitempty"`
+	UseCustomModel bool      `json:"enable_custom_model"`
+	CustomModel    *ID       `json:"custom_model,omitempty"`
+	Enabled        bool      `json:"enabled"`
+	Created        time.Time `json:"created_at"`
+	Updated        time.Time `json:"updated_at"`
+	Revision       int64     `json:"revision"`
 }
 
 func assistantKey(workspace, id ID) objectKey {
@@ -38,7 +40,7 @@ func validAssistantDomain(raw string) bool {
 	if raw == "" || len(raw) > 255 || strings.TrimSpace(raw) != raw {
 		return false
 	}
-	parts := strings.Split(raw, ",")
+	parts := strings.Split(strings.ReplaceAll(raw, ";", ","), ",")
 	if len(parts) > 8 {
 		return false
 	}
@@ -113,6 +115,17 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 		if json.Unmarshal([]byte(app.Configuration), &config) != nil || config == nil {
 			return AssistantApplication{}, ErrInvalidAssistant
 		}
+	}
+	if app.UseCustomModel {
+		if app.CustomModel == nil || !app.CustomModel.Valid() {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+		var model ModelConfig
+		if _, err := service.Store.get(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &model); err != nil || validateModelConfig(model) != nil || model.ID != *app.CustomModel {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+	} else {
+		app.CustomModel = nil
 	}
 	seen := map[ID]bool{}
 	for _, source := range app.DatasourceIDs {

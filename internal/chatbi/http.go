@@ -61,6 +61,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
+	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
+	h.mux.HandleFunc("GET /api/v1/system/aimodel/list/by_ws", h.auth(h.assistantWorkspaceModels))
 	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
 	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.auth(h.getExcelDatasource))
 	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
@@ -129,6 +131,11 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/agentsql/assistants/{id}", h.auth(h.assistantRead))
 	h.mux.HandleFunc("PUT /api/v1/agentsql/assistants/{id}", h.auth(h.assistantSave))
 	h.mux.HandleFunc("DELETE /api/v1/agentsql/assistants/{id}", h.auth(h.assistantDelete))
+	h.mux.HandleFunc("GET /api/v1/system/assistant", h.auth(h.legacyAssistantList))
+	h.mux.HandleFunc("GET /api/v1/system/assistant/advanced_application", h.auth(h.legacyAssistantList))
+	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
+	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
+	h.mux.HandleFunc("DELETE /api/v1/system/assistant/{id}", h.auth(h.legacyAssistantDelete))
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {

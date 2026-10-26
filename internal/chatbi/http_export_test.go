@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -181,8 +182,18 @@ func TestCSVExportRequeriesAndAuditsBeforeRelease(t *testing.T) {
 	if err != nil || len(after) != len(before)+1 {
 		t.Fatalf("export audit missing: %v", err)
 	}
-	if receipts, err := s.Store.list(ctx, "export-receipt", string(p.Workspace), string(p.User.ID)); err != nil || len(receipts) != 1 || strings.Contains(string(receipts[0]), "123") {
-		t.Fatalf("export receipt leaked rows or was missing: %v", err)
+	receipts, err := s.Store.list(ctx, "export-receipt", string(p.Workspace), string(p.User.ID))
+	if err != nil || len(receipts) != 1 {
+		t.Fatalf("export receipt missing: %v", err)
+	}
+	var receipt map[string]json.RawMessage
+	if json.Unmarshal(receipts[0], &receipt) != nil || len(receipt) != 5 || string(receipt["record"]) != `"`+string(record.ID)+`"` || string(receipt["rows"]) != "1" || string(receipt["audit_id"]) != "1" {
+		t.Fatalf("export receipt has unexpected fields or values: %s", receipts[0])
+	}
+	for _, field := range []string{"record", "datasource", "audit_id", "rows", "time"} {
+		if _, okay := receipt[field]; !okay {
+			t.Fatalf("export receipt missing %q: %s", field, receipts[0])
+		}
 	}
 	gateway.audit = 0
 	unaudited := request(token)
@@ -202,7 +213,7 @@ func TestCSVExportRequeriesAndAuditsBeforeRelease(t *testing.T) {
 	if denied.Code == http.StatusOK || strings.Contains(denied.Body.String(), "123") || gateway.queries != previousQueries+1 {
 		t.Fatalf("revoked export released rows: %d", denied.Code)
 	}
-	receipts, err := s.Store.list(ctx, "export-receipt", string(p.Workspace), string(p.User.ID))
+	receipts, err = s.Store.list(ctx, "export-receipt", string(p.Workspace), string(p.User.ID))
 	if err != nil || len(receipts) != 1 {
 		t.Fatal("revoked export created a receipt")
 	}
