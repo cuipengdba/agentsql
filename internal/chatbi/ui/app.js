@@ -12,8 +12,8 @@ Object.assign(copy.en, {
   semanticNav:'Business semantics',semanticTitle:'Business semantics',semanticIntro:'Terms and SQL examples provide context for authorized Q&A; they never bypass current database permissions.',semanticAdd:'Add',terms:'Terms',examples:'SQL examples',search:'Search',termWord:'Term',description:'Description',aliases:'Aliases (comma separated)',termSources:'Limit to datasources (optional)',exampleQuestion:'Example question',exampleSQL:'Example SQL',exampleSource:'Datasource',enabled:'Enabled',disabled:'Disabled',save:'Save',formCancel:'Cancel',previous:'Previous',next:'Next',edit:'Edit',remove:'Delete',disable:'Disable',enable:'Enable',noSemantic:'No records yet',semanticSaved:'Saved',semanticDeleted:'Deleted',confirmDelete:'Delete this record?',items:'items',newTerm:'Add term',editTerm:'Edit term',newExample:'Add SQL example',editExample:'Edit SQL example',sourceRequired:'Configure an authorized datasource first.'
 });
 Object.assign(copy.en, {sourceNav:'Datasources',sourceTitle:'Datasources',sourceIntro:'Explore your currently authorized datasources, tables, and fields. Previews still run through the controlled gateway.',sourceEmpty:'No datasources are available',tableEmpty:'No visible tables',fieldEmpty:'No visible fields',previewEmpty:'No rows returned for this preview',previewTitle:'Preview (up to 100 rows)',sourceLoading:'Loading metadata under current permissions…'});
-Object.assign(copy['zh-CN'], {suggestions:'推荐问题',positioning:'AgentSQL 提供独立问数页面，也可作为现有 SQLBot 的数据库安全网关。可用范围以当前发布说明为准。',renameChat:'重命名',deleteChat:'删除',renamePrompt:'对话名称（最多 64 个字）',deletePrompt:'确定删除这个对话？',invalidChatName:'对话名称须为 1–64 个字。'});
-Object.assign(copy.en, {suggestions:'Suggested questions',positioning:'AgentSQL has its own Q&A interface and can also secure database access for an existing SQLBot deployment. See the current release notes for verified scope.',renameChat:'Rename',deleteChat:'Delete',renamePrompt:'Conversation name (up to 64 characters)',deletePrompt:'Delete this conversation?',invalidChatName:'The conversation name must be 1–64 characters.'});
+Object.assign(copy['zh-CN'], {suggestions:'推荐问题',positioning:'AgentSQL 提供独立问数页面，也可作为现有 SQLBot 的数据库安全网关。可用范围以当前发布说明为准。',renameChat:'重命名',deleteChat:'删除',renamePrompt:'对话名称（最多 64 个字）',deletePrompt:'确定删除这个对话？',invalidChatName:'对话名称须为 1–64 个字。',searchChats:'搜索对话',noMatchingChats:'没有匹配的对话'});
+Object.assign(copy.en, {suggestions:'Suggested questions',positioning:'AgentSQL has its own Q&A interface and can also secure database access for an existing SQLBot deployment. See the current release notes for verified scope.',renameChat:'Rename',deleteChat:'Delete',renamePrompt:'Conversation name (up to 64 characters)',deletePrompt:'Delete this conversation?',invalidChatName:'The conversation name must be 1–64 characters.',searchChats:'Search conversations',noMatchingChats:'No matching conversations'});
 Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSource:'推荐问题的数据源',recommendationQuestions:'每行一个问题，最多 20 个',recommendationPlaceholder:'例如：按地区查看销售额',recommendationNote:'推荐问题只填入提问框；点击发送后仍按当前权限执行并审计。',recommendationInvalid:'最多 20 个问题，每个问题不超过 500 字。'});
 Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
@@ -21,7 +21,7 @@ copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[];
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -45,9 +45,11 @@ async function loadSuggestions(){
     $('suggestions').hidden=!$('suggestion-list').childElementCount;
   }catch{ /* Suggestions are optional; authorization failures never expose stale items. */ }
 }
-async function history(){
-  const items=await api('/chat/list');$('history').replaceChildren();
-  items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));
+function renderHistory(){
+  const nav=$('history');nav.replaceChildren();
+  const query=$('history-search').value.trim().toLocaleLowerCase();
+  const items=historyItems.filter(item=>String(item.brief||'').toLocaleLowerCase().includes(query));
+  if(query&&items.length===0){nav.append(node('p',t('noMatchingChats'),'history-empty'));return;}
   for(const item of items){
     const row=node('div',undefined,'history-row');
     const button=node('button',item.brief,'history-open');button.type='button';
@@ -66,8 +68,14 @@ async function history(){
         if(String(item.id)===String(current)){$('new-chat').click();}else await history();status('');
       }catch{status(t('failed'),true);}
     };
-    row.append(button,rename,remove);$('history').append(row);
+    row.append(button,rename,remove);nav.append(row);
   }
+}
+async function history(){
+  const epoch=++historyEpoch,items=await api('/chat/list');
+  if(epoch!==historyEpoch||!token)return;
+  historyItems=items.sort((a,b)=>new Date(b.latest_record_time)-new Date(a.latest_record_time));
+  renderHistory();
 }
 async function enter(){
   const user=await api('/user/info');
@@ -282,6 +290,7 @@ async function open(id){if(controller)return;closeMenu();showQA();status(t('read
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
 $('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));void loadSuggestions();$('question').focus();};
+$('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('sources-nav').onclick=()=>{void showSources();};
@@ -297,7 +306,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current)open(current);};
+$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current)open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
