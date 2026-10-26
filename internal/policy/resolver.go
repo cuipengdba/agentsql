@@ -58,6 +58,9 @@ func (resolver *Resolver) Resolve(
 				stored.Action,
 			)
 		}
+		if stored.RowFilter != nil {
+			return nil, fmt.Errorf("resolve policy at position %d: row filters are not yet executable", index)
+		}
 		if objectType == "key_field" {
 			keyScope, field, err := ParseHashFieldScope(stored.ObjectName)
 			if err != nil {

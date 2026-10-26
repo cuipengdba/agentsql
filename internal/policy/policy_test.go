@@ -93,6 +93,8 @@ func TestResolverRejectsInvalidInputs(t *testing.T) {
 		{name: "column with empty identifier", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.orders", Columns: stringPointer("id,,total"), Action: "allow"}}},
 		{name: "column wildcard object", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.*", Columns: &columns, Action: "allow"}}},
 		{name: "column deny unsupported", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.orders", Columns: &columns, Action: "deny"}}},
+		{name: "table row filter cannot be silently ignored", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "table", ObjectName: "public.orders", RowFilter: stringPointer("region = 'west'"), Action: "allow"}}},
+		{name: "column row filter cannot be silently ignored", resolver: NewResolver(), level: "readonly", policies: []model.Policy{{ObjectType: "column", ObjectName: "public.orders", Columns: &columns, RowFilter: stringPointer(""), Action: "allow"}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

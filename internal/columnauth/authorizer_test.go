@@ -24,6 +24,14 @@ func TestAuthorizeFrozenPriorityAndProof(t *testing.T) {
 		{"wide deny beats exact allow", func(input *Input) {
 			input.Policies = append(input.Policies, model.Policy{ObjectType: "schema", ObjectName: "public.*", Action: "deny"})
 		}, ReasonRelationDenied},
+		{"row filter cannot be silently ignored", func(input *Input) {
+			filter := "region = 'west'"
+			input.Policies[0].RowFilter = &filter
+		}, ReasonRowFilterUnsupported},
+		{"column row filter cannot be silently ignored", func(input *Input) {
+			filter := ""
+			input.Policies[1].RowFilter = &filter
+		}, ReasonRowFilterUnsupported},
 		{"missing relation before catalog", func(input *Input) {
 			input.Policies = nil
 			input.CatalogConsistent = false
@@ -79,6 +87,9 @@ func TestAuthorizeFrozenPriorityAndProof(t *testing.T) {
 
 	otherAgent := base
 	otherAgent.Policies = append(otherAgent.Policies, model.Policy{AgentID: "other", DatasourceID: "ds", ObjectType: "schema", ObjectName: "public.*", Action: "deny"})
+	requireDecision(t, otherAgent, true, ReasonAllow)
+	filter := "region = 'west'"
+	otherAgent.Policies = append(otherAgent.Policies, model.Policy{AgentID: "other", DatasourceID: "ds", ObjectType: "table", ObjectName: "public.customers", RowFilter: &filter, Action: "allow"})
 	requireDecision(t, otherAgent, true, ReasonAllow)
 }
 

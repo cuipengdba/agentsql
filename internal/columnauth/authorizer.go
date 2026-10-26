@@ -24,6 +24,7 @@ const (
 	ReasonStatementDenied       Reason = "AUTH_STATEMENT_CLASS_DENIED"
 	ReasonDatasourceUnsupported Reason = "AUTH_DATASOURCE_UNSUPPORTED"
 	ReasonRelationDenied        Reason = "AUTH_RELATION_DENIED"
+	ReasonRowFilterUnsupported  Reason = "AUTH_ROW_FILTER_UNSUPPORTED"
 	ReasonRelationGrantMissing  Reason = "AUTH_RELATION_GRANT_MISSING"
 	ReasonIdentityUnproven      Reason = "AUTH_IDENTITY_UNPROVEN"
 	ReasonColumnGrantMissing    Reason = "AUTH_COLUMN_GRANT_MISSING"
@@ -181,6 +182,13 @@ func Authorize(input Input) ProtectionPlan {
 		for _, policy := range input.Policies {
 			if policyApplies(policy, input) && policy.Action == "deny" && policy.ObjectType != "column" && relationPolicyMatches(policy, relation) {
 				return deny(ReasonRelationDenied)
+			}
+		}
+	}
+	for _, relation := range input.Relations {
+		for _, policy := range input.Policies {
+			if policyApplies(policy, input) && policy.RowFilter != nil && relationPolicyMatches(policy, relation) {
+				return deny(ReasonRowFilterUnsupported)
 			}
 		}
 	}
