@@ -16,6 +16,8 @@ Object.assign(copy['zh-CN'], {suggestions:'推荐问题',positioning:'AgentSQL �
 Object.assign(copy.en, {suggestions:'Suggested questions',positioning:'AgentSQL has its own Q&A interface and can also secure database access for an existing SQLBot deployment. See the current release notes for verified scope.',renameChat:'Rename',deleteChat:'Delete',renamePrompt:'Conversation name (up to 64 characters)',deletePrompt:'Delete this conversation?',invalidChatName:'The conversation name must be 1–64 characters.',searchChats:'Search conversations',noMatchingChats:'No matching conversations'});
 Object.assign(copy['zh-CN'], {recommendations:'推荐问题',recommendationSource:'推荐问题的数据源',recommendationQuestions:'每行一个问题，最多 20 个',recommendationPlaceholder:'例如：按地区查看销售额',recommendationNote:'推荐问题只填入提问框；点击发送后仍按当前权限执行并审计。',recommendationInvalid:'最多 20 个问题，每个问题不超过 500 字。'});
 Object.assign(copy.en, {recommendations:'Suggestions',recommendationSource:'Datasource for suggestions',recommendationQuestions:'One question per line, up to 20',recommendationPlaceholder:'For example: show revenue by region',recommendationNote:'A suggestion only fills the composer. Submitting it still checks current permissions and records an audit.',recommendationInvalid:'Use at most 20 questions, each at most 500 characters.'});
+Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exporting:'正在按当前权限准备 CSV…'});
+Object.assign(copy.en, {exportCSV:'Export CSV',exporting:'Preparing CSV under current permissions…'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
@@ -94,7 +96,22 @@ async function enter(){
   await history();
   void loadSuggestions();
 }
-function show(chat){$('welcome').hidden=true;$('conversation').replaceChildren();for(const record of chat.records||[]){const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));const answer=node('div',undefined,'answer');if(record.error){answer.append(node('p',t('failed'),'error'));}else if(!record.finish){answer.append(node('p',t('unfinished')));}else if(record.data){const data=record.data;if(!data.data?.length){answer.append(node('p',t('noRows')));}else{const wrap=node('div',undefined,'table-wrap');const table=node('table');const head=node('thead');const hrow=node('tr');for(const field of data.fields||[])hrow.append(node('th',field));head.append(hrow);table.append(head);const body=node('tbody');for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}table.append(body);wrap.append(table);answer.append(wrap);}answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));}if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}turn.append(answer);$('conversation').append(turn);}$('conversation').scrollTop=$('conversation').scrollHeight;}
+function show(chat){$('welcome').hidden=true;$('conversation').replaceChildren();for(const record of chat.records||[]){const turn=node('article',undefined,'turn');turn.append(node('div',record.question,'question-text'));const answer=node('div',undefined,'answer');if(record.error){answer.append(node('p',t('failed'),'error'));}else if(!record.finish){answer.append(node('p',t('unfinished')));}else if(record.data){const data=record.data;if(!data.data?.length){answer.append(node('p',t('noRows')));}else{const wrap=node('div',undefined,'table-wrap');const table=node('table');const head=node('thead');const hrow=node('tr');for(const field of data.fields||[])hrow.append(node('th',field));head.append(hrow);table.append(head);const body=node('tbody');for(const item of data.data){const row=node('tr');for(const field of data.fields||[])row.append(node('td',item[field]===null?'—':String(item[field]??'')));body.append(row);}table.append(body);wrap.append(table);answer.append(wrap);}answer.append(node('div',`${data.data?.length||0} ${t('rows')} · ${t('audit')} #${data.audit_id}`,'audit'));const exportButton=node('button',t('exportCSV'),'export-button');exportButton.type='button';exportButton.onclick=()=>void downloadCSV(record.id,exportButton);answer.append(exportButton);}if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}turn.append(answer);$('conversation').append(turn);}$('conversation').scrollTop=$('conversation').scrollHeight;}
+async function downloadCSV(id,button){
+  if(controller||!token)return;
+  button.disabled=true;status(t('exporting'));
+  try{
+    const response=await fetch(apiRoot+'/agentsql/record/'+encodeURIComponent(String(id))+'/export.csv',{
+      headers:{'X-SQLBOT-TOKEN':'Bearer '+token}
+    });
+    if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}
+    if(!response.ok)throw new Error('export');
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download='agentsql-record-'+String(id)+'.csv';document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);status('');
+  }catch{status(t('failed'),true);}finally{button.disabled=false;}
+}
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function showQA(){

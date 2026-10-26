@@ -126,6 +126,9 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 				if err != nil {
 					return Record{}, err
 				}
+				if data.AuditID <= 0 {
+					return Record{}, ErrGateway
+				}
 				if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
 					return Record{}, err
 				}
@@ -332,6 +335,9 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 			data, err := service.Gateway.Query(ctx, p, binding, record.SQL)
 			if err != nil {
 				return Chat{}, err
+			}
+			if data.AuditID <= 0 {
+				return Chat{}, ErrGateway
 			}
 			record.Data = &data
 		}

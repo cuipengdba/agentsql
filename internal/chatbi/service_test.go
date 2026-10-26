@@ -520,6 +520,11 @@ func TestQuestionPersistsBeforeDeliveryAndProtectsHistory(t *testing.T) {
 	if _, err := s.ReadChat(ctx, p, chat.ID, true); !errors.Is(err, ErrGateway) {
 		t.Fatal("cached rows bypassed current permissions")
 	}
+	g.queryErr = nil
+	g.audit = 0
+	if _, err := s.ReadChat(ctx, p, chat.ID, true); !errors.Is(err, ErrGateway) {
+		t.Fatal("historical read accepted a result without durable query audit")
+	}
 	other := testUser(t, "2", "other")
 	if err := s.Store.CreateUser(ctx, other); err != nil {
 		t.Fatal(err)
