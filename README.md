@@ -54,7 +54,7 @@ v4.0.0 增加完整发行资产的本地验签、离线运输包、固定字段�
 
 v4.1.0 增加 Go 原生问数、普通账号登录兼容、PostgreSQL/MySQL 单轮查询、加密会话、双语界面及离线原生服务安装。这是 SQLBot 社区版替换计划的首个里程碑，尚未完成全部功能和接入方式兼容。见[问数指南](docs/CHATBI.md)与[发布说明](docs/release-notes-v4.1.0.md)。
 
-v4.2.0 候选加入最多三轮的授权问数上下文、术语和推荐问题、受控 CSV/XLSX 文件数据源，以及 PostgreSQL 窄范围行规则。未修改的 SQLBot v1.10.2 浏览器已在本机合成数据上完成文件导入、预览、问数、历史重查和 Excel 下载对照；全部页面与现有业务系统零改动替换尚未验收。见[候选发布说明](docs/release-notes-v4.2.0.md)与[设计记录](docs/v4.2.0-design.md)。
+v4.2.0 已正式加入最多三轮的授权问数上下文、术语和推荐问题、受控 CSV/XLSX 文件数据源，以及 PostgreSQL 窄范围行规则。未修改的 SQLBot v1.10.2 浏览器已在本机合成数据上完成文件导入、预览、问数、历史重查和 Excel 下载对照；全部页面与现有业务系统零改动替换尚未验收。见[发布说明](docs/release-notes-v4.2.0.md)与[设计记录](docs/v4.2.0-design.md)。
 
 **验证范围：**v1.0.0–v2.8.0 的数据库及安全能力分别见各版验收记录；v2.9.0 策略评审与审计见[验收记录](docs/v2.9.0-acceptance.md)；v3.0.0 能力目录、诊断与客户端见[验收记录](docs/v3.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.2.0)、签名及镜像匿名拉取验收为准。
 

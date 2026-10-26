@@ -2,7 +2,7 @@
 
 [Simplified Chinese](../CHATBI.md) | [English](CHATBI.md)
 
-v4.1.0 introduced a separate Go Q&A service; the v4.2.0 candidate adds multi-turn context, business terms, recommended questions and controlled CSV/XLSX file datasources. The service reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. Current functionality includes ordinary-account login, PostgreSQL/MySQL questions, conversation history, SQL and table results, and Chinese/English and light/dark interfaces. This does not yet replace every SQLBot Community feature; see the [version design](v4.1.0-design.md) for the five-release goal.
+v4.1.0 introduced a separate Go Q&A service; the released v4.2.0 adds multi-turn context, business terms, recommended questions and controlled CSV/XLSX file datasources. The service reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. Current functionality includes ordinary-account login, PostgreSQL/MySQL questions, conversation history, SQL and table results, and Chinese/English and light/dark interfaces. This does not yet replace every SQLBot Community feature; see the [version design](v4.1.0-design.md) for the five-release goal.
 
 ## Installation and startup
 
@@ -101,7 +101,7 @@ The exporter creates a new file with `0600` permissions. A batch supports at mos
 
 Administrators can upload CSV/XLSX files in AgentSQL's own Q&A page, preview sheets, select field types and publish into a preconfigured isolated PostgreSQL managed datasource. The original SQLBot v1.10.2 browser was also checked locally with synthetic CSV/XLSX import, sheet selection, controlled preview and deletion. Original file bytes are staged encrypted for the current user. The server reparses the original file and publishes through a separate child binding, exact table/column policies and durable audit. Browser-supplied connections, table names or SQL do not broaden authorization. When only some sheets are selected, unselected tables cannot be queried through that datasource.
 
-The three-turn Q&A context uses only successful questions and SQL, never historical result rows. Terms, examples and recommended questions are retrieved only for the currently authorized datasource; SQL examples are model references, while final queries still pass through the controlled gateway. Historical results and CSV/XLSX exports requery and audit under the current identity, binding and policies. PostgreSQL row rules admit only the verified narrow single-table predicates; queries that cannot be proved are rejected. See the [v4.2.0 candidate release notes](release-notes-v4.2.0.md) for details and open items.
+The three-turn Q&A context uses only successful questions and SQL, never historical result rows. Terms, examples and recommended questions are retrieved only for the currently authorized datasource; SQL examples are model references, while final queries still pass through the controlled gateway. Historical results and CSV/XLSX exports requery and audit under the current identity, binding and policies. PostgreSQL row rules admit only the verified narrow single-table predicates; queries that cannot be proved are rejected. See the [v4.2.0 release notes](release-notes-v4.2.0.md) for details and open items.
 
 ## Upgrade, recovery and boundaries
 
