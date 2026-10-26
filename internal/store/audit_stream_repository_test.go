@@ -58,6 +58,7 @@ func TestAuditStreamTenantCursorBackfillAndRollback(t *testing.T) {
 	require.NoError(t, transaction.Rollback())
 	assertStream()
 
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 29))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 28))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 27))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.auditDB, DialectSQLite, false, 26))

@@ -98,8 +98,8 @@ func (r *ManagedFileImportRepository) Begin(ctx context.Context, binding SQLBotB
 	result, err := tx.ExecContext(ctx, r.bind(`INSERT INTO managed_file_imports
   (id,tenant_id,binding_id,binding_revision,workspace_id,owner_user_id,agent_id,datasource_id,file_sha256,file_bytes,sheet_count,status,revision)
   SELECT ?,tenant_id,id,revision,workspace_id,agentsql_user_id,agent_id,datasource_id,?,?,?,'preparing',1
-  FROM sqlbot_bindings WHERE id=? AND tenant_id=? AND enabled=? AND revision=? AND workspace_id=?
-    AND agentsql_user_id=? AND agent_id=? AND datasource_id=?`), id, fileSHA256, fileBytes, sheetCount,
+  FROM sqlbot_bindings b WHERE b.id=? AND b.tenant_id=? AND b.enabled=? AND b.revision=? AND b.workspace_id=?
+    AND b.agentsql_user_id=? AND b.agent_id=? AND b.datasource_id=? AND `+sqlbotParentActive), id, fileSHA256, fileBytes, sheetCount,
 		binding.ID, tenant, true, binding.Revision, binding.WorkspaceID, binding.AgentSQLUserID, binding.AgentID, binding.DatasourceID)
 	if err != nil {
 		return ManagedFileImport{}, err
@@ -198,7 +198,8 @@ func (r *ManagedFileImportRepository) advanceWithPolicyEvidence(ctx context.Cont
 		AND EXISTS(SELECT 1 FROM sqlbot_bindings b WHERE b.id=managed_file_imports.binding_id
 			AND b.tenant_id=managed_file_imports.tenant_id AND b.enabled=TRUE AND b.revision=managed_file_imports.binding_revision
 			AND b.workspace_id=managed_file_imports.workspace_id AND b.agent_id=managed_file_imports.agent_id
-			AND b.datasource_id=managed_file_imports.datasource_id AND b.agentsql_user_id=managed_file_imports.owner_user_id)`),
+			AND b.datasource_id=managed_file_imports.datasource_id AND b.agentsql_user_id=managed_file_imports.owner_user_id
+			AND `+sqlbotParentActive+`)`),
 		to, id, tenant, actor, revision, from)
 	if err != nil {
 		return ManagedFileImport{}, err
@@ -344,6 +345,7 @@ func (r *ManagedFileImportRepository) PublishedTableOwner(ctx context.Context, b
 		WHERE t.tenant_id=? AND t.table_name=? AND i.binding_id=? AND i.datasource_id=? AND i.agent_id=? AND i.owner_user_id=?
 		AND i.status='published' AND b.enabled=TRUE AND b.revision=i.binding_revision
 		AND b.workspace_id=i.workspace_id AND b.agent_id=i.agent_id AND b.datasource_id=i.datasource_id AND b.agentsql_user_id=i.owner_user_id
+		AND `+sqlbotParentActive+`
 		AND EXISTS(SELECT 1 FROM policy_column_permissions c WHERE c.policy_id=p.id
 			AND c.relation_enrollment_id=e.id AND c.parent_revision=p.revision AND c.usage='output')`),
 		tenant, tableName, bindingID, datasourceID, agentID, ownerUserID).Scan(&count)
@@ -376,8 +378,9 @@ func (r *ManagedFileImportRepository) ListPending(ctx context.Context, limit int
 	return items, rows.Err()
 }
 
-// ListRecoverableByDatasource bounds recovery to unfinished imports and
-// published operations whose audited deletion has already begun.
+// ListRecoverableByDatasource bounds recovery to unfinished imports, audited
+// deletions, and published tables whose binding or parent has been revoked.
+// A healthy published table is never selected for physical cleanup.
 func (r *ManagedFileImportRepository) ListRecoverableByDatasource(ctx context.Context, datasourceID string, limit int) ([]ManagedFileImport, error) {
 	tenant, err := r.requireTenant(ctx, "list pending managed file imports by datasource")
 	if err != nil {
@@ -386,7 +389,14 @@ func (r *ManagedFileImportRepository) ListRecoverableByDatasource(ctx context.Co
 	if datasourceID == "" || limit < 1 || limit > 1000 {
 		return nil, ErrManagedFileState
 	}
-	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports WHERE tenant_id=? AND datasource_id=? AND status IN ('preparing','staged','policy_ready','deleting','cleanup_needed') ORDER BY created_at,id LIMIT ?`), tenant, datasourceID, limit)
+	rows, err := r.db.QueryContext(ctx, r.bind(`SELECT `+managedFileImportColumns+` FROM managed_file_imports
+		WHERE tenant_id=? AND datasource_id=? AND (status IN ('preparing','staged','policy_ready','deleting','cleanup_needed')
+		OR (status='published' AND NOT EXISTS(SELECT 1 FROM sqlbot_bindings b
+			WHERE b.id=managed_file_imports.binding_id AND b.tenant_id=managed_file_imports.tenant_id
+			AND b.enabled=TRUE AND b.revision=managed_file_imports.binding_revision
+			AND b.workspace_id=managed_file_imports.workspace_id AND b.agentsql_user_id=managed_file_imports.owner_user_id
+			AND b.agent_id=managed_file_imports.agent_id AND b.datasource_id=managed_file_imports.datasource_id
+			AND `+sqlbotParentActive+`))) ORDER BY created_at,id LIMIT ?`), tenant, datasourceID, limit)
 	if err != nil {
 		return nil, err
 	}

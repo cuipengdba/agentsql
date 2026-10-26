@@ -295,7 +295,8 @@ var sqliteToPostgresTables = []migrationTable{
 		{name: "agent_id", kind: migrationText}, {name: "datasource_id", kind: migrationText},
 		{name: "schema_name", kind: migrationText}, {name: "numeric_columns", kind: migrationText},
 		{name: "agent_key_env", kind: migrationText}, {name: "connector_token_env", kind: migrationText},
-		{name: "connector_token_hash", kind: migrationText}, {name: "enabled", kind: migrationBool},
+		{name: "connector_token_hash", kind: migrationText}, {name: "parent_binding_id", kind: migrationText},
+		{name: "parent_binding_revision", kind: migrationInt64}, {name: "enabled", kind: migrationBool},
 		{name: "revision", kind: migrationInt64}, {name: "created_at", kind: migrationTime}, {name: "updated_at", kind: migrationTime},
 	}},
 	{name: "managed_file_imports", pkIndex: 0, target: migrationTargetMetadata, columns: []migrationColumn{

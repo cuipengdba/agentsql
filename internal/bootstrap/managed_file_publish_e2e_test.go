@@ -80,6 +80,7 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 		WorkspaceID: baseBinding.WorkspaceID, DatasourceName: "managed-file-e2e-child",
 		SQLBotUserID: baseBinding.SQLBotUserID, AgentSQLUserID: baseBinding.AgentSQLUserID,
 		AgentID: baseBinding.AgentID, DatasourceID: baseBinding.DatasourceID, SchemaName: "agentsql_files", Enabled: true,
+		ParentBindingID: baseBinding.ID, ParentRevision: baseBinding.Revision,
 	}, principal.UserID)
 	require.NoError(t, err)
 	writer := reader
@@ -136,6 +137,26 @@ func TestManagedFilePublishPostgresEndToEnd(t *testing.T) {
 	require.Equal(t, "deleted", current.Status)
 	require.NoError(t, runtime.DeleteSQLBotFile(ctx, principal, binding, published.ID, physical), "a client retry after physical deletion is idempotent")
 	var stillExists bool
+	require.NoError(t, admin.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "agentsql_files."+tables[0].Name).Scan(&stillExists))
+	require.False(t, stillExists)
+	staged, tables, err = runtime.StageSQLBotFile(ctx, principal, binding, strings.Repeat("b", 64), 64, sheets, physical)
+	require.NoError(t, err)
+	published, err = runtime.PublishSQLBotFile(ctx, principal, binding, staged, tables, sheets, physical)
+	require.NoError(t, err)
+	_, _, err = runtime.Store.SQLBotBindings().Rotate(ctx, baseBinding.ID, baseBinding.Revision, principal.UserID)
+	require.NoError(t, err)
+	_, err = runtime.Store.SQLBotBindings().ValidateRuntime(ctx, binding.ID, binding.Revision, binding.AgentID, binding.AgentSQLUserID)
+	require.ErrorIs(t, err, store.ErrSQLBotBindingDenied)
+	visible, err = runtime.Store.ManagedFileImports().PublishedTableOwner(ctx, binding.ID, binding.DatasourceID,
+		binding.AgentID, binding.AgentSQLUserID, tables[0].Name)
+	require.NoError(t, err)
+	require.False(t, visible)
+	cleaned, err = runtime.RecoverUnpublishedSQLBotFiles(ctx, store.DefaultTenantID, physical)
+	require.NoError(t, err)
+	require.Equal(t, 1, cleaned, "startup recovery must remove a revoked child's published table")
+	current, err = runtime.Store.ManagedFileImports().Get(ctx, published.ID)
+	require.NoError(t, err)
+	require.Equal(t, "deleted", current.Status)
 	require.NoError(t, admin.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "agentsql_files."+tables[0].Name).Scan(&stillExists))
 	require.False(t, stillExists)
 }

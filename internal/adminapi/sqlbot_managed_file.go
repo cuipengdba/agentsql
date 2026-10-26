@@ -95,6 +95,7 @@ func (handler *Handler) sqlbotManagedFileImport(writer http.ResponseWriter, requ
 		WorkspaceID: binding.WorkspaceID, DatasourceName: "agentsql-import-" + hex.EncodeToString(seed[:]),
 		SQLBotUserID: binding.SQLBotUserID, AgentSQLUserID: binding.AgentSQLUserID,
 		AgentID: binding.AgentID, DatasourceID: binding.DatasourceID, SchemaName: "agentsql_files",
+		ParentBindingID: binding.ID, ParentRevision: binding.Revision,
 		AgentKeyEnv: binding.AgentKeyEnv, ConnectorTokenEnv: binding.ConnectorTokenEnv, Enabled: true,
 	}, principal.UserID)
 	if err != nil {

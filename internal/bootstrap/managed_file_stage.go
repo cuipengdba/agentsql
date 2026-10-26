@@ -92,8 +92,8 @@ func (runtime *Runtime) StageSQLBotFile(ctx context.Context, principal rbac.Prin
 	return staged, tables, nil
 }
 
-// RecoverUnpublishedSQLBotFiles removes abandoned imports and resumes
-// previously requested published deletions for one managed datasource.
+// RecoverUnpublishedSQLBotFiles removes abandoned imports, resumes deletions,
+// and cleans up published tables whose binding (or parent) was revoked.
 // It never selects an otherwise healthy published operation.
 func (runtime *Runtime) RecoverUnpublishedSQLBotFiles(ctx context.Context, tenantID string, physical ManagedFilePhysical) (int, error) {
 	if runtime == nil || runtime.Store == nil || ctx == nil || tenantID == "" || physical == nil || physical.ReadDatasourceID() == "" {
@@ -128,6 +128,13 @@ func (runtime *Runtime) RecoverUnpublishedSQLBotFiles(ctx context.Context, tenan
 
 func (runtime *Runtime) cleanupOneUnpublishedSQLBotFile(ctx context.Context, item store.ManagedFileImport, physical ManagedFilePhysical) error {
 	journal := runtime.Store.ManagedFileImports()
+	if item.Status == "published" {
+		var err error
+		item, err = journal.Advance(ctx, item.ID, item.Revision, "published", "deleting", item.OwnerUserID)
+		if err != nil {
+			return err
+		}
+	}
 	if item.Status != "cleanup_needed" {
 		var err error
 		item, err = journal.Advance(ctx, item.ID, item.Revision, item.Status, "cleanup_needed", item.OwnerUserID)

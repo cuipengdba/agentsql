@@ -87,6 +87,65 @@ func TestSQLBotBindingIsolationCredentialRotationAndRevocation(t *testing.T) {
 	}
 }
 
+func TestSQLBotChildBindingInheritsParentRevocation(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	r := s.SQLBotBindings()
+	parent, _, err := r.Create(ctx, sqlbotTestBinding(t, s), "operator")
+	require.NoError(t, err)
+	child := parent
+	child.DatasourceName = "isolated-import"
+	child.ParentBindingID = parent.ID
+	child.ParentRevision = parent.Revision
+	child, token, err := r.Create(ctx, child, "operator")
+	require.NoError(t, err)
+	require.Equal(t, parent.ID, child.ParentBindingID)
+	require.Equal(t, parent.Revision, child.ParentRevision)
+	_, err = r.ResolveConnector(ctx, token)
+	require.NoError(t, err)
+	_, err = r.ValidateRuntime(ctx, child.ID, child.Revision, child.AgentID, child.AgentSQLUserID)
+	require.NoError(t, err)
+	journal, err := s.ManagedFileImports().Begin(ctx, child, strings.Repeat("a", 64), 1, 1, child.AgentSQLUserID)
+	require.NoError(t, err)
+	journal, err = s.ManagedFileImports().Advance(ctx, journal.ID, journal.Revision, "preparing", "cleanup_needed", child.AgentSQLUserID)
+	require.NoError(t, err)
+	_, err = s.ManagedFileImports().Advance(ctx, journal.ID, journal.Revision, "cleanup_needed", "deleted", child.AgentSQLUserID)
+	require.NoError(t, err)
+
+	grandchild := child
+	grandchild.DatasourceName = "nested-import"
+	grandchild.ParentBindingID = child.ID
+	grandchild.ParentRevision = child.Revision
+	_, _, err = r.Create(ctx, grandchild, "operator")
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+
+	_, _, err = r.Rotate(ctx, parent.ID, parent.Revision, "operator")
+	require.NoError(t, err)
+	_, err = r.ResolveConnector(ctx, token)
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+	_, err = r.ValidateRuntime(ctx, child.ID, child.Revision, child.AgentID, child.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+	_, err = s.ManagedFileImports().Begin(ctx, child, strings.Repeat("b", 64), 1, 1, child.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrManagedFileState)
+
+	// A child update cannot silently adopt the parent's new revision.
+	child.Enabled = false
+	_, err = r.Update(ctx, child, "operator")
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+	child.ParentBindingID, child.ParentRevision = "", 0 // Management JSON omits both fields.
+	_, err = r.Update(ctx, child, "operator")
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+	child.ParentBindingID, child.ParentRevision = parent.ID, 1
+	require.Equal(t, int64(1), child.ParentRevision)
+	_, err = r.ResolveConnector(ctx, token)
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+	parent, err = r.Get(ctx, parent.ID)
+	require.NoError(t, err)
+	require.NoError(t, r.Delete(ctx, parent.ID, parent.Revision, "operator"))
+	_, err = r.ValidateRuntime(ctx, child.ID, child.Revision, child.AgentID, child.AgentSQLUserID)
+	require.ErrorIs(t, err, ErrSQLBotBindingDenied)
+}
+
 func TestSQLBotBindingMutationFailsClosedOnAuditOutage(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

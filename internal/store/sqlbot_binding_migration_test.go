@@ -27,7 +27,7 @@ func TestSQLBotSQLiteUpgradeFromV302(t *testing.T) {
 			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, separate))
 			current, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, separate)
 			require.NoError(t, err)
-			expected := previous + 4 // Durable notifications, native read controls, and v4.2 managed files.
+			expected := previous + 5 // Notifications, native read controls, managed files, and child bindings.
 			if !separate {
 				expected++ // v3.5 adds the combined-store audit stream migration.
 			}
@@ -39,6 +39,41 @@ func TestSQLBotSQLiteUpgradeFromV302(t *testing.T) {
 			require.Equal(t, 1, count)
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlbot_bindings`).Scan(&count))
 			require.Zero(t, count)
+		})
+	}
+}
+
+func TestSQLBotChildBindingMigrationFromV410PreservesRoot(t *testing.T) {
+	for _, test := range []struct {
+		name, directory   string
+		previous, current int
+		separate          bool
+	}{
+		{name: "combined", directory: "migrations/sqlite", previous: 27, current: 29},
+		{name: "separate", directory: "migrations/metadata/sqlite", previous: 25, current: 27, separate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			db := openSQLiteMigrationTestDB(t)
+			migrateSQLiteThroughVersion(t, ctx, db, test.directory, test.previous)
+			_, err := db.ExecContext(ctx, `INSERT INTO sqlbot_bindings
+				(id,tenant_id,workspace_id,datasource_name,sqlbot_user_id,agentsql_user_id,agent_id,datasource_id,schema_name,agent_key_env,connector_token_env,connector_token_hash,enabled,revision)
+				VALUES('old-root','tenant_default','1','old-root','1','human','agent','datasource','public','OLD_KEY','OLD_TOKEN','old-hash',TRUE,3)`)
+			require.NoError(t, err)
+			require.NoError(t, MigrateMetadata(ctx, db, DialectSQLite, test.separate))
+			version, latest, err := MetadataMigrationVersions(ctx, db, DialectSQLite, test.separate)
+			require.NoError(t, err)
+			require.Equal(t, test.current, version)
+			require.Equal(t, test.current, latest)
+			var parentID, name string
+			var parentRevision, revision int64
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT parent_binding_id,parent_binding_revision,datasource_name,revision FROM sqlbot_bindings WHERE id='old-root'`).Scan(&parentID, &parentRevision, &name, &revision))
+			require.Empty(t, parentID)
+			require.Zero(t, parentRevision)
+			require.Equal(t, "old-root", name)
+			require.Equal(t, int64(3), revision)
+			require.NoError(t, RollbackMetadataMigration(ctx, db, DialectSQLite, test.separate, test.current))
+			require.NotContains(t, tableColumnNames(t, db, "sqlbot_bindings"), "parent_binding_id")
 		})
 	}
 }
@@ -81,7 +116,7 @@ func TestSQLBotPostgres18UpgradePersistenceAndAuditRollbackE2E(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, s.Close()) })
 			current, latest, err := MetadataMigrationVersions(ctx, s.metaDB, DialectPostgres, separate)
 			require.NoError(t, err)
-			expected := previous + 4 // Durable notifications, native read controls, and v4.2 managed files.
+			expected := previous + 5 // Notifications, native read controls, managed files, and child bindings.
 			if !separate {
 				expected++ // v3.5 adds the combined-store audit stream migration.
 			}

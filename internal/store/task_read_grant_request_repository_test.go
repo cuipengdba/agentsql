@@ -132,7 +132,7 @@ func TestTaskReadGrantRequestRollbackRevokesIssuedKeys(t *testing.T) {
 	require.NoError(t, err)
 	current, latest, err := MetadataMigrationVersions(ctx, opened.metaDB, DialectSQLite, false)
 	require.NoError(t, err)
-	require.Equal(t, 28, current)
+	require.Equal(t, 29, current)
 	require.Equal(t, current, latest)
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-1))
@@ -144,6 +144,7 @@ func TestTaskReadGrantRequestRollbackRevokesIssuedKeys(t *testing.T) {
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-7))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-8))
 	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-9))
+	require.NoError(t, RollbackMetadataMigration(ctx, opened.metaDB, DialectSQLite, false, current-10))
 	var revokedCount int
 	require.NoError(t, opened.metaDB.QueryRowContext(ctx,
 		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NOT NULL`,
@@ -175,6 +176,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 
 	raw, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
+	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 29))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 28))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 27))
 	require.NoError(t, RollbackMetadataMigration(ctx, raw, DialectSQLite, false, 26))
@@ -209,7 +211,7 @@ func TestV070SQLiteSchemaUpgradeAndBackupRestorePreserveExistingGrant(t *testing
 	current, latest, err := MetadataMigrationVersions(ctx, raw, DialectSQLite, false)
 	require.NoError(t, err)
 	require.Equal(t, 18, current)
-	require.Equal(t, 28, latest)
+	require.Equal(t, 29, latest)
 	var stillPresent int
 	require.NoError(t, raw.QueryRowContext(ctx,
 		`SELECT count(*) FROM task_read_grants WHERE id = ? AND revoked_at IS NULL`, legacy.ID).Scan(&stillPresent))
