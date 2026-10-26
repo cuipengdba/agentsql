@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/aes"
@@ -202,7 +203,10 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	require.Equal(t, http.StatusConflict, status, "changed valid sheet selection must not republish the same staged file")
 	require.NoError(t, admin.QueryRow(ctx, `SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='agentsql_files'`).Scan(&physicalTables))
 	require.Equal(t, 1, physicalTables)
-	runOriginalSQLBotFileLifecycle(t, ctx, runtime, cfg, handler, base, baseToken, apiKey, data, admin)
+	runOriginalSQLBotFileLifecycle(t, ctx, runtime, cfg, handler, base, baseToken, apiKey,
+		"source.csv", data, 0, 1, "east", admin)
+	runOriginalSQLBotFileLifecycle(t, ctx, runtime, cfg, handler, base, baseToken, apiKey,
+		"source.xlsx", twoSheetSQLBotWorkbook(t), 1, 2, "north", admin)
 }
 
 // Exercise the exact parse/import/add/get/list/delete request shapes emitted
@@ -210,7 +214,7 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 // handlers, the dedicated PostgreSQL writer, and the control-plane journal.
 func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *bootstrap.Runtime,
 	cfg config.Config, adminHandler http.Handler, base store.SQLBotBinding, baseToken, apiKey string,
-	data []byte, admin *pgx.Conn,
+	filename string, data []byte, selectedSheet, sheetCount int, previewValue string, admin *pgx.Conn,
 ) {
 	t.Helper()
 	verifier := NewSQLBotDelegationVerifier(DeriveTokenKey([]byte(adminTestSecret)), runtime.Store,
@@ -253,7 +257,7 @@ func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *
 	}
 	var upload bytes.Buffer
 	form := multipart.NewWriter(&upload)
-	file, err := form.CreateFormFile("file", "source.csv")
+	file, err := form.CreateFormFile("file", filename)
 	require.NoError(t, err)
 	_, err = file.Write(data)
 	require.NoError(t, err)
@@ -267,10 +271,10 @@ func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(parsed.Body.Bytes(), &parseEnvelope))
-	require.Len(t, parseEnvelope.Data.Sheets, 1)
+	require.Len(t, parseEnvelope.Data.Sheets, sheetCount)
 	selection := map[string]any{"filePath": parseEnvelope.Data.FilePath,
-		"sheets": []map[string]any{{"sheetName": parseEnvelope.Data.Sheets[0].Name,
-			"fields": parseEnvelope.Data.Sheets[0].Fields}}}
+		"sheets": []map[string]any{{"sheetName": parseEnvelope.Data.Sheets[selectedSheet].Name,
+			"fields": parseEnvelope.Data.Sheets[selectedSheet].Fields}}}
 	selectionBody, err := json.Marshal(selection)
 	require.NoError(t, err)
 	imported := call(http.MethodPost, "/api/v1/datasource/importToDb", selectionBody, "application/json")
@@ -290,6 +294,19 @@ func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *
 	require.Equal(t, parseEnvelope.Data.FilePath, importEnvelope.Data.Filename)
 	require.Len(t, importEnvelope.Data.Sheets, 1)
 	require.Equal(t, 2, importEnvelope.Data.Sheets[0].Rows)
+	require.Equal(t, parseEnvelope.Data.Sheets[selectedSheet].Name, importEnvelope.Data.Sheets[0].SheetName)
+	if sheetCount > 1 {
+		other := 0
+		if selectedSheet == 0 {
+			other = 1
+		}
+		changedSelection, changeErr := json.Marshal(map[string]any{"filePath": parseEnvelope.Data.FilePath,
+			"sheets": []map[string]any{{"sheetName": parseEnvelope.Data.Sheets[other].Name,
+				"fields": parseEnvelope.Data.Sheets[other].Fields}}})
+		require.NoError(t, changeErr)
+		changed := call(http.MethodPost, "/api/v1/datasource/importToDb", changedSelection, "application/json")
+		require.Equal(t, http.StatusConflict, changed.Code, changed.Body.String())
+	}
 	configBody, err := json.Marshal(map[string]any{"host": "", "port": 0, "username": "", "password": "", "database": "",
 		"extraJdbc": "", "dbSchema": "", "filename": importEnvelope.Data.Filename, "sheets": importEnvelope.Data.Sheets,
 		"mode": "service_name", "timeout": 30, "lowVersion": false, "ssl": false, "poolSize": 5})
@@ -327,12 +344,36 @@ func runOriginalSQLBotFileLifecycle(t *testing.T, ctx context.Context, runtime *
 	require.NoError(t, err)
 	preview := call(http.MethodPost, "/api/v1/datasource/previewData/"+id, previewBody, "application/json")
 	require.Equal(t, http.StatusOK, preview.Code, preview.Body.String())
-	require.Contains(t, preview.Body.String(), `"east"`)
+	require.Contains(t, preview.Body.String(), `"`+previewValue+`"`)
 	deleted := call(http.MethodPost, "/api/v1/datasource/delete/"+id+"/SyntheticSQLBot", []byte(`{}`), "application/json")
 	require.Equal(t, http.StatusOK, deleted.Code, deleted.Body.String())
 	var remaining int
 	require.NoError(t, admin.QueryRow(ctx, `SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='agentsql_files'`).Scan(&remaining))
 	require.Equal(t, 1, remaining, "deleting the SQLBot datasource must drop only its own physical table")
+}
+
+// A complete two-sheet OOXML package exercises selection of the second sheet
+// through the unmodified SQLBot request shape, rather than importing both.
+func twoSheetSQLBotWorkbook(t *testing.T) []byte {
+	t.Helper()
+	parts := []struct{ name, body string }{
+		{"[Content_Types].xml", `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`},
+		{"_rels/.rels", `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+		{"xl/workbook.xml", `<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/><sheet name="Sheet2" sheetId="2" r:id="rId2"/></sheets></workbook>`},
+		{"xl/_rels/workbook.xml.rels", `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>`},
+		{"xl/worksheets/sheet1.xml", `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>region</t></is></c><c r="B1" t="inlineStr"><is><t>amount</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>south</t></is></c><c r="B2"><v>15</v></c></row></sheetData></worksheet>`},
+		{"xl/worksheets/sheet2.xml", `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>region</t></is></c><c r="B1" t="inlineStr"><is><t>amount</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>north</t></is></c><c r="B2"><v>30</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>west</t></is></c><c r="B3"><v>40</v></c></row></sheetData></worksheet>`},
+	}
+	var result bytes.Buffer
+	archive := zip.NewWriter(&result)
+	for _, part := range parts {
+		entry, err := archive.Create(part.name)
+		require.NoError(t, err)
+		_, err = entry.Write([]byte(part.body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, archive.Close())
+	return result.Bytes()
 }
 
 func encryptSQLBotClientConfig(t *testing.T, plain []byte) string {
