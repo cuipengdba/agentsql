@@ -110,8 +110,35 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 	}
 	body, err := json.Marshal(map[string]any{"binding_id": base.ID, "filename": "source.csv", "file_data": data, "selection": selection})
 	require.NoError(t, err)
-	status, lostResponse := call(body)
-	require.Equal(t, http.StatusOK, status, string(lostResponse))
+	type observedReply struct {
+		status int
+		body   []byte
+	}
+	observed := make(chan observedReply, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		recorded := httptest.NewRecorder()
+		handler.ServeHTTP(recorded, request)
+		observed <- observedReply{status: recorded.Code, body: append([]byte(nil), recorded.Body.Bytes()...)}
+		connection, _, hijackErr := writer.(http.Hijacker).Hijack()
+		if hijackErr == nil {
+			_ = connection.Close() // Commit completed; drop the response on the wire.
+		}
+	}))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		server.URL+"/api/v1/integrations/sqlbot/managed-files/import", bytes.NewReader(body))
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("X-AgentSQL-User-Authorization", "Bearer "+humanToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, networkErr := (&http.Client{Timeout: 90 * time.Second}).Do(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	server.Close()
+	require.Error(t, networkErr, "the first response must be lost at the network boundary")
+	first := <-observed
+	require.Equal(t, http.StatusOK, first.status, string(first.body))
+	lostResponse := first.body
 	// Restart the runtime in another OS process before replaying the request.
 	require.NoError(t, runtime.Close())
 	requestPath := filepath.Join(t.TempDir(), "replay-request.json")
@@ -164,7 +191,7 @@ func TestManagedFileImportHTTPReplayPostgres(t *testing.T) {
 		{"fieldName": "region", "fieldType": "string"}, {"fieldName": "amount", "fieldType": "string"}}}}
 	changed, err := json.Marshal(map[string]any{"binding_id": base.ID, "filename": "source.csv", "file_data": data, "selection": selection})
 	require.NoError(t, err)
-	status, _ = call(changed)
+	status, _ := call(changed)
 	require.Equal(t, http.StatusConflict, status, "changed valid sheet selection must not republish the same staged file")
 	require.NoError(t, admin.QueryRow(ctx, `SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname='agentsql_files'`).Scan(&physicalTables))
 	require.Equal(t, 1, physicalTables)
