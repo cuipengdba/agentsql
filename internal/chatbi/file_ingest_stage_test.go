@@ -247,6 +247,25 @@ func TestOriginalExcelClaimKeepsOnlyBrowserSelectedSheetVisible(t *testing.T) {
 	require.NotContains(t, response.Body.String(), east)
 	_, err = service.query(ctx, principal, claimed, "SELECT region FROM agentsql_files."+east)
 	require.ErrorIs(t, err, ErrGateway)
+
+	other := testUser(t, "2", "other-admin")
+	other.Admin = true
+	require.NoError(t, service.Store.CreateUser(ctx, other))
+	_, otherToken, err := service.Identity.Login(ctx, other.Account, "Synthetic-password-1")
+	require.NoError(t, err)
+	for _, path := range []string{
+		"/api/v1/datasource/get/" + string(id),
+		"/api/v1/datasource/getTables/" + string(id),
+		"/api/v1/datasource/delete/" + string(id) + "/West%20only",
+	} {
+		request = httptest.NewRequest(http.MethodPost, path, nil)
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+otherToken)
+		response = httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		require.Equal(t, http.StatusNotFound, response.Code, path+": "+response.Body.String())
+	}
+	_, err = service.binding(ctx, principal, id)
+	require.NoError(t, err, "foreign delete request must not retire the owner's datasource")
 }
 
 func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {
