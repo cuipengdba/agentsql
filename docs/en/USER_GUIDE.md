@@ -308,7 +308,7 @@ v3.4.0 verified B2 column authorization only for restricted single-table `SELECT
 
 ### `row_filter`
 
-`row_filter` currently only persists and displays, the decision engine does not use it at all. It is not row-level security, and this release is not to be configured, promoted, or used as a replacement for database RLS or security views.
+`row_filter` does not yet enforce rows. The current candidate rejects new policies containing this field. If a legacy row-filter policy matches, policy resolution and B2 column authorization fail closed instead of executing without the filter. This is not supported row-level security and must not be configured, advertised, or used in place of database RLS or security views.
 
 ### Usage boundary of temporary read-only authorization `/task-read-grants` (v1.0.0)
 
@@ -846,7 +846,7 @@ The only external benchmark caliber currently archived is: memory fake executor,
 
 - Denied without authorization by default; Agent × data source policy must be created explicitly.
 - Pre-rejections such as missing `reason`, using `query` to write statements, SQL parsing failure at the tool layer, etc. occur before entering the pipeline, and there is no guarantee that every failure will be audited.
-- Custom rules only record configuration and do not enter the execution engine; `row_filter` only persists and displays and does not participate in decision-making.
+- Custom rules only record configuration and do not enter the execution engine; `row_filter` is not executed, new policies are rejected by the current candidate, and matching legacy policies fail closed.
 - The data source does not have fields for SSL mode, CA, client certificate, connection timeout, or DSN additional parameters.
 - R005 estimates the alarm by EXPLAIN during the normal production dynamic phase, and supplements the alarm when the common execution and PostgreSQL column-level authorization paths actually trigger `row_limit` truncation.
 - Approval will not automatically execute SQL; the original Agent can execute a single seal request based on the unexpired approval document number, and re-verify the current permissions and rules during execution.
