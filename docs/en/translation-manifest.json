@@ -4,12 +4,12 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "9be2d3190e6e46b7fe2bc59d79e36a828c675e53f31057f9b2b1617c1dd728e5"
+      "source_sha256": "ed94122d1b4e487c7d0f7fabe654ef2f71bc4c83819f9ee18840f3c05c56312d"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "ec5500492badf3ebed43a5e018320ae80cfbf734b0ac31c573391f0cd9d41254"
+      "source_sha256": "75f1e5c5598c4ace420be304b269a2a6e1205a8c4607f0d35286c6213417acbb"
     },
     {
       "source": "ROADMAP.md",
@@ -514,7 +514,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "d593143d594eca181f9ff6096aad5405a55bedd8049b4735705db84287321b43"
+      "source_sha256": "fd36c8aacb81569b7094345c5c5f5ce8f78157f12d6c66b6d185416c6759f482"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -1214,7 +1214,7 @@
     {
       "source": "docs/CHATBI.md",
       "english": "docs/en/CHATBI.md",
-      "source_sha256": "69eed6cdb3752b544c56a229367c61d9706347b7bc83af266b42465c5ae763b0"
+      "source_sha256": "1d4767dc39d08ddbe4a0f63253fdc623ff45a30ca67373bb424aab3fe589888e"
     },
     {
       "source": "docs/release-notes-v4.1.0.md",
@@ -1229,17 +1229,17 @@
     {
       "source": "docs/v4.2.0-design.md",
       "english": "docs/en/v4.2.0-design.md",
-      "source_sha256": "be419a37af03dc60d43f737f6dc53ec49c13154345e91574632dbcad3c5809de"
+      "source_sha256": "47328d744cd738e278224650fba7cfe97a18f1aefbdea623ed0cfed08aef4e2d"
     },
     {
       "source": "docs/release-notes-v4.2.0.md",
       "english": "docs/en/release-notes-v4.2.0.md",
-      "source_sha256": "b2af43f49548107843011b37ff2a5eeadbdb48f93c330a713cc15480d175d5ef"
+      "source_sha256": "0ae014831a3eddba853ab465a439c15dc992759e8aee35b54f0b23aa2d3a3cd8"
     },
     {
       "source": "docs/v4.2.0-acceptance.md",
       "english": "docs/en/v4.2.0-acceptance.md",
-      "source_sha256": "5a4265a4fd63acb486f3514d7fd632f3fef87ef337125d69e44b0e44456e4b56"
+      "source_sha256": "cbc218c7917d340a8a554a797d36e19b5e3362862c1192bc23d331a175f3fe26"
     },
     {
       "source": "docs/v4.5.0-page-parity.md",

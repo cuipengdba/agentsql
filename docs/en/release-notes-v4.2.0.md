@@ -1,8 +1,8 @@
-# v4.2.0 Release Notes: Multi-turn Q&A and Controlled File Data (Candidate)
+# v4.2.0 Release Notes: Multi-turn Q&A and Controlled File Data
 
 **Language:** [Chinese](../release-notes-v4.2.0.md) | [English](release-notes-v4.2.0.md)
 
-Status: candidate, not yet released. This document describes implemented behavior with local evidence. The release status will be updated after formal artifacts, upgrade checks and public acceptance. See the [v4.2.0 design record](../v4.2.0-design.md) for detailed boundaries.
+Status: released on 2026-10-27. This document describes implemented behavior with evidence. See the [v4.2.0 acceptance record](v4.2.0-acceptance.md) for official assets, upgrade and public checks, and the [design record](../v4.2.0-design.md) for boundaries.
 
 ## New capabilities
 
@@ -27,6 +27,6 @@ This release does not claim parity with every SQLBot page or API, or zero-change
 
 Before upgrading, back up the metadata, audit and managed databases together with the AgentSQL encryption key. Keep the original SQLBot instance and configuration until real business integration has passed. The standard offline service package does not include model weights or a model runtime. The public Demo offers clearly labeled simulated interactions only and does not connect to a real model or business database.
 
-## Release gates
+## Release acceptance
 
-The same commit must pass Go, Web, documentation and dependency checks; fresh installation, upgrade and rollback, signed artifacts, dual-architecture images and anonymous pulls must be verified. Only then should the GitHub Release, website and Demo be updated to the actual version. Unverified items remain open; route counts and static pages are not compatibility evidence.
+Go, Web, documentation and dependency checks passed on merge commit `a5847c4`. Fifteen official assets, three signatures, dual-architecture images and anonymous manifests, GitHub Release, website and Demo v4.2.0 were verified. The complete offline installation and upgrade/rollback flow passed on the candidate package; the official package passed build, version, architecture and signature checks. The [acceptance record](v4.2.0-acceptance.md) lists precise evidence and uncovered cases. Unverified compatibility remains open; route counts and static pages are not evidence of parity.

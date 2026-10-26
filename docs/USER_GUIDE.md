@@ -877,4 +877,4 @@ agentsqlctl upgrade apply --manifest-url https://example.org/releases/manifest.j
 
 ## v4.2.0 原生问数
 
-通过 `install.sh install --with-chatbi` 部署 Go 问数服务，配置工作空间模型与个人网关映射后，打开其独立入口。中英文界面展示 SQL、表格结果与持久审计编号；v4.2.0 候选支持最多三轮成功问数语境、术语与推荐问题、受控 CSV/XLSX 文件数据源和当前权限下的 CSV/XLSX 导出。原版 SQLBot 页面只在已记录的合成流程中对照通过。身份导入、离线安装、恢复和待完成的兼容范围见[问数指南](CHATBI.md)。
+通过 `install.sh install --with-chatbi` 部署 Go 问数服务，配置工作空间模型与个人网关映射后，打开其独立入口。中英文界面展示 SQL、表格结果与持久审计编号；v4.2.0 支持最多三轮成功问数语境、术语与推荐问题、受控 CSV/XLSX 文件数据源和当前权限下的 CSV/XLSX 导出。原版 SQLBot 页面只在已记录的合成流程中对照通过。身份导入、离线安装、恢复和待完成的兼容范围见[问数指南](CHATBI.md)。
