@@ -63,6 +63,25 @@ func TestLegacyModelReadIsScopedAndRedacted(t *testing.T) {
 	if _, err := service.Store.get(context.Background(), key, &retained); err != nil || retained.APIKey != model.APIKey {
 		t.Fatalf("blocked delete lost model or key: %v", err)
 	}
+	mappingPath := base + "/" + string(model.ID) + "/ws_mapping"
+	if denied := accountRequest(t, handler, http.MethodGet, mappingPath, "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member read model mappings: %d", denied.Code)
+	}
+	if other := accountRequest(t, handler, http.MethodGet, base+"/999999/ws_mapping", "", adminToken); other.Code != http.StatusNotFound {
+		t.Fatalf("foreign model mapping read: %d", other.Code)
+	}
+	mappings := accountRequest(t, handler, http.MethodGet, mappingPath, "", adminToken)
+	if mappings.Code != http.StatusOK || !strings.Contains(mappings.Body.String(), `"data":["1"]`) || strings.Contains(mappings.Body.String(), model.APIKey) {
+		t.Fatalf("incorrect or unsafe model mapping: %d %s", mappings.Code, mappings.Body.String())
+	}
+	if same := accountRequest(t, handler, http.MethodPut, mappingPath, `["1"]`, adminToken); same.Code != http.StatusOK {
+		t.Fatalf("unchanged model mapping: %d %s", same.Code, same.Body.String())
+	}
+	for _, body := range []string{`[]`, `["1","2"]`, `["2"]`, `["1","1"]`} {
+		if blocked := accountRequest(t, handler, http.MethodPut, mappingPath, body, adminToken); blocked.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("unsupported mapping accepted: %s %d %s", body, blocked.Code, blocked.Body.String())
+		}
+	}
 	if _, err := service.Store.db.ExecContext(context.Background(),
 		`DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
 		key.Kind, key.Scope, key.Owner, key.ID); err != nil {

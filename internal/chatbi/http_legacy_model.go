@@ -81,6 +81,47 @@ func (h *Handler) legacyModelDelete(w http.ResponseWriter, r *http.Request, p Pr
 	writeJSON(w, http.StatusConflict, "Default model cannot be deleted")
 }
 
+// A workspace model belongs only to its current workspace. Keep the original
+// mapping dialog truthful while refusing cross-workspace model sharing until
+// the multi-model catalog has an explicit permission and audit contract.
+func (h *Handler) legacyModelMappings(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	model, err := h.currentLegacyModel(r, p, token)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if r.PathValue("id") != string(model.ID) {
+		failure(w, ErrNotFound)
+		return
+	}
+	okay(w, []string{string(p.Workspace)})
+}
+
+func (h *Handler) legacyModelMappingsUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	model, err := h.currentLegacyModel(r, p, token)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if r.PathValue("id") != string(model.ID) {
+		failure(w, ErrNotFound)
+		return
+	}
+	var spaces []string
+	if !readBody(w, r, &spaces) {
+		return
+	}
+	if len(spaces) != 1 || spaces[0] != string(p.Workspace) {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, spaces)
+}
+
 // The original Community form includes an empty id on first create and RSA
 // encrypts its endpoint and key. AgentSQL can create only the first default
 // model in the caller's current workspace; subsequent catalog entries need a
