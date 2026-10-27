@@ -106,3 +106,29 @@ func TestAdminUserDeleteRollsBackOnAuditFailure(t *testing.T) {
 		t.Fatalf("rollback removed private data: %q %v", private, err)
 	}
 }
+
+func TestAdminUserDeleteRejectsUnretiredManagedImport(t *testing.T) {
+	for _, kind := range []string{"managed-file-receipt", "binding"} {
+		t.Run(kind, func(t *testing.T) {
+			service, handler, adminToken, bobToken := adminUsersFixture(t)
+			ctx := context.Background()
+			if kind == "managed-file-receipt" {
+				if err := service.Store.put(ctx, objectKey{kind, "1", "2", "receipt"}, map[string]string{"operation_id": "remote-operation"}, 0); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				binding := Binding{Workspace: "1", User: "2", Datasource: "20", ManagedFileID: "remote-operation"}
+				if err := service.Store.put(ctx, objectKey{kind, "1", "2", "20"}, binding, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			deleted := accountRequest(t, handler, http.MethodDelete, "/api/v1/user/2", "", adminToken)
+			if deleted.Code != http.StatusConflict {
+				t.Fatalf("unretired import lost owner: %d %s", deleted.Code, deleted.Body.String())
+			}
+			if _, err := service.Identity.Verify(ctx, bobToken); err != nil {
+				t.Fatalf("rejected delete revoked owner: %v", err)
+			}
+		})
+	}
+}

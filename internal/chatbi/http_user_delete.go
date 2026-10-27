@@ -95,6 +95,42 @@ func (s *Store) DeleteUsersManaged(ctx context.Context, ids []ID, p Principal) e
 		if err := s.decode(accountKey, accountBody, &accountID); err != nil || accountID != string(id) {
 			return ErrUnavailable
 		}
+		// Managed imports own resources in the gateway as well as this store.
+		// Their retirement is a separate compensated workflow; dropping only the
+		// local receipt would orphan remote tables and connector credentials.
+		var managedReceipts int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM chatbi_objects WHERE owner=? AND kind='managed-file-receipt'`, string(id)).Scan(&managedReceipts); err != nil {
+			return ErrUnavailable
+		}
+		if managedReceipts != 0 {
+			return ErrConflict
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT scope,id,body FROM chatbi_objects WHERE owner=? AND kind='binding'`, string(id))
+		if err != nil {
+			return ErrUnavailable
+		}
+		for rows.Next() {
+			var scope, bindingID string
+			var body []byte
+			if err := rows.Scan(&scope, &bindingID, &body); err != nil {
+				rows.Close()
+				return ErrUnavailable
+			}
+			var binding Binding
+			if err := s.decode(objectKey{"binding", scope, string(id), bindingID}, body, &binding); err != nil {
+				rows.Close()
+				return ErrUnavailable
+			}
+			if binding.ManagedFileID != "" {
+				rows.Close()
+				return ErrConflict
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return ErrUnavailable
+		}
+		rows.Close()
 		if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE owner=? AND scope!='system'`, string(id)); err != nil {
 			return ErrUnavailable
 		}
