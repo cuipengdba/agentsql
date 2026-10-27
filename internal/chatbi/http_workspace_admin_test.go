@@ -51,6 +51,20 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 		strings.Contains(candidates.Body.String(), "password_hash") || strings.Contains(candidates.Body.String(), "bob@example.test") {
 		t.Fatalf("unsafe member candidates: %d %s", candidates.Code, candidates.Body.String())
 	}
+	legacyCandidates := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/1000000?oid=2", "", adminToken)
+	if legacyCandidates.Code != http.StatusOK || !strings.Contains(legacyCandidates.Body.String(), `"total":2`) ||
+		strings.Contains(legacyCandidates.Body.String(), "password_hash") {
+		t.Fatalf("original browser candidate page: %d %s", legacyCandidates.Code, legacyCandidates.Body.String())
+	}
+	for _, path := range []string{
+		"/api/v1/system/workspace/uws/pager/1/1000000?oid=2",
+		"/api/v1/system/workspace/uws/option/pager/2/1000000?oid=2",
+		"/api/v1/system/workspace/uws/option/pager/1/1000001?oid=2",
+	} {
+		if rejected := accountRequest(t, handler, http.MethodGet, path, "", adminToken); rejected.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("unbounded member page accepted: %s %d %s", path, rejected.Code, rejected.Body.String())
+		}
+	}
 	if denied := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/10?oid=2", "", bobToken); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("non-admin listed candidates: %d", denied.Code)
 	}

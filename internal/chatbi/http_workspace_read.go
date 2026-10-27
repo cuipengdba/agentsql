@@ -29,7 +29,7 @@ type memberPage struct {
 	Space   ID
 }
 
-func parseMemberPage(r *http.Request, fallback ID) (memberPage, bool) {
+func parseMemberPage(r *http.Request, fallback ID, candidate bool) (memberPage, bool) {
 	page, e1 := strconv.Atoi(r.PathValue("page"))
 	size, e2 := strconv.Atoi(r.PathValue("size"))
 	keyword := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("keyword")))
@@ -37,7 +37,8 @@ func parseMemberPage(r *http.Request, fallback ID) (memberPage, bool) {
 	if value := r.URL.Query().Get("oid"); value != "" {
 		space = ID(value)
 	}
-	if e1 != nil || e2 != nil || page < 1 || page > 100000 || size < 1 || size > 100 || len(keyword) > 100 || !space.Valid() {
+	legacyAllCandidates := candidate && page == 1 && size == 1000000
+	if e1 != nil || e2 != nil || page < 1 || page > 100000 || size < 1 || size > 100 && !legacyAllCandidates || len(keyword) > 100 || !space.Valid() {
 		return memberPage{}, false
 	}
 	return memberPage{Page: page, Size: size, Keyword: keyword, Space: space}, true
@@ -109,7 +110,7 @@ func (h *Handler) memberUsers(r *http.Request, space ID, keyword string, candida
 }
 
 func (h *Handler) legacyMemberPage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	query, valid := parseMemberPage(r, p.Workspace)
+	query, valid := parseMemberPage(r, p.Workspace, false)
 	if !valid {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid member page")
 		return
@@ -135,7 +136,7 @@ func (h *Handler) legacyMemberPage(w http.ResponseWriter, r *http.Request, p Pri
 }
 
 func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	query, valid := parseMemberPage(r, p.Workspace)
+	query, valid := parseMemberPage(r, p.Workspace, true)
 	if !valid {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid member candidate page")
 		return
@@ -151,6 +152,13 @@ func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Reque
 	items, err := h.memberUsers(r, query.Space, query.Keyword, true)
 	if err != nil {
 		failure(w, err)
+		return
+	}
+	// The original dialog asks for one million candidates as a sentinel for
+	// "all". Bound the response instead of materializing an unbounded browser
+	// payload; larger deployments must use the paged AgentSQL management UI.
+	if query.Size == 1000000 && len(items) > 10000 {
+		failure(w, ErrInvalidAccountChange)
 		return
 	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
