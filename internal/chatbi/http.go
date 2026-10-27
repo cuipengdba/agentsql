@@ -809,7 +809,8 @@ func (h *Handler) rename(w http.ResponseWriter, r *http.Request, p Principal, _ 
 		failure(w, err)
 		return
 	}
-	okay(w, string(input.ID))
+	// The unchanged SQLBot chat list uses the response as its new title.
+	okay(w, input.Brief)
 }
 func (h *Handler) remove(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	id := ID(r.PathValue("id"))
