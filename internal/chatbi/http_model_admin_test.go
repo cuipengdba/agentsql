@@ -112,3 +112,62 @@ func TestWorkspaceModelProbeNeverExecutesSQLOrReturnsSecrets(t *testing.T) {
 		t.Fatalf("model failure leaked details: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestWorkspaceModelFirstCreateIsAuditedAndCannotReplaceExisting(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	ctx := context.Background()
+	key := objectKey{"model", "1", "workspace", "default"}
+	if _, err := service.Store.db.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
+		key.Kind, key.Scope, key.Owner, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/agentsql/model"
+	create := `{"revision":0,"name":"Local model","base_model":"fixture","api_domain":"http://127.0.0.1:8000/v1","api_key":"first-secret","max_tokens":1024}`
+	if denied := accountRequest(t, handler, http.MethodPost, path, create, memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member created model: %d", denied.Code)
+	}
+	if missing := accountRequest(t, handler, http.MethodGet, path, "", adminToken); missing.Code != http.StatusNotFound {
+		t.Fatalf("empty workspace model read: %d", missing.Code)
+	}
+	if bad := accountRequest(t, handler, http.MethodPost, path, `{"revision":0,"base_model":"fixture","api_domain":"http://remote.invalid/v1"}`, adminToken); bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsafe model endpoint accepted: %d", bad.Code)
+	}
+	if created := accountRequest(t, handler, http.MethodPost, path, create, adminToken); created.Code != http.StatusOK {
+		t.Fatalf("first model create: %d %s", created.Code, created.Body.String())
+	}
+	var model ModelConfig
+	if revision, err := service.Store.get(ctx, key, &model); err != nil || revision != 1 || model.Model != "fixture" || model.APIKey != "first-secret" || !model.ID.Valid() {
+		t.Fatalf("model did not persist: %+v revision=%d err=%v", model, revision, err)
+	}
+	if view := accountRequest(t, handler, http.MethodGet, path, "", adminToken); view.Code != http.StatusOK || strings.Contains(view.Body.String(), "first-secret") || !strings.Contains(view.Body.String(), `"has_api_key":true`) {
+		t.Fatalf("created model view leaked key: %d %s", view.Code, view.Body.String())
+	}
+	if conflict := accountRequest(t, handler, http.MethodPost, path, create, adminToken); conflict.Code != http.StatusConflict {
+		t.Fatalf("second create replaced existing model: %d", conflict.Code)
+	}
+	audits, err := service.Store.list(ctx, "management-audit", "system", "system")
+	if err != nil || len(audits) != 1 || !strings.Contains(string(audits[0]), "workspace-model.create") {
+		t.Fatalf("create audit: %d %v", len(audits), err)
+	}
+}
+
+func TestWorkspaceModelCreateRollsBackOnAuditFailure(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	key := objectKey{"model", "1", "workspace", "default"}
+	if _, err := service.Store.db.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
+		key.Kind, key.Scope, key.Owner, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Store.db.ExecContext(ctx, `CREATE TRIGGER reject_model_create_audit BEFORE INSERT ON chatbi_objects WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT,'synthetic audit fault'); END`); err != nil {
+		t.Fatal(err)
+	}
+	create := `{"revision":0,"base_model":"fixture","api_domain":"http://127.0.0.1:8000/v1","api_key":"must-not-persist"}`
+	if response := accountRequest(t, handler, http.MethodPost, "/api/v1/agentsql/model", create, adminToken); response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("audit failure allowed create: %d %s", response.Code, response.Body.String())
+	}
+	var model ModelConfig
+	if _, err := service.Store.get(ctx, key, &model); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("audit failure persisted model: %+v %v", model, err)
+	}
+}

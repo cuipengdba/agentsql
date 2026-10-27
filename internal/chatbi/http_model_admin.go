@@ -50,6 +50,26 @@ func (h *Handler) nativeUpdateWorkspaceModel(w http.ResponseWriter, r *http.Requ
 	okay(w, true)
 }
 
+func (h *Handler) nativeCreateWorkspaceModel(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	var update WorkspaceModelUpdate
+	if !readBody(w, r, &update) {
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.Store.CreateWorkspaceModel(r.Context(), p, update); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, true)
+}
+
 // The probe never executes generated SQL. It checks only the selected local
 // workspace model and returns no prompt, completion, endpoint, or key.
 func (h *Handler) nativeCheckWorkspaceModel(w http.ResponseWriter, r *http.Request, p Principal, token string) {

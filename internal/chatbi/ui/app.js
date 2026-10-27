@@ -54,8 +54,8 @@ Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
 Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
-Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型，请先通过离线配置导入。'});
-Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Import one through offline configuration first.'});
+Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
+Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
 Object.assign(copy.en, {modelsCheck:'Check connection',modelsChecking:'Checking the locally configured model…',modelsCheckSuccess:'The model responded. Test SQL was not executed.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
@@ -292,10 +292,14 @@ async function loadModel(){
     const model=await api('/agentsql/model');
     if(!modelsVisible||epoch!==modelsEpoch)return;
     modelRevision=model.revision;
+    $('model-check').disabled=false;
     $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
     $('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);
     $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
-  }catch(error){if(modelsVisible&&epoch===modelsEpoch)modelStatus(t(error.status===404?'modelsMissing':'failed'),true);}
+  }catch(error){if(modelsVisible&&epoch===modelsEpoch){
+    if(error.status===404){modelRevision=0;$('model-check').disabled=true;$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
+    else modelStatus(t('failed'),true);
+  }}
 }
 async function showModels(){
   if(controller||!isAdmin)return;
@@ -808,7 +812,7 @@ $('variables-nav').onclick=()=>{void showVariables();};
 $('models-nav').onclick=()=>{void showModels();};
 $('model-reload').onclick=()=>{void loadModel();};
 $('model-check').onclick=async()=>{
-  if(!modelsVisible||modelRevision===null)return;
+  if(!modelsVisible||modelRevision===null||modelRevision===0)return;
   const button=$('model-check');button.disabled=true;modelStatus(t('modelsChecking'));
   try{await api('/agentsql/model/check',undefined,'POST');modelStatus(t('modelsCheckSuccess'));}
   catch{modelStatus(t('failed'),true);}finally{button.disabled=false;}
@@ -819,7 +823,7 @@ $('model-form').onsubmit=async event=>{
   const update={revision:modelRevision,name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
     api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value)};
   if($('model-key').value!=='')update.api_key=$('model-key').value;
-  try{await api('/agentsql/model',update,'PUT');await loadModel();modelStatus(t('modelsSaved'));}
+  try{await api('/agentsql/model',update,modelRevision===0?'POST':'PUT');await loadModel();modelStatus(t('modelsSaved'));}
   catch{modelStatus(t('failed'),true);}finally{submit.disabled=false;$('model-key').value='';}
 };
 $('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1;void loadVariables();};

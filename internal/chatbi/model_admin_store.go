@@ -16,6 +16,65 @@ type WorkspaceModelUpdate struct {
 	MaxTokens int     `json:"max_tokens"`
 }
 
+// CreateWorkspaceModel installs the first default model for a workspace.
+// A second create must fail without replacing an existing encrypted key.
+func (s *Store) CreateWorkspaceModel(ctx context.Context, p Principal, update WorkspaceModelUpdate) error {
+	if !p.Workspace.Valid() || !p.User.ID.Valid() || p.EmbeddedApp != "" || update.Revision != 0 {
+		return ErrInvalidAccountChange
+	}
+	id, err := newID()
+	if err != nil {
+		return err
+	}
+	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens}
+	if update.APIKey != nil {
+		model.APIKey = *update.APIKey
+	}
+	if validateModelConfig(model) != nil {
+		return ErrInvalidAccountChange
+	}
+	key := objectKey{"model", string(p.Workspace), "workspace", "default"}
+	auditID, err := newID()
+	if err != nil {
+		return err
+	}
+	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
+	sealed, err := s.seal(key, model)
+	if err != nil {
+		return err
+	}
+	audit, err := s.seal(auditKey, map[string]any{"action": "workspace-model.create", "actor": p.User.ID,
+		"workspace": p.Workspace, "model": model.ID, "time": time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer tx.Rollback()
+	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
+		key.Kind, key.Scope, key.Owner, key.ID, sealed)
+	if err != nil {
+		return ErrUnavailable
+	}
+	count, err := result.RowsAffected()
+	if err != nil || count != 1 {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`,
+		auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
+		return ErrUnavailable
+	}
+	if tx.Commit() != nil {
+		return ErrUnavailable
+	}
+	return nil
+}
+
 func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update WorkspaceModelUpdate) error {
 	if !p.Workspace.Valid() || !p.User.ID.Valid() || p.EmbeddedApp != "" || update.Revision < 1 {
 		return ErrInvalidAccountChange
