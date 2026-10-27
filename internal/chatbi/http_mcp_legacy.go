@@ -77,10 +77,14 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) mcpBodyPrincipal(w http.ResponseWriter, r *http.Request, token string, selected *ID) (Principal, bool) {
 	// Body-token routes must not silently choose between two credentials.
-	if token == "" || len(r.Header.Values("Authorization")) != 0 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 {
+	if token == "" || len(r.Header.Values("Authorization")) != 0 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASK-TOKEN")) != 0 {
 		failure(w, ErrUnauthenticated)
 		return Principal{}, false
 	}
+	return h.mcpVerifiedPrincipal(w, r, token, selected)
+}
+
+func (h *Handler) mcpVerifiedPrincipal(w http.ResponseWriter, r *http.Request, token string, selected *ID) (Principal, bool) {
 	p, err := h.service.Identity.Verify(r.Context(), token)
 	if err != nil || p.EmbeddedApp != "" {
 		failure(w, ErrUnauthenticated)
@@ -181,9 +185,10 @@ func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// The upstream model-list shape carries only an oid. AgentSQL requires a live
-// body token so a caller cannot enumerate models across workspaces. The
-// response exposes model display metadata only, never endpoint or API key.
+// SQLBot's model-list body may contain only an oid. AgentSQL accepts that
+// shape only with its existing X-SQLBOT-TOKEN header; a body token remains
+// supported for MCP helpers. Neither form permits anonymous enumeration.
+// The response exposes display metadata only, never endpoint or API key.
 func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Token string `json:"token"`
@@ -192,7 +197,23 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &input) {
 		return
 	}
-	p, ok := h.mcpBodyPrincipal(w, r, input.Token, input.OID)
+	var p Principal
+	var ok bool
+	if input.Token == "" {
+		if len(r.Header.Values("Authorization")) != 0 || len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASK-TOKEN")) != 0 {
+			failure(w, ErrUnauthenticated)
+			return
+		}
+		var err error
+		input.Token, err = requestToken(r)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		p, ok = h.mcpVerifiedPrincipal(w, r, input.Token, input.OID)
+	} else {
+		p, ok = h.mcpBodyPrincipal(w, r, input.Token, input.OID)
+	}
 	if !ok {
 		return
 	}
