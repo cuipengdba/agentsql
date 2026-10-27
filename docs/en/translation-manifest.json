@@ -294,7 +294,7 @@
     {
       "source": "docs/release-notes-v0.5.md",
       "english": "docs/en/release-notes-v0.5.md",
-      "source_sha256": "af32e0e85b45fb2c96a9630bf43ea7509064cd0456000ee48d19f25cc6f095f1"
+      "source_sha256": "3076eb962196939ac029ed213475687f184d24dea5df59bee1093b94e06a4fb5"
     },
     {
       "source": "docs/release-notes-v0.6.0.md",
@@ -1239,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "ee8a5f8ccc1dd91a1bcd81a658c5403f3020928cfe116ae4c2aebd40d8d34967"
+      "source_sha256": "ff4484a3c2e239c98c695567521a9acf4be725e0e1599cb11a7824cc9fb41557"
     },
     {
       "source": "docs/v4.3.0-design.md",
