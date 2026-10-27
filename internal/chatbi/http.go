@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,15 +20,16 @@ import (
 )
 
 type Handler struct {
-	service        *Service
-	mux            *http.ServeMux
-	loginLimit     *rate.Limiter
-	appLookupLimit *rate.Limiter
-	slots          chan struct{}
-	readQueue      chan struct{}
-	version        string
-	keySalt        string
-	keySince       int64
+	service             *Service
+	mux                 *http.ServeMux
+	loginLimit          *rate.Limiter
+	appLookupLimit      *rate.Limiter
+	slots               chan struct{}
+	readQueue           chan struct{}
+	version             string
+	keySalt             string
+	keySince            int64
+	initialUserPassword string
 }
 
 func NewHandler(service *Service, version string) (http.Handler, error) {
@@ -47,7 +49,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	}
 	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), appLookupLimit: rate.NewLimiter(20, 100),
 		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
-		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli()}
+		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli(),
+		initialUserPassword: os.Getenv("AGENTSQL_CHATBI_INITIAL_USER_PASSWORD")}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": h.version, "service": "chatbi"})
 	})
@@ -70,6 +73,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("PUT /api/v1/user/language", h.auth(h.changeOwnLanguage))
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("GET /api/v1/user/pager/{page}/{size}", h.auth(h.legacyUserPage))
+	h.mux.HandleFunc("POST /api/v1/user", h.auth(h.legacyUserCreate))
 	h.mux.HandleFunc("GET /api/v1/user/{id}", h.auth(h.legacyUserRead))
 	h.mux.HandleFunc("PATCH /api/v1/user/status", h.auth(h.legacyUserStatus))
 	h.mux.HandleFunc("GET /api/v1/system/workspace", h.auth(h.legacyWorkspaceList))

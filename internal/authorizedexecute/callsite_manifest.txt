@@ -11,6 +11,11 @@ internal/chatbi/setup.go
 internal/chatbi/semantics.go
 internal/chatbi/history_import.go
 internal/chatbi/managed_file_claim.go
+# Membership and user creation mutate encrypted local identity/control-plane
+# rows with bound SQLite statements and a mandatory same-transaction audit.
+# They cannot open or execute against a business datasource.
+internal/chatbi/http_workspace_admin.go
+internal/chatbi/http_user_create.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
 internal/chatbi/assistant.go

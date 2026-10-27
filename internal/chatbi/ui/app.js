@@ -32,8 +32,10 @@ Object.assign(copy['zh-CN'], {usage:'执行详情',usageStarted:'开始时间',u
 Object.assign(copy.en, {usage:'Execution details',usageStarted:'Started',usageFinished:'Finished',usageDuration:'Duration',usageTokens:'Tokens used',usageStepsEmpty:'No step trace is available',seconds:'seconds'});
 Object.assign(copy['zh-CN'], {accountSettings:'账号设置',passwordNote:'修改密码后，当前会话及其他已登录会话都需要重新登录。',currentPassword:'当前密码',newPassword:'新密码',changePassword:'修改密码',passwordChanged:'密码已修改，请重新登录。'});
 Object.assign(copy.en, {accountSettings:'Account settings',passwordNote:'Changing your password signs out this and all other sessions.',currentPassword:'Current password',newPassword:'New password',changePassword:'Change password',passwordChanged:'Password changed. Sign in again.'});
-Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',usersIntro:'查看账号、工作空间成员关系，并启用或停用用户。变更会撤销旧会话并留下管理审计。',usersSearch:'搜索账号、姓名或邮箱',usersWorkspace:'工作空间',usersMember:'已加入当前空间',usersNotMember:'未加入当前空间',usersGrant:'加入空间',usersRevoke:'移出空间',confirmRevokeUser:'移出此用户并撤销其旧会话？',usersEnabled:'已启用',usersDisabled:'已停用',usersDisable:'停用',usersEnable:'启用',usersEmpty:'没有匹配的用户',usersCount:'位用户',usersCountOne:'位用户',confirmDisableUser:'停用此用户并撤销其全部会话？',usersSaved:'用户状态已更新',usersMemberSaved:'成员关系已更新'});
-Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Review accounts and workspace membership, and enable or disable users. Changes revoke old sessions and leave a management audit.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
+Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',usersIntro:'创建和查看账号，管理工作空间成员关系及启停状态。管理变更会留下审计。',usersSearch:'搜索账号、姓名或邮箱',usersWorkspace:'工作空间',usersMember:'已加入当前空间',usersNotMember:'未加入当前空间',usersGrant:'加入空间',usersRevoke:'移出空间',confirmRevokeUser:'移出此用户并撤销其旧会话？',usersEnabled:'已启用',usersDisabled:'已停用',usersDisable:'停用',usersEnable:'启用',usersEmpty:'没有匹配的用户',usersCount:'位用户',usersCountOne:'位用户',confirmDisableUser:'停用此用户并撤销其全部会话？',usersSaved:'用户状态已更新',usersMemberSaved:'成员关系已更新'});
+Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Create and review accounts, manage workspace membership and enable or disable users. Management changes are audited.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
+Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'设置初始密码并选择当前工作空间。密码只在此提交一次。',usersName:'姓名',usersEmail:'邮箱',usersInitialPassword:'初始密码（12–72 字符）',usersCreateSubmit:'创建用户',usersCreated:'用户已创建'});
+Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -599,6 +601,18 @@ $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('users-nav').onclick=()=>{userPage=1;void showUsers();};
 $('users-workspace').onchange=()=>{void loadUsers();};
+$('user-create-form').onsubmit=async event=>{
+  event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  const workspace=$('users-workspace').value;
+  try{
+    if(!workspace)throw new Error('workspace');
+    await api('/user',{account:$('user-create-account').value.trim(),name:$('user-create-name').value.trim(),
+      email:$('user-create-email').value.trim(),oid_list:[workspace],initial_password:$('user-create-password').value},'POST');
+    event.target.reset();$('user-create').open=false;await loadUsers();
+    $('users-status').textContent=t('usersCreated');$('users-status').classList.remove('error');
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{submit.disabled=false;$('user-create-password').value='';}
+};
 $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
 $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
