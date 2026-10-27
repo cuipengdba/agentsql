@@ -2,7 +2,13 @@ package chatbi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -51,5 +57,112 @@ func TestLegacyModelReadIsScopedAndRedacted(t *testing.T) {
 	empty := accountRequest(t, handler, http.MethodGet, base, "", adminToken)
 	if empty.Code != http.StatusOK || !strings.Contains(empty.Body.String(), `"data":[]`) {
 		t.Fatalf("empty model catalog: %d %s", empty.Code, empty.Body.String())
+	}
+}
+
+func TestOriginalModelStatusProbesSavedModelWithoutQueryExecution(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	var current ModelConfig
+	if _, err := service.Store.get(context.Background(), objectKey{"model", "1", "workspace", "default"}, &current); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"id":"` + string(current.ID) + `","api_domain":"http://attacker.invalid/v1","api_key":"attacker","base_model":"forged"}`
+	path := "/api/v1/system/aimodel/status"
+	if denied := accountRequest(t, handler, http.MethodPost, path, body, memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member model probe: %d", denied.Code)
+	}
+	response := accountRequest(t, handler, http.MethodPost, path, body, adminToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Type"), "application/x-ndjson") ||
+		!strings.Contains(response.Body.String(), `"content":"Model reachable"`) || strings.Contains(response.Body.String(), "SELECT") {
+		t.Fatalf("original model status stream: %d %s", response.Code, response.Body.String())
+	}
+	model := service.Model.(*fakeModel)
+	gateway := service.Gateway.(*fakeGateway)
+	if model.calls != 1 || gateway.queries != 0 {
+		t.Fatalf("unsafe model probe calls: model=%d business_queries=%d", model.calls, gateway.queries)
+	}
+	if missing := accountRequest(t, handler, http.MethodPost, path, `{"id":"999999"}`, adminToken); missing.Code != http.StatusNotFound || model.calls != 1 {
+		t.Fatalf("foreign model probe reached model: %d calls=%d", missing.Code, model.calls)
+	}
+	model.err = errors.New("upstream failure with secret")
+	failed := accountRequest(t, handler, http.MethodPost, path, body, adminToken)
+	if failed.Code != http.StatusOK || !strings.Contains(failed.Body.String(), `"error":"Model unavailable"`) ||
+		strings.Contains(failed.Body.String(), "secret") || gateway.queries != 0 {
+		t.Fatalf("unsafe model failure stream: %d %s", failed.Code, failed.Body.String())
+	}
+}
+
+func TestOriginalModelEditUsesInstallationRSAAndAuditedWorkspaceModel(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	modelKey := objectKey{"model", "1", "workspace", "default"}
+	var original ModelConfig
+	revision, err := service.Store.get(context.Background(), modelKey, &original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original.APIKey = "keep-private-key"
+	if err := service.Store.put(context.Background(), modelKey, original, revision); err != nil {
+		t.Fatal(err)
+	}
+	encrypt := func(value string) string {
+		t.Helper()
+		ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.StdEncoding.EncodeToString(ciphertext)
+	}
+	payload := map[string]any{"id": string(original.ID), "name": "Edited through original client",
+		"model_type": 0, "base_model": "fixture-v2", "supplier": 15, "protocol": 1,
+		"default_model": true, "api_domain": encrypt("http://127.0.0.1:8000/v1"),
+		"api_key": "", "config_list": []any{}, "ws_mapping_count": 1}
+	request := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountRequest(t, handler, http.MethodPut, "/api/v1/system/aimodel", string(body), token)
+	}
+	if response := request(memberToken); response.Code != http.StatusUnauthorized {
+		t.Fatalf("member edited original model: %d", response.Code)
+	}
+	payload["supplier"] = 7
+	if response := request(adminToken); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsupported supplier edited model: %d", response.Code)
+	}
+	payload["supplier"] = 15
+	payload["config_list"] = []any{map[string]any{"key": "temperature", "val": 1}}
+	if response := request(adminToken); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsupported advanced model option accepted: %d", response.Code)
+	}
+	payload["config_list"] = []any{}
+	payload["api_domain"] = "http://127.0.0.1:8000/v1"
+	if response := request(adminToken); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("plaintext original endpoint accepted: %d", response.Code)
+	}
+	payload["api_domain"] = encrypt("http://127.0.0.1:8000/v1")
+	payload["id"] = "999999"
+	if response := request(adminToken); response.Code != http.StatusNotFound {
+		t.Fatalf("foreign model edit accepted: %d", response.Code)
+	}
+	payload["id"] = string(original.ID)
+	if response := request(adminToken); response.Code != http.StatusOK {
+		t.Fatalf("original model edit: %d %s", response.Code, response.Body.String())
+	}
+	var edited ModelConfig
+	newRevision, err := service.Store.get(context.Background(), modelKey, &edited)
+	if err != nil || newRevision != revision+2 || edited.Name != "Edited through original client" ||
+		edited.Model != "fixture-v2" || edited.Endpoint != "http://127.0.0.1:8000/v1" || edited.APIKey != "keep-private-key" {
+		t.Fatalf("original model edit was not persisted safely: %+v revision=%d err=%v", edited, newRevision, err)
+	}
+	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
+	if err != nil || len(audits) != 1 {
+		t.Fatalf("original model edit audit: count=%d err=%v", len(audits), err)
 	}
 }

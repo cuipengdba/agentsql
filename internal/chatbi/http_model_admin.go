@@ -95,7 +95,7 @@ func (h *Handler) nativeCheckWorkspaceModel(w http.ResponseWriter, r *http.Reque
 		failure(w, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	result, err := h.service.Model.Generate(ctx, model, "pg", "Return one bounded test query over the probe table", []Column{
 		{Schema: "public", Table: "agentsql_probe", Name: "value", DataType: "integer"},
