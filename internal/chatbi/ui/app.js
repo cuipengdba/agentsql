@@ -54,6 +54,8 @@ Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
 Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
+Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型，请先通过离线配置导入。'});
+Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Import one through offline configuration first.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
@@ -62,13 +64,14 @@ let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
 let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
 let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
+let modelsVisible=false,modelsEpoch=0,modelRevision=null;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');hideUsers();hideVariables();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');hideUsers();hideVariables();hideModels();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 async function loadSuggestions(){
@@ -153,6 +156,7 @@ async function enter(){
   $('semantics-nav').hidden=!isAdmin;
   $('users-nav').hidden=!isAdmin;
   $('variables-nav').hidden=!isAdmin;
+  $('models-nav').hidden=!isAdmin;
   assistants.setAdmin(isAdmin);
   assistants.setSources(sourceList);
   $('source-import').hidden=!isAdmin;
@@ -277,6 +281,28 @@ function semanticStatus(value,error=false){$('semantic-status').textContent=valu
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function hideUsers(){usersVisible=false;usersEpoch++;$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
+function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
+function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
+async function loadModel(){
+  if(!modelsVisible)return;
+  const epoch=++modelsEpoch;modelRevision=null;modelStatus(t('reading'));
+  try{
+    const model=await api('/agentsql/model');
+    if(!modelsVisible||epoch!==modelsEpoch)return;
+    modelRevision=model.revision;
+    $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
+    $('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);
+    $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
+  }catch(error){if(modelsVisible&&epoch===modelsEpoch)modelStatus(t(error.status===404?'modelsMissing':'failed'),true);}
+}
+async function showModels(){
+  if(controller||!isAdmin)return;
+  dashboard.hide();assistants.hide();hideUsers();hideVariables();closeMenu();
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
+  semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  modelsVisible=true;$('models').hidden=false;$('models-nav').classList.add('active');await loadModel();
+}
 function variableStatus(message,error=false){$('variable-status').textContent=message;$('variable-status').classList.toggle('error',error);}
 function resetVariableForm(){variableEditingID=null;$('variable-form').reset();$('variable-editor').querySelector('summary').textContent=t('variablesAdd');$('variable-editor').open=false;}
 async function loadVariables(){
@@ -309,7 +335,7 @@ async function loadVariables(){
 }
 async function showVariables(){
   if(controller||!isAdmin)return;
-  dashboard.hide();assistants.hide();hideUsers();closeMenu();
+  dashboard.hide();assistants.hide();hideUsers();hideModels();closeMenu();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -402,7 +428,7 @@ async function loadUsers(){
 }
 async function showUsers(){
   if(controller||!isAdmin)return;
-  dashboard.hide();assistants.hide();hideVariables();closeMenu();
+  dashboard.hide();assistants.hide();hideVariables();hideModels();closeMenu();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -424,6 +450,7 @@ function showQA(){
   assistants.hide();
   hideUsers();
   hideVariables();
+  hideModels();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
   $('semantics-nav').classList.remove('active');
@@ -435,6 +462,7 @@ async function showSemantics(){
   assistants.hide();
   hideUsers();
   hideVariables();
+  hideModels();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
@@ -538,6 +566,7 @@ async function showSources(){
   assistants.hide();
   hideUsers();
   hideVariables();
+  hideModels();
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -551,6 +580,7 @@ async function showDashboards(){
   assistants.hide();
   hideUsers();
   hideVariables();
+  hideModels();
   closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
@@ -558,7 +588,7 @@ async function showDashboards(){
   await dashboard.show();
 }
 document.addEventListener('agentsql:show-assistants',()=>{
-  dashboard.hide();hideUsers();hideVariables();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  dashboard.hide();hideUsers();hideVariables();hideModels();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -773,6 +803,17 @@ $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void l
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
 $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
 $('variables-nav').onclick=()=>{void showVariables();};
+$('models-nav').onclick=()=>{void showModels();};
+$('model-reload').onclick=()=>{void loadModel();};
+$('model-form').onsubmit=async event=>{
+  event.preventDefault();if(modelRevision===null)return;
+  const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  const update={revision:modelRevision,name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
+    api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value)};
+  if($('model-key').value!=='')update.api_key=$('model-key').value;
+  try{await api('/agentsql/model',update,'PUT');await loadModel();modelStatus(t('modelsSaved'));}
+  catch{modelStatus(t('failed'),true);}finally{submit.disabled=false;$('model-key').value='';}
+};
 $('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1;void loadVariables();};
 $('variable-prev').onclick=()=>{if(variablePage>1){variablePage--;void loadVariables();}};
 $('variable-next').onclick=()=>{if(variablePage<variableTotalPages){variablePage++;void loadVariables();}};
@@ -806,7 +847,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
