@@ -1,6 +1,7 @@
 import { chartSeries, renderChart } from './chart.js';
 import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
+import { setupChatSettings } from './chat-settings.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -77,9 +78,11 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
+const qaDisplay={sql:true,log:true};
+const chatSettings=setupChatSettings({api,node,get:$,canOpen:()=>!controller,onChange:value=>{qaDisplay.sql=!!value.show_sql;qaDisplay.log=!!value.show_log;}});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -131,6 +134,9 @@ async function history(){
 async function enter(){
   const user=await api('/user/info');
   isAdmin=Boolean(user.isAdmin);
+  const parameters=await api('/system/parameter/chat');
+  const visible=Object.fromEntries((Array.isArray(parameters)?parameters:[]).map(item=>[item.pkey,item.pval]));
+  qaDisplay.sql=visible['chat.show_sql']!=='false';qaDisplay.log=visible['chat.show_log']!=='false';
   if(!isAdmin){hideUsers();$('users-list').replaceChildren();}
   $('account-name').textContent=user.name||user.account;
   const workspaces=await api('/user/ws');
@@ -164,6 +170,7 @@ async function enter(){
   $('variables-nav').hidden=!isAdmin;
   $('models-nav').hidden=!isAdmin;
   assistants.setAdmin(isAdmin);
+  chatSettings.setAdmin(isAdmin);
   assistants.setSources(sourceList);
   $('source-import').hidden=!isAdmin;
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
@@ -245,11 +252,11 @@ function show(chat){
         answer.append(button);
       }
     }
-    if(record.finish){
+    if(record.finish&&qaDisplay.log){
       const usage=node('details',undefined,'usage-details'),summary=node('summary',t('usage')),content=node('div',undefined,'usage-content');
       usage.append(summary,content);usage.addEventListener('toggle',()=>{if(usage.open)void loadUsage(record.id,usage,content);});answer.append(usage);
     }
-    if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}
+    if(record.sql&&qaDisplay.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}
     turn.append(answer);$('conversation').append(turn);
   }
   $('conversation').scrollTop=$('conversation').scrollHeight;
@@ -307,7 +314,7 @@ async function loadModel(){
 }
 async function showModels(){
   if(controller||!isAdmin)return;
-  dashboard.hide();assistants.hide();hideUsers();hideVariables();closeMenu();
+  dashboard.hide();assistants.hide();chatSettings.hide();hideUsers();hideVariables();closeMenu();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -369,7 +376,7 @@ async function loadVariables(){
 }
 async function showVariables(){
   if(controller||!isAdmin)return;
-  dashboard.hide();assistants.hide();hideUsers();hideModels();closeMenu();
+  dashboard.hide();assistants.hide();chatSettings.hide();hideUsers();hideModels();closeMenu();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -462,7 +469,7 @@ async function loadUsers(){
 }
 async function showUsers(){
   if(controller||!isAdmin)return;
-  dashboard.hide();assistants.hide();hideVariables();hideModels();closeMenu();
+  dashboard.hide();assistants.hide();chatSettings.hide();hideVariables();hideModels();closeMenu();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -482,6 +489,7 @@ async function showUsers(){
 function showQA(){
   dashboard.hide();
   assistants.hide();
+  chatSettings.hide();
   hideUsers();
   hideVariables();
   hideModels();
@@ -494,6 +502,7 @@ async function showSemantics(){
   if(controller||$('semantics-nav').hidden)return;
   dashboard.hide();
   assistants.hide();
+  chatSettings.hide();
   hideUsers();
   hideVariables();
   hideModels();
@@ -598,6 +607,7 @@ async function showSources(){
   if(controller)return;
   dashboard.hide();
   assistants.hide();
+  chatSettings.hide();
   hideUsers();
   hideVariables();
   hideModels();
@@ -612,6 +622,7 @@ async function showSources(){
 async function showDashboards(){
   if(controller)return;
   assistants.hide();
+  chatSettings.hide();
   hideUsers();
   hideVariables();
   hideModels();
@@ -622,7 +633,13 @@ async function showDashboards(){
   await dashboard.show();
 }
 document.addEventListener('agentsql:show-assistants',()=>{
-  dashboard.hide();hideUsers();hideVariables();hideModels();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  dashboard.hide();chatSettings.hide();hideUsers();hideVariables();hideModels();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  $('sources').hidden=true;$('sources-nav').classList.remove('active');
+  $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+});
+document.addEventListener('agentsql:show-chat-settings',()=>{
+  dashboard.hide();assistants.hide();hideUsers();hideVariables();hideModels();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -928,7 +945,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();chatSettings.language();if(chatSettings.visible())return;if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;

@@ -66,6 +66,10 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)
 	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
 	h.mux.HandleFunc("GET /api/v1/system/parameter/chat", h.auth(h.sqlbotChatParameters))
+	h.mux.HandleFunc("GET /api/v1/system/parameter", h.auth(h.sqlbotAllParameters))
+	h.mux.HandleFunc("POST /api/v1/system/parameter", h.auth(h.sqlbotSaveParameters))
+	h.mux.HandleFunc("GET /api/v1/agentsql/chat-parameters", h.auth(h.nativeChatParameters))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/chat-parameters", h.auth(h.nativeSaveChatParameters))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/default", h.auth(h.sqlbotDefaultModel))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel", h.auth(h.legacyModelList))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}", h.auth(h.legacyModelRead))
@@ -205,7 +209,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {
-		case "app.js", "chart.js", "dashboard.js", "assistants.js", "app.css", "mark.svg":
+		case "app.js", "chart.js", "dashboard.js", "assistants.js", "chat-settings.js", "app.css", "mark.svg":
 			assets.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
