@@ -56,6 +56,8 @@ Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
 Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
+Object.assign(copy['zh-CN'], {sourceSelect:'管理已导入表',sourceSelectIntro:'仅已勾选的表会在此数据源中显示；取消全部勾选会关闭该数据源的查询。',sourceSelectSave:'保存选表',sourceSelectionSaved:'选表范围已保存并写入审计。'});
+Object.assign(copy.en, {sourceSelect:'Manage imported tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved with an audit record.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
@@ -629,6 +631,7 @@ async function loadSource(source){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
+  $('source-select').hidden=!(isAdmin&&source.type==='excel');$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
@@ -640,6 +643,36 @@ async function loadSource(source){
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+}
+async function openTableChoices(){
+  const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
+  if(!$('source-select-form').hidden){$('source-select-form').hidden=true;return;}
+  const epoch=sourceEpoch,button=$('source-select');button.disabled=true;sourceStatus(t('sourceLoading'));
+  try{
+    const tables=await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
+    if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
+    const list=$('source-select-list');list.replaceChildren();
+    for(const table of tables){
+      const label=node('label'),input=node('input');input.type='checkbox';input.value=table.table_name;input.checked=!!table.checked;
+      label.append(input,node('span',table.table_name));list.append(label);
+    }
+    $('source-select-form').hidden=false;sourceStatus('');
+  }catch{if(sourceVisible&&epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+  finally{button.disabled=false;}
+}
+async function saveTableChoices(event){
+  event.preventDefault();const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
+  const button=$('source-select-save');button.disabled=true;
+  const tables=[...$('source-select-list').querySelectorAll('input[type=checkbox]:checked')].map(input=>({table_name:input.value,table_comment:''}));
+  try{
+    await api('/datasource/chooseTables/'+encodeURIComponent(String(source.id)),tables,'POST');
+    sourceList=await api('/datasource/list');
+    if(sourceVisible&&String(selectedSource?.id)===String(source.id)){
+      const refreshed=sourceList.find(item=>String(item.id)===String(source.id));
+      if(refreshed)await loadSource(refreshed);
+      sourceStatus(t('sourceSelectionSaved'));
+    }
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 async function deleteSelectedSource(){
   const source=selectedSource;if(!isAdmin||!sourceVisible||source?.type!=='excel'||!window.confirm(t('deleteSourcePrompt')))return;
@@ -874,6 +907,8 @@ $('sources-nav').onclick=()=>{void showSources();};
 $('dashboards-nav').onclick=()=>{void showDashboards();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
 $('source-delete').onclick=()=>{void deleteSelectedSource();};
+$('source-select').onclick=()=>{void openTableChoices();};
+$('source-select-form').onsubmit=event=>{void saveTableChoices(event);};
 $('import-file').onchange=()=>{clearImportStage();sourceStatus(t('importFileChanged'));};
 $('import-preview').onclick=()=>{void previewImport();};
 $('source-import-form').onsubmit=event=>{void saveImport(event);};
