@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -150,6 +151,91 @@ func (s *Store) verifyWorkspaceNamesTx(ctx context.Context, tx *sql.Tx, membersh
 		if s.decode(key, body, &item) != nil || item.ID != membership.Workspace || item.Name != membership.Name {
 			return ErrConflict
 		}
+	}
+	return nil
+}
+
+// SwitchWorkspace persists the user's default and this token's live scope in
+// one encrypted control-plane transaction. The signed token remains the same;
+// revocation and membership checks still run on every request.
+func (s *Store) SwitchWorkspace(ctx context.Context, p Principal, token string, target ID) error {
+	if token == "" || len(token) > 8192 || !target.Valid() || !p.User.ID.Valid() ||
+		p.EmbeddedApp != "" || !p.User.canUse(target) {
+		return ErrUnauthenticated
+	}
+	selectionKey := workspaceSelectionKey(token)
+	var previous ID
+	selectionRevision, err := s.get(ctx, selectionKey, &previous)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	selectionBody, err := s.seal(selectionKey, target)
+	if err != nil {
+		return err
+	}
+	auditID, err := newID()
+	if err != nil {
+		return err
+	}
+	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
+	audit, err := s.seal(auditKey, map[string]any{"action": "user.workspace.switch", "actor": p.User.ID,
+		"from": p.Workspace, "to": target, "time": time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer tx.Rollback()
+	var actorBody []byte
+	var actorRevision int64
+	if err := tx.QueryRowContext(ctx, `SELECT revision,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system' AND id=?`, p.User.ID).Scan(&actorRevision, &actorBody); err != nil {
+		return ErrUnauthenticated
+	}
+	var actor User
+	if err := s.decode(userKey(p.User.ID), actorBody, &actor); err != nil ||
+		actor.ID != p.User.ID || actor.Account != p.User.Account ||
+		actor.AuthRevision != p.User.AuthRevision || !actor.canUse(p.Workspace) || !actor.canUse(target) {
+		return ErrUnauthenticated
+	}
+	actor.Workspace = target
+	if err := validateUser(actor); err != nil {
+		return ErrUnavailable
+	}
+	newActorBody, err := s.seal(userKey(actor.ID), actor)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind='user' AND scope='system' AND owner='system' AND id=? AND revision=?`,
+		newActorBody, actor.ID, actorRevision)
+	if err != nil {
+		return ErrUnavailable
+	}
+	count, err := result.RowsAffected()
+	if err != nil || count != 1 {
+		return ErrConflict
+	}
+	if selectionRevision == 0 {
+		result, err = tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
+			selectionKey.Kind, selectionKey.Scope, selectionKey.Owner, selectionKey.ID, selectionBody)
+	} else {
+		result, err = tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
+			selectionBody, selectionKey.Kind, selectionKey.Scope, selectionKey.Owner, selectionKey.ID, selectionRevision)
+	}
+	if err != nil {
+		return ErrUnavailable
+	}
+	count, err = result.RowsAffected()
+	if err != nil || count != 1 {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`,
+		auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
+		return ErrUnavailable
+	}
+	if err := tx.Commit(); err != nil {
+		return ErrUnavailable
 	}
 	return nil
 }

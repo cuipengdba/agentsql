@@ -316,6 +316,12 @@ func revokedKey(token string) objectKey {
 	return objectKey{"revoked-token", "system", "system", hex.EncodeToString(sum[:])}
 }
 
+func workspaceSelectionKey(token string) objectKey {
+	key := revokedKey(token)
+	key.Kind = "token-workspace"
+	return key
+}
+
 func (identity *Identity) Verify(ctx context.Context, token string) (Principal, error) {
 	deny := func() (Principal, error) { return Principal{}, ErrUnauthenticated }
 	if len(token) > 8192 {
@@ -374,7 +380,18 @@ func (identity *Identity) Verify(ctx context.Context, token string) (Principal, 
 	if !errors.Is(err, ErrNotFound) {
 		return deny()
 	}
-	return Principal{User: user, Workspace: claims.Workspace}, nil
+	workspace := claims.Workspace
+	var selected ID
+	_, err = identity.store.get(ctx, workspaceSelectionKey(token), &selected)
+	if err == nil {
+		if !selected.Valid() || !user.canUse(selected) {
+			return deny()
+		}
+		workspace = selected
+	} else if !errors.Is(err, ErrNotFound) {
+		return deny()
+	}
+	return Principal{User: user, Workspace: workspace}, nil
 }
 
 func (identity *Identity) Logout(ctx context.Context, token string) error {
