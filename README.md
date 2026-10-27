@@ -17,6 +17,8 @@
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
+AgentSQL 有两种使用形态：作为现有 SQLBot 的数据库安全网关，保留原问数界面并对数据库访问施加身份、权限、受控执行、脱敏和持久审计；或使用 AgentSQL 自有的问数、数据源、图表和管理页面独立运行。AgentSQL 的 Go 服务与 Web 页面均为独立实现。完整社区版功能、全部接入方式与现有业务系统零改动替换，须按[页面与接入验收矩阵](docs/v4.5.0-page-parity.md)逐项证明，不能由路由数量或演示页面推定。
+
 v0.6.0 加入治理控制台、审批单次执行和 Vastbase G100 的受限只读适配；v0.7.0 加入独立的 MCP `2026-07-28` 入口与任务级临时只读授权；v0.8.0 加入异人审批；v0.9.0 为新申请加入 1–10 次结果预算、管理审计投递状态和策略离线预检。v1.0.0 收紧列策略的失败关闭，并加入可选的 Agent 与人员双身份 HTTP MCP 验证。v1.1.0 将双身份扩展到审批与 B5 会话，并加入委托令牌单独撤销。v1.2.0 增加可选的 MCP OAuth 受保护资源入口。v1.3.0 增加默认关闭的 MySQL 8.0/8.4 单表 InnoDB SELECT 列授权子集。v1.4.0 在 PostgreSQL metadata 部署中共享控制台密码和 LDAP 登录尝试预算，并验证双网关审计故障恢复。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用。
 
 v1.5.0 对达梦、金仓和 Vastbase 的指定实例深入验证真实 MCP 客户端、权限撤销、断库恢复及审计。v1.6.0 在相同指定实例和受控只读子集内补齐故障关闭。v1.7.0 为瀚高 9.0.10 企业版 PG 模式增加独立 `highgo` 类型及有界只读路径，并为金仓 V9R1C10 PG 模式补充证书校验与凭据轮换。v1.8.0 在指定 Vastbase G100 Build 9 PG 模式实例验证 `verify-full`、证书和账号轮换、MCP 双客户端、脱敏与审计；主备高可用和完整生产支持仍未验收，见[发布说明](docs/release-notes-v1.8.0.md)。v1.9.0 增加 Dify / MCP Inspector 接入说明、复用 Agent 与数据源的目标 SQL 离线解释及真实调用审计定位；见[发布说明](docs/release-notes-v1.9.0.md)。v2.0.0 增加固定双网关 Kubernetes 配置和 PostgreSQL 单表列策略正式登记 API，见[发布说明](docs/release-notes-v2.0.0.md)及[双网关操作指南](deploy/kubernetes/README.md)。

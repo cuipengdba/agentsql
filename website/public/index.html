@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL（中文名：智盾）｜AI Agent 的数据库安全网关</title>
-  <meta name="description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <title>AgentSQL（智盾）｜数据库安全网关与独立问数</title>
+  <meta name="description" content="AgentSQL 提供数据库安全网关与自有问数页面：可保护现有 SQLBot 的数据库访问，也可独立提供自然语言问数。已验证的功能和接入范围见当前发布说明。">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -13,16 +13,16 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="zh_CN">
-  <meta property="og:title" content="AgentSQL · AI Agent 的数据库安全网关">
-  <meta property="og:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <meta property="og:title" content="AgentSQL · 数据库安全网关与独立问数">
+  <meta property="og:description" content="AgentSQL 可保护现有 SQLBot 的数据库访问，也提供自有自然语言问数页面；功能和接入范围以当前发布说明为准。">
   <meta property="og:url" content="https://agentsql.cn/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta property="og:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AgentSQL · AI Agent 的数据库安全网关">
-  <meta name="twitter:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <meta name="twitter:title" content="AgentSQL · 数据库安全网关与独立问数">
+  <meta name="twitter:description" content="AgentSQL 可保护现有 SQLBot 的数据库访问，也提供自有自然语言问数页面；功能和接入范围以当前发布说明为准。">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
@@ -68,7 +68,7 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.3.0</div>
-          <h1>AI Agent 的数据库安全网关</h1>
+          <h1>数据库安全网关与独立问数</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
           <p class="positioning">v4.3.0 增加 AgentSQL 自有图表、仪表板和嵌入应用管理，并在本机合成数据上对照原版 SQLBot v1.10.2 的指定页面及嵌入问数流程。AgentSQL 可作为 SQLBot 的数据库安全网关，也提供独立问数能力；社区版全部功能、全部页面和现有系统零改动替换仍待验收。</p>
           <div class="hero-actions">
@@ -96,6 +96,16 @@
             </g>
           </svg>
           <div class="visual-note"><span class="pulse" aria-hidden="true"></span> 请求只在策略允许时进入执行阶段</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">两种使用形态</p><h2 id="usage-modes-title">在现有问数系统前把关，也能使用 AgentSQL 自有问数页面</h2><p>AgentSQL 使用自己的 Go 服务、Web 页面和品牌。SQLBot 是兼容性对照对象；各项能力以实际通过的版本和场景验收为准。</p></div>
+        <div class="risk-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot 数据库安全网关</h3><p>保留现有 SQLBot 页面与问数流程，让业务数据库请求经过 AgentSQL 的身份、权限、受控执行、脱敏与持久审计。接入前须核对身份映射、数据库范围和故障关闭。</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>AgentSQL 独立问数</h3><p>使用 AgentSQL 自有的问数、数据源、图表与管理页面。社区版全部页面、API、嵌入方式及现有业务系统零改动替换，以 v4.5.0 逐项验收结果为准。</p></article>
         </div>
       </div>
     </section>

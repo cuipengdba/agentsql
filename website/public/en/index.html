@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL (Chinese name: Zhidun)｜AI Agent database security gateway</title>
-  <meta name="description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <title>AgentSQL (Zhidun) | Database security gateway and native Q&amp;A</title>
+  <meta name="description" content="AgentSQL provides a database security gateway and its own Q&amp;A interface. It can protect an existing SQLBot deployment or serve as a native data Q&amp;A product. See the current release notes for verified scope.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -13,16 +13,16 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="AgentSQL·AI Agent&#x27;s database security gateway">
-  <meta property="og:description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <meta property="og:title" content="AgentSQL · Database security gateway and native Q&amp;A">
+  <meta property="og:description" content="AgentSQL can protect database access for an existing SQLBot deployment and provides its own data Q&amp;A interface. See the current release notes for verified scope.">
   <meta property="og:url" content="https://agentsql.cn/en/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta property="og:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AgentSQL·AI Agent&#x27;s database security gateway">
-  <meta name="twitter:description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <meta name="twitter:title" content="AgentSQL · Database security gateway and native Q&amp;A">
+  <meta name="twitter:description" content="AgentSQL can protect database access for an existing SQLBot deployment and provides its own data Q&amp;A interface. See the current release notes for verified scope.">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
@@ -68,7 +68,7 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.3.0</div>
-          <h1>Database security gateway for AI agents</h1>
+          <h1>Database security gateway and native Q&amp;A</h1>
           <p class="hero-lead">AgentSQL (Chinese name: Zhidun) is a database security gateway and MCP Server for AI Agents. PostgreSQL/MySQL requests issued by the model go through identity authentication, SQL parsing, static and dynamic risk checks, four-state decision-making and controlled execution before reaching the database; the results are masked according to the configuration, and a persistent audit is left at the application layer.</p>
           <p class="positioning">v4.3.0 adds AgentSQL's own charts, dashboards and embedded application management, with selected original SQLBot v1.10.2 page and embedded Q&amp;A flows compared using synthetic local data. AgentSQL can serve as SQLBot's database security gateway and provides independent Q&amp;A capabilities. Full Community feature and page parity and zero-change replacement remain unverified.</p>
           <div class="hero-actions">
@@ -96,6 +96,16 @@
             </g>
           </svg>
           <div class="visual-note"><span class="pulse" aria-hidden="true"></span> Requests only enter the execution phase if allowed by the policy</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Two ways to use AgentSQL</p><h2 id="usage-modes-title">Secure an existing Q&amp;A system or use AgentSQL's own interface</h2><p>AgentSQL has its own Go service, Web interface and brand. SQLBot is a compatibility reference; each capability is bounded by its verified version and scenario.</p></div>
+        <div class="risk-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot database security gateway</h3><p>Keep an existing SQLBot interface and Q&amp;A flow while routing business database access through AgentSQL for identity, permissions, controlled execution, masking and persistent audit. Verify identity mapping, datasource scope and failure behavior before rollout.</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>Native AgentSQL Q&amp;A</h3><p>Use AgentSQL's own Q&amp;A, datasource, chart and administration pages. Full Community page, API and embed coverage and zero-change replacement of an existing business system depend on individual v4.5.0 acceptance results.</p></article>
         </div>
       </div>
     </section>
