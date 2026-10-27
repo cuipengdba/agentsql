@@ -44,7 +44,8 @@ func TestManagedWorkspaceCreateBecomesMemberTarget(t *testing.T) {
 	if err != nil || !bob.canUse(envelope.Data.ID) {
 		t.Fatalf("membership not persisted: %+v %v", bob, err)
 	}
-	if blocked := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/"+string(envelope.Data.ID), "", adminToken); blocked.Code != http.StatusConflict {
+	if blocked := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/"+string(envelope.Data.ID), "", adminToken); blocked.Code != http.StatusConflict ||
+		!strings.Contains(blocked.Body.String(), "Workspace still contains resources or members") {
 		t.Fatalf("workspace with a member was deleted: %d %s", blocked.Code, blocked.Body.String())
 	}
 	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
@@ -54,6 +55,30 @@ func TestManagedWorkspaceCreateBecomesMemberTarget(t *testing.T) {
 	}
 	if err != nil || len(audits) != 2 || !foundCreate {
 		t.Fatalf("workspace creation audit: %v %#v", err, audits)
+	}
+}
+
+func TestManagedWorkspaceDeleteExplainsScopedResourceConflict(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	created := accountRequest(t, handler, http.MethodPost, "/api/v1/system/workspace", `{"name":"Resource owner"}`, adminToken)
+	var envelope struct {
+		Data struct {
+			ID ID `json:"id"`
+		} `json:"data"`
+	}
+	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &envelope) != nil || !envelope.Data.ID.Valid() {
+		t.Fatalf("workspace create: %d %s", created.Code, created.Body.String())
+	}
+	resource := objectKey{Kind: "synthetic-resource", Scope: string(envelope.Data.ID), Owner: "system", ID: "1"}
+	if err := service.Store.put(context.Background(), resource, map[string]any{"name": "fixture"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	blocked := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/"+string(envelope.Data.ID), "", adminToken)
+	if blocked.Code != http.StatusConflict || !strings.Contains(blocked.Body.String(), "Workspace still contains resources or members") {
+		t.Fatalf("resource owner deletion: %d %s", blocked.Code, blocked.Body.String())
+	}
+	if _, err := service.Store.get(context.Background(), resource, new(map[string]any)); err != nil {
+		t.Fatalf("blocked deletion removed scoped resource: %v", err)
 	}
 }
 

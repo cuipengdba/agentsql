@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var ErrWorkspaceNotEmpty = errors.New("workspace still contains resources or members")
+
 func validWorkspaceName(name string) bool {
 	return name != "" && len(name) <= 100 && !strings.ContainsAny(name, "\r\n\x00")
 }
@@ -301,7 +303,7 @@ func (s *Store) DeleteWorkspaceManaged(ctx context.Context, id ID, p Principal) 
 		return ErrUnavailable
 	}
 	if scopedObjects != 0 {
-		return ErrConflict
+		return ErrWorkspaceNotEmpty
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,revision,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system'`)
 	if err != nil {
@@ -326,7 +328,7 @@ func (s *Store) DeleteWorkspaceManaged(ctx context.Context, id ID, p Principal) 
 			if membership.Workspace == id {
 				if user.ID != p.User.ID || !user.Admin || len(user.Memberships) <= 1 {
 					rows.Close()
-					return ErrConflict
+					return ErrWorkspaceNotEmpty
 				}
 				user.Memberships = append(user.Memberships[:index], user.Memberships[index+1:]...)
 				if user.Workspace == id {

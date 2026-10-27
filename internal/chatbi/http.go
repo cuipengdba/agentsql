@@ -358,6 +358,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):
 		status, message = 404, "Resource not found"
+	case errors.Is(err, ErrWorkspaceNotEmpty):
+		status, message = 409, "Workspace still contains resources or members"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):
 		status, message = 409, "Conversation changed or is busy"
 	case errors.Is(err, ErrGateway):
