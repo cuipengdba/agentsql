@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -83,6 +84,69 @@ func TestSystemVariablesAreScopedAuditedAndDoNotLeakToMembers(t *testing.T) {
 	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
 	if err != nil || len(audits) != 3 {
 		t.Fatalf("variable operations lacked audit: %d %v", len(audits), err)
+	}
+}
+
+func TestOriginalSystemVariableEditAcceptsCanonicalStringID(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	path := "/api/v1/sys_variable/save"
+	created := accountRequest(t, handler, http.MethodPost, path,
+		`{"name":"region","var_type":"text","value":["east"]}`, adminToken)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create variable: %d %s", created.Code, created.Body.String())
+	}
+	items, err := service.Store.SystemVariables(context.Background(), "1", "region")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("read variable: %v %v", items, err)
+	}
+	requestBody := map[string]any{"id": strconv.FormatInt(items[0].ID, 10),
+		"name": "region", "var_type": "text", "value": []string{"west"}}
+	marshal := func() string {
+		t.Helper()
+		body, err := json.Marshal(requestBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, path, marshal(), memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member edited variable: %d", denied.Code)
+	}
+	requestBody["id"] = "0" + strconv.FormatInt(items[0].ID, 10)
+	if malformed := accountRequest(t, handler, http.MethodPost, path, marshal(), adminToken); malformed.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("noncanonical string ID accepted: %d", malformed.Code)
+	}
+	requestBody["id"] = strconv.FormatInt(items[0].ID, 10)
+	if updated := accountRequest(t, handler, http.MethodPost, path, marshal(), adminToken); updated.Code != http.StatusOK {
+		t.Fatalf("original string-ID update: %d %s", updated.Code, updated.Body.String())
+	}
+	current, err := service.Store.SystemVariables(context.Background(), "1", "region")
+	if err != nil || len(current) != 1 || string(current[0].Value) != `["west"]` {
+		t.Fatalf("original edit did not persist: %v %v", current, err)
+	}
+	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
+	if err != nil || len(audits) != 2 {
+		t.Fatalf("original edit not audited: count=%d err=%v", len(audits), err)
+	}
+	deletePath := "/api/v1/sys_variable/delete"
+	if malformed := accountRequest(t, handler, http.MethodPost, deletePath,
+		`["0`+strconv.FormatInt(items[0].ID, 10)+`"]`, adminToken); malformed.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("noncanonical delete ID accepted: %d", malformed.Code)
+	}
+	deleteBody, _ := json.Marshal([]string{strconv.FormatInt(items[0].ID, 10)})
+	if denied := accountRequest(t, handler, http.MethodPost, deletePath, string(deleteBody), memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member deleted variable: %d", denied.Code)
+	}
+	if deleted := accountRequest(t, handler, http.MethodPost, deletePath, string(deleteBody), adminToken); deleted.Code != http.StatusOK {
+		t.Fatalf("original string-ID delete: %d %s", deleted.Code, deleted.Body.String())
+	}
+	remaining, err := service.Store.SystemVariables(context.Background(), "1", "region")
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("original delete did not persist: %v %v", remaining, err)
+	}
+	audits, err = service.Store.list(context.Background(), "management-audit", "system", "system")
+	if err != nil || len(audits) != 3 {
+		t.Fatalf("original delete not audited: count=%d err=%v", len(audits), err)
 	}
 }
 
