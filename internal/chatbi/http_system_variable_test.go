@@ -25,6 +25,20 @@ func TestSystemVariablesAreScopedAuditedAndDoNotLeakToMembers(t *testing.T) {
 	if all := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listAll", `{}`, bobToken); all.Code != http.StatusUnauthorized {
 		t.Fatalf("ordinary user saw variable list: %d", all.Code)
 	}
+	bob, revision, err := service.Store.User(context.Background(), "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob.Memberships[0].Weight = 1
+	if err := service.Store.put(context.Background(), userKey(bob.ID), bob, revision); err != nil {
+		t.Fatal(err)
+	}
+	if all := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listAll", `{}`, bobToken); all.Code != http.StatusOK || !strings.Contains(all.Body.String(), "region") {
+		t.Fatalf("workspace admin could not list variables: %d %s", all.Code, all.Body.String())
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/save", `{"name":"unauthorized","var_type":"text","value":["x"]}`, bobToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("workspace admin wrote global-admin variable: %d", denied.Code)
+	}
 	page := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listPage/1/10", `{"name":"reg"}`, adminToken)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `"total":1`) || !strings.Contains(page.Body.String(), `"region"`) {
 		t.Fatalf("admin page: %d %s", page.Code, page.Body.String())
