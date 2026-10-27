@@ -509,9 +509,13 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	// The chat is scoped to the authenticated principal. Send only successful
 	// questions and SQL from this same datasource; never send result rows or
 	// failed/interrupted attempts back to the model.
-	history := make([]TurnContext, 0, 3)
+	settings, err := service.Store.ChatSettings(ctx)
+	if err != nil {
+		return Record{}, err
+	}
+	history := make([]TurnContext, 0, settings.ContextRecords)
 	historyBytes := 0
-	for i := len(chat.Records) - 1; i >= 0 && len(history) < 3; i-- {
+	for i := len(chat.Records) - 1; i >= 0 && len(history) < settings.ContextRecords; i-- {
 		prior := chat.Records[i]
 		if !prior.Finish || prior.Action != "" || prior.Error != "" || prior.Datasource != chat.Datasource || prior.Question == "" || prior.SQL == "" {
 			continue
