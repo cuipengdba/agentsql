@@ -77,3 +77,26 @@ func (h *Handler) sqlbotChatParameters(w http.ResponseWriter, r *http.Request, p
 	}
 	okay(w, chatParameterList(value, false))
 }
+
+// The original login and user-management pages read these settings before
+// authentication. AgentSQL provisions user passwords explicitly and never
+// publishes a shared default password to the browser.
+func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, _ *http.Request) {
+	okay(w, []sqlbotChatParameter{
+		{Key: "login.default_login", Value: "0", ID: "agentsql-login-default", Type: "str"},
+		{Key: "login.initial_pwd_disabled", Value: "false", ID: "agentsql-login-initial-disabled", Type: "str"},
+		{Key: "login.initial_pwd_hidden", Value: "true", ID: "agentsql-login-initial-hidden", Type: "str"},
+	})
+}
+
+func (h *Handler) sqlbotDefaultPassword(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, "")
+}
