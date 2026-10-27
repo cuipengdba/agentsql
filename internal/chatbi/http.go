@@ -60,6 +60,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_start", h.mcpStart)
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_ws_list", h.mcpWorkspaceList)
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_ds_list", h.mcpDatasourceList)
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_model_list", h.mcpModelList)
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_question", h.bounded(h.mcpQuestion))
 	h.mux.HandleFunc("GET /api/v1/system/config/key", h.publicLoginKey)
 	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)

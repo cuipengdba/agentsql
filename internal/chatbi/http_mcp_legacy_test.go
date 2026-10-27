@@ -71,6 +71,46 @@ func TestMCPHelperTokenWorkspaceAndDatasourceListing(t *testing.T) {
 	}
 }
 
+func TestMCPModelListRequiresMembershipAndExcludesSecrets(t *testing.T) {
+	service, _, _, _, token := serviceFixture(t)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := objectKey{"model", "1", "workspace", "default"}
+	var model ModelConfig
+	revision, err := service.Store.get(context.Background(), key, &model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.Name, model.APIKey = "Private local model", "never-expose-this-key"
+	if err := service.Store.put(context.Background(), key, model, revision); err != nil {
+		t.Fatal(err)
+	}
+	listed := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"token":"`+token+`","oid":1}`, "")
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"name":"Private local model"`) ||
+		!strings.Contains(listed.Body.String(), `"id":20`) {
+		t.Fatalf("MCP model list: %d %s", listed.Code, listed.Body.String())
+	}
+	for _, secret := range []string{"never-expose-this-key", "api_key", "api_domain", "127.0.0.1"} {
+		if strings.Contains(listed.Body.String(), secret) {
+			t.Fatalf("model list leaked %s", secret)
+		}
+	}
+	for _, body := range []string{`{"oid":1}`, `{"token":"` + token + `","oid":2}`} {
+		denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", body, "")
+		if denied.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthorized model list succeeded: %d %s", denied.Code, denied.Body.String())
+		}
+	}
+	if err := service.Identity.Logout(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"token":"`+token+`","oid":1}`, ""); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked token listed models: %d", denied.Code)
+	}
+}
+
 func TestMCPHelperRejectsConflictingCredentialsAndInvalidBodies(t *testing.T) {
 	service, _, _, _, token := serviceFixture(t)
 	handler, err := NewHandler(service, "test")

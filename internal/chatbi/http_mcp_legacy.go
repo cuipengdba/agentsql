@@ -181,6 +181,47 @@ func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// The upstream model-list shape carries only an oid. AgentSQL requires a live
+// body token so a caller cannot enumerate models across workspaces. The
+// response exposes model display metadata only, never endpoint or API key.
+func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Token string `json:"token"`
+		OID   *ID    `json:"oid"`
+	}
+	if !readBody(w, r, &input) {
+		return
+	}
+	p, ok := h.mcpBodyPrincipal(w, r, input.Token, input.OID)
+	if !ok {
+		return
+	}
+	var model ModelConfig
+	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	if errors.Is(err, ErrNotFound) {
+		if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
+			failure(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	if err != nil || validateModelConfig(model) != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
+		failure(w, err)
+		return
+	}
+	name := model.Name
+	if name == "" {
+		name = model.Model
+	}
+	writeJSON(w, http.StatusOK, []map[string]any{{"id": legacyBrowserID(model.ID),
+		"name": name, "default_model": true, "supplier": 0}})
+}
+
 func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token string) error {
 	current, err := h.service.Identity.Verify(ctx, token)
 	if err != nil || current.EmbeddedApp != "" || current.User.ID != p.User.ID ||
