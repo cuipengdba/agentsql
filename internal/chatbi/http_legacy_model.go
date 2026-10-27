@@ -37,7 +37,7 @@ func (h *Handler) legacyModelList(w http.ResponseWriter, r *http.Request, p Prin
 		return
 	}
 	okay(w, []map[string]any{{"id": model.ID, "name": name,
-		"model_type": 1, "base_model": model.Model, "supplier": 0,
+		"model_type": 0, "base_model": model.Model, "supplier": 15,
 		"protocol": 1, "default_model": true, "ws_mapping_count": 1}})
 }
 
@@ -56,7 +56,7 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 		name = model.Model
 	}
 	okay(w, map[string]any{"id": model.ID, "name": name,
-		"model_type": 1, "base_model": model.Model, "supplier": 0,
+		"model_type": 0, "base_model": model.Model, "supplier": 15,
 		"protocol": 1, "default_model": true, "ws_mapping_count": 1,
 		"api_domain": model.Endpoint, "api_key": "", "has_api_key": model.APIKey != "",
 		"config_list": []any{}})
