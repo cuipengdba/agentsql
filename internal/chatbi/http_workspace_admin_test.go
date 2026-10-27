@@ -46,6 +46,17 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 	if missing := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/3", "", adminToken); missing.Code != http.StatusNotFound {
 		t.Fatalf("unknown workspace was returned: %d", missing.Code)
 	}
+	candidates := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/10?oid=2", "", adminToken)
+	if candidates.Code != http.StatusOK || !strings.Contains(candidates.Body.String(), `"total":2`) ||
+		strings.Contains(candidates.Body.String(), "password_hash") || strings.Contains(candidates.Body.String(), "bob@example.test") {
+		t.Fatalf("unsafe member candidates: %d %s", candidates.Code, candidates.Body.String())
+	}
+	if denied := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/10?oid=2", "", bobToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("non-admin listed candidates: %d", denied.Code)
+	}
+	if missing := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/10?oid=3", "", adminToken); missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown workspace supplied candidates: %d %s", missing.Code, missing.Body.String())
+	}
 	grant := accountRequest(t, handler, http.MethodPost, "/api/v1/system/workspace/uws", `{"uid_list":[2,3],"oid":2,"weight":0}`, adminToken)
 	if grant.Code != http.StatusOK {
 		t.Fatalf("grant batch: %d %s", grant.Code, grant.Body.String())
@@ -55,6 +66,11 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 		if err != nil || !user.canUse("2") {
 			t.Fatalf("member %s was not granted: %v", id, err)
 		}
+	}
+	members := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/10?oid=2", "", adminToken)
+	if members.Code != http.StatusOK || !strings.Contains(members.Body.String(), `"total":2`) ||
+		strings.Contains(members.Body.String(), "password_hash") {
+		t.Fatalf("unsafe member page: %d %s", members.Code, members.Body.String())
 	}
 	if _, err := service.Identity.Verify(context.Background(), bobToken); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatal("grant did not invalidate prior member token")
@@ -133,6 +149,13 @@ func TestWorkspaceMemberAdministratorScope(t *testing.T) {
 	}
 	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/system/workspace/uws", `{"uid_list":[4],"oid":2}`, aliceToken); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("workspace admin changed another workspace: %d %s", denied.Code, denied.Body.String())
+	}
+	if denied := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/10?oid=2", "", aliceToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("workspace admin listed another workspace: %d %s", denied.Code, denied.Body.String())
+	}
+	candidate := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option?keyword=charlie", "", aliceToken)
+	if candidate.Code != http.StatusOK || !strings.Contains(candidate.Body.String(), `"account":"charlie"`) {
+		t.Fatalf("workspace admin could not find candidate: %d %s", candidate.Code, candidate.Body.String())
 	}
 	if denied := accountRequest(t, handler, http.MethodPut, "/api/v1/system/workspace/uws", `{"uid":4,"oid":2,"weight":1}`, aliceToken); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("workspace admin changed member roles: %d %s", denied.Code, denied.Body.String())
