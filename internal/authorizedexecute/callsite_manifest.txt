@@ -9,6 +9,7 @@ internal/chatbi/store.go
 internal/chatbi/identity.go
 internal/chatbi/setup.go
 internal/chatbi/semantics.go
+internal/chatbi/chat_parameters.go
 internal/chatbi/history_import.go
 internal/chatbi/managed_file_claim.go
 # Managed-file table selection only updates an encrypted local binding with a
