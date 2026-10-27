@@ -49,6 +49,20 @@ func TestLegacyModelReadIsScopedAndRedacted(t *testing.T) {
 		!strings.Contains(detail.Body.String(), `"has_api_key":true`) || !strings.Contains(detail.Body.String(), model.Endpoint) {
 		t.Fatalf("unsafe model detail: %d %s", detail.Code, detail.Body.String())
 	}
+	if denied := accountRequest(t, handler, http.MethodDelete, base+"/"+string(model.ID), "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member deleted model: %d", denied.Code)
+	}
+	if other := accountRequest(t, handler, http.MethodDelete, base+"/999999", "", adminToken); other.Code != http.StatusNotFound {
+		t.Fatalf("foreign model deletion: %d", other.Code)
+	}
+	if blocked := accountRequest(t, handler, http.MethodDelete, base+"/"+string(model.ID), "", adminToken); blocked.Code != http.StatusConflict ||
+		!strings.Contains(blocked.Body.String(), "Default model cannot be deleted") {
+		t.Fatalf("default model deletion: %d %s", blocked.Code, blocked.Body.String())
+	}
+	var retained ModelConfig
+	if _, err := service.Store.get(context.Background(), key, &retained); err != nil || retained.APIKey != model.APIKey {
+		t.Fatalf("blocked delete lost model or key: %v", err)
+	}
 	if _, err := service.Store.db.ExecContext(context.Background(),
 		`DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
 		key.Kind, key.Scope, key.Owner, key.ID); err != nil {
