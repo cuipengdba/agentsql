@@ -5,9 +5,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-PUBLIC_ROOTS = (ROOT / "docs", ROOT / "website", ROOT / "internal" / "chatbi" / "ui")
-PUBLIC_FILES = (ROOT / "README.md", ROOT / "README.en.md", ROOT / "NOTICE")
-EXTENSIONS = {".md", ".html", ".css", ".js", ".txt"}
+PUBLIC_ROOTS = (ROOT / "docs", ROOT / "website", ROOT / "deploy", ROOT / ".github",
+                ROOT / "internal" / "chatbi" / "ui", ROOT / "web" / "src", ROOT / "brand")
+PUBLIC_FILES = (*ROOT.glob("*.md"), ROOT / "NOTICE")
+EXTENSIONS = {".md", ".html", ".css", ".js", ".ts", ".tsx", ".json", ".svg", ".txt", ".yml", ".yaml"}
 SKIP_PARTS = {"third_party", "node_modules", ".git", "dist"}
 
 
