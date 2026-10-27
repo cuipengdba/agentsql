@@ -6,6 +6,7 @@ The independently trusted public key must be supplied separately to recipients.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,8 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+
+PINNED_KEY_SHA256 = "83d507dd59659aff490725184b2e65a5c1036181fc79c350028905df723a1542"
 
 
 def assemble(args):
@@ -25,10 +28,19 @@ def assemble(args):
         raise ValueError("trusted public key must be supplied outside the source directory")
     if output.exists() or output.is_symlink():
         raise ValueError("output must be a new file")
+    if args.installable and hashlib.sha256(Path(args.public_key).read_bytes()).hexdigest() != PINNED_KEY_SHA256:
+        raise ValueError("one-command bundle requires the pinned AgentSQL release key")
     # Private staging prevents input changes after verification from changing
     # the archive. tempfile uses the selected output parent, not a system disk.
     with tempfile.TemporaryDirectory(prefix=".agentsql-offline-", dir=output.parent) as staging:
-        stage = Path(staging) / "assets"
+        bundle = Path(staging) / "bundle"
+        if args.installable:
+            bundle.mkdir(mode=0o700)
+            (bundle / "VERSION").write_text(args.version + "\n", encoding="ascii")
+            shutil.copyfile(Path(__file__).with_name("install-offline-release.py"), bundle / "install-offline.py")
+            stage = bundle / "assets"
+        else:
+            stage = Path(staging) / "assets"
         stage.mkdir(mode=0o700)
         entries = list(source.iterdir())
         if len(entries) != 15:
@@ -64,9 +76,10 @@ def assemble(args):
                 def normalize(member):
                     member.uid = member.gid = member.mtime = 0
                     member.uname = member.gname = ""
-                    member.mode = 0o755 if member.isdir() else 0o644
+                    member.mode = 0o755 if member.isdir() or member.name.endswith("/install-offline.py") else 0o644
                     return member
-                archive.add(stage, arcname="agentsql-" + args.version + "-offline", recursive=True, filter=normalize)
+                archive.add(bundle if args.installable else stage,
+                            arcname="agentsql-" + args.version + "-offline", recursive=True, filter=normalize)
         return report
 
 
@@ -74,6 +87,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for argument in ("directory", "public-key", "version", "ctl", "output"):
         parser.add_argument("--" + argument, required=True)
+    parser.add_argument("--installable", action="store_true",
+                        help="include a one-command, post-verification offline installer")
     args = parser.parse_args()
     try:
         report = assemble(args)
