@@ -135,6 +135,9 @@ func (s *Store) updateUserManaged(ctx context.Context, user User, revision int64
 		actor.AuthRevision != p.User.AuthRevision || !actor.Admin || !actor.canUse(p.Workspace) {
 		return ErrUnauthenticated
 	}
+	if err := s.verifyWorkspaceNamesTx(ctx, tx, user.Memberships); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
 		body, key.Kind, key.Scope, key.Owner, key.ID, revision)
 	if err != nil {

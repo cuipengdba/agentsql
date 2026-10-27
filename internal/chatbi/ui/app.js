@@ -40,6 +40,10 @@ Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资�
 Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
 Object.assign(copy['zh-CN'], {usersResetPassword:'重置密码',usersResetNote:'重置后，该用户所有旧会话将失效。',usersPasswordReset:'密码已重置'});
 Object.assign(copy.en, {usersResetPassword:'Reset password',usersResetNote:'Resetting invalidates all of this user’s old sessions.',usersPasswordReset:'Password reset'});
+Object.assign(copy['zh-CN'], {workspaceCreate:'创建工作空间',workspaceName:'名称',workspaceCreateSubmit:'创建',workspaceCreated:'工作空间已创建'});
+Object.assign(copy.en, {workspaceCreate:'Create workspace',workspaceName:'Name',workspaceCreateSubmit:'Create',workspaceCreated:'Workspace created'});
+Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpdated:'工作空间已更新',workspaceDelete:'删除空工作空间',workspaceDeleted:'工作空间已删除',workspaceDeleteConfirm:'确定删除这个空工作空间？已有成员或数据时会拒绝删除。'});
+Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -345,6 +349,8 @@ async function showUsers(){
     $('users-workspace').replaceChildren();
     for(const workspace of workspaces){const option=node('option',workspace.name);option.value=String(workspace.id);$('users-workspace').append(option);}
     if(workspaces.some(workspace=>String(workspace.id)===previous))$('users-workspace').value=previous;
+    $('workspace-edit-name').value=$('users-workspace').selectedOptions[0]?.textContent||'';
+    $('workspace-delete').disabled=!$('users-workspace').value||$('users-workspace').value==='1';
     await loadUsers();
   }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
 }
@@ -641,7 +647,35 @@ $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('users-nav').onclick=()=>{userPage=1;void showUsers();};
-$('users-workspace').onchange=()=>{void loadUsers();};
+$('users-workspace').onchange=()=>{$('workspace-edit-name').value=$('users-workspace').selectedOptions[0]?.textContent||'';$('workspace-delete').disabled=$('users-workspace').value==='1';void loadUsers();};
+$('workspace-create-form').onsubmit=async event=>{
+  event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  try{
+    const created=await api('/system/workspace',{name:$('workspace-create-name').value.trim()},'POST');
+    event.target.reset();$('workspace-create').open=false;await showUsers();
+    $('users-workspace').value=String(created.id);$('workspace-edit-name').value=created.name;
+    $('workspace-delete').disabled=false;await loadUsers();
+    $('users-status').textContent=t('workspaceCreated');$('users-status').classList.remove('error');
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{submit.disabled=false;}
+};
+$('workspace-edit-form').onsubmit=async event=>{
+  event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  const id=$('users-workspace').value;
+  try{
+    await api('/system/workspace',{id,name:$('workspace-edit-name').value.trim()},'PUT');
+    $('workspace-edit').open=false;await showUsers();$('users-workspace').value=id;await loadUsers();
+    $('users-status').textContent=t('workspaceUpdated');$('users-status').classList.remove('error');
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{submit.disabled=false;}
+};
+$('workspace-delete').onclick=async()=>{
+  const id=$('users-workspace').value;if(!id||id==='1'||!window.confirm(t('workspaceDeleteConfirm')))return;
+  $('workspace-delete').disabled=true;
+  try{await api('/system/workspace/'+encodeURIComponent(id),undefined,'DELETE');await showUsers();
+    $('users-status').textContent=t('workspaceDeleted');$('users-status').classList.remove('error');}
+  catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');$('workspace-delete').disabled=false;}
+};
 $('user-create-form').onsubmit=async event=>{
   event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
   const workspace=$('users-workspace').value;

@@ -2,7 +2,9 @@ package chatbi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"sort"
@@ -11,8 +13,9 @@ import (
 )
 
 type workspaceOption struct {
-	ID   ID     `json:"id"`
-	Name string `json:"name"`
+	ID      ID     `json:"id"`
+	Name    string `json:"name"`
+	Created int64  `json:"create_time"`
 }
 
 // Imported SQLBot memberships carry the canonical workspace name. Until the
@@ -25,27 +28,42 @@ func (service *Service) workspaceOptions(ctx context.Context, p Principal) ([]wo
 }
 
 func (service *Service) allWorkspaceOptions(ctx context.Context) ([]workspaceOption, error) {
+	catalog, err := service.Store.list(ctx, "workspace", "system", "system")
+	if err != nil {
+		return nil, err
+	}
+	options := map[ID]workspaceOption{}
+	for _, raw := range catalog {
+		var item workspaceOption
+		if json.Unmarshal(raw, &item) != nil || !item.ID.Valid() || strings.TrimSpace(item.Name) == "" {
+			return nil, ErrUnavailable
+		}
+		options[item.ID] = item
+	}
 	items, err := service.Store.list(ctx, "user", "system", "system")
 	if err != nil {
 		return nil, err
 	}
-	names := map[ID]string{}
 	for _, raw := range items {
 		var user User
 		if json.Unmarshal(raw, &user) != nil || !user.ID.Valid() {
 			return nil, ErrUnavailable
 		}
 		for _, member := range user.Memberships {
-			if !member.Workspace.Valid() || strings.TrimSpace(member.Name) == "" ||
-				names[member.Workspace] != "" && names[member.Workspace] != member.Name {
+			if !member.Workspace.Valid() || strings.TrimSpace(member.Name) == "" {
 				return nil, ErrUnavailable
 			}
-			names[member.Workspace] = member.Name
+			if known, exists := options[member.Workspace]; exists && known.Name != member.Name {
+				return nil, ErrUnavailable
+			}
+			if _, exists := options[member.Workspace]; !exists {
+				options[member.Workspace] = workspaceOption{ID: member.Workspace, Name: member.Name}
+			}
 		}
 	}
-	result := make([]workspaceOption, 0, len(names))
-	for id, name := range names {
-		result = append(result, workspaceOption{ID: id, Name: name})
+	result := make([]workspaceOption, 0, len(options))
+	for _, item := range options {
+		result = append(result, item)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Name == result[j].Name {
@@ -79,7 +97,7 @@ func (service *Service) memberAdmin(ctx context.Context, p Principal, workspace 
 }
 
 func workspaceLegacyView(item workspaceOption) map[string]any {
-	return map[string]any{"id": legacyBrowserID(item.ID), "name": item.Name, "create_time": 0}
+	return map[string]any{"id": legacyBrowserID(item.ID), "name": item.Name, "create_time": item.Created}
 }
 
 func (h *Handler) legacyWorkspaceList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -303,6 +321,17 @@ func (service *Service) modifyMemberships(ctx context.Context, p Principal, ids 
 		return ErrUnavailable
 	}
 	defer tx.Rollback()
+	var catalogBody []byte
+	err = tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='workspace' AND scope='system' AND owner='system' AND id=?`, workspace).Scan(&catalogBody)
+	if err == nil {
+		var catalog workspaceOption
+		if service.Store.decode(objectKey{"workspace", "system", "system", string(workspace)}, catalogBody, &catalog) != nil ||
+			catalog.ID != workspace || catalog.Name != name {
+			return ErrConflict
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return ErrUnavailable
+	}
 	for _, item := range changes {
 		result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
 			item.body, item.key.Kind, item.key.Scope, item.key.Owner, item.key.ID, item.revision)

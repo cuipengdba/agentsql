@@ -141,6 +141,9 @@ func (s *Store) CreateUserManaged(ctx context.Context, user User, p Principal) e
 		actor.AuthRevision != p.User.AuthRevision || !actor.Admin || !actor.canUse(p.Workspace) {
 		return ErrUnauthenticated
 	}
+	if err := s.verifyWorkspaceNamesTx(ctx, tx, user.Memberships); err != nil {
+		return err
+	}
 	for _, item := range []struct {
 		key  objectKey
 		body []byte

@@ -17,6 +17,7 @@ internal/chatbi/managed_file_claim.go
 internal/chatbi/http_workspace_admin.go
 internal/chatbi/http_user_create.go
 internal/chatbi/http_user_edit.go
+internal/chatbi/http_workspace_catalog.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
 internal/chatbi/assistant.go
