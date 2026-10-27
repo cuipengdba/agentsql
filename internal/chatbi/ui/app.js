@@ -44,6 +44,8 @@ Object.assign(copy['zh-CN'], {workspaceCreate:'创建工作空间',workspaceName
 Object.assign(copy.en, {workspaceCreate:'Create workspace',workspaceName:'Name',workspaceCreateSubmit:'Create',workspaceCreated:'Workspace created'});
 Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpdated:'工作空间已更新',workspaceDelete:'删除空工作空间',workspaceDeleted:'工作空间已删除',workspaceDeleteConfirm:'确定删除这个空工作空间？已有成员或数据时会拒绝删除。'});
 Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
+Object.assign(copy['zh-CN'], {usersDelete:'删除用户',usersDeleted:'用户已删除',confirmDeleteUser:'确定删除此用户及其在 AgentSQL 中的个人数据？此操作无法撤销。'});
+Object.assign(copy.en, {usersDelete:'Delete user',usersDeleted:'User deleted',confirmDeleteUser:'Delete this user and their private data in AgentSQL? This cannot be undone.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -326,7 +328,15 @@ async function loadUsers(){
         };
         article.append(form);input.focus();
       };
-      const actions=node('div',undefined,'user-actions');actions.append(edit,reset,membership,action);
+      const remove=node('button',t('usersDelete'));remove.type='button';
+      remove.onclick=async()=>{
+        if(!window.confirm(t('confirmDeleteUser')))return;
+        remove.disabled=true;
+        try{await api('/user/'+encodeURIComponent(String(user.id)),undefined,'DELETE');await loadUsers();
+          $('users-status').textContent=t('usersDeleted');$('users-status').classList.remove('error');}
+        catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');remove.disabled=false;}
+      };
+      const actions=node('div',undefined,'user-actions');actions.append(edit,reset,membership,action,remove);
       article.append(details,actions);list.append(article);
     }
     if(!result.items?.length)list.append(node('p',t('usersEmpty'),'semantic-empty'));
