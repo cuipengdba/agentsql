@@ -17,6 +17,12 @@ func TestTaskGrantSQLCiphertextRequiresMatchingSecret(t *testing.T) {
 	require.Equal(t, sqlText, plain)
 	_, err = openTaskGrantSQL(DeriveTokenKey([]byte("another-secret-of-sufficient-length")), encoded)
 	require.Error(t, err)
-	_, err = openTaskGrantSQL(key, encoded[:len(encoded)-2]+"AA")
+	changed := []byte(encoded)
+	if changed[0] == 'A' {
+		changed[0] = 'B'
+	} else {
+		changed[0] = 'A'
+	}
+	_, err = openTaskGrantSQL(key, string(changed))
 	require.Error(t, err)
 }
