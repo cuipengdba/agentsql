@@ -74,6 +74,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("GET /api/v1/user/pager/{page}/{size}", h.auth(h.legacyUserPage))
 	h.mux.HandleFunc("POST /api/v1/user", h.auth(h.legacyUserCreate))
+	h.mux.HandleFunc("PUT /api/v1/user", h.auth(h.legacyUserUpdate))
 	h.mux.HandleFunc("GET /api/v1/user/{id}", h.auth(h.legacyUserRead))
 	h.mux.HandleFunc("PATCH /api/v1/user/status", h.auth(h.legacyUserStatus))
 	h.mux.HandleFunc("GET /api/v1/system/workspace", h.auth(h.legacyWorkspaceList))

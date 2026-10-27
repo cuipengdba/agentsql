@@ -36,6 +36,8 @@ Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',
 Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Create and review accounts, manage workspace membership and enable or disable users. Management changes are audited.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
 Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'设置初始密码并选择当前工作空间。密码只在此提交一次。',usersName:'姓名',usersEmail:'邮箱',usersInitialPassword:'初始密码（12–72 字符）',usersCreateSubmit:'创建用户',usersCreated:'用户已创建'});
 Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
+Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资料已更新'});
+Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -281,7 +283,27 @@ async function loadUsers(){
         catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
         finally{membership.disabled=false;}
       };
-      const actions=node('div',undefined,'user-actions');actions.append(membership,action);
+      const edit=node('button',t('usersEdit'));edit.type='button';
+      edit.onclick=()=>{
+        const existing=article.querySelector('.user-edit-form');if(existing){existing.remove();return;}
+        const form=node('form',undefined,'user-edit-form'),nameLabel=node('label',t('usersName')),
+          nameInput=node('input'),emailLabel=node('label',t('usersEmail')),emailInput=node('input');
+        nameInput.value=user.name||'';nameInput.required=true;nameInput.maxLength=100;
+        emailInput.value=user.email||'';emailInput.type='email';emailInput.maxLength=100;
+        nameLabel.append(nameInput);emailLabel.append(emailInput);
+        const save=node('button',t('save'));save.type='submit';save.className='primary';
+        const cancel=node('button',t('formCancel'));cancel.type='button';cancel.onclick=()=>form.remove();
+        form.append(nameLabel,emailLabel,save,cancel);
+        form.onsubmit=async event=>{
+          event.preventDefault();save.disabled=true;
+          try{await api('/user',{id:user.id,account:user.account,name:nameInput.value.trim(),email:emailInput.value.trim(),
+            status:user.status,oid_list:user.oid_list||[]},'PUT');await loadUsers();
+            $('users-status').textContent=t('usersUpdated');$('users-status').classList.remove('error');}
+          catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');save.disabled=false;}
+        };
+        article.append(form);nameInput.focus();
+      };
+      const actions=node('div',undefined,'user-actions');actions.append(edit,membership,action);
       article.append(details,actions);list.append(article);
     }
     if(!result.items?.length)list.append(node('p',t('usersEmpty'),'semantic-empty'));
