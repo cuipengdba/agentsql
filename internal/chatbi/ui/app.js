@@ -631,7 +631,7 @@ async function loadSource(source){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
-  $('source-select').hidden=!(isAdmin&&source.type==='excel');$('source-select-form').hidden=true;
+  $('source-select').hidden=!(isAdmin&&source.type==='excel'&&source.managed_file);$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
@@ -645,7 +645,7 @@ async function loadSource(source){
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
 }
 async function openTableChoices(){
-  const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
+  const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel'||!source.managed_file)return;
   if(!$('source-select-form').hidden){$('source-select-form').hidden=true;return;}
   const epoch=sourceEpoch,button=$('source-select');button.disabled=true;sourceStatus(t('sourceLoading'));
   try{
@@ -661,7 +661,7 @@ async function openTableChoices(){
   finally{button.disabled=false;}
 }
 async function saveTableChoices(event){
-  event.preventDefault();const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
+  event.preventDefault();const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel'||!source.managed_file)return;
   const button=$('source-select-save');button.disabled=true;
   const tables=[...$('source-select-list').querySelectorAll('input[type=checkbox]:checked')].map(input=>({table_name:input.value,table_comment:''}));
   try{

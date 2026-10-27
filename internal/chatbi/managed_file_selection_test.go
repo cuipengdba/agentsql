@@ -35,6 +35,14 @@ func TestOriginalFileDatasourceChooseTablesChangesQueryScopeWithAudit(t *testing
 		Type: "excel", Configuration: configuration, ManagedFileID: "22222222222222222222222222222222",
 		Dialect: "pg", BindingID: "22222222-2222-4222-8222-222222222222",
 		ConnectorToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", AgentKey: "fixture-agent"}
+	listed, err := legacyExcelDatasource(binding)
+	require.NoError(t, err)
+	require.Equal(t, true, listed["managed_file"])
+	unmanaged := binding
+	unmanaged.ManagedFileID = ""
+	listed, err = legacyExcelDatasource(unmanaged)
+	require.NoError(t, err)
+	require.Equal(t, false, listed["managed_file"])
 	require.NoError(t, service.Store.put(ctx, bindingKey(principal, binding.Datasource), binding, 0))
 	handler, err := NewHandler(service, "test")
 	require.NoError(t, err)
@@ -133,15 +141,21 @@ func TestOriginalFileDatasourceChooseTablesChangesQueryScopeWithAudit(t *testing
 	audits, err := service.Store.list(ctx, "management-audit", "system", "system")
 	require.NoError(t, err)
 	counts := []int{}
+	selectedAuditTables := map[int][]string{}
 	for _, raw := range audits {
 		var event struct {
-			Action   string `json:"action"`
-			Selected int    `json:"selected"`
+			Action   string   `json:"action"`
+			Selected int      `json:"selected"`
+			Tables   []string `json:"tables"`
 		}
 		require.NoError(t, json.Unmarshal(raw, &event))
 		if event.Action == "file-import.tables-select" {
 			counts = append(counts, event.Selected)
+			selectedAuditTables[event.Selected] = event.Tables
 		}
 	}
 	require.ElementsMatch(t, []int{1, 0, 2}, counts)
+	require.Equal(t, []string{west}, selectedAuditTables[1])
+	require.Empty(t, selectedAuditTables[0])
+	require.Equal(t, []string{east, west}, selectedAuditTables[2])
 }
