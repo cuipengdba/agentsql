@@ -65,6 +65,22 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 		"config_list": []any{}})
 }
 
+// The only configured model is the workspace's default. The original client
+// may send DELETE for a card, but deleting that default would leave Q&A with
+// no authorized model. Report the original default-model restriction clearly.
+func (h *Handler) legacyModelDelete(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	model, err := h.currentLegacyModel(r, p, token)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if r.PathValue("id") != string(model.ID) {
+		failure(w, ErrNotFound)
+		return
+	}
+	writeJSON(w, http.StatusConflict, "Default model cannot be deleted")
+}
+
 // The original Community form includes an empty id on first create and RSA
 // encrypts its endpoint and key. AgentSQL can create only the first default
 // model in the caller's current workspace; subsequent catalog entries need a
