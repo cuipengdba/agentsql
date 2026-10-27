@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,6 +98,23 @@ func TestMCPModelListRequiresMembershipAndExcludesSecrets(t *testing.T) {
 			t.Fatalf("model list leaked %s", secret)
 		}
 	}
+	headerOnly := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"oid":1}`, token)
+	if headerOnly.Code != http.StatusOK || headerOnly.Body.String() != listed.Body.String() {
+		t.Fatalf("original model-list body with authenticated header: %d %s", headerOnly.Code, headerOnly.Body.String())
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"oid":2}`, token); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("header model list crossed workspace: %d", denied.Code)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"token":"`+token+`","oid":1}`, token); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("ambiguous model-list credentials accepted: %d", denied.Code)
+	}
+	withAsk := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/mcp_model_list", strings.NewReader(`{"token":"`+token+`","oid":1}`))
+	withAsk.Header.Set("X-SQLBOT-ASK-TOKEN", "sk conflicting")
+	withAskResponse := httptest.NewRecorder()
+	handler.ServeHTTP(withAskResponse, withAsk)
+	if withAskResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("ASK credential alongside body token accepted: %d", withAskResponse.Code)
+	}
 	for _, body := range []string{`{"oid":1}`, `{"token":"` + token + `","oid":2}`} {
 		denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", body, "")
 		if denied.Code != http.StatusUnauthorized {
@@ -108,6 +126,9 @@ func TestMCPModelListRequiresMembershipAndExcludesSecrets(t *testing.T) {
 	}
 	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"token":"`+token+`","oid":1}`, ""); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked token listed models: %d", denied.Code)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"oid":1}`, token); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked header token listed models: %d", denied.Code)
 	}
 }
 
