@@ -38,6 +38,8 @@ Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'
 Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
 Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资料已更新'});
 Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
+Object.assign(copy['zh-CN'], {usersResetPassword:'重置密码',usersResetNote:'重置后，该用户所有旧会话将失效。',usersPasswordReset:'密码已重置'});
+Object.assign(copy.en, {usersResetPassword:'Reset password',usersResetNote:'Resetting invalidates all of this user’s old sessions.',usersPasswordReset:'Password reset'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -303,7 +305,24 @@ async function loadUsers(){
         };
         article.append(form);nameInput.focus();
       };
-      const actions=node('div',undefined,'user-actions');actions.append(edit,membership,action);
+      const reset=node('button',t('usersResetPassword'));reset.type='button';
+      reset.onclick=()=>{
+        const existing=article.querySelector('.user-reset-form');if(existing){existing.remove();return;}
+        const form=node('form',undefined,'user-reset-form'),label=node('label',t('usersInitialPassword')),
+          input=node('input');input.type='password';input.minLength=12;input.maxLength=72;input.required=true;input.autocomplete='new-password';
+        label.append(input);form.append(node('p',t('usersResetNote')),label);
+        const save=node('button',t('usersResetPassword'));save.type='submit';save.className='primary';
+        const cancel=node('button',t('formCancel'));cancel.type='button';cancel.onclick=()=>form.remove();form.append(save,cancel);
+        form.onsubmit=async event=>{
+          event.preventDefault();save.disabled=true;
+          try{await api('/user/pwd/'+encodeURIComponent(String(user.id)),{new_password:input.value},'PATCH');form.remove();
+            $('users-status').textContent=t('usersPasswordReset');$('users-status').classList.remove('error');}
+          catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');save.disabled=false;}
+          finally{input.value='';}
+        };
+        article.append(form);input.focus();
+      };
+      const actions=node('div',undefined,'user-actions');actions.append(edit,reset,membership,action);
       article.append(details,actions);list.append(article);
     }
     if(!result.items?.length)list.append(node('p',t('usersEmpty'),'semantic-empty'));

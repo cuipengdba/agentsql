@@ -96,7 +96,14 @@ func (h *Handler) legacyUserUpdate(w http.ResponseWriter, r *http.Request, p Pri
 }
 
 func (s *Store) UpdateUserManaged(ctx context.Context, user User, revision int64, p Principal) error {
+	return s.updateUserManaged(ctx, user, revision, p, "user.update")
+}
+
+func (s *Store) updateUserManaged(ctx context.Context, user User, revision int64, p Principal, action string) error {
 	if err := validateUser(user); err != nil || revision < 1 || !p.User.ID.Valid() || p.EmbeddedApp != "" || user.ID == p.User.ID {
+		return ErrInvalidAccountChange
+	}
+	if action != "user.update" && action != "user.password.reset" {
 		return ErrInvalidAccountChange
 	}
 	key := userKey(user.ID)
@@ -109,7 +116,7 @@ func (s *Store) UpdateUserManaged(ctx context.Context, user User, revision int64
 		return err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
-	audit, err := s.seal(auditKey, map[string]any{"action": "user.update", "actor": p.User.ID,
+	audit, err := s.seal(auditKey, map[string]any{"action": action, "actor": p.User.ID,
 		"user": user.ID, "time": time.Now().UTC()})
 	if err != nil {
 		return err
