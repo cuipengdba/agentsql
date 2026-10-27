@@ -78,7 +78,7 @@ export function SQLBot() {
     const url = URL.createObjectURL(new Blob([exportText + "\n"], { type: "application/json" }));
     const link = document.createElement("a"); link.href = url; link.download = "agentsql-sqlbot-config.json"; link.click(); URL.revokeObjectURL(url);
   };
-  return <PageContainer title={tr("AgentSQL 问数与 SQLBot", "AgentSQL Q&A and SQLBot")} subtitle={tr("原生问数与现有 SQLBot 安全网关是 AgentSQL 的两种使用方式。", "AgentSQL offers native Q&A and a security gateway for an existing SQLBot deployment.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
+  return <PageContainer title={tr("AgentSQL 问数与安全网关", "AgentSQL Q&A and Security Gateway")} subtitle={tr("AgentSQL 自有问数可独立使用；已有 SQLBot 可选接入数据库安全网关。", "AgentSQL Q&A works independently; an existing SQLBot deployment can optionally use its database security gateway.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Card title={tr("两种使用方式", "Two ways to use AgentSQL")} size="small">
         <Space direction="vertical" size={8}>
