@@ -166,3 +166,79 @@ func TestOriginalModelEditUsesInstallationRSAAndAuditedWorkspaceModel(t *testing
 		t.Fatalf("original model edit audit: count=%d err=%v", len(audits), err)
 	}
 }
+
+func TestOriginalModelFirstCreateUsesEncryptedFormAndDoesNotReplaceExisting(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	key := objectKey{"model", "1", "workspace", "default"}
+	if _, err := service.Store.db.ExecContext(context.Background(),
+		`DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
+		key.Kind, key.Scope, key.Owner, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	encrypt := func(value string) string {
+		t.Helper()
+		ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.StdEncoding.EncodeToString(ciphertext)
+	}
+	requestBody := map[string]any{"id": "", "name": "Created through original client",
+		"model_type": 0, "base_model": "fixture-v1", "supplier": 15, "protocol": 1,
+		"api_domain": encrypt("http://127.0.0.1:8000/v1"), "api_key": encrypt("original-private-key"),
+		"config_list": []any{}}
+	create := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(requestBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel", string(body), token)
+	}
+	if denied := create(memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member created original model: %d", denied.Code)
+	}
+	requestBody["supplier"] = 7
+	if rejected := create(adminToken); rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsupported provider accepted: %d", rejected.Code)
+	}
+	requestBody["supplier"] = 15
+	requestBody["api_domain"] = "http://127.0.0.1:8000/v1"
+	if rejected := create(adminToken); rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("plaintext original endpoint accepted: %d", rejected.Code)
+	}
+	requestBody["api_domain"] = encrypt("http://127.0.0.1:8000/v1")
+	if created := create(adminToken); created.Code != http.StatusOK || strings.Contains(created.Body.String(), "original-private-key") {
+		t.Fatalf("original first model create: %d %s", created.Code, created.Body.String())
+	}
+	var model ModelConfig
+	if revision, err := service.Store.get(context.Background(), key, &model); err != nil || revision != 1 ||
+		model.Name != "Created through original client" || model.APIKey != "original-private-key" || !model.ID.Valid() {
+		t.Fatalf("original create was not encrypted and persisted: %+v revision=%d err=%v", model, revision, err)
+	}
+	listed := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel", "", adminToken)
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), string(model.ID)) ||
+		strings.Contains(listed.Body.String(), model.APIKey) {
+		t.Fatalf("original catalog after create: %d %s", listed.Code, listed.Body.String())
+	}
+	if duplicate := create(adminToken); duplicate.Code != http.StatusConflict {
+		t.Fatalf("second create replaced default model: %d", duplicate.Code)
+	}
+	var unchanged ModelConfig
+	if revision, err := service.Store.get(context.Background(), key, &unchanged); err != nil || revision != 1 || unchanged.ID != model.ID {
+		t.Fatalf("duplicate changed saved model: %+v revision=%d err=%v", unchanged, revision, err)
+	}
+	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
+	if err != nil || len(audits) != 1 || !strings.Contains(string(audits[0]), "workspace-model.create") {
+		t.Fatalf("original create audit: count=%d err=%v", len(audits), err)
+	}
+	probe := accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel/status", `{"id":""}`, adminToken)
+	if probe.Code != http.StatusOK || !strings.Contains(probe.Body.String(), `"content":"Model reachable"`) {
+		t.Fatalf("original post-create status: %d %s", probe.Code, probe.Body.String())
+	}
+}

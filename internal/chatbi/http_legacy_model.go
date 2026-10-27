@@ -65,6 +65,60 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 		"config_list": []any{}})
 }
 
+// The original Community form includes an empty id on first create and RSA
+// encrypts its endpoint and key. AgentSQL can create only the first default
+// model in the caller's current workspace; subsequent catalog entries need a
+// separate multi-model design and cannot silently replace this model.
+func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	var input struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		ModelType  *int   `json:"model_type"`
+		BaseModel  string `json:"base_model"`
+		Supplier   *int   `json:"supplier"`
+		Protocol   *int   `json:"protocol"`
+		APIDomain  string `json:"api_domain"`
+		APIKey     string `json:"api_key"`
+		ConfigList []any  `json:"config_list"`
+	}
+	if !readBody(w, r, &input) {
+		return
+	}
+	if input.ID != "" || input.ModelType == nil || *input.ModelType != 0 ||
+		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 || len(input.ConfigList) != 0 {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	endpoint, err := h.service.Identity.DecryptLogin(input.APIDomain)
+	if err != nil {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	var apiKey *string
+	if input.APIKey != "" {
+		value, err := h.service.Identity.DecryptLogin(input.APIKey)
+		if err != nil {
+			failure(w, ErrInvalidAccountChange)
+			return
+		}
+		apiKey = &value
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey}
+	if err := h.service.Store.CreateWorkspaceModel(r.Context(), p, update); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, nil)
+}
+
 // The pinned original browser encrypts both endpoint and nonempty API key
 // with the same installation RSA public key as its login form. This adapter
 // only edits the current workspace's existing default OpenAI-compatible
@@ -142,7 +196,7 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 // prompt have no authority and generated SQL is never executed.
 func (h *Handler) legacyModelStatus(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	var input struct {
-		ID ID `json:"id"`
+		ID string `json:"id"`
 	}
 	if !readBody(w, r, &input) {
 		return
@@ -152,7 +206,7 @@ func (h *Handler) legacyModelStatus(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
-	if !input.ID.Valid() || input.ID != model.ID {
+	if input.ID != "" && input.ID != string(model.ID) {
 		failure(w, ErrNotFound)
 		return
 	}
