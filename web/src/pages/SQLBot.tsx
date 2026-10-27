@@ -8,6 +8,7 @@ import { createSQLBotBinding, deleteSQLBotBinding, diagnoseSQLBotBinding, export
 import type { AgentView, DatasourceView } from "@/api/types";
 import { PageContainer } from "@/components/PageContainer";
 import { localeText, useLocaleStore } from "@/i18n/locale";
+import { selectIsDemo, useDemoStore } from "@/store/demoStore";
 
 type BindingForm = SQLBotBindingInput;
 const { Text, Paragraph } = Typography;
@@ -31,6 +32,7 @@ export function SQLBotDiagnosticsView({ data }: { data: SQLBotDiagnostics }) {
 export function SQLBot() {
   const locale = useLocaleStore((state) => state.locale);
   const tr = (zh: string, en: string) => localeText(zh, en, locale);
+  const demoEnabled = useDemoStore(selectIsDemo);
   const [bindings, setBindings] = useState<SQLBotBinding[]>([]);
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [sources, setSources] = useState<DatasourceView[]>([]);
@@ -80,6 +82,7 @@ export function SQLBot() {
   };
   return <PageContainer title={tr("AgentSQL 问数与安全网关", "AgentSQL Q&A and Security Gateway")} subtitle={tr("AgentSQL 自有问数可独立使用；已有 SQLBot 可选接入数据库安全网关。", "AgentSQL Q&A works independently; an existing SQLBot deployment can optionally use its database security gateway.")} extra={<Space><Button loading={busy} onClick={() => void run(refresh)}>{tr("刷新", "Refresh")}</Button><Button type="primary" onClick={() => openForm()}>{tr("新增映射", "Add mapping")}</Button></Space>}>
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      {demoEnabled ? <Alert showIcon type="info" message={tr("线上仅展示模拟页面与合成数据，不接入或调用真实模型。", "The public demo shows simulated pages and synthetic data only; it does not connect to or call a real model.")} /> : null}
       <Card title={tr("两种使用方式", "Two ways to use AgentSQL")} size="small">
         <Space direction="vertical" size={8}>
           <Text><Text strong>{tr("独立问数：", "Standalone Q&A: ")}</Text>{tr("AgentSQL 自己提供 Go 问数服务、Web 页面与兼容 API，查询仍通过受控网关。当前能力以已发布版本说明为准。", "AgentSQL provides its own Go Q&A service, Web page, and compatible API. Queries still pass through the controlled gateway. Refer to the released version for the currently available scope.")}</Text>
