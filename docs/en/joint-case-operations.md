@@ -13,7 +13,7 @@
 - Current HighGo conclusions only cover use cases for specified third-party SEE images, synthetic data, and listed PostgreSQL protocol paths; they are not vendor certified.
 - Currently, the old third-party image of KingbaseES cannot start the database due to expired license. The V9R1C10 target image needs to be provided by the manufacturer; connection, discovery, query and security closed loop cannot be written as passed.
 - There are 11 items in the ecological matrix: KingbaseES, HighGo, IvorySQL, openGauss, TiDB, OceanBase, TDSQL, OpenTenBase, YashanDB, Dameng DM, PolarDB. The matrix indicates actual testing, adaptation, or pending verification status, and does not mean that all 11 companies have supported it.
-- Starting from v0.5, the external license is "Apache License 2.0 open source license + independent commercial license description". The rights and obligations of Apache-2.0 are subject to `LICENSE`; the trademark license, enterprise capabilities, SLA, etc. are subject to `COMMERCIAL-LICENSE.md`. Dual licensing instructions are not an authorization or endorsement by the database vendor.
+- Since v0.5, the current source uses Apache License 2.0; its rights and obligations are in `LICENSE` and `NOTICE`. This does not constitute database-vendor authorization or endorsement.
 
 ## 2. Standard wording
 
@@ -41,7 +41,7 @@ The boundaries of this batch of records are very clear: the designated third-par
 
 The domestic database ecological matrix on the official website and GitHub now contains 11 items, which are respectively marked as actually tested, under adaptation, or to be verified. The matrix is ​​a public route and project progress, which does not mean manufacturer certification or full support of the current version.
 
-Starting from v0.5, the project adopts the clear caliber of "Apache License 2.0 open source license + independent commercial license instructions" for external use: open source use follows `LICENSE`, and trademark licensing, enterprise capabilities, SLA and other requirements refer to the commercial license instructions. This licensing arrangement is independent of database vendor certification.
+Since v0.5, the current source has been released under Apache License 2.0, with conditions in `LICENSE` and `NOTICE`. Source licensing is independent of database-vendor certification.
 
 Verification records and three sections of demonstration SQL: `docs/joint-case-kingbase-highgo.md`, `examples/joint-case-highgo.sql`.
 
@@ -59,7 +59,7 @@ For the currently available third-party HighGo SEE image, AgentSQL completed a s
 
 The available third-party KingbaseES image is blocked by an expired license, and the target V9R1C10 image has not yet been provided. No KingbaseES connectivity, discovery, query, or security-flow result is claimed as passed.
 
-The public ecosystem matrix currently tracks 11 database entries at different stages. A listing means tested, in progress, or pending as explicitly labeled; it does not mean universal support or vendor endorsement. Starting with v0.5, the public licensing wording is “Apache License 2.0 open-source license plus a separate commercial-license notice.” Trademark permission, enterprise features, and SLA terms are separate from the open-source license and from any database-vendor validation.
+The public ecosystem matrix currently tracks 11 database entries at different stages. A listing means tested, in progress, or pending as explicitly labeled; it does not mean universal support or vendor endorsement. The current source license is Apache License 2.0. Its terms are independent of database-vendor validation.
 
 ## 6. Review before publishing
 

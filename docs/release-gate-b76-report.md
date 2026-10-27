@@ -31,7 +31,7 @@
 
 根目录 `LICENSE` 包含 Apache License 2.0 第 1–9 节、条款结束段和附录。与 [Apache 官方文本](https://www.apache.org/licenses/LICENSE-2.0.txt) 比较，原始文件因换行排版不同而字节不等；归一化空白后 **10,221 字节完全一致**，可确认全文内容完整。[核查日志](../dist/release-gate-b76/license-audit.log)只记录哈希、结构和比较结论，不输出许可证内容。
 
-`NOTICE` 与 `COMMERCIAL-LICENSE.md` 都明确 Apache-2.0、独立商业授权及 2026 年崔鹏版权，商标保留口径一致。对已跟踪 `.md`、`.go` 文件的 AGPL 搜索仅命中 `CHANGELOG.md` 的许可证迁移记录、v0.4/v0.2 历史资料，以及带日期的 batch75 旧报告；没有把 AGPLv3 描述为 v0.5.0 当前许可证的命中。`docs/release-notes-v0.2.0.md` 的旧许可段落已有后续版本切换说明；batch75 报告的“待决定”状态是历史快照，不可复用为当前发布文案。扫描 638 个已跟踪 Go 文件的前 15 行，未见需要本批统一的旧许可证文件头横幅。
+本批验收时，`LICENSE` 与 `NOTICE` 记录 Apache-2.0 及 2026 年崔鹏版权。对已跟踪 `.md`、`.go` 文件的 AGPL 搜索仅命中 `CHANGELOG.md` 的许可证迁移记录、v0.4/v0.2 历史资料，以及带日期的 batch75 旧报告；没有把 AGPLv3 描述为 v0.5.0 当前许可证的命中。旧版本记录与当前许可证应分开阅读。扫描 638 个已跟踪 Go 文件的前 15 行，未见需要本批统一的旧许可证文件头横幅。
 
 ## parser P99 五轮
 

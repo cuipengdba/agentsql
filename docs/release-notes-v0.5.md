@@ -59,7 +59,7 @@ v0.5.0 相对已发布的 v0.4.0 增加了国产数据库 dialect 边界、7 类
 
 ### 许可变更
 
-**许可更换声明：**v0.4.0 及更早版本的既有源码、tag 与发布包维持其发布时适用的原许可并可继续按原许可使用；不重打历史 tag、不重发历史资产。自 v0.5.0 起，开源版切换为 [Apache License 2.0](../LICENSE)，并提供独立的 [商业许可说明](../COMMERCIAL-LICENSE.md)。Apache-2.0 的权利与义务以 `LICENSE` 和 `NOTICE` 为准；商标许可、企业能力、SLA 与支持条款以双方书面协议为准。该变更由提交 `391dcf0` 引入，不构成任何数据库厂商的授权、认证或背书。
+**许可更换声明：**v0.4.0 及更早版本的既有源码、tag 与发布包维持其发布时适用的原许可；不重打历史 tag、不重发历史资产。自 v0.5.0 起，源码采用 [Apache License 2.0](../LICENSE)，权利与义务以 `LICENSE` 和 `NOTICE` 为准。商标权独立保留。该变更由提交 `391dcf0` 引入，不构成任何数据库厂商的认证或背书。
 
 ### 已知边界与不承诺事项
 
@@ -218,7 +218,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, connection-level support for
 - Audit query/reporting work, the self-contained five-minute quickstart stack, hardened demo reset sequencing, clearer authorization/database-error reporting, MCP Registry metadata, and ecosystem/website documentation are included in the `v0.4.0..1d6682d` change set.
 - Audit reporting now includes a pure-Go multi-page CJK PDF and a ZIP containing CSV, JSONL, PDF, summary, and a per-file SHA-256 `manifest.json`. Strict offline verification rejects path traversal, duplicate/extra members, and size or digest mismatches. The unsigned manifest proves package consistency only; it does not authenticate origin, time, freshness, or WORM/SIEM retention.
 - A new English documentation suite, R005 metadata/test-diagnostic fixes, and the KingbaseES + HighGo joint-case evidence and wording package. The production R005 gap was subsequently closed in `02565f5`: EXPLAIN-based large-result warnings run in the normal dynamic stage, and actual execution-layer truncation adds the same structured hit on both the generic and PostgreSQL column-authorization paths.
-- **License change notice:** existing v0.4.0-and-earlier source, tags, and release packages remain available under the license that applied when they were published; historical tags and assets will not be recreated. Starting with v0.5.0, the open-source edition uses [Apache License 2.0](../LICENSE) plus a separate [commercial-license notice](../COMMERCIAL-LICENSE.md). This does not imply database-vendor authorization or endorsement.
+- **License change notice:** existing v0.4.0-and-earlier source, tags, and release packages retain the license that applied when they were published; historical tags and assets will not be recreated. Starting with v0.5.0, the source uses [Apache License 2.0](../LICENSE) and `NOTICE`. Trademark rights remain separate. This does not imply database-vendor certification or endorsement.
 
 ### Known boundaries
 
