@@ -335,7 +335,7 @@ Important changes in this project are recorded here, and the format refers to [K
 - The scene card of the demo stage aligns the real script with the approval results; the business error caliber further distinguishes expected authorization failures, missing objects and database execution errors.
 - The official website search gate is adjusted to allow the main site and maintain `/demo/` to prohibit indexing; the actual deployment status still needs to be reviewed by the Japanese and foreign websites.
 - `scripts/release-dryrun.ps1` provides a command to generate/verify a dry-run path for 15 expected assets and provides a production-ready verification path with `-ValidateOnly`; official signing, uploading, and release are still pending on the release day gate. For the designated Linux environment PostgreSQL parser P99 of batch 61, 5/5 of each group met the standard, and they still have to be retested exclusively on the release day.
-- Starting from v0.5, the open source version license is adjusted from AGPLv3 to Apache-2.0, and independent commercial licensing instructions are provided.
+- Since v0.5, the current source license changed from AGPLv3 to Apache-2.0; the licenses of historical releases remain unchanged.
 
 ### Fixed
 

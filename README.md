@@ -10,13 +10,14 @@
 ![Version v4.3.0](https://img.shields.io/badge/Version-v4.3.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
-[![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
 生态收录：[Glama](https://glama.ai/mcp/servers?query=AgentSQL)
 
 已收录于 MCP 官方 Registry，可直接在 MCP Registry 搜索 AgentSQL 接入。
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
+
+AgentSQL 也提供自有问数、图表、仪表板与嵌入应用页面，可独立使用；已有 SQLBot 部署可选用 AgentSQL 做数据库安全网关。当前已验证范围以 [v4.3.0 发布说明](docs/release-notes-v4.3.0.md)为准。完整 SQLBot 社区版功能、全部页面与现有业务系统零改动替换仍需逐项验收。
 
 v0.6.0 加入治理控制台、审批单次执行和 Vastbase G100 的受限只读适配；v0.7.0 加入独立的 MCP `2026-07-28` 入口与任务级临时只读授权；v0.8.0 加入异人审批；v0.9.0 为新申请加入 1–10 次结果预算、管理审计投递状态和策略离线预检。v1.0.0 收紧列策略的失败关闭，并加入可选的 Agent 与人员双身份 HTTP MCP 验证。v1.1.0 将双身份扩展到审批与 B5 会话，并加入委托令牌单独撤销。v1.2.0 增加可选的 MCP OAuth 受保护资源入口。v1.3.0 增加默认关闭的 MySQL 8.0/8.4 单表 InnoDB SELECT 列授权子集。v1.4.0 在 PostgreSQL metadata 部署中共享控制台密码和 LDAP 登录尝试预算，并验证双网关审计故障恢复。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用。
 
@@ -391,7 +392,6 @@ v3.0.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 
 - [安全策略与私密漏洞报告](SECURITY.md)
 - [变更记录](CHANGELOG.md)
 - [Issue 反馈](https://github.com/cuipengdba/agentsql/issues)
-- [商业授权与企业版合作](COMMERCIAL-LICENSE.md)
 
 请不要在公开 Issue 中提交真实密钥、口令、连接串或未修复漏洞细节；未修复漏洞请按 [SECURITY.md](SECURITY.md) 走私密渠道。
 
@@ -412,8 +412,8 @@ make build VERSION=v4.3.0
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。
 
-## 许可、商业授权与商标
+## 开源许可与商标
 
-**许可更换声明：**v0.4.0 及更早版本的既有源码、tag 和发布包保持其发布时适用的原许可，继续按原许可使用，不重打 tag、不重发资产；自 v0.5.0 起，开源版本切换为 [Apache License 2.0](LICENSE)（含 [NOTICE](NOTICE) 文件），并提供独立的 [商业授权说明](COMMERCIAL-LICENSE.md)。Apache-2.0 允许闭源集成、SaaS 商用与再分发。需要商标使用许可、企业模块、保修或 SLA 时，请参阅商业授权说明。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。
+当前源码使用 [Apache License 2.0](LICENSE)，并附有 [NOTICE](NOTICE)。使用、修改和分发请遵守该许可。AgentSQL（含中文名“智盾”）名称与 Logo 的商标权保留；Apache-2.0 不授予商标使用权。历史 tag 和发布包仍适用其发布时的原许可。
 
 v0.5 人员认证（MFA / OIDC / LDAP）的配置、威胁边界和迁移说明见 [身份认证指南](docs/AUTHENTICATION.md)。

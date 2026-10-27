@@ -33,7 +33,7 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 - Phase A only listens to `127.0.0.1:8080` and previews through the SSH tunnel; switch to phase B after filing, DNS and firewall are ready.
 - The current version page will only be deployed after the corresponding GitHub Release, dual-architecture image, and versioned PDF pass acceptance; the Release button must point to the official release page of the same version. The deployment topology of the public demo must be clearly stated on the page.
 - The site has no cookies or third-party statistics. Caddy access logs are configured to be retained for 720 hours by default.
-- The open source license link points to the repository `LICENSE`; the commercial license link points to the existing `COMMERCIAL-LICENSE.md`.
+- The open-source license link points to the repository's `LICENSE`, alongside a link to `NOTICE`.
 
 ## Icons and shared assets
 

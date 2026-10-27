@@ -335,7 +335,7 @@ Release scope and acceptance gates are recorded in the [v0.9.0 release notes](do
 - 演示台场景卡对齐真实剧本与审批结果；业务错误口径进一步区分可预期授权失败、对象缺失与数据库执行错误。
 - 官网搜索闸门调整为放行主站、保持 `/demo/` 禁止索引；实际部署状态仍需发布日外网复核。
 - `scripts/release-dryrun.ps1` 提供一条命令生成/校验 15 个预期资产的 dry-run 路径，并提供生产准备与 `-ValidateOnly` 核对路径；正式签名、上传和发布仍待发布日闸门。批六十一的指定 Linux 环境 PostgreSQL parser P99 两组各 5/5 达标，发布日仍须独占复测。
-- 自 v0.5 起，开源版许可证由 AGPLv3 调整为 Apache-2.0，并提供独立商业许可说明。
+- 自 v0.5 起，当前源码许可证由 AGPLv3 调整为 Apache-2.0；既有历史版本的许可不变。
 
 ### Fixed
 

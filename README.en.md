@@ -10,13 +10,14 @@
 ![Version v4.3.0](https://img.shields.io/badge/Version-v4.3.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
-[![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.en.md)
 
 Ecological inclusion: [Glama](https://glama.ai/mcp/servers?query=AgentSQL)
 
 It has been included in the MCP official Registry and can be directly searched for AgentSQL access in the MCP Registry.
 
 AgentSQL (Chinese brand name: Zhidun, the console is displayed as "AgentSQL Zhidun Console") is a database security gateway and production-level MCP Server for AI Agents: each PostgreSQL/MySQL request issued by the model undergoes identity authentication, SQL parsing, authorization and rule evaluation, controlled execution, result masking and auditing before reaching the database.
+
+AgentSQL also provides its own Q&A, chart, dashboard and embedded-application pages for independent use. An existing SQLBot deployment can optionally use AgentSQL as its database security gateway. The verified scope is in the [v4.3.0 release notes](docs/en/release-notes-v4.3.0.md). Complete SQLBot Community features, all pages and zero-change replacement of an existing business application still require item-by-item acceptance.
 
 v0.6.0 adds governance console, approval single execution and restricted read-only adaptation of Vastbase G100; v0.7.0 adds independent MCP `2026-07-28` entrance and task-level temporary read-only authorization; v0.8.0 adds alien approval; v0.9.0 adds 1–10 for new applications Results budget, management audit delivery status and policy offline pre-checking. v1.0.0 Tighten the failure shutdown of the column policy, and add optional agent and personnel dual-identity HTTP MCP authentication. v1.1.0 extends dual identity to approval and B5 sessions, and adds separate revocation of delegation tokens. v1.2.0 Add optional MCP OAuth protected resource entry. v1.3.0 Adds the MySQL 8.0/8.4 single-table InnoDB SELECT column authorization subset that is turned off by default. v1.4.0 Share console passwords and LDAP login attempt budgets in PostgreSQL metadata deployments and verify dual gateway audit failure recovery. The code uses Apache-2.0 as of v0.5.0, and historical v0.4.0 releases are still used under their original license.
 
@@ -391,7 +392,6 @@ Control plane storage is additional: SQLite has zero configuration by default an
 - [Security Policy and Privacy Vulnerability Report](SECURITY.en.md)
 - [Change record](CHANGELOG.en.md)
 - [Issue Feedback](https://github.com/cuipengdba/agentsql/issues)
-- [Commercial authorization and enterprise version cooperation](COMMERCIAL-LICENSE.en.md)
 
 Please do not submit real keys, passwords, connection strings or details of unfixed vulnerabilities in public issues; please use the private channel at [SECURITY.md](SECURITY.en.md) for unfixed vulnerabilities.
 
@@ -412,8 +412,8 @@ make build VERSION=v4.3.0
 
 `pg_query_go` requires cgo; do not build with `CGO_ENABLED=0` or Alpine/musl. Please read [SPEC](docs/en/SPEC.md) before submitting changes to test for behavioral changes and keep the `tests/corpus` decision-making corpus from being unintentionally rewritten.
 
-## Licensing, Commercial Authorizations and Trademarks
+## Open-Source License and Trademarks
 
-**License change notice:** Source code, tags and release packages for v0.4.0 and earlier retain the licenses that applied when they were released; those assets are neither retagged nor reissued. Starting with v0.5.0, the open source edition uses the [Apache License 2.0](LICENSE), including the [NOTICE](NOTICE) file, with separate [commercial licensing terms](COMMERCIAL-LICENSE.en.md). Apache-2.0 permits closed source integration, commercial SaaS and redistribution. For trademark permission, enterprise modules, warranties or an SLA, see the commercial licensing terms. Rights to the AgentSQL name (including its Chinese name, "Zhidun") and logo are reserved. You may fork the source under its license, but may not use the AgentSQL / Zhidun name or logo to present a derivative release as the official product. Commercial licensing and enterprise cooperation: 87326549@qq.com | https://agentsql.cn.
+The current source is licensed under [Apache License 2.0](LICENSE), with a [NOTICE](NOTICE). Follow that license when using, modifying or distributing the software. Rights to the AgentSQL name (including its Chinese name, “Zhidun”) and logo are reserved; Apache-2.0 does not grant trademark rights. Historical tags and release assets retain the licenses that applied when they were published.
 
 For configuration, threat boundary, and migration instructions for v0.5 personnel authentication (MFA / OIDC / LDAP), see [ Identity Authentication Guide ](docs/en/AUTHENTICATION.md).

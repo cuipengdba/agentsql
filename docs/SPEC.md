@@ -396,7 +396,7 @@ PostgreSQL B5 默认开启时另外注册 `open_session`、`close_session`、`ge
 
 ## 10. 授权、版本与路线图
 
-- 源代码采用 **Apache License 2.0**；商业授权、SLA 与商标保留见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。商标 **AgentSQL** 及中文名 **智盾** 归版权人所有，fork / 衍生作品未经书面许可不得冒用其名称或标识。
+- 源代码采用 **Apache License 2.0**，见 [LICENSE](../LICENSE) 与 [NOTICE](../NOTICE)。Apache-2.0 不授予商标权；**AgentSQL** 及中文名 **智盾** 的名称和标识归权利人所有。
 - **版本状态**：v3.0.2 已发布，见[发布记录](v3.0.2-release-evidence.md)。v3.1.0 正在开发验证，新增 SQLBot v2 契约见第 6.6 节及[本版验收](v3.1.0-acceptance.md)。既有 RBAC / 多租户 MVP、TOTP MFA、OIDC、LDAP/AD、审计 PDF/ZIP 和审计链按原边界保留；启用条件见[身份指南](AUTHENTICATION.md)与 [MCP 接入](INTEGRATIONS.md)。
 - **本次范围**：只实施 v3.1.0；后续版本等待用户指令，真实客户试点等待明确客户与测试授权。
 - **后续方向**：完整国产/商业数据库方言与厂商目标环境终验、法规级 WORM / 外置 SIEM、多副本 HA、K8s Operator、跨实例集中管控等仍需后续验证或实现；本规格不将其计作已交付能力。

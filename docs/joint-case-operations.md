@@ -13,7 +13,7 @@
 - 当前瀚高结论只覆盖指定第三方 SEE 镜像、合成数据与列出的 PostgreSQL 协议路径用例；不是厂商认证。
 - 当前金仓第三方旧镜像因 license 过期未能启动数据库。V9R1C10 目标镜像待厂商提供；连接、发现、查询和安全闭环均不能写成通过。
 - 生态矩阵共 11 项：KingbaseES、HighGo、IvorySQL、openGauss、TiDB、OceanBase、TDSQL、OpenTenBase、YashanDB、达梦 DM、PolarDB。矩阵表示实测、适配中或待验证状态，不表示 11 家均已支持。
-- 自 v0.5 起，对外许可口径为“Apache License 2.0 开源许可 + 独立商业许可说明”。Apache-2.0 的权利与义务以 `LICENSE` 为准；商标许可、企业能力、SLA 等以 `COMMERCIAL-LICENSE.md` 为准。双许可说明不是数据库厂商授权或背书。
+- 自 v0.5 起，当前源码使用 Apache License 2.0；权利与义务以 `LICENSE` 和 `NOTICE` 为准。这不构成数据库厂商授权或背书。
 
 ## 2. 用词规范
 
@@ -41,7 +41,7 @@ AgentSQL 是面向 AI Agent 的数据库安全网关。国产数据库适配不�
 
 官网与 GitHub 的国产数据库生态矩阵现包含 11 项，分别标注实测、适配中或待验证。矩阵是公开路线与工程进度，不等于厂商认证或当前版本全面支持。
 
-自 v0.5 起，项目对外采用“Apache License 2.0 开源许可 + 独立商业许可说明”的清晰口径：开源使用遵循 `LICENSE`，商标许可、企业能力与 SLA 等需求参阅商业许可说明。该许可安排与数据库厂商认证相互独立。
+自 v0.5 起，项目当前源码按 Apache License 2.0 发布，使用条件以 `LICENSE` 和 `NOTICE` 为准。源码许可与数据库厂商认证相互独立。
 
 验证记录与三段演示 SQL：`docs/joint-case-kingbase-highgo.md`、`examples/joint-case-highgo.sql`。
 
@@ -59,7 +59,7 @@ For the currently available third-party HighGo SEE image, AgentSQL completed a s
 
 The available third-party KingbaseES image is blocked by an expired license, and the target V9R1C10 image has not yet been provided. No KingbaseES connectivity, discovery, query, or security-flow result is claimed as passed.
 
-The public ecosystem matrix currently tracks 11 database entries at different stages. A listing means tested, in progress, or pending as explicitly labeled; it does not mean universal support or vendor endorsement. Starting with v0.5, the public licensing wording is “Apache License 2.0 open-source license plus a separate commercial-license notice.” Trademark permission, enterprise features, and SLA terms are separate from the open-source license and from any database-vendor validation.
+The public ecosystem matrix currently tracks 11 database entries at different stages. A listing means tested, in progress, or pending as explicitly labeled; it does not mean universal support or vendor endorsement. Starting with v0.5, the source is licensed under Apache License 2.0. Trademark rights and database-vendor validation are separate from the source license.
 
 ## 6. 发布前复核
 
