@@ -32,8 +32,8 @@ Object.assign(copy['zh-CN'], {usage:'执行详情',usageStarted:'开始时间',u
 Object.assign(copy.en, {usage:'Execution details',usageStarted:'Started',usageFinished:'Finished',usageDuration:'Duration',usageTokens:'Tokens used',usageStepsEmpty:'No step trace is available',seconds:'seconds'});
 Object.assign(copy['zh-CN'], {accountSettings:'账号设置',passwordNote:'修改密码后，当前会话及其他已登录会话都需要重新登录。',currentPassword:'当前密码',newPassword:'新密码',changePassword:'修改密码',passwordChanged:'密码已修改，请重新登录。'});
 Object.assign(copy.en, {accountSettings:'Account settings',passwordNote:'Changing your password signs out this and all other sessions.',currentPassword:'Current password',newPassword:'New password',changePassword:'Change password',passwordChanged:'Password changed. Sign in again.'});
-Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',usersIntro:'查看账号并启用或停用用户。状态变更会立即撤销旧会话并留下管理审计。',usersSearch:'搜索账号、姓名或邮箱',usersEnabled:'已启用',usersDisabled:'已停用',usersDisable:'停用',usersEnable:'启用',usersEmpty:'没有匹配的用户',usersCount:'位用户',usersCountOne:'位用户',confirmDisableUser:'停用此用户并撤销其全部会话？',usersSaved:'用户状态已更新'});
-Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Review accounts and enable or disable users. A status change immediately revokes old sessions and records a management audit.',usersSearch:'Search account, name or email',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated'});
+Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',usersIntro:'查看账号、工作空间成员关系，并启用或停用用户。变更会撤销旧会话并留下管理审计。',usersSearch:'搜索账号、姓名或邮箱',usersWorkspace:'工作空间',usersMember:'已加入当前空间',usersNotMember:'未加入当前空间',usersGrant:'加入空间',usersRevoke:'移出空间',confirmRevokeUser:'移出此用户并撤销其旧会话？',usersEnabled:'已启用',usersDisabled:'已停用',usersDisable:'停用',usersEnable:'启用',usersEmpty:'没有匹配的用户',usersCount:'位用户',usersCountOne:'位用户',confirmDisableUser:'停用此用户并撤销其全部会话？',usersSaved:'用户状态已更新',usersMemberSaved:'成员关系已更新'});
+Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Review accounts and workspace membership, and enable or disable users. Changes revoke old sessions and leave a management audit.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
@@ -261,7 +261,8 @@ async function loadUsers(){
     const list=$('users-list');list.replaceChildren();
     for(const user of result.items||[]){
       const article=node('article',undefined,'user-item'),details=node('div');
-      details.append(node('strong',user.name||user.account),node('small',user.account+(user.email?' · '+user.email:'')),node('small',t(user.status===1?'usersEnabled':'usersDisabled')));
+      const workspace=$('users-workspace').value,member=(user.oid_list||[]).some(id=>String(id)===workspace);
+      details.append(node('strong',user.name||user.account),node('small',user.account+(user.email?' · '+user.email:'')),node('small',t(user.status===1?'usersEnabled':'usersDisabled')+' · '+t(member?'usersMember':'usersNotMember')));
       const action=node('button',t(user.status===1?'usersDisable':'usersEnable'));action.type='button';
       action.onclick=async()=>{
         if(user.status===1&&!window.confirm(t('confirmDisableUser')))return;
@@ -270,7 +271,16 @@ async function loadUsers(){
         catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
         finally{action.disabled=false;}
       };
-      article.append(details,action);list.append(article);
+      const membership=node('button',t(member?'usersRevoke':'usersGrant'));membership.type='button';membership.disabled=!workspace;
+      membership.onclick=async()=>{
+        if(member&&!window.confirm(t('confirmRevokeUser')))return;
+        membership.disabled=true;
+        try{await api('/system/workspace/uws',{uid_list:[user.id],oid:workspace},member?'DELETE':'POST');await loadUsers();if(!$('users-status').classList.contains('error'))$('users-status').textContent=t('usersMemberSaved');}
+        catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+        finally{membership.disabled=false;}
+      };
+      const actions=node('div',undefined,'user-actions');actions.append(membership,action);
+      article.append(details,actions);list.append(article);
     }
     if(!result.items?.length)list.append(node('p',t('usersEmpty'),'semantic-empty'));
     $('users-count').textContent=`${userPage}/${userTotalPages} · ${result.total} ${t(result.total===1?'usersCountOne':'usersCount')}`;
@@ -285,7 +295,15 @@ async function showUsers(){
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   usersVisible=true;$('users').hidden=false;$('users-nav').classList.add('active');
-  await loadUsers();
+  const epoch=++usersEpoch,previous=$('users-workspace').value;
+  try{
+    const workspaces=await api('/system/workspace');
+    if(!usersVisible||epoch!==usersEpoch)return;
+    $('users-workspace').replaceChildren();
+    for(const workspace of workspaces){const option=node('option',workspace.name);option.value=String(workspace.id);$('users-workspace').append(option);}
+    if(workspaces.some(workspace=>String(workspace.id)===previous))$('users-workspace').value=previous;
+    await loadUsers();
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
 }
 function showQA(){
   dashboard.hide();
@@ -580,6 +598,7 @@ $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('users-nav').onclick=()=>{userPage=1;void showUsers();};
+$('users-workspace').onchange=()=>{void loadUsers();};
 $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
 $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
