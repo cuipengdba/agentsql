@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL (Chinese name: Zhidun)｜AI Agent database security gateway</title>
-  <meta name="description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <title>AgentSQL (Zhidun) | Database security gateway and native Q&amp;A</title>
+  <meta name="description" content="AgentSQL provides a database security gateway and its own Q&amp;A interface. It can protect an existing SQLBot deployment or serve as a native data Q&amp;A product. See the current release notes for verified scope.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -13,16 +13,16 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="AgentSQL·AI Agent&#x27;s database security gateway">
-  <meta property="og:description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <meta property="og:title" content="AgentSQL · Database security gateway and native Q&amp;A">
+  <meta property="og:description" content="AgentSQL can protect database access for an existing SQLBot deployment and provides its own data Q&amp;A interface. See the current release notes for verified scope.">
   <meta property="og:url" content="https://agentsql.cn/en/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta property="og:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AgentSQL·AI Agent&#x27;s database security gateway">
-  <meta name="twitter:description" content="AgentSQL is a database security gateway and MCP Server for AI Agents. It performs authentication, parsing, risk checking, decision-making, controlled execution, result masking and application layer auditing before the request reaches PostgreSQL or MySQL.">
+  <meta name="twitter:title" content="AgentSQL · Database security gateway and native Q&amp;A">
+  <meta name="twitter:description" content="AgentSQL can protect database access for an existing SQLBot deployment and provides its own data Q&amp;A interface. See the current release notes for verified scope.">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
@@ -68,9 +68,9 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.3.0</div>
-          <h1>Database security gateway for AI agents</h1>
+          <h1>Database security gateway and native Q&amp;A</h1>
           <p class="hero-lead">AgentSQL (Chinese name: Zhidun) is a database security gateway and MCP Server for AI Agents. PostgreSQL/MySQL requests issued by the model go through identity authentication, SQL parsing, static and dynamic risk checks, four-state decision-making and controlled execution before reaching the database; the results are masked according to the configuration, and a persistent audit is left at the application layer.</p>
-          <p class="positioning">v4.3.0 adds AgentSQL's own charts, dashboards and embedded application management, with selected original SQLBot v1.10.2 page and embedded Q&amp;A flows compared using synthetic local data. AgentSQL can serve as SQLBot's database security gateway and provides independent Q&amp;A capabilities. Full Community feature and page parity and zero-change replacement remain unverified.</p>
+          <p class="positioning">AgentSQL has its own Q&amp;A, chart, dashboard and embedded application pages. Model-generated SQL still passes through its database security gateway. An existing SQLBot deployment can also use AgentSQL to control database access. Full Community feature and page coverage and zero-change replacement remain subject to individual acceptance.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">Check it out on GitHub</a>
             <a class="button button-secondary" href="#quickstart">Quick Start</a>
@@ -96,6 +96,16 @@
             </g>
           </svg>
           <div class="visual-note"><span class="pulse" aria-hidden="true"></span> Requests only enter the execution phase if allowed by the policy</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Two ways to use AgentSQL</p><h2 id="usage-modes-title">Secure an existing Q&amp;A system or use AgentSQL's own interface</h2><p>AgentSQL's Go service, Web interface and brand are independently implemented. SQLBot integration is one optional deployment mode; each capability is bounded by its verified version and scenario.</p></div>
+        <div class="risk-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot database security gateway</h3><p>Keep an existing SQLBot interface and Q&amp;A flow while routing business database access through AgentSQL for identity, permissions, controlled execution, masking and persistent audit. Verify identity mapping, datasource scope and failure behavior before rollout.</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>Native AgentSQL Q&amp;A</h3><p>Use AgentSQL's own Q&amp;A, datasource, chart and administration pages. Full Community page, API and embed coverage and zero-change replacement of an existing business system depend on individual v4.5.0 acceptance results.</p></article>
         </div>
       </div>
     </section>
@@ -367,8 +377,8 @@ bash ./demo/reset.sh
 
     <section id="licensing" class="section section-muted">
       <div class="container license-panel">
-        <div><p class="kicker">Authorization mode</p><h2>Open source core and commercial dual licensing</h2><p><strong>License replacement statement:</strong>The existing source code, tags and release packages of v0.4.0 and earlier versions maintain the original license applicable when they were released and can continue to be used under the original license. Historical tags will not be re-tagged and historical assets will not be re-issued. Starting from v0.5.0, the AgentSQL open source core is switched to Apache License 2.0, and independent commercial licensing instructions are provided. Apache-2.0 allows closed source integration, SaaS commercial use and redistribution, but does not include trademark use rights. If you need a trademark license or enterprise capabilities for team/large-scale deployment, you can inquire about commercial authorization by email:<a href="mailto:87326549@qq.com">87326549@qq.com</a>.</p><p class="commercial-note">If you need trademark permission, corporate capabilities or commercial authorization, please contact 87326549@qq.com via email</p></div>
-        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">View Apache-2.0</a><a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/COMMERCIAL-LICENSE.en.md" target="_blank" rel="noopener noreferrer">View commercial licensing instructions</a></div>
+        <div><p class="kicker">Open-source license</p><h2>Apache License 2.0</h2><p>The current AgentSQL source release is licensed under Apache License 2.0. The rights and conditions for using, modifying and distributing it are stated in the repository's <a href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">LICENSE</a> and <a href="https://github.com/cuipengdba/agentsql/blob/main/NOTICE" target="_blank" rel="noopener noreferrer">NOTICE</a>.</p></div>
+        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">View Apache-2.0</a></div>
       </div>
     </section>
 
@@ -380,7 +390,7 @@ bash ./demo/reset.sh
           <details><summary>Can't the model be connected to the database without MCP?</summary><p>Yes, applications can also use self-developed APIs, database agents or server-side managed credentials to connect; AgentSQL provides a unified identity, policy, controlled execution and audit entrance for MCP, not the only connection method.</p></details>
           <details><summary>Is it BI/ORM/Text2SQL?</summary><p>Starting with v4.1.0, AgentSQL provides native natural-language Q&amp;A alongside its database security gateway. v4.2.0 added multi-turn context, business semantics and bounded CSV/XLSX files; v4.3.0 adds native charts and dashboards. Complete SQLBot feature and integration parity still requires individual verification. AgentSQL does not replace application ORMs.</p></details>
           <details><summary>How is the performance?</summary><p>Static determination is at the millisecond level; in the benchmark of in-memory fake executor, 20 workers / 200,000 samples, stripping the real database network and execution time, the gateway CPU path P99 is about 1.81 ms. This number is not the end-to-end query delay. The real delay depends on the connection, EXPLAIN, database execution and audit storage.</p></details>
-          <details><summary>Can individuals/companies use it for free?</summary><p>v0.4.0 and earlier versions continue to be subject to the original license when they were released; v0.5.0 and later can be used for free, closed source integration, SaaS commercial use and redistribution under the terms of Apache-2.0. For trademark licensing, corporate capabilities or official guarantees, please email us for commercial authorization.</p></details>
+          <details><summary>Can individuals and companies use it?</summary><p>The current release is licensed under Apache-2.0. Read the repository's LICENSE and NOTICE for the conditions of use, modification and distribution.</p></details>
           <details><summary>What databases/clients are supported?</summary><p>Please see above<a href="#compatibility">Compatibility matrix</a>, which lists the business database, control plane, MCP transport, host and deployment scope.</p></details>
         </div>
       </div>

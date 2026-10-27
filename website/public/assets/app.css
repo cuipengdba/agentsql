@@ -187,7 +187,6 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .install-command { max-width: 100%; margin: 0; padding: 15px 17px; overflow-x: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: #07101d; color: #dff5ff; font-family: var(--font-mono); font-size: .84rem; line-height: 1.65; white-space: pre; }
 .install-command code { font: inherit; white-space: inherit; }
 .license-panel .install-conditions { margin: 10px 0 0; color: #9fb1c8; font-size: .82rem; }
-.license-panel .commercial-note { margin: 24px 0 0; color: #dce8f4; font-weight: 700; }
 .license-links { display: grid; gap: 10px; min-width: 245px; }
 .ecosystem-panel { margin-top: 22px; padding: 34px 36px; border: 1px solid #315a72; border-radius: 22px; background: #0d1a2c; }
 .ecosystem-label { margin: 0 0 14px; color: var(--accent); font-family: var(--font-mono); font-size: .82rem; letter-spacing: .04em; text-transform: uppercase; }

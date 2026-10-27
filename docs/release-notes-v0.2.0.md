@@ -100,13 +100,11 @@ AgentSQL 是**网关层**的安全管控，不是银弹，本版明确不承诺�
 - **T30** 合规与身份管控：等保报告、WORM、SIEM、敏感发现、SSO/LDAP/MFA、多租户、RBAC、会签工单；
 - **T31** 高可用与集中管控：K8s Operator、跨实例审计总线、UEBA、私有化交付与 SLA。
 
-## 许可与商业授权
+## 历史版本许可
 
-开源版本采用 **GNU AGPLv3**；闭源集成分发、对外 SaaS/托管且不希望按网络条款开源、需要企业模块或 SLA/保修的场景，需要商业授权。AgentSQL 名称与 Logo 商标保留，fork 不得冒充官方版本。详见 [LICENSE](../LICENSE) 与 [COMMERCIAL-LICENSE.md](../COMMERCIAL-LICENSE.md)。
+v0.2.0 发布时的源码采用 **GNU AGPLv3**。历史 tag 和资产仍以其发布时的许可为准，不作追溯变更。AgentSQL 名称与 Logo 的商标权保留。
 
 > 注：以上为 v0.2.0 发布时点的许可证口径（AGPLv3）。自后续版本起，开源许可证已切换为 **Apache License 2.0**，当前以根目录 [LICENSE](../LICENSE) 为准。
-
-商业授权、企业版与私有化合作：**邮箱 87326549@qq.com ｜ 官网 https://agentsql.cn**
 
 ## 资产校验和
 

@@ -59,7 +59,7 @@ The "protocol path passed actual test" in this article only specifies the versio
 
 ### License changes
 
-**license replacement statement: The existing source code, tags and release packages of**v0.4.0 and earlier versions maintain the original license applicable when they were released and can continue to be used under the original license; historical tags will not be re-tagged, and historical assets will not be re-issued. Starting from v0.5.0, the open source version switches to [Apache License 2.0](../../LICENSE), and provides independent [ commercial license instructions ](../../COMMERCIAL-LICENSE.en.md). The rights and obligations of Apache-2.0 are subject to `LICENSE` and `NOTICE`; the trademark license, enterprise capabilities, SLA and support terms are subject to the written agreement between the two parties. This change was introduced by commit `391dcf0` and does not constitute authorization, certification, or endorsement by any database vendor.
+**License change notice:** source, tags, and release packages from v0.4.0 and earlier retain the license applicable at their release; historical tags and assets are not recreated. Starting with v0.5.0, the source uses [Apache License 2.0](../../LICENSE) and `NOTICE`. Trademark rights remain separate. This change was introduced by commit `391dcf0` and does not imply database-vendor certification or endorsement.
 
 ### Known boundaries and non-commitments
 
@@ -120,7 +120,7 @@ The GitHub Release of v0.4.0 has been verified to contain the following 15 asset
 | Type | v0.5.0 steps |
 | --- | --- |
 | Reuse | repository disclosure and PVR review; Fixed Rocky Linux 8 digest build amd64/arm64; Exactly 15 Release assets, SHA-256, SBOM/provenance and Ed25519 signatures; Build a Release draft first and download it back for verification; GHCR accurate tag → public → anonymous dual-architecture pull → then move `latest`; Demo reset; official website PDF/static acceptance/deployment; Release Draft becomes official; no login smoke test after release |
-| v0.5 New gate | Check Apache-2.0 / `NOTICE` / commercial license caliber; review 27 registrations and dialect matrices item by item, retaining "protocol path actual measurement ≠ manufacturer certification"; build and practice demo/quickstart auxiliary image; review R005 closed-loop evidence, DM/Oracle complete gateway and KingbaseES exceed the basic closed-loop capabilities of the PG protocol, and other commercial versions must not be mistakenly completed; standard runner Exclusive rerun of parser P99 for five consecutive rounds; confirmed by maintainer `SECURITY.md` Support version matrix |
+| v0.5 New gate | Check Apache-2.0 / `NOTICE` consistency; review 27 registrations and dialect matrices item by item, retaining "protocol path actual measurement ≠ manufacturer certification"; build and practice demo/quickstart auxiliary image; review R005 closed-loop evidence, DM/Oracle complete gateway and KingbaseES exceed the basic closed-loop capabilities of the PG protocol, and other commercial database versions must not be mistakenly completed; standard runner Exclusive rerun of parser P99 for five consecutive rounds; confirmed by maintainer `SECURITY.md` Support version matrix |
 
 ### Post a checklist
 
@@ -218,7 +218,7 @@ AgentSQL v0.5.0 adds bounded database-dialect work, connection-level support for
 - Audit query/reporting work, the self-contained five-minute quickstart stack, hardened demo reset sequencing, clearer authorization/database-error reporting, MCP Registry metadata, and ecosystem/website documentation are included in the `v0.4.0..1d6682d` change set.
 - Audit reporting now includes a pure-Go multi-page CJK PDF and a ZIP containing CSV, JSONL, PDF, summary, and a per-file SHA-256 `manifest.json`. Strict offline verification rejects path traversal, duplicate/extra members, and size or digest mismatches. The unsigned manifest proves package consistency only; it does not authenticate origin, time, freshness, or WORM/SIEM retention.
 - A new English documentation suite, R005 metadata/test-diagnostic fixes, and the KingbaseES + HighGo joint-case evidence and wording package. The production R005 gap was subsequently closed in `02565f5`: EXPLAIN-based large-result warnings run in the normal dynamic stage, and actual execution-layer truncation adds the same structured hit on both the generic and PostgreSQL column-authorization paths.
-- **License change notice:** existing v0.4.0-and-earlier source, tags, and release packages remain available under the license that applied when they were published; historical tags and assets will not be recreated. Starting with v0.5.0, the open-source edition uses [Apache License 2.0](../../LICENSE) plus a separate [commercial-license notice](../../COMMERCIAL-LICENSE.en.md). This does not imply database-vendor authorization or endorsement.
+- **License change notice:** existing v0.4.0-and-earlier source, tags, and release packages retain the license that applied when they were published; historical tags and assets will not be recreated. Starting with v0.5.0, the source uses [Apache License 2.0](../../LICENSE) and `NOTICE`. Trademark rights remain separate. This does not imply database-vendor certification or endorsement.
 
 ### Known boundaries
 

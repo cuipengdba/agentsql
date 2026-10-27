@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL（中文名：智盾）｜AI Agent 的数据库安全网关</title>
-  <meta name="description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <title>AgentSQL（智盾）｜数据库安全网关与独立问数</title>
+  <meta name="description" content="AgentSQL 提供数据库安全网关与自有问数页面：可保护现有 SQLBot 的数据库访问，也可独立提供自然语言问数。已验证的功能和接入范围见当前发布说明。">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -13,16 +13,16 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="zh_CN">
-  <meta property="og:title" content="AgentSQL · AI Agent 的数据库安全网关">
-  <meta property="og:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <meta property="og:title" content="AgentSQL · 数据库安全网关与独立问数">
+  <meta property="og:description" content="AgentSQL 可保护现有 SQLBot 的数据库访问，也提供自有自然语言问数页面；功能和接入范围以当前发布说明为准。">
   <meta property="og:url" content="https://agentsql.cn/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta property="og:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AgentSQL · AI Agent 的数据库安全网关">
-  <meta name="twitter:description" content="AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server，在请求到达 PostgreSQL 或 MySQL 前执行鉴权、解析、风险检查、决策、受控执行、结果脱敏与应用层审计。">
+  <meta name="twitter:title" content="AgentSQL · 数据库安全网关与独立问数">
+  <meta name="twitter:description" content="AgentSQL 可保护现有 SQLBot 的数据库访问，也提供自有自然语言问数页面；功能和接入范围以当前发布说明为准。">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
@@ -68,9 +68,9 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.3.0</div>
-          <h1>AI Agent 的数据库安全网关</h1>
+          <h1>数据库安全网关与独立问数</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">v4.3.0 增加 AgentSQL 自有图表、仪表板和嵌入应用管理，并在本机合成数据上对照原版 SQLBot v1.10.2 的指定页面及嵌入问数流程。AgentSQL 可作为 SQLBot 的数据库安全网关，也提供独立问数能力；社区版全部功能、全部页面和现有系统零改动替换仍待验收。</p>
+          <p class="positioning">AgentSQL 自有问数、图表、仪表板和嵌入应用页面，模型生成的 SQL 继续经过数据库安全网关。已有 SQLBot 部署也可接入 AgentSQL 做数据库访问控制；完整社区版功能、全部页面和现有系统零改动替换仍待逐项验收。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
@@ -96,6 +96,16 @@
             </g>
           </svg>
           <div class="visual-note"><span class="pulse" aria-hidden="true"></span> 请求只在策略允许时进入执行阶段</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">两种使用形态</p><h2 id="usage-modes-title">在现有问数系统前把关，也能使用 AgentSQL 自有问数页面</h2><p>AgentSQL 的 Go 服务、Web 页面和品牌均独立实现。接入 SQLBot 是可选部署方式之一；各项能力以实际通过的版本和场景验收为准。</p></div>
+        <div class="risk-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot 数据库安全网关</h3><p>保留现有 SQLBot 页面与问数流程，让业务数据库请求经过 AgentSQL 的身份、权限、受控执行、脱敏与持久审计。接入前须核对身份映射、数据库范围和故障关闭。</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>AgentSQL 独立问数</h3><p>使用 AgentSQL 自有的问数、数据源、图表与管理页面。社区版全部页面、API、嵌入方式及现有业务系统零改动替换，以 v4.5.0 逐项验收结果为准。</p></article>
         </div>
       </div>
     </section>
@@ -367,8 +377,8 @@ bash ./demo/reset.sh
 
     <section id="licensing" class="section section-muted">
       <div class="container license-panel">
-        <div><p class="kicker">授权模式</p><h2>开源核心与商业双授权</h2><p><strong>许可更换声明：</strong>v0.4.0 及更早版本的既有源码、tag 与发布包维持其发布时适用的原许可并可继续按原许可使用，不重打历史 tag、不重发历史资产；自 v0.5.0 起，AgentSQL 开源核心切换为 Apache License 2.0，并提供独立商业许可说明。Apache-2.0 允许闭源集成、SaaS 商用与再分发，但不包含商标使用权。需要商标使用许可，或面向团队 / 大规模部署的企业能力，可邮件咨询商业授权：<a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p><p class="commercial-note">需要商标许可、企业能力或商业授权，请邮件联系 87326549@qq.com</p></div>
-        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">查看 Apache-2.0</a><a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/COMMERCIAL-LICENSE.md" target="_blank" rel="noopener noreferrer">查看商业授权说明</a></div>
+        <div><p class="kicker">开源许可</p><h2>Apache License 2.0</h2><p>AgentSQL 当前版本的源码按 Apache License 2.0 发布。使用、修改和分发的权利与义务以仓库中的 <a href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">LICENSE</a> 和 <a href="https://github.com/cuipengdba/agentsql/blob/main/NOTICE" target="_blank" rel="noopener noreferrer">NOTICE</a> 为准。</p></div>
+        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">查看 Apache-2.0</a></div>
       </div>
     </section>
 
@@ -380,7 +390,7 @@ bash ./demo/reset.sh
           <details><summary>不用 MCP，模型就不能连数据库吗？</summary><p>可以，应用也可用自研 API、数据库代理或服务端托管凭据连接；AgentSQL 提供的是面向 MCP 的统一身份、策略、受控执行与审计入口，而非唯一连接方式。</p></details>
           <details><summary>它是 BI / ORM / Text2SQL 吗？</summary><p>v4.1.0 开始提供原生自然语言问数，同时保留数据库安全网关。v4.2.0 增加多轮语境、业务语义和有界 CSV/XLSX；v4.3.0 增加自有图表与仪表板。全部 SQLBot 功能与接入方式仍待逐项验证；本产品不替代应用 ORM。</p></details>
           <details><summary>性能如何？</summary><p>静态判定在毫秒级；在内存 fake executor、20 worker / 20 万样本、剥离真实库网络与执行时间的基准中，网关 CPU 路径 P99 约 1.81 ms，该数字不是端到端查询延迟，真实延迟取决于连接、EXPLAIN、数据库执行与审计存储。</p></details>
-          <details><summary>个人 / 公司能免费用吗？</summary><p>v0.4.0 及更早版本继续适用其发布时的原许可；v0.5.0 起可按 Apache-2.0 条款免费使用、闭源集成、SaaS 商用与再分发。商标使用许可、企业能力或官方保障请邮件咨询商业授权。</p></details>
+          <details><summary>个人 / 公司能使用吗？</summary><p>当前版本按 Apache-2.0 发布。请阅读仓库中的 LICENSE 和 NOTICE，确认使用、修改与分发条件。</p></details>
           <details><summary>支持哪些数据库 / 客户端？</summary><p>请查看上方<a href="#compatibility">兼容矩阵</a>，其中列出业务库、控制面、MCP 传输、宿主与部署范围。</p></details>
         </div>
       </div>

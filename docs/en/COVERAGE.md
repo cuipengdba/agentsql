@@ -8,7 +8,6 @@ Every entry below has a full English counterpart. Executable examples and histor
 | [CHANGELOG.md](../../CHANGELOG.md) | [English](../../CHANGELOG.en.md) |
 | [ROADMAP.md](../../ROADMAP.md) | [English](../../ROADMAP.en.md) |
 | [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) | [English](../../CODE_OF_CONDUCT.en.md) |
-| [COMMERCIAL-LICENSE.md](../../COMMERCIAL-LICENSE.md) | [English](../../COMMERCIAL-LICENSE.en.md) |
 | [CONTRIBUTING.md](../../CONTRIBUTING.md) | [English](../../CONTRIBUTING.en.md) |
 | [SECURITY.md](../../SECURITY.md) | [English](../../SECURITY.en.md) |
 | [docs/assets/acceptance-v0.7.0/dify-gui-query-evidence.md](../assets/acceptance-v0.7.0/dify-gui-query-evidence.md) | [English](assets/acceptance-v0.7.0/dify-gui-query-evidence.md) |

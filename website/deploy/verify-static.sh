@@ -43,7 +43,7 @@ if [[ $local_only -eq 0 ]]; then
   fi
 
   status=$(fetch "$BASE_URL/en/" english_home)
-  if [[ $status == 200 ]] && grep -q 'Database security gateway for AI agents' "$tmp_dir/english_home.body"; then
+  if [[ $status == 200 ]] && grep -q 'Database security gateway and native Q&amp;A' "$tmp_dir/english_home.body"; then
     pass "英文首页返回 200"
   else
     fail "英文首页状态或内容不正确（状态 $status）"
