@@ -246,8 +246,7 @@ func legacyExcelDatasource(binding Binding) (map[string]any, error) {
 	}
 	return map[string]any{"id": numericID, "name": binding.Name, "description": binding.Description,
 		"type": "excel", "type_name": "Excel/CSV", "configuration": binding.Configuration,
-		"managed_file": binding.Dialect == "pg" && managedFileOperationPattern.MatchString(binding.ManagedFileID),
-		"oid":          workspaceID, "create_by": userID, "create_time": binding.Created,
+		"oid": workspaceID, "create_by": userID, "create_time": binding.Created,
 		"status": "Success", "num": strconv.Itoa(selectedCount) + "/" + strconv.Itoa(len(sheets)),
 		"recommended_config": 1, "embedding": nil, "table_relation": nil}, nil
 }
