@@ -3,6 +3,7 @@ package chatbi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,5 +79,36 @@ func TestWorkspaceModelUpdateKeepsSecretsAndAuditsAtomically(t *testing.T) {
 	var unchanged ModelConfig
 	if _, err := service.Store.get(context.Background(), key, &unchanged); err != nil || unchanged.Model != "fixture-v3" || unchanged.APIKey != "replacement" {
 		t.Fatalf("audit failure committed model: %+v %v", unchanged, err)
+	}
+}
+
+func TestWorkspaceModelProbeNeverExecutesSQLOrReturnsSecrets(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	model := service.Model.(*fakeModel)
+	gateway := service.Gateway.(*fakeGateway)
+	queries := gateway.queries
+	key := objectKey{"model", "1", "workspace", "default"}
+	var configured ModelConfig
+	revision, err := service.Store.get(context.Background(), key, &configured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured.APIKey = "private-probe-key"
+	if err := service.Store.put(context.Background(), key, configured, revision); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/agentsql/model/check"
+	if denied := accountRequest(t, handler, http.MethodPost, path, "", memberToken); denied.Code != http.StatusUnauthorized || model.calls != 0 {
+		t.Fatalf("member reached model probe: %d calls=%d", denied.Code, model.calls)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, path, `{"api_domain":"http://attacker.invalid"}`, adminToken); denied.Code != http.StatusUnprocessableEntity || model.calls != 0 {
+		t.Fatalf("client-supplied endpoint reached model: %d calls=%d", denied.Code, model.calls)
+	}
+	if response := accountRequest(t, handler, http.MethodPost, path, "", adminToken); response.Code != http.StatusOK || model.calls != 1 || gateway.queries != queries || strings.Contains(response.Body.String(), configured.APIKey) || !strings.Contains(response.Body.String(), `"reachable":true`) {
+		t.Fatalf("unsafe model probe: %d calls=%d %s", response.Code, model.calls, response.Body.String())
+	}
+	model.err = errors.New("private endpoint failure")
+	if response := accountRequest(t, handler, http.MethodPost, path, "", adminToken); response.Code != http.StatusBadGateway || strings.Contains(response.Body.String(), "private") {
+		t.Fatalf("model failure leaked details: %d %s", response.Code, response.Body.String())
 	}
 }
