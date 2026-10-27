@@ -170,9 +170,13 @@ func (s *Store) updateManagedFileSelection(ctx context.Context, p Principal, pri
 		}
 		imported[sheet.TableName] = true
 	}
+	auditTables := make([]string, 0, selectedCount)
 	if selection == "" {
 		if selectedCount != len(imported) {
 			return ErrInvalidSemantic
+		}
+		for name := range imported {
+			auditTables = append(auditTables, name)
 		}
 	} else {
 		candidate := prior
@@ -186,8 +190,10 @@ func (s *Store) updateManagedFileSelection(ctx context.Context, p Principal, pri
 			if !imported[name] {
 				return ErrInvalidSemantic
 			}
+			auditTables = append(auditTables, name)
 		}
 	}
+	sort.Strings(auditTables)
 	key := bindingKey(p, prior.Datasource)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -225,7 +231,8 @@ func (s *Store) updateManagedFileSelection(ctx context.Context, p Principal, pri
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
 	audit, err := s.seal(auditKey, map[string]any{"action": "file-import.tables-select", "actor": p.User.ID,
-		"workspace": p.Workspace, "datasource": prior.Datasource, "selected": selectedCount, "time": time.Now().UTC()})
+		"workspace": p.Workspace, "datasource": prior.Datasource, "selected": selectedCount,
+		"tables": auditTables, "time": time.Now().UTC()})
 	if err != nil {
 		return err
 	}
