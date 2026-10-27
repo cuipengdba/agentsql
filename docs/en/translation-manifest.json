@@ -1239,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "fdcd361cccf7432f567a38acb357dc07b17c0bf73094f1857be2d3a4144686d6"
+      "source_sha256": "0fe7193a8dcf5ef7c9253e436662d588f9e7098f6f62ff2da12cfffd82d007e3"
     },
     {
       "source": "docs/v4.3.0-design.md",
@@ -1259,7 +1259,7 @@
     {
       "source": "docs/v4.4.0-design.md",
       "english": "docs/en/v4.4.0-design.md",
-      "source_sha256": "1f29f2ee1a0e6c90d87060175feda99471e1a217cfcd0161e588b52fb59a75f9"
+      "source_sha256": "afb931618b5fe8314b8421d6efe38ca3dbdf16e4492b948b17f9d84938fc67a2"
     },
     {
       "source": "docs/v4.5.0-offline-delivery.md",

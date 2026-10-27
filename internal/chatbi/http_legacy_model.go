@@ -122,6 +122,44 @@ func (h *Handler) legacyModelMappingsUpdate(w http.ResponseWriter, r *http.Reque
 	okay(w, spaces)
 }
 
+// The original dialog uses POST to add and DELETE to remove mappings. Only a
+// duplicate add (or an empty change) can be honored before cross-workspace
+// model ownership exists. The sole mapping must never be removed silently.
+func (h *Handler) legacyModelMappingsChange(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	model, err := h.currentLegacyModel(r, p, token)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if r.PathValue("id") != string(model.ID) {
+		failure(w, ErrNotFound)
+		return
+	}
+	var spaces []string
+	if !readBody(w, r, &spaces) {
+		return
+	}
+	if len(spaces) > 100 {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	for _, space := range spaces {
+		if !ID(space).Valid() || space != string(p.Workspace) {
+			writeJSON(w, http.StatusUnprocessableEntity, "Cross-workspace model sharing is unavailable")
+			return
+		}
+	}
+	if r.Method == http.MethodDelete && len(spaces) != 0 {
+		writeJSON(w, http.StatusConflict, "Cannot remove the workspace's only model mapping")
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, []string{string(p.Workspace)})
+}
+
 // The original Community form includes an empty id on first create and RSA
 // encrypts its endpoint and key. AgentSQL can create only the first default
 // model in the caller's current workspace; subsequent catalog entries need a
