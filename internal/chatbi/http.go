@@ -73,6 +73,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("PUT /api/v1/agentsql/chat-parameters", h.auth(h.nativeSaveChatParameters))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/default", h.auth(h.sqlbotDefaultModel))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel", h.auth(h.legacyModelList))
+	h.mux.HandleFunc("POST /api/v1/system/aimodel", h.auth(h.legacyModelCreate))
 	h.mux.HandleFunc("PUT /api/v1/system/aimodel", h.auth(h.legacyModelUpdate))
 	h.mux.HandleFunc("POST /api/v1/system/aimodel/status", h.bounded(h.auth(h.legacyModelStatus)))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}", h.auth(h.legacyModelRead))
