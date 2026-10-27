@@ -68,6 +68,18 @@ func systemVariableKey(workspace ID, id int64) objectKey {
 	return objectKey{"system-variable", string(workspace), "workspace", strconv.FormatInt(id, 10)}
 }
 
+func parseSystemVariableID(raw json.RawMessage) (int64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	text := string(raw)
+	if text[0] == '"' && json.Unmarshal(raw, &text) != nil {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(text, 10, 64)
+	return id, err == nil && strconv.FormatInt(id, 10) == text
+}
+
 func (h *Handler) systemVariableList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.memberAdmin(r.Context(), p, p.Workspace, "grant"); err != nil {
 		failure(w, err)
@@ -142,10 +154,27 @@ func (h *Handler) systemVariableSave(w http.ResponseWriter, r *http.Request, p P
 		failure(w, err)
 		return
 	}
-	var variable SystemVariable
-	if !readBody(w, r, &variable) {
+	var input struct {
+		ID      json.RawMessage `json:"id"`
+		Name    string          `json:"name"`
+		VarType string          `json:"var_type"`
+		Value   json.RawMessage `json:"value"`
+	}
+	if !readBody(w, r, &input) {
 		return
 	}
+	// The pinned original page sends a decimal string on edit, while callers
+	// may send a JSON integer. Parse both without a float64 round trip.
+	var id int64
+	if len(input.ID) != 0 && string(input.ID) != "null" {
+		parsed, valid := parseSystemVariableID(input.ID)
+		if !valid {
+			failure(w, ErrInvalidAccountChange)
+			return
+		}
+		id = parsed
+	}
+	variable := SystemVariable{ID: id, Name: input.Name, VarType: input.VarType, Value: input.Value}
 	if !validSystemVariable(variable) {
 		failure(w, ErrInvalidAccountChange)
 		return
@@ -180,13 +209,22 @@ func (h *Handler) systemVariableDelete(w http.ResponseWriter, r *http.Request, p
 		failure(w, err)
 		return
 	}
-	var ids []int64
-	if !readBody(w, r, &ids) {
+	var input []json.RawMessage
+	if !readBody(w, r, &input) {
 		return
 	}
-	if len(ids) == 0 || len(ids) > 100 {
+	if len(input) == 0 || len(input) > 100 {
 		failure(w, ErrInvalidAccountChange)
 		return
+	}
+	ids := make([]int64, 0, len(input))
+	for _, raw := range input {
+		id, valid := parseSystemVariableID(raw)
+		if !valid {
+			failure(w, ErrInvalidAccountChange)
+			return
+		}
+		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	for i, id := range ids {
