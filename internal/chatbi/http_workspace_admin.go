@@ -2,9 +2,7 @@ package chatbi
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"math"
 	"net/http"
 	"sort"
@@ -329,7 +327,7 @@ func (service *Service) modifyMemberships(ctx context.Context, p Principal, ids 
 			catalog.ID != workspace || catalog.Name != name {
 			return ErrConflict
 		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !controlNoRows(err) {
 		return ErrUnavailable
 	}
 	for _, item := range changes {

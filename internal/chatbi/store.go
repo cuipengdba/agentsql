@@ -117,6 +117,43 @@ func OpenStore(ctx context.Context, path string, secret []byte) (*Store, error) 
 
 func (s *Store) Close() error { return s.db.Close() }
 
+func controlNoRows(err error) bool { return errors.Is(err, sql.ErrNoRows) }
+
+// Management transactions use the encrypted control-plane store, never a
+// business database connection. Keep the database/sql capability here.
+func (s *Store) verifyManagedWorkspaceActor(ctx context.Context, tx *sql.Tx, p Principal) error {
+	var actorBody []byte
+	if err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system' AND id=?`, p.User.ID).Scan(&actorBody); err != nil {
+		return ErrUnauthenticated
+	}
+	var actor User
+	if err := s.decode(userKey(p.User.ID), actorBody, &actor); err != nil || actor.ID != p.User.ID ||
+		actor.AuthRevision != p.User.AuthRevision || !actor.Admin || !actor.canUse(p.Workspace) {
+		return ErrUnauthenticated
+	}
+	return nil
+}
+
+func (s *Store) verifyWorkspaceNamesTx(ctx context.Context, tx *sql.Tx, memberships []Membership) error {
+	for _, membership := range memberships {
+		key := objectKey{"workspace", "system", "system", string(membership.Workspace)}
+		var body []byte
+		err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
+			key.Kind, key.Scope, key.Owner, key.ID).Scan(&body)
+		if controlNoRows(err) {
+			continue // Imported workspaces may exist only in member records.
+		}
+		if err != nil {
+			return ErrUnavailable
+		}
+		var item workspaceOption
+		if s.decode(key, body, &item) != nil || item.ID != membership.Workspace || item.Name != membership.Name {
+			return ErrConflict
+		}
+	}
+	return nil
+}
+
 func (s *Store) seal(key objectKey, value any) ([]byte, error) {
 	if !key.valid() {
 		return nil, ErrUnavailable

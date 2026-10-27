@@ -2,7 +2,6 @@ package chatbi
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -95,39 +94,6 @@ func (h *Handler) legacyWorkspaceDelete(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	okay(w, nil)
-}
-
-func (s *Store) verifyManagedWorkspaceActor(ctx context.Context, tx *sql.Tx, p Principal) error {
-	var actorBody []byte
-	if err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system' AND id=?`, p.User.ID).Scan(&actorBody); err != nil {
-		return ErrUnauthenticated
-	}
-	var actor User
-	if err := s.decode(userKey(p.User.ID), actorBody, &actor); err != nil || actor.ID != p.User.ID ||
-		actor.AuthRevision != p.User.AuthRevision || !actor.Admin || !actor.canUse(p.Workspace) {
-		return ErrUnauthenticated
-	}
-	return nil
-}
-
-func (s *Store) verifyWorkspaceNamesTx(ctx context.Context, tx *sql.Tx, memberships []Membership) error {
-	for _, membership := range memberships {
-		key := objectKey{"workspace", "system", "system", string(membership.Workspace)}
-		var body []byte
-		err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
-			key.Kind, key.Scope, key.Owner, key.ID).Scan(&body)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue // Imported workspaces may exist only in member records.
-		}
-		if err != nil {
-			return ErrUnavailable
-		}
-		var item workspaceOption
-		if s.decode(key, body, &item) != nil || item.ID != membership.Workspace || item.Name != membership.Name {
-			return ErrConflict
-		}
-	}
-	return nil
 }
 
 func (service *Service) UpdateWorkspaceManaged(ctx context.Context, id ID, name string, p Principal) (workspaceOption, error) {

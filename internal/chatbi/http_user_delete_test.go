@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -73,7 +74,12 @@ func TestAdminUserDeleteAllowsFreshAccountWithoutOldToken(t *testing.T) {
 		t.Fatalf("delete user: %d %s", deleted.Code, deleted.Body.String())
 	}
 	created := accountRequest(t, handler, http.MethodPost, "/api/v1/user", `{"account":"bob","name":"New Bob","email":"bob-new@example.test","oid_list":[1],"initial_password":"New-password-123"}`, adminToken)
-	if created.Code != http.StatusOK || strings.Contains(created.Body.String(), `"id":2`) {
+	var envelope struct {
+		Data struct {
+			ID ID `json:"id"`
+		} `json:"data"`
+	}
+	if created.Code != http.StatusOK || json.Unmarshal(created.Body.Bytes(), &envelope) != nil || !envelope.Data.ID.Valid() || envelope.Data.ID == "2" {
 		t.Fatalf("account reuse failed or reused identity: %d %s", created.Code, created.Body.String())
 	}
 	if _, err := service.Identity.Verify(context.Background(), oldToken); !errors.Is(err, ErrUnauthenticated) {

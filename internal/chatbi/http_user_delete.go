@@ -2,8 +2,6 @@ package chatbi
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"net/http"
 	"time"
 )
@@ -71,7 +69,7 @@ func (s *Store) DeleteUsersManaged(ctx context.Context, ids []ID, p Principal) e
 		var userBody []byte
 		var revision int64
 		err := tx.QueryRowContext(ctx, `SELECT revision,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system' AND id=?`, id).Scan(&revision, &userBody)
-		if errors.Is(err, sql.ErrNoRows) {
+		if controlNoRows(err) {
 			return ErrNotFound
 		}
 		if err != nil {
