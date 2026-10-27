@@ -182,7 +182,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/agentsql/record/{id}/forecast", h.boundedHistory(h.nativeForecast))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/predict_data", h.boundedHistory(h.legacyForecastData))
 	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
-	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
+	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.boundedHistory(h.read))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
 	h.mux.HandleFunc("GET /api/v1/agentsql/dashboards", h.auth(h.dashboardList))
@@ -771,6 +771,25 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, toke
 	if err != nil {
 		failure(w, err)
 		return
+	}
+	// The unchanged SQLBot browser renders saved analysis and prediction text
+	// from this conversation response and does not fetch each child record.
+	// Metadata reads intentionally strip that text, so reauthorize and audit
+	// only narrative children before including their saved content. A changed
+	// result digest leaves the historical text empty.
+	if !strings.HasSuffix(r.URL.Path, "/with_data") {
+		for i := range chat.Records {
+			if chat.Records[i].Action != "analysis" && chat.Records[i].Action != "predict" {
+				continue
+			}
+			fresh, err := h.service.Record(r.Context(), p, chat.Records[i].ID, true)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			chat.Records[i].Analysis = fresh.Analysis
+			chat.Records[i].PredictText = fresh.PredictText
+		}
 	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
