@@ -67,6 +67,10 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
 	h.mux.HandleFunc("GET /api/v1/system/parameter/chat", h.auth(h.sqlbotChatParameters))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/default", h.auth(h.sqlbotDefaultModel))
+	h.mux.HandleFunc("GET /api/v1/system/apikey", h.auth(h.accountAPIKeyList))
+	h.mux.HandleFunc("POST /api/v1/system/apikey", h.auth(h.accountAPIKeyCreate))
+	h.mux.HandleFunc("PUT /api/v1/system/apikey/status", h.auth(h.accountAPIKeyStatus))
+	h.mux.HandleFunc("DELETE /api/v1/system/apikey/{id}", h.auth(h.accountAPIKeyDelete))
 	h.mux.HandleFunc("GET /api/v1/agentsql/model", h.auth(h.nativeWorkspaceModel))
 	h.mux.HandleFunc("POST /api/v1/agentsql/model", h.auth(h.nativeCreateWorkspaceModel))
 	h.mux.HandleFunc("PUT /api/v1/agentsql/model", h.auth(h.nativeUpdateWorkspaceModel))
@@ -385,7 +389,9 @@ type authorizedHandler func(http.ResponseWriter, *http.Request, Principal, strin
 func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string) error {
 	var current Principal
 	var err error
-	if p.EmbeddedApp != "" {
+	if strings.HasPrefix(token, "Ask ") {
+		current, err = h.service.Identity.VerifyAsk(ctx, strings.TrimPrefix(token, "Ask "))
+	} else if p.EmbeddedApp != "" {
 		if !strings.HasPrefix(token, "Embedded ") {
 			return ErrUnauthenticated
 		}
@@ -423,6 +429,25 @@ func embeddedRouteAllowed(r *http.Request) bool {
 
 func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if values := r.Header.Values("X-SQLBOT-ASK-TOKEN"); len(values) != 0 {
+			if len(values) != 1 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 ||
+				len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("Authorization")) != 0 || !askRouteAllowed(r) {
+				failure(w, ErrUnauthenticated)
+				return
+			}
+			parts := strings.Fields(values[0])
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "sk") {
+				failure(w, ErrUnauthenticated)
+				return
+			}
+			p, err := h.service.Identity.VerifyAsk(r.Context(), parts[1])
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			next(w, r, p, "Ask "+parts[1])
+			return
+		}
 		if values := r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN"); len(values) != 0 {
 			if len(values) != 1 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 || len(r.Header.Values("Authorization")) != 0 || !embeddedRouteAllowed(r) {
 				failure(w, ErrUnauthenticated)

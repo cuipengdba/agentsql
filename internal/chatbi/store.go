@@ -135,6 +135,22 @@ func (s *Store) verifyManagedWorkspaceActor(ctx context.Context, tx *sql.Tx, p P
 	return nil
 }
 
+func (s *Store) verifyAPIKeyActor(ctx context.Context, tx *sql.Tx, p Principal) error {
+	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" {
+		return ErrUnauthenticated
+	}
+	var body []byte
+	if err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system' AND id=?`, p.User.ID).Scan(&body); err != nil {
+		return ErrUnauthenticated
+	}
+	var user User
+	if s.decode(userKey(p.User.ID), body, &user) != nil || user.ID != p.User.ID ||
+		user.AuthRevision != p.User.AuthRevision || !user.canUse(p.Workspace) {
+		return ErrUnauthenticated
+	}
+	return nil
+}
+
 func (s *Store) verifyWorkspaceNamesTx(ctx context.Context, tx *sql.Tx, memberships []Membership) error {
 	for _, membership := range memberships {
 		key := objectKey{"workspace", "system", "system", string(membership.Workspace)}

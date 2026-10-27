@@ -129,6 +129,47 @@ func (s *Store) DeleteUsersManaged(ctx context.Context, ids []ID, p Principal) e
 			return ErrUnavailable
 		}
 		rows.Close()
+		keyRows, err := tx.QueryContext(ctx, `SELECT id,body FROM chatbi_objects WHERE kind='api-key' AND scope='system' AND owner=?`, string(id))
+		if err != nil {
+			return ErrUnavailable
+		}
+		var accountKeys []AccountAPIKey
+		for keyRows.Next() {
+			var keyID string
+			var keyBody []byte
+			if err := keyRows.Scan(&keyID, &keyBody); err != nil {
+				keyRows.Close()
+				return ErrUnavailable
+			}
+			var item AccountAPIKey
+			if s.decode(apiKeyObject(ID(keyID), id), keyBody, &item) != nil || item.ID != ID(keyID) || item.Owner != id {
+				keyRows.Close()
+				return ErrUnavailable
+			}
+			accountKeys = append(accountKeys, item)
+		}
+		if err := keyRows.Err(); err != nil {
+			keyRows.Close()
+			return ErrUnavailable
+		}
+		keyRows.Close()
+		for _, item := range accountKeys {
+			index := s.apiKeyAccessIndex(item.AccessKey)
+			var indexBody []byte
+			if err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`, index.Kind, index.Scope, index.Owner, index.ID).Scan(&indexBody); err != nil {
+				return ErrUnavailable
+			}
+			var claim map[string]ID
+			if s.decode(index, indexBody, &claim) != nil || claim["id"] != item.ID || claim["uid"] != id {
+				return ErrUnavailable
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`, index.Kind, index.Scope, index.Owner, index.ID); err != nil {
+				return ErrUnavailable
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind='api-key' AND scope='system' AND owner=?`, string(id)); err != nil {
+			return ErrUnavailable
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE owner=? AND scope!='system'`, string(id)); err != nil {
 			return ErrUnavailable
 		}

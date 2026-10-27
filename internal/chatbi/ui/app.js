@@ -32,6 +32,8 @@ Object.assign(copy['zh-CN'], {usage:'执行详情',usageStarted:'开始时间',u
 Object.assign(copy.en, {usage:'Execution details',usageStarted:'Started',usageFinished:'Finished',usageDuration:'Duration',usageTokens:'Tokens used',usageStepsEmpty:'No step trace is available',seconds:'seconds'});
 Object.assign(copy['zh-CN'], {accountSettings:'账号设置',passwordNote:'修改密码后，当前会话及其他已登录会话都需要重新登录。',currentPassword:'当前密码',newPassword:'新密码',changePassword:'修改密码',passwordChanged:'密码已修改，请重新登录。'});
 Object.assign(copy.en, {accountSettings:'Account settings',passwordNote:'Changing your password signs out this and all other sessions.',currentPassword:'Current password',newPassword:'New password',changePassword:'Change password',passwordChanged:'Password changed. Sign in again.'});
+Object.assign(copy['zh-CN'], {keysTitle:'API Key',keysIntro:'每个账户最多 5 个密钥。密钥只用于受支持的接口；关闭或删除后立即失效。请妥善保管 Secret Key。',keysCreate:'创建密钥',keysEmpty:'尚未创建密钥。',keysAccess:'Access Key',keysSecret:'Secret Key',keysCopy:'复制',keysReveal:'显示',keysHide:'隐藏',keysDisable:'停用',keysEnable:'启用',keysDelete:'删除',keysConfirmDelete:'确定删除这个 API Key？',keysLimit:'已达到 5 个密钥的上限。',keysSaved:'密钥状态已更新。',keysDeleted:'密钥已删除。',keysCreated:'密钥已创建；请安全保存。',keysCopyFailed:'复制失败，请先显示后手动复制。'});
+Object.assign(copy.en, {keysTitle:'API Key',keysIntro:'Each account can hold up to five keys. Keys work only with supported APIs and are revoked immediately when disabled or deleted. Protect your Secret Key.',keysCreate:'Create key',keysEmpty:'No keys yet.',keysAccess:'Access Key',keysSecret:'Secret Key',keysCopy:'Copy',keysReveal:'Show',keysHide:'Hide',keysDisable:'Disable',keysEnable:'Enable',keysDelete:'Delete',keysConfirmDelete:'Delete this API key?',keysLimit:'The five-key limit has been reached.',keysSaved:'Key status updated.',keysDeleted:'Key deleted.',keysCreated:'Key created. Store it securely.',keysCopyFailed:'Copy failed. Show the key and copy it manually.'});
 Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',usersIntro:'创建和查看账号，管理工作空间成员关系及启停状态。管理变更会留下审计。',usersSearch:'搜索账号、姓名或邮箱',usersWorkspace:'工作空间',usersMember:'已加入当前空间',usersNotMember:'未加入当前空间',usersGrant:'加入空间',usersRevoke:'移出空间',confirmRevokeUser:'移出此用户并撤销其旧会话？',usersEnabled:'已启用',usersDisabled:'已停用',usersDisable:'停用',usersEnable:'启用',usersEmpty:'没有匹配的用户',usersCount:'位用户',usersCountOne:'位用户',confirmDisableUser:'停用此用户并撤销其全部会话？',usersSaved:'用户状态已更新',usersMemberSaved:'成员关系已更新'});
 Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Create and review accounts, manage workspace membership and enable or disable users. Management changes are audited.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
 Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'设置初始密码并选择当前工作空间。密码只在此提交一次。',usersName:'姓名',usersEmail:'邮箱',usersInitialPassword:'初始密码（12–72 字符）',usersCreateSubmit:'创建用户',usersCreated:'用户已创建'});
@@ -73,7 +75,7 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');hideUsers();hideVariables();hideModels();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 async function loadSuggestions(){
@@ -308,6 +310,30 @@ async function showModels(){
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   modelsVisible=true;$('models').hidden=false;$('models-nav').classList.add('active');await loadModel();
+}
+function keyStatus(message,error=false){$('key-status').textContent=message;$('key-status').classList.toggle('error',error);}
+async function loadAPIKeys(){
+  if(!$('key-dialog').open)return;
+  try{
+    const items=await api('/system/apikey');
+    if(!$('key-dialog').open)return;
+    const list=$('key-list');list.replaceChildren();
+    $('key-create').disabled=items.length>=5;
+    if(!items.length){list.append(node('p',t('keysEmpty')));return;}
+    for(const item of items){
+      const card=node('article',undefined,'key-item'),access=node('code',item.access_key),secret=node('code','••••••••••••'),meta=node('small',new Date(item.create_time).toLocaleString()),actions=node('div',undefined,'key-item-actions');
+      const copyAccess=node('button',t('keysCopy')+' '+t('keysAccess')),copySecret=node('button',t('keysCopy')+' '+t('keysSecret'));
+      const reveal=node('button',t('keysReveal')),statusButton=node('button',t(item.status?'keysDisable':'keysEnable')),remove=node('button',t('keysDelete'));
+      for(const button of [copyAccess,copySecret,reveal,statusButton,remove])button.type='button';
+      copyAccess.onclick=async()=>{try{await navigator.clipboard.writeText(item.access_key);}catch{keyStatus(t('keysCopyFailed'),true);}};
+      copySecret.onclick=async()=>{try{await navigator.clipboard.writeText(item.secret_key);}catch{keyStatus(t('keysCopyFailed'),true);}};
+      reveal.onclick=()=>{const visible=secret.textContent===item.secret_key;secret.textContent=visible?'••••••••••••':item.secret_key;reveal.textContent=t(visible?'keysReveal':'keysHide');};
+      statusButton.onclick=async()=>{statusButton.disabled=true;try{await api('/system/apikey/status',{id:item.id,status:!item.status},'PUT');await loadAPIKeys();keyStatus(t('keysSaved'));}catch{keyStatus(t('failed'),true);}finally{statusButton.disabled=false;}};
+      remove.onclick=async()=>{if(!confirm(t('keysConfirmDelete')))return;remove.disabled=true;try{await api('/system/apikey/'+encodeURIComponent(item.id),undefined,'DELETE');await loadAPIKeys();keyStatus(t('keysDeleted'));}catch{keyStatus(t('failed'),true);}finally{remove.disabled=false;}};
+      actions.append(copyAccess,copySecret,reveal,statusButton,remove);
+      card.append(node('strong',t('keysAccess')),access,node('strong',t('keysSecret')),secret,meta,actions);list.append(card);
+    }
+  }catch{keyStatus(t('failed'),true);}
 }
 function variableStatus(message,error=false){$('variable-status').textContent=message;$('variable-status').classList.toggle('error',error);}
 function resetVariableForm(){variableEditingID=null;$('variable-form').reset();$('variable-editor').querySelector('summary').textContent=t('variablesAdd');$('variable-editor').open=false;}
@@ -737,6 +763,9 @@ async function open(id){if(controller)return;closeMenu();showQA();status(t('read
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
 $('account-settings').onclick=()=>{$('account-form').reset();$('account-status').textContent='';$('account-dialog').showModal();};
+$('account-keys').onclick=()=>{keyStatus('');$('key-dialog').showModal();void loadAPIKeys();};
+$('key-close').onclick=()=>$('key-dialog').close();
+$('key-create').onclick=async()=>{const button=$('key-create');button.disabled=true;try{await api('/system/apikey',{});await loadAPIKeys();keyStatus(t('keysCreated'));}catch{keyStatus(t('failed'),true);}finally{if($('key-list').children.length<5)button.disabled=false;}};
 $('account-workspace').onchange=async event=>{
   const select=event.target,target=select.value;
   if(!target)return;
@@ -859,7 +888,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
