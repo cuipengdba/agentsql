@@ -44,6 +44,8 @@ Object.assign(copy['zh-CN'], {workspaceCreate:'创建工作空间',workspaceName
 Object.assign(copy.en, {workspaceCreate:'Create workspace',workspaceName:'Name',workspaceCreateSubmit:'Create',workspaceCreated:'Workspace created'});
 Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpdated:'工作空间已更新',workspaceDelete:'删除空工作空间',workspaceDeleted:'工作空间已删除',workspaceDeleteConfirm:'确定删除这个空工作空间？已有成员或数据时会拒绝删除。'});
 Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
+Object.assign(copy['zh-CN'], {currentWorkspace:'当前工作空间',workspaceSwitching:'正在切换工作空间…'});
+Object.assign(copy.en, {currentWorkspace:'Current workspace',workspaceSwitching:'Switching workspace…'});
 Object.assign(copy['zh-CN'], {usersDelete:'删除用户',usersDeleted:'用户已删除',confirmDeleteUser:'确定删除此用户及其在 AgentSQL 中的个人数据？此操作无法撤销。'});
 Object.assign(copy.en, {usersDelete:'Delete user',usersDeleted:'User deleted',confirmDeleteUser:'Delete this user and their private data in AgentSQL? This cannot be undone.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
@@ -119,6 +121,15 @@ async function enter(){
   isAdmin=Boolean(user.isAdmin);
   if(!isAdmin){hideUsers();$('users-list').replaceChildren();}
   $('account-name').textContent=user.name||user.account;
+  const workspaces=await api('/user/ws');
+  $('account-workspace').replaceChildren();
+  for(const workspace of workspaces){
+    const option=node('option',workspace.name);option.value=String(workspace.id);$('account-workspace').append(option);
+  }
+  $('account-workspace').value=String(user.oid);
+  $('account-workspace').disabled=workspaces.length<2;
+  $('account-workspace').parentElement.querySelector('label[for="account-workspace"]').hidden=workspaces.length<2;
+  $('account-workspace').hidden=workspaces.length<2;
   if(!requestedLang){
     const saved=localStorage.getItem('agentsql-chatbi-language');
     const server=user.language==='en'||user.language==='en-US'?'en':user.language==='zh-CN'?'zh-CN':null;
@@ -642,6 +653,18 @@ async function open(id){if(controller)return;closeMenu();showQA();status(t('read
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
 $('account-settings').onclick=()=>{$('account-form').reset();$('account-status').textContent='';$('account-dialog').showModal();};
+$('account-workspace').onchange=async event=>{
+  const select=event.target,target=select.value;
+  if(!target)return;
+  select.disabled=true;controller?.abort();status(t('workspaceSwitching'));
+  try{
+    await api('/user/ws/'+encodeURIComponent(target),undefined,'PUT');
+    location.reload();
+  }catch{
+    try{const user=await api('/user/info');select.value=String(user.oid);}catch{/* The API already handles expired sessions. */}
+    status(t('failed'),true);select.disabled=false;
+  }
+};
 $('account-close').onclick=()=>$('account-dialog').close();
 $('account-form').onsubmit=async event=>{
   event.preventDefault();const submit=$('account-form').querySelector('button[type=submit]');submit.disabled=true;
