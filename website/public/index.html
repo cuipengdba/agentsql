@@ -70,7 +70,7 @@
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.3.0</div>
           <h1>数据库安全网关与独立问数</h1>
           <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">v4.3.0 增加 AgentSQL 自有图表、仪表板和嵌入应用管理，并在本机合成数据上对照原版 SQLBot v1.10.2 的指定页面及嵌入问数流程。AgentSQL 可作为 SQLBot 的数据库安全网关，也提供独立问数能力；社区版全部功能、全部页面和现有系统零改动替换仍待验收。</p>
+          <p class="positioning">AgentSQL 自有问数、图表、仪表板和嵌入应用页面，模型生成的 SQL 继续经过数据库安全网关。已有 SQLBot 部署也可接入 AgentSQL 做数据库访问控制；完整社区版功能、全部页面和现有系统零改动替换仍待逐项验收。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
@@ -102,7 +102,7 @@
 
     <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">两种使用形态</p><h2 id="usage-modes-title">在现有问数系统前把关，也能使用 AgentSQL 自有问数页面</h2><p>AgentSQL 使用自己的 Go 服务、Web 页面和品牌。SQLBot 是兼容性对照对象；各项能力以实际通过的版本和场景验收为准。</p></div>
+        <div class="section-heading"><p class="kicker">两种使用形态</p><h2 id="usage-modes-title">在现有问数系统前把关，也能使用 AgentSQL 自有问数页面</h2><p>AgentSQL 的 Go 服务、Web 页面和品牌均独立实现。接入 SQLBot 是可选部署方式之一；各项能力以实际通过的版本和场景验收为准。</p></div>
         <div class="risk-grid">
           <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot 数据库安全网关</h3><p>保留现有 SQLBot 页面与问数流程，让业务数据库请求经过 AgentSQL 的身份、权限、受控执行、脱敏与持久审计。接入前须核对身份映射、数据库范围和故障关闭。</p></article>
           <article class="risk-card"><span class="risk-index">02</span><h3>AgentSQL 独立问数</h3><p>使用 AgentSQL 自有的问数、数据源、图表与管理页面。社区版全部页面、API、嵌入方式及现有业务系统零改动替换，以 v4.5.0 逐项验收结果为准。</p></article>
