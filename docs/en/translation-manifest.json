@@ -4,12 +4,12 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "f96d2419968f08d98be3d550bd9baf1917a6761048c009f4b77e949d537640eb"
+      "source_sha256": "4d5143b9f036c7d6118d19a13ce27148e6d7d18f3830e88bbf34a7094233f434"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "15a9da8ea15957e6c009638dac7bdcbc81ab42a01fa5e7e71f9fcbaa88309099"
+      "source_sha256": "b634f1e52d62567c804037dab808cdbb79d5c1022643543e2b061d0e81ac1cad"
     },
     {
       "source": "ROADMAP.md",
@@ -20,11 +20,6 @@
       "source": "CODE_OF_CONDUCT.md",
       "english": "CODE_OF_CONDUCT.en.md",
       "source_sha256": "2db4b4a398ee78953720f5043422bf90e86ebc606183af51b46ad350a5199fe6"
-    },
-    {
-      "source": "COMMERCIAL-LICENSE.md",
-      "english": "COMMERCIAL-LICENSE.en.md",
-      "source_sha256": "72d59bb0854e7377f06d151025108fe3dd3475ffcfac8f759b89f395f63edde4"
     },
     {
       "source": "CONTRIBUTING.md",
@@ -74,7 +69,7 @@
     {
       "source": "docs/BRAND.md",
       "english": "docs/en/BRAND.md",
-      "source_sha256": "dbe2d913a05c3b43388822367ff3b5930b3da5a9a6565f1408d84e0fcb9ec550"
+      "source_sha256": "dff59ad6300083afe3077a9039625be963910dcca39d200efb0efc5b384fc204"
     },
     {
       "source": "docs/DEMO.md",
@@ -139,7 +134,7 @@
     {
       "source": "docs/joint-case-operations.md",
       "english": "docs/en/joint-case-operations.md",
-      "source_sha256": "317d4099eb256e4678795f9fb23c839532662518b88b856f3db92572611afb17"
+      "source_sha256": "322af373c1448211b708e24fa3a3584464eae1182f473261a5ff41b3240400c4"
     },
     {
       "source": "docs/kingbase-v9-verification.md",
@@ -279,7 +274,7 @@
     {
       "source": "docs/release-gate-b76-report.md",
       "english": "docs/en/release-gate-b76-report.md",
-      "source_sha256": "c18d8f4cccf9319cde5ef226e404938a8be4d8a54af7aeaacc9b2fd52e0fa9f4"
+      "source_sha256": "3b31a0fe5f0780e5a127cdfc971f2398644c72d5356e41497f2fbce68bfe700b"
     },
     {
       "source": "docs/release-gate-b77-report.md",
@@ -289,7 +284,7 @@
     {
       "source": "docs/release-notes-v0.2.0.md",
       "english": "docs/en/release-notes-v0.2.0.md",
-      "source_sha256": "2ade83d91a3004fad12942c3e4c4bcd38285a56082665b5b1cafcb90abcfaf7e"
+      "source_sha256": "fdab4d9bd7978e572d33a181ed0def9f2fd5fde4b9847f4d50b5b8425db9dfa4"
     },
     {
       "source": "docs/release-notes-v0.5.1.md",
@@ -299,7 +294,7 @@
     {
       "source": "docs/release-notes-v0.5.md",
       "english": "docs/en/release-notes-v0.5.md",
-      "source_sha256": "3b010e0588fdef295a00a1c5b5970968d1abd05db4d12aceb917dbd5d5579644"
+      "source_sha256": "af32e0e85b45fb2c96a9630bf43ea7509064cd0456000ee48d19f25cc6f095f1"
     },
     {
       "source": "docs/release-notes-v0.6.0.md",
@@ -494,7 +489,7 @@
     {
       "source": "docs/SPEC.md",
       "english": "docs/en/SPEC.md",
-      "source_sha256": "b121074c818bea5550aac1f30be0c50d93df45b70bfa36b47375431dc14483de"
+      "source_sha256": "c71014081046ea581ed6d8f116a46279e3a823cbce7af0e0dd86f34d76775b41"
     },
     {
       "source": "docs/SQLBOT.md",
@@ -904,7 +899,7 @@
     {
       "source": "website/README.md",
       "english": "website/README.en.md",
-      "source_sha256": "19b3ec3cd890ab52567253a7a8badf7af6971ba43f2b086508fdaa7cf58160a4"
+      "source_sha256": "50938d4c61cd060d3dff6409ede6cf3f1e893d994dba74d18fc56bb2013fdb07"
     },
     {
       "source": "website/deploy/README-DEPLOY.md",
@@ -1244,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "e3a5e2318422edfefd7b29f4d9e24a5caf6507743be794becaa502f9daba3cee"
+      "source_sha256": "7d00ca5e4c81d280ed6a8238ca5a25b9caa78714bbbcc93e12ce2cd766b3795f"
     },
     {
       "source": "docs/v4.3.0-design.md",

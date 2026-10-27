@@ -10,7 +10,6 @@
 ![Version v4.3.0](https://img.shields.io/badge/Version-v4.3.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
-[![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.md)
 
 生态收录：[Glama](https://glama.ai/mcp/servers?query=AgentSQL)
 
@@ -391,7 +390,6 @@ v3.0.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 
 - [安全策略与私密漏洞报告](SECURITY.md)
 - [变更记录](CHANGELOG.md)
 - [Issue 反馈](https://github.com/cuipengdba/agentsql/issues)
-- [商业授权与企业版合作](COMMERCIAL-LICENSE.md)
 
 请不要在公开 Issue 中提交真实密钥、口令、连接串或未修复漏洞细节；未修复漏洞请按 [SECURITY.md](SECURITY.md) 走私密渠道。
 
@@ -412,8 +410,8 @@ make build VERSION=v4.3.0
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。
 
-## 许可、商业授权与商标
+## 开源许可与商标
 
-**许可更换声明：**v0.4.0 及更早版本的既有源码、tag 和发布包保持其发布时适用的原许可，继续按原许可使用，不重打 tag、不重发资产；自 v0.5.0 起，开源版本切换为 [Apache License 2.0](LICENSE)（含 [NOTICE](NOTICE) 文件），并提供独立的 [商业授权说明](COMMERCIAL-LICENSE.md)。Apache-2.0 允许闭源集成、SaaS 商用与再分发。需要商标使用许可、企业模块、保修或 SLA 时，请参阅商业授权说明。AgentSQL（含中文名 “智盾”）名称与 Logo 的商标权保留；可以依许可证 fork 源码，但不得以 AgentSQL / 智盾名称或 Logo 冒充官方版本对外发行。商业授权与企业版合作：87326549@qq.com ｜ https://agentsql.cn 。
+当前源码使用 [Apache License 2.0](LICENSE)，并附有 [NOTICE](NOTICE)。使用、修改和分发请遵守该许可。AgentSQL（含中文名“智盾”）名称与 Logo 的商标权保留；Apache-2.0 不授予商标使用权。历史 tag 和发布包仍适用其发布时的原许可。
 
 v0.5 人员认证（MFA / OIDC / LDAP）的配置、威胁边界和迁移说明见 [身份认证指南](docs/AUTHENTICATION.md)。

@@ -10,7 +10,6 @@
 ![Version v4.3.0](https://img.shields.io/badge/Version-v4.3.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
-[![Commercial License](https://img.shields.io/badge/License-Commercial-orange)](COMMERCIAL-LICENSE.en.md)
 
 Ecological inclusion: [Glama](https://glama.ai/mcp/servers?query=AgentSQL)
 
@@ -391,7 +390,6 @@ Control plane storage is additional: SQLite has zero configuration by default an
 - [Security Policy and Privacy Vulnerability Report](SECURITY.en.md)
 - [Change record](CHANGELOG.en.md)
 - [Issue Feedback](https://github.com/cuipengdba/agentsql/issues)
-- [Commercial authorization and enterprise version cooperation](COMMERCIAL-LICENSE.en.md)
 
 Please do not submit real keys, passwords, connection strings or details of unfixed vulnerabilities in public issues; please use the private channel at [SECURITY.md](SECURITY.en.md) for unfixed vulnerabilities.
 
@@ -412,8 +410,8 @@ make build VERSION=v4.3.0
 
 `pg_query_go` requires cgo; do not build with `CGO_ENABLED=0` or Alpine/musl. Please read [SPEC](docs/en/SPEC.md) before submitting changes to test for behavioral changes and keep the `tests/corpus` decision-making corpus from being unintentionally rewritten.
 
-## Licensing, Commercial Authorizations and Trademarks
+## Open-Source License and Trademarks
 
-**License change notice:** Source code, tags and release packages for v0.4.0 and earlier retain the licenses that applied when they were released; those assets are neither retagged nor reissued. Starting with v0.5.0, the open source edition uses the [Apache License 2.0](LICENSE), including the [NOTICE](NOTICE) file, with separate [commercial licensing terms](COMMERCIAL-LICENSE.en.md). Apache-2.0 permits closed source integration, commercial SaaS and redistribution. For trademark permission, enterprise modules, warranties or an SLA, see the commercial licensing terms. Rights to the AgentSQL name (including its Chinese name, "Zhidun") and logo are reserved. You may fork the source under its license, but may not use the AgentSQL / Zhidun name or logo to present a derivative release as the official product. Commercial licensing and enterprise cooperation: 87326549@qq.com | https://agentsql.cn.
+The current source is licensed under [Apache License 2.0](LICENSE), with a [NOTICE](NOTICE). Follow that license when using, modifying or distributing the software. Rights to the AgentSQL name (including its Chinese name, “Zhidun”) and logo are reserved; Apache-2.0 does not grant trademark rights. Historical tags and release assets retain the licenses that applied when they were published.
 
 For configuration, threat boundary, and migration instructions for v0.5 personnel authentication (MFA / OIDC / LDAP), see [ Identity Authentication Guide ](docs/en/AUTHENTICATION.md).

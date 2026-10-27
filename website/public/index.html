@@ -367,8 +367,8 @@ bash ./demo/reset.sh
 
     <section id="licensing" class="section section-muted">
       <div class="container license-panel">
-        <div><p class="kicker">授权模式</p><h2>开源核心与商业双授权</h2><p><strong>许可更换声明：</strong>v0.4.0 及更早版本的既有源码、tag 与发布包维持其发布时适用的原许可并可继续按原许可使用，不重打历史 tag、不重发历史资产；自 v0.5.0 起，AgentSQL 开源核心切换为 Apache License 2.0，并提供独立商业许可说明。Apache-2.0 允许闭源集成、SaaS 商用与再分发，但不包含商标使用权。需要商标使用许可，或面向团队 / 大规模部署的企业能力，可邮件咨询商业授权：<a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p><p class="commercial-note">需要商标许可、企业能力或商业授权，请邮件联系 87326549@qq.com</p></div>
-        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">查看 Apache-2.0</a><a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/blob/main/COMMERCIAL-LICENSE.md" target="_blank" rel="noopener noreferrer">查看商业授权说明</a></div>
+        <div><p class="kicker">开源许可</p><h2>Apache License 2.0</h2><p>AgentSQL 当前版本的源码按 Apache License 2.0 发布。使用、修改和分发的权利与义务以仓库中的 <a href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">LICENSE</a> 和 <a href="https://github.com/cuipengdba/agentsql/blob/main/NOTICE" target="_blank" rel="noopener noreferrer">NOTICE</a> 为准。</p></div>
+        <div class="license-links"><a class="button button-secondary" href="https://github.com/cuipengdba/agentsql/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">查看 Apache-2.0</a></div>
       </div>
     </section>
 
@@ -380,7 +380,7 @@ bash ./demo/reset.sh
           <details><summary>不用 MCP，模型就不能连数据库吗？</summary><p>可以，应用也可用自研 API、数据库代理或服务端托管凭据连接；AgentSQL 提供的是面向 MCP 的统一身份、策略、受控执行与审计入口，而非唯一连接方式。</p></details>
           <details><summary>它是 BI / ORM / Text2SQL 吗？</summary><p>v4.1.0 开始提供原生自然语言问数，同时保留数据库安全网关。v4.2.0 增加多轮语境、业务语义和有界 CSV/XLSX；v4.3.0 增加自有图表与仪表板。全部 SQLBot 功能与接入方式仍待逐项验证；本产品不替代应用 ORM。</p></details>
           <details><summary>性能如何？</summary><p>静态判定在毫秒级；在内存 fake executor、20 worker / 20 万样本、剥离真实库网络与执行时间的基准中，网关 CPU 路径 P99 约 1.81 ms，该数字不是端到端查询延迟，真实延迟取决于连接、EXPLAIN、数据库执行与审计存储。</p></details>
-          <details><summary>个人 / 公司能免费用吗？</summary><p>v0.4.0 及更早版本继续适用其发布时的原许可；v0.5.0 起可按 Apache-2.0 条款免费使用、闭源集成、SaaS 商用与再分发。商标使用许可、企业能力或官方保障请邮件咨询商业授权。</p></details>
+          <details><summary>个人 / 公司能使用吗？</summary><p>当前版本按 Apache-2.0 发布。请阅读仓库中的 LICENSE 和 NOTICE，确认使用、修改与分发条件。</p></details>
           <details><summary>支持哪些数据库 / 客户端？</summary><p>请查看上方<a href="#compatibility">兼容矩阵</a>，其中列出业务库、控制面、MCP 传输、宿主与部署范围。</p></details>
         </div>
       </div>

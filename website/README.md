@@ -33,7 +33,7 @@ bash ./deploy/verify-static.sh http://127.0.0.1:8080 stage-a
 - 阶段 A 只监听 `127.0.0.1:8080`，通过 SSH 隧道预览；备案、DNS 和防火墙就绪后才切换阶段 B。
 - 当前版本页面仅在对应 GitHub Release、双架构镜像和版本化 PDF 通过验收后部署；Release 按钮必须指向同版本正式发布页。公开 Demo 的部署拓扑须在页面明确说明。
 - 站点没有 Cookie 或第三方统计。Caddy 访问日志默认按配置保留 720 小时。
-- 开源授权链接指向仓库 `LICENSE`；商业授权链接指向已存在的 `COMMERCIAL-LICENSE.md`。
+- 开源许可链接指向仓库 `LICENSE`，并保留 `NOTICE` 的链接。
 
 ## 图标与分享资产
 

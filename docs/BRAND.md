@@ -9,4 +9,4 @@
 - 深色背景：[横版文字标识](../brand/agentsql-wordmark-dark.svg)。
 - 图形最小建议尺寸为 24 像素，四周至少留出图形宽度的八分之一。不要拉伸、改写产品名称或在标识上添加认证、厂商背书等未经证实的声明。
 
-官网导航、浏览器图标、GitHub README、Web 登录页和折叠/展开侧栏共用母版。运行 `python scripts/sync-brand.py` 同步副本，CI 使用 `--check` 检查一致性。Logo 的使用与商标边界仍遵循仓库的 LICENSE、NOTICE 和商业授权说明；图形不代表第三方商标检索或注册结论。
+官网导航、浏览器图标、GitHub README、Web 登录页和折叠/展开侧栏共用母版。运行 `python scripts/sync-brand.py` 同步副本，CI 使用 `--check` 检查一致性。源码许可见仓库的 LICENSE 和 NOTICE；图形不代表第三方商标检索或注册结论。

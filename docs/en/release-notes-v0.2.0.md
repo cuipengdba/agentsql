@@ -100,13 +100,11 @@ AgentSQL is the security control of **gateway layer**. It is not a silver bullet
 - **T30** Compliance and identity control: MLA reporting, WORM, SIEM, sensitive discovery, SSO/LDAP/MFA, multi-tenancy, RBAC, countersigning work orders;
 - **T31** High availability and centralized management and control: K8s Operator, cross-instance audit bus, UEBA, privatized delivery and SLA.
 
-## Licensing and Commercial Authorization
+## Historical Release License
 
-The open source version uses **GNU AGPLv3**; closed source integrated distribution, external SaaS/hosting and scenarios that do not want to be open source according to network terms, require enterprise modules or SLA/warranty, require commercial authorization. The AgentSQL name and logo are reserved, and forks are not allowed to pretend to be the official version. See [LICENSE](../../LICENSE) and [COMMERCIAL-LICENSE.md](../../COMMERCIAL-LICENSE.en.md) for details.
+The v0.2.0 source was released under **GNU AGPLv3**. Historical tags and assets retain the license applicable at their release; their terms are not changed retroactively. Rights to the AgentSQL name and logo remain reserved.
 
 > Note: The above is the license caliber (AGPLv3) at the time of v0.2.0 release. Since subsequent versions, the open source license has been switched to **Apache License 2.0**, which is currently based on the root directory [LICENSE](../../LICENSE).
-
-Commercial authorization, enterprise version and privatization cooperation: **Email 87326549@qq.com | Official website https://agentsql.cn**
 
 ## Asset checksum
 
