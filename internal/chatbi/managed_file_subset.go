@@ -30,6 +30,12 @@ func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
 	if binding.SelectedTables == "" {
 		return nil, nil
 	}
+	// An explicit empty choice must not be mistaken for the legacy empty
+	// string, which means every imported sheet is selected.
+	if binding.SelectedTables == "!" && binding.Type == "excel" && binding.Dialect == "pg" &&
+		managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+		return map[string]bool{}, nil
+	}
 	if binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		return nil, ErrGateway
