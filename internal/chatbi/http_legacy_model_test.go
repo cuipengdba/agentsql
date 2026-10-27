@@ -26,6 +26,7 @@ func TestLegacyModelReadIsScopedAndRedacted(t *testing.T) {
 	}
 	listed := accountRequest(t, handler, http.MethodGet, base+"?keyword=finance", "", adminToken)
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), string(model.ID)) ||
+		!strings.Contains(listed.Body.String(), `"supplier":15`) || !strings.Contains(listed.Body.String(), `"model_type":0`) ||
 		strings.Contains(listed.Body.String(), model.APIKey) || strings.Contains(listed.Body.String(), model.Endpoint) {
 		t.Fatalf("unsafe model catalog: %d %s", listed.Code, listed.Body.String())
 	}
@@ -38,6 +39,7 @@ func TestLegacyModelReadIsScopedAndRedacted(t *testing.T) {
 	}
 	detail := accountRequest(t, handler, http.MethodGet, base+"/"+string(model.ID), "", adminToken)
 	if detail.Code != http.StatusOK || strings.Contains(detail.Body.String(), model.APIKey) ||
+		!strings.Contains(detail.Body.String(), `"supplier":15`) || !strings.Contains(detail.Body.String(), `"model_type":0`) ||
 		!strings.Contains(detail.Body.String(), `"has_api_key":true`) || !strings.Contains(detail.Body.String(), model.Endpoint) {
 		t.Fatalf("unsafe model detail: %d %s", detail.Code, detail.Body.String())
 	}
