@@ -80,6 +80,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("DELETE /api/v1/system/aimodel/{id}", h.auth(h.legacyModelDelete))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappings))
 	h.mux.HandleFunc("PUT /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsUpdate))
+	h.mux.HandleFunc("POST /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsChange))
+	h.mux.HandleFunc("DELETE /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsChange))
 	h.mux.HandleFunc("GET /api/v1/system/apikey", h.auth(h.accountAPIKeyList))
 	h.mux.HandleFunc("POST /api/v1/system/apikey", h.auth(h.accountAPIKeyCreate))
 	h.mux.HandleFunc("PUT /api/v1/system/apikey/status", h.auth(h.accountAPIKeyStatus))

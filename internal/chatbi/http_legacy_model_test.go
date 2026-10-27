@@ -82,6 +82,28 @@ func TestLegacyModelReadIsScopedAndRedacted(t *testing.T) {
 			t.Fatalf("unsupported mapping accepted: %s %d %s", body, blocked.Code, blocked.Body.String())
 		}
 	}
+	if duplicate := accountRequest(t, handler, http.MethodPost, mappingPath, `["1"]`, adminToken); duplicate.Code != http.StatusOK ||
+		!strings.Contains(duplicate.Body.String(), `"data":["1"]`) {
+		t.Fatalf("duplicate mapping add: %d %s", duplicate.Code, duplicate.Body.String())
+	}
+	if blocked := accountRequest(t, handler, http.MethodPost, mappingPath, `["2"]`, adminToken); blocked.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(blocked.Body.String(), "Cross-workspace model sharing is unavailable") {
+		t.Fatalf("cross-workspace model sharing accepted: %d %s", blocked.Code, blocked.Body.String())
+	}
+	if blocked := accountRequest(t, handler, http.MethodDelete, mappingPath, `["1"]`, adminToken); blocked.Code != http.StatusConflict ||
+		!strings.Contains(blocked.Body.String(), "Cannot remove the workspace's only model mapping") {
+		t.Fatalf("sole model mapping removed: %d %s", blocked.Code, blocked.Body.String())
+	}
+	if other := accountRequest(t, handler, http.MethodPost, base+"/999999/ws_mapping", `["1"]`, adminToken); other.Code != http.StatusNotFound {
+		t.Fatalf("foreign model mapping changed: %d", other.Code)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, mappingPath, `["1"]`, memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member changed model mapping: %d", denied.Code)
+	}
+	if still := accountRequest(t, handler, http.MethodGet, mappingPath, "", adminToken); still.Code != http.StatusOK ||
+		!strings.Contains(still.Body.String(), `"data":["1"]`) {
+		t.Fatalf("mapping mutation changed current workspace: %d %s", still.Code, still.Body.String())
+	}
 	if _, err := service.Store.db.ExecContext(context.Background(),
 		`DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
 		key.Kind, key.Scope, key.Owner, key.ID); err != nil {
