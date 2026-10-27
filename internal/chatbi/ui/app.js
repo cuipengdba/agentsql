@@ -46,6 +46,8 @@ Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpd
 Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
 Object.assign(copy['zh-CN'], {currentWorkspace:'当前工作空间',workspaceSwitching:'正在切换工作空间…'});
 Object.assign(copy.en, {currentWorkspace:'Current workspace',workspaceSwitching:'Switching workspace…'});
+Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。行权限尚未接入变量解析，此页面配置目前不会改变查询权限。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
+Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in the current workspace. Row permissions do not yet resolve these values, so this configuration does not change query access.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
 Object.assign(copy['zh-CN'], {usersDelete:'删除用户',usersDeleted:'用户已删除',confirmDeleteUser:'确定删除此用户及其在 AgentSQL 中的个人数据？此操作无法撤销。'});
 Object.assign(copy.en, {usersDelete:'Delete user',usersDeleted:'User deleted',confirmDeleteUser:'Delete this user and their private data in AgentSQL? This cannot be undone.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
@@ -59,13 +61,14 @@ let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStora
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
 let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
 let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
+let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');hideUsers();$('users-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');hideUsers();hideVariables();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 async function loadSuggestions(){
@@ -149,6 +152,7 @@ async function enter(){
   }
   $('semantics-nav').hidden=!isAdmin;
   $('users-nav').hidden=!isAdmin;
+  $('variables-nav').hidden=!isAdmin;
   assistants.setAdmin(isAdmin);
   assistants.setSources(sourceList);
   $('source-import').hidden=!isAdmin;
@@ -272,6 +276,46 @@ async function downloadExport(id,chatID,format,button){
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function hideUsers(){usersVisible=false;usersEpoch++;$('users').hidden=true;$('users-nav').classList.remove('active');}
+function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
+function variableStatus(message,error=false){$('variable-status').textContent=message;$('variable-status').classList.toggle('error',error);}
+function resetVariableForm(){variableEditingID=null;$('variable-form').reset();$('variable-editor').querySelector('summary').textContent=t('variablesAdd');$('variable-editor').open=false;}
+async function loadVariables(){
+  if(!variablesVisible)return;
+  const epoch=++variablesEpoch;
+  try{
+    const result=await api('/sys_variable/listPage/'+variablePage+'/20',{name:$('variable-search').value.trim()});
+    if(!variablesVisible||epoch!==variablesEpoch)return;
+    variableTotalPages=Math.max(1,result.total_pages||1);
+    if(variablePage>variableTotalPages){variablePage=variableTotalPages;return loadVariables();}
+    const list=$('variable-list');list.replaceChildren();
+    for(const variable of result.items||[]){
+      const article=node('article',undefined,'user-item'),detail=node('div');
+      detail.append(node('strong',variable.name),node('small',t('variablesType')+': '+t(variable.var_type==='number'?'variablesNumber':variable.var_type==='datetime'?'variablesDate':'variablesText')));
+      detail.append(node('small',(variable.value||[]).map(value=>String(value)).join(', ')));
+      const actions=node('div',undefined,'user-actions'),edit=node('button',t('edit')),remove=node('button',t('variablesDelete'));
+      edit.type='button';remove.type='button';
+      edit.onclick=()=>{variableEditingID=variable.id;$('variable-name').value=variable.name;$('variable-type').value=variable.var_type;
+        $('variable-values').value=(variable.value||[]).map(value=>String(value)).join('\n');$('variable-editor').querySelector('summary').textContent=t('variablesEdit');$('variable-editor').open=true;$('variable-name').focus();};
+      remove.onclick=async()=>{if(!window.confirm(t('variablesDeleteConfirm')))return;remove.disabled=true;
+        try{await api('/sys_variable/delete',[variable.id]);await loadVariables();variableStatus(t('variablesDeleted'));}
+        catch{variableStatus(t('failed'),true);remove.disabled=false;}};
+      actions.append(edit,remove);article.append(detail,actions);list.append(article);
+    }
+    if(!result.items?.length)list.append(node('p',t('variablesEmpty'),'semantic-empty'));
+    $('variable-count').textContent=variablePage+'/'+variableTotalPages+' · '+result.total+' '+t('items');
+    $('variable-prev').disabled=variablePage<=1;$('variable-next').disabled=variablePage>=variableTotalPages;
+    variableStatus('');
+  }catch{if(variablesVisible&&epoch===variablesEpoch)variableStatus(t('failed'),true);}
+}
+async function showVariables(){
+  if(controller||!isAdmin)return;
+  dashboard.hide();assistants.hide();hideUsers();closeMenu();
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
+  semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  variablesVisible=true;$('variables').hidden=false;$('variables-nav').classList.add('active');
+  resetVariableForm();await loadVariables();
+}
 async function loadUsers(){
   if(!usersVisible)return;
   const epoch=++usersEpoch,query=new URLSearchParams({keyword:$('users-search').value.trim()});
@@ -358,7 +402,7 @@ async function loadUsers(){
 }
 async function showUsers(){
   if(controller||!isAdmin)return;
-  dashboard.hide();assistants.hide();closeMenu();
+  dashboard.hide();assistants.hide();hideVariables();closeMenu();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -379,6 +423,7 @@ function showQA(){
   dashboard.hide();
   assistants.hide();
   hideUsers();
+  hideVariables();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
   $('semantics-nav').classList.remove('active');
@@ -389,6 +434,7 @@ async function showSemantics(){
   dashboard.hide();
   assistants.hide();
   hideUsers();
+  hideVariables();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
@@ -491,6 +537,7 @@ async function showSources(){
   dashboard.hide();
   assistants.hide();
   hideUsers();
+  hideVariables();
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -503,6 +550,7 @@ async function showDashboards(){
   if(controller)return;
   assistants.hide();
   hideUsers();
+  hideVariables();
   closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
@@ -510,7 +558,7 @@ async function showDashboards(){
   await dashboard.show();
 }
 document.addEventListener('agentsql:show-assistants',()=>{
-  dashboard.hide();hideUsers();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  dashboard.hide();hideUsers();hideVariables();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -724,6 +772,22 @@ $('user-create-form').onsubmit=async event=>{
 $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
 $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
+$('variables-nav').onclick=()=>{void showVariables();};
+$('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1;void loadVariables();};
+$('variable-prev').onclick=()=>{if(variablePage>1){variablePage--;void loadVariables();}};
+$('variable-next').onclick=()=>{if(variablePage<variableTotalPages){variablePage++;void loadVariables();}};
+$('variable-cancel').onclick=resetVariableForm;
+$('variable-form').onsubmit=async event=>{
+  event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;
+  const lines=$('variable-values').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+  let values=lines;
+  if($('variable-type').value==='number')values=lines.map(value=>Number(value));
+  if(!lines.length||lines.length>100||values.some(value=>typeof value==='number'&&!Number.isFinite(value))){variableStatus(t('failed'),true);button.disabled=false;return;}
+  const input={name:$('variable-name').value.trim(),var_type:$('variable-type').value,value:values};
+  if(variableEditingID!==null)input.id=variableEditingID;
+  try{await api('/sys_variable/save',input);resetVariableForm();await loadVariables();variableStatus(t('variablesSaved'));}
+  catch{variableStatus(t('failed'),true);}finally{button.disabled=false;}
+};
 $('sources-nav').onclick=()=>{void showSources();};
 $('dashboards-nav').onclick=()=>{void showDashboards();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
@@ -742,7 +806,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;

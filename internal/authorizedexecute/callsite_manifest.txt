@@ -19,6 +19,9 @@ internal/chatbi/http_user_create.go
 internal/chatbi/http_user_delete.go
 internal/chatbi/http_user_edit.go
 internal/chatbi/http_workspace_catalog.go
+# Workspace-scoped custom variables use fixed, bound statements against the
+# encrypted local control-plane store and commit with management audit only.
+internal/chatbi/system_variable_store.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
 internal/chatbi/assistant.go
