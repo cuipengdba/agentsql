@@ -303,14 +303,17 @@ func (s *Store) DeleteWorkspaceManaged(ctx context.Context, id ID, p Principal) 
 	if scopedObjects != 0 {
 		return ErrConflict
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system'`)
+	rows, err := tx.QueryContext(ctx, `SELECT id,revision,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system'`)
 	if err != nil {
 		return ErrUnavailable
 	}
+	var actorUpdate []byte
+	var actorRevision int64
 	for rows.Next() {
 		var userID string
+		var userRevision int64
 		var body []byte
-		if err := rows.Scan(&userID, &body); err != nil {
+		if err := rows.Scan(&userID, &userRevision, &body); err != nil {
 			rows.Close()
 			return ErrUnavailable
 		}
@@ -319,10 +322,27 @@ func (s *Store) DeleteWorkspaceManaged(ctx context.Context, id ID, p Principal) 
 			rows.Close()
 			return err
 		}
-		for _, membership := range user.Memberships {
+		for index, membership := range user.Memberships {
 			if membership.Workspace == id {
-				rows.Close()
-				return ErrConflict
+				if user.ID != p.User.ID || !user.Admin || len(user.Memberships) <= 1 {
+					rows.Close()
+					return ErrConflict
+				}
+				user.Memberships = append(user.Memberships[:index], user.Memberships[index+1:]...)
+				if user.Workspace == id {
+					user.Workspace = user.Memberships[0].Workspace
+				}
+				if err := validateUser(user); err != nil {
+					rows.Close()
+					return ErrUnavailable
+				}
+				actorUpdate, err = s.seal(userKey(user.ID), user)
+				if err != nil {
+					rows.Close()
+					return err
+				}
+				actorRevision = userRevision
+				break
 			}
 		}
 	}
@@ -331,6 +351,17 @@ func (s *Store) DeleteWorkspaceManaged(ctx context.Context, id ID, p Principal) 
 		return ErrUnavailable
 	}
 	rows.Close()
+	if actorUpdate != nil {
+		result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind='user' AND scope='system' AND owner='system' AND id=? AND revision=?`,
+			actorUpdate, p.User.ID, actorRevision)
+		if err != nil {
+			return ErrUnavailable
+		}
+		count, err := result.RowsAffected()
+		if err != nil || count != 1 {
+			return ErrConflict
+		}
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
 		key.Kind, key.Scope, key.Owner, key.ID, revision)
 	if err != nil {
@@ -377,6 +408,28 @@ func (s *Store) CreateWorkspaceManaged(ctx context.Context, item workspaceOption
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
 		return err
 	}
+	var actorBody []byte
+	var actorRevision int64
+	if err := tx.QueryRowContext(ctx, `SELECT revision,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system' AND id=?`, p.User.ID).Scan(&actorRevision, &actorBody); err != nil {
+		return ErrUnavailable
+	}
+	var actor User
+	if err := s.decode(userKey(p.User.ID), actorBody, &actor); err != nil {
+		return err
+	}
+	for _, membership := range actor.Memberships {
+		if membership.Workspace == item.ID {
+			return ErrConflict
+		}
+	}
+	actor.Memberships = append(actor.Memberships, Membership{Workspace: item.ID, Name: item.Name, Weight: 1})
+	if err := validateUser(actor); err != nil {
+		return ErrUnavailable
+	}
+	newActorBody, err := s.seal(userKey(actor.ID), actor)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
 		key.Kind, key.Scope, key.Owner, key.ID, body)
 	if err != nil {
@@ -387,6 +440,15 @@ func (s *Store) CreateWorkspaceManaged(ctx context.Context, item workspaceOption
 		return ErrUnavailable
 	}
 	if count != 1 {
+		return ErrConflict
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind='user' AND scope='system' AND owner='system' AND id=? AND revision=?`,
+		newActorBody, actor.ID, actorRevision)
+	if err != nil {
+		return ErrUnavailable
+	}
+	count, err = result.RowsAffected()
+	if err != nil || count != 1 {
 		return ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`,

@@ -25,6 +25,13 @@ func TestManagedWorkspaceCreateBecomesMemberTarget(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &envelope); err != nil || !envelope.Data.ID.Valid() {
 		t.Fatalf("workspace ID: %v %s", err, created.Body.String())
 	}
+	admin, _, err := service.Store.User(context.Background(), "1")
+	if err != nil || !admin.canUse(envelope.Data.ID) {
+		t.Fatalf("creator cannot enter new workspace: %+v %v", admin, err)
+	}
+	if _, err := service.Identity.Verify(context.Background(), adminToken); err != nil {
+		t.Fatalf("workspace create unexpectedly revoked admin token: %v", err)
+	}
 	listed := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace", "", adminToken)
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"name":"Research"`) {
 		t.Fatalf("empty workspace missing from catalog: %d %s", listed.Code, listed.Body.String())
@@ -72,7 +79,7 @@ func TestManagedWorkspaceRenameUpdatesImportedMembersAtomically(t *testing.T) {
 }
 
 func TestManagedWorkspaceDeleteEmptyCatalog(t *testing.T) {
-	_, handler, adminToken, _ := adminUsersFixture(t)
+	service, handler, adminToken, _ := adminUsersFixture(t)
 	created := accountRequest(t, handler, http.MethodPost, "/api/v1/system/workspace", `{"name":"Temporary"}`, adminToken)
 	var envelope struct {
 		Data struct {
@@ -88,6 +95,10 @@ func TestManagedWorkspaceDeleteEmptyCatalog(t *testing.T) {
 	deleted := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/"+string(envelope.Data.ID), "", adminToken)
 	if deleted.Code != http.StatusOK {
 		t.Fatalf("workspace delete: %d %s", deleted.Code, deleted.Body.String())
+	}
+	admin, _, err := service.Store.User(context.Background(), "1")
+	if err != nil || admin.canUse(envelope.Data.ID) {
+		t.Fatalf("deleted workspace remained in creator membership: %+v %v", admin, err)
 	}
 	listed := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace", "", adminToken)
 	if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), `"name":"Temporary"`) {
@@ -107,6 +118,10 @@ func TestManagedWorkspaceCreateRollsBackOnAuditFailure(t *testing.T) {
 	listed := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace", "", adminToken)
 	if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), `"name":"Research"`) {
 		t.Fatalf("failed workspace persisted: %d %s", listed.Code, listed.Body.String())
+	}
+	admin, _, err := service.Store.User(context.Background(), "1")
+	if err != nil || len(admin.Memberships) != 1 {
+		t.Fatalf("failed creation altered creator membership: %+v %v", admin, err)
 	}
 }
 
@@ -152,5 +167,9 @@ func TestManagedWorkspaceDeleteRollsBackOnAuditFailure(t *testing.T) {
 	listed := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace", "", adminToken)
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"name":"Temporary"`) {
 		t.Fatalf("failed delete removed workspace: %d %s", listed.Code, listed.Body.String())
+	}
+	admin, _, err := service.Store.User(context.Background(), "1")
+	if err != nil || !admin.canUse(envelope.Data.ID) {
+		t.Fatalf("failed delete removed creator membership: %+v %v", admin, err)
 	}
 }
