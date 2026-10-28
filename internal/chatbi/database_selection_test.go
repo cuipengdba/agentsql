@@ -2,6 +2,8 @@ package chatbi
 
 import (
 	"context"
+	"crypto/aes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -101,7 +103,35 @@ func TestOriginalDatabaseTableSelectionIsScopedAuditedAndRevocable(t *testing.T)
 	listing := request(http.MethodGet, "/api/v1/datasource/list", "", token)
 	require.Equal(t, http.StatusOK, listing.Code)
 	require.NotContains(t, listing.Body.String(), bound.Configuration)
-	require.Contains(t, listing.Body.String(), `"configuration":""`)
+	var sourceList struct {
+		Data []struct {
+			Configuration string `json:"configuration"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(listing.Body.Bytes(), &sourceList))
+	require.Len(t, sourceList.Data, 1)
+	encoded, err := base64.StdEncoding.DecodeString(sourceList.Data[0].Configuration)
+	require.NoError(t, err)
+	require.NotEmpty(t, encoded)
+	require.Zero(t, len(encoded)%aes.BlockSize)
+	block, err := aes.NewCipher([]byte("SQLBot1234567890"))
+	require.NoError(t, err)
+	plain := make([]byte, len(encoded))
+	for offset := 0; offset < len(encoded); offset += aes.BlockSize {
+		block.Decrypt(plain[offset:offset+aes.BlockSize], encoded[offset:offset+aes.BlockSize])
+	}
+	padding := int(plain[len(plain)-1])
+	require.GreaterOrEqual(t, padding, 1)
+	require.LessOrEqual(t, padding, aes.BlockSize)
+	plain = plain[:len(plain)-padding]
+	var display map[string]any
+	require.NoError(t, json.Unmarshal(plain, &display))
+	require.Equal(t, "AGENTSQL_GATEWAY_MANAGED", display["host"])
+	require.Equal(t, "AGENTSQL_GATEWAY_MANAGED", display["database"])
+	require.Equal(t, "", display["password"])
+	require.NotContains(t, string(plain), bound.Configuration)
+	require.NotContains(t, string(plain), bound.AgentKey)
+	require.NotContains(t, string(plain), bound.ConnectorToken)
 	byConf := request(http.MethodPost, "/api/v1/datasource/getTablesByConf",
 		`{"id":10,"type":"pg","configuration":"untrusted-client-connection"}`, token)
 	require.Equal(t, http.StatusOK, byConf.Code)
