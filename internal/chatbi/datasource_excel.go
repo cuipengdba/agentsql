@@ -251,29 +251,6 @@ func legacyExcelDatasource(binding Binding) (map[string]any, error) {
 		"recommended_config": 1, "embedding": nil, "table_relation": nil}, nil
 }
 
-func (h *Handler) getExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
-	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
-		failure(w, err)
-		return
-	}
-	id := ID(r.PathValue("id"))
-	if !id.Valid() {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
-		return
-	}
-	binding, err := h.service.binding(r.Context(), p, id)
-	if err != nil || binding.Type != "excel" {
-		failure(w, ErrNotFound)
-		return
-	}
-	payload, err := legacyExcelDatasource(binding)
-	if err != nil {
-		failure(w, err)
-		return
-	}
-	okay(w, payload)
-}
-
 func (h *Handler) deleteExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)

@@ -66,6 +66,76 @@ func TestOriginalSQLBotBrowserDatasourceDetailRoutes(t *testing.T) {
 	}
 }
 
+func TestOriginalDatabaseDatasourceDetailUsesLiveSchemaAndRedactsGatewayCredentials(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Admin = true
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal, err = service.Identity.Verify(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, bindingRevision, _, err := service.bindingSnapshot(ctx, principal, "10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.Configuration = "sensitive-database-configuration"
+	if err := service.Store.put(ctx, bindingKey(principal, "10"), binding, bindingRevision); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(credential string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/get/10", nil)
+		if credential != "" {
+			r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+credential)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	if w := request(""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous datasource detail: %d", w.Code)
+	}
+	w := request(token)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":"pg"`) ||
+		!strings.Contains(w.Body.String(), `"num":"1/1"`) || !strings.Contains(w.Body.String(), `"configuration":""`) ||
+		strings.Contains(w.Body.String(), binding.Configuration) || strings.Contains(w.Body.String(), binding.ConnectorToken) ||
+		strings.Contains(w.Body.String(), binding.AgentKey) {
+		t.Fatalf("database detail leaked or failed: %d %s", w.Code, w.Body.String())
+	}
+	other := testUser(t, "2", "other-admin")
+	other.Admin = true
+	if err := service.Store.CreateUser(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	_, otherToken, err := service.Identity.Login(ctx, other.Account, "Synthetic-password-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := request(otherToken); w.Code == http.StatusOK {
+		t.Fatal("another administrator read a datasource they do not own")
+	}
+	gateway.afterSchema = func() {
+		gateway.afterSchema = nil
+		if err := service.Store.delete(ctx, bindingKey(principal, "10"), bindingRevision+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := request(token); w.Code == http.StatusOK || strings.Contains(w.Body.String(), binding.Name) {
+		t.Fatalf("revoked binding released database detail: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestDatasourceSchemaRoutesUseCurrentBindingAndFailClosed(t *testing.T) {
 	service, p, gateway, _, token := serviceFixture(t)
 	handler, err := NewHandler(service, "test")
