@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -96,6 +97,109 @@ func TestOriginalSecondaryModelLifecycleIsScopedAndAudited(t *testing.T) {
 	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
 	if err != nil || len(audits) != 3 {
 		t.Fatalf("secondary model lifecycle audit count: %d %v", len(audits), err)
+	}
+}
+
+func TestOriginalGenericOpenAITemperatureIsValidatedAndSent(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	encrypt := func(value string) string {
+		t.Helper()
+		ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.StdEncoding.EncodeToString(ciphertext)
+	}
+	var received float64
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Temperature float64 `json:"temperature"`
+		}
+		if json.NewDecoder(r.Body).Decode(&payload) != nil {
+			t.Error("invalid upstream model request")
+		}
+		received = payload.Temperature
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales"}`}}}})
+	}))
+	defer provider.Close()
+	path := "/api/v1/system/aimodel"
+	body := map[string]any{"id": "", "name": "Temperature model", "model_type": 0,
+		"base_model": "fixture-temperature", "supplier": 15, "protocol": 1,
+		"api_domain": encrypt(provider.URL + "/v1"), "api_key": "",
+		"config_list": []any{map[string]any{"key": "temperature", "name": "temperature", "val": 0.6}}}
+	create := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		payload, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountRequest(t, handler, http.MethodPost, path, string(payload), token)
+	}
+	if denied := create(memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member created temperature model: %d", denied.Code)
+	}
+	for _, invalid := range []any{
+		[]any{map[string]any{"key": "temperature", "name": "temperature", "val": 1.5}},
+		[]any{map[string]any{"key": "temperature", "name": "temperature", "val": nil}},
+		[]any{map[string]any{"key": "top_p", "name": "top_p", "val": 0.5}},
+		[]any{map[string]any{"key": "temperature", "name": "temperature", "val": 0.6, "extra": true}},
+	} {
+		body["config_list"] = invalid
+		if rejected := create(adminToken); rejected.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("unsupported model parameter accepted: %d %s", rejected.Code, rejected.Body.String())
+		}
+	}
+	body["config_list"] = []any{map[string]any{"key": "temperature", "name": "temperature", "val": 0.6}}
+	if created := create(adminToken); created.Code != http.StatusOK {
+		t.Fatalf("original default temperature create: %d %s", created.Code, created.Body.String())
+	}
+	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
+	if err != nil || len(models) != 1 || models[0].Temperature == nil || *models[0].Temperature != 0.6 {
+		t.Fatalf("temperature was not saved: %+v %v", models, err)
+	}
+	id := models[0].ID
+	detail := accountRequest(t, handler, http.MethodGet, path+"/"+string(id), "", adminToken)
+	if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `"val":0.6`) {
+		t.Fatalf("original temperature form did not reload: %d %s", detail.Code, detail.Body.String())
+	}
+	if _, err := (OpenAIModel{}).Generate(context.Background(), models[0], "pg", "show amount", []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}); err != nil || received != 0.6 {
+		t.Fatalf("saved temperature did not reach local model: received=%v err=%v", received, err)
+	}
+	body["id"] = id
+	body["default_model"] = false
+	body["name"] = "Temperature model edited"
+	update := func() *httptest.ResponseRecorder {
+		t.Helper()
+		payload, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountRequest(t, handler, http.MethodPut, path, string(payload), adminToken)
+	}
+	body["config_list"] = []any{map[string]any{"key": "temperature", "name": "temperature", "val": 0.25}}
+	if changed := update(); changed.Code != http.StatusOK {
+		t.Fatalf("original temperature edit: %d %s", changed.Code, changed.Body.String())
+	}
+	var stored ModelConfig
+	if _, err := service.Store.get(context.Background(), additionalModelKey("1", id), &stored); err != nil ||
+		stored.Temperature == nil || *stored.Temperature != 0.25 || stored.Name != "Temperature model edited" {
+		t.Fatalf("temperature edit not persisted: %+v %v", stored, err)
+	}
+	if _, err := (OpenAIModel{}).Generate(context.Background(), stored, "pg", "show amount", []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}); err != nil || received != 0.25 {
+		t.Fatalf("updated temperature did not reach local model: received=%v err=%v", received, err)
+	}
+	body["config_list"] = []any{}
+	if cleared := update(); cleared.Code != http.StatusOK {
+		t.Fatalf("original temperature clear: %d %s", cleared.Code, cleared.Body.String())
+	}
+	stored = ModelConfig{}
+	if _, err := service.Store.get(context.Background(), additionalModelKey("1", id), &stored); err != nil || stored.Temperature != nil {
+		t.Fatalf("temperature clear not persisted: %+v %v", stored, err)
 	}
 }
 

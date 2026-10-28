@@ -60,11 +60,15 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 	if name == "" {
 		name = model.Model
 	}
+	configList := []any{}
+	if model.Temperature != nil {
+		configList = append(configList, map[string]any{"key": "temperature", "name": "temperature", "val": *model.Temperature})
+	}
 	okay(w, map[string]any{"id": model.ID, "name": name,
 		"model_type": 0, "base_model": model.Model, "supplier": 15,
 		"protocol": 1, "default_model": isDefault, "ws_mapping_count": 1,
 		"api_domain": model.Endpoint, "api_key": "", "has_api_key": model.APIKey != "",
-		"config_list": []any{}})
+		"config_list": configList})
 }
 
 // The active default cannot be deleted; secondary models can be removed with
@@ -189,22 +193,27 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	var input struct {
-		ID         string `json:"id"`
-		Name       string `json:"name"`
-		ModelType  *int   `json:"model_type"`
-		BaseModel  string `json:"base_model"`
-		Supplier   *int   `json:"supplier"`
-		Protocol   *int   `json:"protocol"`
-		APIDomain  string `json:"api_domain"`
-		APIKey     string `json:"api_key"`
-		ConfigList []any  `json:"config_list"`
+		ID         string            `json:"id"`
+		Name       string            `json:"name"`
+		ModelType  *int              `json:"model_type"`
+		BaseModel  string            `json:"base_model"`
+		Supplier   *int              `json:"supplier"`
+		Protocol   *int              `json:"protocol"`
+		APIDomain  string            `json:"api_domain"`
+		APIKey     string            `json:"api_key"`
+		ConfigList []json.RawMessage `json:"config_list"`
 	}
 	if !readBody(w, r, &input) {
 		return
 	}
 	if input.ID != "" || input.ModelType == nil || *input.ModelType != 0 ||
-		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 || len(input.ConfigList) != 0 {
+		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 {
 		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	temperature, err := parseLegacyModelTemperature(input.ConfigList)
+	if err != nil {
+		failure(w, err)
 		return
 	}
 	endpoint, err := h.service.Identity.DecryptLogin(input.APIDomain)
@@ -225,7 +234,7 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
-	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey}
+	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey, Temperature: temperature}
 	var current ModelConfig
 	_, existingErr := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &current)
 	if existingErr == nil && validateModelConfig(current) != nil {
@@ -250,32 +259,37 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 
 // The pinned original browser encrypts both endpoint and nonempty API key
 // with the same installation RSA public key as its login form. This adapter
-// edits only a model owned by the current workspace. Unsupported providers,
-// advanced arguments and default switching still fail closed.
+// edits only a model owned by the current workspace. Only a bounded Generic
+// OpenAI temperature argument is accepted; other arguments fail closed.
 func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
 		return
 	}
 	var input struct {
-		ID           ID     `json:"id"`
-		Name         string `json:"name"`
-		ModelType    *int   `json:"model_type"`
-		BaseModel    string `json:"base_model"`
-		Supplier     *int   `json:"supplier"`
-		Protocol     *int   `json:"protocol"`
-		DefaultModel *bool  `json:"default_model"`
-		APIDomain    string `json:"api_domain"`
-		APIKey       string `json:"api_key"`
-		ConfigList   []any  `json:"config_list"`
+		ID           ID                `json:"id"`
+		Name         string            `json:"name"`
+		ModelType    *int              `json:"model_type"`
+		BaseModel    string            `json:"base_model"`
+		Supplier     *int              `json:"supplier"`
+		Protocol     *int              `json:"protocol"`
+		DefaultModel *bool             `json:"default_model"`
+		APIDomain    string            `json:"api_domain"`
+		APIKey       string            `json:"api_key"`
+		ConfigList   []json.RawMessage `json:"config_list"`
 	}
 	if !readBody(w, r, &input) {
 		return
 	}
 	if !input.ID.Valid() || input.ModelType == nil || *input.ModelType != 0 ||
 		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 ||
-		input.DefaultModel == nil || len(input.ConfigList) != 0 {
+		input.DefaultModel == nil {
 		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	temperature, err := parseLegacyModelTemperature(input.ConfigList)
+	if err != nil {
+		failure(w, err)
 		return
 	}
 	current, revision, isDefault, err := h.legacyModelByID(r, p, token, string(input.ID))
@@ -306,7 +320,7 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	update := WorkspaceModelUpdate{Revision: revision, Name: input.Name, Model: input.BaseModel,
-		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens}
+		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens, Temperature: temperature, ReplaceTemperature: true}
 	if isDefault {
 		err = h.service.Store.UpdateWorkspaceModel(r.Context(), p, update)
 	} else {
@@ -390,4 +404,26 @@ func (h *Handler) legacyModelByID(r *http.Request, p Principal, token, id string
 		return ModelConfig{}, 0, false, ErrUnavailable
 	}
 	return model, revision, false, nil
+}
+
+func parseLegacyModelTemperature(items []json.RawMessage) (*float64, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if len(items) != 1 {
+		return nil, ErrInvalidAccountChange
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(items[0], &fields) != nil || len(fields) != 3 {
+		return nil, ErrInvalidAccountChange
+	}
+	var key, name string
+	var value float64
+	if json.Unmarshal(fields["key"], &key) != nil || key != "temperature" ||
+		json.Unmarshal(fields["name"], &name) != nil || name != "temperature" ||
+		strings.TrimSpace(string(fields["val"])) == "null" ||
+		json.Unmarshal(fields["val"], &value) != nil || value < 0 || value > 1 {
+		return nil, ErrInvalidAccountChange
+	}
+	return &value, nil
 }

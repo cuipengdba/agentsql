@@ -36,6 +36,9 @@ internal/chatbi/system_variable_store.go
 # Workspace model updates use the same encrypted local control-plane store,
 # current administrator identity and same-transaction management audit.
 internal/chatbi/model_admin_store.go
+# Secondary workspace models use fixed, bound statements against the encrypted
+# local control-plane store, with administrator checks and management audit.
+internal/chatbi/model_catalog_store.go
 internal/chatbi/api_key_store.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
