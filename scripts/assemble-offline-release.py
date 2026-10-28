@@ -38,6 +38,7 @@ def assemble(args):
             bundle.mkdir(mode=0o700)
             (bundle / "VERSION").write_text(args.version + "\n", encoding="ascii")
             shutil.copyfile(Path(__file__).with_name("install-offline-release.py"), bundle / "install-offline.py")
+            shutil.copyfile(Path(__file__).with_name("check-postgres-binder.sh"), bundle / "check-postgres-binder.sh")
             stage = bundle / "assets"
         else:
             stage = Path(staging) / "assets"
@@ -76,7 +77,7 @@ def assemble(args):
                 def normalize(member):
                     member.uid = member.gid = member.mtime = 0
                     member.uname = member.gname = ""
-                    member.mode = 0o755 if member.isdir() or member.name.endswith("/install-offline.py") else 0o644
+                    member.mode = 0o755 if member.isdir() or member.name.endswith(("/install-offline.py", "/check-postgres-binder.sh")) else 0o644
                     return member
                 archive.add(bundle if args.installable else stage,
                             arcname="agentsql-" + args.version + "-offline", recursive=True, filter=normalize)
