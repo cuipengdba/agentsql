@@ -650,8 +650,16 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 		if kind == "" {
 			kind = b.Dialect
 		}
+		configuration := ""
+		if databaseBinding(b) {
+			configuration, err = databaseDisplayConfiguration()
+			if err != nil {
+				failure(w, err)
+				return
+			}
+		}
 		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind,
-			"description": b.Description, "configuration": "", "status": "Success"})
+			"description": b.Description, "configuration": configuration, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	if err := h.service.live(r.Context(), p); err != nil {
