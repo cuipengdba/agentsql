@@ -34,7 +34,7 @@ func (h *Handler) legacyUserCreate(w http.ResponseWriter, r *http.Request, p Pri
 	input.Email = strings.TrimSpace(input.Email)
 	if input.Account == "" || len(input.Account) > 100 || input.Name == "" || len(input.Name) > 100 ||
 		len(input.Email) > 100 || len(input.Workspaces) == 0 || len(input.Workspaces) > 32 ||
-		len(input.SystemVariables) != 0 || input.Origin != nil && *input.Origin != 0 ||
+		len(input.SystemVariables) > 32 || input.Origin != nil && *input.Origin != 0 ||
 		input.Status != nil && *input.Status != 0 && *input.Status != 1 {
 		failure(w, ErrInvalidAccountChange)
 		return
@@ -74,6 +74,15 @@ func (h *Handler) legacyUserCreate(w http.ResponseWriter, r *http.Request, p Pri
 		seen[workspace] = true
 		memberships = append(memberships, Membership{Workspace: workspace, Name: names[workspace]})
 	}
+	if len(input.SystemVariables) > 0 && !seen[p.Workspace] {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	variables, err := h.service.Store.validateUserVariableBindings(r.Context(), p.Workspace, input.SystemVariables)
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	id, err := newID()
 	if err != nil {
 		failure(w, err)
@@ -85,7 +94,7 @@ func (h *Handler) legacyUserCreate(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	user := User{ID: id, Account: input.Account, Name: input.Name, Email: input.Email,
 		Workspace: input.Workspaces[0], Language: "zh-CN", Status: status, Origin: 0,
-		Memberships: memberships, PasswordHash: hash, PasswordFormat: "bcrypt",
+		Memberships: memberships, SystemVariables: variables, PasswordHash: hash, PasswordFormat: "bcrypt",
 		AuthRevision: 1, Created: time.Now().UTC().UnixMilli()}
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -99,7 +108,7 @@ func (h *Handler) legacyUserCreate(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, err)
 		return
 	}
-	okay(w, legacyUserView(user))
+	okay(w, legacyUserView(user, p.Workspace))
 }
 
 // Managed creation reserves the account and writes the management audit in the

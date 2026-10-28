@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 	"net/mail"
@@ -10,14 +11,14 @@ import (
 )
 
 type editUserRequest struct {
-	ID              ID     `json:"id"`
-	Account         string `json:"account"`
-	Name            string `json:"name"`
-	Email           string `json:"email"`
-	Status          *int   `json:"status"`
-	Origin          *int   `json:"origin"`
-	Workspaces      []ID   `json:"oid_list"`
-	SystemVariables []any  `json:"system_variables"`
+	ID              ID                `json:"id"`
+	Account         string            `json:"account"`
+	Name            string            `json:"name"`
+	Email           string            `json:"email"`
+	Status          *int              `json:"status"`
+	Origin          *int              `json:"origin"`
+	Workspaces      []ID              `json:"oid_list"`
+	SystemVariables []json.RawMessage `json:"system_variables"`
 }
 
 func (h *Handler) legacyUserUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -31,7 +32,7 @@ func (h *Handler) legacyUserUpdate(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	input.Name, input.Email = strings.TrimSpace(input.Name), strings.TrimSpace(input.Email)
 	if !input.ID.Valid() || input.Name == "" || len(input.Name) > 100 || len(input.Email) > 100 ||
-		len(input.Workspaces) == 0 || len(input.Workspaces) > 32 || len(input.SystemVariables) != 0 ||
+		len(input.Workspaces) == 0 || len(input.Workspaces) > 32 || len(input.SystemVariables) > 32 ||
 		input.Status != nil && *input.Status != 0 && *input.Status != 1 {
 		failure(w, ErrInvalidAccountChange)
 		return
@@ -79,6 +80,20 @@ func (h *Handler) legacyUserUpdate(w http.ResponseWriter, r *http.Request, p Pri
 		seen[workspace] = true
 		memberships = append(memberships, Membership{Workspace: workspace, Name: names[workspace], Weight: weights[workspace]})
 	}
+	if len(input.SystemVariables) > 0 && !seen[p.Workspace] {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	if input.SystemVariables != nil {
+		variables, err := h.service.Store.validateUserVariableBindings(r.Context(), p.Workspace, input.SystemVariables)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		user.SystemVariables = replaceUserVariableBindings(user.SystemVariables, p.Workspace, variables, memberships)
+	} else {
+		user.SystemVariables = retainUserVariableBindings(user.SystemVariables, memberships)
+	}
 	user.Name, user.Email, user.Memberships = input.Name, input.Email, memberships
 	if !seen[user.Workspace] {
 		user.Workspace = memberships[0].Workspace
@@ -92,7 +107,7 @@ func (h *Handler) legacyUserUpdate(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, err)
 		return
 	}
-	okay(w, legacyUserView(user))
+	okay(w, legacyUserView(user, p.Workspace))
 }
 
 func (s *Store) UpdateUserManaged(ctx context.Context, user User, revision int64, p Principal) error {

@@ -91,7 +91,7 @@ func (h *Handler) memberUsers(r *http.Request, space ID, keyword string, candida
 		if candidates {
 			view = map[string]any{"id": legacyBrowserID(user.ID), "account": user.Account, "name": user.Name}
 		} else {
-			view = legacyUserView(user)
+			view = legacyUserView(user, space)
 			view["weight"] = weight
 		}
 		selected = append(selected, entry{user: user, view: view})

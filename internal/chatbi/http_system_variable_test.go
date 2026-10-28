@@ -22,6 +22,18 @@ func TestKeyValueSystemVariableRoundTripAndValidation(t *testing.T) {
 		string(items[0].Value) != `[{"key":"east","value":"华东"},{"key":"west","value":"华西"}]` {
 		t.Fatalf("stored key-value variable: %+v %v", items, err)
 	}
+	if items[0].ID < systemVariableIDBase || items[0].ID >= 2*systemVariableIDBase {
+		t.Fatalf("generated ID is not compatible with original SQLBot select: %d", items[0].ID)
+	}
+	candidate := items[0]
+	candidate.Name = "collision"
+	actor, _, err := service.Store.User(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.SaveSystemVariable(context.Background(), Principal{Workspace: "1", User: actor}, candidate); err != ErrConflict {
+		t.Fatalf("create ID collision overwrote existing variable: %v", err)
+	}
 	page := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listPage/1/10", `{}`, adminToken)
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `"var_type":"kv"`) {
 		t.Fatalf("original variable page could not read key-value type: %d %s", page.Code, page.Body.String())

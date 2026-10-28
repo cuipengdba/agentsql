@@ -17,16 +17,23 @@ func legacyBrowserID(id ID) any {
 	return value
 }
 
-func legacyUserView(user User) map[string]any {
+func legacyUserView(user User, workspace ID) map[string]any {
 	workspaces := make([]any, 0, len(user.Memberships))
 	for _, member := range user.Memberships {
 		workspaces = append(workspaces, legacyBrowserID(member.Workspace))
+	}
+	variables := make([]map[string]any, 0)
+	for _, binding := range user.SystemVariables {
+		if binding.Workspace == workspace {
+			variables = append(variables, map[string]any{"variableId": binding.VariableID, "variableValues": binding.VariableValues})
+		}
 	}
 	return map[string]any{
 		"id": legacyBrowserID(user.ID), "account": user.Account, "name": user.Name,
 		"email": user.Email, "oid": legacyBrowserID(user.Workspace), "oid_list": workspaces,
 		"language": user.Language, "status": user.Status, "origin": user.Origin,
 		"isAdmin": user.Admin, "create_time": user.Created,
+		"system_variables": variables,
 	}
 }
 
@@ -49,7 +56,7 @@ func (h *Handler) legacyUserRead(w http.ResponseWriter, r *http.Request, p Princ
 		failure(w, err)
 		return
 	}
-	okay(w, legacyUserView(user))
+	okay(w, legacyUserView(user, p.Workspace))
 }
 
 func (h *Handler) legacyUserPage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -195,7 +202,7 @@ func (h *Handler) legacyUserPage(w http.ResponseWriter, r *http.Request, p Princ
 	}
 	views := make([]map[string]any, 0, end-start)
 	for _, user := range users[start:end] {
-		views = append(views, legacyUserView(user))
+		views = append(views, legacyUserView(user, p.Workspace))
 	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
