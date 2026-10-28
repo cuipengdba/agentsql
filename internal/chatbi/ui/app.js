@@ -59,6 +59,8 @@ Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourceP
 Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
 Object.assign(copy['zh-CN'], {sourceSelect:'管理已导入表',sourceSelectIntro:'仅已勾选的表会在此数据源中显示；取消全部勾选会关闭该数据源的查询。',sourceSelectSave:'保存选表',sourceSelectionSaved:'选表范围已保存。'});
 Object.assign(copy.en, {sourceSelect:'Manage imported tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
+Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
+Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
@@ -650,21 +652,85 @@ async function loadSource(source){
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
   $('source-select').hidden=true;$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
+  $('source-remarks')?.remove();
+  let managed=false;
   if(isAdmin&&source.type==='excel'){
-    void api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id))).then(()=>{
-      if(sourceVisible&&epoch===sourceEpoch&&String(selectedSource?.id)===String(source.id))$('source-select').hidden=false;
-    }).catch(()=>{ /* A nonmanaged Excel datasource has no table editor. */ });
+    try{await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
+      if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
+      managed=true;$('source-select').hidden=false;
+    }catch{ /* A nonmanaged Excel datasource has no managed-file editor. */ }
   }
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
+    if(managed)renderSourceRemarkTools(source);
     for(const table of tables){
+      const group=node('div',undefined,'source-table-group');
       const button=node('button',table.table_name,'source-table');button.type='button';
-      button.onclick=()=>{void loadSourceTable(source,table);};$('source-tables').append(button);
+      button.title=table.custom_comment||table.table_name;
+      button.onclick=()=>{void loadSourceTable(source,table);};group.append(button);
+      if(managed){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
+        edit.setAttribute('aria-label',t('sourceRemarkTable')+' '+table.table_name);
+        edit.onclick=()=>{void saveSourceRemark(source,table,null,edit);};group.append(edit);}
+      if(table.custom_comment)group.append(node('small',table.custom_comment));
+      $('source-tables').append(group);
     }
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+}
+function validSourceRemark(value){return [...value].length<=500&&!/[\u0000-\u001f\u007f-\u009f]/u.test(value);}
+async function saveSourceRemark(source,table,field,button){
+  if(!sourceVisible||!isAdmin||String(selectedSource?.id)!==String(source.id))return;
+  const old=field?field.custom_comment:table.custom_comment;
+  const value=window.prompt(t('sourceRemarkPrompt'),old||'');
+  if(value===null)return;
+  if(!validSourceRemark(value)){sourceStatus(t('failed'),true);return;}
+  button.disabled=true;
+  try{
+    const path=field?'/datasource/editField':'/datasource/editTable';
+    await api(path,{...(field||table),custom_comment:value},'POST');
+    if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+    await loadSource(source);
+    if(field){const refreshed=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
+      const matching=refreshed.find(item=>String(item.id)===String(table.id));
+      if(matching)await loadSourceTable(source,matching);}
+    sourceStatus(t('sourceRemarkSaved'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+async function downloadSourceRemarks(source,template,button){
+  button.disabled=true;
+  try{
+    const response=await fetch(apiRoot+'/datasource/exportDsSchema/'+encodeURIComponent(template?'0':String(source.id)),{headers:{'X-SQLBOT-TOKEN':'Bearer '+token}});
+    if(!response.ok||!response.headers.get('Content-Type')?.includes('spreadsheetml.sheet'))throw new Error('remark export');
+    const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download=template?'agentsql-remark-template.xlsx':'agentsql-remarks-'+String(source.id)+'.xlsx';
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    sourceStatus(t('sourceRemarkExported'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+function renderSourceRemarkTools(source){
+  const tools=node('section',undefined,'source-remarks');tools.id='source-remarks';
+  tools.append(node('strong',t('sourceRemarks')));
+  for(const [key,template] of [['sourceRemarkExport',false],['sourceRemarkTemplate',true]]){
+    const button=node('button',t(key));button.type='button';
+    button.onclick=()=>{void downloadSourceRemarks(source,template,button);};tools.append(button);
+  }
+  const form=node('form',undefined,'source-remark-import'),label=node('label',t('sourceRemarkChoose')),file=node('input'),submit=node('button',t('sourceRemarkImport'));
+  file.type='file';file.accept='.xlsx';file.required=true;label.append(file);submit.type='submit';
+  form.append(label,submit);form.onsubmit=async event=>{
+    event.preventDefault();const selected=file.files?.[0];
+    if(!selected||selected.size>4*1024*1024){sourceStatus(t('failed'),true);return;}
+    submit.disabled=true;
+    try{const body=new FormData();body.append('file',selected);
+      const response=await fetch(apiRoot+'/datasource/uploadDsSchema/'+encodeURIComponent(String(source.id)),{method:'POST',headers:{'X-SQLBOT-TOKEN':'Bearer '+token},body});
+      if(!response.ok)throw new Error('remark import');
+      const envelope=await response.json();if(envelope.code!==0)throw new Error('remark import');
+      if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+      await loadSource(source);sourceStatus(t('sourceRemarkImported'));
+    }catch{sourceStatus(t('failed'),true);}finally{submit.disabled=false;}
+  };
+  tools.append(form);$('source-select-form').after(tools);
 }
 async function openTableChoices(){
   const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
@@ -717,12 +783,16 @@ function renderPreview(result){
 async function loadSourceTable(source,table){
   const epoch=++sourceEpoch;sourceStatus(t('sourceLoading'));
   $('source-fields').replaceChildren();$('source-preview').replaceChildren();
-  for(const button of $('source-tables').querySelectorAll('button'))button.classList.toggle('active',button.textContent===table.table_name);
+  for(const button of $('source-tables').querySelectorAll('.source-table'))button.classList.toggle('active',button.textContent===table.table_name);
   try{
     const id=encodeURIComponent(String(source.id)),tableID=encodeURIComponent(String(table.id));
     const fields=await api('/datasource/fieldList/'+id+'/'+tableID,{fieldName:''},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
-    for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));$('source-fields').append(row);}
+    for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));
+      if(field.custom_comment)row.append(node('small',field.custom_comment));
+      if(isAdmin&&source.type==='excel'&&$('source-remarks')){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
+        edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);}
+      $('source-fields').append(row);}
     if(!fields.length)$('source-fields').append(node('p',t('fieldEmpty'),'semantic-empty'));
     const result=await api('/datasource/previewData/'+id,{table:{id:String(table.id),table_name:table.table_name}},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
