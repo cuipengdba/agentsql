@@ -75,11 +75,34 @@ func visibleBrowserTables(datasource ID, columns []Column) ([]visibleBrowserTabl
 }
 
 func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	columns, ok := h.datasourceSchema(w, r, p, token)
-	if !ok {
+	datasource := ID(r.PathValue("id"))
+	if !datasource.Valid() {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
 		return
 	}
-	datasource := ID(r.PathValue("id"))
+	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, datasource)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	columns, err := h.service.schema(r.Context(), p, binding)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	comments, err := managedFileTableComments(binding)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.bindingUnchanged(r.Context(), p, binding, revision, digest); err != nil {
+		failure(w, err)
+		return
+	}
 	numeric, err := strconv.ParseInt(string(datasource), 10, 64)
 	tables, valid := visibleBrowserTables(datasource, columns)
 	if err != nil || numeric > maxSQLBotBrowserID || !valid {
@@ -89,7 +112,7 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 	result := make([]map[string]any, 0, len(tables))
 	for _, table := range tables {
 		result = append(result, map[string]any{"id": table.id, "table_name": table.name,
-			"table_comment": "", "custom_comment": "", "embedding": nil,
+			"table_comment": "", "custom_comment": comments[table.name], "embedding": nil,
 			"ds_id": numeric, "checked": true})
 	}
 	okay(w, result)

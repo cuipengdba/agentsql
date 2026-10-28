@@ -30,6 +30,7 @@ type Binding struct {
 	Configuration  string    `json:"configuration,omitempty"`
 	ManagedFileID  string    `json:"managed_file_id,omitempty"`
 	SelectedTables string    `json:"selected_tables,omitempty"`
+	TableComments  string    `json:"table_comments,omitempty"`
 	Created        time.Time `json:"created,omitempty"`
 	Dialect        string    `json:"dialect"`
 	BindingID      string    `json:"binding_id"`
