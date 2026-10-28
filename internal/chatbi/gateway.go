@@ -31,6 +31,7 @@ type Binding struct {
 	ManagedFileID  string    `json:"managed_file_id,omitempty"`
 	SelectedTables string    `json:"selected_tables,omitempty"`
 	TableComments  string    `json:"table_comments,omitempty"`
+	FieldComments  string    `json:"field_comments,omitempty"`
 	Created        time.Time `json:"created,omitempty"`
 	Dialect        string    `json:"dialect"`
 	BindingID      string    `json:"binding_id"`

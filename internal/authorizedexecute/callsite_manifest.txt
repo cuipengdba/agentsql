@@ -15,6 +15,10 @@ internal/chatbi/managed_file_claim.go
 # Managed-file table selection only updates an encrypted local binding with a
 # fixed SQLite statement and same-transaction management audit.
 internal/chatbi/managed_file_selection.go
+# Managed-file table and field remarks update only the encrypted local binding
+# with fixed bound SQLite statements and a same-transaction management audit.
+internal/chatbi/managed_file_table_comment.go
+internal/chatbi/managed_file_field_comment.go
 # Membership and user creation mutate encrypted local identity/control-plane
 # rows with bound SQLite statements and a mandatory same-transaction audit.
 # They cannot open or execute against a business datasource.
