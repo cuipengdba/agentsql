@@ -94,31 +94,45 @@ func (h *Handler) importManagedFileRemarks(w http.ResponseWriter, r *http.Reques
 	sheetTable := make(map[string]string)
 	seenTable := make(map[string]bool)
 	for _, row := range sheets[0].Rows {
-		if len(row) != 3 || row[0] == "" || !managedFileNamePattern.MatchString(row[1]) ||
-			!imported[row[1]] || visible[row[1]] == nil || seenTable[row[1]] ||
-			sheetTable[row[0]] != "" || !validManagedFileComment(row[2]) {
+		if len(row) != 3 || row[0] == "" || sheetTable[row[0]] != "" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Invalid table remark row")
+			return
+		}
+		sheetTable[row[0]] = row[1]
+		if !imported[row[1]] || visible[row[1]] == nil {
+			continue // The original import leaves unmatched names unchanged.
+		}
+		if seenTable[row[1]] || !validManagedFileComment(row[2]) {
 			writeJSON(w, http.StatusUnprocessableEntity, "Invalid table remark row")
 			return
 		}
 		seenTable[row[1]] = true
-		sheetTable[row[0]] = row[1]
 		tableChanges[row[1]] = row[2]
 	}
-	if len(tableChanges) == 0 || len(tableChanges) > 8 {
+	if len(tableChanges) > 8 {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid table remark list")
 		return
 	}
 	for _, sheet := range sheets[1:] {
 		table := sheetTable[sheet.Name]
-		if table == "" || len(sheet.Fields) != 2 || sheet.Fields[0].Name != "字段名" ||
+		if visible[table] == nil {
+			continue // Unmatched table sheets cannot affect this datasource.
+		}
+		if len(sheet.Fields) != 2 || sheet.Fields[0].Name != "字段名" ||
 			sheet.Fields[1].Name != "字段备注" {
 			writeJSON(w, http.StatusUnprocessableEntity, "Invalid field remark sheet")
 			return
 		}
 		seenField := make(map[string]bool)
 		for _, row := range sheet.Rows {
-			if len(row) != 2 || !visible[table][row[0]] || seenField[row[0]] ||
-				!validManagedFileComment(row[1]) {
+			if len(row) != 2 {
+				writeJSON(w, http.StatusUnprocessableEntity, "Invalid field remark row")
+				return
+			}
+			if !visible[table][row[0]] {
+				continue // Unknown fields retain their previous remarks.
+			}
+			if seenField[row[0]] || !validManagedFileComment(row[1]) {
 				writeJSON(w, http.StatusUnprocessableEntity, "Invalid field remark row")
 				return
 			}
@@ -145,7 +159,7 @@ func (s *Store) updateManagedFileRemarksBulk(ctx context.Context, p Principal, p
 	if s == nil || ctx == nil || prior.Workspace != p.Workspace || prior.User != p.User.ID ||
 		!prior.Datasource.Valid() || prior.Type != "excel" || prior.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(prior.ManagedFileID) ||
-		len(tableChanges) == 0 || len(tableChanges) > 8 || len(fieldChanges) > 256 {
+		len(tableChanges) > 8 || len(fieldChanges) > 256 {
 		return ErrNotFound
 	}
 	_, sheets, err := decodeSQLBotExcelConfig(prior.Configuration)
@@ -236,15 +250,7 @@ func (s *Store) updateManagedFileRemarksBulk(ctx context.Context, p Principal, p
 	if s.decode(object, oldBody, &current) != nil || current != prior {
 		return ErrConflict
 	}
-	if current.TableComments == encodedTable && current.FieldComments == encodedField {
-		return nil
-	}
-	current.TableComments = encodedTable
-	current.FieldComments = encodedField
-	sealed, err := s.seal(object, current)
-	if err != nil {
-		return err
-	}
+	changed := current.TableComments != encodedTable || current.FieldComments != encodedField
 	auditID, err := newID()
 	if err != nil {
 		return err
@@ -256,13 +262,21 @@ func (s *Store) updateManagedFileRemarksBulk(ctx context.Context, p Principal, p
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
-		sealed, object.Kind, object.Scope, object.Owner, object.ID, revision)
-	if err != nil {
-		return ErrUnavailable
-	}
-	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
-		return ErrConflict
+	if changed {
+		current.TableComments = encodedTable
+		current.FieldComments = encodedField
+		sealed, err := s.seal(object, current)
+		if err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
+			sealed, object.Kind, object.Scope, object.Owner, object.ID, revision)
+		if err != nil {
+			return ErrUnavailable
+		}
+		if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+			return ErrConflict
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`,
 		auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
