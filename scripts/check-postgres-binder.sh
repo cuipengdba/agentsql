@@ -64,7 +64,12 @@ SELECT CASE
     SELECT pg_catalog.count(DISTINCT p.proname)
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+    JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_proc'::regclass
+      AND d.objid=p.oid AND d.refclassid='pg_catalog.pg_extension'::regclass
+      AND d.deptype='e'
+    JOIN pg_catalog.pg_extension e ON e.oid=d.refobjid
     WHERE n.nspname='agentsql_catalog'
+      AND e.extname='agentsql_binder'
       AND p.proname IN (
         'capabilities', 'dml_capabilities', 'prepare', 'prepare_dml',
         'seal_prepared', 'prepared_manifest', 'prepared_dml_manifest',
