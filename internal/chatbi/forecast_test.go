@@ -87,6 +87,75 @@ func TestLegacyPredictStreamAndFreshData(t *testing.T) {
 	}
 }
 
+func TestLegacyPredictWithoutSeriesReturnsEmptyPoints(t *testing.T) {
+	service, p, _, _, token := serviceFixture(t)
+	series := &forecastGateway{data: QueryData{Fields: []string{"region", "amount"}, Data: []map[string]any{
+		{"region": "east", "amount": 10}, {"region": "west", "amount": 20},
+	}}}
+	service.Gateway = series
+	service.Model = &narrativeFixtureModel{}
+	record := finishedFixtureRecord(t, service, p, token)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	predict := httptest.NewRequest(http.MethodPost, "/api/v1/chat/record/"+string(record.ID)+"/predict", strings.NewReader("{}"))
+	predict.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	stream := httptest.NewRecorder()
+	handler.ServeHTTP(stream, predict)
+	if stream.Code != http.StatusOK || !strings.Contains(stream.Body.String(), `"type":"predict-failed"`) {
+		t.Fatalf("predict prose stream: %d %s", stream.Code, stream.Body.String())
+	}
+	var childID string
+	for _, line := range strings.Split(stream.Body.String(), "\n") {
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		var event struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data:")), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type == "id" {
+			childID = event.ID
+		}
+	}
+	if childID == "" {
+		t.Fatal("prediction child ID missing")
+	}
+	path := "/api/v1/chat/record/" + childID + "/predict_data"
+	get := func(bearer string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		if bearer != "" {
+			request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+bearer)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	if got := get(""); got.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous prediction data returned %d", got.Code)
+	}
+	before := series.queries
+	response := get(token)
+	var envelope struct {
+		Data []map[string]any `json:"data"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &envelope) != nil || envelope.Data == nil || len(envelope.Data) != 0 || series.queries <= before {
+		t.Fatalf("empty audited prediction data: %d %s queries=%d", response.Code, response.Body.String(), series.queries-before)
+	}
+	revision, err := service.Store.get(context.Background(), bindingKey(p, "10"), new(Binding))
+	if err != nil || service.Store.delete(context.Background(), bindingKey(p, "10"), revision) != nil {
+		t.Fatal("could not revoke source")
+	}
+	if got := get(token); got.Code != http.StatusNotFound {
+		t.Fatalf("revoked source returned %d %s", got.Code, got.Body.String())
+	}
+}
+
 type forecastGateway struct {
 	fakeGateway
 	data QueryData
