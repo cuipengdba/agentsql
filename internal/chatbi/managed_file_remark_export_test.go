@@ -135,7 +135,11 @@ func TestOriginalManagedFileRemarkExportIsScopedAuditedWorkbook(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	require.NotEqual(t, http.StatusOK, upload(makeUpload("agentsql_file_99999999999999999999999999999999", "forged", "forged")).Code)
+	require.Equal(t, http.StatusOK, upload(makeUpload("agentsql_file_99999999999999999999999999999999", "forged", "forged")).Code)
+	unchanged, err := service.binding(ctx, principal, "11")
+	require.NoError(t, err)
+	require.Equal(t, binding.TableComments, unchanged.TableComments)
+	require.Equal(t, binding.FieldComments, unchanged.FieldComments)
 	require.Equal(t, http.StatusOK, upload(makeUpload(table, "新的表备注", "新的字段备注")).Code)
 	current, err := service.binding(ctx, principal, "11")
 	require.NoError(t, err)
