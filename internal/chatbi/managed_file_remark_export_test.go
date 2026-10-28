@@ -2,9 +2,11 @@ package chatbi
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,4 +108,53 @@ func TestOriginalManagedFileRemarkExportIsScopedAuditedWorkbook(t *testing.T) {
 		}
 	}
 	require.True(t, found)
+
+	makeUpload := func(tableName, tableRemark, fieldRemark string) string {
+		t.Helper()
+		book, err := managedRemarkWorkbook([]managedRemarkSheet{
+			{name: "数据表列表", rows: [][]string{{"Sheet名称", "表名", "表备注"}, {"Sheet0", tableName, tableRemark}}},
+			{name: "Sheet0", rows: [][]string{{"字段名", "字段备注"}, {"month", fieldRemark}, {"amount", ""}}},
+		})
+		require.NoError(t, err)
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		part, err := writer.CreateFormFile("file", "remarks.xlsx")
+		require.NoError(t, err)
+		_, err = part.Write(book)
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+		return writer.FormDataContentType() + "\x00" + body.String()
+	}
+	upload := func(payload string) *httptest.ResponseRecorder {
+		t.Helper()
+		parts := strings.SplitN(payload, "\x00", 2)
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/uploadDsSchema/11", strings.NewReader(parts[1]))
+		r.Header.Set("Content-Type", parts[0])
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	require.NotEqual(t, http.StatusOK, upload(makeUpload("agentsql_file_99999999999999999999999999999999", "forged", "forged")).Code)
+	require.Equal(t, http.StatusOK, upload(makeUpload(table, "新的表备注", "新的字段备注")).Code)
+	current, err := service.binding(ctx, principal, "11")
+	require.NoError(t, err)
+	tableMap, err := managedFileTableComments(current)
+	require.NoError(t, err)
+	fieldMap, err := managedFileFieldComments(current)
+	require.NoError(t, err)
+	require.Equal(t, "新的表备注", tableMap[table])
+	require.Equal(t, "新的字段备注", fieldMap[managedFileFieldCommentKey(table, "month")])
+	_, err = service.Store.db.ExecContext(ctx, `CREATE TRIGGER reject_remark_import_audit BEFORE INSERT ON chatbi_objects
+		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(FAIL, 'audit offline'); END`)
+	require.NoError(t, err)
+	require.NotEqual(t, http.StatusOK, upload(makeUpload(table, "must roll back", "must roll back")).Code)
+	current, err = service.binding(ctx, principal, "11")
+	require.NoError(t, err)
+	tableMap, err = managedFileTableComments(current)
+	require.NoError(t, err)
+	fieldMap, err = managedFileFieldComments(current)
+	require.NoError(t, err)
+	require.Equal(t, "新的表备注", tableMap[table])
+	require.Equal(t, "新的字段备注", fieldMap[managedFileFieldCommentKey(table, "month")])
 }
