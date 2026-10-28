@@ -1,8 +1,10 @@
 package chatbi
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"math"
+	"math/big"
 	"net/http"
 	"sort"
 	"strconv"
@@ -21,6 +23,19 @@ type SystemVariable struct {
 	Value     json.RawMessage `json:"value"`
 	Created   time.Time       `json:"create_time"`
 	CreatedBy ID              `json:"create_by"`
+}
+
+const systemVariableIDBase int64 = 1_000_000_000_000
+
+// The pinned SQLBot select renders generated 16-digit numeric option IDs
+// incorrectly. Keep new system-variable IDs in a 13-digit range for its
+// unchanged user-management page; imported IDs remain untouched.
+func newSystemVariableID() (int64, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(systemVariableIDBase))
+	if err != nil {
+		return 0, ErrUnavailable
+	}
+	return systemVariableIDBase + n.Int64(), nil
 }
 
 func validSystemVariable(variable SystemVariable) bool {
@@ -213,12 +228,12 @@ func (h *Handler) systemVariableSave(w http.ResponseWriter, r *http.Request, p P
 		return
 	}
 	if variable.ID == 0 {
-		id, err := newID()
+		id, err := newSystemVariableID()
 		if err != nil {
 			failure(w, err)
 			return
 		}
-		variable.ID, _ = strconv.ParseInt(string(id), 10, 64)
+		variable.ID = id
 		variable.Created = time.Now().UTC()
 		variable.CreatedBy = p.User.ID
 	} else {

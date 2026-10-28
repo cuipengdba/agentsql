@@ -56,6 +56,9 @@ func (s *Store) SaveSystemVariable(ctx context.Context, p Principal, variable Sy
 		return ErrUnavailable
 	}
 	if err == nil {
+		if !variable.Created.IsZero() {
+			return ErrConflict
+		}
 		var previous SystemVariable
 		if s.decode(key, oldBody, &previous) != nil || previous.ID != variable.ID || previous.Type != "custom" {
 			return ErrUnavailable

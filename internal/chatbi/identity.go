@@ -53,22 +53,29 @@ type Membership struct {
 	Weight    int    `json:"weight"`
 }
 
+type UserVariableBinding struct {
+	Workspace      ID                `json:"workspace"`
+	VariableID     int64             `json:"variableId"`
+	VariableValues []json.RawMessage `json:"variableValues"`
+}
+
 type User struct {
-	ID                ID           `json:"id"`
-	Account           string       `json:"account"`
-	Name              string       `json:"name"`
-	Email             string       `json:"email,omitempty"`
-	Created           int64        `json:"create_time,omitempty"`
-	Workspace         ID           `json:"oid"`
-	Language          string       `json:"language"`
-	Status            int          `json:"status"`
-	Origin            int          `json:"origin"`
-	Admin             bool         `json:"isAdmin"`
-	Memberships       []Membership `json:"memberships"`
-	PasswordHash      string       `json:"password_hash"`
-	PasswordFormat    string       `json:"password_format"`
-	AuthRevision      int64        `json:"auth_revision"`
-	AllowLegacyTokens bool         `json:"allow_legacy_tokens"`
+	ID                ID                    `json:"id"`
+	Account           string                `json:"account"`
+	Name              string                `json:"name"`
+	Email             string                `json:"email,omitempty"`
+	Created           int64                 `json:"create_time,omitempty"`
+	Workspace         ID                    `json:"oid"`
+	Language          string                `json:"language"`
+	Status            int                   `json:"status"`
+	Origin            int                   `json:"origin"`
+	Admin             bool                  `json:"isAdmin"`
+	Memberships       []Membership          `json:"memberships"`
+	SystemVariables   []UserVariableBinding `json:"system_variables,omitempty"`
+	PasswordHash      string                `json:"password_hash"`
+	PasswordFormat    string                `json:"password_format"`
+	AuthRevision      int64                 `json:"auth_revision"`
+	AllowLegacyTokens bool                  `json:"allow_legacy_tokens"`
 }
 
 func (user User) canUse(workspace ID) bool {
@@ -114,6 +121,18 @@ func validateUser(user User) error {
 	}
 	if !seen[user.Workspace] {
 		return ErrUnauthenticated
+	}
+	if len(user.SystemVariables) > 32 {
+		return ErrUnauthenticated
+	}
+	bound := map[string]bool{}
+	for _, variable := range user.SystemVariables {
+		key := string(variable.Workspace) + ":" + strconv.FormatInt(variable.VariableID, 10)
+		if !seen[variable.Workspace] || variable.VariableID < 1 || variable.VariableID > maxSQLBotBrowserID ||
+			bound[key] || len(variable.VariableValues) == 0 || len(variable.VariableValues) > 100 {
+			return ErrUnauthenticated
+		}
+		bound[key] = true
 	}
 	switch user.PasswordFormat {
 	case "bcrypt":
