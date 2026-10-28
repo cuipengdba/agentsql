@@ -36,12 +36,30 @@ func TestForecastOrderedSeriesAndRejectsUnorderedOrMasked(t *testing.T) {
 	}
 }
 
+func TestIllustrativeForecastNarrativeUsesTheSamePointsInChinese(t *testing.T) {
+	series := QueryData{Fields: []string{"month", "amount"}, AuditID: 8, Data: []map[string]any{
+		{"month": "2026-01", "amount": 10}, {"month": "2026-02", "amount": 20},
+		{"month": "2026-03", "amount": 30}, {"month": "2026-04", "amount": 40},
+	}}
+	forecast, err := forecastData("12", series)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := illustrativeForecastNarrative("预测金额", forecast)
+	for _, expected := range []string{"4 行数据", "2026-05 ≈ 50", "2026-06 ≈ 60", "2026-07 ≈ 70", "示意", "未经过预测准确性验证"} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("prediction prose omits %q: %s", expected, content)
+		}
+	}
+}
+
 func TestLegacyPredictStreamAndFreshData(t *testing.T) {
 	service, p, _, _, token := serviceFixture(t)
 	service.Gateway = &forecastGateway{data: QueryData{Fields: []string{"month", "amount"}, Data: []map[string]any{
 		{"month": "2026-01", "amount": 4}, {"month": "2026-02", "amount": 6}, {"month": "2026-03", "amount": 8},
 	}}}
-	service.Model = &narrativeFixtureModel{}
+	model := &narrativeFixtureModel{}
+	service.Model = model
 	record := finishedFixtureRecord(t, service, p, token)
 	handler, err := NewHandler(service, "test")
 	if err != nil {
@@ -68,6 +86,9 @@ func TestLegacyPredictStreamAndFreshData(t *testing.T) {
 	if len(events) != 4 || events[0]["type"] != "id" || events[1]["type"] != "predict-result" || events[2]["type"] != "predict-success" || events[3]["type"] != "predict_finish" {
 		t.Fatalf("predict event contract: %#v", events)
 	}
+	if content, _ := events[1]["content"].(string); model.calls != 0 || !strings.Contains(content, "2026-04 ≈ 10") || !strings.Contains(content, "2026-06 ≈ 14") || !strings.Contains(content, "has not been validated") {
+		t.Fatalf("prediction prose diverged from calculated points: calls=%d content=%q", model.calls, content)
+	}
 	childID, ok := events[0]["id"].(string)
 	if !ok || childID == string(record.ID) {
 		t.Fatalf("invalid child ID: %#v", events[0])
@@ -93,7 +114,8 @@ func TestLegacyPredictWithoutSeriesReturnsEmptyPoints(t *testing.T) {
 		{"region": "east", "amount": 10}, {"region": "west", "amount": 20},
 	}}}
 	service.Gateway = series
-	service.Model = &narrativeFixtureModel{}
+	model := &narrativeFixtureModel{}
+	service.Model = model
 	record := finishedFixtureRecord(t, service, p, token)
 	handler, err := NewHandler(service, "test")
 	if err != nil {
@@ -105,6 +127,9 @@ func TestLegacyPredictWithoutSeriesReturnsEmptyPoints(t *testing.T) {
 	handler.ServeHTTP(stream, predict)
 	if stream.Code != http.StatusOK || !strings.Contains(stream.Body.String(), `"type":"predict-failed"`) {
 		t.Fatalf("predict prose stream: %d %s", stream.Code, stream.Body.String())
+	}
+	if model.calls != 1 {
+		t.Fatalf("non-series prose did not use local model: calls=%d", model.calls)
 	}
 	var childID string
 	for _, line := range strings.Split(stream.Body.String(), "\n") {
