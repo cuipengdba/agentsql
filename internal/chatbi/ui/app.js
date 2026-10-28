@@ -51,6 +51,10 @@ Object.assign(copy['zh-CN'], {currentWorkspace:'当前工作空间',workspaceSwi
 Object.assign(copy.en, {currentWorkspace:'Current workspace',workspaceSwitching:'Switching workspace…'});
 Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。行权限尚未接入变量解析，此页面配置目前不会改变查询权限。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesKV:'键值',variablesKey:'键',variablesValue:'值',variablesAddPair:'+ 添加键值',variablesRemovePair:'移除',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
 Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in the current workspace. Row permissions do not yet resolve these values, so this configuration does not change query access.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesKV:'Key/value',variablesKey:'Key',variablesValue:'Value',variablesAddPair:'+ Add pair',variablesRemovePair:'Remove',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
+Object.assign(copy['zh-CN'], {variablesFrom:'起始值',variablesTo:'结束值'});
+Object.assign(copy.en, {variablesFrom:'From',variablesTo:'To'});
+Object.assign(copy['zh-CN'], {variablesNumber:'数值区间',variablesDate:'日期区间'});
+Object.assign(copy.en, {variablesNumber:'Number range',variablesDate:'Date range'});
 Object.assign(copy['zh-CN'], {usersDelete:'删除用户',usersDeleted:'用户已删除',confirmDeleteUser:'确定删除此用户及其在 AgentSQL 中的个人数据？此操作无法撤销。'});
 Object.assign(copy.en, {usersDelete:'Delete user',usersDeleted:'User deleted',confirmDeleteUser:'Delete this user and their private data in AgentSQL? This cannot be undone.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
@@ -356,9 +360,11 @@ function addVariableKVRow(key='',value=''){
   row.append(keyInput,valueInput,remove);$('variable-kv-rows').append(row);
 }
 function toggleVariableValueEditor(){
-  const kv=$('variable-type').value==='kv';
-  $('variable-values-label').hidden=kv;$('variable-values').hidden=kv;$('variable-values').required=!kv;
+  const kind=$('variable-type').value,kv=kind==='kv',range=kind==='number'||kind==='datetime';
+  $('variable-values-label').hidden=kv||range;$('variable-values').hidden=kv||range;$('variable-values').required=!kv&&!range;
   $('variable-kv-editor').hidden=!kv;
+  $('variable-range-editor').hidden=!range;
+  for(const input of [$('variable-range-min'),$('variable-range-max')]){input.type=kind==='datetime'?'date':'number';input.required=range;}
   if(kv&&!$('variable-kv-rows').children.length)addVariableKVRow();
   for(const input of $('variable-kv-rows').querySelectorAll('input'))input.required=kv;
 }
@@ -375,14 +381,17 @@ async function loadVariables(){
     for(const variable of result.items||[]){
       const article=node('article',undefined,'user-item'),detail=node('div');
       detail.append(node('strong',variable.name),node('small',t('variablesType')+': '+t(variable.var_type==='kv'?'variablesKV':variable.var_type==='number'?'variablesNumber':variable.var_type==='datetime'?'variablesDate':'variablesText')));
-      detail.append(node('small',(variable.value||[]).map(value=>variable.var_type==='kv'?String(value.key)+': '+String(value.value):String(value)).join(', ')));
+      detail.append(node('small',(variable.value||[]).map(value=>variable.var_type==='kv'?String(value.key)+': '+String(value.value):String(value)).join(variable.var_type==='number'||variable.var_type==='datetime'?' ~ ':', ')));
       const actions=node('div',undefined,'user-actions'),edit=node('button',t('edit')),remove=node('button',t('variablesDelete'));
       edit.type='button';remove.type='button';
       edit.onclick=()=>{variableEditingID=variable.id;$('variable-name').value=variable.name;$('variable-type').value=variable.var_type;
         $('variable-values').value='';$('variable-kv-rows').replaceChildren();
-        if(variable.var_type==='kv')for(const pair of variable.value||[])addVariableKVRow(pair.key,pair.value);
-        else $('variable-values').value=(variable.value||[]).map(value=>String(value)).join('\n');
-        toggleVariableValueEditor();$('variable-editor').querySelector('summary').textContent=t('variablesEdit');$('variable-editor').open=true;$('variable-name').focus();};
+        toggleVariableValueEditor();
+        if(variable.var_type==='kv'){$('variable-kv-rows').replaceChildren();for(const pair of variable.value||[])addVariableKVRow(pair.key,pair.value);}
+        else if(variable.var_type==='number'||variable.var_type==='datetime'){
+          $('variable-range-min').value=String((variable.value||[])[0]??'').slice(0,variable.var_type==='datetime'?10:undefined);$('variable-range-max').value=String((variable.value||[])[1]??'').slice(0,variable.var_type==='datetime'?10:undefined);
+        }else $('variable-values').value=(variable.value||[]).map(value=>String(value)).join('\n');
+        $('variable-editor').querySelector('summary').textContent=t('variablesEdit');$('variable-editor').open=true;$('variable-name').focus();};
       remove.onclick=async()=>{if(!window.confirm(t('variablesDeleteConfirm')))return;remove.disabled=true;
         try{await api('/sys_variable/delete',[variable.id]);await loadVariables();variableStatus(t('variablesDeleted'));}
         catch{variableStatus(t('failed'),true);remove.disabled=false;}};
@@ -1003,18 +1012,23 @@ $('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1
 $('variable-prev').onclick=()=>{if(variablePage>1){variablePage--;void loadVariables();}};
 $('variable-next').onclick=()=>{if(variablePage<variableTotalPages){variablePage++;void loadVariables();}};
 $('variable-cancel').onclick=resetVariableForm;
-$('variable-type').onchange=()=>{$('variable-values').value='';$('variable-kv-rows').replaceChildren();toggleVariableValueEditor();};
+$('variable-type').onchange=()=>{$('variable-values').value='';$('variable-range-min').value='';$('variable-range-max').value='';$('variable-kv-rows').replaceChildren();toggleVariableValueEditor();};
 $('variable-kv-add').onclick=()=>{if($('variable-kv-rows').children.length<100)addVariableKVRow();};
 $('variable-form').onsubmit=async event=>{
   event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;
   const lines=$('variable-values').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
   let values=lines;
-  if($('variable-type').value==='kv'){
+  const kind=$('variable-type').value;
+  if(kind==='kv'){
     values=[...$('variable-kv-rows').children].map(row=>({key:row.querySelector('[data-kv-key]').value.trim(),value:row.querySelector('[data-kv-value]').value.trim()}));
     if(!values.length||values.length>100||values.some(pair=>!pair.key||!pair.value)||new Set(values.map(pair=>pair.key)).size!==values.length){variableStatus(t('failed'),true);button.disabled=false;return;}
+  }else if(kind==='number'||kind==='datetime'){
+    const from=$('variable-range-min').value,to=$('variable-range-max').value;
+    if(!from||!to){variableStatus(t('failed'),true);button.disabled=false;return;}
+    values=kind==='number'?[Number(from),Number(to)]:[from,to];
+    if(kind==='number'&&(!values.every(Number.isFinite)||values[0]>values[1])||kind==='datetime'&&from>to){variableStatus(t('failed'),true);button.disabled=false;return;}
   }else{
-    if($('variable-type').value==='number')values=lines.map(value=>Number(value));
-    if(!lines.length||lines.length>100||values.some(value=>typeof value==='number'&&!Number.isFinite(value))){variableStatus(t('failed'),true);button.disabled=false;return;}
+    if(!lines.length||lines.length>100){variableStatus(t('failed'),true);button.disabled=false;return;}
   }
   const input={name:$('variable-name').value.trim(),var_type:$('variable-type').value,value:values};
   if(variableEditingID!==null)input.id=variableEditingID;
