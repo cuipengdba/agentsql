@@ -70,6 +70,8 @@ Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'�
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsTemperature:'温度（0–1）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsTemperature:'Temperature (0–1)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
+Object.assign(copy['zh-CN'], {modelsSelect:'工作空间模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
+Object.assign(copy.en, {modelsSelect:'Workspace model',modelsAdd:'Add model',modelsSetDefault:'Set as default',modelsDelete:'Delete model',modelsDefault:'Default model',modelsNew:'New model',modelsDeleteConfirm:'Delete this nondefault model?',modelsDeleted:'Model deleted with an audit record.',modelsSwitched:'Default model switched with an audit record.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
 Object.assign(copy.en, {modelsCheck:'Check connection',modelsChecking:'Checking the locally configured model…',modelsCheckSuccess:'The model responded. Test SQL was not executed.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
@@ -81,7 +83,7 @@ let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0
 let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
 let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
-let modelsVisible=false,modelsEpoch=0,modelRevision=null;
+let modelsVisible=false,modelsEpoch=0,modelRevision=null,modelSelected='default',modelCatalog=[];
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -304,21 +306,38 @@ function semanticStatus(value,error=false){$('semantic-status').textContent=valu
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
-function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
+function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
-async function loadModel(){
+function modelCatalogControls(){
+  const secondary=modelSelected!=='default'&&modelSelected!=='new'&&modelRevision>0;
+  $('model-add').disabled=!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101;
+  $('model-set-default').disabled=!secondary;$('model-delete').disabled=!secondary;
+  $('model-check').disabled=modelRevision===null||modelRevision===0;
+}
+async function loadModel(selected=modelSelected){
   if(!modelsVisible)return;
   const epoch=++modelsEpoch;modelRevision=null;modelStatus(t('reading'));
   try{
-    const model=await api('/agentsql/model');
+    const catalog=await api('/agentsql/models');
     if(!modelsVisible||epoch!==modelsEpoch)return;
-    modelRevision=model.revision;
-    $('model-check').disabled=false;
+    modelCatalog=catalog;
+    if(selected!=='default'&&!catalog.some(item=>String(item.id)===selected))selected='default';
+    modelSelected=selected;
+    const picker=$('model-select');picker.replaceChildren();
+    const defaultOption=node('option',t('modelsDefault'));defaultOption.value='default';picker.append(defaultOption);
+    for(const item of catalog.filter(item=>!item.default_model)){
+      const option=node('option',item.name||item.base_model);option.value=String(item.id);picker.append(option);
+    }
+    picker.value=selected;
+    modelCatalogControls();
+    const model=await api(selected==='default'?'/agentsql/model':'/agentsql/models/'+encodeURIComponent(selected));
+    if(!modelsVisible||epoch!==modelsEpoch)return;
+    modelRevision=model.revision;modelCatalogControls();
     $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
 	$('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);$('model-temperature').value=String(model.temperature??0);
     $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
   }catch(error){if(modelsVisible&&epoch===modelsEpoch){
-    if(error.status===404){modelRevision=0;$('model-check').disabled=true;$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
+    if(error.status===404&&modelSelected==='default'){modelRevision=0;modelCatalogControls();$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
     else modelStatus(t('failed'),true);
   }}
 }
@@ -1023,10 +1042,30 @@ $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUse
 $('variables-nav').onclick=()=>{void showVariables();};
 $('models-nav').onclick=()=>{void showModels();};
 $('model-reload').onclick=()=>{void loadModel();};
+$('model-select').onchange=()=>{modelSelected=$('model-select').value;void loadModel(modelSelected);};
+$('model-add').onclick=()=>{
+  if(!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101)return;
+  modelSelected='new';modelRevision=0;$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');
+  const option=node('option',t('modelsNew'));option.value='new';$('model-select').append(option);$('model-select').value='new';
+  modelCatalogControls();modelStatus('');
+};
+$('model-set-default').onclick=async()=>{
+  if(modelSelected==='default'||modelSelected==='new'||modelRevision<1)return;
+  const button=$('model-set-default');button.disabled=true;
+  try{await api('/agentsql/models/'+encodeURIComponent(modelSelected)+'/default',undefined,'PUT');await loadModel('default');modelStatus(t('modelsSwitched'));}
+  catch{modelStatus(t('failed'),true);}finally{modelCatalogControls();}
+};
+$('model-delete').onclick=async()=>{
+  if(modelSelected==='default'||modelSelected==='new'||modelRevision<1||!confirm(t('modelsDeleteConfirm')))return;
+  const button=$('model-delete');button.disabled=true;
+  try{await api('/agentsql/models/'+encodeURIComponent(modelSelected),undefined,'DELETE');await loadModel('default');modelStatus(t('modelsDeleted'));}
+  catch{modelStatus(t('failed'),true);}finally{modelCatalogControls();}
+};
 $('model-check').onclick=async()=>{
   if(!modelsVisible||modelRevision===null||modelRevision===0)return;
   const button=$('model-check');button.disabled=true;modelStatus(t('modelsChecking'));
-  try{await api('/agentsql/model/check',undefined,'POST');modelStatus(t('modelsCheckSuccess'));}
+  const path=modelSelected==='default'?'/agentsql/model/check':'/agentsql/models/'+encodeURIComponent(modelSelected)+'/check';
+  try{await api(path,undefined,'POST');modelStatus(t('modelsCheckSuccess'));}
   catch{modelStatus(t('failed'),true);}finally{button.disabled=false;}
 };
 $('model-form').onsubmit=async event=>{
@@ -1035,7 +1074,18 @@ $('model-form').onsubmit=async event=>{
   const update={revision:modelRevision,name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
     api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value),temperature:Number($('model-temperature').value)};
   if($('model-key').value!=='')update.api_key=$('model-key').value;
-  try{await api('/agentsql/model',update,modelRevision===0?'POST':'PUT');await loadModel();modelStatus(t('modelsSaved'));}
+  const before=new Set(modelCatalog.map(item=>String(item.id)));
+  const path=modelSelected==='new'?'/agentsql/models':modelSelected==='default'?'/agentsql/model':'/agentsql/models/'+encodeURIComponent(modelSelected);
+  const method=modelRevision===0?'POST':'PUT';
+  try{
+    await api(path,update,method);
+    if(modelSelected==='new'){
+      const catalog=await api('/agentsql/models');
+      const created=catalog.find(item=>!before.has(String(item.id)));
+      await loadModel(created?String(created.id):'default');
+    }else await loadModel(modelSelected);
+    modelStatus(t('modelsSaved'));
+  }
   catch{modelStatus(t('failed'),true);}finally{submit.disabled=false;$('model-key').value='';}
 };
 $('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1;void loadVariables();};
