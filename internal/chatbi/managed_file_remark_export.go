@@ -99,6 +99,38 @@ func (h *Handler) exportManagedFileRemarks(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	datasource := ID(r.PathValue("id"))
+	if datasource == "0" {
+		sheets := []managedRemarkSheet{
+			{name: "数据表列表", rows: [][]string{{"Sheet名称", "表名", "表备注"},
+				{"Sheet0", "user", "示例用户表备注"}, {"Sheet1", "course", "示例课程表备注"}}},
+			{name: "Sheet0", rows: [][]string{{"字段名", "字段备注"},
+				{"id", "示例用户 ID"}, {"name", "示例姓名"}}},
+			{name: "Sheet1", rows: [][]string{{"字段名", "字段备注"},
+				{"id", "示例课程 ID"}, {"user_id", "示例用户 ID"}}},
+		}
+		data, err := managedRemarkWorkbook(sheets)
+		if err != nil {
+			failure(w, ErrUnavailable)
+			return
+		}
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.service.auditSemanticExport(r.Context(), p, "datasource.remark-template", 0); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Content-Disposition", `attachment; filename="agentsql-remark-template.xlsx"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+		return
+	}
 	if !datasource.Valid() {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
 		return
