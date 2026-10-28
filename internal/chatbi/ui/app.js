@@ -40,6 +40,8 @@ Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',
 Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Create and review accounts, manage workspace membership and enable or disable users. Management changes are audited.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
 Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'设置初始密码并选择当前工作空间。密码只在此提交一次。',usersName:'姓名',usersEmail:'邮箱',usersInitialPassword:'初始密码（12–72 字符）',usersCreateSubmit:'创建用户',usersCreated:'用户已创建'});
 Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
+Object.assign(copy['zh-CN'], {usersImport:'批量导入用户',usersImportNote:'下载模板并填写工作空间名称；部署者须先配置初始密码。目前仅导入 XLSX 中的本地普通成员，其他行进入错误报告。',usersImportTemplate:'下载模板',usersImportFile:'用户 XLSX 文件（最多 4 MiB）',usersImportSubmit:'开始导入',usersImportErrors:'下载错误报告',usersImportResult:'导入成功 {success} 条，失败 {error} 条。',usersImportPassword:'请部署者先配置批量导入的初始密码。'});
+Object.assign(copy.en, {usersImport:'Import users',usersImportNote:'Download the template and enter workspace names. The deployer must configure an initial password first. Only local members in XLSX files are imported; other rows enter the error report.',usersImportTemplate:'Download template',usersImportFile:'User XLSX file (up to 4 MiB)',usersImportSubmit:'Import users',usersImportErrors:'Download error report',usersImportResult:'Imported {success} users; {error} failed.',usersImportPassword:'Ask the deployer to configure the initial password for imports.'});
 Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资料已更新'});
 Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
 Object.assign(copy['zh-CN'], {usersVariablesTitle:'系统变量绑定',usersVariablesNote:'仅管理当前工作空间的取值；行权限尚未使用这些绑定。',usersVariablesEmpty:'当前没有可选变量。',usersVariable:'变量',usersVariableValue:'取值',usersVariableChoose:'请选择变量',usersVariableMissing:'变量已不可用，请移除此绑定',usersVariableAdd:'+ 添加绑定',usersVariableInvalid:'请检查变量、取值和范围。',usersVariableOtherWorkspace:'切换右侧账号的当前工作空间后才能编辑此空间的变量绑定。',usersVariableReadFailed:'变量列表读取失败，当前不能编辑绑定。',usersVariableNeedsMembership:'先把用户加入当前工作空间，再设置变量绑定。'});
@@ -82,7 +84,7 @@ const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
 let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
-let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
+let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1,userImportReportKey='';
 let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
 let modelsVisible=false,modelsEpoch=0,modelRevision=null,modelSelected='default',modelCatalog=[];
@@ -306,7 +308,7 @@ async function downloadExport(id,chatID,format,button){
 }
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
-function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
+function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;userImportReportKey='';$('users-import-errors').hidden=true;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
 function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
@@ -1044,6 +1046,44 @@ $('user-create-form').onsubmit=async event=>{
     $('users-status').textContent=t('usersCreated');$('users-status').classList.remove('error');
   }catch(error){$('users-status').textContent=error.message===t('usersVariableInvalid')?error.message:t('failed');$('users-status').classList.add('error');}
   finally{submit.disabled=false;$('user-create-password').value='';}
+};
+async function downloadUserImportFile(path,filename){
+  const response=await fetch(apiRoot+path,{headers:{'X-SQLBOT-TOKEN':'Bearer '+token}});
+  if(!response.ok||!response.headers.get('Content-Type')?.includes('spreadsheetml.sheet'))throw new Error('download');
+  const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+$('users-import-template').onclick=async()=>{
+  const button=$('users-import-template');button.disabled=true;
+  try{await downloadUserImportFile('/user/template','agentsql-users.xlsx');$('users-status').textContent='';}
+  catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{button.disabled=false;}
+};
+$('users-import-form').onsubmit=async event=>{
+  event.preventDefault();const file=$('users-import-file').files?.[0],button=event.target.querySelector('button[type=submit]');
+  if(!file||file.size>4*1024*1024||!file.name.toLowerCase().endsWith('.xlsx')){$('users-status').textContent=t('failed');$('users-status').classList.add('error');return;}
+  button.disabled=true;userImportReportKey='';$('users-import-errors').hidden=true;
+  try{
+    const body=new FormData();body.append('file',file);
+    const response=await fetch(apiRoot+'/user/batchImport',{method:'POST',headers:{'X-SQLBOT-TOKEN':'Bearer '+token},body});
+    if(response.status===409)throw new Error('password');
+    if(!response.ok)throw new Error('upload');
+    const envelope=await response.json(),report=envelope.data;
+    if(envelope.code!==0||!Number.isInteger(report?.successCount)||!Number.isInteger(report?.errorCount))throw new Error('upload');
+    userImportReportKey=typeof report.dataKey==='string'?report.dataKey:'';
+    $('users-import-errors').hidden=!userImportReportKey;
+    $('users-import-file').value='';await loadUsers();
+    $('users-status').textContent=t('usersImportResult').replace('{success}',String(report.successCount)).replace('{error}',String(report.errorCount));
+    $('users-status').classList.toggle('error',report.errorCount>0);
+  }catch(error){$('users-status').textContent=t(error.message==='password'?'usersImportPassword':'failed');$('users-status').classList.add('error');}
+  finally{button.disabled=false;}
+};
+$('users-import-errors').onclick=async()=>{
+  if(!userImportReportKey)return;const button=$('users-import-errors');button.disabled=true;
+  try{await downloadUserImportFile('/user/errorRecord/'+encodeURIComponent(userImportReportKey),'agentsql-user-import-errors.xlsx');}
+  catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{button.disabled=false;}
 };
 $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
