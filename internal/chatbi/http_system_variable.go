@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // SystemVariable is workspace-scoped configuration. It has no query authority
@@ -26,18 +27,36 @@ func validSystemVariable(variable SystemVariable) bool {
 	if variable.ID < 0 || variable.ID > maxSQLBotBrowserID ||
 		variable.Name == "" || len(variable.Name) > 128 || strings.TrimSpace(variable.Name) != variable.Name ||
 		strings.ContainsAny(variable.Name, "\r\n\x00") || len(variable.Value) > 8192 ||
-		(variable.VarType != "text" && variable.VarType != "number" && variable.VarType != "datetime") {
+		(variable.VarType != "text" && variable.VarType != "kv" && variable.VarType != "number" && variable.VarType != "datetime") {
 		return false
 	}
 	var values []json.RawMessage
 	if json.Unmarshal(variable.Value, &values) != nil || len(values) == 0 || len(values) > 100 {
 		return false
 	}
+	keys := make(map[string]bool)
 	for _, raw := range values {
 		if len(raw) > 512 || string(raw) == "null" {
 			return false
 		}
 		switch variable.VarType {
+		case "kv":
+			var pair map[string]json.RawMessage
+			if json.Unmarshal(raw, &pair) != nil || len(pair) != 2 {
+				return false
+			}
+			var key, value string
+			if json.Unmarshal(pair["key"], &key) != nil || json.Unmarshal(pair["value"], &value) != nil ||
+				key == "" || value == "" || len(key) > 128 || len(value) > 500 ||
+				strings.TrimSpace(key) != key || strings.TrimSpace(value) != value || keys[key] {
+				return false
+			}
+			for _, char := range key + value {
+				if unicode.IsControl(char) {
+					return false
+				}
+			}
+			keys[key] = true
 		case "text", "datetime":
 			var value string
 			if json.Unmarshal(raw, &value) != nil || value == "" || len(value) > 500 {

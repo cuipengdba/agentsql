@@ -49,8 +49,8 @@ Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpd
 Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
 Object.assign(copy['zh-CN'], {currentWorkspace:'当前工作空间',workspaceSwitching:'正在切换工作空间…'});
 Object.assign(copy.en, {currentWorkspace:'Current workspace',workspaceSwitching:'Switching workspace…'});
-Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。行权限尚未接入变量解析，此页面配置目前不会改变查询权限。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
-Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in the current workspace. Row permissions do not yet resolve these values, so this configuration does not change query access.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
+Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。行权限尚未接入变量解析，此页面配置目前不会改变查询权限。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesKV:'键值',variablesKey:'键',variablesValue:'值',variablesAddPair:'+ 添加键值',variablesRemovePair:'移除',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
+Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in the current workspace. Row permissions do not yet resolve these values, so this configuration does not change query access.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesKV:'Key/value',variablesKey:'Key',variablesValue:'Value',variablesAddPair:'+ Add pair',variablesRemovePair:'Remove',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
 Object.assign(copy['zh-CN'], {usersDelete:'删除用户',usersDeleted:'用户已删除',confirmDeleteUser:'确定删除此用户及其在 AgentSQL 中的个人数据？此操作无法撤销。'});
 Object.assign(copy.en, {usersDelete:'Delete user',usersDeleted:'User deleted',confirmDeleteUser:'Delete this user and their private data in AgentSQL? This cannot be undone.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
@@ -347,7 +347,22 @@ async function loadAPIKeys(){
   }catch{keyStatus(t('failed'),true);}
 }
 function variableStatus(message,error=false){$('variable-status').textContent=message;$('variable-status').classList.toggle('error',error);}
-function resetVariableForm(){variableEditingID=null;$('variable-form').reset();$('variable-editor').querySelector('summary').textContent=t('variablesAdd');$('variable-editor').open=false;}
+function addVariableKVRow(key='',value=''){
+  const row=node('div',undefined,'variable-kv-row'),keyInput=node('input'),valueInput=node('input'),remove=node('button',t('variablesRemovePair'));
+  keyInput.type='text';keyInput.maxLength=128;keyInput.value=key;keyInput.dataset.placeholder='variablesKey';keyInput.placeholder=t('variablesKey');keyInput.dataset.kvKey='';
+  valueInput.type='text';valueInput.maxLength=500;valueInput.value=value;valueInput.dataset.placeholder='variablesValue';valueInput.placeholder=t('variablesValue');valueInput.dataset.kvValue='';
+  keyInput.required=valueInput.required=true;remove.type='button';remove.dataset.i18n='variablesRemovePair';
+  remove.onclick=()=>{if($('variable-kv-rows').children.length>1)row.remove();};
+  row.append(keyInput,valueInput,remove);$('variable-kv-rows').append(row);
+}
+function toggleVariableValueEditor(){
+  const kv=$('variable-type').value==='kv';
+  $('variable-values-label').hidden=kv;$('variable-values').hidden=kv;$('variable-values').required=!kv;
+  $('variable-kv-editor').hidden=!kv;
+  if(kv&&!$('variable-kv-rows').children.length)addVariableKVRow();
+  for(const input of $('variable-kv-rows').querySelectorAll('input'))input.required=kv;
+}
+function resetVariableForm(){variableEditingID=null;$('variable-form').reset();$('variable-kv-rows').replaceChildren();toggleVariableValueEditor();$('variable-editor').querySelector('summary').textContent=t('variablesAdd');$('variable-editor').open=false;}
 async function loadVariables(){
   if(!variablesVisible)return;
   const epoch=++variablesEpoch;
@@ -359,12 +374,15 @@ async function loadVariables(){
     const list=$('variable-list');list.replaceChildren();
     for(const variable of result.items||[]){
       const article=node('article',undefined,'user-item'),detail=node('div');
-      detail.append(node('strong',variable.name),node('small',t('variablesType')+': '+t(variable.var_type==='number'?'variablesNumber':variable.var_type==='datetime'?'variablesDate':'variablesText')));
-      detail.append(node('small',(variable.value||[]).map(value=>String(value)).join(', ')));
+      detail.append(node('strong',variable.name),node('small',t('variablesType')+': '+t(variable.var_type==='kv'?'variablesKV':variable.var_type==='number'?'variablesNumber':variable.var_type==='datetime'?'variablesDate':'variablesText')));
+      detail.append(node('small',(variable.value||[]).map(value=>variable.var_type==='kv'?String(value.key)+': '+String(value.value):String(value)).join(', ')));
       const actions=node('div',undefined,'user-actions'),edit=node('button',t('edit')),remove=node('button',t('variablesDelete'));
       edit.type='button';remove.type='button';
       edit.onclick=()=>{variableEditingID=variable.id;$('variable-name').value=variable.name;$('variable-type').value=variable.var_type;
-        $('variable-values').value=(variable.value||[]).map(value=>String(value)).join('\n');$('variable-editor').querySelector('summary').textContent=t('variablesEdit');$('variable-editor').open=true;$('variable-name').focus();};
+        $('variable-values').value='';$('variable-kv-rows').replaceChildren();
+        if(variable.var_type==='kv')for(const pair of variable.value||[])addVariableKVRow(pair.key,pair.value);
+        else $('variable-values').value=(variable.value||[]).map(value=>String(value)).join('\n');
+        toggleVariableValueEditor();$('variable-editor').querySelector('summary').textContent=t('variablesEdit');$('variable-editor').open=true;$('variable-name').focus();};
       remove.onclick=async()=>{if(!window.confirm(t('variablesDeleteConfirm')))return;remove.disabled=true;
         try{await api('/sys_variable/delete',[variable.id]);await loadVariables();variableStatus(t('variablesDeleted'));}
         catch{variableStatus(t('failed'),true);remove.disabled=false;}};
@@ -985,12 +1003,19 @@ $('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1
 $('variable-prev').onclick=()=>{if(variablePage>1){variablePage--;void loadVariables();}};
 $('variable-next').onclick=()=>{if(variablePage<variableTotalPages){variablePage++;void loadVariables();}};
 $('variable-cancel').onclick=resetVariableForm;
+$('variable-type').onchange=()=>{$('variable-values').value='';$('variable-kv-rows').replaceChildren();toggleVariableValueEditor();};
+$('variable-kv-add').onclick=()=>{if($('variable-kv-rows').children.length<100)addVariableKVRow();};
 $('variable-form').onsubmit=async event=>{
   event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;
   const lines=$('variable-values').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
   let values=lines;
-  if($('variable-type').value==='number')values=lines.map(value=>Number(value));
-  if(!lines.length||lines.length>100||values.some(value=>typeof value==='number'&&!Number.isFinite(value))){variableStatus(t('failed'),true);button.disabled=false;return;}
+  if($('variable-type').value==='kv'){
+    values=[...$('variable-kv-rows').children].map(row=>({key:row.querySelector('[data-kv-key]').value.trim(),value:row.querySelector('[data-kv-value]').value.trim()}));
+    if(!values.length||values.length>100||values.some(pair=>!pair.key||!pair.value)||new Set(values.map(pair=>pair.key)).size!==values.length){variableStatus(t('failed'),true);button.disabled=false;return;}
+  }else{
+    if($('variable-type').value==='number')values=lines.map(value=>Number(value));
+    if(!lines.length||lines.length>100||values.some(value=>typeof value==='number'&&!Number.isFinite(value))){variableStatus(t('failed'),true);button.disabled=false;return;}
+  }
   const input={name:$('variable-name').value.trim(),var_type:$('variable-type').value,value:values};
   if(variableEditingID!==null)input.id=variableEditingID;
   try{await api('/sys_variable/save',input);resetVariableForm();await loadVariables();variableStatus(t('variablesSaved'));}

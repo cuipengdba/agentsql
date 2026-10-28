@@ -9,6 +9,55 @@ import (
 	"testing"
 )
 
+func TestKeyValueSystemVariableRoundTripAndValidation(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	path := "/api/v1/sys_variable/save"
+	create := accountRequest(t, handler, http.MethodPost, path,
+		`{"name":"department","var_type":"kv","value":[{"key":"east","value":"华东"},{"key":"west","value":"华西"}]}`, adminToken)
+	if create.Code != http.StatusOK {
+		t.Fatalf("create key-value variable: %d %s", create.Code, create.Body.String())
+	}
+	items, err := service.Store.SystemVariables(context.Background(), "1", "department")
+	if err != nil || len(items) != 1 || items[0].VarType != "kv" ||
+		string(items[0].Value) != `[{"key":"east","value":"华东"},{"key":"west","value":"华西"}]` {
+		t.Fatalf("stored key-value variable: %+v %v", items, err)
+	}
+	page := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listPage/1/10", `{}`, adminToken)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `"var_type":"kv"`) {
+		t.Fatalf("original variable page could not read key-value type: %d %s", page.Code, page.Body.String())
+	}
+	for _, input := range []string{
+		`{"name":"bad","var_type":"kv","value":[{"key":"east","value":"x"},{"key":"east","value":"y"}]}`,
+		`{"name":"bad","var_type":"kv","value":[{"key":"","value":"x"}]}`,
+		`{"name":"bad","var_type":"kv","value":[{"key":"east","value":" "}]}`,
+		`{"name":"bad","var_type":"kv","value":[{"key":"east","value":1}]}`,
+		`{"name":"bad","var_type":"kv","value":[{"key":"east","value":"x","extra":true}]}`,
+	} {
+		denied := accountRequest(t, handler, http.MethodPost, path, input, adminToken)
+		if denied.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid key-value variable accepted: %d %s", denied.Code, input)
+		}
+	}
+	updateBody, _ := json.Marshal(map[string]any{"id": strconv.FormatInt(items[0].ID, 10),
+		"name": "department", "var_type": "kv", "value": []map[string]string{{"key": "east", "value": "华东地区"}}})
+	if denied := accountRequest(t, handler, http.MethodPost, path, string(updateBody), memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member edited key-value variable: %d", denied.Code)
+	}
+	updated := accountRequest(t, handler, http.MethodPost, path, string(updateBody), adminToken)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update key-value variable: %d %s", updated.Code, updated.Body.String())
+	}
+	current, err := service.Store.SystemVariables(context.Background(), "1", "department")
+	if err != nil || len(current) != 1 || current[0].CreatedBy != "1" ||
+		string(current[0].Value) != `[{"key":"east","value":"华东地区"}]` {
+		t.Fatalf("updated key-value variable: %+v %v", current, err)
+	}
+	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
+	if err != nil || len(audits) != 2 {
+		t.Fatalf("key-value variable not audited: %d %v", len(audits), err)
+	}
+}
+
 func TestSystemVariablesAreScopedAuditedAndDoNotLeakToMembers(t *testing.T) {
 	service, handler, adminToken, bobToken := adminUsersFixture(t)
 	create := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/save",
