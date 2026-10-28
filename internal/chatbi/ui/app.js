@@ -646,7 +646,7 @@ document.addEventListener('agentsql:show-chat-settings',()=>{
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
 });
-async function loadSource(source){
+async function loadSource(source,restoreTableID=null){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
@@ -667,6 +667,7 @@ async function loadSource(source){
     for(const table of tables){
       const group=node('div',undefined,'source-table-group');
       const button=node('button',table.table_name,'source-table');button.type='button';
+      button.dataset.tableId=String(table.id);
       button.title=table.custom_comment||table.table_name;
       button.onclick=()=>{void loadSourceTable(source,table);};group.append(button);
       if(managed){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
@@ -677,6 +678,8 @@ async function loadSource(source){
     }
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
+    if(restoreTableID!==null){const restored=tables.find(table=>String(table.id)===String(restoreTableID));
+      if(restored)await loadSourceTable(source,restored);}
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
 }
 function validSourceRemark(value){return [...value].length<=500&&!/[\u0000-\u001f\u007f-\u009f]/u.test(value);}
@@ -691,10 +694,7 @@ async function saveSourceRemark(source,table,field,button){
     const path=field?'/datasource/editField':'/datasource/editTable';
     await api(path,{...(field||table),custom_comment:value},'POST');
     if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
-    await loadSource(source);
-    if(field){const refreshed=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
-      const matching=refreshed.find(item=>String(item.id)===String(table.id));
-      if(matching)await loadSourceTable(source,matching);}
+    await loadSource(source,table.id);
     sourceStatus(t('sourceRemarkSaved'));
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
@@ -727,7 +727,8 @@ function renderSourceRemarkTools(source){
       if(!response.ok)throw new Error('remark import');
       const envelope=await response.json();if(envelope.code!==0)throw new Error('remark import');
       if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
-      await loadSource(source);sourceStatus(t('sourceRemarkImported'));
+      const active=$('source-tables').querySelector('.source-table.active')?.dataset.tableId;
+      await loadSource(source,active||null);sourceStatus(t('sourceRemarkImported'));
     }catch{sourceStatus(t('failed'),true);}finally{submit.disabled=false;}
   };
   tools.append(form);$('source-select-form').after(tools);
