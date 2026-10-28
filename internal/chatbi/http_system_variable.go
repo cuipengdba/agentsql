@@ -34,8 +34,13 @@ func validSystemVariable(variable SystemVariable) bool {
 	if json.Unmarshal(variable.Value, &values) != nil || len(values) == 0 || len(values) > 100 {
 		return false
 	}
+	if (variable.VarType == "number" || variable.VarType == "datetime") && len(values) != 2 {
+		return false
+	}
 	keys := make(map[string]bool)
-	for _, raw := range values {
+	var numberBounds [2]float64
+	var dateBounds [2]time.Time
+	for index, raw := range values {
 		if len(raw) > 512 || string(raw) == "null" {
 			return false
 		}
@@ -63,24 +68,33 @@ func validSystemVariable(variable SystemVariable) bool {
 				return false
 			}
 			if variable.VarType == "datetime" {
-				if _, err := time.Parse(time.RFC3339, value); err != nil {
-					if _, err = time.Parse("2006-01-02", value); err != nil {
+				date, err := time.Parse("2006-01-02", value)
+				if err != nil {
+					date, err = time.Parse(time.RFC3339, value)
+					if err != nil {
 						return false
 					}
 				}
+				dateBounds[index] = date
 			}
 		case "number":
-			if (raw[0] != '-' && (raw[0] < '0' || raw[0] > '9')) || !validFiniteNumber(string(raw)) {
+			number, valid := finiteNumber(string(raw))
+			if (raw[0] != '-' && (raw[0] < '0' || raw[0] > '9')) || !valid {
 				return false
 			}
+			numberBounds[index] = number
 		}
+	}
+	if variable.VarType == "number" && numberBounds[0] > numberBounds[1] ||
+		variable.VarType == "datetime" && dateBounds[0].After(dateBounds[1]) {
+		return false
 	}
 	return true
 }
 
-func validFiniteNumber(value string) bool {
+func finiteNumber(value string) (float64, bool) {
 	number, err := strconv.ParseFloat(value, 64)
-	return err == nil && !math.IsNaN(number) && !math.IsInf(number, 0)
+	return number, err == nil && !math.IsNaN(number) && !math.IsInf(number, 0)
 }
 
 func systemVariableKey(workspace ID, id int64) objectKey {

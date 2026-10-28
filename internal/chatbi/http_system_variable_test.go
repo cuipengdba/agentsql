@@ -58,6 +58,34 @@ func TestKeyValueSystemVariableRoundTripAndValidation(t *testing.T) {
 	}
 }
 
+func TestRangeSystemVariableShapeAndBounds(t *testing.T) {
+	_, handler, adminToken, _ := adminUsersFixture(t)
+	path := "/api/v1/sys_variable/save"
+	for _, input := range []string{
+		`{"name":"budget","var_type":"number","value":[-5,100]}`,
+		`{"name":"period","var_type":"datetime","value":["2026-01-01","2026-12-31"]}`,
+	} {
+		response := accountRequest(t, handler, http.MethodPost, path, input, adminToken)
+		if response.Code != http.StatusOK {
+			t.Fatalf("valid range rejected: %d %s", response.Code, response.Body.String())
+		}
+	}
+	for _, input := range []string{
+		`{"name":"bad","var_type":"number","value":[1]}`,
+		`{"name":"bad","var_type":"number","value":[10,1]}`,
+		`{"name":"bad","var_type":"number","value":[1,2,3]}`,
+		`{"name":"bad","var_type":"number","value":[1,"2"]}`,
+		`{"name":"bad","var_type":"datetime","value":["2026-12-31","2026-01-01"]}`,
+		`{"name":"bad","var_type":"datetime","value":["2026-01-01"]}`,
+		`{"name":"bad","var_type":"datetime","value":["2026-02-30","2026-12-31"]}`,
+	} {
+		response := accountRequest(t, handler, http.MethodPost, path, input, adminToken)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid range accepted: %d %s", response.Code, input)
+		}
+	}
+}
+
 func TestSystemVariablesAreScopedAuditedAndDoNotLeakToMembers(t *testing.T) {
 	service, handler, adminToken, bobToken := adminUsersFixture(t)
 	create := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/save",
