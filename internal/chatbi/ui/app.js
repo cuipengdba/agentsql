@@ -2,6 +2,7 @@ import { chartSeries, renderChart } from './chart.js';
 import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
 import { setupChatSettings } from './chat-settings.js';
+import { setupUserVariableEditor } from './user-variables.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -41,6 +42,8 @@ Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'
 Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
 Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资料已更新'});
 Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
+Object.assign(copy['zh-CN'], {usersVariablesTitle:'系统变量绑定',usersVariablesNote:'仅管理当前工作空间的取值；行权限尚未使用这些绑定。',usersVariablesEmpty:'当前没有可选变量。',usersVariable:'变量',usersVariableValue:'取值',usersVariableChoose:'请选择变量',usersVariableMissing:'变量已不可用，请移除此绑定',usersVariableAdd:'+ 添加绑定',usersVariableInvalid:'请检查变量、取值和范围。',usersVariableOtherWorkspace:'切换右侧账号的当前工作空间后才能编辑此空间的变量绑定。',usersVariableReadFailed:'变量列表读取失败，当前不能编辑绑定。',usersVariableNeedsMembership:'先把用户加入当前工作空间，再设置变量绑定。'});
+Object.assign(copy.en, {usersVariablesTitle:'System variable assignments',usersVariablesNote:'Manage values in the current workspace only. Row permissions do not yet use these assignments.',usersVariablesEmpty:'No variables are available in this workspace.',usersVariable:'Variable',usersVariableValue:'Value',usersVariableChoose:'Choose a variable',usersVariableMissing:'Variable unavailable; remove this assignment',usersVariableAdd:'+ Add assignment',usersVariableInvalid:'Check the variable, selected values and range.',usersVariableOtherWorkspace:'Switch your account to this workspace before editing its variable assignments.',usersVariableReadFailed:'The variable list could not be loaded. Assignments cannot be edited.',usersVariableNeedsMembership:'Add this user to the current workspace before assigning variables.'});
 Object.assign(copy['zh-CN'], {usersResetPassword:'重置密码',usersResetNote:'重置后，该用户所有旧会话将失效。',usersPasswordReset:'密码已重置'});
 Object.assign(copy.en, {usersResetPassword:'Reset password',usersResetNote:'Resetting invalidates all of this user’s old sessions.',usersPasswordReset:'Password reset'});
 Object.assign(copy['zh-CN'], {workspaceCreate:'创建工作空间',workspaceName:'名称',workspaceCreateSubmit:'创建',workspaceCreated:'工作空间已创建'});
@@ -76,6 +79,7 @@ let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStora
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
 let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
 let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
+let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
 let modelsVisible=false,modelsEpoch=0,modelRevision=null;
 const t=key=>copy[lang][key];
@@ -298,7 +302,7 @@ async function downloadExport(id,chatID,format,button){
 }
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
-function hideUsers(){usersVisible=false;usersEpoch++;$('users').hidden=true;$('users-nav').classList.remove('active');}
+function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
 function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
@@ -412,13 +416,30 @@ async function showVariables(){
   variablesVisible=true;$('variables').hidden=false;$('variables-nav').classList.add('active');
   resetVariableForm();await loadVariables();
 }
+function renderUserCreateVariables(){
+  const container=$('user-create-variables'),workspace=$('users-workspace').value;
+  container.replaceChildren();userCreateVariableEditor=null;userCreateVariableWorkspace=workspace;
+  if(workspace!==$('account-workspace').value){
+    container.append(node('p',t('usersVariableOtherWorkspace'),'user-variable-note'));return;
+  }
+  if(userVariableDefinitions===null){
+    container.append(node('p',t('usersVariableReadFailed'),'user-variable-note'));return;
+  }
+  userCreateVariableEditor=setupUserVariableEditor({container,definitions:userVariableDefinitions,t,node});
+}
 async function loadUsers(){
   if(!usersVisible)return;
   const epoch=++usersEpoch,query=new URLSearchParams({keyword:$('users-search').value.trim()});
   $('users-status').textContent=t('reading');
   try{
-    const result=await api('/user/pager/'+userPage+'/20?'+query);
+    const selectedWorkspace=$('users-workspace').value;
+    const [result,definitions]=await Promise.all([
+      api('/user/pager/'+userPage+'/20?'+query),
+      selectedWorkspace===$('account-workspace').value?api('/sys_variable/listAll',{}).catch(()=>null):Promise.resolve(null)
+    ]);
     if(!usersVisible||epoch!==usersEpoch)return;
+    userVariableDefinitions=Array.isArray(definitions)?definitions:null;
+    if($('user-create').open&&(!userCreateVariableEditor||userCreateVariableWorkspace!==selectedWorkspace))renderUserCreateVariables();
     userTotalPages=Math.max(1,result.total_pages||0);
     if(userPage>userTotalPages){userPage=userTotalPages;return loadUsers();}
     const list=$('users-list');list.replaceChildren();
@@ -450,15 +471,22 @@ async function loadUsers(){
         nameInput.value=user.name||'';nameInput.required=true;nameInput.maxLength=100;
         emailInput.value=user.email||'';emailInput.type='email';emailInput.maxLength=100;
         nameLabel.append(nameInput);emailLabel.append(emailInput);
+        const variableBox=node('div',undefined,'user-variable-editor');
+        let variableEditor=null;
+        if(workspace!==$('account-workspace').value)variableBox.append(node('p',t('usersVariableOtherWorkspace'),'user-variable-note'));
+        else if(!member)variableBox.append(node('p',t('usersVariableNeedsMembership'),'user-variable-note'));
+        else if(userVariableDefinitions===null)variableBox.append(node('p',t('usersVariableReadFailed'),'user-variable-note'));
+        else variableEditor=setupUserVariableEditor({container:variableBox,definitions:userVariableDefinitions,
+          initial:user.system_variables||[],t,node});
         const save=node('button',t('save'));save.type='submit';save.className='primary';
         const cancel=node('button',t('formCancel'));cancel.type='button';cancel.onclick=()=>form.remove();
-        form.append(nameLabel,emailLabel,save,cancel);
+        form.append(nameLabel,emailLabel,variableBox,save,cancel);
         form.onsubmit=async event=>{
           event.preventDefault();save.disabled=true;
           try{await api('/user',{id:user.id,account:user.account,name:nameInput.value.trim(),email:emailInput.value.trim(),
-            status:user.status,oid_list:user.oid_list||[]},'PUT');await loadUsers();
+            status:user.status,oid_list:user.oid_list||[],...(variableEditor?{system_variables:variableEditor.read()}:{})},'PUT');await loadUsers();
             $('users-status').textContent=t('usersUpdated');$('users-status').classList.remove('error');}
-          catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');save.disabled=false;}
+          catch(error){$('users-status').textContent=error.message===t('usersVariableInvalid')?error.message:t('failed');$('users-status').classList.add('error');save.disabled=false;}
         };
         article.append(form);nameInput.focus();
       };
@@ -946,7 +974,8 @@ $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
 $('users-nav').onclick=()=>{userPage=1;void showUsers();};
-$('users-workspace').onchange=()=>{$('workspace-edit-name').value=$('users-workspace').selectedOptions[0]?.textContent||'';$('workspace-delete').disabled=$('users-workspace').value==='1';void loadUsers();};
+$('users-workspace').onchange=()=>{$('workspace-edit-name').value=$('users-workspace').selectedOptions[0]?.textContent||'';$('workspace-delete').disabled=$('users-workspace').value==='1';userCreateVariableEditor=null;void loadUsers();};
+$('user-create').ontoggle=()=>{if($('user-create').open)renderUserCreateVariables();};
 $('workspace-create-form').onsubmit=async event=>{
   event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
   try{
@@ -981,10 +1010,11 @@ $('user-create-form').onsubmit=async event=>{
   try{
     if(!workspace)throw new Error('workspace');
     await api('/user',{account:$('user-create-account').value.trim(),name:$('user-create-name').value.trim(),
-      email:$('user-create-email').value.trim(),oid_list:[workspace],initial_password:$('user-create-password').value},'POST');
+      email:$('user-create-email').value.trim(),oid_list:[workspace],initial_password:$('user-create-password').value,
+      ...(userCreateVariableEditor?{system_variables:userCreateVariableEditor.read()}:{})},'POST');
     event.target.reset();$('user-create').open=false;await loadUsers();
     $('users-status').textContent=t('usersCreated');$('users-status').classList.remove('error');
-  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  }catch(error){$('users-status').textContent=error.message===t('usersVariableInvalid')?error.message:t('failed');$('users-status').classList.add('error');}
   finally{submit.disabled=false;$('user-create-password').value='';}
 };
 $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
@@ -1055,7 +1085,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();chatSettings.language();if(chatSettings.visible())return;if(dashboard.visible()){dashboard.language();}else if(usersVisible){void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();chatSettings.language();if(chatSettings.visible())return;if(dashboard.visible()){dashboard.language();}else if(usersVisible){userCreateVariableEditor?.refresh();void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
