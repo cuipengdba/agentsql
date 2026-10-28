@@ -11,7 +11,7 @@ import (
 func TestNativeWorkspaceModelCatalogLifecycle(t *testing.T) {
 	service, handler, adminToken, memberToken := adminUsersFixture(t)
 	path := "/api/v1/agentsql/models"
-	create := `{"name":"Second native model","base_model":"fixture-second","api_domain":"http://127.0.0.1:8001/v1","api_key":"catalog-secret","temperature":0.4}`
+	create := `{"name":"Second native model","base_model":"fixture-second","api_domain":"http://127.0.0.1:8001/v1","api_key":"catalog-secret","temperature":0.4,"supplier":3}`
 	if denied := accountRequest(t, handler, http.MethodPost, path, create, memberToken); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("member created model: %d", denied.Code)
 	}
@@ -19,12 +19,13 @@ func TestNativeWorkspaceModelCatalogLifecycle(t *testing.T) {
 		t.Fatalf("native model create: %d %s", created.Code, created.Body.String())
 	}
 	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
-	if err != nil || len(models) != 1 {
+	if err != nil || len(models) != 1 || models[0].Supplier != 3 {
 		t.Fatalf("native model missing: %+v %v", models, err)
 	}
 	id := string(models[0].ID)
 	if listed := accountRequest(t, handler, http.MethodGet, path, "", adminToken); listed.Code != http.StatusOK ||
-		!strings.Contains(listed.Body.String(), id) || strings.Contains(listed.Body.String(), "catalog-secret") || strings.Contains(listed.Body.String(), "127.0.0.1") {
+		!strings.Contains(listed.Body.String(), id) || !strings.Contains(listed.Body.String(), `"supplier":3`) ||
+		strings.Contains(listed.Body.String(), "catalog-secret") || strings.Contains(listed.Body.String(), "127.0.0.1") {
 		t.Fatalf("native catalog leaked or omitted model: %d %s", listed.Code, listed.Body.String())
 	}
 	if denied := accountRequest(t, handler, http.MethodGet, path+"/"+id, "", memberToken); denied.Code != http.StatusUnauthorized {
@@ -32,7 +33,7 @@ func TestNativeWorkspaceModelCatalogLifecycle(t *testing.T) {
 	}
 	view := accountRequest(t, handler, http.MethodGet, path+"/"+id, "", adminToken)
 	if view.Code != http.StatusOK || !strings.Contains(view.Body.String(), `"has_api_key":true`) ||
-		!strings.Contains(view.Body.String(), `"temperature":0.4`) || strings.Contains(view.Body.String(), "catalog-secret") {
+		!strings.Contains(view.Body.String(), `"temperature":0.4`) || !strings.Contains(view.Body.String(), `"supplier":3`) || strings.Contains(view.Body.String(), "catalog-secret") {
 		t.Fatalf("native model detail leaked or omitted configuration: %d %s", view.Code, view.Body.String())
 	}
 	var envelope struct {
@@ -62,8 +63,8 @@ func TestNativeWorkspaceModelCatalogLifecycle(t *testing.T) {
 	var parked ModelConfig
 	defaultKey := objectKey{"model", "1", "workspace", "default"}
 	var active ModelConfig
-	if _, err := service.Store.get(context.Background(), defaultKey, &active); err != nil || string(active.ID) != id || active.APIKey != "catalog-secret" {
-		t.Fatalf("native default switch lost active secret: %+v %v", active, err)
+	if _, err := service.Store.get(context.Background(), defaultKey, &active); err != nil || string(active.ID) != id || active.APIKey != "catalog-secret" || active.Supplier != 3 {
+		t.Fatalf("native default switch lost active configuration: %+v %v", active, err)
 	}
 	others, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
 	if err != nil || len(others) != 1 || string(others[0].ID) == id {

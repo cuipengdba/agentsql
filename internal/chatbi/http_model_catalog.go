@@ -48,7 +48,7 @@ func (h *Handler) nativeWorkspaceModelList(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		models = append(models, map[string]any{"id": current.ID, "name": current.Name,
-			"base_model": current.Model, "default_model": true})
+			"base_model": current.Model, "default_model": true, "supplier": modelSupplier(current)})
 	}
 	additional, err := h.service.Store.AdditionalWorkspaceModels(r.Context(), p.Workspace)
 	if err != nil {
@@ -61,7 +61,7 @@ func (h *Handler) nativeWorkspaceModelList(w http.ResponseWriter, r *http.Reques
 	}
 	for _, model := range additional {
 		models = append(models, map[string]any{"id": model.ID, "name": model.Name,
-			"base_model": model.Model, "default_model": false})
+			"base_model": model.Model, "default_model": false, "supplier": modelSupplier(model)})
 	}
 	okay(w, models)
 }
@@ -78,7 +78,7 @@ func (h *Handler) nativeAdditionalModelRead(w http.ResponseWriter, r *http.Reque
 	}
 	okay(w, map[string]any{"id": model.ID, "revision": revision, "name": model.Name,
 		"base_model": model.Model, "api_domain": model.Endpoint, "max_tokens": model.MaxTokens,
-		"temperature": model.Temperature, "allow_http": model.AllowHTTP, "has_api_key": model.APIKey != ""})
+		"temperature": model.Temperature, "allow_http": model.AllowHTTP, "has_api_key": model.APIKey != "", "supplier": modelSupplier(model)})
 }
 
 func (h *Handler) nativeCreateAdditionalModel(w http.ResponseWriter, r *http.Request, p Principal, token string) {

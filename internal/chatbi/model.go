@@ -25,6 +25,7 @@ type ModelConfig struct {
 	AllowHTTP   bool     `json:"allow_http"`
 	MaxTokens   int      `json:"max_tokens"`
 	Temperature *float64 `json:"temperature,omitempty"`
+	Supplier    int      `json:"supplier,omitempty"`
 }
 
 type Column struct {
@@ -76,7 +77,7 @@ type OpenAIModel struct{ Transport http.RoundTripper }
 
 func validateModelConfig(config ModelConfig) error {
 	_, validTemperature := configuredTemperature(config)
-	if !config.ID.Valid() || config.Model == "" || len(config.Model) > 200 || len(config.Name) > 256 || len(config.APIKey) > 8192 || (config.MaxTokens != 0 && (config.MaxTokens < 128 || config.MaxTokens > 16384)) || !validTemperature {
+	if !config.ID.Valid() || config.Model == "" || len(config.Model) > 200 || len(config.Name) > 256 || len(config.APIKey) > 8192 || (config.MaxTokens != 0 && (config.MaxTokens < 128 || config.MaxTokens > 16384)) || !validTemperature || !supportedLegacySupplier(modelSupplier(config)) {
 		return errors.New("invalid model configuration")
 	}
 	_, err := validateEndpoint(config.Endpoint, config.AllowHTTP)
@@ -88,7 +89,30 @@ func configuredTemperature(config ModelConfig) (float64, bool) {
 		return 0, true
 	}
 	value := *config.Temperature
-	return value, !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 1
+	max := 1.0
+	if config.Supplier == 4 || config.Supplier == 7 {
+		max = 2
+	}
+	return value, !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= max
+}
+
+func modelSupplier(config ModelConfig) int {
+	if config.Supplier == 0 {
+		return 15
+	}
+	return config.Supplier
+}
+
+// These pinned SQLBot Community suppliers use the OpenAI-compatible chat
+// protocol without an additional required request parameter. Supplier-specific
+// request formats and arbitrary extra_body values remain unsupported.
+func supportedLegacySupplier(supplier int) bool {
+	switch supplier {
+	case 2, 3, 4, 6, 7, 8, 9, 10, 13, 15:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateEndpoint(endpoint string, allowHTTP bool) (*url.URL, error) {

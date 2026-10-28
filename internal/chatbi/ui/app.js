@@ -72,6 +72,8 @@ Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsTemperature:'Temperature (0–1)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsSelect:'工作空间模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
 Object.assign(copy.en, {modelsSelect:'Workspace model',modelsAdd:'Add model',modelsSetDefault:'Set as default',modelsDelete:'Delete model',modelsDefault:'Default model',modelsNew:'New model',modelsDeleteConfirm:'Delete this nondefault model?',modelsDeleted:'Model deleted with an audit record.',modelsSwitched:'Default model switched with an audit record.'});
+Object.assign(copy['zh-CN'], {modelsSupplier:'供应商',modelsTemperatureExtended:'温度（0–2）',supplierQianfan:'百度千帆',supplierHunyuan:'腾讯混元',supplierTencentCloud:'腾讯云',supplierVolcano:'火山引擎',supplierGeneric:'通用 OpenAI',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；切换默认模型会立即影响本地问数，请先验证模型服务。'});
+Object.assign(copy.en, {modelsSupplier:'Supplier',modelsTemperatureExtended:'Temperature (0–2)',supplierQianfan:'Baidu Qianfan',supplierHunyuan:'Tencent Hunyuan',supplierTencentCloud:'Tencent Cloud',supplierVolcano:'Volcano Engine',supplierGeneric:'Generic OpenAI',modelsIntro:'Manage models used for Q&A in this workspace. Keys are never shown. Switching the default affects local Q&A immediately; verify the model service first.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
 Object.assign(copy.en, {modelsCheck:'Check connection',modelsChecking:'Checking the locally configured model…',modelsCheckSuccess:'The model responded. Test SQL was not executed.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
@@ -308,6 +310,12 @@ function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=nul
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
 function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
+function modelTemperatureRange(){
+  const extended=['4','7'].includes($('model-supplier').value);
+  $('model-temperature').max=extended?'2':'1';
+  document.querySelector('label[for="model-temperature"]').textContent=t(extended?'modelsTemperatureExtended':'modelsTemperature');
+  if(Number($('model-temperature').value)>Number($('model-temperature').max))$('model-temperature').value=$('model-temperature').max;
+}
 function modelCatalogControls(){
   const secondary=modelSelected!=='default'&&modelSelected!=='new'&&modelRevision>0;
   $('model-add').disabled=!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101;
@@ -333,11 +341,12 @@ async function loadModel(selected=modelSelected){
     const model=await api(selected==='default'?'/agentsql/model':'/agentsql/models/'+encodeURIComponent(selected));
     if(!modelsVisible||epoch!==modelsEpoch)return;
     modelRevision=model.revision;modelCatalogControls();
+	$('model-supplier').value=String(model.supplier||15);modelTemperatureRange();
     $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
 	$('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);$('model-temperature').value=String(model.temperature??0);
     $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
   }catch(error){if(modelsVisible&&epoch===modelsEpoch){
-    if(error.status===404&&modelSelected==='default'){modelRevision=0;modelCatalogControls();$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
+    if(error.status===404&&modelSelected==='default'){modelRevision=0;modelCatalogControls();$('model-form').reset();modelTemperatureRange();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
     else modelStatus(t('failed'),true);
   }}
 }
@@ -1043,9 +1052,10 @@ $('variables-nav').onclick=()=>{void showVariables();};
 $('models-nav').onclick=()=>{void showModels();};
 $('model-reload').onclick=()=>{void loadModel();};
 $('model-select').onchange=()=>{modelSelected=$('model-select').value;void loadModel(modelSelected);};
+$('model-supplier').onchange=modelTemperatureRange;
 $('model-add').onclick=()=>{
   if(!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101)return;
-  modelSelected='new';modelRevision=0;$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');
+  modelSelected='new';modelRevision=0;$('model-form').reset();modelTemperatureRange();$('model-key-state').textContent=t('modelsKeyEmpty');
   const option=node('option',t('modelsNew'));option.value='new';$('model-select').append(option);$('model-select').value='new';
   modelCatalogControls();modelStatus('');
 };
@@ -1071,7 +1081,7 @@ $('model-check').onclick=async()=>{
 $('model-form').onsubmit=async event=>{
   event.preventDefault();if(modelRevision===null)return;
   const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
-  const update={revision:modelRevision,name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
+  const update={revision:modelRevision,supplier:Number($('model-supplier').value),name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
     api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value),temperature:Number($('model-temperature').value)};
   if($('model-key').value!=='')update.api_key=$('model-key').value;
   const before=new Set(modelCatalog.map(item=>String(item.id)));

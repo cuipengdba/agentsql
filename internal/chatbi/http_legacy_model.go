@@ -44,7 +44,7 @@ func (h *Handler) legacyModelList(w http.ResponseWriter, r *http.Request, p Prin
 			continue
 		}
 		models = append(models, map[string]any{"id": item.ID, "name": name,
-			"model_type": 0, "base_model": item.Model, "supplier": 15,
+			"model_type": 0, "base_model": item.Model, "supplier": modelSupplier(item),
 			"protocol": 1, "default_model": index == 0, "ws_mapping_count": 1})
 	}
 	okay(w, models)
@@ -65,7 +65,7 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 		configList = append(configList, map[string]any{"key": "temperature", "name": "temperature", "val": *model.Temperature})
 	}
 	okay(w, map[string]any{"id": model.ID, "name": name,
-		"model_type": 0, "base_model": model.Model, "supplier": 15,
+		"model_type": 0, "base_model": model.Model, "supplier": modelSupplier(model),
 		"protocol": 1, "default_model": isDefault, "ws_mapping_count": 1,
 		"api_domain": model.Endpoint, "api_key": "", "has_api_key": model.APIKey != "",
 		"config_list": configList})
@@ -207,11 +207,11 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	if input.ID != "" || input.ModelType == nil || *input.ModelType != 0 ||
-		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 {
+		input.Supplier == nil || !supportedLegacySupplier(*input.Supplier) || input.Protocol == nil || *input.Protocol != 1 {
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
-	temperature, err := parseLegacyModelTemperature(input.ConfigList)
+	temperature, err := parseLegacyModelTemperature(input.ConfigList, *input.Supplier)
 	if err != nil {
 		failure(w, err)
 		return
@@ -234,7 +234,7 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
-	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey, Temperature: temperature}
+	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey, Temperature: temperature, Supplier: *input.Supplier}
 	var current ModelConfig
 	_, existingErr := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &current)
 	if existingErr == nil && validateModelConfig(current) != nil {
@@ -282,12 +282,12 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	if !input.ID.Valid() || input.ModelType == nil || *input.ModelType != 0 ||
-		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 ||
+		input.Supplier == nil || !supportedLegacySupplier(*input.Supplier) || input.Protocol == nil || *input.Protocol != 1 ||
 		input.DefaultModel == nil {
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
-	temperature, err := parseLegacyModelTemperature(input.ConfigList)
+	temperature, err := parseLegacyModelTemperature(input.ConfigList, *input.Supplier)
 	if err != nil {
 		failure(w, err)
 		return
@@ -295,6 +295,10 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 	current, revision, isDefault, err := h.legacyModelByID(r, p, token, string(input.ID))
 	if err != nil {
 		failure(w, err)
+		return
+	}
+	if modelSupplier(current) != *input.Supplier {
+		failure(w, ErrInvalidAccountChange)
 		return
 	}
 	if *input.DefaultModel != isDefault {
@@ -320,7 +324,7 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	update := WorkspaceModelUpdate{Revision: revision, Name: input.Name, Model: input.BaseModel,
-		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens, Temperature: temperature, ReplaceTemperature: true}
+		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens, Temperature: temperature, ReplaceTemperature: true, Supplier: *input.Supplier}
 	if isDefault {
 		err = h.service.Store.UpdateWorkspaceModel(r.Context(), p, update)
 	} else {
@@ -406,7 +410,7 @@ func (h *Handler) legacyModelByID(r *http.Request, p Principal, token, id string
 	return model, revision, false, nil
 }
 
-func parseLegacyModelTemperature(items []json.RawMessage) (*float64, error) {
+func parseLegacyModelTemperature(items []json.RawMessage, supplier int) (*float64, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
@@ -422,7 +426,8 @@ func parseLegacyModelTemperature(items []json.RawMessage) (*float64, error) {
 	if json.Unmarshal(fields["key"], &key) != nil || key != "temperature" ||
 		json.Unmarshal(fields["name"], &name) != nil || name != "temperature" ||
 		strings.TrimSpace(string(fields["val"])) == "null" ||
-		json.Unmarshal(fields["val"], &value) != nil || value < 0 || value > 1 {
+		json.Unmarshal(fields["val"], &value) != nil || value < 0 || value > 2 ||
+		value > 1 && supplier != 4 && supplier != 7 {
 		return nil, ErrInvalidAccountChange
 	}
 	return &value, nil

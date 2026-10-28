@@ -88,12 +88,19 @@ func TestMCPModelListRequiresMembershipAndExcludesSecrets(t *testing.T) {
 	if err := service.Store.put(context.Background(), key, model, revision); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.Store.put(context.Background(), additionalModelKey("1", "21"), ModelConfig{
+		ID: "21", Name: "Private DeepSeek model", Model: "fixture-deepseek", Supplier: 3,
+		Endpoint: "http://127.0.0.1:8001/v1", APIKey: "secondary-secret",
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
 	listed := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_model_list", `{"token":"`+token+`","oid":1}`, "")
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"name":"Private local model"`) ||
-		!strings.Contains(listed.Body.String(), `"id":20`) {
+		!strings.Contains(listed.Body.String(), `"id":20`) || !strings.Contains(listed.Body.String(), `"id":21`) ||
+		!strings.Contains(listed.Body.String(), `"supplier":3`) || !strings.Contains(listed.Body.String(), `"default_model":false`) {
 		t.Fatalf("MCP model list: %d %s", listed.Code, listed.Body.String())
 	}
-	for _, secret := range []string{"never-expose-this-key", "api_key", "api_domain", "127.0.0.1"} {
+	for _, secret := range []string{"never-expose-this-key", "secondary-secret", "api_key", "api_domain", "127.0.0.1"} {
 		if strings.Contains(listed.Body.String(), secret) {
 			t.Fatalf("model list leaked %s", secret)
 		}

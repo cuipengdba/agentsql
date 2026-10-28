@@ -42,7 +42,7 @@ func (s *Store) CreateAdditionalWorkspaceModel(ctx context.Context, p Principal,
 	if err != nil {
 		return err
 	}
-	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature}
+	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier}
 	if update.APIKey != nil {
 		model.APIKey = *update.APIKey
 	}
@@ -124,6 +124,9 @@ func (s *Store) UpdateAdditionalWorkspaceModel(ctx context.Context, p Principal,
 	next.Name, next.Model, next.Endpoint, next.MaxTokens = update.Name, update.Model, update.Endpoint, update.MaxTokens
 	if update.ReplaceTemperature || update.Temperature != nil {
 		next.Temperature = update.Temperature
+	}
+	if update.Supplier != 0 {
+		next.Supplier = update.Supplier
 	}
 	if update.APIKey != nil {
 		next.APIKey = *update.APIKey

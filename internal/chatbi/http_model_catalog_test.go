@@ -203,6 +203,86 @@ func TestOriginalGenericOpenAITemperatureIsValidatedAndSent(t *testing.T) {
 	}
 }
 
+func TestOriginalOpenAICompatibleSupplierIdentity(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	var receivedTemperature float64
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Temperature float64 `json:"temperature"`
+		}
+		if json.NewDecoder(r.Body).Decode(&payload) != nil {
+			t.Error("invalid upstream model request")
+		}
+		receivedTemperature = payload.Temperature
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales"}`},
+		}}})
+	}))
+	defer provider.Close()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(provider.URL+"/v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := base64.StdEncoding.EncodeToString(ciphertext)
+	create := func(supplier int, config []any) *httptest.ResponseRecorder {
+		t.Helper()
+		payload, err := json.Marshal(map[string]any{"id": "", "name": "Supplier fixture " + string(rune('A'+supplier)),
+			"model_type": 0, "base_model": "fixture-model", "supplier": supplier, "protocol": 1,
+			"api_domain": endpoint, "api_key": "", "config_list": config})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel", string(payload), adminToken)
+	}
+	for _, supplier := range []int{1, 5, 11, 12, 14} {
+		if result := create(supplier, nil); result.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("unsupported supplier %d accepted: %d", supplier, result.Code)
+		}
+	}
+	for _, supplier := range []int{2, 3, 4, 6, 7, 8, 9, 10, 13} {
+		config := []any{}
+		if supplier == 4 || supplier == 7 {
+			config = []any{map[string]any{"key": "temperature", "name": "temperature", "val": 1.5}}
+		} else if supplier != 2 && supplier != 3 {
+			config = []any{map[string]any{"key": "temperature", "name": "temperature", "val": 0.6}}
+		}
+		if result := create(supplier, config); result.Code != http.StatusOK {
+			t.Fatalf("supplier %d create: %d %s", supplier, result.Code, result.Body.String())
+		}
+	}
+	if rejected := create(3, []any{map[string]any{"key": "temperature", "name": "temperature", "val": 1.5}}); rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("out-of-range supplier temperature accepted: %d", rejected.Code)
+	}
+	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
+	if err != nil || len(models) != 9 {
+		t.Fatalf("supplier models missing: %d %v", len(models), err)
+	}
+	for _, model := range models {
+		if !supportedLegacySupplier(model.Supplier) {
+			t.Fatalf("unsupported stored supplier %d", model.Supplier)
+		}
+		detail := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel/"+string(model.ID), "", adminToken)
+		var response struct {
+			Data struct {
+				Supplier int `json:"supplier"`
+			} `json:"data"`
+		}
+		if detail.Code != http.StatusOK || json.Unmarshal(detail.Body.Bytes(), &response) != nil || response.Data.Supplier != model.Supplier {
+			t.Fatalf("supplier %d did not survive original read: %d %s", model.Supplier, detail.Code, detail.Body.String())
+		}
+		if model.Supplier == 7 {
+			if _, err := (OpenAIModel{}).Generate(context.Background(), model, "pg", "show amount", []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}); err != nil || receivedTemperature != 1.5 {
+				t.Fatalf("supplier 7 temperature not sent: received=%v err=%v", receivedTemperature, err)
+			}
+		}
+	}
+}
+
 func TestOriginalDefaultModelSwitchIsAtomicAndReversible(t *testing.T) {
 	service, handler, adminToken, memberToken := adminUsersFixture(t)
 	ctx := context.Background()

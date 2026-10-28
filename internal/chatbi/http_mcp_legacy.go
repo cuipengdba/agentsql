@@ -235,12 +235,21 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	name := model.Name
-	if name == "" {
-		name = model.Model
+	additional, err := h.service.Store.AdditionalWorkspaceModels(r.Context(), p.Workspace)
+	if err != nil {
+		failure(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, []map[string]any{{"id": legacyBrowserID(model.ID),
-		"name": name, "default_model": true, "supplier": 0}})
+	models := make([]map[string]any, 0, len(additional)+1)
+	for index, item := range append([]ModelConfig{model}, additional...) {
+		name := item.Name
+		if name == "" {
+			name = item.Model
+		}
+		models = append(models, map[string]any{"id": legacyBrowserID(item.ID),
+			"name": name, "default_model": index == 0, "supplier": modelSupplier(item)})
+	}
+	writeJSON(w, http.StatusOK, models)
 }
 
 func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token string) error {

@@ -258,9 +258,9 @@ func TestOriginalModelFirstCreateAndSecondCatalogEntry(t *testing.T) {
 	if denied := create(memberToken); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("member created original model: %d", denied.Code)
 	}
-	requestBody["supplier"] = 7
+	requestBody["supplier"] = 1
 	if rejected := create(adminToken); rejected.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("unsupported provider accepted: %d", rejected.Code)
+		t.Fatalf("provider requiring unsupported extra arguments accepted: %d", rejected.Code)
 	}
 	requestBody["supplier"] = 15
 	requestBody["api_domain"] = "http://127.0.0.1:8000/v1"
