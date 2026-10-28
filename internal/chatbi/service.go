@@ -591,9 +591,15 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 				return err
 			}
 		}
+		remarks, err := managedFileRemarkHints(binding, columns)
+		if err != nil {
+			return err
+		}
 		stage = "model"
 		var generated SQLGeneration
-		if grounded, ok := service.Model.(GroundedGenerator); ok {
+		if described, ok := service.Model.(DescribedGenerator); ok {
+			generated, err = described.GenerateWithDescriptions(ctx, model, binding.Dialect, question, columns, history, hints, examples, remarks)
+		} else if grounded, ok := service.Model.(GroundedGenerator); ok {
 			generated, err = grounded.GenerateWithGrounding(ctx, model, binding.Dialect, question, columns, history, hints, examples)
 		} else if semantic, ok := service.Model.(SemanticGenerator); ok {
 			generated, err = semantic.GenerateWithSemantics(ctx, model, binding.Dialect, question, columns, history, hints)
