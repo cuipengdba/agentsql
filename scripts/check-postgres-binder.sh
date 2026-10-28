@@ -66,6 +66,18 @@ SELECT CASE
       )
       AND pg_catalog.has_function_privilege(current_user, p.oid, 'EXECUTE')
   ) <> 10 THEN 'FUNCTION_EXECUTE_MISSING'
+  WHEN NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+    JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+    JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_proc'::regclass
+      AND d.objid=p.oid AND d.refclassid='pg_catalog.pg_extension'::regclass
+      AND d.deptype='e'
+    JOIN pg_catalog.pg_extension e ON e.oid=d.refobjid
+    WHERE n.nspname='agentsql_catalog' AND p.proname='capabilities'
+      AND l.lanname='c' AND p.probin=concat('$', 'libdir/agentsql_binder')
+      AND p.prosrc='agentsql_binder_capabilities' AND e.extname='agentsql_binder'
+  ) THEN 'NATIVE_FUNCTION_MISMATCH'
   ELSE 'READY'
 END;
 SQL
