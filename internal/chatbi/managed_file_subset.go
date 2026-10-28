@@ -13,11 +13,18 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 	if err != nil {
 		return nil, err
 	}
-	return filterManagedFileSchema(binding, columns)
+	columns, err = filterManagedFileSchema(binding, columns)
+	if err != nil {
+		return nil, err
+	}
+	return filterDatabaseSchema(binding, columns)
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {
+		return QueryData{}, err
+	}
+	if err := authorizeDatabaseSelectedSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
 	return service.Gateway.Query(ctx, principal, binding, sql)
@@ -28,6 +35,9 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 // The connector token stays server-side, and both discovery and execution use
 // this restriction before reaching the gateway.
 func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
+	if databaseBinding(binding) {
+		return nil, nil
+	}
 	if binding.SelectedTables == "" {
 		return nil, nil
 	}

@@ -129,11 +129,13 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
 	h.mux.HandleFunc("GET /api/v1/datasource/check/{id}", h.bounded(h.auth(h.datasourceCheck)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTables/{id}", h.bounded(h.auth(h.datasourceTables)))
+	h.mux.HandleFunc("POST /api/v1/datasource/getTablesByConf", h.bounded(h.auth(h.databaseTablesBySavedBinding)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getFields/{id}/{table}", h.bounded(h.auth(h.datasourceFields)))
 	h.mux.HandleFunc("POST /api/v1/datasource/tableList/{id}", h.bounded(h.auth(h.datasourceTableList)))
 	h.mux.HandleFunc("POST /api/v1/datasource/editTable", h.bounded(h.auth(h.editManagedFileTableComment)))
 	h.mux.HandleFunc("POST /api/v1/datasource/chooseTables/{id}", h.bounded(h.auth(h.chooseManagedFileTables)))
 	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/fileTables/{id}", h.bounded(h.auth(h.managedFileTableChoices)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/databaseTables/{id}", h.bounded(h.auth(h.databaseTableChoices)))
 	h.mux.HandleFunc("POST /api/v1/datasource/fieldList/{id}/{tableID}", h.bounded(h.auth(h.datasourceFieldList)))
 	h.mux.HandleFunc("POST /api/v1/datasource/editField", h.bounded(h.auth(h.editManagedFileFieldComment)))
 	h.mux.HandleFunc("GET /api/v1/datasource/exportDsSchema/{id}", h.bounded(h.auth(h.exportManagedFileRemarks)))
@@ -638,7 +640,7 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			kind = b.Dialect
 		}
 		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind,
-			"description": b.Description, "configuration": b.Configuration, "status": "Success"})
+			"description": b.Description, "configuration": "", "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	if err := h.service.live(r.Context(), p); err != nil {

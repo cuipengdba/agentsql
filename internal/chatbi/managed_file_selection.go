@@ -73,6 +73,15 @@ func (h *Handler) chooseManagedFileTables(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
 		return
 	}
+	binding, _, _, err := h.service.bindingSnapshot(r.Context(), p, id)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if databaseBinding(binding) {
+		h.chooseDatabaseTables(w, r, p, token, binding)
+		return
+	}
 	var input []struct {
 		Name    string `json:"table_name"`
 		Comment string `json:"table_comment"`
@@ -84,8 +93,7 @@ func (h *Handler) chooseManagedFileTables(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid table selection")
 		return
 	}
-	binding, _, _, err := h.service.bindingSnapshot(r.Context(), p, id)
-	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
+	if binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		failure(w, ErrNotFound)
 		return
