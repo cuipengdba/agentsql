@@ -14,6 +14,22 @@ install -d /etc/systemd/system /package/deploy/systemd
 cp "$BINARY" /package/agentsql
 "$BINARY" --version > /package/VERSION
 cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" /package/deploy/systemd/
+# Fail a fresh service start after the installer has created configuration and
+# credentials. No partial first install may leave those files behind.
+mkdir -p /run/systemd/system /tmp/fresh-fault-bin
+cat > /tmp/fresh-fault-bin/systemctl <<'EOF'
+#!/bin/sh
+case "$1" in is-active|is-enabled|start) exit 1 ;; *) exit 0 ;; esac
+EOF
+chmod 0755 /tmp/fresh-fault-bin/systemctl
+if PATH="/tmp/fresh-fault-bin:$PATH" sh "$SOURCE/scripts/install-chatbi.sh" /package start > /tmp/fresh-rollback.log 2>&1; then
+  echo 'Injected fresh startup failure incorrectly succeeded.' >&2; exit 1
+fi
+for path in /etc/agentsql/chatbi.yaml /etc/agentsql/chatbi.env /etc/agentsql/chatbi-install-state \
+  /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
+  test ! -e "$path" || { echo "Fresh rollback left a partial file: $path" >&2; exit 1; }
+done
+grep -q 'previous files and service state restored' /tmp/fresh-rollback.log
 sh "$SOURCE/scripts/install-chatbi.sh" /package no-start
 test "$(stat -c %a /etc/agentsql/chatbi.env)" = 600
 test "$(stat -c %U /var/lib/agentsql/chatbi.db)" = agentsql
@@ -59,4 +75,4 @@ fi
 sha256sum -c /tmp/rollback-before
 cmp /tmp/original.env /etc/agentsql/chatbi.env
 grep -q 'previous files and service state restored' /tmp/rollback.log
-echo 'PASS: offline fresh install, private credentials, idempotent repair, real unprivileged login, injected startup rollback.'
+echo 'PASS: offline fresh install, private credentials, idempotent repair, real unprivileged login, fresh and upgrade startup rollback.'

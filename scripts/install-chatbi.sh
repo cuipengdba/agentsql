@@ -49,8 +49,15 @@ restore() {
   if [ "$SYSTEMD" -eq 1 ] && [ -f "$UNIT" ]; then
     systemctl stop agentsql-chatbi >/dev/null 2>&1 || return 1
   fi
-  for name in binary unit state chatbi.db chatbi.db-wal chatbi.db-shm; do
-    case "$name" in binary) target=$BIN ;; unit) target=$UNIT ;; state) target=$STATE ;; *) target=/var/lib/agentsql/$name ;; esac
+  for name in binary unit state chatbi.yaml chatbi.env chatbi.db chatbi.db-wal chatbi.db-shm; do
+    case "$name" in
+      binary) target=$BIN ;;
+      unit) target=$UNIT ;;
+      state) target=$STATE ;;
+      chatbi.yaml) target=$CONFIG ;;
+      chatbi.env) target=$ENVFILE ;;
+      *) target=/var/lib/agentsql/$name ;;
+    esac
     if [ -f "$BACKUP/$name" ]; then cp -p "$BACKUP/$name" "$target" || return 1
     else rm -f "$target" || return 1; fi
   done
