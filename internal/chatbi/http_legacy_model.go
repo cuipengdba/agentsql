@@ -9,9 +9,7 @@ import (
 	"time"
 )
 
-// The Community model administration page starts with these two read paths.
-// AgentSQL currently keeps one model per workspace; do not expose another
-// workspace's model or return the encrypted API key through this adapter.
+// Do not expose another workspace's model or return any encrypted API key.
 func (h *Handler) legacyModelList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	keyword := r.URL.Query().Get("keyword")
 	if len(keyword) > 255 {
@@ -31,27 +29,31 @@ func (h *Handler) legacyModelList(w http.ResponseWriter, r *http.Request, p Prin
 		failure(w, err)
 		return
 	}
-	name := model.Name
-	if name == "" {
-		name = model.Model
-	}
-	if keyword != "" && !strings.Contains(strings.ToLower(name), strings.ToLower(keyword)) {
-		okay(w, []map[string]any{})
-		return
-	}
-	okay(w, []map[string]any{{"id": model.ID, "name": name,
-		"model_type": 0, "base_model": model.Model, "supplier": 15,
-		"protocol": 1, "default_model": true, "ws_mapping_count": 1}})
-}
-
-func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	model, err := h.currentLegacyModel(r, p, token)
+	additional, err := h.service.Store.AdditionalWorkspaceModels(r.Context(), p.Workspace)
 	if err != nil {
 		failure(w, err)
 		return
 	}
-	if r.PathValue("id") != string(model.ID) {
-		failure(w, ErrNotFound)
+	models := make([]map[string]any, 0, len(additional)+1)
+	for index, item := range append([]ModelConfig{model}, additional...) {
+		name := item.Name
+		if name == "" {
+			name = item.Model
+		}
+		if keyword != "" && !strings.Contains(strings.ToLower(name), strings.ToLower(keyword)) {
+			continue
+		}
+		models = append(models, map[string]any{"id": item.ID, "name": name,
+			"model_type": 0, "base_model": item.Model, "supplier": 15,
+			"protocol": 1, "default_model": index == 0, "ws_mapping_count": 1})
+	}
+	okay(w, models)
+}
+
+func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	model, _, isDefault, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
+	if err != nil {
+		failure(w, err)
 		return
 	}
 	name := model.Name
@@ -60,51 +62,73 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	okay(w, map[string]any{"id": model.ID, "name": name,
 		"model_type": 0, "base_model": model.Model, "supplier": 15,
-		"protocol": 1, "default_model": true, "ws_mapping_count": 1,
+		"protocol": 1, "default_model": isDefault, "ws_mapping_count": 1,
 		"api_domain": model.Endpoint, "api_key": "", "has_api_key": model.APIKey != "",
 		"config_list": []any{}})
 }
 
-// The only configured model is the workspace's default. The original client
-// may send DELETE for a card, but deleting that default would leave Q&A with
-// no authorized model. Report the original default-model restriction clearly.
+// The active default cannot be deleted; secondary models can be removed with
+// an audited write without affecting query execution.
 func (h *Handler) legacyModelDelete(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	model, err := h.currentLegacyModel(r, p, token)
+	model, _, isDefault, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
 		return
 	}
-	if r.PathValue("id") != string(model.ID) {
-		failure(w, ErrNotFound)
+	if isDefault {
+		writeJSON(w, http.StatusConflict, "Default model cannot be deleted")
 		return
 	}
-	writeJSON(w, http.StatusConflict, "Default model cannot be deleted")
+	if err := h.service.Store.DeleteAdditionalWorkspaceModel(r.Context(), p, model.ID); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, nil)
+}
+
+func (h *Handler) legacyModelSetDefault(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	model, _, isDefault, err := h.legacyModelByID(r, p, token, r.PathValue("action"))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if !isDefault {
+		if err := h.service.Store.SetDefaultWorkspaceModel(r.Context(), p, model.ID); err != nil {
+			failure(w, err)
+			return
+		}
+	}
+	okay(w, nil)
+}
+
+func (h *Handler) legacyModelPutTwoSegments(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if r.PathValue("id") == "default" {
+		h.legacyModelSetDefault(w, r, p, token)
+		return
+	}
+	if r.PathValue("action") == "ws_mapping" {
+		h.legacyModelMappingsUpdate(w, r, p, token)
+		return
+	}
+	failure(w, ErrNotFound)
 }
 
 // A workspace model belongs only to its current workspace. Keep the original
 // mapping dialog truthful while refusing cross-workspace model sharing until
 // the multi-model catalog has an explicit permission and audit contract.
 func (h *Handler) legacyModelMappings(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	model, err := h.currentLegacyModel(r, p, token)
+	_, _, _, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
-		return
-	}
-	if r.PathValue("id") != string(model.ID) {
-		failure(w, ErrNotFound)
 		return
 	}
 	okay(w, []string{string(p.Workspace)})
 }
 
 func (h *Handler) legacyModelMappingsUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	model, err := h.currentLegacyModel(r, p, token)
+	_, _, _, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
-		return
-	}
-	if r.PathValue("id") != string(model.ID) {
-		failure(w, ErrNotFound)
 		return
 	}
 	var spaces []string
@@ -126,13 +150,9 @@ func (h *Handler) legacyModelMappingsUpdate(w http.ResponseWriter, r *http.Reque
 // duplicate add (or an empty change) can be honored before cross-workspace
 // model ownership exists. The sole mapping must never be removed silently.
 func (h *Handler) legacyModelMappingsChange(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	model, err := h.currentLegacyModel(r, p, token)
+	_, _, _, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
-		return
-	}
-	if r.PathValue("id") != string(model.ID) {
-		failure(w, ErrNotFound)
 		return
 	}
 	var spaces []string
@@ -160,10 +180,9 @@ func (h *Handler) legacyModelMappingsChange(w http.ResponseWriter, r *http.Reque
 	okay(w, []string{string(p.Workspace)})
 }
 
-// The original Community form includes an empty id on first create and RSA
-// encrypts its endpoint and key. AgentSQL can create only the first default
-// model in the caller's current workspace; subsequent catalog entries need a
-// separate multi-model design and cannot silently replace this model.
+// The original Community form includes an empty id on create and RSA
+// encrypts its endpoint and key. A new catalog entry is non-default when the
+// current workspace already has a default model.
 func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -207,7 +226,22 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey}
-	if err := h.service.Store.CreateWorkspaceModel(r.Context(), p, update); err != nil {
+	var current ModelConfig
+	_, existingErr := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &current)
+	if existingErr == nil && validateModelConfig(current) != nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	if existingErr != nil && !errors.Is(existingErr, ErrNotFound) {
+		failure(w, existingErr)
+		return
+	}
+	if existingErr == nil {
+		err = h.service.Store.CreateAdditionalWorkspaceModel(r.Context(), p, update)
+	} else {
+		err = h.service.Store.CreateWorkspaceModel(r.Context(), p, update)
+	}
+	if err != nil {
 		failure(w, err)
 		return
 	}
@@ -216,8 +250,8 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 
 // The pinned original browser encrypts both endpoint and nonempty API key
 // with the same installation RSA public key as its login form. This adapter
-// only edits the current workspace's existing default OpenAI-compatible
-// model; unsupported providers and advanced arguments fail closed.
+// edits only a model owned by the current workspace. Unsupported providers,
+// advanced arguments and default switching still fail closed.
 func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -240,23 +274,17 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 	}
 	if !input.ID.Valid() || input.ModelType == nil || *input.ModelType != 0 ||
 		input.Supplier == nil || *input.Supplier != 15 || input.Protocol == nil || *input.Protocol != 1 ||
-		input.DefaultModel == nil || !*input.DefaultModel || len(input.ConfigList) != 0 {
+		input.DefaultModel == nil || len(input.ConfigList) != 0 {
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
-	key := objectKey{"model", string(p.Workspace), "workspace", "default"}
-	var current ModelConfig
-	revision, err := h.service.Store.get(r.Context(), key, &current)
-	if errors.Is(err, ErrNotFound) {
-		failure(w, ErrNotFound)
+	current, revision, isDefault, err := h.legacyModelByID(r, p, token, string(input.ID))
+	if err != nil {
+		failure(w, err)
 		return
 	}
-	if err != nil || validateModelConfig(current) != nil {
-		failure(w, ErrUnavailable)
-		return
-	}
-	if current.ID != input.ID {
-		failure(w, ErrNotFound)
+	if *input.DefaultModel != isDefault {
+		writeJSON(w, http.StatusConflict, "Default model switch is unavailable")
 		return
 	}
 	endpoint, err := h.service.Identity.DecryptLogin(input.APIDomain)
@@ -279,7 +307,12 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 	}
 	update := WorkspaceModelUpdate{Revision: revision, Name: input.Name, Model: input.BaseModel,
 		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens}
-	if err := h.service.Store.UpdateWorkspaceModel(r.Context(), p, update); err != nil {
+	if isDefault {
+		err = h.service.Store.UpdateWorkspaceModel(r.Context(), p, update)
+	} else {
+		err = h.service.Store.UpdateAdditionalWorkspaceModel(r.Context(), p, current.ID, update)
+	}
+	if err != nil {
 		failure(w, err)
 		return
 	}
@@ -296,13 +329,9 @@ func (h *Handler) legacyModelStatus(w http.ResponseWriter, r *http.Request, p Pr
 	if !readBody(w, r, &input) {
 		return
 	}
-	model, err := h.currentLegacyModel(r, p, token)
+	model, _, _, err := h.legacyModelByID(r, p, token, input.ID)
 	if err != nil {
 		failure(w, err)
-		return
-	}
-	if input.ID != "" && input.ID != string(model.ID) {
-		failure(w, ErrNotFound)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
@@ -338,4 +367,27 @@ func (h *Handler) currentLegacyModel(r *http.Request, p Principal, token string)
 		return ModelConfig{}, err
 	}
 	return model, nil
+}
+
+func (h *Handler) legacyModelByID(r *http.Request, p Principal, token, id string) (ModelConfig, int64, bool, error) {
+	defaultModel, err := h.currentLegacyModel(r, p, token)
+	if err != nil {
+		return ModelConfig{}, 0, false, err
+	}
+	if id == "" || id == string(defaultModel.ID) {
+		revision, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &defaultModel)
+		return defaultModel, revision, true, err
+	}
+	if !ID(id).Valid() {
+		return ModelConfig{}, 0, false, ErrNotFound
+	}
+	var model ModelConfig
+	revision, err := h.service.Store.get(r.Context(), additionalModelKey(p.Workspace, ID(id)), &model)
+	if err != nil {
+		return ModelConfig{}, 0, false, err
+	}
+	if model.ID != ID(id) || validateModelConfig(model) != nil {
+		return ModelConfig{}, 0, false, ErrUnavailable
+	}
+	return model, revision, false, nil
 }
