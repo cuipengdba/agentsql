@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
 )
 
@@ -85,6 +86,36 @@ func authorizeManagedFileSQL(binding Binding, sql string) error {
 	for _, relation := range query.Relations {
 		if relation.Schema != "agentsql_files" || !selected[relation.Name] {
 			return ErrGateway
+		}
+	}
+	return nil
+}
+
+// Ask uses the current gateway-visible schema as its exact model grounding.
+// This check reports a model failure for a hallucinated managed-file relation
+// without executing it or disclosing a guessed table name to the client.
+func validateGeneratedManagedFileSQL(binding Binding, columns []Column, sql string) error {
+	if binding.Type != "excel" || binding.Dialect != "pg" ||
+		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+		return nil
+	}
+	postgres, err := parser.NewParser(model.DialectPostgres)
+	if err != nil {
+		return ErrModel
+	}
+	query, err := postgres.Parse(sql)
+	if err != nil || query.IsMulti || query.StmtType != "SELECT" || len(query.Tables) == 0 {
+		return ErrModel
+	}
+	visible := make(map[string]bool)
+	for _, column := range columns {
+		if column.Schema == "agentsql_files" {
+			visible[column.Table] = true
+		}
+	}
+	for _, relation := range query.Tables {
+		if relation.Schema != "agentsql_files" || !visible[relation.Table] {
+			return ErrModel
 		}
 	}
 	return nil

@@ -605,6 +605,11 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err != nil {
 			return err
 		}
+		// A model can miss one character in a newly imported table name. Reject
+		// that SQL before it reaches the gateway; never guess or repair a target.
+		if err := validateGeneratedManagedFileSQL(binding, columns, generated.SQL); err != nil {
+			return err
+		}
 		record.SQL, record.SQLAnswer, record.TotalTokens = generated.SQL, generated.SQL, generated.TotalTokens
 		if err := check(ctx); err != nil {
 			return err
