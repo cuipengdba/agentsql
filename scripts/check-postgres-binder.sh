@@ -8,11 +8,13 @@ usage() {
 }
 
 runtime_role=
+runtime_role_given=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --runtime-role)
       if [ "$#" -lt 2 ]; then usage; exit 64; fi
       runtime_role=$2
+      runtime_role_given=1
       shift 2
       ;;
     -h|--help) usage; exit 0 ;;
@@ -30,7 +32,11 @@ if ! command -v psql >/dev/null 2>&1; then
 fi
 
 set_role=
-if [ -n "$runtime_role" ]; then
+if [ "$runtime_role_given" -eq 1 ]; then
+  if [ -z "$runtime_role" ]; then
+    echo 'POSTGRES_BINDER=FAIL reason=INVALID_ROLE'
+    exit 64
+  fi
   case "$runtime_role" in
     [A-Za-z_]* ) ;;
     * ) echo 'POSTGRES_BINDER=FAIL reason=INVALID_ROLE'; exit 64 ;;
