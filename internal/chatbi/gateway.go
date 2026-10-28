@@ -209,7 +209,11 @@ func (gateway *ControlledGateway) Schema(ctx context.Context, p Principal, b Bin
 	if len(visible) == 0 {
 		return nil, ErrGateway
 	}
-	return filterManagedFileSchema(b, visible)
+	visible, err = filterManagedFileSchema(b, visible)
+	if err != nil {
+		return nil, err
+	}
+	return filterDatabaseSchema(b, visible)
 }
 
 func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Binding, query string) (QueryData, error) {
@@ -217,6 +221,9 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 		return QueryData{}, ErrGateway
 	}
 	if err := authorizeManagedFileSQL(b, query); err != nil {
+		return QueryData{}, err
+	}
+	if err := authorizeDatabaseSelectedSQL(b, query); err != nil {
 		return QueryData{}, err
 	}
 	raw, _, err := gateway.call(ctx, p, b, "query", func(r resolvedBinding) map[string]any {

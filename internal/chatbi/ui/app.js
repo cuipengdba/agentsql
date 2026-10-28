@@ -66,8 +66,8 @@ Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
 Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
-Object.assign(copy['zh-CN'], {sourceSelect:'管理已导入表',sourceSelectIntro:'仅已勾选的表会在此数据源中显示；取消全部勾选会关闭该数据源的查询。',sourceSelectSave:'保存选表',sourceSelectionSaved:'选表范围已保存。'});
-Object.assign(copy.en, {sourceSelect:'Manage imported tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
+Object.assign(copy['zh-CN'], {sourceSelect:'管理可查询的表',sourceSelectIntro:'仅已勾选的表会在此数据源中显示；取消全部勾选会关闭该数据源的查询。',sourceSelectSave:'保存选表',sourceSelectionSaved:'选表范围已保存。'});
+Object.assign(copy.en, {sourceSelect:'Manage queryable tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
 Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsTemperature:'温度（0–1）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
@@ -745,6 +745,12 @@ async function loadSource(source,restoreTableID=null){
       managed=true;$('source-select').hidden=false;
     }catch{ /* A nonmanaged Excel datasource has no managed-file editor. */ }
   }
+  if(isAdmin&&(source.type==='pg'||source.type==='mysql')){
+    try{await api('/agentsql/datasource/databaseTables/'+encodeURIComponent(String(source.id)));
+      if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
+      $('source-select').hidden=false;
+    }catch{ /* An unavailable gateway does not expose an editable table set. */ }
+  }
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
@@ -819,11 +825,12 @@ function renderSourceRemarkTools(source){
   tools.append(form);$('source-select-form').after(tools);
 }
 async function openTableChoices(){
-  const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
+  const source=selectedSource;if(!sourceVisible||!isAdmin||!['excel','pg','mysql'].includes(source?.type))return;
   if(!$('source-select-form').hidden){$('source-select-form').hidden=true;return;}
   const epoch=sourceEpoch,button=$('source-select');button.disabled=true;sourceStatus(t('sourceLoading'));
   try{
-    const tables=await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
+    const path=source.type==='excel'?'fileTables':'databaseTables';
+    const tables=await api('/agentsql/datasource/'+path+'/'+encodeURIComponent(String(source.id)));
     if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
     const list=$('source-select-list');list.replaceChildren();
     for(const table of tables){
@@ -835,7 +842,7 @@ async function openTableChoices(){
   finally{button.disabled=false;}
 }
 async function saveTableChoices(event){
-  event.preventDefault();const source=selectedSource;if(!sourceVisible||!isAdmin||source?.type!=='excel')return;
+  event.preventDefault();const source=selectedSource;if(!sourceVisible||!isAdmin||!['excel','pg','mysql'].includes(source?.type))return;
   const button=$('source-select-save');button.disabled=true;
   const tables=[...$('source-select-list').querySelectorAll('input[type=checkbox]:checked')].map(input=>({table_name:input.value,table_comment:''}));
   try{

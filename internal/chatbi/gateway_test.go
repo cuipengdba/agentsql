@@ -72,6 +72,10 @@ func TestControlledGatewayUsesAuthenticatedIdentityAndDurableAudit(t *testing.T)
 			if calls != 1 || resolved != 1 {
 				t.Fatalf("unexpected retry or skipped identity resolution: calls=%d resolve=%d", calls, resolved)
 			}
+			binding.SelectedTables = `[{"schema":"public","table":"sales"}]`
+			if _, err := gateway.Query(context.Background(), p, binding, "SELECT name FROM public.people"); err == nil || calls != 1 || resolved != 1 {
+				t.Fatal("unselected database table reached gateway resolution or execution")
+			}
 			p.Workspace = "2"
 			if _, err := gateway.Query(context.Background(), p, binding, "SELECT 1"); err == nil || resolved != 1 {
 				t.Fatal("cross-workspace request reached gateway")
