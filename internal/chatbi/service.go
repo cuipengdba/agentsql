@@ -584,6 +584,10 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err != nil {
 			return err
 		}
+		hints, err = relationHintsForModel(binding, columns, hints)
+		if err != nil {
+			return err
+		}
 		var examples []ExampleHint
 		if _, ok := service.Model.(GroundedGenerator); ok {
 			examples, err = service.SafeExamples(ctx, p, chat.Datasource, binding.Dialect, columns, question)

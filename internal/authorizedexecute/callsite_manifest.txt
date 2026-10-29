@@ -34,6 +34,9 @@ internal/chatbi/datasource_schema_sync.go
 # management audit and binding revision commit in the same SQLite transaction.
 internal/chatbi/managed_file_remark_import.go
 internal/chatbi/database_remark_import.go
+# Relationship graph updates use fixed parameterized local control-store SQL;
+# the owner binding and management audit commit in the same transaction.
+internal/chatbi/table_relation_store.go
 # Membership and user creation mutate encrypted local identity/control-plane
 # rows with bound SQLite statements and a mandatory same-transaction audit.
 # They cannot open or execute against a business datasource.
