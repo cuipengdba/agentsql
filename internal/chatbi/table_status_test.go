@@ -116,7 +116,9 @@ func TestDisabledTableSQLRejectsMySQLQualifiedAndUnqualifiedNames(t *testing.T) 
 	require.NoError(t, setTableStatus(&binding, "agentsql_demo", "orders", false))
 	for _, sql := range []string{
 		"SELECT amount FROM agentsql_demo.orders",
+		"SELECT amount FROM AGENTSQL_DEMO.ORDERS",
 		"SELECT amount FROM orders",
+		"SELECT amount FROM ORDERS",
 	} {
 		require.ErrorIs(t, authorizeEnabledTablesSQL(binding, sql), ErrGateway)
 	}
@@ -124,4 +126,12 @@ func TestDisabledTableSQLRejectsMySQLQualifiedAndUnqualifiedNames(t *testing.T) 
 	require.NoError(t, authorizeEnabledTablesSQL(binding, "SELECT amount FROM other_table"))
 	require.NoError(t, setTableStatus(&binding, "agentsql_demo", "orders", true))
 	require.NoError(t, authorizeEnabledTablesSQL(binding, "SELECT amount FROM agentsql_demo.orders"))
+}
+
+func TestDisabledTableSQLRejectsPostgresJoinConditionSubquery(t *testing.T) {
+	binding := Binding{Dialect: "pg"}
+	require.NoError(t, setTableStatus(&binding, "public", "secret", false))
+	sql := `SELECT s.region FROM public.sales AS s JOIN public.teams AS t ON EXISTS (SELECT id FROM public.secret AS p WHERE p.id = t.id)`
+	require.ErrorIs(t, authorizeEnabledTablesSQL(binding, sql), ErrGateway)
+	require.NoError(t, authorizeEnabledTablesSQL(binding, `SELECT s.region FROM public.sales AS s JOIN public.teams AS t ON s.team_id = t.id`))
 }

@@ -75,6 +75,17 @@ func TestOriginalDatabaseFieldStatusControlsPreviewAndRollsBackWithAudit(t *test
 	_, err = service.Ask(ctx, principal, chat.ID, "show region", check, nil)
 	require.NoError(t, err)
 	require.Equal(t, semantic, model.columns)
+	before := gateway.queries
+	for _, sql := range []string{
+		`SELECT amount FROM public.sales`,
+		`SELECT region FROM public.sales WHERE amount > 1`,
+		`SELECT * FROM public.sales`,
+	} {
+		_, err := service.query(ctx, principal, current, sql)
+		require.ErrorIs(t, err, ErrGateway, sql)
+		require.Equal(t, before, gateway.queries)
+	}
+	require.NoError(t, authorizeEnabledFieldsSQL(current, `SELECT region FROM public.sales`))
 	preview := request("/api/v1/datasource/previewData/10", `{"table":{"id":1,"table_name":"sales"}}`)
 	require.Equal(t, http.StatusOK, preview.Code, preview.Body.String())
 	require.Equal(t, `SELECT "region" FROM "public"."sales" LIMIT 100`, gateway.lastQuery)
@@ -122,4 +133,36 @@ func TestDisabledFieldMetadataRejectsMalformedStoredState(t *testing.T) {
 		_, err := disabledFields(Binding{DisabledFields: encoded})
 		require.Error(t, err)
 	}
+}
+
+func TestDisabledFieldSQLRejectsMySQLColumnUses(t *testing.T) {
+	binding := Binding{Dialect: "mysql"}
+	require.NoError(t, setFieldStatus(&binding, "agentsql_demo", "orders", "amount", false))
+	for _, sql := range []string{
+		"SELECT amount FROM agentsql_demo.orders",
+		"SELECT AMOUNT FROM AGENTSQL_DEMO.ORDERS",
+		"SELECT region FROM agentsql_demo.orders WHERE amount > 1",
+		"SELECT * FROM agentsql_demo.orders",
+	} {
+		require.ErrorIs(t, authorizeEnabledFieldsSQL(binding, sql), ErrGateway, sql)
+	}
+	require.NoError(t, authorizeEnabledFieldsSQL(binding, "SELECT region FROM agentsql_demo.orders"))
+	require.NoError(t, authorizeEnabledFieldsSQL(binding, "SELECT amount FROM other_schema.orders"))
+	require.NoError(t, setFieldStatus(&binding, "agentsql_demo", "orders", "amount", true))
+	require.NoError(t, authorizeEnabledFieldsSQL(binding, "SELECT amount FROM agentsql_demo.orders"))
+}
+
+func TestDisabledFieldSQLRejectsPostgresJoinAndSubqueryUses(t *testing.T) {
+	binding := Binding{Dialect: "pg"}
+	require.NoError(t, setFieldStatus(&binding, "public", "sales", "amount", false))
+	require.NoError(t, setFieldStatus(&binding, "public", "secret", "amount", false))
+	for _, sql := range []string{
+		`SELECT s.region FROM public.sales AS s JOIN public.teams AS t ON s.amount = t.id`,
+		`SELECT region FROM public.sales WHERE EXISTS (SELECT id FROM public.sales AS s WHERE s.amount > 1)`,
+		`SELECT s.region FROM public.sales AS s JOIN public.teams AS t ON EXISTS (SELECT id FROM public.secret AS p WHERE p.amount > 1)`,
+	} {
+		require.ErrorIs(t, authorizeEnabledFieldsSQL(binding, sql), ErrGateway, sql)
+	}
+	require.NoError(t, authorizeEnabledFieldsSQL(binding, `SELECT s.region FROM public.sales AS s JOIN public.teams AS t ON s.team_id = t.id`))
+	require.NoError(t, authorizeEnabledFieldsSQL(binding, `SELECT amount FROM public.other`))
 }

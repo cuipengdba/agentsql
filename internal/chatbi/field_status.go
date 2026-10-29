@@ -3,6 +3,8 @@ package chatbi
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/cuipengdba/agentsql/internal/parser"
 )
 
 // Field status controls SQLBot-compatible semantic selection and preview. It
@@ -75,4 +77,122 @@ func filterDisabledFields(binding Binding, columns []Column) ([]Column, error) {
 		}
 	}
 	return visible, nil
+}
+
+// A stale conversation must not use SQL to bypass a field switch. While a
+// field is disabled, only the closed, inspectable SELECT shapes are accepted.
+// Gateway permissions remain a separate, mandatory authorization layer.
+func authorizeEnabledFieldsSQL(binding Binding, sql string) error {
+	disabled, err := disabledFields(binding)
+	if err != nil || len(disabled) == 0 {
+		return err
+	}
+	switch binding.Dialect {
+	case "pg":
+		query, err := parser.ParsePostgresClosedSelect(sql)
+		if err != nil {
+			return ErrGateway
+		}
+		blocked := make(map[string]bool)
+		for _, relation := range postgresClosedAllRelations(query) {
+			for key := range disabled {
+				parts := strings.Split(key, "\x00")
+				if parts[0] == relation.Schema && parts[1] == relation.Name {
+					blocked[parts[2]] = true
+				}
+			}
+		}
+		if postgresSelectUsesDisabledField(query, blocked) {
+			return ErrGateway
+		}
+	case "mysql":
+		shape, err := parser.ParseMySQLColumnSelectShape(sql)
+		if err != nil {
+			return ErrGateway
+		}
+		for key := range disabled {
+			parts := strings.Split(key, "\x00")
+			if !strings.EqualFold(parts[1], shape.Table) ||
+				shape.Schema != "" && !strings.EqualFold(parts[0], shape.Schema) {
+				continue
+			}
+			for _, use := range shape.Uses {
+				if strings.EqualFold(use.Name, parts[2]) {
+					return ErrGateway
+				}
+			}
+		}
+	default:
+		return ErrGateway
+	}
+	return nil
+}
+
+func postgresClosedAllRelations(query *parser.PostgresClosedSelect) []parser.PostgresClosedRelation {
+	if query == nil {
+		return nil
+	}
+	relations := append([]parser.PostgresClosedRelation(nil), query.Relations...)
+	var visitExpr func(*parser.PostgresClosedExpr)
+	visitExpr = func(expr *parser.PostgresClosedExpr) {
+		if expr == nil {
+			return
+		}
+		if expr.Subquery != nil {
+			relations = append(relations, postgresClosedAllRelations(expr.Subquery)...)
+		}
+		for _, argument := range expr.Args {
+			visitExpr(argument)
+		}
+	}
+	var visitFrom func(*parser.PostgresClosedFrom)
+	visitFrom = func(from *parser.PostgresClosedFrom) {
+		if from == nil || from.Join == nil {
+			return
+		}
+		visitExpr(from.Join.Condition)
+		visitFrom(from.Join.Left)
+		visitFrom(from.Join.Right)
+	}
+	visitFrom(query.From)
+	return relations
+}
+
+func postgresSelectUsesDisabledField(query *parser.PostgresClosedSelect, blocked map[string]bool) bool {
+	if query == nil {
+		return false
+	}
+	for _, target := range query.Targets {
+		if postgresExprUsesDisabledField(target, blocked) {
+			return true
+		}
+	}
+	return postgresExprUsesDisabledField(query.Where, blocked) || postgresFromUsesDisabledField(query.From, blocked)
+}
+
+func postgresFromUsesDisabledField(from *parser.PostgresClosedFrom, blocked map[string]bool) bool {
+	if from == nil || from.Join == nil {
+		return false
+	}
+	return postgresExprUsesDisabledField(from.Join.Condition, blocked) ||
+		postgresFromUsesDisabledField(from.Join.Left, blocked) ||
+		postgresFromUsesDisabledField(from.Join.Right, blocked)
+}
+
+func postgresExprUsesDisabledField(expr *parser.PostgresClosedExpr, blocked map[string]bool) bool {
+	if expr == nil {
+		return false
+	}
+	if len(expr.Column) != 0 && blocked[expr.Column[len(expr.Column)-1]] {
+		return true
+	}
+	if postgresSelectUsesDisabledField(expr.Subquery, blocked) {
+		return true
+	}
+	for _, argument := range expr.Args {
+		if postgresExprUsesDisabledField(argument, blocked) {
+			return true
+		}
+	}
+	return false
 }

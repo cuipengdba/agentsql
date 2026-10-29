@@ -89,7 +89,7 @@ func authorizeEnabledTablesSQL(binding Binding, sql string) error {
 		if parseErr != nil {
 			return ErrGateway
 		}
-		for _, relation := range query.Relations {
+		for _, relation := range postgresClosedAllRelations(query) {
 			relations = append(relations, model.ObjectRef{Schema: relation.Schema, Table: relation.Name})
 		}
 	case "mysql":
@@ -110,12 +110,21 @@ func authorizeEnabledTablesSQL(binding Binding, sql string) error {
 			if disabled[disabledTableKey(relation.Schema, relation.Table)] {
 				return ErrGateway
 			}
+			if binding.Dialect == "mysql" {
+				for key := range disabled {
+					parts := strings.Split(key, "\x00")
+					if strings.EqualFold(parts[0], relation.Schema) && strings.EqualFold(parts[1], relation.Table) {
+						return ErrGateway
+					}
+				}
+			}
 			continue
 		}
 		// An unqualified name may resolve to any schema in the database. Deny it
 		// if a disabled table has the same name, rather than guessing search_path.
 		for key := range disabled {
-			if strings.HasSuffix(key, "\x00"+relation.Table) {
+			if strings.HasSuffix(key, "\x00"+relation.Table) ||
+				binding.Dialect == "mysql" && strings.EqualFold(strings.Split(key, "\x00")[1], relation.Table) {
 				return ErrGateway
 			}
 		}

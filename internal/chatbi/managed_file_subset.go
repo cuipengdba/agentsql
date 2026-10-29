@@ -36,6 +36,9 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	if err := authorizeEnabledTablesSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
+	if err := authorizeEnabledFieldsSQL(binding, sql); err != nil {
+		return QueryData{}, err
+	}
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
