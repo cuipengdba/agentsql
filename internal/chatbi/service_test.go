@@ -154,12 +154,31 @@ func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "123") || !strings.Contains(response.Body.String(), "failed") {
 		t.Fatal("recent question route leaked result rows or lost the user's question")
 	}
+	gateway.schemaErr = ErrGateway
+	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrGateway) {
+		t.Fatal("gateway schema failure returned historical questions")
+	}
+	failureRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	failureRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	failureResponse := httptest.NewRecorder()
+	router.ServeHTTP(failureResponse, failureRequest)
+	if failureResponse.Code == http.StatusOK || strings.Contains(failureResponse.Body.String(), "first") {
+		t.Fatal("gateway schema failure exposed historical questions")
+	}
+	gateway.schemaErr = nil
 	revision, err := service.Store.get(ctx, bindingKey(principal, "10"), new(Binding))
 	if err != nil || service.Store.delete(ctx, bindingKey(principal, "10"), revision) != nil {
 		t.Fatal("could not revoke binding")
 	}
 	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("revoked datasource returned history")
+	}
+	revokedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	revokedRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	revokedResponse := httptest.NewRecorder()
+	router.ServeHTTP(revokedResponse, revokedRequest)
+	if revokedResponse.Code == http.StatusOK || strings.Contains(revokedResponse.Body.String(), "first") {
+		t.Fatal("revoked datasource exposed historical questions")
 	}
 }
 

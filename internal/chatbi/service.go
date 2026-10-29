@@ -416,6 +416,9 @@ func (service *Service) RecentQuestions(ctx context.Context, p Principal, dataso
 	if err != nil {
 		return nil, err
 	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
+		return nil, err
+	}
 	items, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
 	if err != nil {
 		return nil, err

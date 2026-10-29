@@ -311,7 +311,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.SetPathValue("id", id)
-		h.auth(h.recentQuestions)(w, r)
+		h.boundedHistory(h.recentQuestions)(w, r)
 		return
 	}
 	// No permissive CORS or cookie-based authority. Future embedded origins use
@@ -768,9 +768,13 @@ func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, tok
 	okay(w, chats)
 }
 
-func (h *Handler) recentQuestions(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) recentQuestions(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	questions, err := h.service.RecentQuestions(r.Context(), p, ID(r.PathValue("id")))
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
 	}
