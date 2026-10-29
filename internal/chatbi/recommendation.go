@@ -28,6 +28,26 @@ func recommendationKey(workspace, datasource ID) objectKey {
 	return objectKey{"recommendations", string(workspace), "datasource", string(datasource)}
 }
 
+// The original datasource card uses this display-only field to choose the
+// configuration dialog's radio button. Never include saved question text in
+// the datasource list; the dedicated read still requires a live gateway.
+func (service *Service) recommendationDisplayMode(ctx context.Context, p Principal, datasource ID) (int, error) {
+	var config RecommendationConfig
+	if _, err := service.Store.get(ctx, recommendationKey(p.Workspace, datasource), &config); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 1, nil
+		}
+		return 0, err
+	}
+	if config.Workspace != p.Workspace || config.Datasource != datasource || validateRecommendations(config) != nil {
+		return 0, ErrUnavailable
+	}
+	if config.Mode == 2 {
+		return 2, nil
+	}
+	return 1, nil
+}
+
 func validateRecommendations(config RecommendationConfig) error {
 	if !config.Workspace.Valid() || !config.Datasource.Valid() || (config.Mode != 0 && config.Mode != 2) || len(config.Questions) > 20 || config.Mode == 0 && len(config.Questions) != 0 {
 		return errors.New("invalid recommendation configuration")

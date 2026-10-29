@@ -36,11 +36,35 @@ func TestSQLBotRecommendationSaveUsesCurrentAdminAndAuditContract(t *testing.T) 
 		router.ServeHTTP(response, request)
 		return response
 	}
+	checkDatasourceMode := func(want int) {
+		t.Helper()
+		response := call("/api/v1/datasource/list", "")
+		var listing struct {
+			Data []struct {
+				ID   ID  `json:"id"`
+				Mode int `json:"recommended_config"`
+			} `json:"data"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &listing) != nil || strings.Contains(response.Body.String(), "Revenue by region") {
+			t.Fatalf("unsafe datasource listing: %d %s", response.Code, response.Body.String())
+		}
+		for _, item := range listing.Data {
+			if item.ID == "10" {
+				if item.Mode != want {
+					t.Fatalf("original datasource card mode = %d, want %d", item.Mode, want)
+				}
+				return
+			}
+		}
+		t.Fatal("fixture datasource missing from list")
+	}
+	checkDatasourceMode(1)
 	const savePath = "/api/v1/recommended_problem/save_recommended_problem"
 	created := call(savePath, `{"datasource_id":10,"recommended_config":2,"problemInfo":[{"id":0,"datasource_id":10,"question":"Revenue by region","remark":"Synthetic"}]}`)
 	if created.Code != http.StatusOK || !strings.Contains(created.Body.String(), `"data":null`) {
 		t.Fatalf("original save envelope: %d %s", created.Code, created.Body.String())
 	}
+	checkDatasourceMode(2)
 	var list struct {
 		Data []struct {
 			ID       ID     `json:"id"`
@@ -73,6 +97,7 @@ func TestSQLBotRecommendationSaveUsesCurrentAdminAndAuditContract(t *testing.T) 
 	if err != nil || savedRevision != 1 || len(config.Questions) != 1 {
 		t.Fatal("audit failure changed the original recommendation state")
 	}
+	checkDatasourceMode(2)
 	user, revision, err = service.Store.User(ctx, principal.User.ID)
 	if err != nil {
 		t.Fatal(err)

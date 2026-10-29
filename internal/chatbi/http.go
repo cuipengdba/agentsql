@@ -663,12 +663,18 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			failure(w, err)
 			return
 		}
+		recommendationMode, err := h.service.recommendationDisplayMode(r.Context(), p, b.Datasource)
+		if err != nil {
+			failure(w, err)
+			return
+		}
 		if b.Type == "excel" {
 			item, err := legacyExcelDatasource(b)
 			if err != nil {
 				failure(w, err)
 				return
 			}
+			item["recommended_config"] = recommendationMode
 			result = append(result, item)
 			continue
 		}
@@ -692,7 +698,7 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			}
 		}
 		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind, "type_name": typeName,
-			"description": b.Description, "configuration": configuration, "status": "Success"})
+			"description": b.Description, "configuration": configuration, "recommended_config": recommendationMode, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	if err := h.service.live(r.Context(), p); err != nil {
