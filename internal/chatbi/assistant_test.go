@@ -96,3 +96,61 @@ func TestAssistantDomainsAcceptOriginalSemicolonListButRejectInsecureOrigins(t *
 		}
 	}
 }
+
+func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	guest := testUser(t, "2", "public-guest")
+	if err := service.Store.CreateUser(ctx, guest); err != nil {
+		t.Fatal(err)
+	}
+	admin, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin.Admin = true
+	if err := service.Store.put(ctx, userKey(admin.ID), admin, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal.User = admin
+	input := AssistantApplication{Name: "Published synthetic data", Type: 0,
+		Domain: "https://app.example", DatasourceIDs: []ID{"10"}, PublicGuestUser: guest.ID, Enabled: true}
+	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("guest without own datasource accepted: %v", err)
+	}
+	adminBinding, err := service.binding(ctx, principal, "10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guestBinding := adminBinding
+	guestBinding.User = guest.ID
+	guestPrincipal := Principal{User: guest, Workspace: principal.Workspace}
+	if err := service.Store.put(ctx, bindingKey(guestPrincipal, "10"), guestBinding, 0); err != nil {
+		t.Fatal(err)
+	}
+	app, err := service.SaveAssistant(ctx, principal, input)
+	if err != nil || !app.ID.Valid() || app.AppID != "" || len(app.AppSecret) < 32 {
+		t.Fatalf("configured public guest app: %+v, %v", app, err)
+	}
+	input.PublicGuestUser = admin.ID
+	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("administrator as public guest accepted: %v", err)
+	}
+	input.PublicGuestUser = guest.ID
+	input.DatasourceIDs = nil
+	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("unscoped public guest app accepted: %v", err)
+	}
+	guest, revision, err = service.Store.User(ctx, guest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guest.Status = 0
+	if err := service.Store.put(ctx, userKey(guest.ID), guest, revision); err != nil {
+		t.Fatal(err)
+	}
+	app.Name = "Changed while guest disabled"
+	if _, err := service.SaveAssistant(ctx, principal, app); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("disabled public guest accepted: %v", err)
+	}
+}

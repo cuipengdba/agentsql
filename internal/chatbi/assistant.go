@@ -18,22 +18,23 @@ var ErrInvalidAssistant = errors.New("invalid assistant application")
 // AssistantApplication is a workspace-owned application configuration. It is
 // never a database credential or an authorization grant by itself.
 type AssistantApplication struct {
-	ID             ID        `json:"id,omitempty"`
-	Workspace      ID        `json:"oid,omitempty"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description,omitempty"`
-	Type           int       `json:"type"` // 0 basic, 1 advanced, 4 page embed
-	Domain         string    `json:"domain"`
-	DatasourceIDs  []ID      `json:"datasource_ids"`
-	Configuration  string    `json:"configuration,omitempty"`
-	UseCustomModel bool      `json:"enable_custom_model"`
-	CustomModel    *ID       `json:"custom_model,omitempty"`
-	Enabled        bool      `json:"enabled"`
-	AppID          string    `json:"app_id,omitempty"`
-	AppSecret      string    `json:"app_secret,omitempty"`
-	Created        time.Time `json:"created_at"`
-	Updated        time.Time `json:"updated_at"`
-	Revision       int64     `json:"revision"`
+	ID              ID        `json:"id,omitempty"`
+	Workspace       ID        `json:"oid,omitempty"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description,omitempty"`
+	Type            int       `json:"type"` // 0 basic, 1 advanced, 4 page embed
+	Domain          string    `json:"domain"`
+	DatasourceIDs   []ID      `json:"datasource_ids"`
+	PublicGuestUser ID        `json:"public_guest_user,omitempty"`
+	Configuration   string    `json:"configuration,omitempty"`
+	UseCustomModel  bool      `json:"enable_custom_model"`
+	CustomModel     *ID       `json:"custom_model,omitempty"`
+	Enabled         bool      `json:"enabled"`
+	AppID           string    `json:"app_id,omitempty"`
+	AppSecret       string    `json:"app_secret,omitempty"`
+	Created         time.Time `json:"created_at"`
+	Updated         time.Time `json:"updated_at"`
+	Revision        int64     `json:"revision"`
 }
 
 func assistantKey(workspace, id ID) objectKey {
@@ -185,6 +186,24 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 			return AssistantApplication{}, err
 		}
 	}
+	// The original browser SDK cannot authenticate its viewer with its public
+	// RSA header. A public assistant therefore needs a separate, explicitly
+	// designated non-admin identity with its own current datasource bindings.
+	if app.PublicGuestUser != "" {
+		if app.Type != 0 || !app.PublicGuestUser.Valid() || app.PublicGuestUser == p.User.ID || len(app.DatasourceIDs) == 0 {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+		guest, _, err := service.Store.User(ctx, app.PublicGuestUser)
+		if err != nil || guest.Admin || guest.Origin != 0 || guest.Workspace != p.Workspace || !guest.canUse(p.Workspace) {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+		guestPrincipal := Principal{User: guest, Workspace: p.Workspace}
+		for _, source := range app.DatasourceIDs {
+			if _, err := service.binding(ctx, guestPrincipal, source); err != nil {
+				return AssistantApplication{}, ErrInvalidAssistant
+			}
+		}
+	}
 	app.Workspace = p.Workspace
 	var previous AssistantApplication
 	var retiredImages []string
@@ -205,6 +224,8 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 			if err != nil {
 				return AssistantApplication{}, err
 			}
+		}
+		if app.Type == 4 || app.PublicGuestUser != "" {
 			app.AppSecret, err = newAssistantCredential(32)
 			if err != nil {
 				return AssistantApplication{}, err
@@ -229,6 +250,12 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 			return AssistantApplication{}, ErrInvalidAssistant
 		}
 		app.AppID, app.AppSecret = previous.AppID, previous.AppSecret
+		if app.PublicGuestUser != "" && app.AppSecret == "" {
+			app.AppSecret, err = newAssistantCredential(32)
+			if err != nil {
+				return AssistantApplication{}, err
+			}
+		}
 		app.Created = previous.Created
 		retiredImages, err = removedAssistantImageIDs(previous.Configuration, app.Configuration)
 		if err != nil {
