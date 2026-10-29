@@ -12,10 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fieldStatusCaptureModel struct{ columns []Column }
+type fieldStatusCaptureModel struct {
+	columns []Column
+	sql     string
+}
 
 func (model *fieldStatusCaptureModel) Generate(_ context.Context, _ ModelConfig, _, _ string, columns []Column) (SQLGeneration, error) {
 	model.columns = append([]Column(nil), columns...)
+	if model.sql != "" {
+		return SQLGeneration{SQL: model.sql}, nil
+	}
 	return SQLGeneration{SQL: `SELECT region FROM public.sales`}, nil
 }
 
@@ -76,6 +82,10 @@ func TestOriginalDatabaseFieldStatusControlsPreviewAndRollsBackWithAudit(t *test
 	require.NoError(t, err)
 	require.Equal(t, semantic, model.columns)
 	before := gateway.queries
+	model.sql = `SELECT amount FROM public.sales`
+	_, err = service.Ask(ctx, principal, chat.ID, "show amount", check, nil)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Equal(t, before, gateway.queries)
 	for _, sql := range []string{
 		`SELECT amount FROM public.sales`,
 		`SELECT region FROM public.sales WHERE amount > 1`,
