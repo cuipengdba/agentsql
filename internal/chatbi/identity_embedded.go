@@ -14,14 +14,16 @@ import (
 )
 
 type embeddedClaims struct {
-	Account     string `json:"account"`
-	EmbeddedID  *ID    `json:"embeddedId"`
-	AppID       string `json:"appId"`
-	Visitor     string `json:"visitor,omitempty"`
-	PublicGuest bool   `json:"publicGuest,omitempty"`
-	Expires     int64  `json:"exp"`
-	Issued      int64  `json:"iat"`
-	NotBefore   int64  `json:"nbf"`
+	Account      string `json:"account"`
+	EmbeddedID   *ID    `json:"embeddedId"`
+	AppID        string `json:"appId"`
+	Visitor      string `json:"visitor,omitempty"`
+	PublicGuest  bool   `json:"publicGuest,omitempty"`
+	AppRevision  int64  `json:"appRevision,omitempty"`
+	AuthRevision int64  `json:"authRevision,omitempty"`
+	Expires      int64  `json:"exp"`
+	Issued       int64  `json:"iat"`
+	NotBefore    int64  `json:"nbf"`
 }
 
 func validVisitorScope(value string) bool {
@@ -142,7 +144,8 @@ func (identity *Identity) VerifyEmbedded(ctx context.Context, token string) (Pri
 	if app.Type == 0 {
 		if !claims.PublicGuest || claims.EmbeddedID == nil || claims.AppID != "" ||
 			!validVisitorScope(claims.Visitor) || app.PublicGuestUser != user.ID ||
-			len(app.DatasourceIDs) == 0 || claims.Issued < now-3600 ||
+			len(app.DatasourceIDs) == 0 || claims.AppRevision != revision ||
+			claims.AuthRevision != user.AuthRevision || claims.Issued < now-3600 ||
 			claims.Expires <= now || claims.Expires > now+3600 {
 			return deny()
 		}

@@ -136,8 +136,25 @@ func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) 
 	if err != nil || !app.ID.Valid() || app.AppID != "" || len(app.AppSecret) < 32 {
 		t.Fatalf("configured public guest app: %+v, %v", app, err)
 	}
+	issuedToken, err := service.issuePublicGuestToken(ctx, app)
+	if err != nil {
+		t.Fatalf("server guest issuance: %v", err)
+	}
+	issuedIdentity, err := service.Identity.VerifyEmbedded(ctx, issuedToken)
+	if err != nil || !validVisitorScope(issuedIdentity.VisitorScope) || issuedIdentity.User.ID != guest.ID {
+		t.Fatalf("issued guest identity: %v", err)
+	}
+	secondIssuedToken, err := service.issuePublicGuestToken(ctx, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondIssuedIdentity, err := service.Identity.VerifyEmbedded(ctx, secondIssuedToken)
+	if err != nil || secondIssuedIdentity.VisitorScope == issuedIdentity.VisitorScope {
+		t.Fatalf("reused guest visitor scope: %v", err)
+	}
 	claims := map[string]any{"account": guest.Account, "embeddedId": app.ID,
 		"publicGuest": true, "visitor": strings.Repeat("c", 32),
+		"appRevision": app.Revision, "authRevision": guest.AuthRevision,
 		"iat": time.Now().Unix(), "exp": time.Now().Add(30 * time.Minute).Unix()}
 	guestToken := signedEmbeddedFixture(t, app.AppSecret, claims)
 	guestIdentity, err := service.Identity.VerifyEmbedded(ctx, guestToken)
@@ -155,10 +172,10 @@ func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) 
 		router.ServeHTTP(w, r)
 		return w.Code
 	}
-	if status := call("Assistant", guestToken); status != http.StatusOK {
+	if status := call("Assistant", issuedToken); status != http.StatusOK {
 		t.Fatalf("original assistant header rejected: %d", status)
 	}
-	if status := call("Embedded", guestToken); status != http.StatusUnauthorized {
+	if status := call("Embedded", issuedToken); status != http.StatusUnauthorized {
 		t.Fatalf("wrong embedded prefix accepted: %d", status)
 	}
 	claims["visitor"] = ""
@@ -169,6 +186,27 @@ func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) 
 	claims["exp"] = time.Now().Add(2 * time.Hour).Unix()
 	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
 		t.Fatal("long-lived public guest token accepted")
+	}
+	claims["exp"] = time.Now().Add(30 * time.Minute).Unix()
+	claims["appRevision"] = int64(0)
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("missing app revision accepted")
+	}
+	claims["appRevision"] = app.Revision
+	claims["authRevision"] = int64(0)
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("missing guest auth revision accepted")
+	}
+	app.Name = "Updated public guest app"
+	app, err = service.SaveAssistant(ctx, principal, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, guestToken); err == nil {
+		t.Fatal("old guest token survived assistant revision")
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, issuedToken); err == nil {
+		t.Fatal("issued guest token survived assistant revision")
 	}
 	input.PublicGuestUser = admin.ID
 	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
