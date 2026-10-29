@@ -148,6 +148,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/fileTables/{id}", h.bounded(h.auth(h.managedFileTableChoices)))
 	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/databaseTables/{id}", h.bounded(h.auth(h.databaseTableChoices)))
 	h.mux.HandleFunc("POST /api/v1/datasource/fieldList/{id}/{tableID}", h.bounded(h.auth(h.datasourceFieldList)))
+	h.mux.HandleFunc("POST /api/v1/datasource/syncFields/{id}/{tableID}", h.bounded(h.auth(h.syncDatasourceFields)))
 	h.mux.HandleFunc("POST /api/v1/datasource/editField", h.bounded(h.auth(h.editDatasourceFieldComment)))
 	h.mux.HandleFunc("GET /api/v1/datasource/exportDsSchema/{id}", h.bounded(h.auth(h.exportManagedFileRemarks)))
 	h.mux.HandleFunc("POST /api/v1/datasource/uploadDsSchema/{id}", h.bounded(h.auth(h.importManagedFileRemarks)))
