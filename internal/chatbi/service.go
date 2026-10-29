@@ -592,6 +592,9 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			}
 		}
 		remarks, err := managedFileRemarkHints(binding, columns)
+		if databaseBinding(binding) {
+			remarks, err = databaseRemarkHints(binding, columns)
+		}
 		if err != nil {
 			return err
 		}
