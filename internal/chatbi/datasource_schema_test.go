@@ -107,8 +107,12 @@ func TestOriginalDatabaseDatasourceDetailUsesLiveSchemaAndRedactsGatewayCredenti
 		t.Fatalf("anonymous datasource detail: %d", w.Code)
 	}
 	w := request(token)
+	displayConfiguration, err := databaseDisplayConfiguration()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":"pg"`) ||
-		!strings.Contains(w.Body.String(), `"num":"1/1"`) || !strings.Contains(w.Body.String(), `"configuration":""`) ||
+		!strings.Contains(w.Body.String(), `"num":"1/1"`) || !strings.Contains(w.Body.String(), `"configuration":"`+displayConfiguration+`"`) ||
 		strings.Contains(w.Body.String(), binding.Configuration) || strings.Contains(w.Body.String(), binding.ConnectorToken) ||
 		strings.Contains(w.Body.String(), binding.AgentKey) {
 		t.Fatalf("database detail leaked or failed: %d %s", w.Code, w.Body.String())

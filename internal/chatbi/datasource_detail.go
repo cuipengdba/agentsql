@@ -81,9 +81,14 @@ func (h *Handler) getDatasource(w http.ResponseWriter, r *http.Request, p Princi
 	if kind == "mysql" {
 		typeName = "MySQL"
 	}
+	configuration, err := databaseDisplayConfiguration()
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	okay(w, map[string]any{"id": numeric, "oid": workspace, "create_by": creator,
 		"name": binding.Name, "description": binding.Description, "type": kind,
-		"type_name": typeName, "configuration": "", "status": "Success",
+		"type_name": typeName, "configuration": configuration, "status": "Success",
 		"num":         strconv.Itoa(len(tables)) + "/" + strconv.Itoa(len(tables)),
 		"create_time": binding.Created, "embedding": nil, "table_relation": nil})
 }
