@@ -58,7 +58,10 @@ func TestOriginalManagedFileTableRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 	path := "/api/v1/datasource/editTable"
 	require.Equal(t, http.StatusUnauthorized, request(path, edit("private"), "").Code)
 	require.NotEqual(t, http.StatusOK, request(path, strings.Replace(edit("private"), `"id":"`+id+`"`, `"id":"1"`, 1), token).Code)
-	require.Equal(t, http.StatusUnprocessableEntity, request(path, strings.Replace(edit("private"), `"checked":true`, `"checked":false`, 1), token).Code)
+	require.Equal(t, http.StatusOK, request(path, strings.Replace(edit(""), `"checked":true`, `"checked":false`, 1), token).Code)
+	disabledList := request("/api/v1/datasource/tableList/11", "", token)
+	require.Equal(t, http.StatusOK, disabledList.Code)
+	require.Contains(t, disabledList.Body.String(), `"checked":false`)
 	require.Equal(t, http.StatusUnprocessableEntity, request(path, edit(strings.Repeat("x", 501)), token).Code)
 
 	const comment = "月份金额测试表"
@@ -68,6 +71,9 @@ func TestOriginalManagedFileTableRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 	comments, err := managedFileTableComments(current)
 	require.NoError(t, err)
 	require.Equal(t, comment, comments[table])
+	disabled, err := disabledTables(current)
+	require.NoError(t, err)
+	require.Empty(t, disabled)
 	list := request("/api/v1/datasource/tableList/11", "", token)
 	require.Equal(t, http.StatusOK, list.Code)
 	require.Contains(t, list.Body.String(), comment)
@@ -77,11 +83,16 @@ func TestOriginalManagedFileTableRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(FAIL, 'audit offline'); END`)
 	require.NoError(t, err)
 	require.NotEqual(t, http.StatusOK, request(path, edit("should roll back"), token).Code)
+	require.NotEqual(t, http.StatusOK,
+		request(path, strings.Replace(edit(comment), `"checked":true`, `"checked":false`, 1), token).Code)
 	current, err = service.binding(ctx, principal, "11")
 	require.NoError(t, err)
 	comments, err = managedFileTableComments(current)
 	require.NoError(t, err)
 	require.Equal(t, comment, comments[table])
+	disabled, err = disabledTables(current)
+	require.NoError(t, err)
+	require.Empty(t, disabled)
 	_, err = service.Store.db.ExecContext(ctx, `DROP TRIGGER reject_table_remark_audit`)
 	require.NoError(t, err)
 

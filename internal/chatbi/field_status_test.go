@@ -118,7 +118,7 @@ func TestOriginalDatabaseFieldStatusControlsPreviewAndRollsBackWithAudit(t *test
 }
 
 func TestDisabledFieldMetadataRejectsMalformedStoredState(t *testing.T) {
-	for _, encoded := range []string{`{"public\u0000sales\u0000amount":false}`, `{"bad":true}`, `[]`} {
+	for _, encoded := range []string{`{"public\u0000sales\u0000amount":false}`, `{"bad":true}`, `[]`, `null`} {
 		_, err := disabledFields(Binding{DisabledFields: encoded})
 		require.Error(t, err)
 	}

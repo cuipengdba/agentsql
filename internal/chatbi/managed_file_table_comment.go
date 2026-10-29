@@ -44,9 +44,8 @@ func managedFileTableComments(binding Binding) (map[string]string, error) {
 	return comments, nil
 }
 
-// The original table-remark dialog sends the entire row. Only the remark is
-// mutable here: checked state, relation identity and gateway grants are not
-// accepted from this payload.
+// The original table editor submits the current row. Its checked flag changes
+// semantic selection; relation identity and gateway grants stay server-owned.
 func (h *Handler) editDatasourceTableComment(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -70,7 +69,7 @@ func (h *Handler) editDatasourceTableComment(w http.ResponseWriter, r *http.Requ
 		strconv.FormatInt(tableID, 10) != encodedID || !input.DatasourceID.Valid() ||
 		!databaseRemarkName(input.TableName) || input.TableComment != "" ||
 		input.CustomComment == nil || !validManagedFileComment(*input.CustomComment) ||
-		input.Checked == nil || !*input.Checked ||
+		input.Checked == nil ||
 		len(input.Embedding) > 0 && string(input.Embedding) != "null" {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid table remark")
 		return
@@ -114,9 +113,9 @@ func (h *Handler) editDatasourceTableComment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if file {
-		err = h.service.Store.updateManagedFileTableComment(r.Context(), p, binding, input.TableName, *input.CustomComment)
+		err = h.service.Store.updateManagedFileTableComment(r.Context(), p, binding, input.TableName, *input.CustomComment, *input.Checked)
 	} else {
-		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, input.TableName, "", *input.CustomComment, nil)
+		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, input.TableName, "", *input.CustomComment, input.Checked)
 	}
 	if err != nil {
 		failure(w, err)
@@ -125,7 +124,7 @@ func (h *Handler) editDatasourceTableComment(w http.ResponseWriter, r *http.Requ
 	okay(w, nil)
 }
 
-func (s *Store) updateManagedFileTableComment(ctx context.Context, p Principal, prior Binding, tableName, comment string) error {
+func (s *Store) updateManagedFileTableComment(ctx context.Context, p Principal, prior Binding, tableName, comment string, checked bool) error {
 	if s == nil || ctx == nil || prior.Workspace != p.Workspace || prior.User != p.User.ID ||
 		!prior.Datasource.Valid() || prior.Type != "excel" || prior.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(prior.ManagedFileID) ||
@@ -153,7 +152,7 @@ func (s *Store) updateManagedFileTableComment(ctx context.Context, p Principal, 
 	if comments == nil {
 		comments = make(map[string]string)
 	}
-	unchanged := comments[tableName] == comment
+	commentUnchanged := comments[tableName] == comment
 	if comment == "" {
 		delete(comments, tableName)
 	} else {
@@ -167,6 +166,11 @@ func (s *Store) updateManagedFileTableComment(ctx context.Context, p Principal, 
 		}
 		encoded = string(body)
 	}
+	updated := prior
+	if err := setTableStatus(&updated, "agentsql_files", tableName, checked); err != nil {
+		return err
+	}
+	unchanged := commentUnchanged && updated.DisabledTables == prior.DisabledTables
 	key := bindingKey(p, prior.Datasource)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -194,6 +198,7 @@ func (s *Store) updateManagedFileTableComment(ctx context.Context, p Principal, 
 		return nil
 	}
 	current.TableComments = encoded
+	current.DisabledTables = updated.DisabledTables
 	sealed, err := s.seal(key, current)
 	if err != nil {
 		return err
@@ -203,9 +208,13 @@ func (s *Store) updateManagedFileTableComment(ctx context.Context, p Principal, 
 		return err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
-	audit, err := s.seal(auditKey, map[string]any{"action": "file-import.table-comment", "actor": p.User.ID,
+	action := "file-import.table-comment"
+	if commentUnchanged {
+		action = "file-import.table-status"
+	}
+	audit, err := s.seal(auditKey, map[string]any{"action": action, "actor": p.User.ID,
 		"workspace": p.Workspace, "datasource": prior.Datasource, "table": tableName,
-		"comment_length": utf8.RuneCountInString(comment), "time": time.Now().UTC()})
+		"comment_length": utf8.RuneCountInString(comment), "checked": checked, "time": time.Now().UTC()})
 	if err != nil {
 		return err
 	}

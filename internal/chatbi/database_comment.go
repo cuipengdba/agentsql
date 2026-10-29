@@ -60,7 +60,7 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 		return ErrNotFound
 	}
 	isField := field != ""
-	if isField != (checked != nil) {
+	if checked == nil {
 		return ErrNotFound
 	}
 	comments, err := databaseRemarks(prior, isField)
@@ -96,8 +96,10 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 		if err := setFieldStatus(&updated, schema, table, field, *checked); err != nil {
 			return err
 		}
+	} else if err := setTableStatus(&updated, schema, table, *checked); err != nil {
+		return err
 	}
-	if unchanged && updated.DisabledFields == prior.DisabledFields {
+	if unchanged && updated.DisabledFields == prior.DisabledFields && updated.DisabledTables == prior.DisabledTables {
 		return nil
 	}
 	object := bindingKey(p, prior.Datasource)
@@ -131,7 +133,11 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 		current.FieldComments = encoded
 		current.DisabledFields = updated.DisabledFields
 	} else {
+		if unchanged {
+			action = "database.table-status"
+		}
 		current.TableComments = encoded
+		current.DisabledTables = updated.DisabledTables
 	}
 	sealed, err := s.seal(object, current)
 	if err != nil {

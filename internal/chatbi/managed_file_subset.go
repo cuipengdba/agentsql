@@ -25,6 +25,10 @@ func (service *Service) semanticSchema(ctx context.Context, principal Principal,
 	if err != nil {
 		return nil, err
 	}
+	columns, err = filterDisabledTables(binding, columns)
+	if err != nil {
+		return nil, err
+	}
 	return filterDisabledFields(binding, columns)
 }
 

@@ -19,7 +19,7 @@ func disabledFields(binding Binding) (map[string]bool, error) {
 		return nil, ErrUnavailable
 	}
 	var fields map[string]bool
-	if json.Unmarshal([]byte(binding.DisabledFields), &fields) != nil || len(fields) > 4096 {
+	if json.Unmarshal([]byte(binding.DisabledFields), &fields) != nil || fields == nil || len(fields) > 4096 {
 		return nil, ErrUnavailable
 	}
 	for key, disabled := range fields {

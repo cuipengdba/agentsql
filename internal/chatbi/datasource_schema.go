@@ -98,6 +98,11 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
+	disabled, err := disabledTables(binding)
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
@@ -120,7 +125,7 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 		}
 		result = append(result, map[string]any{"id": table.id, "table_name": table.name,
 			"table_comment": "", "custom_comment": comments[commentKey], "embedding": nil,
-			"ds_id": numeric, "checked": true})
+			"ds_id": numeric, "checked": !disabled[disabledTableKey(table.schema, table.name)]})
 	}
 	okay(w, result)
 }
@@ -332,6 +337,11 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	binding, err := h.service.binding(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	columns, err = filterDisabledTables(binding, columns)
 	if err != nil {
 		failure(w, err)
 		return
