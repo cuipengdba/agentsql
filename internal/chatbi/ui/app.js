@@ -103,7 +103,7 @@ function theme(value){document.documentElement.dataset.theme=value;localStorage.
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const multipart=body instanceof FormData;const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 const qaDisplay={sql:true,log:true};
@@ -181,6 +181,7 @@ async function enter(){
       if(server&&server!==saved)try{await api('/user/language',{language:saved},'PUT');}catch{ /* Keep the local display preference if account persistence fails. */ }
     }else if(server){lang=server;localStorage.setItem('agentsql-chatbi-language',lang);}
     translate();
+    assistants.language();
   }
   sourceList=await api('/datasource/list');
   $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();$('recommendation-source').replaceChildren();
