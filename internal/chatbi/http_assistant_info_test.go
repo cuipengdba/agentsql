@@ -35,7 +35,7 @@ func originalSDKSignHeader(t *testing.T, key *rsa.PublicKey, payload assistantSi
 
 func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *testing.T) {
 	ctx := context.Background()
-	service, admin, _, _, _ := serviceFixture(t)
+	service, admin, gateway, _, _ := serviceFixture(t)
 	loginKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	service.Identity.privateKey = loginKey
@@ -111,6 +111,11 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	ds := call(http.MethodGet, "/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token)
 	require.Equal(t, http.StatusOK, ds.Code, ds.Body.String())
 	require.True(t, bytes.Contains(ds.Body.Bytes(), []byte(`"id":"10"`)))
+	gateway.schemaErr = ErrGateway
+	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
+		"/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
+	require.Zero(t, gateway.queries)
+	gateway.schemaErr = nil
 	start := httptest.NewRequest(http.MethodPost, "/api/v1/chat/assistant/start",
 		strings.NewReader(`{"datasource":"10","question":"","origin":2}`))
 	start.Header.Set("Content-Type", "application/json")
@@ -141,6 +146,17 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, "", claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusForbidden, call(http.MethodGet, path, "https://evil.example", header, claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, "Different browser", "").Code)
+	liveGuest, guestRevision, err := service.Store.User(ctx, guest.ID)
+	require.NoError(t, err)
+	liveGuest.Status = 0
+	require.NoError(t, service.Store.put(ctx, userKey(guest.ID), liveGuest, guestRevision))
+	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, claims.UserAgent, "").Code)
+	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet,
+		"/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
+	_, guestRevision, err = service.Store.User(ctx, guest.ID)
+	require.NoError(t, err)
+	liveGuest.Status = 1
+	require.NoError(t, service.Store.put(ctx, userKey(guest.ID), liveGuest, guestRevision))
 	stale := claims
 	stale.SignTime = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target,
