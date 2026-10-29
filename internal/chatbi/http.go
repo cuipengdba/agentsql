@@ -445,7 +445,7 @@ func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string
 	} else {
 		current, err = h.service.Identity.Verify(ctx, token)
 	}
-	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision {
+	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision || current.VisitorScope != p.VisitorScope {
 		return ErrUnauthenticated
 	}
 	return nil

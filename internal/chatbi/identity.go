@@ -95,6 +95,7 @@ type Principal struct {
 	Workspace        ID
 	EmbeddedApp      ID
 	EmbeddedRevision int64
+	VisitorScope     string
 }
 
 func userKey(id ID) objectKey { return objectKey{"user", "system", "system", string(id)} }

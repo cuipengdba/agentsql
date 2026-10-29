@@ -29,6 +29,7 @@ type Chat struct {
 	DatasourceExists bool      `json:"datasource_exists"`
 	Origin           int       `json:"origin"`
 	EmbeddedApp      ID        `json:"embedded_app,omitempty"`
+	VisitorScope     string    `json:"visitor_scope,omitempty"`
 	Records          []Record  `json:"records"`
 	LeaseUntil       time.Time `json:"lease_until,omitempty"`
 }
@@ -161,6 +162,9 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 }
 
 func (service *Service) live(ctx context.Context, p Principal) error {
+	if p.VisitorScope != "" && (p.EmbeddedApp == "" || !validVisitorScope(p.VisitorScope)) {
+		return ErrUnauthenticated
+	}
 	user, _, err := service.Store.User(ctx, p.User.ID)
 	if err != nil || user.AuthRevision != p.User.AuthRevision || !user.canUse(p.Workspace) {
 		return ErrUnauthenticated
@@ -244,7 +248,7 @@ func (service *Service) Start(ctx context.Context, p Principal, datasource ID, q
 		brief = []rune(binding.Name)
 	}
 	now := time.Now().UTC()
-	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, EmbeddedApp: p.EmbeddedApp, Records: []Record{}}
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, EmbeddedApp: p.EmbeddedApp, VisitorScope: p.VisitorScope, Records: []Record{}}
 	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
 		return Chat{}, err
 	}
@@ -313,7 +317,7 @@ func (service *Service) chat(ctx context.Context, p Principal, id ID) (Chat, int
 	if err != nil {
 		return Chat{}, 0, err
 	}
-	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID || chat.EmbeddedApp != p.EmbeddedApp {
+	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID || chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 		return Chat{}, 0, ErrUnavailable
 	}
 	return chat, rev, nil
@@ -333,7 +337,7 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
 			return nil, ErrUnavailable
 		}
-		if chat.EmbeddedApp != p.EmbeddedApp {
+		if chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 			continue
 		}
 		chat.Records = []Record{}
@@ -364,7 +368,7 @@ func (service *Service) RecentQuestions(ctx context.Context, p Principal, dataso
 		if json.Unmarshal(raw, &chat) != nil || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
 			return nil, ErrUnavailable
 		}
-		if chat.EmbeddedApp != p.EmbeddedApp {
+		if chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 			continue
 		}
 		if chat.Datasource != datasource {
