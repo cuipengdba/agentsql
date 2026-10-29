@@ -234,6 +234,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
 	h.mux.HandleFunc("GET /api/v1/system/assistant/ds", h.bounded(h.auth(h.publicAssistantDatasources)))
+	h.mux.HandleFunc("POST /api/v1/agentsql/assistant/guest-session", h.bounded(h.auth(h.guestSession)))
+	h.mux.HandleFunc("POST /api/v1/agentsql/assistant/guest-session/resume", h.bounded(h.auth(h.resumeGuestSession)))
 	h.mux.HandleFunc("GET /api/v1/system/assistant/picture/{file_id}", h.assistantPicture)
 	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
@@ -471,6 +473,9 @@ func embeddedRouteAllowed(r *http.Request) bool {
 		return strings.HasPrefix(path, "/api/v1/datasource/ws/") || strings.HasPrefix(path, "/api/v1/datasource/check/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended_base/")
 	}
 	if r.Method == http.MethodPost {
+		if path == "/api/v1/agentsql/assistant/guest-session" || path == "/api/v1/agentsql/assistant/guest-session/resume" {
+			return true
+		}
 		for _, prefix := range []string{"/api/v1/datasource/get/", "/api/v1/datasource/getTables/", "/api/v1/datasource/getFields/", "/api/v1/datasource/tableList/", "/api/v1/datasource/fieldList/", "/api/v1/datasource/previewData/"} {
 			if strings.HasPrefix(path, prefix) {
 				return true

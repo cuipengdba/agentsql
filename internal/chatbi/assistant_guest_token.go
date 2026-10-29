@@ -15,8 +15,18 @@ import (
 // explicitly published assistant with a separate guest identity may use this
 // token. Every subsequent data read rechecks the application and gateway.
 func (service *Service) issuePublicGuestToken(ctx context.Context, app AssistantApplication) (string, error) {
+	var entropy [16]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", ErrUnavailable
+	}
+	return service.issuePublicGuestTokenForVisitor(ctx, app, hex.EncodeToString(entropy[:]))
+}
+
+// A previously issued visitor may be restored only after a separate signed
+// resume proof has been checked. The caller cannot choose this scope directly.
+func (service *Service) issuePublicGuestTokenForVisitor(ctx context.Context, app AssistantApplication, visitor string) (string, error) {
 	if service == nil || service.Store == nil || service.Identity == nil || service.Identity.now == nil ||
-		!app.ID.Valid() || !app.Workspace.Valid() {
+		!app.ID.Valid() || !app.Workspace.Valid() || !validVisitorScope(visitor) {
 		return "", ErrUnauthenticated
 	}
 	var current AssistantApplication
@@ -37,13 +47,9 @@ func (service *Service) issuePublicGuestToken(ctx context.Context, app Assistant
 			return "", ErrUnauthenticated
 		}
 	}
-	var entropy [16]byte
-	if _, err := rand.Read(entropy[:]); err != nil {
-		return "", ErrUnavailable
-	}
 	now := service.Identity.now().Unix()
 	claims := embeddedClaims{Account: guest.Account, EmbeddedID: &current.ID,
-		Visitor: hex.EncodeToString(entropy[:]), PublicGuest: true,
+		Visitor: visitor, PublicGuest: true,
 		AppRevision: revision, AuthRevision: guest.AuthRevision,
 		Issued: now, Expires: now + 3600}
 	const header = `{"alg":"HS256","typ":"JWT"}`

@@ -132,6 +132,31 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.True(t, startedChat.Data.ID.Valid())
 	require.Equal(t, http.StatusOK, call(http.MethodGet,
 		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", envelope.Data.Token).Code)
+	postGuest := func(route, issuedToken string, body []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, route, bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-SQLBOT-ASSISTANT-TOKEN", "Assistant "+issuedToken)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	const sessionRoute = "/api/v1/agentsql/assistant/guest-session"
+	const resumeRoute = sessionRoute + "/resume"
+	issuedProof := postGuest(sessionRoute, envelope.Data.Token, nil)
+	require.Equal(t, http.StatusOK, issuedProof.Code, issuedProof.Body.String())
+	require.Equal(t, "no-store", issuedProof.Header().Get("Cache-Control"))
+	require.Equal(t, http.StatusUnprocessableEntity, postGuest(sessionRoute,
+		envelope.Data.Token, []byte(`{}`)).Code)
+	var proofEnvelope struct {
+		Data struct {
+			ResumeToken string `json:"resume_token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(issuedProof.Body.Bytes(), &proofEnvelope))
+	require.NotEmpty(t, proofEnvelope.Data.ResumeToken)
+	_, err = service.Identity.VerifyEmbedded(ctx, proofEnvelope.Data.ResumeToken)
+	require.ErrorIs(t, err, ErrUnauthenticated)
 	second := call(http.MethodGet, path, claims.Target, header, claims.UserAgent, "")
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
 	var secondEnvelope struct {
@@ -143,6 +168,45 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.NotEqual(t, envelope.Data.Token, secondEnvelope.Data.Token)
 	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
 		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", secondEnvelope.Data.Token).Code)
+	resumeBody, err := json.Marshal(map[string]string{"resume_token": proofEnvelope.Data.ResumeToken})
+	require.NoError(t, err)
+	otherApp, err := service.SaveAssistant(ctx, admin, AssistantApplication{
+		Name: "Other published assistant", Type: 0, Domain: claims.Target,
+		DatasourceIDs: []ID{"10"}, PublicGuestUser: guest.ID, Enabled: true,
+	})
+	require.NoError(t, err)
+	otherToken, err := service.issuePublicGuestToken(ctx, otherApp)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute, otherToken, resumeBody).Code)
+	resumed := postGuest(resumeRoute, secondEnvelope.Data.Token, resumeBody)
+	require.Equal(t, http.StatusOK, resumed.Code, resumed.Body.String())
+	require.Equal(t, "no-store", resumed.Header().Get("Cache-Control"))
+	var resumedEnvelope struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(resumed.Body.Bytes(), &resumedEnvelope))
+	resumedPrincipal, err := service.Identity.VerifyEmbedded(ctx, resumedEnvelope.Data.Token)
+	require.NoError(t, err)
+	require.Equal(t, principal.VisitorScope, resumedPrincipal.VisitorScope)
+	require.Equal(t, http.StatusOK, call(http.MethodGet,
+		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", resumedEnvelope.Data.Token).Code)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute,
+		secondEnvelope.Data.Token, []byte(`{"resume_token":"untrusted-visitor"}`)).Code)
+	proofBytes := []byte(proofEnvelope.Data.ResumeToken)
+	proofBytes[len(proofBytes)-1] ^= 1
+	forgedBody, err := json.Marshal(map[string]string{"resume_token": string(proofBytes)})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute,
+		secondEnvelope.Data.Token, forgedBody).Code)
+	originalNow := service.Identity.now
+	defer func() { service.Identity.now = originalNow }()
+	service.Identity.now = func() time.Time { return originalNow().Add(guestResumeLifetime + time.Minute) }
+	freshAfterExpiry, err := service.issuePublicGuestToken(ctx, app)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute, freshAfterExpiry, resumeBody).Code)
+	service.Identity.now = originalNow
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, "", claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusForbidden, call(http.MethodGet, path, "https://evil.example", header, claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, "Different browser", "").Code)
@@ -153,6 +217,7 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet,
 		"/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute, secondEnvelope.Data.Token, resumeBody).Code)
 	_, guestRevision, err = service.Store.User(ctx, guest.ID)
 	require.NoError(t, err)
 	liveGuest.Status = 1
@@ -175,9 +240,11 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
 		"/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, claims.UserAgent, "").Code)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute, secondEnvelope.Data.Token, resumeBody).Code)
 	require.NoError(t, service.Store.put(ctx, guestBindingKey, binding, 0))
 	app.Enabled = false
 	_, err = service.SaveAssistant(ctx, admin, app)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, "/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
+	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute, secondEnvelope.Data.Token, resumeBody).Code)
 }
