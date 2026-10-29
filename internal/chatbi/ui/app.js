@@ -73,6 +73,8 @@ Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'�
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
 Object.assign(copy['zh-CN'], {sourceRelations:'表关系',sourceRelationsIntro:'关系只为问数提供描述提示；查询仍按当前网关权限执行。',sourceRelationFromTable:'来源表',sourceRelationFromField:'来源字段',sourceRelationToTable:'目标表',sourceRelationToField:'目标字段',sourceRelationAdd:'添加关系',sourceRelationRemove:'移除',sourceRelationEmpty:'尚未配置表关系。',sourceRelationNeedTables:'至少需要两张当前可见且已选中的表，才能添加关系。'});
 Object.assign(copy.en, {sourceRelations:'Table relationships',sourceRelationsIntro:'Relationships provide descriptive Q&A hints. Queries still use current gateway permissions.',sourceRelationFromTable:'Source table',sourceRelationFromField:'Source field',sourceRelationToTable:'Target table',sourceRelationToField:'Target field',sourceRelationAdd:'Add relationship',sourceRelationRemove:'Remove',sourceRelationEmpty:'No table relationships yet.',sourceRelationNeedTables:'At least two currently visible, selected tables are needed to add a relationship.'});
+Object.assign(copy['zh-CN'], {removeDatabaseSource:'移除数据库数据源',removeDatabasePrompt:'从 AgentSQL 问数中移除此数据源？历史查询将不能再读取它；重新接入须使用新的数据源 ID。网关绑定和数据库账号仍由运维人员管理。',databaseSourceRemoved:'数据库数据源已从问数中移除。'});
+Object.assign(copy.en, {removeDatabaseSource:'Remove database datasource',removeDatabasePrompt:'Remove this datasource from AgentSQL Q&A? Historical queries will no longer read it; reconnecting requires a new datasource ID. The gateway binding and database account remain operator-managed.',databaseSourceRemoved:'Database datasource removed from Q&A.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsTemperature:'温度（0–1）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsTemperature:'Temperature (0–1)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsSelect:'工作空间模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
@@ -737,7 +739,7 @@ document.addEventListener('agentsql:show-chat-settings',()=>{
 async function loadSource(source,restoreTableID=null){
   selectedSource=source;const epoch=++sourceEpoch,relationEpoch=++sourceRelationEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
-  $('source-delete').hidden=!(isAdmin&&source.type==='excel');
+  $('source-delete').hidden=true;
   $('source-select').hidden=true;$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
   $('source-remarks')?.remove();$('source-relations')?.remove();
@@ -745,10 +747,12 @@ async function loadSource(source,restoreTableID=null){
   if(isAdmin&&source.type==='excel'){
     try{await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
       if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
-      managed=true;$('source-select').hidden=false;
+      managed=true;$('source-select').hidden=false;$('source-delete').hidden=false;
+      $('source-delete').textContent=t('deleteSource');
     }catch{ /* A nonmanaged Excel datasource has no managed-file editor. */ }
   }
   if(isAdmin&&(source.type==='pg'||source.type==='mysql')){
+    $('source-delete').hidden=false;$('source-delete').textContent=t('removeDatabaseSource');
     try{await api('/agentsql/datasource/databaseTables/'+encodeURIComponent(String(source.id)));
       if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
       $('source-select').hidden=false;
@@ -864,11 +868,13 @@ async function saveTableChoices(event){
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 async function deleteSelectedSource(){
-  const source=selectedSource;if(!isAdmin||!sourceVisible||source?.type!=='excel'||!window.confirm(t('deleteSourcePrompt')))return;
+  const source=selectedSource;if(!isAdmin||!sourceVisible||!['excel','pg','mysql'].includes(source?.type)||
+    $('source-delete').hidden||!window.confirm(t(source.type==='excel'?'deleteSourcePrompt':'removeDatabasePrompt')))return;
   const button=$('source-delete');button.disabled=true;
   try{
     await api('/datasource/delete/'+encodeURIComponent(String(source.id))+'/'+encodeURIComponent(source.name),{},'POST');
-    selectedSource=null;$('source-detail').hidden=true;await enter();await showSources();sourceStatus(t('sourceDeleted'));
+    selectedSource=null;$('source-detail').hidden=true;await enter();await showSources();
+    sourceStatus(t(source.type==='excel'?'sourceDeleted':'databaseSourceRemoved'));
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 function renderPreview(result){

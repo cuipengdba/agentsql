@@ -116,6 +116,17 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 	}
 	defer tx.Rollback()
 	for _, entry := range entries {
+		if entry.key.Kind == "binding" {
+			var retired int
+			err := tx.QueryRowContext(ctx, `SELECT 1 FROM chatbi_objects WHERE kind='retired-datasource' AND scope=? AND owner=? AND id=?`,
+				entry.key.Scope, entry.key.Owner, entry.key.ID).Scan(&retired)
+			if err == nil {
+				return ErrConflict
+			}
+			if !controlNoRows(err) {
+				return ErrUnavailable
+			}
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT(kind,scope,owner,id) DO UPDATE SET revision=chatbi_objects.revision+1,body=excluded.body`, entry.key.Kind, entry.key.Scope, entry.key.Owner, entry.key.ID, entry.body)
 		if err != nil {
 			return ErrUnavailable
