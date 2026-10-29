@@ -329,6 +329,31 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 	if err := service.live(ctx, p); err != nil {
 		return nil, err
 	}
+	checkGuestSources := func() error {
+		if p.EmbeddedApp == "" || p.EmbeddedType != 0 {
+			return nil
+		}
+		app, err := service.liveGuestAssistant(ctx, p)
+		if err != nil {
+			return err
+		}
+		for _, id := range app.DatasourceIDs {
+			binding, revision, digest, err := service.bindingSnapshot(ctx, p, id)
+			if err != nil {
+				return err
+			}
+			if _, err := service.schema(ctx, p, binding); err != nil {
+				return err
+			}
+			if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := checkGuestSources(); err != nil {
+		return nil, err
+	}
 	raw, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
 	if err != nil {
 		return nil, err
@@ -345,6 +370,9 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		chat.Records = []Record{}
 		chat.LeaseUntil = time.Time{}
 		chats = append(chats, chat)
+	}
+	if err := checkGuestSources(); err != nil {
+		return nil, err
 	}
 	return chats, nil
 }

@@ -755,9 +755,13 @@ func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	okay(w, map[string]any{"datasource_id": datasourceID, "recommended_config": config.Mode, "questions": string(encoded)})
 }
-func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	chats, err := h.service.Chats(r.Context(), p)
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
 	}

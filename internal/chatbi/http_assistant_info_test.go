@@ -117,6 +117,9 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	gateway.schemaErr = ErrGateway
 	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
 		"/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
+	listDuringGatewayFailure := call(http.MethodGet,
+		"/api/v1/chat/list", "", "", "", envelope.Data.Token)
+	require.NotEqual(t, http.StatusOK, listDuringGatewayFailure.Code)
 	require.Zero(t, gateway.queries)
 	gateway.schemaErr = nil
 	start := httptest.NewRequest(http.MethodPost, "/api/v1/chat/assistant/start",
@@ -135,6 +138,21 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.True(t, startedChat.Data.ID.Valid())
 	require.Equal(t, http.StatusOK, call(http.MethodGet,
 		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", envelope.Data.Token).Code)
+	askChat := func(issuedToken string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/chat/question",
+			strings.NewReader(`{"chat_id":"`+string(startedChat.Data.ID)+`","question":"show sales"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-SQLBOT-ASSISTANT-TOKEN", "Assistant "+issuedToken)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	answered := askChat(envelope.Data.Token)
+	require.Equal(t, http.StatusOK, answered.Code, answered.Body.String())
+	require.Contains(t, answered.Body.String(), `"type":"finish"`)
+	queriesBeforeRevoke := gateway.queries
+	require.Positive(t, queriesBeforeRevoke)
 	postGuest := func(route, issuedToken string, body []byte) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, route, bytes.NewReader(body))
@@ -197,9 +215,14 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", resumedEnvelope.Data.Token).Code)
 	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute,
 		secondEnvelope.Data.Token, []byte(`{"resume_token":"untrusted-visitor"}`)).Code)
-	proofBytes := []byte(proofEnvelope.Data.ResumeToken)
-	proofBytes[len(proofBytes)-1] ^= 1
-	forgedBody, err := json.Marshal(map[string]string{"resume_token": string(proofBytes)})
+	proofParts := strings.Split(proofEnvelope.Data.ResumeToken, ".")
+	require.Len(t, proofParts, 3)
+	if proofParts[2][0] == 'A' {
+		proofParts[2] = "B" + proofParts[2][1:]
+	} else {
+		proofParts[2] = "A" + proofParts[2][1:]
+	}
+	forgedBody, err := json.Marshal(map[string]string{"resume_token": strings.Join(proofParts, ".")})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute,
 		secondEnvelope.Data.Token, forgedBody).Code)
@@ -242,6 +265,14 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	require.NoError(t, service.Store.delete(ctx, guestBindingKey, guestBindingRevision))
 	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
 		"/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token).Code)
+	listAfterRevoke := call(http.MethodGet,
+		"/api/v1/chat/list", "", "", "", envelope.Data.Token)
+	require.NotEqual(t, http.StatusOK, listAfterRevoke.Code)
+	require.NotContains(t, listAfterRevoke.Body.String(), "show sales")
+	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
+		"/api/v1/chat/"+string(startedChat.Data.ID)+"/with_data", "", "", "", envelope.Data.Token).Code)
+	require.NotEqual(t, http.StatusOK, askChat(envelope.Data.Token).Code)
+	require.Equal(t, queriesBeforeRevoke, gateway.queries)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusUnauthorized, postGuest(resumeRoute, secondEnvelope.Data.Token, resumeBody).Code)
 	require.NoError(t, service.Store.put(ctx, guestBindingKey, binding, 0))
