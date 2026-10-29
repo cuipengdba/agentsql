@@ -198,7 +198,14 @@ func parseXLSXSheets(data []byte) ([]FileSheet, error) {
 
 func parseXLSXSheetsLimited(data []byte, maxSheets int) ([]FileSheet, error) {
 	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil || len(archive.File) > 128 {
+	if maxSheets < 1 || maxSheets > 257 {
+		return nil, errFileImport
+	}
+	maxParts := 128
+	if maxSheets > 8 {
+		maxParts = maxSheets + 32 // bounded room for styles, shared strings and relationships
+	}
+	if err != nil || len(archive.File) > maxParts {
 		return nil, errFileImport
 	}
 	parts := make(map[string]*zip.File, len(archive.File))

@@ -27,6 +27,9 @@ func TestDatabaseRemarkWorkbookHasBoundedMultiTableLayout(t *testing.T) {
 	book, err := zip.NewReader(strings.NewReader(string(data)), int64(len(data)))
 	require.NoError(t, err)
 	require.Len(t, book.File, 261)
+	parsed, err := parseXLSXSheetsLimited(data, 257)
+	require.NoError(t, err)
+	require.Len(t, parsed, 257)
 	sheets = append(sheets, managedRemarkSheet{name: "Sheet256",
 		rows: [][]string{{"字段名", "字段备注"}, {"id", ""}}})
 	_, err = managedRemarkWorkbook(sheets)

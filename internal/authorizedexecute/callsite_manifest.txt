@@ -24,9 +24,16 @@ internal/chatbi/datasource_excel_update.go
 # with fixed bound SQLite statements and a same-transaction management audit.
 internal/chatbi/managed_file_table_comment.go
 internal/chatbi/managed_file_field_comment.go
+  # Database remarks use the same encrypted owner binding and fixed bound
+  # control-store SQL; they cannot execute against a business database.
+internal/chatbi/database_comment.go
+  # Schema refresh audits a fresh gateway-visible read in the encrypted local
+  # control store. It never runs browser-provided SQL.
+internal/chatbi/datasource_schema_sync.go
 # Bounded remark-workbook import updates only encrypted local binding metadata;
 # management audit and binding revision commit in the same SQLite transaction.
 internal/chatbi/managed_file_remark_import.go
+internal/chatbi/database_remark_import.go
 # Membership and user creation mutate encrypted local identity/control-plane
 # rows with bound SQLite statements and a mandatory same-transaction audit.
 # They cannot open or execute against a business datasource.
