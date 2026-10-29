@@ -24,8 +24,20 @@ func TestDatabaseDatasourceDeleteRemovesOnlyOwnerAliasAfterAudit(t *testing.T) {
 	require.NoError(t, service.Store.put(ctx, bindingKey(principal, "11"), other, 0))
 	chat, err := service.Start(ctx, principal, "10", "before deletion", 0)
 	require.NoError(t, err)
+	_, err = service.Start(ctx, principal, "11", "still authorized", 0)
+	require.NoError(t, err)
 	handler, err := NewHandler(service, "test")
 	require.NoError(t, err)
+	listPath := "/api/v1/chat/list"
+	before := accountRequest(t, handler, http.MethodGet, listPath, "", token)
+	require.Equal(t, http.StatusOK, before.Code)
+	require.Contains(t, before.Body.String(), "before deletion")
+	require.Contains(t, before.Body.String(), "still authorized")
+	gateway.schemaErr = ErrGateway
+	require.NotEqual(t, http.StatusOK,
+		accountRequest(t, handler, http.MethodGet, listPath, "", token).Code,
+		"list must fail closed when the live gateway schema is unavailable")
+	gateway.schemaErr = nil
 	path := "/api/v1/datasource/delete/10/fixture"
 	require.Equal(t, http.StatusUnauthorized,
 		accountRequest(t, handler, http.MethodPost, path, `{}`, "").Code)
@@ -58,6 +70,10 @@ func TestDatabaseDatasourceDeleteRemovesOnlyOwnerAliasAfterAudit(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = service.binding(ctx, principal, "11")
 	require.NoError(t, err, "another alias must remain available")
+	after := accountRequest(t, handler, http.MethodGet, listPath, "", token)
+	require.Equal(t, http.StatusOK, after.Code)
+	require.NotContains(t, after.Body.String(), "before deletion")
+	require.Contains(t, after.Body.String(), "still authorized")
 	require.ErrorIs(t, service.Store.ConfigureConnections(ctx, ConnectionConfig{Bindings: []Binding{binding}}), ErrConflict,
 		"a retired datasource ID must not be rebound to another database and expose old chats")
 	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }

@@ -359,6 +359,13 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		return nil, err
 	}
 	chats := make([]Chat, 0, len(raw))
+	type listedSource struct {
+		binding  Binding
+		revision int64
+		digest   [32]byte
+	}
+	checked := make(map[ID]listedSource)
+	removed := make(map[ID]bool)
 	for _, entry := range raw {
 		var chat Chat
 		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
@@ -367,9 +374,34 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 		if chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 			continue
 		}
+		if chat.Datasource == "" {
+			if chat.Origin != 1 || len(chat.Records) != 0 {
+				return nil, ErrUnavailable
+			}
+		} else if removed[chat.Datasource] {
+			continue
+		} else if _, exists := checked[chat.Datasource]; !exists {
+			binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
+			if errors.Is(err, ErrNotFound) {
+				removed[chat.Datasource] = true
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if _, err := service.schema(ctx, p, binding); err != nil {
+				return nil, err
+			}
+			checked[chat.Datasource] = listedSource{binding, revision, digest}
+		}
 		chat.Records = []Record{}
 		chat.LeaseUntil = time.Time{}
 		chats = append(chats, chat)
+	}
+	for _, source := range checked {
+		if err := service.bindingUnchanged(ctx, p, source.binding, source.revision, source.digest); err != nil {
+			return nil, err
+		}
 	}
 	if err := checkGuestSources(); err != nil {
 		return nil, err
