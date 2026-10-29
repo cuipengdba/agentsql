@@ -47,7 +47,7 @@ func managedFileTableComments(binding Binding) (map[string]string, error) {
 // The original table-remark dialog sends the entire row. Only the remark is
 // mutable here: checked state, relation identity and gateway grants are not
 // accepted from this payload.
-func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+func (h *Handler) editDatasourceTableComment(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
 		return
@@ -68,7 +68,7 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 	tableID, idErr := strconv.ParseInt(encodedID, 10, 64)
 	if idErr != nil || tableID < 1 || tableID > maxSQLBotBrowserID ||
 		strconv.FormatInt(tableID, 10) != encodedID || !input.DatasourceID.Valid() ||
-		!managedFileNamePattern.MatchString(input.TableName) || input.TableComment != "" ||
+		!databaseRemarkName(input.TableName) || input.TableComment != "" ||
 		input.CustomComment == nil || !validManagedFileComment(*input.CustomComment) ||
 		input.Checked == nil || !*input.Checked ||
 		len(input.Embedding) > 0 && string(input.Embedding) != "null" {
@@ -76,8 +76,10 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 		return
 	}
 	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, input.DatasourceID)
-	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
-		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+	file := binding.Type == "excel" && binding.Dialect == "pg" &&
+		managedFileOperationPattern.MatchString(binding.ManagedFileID)
+	if err != nil || (!file && !databaseBinding(binding)) ||
+		(file && !managedFileNamePattern.MatchString(input.TableName)) {
 		failure(w, ErrNotFound)
 		return
 	}
@@ -91,10 +93,11 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 		failure(w, ErrGateway)
 		return
 	}
-	found := false
+	found, schema := false, ""
 	for _, table := range tables {
-		if table.id == tableID && table.name == input.TableName && table.schema == "agentsql_files" {
+		if table.id == tableID && table.name == input.TableName && (!file || table.schema == "agentsql_files") {
 			found = true
+			schema = table.schema
 			break
 		}
 	}
@@ -110,7 +113,12 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 		failure(w, err)
 		return
 	}
-	if err := h.service.Store.updateManagedFileTableComment(r.Context(), p, binding, input.TableName, *input.CustomComment); err != nil {
+	if file {
+		err = h.service.Store.updateManagedFileTableComment(r.Context(), p, binding, input.TableName, *input.CustomComment)
+	} else {
+		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, input.TableName, "", *input.CustomComment)
+	}
+	if err != nil {
 		failure(w, err)
 		return
 	}

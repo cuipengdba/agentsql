@@ -91,6 +91,9 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	comments, err := managedFileTableComments(binding)
+	if databaseBinding(binding) {
+		comments, err = databaseRemarks(binding, false)
+	}
 	if err != nil {
 		failure(w, err)
 		return
@@ -111,8 +114,12 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 	}
 	result := make([]map[string]any, 0, len(tables))
 	for _, table := range tables {
+		commentKey := table.name
+		if databaseBinding(binding) {
+			commentKey = databaseTableCommentKey(table.schema, table.name)
+		}
 		result = append(result, map[string]any{"id": table.id, "table_name": table.name,
-			"table_comment": "", "custom_comment": comments[table.name], "embedding": nil,
+			"table_comment": "", "custom_comment": comments[commentKey], "embedding": nil,
 			"ds_id": numeric, "checked": true})
 	}
 	okay(w, result)
@@ -150,6 +157,9 @@ func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	comments, err := managedFileFieldComments(binding)
+	if databaseBinding(binding) {
+		comments, err = databaseRemarks(binding, true)
+	}
 	if err != nil {
 		failure(w, err)
 		return
@@ -184,9 +194,13 @@ func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p 
 			if !strings.Contains(strings.ToLower(column.Name), strings.ToLower(input.FieldName)) {
 				continue
 			}
+			commentKey := managedFileFieldCommentKey(table.name, column.Name)
+			if databaseBinding(binding) {
+				commentKey = databaseFieldCommentKey(table.schema, table.name, column.Name)
+			}
 			result = append(result, map[string]any{"id": id, "field_name": column.Name,
 				"field_type": column.DataType, "field_index": index,
-				"field_comment": nil, "custom_comment": comments[managedFileFieldCommentKey(table.name, column.Name)],
+				"field_comment": nil, "custom_comment": comments[commentKey],
 				"ds_id": numeric, "table_id": tableID, "checked": true})
 		}
 		okay(w, result)

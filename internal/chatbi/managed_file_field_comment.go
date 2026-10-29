@@ -35,7 +35,7 @@ func managedFileFieldComments(binding Binding) (map[string]string, error) {
 	return comments, nil
 }
 
-func (h *Handler) editManagedFileFieldComment(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+func (h *Handler) editDatasourceFieldComment(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
 		return
@@ -69,8 +69,9 @@ func (h *Handler) editManagedFileFieldComment(w http.ResponseWriter, r *http.Req
 		return
 	}
 	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, input.DatasourceID)
-	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
-		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+	file := binding.Type == "excel" && binding.Dialect == "pg" &&
+		managedFileOperationPattern.MatchString(binding.ManagedFileID)
+	if err != nil || (!file && !databaseBinding(binding)) {
 		failure(w, ErrNotFound)
 		return
 	}
@@ -84,15 +85,16 @@ func (h *Handler) editManagedFileFieldComment(w http.ResponseWriter, r *http.Req
 		failure(w, ErrGateway)
 		return
 	}
-	tableName := ""
+	tableName, schema := "", ""
 	for _, table := range tables {
-		if table.id != tableID || table.schema != "agentsql_files" || !managedFileNamePattern.MatchString(table.name) {
+		if table.id != tableID || (file && (table.schema != "agentsql_files" || !managedFileNamePattern.MatchString(table.name))) {
 			continue
 		}
 		for index, column := range table.columns {
 			if index == *input.FieldIndex && column.Name == input.FieldName &&
 				column.DataType == input.FieldType && browserFieldID(tableID, column.Name) == fieldID {
 				tableName = table.name
+				schema = table.schema
 				break
 			}
 		}
@@ -109,7 +111,12 @@ func (h *Handler) editManagedFileFieldComment(w http.ResponseWriter, r *http.Req
 		failure(w, err)
 		return
 	}
-	if err := h.service.Store.updateManagedFileFieldComment(r.Context(), p, binding, tableName, input.FieldName, *input.CustomComment); err != nil {
+	if file {
+		err = h.service.Store.updateManagedFileFieldComment(r.Context(), p, binding, tableName, input.FieldName, *input.CustomComment)
+	} else {
+		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, tableName, input.FieldName, *input.CustomComment)
+	}
+	if err != nil {
 		failure(w, err)
 		return
 	}
