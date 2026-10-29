@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -61,4 +62,35 @@ func decodeAssistantSign(identity *Identity, header string) (assistantSignPayloa
 		return deny()
 	}
 	return payload, nil
+}
+
+// This verifies that an encrypted SDK header matches the current request and
+// assistant configuration. These browser assertions still do not prove who the
+// requester is; token issuance additionally requires server-owned authority.
+func validateAssistantSign(identity *Identity, payload assistantSignPayload, app AssistantApplication, origin, userAgent string) error {
+	if identity == nil || identity.now == nil || !app.Enabled || !app.ID.Valid() ||
+		(app.Type != 0 && app.Type != 1) || payload.AssistantID != app.ID ||
+		origin == "" || payload.Target != origin || !assistantOriginAllowed(app.Domain, origin) ||
+		payload.Webdriver || userAgent == "" || len(userAgent) > 1024 || payload.UserAgent != userAgent ||
+		payload.Timezone == "" {
+		return ErrUnauthenticated
+	}
+	signed, err := time.Parse(time.RFC3339, payload.SignTime)
+	if err != nil {
+		return ErrUnauthenticated
+	}
+	delta := identity.now().UTC().Sub(signed.UTC())
+	if delta < -10*time.Second || delta > 10*time.Second {
+		return ErrUnauthenticated
+	}
+	zone, err := time.LoadLocation(payload.Timezone)
+	if err != nil {
+		return ErrUnauthenticated
+	}
+	_, claimedOffset := signed.Zone()
+	_, actualOffset := signed.In(zone).Zone()
+	if claimedOffset != actualOffset {
+		return ErrUnauthenticated
+	}
+	return nil
 }

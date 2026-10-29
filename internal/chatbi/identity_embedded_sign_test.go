@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -56,4 +57,32 @@ func TestOriginalAssistantSignEnvelopeIsParseableButNotAnIdentity(t *testing.T) 
 	require.ErrorIs(t, err, ErrUnauthenticated)
 	_, err = decodeAssistantSign(identity, encode([]byte(`{"assistant_id":0}`)))
 	require.ErrorIs(t, err, ErrUnauthenticated)
+}
+
+func TestOriginalAssistantSignChecksRequestClaimsWithoutGrantingIdentity(t *testing.T) {
+	identity := &Identity{now: func() time.Time { return time.Date(2026, 10, 29, 16, 0, 0, 0, time.UTC) }}
+	app := AssistantApplication{ID: "12", Workspace: "1", Type: 0, Enabled: true, Domain: "https://app.example"}
+	base := assistantSignPayload{AssistantID: "12", SignTime: "2026-10-30T00:00:00+08:00",
+		Target: "https://app.example", UserAgent: "Original browser", Timezone: "Asia/Shanghai"}
+	check := func(payload assistantSignPayload, application AssistantApplication, origin, userAgent string) error {
+		t.Helper()
+		return validateAssistantSign(identity, payload, application, origin, userAgent)
+	}
+	require.NoError(t, check(base, app, "https://app.example", "Original browser"))
+	changed := base
+	changed.AssistantID = "13"
+	require.ErrorIs(t, check(changed, app, base.Target, base.UserAgent), ErrUnauthenticated)
+	require.ErrorIs(t, check(base, app, "https://evil.example", base.UserAgent), ErrUnauthenticated)
+	require.ErrorIs(t, check(base, app, base.Target, "different browser"), ErrUnauthenticated)
+	changed = base
+	changed.Webdriver = true
+	require.ErrorIs(t, check(changed, app, base.Target, base.UserAgent), ErrUnauthenticated)
+	changed = base
+	changed.SignTime = "2026-10-29T23:59:49+08:00"
+	require.ErrorIs(t, check(changed, app, base.Target, base.UserAgent), ErrUnauthenticated)
+	changed = base
+	changed.SignTime = "2026-10-30T00:00:00+09:00"
+	require.ErrorIs(t, check(changed, app, base.Target, base.UserAgent), ErrUnauthenticated)
+	app.Enabled = false
+	require.ErrorIs(t, check(base, app, base.Target, base.UserAgent), ErrUnauthenticated)
 }
