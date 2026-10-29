@@ -231,6 +231,9 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/app/{appID}", h.publicEmbeddedApplication)
 	h.mux.HandleFunc("GET /api/v1/system/assistant/validate/{id}", h.publicAssistantValidate)
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/validate/{id}", h.publicAssistantValidate)
+	h.mux.HandleFunc("GET /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
+	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
+	h.mux.HandleFunc("GET /api/v1/system/assistant/ds", h.bounded(h.auth(h.publicAssistantDatasources)))
 	h.mux.HandleFunc("GET /api/v1/system/assistant/picture/{file_id}", h.assistantPicture)
 	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
@@ -462,7 +465,7 @@ func embeddedRouteAllowed(r *http.Request) bool {
 	}
 	if r.Method == http.MethodGet {
 		switch path {
-		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
+		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/assistant/ds", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
 			return true
 		}
 		return strings.HasPrefix(path, "/api/v1/datasource/ws/") || strings.HasPrefix(path, "/api/v1/datasource/check/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended_base/")
