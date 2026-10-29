@@ -231,6 +231,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/app/{appID}", h.publicEmbeddedApplication)
 	h.mux.HandleFunc("GET /api/v1/system/assistant/validate/{id}", h.publicAssistantValidate)
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/validate/{id}", h.publicAssistantValidate)
+	h.mux.HandleFunc("GET /api/v1/system/assistant/picture/{file_id}", h.assistantPicture)
 	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PATCH /api/v1/system/assistant/ui", h.bounded(h.auth(h.legacyEmbeddedUI)))

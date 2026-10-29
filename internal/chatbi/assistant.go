@@ -273,7 +273,7 @@ func (service *Service) DeleteAssistant(ctx context.Context, p Principal, id ID,
 	if !id.Valid() || revision < 1 {
 		return ErrInvalidAssistant
 	}
-	return service.Store.deleteSemantic(ctx, assistantKey(p.Workspace, id), revision, "assistant.delete")
+	return service.deleteAssistantWithImages(ctx, p.Workspace, id, revision)
 }
 
 // DeleteEmbeddedBatch commits all removals and their management audits in a
@@ -325,6 +325,9 @@ func (service *Service) DeleteEmbeddedBatch(ctx context.Context, p Principal, ap
 		}
 		if count != 1 {
 			return ErrConflict
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind='assistant-image' AND scope=? AND owner=?`, string(p.Workspace), string(app.ID)); err != nil {
+			return ErrUnavailable
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`, auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
 			return ErrUnavailable

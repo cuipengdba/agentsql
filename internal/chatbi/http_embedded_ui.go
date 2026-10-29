@@ -1,9 +1,14 @@
 package chatbi
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -24,33 +29,70 @@ type legacyEmbeddedUIInput struct {
 }
 
 // Read the original multipart form without spilling uploads into a host temp
-// directory. Image persistence has a separate contract; reject files here.
-func readLegacyEmbeddedUI(r *http.Request) (legacyEmbeddedUIInput, error) {
+// directory. The original browser sends files before its JSON data part.
+func readLegacyEmbeddedUI(r *http.Request) (legacyEmbeddedUIInput, map[string]assistantImageUpload, error) {
 	var input legacyEmbeddedUIInput
 	reader, err := r.MultipartReader()
 	if err != nil {
-		return input, ErrInvalidAssistant
+		return input, nil, ErrInvalidAssistant
 	}
-	part, err := reader.NextPart()
-	if err != nil || part.FormName() != "data" || part.FileName() != "" {
-		return input, ErrInvalidAssistant
-	}
-	data, err := io.ReadAll(io.LimitReader(part, (16<<10)+1))
-	_ = part.Close()
-	if err != nil || len(data) == 0 || len(data) > 16<<10 {
-		return input, ErrInvalidAssistant
-	}
-	if next, err := reader.NextPart(); err != io.EOF || next != nil {
-		if next != nil {
-			_ = next.Close()
+	var data []byte
+	uploads := make(map[string]assistantImageUpload, 2)
+	for count := 0; count < 4; count++ {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
 		}
-		return input, ErrInvalidAssistant
+		if err != nil || count == 3 {
+			return input, nil, ErrInvalidAssistant
+		}
+		if part.FormName() == "data" && part.FileName() == "" && data == nil {
+			data, err = io.ReadAll(io.LimitReader(part, (16<<10)+1))
+			_ = part.Close()
+			if err != nil || len(data) == 0 || len(data) > 16<<10 {
+				return input, nil, ErrInvalidAssistant
+			}
+			continue
+		}
+		name := part.FileName()
+		comma := strings.LastIndex(name, ",")
+		if part.FormName() != "files" || comma < 1 || comma > 128 || strings.ContainsAny(name[:comma], "/\\\x00") {
+			_ = part.Close()
+			return input, nil, ErrInvalidAssistant
+		}
+		flag := name[comma+1:]
+		if (flag != "logo" && flag != "float_icon") || uploads[flag].ID != "" {
+			_ = part.Close()
+			return input, nil, ErrInvalidAssistant
+		}
+		body, err := io.ReadAll(io.LimitReader(part, maxAssistantImageBytes+1))
+		_ = part.Close()
+		if err != nil || len(body) == 0 || len(body) > maxAssistantImageBytes {
+			return input, nil, ErrInvalidAssistant
+		}
+		config, format, err := image.DecodeConfig(bytes.NewReader(body))
+		if err != nil || config.Width < 1 || config.Height < 1 || config.Width > 2048 || config.Height > 2048 {
+			return input, nil, ErrInvalidAssistant
+		}
+		extension := strings.ToLower(path.Ext(name[:comma]))
+		if format == "png" && extension != ".png" || format == "jpeg" && extension != ".jpg" && extension != ".jpeg" || format != "png" && format != "jpeg" {
+			return input, nil, ErrInvalidAssistant
+		}
+		if _, decodedFormat, err := image.Decode(bytes.NewReader(body)); err != nil || decodedFormat != format {
+			return input, nil, ErrInvalidAssistant
+		}
+		mime := "image/png"
+		if format == "jpeg" {
+			mime = "image/jpeg"
+		}
+		id, err := newAssistantImageID(mime)
+		if err != nil {
+			return input, nil, err
+		}
+		uploads[flag] = assistantImageUpload{ID: id, assistantImage: assistantImage{MIME: mime, Data: body}}
 	}
 	if json.Unmarshal(data, &input) != nil || !input.ID.Valid() {
-		return input, ErrInvalidAssistant
-	}
-	if input.Logo != nil && *input.Logo != "" || input.FloatIcon != nil && *input.FloatIcon != "" {
-		return input, ErrInvalidAssistant
+		return input, nil, ErrInvalidAssistant
 	}
 	if input.Theme != nil && !validEmbeddedUIColor(*input.Theme) ||
 		input.HeaderFontColor != nil && !validEmbeddedUIColor(*input.HeaderFontColor) ||
@@ -61,9 +103,9 @@ func readLegacyEmbeddedUI(r *http.Request) (legacyEmbeddedUIInput, error) {
 		input.Name != nil && !validEmbeddedUIText(*input.Name, 120) ||
 		input.Welcome != nil && !validEmbeddedUIText(*input.Welcome, 500) ||
 		input.WelcomeDesc != nil && !validEmbeddedUIText(*input.WelcomeDesc, 2000) {
-		return input, ErrInvalidAssistant
+		return input, nil, ErrInvalidAssistant
 	}
-	return input, nil
+	return input, uploads, nil
 }
 
 func validEmbeddedUIColor(value string) bool {
@@ -85,8 +127,8 @@ func validEmbeddedUIText(value string, limit int) bool {
 }
 
 func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	input, err := readLegacyEmbeddedUI(r)
+	r.Body = http.MaxBytesReader(w, r.Body, (21<<20)+(64<<10))
+	input, uploads, err := readLegacyEmbeddedUI(r)
 	if err != nil {
 		failure(w, err)
 		return
@@ -105,6 +147,28 @@ func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, ErrUnavailable)
 		return
 	}
+	imageValue := func(name string) (string, error) {
+		var value string
+		if len(config[name]) > 0 && json.Unmarshal(config[name], &value) != nil {
+			return "", ErrUnavailable
+		}
+		return value, nil
+	}
+	oldLogo, err := imageValue("logo")
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	oldFloatIcon, err := imageValue("float_icon")
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if input.Logo != nil && *input.Logo != "" && *input.Logo != oldLogo ||
+		input.FloatIcon != nil && *input.FloatIcon != "" && *input.FloatIcon != oldFloatIcon {
+		failure(w, ErrInvalidAssistant)
+		return
+	}
 	set := func(name string, value any) {
 		encoded, _ := json.Marshal(value)
 		config[name] = encoded
@@ -115,10 +179,14 @@ func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Pri
 	if input.HeaderFontColor != nil {
 		set("header_font_color", *input.HeaderFontColor)
 	}
-	if input.Logo != nil {
+	if uploaded := uploads["logo"]; uploaded.ID != "" {
+		set("logo", uploaded.ID)
+	} else if input.Logo != nil {
 		set("logo", *input.Logo)
 	}
-	if input.FloatIcon != nil {
+	if uploaded := uploads["float_icon"]; uploaded.ID != "" {
+		set("float_icon", uploaded.ID)
+	} else if input.FloatIcon != nil {
 		set("float_icon", *input.FloatIcon)
 	}
 	if input.FloatIconDrag != nil {
@@ -150,8 +218,31 @@ func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, ErrUnavailable)
 		return
 	}
-	app.Configuration = string(encoded)
-	saved, err := h.service.SaveAssistant(r.Context(), p, app)
+	newLogo, err := imageValue("logo")
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	newFloatIcon, err := imageValue("float_icon")
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	obsolete := make([]string, 0, 2)
+	seenObsolete := map[string]bool{}
+	for _, oldID := range []string{oldLogo, oldFloatIcon} {
+		if validAssistantImageID(oldID) && oldID != newLogo && oldID != newFloatIcon && !seenObsolete[oldID] {
+			obsolete = append(obsolete, oldID)
+			seenObsolete[oldID] = true
+		}
+	}
+	newImages := make([]assistantImageUpload, 0, len(uploads))
+	for _, flag := range []string{"logo", "float_icon"} {
+		if uploaded := uploads[flag]; uploaded.ID != "" {
+			newImages = append(newImages, uploaded)
+		}
+	}
+	saved, err := h.service.saveAssistantUI(r.Context(), p, app, string(encoded), newImages, obsolete)
 	if err != nil {
 		failure(w, err)
 		return
