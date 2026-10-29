@@ -241,7 +241,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {
-		case "app.js", "chart.js", "dashboard.js", "assistants.js", "chat-settings.js", "user-variables.js", "app.css", "mark.svg":
+		case "app.js", "chart.js", "dashboard.js", "assistants.js", "chat-settings.js", "user-variables.js", "source-relations.js", "app.css", "mark.svg":
 			assets.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)

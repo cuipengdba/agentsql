@@ -3,6 +3,7 @@ import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
 import { setupChatSettings } from './chat-settings.js';
 import { setupUserVariableEditor } from './user-variables.js';
+import { renderSourceRelations } from './source-relations.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -70,6 +71,8 @@ Object.assign(copy['zh-CN'], {sourceSelect:'管理可查询的表',sourceSelectI
 Object.assign(copy.en, {sourceSelect:'Manage queryable tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
 Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
+Object.assign(copy['zh-CN'], {sourceRelations:'表关系',sourceRelationsIntro:'关系只为问数提供描述提示；查询仍按当前网关权限执行。',sourceRelationFromTable:'来源表',sourceRelationFromField:'来源字段',sourceRelationToTable:'目标表',sourceRelationToField:'目标字段',sourceRelationAdd:'添加关系',sourceRelationRemove:'移除',sourceRelationEmpty:'尚未配置表关系。',sourceRelationNeedTables:'至少需要两张当前可见且已选中的表，才能添加关系。'});
+Object.assign(copy.en, {sourceRelations:'Table relationships',sourceRelationsIntro:'Relationships provide descriptive Q&A hints. Queries still use current gateway permissions.',sourceRelationFromTable:'Source table',sourceRelationFromField:'Source field',sourceRelationToTable:'Target table',sourceRelationToField:'Target field',sourceRelationAdd:'Add relationship',sourceRelationRemove:'Remove',sourceRelationEmpty:'No table relationships yet.',sourceRelationNeedTables:'At least two currently visible, selected tables are needed to add a relationship.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsTemperature:'温度（0–1）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsTemperature:'Temperature (0–1)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsSelect:'工作空间模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
@@ -83,7 +86,7 @@ copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,sourceRelationEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
 let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1,userImportReportKey='';
 let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
@@ -732,12 +735,12 @@ document.addEventListener('agentsql:show-chat-settings',()=>{
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
 });
 async function loadSource(source,restoreTableID=null){
-  selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
+  selectedSource=source;const epoch=++sourceEpoch,relationEpoch=++sourceRelationEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
   $('source-select').hidden=true;$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
-  $('source-remarks')?.remove();
+  $('source-remarks')?.remove();$('source-relations')?.remove();
   let managed=false;
   if(isAdmin&&source.type==='excel'){
     try{await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
@@ -769,6 +772,11 @@ async function loadSource(source,restoreTableID=null){
     }
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
+    if(isAdmin&&(managed||source.type==='pg'||source.type==='mysql')){
+      const relations=await renderSourceRelations({source,tables,api,t,node,
+        valid:()=>sourceVisible&&relationEpoch===sourceRelationEpoch&&String(selectedSource?.id)===String(source.id)});
+      if(sourceVisible&&relationEpoch===sourceRelationEpoch&&String(selectedSource?.id)===String(source.id))$('source-tables').before(relations);
+    }
     if(restoreTableID!==null){const restored=tables.find(table=>String(table.id)===String(restoreTableID));
       if(restored)await loadSourceTable(source,restored);}
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
