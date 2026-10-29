@@ -106,10 +106,12 @@ func TestOriginalDatabaseTableSelectionIsScopedAuditedAndRevocable(t *testing.T)
 	var sourceList struct {
 		Data []struct {
 			Configuration string `json:"configuration"`
+			TypeName      string `json:"type_name"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(listing.Body.Bytes(), &sourceList))
 	require.Len(t, sourceList.Data, 1)
+	require.Equal(t, "PostgreSQL", sourceList.Data[0].TypeName)
 	encoded, err := base64.StdEncoding.DecodeString(sourceList.Data[0].Configuration)
 	require.NoError(t, err)
 	require.NotEmpty(t, encoded)

@@ -639,6 +639,13 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 		if kind == "" {
 			kind = b.Dialect
 		}
+		typeName := ""
+		switch kind {
+		case "pg":
+			typeName = "PostgreSQL"
+		case "mysql":
+			typeName = "MySQL"
+		}
 		configuration := ""
 		if databaseBinding(b) {
 			configuration, err = databaseDisplayConfiguration()
@@ -647,7 +654,7 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 				return
 			}
 		}
-		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind,
+		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind, "type_name": typeName,
 			"description": b.Description, "configuration": configuration, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
