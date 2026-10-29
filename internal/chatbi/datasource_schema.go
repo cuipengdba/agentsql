@@ -353,7 +353,7 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 	from := quote(schema) + "." + quote(input.Table.TableName)
 	if binding.Dialect == "mysql" {
 		quote = func(name string) string { return "`" + strings.ReplaceAll(name, "`", "``") + "`" }
-		from = quote(input.Table.TableName)
+		from = quote(schema) + "." + quote(input.Table.TableName)
 	} else if binding.Dialect != "pg" {
 		failure(w, ErrGateway)
 		return

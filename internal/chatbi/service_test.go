@@ -15,6 +15,7 @@ import (
 // acceptance evidence. Release acceptance separately uses real services.
 type fakeGateway struct {
 	schemaErr, queryErr error
+	columns             []Column
 	schemaCalls         int
 	queries             int
 	audit               int64
@@ -30,6 +31,9 @@ func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, err
 	}
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
+	}
+	if g.columns != nil {
+		return g.columns, nil
 	}
 	return []Column{{"public", "sales", "amount", "numeric"}}, nil
 }

@@ -250,6 +250,39 @@ func TestDatasourcePreviewUsesCurrentSchemaAndControlledQuery(t *testing.T) {
 	}
 }
 
+func TestDatasourcePreviewQualifiesMySQLTableWithAuthorizedSchema(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	binding, err := service.binding(context.Background(), principal, "10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.Dialect = "mysql"
+	if err := service.Store.put(context.Background(), bindingKey(principal, "10"), binding, 1); err != nil {
+		t.Fatal(err)
+	}
+	gateway.columns = []Column{{"agentsql_demo", "orders", "amount", "decimal"}}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(table string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/previewData/10",
+			strings.NewReader(`{"table":{"id":12,"table_name":"`+table+`"}}`))
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	if got := request("orders"); got.Code != http.StatusOK ||
+		gateway.lastQuery != "SELECT `amount` FROM `agentsql_demo`.`orders` LIMIT 100" {
+		t.Fatalf("MySQL preview did not use authorized schema: %d %s sql=%s", got.Code, got.Body.String(), gateway.lastQuery)
+	}
+	before := gateway.queries
+	if got := request("other"); got.Code == http.StatusOK || gateway.queries != before {
+		t.Fatal("forged MySQL table reached the gateway")
+	}
+}
+
 func TestDatasourcePreviewRejectsRevocationAfterQuery(t *testing.T) {
 	for _, revoke := range []string{"binding", "token"} {
 		t.Run(revoke, func(t *testing.T) {
