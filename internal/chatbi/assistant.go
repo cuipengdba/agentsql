@@ -98,10 +98,12 @@ func (service *Service) embeddedSourceAllowed(ctx context.Context, p Principal, 
 	}
 	var app AssistantApplication
 	revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
-	if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != 4 || !app.Enabled {
+	if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != p.EmbeddedType || !app.Enabled ||
+		(app.Type == 0 && (app.PublicGuestUser != p.User.ID || p.VisitorScope == "" || len(app.DatasourceIDs) == 0)) ||
+		(app.Type != 0 && app.Type != 4) {
 		return ErrUnauthenticated
 	}
-	if len(app.DatasourceIDs) == 0 {
+	if len(app.DatasourceIDs) == 0 && app.Type == 4 {
 		return nil
 	}
 	for _, allowed := range app.DatasourceIDs {

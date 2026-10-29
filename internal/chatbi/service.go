@@ -175,7 +175,9 @@ func (service *Service) live(ctx context.Context, p Principal) error {
 		}
 		var app AssistantApplication
 		revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
-		if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != 4 || !app.Enabled {
+		if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != p.EmbeddedType || !app.Enabled ||
+			(app.Type == 0 && (app.PublicGuestUser != user.ID || user.Origin != 0 || p.VisitorScope == "" || len(app.DatasourceIDs) == 0)) ||
+			(app.Type != 0 && app.Type != 4) {
 			return ErrUnauthenticated
 		}
 	}

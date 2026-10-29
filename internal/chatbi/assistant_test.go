@@ -3,7 +3,11 @@ package chatbi
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestAssistantConfigurationIsScopedAuditedAndRevocable(t *testing.T) {
@@ -132,6 +136,40 @@ func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) 
 	if err != nil || !app.ID.Valid() || app.AppID != "" || len(app.AppSecret) < 32 {
 		t.Fatalf("configured public guest app: %+v, %v", app, err)
 	}
+	claims := map[string]any{"account": guest.Account, "embeddedId": app.ID,
+		"publicGuest": true, "visitor": strings.Repeat("c", 32),
+		"iat": time.Now().Unix(), "exp": time.Now().Add(30 * time.Minute).Unix()}
+	guestToken := signedEmbeddedFixture(t, app.AppSecret, claims)
+	guestIdentity, err := service.Identity.VerifyEmbedded(ctx, guestToken)
+	if err != nil || guestIdentity.EmbeddedType != 0 || guestIdentity.VisitorScope != strings.Repeat("c", 32) {
+		t.Fatalf("scoped public guest token: %v", err)
+	}
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(prefix, token string) int {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/datasource/list", nil)
+		r.Header.Set("X-SQLBOT-ASSISTANT-TOKEN", prefix+" "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w.Code
+	}
+	if status := call("Assistant", guestToken); status != http.StatusOK {
+		t.Fatalf("original assistant header rejected: %d", status)
+	}
+	if status := call("Embedded", guestToken); status != http.StatusUnauthorized {
+		t.Fatalf("wrong embedded prefix accepted: %d", status)
+	}
+	claims["visitor"] = ""
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("unscoped public guest token accepted")
+	}
+	claims["visitor"] = strings.Repeat("c", 32)
+	claims["exp"] = time.Now().Add(2 * time.Hour).Unix()
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("long-lived public guest token accepted")
+	}
 	input.PublicGuestUser = admin.ID
 	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
 		t.Fatalf("administrator as public guest accepted: %v", err)
@@ -148,6 +186,9 @@ func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) 
 	guest.Status = 0
 	if err := service.Store.put(ctx, userKey(guest.ID), guest, revision); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, guestToken); err == nil {
+		t.Fatal("disabled guest retained an assistant token")
 	}
 	app.Name = "Changed while guest disabled"
 	if _, err := service.SaveAssistant(ctx, principal, app); !errors.Is(err, ErrInvalidAssistant) {

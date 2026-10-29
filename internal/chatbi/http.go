@@ -438,14 +438,18 @@ func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string
 	if strings.HasPrefix(token, "Ask ") {
 		current, err = h.service.Identity.VerifyAsk(ctx, strings.TrimPrefix(token, "Ask "))
 	} else if p.EmbeddedApp != "" {
-		if !strings.HasPrefix(token, "Embedded ") {
+		prefix := "Embedded "
+		if p.EmbeddedType == 0 {
+			prefix = "Assistant "
+		}
+		if !strings.HasPrefix(token, prefix) {
 			return ErrUnauthenticated
 		}
-		current, err = h.service.Identity.VerifyEmbedded(ctx, strings.TrimPrefix(token, "Embedded "))
+		current, err = h.service.Identity.VerifyEmbedded(ctx, strings.TrimPrefix(token, prefix))
 	} else {
 		current, err = h.service.Identity.Verify(ctx, token)
 	}
-	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision || current.VisitorScope != p.VisitorScope {
+	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision || current.EmbeddedType != p.EmbeddedType || current.VisitorScope != p.VisitorScope {
 		return ErrUnauthenticated
 	}
 	return nil
@@ -500,13 +504,14 @@ func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 				return
 			}
 			parts := strings.Fields(values[0])
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Embedded") {
+			if len(parts) != 2 || (parts[0] != "Embedded" && parts[0] != "Assistant") {
 				failure(w, ErrUnauthenticated)
 				return
 			}
 			p, err := h.service.Identity.VerifyEmbedded(r.Context(), parts[1])
-			if err != nil {
-				failure(w, err)
+			if err != nil || (p.EmbeddedType == 4 && parts[0] != "Embedded") ||
+				(p.EmbeddedType == 0 && parts[0] != "Assistant") {
+				failure(w, ErrUnauthenticated)
 				return
 			}
 			if origins := r.Header.Values("X-SQLBOT-HOST-ORIGIN"); len(origins) != 0 {
@@ -520,7 +525,7 @@ func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 					return
 				}
 			}
-			next(w, r, p, "Embedded "+parts[1])
+			next(w, r, p, parts[0]+" "+parts[1])
 			return
 		}
 		token, err := requestToken(r)

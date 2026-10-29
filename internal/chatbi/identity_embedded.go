@@ -14,13 +14,14 @@ import (
 )
 
 type embeddedClaims struct {
-	Account    string `json:"account"`
-	EmbeddedID *ID    `json:"embeddedId"`
-	AppID      string `json:"appId"`
-	Visitor    string `json:"visitor,omitempty"`
-	Expires    int64  `json:"exp"`
-	Issued     int64  `json:"iat"`
-	NotBefore  int64  `json:"nbf"`
+	Account     string `json:"account"`
+	EmbeddedID  *ID    `json:"embeddedId"`
+	AppID       string `json:"appId"`
+	Visitor     string `json:"visitor,omitempty"`
+	PublicGuest bool   `json:"publicGuest,omitempty"`
+	Expires     int64  `json:"exp"`
+	Issued      int64  `json:"iat"`
+	NotBefore   int64  `json:"nbf"`
 }
 
 func validVisitorScope(value string) bool {
@@ -79,7 +80,7 @@ func (identity *Identity) embeddedApplication(ctx context.Context, workspace ID,
 	}
 	var app AssistantApplication
 	revision, err := identity.store.get(ctx, assistantKey(workspace, id), &app)
-	if err != nil || app.ID != id || app.Workspace != workspace || app.Type != 4 || !app.Enabled || app.AppSecret == "" {
+	if err != nil || app.ID != id || app.Workspace != workspace || (app.Type != 4 && app.Type != 0) || !app.Enabled || app.AppSecret == "" {
 		return AssistantApplication{}, 0, ErrUnauthenticated
 	}
 	return app, revision, nil
@@ -138,6 +139,16 @@ func (identity *Identity) VerifyEmbedded(ctx context.Context, token string) (Pri
 	if err != nil {
 		return deny()
 	}
+	if app.Type == 0 {
+		if !claims.PublicGuest || claims.EmbeddedID == nil || claims.AppID != "" ||
+			!validVisitorScope(claims.Visitor) || app.PublicGuestUser != user.ID ||
+			len(app.DatasourceIDs) == 0 || claims.Issued < now-3600 ||
+			claims.Expires <= now || claims.Expires > now+3600 {
+			return deny()
+		}
+	} else if claims.PublicGuest {
+		return deny()
+	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
 		return deny()
@@ -147,5 +158,6 @@ func (identity *Identity) VerifyEmbedded(ctx context.Context, token string) (Pri
 	if !hmac.Equal(signature, mac.Sum(nil)) {
 		return deny()
 	}
-	return Principal{User: user, Workspace: user.Workspace, EmbeddedApp: app.ID, EmbeddedRevision: revision, VisitorScope: claims.Visitor}, nil
+	return Principal{User: user, Workspace: user.Workspace, EmbeddedApp: app.ID,
+		EmbeddedRevision: revision, EmbeddedType: app.Type, VisitorScope: claims.Visitor}, nil
 }
