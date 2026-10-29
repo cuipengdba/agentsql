@@ -116,7 +116,7 @@ func (h *Handler) editDatasourceTableComment(w http.ResponseWriter, r *http.Requ
 	if file {
 		err = h.service.Store.updateManagedFileTableComment(r.Context(), p, binding, input.TableName, *input.CustomComment)
 	} else {
-		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, input.TableName, "", *input.CustomComment)
+		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, input.TableName, "", *input.CustomComment, nil)
 	}
 	if err != nil {
 		failure(w, err)

@@ -71,6 +71,8 @@ Object.assign(copy['zh-CN'], {sourceSelect:'管理可查询的表',sourceSelectI
 Object.assign(copy.en, {sourceSelect:'Manage queryable tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
 Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
+Object.assign(copy['zh-CN'], {sourceFieldEnable:'启用字段',sourceFieldDisable:'停用字段',sourceFieldSaved:'字段状态已保存。',sourceFieldDisabled:'已停用'});
+Object.assign(copy.en, {sourceFieldEnable:'Enable field',sourceFieldDisable:'Disable field',sourceFieldSaved:'Field status saved.',sourceFieldDisabled:'Disabled'});
 Object.assign(copy['zh-CN'], {sourceRelations:'表关系',sourceRelationsIntro:'关系只为问数提供描述提示；查询仍按当前网关权限执行。',sourceRelationFromTable:'来源表',sourceRelationFromField:'来源字段',sourceRelationToTable:'目标表',sourceRelationToField:'目标字段',sourceRelationAdd:'添加关系',sourceRelationRemove:'移除',sourceRelationEmpty:'尚未配置表关系。',sourceRelationNeedTables:'至少需要两张当前可见且已选中的表，才能添加关系。'});
 Object.assign(copy.en, {sourceRelations:'Table relationships',sourceRelationsIntro:'Relationships provide descriptive Q&A hints. Queries still use current gateway permissions.',sourceRelationFromTable:'Source table',sourceRelationFromField:'Source field',sourceRelationToTable:'Target table',sourceRelationToField:'Target field',sourceRelationAdd:'Add relationship',sourceRelationRemove:'Remove',sourceRelationEmpty:'No table relationships yet.',sourceRelationNeedTables:'At least two currently visible, selected tables are needed to add a relationship.'});
 Object.assign(copy['zh-CN'], {removeDatabaseSource:'移除数据库数据源',removeDatabasePrompt:'从 AgentSQL 问数中移除此数据源？历史查询将不能再读取它；重新接入须使用新的数据源 ID。网关绑定和数据库账号仍由运维人员管理。',databaseSourceRemoved:'数据库数据源已从问数中移除。'});
@@ -801,6 +803,16 @@ async function saveSourceRemark(source,table,field,button){
     sourceStatus(t('sourceRemarkSaved'));
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
+async function toggleSourceField(source,table,field,button){
+  if(!sourceVisible||!isAdmin||String(selectedSource?.id)!==String(source.id))return;
+  button.disabled=true;
+  try{
+    await api('/datasource/editField',{...field,checked:!field.checked},'POST');
+    if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+    await loadSource(source,table.id);
+    sourceStatus(t('sourceFieldSaved'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
 async function downloadSourceRemarks(source,template,button){
   button.disabled=true;
   try{
@@ -897,10 +909,15 @@ async function loadSourceTable(source,table){
     if(!sourceVisible||epoch!==sourceEpoch)return;
     for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));
       if(field.custom_comment)row.append(node('small',field.custom_comment));
+      if(!field.checked)row.append(node('small',t('sourceFieldDisabled')));
       if(isAdmin&&((source.type==='excel'&&$('source-remarks'))||source.type==='pg'||source.type==='mysql')){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
-        edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);}
+        edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);
+        const toggle=node('button',t(field.checked?'sourceFieldDisable':'sourceFieldEnable'),'source-remark-edit');toggle.type='button';
+        toggle.setAttribute('aria-label',t(field.checked?'sourceFieldDisable':'sourceFieldEnable')+' '+field.field_name);
+        toggle.onclick=()=>{void toggleSourceField(source,table,field,toggle);};row.append(toggle);}
       $('source-fields').append(row);}
     if(!fields.length)$('source-fields').append(node('p',t('fieldEmpty'),'semantic-empty'));
+    if(fields.length&&fields.every(field=>!field.checked)){renderPreview({fields:[],data:[]});sourceStatus('');return;}
     const result=await api('/datasource/previewData/'+id,{table:{id:String(table.id),table_name:table.table_name}},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
     renderPreview(result);sourceStatus('');

@@ -63,7 +63,7 @@ func (h *Handler) editDatasourceFieldComment(w http.ResponseWriter, r *http.Requ
 		!input.DatasourceID.Valid() || input.FieldName == "" || len(input.FieldName) > 256 ||
 		strings.ContainsRune(input.FieldName, '\x00') || input.FieldIndex == nil || *input.FieldIndex < 0 ||
 		input.CustomComment == nil || !validManagedFileComment(*input.CustomComment) ||
-		input.Checked == nil || !*input.Checked ||
+		input.Checked == nil ||
 		len(input.FieldComment) > 0 && string(input.FieldComment) != "null" {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid field remark")
 		return
@@ -112,9 +112,9 @@ func (h *Handler) editDatasourceFieldComment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if file {
-		err = h.service.Store.updateManagedFileFieldComment(r.Context(), p, binding, tableName, input.FieldName, *input.CustomComment)
+		err = h.service.Store.updateManagedFileFieldComment(r.Context(), p, binding, tableName, input.FieldName, *input.CustomComment, *input.Checked)
 	} else {
-		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, tableName, input.FieldName, *input.CustomComment)
+		err = h.service.Store.updateDatabaseRemark(r.Context(), p, binding, schema, tableName, input.FieldName, *input.CustomComment, input.Checked)
 	}
 	if err != nil {
 		failure(w, err)
@@ -123,7 +123,7 @@ func (h *Handler) editDatasourceFieldComment(w http.ResponseWriter, r *http.Requ
 	okay(w, nil)
 }
 
-func (s *Store) updateManagedFileFieldComment(ctx context.Context, p Principal, prior Binding, tableName, fieldName, comment string) error {
+func (s *Store) updateManagedFileFieldComment(ctx context.Context, p Principal, prior Binding, tableName, fieldName, comment string, checked bool) error {
 	if s == nil || ctx == nil || prior.Workspace != p.Workspace || prior.User != p.User.ID ||
 		!prior.Datasource.Valid() || prior.Type != "excel" || prior.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(prior.ManagedFileID) ||
@@ -153,7 +153,7 @@ func (s *Store) updateManagedFileFieldComment(ctx context.Context, p Principal, 
 		comments = make(map[string]string)
 	}
 	key := managedFileFieldCommentKey(tableName, fieldName)
-	unchanged := comments[key] == comment
+	commentUnchanged := comments[key] == comment
 	if comment == "" {
 		delete(comments, key)
 	} else {
@@ -170,6 +170,11 @@ func (s *Store) updateManagedFileFieldComment(ctx context.Context, p Principal, 
 		}
 		encoded = string(body)
 	}
+	updated := prior
+	if err := setFieldStatus(&updated, "agentsql_files", tableName, fieldName, checked); err != nil {
+		return err
+	}
+	unchanged := commentUnchanged && updated.DisabledFields == prior.DisabledFields
 	object := bindingKey(p, prior.Datasource)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -197,6 +202,7 @@ func (s *Store) updateManagedFileFieldComment(ctx context.Context, p Principal, 
 		return nil
 	}
 	current.FieldComments = encoded
+	current.DisabledFields = updated.DisabledFields
 	sealed, err := s.seal(object, current)
 	if err != nil {
 		return err
@@ -206,9 +212,13 @@ func (s *Store) updateManagedFileFieldComment(ctx context.Context, p Principal, 
 		return err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
-	audit, err := s.seal(auditKey, map[string]any{"action": "file-import.field-comment", "actor": p.User.ID,
+	action := "file-import.field-comment"
+	if commentUnchanged {
+		action = "file-import.field-status"
+	}
+	audit, err := s.seal(auditKey, map[string]any{"action": action, "actor": p.User.ID,
 		"workspace": p.Workspace, "datasource": prior.Datasource, "table": tableName, "field": fieldName,
-		"comment_length": utf8.RuneCountInString(comment), "time": time.Now().UTC()})
+		"comment_length": utf8.RuneCountInString(comment), "checked": checked, "time": time.Now().UTC()})
 	if err != nil {
 		return err
 	}

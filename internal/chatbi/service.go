@@ -570,7 +570,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 				return err
 			}
 		}
-		columns, err := service.schema(ctx, p, binding)
+		columns, err := service.semanticSchema(ctx, p, binding)
 		if err != nil {
 			return err
 		}

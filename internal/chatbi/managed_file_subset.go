@@ -20,6 +20,14 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 	return filterDatabaseSchema(binding, columns)
 }
 
+func (service *Service) semanticSchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
+	columns, err := service.schema(ctx, principal, binding)
+	if err != nil {
+		return nil, err
+	}
+	return filterDisabledFields(binding, columns)
+}
+
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {
 		return QueryData{}, err

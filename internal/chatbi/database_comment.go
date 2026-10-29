@@ -52,7 +52,7 @@ func databaseRemarks(binding Binding, field bool) (map[string]string, error) {
 }
 
 func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Binding,
-	schema, table, field, comment string) error {
+	schema, table, field, comment string, checked *bool) error {
 	if s == nil || ctx == nil || prior.Workspace != p.Workspace || prior.User != p.User.ID ||
 		!prior.Datasource.Valid() || !databaseBinding(prior) ||
 		!databaseRemarkName(schema) || !databaseRemarkName(table) ||
@@ -60,6 +60,9 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 		return ErrNotFound
 	}
 	isField := field != ""
+	if isField != (checked != nil) {
+		return ErrNotFound
+	}
 	comments, err := databaseRemarks(prior, isField)
 	if err != nil {
 		return err
@@ -71,9 +74,7 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 	if isField {
 		key = databaseFieldCommentKey(schema, table, field)
 	}
-	if comments[key] == comment {
-		return nil
-	}
+	unchanged := comments[key] == comment
 	if comment == "" {
 		delete(comments, key)
 	} else {
@@ -89,6 +90,15 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 			return ErrUnavailable
 		}
 		encoded = string(body)
+	}
+	updated := prior
+	if isField {
+		if err := setFieldStatus(&updated, schema, table, field, *checked); err != nil {
+			return err
+		}
+	}
+	if unchanged && updated.DisabledFields == prior.DisabledFields {
+		return nil
 	}
 	object := bindingKey(p, prior.Datasource)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -115,7 +125,11 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 	action := "database.table-comment"
 	if isField {
 		action = "database.field-comment"
+		if unchanged {
+			action = "database.field-status"
+		}
 		current.FieldComments = encoded
+		current.DisabledFields = updated.DisabledFields
 	} else {
 		current.TableComments = encoded
 	}
@@ -131,7 +145,8 @@ func (s *Store) updateDatabaseRemark(ctx context.Context, p Principal, prior Bin
 	audit, err := s.seal(auditKey, map[string]any{"action": action, "actor": p.User.ID,
 		"workspace": p.Workspace, "datasource": prior.Datasource, "schema": schema,
 		"table": table, "field": field, "comment_length": utf8.RuneCountInString(comment),
-		"time": time.Now().UTC()})
+		"checked": checked,
+		"time":    time.Now().UTC()})
 	if err != nil {
 		return err
 	}

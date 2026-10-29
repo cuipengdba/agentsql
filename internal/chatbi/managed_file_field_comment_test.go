@@ -61,7 +61,10 @@ func TestOriginalManagedFileFieldRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 	require.Equal(t, http.StatusUnauthorized, request(path, edit("private"), "").Code)
 	require.NotEqual(t, http.StatusOK, request(path, strings.Replace(edit("private"), `"id":"`+strconv.FormatInt(fieldID, 10)+`"`, `"id":"1"`, 1), token).Code)
 	require.NotEqual(t, http.StatusOK, request(path, strings.Replace(edit("private"), `"field_index":0`, `"field_index":1`, 1), token).Code)
-	require.Equal(t, http.StatusUnprocessableEntity, request(path, strings.Replace(edit("private"), `"checked":true`, `"checked":false`, 1), token).Code)
+	require.Equal(t, http.StatusOK, request(path, strings.Replace(edit(""), `"checked":true`, `"checked":false`, 1), token).Code)
+	disabledList := request("/api/v1/datasource/fieldList/11/"+strconv.FormatInt(tableID, 10), `{}`, token)
+	require.Equal(t, http.StatusOK, disabledList.Code)
+	require.Contains(t, disabledList.Body.String(), `"checked":false`)
 	require.Equal(t, http.StatusUnprocessableEntity, request(path, edit(strings.Repeat("x", 501)), token).Code)
 
 	const comment = "月份字段"
@@ -71,6 +74,9 @@ func TestOriginalManagedFileFieldRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 	comments, err := managedFileFieldComments(current)
 	require.NoError(t, err)
 	require.Equal(t, comment, comments[managedFileFieldCommentKey(table, "month")])
+	status, err := disabledFields(current)
+	require.NoError(t, err)
+	require.Empty(t, status)
 	list := request("/api/v1/datasource/fieldList/11/"+strconv.FormatInt(tableID, 10), `{}`, token)
 	require.Equal(t, http.StatusOK, list.Code)
 	require.Contains(t, list.Body.String(), comment)
@@ -80,11 +86,16 @@ func TestOriginalManagedFileFieldRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(FAIL, 'audit offline'); END`)
 	require.NoError(t, err)
 	require.NotEqual(t, http.StatusOK, request(path, edit("should roll back"), token).Code)
+	require.NotEqual(t, http.StatusOK,
+		request(path, strings.Replace(edit(comment), `"checked":true`, `"checked":false`, 1), token).Code)
 	current, err = service.binding(ctx, principal, "11")
 	require.NoError(t, err)
 	comments, err = managedFileFieldComments(current)
 	require.NoError(t, err)
 	require.Equal(t, comment, comments[managedFileFieldCommentKey(table, "month")])
+	status, err = disabledFields(current)
+	require.NoError(t, err)
+	require.Empty(t, status)
 	_, err = service.Store.db.ExecContext(ctx, `DROP TRIGGER reject_field_remark_audit`)
 	require.NoError(t, err)
 
@@ -98,7 +109,7 @@ func TestOriginalManagedFileFieldRemarkPersistsWithAuditAndRejectsUnsafeEdits(t 
 			CommentLength int    `json:"comment_length"`
 		}
 		require.NoError(t, json.Unmarshal(raw, &event))
-		if event.Action == "file-import.field-comment" {
+		if event.Action == "file-import.field-comment" && event.CommentLength == len([]rune(comment)) {
 			found = true
 			require.Equal(t, "month", event.Field)
 			require.Equal(t, len([]rune(comment)), event.CommentLength)

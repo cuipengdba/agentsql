@@ -164,6 +164,11 @@ func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
+	disabled, err := disabledFields(binding)
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
@@ -201,7 +206,8 @@ func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p 
 			result = append(result, map[string]any{"id": id, "field_name": column.Name,
 				"field_type": column.DataType, "field_index": index,
 				"field_comment": nil, "custom_comment": comments[commentKey],
-				"ds_id": numeric, "table_id": tableID, "checked": true})
+				"ds_id": numeric, "table_id": tableID,
+				"checked": !disabled[disabledFieldKey(table.schema, table.name, column.Name)]})
 		}
 		okay(w, result)
 		return
@@ -326,6 +332,11 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	binding, err := h.service.binding(r.Context(), p, ID(r.PathValue("id")))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	columns, err = filterDisabledFields(binding, columns)
 	if err != nil {
 		failure(w, err)
 		return
