@@ -126,15 +126,18 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 	}
 	for _, record := range chat.Records {
 		if record.ID == id {
+			binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
+			if err != nil {
+				return Record{}, err
+			}
+			if _, err := service.schema(ctx, p, binding); err != nil {
+				return Record{}, err
+			}
 			record.Data = nil
 			if !withData {
 				record.Analysis, record.PredictText = "", ""
 			}
 			if withData && record.Finish && record.Error == "" {
-				binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
-				if err != nil {
-					return Record{}, err
-				}
 				data, err := service.query(ctx, p, binding, record.SQL)
 				if err != nil {
 					return Record{}, err
@@ -142,14 +145,14 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 				if data.AuditID <= 0 {
 					return Record{}, ErrGateway
 				}
-				if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
-					return Record{}, err
-				}
 				record.Data = &data
 				if record.Action != "" && record.DataDigest != resultDigest(data) {
 					record.Data = nil
 					record.Analysis, record.PredictText = "", ""
 				}
+			}
+			if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
+				return Record{}, err
 			}
 			record.DataDigest = ""
 			if err := service.live(ctx, p); err != nil {
