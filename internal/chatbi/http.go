@@ -135,7 +135,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/list/by_ws", h.auth(h.assistantWorkspaceModels))
 	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
-	h.mux.HandleFunc("POST /api/v1/datasource/update", h.bounded(h.auth(h.updateExcelDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/update", h.bounded(h.auth(h.updateDatasourceMetadata)))
 	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.bounded(h.auth(h.getDatasource)))
 	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
 	h.mux.HandleFunc("GET /api/v1/datasource/check/{id}", h.bounded(h.auth(h.datasourceCheck)))

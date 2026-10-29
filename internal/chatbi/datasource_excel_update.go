@@ -11,7 +11,7 @@ import (
 // The original browser resubmits the public AES Excel configuration when
 // editing metadata. It is a wire format, not authority to change the imported
 // file, gateway binding, selected tables, or database credentials.
-func (h *Handler) updateExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+func (h *Handler) updateDatasourceMetadata(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	var input struct {
 		ID            ID     `json:"id"`
 		Name          string `json:"name"`
@@ -22,11 +22,11 @@ func (h *Handler) updateExcelDatasource(w http.ResponseWriter, r *http.Request, 
 	if !readBody(w, r, &input) {
 		return
 	}
-	if !input.ID.Valid() || input.Type != "excel" || input.Name == "" ||
+	if !input.ID.Valid() || (input.Type != "excel" && input.Type != "pg" && input.Type != "mysql") || input.Name == "" ||
 		strings.TrimSpace(input.Name) != input.Name || len(input.Name) > 50 ||
 		len(input.Description) > 512 || strings.ContainsAny(input.Name, "/\\\r\n\x00") ||
 		strings.ContainsAny(input.Description, "\x00") {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid Excel datasource metadata")
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource metadata")
 		return
 	}
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
@@ -34,7 +34,28 @@ func (h *Handler) updateExcelDatasource(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	prior, _, _, err := h.service.bindingSnapshot(r.Context(), p, input.ID)
-	if err != nil || prior.Type != "excel" || prior.Dialect != "pg" ||
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if databaseBinding(prior) {
+		if input.Type != prior.Dialect || !validDatabaseMetadataConfiguration(input.Configuration) {
+			writeJSON(w, http.StatusUnprocessableEntity, "Database connection settings cannot be changed")
+			return
+		}
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.service.Store.updateDatabaseMetadata(r.Context(), p, prior, input.Name, input.Description); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, map[string]any{"id": input.ID, "name": input.Name, "description": input.Description,
+			"type": input.Type, "configuration": input.Configuration})
+		return
+	}
+	if prior.Type != "excel" || prior.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(prior.ManagedFileID) {
 		failure(w, ErrNotFound)
 		return
@@ -69,6 +90,18 @@ func (s *Store) updateManagedFileMetadata(ctx context.Context, p Principal, prio
 		!managedFileOperationPattern.MatchString(prior.ManagedFileID) {
 		return ErrNotFound
 	}
+	return s.updateBindingMetadata(ctx, p, prior, name, description, "file-import.datasource-update", false)
+}
+
+func (s *Store) updateDatabaseMetadata(ctx context.Context, p Principal, prior Binding, name, description string) error {
+	if s == nil || ctx == nil || prior.Workspace != p.Workspace || prior.User != p.User.ID ||
+		!prior.Datasource.Valid() || !databaseBinding(prior) {
+		return ErrNotFound
+	}
+	return s.updateBindingMetadata(ctx, p, prior, name, description, "database.datasource-update", true)
+}
+
+func (s *Store) updateBindingMetadata(ctx context.Context, p Principal, prior Binding, name, description, action string, database bool) error {
 	key := bindingKey(p, prior.Datasource)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -121,6 +154,9 @@ func (s *Store) updateManagedFileMetadata(ctx context.Context, p Principal, prio
 	if current.Name == name && current.Description == description {
 		return nil
 	}
+	if database && current.ResolveName == "" {
+		current.ResolveName = current.Name
+	}
 	current.Name, current.Description = name, description
 	sealed, err := s.seal(key, current)
 	if err != nil {
@@ -131,7 +167,7 @@ func (s *Store) updateManagedFileMetadata(ctx context.Context, p Principal, prio
 		return err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
-	audit, err := s.seal(auditKey, map[string]any{"action": "file-import.datasource-update", "actor": p.User.ID,
+	audit, err := s.seal(auditKey, map[string]any{"action": action, "actor": p.User.ID,
 		"workspace": p.Workspace, "datasource": prior.Datasource, "name": name,
 		"description_length": len(description), "time": time.Now().UTC()})
 	if err != nil {
