@@ -48,16 +48,22 @@ func (service *Service) Recommendations(ctx context.Context, p Principal, dataso
 }
 
 func (service *Service) recommendationSnapshot(ctx context.Context, p Principal, datasource ID) (RecommendationConfig, int64, error) {
-	if _, err := service.binding(ctx, p, datasource); err != nil {
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
+		return RecommendationConfig{}, 0, err
+	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
 		return RecommendationConfig{}, 0, err
 	}
 	var config RecommendationConfig
 	revision, err := service.Store.get(ctx, recommendationKey(p.Workspace, datasource), &config)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return RecommendationConfig{Workspace: p.Workspace, Datasource: datasource, Mode: 0, Questions: []RecommendedProblem{}}, 0, nil
+			config = RecommendationConfig{Workspace: p.Workspace, Datasource: datasource, Mode: 0, Questions: []RecommendedProblem{}}
+			revision = 0
+		} else {
+			return RecommendationConfig{}, 0, err
 		}
-		return RecommendationConfig{}, 0, err
 	}
 	if config.Workspace != p.Workspace || config.Datasource != datasource || validateRecommendations(config) != nil {
 		return RecommendationConfig{}, 0, ErrUnavailable
@@ -68,6 +74,9 @@ func (service *Service) recommendationSnapshot(ctx context.Context, p Principal,
 		}
 		return config.Questions[i].Sort < config.Questions[j].Sort
 	})
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return RecommendationConfig{}, 0, err
+	}
 	return config, revision, nil
 }
 
