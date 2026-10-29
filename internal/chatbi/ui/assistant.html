@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AgentSQL Assistant</title><link rel="icon" href="/ui/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="/ui/assistant.css"><script type="module" src="/ui/assistant.js"></script></head>
+<body>
+<main id="shell" hidden>
+  <header><img src="/ui/mark.svg" width="28" height="28" alt=""><strong id="app-name">AgentSQL</strong><button id="language" type="button">English</button><button id="new-chat" type="button">＋ 新建对话</button></header>
+  <div id="layout"><aside id="history-panel"><h2 id="history-title">最近对话</h2><nav id="history" aria-label="Conversations"></nav></aside>
+  <section id="chat-panel"><div id="conversation" aria-live="polite"></div><form id="question-form"><label id="source-label" for="datasource">数据源</label><select id="datasource" required></select><label id="question-label" class="sr-only" for="question">问题</label><textarea id="question" rows="2" maxlength="16000" required placeholder="请输入要问的数据问题"></textarea><button id="send" type="submit">发送</button></form><p id="notice">查询及历史结果按当前权限执行和审计。请核对 SQL 与数据。</p></section></div>
+</main>
+<p id="status" role="status">等待安全连接…</p>
+</body></html>

@@ -4,7 +4,27 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 )
+
+func (h *Handler) publicAssistantContext(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	w.Header().Set("Cache-Control", "no-store")
+	app, err := h.service.liveGuestAssistant(r.Context(), p)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	parts := strings.Split(strings.ReplaceAll(app.Domain, ";", ","), ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origins = append(origins, strings.TrimSuffix(strings.TrimSpace(part), "/"))
+	}
+	okay(w, map[string]any{"app_id": app.ID, "name": app.Name, "origins": origins})
+}
 
 func (h *Handler) guestSession(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	w.Header().Set("Cache-Control", "no-store")

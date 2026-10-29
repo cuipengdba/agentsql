@@ -47,6 +47,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	importCommand.Flags().StringVar(&snapshot, "from", "", "private migration snapshot")
 	_ = importCommand.MarkFlagRequired("from")
+	var assistantOnly bool
 	serve := &cobra.Command{Use: "serve", Short: "Serve the Go Q&A API on its dedicated listener", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		config, err := chatbi.LoadConfig(configuration)
 		if err != nil {
@@ -62,6 +63,9 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 		handler, err := chatbi.NewHandlerWithLimit(service, version.Version, config.MaxDataRequests)
 		if err != nil {
 			return err
+		}
+		if assistantOnly {
+			handler = chatbi.AssistantOnlyHandler(handler)
 		}
 		server := &http.Server{Addr: config.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 		result := make(chan error, 1)
@@ -83,6 +87,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 			return err
 		}
 	}}
+	serve.Flags().BoolVar(&assistantOnly, "assistant-only", false, "serve only the public assistant iframe and scoped API on an isolated origin")
 
 	var adminUser, passwordEnv, connections string
 	var standardUser bool

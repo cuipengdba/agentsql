@@ -234,6 +234,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
 	h.mux.HandleFunc("GET /api/v1/system/assistant/ds", h.bounded(h.auth(h.publicAssistantDatasources)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/assistant/context", h.auth(h.publicAssistantContext))
 	h.mux.HandleFunc("POST /api/v1/agentsql/assistant/guest-session", h.bounded(h.auth(h.guestSession)))
 	h.mux.HandleFunc("POST /api/v1/agentsql/assistant/guest-session/resume", h.bounded(h.auth(h.resumeGuestSession)))
 	h.mux.HandleFunc("GET /api/v1/system/assistant/picture/{file_id}", h.assistantPicture)
@@ -261,6 +262,9 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 }
 
 func (h *Handler) publicLoginKey(w http.ResponseWriter, _ *http.Request) {
+	// The unchanged browser SDK loads this public key from its own host while
+	// running on the embedding site's origin. The key has no user authority.
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if h.service.Identity.privateKey == nil {
 		failure(w, ErrUnavailable)
 		return
@@ -467,7 +471,7 @@ func embeddedRouteAllowed(r *http.Request) bool {
 	}
 	if r.Method == http.MethodGet {
 		switch path {
-		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/assistant/ds", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
+		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/assistant/ds", "/api/v1/agentsql/assistant/context", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
 			return true
 		}
 		return strings.HasPrefix(path, "/api/v1/datasource/ws/") || strings.HasPrefix(path, "/api/v1/datasource/check/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended_base/")
