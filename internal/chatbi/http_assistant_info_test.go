@@ -109,6 +109,33 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	ds := call(http.MethodGet, "/api/v1/system/assistant/ds", "", "", "", envelope.Data.Token)
 	require.Equal(t, http.StatusOK, ds.Code, ds.Body.String())
 	require.True(t, bytes.Contains(ds.Body.Bytes(), []byte(`"id":"10"`)))
+	start := httptest.NewRequest(http.MethodPost, "/api/v1/chat/assistant/start",
+		strings.NewReader(`{"datasource":"10","question":"","origin":2}`))
+	start.Header.Set("Content-Type", "application/json")
+	start.Header.Set("X-SQLBOT-ASSISTANT-TOKEN", "Assistant "+envelope.Data.Token)
+	started := httptest.NewRecorder()
+	handler.ServeHTTP(started, start)
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var startedChat struct {
+		Data struct {
+			ID ID `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &startedChat))
+	require.True(t, startedChat.Data.ID.Valid())
+	require.Equal(t, http.StatusOK, call(http.MethodGet,
+		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", envelope.Data.Token).Code)
+	second := call(http.MethodGet, path, claims.Target, header, claims.UserAgent, "")
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	var secondEnvelope struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &secondEnvelope))
+	require.NotEqual(t, envelope.Data.Token, secondEnvelope.Data.Token)
+	require.NotEqual(t, http.StatusOK, call(http.MethodGet,
+		"/api/v1/chat/"+string(startedChat.Data.ID), "", "", "", secondEnvelope.Data.Token).Code)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, "", claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusForbidden, call(http.MethodGet, path, "https://evil.example", header, claims.UserAgent, "").Code)
 	require.Equal(t, http.StatusUnauthorized, call(http.MethodGet, path, claims.Target, header, "Different browser", "").Code)
