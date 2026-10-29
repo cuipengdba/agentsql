@@ -73,6 +73,9 @@ func boundRemarkHints(result []RemarkHint) ([]RemarkHint, error) {
 	// would be quadratic for a database with thousands of commented columns.
 	bytes := 2 // []
 	for index, hint := range result {
+		if index == 264 { // OpenAIModel's description contract.
+			return result[:index], nil
+		}
 		encoded, err := json.Marshal(hint)
 		if err != nil {
 			return nil, ErrUnavailable
