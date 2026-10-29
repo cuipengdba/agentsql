@@ -60,3 +60,50 @@ func TestOriginalExistingDatasourceConnectionCheckUsesOnlyBoundGateway(t *testin
 	require.NotEqual(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path, valid, token).Code,
 		"a changed server binding must not return a successful connection check")
 }
+
+func TestOriginalExistingDatasourceSchemaDiscoveryUsesCurrentGateway(t *testing.T) {
+	ctx := context.Background()
+	service, principal, base, _, token := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Admin = true
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	principal, err = service.Identity.Verify(ctx, token)
+	require.NoError(t, err)
+	gateway := &selectionTestGateway{fakeGateway: base, columns: []Column{
+		{Schema: "reports", Table: "monthly", Name: "amount"},
+		{Schema: "public", Table: "sales", Name: "amount"},
+		{Schema: "public", Table: "sales", Name: "region"},
+	}}
+	service.Gateway = gateway
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	configuration, err := databaseDisplayConfiguration()
+	require.NoError(t, err)
+	body, err := json.Marshal(map[string]any{"id": "10", "type": "pg", "configuration": configuration})
+	require.NoError(t, err)
+	path := "/api/v1/datasource/getSchemaByConf"
+	require.Equal(t, http.StatusUnprocessableEntity,
+		accountRequest(t, handler, http.MethodPost, path, `{"type":"pg"}`, token).Code)
+	require.Equal(t, http.StatusUnprocessableEntity,
+		accountRequest(t, handler, http.MethodPost, path,
+			`{"id":"10","type":"pg","configuration":"forged"}`, token).Code)
+	require.Zero(t, gateway.schemaCalls)
+	response := accountRequest(t, handler, http.MethodPost, path, string(body), token)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), `"data":["public","reports"]`)
+	require.NotContains(t, response.Body.String(), "AGENTSQL_GATEWAY_MANAGED")
+	require.Equal(t, 1, gateway.schemaCalls)
+
+	gateway.schemaErr = ErrGateway
+	require.NotEqual(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path, string(body), token).Code)
+	gateway.schemaErr = nil
+	gateway.afterSchema = func() {
+		gateway.afterSchema = nil
+		binding, currentRevision, _, err := service.bindingSnapshot(ctx, principal, "10")
+		require.NoError(t, err)
+		binding.Description = "changed during discovery"
+		require.NoError(t, service.Store.put(ctx, bindingKey(principal, "10"), binding, currentRevision))
+	}
+	require.NotEqual(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path, string(body), token).Code)
+}
