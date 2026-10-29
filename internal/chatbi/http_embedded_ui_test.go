@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,6 +64,24 @@ func TestOriginalEmbeddedUISettingsPreserveScopeAndRollbackWithAudit(t *testing.
 	require.JSONEq(t, `"#3370ff"`, string(config["theme"]))
 	require.JSONEq(t, `"Hello"`, string(config["welcome"]))
 	require.Equal(t, app.AppSecret, stored.AppSecret)
+	for _, appType := range []int{0, 1} {
+		legacy, err := service.SaveAssistant(ctx, principal, AssistantApplication{
+			Name: "Original assistant", Type: appType, Domain: "https://app.example", Enabled: true,
+			Configuration: `{"oid":1,"public_list":[10]}`,
+		})
+		require.NoError(t, err)
+		response := post(`{"id":`+string(legacy.ID)+`,"welcome":"Original UI",`+
+			`"x_type":"right","x_val":45,"y_type":"bottom","y_val":55}`, false, true)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		require.Contains(t, response.Body.String(), `"type":`+strconv.Itoa(appType))
+		saved, err := service.Assistant(ctx, principal, legacy.ID)
+		require.NoError(t, err)
+		require.Equal(t, appType, saved.Type)
+		var legacyConfig map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(saved.Configuration), &legacyConfig))
+		require.JSONEq(t, `[10]`, string(legacyConfig["public_list"]))
+		require.JSONEq(t, `"Original UI"`, string(legacyConfig["welcome"]))
+	}
 	require.Equal(t, http.StatusUnprocessableEntity, post(`{"id":`+string(app.ID)+`,"theme":"javascript:alert(1)"}`, false, true).Code)
 	require.Equal(t, http.StatusUnprocessableEntity, post(`{"id":`+string(app.ID)+`,"welcome":"<script>"}`, false, true).Code)
 	require.Equal(t, http.StatusUnprocessableEntity, post(payload, true, true).Code)

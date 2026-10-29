@@ -96,7 +96,7 @@ func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, err)
 		return
 	}
-	if app.Type != 4 {
+	if app.Type != 0 && app.Type != 1 && app.Type != 4 {
 		failure(w, ErrInvalidAssistant)
 		return
 	}
@@ -156,5 +156,9 @@ func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Pri
 		failure(w, err)
 		return
 	}
-	okay(w, legacyEmbeddedView(saved))
+	if saved.Type == 4 {
+		okay(w, legacyEmbeddedView(saved))
+		return
+	}
+	okay(w, legacyAssistantView(saved))
 }
