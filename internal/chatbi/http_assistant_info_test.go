@@ -49,7 +49,9 @@ func TestOriginalAssistantInfoRequiresPublishedGuestAndCurrentPermission(t *test
 	binding, err := service.binding(ctx, admin, "10")
 	require.NoError(t, err)
 	binding.User = guest.ID
-	require.NoError(t, service.Store.put(ctx, bindingKey(Principal{User: guest, Workspace: admin.Workspace}, "10"), binding, 0))
+	binding.BindingID = "guest-fixture-binding"
+	binding.ConnectorToken = "guest-fixture-connector"
+	require.NoError(t, service.Store.ConfigureConnections(ctx, ConnectionConfig{Bindings: []Binding{binding}}))
 	app, err := service.SaveAssistant(ctx, admin, AssistantApplication{
 		Name: "Published synthetic", Type: 0, Domain: "https://app.example",
 		DatasourceIDs: []ID{"10"}, PublicGuestUser: guest.ID, Enabled: true,
