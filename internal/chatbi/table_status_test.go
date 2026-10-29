@@ -54,6 +54,11 @@ func TestOriginalDatabaseTableStatusControlsSemanticSchemaAndPreview(t *testing.
 	require.NoError(t, err)
 	require.Empty(t, semantic)
 	before := gateway.queries
+	for _, sql := range []string{`SELECT amount FROM public.sales`, `SELECT amount FROM sales`} {
+		_, err := service.query(ctx, principal, current, sql)
+		require.ErrorIs(t, err, ErrGateway)
+		require.Equal(t, before, gateway.queries)
+	}
 	preview := request("/api/v1/datasource/previewData/10", `{"table":{"id":1,"table_name":"sales"}}`)
 	require.NotEqual(t, http.StatusOK, preview.Code)
 	require.Equal(t, before, gateway.queries)
@@ -104,4 +109,19 @@ func TestDisabledTableMetadataRejectsMalformedStoredState(t *testing.T) {
 		_, err := disabledTables(Binding{DisabledTables: encoded})
 		require.Error(t, err)
 	}
+}
+
+func TestDisabledTableSQLRejectsMySQLQualifiedAndUnqualifiedNames(t *testing.T) {
+	binding := Binding{Dialect: "mysql"}
+	require.NoError(t, setTableStatus(&binding, "agentsql_demo", "orders", false))
+	for _, sql := range []string{
+		"SELECT amount FROM agentsql_demo.orders",
+		"SELECT amount FROM orders",
+	} {
+		require.ErrorIs(t, authorizeEnabledTablesSQL(binding, sql), ErrGateway)
+	}
+	require.NoError(t, authorizeEnabledTablesSQL(binding, "SELECT amount FROM other_schema.orders"))
+	require.NoError(t, authorizeEnabledTablesSQL(binding, "SELECT amount FROM other_table"))
+	require.NoError(t, setTableStatus(&binding, "agentsql_demo", "orders", true))
+	require.NoError(t, authorizeEnabledTablesSQL(binding, "SELECT amount FROM agentsql_demo.orders"))
 }

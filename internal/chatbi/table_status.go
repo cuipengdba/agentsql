@@ -3,6 +3,9 @@ package chatbi
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/cuipengdba/agentsql/internal/model"
+	"github.com/cuipengdba/agentsql/internal/parser"
 )
 
 func disabledTableKey(schema, table string) string { return schema + "\x00" + table }
@@ -72,4 +75,50 @@ func filterDisabledTables(binding Binding, columns []Column) ([]Column, error) {
 		}
 	}
 	return visible, nil
+}
+
+func authorizeEnabledTablesSQL(binding Binding, sql string) error {
+	disabled, err := disabledTables(binding)
+	if err != nil || len(disabled) == 0 {
+		return err
+	}
+	var relations []model.ObjectRef
+	switch binding.Dialect {
+	case "pg":
+		query, parseErr := parser.ParsePostgresClosedSelect(sql)
+		if parseErr != nil {
+			return ErrGateway
+		}
+		for _, relation := range query.Relations {
+			relations = append(relations, model.ObjectRef{Schema: relation.Schema, Table: relation.Name})
+		}
+	case "mysql":
+		approved, parseErr := parser.NewParser(model.DialectMySQL)
+		if parseErr != nil {
+			return ErrGateway
+		}
+		query, parseErr := approved.Parse(sql)
+		if parseErr != nil || query.IsMulti || query.StmtType != "SELECT" {
+			return ErrGateway
+		}
+		relations = query.Tables
+	default:
+		return ErrGateway
+	}
+	for _, relation := range relations {
+		if relation.Schema != "" {
+			if disabled[disabledTableKey(relation.Schema, relation.Table)] {
+				return ErrGateway
+			}
+			continue
+		}
+		// An unqualified name may resolve to any schema in the database. Deny it
+		// if a disabled table has the same name, rather than guessing search_path.
+		for key := range disabled {
+			if strings.HasSuffix(key, "\x00"+relation.Table) {
+				return ErrGateway
+			}
+		}
+	}
+	return nil
 }

@@ -33,6 +33,9 @@ func (service *Service) semanticSchema(ctx context.Context, principal Principal,
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
+	if err := authorizeEnabledTablesSQL(binding, sql); err != nil {
+		return QueryData{}, err
+	}
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
