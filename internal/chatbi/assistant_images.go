@@ -45,20 +45,54 @@ func validAssistantImageID(id string) bool {
 	return err == nil && strings.ToLower(id[:32]) == id[:32]
 }
 
+func removedAssistantImageIDs(previous, next string) ([]string, error) {
+	decode := func(raw string) (struct {
+		Logo      string `json:"logo"`
+		FloatIcon string `json:"float_icon"`
+	}, error) {
+		var refs struct {
+			Logo      string `json:"logo"`
+			FloatIcon string `json:"float_icon"`
+		}
+		if raw != "" && json.Unmarshal([]byte(raw), &refs) != nil {
+			return refs, ErrUnavailable
+		}
+		return refs, nil
+	}
+	old, err := decode(previous)
+	if err != nil {
+		return nil, err
+	}
+	current, err := decode(next)
+	if err != nil {
+		return nil, err
+	}
+	removed := make([]string, 0, 2)
+	seen := map[string]bool{}
+	for _, id := range []string{old.Logo, old.FloatIcon} {
+		if validAssistantImageID(id) && id != current.Logo && id != current.FloatIcon && !seen[id] {
+			removed = append(removed, id)
+			seen[id] = true
+		}
+	}
+	return removed, nil
+}
+
 // Save UI assets and the application revision in the same transaction as the
 // management audit. An image is addressed by a random, app-owned capability ID;
 // no filesystem path from the original multipart request is ever used.
-func (service *Service) saveAssistantUI(ctx context.Context, p Principal, app AssistantApplication, configuration string, uploads []assistantImageUpload, obsolete []string) (AssistantApplication, error) {
+func (service *Service) saveAssistantUI(ctx context.Context, p Principal, app AssistantApplication, configuration, action string, uploads []assistantImageUpload, obsolete []string) (AssistantApplication, error) {
 	if err := service.semanticAdmin(ctx, p); err != nil {
 		return AssistantApplication{}, err
 	}
-	if app.ID == "" || app.Workspace != p.Workspace || app.Revision < 1 ||
+	if (action != "assistant.ui.save" && action != "assistant.save") || app.ID == "" || app.Workspace != p.Workspace || app.Revision < 1 ||
 		(app.Type != 0 && app.Type != 1 && app.Type != 4) || len(configuration) > 8192 ||
 		len(uploads) > 2 || len(obsolete) > 2 {
 		return AssistantApplication{}, ErrInvalidAssistant
 	}
 	var parsed map[string]json.RawMessage
-	if json.Unmarshal([]byte(configuration), &parsed) != nil || parsed == nil {
+	if configuration == "" && action == "assistant.ui.save" ||
+		configuration != "" && (json.Unmarshal([]byte(configuration), &parsed) != nil || parsed == nil) {
 		return AssistantApplication{}, ErrInvalidAssistant
 	}
 	app.Configuration = configuration
@@ -93,7 +127,7 @@ func (service *Service) saveAssistantUI(ctx context.Context, p Principal, app As
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
 	audit, err := service.Store.seal(auditKey, map[string]any{
-		"action": "assistant.ui.save", "workspace": p.Workspace, "id": app.ID, "time": time.Now().UTC(),
+		"action": action, "workspace": p.Workspace, "id": app.ID, "time": time.Now().UTC(),
 	})
 	if err != nil {
 		return AssistantApplication{}, err

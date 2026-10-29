@@ -61,6 +61,10 @@ internal/chatbi/api_key_store.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
 internal/chatbi/assistant.go
+# Assistant UI image writes and revocation use fixed, parameterized SQLite
+# statements against encrypted local control-plane objects only. Image,
+# application revision and management audit changes share one transaction.
+internal/chatbi/assistant_images.go
 # Public embed metadata lookup scans bounded encrypted local control-plane rows.
 # The method never opens a business datasource connection.
 internal/chatbi/http_embedded_public.go

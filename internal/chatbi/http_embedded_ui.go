@@ -242,7 +242,7 @@ func (h *Handler) legacyEmbeddedUI(w http.ResponseWriter, r *http.Request, p Pri
 			newImages = append(newImages, uploaded)
 		}
 	}
-	saved, err := h.service.saveAssistantUI(r.Context(), p, app, string(encoded), newImages, obsolete)
+	saved, err := h.service.saveAssistantUI(r.Context(), p, app, string(encoded), "assistant.ui.save", newImages, obsolete)
 	if err != nil {
 		failure(w, err)
 		return

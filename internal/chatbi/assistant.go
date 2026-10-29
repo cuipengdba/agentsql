@@ -187,6 +187,7 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 	}
 	app.Workspace = p.Workspace
 	var previous AssistantApplication
+	var retiredImages []string
 	if app.ID == "" {
 		if app.Revision != 0 {
 			return AssistantApplication{}, ErrInvalidAssistant
@@ -229,10 +230,17 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 		}
 		app.AppID, app.AppSecret = previous.AppID, previous.AppSecret
 		app.Created = previous.Created
+		retiredImages, err = removedAssistantImageIDs(previous.Configuration, app.Configuration)
+		if err != nil {
+			return AssistantApplication{}, err
+		}
 	}
 	app.Updated = time.Now().UTC()
 	if err := service.semanticAdmin(ctx, p); err != nil {
 		return AssistantApplication{}, err
+	}
+	if len(retiredImages) != 0 {
+		return service.saveAssistantUI(ctx, p, app, app.Configuration, "assistant.save", nil, retiredImages)
 	}
 	if err := service.Store.writeSemantic(ctx, assistantKey(p.Workspace, app.ID), app, app.Revision, "assistant.save"); err != nil {
 		return AssistantApplication{}, err
