@@ -40,17 +40,7 @@ func (h *Handler) editManagedFileFieldComment(w http.ResponseWriter, r *http.Req
 		failure(w, err)
 		return
 	}
-	var input struct {
-		ID            ID              `json:"id"`
-		DatasourceID  ID              `json:"ds_id"`
-		TableID       ID              `json:"table_id"`
-		FieldName     string          `json:"field_name"`
-		FieldType     string          `json:"field_type"`
-		FieldIndex    *int            `json:"field_index"`
-		FieldComment  json.RawMessage `json:"field_comment"`
-		CustomComment *string         `json:"custom_comment"`
-		Checked       *bool           `json:"checked"`
-	}
+	var input fieldRemarkInput
 	if !readBody(w, r, &input) {
 		return
 	}
@@ -69,6 +59,10 @@ func (h *Handler) editManagedFileFieldComment(w http.ResponseWriter, r *http.Req
 		return
 	}
 	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, input.DatasourceID)
+	if err == nil && databaseBinding(binding) {
+		h.editDatabaseFieldComment(w, r, p, token, binding, revision, digest, input, fieldID, tableID)
+		return
+	}
 	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		failure(w, ErrNotFound)

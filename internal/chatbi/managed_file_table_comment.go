@@ -52,15 +52,7 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 		failure(w, err)
 		return
 	}
-	var input struct {
-		ID            ID              `json:"id"`
-		DatasourceID  ID              `json:"ds_id"`
-		TableName     string          `json:"table_name"`
-		TableComment  string          `json:"table_comment"`
-		CustomComment *string         `json:"custom_comment"`
-		Checked       *bool           `json:"checked"`
-		Embedding     json.RawMessage `json:"embedding"`
-	}
+	var input tableRemarkInput
 	if !readBody(w, r, &input) {
 		return
 	}
@@ -68,7 +60,7 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 	tableID, idErr := strconv.ParseInt(encodedID, 10, 64)
 	if idErr != nil || tableID < 1 || tableID > maxSQLBotBrowserID ||
 		strconv.FormatInt(tableID, 10) != encodedID || !input.DatasourceID.Valid() ||
-		!managedFileNamePattern.MatchString(input.TableName) || input.TableComment != "" ||
+		input.TableName == "" || len(input.TableName) > 256 || input.TableComment != "" ||
 		input.CustomComment == nil || !validManagedFileComment(*input.CustomComment) ||
 		input.Checked == nil || !*input.Checked ||
 		len(input.Embedding) > 0 && string(input.Embedding) != "null" {
@@ -76,9 +68,17 @@ func (h *Handler) editManagedFileTableComment(w http.ResponseWriter, r *http.Req
 		return
 	}
 	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, input.DatasourceID)
+	if err == nil && databaseBinding(binding) {
+		h.editDatabaseTableComment(w, r, p, token, binding, revision, digest, input, tableID)
+		return
+	}
 	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		failure(w, ErrNotFound)
+		return
+	}
+	if !managedFileNamePattern.MatchString(input.TableName) {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid table remark")
 		return
 	}
 	columns, err := h.service.schema(r.Context(), p, binding)

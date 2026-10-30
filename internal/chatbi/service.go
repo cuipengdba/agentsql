@@ -591,7 +591,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 				return err
 			}
 		}
-		remarks, err := managedFileRemarkHints(binding, columns)
+		remarks, err := datasourceRemarkHints(binding, columns)
 		if err != nil {
 			return err
 		}

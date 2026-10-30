@@ -713,7 +713,7 @@ async function loadSource(source,restoreTableID=null){
   $('source-select').hidden=true;$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
   $('source-remarks')?.remove();
-  let managed=false;
+  let managed=false,databaseEditable=false;
   if(isAdmin&&source.type==='excel'){
     try{await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
       if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
@@ -723,7 +723,7 @@ async function loadSource(source,restoreTableID=null){
   if(isAdmin&&(source.type==='pg'||source.type==='mysql')){
     try{await api('/agentsql/datasource/databaseTables/'+encodeURIComponent(String(source.id)));
       if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
-      $('source-select').hidden=false;
+      databaseEditable=true;$('source-select').hidden=false;
     }catch{ /* An unavailable gateway does not expose an editable table set. */ }
   }
   try{
@@ -737,7 +737,7 @@ async function loadSource(source,restoreTableID=null){
       button.dataset.tableId=String(table.id);
       button.title=table.custom_comment||table.table_name;
       button.onclick=()=>{void loadSourceTable(source,table);};group.append(button);
-      if(managed){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
+      if(isAdmin&&(managed||databaseEditable)){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
         edit.setAttribute('aria-label',t('sourceRemarkTable')+' '+table.table_name);
         edit.onclick=()=>{void saveSourceRemark(source,table,null,edit);};group.append(edit);}
       if(table.custom_comment)group.append(node('small',table.custom_comment));
@@ -859,7 +859,7 @@ async function loadSourceTable(source,table){
     if(!sourceVisible||epoch!==sourceEpoch)return;
     for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));
       if(field.custom_comment)row.append(node('small',field.custom_comment));
-      if(isAdmin&&source.type==='excel'&&$('source-remarks')){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
+      if(isAdmin&&((source.type==='excel'&&$('source-remarks'))||((source.type==='pg'||source.type==='mysql')&&!$('source-select').hidden))){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
         edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);}
       $('source-fields').append(row);}
     if(!fields.length)$('source-fields').append(node('p',t('fieldEmpty'),'semantic-empty'));
