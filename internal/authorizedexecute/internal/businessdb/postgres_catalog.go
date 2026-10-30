@@ -513,13 +513,12 @@ func fingerprintPostgresCatalog(frame PostgresCatalogFrame) string {
 	return postgresCatalogFingerprintVersion + ":" + hex.EncodeToString(h.Sum(nil))
 }
 
-// Column policy enrollment stores the fingerprint of one relation's catalog
-// frame. A multi-table SELECT has a different whole-frame fingerprint even if
-// neither table changed. Keep the whole frame in the binder proof, and derive
-// each ordinary table's enrollment identity from the same locked snapshot.
-// The dependency subset matches the catalog query for that relation alone.
-// Views and nonordinary relation shapes remain closed here.
-func relationEnrollmentFingerprint(frame PostgresCatalogFrame, oid uint32) (string, error) {
+// RelationEnrollmentFingerprint returns the identity used by SELECT column
+// policy enrollment and enforcement. Ordinary tables use their own catalog
+// frame so a separately enrolled table remains valid in a JOIN. Views and
+// other complex shapes retain the full-frame identity: their complete closure
+// must be enrolled together. The full frame still proves pre/post execution.
+func RelationEnrollmentFingerprint(frame PostgresCatalogFrame, oid uint32) (string, error) {
 	if frame.Fingerprint == "" || oid == 0 || len(frame.Relations) == 0 {
 		return "", NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
 	}
@@ -533,16 +532,20 @@ func relationEnrollmentFingerprint(frame PostgresCatalogFrame, oid uint32) (stri
 		return "", NewPrecisionFailure(BinderCodeModeRequired)
 	}
 	local := PostgresCatalogFrame{ServerVersion: frame.ServerVersion, DatabaseOID: frame.DatabaseOID}
+	found := false
+	complex := false
 	for _, relation := range frame.Relations {
-		if relation.Kind != 'r' || relation.Persistence != 'p' || relation.IsPartition {
-			return "", NewPrecisionFailure(BinderCodeModeRequired)
-		}
 		if relation.OID == oid {
 			local.Relations = append(local.Relations, relation)
+			found = true
 		}
+		complex = complex || relation.Kind != 'r' || relation.Persistence != 'p' || relation.IsPartition
 	}
-	if len(local.Relations) != 1 {
+	if !found || len(local.Relations) != 1 {
 		return "", NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+	}
+	if complex {
+		return frame.Fingerprint, nil
 	}
 	for _, column := range frame.Columns {
 		if column.RelationOID == oid {

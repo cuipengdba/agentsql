@@ -34,7 +34,7 @@ func NativeSelectSemanticFacts(datasourceID string, session SemanticIdentity, ma
 		if !ok {
 			return SemanticFacts{}, NewCatalogFailure("AUTH_BINDER_INCOMPLETE")
 		}
-		fingerprint, err := relationEnrollmentFingerprint(frame, relation.OID)
+		fingerprint, err := RelationEnrollmentFingerprint(frame, relation.OID)
 		if err != nil {
 			return SemanticFacts{}, err
 		}

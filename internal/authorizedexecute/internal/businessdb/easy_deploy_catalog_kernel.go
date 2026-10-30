@@ -806,7 +806,7 @@ func sealFactsWithFrame(facts *SemanticFacts, frame PostgresCatalogFrame) error 
 			fingerprint := frame.Fingerprint
 			if facts.StatementClass == BinderStatementSelect {
 				var err error
-				fingerprint, err = relationEnrollmentFingerprint(frame, relation.OID)
+				fingerprint, err = RelationEnrollmentFingerprint(frame, relation.OID)
 				if err != nil {
 					return err
 				}
@@ -828,7 +828,7 @@ func sealFactsWithFrame(facts *SemanticFacts, frame PostgresCatalogFrame) error 
 		fingerprint := frame.Fingerprint
 		if facts.StatementClass == BinderStatementSelect {
 			var err error
-			fingerprint, err = relationEnrollmentFingerprint(frame, relation.OID)
+			fingerprint, err = RelationEnrollmentFingerprint(frame, relation.OID)
 			if err != nil {
 				return err
 			}
