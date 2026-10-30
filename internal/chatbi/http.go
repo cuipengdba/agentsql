@@ -25,6 +25,7 @@ type Handler struct {
 	loginLimit          *rate.Limiter
 	appLookupLimit      *rate.Limiter
 	slots               chan struct{}
+	historySeats        chan struct{}
 	readQueue           chan struct{}
 	version             string
 	keySalt             string
@@ -47,8 +48,12 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	if _, err := rand.Read(salt[:]); err != nil {
 		return nil, errors.New("cannot initialize ChatBI login key metadata")
 	}
+	historyLimit := limit - 1
+	if historyLimit < 1 {
+		historyLimit = 1
+	}
 	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), appLookupLimit: rate.NewLimiter(20, 100),
-		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
+		slots: make(chan struct{}, limit), historySeats: make(chan struct{}, historyLimit), readQueue: make(chan struct{}, 200), version: version,
 		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli(),
 		initialUserPassword: os.Getenv("AGENTSQL_CHATBI_INITIAL_USER_PASSWORD")}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +365,15 @@ func (h *Handler) boundedHistory(next authorizedHandler) http.HandlerFunc {
 			defer func() { <-h.readQueue }()
 		default:
 			writeJSON(w, http.StatusTooManyRequests, "Too many historical data requests")
+			return
+		}
+		// A page may load many old result cards at once. Keep one configured
+		// query slot available for a new question when the limit is at least two.
+		select {
+		case h.historySeats <- struct{}{}:
+			defer func() { <-h.historySeats }()
+		case <-ctx.Done():
+			writeJSON(w, http.StatusTooManyRequests, "Historical data request timed out")
 			return
 		}
 		select {

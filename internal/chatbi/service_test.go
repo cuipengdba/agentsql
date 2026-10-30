@@ -252,6 +252,64 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 	}
 }
 
+func TestHistoricalReadsReserveOneSlotForNewQuestion(t *testing.T) {
+	s, _, _, _, token := serviceFixture(t)
+	router, err := NewHandlerWithLimit(s, "test", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := router.(*Handler)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	history := h.boundedHistory(func(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
+		started <- struct{}{}
+		<-release
+		writeJSON(w, http.StatusOK, "history")
+	})
+	done := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		request := httptest.NewRequest(http.MethodGet, "/history", nil)
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		go func() { history(response, request); done <- response.Code }()
+		if i == 0 {
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("first historical read did not start")
+			}
+		}
+	}
+	deadline := time.After(time.Second)
+	for len(h.readQueue) != 2 {
+		select {
+		case <-deadline:
+			t.Fatal("second historical read did not queue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if len(h.historySeats) != 1 || len(h.slots) != 1 {
+		t.Fatal("queued historical read consumed the reserved question slot")
+	}
+	question := httptest.NewRecorder()
+	h.bounded(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "question") })(question, httptest.NewRequest(http.MethodPost, "/question", nil))
+	if question.Code != http.StatusOK {
+		t.Fatalf("new question rejected behind historical reads: %d", question.Code)
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		select {
+		case status := <-done:
+			if status != http.StatusOK {
+				t.Fatalf("historical read status %d", status)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("historical read did not drain")
+		}
+	}
+}
+
 func TestHistoricalReadQueueDrainsAndRechecksSession(t *testing.T) {
 	for _, revoked := range []bool{false, true} {
 		t.Run(map[bool]string{false: "queued_read", true: "revoked_while_queued"}[revoked], func(t *testing.T) {
