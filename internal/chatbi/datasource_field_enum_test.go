@@ -76,6 +76,7 @@ func TestOriginalFieldEnumQualifiesMySQLSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	gateway.columns = []Column{{"agentsql_demo", "orders", "amount", "decimal"}}
+	gateway.queryData = &QueryData{Fields: []string{"amount"}, Data: []map[string]any{{"amount": "123"}, {"amount": "123"}, {"amount": "456"}}, AuditID: gateway.audit}
 	handler, err := NewHandler(service, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +86,11 @@ func TestOriginalFieldEnumQualifiesMySQLSchema(t *testing.T) {
 	r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusOK || gateway.lastQuery != "SELECT DISTINCT `amount` FROM `agentsql_demo`.`orders` LIMIT 100" {
+	var envelope struct {
+		Data []string `json:"data"`
+	}
+	if w.Code != http.StatusOK || gateway.lastQuery != "SELECT `amount` FROM `agentsql_demo`.`orders` LIMIT 100" ||
+		json.Unmarshal(w.Body.Bytes(), &envelope) != nil || len(envelope.Data) != 2 || envelope.Data[0] != "123" || envelope.Data[1] != "456" {
 		t.Fatalf("MySQL enum did not use current qualified schema: %d %s sql=%s", w.Code, w.Body.String(), gateway.lastQuery)
 	}
 }

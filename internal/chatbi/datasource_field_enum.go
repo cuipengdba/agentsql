@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -57,7 +58,14 @@ func (h *Handler) datasourceFieldEnum(w http.ResponseWriter, r *http.Request, p 
 		failure(w, ErrGateway)
 		return
 	}
-	sql := "SELECT DISTINCT " + quote(found.Name) + " FROM " + quote(found.Schema) + "." + quote(found.Table) + " LIMIT 100"
+	selectClause := "SELECT DISTINCT "
+	if binding.Dialect == "mysql" {
+		// The MySQL closed column binder accepts a direct bounded projection,
+		// but cannot prove the DISTINCT result shape. Deduplicate its bounded
+		// result in memory after the audited gateway query.
+		selectClause = "SELECT "
+	}
+	sql := selectClause + quote(found.Name) + " FROM " + quote(found.Schema) + "." + quote(found.Table) + " LIMIT 100"
 	result, err := h.service.query(r.Context(), p, binding, sql)
 	if err != nil {
 		failure(w, err)
@@ -74,7 +82,16 @@ func (h *Handler) datasourceFieldEnum(w http.ResponseWriter, r *http.Request, p 
 			failure(w, ErrGateway)
 			return
 		}
-		values = append(values, value)
+		duplicate := false
+		for _, existing := range values {
+			if reflect.DeepEqual(existing, value) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			values = append(values, value)
+		}
 	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)

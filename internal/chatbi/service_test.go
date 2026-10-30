@@ -20,6 +20,7 @@ type fakeGateway struct {
 	queries             int
 	audit               int64
 	lastQuery           string
+	queryData           *QueryData
 	afterQuery          func()
 	afterSchema         func()
 }
@@ -42,6 +43,9 @@ func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query str
 	g.lastQuery = query
 	if g.afterQuery != nil {
 		g.afterQuery()
+	}
+	if g.queryData != nil {
+		return *g.queryData, g.queryErr
 	}
 	return QueryData{Fields: []string{"amount"}, Data: []map[string]any{{"amount": "123"}}, AuditID: g.audit}, g.queryErr
 }
