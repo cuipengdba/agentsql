@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"sort"
 	"strings"
 )
@@ -19,6 +20,7 @@ type AssistantCatalogBridge struct {
 	Workspace     ID                       `json:"workspace"`
 	User          ID                       `json:"user"`
 	Sources       []AssistantCatalogSource `json:"sources"`
+	AllowedCIDRs  []string                 `json:"allowed_cidrs,omitempty"`
 	AllowHTTP     bool                     `json:"allow_http,omitempty"`
 	Enabled       *bool                    `json:"enabled,omitempty"`
 }
@@ -29,12 +31,35 @@ type AssistantCatalogSource struct {
 }
 
 type assistantCatalogBridgeRecord struct {
-	Endpoint  string                   `json:"endpoint"`
-	Workspace ID                       `json:"workspace"`
-	User      ID                       `json:"user"`
-	Sources   []AssistantCatalogSource `json:"sources"`
-	AllowHTTP bool                     `json:"allow_http,omitempty"`
-	Enabled   bool                     `json:"enabled"`
+	Endpoint     string                   `json:"endpoint"`
+	Workspace    ID                       `json:"workspace"`
+	User         ID                       `json:"user"`
+	Sources      []AssistantCatalogSource `json:"sources"`
+	AllowedCIDRs []string                 `json:"allowed_cidrs,omitempty"`
+	AllowHTTP    bool                     `json:"allow_http,omitempty"`
+	Enabled      bool                     `json:"enabled"`
+}
+
+func validAssistantCatalogNetworks(cidrs []string) bool {
+	if len(cidrs) == 0 || len(cidrs) > 16 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, cidr := range cidrs {
+		if cidr == "" || len(cidr) > 64 || seen[cidr] {
+			return false
+		}
+		ip, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return false
+		}
+		ones, _ := network.Mask.Size()
+		if ip.To4() != nil && ones < 24 || ip.To4() == nil && ones < 64 {
+			return false
+		}
+		seen[cidr] = true
+	}
+	return true
 }
 
 func (s *Store) assistantCatalogBridgeKey(endpoint string, credentials []mcpAssistantCredential) objectKey {

@@ -17,6 +17,7 @@ func TestAssistantCatalogBridgeBindsCredentialToLiveUserAndOwnedSource(t *testin
 		Endpoint: "https://catalog.example.test/sources", Workspace: principal.Workspace, User: principal.User.ID,
 		Authorization: `[{"key":"X-Catalog-Token","value":"synthetic-private-token","target":"header"},{"key":"tenant","value":"east","target":"param"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
+		AllowedCIDRs:  []string{"203.0.113.1/32"},
 	}
 	privateFile := filepath.Join(t.TempDir(), "connections.private.json")
 	raw, err := json.Marshal(ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{registered}})
@@ -106,6 +107,7 @@ func TestAssistantCatalogBridgeAuditFailureRollsBackRegistration(t *testing.T) {
 		Endpoint: "https://catalog.example.test/sources", Workspace: principal.Workspace, User: principal.User.ID,
 		Authorization: `[{"key":"token","value":"synthetic-private-token","target":"header"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
+		AllowedCIDRs:  []string{"203.0.113.1/32"},
 	}
 	if _, err := service.Store.db.ExecContext(ctx, `CREATE TRIGGER reject_assistant_catalog_audit BEFORE INSERT ON chatbi_objects WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT,'synthetic audit failure'); END`); err != nil {
 		t.Fatal(err)
@@ -125,6 +127,7 @@ func TestAssistantCatalogBridgeRejectsUnownedDatasourceBeforePersistence(t *test
 		Endpoint: "https://catalog.example.test/sources", Workspace: principal.Workspace, User: principal.User.ID,
 		Authorization: `[{"key":"token","value":"synthetic-private-token","target":"header"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "999"}},
+		AllowedCIDRs:  []string{"203.0.113.1/32"},
 	}
 	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err == nil {
 		t.Fatal("unowned datasource registered")
@@ -145,6 +148,7 @@ func TestAssistantCatalogBridgeRequiresExplicitHTTPApproval(t *testing.T) {
 		Endpoint: "http://127.0.0.1:18999/sources", Workspace: principal.Workspace, User: principal.User.ID,
 		Authorization: `[{"key":"token","value":"synthetic-private-token","target":"header"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
+		AllowedCIDRs:  []string{"127.0.0.1/32"},
 	}
 	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err == nil {
 		t.Fatal("HTTP catalog registration lacked explicit operator approval")
