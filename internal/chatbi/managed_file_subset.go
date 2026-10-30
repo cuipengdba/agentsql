@@ -48,26 +48,35 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	return service.Gateway.Query(ctx, principal, binding, sql)
 }
 
-// A SQLBot upload creates its tables before the browser chooses which ones to
-// include in the datasource. Keep that final choice in the encrypted binding.
-// The connector token stays server-side, and both discovery and execution use
-// this restriction before reaching the gateway.
+// File imports share a physical PostgreSQL database. The server-held datasource
+// configuration is the outer table boundary, even when every imported sheet
+// is selected. A later browser selection can only narrow that boundary.
 func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
 	if databaseBinding(binding) {
 		return nil, nil
 	}
-	if binding.SelectedTables == "" {
-		return nil, nil
-	}
-	// An explicit empty choice must not be mistaken for the legacy empty
-	// string, which means every imported sheet is selected.
-	if binding.SelectedTables == "!" && binding.Type == "excel" && binding.Dialect == "pg" &&
-		managedFileOperationPattern.MatchString(binding.ManagedFileID) {
-		return map[string]bool{}, nil
-	}
 	if binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		return nil, ErrGateway
+	}
+	_, sheets, err := decodeSQLBotExcelConfig(binding.Configuration)
+	if err != nil {
+		return nil, ErrGateway
+	}
+	imported := make(map[string]bool, len(sheets))
+	for _, sheet := range sheets {
+		if imported[sheet.TableName] {
+			return nil, ErrGateway
+		}
+		imported[sheet.TableName] = true
+	}
+	if binding.SelectedTables == "" {
+		return imported, nil
+	}
+	// An explicit empty choice must not be mistaken for the legacy empty
+	// string, which means every imported sheet is selected.
+	if binding.SelectedTables == "!" {
+		return map[string]bool{}, nil
 	}
 	parts := strings.Split(binding.SelectedTables, ",")
 	if len(parts) == 0 || len(parts) > 8 {
@@ -75,7 +84,7 @@ func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
 	}
 	selected := make(map[string]bool, len(parts))
 	for _, name := range parts {
-		if !managedFileNamePattern.MatchString(name) || selected[name] {
+		if !managedFileNamePattern.MatchString(name) || !imported[name] || selected[name] {
 			return nil, ErrGateway
 		}
 		selected[name] = true

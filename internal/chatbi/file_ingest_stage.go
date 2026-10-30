@@ -221,6 +221,12 @@ func (h *Handler) publishManagedFile(w http.ResponseWriter, r *http.Request, p P
 		child := binding
 		child.Type, child.Name, child.ResolveName = "excel", prior.DatasourceName, prior.DatasourceName
 		child.BindingID, child.ConnectorToken = prior.BindingID, prior.ConnectorToken
+		child.ManagedFileID = prior.OperationID
+		child.Configuration, err = encodeSQLBotExcelConfig(prior.Filename, prior.Sheets)
+		if err != nil {
+			failure(w, ErrGateway)
+			return
+		}
 		columns, schemaErr := h.service.schema(r.Context(), p, child)
 		if schemaErr != nil {
 			failure(w, ErrGateway)
