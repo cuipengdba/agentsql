@@ -289,6 +289,42 @@ func TestMCPSelectedWorkspaceKeepsParentTokenRevocable(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionRejectsRevokedWorkspaceMembership(t *testing.T) {
+	service, p, gateway, _, token := serviceFixture(t)
+	ctx := context.Background()
+	user, revision, err := service.Store.User(ctx, p.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Memberships = append(user.Memberships, Membership{Workspace: "2", Name: "Two"})
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`","oid":"2"}`, "")
+	var output struct {
+		Chat ID `json:"chat_id"`
+	}
+	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
+		t.Fatalf("workspace MCP start: %d %s", started.Code, started.Body.String())
+	}
+	user, revision, err = service.Store.User(ctx, p.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Memberships = user.Memberships[:1]
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
+	if answer.Code != http.StatusNotFound || gateway.queries != 0 || gateway.schemaCalls != 0 {
+		t.Fatalf("revoked workspace question reached data: %d %s", answer.Code, answer.Body.String())
+	}
+}
+
 func TestMCPQuestionReleasesNothingWithoutGatewayAudit(t *testing.T) {
 	service, _, gateway, _, token := serviceFixture(t)
 	gateway.audit = 0
