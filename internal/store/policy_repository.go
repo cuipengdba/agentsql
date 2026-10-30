@@ -13,6 +13,7 @@ import (
 )
 
 var ErrRevisionMismatch = errors.New("store revision mismatch")
+var ErrPolicyDeleteWouldWiden = errors.New("deleting a column policy would widen table access")
 
 // PolicyRepository owns policy parents, bindings, formal permissions, and
 // legacy staging rows. Mutations use one control-plane transaction.
@@ -292,6 +293,29 @@ func (repository *PolicyRepository) delete(ctx context.Context, id string, expec
 	}
 	if compare && current != expected {
 		return rollbackPolicyTx(tx, ErrRevisionMismatch)
+	}
+	// MySQL's legacy table-only path remains available when no column policy
+	// exists. Deleting a column policy while its table allow survives would
+	// silently widen access. Require callers to remove the table allow first;
+	// the mutation fence makes this check atomic with the delete.
+	policy, err := scanPolicy(tx.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=? AND tenant_id=?`), id, tenantID))
+	if err != nil {
+		return rollbackPolicyTx(tx, err)
+	}
+	if policy.ObjectType == "column" {
+		var dbType string
+		if err := tx.QueryRowContext(ctx, repository.bind(`SELECT db_type FROM datasources WHERE id=? AND tenant_id=?`), policy.DatasourceID, tenantID).Scan(&dbType); err != nil {
+			return rollbackPolicyTx(tx, err)
+		}
+		if dbType == "mysql" {
+			var tableAllows int
+			if err := tx.QueryRowContext(ctx, repository.bind(`SELECT COUNT(*) FROM policies WHERE tenant_id=? AND agent_id=? AND datasource_id=? AND object_type='table' AND object_name=? AND action='allow'`), tenantID, policy.AgentID, policy.DatasourceID, policy.ObjectName).Scan(&tableAllows); err != nil {
+				return rollbackPolicyTx(tx, err)
+			}
+			if tableAllows > 0 {
+				return rollbackPolicyTx(tx, ErrPolicyDeleteWouldWiden)
+			}
+		}
 	}
 	if _, err := tx.ExecContext(ctx, repository.bind(`DELETE FROM policies WHERE id=? AND tenant_id=? AND revision=?`), id, tenantID, current); err != nil {
 		return rollbackPolicyTx(tx, fmt.Errorf("delete policy %q: %w", id, err))

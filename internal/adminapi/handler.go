@@ -1520,6 +1520,10 @@ func (handler *Handler) policiesDelete(writer http.ResponseWriter, request *http
 			handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
 			return
 		}
+		if errors.Is(err, store.ErrPolicyDeleteWouldWiden) {
+			handler.fail(writer, http.StatusConflict, "remove the table allow policy before deleting this MySQL column policy")
+			return
+		}
 		handler.notFound(writer)
 		return
 	}
