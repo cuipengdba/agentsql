@@ -32,6 +32,7 @@ type Binding struct {
 	SelectedTables string    `json:"selected_tables,omitempty"`
 	TableComments  string    `json:"table_comments,omitempty"`
 	FieldComments  string    `json:"field_comments,omitempty"`
+	TableRelations string    `json:"table_relations,omitempty"`
 	Created        time.Time `json:"created,omitempty"`
 	Dialect        string    `json:"dialect"`
 	BindingID      string    `json:"binding_id"`

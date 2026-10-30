@@ -595,9 +595,15 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err != nil {
 			return err
 		}
+		relations, err := relationHints(binding, columns)
+		if err != nil {
+			return err
+		}
 		stage = "model"
 		var generated SQLGeneration
-		if described, ok := service.Model.(DescribedGenerator); ok {
+		if relational, ok := service.Model.(RelationalGenerator); ok {
+			generated, err = relational.GenerateWithRelations(ctx, model, binding.Dialect, question, columns, history, hints, examples, remarks, relations)
+		} else if described, ok := service.Model.(DescribedGenerator); ok {
 			generated, err = described.GenerateWithDescriptions(ctx, model, binding.Dialect, question, columns, history, hints, examples, remarks)
 		} else if grounded, ok := service.Model.(GroundedGenerator); ok {
 			generated, err = grounded.GenerateWithGrounding(ctx, model, binding.Dialect, question, columns, history, hints, examples)
