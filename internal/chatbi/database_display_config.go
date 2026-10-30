@@ -38,9 +38,9 @@ func databaseDisplayConfiguration() (string, error) {
 	return base64.StdEncoding.EncodeToString(encoded), nil
 }
 
-// The original edit form re-encrypts its visible fields with SQLBot's public
-// wire key. An update may change display metadata only when every connection
-// field still has the gateway-managed sentinel value.
+// The original edit form encrypts its visible fields with SQLBot's public
+// wire key. Accept only the gateway-managed sentinel when probing an existing
+// binding; this browser envelope must never become a connection target.
 func validDatabaseMetadataConfiguration(encoded string) bool {
 	if encoded == "" || len(encoded) > 65536 {
 		return false
@@ -82,6 +82,7 @@ func validDatabaseMetadataConfiguration(encoded string) bool {
 		LowVersion *bool             `json:"lowVersion"`
 		SSL        *bool             `json:"ssl"`
 		PoolSize   *int              `json:"poolSize"`
+		Engine     *string           `json:"engine"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(plain)))
 	decoder.DisallowUnknownFields()
@@ -96,5 +97,6 @@ func validDatabaseMetadataConfiguration(encoded string) bool {
 		(config.Timeout == nil || *config.Timeout == 30) &&
 		(config.LowVersion == nil || *config.LowVersion) &&
 		(config.SSL == nil || !*config.SSL) &&
-		(config.PoolSize == nil || *config.PoolSize == 5)
+		(config.PoolSize == nil || *config.PoolSize == 5) &&
+		(config.Engine == nil || *config.Engine == "hive")
 }

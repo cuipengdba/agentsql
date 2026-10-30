@@ -2,12 +2,36 @@ package chatbi
 
 import (
 	"context"
+	"crypto/aes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func browserDatabaseMetadataConfig(t *testing.T, host string) string {
+	t.Helper()
+	plain, err := json.Marshal(map[string]any{
+		"host": host, "port": 1, "username": "AGENTSQL_GATEWAY_MANAGED", "password": "",
+		"database": "AGENTSQL_GATEWAY_MANAGED", "dbSchema": "AGENTSQL_GATEWAY_MANAGED",
+		"extraJdbc": "", "filename": "", "sheets": []any{}, "mode": "service_name",
+		"timeout": 30, "lowVersion": true, "ssl": false, "poolSize": 5, "engine": "hive",
+	})
+	require.NoError(t, err)
+	block, err := aes.NewCipher([]byte("SQLBot1234567890"))
+	require.NoError(t, err)
+	padding := aes.BlockSize - len(plain)%aes.BlockSize
+	for range padding {
+		plain = append(plain, byte(padding))
+	}
+	encoded := make([]byte, len(plain))
+	for offset := 0; offset < len(plain); offset += aes.BlockSize {
+		block.Encrypt(encoded[offset:offset+aes.BlockSize], plain[offset:offset+aes.BlockSize])
+	}
+	return base64.StdEncoding.EncodeToString(encoded)
+}
 
 func TestOriginalExistingDatasourceConnectionCheckUsesOnlyBoundGateway(t *testing.T) {
 	ctx := context.Background()
@@ -46,6 +70,9 @@ func TestOriginalExistingDatasourceConnectionCheckUsesOnlyBoundGateway(t *testin
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), `"data":true`)
 	require.Equal(t, 1, gateway.schemaCalls)
+	require.Equal(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path,
+		requestBody("10", "pg", browserDatabaseMetadataConfig(t, "AGENTSQL_GATEWAY_MANAGED")), token).Code,
+		"SQLBot v1.10.3 edit form adds a harmless engine=hive field")
 
 	gateway.schemaErr = ErrGateway
 	require.NotEqual(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path, valid, token).Code)

@@ -513,6 +513,53 @@ func fingerprintPostgresCatalog(frame PostgresCatalogFrame) string {
 	return postgresCatalogFingerprintVersion + ":" + hex.EncodeToString(h.Sum(nil))
 }
 
+// RelationEnrollmentFingerprint returns the identity used by SELECT column
+// policy enrollment and enforcement. Ordinary tables use their own catalog
+// frame so a separately enrolled table remains valid in a JOIN. Views and
+// other complex shapes retain the full-frame identity: their complete closure
+// must be enrolled together. The full frame still proves pre/post execution.
+func RelationEnrollmentFingerprint(frame PostgresCatalogFrame, oid uint32) (string, error) {
+	if frame.Fingerprint == "" || oid == 0 || len(frame.Relations) == 0 {
+		return "", NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+	}
+	if len(frame.Relations) == 1 {
+		if frame.Relations[0].OID != oid {
+			return "", NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+		}
+		return frame.Fingerprint, nil
+	}
+	if frame.Fingerprint != fingerprintPostgresCatalog(frame) {
+		return "", NewPrecisionFailure(BinderCodeModeRequired)
+	}
+	local := PostgresCatalogFrame{ServerVersion: frame.ServerVersion, DatabaseOID: frame.DatabaseOID}
+	found := false
+	complex := false
+	for _, relation := range frame.Relations {
+		if relation.OID == oid {
+			local.Relations = append(local.Relations, relation)
+			found = true
+		}
+		complex = complex || relation.Kind != 'r' || relation.Persistence != 'p' || relation.IsPartition
+	}
+	if !found || len(local.Relations) != 1 {
+		return "", NewCatalogFailure("AUTH_CATALOG_INCOMPLETE")
+	}
+	if complex {
+		return frame.Fingerprint, nil
+	}
+	for _, column := range frame.Columns {
+		if column.RelationOID == oid {
+			local.Columns = append(local.Columns, column)
+		}
+	}
+	for _, dependency := range frame.Dependencies {
+		if dependency.ObjectID == oid || dependency.RefObjectID == oid {
+			local.Dependencies = append(local.Dependencies, dependency)
+		}
+	}
+	return fingerprintPostgresCatalog(local), nil
+}
+
 type canonicalWriter interface{ Write([]byte) (int, error) }
 
 func writeCanonicalUint(w canonicalWriter, value uint64) {

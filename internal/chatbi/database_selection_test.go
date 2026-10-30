@@ -103,6 +103,12 @@ func TestOriginalDatabaseTableSelectionIsScopedAuditedAndRevocable(t *testing.T)
 	listing := request(http.MethodGet, "/api/v1/datasource/list", "", token)
 	require.Equal(t, http.StatusOK, listing.Code)
 	require.NotContains(t, listing.Body.String(), bound.Configuration)
+	detail := request(http.MethodPost, "/api/v1/datasource/get/10", "", token)
+	require.Equal(t, http.StatusOK, detail.Code)
+	require.Contains(t, detail.Body.String(), `"type":"pg"`)
+	require.NotContains(t, detail.Body.String(), bound.Configuration)
+	require.NotContains(t, detail.Body.String(), bound.ConnectorToken)
+	require.NotContains(t, detail.Body.String(), bound.AgentKey)
 	var sourceList struct {
 		Data []struct {
 			Configuration string `json:"configuration"`

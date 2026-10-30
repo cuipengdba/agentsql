@@ -2,8 +2,6 @@ package chatbi
 
 import (
 	"context"
-	"crypto/aes"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,28 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
-
-func browserDatabaseMetadataConfig(t *testing.T, host string) string {
-	t.Helper()
-	plain, err := json.Marshal(map[string]any{
-		"host": host, "port": 1, "username": "AGENTSQL_GATEWAY_MANAGED", "password": "",
-		"database": "AGENTSQL_GATEWAY_MANAGED", "dbSchema": "AGENTSQL_GATEWAY_MANAGED",
-		"extraJdbc": "", "filename": "", "sheets": []any{}, "mode": "service_name",
-		"timeout": 30, "lowVersion": true, "ssl": false, "poolSize": 5,
-	})
-	require.NoError(t, err)
-	block, err := aes.NewCipher([]byte("SQLBot1234567890"))
-	require.NoError(t, err)
-	padding := aes.BlockSize - len(plain)%aes.BlockSize
-	for range padding {
-		plain = append(plain, byte(padding))
-	}
-	encoded := make([]byte, len(plain))
-	for offset := 0; offset < len(plain); offset += aes.BlockSize {
-		block.Encrypt(encoded[offset:offset+aes.BlockSize], plain[offset:offset+aes.BlockSize])
-	}
-	return base64.StdEncoding.EncodeToString(encoded)
-}
 
 func TestOriginalDatabaseDatasourceMetadataUpdateKeepsGatewayBindingAndAudit(t *testing.T) {
 	ctx := context.Background()
