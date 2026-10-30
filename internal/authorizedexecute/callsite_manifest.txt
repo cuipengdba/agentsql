@@ -17,6 +17,9 @@ internal/chatbi/managed_file_claim.go
 internal/chatbi/managed_file_selection.go
 # Database table selection updates the encrypted local binding and audit in one transaction.
 internal/chatbi/database_selection_http.go
+# Table relationships update only the encrypted local binding and management
+# audit through fixed, bound SQLite statements in one transaction.
+internal/chatbi/table_relation_http.go
 # Managed-file table and field remarks update only the encrypted local binding
 # with fixed bound SQLite statements and a same-transaction management audit.
 internal/chatbi/managed_file_table_comment.go
