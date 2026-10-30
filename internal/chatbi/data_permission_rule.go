@@ -12,10 +12,9 @@ import (
 	"unicode/utf8"
 )
 
-// DataPermissionRule is an encrypted workspace control-plane record. Rule
-// expressions are retained for original-client editing but cannot become
-// active until the row and column policy engine can enforce them on every
-// data path. A restored active rule closes data access below.
+// DataPermissionRule is an encrypted workspace control-plane record. Only a
+// bounded PostgreSQL row-rule subset may be activated after live validation;
+// unsupported active rules fail closed on the ChatBI data paths.
 type DataPermissionRule struct {
 	ID          int64             `json:"id"`
 	OID         int64             `json:"oid"`
@@ -174,19 +173,6 @@ func (s *Store) DataPermissionRule(ctx context.Context, workspace ID, id int64) 
 	return rule, nil
 }
 
-func (s *Store) unresolvedDataPermissions(ctx context.Context, workspace ID) error {
-	rules, err := s.DataPermissionRules(ctx, workspace)
-	if err != nil {
-		return ErrGateway
-	}
-	for _, rule := range rules {
-		if rule.Enable && len(rule.Permissions) > 0 {
-			return ErrGateway
-		}
-	}
-	return nil
-}
-
 func (h *Handler) dataPermissionList(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -291,7 +277,7 @@ func (h *Handler) dataPermissionSave(w http.ResponseWriter, r *http.Request, p P
 	if rule.Users == nil {
 		rule.Users = []int64{}
 	}
-	if !validPermissionRule(rule) || enabled && len(rule.Permissions) > 0 {
+	if !validPermissionRule(rule) {
 		failure(w, ErrInvalidDataPermission)
 		return
 	}
@@ -306,7 +292,12 @@ func (h *Handler) dataPermissionSave(w http.ResponseWriter, r *http.Request, p P
 		failure(w, err)
 		return
 	}
-	saved, err := h.service.Store.SaveDataPermissionRule(r.Context(), p, rule, created)
+	proof, err := h.validateRowRuleActivation(r.Context(), p, rule)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	saved, err := h.service.Store.SaveDataPermissionRule(r.Context(), p, rule, created, proof)
 	if err != nil {
 		failure(w, err)
 		return

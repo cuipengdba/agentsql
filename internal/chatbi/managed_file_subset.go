@@ -6,10 +6,11 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 )
 
 func (service *Service) schema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	columns, err := service.gatewaySchema(ctx, principal, binding)
+	columns, snapshot, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -21,7 +22,7 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 	if err != nil {
 		return nil, err
 	}
-	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
 		return nil, err
 	}
 	return visible, nil
@@ -31,17 +32,32 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 // selected-table filtering. No such path may expose metadata while an active
 // compatibility rule lacks an enforcement engine.
 func (service *Service) gatewaySchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
-		return nil, err
+	columns, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+	return columns, err
+}
+
+func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context, principal Principal, binding Binding) ([]Column, []DataPermissionRule, error) {
+	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
+	if err != nil {
+		return nil, nil, err
+	}
+	items, err := applicableRowPermissions(snapshot, principal, binding)
+	if err != nil {
+		return nil, nil, err
 	}
 	columns, err := service.Gateway.Schema(ctx, principal, binding)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
-		return nil, err
+	if len(items) != 0 {
+		if _, _, _, err := compileApplicableRowPermissions(items, binding.Datasource, columns); err != nil {
+			return nil, nil, err
+		}
 	}
-	return columns, nil
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return nil, nil, err
+	}
+	return columns, snapshot, nil
 }
 
 func (service *Service) semanticSchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
@@ -57,8 +73,27 @@ func (service *Service) semanticSchema(ctx context.Context, principal Principal,
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
-	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
+	if err != nil {
 		return QueryData{}, err
+	}
+	items, err := applicableRowPermissions(snapshot, principal, binding)
+	if err != nil {
+		return QueryData{}, err
+	}
+	if len(items) != 0 {
+		columns, checked, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+		if err != nil || !sameDataPermissionSnapshot(snapshot, checked) {
+			return QueryData{}, ErrGateway
+		}
+		schema, table, filters, err := compileApplicableRowPermissions(items, binding.Datasource, columns)
+		if err != nil {
+			return QueryData{}, err
+		}
+		sql, _, err = rowfilter.RewriteSingleTable(sql, schema, table, filters)
+		if err != nil {
+			return QueryData{}, ErrGateway
+		}
 	}
 	if err := authorizeEnabledTablesSQL(binding, sql); err != nil {
 		return QueryData{}, err
@@ -76,7 +111,7 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	if err != nil {
 		return QueryData{}, err
 	}
-	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
 		return QueryData{}, err
 	}
 	return data, nil

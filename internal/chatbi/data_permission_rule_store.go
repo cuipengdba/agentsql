@@ -11,9 +11,9 @@ func numericWorkspaceID(workspace ID) int64 {
 	return id
 }
 
-func (s *Store) SaveDataPermissionRule(ctx context.Context, p Principal, rule DataPermissionRule, create bool) (DataPermissionRule, error) {
+func (s *Store) SaveDataPermissionRule(ctx context.Context, p Principal, rule DataPermissionRule, create bool, proof *dataPermissionActivation) (DataPermissionRule, error) {
 	if s == nil || ctx == nil || p.EmbeddedApp != "" || !p.Workspace.Valid() || !p.User.ID.Valid() ||
-		!validPermissionRule(rule) || rule.Enable && len(rule.Permissions) > 0 ||
+		!validPermissionRule(rule) || rule.Enable && len(rule.Permissions) > 0 && !proof.matches(p.Workspace, rule) ||
 		rule.OID != numericWorkspaceID(p.Workspace) {
 		return DataPermissionRule{}, ErrInvalidDataPermission
 	}

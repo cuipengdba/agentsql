@@ -1,0 +1,90 @@
+package chatbi
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"strconv"
+)
+
+type dataPermissionActivation struct {
+	workspace ID
+	ruleID    int64
+	digest    [32]byte
+}
+
+func activationDigest(rule DataPermissionRule) ([32]byte, error) {
+	encoded, err := json.Marshal(struct {
+		ID          int64             `json:"id"`
+		OID         int64             `json:"oid"`
+		Enable      bool              `json:"enable"`
+		Permissions []json.RawMessage `json:"permissions"`
+		Users       []int64           `json:"users"`
+	}{rule.ID, rule.OID, rule.Enable, rule.Permissions, rule.Users})
+	if err != nil {
+		return [32]byte{}, ErrInvalidDataPermission
+	}
+	return sha256.Sum256(encoded), nil
+}
+
+func (proof *dataPermissionActivation) matches(workspace ID, rule DataPermissionRule) bool {
+	if proof == nil || proof.workspace != workspace || proof.ruleID != rule.ID {
+		return false
+	}
+	digest, err := activationDigest(rule)
+	return err == nil && proof.digest == digest
+}
+
+// validateRowRuleActivation validates every item before a rule group can
+// become active. The live schema is only a preflight; each read still compiles
+// against the requesting user's current gateway schema and fails closed if it
+// changes. Column rules and unsupported expression forms remain rejected.
+func (h *Handler) validateRowRuleActivation(ctx context.Context, principal Principal, rule DataPermissionRule) (*dataPermissionActivation, error) {
+	if !rule.Enable || len(rule.Permissions) == 0 {
+		return nil, nil
+	}
+	if len(rule.Permissions) > 16 {
+		return nil, ErrInvalidDataPermission
+	}
+	type relation struct{ schema, table string }
+	tables := make(map[ID]relation)
+	for _, raw := range rule.Permissions {
+		var item struct {
+			Type       string          `json:"type"`
+			Datasource json.RawMessage `json:"ds_id"`
+		}
+		if json.Unmarshal(raw, &item) != nil || item.Type != "row" {
+			return nil, ErrInvalidDataPermission
+		}
+		dsID, valid := parseSystemVariableID(item.Datasource)
+		if !valid || dsID < 1 || dsID > maxSQLBotBrowserID {
+			return nil, ErrInvalidDataPermission
+		}
+		datasource := ID(strconv.FormatInt(dsID, 10))
+		binding, revision, digest, err := h.service.bindingSnapshot(ctx, principal, datasource)
+		if err != nil {
+			return nil, ErrInvalidDataPermission
+		}
+		if binding.Dialect != "pg" {
+			return nil, ErrInvalidDataPermission
+		}
+		columns, err := h.service.gatewaySchema(ctx, principal, binding)
+		if err != nil {
+			return nil, err
+		}
+		schema, table, _, err := compileSQLBotRowPermission(raw, datasource, columns)
+		prior, exists := tables[datasource]
+		if err != nil || exists && prior != (relation{schema, table}) {
+			return nil, ErrInvalidDataPermission
+		}
+		tables[datasource] = relation{schema, table}
+		if err := h.service.bindingUnchanged(ctx, principal, binding, revision, digest); err != nil {
+			return nil, err
+		}
+	}
+	digest, err := activationDigest(rule)
+	if err != nil {
+		return nil, err
+	}
+	return &dataPermissionActivation{workspace: principal.Workspace, ruleID: rule.ID, digest: digest}, nil
+}

@@ -120,7 +120,7 @@ func (h *Handler) chooseManagedFileTables(w http.ResponseWriter, r *http.Request
 		}
 		selected[table.Name] = true
 	}
-	columns, err := h.service.gatewaySchema(r.Context(), p, binding)
+	columns, policy, err := h.service.gatewaySchemaWithPermissionSnapshot(r.Context(), p, binding)
 	if err != nil {
 		failure(w, ErrGateway)
 		return
@@ -136,6 +136,10 @@ func (h *Handler) chooseManagedFileTables(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.dataPermissionUnchanged(r.Context(), p.Workspace, policy); err != nil {
 		failure(w, err)
 		return
 	}
