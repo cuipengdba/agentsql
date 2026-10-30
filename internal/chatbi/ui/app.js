@@ -711,9 +711,15 @@ async function showSources(){
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  // Drop previously rendered datasource content before refreshing authority.
+  // A failed list request must not leave old rows or metadata in this page.
+  selectedSource=null;sourceList=[];$('source-detail').hidden=true;
+  $('source-list').replaceChildren();$('source-tables').replaceChildren();
+  $('source-fields').replaceChildren();$('source-preview').replaceChildren();
+  $('source-remarks')?.remove();$('source-relations')?.remove();
   const epoch=++sourceEpoch;sourceStatus(t('sourceLoading'));
   try{sourceList=await api('/datasource/list');if(!sourceVisible||epoch!==sourceEpoch)return;
-    selectedSource=null;$('source-detail').hidden=true;renderSourceList();sourceStatus('');
+    renderSourceList();sourceStatus('');
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
 }
 async function showDashboards(){
