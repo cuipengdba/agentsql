@@ -38,7 +38,11 @@ func parseMemberPage(r *http.Request, fallback ID, candidate bool) (memberPage, 
 		space = ID(value)
 	}
 	legacyAllCandidates := candidate && page == 1 && size == 1000000
-	if e1 != nil || e2 != nil || page < 1 || page > 100000 || size < 1 || size > 100 && !legacyAllCandidates || len(keyword) > 100 || !space.Valid() {
+	// The unchanged SQLBot rule-group dialog requests 1,000 current
+	// members in a single page. Keep that exact request bounded and leave
+	// ordinary pagination at 100.
+	legacyRuleMembers := !candidate && page == 1 && size == 1000
+	if e1 != nil || e2 != nil || page < 1 || page > 100000 || size < 1 || size > 100 && !legacyAllCandidates && !legacyRuleMembers || len(keyword) > 100 || !space.Valid() {
 		return memberPage{}, false
 	}
 	return memberPage{Page: page, Size: size, Keyword: keyword, Space: space}, true

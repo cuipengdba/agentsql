@@ -140,6 +140,28 @@ func TestActiveRuleForAnotherUserDoesNotRewriteThisUsersQuery(t *testing.T) {
 	require.Equal(t, rawSQL, gateway.lastQuery)
 }
 
+func TestActiveRuleRewritesTargetOrdinaryUserWithOwnBinding(t *testing.T) {
+	service, admin, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	guest := testUser(t, "2", "row-guest")
+	require.NoError(t, service.Store.CreateUser(ctx, guest))
+	guestPrincipal := Principal{User: guest, Workspace: admin.Workspace}
+	adminBinding, err := service.binding(ctx, admin, "10")
+	require.NoError(t, err)
+	guestBinding := adminBinding
+	guestBinding.User = guest.ID
+	require.NoError(t, service.Store.put(ctx, bindingKey(guestPrincipal, "10"), guestBinding, 0))
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"}}
+	rule := testActiveRowPermission(t, "east")
+	rule.Users = []int64{2}
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err := service.binding(ctx, guestPrincipal, "10")
+	require.NoError(t, err)
+	_, err = service.query(ctx, guestPrincipal, binding, "SELECT region FROM public.sales")
+	require.NoError(t, err)
+	require.Contains(t, gateway.lastQuery, "region = 'east'")
+}
+
 func TestActiveGroupCannotBeBypassedByNestedItemEnableFlag(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()

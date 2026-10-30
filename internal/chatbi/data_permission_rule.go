@@ -228,11 +228,24 @@ func (h *Handler) dataPermissionSave(w http.ResponseWriter, r *http.Request, p P
 		Name        string            `json:"name"`
 		Description string            `json:"description"`
 		Permissions []json.RawMessage `json:"permissions"`
-		Users       []int64           `json:"users"`
+		Users       []json.RawMessage `json:"users"`
 		WhiteList   string            `json:"white_list_user"`
 	}
 	if !readBody(w, r, &input) {
 		return
+	}
+	if len(input.Users) > 100 {
+		failure(w, ErrInvalidDataPermission)
+		return
+	}
+	users := make([]int64, 0, len(input.Users))
+	for _, raw := range input.Users {
+		id, valid := parseSystemVariableID(raw)
+		if !valid || id < 1 || id > maxSQLBotBrowserID {
+			failure(w, ErrInvalidDataPermission)
+			return
+		}
+		users = append(users, id)
 	}
 	if len(input.OID) > 0 && string(input.OID) != "null" {
 		oid, valid := parseSystemVariableID(input.OID)
@@ -270,7 +283,7 @@ func (h *Handler) dataPermissionSave(w http.ResponseWriter, r *http.Request, p P
 	}
 	rule := DataPermissionRule{ID: id, OID: oid, Enable: enabled,
 		Name: input.Name, Description: input.Description, Permissions: input.Permissions,
-		Users: input.Users, WhiteList: whiteList, Created: time.Now().UTC()}
+		Users: users, WhiteList: whiteList, Created: time.Now().UTC()}
 	if rule.Permissions == nil {
 		rule.Permissions = []json.RawMessage{}
 	}

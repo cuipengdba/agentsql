@@ -66,6 +66,23 @@ func TestOriginalDataPermissionRuleGroupIsScopedAndAudited(t *testing.T) {
 	require.Len(t, audits, 3)
 }
 
+func TestOriginalRuleGroupAcceptsCanonicalStringUserIDsOnly(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	path := "/api/v1/ds_permission/save"
+	for _, users := range []string{`["02"]`, `["2.0"]`, `[null]`, `[true]`, `["9007199254740992"]`} {
+		request := `{"name":"invalid user","users":` + users + `,"permissions":[]}`
+		result := accountRequest(t, handler, http.MethodPost, path, request, adminToken)
+		require.Equal(t, http.StatusUnprocessableEntity, result.Code, request)
+	}
+	created := accountRequest(t, handler, http.MethodPost, path,
+		`{"name":"original browser user","users":["2"],"permissions":[]}`, adminToken)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	rules, err := service.Store.DataPermissionRules(context.Background(), "1")
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
+	require.Equal(t, []int64{2}, rules[0].Users)
+}
+
 func TestDataPermissionDraftCannotBecomeActiveBeforeEnforcement(t *testing.T) {
 	service, handler, adminToken, _ := adminUsersFixture(t)
 	path := "/api/v1/ds_permission/save"
