@@ -18,6 +18,29 @@ func historyFixture() HistorySnapshot {
 			Records: []HistoricalRecord{{ID: "201", Question: "How many sales?", Created: created.Add(time.Minute)}}}}}
 }
 
+// An opt-in test for a private export from the pinned original runtime. The
+// fixture stays outside the repository and is never printed in test output.
+func TestExportedSQLBotV1103HistoryFixture(t *testing.T) {
+	path := os.Getenv("AGENTSQL_CHATBI_HISTORY_FIXTURE")
+	if path == "" {
+		t.Skip("private SQLBot history export not provided")
+	}
+	snapshot, err := ReadHistory(path)
+	if err != nil || snapshot.SourceVersion != "v1.10.3" || len(snapshot.Chats) != 1 || len(snapshot.Chats[0].Records) != 1 {
+		t.Fatal("pinned nonempty history export was rejected")
+	}
+	service, principal, gateway, model, _ := serviceFixture(t)
+	report, err := service.Store.ImportHistory(context.Background(), snapshot)
+	if err != nil || report.ImportedChats != 1 || report.ImportedQuestions != 1 || report.HistoricalRowsUsed {
+		t.Fatal("pinned history import failed")
+	}
+	chat, err := service.ReadChat(context.Background(), principal, snapshot.Chats[0].ID, true)
+	if err != nil || len(chat.Records) != 1 || chat.Records[0].Question != snapshot.Chats[0].Records[0].Question ||
+		chat.Records[0].Data != nil || chat.Records[0].SQL != "" || gateway.queries != 0 || model.calls != 0 {
+		t.Fatal("imported metadata was replayed or exposed")
+	}
+}
+
 func TestMetadataOnlyHistoryImportIsAtomicAndNeverReplaysOldResults(t *testing.T) {
 	ctx := context.Background()
 	service, p, gateway, model, _ := serviceFixture(t)
