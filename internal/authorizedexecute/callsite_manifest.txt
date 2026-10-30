@@ -62,6 +62,9 @@ internal/chatbi/datasource_schema.go
 # Refreshes gateway-visible schema only after current identity and binding checks;
 # the local transaction adds an audit record and cannot contact a business database.
 internal/chatbi/datasource_schema_sync.go
+# Data source metadata changes touch only encrypted local control-plane rows;
+# the current gateway binding and audit are committed together.
+internal/chatbi/datasource_excel_update.go
 internal/b5session/sql_ledger.go
 internal/b5session/tombstone.go
 internal/b5session/pg_inventory.go
