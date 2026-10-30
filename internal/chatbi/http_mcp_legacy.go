@@ -8,6 +8,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"access_token": token})
+	okay(w, map[string]string{"access_token": token})
 }
 
 func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +75,7 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
+	okay(w, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
 }
 
 func (h *Handler) mcpBodyPrincipal(w http.ResponseWriter, r *http.Request, token string, selected *ID) (Principal, bool) {
@@ -107,9 +108,32 @@ func (h *Handler) mcpVerifiedPrincipal(w http.ResponseWriter, r *http.Request, t
 }
 
 func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
-	var token string // SQLBot posts a JSON string, not an object.
-	if !readBody(w, r, &token) {
+	var token string
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP token query")
 		return
+	}
+	if values, present := query["token"]; present {
+		// SQLBot v1.10.3 declares this token as a FastAPI query parameter.
+		// Reject any body or competing credential rather than choosing one.
+		if len(query) != 1 || len(values) != 1 || values[0] == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP token query")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 65536)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || strings.TrimSpace(string(body)) != "" && strings.TrimSpace(string(body)) != "null" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Conflicting MCP token body")
+			return
+		}
+		token = values[0]
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+	} else {
+		if len(query) != 0 || !readBody(w, r, &token) {
+			return
+		}
 	}
 	p, ok := h.mcpBodyPrincipal(w, r, token, nil)
 	if !ok {
@@ -132,7 +156,7 @@ func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	okay(w, result)
 }
 
 func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +208,7 @@ func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	okay(w, result)
 }
 
 // SQLBot's model-list body may contain only an oid. AgentSQL accepts that
@@ -226,7 +250,7 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 			failure(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, []any{})
+		okay(w, []any{})
 		return
 	}
 	if err != nil || validateModelConfig(model) != nil {
@@ -251,7 +275,7 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 		models = append(models, map[string]any{"id": legacyBrowserID(item.ID),
 			"name": name, "default_model": index == 0, "supplier": modelSupplier(item)})
 	}
-	writeJSON(w, http.StatusOK, models)
+	okay(w, models)
 }
 
 func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token string) error {

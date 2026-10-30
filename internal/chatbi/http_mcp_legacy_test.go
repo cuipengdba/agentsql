@@ -6,10 +6,26 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func decodeMCPData(body []byte, target any) error {
+	var envelope struct {
+		Code int             `json:"code"`
+		Data json.RawMessage `json:"data"`
+		Msg  json.RawMessage `json:"msg"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return err
+	}
+	if envelope.Code != 0 || len(envelope.Data) == 0 || string(envelope.Msg) != "null" {
+		return errors.New("invalid original MCP success envelope")
+	}
+	return json.Unmarshal(envelope.Data, target)
+}
 
 func TestMCPHelperTokenWorkspaceAndDatasourceListing(t *testing.T) {
 	service, p, _, _, oldToken := serviceFixture(t)
@@ -24,7 +40,7 @@ func TestMCPHelperTokenWorkspaceAndDatasourceListing(t *testing.T) {
 	var response struct {
 		AccessToken string `json:"access_token"`
 	}
-	if json.Unmarshal(login.Body.Bytes(), &response) != nil || response.AccessToken == "" {
+	if decodeMCPData(login.Body.Bytes(), &response) != nil || response.AccessToken == "" {
 		t.Fatal("MCP login did not use the expected token response shape")
 	}
 	if _, err := service.Identity.Verify(context.Background(), response.AccessToken); err != nil {
@@ -34,6 +50,19 @@ func TestMCPHelperTokenWorkspaceAndDatasourceListing(t *testing.T) {
 	ws := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list", string(workspaceBody), "")
 	if ws.Code != http.StatusOK || !strings.Contains(ws.Body.String(), `"name":"One"`) || !strings.Contains(ws.Body.String(), `"id":1`) {
 		t.Fatalf("MCP workspace list: %d %s", ws.Code, ws.Body.String())
+	}
+	original := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list?token="+url.QueryEscape(response.AccessToken), "", "")
+	if original.Code != http.StatusOK || original.Body.String() != ws.Body.String() ||
+		original.Header().Get("Cache-Control") != "no-store" || original.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("original query-token MCP workspace list: %d %s", original.Code, original.Body.String())
+	}
+	withNull := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list?token="+url.QueryEscape(response.AccessToken), "null", "")
+	if withNull.Code != http.StatusOK || withNull.Body.String() != ws.Body.String() {
+		t.Fatalf("original query-token MCP workspace list with null body: %d %s", withNull.Code, withNull.Body.String())
+	}
+	var workspaceList []map[string]any
+	if err := decodeMCPData(original.Body.Bytes(), &workspaceList); err != nil || len(workspaceList) != 1 {
+		t.Fatalf("original MCP workspace envelope: %v", err)
 	}
 	// The encrypted binding contains several server-only credentials. A helper
 	// that describes available sources must never return any of them.
@@ -63,6 +92,9 @@ func TestMCPHelperTokenWorkspaceAndDatasourceListing(t *testing.T) {
 	}
 	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list", string(workspaceBody), ""); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked token listed workspaces: %d", denied.Code)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list?token="+url.QueryEscape(response.AccessToken), "", ""); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked query token listed workspaces: %d", denied.Code)
 	}
 	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ds_list", `{"token":"`+response.AccessToken+`"}`, ""); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked token listed datasources: %d", denied.Code)
@@ -159,6 +191,22 @@ func TestMCPHelperRejectsConflictingCredentialsAndInvalidBodies(t *testing.T) {
 	if invalid := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list", `{"token":"`+token+`"}`, ""); invalid.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("object workspace body accepted: %d", invalid.Code)
 	}
+	for _, path := range []string{
+		"/api/v1/mcp/mcp_ws_list?token=" + url.QueryEscape(token),
+		"/api/v1/mcp/mcp_ws_list?token=" + url.QueryEscape(token) + "&token=other",
+		"/api/v1/mcp/mcp_ws_list?token=" + url.QueryEscape(token) + "&oid=2",
+	} {
+		body := `"` + token + `"`
+		if denied := accountRequest(t, handler, http.MethodPost, path, body, ""); denied.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("ambiguous MCP workspace credentials accepted: %d %s", denied.Code, path)
+		}
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list?token="+url.QueryEscape(token)+"&bad=%ZZ", "", ""); denied.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("malformed MCP query accepted: %d", denied.Code)
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_ws_list?token="+url.QueryEscape(token), "", token); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("query and header credentials accepted: %d", denied.Code)
+	}
 }
 
 func TestMCPStartKeepsSourceUnboundUntilAuthorizedSelection(t *testing.T) {
@@ -178,7 +226,7 @@ func TestMCPStartKeepsSourceUnboundUntilAuthorizedSelection(t *testing.T) {
 		Token string `json:"access_token"`
 		Chat  ID     `json:"chat_id"`
 	}
-	if json.Unmarshal(started.Body.Bytes(), &output) != nil || output.Token != token || !output.Chat.Valid() {
+	if decodeMCPData(started.Body.Bytes(), &output) != nil || output.Token != token || !output.Chat.Valid() {
 		t.Fatalf("MCP start response shape: %s", started.Body.String())
 	}
 	chat, _, err := service.chat(context.Background(), p, output.Chat)
@@ -214,7 +262,7 @@ func TestMCPQuestionUsesControlledAuditedResultForJSONAndStream(t *testing.T) {
 		var output struct {
 			Chat ID `json:"chat_id"`
 		}
-		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &output) != nil {
+		if response.Code != http.StatusOK || decodeMCPData(response.Body.Bytes(), &output) != nil {
 			t.Fatalf("MCP start: %d %s", response.Code, response.Body.String())
 		}
 		return output.Chat
@@ -278,7 +326,7 @@ func TestMCPSelectedWorkspaceKeepsParentTokenRevocable(t *testing.T) {
 		Token string `json:"access_token"`
 		Chat  ID     `json:"chat_id"`
 	}
-	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil || output.Token != token {
+	if started.Code != http.StatusOK || decodeMCPData(started.Body.Bytes(), &output) != nil || output.Token != token {
 		t.Fatalf("workspace switch created an independent token: %d %s", started.Code, started.Body.String())
 	}
 	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
@@ -313,7 +361,7 @@ func TestMCPQuestionRejectsRevokedWorkspaceMembership(t *testing.T) {
 	var output struct {
 		Chat ID `json:"chat_id"`
 	}
-	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
+	if started.Code != http.StatusOK || decodeMCPData(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
 		t.Fatalf("workspace MCP start: %d %s", started.Code, started.Body.String())
 	}
 	user, revision, err = service.Store.User(ctx, p.User.ID)
@@ -349,7 +397,7 @@ func TestMCPQuestionRejectsAnotherUsersChatBeforeGatewayAccess(t *testing.T) {
 	var output struct {
 		Chat ID `json:"chat_id"`
 	}
-	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
+	if started.Code != http.StatusOK || decodeMCPData(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
 		t.Fatalf("owner MCP start: %d %s", started.Code, started.Body.String())
 	}
 	for _, stream := range []bool{false, true} {
@@ -373,7 +421,7 @@ func TestMCPQuestionReleasesNothingWithoutGatewayAudit(t *testing.T) {
 	var output struct {
 		Chat ID `json:"chat_id"`
 	}
-	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil {
+	if started.Code != http.StatusOK || decodeMCPData(started.Body.Bytes(), &output) != nil {
 		t.Fatalf("MCP start: %d %s", started.Code, started.Body.String())
 	}
 	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
@@ -396,7 +444,7 @@ func TestMCPQuestionRequiresDatasourceChoiceWhenAmbiguous(t *testing.T) {
 	var output struct {
 		Chat ID `json:"chat_id"`
 	}
-	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil {
+	if started.Code != http.StatusOK || decodeMCPData(started.Body.Bytes(), &output) != nil {
 		t.Fatalf("MCP start: %d %s", started.Code, started.Body.String())
 	}
 	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
