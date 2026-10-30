@@ -803,7 +803,15 @@ func sealFactsWithFrame(facts *SemanticFacts, frame PostgresCatalogFrame) error 
 	}
 	if len(facts.Relations) == 0 {
 		for _, relation := range frame.Relations {
-			facts.Relations = append(facts.Relations, SemanticRelation{DatabaseOID: relation.DatabaseOID, RelationOID: relation.OID, NamespaceOID: relation.NamespaceOID, Schema: relation.Schema, Name: relation.Name, Kind: relation.Kind, Persistence: relation.Persistence, CatalogFingerprint: frame.Fingerprint})
+			fingerprint := frame.Fingerprint
+			if facts.StatementClass == BinderStatementSelect {
+				var err error
+				fingerprint, err = relationEnrollmentFingerprint(frame, relation.OID)
+				if err != nil {
+					return err
+				}
+			}
+			facts.Relations = append(facts.Relations, SemanticRelation{DatabaseOID: relation.DatabaseOID, RelationOID: relation.OID, NamespaceOID: relation.NamespaceOID, Schema: relation.Schema, Name: relation.Name, Kind: relation.Kind, Persistence: relation.Persistence, CatalogFingerprint: fingerprint})
 		}
 	}
 	for index := range facts.Relations {
@@ -817,7 +825,15 @@ func sealFactsWithFrame(facts *SemanticFacts, frame PostgresCatalogFrame) error 
 		facts.Relations[index].Name = relation.Name
 		facts.Relations[index].Kind = relation.Kind
 		facts.Relations[index].Persistence = relation.Persistence
-		facts.Relations[index].CatalogFingerprint = frame.Fingerprint
+		fingerprint := frame.Fingerprint
+		if facts.StatementClass == BinderStatementSelect {
+			var err error
+			fingerprint, err = relationEnrollmentFingerprint(frame, relation.OID)
+			if err != nil {
+				return err
+			}
+		}
+		facts.Relations[index].CatalogFingerprint = fingerprint
 	}
 	columns := make(map[string]PostgresColumnIdentity, len(frame.Columns))
 	for _, column := range frame.Columns {

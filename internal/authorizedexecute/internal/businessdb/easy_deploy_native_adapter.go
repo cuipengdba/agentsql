@@ -34,10 +34,14 @@ func NativeSelectSemanticFacts(datasourceID string, session SemanticIdentity, ma
 		if !ok {
 			return SemanticFacts{}, NewCatalogFailure("AUTH_BINDER_INCOMPLETE")
 		}
+		fingerprint, err := relationEnrollmentFingerprint(frame, relation.OID)
+		if err != nil {
+			return SemanticFacts{}, err
+		}
 		facts.Relations = append(facts.Relations, SemanticRelation{DatasourceID: datasourceID,
 			DatabaseOID: relation.DatabaseOID, RelationOID: relation.OID, NamespaceOID: relation.NamespaceOID,
 			Schema: relation.Schema, Name: relation.Name, Kind: relation.Kind, Persistence: relation.Persistence,
-			CatalogFingerprint: frame.Fingerprint, BindingAlias: bound.Path, ViewPath: nativeViewPath(bound)})
+			CatalogFingerprint: fingerprint, BindingAlias: bound.Path, ViewPath: nativeViewPath(bound)})
 	}
 	columns := make(map[string]PostgresColumnIdentity, len(frame.Columns))
 	for _, column := range frame.Columns {
