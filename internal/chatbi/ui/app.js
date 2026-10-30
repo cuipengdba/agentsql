@@ -3,6 +3,7 @@ import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
 import { setupChatSettings } from './chat-settings.js';
 import { setupUserVariableEditor } from './user-variables.js';
+import { setupSourceRelations } from './source-relations.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -68,6 +69,8 @@ Object.assign(copy['zh-CN'], {sourceSelect:'管理可查询的表',sourceSelectI
 Object.assign(copy.en, {sourceSelect:'Manage queryable tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
 Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
+Object.assign(copy['zh-CN'], {relationTitle:'表关系',relationNote:'关系只作为本机模型的连接提示；每次查询仍按当前数据库权限执行并审计。最多支持 64 张可见表。',relationTooMany:'当前可见表超过 64 张，暂不能在此编辑关系。',relationOpen:'读取当前关系与字段',relationFrom:'来源字段',relationTo:'目标字段',relationAdd:'添加关系',relationRemove:'移除',relationEmpty:'尚未配置关系',relationSave:'保存关系',relationSaving:'正在核验并保存关系…',relationSaved:'表关系已保存并写入审计。',relationInvalid:'请选择不同表的字段，且不要重复添加关系。'});
+Object.assign(copy.en, {relationTitle:'Table relationships',relationNote:'Relationships are join hints for the local model. Every query still checks current database permissions and is audited. Up to 64 visible tables are supported.',relationTooMany:'More than 64 tables are visible, so relationships cannot be edited here yet.',relationOpen:'Load relationships and fields',relationFrom:'Source field',relationTo:'Target field',relationAdd:'Add relationship',relationRemove:'Remove',relationEmpty:'No relationships configured',relationSave:'Save relationships',relationSaving:'Checking and saving relationships…',relationSaved:'Relationships saved with an audit record.',relationInvalid:'Choose fields from different tables and avoid duplicate relationships.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
@@ -93,6 +96,7 @@ const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 const qaDisplay={sql:true,log:true};
 const chatSettings=setupChatSettings({api,node,get:$,canOpen:()=>!controller,onChange:value=>{qaDisplay.sql=!!value.show_sql;qaDisplay.log=!!value.show_log;}});
+const sourceRelations=setupSourceRelations({api,t,node,get:$,onStatus:sourceStatus});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -703,6 +707,7 @@ document.addEventListener('agentsql:show-chat-settings',()=>{
 });
 async function loadSource(source,restoreTableID=null){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
+  sourceRelations.reset();
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
   $('source-select').hidden=true;$('source-select-form').hidden=true;
@@ -725,6 +730,7 @@ async function loadSource(source,restoreTableID=null){
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
     if(managed)renderSourceRemarkTools(source);
+    if(isAdmin)sourceRelations.show(source,tables);
     for(const table of tables){
       const group=node('div',undefined,'source-table-group');
       const button=node('button',table.table_name,'source-table');button.type='button';
