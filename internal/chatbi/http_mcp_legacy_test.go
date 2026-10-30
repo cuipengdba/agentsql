@@ -325,6 +325,38 @@ func TestMCPQuestionRejectsRevokedWorkspaceMembership(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionRejectsAnotherUsersChatBeforeGatewayAccess(t *testing.T) {
+	service, _, gateway, _, ownerToken := serviceFixture(t)
+	ctx := context.Background()
+	other := testUser(t, "2", "other-analyst")
+	if err := service.Store.CreateUser(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	_, otherToken, err := service.Identity.Login(ctx, other.Account, "Synthetic-password-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+ownerToken+`"}`, "")
+	var output struct {
+		Chat ID `json:"chat_id"`
+	}
+	if started.Code != http.StatusOK || json.Unmarshal(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
+		t.Fatalf("owner MCP start: %d %s", started.Code, started.Body.String())
+	}
+	for _, stream := range []bool{false, true} {
+		body := `{"token":"` + otherToken + `","chat_id":` + string(output.Chat) + `,"question":"sales?","stream":` + strconv.FormatBool(stream) + `}`
+		denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", body, "")
+		if denied.Code != http.StatusNotFound || gateway.queries != 0 || gateway.schemaCalls != 0 ||
+			strings.Contains(denied.Body.String(), "sales?") || strings.Contains(denied.Body.String(), "123") {
+			t.Fatalf("foreign MCP chat reached data, stream=%t: %d %s", stream, denied.Code, denied.Body.String())
+		}
+	}
+}
+
 func TestMCPQuestionReleasesNothingWithoutGatewayAudit(t *testing.T) {
 	service, _, gateway, _, token := serviceFixture(t)
 	gateway.audit = 0
