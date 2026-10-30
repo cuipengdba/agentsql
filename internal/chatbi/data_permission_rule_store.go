@@ -54,6 +54,13 @@ func (s *Store) SaveDataPermissionRule(ctx context.Context, p Principal, rule Da
 		}
 		rule.Created = previous.Created
 	}
+	rule.Permissions, err = normalizePermissionDrafts(rule.Permissions, oldBody, s, key)
+	if err != nil {
+		return DataPermissionRule{}, err
+	}
+	if !validPermissionRule(rule) {
+		return DataPermissionRule{}, ErrInvalidDataPermission
+	}
 	sealed, err := s.seal(key, rule)
 	if err != nil {
 		return DataPermissionRule{}, err

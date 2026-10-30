@@ -86,6 +86,65 @@ func TestDataPermissionDraftCannotBecomeActiveBeforeEnforcement(t *testing.T) {
 	require.False(t, current.Enable)
 }
 
+func TestDisabledPermissionDraftUsesOriginalRuleGroupResponseShape(t *testing.T) {
+	_, handler, adminToken, _ := adminUsersFixture(t)
+	path := "/api/v1/ds_permission/"
+	created := accountRequest(t, handler, http.MethodPost, path+"save",
+		`{"name":"response shape","enable":false,"users":[2],"permissions":[{"id":1760000000000,"type":"row","ds_id":10,"table_id":20,"expression_tree":"{\"logic\":\"and\",\"items\":[]}","permissions":"[]"}]}`, adminToken)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	var saved struct {
+		Data struct {
+			ID             int64   `json:"id"`
+			PermissionList []int64 `json:"permission_list"`
+			Permissions    any     `json:"permissions"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &saved))
+	require.Len(t, saved.Data.PermissionList, 1)
+	require.NotEqualValues(t, 1760000000000, saved.Data.PermissionList[0], "new item IDs come from the server")
+	require.Nil(t, saved.Data.Permissions, "save uses the compact original response")
+	groupID := strconv.FormatInt(saved.Data.ID, 10)
+	read := accountRequest(t, handler, http.MethodPost, path+"get/"+groupID, "", adminToken)
+	require.Equal(t, http.StatusOK, read.Code)
+	var expanded struct {
+		Data struct {
+			PermissionList []int64 `json:"permission_list"`
+			Permissions    []struct {
+				ID             int64          `json:"id"`
+				Type           string         `json:"type"`
+				ExpressionTree string         `json:"expression_tree"`
+				Tree           map[string]any `json:"tree"`
+			} `json:"permissions"`
+			Users []int64 `json:"users"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(read.Body.Bytes(), &expanded))
+	require.Equal(t, saved.Data.PermissionList, expanded.Data.PermissionList)
+	require.Len(t, expanded.Data.Permissions, 1)
+	require.Equal(t, saved.Data.PermissionList[0], expanded.Data.Permissions[0].ID)
+	require.Equal(t, "row", expanded.Data.Permissions[0].Type)
+	require.Equal(t, `{"logic":"and","items":[]}`, expanded.Data.Permissions[0].ExpressionTree)
+	require.Equal(t, "and", expanded.Data.Permissions[0].Tree["logic"])
+	require.Equal(t, []int64{2}, expanded.Data.Users)
+	updated := accountRequest(t, handler, http.MethodPost, path+"save",
+		`{"id":`+groupID+`,"name":"response shape updated","enable":false,"users":[2],"permissions":[{"id":`+
+			strconv.FormatInt(saved.Data.PermissionList[0], 10)+`,"type":"row","ds_id":10,"table_id":20,"expression_tree":"{\"logic\":\"and\",\"items\":[]}","permissions":"[]"}]}`, adminToken)
+	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
+	var updatedResponse struct {
+		Data struct {
+			PermissionList []int64 `json:"permission_list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(updated.Body.Bytes(), &updatedResponse))
+	require.Equal(t, saved.Data.PermissionList, updatedResponse.Data.PermissionList)
+	require.Equal(t, http.StatusUnprocessableEntity,
+		accountRequest(t, handler, http.MethodPost, path+"save",
+			`{"name":"malformed tree","enable":false,"permissions":[{"type":"row","ds_id":10,"table_id":20,"expression_tree":"not-json"}]}`, adminToken).Code)
+	require.Equal(t, http.StatusUnprocessableEntity,
+		accountRequest(t, handler, http.MethodPost, path+"save",
+			`{"name":"malformed columns","enable":false,"permissions":[{"type":"column","ds_id":10,"table_id":20,"permissions":"not-json"}]}`, adminToken).Code)
+}
+
 func TestUnresolvedActiveDataPermissionClosesBeforeGatewayAndAfterQuery(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()

@@ -58,14 +58,82 @@ func validPermissionRule(rule DataPermissionRule) bool {
 }
 
 func (rule DataPermissionRule) browserResponse(expanded bool) map[string]any {
+	ids := make([]int64, 0, len(rule.Permissions))
+	items := make([]map[string]any, 0, len(rule.Permissions))
+	for index, raw := range rule.Permissions {
+		var item map[string]any
+		if json.Unmarshal(raw, &item) != nil || item == nil {
+			continue
+		}
+		var identity struct {
+			ID json.RawMessage `json:"id"`
+		}
+		_ = json.Unmarshal(raw, &identity)
+		id, valid := parseSystemVariableID(identity.ID)
+		if !valid || id < 1 || id > maxSQLBotBrowserID {
+			id = browserFieldID(rule.ID, "permission:"+strconv.Itoa(index))
+		}
+		ids = append(ids, id)
+		item["id"] = id
+		if _, exists := item["enable"]; !exists {
+			item["enable"] = true
+		}
+		if _, exists := item["white_list_user"]; !exists {
+			item["white_list_user"] = "[]"
+		}
+		if _, exists := item["create_time"]; !exists {
+			item["create_time"] = rule.Created
+		}
+		if _, exists := item["auth_target_id"]; !exists {
+			item["auth_target_id"] = nil
+		}
+		if _, exists := item["auth_target_type"]; !exists {
+			item["auth_target_type"] = nil
+		}
+		if _, exists := item["ds_name"]; !exists {
+			item["ds_name"] = ""
+		}
+		if _, exists := item["table_name"]; !exists {
+			item["table_name"] = ""
+		}
+		if item["type"] == "row" {
+			var tree any = map[string]any{}
+			switch expression := item["expression_tree"].(type) {
+			case string:
+				_ = json.Unmarshal([]byte(expression), &tree)
+			case map[string]any:
+				tree = expression
+				serialized, _ := json.Marshal(expression)
+				item["expression_tree"] = string(serialized)
+			}
+			item["tree"] = tree
+			item["permissions"] = "[]"
+			item["permission_list"] = []any{}
+		} else if item["type"] == "column" {
+			var fields []any
+			if value, ok := item["permissions"].(string); ok {
+				_ = json.Unmarshal([]byte(value), &fields)
+			} else if value, ok := item["permissions"].([]any); ok {
+				fields = value
+				serialized, _ := json.Marshal(value)
+				item["permissions"] = string(serialized)
+			}
+			if fields == nil {
+				fields = []any{}
+			}
+			item["permission_list"] = fields
+			item["tree"] = map[string]any{}
+		}
+		items = append(items, item)
+	}
 	result := map[string]any{
 		"id": rule.ID, "oid": rule.OID, "enable": rule.Enable, "name": rule.Name,
-		"description": rule.Description, "permission_list": rule.Permissions,
+		"description": rule.Description, "permission_list": ids,
 		"user_list": rule.Users, "white_list_user": rule.WhiteList,
 		"create_time": rule.Created,
 	}
 	if expanded {
-		result["permissions"] = rule.Permissions
+		result["permissions"] = items
 		result["users"] = rule.Users
 	}
 	return result
