@@ -18,6 +18,7 @@ import (
 
 type Config struct {
 	Listen                string `yaml:"listen"`
+	LegacyMCPListen       string `yaml:"legacy_mcp_listen"`
 	StorePath             string `yaml:"store_path"`
 	SecretEnv             string `yaml:"secret_env"`
 	Gateway               string `yaml:"gateway"`
@@ -47,6 +48,11 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if _, _, err := net.SplitHostPort(config.Listen); err != nil {
 		return config, errors.New("ChatBI listen must be host:port")
+	}
+	if config.LegacyMCPListen != "" {
+		if _, _, err := net.SplitHostPort(config.LegacyMCPListen); err != nil || config.LegacyMCPListen == config.Listen {
+			return config, errors.New("ChatBI legacy_mcp_listen must be a distinct host:port")
+		}
 	}
 	if config.StorePath == "" {
 		return config, errors.New("ChatBI store_path is required")
