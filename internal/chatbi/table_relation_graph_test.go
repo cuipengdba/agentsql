@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,8 +35,14 @@ func TestRelationGraphUsesOnlyLiveGatewaySchema(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, graph, 3)
 	require.Equal(t, "orders", graph[0]["label"])
+	require.Equal(t, strconv.FormatInt(orders, 10), graph[0]["id"])
+	require.Equal(t, strconv.FormatInt(browserFieldID(orders, "buyer_id"), 10),
+		graph[2]["source"].(map[string]any)["port"])
 	sanitized, err := json.Marshal(graph)
 	require.NoError(t, err)
+	roundTrip, err := relationGraph(sanitized, datasource, columns)
+	require.NoError(t, err)
+	require.Equal(t, graph, roundTrip)
 	require.NotContains(t, string(sanitized), "evil.test")
 	require.NotContains(t, string(sanitized), "FAKE")
 	hints, err := relationHints(Binding{Datasource: datasource, TableRelations: string(sanitized)}, columns)

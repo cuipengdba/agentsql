@@ -65,16 +65,34 @@ func relationHints(binding Binding, columns []Column) ([]RelationHint, error) {
 		if cell["shape"] != "edge" {
 			continue
 		}
-		source := cell["source"].(map[string]any)
-		target := cell["target"].(map[string]any)
-		sourceID, sourcePort := source["cell"].(int64), source["port"].(int64)
-		targetID, targetPort := target["cell"].(int64), target["port"].(int64)
-		left, right := byID[sourceID], byID[targetID]
+		sourceID, sourcePort, sourceOK := normalizedRelationEndpoint(cell["source"])
+		targetID, targetPort, targetOK := normalizedRelationEndpoint(cell["target"])
+		left, leftOK := byID[sourceID]
+		right, rightOK := byID[targetID]
+		if !sourceOK || !targetOK || !leftOK || !rightOK ||
+			fieldNames[sourceID][sourcePort] == "" || fieldNames[targetID][targetPort] == "" {
+			return nil, ErrGateway
+		}
 		hints = append(hints, RelationHint{SourceSchema: left.schema, SourceTable: left.name,
 			SourceField: fieldNames[sourceID][sourcePort], TargetSchema: right.schema, TargetTable: right.name,
 			TargetField: fieldNames[targetID][targetPort]})
 	}
 	return hints, nil
+}
+
+func normalizedRelationEndpoint(value any) (int64, int64, bool) {
+	endpoint, ok := value.(map[string]any)
+	if !ok {
+		return 0, 0, false
+	}
+	cell, cellOK := endpoint["cell"].(string)
+	port, portOK := endpoint["port"].(string)
+	if !cellOK || !portOK {
+		return 0, 0, false
+	}
+	cellID, cellErr := strconv.ParseInt(cell, 10, 64)
+	portID, portErr := strconv.ParseInt(port, 10, 64)
+	return cellID, portID, cellErr == nil && portErr == nil
 }
 
 func relationNumericID(raw json.RawMessage) (int64, error) {
@@ -142,10 +160,10 @@ func relationGraph(raw []byte, datasource ID, columns []Column) ([]map[string]an
 		selected[id] = true
 		items := make([]map[string]any, 0, len(table.columns))
 		for _, column := range table.columns {
-			items = append(items, map[string]any{"id": browserFieldID(id, column.Name), "group": "list",
+			items = append(items, map[string]any{"id": strconv.FormatInt(browserFieldID(id, column.Name), 10), "group": "list",
 				"attrs": map[string]any{"portNameLabel": map[string]string{"text": column.Name}}})
 		}
-		result = append(result, map[string]any{"id": id, "shape": "er-rect", "label": table.name,
+		result = append(result, map[string]any{"id": strconv.FormatInt(id, 10), "shape": "er-rect", "label": table.name,
 			"position": cell.Position, "height": 51, "width": 180, "ports": items,
 			"attrs": map[string]any{"label": map[string]any{"text": table.name, "textAnchor": "left", "refX": 34, "refY": 28}}})
 	}
@@ -173,8 +191,9 @@ func relationGraph(raw []byte, datasource ID, columns []Column) ([]map[string]an
 			return nil, errInvalidRelationGraph
 		}
 		seenEdges[key] = true
-		result = append(result, map[string]any{"shape": "edge", "source": map[string]any{"cell": sourceTable, "port": sourceField},
-			"target": map[string]any{"cell": targetTable, "port": targetField}})
+		result = append(result, map[string]any{"shape": "edge", "source": map[string]any{
+			"cell": strconv.FormatInt(sourceTable, 10), "port": strconv.FormatInt(sourceField, 10)},
+			"target": map[string]any{"cell": strconv.FormatInt(targetTable, 10), "port": strconv.FormatInt(targetField, 10)}})
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil || len(encoded) > 64<<10 {
