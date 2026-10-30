@@ -79,7 +79,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "5f6101adfcd2e66eb3137e7f039e034edb9c66618f6e45e9bc4b1bbfbe1f92d8"
+      "source_sha256": "35e9a0e8448e71847281d68c1422740049506af77df7cfd8a7373b1d28773fed"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -1239,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "f143da290630d2a191a17a507d086e009470053e43e928a9c61e3da268679bed"
+      "source_sha256": "ee4173fa5e371786d6bc6dd495818e359333179b4c23167e6c58d8b35a5c540d"
     },
     {
       "source": "docs/v4.3.0-design.md",

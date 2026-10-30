@@ -1020,7 +1020,7 @@ Content-Type: application/json
 
 After the interface is discovered from the real database, it holds MDL verification again in the control transaction and submits healthy binding, object ID and column permissions; if the version changes or the table has been rebuilt, a conflict will be returned and the policy needs to be read again. When the switch is enabled, MySQL requests holding column policies only go to the column authorization path; fail to close in the absence of metadata credentials, permissions, health bindings, column authorization, auditing, or final control plane checks. Existing MySQL requests without column policies continue to use the original table-level path. After registration is complete, restart AgentSQL to enable the startup probe to recalculate the B2 readiness status.
 
-If a table allow still exists for the same Agent, datasource and table, deleting its column policy would fall back to table-level authorization and widen access. The admin API now returns 409. Revoke the table allow first, then delete the column policy; queries remain denied between those steps.
+If a table allow still exists for the same Agent, datasource and table, deleting its column policy or updating that policy to a table policy or another identity/table scope would fall back to table-level authorization and widen access. The admin API returns 409 for these operations. Revoke the table allow first, then delete or update the column policy; queries remain denied between those steps.
 
 ## v1.4.0 Dual gateway shared login budget and upgrade
 

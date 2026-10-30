@@ -1499,6 +1499,10 @@ func (handler *Handler) policiesUpdate(writer http.ResponseWriter, request *http
 			handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
 			return
 		}
+		if errors.Is(err, store.ErrPolicyUpdateWouldWiden) {
+			handler.fail(writer, http.StatusConflict, "remove the table allow policy before changing this MySQL column policy scope")
+			return
+		}
 		handler.notFound(writer)
 		return
 	}
