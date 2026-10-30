@@ -19,7 +19,7 @@ type managedRemarkSheet struct {
 // This independently written XLSX encoder emits only inline text cells. The
 // original client expects one table-list sheet and one sheet per visible table.
 func managedRemarkWorkbook(sheets []managedRemarkSheet) ([]byte, error) {
-	if len(sheets) < 2 || len(sheets) > 9 {
+	if len(sheets) < 2 || len(sheets) > 257 {
 		return nil, errSemanticWorkbook
 	}
 	var output bytes.Buffer
@@ -136,6 +136,10 @@ func (h *Handler) exportManagedFileRemarks(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, datasource)
+	if err == nil && databaseBinding(binding) {
+		h.exportDatabaseRemarks(w, r, p, token, binding, revision, digest)
+		return
+	}
 	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		failure(w, ErrNotFound)

@@ -27,6 +27,11 @@ internal/chatbi/managed_file_field_comment.go
 # Bounded remark-workbook import updates only encrypted local binding metadata;
 # management audit and binding revision commit in the same SQLite transaction.
 internal/chatbi/managed_file_remark_import.go
+# Server-owned database remarks update only encrypted local binding metadata;
+# fixed, bound SQLite writes and management audit commit in one transaction.
+# Neither path opens a connection to the business datasource.
+internal/chatbi/database_remark.go
+internal/chatbi/database_remark_workbook.go
 # Membership and user creation mutate encrypted local identity/control-plane
 # rows with bound SQLite statements and a mandatory same-transaction audit.
 # They cannot open or execute against a business datasource.

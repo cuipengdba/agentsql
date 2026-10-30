@@ -729,7 +729,7 @@ async function loadSource(source,restoreTableID=null){
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
-    if(managed)renderSourceRemarkTools(source);
+    if(managed||databaseEditable)renderSourceRemarkTools(source);
     if(isAdmin)sourceRelations.show(source,tables);
     for(const table of tables){
       const group=node('div',undefined,'source-table-group');
