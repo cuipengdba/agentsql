@@ -93,7 +93,7 @@ func (h *Handler) schemasByBoundDatasource(w http.ResponseWriter, r *http.Reques
 	}
 	// Use the gateway's authorized schema before the local table-selection
 	// filter, because a user may need to rediscover a deselected table.
-	columns, err := h.service.Gateway.Schema(r.Context(), p, binding)
+	columns, err := h.service.gatewaySchema(r.Context(), p, binding)
 	if err != nil {
 		failure(w, err)
 		return

@@ -120,7 +120,7 @@ func (h *Handler) chooseManagedFileTables(w http.ResponseWriter, r *http.Request
 		}
 		selected[table.Name] = true
 	}
-	columns, err := h.service.Gateway.Schema(r.Context(), p, binding)
+	columns, err := h.service.gatewaySchema(r.Context(), p, binding)
 	if err != nil {
 		failure(w, ErrGateway)
 		return

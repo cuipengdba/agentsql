@@ -51,6 +51,9 @@ internal/chatbi/http_workspace_catalog.go
 # Workspace-scoped custom variables use fixed, bound statements against the
 # encrypted local control-plane store and commit with management audit only.
 internal/chatbi/system_variable_store.go
+# Workspace data-permission rule drafts use fixed local SQLite statements;
+# rule changes and management audit are committed in one transaction.
+internal/chatbi/data_permission_rule_store.go
 # Workspace model updates use the same encrypted local control-plane store,
 # current administrator identity and same-transaction management audit.
 internal/chatbi/model_admin_store.go

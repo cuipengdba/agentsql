@@ -145,6 +145,10 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/datasource/getSchemaByConf", h.bounded(h.auth(h.schemasByBoundDatasource)))
 	h.mux.HandleFunc("POST /api/v1/table_relation/get/{id}", h.bounded(h.auth(h.getTableRelations)))
 	h.mux.HandleFunc("POST /api/v1/table_relation/save/{id}", h.bounded(h.auth(h.saveTableRelations)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/list", h.bounded(h.auth(h.dataPermissionList)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/get/{id}", h.bounded(h.auth(h.dataPermissionGet)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/save", h.bounded(h.auth(h.dataPermissionSave)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/delete/{id}", h.bounded(h.auth(h.dataPermissionDelete)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTables/{id}", h.bounded(h.auth(h.datasourceTables)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTablesByConf", h.bounded(h.auth(h.databaseTablesBySavedBinding)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getFields/{id}/{table}", h.bounded(h.auth(h.datasourceFields)))
@@ -391,6 +395,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 401, "Not authenticated"
 	case errors.Is(err, ErrInvalidSemantic):
 		status, message = 422, "Invalid semantic metadata"
+	case errors.Is(err, ErrInvalidDataPermission):
+		status, message = 422, "Invalid or unsupported data permission rule"
 	case errors.Is(err, ErrInvalidDashboard):
 		status, message = 422, "Invalid dashboard configuration"
 	case errors.Is(err, ErrInvalidAssistant):

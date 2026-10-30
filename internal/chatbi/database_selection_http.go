@@ -43,7 +43,7 @@ func (h *Handler) databaseTablesBySavedBinding(w http.ResponseWriter, r *http.Re
 	}
 	all := binding
 	all.SelectedTables = ""
-	columns, err := h.service.Gateway.Schema(r.Context(), p, all)
+	columns, err := h.service.gatewaySchema(r.Context(), p, all)
 	if err != nil {
 		failure(w, ErrGateway)
 		return
@@ -86,7 +86,7 @@ func (h *Handler) chooseDatabaseTables(w http.ResponseWriter, r *http.Request, p
 	}
 	all := binding
 	all.SelectedTables = ""
-	columns, err := h.service.Gateway.Schema(r.Context(), p, all)
+	columns, err := h.service.gatewaySchema(r.Context(), p, all)
 	if err != nil {
 		failure(w, ErrGateway)
 		return
@@ -165,7 +165,7 @@ func (h *Handler) databaseTableChoices(w http.ResponseWriter, r *http.Request, p
 	}
 	all := binding
 	all.SelectedTables = ""
-	columns, err := h.service.Gateway.Schema(r.Context(), p, all)
+	columns, err := h.service.gatewaySchema(r.Context(), p, all)
 	if err != nil {
 		failure(w, ErrGateway)
 		return

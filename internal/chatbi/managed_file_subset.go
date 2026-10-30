@@ -9,7 +9,7 @@ import (
 )
 
 func (service *Service) schema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	columns, err := service.Gateway.Schema(ctx, principal, binding)
+	columns, err := service.gatewaySchema(ctx, principal, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -17,7 +17,31 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 	if err != nil {
 		return nil, err
 	}
-	return filterDatabaseSchema(binding, columns)
+	visible, err := filterDatabaseSchema(binding, columns)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+		return nil, err
+	}
+	return visible, nil
+}
+
+// gatewaySchema also covers schema discovery paths that deliberately bypass
+// selected-table filtering. No such path may expose metadata while an active
+// compatibility rule lacks an enforcement engine.
+func (service *Service) gatewaySchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
+	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+		return nil, err
+	}
+	columns, err := service.Gateway.Schema(ctx, principal, binding)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+		return nil, err
+	}
+	return columns, nil
 }
 
 func (service *Service) semanticSchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
@@ -33,6 +57,9 @@ func (service *Service) semanticSchema(ctx context.Context, principal Principal,
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
+	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+		return QueryData{}, err
+	}
 	if err := authorizeEnabledTablesSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
@@ -45,7 +72,14 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	if err := authorizeDatabaseSelectedSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
-	return service.Gateway.Query(ctx, principal, binding, sql)
+	data, err := service.Gateway.Query(ctx, principal, binding, sql)
+	if err != nil {
+		return QueryData{}, err
+	}
+	if err := service.Store.unresolvedDataPermissions(ctx, principal.Workspace); err != nil {
+		return QueryData{}, err
+	}
+	return data, nil
 }
 
 // File imports share a physical PostgreSQL database. The server-held datasource
