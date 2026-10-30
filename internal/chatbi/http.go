@@ -160,6 +160,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/datasource/previewData/{id}", h.bounded(h.auth(h.datasourcePreview)))
 	h.mux.HandleFunc("POST /api/v1/datasource/parseExcel", h.bounded(h.auth(h.parseExcel)))
 	h.mux.HandleFunc("POST /api/v1/datasource/importToDb", h.bounded(h.auth(h.importToDb)))
+	h.mux.HandleFunc("POST /api/v1/datasource/uploadExcel", h.bounded(h.auth(h.legacyUploadExcel)))
 	h.mux.HandleFunc("POST /api/v1/agentsql/datasource/claim-import", h.bounded(h.auth(h.claimNativeFileDatasource)))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.boundedHistory(h.recommendedProblems))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.boundedHistory(h.recommendedBase))

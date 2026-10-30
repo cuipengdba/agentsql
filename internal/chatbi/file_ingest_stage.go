@@ -99,18 +99,8 @@ func (h *Handler) parseExcel(w http.ResponseWriter, r *http.Request, p Principal
 		failure(w, err)
 		return
 	}
-	id, err := newID()
+	stage, err := h.stageUploadedFile(r.Context(), p, filename, data, sheets)
 	if err != nil {
-		failure(w, ErrUnavailable)
-		return
-	}
-	extension := ".csv"
-	if strings.HasSuffix(strings.ToLower(filename), ".xlsx") {
-		extension = ".xlsx"
-	}
-	stage := fileStage{FilePath: "agentsql-file-" + string(id) + extension, Original: filename,
-		Data: data, Expires: time.Now().UTC().Add(time.Hour)}
-	if err := h.service.saveFileStage(r.Context(), p, stage, sheets); err != nil {
 		failure(w, err)
 		return
 	}
@@ -125,6 +115,65 @@ func (h *Handler) parseExcel(w http.ResponseWriter, r *http.Request, p Principal
 	okay(w, map[string]any{"filePath": stage.FilePath, "data": sheets})
 }
 
+func (h *Handler) stageUploadedFile(ctx context.Context, p Principal, filename string, data []byte, sheets []FileSheet) (fileStage, error) {
+	id, err := newID()
+	if err != nil {
+		return fileStage{}, ErrUnavailable
+	}
+	extension := ".csv"
+	if strings.HasSuffix(strings.ToLower(filename), ".xlsx") {
+		extension = ".xlsx"
+	}
+	stage := fileStage{FilePath: "agentsql-file-" + string(id) + extension, Original: filename,
+		Data: data, Expires: time.Now().UTC().Add(time.Hour)}
+	if err := h.service.saveFileStage(ctx, p, stage, sheets); err != nil {
+		return fileStage{}, err
+	}
+	return stage, nil
+}
+
+// The pinned SQLBot form still posts a file to uploadExcel and expects the
+// physical sheet names before datasource/add. The same managed gateway path
+// used by the two-step importer publishes every parsed sheet with bounded
+// inferred fields; caller-supplied table names never reach this path.
+func (h *Handler) legacyUploadExcel(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if h.service.ManagedFileDatasource == "" {
+		writeJSON(w, http.StatusServiceUnavailable, "Managed file import is not configured")
+		return
+	}
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	filename, data, err := readFileUpload(w, r)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized file upload")
+		return
+	}
+	sheets, err := parseFileImport(filename, data)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported CSV/XLSX file")
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	stage, err := h.stageUploadedFile(r.Context(), p, filename, data, sheets)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	request := FileImportRequest{FilePath: stage.FilePath}
+	for _, sheet := range sheets {
+		request.Sheets = append(request.Sheets, struct {
+			Name   string      `json:"sheetName"`
+			Fields []FileField `json:"fields"`
+		}{Name: sheet.Name, Fields: sheet.Fields})
+	}
+	h.publishManagedFile(w, r, p, token, request)
+}
+
 func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if h.service.ManagedFileDatasource == "" {
 		writeJSON(w, http.StatusServiceUnavailable, "Managed file import is not configured")
@@ -134,6 +183,10 @@ func (h *Handler) importToDb(w http.ResponseWriter, r *http.Request, p Principal
 	if !readBody(w, r, &request) {
 		return
 	}
+	h.publishManagedFile(w, r, p, token, request)
+}
+
+func (h *Handler) publishManagedFile(w http.ResponseWriter, r *http.Request, p Principal, token string, request FileImportRequest) {
 	stage, plan, err := h.service.prepareFileImportWithStage(r.Context(), p, request)
 	if err != nil {
 		failure(w, err)
