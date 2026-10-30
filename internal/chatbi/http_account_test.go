@@ -158,7 +158,7 @@ func TestSQLBotInitialPasswordPolicyClosesAllChangePaths(t *testing.T) {
 	if denied := chatParameterForm(t, handler, memberToken, `[{"pkey":"login.initial_pwd_disabled","pval":true}]`); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("member changed login policy: %d", denied.Code)
 	}
-	if saved := chatParameterForm(t, handler, adminToken, `[{"pkey":"login.initial_pwd_disabled","pval":true}]`); saved.Code != http.StatusOK {
+	if saved := chatParameterForm(t, handler, adminToken, `[{"id":"7521910576851","pkey":"login.initial_pwd_disabled","pval":"true","ptype":"str","sort_no":0},{"id":"7521910576852","pkey":"login.initial_pwd_hidden","pval":"false","ptype":"str","sort_no":0}]`); saved.Code != http.StatusOK {
 		t.Fatalf("admin could not enable login policy: %d %s", saved.Code, saved.Body.String())
 	}
 	settings, err := service.Store.ChatSettings(context.Background())
@@ -166,7 +166,9 @@ func TestSQLBotInitialPasswordPolicyClosesAllChangePaths(t *testing.T) {
 		t.Fatalf("login policy was not persisted: %+v %v", settings, err)
 	}
 	public := accountRequest(t, handler, http.MethodGet, "/api/v1/system/parameter/login", "", "")
-	if public.Code != http.StatusOK || !strings.Contains(public.Body.String(), `"pkey":"login.initial_pwd_disabled","pval":"true"`) {
+	if public.Code != http.StatusOK || !strings.Contains(public.Body.String(), `"pkey":"login.initial_pwd_disabled","pval":"true"`) ||
+		!strings.Contains(public.Body.String(), `"pkey":"login.initial_pwd_hidden","pval":"false"`) ||
+		strings.Contains(public.Body.String(), `"login.default_login"`) {
 		t.Fatalf("public login parameter did not reflect policy: %d %s", public.Code, public.Body.String())
 	}
 	login := func(password string) *httptest.ResponseRecorder {

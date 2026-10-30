@@ -15,6 +15,7 @@ import (
 type chatSettings struct {
 	Name                    string `json:"name"`
 	InitialPasswordDisabled bool   `json:"initial_password_disabled"`
+	InitialPasswordHidden   bool   `json:"initial_password_hidden"`
 	HideThinking            bool   `json:"hide_thinking"`
 	ExpandThinking          bool   `json:"expand_thinking"`
 	LimitRows               bool   `json:"limit_rows"`
@@ -81,6 +82,12 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 				return ErrInvalidAccountChange
 			}
 			value.InitialPasswordDisabled = parsed
+		case "login.initial_pwd_hidden":
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				return ErrInvalidAccountChange
+			}
+			value.InitialPasswordHidden = parsed
 		case "chat.sqlbot_name":
 			value.Name = raw
 		case "chat.hide_thinking_block":

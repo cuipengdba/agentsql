@@ -93,9 +93,8 @@ func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, r *http.Request) 
 
 func loginParameterList(settings chatSettings) []sqlbotChatParameter {
 	return []sqlbotChatParameter{
-		{Key: "login.default_login", Value: "0", ID: "agentsql-login-default", Type: "str"},
-		{Key: "login.initial_pwd_disabled", Value: strconv.FormatBool(settings.InitialPasswordDisabled), ID: "agentsql-login-initial-disabled", Type: "str"},
-		{Key: "login.initial_pwd_hidden", Value: "true", ID: "agentsql-login-initial-hidden", Type: "str"},
+		{Key: "login.initial_pwd_disabled", Value: strconv.FormatBool(settings.InitialPasswordDisabled), ID: "7521910576851", Type: "str"},
+		{Key: "login.initial_pwd_hidden", Value: strconv.FormatBool(settings.InitialPasswordHidden), ID: "7521910576852", Type: "str"},
 	}
 }
 
