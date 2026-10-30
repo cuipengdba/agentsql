@@ -82,6 +82,7 @@ func validDatabaseMetadataConfiguration(encoded string) bool {
 		LowVersion *bool             `json:"lowVersion"`
 		SSL        *bool             `json:"ssl"`
 		PoolSize   *int              `json:"poolSize"`
+		Engine     *string           `json:"engine"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(plain)))
 	decoder.DisallowUnknownFields()
@@ -96,5 +97,6 @@ func validDatabaseMetadataConfiguration(encoded string) bool {
 		(config.Timeout == nil || *config.Timeout == 30) &&
 		(config.LowVersion == nil || *config.LowVersion) &&
 		(config.SSL == nil || !*config.SSL) &&
-		(config.PoolSize == nil || *config.PoolSize == 5)
+		(config.PoolSize == nil || *config.PoolSize == 5) &&
+		(config.Engine == nil || *config.Engine == "hive")
 }

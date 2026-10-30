@@ -17,7 +17,7 @@ func browserDatabaseMetadataConfig(t *testing.T, host string) string {
 		"host": host, "port": 1, "username": "AGENTSQL_GATEWAY_MANAGED", "password": "",
 		"database": "AGENTSQL_GATEWAY_MANAGED", "dbSchema": "AGENTSQL_GATEWAY_MANAGED",
 		"extraJdbc": "", "filename": "", "sheets": []any{}, "mode": "service_name",
-		"timeout": 30, "lowVersion": true, "ssl": false, "poolSize": 5,
+		"timeout": 30, "lowVersion": true, "ssl": false, "poolSize": 5, "engine": "hive",
 	})
 	require.NoError(t, err)
 	block, err := aes.NewCipher([]byte("SQLBot1234567890"))
@@ -70,6 +70,9 @@ func TestOriginalExistingDatasourceConnectionCheckUsesOnlyBoundGateway(t *testin
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), `"data":true`)
 	require.Equal(t, 1, gateway.schemaCalls)
+	require.Equal(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path,
+		requestBody("10", "pg", browserDatabaseMetadataConfig(t, "AGENTSQL_GATEWAY_MANAGED")), token).Code,
+		"SQLBot v1.10.3 edit form adds a harmless engine=hive field")
 
 	gateway.schemaErr = ErrGateway
 	require.NotEqual(t, http.StatusOK, accountRequest(t, handler, http.MethodPost, path, valid, token).Code)
