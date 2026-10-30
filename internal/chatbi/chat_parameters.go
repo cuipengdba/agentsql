@@ -13,13 +13,14 @@ import (
 )
 
 type chatSettings struct {
-	Name           string `json:"name"`
-	HideThinking   bool   `json:"hide_thinking"`
-	ExpandThinking bool   `json:"expand_thinking"`
-	LimitRows      bool   `json:"limit_rows"`
-	ContextRecords int    `json:"context_records"`
-	ShowSQL        bool   `json:"show_sql"`
-	ShowLog        bool   `json:"show_log"`
+	Name                    string `json:"name"`
+	InitialPasswordDisabled bool   `json:"initial_password_disabled"`
+	HideThinking            bool   `json:"hide_thinking"`
+	ExpandThinking          bool   `json:"expand_thinking"`
+	LimitRows               bool   `json:"limit_rows"`
+	ContextRecords          int    `json:"context_records"`
+	ShowSQL                 bool   `json:"show_sql"`
+	ShowLog                 bool   `json:"show_log"`
 }
 
 func defaultChatSettings() chatSettings {
@@ -74,6 +75,12 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 	}
 	for name, raw := range updates {
 		switch name {
+		case "login.initial_pwd_disabled":
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				return ErrInvalidAccountChange
+			}
+			value.InitialPasswordDisabled = parsed
 		case "chat.sqlbot_name":
 			value.Name = raw
 		case "chat.hide_thinking_block":
@@ -193,7 +200,7 @@ func (h *Handler) sqlbotAllParameters(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	okay(w, chatParameterList(value, true))
+	okay(w, append(chatParameterList(value, true), loginParameterList(value)...))
 }
 
 func (h *Handler) nativeChatParameters(w http.ResponseWriter, r *http.Request, p Principal, token string) {

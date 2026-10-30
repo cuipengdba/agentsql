@@ -28,8 +28,12 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &input) {
 		return
 	}
-	_, token, err := h.service.Identity.Login(r.Context(), input.Username, input.Password)
-	if err != nil {
+	_, token, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
+	if err != nil && !errors.Is(err, ErrUnauthenticated) {
+		failure(w, err)
+		return
+	}
+	if err != nil || needChange {
 		writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 		return
 	}
@@ -52,8 +56,12 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusTooManyRequests, "Too many login requests")
 			return
 		}
-		_, issued, err := h.service.Identity.Login(r.Context(), input.Username, input.Password)
-		if err != nil {
+		_, issued, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
+		if err != nil && !errors.Is(err, ErrUnauthenticated) {
+			failure(w, err)
+			return
+		}
+		if err != nil || needChange {
 			writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 			return
 		}

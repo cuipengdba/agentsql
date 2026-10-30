@@ -397,6 +397,8 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 422, "Invalid assistant application"
 	case errors.Is(err, ErrInvalidAccountChange):
 		status, message = 422, "Invalid account change"
+	case errors.Is(err, ErrInitialPasswordDisabled):
+		status, message = 400, "The initial password cannot be reused"
 	case errors.Is(err, ErrForecastUnavailable):
 		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):
@@ -593,10 +595,34 @@ func (h *Handler) nativeLogin(w http.ResponseWriter, r *http.Request) {
 	h.issueLogin(w, r, input.Username, input.Password)
 }
 
-func (h *Handler) issueLogin(w http.ResponseWriter, r *http.Request, account, password string) {
-	_, token, err := h.service.Identity.Login(r.Context(), account, password)
+func (h *Handler) loginIdentity(ctx context.Context, account, password string) (User, string, bool, error) {
+	user, token, err := h.service.Identity.Login(ctx, account, password)
 	if err != nil {
-		writeJSON(w, 400, "Invalid login")
+		return User{}, "", false, err
+	}
+	settings, err := h.service.Store.ChatSettings(ctx)
+	if err != nil {
+		return User{}, "", false, err
+	}
+	if settings.InitialPasswordDisabled && h.initialUserPassword != "" && user.ID != "1" &&
+		password == h.initialUserPassword {
+		return user, "", true, nil
+	}
+	return user, token, false, nil
+}
+
+func (h *Handler) issueLogin(w http.ResponseWriter, r *http.Request, account, password string) {
+	_, token, needChange, err := h.loginIdentity(r.Context(), account, password)
+	if err != nil {
+		if errors.Is(err, ErrUnauthenticated) {
+			writeJSON(w, 400, "Invalid login")
+		} else {
+			failure(w, err)
+		}
+		return
+	}
+	if needChange {
+		okay(w, map[string]any{"access_token": "", "token_type": "bearer", "platform_info": nil, "need_change_pwd": true})
 		return
 	}
 	okay(w, map[string]any{"access_token": token, "token_type": "bearer", "platform_info": nil, "need_change_pwd": false})

@@ -151,3 +151,71 @@ func TestLoginPasswordChangeRequiresCurrentPassword(t *testing.T) {
 		t.Fatal("old token survived login password change")
 	}
 }
+
+func TestSQLBotInitialPasswordPolicyClosesAllChangePaths(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	handler.(*Handler).initialUserPassword = "Synthetic-password-1"
+	if denied := chatParameterForm(t, handler, memberToken, `[{"pkey":"login.initial_pwd_disabled","pval":true}]`); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member changed login policy: %d", denied.Code)
+	}
+	if saved := chatParameterForm(t, handler, adminToken, `[{"pkey":"login.initial_pwd_disabled","pval":true}]`); saved.Code != http.StatusOK {
+		t.Fatalf("admin could not enable login policy: %d %s", saved.Code, saved.Body.String())
+	}
+	settings, err := service.Store.ChatSettings(context.Background())
+	if err != nil || !settings.InitialPasswordDisabled {
+		t.Fatalf("login policy was not persisted: %+v %v", settings, err)
+	}
+	public := accountRequest(t, handler, http.MethodGet, "/api/v1/system/parameter/login", "", "")
+	if public.Code != http.StatusOK || !strings.Contains(public.Body.String(), `"pkey":"login.initial_pwd_disabled","pval":"true"`) {
+		t.Fatalf("public login parameter did not reflect policy: %d %s", public.Code, public.Body.String())
+	}
+	login := func(password string) *httptest.ResponseRecorder {
+		return accountRequest(t, handler, http.MethodPost, "/api/v1/agentsql/login", `{"username":"bob","password":"`+password+`"}`, "")
+	}
+	initialLogin := login("Synthetic-password-1")
+	if initialLogin.Code != http.StatusOK || !strings.Contains(initialLogin.Body.String(), `"need_change_pwd":true`) ||
+		!strings.Contains(initialLogin.Body.String(), `"access_token":""`) {
+		t.Fatalf("initial password issued login token: %d %s", initialLogin.Code, initialLogin.Body.String())
+	}
+	for _, route := range []string{"/api/v1/mcp/access_token", "/api/v1/mcp/mcp_start"} {
+		denied := accountRequest(t, handler, http.MethodPost, route, `{"username":"bob","password":"Synthetic-password-1"}`, "")
+		if denied.Code != http.StatusBadRequest || strings.Contains(denied.Body.String(), `"access_token"`) {
+			t.Fatalf("MCP route bypassed initial-password policy: %s %d %s", route, denied.Code, denied.Body.String())
+		}
+	}
+	if wrong := accountRequest(t, handler, http.MethodPut, "/api/v1/user/pwd", `{"pwd":"wrong","new_pwd":"Synthetic-password-1"}`, memberToken); wrong.Code != http.StatusUnauthorized {
+		t.Fatalf("password policy exposed initial password before verifying current password: %d", wrong.Code)
+	}
+	if changed := accountRequest(t, handler, http.MethodPut, "/api/v1/user/pwd", `{"pwd":"Synthetic-password-1","new_pwd":"Another-password-123"}`, memberToken); changed.Code != http.StatusOK {
+		t.Fatalf("member could not leave initial password: %d %s", changed.Code, changed.Body.String())
+	}
+	_, currentToken, err := service.Identity.Login(context.Background(), "bob", "Another-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused := accountRequest(t, handler, http.MethodPut, "/api/v1/user/pwd", `{"pwd":"Another-password-123","new_pwd":"Synthetic-password-1"}`, currentToken); reused.Code != http.StatusBadRequest {
+		t.Fatalf("authenticated change reused disabled initial password: %d %s", reused.Code, reused.Body.String())
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = key
+	encode := func(value string) string {
+		cipher, err := rsa.EncryptPKCS1v15(rand.Reader, &key.PublicKey, []byte(value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.StdEncoding.EncodeToString(cipher)
+	}
+	input, err := json.Marshal(map[string]string{"account": encode("bob"), "pwd": encode("Another-password-123"), "new_pwd": encode("Synthetic-password-1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused := accountRequest(t, handler, http.MethodPost, "/api/v1/login/change-pwd", string(input), ""); reused.Code != http.StatusBadRequest {
+		t.Fatalf("login-stage change reused disabled initial password: %d %s", reused.Code, reused.Body.String())
+	}
+	if normal := login("Another-password-123"); normal.Code != http.StatusOK || !strings.Contains(normal.Body.String(), `"need_change_pwd":false`) {
+		t.Fatalf("replacement password did not log in: %d %s", normal.Code, normal.Body.String())
+	}
+}
