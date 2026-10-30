@@ -265,9 +265,7 @@ func (model OpenAIModel) GenerateWithDescriptions(ctx context.Context, config Mo
 		return SQLGeneration{}, ErrModel
 	}
 	content := strings.TrimSpace(completion.Choices[0].Message.Content)
-	if strings.HasPrefix(content, "```json\n") && strings.HasSuffix(content, "```") {
-		content = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(content, "```json\n"), "```"))
-	}
+	content = firstModelJSON(content)
 	var generated struct {
 		SQL string `json:"sql"`
 	}
@@ -278,4 +276,48 @@ func (model OpenAIModel) GenerateWithDescriptions(ctx context.Context, config Mo
 		return SQLGeneration{}, ErrModel
 	}
 	return SQLGeneration{generated.SQL, completion.Usage.Prompt, completion.Usage.Completion, completion.Usage.Total}, nil
+}
+
+// firstModelJSON selects the first complete, valid top-level JSON value in a
+// model response. Invalid outer values are skipped as a whole: a nested SQL
+// fragment inside one must never be promoted into an accepted answer.
+func firstModelJSON(content string) string {
+	start, depth := -1, 0
+	inString, escaped := false, false
+	for index := 0; index < len(content); index++ {
+		char := content[index]
+		if depth == 0 {
+			if char == '{' || char == '[' {
+				start, depth = index, 1
+			}
+			continue
+		}
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case char == '\\':
+				escaped = true
+			case char == '"':
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+			if depth == 0 {
+				candidate := content[start : index+1]
+				if json.Valid([]byte(candidate)) {
+					return candidate
+				}
+				start = -1
+			}
+		}
+	}
+	return ""
 }
