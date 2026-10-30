@@ -3,11 +3,13 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: install-binder.sh --dist DIR [--create-extension --dsn DSN --runtime-role ROLE] [--upgrade]
+Usage: install-binder.sh --dist DIR --trusted-public-key FILE [--create-extension --dsn DSN --runtime-role ROLE] [--upgrade]
 
 Installs only a package already present in DIR. It never downloads or uploads a
 shared library. CREATE EXTENSION is opt-in and works only after server-side files
 exist; managed RDS/Aurora/Azure/Cloud SQL custom C extensions are unsupported.
+FILE must be obtained independently from the package directory. A public key
+shipped inside DIR cannot authenticate that directory's contents.
 EOF
 }
 
@@ -16,12 +18,14 @@ create=0
 upgrade=0
 dsn=
 runtime_role=
+trusted_public_key=
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --dist) dist=$2; shift 2 ;;
+    --dist) test "$#" -ge 2 || { usage >&2; exit 64; }; dist=$2; shift 2 ;;
+    --trusted-public-key) test "$#" -ge 2 || { usage >&2; exit 64; }; trusted_public_key=$2; shift 2 ;;
     --create-extension) create=1; shift ;;
-    --dsn) dsn=$2; shift 2 ;;
-    --runtime-role) runtime_role=$2; shift 2 ;;
+    --dsn) test "$#" -ge 2 || { usage >&2; exit 64; }; dsn=$2; shift 2 ;;
+    --runtime-role) test "$#" -ge 2 || { usage >&2; exit 64; }; runtime_role=$2; shift 2 ;;
     --upgrade) upgrade=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 64 ;;
@@ -29,6 +33,14 @@ while [ "$#" -gt 0 ]; do
 done
 
 test -n "$dist" && test -d "$dist" || { echo '--dist must name dist/binder' >&2; exit 64; }
+test -n "$trusted_public_key" || { echo '--trusted-public-key is required' >&2; exit 64; }
+command -v readlink >/dev/null 2>&1 || { echo 'readlink is required' >&2; exit 69; }
+dist_root=$(readlink -f "$dist")
+trusted_key=$(readlink -f "$trusted_public_key")
+test -n "$dist_root" && test -n "$trusted_key" && test -f "$trusted_key" || { echo 'trusted public key file is missing' >&2; exit 66; }
+case "$trusted_key" in
+  "$dist_root"|"$dist_root"/*) echo 'trusted public key must be outside the package directory' >&2; exit 65 ;;
+esac
 command -v pg_config >/dev/null 2>&1 || { echo 'pg_config is required' >&2; exit 69; }
 major=$(pg_config --version | sed -n 's/^PostgreSQL \([0-9][0-9]*\).*/\1/p')
 case "$major" in 14|15|16|17|18) ;; *) echo "unsupported PostgreSQL major: $major" >&2; exit 65;; esac
@@ -49,7 +61,7 @@ package=$(find "$dist/$format/pg$major/$logical_arch" -maxdepth 1 -type f -name 
 test -n "$package" || { echo "package not found for PG$major/$logical_arch/$format" >&2; exit 66; }
 sbom="${package}.cdx.json"
 test -f "$sbom" && test -f "$package.asc" && test -f "$sbom.asc" || { echo 'package, SBOM, or detached signature missing' >&2; exit 66; }
-test -f "$dist/SHA256SUMS" && test -f "$dist/SHA256SUMS.asc" && test -f "$dist/DEV-ONLY-public-key.asc" || { echo 'signed checksum manifest or public key missing' >&2; exit 66; }
+test -f "$dist/SHA256SUMS" && test -f "$dist/SHA256SUMS.asc" || { echo 'signed checksum manifest missing' >&2; exit 66; }
 grep -q "\"agentsql:postgres-major\",\"value\":\"$major\"" "$sbom" || { echo 'SBOM PostgreSQL major mismatch' >&2; exit 65; }
 grep -q "\"agentsql:architecture\",\"value\":\"$package_arch\"" "$sbom" || { echo 'SBOM architecture mismatch' >&2; exit 65; }
 
@@ -57,7 +69,7 @@ command -v gpg >/dev/null 2>&1 || { echo 'gpg is required for detached-signature
 verify_home=$(mktemp -d)
 trap 'rm -rf "$verify_home"' EXIT INT TERM
 chmod 0700 "$verify_home"
-gpg --batch --homedir "$verify_home" --import "$dist/DEV-ONLY-public-key.asc" >/dev/null 2>&1
+gpg --batch --homedir "$verify_home" --import "$trusted_key" >/dev/null 2>&1
 gpg --batch --homedir "$verify_home" --verify "$dist/SHA256SUMS.asc" "$dist/SHA256SUMS"
 gpg --batch --homedir "$verify_home" --verify "$package.asc" "$package"
 gpg --batch --homedir "$verify_home" --verify "$sbom.asc" "$sbom"

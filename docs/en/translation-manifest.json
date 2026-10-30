@@ -919,7 +919,7 @@
     {
       "source": "dbext/packaging/README.md",
       "english": "dbext/packaging/README.en.md",
-      "source_sha256": "24f72668ffed9b06871018289b6eb1b61eb9c258001c501b31420d840c8e8477"
+      "source_sha256": "d24881d10674ceed26349cdcb7605d4e4479e8fb4ead582a28fbfb6e38c34009"
     },
     {
       "source": "examples/observability/README.md",
@@ -1264,7 +1264,7 @@
     {
       "source": "docs/v4.5.0-offline-delivery.md",
       "english": "docs/en/v4.5.0-offline-delivery.md",
-      "source_sha256": "855b8b0834532416a2480601691c9a28ca7aba167ad26664c4142e1f913cf52c"
+      "source_sha256": "97343c4e34a363952da91bf0bbd660df35ff142846d10fa676ea8be6e2e72b53"
     }
   ]
 }
