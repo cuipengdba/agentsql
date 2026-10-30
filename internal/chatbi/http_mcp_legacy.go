@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -378,10 +380,52 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	// the controlled query, audit, local commit and final identity check pass.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n```sql\n%s\n```\n\n", record.ID, input.Question, record.SQL)
-	if record.Data != nil {
-		publicData, _ := json.Marshal(result["data"])
-		_, _ = w.Write(publicData)
-		_, _ = w.Write([]byte("\n"))
+	fence := "```"
+	for strings.Contains(record.SQL, fence) {
+		fence += "`"
 	}
+	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n%ssql\n%s\n%s\n\n", record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
+	if record.Data != nil {
+		_, _ = io.WriteString(w, mcpMarkdownTable(*record.Data))
+	}
+}
+
+// SQLBot's MCP helper emits a Markdown table after the audited SQL. Escape
+// gateway values so stored data cannot add links, images or markup to an
+// assistant's response while preserving the original column order.
+func mcpMarkdownTable(data QueryData) string {
+	if len(data.Fields) == 0 || len(data.Data) == 0 {
+		return "The SQL execution result is empty.\n\n"
+	}
+	var out strings.Builder
+	writeRow := func(values []string) {
+		out.WriteString("| ")
+		out.WriteString(strings.Join(values, " | "))
+		out.WriteString(" |\n")
+	}
+	headings := make([]string, len(data.Fields))
+	separator := make([]string, len(data.Fields))
+	for i, field := range data.Fields {
+		headings[i] = mcpMarkdownCell(field)
+		separator[i] = "---"
+	}
+	writeRow(headings)
+	writeRow(separator)
+	for _, row := range data.Data {
+		values := make([]string, len(data.Fields))
+		for i, field := range data.Fields {
+			if value := row[field]; value != nil {
+				values[i] = mcpMarkdownCell(fmt.Sprint(value))
+			}
+		}
+		writeRow(values)
+	}
+	out.WriteByte('\n')
+	return out.String()
+}
+
+func mcpMarkdownCell(value string) string {
+	value = html.EscapeString(value)
+	return strings.NewReplacer("\\", "\\\\", "|", "\\|", "\r", " ", "\n", " ", "\t", " ",
+		"[", "\\[", "]", "\\]", "!", "\\!").Replace(value)
 }

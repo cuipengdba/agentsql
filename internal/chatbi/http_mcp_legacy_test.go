@@ -228,10 +228,15 @@ func TestMCPQuestionUsesControlledAuditedResultForJSONAndStream(t *testing.T) {
 	if strings.Contains(answer.Body.String(), "fixture-connector") || strings.Contains(answer.Body.String(), "fixture-agent") {
 		t.Fatal("MCP answer exposed gateway binding credentials")
 	}
+	gateway.queryData = &QueryData{Fields: []string{"amount", "note"}, Data: []map[string]any{{
+		"amount": "123", "note": "[open](https://attacker.invalid)|<img src=x>\nnext",
+	}}, AuditID: 1}
 	streamChat := start()
 	stream := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(streamChat)+`,"question":"sales?"}`, "")
 	if stream.Code != http.StatusOK || !strings.HasPrefix(stream.Header().Get("Content-Type"), "text/event-stream") ||
-		!strings.Contains(stream.Body.String(), "Record ID:") || gateway.queries != 2 {
+		!strings.Contains(stream.Body.String(), "Record ID:") || !strings.Contains(stream.Body.String(), "| amount | note |") ||
+		!strings.Contains(stream.Body.String(), `\[open\](https://attacker.invalid)\|&lt;img src=x&gt; next`) ||
+		strings.Contains(stream.Body.String(), "<img") || strings.Contains(stream.Body.String(), `"fields":`) || gateway.queries != 2 {
 		t.Fatalf("MCP stream answer did not use audited path: %d %s", stream.Code, stream.Body.String())
 	}
 	if err := service.Identity.Logout(context.Background(), token); err != nil {
