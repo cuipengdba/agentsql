@@ -1,16 +1,80 @@
 package chatbi
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestOriginalDatabaseRemarkImportKeepsNumericExcelFieldName(t *testing.T) {
+	ctx := context.Background()
+	service, principal, base, _, token := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Admin = true
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	service.Gateway = &selectionTestGateway{fakeGateway: base, columns: []Column{
+		{Schema: "public", Table: "sales", Name: "123", DataType: "text"},
+	}}
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	book, err := managedRemarkWorkbook([]managedRemarkSheet{
+		{name: "数据表列表", rows: [][]string{{"Sheet名称", "表名", "表备注"}, {"Sheet0", "sales", ""}}},
+		{name: "Sheet0", rows: [][]string{{"字段名", "字段备注"}, {"123", "Numeric field"}}},
+	})
+	require.NoError(t, err)
+
+	// Excel stores this field-name cell as a number. The import must retain the
+	// textual identifier rather than dropping or converting it to a float.
+	archive, err := zip.NewReader(bytes.NewReader(book), int64(len(book)))
+	require.NoError(t, err)
+	var encoded bytes.Buffer
+	writer := zip.NewWriter(&encoded)
+	for _, file := range archive.File {
+		part, err := file.Open()
+		require.NoError(t, err)
+		body, err := io.ReadAll(part)
+		require.NoError(t, err)
+		require.NoError(t, part.Close())
+		if file.Name == "xl/worksheets/sheet2.xml" {
+			const old = `<c r="A2" t="inlineStr"><is><t xml:space="preserve">123</t></is></c>`
+			require.Equal(t, 1, strings.Count(string(body), old))
+			body = []byte(strings.Replace(string(body), old, `<c r="A2" t="n"><v>123</v></c>`, 1))
+		}
+		out, err := writer.Create(file.Name)
+		require.NoError(t, err)
+		_, err = out.Write(body)
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+	var requestBody bytes.Buffer
+	form := multipart.NewWriter(&requestBody)
+	file, err := form.CreateFormFile("file", "remarks.xlsx")
+	require.NoError(t, err)
+	_, err = file.Write(encoded.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, form.Close())
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/uploadDsSchema/10", &requestBody)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	current, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	fields, err := databaseRemarks(current, true)
+	require.NoError(t, err)
+	require.Equal(t, "Numeric field", fields[databaseFieldCommentKey("public", "sales", "123")])
+}
 
 func TestOriginalDatabaseRemarkImportAppliesOnlyVisibleRowsWithAudit(t *testing.T) {
 	ctx := context.Background()
