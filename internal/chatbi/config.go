@@ -110,7 +110,7 @@ func ReadSnapshot(path string) (Snapshot, Preflight, error) {
 	if decoder.Decode(&snapshot) != nil || decoder.Decode(new(any)) != io.EOF {
 		return Snapshot{}, result, errors.New("invalid private migration snapshot")
 	}
-	if snapshot.Version != 1 || snapshot.SourceVersion != "v1.10.2" || snapshot.SourceCommit != "aa41fc1033bb974a703df9200a98ec8b9eec5f25" || len(snapshot.Keys.SigningKey) < 32 || len(snapshot.Users) == 0 {
+	if snapshot.Version != 1 || !pinnedSQLBotSnapshot(snapshot.SourceVersion, snapshot.SourceCommit) || len(snapshot.Keys.SigningKey) < 32 || len(snapshot.Users) == 0 {
 		return Snapshot{}, result, errors.New("unsupported migration baseline or missing identities")
 	}
 	users := map[ID]User{}

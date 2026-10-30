@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const sqlbotHistoryCommit = "aa41fc1033bb974a703df9200a98ec8b9eec5f25"
-
 // HistorySnapshot deliberately excludes SQL, result rows, charts, prompts and
 // credentials. Imported records are never used as live model history or query
 // replay. Their original decimal IDs remain available to client lookups.
@@ -66,7 +64,7 @@ func ReadHistory(path string) (HistorySnapshot, error) {
 }
 
 func validateHistory(snapshot HistorySnapshot) error {
-	if snapshot.FormatVersion != 1 || snapshot.SourceVersion != "v1.10.2" || snapshot.SourceCommit != sqlbotHistoryCommit || len(snapshot.Chats) == 0 || len(snapshot.Chats) > 1000 {
+	if snapshot.FormatVersion != 1 || !pinnedSQLBotSnapshot(snapshot.SourceVersion, snapshot.SourceCommit) || len(snapshot.Chats) == 0 || len(snapshot.Chats) > 1000 {
 		return ErrInvalidSemantic
 	}
 	chatIDs := map[string]bool{}

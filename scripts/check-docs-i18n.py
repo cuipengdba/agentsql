@@ -77,7 +77,10 @@ def main():
     for item in document['documents']:
         source, english = ROOT/item['source'], ROOT/item['english']
         covered.add(source.resolve())
-        if hashlib.sha256(source.read_bytes()).hexdigest() != item['source_sha256']:
+        # The manifest hashes repository content. Windows checkouts may use
+        # CRLF locally, while Git stores and CI checks the normalized LF blob.
+        source_blob = source.read_bytes().replace(b'\r\n', b'\n')
+        if hashlib.sha256(source_blob).hexdigest() != item['source_sha256']:
             failures.append(f'Stale English source hash: {item["source"]}')
         if not english.is_file():
             failures.append(f'Missing English document: {item["english"]}')
