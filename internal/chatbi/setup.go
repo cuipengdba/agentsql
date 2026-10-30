@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -34,9 +35,10 @@ func NewInstallation(account, password string) (Snapshot, error) {
 }
 
 type ConnectionConfig struct {
-	Bindings        []Binding              `json:"bindings"`
-	Models          []WorkspaceModel       `json:"models"`
-	Recommendations []RecommendationConfig `json:"recommendations"`
+	Bindings          []Binding                `json:"bindings"`
+	Models            []WorkspaceModel         `json:"models"`
+	Recommendations   []RecommendationConfig   `json:"recommendations"`
+	AssistantCatalogs []AssistantCatalogBridge `json:"assistant_catalogs"`
 }
 
 func ReadConnections(path string) (ConnectionConfig, error) {
@@ -51,7 +53,7 @@ func ReadConnections(path string) (ConnectionConfig, error) {
 	if decoder.Decode(&config) != nil || decoder.Decode(new(any)) != io.EOF {
 		return ConnectionConfig{}, errors.New("invalid private connection configuration")
 	}
-	if len(config.Bindings) == 0 && len(config.Models) == 0 && len(config.Recommendations) == 0 {
+	if len(config.Bindings) == 0 && len(config.Models) == 0 && len(config.Recommendations) == 0 && len(config.AssistantCatalogs) == 0 {
 		return config, errors.New("no connection changes provided")
 	}
 	return config, nil
@@ -66,6 +68,7 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 	}
 	entries := []entry{}
 	seen := map[objectKey]bool{}
+	stagedBindings := map[objectKey]Binding{}
 	appendEntry := func(key objectKey, value any) error {
 		if seen[key] {
 			return errors.New("duplicate connection update")
@@ -83,9 +86,11 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 		if err != nil || !user.canUse(binding.Workspace) || !binding.Datasource.Valid() || binding.Name == "" || binding.BindingID == "" || binding.ConnectorToken == "" || binding.AgentKey == "" || (binding.Dialect != "pg" && binding.Dialect != "mysql") {
 			return errors.New("invalid connection identity or binding")
 		}
-		if err := appendEntry(objectKey{"binding", string(binding.Workspace), string(binding.User), string(binding.Datasource)}, binding); err != nil {
+		key := objectKey{"binding", string(binding.Workspace), string(binding.User), string(binding.Datasource)}
+		if err := appendEntry(key, binding); err != nil {
 			return err
 		}
+		stagedBindings[key] = binding
 	}
 	for _, model := range config.Models {
 		if !model.Workspace.Valid() || validateModelConfig(model.Model) != nil {
@@ -103,11 +108,49 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 			return err
 		}
 	}
+	for _, bridge := range config.AssistantCatalogs {
+		credentials, err := parseMCPAssistantCatalogIdentity(bridge.Endpoint, bridge.Authorization)
+		if err != nil || !bridge.Workspace.Valid() || !bridge.User.Valid() || len(bridge.Sources) == 0 || len(bridge.Sources) > 32 ||
+			strings.HasPrefix(bridge.Endpoint, "http://") && !bridge.AllowHTTP {
+			return errors.New("invalid assistant catalog registration")
+		}
+		enabled := bridge.Enabled == nil || *bridge.Enabled
+		if enabled {
+			user, _, err := s.User(ctx, bridge.User)
+			if err != nil || user.Admin || !user.canUse(bridge.Workspace) {
+				return errors.New("invalid assistant catalog caller")
+			}
+		}
+		mapped := map[ID]bool{}
+		for _, source := range bridge.Sources {
+			if !source.CatalogID.Valid() || !source.Datasource.Valid() || mapped[source.CatalogID] {
+				return errors.New("invalid assistant catalog source mapping")
+			}
+			mapped[source.CatalogID] = true
+			if enabled {
+				key := objectKey{"binding", string(bridge.Workspace), string(bridge.User), string(source.Datasource)}
+				binding, staged := stagedBindings[key]
+				if !staged {
+					if _, err := s.get(ctx, key, &binding); err != nil {
+						return errors.New("assistant catalog source has no owned binding")
+					}
+				}
+				if binding.Workspace != bridge.Workspace || binding.User != bridge.User || binding.Datasource != source.Datasource {
+					return errors.New("assistant catalog source binding mismatch")
+				}
+			}
+		}
+		record := assistantCatalogBridgeRecord{Endpoint: bridge.Endpoint, Workspace: bridge.Workspace,
+			User: bridge.User, Sources: bridge.Sources, AllowHTTP: bridge.AllowHTTP, Enabled: enabled}
+		if err := appendEntry(s.assistantCatalogBridgeKey(bridge.Endpoint, credentials), record); err != nil {
+			return err
+		}
+	}
 	id, err := newID()
 	if err != nil {
 		return err
 	}
-	if err := appendEntry(objectKey{"management-audit", "system", "system", string(id)}, map[string]any{"action": "connections.configure", "time": time.Now().UTC(), "models": len(config.Models), "bindings": len(config.Bindings), "recommendations": len(config.Recommendations)}); err != nil {
+	if err := appendEntry(objectKey{"management-audit", "system", "system", string(id)}, map[string]any{"action": "connections.configure", "time": time.Now().UTC(), "models": len(config.Models), "bindings": len(config.Bindings), "recommendations": len(config.Recommendations), "assistant_catalogs": len(config.AssistantCatalogs)}); err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

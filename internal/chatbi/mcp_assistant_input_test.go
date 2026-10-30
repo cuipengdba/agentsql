@@ -29,6 +29,9 @@ func TestMCPAssistantInputRejectsCredentialAndURLConfusion(t *testing.T) {
 			v.Authorization = `[{"key":"X-Token","value":"a","target":"header"},{"key":"x-token","value":"b","target":"header"}]`
 		},
 		func(v *mcpAssistantInput) { v.Authorization = `[{"key":"X-Token","value":"a","target":"unknown"}]` },
+		func(v *mcpAssistantInput) {
+			v.Authorization = `[{"key":"Host","value":"attacker.example.test","target":"header"}]`
+		},
 	} {
 		input := base
 		change(&input)

@@ -28,35 +28,51 @@ var errInvalidMCPAssistantInput = errors.New("invalid SQLBot third-party assista
 // server-owned catalog mapping can be considered. The authorization field is
 // a JSON-encoded array in the original API, not an AgentSQL login token.
 func parseMCPAssistantInput(input mcpAssistantInput) ([]mcpAssistantCredential, bool, error) {
-	if strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 ||
-		input.URL == "" || len(input.URL) > 2048 || strings.TrimSpace(input.URL) != input.URL ||
-		input.Authorization == "" || len(input.Authorization) > 8192 {
+	if strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 {
 		return nil, false, errInvalidMCPAssistantInput
 	}
-	u, err := url.Parse(input.URL)
+	credentials, err := parseMCPAssistantCatalogIdentity(input.URL, input.Authorization)
+	if err != nil {
+		return nil, false, err
+	}
+	stream := input.Stream == nil || *input.Stream
+	return credentials, stream, nil
+}
+
+func parseMCPAssistantCatalogIdentity(endpoint, authorization string) ([]mcpAssistantCredential, error) {
+	if endpoint == "" || len(endpoint) > 2048 || strings.TrimSpace(endpoint) != endpoint ||
+		authorization == "" || len(authorization) > 8192 {
+		return nil, errInvalidMCPAssistantInput
+	}
+	u, err := url.Parse(endpoint)
 	if err != nil || u.Opaque != "" || u.Host == "" || u.Hostname() == "" || u.User != nil ||
-		u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") || u.String() != input.URL {
-		return nil, false, errInvalidMCPAssistantInput
+		u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") || u.String() != endpoint {
+		return nil, errInvalidMCPAssistantInput
 	}
 	var credentials []mcpAssistantCredential
-	if json.Unmarshal([]byte(input.Authorization), &credentials) != nil || len(credentials) == 0 || len(credentials) > 16 {
-		return nil, false, errInvalidMCPAssistantInput
+	if json.Unmarshal([]byte(authorization), &credentials) != nil || len(credentials) == 0 || len(credentials) > 16 {
+		return nil, errInvalidMCPAssistantInput
 	}
 	seen := map[string]bool{}
 	for _, item := range credentials {
 		if item.Target != "header" && item.Target != "cookie" && item.Target != "param" ||
 			item.Key == "" || len(item.Key) > 128 || len(item.Value) > 2048 || item.Value == "" ||
 			!mcpAssistantCredentialKey(item.Key) || strings.ContainsAny(item.Value, "\r\n\x00") {
-			return nil, false, errInvalidMCPAssistantInput
+			return nil, errInvalidMCPAssistantInput
+		}
+		if item.Target == "header" {
+			switch strings.ToLower(item.Key) {
+			case "host", "connection", "proxy-connection", "proxy-authorization", "transfer-encoding", "content-length", "te", "trailer", "upgrade", "keep-alive":
+				return nil, errInvalidMCPAssistantInput
+			}
 		}
 		key := item.Target + "\x00" + strings.ToLower(item.Key)
 		if seen[key] {
-			return nil, false, errInvalidMCPAssistantInput
+			return nil, errInvalidMCPAssistantInput
 		}
 		seen[key] = true
 	}
-	stream := input.Stream == nil || *input.Stream
-	return credentials, stream, nil
+	return credentials, nil
 }
 
 func mcpAssistantCredentialKey(key string) bool {
