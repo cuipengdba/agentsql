@@ -1262,6 +1262,11 @@
       "source_sha256": "7281af0647f8988ed8c0b8753a47c7945ad974f2391f808befd9193623d989be"
     },
     {
+      "source": "docs/v4.5.0-design.md",
+      "english": "docs/en/v4.5.0-design.md",
+      "source_sha256": "6000cac5e4a6960e87a2f781a56b2e9496e8133b261847cd7aa4b580889e1aa2"
+    },
+    {
       "source": "docs/v4.5.0-offline-delivery.md",
       "english": "docs/en/v4.5.0-offline-delivery.md",
       "source_sha256": "85c20e7faa95c66c30058d73a113636baef274e740f1b1721319466247dc6b28"
