@@ -110,7 +110,17 @@ def extract_verified(archive, signature, public_key, openssl, destination):
     with tempfile.TemporaryDirectory(prefix="agentsql-verified-", dir=destination.parent) as temporary:
         scratch = Path(temporary)
         private_archive = scratch / archive.name
-        shutil.copyfile(archive, private_archive)
+        copied = 0
+        with archive.open("rb") as source, private_archive.open("xb") as sink:
+            if not os.path.samestat(info, os.fstat(source.fileno())):
+                raise ValueError("offline archive changed before private copy")
+            while chunk := source.read(1 << 20):
+                copied += len(chunk)
+                if copied > MAX_ARCHIVE:
+                    raise ValueError("offline archive exceeds size limit during copy")
+                sink.write(chunk)
+        if copied != info.st_size:
+            raise ValueError("offline archive changed during private copy")
         key_id, digest = verify(private_archive, signature, public_key, openssl)
         output = scratch / "extracted"
         output.mkdir(mode=0o700)
