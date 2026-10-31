@@ -3,7 +3,10 @@ package chatbi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
 )
 
 // mcpAssistant accepts the old request body while deriving its caller and
@@ -129,23 +132,17 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, result)
 		return
 	}
-	// Emit framed SSE JSON only after the query, audit, persistence and final
-	// authorization check succeed. The original route's success event sequence
-	// still needs a working upstream/client baseline before parity is claimed.
+	// The original third-party assistant wraps Markdown in a text/event-stream
+	// response, unlike in-chat JSON SSE. Emit it only after the query, audit,
+	// persistence and final authorization check succeed.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	for _, event := range []map[string]any{
-		{"type": "id", "id": record.ID},
-		{"type": "sql", "content": record.SQL},
-		{"type": "sql-data", "content": "execute-success"},
-		{"type": "finish"},
-	} {
-		raw, err := json.Marshal(event)
-		if err != nil {
-			return
-		}
-		if _, err := w.Write(append(append([]byte("data:"), raw...), []byte("\n\n")...)); err != nil {
-			return
-		}
+	fence := "```"
+	for strings.Contains(record.SQL, fence) {
+		fence += "`"
+	}
+	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n%ssql\n%s\n%s\n\n", record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
+	if record.Data != nil {
+		_, _ = io.WriteString(w, mcpMarkdownTable(*record.Data))
 	}
 }

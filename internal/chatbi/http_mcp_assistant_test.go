@@ -66,8 +66,9 @@ func TestMCPAssistantOneRegisteredCatalogSourceUsesControlledQuery(t *testing.T)
 	input.Stream = nil
 	streamed := assistantCatalogRequest(t, handler, input)
 	if streamed.Code != http.StatusOK || !strings.Contains(streamed.Header().Get("Content-Type"), "text/event-stream") ||
-		!strings.Contains(streamed.Body.String(), `data:{"content":"execute-success","type":"sql-data"}`) ||
-		!strings.Contains(streamed.Body.String(), `data:{"type":"finish"}`) ||
+		!strings.Contains(streamed.Body.String(), "> Record ID:") ||
+		!strings.Contains(streamed.Body.String(), "| amount |") ||
+		strings.Contains(streamed.Body.String(), "data:{") ||
 		strings.Contains(streamed.Body.String(), "must-not-leak") || gateway.queries != 2 {
 		t.Fatalf("controlled catalog stream failed: HTTP %d %s", streamed.Code, streamed.Body.String())
 	}
