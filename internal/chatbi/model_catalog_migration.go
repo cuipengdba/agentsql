@@ -78,7 +78,7 @@ func (s *Store) readModelMigrationSnapshot(ctx context.Context, query modelMigra
 		if _, exists := snapshot.mapping[model.ID][workspace]; exists {
 			return modelMigrationSnapshot{}, ErrConflict
 		}
-		if snapshot.preview.Mappings >= 100000 {
+		if snapshot.preview.Mappings >= 100000 || len(snapshot.mapping[model.ID]) >= 10000 {
 			return modelMigrationSnapshot{}, ErrUnavailable
 		}
 		snapshot.mapping[model.ID][workspace] = struct{}{}

@@ -64,6 +64,7 @@ internal/chatbi/model_catalog_store.go
 # with fixed SQL and an administrator audit. No business connection is opened.
 internal/chatbi/model_catalog_migration.go
 internal/chatbi/model_catalog_stage.go
+internal/chatbi/model_catalog_mapping_store.go
 internal/chatbi/api_key_store.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.

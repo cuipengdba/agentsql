@@ -69,7 +69,7 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			allowedChatBISettings := normalized == "internal/chatbi/chat_parameters.go" && name == "database/sql"
 			// Model catalog staging reads and writes only fixed encrypted
 			// control-store objects. It cannot open a business connection.
-			allowedChatBIModelMigration := (normalized == "internal/chatbi/model_catalog_migration.go" || normalized == "internal/chatbi/model_catalog_stage.go") && name == "database/sql"
+			allowedChatBIModelMigration := (normalized == "internal/chatbi/model_catalog_migration.go" || normalized == "internal/chatbi/model_catalog_stage.go" || normalized == "internal/chatbi/model_catalog_mapping_store.go") && name == "database/sql"
 			allowedB5S3 := normalized == "internal/b5session/sql_ledger.go" || normalized == "internal/b5session/tombstone.go" || normalized == "internal/b5session/pg_inventory.go"
 			allowedSoak := normalized == "internal/b5soak/postgres.go"
 			// The standalone HighGo probe verifies that a read-only database role
