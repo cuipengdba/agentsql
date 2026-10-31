@@ -37,6 +37,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Reject archived Alpine package targets by default
+        shell: pwsh
+        run: |
+          $rejected = $false
+          try {
+            ./dbext/packaging/build-packages.ps1 -PostgresMajor 14 -Platform linux/amd64 -Format apk -SkipSign
+          } catch {
+            if ($_.Exception.Message -like '*outside regular security support*') { $rejected = $true } else { throw }
+          }
+          if (-not $rejected) { throw 'archived Alpine package target was accepted' }
       - name: Build PostgreSQL 16 amd64 Debian extension package
         shell: pwsh
         run: ./dbext/packaging/build-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb -SkipSign
