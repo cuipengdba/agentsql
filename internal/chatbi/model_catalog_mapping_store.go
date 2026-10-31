@@ -39,6 +39,21 @@ func (s *Store) requireActiveModelCatalogTx(ctx context.Context, tx *sql.Tx) err
 	return nil
 }
 
+// Legacy workspace-local model writes must stop once the global catalog is
+// active. The marker check shares the same transaction as the write, so a
+// cutover cannot silently fork the two model stores.
+func requireInactiveModelCatalogTx(ctx context.Context, tx *sql.Tx) error {
+	var marker int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM chatbi_objects WHERE kind='model-catalog-active' AND scope='system' AND owner='system' AND id='v1'`).Scan(&marker)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return ErrUnavailable
+	}
+	return ErrConflict
+}
+
 func (s *Store) catalogModelTx(ctx context.Context, tx *sql.Tx, id ID) (ModelConfig, int64, []byte, error) {
 	key := modelCatalogKey(id)
 	var body []byte

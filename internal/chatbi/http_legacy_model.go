@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -14,6 +15,46 @@ func (h *Handler) legacyModelList(w http.ResponseWriter, r *http.Request, p Prin
 	keyword := r.URL.Query().Get("keyword")
 	if len(keyword) > 255 {
 		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		views, err := h.service.Store.catalogAdminModels(r.Context(), p)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		sort.Slice(views, func(i, j int) bool {
+			if views[i].Default != views[j].Default {
+				return views[i].Default
+			}
+			if views[i].Model.Name != views[j].Model.Name {
+				return views[i].Model.Name < views[j].Model.Name
+			}
+			return views[i].Model.ID < views[j].Model.ID
+		})
+		models := make([]map[string]any, 0, len(views))
+		for _, view := range views {
+			name := view.Model.Name
+			if name == "" {
+				name = view.Model.Model
+			}
+			if keyword != "" && !strings.Contains(strings.ToLower(name), strings.ToLower(keyword)) {
+				continue
+			}
+			models = append(models, map[string]any{"id": view.Model.ID, "name": name,
+				"model_type": 0, "base_model": view.Model.Model, "supplier": modelSupplier(view.Model),
+				"protocol": 1, "default_model": view.Default, "ws_mapping_count": view.MappingCount})
+		}
+		okay(w, models)
 		return
 	}
 	model, err := h.currentLegacyModel(r, p, token)
@@ -51,7 +92,33 @@ func (h *Handler) legacyModelList(w http.ResponseWriter, r *http.Request, p Prin
 }
 
 func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	model, _, isDefault, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	var model ModelConfig
+	var isDefault bool
+	mappingCount := 1
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		id := ID(r.PathValue("id"))
+		if !id.Valid() {
+			failure(w, ErrNotFound)
+			return
+		}
+		view, err := h.service.Store.catalogAdminModel(r.Context(), p, id)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		model, isDefault, mappingCount = view.Model, view.Default, view.MappingCount
+	} else {
+		model, _, isDefault, err = h.legacyModelByID(r, p, token, r.PathValue("id"))
+	}
 	if err != nil {
 		failure(w, err)
 		return
@@ -66,7 +133,7 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	okay(w, map[string]any{"id": model.ID, "name": name,
 		"model_type": 0, "base_model": model.Model, "supplier": modelSupplier(model),
-		"protocol": 1, "default_model": isDefault, "ws_mapping_count": 1,
+		"protocol": 1, "default_model": isDefault, "ws_mapping_count": mappingCount,
 		"api_domain": model.Endpoint, "api_key": "", "has_api_key": model.APIKey != "",
 		"config_list": configList})
 }

@@ -72,6 +72,9 @@ func (s *Store) CreateAdditionalWorkspaceModel(ctx context.Context, p Principal,
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
 		return err
 	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return err
+	}
 	var defaultBody []byte
 	err = tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='model' AND scope=? AND owner='workspace' AND id='default'`, string(p.Workspace)).Scan(&defaultBody)
 	if controlNoRows(err) {
@@ -156,6 +159,9 @@ func (s *Store) UpdateAdditionalWorkspaceModel(ctx context.Context, p Principal,
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
 		return err
 	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
 		sealed, key.Kind, key.Scope, key.Owner, key.ID, revision)
 	if err != nil {
@@ -206,6 +212,9 @@ func (s *Store) DeleteAdditionalWorkspaceModel(ctx context.Context, p Principal,
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
 		return err
 	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
 		key.Kind, key.Scope, key.Owner, key.ID, revision)
 	if err != nil {
@@ -239,6 +248,9 @@ func (s *Store) SetDefaultWorkspaceModel(ctx context.Context, p Principal, id ID
 	}
 	defer tx.Rollback()
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
+		return err
+	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
 		return err
 	}
 	var defaultBody []byte

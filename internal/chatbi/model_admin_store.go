@@ -59,6 +59,9 @@ func (s *Store) CreateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
 		return err
 	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
 		key.Kind, key.Scope, key.Owner, key.ID, sealed)
 	if err != nil {
@@ -94,6 +97,9 @@ func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	}
 	defer tx.Rollback()
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
+		return err
+	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
 		return err
 	}
 	var oldBody []byte

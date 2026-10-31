@@ -38,3 +38,36 @@ func TestActiveCatalogOriginalMappingRoutesShareModelAndKeepDefault(t *testing.T
 		t.Fatalf("global default lost after explicit mappings removed: %+v %v", resolved, err)
 	}
 }
+
+func TestActiveCatalogOriginalAdminListAndDetail(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	ctx := context.Background()
+	defaultModel := ModelConfig{ID: "30", Name: "Default", Model: "fixture-default", Endpoint: "https://example.invalid/v1", APIKey: "default-secret"}
+	activateModelCatalogFixture(t, service.Store, defaultModel)
+	other := ModelConfig{ID: "31", Name: "Other", Model: "fixture-other", Endpoint: "https://example.invalid/v1", APIKey: "other-secret"}
+	if err := service.Store.put(ctx, modelCatalogKey(other.ID), other, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/system/aimodel", "/api/v1/system/aimodel/30"} {
+		if denied := accountRequest(t, handler, http.MethodGet, path, "", memberToken); denied.Code != http.StatusUnauthorized {
+			t.Fatalf("member read catalog %s: %d", path, denied.Code)
+		}
+	}
+	list := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel", "", adminToken)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"ws_mapping_count":0`) ||
+		!strings.Contains(list.Body.String(), `"default_model":true`) ||
+		!strings.Contains(list.Body.String(), string(other.ID)) ||
+		strings.Contains(list.Body.String(), defaultModel.APIKey) || strings.Contains(list.Body.String(), other.APIKey) {
+		t.Fatalf("active global list: %d %s", list.Code, list.Body.String())
+	}
+	detail := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel/31", "", adminToken)
+	if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `"default_model":false`) ||
+		!strings.Contains(detail.Body.String(), `"has_api_key":true`) ||
+		strings.Contains(detail.Body.String(), other.APIKey) {
+		t.Fatalf("active model detail: %d %s", detail.Code, detail.Body.String())
+	}
+	missing := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel/999", "", adminToken)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown global model: %d %s", missing.Code, missing.Body.String())
+	}
+}

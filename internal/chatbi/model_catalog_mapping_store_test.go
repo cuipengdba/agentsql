@@ -117,3 +117,42 @@ func TestActiveCatalogCanRemoveMappingAfterWorkspaceDeletion(t *testing.T) {
 		t.Fatalf("stale mapping could not be revoked after workspace deletion: %v %v", remaining, err)
 	}
 }
+
+func TestActiveCatalogRejectsLegacyModelWrites(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	admin := stageCatalogAdmin(t, store)
+	local := ModelConfig{ID: "20", Name: "Local", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	secondary := ModelConfig{ID: "21", Name: "Secondary", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	if err := store.put(ctx, objectKey{"model", "1", "workspace", "default"}, local, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.put(ctx, additionalModelKey("1", secondary.ID), secondary, 0); err != nil {
+		t.Fatal(err)
+	}
+	activateModelCatalogFixture(t, store, ModelConfig{ID: "30", Model: "global", Endpoint: "https://example.invalid/v1"})
+	update := WorkspaceModelUpdate{Revision: 1, Name: "Changed", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	for name, write := range map[string]func() error{
+		"create default": func() error {
+			return store.CreateWorkspaceModel(ctx, admin, WorkspaceModelUpdate{Model: "fixture", Endpoint: "https://example.invalid/v1"})
+		},
+		"update default": func() error { return store.UpdateWorkspaceModel(ctx, admin, update) },
+		"create secondary": func() error {
+			return store.CreateAdditionalWorkspaceModel(ctx, admin, WorkspaceModelUpdate{Model: "fixture", Endpoint: "https://example.invalid/v1"})
+		},
+		"update secondary": func() error { return store.UpdateAdditionalWorkspaceModel(ctx, admin, secondary.ID, update) },
+		"delete secondary": func() error { return store.DeleteAdditionalWorkspaceModel(ctx, admin, secondary.ID) },
+		"switch default":   func() error { return store.SetDefaultWorkspaceModel(ctx, admin, secondary.ID) },
+	} {
+		if err := write(); !errors.Is(err, ErrConflict) {
+			t.Errorf("%s changed the legacy model store after cutover: %v", name, err)
+		}
+	}
+	var retained ModelConfig
+	if _, err := store.get(ctx, objectKey{"model", "1", "workspace", "default"}, &retained); err != nil || retained.ID != local.ID {
+		t.Fatalf("legacy default changed: %+v %v", retained, err)
+	}
+	if _, err := store.get(ctx, additionalModelKey("1", secondary.ID), &retained); err != nil || retained.ID != secondary.ID {
+		t.Fatalf("legacy secondary changed: %+v %v", retained, err)
+	}
+}
