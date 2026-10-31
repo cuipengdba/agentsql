@@ -71,3 +71,34 @@ func TestActiveCatalogOriginalAdminListAndDetail(t *testing.T) {
 		t.Fatalf("unknown global model: %d %s", missing.Code, missing.Body.String())
 	}
 }
+
+func TestActiveCatalogOriginalDefaultSwitchAndBootstrap(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	ctx := context.Background()
+	first := ModelConfig{ID: "30", Model: "first", Endpoint: "https://example.invalid/v1"}
+	second := ModelConfig{ID: "31", Model: "second", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, service.Store, first)
+	if err := service.Store.put(ctx, modelCatalogKey(second.ID), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/system/aimodel/default/31"
+	if denied := accountRequest(t, handler, http.MethodPut, path, "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member switched global default: %d", denied.Code)
+	}
+	if missing := accountRequest(t, handler, http.MethodPut, "/api/v1/system/aimodel/default/999", "", adminToken); missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown global default accepted: %d", missing.Code)
+	}
+	if switched := accountRequest(t, handler, http.MethodPut, path, "", adminToken); switched.Code != http.StatusOK {
+		t.Fatalf("global default switch: %d %s", switched.Code, switched.Body.String())
+	}
+	if bootstrap := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel/default", "", memberToken); bootstrap.Code != http.StatusOK {
+		t.Fatalf("browser failed to find global default: %d %s", bootstrap.Code, bootstrap.Body.String())
+	}
+	if selected, _, err := service.Store.modelForWorkspace(ctx, "2"); err != nil || selected.ID != second.ID {
+		t.Fatalf("other workspace did not inherit new default: %+v %v", selected, err)
+	}
+	status := accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel/status", `{"id":"31"}`, adminToken)
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Model reachable") {
+		t.Fatalf("active catalog model probe used a legacy local model: %d %s", status.Code, status.Body.String())
+	}
+}

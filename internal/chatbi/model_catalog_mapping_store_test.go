@@ -156,3 +156,50 @@ func TestActiveCatalogRejectsLegacyModelWrites(t *testing.T) {
 		t.Fatalf("legacy secondary changed: %+v %v", retained, err)
 	}
 }
+
+func TestActiveCatalogDefaultSwitchRevokesLeaseAndAuditFailureRollsBack(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	admin := stageCatalogAdmin(t, store)
+	first := ModelConfig{ID: "30", Model: "first", Endpoint: "https://example.invalid/v1"}
+	second := ModelConfig{ID: "31", Model: "second", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, store, first)
+	if err := store.put(ctx, modelCatalogKey(second.ID), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	old, lease, err := store.modelForWorkspace(ctx, "2")
+	if err != nil || old.ID != first.ID {
+		t.Fatalf("initial global default: %+v %v", old, err)
+	}
+	if err := store.SetGlobalDefaultModel(ctx, admin, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.modelLeaseUnchanged(ctx, "2", old, lease); !errors.Is(err, ErrModel) {
+		t.Fatalf("old request survived default switch: %v", err)
+	}
+	current, _, err := store.modelForWorkspace(ctx, "2")
+	if err != nil || current.ID != second.ID {
+		t.Fatalf("new default was not global: %+v %v", current, err)
+	}
+	if err := store.SetGlobalDefaultModel(ctx, admin, "999"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown model became default: %v", err)
+	}
+	member := testUser(t, "41", "member")
+	if err := store.CreateUser(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetGlobalDefaultModel(ctx, Principal{User: member, Workspace: "1"}, first.ID); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("member changed global default: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TRIGGER deny_default_audit BEFORE INSERT ON chatbi_objects
+		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetGlobalDefaultModel(ctx, admin, first.ID); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("audit failure allowed default switch: %v", err)
+	}
+	current, _, err = store.modelForWorkspace(ctx, "2")
+	if err != nil || current.ID != second.ID {
+		t.Fatalf("audit failure changed global default: %+v %v", current, err)
+	}
+}

@@ -25,8 +25,21 @@ func (h *Handler) sqlbotProtocolVersion(w http.ResponseWriter, _ *http.Request, 
 // original endpoint has no response payload; model details and API keys must
 // not be exposed by this compatibility probe.
 func (h *Handler) sqlbotDefaultModel(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if _, _, err := h.service.Store.modelForWorkspace(r.Context(), p.Workspace); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, nil)
+		return
+	}
 	var model ModelConfig
-	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	_, err = h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			failure(w, ErrNotFound)

@@ -158,6 +158,28 @@ func (h *Handler) legacyModelDelete(w http.ResponseWriter, r *http.Request, p Pr
 }
 
 func (h *Handler) legacyModelSetDefault(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		id := ID(r.PathValue("action"))
+		if !id.Valid() {
+			failure(w, ErrNotFound)
+			return
+		}
+		if err := h.service.Store.SetGlobalDefaultModel(r.Context(), p, id); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, nil)
+		return
+	}
 	model, _, isDefault, err := h.legacyModelByID(r, p, token, r.PathValue("action"))
 	if err != nil {
 		failure(w, err)
@@ -480,7 +502,32 @@ func (h *Handler) legacyModelStatus(w http.ResponseWriter, r *http.Request, p Pr
 	if !readBody(w, r, &input) {
 		return
 	}
-	model, _, _, err := h.legacyModelByID(r, p, token, input.ID)
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	var model ModelConfig
+	var revision int64
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		id := ID(input.ID)
+		if !id.Valid() {
+			failure(w, ErrNotFound)
+			return
+		}
+		view, err := h.service.Store.catalogAdminModel(r.Context(), p, id)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		model, revision = view.Model, view.Revision
+	} else {
+		model, _, _, err = h.legacyModelByID(r, p, token, input.ID)
+	}
 	if err != nil {
 		failure(w, err)
 		return
@@ -493,6 +540,13 @@ func (h *Handler) legacyModelStatus(w http.ResponseWriter, r *http.Request, p Pr
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
+	}
+	if active {
+		view, err := h.service.Store.catalogAdminModel(r.Context(), p, model.ID)
+		if err != nil || view.Revision != revision {
+			failure(w, ErrModel)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	if modelErr != nil || result.SQL == "" {
