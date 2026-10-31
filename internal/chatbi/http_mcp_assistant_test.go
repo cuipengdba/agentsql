@@ -26,13 +26,15 @@ func assistantCatalogRequest(t *testing.T, handler http.Handler, input mcpAssist
 
 type fixtureCatalogSelector struct {
 	*fakeModel
-	choice      ID
-	selectCalls int
-	afterSelect func()
+	choice        ID
+	selectCalls   int
+	selectedModel ModelConfig
+	afterSelect   func()
 }
 
-func (m *fixtureCatalogSelector) SelectAssistantCatalogSource(_ context.Context, _ ModelConfig, _ string, _ []assistantCatalogEntry) (ID, error) {
+func (m *fixtureCatalogSelector) SelectAssistantCatalogSource(_ context.Context, model ModelConfig, _ string, _ []assistantCatalogEntry) (ID, error) {
 	m.selectCalls++
+	m.selectedModel = model
 	if m.afterSelect != nil {
 		m.afterSelect()
 	}
@@ -168,6 +170,7 @@ func TestMCPAssistantRejectsMultipleSourcesWithoutSelector(t *testing.T) {
 
 func TestMCPAssistantSelectsMappedCatalogSourceBeforeControlledQuery(t *testing.T) {
 	service, p, gateway, model, _ := serviceFixture(t)
+	activateModelCatalogFixture(t, service.Store, ModelConfig{ID: "30", Model: "fixture-global", Endpoint: "https://example.invalid/v1"})
 	var second Binding
 	if _, err := service.Store.get(context.Background(), bindingKey(p, "10"), &second); err != nil {
 		t.Fatal(err)
@@ -197,7 +200,7 @@ func TestMCPAssistantSelectsMappedCatalogSourceBeforeControlledQuery(t *testing.
 	stream := false
 	input := mcpAssistantInput{Question: "Inventory total?", URL: bridge.Endpoint, Authorization: auth, Stream: &stream}
 	result := assistantCatalogRequest(t, handler, input)
-	if result.Code != http.StatusOK || gateway.queries != 1 || model.calls != 1 || selector.selectCalls != 1 {
+	if result.Code != http.StatusOK || gateway.queries != 1 || model.calls != 1 || selector.selectCalls != 1 || selector.selectedModel.ID != "30" {
 		t.Fatalf("selected source missed controlled query: HTTP %d %s", result.Code, result.Body.String())
 	}
 	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
@@ -261,6 +264,47 @@ func TestMCPAssistantSelectionRevocationPreventsQuery(t *testing.T) {
 	result := assistantCatalogRequest(t, handler, mcpAssistantInput{Question: "Orders?", URL: bridge.Endpoint, Authorization: auth})
 	if revokeErr != nil || result.Code == http.StatusOK || gateway.queries != 0 || model.calls != 0 || selector.selectCalls != 1 {
 		t.Fatalf("revoked catalog selection reached query: HTTP %d %s, revoke=%v", result.Code, result.Body.String(), revokeErr)
+	}
+}
+
+func TestMCPAssistantCatalogModelRotationDuringSelectionPreventsQuery(t *testing.T) {
+	service, p, gateway, model, _ := serviceFixture(t)
+	ctx := context.Background()
+	global := ModelConfig{ID: "30", Model: "fixture-global", Endpoint: "https://example.invalid/v1", APIKey: "before"}
+	activateModelCatalogFixture(t, service.Store, global)
+	selector := &fixtureCatalogSelector{fakeModel: model, choice: "81"}
+	service.Model = selector
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":81,"name":"Orders"},{"id":82,"name":"Inventory"}]}`))
+	}))
+	defer server.Close()
+	auth := `[{"key":"token","value":"synthetic-token","target":"header"}]`
+	bridge := AssistantCatalogBridge{Endpoint: server.URL + "/sources", Authorization: auth,
+		Workspace: p.Workspace, User: p.User.ID,
+		Sources:      []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}, {CatalogID: "82", Datasource: "10"}},
+		AllowedCIDRs: []string{"127.0.0.1/32"}, AllowHTTP: true}
+	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatal(err)
+	}
+	var rotateErr error
+	selector.afterSelect = func() {
+		var current ModelConfig
+		revision, err := service.Store.get(ctx, modelCatalogKey(global.ID), &current)
+		if err != nil {
+			rotateErr = err
+			return
+		}
+		current.APIKey = "after"
+		rotateErr = service.Store.put(ctx, modelCatalogKey(global.ID), current, revision)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := assistantCatalogRequest(t, handler, mcpAssistantInput{Question: "Orders?", URL: bridge.Endpoint, Authorization: auth})
+	if rotateErr != nil || result.Code == http.StatusOK || gateway.queries != 0 || model.calls != 0 ||
+		selector.selectCalls != 1 || selector.selectedModel.ID != global.ID || strings.Contains(result.Body.String(), "before") {
+		t.Fatalf("rotated catalog model reached query: HTTP %d %s, rotate=%v", result.Code, result.Body.String(), rotateErr)
 	}
 }
 

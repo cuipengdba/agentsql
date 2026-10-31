@@ -50,23 +50,29 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	selected := entries[0]
+	var selectionModel ModelConfig
+	var selectionLease modelLease
 	if len(entries) > 1 {
 		selector, ok := h.service.Model.(assistantCatalogSelector)
 		if !ok {
 			writeJSON(w, http.StatusUnprocessableEntity, "Datasource selection is unavailable")
 			return
 		}
-		var model ModelConfig
-		if _, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model); err != nil {
-			failure(w, ErrModel)
+		selectionModel, selectionLease, err = h.service.Store.modelForWorkspace(r.Context(), p.Workspace)
+		if err != nil {
+			failure(w, err)
 			return
 		}
 		if err := h.service.Store.auditAssistantCatalogSelection(r.Context(), p, len(entries)); err != nil {
 			failure(w, err)
 			return
 		}
-		chosen, err := selector.SelectAssistantCatalogSource(r.Context(), model, input.Question, entries)
+		chosen, err := selector.SelectAssistantCatalogSource(r.Context(), selectionModel, input.Question, entries)
 		if err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.service.Store.modelLeaseUnchanged(r.Context(), p.Workspace, selectionModel, selectionLease); err != nil {
 			failure(w, err)
 			return
 		}
@@ -83,6 +89,11 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	check := func(ctx context.Context) error {
+		if selectionModel.ID != "" {
+			if err := h.service.Store.modelLeaseUnchanged(ctx, p.Workspace, selectionModel, selectionLease); err != nil {
+				return err
+			}
+		}
 		current, latest, err := h.service.fetchAssistantCatalog(ctx, input.URL, input.Authorization, nil)
 		if err != nil || current.User.ID != p.User.ID || current.User.AuthRevision != p.User.AuthRevision ||
 			current.Workspace != p.Workspace || len(latest) != len(entries) {
