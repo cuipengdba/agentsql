@@ -17,7 +17,8 @@ import (
 // legacyMCPHandler provides the old HTTP+SSE transport expected by SQLBot's
 // generated MCP clients. Each tool calls the same checked ChatBI HTTP route;
 // the transport itself never grants data access or holds an authorization
-// snapshot. SQLBot's unauthenticated mcp_assistant is intentionally absent.
+// snapshot. The separate mcp_assistant HTTP route requires an operator-owned
+// catalog registration; it is not an SSE tool and grants no anonymous access.
 func legacyMCPHandler(h *Handler) http.Handler {
 	seats := make(chan struct{}, 16)
 	sse := mcp.NewSSEHandler(func(r *http.Request) *mcp.Server {
