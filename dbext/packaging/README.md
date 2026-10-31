@@ -57,15 +57,20 @@ rotates the development identity and replaces old development signatures.
 private key must be generated, stored, and used offline by the release owner.
 Promoting any package, image, public key, or checksum is a separate owner gate.**
 
-`install-binder.sh` verifies the signature, checksum, SBOM target major and
+`install-binder.sh` requires an independently obtained `--trusted-public-key`
+outside `--dist`; it rejects the package directory's own key. The current
+`DEV-ONLY-public-key.asc` is for isolated development tests, not a production
+trust anchor. The installer verifies the signature, checksum, SBOM target major and
 architecture before invoking `dpkg -i`, `rpm -ivh`, or
 `apk add --allow-untrusted`. `CREATE EXTENSION` is opt-in and requires an
 explicit bootstrap DSN and unprivileged runtime role. Package installation
 never connects to a database.
 
 ```sh
-./dbext/packaging/install-binder.sh --dist ./dist/binder
 ./dbext/packaging/install-binder.sh --dist ./dist/binder \
+  --trusted-public-key ./trusted-binder-public-key.asc
+./dbext/packaging/install-binder.sh --dist ./dist/binder \
+  --trusted-public-key ./trusted-binder-public-key.asc \
   --create-extension --dsn "$BOOTSTRAP_DSN" --runtime-role agentsql_runtime
 ```
 
@@ -82,7 +87,7 @@ and refuses a pre-existing `agentsql_catalog` schema owned by another role.
 ```
 
 The script locally loads architecture-specific tags such as
-`agentsql/postgres-binder:16-0.5-amd64`, emits OCI archives and image SBOMs,
+`agentsql/postgres-binder:16-0.4-amd64`, emits OCI archives and image SBOMs,
 and never pushes. The image installs the already-built matching Debian package,
 so its extension bytes are identical to the package matrix rather than a second
 compile. Run `build-packages` first. Fresh data directories create and self-test the extension via

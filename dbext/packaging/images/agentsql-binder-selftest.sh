@@ -8,8 +8,8 @@ set -eu
 
 result=$(psql -X --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
 SELECT (SELECT extversion = '0.4' FROM pg_catalog.pg_extension WHERE extname = 'agentsql_binder')
-   AND capabilities->>'abi' = 'agentsql-binder-4.1'
-   AND capabilities->>'extension_version' = '0.4'
+   AND capabilities->>'abi' = 'agentsql-binder-4.2'
+   AND capabilities->>'extension_version' = '0.4-s3m'
    AND capabilities->>'server_major' = (current_setting('server_version_num')::integer / 10000)::text
    AND length(capabilities->>'build_hash') = 64
    AND length(capabilities->>'extension_hash') = 64

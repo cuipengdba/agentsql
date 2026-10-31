@@ -30,6 +30,8 @@ jobs:
         run: python scripts/sync-brand.py --check
       - name: Test SQLBot adapter failure boundaries
         run: python -m unittest discover -s integrations/sqlbot -p 'test_*.py' -v
+      - name: Reject binder bundles without an independent trust anchor
+        run: sh dbext/packaging/signing/test-trust-boundary.sh
 
   go:
     runs-on: ubuntu-latest
