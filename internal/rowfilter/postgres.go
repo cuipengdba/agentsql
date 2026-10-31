@@ -54,8 +54,8 @@ func CompileForPolicies(rawSQL, agentID, datasourceID string, policies []model.P
 }
 
 // CompilePredicate accepts only comparisons of one unqualified column with a
-// literal, IS [NOT] NULL, and conjunctions of those expressions. In
-// particular, functions, parameters, subqueries, casts, and OR are excluded.
+// literal, IS [NOT] NULL, and bounded AND/OR combinations of those expressions.
+// In particular, functions, parameters, subqueries, casts, and NOT are excluded.
 // The returned node must be used only in a single-table SELECT validated by
 // RewriteSingleTable; parsing it is not an authorization decision.
 func CompilePredicate(filter string) (*pg_query.Node, error) {
@@ -102,7 +102,8 @@ func validPredicate(node *pg_query.Node, depth int) bool {
 		return false
 	}
 	if expr := node.GetBoolExpr(); expr != nil {
-		if expr.Boolop != pg_query.BoolExprType_AND_EXPR || len(expr.Args) < 2 || len(expr.Args) > 16 {
+		if expr.Boolop != pg_query.BoolExprType_AND_EXPR && expr.Boolop != pg_query.BoolExprType_OR_EXPR ||
+			len(expr.Args) < 2 || len(expr.Args) > 100 {
 			return false
 		}
 		for _, item := range expr.Args {

@@ -116,7 +116,7 @@ type sqlbotRowTreeItem struct {
 func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect string, depth int, remaining *int, resolve func(int64) ([]string, bool)) (string, bool) {
 	logic := strings.ToLower(tree.Logic)
 	if depth > 8 || len(tree.Items) == 0 || len(tree.Items) > 16 ||
-		(logic != "and" && logic != "or") || (dialect != "mysql" && logic == "or" && len(tree.Items) > 1) {
+		(logic != "and" && logic != "or") {
 		return "", false
 	}
 	parts := make([]string, 0, len(tree.Items))
@@ -192,8 +192,21 @@ func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, diale
 		}
 	}
 	if item.Term == "in" || item.Term == "not in" {
-		if item.ValueType != "variable" || dialect != "mysql" {
+		if item.ValueType != "variable" {
 			return "", false
+		}
+		if dialect == "pg" {
+			comparison := " = "
+			join := " OR "
+			if item.Term == "not in" {
+				comparison = " <> "
+				join = " AND "
+			}
+			parts := make([]string, len(values))
+			for index, value := range values {
+				parts[index] = column + comparison + "'" + strings.ReplaceAll(value, "'", "''") + "'"
+			}
+			return "(" + strings.Join(parts, join) + ")", true
 		}
 		literals := make([]string, len(values))
 		for index, value := range values {

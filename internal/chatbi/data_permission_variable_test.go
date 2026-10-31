@@ -227,13 +227,13 @@ func TestMySQLVariableNumberUsesModeIndependentLiteral(t *testing.T) {
 	require.Equal(t, "`amount` = '5.25'", predicate)
 }
 
-func TestMySQLVariableMultiValueMembershipKeepsEveryBoundValue(t *testing.T) {
+func TestVariableMultiValueMembershipKeepsEveryBoundValue(t *testing.T) {
 	datasource := ID("10")
 	tableID := browserTableID(datasource, "agentsql_demo", "orders")
 	fieldID := browserFieldID(tableID, "status")
-	for _, test := range []struct{ term, expected string }{
-		{"in", "`status` IN ('paid', 'shipped')"},
-		{"not in", "`status` NOT IN ('paid', 'shipped')"},
+	for _, test := range []struct{ term, mysql, postgres string }{
+		{"in", "`status` IN ('paid', 'shipped')", `("status" = 'paid' OR "status" = 'shipped')`},
+		{"not in", "`status` NOT IN ('paid', 'shipped')", `("status" <> 'paid' AND "status" <> 'shipped')`},
 	} {
 		t.Run(test.term, func(t *testing.T) {
 			item, err := json.Marshal(map[string]any{"type": "row", "ds_id": 10, "table_id": tableID,
@@ -248,12 +248,17 @@ func TestMySQLVariableMultiValueMembershipKeepsEveryBoundValue(t *testing.T) {
 			}
 			_, _, predicate, err := compileSQLBotRowPermissionWithVariables(item, datasource, columns, "mysql", resolver)
 			require.NoError(t, err)
-			require.Equal(t, test.expected, predicate)
-			_, _, _, err = compileSQLBotRowPermissionWithVariables(item, datasource, columns, "pg", resolver)
-			require.ErrorIs(t, err, ErrInvalidDataPermission)
+			require.Equal(t, test.mysql, predicate)
+			_, _, predicate, err = compileSQLBotRowPermissionWithVariables(item, datasource, columns, "pg", resolver)
+			require.NoError(t, err)
+			require.Equal(t, test.postgres, predicate)
 			_, _, _, err = compileSQLBotRowPermissionWithVariables(item, datasource, columns, "mysql",
 				func(int64) ([]string, bool) { return []string{"paid", "shipped' OR 1=1 --"}, true })
 			require.ErrorIs(t, err, ErrInvalidDataPermission)
+			_, _, predicate, err = compileSQLBotRowPermissionWithVariables(item, datasource, columns, "pg",
+				func(int64) ([]string, bool) { return []string{"paid", "shipped' OR 1=1 --"}, true })
+			require.NoError(t, err)
+			require.Contains(t, predicate, "shipped'' OR 1=1 --")
 		})
 	}
 }
