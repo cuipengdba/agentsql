@@ -47,6 +47,8 @@ jobs:
           artifact="${packages[0]}"
           provenance="$artifact.provenance.json"
           revision="$(git rev-parse HEAD)"
+          test "$(dpkg-deb -f "$artifact" Maintainer)" = 'AgentSQL Maintainers <87326549@qq.com>'
+          test "$(dpkg-deb -f "$artifact" Homepage)" = 'https://agentsql.cn'
           python dbext/packaging/verify-provenance.py --artifact "$artifact" --provenance "$provenance" \
             --source-root dbext/postgres/agentsql_binder --source-revision "$revision"
           mkdir "$RUNNER_TEMP/tampered"
