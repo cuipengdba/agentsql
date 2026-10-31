@@ -3,6 +3,7 @@ package chatbi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -62,6 +63,22 @@ func TestMCPAssistantOneRegisteredCatalogSourceUsesControlledQuery(t *testing.T)
 		!strings.Contains(result.Body.String(), `"amount":"123"`) || gateway.queries != 1 || model.calls != 1 ||
 		strings.Contains(result.Body.String(), "must-not-leak") {
 		t.Fatalf("controlled catalog question failed: HTTP %d %s, model=%d gateway=%d", result.Code, result.Body.String(), model.calls, gateway.queries)
+	}
+	var payload struct {
+		SQL  string `json:"sql"`
+		Data struct {
+			SQL        string      `json:"sql"`
+			Datasource json.Number `json:"datasource"`
+		} `json:"data"`
+	}
+	decoder := json.NewDecoder(result.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	encodedSQL, err := base64.StdEncoding.DecodeString(payload.Data.SQL)
+	if err != nil || string(encodedSQL) != payload.SQL || payload.Data.Datasource != "81" {
+		t.Fatalf("original assistant JSON data shape mismatch: datasource=%s sql=%q error=%v", payload.Data.Datasource, payload.Data.SQL, err)
 	}
 	input.Stream = nil
 	streamed := assistantCatalogRequest(t, handler, input)

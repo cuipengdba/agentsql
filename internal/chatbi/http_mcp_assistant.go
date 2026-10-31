@@ -2,10 +2,12 @@ package chatbi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -126,7 +128,14 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 	}
 	result := map[string]any{"success": true, "record_id": json.Number(record.ID), "sql": record.SQL}
 	if record.Data != nil {
-		result["data"] = map[string]any{"fields": record.Data.Fields, "data": record.Data.Data, "fields_info": record.Data.FieldsInfo}
+		catalogID := any(string(selected.CatalogID))
+		if numericID, err := strconv.ParseInt(string(selected.CatalogID), 10, 64); err == nil {
+			catalogID = numericID
+		}
+		result["data"] = map[string]any{
+			"fields": record.Data.Fields, "data": record.Data.Data, "fields_info": record.Data.FieldsInfo,
+			"sql": base64.StdEncoding.EncodeToString([]byte(record.SQL)), "datasource": catalogID,
+		}
 	}
 	if !stream {
 		writeJSON(w, http.StatusOK, result)
