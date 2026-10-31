@@ -41,16 +41,21 @@ func TestAssistantCatalogModelSelectionUsesOnlyBoundedNamesAndIDs(t *testing.T) 
 	if err != nil || got != "82" || calls != 1 {
 		t.Fatalf("registered model choice failed: id=%s error=%v calls=%d", got, err, calls)
 	}
+	selected = `{"id":81}`
+	got, err = model.SelectAssistantCatalogSource(context.Background(), config, "Sales total?", entries)
+	if err != nil || got != "81" || calls != 2 {
+		t.Fatalf("numeric catalog ID failed: id=%s error=%v calls=%d", got, err, calls)
+	}
 	selected = `{"id":"999"}`
-	if _, err := model.SelectAssistantCatalogSource(context.Background(), config, "Inventory total?", entries); err == nil || calls != 2 {
+	if _, err := model.SelectAssistantCatalogSource(context.Background(), config, "Inventory total?", entries); err == nil || calls != 3 {
 		t.Fatal("unregistered model ID accepted")
 	}
 	selected = `{"id":""}`
-	if _, err := model.SelectAssistantCatalogSource(context.Background(), config, "ambiguous", entries); err == nil || calls != 3 {
+	if _, err := model.SelectAssistantCatalogSource(context.Background(), config, "ambiguous", entries); err == nil || calls != 4 {
 		t.Fatal("ambiguous model choice accepted")
 	}
 	selected = `{"id":"81","extra":"unexpected"}`
-	if _, err := model.SelectAssistantCatalogSource(context.Background(), config, "Sales total?", entries); err == nil || calls != 4 {
+	if _, err := model.SelectAssistantCatalogSource(context.Background(), config, "Sales total?", entries); err == nil || calls != 5 {
 		t.Fatal("unexpected model selection fields accepted")
 	}
 }

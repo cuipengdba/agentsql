@@ -81,12 +81,24 @@ func (model OpenAIModel) SelectAssistantCatalogSource(ctx context.Context, confi
 		return "", ErrModel
 	}
 	var choice struct {
-		ID ID `json:"id"`
+		ID json.RawMessage `json:"id"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(firstModelJSON(strings.TrimSpace(completion.Choices[0].Message.Content))))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&choice) != nil || decoder.Decode(new(any)) != io.EOF || !seen[choice.ID] {
+	if decoder.Decode(&choice) != nil || decoder.Decode(new(any)) != io.EOF {
 		return "", ErrModel
 	}
-	return choice.ID, nil
+	var rawID string
+	if json.Unmarshal(choice.ID, &rawID) != nil {
+		var number json.Number
+		if json.Unmarshal(choice.ID, &number) != nil {
+			return "", ErrModel
+		}
+		rawID = number.String()
+	}
+	id := ID(rawID)
+	if !id.Valid() || !seen[id] {
+		return "", ErrModel
+	}
+	return id, nil
 }
