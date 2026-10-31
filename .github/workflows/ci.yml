@@ -33,6 +33,17 @@ jobs:
       - name: Reject binder bundles without an independent trust anchor
         run: sh dbext/packaging/signing/test-trust-boundary.sh
 
+  binder-package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build PostgreSQL 16 amd64 Debian extension package
+        shell: pwsh
+        run: ./dbext/packaging/build-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb -SkipSign
+      - name: Install package and run native extension self-test
+        shell: pwsh
+        run: ./dbext/packaging/test-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb
+
   go:
     runs-on: ubuntu-latest
     # The -tags=yashan build requires the vendor C client (CGO), which GitHub runners lack.
