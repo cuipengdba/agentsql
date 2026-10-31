@@ -10,7 +10,7 @@ import (
 )
 
 func (service *Service) schema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	columns, snapshot, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+	columns, snapshot, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -32,32 +32,45 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 // selected-table filtering. No such path may expose metadata while an active
 // compatibility rule lacks an enforcement engine.
 func (service *Service) gatewaySchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	columns, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+	columns, _, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
 	return columns, err
 }
 
-func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context, principal Principal, binding Binding) ([]Column, []DataPermissionRule, error) {
+func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context, principal Principal, binding Binding) ([]Column, []DataPermissionRule, map[string]bool, error) {
 	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	items, err := applicableRowPermissions(snapshot, principal, binding)
+	rows, columnRules, err := applicableDataPermissions(snapshot, principal, binding)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	columns, err := service.Gateway.Schema(ctx, principal, binding)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	if len(items) != 0 {
-		if _, _, _, err := compileApplicableRowPermissions(items, binding.Datasource, columns); err != nil {
-			return nil, nil, err
+	if len(rows) != 0 {
+		if _, _, _, err := compileApplicableRowPermissions(rows, binding.Datasource, columns); err != nil {
+			return nil, nil, nil, err
 		}
 	}
-	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
-		return nil, nil, err
+	blocked, err := compileApplicableColumnPermissions(columnRules, binding.Datasource, columns)
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	return columns, snapshot, nil
+	if len(blocked) != 0 {
+		visible := make([]Column, 0, len(columns))
+		for _, column := range columns {
+			if !blocked[disabledFieldKey(column.Schema, column.Table, column.Name)] {
+				visible = append(visible, column)
+			}
+		}
+		columns = visible
+	}
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return nil, nil, nil, err
+	}
+	return columns, snapshot, blocked, nil
 }
 
 func (service *Service) semanticSchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
@@ -77,20 +90,27 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	if err != nil {
 		return QueryData{}, err
 	}
-	items, err := applicableRowPermissions(snapshot, principal, binding)
+	rows, columnRules, err := applicableDataPermissions(snapshot, principal, binding)
 	if err != nil {
 		return QueryData{}, err
 	}
-	if len(items) != 0 {
-		columns, checked, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+	effectiveBinding := binding
+	if len(rows)+len(columnRules) != 0 {
+		columns, checked, blocked, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
 		if err != nil || !sameDataPermissionSnapshot(snapshot, checked) {
 			return QueryData{}, ErrGateway
 		}
-		schema, table, filters, err := compileApplicableRowPermissions(items, binding.Datasource, columns)
-		if err != nil {
-			return QueryData{}, err
+		if len(rows) != 0 {
+			schema, table, filters, err := compileApplicableRowPermissions(rows, binding.Datasource, columns)
+			if err != nil {
+				return QueryData{}, err
+			}
+			sql, _, err = rowfilter.RewriteSingleTable(sql, schema, table, filters)
+			if err != nil {
+				return QueryData{}, ErrGateway
+			}
 		}
-		sql, _, err = rowfilter.RewriteSingleTable(sql, schema, table, filters)
+		effectiveBinding, err = bindingWithPermissionColumns(binding, blocked)
 		if err != nil {
 			return QueryData{}, ErrGateway
 		}
@@ -98,7 +118,7 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 	if err := authorizeEnabledTablesSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
-	if err := authorizeEnabledFieldsSQL(binding, sql); err != nil {
+	if err := authorizeEnabledFieldsSQL(effectiveBinding, sql); err != nil {
 		return QueryData{}, err
 	}
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {

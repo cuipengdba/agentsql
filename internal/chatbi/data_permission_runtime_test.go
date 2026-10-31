@@ -132,7 +132,7 @@ func TestActiveOriginalRowPermissionChangeSuppressesInFlightResult(t *testing.T)
 	require.Equal(t, 1, gateway.queries)
 }
 
-func TestActiveColumnRuleStillClosesBeforeGateway(t *testing.T) {
+func TestInvalidActiveColumnRuleClosesBeforeQuery(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()
 	item := json.RawMessage(`{"id":201,"type":"column","ds_id":10,"table_id":20,"permissions":"[]"}`)
@@ -141,12 +141,90 @@ func TestActiveColumnRuleStillClosesBeforeGateway(t *testing.T) {
 	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
 	binding, err := service.binding(ctx, principal, "10")
 	require.NoError(t, err)
-	_, err = service.schema(ctx, principal, binding)
+	columns, err := service.schema(ctx, principal, binding)
 	require.ErrorIs(t, err, ErrGateway)
-	require.Zero(t, gateway.schemaCalls)
+	require.Empty(t, columns)
 	_, err = service.query(ctx, principal, binding, "SELECT amount FROM public.sales")
 	require.ErrorIs(t, err, ErrGateway)
 	require.Zero(t, gateway.queries)
+}
+
+func TestActiveOriginalColumnPermissionHidesAndDeniesFields(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	tableID := browserTableID("10", "public", "sales")
+	permissionList, err := json.Marshal([]map[string]any{
+		{"field_id": browserFieldID(tableID, "region"), "enable": true},
+		{"field_id": browserFieldID(tableID, "amount"), "enable": false},
+	})
+	require.NoError(t, err)
+	item, err := json.Marshal(map[string]any{"id": 201, "type": "column", "ds_id": 10,
+		"table_id": tableID, "permissions": string(permissionList)})
+	require.NoError(t, err)
+	rule := DataPermissionRule{ID: 101, OID: 1, Enable: true, Name: "hide amount",
+		Permissions: []json.RawMessage{item}, Users: []int64{1}, WhiteList: "[]", Created: time.Now().UTC()}
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	visible, err := service.schema(ctx, principal, binding)
+	require.NoError(t, err)
+	require.Len(t, visible, 1)
+	require.Equal(t, "region", visible[0].Name)
+	for _, sql := range []string{
+		"SELECT amount FROM public.sales",
+		"SELECT region FROM public.sales WHERE amount > 0",
+		"SELECT * FROM public.sales",
+		"SELECT sales.* FROM public.sales",
+	} {
+		_, err := service.query(ctx, principal, binding, sql)
+		require.ErrorIs(t, err, ErrGateway, sql)
+		require.Zero(t, gateway.queries, sql)
+	}
+	_, err = service.query(ctx, principal, binding, "SELECT region FROM public.sales")
+	require.NoError(t, err)
+	require.Equal(t, 1, gateway.queries)
+	gateway.afterQuery = func() {
+		changed := rule
+		changed.Permissions = []json.RawMessage{json.RawMessage(`{"type":"column","ds_id":10,"table_id":20,"permissions":"[]"}`)}
+		require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), changed, 1))
+		gateway.afterQuery = nil
+	}
+	data, err := service.query(ctx, principal, binding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Empty(t, data.Data)
+	require.Equal(t, 2, gateway.queries)
+}
+
+func TestOriginalColumnRuleSaveActivatesCurrentGatewayFields(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	gateway := service.Gateway.(*fakeGateway)
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	tableID := browserTableID("10", "public", "sales")
+	item := map[string]any{"type": "column", "ds_id": 10, "table_id": tableID,
+		"permissions": []any{map[string]any{"field_id": browserFieldID(tableID, "region"), "enable": true},
+			map[string]any{"field_id": browserFieldID(tableID, "amount"), "enable": false}}}
+	request, err := json.Marshal(map[string]any{"name": "hide amount", "users": []int64{1},
+		"permissions": []any{item}})
+	require.NoError(t, err)
+	created := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	principal, err := service.Identity.Verify(ctx, adminToken)
+	require.NoError(t, err)
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.query(ctx, principal, binding, "SELECT amount FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.queries)
+	item["permissions"] = []any{map[string]any{"field_id": 999999, "enable": false}}
+	request, err = json.Marshal(map[string]any{"name": "forged column", "users": []int64{1},
+		"permissions": []any{item}})
+	require.NoError(t, err)
+	rejected := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusUnprocessableEntity, rejected.Code)
 }
 
 func TestActiveRuleForAnotherUserDoesNotRewriteThisUsersQuery(t *testing.T) {

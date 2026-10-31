@@ -305,7 +305,7 @@ func (h *Handler) dataPermissionSave(w http.ResponseWriter, r *http.Request, p P
 		failure(w, err)
 		return
 	}
-	proof, err := h.validateRowRuleActivation(r.Context(), p, rule)
+	proof, err := h.validateDataPermissionActivation(r.Context(), p, rule)
 	if err != nil {
 		failure(w, err)
 		return

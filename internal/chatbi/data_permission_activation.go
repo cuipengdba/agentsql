@@ -52,11 +52,11 @@ func (proof *dataPermissionActivation) matches(workspace ID, rule DataPermission
 	return err == nil && proof.digest == digest
 }
 
-// validateRowRuleActivation validates every item before a rule group can
+// validateDataPermissionActivation validates every item before a rule group can
 // become active. The live schema is only a preflight; each read still compiles
 // against the requesting user's current gateway schema and fails closed if it
-// changes. Column rules and unsupported expression forms remain rejected.
-func (h *Handler) validateRowRuleActivation(ctx context.Context, principal Principal, rule DataPermissionRule) (*dataPermissionActivation, error) {
+// changes. Unsupported expression or target forms remain rejected.
+func (h *Handler) validateDataPermissionActivation(ctx context.Context, principal Principal, rule DataPermissionRule) (*dataPermissionActivation, error) {
 	if !rule.Enable || len(rule.Permissions) == 0 {
 		return nil, nil
 	}
@@ -73,7 +73,7 @@ func (h *Handler) validateRowRuleActivation(ctx context.Context, principal Princ
 			Type       string          `json:"type"`
 			Datasource json.RawMessage `json:"ds_id"`
 		}
-		if json.Unmarshal(raw, &item) != nil || item.Type != "row" {
+		if json.Unmarshal(raw, &item) != nil || (item.Type != "row" && item.Type != "column") {
 			return nil, ErrInvalidDataPermission
 		}
 		dsID, valid := parseSystemVariableID(item.Datasource)
@@ -85,19 +85,24 @@ func (h *Handler) validateRowRuleActivation(ctx context.Context, principal Princ
 		if err != nil {
 			return nil, ErrInvalidDataPermission
 		}
-		if binding.Dialect != "pg" {
+		if item.Type == "row" && binding.Dialect != "pg" ||
+			item.Type == "column" && binding.Dialect != "pg" && binding.Dialect != "mysql" {
 			return nil, ErrInvalidDataPermission
 		}
 		columns, err := h.service.gatewaySchema(ctx, principal, binding)
 		if err != nil {
 			return nil, err
 		}
-		schema, table, _, err := compileSQLBotRowPermission(raw, datasource, columns)
-		prior, exists := tables[datasource]
-		if err != nil || exists && prior != (relation{schema, table}) {
+		if item.Type == "row" {
+			schema, table, _, err := compileSQLBotRowPermission(raw, datasource, columns)
+			prior, exists := tables[datasource]
+			if err != nil || exists && prior != (relation{schema, table}) {
+				return nil, ErrInvalidDataPermission
+			}
+			tables[datasource] = relation{schema, table}
+		} else if _, err := compileSQLBotColumnPermission(raw, datasource, columns); err != nil {
 			return nil, ErrInvalidDataPermission
 		}
-		tables[datasource] = relation{schema, table}
 		if err := h.service.bindingUnchanged(ctx, principal, binding, revision, digest); err != nil {
 			return nil, err
 		}
