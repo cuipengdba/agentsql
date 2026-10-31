@@ -47,6 +47,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	importCommand.Flags().StringVar(&snapshot, "from", "", "private migration snapshot")
 	_ = importCommand.MarkFlagRequired("from")
+	var assistantOnly bool
 	serve := &cobra.Command{Use: "serve", Short: "Serve the Go Q&A API on its dedicated listener", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		config, err := chatbi.LoadConfig(configuration)
 		if err != nil {
@@ -63,12 +64,38 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if assistantOnly {
+			handler = chatbi.AssistantOnlyHandler(handler)
+		}
 		server := &http.Server{Addr: config.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
-		result := make(chan error, 1)
-		go func() { result <- server.ListenAndServe() }()
+		servers := []*http.Server{server}
+		if !assistantOnly && config.LegacyMCPListen != "" {
+			// The original SQLBot client connects to /mcp on a separate port.
+			// Do not expose the API, login or administration routes there.
+			mcpOnly := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/mcp" {
+					http.NotFound(w, r)
+					return
+				}
+				handler.ServeHTTP(w, r)
+			})
+			servers = append(servers, &http.Server{Addr: config.LegacyMCPListen, Handler: mcpOnly,
+				ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second,
+				IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10})
+		}
+		result := make(chan error, len(servers))
+		for _, active := range servers {
+			go func() { result <- active.ListenAndServe() }()
+		}
 		logger.Info().Str("listen", config.Listen).Str("version", version.Version).Msg("ChatBI server starting")
+		if len(servers) > 1 {
+			logger.Info().Str("listen", config.LegacyMCPListen).Msg("Legacy SQLBot MCP listener starting")
+		}
 		select {
 		case err := <-result:
+			for _, active := range servers {
+				_ = active.Close()
+			}
 			if errors.Is(err, http.ErrServerClosed) {
 				return nil
 			}
@@ -76,13 +103,17 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 		case <-ctx.Done():
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			err := server.Shutdown(shutdownCtx)
-			if err != nil {
-				_ = server.Close()
+			var shutdownErr error
+			for _, active := range servers {
+				if err := active.Shutdown(shutdownCtx); err != nil {
+					_ = active.Close()
+					shutdownErr = errors.Join(shutdownErr, err)
+				}
 			}
-			return err
+			return shutdownErr
 		}
 	}}
+	serve.Flags().BoolVar(&assistantOnly, "assistant-only", false, "serve only the public assistant iframe and scoped API on an isolated origin")
 
 	var adminUser, passwordEnv, connections string
 	var standardUser bool

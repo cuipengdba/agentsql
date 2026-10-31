@@ -13,6 +13,8 @@ import (
 )
 
 var ErrRevisionMismatch = errors.New("store revision mismatch")
+var ErrPolicyDeleteWouldWiden = errors.New("deleting a column policy would widen table access")
+var ErrPolicyUpdateWouldWiden = errors.New("updating a column policy would widen table access")
 
 // PolicyRepository owns policy parents, bindings, formal permissions, and
 // legacy staging rows. Mutations use one control-plane transaction.
@@ -247,6 +249,19 @@ func (repository *PolicyRepository) update(ctx context.Context, policy model.Pol
 	if compare && current != expected {
 		return model.Policy{}, rollbackPolicyTx(tx, ErrRevisionMismatch)
 	}
+	previous, err := scanPolicy(tx.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=? AND tenant_id=?`), policy.ID, tenantID))
+	if err != nil {
+		return model.Policy{}, rollbackPolicyTx(tx, err)
+	}
+	protected, err := repository.mysqlColumnProtectedByTableAllow(ctx, tx, tenantID, previous)
+	if err != nil {
+		return model.Policy{}, rollbackPolicyTx(tx, err)
+	}
+	if protected && (policy.AgentID != previous.AgentID || policy.DatasourceID != previous.DatasourceID ||
+		policy.ObjectType != previous.ObjectType || policy.ObjectName != previous.ObjectName || policy.Action != previous.Action ||
+		(previous.RelationBindingID != nil && (policy.RelationBindingID == nil || *policy.RelationBindingID != *previous.RelationBindingID))) {
+		return model.Policy{}, rollbackPolicyTx(tx, ErrPolicyUpdateWouldWiden)
+	}
 	next := current + 1
 	result, err := tx.ExecContext(ctx, repository.bind(`UPDATE policies SET agent_id=?,datasource_id=?,object_type=?,object_name=?,columns=?,row_filter=?,action=?,relation_binding_id=?,legacy_unrepresentable=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=? AND revision=?`),
 		policy.AgentID, policy.DatasourceID, policy.ObjectType, policy.ObjectName, optionalString(policy.Columns), optionalString(policy.RowFilter), policy.Action,
@@ -293,6 +308,21 @@ func (repository *PolicyRepository) delete(ctx context.Context, id string, expec
 	if compare && current != expected {
 		return rollbackPolicyTx(tx, ErrRevisionMismatch)
 	}
+	// MySQL's legacy table-only path remains available when no column policy
+	// exists. Deleting a column policy while its table allow survives would
+	// silently widen access. Require callers to remove the table allow first;
+	// the mutation fence makes this check atomic with the delete.
+	policy, err := scanPolicy(tx.QueryRowContext(ctx, repository.bind(policySelect+` WHERE id=? AND tenant_id=?`), id, tenantID))
+	if err != nil {
+		return rollbackPolicyTx(tx, err)
+	}
+	protected, err := repository.mysqlColumnProtectedByTableAllow(ctx, tx, tenantID, policy)
+	if err != nil {
+		return rollbackPolicyTx(tx, err)
+	}
+	if protected {
+		return rollbackPolicyTx(tx, ErrPolicyDeleteWouldWiden)
+	}
 	if _, err := tx.ExecContext(ctx, repository.bind(`DELETE FROM policies WHERE id=? AND tenant_id=? AND revision=?`), id, tenantID, current); err != nil {
 		return rollbackPolicyTx(tx, fmt.Errorf("delete policy %q: %w", id, err))
 	}
@@ -300,6 +330,26 @@ func (repository *PolicyRepository) delete(ctx context.Context, id string, expec
 		return fmt.Errorf("commit delete policy %q: %w", id, err)
 	}
 	return nil
+}
+
+func (repository *PolicyRepository) mysqlColumnProtectedByTableAllow(
+	ctx context.Context, tx *sql.Tx, tenantID string, policy model.Policy,
+) (bool, error) {
+	if policy.ObjectType != "column" {
+		return false, nil
+	}
+	var dbType string
+	if err := tx.QueryRowContext(ctx, repository.bind(`SELECT db_type FROM datasources WHERE id=? AND tenant_id=?`), policy.DatasourceID, tenantID).Scan(&dbType); err != nil {
+		return false, err
+	}
+	if dbType != "mysql" {
+		return false, nil
+	}
+	var tableAllows int
+	if err := tx.QueryRowContext(ctx, repository.bind(`SELECT COUNT(*) FROM policies WHERE tenant_id=? AND agent_id=? AND datasource_id=? AND object_type='table' AND object_name=? AND action='allow'`), tenantID, policy.AgentID, policy.DatasourceID, policy.ObjectName).Scan(&tableAllows); err != nil {
+		return false, err
+	}
+	return tableAllows > 0, nil
 }
 
 func (repository *PolicyRepository) beginMutation(ctx context.Context) (*sql.Tx, error) {

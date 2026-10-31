@@ -86,6 +86,15 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 		strings.Contains(members.Body.String(), "password_hash") {
 		t.Fatalf("unsafe member page: %d %s", members.Code, members.Body.String())
 	}
+	ruleDialogMembers := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/1000?oid=2", "", adminToken)
+	if ruleDialogMembers.Code != http.StatusOK || !strings.Contains(ruleDialogMembers.Body.String(), `"total":2`) ||
+		strings.Contains(ruleDialogMembers.Body.String(), "password_hash") {
+		t.Fatalf("unsafe original rule-dialog member page: %d %s", ruleDialogMembers.Code, ruleDialogMembers.Body.String())
+	}
+	oversizedRuleDialog := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/1001?oid=2", "", adminToken)
+	if oversizedRuleDialog.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("oversized rule-dialog member page accepted: %d", oversizedRuleDialog.Code)
+	}
 	if _, err := service.Identity.Verify(context.Background(), bobToken); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatal("grant did not invalidate prior member token")
 	}

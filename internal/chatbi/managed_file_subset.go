@@ -6,10 +6,11 @@ import (
 
 	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
+	"github.com/cuipengdba/agentsql/internal/rowfilter"
 )
 
 func (service *Service) schema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	columns, err := service.Gateway.Schema(ctx, principal, binding)
+	columns, snapshot, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -17,39 +18,166 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 	if err != nil {
 		return nil, err
 	}
-	return filterDatabaseSchema(binding, columns)
+	visible, err := filterDatabaseSchema(binding, columns)
+	if err != nil {
+		return nil, err
+	}
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return nil, err
+	}
+	return visible, nil
+}
+
+// gatewaySchema also covers schema discovery paths that deliberately bypass
+// selected-table filtering. No such path may expose metadata while an active
+// compatibility rule lacks an enforcement engine.
+func (service *Service) gatewaySchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
+	columns, _, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+	return columns, err
+}
+
+func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context, principal Principal, binding Binding) ([]Column, []DataPermissionRule, map[string]bool, error) {
+	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rows, columnRules, err := applicableDataPermissions(snapshot, principal, binding)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	columns, err := service.Gateway.Schema(ctx, principal, binding)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(rows) != 0 {
+		variables := service.newRowVariableSnapshot(ctx, principal)
+		if _, _, _, err := compileApplicableRowPermissionsWithVariables(rows, binding.Datasource, columns, binding.Dialect, variables.resolve); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := variables.unchanged(ctx); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	blocked, err := compileApplicableColumnPermissions(columnRules, binding.Datasource, columns)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(blocked) != 0 {
+		visible := make([]Column, 0, len(columns))
+		for _, column := range columns {
+			if !blocked[disabledFieldKey(column.Schema, column.Table, column.Name)] {
+				visible = append(visible, column)
+			}
+		}
+		columns = visible
+	}
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return nil, nil, nil, err
+	}
+	return columns, snapshot, blocked, nil
+}
+
+func (service *Service) semanticSchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
+	columns, err := service.schema(ctx, principal, binding)
+	if err != nil {
+		return nil, err
+	}
+	columns, err = filterDisabledTables(binding, columns)
+	if err != nil {
+		return nil, err
+	}
+	return filterDisabledFields(binding, columns)
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
+	variables := service.newRowVariableSnapshot(ctx, principal)
+	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
+	if err != nil {
+		return QueryData{}, err
+	}
+	rows, columnRules, err := applicableDataPermissions(snapshot, principal, binding)
+	if err != nil {
+		return QueryData{}, err
+	}
+	effectiveBinding := binding
+	if len(rows)+len(columnRules) != 0 {
+		columns, checked, blocked, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
+		if err != nil || !sameDataPermissionSnapshot(snapshot, checked) {
+			return QueryData{}, ErrGateway
+		}
+		if len(rows) != 0 {
+			schema, table, filters, err := compileApplicableRowPermissionsWithVariables(rows, binding.Datasource, columns, binding.Dialect, variables.resolve)
+			if err != nil {
+				return QueryData{}, err
+			}
+			if binding.Dialect == "mysql" {
+				sql, _, err = rowfilter.RewriteMySQLSingleTable(sql, schema, table, filters)
+			} else {
+				sql, _, err = rowfilter.RewriteSingleTable(sql, schema, table, filters)
+			}
+			if err != nil {
+				return QueryData{}, ErrGateway
+			}
+		}
+		effectiveBinding, err = bindingWithPermissionColumns(binding, blocked)
+		if err != nil {
+			return QueryData{}, ErrGateway
+		}
+	}
+	if err := authorizeEnabledTablesSQL(binding, sql); err != nil {
+		return QueryData{}, err
+	}
+	if err := authorizeEnabledFieldsSQL(effectiveBinding, sql); err != nil {
+		return QueryData{}, err
+	}
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
 	if err := authorizeDatabaseSelectedSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
-	return service.Gateway.Query(ctx, principal, binding, sql)
+	data, err := service.Gateway.Query(ctx, principal, binding, sql)
+	if err != nil {
+		return QueryData{}, err
+	}
+	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return QueryData{}, err
+	}
+	if err := variables.unchanged(ctx); err != nil {
+		return QueryData{}, err
+	}
+	return data, nil
 }
 
-// A SQLBot upload creates its tables before the browser chooses which ones to
-// include in the datasource. Keep that final choice in the encrypted binding.
-// The connector token stays server-side, and both discovery and execution use
-// this restriction before reaching the gateway.
+// File imports share a physical PostgreSQL database. The server-held datasource
+// configuration is the outer table boundary, even when every imported sheet
+// is selected. A later browser selection can only narrow that boundary.
 func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
 	if databaseBinding(binding) {
 		return nil, nil
 	}
-	if binding.SelectedTables == "" {
-		return nil, nil
-	}
-	// An explicit empty choice must not be mistaken for the legacy empty
-	// string, which means every imported sheet is selected.
-	if binding.SelectedTables == "!" && binding.Type == "excel" && binding.Dialect == "pg" &&
-		managedFileOperationPattern.MatchString(binding.ManagedFileID) {
-		return map[string]bool{}, nil
-	}
 	if binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
 		return nil, ErrGateway
+	}
+	_, sheets, err := decodeSQLBotExcelConfig(binding.Configuration)
+	if err != nil {
+		return nil, ErrGateway
+	}
+	imported := make(map[string]bool, len(sheets))
+	for _, sheet := range sheets {
+		if imported[sheet.TableName] {
+			return nil, ErrGateway
+		}
+		imported[sheet.TableName] = true
+	}
+	if binding.SelectedTables == "" {
+		return imported, nil
+	}
+	// An explicit empty choice must not be mistaken for the legacy empty
+	// string, which means every imported sheet is selected.
+	if binding.SelectedTables == "!" {
+		return map[string]bool{}, nil
 	}
 	parts := strings.Split(binding.SelectedTables, ",")
 	if len(parts) == 0 || len(parts) > 8 {
@@ -57,7 +185,7 @@ func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
 	}
 	selected := make(map[string]bool, len(parts))
 	for _, name := range parts {
-		if !managedFileNamePattern.MatchString(name) || selected[name] {
+		if !managedFileNamePattern.MatchString(name) || !imported[name] || selected[name] {
 			return nil, ErrGateway
 		}
 		selected[name] = true

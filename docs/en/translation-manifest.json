@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "b5061515ed63c2c9c70df71c654dff1db66806b703689f4cdab70f185f277b68"
+      "source_sha256": "49b8f8f6f67b75a3efeff5a3261b2466c1d7f52d2af8acaaf675c4895eb52727"
     },
     {
       "source": "CHANGELOG.md",
@@ -79,7 +79,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "c827186963b5b30a032b8d8ecee2b9b8f70c9a24e3fab48db8c7f17d0fb8e09b"
+      "source_sha256": "35e9a0e8448e71847281d68c1422740049506af77df7cfd8a7373b1d28773fed"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -294,7 +294,7 @@
     {
       "source": "docs/release-notes-v0.5.md",
       "english": "docs/en/release-notes-v0.5.md",
-      "source_sha256": "af32e0e85b45fb2c96a9630bf43ea7509064cd0456000ee48d19f25cc6f095f1"
+      "source_sha256": "3076eb962196939ac029ed213475687f184d24dea5df59bee1093b94e06a4fb5"
     },
     {
       "source": "docs/release-notes-v0.6.0.md",
@@ -474,7 +474,7 @@
     {
       "source": "docs/RELEASE_ROUTINE.md",
       "english": "docs/en/RELEASE_ROUTINE.md",
-      "source_sha256": "60896c31bd668401825323267192281d29f660212c348983433a9d0238d2e86f"
+      "source_sha256": "707daa4e639e7157c52f52e4667544c8bce5ba7c6ba5c11c75d8bb78ca4a7469"
     },
     {
       "source": "docs/runner-b80r-report.md",
@@ -1239,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "3d29e49f093a5dff4d661c5f49825b52d8e7d495b4105345f28495beff05fc4e"
+      "source_sha256": "5fecda097c5b87584da6e746866b789b22217b19942675f13caa2f1b1cd2733c"
     },
     {
       "source": "docs/v4.3.0-design.md",
@@ -1260,6 +1260,16 @@
       "source": "docs/v4.4.0-design.md",
       "english": "docs/en/v4.4.0-design.md",
       "source_sha256": "7281af0647f8988ed8c0b8753a47c7945ad974f2391f808befd9193623d989be"
+    },
+    {
+      "source": "docs/v4.5.0-design.md",
+      "english": "docs/en/v4.5.0-design.md",
+      "source_sha256": "283c3830b0ab8c8ce6e14a20af49cd4e0d1c36d538b3c48111f2defcab8bdae2"
+    },
+    {
+      "source": "docs/v4.5.0-offline-delivery.md",
+      "english": "docs/en/v4.5.0-offline-delivery.md",
+      "source_sha256": "078c3329c2e6c3755152cdf927cbf3b410649780026fac7b64a6075e3e142097"
     }
   ]
 }

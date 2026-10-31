@@ -3,7 +3,7 @@ import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
 import { setupChatSettings } from './chat-settings.js';
 import { setupUserVariableEditor } from './user-variables.js';
-import { setupSourceRelations } from './source-relations.js';
+import { renderSourceRelations } from './source-relations.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -41,6 +41,8 @@ Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',
 Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Create and review accounts, manage workspace membership and enable or disable users. Management changes are audited.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
 Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'设置初始密码并选择当前工作空间。密码只在此提交一次。',usersName:'姓名',usersEmail:'邮箱',usersInitialPassword:'初始密码（12–72 字符）',usersCreateSubmit:'创建用户',usersCreated:'用户已创建'});
 Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
+Object.assign(copy['zh-CN'], {usersImport:'批量导入用户',usersImportNote:'下载模板并填写工作空间名称；部署者须先配置初始密码。目前仅导入 XLSX 中的本地普通成员，其他行进入错误报告。',usersImportTemplate:'下载模板',usersImportFile:'用户 XLSX 文件（最多 4 MiB）',usersImportSubmit:'开始导入',usersImportErrors:'下载错误报告',usersImportResult:'导入成功 {success} 条，失败 {error} 条。',usersImportPassword:'请部署者先配置批量导入的初始密码。'});
+Object.assign(copy.en, {usersImport:'Import users',usersImportNote:'Download the template and enter workspace names. The deployer must configure an initial password first. Only local members in XLSX files are imported; other rows enter the error report.',usersImportTemplate:'Download template',usersImportFile:'User XLSX file (up to 4 MiB)',usersImportSubmit:'Import users',usersImportErrors:'Download error report',usersImportResult:'Imported {success} users; {error} failed.',usersImportPassword:'Ask the deployer to configure the initial password for imports.'});
 Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资料已更新'});
 Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
 Object.assign(copy['zh-CN'], {usersVariablesTitle:'系统变量绑定',usersVariablesNote:'仅管理当前工作空间的取值；行权限尚未使用这些绑定。',usersVariablesEmpty:'当前没有可选变量。',usersVariable:'变量',usersVariableValue:'取值',usersVariableChoose:'请选择变量',usersVariableMissing:'变量已不可用，请移除此绑定',usersVariableAdd:'+ 添加绑定',usersVariableInvalid:'请检查变量、取值和范围。',usersVariableOtherWorkspace:'切换右侧账号的当前工作空间后才能编辑此空间的变量绑定。',usersVariableReadFailed:'变量列表读取失败，当前不能编辑绑定。',usersVariableNeedsMembership:'先把用户加入当前工作空间，再设置变量绑定。'});
@@ -69,10 +71,20 @@ Object.assign(copy['zh-CN'], {sourceSelect:'管理可查询的表',sourceSelectI
 Object.assign(copy.en, {sourceSelect:'Manage queryable tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
 Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
 Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
-Object.assign(copy['zh-CN'], {relationTitle:'表关系',relationNote:'关系只作为本机模型的连接提示；每次查询仍按当前数据库权限执行并审计。最多支持 64 张可见表。',relationTooMany:'当前可见表超过 64 张，暂不能在此编辑关系。',relationOpen:'读取当前关系与字段',relationFrom:'来源字段',relationTo:'目标字段',relationAdd:'添加关系',relationRemove:'移除',relationEmpty:'尚未配置关系',relationSave:'保存关系',relationSaving:'正在核验并保存关系…',relationSaved:'表关系已保存并写入审计。',relationInvalid:'请选择不同表的字段，且不要重复添加关系。'});
-Object.assign(copy.en, {relationTitle:'Table relationships',relationNote:'Relationships are join hints for the local model. Every query still checks current database permissions and is audited. Up to 64 visible tables are supported.',relationTooMany:'More than 64 tables are visible, so relationships cannot be edited here yet.',relationOpen:'Load relationships and fields',relationFrom:'Source field',relationTo:'Target field',relationAdd:'Add relationship',relationRemove:'Remove',relationEmpty:'No relationships configured',relationSave:'Save relationships',relationSaving:'Checking and saving relationships…',relationSaved:'Relationships saved with an audit record.',relationInvalid:'Choose fields from different tables and avoid duplicate relationships.'});
-Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
-Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
+Object.assign(copy['zh-CN'], {sourceFieldEnable:'启用字段',sourceFieldDisable:'停用字段',sourceFieldSaved:'字段状态已保存。',sourceFieldDisabled:'已停用'});
+Object.assign(copy.en, {sourceFieldEnable:'Enable field',sourceFieldDisable:'Disable field',sourceFieldSaved:'Field status saved.',sourceFieldDisabled:'Disabled'});
+Object.assign(copy['zh-CN'], {sourceTableEnable:'启用表',sourceTableDisable:'停用表',sourceTableSaved:'表状态已保存。',sourceTableDisabled:'表已停用'});
+Object.assign(copy.en, {sourceTableEnable:'Enable table',sourceTableDisable:'Disable table',sourceTableSaved:'Table status saved.',sourceTableDisabled:'Table disabled'});
+Object.assign(copy['zh-CN'], {sourceRelations:'表关系',sourceRelationsIntro:'关系只为问数提供描述提示；查询仍按当前网关权限执行。',sourceRelationFromTable:'来源表',sourceRelationFromField:'来源字段',sourceRelationToTable:'目标表',sourceRelationToField:'目标字段',sourceRelationAdd:'添加关系',sourceRelationRemove:'移除',sourceRelationEmpty:'尚未配置表关系。',sourceRelationNeedTables:'至少需要两张当前可见且已选中的表，才能添加关系。'});
+Object.assign(copy.en, {sourceRelations:'Table relationships',sourceRelationsIntro:'Relationships provide descriptive Q&A hints. Queries still use current gateway permissions.',sourceRelationFromTable:'Source table',sourceRelationFromField:'Source field',sourceRelationToTable:'Target table',sourceRelationToField:'Target field',sourceRelationAdd:'Add relationship',sourceRelationRemove:'Remove',sourceRelationEmpty:'No table relationships yet.',sourceRelationNeedTables:'At least two currently visible, selected tables are needed to add a relationship.'});
+Object.assign(copy['zh-CN'], {removeDatabaseSource:'移除数据库数据源',removeDatabasePrompt:'从 AgentSQL 问数中移除此数据源？历史查询将不能再读取它；重新接入须使用新的数据源 ID。网关绑定和数据库账号仍由运维人员管理。',databaseSourceRemoved:'数据库数据源已从问数中移除。'});
+Object.assign(copy.en, {removeDatabaseSource:'Remove database datasource',removeDatabasePrompt:'Remove this datasource from AgentSQL Q&A? Historical queries will no longer read it; reconnecting requires a new datasource ID. The gateway binding and database account remain operator-managed.',databaseSourceRemoved:'Database datasource removed from Q&A.'});
+Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsTemperature:'温度（0–1）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
+Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsTemperature:'Temperature (0–1)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
+Object.assign(copy['zh-CN'], {modelsSelect:'工作空间模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
+Object.assign(copy.en, {modelsSelect:'Workspace model',modelsAdd:'Add model',modelsSetDefault:'Set as default',modelsDelete:'Delete model',modelsDefault:'Default model',modelsNew:'New model',modelsDeleteConfirm:'Delete this nondefault model?',modelsDeleted:'Model deleted with an audit record.',modelsSwitched:'Default model switched with an audit record.'});
+Object.assign(copy['zh-CN'], {modelsSupplier:'供应商',modelsTemperatureExtended:'温度（0–2）',supplierQianfan:'百度千帆',supplierHunyuan:'腾讯混元',supplierTencentCloud:'腾讯云',supplierVolcano:'火山引擎',supplierGeneric:'通用 OpenAI',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；切换默认模型会立即影响本地问数，请先验证模型服务。'});
+Object.assign(copy.en, {modelsSupplier:'Supplier',modelsTemperatureExtended:'Temperature (0–2)',supplierQianfan:'Baidu Qianfan',supplierHunyuan:'Tencent Hunyuan',supplierTencentCloud:'Tencent Cloud',supplierVolcano:'Volcano Engine',supplierGeneric:'Generic OpenAI',modelsIntro:'Manage models used for Q&A in this workspace. Keys are never shown. Switching the default affects local Q&A immediately; verify the model service first.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
 Object.assign(copy.en, {modelsCheck:'Check connection',modelsChecking:'Checking the locally configured model…',modelsCheckSuccess:'The model responded. Test SQL was not executed.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
@@ -80,23 +92,22 @@ copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
-let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
-let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
+let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,sourceRelationEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
+let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1,userImportReportKey='';
 let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
-let modelsVisible=false,modelsEpoch=0,modelRevision=null;
+let modelsVisible=false,modelsEpoch=0,modelRevision=null,modelSelected='default',modelCatalog=[];
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const multipart=body instanceof FormData;const response=await fetch(apiRoot+path,{method,headers:{...(multipart?{}:{'Content-Type':'application/json'}),...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:multipart?body:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 const qaDisplay={sql:true,log:true};
 const chatSettings=setupChatSettings({api,node,get:$,canOpen:()=>!controller,onChange:value=>{qaDisplay.sql=!!value.show_sql;qaDisplay.log=!!value.show_log;}});
-const sourceRelations=setupSourceRelations({api,t,node,get:$,onStatus:sourceStatus});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -170,6 +181,7 @@ async function enter(){
       if(server&&server!==saved)try{await api('/user/language',{language:saved},'PUT');}catch{ /* Keep the local display preference if account persistence fails. */ }
     }else if(server){lang=server;localStorage.setItem('agentsql-chatbi-language',lang);}
     translate();
+    assistants.language();
   }
   sourceList=await api('/datasource/list');
   $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();$('recommendation-source').replaceChildren();
@@ -306,23 +318,47 @@ async function downloadExport(id,chatID,format,button){
 }
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
-function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
+function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;userImportReportKey='';$('users-import-errors').hidden=true;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
-function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
+function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
-async function loadModel(){
+function modelTemperatureRange(){
+  const extended=['4','7'].includes($('model-supplier').value);
+  $('model-temperature').max=extended?'2':'1';
+  document.querySelector('label[for="model-temperature"]').textContent=t(extended?'modelsTemperatureExtended':'modelsTemperature');
+  if(Number($('model-temperature').value)>Number($('model-temperature').max))$('model-temperature').value=$('model-temperature').max;
+}
+function modelCatalogControls(){
+  const secondary=modelSelected!=='default'&&modelSelected!=='new'&&modelRevision>0;
+  $('model-add').disabled=!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101;
+  $('model-set-default').disabled=!secondary;$('model-delete').disabled=!secondary;
+  $('model-check').disabled=modelRevision===null||modelRevision===0;
+}
+async function loadModel(selected=modelSelected){
   if(!modelsVisible)return;
   const epoch=++modelsEpoch;modelRevision=null;modelStatus(t('reading'));
   try{
-    const model=await api('/agentsql/model');
+    const catalog=await api('/agentsql/models');
     if(!modelsVisible||epoch!==modelsEpoch)return;
-    modelRevision=model.revision;
-    $('model-check').disabled=false;
+    modelCatalog=catalog;
+    if(selected!=='default'&&!catalog.some(item=>String(item.id)===selected))selected='default';
+    modelSelected=selected;
+    const picker=$('model-select');picker.replaceChildren();
+    const defaultOption=node('option',t('modelsDefault'));defaultOption.value='default';picker.append(defaultOption);
+    for(const item of catalog.filter(item=>!item.default_model)){
+      const option=node('option',item.name||item.base_model);option.value=String(item.id);picker.append(option);
+    }
+    picker.value=selected;
+    modelCatalogControls();
+    const model=await api(selected==='default'?'/agentsql/model':'/agentsql/models/'+encodeURIComponent(selected));
+    if(!modelsVisible||epoch!==modelsEpoch)return;
+    modelRevision=model.revision;modelCatalogControls();
+	$('model-supplier').value=String(model.supplier||15);modelTemperatureRange();
     $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
-    $('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);
+	$('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);$('model-temperature').value=String(model.temperature??0);
     $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
   }catch(error){if(modelsVisible&&epoch===modelsEpoch){
-    if(error.status===404){modelRevision=0;$('model-check').disabled=true;$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
+    if(error.status===404&&modelSelected==='default'){modelRevision=0;modelCatalogControls();$('model-form').reset();modelTemperatureRange();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
     else modelStatus(t('failed'),true);
   }}
 }
@@ -675,9 +711,15 @@ async function showSources(){
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  // Drop previously rendered datasource content before refreshing authority.
+  // A failed list request must not leave old rows or metadata in this page.
+  selectedSource=null;sourceList=[];$('source-detail').hidden=true;
+  $('source-list').replaceChildren();$('source-tables').replaceChildren();
+  $('source-fields').replaceChildren();$('source-preview').replaceChildren();
+  $('source-remarks')?.remove();$('source-relations')?.remove();
   const epoch=++sourceEpoch;sourceStatus(t('sourceLoading'));
   try{sourceList=await api('/datasource/list');if(!sourceVisible||epoch!==sourceEpoch)return;
-    selectedSource=null;$('source-detail').hidden=true;renderSourceList();sourceStatus('');
+    renderSourceList();sourceStatus('');
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
 }
 async function showDashboards(){
@@ -706,45 +748,54 @@ document.addEventListener('agentsql:show-chat-settings',()=>{
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
 });
 async function loadSource(source,restoreTableID=null){
-  selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
-  sourceRelations.reset();
+  selectedSource=source;const epoch=++sourceEpoch,relationEpoch=++sourceRelationEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
-  $('source-delete').hidden=!(isAdmin&&source.type==='excel');
+  $('source-delete').hidden=true;
   $('source-select').hidden=true;$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
-  $('source-remarks')?.remove();
-  let managed=false,databaseEditable=false;
+  $('source-remarks')?.remove();$('source-relations')?.remove();
+  let managed=false;
   if(isAdmin&&source.type==='excel'){
     try{await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
       if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
-      managed=true;$('source-select').hidden=false;
+      managed=true;$('source-select').hidden=false;$('source-delete').hidden=false;
+      $('source-delete').textContent=t('deleteSource');
     }catch{ /* A nonmanaged Excel datasource has no managed-file editor. */ }
   }
   if(isAdmin&&(source.type==='pg'||source.type==='mysql')){
+    $('source-delete').hidden=false;$('source-delete').textContent=t('removeDatabaseSource');
     try{await api('/agentsql/datasource/databaseTables/'+encodeURIComponent(String(source.id)));
       if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
-      databaseEditable=true;$('source-select').hidden=false;
+      $('source-select').hidden=false;
     }catch{ /* An unavailable gateway does not expose an editable table set. */ }
   }
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
-    if(managed||databaseEditable)renderSourceRemarkTools(source);
-    if(isAdmin)sourceRelations.show(source,tables);
+    if(managed)renderSourceRemarkTools(source);
     for(const table of tables){
       const group=node('div',undefined,'source-table-group');
       const button=node('button',table.table_name,'source-table');button.type='button';
       button.dataset.tableId=String(table.id);
       button.title=table.custom_comment||table.table_name;
       button.onclick=()=>{void loadSourceTable(source,table);};group.append(button);
-      if(isAdmin&&(managed||databaseEditable)){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
+      if(managed||(isAdmin&&(source.type==='pg'||source.type==='mysql'))){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
         edit.setAttribute('aria-label',t('sourceRemarkTable')+' '+table.table_name);
-        edit.onclick=()=>{void saveSourceRemark(source,table,null,edit);};group.append(edit);}
+        edit.onclick=()=>{void saveSourceRemark(source,table,null,edit);};group.append(edit);
+        const toggle=node('button',t(table.checked?'sourceTableDisable':'sourceTableEnable'),'source-remark-edit');toggle.type='button';
+        toggle.setAttribute('aria-label',t(table.checked?'sourceTableDisable':'sourceTableEnable')+' '+table.table_name);
+        toggle.onclick=()=>{void toggleSourceTable(source,table,toggle);};group.append(toggle);}
+      if(!table.checked)group.append(node('small',t('sourceTableDisabled')));
       if(table.custom_comment)group.append(node('small',table.custom_comment));
       $('source-tables').append(group);
     }
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
+    if(isAdmin&&(managed||source.type==='pg'||source.type==='mysql')){
+      const relations=await renderSourceRelations({source,tables,api,t,node,
+        valid:()=>sourceVisible&&relationEpoch===sourceRelationEpoch&&String(selectedSource?.id)===String(source.id)});
+      if(sourceVisible&&relationEpoch===sourceRelationEpoch&&String(selectedSource?.id)===String(source.id))$('source-tables').before(relations);
+    }
     if(restoreTableID!==null){const restored=tables.find(table=>String(table.id)===String(restoreTableID));
       if(restored)await loadSourceTable(source,restored);}
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
@@ -763,6 +814,26 @@ async function saveSourceRemark(source,table,field,button){
     if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
     await loadSource(source,table.id);
     sourceStatus(t('sourceRemarkSaved'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+async function toggleSourceField(source,table,field,button){
+  if(!sourceVisible||!isAdmin||String(selectedSource?.id)!==String(source.id))return;
+  button.disabled=true;
+  try{
+    await api('/datasource/editField',{...field,checked:!field.checked},'POST');
+    if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+    await loadSource(source,table.id);
+    sourceStatus(t('sourceFieldSaved'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+async function toggleSourceTable(source,table,button){
+  if(!sourceVisible||!isAdmin||String(selectedSource?.id)!==String(source.id))return;
+  button.disabled=true;
+  try{
+    await api('/datasource/editTable',{...table,checked:!table.checked},'POST');
+    if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+    await loadSource(source,table.id);
+    sourceStatus(t('sourceTableSaved'));
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 async function downloadSourceRemarks(source,template,button){
@@ -832,11 +903,13 @@ async function saveTableChoices(event){
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 async function deleteSelectedSource(){
-  const source=selectedSource;if(!isAdmin||!sourceVisible||source?.type!=='excel'||!window.confirm(t('deleteSourcePrompt')))return;
+  const source=selectedSource;if(!isAdmin||!sourceVisible||!['excel','pg','mysql'].includes(source?.type)||
+    $('source-delete').hidden||!window.confirm(t(source.type==='excel'?'deleteSourcePrompt':'removeDatabasePrompt')))return;
   const button=$('source-delete');button.disabled=true;
   try{
     await api('/datasource/delete/'+encodeURIComponent(String(source.id))+'/'+encodeURIComponent(source.name),{},'POST');
-    selectedSource=null;$('source-detail').hidden=true;await enter();await showSources();sourceStatus(t('sourceDeleted'));
+    selectedSource=null;$('source-detail').hidden=true;await enter();await showSources();
+    sourceStatus(t(source.type==='excel'?'sourceDeleted':'databaseSourceRemoved'));
   }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 function renderPreview(result){
@@ -859,10 +932,16 @@ async function loadSourceTable(source,table){
     if(!sourceVisible||epoch!==sourceEpoch)return;
     for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));
       if(field.custom_comment)row.append(node('small',field.custom_comment));
-      if(isAdmin&&((source.type==='excel'&&$('source-remarks'))||((source.type==='pg'||source.type==='mysql')&&!$('source-select').hidden))){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
-        edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);}
+      if(!field.checked)row.append(node('small',t('sourceFieldDisabled')));
+      if(isAdmin&&((source.type==='excel'&&$('source-remarks'))||source.type==='pg'||source.type==='mysql')){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
+        edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);
+        const toggle=node('button',t(field.checked?'sourceFieldDisable':'sourceFieldEnable'),'source-remark-edit');toggle.type='button';
+        toggle.setAttribute('aria-label',t(field.checked?'sourceFieldDisable':'sourceFieldEnable')+' '+field.field_name);
+        toggle.onclick=()=>{void toggleSourceField(source,table,field,toggle);};row.append(toggle);}
       $('source-fields').append(row);}
     if(!fields.length)$('source-fields').append(node('p',t('fieldEmpty'),'semantic-empty'));
+    if(!table.checked){renderPreview({fields:[],data:[]});sourceStatus(t('sourceTableDisabled'));return;}
+    if(fields.length&&fields.every(field=>!field.checked)){renderPreview({fields:[],data:[]});sourceStatus('');return;}
     const result=await api('/datasource/previewData/'+id,{table:{id:String(table.id),table_name:table.table_name}},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
     renderPreview(result);sourceStatus('');
@@ -1030,25 +1109,95 @@ $('user-create-form').onsubmit=async event=>{
   }catch(error){$('users-status').textContent=error.message===t('usersVariableInvalid')?error.message:t('failed');$('users-status').classList.add('error');}
   finally{submit.disabled=false;$('user-create-password').value='';}
 };
+async function downloadUserImportFile(path,filename){
+  const response=await fetch(apiRoot+path,{headers:{'X-SQLBOT-TOKEN':'Bearer '+token}});
+  if(!response.ok||!response.headers.get('Content-Type')?.includes('spreadsheetml.sheet'))throw new Error('download');
+  const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+}
+$('users-import-template').onclick=async()=>{
+  const button=$('users-import-template');button.disabled=true;
+  try{await downloadUserImportFile('/user/template','agentsql-users.xlsx');$('users-status').textContent='';}
+  catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{button.disabled=false;}
+};
+$('users-import-form').onsubmit=async event=>{
+  event.preventDefault();const file=$('users-import-file').files?.[0],button=event.target.querySelector('button[type=submit]');
+  if(!file||file.size>4*1024*1024||!file.name.toLowerCase().endsWith('.xlsx')){$('users-status').textContent=t('failed');$('users-status').classList.add('error');return;}
+  button.disabled=true;userImportReportKey='';$('users-import-errors').hidden=true;
+  try{
+    const body=new FormData();body.append('file',file);
+    const response=await fetch(apiRoot+'/user/batchImport',{method:'POST',headers:{'X-SQLBOT-TOKEN':'Bearer '+token},body});
+    if(response.status===409)throw new Error('password');
+    if(!response.ok)throw new Error('upload');
+    const envelope=await response.json(),report=envelope.data;
+    if(envelope.code!==0||!Number.isInteger(report?.successCount)||!Number.isInteger(report?.errorCount))throw new Error('upload');
+    userImportReportKey=typeof report.dataKey==='string'?report.dataKey:'';
+    $('users-import-errors').hidden=!userImportReportKey;
+    $('users-import-file').value='';await loadUsers();
+    $('users-status').textContent=t('usersImportResult').replace('{success}',String(report.successCount)).replace('{error}',String(report.errorCount));
+    $('users-status').classList.toggle('error',report.errorCount>0);
+  }catch(error){$('users-status').textContent=t(error.message==='password'?'usersImportPassword':'failed');$('users-status').classList.add('error');}
+  finally{button.disabled=false;}
+};
+$('users-import-errors').onclick=async()=>{
+  if(!userImportReportKey)return;const button=$('users-import-errors');button.disabled=true;
+  try{await downloadUserImportFile('/user/errorRecord/'+encodeURIComponent(userImportReportKey),'agentsql-user-import-errors.xlsx');}
+  catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{button.disabled=false;}
+};
 $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
 $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
 $('variables-nav').onclick=()=>{void showVariables();};
 $('models-nav').onclick=()=>{void showModels();};
 $('model-reload').onclick=()=>{void loadModel();};
+$('model-select').onchange=()=>{modelSelected=$('model-select').value;void loadModel(modelSelected);};
+$('model-supplier').onchange=modelTemperatureRange;
+$('model-add').onclick=()=>{
+  if(!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101)return;
+  modelSelected='new';modelRevision=0;$('model-form').reset();modelTemperatureRange();$('model-key-state').textContent=t('modelsKeyEmpty');
+  const option=node('option',t('modelsNew'));option.value='new';$('model-select').append(option);$('model-select').value='new';
+  modelCatalogControls();modelStatus('');
+};
+$('model-set-default').onclick=async()=>{
+  if(modelSelected==='default'||modelSelected==='new'||modelRevision<1)return;
+  const button=$('model-set-default');button.disabled=true;
+  try{await api('/agentsql/models/'+encodeURIComponent(modelSelected)+'/default',undefined,'PUT');await loadModel('default');modelStatus(t('modelsSwitched'));}
+  catch{modelStatus(t('failed'),true);}finally{modelCatalogControls();}
+};
+$('model-delete').onclick=async()=>{
+  if(modelSelected==='default'||modelSelected==='new'||modelRevision<1||!confirm(t('modelsDeleteConfirm')))return;
+  const button=$('model-delete');button.disabled=true;
+  try{await api('/agentsql/models/'+encodeURIComponent(modelSelected),undefined,'DELETE');await loadModel('default');modelStatus(t('modelsDeleted'));}
+  catch{modelStatus(t('failed'),true);}finally{modelCatalogControls();}
+};
 $('model-check').onclick=async()=>{
   if(!modelsVisible||modelRevision===null||modelRevision===0)return;
   const button=$('model-check');button.disabled=true;modelStatus(t('modelsChecking'));
-  try{await api('/agentsql/model/check',undefined,'POST');modelStatus(t('modelsCheckSuccess'));}
+  const path=modelSelected==='default'?'/agentsql/model/check':'/agentsql/models/'+encodeURIComponent(modelSelected)+'/check';
+  try{await api(path,undefined,'POST');modelStatus(t('modelsCheckSuccess'));}
   catch{modelStatus(t('failed'),true);}finally{button.disabled=false;}
 };
 $('model-form').onsubmit=async event=>{
   event.preventDefault();if(modelRevision===null)return;
   const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
-  const update={revision:modelRevision,name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
-    api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value)};
+  const update={revision:modelRevision,supplier:Number($('model-supplier').value),name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
+    api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value),temperature:Number($('model-temperature').value)};
   if($('model-key').value!=='')update.api_key=$('model-key').value;
-  try{await api('/agentsql/model',update,modelRevision===0?'POST':'PUT');await loadModel();modelStatus(t('modelsSaved'));}
+  const before=new Set(modelCatalog.map(item=>String(item.id)));
+  const path=modelSelected==='new'?'/agentsql/models':modelSelected==='default'?'/agentsql/model':'/agentsql/models/'+encodeURIComponent(modelSelected);
+  const method=modelRevision===0?'POST':'PUT';
+  try{
+    await api(path,update,method);
+    if(modelSelected==='new'){
+      const catalog=await api('/agentsql/models');
+      const created=catalog.find(item=>!before.has(String(item.id)));
+      await loadModel(created?String(created.id):'default');
+    }else await loadModel(modelSelected);
+    modelStatus(t('modelsSaved'));
+  }
   catch{modelStatus(t('failed'),true);}finally{submit.disabled=false;$('model-key').value='';}
 };
 $('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1;void loadVariables();};

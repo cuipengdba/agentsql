@@ -63,17 +63,31 @@ func managedFileRemarkHints(binding Binding, columns []Column) ([]RemarkHint, er
 			}
 		}
 	}
-	// Remarks are optional context. Bound the prompt without preventing a valid
-	// authorized query when many long comments have been saved.
-	for len(result) > 0 {
-		encoded, err := json.Marshal(result)
+	return boundRemarkHints(result)
+}
+
+// Remarks are optional context. Bound the prompt without preventing a valid
+// authorized query when many long comments have been saved.
+func boundRemarkHints(result []RemarkHint) ([]RemarkHint, error) {
+	// Count the encoded array incrementally. Repeatedly marshaling a prefix
+	// would be quadratic for a database with thousands of commented columns.
+	bytes := 2 // []
+	for index, hint := range result {
+		if index == 264 { // OpenAIModel's description contract.
+			return result[:index], nil
+		}
+		encoded, err := json.Marshal(hint)
 		if err != nil {
 			return nil, ErrUnavailable
 		}
-		if len(encoded) <= 256<<10 {
-			break
+		itemBytes := len(encoded)
+		if index > 0 {
+			itemBytes++ // comma
 		}
-		result = result[:len(result)-1]
+		if bytes+itemBytes > 256<<10 {
+			return result[:index], nil
+		}
+		bytes += itemBytes
 	}
 	return result, nil
 }

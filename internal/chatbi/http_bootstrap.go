@@ -3,6 +3,7 @@ package chatbi
 import (
 	"errors"
 	"net/http"
+	"strconv"
 )
 
 // These read-only responses match the SQLBot Community v1.10.2 browser
@@ -81,12 +82,20 @@ func (h *Handler) sqlbotChatParameters(w http.ResponseWriter, r *http.Request, p
 // The original login and user-management pages read these settings before
 // authentication. AgentSQL provisions user passwords explicitly and never
 // publishes a shared default password to the browser.
-func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, _ *http.Request) {
-	okay(w, []sqlbotChatParameter{
-		{Key: "login.default_login", Value: "0", ID: "agentsql-login-default", Type: "str"},
-		{Key: "login.initial_pwd_disabled", Value: "false", ID: "agentsql-login-initial-disabled", Type: "str"},
-		{Key: "login.initial_pwd_hidden", Value: "true", ID: "agentsql-login-initial-hidden", Type: "str"},
-	})
+func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.service.Store.ChatSettings(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, loginParameterList(settings))
+}
+
+func loginParameterList(settings chatSettings) []sqlbotChatParameter {
+	return []sqlbotChatParameter{
+		{Key: "login.initial_pwd_disabled", Value: strconv.FormatBool(settings.InitialPasswordDisabled), ID: "7521910576851", Type: "str"},
+		{Key: "login.initial_pwd_hidden", Value: strconv.FormatBool(settings.InitialPasswordHidden), ID: "7521910576852", Type: "str"},
+	}
 }
 
 func (h *Handler) sqlbotDefaultPassword(w http.ResponseWriter, r *http.Request, p Principal, token string) {

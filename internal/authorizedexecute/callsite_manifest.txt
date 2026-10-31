@@ -17,21 +17,29 @@ internal/chatbi/managed_file_claim.go
 internal/chatbi/managed_file_selection.go
 # Database table selection updates the encrypted local binding and audit in one transaction.
 internal/chatbi/database_selection_http.go
-# Table relationships update only the encrypted local binding and management
-# audit through fixed, bound SQLite statements in one transaction.
-internal/chatbi/table_relation_http.go
+# Managed-file datasource metadata updates only the encrypted local binding;
+# the original browser cannot change imported file or gateway credentials.
+internal/chatbi/datasource_excel_update.go
 # Managed-file table and field remarks update only the encrypted local binding
 # with fixed bound SQLite statements and a same-transaction management audit.
 internal/chatbi/managed_file_table_comment.go
 internal/chatbi/managed_file_field_comment.go
+  # Database remarks use the same encrypted owner binding and fixed bound
+  # control-store SQL; they cannot execute against a business database.
+internal/chatbi/database_comment.go
+  # Schema refresh audits a fresh gateway-visible read in the encrypted local
+  # control store. It never runs browser-provided SQL.
+internal/chatbi/datasource_schema_sync.go
 # Bounded remark-workbook import updates only encrypted local binding metadata;
 # management audit and binding revision commit in the same SQLite transaction.
 internal/chatbi/managed_file_remark_import.go
-# Server-owned database remarks update only encrypted local binding metadata;
-# fixed, bound SQLite writes and management audit commit in one transaction.
-# Neither path opens a connection to the business datasource.
-internal/chatbi/database_remark.go
-internal/chatbi/database_remark_workbook.go
+internal/chatbi/database_remark_import.go
+# Relationship graph updates use fixed parameterized local control-store SQL;
+# the owner binding and management audit commit in the same transaction.
+internal/chatbi/table_relation_store.go
+# Removing an owner database alias writes a fixed local DELETE and audit in
+# one SQLite transaction; it never removes the operator gateway binding.
+internal/chatbi/database_delete.go
 # Membership and user creation mutate encrypted local identity/control-plane
 # rows with bound SQLite statements and a mandatory same-transaction audit.
 # They cannot open or execute against a business datasource.
@@ -43,13 +51,23 @@ internal/chatbi/http_workspace_catalog.go
 # Workspace-scoped custom variables use fixed, bound statements against the
 # encrypted local control-plane store and commit with management audit only.
 internal/chatbi/system_variable_store.go
+# Workspace data-permission rule drafts use fixed local SQLite statements;
+# rule changes and management audit are committed in one transaction.
+internal/chatbi/data_permission_rule_store.go
 # Workspace model updates use the same encrypted local control-plane store,
 # current administrator identity and same-transaction management audit.
 internal/chatbi/model_admin_store.go
+# Secondary workspace models use fixed, bound statements against the encrypted
+# local control-plane store, with administrator checks and management audit.
+internal/chatbi/model_catalog_store.go
 internal/chatbi/api_key_store.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
 internal/chatbi/assistant.go
+# Assistant UI image writes and revocation use fixed, parameterized SQLite
+# statements against encrypted local control-plane objects only. Image,
+# application revision and management audit changes share one transaction.
+internal/chatbi/assistant_images.go
 # Public embed metadata lookup scans bounded encrypted local control-plane rows.
 # The method never opens a business datasource connection.
 internal/chatbi/http_embedded_public.go
@@ -59,12 +77,6 @@ internal/chatbi/managed_file_subset.go
 # Query calls here are the controlled gateway interface, not a database driver.
 internal/chatbi/service.go
 internal/chatbi/datasource_schema.go
-# Refreshes gateway-visible schema only after current identity and binding checks;
-# the local transaction adds an audit record and cannot contact a business database.
-internal/chatbi/datasource_schema_sync.go
-# Data source metadata changes touch only encrypted local control-plane rows;
-# the current gateway binding and audit are committed together.
-internal/chatbi/datasource_excel_update.go
 internal/b5session/sql_ledger.go
 internal/b5session/tombstone.go
 internal/b5session/pg_inventory.go

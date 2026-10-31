@@ -34,7 +34,7 @@ func TestEmptyRecommendationShapeMatchesPinnedSQLBot(t *testing.T) {
 
 func TestRecommendationsRequireCurrentBindingAndAtomicConfiguration(t *testing.T) {
 	ctx := context.Background()
-	service, principal, _, _, token := serviceFixture(t)
+	service, principal, gateway, _, token := serviceFixture(t)
 	config := RecommendationConfig{Workspace: "1", Datasource: "10", Mode: 2, Questions: []RecommendedProblem{
 		{ID: "2", Datasource: "10", Question: "second question", Sort: 2},
 		{ID: "1", Datasource: "10", Question: "first question", Sort: 1},
@@ -62,6 +62,23 @@ func TestRecommendationsRequireCurrentBindingAndAtomicConfiguration(t *testing.T
 			t.Fatalf("authorized route failed: %s: %d", path, response.Code)
 		}
 	}
+	gateway.schemaErr = ErrGateway
+	if _, err := service.Recommendations(ctx, principal, "10"); !errors.Is(err, ErrGateway) {
+		t.Fatal("gateway schema failure returned stored recommendations")
+	}
+	for _, path := range []string{
+		"/api/v1/recommended_problem/get_datasource_recommended/10",
+		"/api/v1/recommended_problem/get_datasource_recommended_base/10",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code == http.StatusOK || strings.Contains(response.Body.String(), "first question") {
+			t.Fatal("gateway schema failure exposed stored recommendations")
+		}
+	}
+	gateway.schemaErr = nil
 	config.Mode = 1 // Unsupported automatic generation must not silently downgrade.
 	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{Recommendations: []RecommendationConfig{config}}); err == nil {
 		t.Fatal("unsupported recommendation mode accepted")

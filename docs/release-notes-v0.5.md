@@ -120,7 +120,7 @@ v0.4.0 的 GitHub Release 已核实包含下列 15 个资产。v0.5.0 沿用同�
 | 类型 | v0.5.0 步骤 |
 | --- | --- |
 | 复用 | 仓库公开与 PVR 复核；固定 Rocky Linux 8 digest 构建 amd64/arm64；恰好 15 个 Release 资产、SHA-256、SBOM/provenance 与 Ed25519 签名；先建 Release 草稿并回下载验证；GHCR 精确 tag → public → 匿名双架构 pull → 再移动 `latest`；Demo reset；官网 PDF/静态验收/部署；Release 草稿转正式；发布后无登录烟测 |
-| v0.5 新增闸门 | 核对 Apache-2.0 / `NOTICE` / 商业许可口径；逐项复核 27 款注册与 dialect 矩阵，保留“协议路径实测 ≠ 厂商认证”；构建并演练 demo/quickstart 辅助镜像；复核 R005 闭环证据，DM/Oracle 完整网关与金仓超出 PG 协议基础闭环的能力、其它商业版终验不得误标完成；标准 runner 独占重跑 parser P99 连续五轮；由维护者确认 `SECURITY.md` 支持版本矩阵 |
+| v0.5 新增闸门 | 核对 Apache-2.0 / `NOTICE` 一致性；逐项复核 27 款注册与 dialect 矩阵，保留“协议路径实测 ≠ 厂商认证”；构建并演练 demo/quickstart 辅助镜像；复核 R005 闭环证据，DM/Oracle 完整网关与金仓超出 PG 协议基础闭环的能力、其它商业版终验不得误标完成；标准 runner 独占重跑 parser P99 连续五轮；由维护者确认 `SECURITY.md` 支持版本矩阵 |
 
 ### 发布检查清单
 

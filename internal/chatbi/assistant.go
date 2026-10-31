@@ -18,22 +18,23 @@ var ErrInvalidAssistant = errors.New("invalid assistant application")
 // AssistantApplication is a workspace-owned application configuration. It is
 // never a database credential or an authorization grant by itself.
 type AssistantApplication struct {
-	ID             ID        `json:"id,omitempty"`
-	Workspace      ID        `json:"oid,omitempty"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description,omitempty"`
-	Type           int       `json:"type"` // 0 basic, 1 advanced, 4 page embed
-	Domain         string    `json:"domain"`
-	DatasourceIDs  []ID      `json:"datasource_ids"`
-	Configuration  string    `json:"configuration,omitempty"`
-	UseCustomModel bool      `json:"enable_custom_model"`
-	CustomModel    *ID       `json:"custom_model,omitempty"`
-	Enabled        bool      `json:"enabled"`
-	AppID          string    `json:"app_id,omitempty"`
-	AppSecret      string    `json:"app_secret,omitempty"`
-	Created        time.Time `json:"created_at"`
-	Updated        time.Time `json:"updated_at"`
-	Revision       int64     `json:"revision"`
+	ID              ID        `json:"id,omitempty"`
+	Workspace       ID        `json:"oid,omitempty"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description,omitempty"`
+	Type            int       `json:"type"` // 0 basic, 1 advanced, 4 page embed
+	Domain          string    `json:"domain"`
+	DatasourceIDs   []ID      `json:"datasource_ids"`
+	PublicGuestUser ID        `json:"public_guest_user,omitempty"`
+	Configuration   string    `json:"configuration,omitempty"`
+	UseCustomModel  bool      `json:"enable_custom_model"`
+	CustomModel     *ID       `json:"custom_model,omitempty"`
+	Enabled         bool      `json:"enabled"`
+	AppID           string    `json:"app_id,omitempty"`
+	AppSecret       string    `json:"app_secret,omitempty"`
+	Created         time.Time `json:"created_at"`
+	Updated         time.Time `json:"updated_at"`
+	Revision        int64     `json:"revision"`
 }
 
 func assistantKey(workspace, id ID) objectKey {
@@ -97,10 +98,12 @@ func (service *Service) embeddedSourceAllowed(ctx context.Context, p Principal, 
 	}
 	var app AssistantApplication
 	revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
-	if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != 4 || !app.Enabled {
+	if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != p.EmbeddedType || !app.Enabled ||
+		(app.Type == 0 && (app.PublicGuestUser != p.User.ID || p.VisitorScope == "" || len(app.DatasourceIDs) == 0)) ||
+		(app.Type != 0 && app.Type != 4) {
 		return ErrUnauthenticated
 	}
-	if len(app.DatasourceIDs) == 0 {
+	if len(app.DatasourceIDs) == 0 && app.Type == 4 {
 		return nil
 	}
 	for _, allowed := range app.DatasourceIDs {
@@ -185,8 +188,27 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 			return AssistantApplication{}, err
 		}
 	}
+	// The original browser SDK cannot authenticate its viewer with its public
+	// RSA header. A public assistant therefore needs a separate, explicitly
+	// designated non-admin identity with its own current datasource bindings.
+	if app.PublicGuestUser != "" {
+		if app.Type != 0 || !app.PublicGuestUser.Valid() || app.PublicGuestUser == p.User.ID || len(app.DatasourceIDs) == 0 {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+		guest, _, err := service.Store.User(ctx, app.PublicGuestUser)
+		if err != nil || guest.Admin || guest.Origin != 0 || guest.Workspace != p.Workspace || !guest.canUse(p.Workspace) {
+			return AssistantApplication{}, ErrInvalidAssistant
+		}
+		guestPrincipal := Principal{User: guest, Workspace: p.Workspace}
+		for _, source := range app.DatasourceIDs {
+			if _, err := service.binding(ctx, guestPrincipal, source); err != nil {
+				return AssistantApplication{}, ErrInvalidAssistant
+			}
+		}
+	}
 	app.Workspace = p.Workspace
 	var previous AssistantApplication
+	var retiredImages []string
 	if app.ID == "" {
 		if app.Revision != 0 {
 			return AssistantApplication{}, ErrInvalidAssistant
@@ -204,6 +226,8 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 			if err != nil {
 				return AssistantApplication{}, err
 			}
+		}
+		if app.Type == 4 || app.PublicGuestUser != "" {
 			app.AppSecret, err = newAssistantCredential(32)
 			if err != nil {
 				return AssistantApplication{}, err
@@ -228,11 +252,24 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 			return AssistantApplication{}, ErrInvalidAssistant
 		}
 		app.AppID, app.AppSecret = previous.AppID, previous.AppSecret
+		if app.PublicGuestUser != "" && app.AppSecret == "" {
+			app.AppSecret, err = newAssistantCredential(32)
+			if err != nil {
+				return AssistantApplication{}, err
+			}
+		}
 		app.Created = previous.Created
+		retiredImages, err = removedAssistantImageIDs(previous.Configuration, app.Configuration)
+		if err != nil {
+			return AssistantApplication{}, err
+		}
 	}
 	app.Updated = time.Now().UTC()
 	if err := service.semanticAdmin(ctx, p); err != nil {
 		return AssistantApplication{}, err
+	}
+	if len(retiredImages) != 0 {
+		return service.saveAssistantUI(ctx, p, app, app.Configuration, "assistant.save", nil, retiredImages)
 	}
 	if err := service.Store.writeSemantic(ctx, assistantKey(p.Workspace, app.ID), app, app.Revision, "assistant.save"); err != nil {
 		return AssistantApplication{}, err
@@ -273,7 +310,7 @@ func (service *Service) DeleteAssistant(ctx context.Context, p Principal, id ID,
 	if !id.Valid() || revision < 1 {
 		return ErrInvalidAssistant
 	}
-	return service.Store.deleteSemantic(ctx, assistantKey(p.Workspace, id), revision, "assistant.delete")
+	return service.deleteAssistantWithImages(ctx, p.Workspace, id, revision)
 }
 
 // DeleteEmbeddedBatch commits all removals and their management audits in a
@@ -325,6 +362,9 @@ func (service *Service) DeleteEmbeddedBatch(ctx context.Context, p Principal, ap
 		}
 		if count != 1 {
 			return ErrConflict
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE kind='assistant-image' AND scope=? AND owner=?`, string(p.Workspace), string(app.ID)); err != nil {
+			return ErrUnavailable
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`, auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
 			return ErrUnavailable

@@ -149,4 +149,50 @@ func TestPublicEmbedHandshakeChecksOriginAndNeverRevealsSecret(t *testing.T) {
 	if preflight.Code != 204 || preflight.Header().Get("Access-Control-Allow-Origin") != "https://app.example" {
 		t.Fatal("SDK preflight rejected")
 	}
+	validate := func(method, origin, referer, id string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "/api/v1/system/assistant/validate/"+id, nil)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		if referer != "" {
+			r.Header.Set("Referer", referer)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+	for _, origin := range []string{"", "https://app.example.evil", "http://app.example"} {
+		if got := validate(http.MethodGet, origin, "", string(app.ID)); got.Code != 403 {
+			t.Fatalf("invalid validation origin %q returned %d", origin, got.Code)
+		}
+	}
+	if got := validate(http.MethodGet, "https://app.example", "", "999999999"); got.Code != 404 {
+		t.Fatalf("unknown validation app returned %d", got.Code)
+	}
+	validated := validate(http.MethodGet, "https://app.example", "", string(app.ID))
+	if validated.Code != 200 || validated.Header().Get("Access-Control-Allow-Origin") != "https://app.example" ||
+		validated.Header().Get("Cache-Control") != "no-store" ||
+		bytes.Contains(validated.Body.Bytes(), []byte(app.AppSecret)) {
+		t.Fatal("public validation failed or disclosed signing material")
+	}
+	var result struct {
+		Valid  bool   `json:"valid"`
+		Origin string `json:"origin"`
+	}
+	if json.Unmarshal(validated.Body.Bytes(), &result) != nil || !result.Valid || result.Origin != "https://app.example" {
+		t.Fatal("public validation response is not the original SDK shape")
+	}
+	if got := validate(http.MethodGet, "", "https://app.example/embed/page", string(app.ID)); got.Code != 200 {
+		t.Fatalf("allowed Referer returned %d", got.Code)
+	}
+	if got := validate(http.MethodOptions, "https://app.example", "", string(app.ID)); got.Code != 204 {
+		t.Fatalf("validation preflight returned %d", got.Code)
+	}
+	app.Enabled = false
+	if _, err := service.SaveAssistant(ctx, principal, app); err != nil {
+		t.Fatal(err)
+	}
+	if got := validate(http.MethodGet, "https://app.example", "", string(app.ID)); got.Code != 404 {
+		t.Fatalf("disabled validation app returned %d", got.Code)
+	}
 }

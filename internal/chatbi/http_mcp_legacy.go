@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,12 +28,16 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &input) {
 		return
 	}
-	_, token, err := h.service.Identity.Login(r.Context(), input.Username, input.Password)
-	if err != nil {
+	_, token, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
+	if err != nil && !errors.Is(err, ErrUnauthenticated) {
+		failure(w, err)
+		return
+	}
+	if err != nil || needChange {
 		writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"access_token": token})
+	okay(w, map[string]string{"access_token": token})
 }
 
 func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
@@ -49,8 +56,12 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusTooManyRequests, "Too many login requests")
 			return
 		}
-		_, issued, err := h.service.Identity.Login(r.Context(), input.Username, input.Password)
-		if err != nil {
+		_, issued, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
+		if err != nil && !errors.Is(err, ErrUnauthenticated) {
+			failure(w, err)
+			return
+		}
+		if err != nil || needChange {
 			writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 			return
 		}
@@ -72,7 +83,7 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
+	okay(w, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
 }
 
 func (h *Handler) mcpBodyPrincipal(w http.ResponseWriter, r *http.Request, token string, selected *ID) (Principal, bool) {
@@ -105,9 +116,32 @@ func (h *Handler) mcpVerifiedPrincipal(w http.ResponseWriter, r *http.Request, t
 }
 
 func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
-	var token string // SQLBot posts a JSON string, not an object.
-	if !readBody(w, r, &token) {
+	var token string
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP token query")
 		return
+	}
+	if values, present := query["token"]; present {
+		// SQLBot v1.10.3 declares this token as a FastAPI query parameter.
+		// Reject any body or competing credential rather than choosing one.
+		if len(query) != 1 || len(values) != 1 || values[0] == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP token query")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 65536)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || strings.TrimSpace(string(body)) != "" && strings.TrimSpace(string(body)) != "null" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Conflicting MCP token body")
+			return
+		}
+		token = values[0]
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+	} else {
+		if len(query) != 0 || !readBody(w, r, &token) {
+			return
+		}
 	}
 	p, ok := h.mcpBodyPrincipal(w, r, token, nil)
 	if !ok {
@@ -130,7 +164,7 @@ func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	okay(w, result)
 }
 
 func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +216,7 @@ func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	okay(w, result)
 }
 
 // SQLBot's model-list body may contain only an oid. AgentSQL accepts that
@@ -224,7 +258,7 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 			failure(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, []any{})
+		okay(w, []any{})
 		return
 	}
 	if err != nil || validateModelConfig(model) != nil {
@@ -235,12 +269,21 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	name := model.Name
-	if name == "" {
-		name = model.Model
+	additional, err := h.service.Store.AdditionalWorkspaceModels(r.Context(), p.Workspace)
+	if err != nil {
+		failure(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, []map[string]any{{"id": legacyBrowserID(model.ID),
-		"name": name, "default_model": true, "supplier": 0}})
+	models := make([]map[string]any, 0, len(additional)+1)
+	for index, item := range append([]ModelConfig{model}, additional...) {
+		name := item.Name
+		if name == "" {
+			name = item.Model
+		}
+		models = append(models, map[string]any{"id": legacyBrowserID(item.ID),
+			"name": name, "default_model": index == 0, "supplier": modelSupplier(item)})
+	}
+	okay(w, models)
 }
 
 func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token string) error {
@@ -369,10 +412,52 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	// the controlled query, audit, local commit and final identity check pass.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n```sql\n%s\n```\n\n", record.ID, input.Question, record.SQL)
-	if record.Data != nil {
-		publicData, _ := json.Marshal(result["data"])
-		_, _ = w.Write(publicData)
-		_, _ = w.Write([]byte("\n"))
+	fence := "```"
+	for strings.Contains(record.SQL, fence) {
+		fence += "`"
 	}
+	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n%ssql\n%s\n%s\n\n", record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
+	if record.Data != nil {
+		_, _ = io.WriteString(w, mcpMarkdownTable(*record.Data))
+	}
+}
+
+// SQLBot's MCP helper emits a Markdown table after the audited SQL. Escape
+// gateway values so stored data cannot add links, images or markup to an
+// assistant's response while preserving the original column order.
+func mcpMarkdownTable(data QueryData) string {
+	if len(data.Fields) == 0 || len(data.Data) == 0 {
+		return "The SQL execution result is empty.\n\n"
+	}
+	var out strings.Builder
+	writeRow := func(values []string) {
+		out.WriteString("| ")
+		out.WriteString(strings.Join(values, " | "))
+		out.WriteString(" |\n")
+	}
+	headings := make([]string, len(data.Fields))
+	separator := make([]string, len(data.Fields))
+	for i, field := range data.Fields {
+		headings[i] = mcpMarkdownCell(field)
+		separator[i] = "---"
+	}
+	writeRow(headings)
+	writeRow(separator)
+	for _, row := range data.Data {
+		values := make([]string, len(data.Fields))
+		for i, field := range data.Fields {
+			if value := row[field]; value != nil {
+				values[i] = mcpMarkdownCell(fmt.Sprint(value))
+			}
+		}
+		writeRow(values)
+	}
+	out.WriteByte('\n')
+	return out.String()
+}
+
+func mcpMarkdownCell(value string) string {
+	value = html.EscapeString(value)
+	return strings.NewReplacer("\\", "\\\\", "|", "\\|", "\r", " ", "\n", " ", "\t", " ",
+		"[", "\\[", "]", "\\]", "!", "\\!").Replace(value)
 }

@@ -73,7 +73,7 @@ func (h *Handler) syncDatasourceFields(w http.ResponseWriter, r *http.Request, p
 func (s *Store) auditDatasourceSchemaSync(ctx context.Context, p Principal, prior Binding,
 	schema, table string, fields int) error {
 	if s == nil || ctx == nil || prior.Workspace != p.Workspace || prior.User != p.User.ID ||
-		!prior.Datasource.Valid() || !validDatabaseRemarkName(schema) || !validDatabaseRemarkName(table) || fields < 1 {
+		!prior.Datasource.Valid() || !databaseRemarkName(schema) || !databaseRemarkName(table) || fields < 1 {
 		return ErrNotFound
 	}
 	key := bindingKey(p, prior.Datasource)

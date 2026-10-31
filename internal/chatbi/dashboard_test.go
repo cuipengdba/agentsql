@@ -37,6 +37,14 @@ func TestDashboardRequeriesAndFailsClosedAfterRevocation(t *testing.T) {
 	if err != nil || len(items) != 1 || len(items[0].Cards) != 0 {
 		t.Fatalf("metadata list: %#v, %v", items, err)
 	}
+	gateway.schemaErr = ErrGateway
+	if _, err := service.Record(ctx, principal, record.ID, false); !errors.Is(err, ErrGateway) {
+		t.Fatalf("record metadata survived gateway outage: %v", err)
+	}
+	if _, err := service.Dashboard(ctx, principal, item.ID, false); !errors.Is(err, ErrGateway) {
+		t.Fatalf("dashboard card metadata survived gateway outage: %v", err)
+	}
+	gateway.schemaErr = nil
 	if _, err := service.SaveDashboard(ctx, principal, Dashboard{ID: item.ID, Name: "stale", Revision: 2}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale write: %v", err)
 	}
@@ -52,6 +60,12 @@ func TestDashboardRequeriesAndFailsClosedAfterRevocation(t *testing.T) {
 	before = gateway.queries
 	if _, err := service.Dashboard(ctx, principal, item.ID, true); err == nil || gateway.queries != before {
 		t.Fatalf("revoked dashboard returned data or reached gateway: %v", err)
+	}
+	if _, err := service.Dashboard(ctx, principal, item.ID, false); err == nil {
+		t.Fatalf("revoked dashboard returned card metadata: %v", err)
+	}
+	if _, err := service.Record(ctx, principal, record.ID, false); err == nil {
+		t.Fatalf("revoked record returned saved SQL metadata: %v", err)
 	}
 	if err := service.DeleteDashboard(ctx, principal, item.ID, item.Revision); err != nil {
 		t.Fatal(err)

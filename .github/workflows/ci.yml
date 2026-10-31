@@ -26,12 +26,16 @@ jobs:
           python-version: '3.11'
       - name: Check full English documentation parity
         run: python scripts/check-docs-i18n.py
+      - name: Check current public license copy
+        run: python scripts/check-public-license-copy.py
       - name: Check shared brand assets
         run: python scripts/sync-brand.py --check
       - name: Test SQLBot adapter failure boundaries
         run: python -m unittest discover -s integrations/sqlbot -p 'test_*.py' -v
       - name: Reject binder bundles without an independent trust anchor
         run: sh dbext/packaging/signing/test-trust-boundary.sh
+      - name: Verify offline transport archive signatures
+        run: python -m unittest scripts/test_verify_offline_archive.py -v
 
   binder-package-smoke:
     runs-on: ubuntu-latest

@@ -15,10 +15,12 @@ import (
 // acceptance evidence. Release acceptance separately uses real services.
 type fakeGateway struct {
 	schemaErr, queryErr error
+	columns             []Column
 	schemaCalls         int
 	queries             int
 	audit               int64
 	lastQuery           string
+	queryData           *QueryData
 	afterQuery          func()
 	afterSchema         func()
 }
@@ -31,6 +33,9 @@ func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, err
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
 	}
+	if g.columns != nil {
+		return g.columns, nil
+	}
 	return []Column{{"public", "sales", "amount", "numeric"}}, nil
 }
 func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query string) (QueryData, error) {
@@ -38,6 +43,9 @@ func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query str
 	g.lastQuery = query
 	if g.afterQuery != nil {
 		g.afterQuery()
+	}
+	if g.queryData != nil {
+		return *g.queryData, g.queryErr
 	}
 	return QueryData{Fields: []string{"amount"}, Data: []map[string]any{{"amount": "123"}}, AuditID: g.audit}, g.queryErr
 }
@@ -150,12 +158,31 @@ func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "123") || !strings.Contains(response.Body.String(), "failed") {
 		t.Fatal("recent question route leaked result rows or lost the user's question")
 	}
+	gateway.schemaErr = ErrGateway
+	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrGateway) {
+		t.Fatal("gateway schema failure returned historical questions")
+	}
+	failureRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	failureRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	failureResponse := httptest.NewRecorder()
+	router.ServeHTTP(failureResponse, failureRequest)
+	if failureResponse.Code == http.StatusOK || strings.Contains(failureResponse.Body.String(), "first") {
+		t.Fatal("gateway schema failure exposed historical questions")
+	}
+	gateway.schemaErr = nil
 	revision, err := service.Store.get(ctx, bindingKey(principal, "10"), new(Binding))
 	if err != nil || service.Store.delete(ctx, bindingKey(principal, "10"), revision) != nil {
 		t.Fatal("could not revoke binding")
 	}
 	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("revoked datasource returned history")
+	}
+	revokedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	revokedRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	revokedResponse := httptest.NewRecorder()
+	router.ServeHTTP(revokedResponse, revokedRequest)
+	if revokedResponse.Code == http.StatusOK || strings.Contains(revokedResponse.Body.String(), "first") {
+		t.Fatal("revoked datasource exposed historical questions")
 	}
 }
 
@@ -222,6 +249,64 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if response.Code != http.StatusOK {
 		t.Fatal("data load blocked health probe")
+	}
+}
+
+func TestHistoricalReadsReserveOneSlotForNewQuestion(t *testing.T) {
+	s, _, _, _, token := serviceFixture(t)
+	router, err := NewHandlerWithLimit(s, "test", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := router.(*Handler)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	history := h.boundedHistory(func(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
+		started <- struct{}{}
+		<-release
+		writeJSON(w, http.StatusOK, "history")
+	})
+	done := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		request := httptest.NewRequest(http.MethodGet, "/history", nil)
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		go func() { history(response, request); done <- response.Code }()
+		if i == 0 {
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("first historical read did not start")
+			}
+		}
+	}
+	deadline := time.After(time.Second)
+	for len(h.readQueue) != 2 {
+		select {
+		case <-deadline:
+			t.Fatal("second historical read did not queue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if len(h.historySeats) != 1 || len(h.slots) != 1 {
+		t.Fatal("queued historical read consumed the reserved question slot")
+	}
+	question := httptest.NewRecorder()
+	h.bounded(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "question") })(question, httptest.NewRequest(http.MethodPost, "/question", nil))
+	if question.Code != http.StatusOK {
+		t.Fatalf("new question rejected behind historical reads: %d", question.Code)
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		select {
+		case status := <-done:
+			if status != http.StatusOK {
+				t.Fatalf("historical read status %d", status)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("historical read did not drain")
+		}
 	}
 }
 

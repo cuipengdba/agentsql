@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// These are management bindings only. The row-policy engine must resolve a
-// current definition and a current user binding before it may use either one.
+// These are server-held bindings. The row-policy engine resolves their current
+// definition and user snapshot before using a value.
 func (s *Store) validateUserVariableBindings(ctx context.Context, workspace ID, raw []json.RawMessage) ([]UserVariableBinding, error) {
 	if !workspace.Valid() || len(raw) > 32 {
 		return nil, ErrInvalidAccountChange

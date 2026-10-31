@@ -151,15 +151,15 @@ func (service *Service) Dashboard(ctx context.Context, p Principal, id string, w
 	}
 	item.Revision = revision
 	view := DashboardView{Dashboard: item, Results: map[string]QueryData{}}
-	if withData {
-		for _, card := range item.Cards {
-			if card.RecordID == "" {
-				continue
-			}
-			record, err := service.Record(ctx, p, card.RecordID, true)
-			if err != nil {
-				return DashboardView{}, err
-			}
+	for _, card := range item.Cards {
+		if card.RecordID == "" {
+			continue
+		}
+		record, err := service.Record(ctx, p, card.RecordID, withData)
+		if err != nil {
+			return DashboardView{}, err
+		}
+		if withData {
 			if record.Data == nil || record.Data.AuditID <= 0 {
 				return DashboardView{}, ErrGateway
 			}

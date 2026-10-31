@@ -25,6 +25,7 @@ type Handler struct {
 	loginLimit          *rate.Limiter
 	appLookupLimit      *rate.Limiter
 	slots               chan struct{}
+	historySeats        chan struct{}
 	readQueue           chan struct{}
 	version             string
 	keySalt             string
@@ -47,8 +48,12 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	if _, err := rand.Read(salt[:]); err != nil {
 		return nil, errors.New("cannot initialize ChatBI login key metadata")
 	}
+	historyLimit := limit - 1
+	if historyLimit < 1 {
+		historyLimit = 1
+	}
 	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), appLookupLimit: rate.NewLimiter(20, 100),
-		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
+		slots: make(chan struct{}, limit), historySeats: make(chan struct{}, historyLimit), readQueue: make(chan struct{}, 200), version: version,
 		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli(),
 		initialUserPassword: os.Getenv("AGENTSQL_CHATBI_INITIAL_USER_PASSWORD")}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +67,8 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_ds_list", h.mcpDatasourceList)
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_model_list", h.mcpModelList)
 	h.mux.HandleFunc("POST /api/v1/mcp/mcp_question", h.bounded(h.mcpQuestion))
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_assistant", h.bounded(h.mcpAssistant))
+	h.mux.Handle("/mcp", legacyMCPHandler(h))
 	h.mux.HandleFunc("GET /api/v1/system/config/key", h.publicLoginKey)
 	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)
 	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
@@ -79,7 +86,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}", h.auth(h.legacyModelRead))
 	h.mux.HandleFunc("DELETE /api/v1/system/aimodel/{id}", h.auth(h.legacyModelDelete))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappings))
-	h.mux.HandleFunc("PUT /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsUpdate))
+	h.mux.HandleFunc("PUT /api/v1/system/aimodel/{id}/{action}", h.auth(h.legacyModelPutTwoSegments))
 	h.mux.HandleFunc("POST /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsChange))
 	h.mux.HandleFunc("DELETE /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsChange))
 	h.mux.HandleFunc("GET /api/v1/system/apikey", h.auth(h.accountAPIKeyList))
@@ -90,6 +97,13 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/agentsql/model", h.auth(h.nativeCreateWorkspaceModel))
 	h.mux.HandleFunc("PUT /api/v1/agentsql/model", h.auth(h.nativeUpdateWorkspaceModel))
 	h.mux.HandleFunc("POST /api/v1/agentsql/model/check", h.bounded(h.auth(h.nativeCheckWorkspaceModel)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/models", h.auth(h.nativeWorkspaceModelList))
+	h.mux.HandleFunc("POST /api/v1/agentsql/models", h.auth(h.nativeCreateAdditionalModel))
+	h.mux.HandleFunc("GET /api/v1/agentsql/models/{id}", h.auth(h.nativeAdditionalModelRead))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/models/{id}", h.auth(h.nativeAdditionalModelUpdate))
+	h.mux.HandleFunc("DELETE /api/v1/agentsql/models/{id}", h.auth(h.nativeAdditionalModelDelete))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/models/{id}/default", h.auth(h.nativeAdditionalModelSetDefault))
+	h.mux.HandleFunc("POST /api/v1/agentsql/models/{id}/check", h.bounded(h.auth(h.nativeAdditionalModelCheck)))
 	h.mux.HandleFunc("POST /api/v1/agentsql/login", h.nativeLogin)
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
@@ -100,6 +114,9 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
 	h.mux.HandleFunc("PUT /api/v1/user/ws/{oid}", h.auth(h.switchOwnWorkspace))
 	h.mux.HandleFunc("GET /api/v1/user/pager/{page}/{size}", h.auth(h.legacyUserPage))
+	h.mux.HandleFunc("GET /api/v1/user/template", h.bounded(h.auth(h.legacyUserImportTemplate)))
+	h.mux.HandleFunc("POST /api/v1/user/batchImport", h.bounded(h.auth(h.legacyUserBatchImport)))
+	h.mux.HandleFunc("GET /api/v1/user/errorRecord/{id}", h.bounded(h.auth(h.legacyUserImportErrors)))
 	h.mux.HandleFunc("POST /api/v1/user", h.auth(h.legacyUserCreate))
 	h.mux.HandleFunc("PUT /api/v1/user", h.auth(h.legacyUserUpdate))
 	h.mux.HandleFunc("DELETE /api/v1/user", h.auth(h.legacyUserDeleteBatch))
@@ -122,28 +139,33 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/sys_variable/save", h.auth(h.systemVariableSave))
 	h.mux.HandleFunc("POST /api/v1/sys_variable/delete", h.auth(h.systemVariableDelete))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
+	h.mux.HandleFunc("POST /api/v1/datasource/fieldEnum/{datasourceID}/{fieldID}", h.bounded(h.auth(h.datasourceFieldEnum)))
 	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/list/by_ws", h.auth(h.assistantWorkspaceModels))
 	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
 	h.mux.HandleFunc("POST /api/v1/datasource/update", h.bounded(h.auth(h.updateDatasourceMetadata)))
-	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.auth(h.getExcelDatasource))
-	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.bounded(h.auth(h.getDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteDatasource)))
 	h.mux.HandleFunc("GET /api/v1/datasource/check/{id}", h.bounded(h.auth(h.datasourceCheck)))
 	h.mux.HandleFunc("POST /api/v1/datasource/check", h.bounded(h.auth(h.checkBoundDatasource)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getSchemaByConf", h.bounded(h.auth(h.schemasByBoundDatasource)))
+	h.mux.HandleFunc("POST /api/v1/table_relation/get/{id}", h.bounded(h.auth(h.getTableRelations)))
+	h.mux.HandleFunc("POST /api/v1/table_relation/save/{id}", h.bounded(h.auth(h.saveTableRelations)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/list", h.bounded(h.auth(h.dataPermissionList)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/get/{id}", h.bounded(h.auth(h.dataPermissionGet)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/save", h.bounded(h.auth(h.dataPermissionSave)))
+	h.mux.HandleFunc("POST /api/v1/ds_permission/delete/{id}", h.bounded(h.auth(h.dataPermissionDelete)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTables/{id}", h.bounded(h.auth(h.datasourceTables)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTablesByConf", h.bounded(h.auth(h.databaseTablesBySavedBinding)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getFields/{id}/{table}", h.bounded(h.auth(h.datasourceFields)))
 	h.mux.HandleFunc("POST /api/v1/datasource/tableList/{id}", h.bounded(h.auth(h.datasourceTableList)))
-	h.mux.HandleFunc("POST /api/v1/table_relation/get/{id}", h.bounded(h.auth(h.tableRelationGet)))
-	h.mux.HandleFunc("POST /api/v1/table_relation/save/{id}", h.bounded(h.auth(h.tableRelationSave)))
-	h.mux.HandleFunc("POST /api/v1/datasource/editTable", h.bounded(h.auth(h.editManagedFileTableComment)))
+	h.mux.HandleFunc("POST /api/v1/datasource/editTable", h.bounded(h.auth(h.editDatasourceTableComment)))
 	h.mux.HandleFunc("POST /api/v1/datasource/chooseTables/{id}", h.bounded(h.auth(h.chooseManagedFileTables)))
 	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/fileTables/{id}", h.bounded(h.auth(h.managedFileTableChoices)))
 	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/databaseTables/{id}", h.bounded(h.auth(h.databaseTableChoices)))
 	h.mux.HandleFunc("POST /api/v1/datasource/fieldList/{id}/{tableID}", h.bounded(h.auth(h.datasourceFieldList)))
 	h.mux.HandleFunc("POST /api/v1/datasource/syncFields/{id}/{tableID}", h.bounded(h.auth(h.syncDatasourceFields)))
-	h.mux.HandleFunc("POST /api/v1/datasource/editField", h.bounded(h.auth(h.editManagedFileFieldComment)))
+	h.mux.HandleFunc("POST /api/v1/datasource/editField", h.bounded(h.auth(h.editDatasourceFieldComment)))
 	h.mux.HandleFunc("GET /api/v1/datasource/exportDsSchema/{id}", h.bounded(h.auth(h.exportManagedFileRemarks)))
 	h.mux.HandleFunc("POST /api/v1/datasource/uploadDsSchema/{id}", h.bounded(h.auth(h.importManagedFileRemarks)))
 	h.mux.HandleFunc("POST /api/v1/datasource/previewData/{id}", h.bounded(h.auth(h.datasourcePreview)))
@@ -151,11 +173,11 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/datasource/importToDb", h.bounded(h.auth(h.importToDb)))
 	h.mux.HandleFunc("POST /api/v1/datasource/uploadExcel", h.bounded(h.auth(h.legacyUploadExcel)))
 	h.mux.HandleFunc("POST /api/v1/agentsql/datasource/claim-import", h.bounded(h.auth(h.claimNativeFileDatasource)))
-	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.auth(h.recommendedProblems))
-	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.auth(h.recommendedBase))
-	h.mux.HandleFunc("POST /api/v1/recommended_problem/save_recommended_problem", h.auth(h.legacySaveRecommendations))
-	h.mux.HandleFunc("GET /api/v1/agentsql/recommendations/{id}", h.auth(h.nativeRecommendationRead))
-	h.mux.HandleFunc("PUT /api/v1/agentsql/recommendations/{id}", h.auth(h.nativeRecommendationSave))
+	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.boundedHistory(h.recommendedProblems))
+	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.boundedHistory(h.recommendedBase))
+	h.mux.HandleFunc("POST /api/v1/recommended_problem/save_recommended_problem", h.bounded(h.auth(h.legacySaveRecommendations)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/recommendations/{id}", h.boundedHistory(h.nativeRecommendationRead))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/recommendations/{id}", h.bounded(h.auth(h.nativeRecommendationSave)))
 	h.mux.HandleFunc("GET /api/v1/system/terminology/page/{page}/{size}", h.auth(h.terminologyPage))
 	h.mux.HandleFunc("GET /api/v1/system/terminology/template", h.auth(h.terminologyTemplate))
 	h.mux.HandleFunc("GET /api/v1/system/terminology/export", h.auth(h.terminologyExport))
@@ -177,7 +199,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/system/download-fail-info", h.bounded(h.auth(h.downloadSemanticError)))
 	h.mux.HandleFunc("PUT /api/v1/system/data-training", h.auth(h.saveExample))
 	h.mux.HandleFunc("DELETE /api/v1/system/data-training", h.auth(h.deleteExamples))
-	h.mux.HandleFunc("GET /api/v1/chat/list", h.auth(h.chats))
+	h.mux.HandleFunc("GET /api/v1/chat/list", h.boundedHistory(h.chats))
 	h.mux.HandleFunc("POST /api/v1/chat/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/assistant/start", h.bounded(h.auth(h.start)))
 	h.mux.HandleFunc("POST /api/v1/chat/question", h.bounded(h.auth(h.question)))
@@ -194,7 +216,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/chat/record/{id}/predict", h.boundedHistory(h.legacyNarrative))
 	h.mux.HandleFunc("GET /api/v1/agentsql/record/{id}/forecast", h.boundedHistory(h.nativeForecast))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/predict_data", h.boundedHistory(h.legacyForecastData))
-	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
+	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.boundedHistory(h.recommendQuestions))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.boundedHistory(h.read))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
@@ -220,8 +242,18 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/system/assistant/advanced_application", h.auth(h.legacyAssistantList))
 	h.mux.HandleFunc("GET /api/v1/system/assistant/app/{appID}", h.publicEmbeddedApplication)
 	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/app/{appID}", h.publicEmbeddedApplication)
+	h.mux.HandleFunc("GET /api/v1/system/assistant/validate/{id}", h.publicAssistantValidate)
+	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/validate/{id}", h.publicAssistantValidate)
+	h.mux.HandleFunc("GET /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
+	h.mux.HandleFunc("OPTIONS /api/v1/system/assistant/info/{id}", h.publicAssistantInfo)
+	h.mux.HandleFunc("GET /api/v1/system/assistant/ds", h.bounded(h.auth(h.publicAssistantDatasources)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/assistant/context", h.auth(h.publicAssistantContext))
+	h.mux.HandleFunc("POST /api/v1/agentsql/assistant/guest-session", h.bounded(h.auth(h.guestSession)))
+	h.mux.HandleFunc("POST /api/v1/agentsql/assistant/guest-session/resume", h.bounded(h.auth(h.resumeGuestSession)))
+	h.mux.HandleFunc("GET /api/v1/system/assistant/picture/{file_id}", h.assistantPicture)
 	h.mux.HandleFunc("POST /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
 	h.mux.HandleFunc("PUT /api/v1/system/assistant", h.auth(h.legacyAssistantSave))
+	h.mux.HandleFunc("PATCH /api/v1/system/assistant/ui", h.bounded(h.auth(h.legacyEmbeddedUI)))
 	h.mux.HandleFunc("DELETE /api/v1/system/assistant/{id}", h.auth(h.legacyAssistantDelete))
 	h.mux.HandleFunc("GET /api/v1/system/embedded/{page}/{size}", h.auth(h.legacyEmbeddedList))
 	h.mux.HandleFunc("GET /api/v1/system/embedded/{id}", h.auth(h.legacyEmbeddedRead))
@@ -243,6 +275,9 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 }
 
 func (h *Handler) publicLoginKey(w http.ResponseWriter, _ *http.Request) {
+	// The unchanged browser SDK loads this public key from its own host while
+	// running on the embedding site's origin. The key has no user authority.
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if h.service.Identity.privateKey == nil {
 		failure(w, ErrUnavailable)
 		return
@@ -289,7 +324,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.SetPathValue("id", id)
-		h.auth(h.recentQuestions)(w, r)
+		h.boundedHistory(h.recentQuestions)(w, r)
 		return
 	}
 	// No permissive CORS or cookie-based authority. Future embedded origins use
@@ -333,6 +368,15 @@ func (h *Handler) boundedHistory(next authorizedHandler) http.HandlerFunc {
 			writeJSON(w, http.StatusTooManyRequests, "Too many historical data requests")
 			return
 		}
+		// A page may load many old result cards at once. Keep one configured
+		// query slot available for a new question when the limit is at least two.
+		select {
+		case h.historySeats <- struct{}{}:
+			defer func() { <-h.historySeats }()
+		case <-ctx.Done():
+			writeJSON(w, http.StatusTooManyRequests, "Historical data request timed out")
+			return
+		}
 		select {
 		case h.slots <- struct{}{}:
 			defer func() { <-h.slots }()
@@ -366,12 +410,16 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 401, "Not authenticated"
 	case errors.Is(err, ErrInvalidSemantic):
 		status, message = 422, "Invalid semantic metadata"
+	case errors.Is(err, ErrInvalidDataPermission):
+		status, message = 422, "Invalid or unsupported data permission rule"
 	case errors.Is(err, ErrInvalidDashboard):
 		status, message = 422, "Invalid dashboard configuration"
 	case errors.Is(err, ErrInvalidAssistant):
 		status, message = 422, "Invalid assistant application"
 	case errors.Is(err, ErrInvalidAccountChange):
 		status, message = 422, "Invalid account change"
+	case errors.Is(err, ErrInitialPasswordDisabled):
+		status, message = 400, "The initial password cannot be reused"
 	case errors.Is(err, ErrForecastUnavailable):
 		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):
@@ -425,14 +473,18 @@ func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string
 	if strings.HasPrefix(token, "Ask ") {
 		current, err = h.service.Identity.VerifyAsk(ctx, strings.TrimPrefix(token, "Ask "))
 	} else if p.EmbeddedApp != "" {
-		if !strings.HasPrefix(token, "Embedded ") {
+		prefix := "Embedded "
+		if p.EmbeddedType == 0 {
+			prefix = "Assistant "
+		}
+		if !strings.HasPrefix(token, prefix) {
 			return ErrUnauthenticated
 		}
-		current, err = h.service.Identity.VerifyEmbedded(ctx, strings.TrimPrefix(token, "Embedded "))
+		current, err = h.service.Identity.VerifyEmbedded(ctx, strings.TrimPrefix(token, prefix))
 	} else {
 		current, err = h.service.Identity.Verify(ctx, token)
 	}
-	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision {
+	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision || current.EmbeddedType != p.EmbeddedType || current.VisitorScope != p.VisitorScope {
 		return ErrUnauthenticated
 	}
 	return nil
@@ -445,12 +497,15 @@ func embeddedRouteAllowed(r *http.Request) bool {
 	}
 	if r.Method == http.MethodGet {
 		switch path {
-		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
+		case "/api/v1/user/info", "/api/v1/user/ws", "/api/v1/datasource/list", "/api/v1/system/assistant/ds", "/api/v1/agentsql/assistant/context", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default", "/api/v1/system/license/version":
 			return true
 		}
 		return strings.HasPrefix(path, "/api/v1/datasource/ws/") || strings.HasPrefix(path, "/api/v1/datasource/check/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended/") || strings.HasPrefix(path, "/api/v1/recommended_problem/get_datasource_recommended_base/")
 	}
 	if r.Method == http.MethodPost {
+		if path == "/api/v1/agentsql/assistant/guest-session" || path == "/api/v1/agentsql/assistant/guest-session/resume" {
+			return true
+		}
 		for _, prefix := range []string{"/api/v1/datasource/get/", "/api/v1/datasource/getTables/", "/api/v1/datasource/getFields/", "/api/v1/datasource/tableList/", "/api/v1/datasource/fieldList/", "/api/v1/datasource/previewData/"} {
 			if strings.HasPrefix(path, prefix) {
 				return true
@@ -487,13 +542,14 @@ func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 				return
 			}
 			parts := strings.Fields(values[0])
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Embedded") {
+			if len(parts) != 2 || (parts[0] != "Embedded" && parts[0] != "Assistant") {
 				failure(w, ErrUnauthenticated)
 				return
 			}
 			p, err := h.service.Identity.VerifyEmbedded(r.Context(), parts[1])
-			if err != nil {
-				failure(w, err)
+			if err != nil || (p.EmbeddedType == 4 && parts[0] != "Embedded") ||
+				(p.EmbeddedType == 0 && parts[0] != "Assistant") {
+				failure(w, ErrUnauthenticated)
 				return
 			}
 			if origins := r.Header.Values("X-SQLBOT-HOST-ORIGIN"); len(origins) != 0 {
@@ -507,7 +563,7 @@ func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 					return
 				}
 			}
-			next(w, r, p, "Embedded "+parts[1])
+			next(w, r, p, parts[0]+" "+parts[1])
 			return
 		}
 		token, err := requestToken(r)
@@ -560,10 +616,34 @@ func (h *Handler) nativeLogin(w http.ResponseWriter, r *http.Request) {
 	h.issueLogin(w, r, input.Username, input.Password)
 }
 
-func (h *Handler) issueLogin(w http.ResponseWriter, r *http.Request, account, password string) {
-	_, token, err := h.service.Identity.Login(r.Context(), account, password)
+func (h *Handler) loginIdentity(ctx context.Context, account, password string) (User, string, bool, error) {
+	user, token, err := h.service.Identity.Login(ctx, account, password)
 	if err != nil {
-		writeJSON(w, 400, "Invalid login")
+		return User{}, "", false, err
+	}
+	settings, err := h.service.Store.ChatSettings(ctx)
+	if err != nil {
+		return User{}, "", false, err
+	}
+	if settings.InitialPasswordDisabled && h.initialUserPassword != "" && user.ID != "1" &&
+		password == h.initialUserPassword {
+		return user, "", true, nil
+	}
+	return user, token, false, nil
+}
+
+func (h *Handler) issueLogin(w http.ResponseWriter, r *http.Request, account, password string) {
+	_, token, needChange, err := h.loginIdentity(r.Context(), account, password)
+	if err != nil {
+		if errors.Is(err, ErrUnauthenticated) {
+			writeJSON(w, 400, "Invalid login")
+		} else {
+			failure(w, err)
+		}
+		return
+	}
+	if needChange {
+		okay(w, map[string]any{"access_token": "", "token_type": "bearer", "platform_info": nil, "need_change_pwd": true})
 		return
 	}
 	okay(w, map[string]any{"access_token": token, "token_type": "bearer", "platform_info": nil, "need_change_pwd": false})
@@ -633,12 +713,18 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			failure(w, err)
 			return
 		}
+		recommendationMode, err := h.service.recommendationDisplayMode(r.Context(), p, b.Datasource)
+		if err != nil {
+			failure(w, err)
+			return
+		}
 		if b.Type == "excel" {
 			item, err := legacyExcelDatasource(b)
 			if err != nil {
 				failure(w, err)
 				return
 			}
+			item["recommended_config"] = recommendationMode
 			result = append(result, item)
 			continue
 		}
@@ -662,7 +748,7 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			}
 		}
 		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind, "type_name": typeName,
-			"description": b.Description, "configuration": configuration, "status": "Success"})
+			"description": b.Description, "configuration": configuration, "recommended_config": recommendationMode, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	if err := h.service.live(r.Context(), p); err != nil {
@@ -725,18 +811,26 @@ func (h *Handler) recommendedBase(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	okay(w, map[string]any{"datasource_id": datasourceID, "recommended_config": config.Mode, "questions": string(encoded)})
 }
-func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) chats(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	chats, err := h.service.Chats(r.Context(), p)
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
 	}
 	okay(w, chats)
 }
 
-func (h *Handler) recentQuestions(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) recentQuestions(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	questions, err := h.service.RecentQuestions(r.Context(), p, ID(r.PathValue("id")))
 	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
 	}

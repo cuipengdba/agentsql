@@ -26,8 +26,8 @@ func (h *Handler) nativeWorkspaceModel(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	okay(w, map[string]any{"id": model.ID, "revision": revision, "name": model.Name,
-		"base_model": model.Model, "api_domain": model.Endpoint, "max_tokens": model.MaxTokens,
-		"allow_http": model.AllowHTTP, "has_api_key": model.APIKey != ""})
+		"base_model": model.Model, "api_domain": model.Endpoint, "max_tokens": model.MaxTokens, "temperature": model.Temperature,
+		"allow_http": model.AllowHTTP, "has_api_key": model.APIKey != "", "supplier": modelSupplier(model)})
 }
 
 func (h *Handler) nativeUpdateWorkspaceModel(w http.ResponseWriter, r *http.Request, p Principal, token string) {

@@ -251,7 +251,11 @@ func (model OpenAIModel) Narrate(ctx context.Context, config ModelConfig, kind, 
 	if maxTokens == 0 || maxTokens > 1024 {
 		maxTokens = 1024
 	}
-	payload, err := json.Marshal(map[string]any{"model": config.Model, "stream": false, "temperature": 0, "max_tokens": maxTokens, "messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": string(input)}}})
+	temperature, validTemperature := configuredTemperature(config)
+	if !validTemperature {
+		return "", ErrModel
+	}
+	payload, err := json.Marshal(map[string]any{"model": config.Model, "stream": false, "temperature": temperature, "max_tokens": maxTokens, "messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": string(input)}}})
 	if err != nil {
 		return "", ErrModel
 	}

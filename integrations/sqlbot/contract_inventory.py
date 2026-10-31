@@ -12,7 +12,10 @@ import json
 import subprocess
 from pathlib import Path
 
-SOURCE_COMMIT = "aa41fc1033bb974a703df9200a98ec8b9eec5f25"
+SOURCE_COMMITS = {
+    "v1.10.2": "aa41fc1033bb974a703df9200a98ec8b9eec5f25",
+    "v1.10.3": "96f06c7eade60ecf3e6af0313821373761d1fb85",
+}
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
 
 
@@ -23,19 +26,20 @@ def literal(node, default=None):
         return default
 
 
-def inventory(root: Path) -> dict:
+def inventory(root: Path, expected_version: str | None = None) -> dict:
     head = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
     ).strip()
-    if head != SOURCE_COMMIT:
-        raise ValueError("reference must be the pinned SQLBot v1.10.2 commit")
+    version = next((version for version, commit in SOURCE_COMMITS.items() if commit == head), None)
+    if version is None or expected_version is not None and version != expected_version:
+        raise ValueError("reference must be the pinned SQLBot commit for the selected version")
     if subprocess.check_output(
         ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"], text=True
     ).strip():
         raise ValueError("reference tracked files must be unmodified")
     def source(path):
         # Git blobs avoid host-specific CRLF conversion in provenance hashes.
-        return subprocess.check_output(["git", "-C", str(root), "show", f"{SOURCE_COMMIT}:{path}"])
+        return subprocess.check_output(["git", "-C", str(root), "show", f"{head}:{path}"])
 
     api = ast.parse(source("backend/apps/api.py").decode("utf-8"))
     modules = {}
@@ -95,7 +99,7 @@ def inventory(root: Path) -> dict:
         raise ValueError("duplicate routes require manual review")
     return {
         "schema": 1,
-        "upstream": {"repository": "https://github.com/dataease/SQLBot", "version": "v1.10.2", "commit": head},
+        "upstream": {"repository": "https://github.com/dataease/SQLBot", "version": version, "commit": head},
         "scope": "public-source statically registered API routes; not a complete runtime inventory",
         "additional_required_surfaces": [
             "sqlbot_xpack community routes and login encryption contract",
@@ -110,10 +114,11 @@ def inventory(root: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", choices=SOURCE_COMMITS)
     parser.add_argument("reference", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
-    result = inventory(args.reference)
+    result = inventory(args.reference, args.version)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Inventoried {len(result['routes'])} static routes; runtime-only surfaces remain explicitly pending")
 

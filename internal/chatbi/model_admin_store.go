@@ -8,12 +8,15 @@ import (
 // WorkspaceModelUpdate changes the model used by this workspace. An omitted
 // API key preserves the encrypted key; an explicit empty string clears it.
 type WorkspaceModelUpdate struct {
-	Revision  int64   `json:"revision"`
-	Name      string  `json:"name"`
-	Model     string  `json:"base_model"`
-	Endpoint  string  `json:"api_domain"`
-	APIKey    *string `json:"api_key"`
-	MaxTokens int     `json:"max_tokens"`
+	Revision           int64    `json:"revision"`
+	Name               string   `json:"name"`
+	Model              string   `json:"base_model"`
+	Endpoint           string   `json:"api_domain"`
+	APIKey             *string  `json:"api_key"`
+	MaxTokens          int      `json:"max_tokens"`
+	Temperature        *float64 `json:"temperature,omitempty"`
+	ReplaceTemperature bool     `json:"-"`
+	Supplier           int      `json:"supplier,omitempty"`
 }
 
 // CreateWorkspaceModel installs the first default model for a workspace.
@@ -26,7 +29,7 @@ func (s *Store) CreateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	if err != nil {
 		return err
 	}
-	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens}
+	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier}
 	if update.APIKey != nil {
 		model.APIKey = *update.APIKey
 	}
@@ -112,6 +115,12 @@ func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	}
 	next := old
 	next.Name, next.Model, next.Endpoint, next.MaxTokens = update.Name, update.Model, update.Endpoint, update.MaxTokens
+	if update.ReplaceTemperature || update.Temperature != nil {
+		next.Temperature = update.Temperature
+	}
+	if update.Supplier != 0 {
+		next.Supplier = update.Supplier
+	}
 	if update.APIKey != nil {
 		next.APIKey = *update.APIKey
 	}

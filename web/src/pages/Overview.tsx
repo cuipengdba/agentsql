@@ -1,4 +1,4 @@
-import { currentLocale } from "@/i18n/locale";
+import { currentLocale, localeText, useLocaleStore } from "@/i18n/locale";
 import {
   AuditOutlined,
   DatabaseOutlined,
@@ -219,6 +219,8 @@ function DemoReadiness({ refreshToken }: { refreshToken: number }) {
 export function Overview() {
   const mode = useThemeStore((state) => state.mode);
   const demoEnabled = useDemoStore(selectIsDemo);
+  const locale = useLocaleStore((state) => state.locale);
+  const tr = (zh: string, en: string) => localeText(zh, en, locale);
   const streamEnabled = useAuthStore((state) => Boolean(state.token) && state.isAuthenticated());
   const [days, setDays] = useState<Days>(14);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -420,6 +422,18 @@ export function Overview() {
     <div className="overview-dashboard" ref={dashboardRef}>
       <PageContainer title="总览" subtitle="数据库访问安全态势" extra={pageExtra}>
         {demoEnabled ? <DemoReadiness refreshToken={refreshToken} /> : null}
+        <Alert
+          type="info"
+          showIcon
+          message={tr("AgentSQL：独立问数与 SQLBot 安全网关", "AgentSQL: standalone Q&A and SQLBot security gateway")}
+          description={<Space direction="vertical" size={4}>
+            <span>{tr("独立问数：使用 AgentSQL 自有的 Go 服务和 Web 页面，查询经过数据库安全网关。", "Standalone Q&A: use AgentSQL's own Go service and Web pages; queries pass through its database security gateway.")} <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/CHATBI.md" target="_blank" rel="noopener noreferrer">{tr("问数指南", "Q&A guide")}</a></span>
+            <span>{tr("SQLBot 安全网关：保留现有 SQLBot，交由 AgentSQL 控制数据库访问、权限和审计。", "SQLBot security gateway: keep an existing SQLBot deployment while AgentSQL controls database access, permissions and audit.")} <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/SQLBOT.md" target="_blank" rel="noopener noreferrer">{tr("接入指南", "Integration guide")}</a></span>
+            <span>{tr("完整社区版功能、全部页面和现有业务系统零改动替换仍按 v4.5.0 验收矩阵逐项验证。", "Full Community features, every page and unchanged replacement of an existing business system still require item-by-item v4.5.0 acceptance.")}</span>
+            {demoEnabled ? <span>{tr("线上仅展示模拟页面与合成数据，不接入或调用真实模型。", "The public demo shows simulated pages and synthetic data only; it does not connect to or call a real model.")}</span> : null}
+          </Space>}
+          style={{ marginBottom: 16 }}
+        />
         {outboxError ? <Alert type="error" showIcon message="管理审计投递状态不可用" description="请检查元数据库连接和管理审计投递进程；当前无法确认积压情况。" style={{ marginBottom: 16 }} /> : null}
         {!outboxError && outbox?.enabled ? <Alert
           type={outbox.state === "critical" ? "error" : outbox.state === "lagging" ? "warning" : "success"}

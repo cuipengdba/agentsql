@@ -3,7 +3,11 @@ package chatbi
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestAssistantConfigurationIsScopedAuditedAndRevocable(t *testing.T) {
@@ -94,5 +98,138 @@ func TestAssistantDomainsAcceptOriginalSemicolonListButRejectInsecureOrigins(t *
 		if validAssistantDomain(raw) {
 			t.Fatalf("invalid origin accepted: %q", raw)
 		}
+	}
+}
+
+func TestPublicAssistantGuestRequiresSeparateCurrentSourceBinding(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	guest := testUser(t, "2", "public-guest")
+	if err := service.Store.CreateUser(ctx, guest); err != nil {
+		t.Fatal(err)
+	}
+	admin, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin.Admin = true
+	if err := service.Store.put(ctx, userKey(admin.ID), admin, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal.User = admin
+	input := AssistantApplication{Name: "Published synthetic data", Type: 0,
+		Domain: "https://app.example", DatasourceIDs: []ID{"10"}, PublicGuestUser: guest.ID, Enabled: true}
+	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("guest without own datasource accepted: %v", err)
+	}
+	adminBinding, err := service.binding(ctx, principal, "10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guestBinding := adminBinding
+	guestBinding.User = guest.ID
+	guestPrincipal := Principal{User: guest, Workspace: principal.Workspace}
+	if err := service.Store.put(ctx, bindingKey(guestPrincipal, "10"), guestBinding, 0); err != nil {
+		t.Fatal(err)
+	}
+	app, err := service.SaveAssistant(ctx, principal, input)
+	if err != nil || !app.ID.Valid() || app.AppID != "" || len(app.AppSecret) < 32 {
+		t.Fatalf("configured public guest app: %+v, %v", app, err)
+	}
+	issuedToken, err := service.issuePublicGuestToken(ctx, app)
+	if err != nil {
+		t.Fatalf("server guest issuance: %v", err)
+	}
+	issuedIdentity, err := service.Identity.VerifyEmbedded(ctx, issuedToken)
+	if err != nil || !validVisitorScope(issuedIdentity.VisitorScope) || issuedIdentity.User.ID != guest.ID {
+		t.Fatalf("issued guest identity: %v", err)
+	}
+	secondIssuedToken, err := service.issuePublicGuestToken(ctx, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondIssuedIdentity, err := service.Identity.VerifyEmbedded(ctx, secondIssuedToken)
+	if err != nil || secondIssuedIdentity.VisitorScope == issuedIdentity.VisitorScope {
+		t.Fatalf("reused guest visitor scope: %v", err)
+	}
+	claims := map[string]any{"account": guest.Account, "embeddedId": app.ID,
+		"publicGuest": true, "visitor": strings.Repeat("c", 32),
+		"appRevision": app.Revision, "authRevision": guest.AuthRevision,
+		"iat": time.Now().Unix(), "exp": time.Now().Add(30 * time.Minute).Unix()}
+	guestToken := signedEmbeddedFixture(t, app.AppSecret, claims)
+	guestIdentity, err := service.Identity.VerifyEmbedded(ctx, guestToken)
+	if err != nil || guestIdentity.EmbeddedType != 0 || guestIdentity.VisitorScope != strings.Repeat("c", 32) {
+		t.Fatalf("scoped public guest token: %v", err)
+	}
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(prefix, token string) int {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/datasource/list", nil)
+		r.Header.Set("X-SQLBOT-ASSISTANT-TOKEN", prefix+" "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w.Code
+	}
+	if status := call("Assistant", issuedToken); status != http.StatusOK {
+		t.Fatalf("original assistant header rejected: %d", status)
+	}
+	if status := call("Embedded", issuedToken); status != http.StatusUnauthorized {
+		t.Fatalf("wrong embedded prefix accepted: %d", status)
+	}
+	claims["visitor"] = ""
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("unscoped public guest token accepted")
+	}
+	claims["visitor"] = strings.Repeat("c", 32)
+	claims["exp"] = time.Now().Add(2 * time.Hour).Unix()
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("long-lived public guest token accepted")
+	}
+	claims["exp"] = time.Now().Add(30 * time.Minute).Unix()
+	claims["appRevision"] = int64(0)
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("missing app revision accepted")
+	}
+	claims["appRevision"] = app.Revision
+	claims["authRevision"] = int64(0)
+	if _, err := service.Identity.VerifyEmbedded(ctx, signedEmbeddedFixture(t, app.AppSecret, claims)); err == nil {
+		t.Fatal("missing guest auth revision accepted")
+	}
+	app.Name = "Updated public guest app"
+	app, err = service.SaveAssistant(ctx, principal, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, guestToken); err == nil {
+		t.Fatal("old guest token survived assistant revision")
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, issuedToken); err == nil {
+		t.Fatal("issued guest token survived assistant revision")
+	}
+	input.PublicGuestUser = admin.ID
+	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("administrator as public guest accepted: %v", err)
+	}
+	input.PublicGuestUser = guest.ID
+	input.DatasourceIDs = nil
+	if _, err := service.SaveAssistant(ctx, principal, input); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("unscoped public guest app accepted: %v", err)
+	}
+	guest, revision, err = service.Store.User(ctx, guest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guest.Status = 0
+	if err := service.Store.put(ctx, userKey(guest.ID), guest, revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, guestToken); err == nil {
+		t.Fatal("disabled guest retained an assistant token")
+	}
+	app.Name = "Changed while guest disabled"
+	if _, err := service.SaveAssistant(ctx, principal, app); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("disabled public guest accepted: %v", err)
 	}
 }

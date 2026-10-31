@@ -112,13 +112,17 @@ func TestResolverForBoundSelectAdmitsOnlyExactSafeRowRules(t *testing.T) {
 	decision, err := NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{base}, "readonly")
 	require.NoError(t, err)
 	require.Equal(t, []string{"public.orders"}, decision.AllowedTables)
+	allowedOr := base
+	allowedOr.RowFilter = stringPointer("id = 1 OR id = 2")
+	_, err = NewResolver().ResolveWithPostgresRowPolicies([]model.Policy{allowedOr}, "readonly")
+	require.NoError(t, err)
 	for _, mutate := range []func(*model.Policy){
 		func(p *model.Policy) { p.ObjectName = "public.*" },
 		func(p *model.Policy) { p.Action = "deny" },
 		func(p *model.Policy) { p.ObjectType = "column" },
 		func(p *model.Policy) { p.RelationBindingID = &filter },
 		func(p *model.Policy) { p.LegacyUnrepresentable = true },
-		func(p *model.Policy) { bad := "id = 1 OR id = 2"; p.RowFilter = &bad },
+		func(p *model.Policy) { bad := "id = 1 OR 1 = 1"; p.RowFilter = &bad },
 	} {
 		bad := base
 		mutate(&bad)

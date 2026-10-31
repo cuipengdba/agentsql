@@ -14,6 +14,7 @@ func TestParseMySQLColumnSelectShape(t *testing.T) {
 		{"SELECT id, phone AS contact FROM customers", 2},
 		{"SELECT c.id, c.phone FROM app.customers AS c WHERE c.id = 1 AND c.phone IS NOT NULL ORDER BY c.id LIMIT 10", 5},
 		{"SELECT id FROM customers WHERE id IN (1, 2, 3) OR phone = '123'", 3},
+		{"SELECT id FROM customers WHERE phone NOT IN ('blocked', 'deleted')", 2},
 	}
 	for _, test := range allowed {
 		t.Run(test.sql, func(t *testing.T) {
@@ -32,6 +33,7 @@ func TestParseMySQLColumnSelectShape(t *testing.T) {
 		"SELECT id FROM customers WHERE EXISTS (SELECT 1 FROM secrets)",
 		"SELECT id FROM customers WHERE id = 1 OR 1 = 1",
 		"SELECT id FROM customers WHERE id IN (SELECT id FROM secrets)",
+		"SELECT id FROM customers WHERE id NOT IN (SELECT id FROM secrets)",
 		"SELECT id FROM customers ORDER BY RAND()",
 		"SELECT phone AS id FROM customers ORDER BY id",
 		"SELECT id FROM customers LIMIT 10001",

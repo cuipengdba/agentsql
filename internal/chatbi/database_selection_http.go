@@ -43,7 +43,7 @@ func (h *Handler) databaseTablesBySavedBinding(w http.ResponseWriter, r *http.Re
 	}
 	all := binding
 	all.SelectedTables = ""
-	columns, err := h.service.Gateway.Schema(r.Context(), p, all)
+	columns, policy, _, err := h.service.gatewaySchemaWithPermissionSnapshot(r.Context(), p, all)
 	if err != nil {
 		failure(w, ErrGateway)
 		return
@@ -69,6 +69,10 @@ func (h *Handler) databaseTablesBySavedBinding(w http.ResponseWriter, r *http.Re
 		failure(w, err)
 		return
 	}
+	if err := h.service.dataPermissionUnchanged(r.Context(), p.Workspace, policy); err != nil {
+		failure(w, err)
+		return
+	}
 	okay(w, result)
 }
 
@@ -86,7 +90,7 @@ func (h *Handler) chooseDatabaseTables(w http.ResponseWriter, r *http.Request, p
 	}
 	all := binding
 	all.SelectedTables = ""
-	columns, err := h.service.Gateway.Schema(r.Context(), p, all)
+	columns, policy, _, err := h.service.gatewaySchemaWithPermissionSnapshot(r.Context(), p, all)
 	if err != nil {
 		failure(w, ErrGateway)
 		return
@@ -120,6 +124,10 @@ func (h *Handler) chooseDatabaseTables(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	if err := h.service.live(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.dataPermissionUnchanged(r.Context(), p.Workspace, policy); err != nil {
 		failure(w, err)
 		return
 	}
@@ -165,7 +173,7 @@ func (h *Handler) databaseTableChoices(w http.ResponseWriter, r *http.Request, p
 	}
 	all := binding
 	all.SelectedTables = ""
-	columns, err := h.service.Gateway.Schema(r.Context(), p, all)
+	columns, policy, _, err := h.service.gatewaySchemaWithPermissionSnapshot(r.Context(), p, all)
 	if err != nil {
 		failure(w, ErrGateway)
 		return
@@ -189,6 +197,10 @@ func (h *Handler) databaseTableChoices(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	if err := h.service.bindingUnchanged(r.Context(), p, binding, revision, digest); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.dataPermissionUnchanged(r.Context(), p.Workspace, policy); err != nil {
 		failure(w, err)
 		return
 	}

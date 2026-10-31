@@ -222,7 +222,7 @@ func TestOriginalModelEditUsesInstallationRSAAndAuditedWorkspaceModel(t *testing
 	}
 }
 
-func TestOriginalModelFirstCreateUsesEncryptedFormAndDoesNotReplaceExisting(t *testing.T) {
+func TestOriginalModelFirstCreateAndSecondCatalogEntry(t *testing.T) {
 	service, handler, adminToken, memberToken := adminUsersFixture(t)
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -258,9 +258,9 @@ func TestOriginalModelFirstCreateUsesEncryptedFormAndDoesNotReplaceExisting(t *t
 	if denied := create(memberToken); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("member created original model: %d", denied.Code)
 	}
-	requestBody["supplier"] = 7
+	requestBody["supplier"] = 1
 	if rejected := create(adminToken); rejected.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("unsupported provider accepted: %d", rejected.Code)
+		t.Fatalf("provider requiring unsupported extra arguments accepted: %d", rejected.Code)
 	}
 	requestBody["supplier"] = 15
 	requestBody["api_domain"] = "http://127.0.0.1:8000/v1"
@@ -281,15 +281,19 @@ func TestOriginalModelFirstCreateUsesEncryptedFormAndDoesNotReplaceExisting(t *t
 		strings.Contains(listed.Body.String(), model.APIKey) {
 		t.Fatalf("original catalog after create: %d %s", listed.Code, listed.Body.String())
 	}
-	if duplicate := create(adminToken); duplicate.Code != http.StatusConflict {
-		t.Fatalf("second create replaced default model: %d", duplicate.Code)
+	if second := create(adminToken); second.Code != http.StatusOK {
+		t.Fatalf("second catalog create: %d %s", second.Code, second.Body.String())
 	}
 	var unchanged ModelConfig
 	if revision, err := service.Store.get(context.Background(), key, &unchanged); err != nil || revision != 1 || unchanged.ID != model.ID {
-		t.Fatalf("duplicate changed saved model: %+v revision=%d err=%v", unchanged, revision, err)
+		t.Fatalf("second create changed default model: %+v revision=%d err=%v", unchanged, revision, err)
+	}
+	additional, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
+	if err != nil || len(additional) != 1 || additional[0].ID == model.ID || additional[0].APIKey != "original-private-key" {
+		t.Fatalf("second catalog entry was not stored: %+v err=%v", additional, err)
 	}
 	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
-	if err != nil || len(audits) != 1 || !strings.Contains(string(audits[0]), "workspace-model.create") {
+	if err != nil || len(audits) != 2 {
 		t.Fatalf("original create audit: count=%d err=%v", len(audits), err)
 	}
 	probe := accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel/status", `{"id":""}`, adminToken)
