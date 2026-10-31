@@ -33,6 +33,18 @@ func validModelCatalogActivation(value modelCatalogActivation) bool {
 	return err == nil
 }
 
+func (s *Store) modelCatalogIsActive(ctx context.Context) (bool, error) {
+	var active modelCatalogActivation
+	_, err := s.get(ctx, modelCatalogActiveKey(), &active)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || !validModelCatalogActivation(active) {
+		return false, ErrUnavailable
+	}
+	return true, nil
+}
+
 // modelForWorkspace reads the global default only after an atomic catalog
 // activation. A staged catalog never changes legacy model selection. The
 // default is available across workspaces, as in SQLBot Community v1.10.3;

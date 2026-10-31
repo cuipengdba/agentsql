@@ -117,11 +117,29 @@ func (h *Handler) legacyModelPutTwoSegments(w http.ResponseWriter, r *http.Reque
 	failure(w, ErrNotFound)
 }
 
-// A workspace model belongs only to its current workspace. Keep the original
-// mapping dialog truthful while refusing cross-workspace model sharing until
-// the multi-model catalog has an explicit permission and audit contract.
+// Before catalog activation, a workspace model belongs only to its current
+// workspace. Active catalog mappings use the shared encrypted model record.
 func (h *Handler) legacyModelMappings(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	_, _, _, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		id := ID(r.PathValue("id"))
+		mappings, _, err := h.service.Store.catalogModelMappings(r.Context(), p, id)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, mappings)
+		return
+	}
+	_, _, _, err = h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
 		return
@@ -130,6 +148,9 @@ func (h *Handler) legacyModelMappings(w http.ResponseWriter, r *http.Request, p 
 }
 
 func (h *Handler) legacyModelMappingsUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if h.activeCatalogMappingChange(w, r, p, token, catalogMappingsReplace) {
+		return
+	}
 	_, _, _, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
@@ -150,10 +171,16 @@ func (h *Handler) legacyModelMappingsUpdate(w http.ResponseWriter, r *http.Reque
 	okay(w, spaces)
 }
 
-// The original dialog uses POST to add and DELETE to remove mappings. Only a
-// duplicate add (or an empty change) can be honored before cross-workspace
-// model ownership exists. The sole mapping must never be removed silently.
+// The original dialog uses POST to add and DELETE to remove mappings. Before
+// activation, only a duplicate add (or empty change) can be honored.
 func (h *Handler) legacyModelMappingsChange(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	mode := catalogMappingsAdd
+	if r.Method == http.MethodDelete {
+		mode = catalogMappingsRemove
+	}
+	if h.activeCatalogMappingChange(w, r, p, token, mode) {
+		return
+	}
 	_, _, _, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
@@ -182,6 +209,45 @@ func (h *Handler) legacyModelMappingsChange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	okay(w, []string{string(p.Workspace)})
+}
+
+// activeCatalogMappingChange dispatches only after the activation marker is
+// valid. A concurrent cutover or revision change fails closed in the store.
+func (h *Handler) activeCatalogMappingChange(w http.ResponseWriter, r *http.Request, p Principal,
+	token string, mode catalogMappingChange) bool {
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return true
+	}
+	if !active {
+		return false
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return true
+	}
+	id := ID(r.PathValue("id"))
+	if !id.Valid() {
+		failure(w, ErrNotFound)
+		return true
+	}
+	var spaces []ID
+	if !readBody(w, r, &spaces) {
+		return true
+	}
+	_, revision, err := h.service.Store.catalogModelMappings(r.Context(), p, id)
+	if err != nil {
+		failure(w, err)
+		return true
+	}
+	mappings, err := h.service.Store.changeCatalogModelMappings(r.Context(), p, id, spaces, mode, revision)
+	if err != nil {
+		failure(w, err)
+		return true
+	}
+	okay(w, mappings)
+	return true
 }
 
 // The original Community form includes an empty id on create and RSA
