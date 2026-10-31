@@ -950,16 +950,21 @@ func (h *Handler) remove(w http.ResponseWriter, r *http.Request, p Principal, _ 
 
 func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	var input struct {
-		Chat        ID     `json:"chat_id"`
-		Question    string `json:"question"`
-		Datasource  *ID    `json:"datasource_id"`
-		CustomModel any    `json:"custom_model"`
+		Chat        ID              `json:"chat_id"`
+		Question    string          `json:"question"`
+		Datasource  *ID             `json:"datasource_id"`
+		CustomModel json.RawMessage `json:"custom_model"`
 	}
 	if !readBody(w, r, &input) {
 		return
 	}
-	if input.Datasource != nil || input.CustomModel != nil {
-		writeJSON(w, 422, "Select a configured datasource and default model before starting this conversation")
+	if input.Datasource != nil {
+		writeJSON(w, 422, "Select a configured datasource before starting this conversation")
+		return
+	}
+	selected, err := optionalQuestionModelID(input.CustomModel)
+	if err != nil {
+		writeJSON(w, 422, "Invalid model ID")
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -988,7 +993,7 @@ func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, 
 	check := func(ctx context.Context) error {
 		return h.currentIdentity(ctx, p, token)
 	}
-	record, err := h.service.Ask(r.Context(), p, input.Chat, input.Question, check, func(id ID) error { return event(map[string]any{"type": "id", "id": id}) })
+	record, err := h.service.AskWithModel(r.Context(), p, input.Chat, input.Question, selected, check, func(id ID) error { return event(map[string]any{"type": "id", "id": id}) })
 	if err != nil {
 		if !started {
 			failure(w, err)

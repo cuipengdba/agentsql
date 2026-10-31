@@ -90,6 +90,102 @@ func TestAssistantConfigurationIsScopedAuditedAndRevocable(t *testing.T) {
 	}
 }
 
+func TestActiveCatalogAssistantCustomModelRequiresCurrentMapping(t *testing.T) {
+	ctx := context.Background()
+	service, principal, _, _, _ := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Admin = true
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	principal.User = user
+	activateModelCatalogFixture(t, service.Store, ModelConfig{ID: "30", Model: "default", Endpoint: "https://example.invalid/v1"})
+	custom := ID("31")
+	if err := service.Store.put(ctx, modelCatalogKey(custom),
+		ModelConfig{ID: custom, Model: "specialized", Endpoint: "https://example.invalid/v1"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	app := AssistantApplication{Name: "Scoped assistant", Type: 1, Domain: "https://example.com", DatasourceIDs: []ID{"10"},
+		UseCustomModel: true, CustomModel: &custom, Enabled: true}
+	if _, err := service.SaveAssistant(ctx, principal, app); !errors.Is(err, ErrInvalidAssistant) {
+		t.Fatalf("unmapped assistant model accepted: %v", err)
+	}
+	mapping := modelMappingKey(custom, principal.Workspace)
+	if err := service.Store.put(ctx, mapping, catalogModelMapping{Model: custom, Workspace: principal.Workspace}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := service.SaveAssistant(ctx, principal, app); err != nil || !saved.ID.Valid() {
+		t.Fatalf("mapped assistant model rejected: %+v %v", saved, err)
+	}
+}
+
+func TestEmbeddedAssistantUsesConfiguredMappedModelAndRevokesIt(t *testing.T) {
+	ctx := context.Background()
+	service, admin, gateway, generator, _ := serviceFixture(t)
+	user, revision, err := service.Store.User(ctx, admin.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Admin = true
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	admin.User = user
+	viewer := testUser(t, "2", "viewer")
+	if err := service.Store.CreateUser(ctx, viewer); err != nil {
+		t.Fatal(err)
+	}
+	var binding Binding
+	if _, err := service.Store.get(ctx, bindingKey(admin, "10"), &binding); err != nil {
+		t.Fatal(err)
+	}
+	binding.User = viewer.ID
+	viewerPrincipal := Principal{User: viewer, Workspace: admin.Workspace}
+	if err := service.Store.put(ctx, bindingKey(viewerPrincipal, "10"), binding, 0); err != nil {
+		t.Fatal(err)
+	}
+	activateModelCatalogFixture(t, service.Store, ModelConfig{ID: "30", Model: "global", Endpoint: "https://example.invalid/v1"})
+	selectedID := ID("31")
+	if err := service.Store.put(ctx, modelCatalogKey(selectedID),
+		ModelConfig{ID: selectedID, Model: "specialized", Endpoint: "https://example.invalid/v1"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	mapping := modelMappingKey(selectedID, admin.Workspace)
+	if err := service.Store.put(ctx, mapping, catalogModelMapping{Model: selectedID, Workspace: admin.Workspace}, 0); err != nil {
+		t.Fatal(err)
+	}
+	app, err := service.SaveAssistant(ctx, admin, AssistantApplication{Name: "Embedded model", Type: 4,
+		Domain: "https://example.com", DatasourceIDs: []ID{"10"}, UseCustomModel: true,
+		CustomModel: &selectedID, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded := Principal{User: viewer, Workspace: admin.Workspace, EmbeddedApp: app.ID,
+		EmbeddedRevision: app.Revision, EmbeddedType: 4}
+	chat, err := service.Start(ctx, embedded, "10", "amount", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { return service.live(ctx, embedded) }
+	record, err := service.AskWithModel(ctx, embedded, chat.ID, "amount?", nil, check, nil)
+	if err != nil || record.Data == nil || generator.last.ID != selectedID || gateway.queries != 1 {
+		t.Fatalf("embedded app ignored configured model: %+v %v, selected=%s queries=%d", record, err, generator.last.ID, gateway.queries)
+	}
+	otherID := ID("30")
+	if _, err := service.AskWithModel(ctx, embedded, chat.ID, "override?", &otherID, check, nil); !errors.Is(err, ErrModel) || gateway.queries != 1 {
+		t.Fatalf("embedded caller overrode configured model: %v, queries=%d", err, gateway.queries)
+	}
+	if err := service.Store.delete(ctx, mapping, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AskWithModel(ctx, embedded, chat.ID, "after revoke?", nil, check, nil); !errors.Is(err, ErrModel) || gateway.queries != 1 {
+		t.Fatalf("revoked embedded model reached gateway: %v, queries=%d", err, gateway.queries)
+	}
+}
+
 func TestAssistantDomainsAcceptOriginalSemicolonListButRejectInsecureOrigins(t *testing.T) {
 	if !validAssistantDomain("https://one.example;https://two.example") || !validAssistantDomain("http://localhost:3000") {
 		t.Fatal("valid original-client domain list rejected")

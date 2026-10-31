@@ -70,6 +70,50 @@ func TestCatalogGlobalDefaultCrossesWorkspacesButLeaseRevokesOldConfig(t *testin
 	}
 }
 
+func TestCatalogExplicitSelectionRequiresCurrentWorkspaceMapping(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	local := ModelConfig{ID: "20", Model: "local", Endpoint: "https://example.invalid/v1"}
+	if err := store.put(ctx, objectKey{"model", "1", "workspace", "default"}, local, 0); err != nil {
+		t.Fatal(err)
+	}
+	otherID := ID("31")
+	if _, _, err := store.modelForWorkspaceSelection(ctx, "1", &otherID); !errors.Is(err, ErrModel) {
+		t.Fatalf("legacy workspace accepted unknown model: %v", err)
+	}
+	global := ModelConfig{ID: "30", Model: "global", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, store, global)
+	other := ModelConfig{ID: otherID, Model: "mapped", Endpoint: "https://example.invalid/v1"}
+	if err := store.put(ctx, modelCatalogKey(other.ID), other, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.modelForWorkspaceSelection(ctx, "1", &otherID); !errors.Is(err, ErrModel) {
+		t.Fatalf("unmapped model selected: %v", err)
+	}
+	defaultID := global.ID
+	if selected, lease, err := store.modelForWorkspaceSelection(ctx, "2", &defaultID); err != nil ||
+		selected.ID != defaultID || store.modelLeaseUnchanged(ctx, "2", selected, lease) != nil {
+		t.Fatalf("unmapped global default unavailable: %+v %v", selected, err)
+	}
+	mappingKey := modelMappingKey(otherID, "1")
+	if err := store.put(ctx, mappingKey, catalogModelMapping{Model: otherID, Workspace: "1"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	selected, lease, err := store.modelForWorkspaceSelection(ctx, "1", &otherID)
+	if err != nil || selected.ID != otherID || store.modelLeaseUnchanged(ctx, "1", selected, lease) != nil {
+		t.Fatalf("mapped model selection failed: %+v %v", selected, err)
+	}
+	if _, _, err := store.modelForWorkspaceSelection(ctx, "2", &otherID); !errors.Is(err, ErrModel) {
+		t.Fatalf("other workspace used model mapping: %v", err)
+	}
+	if err := store.delete(ctx, mappingKey, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.modelLeaseUnchanged(ctx, "1", selected, lease); !errors.Is(err, ErrModel) {
+		t.Fatalf("revoked mapping kept old lease: %v", err)
+	}
+}
+
 func TestCatalogCredentialRotationDuringQuestionFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	service, principal, gateway, model, token := serviceFixture(t)
@@ -98,5 +142,36 @@ func TestCatalogCredentialRotationDuringQuestionFailsClosed(t *testing.T) {
 	record, err := service.Ask(ctx, principal, chat.ID, "show amount", check, nil)
 	if !errors.Is(err, ErrModel) || record.SQL != "" || record.Data != nil || gateway.queries != 0 {
 		t.Fatalf("revoked global credential reached gateway or returned data: err=%v record=%+v queries=%d", err, record, gateway.queries)
+	}
+}
+
+func TestCatalogMappedModelQuestionRevocationFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, generator, token := serviceFixture(t)
+	global := ModelConfig{ID: "30", Model: "global", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, service.Store, global)
+	selectedID := ID("31")
+	selected := ModelConfig{ID: selectedID, Model: "specialized", Endpoint: "https://example.invalid/v1"}
+	if err := service.Store.put(ctx, modelCatalogKey(selectedID), selected, 0); err != nil {
+		t.Fatal(err)
+	}
+	mappingKey := modelMappingKey(selectedID, principal.Workspace)
+	if err := service.Store.put(ctx, mappingKey, catalogModelMapping{Model: selectedID, Workspace: principal.Workspace}, 0); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := service.Start(ctx, principal, "10", "fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	record, err := service.AskWithModel(ctx, principal, chat.ID, "show amount", &selectedID, check, nil)
+	if err != nil || record.Data == nil || generator.last.ID != selectedID || gateway.queries != 1 {
+		t.Fatalf("mapped model question missed selection: %+v %v, selected=%s queries=%d", record, err, generator.last.ID, gateway.queries)
+	}
+	var revokeErr error
+	generator.after = func() { revokeErr = service.Store.delete(ctx, mappingKey, 1) }
+	record, err = service.AskWithModel(ctx, principal, chat.ID, "again", &selectedID, check, nil)
+	if revokeErr != nil || !errors.Is(err, ErrModel) || record.SQL != "" || record.Data != nil || gateway.queries != 1 {
+		t.Fatalf("revoked mapped model released result: %+v %v, revoke=%v queries=%d", record, err, revokeErr, gateway.queries)
 	}
 }

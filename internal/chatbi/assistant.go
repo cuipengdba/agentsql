@@ -171,8 +171,7 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 		if app.CustomModel == nil || !app.CustomModel.Valid() {
 			return AssistantApplication{}, ErrInvalidAssistant
 		}
-		var model ModelConfig
-		if _, err := service.Store.get(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &model); err != nil || validateModelConfig(model) != nil || model.ID != *app.CustomModel {
+		if _, _, err := service.Store.modelForWorkspaceSelection(ctx, p.Workspace, app.CustomModel); err != nil {
 			return AssistantApplication{}, ErrInvalidAssistant
 		}
 	} else {

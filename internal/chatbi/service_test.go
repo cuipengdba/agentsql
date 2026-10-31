@@ -54,6 +54,7 @@ type fakeModel struct {
 	calls int
 	err   error
 	after func()
+	last  ModelConfig
 }
 
 type historyModel struct {
@@ -186,8 +187,9 @@ func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
 	}
 }
 
-func (m *fakeModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
+func (m *fakeModel) Generate(_ context.Context, config ModelConfig, _ string, _ string, _ []Column) (SQLGeneration, error) {
 	m.calls++
+	m.last = config
 	if m.after != nil {
 		m.after()
 	}

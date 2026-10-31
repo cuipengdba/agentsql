@@ -335,9 +335,13 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &input) {
 		return
 	}
-	if !input.Chat.Valid() || strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 ||
-		len(input.Custom) != 0 && string(input.Custom) != "null" {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question or unsupported custom model")
+	if !input.Chat.Valid() || strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
+		return
+	}
+	selectedModel, err := optionalQuestionModelID(input.Custom)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid model ID")
 		return
 	}
 	p, ok := h.mcpBodyPrincipal(w, r, input.Token, nil)
@@ -412,7 +416,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	check := func(ctx context.Context) error { return h.mcpCurrentIdentity(ctx, p, input.Token) }
-	record, err := h.service.Ask(r.Context(), p, input.Chat, input.Question, check, nil)
+	record, err := h.service.AskWithModel(r.Context(), p, input.Chat, input.Question, selectedModel, check, nil)
 	if err != nil {
 		failure(w, err)
 		return

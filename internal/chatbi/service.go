@@ -564,6 +564,10 @@ func (service *Service) Delete(ctx context.Context, p Principal, id ID) error {
 // Ask commits both start and terminal state. Results are delivered only after
 // successful gateway audit, local persistence and a final identity check.
 func (service *Service) Ask(ctx context.Context, p Principal, id ID, question string, check func(context.Context) error, onStart func(ID) error) (Record, error) {
+	return service.AskWithModel(ctx, p, id, question, nil, check, onStart)
+}
+
+func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, question string, selected *ID, check func(context.Context) error, onStart func(ID) error) (Record, error) {
 	ctx, cancelRequest := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancelRequest()
 	if check == nil {
@@ -613,7 +617,22 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if err != nil {
 		return Record{}, err
 	}
-	model, modelLease, err := service.Store.modelForWorkspace(ctx, p.Workspace)
+	if p.EmbeddedApp != "" {
+		var app AssistantApplication
+		appRevision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
+		if err != nil || appRevision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || !app.Enabled {
+			return Record{}, ErrUnauthenticated
+		}
+		if app.UseCustomModel {
+			if app.CustomModel == nil || !app.CustomModel.Valid() || selected != nil && *selected != *app.CustomModel {
+				return Record{}, ErrModel
+			}
+			selected = app.CustomModel
+		} else if selected != nil {
+			return Record{}, ErrModel
+		}
+	}
+	model, modelLease, err := service.Store.modelForWorkspaceSelection(ctx, p.Workspace, selected)
 	if err != nil {
 		return Record{}, err
 	}
