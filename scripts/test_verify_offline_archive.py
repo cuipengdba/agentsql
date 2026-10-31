@@ -59,15 +59,14 @@ class OfflineArchiveSignatureTest(unittest.TestCase):
                                *options],
                               capture_output=True, text=True, check=False)
 
-    def tar_archive(self, unsafe=None):
+    def tar_archive(self, unsafe=None, installer_data=b"verified installer\n"):
         with tarfile.open(self.archive, "w:gz") as output:
             root = tarfile.TarInfo("agentsql-v4.5.0-offline")
             root.type = tarfile.DIRTYPE
             output.addfile(root)
-            data = b"verified installer\n"
             installer = tarfile.TarInfo("agentsql-v4.5.0-offline/install-offline.py")
-            installer.size = len(data)
-            output.addfile(installer, io.BytesIO(data))
+            installer.size = len(installer_data)
+            output.addfile(installer, io.BytesIO(installer_data))
             if unsafe is not None:
                 output.addfile(unsafe)
         self.resign()
@@ -146,6 +145,41 @@ class OfflineArchiveSignatureTest(unittest.TestCase):
         result = self.check_archive("--extract-to", str(destination))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(destination.exists())
+
+    def test_one_command_install_runs_only_verified_installer(self):
+        marker = self.archive.parent / "installer-ran"
+        code = ("from pathlib import Path\nimport sys\n"
+                + f"Path({str(marker)!r}).write_text(' '.join(sys.argv[1:]))\n")
+        self.tar_archive(installer_data=code.encode())
+        result = self.check_archive("--install", "--action", "upgrade", "--no-start")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OFFLINE_ARCHIVE=INSTALLED", result.stdout)
+        arguments = marker.read_text()
+        self.assertIn("upgrade", arguments)
+        self.assertIn("--no-start", arguments)
+        self.assertIn(str(self.public_key), arguments)
+
+    def test_one_command_install_rejects_changed_archive_before_execution(self):
+        marker = self.archive.parent / "installer-ran"
+        code = f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n"
+        self.tar_archive(installer_data=code.encode())
+        with self.archive.open("ab") as output:
+            output.write(b"tampered")
+        result = self.check_archive("--install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertNotIn("OFFLINE_ARCHIVE=INSTALLED", result.stdout)
+
+    def test_one_command_install_rejects_signed_unsafe_archive(self):
+        marker = self.archive.parent / "installer-ran"
+        code = f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n"
+        member = tarfile.TarInfo("agentsql-v4.5.0-offline/escape")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "../../outside"
+        self.tar_archive(unsafe=member, installer_data=code.encode())
+        result = self.check_archive("--install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -176,11 +177,48 @@ def main():
     parser.add_argument("--public-key", required=True,
                         help="release public key obtained independently from the archive")
     parser.add_argument("--extract-to", help="new directory for the verified archive contents")
+    parser.add_argument("--install", action="store_true",
+                        help="verify, privately extract and run the signed offline installer")
+    parser.add_argument("--action", choices=("install", "upgrade"), default="install",
+                        help="installation action when --install is selected")
+    parser.add_argument("--no-start", action="store_true",
+                        help="pass --no-start to the verified offline installer")
+    parser.add_argument("--require-postgres-binder", action="store_true",
+                        help="require the configured PostgreSQL binder preflight before installation")
+    parser.add_argument("--runtime-role", help="PostgreSQL runtime role for the binder preflight")
     args = parser.parse_args()
+    if args.install and args.extract_to:
+        parser.error("--install and --extract-to cannot be combined")
+    if not args.install and (args.action != "install" or args.no_start or args.require_postgres_binder or args.runtime_role):
+        parser.error("installation options require --install")
+    if args.runtime_role and not args.require_postgres_binder:
+        parser.error("--runtime-role requires --require-postgres-binder")
     openssl = shutil.which("openssl")
     if not openssl:
         parser.exit(1, "offline archive verification stopped: OpenSSL is required\n")
     try:
+        if args.install:
+            with tempfile.TemporaryDirectory(prefix="agentsql-offline-install-", dir="/var/tmp") as temporary:
+                destination = Path(temporary) / "verified"
+                key_id, digest = extract_verified(args.archive, args.signature, args.public_key,
+                                                  openssl, destination)
+                roots = list(destination.iterdir())
+                if len(roots) != 1 or not roots[0].is_dir():
+                    raise ValueError("verified offline bundle root is missing")
+                installer = roots[0] / "install-offline.py"
+                if not installer.is_file() or installer.is_symlink():
+                    raise ValueError("verified offline installer is missing")
+                command = [sys.executable, str(installer), args.action,
+                           "--trusted-public-key", str(Path(args.public_key).resolve())]
+                if args.no_start:
+                    command.append("--no-start")
+                if args.require_postgres_binder:
+                    command.append("--require-postgres-binder")
+                if args.runtime_role:
+                    command.extend(("--runtime-role", args.runtime_role))
+                subprocess.run(command, check=True)
+            print("OFFLINE_ARCHIVE=INSTALLED key_id=" + key_id + " sha256=" + digest)
+            return
         if args.extract_to:
             key_id, digest = extract_verified(args.archive, args.signature, args.public_key,
                                               openssl, args.extract_to)
