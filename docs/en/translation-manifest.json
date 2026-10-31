@@ -919,7 +919,7 @@
     {
       "source": "dbext/packaging/README.md",
       "english": "dbext/packaging/README.en.md",
-      "source_sha256": "7ea4031427bc8bd614afaa766737b01ba2d72a7a792aaecaf5f554861bf2e0cb"
+      "source_sha256": "9149b13a10749a3b99c82e621fa5bd2ae2a187b09157c6a045a7731c6e78237d"
     },
     {
       "source": "examples/observability/README.md",

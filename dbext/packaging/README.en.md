@@ -64,7 +64,9 @@ At the end of a build, the local signer container generates a fresh RSA key,
 valid for one day, signs packages/SBOMs/provenance/checksums with detached
 ASCII signatures, exports only `DEV-ONLY-public-key.asc`, verifies every
 signature, and destroys the private key on container exit. Re-running signing
-rotates the development identity and replaces old development signatures.
+rotates the development identity and replaces signatures for the current build's
+explicit package, SBOM and provenance files. The signed checksum manifest covers
+only those files; older packages left in `dist/binder` are not silently signed.
 
 **DEV ONLY: these signatures are never production trust. The production
 private key must be generated, stored, and used offline by the release owner.

@@ -3,11 +3,29 @@ set -eu
 
 output=${1:-/out}
 test -d "$output"
+selection=${2:?an explicit fresh-artifact selection file is required}
+test -f "$selection" && test ! -L "$selection"
 homedir=$(mktemp -d)
 trap 'rm -rf "$homedir"' EXIT INT TERM
 chmod 0700 "$homedir"
-find "$output" -type f -name '*.asc' -delete
-rm -f "$output/SHA256SUMS" "$output/DEV-ONLY-public-key.asc" "$output/DEV-ONLY-key-fingerprint.txt" "$output/DEV-ONLY-SIGNING-NOTICE.txt"
+: > "$homedir/artifacts"
+while IFS= read -r relative; do
+  case "$relative" in
+    ''|/*|*'..'*|*[!a-zA-Z0-9._/-]*) echo 'unsafe artifact selection' >&2; exit 64 ;;
+    *.deb|*.rpm|*.apk|*.cdx.json|*.provenance.json|*.oci.tar) ;;
+    *) echo 'unsupported artifact selection' >&2; exit 64 ;;
+  esac
+  artifact=$(realpath -e "$output/$relative")
+  case "$artifact" in "$output"/*) ;; *) echo 'artifact outside output directory' >&2; exit 64 ;; esac
+  test -f "$artifact" && test ! -L "$output/$relative"
+  printf '%s\n' "$artifact" >> "$homedir/artifacts"
+done < "$selection"
+test -s "$homedir/artifacts"
+LC_ALL=C sort -u "$homedir/artifacts" > "$homedir/unique"
+test "$(wc -l < "$homedir/artifacts")" -eq "$(wc -l < "$homedir/unique")" || { echo 'duplicate artifact selection' >&2; exit 64; }
+mv "$homedir/unique" "$homedir/artifacts"
+while IFS= read -r artifact; do rm -f "${artifact}.asc"; done < "$homedir/artifacts"
+rm -f "$output/SHA256SUMS" "$output/SHA256SUMS.asc" "$output/DEV-ONLY-public-key.asc" "$output/DEV-ONLY-key-fingerprint.txt" "$output/DEV-ONLY-SIGNING-NOTICE.txt"
 
 cat > "$homedir/key.conf" <<EOF
 Key-Type: RSA
@@ -32,8 +50,6 @@ Its private key is deleted when this container exits. Generate a new key for eve
 Production private keys are an owner-controlled offline release gate and must never use this identity.
 EOF
 
-find "$output" -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.apk' -o -name '*.cdx.json' -o -name '*.provenance.json' -o -name '*.oci.tar' \) -print | LC_ALL=C sort > "$homedir/artifacts"
-test -s "$homedir/artifacts"
 : > "$output/SHA256SUMS"
 while IFS= read -r artifact; do
   relative=${artifact#"$output"/}
