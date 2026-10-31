@@ -1,6 +1,10 @@
 # Shared release provenance checks. This file is dot-sourced by the assembler,
 # the 15-asset validator, and the production signer before it reads a secret key.
 
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw 'Release provenance checks require PowerShell 7 or newer; run the release scripts with pwsh.'
+}
+
 function Get-ReleaseInputNames {
     @(
         'go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json',

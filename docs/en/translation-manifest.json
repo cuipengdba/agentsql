@@ -229,7 +229,7 @@
     {
       "source": "docs/release-assets-history.md",
       "english": "docs/en/release-assets-history.md",
-      "source_sha256": "7b9acf28a2307a7d596049a0e1ead0ca46fce4aac6e4a1e9755d234a4cf99e1f"
+      "source_sha256": "aefe79b340097a87f1963b9cdc6ebb0e2e2ab89b1f57307f3b583fd14eecc262"
     },
     {
       "source": "docs/release-b81-report.md",
@@ -459,7 +459,7 @@
     {
       "source": "docs/release-process-history.md",
       "english": "docs/en/release-process-history.md",
-      "source_sha256": "ae72dab9983edbe807b7bac42990dfccca8f6085a5d6161230b4f8de896e1d5c"
+      "source_sha256": "d966fe719c0a95f1b999b04ffa32c7098516d2cc08ae31985b4c9bfe96293093"
     },
     {
       "source": "docs/RELEASE_ASSETS.md",
@@ -1259,7 +1259,7 @@
     {
       "source": "docs/v4.4.0-design.md",
       "english": "docs/en/v4.4.0-design.md",
-      "source_sha256": "0fd06d69190e52ec73e81231ae7637708ef8fe3dc90ace5b3c27c26a889457e3"
+      "source_sha256": "28570209f45f2edaceb4b34faf610c153da899c98315e198b7d18064e63873d1"
     }
   ]
 }

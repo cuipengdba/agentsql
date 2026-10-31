@@ -174,10 +174,10 @@ Redistribution of YashanDB C client has been verbally authorized by the manufact
 
 ## v0.5.0 read-only verification and local reconstruction at that time
 
-Windows PowerShell can run `.ps1` directly; when PowerShell 7 is installed, `powershell` can also be changed to `pwsh`:
+The current release validator requires PowerShell 7 or newer. Windows PowerShell 5 parses JSON integers differently and can fail provenance validation after the full build. Use `pwsh`:
 
 ```powershell
-powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -ValidateOnly -AssetsDirectory dist\release-dryrun\v0.5.0\assets
+pwsh -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -ValidateOnly -AssetsDirectory dist\release-dryrun\v0.5.0\assets
 ```
 
 The validator will first list the 15 expected names, byte count, local SHA-256 and `PRESENT`/`MISSING` line by line, and then verify the name set, sidecar, `SHA256SUMS`, Yashan Go dependencies and the two required client libraries, provenance commit and signature documents in the tarball. Any failure returns non-zero; **appearing on 15 lines does not equal passing**. `SHA256SUMS` does not include itself and its signature to avoid cyclic digests.
@@ -185,7 +185,7 @@ The validator will first list the 15 expected names, byte count, local SHA-256 a
 After sealing the board, execute a full local walkthrough in an environment with Docker and required build dependencies, and output to a new directory:
 
 ```powershell
-powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist\release-dryrun\v0.5.0-final
+pwsh -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist\release-dryrun\v0.5.0-final
 ```
 
 By default, dual-architecture packages, SPDX SBOM, provenance, 15 local dry-run files and three local OCI image archives are generated; no signing, no pushing, and no git tags are created. Only when `RELEASE_DRYRUN_SHA256SUMS=PASS`, `RELEASE_DRYRUN_ASSET_COUNT=15`, `RELEASE_DRYRUN_IMAGES=PASS` and `RELEASE_DRYRUN_RESULT=PASS_UNSIGNED_NOT_FOR_RELEASE` appear at the same time can it be called **local unsigned walkthrough through**. For the official release gate, see [RELEASE_PROCESS.md](RELEASE_PROCESS.md) and [ release date list ](release-day-checklist-v0.5.md).
