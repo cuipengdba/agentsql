@@ -33,6 +33,8 @@ it does not authenticate a builder or replace a production signature.
 ./dbext/packaging/build-packages.ps1
 # Focused developer build:
 ./dbext/packaging/build-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb
+# Supported Alpine branch (verify repository support again before release):
+./dbext/packaging/build-packages.ps1 -PostgresMajor 16,17,18 -Format apk
 ```
 
 Buildx runs amd64 natively and arm64 through the builder's binfmt/QEMU support.
@@ -40,17 +42,20 @@ RPM build and verification use the same pinned Rocky Linux 9.8 vendor image.
 The older `rockylinux:9` image resolved to 9.3 here, whose PGDG `rhel-9.3`
 metadata returned 404. This build target does not prove compatibility with
 other Rocky Linux 9 minor versions.
-Alpine bases are mapped as PG14/3.15, PG15/3.17, PG16/3.19, PG17/3.21, and
-PG18/3.23; repository retirement is a release-blocking maintenance event, not
-a reason to silently substitute a different major.
+The default build targets Debian and RPM. As of 2026-10-31, supported-branch
+Alpine builds target 3.24 for PG16–18; verify the [Alpine release lifecycle](https://www.alpinelinux.org/releases/)
+and the specific PostgreSQL package repository before each formal release.
+PG14/3.15 and PG15/3.17 APK builds require `-AllowLegacyAlpine` and are only
+for isolated compatibility tests. Those archived branches are not production
+security-support claims. Do not include their artifacts in a formal release.
 
 Package runtime verification is also containerized:
 
 ```powershell
-# Required amd64 matrix
+# Default Debian and RPM matrix
 ./dbext/packaging/test-packages.ps1
-# Required QEMU example (and optionally the full arm64 matrix)
-./dbext/packaging/test-packages.ps1 -PostgresMajor 16 -Platform linux/arm64
+# Supported Alpine arm64 example
+./dbext/packaging/test-packages.ps1 -PostgresMajor 16 -Platform linux/arm64 -Format apk
 ```
 
 ## DEV ONLY signatures

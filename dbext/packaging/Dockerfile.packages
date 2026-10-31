@@ -3,7 +3,7 @@ ARG PG_MAJOR=16
 ARG PACKAGE_VERSION=0.5.0
 ARG PACKAGE_RELEASE=1
 ARG SOURCE_REVISION=unknown
-ARG ALPINE_VERSION=3.21
+ARG ALPINE_VERSION=3.24
 
 FROM postgres:${PG_MAJOR}-bookworm AS deb-build
 ARG PG_MAJOR PACKAGE_VERSION PACKAGE_RELEASE SOURCE_REVISION TARGETARCH
@@ -62,10 +62,15 @@ ARG PG_MAJOR PACKAGE_VERSION PACKAGE_RELEASE SOURCE_REVISION TARGETARCH ALPINE_V
 RUN apk add --no-cache alpine-sdk build-base "postgresql${PG_MAJOR}-dev" "postgresql${PG_MAJOR}" su-exec
 COPY dbext/postgres/agentsql_binder /src
 COPY dbext/packaging/scripts /packaging
-RUN set -eux; adduser -D builder; addgroup builder abuild; mkdir -p /home/builder/package/source/agentsql_binder-src /out; cp -a /src/. /home/builder/package/source/agentsql_binder-src/; \
+# Newer Alpine branches ship libpq-dev for a different PostgreSQL major.
+# Select the server major's pg_config for both PGXS and installation paths.
+RUN set -eux; pgconfig="/usr/libexec/postgresql${PG_MAJOR}/pg_config"; \
+    if [ ! -x "$pgconfig" ]; then pgconfig="$(command -v pg_config)"; fi; \
+    "$pgconfig" --version | grep -Eq "^PostgreSQL ${PG_MAJOR}([.]|[[:space:]])"; \
+    adduser -D builder; addgroup builder abuild; mkdir -p /home/builder/package/source/agentsql_binder-src /out; cp -a /src/. /home/builder/package/source/agentsql_binder-src/; \
     tar -C /home/builder/package/source -czf /home/builder/package/agentsql_binder-src.tar.gz agentsql_binder-src; rm -rf /home/builder/package/source; chown -R builder:builder /home/builder /out; \
-    printf '# Maintainer: AgentSQL Maintainers <87326549@qq.com>\npkgname=agentsql-binder-pg%s\npkgver=%s\npkgrel=%s\npkgdesc="AgentSQL optional analyzed-tree binder for PostgreSQL %s"\nurl="https://agentsql.cn"\narch="x86_64 aarch64"\nlicense="Apache-2.0"\ndepends="postgresql%s~%s"\nmakedepends="postgresql%s-dev build-base"\noptions="!check"\nsource="agentsql_binder-src.tar.gz"\nbuilddir="$srcdir/agentsql_binder-src"\nbuild() { make -C "$builddir" with_llvm=no clean; make -C "$builddir" with_llvm=no all; }\npackage() { make -C "$builddir" with_llvm=no DESTDIR="$pkgdir" install; libdir="$(pg_config --pkglibdir)"; mv "$pkgdir$libdir/agentsql_binder.so" "$pkgdir$libdir/agentsql_binder-0.4.so"; ln -s agentsql_binder-0.4.so "$pkgdir$libdir/agentsql_binder.so"; }\n' \
-      "$PG_MAJOR" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" > /home/builder/package/APKBUILD; \
+    printf '# Maintainer: AgentSQL Maintainers <87326549@qq.com>\npkgname=agentsql-binder-pg%s\npkgver=%s\npkgrel=%s\npkgdesc="AgentSQL optional analyzed-tree binder for PostgreSQL %s"\nurl="https://agentsql.cn"\narch="x86_64 aarch64"\nlicense="Apache-2.0"\ndepends="postgresql%s~%s"\nmakedepends="postgresql%s-dev build-base"\noptions="!check"\nsource="agentsql_binder-src.tar.gz"\nbuilddir="$srcdir/agentsql_binder-src"\nbuild() { make -C "$builddir" PG_CONFIG=%s with_llvm=no clean; make -C "$builddir" PG_CONFIG=%s with_llvm=no all; }\npackage() { make -C "$builddir" PG_CONFIG=%s with_llvm=no DESTDIR="$pkgdir" install; libdir="$(%s --pkglibdir)"; mv "$pkgdir$libdir/agentsql_binder.so" "$pkgdir$libdir/agentsql_binder-0.4.so"; ln -s agentsql_binder-0.4.so "$pkgdir$libdir/agentsql_binder.so"; }\n' \
+      "$PG_MAJOR" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$PG_MAJOR" "$pgconfig" "$pgconfig" "$pgconfig" "$pgconfig" > /home/builder/package/APKBUILD; \
     chown builder:builder /home/builder/package/APKBUILD; su-exec builder abuild-keygen -a -n; cp /home/builder/.abuild/*.rsa.pub /etc/apk/keys/; \
     su-exec builder sh -c 'cd /home/builder/package && abuild checksum && abuild -F -r'; \
     artifact_src="$(find /home/builder/packages -name 'agentsql-binder-*.apk' -type f | head -1)"; cp "$artifact_src" /out/; artifact="/out/$(basename "$artifact_src")"; \

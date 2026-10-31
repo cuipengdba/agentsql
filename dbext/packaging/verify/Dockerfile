@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 ARG PG_MAJOR=16
-ARG ALPINE_VERSION=3.21
+ARG ALPINE_VERSION=3.24
 FROM postgres:${PG_MAJOR}-bookworm AS verify-deb
 ARG PACKAGE_FILE
 COPY ${PACKAGE_FILE} /tmp/agentsql-binder.deb
