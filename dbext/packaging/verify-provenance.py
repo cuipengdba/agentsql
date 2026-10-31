@@ -59,7 +59,8 @@ def verify(artifact, provenance, source_root, revision):
     params = definition.get("externalParameters", {})
     if params.get("sourceRevision") != revision or params.get("postgresMajor") not in {"14", "15", "16", "17", "18"}:
         raise ValueError("source revision or PostgreSQL major does not match")
-    if params.get("architecture") not in {"x86_64", "aarch64"} or params.get("ecosystem") not in {"deb", "rpm", "apk"}:
+    architectures = {"deb": {"amd64", "arm64"}, "rpm": {"x86_64", "aarch64"}, "apk": {"x86_64", "aarch64"}}
+    if params.get("architecture") not in architectures.get(params.get("ecosystem"), set()):
         raise ValueError("architecture or package ecosystem is invalid")
     if artifact.suffix != "." + params["ecosystem"]:
         raise ValueError("artifact extension does not match ecosystem")
