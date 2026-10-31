@@ -203,9 +203,10 @@ export function setupDataPermissions({ api, t, node, get, canOpen }) {
     if (!await loadFields() || !open || draft !== rule) return;
     $('permission-kind').value = item.type;
     editingItemIndex = index;
+    rowTree = freshTree();
     if (item.type === 'row') {
       const tree = parsed(item.expression_tree);
-      if (!tree || !validTree(tree)) { status(t('permissionInvalid'), true); editingItemIndex = null; return; }
+      if (!tree || !validTree(tree)) { status(t('permissionInvalid'), true); editingItemIndex = null; builderAction(); return; }
       rowTree = structuredClone(tree); renderFieldEditor();
     } else {
       renderFieldEditor();
@@ -231,6 +232,10 @@ export function setupDataPermissions({ api, t, node, get, canOpen }) {
   async function editRule(id) {
     const current = ++epoch;
     draft = null; editingItemIndex = null; rowTree = freshTree(); builderAction();
+    tables = []; fields = [];
+    $('permission-kind').value = 'row'; $('permission-source').value = '';
+    $('permission-table').replaceChildren(option('', t('permissionChooseTable')));
+    $('permission-fields').replaceChildren(); $('permission-expression').replaceChildren();
     renderDraft(); status(t('reading'));
     try {
       const rule = await api('/ds_permission/get/' + encodeURIComponent(String(id)), {}, 'POST');
