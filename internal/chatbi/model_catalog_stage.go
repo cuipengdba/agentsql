@@ -48,6 +48,9 @@ func (s *Store) StageModelCatalogMigration(ctx context.Context, p Principal, sel
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
 		return err
 	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return err
+	}
 	snapshot, err := s.readModelMigrationSnapshot(ctx, tx)
 	if err != nil {
 		return err
@@ -115,6 +118,73 @@ func (s *Store) StageModelCatalogMigration(ctx context.Context, p Principal, sel
 		"models": marker.Models, "mappings": marker.Mappings, "time": time.Now().UTC(),
 	}); err != nil {
 		return fmt.Errorf("stage audit: %w", err)
+	}
+	if tx.Commit() != nil {
+		return ErrUnavailable
+	}
+	return nil
+}
+
+// ActivateModelCatalogMigration makes a staged, unchanged model snapshot live
+// in one transaction. The active marker is written only with its audit; old
+// workspace-local writers check that marker in their own write transaction.
+func (s *Store) ActivateModelCatalogMigration(ctx context.Context, p Principal, expectedDigest string) error {
+	if !p.Workspace.Valid() || !p.User.ID.Valid() || p.EmbeddedApp != "" || len(expectedDigest) != 64 {
+		return ErrUnauthenticated
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer tx.Rollback()
+	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
+		return err
+	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return err
+	}
+	key := modelCatalogStageKey()
+	var body []byte
+	if err := tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind=? AND scope=? AND owner=? AND id=?`,
+		key.Kind, key.Scope, key.Owner, key.ID).Scan(&body); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return ErrUnavailable
+	}
+	var staged stagedModelCatalog
+	if s.decode(key, body, &staged) != nil || staged.SourceDigest != expectedDigest || !staged.Default.Valid() ||
+		staged.Models < 1 || staged.Mappings < 1 {
+		return ErrConflict
+	}
+	snapshot, err := s.readModelMigrationSnapshot(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if snapshot.digest != expectedDigest || snapshot.preview.Models != staged.Models ||
+		snapshot.preview.Mappings != staged.Mappings {
+		return ErrConflict
+	}
+	if _, exists := snapshot.models[staged.Default]; !exists {
+		return ErrConflict
+	}
+	if err := s.verifyStagedModelCatalog(ctx, tx, snapshot, staged.Default); err != nil {
+		return err
+	}
+	if err := s.insertModelMigrationObject(ctx, tx, modelCatalogActiveKey(),
+		modelCatalogActivation{Version: 1, SourceDigest: staged.SourceDigest}); err != nil {
+		return err
+	}
+	auditID, err := newID()
+	if err != nil {
+		return err
+	}
+	if err := s.insertModelMigrationObject(ctx, tx,
+		objectKey{"management-audit", "system", "system", string(auditID)}, map[string]any{
+			"action": "model-catalog.activate", "actor": p.User.ID, "default": staged.Default,
+			"models": staged.Models, "mappings": staged.Mappings, "time": time.Now().UTC(),
+		}); err != nil {
+		return err
 	}
 	if tx.Commit() != nil {
 		return ErrUnavailable
