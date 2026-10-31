@@ -171,9 +171,9 @@ func (shape *MySQLColumnSelectShape) appendPredicate(expr sqlparser.Expr, depth 
 		if !ok || !shape.validColumn(column) || node.Escape != nil || node.Modifier != 0 {
 			return false
 		}
-		if node.Operator == sqlparser.InOp {
+		if node.Operator == sqlparser.InOp || node.Operator == sqlparser.NotInOp {
 			values, ok := node.Right.(sqlparser.ValTuple)
-			if !ok || len(values) == 0 || len(values) > 32 {
+			if !ok || len(values) == 0 || len(values) > 100 {
 				return false
 			}
 			for _, value := range values {

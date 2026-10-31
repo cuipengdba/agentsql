@@ -73,6 +73,19 @@ func mysqlRowSafePredicate(expr sqlparser.Expr, depth int) bool {
 		if _, ok := node.Left.(*sqlparser.ColName); !ok || node.Escape != nil || node.Modifier != 0 {
 			return false
 		}
+		if node.Operator == sqlparser.InOp || node.Operator == sqlparser.NotInOp {
+			values, ok := node.Right.(sqlparser.ValTuple)
+			if !ok || len(values) == 0 || len(values) > 100 {
+				return false
+			}
+			for _, value := range values {
+				literal, ok := value.(*sqlparser.Literal)
+				if !ok || literal.Type != sqlparser.StrVal {
+					return false
+				}
+			}
+			return true
+		}
 		if literal, ok := node.Right.(*sqlparser.Literal); !ok || literal.Type != sqlparser.StrVal {
 			return false
 		}

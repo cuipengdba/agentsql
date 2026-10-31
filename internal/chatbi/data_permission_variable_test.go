@@ -222,7 +222,38 @@ func TestMySQLVariableNumberUsesModeIndependentLiteral(t *testing.T) {
 	require.NoError(t, err)
 	_, _, predicate, err := compileSQLBotRowPermissionWithVariables(item, datasource,
 		[]Column{{Schema: "agentsql_demo", Table: "orders", Name: "amount", DataType: "decimal"}}, "mysql",
-		func(id int64) (string, bool) { return "5.25", id == 1000000000011 })
+		func(id int64) ([]string, bool) { return []string{"5.25"}, id == 1000000000011 })
 	require.NoError(t, err)
 	require.Equal(t, "`amount` = '5.25'", predicate)
+}
+
+func TestMySQLVariableMultiValueMembershipKeepsEveryBoundValue(t *testing.T) {
+	datasource := ID("10")
+	tableID := browserTableID(datasource, "agentsql_demo", "orders")
+	fieldID := browserFieldID(tableID, "status")
+	for _, test := range []struct{ term, expected string }{
+		{"in", "`status` IN ('paid', 'shipped')"},
+		{"not in", "`status` NOT IN ('paid', 'shipped')"},
+	} {
+		t.Run(test.term, func(t *testing.T) {
+			item, err := json.Marshal(map[string]any{"type": "row", "ds_id": 10, "table_id": tableID,
+				"expression_tree": map[string]any{"logic": "and", "items": []any{map[string]any{
+					"type": "item", "field_id": fieldID, "filter_type": "logic", "term": test.term,
+					"value_type": "variable", "variable_id": 1000000000012,
+				}}}})
+			require.NoError(t, err)
+			columns := []Column{{Schema: "agentsql_demo", Table: "orders", Name: "status", DataType: "varchar"}}
+			resolver := func(id int64) ([]string, bool) {
+				return []string{"paid", "shipped"}, id == 1000000000012
+			}
+			_, _, predicate, err := compileSQLBotRowPermissionWithVariables(item, datasource, columns, "mysql", resolver)
+			require.NoError(t, err)
+			require.Equal(t, test.expected, predicate)
+			_, _, _, err = compileSQLBotRowPermissionWithVariables(item, datasource, columns, "pg", resolver)
+			require.ErrorIs(t, err, ErrInvalidDataPermission)
+			_, _, _, err = compileSQLBotRowPermissionWithVariables(item, datasource, columns, "mysql",
+				func(int64) ([]string, bool) { return []string{"paid", "shipped' OR 1=1 --"}, true })
+			require.ErrorIs(t, err, ErrInvalidDataPermission)
+		})
+	}
 }

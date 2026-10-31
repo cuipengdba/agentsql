@@ -96,7 +96,7 @@ func (h *Handler) validateDataPermissionActivation(ctx context.Context, principa
 		if item.Type == "row" {
 			referenced := make(map[int64]bool)
 			schema, table, _, err := compileSQLBotRowPermissionWithVariables(raw, datasource, columns, binding.Dialect,
-				func(id int64) (string, bool) {
+				func(id int64) ([]string, bool) {
 					referenced[id] = true
 					return h.service.rowVariableDefinitionSample(ctx, principal.Workspace, id)
 				})

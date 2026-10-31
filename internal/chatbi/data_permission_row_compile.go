@@ -21,10 +21,10 @@ func compileSQLBotRowPermissionForDialect(raw json.RawMessage, datasource ID, co
 	return compileSQLBotRowPermissionWithVariables(raw, datasource, columns, dialect, nil)
 }
 
-// The resolver supplies a value from the current user's server-held binding.
+// The resolver supplies values from the current user's server-held binding.
 // A missing resolver deliberately keeps variable rules unsupported in callers
 // that have not established a live identity and definition snapshot.
-func compileSQLBotRowPermissionWithVariables(raw json.RawMessage, datasource ID, columns []Column, dialect string, resolve func(int64) (string, bool)) (string, string, string, error) {
+func compileSQLBotRowPermissionWithVariables(raw json.RawMessage, datasource ID, columns []Column, dialect string, resolve func(int64) ([]string, bool)) (string, string, string, error) {
 	if dialect != "pg" && dialect != "mysql" {
 		return "", "", "", ErrInvalidDataPermission
 	}
@@ -113,7 +113,7 @@ type sqlbotRowTreeItem struct {
 	VariableID json.RawMessage `json:"variable_id"`
 }
 
-func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect string, depth int, remaining *int, resolve func(int64) (string, bool)) (string, bool) {
+func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect string, depth int, remaining *int, resolve func(int64) ([]string, bool)) (string, bool) {
 	logic := strings.ToLower(tree.Logic)
 	if depth > 8 || len(tree.Items) == 0 || len(tree.Items) > 16 ||
 		(logic != "and" && logic != "or") || (dialect != "mysql" && logic == "or" && len(tree.Items) > 1) {
@@ -153,26 +153,23 @@ func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect s
 	return "(" + strings.Join(parts, join) + ")", true
 }
 
-func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, dialect string, resolve func(int64) (string, bool)) (string, bool) {
+func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, dialect string, resolve func(int64) ([]string, bool)) (string, bool) {
 	fieldID, valid := parseSystemVariableID(item.FieldID)
 	name, exists := fields[fieldID]
 	if !valid || !exists || item.FilterType != "logic" {
 		return "", false
 	}
-	value := item.Value
+	values := []string{item.Value}
 	if item.ValueType == "variable" {
 		variableID, valid := parseSystemVariableID(item.VariableID)
 		if !valid || variableID < 1 || resolve == nil {
 			return "", false
 		}
-		value, valid = resolve(variableID)
-		if !valid {
+		values, valid = resolve(variableID)
+		if !valid || len(values) == 0 || len(values) > 100 {
 			return "", false
 		}
 	} else if item.ValueType != "" && item.ValueType != "normal" || len(item.VariableID) != 0 && string(item.VariableID) != "null" {
-		return "", false
-	}
-	if len(value) > 256 || strings.ContainsAny(value, "\\\x00") {
 		return "", false
 	}
 	column := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
@@ -188,18 +185,37 @@ func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, diale
 	case "not_null":
 		return column + " IS NOT NULL", true
 	}
-	if value == "" {
-		return "", false
+	for _, value := range values {
+		if value == "" || len(value) > 256 || strings.ContainsAny(value, "\\\x00") ||
+			dialect == "mysql" && !mysqlRowLiteral(value) {
+			return "", false
+		}
 	}
-	if dialect == "mysql" && !mysqlRowLiteral(value) {
-		return "", false
+	if item.Term == "in" || item.Term == "not in" {
+		if item.ValueType != "variable" || dialect != "mysql" {
+			return "", false
+		}
+		literals := make([]string, len(values))
+		for index, value := range values {
+			literals[index] = "'" + strings.ReplaceAll(value, "'", "''") + "'"
+		}
+		operator := " IN "
+		if item.Term == "not in" {
+			operator = " NOT IN "
+		}
+		return column + operator + "(" + strings.Join(literals, ", ") + ")", true
+	}
+	if len(values) > 1 {
+		// SQLBot's scalar comparisons use the first bound value. Keep that
+		// behavior but require every value in the binding to be valid.
+		values = values[:1]
 	}
 	operators := map[string]string{"eq": "=", "not_eq": "<>", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
 	op, exists := operators[item.Term]
 	if !exists {
 		return "", false
 	}
-	return column + " " + op + " '" + strings.ReplaceAll(value, "'", "''") + "'", true
+	return column + " " + op + " '" + strings.ReplaceAll(values[0], "'", "''") + "'", true
 }
 
 func mysqlRowIdentifier(value string) bool {

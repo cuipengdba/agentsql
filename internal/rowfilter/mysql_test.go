@@ -40,6 +40,19 @@ func TestRewriteMySQLSingleTableAcceptsBoundedOrAndRejectsUnsafeBranches(t *test
 	}
 }
 
+func TestRewriteMySQLSingleTableAcceptsLiteralMembershipAndRejectsExecutableTuple(t *testing.T) {
+	base := "SELECT status FROM agentsql_demo.orders"
+	for _, filter := range []string{"`status` IN ('paid', 'shipped')", "`status` NOT IN ('pending', 'cancelled')"} {
+		_, _, err := RewriteMySQLSingleTable(base, "agentsql_demo", "orders", []string{filter})
+		require.NoError(t, err, filter)
+	}
+	for _, filter := range []string{"`status` IN (SELECT status FROM agentsql_demo.orders)",
+		"`status` IN ('paid', sleep(1))", "`status` IN (1, 2)", "`status` IN ()"} {
+		_, _, err := RewriteMySQLSingleTable(base, "agentsql_demo", "orders", []string{filter})
+		require.ErrorIs(t, err, ErrUnsupported, filter)
+	}
+}
+
 func TestRewriteMySQLSingleTableRejectsUnprovenScopeAndShapes(t *testing.T) {
 	for _, query := range []string{
 		"SELECT status FROM orders",

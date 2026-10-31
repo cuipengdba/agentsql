@@ -141,7 +141,7 @@ func compileApplicableRowPermissions(items []json.RawMessage, datasource ID, col
 	return compileApplicableRowPermissionsWithVariables(items, datasource, columns, dialect, nil)
 }
 
-func compileApplicableRowPermissionsWithVariables(items []json.RawMessage, datasource ID, columns []Column, dialect string, resolve func(int64) (string, bool)) (string, string, []string, error) {
+func compileApplicableRowPermissionsWithVariables(items []json.RawMessage, datasource ID, columns []Column, dialect string, resolve func(int64) ([]string, bool)) (string, string, []string, error) {
 	var schema, table string
 	filters := make([]string, 0, len(items))
 	for _, item := range items {
