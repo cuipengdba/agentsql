@@ -227,16 +227,8 @@ func (service *Service) bindingUnchanged(ctx context.Context, p Principal, bindi
 // Model credentials and workspace defaults can change while generation or a
 // gateway query is in flight. A result from the old configuration must not be
 // executed or released after that change.
-func (service *Service) modelUnchanged(ctx context.Context, workspace ID, model ModelConfig, revision int64, digest [32]byte) error {
-	var current ModelConfig
-	currentRevision, currentDigest, err := service.Store.getWithDigest(ctx, objectKey{"model", string(workspace), "workspace", "default"}, &current)
-	if err != nil {
-		return err
-	}
-	if currentRevision != revision || currentDigest != digest || current.ID != model.ID {
-		return ErrModel
-	}
-	return nil
+func (service *Service) modelUnchanged(ctx context.Context, workspace ID, model ModelConfig, lease modelLease) error {
+	return service.Store.modelLeaseUnchanged(ctx, workspace, model, lease)
 }
 
 func (service *Service) Start(ctx context.Context, p Principal, datasource ID, question string, origin int) (Chat, error) {
@@ -621,8 +613,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if err != nil {
 		return Record{}, err
 	}
-	var model ModelConfig
-	modelRevision, modelDigest, err := service.Store.getWithDigest(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	model, modelLease, err := service.Store.modelForWorkspace(ctx, p.Workspace)
 	if err != nil {
 		return Record{}, err
 	}
@@ -691,7 +682,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			return err
 		}
 		stage = "model"
-		if err := service.modelUnchanged(ctx, p.Workspace, model, modelRevision, modelDigest); err != nil {
+		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
 			return err
 		}
 		var generated SQLGeneration
@@ -718,7 +709,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
-		if err := service.modelUnchanged(ctx, p.Workspace, model, modelRevision, modelDigest); err != nil {
+		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
 			return err
 		}
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
@@ -735,7 +726,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
-		if err := service.modelUnchanged(ctx, p.Workspace, model, modelRevision, modelDigest); err != nil {
+		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
 			return err
 		}
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
@@ -773,7 +764,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if err := check(ctx); err != nil {
 		return Record{}, err
 	}
-	if err := service.modelUnchanged(ctx, p.Workspace, model, modelRevision, modelDigest); err != nil {
+	if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
 		return Record{}, err
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
