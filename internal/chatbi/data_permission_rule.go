@@ -87,7 +87,7 @@ func (rule DataPermissionRule) browserResponse(expanded bool) map[string]any {
 			item["auth_target_id"] = nil
 		}
 		if _, exists := item["auth_target_type"]; !exists {
-			item["auth_target_type"] = nil
+			item["auth_target_type"] = "user"
 		}
 		if _, exists := item["ds_name"]; !exists {
 			item["ds_name"] = ""

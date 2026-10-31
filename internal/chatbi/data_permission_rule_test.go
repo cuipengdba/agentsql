@@ -129,6 +129,7 @@ func TestDisabledPermissionDraftUsesOriginalRuleGroupResponseShape(t *testing.T)
 			Permissions    []struct {
 				ID             int64          `json:"id"`
 				Type           string         `json:"type"`
+				AuthTargetType string         `json:"auth_target_type"`
 				ExpressionTree string         `json:"expression_tree"`
 				Tree           map[string]any `json:"tree"`
 			} `json:"permissions"`
@@ -140,6 +141,7 @@ func TestDisabledPermissionDraftUsesOriginalRuleGroupResponseShape(t *testing.T)
 	require.Len(t, expanded.Data.Permissions, 1)
 	require.Equal(t, saved.Data.PermissionList[0], expanded.Data.Permissions[0].ID)
 	require.Equal(t, "row", expanded.Data.Permissions[0].Type)
+	require.Equal(t, "user", expanded.Data.Permissions[0].AuthTargetType)
 	require.Equal(t, `{"logic":"and","items":[]}`, expanded.Data.Permissions[0].ExpressionTree)
 	require.Equal(t, "and", expanded.Data.Permissions[0].Tree["logic"])
 	require.Equal(t, []int64{2}, expanded.Data.Users)

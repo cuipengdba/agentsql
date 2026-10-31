@@ -7,6 +7,23 @@ import (
 	"strconv"
 )
 
+// The original rule schema permits role and explicit-target forms that this
+// compatibility layer cannot currently enforce. An active unsupported target
+// must never turn into a no-op for the affected workspace.
+func supportedDataPermissionTarget(raw json.RawMessage) bool {
+	var target struct {
+		Type      *string         `json:"auth_target_type"`
+		ID        json.RawMessage `json:"auth_target_id"`
+		WhiteList *string         `json:"white_list_user"`
+	}
+	if json.Unmarshal(raw, &target) != nil || target.Type != nil && *target.Type != "user" ||
+		len(target.ID) != 0 && string(target.ID) != "null" ||
+		target.WhiteList != nil && *target.WhiteList != "[]" {
+		return false
+	}
+	return true
+}
+
 type dataPermissionActivation struct {
 	workspace ID
 	ruleID    int64
@@ -49,6 +66,9 @@ func (h *Handler) validateRowRuleActivation(ctx context.Context, principal Princ
 	type relation struct{ schema, table string }
 	tables := make(map[ID]relation)
 	for _, raw := range rule.Permissions {
+		if !supportedDataPermissionTarget(raw) {
+			return nil, ErrInvalidDataPermission
+		}
 		var item struct {
 			Type       string          `json:"type"`
 			Datasource json.RawMessage `json:"ds_id"`

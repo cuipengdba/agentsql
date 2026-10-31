@@ -46,6 +46,11 @@ func applicableRowPermissions(rules []DataPermissionRule, principal Principal, b
 		if !rule.Enable || len(rule.Permissions) == 0 {
 			continue
 		}
+		for _, raw := range rule.Permissions {
+			if !supportedDataPermissionTarget(raw) {
+				return nil, ErrGateway
+			}
+		}
 		userID, err := strconv.ParseInt(string(principal.User.ID), 10, 64)
 		if err != nil || userID < 1 {
 			return nil, ErrGateway

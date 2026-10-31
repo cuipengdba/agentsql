@@ -84,9 +84,32 @@ func TestOriginalRuleGroupSaveActivatesOnlyLivePostgresRowPermission(t *testing.
 	require.NoError(t, err)
 	rejected := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
 	require.Equal(t, http.StatusUnprocessableEntity, rejected.Code)
+	item["auth_target_type"] = "role"
+	request, err = json.Marshal(map[string]any{"name": "unsupported role target", "users": []int64{1},
+		"permissions": []any{item}})
+	require.NoError(t, err)
+	rejected = accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusUnprocessableEntity, rejected.Code)
 	rules, err := service.Store.DataPermissionRules(ctx, "1")
 	require.NoError(t, err)
 	require.Len(t, rules, 1)
+}
+
+func TestRestoredActiveRoleTargetClosesForWorkspaceBeforeGateway(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	rule := testActiveRowPermission(t, "east")
+	rule.Users = nil
+	rule.Permissions[0] = json.RawMessage(`{"type":"row","auth_target_type":"role","auth_target_id":2,"ds_id":10}`)
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.schema(ctx, principal, binding)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.schemaCalls)
+	_, err = service.query(ctx, principal, binding, "SELECT amount FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.queries)
 }
 
 func TestActiveOriginalRowPermissionChangeSuppressesInFlightResult(t *testing.T) {
