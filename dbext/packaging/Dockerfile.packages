@@ -29,7 +29,7 @@ RUN make -C /src with_llvm=no clean && make -C /src with_llvm=no all && make -C 
 FROM scratch AS package-deb
 COPY --from=deb-build /out/ /
 
-FROM rockylinux:9 AS rpm-toolchain
+FROM rockylinux/rockylinux:9.8@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f AS rpm-toolchain
 ARG TARGETARCH
 RUN set -eux; case "$TARGETARCH" in amd64) repo_arch=x86_64;; arm64) repo_arch=aarch64;; *) exit 64;; esac; \
     dnf install -y dnf-plugins-core; dnf config-manager --set-enabled crb; \
@@ -52,7 +52,7 @@ RUN set -eux; export PATH="/usr/pgsql-${PG_MAJOR}/bin:$PATH"; make -C /src with_
     arch="$(rpm --eval '%{_arch}')"; cc_version="$(gcc -dumpfullversion)"; make_version="$(make --version | head -1 | awk '{print $3}')"; pgdev_version="$(rpm -q --qf '%{VERSION}-%{RELEASE}' postgresql${PG_MAJOR}-devel)"; libc_version="$(rpm -q --qf '%{VERSION}-%{RELEASE}' glibc-devel)"; \
     sh /packaging/write-sbom.sh "${artifact}.cdx.json" "$artifact" "agentsql-binder-pg${PG_MAJOR}" "$PACKAGE_VERSION" "$PG_MAJOR" "$arch" rpm "$SOURCE_REVISION" \
       "gcc|$cc_version|build" "make|$make_version|build" "postgresql${PG_MAJOR}-devel|$pgdev_version|build" "glibc-devel|$libc_version|build" "postgresql${PG_MAJOR}-server|$PG_MAJOR|runtime"; \
-    sh /packaging/write-provenance.sh "${artifact}.provenance.json" "$artifact" "$PG_MAJOR" "$arch" rpm "$SOURCE_REVISION" "rockylinux:9"
+    sh /packaging/write-provenance.sh "${artifact}.provenance.json" "$artifact" "$PG_MAJOR" "$arch" rpm "$SOURCE_REVISION" "rockylinux/rockylinux:9.8@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f"
 
 FROM scratch AS package-rpm
 COPY --from=rpm-build /out/ /

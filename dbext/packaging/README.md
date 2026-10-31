@@ -32,6 +32,10 @@ plus SLSA/in-toto-shaped local provenance (`.provenance.json`).
 ```
 
 Buildx runs amd64 natively and arm64 through the builder's binfmt/QEMU support.
+RPM build and verification use the same pinned Rocky Linux 9.8 vendor image.
+The older `rockylinux:9` image resolved to 9.3 here, whose PGDG `rhel-9.3`
+metadata returned 404. This build target does not prove compatibility with
+other Rocky Linux 9 minor versions.
 Alpine bases are mapped as PG14/3.15, PG15/3.17, PG16/3.19, PG17/3.21, and
 PG18/3.23; repository retirement is a release-blocking maintenance event, not
 a reason to silently substitute a different major.

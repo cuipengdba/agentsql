@@ -8,7 +8,7 @@ COPY dbext/packaging/verify/verify-package.sh /usr/local/bin/verify-package
 RUN dpkg -i /tmp/agentsql-binder.deb && chmod 0755 /usr/local/bin/verify-package
 ENTRYPOINT ["/usr/local/bin/verify-package"]
 
-FROM rockylinux:9 AS verify-rpm-base
+FROM rockylinux/rockylinux:9.8@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f AS verify-rpm-base
 ARG TARGETARCH
 RUN set -eux; case "$TARGETARCH" in amd64) repo_arch=x86_64;; arm64) repo_arch=aarch64;; *) exit 64;; esac; \
     dnf install -y dnf-plugins-core; dnf config-manager --set-enabled crb; \
