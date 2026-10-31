@@ -40,6 +40,24 @@ jobs:
       - name: Build PostgreSQL 16 amd64 Debian extension package
         shell: pwsh
         run: ./dbext/packaging/build-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb -SkipSign
+      - name: Verify binder artifact and source provenance
+        run: |
+          mapfile -t packages < <(find dist/binder/deb/pg16/amd64 -maxdepth 1 -type f -name '*.deb')
+          test "${#packages[@]}" -eq 1
+          artifact="${packages[0]}"
+          provenance="$artifact.provenance.json"
+          revision="$(git rev-parse HEAD)"
+          python dbext/packaging/verify-provenance.py --artifact "$artifact" --provenance "$provenance" \
+            --source-root dbext/postgres/agentsql_binder --source-revision "$revision"
+          mkdir "$RUNNER_TEMP/tampered"
+          cp "$artifact" "$RUNNER_TEMP/tampered/$(basename "$artifact")"
+          printf 'tamper' >> "$RUNNER_TEMP/tampered/$(basename "$artifact")"
+          if python dbext/packaging/verify-provenance.py --artifact "$RUNNER_TEMP/tampered/$(basename "$artifact")" \
+            --provenance "$provenance" --source-root dbext/postgres/agentsql_binder \
+            --source-revision "$revision"; then
+            echo 'tampered package was accepted' >&2
+            exit 1
+          fi
       - name: Install package and run native extension self-test
         shell: pwsh
         run: ./dbext/packaging/test-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb

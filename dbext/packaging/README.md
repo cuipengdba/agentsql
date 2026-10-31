@@ -24,6 +24,10 @@ changed.
 Each package has a CycloneDX 1.5 SBOM (`.cdx.json`) listing GCC, make,
 PostgreSQL server headers, libc/musl headers, and the runtime server dependency,
 plus SLSA/in-toto-shaped local provenance (`.provenance.json`).
+The provenance records the canonical Git commit as `gitCommit` and a SHA-256
+of the fixed source-file hash list. `verify-provenance.py` checks those values
+against the local source and package bytes. This proves local consistency only;
+it does not authenticate a builder or replace a production signature.
 
 ```powershell
 ./dbext/packaging/build-packages.ps1
