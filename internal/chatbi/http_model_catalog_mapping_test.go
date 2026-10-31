@@ -276,3 +276,41 @@ func TestActiveCatalogWorkspacePickerUsesExplicitMappings(t *testing.T) {
 		t.Fatalf("removed mapping stayed in MCP picker: %d %s", mcpList.Code, mcpList.Body.String())
 	}
 }
+
+func TestActiveCatalogNativeModelPageUsesGlobalRecords(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	ctx := context.Background()
+	first := ModelConfig{ID: "30", Name: "First", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	second := ModelConfig{ID: "31", Name: "Second", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, service.Store, first)
+	if err := service.Store.put(ctx, modelCatalogKey(second.ID), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	if denied := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/models", "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member read native global models: %d", denied.Code)
+	}
+	list := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/models", "", adminToken)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"id":"30"`) ||
+		!strings.Contains(list.Body.String(), `"id":"31"`) {
+		t.Fatalf("native page still listed legacy models: %d %s", list.Code, list.Body.String())
+	}
+	if switched := accountRequest(t, handler, http.MethodPut, "/api/v1/agentsql/models/31/default", "", adminToken); switched.Code != http.StatusOK {
+		t.Fatalf("native global default switch: %d %s", switched.Code, switched.Body.String())
+	}
+	defaultRead := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/model", "", adminToken)
+	if defaultRead.Code != http.StatusOK || !strings.Contains(defaultRead.Body.String(), `"id":"31"`) {
+		t.Fatalf("native default still read legacy model: %d %s", defaultRead.Code, defaultRead.Body.String())
+	}
+	update := `{"revision":1,"name":"Edited","base_model":"fixture","api_domain":"https://example.invalid/v1"}`
+	if edited := accountRequest(t, handler, http.MethodPut, "/api/v1/agentsql/model", update, adminToken); edited.Code != http.StatusOK {
+		t.Fatalf("native global default edit: %d %s", edited.Code, edited.Body.String())
+	}
+	detail := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/models/31", "", adminToken)
+	if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `"name":"Edited"`) ||
+		!strings.Contains(detail.Body.String(), `"revision":2`) {
+		t.Fatalf("native global model detail: %d %s", detail.Code, detail.Body.String())
+	}
+	if deleted := accountRequest(t, handler, http.MethodDelete, "/api/v1/agentsql/models/30", "", adminToken); deleted.Code != http.StatusOK {
+		t.Fatalf("native global secondary delete: %d %s", deleted.Code, deleted.Body.String())
+	}
+}
