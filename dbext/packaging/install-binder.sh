@@ -65,8 +65,18 @@ else
   echo 'no supported package manager found' >&2; exit 69
 fi
 
-package=$(find "$dist/$format/pg$major/$logical_arch" -maxdepth 1 -type f -name "agentsql-binder-pg$major*.$suffix" | head -1)
-test -n "$package" || { echo "package not found for PG$major/$logical_arch/$format" >&2; exit 66; }
+dist=$dist_root
+package_dir="$dist/$format/pg$major/$logical_arch"
+set -- "$package_dir"/agentsql-binder-pg"$major"*."$suffix"
+if [ "$#" -ne 1 ] || [ ! -f "$1" ] || [ -L "$1" ]; then
+  echo "expected exactly one regular package for PG$major/$logical_arch/$format" >&2
+  exit 66
+fi
+package=$(readlink -f "$1")
+case "$package" in
+  "$dist"/*) ;;
+  *) echo 'package resolves outside the distribution directory' >&2; exit 65 ;;
+esac
 sbom="${package}.cdx.json"
 test -f "$sbom" && test -f "$package.asc" && test -f "$sbom.asc" || { echo 'package, SBOM, or detached signature missing' >&2; exit 66; }
 test -f "$dist/SHA256SUMS" && test -f "$dist/SHA256SUMS.asc" || { echo 'signed checksum manifest missing' >&2; exit 66; }

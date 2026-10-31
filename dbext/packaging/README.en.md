@@ -70,9 +70,11 @@ outside `--dist`; it rejects the package directory's own key. The current
 `DEV-ONLY-public-key.asc` is for isolated development tests, not a production
 trust anchor. The installer verifies the signature, checksum, SBOM target major and
 architecture before invoking `dpkg -i`, `rpm -ivh`, or
-`apk add --allow-untrusted`. `CREATE EXTENSION` is opt-in and requires an
-explicit bootstrap DSN and unprivileged runtime role. Package installation
-never connects to a database.
+`apk add --allow-untrusted`. It requires exactly one regular package for the
+detected PostgreSQL major, architecture and package format, and rejects package
+symlinks or paths outside the distribution directory. `CREATE EXTENSION` is
+opt-in and requires an explicit bootstrap DSN and unprivileged runtime role.
+Package installation never connects to a database.
 
 ```sh
 ./dbext/packaging/install-binder.sh --dist ./dist/binder \
