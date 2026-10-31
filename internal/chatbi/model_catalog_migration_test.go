@@ -70,3 +70,21 @@ func TestModelCatalogMigrationPreviewRequiresDefaultChoiceForSecondaryOnly(t *te
 		t.Fatalf("secondary-only catalog has no selected global default: %+v %v", preview, err)
 	}
 }
+
+func TestModelCatalogMigrationPreviewRequiresChoiceWhenOneWorkspaceHasNoDefault(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	defaultModel := ModelConfig{ID: "20", Name: "default", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	secondary := ModelConfig{ID: "21", Name: "secondary", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	if err := store.put(ctx, objectKey{"model", "1", "workspace", "default"}, defaultModel, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.put(ctx, additionalModelKey("2", "21"), secondary, 0); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := store.PreviewModelCatalogMigration(ctx)
+	if err != nil || !preview.RequiresDefaultDecision || preview.GlobalDefaultCandidate != "" ||
+		preview.WorkspaceDefaults["1"] != defaultModel.ID || preview.Models != 2 || preview.Mappings != 2 {
+		t.Fatalf("a workspace without an old default would gain implicit model access: %+v %v", preview, err)
+	}
+}
