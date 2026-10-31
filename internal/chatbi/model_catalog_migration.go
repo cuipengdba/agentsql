@@ -70,6 +70,9 @@ func (s *Store) PreviewModelCatalogMigration(ctx context.Context) (ModelCatalogM
 		return ModelCatalogMigrationPreview{}, ErrUnavailable
 	}
 	preview.Models = len(models)
+	if preview.Models > 0 && preview.GlobalDefaultCandidate == "" {
+		preview.RequiresDefaultDecision = true
+	}
 	if preview.RequiresDefaultDecision {
 		preview.GlobalDefaultCandidate = ""
 	}

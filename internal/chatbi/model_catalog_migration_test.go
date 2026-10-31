@@ -56,3 +56,17 @@ func TestModelCatalogMigrationPreviewDetectsGlobalDefaultDecisionWithoutSecrets(
 		t.Fatalf("duplicate model ID with different credential was accepted: %v", err)
 	}
 }
+
+func TestModelCatalogMigrationPreviewRequiresDefaultChoiceForSecondaryOnly(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	model := ModelConfig{ID: "30", Name: "secondary", Model: "fixture", Endpoint: "https://example.invalid/v1", APIKey: "secret"}
+	if err := store.put(ctx, objectKey{"model-secondary", "1", "workspace", "30"}, model, 0); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := store.PreviewModelCatalogMigration(ctx)
+	if err != nil || preview.Models != 1 || preview.Mappings != 1 ||
+		!preview.RequiresDefaultDecision || preview.GlobalDefaultCandidate != "" || len(preview.WorkspaceDefaults) != 0 {
+		t.Fatalf("secondary-only catalog has no selected global default: %+v %v", preview, err)
+	}
+}
