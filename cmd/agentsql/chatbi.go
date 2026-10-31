@@ -138,7 +138,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	initCommand.Flags().StringVar(&adminUser, "admin-user", "admin", "initial native administrator account")
 	initCommand.Flags().BoolVar(&standardUser, "standard-user", false, "initialize a non-administrator account for a dedicated demonstration installation")
 	initCommand.Flags().StringVar(&passwordEnv, "password-env", "AGENTSQL_CHATBI_ADMIN_PASSWORD", "environment variable containing the initial password")
-	configure := &cobra.Command{Use: "configure", Short: "Apply private model and per-user gateway mappings atomically", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	configure := &cobra.Command{Use: "configure", Short: "Upsert private model and per-user gateway mappings atomically", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		config, err := chatbi.LoadConfig(configuration)
 		if err != nil {
 			return err
@@ -159,6 +159,32 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	configure.Flags().StringVar(&connections, "from", "", "private connection configuration JSON")
 	_ = configure.MarkFlagRequired("from")
+	var revokeWorkspace, revokeUser, revokeDatasource, revokeBindingID string
+	revokeBinding := &cobra.Command{Use: "revoke-binding", Short: "Revoke one current local ChatBI datasource mapping with an audited compare-and-swap", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		config, err := chatbi.LoadConfig(configuration)
+		if err != nil {
+			return err
+		}
+		service, err := chatbi.Assemble(cmd.Context(), config)
+		if err != nil {
+			return err
+		}
+		defer service.Store.Close()
+		if err := service.Store.RevokeBinding(cmd.Context(), chatbi.ID(revokeWorkspace), chatbi.ID(revokeUser),
+			chatbi.ID(revokeDatasource), revokeBindingID); err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+			"revoked": true, "workspace": revokeWorkspace, "user": revokeUser,
+			"datasource": revokeDatasource, "gateway_mapping_revoked": false})
+	}}
+	revokeBinding.Flags().StringVar(&revokeWorkspace, "workspace", "", "current ChatBI workspace ID")
+	revokeBinding.Flags().StringVar(&revokeUser, "user", "", "current ChatBI user ID")
+	revokeBinding.Flags().StringVar(&revokeDatasource, "datasource", "", "current ChatBI datasource ID")
+	revokeBinding.Flags().StringVar(&revokeBindingID, "expected-binding-id", "", "current private gateway binding ID; rejects a rotated mapping")
+	for _, name := range []string{"workspace", "user", "datasource", "expected-binding-id"} {
+		_ = revokeBinding.MarkFlagRequired(name)
+	}
 	historyPreflight := &cobra.Command{Use: "history-preflight", Short: "Validate a metadata-only SQLBot history export without writing", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		input, err := chatbi.ReadHistory(historyPath)
 		if err != nil {
@@ -195,7 +221,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	historyImport.Flags().StringVar(&importHistoryPath, "from", "", "private metadata-only SQLBot history export")
 	_ = historyImport.MarkFlagRequired("from")
-	root.AddCommand(preflight, importCommand, initCommand, configure, historyPreflight, historyImport, serve)
+	root.AddCommand(preflight, importCommand, initCommand, configure, revokeBinding, historyPreflight, historyImport, serve)
 	return root
 }
 

@@ -184,3 +184,25 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 	}
 	return nil
 }
+
+// RevokeBinding removes one current ChatBI datasource mapping. Omitting a
+// binding from a later configure file does not revoke it: configure is an
+// upsert. The caller must name the expected gateway binding so a concurrent
+// rotation cannot be deleted by a stale operator command.
+func (s *Store) RevokeBinding(ctx context.Context, workspace, user, datasource ID, expectedBindingID string) error {
+	if !workspace.Valid() || !user.Valid() || !datasource.Valid() ||
+		expectedBindingID == "" || len(expectedBindingID) > 256 {
+		return ErrUnavailable
+	}
+	key := objectKey{"binding", string(workspace), string(user), string(datasource)}
+	var binding Binding
+	revision, err := s.get(ctx, key, &binding)
+	if err != nil {
+		return err
+	}
+	if binding.Workspace != workspace || binding.User != user ||
+		binding.Datasource != datasource || binding.BindingID != expectedBindingID {
+		return ErrConflict
+	}
+	return s.deleteSemantic(ctx, key, revision, "connections.binding.revoke")
+}
