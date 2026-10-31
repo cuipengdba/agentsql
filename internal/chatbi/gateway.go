@@ -30,6 +30,9 @@ type Binding struct {
 	Configuration  string    `json:"configuration,omitempty"`
 	ManagedFileID  string    `json:"managed_file_id,omitempty"`
 	SelectedTables string    `json:"selected_tables,omitempty"`
+	TableComments  string    `json:"table_comments,omitempty"`
+	FieldComments  string    `json:"field_comments,omitempty"`
+	TableRelations string    `json:"table_relations,omitempty"`
 	Created        time.Time `json:"created,omitempty"`
 	Dialect        string    `json:"dialect"`
 	BindingID      string    `json:"binding_id"`
@@ -207,7 +210,11 @@ func (gateway *ControlledGateway) Schema(ctx context.Context, p Principal, b Bin
 	if len(visible) == 0 {
 		return nil, ErrGateway
 	}
-	return filterManagedFileSchema(b, visible)
+	visible, err = filterManagedFileSchema(b, visible)
+	if err != nil {
+		return nil, err
+	}
+	return filterDatabaseSchema(b, visible)
 }
 
 func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Binding, query string) (QueryData, error) {
@@ -215,6 +222,9 @@ func (gateway *ControlledGateway) Query(ctx context.Context, p Principal, b Bind
 		return QueryData{}, ErrGateway
 	}
 	if err := authorizeManagedFileSQL(b, query); err != nil {
+		return QueryData{}, err
+	}
+	if err := authorizeDatabaseSelectedSQL(b, query); err != nil {
 		return QueryData{}, err
 	}
 	raw, _, err := gateway.call(ctx, p, b, "query", func(r resolvedBinding) map[string]any {

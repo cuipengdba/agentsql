@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,15 +20,16 @@ import (
 )
 
 type Handler struct {
-	service        *Service
-	mux            *http.ServeMux
-	loginLimit     *rate.Limiter
-	appLookupLimit *rate.Limiter
-	slots          chan struct{}
-	readQueue      chan struct{}
-	version        string
-	keySalt        string
-	keySince       int64
+	service             *Service
+	mux                 *http.ServeMux
+	loginLimit          *rate.Limiter
+	appLookupLimit      *rate.Limiter
+	slots               chan struct{}
+	readQueue           chan struct{}
+	version             string
+	keySalt             string
+	keySince            int64
+	initialUserPassword string
 }
 
 func NewHandler(service *Service, version string) (http.Handler, error) {
@@ -47,34 +49,107 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	}
 	h := &Handler{service: service, mux: http.NewServeMux(), loginLimit: rate.NewLimiter(2, 10), appLookupLimit: rate.NewLimiter(20, 100),
 		slots: make(chan struct{}, limit), readQueue: make(chan struct{}, 200), version: version,
-		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli()}
+		keySalt: hex.EncodeToString(salt[:]), keySince: time.Now().UnixMilli(),
+		initialUserPassword: os.Getenv("AGENTSQL_CHATBI_INITIAL_USER_PASSWORD")}
 	h.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "version": h.version, "service": "chatbi"})
 	})
 	h.mux.HandleFunc("POST /api/v1/login/access-token", h.login)
+	h.mux.HandleFunc("POST /api/v1/login/change-pwd", h.changePasswordAtLogin)
+	h.mux.HandleFunc("POST /api/v1/mcp/access_token", h.mcpAccessToken)
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_start", h.mcpStart)
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_ws_list", h.mcpWorkspaceList)
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_ds_list", h.mcpDatasourceList)
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_model_list", h.mcpModelList)
+	h.mux.HandleFunc("POST /api/v1/mcp/mcp_question", h.bounded(h.mcpQuestion))
 	h.mux.HandleFunc("GET /api/v1/system/config/key", h.publicLoginKey)
 	h.mux.HandleFunc("GET /api/v1/system/license", h.sqlbotLicenseStatus)
 	h.mux.HandleFunc("GET /api/v1/system/license/version", h.auth(h.sqlbotProtocolVersion))
 	h.mux.HandleFunc("GET /api/v1/system/parameter/chat", h.auth(h.sqlbotChatParameters))
+	h.mux.HandleFunc("GET /api/v1/system/parameter/login", h.sqlbotLoginParameters)
+	h.mux.HandleFunc("GET /api/v1/system/parameter", h.auth(h.sqlbotAllParameters))
+	h.mux.HandleFunc("POST /api/v1/system/parameter", h.auth(h.sqlbotSaveParameters))
+	h.mux.HandleFunc("GET /api/v1/agentsql/chat-parameters", h.auth(h.nativeChatParameters))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/chat-parameters", h.auth(h.nativeSaveChatParameters))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/default", h.auth(h.sqlbotDefaultModel))
+	h.mux.HandleFunc("GET /api/v1/system/aimodel", h.auth(h.legacyModelList))
+	h.mux.HandleFunc("POST /api/v1/system/aimodel", h.auth(h.legacyModelCreate))
+	h.mux.HandleFunc("PUT /api/v1/system/aimodel", h.auth(h.legacyModelUpdate))
+	h.mux.HandleFunc("POST /api/v1/system/aimodel/status", h.bounded(h.auth(h.legacyModelStatus)))
+	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}", h.auth(h.legacyModelRead))
+	h.mux.HandleFunc("DELETE /api/v1/system/aimodel/{id}", h.auth(h.legacyModelDelete))
+	h.mux.HandleFunc("GET /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappings))
+	h.mux.HandleFunc("PUT /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsUpdate))
+	h.mux.HandleFunc("POST /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsChange))
+	h.mux.HandleFunc("DELETE /api/v1/system/aimodel/{id}/ws_mapping", h.auth(h.legacyModelMappingsChange))
+	h.mux.HandleFunc("GET /api/v1/system/apikey", h.auth(h.accountAPIKeyList))
+	h.mux.HandleFunc("POST /api/v1/system/apikey", h.auth(h.accountAPIKeyCreate))
+	h.mux.HandleFunc("PUT /api/v1/system/apikey/status", h.auth(h.accountAPIKeyStatus))
+	h.mux.HandleFunc("DELETE /api/v1/system/apikey/{id}", h.auth(h.accountAPIKeyDelete))
+	h.mux.HandleFunc("GET /api/v1/agentsql/model", h.auth(h.nativeWorkspaceModel))
+	h.mux.HandleFunc("POST /api/v1/agentsql/model", h.auth(h.nativeCreateWorkspaceModel))
+	h.mux.HandleFunc("PUT /api/v1/agentsql/model", h.auth(h.nativeUpdateWorkspaceModel))
+	h.mux.HandleFunc("POST /api/v1/agentsql/model/check", h.bounded(h.auth(h.nativeCheckWorkspaceModel)))
 	h.mux.HandleFunc("POST /api/v1/agentsql/login", h.nativeLogin)
 	h.mux.HandleFunc("POST /api/v1/login/logout", h.auth(h.logout))
 	h.mux.HandleFunc("GET /api/v1/user/info", h.auth(h.userInfo))
+	h.mux.HandleFunc("GET /api/v1/user/defaultPwd", h.auth(h.sqlbotDefaultPassword))
+	h.mux.HandleFunc("PUT /api/v1/user/pwd", h.auth(h.changeOwnPassword))
+	h.mux.HandleFunc("PATCH /api/v1/user/pwd/{id}", h.auth(h.legacyUserResetPassword))
+	h.mux.HandleFunc("PUT /api/v1/user/language", h.auth(h.changeOwnLanguage))
 	h.mux.HandleFunc("GET /api/v1/user/ws", h.auth(h.userWorkspaces))
+	h.mux.HandleFunc("PUT /api/v1/user/ws/{oid}", h.auth(h.switchOwnWorkspace))
+	h.mux.HandleFunc("GET /api/v1/user/pager/{page}/{size}", h.auth(h.legacyUserPage))
+	h.mux.HandleFunc("POST /api/v1/user", h.auth(h.legacyUserCreate))
+	h.mux.HandleFunc("PUT /api/v1/user", h.auth(h.legacyUserUpdate))
+	h.mux.HandleFunc("DELETE /api/v1/user", h.auth(h.legacyUserDeleteBatch))
+	h.mux.HandleFunc("DELETE /api/v1/user/{id}", h.auth(h.legacyUserDeleteOne))
+	h.mux.HandleFunc("GET /api/v1/user/{id}", h.auth(h.legacyUserRead))
+	h.mux.HandleFunc("PATCH /api/v1/user/status", h.auth(h.legacyUserStatus))
+	h.mux.HandleFunc("GET /api/v1/system/workspace", h.auth(h.legacyWorkspaceList))
+	h.mux.HandleFunc("POST /api/v1/system/workspace", h.auth(h.legacyWorkspaceCreate))
+	h.mux.HandleFunc("PUT /api/v1/system/workspace", h.auth(h.legacyWorkspaceUpdate))
+	h.mux.HandleFunc("DELETE /api/v1/system/workspace/{id}", h.auth(h.legacyWorkspaceDelete))
+	h.mux.HandleFunc("GET /api/v1/system/workspace/{id}", h.auth(h.legacyWorkspaceRead))
+	h.mux.HandleFunc("GET /api/v1/system/workspace/uws/pager/{page}/{size}", h.auth(h.legacyMemberPage))
+	h.mux.HandleFunc("GET /api/v1/system/workspace/uws/option/pager/{page}/{size}", h.auth(h.legacyMemberCandidatePage))
+	h.mux.HandleFunc("GET /api/v1/system/workspace/uws/option", h.auth(h.legacyMemberCandidate))
+	h.mux.HandleFunc("POST /api/v1/system/workspace/uws", h.auth(h.legacyMemberGrant))
+	h.mux.HandleFunc("PUT /api/v1/system/workspace/uws", h.auth(h.legacyMemberWeight))
+	h.mux.HandleFunc("DELETE /api/v1/system/workspace/uws", h.auth(h.legacyMemberRevoke))
+	h.mux.HandleFunc("POST /api/v1/sys_variable/listAll", h.auth(h.systemVariableList))
+	h.mux.HandleFunc("POST /api/v1/sys_variable/listPage/{page}/{size}", h.auth(h.systemVariablePage))
+	h.mux.HandleFunc("POST /api/v1/sys_variable/save", h.auth(h.systemVariableSave))
+	h.mux.HandleFunc("POST /api/v1/sys_variable/delete", h.auth(h.systemVariableDelete))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
 	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/list/by_ws", h.auth(h.assistantWorkspaceModels))
 	h.mux.HandleFunc("POST /api/v1/datasource/add", h.bounded(h.auth(h.addExcelDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/update", h.bounded(h.auth(h.updateDatasourceMetadata)))
 	h.mux.HandleFunc("POST /api/v1/datasource/get/{id}", h.auth(h.getExcelDatasource))
 	h.mux.HandleFunc("POST /api/v1/datasource/delete/{id}/{name}", h.bounded(h.auth(h.deleteExcelDatasource)))
 	h.mux.HandleFunc("GET /api/v1/datasource/check/{id}", h.bounded(h.auth(h.datasourceCheck)))
+	h.mux.HandleFunc("POST /api/v1/datasource/check", h.bounded(h.auth(h.checkBoundDatasource)))
+	h.mux.HandleFunc("POST /api/v1/datasource/getSchemaByConf", h.bounded(h.auth(h.schemasByBoundDatasource)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getTables/{id}", h.bounded(h.auth(h.datasourceTables)))
+	h.mux.HandleFunc("POST /api/v1/datasource/getTablesByConf", h.bounded(h.auth(h.databaseTablesBySavedBinding)))
 	h.mux.HandleFunc("POST /api/v1/datasource/getFields/{id}/{table}", h.bounded(h.auth(h.datasourceFields)))
 	h.mux.HandleFunc("POST /api/v1/datasource/tableList/{id}", h.bounded(h.auth(h.datasourceTableList)))
+	h.mux.HandleFunc("POST /api/v1/table_relation/get/{id}", h.bounded(h.auth(h.tableRelationGet)))
+	h.mux.HandleFunc("POST /api/v1/table_relation/save/{id}", h.bounded(h.auth(h.tableRelationSave)))
+	h.mux.HandleFunc("POST /api/v1/datasource/editTable", h.bounded(h.auth(h.editManagedFileTableComment)))
+	h.mux.HandleFunc("POST /api/v1/datasource/chooseTables/{id}", h.bounded(h.auth(h.chooseManagedFileTables)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/fileTables/{id}", h.bounded(h.auth(h.managedFileTableChoices)))
+	h.mux.HandleFunc("GET /api/v1/agentsql/datasource/databaseTables/{id}", h.bounded(h.auth(h.databaseTableChoices)))
 	h.mux.HandleFunc("POST /api/v1/datasource/fieldList/{id}/{tableID}", h.bounded(h.auth(h.datasourceFieldList)))
+	h.mux.HandleFunc("POST /api/v1/datasource/syncFields/{id}/{tableID}", h.bounded(h.auth(h.syncDatasourceFields)))
+	h.mux.HandleFunc("POST /api/v1/datasource/editField", h.bounded(h.auth(h.editManagedFileFieldComment)))
+	h.mux.HandleFunc("GET /api/v1/datasource/exportDsSchema/{id}", h.bounded(h.auth(h.exportManagedFileRemarks)))
+	h.mux.HandleFunc("POST /api/v1/datasource/uploadDsSchema/{id}", h.bounded(h.auth(h.importManagedFileRemarks)))
 	h.mux.HandleFunc("POST /api/v1/datasource/previewData/{id}", h.bounded(h.auth(h.datasourcePreview)))
 	h.mux.HandleFunc("POST /api/v1/datasource/parseExcel", h.bounded(h.auth(h.parseExcel)))
 	h.mux.HandleFunc("POST /api/v1/datasource/importToDb", h.bounded(h.auth(h.importToDb)))
+	h.mux.HandleFunc("POST /api/v1/datasource/uploadExcel", h.bounded(h.auth(h.legacyUploadExcel)))
 	h.mux.HandleFunc("POST /api/v1/agentsql/datasource/claim-import", h.bounded(h.auth(h.claimNativeFileDatasource)))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended/{id}", h.auth(h.recommendedProblems))
 	h.mux.HandleFunc("GET /api/v1/recommended_problem/get_datasource_recommended_base/{id}", h.auth(h.recommendedBase))
@@ -120,7 +195,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("GET /api/v1/agentsql/record/{id}/forecast", h.boundedHistory(h.nativeForecast))
 	h.mux.HandleFunc("GET /api/v1/chat/record/{id}/predict_data", h.boundedHistory(h.legacyForecastData))
 	h.mux.HandleFunc("POST /api/v1/chat/recommend_questions/{id}", h.auth(h.recommendQuestions))
-	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.bounded(h.auth(h.read)))
+	h.mux.HandleFunc("GET /api/v1/chat/{id}", h.boundedHistory(h.read))
 	h.mux.HandleFunc("GET /api/v1/chat/{id}/with_data", h.boundedHistory(h.read))
 	h.mux.HandleFunc("DELETE /api/v1/chat/{id}", h.auth(h.remove))
 	h.mux.HandleFunc("GET /api/v1/agentsql/dashboards", h.auth(h.dashboardList))
@@ -157,7 +232,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	assets := http.StripPrefix("/ui/", uiHandler())
 	h.mux.HandleFunc("GET /ui/{asset}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("asset") {
-		case "app.js", "chart.js", "dashboard.js", "assistants.js", "app.css", "mark.svg":
+		case "app.js", "chart.js", "dashboard.js", "assistants.js", "chat-settings.js", "user-variables.js", "source-relations.js", "app.css", "mark.svg":
 			assets.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
@@ -295,10 +370,14 @@ func failure(w http.ResponseWriter, err error) {
 		status, message = 422, "Invalid dashboard configuration"
 	case errors.Is(err, ErrInvalidAssistant):
 		status, message = 422, "Invalid assistant application"
+	case errors.Is(err, ErrInvalidAccountChange):
+		status, message = 422, "Invalid account change"
 	case errors.Is(err, ErrForecastUnavailable):
 		status, message = 422, "An ordered numeric or date series is required for forecasting"
 	case errors.Is(err, ErrNotFound):
 		status, message = 404, "Resource not found"
+	case errors.Is(err, ErrWorkspaceNotEmpty):
+		status, message = 409, "Workspace still contains resources or members"
 	case errors.Is(err, ErrConflict), errors.Is(err, ErrBusy):
 		status, message = 409, "Conversation changed or is busy"
 	case errors.Is(err, ErrGateway):
@@ -343,7 +422,9 @@ type authorizedHandler func(http.ResponseWriter, *http.Request, Principal, strin
 func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string) error {
 	var current Principal
 	var err error
-	if p.EmbeddedApp != "" {
+	if strings.HasPrefix(token, "Ask ") {
+		current, err = h.service.Identity.VerifyAsk(ctx, strings.TrimPrefix(token, "Ask "))
+	} else if p.EmbeddedApp != "" {
 		if !strings.HasPrefix(token, "Embedded ") {
 			return ErrUnauthenticated
 		}
@@ -381,6 +462,25 @@ func embeddedRouteAllowed(r *http.Request) bool {
 
 func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if values := r.Header.Values("X-SQLBOT-ASK-TOKEN"); len(values) != 0 {
+			if len(values) != 1 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 ||
+				len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("Authorization")) != 0 || !askRouteAllowed(r) {
+				failure(w, ErrUnauthenticated)
+				return
+			}
+			parts := strings.Fields(values[0])
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "sk") {
+				failure(w, ErrUnauthenticated)
+				return
+			}
+			p, err := h.service.Identity.VerifyAsk(r.Context(), parts[1])
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			next(w, r, p, "Ask "+parts[1])
+			return
+		}
 		if values := r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN"); len(values) != 0 {
 			if len(values) != 1 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 || len(r.Header.Values("Authorization")) != 0 || !embeddedRouteAllowed(r) {
 				failure(w, ErrUnauthenticated)
@@ -487,7 +587,7 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 			weight = member.Weight
 		}
 	}
-	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
+	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "email": p.User.Email, "create_time": p.User.Created, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
 }
 
 func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Principal, _ string) {
@@ -546,8 +646,23 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 		if kind == "" {
 			kind = b.Dialect
 		}
-		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind,
-			"description": b.Description, "configuration": b.Configuration, "status": "Success"})
+		typeName := ""
+		switch kind {
+		case "pg":
+			typeName = "PostgreSQL"
+		case "mysql":
+			typeName = "MySQL"
+		}
+		configuration := ""
+		if databaseBinding(b) {
+			configuration, err = databaseDisplayConfiguration()
+			if err != nil {
+				failure(w, err)
+				return
+			}
+		}
+		result = append(result, map[string]any{"id": b.Datasource, "oid": b.Workspace, "name": b.Name, "type": kind, "type_name": typeName,
+			"description": b.Description, "configuration": configuration, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
 	if err := h.service.live(r.Context(), p); err != nil {
@@ -685,6 +800,25 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, toke
 		failure(w, err)
 		return
 	}
+	// The unchanged SQLBot browser renders saved analysis and prediction text
+	// from this conversation response and does not fetch each child record.
+	// Metadata reads intentionally strip that text, so reauthorize and audit
+	// only narrative children before including their saved content. A changed
+	// result digest leaves the historical text empty.
+	if !strings.HasSuffix(r.URL.Path, "/with_data") {
+		for i := range chat.Records {
+			if chat.Records[i].Action != "analysis" && chat.Records[i].Action != "predict" {
+				continue
+			}
+			fresh, err := h.service.Record(r.Context(), p, chat.Records[i].ID, true)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			chat.Records[i].Analysis = fresh.Analysis
+			chat.Records[i].PredictText = fresh.PredictText
+		}
+	}
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
@@ -703,7 +837,8 @@ func (h *Handler) rename(w http.ResponseWriter, r *http.Request, p Principal, _ 
 		failure(w, err)
 		return
 	}
-	okay(w, string(input.ID))
+	// The unchanged SQLBot chat list uses the response as its new title.
+	okay(w, input.Brief)
 }
 func (h *Handler) remove(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	id := ID(r.PathValue("id"))

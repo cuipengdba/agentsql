@@ -1,0 +1,10 @@
+*
+!dbext
+!dbext/packaging
+!dbext/packaging/images
+!dbext/packaging/images/10-agentsql-binder.sql
+!dbext/packaging/images/agentsql-binder-selftest.sh
+!dist
+!dist/binder
+!dist/binder/deb
+!dist/binder/deb/**

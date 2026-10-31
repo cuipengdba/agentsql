@@ -919,7 +919,7 @@
     {
       "source": "dbext/packaging/README.md",
       "english": "dbext/packaging/README.en.md",
-      "source_sha256": "24f72668ffed9b06871018289b6eb1b61eb9c258001c501b31420d840c8e8477"
+      "source_sha256": "7ea4031427bc8bd614afaa766737b01ba2d72a7a792aaecaf5f554861bf2e0cb"
     },
     {
       "source": "examples/observability/README.md",
@@ -1239,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "7d00ca5e4c81d280ed6a8238ca5a25b9caa78714bbbcc93e12ce2cd766b3795f"
+      "source_sha256": "3d29e49f093a5dff4d661c5f49825b52d8e7d495b4105345f28495beff05fc4e"
     },
     {
       "source": "docs/v4.3.0-design.md",
@@ -1255,6 +1255,11 @@
       "source": "docs/v4.3.0-acceptance.md",
       "english": "docs/en/v4.3.0-acceptance.md",
       "source_sha256": "d8ee57facbc98e22fa2b6accd9b65572f83494d580ecdc9afe9d686eb656e754"
+    },
+    {
+      "source": "docs/v4.4.0-design.md",
+      "english": "docs/en/v4.4.0-design.md",
+      "source_sha256": "7281af0647f8988ed8c0b8753a47c7945ad974f2391f808befd9193623d989be"
     }
   ]
 }

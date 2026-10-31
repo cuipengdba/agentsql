@@ -36,10 +36,36 @@ func TestSQLBotBrowserBootstrapContract(t *testing.T) {
 	if status != http.StatusOK || string(body["data"]) != `{"license":null,"message":"No license record found.","status":"no_record"}` {
 		t.Fatalf("public SQLBot license bootstrap: %d %s", status, body["data"])
 	}
+	status, body = request("/api/v1/system/parameter/login", "")
+	var loginParameters []sqlbotChatParameter
+	if status != http.StatusOK || json.Unmarshal(body["data"], &loginParameters) != nil || len(loginParameters) != 3 {
+		t.Fatalf("public SQLBot login settings: %d %s", status, body["data"])
+	}
+	loginSettings := map[string]string{}
+	for _, parameter := range loginParameters {
+		loginSettings[parameter.Key] = parameter.Value
+	}
+	if loginSettings["login.default_login"] != "0" || loginSettings["login.initial_pwd_hidden"] != "true" || loginSettings["login.initial_pwd_disabled"] != "false" {
+		t.Fatalf("unsafe SQLBot login settings: %v", loginSettings)
+	}
 	for _, path := range []string{"/api/v1/system/license/version", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default"} {
 		if status, _ := request(path, ""); status != http.StatusUnauthorized {
 			t.Fatalf("anonymous browser bootstrap %s returned %d", path, status)
 		}
+	}
+	if status, _ := request("/api/v1/user/defaultPwd", ""); status != http.StatusUnauthorized {
+		t.Fatalf("anonymous default password probe returned %d", status)
+	}
+	if status, _ := request("/api/v1/user/defaultPwd", token); status != http.StatusUnauthorized {
+		t.Fatalf("member default password probe returned %d", status)
+	}
+	_, adminHandler, adminToken, _ := adminUsersFixture(t)
+	adminRequest := httptest.NewRequest(http.MethodGet, "/api/v1/user/defaultPwd", nil)
+	adminRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+adminToken)
+	adminResponse := httptest.NewRecorder()
+	adminHandler.ServeHTTP(adminResponse, adminRequest)
+	if adminResponse.Code != http.StatusOK || !bytes.Contains(adminResponse.Body.Bytes(), []byte(`"data":""`)) {
+		t.Fatalf("shared default password must be absent: %d %s", adminResponse.Code, adminResponse.Body.String())
 	}
 	status, body = request("/api/v1/system/license/version", token)
 	if status != http.StatusOK || string(body["data"]) != `"1.10.2"` {

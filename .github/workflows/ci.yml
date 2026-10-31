@@ -30,6 +30,49 @@ jobs:
         run: python scripts/sync-brand.py --check
       - name: Test SQLBot adapter failure boundaries
         run: python -m unittest discover -s integrations/sqlbot -p 'test_*.py' -v
+      - name: Reject binder bundles without an independent trust anchor
+        run: sh dbext/packaging/signing/test-trust-boundary.sh
+
+  binder-package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject archived Alpine package targets by default
+        shell: pwsh
+        run: |
+          $rejected = $false
+          try {
+            ./dbext/packaging/build-packages.ps1 -PostgresMajor 14 -Platform linux/amd64 -Format apk -SkipSign
+          } catch {
+            if ($_.Exception.Message -like '*outside regular security support*') { $rejected = $true } else { throw }
+          }
+          if (-not $rejected) { throw 'archived Alpine package target was accepted' }
+      - name: Build PostgreSQL 16 amd64 Debian extension package
+        shell: pwsh
+        run: ./dbext/packaging/build-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb -SkipSign
+      - name: Verify binder artifact and source provenance
+        run: |
+          mapfile -t packages < <(find dist/binder/deb/pg16/amd64 -maxdepth 1 -type f -name '*.deb')
+          test "${#packages[@]}" -eq 1
+          artifact="${packages[0]}"
+          provenance="$artifact.provenance.json"
+          revision="$(git rev-parse HEAD)"
+          test "$(dpkg-deb -f "$artifact" Maintainer)" = 'AgentSQL Maintainers <87326549@qq.com>'
+          test "$(dpkg-deb -f "$artifact" Homepage)" = 'https://agentsql.cn'
+          python dbext/packaging/verify-provenance.py --artifact "$artifact" --provenance "$provenance" \
+            --source-root dbext/postgres/agentsql_binder --source-revision "$revision"
+          mkdir "$RUNNER_TEMP/tampered"
+          cp "$artifact" "$RUNNER_TEMP/tampered/$(basename "$artifact")"
+          printf 'tamper' >> "$RUNNER_TEMP/tampered/$(basename "$artifact")"
+          if python dbext/packaging/verify-provenance.py --artifact "$RUNNER_TEMP/tampered/$(basename "$artifact")" \
+            --provenance "$provenance" --source-root dbext/postgres/agentsql_binder \
+            --source-revision "$revision"; then
+            echo 'tampered package was accepted' >&2
+            exit 1
+          fi
+      - name: Install package and run native extension self-test
+        shell: pwsh
+        run: ./dbext/packaging/test-packages.ps1 -PostgresMajor 16 -Platform linux/amd64 -Format deb
 
   go:
     runs-on: ubuntu-latest

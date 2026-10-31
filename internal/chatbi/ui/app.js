@@ -1,6 +1,9 @@
 import { chartSeries, renderChart } from './chart.js';
 import { setupDashboard } from './dashboard.js';
 import { setupAssistants } from './assistants.js';
+import { setupChatSettings } from './chat-settings.js';
+import { setupUserVariableEditor } from './user-variables.js';
+import { setupSourceRelations } from './source-relations.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -30,25 +33,70 @@ Object.assign(copy['zh-CN'], {exportCSV:'导出 CSV',exportXLSX:'导出 XLSX',ex
 Object.assign(copy.en, {exportCSV:'Export CSV',exportXLSX:'Export XLSX',exporting:'Preparing export under current permissions…'});
 Object.assign(copy['zh-CN'], {usage:'执行详情',usageStarted:'开始时间',usageFinished:'完成时间',usageDuration:'耗时',usageTokens:'消耗 Token',usageStepsEmpty:'暂无阶段明细',seconds:'秒'});
 Object.assign(copy.en, {usage:'Execution details',usageStarted:'Started',usageFinished:'Finished',usageDuration:'Duration',usageTokens:'Tokens used',usageStepsEmpty:'No step trace is available',seconds:'seconds'});
+Object.assign(copy['zh-CN'], {accountSettings:'账号设置',passwordNote:'修改密码后，当前会话及其他已登录会话都需要重新登录。',currentPassword:'当前密码',newPassword:'新密码',changePassword:'修改密码',passwordChanged:'密码已修改，请重新登录。'});
+Object.assign(copy.en, {accountSettings:'Account settings',passwordNote:'Changing your password signs out this and all other sessions.',currentPassword:'Current password',newPassword:'New password',changePassword:'Change password',passwordChanged:'Password changed. Sign in again.'});
+Object.assign(copy['zh-CN'], {keysTitle:'API Key',keysIntro:'每个账户最多 5 个密钥。密钥只用于受支持的接口；关闭或删除后立即失效。请妥善保管 Secret Key。',keysCreate:'创建密钥',keysEmpty:'尚未创建密钥。',keysAccess:'Access Key',keysSecret:'Secret Key',keysCopy:'复制',keysReveal:'显示',keysHide:'隐藏',keysDisable:'停用',keysEnable:'启用',keysDelete:'删除',keysConfirmDelete:'确定删除这个 API Key？',keysLimit:'已达到 5 个密钥的上限。',keysSaved:'密钥状态已更新。',keysDeleted:'密钥已删除。',keysCreated:'密钥已创建；请安全保存。',keysCopyFailed:'复制失败，请先显示后手动复制。'});
+Object.assign(copy.en, {keysTitle:'API Key',keysIntro:'Each account can hold up to five keys. Keys work only with supported APIs and are revoked immediately when disabled or deleted. Protect your Secret Key.',keysCreate:'Create key',keysEmpty:'No keys yet.',keysAccess:'Access Key',keysSecret:'Secret Key',keysCopy:'Copy',keysReveal:'Show',keysHide:'Hide',keysDisable:'Disable',keysEnable:'Enable',keysDelete:'Delete',keysConfirmDelete:'Delete this API key?',keysLimit:'The five-key limit has been reached.',keysSaved:'Key status updated.',keysDeleted:'Key deleted.',keysCreated:'Key created. Store it securely.',keysCopyFailed:'Copy failed. Show the key and copy it manually.'});
+Object.assign(copy['zh-CN'], {usersNav:'用户管理',usersTitle:'用户管理',usersIntro:'创建和查看账号，管理工作空间成员关系及启停状态。管理变更会留下审计。',usersSearch:'搜索账号、姓名或邮箱',usersWorkspace:'工作空间',usersMember:'已加入当前空间',usersNotMember:'未加入当前空间',usersGrant:'加入空间',usersRevoke:'移出空间',confirmRevokeUser:'移出此用户并撤销其旧会话？',usersEnabled:'已启用',usersDisabled:'已停用',usersDisable:'停用',usersEnable:'启用',usersEmpty:'没有匹配的用户',usersCount:'位用户',usersCountOne:'位用户',confirmDisableUser:'停用此用户并撤销其全部会话？',usersSaved:'用户状态已更新',usersMemberSaved:'成员关系已更新'});
+Object.assign(copy.en, {usersNav:'Users',usersTitle:'Users',usersIntro:'Create and review accounts, manage workspace membership and enable or disable users. Management changes are audited.',usersSearch:'Search account, name or email',usersWorkspace:'Workspace',usersMember:'Member of this workspace',usersNotMember:'Not a member',usersGrant:'Add to workspace',usersRevoke:'Remove from workspace',confirmRevokeUser:'Remove this user and revoke old sessions?',usersEnabled:'Active',usersDisabled:'Disabled',usersDisable:'Disable',usersEnable:'Enable',usersEmpty:'No matching users',usersCount:'users',usersCountOne:'user',confirmDisableUser:'Disable this user and revoke all sessions?',usersSaved:'User status updated',usersMemberSaved:'Workspace membership updated'});
+Object.assign(copy['zh-CN'], {usersCreate:'新增本地用户',usersCreateNote:'设置初始密码并选择当前工作空间。密码只在此提交一次。',usersName:'姓名',usersEmail:'邮箱',usersInitialPassword:'初始密码（12–72 字符）',usersCreateSubmit:'创建用户',usersCreated:'用户已创建'});
+Object.assign(copy.en, {usersCreate:'Create local user',usersCreateNote:'Set an initial password and use the selected workspace. The password is submitted only once.',usersName:'Name',usersEmail:'Email',usersInitialPassword:'Initial password (12–72 characters)',usersCreateSubmit:'Create user',usersCreated:'User created'});
+Object.assign(copy['zh-CN'], {usersEdit:'编辑资料',usersUpdated:'用户资料已更新'});
+Object.assign(copy.en, {usersEdit:'Edit details',usersUpdated:'User details updated'});
+Object.assign(copy['zh-CN'], {usersVariablesTitle:'系统变量绑定',usersVariablesNote:'仅管理当前工作空间的取值；行权限尚未使用这些绑定。',usersVariablesEmpty:'当前没有可选变量。',usersVariable:'变量',usersVariableValue:'取值',usersVariableChoose:'请选择变量',usersVariableMissing:'变量已不可用，请移除此绑定',usersVariableAdd:'+ 添加绑定',usersVariableInvalid:'请检查变量、取值和范围。',usersVariableOtherWorkspace:'切换右侧账号的当前工作空间后才能编辑此空间的变量绑定。',usersVariableReadFailed:'变量列表读取失败，当前不能编辑绑定。',usersVariableNeedsMembership:'先把用户加入当前工作空间，再设置变量绑定。'});
+Object.assign(copy.en, {usersVariablesTitle:'System variable assignments',usersVariablesNote:'Manage values in the current workspace only. Row permissions do not yet use these assignments.',usersVariablesEmpty:'No variables are available in this workspace.',usersVariable:'Variable',usersVariableValue:'Value',usersVariableChoose:'Choose a variable',usersVariableMissing:'Variable unavailable; remove this assignment',usersVariableAdd:'+ Add assignment',usersVariableInvalid:'Check the variable, selected values and range.',usersVariableOtherWorkspace:'Switch your account to this workspace before editing its variable assignments.',usersVariableReadFailed:'The variable list could not be loaded. Assignments cannot be edited.',usersVariableNeedsMembership:'Add this user to the current workspace before assigning variables.'});
+Object.assign(copy['zh-CN'], {usersResetPassword:'重置密码',usersResetNote:'重置后，该用户所有旧会话将失效。',usersPasswordReset:'密码已重置'});
+Object.assign(copy.en, {usersResetPassword:'Reset password',usersResetNote:'Resetting invalidates all of this user’s old sessions.',usersPasswordReset:'Password reset'});
+Object.assign(copy['zh-CN'], {workspaceCreate:'创建工作空间',workspaceName:'名称',workspaceCreateSubmit:'创建',workspaceCreated:'工作空间已创建'});
+Object.assign(copy.en, {workspaceCreate:'Create workspace',workspaceName:'Name',workspaceCreateSubmit:'Create',workspaceCreated:'Workspace created'});
+Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpdated:'工作空间已更新',workspaceDelete:'删除空工作空间',workspaceDeleted:'工作空间已删除',workspaceDeleteConfirm:'确定删除这个空工作空间？已有成员或数据时会拒绝删除。'});
+Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
+Object.assign(copy['zh-CN'], {currentWorkspace:'当前工作空间',workspaceSwitching:'正在切换工作空间…'});
+Object.assign(copy.en, {currentWorkspace:'Current workspace',workspaceSwitching:'Switching workspace…'});
+Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。行权限尚未接入变量解析，此页面配置目前不会改变查询权限。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesKV:'键值',variablesKey:'键',variablesValue:'值',variablesAddPair:'+ 添加键值',variablesRemovePair:'移除',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
+Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in the current workspace. Row permissions do not yet resolve these values, so this configuration does not change query access.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesKV:'Key/value',variablesKey:'Key',variablesValue:'Value',variablesAddPair:'+ Add pair',variablesRemovePair:'Remove',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
+Object.assign(copy['zh-CN'], {variablesFrom:'起始值',variablesTo:'结束值'});
+Object.assign(copy.en, {variablesFrom:'From',variablesTo:'To'});
+Object.assign(copy['zh-CN'], {variablesNumber:'数值区间',variablesDate:'日期区间'});
+Object.assign(copy.en, {variablesNumber:'Number range',variablesDate:'Date range'});
+Object.assign(copy['zh-CN'], {usersDelete:'删除用户',usersDeleted:'用户已删除',confirmDeleteUser:'确定删除此用户及其在 AgentSQL 中的个人数据？此操作无法撤销。'});
+Object.assign(copy.en, {usersDelete:'Delete user',usersDeleted:'User deleted',confirmDeleteUser:'Delete this user and their private data in AgentSQL? This cannot be undone.'});
 Object.assign(copy['zh-CN'], {importFile:'导入 CSV/XLSX',importName:'数据源名称',importChoose:'选择文件（最多 4 MiB）',importPreview:'预览工作表',importSave:'导入并创建数据源',importRows:'行',importNoSheets:'请选择至少一个工作表。',importReady:'预览完成。选择工作表和字段类型后创建数据源。',importWorking:'正在通过受控网关导入并创建数据源…',importDone:'数据源已创建。',importFileChanged:'文件已更换，请重新预览。'});
 Object.assign(copy.en, {importFile:'Import CSV/XLSX',importName:'Datasource name',importChoose:'Choose a file (up to 4 MiB)',importPreview:'Preview sheets',importSave:'Import and create datasource',importRows:'rows',importNoSheets:'Select at least one sheet.',importReady:'Preview ready. Choose sheets and field types, then create the datasource.',importWorking:'Importing through the controlled gateway…',importDone:'Datasource created.',importFileChanged:'File changed. Preview it again.'});
 Object.assign(copy['zh-CN'], {deleteSource:'删除文件数据源',deleteSourcePrompt:'删除这个文件数据源及其托管表？此操作无法撤销。',sourceDeleted:'文件数据源已删除。'});
 Object.assign(copy.en, {deleteSource:'Delete file datasource',deleteSourcePrompt:'Delete this file datasource and its managed tables? This cannot be undone.',sourceDeleted:'File datasource deleted.'});
+Object.assign(copy['zh-CN'], {sourceSelect:'管理可查询的表',sourceSelectIntro:'仅已勾选的表会在此数据源中显示；取消全部勾选会关闭该数据源的查询。',sourceSelectSave:'保存选表',sourceSelectionSaved:'选表范围已保存。'});
+Object.assign(copy.en, {sourceSelect:'Manage queryable tables',sourceSelectIntro:'Only selected tables are visible in this datasource. Clearing every selection blocks queries through it.',sourceSelectSave:'Save table selection',sourceSelectionSaved:'Table selection saved.'});
+Object.assign(copy['zh-CN'], {sourceRemarks:'管理备注',sourceRemarkTable:'编辑表备注',sourceRemarkField:'编辑字段备注',sourceRemarkPrompt:'备注（最多 500 字；留空即清除）',sourceRemarkSaved:'备注已保存。',sourceRemarkExport:'导出备注 XLSX',sourceRemarkTemplate:'下载备注模板',sourceRemarkImport:'导入备注 XLSX',sourceRemarkChoose:'选择备注文件（最多 4 MiB）',sourceRemarkImported:'备注已导入。',sourceRemarkExported:'备注文件已下载。'});
+Object.assign(copy.en, {sourceRemarks:'Manage remarks',sourceRemarkTable:'Edit table remark',sourceRemarkField:'Edit field remark',sourceRemarkPrompt:'Remark (up to 500 characters; clear to remove)',sourceRemarkSaved:'Remark saved.',sourceRemarkExport:'Export remarks XLSX',sourceRemarkTemplate:'Download remark template',sourceRemarkImport:'Import remarks XLSX',sourceRemarkChoose:'Choose remark file (up to 4 MiB)',sourceRemarkImported:'Remarks imported.',sourceRemarkExported:'Remark workbook downloaded.'});
+Object.assign(copy['zh-CN'], {relationTitle:'表关系',relationNote:'关系只作为本机模型的连接提示；每次查询仍按当前数据库权限执行并审计。最多支持 64 张可见表。',relationTooMany:'当前可见表超过 64 张，暂不能在此编辑关系。',relationOpen:'读取当前关系与字段',relationFrom:'来源字段',relationTo:'目标字段',relationAdd:'添加关系',relationRemove:'移除',relationEmpty:'尚未配置关系',relationSave:'保存关系',relationSaving:'正在核验并保存关系…',relationSaved:'表关系已保存并写入审计。',relationInvalid:'请选择不同表的字段，且不要重复添加关系。'});
+Object.assign(copy.en, {relationTitle:'Table relationships',relationNote:'Relationships are join hints for the local model. Every query still checks current database permissions and is audited. Up to 64 visible tables are supported.',relationTooMany:'More than 64 tables are visible, so relationships cannot be edited here yet.',relationOpen:'Load relationships and fields',relationFrom:'Source field',relationTo:'Target field',relationAdd:'Add relationship',relationRemove:'Remove',relationEmpty:'No relationships configured',relationSave:'Save relationships',relationSaving:'Checking and saving relationships…',relationSaved:'Relationships saved with an audit record.',relationInvalid:'Choose fields from different tables and avoid duplicate relationships.'});
+Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
+Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
+Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
+Object.assign(copy.en, {modelsCheck:'Check connection',modelsChecking:'Checking the locally configured model…',modelsCheckSuccess:'The model responded. Test SQL was not executed.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
 let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0,selectedSource=null,semanticVisible=false,semanticKind='terms',semanticPage=1,semanticTotalPages=0,semanticEditing=null,suggestionEpoch=0,recommendationEpoch=0,recommendationRevision=null,recommendationItems=[],historyItems=[],historyEpoch=0,importStage=null,isAdmin=false;
+let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1;
+let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
+let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
+let modelsVisible=false,modelsEpoch=0,modelRevision=null;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
 theme(localStorage.getItem('agentsql-chatbi-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));translate();
 function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error);}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
-async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
+async function api(path,body,method=body===undefined?'GET':'POST',signal){const response=await fetch(apiRoot+path,{method,headers:{'Content-Type':'application/json',...(token?{'X-SQLBOT-TOKEN':'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal});if(response.status===401){token='';sessionStorage.removeItem('agentsql-chatbi-token');if($('key-dialog').open)$('key-dialog').close();hideUsers();hideVariables();hideModels();chatSettings.hide();$('users-list').replaceChildren();$('variable-list').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;}if(!response.ok){const error=new Error(t('failed'));error.status=response.status;throw error;}const envelope=await response.json();if(envelope.code!==0)throw new Error(t('failed'));return envelope.data;}
 const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
+const qaDisplay={sql:true,log:true};
+const chatSettings=setupChatSettings({api,node,get:$,canOpen:()=>!controller,onChange:value=>{qaDisplay.sql=!!value.show_sql;qaDisplay.log=!!value.show_log;}});
+const sourceRelations=setupSourceRelations({api,t,node,get:$,onStatus:sourceStatus});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -100,7 +148,29 @@ async function history(){
 async function enter(){
   const user=await api('/user/info');
   isAdmin=Boolean(user.isAdmin);
+  const parameters=await api('/system/parameter/chat');
+  const visible=Object.fromEntries((Array.isArray(parameters)?parameters:[]).map(item=>[item.pkey,item.pval]));
+  qaDisplay.sql=visible['chat.show_sql']!=='false';qaDisplay.log=visible['chat.show_log']!=='false';
+  if(!isAdmin){hideUsers();$('users-list').replaceChildren();}
   $('account-name').textContent=user.name||user.account;
+  const workspaces=await api('/user/ws');
+  $('account-workspace').replaceChildren();
+  for(const workspace of workspaces){
+    const option=node('option',workspace.name);option.value=String(workspace.id);$('account-workspace').append(option);
+  }
+  $('account-workspace').value=String(user.oid);
+  $('account-workspace').disabled=workspaces.length<2;
+  $('account-workspace').parentElement.querySelector('label[for="account-workspace"]').hidden=workspaces.length<2;
+  $('account-workspace').hidden=workspaces.length<2;
+  if(!requestedLang){
+    const saved=localStorage.getItem('agentsql-chatbi-language');
+    const server=user.language==='en'||user.language==='en-US'?'en':user.language==='zh-CN'?'zh-CN':null;
+    if(saved==='en'||saved==='zh-CN'){
+      lang=saved;
+      if(server&&server!==saved)try{await api('/user/language',{language:saved},'PUT');}catch{ /* Keep the local display preference if account persistence fails. */ }
+    }else if(server){lang=server;localStorage.setItem('agentsql-chatbi-language',lang);}
+    translate();
+  }
   sourceList=await api('/datasource/list');
   $('datasource').replaceChildren();$('term-sources').replaceChildren();$('example-source').replaceChildren();$('recommendation-source').replaceChildren();
   for(const source of sourceList){
@@ -110,7 +180,11 @@ async function enter(){
     }
   }
   $('semantics-nav').hidden=!isAdmin;
+  $('users-nav').hidden=!isAdmin;
+  $('variables-nav').hidden=!isAdmin;
+  $('models-nav').hidden=!isAdmin;
   assistants.setAdmin(isAdmin);
+  chatSettings.setAdmin(isAdmin);
   assistants.setSources(sourceList);
   $('source-import').hidden=!isAdmin;
   $('login').hidden=true;$('login-tools').hidden=true;$('workspace').hidden=false;
@@ -192,11 +266,11 @@ function show(chat){
         answer.append(button);
       }
     }
-    if(record.finish){
+    if(record.finish&&qaDisplay.log){
       const usage=node('details',undefined,'usage-details'),summary=node('summary',t('usage')),content=node('div',undefined,'usage-content');
       usage.append(summary,content);usage.addEventListener('toggle',()=>{if(usage.open)void loadUsage(record.id,usage,content);});answer.append(usage);
     }
-    if(record.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}
+    if(record.sql&&qaDisplay.sql){const details=node('details');details.append(node('summary',t('sql')),node('pre',record.sql));answer.append(details);}
     turn.append(answer);$('conversation').append(turn);
   }
   $('conversation').scrollTop=$('conversation').scrollHeight;
@@ -232,9 +306,254 @@ async function downloadExport(id,chatID,format,button){
 }
 function semanticStatus(value,error=false){$('semantic-status').textContent=value;$('semantic-status').classList.toggle('error',error);}
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
+function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
+function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
+function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
+function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
+async function loadModel(){
+  if(!modelsVisible)return;
+  const epoch=++modelsEpoch;modelRevision=null;modelStatus(t('reading'));
+  try{
+    const model=await api('/agentsql/model');
+    if(!modelsVisible||epoch!==modelsEpoch)return;
+    modelRevision=model.revision;
+    $('model-check').disabled=false;
+    $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
+    $('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);
+    $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
+  }catch(error){if(modelsVisible&&epoch===modelsEpoch){
+    if(error.status===404){modelRevision=0;$('model-check').disabled=true;$('model-form').reset();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
+    else modelStatus(t('failed'),true);
+  }}
+}
+async function showModels(){
+  if(controller||!isAdmin)return;
+  dashboard.hide();assistants.hide();chatSettings.hide();hideUsers();hideVariables();closeMenu();
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
+  semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  modelsVisible=true;$('models').hidden=false;$('models-nav').classList.add('active');await loadModel();
+}
+function keyStatus(message,error=false){$('key-status').textContent=message;$('key-status').classList.toggle('error',error);}
+async function loadAPIKeys(){
+  if(!$('key-dialog').open)return;
+  try{
+    const items=await api('/system/apikey');
+    if(!$('key-dialog').open)return;
+    const list=$('key-list');list.replaceChildren();
+    $('key-create').disabled=items.length>=5;
+    if(!items.length){list.append(node('p',t('keysEmpty')));return;}
+    for(const item of items){
+      const card=node('article',undefined,'key-item'),access=node('code',item.access_key),secret=node('code','••••••••••••'),meta=node('small',new Date(item.create_time).toLocaleString()),actions=node('div',undefined,'key-item-actions');
+      const copyAccess=node('button',t('keysCopy')+' '+t('keysAccess')),copySecret=node('button',t('keysCopy')+' '+t('keysSecret'));
+      const reveal=node('button',t('keysReveal')),statusButton=node('button',t(item.status?'keysDisable':'keysEnable')),remove=node('button',t('keysDelete'));
+      for(const button of [copyAccess,copySecret,reveal,statusButton,remove])button.type='button';
+      copyAccess.onclick=async()=>{try{await navigator.clipboard.writeText(item.access_key);}catch{keyStatus(t('keysCopyFailed'),true);}};
+      copySecret.onclick=async()=>{try{await navigator.clipboard.writeText(item.secret_key);}catch{keyStatus(t('keysCopyFailed'),true);}};
+      reveal.onclick=()=>{const visible=secret.textContent===item.secret_key;secret.textContent=visible?'••••••••••••':item.secret_key;reveal.textContent=t(visible?'keysReveal':'keysHide');};
+      statusButton.onclick=async()=>{statusButton.disabled=true;try{await api('/system/apikey/status',{id:item.id,status:!item.status},'PUT');await loadAPIKeys();keyStatus(t('keysSaved'));}catch{keyStatus(t('failed'),true);}finally{statusButton.disabled=false;}};
+      remove.onclick=async()=>{if(!confirm(t('keysConfirmDelete')))return;remove.disabled=true;try{await api('/system/apikey/'+encodeURIComponent(item.id),undefined,'DELETE');await loadAPIKeys();keyStatus(t('keysDeleted'));}catch{keyStatus(t('failed'),true);}finally{remove.disabled=false;}};
+      actions.append(copyAccess,copySecret,reveal,statusButton,remove);
+      card.append(node('strong',t('keysAccess')),access,node('strong',t('keysSecret')),secret,meta,actions);list.append(card);
+    }
+  }catch{keyStatus(t('failed'),true);}
+}
+function variableStatus(message,error=false){$('variable-status').textContent=message;$('variable-status').classList.toggle('error',error);}
+function addVariableKVRow(key='',value=''){
+  const row=node('div',undefined,'variable-kv-row'),keyInput=node('input'),valueInput=node('input'),remove=node('button',t('variablesRemovePair'));
+  keyInput.type='text';keyInput.maxLength=128;keyInput.value=key;keyInput.dataset.placeholder='variablesKey';keyInput.placeholder=t('variablesKey');keyInput.dataset.kvKey='';
+  valueInput.type='text';valueInput.maxLength=500;valueInput.value=value;valueInput.dataset.placeholder='variablesValue';valueInput.placeholder=t('variablesValue');valueInput.dataset.kvValue='';
+  keyInput.required=valueInput.required=true;remove.type='button';remove.dataset.i18n='variablesRemovePair';
+  remove.onclick=()=>{if($('variable-kv-rows').children.length>1)row.remove();};
+  row.append(keyInput,valueInput,remove);$('variable-kv-rows').append(row);
+}
+function toggleVariableValueEditor(){
+  const kind=$('variable-type').value,kv=kind==='kv',range=kind==='number'||kind==='datetime';
+  $('variable-values-label').hidden=kv||range;$('variable-values').hidden=kv||range;$('variable-values').required=!kv&&!range;
+  $('variable-kv-editor').hidden=!kv;
+  $('variable-range-editor').hidden=!range;
+  for(const input of [$('variable-range-min'),$('variable-range-max')]){input.type=kind==='datetime'?'date':'number';input.required=range;}
+  if(kv&&!$('variable-kv-rows').children.length)addVariableKVRow();
+  for(const input of $('variable-kv-rows').querySelectorAll('input'))input.required=kv;
+}
+function resetVariableForm(){variableEditingID=null;$('variable-form').reset();$('variable-kv-rows').replaceChildren();toggleVariableValueEditor();$('variable-editor').querySelector('summary').textContent=t('variablesAdd');$('variable-editor').open=false;}
+async function loadVariables(){
+  if(!variablesVisible)return;
+  const epoch=++variablesEpoch;
+  try{
+    const result=await api('/sys_variable/listPage/'+variablePage+'/20',{name:$('variable-search').value.trim()});
+    if(!variablesVisible||epoch!==variablesEpoch)return;
+    variableTotalPages=Math.max(1,result.total_pages||1);
+    if(variablePage>variableTotalPages){variablePage=variableTotalPages;return loadVariables();}
+    const list=$('variable-list');list.replaceChildren();
+    for(const variable of result.items||[]){
+      const article=node('article',undefined,'user-item'),detail=node('div');
+      detail.append(node('strong',variable.name),node('small',t('variablesType')+': '+t(variable.var_type==='kv'?'variablesKV':variable.var_type==='number'?'variablesNumber':variable.var_type==='datetime'?'variablesDate':'variablesText')));
+      detail.append(node('small',(variable.value||[]).map(value=>variable.var_type==='kv'?String(value.key)+': '+String(value.value):String(value)).join(variable.var_type==='number'||variable.var_type==='datetime'?' ~ ':', ')));
+      const actions=node('div',undefined,'user-actions'),edit=node('button',t('edit')),remove=node('button',t('variablesDelete'));
+      edit.type='button';remove.type='button';
+      edit.onclick=()=>{variableEditingID=variable.id;$('variable-name').value=variable.name;$('variable-type').value=variable.var_type;
+        $('variable-values').value='';$('variable-kv-rows').replaceChildren();
+        toggleVariableValueEditor();
+        if(variable.var_type==='kv'){$('variable-kv-rows').replaceChildren();for(const pair of variable.value||[])addVariableKVRow(pair.key,pair.value);}
+        else if(variable.var_type==='number'||variable.var_type==='datetime'){
+          $('variable-range-min').value=String((variable.value||[])[0]??'').slice(0,variable.var_type==='datetime'?10:undefined);$('variable-range-max').value=String((variable.value||[])[1]??'').slice(0,variable.var_type==='datetime'?10:undefined);
+        }else $('variable-values').value=(variable.value||[]).map(value=>String(value)).join('\n');
+        $('variable-editor').querySelector('summary').textContent=t('variablesEdit');$('variable-editor').open=true;$('variable-name').focus();};
+      remove.onclick=async()=>{if(!window.confirm(t('variablesDeleteConfirm')))return;remove.disabled=true;
+        try{await api('/sys_variable/delete',[variable.id]);await loadVariables();variableStatus(t('variablesDeleted'));}
+        catch{variableStatus(t('failed'),true);remove.disabled=false;}};
+      actions.append(edit,remove);article.append(detail,actions);list.append(article);
+    }
+    if(!result.items?.length)list.append(node('p',t('variablesEmpty'),'semantic-empty'));
+    $('variable-count').textContent=variablePage+'/'+variableTotalPages+' · '+result.total+' '+t('items');
+    $('variable-prev').disabled=variablePage<=1;$('variable-next').disabled=variablePage>=variableTotalPages;
+    variableStatus('');
+  }catch{if(variablesVisible&&epoch===variablesEpoch)variableStatus(t('failed'),true);}
+}
+async function showVariables(){
+  if(controller||!isAdmin)return;
+  dashboard.hide();assistants.hide();chatSettings.hide();hideUsers();hideModels();closeMenu();
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
+  semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  variablesVisible=true;$('variables').hidden=false;$('variables-nav').classList.add('active');
+  resetVariableForm();await loadVariables();
+}
+function renderUserCreateVariables(){
+  const container=$('user-create-variables'),workspace=$('users-workspace').value;
+  container.replaceChildren();userCreateVariableEditor=null;userCreateVariableWorkspace=workspace;
+  if(workspace!==$('account-workspace').value){
+    container.append(node('p',t('usersVariableOtherWorkspace'),'user-variable-note'));return;
+  }
+  if(userVariableDefinitions===null){
+    container.append(node('p',t('usersVariableReadFailed'),'user-variable-note'));return;
+  }
+  userCreateVariableEditor=setupUserVariableEditor({container,definitions:userVariableDefinitions,t,node});
+}
+async function loadUsers(){
+  if(!usersVisible)return;
+  const epoch=++usersEpoch,query=new URLSearchParams({keyword:$('users-search').value.trim()});
+  $('users-status').textContent=t('reading');
+  try{
+    const selectedWorkspace=$('users-workspace').value;
+    const [result,definitions]=await Promise.all([
+      api('/user/pager/'+userPage+'/20?'+query),
+      selectedWorkspace===$('account-workspace').value?api('/sys_variable/listAll',{}).catch(()=>null):Promise.resolve(null)
+    ]);
+    if(!usersVisible||epoch!==usersEpoch)return;
+    userVariableDefinitions=Array.isArray(definitions)?definitions:null;
+    if($('user-create').open&&(!userCreateVariableEditor||userCreateVariableWorkspace!==selectedWorkspace))renderUserCreateVariables();
+    userTotalPages=Math.max(1,result.total_pages||0);
+    if(userPage>userTotalPages){userPage=userTotalPages;return loadUsers();}
+    const list=$('users-list');list.replaceChildren();
+    for(const user of result.items||[]){
+      const article=node('article',undefined,'user-item'),details=node('div');
+      const workspace=$('users-workspace').value,member=(user.oid_list||[]).some(id=>String(id)===workspace);
+      details.append(node('strong',user.name||user.account),node('small',user.account+(user.email?' · '+user.email:'')),node('small',t(user.status===1?'usersEnabled':'usersDisabled')+' · '+t(member?'usersMember':'usersNotMember')));
+      const action=node('button',t(user.status===1?'usersDisable':'usersEnable'));action.type='button';
+      action.onclick=async()=>{
+        if(user.status===1&&!window.confirm(t('confirmDisableUser')))return;
+        action.disabled=true;
+        try{await api('/user/status',{id:user.id,status:user.status===1?0:1},'PATCH');await loadUsers();if(!$('users-status').classList.contains('error'))$('users-status').textContent=t('usersSaved');}
+        catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+        finally{action.disabled=false;}
+      };
+      const membership=node('button',t(member?'usersRevoke':'usersGrant'));membership.type='button';membership.disabled=!workspace;
+      membership.onclick=async()=>{
+        if(member&&!window.confirm(t('confirmRevokeUser')))return;
+        membership.disabled=true;
+        try{await api('/system/workspace/uws',{uid_list:[user.id],oid:workspace},member?'DELETE':'POST');await loadUsers();if(!$('users-status').classList.contains('error'))$('users-status').textContent=t('usersMemberSaved');}
+        catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+        finally{membership.disabled=false;}
+      };
+      const edit=node('button',t('usersEdit'));edit.type='button';
+      edit.onclick=()=>{
+        const existing=article.querySelector('.user-edit-form');if(existing){existing.remove();return;}
+        const form=node('form',undefined,'user-edit-form'),nameLabel=node('label',t('usersName')),
+          nameInput=node('input'),emailLabel=node('label',t('usersEmail')),emailInput=node('input');
+        nameInput.value=user.name||'';nameInput.required=true;nameInput.maxLength=100;
+        emailInput.value=user.email||'';emailInput.type='email';emailInput.maxLength=100;
+        nameLabel.append(nameInput);emailLabel.append(emailInput);
+        const variableBox=node('div',undefined,'user-variable-editor');
+        let variableEditor=null;
+        if(workspace!==$('account-workspace').value)variableBox.append(node('p',t('usersVariableOtherWorkspace'),'user-variable-note'));
+        else if(!member)variableBox.append(node('p',t('usersVariableNeedsMembership'),'user-variable-note'));
+        else if(userVariableDefinitions===null)variableBox.append(node('p',t('usersVariableReadFailed'),'user-variable-note'));
+        else variableEditor=setupUserVariableEditor({container:variableBox,definitions:userVariableDefinitions,
+          initial:user.system_variables||[],t,node});
+        const save=node('button',t('save'));save.type='submit';save.className='primary';
+        const cancel=node('button',t('formCancel'));cancel.type='button';cancel.onclick=()=>form.remove();
+        form.append(nameLabel,emailLabel,variableBox,save,cancel);
+        form.onsubmit=async event=>{
+          event.preventDefault();save.disabled=true;
+          try{await api('/user',{id:user.id,account:user.account,name:nameInput.value.trim(),email:emailInput.value.trim(),
+            status:user.status,oid_list:user.oid_list||[],...(variableEditor?{system_variables:variableEditor.read()}:{})},'PUT');await loadUsers();
+            $('users-status').textContent=t('usersUpdated');$('users-status').classList.remove('error');}
+          catch(error){$('users-status').textContent=error.message===t('usersVariableInvalid')?error.message:t('failed');$('users-status').classList.add('error');save.disabled=false;}
+        };
+        article.append(form);nameInput.focus();
+      };
+      const reset=node('button',t('usersResetPassword'));reset.type='button';
+      reset.onclick=()=>{
+        const existing=article.querySelector('.user-reset-form');if(existing){existing.remove();return;}
+        const form=node('form',undefined,'user-reset-form'),label=node('label',t('usersInitialPassword')),
+          input=node('input');input.type='password';input.minLength=12;input.maxLength=72;input.required=true;input.autocomplete='new-password';
+        label.append(input);form.append(node('p',t('usersResetNote')),label);
+        const save=node('button',t('usersResetPassword'));save.type='submit';save.className='primary';
+        const cancel=node('button',t('formCancel'));cancel.type='button';cancel.onclick=()=>form.remove();form.append(save,cancel);
+        form.onsubmit=async event=>{
+          event.preventDefault();save.disabled=true;
+          try{await api('/user/pwd/'+encodeURIComponent(String(user.id)),{new_password:input.value},'PATCH');form.remove();
+            $('users-status').textContent=t('usersPasswordReset');$('users-status').classList.remove('error');}
+          catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');save.disabled=false;}
+          finally{input.value='';}
+        };
+        article.append(form);input.focus();
+      };
+      const remove=node('button',t('usersDelete'));remove.type='button';
+      remove.onclick=async()=>{
+        if(!window.confirm(t('confirmDeleteUser')))return;
+        remove.disabled=true;
+        try{await api('/user/'+encodeURIComponent(String(user.id)),undefined,'DELETE');await loadUsers();
+          $('users-status').textContent=t('usersDeleted');$('users-status').classList.remove('error');}
+        catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');remove.disabled=false;}
+      };
+      const actions=node('div',undefined,'user-actions');actions.append(edit,reset,membership,action,remove);
+      article.append(details,actions);list.append(article);
+    }
+    if(!result.items?.length)list.append(node('p',t('usersEmpty'),'semantic-empty'));
+    $('users-count').textContent=`${userPage}/${userTotalPages} · ${result.total} ${t(result.total===1?'usersCountOne':'usersCount')}`;
+    $('users-prev').disabled=userPage<=1;$('users-next').disabled=userPage>=userTotalPages;
+    $('users-status').textContent='';$('users-status').classList.remove('error');
+  }catch{if(usersVisible&&epoch===usersEpoch){$('users-status').textContent=t('failed');$('users-status').classList.add('error');}}
+}
+async function showUsers(){
+  if(controller||!isAdmin)return;
+  dashboard.hide();assistants.hide();chatSettings.hide();hideVariables();hideModels();closeMenu();
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
+  semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  usersVisible=true;$('users').hidden=false;$('users-nav').classList.add('active');
+  const epoch=++usersEpoch,previous=$('users-workspace').value;
+  try{
+    const workspaces=await api('/system/workspace');
+    if(!usersVisible||epoch!==usersEpoch)return;
+    $('users-workspace').replaceChildren();
+    for(const workspace of workspaces){const option=node('option',workspace.name);option.value=String(workspace.id);$('users-workspace').append(option);}
+    if(workspaces.some(workspace=>String(workspace.id)===previous))$('users-workspace').value=previous;
+    $('workspace-edit-name').value=$('users-workspace').selectedOptions[0]?.textContent||'';
+    $('workspace-delete').disabled=!$('users-workspace').value||$('users-workspace').value==='1';
+    await loadUsers();
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+}
 function showQA(){
   dashboard.hide();
   assistants.hide();
+  chatSettings.hide();
+  hideUsers();
+  hideVariables();
+  hideModels();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   semanticVisible=false;$('semantics').hidden=true;$('composer-wrap').hidden=false;
   $('semantics-nav').classList.remove('active');
@@ -244,6 +563,10 @@ async function showSemantics(){
   if(controller||$('semantics-nav').hidden)return;
   dashboard.hide();
   assistants.hide();
+  chatSettings.hide();
+  hideUsers();
+  hideVariables();
+  hideModels();
   sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
   closeMenu();semanticVisible=true;$('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   $('semantics').hidden=false;$('semantics-nav').classList.add('active');
@@ -345,6 +668,10 @@ async function showSources(){
   if(controller)return;
   dashboard.hide();
   assistants.hide();
+  chatSettings.hide();
+  hideUsers();
+  hideVariables();
+  hideModels();
   closeMenu();semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   sourceVisible=true;$('sources').hidden=false;$('sources-nav').classList.add('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
@@ -356,6 +683,10 @@ async function showSources(){
 async function showDashboards(){
   if(controller)return;
   assistants.hide();
+  chatSettings.hide();
+  hideUsers();
+  hideVariables();
+  hideModels();
   closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
@@ -363,26 +694,142 @@ async function showDashboards(){
   await dashboard.show();
 }
 document.addEventListener('agentsql:show-assistants',()=>{
-  dashboard.hide();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  dashboard.hide();chatSettings.hide();hideUsers();hideVariables();hideModels();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
   $('sources').hidden=true;$('sources-nav').classList.remove('active');
   $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
 });
-async function loadSource(source){
+document.addEventListener('agentsql:show-chat-settings',()=>{
+  dashboard.hide();assistants.hide();hideUsers();hideVariables();hideModels();closeMenu();sourceVisible=false;sourceEpoch++;semanticVisible=false;
+  $('sources').hidden=true;$('sources-nav').classList.remove('active');
+  $('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+});
+async function loadSource(source,restoreTableID=null){
   selectedSource=source;const epoch=++sourceEpoch;renderSourceList();sourceStatus(t('sourceLoading'));
+  sourceRelations.reset();
   $('source-name').textContent=source.name;$('source-description').textContent=source.description||'';
   $('source-delete').hidden=!(isAdmin&&source.type==='excel');
+  $('source-select').hidden=true;$('source-select-form').hidden=true;
   $('source-detail').hidden=false;$('source-tables').replaceChildren();$('source-fields').replaceChildren();$('source-preview').replaceChildren();
+  $('source-remarks')?.remove();
+  let managed=false,databaseEditable=false;
+  if(isAdmin&&source.type==='excel'){
+    try{await api('/agentsql/datasource/fileTables/'+encodeURIComponent(String(source.id)));
+      if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
+      managed=true;$('source-select').hidden=false;
+    }catch{ /* A nonmanaged Excel datasource has no managed-file editor. */ }
+  }
+  if(isAdmin&&(source.type==='pg'||source.type==='mysql')){
+    try{await api('/agentsql/datasource/databaseTables/'+encodeURIComponent(String(source.id)));
+      if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
+      databaseEditable=true;$('source-select').hidden=false;
+    }catch{ /* An unavailable gateway does not expose an editable table set. */ }
+  }
   try{
     const tables=await api('/datasource/tableList/'+encodeURIComponent(String(source.id)),{},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
+    if(managed||databaseEditable)renderSourceRemarkTools(source);
+    if(isAdmin)sourceRelations.show(source,tables);
     for(const table of tables){
+      const group=node('div',undefined,'source-table-group');
       const button=node('button',table.table_name,'source-table');button.type='button';
-      button.onclick=()=>{void loadSourceTable(source,table);};$('source-tables').append(button);
+      button.dataset.tableId=String(table.id);
+      button.title=table.custom_comment||table.table_name;
+      button.onclick=()=>{void loadSourceTable(source,table);};group.append(button);
+      if(isAdmin&&(managed||databaseEditable)){const edit=node('button',t('sourceRemarkTable'),'source-remark-edit');edit.type='button';
+        edit.setAttribute('aria-label',t('sourceRemarkTable')+' '+table.table_name);
+        edit.onclick=()=>{void saveSourceRemark(source,table,null,edit);};group.append(edit);}
+      if(table.custom_comment)group.append(node('small',table.custom_comment));
+      $('source-tables').append(group);
     }
     if(!tables.length)$('source-tables').append(node('p',t('tableEmpty'),'semantic-empty'));
     sourceStatus('');
+    if(restoreTableID!==null){const restored=tables.find(table=>String(table.id)===String(restoreTableID));
+      if(restored)await loadSourceTable(source,restored);}
   }catch{if(epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+}
+function validSourceRemark(value){return [...value].length<=500&&!/[\u0000-\u001f\u007f-\u009f]/u.test(value);}
+async function saveSourceRemark(source,table,field,button){
+  if(!sourceVisible||!isAdmin||String(selectedSource?.id)!==String(source.id))return;
+  const old=field?field.custom_comment:table.custom_comment;
+  const value=window.prompt(t('sourceRemarkPrompt'),old||'');
+  if(value===null)return;
+  if(!validSourceRemark(value)){sourceStatus(t('failed'),true);return;}
+  button.disabled=true;
+  try{
+    const path=field?'/datasource/editField':'/datasource/editTable';
+    await api(path,{...(field||table),custom_comment:value},'POST');
+    if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+    await loadSource(source,table.id);
+    sourceStatus(t('sourceRemarkSaved'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+async function downloadSourceRemarks(source,template,button){
+  button.disabled=true;
+  try{
+    const response=await fetch(apiRoot+'/datasource/exportDsSchema/'+encodeURIComponent(template?'0':String(source.id)),{headers:{'X-SQLBOT-TOKEN':'Bearer '+token}});
+    if(!response.ok||!response.headers.get('Content-Type')?.includes('spreadsheetml.sheet'))throw new Error('remark export');
+    const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download=template?'agentsql-remark-template.xlsx':'agentsql-remarks-'+String(source.id)+'.xlsx';
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    sourceStatus(t('sourceRemarkExported'));
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
+}
+function renderSourceRemarkTools(source){
+  const tools=node('section',undefined,'source-remarks');tools.id='source-remarks';
+  tools.append(node('strong',t('sourceRemarks')));
+  for(const [key,template] of [['sourceRemarkExport',false],['sourceRemarkTemplate',true]]){
+    const button=node('button',t(key));button.type='button';
+    button.onclick=()=>{void downloadSourceRemarks(source,template,button);};tools.append(button);
+  }
+  const form=node('form',undefined,'source-remark-import'),label=node('label',t('sourceRemarkChoose')),file=node('input'),submit=node('button',t('sourceRemarkImport'));
+  file.type='file';file.accept='.xlsx';file.required=true;label.append(file);submit.type='submit';
+  form.append(label,submit);form.onsubmit=async event=>{
+    event.preventDefault();const selected=file.files?.[0];
+    if(!selected||selected.size>4*1024*1024){sourceStatus(t('failed'),true);return;}
+    submit.disabled=true;
+    try{const body=new FormData();body.append('file',selected);
+      const response=await fetch(apiRoot+'/datasource/uploadDsSchema/'+encodeURIComponent(String(source.id)),{method:'POST',headers:{'X-SQLBOT-TOKEN':'Bearer '+token},body});
+      if(!response.ok)throw new Error('remark import');
+      const envelope=await response.json();if(envelope.code!==0)throw new Error('remark import');
+      if(!sourceVisible||String(selectedSource?.id)!==String(source.id))return;
+      const active=$('source-tables').querySelector('.source-table.active')?.dataset.tableId;
+      await loadSource(source,active||null);sourceStatus(t('sourceRemarkImported'));
+    }catch{sourceStatus(t('failed'),true);}finally{submit.disabled=false;}
+  };
+  tools.append(form);$('source-select-form').after(tools);
+}
+async function openTableChoices(){
+  const source=selectedSource;if(!sourceVisible||!isAdmin||!['excel','pg','mysql'].includes(source?.type))return;
+  if(!$('source-select-form').hidden){$('source-select-form').hidden=true;return;}
+  const epoch=sourceEpoch,button=$('source-select');button.disabled=true;sourceStatus(t('sourceLoading'));
+  try{
+    const path=source.type==='excel'?'fileTables':'databaseTables';
+    const tables=await api('/agentsql/datasource/'+path+'/'+encodeURIComponent(String(source.id)));
+    if(!sourceVisible||epoch!==sourceEpoch||String(selectedSource?.id)!==String(source.id))return;
+    const list=$('source-select-list');list.replaceChildren();
+    for(const table of tables){
+      const label=node('label'),input=node('input');input.type='checkbox';input.value=table.table_name;input.checked=!!table.checked;
+      label.append(input,node('span',table.table_name));list.append(label);
+    }
+    $('source-select-form').hidden=false;sourceStatus('');
+  }catch{if(sourceVisible&&epoch===sourceEpoch)sourceStatus(t('failed'),true);}
+  finally{button.disabled=false;}
+}
+async function saveTableChoices(event){
+  event.preventDefault();const source=selectedSource;if(!sourceVisible||!isAdmin||!['excel','pg','mysql'].includes(source?.type))return;
+  const button=$('source-select-save');button.disabled=true;
+  const tables=[...$('source-select-list').querySelectorAll('input[type=checkbox]:checked')].map(input=>({table_name:input.value,table_comment:''}));
+  try{
+    await api('/datasource/chooseTables/'+encodeURIComponent(String(source.id)),tables,'POST');
+    sourceList=await api('/datasource/list');
+    if(sourceVisible&&String(selectedSource?.id)===String(source.id)){
+      const refreshed=sourceList.find(item=>String(item.id)===String(source.id));
+      if(refreshed)await loadSource(refreshed);
+      sourceStatus(t('sourceSelectionSaved'));
+    }
+  }catch{sourceStatus(t('failed'),true);}finally{button.disabled=false;}
 }
 async function deleteSelectedSource(){
   const source=selectedSource;if(!isAdmin||!sourceVisible||source?.type!=='excel'||!window.confirm(t('deleteSourcePrompt')))return;
@@ -405,12 +852,16 @@ function renderPreview(result){
 async function loadSourceTable(source,table){
   const epoch=++sourceEpoch;sourceStatus(t('sourceLoading'));
   $('source-fields').replaceChildren();$('source-preview').replaceChildren();
-  for(const button of $('source-tables').querySelectorAll('button'))button.classList.toggle('active',button.textContent===table.table_name);
+  for(const button of $('source-tables').querySelectorAll('.source-table'))button.classList.toggle('active',button.textContent===table.table_name);
   try{
     const id=encodeURIComponent(String(source.id)),tableID=encodeURIComponent(String(table.id));
     const fields=await api('/datasource/fieldList/'+id+'/'+tableID,{fieldName:''},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
-    for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));$('source-fields').append(row);}
+    for(const field of fields){const row=node('div',undefined,'source-field');row.append(node('strong',field.field_name),node('small',field.field_type));
+      if(field.custom_comment)row.append(node('small',field.custom_comment));
+      if(isAdmin&&((source.type==='excel'&&$('source-remarks'))||((source.type==='pg'||source.type==='mysql')&&!$('source-select').hidden))){const edit=node('button',t('sourceRemarkField'),'source-remark-edit');edit.type='button';edit.setAttribute('aria-label',t('sourceRemarkField')+' '+field.field_name);
+        edit.onclick=()=>{void saveSourceRemark(source,table,field,edit);};row.append(edit);}
+      $('source-fields').append(row);}
     if(!fields.length)$('source-fields').append(node('p',t('fieldEmpty'),'semantic-empty'));
     const result=await api('/datasource/previewData/'+id,{table:{id:String(table.id),table_name:table.table_name}},'POST');
     if(!sourceVisible||epoch!==sourceEpoch)return;
@@ -505,14 +956,134 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();
 async function open(id){if(controller)return;closeMenu();showQA();status(t('reading'));try{const chat=await api('/chat/'+encodeURIComponent(id)+'/with_data');current=String(chat.id);$('datasource').value=String(chat.datasource);$('datasource').disabled=true;void loadSuggestions();show(chat);await history();status('');}catch{status(t('failed'),true);}}
 $('login-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('login-error').textContent='';try{const data=await api('/agentsql/login',{username:$('username').value,password:$('password').value});token=data.access_token;sessionStorage.setItem('agentsql-chatbi-token',token);$('password').value='';await enter();}catch{$('login-error').textContent=t('loginFailed');}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{controller?.abort();suggestionEpoch++;try{await api('/login/logout',{});}finally{token='';sessionStorage.removeItem('agentsql-chatbi-token');location.reload();}};
+$('account-settings').onclick=()=>{$('account-form').reset();$('account-status').textContent='';$('account-dialog').showModal();};
+$('account-keys').onclick=()=>{keyStatus('');$('key-dialog').showModal();void loadAPIKeys();};
+$('key-close').onclick=()=>$('key-dialog').close();
+$('key-create').onclick=async()=>{const button=$('key-create');button.disabled=true;try{await api('/system/apikey',{});await loadAPIKeys();keyStatus(t('keysCreated'));}catch{keyStatus(t('failed'),true);}finally{if($('key-list').children.length<5)button.disabled=false;}};
+$('account-workspace').onchange=async event=>{
+  const select=event.target,target=select.value;
+  if(!target)return;
+  select.disabled=true;controller?.abort();status(t('workspaceSwitching'));
+  try{
+    await api('/user/ws/'+encodeURIComponent(target),undefined,'PUT');
+    location.reload();
+  }catch{
+    try{const user=await api('/user/info');select.value=String(user.oid);}catch{/* The API already handles expired sessions. */}
+    status(t('failed'),true);select.disabled=false;
+  }
+};
+$('account-close').onclick=()=>$('account-dialog').close();
+$('account-form').onsubmit=async event=>{
+  event.preventDefault();const submit=$('account-form').querySelector('button[type=submit]');submit.disabled=true;
+  $('account-status').textContent='';
+  try{
+    await api('/user/pwd',{pwd:$('current-password').value,new_pwd:$('new-password').value},'PUT');
+    $('account-dialog').close();token='';sessionStorage.removeItem('agentsql-chatbi-token');
+    $('workspace').hidden=true;$('login').hidden=false;$('login-tools').hidden=false;$('login-error').textContent=t('passwordChanged');
+  }catch{$('account-status').textContent=t('failed');}finally{submit.disabled=false;$('account-form').reset();}
+};
 $('new-chat').onclick=()=>{if(controller)return;closeMenu();current=null;showQA();$('conversation').replaceChildren();$('welcome').hidden=false;$('datasource').disabled=false;$('question').value='';status('');history().catch(()=>status(t('failed'),true));void loadSuggestions();$('question').focus();};
 $('history-search').oninput=()=>renderHistory();
 $('datasource').onchange=()=>{void loadSuggestions();};
 $('semantics-nav').onclick=()=>{void showSemantics();};
+$('users-nav').onclick=()=>{userPage=1;void showUsers();};
+$('users-workspace').onchange=()=>{$('workspace-edit-name').value=$('users-workspace').selectedOptions[0]?.textContent||'';$('workspace-delete').disabled=$('users-workspace').value==='1';userCreateVariableEditor=null;void loadUsers();};
+$('user-create').ontoggle=()=>{if($('user-create').open)renderUserCreateVariables();};
+$('workspace-create-form').onsubmit=async event=>{
+  event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  try{
+    const created=await api('/system/workspace',{name:$('workspace-create-name').value.trim()},'POST');
+    event.target.reset();$('workspace-create').open=false;await showUsers();
+    $('users-workspace').value=String(created.id);$('workspace-edit-name').value=created.name;
+    $('workspace-delete').disabled=false;await loadUsers();
+    $('users-status').textContent=t('workspaceCreated');$('users-status').classList.remove('error');
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{submit.disabled=false;}
+};
+$('workspace-edit-form').onsubmit=async event=>{
+  event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  const id=$('users-workspace').value;
+  try{
+    await api('/system/workspace',{id,name:$('workspace-edit-name').value.trim()},'PUT');
+    $('workspace-edit').open=false;await showUsers();$('users-workspace').value=id;await loadUsers();
+    $('users-status').textContent=t('workspaceUpdated');$('users-status').classList.remove('error');
+  }catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');}
+  finally{submit.disabled=false;}
+};
+$('workspace-delete').onclick=async()=>{
+  const id=$('users-workspace').value;if(!id||id==='1'||!window.confirm(t('workspaceDeleteConfirm')))return;
+  $('workspace-delete').disabled=true;
+  try{await api('/system/workspace/'+encodeURIComponent(id),undefined,'DELETE');await showUsers();
+    $('users-status').textContent=t('workspaceDeleted');$('users-status').classList.remove('error');}
+  catch{$('users-status').textContent=t('failed');$('users-status').classList.add('error');$('workspace-delete').disabled=false;}
+};
+$('user-create-form').onsubmit=async event=>{
+  event.preventDefault();const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  const workspace=$('users-workspace').value;
+  try{
+    if(!workspace)throw new Error('workspace');
+    await api('/user',{account:$('user-create-account').value.trim(),name:$('user-create-name').value.trim(),
+      email:$('user-create-email').value.trim(),oid_list:[workspace],initial_password:$('user-create-password').value,
+      ...(userCreateVariableEditor?{system_variables:userCreateVariableEditor.read()}:{})},'POST');
+    event.target.reset();$('user-create').open=false;await loadUsers();
+    $('users-status').textContent=t('usersCreated');$('users-status').classList.remove('error');
+  }catch(error){$('users-status').textContent=error.message===t('usersVariableInvalid')?error.message:t('failed');$('users-status').classList.add('error');}
+  finally{submit.disabled=false;$('user-create-password').value='';}
+};
+$('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void loadUsers();};
+$('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
+$('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
+$('variables-nav').onclick=()=>{void showVariables();};
+$('models-nav').onclick=()=>{void showModels();};
+$('model-reload').onclick=()=>{void loadModel();};
+$('model-check').onclick=async()=>{
+  if(!modelsVisible||modelRevision===null||modelRevision===0)return;
+  const button=$('model-check');button.disabled=true;modelStatus(t('modelsChecking'));
+  try{await api('/agentsql/model/check',undefined,'POST');modelStatus(t('modelsCheckSuccess'));}
+  catch{modelStatus(t('failed'),true);}finally{button.disabled=false;}
+};
+$('model-form').onsubmit=async event=>{
+  event.preventDefault();if(modelRevision===null)return;
+  const submit=event.target.querySelector('button[type=submit]');submit.disabled=true;
+  const update={revision:modelRevision,name:$('model-name').value.trim(),base_model:$('model-base').value.trim(),
+    api_domain:$('model-endpoint').value.trim(),max_tokens:Number($('model-max-tokens').value)};
+  if($('model-key').value!=='')update.api_key=$('model-key').value;
+  try{await api('/agentsql/model',update,modelRevision===0?'POST':'PUT');await loadModel();modelStatus(t('modelsSaved'));}
+  catch{modelStatus(t('failed'),true);}finally{submit.disabled=false;$('model-key').value='';}
+};
+$('variable-search-form').onsubmit=event=>{event.preventDefault();variablePage=1;void loadVariables();};
+$('variable-prev').onclick=()=>{if(variablePage>1){variablePage--;void loadVariables();}};
+$('variable-next').onclick=()=>{if(variablePage<variableTotalPages){variablePage++;void loadVariables();}};
+$('variable-cancel').onclick=resetVariableForm;
+$('variable-type').onchange=()=>{$('variable-values').value='';$('variable-range-min').value='';$('variable-range-max').value='';$('variable-kv-rows').replaceChildren();toggleVariableValueEditor();};
+$('variable-kv-add').onclick=()=>{if($('variable-kv-rows').children.length<100)addVariableKVRow();};
+$('variable-form').onsubmit=async event=>{
+  event.preventDefault();const button=event.target.querySelector('button[type=submit]');button.disabled=true;
+  const lines=$('variable-values').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+  let values=lines;
+  const kind=$('variable-type').value;
+  if(kind==='kv'){
+    values=[...$('variable-kv-rows').children].map(row=>({key:row.querySelector('[data-kv-key]').value.trim(),value:row.querySelector('[data-kv-value]').value.trim()}));
+    if(!values.length||values.length>100||values.some(pair=>!pair.key||!pair.value)||new Set(values.map(pair=>pair.key)).size!==values.length){variableStatus(t('failed'),true);button.disabled=false;return;}
+  }else if(kind==='number'||kind==='datetime'){
+    const from=$('variable-range-min').value,to=$('variable-range-max').value;
+    if(!from||!to){variableStatus(t('failed'),true);button.disabled=false;return;}
+    values=kind==='number'?[Number(from),Number(to)]:[from,to];
+    if(kind==='number'&&(!values.every(Number.isFinite)||values[0]>values[1])||kind==='datetime'&&from>to){variableStatus(t('failed'),true);button.disabled=false;return;}
+  }else{
+    if(!lines.length||lines.length>100){variableStatus(t('failed'),true);button.disabled=false;return;}
+  }
+  const input={name:$('variable-name').value.trim(),var_type:$('variable-type').value,value:values};
+  if(variableEditingID!==null)input.id=variableEditingID;
+  try{await api('/sys_variable/save',input);resetVariableForm();await loadVariables();variableStatus(t('variablesSaved'));}
+  catch{variableStatus(t('failed'),true);}finally{button.disabled=false;}
+};
 $('sources-nav').onclick=()=>{void showSources();};
 $('dashboards-nav').onclick=()=>{void showDashboards();};
 $('source-search-form').onsubmit=event=>{event.preventDefault();renderSourceList();};
 $('source-delete').onclick=()=>{void deleteSelectedSource();};
+$('source-select').onclick=()=>{void openTableChoices();};
+$('source-select-form').onsubmit=event=>{void saveTableChoices(event);};
 $('import-file').onchange=()=>{clearImportStage();sourceStatus(t('importFileChanged'));};
 $('import-preview').onclick=()=>{void previewImport();};
 $('source-import-form').onsubmit=event=>{void saveImport(event);};
@@ -527,7 +1098,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=()=>{lang=lang==='en'?'zh-CN':'en';localStorage.setItem('agentsql-chatbi-language',lang);translate();renderHistory();assistants.language();if(dashboard.visible()){dashboard.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();chatSettings.language();if(chatSettings.visible())return;if(dashboard.visible()){dashboard.language();}else if(usersVisible){userCreateVariableEditor?.refresh();void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;

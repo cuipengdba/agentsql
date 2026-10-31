@@ -64,6 +64,9 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			// model/business SQL still travels through the controlled gateway.
 			allowedChatBIStore := normalized == "internal/chatbi/store.go" && (name == "database/sql" || name == "modernc.org/sqlite")
 			allowedChatBISemantics := normalized == "internal/chatbi/semantics.go" && name == "database/sql"
+			// Q&A settings use the same control-plane store for an atomic
+			// encrypted setting and management-audit transaction.
+			allowedChatBISettings := normalized == "internal/chatbi/chat_parameters.go" && name == "database/sql"
 			allowedB5S3 := normalized == "internal/b5session/sql_ledger.go" || normalized == "internal/b5session/tombstone.go" || normalized == "internal/b5session/pg_inventory.go"
 			allowedSoak := normalized == "internal/b5soak/postgres.go"
 			// The standalone HighGo probe verifies that a read-only database role
@@ -75,7 +78,7 @@ func TestBusinessDriverImportsStayInsideCapabilityDomain(t *testing.T) {
 			// This exact pinned module is the DM driver implementation itself;
 			// product code must still access it only through businessdb.
 			allowedPinnedDMDriver := strings.HasPrefix(normalized, "third_party/gorm-dameng/dm8/")
-			require.Truef(t, allowedBusiness || allowedControl || allowedChatBIStore || allowedChatBISemantics || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
+			require.Truef(t, allowedBusiness || allowedControl || allowedChatBIStore || allowedChatBISemantics || allowedChatBISettings || allowedB5S3 || allowedSoak || allowedHighGoProbe || allowedYashanProbe || allowedPinnedDMDriver, "%s imports driver capability %s", relative, name)
 		}
 		return nil
 	})

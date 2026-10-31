@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/cuipengdba/agentsql/internal/model"
 	"github.com/cuipengdba/agentsql/internal/parser"
 )
 
@@ -12,11 +13,18 @@ func (service *Service) schema(ctx context.Context, principal Principal, binding
 	if err != nil {
 		return nil, err
 	}
-	return filterManagedFileSchema(binding, columns)
+	columns, err = filterManagedFileSchema(binding, columns)
+	if err != nil {
+		return nil, err
+	}
+	return filterDatabaseSchema(binding, columns)
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
 	if err := authorizeManagedFileSQL(binding, sql); err != nil {
+		return QueryData{}, err
+	}
+	if err := authorizeDatabaseSelectedSQL(binding, sql); err != nil {
 		return QueryData{}, err
 	}
 	return service.Gateway.Query(ctx, principal, binding, sql)
@@ -27,8 +35,17 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 // The connector token stays server-side, and both discovery and execution use
 // this restriction before reaching the gateway.
 func managedFileSelectedTables(binding Binding) (map[string]bool, error) {
+	if databaseBinding(binding) {
+		return nil, nil
+	}
 	if binding.SelectedTables == "" {
 		return nil, nil
+	}
+	// An explicit empty choice must not be mistaken for the legacy empty
+	// string, which means every imported sheet is selected.
+	if binding.SelectedTables == "!" && binding.Type == "excel" && binding.Dialect == "pg" &&
+		managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+		return map[string]bool{}, nil
 	}
 	if binding.Type != "excel" || binding.Dialect != "pg" ||
 		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
@@ -79,6 +96,36 @@ func authorizeManagedFileSQL(binding Binding, sql string) error {
 	for _, relation := range query.Relations {
 		if relation.Schema != "agentsql_files" || !selected[relation.Name] {
 			return ErrGateway
+		}
+	}
+	return nil
+}
+
+// Ask uses the current gateway-visible schema as its exact model grounding.
+// This check reports a model failure for a hallucinated managed-file relation
+// without executing it or disclosing a guessed table name to the client.
+func validateGeneratedManagedFileSQL(binding Binding, columns []Column, sql string) error {
+	if binding.Type != "excel" || binding.Dialect != "pg" ||
+		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+		return nil
+	}
+	postgres, err := parser.NewParser(model.DialectPostgres)
+	if err != nil {
+		return ErrModel
+	}
+	query, err := postgres.Parse(sql)
+	if err != nil || query.IsMulti || query.StmtType != "SELECT" || len(query.Tables) == 0 {
+		return ErrModel
+	}
+	visible := make(map[string]bool)
+	for _, column := range columns {
+		if column.Schema == "agentsql_files" {
+			visible[column.Table] = true
+		}
+	}
+	for _, relation := range query.Tables {
+		if relation.Schema != "agentsql_files" || !visible[relation.Table] {
+			return ErrModel
 		}
 	}
 	return nil

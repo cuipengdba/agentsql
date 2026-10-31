@@ -3,11 +3,13 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: install-binder.sh --dist DIR [--create-extension --dsn DSN --runtime-role ROLE] [--upgrade]
+Usage: install-binder.sh --dist DIR --trusted-public-key FILE [--create-extension --dsn DSN --runtime-role ROLE] [--upgrade]
 
 Installs only a package already present in DIR. It never downloads or uploads a
 shared library. CREATE EXTENSION is opt-in and works only after server-side files
 exist; managed RDS/Aurora/Azure/Cloud SQL custom C extensions are unsupported.
+FILE must be obtained independently from the package directory. A public key
+shipped inside DIR cannot authenticate that directory's contents.
 EOF
 }
 
@@ -16,19 +18,37 @@ create=0
 upgrade=0
 dsn=
 runtime_role=
+trusted_public_key=
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --dist) dist=$2; shift 2 ;;
+    --dist) test "$#" -ge 2 || { usage >&2; exit 64; }; dist=$2; shift 2 ;;
+    --trusted-public-key) test "$#" -ge 2 || { usage >&2; exit 64; }; trusted_public_key=$2; shift 2 ;;
     --create-extension) create=1; shift ;;
-    --dsn) dsn=$2; shift 2 ;;
-    --runtime-role) runtime_role=$2; shift 2 ;;
+    --dsn) test "$#" -ge 2 || { usage >&2; exit 64; }; dsn=$2; shift 2 ;;
+    --runtime-role) test "$#" -ge 2 || { usage >&2; exit 64; }; runtime_role=$2; shift 2 ;;
     --upgrade) upgrade=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 64 ;;
   esac
 done
 
+if [ "$create" -eq 1 ]; then
+  test -n "$dsn" && test -n "$runtime_role" || { echo '--dsn and --runtime-role are required with --create-extension' >&2; exit 64; }
+  case "$runtime_role" in *[!A-Za-z0-9_]*|'') echo 'runtime role must be a simple PostgreSQL identifier' >&2; exit 64;; esac
+elif [ -n "$dsn" ] || [ -n "$runtime_role" ]; then
+  echo '--dsn and --runtime-role require --create-extension' >&2
+  exit 64
+fi
+
 test -n "$dist" && test -d "$dist" || { echo '--dist must name dist/binder' >&2; exit 64; }
+test -n "$trusted_public_key" || { echo '--trusted-public-key is required' >&2; exit 64; }
+command -v readlink >/dev/null 2>&1 || { echo 'readlink is required' >&2; exit 69; }
+dist_root=$(readlink -f "$dist")
+trusted_key=$(readlink -f "$trusted_public_key")
+test -n "$dist_root" && test -n "$trusted_key" && test -f "$trusted_key" || { echo 'trusted public key file is missing' >&2; exit 66; }
+case "$trusted_key" in
+  "$dist_root"|"$dist_root"/*) echo 'trusted public key must be outside the package directory' >&2; exit 65 ;;
+esac
 command -v pg_config >/dev/null 2>&1 || { echo 'pg_config is required' >&2; exit 69; }
 major=$(pg_config --version | sed -n 's/^PostgreSQL \([0-9][0-9]*\).*/\1/p')
 case "$major" in 14|15|16|17|18) ;; *) echo "unsupported PostgreSQL major: $major" >&2; exit 65;; esac
@@ -45,11 +65,21 @@ else
   echo 'no supported package manager found' >&2; exit 69
 fi
 
-package=$(find "$dist/$format/pg$major/$logical_arch" -maxdepth 1 -type f -name "agentsql-binder-pg$major*.$suffix" | head -1)
-test -n "$package" || { echo "package not found for PG$major/$logical_arch/$format" >&2; exit 66; }
+dist=$dist_root
+package_dir="$dist/$format/pg$major/$logical_arch"
+set -- "$package_dir"/agentsql-binder-pg"$major"*."$suffix"
+if [ "$#" -ne 1 ] || [ ! -f "$1" ] || [ -L "$1" ]; then
+  echo "expected exactly one regular package for PG$major/$logical_arch/$format" >&2
+  exit 66
+fi
+package=$(readlink -f "$1")
+case "$package" in
+  "$dist"/*) ;;
+  *) echo 'package resolves outside the distribution directory' >&2; exit 65 ;;
+esac
 sbom="${package}.cdx.json"
 test -f "$sbom" && test -f "$package.asc" && test -f "$sbom.asc" || { echo 'package, SBOM, or detached signature missing' >&2; exit 66; }
-test -f "$dist/SHA256SUMS" && test -f "$dist/SHA256SUMS.asc" && test -f "$dist/DEV-ONLY-public-key.asc" || { echo 'signed checksum manifest or public key missing' >&2; exit 66; }
+test -f "$dist/SHA256SUMS" && test -f "$dist/SHA256SUMS.asc" || { echo 'signed checksum manifest missing' >&2; exit 66; }
 grep -q "\"agentsql:postgres-major\",\"value\":\"$major\"" "$sbom" || { echo 'SBOM PostgreSQL major mismatch' >&2; exit 65; }
 grep -q "\"agentsql:architecture\",\"value\":\"$package_arch\"" "$sbom" || { echo 'SBOM architecture mismatch' >&2; exit 65; }
 
@@ -57,7 +87,7 @@ command -v gpg >/dev/null 2>&1 || { echo 'gpg is required for detached-signature
 verify_home=$(mktemp -d)
 trap 'rm -rf "$verify_home"' EXIT INT TERM
 chmod 0700 "$verify_home"
-gpg --batch --homedir "$verify_home" --import "$dist/DEV-ONLY-public-key.asc" >/dev/null 2>&1
+gpg --batch --homedir "$verify_home" --import "$trusted_key" >/dev/null 2>&1
 gpg --batch --homedir "$verify_home" --verify "$dist/SHA256SUMS.asc" "$dist/SHA256SUMS"
 gpg --batch --homedir "$verify_home" --verify "$package.asc" "$package"
 gpg --batch --homedir "$verify_home" --verify "$sbom.asc" "$sbom"
@@ -78,9 +108,8 @@ test -f "$(pg_config --sharedir)/extension/agentsql_binder--0.4.sql"
 test -f "$(pg_config --pkglibdir)/agentsql_binder-0.4.so"
 
 if [ "$create" -eq 1 ]; then
-  test -n "$dsn" && test -n "$runtime_role" || { echo '--dsn and --runtime-role are required with --create-extension' >&2; exit 64; }
-  case "$runtime_role" in *[!A-Za-z0-9_]*|'') echo 'runtime role must be a simple PostgreSQL identifier' >&2; exit 64;; esac
   psql "$dsn" -X --no-psqlrc --set=ON_ERROR_STOP=1 --set=runtime_role="$runtime_role" <<'SQL'
+BEGIN;
 SELECT pg_catalog.set_config('agentsql.bootstrap_runtime_role', :'runtime_role', false);
 DO $agentsql_guard$
 DECLARE
@@ -110,7 +139,15 @@ REVOKE ALL ON SCHEMA agentsql_catalog FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA agentsql_catalog FROM PUBLIC;
 GRANT USAGE ON SCHEMA agentsql_catalog TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION agentsql_catalog.capabilities(), agentsql_catalog.dml_capabilities(), agentsql_catalog.prepare(text,text), agentsql_catalog.prepare_dml(text,text), agentsql_catalog.seal_prepared(text), agentsql_catalog.prepared_manifest(text), agentsql_catalog.prepared_dml_manifest(text), agentsql_catalog.prepared_relations(text), agentsql_catalog.prepared_vars(text), agentsql_catalog.prepared_objects(text) TO :"runtime_role";
-SELECT agentsql_catalog.capabilities()->>'extension_version' = '0.4' AS agentsql_binder_ready;
+DO $agentsql_capability$
+BEGIN
+  IF agentsql_catalog.capabilities()->>'abi' <> 'agentsql-binder-4.2'
+     OR agentsql_catalog.capabilities()->>'extension_version' <> '0.4-s3m' THEN
+    RAISE EXCEPTION 'installed agentsql_binder capability mismatch';
+  END IF;
+END
+$agentsql_capability$;
+COMMIT;
 SQL
 else
   echo 'Package installed. CREATE EXTENSION was not requested.'

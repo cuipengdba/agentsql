@@ -9,8 +9,44 @@ internal/chatbi/store.go
 internal/chatbi/identity.go
 internal/chatbi/setup.go
 internal/chatbi/semantics.go
+internal/chatbi/chat_parameters.go
 internal/chatbi/history_import.go
 internal/chatbi/managed_file_claim.go
+# Managed-file table selection only updates an encrypted local binding with a
+# fixed SQLite statement and same-transaction management audit.
+internal/chatbi/managed_file_selection.go
+# Database table selection updates the encrypted local binding and audit in one transaction.
+internal/chatbi/database_selection_http.go
+# Table relationships update only the encrypted local binding and management
+# audit through fixed, bound SQLite statements in one transaction.
+internal/chatbi/table_relation_http.go
+# Managed-file table and field remarks update only the encrypted local binding
+# with fixed bound SQLite statements and a same-transaction management audit.
+internal/chatbi/managed_file_table_comment.go
+internal/chatbi/managed_file_field_comment.go
+# Bounded remark-workbook import updates only encrypted local binding metadata;
+# management audit and binding revision commit in the same SQLite transaction.
+internal/chatbi/managed_file_remark_import.go
+# Server-owned database remarks update only encrypted local binding metadata;
+# fixed, bound SQLite writes and management audit commit in one transaction.
+# Neither path opens a connection to the business datasource.
+internal/chatbi/database_remark.go
+internal/chatbi/database_remark_workbook.go
+# Membership and user creation mutate encrypted local identity/control-plane
+# rows with bound SQLite statements and a mandatory same-transaction audit.
+# They cannot open or execute against a business datasource.
+internal/chatbi/http_workspace_admin.go
+internal/chatbi/http_user_create.go
+internal/chatbi/http_user_delete.go
+internal/chatbi/http_user_edit.go
+internal/chatbi/http_workspace_catalog.go
+# Workspace-scoped custom variables use fixed, bound statements against the
+# encrypted local control-plane store and commit with management audit only.
+internal/chatbi/system_variable_store.go
+# Workspace model updates use the same encrypted local control-plane store,
+# current administrator identity and same-transaction management audit.
+internal/chatbi/model_admin_store.go
+internal/chatbi/api_key_store.go
 # Embedded-app batch deletion updates only encrypted local control-plane records
 # and their management audit entries; it cannot reach business datasources.
 internal/chatbi/assistant.go
@@ -23,6 +59,12 @@ internal/chatbi/managed_file_subset.go
 # Query calls here are the controlled gateway interface, not a database driver.
 internal/chatbi/service.go
 internal/chatbi/datasource_schema.go
+# Refreshes gateway-visible schema only after current identity and binding checks;
+# the local transaction adds an audit record and cannot contact a business database.
+internal/chatbi/datasource_schema_sync.go
+# Data source metadata changes touch only encrypted local control-plane rows;
+# the current gateway binding and audit are committed together.
+internal/chatbi/datasource_excel_update.go
 internal/b5session/sql_ledger.go
 internal/b5session/tombstone.go
 internal/b5session/pg_inventory.go
