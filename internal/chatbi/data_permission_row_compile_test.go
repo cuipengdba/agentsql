@@ -65,8 +65,11 @@ func TestOriginalMySQLRowRuleNestedOrRemainsInsideGatewayConjunction(t *testing.
 	require.NoError(t, err)
 	require.Contains(t, strings.ToLower(rewritten), "or `status` = 'paid') and")
 	require.Contains(t, strings.ToLower(rewritten), "(`status` = 'paid' or `status` = 'shipped') and `status` = 'paid'")
-	_, _, _, err = compileSQLBotRowPermission(raw, datasource, columns)
-	require.ErrorIs(t, err, ErrInvalidDataPermission, "PostgreSQL OR rules remain outside this bounded MySQL subset")
+	_, _, postgresPredicate, err := compileSQLBotRowPermission(raw, datasource, columns)
+	require.NoError(t, err)
+	require.Equal(t, `(("status" = 'paid' OR "status" = 'shipped') AND "status" = 'paid')`, postgresPredicate)
+	_, err = rowfilter.CompilePredicate(postgresPredicate)
+	require.NoError(t, err)
 }
 
 func TestOriginalRowRuleRejectsForgedOrUnsupportedExpressions(t *testing.T) {
@@ -87,8 +90,6 @@ func TestOriginalRowRuleRejectsForgedOrUnsupportedExpressions(t *testing.T) {
 		"wrong datasource": encode(11, tableID, goodTree),
 		"wrong table":      encode(10, tableID+1, goodTree),
 		"no tree":          encode(10, tableID, map[string]any{"logic": "and", "items": []any{}}),
-		"OR with two items": encode(10, tableID, map[string]any{"logic": "or", "items": []any{
-			good, good}}),
 		"forged field": encode(10, tableID, map[string]any{"logic": "and", "items": []any{
 			map[string]any{"type": "item", "field_id": fieldID + 1, "filter_type": "logic", "term": "eq", "value": "east"}}}),
 		"variable": encode(10, tableID, map[string]any{"logic": "and", "items": []any{
