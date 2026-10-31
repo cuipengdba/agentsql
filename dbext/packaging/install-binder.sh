@@ -32,6 +32,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "$create" -eq 1 ]; then
+  test -n "$dsn" && test -n "$runtime_role" || { echo '--dsn and --runtime-role are required with --create-extension' >&2; exit 64; }
+  case "$runtime_role" in *[!A-Za-z0-9_]*|'') echo 'runtime role must be a simple PostgreSQL identifier' >&2; exit 64;; esac
+elif [ -n "$dsn" ] || [ -n "$runtime_role" ]; then
+  echo '--dsn and --runtime-role require --create-extension' >&2
+  exit 64
+fi
+
 test -n "$dist" && test -d "$dist" || { echo '--dist must name dist/binder' >&2; exit 64; }
 test -n "$trusted_public_key" || { echo '--trusted-public-key is required' >&2; exit 64; }
 command -v readlink >/dev/null 2>&1 || { echo 'readlink is required' >&2; exit 69; }
@@ -90,9 +98,8 @@ test -f "$(pg_config --sharedir)/extension/agentsql_binder--0.4.sql"
 test -f "$(pg_config --pkglibdir)/agentsql_binder-0.4.so"
 
 if [ "$create" -eq 1 ]; then
-  test -n "$dsn" && test -n "$runtime_role" || { echo '--dsn and --runtime-role are required with --create-extension' >&2; exit 64; }
-  case "$runtime_role" in *[!A-Za-z0-9_]*|'') echo 'runtime role must be a simple PostgreSQL identifier' >&2; exit 64;; esac
   psql "$dsn" -X --no-psqlrc --set=ON_ERROR_STOP=1 --set=runtime_role="$runtime_role" <<'SQL'
+BEGIN;
 SELECT pg_catalog.set_config('agentsql.bootstrap_runtime_role', :'runtime_role', false);
 DO $agentsql_guard$
 DECLARE
@@ -122,7 +129,15 @@ REVOKE ALL ON SCHEMA agentsql_catalog FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA agentsql_catalog FROM PUBLIC;
 GRANT USAGE ON SCHEMA agentsql_catalog TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION agentsql_catalog.capabilities(), agentsql_catalog.dml_capabilities(), agentsql_catalog.prepare(text,text), agentsql_catalog.prepare_dml(text,text), agentsql_catalog.seal_prepared(text), agentsql_catalog.prepared_manifest(text), agentsql_catalog.prepared_dml_manifest(text), agentsql_catalog.prepared_relations(text), agentsql_catalog.prepared_vars(text), agentsql_catalog.prepared_objects(text) TO :"runtime_role";
-SELECT agentsql_catalog.capabilities()->>'extension_version' = '0.4' AS agentsql_binder_ready;
+DO $agentsql_capability$
+BEGIN
+  IF agentsql_catalog.capabilities()->>'abi' <> 'agentsql-binder-4.2'
+     OR agentsql_catalog.capabilities()->>'extension_version' <> '0.4-s3m' THEN
+    RAISE EXCEPTION 'installed agentsql_binder capability mismatch';
+  END IF;
+END
+$agentsql_capability$;
+COMMIT;
 SQL
 else
   echo 'Package installed. CREATE EXTENSION was not requested.'

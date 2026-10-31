@@ -32,6 +32,13 @@ expect_failure 65 'must be outside the package directory' --dist "$scratch/dist"
 expect_failure 66 'trusted public key file is missing' --dist "$scratch/dist" \
   --trusted-public-key "$scratch/missing.asc"
 expect_failure 64 'Usage: install-binder.sh' --dist "$scratch/dist" --trusted-public-key
+expect_failure 64 '--dsn and --runtime-role are required with --create-extension' \
+  --dist "$scratch/dist" --trusted-public-key "$scratch/dist/DEV-ONLY-public-key.asc" --create-extension
+expect_failure 64 '--dsn and --runtime-role require --create-extension' \
+  --dist "$scratch/dist" --trusted-public-key "$scratch/dist/DEV-ONLY-public-key.asc" --dsn synthetic
+expect_failure 64 'runtime role must be a simple PostgreSQL identifier' \
+  --dist "$scratch/dist" --trusted-public-key "$scratch/dist/DEV-ONLY-public-key.asc" \
+  --create-extension --dsn synthetic --runtime-role 'bad;role'
 
 # Exercise the accepted path with a temporary signing identity. Stub the package
 # manager and PostgreSQL paths so the test never installs a system package.
