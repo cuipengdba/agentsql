@@ -90,7 +90,7 @@ func applicableDataPermissions(rules []DataPermissionRule, principal Principal, 
 			}
 		}
 	}
-	if len(rows) != 0 && binding.Dialect != "pg" ||
+	if len(rows) != 0 && binding.Dialect != "pg" && binding.Dialect != "mysql" ||
 		len(columns) != 0 && binding.Dialect != "pg" && binding.Dialect != "mysql" {
 		return nil, nil, ErrGateway
 	}
@@ -137,11 +137,11 @@ func bindingWithPermissionColumns(binding Binding, blocked map[string]bool) (Bin
 	return binding, nil
 }
 
-func compileApplicableRowPermissions(items []json.RawMessage, datasource ID, columns []Column) (string, string, []string, error) {
+func compileApplicableRowPermissions(items []json.RawMessage, datasource ID, columns []Column, dialect string) (string, string, []string, error) {
 	var schema, table string
 	filters := make([]string, 0, len(items))
 	for _, item := range items {
-		currentSchema, currentTable, predicate, err := compileSQLBotRowPermission(item, datasource, columns)
+		currentSchema, currentTable, predicate, err := compileSQLBotRowPermissionForDialect(item, datasource, columns, dialect)
 		if err != nil || schema != "" && (schema != currentSchema || table != currentTable) {
 			return "", "", nil, ErrGateway
 		}

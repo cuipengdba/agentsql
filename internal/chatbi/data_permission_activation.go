@@ -85,7 +85,7 @@ func (h *Handler) validateDataPermissionActivation(ctx context.Context, principa
 		if err != nil {
 			return nil, ErrInvalidDataPermission
 		}
-		if item.Type == "row" && binding.Dialect != "pg" ||
+		if item.Type == "row" && binding.Dialect != "pg" && binding.Dialect != "mysql" ||
 			item.Type == "column" && binding.Dialect != "pg" && binding.Dialect != "mysql" {
 			return nil, ErrInvalidDataPermission
 		}
@@ -94,7 +94,7 @@ func (h *Handler) validateDataPermissionActivation(ctx context.Context, principa
 			return nil, err
 		}
 		if item.Type == "row" {
-			schema, table, _, err := compileSQLBotRowPermission(raw, datasource, columns)
+			schema, table, _, err := compileSQLBotRowPermissionForDialect(raw, datasource, columns, binding.Dialect)
 			prior, exists := tables[datasource]
 			if err != nil || exists && prior != (relation{schema, table}) {
 				return nil, ErrInvalidDataPermission

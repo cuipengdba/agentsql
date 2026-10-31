@@ -50,6 +50,56 @@ func TestActiveOriginalRowPermissionRewritesControlledQuery(t *testing.T) {
 	require.Equal(t, 1, gateway.queries)
 }
 
+func TestActiveOriginalMySQLRowPermissionRewritesAndClosesUnsupportedQueries(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	var binding Binding
+	revision, err := service.Store.get(ctx, bindingKey(principal, "10"), &binding)
+	require.NoError(t, err)
+	binding.Dialect = "mysql"
+	binding.Type = "mysql"
+	require.NoError(t, service.Store.put(ctx, bindingKey(principal, "10"), binding, revision))
+	gateway.columns = []Column{{Schema: "agentsql_demo", Table: "orders", Name: "status", DataType: "text"},
+		{Schema: "agentsql_demo", Table: "orders", Name: "id", DataType: "integer"}}
+	tableID := browserTableID("10", "agentsql_demo", "orders")
+	tree, err := json.Marshal(map[string]any{"logic": "and", "items": []any{map[string]any{
+		"type": "item", "field_id": browserFieldID(tableID, "status"), "filter_type": "logic",
+		"term": "eq", "value_type": "normal", "value": "paid",
+	}}})
+	require.NoError(t, err)
+	item, err := json.Marshal(map[string]any{"type": "row", "ds_id": 10, "table_id": tableID,
+		"expression_tree": string(tree)})
+	require.NoError(t, err)
+	rule := DataPermissionRule{ID: 101, OID: 1, Enable: true, Name: "MySQL status",
+		Permissions: []json.RawMessage{item}, Users: []int64{1}, WhiteList: "[]", Created: time.Now().UTC()}
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err = service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.query(ctx, principal, binding, "SELECT status FROM agentsql_demo.orders WHERE status = 'paid' OR status = 'shipped'")
+	require.NoError(t, err)
+	require.Equal(t, 1, gateway.queries)
+	require.Contains(t, gateway.lastQuery, "`status` = 'paid'")
+	require.Contains(t, gateway.lastQuery, "(`status` = 'paid' or `status` = 'shipped') and")
+	for _, sql := range []string{
+		"SELECT status FROM orders", "SELECT * FROM agentsql_demo.orders",
+		"SELECT count(*) FROM agentsql_demo.orders", "SELECT status FROM agentsql_demo.orders JOIN agentsql_demo.users ON true",
+	} {
+		_, err = service.query(ctx, principal, binding, sql)
+		require.ErrorIs(t, err, ErrGateway, sql)
+		require.Equal(t, 1, gateway.queries)
+	}
+	gateway.afterQuery = func() {
+		changed := rule
+		changed.Enable = false
+		require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), changed, 1))
+		gateway.afterQuery = nil
+	}
+	data, err := service.query(ctx, principal, binding, "SELECT status FROM agentsql_demo.orders")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Empty(t, data.Data)
+	require.Equal(t, 2, gateway.queries)
+}
+
 func TestOriginalRuleGroupSaveActivatesOnlyLivePostgresRowPermission(t *testing.T) {
 	service, handler, adminToken, _ := adminUsersFixture(t)
 	ctx := context.Background()

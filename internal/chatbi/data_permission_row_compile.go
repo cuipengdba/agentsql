@@ -9,10 +9,18 @@ import (
 )
 
 // compileSQLBotRowPermission turns one original-client row-rule item into a
-// bounded PostgreSQL predicate. The caller must still bind the live gateway
+// bounded PostgreSQL predicate. The dialect form also accepts a smaller MySQL
+// subset. The caller must still bind the live gateway
 // identity, apply every applicable rule, recheck revisions, and execute through
 // the controlled gateway. A compiled predicate alone never authorizes a query.
 func compileSQLBotRowPermission(raw json.RawMessage, datasource ID, columns []Column) (string, string, string, error) {
+	return compileSQLBotRowPermissionForDialect(raw, datasource, columns, "pg")
+}
+
+func compileSQLBotRowPermissionForDialect(raw json.RawMessage, datasource ID, columns []Column, dialect string) (string, string, string, error) {
+	if dialect != "pg" && dialect != "mysql" {
+		return "", "", "", ErrInvalidDataPermission
+	}
 	var input struct {
 		Type           string          `json:"type"`
 		Datasource     json.RawMessage `json:"ds_id"`
@@ -32,6 +40,7 @@ func compileSQLBotRowPermission(raw json.RawMessage, datasource ID, columns []Co
 	}
 	var schema, table string
 	fields := make(map[int64]string)
+	probeField := ""
 	for _, column := range columns {
 		if column.Schema == "" || column.Table == "" || column.Name == "" ||
 			browserTableID(datasource, column.Schema, column.Table) != tableID {
@@ -46,6 +55,9 @@ func compileSQLBotRowPermission(raw json.RawMessage, datasource ID, columns []Co
 			return "", "", "", ErrInvalidDataPermission
 		}
 		fields[fieldID] = column.Name
+		if probeField == "" && (dialect == "pg" || mysqlRowIdentifier(column.Name)) {
+			probeField = column.Name
+		}
 	}
 	if schema == "" || len(fields) == 0 || len(input.ExpressionTree) == 0 {
 		return "", "", "", ErrInvalidDataPermission
@@ -63,11 +75,16 @@ func compileSQLBotRowPermission(raw json.RawMessage, datasource ID, columns []Co
 		return "", "", "", ErrInvalidDataPermission
 	}
 	remaining := 16
-	predicate, valid := compileSQLBotRowTree(tree, fields, 0, &remaining)
+	predicate, valid := compileSQLBotRowTree(tree, fields, dialect, 0, &remaining)
 	if !valid || len(predicate) > 4096 {
 		return "", "", "", ErrInvalidDataPermission
 	}
-	if _, err := rowfilter.CompilePredicate(predicate); err != nil {
+	if dialect == "pg" {
+		if _, err := rowfilter.CompilePredicate(predicate); err != nil {
+			return "", "", "", ErrInvalidDataPermission
+		}
+	} else if _, _, err := rowfilter.RewriteMySQLSingleTable(
+		"SELECT `"+probeField+"` FROM `"+schema+"`.`"+table+"`", schema, table, []string{predicate}); err != nil {
 		return "", "", "", ErrInvalidDataPermission
 	}
 	return schema, table, predicate, nil
@@ -88,7 +105,7 @@ type sqlbotRowTreeItem struct {
 	ValueType  string          `json:"value_type"`
 }
 
-func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, depth int, remaining *int) (string, bool) {
+func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect string, depth int, remaining *int) (string, bool) {
 	logic := strings.ToLower(tree.Logic)
 	if depth > 8 || len(tree.Items) == 0 || len(tree.Items) > 16 ||
 		(logic != "and" && logic != "or") || (logic == "or" && len(tree.Items) > 1) {
@@ -103,13 +120,13 @@ func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, depth int
 			if item.SubTree == nil {
 				return "", false
 			}
-			part, valid = compileSQLBotRowTree(*item.SubTree, fields, depth+1, remaining)
+			part, valid = compileSQLBotRowTree(*item.SubTree, fields, dialect, depth+1, remaining)
 		case "item":
 			if item.SubTree != nil || *remaining == 0 {
 				return "", false
 			}
 			*remaining--
-			part, valid = compileSQLBotRowItem(item, fields)
+			part, valid = compileSQLBotRowItem(item, fields, dialect)
 		default:
 			return "", false
 		}
@@ -124,7 +141,7 @@ func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, depth int
 	return "(" + strings.Join(parts, " AND ") + ")", true
 }
 
-func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string) (string, bool) {
+func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, dialect string) (string, bool) {
 	fieldID, valid := parseSystemVariableID(item.FieldID)
 	name, exists := fields[fieldID]
 	if !valid || !exists || item.FilterType != "logic" ||
@@ -133,6 +150,12 @@ func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string) (stri
 		return "", false
 	}
 	column := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	if dialect == "mysql" {
+		if !mysqlRowIdentifier(name) {
+			return "", false
+		}
+		column = "`" + name + "`"
+	}
 	switch item.Term {
 	case "null":
 		return column + " IS NULL", true
@@ -142,10 +165,41 @@ func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string) (stri
 	if item.Value == "" {
 		return "", false
 	}
+	if dialect == "mysql" && !mysqlRowLiteral(item.Value) {
+		return "", false
+	}
 	operators := map[string]string{"eq": "=", "not_eq": "<>", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
 	op, exists := operators[item.Term]
 	if !exists {
 		return "", false
 	}
 	return column + " " + op + " '" + strings.ReplaceAll(item.Value, "'", "''") + "'", true
+}
+
+func mysqlRowIdentifier(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for i, ch := range value {
+		if ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || i > 0 && ch >= '0' && ch <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// MySQL string modes disagree on backslash escaping. Keep compatibility rule
+// values in a mode-independent subset until the dialect is fixed per binding.
+func mysqlRowLiteral(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, ch := range value {
+		if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-' || ch == ' ' {
+			continue
+		}
+		return false
+	}
+	return true
 }

@@ -50,7 +50,7 @@ func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context,
 		return nil, nil, nil, err
 	}
 	if len(rows) != 0 {
-		if _, _, _, err := compileApplicableRowPermissions(rows, binding.Datasource, columns); err != nil {
+		if _, _, _, err := compileApplicableRowPermissions(rows, binding.Datasource, columns, binding.Dialect); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -101,11 +101,15 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 			return QueryData{}, ErrGateway
 		}
 		if len(rows) != 0 {
-			schema, table, filters, err := compileApplicableRowPermissions(rows, binding.Datasource, columns)
+			schema, table, filters, err := compileApplicableRowPermissions(rows, binding.Datasource, columns, binding.Dialect)
 			if err != nil {
 				return QueryData{}, err
 			}
-			sql, _, err = rowfilter.RewriteSingleTable(sql, schema, table, filters)
+			if binding.Dialect == "mysql" {
+				sql, _, err = rowfilter.RewriteMySQLSingleTable(sql, schema, table, filters)
+			} else {
+				sql, _, err = rowfilter.RewriteSingleTable(sql, schema, table, filters)
+			}
 			if err != nil {
 				return QueryData{}, ErrGateway
 			}
