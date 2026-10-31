@@ -85,6 +85,10 @@ PATH="$scratch/bin:$PATH" sh "$installer" --dist "$scratch/dist" \
   --trusted-public-key "$scratch/trusted-outside.asc" > "$scratch/accepted.log" 2>&1
 test -s "$scratch/package-manager-called" || { echo 'verified fixture did not reach package manager stub' >&2; exit 1; }
 rm -f "$scratch/package-manager-called"
+(cd "$scratch" && PATH="$scratch/bin:$PATH" sh "$installer" --dist dist \
+  --trusted-public-key trusted-outside.asc > "$scratch/accepted-relative.log" 2>&1)
+test -s "$scratch/package-manager-called" || { echo 'relative distribution path did not reach package manager stub' >&2; exit 1; }
+rm -f "$scratch/package-manager-called"
 duplicate="$scratch/dist/deb/pg16/amd64/agentsql-binder-pg16-other.deb"
 printf 'second package\n' > "$duplicate"
 PATH="$scratch/bin:$PATH" expect_failure 66 'expected exactly one regular package' \
