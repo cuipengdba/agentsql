@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 )
 
 type catalogModelView struct {
@@ -117,5 +118,73 @@ func (s *Store) catalogAdminModels(ctx context.Context, p Principal) ([]catalogM
 	if !defaultFound {
 		return nil, ErrUnavailable
 	}
+	return result, nil
+}
+
+// catalogWorkspaceModels mirrors SQLBot's explicit by-workspace picker. Its
+// global default is included only when that model has an explicit mapping.
+func (s *Store) catalogWorkspaceModels(ctx context.Context, p Principal) ([]catalogModelView, error) {
+	if !p.Workspace.Valid() || !p.User.ID.Valid() || p.EmbeddedApp != "" {
+		return nil, ErrUnauthenticated
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	defer tx.Rollback()
+	if err := s.verifyAPIKeyActor(ctx, tx, p); err != nil {
+		return nil, err
+	}
+	if err := s.requireActiveModelCatalogTx(ctx, tx); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT scope,body FROM chatbi_objects
+		WHERE kind='model-mapping' AND owner='system' AND id=? ORDER BY scope LIMIT 10001`, string(p.Workspace))
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	ids := make([]ID, 0)
+	for rows.Next() {
+		var id ID
+		var body []byte
+		if rows.Scan(&id, &body) != nil || !id.Valid() || len(ids) >= 10000 {
+			rows.Close()
+			return nil, ErrUnavailable
+		}
+		var mapping catalogModelMapping
+		if s.decode(modelMappingKey(id, p.Workspace), body, &mapping) != nil ||
+			mapping.Model != id || mapping.Workspace != p.Workspace {
+			rows.Close()
+			return nil, ErrUnavailable
+		}
+		ids = append(ids, id)
+	}
+	if rows.Err() != nil || rows.Close() != nil {
+		return nil, ErrUnavailable
+	}
+	defaultID, err := s.catalogDefaultTx(ctx, tx)
+	if len(ids) == 0 && errors.Is(err, ErrModel) {
+		var count int
+		if tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM chatbi_objects WHERE kind='model-catalog' AND scope='system' AND owner='system'`).Scan(&count) == nil && count == 0 {
+			return []catalogModelView{}, nil
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := make([]catalogModelView, 0, len(ids))
+	for _, id := range ids {
+		model, revision, _, err := s.catalogModelTx(ctx, tx, id)
+		if err != nil {
+			return nil, ErrUnavailable
+		}
+		result = append(result, catalogModelView{Model: model, Revision: revision, Default: id == defaultID})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Default != result[j].Default {
+			return result[i].Default
+		}
+		return result[i].Model.ID < result[j].Model.ID
+	})
 	return result, nil
 }

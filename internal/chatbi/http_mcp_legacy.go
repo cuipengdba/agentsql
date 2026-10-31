@@ -251,8 +251,35 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		views, err := h.service.Store.catalogWorkspaceModels(r.Context(), p)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
+			failure(w, err)
+			return
+		}
+		models := make([]map[string]any, 0, len(views))
+		for _, view := range views {
+			name := view.Model.Name
+			if name == "" {
+				name = view.Model.Model
+			}
+			models = append(models, map[string]any{"id": legacyBrowserID(view.Model.ID),
+				"name": name, "default_model": view.Default, "supplier": modelSupplier(view.Model)})
+		}
+		okay(w, models)
+		return
+	}
 	var model ModelConfig
-	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	_, err = h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
 	if errors.Is(err, ErrNotFound) {
 		if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
 			failure(w, err)

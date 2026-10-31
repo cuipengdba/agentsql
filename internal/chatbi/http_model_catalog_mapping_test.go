@@ -220,3 +220,59 @@ func TestActiveCatalogOriginalCreateStartsWithEmptyListAndFirstDefault(t *testin
 		t.Fatalf("original model create parity: %d %s", list.Code, list.Body.String())
 	}
 }
+
+func TestActiveCatalogWorkspacePickerUsesExplicitMappings(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	ctx := context.Background()
+	defaultModel := ModelConfig{ID: "30", Name: "Global", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	other := ModelConfig{ID: "31", Name: "Mapped", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, service.Store, defaultModel)
+	if err := service.Store.put(ctx, modelCatalogKey(other.ID), other, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/system/aimodel/list/by_ws"
+	mcpPath := "/api/v1/mcp/mcp_model_list"
+	mcpBody := `{"token":"` + adminToken + `","oid":1}`
+	if denied := accountRequest(t, handler, http.MethodGet, path, "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member read admin model picker: %d", denied.Code)
+	}
+	if empty := accountRequest(t, handler, http.MethodGet, path, "", adminToken); empty.Code != http.StatusOK ||
+		!strings.Contains(empty.Body.String(), `"data":[]`) {
+		t.Fatalf("implicit global default leaked into explicit picker: %d %s", empty.Code, empty.Body.String())
+	}
+	if empty := accountRequest(t, handler, http.MethodPost, mcpPath, mcpBody, ""); empty.Code != http.StatusOK ||
+		!strings.Contains(empty.Body.String(), `"data":[]`) {
+		t.Fatalf("implicit global default leaked into MCP picker: %d %s", empty.Code, empty.Body.String())
+	}
+	for _, id := range []ID{defaultModel.ID, other.ID} {
+		mapping := accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel/"+string(id)+"/ws_mapping", `["1"]`, adminToken)
+		if mapping.Code != http.StatusOK {
+			t.Fatalf("map model %s: %d %s", id, mapping.Code, mapping.Body.String())
+		}
+	}
+	list := accountRequest(t, handler, http.MethodGet, path, "", adminToken)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"id":"30"`) ||
+		!strings.Contains(list.Body.String(), `"id":"31"`) ||
+		!strings.Contains(list.Body.String(), `"default_model":true`) {
+		t.Fatalf("explicit model picker: %d %s", list.Code, list.Body.String())
+	}
+	mcpList := accountRequest(t, handler, http.MethodPost, mcpPath, mcpBody, "")
+	if mcpList.Code != http.StatusOK || !strings.Contains(mcpList.Body.String(), `"id":30`) ||
+		!strings.Contains(mcpList.Body.String(), `"id":31`) {
+		t.Fatalf("explicit MCP model picker: %d %s", mcpList.Code, mcpList.Body.String())
+	}
+	removed := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/aimodel/30/ws_mapping", `["1"]`, adminToken)
+	if removed.Code != http.StatusOK {
+		t.Fatalf("remove default explicit mapping: %d %s", removed.Code, removed.Body.String())
+	}
+	list = accountRequest(t, handler, http.MethodGet, path, "", adminToken)
+	if list.Code != http.StatusOK || strings.Contains(list.Body.String(), `"id":"30"`) ||
+		!strings.Contains(list.Body.String(), `"id":"31"`) {
+		t.Fatalf("removed mapping stayed in picker: %d %s", list.Code, list.Body.String())
+	}
+	mcpList = accountRequest(t, handler, http.MethodPost, mcpPath, mcpBody, "")
+	if mcpList.Code != http.StatusOK || strings.Contains(mcpList.Body.String(), `"id":30`) ||
+		!strings.Contains(mcpList.Body.String(), `"id":31`) {
+		t.Fatalf("removed mapping stayed in MCP picker: %d %s", mcpList.Code, mcpList.Body.String())
+	}
+}

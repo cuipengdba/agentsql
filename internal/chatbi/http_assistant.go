@@ -18,13 +18,40 @@ func (h *Handler) assistantWorkspaceSources(w http.ResponseWriter, r *http.Reque
 	h.datasources(w, r, p, token)
 }
 
-func (h *Handler) assistantWorkspaceModels(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) assistantWorkspaceModels(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
 		return
 	}
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		views, err := h.service.Store.catalogWorkspaceModels(r.Context(), p)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		models := make([]map[string]any, 0, len(views))
+		for _, view := range views {
+			name := view.Model.Name
+			if name == "" {
+				name = view.Model.Model
+			}
+			models = append(models, map[string]any{"id": view.Model.ID, "name": name,
+				"default_model": view.Default, "supplier": modelSupplier(view.Model)})
+		}
+		okay(w, models)
+		return
+	}
 	var model ModelConfig
-	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	_, err = h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
 	if err != nil {
 		failure(w, err)
 		return
@@ -36,6 +63,10 @@ func (h *Handler) assistantWorkspaceModels(w http.ResponseWriter, r *http.Reques
 	name := model.Name
 	if name == "" {
 		name = model.Model
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
 	}
 	okay(w, []map[string]any{{"id": model.ID, "name": name, "default_model": true, "supplier": 0}})
 }
