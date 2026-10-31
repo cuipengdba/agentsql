@@ -183,14 +183,18 @@ def main():
                         help="installation action when --install is selected")
     parser.add_argument("--no-start", action="store_true",
                         help="pass --no-start to the verified offline installer")
+    parser.add_argument("--external-backup-done", action="store_true",
+                        help="confirm an external database backup was completed before upgrade")
     parser.add_argument("--require-postgres-binder", action="store_true",
                         help="require the configured PostgreSQL binder preflight before installation")
     parser.add_argument("--runtime-role", help="PostgreSQL runtime role for the binder preflight")
     args = parser.parse_args()
     if args.install and args.extract_to:
         parser.error("--install and --extract-to cannot be combined")
-    if not args.install and (args.action != "install" or args.no_start or args.require_postgres_binder or args.runtime_role):
+    if not args.install and (args.action != "install" or args.no_start or args.external_backup_done or args.require_postgres_binder or args.runtime_role):
         parser.error("installation options require --install")
+    if args.external_backup_done and args.action != "upgrade":
+        parser.error("--external-backup-done requires --action upgrade")
     if args.runtime_role and not args.require_postgres_binder:
         parser.error("--runtime-role requires --require-postgres-binder")
     openssl = shutil.which("openssl")
@@ -212,6 +216,8 @@ def main():
                            "--trusted-public-key", str(Path(args.public_key).resolve())]
                 if args.no_start:
                     command.append("--no-start")
+                if args.external_backup_done:
+                    command.append("--external-backup-done")
                 if args.require_postgres_binder:
                     command.append("--require-postgres-binder")
                 if args.runtime_role:

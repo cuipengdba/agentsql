@@ -14,6 +14,7 @@ import unittest
 
 
 VERIFIER = Path(__file__).with_name("verify-offline-archive.py")
+INSTALLER = Path(__file__).with_name("install-offline-release.py")
 
 
 @unittest.skipUnless(shutil.which("openssl"), "OpenSSL is required for the offline signature test")
@@ -151,13 +152,34 @@ class OfflineArchiveSignatureTest(unittest.TestCase):
         code = ("from pathlib import Path\nimport sys\n"
                 + f"Path({str(marker)!r}).write_text(' '.join(sys.argv[1:]))\n")
         self.tar_archive(installer_data=code.encode())
-        result = self.check_archive("--install", "--action", "upgrade", "--no-start")
+        result = self.check_archive("--install", "--action", "upgrade", "--no-start",
+                                    "--external-backup-done")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("OFFLINE_ARCHIVE=INSTALLED", result.stdout)
         arguments = marker.read_text()
         self.assertIn("upgrade", arguments)
         self.assertIn("--no-start", arguments)
+        self.assertIn("--external-backup-done", arguments)
         self.assertIn(str(self.public_key), arguments)
+
+    def test_external_backup_confirmation_requires_upgrade_and_install(self):
+        self.tar_archive()
+        for options in (("--external-backup-done",),
+                        ("--install", "--external-backup-done")):
+            with self.subTest(options=options):
+                result = self.check_archive(*options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("OFFLINE_ARCHIVE=INSTALLED", result.stdout)
+
+        inner = subprocess.run([sys.executable, str(INSTALLER), "install",
+                                "--external-backup-done"], capture_output=True, text=True)
+        self.assertNotEqual(inner.returncode, 0)
+        self.assertIn("--external-backup-done requires upgrade", inner.stderr)
+        verify_only = subprocess.run([sys.executable, str(INSTALLER), "upgrade",
+                                      "--external-backup-done", "--verify-only"],
+                                     capture_output=True, text=True)
+        self.assertNotEqual(verify_only.returncode, 0)
+        self.assertIn("only meaningful for installation", verify_only.stderr)
 
     def test_one_command_install_rejects_changed_archive_before_execution(self):
         marker = self.archive.parent / "installer-ran"

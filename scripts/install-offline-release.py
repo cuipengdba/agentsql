@@ -152,6 +152,10 @@ def private_copy(source, destination, limit):
 
 
 def run(args):
+    if args.external_backup_done and args.action != "upgrade":
+        raise ValueError("--external-backup-done requires upgrade")
+    if args.external_backup_done and args.verify_only:
+        raise ValueError("--external-backup-done is only meaningful for installation")
     root = Path(__file__).resolve().parent
     version = (root / "VERSION").read_text(encoding="ascii").strip()
     if not VERSION_RE.fullmatch(version) or not (root / "assets").is_dir():
@@ -220,6 +224,8 @@ def run(args):
             command.append("--yes")
         if args.no_start:
             command.append("--no-start")
+        if args.external_backup_done:
+            command.append("--external-backup-done")
         subprocess.run(command, check=True)
 
 
@@ -229,6 +235,8 @@ def main():
     parser.add_argument("--trusted-public-key", help="independently obtained release key outside this bundle")
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--no-start", action="store_true")
+    parser.add_argument("--external-backup-done", action="store_true",
+                        help="confirm an external database backup was completed before upgrade")
     parser.add_argument("--require-postgres-binder", action="store_true",
                         help="check the configured PostgreSQL server and runtime role before installation")
     parser.add_argument("--runtime-role", help="PostgreSQL runtime role to test via SET ROLE")
