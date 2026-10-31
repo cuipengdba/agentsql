@@ -141,6 +141,37 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 // The active default cannot be deleted; secondary models can be removed with
 // an audited write without affecting query execution.
 func (h *Handler) legacyModelDelete(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		id := ID(r.PathValue("id"))
+		if !id.Valid() {
+			failure(w, ErrNotFound)
+			return
+		}
+		view, err := h.service.Store.catalogAdminModel(r.Context(), p, id)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		if view.Default {
+			writeJSON(w, http.StatusConflict, "Default model cannot be deleted")
+			return
+		}
+		if err := h.service.Store.DeleteGlobalModel(r.Context(), p, id, view.Revision); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, nil)
+		return
+	}
 	model, _, isDefault, err := h.legacyModelByID(r, p, token, r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
@@ -390,6 +421,19 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey, Temperature: temperature, Supplier: *input.Supplier}
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if _, err := h.service.Store.CreateGlobalModel(r.Context(), p, update); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, nil)
+		return
+	}
 	var current ModelConfig
 	_, existingErr := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &current)
 	if existingErr == nil && validateModelConfig(current) != nil {
@@ -447,7 +491,28 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
-	current, revision, isDefault, err := h.legacyModelByID(r, p, token, string(input.ID))
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	var current ModelConfig
+	var revision int64
+	var isDefault bool
+	if active {
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		view, err := h.service.Store.catalogAdminModel(r.Context(), p, input.ID)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		current, revision, isDefault = view.Model, view.Revision, view.Default
+	} else {
+		current, revision, isDefault, err = h.legacyModelByID(r, p, token, string(input.ID))
+	}
 	if err != nil {
 		failure(w, err)
 		return
@@ -480,7 +545,9 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 	}
 	update := WorkspaceModelUpdate{Revision: revision, Name: input.Name, Model: input.BaseModel,
 		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens, Temperature: temperature, ReplaceTemperature: true, Supplier: *input.Supplier}
-	if isDefault {
+	if active {
+		err = h.service.Store.UpdateGlobalModel(r.Context(), p, current.ID, update)
+	} else if isDefault {
 		err = h.service.Store.UpdateWorkspaceModel(r.Context(), p, update)
 	} else {
 		err = h.service.Store.UpdateAdditionalWorkspaceModel(r.Context(), p, current.ID, update)

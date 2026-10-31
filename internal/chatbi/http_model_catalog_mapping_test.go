@@ -2,6 +2,10 @@ package chatbi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -70,6 +74,18 @@ func TestActiveCatalogOriginalAdminListAndDetail(t *testing.T) {
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("unknown global model: %d %s", missing.Code, missing.Body.String())
 	}
+	if denied := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/aimodel/31", "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member deleted global model: %d", denied.Code)
+	}
+	if blocked := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/aimodel/30", "", adminToken); blocked.Code != http.StatusConflict {
+		t.Fatalf("default global model deleted: %d", blocked.Code)
+	}
+	if deleted := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/aimodel/31", "", adminToken); deleted.Code != http.StatusOK {
+		t.Fatalf("secondary global model delete: %d %s", deleted.Code, deleted.Body.String())
+	}
+	if gone := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel/31", "", adminToken); gone.Code != http.StatusNotFound {
+		t.Fatalf("deleted global model still visible: %d", gone.Code)
+	}
 }
 
 func TestActiveCatalogOriginalDefaultSwitchAndBootstrap(t *testing.T) {
@@ -100,5 +116,107 @@ func TestActiveCatalogOriginalDefaultSwitchAndBootstrap(t *testing.T) {
 	status := accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel/status", `{"id":"31"}`, adminToken)
 	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "Model reachable") {
 		t.Fatalf("active catalog model probe used a legacy local model: %d %s", status.Code, status.Body.String())
+	}
+}
+
+func TestActiveCatalogOriginalModelEditRotatesSharedCredential(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	model := ModelConfig{ID: "30", Name: "Before", Model: "fixture", Endpoint: "https://example.invalid/v1", APIKey: "old-secret"}
+	activateModelCatalogFixture(t, service.Store, model)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	encrypt := func(value string) string {
+		t.Helper()
+		ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.StdEncoding.EncodeToString(ciphertext)
+	}
+	payload := map[string]any{"id": model.ID, "name": "After", "model_type": 0,
+		"base_model": "fixture", "supplier": 15, "protocol": 1, "default_model": true,
+		"api_domain": encrypt(model.Endpoint), "api_key": "", "config_list": []any{}}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/system/aimodel"
+	if denied := accountRequest(t, handler, http.MethodPut, path, string(body), memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member edited shared model: %d", denied.Code)
+	}
+	if updated := accountRequest(t, handler, http.MethodPut, path, string(body), adminToken); updated.Code != http.StatusOK {
+		t.Fatalf("original edit failed: %d %s", updated.Code, updated.Body.String())
+	}
+	payload["api_key"] = encrypt("new-secret")
+	body, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated := accountRequest(t, handler, http.MethodPut, path, string(body), adminToken); rotated.Code != http.StatusOK {
+		t.Fatalf("original credential rotation failed: %d %s", rotated.Code, rotated.Body.String())
+	}
+	var saved ModelConfig
+	if _, err := service.Store.get(context.Background(), modelCatalogKey(model.ID), &saved); err != nil ||
+		saved.Name != "After" || saved.APIKey != "new-secret" {
+		t.Fatalf("shared model not updated: %+v %v", saved, err)
+	}
+	read := accountRequest(t, handler, http.MethodGet, path+"/30", "", adminToken)
+	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"has_api_key":true`) ||
+		strings.Contains(read.Body.String(), "new-secret") {
+		t.Fatalf("edited model response leaked key: %d %s", read.Code, read.Body.String())
+	}
+}
+
+func TestActiveCatalogOriginalCreateStartsWithEmptyListAndFirstDefault(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	if err := service.Store.put(context.Background(), modelCatalogActiveKey(),
+		modelCatalogActivation{Version: 1, SourceDigest: strings.Repeat("a", 64)}, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/system/aimodel"
+	if empty := accountRequest(t, handler, http.MethodGet, path, "", adminToken); empty.Code != http.StatusOK ||
+		!strings.Contains(empty.Body.String(), `"data":[]`) {
+		t.Fatalf("empty active catalog did not list: %d %s", empty.Code, empty.Body.String())
+	}
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	encrypt := func(value string) string {
+		t.Helper()
+		ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.StdEncoding.EncodeToString(ciphertext)
+	}
+	create := func(name string, token string) int {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"id": "", "name": name, "model_type": 0,
+			"base_model": "fixture", "supplier": 15, "protocol": 1,
+			"api_domain": encrypt("https://example.invalid/v1"), "api_key": encrypt("private-secret"), "config_list": []any{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return accountRequest(t, handler, http.MethodPost, path, string(body), token).Code
+	}
+	if code := create("First", memberToken); code != http.StatusUnauthorized {
+		t.Fatalf("member created global model: %d", code)
+	}
+	if code := create("First", adminToken); code != http.StatusOK {
+		t.Fatalf("first global model create: %d", code)
+	}
+	if code := create("Second", adminToken); code != http.StatusOK {
+		t.Fatalf("second global model create: %d", code)
+	}
+	list := accountRequest(t, handler, http.MethodGet, path, "", adminToken)
+	if list.Code != http.StatusOK || strings.Count(list.Body.String(), `"ws_mapping_count":0`) != 2 ||
+		strings.Count(list.Body.String(), `"default_model":true`) != 1 ||
+		strings.Contains(list.Body.String(), "private-secret") {
+		t.Fatalf("original model create parity: %d %s", list.Code, list.Body.String())
 	}
 }

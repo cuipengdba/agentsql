@@ -46,11 +46,11 @@ func (s *Store) catalogAdminModel(ctx context.Context, p Principal, id ID) (cata
 	if err := s.requireActiveModelCatalogTx(ctx, tx); err != nil {
 		return catalogModelView{}, err
 	}
-	defaultID, err := s.catalogDefaultTx(ctx, tx)
+	model, revision, _, err := s.catalogModelTx(ctx, tx, id)
 	if err != nil {
 		return catalogModelView{}, err
 	}
-	model, revision, _, err := s.catalogModelTx(ctx, tx, id)
+	defaultID, err := s.catalogDefaultTx(ctx, tx)
 	if err != nil {
 		return catalogModelView{}, err
 	}
@@ -76,10 +76,6 @@ func (s *Store) catalogAdminModels(ctx context.Context, p Principal) ([]catalogM
 	if err := s.requireActiveModelCatalogTx(ctx, tx); err != nil {
 		return nil, err
 	}
-	defaultID, err := s.catalogDefaultTx(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM chatbi_objects WHERE kind='model-catalog' AND scope='system' AND owner='system' ORDER BY id LIMIT 10001`)
 	if err != nil {
 		return nil, ErrUnavailable
@@ -94,6 +90,13 @@ func (s *Store) catalogAdminModels(ctx context.Context, p Principal) ([]catalogM
 		ids = append(ids, id)
 	}
 	if rows.Err() != nil || rows.Close() != nil {
+		return nil, ErrUnavailable
+	}
+	defaultID, err := s.catalogDefaultTx(ctx, tx)
+	if len(ids) == 0 && errors.Is(err, ErrModel) {
+		return []catalogModelView{}, nil
+	}
+	if err != nil {
 		return nil, ErrUnavailable
 	}
 	result := make([]catalogModelView, 0, len(ids))

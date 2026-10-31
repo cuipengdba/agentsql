@@ -3,6 +3,7 @@ package chatbi
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -201,5 +202,141 @@ func TestActiveCatalogDefaultSwitchRevokesLeaseAndAuditFailureRollsBack(t *testi
 	current, _, err = store.modelForWorkspace(ctx, "2")
 	if err != nil || current.ID != second.ID {
 		t.Fatalf("audit failure changed global default: %+v %v", current, err)
+	}
+}
+
+func TestActiveCatalogGlobalEditRotatesCredentialAndRollsBackWithoutAudit(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	admin := stageCatalogAdmin(t, store)
+	model := ModelConfig{ID: "30", Name: "Before", Model: "fixture", Endpoint: "https://example.invalid/v1", APIKey: "old-secret"}
+	activateModelCatalogFixture(t, store, model)
+	old, lease, err := store.modelForWorkspace(ctx, "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := WorkspaceModelUpdate{Revision: 1, Name: "After", Model: "fixture", Endpoint: model.Endpoint}
+	if err := store.UpdateGlobalModel(ctx, admin, model.ID, update); err != nil {
+		t.Fatal(err)
+	}
+	view, err := store.catalogAdminModel(ctx, admin, model.ID)
+	if err != nil || view.Revision != 2 || view.Model.APIKey != model.APIKey || view.Model.Name != "After" {
+		t.Fatalf("edit lost credential or stable ID: %+v %v", view, err)
+	}
+	if err := store.modelLeaseUnchanged(ctx, "2", old, lease); !errors.Is(err, ErrModel) {
+		t.Fatalf("old request survived model edit: %v", err)
+	}
+	secret := "new-secret"
+	update.Revision, update.APIKey = view.Revision, &secret
+	if err := store.UpdateGlobalModel(ctx, admin, model.ID, update); err != nil {
+		t.Fatal(err)
+	}
+	view, err = store.catalogAdminModel(ctx, admin, model.ID)
+	if err != nil || view.Revision != 3 || view.Model.APIKey != secret {
+		t.Fatalf("credential rotation failed: %+v %v", view, err)
+	}
+	update.Revision = 2
+	if err := store.UpdateGlobalModel(ctx, admin, model.ID, update); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale edit accepted: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TRIGGER deny_catalog_edit_audit BEFORE INSERT ON chatbi_objects
+		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	update.Revision, update.Name = 3, "Uncommitted"
+	if err := store.UpdateGlobalModel(ctx, admin, model.ID, update); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("audit failure allowed global edit: %v", err)
+	}
+	view, err = store.catalogAdminModel(ctx, admin, model.ID)
+	if err != nil || view.Revision != 3 || view.Model.Name != "After" {
+		t.Fatalf("failed audit left partial edit: %+v %v", view, err)
+	}
+}
+
+func TestActiveCatalogCreateFirstModelSetsOneDefaultAndAudits(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	admin := stageCatalogAdmin(t, store)
+	if err := store.put(ctx, modelCatalogActiveKey(),
+		modelCatalogActivation{Version: 1, SourceDigest: strings.Repeat("a", 64)}, 0); err != nil {
+		t.Fatal(err)
+	}
+	secret := "private-secret"
+	first, err := store.CreateGlobalModel(ctx, admin, WorkspaceModelUpdate{Name: "First", Model: "fixture", Endpoint: "https://example.invalid/v1", APIKey: &secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, _, err := store.modelForWorkspace(ctx, "2")
+	if err != nil || selected.ID != first || selected.APIKey != secret {
+		t.Fatalf("first model was not global default: %+v %v", selected, err)
+	}
+	second, err := store.CreateGlobalModel(ctx, admin, WorkspaceModelUpdate{Name: "Second", Model: "fixture", Endpoint: "https://example.invalid/v1"})
+	if err != nil || second == first {
+		t.Fatalf("second model create: %s %v", second, err)
+	}
+	views, err := store.catalogAdminModels(ctx, admin)
+	if err != nil || len(views) != 2 || !views[0].Default && !views[1].Default {
+		t.Fatalf("catalog model list after create: %+v %v", views, err)
+	}
+	selected, _, err = store.modelForWorkspace(ctx, "2")
+	if err != nil || selected.ID != first {
+		t.Fatalf("second create replaced first default: %+v %v", selected, err)
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TRIGGER deny_catalog_create_audit BEFORE INSERT ON chatbi_objects
+		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateGlobalModel(ctx, admin, WorkspaceModelUpdate{Name: "Third", Model: "fixture", Endpoint: "https://example.invalid/v1"}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("audit failure allowed model create: %v", err)
+	}
+	views, err = store.catalogAdminModels(ctx, admin)
+	if err != nil || len(views) != 2 {
+		t.Fatalf("failed audit left partial model: %+v %v", views, err)
+	}
+}
+
+func TestActiveCatalogDeleteRemovesMappingsAtomically(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	admin := stageCatalogAdmin(t, store)
+	first := ModelConfig{ID: "30", Model: "first", Endpoint: "https://example.invalid/v1"}
+	second := ModelConfig{ID: "31", Model: "second", Endpoint: "https://example.invalid/v1"}
+	activateModelCatalogFixture(t, store, first)
+	if err := store.put(ctx, modelCatalogKey(second.ID), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.put(ctx, objectKey{"workspace", "system", "system", "2"},
+		workspaceOption{ID: "2", Name: "Two"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.changeCatalogModelMappings(ctx, admin, second.ID, []ID{"2"}, catalogMappingsAdd, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteGlobalModel(ctx, admin, first.ID, 1); !errors.Is(err, ErrConflict) {
+		t.Fatalf("default model deleted: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `CREATE TRIGGER deny_catalog_delete_audit BEFORE INSERT ON chatbi_objects
+		WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteGlobalModel(ctx, admin, second.ID, 2); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("audit failure allowed delete: %v", err)
+	}
+	mappings, _, err := store.catalogModelMappings(ctx, admin, second.ID)
+	if err != nil || len(mappings) != 1 {
+		t.Fatalf("audit failure removed model or mapping: %v %v", mappings, err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DROP TRIGGER deny_catalog_delete_audit`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteGlobalModel(ctx, admin, second.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.catalogAdminModel(ctx, admin, second.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted model still visible: %v", err)
+	}
+	var mappingCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM chatbi_objects WHERE kind='model-mapping' AND scope='31'`).Scan(&mappingCount); err != nil || mappingCount != 0 {
+		t.Fatalf("deleted model left mapping: %d %v", mappingCount, err)
 	}
 }
