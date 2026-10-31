@@ -452,6 +452,49 @@ func TestBindingChangeDuringQueryNeverReleasesRows(t *testing.T) {
 	}
 }
 
+func TestModelCredentialRotationDuringQuestionFailsClosed(t *testing.T) {
+	for _, phase := range []string{"generation", "gateway_query"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx := context.Background()
+			service, principal, gateway, model, token := serviceFixture(t)
+			chat, err := service.Start(ctx, principal, "10", "fixture", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rotate := func() {
+				key := objectKey{"model", string(principal.Workspace), "workspace", "default"}
+				var config ModelConfig
+				revision, err := service.Store.get(ctx, key, &config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				config.APIKey = "rotated-secret"
+				if err := service.Store.put(ctx, key, config, revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == "generation" {
+				model.after = rotate
+			} else {
+				gateway.afterQuery = rotate
+			}
+			check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+			result, err := service.Ask(ctx, principal, chat.ID, "show amount", check, nil)
+			if !errors.Is(err, ErrModel) || result.Data != nil || result.SQL != "" {
+				t.Fatalf("rotated model released data or SQL: err=%v record=%+v", err, result)
+			}
+			if phase == "generation" && gateway.queries != 0 {
+				t.Fatal("rotated model reached the gateway")
+			}
+			stored, _, err := service.chat(ctx, principal, chat.ID)
+			if err != nil || len(stored.Records) != 1 || stored.Records[0].Error == "" ||
+				stored.Records[0].Data != nil || stored.Records[0].SQL != "" {
+				t.Fatalf("rotated model did not leave a safe terminal record: err=%v chat=%+v", err, stored)
+			}
+		})
+	}
+}
+
 func TestBindingRevokedDuringSchemaStopsBeforeModel(t *testing.T) {
 	ctx := context.Background()
 	s, p, gateway, model, token := serviceFixture(t)
