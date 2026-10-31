@@ -23,6 +23,21 @@ func assistantCatalogRequest(t *testing.T, handler http.Handler, input mcpAssist
 	return response
 }
 
+type fixtureCatalogSelector struct {
+	*fakeModel
+	choice      ID
+	selectCalls int
+	afterSelect func()
+}
+
+func (m *fixtureCatalogSelector) SelectAssistantCatalogSource(_ context.Context, _ ModelConfig, _ string, _ []assistantCatalogEntry) (ID, error) {
+	m.selectCalls++
+	if m.afterSelect != nil {
+		m.afterSelect()
+	}
+	return m.choice, nil
+}
+
 func TestMCPAssistantOneRegisteredCatalogSourceUsesControlledQuery(t *testing.T) {
 	service, p, gateway, model, _ := serviceFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -109,7 +124,7 @@ func TestMCPAssistantCatalogRevocationDuringModelPreventsQuery(t *testing.T) {
 	}
 }
 
-func TestMCPAssistantRejectsMultipleSourcesBeforeModelOrGateway(t *testing.T) {
+func TestMCPAssistantRejectsMultipleSourcesWithoutSelector(t *testing.T) {
 	service, p, gateway, model, _ := serviceFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":81,"name":"Orders"},{"id":82,"name":"Other"}]}`))
@@ -130,6 +145,104 @@ func TestMCPAssistantRejectsMultipleSourcesBeforeModelOrGateway(t *testing.T) {
 	result := assistantCatalogRequest(t, handler, mcpAssistantInput{Question: "How many orders?", URL: bridge.Endpoint, Authorization: auth})
 	if result.Code != http.StatusUnprocessableEntity || gateway.queries != 0 || model.calls != 0 {
 		t.Fatalf("multiple sources were silently chosen: HTTP %d %s", result.Code, result.Body.String())
+	}
+}
+
+func TestMCPAssistantSelectsMappedCatalogSourceBeforeControlledQuery(t *testing.T) {
+	service, p, gateway, model, _ := serviceFixture(t)
+	var second Binding
+	if _, err := service.Store.get(context.Background(), bindingKey(p, "10"), &second); err != nil {
+		t.Fatal(err)
+	}
+	second.Datasource, second.Name = "11", "Inventory"
+	if err := service.Store.put(context.Background(), bindingKey(p, "11"), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	selector := &fixtureCatalogSelector{fakeModel: model, choice: "82"}
+	service.Model = selector
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":81,"name":"Orders"},{"id":82,"name":"Inventory"}]}`))
+	}))
+	defer server.Close()
+	auth := `[{"key":"token","value":"synthetic-token","target":"header"}]`
+	bridge := AssistantCatalogBridge{Endpoint: server.URL + "/sources", Authorization: auth,
+		Workspace: p.Workspace, User: p.User.ID,
+		Sources:      []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}, {CatalogID: "82", Datasource: "11"}},
+		AllowedCIDRs: []string{"127.0.0.1/32"}, AllowHTTP: true}
+	if err := service.Store.ConfigureConnections(context.Background(), ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := false
+	input := mcpAssistantInput{Question: "Inventory total?", URL: bridge.Endpoint, Authorization: auth, Stream: &stream}
+	result := assistantCatalogRequest(t, handler, input)
+	if result.Code != http.StatusOK || gateway.queries != 1 || model.calls != 1 || selector.selectCalls != 1 {
+		t.Fatalf("selected source missed controlled query: HTTP %d %s", result.Code, result.Body.String())
+	}
+	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, access := 0, 0
+	for _, raw := range audits {
+		if strings.Contains(string(raw), "assistant-catalog.select") {
+			selection++
+		}
+		if strings.Contains(string(raw), "assistant-catalog.access") && strings.Contains(string(raw), `"catalog_id":"82"`) &&
+			strings.Contains(string(raw), `"datasource":"11"`) {
+			access++
+		}
+	}
+	if selection != 1 || access != 1 {
+		t.Fatalf("selected source did not receive durable audit: select=%d access=%d", selection, access)
+	}
+	selector.choice = "999"
+	denied := assistantCatalogRequest(t, handler, input)
+	if denied.Code == http.StatusOK || gateway.queries != 1 || model.calls != 1 || selector.selectCalls != 2 {
+		t.Fatalf("forged model choice reached gateway: HTTP %d %s", denied.Code, denied.Body.String())
+	}
+	if _, err := service.Store.db.ExecContext(context.Background(), `CREATE TRIGGER reject_catalog_selection_audit BEFORE INSERT ON chatbi_objects WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT,'synthetic audit fault'); END`); err != nil {
+		t.Fatal(err)
+	}
+	selector.choice = "82"
+	denied = assistantCatalogRequest(t, handler, input)
+	if denied.Code == http.StatusOK || gateway.queries != 1 || model.calls != 1 || selector.selectCalls != 2 {
+		t.Fatalf("model choice ran without selection audit: HTTP %d %s", denied.Code, denied.Body.String())
+	}
+}
+
+func TestMCPAssistantSelectionRevocationPreventsQuery(t *testing.T) {
+	service, p, gateway, model, _ := serviceFixture(t)
+	selector := &fixtureCatalogSelector{fakeModel: model, choice: "81"}
+	service.Model = selector
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":81,"name":"Orders"},{"id":82,"name":"Inventory"}]}`))
+	}))
+	defer server.Close()
+	auth := `[{"key":"token","value":"synthetic-token","target":"header"}]`
+	bridge := AssistantCatalogBridge{Endpoint: server.URL + "/sources", Authorization: auth,
+		Workspace: p.Workspace, User: p.User.ID,
+		Sources:      []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}, {CatalogID: "82", Datasource: "10"}},
+		AllowedCIDRs: []string{"127.0.0.1/32"}, AllowHTTP: true}
+	if err := service.Store.ConfigureConnections(context.Background(), ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatal(err)
+	}
+	var revokeErr error
+	selector.afterSelect = func() {
+		disabled := false
+		bridge.Enabled = &disabled
+		revokeErr = service.Store.ConfigureConnections(context.Background(), ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}})
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := assistantCatalogRequest(t, handler, mcpAssistantInput{Question: "Orders?", URL: bridge.Endpoint, Authorization: auth})
+	if revokeErr != nil || result.Code == http.StatusOK || gateway.queries != 0 || model.calls != 0 || selector.selectCalls != 1 {
+		t.Fatalf("revoked catalog selection reached query: HTTP %d %s, revoke=%v", result.Code, result.Body.String(), revokeErr)
 	}
 }
 

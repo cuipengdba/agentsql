@@ -7,9 +7,8 @@ import (
 )
 
 // mcpAssistant accepts the old request body while deriving its caller and
-// datasource exclusively from a current, operator-owned catalog bridge. One
-// catalog source is supported here; a multi-source catalog fails closed until
-// the source-choice contract has original-client and authorization evidence.
+// datasource exclusively from a current, operator-owned catalog bridge.
+// Multiple sources require an audited model choice of an already mapped ID.
 func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 	if len(r.Header.Values("Authorization")) != 0 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 ||
 		len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASK-TOKEN")) != 0 {
@@ -30,22 +29,65 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	if len(entries) != 1 {
-		writeJSON(w, http.StatusUnprocessableEntity, "Select one registered datasource for this assistant")
+	if len(entries) == 0 {
+		writeJSON(w, http.StatusUnprocessableEntity, "No registered datasource for this assistant")
 		return
 	}
-	selected := entries[0]
 	_, mappings, revision, err := h.service.resolveAssistantCatalogBridge(r.Context(), input.URL, input.Authorization)
-	if err != nil || mappings[selected.CatalogID] != selected.Datasource {
+	if err != nil || len(entries) > len(mappings) {
 		failure(w, ErrUnauthenticated)
 		return
+	}
+	for _, entry := range entries {
+		if mappings[entry.CatalogID] != entry.Datasource {
+			failure(w, ErrUnauthenticated)
+			return
+		}
+	}
+	selected := entries[0]
+	if len(entries) > 1 {
+		selector, ok := h.service.Model.(assistantCatalogSelector)
+		if !ok {
+			writeJSON(w, http.StatusUnprocessableEntity, "Datasource selection is unavailable")
+			return
+		}
+		var model ModelConfig
+		if _, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model); err != nil {
+			failure(w, ErrModel)
+			return
+		}
+		if err := h.service.Store.auditAssistantCatalogSelection(r.Context(), p, len(entries)); err != nil {
+			failure(w, err)
+			return
+		}
+		chosen, err := selector.SelectAssistantCatalogSource(r.Context(), model, input.Question, entries)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		found := false
+		for _, entry := range entries {
+			if entry.CatalogID == chosen {
+				selected, found = entry, true
+				break
+			}
+		}
+		if !found {
+			failure(w, ErrModel)
+			return
+		}
 	}
 	check := func(ctx context.Context) error {
 		current, latest, err := h.service.fetchAssistantCatalog(ctx, input.URL, input.Authorization, nil)
 		if err != nil || current.User.ID != p.User.ID || current.User.AuthRevision != p.User.AuthRevision ||
-			current.Workspace != p.Workspace || len(latest) != 1 || latest[0].CatalogID != selected.CatalogID ||
-			latest[0].Datasource != selected.Datasource {
+			current.Workspace != p.Workspace || len(latest) != len(entries) {
 			return ErrUnauthenticated
+		}
+		for index := range entries {
+			if latest[index].CatalogID != entries[index].CatalogID || latest[index].Datasource != entries[index].Datasource ||
+				latest[index].Name != entries[index].Name {
+				return ErrUnauthenticated
+			}
 		}
 		_, currentMappings, currentRevision, err := h.service.resolveAssistantCatalogBridge(ctx, input.URL, input.Authorization)
 		if err != nil || currentRevision != revision || currentMappings[selected.CatalogID] != selected.Datasource {
