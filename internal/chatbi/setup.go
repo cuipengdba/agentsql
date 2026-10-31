@@ -112,6 +112,7 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 		credentials, err := parseMCPAssistantCatalogIdentity(bridge.Endpoint, bridge.Authorization)
 		if err != nil || !bridge.Workspace.Valid() || !bridge.User.Valid() || len(bridge.Sources) == 0 || len(bridge.Sources) > 32 ||
 			!validAssistantCatalogNetworks(bridge.AllowedCIDRs) ||
+			!validAssistantCatalogTLSPin(bridge.Endpoint, bridge.TLSCertSHA256) ||
 			strings.HasPrefix(bridge.Endpoint, "http://") && !bridge.AllowHTTP {
 			return errors.New("invalid assistant catalog registration")
 		}
@@ -143,7 +144,8 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 		}
 		record := assistantCatalogBridgeRecord{Endpoint: bridge.Endpoint, Workspace: bridge.Workspace,
 			User: bridge.User, Sources: bridge.Sources, AllowedCIDRs: bridge.AllowedCIDRs,
-			AllowHTTP: bridge.AllowHTTP, Enabled: enabled}
+			TLSCertSHA256: strings.ToLower(bridge.TLSCertSHA256),
+			AllowHTTP:     bridge.AllowHTTP, Enabled: enabled}
 		if err := appendEntry(s.assistantCatalogBridgeKey(bridge.Endpoint, credentials), record); err != nil {
 			return err
 		}

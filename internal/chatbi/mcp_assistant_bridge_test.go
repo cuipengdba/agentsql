@@ -3,6 +3,8 @@ package chatbi
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -18,6 +20,7 @@ func TestAssistantCatalogBridgeBindsCredentialToLiveUserAndOwnedSource(t *testin
 		Authorization: `[{"key":"X-Catalog-Token","value":"synthetic-private-token","target":"header"},{"key":"tenant","value":"east","target":"param"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
 		AllowedCIDRs:  []string{"203.0.113.1/32"},
+		TLSCertSHA256: hex.EncodeToString(make([]byte, sha256.Size)),
 	}
 	privateFile := filepath.Join(t.TempDir(), "connections.private.json")
 	raw, err := json.Marshal(ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{registered}})
@@ -108,6 +111,7 @@ func TestAssistantCatalogBridgeAuditFailureRollsBackRegistration(t *testing.T) {
 		Authorization: `[{"key":"token","value":"synthetic-private-token","target":"header"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
 		AllowedCIDRs:  []string{"203.0.113.1/32"},
+		TLSCertSHA256: hex.EncodeToString(make([]byte, sha256.Size)),
 	}
 	if _, err := service.Store.db.ExecContext(ctx, `CREATE TRIGGER reject_assistant_catalog_audit BEFORE INSERT ON chatbi_objects WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT,'synthetic audit failure'); END`); err != nil {
 		t.Fatal(err)
@@ -128,6 +132,7 @@ func TestAssistantCatalogBridgeRejectsUnownedDatasourceBeforePersistence(t *test
 		Authorization: `[{"key":"token","value":"synthetic-private-token","target":"header"}]`,
 		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "999"}},
 		AllowedCIDRs:  []string{"203.0.113.1/32"},
+		TLSCertSHA256: hex.EncodeToString(make([]byte, sha256.Size)),
 	}
 	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err == nil {
 		t.Fatal("unowned datasource registered")
@@ -159,5 +164,37 @@ func TestAssistantCatalogBridgeRequiresExplicitHTTPApproval(t *testing.T) {
 	}
 	if _, sources, _, err := service.resolveAssistantCatalogBridge(ctx, bridge.Endpoint, bridge.Authorization); err != nil || sources["81"] != "10" {
 		t.Fatalf("approved bridge did not resolve: %v", err)
+	}
+}
+
+func TestAssistantCatalogBridgeRequiresHTTPSLeafFingerprint(t *testing.T) {
+	service, principal, _, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	bridge := AssistantCatalogBridge{
+		Endpoint: "https://catalog.example.test/sources", Workspace: principal.Workspace, User: principal.User.ID,
+		Authorization: `[{"key":"token","value":"synthetic-private-token","target":"header"}]`,
+		Sources:       []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
+		AllowedCIDRs:  []string{"192.0.2.1/32"},
+	}
+	for _, invalid := range []string{"", "not-a-fingerprint", "000000000000000000000000000000000000000000000000000000000000000g"} {
+		bridge.TLSCertSHA256 = invalid
+		if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err == nil {
+			t.Fatalf("unusable HTTPS certificate fingerprint accepted: %q", invalid)
+		}
+	}
+	bridge.TLSCertSHA256 = hex.EncodeToString(make([]byte, sha256.Size))
+	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatalf("pinned HTTPS catalog registration failed: %v", err)
+	}
+	var stored assistantCatalogBridgeRecord
+	credentials, _ := parseMCPAssistantCatalogIdentity(bridge.Endpoint, bridge.Authorization)
+	if _, err := service.Store.get(ctx, service.Store.assistantCatalogBridgeKey(bridge.Endpoint, credentials), &stored); err != nil ||
+		stored.TLSCertSHA256 != bridge.TLSCertSHA256 {
+		t.Fatalf("HTTPS fingerprint not preserved in protected registration: %v", err)
+	}
+	bridge.Endpoint = "http://catalog.example.test/sources"
+	bridge.AllowHTTP = true
+	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err == nil {
+		t.Fatal("HTTP catalog accepted an irrelevant TLS fingerprint")
 	}
 }

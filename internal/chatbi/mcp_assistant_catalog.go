@@ -2,6 +2,11 @@ package chatbi
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -27,6 +32,11 @@ type assistantCatalogLookup func(context.Context, string) ([]net.IPAddr, error)
 // destination. Database connection fields in the response are never decoded or
 // forwarded. The selected IP is checked and pinned for the entire request.
 func (service *Service) fetchAssistantCatalog(ctx context.Context, endpoint, authorization string, lookup assistantCatalogLookup) (Principal, []assistantCatalogEntry, error) {
+	return service.fetchAssistantCatalogWithRoots(ctx, endpoint, authorization, lookup, nil)
+}
+
+// roots is nil in production. Isolated TLS tests supply a private test CA.
+func (service *Service) fetchAssistantCatalogWithRoots(ctx context.Context, endpoint, authorization string, lookup assistantCatalogLookup, roots *x509.CertPool) (Principal, []assistantCatalogEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	p, mappings, revision, err := service.resolveAssistantCatalogBridge(ctx, endpoint, authorization)
@@ -40,7 +50,8 @@ func (service *Service) fetchAssistantCatalog(ctx context.Context, endpoint, aut
 	var policy assistantCatalogBridgeRecord
 	currentRevision, err := service.Store.get(ctx, service.Store.assistantCatalogBridgeKey(endpoint, credentials), &policy)
 	if err != nil || currentRevision != revision || !policy.Enabled || policy.Endpoint != endpoint ||
-		!validAssistantCatalogNetworks(policy.AllowedCIDRs) || strings.HasPrefix(endpoint, "http://") && !policy.AllowHTTP {
+		!validAssistantCatalogNetworks(policy.AllowedCIDRs) || !validAssistantCatalogTLSPin(endpoint, policy.TLSCertSHA256) ||
+		strings.HasPrefix(endpoint, "http://") && !policy.AllowHTTP {
 		return Principal{}, nil, ErrUnauthenticated
 	}
 	u, err := url.Parse(endpoint)
@@ -97,6 +108,12 @@ func (service *Service) fetchAssistantCatalog(ctx context.Context, endpoint, aut
 			}
 			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(dialCtx, network, net.JoinHostPort(ip.String(), port))
 		}}
+	if u.Scheme == "https" {
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots,
+			VerifyConnection: func(state tls.ConnectionState) error {
+				return verifyAssistantCatalogTLSPin(state, policy.TLSCertSHA256)
+			}}
+	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Timeout: 10 * time.Second, Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
@@ -138,6 +155,23 @@ func (service *Service) fetchAssistantCatalog(ctx context.Context, endpoint, aut
 		return Principal{}, nil, ErrUnauthenticated
 	}
 	return p, entries, nil
+}
+
+// The normal TLS chain and hostname verification runs first; this requires
+// the operator-approved leaf certificate as an additional condition.
+func verifyAssistantCatalogTLSPin(state tls.ConnectionState, fingerprint string) error {
+	if len(state.PeerCertificates) == 0 {
+		return errAssistantCatalog
+	}
+	want, err := hex.DecodeString(fingerprint)
+	if err != nil || len(want) != sha256.Size {
+		return errAssistantCatalog
+	}
+	actual := sha256.Sum256(state.PeerCertificates[0].Raw)
+	if subtle.ConstantTimeCompare(actual[:], want) != 1 {
+		return errAssistantCatalog
+	}
+	return nil
 }
 
 func assistantCatalogPinnedIP(ctx context.Context, host string, cidrs []string, lookup assistantCatalogLookup) (net.IP, error) {

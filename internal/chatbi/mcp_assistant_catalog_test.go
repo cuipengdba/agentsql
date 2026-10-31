@@ -2,6 +2,10 @@ package chatbi
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +17,64 @@ import (
 	"sync/atomic"
 	"testing"
 )
+
+func TestAssistantCatalogTLSLeafFingerprintCheck(t *testing.T) {
+	cert := &x509.Certificate{Raw: []byte("synthetic-leaf-certificate")}
+	state := tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}
+	actual := sha256.Sum256(cert.Raw)
+	if err := verifyAssistantCatalogTLSPin(state, hex.EncodeToString(actual[:])); err != nil {
+		t.Fatalf("matching leaf fingerprint rejected: %v", err)
+	}
+	wrong := sha256.Sum256([]byte("another-leaf"))
+	if err := verifyAssistantCatalogTLSPin(state, hex.EncodeToString(wrong[:])); err == nil {
+		t.Fatal("mismatched leaf fingerprint accepted")
+	}
+	if err := verifyAssistantCatalogTLSPin(tls.ConnectionState{}, hex.EncodeToString(actual[:])); err == nil {
+		t.Fatal("missing peer certificate accepted")
+	}
+}
+
+func TestAssistantCatalogHTTPSRequiresTrustedChainAndRegisteredLeaf(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	var calls atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/sources" || r.Header.Get("X-Catalog-Token") != "synthetic-token" {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":81,"name":"Orders","password":"private-password"}]}`))
+	}))
+	defer server.Close()
+	cert := server.Certificate()
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	digest := sha256.Sum256(cert.Raw)
+	auth := `[{"key":"X-Catalog-Token","value":"synthetic-token","target":"header"}]`
+	bridge := AssistantCatalogBridge{Endpoint: server.URL + "/sources", Authorization: auth,
+		Workspace: principal.Workspace, User: principal.User.ID,
+		Sources:      []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"}},
+		AllowedCIDRs: []string{"127.0.0.1/32"}, TLSCertSHA256: hex.EncodeToString(digest[:])}
+	ctx := context.Background()
+	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatal(err)
+	}
+	_, entries, err := service.fetchAssistantCatalogWithRoots(ctx, bridge.Endpoint, auth, nil, roots)
+	if err != nil || len(entries) != 1 || entries[0].CatalogID != "81" || calls.Load() != 1 || gateway.queries != 0 {
+		t.Fatalf("trusted pinned TLS catalog failed: %v, entries=%v calls=%d", err, entries, calls.Load())
+	}
+	if _, _, err := service.fetchAssistantCatalog(ctx, bridge.Endpoint, auth, nil); err == nil || calls.Load() != 1 {
+		t.Fatal("private test CA was trusted without a configured root")
+	}
+	wrong := sha256.Sum256([]byte("another-certificate"))
+	bridge.TLSCertSHA256 = hex.EncodeToString(wrong[:])
+	if err := service.Store.ConfigureConnections(ctx, ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.fetchAssistantCatalogWithRoots(ctx, bridge.Endpoint, auth, nil, roots); err == nil || calls.Load() != 1 || gateway.queries != 0 {
+		t.Fatal("wrong registered certificate reached catalog handler or query gateway")
+	}
+}
 
 func TestAssistantCatalogFetchUsesPinnedIPAndDiscardsConnectionFields(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)

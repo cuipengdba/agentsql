@@ -21,6 +21,7 @@ type AssistantCatalogBridge struct {
 	User          ID                       `json:"user"`
 	Sources       []AssistantCatalogSource `json:"sources"`
 	AllowedCIDRs  []string                 `json:"allowed_cidrs,omitempty"`
+	TLSCertSHA256 string                   `json:"tls_cert_sha256,omitempty"`
 	AllowHTTP     bool                     `json:"allow_http,omitempty"`
 	Enabled       *bool                    `json:"enabled,omitempty"`
 }
@@ -31,13 +32,25 @@ type AssistantCatalogSource struct {
 }
 
 type assistantCatalogBridgeRecord struct {
-	Endpoint     string                   `json:"endpoint"`
-	Workspace    ID                       `json:"workspace"`
-	User         ID                       `json:"user"`
-	Sources      []AssistantCatalogSource `json:"sources"`
-	AllowedCIDRs []string                 `json:"allowed_cidrs,omitempty"`
-	AllowHTTP    bool                     `json:"allow_http,omitempty"`
-	Enabled      bool                     `json:"enabled"`
+	Endpoint      string                   `json:"endpoint"`
+	Workspace     ID                       `json:"workspace"`
+	User          ID                       `json:"user"`
+	Sources       []AssistantCatalogSource `json:"sources"`
+	AllowedCIDRs  []string                 `json:"allowed_cidrs,omitempty"`
+	TLSCertSHA256 string                   `json:"tls_cert_sha256,omitempty"`
+	AllowHTTP     bool                     `json:"allow_http,omitempty"`
+	Enabled       bool                     `json:"enabled"`
+}
+
+func validAssistantCatalogTLSPin(endpoint, fingerprint string) bool {
+	if strings.HasPrefix(endpoint, "http://") {
+		return fingerprint == ""
+	}
+	if !strings.HasPrefix(endpoint, "https://") || len(fingerprint) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(fingerprint)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 func validAssistantCatalogNetworks(cidrs []string) bool {
