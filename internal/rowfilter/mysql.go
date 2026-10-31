@@ -67,6 +67,8 @@ func mysqlRowSafePredicate(expr sqlparser.Expr, depth int) bool {
 	switch node := expr.(type) {
 	case *sqlparser.AndExpr:
 		return mysqlRowSafePredicate(node.Left, depth+1) && mysqlRowSafePredicate(node.Right, depth+1)
+	case *sqlparser.OrExpr:
+		return mysqlRowSafePredicate(node.Left, depth+1) && mysqlRowSafePredicate(node.Right, depth+1)
 	case *sqlparser.ComparisonExpr:
 		if _, ok := node.Left.(*sqlparser.ColName); !ok || node.Escape != nil || node.Modifier != 0 {
 			return false

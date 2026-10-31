@@ -41,6 +41,34 @@ func TestOriginalRowRuleCompilesOnlyCurrentGatewayFields(t *testing.T) {
 	}
 }
 
+func TestOriginalMySQLRowRuleNestedOrRemainsInsideGatewayConjunction(t *testing.T) {
+	datasource := ID("10")
+	tableID := browserTableID(datasource, "agentsql_demo", "orders")
+	fieldID := browserFieldID(tableID, "status")
+	columns := []Column{{Schema: "agentsql_demo", Table: "orders", Name: "status"}}
+	term := func(value string) map[string]any {
+		return map[string]any{"type": "item", "field_id": fieldID, "filter_type": "logic",
+			"term": "eq", "value_type": "normal", "value": value}
+	}
+	tree := map[string]any{"logic": "and", "items": []any{map[string]any{
+		"type": "tree", "sub_tree": map[string]any{"logic": "or", "items": []any{term("paid"), term("shipped")}},
+	}, term("paid")}}
+	raw, err := json.Marshal(map[string]any{"type": "row", "ds_id": datasource,
+		"table_id": tableID, "expression_tree": tree})
+	require.NoError(t, err)
+	schema, table, predicate, err := compileSQLBotRowPermissionForDialect(raw, datasource, columns, "mysql")
+	require.NoError(t, err)
+	require.Equal(t, "((`status` = 'paid' OR `status` = 'shipped') AND `status` = 'paid')", predicate)
+	rewritten, _, err := rowfilter.RewriteMySQLSingleTable(
+		"SELECT status FROM agentsql_demo.orders WHERE status = 'shipped' OR status = 'paid'",
+		schema, table, []string{predicate})
+	require.NoError(t, err)
+	require.Contains(t, strings.ToLower(rewritten), "or `status` = 'paid') and")
+	require.Contains(t, strings.ToLower(rewritten), "(`status` = 'paid' or `status` = 'shipped') and `status` = 'paid'")
+	_, _, _, err = compileSQLBotRowPermission(raw, datasource, columns)
+	require.ErrorIs(t, err, ErrInvalidDataPermission, "PostgreSQL OR rules remain outside this bounded MySQL subset")
+}
+
 func TestOriginalRowRuleRejectsForgedOrUnsupportedExpressions(t *testing.T) {
 	datasource := ID("10")
 	tableID := browserTableID(datasource, "public", "sales")
