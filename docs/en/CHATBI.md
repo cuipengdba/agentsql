@@ -70,6 +70,14 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 
 Configuration and its local management audit commit together. Credentials are encrypted, and the next question reads the updated configuration. Successful configuration does not prove live queries work; validate allowed, denied, masked, audited and failure cases. The current service uses one default model per workspace and manages personal bindings through the CLI.
 
+`configure` upserts entries; omitting a binding from the JSON file does not revoke a stored binding. Confirm the current Q&A workspace, user and datasource IDs and the gateway binding ID, then run:
+
+```sh
+agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
+```
+
+The command removes only this local Q&A mapping and commits the revocation and management audit atomically. Old conversations are denied when they access the datasource again. A stale command is rejected if the binding ID has rotated. Revoke the corresponding person binding, token or datasource grant separately in the gateway; `gateway_mapping_revoked: false` in the output makes that boundary explicit.
+
 ## Rehearse an identity migration
 
 The `scripts/sqlbot-export-identities.py` exporter supports only the checked SQLBot Community v1.10.2 identity sources and `sqlbot-xpack 0.0.5.37`. It reads users, workspaces, password digests, the JWT secret and login RSA key inside the original instance environment. The export contains highly sensitive credentials: restrict permissions, encrypt transfers and retain it under your operational policy. Never add it to Git, tickets or Releases.

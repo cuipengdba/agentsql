@@ -153,7 +153,7 @@ func (s *Store) deleteSemantic(ctx context.Context, key objectKey, expected int6
 		return err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
-	audit, err := s.seal(auditKey, map[string]any{"action": action, "workspace": key.Scope, "id": key.ID, "time": time.Now().UTC()})
+	audit, err := s.seal(auditKey, map[string]any{"action": action, "workspace": key.Scope, "owner": key.Owner, "id": key.ID, "time": time.Now().UTC()})
 	if err != nil {
 		return err
 	}

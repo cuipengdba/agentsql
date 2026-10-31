@@ -70,6 +70,14 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 
 配置与本地管理审计一起提交，凭据加密保存，下一次问数读取新配置。配置成功不等于真实查询成功；需要实际验证允许、拒绝、脱敏、审计和故障场景。当前使用每个工作空间一个默认模型，个人绑定通过命令行维护。
 
+`configure` 是增量写入；从 JSON 文件中删去一条绑定不会撤销已保存的绑定。撤销时先确认当前问数侧工作空间、用户、数据源 ID 和网关绑定 ID，然后运行：
+
+```sh
+agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
+```
+
+命令只撤销这条本地问数映射，并将撤销与管理审计原子提交；旧会话再次访问该数据源时会被拒绝。绑定 ID 已轮换时，旧命令会拒绝执行。还需在网关单独撤销对应的人员绑定、令牌或数据源权限；命令输出的 `gateway_mapping_revoked: false` 明确表示它不会代替网关撤销。
+
 ## 旧身份迁移预演
 
 导出工具 `scripts/sqlbot-export-identities.py` 只支持 SQLBot 社区版 v1.10.2 的已核对身份源码与 `sqlbot-xpack 0.0.5.37`。它在原实例环境读取用户、工作空间、密码摘要、JWT 密钥与登录 RSA 密钥。导出文件含高敏感凭据，应限制权限、加密传输并按运维制度保管；不得进入 Git、工单或 Release。
