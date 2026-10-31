@@ -4,6 +4,7 @@ import { setupAssistants } from './assistants.js';
 import { setupChatSettings } from './chat-settings.js';
 import { setupUserVariableEditor } from './user-variables.js';
 import { renderSourceRelations } from './source-relations.js';
+import { setupDataPermissions } from './data-permissions.js';
 
 const apiRoot = new URL('../api/v1', import.meta.url).pathname;
 const $ = id => document.getElementById(id);
@@ -55,8 +56,8 @@ Object.assign(copy['zh-CN'], {workspaceEdit:'重命名工作空间',workspaceUpd
 Object.assign(copy.en, {workspaceEdit:'Rename workspace',workspaceUpdated:'Workspace updated',workspaceDelete:'Delete empty workspace',workspaceDeleted:'Workspace deleted',workspaceDeleteConfirm:'Delete this empty workspace? A workspace with members or data will be rejected.'});
 Object.assign(copy['zh-CN'], {currentWorkspace:'当前工作空间',workspaceSwitching:'正在切换工作空间…'});
 Object.assign(copy.en, {currentWorkspace:'Current workspace',workspaceSwitching:'Switching workspace…'});
-Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。行权限尚未接入变量解析，此页面配置目前不会改变查询权限。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesKV:'键值',variablesKey:'键',variablesValue:'值',variablesAddPair:'+ 添加键值',variablesRemovePair:'移除',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
-Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in the current workspace. Row permissions do not yet resolve these values, so this configuration does not change query access.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesKV:'Key/value',variablesKey:'Key',variablesValue:'Value',variablesAddPair:'+ Add pair',variablesRemovePair:'Remove',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
+Object.assign(copy['zh-CN'], {variablesNav:'系统变量',variablesTitle:'系统变量',variablesIntro:'管理当前工作空间的变量。已启用的受控行权限可引用成员绑定的变量值。',variablesAdd:'新增变量',variablesEdit:'编辑变量',variablesName:'名称',variablesType:'类型',variablesText:'文本',variablesKV:'键值',variablesKey:'键',variablesValue:'值',variablesAddPair:'+ 添加键值',variablesRemovePair:'移除',variablesNumber:'数字',variablesDate:'日期时间',variablesValues:'值（每行一个）',variablesEmpty:'暂无变量',variablesDelete:'删除变量',variablesDeleteConfirm:'确定删除这个变量？',variablesSaved:'变量已保存',variablesDeleted:'变量已删除'});
+Object.assign(copy.en, {variablesNav:'System variables',variablesTitle:'System variables',variablesIntro:'Manage variables in this workspace. Active controlled row filters can use values assigned to members.',variablesAdd:'Add variable',variablesEdit:'Edit variable',variablesName:'Name',variablesType:'Type',variablesText:'Text',variablesKV:'Key/value',variablesKey:'Key',variablesValue:'Value',variablesAddPair:'+ Add pair',variablesRemovePair:'Remove',variablesNumber:'Number',variablesDate:'Date and time',variablesValues:'Values (one per line)',variablesEmpty:'No variables yet',variablesDelete:'Delete variable',variablesDeleteConfirm:'Delete this variable?',variablesSaved:'Variable saved',variablesDeleted:'Variable deleted'});
 Object.assign(copy['zh-CN'], {variablesFrom:'起始值',variablesTo:'结束值'});
 Object.assign(copy.en, {variablesFrom:'From',variablesTo:'To'});
 Object.assign(copy['zh-CN'], {variablesNumber:'数值区间',variablesDate:'日期区间'});
@@ -91,6 +92,8 @@ Object.assign(copy['zh-CN'], {modelsMappings:'授权工作空间',modelsMappings
 Object.assign(copy.en, {modelsMappings:'Authorized workspaces',modelsMappingsHint:'Select workspaces that may use this model. The global default remains available for Q&A without an explicit mapping.',modelsMappingsSave:'Save mappings',modelsMappingsSaved:'Workspace mappings saved with an audit record.',modelsMappingsEmpty:'No workspaces are available for mapping.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
+Object.assign(copy['zh-CN'], {permissionNav:'数据权限',permissionTitle:'数据权限',permissionIntro:'为当前工作空间的成员配置行过滤和列可见性。保存时会按实时数据源结构验证。',permissionNew:'新建规则组',permissionEditor:'编辑规则组',permissionName:'名称',permissionSelectedUsers:'适用成员',permissionItems:'权限项',permissionUsers:'成员',permissionAddItem:'添加权限项',permissionKind:'类型',permissionRow:'行过滤',permissionColumn:'列可见性',permissionTable:'表',permissionField:'字段',permissionOperator:'条件',permissionValue:'值',permissionIsNull:'为空',permissionNotNull:'不为空',permissionColumnHint:'取消勾选需要隐藏的字段。',permissionSearchUser:'搜索当前工作空间成员',permissionEmpty:'暂无规则组',permissionNoUsers:'尚未选择成员',permissionNoItems:'尚未添加权限项',permissionNoMatches:'没有匹配的成员',permissionChooseSource:'选择数据源',permissionChooseTable:'选择表',permissionChooseHidden:'请至少隐藏一个字段。',permissionInvalid:'请检查名称、成员、权限项和条件。',permissionSaved:'规则组已保存并写入审计。',permissionDeleted:'规则组已删除。',permissionDeleteConfirm:'确定删除这个规则组？'});
+Object.assign(copy.en, {permissionNav:'Data permissions',permissionTitle:'Data permissions',permissionIntro:'Configure row filters and column visibility for members of this workspace. Saving checks the live datasource schema.',permissionNew:'New rule group',permissionEditor:'Edit rule group',permissionName:'Name',permissionSelectedUsers:'Affected members',permissionItems:'Permission items',permissionUsers:'members',permissionAddItem:'Add permission item',permissionKind:'Type',permissionRow:'Row filter',permissionColumn:'Column visibility',permissionTable:'Table',permissionField:'Field',permissionOperator:'Condition',permissionValue:'Value',permissionIsNull:'Is null',permissionNotNull:'Is not null',permissionColumnHint:'Clear the fields that should be hidden.',permissionSearchUser:'Search members of this workspace',permissionEmpty:'No rule groups yet',permissionNoUsers:'No members selected',permissionNoItems:'No permission items yet',permissionNoMatches:'No matching members',permissionChooseSource:'Choose datasource',permissionChooseTable:'Choose table',permissionChooseHidden:'Hide at least one field.',permissionInvalid:'Check the name, members, permission items and condition.',permissionSaved:'Rule group saved with an audit record.',permissionDeleted:'Rule group deleted.',permissionDeleteConfirm:'Delete this rule group?'});
 const requestedLang=new URLSearchParams(location.search).get('lang');
 let lang=(requestedLang==='en'||requestedLang==='zh-CN'?requestedLang:localStorage.getItem('agentsql-chatbi-language'))==='en'?'en':'zh-CN';
 let token=sessionStorage.getItem('agentsql-chatbi-token')||'';
@@ -110,6 +113,7 @@ const dashboard=setupDashboard({api,t,node,get:$});
 const assistants=setupAssistants({api,node,get:$,canOpen:()=>!controller});
 const qaDisplay={sql:true,log:true};
 const chatSettings=setupChatSettings({api,node,get:$,canOpen:()=>!controller,onChange:value=>{qaDisplay.sql=!!value.show_sql;qaDisplay.log=!!value.show_log;}});
+const permissions=setupDataPermissions({api,t,node,get:$,canOpen:()=>!controller&&isAdmin});
 async function loadSuggestions(){
   const epoch=++suggestionEpoch,source=$('datasource').value;
   $('suggestions').hidden=true;$('suggestion-list').replaceChildren();
@@ -196,6 +200,7 @@ async function enter(){
   $('semantics-nav').hidden=!isAdmin;
   $('users-nav').hidden=!isAdmin;
   $('variables-nav').hidden=!isAdmin;
+  $('permissions-nav').hidden=!isAdmin;
   $('models-nav').hidden=!isAdmin;
   assistants.setAdmin(isAdmin);
   chatSettings.setAdmin(isAdmin);
@@ -322,7 +327,7 @@ function semanticStatus(value,error=false){$('semantic-status').textContent=valu
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;userImportReportKey='';$('users-import-errors').hidden=true;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
-function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];modelCatalogActive=false;$('model-key').value='';$('model-mapping').hidden=true;$('models').hidden=true;$('models-nav').classList.remove('active');}
+function hideModels(){permissions.hide();modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];modelCatalogActive=false;$('model-key').value='';$('model-mapping').hidden=true;$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
 function modelTemperatureRange(){
   const extended=['4','7'].includes($('model-supplier').value);
@@ -388,6 +393,14 @@ async function showModels(){
   semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
   $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
   modelsVisible=true;$('models').hidden=false;$('models-nav').classList.add('active');await loadModel();
+}
+async function showPermissions(){
+  if(controller||!isAdmin)return;
+  dashboard.hide();assistants.hide();chatSettings.hide();hideUsers();hideVariables();hideModels();closeMenu();
+  sourceVisible=false;sourceEpoch++;$('sources').hidden=true;$('sources-nav').classList.remove('active');
+  semanticVisible=false;$('semantics').hidden=true;$('semantics-nav').classList.remove('active');
+  $('welcome').hidden=true;$('conversation').hidden=true;$('composer-wrap').hidden=true;
+  await permissions.show();
 }
 function keyStatus(message,error=false){$('key-status').textContent=message;$('key-status').classList.toggle('error',error);}
 async function loadAPIKeys(){
@@ -1170,6 +1183,7 @@ $('users-search-form').onsubmit=event=>{event.preventDefault();userPage=1;void l
 $('users-prev').onclick=()=>{if(userPage>1){userPage--;void loadUsers();}};
 $('users-next').onclick=()=>{if(userPage<userTotalPages){userPage++;void loadUsers();}};
 $('variables-nav').onclick=()=>{void showVariables();};
+$('permissions-nav').onclick=()=>{void showPermissions();};
 $('models-nav').onclick=()=>{void showModels();};
 $('model-reload').onclick=()=>{void loadModel();};
 $('model-select').onchange=()=>{modelSelected=$('model-select').value;void loadModel(modelSelected);};
@@ -1281,7 +1295,7 @@ $('semantic-form').onsubmit=event=>{void saveSemantic(event);};
 $('semantic-search-form').onsubmit=event=>{event.preventDefault();semanticPage=1;void loadSemantics();};
 $('semantic-prev').onclick=()=>{if(semanticPage>1){semanticPage--;void loadSemantics();}};
 $('semantic-next').onclick=()=>{if(semanticPage<semanticTotalPages){semanticPage++;void loadSemantics();}};
-$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();chatSettings.language();if(chatSettings.visible())return;if(dashboard.visible()){dashboard.language();}else if(usersVisible){userCreateVariableEditor?.refresh();void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
+$('language').onclick=async()=>{const next=lang==='en'?'zh-CN':'en';if(token){try{await api('/user/language',{language:next},'PUT');}catch{status(t('failed'),true);return;}}lang=next;localStorage.setItem('agentsql-chatbi-language',lang);translate();if($('key-dialog').open)void loadAPIKeys();if(token&&!sourceList.length)status(t('empty'),true);renderHistory();assistants.language();chatSettings.language();if(chatSettings.visible())return;if(dashboard.visible()){dashboard.language();}else if(usersVisible){userCreateVariableEditor?.refresh();void loadUsers();}else if(variablesVisible){$('variable-editor').querySelector('summary').textContent=t(variableEditingID===null?'variablesAdd':'variablesEdit');void loadVariables();}else if(modelsVisible){void loadModel();}else if(permissions.visible()){permissions.language();}else if(semanticVisible){semanticStatus('');hideSemanticForm();void loadSemantics();}else if(sourceVisible){void showSources();}else if(current&&!assistants.visible())open(current);};
 $('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 $('login-theme').onclick=$('theme').onclick;
 $('login-language').onclick=$('language').onclick;
