@@ -50,7 +50,11 @@ func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context,
 		return nil, nil, nil, err
 	}
 	if len(rows) != 0 {
-		if _, _, _, err := compileApplicableRowPermissions(rows, binding.Datasource, columns, binding.Dialect); err != nil {
+		variables := service.newRowVariableSnapshot(ctx, principal)
+		if _, _, _, err := compileApplicableRowPermissionsWithVariables(rows, binding.Datasource, columns, binding.Dialect, variables.resolve); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := variables.unchanged(ctx); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -86,6 +90,7 @@ func (service *Service) semanticSchema(ctx context.Context, principal Principal,
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {
+	variables := service.newRowVariableSnapshot(ctx, principal)
 	snapshot, err := service.dataPermissionSnapshot(ctx, principal.Workspace)
 	if err != nil {
 		return QueryData{}, err
@@ -101,7 +106,7 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 			return QueryData{}, ErrGateway
 		}
 		if len(rows) != 0 {
-			schema, table, filters, err := compileApplicableRowPermissions(rows, binding.Datasource, columns, binding.Dialect)
+			schema, table, filters, err := compileApplicableRowPermissionsWithVariables(rows, binding.Datasource, columns, binding.Dialect, variables.resolve)
 			if err != nil {
 				return QueryData{}, err
 			}
@@ -136,6 +141,9 @@ func (service *Service) query(ctx context.Context, principal Principal, binding 
 		return QueryData{}, err
 	}
 	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
+		return QueryData{}, err
+	}
+	if err := variables.unchanged(ctx); err != nil {
 		return QueryData{}, err
 	}
 	return data, nil

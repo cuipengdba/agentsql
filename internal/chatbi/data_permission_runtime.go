@@ -138,10 +138,14 @@ func bindingWithPermissionColumns(binding Binding, blocked map[string]bool) (Bin
 }
 
 func compileApplicableRowPermissions(items []json.RawMessage, datasource ID, columns []Column, dialect string) (string, string, []string, error) {
+	return compileApplicableRowPermissionsWithVariables(items, datasource, columns, dialect, nil)
+}
+
+func compileApplicableRowPermissionsWithVariables(items []json.RawMessage, datasource ID, columns []Column, dialect string, resolve func(int64) (string, bool)) (string, string, []string, error) {
 	var schema, table string
 	filters := make([]string, 0, len(items))
 	for _, item := range items {
-		currentSchema, currentTable, predicate, err := compileSQLBotRowPermissionForDialect(item, datasource, columns, dialect)
+		currentSchema, currentTable, predicate, err := compileSQLBotRowPermissionWithVariables(item, datasource, columns, dialect, resolve)
 		if err != nil || schema != "" && (schema != currentSchema || table != currentTable) {
 			return "", "", nil, ErrGateway
 		}

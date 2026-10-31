@@ -94,10 +94,28 @@ func (h *Handler) validateDataPermissionActivation(ctx context.Context, principa
 			return nil, err
 		}
 		if item.Type == "row" {
-			schema, table, _, err := compileSQLBotRowPermissionForDialect(raw, datasource, columns, binding.Dialect)
+			referenced := make(map[int64]bool)
+			schema, table, _, err := compileSQLBotRowPermissionWithVariables(raw, datasource, columns, binding.Dialect,
+				func(id int64) (string, bool) {
+					referenced[id] = true
+					return h.service.rowVariableDefinitionSample(ctx, principal.Workspace, id)
+				})
 			prior, exists := tables[datasource]
 			if err != nil || exists && prior != (relation{schema, table}) {
 				return nil, ErrInvalidDataPermission
+			}
+			if len(referenced) != 0 {
+				for _, targetID := range rule.Users {
+					user, _, err := h.service.Store.User(ctx, ID(strconv.FormatInt(targetID, 10)))
+					if err != nil || !user.canUse(principal.Workspace) {
+						return nil, ErrInvalidDataPermission
+					}
+					variables := h.service.newRowVariableSnapshot(ctx, Principal{User: user, Workspace: principal.Workspace})
+					actualSchema, actualTable, _, err := compileSQLBotRowPermissionWithVariables(raw, datasource, columns, binding.Dialect, variables.resolve)
+					if err != nil || actualSchema != schema || actualTable != table || variables.unchanged(ctx) != nil {
+						return nil, ErrInvalidDataPermission
+					}
+				}
 			}
 			tables[datasource] = relation{schema, table}
 		} else if _, err := compileSQLBotColumnPermission(raw, datasource, columns); err != nil {

@@ -18,6 +18,13 @@ func compileSQLBotRowPermission(raw json.RawMessage, datasource ID, columns []Co
 }
 
 func compileSQLBotRowPermissionForDialect(raw json.RawMessage, datasource ID, columns []Column, dialect string) (string, string, string, error) {
+	return compileSQLBotRowPermissionWithVariables(raw, datasource, columns, dialect, nil)
+}
+
+// The resolver supplies a value from the current user's server-held binding.
+// A missing resolver deliberately keeps variable rules unsupported in callers
+// that have not established a live identity and definition snapshot.
+func compileSQLBotRowPermissionWithVariables(raw json.RawMessage, datasource ID, columns []Column, dialect string, resolve func(int64) (string, bool)) (string, string, string, error) {
 	if dialect != "pg" && dialect != "mysql" {
 		return "", "", "", ErrInvalidDataPermission
 	}
@@ -75,7 +82,7 @@ func compileSQLBotRowPermissionForDialect(raw json.RawMessage, datasource ID, co
 		return "", "", "", ErrInvalidDataPermission
 	}
 	remaining := 16
-	predicate, valid := compileSQLBotRowTree(tree, fields, dialect, 0, &remaining)
+	predicate, valid := compileSQLBotRowTree(tree, fields, dialect, 0, &remaining, resolve)
 	if !valid || len(predicate) > 4096 {
 		return "", "", "", ErrInvalidDataPermission
 	}
@@ -103,9 +110,10 @@ type sqlbotRowTreeItem struct {
 	Term       string          `json:"term"`
 	Value      string          `json:"value"`
 	ValueType  string          `json:"value_type"`
+	VariableID json.RawMessage `json:"variable_id"`
 }
 
-func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect string, depth int, remaining *int) (string, bool) {
+func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect string, depth int, remaining *int, resolve func(int64) (string, bool)) (string, bool) {
 	logic := strings.ToLower(tree.Logic)
 	if depth > 8 || len(tree.Items) == 0 || len(tree.Items) > 16 ||
 		(logic != "and" && logic != "or") || (dialect != "mysql" && logic == "or" && len(tree.Items) > 1) {
@@ -120,13 +128,13 @@ func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect s
 			if item.SubTree == nil {
 				return "", false
 			}
-			part, valid = compileSQLBotRowTree(*item.SubTree, fields, dialect, depth+1, remaining)
+			part, valid = compileSQLBotRowTree(*item.SubTree, fields, dialect, depth+1, remaining, resolve)
 		case "item":
 			if item.SubTree != nil || *remaining == 0 {
 				return "", false
 			}
 			*remaining--
-			part, valid = compileSQLBotRowItem(item, fields, dialect)
+			part, valid = compileSQLBotRowItem(item, fields, dialect, resolve)
 		default:
 			return "", false
 		}
@@ -145,12 +153,26 @@ func compileSQLBotRowTree(tree sqlbotRowTree, fields map[int64]string, dialect s
 	return "(" + strings.Join(parts, join) + ")", true
 }
 
-func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, dialect string) (string, bool) {
+func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, dialect string, resolve func(int64) (string, bool)) (string, bool) {
 	fieldID, valid := parseSystemVariableID(item.FieldID)
 	name, exists := fields[fieldID]
-	if !valid || !exists || item.FilterType != "logic" ||
-		(item.ValueType != "" && item.ValueType != "normal") ||
-		len(item.Value) > 256 || strings.ContainsAny(item.Value, "\\\x00") {
+	if !valid || !exists || item.FilterType != "logic" {
+		return "", false
+	}
+	value := item.Value
+	if item.ValueType == "variable" {
+		variableID, valid := parseSystemVariableID(item.VariableID)
+		if !valid || variableID < 1 || resolve == nil {
+			return "", false
+		}
+		value, valid = resolve(variableID)
+		if !valid {
+			return "", false
+		}
+	} else if item.ValueType != "" && item.ValueType != "normal" || len(item.VariableID) != 0 && string(item.VariableID) != "null" {
+		return "", false
+	}
+	if len(value) > 256 || strings.ContainsAny(value, "\\\x00") {
 		return "", false
 	}
 	column := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
@@ -166,10 +188,10 @@ func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, diale
 	case "not_null":
 		return column + " IS NOT NULL", true
 	}
-	if item.Value == "" {
+	if value == "" {
 		return "", false
 	}
-	if dialect == "mysql" && !mysqlRowLiteral(item.Value) {
+	if dialect == "mysql" && !mysqlRowLiteral(value) {
 		return "", false
 	}
 	operators := map[string]string{"eq": "=", "not_eq": "<>", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
@@ -177,7 +199,7 @@ func compileSQLBotRowItem(item sqlbotRowTreeItem, fields map[int64]string, diale
 	if !exists {
 		return "", false
 	}
-	return column + " " + op + " '" + strings.ReplaceAll(item.Value, "'", "''") + "'", true
+	return column + " " + op + " '" + strings.ReplaceAll(value, "'", "''") + "'", true
 }
 
 func mysqlRowIdentifier(value string) bool {
@@ -200,7 +222,8 @@ func mysqlRowLiteral(value string) bool {
 		return false
 	}
 	for _, ch := range value {
-		if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-' || ch == ' ' {
+		if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' ||
+			ch == '_' || ch == '-' || ch == ' ' || ch == '.' || ch == ':' || ch == '+' {
 			continue
 		}
 		return false
