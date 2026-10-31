@@ -174,10 +174,10 @@ v0.7.0 回滚资产也要分拓扑处理：SQLite 合并库恢复升级前备份
 
 ## v0.5.0 当时的只读核对与本地重建
 
-Windows PowerShell 可直接运行 `.ps1`；装有 PowerShell 7 时也可将 `powershell` 改为 `pwsh`：
+当前发行校验器要求 PowerShell 7 或更高版本。Windows PowerShell 5 的 JSON 整数类型不同，会让完整构建在最后的来源校验失败；使用 `pwsh`：
 
 ```powershell
-powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -ValidateOnly -AssetsDirectory dist\release-dryrun\v0.5.0\assets
+pwsh -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -ValidateOnly -AssetsDirectory dist\release-dryrun\v0.5.0\assets
 ```
 
 验证器会先逐行列出 15 个预期名称、字节数、本地 SHA-256 和 `PRESENT`/`MISSING`，然后校验名称集合、sidecar、`SHA256SUMS`、Yashan Go 依赖与 tarball 内两份必需客户端库、provenance commit 及签名文档。任一失败返回非零；**出现 15 行不等于通过**。`SHA256SUMS` 不包含自身与其签名，以避免循环摘要。
@@ -185,7 +185,7 @@ powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -Valida
 封板后在具备 Docker 和所需构建依赖的环境执行全量本地演练，输出到全新的目录：
 
 ```powershell
-powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist\release-dryrun\v0.5.0-final
+pwsh -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist\release-dryrun\v0.5.0-final
 ```
 
 默认生成双架构包、SPDX SBOM、provenance、15 个本地 dry-run 文件及三个本地 OCI 镜像归档；不签名、不推送、不创建 git tag。只有 `RELEASE_DRYRUN_SHA256SUMS=PASS`、`RELEASE_DRYRUN_ASSET_COUNT=15`、`RELEASE_DRYRUN_IMAGES=PASS` 和 `RELEASE_DRYRUN_RESULT=PASS_UNSIGNED_NOT_FOR_RELEASE` 同时出现，才能称为**本地未签名演练通过**。正式发行闸门见 [RELEASE_PROCESS.md](RELEASE_PROCESS.md) 和 [发布日清单](release-day-checklist-v0.5.md)。
