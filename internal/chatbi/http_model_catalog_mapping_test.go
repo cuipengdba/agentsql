@@ -282,7 +282,18 @@ func TestActiveCatalogNativeModelPageUsesGlobalRecords(t *testing.T) {
 	ctx := context.Background()
 	first := ModelConfig{ID: "30", Name: "First", Model: "fixture", Endpoint: "https://example.invalid/v1"}
 	second := ModelConfig{ID: "31", Name: "Second", Model: "fixture", Endpoint: "https://example.invalid/v1"}
+	if status := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/model/catalog-status", "", adminToken); status.Code != http.StatusOK ||
+		!strings.Contains(status.Body.String(), `"active":false`) {
+		t.Fatalf("native page missed inactive catalog: %d %s", status.Code, status.Body.String())
+	}
+	if denied := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/model/catalog-status", "", memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member inspected catalog status: %d", denied.Code)
+	}
 	activateModelCatalogFixture(t, service.Store, first)
+	if status := accountRequest(t, handler, http.MethodGet, "/api/v1/agentsql/model/catalog-status", "", adminToken); status.Code != http.StatusOK ||
+		!strings.Contains(status.Body.String(), `"active":true`) {
+		t.Fatalf("native page missed active catalog: %d %s", status.Code, status.Body.String())
+	}
 	if err := service.Store.put(ctx, modelCatalogKey(second.ID), second, 0); err != nil {
 		t.Fatal(err)
 	}

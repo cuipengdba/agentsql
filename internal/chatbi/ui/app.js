@@ -81,12 +81,14 @@ Object.assign(copy['zh-CN'], {removeDatabaseSource:'移除数据库数据源',re
 Object.assign(copy.en, {removeDatabaseSource:'Remove database datasource',removeDatabasePrompt:'Remove this datasource from AgentSQL Q&A? Historical queries will no longer read it; reconnecting requires a new datasource ID. The gateway binding and database account remain operator-managed.',databaseSourceRemoved:'Database datasource removed from Q&A.'});
 Object.assign(copy['zh-CN'], {modelsNav:'模型配置',modelsTitle:'模型配置',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；修改后立即影响本地问数，请先验证模型服务。',modelsName:'显示名称',modelsBase:'模型标识',modelsEndpoint:'API 地址',modelsKey:'新 API Key（留空则保持原值）',modelsMaxTokens:'最大输出 Token（0 为默认）',modelsTemperature:'温度（0–1）',modelsReload:'重新读取',modelsKeySet:'已保存密钥；输入新值才会替换。',modelsKeyEmpty:'当前未保存 API Key。',modelsSaved:'模型配置已保存并写入审计。',modelsMissing:'当前工作空间尚未配置模型；填写下方信息即可创建。'});
 Object.assign(copy.en, {modelsNav:'Model settings',modelsTitle:'Model settings',modelsIntro:'Manage the model used for Q&A in this workspace. The API key is never shown. Changes affect local Q&A immediately; verify the model service first.',modelsName:'Display name',modelsBase:'Model ID',modelsEndpoint:'API URL',modelsKey:'New API key (leave blank to keep current)',modelsMaxTokens:'Maximum output tokens (0 uses default)',modelsTemperature:'Temperature (0–1)',modelsReload:'Reload',modelsKeySet:'A key is saved; enter a new value to replace it.',modelsKeyEmpty:'No API key is saved.',modelsSaved:'Model settings saved with an audit record.',modelsMissing:'No model is configured in this workspace. Fill in the form below to create one.'});
-Object.assign(copy['zh-CN'], {modelsSelect:'工作空间模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
-Object.assign(copy.en, {modelsSelect:'Workspace model',modelsAdd:'Add model',modelsSetDefault:'Set as default',modelsDelete:'Delete model',modelsDefault:'Default model',modelsNew:'New model',modelsDeleteConfirm:'Delete this nondefault model?',modelsDeleted:'Model deleted with an audit record.',modelsSwitched:'Default model switched with an audit record.'});
-Object.assign(copy['zh-CN'], {modelsSupplier:'供应商',modelsTemperatureExtended:'温度（0–2）',supplierQianfan:'百度千帆',supplierHunyuan:'腾讯混元',supplierTencentCloud:'腾讯云',supplierVolcano:'火山引擎',supplierGeneric:'通用 OpenAI',modelsIntro:'管理当前工作空间问数使用的模型。密钥不会回显；切换默认模型会立即影响本地问数，请先验证模型服务。'});
-Object.assign(copy.en, {modelsSupplier:'Supplier',modelsTemperatureExtended:'Temperature (0–2)',supplierQianfan:'Baidu Qianfan',supplierHunyuan:'Tencent Hunyuan',supplierTencentCloud:'Tencent Cloud',supplierVolcano:'Volcano Engine',supplierGeneric:'Generic OpenAI',modelsIntro:'Manage models used for Q&A in this workspace. Keys are never shown. Switching the default affects local Q&A immediately; verify the model service first.'});
+Object.assign(copy['zh-CN'], {modelsSelect:'模型',modelsAdd:'添加模型',modelsSetDefault:'设为默认',modelsDelete:'删除模型',modelsDefault:'默认模型',modelsNew:'新模型',modelsDeleteConfirm:'确认删除当前非默认模型？',modelsDeleted:'模型已删除并写入审计。',modelsSwitched:'默认模型已切换并写入审计。'});
+Object.assign(copy.en, {modelsSelect:'Model',modelsAdd:'Add model',modelsSetDefault:'Set as default',modelsDelete:'Delete model',modelsDefault:'Default model',modelsNew:'New model',modelsDeleteConfirm:'Delete this nondefault model?',modelsDeleted:'Model deleted with an audit record.',modelsSwitched:'Default model switched with an audit record.'});
+Object.assign(copy['zh-CN'], {modelsSupplier:'供应商',modelsTemperatureExtended:'温度（0–2）',supplierQianfan:'百度千帆',supplierHunyuan:'腾讯混元',supplierTencentCloud:'腾讯云',supplierVolcano:'火山引擎',supplierGeneric:'通用 OpenAI',modelsIntro:'管理问数使用的模型。密钥不会回显；切换默认模型会立即影响本地问数，请先验证模型服务。'});
+Object.assign(copy.en, {modelsSupplier:'Supplier',modelsTemperatureExtended:'Temperature (0–2)',supplierQianfan:'Baidu Qianfan',supplierHunyuan:'Tencent Hunyuan',supplierTencentCloud:'Tencent Cloud',supplierVolcano:'Volcano Engine',supplierGeneric:'Generic OpenAI',modelsIntro:'Manage models used for Q&A. Keys are never shown. Switching the default affects local Q&A immediately; verify the model service first.'});
 Object.assign(copy['zh-CN'], {modelsCheck:'测试连接',modelsChecking:'正在测试本机模型配置…',modelsCheckSuccess:'模型服务返回成功。测试 SQL 未执行。'});
 Object.assign(copy.en, {modelsCheck:'Check connection',modelsChecking:'Checking the locally configured model…',modelsCheckSuccess:'The model responded. Test SQL was not executed.'});
+Object.assign(copy['zh-CN'], {modelsMappings:'授权工作空间',modelsMappingsHint:'勾选可使用该模型的工作空间；全局默认模型无需显式映射也可用于问数。',modelsMappingsSave:'保存映射',modelsMappingsSaved:'工作空间映射已保存并写入审计。',modelsMappingsEmpty:'尚无工作空间可供映射。'});
+Object.assign(copy.en, {modelsMappings:'Authorized workspaces',modelsMappingsHint:'Select workspaces that may use this model. The global default remains available for Q&A without an explicit mapping.',modelsMappingsSave:'Save mappings',modelsMappingsSaved:'Workspace mappings saved with an audit record.',modelsMappingsEmpty:'No workspaces are available for mapping.'});
 copy['zh-CN'].semanticIntro='术语和 SQL 示例仅作为已授权问数的参考；推荐问题只填入提问框，查询仍按当前权限执行。';
 copy.en.semanticIntro='Terms and SQL examples inform authorized Q&A. Suggestions only fill the composer; every query still checks current permissions.';
 const requestedLang=new URLSearchParams(location.search).get('lang');
@@ -96,7 +98,7 @@ let current=null,controller=null,sourceList=[],sourceVisible=false,sourceEpoch=0
 let usersVisible=false,usersEpoch=0,userPage=1,userTotalPages=1,userImportReportKey='';
 let userVariableDefinitions=null,userCreateVariableEditor=null,userCreateVariableWorkspace='';
 let variablesVisible=false,variablesEpoch=0,variablePage=1,variableTotalPages=1,variableEditingID=null;
-let modelsVisible=false,modelsEpoch=0,modelRevision=null,modelSelected='default',modelCatalog=[];
+let modelsVisible=false,modelsEpoch=0,modelRevision=null,modelSelected='default',modelCatalog=[],modelCatalogActive=false;
 const t=key=>copy[lang][key];
 function translate(){document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.dataset.i18n)});document.querySelectorAll('.history-action').forEach(el=>{el.title=t(el.dataset.i18n)});document.querySelectorAll('[data-placeholder]').forEach(el=>{el.placeholder=t(el.dataset.placeholder)});$('language').textContent=lang==='en'?'简体中文':'English';$('login-language').textContent=$('language').textContent;}
 function theme(value){document.documentElement.dataset.theme=value;localStorage.setItem('agentsql-chatbi-theme',value);}
@@ -320,7 +322,7 @@ function semanticStatus(value,error=false){$('semantic-status').textContent=valu
 function hideSemanticForm(){$('semantic-form').hidden=true;semanticEditing=null;}
 function hideUsers(){usersVisible=false;usersEpoch++;userVariableDefinitions=null;userCreateVariableEditor=null;userImportReportKey='';$('users-import-errors').hidden=true;$('user-create-variables').replaceChildren();$('users').hidden=true;$('users-nav').classList.remove('active');}
 function hideVariables(){variablesVisible=false;variablesEpoch++;$('variables').hidden=true;$('variables-nav').classList.remove('active');}
-function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];$('model-key').value='';$('models').hidden=true;$('models-nav').classList.remove('active');}
+function hideModels(){modelsVisible=false;modelsEpoch++;modelRevision=null;modelSelected='default';modelCatalog=[];modelCatalogActive=false;$('model-key').value='';$('model-mapping').hidden=true;$('models').hidden=true;$('models-nav').classList.remove('active');}
 function modelStatus(message,error=false){$('model-status').textContent=message;$('model-status').classList.toggle('error',error);}
 function modelTemperatureRange(){
   const extended=['4','7'].includes($('model-supplier').value);
@@ -333,14 +335,30 @@ function modelCatalogControls(){
   $('model-add').disabled=!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101;
   $('model-set-default').disabled=!secondary;$('model-delete').disabled=!secondary;
   $('model-check').disabled=modelRevision===null||modelRevision===0;
+  $('model-mapping-save').disabled=!modelCatalogActive||modelRevision===null||modelRevision===0||modelSelected==='new';
+}
+async function loadModelMappings(epoch,model){
+  const panel=$('model-mapping');panel.hidden=true;$('model-mapping-options').replaceChildren();
+  if(!modelCatalogActive||!model?.id||modelSelected==='new')return;
+  try{
+    const [spaces,mapped]=await Promise.all([api('/system/workspace'),api('/system/aimodel/'+encodeURIComponent(model.id)+'/ws_mapping')]);
+    if(!modelsVisible||epoch!==modelsEpoch)return;
+    const selected=new Set(mapped.map(String));
+    for(const space of spaces){
+      const label=node('label'),checkbox=node('input');checkbox.type='checkbox';checkbox.value=String(space.id);checkbox.checked=selected.has(String(space.id));
+      label.append(checkbox,node('span',space.name||String(space.id)));$('model-mapping-options').append(label);
+    }
+    if(!spaces.length)$('model-mapping-options').append(node('p',t('modelsMappingsEmpty')));
+    $('model-mapping-status').textContent='';$('model-mapping-status').classList.remove('error');panel.hidden=false;
+  }catch{if(modelsVisible&&epoch===modelsEpoch){panel.hidden=true;modelStatus(t('failed'),true);}}
 }
 async function loadModel(selected=modelSelected){
   if(!modelsVisible)return;
-  const epoch=++modelsEpoch;modelRevision=null;modelStatus(t('reading'));
+  const epoch=++modelsEpoch;modelRevision=null;$('model-mapping').hidden=true;modelStatus(t('reading'));
   try{
-    const catalog=await api('/agentsql/models');
+    const [catalog,state]=await Promise.all([api('/agentsql/models'),api('/agentsql/model/catalog-status')]);
     if(!modelsVisible||epoch!==modelsEpoch)return;
-    modelCatalog=catalog;
+    modelCatalog=catalog;modelCatalogActive=Boolean(state.active);
     if(selected!=='default'&&!catalog.some(item=>String(item.id)===selected))selected='default';
     modelSelected=selected;
     const picker=$('model-select');picker.replaceChildren();
@@ -357,6 +375,7 @@ async function loadModel(selected=modelSelected){
     $('model-name').value=model.name||'';$('model-base').value=model.base_model||'';
 	$('model-endpoint').value=model.api_domain||'';$('model-max-tokens').value=String(model.max_tokens||0);$('model-temperature').value=String(model.temperature??0);
     $('model-key').value='';$('model-key-state').textContent=t(model.has_api_key?'modelsKeySet':'modelsKeyEmpty');modelStatus('');
+    await loadModelMappings(epoch,model);
   }catch(error){if(modelsVisible&&epoch===modelsEpoch){
     if(error.status===404&&modelSelected==='default'){modelRevision=0;modelCatalogControls();$('model-form').reset();modelTemperatureRange();$('model-key-state').textContent=t('modelsKeyEmpty');modelStatus(t('modelsMissing'));}
     else modelStatus(t('failed'),true);
@@ -1158,8 +1177,23 @@ $('model-supplier').onchange=modelTemperatureRange;
 $('model-add').onclick=()=>{
   if(!modelCatalog.some(item=>item.default_model)||modelCatalog.length>=101)return;
   modelSelected='new';modelRevision=0;$('model-form').reset();modelTemperatureRange();$('model-key-state').textContent=t('modelsKeyEmpty');
+  $('model-mapping').hidden=true;
   const option=node('option',t('modelsNew'));option.value='new';$('model-select').append(option);$('model-select').value='new';
   modelCatalogControls();modelStatus('');
+};
+$('model-mapping-save').onclick=async()=>{
+  if(!modelsVisible||!modelCatalogActive||modelRevision<1)return;
+  const id=modelSelected==='default'?modelCatalog.find(item=>item.default_model)?.id:modelSelected;
+  if(!id)return;
+  const button=$('model-mapping-save');button.disabled=true;
+  try{
+    const spaces=[...$('model-mapping-options').querySelectorAll('input:checked')].map(input=>input.value);
+    await api('/system/aimodel/'+encodeURIComponent(id)+'/ws_mapping',spaces,'PUT');
+    await loadModel(modelSelected);
+    if(!modelsVisible||$('model-mapping').hidden)throw new Error(t('failed'));
+    $('model-mapping-status').textContent=t('modelsMappingsSaved');$('model-mapping-status').classList.remove('error');
+  }catch{$('model-mapping-status').textContent=t('failed');$('model-mapping-status').classList.add('error');}
+  finally{modelCatalogControls();}
 };
 $('model-set-default').onclick=async()=>{
   if(modelSelected==='default'||modelSelected==='new'||modelRevision<1)return;

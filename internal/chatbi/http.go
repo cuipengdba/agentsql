@@ -94,6 +94,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("PUT /api/v1/system/apikey/status", h.auth(h.accountAPIKeyStatus))
 	h.mux.HandleFunc("DELETE /api/v1/system/apikey/{id}", h.auth(h.accountAPIKeyDelete))
 	h.mux.HandleFunc("GET /api/v1/agentsql/model", h.auth(h.nativeWorkspaceModel))
+	h.mux.HandleFunc("GET /api/v1/agentsql/model/catalog-status", h.auth(h.nativeModelCatalogStatus))
 	h.mux.HandleFunc("POST /api/v1/agentsql/model", h.auth(h.nativeCreateWorkspaceModel))
 	h.mux.HandleFunc("PUT /api/v1/agentsql/model", h.auth(h.nativeUpdateWorkspaceModel))
 	h.mux.HandleFunc("POST /api/v1/agentsql/model/check", h.bounded(h.auth(h.nativeCheckWorkspaceModel)))

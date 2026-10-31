@@ -6,6 +6,23 @@ import (
 	"time"
 )
 
+func (h *Handler) nativeModelCatalogStatus(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, map[string]bool{"active": active})
+}
+
 func (h *Handler) nativeWorkspaceModel(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
