@@ -21,6 +21,7 @@ import tarfile
 import tempfile
 
 PINNED_KEY_SHA256 = "83d507dd59659aff490725184b2e65a5c1036181fc79c350028905df723a1542"
+POSTGRES_PREFLIGHT_SHA256 = "4cbab38eeb5b4db09e2a79c1ce4dd9bb5df23dc9e20eb6a27d3d3d1d79d7abc2"
 VERSION_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 MAX_DOCUMENT = 32 << 20
 MAX_PACKAGE = 2 << 30
@@ -157,6 +158,8 @@ def run(args):
         raise ValueError("invalid offline bundle layout or version")
     if os.geteuid() != 0 and not args.verify_only:
         raise ValueError("installation requires root; run with sudo")
+    if args.runtime_role is not None and not args.require_postgres_binder:
+        raise ValueError("--runtime-role requires --require-postgres-binder")
     openssl = shutil.which("openssl")
     if not openssl:
         raise ValueError("OpenSSL 3 is required for offline release signature verification")
@@ -200,6 +203,15 @@ def run(args):
                                 capture_output=True, text=True, timeout=300, check=False)
         if result.returncode != 0 or json.loads(result.stdout).get("status") != "verified":
             raise ValueError("release verifier rejected the offline assets")
+        if args.require_postgres_binder:
+            preflight = scratch / "check-postgres-binder.sh"
+            private_copy(root / "check-postgres-binder.sh", preflight, MAX_DOCUMENT)
+            if file_digest(preflight, MAX_DOCUMENT) != POSTGRES_PREFLIGHT_SHA256:
+                raise ValueError("PostgreSQL binder preflight differs from the pinned script")
+            command = ["sh", str(preflight)]
+            if args.runtime_role is not None:
+                command.extend(("--runtime-role", args.runtime_role))
+            subprocess.run(command, check=True, timeout=60)
         if args.verify_only:
             print("OFFLINE_RELEASE=VERIFIED version=" + version + " architecture=" + arch)
             return
@@ -217,6 +229,9 @@ def main():
     parser.add_argument("--trusted-public-key", help="independently obtained release key outside this bundle")
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--no-start", action="store_true")
+    parser.add_argument("--require-postgres-binder", action="store_true",
+                        help="check the configured PostgreSQL server and runtime role before installation")
+    parser.add_argument("--runtime-role", help="PostgreSQL runtime role to test via SET ROLE")
     args = parser.parse_args()
     try:
         run(args)

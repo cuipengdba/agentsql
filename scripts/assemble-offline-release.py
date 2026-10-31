@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 
 PINNED_KEY_SHA256 = "83d507dd59659aff490725184b2e65a5c1036181fc79c350028905df723a1542"
+POSTGRES_PREFLIGHT_SHA256 = "4cbab38eeb5b4db09e2a79c1ce4dd9bb5df23dc9e20eb6a27d3d3d1d79d7abc2"
 
 
 def assemble(args):
@@ -39,6 +40,8 @@ def assemble(args):
             (bundle / "VERSION").write_text(args.version + "\n", encoding="ascii")
             shutil.copyfile(Path(__file__).with_name("install-offline-release.py"), bundle / "install-offline.py")
             shutil.copyfile(Path(__file__).with_name("check-postgres-binder.sh"), bundle / "check-postgres-binder.sh")
+            if hashlib.sha256((bundle / "check-postgres-binder.sh").read_bytes()).hexdigest() != POSTGRES_PREFLIGHT_SHA256:
+                raise ValueError("PostgreSQL binder preflight differs from the pinned script")
             stage = bundle / "assets"
         else:
             stage = Path(staging) / "assets"
