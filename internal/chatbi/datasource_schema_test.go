@@ -293,7 +293,7 @@ func TestDatasourcePreviewRejectsRevocationAfterQuery(t *testing.T) {
 			}
 			gateway.afterQuery = func() {
 				if revoke == "binding" {
-					if err := service.Store.delete(context.Background(), bindingKey(p, "10"), 1); err != nil {
+					if err := service.Store.RevokeBinding(context.Background(), p.Workspace, p.User.ID, "10", "binding"); err != nil {
 						t.Fatal(err)
 					}
 				} else if err := service.Identity.Logout(context.Background(), token); err != nil {
