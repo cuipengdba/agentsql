@@ -62,7 +62,7 @@ if (-not $SkipSign) {
     if ($LASTEXITCODE -ne 0) { throw 'signing image build failed' }
     $selection = Join-Path $dist ('.sign-selection-' + [guid]::NewGuid().ToString('N'))
     try {
-        [System.IO.File]::WriteAllLines($selection, $freshArtifacts.ToArray(), [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($selection, (($freshArtifacts.ToArray() -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
         $selectionName = [System.IO.Path]::GetFileName($selection)
         docker run --rm --mount "type=bind,source=$dist,target=/out" agentsql-binder-dev-signer:0.4 /out "/out/$selectionName"
         if ($LASTEXITCODE -ne 0) { throw 'artifact signing or verification failed' }
