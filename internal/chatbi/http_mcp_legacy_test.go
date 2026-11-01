@@ -27,6 +27,73 @@ func decodeMCPData(body []byte, target any) error {
 	return json.Unmarshal(envelope.Data, target)
 }
 
+type mcpLanguageCaptureModel struct{ languages []string }
+
+func (m *mcpLanguageCaptureModel) Generate(ctx context.Context, _ ModelConfig, _, _ string, _ []Column) (SQLGeneration, error) {
+	m.languages = append(m.languages, questionLanguage(ctx))
+	return SQLGeneration{SQL: "SELECT amount FROM public.sales", TotalTokens: 1}, nil
+}
+
+func TestMCPQuestionLanguageOverrideIsRequestScoped(t *testing.T) {
+	service, p, gateway, _, token := serviceFixture(t)
+	model := &mcpLanguageCaptureModel{}
+	service.Model = model
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+	var chat struct {
+		Chat ID `json:"chat_id"`
+	}
+	if start.Code != http.StatusOK || decodeMCPData(start.Body.Bytes(), &chat) != nil {
+		t.Fatalf("MCP start: %d %s", start.Code, start.Body.String())
+	}
+	for _, tc := range []struct{ field, want string }{
+		{"", "Simplified Chinese"},
+		{`,"lang":"zh-CN"`, "Simplified Chinese"},
+		{`,"lang":"en"`, "English"},
+		{`,"lang":"zh-TW"`, "Traditional Chinese"},
+		{`,"lang":"ko-KR"`, "Korean"},
+		{`,"lang":"th-TH"`, "Thai"},
+		{`,"lang":null`, "Simplified Chinese"},
+		{`,"lang":"unsupported"`, "Simplified Chinese"},
+	} {
+		body := `{"token":"` + token + `","chat_id":` + string(chat.Chat) + `,"question":"amount?","stream":false` + tc.field + `}`
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", body, "")
+		if response.Code != http.StatusOK || len(model.languages) == 0 || model.languages[len(model.languages)-1] != tc.want {
+			t.Fatalf("language override %q: status=%d got=%v", tc.field, response.Code, model.languages)
+		}
+	}
+	current, err := service.Identity.Verify(context.Background(), token)
+	if err != nil || gateway.queries != len(model.languages) || current.User.Language != p.User.Language {
+		t.Fatalf("language requests changed identity or skipped query: calls=%d identity=%v", gateway.queries, err)
+	}
+	if response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(chat.Chat)+`,"question":"amount?","lang":42,"stream":false}`, ""); response.Code != http.StatusUnprocessableEntity || gateway.queries != len(model.languages) {
+		t.Fatalf("malformed language reached execution: %d", response.Code)
+	}
+}
+
+func TestMCPQuestionLanguageDefaultAndAccountFallback(t *testing.T) {
+	for _, tc := range []struct {
+		raw, stored, want string
+	}{
+		{"", "en", "zh-CN"},
+		{`null`, "en", "en"},
+		{`"invalid"`, "en-US", "en-US"},
+		{`"zh-TW"`, "en", "zh-TW"},
+		{`null`, "unknown", "zh-CN"},
+	} {
+		got, err := mcpQuestionLanguage(json.RawMessage(tc.raw), tc.stored)
+		if err != nil || got != tc.want {
+			t.Fatalf("raw=%s stored=%s: got %s, %v", tc.raw, tc.stored, got, err)
+		}
+	}
+	if _, err := mcpQuestionLanguage(json.RawMessage(`42`), "en"); err == nil {
+		t.Fatal("non-string language was accepted")
+	}
+}
+
 func TestMCPHelperTokenWorkspaceAndDatasourceListing(t *testing.T) {
 	service, p, _, _, oldToken := serviceFixture(t)
 	handler, err := NewHandler(service, "test")

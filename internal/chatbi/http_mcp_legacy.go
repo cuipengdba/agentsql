@@ -322,6 +322,28 @@ func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token str
 	return nil
 }
 
+// SQLBot defaults an omitted MCP lang to zh-CN. An explicit null or an
+// unsupported string uses the account language without persisting a change.
+func mcpQuestionLanguage(raw json.RawMessage, stored string) (string, error) {
+	if len(raw) == 0 {
+		return "zh-CN", nil
+	}
+	var requested *string
+	if err := json.Unmarshal(raw, &requested); err != nil {
+		return "", err
+	}
+	if requested != nil {
+		switch *requested {
+		case "zh-CN", "zh-TW", "en", "ko-KR", "th-TH":
+			return *requested, nil
+		}
+	}
+	if questionLanguageName(stored) != "" {
+		return stored, nil
+	}
+	return "zh-CN", nil
+}
+
 func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Token      string          `json:"token"`
@@ -331,6 +353,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		Custom     json.RawMessage `json:"custom_model"`
 		Stream     *bool           `json:"stream"`
 		ReturnImg  *bool           `json:"return_img"`
+		Lang       json.RawMessage `json:"lang"`
 	}
 	if !readBody(w, r, &input) {
 		return
@@ -346,6 +369,11 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	p, ok := h.mcpBodyPrincipal(w, r, input.Token, nil)
 	if !ok {
+		return
+	}
+	language, err := mcpQuestionLanguage(input.Lang, p.User.Language)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid language")
 		return
 	}
 	// A started MCP session may have chosen a different member workspace. Find
@@ -416,7 +444,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	check := func(ctx context.Context) error { return h.mcpCurrentIdentity(ctx, p, input.Token) }
-	record, err := h.service.AskWithModel(r.Context(), p, input.Chat, input.Question, selectedModel, check, nil)
+	record, err := h.service.AskWithModel(withQuestionLanguage(r.Context(), language), p, input.Chat, input.Question, selectedModel, check, nil)
 	if err != nil {
 		failure(w, err)
 		return
