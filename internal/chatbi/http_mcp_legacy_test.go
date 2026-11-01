@@ -530,7 +530,9 @@ func TestMCPQuestionRejectsRevokedWorkspaceMembership(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		body := `{"token":"` + token + `","chat_id":` + string(output.Chat) + `,"question":"sales?","stream":` + strconv.FormatBool(stream) + `}`
 		answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", body, "")
-		if answer.Code != http.StatusNotFound || gateway.queries != 0 || gateway.schemaCalls != 0 ||
+		var message string
+		if answer.Code != http.StatusBadRequest || json.Unmarshal(answer.Body.Bytes(), &message) != nil || message != "Chat ID is not exist" ||
+			gateway.queries != 0 || gateway.schemaCalls != 0 ||
 			strings.Contains(answer.Body.String(), "123") {
 			t.Fatalf("revoked workspace question reached data, stream=%t: %d %s", stream, answer.Code, answer.Body.String())
 		}
@@ -615,7 +617,9 @@ func TestMCPQuestionRejectsAnotherUsersChatBeforeGatewayAccess(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		body := `{"token":"` + otherToken + `","chat_id":` + string(output.Chat) + `,"question":"sales?","stream":` + strconv.FormatBool(stream) + `}`
 		denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", body, "")
-		if denied.Code != http.StatusNotFound || gateway.queries != 0 || gateway.schemaCalls != 0 ||
+		var message string
+		if denied.Code != http.StatusBadRequest || json.Unmarshal(denied.Body.Bytes(), &message) != nil || message != "Chat ID is not exist" ||
+			gateway.queries != 0 || gateway.schemaCalls != 0 ||
 			strings.Contains(denied.Body.String(), "sales?") || strings.Contains(denied.Body.String(), "123") {
 			t.Fatalf("foreign MCP chat reached data, stream=%t: %d %s", stream, denied.Code, denied.Body.String())
 		}
