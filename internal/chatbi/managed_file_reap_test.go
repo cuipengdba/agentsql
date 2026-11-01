@@ -5,6 +5,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +95,52 @@ func TestAbandonedManagedFileCleanupLeavesClaimedSource(t *testing.T) {
 	require.Zero(t, managed.deletes)
 	_, err = service.Store.get(ctx, key, &receipt)
 	require.NoError(t, err)
+}
+
+func TestAbandonedManagedFileCleanupResumesAfterStoreRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "chat.db")
+	secret := []byte(strings.Repeat("s", 32))
+	store, err := OpenStore(ctx, path, secret)
+	require.NoError(t, err)
+	p := Principal{User: User{ID: "1"}, Workspace: "1"}
+	base := Binding{Datasource: "10", Workspace: p.Workspace, User: p.User.ID,
+		Dialect: "pg", BindingID: "base-binding", ConnectorToken: "base-connector"}
+	require.NoError(t, store.put(ctx, bindingKey(p, "10"), base, 0))
+	created := time.Now().UTC().Add(-2 * time.Hour)
+	receipt := managedFileReceipt{OperationID: "22222222222222222222222222222222",
+		BindingID: "22222222-2222-4222-8222-222222222222",
+		DatasourceName: "agentsql-import-33333333333333333333333333333333",
+		ConnectorToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		Filename: "agentsql-file-restart.csv", Created: created}
+	key := managedFileReceiptKey(p, receipt.Filename)
+	require.NoError(t, store.put(ctx, key, receipt, 0))
+	stage := fileStage{FilePath: receipt.Filename, Original: "restart.csv",
+		Data: []byte("x\n1\n"), Expires: created.Add(time.Hour)}
+	require.NoError(t, store.put(ctx, fileStageKey(p), stage, 0))
+	managed := &fakeManagedFileGateway{fakeGateway: &fakeGateway{}, deleteErr: ErrGateway}
+	service := &Service{Store: store, Gateway: managed, ManagedFileDatasource: "10"}
+	count, err := service.ReapAbandonedManagedFiles(ctx, time.Now().UTC())
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, count)
+	require.NoError(t, store.Close())
+
+	store, err = OpenStore(ctx, path, secret)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	service.Store = store
+	_, err = store.get(ctx, key, &receipt)
+	require.NoError(t, err)
+	require.False(t, receipt.CleanupStarted.IsZero(), "the persisted cleanup fence survives a restart")
+	managed.deleteErr = nil
+	count, err = service.ReapAbandonedManagedFiles(ctx, time.Now().UTC())
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.Equal(t, 1, managed.deletes)
+	_, err = store.get(ctx, key, &receipt)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = store.get(ctx, fileStageKey(p), &stage)
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestAbandonedManagedFileScanRotatesFailedAttempts(t *testing.T) {
