@@ -120,6 +120,53 @@ func TestSQLBotWorkbookExportRequeriesAndFencesBeforeRelease(t *testing.T) {
 	}
 }
 
+func TestSQLBotWorkbookExportSuppressesInFlightRowRuleChange(t *testing.T) {
+	ctx := context.Background()
+	s, principal, gateway, _, token := serviceFixture(t)
+	chat, err := s.Start(ctx, principal, "10", "fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.Ask(ctx, principal, chat.ID, "amount", func(context.Context) error { return nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	rule := testActiveRowPermission(t, "east")
+	if err := s.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0); err != nil {
+		t.Fatal(err)
+	}
+	router, err := NewHandler(s, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeQueries := gateway.queries
+	gateway.afterQuery = func() {
+		changed := testActiveRowPermission(t, "west")
+		if err := s.Store.put(ctx, permissionRuleKey("1", changed.ID), changed, 1); err != nil {
+			t.Fatal(err)
+		}
+		gateway.afterQuery = nil
+	}
+	request := httptest.NewRequest(http.MethodGet,
+		"/api/v1/chat/record/"+string(record.ID)+"/excel/export/"+string(chat.ID), nil)
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code == http.StatusOK ||
+		response.Header().Get("Content-Type") == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+		bytes.HasPrefix(response.Body.Bytes(), []byte("PK\x03\x04")) ||
+		gateway.queries != beforeQueries+1 || !strings.Contains(gateway.lastQuery, "region = 'east'") {
+		t.Fatalf("in-flight row-rule change released a workbook: status=%d queries=%d sql=%q",
+			response.Code, gateway.queries-beforeQueries, gateway.lastQuery)
+	}
+	receipts, err := s.Store.list(ctx, "export-receipt", string(principal.Workspace), string(principal.User.ID))
+	if err != nil || len(receipts) != 0 {
+		t.Fatalf("denied workbook export created a receipt: %v, %d", err, len(receipts))
+	}
+}
+
 func TestCSVExportNeutralizesSpreadsheetFormulas(t *testing.T) {
 	data := QueryData{AuditID: 8, Fields: []string{"name", "=header"}, Data: []map[string]any{
 		{"name": "=1+1", "=header": "  @SUM(A1)"},
