@@ -372,9 +372,13 @@ func TestMCPQuestionRejectsRevokedWorkspaceMembership(t *testing.T) {
 	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
 		t.Fatal(err)
 	}
-	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
-	if answer.Code != http.StatusNotFound || gateway.queries != 0 || gateway.schemaCalls != 0 {
-		t.Fatalf("revoked workspace question reached data: %d %s", answer.Code, answer.Body.String())
+	for _, stream := range []bool{false, true} {
+		body := `{"token":"` + token + `","chat_id":` + string(output.Chat) + `,"question":"sales?","stream":` + strconv.FormatBool(stream) + `}`
+		answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", body, "")
+		if answer.Code != http.StatusNotFound || gateway.queries != 0 || gateway.schemaCalls != 0 ||
+			strings.Contains(answer.Body.String(), "123") {
+			t.Fatalf("revoked workspace question reached data, stream=%t: %d %s", stream, answer.Code, answer.Body.String())
+		}
 	}
 }
 
