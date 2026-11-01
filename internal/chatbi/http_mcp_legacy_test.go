@@ -10,7 +10,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func decodeMCPData(body []byte, target any) error {
@@ -33,6 +35,115 @@ type mcpLanguageCaptureModel struct{ languages []string }
 func (m *mcpLanguageCaptureModel) Generate(ctx context.Context, _ ModelConfig, _, _ string, _ []Column) (SQLGeneration, error) {
 	m.languages = append(m.languages, questionLanguage(ctx))
 	return SQLGeneration{SQL: "SELECT amount FROM public.sales", TotalTokens: 1}, nil
+}
+
+type mcpConcurrentLanguageModel struct {
+	arrived chan struct{ question, language string }
+	release map[string]chan struct{}
+}
+
+func (m *mcpConcurrentLanguageModel) Generate(ctx context.Context, _ ModelConfig, _, question string, _ []Column) (SQLGeneration, error) {
+	m.arrived <- struct{ question, language string }{question, questionLanguage(ctx)}
+	select {
+	case <-m.release[question]:
+		return SQLGeneration{SQL: "SELECT amount FROM public.sales", TotalTokens: 1}, nil
+	case <-ctx.Done():
+		return SQLGeneration{}, ctx.Err()
+	}
+}
+
+type mcpSerialGateway struct {
+	mu      sync.Mutex
+	gateway Gateway
+}
+
+func (g *mcpSerialGateway) Schema(ctx context.Context, p Principal, b Binding) ([]Column, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.gateway.Schema(ctx, p, b)
+}
+
+func (g *mcpSerialGateway) Query(ctx context.Context, p Principal, b Binding, sql string) (QueryData, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.gateway.Query(ctx, p, b, sql)
+}
+
+func TestMCPQuestionConcurrentLanguageOverridesStayIsolated(t *testing.T) {
+	service, p, gateway, _, token := serviceFixture(t)
+	if err := service.Identity.ChangeLanguage(context.Background(), p, "zh-CN"); err != nil {
+		t.Fatal(err)
+	}
+	service.Gateway = &mcpSerialGateway{gateway: gateway}
+	model := &mcpConcurrentLanguageModel{
+		arrived: make(chan struct{ question, language string }, 2),
+		release: map[string]chan struct{}{"english": make(chan struct{}), "thai": make(chan struct{})},
+	}
+	service.Model = model
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startChat := func() ID {
+		t.Helper()
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+		var chat struct {
+			Chat ID `json:"chat_id"`
+		}
+		if response.Code != http.StatusOK || decodeMCPData(response.Body.Bytes(), &chat) != nil {
+			t.Fatalf("MCP start: %d %s", response.Code, response.Body.String())
+		}
+		return chat.Chat
+	}
+	chatEnglish, chatThai := startChat(), startChat()
+	type result struct {
+		question string
+		response *httptest.ResponseRecorder
+	}
+	finished := make(chan result, 2)
+	ask := func(question, language string, chat ID) {
+		body := `{"token":"` + token + `","chat_id":` + string(chat) + `,"question":"` + question + `","lang":"` + language + `","stream":true}`
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/mcp_question", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		finished <- result{question, response}
+	}
+	go ask("english", "en", chatEnglish)
+	go ask("thai", "th-TH", chatThai)
+	seen := map[string]string{}
+	for range 2 {
+		select {
+		case event := <-model.arrived:
+			seen[event.question] = event.language
+		case <-time.After(10 * time.Second):
+			t.Fatal("parallel MCP questions did not both reach the model")
+		}
+	}
+	if seen["english"] != "English" || seen["thai"] != "Thai" {
+		t.Fatalf("concurrent model languages crossed: %#v", seen)
+	}
+	close(model.release["thai"])
+	close(model.release["english"])
+	responses := map[string]*httptest.ResponseRecorder{}
+	for range 2 {
+		select {
+		case done := <-finished:
+			responses[done.question] = done.response
+		case <-time.After(10 * time.Second):
+			t.Fatal("parallel MCP questions did not complete")
+		}
+	}
+	for question, heading := range map[string]string{"english": "> Answer ID: ", "thai": "> รหัสการตอบกลับ: "} {
+		response := responses[question]
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), heading) {
+			t.Fatalf("%s response language: %d %s", question, response.Code, response.Body.String())
+		}
+	}
+	current, err := service.Identity.Verify(context.Background(), token)
+	if err != nil || current.User.Language != "zh-CN" || gateway.queries != 2 {
+		t.Fatalf("concurrent language changed stored identity or skipped query: language=%s queries=%d err=%v", current.User.Language, gateway.queries, err)
+	}
 }
 
 func TestMCPQuestionLanguageOverrideIsRequestScoped(t *testing.T) {
