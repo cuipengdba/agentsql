@@ -322,9 +322,9 @@ func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token str
 	return nil
 }
 
-// SQLBot defaults an omitted MCP lang to zh-CN. An explicit null or an
-// unsupported string uses the account language without persisting a change.
-func mcpQuestionLanguage(raw json.RawMessage, stored string) (string, error) {
+// SQLBot's MCP get_user resets the transient session language to zh-CN before
+// mcp_question applies a recognized override. Never persist this setting.
+func mcpQuestionLanguage(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
 		return "zh-CN", nil
 	}
@@ -337,9 +337,6 @@ func mcpQuestionLanguage(raw json.RawMessage, stored string) (string, error) {
 		case "zh-CN", "zh-TW", "en", "ko-KR", "th-TH":
 			return *requested, nil
 		}
-	}
-	if questionLanguageName(stored) != "" {
-		return stored, nil
 	}
 	return "zh-CN", nil
 }
@@ -371,7 +368,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	language, err := mcpQuestionLanguage(input.Lang, p.User.Language)
+	language, err := mcpQuestionLanguage(input.Lang)
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid language")
 		return

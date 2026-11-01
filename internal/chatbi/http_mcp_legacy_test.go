@@ -36,6 +36,9 @@ func (m *mcpLanguageCaptureModel) Generate(ctx context.Context, _ ModelConfig, _
 
 func TestMCPQuestionLanguageOverrideIsRequestScoped(t *testing.T) {
 	service, p, gateway, _, token := serviceFixture(t)
+	if err := service.Identity.ChangeLanguage(context.Background(), p, "en"); err != nil {
+		t.Fatal(err)
+	}
 	model := &mcpLanguageCaptureModel{}
 	service.Model = model
 	handler, err := NewHandler(service, "test")
@@ -66,7 +69,7 @@ func TestMCPQuestionLanguageOverrideIsRequestScoped(t *testing.T) {
 		}
 	}
 	current, err := service.Identity.Verify(context.Background(), token)
-	if err != nil || gateway.queries != len(model.languages) || current.User.Language != p.User.Language {
+	if err != nil || gateway.queries != len(model.languages) || current.User.Language != "en" {
 		t.Fatalf("language requests changed identity or skipped query: calls=%d identity=%v", gateway.queries, err)
 	}
 	if response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(chat.Chat)+`,"question":"amount?","lang":42,"stream":false}`, ""); response.Code != http.StatusUnprocessableEntity || gateway.queries != len(model.languages) {
@@ -74,22 +77,21 @@ func TestMCPQuestionLanguageOverrideIsRequestScoped(t *testing.T) {
 	}
 }
 
-func TestMCPQuestionLanguageDefaultAndAccountFallback(t *testing.T) {
+func TestMCPQuestionLanguageDefaultAndUnsupportedFallback(t *testing.T) {
 	for _, tc := range []struct {
-		raw, stored, want string
+		raw, want string
 	}{
-		{"", "en", "zh-CN"},
-		{`null`, "en", "en"},
-		{`"invalid"`, "en-US", "en-US"},
-		{`"zh-TW"`, "en", "zh-TW"},
-		{`null`, "unknown", "zh-CN"},
+		{"", "zh-CN"},
+		{`null`, "zh-CN"},
+		{`"invalid"`, "zh-CN"},
+		{`"zh-TW"`, "zh-TW"},
 	} {
-		got, err := mcpQuestionLanguage(json.RawMessage(tc.raw), tc.stored)
+		got, err := mcpQuestionLanguage(json.RawMessage(tc.raw))
 		if err != nil || got != tc.want {
-			t.Fatalf("raw=%s stored=%s: got %s, %v", tc.raw, tc.stored, got, err)
+			t.Fatalf("raw=%s: got %s, %v", tc.raw, got, err)
 		}
 	}
-	if _, err := mcpQuestionLanguage(json.RawMessage(`42`), "en"); err == nil {
+	if _, err := mcpQuestionLanguage(json.RawMessage(`42`)); err == nil {
 		t.Fatal("non-string language was accepted")
 	}
 }
