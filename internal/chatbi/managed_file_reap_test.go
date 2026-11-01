@@ -109,10 +109,10 @@ func TestAbandonedManagedFileCleanupResumesAfterStoreRestart(t *testing.T) {
 	require.NoError(t, store.put(ctx, bindingKey(p, "10"), base, 0))
 	created := time.Now().UTC().Add(-2 * time.Hour)
 	receipt := managedFileReceipt{OperationID: "22222222222222222222222222222222",
-		BindingID: "22222222-2222-4222-8222-222222222222",
+		BindingID:      "22222222-2222-4222-8222-222222222222",
 		DatasourceName: "agentsql-import-33333333333333333333333333333333",
 		ConnectorToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-		Filename: "agentsql-file-restart.csv", Created: created}
+		Filename:       "agentsql-file-restart.csv", Created: created}
 	key := managedFileReceiptKey(p, receipt.Filename)
 	require.NoError(t, store.put(ctx, key, receipt, 0))
 	stage := fileStage{FilePath: receipt.Filename, Original: "restart.csv",
