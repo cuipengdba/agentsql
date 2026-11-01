@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -110,5 +111,71 @@ func TestOriginalUserImportTemplateAndBoundedBatch(t *testing.T) {
 	}
 	if failed, err := readSemanticWorkbook(errors.Body.Bytes(), 9); err != nil || len(failed) != 3 || failed[0][0] != "imported_admin" || failed[1][0] != "imported_member" || failed[2][0] != "external_member" {
 		t.Fatalf("user import error workbook invalid: %v %+v", err, failed)
+	}
+}
+
+func TestOriginalUserBatchImportLegacyXLSAndNegativeCases(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	handler.(*Handler).initialUserPassword = "Synthetic-import-password-4"
+	workbook, err := os.ReadFile("testdata/user-import-members.xls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := func(token, filename string, contents []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, err := form.CreateFormFile("file", filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(contents); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/user/batchImport", &body)
+		request.Header.Set("Content-Type", form.FormDataContentType())
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	if denied := upload(memberToken, "users.xls", workbook); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member imported users: %d", denied.Code)
+	}
+	for _, sample := range []struct {
+		name string
+		data []byte
+	}{
+		{"users.csv", workbook},
+		{"users.xls", []byte("not an XLS workbook")},
+		{"users.xls", workbook[:len(workbook)/2]},
+	} {
+		if response := upload(adminToken, sample.name, sample.data); response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid %s accepted: %d %s", sample.name, response.Code, response.Body.String())
+		}
+	}
+	response := upload(adminToken, "users.xls", workbook)
+	var report struct {
+		Data struct {
+			SuccessCount int `json:"successCount"`
+			ErrorCount   int `json:"errorCount"`
+		} `json:"data"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &report) != nil ||
+		report.Data.SuccessCount != 1 || report.Data.ErrorCount != 1 {
+		t.Fatalf("unexpected legacy import: %d %s", response.Code, response.Body.String())
+	}
+	var id ID
+	if _, err := service.Store.get(context.Background(), service.Store.accountKey("xls_member"), &id); err != nil {
+		t.Fatalf("legacy member missing: %v", err)
+	}
+	if _, _, err := service.Identity.Login(context.Background(), "xls_member", "Synthetic-import-password-4"); err != nil {
+		t.Fatalf("legacy member could not log in: %v", err)
+	}
+	if _, err := service.Store.get(context.Background(), service.Store.accountKey("xls_admin"), &id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("legacy import created an administrator: %v", err)
 	}
 }

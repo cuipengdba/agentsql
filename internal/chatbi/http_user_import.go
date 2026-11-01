@@ -125,14 +125,26 @@ func (h *Handler) legacyUserBatchImport(w http.ResponseWriter, r *http.Request, 
 		writeJSON(w, http.StatusConflict, "Configure AGENTSQL_CHATBI_INITIAL_USER_PASSWORD before importing users")
 		return
 	}
-	data, err := readSemanticUpload(w, r)
-	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized XLSX upload")
+	filename, data, err := readFileUpload(w, r)
+	if err != nil || !strings.HasSuffix(strings.ToLower(filename), ".xlsx") && !strings.HasSuffix(strings.ToLower(filename), ".xls") {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized XLS/XLSX upload")
 		return
 	}
-	rows, err := readSemanticWorkbook(data, 8)
+	var rows [][]string
+	if strings.HasSuffix(strings.ToLower(filename), ".xls") {
+		var sheets []FileSheet
+		sheets, err = parseFileImport(filename, data)
+		if err == nil && len(sheets) == 0 {
+			err = errSemanticWorkbook
+		}
+		if err == nil {
+			rows = sheets[0].Rows
+		}
+	} else {
+		rows, err = readSemanticWorkbook(data, 8)
+	}
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported XLSX workbook")
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported XLS/XLSX workbook")
 		return
 	}
 	options, err := h.service.allWorkspaceOptions(r.Context())
