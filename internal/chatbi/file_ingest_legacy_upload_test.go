@@ -7,10 +7,97 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type fakeXLSManagedGateway struct {
+	*fakeManagedFileGateway
+	expected []byte
+	calls    int
+}
+
+func (gateway *fakeXLSManagedGateway) ImportFile(_ context.Context, _ Principal, _ Binding,
+	stage fileStage, _ FileImportRequest, plan fileImportPlan) (managedFileImportResult, error) {
+	gateway.calls++
+	if !bytes.Equal(stage.Data, gateway.expected) || len(plan.Sheets) != 1 ||
+		plan.Sheets[0].Name != "Sales" || len(plan.Sheets[0].Rows) != 2 ||
+		plan.Sheets[0].Rows[1][0] != "west" {
+		return managedFileImportResult{}, ErrGateway
+	}
+	return managedFileImportResult{OperationID: "22222222222222222222222222222222",
+		ChildBindingID: "22222222-2222-4222-8222-222222222222",
+		ChildName:      "agentsql-import-33333333333333333333333333333333",
+		ConnectorToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		Sheets: []importedFileSheet{{SheetName: "Sales",
+			TableName: "agentsql_file_11111111111111111111111111111111", Rows: 2}}}, nil
+}
+
+func TestOriginalUploadExcelLegacyXLSUsesScopedManagedGateway(t *testing.T) {
+	ctx := context.Background()
+	service, principal, fake, _, token := serviceFixture(t)
+	service.ManagedFileDatasource = "10"
+	workbook, err := os.ReadFile("testdata/file-import-sales.xls")
+	require.NoError(t, err)
+	managed := &fakeXLSManagedGateway{fakeManagedFileGateway: &fakeManagedFileGateway{fakeGateway: fake}, expected: workbook}
+	service.Gateway = managed
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	upload := func(filename, bearer string, data []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, createErr := form.CreateFormFile("file", filename)
+		require.NoError(t, createErr)
+		_, createErr = part.Write(data)
+		require.NoError(t, createErr)
+		require.NoError(t, form.Close())
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/uploadExcel", &body)
+		request.Header.Set("Content-Type", form.FormDataContentType())
+		if bearer != "" {
+			request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+bearer)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	require.Equal(t, http.StatusUnauthorized, upload("sales.xls", "", workbook).Code)
+	require.Equal(t, http.StatusUnauthorized, upload("sales.xls", token, workbook).Code)
+	require.Zero(t, managed.calls)
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Admin = true
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	principal, err = service.Identity.Verify(ctx, token)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusUnprocessableEntity, upload("sales.xls", token, workbook[:8]).Code)
+	require.Equal(t, http.StatusUnprocessableEntity, upload("sales.csv", token, workbook).Code)
+	require.Zero(t, managed.calls)
+	response := upload("sales.xls", token, workbook)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var result struct {
+		Data struct {
+			Filename string              `json:"filename"`
+			Sheets   []importedFileSheet `json:"sheets"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+	require.Len(t, result.Data.Sheets, 1)
+	require.Equal(t, "Sales", result.Data.Sheets[0].SheetName)
+	require.Equal(t, 2, result.Data.Sheets[0].Rows)
+	require.Equal(t, 1, managed.calls)
+	var receipt managedFileReceipt
+	_, err = service.Store.get(ctx, managedFileReceiptKey(principal, result.Data.Filename), &receipt)
+	require.NoError(t, err)
+	require.Equal(t, result.Data.Sheets, receipt.Sheets)
+	var stage fileStage
+	_, err = service.Store.get(ctx, fileStageKey(principal), &stage)
+	require.NoError(t, err)
+	require.Equal(t, workbook, stage.Data)
+	require.Equal(t, ".xls", stage.FilePath[len(stage.FilePath)-4:])
+}
 
 func TestOriginalUploadExcelUsesManagedImportAndFailsClosed(t *testing.T) {
 	ctx := context.Background()
