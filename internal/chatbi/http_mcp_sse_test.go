@@ -14,7 +14,7 @@ import (
 )
 
 func TestLegacyMCPSSEUsesCheckedHelperRoutes(t *testing.T) {
-	service, _, gateway, _, token := serviceFixture(t)
+	service, p, gateway, _, token := serviceFixture(t)
 	handler, err := NewHandler(service, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +109,39 @@ func TestLegacyMCPSSEUsesCheckedHelperRoutes(t *testing.T) {
 	}
 	if anonymous := call("mcp_model_list", map[string]any{"oid": 1}); !anonymous.IsError {
 		t.Fatal("anonymous MCP model enumeration succeeded")
+	}
+	user, revision, err := service.Store.User(ctx, p.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Memberships = append(user.Memberships, Membership{Workspace: "2", Name: "Two"})
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	switched := call("mcp_start", map[string]any{"token": token, "oid": "2"})
+	var switchedChat struct {
+		Data struct {
+			Chat ID `json:"chat_id"`
+		} `json:"data"`
+	}
+	if switched.IsError || json.Unmarshal([]byte(text(switched)), &switchedChat) != nil || !switchedChat.Data.Chat.Valid() {
+		t.Fatal("could not start MCP session in second workspace")
+	}
+	user, revision, err = service.Store.User(ctx, p.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Memberships = user.Memberships[:1]
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	beforeSchema, beforeQueries := gateway.schemaCalls, gateway.queries
+	for _, stream := range []bool{false, true} {
+		denied := call("mcp_question", map[string]any{"token": token, "chat_id": string(switchedChat.Data.Chat), "question": "sales?", "stream": stream})
+		if !denied.IsError || gateway.schemaCalls != beforeSchema || gateway.queries != beforeQueries ||
+			strings.Contains(text(denied), "123") {
+			t.Fatalf("revoked workspace reached gateway through SSE tool, stream=%t", stream)
+		}
 	}
 }
 
