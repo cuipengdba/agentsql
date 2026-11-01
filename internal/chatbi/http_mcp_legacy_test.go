@@ -49,19 +49,19 @@ func TestMCPQuestionLanguageOverrideIsRequestScoped(t *testing.T) {
 	if start.Code != http.StatusOK || decodeMCPData(start.Body.Bytes(), &chat) != nil {
 		t.Fatalf("MCP start: %d %s", start.Code, start.Body.String())
 	}
-	for _, tc := range []struct{ field, want string }{
-		{"", "Simplified Chinese"},
-		{`,"lang":"zh-CN"`, "Simplified Chinese"},
-		{`,"lang":"en"`, "English"},
-		{`,"lang":"zh-TW"`, "Traditional Chinese"},
-		{`,"lang":"ko-KR"`, "Korean"},
-		{`,"lang":"th-TH"`, "Thai"},
-		{`,"lang":null`, "Simplified Chinese"},
-		{`,"lang":"unsupported"`, "Simplified Chinese"},
+	for _, tc := range []struct{ field, want, heading string }{
+		{"", "Simplified Chinese", "> 响应ID: "},
+		{`,"lang":"zh-CN"`, "Simplified Chinese", "> 响应ID: "},
+		{`,"lang":"en"`, "English", "> Answer ID: "},
+		{`,"lang":"zh-TW"`, "Traditional Chinese", "> 響應ID: "},
+		{`,"lang":"ko-KR"`, "Korean", "> 응답 ID: "},
+		{`,"lang":"th-TH"`, "Thai", "> รหัสการตอบกลับ: "},
+		{`,"lang":null`, "Simplified Chinese", "> 响应ID: "},
+		{`,"lang":"unsupported"`, "Simplified Chinese", "> 响应ID: "},
 	} {
-		body := `{"token":"` + token + `","chat_id":` + string(chat.Chat) + `,"question":"amount?","stream":false` + tc.field + `}`
+		body := `{"token":"` + token + `","chat_id":` + string(chat.Chat) + `,"question":"amount?","stream":true` + tc.field + `}`
 		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", body, "")
-		if response.Code != http.StatusOK || len(model.languages) == 0 || model.languages[len(model.languages)-1] != tc.want {
+		if response.Code != http.StatusOK || len(model.languages) == 0 || model.languages[len(model.languages)-1] != tc.want || !strings.Contains(response.Body.String(), tc.heading) {
 			t.Fatalf("language override %q: status=%d got=%v", tc.field, response.Code, model.languages)
 		}
 	}
@@ -349,7 +349,7 @@ func TestMCPQuestionUsesControlledAuditedResultForJSONAndStream(t *testing.T) {
 	streamChat := start()
 	stream := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(streamChat)+`,"question":"sales?"}`, "")
 	if stream.Code != http.StatusOK || !strings.HasPrefix(stream.Header().Get("Content-Type"), "text/event-stream") ||
-		!strings.Contains(stream.Body.String(), "Record ID:") || !strings.Contains(stream.Body.String(), "| amount | note |") ||
+		!strings.Contains(stream.Body.String(), "响应ID:") || !strings.Contains(stream.Body.String(), "| amount | note |") ||
 		!strings.Contains(stream.Body.String(), `\[open\](https://attacker.invalid)\|&lt;img src=x&gt; next`) ||
 		strings.Contains(stream.Body.String(), "<img") || strings.Contains(stream.Body.String(), `"fields":`) || gateway.queries != 2 {
 		t.Fatalf("MCP stream answer did not use audited path: %d %s", stream.Code, stream.Body.String())

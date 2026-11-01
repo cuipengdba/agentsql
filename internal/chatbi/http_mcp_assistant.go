@@ -161,7 +161,7 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 	for strings.Contains(record.SQL, fence) {
 		fence += "`"
 	}
-	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n%ssql\n%s\n%s\n\n", record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
+	_, _ = fmt.Fprintf(w, "> %s%s\n> %s\n\n%ssql\n%s\n%s\n\n", mcpRecordHeading("zh-CN"), record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
 	if record.Data != nil {
 		_, _ = io.WriteString(w, mcpMarkdownTable(*record.Data))
 	}

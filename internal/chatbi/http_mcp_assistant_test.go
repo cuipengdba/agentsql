@@ -85,7 +85,7 @@ func TestMCPAssistantOneRegisteredCatalogSourceUsesControlledQuery(t *testing.T)
 	input.Stream = nil
 	streamed := assistantCatalogRequest(t, handler, input)
 	if streamed.Code != http.StatusOK || !strings.Contains(streamed.Header().Get("Content-Type"), "text/event-stream") ||
-		!strings.Contains(streamed.Body.String(), "> Record ID:") ||
+		!strings.Contains(streamed.Body.String(), "> 响应ID:") ||
 		!strings.Contains(streamed.Body.String(), "| amount |") ||
 		strings.Contains(streamed.Body.String(), "data:{") ||
 		strings.Contains(streamed.Body.String(), "must-not-leak") || gateway.queries != 2 {

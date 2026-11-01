@@ -475,9 +475,26 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	for strings.Contains(record.SQL, fence) {
 		fence += "`"
 	}
-	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n%ssql\n%s\n%s\n\n", record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
+	_, _ = fmt.Fprintf(w, "> %s%s\n> %s\n\n%ssql\n%s\n%s\n\n", mcpRecordHeading(language), record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
 	if record.Data != nil {
 		_, _ = io.WriteString(w, mcpMarkdownTable(*record.Data))
+	}
+}
+
+// Labels are pinned to SQLBot Community v1.10.3 backend/locales. Keeping the
+// lookup fixed also prevents a client-supplied locale from injecting Markdown.
+func mcpRecordHeading(language string) string {
+	switch language {
+	case "zh-TW":
+		return "響應ID: "
+	case "en", "en-US":
+		return "Answer ID: "
+	case "ko-KR":
+		return "응답 ID: "
+	case "th-TH":
+		return "รหัสการตอบกลับ: "
+	default:
+		return "响应ID: "
 	}
 }
 
