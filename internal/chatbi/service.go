@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,6 +110,76 @@ func tableChartConfig(fields []string) string {
 	})
 	if err != nil {
 		return ""
+	}
+	return string(raw)
+}
+
+// chartConfigForQuestion selects a visualization only when the request names a
+// chart type and the controlled result has one category and one numeric field.
+// The saved configuration contains field names, never query rows.
+func chartConfigForQuestion(question string, data *QueryData) string {
+	q := strings.ToLower(question)
+	types := []struct {
+		name  string
+		terms []string
+	}{
+		{"bar", []string{"bar chart", "horizontal bar", "条形图"}},
+		{"column", []string{"column chart", "柱状图"}},
+		{"line", []string{"line chart", "折线图"}},
+		{"pie", []string{"pie chart", "饼图"}},
+	}
+	kind := ""
+	for _, candidate := range types {
+		for _, term := range candidate.terms {
+			if strings.Contains(q, term) {
+				if kind != "" && kind != candidate.name {
+					return tableChartConfig(data.Fields)
+				}
+				kind = candidate.name
+				break
+			}
+		}
+	}
+	if kind == "" || len(data.Fields) != 2 || len(data.FieldsInfo) != 2 {
+		return tableChartConfig(data.Fields)
+	}
+	var category, measure string
+	for i, field := range data.Fields {
+		if data.FieldsInfo[i].Name != field {
+			return tableChartConfig(data.Fields)
+		}
+		if !data.FieldsInfo[i].Numeric && len(data.Data) > 0 {
+			numeric := true
+			for _, row := range data.Data {
+				value := strings.TrimSpace(fmt.Sprint(row[field]))
+				n, err := strconv.ParseFloat(value, 64)
+				if value == "" || err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+					numeric = false
+					break
+				}
+			}
+			data.FieldsInfo[i].Numeric = numeric
+		}
+		if data.FieldsInfo[i].Numeric {
+			measure = field
+		} else {
+			category = field
+		}
+	}
+	if category == "" || measure == "" {
+		return tableChartConfig(data.Fields)
+	}
+	axis := map[string]any{}
+	if kind == "pie" {
+		axis["y"] = map[string]string{"name": measure, "value": measure}
+		axis["series"] = map[string]string{"name": category, "value": category}
+	} else {
+		axis["x"] = map[string]string{"name": category, "value": category}
+		axis["y"] = []map[string]string{{"name": measure, "value": measure}}
+	}
+	raw, err := json.Marshal(map[string]any{"type": kind, "title": "", "axis": axis})
+	if err != nil {
+		return tableChartConfig(data.Fields)
 	}
 	return string(raw)
 }
@@ -753,7 +825,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			return err
 		}
 		record.Data = &data
-		record.Chart = tableChartConfig(data.Fields)
+		record.Chart = chartConfigForQuestion(question, &data)
 		return nil
 	}
 	runErr := run()
