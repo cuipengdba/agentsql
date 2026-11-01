@@ -9,6 +9,8 @@ import (
 func TestExplicitChartIntentUsesOnlyControlledResultMetadata(t *testing.T) {
 	for _, tc := range []struct{ question, kind string }{
 		{"Show amount by region as a bar chart", "bar"},
+		{"按地区画横向柱状图", "bar"},
+		{"按地区画水平柱状图", "bar"},
 		{"按地区画柱状图", "column"},
 		{"Show trend as a line chart", "line"},
 		{"Show share as a pie chart", "pie"},
@@ -44,6 +46,7 @@ func TestAmbiguousOrUnverifiedChartFallsBackToTable(t *testing.T) {
 	}{
 		{"Show amount by region", []string{"region", "amount"}, []map[string]any{{"region": "east", "amount": "10"}}},
 		{"Show a bar chart and a pie chart", []string{"region", "amount"}, []map[string]any{{"region": "east", "amount": "10"}}},
+		{"同时画横向柱状图和饼图", []string{"region", "amount"}, []map[string]any{{"region": "east", "amount": "10"}}},
 		{"Show a bar chart", []string{"region", "amount"}, []map[string]any{{"region": "east", "amount": "not-a-number"}}},
 		{"Show a bar chart", []string{"region", "amount"}, nil},
 		{"Show a bar chart", []string{"region", "amount", "other"}, []map[string]any{{"region": "east", "amount": "10", "other": "20"}}},

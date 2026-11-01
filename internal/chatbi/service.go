@@ -119,6 +119,7 @@ func tableChartConfig(fields []string) string {
 // The saved configuration contains field names, never query rows.
 func chartConfigForQuestion(question string, data *QueryData) string {
 	q := strings.ToLower(question)
+	q = strings.NewReplacer("横向柱状图", "条形图", "水平柱状图", "条形图").Replace(q)
 	types := []struct {
 		name  string
 		terms []string
