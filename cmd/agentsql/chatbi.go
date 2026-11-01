@@ -67,6 +67,35 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 		if assistantOnly {
 			handler = chatbi.AssistantOnlyHandler(handler)
 		}
+		if !assistantOnly && service.ManagedFileDatasource != "" {
+			reaperCtx, stopReaper := context.WithCancel(ctx)
+			reaperDone := make(chan struct{})
+			defer func() {
+				stopReaper()
+				<-reaperDone
+			}()
+			go func() {
+				defer close(reaperDone)
+				ticker := time.NewTicker(10 * time.Minute)
+				defer ticker.Stop()
+				for {
+					cleanupCtx, cancel := context.WithTimeout(reaperCtx, 5*time.Minute)
+					count, reapErr := service.ReapAbandonedManagedFiles(cleanupCtx, time.Now().UTC())
+					cancel()
+					if reapErr != nil {
+						logger.Error().Err(reapErr).Msg("ChatBI abandoned file import cleanup failed")
+					}
+					if count > 0 {
+						logger.Info().Int("count", count).Msg("ChatBI abandoned file imports cleaned")
+					}
+					select {
+					case <-reaperCtx.Done():
+						return
+					case <-ticker.C:
+					}
+				}
+			}()
+		}
 		server := &http.Server{Addr: config.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 		servers := []*http.Server{server}
 		if !assistantOnly && config.LegacyMCPListen != "" {

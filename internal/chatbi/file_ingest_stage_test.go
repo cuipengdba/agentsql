@@ -19,15 +19,20 @@ import (
 
 type fakeManagedFileGateway struct {
 	*fakeGateway
-	calls   int
-	deletes int
-	columns []Column
+	calls     int
+	deletes   int
+	deleteErr error
+	columns   []Column
 }
 
 func (gateway *fakeManagedFileGateway) DeleteFile(_ context.Context, _ Principal, binding Binding, operationID string) error {
 	if binding.BindingID != "22222222-2222-4222-8222-222222222222" ||
+		binding.ResolveName != "agentsql-import-33333333333333333333333333333333" ||
 		operationID != "22222222222222222222222222222222" {
 		return ErrGateway
+	}
+	if gateway.deleteErr != nil {
+		return gateway.deleteErr
 	}
 	gateway.deletes++
 	return nil

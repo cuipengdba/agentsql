@@ -70,7 +70,7 @@ func (h *Handler) claimNativeFileDatasource(w http.ResponseWriter, r *http.Reque
 	}
 	var receipt managedFileReceipt
 	_, err := h.service.Store.get(r.Context(), managedFileReceiptKey(p, request.FilePath), &receipt)
-	if err != nil || receipt.ClaimedDatasource != "" || receipt.Filename != request.FilePath {
+	if err != nil || receipt.ClaimedDatasource != "" || !receipt.CleanupStarted.IsZero() || receipt.Filename != request.FilePath {
 		failure(w, ErrNotFound)
 		return
 	}
@@ -123,7 +123,7 @@ func (h *Handler) createExcelDatasource(w http.ResponseWriter, r *http.Request, 
 	}
 	var receipt managedFileReceipt
 	revision, err := h.service.Store.get(r.Context(), managedFileReceiptKey(p, filename), &receipt)
-	if err != nil || receipt.ClaimedDatasource != "" || receipt.Filename != filename ||
+	if err != nil || receipt.ClaimedDatasource != "" || !receipt.CleanupStarted.IsZero() || receipt.Filename != filename ||
 		!managedFileOperationPattern.MatchString(receipt.OperationID) ||
 		!managedFileChildNamePattern.MatchString(receipt.DatasourceName) || receipt.BindingID == "" ||
 		!reflect.DeepEqual(configuredSheets, receipt.Sheets) || len(input.Tables) == 0 || len(input.Tables) > len(receipt.Sheets) {
