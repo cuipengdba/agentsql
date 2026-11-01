@@ -589,6 +589,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 	if len(chat.Records) >= 200 {
 		return Record{}, errors.New("conversation record limit reached")
 	}
+	firstMCPQuestion := chat.Origin == 1 && len(chat.Records) == 0
 	// The chat is scoped to the authenticated principal. Send only successful
 	// questions and SQL from this same datasource; never send result rows or
 	// failed/interrupted attempts back to the model.
@@ -769,6 +770,13 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		record.Chart = ""
 	}
 	chat.Records[len(chat.Records)-1] = record
+	if runErr == nil && firstMCPQuestion {
+		brief := []rune(strings.TrimSpace(question))
+		if len(brief) > 20 {
+			brief = brief[:20]
+		}
+		chat.Brief = string(brief)
+	}
 	chat.LeaseUntil = time.Time{}
 	chat.Latest = finished
 	// A cancelled client still gets a durable interrupted state, bounded to 5s.

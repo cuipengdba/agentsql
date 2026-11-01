@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -451,10 +452,22 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := map[string]any{"success": true, "record_id": json.Number(record.ID), "sql": record.SQL}
-	if record.Data != nil {
-		result["data"] = map[string]any{"fields": record.Data.Fields, "data": record.Data.Data, "fields_info": record.Data.FieldsInfo}
+	if len(chat.Records) == 0 {
+		brief := []rune(strings.TrimSpace(input.Question))
+		if len(brief) > 20 {
+			brief = brief[:20]
+		}
+		result["title"] = string(brief)
 	}
-	if record.Chart != "" && (input.ReturnImg == nil || *input.ReturnImg) {
+	if record.Data != nil {
+		result["data"] = map[string]any{
+			"fields": record.Data.Fields, "data": record.Data.Data, "fields_info": record.Data.FieldsInfo,
+			"sql":        base64.StdEncoding.EncodeToString([]byte(record.SQL)),
+			"datasource": legacyBrowserID(record.Datasource),
+		}
+	}
+	// SQLBot's return_img controls the optional rendered image, not chart JSON.
+	if record.Chart != "" {
 		var chart any
 		if json.Unmarshal([]byte(record.Chart), &chart) == nil {
 			result["chart"] = chart

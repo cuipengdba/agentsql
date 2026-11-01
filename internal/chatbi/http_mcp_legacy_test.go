@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -362,6 +363,62 @@ func TestMCPQuestionUsesControlledAuditedResultForJSONAndStream(t *testing.T) {
 	denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(chat)+`,"question":"again","stream":false}`, "")
 	if denied.Code != http.StatusUnauthorized || gateway.queries != 2 {
 		t.Fatalf("revoked token reached controlled query: %d", denied.Code)
+	}
+}
+
+func TestMCPQuestionOriginalJSONDataShapeAndFirstTitle(t *testing.T) {
+	service, p, gateway, _, token := serviceFixture(t)
+	gateway.queryData = &QueryData{
+		Fields: []string{"amount"}, Data: []map[string]any{{"amount": 123}},
+		FieldsInfo: []FieldInfo{{Name: "amount", Numeric: true}}, AuditID: 1,
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+	var started struct {
+		Chat ID `json:"chat_id"`
+	}
+	if start.Code != http.StatusOK || decodeMCPData(start.Body.Bytes(), &started) != nil {
+		t.Fatalf("MCP start failed: %d", start.Code)
+	}
+	question := "What is the total amount?"
+	path := "/api/v1/mcp/mcp_question"
+	first := accountRequest(t, handler, http.MethodPost, path, `{"token":"`+token+`","chat_id":`+string(started.Chat)+`,"question":"`+question+`","return_img":false,"stream":false}`, "")
+	var result struct {
+		Success bool   `json:"success"`
+		Title   string `json:"title"`
+		SQL     string `json:"sql"`
+		Data    struct {
+			Fields     []string         `json:"fields"`
+			Rows       []map[string]any `json:"data"`
+			FieldsInfo []FieldInfo      `json:"fields_info"`
+			SQL        string           `json:"sql"`
+			Datasource json.Number      `json:"datasource"`
+		} `json:"data"`
+		Chart struct {
+			Type string `json:"type"`
+		} `json:"chart"`
+	}
+	if first.Code != http.StatusOK || json.Unmarshal(first.Body.Bytes(), &result) != nil {
+		t.Fatalf("MCP JSON response: %d %s", first.Code, first.Body.String())
+	}
+	decodedSQL, err := base64.StdEncoding.DecodeString(result.Data.SQL)
+	if err != nil || !result.Success || result.Title != "What is the total am" ||
+		result.Data.Datasource != "10" || string(decodedSQL) != result.SQL ||
+		len(result.Data.Fields) != 1 || len(result.Data.Rows) != 1 || len(result.Data.FieldsInfo) != 1 || !result.Data.FieldsInfo[0].Numeric ||
+		result.Chart.Type != "table" || gateway.queries != 1 {
+		t.Fatalf("original MCP JSON shape or audited query mismatch: status=%d title=%q datasource=%q chart=%q queries=%d", first.Code, result.Title, result.Data.Datasource, result.Chart.Type, gateway.queries)
+	}
+	second := accountRequest(t, handler, http.MethodPost, path, `{"token":"`+token+`","chat_id":`+string(started.Chat)+`,"question":"again","stream":false}`, "")
+	var followup map[string]any
+	if second.Code != http.StatusOK || json.Unmarshal(second.Body.Bytes(), &followup) != nil || followup["title"] != nil || gateway.queries != 2 {
+		t.Fatalf("follow-up title or query mismatch: %d %s", second.Code, second.Body.String())
+	}
+	chat, _, err := service.chat(context.Background(), p, started.Chat)
+	if err != nil || chat.Brief != result.Title || len(chat.Records) != 2 {
+		t.Fatalf("first MCP title did not persist safely: brief=%q records=%d err=%v", chat.Brief, len(chat.Records), err)
 	}
 }
 
