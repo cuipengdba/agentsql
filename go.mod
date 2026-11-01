@@ -13,6 +13,7 @@ exclude github.com/docker/go-connections v0.7.0
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.33.0
 	github.com/apache/tinkerpop/gremlin-go/v3 v3.8.2
+	github.com/b0r1ssh/go-xls v1.1.6
 	github.com/bradfitz/gomemcache v0.0.0-20260422231931-4d751bb6e37c
 	github.com/docker/docker v28.0.1+incompatible
 	github.com/go-ldap/ldap/v3 v3.4.12

@@ -12,7 +12,7 @@ import (
 	"github.com/cuipengdba/agentsql/internal/store"
 )
 
-var managedFileStageToken = regexp.MustCompile(`^agentsql-file-[1-9][0-9]{0,18}\.(?:csv|xlsx)$`)
+var managedFileStageToken = regexp.MustCompile(`^agentsql-file-[1-9][0-9]{0,18}\.(?:csv|xls|xlsx)$`)
 
 // DeriveSQLBotImportIdentity lets the gateway reproduce a child connector
 // after an HTTP response is lost. The random staged-file ID is scoped to the

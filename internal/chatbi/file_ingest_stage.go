@@ -123,6 +123,8 @@ func (h *Handler) stageUploadedFile(ctx context.Context, p Principal, filename s
 	extension := ".csv"
 	if strings.HasSuffix(strings.ToLower(filename), ".xlsx") {
 		extension = ".xlsx"
+	} else if strings.HasSuffix(strings.ToLower(filename), ".xls") {
+		extension = ".xls"
 	}
 	stage := fileStage{FilePath: "agentsql-file-" + string(id) + extension, Original: filename,
 		Data: data, Expires: time.Now().UTC().Add(time.Hour)}

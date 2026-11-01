@@ -51,7 +51,7 @@ func TestOriginalUploadExcelUsesManagedImportAndFailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, http.StatusUnprocessableEntity, upload("source.xls", csv, token).Code,
-		"the bounded importer does not accept legacy XLS bytes")
+		"CSV bytes with an XLS extension must fail closed")
 	require.Zero(t, managed.calls)
 	response := upload("source.csv", csv, token)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())

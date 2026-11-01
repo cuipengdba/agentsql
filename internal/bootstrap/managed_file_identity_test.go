@@ -30,7 +30,11 @@ func TestDerivedSQLBotImportIdentityStableAndScoped(t *testing.T) {
 	require.NotEqual(t, name, otherName)
 	require.NotEqual(t, token, otherToken)
 	parent.Revision--
-	for _, path := range []string{"", "../agentsql-file-123.xlsx", "agentsql-file-0.csv", "agentsql-file-123.xls", "agentsql-file-123.csv/"} {
+	xlsName, xlsToken, err := runtime.DeriveSQLBotImportIdentity(parent, principal, "agentsql-file-123.xls")
+	require.NoError(t, err)
+	require.NotEqual(t, name, xlsName)
+	require.NotEqual(t, token, xlsToken)
+	for _, path := range []string{"", "../agentsql-file-123.xlsx", "agentsql-file-0.csv", "agentsql-file-123.xlsm", "agentsql-file-123.csv/"} {
 		_, _, err = runtime.DeriveSQLBotImportIdentity(parent, principal, path)
 		require.ErrorIs(t, err, ErrManagedFileStage)
 	}
