@@ -12,6 +12,9 @@ internal/chatbi/semantics.go
 internal/chatbi/chat_parameters.go
 internal/chatbi/history_import.go
 internal/chatbi/managed_file_claim.go
+# Abandoned managed-file cleanup reads only encrypted local receipts with a
+# fixed SQLite query; physical table deletion goes through the controlled gateway.
+internal/chatbi/managed_file_reap.go
 # Managed-file table selection only updates an encrypted local binding with a
 # fixed SQLite statement and same-transaction management audit.
 internal/chatbi/managed_file_selection.go
