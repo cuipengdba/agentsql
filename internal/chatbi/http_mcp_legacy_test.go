@@ -382,6 +382,59 @@ func TestMCPQuestionRejectsRevokedWorkspaceMembership(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionRevokedWorkspaceDuringModelPreventsQuery(t *testing.T) {
+	service, p, gateway, model, token := serviceFixture(t)
+	ctx := context.Background()
+	user, revision, err := service.Store.User(ctx, p.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Memberships = append(user.Memberships, Membership{Workspace: "2", Name: "Two"})
+	if err := service.Store.put(ctx, userKey(user.ID), user, revision); err != nil {
+		t.Fatal(err)
+	}
+	other := p
+	other.Workspace = "2"
+	other.User = user
+	binding := Binding{Datasource: "20", Workspace: "2", User: user.ID, Name: "other", Dialect: "pg",
+		BindingID: "b2", ConnectorToken: "hidden", AgentKey: "hidden"}
+	if err := service.Store.put(ctx, bindingKey(other, "20"), binding, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.put(ctx, objectKey{"model", "2", "workspace", "default"},
+		ModelConfig{ID: "30", Model: "fixture", Endpoint: "http://127.0.0.1/v1"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start",
+		`{"token":"`+token+`","oid":"2"}`, "")
+	var output struct {
+		Chat ID `json:"chat_id"`
+	}
+	if started.Code != http.StatusOK || decodeMCPData(started.Body.Bytes(), &output) != nil || !output.Chat.Valid() {
+		t.Fatalf("workspace MCP start: %d %s", started.Code, started.Body.String())
+	}
+	var revokeErr error
+	model.after = func() {
+		current, currentRevision, err := service.Store.User(ctx, p.User.ID)
+		if err != nil {
+			revokeErr = err
+			return
+		}
+		current.Memberships = current.Memberships[:1]
+		revokeErr = service.Store.put(ctx, userKey(current.ID), current, currentRevision)
+	}
+	answer := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question",
+		`{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"sales?","stream":false}`, "")
+	if revokeErr != nil || answer.Code == http.StatusOK || gateway.queries != 0 ||
+		strings.Contains(answer.Body.String(), "123") {
+		t.Fatalf("MCP model-time workspace revocation released data: %d %s, revoke=%v", answer.Code, answer.Body.String(), revokeErr)
+	}
+}
+
 func TestMCPQuestionRejectsAnotherUsersChatBeforeGatewayAccess(t *testing.T) {
 	service, _, gateway, _, ownerToken := serviceFixture(t)
 	ctx := context.Background()
