@@ -394,7 +394,9 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	if !found {
-		failure(w, ErrNotFound)
+		// Match the original MCP reference for any inaccessible chat without
+		// revealing whether another user owns the supplied ID.
+		writeJSON(w, http.StatusBadRequest, "Chat ID is not exist")
 		return
 	}
 	if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
@@ -409,7 +411,11 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	if len(input.Datasource) != 0 && string(input.Datasource) != "null" && string(input.Datasource) != `""` {
 		var requested ID
 		if json.Unmarshal(input.Datasource, &requested) != nil {
-			writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
+			status := http.StatusUnprocessableEntity
+			if input.Datasource[0] == '"' {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, "Invalid datasource ID")
 			return
 		}
 		if selected != "" && selected != requested {

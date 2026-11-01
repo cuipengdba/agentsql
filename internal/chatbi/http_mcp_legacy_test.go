@@ -422,6 +422,35 @@ func TestMCPQuestionOriginalJSONDataShapeAndFirstTitle(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionOriginalInvalidReferenceStatuses(t *testing.T) {
+	service, _, gateway, _, token := serviceFixture(t)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+	var started struct {
+		Chat ID `json:"chat_id"`
+	}
+	if start.Code != http.StatusOK || decodeMCPData(start.Body.Bytes(), &started) != nil {
+		t.Fatalf("MCP start failed: %d", start.Code)
+	}
+	for _, tc := range []struct {
+		name, body, want string
+		status           int
+	}{
+		{"inaccessible chat", `{"token":"` + token + `","chat_id":999999999999999999,"question":"synthetic invalid input","stream":false}`, "Chat ID is not exist", http.StatusBadRequest},
+		{"invalid datasource string", `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,"datasource_id":"not-a-number","question":"synthetic invalid input","stream":false}`, "Invalid datasource ID", http.StatusBadRequest},
+		{"invalid datasource list", `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,"datasource_id":[],"question":"synthetic invalid input","stream":false}`, "Invalid datasource ID", http.StatusUnprocessableEntity},
+	} {
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", tc.body, "")
+		var message string
+		if response.Code != tc.status || json.Unmarshal(response.Body.Bytes(), &message) != nil || message != tc.want || gateway.queries != 0 {
+			t.Fatalf("%s: status=%d body=%s queries=%d", tc.name, response.Code, response.Body.String(), gateway.queries)
+		}
+	}
+}
+
 func TestMCPSelectedWorkspaceKeepsParentTokenRevocable(t *testing.T) {
 	service, p, gateway, _, token := serviceFixture(t)
 	ctx := context.Background()
