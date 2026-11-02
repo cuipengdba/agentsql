@@ -127,14 +127,14 @@ func TestSQLBotWorkbookExportSuppressesInFlightRowRuleChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := s.Ask(ctx, principal, chat.ID, "amount", func(context.Context) error { return nil }, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
 		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
 	rule := testActiveRowPermission(t, "east")
 	if err := s.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0); err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.Ask(ctx, principal, chat.ID, "amount", func(context.Context) error { return nil }, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	router, err := NewHandler(s, "test")

@@ -222,10 +222,19 @@ func (service *Service) SaveNarrative(ctx context.Context, p Principal, result N
 	if err := service.live(ctx, p); err != nil {
 		return "", err
 	}
+	var policyFingerprint string
+	if _, err := service.Store.get(ctx, recordPolicyKey(p, base.ID), &policyFingerprint); err != nil || policyFingerprint == "" {
+		return "", ErrGateway
+	}
 	if err := service.Store.put(ctx, recordKey(p, id), base.Chat, 0); err != nil {
 		return "", err
 	}
+	if err := service.Store.put(ctx, recordPolicyKey(p, id), policyFingerprint, 0); err != nil {
+		_ = service.Store.delete(context.WithoutCancel(ctx), recordKey(p, id), 1)
+		return "", err
+	}
 	if err := service.Store.put(ctx, chatKey(p, base.Chat), chat, chatRevision); err != nil {
+		_ = service.Store.delete(context.WithoutCancel(ctx), recordPolicyKey(p, id), 1)
 		_ = service.Store.delete(context.WithoutCancel(ctx), recordKey(p, id), 1)
 		return "", err
 	}
