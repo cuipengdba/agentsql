@@ -429,7 +429,7 @@ export function Overview() {
           description={<Space direction="vertical" size={4}>
             <span>{tr("独立问数：使用 AgentSQL 自有的 Go 服务和 Web 页面，查询经过数据库安全网关。", "Standalone Q&A: use AgentSQL's own Go service and Web pages; queries pass through its database security gateway.")} <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/CHATBI.md" target="_blank" rel="noopener noreferrer">{tr("问数指南", "Q&A guide")}</a></span>
             <span>{tr("SQLBot 安全网关：保留现有 SQLBot，交由 AgentSQL 控制数据库访问、权限和审计。", "SQLBot security gateway: keep an existing SQLBot deployment while AgentSQL controls database access, permissions and audit.")} <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/SQLBOT.md" target="_blank" rel="noopener noreferrer">{tr("接入指南", "Integration guide")}</a></span>
-            <span>{tr("完整社区版功能、全部页面和现有业务系统零改动替换仍按 v4.5.0 验收矩阵逐项验证。", "Full Community features, every page and unchanged replacement of an existing business system still require item-by-item v4.5.0 acceptance.")}</span>
+            <span>{tr("完整社区版功能与全部页面按 v4.5.0 验收矩阵逐项验证；真实业务系统切换待发布后验证。", "Full Community features and pages require item-by-item v4.5.0 acceptance; cutover of the actual business system will be verified after release.")}</span>
             {demoEnabled ? <span>{tr("线上仅展示模拟页面与合成数据，不接入或调用真实模型。", "The public demo shows simulated pages and synthetic data only; it does not connect to or call a real model.")}</span> : null}
           </Space>}
           style={{ marginBottom: 16 }}
