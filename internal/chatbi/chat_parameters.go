@@ -13,26 +13,29 @@ import (
 )
 
 type chatSettings struct {
-	Name                    string `json:"name"`
-	InitialPasswordDisabled bool   `json:"initial_password_disabled"`
-	InitialPasswordHidden   bool   `json:"initial_password_hidden"`
-	HideThinking            bool   `json:"hide_thinking"`
-	ExpandThinking          bool   `json:"expand_thinking"`
-	LimitRows               bool   `json:"limit_rows"`
-	ContextRecords          int    `json:"context_records"`
-	ShowSQL                 bool   `json:"show_sql"`
-	ShowLog                 bool   `json:"show_log"`
+	Name                    string             `json:"name"`
+	InitialPasswordDisabled bool               `json:"initial_password_disabled"`
+	InitialPasswordHidden   bool               `json:"initial_password_hidden"`
+	HideThinking            bool               `json:"hide_thinking"`
+	ExpandThinking          bool               `json:"expand_thinking"`
+	LimitRows               bool               `json:"limit_rows"`
+	ContextRecords          int                `json:"context_records"`
+	ShowSQL                 bool               `json:"show_sql"`
+	ShowLog                 bool               `json:"show_log"`
+	Embedding               *EmbeddingSettings `json:"embedding,omitempty"`
 }
 
 func defaultChatSettings() chatSettings {
-	return chatSettings{Name: "AgentSQL", LimitRows: true, ContextRecords: 3, ShowSQL: true, ShowLog: true}
+	embedding := defaultEmbeddingSettings()
+	return chatSettings{Name: "AgentSQL", LimitRows: true, ContextRecords: 3, ShowSQL: true, ShowLog: true, Embedding: &embedding}
 }
 
 func chatSettingsKey() objectKey { return objectKey{"chat-parameters", "system", "system", "default"} }
 
 func validChatSettings(value chatSettings) bool {
 	if value.Name == "" || len([]rune(value.Name)) > 80 || strings.TrimSpace(value.Name) != value.Name ||
-		strings.ContainsAny(value.Name, "<>\r\n\x00") || !value.LimitRows || value.ContextRecords < 0 || value.ContextRecords > 3 {
+		strings.ContainsAny(value.Name, "<>\r\n\x00") || !value.LimitRows || value.ContextRecords < 0 || value.ContextRecords > 3 ||
+		(value.Embedding != nil && !validEmbeddingSettings(*value.Embedding)) {
 		return false
 	}
 	return true
@@ -47,11 +50,15 @@ func (s *Store) ChatSettings(ctx context.Context) (chatSettings, error) {
 	if err != nil || !validChatSettings(value) {
 		return chatSettings{}, ErrUnavailable
 	}
+	if value.Embedding == nil {
+		embedding := defaultEmbeddingSettings()
+		value.Embedding = &embedding
+	}
 	return value, nil
 }
 
 func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map[string]string) error {
-	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 7 {
+	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 14 {
 		return ErrInvalidAccountChange
 	}
 	key := chatSettingsKey()
@@ -73,6 +80,10 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 	}
 	if err == nil && (s.decode(key, body, &value) != nil || !validChatSettings(value)) {
 		return ErrUnavailable
+	}
+	if value.Embedding == nil {
+		embedding := defaultEmbeddingSettings()
+		value.Embedding = &embedding
 	}
 	for name, raw := range updates {
 		switch name {
@@ -127,7 +138,9 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 			}
 			value.ShowLog = parsed
 		default:
-			return ErrInvalidAccountChange
+			if !applyEmbeddingSetting(value.Embedding, name, raw) {
+				return ErrInvalidAccountChange
+			}
 		}
 	}
 	if !validChatSettings(value) {
@@ -193,6 +206,22 @@ func chatParameterList(value chatSettings, includeName bool) []sqlbotChatParamet
 	return result
 }
 
+func embeddingParameterList(value EmbeddingSettings) []sqlbotChatParameter {
+	items := []struct{ key, raw, kind string }{
+		{"embedding.enabled", strconv.FormatBool(value.Enabled), "bool"},
+		{"embedding.terminology_similarity", strconv.FormatFloat(value.TerminologySimilarity, 'f', -1, 64), "float"},
+		{"embedding.terminology_top_count", strconv.Itoa(value.TerminologyTopCount), "int"},
+		{"embedding.data_training_similarity", strconv.FormatFloat(value.TrainingSimilarity, 'f', -1, 64), "float"},
+		{"embedding.data_training_top_count", strconv.Itoa(value.TrainingTopCount), "int"},
+	}
+	result := make([]sqlbotChatParameter, 0, len(items))
+	for index, item := range items {
+		result = append(result, sqlbotChatParameter{Key: item.key, Value: item.raw,
+			ID: strconv.FormatInt(7520382585415929900+int64(index), 10), Type: item.kind})
+	}
+	return result
+}
+
 func (h *Handler) sqlbotAllParameters(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -207,7 +236,7 @@ func (h *Handler) sqlbotAllParameters(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	okay(w, append(chatParameterList(value, true), loginParameterList(value)...))
+	okay(w, append(append(chatParameterList(value, true), loginParameterList(value)...), embeddingParameterList(*value.Embedding)...))
 }
 
 func (h *Handler) nativeChatParameters(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -276,7 +305,7 @@ func (h *Handler) sqlbotSaveParameters(w http.ResponseWriter, r *http.Request, p
 		Key   string          `json:"pkey"`
 		Value json.RawMessage `json:"pval"`
 	}
-	if json.Unmarshal([]byte(r.MultipartForm.Value["data"][0]), &submitted) != nil || len(submitted) == 0 || len(submitted) > 7 {
+	if json.Unmarshal([]byte(r.MultipartForm.Value["data"][0]), &submitted) != nil || len(submitted) == 0 || len(submitted) > 14 {
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
@@ -301,11 +330,7 @@ func (h *Handler) sqlbotSaveParameters(w http.ResponseWriter, r *http.Request, p
 		case bool:
 			updates[item.Key] = strconv.FormatBool(typed)
 		case float64:
-			if typed != float64(int64(typed)) {
-				failure(w, ErrInvalidAccountChange)
-				return
-			}
-			updates[item.Key] = strconv.FormatInt(int64(typed), 10)
+			updates[item.Key] = strconv.FormatFloat(typed, 'f', -1, 64)
 		default:
 			failure(w, ErrInvalidAccountChange)
 			return

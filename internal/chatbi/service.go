@@ -66,6 +66,7 @@ type Service struct {
 	Identity              *Identity
 	Gateway               Gateway
 	Model                 Generator
+	Embedding             EmbeddingModel
 	ManagedFileDatasource ID
 }
 

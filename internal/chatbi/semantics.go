@@ -310,12 +310,28 @@ func (service *Service) Vocabulary(ctx context.Context, p Principal, datasource 
 	query := strings.ToLower(question)
 	hints := make([]SemanticHint, 0, 8)
 	bytesUsed := 2
+	var candidates []Terminology
+	selected := make(map[int64]bool)
+	appendHint := func(term Terminology) error {
+		hint := SemanticHint{Word: term.Word, Description: term.Description, OtherWords: term.OtherWords}
+		encoded, err := json.Marshal(hint)
+		if err != nil {
+			return ErrUnavailable
+		}
+		if bytesUsed+len(encoded)+1 > 4096 || len(hints) == 8 {
+			return nil
+		}
+		bytesUsed += len(encoded) + 1
+		hints = append(hints, hint)
+		selected[term.ID] = true
+		return nil
+	}
 	for _, item := range raw {
 		var term Terminology
 		if json.Unmarshal(item, &term) != nil || !validTerm(term) || term.ID <= 0 {
 			return nil, ErrUnavailable
 		}
-		if !term.Enabled {
+		if !term.Enabled || term.AdvancedApplication != nil {
 			continue
 		}
 		if term.SpecificDS {
@@ -330,6 +346,9 @@ func (service *Service) Vocabulary(ctx context.Context, p Principal, datasource 
 				continue
 			}
 		}
+		if service.Embedding != nil {
+			candidates = append(candidates, term)
+		}
 		found := strings.Contains(query, strings.ToLower(term.Word))
 		for _, synonym := range term.OtherWords {
 			if strings.Contains(query, strings.ToLower(synonym)) {
@@ -340,18 +359,36 @@ func (service *Service) Vocabulary(ctx context.Context, p Principal, datasource 
 		if !found {
 			continue
 		}
-		hint := SemanticHint{Word: term.Word, Description: term.Description, OtherWords: term.OtherWords}
-		encoded, err := json.Marshal(hint)
+		if err := appendHint(term); err != nil {
+			return nil, err
+		}
+	}
+	if service.Embedding != nil && len(hints) < 8 && len(candidates) > 0 {
+		settings, err := service.Store.ChatSettings(ctx)
 		if err != nil {
-			return nil, ErrUnavailable
+			return nil, err
 		}
-		if bytesUsed+len(encoded)+1 > 4096 {
-			continue
-		}
-		bytesUsed += len(encoded) + 1
-		hints = append(hints, hint)
-		if len(hints) == 8 {
-			break
+		if settings.Embedding.Enabled {
+			if len(candidates) > 500 {
+				return nil, ErrUnavailable
+			}
+			words := make([]string, len(candidates))
+			for i, term := range candidates {
+				words[i] = term.Word
+			}
+			indices, err := rankEmbeddingCandidates(ctx, service.Embedding, question, words,
+				settings.Embedding.TerminologySimilarity, settings.Embedding.TerminologyTopCount)
+			if err != nil {
+				return nil, err
+			}
+			for _, index := range indices {
+				term := candidates[index]
+				if !selected[term.ID] {
+					if err := appendHint(term); err != nil {
+						return nil, err
+					}
+				}
+			}
 		}
 	}
 	return hints, nil

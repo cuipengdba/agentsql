@@ -60,6 +60,14 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 			return err
 		}
 		defer service.Store.Close()
+		if config.EmbeddingModelPath != "" {
+			embedding, err := chatbi.NewLocalEmbeddingModel(config.EmbeddingModelPath)
+			if err != nil {
+				return err
+			}
+			service.Embedding = embedding
+			defer embedding.Close()
+		}
 		handler, err := chatbi.NewHandlerWithLimit(service, version.Version, config.MaxDataRequests)
 		if err != nil {
 			return err

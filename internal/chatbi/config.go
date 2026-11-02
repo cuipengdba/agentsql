@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ type Config struct {
 	GatewayCA             string `yaml:"gateway_ca_file"`
 	MaxDataRequests       int    `yaml:"max_concurrent_data_requests"`
 	ManagedFileDatasource ID     `yaml:"managed_file_datasource_id"`
+	EmbeddingModelPath    string `yaml:"embedding_model_path"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -71,6 +73,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if config.ManagedFileDatasource != "" && !config.ManagedFileDatasource.Valid() {
 		return config, errors.New("ChatBI managed_file_datasource_id must be a valid datasource ID")
+	}
+	if config.EmbeddingModelPath != "" && !filepath.IsAbs(config.EmbeddingModelPath) {
+		return config, errors.New("ChatBI embedding_model_path must be absolute")
 	}
 	return config, nil
 }

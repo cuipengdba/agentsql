@@ -48,29 +48,66 @@ func (service *Service) SafeExamples(ctx context.Context, p Principal, datasourc
 	}
 	hints := make([]ExampleHint, 0, 4)
 	used := 2
+	var candidates []SQLExample
+	selected := make(map[int64]bool)
+	appendHint := func(example SQLExample) error {
+		hint := ExampleHint{Question: example.Question, SQL: example.Description}
+		encoded, err := json.Marshal(hint)
+		if err != nil {
+			return ErrUnavailable
+		}
+		if used+len(encoded)+1 > 6144 || len(hints) == 4 {
+			return nil
+		}
+		used += len(encoded) + 1
+		hints = append(hints, hint)
+		selected[example.ID] = true
+		return nil
+	}
 	for _, item := range raw {
 		var example SQLExample
 		if json.Unmarshal(item, &example) != nil || !validExample(example, p.Workspace) || example.ID <= 0 {
 			return nil, ErrUnavailable
 		}
-		if !example.Enabled || ID(strconv.FormatInt(example.Datasource, 10)) != datasource || !semanticQuestionMatch(question, example.Question) {
+		if !example.Enabled || example.AdvancedApplication != nil || ID(strconv.FormatInt(example.Datasource, 10)) != datasource {
 			continue
 		}
 		if !exampleVisibleSQL(approved, example.Description, visible) {
 			continue
 		}
-		hint := ExampleHint{Question: example.Question, SQL: example.Description}
-		encoded, err := json.Marshal(hint)
-		if err != nil {
-			return nil, ErrUnavailable
+		if service.Embedding != nil {
+			candidates = append(candidates, example)
 		}
-		if used+len(encoded)+1 > 6144 {
+		if !semanticQuestionMatch(question, example.Question) {
 			continue
 		}
-		used += len(encoded) + 1
-		hints = append(hints, hint)
-		if len(hints) == 4 {
-			break
+		if err := appendHint(example); err != nil {
+			return nil, err
+		}
+	}
+	if service.Embedding != nil && len(hints) < 4 && len(candidates) > 0 {
+		settings, err := service.Store.ChatSettings(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if settings.Embedding.Enabled {
+			questions := make([]string, len(candidates))
+			for i, example := range candidates {
+				questions[i] = example.Question
+			}
+			indices, err := rankEmbeddingCandidates(ctx, service.Embedding, question, questions,
+				settings.Embedding.TrainingSimilarity, settings.Embedding.TrainingTopCount)
+			if err != nil {
+				return nil, err
+			}
+			for _, index := range indices {
+				example := candidates[index]
+				if !selected[example.ID] {
+					if err := appendHint(example); err != nil {
+						return nil, err
+					}
+				}
+			}
 		}
 	}
 	return hints, nil
