@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import stat
 import tarfile
 import tempfile
@@ -132,7 +133,7 @@ def build(source: Path, output: Path, epoch: int) -> None:
             os.unlink(temporary)
     with output.open("rb") as stream:
         digest = sha256_stream(stream)
-    output.with_name(output.name + ".sha256").write_text(f"{digest}  {output.name}\n", encoding="ascii")
+    output.with_name(output.name + ".sha256").write_bytes(f"{digest}  {output.name}\n".encode("ascii"))
 
 
 def main() -> None:
@@ -141,7 +142,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--source-date-epoch", type=int)
     parser.add_argument("--verify", type=Path, help="inspect an existing model archive without extracting it")
+    parser.add_argument("--version", default=VERSION, help="AgentSQL release version, default v4.5.0")
     args = parser.parse_args()
+    if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", args.version):
+        parser.error("invalid release version")
+    global ROOT
+    ROOT = f"agentsql-{args.version}-chatbi-model"
     if args.verify is not None:
         if args.source is not None or args.output is not None or args.source_date_epoch is not None:
             parser.error("--verify cannot be combined with build options")

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -56,13 +57,31 @@ type Report struct {
 }
 
 func Names(version string) []string {
-	return []string{
+	names := []string{
 		"agentsql-" + version + "-linux-amd64.tar.gz", "agentsql-" + version + "-linux-amd64.tar.gz.sha256",
 		"agentsql-" + version + "-linux-arm64.tar.gz", "agentsql-" + version + "-linux-arm64.tar.gz.sha256",
 		"agentsql-" + version + ".spdx.json", "agentsql-" + version + ".spdx.json.sig.json",
 		"ed25519-release-public-key.json", "go-version-metadata.txt", "install.sh", "provenance.json",
 		"provenance.json.sig.json", "SBOM-GENERATION.txt", "VERIFYING-SIGNATURES.md", "SHA256SUMS", "SHA256SUMS.sig.json",
 	}
+	if hasChatBIModel(version) {
+		name := "agentsql-" + version + "-chatbi-model.tar.gz"
+		names = append(names, name, name+".sha256")
+	}
+	return names
+}
+
+func hasChatBIModel(version string) bool {
+	parts := strings.Split(strings.TrimPrefix(version, "v"), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	major, majorErr := strconv.Atoi(parts[0])
+	minor, minorErr := strconv.Atoi(parts[1])
+	if majorErr != nil || minorErr != nil {
+		return false
+	}
+	return major > 4 || major == 4 && minor >= 5
 }
 
 // Verify requires a public key obtained independently of the release directory.
@@ -135,13 +154,14 @@ func verify(ctx context.Context, directory, publicPath, version string) (Report,
 	if err != nil {
 		return fail("cannot enumerate release directory")
 	}
-	entries, readErr := entriesFile.ReadDir(17)
+	names := Names(version)
+	entries, readErr := entriesFile.ReadDir(len(names) + 1)
 	closeErr = entriesFile.Close()
-	if readErr != nil && readErr != io.EOF || closeErr != nil || len(entries) != 15 {
-		return fail("expected exactly 15 release assets")
+	if readErr != nil && readErr != io.EOF || closeErr != nil || len(entries) != len(names) {
+		return fail("release asset count does not match version")
 	}
 	expected := make(map[string]bool)
-	for _, name := range Names(version) {
+	for _, name := range names {
 		expected[name] = true
 	}
 	for _, entry := range entries {
@@ -157,11 +177,11 @@ func verify(ctx context.Context, directory, publicPath, version string) (Report,
 		return fail("SHA256SUMS signature rejected")
 	}
 	digests, err := parseManifest(manifest)
-	if err != nil || len(digests) != 13 {
+	if err != nil || len(digests) != len(names)-2 {
 		return fail("invalid signed asset inventory")
 	}
 	sizes := make(map[string]int64)
-	for _, name := range Names(version) {
+	for _, name := range names {
 		if name == "SHA256SUMS" || name == "SHA256SUMS.sig.json" {
 			continue
 		}
@@ -222,6 +242,17 @@ func verify(ctx context.Context, directory, publicPath, version string) (Report,
 			return fail("package checksum does not match signed inventory")
 		}
 	}
+	if hasChatBIModel(version) {
+		name := "agentsql-" + version + "-chatbi-model.tar.gz"
+		data, err := readFile(root, name+".sha256", 1024)
+		if err != nil || digest(data) != digests[name+".sha256"] {
+			return fail("model checksum file changed")
+		}
+		entries, err := parseManifest(data)
+		if err != nil || len(entries) != 1 || entries[name] != digests[name] {
+			return fail("model checksum does not match signed inventory")
+		}
+	}
 	provenance, err := readFile(root, "provenance.json", maxDocument)
 	if err != nil || digest(provenance) != digests["provenance.json"] {
 		return fail("provenance changed during verification")
@@ -233,7 +264,7 @@ func verify(ctx context.Context, directory, publicPath, version string) (Report,
 	if err := ctx.Err(); err != nil {
 		return fail("verification canceled")
 	}
-	return Report{Version: version, SourceCommit: commit, KeyID: keyDoc.KeyID, Assets: 15, Signatures: 3, ReadOnly: true, Status: "verified"}, nil
+	return Report{Version: version, SourceCommit: commit, KeyID: keyDoc.KeyID, Assets: len(names), Signatures: 3, ReadOnly: true, Status: "verified"}, nil
 }
 
 func decodeKey(data []byte) (PublicKey, ed25519.PublicKey, error) {
@@ -365,10 +396,18 @@ func checkProvenance(data []byte, version string, digests map[string]string, siz
 	if err := decodeJSON(data, &doc, false); err != nil {
 		return "", err
 	}
-	if doc.SchemaVersion != 1 || doc.DocumentType != "AgentSQL official release provenance" || doc.Version != version || doc.Source.Repository != "https://github.com/cuipengdba/agentsql" || !commitPattern.MatchString(doc.Source.Commit) || doc.Source.Dirty == nil || *doc.Source.Dirty || len(doc.Subjects) != 8 {
+	expectedSubjects := 8
+	if hasChatBIModel(version) {
+		expectedSubjects += 2
+	}
+	if doc.SchemaVersion != 1 || doc.DocumentType != "AgentSQL official release provenance" || doc.Version != version || doc.Source.Repository != "https://github.com/cuipengdba/agentsql" || !commitPattern.MatchString(doc.Source.Commit) || doc.Source.Dirty == nil || *doc.Source.Dirty || len(doc.Subjects) != expectedSubjects {
 		return "", errors.New("invalid source")
 	}
 	expected := map[string]bool{"agentsql-" + version + "-linux-amd64.tar.gz": true, "agentsql-" + version + "-linux-arm64.tar.gz": true, "agentsql-" + version + "-linux-amd64.tar.gz.sha256": true, "agentsql-" + version + "-linux-arm64.tar.gz.sha256": true, "agentsql-" + version + ".spdx.json": true, "install.sh": true, "go-version-metadata.txt": true, "SBOM-GENERATION.txt": true}
+	if hasChatBIModel(version) {
+		name := "agentsql-" + version + "-chatbi-model.tar.gz"
+		expected[name], expected[name+".sha256"] = true, true
+	}
 	for _, subject := range doc.Subjects {
 		if !expected[subject.Name] || subject.Digest.SHA256 != digests[subject.Name] || subject.Size != sizes[subject.Name] {
 			return "", errors.New("invalid subject")

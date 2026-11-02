@@ -1,5 +1,5 @@
-# Assemble and verify the 15-file AgentSQL dry-run set, or prepare
-# the 11 unsigned production candidates, without reading a private signing key,
+# Assemble and verify the versioned AgentSQL dry-run set, or prepare
+# unsigned production candidates, without reading a private signing key,
 # pushing an image, changing git, or calling GitHub.
 [CmdletBinding()]
 param(
@@ -25,6 +25,10 @@ param(
 
     [string]$PublicKeyPath,
 
+    [string]$ChatbiModelSource,
+
+    [string]$PythonExecutable,
+
     [switch]$ValidateOnly
 )
 
@@ -49,7 +53,7 @@ trap {
         }
         Write-Host 'RELEASE_DRYRUN_CHECKS_END'
         Write-Host 'RELEASE_DRYRUN_ITEM_PASS_COUNT=0'
-        Write-Host 'RELEASE_DRYRUN_ITEM_FAIL_COUNT=15'
+        Write-Host "RELEASE_DRYRUN_ITEM_FAIL_COUNT=$(@(Get-ExpectedAssetNames $Version).Count)"
     }
     if ($ProductionPrepare) {
         Write-Host "RELEASE_PREPARE_ERROR=$reason"
@@ -84,8 +88,15 @@ function Get-Sha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-ModelPython {
+    if (-not $PythonExecutable -or -not (Test-Path -LiteralPath $PythonExecutable -PathType Leaf)) {
+        throw 'Model asset packaging and validation require -PythonExecutable with a working Python 3.11+ executable.'
+    }
+    return [System.IO.Path]::GetFullPath($PythonExecutable)
+}
+
 function Get-ReleaseInputHashes {
-    $inputNames = @(Get-ReleaseInputNames)
+    $inputNames = @(Get-ReleaseInputNames -ReleaseVersion $Version)
     foreach ($name in $inputNames) {
         [pscustomobject][ordered]@{ name = $name; sha256 = Get-Sha256 (Join-Path $repositoryRoot $name) }
     }
@@ -122,7 +133,7 @@ function Assert-ProductionSourceSealed {
 
 function Get-ExpectedAssetNames {
     param([Parameter(Mandatory = $true)][string]$ReleaseVersion)
-    return @(
+    $names = @(
         "agentsql-$ReleaseVersion-linux-amd64.tar.gz",
         "agentsql-$ReleaseVersion-linux-amd64.tar.gz.sha256",
         "agentsql-$ReleaseVersion-linux-arm64.tar.gz",
@@ -139,6 +150,11 @@ function Get-ExpectedAssetNames {
         'SHA256SUMS.sig.json',
         'VERIFYING-SIGNATURES.md'
     )
+    if ([version]$ReleaseVersion.Substring(1) -ge [version]'4.5.0') {
+        $names += "agentsql-$ReleaseVersion-chatbi-model.tar.gz"
+        $names += "agentsql-$ReleaseVersion-chatbi-model.tar.gz.sha256"
+    }
+    return $names
 }
 
 function Show-AssetInventory {
@@ -193,13 +209,18 @@ function Show-AssetValidation {
                     if ($entries -cnotcontains "$rootName/SHA256SUMS") { throw 'missing internal SHA256SUMS' }
                     break
                 }
-                '^agentsql-.*-linux-(amd64|arm64)\.tar\.gz\.sha256$' {
+                '^agentsql-.*-(?:linux-(?:amd64|arm64)|chatbi-model)\.tar\.gz\.sha256$' {
                     $tarName = $name.Substring(0, $name.Length - '.sha256'.Length)
                     $sidecar = (Get-Content -LiteralPath $path -Raw -Encoding UTF8).Trim()
                     if ($sidecar -cnotmatch '^([0-9a-f]{64})  ([^\\/]+)$') { throw 'malformed sidecar' }
                     if ($Matches[2] -cne $tarName -or $Matches[1] -cne (Get-Sha256 (Join-Path $Directory $tarName))) {
                         throw "checksum does not match $tarName"
                     }
+                    break
+                }
+                '^agentsql-.*-chatbi-model\.tar\.gz$' {
+                    & (Get-ModelPython) (Join-Path $repositoryRoot 'scripts/package-chatbi-model.py') --verify $path --version $ReleaseVersion | Out-Null
+                    if ($LASTEXITCODE -ne 0) { throw 'pinned model archive validation failed' }
                     break
                 }
                 '^agentsql-.*\.spdx\.json$' {
@@ -379,7 +400,7 @@ function Test-ReleaseAssets {
     $expected = @(Get-ExpectedAssetNames $ReleaseVersion)
     $actualEntries = @(Get-ChildItem -LiteralPath $Directory -Force)
     if (@($actualEntries | Where-Object { $_.PSIsContainer }).Count -gt 0) {
-        throw 'Release asset directory contains a subdirectory; expected exactly 15 files.'
+        throw "Release asset directory contains a subdirectory; expected exactly $($expected.Count) files."
     }
     Assert-NameSet -Actual @($actualEntries.Name) -Expected $expected -Label 'Release asset'
     foreach ($entry in $actualEntries) {
@@ -397,6 +418,14 @@ function Test-ReleaseAssets {
         }
         if ($Matches[2] -ne $tarName -or $Matches[1].ToLowerInvariant() -ne (Get-Sha256 (Join-Path $Directory $tarName))) {
             throw "$sidecarName does not match $tarName."
+        }
+    }
+    if ([version]$ReleaseVersion.Substring(1) -ge [version]'4.5.0') {
+        $modelName = "agentsql-$ReleaseVersion-chatbi-model.tar.gz"
+        $modelPath = Join-Path $Directory $modelName
+        $modelSidecar = Get-Content -LiteralPath (Join-Path $Directory "$modelName.sha256") -Raw -Encoding UTF8
+        if ($modelSidecar -cne "$(Get-Sha256 $modelPath)  $modelName`n") {
+            throw 'Pinned ChatBI model sidecar does not match the model archive.'
         }
     }
 
@@ -458,6 +487,7 @@ if ($ProductionPrepare -and $SkipImages) {
 }
 
 if ($ValidateOnly) {
+    if ($ChatbiModelSource) { throw '-ChatbiModelSource is used only when assembling assets.' }
     if ($ProductionPrepare -or $PublicKeyPath) {
         throw '-ValidateOnly cannot be combined with -ProductionPrepare or -PublicKeyPath.'
     }
@@ -650,6 +680,14 @@ foreach ($architecture in @('amd64', 'arm64')) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $assetsPath $name)
     }
 }
+if ([version]$Version.Substring(1) -ge [version]'4.5.0') {
+    if (-not $ChatbiModelSource -or -not (Test-Path -LiteralPath $ChatbiModelSource -PathType Container)) {
+        throw 'v4.5.0 or later requires -ChatbiModelSource with the pinned local ONNX model directory.'
+    }
+    $modelOutput = Join-Path $assetsPath "agentsql-$Version-chatbi-model.tar.gz"
+    & (Get-ModelPython) (Join-Path $repositoryRoot 'scripts/package-chatbi-model.py') --source $ChatbiModelSource --output $modelOutput --source-date-epoch $SourceDateEpoch --version $Version
+    if ($LASTEXITCODE -ne 0) { throw 'Pinned ChatBI model packaging failed.' }
+}
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'scripts/install.sh') -Destination (Join-Path $assetsPath 'install.sh')
 
 $metadataParts = foreach ($architecture in @('amd64', 'arm64')) {
@@ -820,7 +858,7 @@ These are detached Ed25519 signatures over the raw bytes of each named file.
 Verify the SPDX SBOM, `provenance.json`, and `SHA256SUMS` with the checked-in
 `scripts/releasesign/main.go` helper and `ed25519-release-public-key.json`
 before uploading any asset. Also run `scripts/release-dryrun.ps1 -ValidateOnly`
-against the completed 15-file directory from the sealed release commit.
+against the completed versioned asset directory from the sealed release commit.
 
 From a repository checkout at tag {VERSION}, set `$AssetDirectory to the
 download directory. Verification requires Go 1.26.x; do not let the host's
@@ -835,7 +873,8 @@ if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go version go1\.26\.') {
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/{SBOM}" -signature "$AssetDirectory/{SBOM}.sig.json"
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/provenance.json" -signature "$AssetDirectory/provenance.json.sig.json"
 go run ./scripts/releasesign/main.go -mode verify -public "$AssetDirectory/ed25519-release-public-key.json" -input "$AssetDirectory/SHA256SUMS" -signature "$AssetDirectory/SHA256SUMS.sig.json"
-pwsh ./scripts/release-dryrun.ps1 -Version {VERSION} -ValidateOnly -AssetsDirectory $AssetDirectory
+$PythonExecutable = '<absolute path to Python 3.11+ executable>'
+pwsh ./scripts/release-dryrun.ps1 -Version {VERSION} -ValidateOnly -AssetsDirectory $AssetDirectory -PythonExecutable $PythonExecutable
 ```
 '@
     $verificationInstructions = $verificationInstructions.Replace('{VERSION}', $Version).Replace('{SBOM}', $sbomName)
@@ -861,7 +900,7 @@ Write-Utf8File -Path (Join-Path $assetsPath 'VERIFYING-SIGNATURES.md') -Content 
 if ($ProductionPrepare) {
     Assert-ReleaseProvenance -Directory $assetsPath -Repository $repositoryRoot -ReleaseVersion $Version `
         -ExpectedCommit $commit -Mode Production
-    Write-Host 'RELEASE_PREPARE_UNSIGNED_ASSET_COUNT=11'
+    Write-Host "RELEASE_PREPARE_UNSIGNED_ASSET_COUNT=$(@(Get-ExpectedAssetNames $Version).Count - 4)"
     Write-Host 'RELEASE_PREPARE_SIGNING_REQUIRED=SBOM_PROVENANCE_SHA256SUMS'
 }
 else {

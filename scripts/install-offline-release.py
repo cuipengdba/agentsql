@@ -29,7 +29,7 @@ MAX_PACKAGE = 2 << 30
 
 def names(version):
     stem = "agentsql-" + version
-    return {
+    result = {
         stem + "-linux-amd64.tar.gz", stem + "-linux-amd64.tar.gz.sha256",
         stem + "-linux-arm64.tar.gz", stem + "-linux-arm64.tar.gz.sha256",
         stem + ".spdx.json", stem + ".spdx.json.sig.json",
@@ -37,6 +37,10 @@ def names(version):
         "provenance.json", "provenance.json.sig.json", "SBOM-GENERATION.txt",
         "VERIFYING-SIGNATURES.md", "SHA256SUMS", "SHA256SUMS.sig.json",
     }
+    if tuple(map(int, version.removeprefix("v").split("."))) >= (4, 5, 0):
+        model = stem + "-chatbi-model.tar.gz"
+        result.update((model, model + ".sha256"))
+    return result
 
 
 def digest(data):
@@ -106,7 +110,7 @@ def verify_signature(assets, artifact, key_doc, pub, openssl, scratch):
 def verify_assets(assets, version, trusted_key, openssl, scratch):
     expected = names(version)
     if {entry.name for entry in assets.iterdir()} != expected:
-        raise ValueError("offline bundle does not contain exactly 15 expected release assets")
+        raise ValueError("offline bundle asset set does not match version")
     trusted = regular_bytes(trusted_key, 16384)
     bundled = regular_bytes(assets / "ed25519-release-public-key.json", 16384)
     if trusted != bundled:
@@ -130,6 +134,11 @@ def verify_assets(assets, version, trusted_key, openssl, scratch):
         limit = MAX_PACKAGE if name.endswith(".tar.gz") else MAX_DOCUMENT
         if file_digest(assets / name, limit) != want:
             raise ValueError("release asset digest mismatch: " + name)
+    if len(expected) == 17:
+        model = "agentsql-" + version + "-chatbi-model.tar.gz"
+        sidecar = regular_bytes(assets / (model + ".sha256"), 1024)
+        if sidecar != (checked[model] + "  " + model + "\n").encode("ascii"):
+            raise ValueError("model checksum sidecar does not match signed inventory")
     verify_signature(assets, "provenance.json", key_doc, pub, openssl, scratch)
     verify_signature(assets, "agentsql-" + version + ".spdx.json", key_doc, pub, openssl, scratch)
 

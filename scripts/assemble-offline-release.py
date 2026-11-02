@@ -16,6 +16,7 @@ import subprocess
 import tarfile
 import tempfile
 
+
 PINNED_KEY_SHA256 = "83d507dd59659aff490725184b2e65a5c1036181fc79c350028905df723a1542"
 POSTGRES_PREFLIGHT_SHA256 = "4cbab38eeb5b4db09e2a79c1ce4dd9bb5df23dc9e20eb6a27d3d3d1d79d7abc2"
 
@@ -47,8 +48,10 @@ def assemble(args):
             stage = Path(staging) / "assets"
         stage.mkdir(mode=0o700)
         entries = list(source.iterdir())
-        if len(entries) != 15:
-            raise ValueError("expected exactly 15 assets")
+        model_release = tuple(map(int, args.version.removeprefix("v").split("."))) >= (4, 5, 0)
+        expected_count = 17 if model_release else 15
+        if len(entries) != expected_count:
+            raise ValueError(f"expected exactly {expected_count} assets")
         for entry in entries:
             original = entry.lstat()
             if not stat.S_ISREG(original.st_mode) or original.st_size > 2 << 30:
