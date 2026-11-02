@@ -284,6 +284,47 @@ func TestRevokedColumnDoesNotReturnThroughModelHistory(t *testing.T) {
 	require.Equal(t, 1, gateway.queries)
 }
 
+func TestRowPermissionChangeDropsOtherwiseVisibleModelHistory(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	generator := &historyModel{}
+	service.Model = generator
+	chat, err := service.Start(ctx, principal, "10", "first", 0)
+	require.NoError(t, err)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	_, err = service.Ask(ctx, principal, chat.ID, "before rule", check, nil)
+	require.NoError(t, err)
+	rule := testActiveRowPermission(t, "east")
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	_, err = service.Ask(ctx, principal, chat.ID, "after rule", check, nil)
+	require.NoError(t, err)
+	require.Empty(t, generator.histories[1], "SQL remains visible but its old row policy must not enter the model")
+	_, err = service.Ask(ctx, principal, chat.ID, "same rule", check, nil)
+	require.NoError(t, err)
+	require.Len(t, generator.histories[2], 1)
+	require.Equal(t, "after rule", generator.histories[2][0].Question)
+	require.Equal(t, 3, gateway.queries)
+}
+
+func TestLegacyChatTurnWithoutPolicyFingerprintIsNotModelContext(t *testing.T) {
+	service, principal, _, _, token := serviceFixture(t)
+	ctx := context.Background()
+	generator := &historyModel{}
+	service.Model = generator
+	chat, err := service.Start(ctx, principal, "10", "first", 0)
+	require.NoError(t, err)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	first, err := service.Ask(ctx, principal, chat.ID, "before upgrade", check, nil)
+	require.NoError(t, err)
+	require.NoError(t, service.Store.delete(ctx, recordPolicyKey(principal, first.ID), 1))
+	_, err = service.Ask(ctx, principal, chat.ID, "after upgrade", check, nil)
+	require.NoError(t, err)
+	require.Len(t, generator.histories, 2)
+	require.Empty(t, generator.histories[1])
+}
+
 func TestInvalidActiveColumnRuleClosesBeforeQuery(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()

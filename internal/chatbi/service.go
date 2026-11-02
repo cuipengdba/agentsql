@@ -672,6 +672,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		return Record{}, err
 	}
 	history := make([]TurnContext, 0, settings.ContextRecords)
+	historyIDs := make([]ID, 0, settings.ContextRecords)
 	historyBytes := 0
 	for i := len(chat.Records) - 1; i >= 0 && len(history) < settings.ContextRecords; i-- {
 		prior := chat.Records[i]
@@ -683,10 +684,12 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			continue
 		}
 		history = append(history, TurnContext{Question: prior.Question, SQL: prior.SQL})
+		historyIDs = append(historyIDs, prior.ID)
 		historyBytes += length
 	}
 	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
+		historyIDs[i], historyIDs[j] = historyIDs[j], historyIDs[i]
 	}
 	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
@@ -747,6 +750,14 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err != nil {
 			return err
 		}
+		fingerprint, err := service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
+		if err != nil {
+			return err
+		}
+		history, err = service.historyWithCurrentPolicy(ctx, p, historyIDs, history, fingerprint)
+		if err != nil {
+			return err
+		}
 		history = visibleHistoryForModel(binding.Dialect, columns, history)
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
@@ -780,6 +791,9 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		// Knowledge retrieval can run local inference after schema discovery.
 		// A changed rule must close before the old schema reaches the generator.
 		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+			return err
+		}
+		if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
 			return err
 		}
 		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
@@ -818,6 +832,9 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
 			return err
 		}
+		if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+			return err
+		}
 		stage = "controlled_query"
 		data, err := service.query(ctx, p, binding, generated.SQL)
 		if err != nil {
@@ -833,6 +850,15 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			return err
 		}
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+			return err
+		}
+		if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+			return err
+		}
+		if err := service.Store.put(ctx, recordPolicyKey(p, recordID), fingerprint, 0); err != nil {
 			return err
 		}
 		record.Data = &data
