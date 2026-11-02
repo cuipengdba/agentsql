@@ -204,14 +204,26 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 			if err != nil {
 				return Record{}, err
 			}
-			if _, err := service.schema(ctx, p, binding); err != nil {
+			_, permissionSnapshot, err := service.schemaWithPermissionSnapshot(ctx, p, binding)
+			if err != nil {
+				return Record{}, err
+			}
+			fingerprint, err := service.modelContextFingerprint(ctx, p, digest, permissionSnapshot)
+			if err != nil {
+				return Record{}, err
+			}
+			current, err := service.recordMatchesCurrentPolicy(ctx, p, record.ID, fingerprint)
+			if err != nil {
 				return Record{}, err
 			}
 			record.Data = nil
+			if !current {
+				redactStaleRecord(&record)
+			}
 			if !withData {
 				record.Analysis, record.PredictText = "", ""
 			}
-			if withData && record.Finish && record.Error == "" {
+			if current && withData && record.Finish && record.Error == "" {
 				data, err := service.query(ctx, p, binding, record.SQL)
 				if err != nil {
 					return Record{}, err
@@ -226,6 +238,12 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 				}
 			}
 			if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
+				return Record{}, err
+			}
+			if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+				return Record{}, err
+			}
+			if err := service.modelContextUnchanged(ctx, p, digest, permissionSnapshot, fingerprint); err != nil {
 				return Record{}, err
 			}
 			record.DataDigest = ""
@@ -574,16 +592,28 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	if _, err := service.schema(ctx, p, binding); err != nil {
+	_, permissionSnapshot, err := service.schemaWithPermissionSnapshot(ctx, p, binding)
+	if err != nil {
+		return Chat{}, err
+	}
+	fingerprint, err := service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
+	if err != nil {
 		return Chat{}, err
 	}
 	for i := range chat.Records {
 		record := &chat.Records[i]
 		record.Data = nil
+		current, err := service.recordMatchesCurrentPolicy(ctx, p, record.ID, fingerprint)
+		if err != nil {
+			return Chat{}, err
+		}
+		if !current {
+			redactStaleRecord(record)
+		}
 		if !withData {
 			record.Analysis, record.PredictText = "", ""
 		}
-		if withData && record.Finish && record.Error == "" && record.SQL != "" {
+		if current && withData && record.Finish && record.Error == "" && record.SQL != "" {
 			data, err := service.query(ctx, p, binding, record.SQL)
 			if err != nil {
 				return Chat{}, err
@@ -600,6 +630,12 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 		record.DataDigest = ""
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return Chat{}, err
+	}
+	if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+		return Chat{}, err
+	}
+	if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
 		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {

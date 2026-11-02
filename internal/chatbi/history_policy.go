@@ -65,3 +65,33 @@ func (service *Service) historyWithCurrentPolicy(ctx context.Context, p Principa
 	}
 	return visible, nil
 }
+
+func (service *Service) recordMatchesCurrentPolicy(ctx context.Context, p Principal, id ID, fingerprint string) (bool, error) {
+	if fingerprint == "" {
+		return false, ErrGateway
+	}
+	var recorded string
+	_, err := service.Store.get(ctx, recordPolicyKey(p, id), &recorded)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, ErrGateway
+	}
+	return recorded == fingerprint, nil
+}
+
+// A changed permission, binding or identity invalidates generated history.
+// Keep only user-authored question and lifecycle metadata in the response.
+func redactStaleRecord(record *Record) {
+	record.SQL = ""
+	record.SQLAnswer = ""
+	record.Chart = ""
+	record.Analysis = ""
+	record.PredictText = ""
+	record.AnalysisOf = ""
+	record.PredictOf = ""
+	record.Action = ""
+	record.DataDigest = ""
+	record.Data = nil
+}

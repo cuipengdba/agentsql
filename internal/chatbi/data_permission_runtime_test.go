@@ -308,6 +308,45 @@ func TestRowPermissionChangeDropsOtherwiseVisibleModelHistory(t *testing.T) {
 	require.Equal(t, 3, gateway.queries)
 }
 
+func TestRowPermissionChangeRedactsHistoricalRecordResponses(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	service.Model = &historyModel{}
+	chat, err := service.Start(ctx, principal, "10", "before rule", 0)
+	require.NoError(t, err)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	first, err := service.Ask(ctx, principal, chat.ID, "before rule", check, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.SQL)
+	require.Equal(t, 1, gateway.queries)
+
+	rule := testActiveRowPermission(t, "east")
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	old, err := service.Record(ctx, principal, first.ID, true)
+	require.NoError(t, err)
+	require.Equal(t, "before rule", old.Question)
+	require.Empty(t, old.SQL)
+	require.Empty(t, old.SQLAnswer)
+	require.Empty(t, old.Chart)
+	require.Nil(t, old.Data)
+	require.Equal(t, 1, gateway.queries, "stale SQL was re-executed")
+	history, err := service.ReadChat(ctx, principal, chat.ID, true)
+	require.NoError(t, err)
+	require.Len(t, history.Records, 1)
+	require.Empty(t, history.Records[0].SQL)
+	require.Nil(t, history.Records[0].Data)
+	require.Equal(t, 1, gateway.queries)
+
+	second, err := service.Ask(ctx, principal, chat.ID, "after rule", check, nil)
+	require.NoError(t, err)
+	current, err := service.Record(ctx, principal, second.ID, true)
+	require.NoError(t, err)
+	require.NotEmpty(t, current.SQL, "new answer under the current policy was hidden")
+	require.NotNil(t, current.Data)
+}
+
 func TestLegacyChatTurnWithoutPolicyFingerprintIsNotModelContext(t *testing.T) {
 	service, principal, _, _, token := serviceFixture(t)
 	ctx := context.Background()
