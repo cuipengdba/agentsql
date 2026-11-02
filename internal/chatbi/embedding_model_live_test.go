@@ -86,3 +86,27 @@ func TestLocalEmbeddingModelConcurrentCacheAndClose(t *testing.T) {
 		t.Fatalf("closed model accepted inference: %v", err)
 	}
 }
+
+func TestLocalEmbeddingModelRejectsIncompleteOrChangedAssets(t *testing.T) {
+	path := t.TempDir()
+	if _, err := NewLocalEmbeddingModel(path); err != ErrUnavailable {
+		t.Fatalf("empty model directory: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(path, "1_Pooling"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "README.md"), []byte("changed model card"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewLocalEmbeddingModel(path); err != ErrUnavailable {
+		t.Fatalf("changed model asset: %v", err)
+	}
+	if err := os.Remove(filepath.Join(path, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(path, "1_Pooling"), filepath.Join(path, "README.md")); err == nil {
+		if _, err := NewLocalEmbeddingModel(path); err != ErrUnavailable {
+			t.Fatalf("symlinked model asset: %v", err)
+		}
+	}
+}
