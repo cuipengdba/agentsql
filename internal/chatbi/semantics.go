@@ -357,7 +357,7 @@ func (service *Service) Vocabulary(ctx context.Context, p Principal, datasource 
 		}
 		bytesUsed += len(encoded) + 1
 		hints = append(hints, hint)
-		if len(hints) == 8 {
+		if len(hints) == settings.termLimit() {
 			break
 		}
 	}

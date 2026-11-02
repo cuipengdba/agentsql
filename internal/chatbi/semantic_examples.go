@@ -76,7 +76,7 @@ func (service *Service) SafeExamples(ctx context.Context, p Principal, datasourc
 		}
 		used += len(encoded) + 1
 		hints = append(hints, hint)
-		if len(hints) == 4 {
+		if len(hints) == settings.trainingLimit() {
 			break
 		}
 	}

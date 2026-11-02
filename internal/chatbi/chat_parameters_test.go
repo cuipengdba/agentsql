@@ -143,13 +143,19 @@ func TestEmbeddingEnabledControlsAuthorizedKnowledgeRetrieval(t *testing.T) {
 	if _, err := service.SaveTerminology(ctx, admin, Terminology{Word: "GMV", Description: "gross merchandise value", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.SaveTerminology(ctx, admin, Terminology{Word: "revenue", Description: "sales revenue", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := service.SaveExample(ctx, admin, SQLExample{Workspace: 1, Datasource: 10, Question: "GMV", Description: "SELECT amount FROM public.sales LIMIT 2", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveExample(ctx, admin, SQLExample{Workspace: 1, Datasource: 10, Question: "GMV", Description: "SELECT amount FROM public.sales LIMIT 1", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	visible := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
 	check := func(want int) {
 		t.Helper()
-		terms, err := service.Vocabulary(ctx, admin, "10", "GMV")
+		terms, err := service.Vocabulary(ctx, admin, "10", "GMV revenue")
 		if err != nil || len(terms) != want {
 			t.Fatalf("terminology count %d, want %d: %v", len(terms), want, err)
 		}
@@ -158,7 +164,7 @@ func TestEmbeddingEnabledControlsAuthorizedKnowledgeRetrieval(t *testing.T) {
 			t.Fatalf("training count %d, want %d: %v", len(examples), want, err)
 		}
 	}
-	check(1)
+	check(2)
 	if response := chatParameterForm(t, handler, memberToken, `[{"pkey":"embedding.enabled","pval":false}]`); response.Code != http.StatusUnauthorized {
 		t.Fatalf("member changed knowledge retrieval: %d", response.Code)
 	}
@@ -172,6 +178,21 @@ func TestEmbeddingEnabledControlsAuthorizedKnowledgeRetrieval(t *testing.T) {
 	}
 	if response := chatParameterForm(t, handler, adminToken, `[{"pkey":"embedding.enabled","pval":true}]`); response.Code != http.StatusOK {
 		t.Fatalf("enable knowledge retrieval: %d %s", response.Code, response.Body.String())
+	}
+	check(2)
+	if response := chatParameterForm(t, handler, adminToken, `[{"pkey":"embedding.terminology_top_count","pval":1},{"pkey":"embedding.data_training_top_count","pval":1}]`); response.Code != http.StatusOK {
+		t.Fatalf("save retrieval limits: %d %s", response.Code, response.Body.String())
+	}
+	check(1)
+	read = accountRequest(t, handler, http.MethodGet, "/api/v1/system/parameter", "", adminToken)
+	if read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"pkey":"embedding.terminology_top_count","pval":"1"`) ||
+		!strings.Contains(read.Body.String(), `"pkey":"embedding.data_training_top_count","pval":"1"`) {
+		t.Fatalf("retrieval limits not persisted: %d %s", read.Code, read.Body.String())
+	}
+	for _, key := range []string{"embedding.terminology_top_count", "embedding.data_training_top_count"} {
+		if response := chatParameterForm(t, handler, adminToken, `[{"pkey":"`+key+`","pval":0}]`); response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("zero retrieval limit accepted: %s %d", key, response.Code)
+		}
 	}
 	check(1)
 	if response := chatParameterForm(t, handler, adminToken, `[{"pkey":"embedding.enabled","pval":"off"}]`); response.Code != http.StatusUnprocessableEntity {

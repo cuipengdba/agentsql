@@ -16,6 +16,8 @@ type chatSettings struct {
 	Name string `json:"name"`
 	// Nil is the default for installations whose sealed settings predate this key.
 	EmbeddingEnabled        *bool `json:"embedding_enabled,omitempty"`
+	TerminologyTopCount     *int  `json:"terminology_top_count,omitempty"`
+	DataTrainingTopCount    *int  `json:"data_training_top_count,omitempty"`
 	InitialPasswordDisabled bool  `json:"initial_password_disabled"`
 	InitialPasswordHidden   bool  `json:"initial_password_hidden"`
 	HideThinking            bool  `json:"hide_thinking"`
@@ -34,11 +36,29 @@ func (value chatSettings) knowledgeEnabled() bool {
 	return value.EmbeddingEnabled == nil || *value.EmbeddingEnabled
 }
 
+const maxTermHints = 8
+const maxTrainingExamples = 5
+
+func (value chatSettings) termLimit() int {
+	if value.TerminologyTopCount != nil {
+		return *value.TerminologyTopCount
+	}
+	return 5
+}
+
+func (value chatSettings) trainingLimit() int {
+	if value.DataTrainingTopCount != nil {
+		return *value.DataTrainingTopCount
+	}
+	return 5
+}
+
 func chatSettingsKey() objectKey { return objectKey{"chat-parameters", "system", "system", "default"} }
 
 func validChatSettings(value chatSettings) bool {
 	if value.Name == "" || len([]rune(value.Name)) > 80 || strings.TrimSpace(value.Name) != value.Name ||
-		strings.ContainsAny(value.Name, "<>\r\n\x00") || !value.LimitRows || value.ContextRecords < 0 || value.ContextRecords > 3 {
+		strings.ContainsAny(value.Name, "<>\r\n\x00") || !value.LimitRows || value.ContextRecords < 0 || value.ContextRecords > 3 ||
+		value.termLimit() < 1 || value.termLimit() > maxTermHints || value.trainingLimit() < 1 || value.trainingLimit() > maxTrainingExamples {
 		return false
 	}
 	return true
@@ -57,7 +77,7 @@ func (s *Store) ChatSettings(ctx context.Context) (chatSettings, error) {
 }
 
 func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map[string]string) error {
-	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 8 {
+	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 10 {
 		return ErrInvalidAccountChange
 	}
 	key := chatSettingsKey()
@@ -88,6 +108,18 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 				return ErrInvalidAccountChange
 			}
 			value.EmbeddingEnabled = &parsed
+		case "embedding.terminology_top_count":
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 || parsed > maxTermHints {
+				return ErrInvalidAccountChange
+			}
+			value.TerminologyTopCount = &parsed
+		case "embedding.data_training_top_count":
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 || parsed > maxTrainingExamples {
+				return ErrInvalidAccountChange
+			}
+			value.DataTrainingTopCount = &parsed
 		case "login.initial_pwd_disabled":
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
@@ -220,7 +252,11 @@ func (h *Handler) sqlbotAllParameters(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	all := append(chatParameterList(value, true), loginParameterList(value)...)
-	all = append(all, sqlbotChatParameter{Key: "embedding.enabled", Value: strconv.FormatBool(value.knowledgeEnabled()), ID: "7520382585415929862", Type: "bool"})
+	all = append(all,
+		sqlbotChatParameter{Key: "embedding.enabled", Value: strconv.FormatBool(value.knowledgeEnabled()), ID: "7520382585415929862", Type: "bool"},
+		sqlbotChatParameter{Key: "embedding.terminology_top_count", Value: strconv.Itoa(value.termLimit()), ID: "7520382585415929863", Type: "int"},
+		sqlbotChatParameter{Key: "embedding.data_training_top_count", Value: strconv.Itoa(value.trainingLimit()), ID: "7520382585415929864", Type: "int"},
+	)
 	okay(w, all)
 }
 
@@ -290,7 +326,7 @@ func (h *Handler) sqlbotSaveParameters(w http.ResponseWriter, r *http.Request, p
 		Key   string          `json:"pkey"`
 		Value json.RawMessage `json:"pval"`
 	}
-	if json.Unmarshal([]byte(r.MultipartForm.Value["data"][0]), &submitted) != nil || len(submitted) == 0 || len(submitted) > 8 {
+	if json.Unmarshal([]byte(r.MultipartForm.Value["data"][0]), &submitted) != nil || len(submitted) == 0 || len(submitted) > 10 {
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
