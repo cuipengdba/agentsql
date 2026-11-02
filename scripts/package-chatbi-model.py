@@ -137,11 +137,22 @@ def build(source: Path, output: Path, epoch: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--source-date-epoch", type=int, required=True)
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--source-date-epoch", type=int)
+    parser.add_argument("--verify", type=Path, help="inspect an existing model archive without extracting it")
     args = parser.parse_args()
-    build(args.source, args.output, args.source_date_epoch)
+    if args.verify is not None:
+        if args.source is not None or args.output is not None or args.source_date_epoch is not None:
+            parser.error("--verify cannot be combined with build options")
+        manifest, files = pinned_files()
+        verify_archive(args.verify, manifest, files)
+        with args.verify.open("rb") as stream:
+            print(sha256_stream(stream))
+    else:
+        if args.source is None or args.output is None or args.source_date_epoch is None:
+            parser.error("build requires --source, --output, and --source-date-epoch")
+        build(args.source, args.output, args.source_date_epoch)
 
 
 if __name__ == "__main__":

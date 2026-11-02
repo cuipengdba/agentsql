@@ -36,6 +36,8 @@ jobs:
         run: sh dbext/packaging/signing/test-trust-boundary.sh
       - name: Verify offline transport archive signatures
         run: python -m unittest scripts/test_verify_offline_archive.py -v
+      - name: Reject unsafe or incomplete ChatBI model archives
+        run: python -m unittest scripts/test_package_chatbi_model.py -v
       - name: Sign only explicitly selected fresh binder artifacts
         run: sh dbext/packaging/signing/test-sign-selection.sh
 
