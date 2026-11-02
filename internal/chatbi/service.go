@@ -743,7 +743,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 				return err
 			}
 		}
-		columns, err := service.semanticSchema(ctx, p, binding)
+		columns, permissionSnapshot, err := service.semanticSchemaWithPermissionSnapshot(ctx, p, binding)
 		if err != nil {
 			return err
 		}
@@ -776,6 +776,11 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			return err
 		}
 		stage = "model"
+		// Knowledge retrieval can run local inference after schema discovery.
+		// A changed rule must close before the old schema reaches the generator.
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+			return err
+		}
 		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
 			return err
 		}
@@ -807,6 +812,9 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			return err
 		}
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
 			return err
 		}
 		stage = "controlled_query"

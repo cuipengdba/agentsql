@@ -10,22 +10,27 @@ import (
 )
 
 func (service *Service) schema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
+	columns, _, err := service.schemaWithPermissionSnapshot(ctx, principal, binding)
+	return columns, err
+}
+
+func (service *Service) schemaWithPermissionSnapshot(ctx context.Context, principal Principal, binding Binding) ([]Column, []DataPermissionRule, error) {
 	columns, snapshot, _, err := service.gatewaySchemaWithPermissionSnapshot(ctx, principal, binding)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	columns, err = filterManagedFileSchema(binding, columns)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	visible, err := filterDatabaseSchema(binding, columns)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := service.dataPermissionUnchanged(ctx, principal.Workspace, snapshot); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return visible, nil
+	return visible, snapshot, nil
 }
 
 // gatewaySchema also covers schema discovery paths that deliberately bypass
@@ -78,15 +83,24 @@ func (service *Service) gatewaySchemaWithPermissionSnapshot(ctx context.Context,
 }
 
 func (service *Service) semanticSchema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
-	columns, err := service.schema(ctx, principal, binding)
+	columns, _, err := service.semanticSchemaWithPermissionSnapshot(ctx, principal, binding)
+	return columns, err
+}
+
+func (service *Service) semanticSchemaWithPermissionSnapshot(ctx context.Context, principal Principal, binding Binding) ([]Column, []DataPermissionRule, error) {
+	columns, snapshot, err := service.schemaWithPermissionSnapshot(ctx, principal, binding)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	columns, err = filterDisabledTables(binding, columns)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return filterDisabledFields(binding, columns)
+	columns, err = filterDisabledFields(binding, columns)
+	if err != nil {
+		return nil, nil, err
+	}
+	return columns, snapshot, nil
 }
 
 func (service *Service) query(ctx context.Context, principal Principal, binding Binding, sql string) (QueryData, error) {

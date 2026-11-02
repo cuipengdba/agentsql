@@ -182,6 +182,76 @@ func TestActiveOriginalRowPermissionChangeSuppressesInFlightResult(t *testing.T)
 	require.Equal(t, 1, gateway.queries)
 }
 
+type permissionChangingEmbedding struct {
+	change func()
+}
+
+func (model *permissionChangingEmbedding) Encode(ctx context.Context, texts []string) ([][]float32, error) {
+	if model.change != nil {
+		model.change()
+		model.change = nil
+	}
+	return fixedEmbedding{}.Encode(ctx, texts)
+}
+
+func TestAskClosesWhenPermissionChangesDuringEmbeddingBeforeModel(t *testing.T) {
+	service, principal, gateway, generator, token := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	rule := testActiveRowPermission(t, "east")
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Admin = true
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	admin := principal
+	admin.User = user
+	_, err = service.SaveTerminology(ctx, admin, Terminology{Word: "revenue", Description: "approved measure", Enabled: true,
+		SpecificDS: true, DatasourceIDs: []int64{10}})
+	require.NoError(t, err)
+	settings := defaultChatSettings()
+	settings.Embedding.Enabled = true
+	require.NoError(t, service.Store.put(ctx, chatSettingsKey(), settings, 0))
+	service.Embedding = &permissionChangingEmbedding{change: func() {
+		revoked := rule
+		revoked.Enable = false
+		require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), revoked, 1))
+	}}
+	chat, err := service.Start(ctx, principal, "10", "first", 0)
+	require.NoError(t, err)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	record, err := service.Ask(ctx, principal, chat.ID, "sales amount", check, nil)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, generator.calls, "revoked schema reached the model")
+	require.Zero(t, gateway.queries, "revoked schema reached the gateway query")
+	require.Empty(t, record.SQL)
+	require.Nil(t, record.Data)
+}
+
+func TestAskClosesWhenPermissionChangesDuringGenerationBeforeQuery(t *testing.T) {
+	service, principal, gateway, generator, token := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	rule := testActiveRowPermission(t, "east")
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	chat, err := service.Start(ctx, principal, "10", "first", 0)
+	require.NoError(t, err)
+	generator.after = func() {
+		revoked := rule
+		revoked.Enable = false
+		require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), revoked, 1))
+	}
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	record, err := service.Ask(ctx, principal, chat.ID, "sales amount", check, nil)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Equal(t, 1, generator.calls)
+	require.Zero(t, gateway.queries, "SQL generated under a revoked rule reached the gateway")
+	require.Empty(t, record.SQL)
+	require.Nil(t, record.Data)
+}
+
 func TestInvalidActiveColumnRuleClosesBeforeQuery(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()
