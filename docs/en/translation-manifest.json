@@ -914,7 +914,7 @@
     {
       "source": "deploy/ecs-demo/README.md",
       "english": "deploy/ecs-demo/README.en.md",
-      "source_sha256": "f09b2a6678bb49a53671b7c6cb8983b0f9cfdb4c27196860cb5cf174dfe22a82"
+      "source_sha256": "4b75892f07fd2bcd634ab748b68e210eedf599618b0e06b8c9764f76e76003ed"
     },
     {
       "source": "dbext/packaging/README.md",
