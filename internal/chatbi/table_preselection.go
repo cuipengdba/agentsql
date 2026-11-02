@@ -10,6 +10,7 @@ import (
 type modelTableCandidate struct {
 	key      string
 	name     string
+	comment  string
 	text     string
 	index    int
 	vector   float64
@@ -47,6 +48,9 @@ func selectModelTables(ctx context.Context, model EmbeddingModel, question strin
 	for _, remark := range remarks {
 		if index, found := positions[remark.Schema+"\x00"+remark.Table]; found {
 			tables[index].text += " " + remark.Remark
+			if remark.Column == "" {
+				tables[index].comment = remark.Remark
+			}
 		}
 	}
 	for _, table := range tables {
@@ -86,12 +90,17 @@ func selectModelTables(ctx context.Context, model EmbeddingModel, question strin
 			}
 		}
 	}
+	explicit := explicitTableMentions(question, tables)
 	for index := range tables {
 		table := &tables[index]
-		table.explicit = mentionedIdentifier(question, table.name)
+		table.explicit = explicit[table.key]
 		if keywordEnabled {
 			if table.explicit {
 				table.keyword = 1
+				if !mentionedIdentifier(question, table.name) && table.comment != "" &&
+					strings.Contains(strings.ToLower(question), strings.ToLower(table.comment)) {
+					table.keyword = 0.9
+				}
 			} else {
 				for _, remark := range remarks {
 					if remark.Schema+"\x00"+remark.Table == table.key && remark.Remark != "" &&

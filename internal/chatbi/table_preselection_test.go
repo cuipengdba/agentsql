@@ -38,7 +38,7 @@ func TestTablePreselectionUsesAuthorizedSchemaAndEffectiveWeight(t *testing.T) {
 		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
 		{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"},
 	}
-	remarks := []RemarkHint{{Schema: "public", Table: "sales", Remark: "revenue"}}
+	remarks := []RemarkHint{{Schema: "public", Table: "sales", Column: "amount", Remark: "revenue"}}
 	for _, item := range []struct {
 		alpha float64
 		want  string
@@ -146,5 +146,58 @@ func TestAskTablePreselectionClosesAfterPermissionRevocation(t *testing.T) {
 	if _, err := service.Ask(ctx, principal, chat.ID, "sales", check, nil); !errors.Is(err, ErrGateway) ||
 		len(model.columns) != 0 || gateway.queries != 0 {
 		t.Fatalf("revoked table context reached model or query: columns=%#v queries=%d err=%v", model.columns, gateway.queries, err)
+	}
+}
+
+func TestTablePreselectionKeepsLongestExplicitNamesAndComments(t *testing.T) {
+	tables := []modelTableCandidate{
+		{key: "short", name: "订单", comment: "采购订单"},
+		{key: "long", name: "订单明细", comment: "采购订单明细"},
+	}
+	for _, item := range []struct {
+		question string
+		short    bool
+		long     bool
+	}{
+		{"查询订单明细", false, true},
+		{"比较订单和订单明细", true, true},
+		{"查询采购订单明细", false, true},
+		{"比较采购订单和采购订单明细", true, true},
+	} {
+		selected := explicitTableMentions(item.question, tables)
+		if selected["short"] != item.short || selected["long"] != item.long {
+			t.Fatalf("question %q: unexpected explicit tables %#v", item.question, selected)
+		}
+	}
+	quoted := []modelTableCandidate{{key: "short", name: "sales"}, {key: "long", name: "sales-order"}}
+	selected := explicitTableMentions(`查询 "sales-order"`, quoted)
+	if selected["short"] || !selected["long"] {
+		t.Fatalf("quoted long name also selected substring: %#v", selected)
+	}
+	selected = explicitTableMentions(`查询 "sales-order"`, quoted[:1])
+	if selected["short"] {
+		t.Fatalf("unknown quoted name selected substring: %#v", selected)
+	}
+	duplicates := []modelTableCandidate{{key: "a", name: "first", comment: "采购订单"},
+		{key: "b", name: "second", comment: "采购订单"}}
+	selected = explicitTableMentions("查询采购订单", duplicates)
+	if !selected["a"] || !selected["b"] {
+		t.Fatalf("duplicate comments lost an authorized table: %#v", selected)
+	}
+	escaped := []modelTableCandidate{{key: "quoted", name: `a"b`}}
+	if !explicitTableMentions(`查询 "a""b"`, escaped)["quoted"] {
+		t.Fatal("escaped quoted name was not recognized")
+	}
+	columns := []Column{
+		{Schema: "public", Table: "short", Name: "id", DataType: "integer"},
+		{Schema: "public", Table: "long", Name: "id", DataType: "integer"},
+	}
+	remarks := []RemarkHint{
+		{Schema: "public", Table: "short", Remark: "采购订单"},
+		{Schema: "public", Table: "long", Remark: "采购订单明细"},
+	}
+	chosen, _, err := selectModelTables(context.Background(), tableFixtureEmbedding{}, "查询采购订单明细", columns, remarks, 1, 1, false)
+	if err != nil || len(chosen) != 1 || chosen[0].Table != "long" {
+		t.Fatalf("longest explicit table comment was truncated: %#v %v", chosen, err)
 	}
 }
