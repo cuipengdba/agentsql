@@ -53,6 +53,27 @@ func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 			t.Fatalf("similarity 0/%d = %.6f; original = %.6f", pair.index, dot, pair.want)
 		}
 	}
+	sources := []assistantCatalogEntry{
+		{CatalogID: "81", Datasource: "10", Name: "销售收入"},
+		{CatalogID: "82", Datasource: "11", Name: "天气预报"},
+		{CatalogID: "83", Datasource: "12", Name: "库存管理"},
+	}
+	chosen, err := selectAssistantCatalogSources(context.Background(), model, "天气预报", sources, 1)
+	if err != nil || len(chosen) != 1 || chosen[0].CatalogID != "82" {
+		t.Fatalf("real local model selected unexpected datasource: %#v %v", chosen, err)
+	}
+	columns := []Column{
+		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "meteo", Name: "temperature", DataType: "numeric"},
+	}
+	remarks := []RemarkHint{
+		{Schema: "public", Table: "orders", Remark: "销售收入"},
+		{Schema: "public", Table: "meteo", Remark: "天气预报"},
+	}
+	selected, _, err := selectModelTables(context.Background(), model, "天气预报", columns, remarks, 1, 1, false)
+	if err != nil || len(selected) != 1 || selected[0].Table != "meteo" {
+		t.Fatalf("real local model selected unexpected table: %#v %v", selected, err)
+	}
 }
 
 func TestLocalEmbeddingModelConcurrentCacheAndClose(t *testing.T) {
