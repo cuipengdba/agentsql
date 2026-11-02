@@ -31,6 +31,46 @@ func decodeMCPData(body []byte, target any) error {
 	return json.Unmarshal(envelope.Data, target)
 }
 
+func TestMCPAccessTokenFieldValidationDoesNotEchoPassword(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		body       string
+		wantFields []string
+		wantType   string
+	}{
+		{"both missing", `{}`, []string{"username", "password"}, "missing"},
+		{"password missing", `{"username":"analyst"}`, []string{"password"}, "missing"},
+		{"username missing", `{"password":"Sensitive-password-1"}`, []string{"username"}, "missing"},
+		{"username type", `{"username":1,"password":"Sensitive-password-1"}`, []string{"username"}, "string_type"},
+		{"password type", `{"username":"analyst","password":["Sensitive-password-1"]}`, []string{"password"}, "string_type"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			var input mcpAccessTokenInput
+			if readMCPAccessTokenInput(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/mcp/access_token", strings.NewReader(tc.body)), &input) {
+				t.Fatal("malformed credentials accepted")
+			}
+			if recorder.Code != http.StatusUnprocessableEntity || strings.Contains(recorder.Body.String(), "Sensitive-password-1") {
+				t.Fatalf("unsafe validation response: %d %s", recorder.Code, recorder.Body.String())
+			}
+			var response struct {
+				Detail []struct {
+					Type string   `json:"type"`
+					Loc  []string `json:"loc"`
+				} `json:"detail"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || len(response.Detail) != len(tc.wantFields) {
+				t.Fatalf("invalid validation response: %v %s", err, recorder.Body.String())
+			}
+			for i, field := range tc.wantFields {
+				if response.Detail[i].Type != tc.wantType || !reflect.DeepEqual(response.Detail[i].Loc, []string{"body", field}) {
+					t.Fatalf("field %d: %+v", i, response.Detail[i])
+				}
+			}
+		})
+	}
+}
+
 type mcpLanguageCaptureModel struct{ languages []string }
 
 func (m *mcpLanguageCaptureModel) Generate(ctx context.Context, _ ModelConfig, _, _ string, _ []Column) (SQLGeneration, error) {

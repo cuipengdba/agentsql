@@ -22,11 +22,8 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, "Too many login requests")
 		return
 	}
-	var input struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if !readBody(w, r, &input) {
+	var input mcpAccessTokenInput
+	if !readMCPAccessTokenInput(w, r, &input) {
 		return
 	}
 	_, token, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
@@ -39,6 +36,57 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	okay(w, map[string]string{"access_token": token})
+}
+
+type mcpAccessTokenInput struct {
+	Username string
+	Password string
+}
+
+// Preserve SQLBot's field-level validation response without reflecting a
+// supplied password in the response body.
+func readMCPAccessTokenInput(w http.ResponseWriter, r *http.Request, input *mcpAccessTokenInput) bool {
+	var fields map[string]json.RawMessage
+	if !readBody(w, r, &fields) {
+		return false
+	}
+	if fields == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return false
+	}
+	var details []map[string]any
+	for _, entry := range []struct {
+		name   string
+		target *string
+	}{
+		{"username", &input.Username},
+		{"password", &input.Password},
+	} {
+		raw, present := fields[entry.name]
+		if !present {
+			details = append(details, map[string]any{
+				"type": "missing", "loc": []string{"body", entry.name}, "msg": "Field required",
+			})
+			continue
+		}
+		if string(raw) != "null" && json.Unmarshal(raw, entry.target) == nil {
+			continue
+		}
+		detail := map[string]any{
+			"type": "string_type", "loc": []string{"body", entry.name}, "msg": "Input should be a valid string",
+		}
+		if entry.name == "username" {
+			var supplied any
+			_ = json.Unmarshal(raw, &supplied)
+			detail["input"] = supplied
+		}
+		details = append(details, detail)
+	}
+	if len(details) > 0 {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": details})
+		return false
+	}
+	return true
 }
 
 func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
