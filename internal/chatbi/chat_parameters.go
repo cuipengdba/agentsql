@@ -13,19 +13,25 @@ import (
 )
 
 type chatSettings struct {
-	Name                    string `json:"name"`
-	InitialPasswordDisabled bool   `json:"initial_password_disabled"`
-	InitialPasswordHidden   bool   `json:"initial_password_hidden"`
-	HideThinking            bool   `json:"hide_thinking"`
-	ExpandThinking          bool   `json:"expand_thinking"`
-	LimitRows               bool   `json:"limit_rows"`
-	ContextRecords          int    `json:"context_records"`
-	ShowSQL                 bool   `json:"show_sql"`
-	ShowLog                 bool   `json:"show_log"`
+	Name string `json:"name"`
+	// Nil is the default for installations whose sealed settings predate this key.
+	EmbeddingEnabled        *bool `json:"embedding_enabled,omitempty"`
+	InitialPasswordDisabled bool  `json:"initial_password_disabled"`
+	InitialPasswordHidden   bool  `json:"initial_password_hidden"`
+	HideThinking            bool  `json:"hide_thinking"`
+	ExpandThinking          bool  `json:"expand_thinking"`
+	LimitRows               bool  `json:"limit_rows"`
+	ContextRecords          int   `json:"context_records"`
+	ShowSQL                 bool  `json:"show_sql"`
+	ShowLog                 bool  `json:"show_log"`
 }
 
 func defaultChatSettings() chatSettings {
 	return chatSettings{Name: "AgentSQL", LimitRows: true, ContextRecords: 3, ShowSQL: true, ShowLog: true}
+}
+
+func (value chatSettings) knowledgeEnabled() bool {
+	return value.EmbeddingEnabled == nil || *value.EmbeddingEnabled
 }
 
 func chatSettingsKey() objectKey { return objectKey{"chat-parameters", "system", "system", "default"} }
@@ -51,7 +57,7 @@ func (s *Store) ChatSettings(ctx context.Context) (chatSettings, error) {
 }
 
 func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map[string]string) error {
-	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 7 {
+	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 8 {
 		return ErrInvalidAccountChange
 	}
 	key := chatSettingsKey()
@@ -76,6 +82,12 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 	}
 	for name, raw := range updates {
 		switch name {
+		case "embedding.enabled":
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				return ErrInvalidAccountChange
+			}
+			value.EmbeddingEnabled = &parsed
 		case "login.initial_pwd_disabled":
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
@@ -207,7 +219,9 @@ func (h *Handler) sqlbotAllParameters(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	okay(w, append(chatParameterList(value, true), loginParameterList(value)...))
+	all := append(chatParameterList(value, true), loginParameterList(value)...)
+	all = append(all, sqlbotChatParameter{Key: "embedding.enabled", Value: strconv.FormatBool(value.knowledgeEnabled()), ID: "7520382585415929862", Type: "bool"})
+	okay(w, all)
 }
 
 func (h *Handler) nativeChatParameters(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -276,7 +290,7 @@ func (h *Handler) sqlbotSaveParameters(w http.ResponseWriter, r *http.Request, p
 		Key   string          `json:"pkey"`
 		Value json.RawMessage `json:"pval"`
 	}
-	if json.Unmarshal([]byte(r.MultipartForm.Value["data"][0]), &submitted) != nil || len(submitted) == 0 || len(submitted) > 7 {
+	if json.Unmarshal([]byte(r.MultipartForm.Value["data"][0]), &submitted) != nil || len(submitted) == 0 || len(submitted) > 8 {
 		failure(w, ErrInvalidAccountChange)
 		return
 	}

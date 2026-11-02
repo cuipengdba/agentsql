@@ -303,6 +303,13 @@ func (service *Service) Vocabulary(ctx context.Context, p Principal, datasource 
 	if _, err := service.binding(ctx, p, datasource); err != nil {
 		return nil, err
 	}
+	settings, err := service.Store.ChatSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !settings.knowledgeEnabled() {
+		return nil, nil
+	}
 	raw, err := service.Store.list(ctx, "terminology", string(p.Workspace), "workspace")
 	if err != nil {
 		return nil, err
