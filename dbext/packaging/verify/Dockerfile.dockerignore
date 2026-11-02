@@ -1,0 +1,13 @@
+*
+!dbext
+!dbext/packaging
+!dbext/packaging/verify
+!dbext/packaging/verify/verify-package.sh
+!dist
+!dist/binder
+!dist/binder/deb
+!dist/binder/deb/**
+!dist/binder/rpm
+!dist/binder/rpm/**
+!dist/binder/apk
+!dist/binder/apk/**

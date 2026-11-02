@@ -2,7 +2,7 @@
 
 [中文](CHATBI.md) | [English](en/CHATBI.md)
 
-v4.1.0 新增独立 Go 问数服务，v4.2.0 加入多轮语境、业务术语、推荐问题和受控 CSV/XLSX 文件数据源。服务复用 AgentSQL 网关的身份绑定、授权、脱敏和审计；运行时不需要 SQLBot 或 Python。当前提供普通账号登录、PostgreSQL/MySQL 问数、会话历史、SQL 与表格结果，以及中文/英文和浅色/深色界面。它尚不代表 SQLBot 社区版全部功能已替换；五版目标见 [版本设计](v4.1.0-design.md)。
+v4.1.0 新增独立 Go 问数服务，v4.2.0 加入多轮语境、业务术语、推荐问题和受控 CSV/XLSX 文件数据源；v4.3.0 加入图表、仪表板与嵌入应用，v4.4.0 加入账号与工作空间管理、数据源选表、备注和表关系。服务复用 AgentSQL 网关的身份绑定、授权、脱敏和审计；运行时不需要 SQLBot 或 Python。当前提供普通账号登录、PostgreSQL/MySQL 受控问数、会话历史、SQL 与结果，以及中文/英文和浅色/深色界面。完整社区版功能与接入方式仍待逐项验收；本版范围见 [v4.4.0 发布说明](release-notes-v4.4.0.md)。
 
 ## 安装与启动
 
@@ -69,6 +69,14 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 ```
 
 配置与本地管理审计一起提交，凭据加密保存，下一次问数读取新配置。配置成功不等于真实查询成功；需要实际验证允许、拒绝、脱敏、审计和故障场景。当前使用每个工作空间一个默认模型，个人绑定通过命令行维护。
+
+`configure` 是增量写入；从 JSON 文件中删去一条绑定不会撤销已保存的绑定。撤销时先确认当前问数侧工作空间、用户、数据源 ID 和网关绑定 ID，然后运行：
+
+```sh
+agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
+```
+
+命令只撤销这条本地问数映射，并将撤销与管理审计原子提交；旧会话再次访问该数据源时会被拒绝。绑定 ID 已轮换时，旧命令会拒绝执行。还需在网关单独撤销对应的人员绑定、令牌或数据源权限；命令输出的 `gateway_mapping_revoked: false` 明确表示它不会代替网关撤销。
 
 ## 旧身份迁移预演
 

@@ -38,3 +38,16 @@ func TestManagedFileSubsetIsAppliedToSchemaAndSQL(t *testing.T) {
 	_, err = filterManagedFileSchema(binding, columns)
 	require.ErrorIs(t, err, ErrGateway)
 }
+
+func TestGeneratedManagedFileSQLRejectsHallucinatedRelationBeforeGateway(t *testing.T) {
+	const table = "agentsql_file_752687ad0e4cf6a22385c9444fb203c3"
+	binding := Binding{Type: "excel", Dialect: "pg", ManagedFileID: "33333333333333333333333333333333"}
+	columns := []Column{{Schema: "agentsql_files", Table: table, Name: "month", DataType: "text"},
+		{Schema: "agentsql_files", Table: table, Name: "amount", DataType: "numeric"}}
+	require.ErrorIs(t, validateGeneratedManagedFileSQL(binding, columns,
+		`SELECT month, amount FROM "agentsql_files".agentsql_file_752687ad0e4cf6a22385c944fb203c3 LIMIT 100`), ErrModel)
+	require.NoError(t, validateGeneratedManagedFileSQL(binding, columns,
+		`SELECT month, amount FROM "agentsql_files".`+table+` ORDER BY month ASC LIMIT 100`))
+	require.ErrorIs(t, validateGeneratedManagedFileSQL(binding, columns,
+		`SELECT month, amount FROM public.`+table+` LIMIT 100`), ErrModel)
+}

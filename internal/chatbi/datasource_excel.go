@@ -251,7 +251,7 @@ func legacyExcelDatasource(binding Binding) (map[string]any, error) {
 		"recommended_config": 1, "embedding": nil, "table_relation": nil}, nil
 }
 
-func (h *Handler) getExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) getExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
 		return
@@ -261,13 +261,54 @@ func (h *Handler) getExcelDatasource(w http.ResponseWriter, r *http.Request, p P
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
 		return
 	}
-	binding, err := h.service.binding(r.Context(), p, id)
-	if err != nil || binding.Type != "excel" {
+	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, id)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	var payload map[string]any
+	if binding.Type == "excel" {
+		payload, err = legacyExcelDatasource(binding)
+	} else if databaseBinding(binding) {
+		var numeric, workspace, creator int64
+		numeric, err = strconv.ParseInt(string(binding.Datasource), 10, 64)
+		if err == nil {
+			workspace, err = strconv.ParseInt(string(binding.Workspace), 10, 64)
+		}
+		if err == nil {
+			creator, err = strconv.ParseInt(string(binding.User), 10, 64)
+		}
+		if err == nil && numeric > 0 && numeric <= maxSQLBotBrowserID && workspace > 0 && creator > 0 {
+			var configuration string
+			configuration, err = databaseDisplayConfiguration()
+			if err == nil {
+				kind, typeName := binding.Dialect, "PostgreSQL"
+				if kind == "mysql" {
+					typeName = "MySQL"
+				}
+				payload = map[string]any{"id": numeric, "oid": workspace, "create_by": creator,
+					"name": binding.Name, "description": binding.Description, "type": kind,
+					"type_name": typeName, "configuration": configuration, "create_time": binding.Created,
+					"status": "Success", "recommended_config": 1, "embedding": nil, "table_relation": nil}
+			}
+		}
+	} else {
 		failure(w, ErrNotFound)
 		return
 	}
-	payload, err := legacyExcelDatasource(binding)
-	if err != nil {
+	if err != nil || payload == nil {
+		failure(w, ErrUnavailable)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.bindingUnchanged(r.Context(), p, binding, revision, digest); err != nil {
 		failure(w, err)
 		return
 	}

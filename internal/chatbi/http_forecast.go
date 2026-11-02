@@ -1,6 +1,9 @@
 package chatbi
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 func (h *Handler) nativeForecast(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	id := ID(r.PathValue("id"))
@@ -37,7 +40,18 @@ func (h *Handler) legacyForecastData(w http.ResponseWriter, r *http.Request, p P
 	}
 	result, err := h.service.ForecastRecord(r.Context(), p, child.PredictOf)
 	if err != nil {
-		failure(w, err)
+		if !errors.Is(err, ErrForecastUnavailable) {
+			failure(w, err)
+			return
+		}
+		// SQLBot's unchanged page expects an empty array when the saved
+		// prediction has no numeric points. The child has already passed a
+		// fresh, authorized and audited result-digest check above.
+		if err := h.currentIdentity(r.Context(), p, token); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, []map[string]any{})
 		return
 	}
 	if result.digest != resultDigest(*child.Data) {

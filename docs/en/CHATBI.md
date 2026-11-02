@@ -2,7 +2,7 @@
 
 [Simplified Chinese](../CHATBI.md) | [English](CHATBI.md)
 
-v4.1.0 introduced a separate Go Q&A service; the released v4.2.0 adds multi-turn context, business terms, recommended questions and controlled CSV/XLSX file datasources. The service reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. Current functionality includes ordinary-account login, PostgreSQL/MySQL questions, conversation history, SQL and table results, and Chinese/English and light/dark interfaces. This does not yet replace every SQLBot Community feature; see the [version design](v4.1.0-design.md) for the five-release goal.
+v4.1.0 introduced a separate Go Q&A service; v4.2.0 added multi-turn context, business terms, recommended questions and controlled CSV/XLSX file datasources; v4.3.0 added charts, dashboards and embedded applications; v4.4.0 adds account and workspace administration, table selection, remarks and relationships. The service reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. Current functionality includes ordinary-account login, controlled PostgreSQL/MySQL questions, conversation history, SQL and results, and Chinese/English and light/dark interfaces. Complete Community features and integrations still require individual acceptance; see the [v4.4.0 release notes](release-notes-v4.4.0.md) for this release's scope.
 
 ## Installation and startup
 
@@ -69,6 +69,14 @@ agentsql chatbi configure --config /etc/agentsql/chatbi.yaml --from connections.
 ```
 
 Configuration and its local management audit commit together. Credentials are encrypted, and the next question reads the updated configuration. Successful configuration does not prove live queries work; validate allowed, denied, masked, audited and failure cases. The current service uses one default model per workspace and manages personal bindings through the CLI.
+
+`configure` upserts entries; omitting a binding from the JSON file does not revoke a stored binding. Confirm the current Q&A workspace, user and datasource IDs and the gateway binding ID, then run:
+
+```sh
+agentsql chatbi revoke-binding --config /etc/agentsql/chatbi.yaml --workspace 1 --user 1 --datasource 10 --expected-binding-id REPLACE_WITH_GATEWAY_BINDING_ID
+```
+
+The command removes only this local Q&A mapping and commits the revocation and management audit atomically. Old conversations are denied when they access the datasource again. A stale command is rejected if the binding ID has rotated. Revoke the corresponding person binding, token or datasource grant separately in the gateway; `gateway_mapping_revoked: false` in the output makes that boundary explicit.
 
 ## Rehearse an identity migration
 

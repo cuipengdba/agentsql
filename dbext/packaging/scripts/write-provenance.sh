@@ -9,9 +9,14 @@ ecosystem=$5
 source_revision=$6
 builder_image=$7
 
+if ! printf '%s' "$source_revision" | grep -Eq '^[0-9a-f]{40}$'; then
+  echo 'a full lowercase Git commit is required for package provenance' >&2
+  exit 1
+fi
+
 artifact_name=$(basename "$artifact")
 artifact_sha=$(sha256sum "$artifact" | awk '{print $1}')
-source_sha=$(sha256sum /src/agentsql_binder.c /src/agentsql_binder.control /src/agentsql_binder--0.4.sql /src/Makefile | sha256sum | awk '{print $1}')
+source_sha=$(cd /src && sha256sum Makefile agentsql_binder.c agentsql_binder.control agentsql_binder--0.4.sql | sha256sum | awk '{print $1}')
 timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 cat > "$output" <<EOF
@@ -22,8 +27,11 @@ cat > "$output" <<EOF
   "predicate": {
     "buildDefinition": {
       "buildType": "https://agentsql.dev/build-types/postgresql-extension-package/v1",
-      "externalParameters": {"postgresMajor":"$pg_major","architecture":"$architecture","ecosystem":"$ecosystem"},
-      "resolvedDependencies": [{"uri":"git+https://invalid.local/agentsql@$source_revision","digest":{"sha256":"$source_sha"}}]
+      "externalParameters": {"postgresMajor":"$pg_major","architecture":"$architecture","ecosystem":"$ecosystem","sourceRevision":"$source_revision"},
+      "resolvedDependencies": [
+        {"uri":"git+https://github.com/cuipengdba/agentsql@$source_revision","digest":{"gitCommit":"$source_revision"}},
+        {"uri":"urn:agentsql:dbext/postgres/agentsql_binder:source-file-list","digest":{"sha256":"$source_sha"}}
+      ]
     },
     "runDetails": {
       "builder": {"id":"$builder_image"},

@@ -7,7 +7,7 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.3.0](https://img.shields.io/badge/Version-v4.3.0-blue)
+![Version v4.4.0](https://img.shields.io/badge/Version-v4.4.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
@@ -17,7 +17,7 @@
 
 AgentSQL（中文品牌名：智盾，控制台显示为「AgentSQL 智盾控制台」）是面向 AI Agent 的数据库安全网关与生产级 MCP Server：让模型发出的每条 PostgreSQL/MySQL 请求在到达数据库前，经过身份认证、SQL 解析、授权与规则评估、受控执行、结果脱敏和审计。
 
-AgentSQL 也提供自有问数、图表、仪表板与嵌入应用页面，可独立使用；已有 SQLBot 部署可选用 AgentSQL 做数据库安全网关。当前已验证范围以 [v4.3.0 发布说明](docs/release-notes-v4.3.0.md)为准。完整 SQLBot 社区版功能、全部页面与现有业务系统零改动替换仍需逐项验收。
+AgentSQL 也提供自有问数、图表、仪表板与嵌入应用页面，可独立使用；已有 SQLBot 部署可选用 AgentSQL 做数据库安全网关。本版范围以 [v4.4.0 发布说明](docs/release-notes-v4.4.0.md)为准。完整 SQLBot 社区版功能与全部页面仍需逐项验收；用户真实业务系统的切换将在 v4.5.0 发布后推进。
 
 v0.6.0 加入治理控制台、审批单次执行和 Vastbase G100 的受限只读适配；v0.7.0 加入独立的 MCP `2026-07-28` 入口与任务级临时只读授权；v0.8.0 加入异人审批；v0.9.0 为新申请加入 1–10 次结果预算、管理审计投递状态和策略离线预检。v1.0.0 收紧列策略的失败关闭，并加入可选的 Agent 与人员双身份 HTTP MCP 验证。v1.1.0 将双身份扩展到审批与 B5 会话，并加入委托令牌单独撤销。v1.2.0 增加可选的 MCP OAuth 受保护资源入口。v1.3.0 增加默认关闭的 MySQL 8.0/8.4 单表 InnoDB SELECT 列授权子集。v1.4.0 在 PostgreSQL metadata 部署中共享控制台密码和 LDAP 登录尝试预算，并验证双网关审计故障恢复。自 v0.5.0 起代码采用 Apache-2.0，历史 v0.4.0 发布物仍按其原许可使用。
 
@@ -55,9 +55,11 @@ v4.0.0 增加完整发行资产的本地验签、离线运输包、固定字段�
 
 v4.1.0 增加 Go 原生问数、普通账号登录兼容、PostgreSQL/MySQL 单轮查询、加密会话、双语界面及离线原生服务安装。这是 SQLBot 社区版替换计划的首个里程碑，尚未完成全部功能和接入方式兼容。见[问数指南](docs/CHATBI.md)与[发布说明](docs/release-notes-v4.1.0.md)。
 
-v4.2.0 加入最多三轮授权问数上下文、术语与推荐问题、受控 CSV/XLSX 文件数据源及 PostgreSQL 窄范围行规则；见[发布说明](docs/release-notes-v4.2.0.md)。v4.3.0 加入 AgentSQL 自有图表、仪表板和嵌入应用管理，并在本机合成环境对照原版 SQLBot v1.10.2 的指定页面及嵌入问数流程。完整功能、所有页面与现有业务系统零改动替换尚未验收；见[本版发布说明](docs/release-notes-v4.3.0.md)与[验收记录](docs/v4.3.0-acceptance.md)。
+v4.2.0 加入最多三轮授权问数上下文、术语与推荐问题、受控 CSV/XLSX 文件数据源及 PostgreSQL 窄范围行规则；见[发布说明](docs/release-notes-v4.2.0.md)。v4.3.0 加入 AgentSQL 自有图表、仪表板和嵌入应用管理，并在本机合成环境对照原版 SQLBot v1.10.2 的指定页面及嵌入问数流程；见[v4.3.0 发布说明](docs/release-notes-v4.3.0.md)与[验收记录](docs/v4.3.0-acceptance.md)。
 
-**验证范围：**v1.0.0–v2.8.0 的数据库及安全能力分别见各版验收记录；v2.9.0 策略评审与审计见[验收记录](docs/v2.9.0-acceptance.md)；v3.0.0 能力目录、诊断与客户端见[验收记录](docs/v3.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.3.0)、签名及镜像匿名拉取验收为准。
+v4.4.0 增加自有账号、用户与工作空间管理，深化已绑定数据源的备注、选表和表关系流程，并在本机对照 SQLBot v1.10.3 的指定原版页面。完整社区版功能与接入方式仍需逐项验收；用户真实业务系统切换留待 v4.5.0 发布后。见[v4.4.0 发布说明](docs/release-notes-v4.4.0.md)。
+
+**验证范围：**v1.0.0–v2.8.0 的数据库及安全能力分别见各版验收记录；v2.9.0 策略评审与审计见[验收记录](docs/v2.9.0-acceptance.md)；v3.0.0 能力目录、诊断与客户端见[验收记录](docs/v3.0.0-acceptance.md)。厂商结论只覆盖指定实例、模式及合成数据。以下命令须以 [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.4.0)、签名及镜像匿名拉取验收为准。
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL 网关 → PostgreSQL / MySQL
@@ -132,17 +134,17 @@ AgentSQL 作为数据库中立的安全网关，当前原生支持 PostgreSQL �
 v0.4.0 起提供 `linux/amd64` 与 `linux/arm64` 两种原生 glibc 包：`uname -m` 为 `x86_64` / `amd64` 时使用 amd64 包，为 `aarch64` / `arm64` 时使用 arm64 包。两者均要求 glibc 2.28+ 且 systemd 为 PID 1；安装器会自动选择本机架构、校验发布包外层与包内哈希，并安装为 systemd 服务。musl / Alpine 与 CentOS 7 仍不支持：
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.3.0/install.sh | sudo sh -s -- install --version v4.3.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.4.0/install.sh | sudo sh -s -- install --version v4.4.0
 ```
 
 管道和 CI 的非 TTY 输出不会显示自动生成的管理员密码；root 可在 `/etc/agentsql/agentsql.env` 查看。交互终端会在首次创建凭据时显示一次，也可显式加 `--show-password`。离线环境同时取得 tarball 与同名 `.sha256` 后，校验、解压并从包根安装：
 
-以下是 v4.3.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
+以下是 v4.4.0 的 amd64 资产名示例；v0.4.0 起 arm64 主机使用同版本的 `-linux-arm64` 资产名。
 
 ```bash
-sha256sum -c agentsql-v4.3.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v4.3.0-linux-amd64.tar.gz
-cd agentsql-v4.3.0-linux-amd64
+sha256sum -c agentsql-v4.4.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v4.4.0-linux-amd64.tar.gz
+cd agentsql-v4.4.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -151,20 +153,20 @@ sudo ./install.sh install
 脚本默认拉取 GitHub 最新稳定 Release 对应的精确 GHCR tag；该 tag 是 `linux/amd64` + `linux/arm64` 多架构镜像，Docker 会自动匹配运行架构。脚本生成权限为 `0600` 的 `.env`，使用 `agentsql-data` 命名卷，并固定绑定回环地址：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.3.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.3.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.4.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.4.0
 ```
 
-GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v4.3.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
+GHCR 包必须由发布者设为 public，以上命令才能在未登录环境匿名拉取。先核对 `v4.4.0` 精确 tag 的公开状态与双架构 manifest；Docker 会从 manifest list 自动选择 `linux/amd64` 或 `linux/arm64`：
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v4.3.0
+docker pull ghcr.io/cuipengdba/agentsql:v4.4.0
 ```
 
 等价的单条 `docker run` 如下；随机值只通过当前 shell 环境传入，不写进命令行参数：
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v4.3.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v4.4.0
 ```
 
 ### 3. 本地 Live Demo（一条命令，无需源码）
@@ -173,7 +175,7 @@ docker run -d --name agentsql --restart unless-stopped --security-opt no-new-pri
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.3.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.4.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -216,7 +218,7 @@ docker compose --profile observability up -d --build
 以下源码构建示例仅生成本机可执行文件。自行构建的文件没有经过正式发布资产的签名与分发验收：
 
 ```bash
-make build VERSION=v4.3.0
+make build VERSION=v4.4.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -407,7 +409,7 @@ v3.0.0 代码的注册表覆盖 **8 大类、30 款数据库**（9 款关系型 
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v4.3.0
+make build VERSION=v4.4.0
 ```
 
 `pg_query_go` 要求 cgo；不要使用 `CGO_ENABLED=0` 或 Alpine/musl 构建。提交改动前请阅读 [SPEC](docs/SPEC.md)，为行为变化补测试，并保持 `tests/corpus` 决策语料不被无意改写。

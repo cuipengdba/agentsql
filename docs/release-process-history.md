@@ -76,9 +76,9 @@ v0.5.0 当时记录的目标发布闸门为 **2026-10-16 16:00 CST（北京时�
 
 ### 本地 dry-run
 
-在仓库根目录运行 `powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist\release-dryrun\v0.5.0-final`。脚本固定 Rocky 8 与 Syft 镜像 digest，构建 amd64/arm64 包、SBOM、provenance 和三个本地 OCI 归档；需要可用的 Docker daemon、Buildx、双架构运行能力及构建依赖。输出目录已存在时会拒绝覆盖。dry-run 的公钥和三份签名文件均明确标为 `dryRun=true`、`signed=false`、`releasable=false`。
+在仓库根目录运行 `pwsh -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -OutputDirectory dist\release-dryrun\v0.5.0-final`。脚本固定 Rocky 8 与 Syft 镜像 digest，构建 amd64/arm64 包、SBOM、provenance 和三个本地 OCI 归档；需要可用的 Docker daemon、Buildx、双架构运行能力及构建依赖。输出目录已存在时会拒绝覆盖。dry-run 的公钥和三份签名文件均明确标为 `dryRun=true`、`signed=false`、`releasable=false`。
 
-若只核对已有目录，运行 `powershell -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -ValidateOnly -AssetsDirectory <目录>`。这个模式只读资产和 git HEAD，不构建镜像。它显示 15 行库存和 SHA-256，并对名称集合、sidecar、13 项 manifest、Yashan 内容、provenance commit 和签名文档执行 fail-closed 校验。正式签名还必须单独使用 `scripts/releasesign/main.go -mode verify` 验证三个原始文件；验证器的 `SIGNED_STRUCTURE_ONLY` 不是密码学验签成功。
+若只核对已有目录，运行 `pwsh -NoProfile -File .\scripts\release-dryrun.ps1 -Version v0.5.0 -ValidateOnly -AssetsDirectory <目录>`。这个模式只读资产和 git HEAD，不构建镜像。它显示 15 行库存和 SHA-256，并对名称集合、sidecar、13 项 manifest、Yashan 内容、provenance commit 和签名文档执行 fail-closed 校验。正式签名还必须单独使用 `scripts/releasesign/main.go -mode verify` 验证三个原始文件；验证器的 `SIGNED_STRUCTURE_ONLY` 不是密码学验签成功。
 
 ### 两个辅助 GHCR tag
 

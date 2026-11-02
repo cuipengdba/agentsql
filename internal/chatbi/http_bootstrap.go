@@ -65,16 +65,38 @@ type sqlbotChatParameter struct {
 	SortNo int    `json:"sort_no"`
 }
 
-func (h *Handler) sqlbotChatParameters(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
-	// The v4.2 runtime uses three completed turns as model context, caps
-	// controlled query results, and exposes SQL and audit information.
-	// Editing these settings is not supported by this read-only endpoint.
+func (h *Handler) sqlbotChatParameters(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	value, err := h.service.Store.ChatSettings(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, chatParameterList(value, false))
+}
+
+// The original login and user-management pages read these settings before
+// authentication. AgentSQL provisions user passwords explicitly and never
+// publishes a shared default password to the browser.
+func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, _ *http.Request) {
 	okay(w, []sqlbotChatParameter{
-		{Key: "chat.hide_thinking_block", Value: "false", ID: "7520382585415929856", Type: "str"},
-		{Key: "chat.expand_thinking_block", Value: "false", ID: "7520382585415929857", Type: "str"},
-		{Key: "chat.limit_rows", Value: "true", ID: "7520382585415929858", Type: "str"},
-		{Key: "chat.context_record_count", Value: "3", ID: "7520382585415929859", Type: "str"},
-		{Key: "chat.show_sql", Value: "true", ID: "7520382585415929860", Type: "str"},
-		{Key: "chat.show_log", Value: "true", ID: "7520382585415929861", Type: "str"},
+		{Key: "login.default_login", Value: "0", ID: "agentsql-login-default", Type: "str"},
+		{Key: "login.initial_pwd_disabled", Value: "false", ID: "agentsql-login-initial-disabled", Type: "str"},
+		{Key: "login.initial_pwd_hidden", Value: "true", ID: "agentsql-login-initial-hidden", Type: "str"},
 	})
+}
+
+func (h *Handler) sqlbotDefaultPassword(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, "")
 }

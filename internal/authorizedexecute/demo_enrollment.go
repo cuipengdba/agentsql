@@ -105,9 +105,13 @@ func publicNativePolicyEnrollment(mode string, manifest businessdb.PostgresPrepa
 	}
 	result := PostgresPolicyEnrollment{Mode: mode, StatementClass: string(businessdb.BinderStatementSelect)}
 	for _, relation := range frame.Relations {
+		fingerprint, err := businessdb.RelationEnrollmentFingerprint(frame, relation.OID)
+		if err != nil {
+			return PostgresPolicyEnrollment{}, StableError(err)
+		}
 		result.Relations = append(result.Relations, PostgresPolicyRelation{DatabaseOID: relation.DatabaseOID,
 			RelationOID: relation.OID, Schema: relation.Schema, Name: relation.Name, Kind: relation.Kind,
-			CatalogFingerprint: frame.Fingerprint})
+			CatalogFingerprint: fingerprint})
 	}
 	columns := make(map[string]businessdb.PostgresColumnIdentity, len(frame.Columns))
 	for _, column := range frame.Columns {

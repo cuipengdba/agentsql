@@ -2,11 +2,11 @@
 
 **Language:** [English](USER_GUIDE.md) | [Simplified Chinese](../USER_GUIDE.md)
 
-> Current guidance: Applies to v4.3.0 and compatible 4.3.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
+> Current guidance: Applies to v4.4.0 and compatible 4.4.x maintenance releases. Historical introduction versions and acceptance records retain their original facts; see the [document index](README.md) for the current entry point.
 
-> This guide covers AgentSQL v4.3.0. Before installing or pulling v4.3.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
+> This guide covers AgentSQL v4.4.0. Before installing or pulling v4.4.0, check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases) and confirm the matching GHCR image can be pulled anonymously. The source repository is `github.com/cuipengdba/agentsql`.
 
-This manual follows the v4.3.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v4.3.0 release notes](release-notes-v4.3.0.md) and [design and acceptance record](v4.3.0-design.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
+This manual follows the v4.4.0 console menus. Start with [Getting Started](GETTING_STARTED.md); see the [MCP integration guide](INTEGRATIONS.md) for clients, the [v4.4.0 release notes](release-notes-v4.4.0.md) and [design and acceptance record](v4.4.0-design.md) for verified scope, and the [notification guide](NOTIFICATIONS.md) for Webhook and Syslog boundaries.
 
 The console login page and the language button in the upper right corner after logging in can switch between Chinese and English, and the selection will be saved in the current browser; `?lang=en` or `?lang=zh` can specify the first opening language. The left menu can be scrolled independently when the effective viewport height is insufficient, and the bottom options can also be accessed with the keyboard after focusing the menu. Language switching only changes the interface copy and does not modify the SQL, query results and audit records. Complete English documentation is available through the language link at the top. Capability claims are bounded by the corresponding acceptance record.
 
@@ -882,3 +882,11 @@ Deploy the Go Q&A service with `install.sh install --with-chatbi`, configure a w
 ## v4.3.0 charts, dashboards and embedded applications
 
 The Q&A page can display the current authorized result as a table, bar chart, line chart or pie chart. Opening a historical chart runs a fresh query under current permissions and writes an audit event. AgentSQL's own dashboard supports text and record-chart cards, layout, tabs, search, preview, and configuration import/export without result rows. The embedded application management page supports creation, edits, enable/disable, signing-key rotation and deletion. Application tokens bind an existing non-admin user, workspace and application state, and conversations remain isolated by application. Only selected synthetic flows of the original SQLBot v1.10.2 page and SDK have been compared. Complex SQL, all pages, all integrations and zero-change replacement of a real business application remain unverified. See the [current release notes](release-notes-v4.3.0.md) and [acceptance record](v4.3.0-acceptance.md).
+
+## v4.4.0 account administration and datasource relationships
+
+After signing in to the standalone Q&A page, use the bottom of the sidebar to switch the current workspace, open account settings, or manage your API Keys. Administrators can open user management and model configuration. Old tokens should stop working after a user is disabled, membership is revoked, or a password is rotated. Model configuration is for a real local model; model answers in the public Demo are explicitly simulated.
+
+The datasource page manages table selection, table and field remarks, and relationships only for authorized, currently visible server-bound PostgreSQL/MySQL sources. Select visible tables, load fields, then save relationships. Re-read after deselecting a table or revoking a grant; an old relationship cannot authorize a query. Relationships are JOIN hints to the local model. Each generated SQL statement still passes current gateway authorization, execution controls, masking, and durable audit. The page supports editing at most 64 visible tables. File sources and other databases do not gain the same capability from this release.
+
+Only selected SQLBot Community v1.10.3 pages and synthetic scenarios were compared for this release. Full page, API/MCP/embed coverage and zero-change migration of an existing business system remain unverified. The user's actual business-system migration follows the v4.5.0 release. See the [v4.4.0 release notes](release-notes-v4.4.0.md) for the exact scope.

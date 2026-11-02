@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type NarrativeGenerator interface {
@@ -83,9 +85,23 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 	sample := *record.Data
 	sample.Data = rows
 	sample.Truncated = record.Data.Truncated || len(rows) < len(record.Data.Data)
-	content, err := model.Narrate(ctx, config, kind, record.Question, sample)
-	if err != nil {
-		return Narrative{}, err
+	method := "local_model_answer_from_authorized_sample"
+	content := ""
+	analyzedRows := len(rows)
+	truncated := sample.Truncated
+	if kind == "predict" {
+		if forecast, forecastErr := forecastData(id, *record.Data); forecastErr == nil {
+			content = illustrativeForecastNarrative(record.Question, forecast)
+			method = forecast.Method
+			analyzedRows = forecast.InputRows
+			truncated = false
+		}
+	}
+	if content == "" {
+		content, err = model.Narrate(ctx, config, kind, record.Question, sample)
+		if err != nil {
+			return Narrative{}, err
+		}
 	}
 	content = strings.TrimSpace(content)
 	if content == "" || len([]rune(content)) > 4000 {
@@ -111,7 +127,48 @@ func (service *Service) NarrateRecord(ctx context.Context, p Principal, id ID, k
 	if dataDigest == "" {
 		return Narrative{}, ErrGateway
 	}
-	return Narrative{RecordID: id, Kind: kind, Content: content, Method: "local_model_answer_from_authorized_sample", AnalyzedRows: len(rows), TotalRows: len(record.Data.Data), Truncated: record.Data.Truncated || len(rows) < len(record.Data.Data), AuditID: fresh.Data.AuditID, GeneratedAt: time.Now().UTC(), digest: dataDigest}, nil
+	return Narrative{RecordID: id, Kind: kind, Content: content, Method: method, AnalyzedRows: analyzedRows, TotalRows: len(record.Data.Data), Truncated: truncated, AuditID: fresh.Data.AuditID, GeneratedAt: time.Now().UTC(), digest: dataDigest}, nil
+}
+
+// The original browser displays this prose alongside ForecastRecord's points.
+// Rendering it from the same bounded calculation prevents a model from
+// contradicting the displayed numeric extrapolation.
+func illustrativeForecastNarrative(question string, forecast Forecast) string {
+	chinese := false
+	for _, char := range question {
+		if unicode.Is(unicode.Han, char) {
+			chinese = true
+			break
+		}
+	}
+	var result strings.Builder
+	if chinese {
+		result.WriteString("基于当前授权、脱敏的 ")
+		result.WriteString(strconv.Itoa(forecast.InputRows))
+		result.WriteString(" 行数据，页面展示示意性最小二乘线性趋势外推：")
+	} else {
+		result.WriteString("Based on ")
+		result.WriteString(strconv.Itoa(forecast.InputRows))
+		result.WriteString(" currently authorized and masked rows, the page shows an illustrative least-squares linear-trend extrapolation: ")
+	}
+	for index, point := range forecast.Points {
+		if index > 0 {
+			if chinese {
+				result.WriteString("；")
+			} else {
+				result.WriteString("; ")
+			}
+		}
+		result.WriteString(point.Label)
+		result.WriteString(" ≈ ")
+		result.WriteString(strconv.FormatFloat(point.Value, 'f', -1, 64))
+	}
+	if chinese {
+		result.WriteString("。该方法未考虑季节性、外部变量或异常值，也未经过预测准确性验证；这些示意点不能作为可靠的业务预测。")
+	} else {
+		result.WriteString(". This method does not account for seasonality, external factors or anomalies, and its accuracy has not been validated. These illustrative points are not reliable business predictions.")
+	}
+	return result.String()
 }
 
 // SaveNarrative creates the child record expected by SQLBot's unchanged

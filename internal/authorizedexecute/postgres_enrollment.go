@@ -66,10 +66,14 @@ func (gateway *Gateway) EnrollPostgresSelect(ctx context.Context, datasource mod
 		Columns:            make([]PostgresEnrolledColumn, len(enrollment.Catalog.Columns)),
 	}
 	for index, relation := range enrollment.Catalog.Relations {
+		fingerprint, err := businessdb.RelationEnrollmentFingerprint(enrollment.Catalog, relation.OID)
+		if err != nil {
+			return PostgresRelationEnrollment{}, StableError(err)
+		}
 		result.Relations[index] = PostgresEnrolledRelation{
 			DatabaseOID: relation.DatabaseOID, RelationOID: relation.OID, NamespaceOID: relation.NamespaceOID,
 			Schema: relation.Schema, Name: relation.Name, Kind: relation.Kind, ViewDepth: relation.ViewDepth,
-			StableObjectID: PostgresStableObjectID(relation.DatabaseOID, relation.OID), CatalogFingerprint: enrollment.Catalog.Fingerprint,
+			StableObjectID: PostgresStableObjectID(relation.DatabaseOID, relation.OID), CatalogFingerprint: fingerprint,
 		}
 	}
 	for index, column := range enrollment.Catalog.Columns {

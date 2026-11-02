@@ -5,14 +5,19 @@ param(
     [ValidateSet('linux/amd64','linux/arm64')]
     [string[]]$Platform = @('linux/amd64'),
     [ValidateSet('deb','rpm','apk')]
-    [string[]]$Format = @('deb','rpm','apk'),
-    [string]$Builder = 'agentsql-binder-builder'
+    [string[]]$Format = @('deb','rpm'),
+    [string]$Builder = 'agentsql-binder-builder',
+    [switch]$AllowLegacyAlpine
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $dist = Join-Path $repo 'dist\binder'
-$alpineByMajor = @{ '14'='3.15'; '15'='3.17'; '16'='3.19'; '17'='3.21'; '18'='3.23' }
+$alpineByMajor = @{ '14'='3.15'; '15'='3.17'; '16'='3.24'; '17'='3.24'; '18'='3.24' }
+if ($Format -contains 'apk' -and -not $AllowLegacyAlpine -and
+    (@($PostgresMajor | Where-Object { $_ -in @('14','15') }).Count -gt 0)) {
+    throw 'PG14/15 Alpine package bases are outside regular security support; use -AllowLegacyAlpine only for isolated compatibility tests'
+}
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'docker CLI is required' }
 
 foreach ($major in $PostgresMajor) {

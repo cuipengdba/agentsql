@@ -4,6 +4,8 @@
 
 v3.2.0 keeps configuration version 2 and its signed-in user bindings, and adds specified MySQL read-only questions alongside PostgreSQL. The adapter targets SQLBot **v1.10.2**, source baseline `aa41fc1033bb974a703df9200a98ec8b9eec5f25`. See the [v3.2.0 acceptance record](v3.2.0-acceptance.md) for completed live tests. Passing a compatibility check does not establish coverage for every model, chart, or SQL statement.
 
+That is the pinned baseline for the historical managed adapter. The current v4.4.0 release also offers a [native Go Q&A service](CHATBI.md) without a SQLBot runtime and compares selected unchanged SQLBot Community v1.10.3 pages locally. Full page, API/MCP and embed compatibility remains open; see the [v4.4.0 release notes](release-notes-v4.4.0.md) for scope.
+
 ```text
 SQLBot ordinary login → workspace and datasource permissions → natural-language SQL
   → trusted server user + personal binding → short-lived human token

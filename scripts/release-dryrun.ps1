@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')]
-    [string]$Version = 'v4.3.0',
+    [string]$Version = 'v4.4.0',
 
     [string]$OutputDirectory,
 
@@ -27,6 +27,11 @@ param(
 
     [switch]$ValidateOnly
 )
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Host 'RELEASE_DRYRUN_ERROR=PowerShell 7 or newer is required; run this script with pwsh.'
+    exit 1
+}
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

@@ -5,9 +5,9 @@ services:
     build:
       context: .
       args:
-        VERSION: ${VERSION:-v4.0.0}
+        VERSION: ${VERSION:-v4.4.0}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: agentsql:${VERSION:-v4.0.0}
+    image: agentsql:${VERSION:-v4.4.0}
     ports:
       - "127.0.0.1:7780:7780"
     environment:

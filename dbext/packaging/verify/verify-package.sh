@@ -33,8 +33,8 @@ COMMIT;
 SQL
 result=$(as_postgres psql -h "$socket" -d postgres -X --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
 SELECT (SELECT extversion='0.4' FROM pg_catalog.pg_extension WHERE extname='agentsql_binder')
-   AND c->>'abi'='agentsql-binder-4.1'
-   AND c->>'extension_version'='0.4'
+   AND c->>'abi'='agentsql-binder-4.2'
+   AND c->>'extension_version'='0.4-s3m'
    AND c->>'server_major'=(current_setting('server_version_num')::integer/10000)::text
    AND length(c->>'build_hash')=64
    AND length(c->>'extension_hash')=64

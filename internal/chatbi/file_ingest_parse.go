@@ -193,8 +193,16 @@ type fileRelationships struct {
 }
 
 func parseXLSXSheets(data []byte) ([]FileSheet, error) {
+	return parseXLSXSheetsLimited(data, 8)
+}
+
+func parseXLSXSheetsLimited(data []byte, maxSheets int) ([]FileSheet, error) {
 	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil || len(archive.File) > 128 {
+	maxParts := 128
+	if maxSheets > 124 && maxSheets <= 257 {
+		maxParts = maxSheets + 4
+	}
+	if err != nil || len(archive.File) > maxParts {
 		return nil, errFileImport
 	}
 	parts := make(map[string]*zip.File, len(archive.File))
@@ -239,7 +247,7 @@ func parseXLSXSheets(data []byte) ([]FileSheet, error) {
 	}
 	var book fileWorkbook
 	var links fileRelationships
-	if xml.Unmarshal(workbookXML, &book) != nil || xml.Unmarshal(relationsXML, &links) != nil || len(book.Sheets) == 0 || len(book.Sheets) > 8 {
+	if xml.Unmarshal(workbookXML, &book) != nil || xml.Unmarshal(relationsXML, &links) != nil || len(book.Sheets) == 0 || len(book.Sheets) > maxSheets {
 		return nil, errFileImport
 	}
 	paths := map[string]string{}

@@ -420,7 +420,7 @@ func TestConfiguredAdmissionLimitAndStaticAssetBoundary(t *testing.T) {
 	if err != nil || cap(router.(*Handler).slots) != 1 {
 		t.Fatal("configured admission budget not applied")
 	}
-	for path, expected := range map[string]int{"/": 200, "/ui/app.js": 200, "/ui/chart.js": 200, "/ui/dashboard.js": 200, "/ui/app.css": 200, "/ui/mark.svg": 200, "/ui/index.html": 404, "/ui/": 404} {
+	for path, expected := range map[string]int{"/": 200, "/ui/app.js": 200, "/ui/chart.js": 200, "/ui/dashboard.js": 200, "/ui/user-variables.js": 200, "/ui/source-relations.js": 200, "/ui/app.css": 200, "/ui/mark.svg": 200, "/ui/index.html": 404, "/ui/": 404} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != expected {

@@ -3,7 +3,8 @@ CREATE SCHEMA IF NOT EXISTS agentsql_catalog;
 CREATE EXTENSION IF NOT EXISTS agentsql_binder WITH SCHEMA agentsql_catalog VERSION '0.4';
 DO $agentsql$
 BEGIN
-  IF agentsql_catalog.capabilities()->>'extension_version' <> '0.4' THEN
+  IF agentsql_catalog.capabilities()->>'abi' <> 'agentsql-binder-4.2'
+     OR agentsql_catalog.capabilities()->>'extension_version' <> '0.4-s3m' THEN
     RAISE EXCEPTION 'agentsql_binder capability self-test failed';
   END IF;
 END
