@@ -4,12 +4,12 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "b5061515ed63c2c9c70df71c654dff1db66806b703689f4cdab70f185f277b68"
+      "source_sha256": "6a91caf233e8340ed3f6611490088723c7f3ca982e4cb73de1acf98ddbd90051"
     },
     {
       "source": "CHANGELOG.md",
       "english": "CHANGELOG.en.md",
-      "source_sha256": "b634f1e52d62567c804037dab808cdbb79d5c1022643543e2b061d0e81ac1cad"
+      "source_sha256": "30c73d249ebe5bc7f69850048c994a1beb977376aa61c916fb930d10c8ac8efc"
     },
     {
       "source": "ROADMAP.md",
@@ -109,7 +109,7 @@
     {
       "source": "docs/GETTING_STARTED.md",
       "english": "docs/en/GETTING_STARTED.md",
-      "source_sha256": "d23a7f941ff90a64b9877eca83d1ab49c05fd76fa831e893ba6d16126903a967"
+      "source_sha256": "9739cc76c18417633cec0ab1d45defd1f86c7e3e8f25f5d948eb6f08691b60cb"
     },
     {
       "source": "docs/highgo-verification.md",
@@ -124,7 +124,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "7f2f783f919512da03341ed7a483c1e52b5e9e4578f0b211ddffe14e5a6e8feb"
+      "source_sha256": "537f623fe0ff93f69ccdb83d1820ba9809df3ebae430033b462f842557970de2"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -224,7 +224,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "1ee9244c08e8149836acd0d86a28d298740f70904282eb9befa9d7852cfca421"
+      "source_sha256": "ed54a6132a851e1546dd0ec6f5d34c8d0fef3a388d9ca5386d4fe1bb4730d9cf"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -509,7 +509,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "8a86f44c2c90c76119bba20a27ade1417d434c623db9195217a38ca70f1afd3b"
+      "source_sha256": "0a6bbdfda7cf96433f5c435437215be50deddadeff8d8c56b64104eb17a196d7"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -1259,7 +1259,12 @@
     {
       "source": "docs/v4.4.0-design.md",
       "english": "docs/en/v4.4.0-design.md",
-      "source_sha256": "b3353fb992bf7e8cb07582570f77ab99eb8e8da8f6489963b2ac46983490804b"
+      "source_sha256": "ccf8da07a158b85d146bed3e52d5d73411bedb0c10cfadced0967a39b2cfa1ed"
+    },
+    {
+      "source": "docs/release-notes-v4.4.0.md",
+      "english": "docs/en/release-notes-v4.4.0.md",
+      "source_sha256": "88bb4bf053caa9828afdf50c966200d2977c764984eaf6e3855010f90371dd28"
     }
   ]
 }
