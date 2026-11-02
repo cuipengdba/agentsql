@@ -140,6 +140,12 @@ func (h *Handler) legacyMemberPage(w http.ResponseWriter, r *http.Request, p Pri
 }
 
 func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if _, present := r.URL.Query()["oid"]; !present {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": "missing", "loc": []string{"query", "oid"}, "msg": "Field required", "input": nil,
+		}}})
+		return
+	}
 	query, valid := parseMemberPage(r, p.Workspace, true)
 	if !valid {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid member candidate page")

@@ -2,11 +2,33 @@ package chatbi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestMemberCandidatePageRequiresExplicitWorkspace(t *testing.T) {
+	_, handler, adminToken, _ := workspaceAdminFixture(t)
+	response := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/10", "", adminToken)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("missing oid accepted: %d %s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Detail []struct {
+			Type string   `json:"type"`
+			Loc  []string `json:"loc"`
+			Msg  string   `json:"msg"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || len(envelope.Detail) != 1 ||
+		envelope.Detail[0].Type != "missing" || len(envelope.Detail[0].Loc) != 2 ||
+		envelope.Detail[0].Loc[0] != "query" || envelope.Detail[0].Loc[1] != "oid" ||
+		envelope.Detail[0].Msg != "Field required" {
+		t.Fatalf("missing oid shape differs: %s (%v)", response.Body.String(), err)
+	}
+}
 
 func workspaceAdminFixture(t *testing.T) (*Service, http.Handler, string, string) {
 	t.Helper()
