@@ -3,11 +3,14 @@ package chatbi
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -54,35 +57,56 @@ func NewLocalEmbeddingModel(path string) (*LocalEmbeddingModel, error) {
 	return &LocalEmbeddingModel{session: session, pipeline: pipeline, cache: make(map[string][]float32)}, nil
 }
 
-// These digests are from the pinned v1.10.3 original-image model directory.
-// Check every file Hugot may read before opening the inference session.
-var pinnedEmbeddingFiles = []struct {
-	name   string
-	size   int64
-	digest string
-}{
-	{"README.md", 10046, "1bb57998c4abbc05b3c9af97539d0845d118e9cfe4e3d80cad94a7000a594e98"},
-	{"config.json", 836, "31fedc61f7a714978f9d9849f4818ef905f216dc7791e469b9eceb9b32350b63"},
-	{"modules.json", 230, "0580fad756940809b1bc064ce1e7c1275c8b0dd80869562fe0abeb6f7059cb97"},
-	{"special_tokens_map.json", 125, "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3"},
-	{"tokenizer_config.json", 394, "e1790949631401af1bfb6c9c7aeec7fcf612e274d73579d99f704faea40c8ba7"},
-	{"tokenizer.json", 439124, "7dfbf1966ebf99d471c3796e9b457329d2b2182b817e144f1e904b957745c839"},
-	{"vocab.txt", 109540, "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"},
-	{"1_Pooling/config.json", 74, "3307e674cc85cf6d18376a57f1958961be178e9e51e18e39e214285082e4892a"},
-	{"model.onnx", 406953148, "716d380a65efde09842642540749bc0535b05f2c66737fea1106731b8b0d7ffb"},
+//go:embed pinned_embedding_model.json
+var pinnedEmbeddingManifest []byte
+
+type pinnedEmbeddingFile struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
 }
 
 func verifyPinnedEmbeddingModel(path string) error {
+	var manifest struct {
+		Files []pinnedEmbeddingFile `json:"files"`
+	}
+	if json.Unmarshal(pinnedEmbeddingManifest, &manifest) != nil || len(manifest.Files) != 9 {
+		return ErrUnavailable
+	}
+	allowed := make(map[string]bool, len(manifest.Files))
+	for _, pinned := range manifest.Files {
+		if pinned.Path == "" || pathpkg.IsAbs(pinned.Path) || pathpkg.Clean(pinned.Path) != pinned.Path ||
+			pinned.Path == ".." || strings.HasPrefix(pinned.Path, "../") ||
+			strings.ContainsAny(pinned.Path, "\\:") || allowed[pinned.Path] || pinned.Size < 1 || len(pinned.SHA256) != 64 {
+			return ErrUnavailable
+		}
+		allowed[pinned.Path] = true
+	}
 	for _, directory := range []string{path, filepath.Join(path, "1_Pooling")} {
 		info, err := os.Lstat(directory)
 		if err != nil || !info.IsDir() {
 			return ErrUnavailable
 		}
 	}
-	for _, pinned := range pinnedEmbeddingFiles {
-		filePath := filepath.Join(path, pinned.name)
+	for _, directory := range []string{"", "1_Pooling"} {
+		entries, err := os.ReadDir(filepath.Join(path, directory))
+		if err != nil {
+			return ErrUnavailable
+		}
+		for _, entry := range entries {
+			if directory == "" && entry.Name() == "1_Pooling" && entry.IsDir() {
+				continue
+			}
+			name := filepath.ToSlash(filepath.Join(directory, entry.Name()))
+			if !allowed[name] || !entry.Type().IsRegular() {
+				return ErrUnavailable
+			}
+		}
+	}
+	for _, pinned := range manifest.Files {
+		filePath := filepath.Join(path, filepath.FromSlash(pinned.Path))
 		info, err := os.Lstat(filePath)
-		if err != nil || !info.Mode().IsRegular() || info.Size() != pinned.size {
+		if err != nil || !info.Mode().IsRegular() || info.Size() != pinned.Size {
 			return ErrUnavailable
 		}
 		file, err := os.Open(filePath)
@@ -92,7 +116,7 @@ func verifyPinnedEmbeddingModel(path string) error {
 		hash := sha256.New()
 		_, copyErr := io.Copy(hash, file)
 		closeErr := file.Close()
-		if copyErr != nil || closeErr != nil || fmt.Sprintf("%x", hash.Sum(nil)) != pinned.digest {
+		if copyErr != nil || closeErr != nil || fmt.Sprintf("%x", hash.Sum(nil)) != pinned.SHA256 {
 			return ErrUnavailable
 		}
 	}
