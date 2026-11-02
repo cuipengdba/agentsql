@@ -44,7 +44,7 @@
     {
       "source": "docs/AUDIT_REPORTING.md",
       "english": "docs/en/AUDIT_REPORTING.md",
-      "source_sha256": "0c7e96b2cf5018e32cd071e28680f1361136465e23005e408e9d68deb9755cf5"
+      "source_sha256": "0ae508c604bd414c6a6691478919e81c21e29fb8972f4e5a8cd94b3ae264fcc1"
     },
     {
       "source": "docs/AUTHENTICATION-REFERENCE.md",
@@ -54,7 +54,7 @@
     {
       "source": "docs/AUTHENTICATION.md",
       "english": "docs/en/AUTHENTICATION.md",
-      "source_sha256": "caab19581809e6d239909082cb91fe3a5f6aee63322bd1e71ab2c067a62a7b14"
+      "source_sha256": "d2a0a20844c60978b2c00c1712a2bca17279cb4228f87823413faa5a5f20a4d4"
     },
     {
       "source": "docs/b2-s8-release-gate.md",
@@ -74,17 +74,17 @@
     {
       "source": "docs/DEMO.md",
       "english": "docs/en/DEMO.md",
-      "source_sha256": "5ba16194daea462ecbf21a8388cde50c449a67383ed62da88fc5b98f37f01f70"
+      "source_sha256": "ab86470b07bab4f58e7c654635edf10953e39bcf004b238f30d7157d4a0d10ce"
     },
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "c827186963b5b30a032b8d8ecee2b9b8f70c9a24e3fab48db8c7f17d0fb8e09b"
+      "source_sha256": "4e433e202f7619167275dd3e062dec253c1af7cee79bfc6b6ea11d50e19d64dc"
     },
     {
       "source": "docs/DISCOVERY.md",
       "english": "docs/en/DISCOVERY.md",
-      "source_sha256": "ef65d2b1fd037cc6dad607244f55a39072089328d24d4103d8c23484278ec23e"
+      "source_sha256": "e2a52bb6c8d788dae985bbfa50351f9d068d8dc9908dd44400903dbc4fb84ef3"
     },
     {
       "source": "docs/dm-oracle-dialect.md",
@@ -159,7 +159,7 @@
     {
       "source": "docs/NOTIFICATIONS.md",
       "english": "docs/en/NOTIFICATIONS.md",
-      "source_sha256": "deecab1af04226b14ec01d822620212eda92aacf341ef6336a2a7ea8a023816d"
+      "source_sha256": "b924dd1acd5fb4ead59984fb4e4e3c29f850d8f8f20b46543f5531df49b3c627"
     },
     {
       "source": "docs/opentenbase-dual-kernel.md",
@@ -169,7 +169,7 @@
     {
       "source": "docs/OPERATIONS.md",
       "english": "docs/en/OPERATIONS.md",
-      "source_sha256": "76a6c5ec5ceebac7fcb1c255e513ffef1679f876d78029d55ef063bfb19148fd"
+      "source_sha256": "eb86623f0108262abb75109386502c15a9c60fa67da29c4242caa0cf6649099f"
     },
     {
       "source": "docs/PARSER_PERF.md",
@@ -464,12 +464,12 @@
     {
       "source": "docs/RELEASE_ASSETS.md",
       "english": "docs/en/RELEASE_ASSETS.md",
-      "source_sha256": "d0076a907346c01386141c85aa283cfdf04f462f768edcd29cc842192fc2f69e"
+      "source_sha256": "6bb9c39e95b4bd4f0d920359edc077c0f05eadfe532bac51e60d4bbeffb8677d"
     },
     {
       "source": "docs/RELEASE_PROCESS.md",
       "english": "docs/en/RELEASE_PROCESS.md",
-      "source_sha256": "7bfcf116f100eb0a4153786da9172e3508ac4a6b0190f813bb227805416a65c2"
+      "source_sha256": "cbbffbe47998faf9740393dfeec943b08f672800baf33025f284465e95118ae7"
     },
     {
       "source": "docs/RELEASE_ROUTINE.md",
@@ -494,12 +494,12 @@
     {
       "source": "docs/SQLBOT.md",
       "english": "docs/en/SQLBOT.md",
-      "source_sha256": "175ec6aeee0e103e5761513f67c8f11a5b994474e4d35b827da7b48bd7e07890"
+      "source_sha256": "0cc0a7c40506900cdb1d983ededec895738bd0fc0714b03a446df70904c06c9d"
     },
     {
       "source": "docs/task-read-grants.md",
       "english": "docs/en/task-read-grants.md",
-      "source_sha256": "a76644757f3badea105dc0ecbfd310025fc31e59bc2b1ac52c556555b19575a7"
+      "source_sha256": "e5e1d6956daaa4135ee91c538c176054d6fdb9efe648bff99f4563f89700101e"
     },
     {
       "source": "docs/test-coverage-notes.md",
@@ -1209,7 +1209,7 @@
     {
       "source": "docs/CHATBI.md",
       "english": "docs/en/CHATBI.md",
-      "source_sha256": "cd9b6b304af87d37c311d772c1d6fd4603a9292d5f9aaa8397f7326298a722d9"
+      "source_sha256": "0e68c2edb887d33c088a5e19695292ff30ab3ded486cf06473c4177d9bd221a7"
     },
     {
       "source": "docs/release-notes-v4.1.0.md",

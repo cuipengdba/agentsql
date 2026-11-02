@@ -2,9 +2,11 @@
 
 **Language:** [English](DEMO.md) | [Simplified Chinese](../DEMO.md)
 
-> Current guidance: Applies to v3.1.0 and compatible 3.1.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
+> Current guidance: Applies to v4.4.0 and compatible 4.4.x maintenance releases. The historical introduction version and acceptance record retain the original facts; for daily entry, see [ document index ](README.md).
 
 This environment is only used for local loopback demonstration. It creates independent PostgreSQL 16, MySQL 8, SQLite control plane, and AgentSQL gateway; it does not and should not connect to real data or real databases.
+
+Model and Q&A interactions at the public `agentsql.cn/demo/` show clearly labeled simulated results and do not connect to a real model. Verify real local-model functionality in an isolated environment within the scope of the [v4.4.0 release notes](release-notes-v4.4.0.md).
 
 ## Preconditions
 
