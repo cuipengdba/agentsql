@@ -29,6 +29,12 @@ type memberPage struct {
 	Space   ID
 }
 
+func legacyMissingQueryField(w http.ResponseWriter, name string) {
+	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+		"type": "missing", "loc": []string{"query", name}, "msg": "Field required", "input": nil,
+	}}})
+}
+
 func parseMemberPage(r *http.Request, fallback ID, candidate bool) (memberPage, bool) {
 	page, e1 := strconv.Atoi(r.PathValue("page"))
 	size, e2 := strconv.Atoi(r.PathValue("size"))
@@ -141,9 +147,7 @@ func (h *Handler) legacyMemberPage(w http.ResponseWriter, r *http.Request, p Pri
 
 func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if _, present := r.URL.Query()["oid"]; !present {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
-			"type": "missing", "loc": []string{"query", "oid"}, "msg": "Field required", "input": nil,
-		}}})
+		legacyMissingQueryField(w, "oid")
 		return
 	}
 	query, valid := parseMemberPage(r, p.Workspace, true)
@@ -179,6 +183,10 @@ func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) legacyMemberCandidate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if _, present := r.URL.Query()["keyword"]; !present {
+		legacyMissingQueryField(w, "keyword")
+		return
+	}
 	keyword := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("keyword")))
 	if keyword == "" || len(keyword) > 100 {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid candidate keyword")

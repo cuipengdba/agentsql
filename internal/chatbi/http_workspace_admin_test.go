@@ -9,24 +9,29 @@ import (
 	"testing"
 )
 
-func TestMemberCandidatePageRequiresExplicitWorkspace(t *testing.T) {
+func TestMemberCandidateReadsRequireOriginalQueryFields(t *testing.T) {
 	_, handler, adminToken, _ := workspaceAdminFixture(t)
-	response := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option/pager/1/10", "", adminToken)
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("missing oid accepted: %d %s", response.Code, response.Body.String())
-	}
-	var envelope struct {
-		Detail []struct {
-			Type string   `json:"type"`
-			Loc  []string `json:"loc"`
-			Msg  string   `json:"msg"`
-		} `json:"detail"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || len(envelope.Detail) != 1 ||
-		envelope.Detail[0].Type != "missing" || len(envelope.Detail[0].Loc) != 2 ||
-		envelope.Detail[0].Loc[0] != "query" || envelope.Detail[0].Loc[1] != "oid" ||
-		envelope.Detail[0].Msg != "Field required" {
-		t.Fatalf("missing oid shape differs: %s (%v)", response.Body.String(), err)
+	for _, check := range []struct{ path, field string }{
+		{"/api/v1/system/workspace/uws/option/pager/1/10", "oid"},
+		{"/api/v1/system/workspace/uws/option", "keyword"},
+	} {
+		response := accountRequest(t, handler, http.MethodGet, check.path, "", adminToken)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("missing %s accepted: %d %s", check.field, response.Code, response.Body.String())
+		}
+		var envelope struct {
+			Detail []struct {
+				Type string   `json:"type"`
+				Loc  []string `json:"loc"`
+				Msg  string   `json:"msg"`
+			} `json:"detail"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || len(envelope.Detail) != 1 ||
+			envelope.Detail[0].Type != "missing" || len(envelope.Detail[0].Loc) != 2 ||
+			envelope.Detail[0].Loc[0] != "query" || envelope.Detail[0].Loc[1] != check.field ||
+			envelope.Detail[0].Msg != "Field required" {
+			t.Fatalf("missing %s shape differs: %s (%v)", check.field, response.Body.String(), err)
+		}
 	}
 }
 
