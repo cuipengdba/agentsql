@@ -608,6 +608,30 @@ func TestMCPQuestionOriginalMalformedFieldValidation(t *testing.T) {
 	}
 }
 
+func TestMCPStartOriginalMalformedFieldValidation(t *testing.T) {
+	service, _, gateway, _, token := serviceFixture(t)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, body, want string }{
+		{"null token", `{"token":null}`, `{"detail":[{"type":"string_type","loc":["body","token"],"msg":"Input should be a valid string","input":null}]}`},
+		{"numeric token", `{"token":3}`, `{"detail":[{"type":"string_type","loc":["body","token"],"msg":"Input should be a valid string","input":3}]}`},
+		{"array token", `{"token":["x"]}`, `{"detail":[{"type":"string_type","loc":["body","token"],"msg":"Input should be a valid string","input":["x"]}]}`},
+		{"numeric oid", `{"token":"` + token + `","oid":3}`, `{"detail":[{"type":"string_type","loc":["body","oid"],"msg":"Input should be a valid string","input":3}]}`},
+		{"boolean oid", `{"token":"` + token + `","oid":true}`, `{"detail":[{"type":"string_type","loc":["body","oid"],"msg":"Input should be a valid string","input":true}]}`},
+		{"numeric username", `{"username":3,"password":"x"}`, `{"detail":[{"type":"string_type","loc":["body","username"],"msg":"Input should be a valid string","input":3}]}`},
+		{"numeric password", `{"username":"x","password":3}`, `{"detail":[{"type":"string_type","loc":["body","password"],"msg":"Input should be a valid string","input":3}]}`},
+	} {
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", tc.body, "")
+		var got, want any
+		if response.Code != http.StatusUnprocessableEntity || json.Unmarshal(response.Body.Bytes(), &got) != nil ||
+			json.Unmarshal([]byte(tc.want), &want) != nil || !reflect.DeepEqual(got, want) || gateway.queries != 0 {
+			t.Fatalf("%s: status=%d body did not match original field error; queries=%d", tc.name, response.Code, gateway.queries)
+		}
+	}
+}
+
 func TestMCPSelectedWorkspaceKeepsParentTokenRevocable(t *testing.T) {
 	service, p, gateway, _, token := serviceFixture(t)
 	ctx := context.Background()

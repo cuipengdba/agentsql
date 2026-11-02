@@ -42,13 +42,8 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Token    string `json:"token"`
-		OID      *ID    `json:"oid"`
-	}
-	if !readBody(w, r, &input) {
+	var input mcpStartInput
+	if !readMCPStartInput(w, r, &input) {
 		return
 	}
 	token := input.Token
@@ -85,6 +80,60 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	okay(w, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
+}
+
+type mcpStartInput struct {
+	Username string
+	Password string
+	Token    string
+	OID      *ID
+}
+
+// The original MCP start endpoint validates optional JSON fields before
+// attempting authentication. Preserve field-level errors for malformed types
+// without echoing the complete body, which may contain a bearer token.
+func readMCPStartInput(w http.ResponseWriter, r *http.Request, input *mcpStartInput) bool {
+	var fields map[string]json.RawMessage
+	if !readBody(w, r, &fields) {
+		return false
+	}
+	if fields == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return false
+	}
+	fieldTypeError := func(field string, raw json.RawMessage) {
+		var supplied any
+		_ = json.Unmarshal(raw, &supplied)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": "string_type", "loc": []string{"body", field},
+			"msg": "Input should be a valid string", "input": supplied,
+		}}})
+	}
+	for _, entry := range []struct {
+		name   string
+		target *string
+	}{
+		{"username", &input.Username},
+		{"password", &input.Password},
+		{"token", &input.Token},
+	} {
+		if raw, present := fields[entry.name]; present {
+			if string(raw) == "null" || json.Unmarshal(raw, entry.target) != nil {
+				fieldTypeError(entry.name, raw)
+				return false
+			}
+		}
+	}
+	if raw, present := fields["oid"]; present && string(raw) != "null" {
+		var supplied string
+		if json.Unmarshal(raw, &supplied) != nil {
+			fieldTypeError("oid", raw)
+			return false
+		}
+		selected := ID(supplied)
+		input.OID = &selected
+	}
+	return true
 }
 
 func (h *Handler) mcpBodyPrincipal(w http.ResponseWriter, r *http.Request, token string, selected *ID) (Principal, bool) {
