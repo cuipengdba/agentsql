@@ -47,7 +47,13 @@ func (s *Store) ChatSettings(ctx context.Context) (chatSettings, error) {
 	if errors.Is(err, ErrNotFound) {
 		return defaultChatSettings(), nil
 	}
-	if err != nil || !validChatSettings(value) {
+	if err != nil {
+		return chatSettings{}, ErrUnavailable
+	}
+	if value.Embedding != nil {
+		upgradeEmbeddingSettings(value.Embedding)
+	}
+	if !validChatSettings(value) {
 		return chatSettings{}, ErrUnavailable
 	}
 	if value.Embedding == nil {
@@ -58,7 +64,7 @@ func (s *Store) ChatSettings(ctx context.Context) (chatSettings, error) {
 }
 
 func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map[string]string) error {
-	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 14 {
+	if !p.User.ID.Valid() || !p.Workspace.Valid() || p.EmbeddedApp != "" || len(updates) == 0 || len(updates) > 20 {
 		return ErrInvalidAccountChange
 	}
 	key := chatSettingsKey()
@@ -78,8 +84,14 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 	if err != nil && !controlNoRows(err) {
 		return ErrUnavailable
 	}
-	if err == nil && (s.decode(key, body, &value) != nil || !validChatSettings(value)) {
-		return ErrUnavailable
+	if err == nil {
+		if s.decode(key, body, &value) != nil {
+			return ErrUnavailable
+		}
+		upgradeEmbeddingSettings(value.Embedding)
+		if !validChatSettings(value) {
+			return ErrUnavailable
+		}
 	}
 	if value.Embedding == nil {
 		embedding := defaultEmbeddingSettings()
@@ -213,6 +225,10 @@ func embeddingParameterList(value EmbeddingSettings) []sqlbotChatParameter {
 		{"embedding.terminology_top_count", strconv.Itoa(value.TerminologyTopCount), "int"},
 		{"embedding.data_training_similarity", strconv.FormatFloat(value.TrainingSimilarity, 'f', -1, 64), "float"},
 		{"embedding.data_training_top_count", strconv.Itoa(value.TrainingTopCount), "int"},
+		{"embedding.table_enabled", strconv.FormatBool(value.TableEnabled), "bool"},
+		{"embedding.table_count", strconv.Itoa(value.TableCount), "int"},
+		{"embedding.table_alpha", strconv.FormatFloat(value.TableAlpha, 'f', -1, 64), "float"},
+		{"embedding.keyword_enabled", strconv.FormatBool(value.KeywordEnabled), "bool"},
 	}
 	result := make([]sqlbotChatParameter, 0, len(items))
 	for index, item := range items {

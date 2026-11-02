@@ -794,6 +794,20 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err != nil {
 			return err
 		}
+		remarks, err := managedFileRemarkHints(binding, columns)
+		if databaseBinding(binding) {
+			remarks, err = databaseRemarkHints(binding, columns)
+		}
+		if err != nil {
+			return err
+		}
+		if settings.Embedding.TableEnabled {
+			columns, remarks, err = selectModelTables(ctx, service.Embedding, question, columns, remarks,
+				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled)
+			if err != nil {
+				return err
+			}
+		}
 		history = visibleHistoryForModel(binding.Dialect, columns, history)
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
@@ -815,13 +829,6 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			if err != nil {
 				return err
 			}
-		}
-		remarks, err := managedFileRemarkHints(binding, columns)
-		if databaseBinding(binding) {
-			remarks, err = databaseRemarkHints(binding, columns)
-		}
-		if err != nil {
-			return err
 		}
 		stage = "model"
 		// Knowledge retrieval can run local inference after schema discovery.
