@@ -54,3 +54,35 @@ func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalEmbeddingModelConcurrentCacheAndClose(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	model, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 8)
+	for i := 0; i < cap(results); i++ {
+		go func() {
+			vectors, err := model.Encode(context.Background(), []string{"营业额是多少", "销售收入是多少"})
+			if err == nil && len(vectors) != 2 {
+				err = ErrUnavailable
+			}
+			results <- err
+		}()
+	}
+	for i := 0; i < cap(results); i++ {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := model.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.Encode(context.Background(), []string{"营业额是多少"}); err != ErrUnavailable {
+		t.Fatalf("closed model accepted inference: %v", err)
+	}
+}
