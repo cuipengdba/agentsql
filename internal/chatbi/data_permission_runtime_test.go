@@ -252,6 +252,38 @@ func TestAskClosesWhenPermissionChangesDuringGenerationBeforeQuery(t *testing.T)
 	require.Nil(t, record.Data)
 }
 
+func TestRevokedColumnDoesNotReturnThroughModelHistory(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	generator := &historyModel{}
+	service.Model = generator
+	chat, err := service.Start(ctx, principal, "10", "first", 0)
+	require.NoError(t, err)
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	_, err = service.Ask(ctx, principal, chat.ID, "first", check, nil)
+	require.NoError(t, err)
+
+	tableID := browserTableID("10", "public", "sales")
+	permissionList, err := json.Marshal([]map[string]any{
+		{"field_id": browserFieldID(tableID, "region"), "enable": true},
+		{"field_id": browserFieldID(tableID, "amount"), "enable": false},
+	})
+	require.NoError(t, err)
+	item, err := json.Marshal(map[string]any{"id": 201, "type": "column", "ds_id": 10,
+		"table_id": tableID, "permissions": string(permissionList)})
+	require.NoError(t, err)
+	rule := DataPermissionRule{ID: 101, OID: 1, Enable: true, Name: "hide amount",
+		Permissions: []json.RawMessage{item}, Users: []int64{1}, WhiteList: "[]", Created: time.Now().UTC()}
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	_, err = service.Ask(ctx, principal, chat.ID, "second", check, nil)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Len(t, generator.histories, 2)
+	require.Empty(t, generator.histories[1], "revoked SQL reached the model as history")
+	require.Equal(t, 1, gateway.queries)
+}
+
 func TestInvalidActiveColumnRuleClosesBeforeQuery(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()
