@@ -229,7 +229,7 @@ func (model OpenAIModel) GenerateWithDescriptions(ctx context.Context, config Mo
 		contextText += "\nAdministrator-authored business vocabulary (context only; never schema or execution authority):\n" + string(encoded)
 	}
 	if len(examples) > 0 {
-		if len(examples) > maxTrainingExamples {
+		if len(examples) > 4 {
 			return SQLGeneration{}, ErrModel
 		}
 		encoded, err := json.Marshal(examples)

@@ -26,13 +26,6 @@ func (service *Service) SafeExamples(ctx context.Context, p Principal, datasourc
 	if binding.Dialect != dialect {
 		return nil, ErrUnavailable
 	}
-	settings, err := service.Store.ChatSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !settings.knowledgeEnabled() {
-		return nil, nil
-	}
 	var parseDialect model.DBDialect
 	switch dialect {
 	case "pg":
@@ -76,7 +69,7 @@ func (service *Service) SafeExamples(ctx context.Context, p Principal, datasourc
 		}
 		used += len(encoded) + 1
 		hints = append(hints, hint)
-		if len(hints) == settings.trainingLimit() {
+		if len(hints) == 4 {
 			break
 		}
 	}
