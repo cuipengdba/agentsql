@@ -342,18 +342,78 @@ func mcpQuestionLanguage(raw json.RawMessage) (string, error) {
 	return "zh-CN", nil
 }
 
-func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Token      string          `json:"token"`
-		Chat       json.RawMessage `json:"chat_id"`
-		Question   string          `json:"question"`
-		Datasource json.RawMessage `json:"datasource_id"`
-		Custom     json.RawMessage `json:"custom_model"`
-		Stream     *bool           `json:"stream"`
-		ReturnImg  *bool           `json:"return_img"`
-		Lang       json.RawMessage `json:"lang"`
+type mcpQuestionInput struct {
+	Token      string
+	Chat       json.RawMessage
+	Question   string
+	Datasource json.RawMessage
+	Custom     json.RawMessage
+	Stream     *bool
+	ReturnImg  *bool
+	Lang       json.RawMessage
+}
+
+// SQLBot's MCP client receives FastAPI validation details for malformed field
+// types. Decode the envelope first so Go's struct decoder cannot replace those
+// details with a generic error. Never echo the complete body: it may contain a
+// bearer token.
+func readMCPQuestionInput(w http.ResponseWriter, r *http.Request, input *mcpQuestionInput) bool {
+	var fields map[string]json.RawMessage
+	if !readBody(w, r, &fields) {
+		return false
 	}
-	if !readBody(w, r, &input) {
+	if fields == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return false
+	}
+	fieldTypeError := func(field, kind, message string, raw json.RawMessage) {
+		var supplied any
+		_ = json.Unmarshal(raw, &supplied)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": kind, "loc": []string{"body", field}, "msg": message, "input": supplied,
+		}}})
+	}
+	if raw, present := fields["token"]; present {
+		if string(raw) == "null" || json.Unmarshal(raw, &input.Token) != nil {
+			fieldTypeError("token", "string_type", "Input should be a valid string", raw)
+			return false
+		}
+	}
+	input.Chat = fields["chat_id"]
+	raw, present := fields["question"]
+	if !present {
+		// FastAPI includes the entire request body here; that would disclose the
+		// bearer token, so preserve its error location without its input value.
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": "missing", "loc": []string{"body", "question"}, "msg": "Field required",
+		}}})
+		return false
+	}
+	if string(raw) == "null" || json.Unmarshal(raw, &input.Question) != nil {
+		fieldTypeError("question", "string_type", "Input should be a valid string", raw)
+		return false
+	}
+	input.Datasource = fields["datasource_id"]
+	input.Custom = fields["custom_model"]
+	input.Lang = fields["lang"]
+	if raw, present := fields["stream"]; present {
+		if json.Unmarshal(raw, &input.Stream) != nil {
+			fieldTypeError("stream", "bool_type", "Input should be a valid boolean", raw)
+			return false
+		}
+	}
+	if raw, present := fields["return_img"]; present {
+		if json.Unmarshal(raw, &input.ReturnImg) != nil {
+			fieldTypeError("return_img", "bool_type", "Input should be a valid boolean", raw)
+			return false
+		}
+	}
+	return true
+}
+
+func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
+	var input mcpQuestionInput
+	if !readMCPQuestionInput(w, r, &input) {
 		return
 	}
 	var chatID ID
@@ -367,6 +427,15 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
 				"type": "int_parsing", "loc": []string{"body", "chat_id"},
 				"msg": "Input should be a valid integer, unable to parse string as an integer", "input": supplied,
+			}}})
+			return
+		}
+		if string(input.Chat) == "null" || (len(input.Chat) > 0 && (input.Chat[0] == '[' || input.Chat[0] == '{')) {
+			var supplied any
+			_ = json.Unmarshal(input.Chat, &supplied)
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+				"type": "int_type", "loc": []string{"body", "chat_id"},
+				"msg": "Input should be a valid integer", "input": supplied,
 			}}})
 			return
 		}
@@ -432,7 +501,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 			if input.Datasource[0] == '"' {
 				status = http.StatusBadRequest
 			}
-			if input.Datasource[0] == '[' {
+			if input.Datasource[0] == '[' || input.Datasource[0] == '{' {
 				var supplied any
 				if json.Unmarshal(input.Datasource, &supplied) == nil {
 					writeJSON(w, status, map[string]any{"detail": []map[string]any{

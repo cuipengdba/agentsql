@@ -572,6 +572,42 @@ func TestMCPQuestionOriginalInvalidReferenceStatuses(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionOriginalMalformedFieldValidation(t *testing.T) {
+	service, _, gateway, _, token := serviceFixture(t)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+	var started struct {
+		Chat ID `json:"chat_id"`
+	}
+	if start.Code != http.StatusOK || decodeMCPData(start.Body.Bytes(), &started) != nil {
+		t.Fatalf("MCP start failed: %d", start.Code)
+	}
+	base := `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,`
+	for _, tc := range []struct{ name, body, want string }{
+		{"null question", base + `"question":null}`, `{"detail":[{"type":"string_type","loc":["body","question"],"msg":"Input should be a valid string","input":null}]}`},
+		{"numeric question", base + `"question":77}`, `{"detail":[{"type":"string_type","loc":["body","question"],"msg":"Input should be a valid string","input":77}]}`},
+		{"array question", base + `"question":["x"]}`, `{"detail":[{"type":"string_type","loc":["body","question"],"msg":"Input should be a valid string","input":["x"]}]}`},
+		{"null chat", `{"token":"` + token + `","chat_id":null,"question":"synthetic invalid"}`, `{"detail":[{"type":"int_type","loc":["body","chat_id"],"msg":"Input should be a valid integer","input":null}]}`},
+		{"array chat", `{"token":"` + token + `","chat_id":[],"question":"synthetic invalid"}`, `{"detail":[{"type":"int_type","loc":["body","chat_id"],"msg":"Input should be a valid integer","input":[]}]}`},
+		{"object datasource", base + `"datasource_id":{},"question":"synthetic invalid"}`, `{"detail":[{"type":"string_type","loc":["body","datasource_id","str"],"msg":"Input should be a valid string","input":{}},{"type":"int_type","loc":["body","datasource_id","int"],"msg":"Input should be a valid integer","input":{}}]}`},
+		{"array stream", base + `"question":"synthetic invalid","stream":[]}`, `{"detail":[{"type":"bool_type","loc":["body","stream"],"msg":"Input should be a valid boolean","input":[]}]}`},
+		{"numeric token", `{"token":7,"chat_id":` + string(started.Chat) + `,"question":"synthetic invalid"}`, `{"detail":[{"type":"string_type","loc":["body","token"],"msg":"Input should be a valid string","input":7}]}`},
+	} {
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", tc.body, "")
+		var got, want any
+		if response.Code != http.StatusUnprocessableEntity || json.Unmarshal(response.Body.Bytes(), &got) != nil || json.Unmarshal([]byte(tc.want), &want) != nil || !reflect.DeepEqual(got, want) || gateway.queries != 0 {
+			t.Fatalf("%s: status=%d body=%s queries=%d", tc.name, response.Code, response.Body.String(), gateway.queries)
+		}
+	}
+	missing := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", base+`"stream":false}`, "")
+	if missing.Code != http.StatusUnprocessableEntity || !strings.Contains(missing.Body.String(), `"type":"missing"`) || strings.Contains(missing.Body.String(), token) || gateway.queries != 0 {
+		t.Fatalf("missing question disclosed credentials or queried gateway: status=%d body=%s queries=%d", missing.Code, missing.Body.String(), gateway.queries)
+	}
+}
+
 func TestMCPSelectedWorkspaceKeepsParentTokenRevocable(t *testing.T) {
 	service, p, gateway, _, token := serviceFixture(t)
 	ctx := context.Background()
