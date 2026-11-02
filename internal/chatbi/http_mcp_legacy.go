@@ -345,7 +345,7 @@ func mcpQuestionLanguage(raw json.RawMessage) (string, error) {
 func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Token      string          `json:"token"`
-		Chat       ID              `json:"chat_id"`
+		Chat       json.RawMessage `json:"chat_id"`
 		Question   string          `json:"question"`
 		Datasource json.RawMessage `json:"datasource_id"`
 		Custom     json.RawMessage `json:"custom_model"`
@@ -356,7 +356,24 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &input) {
 		return
 	}
-	if !input.Chat.Valid() || strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 {
+	var chatID ID
+	if err := json.Unmarshal(input.Chat, &chatID); err != nil {
+		var supplied string
+		if len(input.Chat) > 0 && input.Chat[0] == '"' && json.Unmarshal(input.Chat, &supplied) == nil {
+			if _, numericErr := strconv.ParseInt(supplied, 10, 64); numericErr == nil {
+				writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
+				return
+			}
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+				"type": "int_parsing", "loc": []string{"body", "chat_id"},
+				"msg": "Input should be a valid integer, unable to parse string as an integer", "input": supplied,
+			}}})
+			return
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
+		return
+	}
+	if !chatID.Valid() || strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
 		return
 	}
@@ -382,7 +399,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	for _, member := range p.User.Memberships {
 		candidate := p
 		candidate.Workspace = member.Workspace
-		current, _, err := h.service.chat(r.Context(), candidate, input.Chat)
+		current, _, err := h.service.chat(r.Context(), candidate, chatID)
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
@@ -415,6 +432,16 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 			if input.Datasource[0] == '"' {
 				status = http.StatusBadRequest
 			}
+			if input.Datasource[0] == '[' {
+				var supplied any
+				if json.Unmarshal(input.Datasource, &supplied) == nil {
+					writeJSON(w, status, map[string]any{"detail": []map[string]any{
+						{"type": "string_type", "loc": []string{"body", "datasource_id", "str"}, "msg": "Input should be a valid string", "input": supplied},
+						{"type": "int_type", "loc": []string{"body", "datasource_id", "int"}, "msg": "Input should be a valid integer", "input": supplied},
+					}})
+					return
+				}
+			}
 			writeJSON(w, status, "Invalid datasource ID")
 			return
 		}
@@ -442,13 +469,13 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		selected = only.Datasource
 	}
 	if chat.Datasource == "" {
-		if err := h.service.BindMCPSource(r.Context(), p, input.Chat, selected); err != nil {
+		if err := h.service.BindMCPSource(r.Context(), p, chatID, selected); err != nil {
 			failure(w, err)
 			return
 		}
 	}
 	check := func(ctx context.Context) error { return h.mcpCurrentIdentity(ctx, p, input.Token) }
-	record, err := h.service.AskWithModel(withQuestionLanguage(r.Context(), language), p, input.Chat, input.Question, selectedModel, check, nil)
+	record, err := h.service.AskWithModel(withQuestionLanguage(r.Context(), language), p, chatID, input.Question, selectedModel, check, nil)
 	if err != nil {
 		failure(w, err)
 		return

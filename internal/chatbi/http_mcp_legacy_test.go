@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -552,11 +553,20 @@ func TestMCPQuestionOriginalInvalidReferenceStatuses(t *testing.T) {
 	}{
 		{"inaccessible chat", `{"token":"` + token + `","chat_id":999999999999999999,"question":"synthetic invalid input","stream":false}`, "Chat ID is not exist", http.StatusBadRequest},
 		{"invalid datasource string", `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,"datasource_id":"not-a-number","question":"synthetic invalid input","stream":false}`, "Invalid datasource ID", http.StatusBadRequest},
-		{"invalid datasource list", `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,"datasource_id":[],"question":"synthetic invalid input","stream":false}`, "Invalid datasource ID", http.StatusUnprocessableEntity},
 	} {
 		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", tc.body, "")
 		var message string
 		if response.Code != tc.status || json.Unmarshal(response.Body.Bytes(), &message) != nil || message != tc.want || gateway.queries != 0 {
+			t.Fatalf("%s: status=%d body=%s queries=%d", tc.name, response.Code, response.Body.String(), gateway.queries)
+		}
+	}
+	for _, tc := range []struct{ name, body, want string }{
+		{"invalid datasource list", `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,"datasource_id":[],"question":"synthetic invalid input","stream":false}`, `{"detail":[{"type":"string_type","loc":["body","datasource_id","str"],"msg":"Input should be a valid string","input":[]},{"type":"int_type","loc":["body","datasource_id","int"],"msg":"Input should be a valid integer","input":[]}]}`},
+		{"invalid chat string", `{"token":"` + token + `","chat_id":"not-a-number","question":"synthetic invalid input","stream":false}`, `{"detail":[{"type":"int_parsing","loc":["body","chat_id"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"not-a-number"}]}`},
+	} {
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", tc.body, "")
+		var got, want any
+		if response.Code != http.StatusUnprocessableEntity || json.Unmarshal(response.Body.Bytes(), &got) != nil || json.Unmarshal([]byte(tc.want), &want) != nil || !reflect.DeepEqual(got, want) || gateway.queries != 0 {
 			t.Fatalf("%s: status=%d body=%s queries=%d", tc.name, response.Code, response.Body.String(), gateway.queries)
 		}
 	}
