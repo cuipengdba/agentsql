@@ -663,6 +663,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request, _ Principal, to
 func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
 	weight := 0
 	oids := make([]ID, 0, len(p.User.Memberships))
+	variables := make([]map[string]any, 0)
 	for _, member := range p.User.Memberships {
 		if p.EmbeddedApp == "" || member.Workspace == p.Workspace {
 			oids = append(oids, member.Workspace)
@@ -671,7 +672,12 @@ func (h *Handler) userInfo(w http.ResponseWriter, r *http.Request, p Principal, 
 			weight = member.Weight
 		}
 	}
-	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "email": p.User.Email, "create_time": p.User.Created, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin})
+	for _, binding := range p.User.SystemVariables {
+		if binding.Workspace == p.Workspace {
+			variables = append(variables, map[string]any{"variableId": binding.VariableID, "variableValues": binding.VariableValues})
+		}
+	}
+	okay(w, map[string]any{"id": p.User.ID, "account": p.User.Account, "name": p.User.Name, "email": p.User.Email, "create_time": p.User.Created, "oid": p.Workspace, "oid_list": oids, "language": p.User.Language, "weight": weight, "isAdmin": p.User.Admin, "status": p.User.Status, "origin": p.User.Origin, "system_variables": variables})
 }
 
 func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Principal, _ string) {
