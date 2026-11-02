@@ -229,6 +229,7 @@ func embeddingParameterList(value EmbeddingSettings) []sqlbotChatParameter {
 		{"embedding.table_count", strconv.Itoa(value.TableCount), "int"},
 		{"embedding.table_alpha", strconv.FormatFloat(value.TableAlpha, 'f', -1, 64), "float"},
 		{"embedding.keyword_enabled", strconv.FormatBool(value.KeywordEnabled), "bool"},
+		{"embedding.datasource_count", strconv.Itoa(value.DatasourceCount), "int"},
 	}
 	result := make([]sqlbotChatParameter, 0, len(items))
 	for index, item := range items {

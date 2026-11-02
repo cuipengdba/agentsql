@@ -18,30 +18,37 @@ type EmbeddingSettings struct {
 	TableCount            int     `json:"table_count"`
 	TableAlpha            float64 `json:"table_alpha"`
 	KeywordEnabled        bool    `json:"keyword_enabled"`
+	DatasourceCount       int     `json:"datasource_count"`
 }
 
 func defaultEmbeddingSettings() EmbeddingSettings {
 	return EmbeddingSettings{StrategyVersion: 1, Enabled: true, TerminologySimilarity: 0.4, TerminologyTopCount: 5,
-		TrainingSimilarity: 0.4, TrainingTopCount: 5, TableEnabled: true, TableCount: 10, TableAlpha: 0.4, KeywordEnabled: true}
+		TrainingSimilarity: 0.4, TrainingTopCount: 5, TableEnabled: true, TableCount: 10, TableAlpha: 0.4, KeywordEnabled: true, DatasourceCount: 10}
 }
 
 func validEmbeddingSettings(value EmbeddingSettings) bool {
 	return value.StrategyVersion == 1 && validSimilarity(value.TerminologySimilarity) && validSimilarity(value.TrainingSimilarity) &&
 		value.TerminologyTopCount > 0 && value.TerminologyTopCount <= 100 &&
 		value.TrainingTopCount > 0 && value.TrainingTopCount <= 100 &&
-		value.TableCount > 0 && value.TableCount <= 100 && validSimilarity(value.TableAlpha)
+		value.TableCount > 0 && value.TableCount <= 100 && validSimilarity(value.TableAlpha) &&
+		value.DatasourceCount > 0 && value.DatasourceCount <= 100
 }
 
 func upgradeEmbeddingSettings(value *EmbeddingSettings) {
-	if value == nil || value.StrategyVersion != 0 {
+	if value == nil {
 		return
 	}
 	defaults := defaultEmbeddingSettings()
-	value.StrategyVersion = defaults.StrategyVersion
-	value.TableEnabled = defaults.TableEnabled
-	value.TableCount = defaults.TableCount
-	value.TableAlpha = defaults.TableAlpha
-	value.KeywordEnabled = defaults.KeywordEnabled
+	if value.StrategyVersion == 0 {
+		value.StrategyVersion = defaults.StrategyVersion
+		value.TableEnabled = defaults.TableEnabled
+		value.TableCount = defaults.TableCount
+		value.TableAlpha = defaults.TableAlpha
+		value.KeywordEnabled = defaults.KeywordEnabled
+	}
+	if value.StrategyVersion == defaults.StrategyVersion && value.DatasourceCount == 0 {
+		value.DatasourceCount = defaults.DatasourceCount
+	}
 }
 
 func validSimilarity(value float64) bool {
@@ -70,12 +77,16 @@ func applyEmbeddingSetting(settings *EmbeddingSettings, key, raw string) bool {
 			return false
 		}
 		settings.TableAlpha = value
-	case "embedding.table_count":
+	case "embedding.table_count", "embedding.datasource_count":
 		value, err := strconv.Atoi(raw)
 		if err != nil || value <= 0 || value > 100 || strconv.Itoa(value) != raw {
 			return false
 		}
-		settings.TableCount = value
+		if key == "embedding.table_count" {
+			settings.TableCount = value
+		} else {
+			settings.DatasourceCount = value
+		}
 	case "embedding.terminology_similarity", "embedding.data_training_similarity":
 		value, err := strconv.ParseFloat(raw, 64)
 		if err != nil || !validSimilarity(value) {

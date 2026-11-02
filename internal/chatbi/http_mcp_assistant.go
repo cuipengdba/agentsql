@@ -53,11 +53,6 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 	var selectionModel ModelConfig
 	var selectionLease modelLease
 	if len(entries) > 1 {
-		selector, ok := h.service.Model.(assistantCatalogSelector)
-		if !ok {
-			writeJSON(w, http.StatusUnprocessableEntity, "Datasource selection is unavailable")
-			return
-		}
 		selectionModel, selectionLease, err = h.service.Store.modelForWorkspace(r.Context(), p.Workspace)
 		if err != nil {
 			failure(w, err)
@@ -67,24 +62,47 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 			failure(w, err)
 			return
 		}
-		chosen, err := selector.SelectAssistantCatalogSource(r.Context(), selectionModel, input.Question, entries)
+		settings, err := h.service.Store.ChatSettings(r.Context())
 		if err != nil {
 			failure(w, err)
 			return
 		}
-		if err := h.service.Store.modelLeaseUnchanged(r.Context(), p.Workspace, selectionModel, selectionLease); err != nil {
-			failure(w, err)
-			return
-		}
-		found := false
-		for _, entry := range entries {
-			if entry.CatalogID == chosen {
-				selected, found = entry, true
-				break
+		candidates := entries
+		if settings.Embedding.TableEnabled {
+			candidates, err = selectAssistantCatalogSources(r.Context(), h.service.Embedding, input.Question, entries,
+				settings.Embedding.DatasourceCount)
+			if err != nil {
+				failure(w, err)
+				return
 			}
 		}
-		if !found {
-			failure(w, ErrModel)
+		if len(candidates) == 1 {
+			selected = candidates[0]
+		} else {
+			selector, ok := h.service.Model.(assistantCatalogSelector)
+			if !ok {
+				writeJSON(w, http.StatusUnprocessableEntity, "Datasource selection is unavailable")
+				return
+			}
+			chosen, err := selector.SelectAssistantCatalogSource(r.Context(), selectionModel, input.Question, candidates)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			found := false
+			for _, entry := range candidates {
+				if entry.CatalogID == chosen {
+					selected, found = entry, true
+					break
+				}
+			}
+			if !found {
+				failure(w, ErrModel)
+				return
+			}
+		}
+		if err := h.service.Store.modelLeaseUnchanged(r.Context(), p.Workspace, selectionModel, selectionLease); err != nil {
+			failure(w, err)
 			return
 		}
 	}

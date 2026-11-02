@@ -235,6 +235,78 @@ func TestMCPAssistantSelectsMappedCatalogSourceBeforeControlledQuery(t *testing.
 	}
 }
 
+func TestMCPAssistantDatasourceCountNarrowsRegisteredCandidates(t *testing.T) {
+	service, p, gateway, model, _ := serviceFixture(t)
+	activateModelCatalogFixture(t, service.Store, ModelConfig{ID: "30", Model: "fixture-global", Endpoint: "https://example.invalid/v1"})
+	selector := &fixtureCatalogSelector{fakeModel: model, choice: "81"}
+	service.Model = selector
+	service.Embedding = catalogFixtureEmbedding{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":81,"name":"Sales"},{"id":82,"name":"Weather"},{"id":83,"name":"Inventory"}]}`))
+	}))
+	defer server.Close()
+	auth := `[{"key":"token","value":"synthetic-token","target":"header"}]`
+	bridge := AssistantCatalogBridge{Endpoint: server.URL + "/sources", Authorization: auth,
+		Workspace: p.Workspace, User: p.User.ID,
+		Sources: []AssistantCatalogSource{{CatalogID: "81", Datasource: "10"},
+			{CatalogID: "82", Datasource: "10"}, {CatalogID: "83", Datasource: "10"}},
+		AllowedCIDRs: []string{"127.0.0.1/32"}, AllowHTTP: true}
+	if err := service.Store.ConfigureConnections(context.Background(), ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}}); err != nil {
+		t.Fatal(err)
+	}
+	settings := defaultChatSettings()
+	settings.Embedding.DatasourceCount = 1
+	if err := service.Store.put(context.Background(), chatSettingsKey(), settings, 0); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := false
+	input := mcpAssistantInput{Question: "Weather forecast?", URL: bridge.Endpoint, Authorization: auth, Stream: &stream}
+	response := assistantCatalogRequest(t, handler, input)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"datasource":82`) ||
+		gateway.queries != 1 || selector.selectCalls != 0 {
+		t.Fatalf("datasource count did not narrow catalog: HTTP %d %s selector=%d", response.Code, response.Body.String(), selector.selectCalls)
+	}
+	settings.Embedding.DatasourceCount = 2
+	if err := service.Store.put(context.Background(), chatSettingsKey(), settings, 1); err != nil {
+		t.Fatal(err)
+	}
+	selector.choice = "83"
+	response = assistantCatalogRequest(t, handler, input)
+	if response.Code == http.StatusOK || gateway.queries != 1 || selector.selectCalls != 1 {
+		t.Fatalf("excluded catalog ID reached query: HTTP %d %s selector=%d", response.Code, response.Body.String(), selector.selectCalls)
+	}
+	settings.Embedding.TableEnabled = false
+	if err := service.Store.put(context.Background(), chatSettingsKey(), settings, 2); err != nil {
+		t.Fatal(err)
+	}
+	selector.choice = "81"
+	response = assistantCatalogRequest(t, handler, input)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"datasource":81`) ||
+		gateway.queries != 2 || selector.selectCalls != 2 {
+		t.Fatalf("disabled preselection still narrowed catalog: HTTP %d %s selector=%d", response.Code, response.Body.String(), selector.selectCalls)
+	}
+	settings.Embedding.TableEnabled = true
+	settings.Embedding.DatasourceCount = 1
+	if err := service.Store.put(context.Background(), chatSettingsKey(), settings, 3); err != nil {
+		t.Fatal(err)
+	}
+	var revokeErr error
+	service.Embedding = &catalogChangingEmbedding{change: func() {
+		disabled := false
+		bridge.Enabled = &disabled
+		revokeErr = service.Store.ConfigureConnections(context.Background(), ConnectionConfig{AssistantCatalogs: []AssistantCatalogBridge{bridge}})
+	}}
+	response = assistantCatalogRequest(t, handler, input)
+	if revokeErr != nil || response.Code == http.StatusOK || gateway.queries != 2 ||
+		strings.Contains(response.Body.String(), "123") {
+		t.Fatalf("catalog revoked during ranking reached query: HTTP %d %s revoke=%v", response.Code, response.Body.String(), revokeErr)
+	}
+}
+
 func TestMCPAssistantSelectionRevocationPreventsQuery(t *testing.T) {
 	service, p, gateway, model, _ := serviceFixture(t)
 	selector := &fixtureCatalogSelector{fakeModel: model, choice: "81"}
