@@ -2,6 +2,12 @@
 
 **Language:** [English](CHANGELOG.en.md) | [Simplified Chinese](CHANGELOG.md)
 
+## [v4.4.0]
+
+- Added bilingual AgentSQL account, user, workspace, datasource remark and table relationship administration. Selected unchanged SQLBot v1.10.3 login, remark and relationship pages were compared in isolation.
+- Added remark and table selection management within the currently visible schema of server-bound PostgreSQL/MySQL sources. A PostgreSQL 16 two-table relationship was checked with a local real model, controlled join and persistent audit; revocation denied old relationship and result reads.
+- Extended bounded administration compatibility routes and signed offline delivery checks. Complete SQLBot page, API/MCP/embed coverage and cutover of the user's actual business system are not claimed for this release; see the [release notes](docs/en/release-notes-v4.4.0.md).
+
 ## [v4.3.0]
 
 - Expanded the local synthetic verification of the independent AgentSQL Q&A table and chart views, dashboards, analysis and trends under current authorization.
