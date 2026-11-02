@@ -22,6 +22,16 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	root := &cobra.Command{Use: "chatbi", Short: "Run native data Q&A and SQLBot compatibility services"}
 	var configuration, snapshot, historyPath string
 	root.PersistentFlags().StringVar(&configuration, "config", "chatbi.yaml", "ChatBI YAML configuration")
+	var modelPath string
+	verifyModel := &cobra.Command{Use: "verify-embedding-model", Short: "Verify the pinned local ONNX model without loading it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := chatbi.VerifyPinnedEmbeddingModel(modelPath); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "CHATBI_MODEL=VERIFIED")
+		return err
+	}}
+	verifyModel.Flags().StringVar(&modelPath, "path", "", "absolute directory containing the pinned ONNX model")
+	_ = verifyModel.MarkFlagRequired("path")
 	preflight := &cobra.Command{Use: "preflight", Short: "Validate a private SQLBot identity snapshot without changing either system", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		_, report, err := chatbi.ReadSnapshot(snapshot)
 		if err != nil {
@@ -258,7 +268,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	historyImport.Flags().StringVar(&importHistoryPath, "from", "", "private metadata-only SQLBot history export")
 	_ = historyImport.MarkFlagRequired("from")
-	root.AddCommand(preflight, importCommand, initCommand, configure, revokeBinding, historyPreflight, historyImport, serve)
+	root.AddCommand(preflight, importCommand, initCommand, configure, revokeBinding, historyPreflight, historyImport, verifyModel, serve)
 	return root
 }
 

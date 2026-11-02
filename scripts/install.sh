@@ -20,6 +20,7 @@ YASHAN_LIB_DIR="${YASHAN_LIB_PARENT}/yashandb"
 ACTION=
 VERSION=
 FROM_PATH=
+CHATBI_MODEL_DIR=
 NO_START=0
 WITH_CHATBI=0
 SHOW_PASSWORD=0
@@ -69,8 +70,8 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  install.sh install   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--no-start] [--show-password] [--yes] [--external-backup-done]
-  install.sh upgrade   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--no-start] [--external-backup-done]
+  install.sh install   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--chatbi-model-dir DIR] [--no-start] [--show-password] [--yes] [--external-backup-done]
+  install.sh upgrade   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--chatbi-model-dir DIR] [--no-start] [--external-backup-done]
   install.sh uninstall [--purge] [--yes] [--remove-user]
 EOF
   exit 2
@@ -168,6 +169,11 @@ parse_arguments() {
         WITH_CHATBI=1
         shift
         ;;
+      --chatbi-model-dir)
+        [ "$ACTION" != uninstall ] && [ "$#" -ge 2 ] && [ -z "$CHATBI_MODEL_DIR" ] || usage
+        CHATBI_MODEL_DIR=$2
+        shift 2
+        ;;
       --show-password)
         [ "$ACTION" = install ] || usage
         SHOW_PASSWORD=1
@@ -199,6 +205,9 @@ parse_arguments() {
 
   if [ -n "$VERSION" ] && [ -n "$FROM_PATH" ]; then
     die "--version and --from are mutually exclusive."
+  fi
+  if [ -n "$CHATBI_MODEL_DIR" ] && [ -z "$FROM_PATH" ]; then
+    die "--chatbi-model-dir requires a local verified package via --from."
   fi
   if [ -n "$VERSION" ]; then
     validate_version "$VERSION"
@@ -955,10 +964,17 @@ version_compare() {
 
 chatbi_package_preflight() {
   if [ -f "$CONFIG_DIR/chatbi-install-state" ]; then WITH_CHATBI=1; fi
+  if [ -n "$CHATBI_MODEL_DIR" ] && [ "$WITH_CHATBI" -ne 1 ]; then
+    die "--chatbi-model-dir requires --with-chatbi or an existing managed ChatBI installation."
+  fi
   if [ "$WITH_CHATBI" -eq 1 ]; then
     [ -f "$PKG_ROOT/install-chatbi.sh" ] &&
     [ -f "$PKG_ROOT/deploy/systemd/chatbi.yaml" ] &&
     [ -f "$PKG_ROOT/deploy/systemd/agentsql-chatbi.service" ] || die "This package does not include the requested ChatBI component."
+    if [ -n "$CHATBI_MODEL_DIR" ]; then
+      [ ! -L "$CHATBI_MODEL_DIR" ] && [ -d "$CHATBI_MODEL_DIR" ] || die "The ChatBI model directory is missing or a symbolic link."
+      LD_LIBRARY_PATH="$PKG_ROOT/lib/yashandb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$PKG_ROOT/agentsql" chatbi verify-embedding-model --path "$CHATBI_MODEL_DIR" >/dev/null || die "The pinned ChatBI model failed verification."
+    fi
   fi
 }
 
@@ -967,7 +983,7 @@ install_chatbi_component() {
   icc_mode=start
   [ "$ACTION" != upgrade ] || icc_mode=upgrade
   [ "$NO_START" -eq 0 ] || icc_mode=no-start
-  LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" sh "$PKG_ROOT/install-chatbi.sh" "$PKG_ROOT" "$icc_mode" || {
+  LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" sh "$PKG_ROOT/install-chatbi.sh" "$PKG_ROOT" "$icc_mode" "$CHATBI_MODEL_DIR" || {
     warn "ChatBI installation failed; restoring the gateway transaction."
     rollback_transaction || true
     die "The complete AgentSQL installation did not pass."
@@ -1170,6 +1186,17 @@ uninstall_action() {
     rm -f "$ua_path"
   done
   if [ -f "$CONFIG_DIR/chatbi-install-state" ]; then
+    ua_chatbi_bin=/usr/local/lib/agentsql/chatbi/agentsql
+    ua_chatbi_model=/usr/local/lib/agentsql/chatbi/model
+    [ ! -L "$ua_chatbi_model" ] || die "Refusing a symbolic link at the managed ChatBI model path."
+    if [ -d "$ua_chatbi_model" ]; then
+      if [ -f "$ua_chatbi_bin" ] &&
+         LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$ua_chatbi_bin" chatbi verify-embedding-model --path "$ua_chatbi_model" >/dev/null 2>&1; then
+        rm -r -- "$ua_chatbi_model"
+      else
+        warn "The ChatBI model directory differs from the pinned model and was preserved: $ua_chatbi_model"
+      fi
+    fi
     for ua_path in /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql; do
       [ ! -L "$ua_path" ] || die "Refusing to remove symbolic link at managed path: $ua_path"
       rm -f "$ua_path"

@@ -18,6 +18,8 @@ function Get-ReleaseInputNames {
     if ([version]$ReleaseVersion.Substring(1) -ge [version]'4.5.0') {
         $names += 'scripts/package-chatbi-model.py'
         $names += 'internal/chatbi/pinned_embedding_model.json'
+        $names += 'scripts/install-offline-release.py'
+        $names += 'scripts/assemble-offline-release.py'
     }
     return $names
 }

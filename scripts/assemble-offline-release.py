@@ -76,6 +76,12 @@ def assemble(args):
         report = json.loads(process.stdout)
         if report.get("status") != "verified" or report.get("version") != args.version:
             raise ValueError("unexpected verifier result")
+        if args.installable and tuple(map(int, args.version.removeprefix("v").split("."))) >= (4, 5, 0):
+            provenance = json.loads((stage / "provenance.json").read_text(encoding="utf-8"))
+            source_hashes = {item["name"]: item["sha256"] for item in provenance["inputs"]}
+            installer_hash = hashlib.sha256((bundle / "install-offline.py").read_bytes()).hexdigest()
+            if installer_hash != source_hashes.get("scripts/install-offline-release.py"):
+                raise ValueError("offline installer differs from the signed source provenance")
         # Create-only and private permissions. Recipients reverify after unpacking.
         descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as stream:

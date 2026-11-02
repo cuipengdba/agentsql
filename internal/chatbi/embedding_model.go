@@ -36,10 +36,7 @@ type LocalEmbeddingModel struct {
 // from disk. The offline installer must verify its signed archive separately.
 // No model files are fetched at runtime.
 func NewLocalEmbeddingModel(path string) (*LocalEmbeddingModel, error) {
-	if !filepath.IsAbs(path) || strings.TrimSpace(path) != path {
-		return nil, ErrUnavailable
-	}
-	if err := verifyPinnedEmbeddingModel(path); err != nil {
+	if err := VerifyPinnedEmbeddingModel(path); err != nil {
 		return nil, ErrUnavailable
 	}
 	session, err := hugot.NewGoSession()
@@ -59,6 +56,15 @@ func NewLocalEmbeddingModel(path string) (*LocalEmbeddingModel, error) {
 
 //go:embed pinned_embedding_model.json
 var pinnedEmbeddingManifest []byte
+
+// VerifyPinnedEmbeddingModel checks the fixed offline model without executing it.
+// Installers can call this before and after staging model files.
+func VerifyPinnedEmbeddingModel(path string) error {
+	if !filepath.IsAbs(path) || strings.TrimSpace(path) != path {
+		return ErrUnavailable
+	}
+	return verifyPinnedEmbeddingModel(path)
+}
 
 type pinnedEmbeddingFile struct {
 	Path   string `json:"path"`

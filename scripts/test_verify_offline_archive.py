@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import runpy
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,6 +16,99 @@ import unittest
 
 VERIFIER = Path(__file__).with_name("verify-offline-archive.py")
 INSTALLER = Path(__file__).with_name("install-offline-release.py")
+STAGE_MODEL = runpy.run_path(str(INSTALLER))["stage_model_archive"]
+STAGE_RELEASE_APP = runpy.run_path(str(INSTALLER))["stage_release_app_for_model"]
+
+
+class OfflineModelStageTest(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        self.archive = self.root / "model.tar.gz"
+        self.prefix = "agentsql-v4.5.0-chatbi-model"
+        self.files = ["model.onnx", "1_Pooling/config.json"] + [f"file-{i}.json" for i in range(7)]
+
+    def build(self, *, tamper=False, extra=None):
+        manifest = {"license": "Apache-2.0", "files": [
+            {"path": name, "size": 1, "sha256": hashlib.sha256(b"x").hexdigest()}
+            for name in self.files
+        ]}
+        data = json.dumps(manifest).encode()
+        with tarfile.open(self.archive, "w:gz") as package:
+            for name in (self.prefix, self.prefix + "/1_Pooling"):
+                member = tarfile.TarInfo(name)
+                member.type = tarfile.DIRTYPE
+                package.addfile(member)
+            member = tarfile.TarInfo(self.prefix + "/pinned_embedding_model.json")
+            member.size = len(data)
+            package.addfile(member, io.BytesIO(data))
+            for name in self.files:
+                member = tarfile.TarInfo(self.prefix + "/" + name)
+                member.size = 1
+                package.addfile(member, io.BytesIO(b"z" if tamper and name == "model.onnx" else b"x"))
+            if extra is not None:
+                package.addfile(extra)
+
+    def test_signed_model_members_are_staged_without_manifest(self):
+        self.build()
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        directory = STAGE_MODEL(self.archive, "v4.5.0", scratch)
+        self.assertEqual((directory / "model.onnx").read_bytes(), b"x")
+        self.assertFalse((directory / "pinned_embedding_model.json").exists())
+
+    def test_tampered_model_file_is_rejected(self):
+        self.build(tamper=True)
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        with self.assertRaises(ValueError):
+            STAGE_MODEL(self.archive, "v4.5.0", scratch)
+
+    def test_link_and_traversal_members_are_rejected(self):
+        for index, (name, kind) in enumerate(((self.prefix + "/link", tarfile.SYMTYPE), ("../escape", tarfile.REGTYPE))):
+            with self.subTest(name=name):
+                extra = tarfile.TarInfo(name)
+                extra.type = kind
+                if kind == tarfile.SYMTYPE:
+                    extra.linkname = "../../outside"
+                self.build(extra=extra)
+                scratch = self.root / f"scratch-{index}"
+                scratch.mkdir()
+                with self.assertRaises(ValueError):
+                    STAGE_MODEL(self.archive, "v4.5.0", scratch)
+
+
+class OfflineReleaseApplicationStageTest(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        self.archive = self.root / "application.tar.gz"
+        self.prefix = "agentsql-v4.5.0-linux-amd64/"
+
+    def build(self, unsafe_library=False):
+        with tarfile.open(self.archive, "w:gz") as package:
+            for name, data in (("agentsql", b"app"), ("lib/yashandb/libyascli.so", b"library")):
+                member = tarfile.TarInfo(self.prefix + name)
+                if unsafe_library and name.endswith("libyascli.so"):
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = "../../escape"
+                    package.addfile(member)
+                else:
+                    member.size = len(data)
+                    package.addfile(member, io.BytesIO(data))
+
+    def test_authenticated_binary_and_library_are_staged(self):
+        self.build()
+        app, libraries = STAGE_RELEASE_APP(self.archive, "v4.5.0", "amd64", self.root)
+        self.assertEqual(app.read_bytes(), b"app")
+        self.assertEqual((libraries / "libyascli.so").read_bytes(), b"library")
+
+    def test_symlinked_library_is_rejected(self):
+        self.build(unsafe_library=True)
+        with self.assertRaises(ValueError):
+            STAGE_RELEASE_APP(self.archive, "v4.5.0", "amd64", self.root)
 
 
 @unittest.skipUnless(shutil.which("openssl"), "OpenSSL is required for the offline signature test")

@@ -11,7 +11,7 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import shutil
@@ -160,6 +160,128 @@ def private_copy(source, destination, limit):
             raise ValueError("release asset changed while staging: " + source.name)
 
 
+def stage_model_archive(archive, version, scratch):
+    """Extract only signed, pinned model files into a private staging directory."""
+    root = "agentsql-" + version + "-chatbi-model"
+    manifest_name = root + "/pinned_embedding_model.json"
+    with tarfile.open(archive, "r:gz") as package:
+        members = {}
+        for member in package:
+            name = member.name.rstrip("/")
+            if name in members or name.startswith("/") or "\\" in name or ":" in name or any(
+                    part in ("", ".", "..") for part in name.split("/")):
+                raise ValueError("unsafe or duplicate model archive member")
+            if not (member.isdir() or member.isfile()):
+                raise ValueError("model archive contains a link or unsupported member")
+            members[name] = member
+        manifest_member = members.get(manifest_name)
+        if manifest_member is None or not manifest_member.isfile() or manifest_member.size > 16384:
+            raise ValueError("model archive has no bounded pinned inventory")
+        manifest_stream = package.extractfile(manifest_member)
+        if manifest_stream is None:
+            raise ValueError("unreadable pinned model inventory")
+        with manifest_stream as stream:
+            manifest = json.load(stream)
+        if not isinstance(manifest, dict):
+            raise ValueError("invalid pinned model inventory")
+        files = manifest.get("files")
+        if manifest.get("license") != "Apache-2.0" or not isinstance(files, list) or len(files) != 9:
+            raise ValueError("invalid pinned model inventory")
+        expected = {root, root + "/1_Pooling", manifest_name}
+        destination = scratch / "chatbi-model"
+        destination.mkdir(mode=0o700)
+        (destination / "1_Pooling").mkdir(mode=0o700)
+        total_size = 0
+        for item in files:
+            if not isinstance(item, dict):
+                raise ValueError("invalid pinned model file")
+            path, size, want = item.get("path"), item.get("size"), item.get("sha256")
+            if (not isinstance(path, str) or not path or path.startswith("/") or
+                    "\\" in path or ":" in path or any(part in ("", ".", "..") for part in path.split("/")) or
+                    not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > MAX_PACKAGE or
+                    not isinstance(want, str) or not re.fullmatch(r"[0-9a-f]{64}", want)):
+                raise ValueError("unsafe pinned model file")
+            total_size += size
+            if total_size > 1 << 30:
+                raise ValueError("pinned model exceeds extraction size limit")
+            expected.add(root + "/" + path)
+            source = members.get(root + "/" + path)
+            if source is None or not source.isfile() or source.size != size:
+                raise ValueError("missing or mismatched model file")
+            target = destination.joinpath(*PurePosixPath(path).parts)
+            if target.parent not in (destination, destination / "1_Pooling"):
+                raise ValueError("unexpected model subdirectory")
+            state = hashlib.sha256()
+            copied = 0
+            incoming = package.extractfile(source)
+            if incoming is None:
+                raise ValueError("unreadable model archive member")
+            with incoming, target.open("xb") as outgoing:
+                while block := incoming.read(1 << 20):
+                    copied += len(block)
+                    if copied > size:
+                        raise ValueError("model file exceeded pinned size")
+                    state.update(block)
+                    outgoing.write(block)
+            if copied != size or state.hexdigest() != want:
+                raise ValueError("model file does not match pinned inventory")
+        if set(members) != expected or not members[root].isdir() or not members[root + "/1_Pooling"].isdir():
+            raise ValueError("model archive has unexpected or missing members")
+    return destination
+
+
+def stage_release_app_for_model(archive, version, arch, scratch):
+    """Stage the authenticated application and its packaged client libraries."""
+    root = "agentsql-" + version + "-linux-" + arch + "/"
+    app_name = root + "agentsql"
+    library_prefix = root + "lib/yashandb/"
+    app = scratch / "agentsql-model-verifier"
+    library_dir = scratch / "yashan-libs"
+    library_dir.mkdir(mode=0o700)
+    libraries = set()
+    total = 0
+    with tarfile.open(archive, "r:gz") as package:
+        members = package.getmembers()
+        matches = [member for member in members if member.name == app_name]
+        if len(matches) != 1:
+            raise ValueError("release package has no unique application binary")
+        member = matches[0]
+        if not member.isfile() or member.size > 150 << 20:
+            raise ValueError("invalid release application binary")
+        stream = package.extractfile(member)
+        if stream is None:
+            raise ValueError("unreadable release application binary")
+        with stream, app.open("xb") as outgoing:
+            shutil.copyfileobj(stream, outgoing, 1 << 20)
+        if app.stat().st_size != member.size:
+            raise ValueError("release application binary changed during staging")
+        app.chmod(0o700)
+        for member in members:
+            if not member.name.startswith(library_prefix) or member.isdir():
+                continue
+            name = member.name[len(library_prefix):]
+            if (not member.isfile() or not name or name.startswith("/") or
+                    "\\" in name or ":" in name or any(part in ("", ".", "..") for part in name.split("/")) or
+                    name in libraries or member.size > 150 << 20):
+                raise ValueError("unsafe release client library")
+            libraries.add(name)
+            total += member.size
+            if total > 512 << 20:
+                raise ValueError("release client libraries exceed staging limit")
+            target = library_dir.joinpath(*PurePosixPath(name).parts)
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            incoming = package.extractfile(member)
+            if incoming is None:
+                raise ValueError("unreadable release client library")
+            with incoming, target.open("xb") as outgoing:
+                shutil.copyfileobj(incoming, outgoing, 1 << 20)
+            if target.stat().st_size != member.size:
+                raise ValueError("release client library changed during staging")
+    if not libraries:
+        raise ValueError("release package has no client libraries")
+    return app, library_dir
+
+
 def run(args):
     if args.external_backup_done and args.action != "upgrade":
         raise ValueError("--external-backup-done requires upgrade")
@@ -216,6 +338,17 @@ def run(args):
                                 capture_output=True, text=True, timeout=300, check=False)
         if result.returncode != 0 or json.loads(result.stdout).get("status") != "verified":
             raise ValueError("release verifier rejected the offline assets")
+        model_directory = None
+        if len(expected) == 17:
+            model_archive = assets / ("agentsql-" + version + "-chatbi-model.tar.gz")
+            model_directory = stage_model_archive(model_archive, version, scratch)
+            app, libraries = stage_release_app_for_model(archive, version, arch, scratch)
+            environment = os.environ.copy()
+            environment["LD_LIBRARY_PATH"] = str(libraries)
+            result = subprocess.run([str(app), "chatbi", "verify-embedding-model", "--path", str(model_directory)],
+                                    env=environment, capture_output=True, text=True, timeout=300, check=False)
+            if result.returncode != 0 or result.stdout.strip() != "CHATBI_MODEL=VERIFIED":
+                raise ValueError("release binary rejected the pinned offline model")
         if args.require_postgres_binder:
             preflight = scratch / "check-postgres-binder.sh"
             private_copy(root / "check-postgres-binder.sh", preflight, MAX_DOCUMENT)
@@ -229,6 +362,8 @@ def run(args):
             print("OFFLINE_RELEASE=VERIFIED version=" + version + " architecture=" + arch)
             return
         command = ["sh", str(assets / "install.sh"), args.action, "--from", str(archive), "--with-chatbi"]
+        if model_directory is not None:
+            command.extend(("--chatbi-model-dir", str(model_directory)))
         if args.action == "install":
             command.append("--yes")
         if args.no_start:
