@@ -331,6 +331,50 @@ func TestLegacyDashboardRemovingChartTabDropsItsReferenceBeforeRevocation(t *tes
 	}
 }
 
+func TestLegacyDashboardNestedChartSuppressesInFlightRevokedResult(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	record := finishedFixtureRecord(t, service, principal, token)
+	board, err := service.SaveDashboard(t.Context(), principal, Dashboard{
+		Name: "In-flight chart", Cards: []DashboardCard{{
+			ID: "300", Kind: "tab", Title: "Tabs", ActiveTabID: "tab_123",
+			TabPages: []DashboardTabPage{{
+				ID: "tab_123", Title: "Chart", Cards: []DashboardCard{{
+					ID: "302", Kind: "table", Title: "Sensitive chart", RecordID: record.ID,
+				}},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := service.Store.get(t.Context(), bindingKey(principal, "10"), new(Binding))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revokeErr error
+	before := gateway.queries
+	gateway.afterQuery = func() {
+		gateway.afterQuery = nil
+		revokeErr = service.Store.delete(t.Context(), bindingKey(principal, "10"), revision)
+	}
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/load_resource",
+		bytes.NewBufferString(`{"id":"`+board.ID+`"}`))
+	request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if revokeErr != nil || gateway.queries != before+1 || response.Code == 200 ||
+		bytes.Contains(response.Body.Bytes(), []byte("Sensitive chart")) ||
+		bytes.Contains(response.Body.Bytes(), []byte("amount")) ||
+		bytes.Contains(response.Body.Bytes(), []byte("SQView")) {
+		t.Fatalf("in-flight revoke returned chart: status=%d queries=%d revoke=%v body=%s",
+			response.Code, gateway.queries-before, revokeErr, response.Body.String())
+	}
+}
+
 func TestLegacyDashboardChartUsesOwnedRecordAndFreshGatewayData(t *testing.T) {
 	ctx := context.Background()
 	service, principal, gateway, _, token := serviceFixture(t)
