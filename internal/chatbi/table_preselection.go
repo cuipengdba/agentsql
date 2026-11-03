@@ -23,6 +23,23 @@ type modelTableCandidate struct {
 // the controlled query boundary still checks the generated SQL independently.
 func selectModelTables(ctx context.Context, model EmbeddingModel, question string, columns []Column,
 	remarks []RemarkHint, limit int, alpha float64, keywordEnabled bool) ([]Column, []RemarkHint, error) {
+	return selectModelTablesWithVectors(ctx, model, question, columns, remarks, limit, alpha, keywordEnabled, nil)
+}
+
+// The index receives only the schema returned by the current gateway permission
+// check. Its caller rechecks the binding and permission snapshot after inference.
+func selectModelTablesIndexed(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
+	question string, columns []Column, remarks []RemarkHint, limit int, alpha float64,
+	keywordEnabled bool) ([]Column, []RemarkHint, error) {
+	return selectModelTablesWithVectors(ctx, model, question, columns, remarks, limit, alpha, keywordEnabled,
+		func(ctx context.Context, tables []modelTableCandidate) ([][]float32, error) {
+			return store.indexedTableVectors(ctx, p, datasource, model, tables)
+		})
+}
+
+func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, question string, columns []Column,
+	remarks []RemarkHint, limit int, alpha float64, keywordEnabled bool,
+	indexed func(context.Context, []modelTableCandidate) ([][]float32, error)) ([]Column, []RemarkHint, error) {
 	if model == nil || limit < 1 || len(question) > 4096 {
 		return columns, remarks, nil
 	}
@@ -65,28 +82,37 @@ func selectModelTables(ctx context.Context, model EmbeddingModel, question strin
 		}
 		return columns, remarks, nil
 	}
-	for start := 0; start < len(tables); start += 32 {
-		end := min(start+32, len(tables))
-		texts := make([]string, end-start)
-		for index := start; index < end; index++ {
-			texts[index-start] = tables[index].text
-		}
-		vectors, err := model.Encode(ctx, texts)
-		if err != nil || len(vectors) != len(texts) {
+	if indexed != nil {
+		vectors, err := indexed(ctx, tables)
+		if err != nil || len(vectors) != len(tables) {
 			if ctx.Err() != nil {
 				return nil, nil, ctx.Err()
 			}
 			return columns, remarks, nil
 		}
-		for offset, vector := range vectors {
-			if len(vector) != 768 {
+		for index, vector := range vectors {
+			if !scoreTableVector(&tables[index], vector, query[0]) {
 				return columns, remarks, nil
 			}
-			for dimension, value := range vector {
-				tables[start+offset].vector += float64(value) * float64(query[0][dimension])
+		}
+	} else {
+		for start := 0; start < len(tables); start += 32 {
+			end := min(start+32, len(tables))
+			texts := make([]string, end-start)
+			for index := start; index < end; index++ {
+				texts[index-start] = tables[index].text
 			}
-			if math.IsNaN(tables[start+offset].vector) || math.IsInf(tables[start+offset].vector, 0) {
+			vectors, err := model.Encode(ctx, texts)
+			if err != nil || len(vectors) != len(texts) {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
 				return columns, remarks, nil
+			}
+			for offset, vector := range vectors {
+				if !scoreTableVector(&tables[start+offset], vector, query[0]) {
+					return columns, remarks, nil
+				}
 			}
 		}
 	}
@@ -144,6 +170,16 @@ func selectModelTables(ctx context.Context, model EmbeddingModel, question strin
 		}
 	}
 	return filteredColumns, filteredRemarks, nil
+}
+
+func scoreTableVector(table *modelTableCandidate, vector, query []float32) bool {
+	if len(vector) != 768 || len(query) != 768 {
+		return false
+	}
+	for dimension, value := range vector {
+		table.vector += float64(value) * float64(query[dimension])
+	}
+	return !math.IsNaN(table.vector) && !math.IsInf(table.vector, 0)
 }
 
 func mentionedIdentifier(question, name string) bool {

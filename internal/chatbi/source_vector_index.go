@@ -8,9 +8,9 @@ import (
 	"errors"
 )
 
-// sourceVectorRecord contains no source text. The object store encrypts the
-// vector and the content fingerprint with the user's workspace scope as AAD.
-type sourceVectorRecord struct {
+// indexedVectorRecord contains no source or table text. The object store
+// encrypts the vector and content fingerprint with workspace and owner AAD.
+type indexedVectorRecord struct {
 	Fingerprint string    `json:"fingerprint"`
 	Vector      []float32 `json:"vector"`
 }
@@ -56,7 +56,7 @@ func (s *Store) indexedSourceVectors(ctx context.Context, p Principal, model Emb
 		key := s.sourceVectorKey(p, entry)
 		fingerprint := s.sourceVectorFingerprint(identity.persistentEmbeddingIdentity(), texts[index])
 		keys[index], fingerprints[index] = key, fingerprint
-		var saved sourceVectorRecord
+		var saved indexedVectorRecord
 		revision, err := s.get(ctx, key, &saved)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, err
@@ -85,7 +85,7 @@ func (s *Store) indexedSourceVectors(ctx context.Context, p Principal, model Emb
 		}
 		index := missingAt[offset]
 		result[index] = append([]float32(nil), vector...)
-		if err := s.put(ctx, keys[index], sourceVectorRecord{fingerprints[index], vector}, revisions[index]); err != nil && !errors.Is(err, ErrConflict) {
+		if err := s.put(ctx, keys[index], indexedVectorRecord{fingerprints[index], vector}, revisions[index]); err != nil && !errors.Is(err, ErrConflict) {
 			return nil, err
 		}
 	}

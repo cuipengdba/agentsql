@@ -859,7 +859,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			return err
 		}
 		if settings.Embedding.TableEnabled {
-			columns, remarks, err = selectModelTables(ctx, service.Embedding, question, columns, remarks,
+			columns, remarks, err = selectModelTablesIndexed(ctx, service.Store, p, chat.Datasource, service.Embedding, question, columns, remarks,
 				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled)
 			if err != nil {
 				return err

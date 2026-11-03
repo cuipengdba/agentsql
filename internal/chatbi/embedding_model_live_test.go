@@ -73,6 +73,52 @@ func TestLocalEmbeddingModelPersistentSourceIndexAfterModelRestart(t *testing.T)
 	t.Logf("32 authorized sources: cold=%s warm-after-model-restart=%s", coldElapsed, warmElapsed)
 }
 
+func TestLocalEmbeddingModelPersistentTableIndexAfterModelRestart(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := make([]Column, 32)
+	for index := range columns {
+		columns[index] = Column{Schema: "public", Table: fmt.Sprintf("orders_%02d", index),
+			Name: "revenue_amount", DataType: "numeric"}
+	}
+	columns[17] = Column{Schema: "public", Table: "weather", Name: "forecast_temperature", DataType: "text"}
+	coldLocal, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cold := &recordingPinnedEmbedding{LocalEmbeddingModel: coldLocal}
+	start := time.Now()
+	coldSelected, _, err := selectModelTablesIndexed(ctx, store, p, "10", cold,
+		"weather forecast", columns, nil, 1, 1, false)
+	coldElapsed := time.Since(start)
+	if closeErr := coldLocal.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err != nil || len(coldSelected) != 1 || len(cold.calls) != 2 || cold.calls[0] != 1 || cold.calls[1] != 32 {
+		t.Fatalf("cold local table index: selected=%v calls=%v err=%v", coldSelected, cold.calls, err)
+	}
+	warmLocal, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer warmLocal.Close()
+	warm := &recordingPinnedEmbedding{LocalEmbeddingModel: warmLocal}
+	start = time.Now()
+	warmSelected, _, err := selectModelTablesIndexed(ctx, store, p, "10", warm,
+		"weather forecast", columns, nil, 1, 1, false)
+	warmElapsed := time.Since(start)
+	if err != nil || len(warmSelected) != 1 || warmSelected[0].Table != coldSelected[0].Table ||
+		len(warm.calls) != 1 || warm.calls[0] != 1 {
+		t.Fatalf("model restart recomputed table vectors: selected=%v calls=%v err=%v", warmSelected, warm.calls, err)
+	}
+	t.Logf("32 authorized tables: cold=%s warm-after-model-restart=%s", coldElapsed, warmElapsed)
+}
+
 // Run locally with the pinned model asset; CI has no model weights.
 func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
