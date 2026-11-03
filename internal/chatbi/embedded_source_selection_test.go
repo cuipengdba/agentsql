@@ -195,12 +195,18 @@ func TestEmbeddedSourceSelectionRejectsPermissionChangeDuringEmbedding(t *testin
 	embedded.EmbeddedRevision = app.Revision
 	require.NoError(t, service.Store.UpdateChatSettings(ctx, admin,
 		map[string]string{"embedding.datasource_count": "1"}))
+	// Warm the encrypted source index before revoking a row permission. The
+	// cached vectors must never bypass the post-selection permission check.
+	changing := &catalogChangingEmbedding{}
+	service.Embedding = changing
+	_, _, _, err = service.selectEmbeddedSource(ctx, embedded, "show inventory", nil)
+	require.NoError(t, err)
 	var changeErr error
-	service.Embedding = &catalogChangingEmbedding{change: func() {
+	changing.change = func() {
 		rule := testActiveRowPermission(t, "east")
 		rule.Users = []int64{2}
 		changeErr = service.Store.put(ctx, permissionRuleKey(embedded.Workspace, rule.ID), rule, 0)
-	}}
+	}
 	_, _, _, err = service.selectEmbeddedSource(ctx, embedded, "show inventory", nil)
 	require.NoError(t, changeErr)
 	require.ErrorIs(t, err, ErrGateway)

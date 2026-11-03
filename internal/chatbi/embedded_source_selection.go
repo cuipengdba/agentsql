@@ -98,7 +98,7 @@ func (service *Service) selectEmbeddedSource(ctx context.Context, p Principal, q
 			entries = append(entries, candidate.entry)
 		}
 		if settings.Embedding.TableEnabled {
-			entries, err = selectAssistantCatalogSources(ctx, service.Embedding, question, entries,
+			entries, err = selectAssistantCatalogSourcesIndexed(ctx, service.Store, p, service.Embedding, question, entries,
 				settings.Embedding.DatasourceCount)
 			if err != nil {
 				return "", ModelConfig{}, modelLease{}, err

@@ -9,7 +9,69 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+type recordingPinnedEmbedding struct {
+	*LocalEmbeddingModel
+	calls []int
+}
+
+func (model *recordingPinnedEmbedding) Encode(ctx context.Context, texts []string) ([][]float32, error) {
+	model.calls = append(model.calls, len(texts))
+	return model.LocalEmbeddingModel.Encode(ctx, texts)
+}
+
+func (model *recordingPinnedEmbedding) persistentEmbeddingIdentity() string {
+	return model.LocalEmbeddingModel.persistentEmbeddingIdentity()
+}
+
+// The real ONNX model is intentionally loaded twice so its process-local cache
+// cannot explain a warm result from the encrypted persistent index.
+func TestLocalEmbeddingModelPersistentSourceIndexAfterModelRestart(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	entries := make([]assistantCatalogEntry, 32)
+	for index := range entries {
+		id := ID(fmt.Sprintf("%d", index+10))
+		entries[index] = assistantCatalogEntry{CatalogID: id, Datasource: id,
+			Name: fmt.Sprintf("Source %02d", index), selectionText: fmt.Sprintf("public.orders_%02d revenue amount", index)}
+	}
+	entries[17].selectionText = "public.weather forecast temperature"
+	coldLocal, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cold := &recordingPinnedEmbedding{LocalEmbeddingModel: coldLocal}
+	start := time.Now()
+	coldSelected, err := selectAssistantCatalogSourcesIndexed(ctx, store, p, cold, "weather forecast", entries, 1)
+	coldElapsed := time.Since(start)
+	if closeErr := coldLocal.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err != nil || len(coldSelected) != 1 || len(cold.calls) != 2 || cold.calls[0] != 1 || cold.calls[1] != 32 {
+		t.Fatalf("cold local source index: selected=%v calls=%v err=%v", coldSelected, cold.calls, err)
+	}
+	warmLocal, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer warmLocal.Close()
+	warm := &recordingPinnedEmbedding{LocalEmbeddingModel: warmLocal}
+	start = time.Now()
+	warmSelected, err := selectAssistantCatalogSourcesIndexed(ctx, store, p, warm, "weather forecast", entries, 1)
+	warmElapsed := time.Since(start)
+	if err != nil || len(warmSelected) != 1 || warmSelected[0].CatalogID != coldSelected[0].CatalogID ||
+		len(warm.calls) != 1 || warm.calls[0] != 1 {
+		t.Fatalf("model restart recomputed source vectors: selected=%v calls=%v err=%v", warmSelected, warm.calls, err)
+	}
+	t.Logf("32 authorized sources: cold=%s warm-after-model-restart=%s", coldElapsed, warmElapsed)
+}
 
 // Run locally with the pinned model asset; CI has no model weights.
 func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
@@ -61,6 +123,11 @@ func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 	chosen, err := selectAssistantCatalogSources(context.Background(), model, "天气预报", sources, 1)
 	if err != nil || len(chosen) != 1 || chosen[0].CatalogID != "82" {
 		t.Fatalf("real local model selected unexpected datasource: %#v %v", chosen, err)
+	}
+	indexed, err := selectAssistantCatalogSourcesIndexed(context.Background(), testStore(t),
+		Principal{Workspace: "1", User: User{ID: "1"}}, model, "天气预报", sources, 1)
+	if err != nil || len(indexed) != 1 || indexed[0].CatalogID != "82" {
+		t.Fatalf("real local model and persistent index selected unexpected datasource: %#v %v", indexed, err)
 	}
 	columns := []Column{
 		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},

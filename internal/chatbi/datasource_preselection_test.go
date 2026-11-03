@@ -28,6 +28,10 @@ func (model catalogFixtureEmbedding) Encode(_ context.Context, texts []string) (
 
 type catalogChangingEmbedding struct{ change func() }
 
+func (*catalogChangingEmbedding) persistentEmbeddingIdentity() string {
+	return "synthetic-pinned-catalog"
+}
+
 func (model *catalogChangingEmbedding) Encode(ctx context.Context, texts []string) ([][]float32, error) {
 	if model.change != nil {
 		model.change()

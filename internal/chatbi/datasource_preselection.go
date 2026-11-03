@@ -11,6 +11,28 @@ import (
 // so the downstream model still makes an explicit, audited choice.
 func selectAssistantCatalogSources(ctx context.Context, model EmbeddingModel, question string,
 	entries []assistantCatalogEntry, limit int) ([]assistantCatalogEntry, error) {
+	if model == nil {
+		return entries, nil
+	}
+	return selectAssistantCatalogSourcesWithVectors(ctx, model, question, entries, limit, model.Encode)
+}
+
+// Only the current authorized candidate set can reach the persistent vector
+// index. The caller still rechecks bindings and permissions after selection.
+func selectAssistantCatalogSourcesIndexed(ctx context.Context, store *Store, p Principal, model EmbeddingModel,
+	question string, entries []assistantCatalogEntry, limit int) ([]assistantCatalogEntry, error) {
+	if model == nil {
+		return entries, nil
+	}
+	return selectAssistantCatalogSourcesWithVectors(ctx, model, question, entries, limit,
+		func(ctx context.Context, texts []string) ([][]float32, error) {
+			return store.indexedSourceVectors(ctx, p, model, entries, texts)
+		})
+}
+
+func selectAssistantCatalogSourcesWithVectors(ctx context.Context, model EmbeddingModel, question string,
+	entries []assistantCatalogEntry, limit int,
+	encodeCandidates func(context.Context, []string) ([][]float32, error)) ([]assistantCatalogEntry, error) {
 	if model == nil || limit < 1 || len(entries) <= limit || len(entries) > 32 || len(question) > 4096 {
 		return entries, nil
 	}
@@ -40,7 +62,7 @@ func selectAssistantCatalogSources(ctx context.Context, model EmbeddingModel, qu
 			return entries, nil
 		}
 	}
-	vectors, err := model.Encode(ctx, names)
+	vectors, err := encodeCandidates(ctx, names)
 	if err != nil || len(vectors) != len(entries) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

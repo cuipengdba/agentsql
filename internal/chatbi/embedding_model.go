@@ -32,6 +32,11 @@ type LocalEmbeddingModel struct {
 	cache    map[string][]float32
 }
 
+func (*LocalEmbeddingModel) persistentEmbeddingIdentity() string {
+	digest := sha256.Sum256(pinnedEmbeddingManifest)
+	return fmt.Sprintf("hugot-go-normalized-v1:%x", digest)
+}
+
 // NewLocalEmbeddingModel loads the pinned SQLBot-compatible ONNX sentence model
 // from disk. The offline installer must verify its signed archive separately.
 // No model files are fetched at runtime.

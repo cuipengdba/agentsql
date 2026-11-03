@@ -69,7 +69,7 @@ func (h *Handler) mcpAssistant(w http.ResponseWriter, r *http.Request) {
 		}
 		candidates := entries
 		if settings.Embedding.TableEnabled {
-			candidates, err = selectAssistantCatalogSources(r.Context(), h.service.Embedding, input.Question, entries,
+			candidates, err = selectAssistantCatalogSourcesIndexed(r.Context(), h.service.Store, p, h.service.Embedding, input.Question, entries,
 				settings.Embedding.DatasourceCount)
 			if err != nil {
 				failure(w, err)
