@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -81,7 +82,15 @@ func TestLocalEmbeddingModelPersistentTableIndexAfterModelRestart(t *testing.T) 
 	ctx := context.Background()
 	store := testStore(t)
 	p := Principal{Workspace: "1", User: User{ID: "1"}}
-	columns := make([]Column, 32)
+	count := 32
+	if raw := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_TABLE_COUNT"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 32 || parsed > 500 {
+			t.Fatalf("invalid local table count %q", raw)
+		}
+		count = parsed
+	}
+	columns := make([]Column, count)
 	for index := range columns {
 		columns[index] = Column{Schema: "public", Table: fmt.Sprintf("orders_%02d", index),
 			Name: "revenue_amount", DataType: "numeric"}
@@ -99,7 +108,18 @@ func TestLocalEmbeddingModelPersistentTableIndexAfterModelRestart(t *testing.T) 
 	if closeErr := coldLocal.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if err != nil || len(coldSelected) != 1 || len(cold.calls) != 2 || cold.calls[0] != 1 || cold.calls[1] != 32 {
+	if len(cold.calls) == 0 {
+		t.Fatalf("local table index made no embedding call: %v", err)
+	}
+	encoded := 0
+	for _, batch := range cold.calls[1:] {
+		if batch < 1 || batch > 32 {
+			t.Fatalf("local table index exceeded embedding batch limit: %v", cold.calls)
+		}
+		encoded += batch
+	}
+	if err != nil || len(coldSelected) != 1 || coldSelected[0].Table != "weather" ||
+		len(cold.calls) != 1+(count+31)/32 || cold.calls[0] != 1 || encoded != count {
 		t.Fatalf("cold local table index: selected=%v calls=%v err=%v", coldSelected, cold.calls, err)
 	}
 	warmLocal, err := NewLocalEmbeddingModel(path)
@@ -116,7 +136,7 @@ func TestLocalEmbeddingModelPersistentTableIndexAfterModelRestart(t *testing.T) 
 		len(warm.calls) != 1 || warm.calls[0] != 1 {
 		t.Fatalf("model restart recomputed table vectors: selected=%v calls=%v err=%v", warmSelected, warm.calls, err)
 	}
-	t.Logf("32 authorized tables: cold=%s warm-after-model-restart=%s", coldElapsed, warmElapsed)
+	t.Logf("%d authorized tables: cold=%s warm-after-model-restart=%s", count, coldElapsed, warmElapsed)
 }
 
 // Run locally with the pinned model asset; CI has no model weights.
