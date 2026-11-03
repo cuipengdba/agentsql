@@ -81,6 +81,52 @@ func TestLocalQwenTableKeywordExtraction(t *testing.T) {
 	t.Logf("local model keywords: %s", words)
 }
 
+func TestLocalQwenKeywordToAuthorizedSQLFlow(t *testing.T) {
+	endpoint, embeddingPath := os.Getenv("AGENTSQL_TEST_LOCAL_MODEL_ENDPOINT"), os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if endpoint == "" || embeddingPath == "" {
+		t.Skip("local generation and embedding models not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	service, p, gateway, _, token := serviceFixture(t)
+	var model ModelConfig
+	revision, err := service.Store.get(ctx, objectKey{"model", "1", "workspace", "default"}, &model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.Model = "/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+	model.Endpoint = endpoint
+	model.AllowHTTP = true
+	if err := service.Store.put(ctx, objectKey{"model", "1", "workspace", "default"}, model, revision); err != nil {
+		t.Fatal(err)
+	}
+	service.Model = OpenAIModel{}
+	embedding, err := NewLocalEmbeddingModel(embeddingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer embedding.Close()
+	service.Embedding = embedding
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"}}
+	settings := defaultChatSettings()
+	settings.Embedding.TableCount = 1
+	if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := service.Start(ctx, p, "10", "Count the rows in public.sales", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	record, err := service.Ask(ctx, p, chat.ID, "Count the rows in public.sales", check, nil)
+	if err != nil || gateway.queries != 1 || !strings.Contains(strings.ToLower(record.SQL), "sales") ||
+		strings.Contains(strings.ToLower(gateway.lastQuery), "weather") {
+		t.Fatalf("local extraction/vector/generation flow: sql=%q query=%q queries=%d err=%v", record.SQL, gateway.lastQuery, gateway.queries, err)
+	}
+	t.Logf("local flow SQL: %s", record.SQL)
+}
+
 func TestTableKeywordExpansionUsesOnlyEnabledCurrentDatasourceTerms(t *testing.T) {
 	ctx := context.Background()
 	service, p, _, _, _ := serviceFixture(t)
