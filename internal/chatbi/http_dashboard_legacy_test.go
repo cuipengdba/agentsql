@@ -312,9 +312,13 @@ func TestLegacyDashboardChartUsesOwnedRecordAndFreshGatewayData(t *testing.T) {
 		t.Fatalf("fresh chart read: %d queries=%d body=%s", response.Code, gateway.queries-before, response.Body.String())
 	}
 	var chartViews map[string]struct {
-		Data QueryData `json:"data"`
+		Data  QueryData `json:"data"`
+		Chart struct {
+			XAxis []map[string]string `json:"xAxis"`
+			YAxis []map[string]string `json:"yAxis"`
+		} `json:"chart"`
 	}
-	if json.Unmarshal([]byte(loaded.Data.CanvasViewInfo), &chartViews) != nil || chartViews["123"].Data.AuditID != 1 || chartViews["123"].Data.Data[0]["amount"] != "123" {
+	if json.Unmarshal([]byte(loaded.Data.CanvasViewInfo), &chartViews) != nil || chartViews["123"].Data.AuditID != 1 || chartViews["123"].Data.Data[0]["amount"] != "123" || chartViews["123"].Chart.XAxis == nil || chartViews["123"].Chart.YAxis == nil {
 		t.Fatalf("fresh chart payload: %s", loaded.Data.CanvasViewInfo)
 	}
 	wrongSource := input

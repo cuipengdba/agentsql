@@ -401,7 +401,9 @@ func (h *Handler) legacyChartViews(ctx context.Context, p Principal, view Dashbo
 		for _, field := range data.Fields {
 			columns = append(columns, map[string]string{"name": field, "value": field})
 		}
-		var xAxis, yAxis []map[string]string
+		// The unchanged SQLBot dashboard iterates both axes. JSON null for a
+		// single-column table crashes its chart renderer after a successful load.
+		xAxis, yAxis := []map[string]string{}, []map[string]string{}
 		if len(data.Fields) >= 2 {
 			valueField := data.Fields[1]
 			for _, info := range data.FieldsInfo {
