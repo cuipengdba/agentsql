@@ -244,6 +244,93 @@ func TestLegacyDashboardNestedTextAndOwnedChartReauthorizeOnRead(t *testing.T) {
 	}
 }
 
+func TestLegacyDashboardRemovingChartTabDropsItsReferenceBeforeRevocation(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	record := finishedFixtureRecord(t, service, principal, token)
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(path string, payload any) *httptest.ResponseRecorder {
+		body, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+	textPage := map[string]any{
+		"name": "tab_123", "title": "Text", "closable": true,
+		"componentData": []any{map[string]any{
+			"id": "301", "component": "SQText", "propValue": "Still visible", "style": map[string]any{},
+		}},
+	}
+	chartPage := map[string]any{
+		"name": "tab_456", "title": "Chart", "closable": true,
+		"componentData": []any{map[string]any{
+			"id": "302", "component": "SQView", "style": map[string]any{},
+		}},
+	}
+	tab := map[string]any{
+		"id": "300", "component": "SQTab", "activeTabName": "tab_456", "style": map[string]any{},
+		"propValue": []any{textPage, chartPage},
+	}
+	chartView, _ := json.Marshal(map[string]any{"302": map[string]any{
+		"sourceId":   string(record.Chat) + "_" + string(record.ID),
+		"datasource": record.Datasource, "chart": map[string]any{"type": "table", "title": "Owned"},
+	}})
+	input := func(name, id string, pages []any, active, views string) map[string]any {
+		tab["propValue"], tab["activeTabName"] = pages, active
+		components, err := json.Marshal([]any{tab})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return map[string]any{
+			"id": id, "name": name, "pid": "root", "node_type": "leaf", "type": "dashboard",
+			"component_data": string(components), "canvas_style_data": "{}", "canvas_view_info": views,
+		}
+	}
+	created := call("/api/v1/dashboard/create_canvas", input("Two tabs", "", []any{textPage, chartPage}, "tab_456", string(chartView)))
+	var envelope struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if created.Code != 200 || json.Unmarshal(created.Body.Bytes(), &envelope) != nil || !validDashboardID(envelope.Data.ID) {
+		t.Fatalf("create mixed tabs: %d %s", created.Code, created.Body.String())
+	}
+	boardID := envelope.Data.ID
+	loaded := call("/api/v1/dashboard/load_resource", map[string]any{"id": boardID})
+	if loaded.Code != 200 || !bytes.Contains(loaded.Body.Bytes(), []byte("302")) {
+		t.Fatalf("initial owned chart load: %d %s", loaded.Code, loaded.Body.String())
+	}
+	stale := call("/api/v1/dashboard/update_canvas", input("Two tabs", boardID, []any{textPage}, "tab_123", string(chartView)))
+	if stale.Code != 422 {
+		t.Fatalf("orphaned chart view accepted after page removal: %d %s", stale.Code, stale.Body.String())
+	}
+	updated := call("/api/v1/dashboard/update_canvas", input("Text only", boardID, []any{textPage}, "tab_123", "{}"))
+	if updated.Code != 200 {
+		t.Fatalf("remove chart tab: %d %s", updated.Code, updated.Body.String())
+	}
+	stored, err := service.Dashboard(t.Context(), principal, boardID, false)
+	if err != nil || len(stored.Cards) != 1 || len(stored.Cards[0].TabPages) != 1 || len(stored.Cards[0].TabPages[0].Cards) != 1 {
+		t.Fatalf("chart tab remains stored: %#v %v", stored, err)
+	}
+	revision, err := service.Store.get(t.Context(), bindingKey(principal, "10"), new(Binding))
+	if err != nil || service.Store.delete(t.Context(), bindingKey(principal, "10"), revision) != nil {
+		t.Fatal("could not revoke chart datasource")
+	}
+	before := gateway.queries
+	loaded = call("/api/v1/dashboard/load_resource", map[string]any{"id": boardID})
+	if loaded.Code != 200 || gateway.queries != before || !bytes.Contains(loaded.Body.Bytes(), []byte("Still visible")) ||
+		bytes.Contains(loaded.Body.Bytes(), []byte("Owned")) || bytes.Contains(loaded.Body.Bytes(), []byte(`\"302\"`)) {
+		t.Fatalf("removed chart leaked or queried after revocation: status=%d queries=%d body=%s", loaded.Code, gateway.queries-before, loaded.Body.String())
+	}
+}
+
 func TestLegacyDashboardChartUsesOwnedRecordAndFreshGatewayData(t *testing.T) {
 	ctx := context.Background()
 	service, principal, gateway, _, token := serviceFixture(t)
