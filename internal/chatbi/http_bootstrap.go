@@ -60,6 +60,10 @@ func (h *Handler) sqlbotDefaultModel(w http.ResponseWriter, r *http.Request, p P
 // placeholder in the compatibility response, never in the query history or
 // persisted AgentSQL record index. It has no SQL, data or execution authority.
 func sqlbotChatView(chat Chat) Chat {
+	if chat.Origin == 2 && chat.Datasource == "" && len(chat.Records) == 0 {
+		// The original assistant's source-less start has no placeholder turn.
+		return chat
+	}
 	if len(chat.Records) != 0 && chat.Records[0].FirstChat {
 		return chat
 	}

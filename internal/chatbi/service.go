@@ -381,6 +381,63 @@ func (service *Service) StartMCP(ctx context.Context, p Principal) (Chat, error)
 	return chat, nil
 }
 
+// StartEmbeddedUnbound accepts the original assistant's source-less start.
+// No schema or model is accessed until the first question selects and binds
+// one of this caller's currently allowed datasources.
+func (service *Service) StartEmbeddedUnbound(ctx context.Context, p Principal, question string) (Chat, error) {
+	if p.EmbeddedApp == "" || len(question) > 16000 {
+		return Chat{}, ErrUnauthenticated
+	}
+	if err := service.live(ctx, p); err != nil {
+		return Chat{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return Chat{}, err
+	}
+	brief := []rune(strings.TrimSpace(question))
+	if len(brief) > 64 {
+		brief = brief[:64]
+	}
+	if len(brief) == 0 {
+		brief = []rune("New conversation")
+	}
+	now := time.Now().UTC()
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now,
+		Brief: string(brief), Type: "chat", Origin: 2, EmbeddedApp: p.EmbeddedApp,
+		VisitorScope: p.VisitorScope, Records: []Record{}}
+	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
+		return Chat{}, err
+	}
+	return chat, nil
+}
+
+// BindEmbeddedSource closes the gap between source-less assistant creation and
+// the first question. A concurrent or revoked choice cannot overwrite a chat.
+func (service *Service) BindEmbeddedSource(ctx context.Context, p Principal, chatID, datasource ID) error {
+	chat, revision, err := service.chat(ctx, p, chatID)
+	if err != nil {
+		return err
+	}
+	if p.EmbeddedApp == "" || chat.Origin != 2 || chat.EmbeddedApp != p.EmbeddedApp ||
+		chat.Datasource != "" || len(chat.Records) != 0 || chat.LeaseUntil.After(time.Now()) {
+		return ErrConflict
+	}
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
+		return err
+	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
+		return err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return err
+	}
+	chat.Datasource, chat.DatasourceName, chat.DatasourceExists = datasource, binding.Name, true
+	chat.Engine, chat.DSType = binding.Dialect, binding.Dialect
+	return service.Store.put(ctx, chatKey(p, chatID), chat, revision)
+}
+
 // BindMCPSource uses the same authorization and schema gate as ordinary
 // conversations. A source cannot change after a question has been recorded.
 func (service *Service) BindMCPSource(ctx context.Context, p Principal, chatID, datasource ID) error {
@@ -477,7 +534,7 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 			continue
 		}
 		if chat.Datasource == "" {
-			if chat.Origin != 1 || len(chat.Records) != 0 {
+			if (chat.Origin != 1 && chat.Origin != 2) || len(chat.Records) != 0 {
 				return nil, ErrUnavailable
 			}
 		} else if removed[chat.Datasource] {
@@ -581,7 +638,7 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	if chat.Origin == 1 && chat.Datasource == "" && len(chat.Records) == 0 {
+	if (chat.Origin == 1 || chat.Origin == 2) && chat.Datasource == "" && len(chat.Records) == 0 {
 		if err := service.live(ctx, p); err != nil {
 			return Chat{}, err
 		}

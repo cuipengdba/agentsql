@@ -882,7 +882,13 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request, p Principal, tok
 		failure(w, ErrUnauthenticated)
 		return
 	}
-	chat, err := h.service.Start(r.Context(), p, input.Datasource, input.Question, input.Origin)
+	var chat Chat
+	var err error
+	if r.URL.Path == "/api/v1/chat/assistant/start" && input.Datasource == "" {
+		chat, err = h.service.StartEmbeddedUnbound(r.Context(), p, input.Question)
+	} else {
+		chat, err = h.service.Start(r.Context(), p, input.Datasource, input.Question, input.Origin)
+	}
 	if err != nil {
 		failure(w, err)
 		return
@@ -976,6 +982,40 @@ func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, 
 		writeJSON(w, 422, "Invalid model ID")
 		return
 	}
+	var selectedDatasource ID
+	var selectedDatasourceName string
+	var selectedDatasourceEngine string
+	var selectionModel ModelConfig
+	var selectionLease modelLease
+	if p.EmbeddedApp != "" {
+		chat, _, err := h.service.chat(r.Context(), p, input.Chat)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		if chat.Origin == 2 && chat.Datasource == "" && len(chat.Records) == 0 {
+			if strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 {
+				writeJSON(w, 422, "Invalid question")
+				return
+			}
+			selectedDatasource, selectionModel, selectionLease, err = h.service.selectEmbeddedSource(r.Context(), p, input.Question, selected)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			if err := h.service.BindEmbeddedSource(r.Context(), p, input.Chat, selectedDatasource); err != nil {
+				failure(w, err)
+				return
+			}
+			chat, _, err = h.service.chat(r.Context(), p, input.Chat)
+			if err != nil || chat.Datasource != selectedDatasource {
+				failure(w, ErrUnavailable)
+				return
+			}
+			selectedDatasourceName = chat.DatasourceName
+			selectedDatasourceEngine = chat.Engine
+		}
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		failure(w, ErrUnavailable)
@@ -1000,9 +1040,23 @@ func (h *Handler) question(w http.ResponseWriter, r *http.Request, p Principal, 
 		return nil
 	}
 	check := func(ctx context.Context) error {
+		if selectionModel.ID != "" {
+			if err := h.service.Store.modelLeaseUnchanged(ctx, p.Workspace, selectionModel, selectionLease); err != nil {
+				return err
+			}
+		}
 		return h.currentIdentity(ctx, p, token)
 	}
-	record, err := h.service.AskWithModel(r.Context(), p, input.Chat, input.Question, selected, check, func(id ID) error { return event(map[string]any{"type": "id", "id": id}) })
+	record, err := h.service.AskWithModel(r.Context(), p, input.Chat, input.Question, selected, check, func(id ID) error {
+		if err := event(map[string]any{"type": "id", "id": id}); err != nil {
+			return err
+		}
+		if selectedDatasource != "" {
+			return event(map[string]any{"type": "datasource", "id": selectedDatasource,
+				"datasource_name": selectedDatasourceName, "engine_type": selectedDatasourceEngine})
+		}
+		return nil
+	})
 	if err != nil {
 		if !started {
 			failure(w, err)
