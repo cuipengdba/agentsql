@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -29,6 +30,94 @@ func (model *recordingPinnedEmbedding) Encode(ctx context.Context, texts []strin
 
 func (model *recordingPinnedEmbedding) persistentEmbeddingIdentity() string {
 	return model.LocalEmbeddingModel.persistentEmbeddingIdentity()
+}
+
+type sharedPinnedEmbedding struct {
+	*LocalEmbeddingModel
+	queryDone  chan struct{}
+	started    chan struct{}
+	release    chan struct{}
+	tableCalls atomic.Int32
+}
+
+func (model *sharedPinnedEmbedding) persistentEmbeddingIdentity() string {
+	return model.LocalEmbeddingModel.persistentEmbeddingIdentity()
+}
+
+func (model *sharedPinnedEmbedding) Encode(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 1 {
+		vectors, err := model.LocalEmbeddingModel.Encode(ctx, texts)
+		model.queryDone <- struct{}{}
+		return vectors, err
+	}
+	if model.tableCalls.Add(1) == 1 {
+		close(model.started)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-model.release:
+		}
+	}
+	return model.LocalEmbeddingModel.Encode(ctx, texts)
+}
+
+func TestLocalEmbeddingModelSharesConcurrentAuthorizedTableBuild(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	local, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	model := &sharedPinnedEmbedding{LocalEmbeddingModel: local, queryDone: make(chan struct{}, 2),
+		started: make(chan struct{}), release: make(chan struct{})}
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := make([]Column, 32)
+	for index := range columns {
+		columns[index] = Column{Schema: "public", Table: fmt.Sprintf("orders_%02d", index),
+			Name: "revenue_amount", DataType: "numeric"}
+	}
+	columns[17] = Column{Schema: "public", Table: "weather", Name: "forecast_temperature", DataType: "text"}
+	results := make(chan error, 2)
+	ask := func() {
+		selected, _, err := selectModelTablesIndexed(context.Background(), store, p, "10", model,
+			"weather forecast", columns, nil, 1, 1, false)
+		if err == nil && (len(selected) != 1 || selected[0].Table != "weather") {
+			err = ErrUnavailable
+		}
+		results <- err
+	}
+	go ask()
+	select {
+	case <-model.started:
+	case <-time.After(30 * time.Second):
+		t.Fatal("first real-model table build did not start")
+	}
+	go ask()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-model.queryDone:
+		case <-time.After(30 * time.Second):
+			t.Fatal("real-model vector question did not complete")
+		}
+	}
+	close(model.release)
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(90 * time.Second):
+			t.Fatal("concurrent real-model table build did not finish")
+		}
+	}
+	if calls := model.tableCalls.Load(); calls != 1 {
+		t.Fatalf("real-model concurrent builds inferred the same table batch %d times", calls)
+	}
 }
 
 // The real ONNX model is intentionally loaded twice so its process-local cache
