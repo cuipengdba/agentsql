@@ -32,13 +32,25 @@ func selectModelTables(ctx context.Context, model EmbeddingModel, question strin
 func selectModelTablesIndexed(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
 	question string, columns []Column, remarks []RemarkHint, limit int, alpha float64,
 	keywordEnabled bool) ([]Column, []RemarkHint, error) {
-	return selectModelTablesWithVectors(ctx, model, question, columns, remarks, limit, alpha, keywordEnabled,
+	return selectModelTablesIndexedWithKeywords(ctx, store, p, datasource, model, question, question, columns, remarks, limit, alpha, keywordEnabled)
+}
+
+func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
+	question, keywords string, columns []Column, remarks []RemarkHint, limit int, alpha float64,
+	keywordEnabled bool) ([]Column, []RemarkHint, error) {
+	return selectModelTablesWithKeywords(ctx, model, question, keywords, columns, remarks, limit, alpha, keywordEnabled,
 		func(ctx context.Context, tables []modelTableCandidate) ([][]float32, error) {
 			return store.indexedTableVectors(ctx, p, datasource, model, tables)
 		})
 }
 
 func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, question string, columns []Column,
+	remarks []RemarkHint, limit int, alpha float64, keywordEnabled bool,
+	indexed func(context.Context, []modelTableCandidate) ([][]float32, error)) ([]Column, []RemarkHint, error) {
+	return selectModelTablesWithKeywords(ctx, model, question, question, columns, remarks, limit, alpha, keywordEnabled, indexed)
+}
+
+func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, question, keywords string, columns []Column,
 	remarks []RemarkHint, limit int, alpha float64, keywordEnabled bool,
 	indexed func(context.Context, []modelTableCandidate) ([][]float32, error)) ([]Column, []RemarkHint, error) {
 	if model == nil || limit < 1 || len(question) > 4096 {
@@ -106,7 +118,11 @@ func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, que
 			return columns, remarks, nil
 		}
 	}
-	query, err := model.Encode(ctx, []string{question})
+	vectorQuery := question
+	if keywordEnabled && keywords != "" {
+		vectorQuery = keywords
+	}
+	query, err := model.Encode(ctx, []string{vectorQuery})
 	if err != nil || len(query) != 1 || len(query[0]) != 768 {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
@@ -152,7 +168,7 @@ func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, que
 		table := &tables[index]
 		table.explicit = explicit[table.key]
 		if keywordEnabled {
-			table.keyword = scoreTableKeywords(question, *table, fieldComments[table.key])
+			table.keyword = scoreTableKeywords(vectorQuery, *table, fieldComments[table.key])
 		}
 	}
 	rankModelTables(tables, alpha, keywordEnabled)

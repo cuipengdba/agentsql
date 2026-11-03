@@ -858,8 +858,40 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err != nil {
 			return err
 		}
+		semanticQuery := question
 		if settings.Embedding.TableEnabled {
-			columns, remarks, err = selectModelTablesIndexed(ctx, service.Store, p, chat.Datasource, service.Embedding, question, columns, remarks,
+			keywords := question
+			if settings.Embedding.KeywordEnabled && service.Embedding != nil {
+				if extractor, ok := service.Model.(TableKeywordExtractor); ok {
+					extracted, extractErr := extractor.ExtractTableKeywords(ctx, model, question, history)
+					if extractErr != nil {
+						return extractErr
+					}
+					if err := check(ctx); err != nil {
+						return err
+					}
+					if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+						return err
+					}
+					if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+						return err
+					}
+					if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
+						return err
+					}
+					if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+						return err
+					}
+					if extracted != "" {
+						semanticQuery = extracted
+						keywords, err = service.expandTableKeywords(ctx, p, chat.Datasource, extracted)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+			columns, remarks, err = selectModelTablesIndexedWithKeywords(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
 				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled)
 			if err != nil {
 				return err
@@ -872,7 +904,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err := check(ctx); err != nil {
 			return err
 		}
-		hints, err := service.Vocabulary(ctx, p, chat.Datasource, question)
+		hints, err := service.Vocabulary(ctx, p, chat.Datasource, semanticQuery)
 		if err != nil {
 			return err
 		}
