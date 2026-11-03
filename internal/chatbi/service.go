@@ -548,7 +548,12 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 			if err != nil {
 				return nil, err
 			}
-			if _, err := service.schema(ctx, p, binding); err != nil {
+			if _, err := service.schema(ctx, p, binding); errors.Is(err, ErrGateway) {
+				// An old conversation can outlive its gateway authorization.
+				// Hide that source's history without blocking other usable chats.
+				removed[chat.Datasource] = true
+				continue
+			} else if err != nil {
 				return nil, err
 			}
 			checked[chat.Datasource] = listedSource{binding, revision, digest}

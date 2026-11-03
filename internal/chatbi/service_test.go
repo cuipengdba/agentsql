@@ -15,6 +15,7 @@ import (
 // acceptance evidence. Release acceptance separately uses real services.
 type fakeGateway struct {
 	schemaErr, queryErr error
+	schemaErrFor        map[ID]error
 	columns             []Column
 	schemaCalls         int
 	queries             int
@@ -25,13 +26,16 @@ type fakeGateway struct {
 	afterSchema         func()
 }
 
-func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, error) {
+func (g *fakeGateway) Schema(_ context.Context, _ Principal, binding Binding) ([]Column, error) {
 	g.schemaCalls++
 	if g.afterSchema != nil {
 		g.afterSchema()
 	}
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
+	}
+	if err := g.schemaErrFor[binding.Datasource]; err != nil {
+		return nil, err
 	}
 	if g.columns != nil {
 		return g.columns, nil
@@ -223,6 +227,39 @@ func serviceFixture(t *testing.T) (*Service, Principal, *fakeGateway, *fakeModel
 	g := &fakeGateway{audit: 1}
 	m := &fakeModel{}
 	return &Service{Store: store, Identity: identity, Gateway: g, Model: m}, p, g, m, token
+}
+
+func TestChatsHideStaleGatewaySourceAndKeepCurrentHistory(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, _ := serviceFixture(t)
+	oldChat, err := service.Start(ctx, principal, "10", "old question", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.binding(ctx, principal, "10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Datasource, other.BindingID, other.Name = "11", "current-binding", "current"
+	if err := service.Store.put(ctx, bindingKey(principal, "11"), other, 0); err != nil {
+		t.Fatal(err)
+	}
+	currentChat, err := service.Start(ctx, principal, "11", "current question", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.schemaErrFor = map[ID]error{"10": ErrGateway}
+	listed, err := service.Chats(ctx, principal)
+	if err != nil || len(listed) != 1 || listed[0].ID != currentChat.ID || listed[0].ID == oldChat.ID {
+		t.Fatalf("stale gateway source blocked or leaked current history: %#v %v", listed, err)
+	}
+	if _, err := service.ReadChat(ctx, principal, oldChat.ID, false); !errors.Is(err, ErrGateway) {
+		t.Fatalf("stale chat was still readable: %v", err)
+	}
+	gateway.schemaErrFor["11"] = ErrInvalidDataPermission
+	if _, err := service.Chats(ctx, principal); !errors.Is(err, ErrInvalidDataPermission) {
+		t.Fatalf("malformed permission was silently omitted: %v", err)
+	}
 }
 
 func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
