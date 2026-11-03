@@ -9,10 +9,11 @@ import (
 )
 
 type embeddedSourceCandidate struct {
-	entry    assistantCatalogEntry
-	binding  Binding
-	revision int64
-	digest   [32]byte
+	entry              assistantCatalogEntry
+	binding            Binding
+	revision           int64
+	digest             [32]byte
+	permissionSnapshot []DataPermissionRule
 }
 
 // selectEmbeddedSource sends only current, gateway-visible sources to the
@@ -59,7 +60,7 @@ func (service *Service) selectEmbeddedSource(ctx context.Context, p Principal, q
 		if err != nil {
 			return "", ModelConfig{}, modelLease{}, err
 		}
-		columns, err := service.schema(ctx, p, current)
+		columns, permissionSnapshot, err := service.schemaWithPermissionSnapshot(ctx, p, current)
 		if err != nil {
 			return "", ModelConfig{}, modelLease{}, err
 		}
@@ -70,7 +71,7 @@ func (service *Service) selectEmbeddedSource(ctx context.Context, p Principal, q
 		candidates = append(candidates, embeddedSourceCandidate{
 			entry: assistantCatalogEntry{CatalogID: b.Datasource, Datasource: b.Datasource, Name: current.Name,
 				selectionText: selectionText, selectionIncomplete: !complete},
-			binding: current, revision: revision, digest: digest,
+			binding: current, revision: revision, digest: digest, permissionSnapshot: permissionSnapshot,
 		})
 		if len(candidates) > 32 {
 			return "", ModelConfig{}, modelLease{}, ErrUnavailable
@@ -133,6 +134,9 @@ func (service *Service) selectEmbeddedSource(ctx context.Context, p Principal, q
 	// inference prevents any generated choice from reaching a query.
 	for _, candidate := range candidates {
 		if err := service.bindingUnchanged(ctx, p, candidate.binding, candidate.revision, candidate.digest); err != nil {
+			return "", ModelConfig{}, modelLease{}, err
+		}
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, candidate.permissionSnapshot); err != nil {
 			return "", ModelConfig{}, modelLease{}, err
 		}
 	}

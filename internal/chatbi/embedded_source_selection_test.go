@@ -177,3 +177,31 @@ func TestEmbeddedUnboundModelChoiceCannotEscapeOrOutliveCandidates(t *testing.T)
 	require.Error(t, err)
 	require.ErrorIs(t, service.BindEmbeddedSource(ctx, embedded, chat.ID, "11"), ErrNotFound)
 }
+
+func TestEmbeddedSourceSelectionRejectsPermissionChangeDuringEmbedding(t *testing.T) {
+	ctx := context.Background()
+	service, admin, embedded, app := embeddedSelectionFixture(t)
+	adminSource, err := service.binding(ctx, admin, "10")
+	require.NoError(t, err)
+	adminSource.Datasource, adminSource.Name, adminSource.BindingID = "11", "inventory", "inventory-admin-binding"
+	require.NoError(t, service.Store.put(ctx, bindingKey(admin, "11"), adminSource, 0))
+	guestSource, err := service.binding(ctx, embedded, "10")
+	require.NoError(t, err)
+	guestSource.Datasource, guestSource.Name, guestSource.BindingID = "11", "inventory", "inventory-guest-binding"
+	require.NoError(t, service.Store.put(ctx, bindingKey(embedded, "11"), guestSource, 0))
+	app.DatasourceIDs = []ID{"10", "11"}
+	app, err = service.SaveAssistant(ctx, admin, app)
+	require.NoError(t, err)
+	embedded.EmbeddedRevision = app.Revision
+	require.NoError(t, service.Store.UpdateChatSettings(ctx, admin,
+		map[string]string{"embedding.datasource_count": "1"}))
+	var changeErr error
+	service.Embedding = &catalogChangingEmbedding{change: func() {
+		rule := testActiveRowPermission(t, "east")
+		rule.Users = []int64{2}
+		changeErr = service.Store.put(ctx, permissionRuleKey(embedded.Workspace, rule.ID), rule, 0)
+	}}
+	_, _, _, err = service.selectEmbeddedSource(ctx, embedded, "show inventory", nil)
+	require.NoError(t, changeErr)
+	require.ErrorIs(t, err, ErrGateway)
+}
