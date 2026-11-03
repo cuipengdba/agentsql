@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 )
 
 type embeddedSourceCandidate struct {
@@ -58,11 +59,17 @@ func (service *Service) selectEmbeddedSource(ctx context.Context, p Principal, q
 		if err != nil {
 			return "", ModelConfig{}, modelLease{}, err
 		}
-		if _, err := service.schema(ctx, p, current); err != nil {
+		columns, err := service.schema(ctx, p, current)
+		if err != nil {
+			return "", ModelConfig{}, modelLease{}, err
+		}
+		selectionText, complete, err := embeddedSourceSelectionText(current, columns)
+		if err != nil {
 			return "", ModelConfig{}, modelLease{}, err
 		}
 		candidates = append(candidates, embeddedSourceCandidate{
-			entry:   assistantCatalogEntry{CatalogID: b.Datasource, Datasource: b.Datasource, Name: current.Name},
+			entry: assistantCatalogEntry{CatalogID: b.Datasource, Datasource: b.Datasource, Name: current.Name,
+				selectionText: selectionText, selectionIncomplete: !complete},
 			binding: current, revision: revision, digest: digest,
 		})
 		if len(candidates) > 32 {
@@ -130,4 +137,52 @@ func (service *Service) selectEmbeddedSource(ctx context.Context, p Principal, q
 		}
 	}
 	return selected, model, lease, nil
+}
+
+// Match the original datasource vector's use of description and table/field
+// content, while excluding every object absent from this request's current
+// authorization-filtered schema. An oversized source keeps the full candidate
+// set for model choice instead of ranking from a misleading partial vector.
+func embeddedSourceSelectionText(binding Binding, columns []Column) (string, bool, error) {
+	tableRemarks, err := databaseRemarkHints(binding, columns)
+	if err != nil {
+		return "", false, err
+	}
+	fileRemarks, err := managedFileRemarkHints(binding, columns)
+	if err != nil {
+		return "", false, err
+	}
+	ordered := append([]Column(nil), columns...)
+	sort.Slice(ordered, func(i, j int) bool {
+		a, b := ordered[i], ordered[j]
+		if a.Schema != b.Schema {
+			return a.Schema < b.Schema
+		}
+		if a.Table != b.Table {
+			return a.Table < b.Table
+		}
+		return a.Name < b.Name
+	})
+	var content strings.Builder
+	appendBounded := func(line string) bool {
+		if content.Len()+len(line) > 32<<10 {
+			return false
+		}
+		content.WriteString(line)
+		return true
+	}
+	if !appendBounded(binding.Name + ", " + binding.Description + "\n") {
+		return "", false, nil
+	}
+	for _, column := range ordered {
+		if !appendBounded(column.Schema + "." + column.Table + " (" + column.Name + ":" + column.DataType + ")\n") {
+			return "", false, nil
+		}
+	}
+	for _, hint := range append(tableRemarks, fileRemarks...) {
+		if !appendBounded(hint.Schema + "." + hint.Table + "." + hint.Column + ": " + hint.Remark + "\n") {
+			return "", false, nil
+		}
+	}
+	return content.String(), true, nil
 }

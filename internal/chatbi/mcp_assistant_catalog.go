@@ -24,6 +24,10 @@ type assistantCatalogEntry struct {
 	CatalogID  ID
 	Datasource ID
 	Name       string
+	// selectionText is built from current, gateway-visible metadata for local
+	// embedded applications. External catalog entries use their public name.
+	selectionText       string
+	selectionIncomplete bool
 }
 
 type assistantCatalogLookup func(context.Context, string) ([]net.IPAddr, error)

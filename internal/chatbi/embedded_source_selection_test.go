@@ -39,6 +39,24 @@ func embeddedSelectionFixture(t *testing.T) (*Service, Principal, Principal, Ass
 	return service, admin, p, app
 }
 
+func TestEmbeddedSourceSelectionTextExcludesInvisibleRemarksAndColumns(t *testing.T) {
+	binding := Binding{Type: "pg", Dialect: "pg", Name: "opaque", Description: "retail",
+		TableComments: `{"public\u0000sales":"Visible revenue","public\u0000secret":"Hidden project"}`,
+		FieldComments: `{"public\u0000sales\u0000amount":"Visible amount","public\u0000sales\u0000password":"Hidden credential"}`}
+	text, complete, err := embeddedSourceSelectionText(binding, []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "integer"},
+		{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+	})
+	require.NoError(t, err)
+	require.True(t, complete)
+	require.Contains(t, text, "Visible revenue")
+	require.Contains(t, text, "Visible amount")
+	require.Contains(t, text, "sales (amount:integer)")
+	require.NotContains(t, text, "Hidden project")
+	require.NotContains(t, text, "Hidden credential")
+	require.NotContains(t, text, "password")
+}
+
 func TestEmbeddedUnboundHTTPQuestionSelectsCurrentSource(t *testing.T) {
 	service, _, embedded, app := embeddedSelectionFixture(t)
 	handler, err := NewHandler(service, "test")

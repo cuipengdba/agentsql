@@ -55,3 +55,19 @@ func TestAssistantCatalogPreselectionRanksOnlyRegisteredEntries(t *testing.T) {
 		t.Fatalf("candidate count above set size removed choices: %#v %v", chosen, err)
 	}
 }
+
+func TestEmbeddedDatasourcePreselectionUsesVisibleContentAndFallsBackWhenIncomplete(t *testing.T) {
+	entries := []assistantCatalogEntry{
+		{CatalogID: "81", Datasource: "10", Name: "Opaque A", selectionText: "public.orders (amount:int)"},
+		{CatalogID: "82", Datasource: "11", Name: "Opaque B", selectionText: "public.weather (forecast:text)"},
+	}
+	chosen, err := selectAssistantCatalogSources(context.Background(), catalogFixtureEmbedding{}, "weather forecast", entries, 1)
+	if err != nil || len(chosen) != 1 || chosen[0].CatalogID != "82" {
+		t.Fatalf("visible content did not select source: %#v %v", chosen, err)
+	}
+	entries[1].selectionIncomplete = true
+	chosen, err = selectAssistantCatalogSources(context.Background(), catalogFixtureEmbedding{}, "weather forecast", entries, 1)
+	if err != nil || len(chosen) != len(entries) {
+		t.Fatalf("incomplete source content narrowed choices: %#v %v", chosen, err)
+	}
+}

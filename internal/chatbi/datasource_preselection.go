@@ -27,7 +27,13 @@ func selectAssistantCatalogSources(ctx context.Context, model EmbeddingModel, qu
 	}
 	names := make([]string, len(entries))
 	for index, entry := range entries {
+		if entry.selectionIncomplete {
+			return entries, nil
+		}
 		names[index] = entry.Name
+		if entry.selectionText != "" {
+			names[index] = entry.selectionText
+		}
 	}
 	vectors, err := model.Encode(ctx, names)
 	if err != nil || len(vectors) != len(entries) {
