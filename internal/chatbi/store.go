@@ -334,6 +334,43 @@ func (s *Store) put(ctx context.Context, key objectKey, value any, revision int6
 	return nil
 }
 
+type vectorIndexWrite struct {
+	Key         objectKey
+	Revision    int64
+	Fingerprint string
+	Vector      []float32
+}
+
+// Keep SQL-capable index writes inside Store's audited storage boundary.
+// A transaction prevents a partially refreshed table-vector candidate set.
+func (s *Store) putVectorBatch(ctx context.Context, writes []vectorIndexWrite) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer tx.Rollback()
+	for _, write := range writes {
+		body, err := s.seal(write.Key, indexedVectorRecord{Fingerprint: write.Fingerprint, Vector: write.Vector})
+		if err != nil || write.Revision < 0 {
+			return ErrUnavailable
+		}
+		if write.Revision == 0 {
+			_, err = tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
+				write.Key.Kind, write.Key.Scope, write.Key.Owner, write.Key.ID, body)
+		} else {
+			_, err = tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
+				body, write.Key.Kind, write.Key.Scope, write.Key.Owner, write.Key.ID, write.Revision)
+		}
+		if err != nil {
+			return ErrUnavailable
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ErrUnavailable
+	}
+	return nil
+}
+
 func (s *Store) list(ctx context.Context, kind, scope, owner string) ([]json.RawMessage, error) {
 	if !(objectKey{kind, scope, owner, "list"}).valid() {
 		return nil, ErrNotFound

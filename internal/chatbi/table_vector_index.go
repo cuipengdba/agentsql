@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 )
@@ -103,30 +102,13 @@ func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource
 	if err != nil {
 		return nil, err
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return nil, ErrUnavailable
-	}
-	defer tx.Rollback()
+	writes := make([]vectorIndexWrite, 0, len(missing))
 	for offset, index := range missing {
 		result[index] = vectors[offset]
-		body, err := s.seal(keys[index], indexedVectorRecord{Fingerprint: fingerprints[index], Vector: vectors[offset]})
-		if err != nil {
-			return nil, ErrUnavailable
-		}
-		if revisions[index] == 0 {
-			_, err = tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
-				keys[index].Kind, keys[index].Scope, keys[index].Owner, keys[index].ID, body)
-		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE chatbi_objects SET revision=revision+1,body=? WHERE kind=? AND scope=? AND owner=? AND id=? AND revision=?`,
-				body, keys[index].Kind, keys[index].Scope, keys[index].Owner, keys[index].ID, revisions[index])
-		}
-		if err != nil {
-			return nil, ErrUnavailable
-		}
+		writes = append(writes, vectorIndexWrite{keys[index], revisions[index], fingerprints[index], vectors[offset]})
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, ErrUnavailable
+	if err := s.putVectorBatch(ctx, writes); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
