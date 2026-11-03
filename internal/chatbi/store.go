@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/singleflight"
 	_ "modernc.org/sqlite"
 )
 
@@ -31,9 +32,10 @@ var (
 // Store persists encrypted documents. Scope and owner are part of both the
 // lookup key and AEAD additional data: moving ciphertext cannot change access.
 type Store struct {
-	db       *sql.DB
-	aead     cipher.AEAD
-	indexKey []byte
+	db                 *sql.DB
+	aead               cipher.AEAD
+	indexKey           []byte
+	tableVectorFlights singleflight.Group
 }
 
 type objectKey struct{ Kind, Scope, Owner, ID string }

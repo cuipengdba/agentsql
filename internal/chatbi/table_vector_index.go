@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 )
 
@@ -65,6 +66,51 @@ func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource
 		!p.Workspace.Valid() || !p.User.ID.Valid() || !datasource.Valid() {
 		return encodeTableVectors(ctx, model, tables)
 	}
+	key, err := s.tableVectorFlightKey(p, datasource, identity.persistentEmbeddingIdentity(), tables)
+	if err != nil {
+		return nil, err
+	}
+	flight := s.tableVectorFlights.DoChan(key, func() (any, error) {
+		return s.indexedTableVectorsUnshared(ctx, p, datasource, model, tables, identity.persistentEmbeddingIdentity())
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-flight:
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		vectors, ok := result.Val.([][]float32)
+		if !ok || len(vectors) != len(tables) {
+			return nil, ErrUnavailable
+		}
+		return vectors, nil
+	}
+}
+
+// The flight key binds the current caller and the ordered authorized schema.
+// Its HMAC does not expose schema text in the process's shared-flight map.
+func (s *Store) tableVectorFlightKey(p Principal, datasource ID, modelIdentity string,
+	tables []modelTableCandidate) (string, error) {
+	mac := hmac.New(sha256.New, s.indexKey)
+	_, _ = mac.Write([]byte("agentsql:chatbi:table-vector-flight:v1\x00"))
+	input := struct {
+		Workspace, User, EmbeddedApp, VisitorScope, Datasource, Model string
+		Tables                                                        []struct{ Key, Text string }
+	}{Workspace: string(p.Workspace), User: string(p.User.ID), EmbeddedApp: string(p.EmbeddedApp),
+		VisitorScope: p.VisitorScope, Datasource: string(datasource), Model: modelIdentity}
+	input.Tables = make([]struct{ Key, Text string }, len(tables))
+	for index, table := range tables {
+		input.Tables[index].Key, input.Tables[index].Text = table.key, table.text
+	}
+	if err := json.NewEncoder(mac).Encode(input); err != nil {
+		return "", ErrUnavailable
+	}
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func (s *Store) indexedTableVectorsUnshared(ctx context.Context, p Principal, datasource ID,
+	model EmbeddingModel, tables []modelTableCandidate, modelIdentity string) ([][]float32, error) {
 	result := make([][]float32, len(tables))
 	keys := make([]objectKey, len(tables))
 	fingerprints := make([]string, len(tables))
@@ -75,7 +121,7 @@ func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource
 			return nil, err
 		}
 		keys[index] = s.tableVectorKey(p, datasource, table)
-		fingerprints[index] = s.tableVectorFingerprint(identity.persistentEmbeddingIdentity(), table.text)
+		fingerprints[index] = s.tableVectorFingerprint(modelIdentity, table.text)
 		var saved indexedVectorRecord
 		revision, err := s.get(ctx, keys[index], &saved)
 		if err != nil && !errors.Is(err, ErrNotFound) {

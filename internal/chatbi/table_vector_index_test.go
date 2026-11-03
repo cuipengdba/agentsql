@@ -6,13 +6,135 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type indexedTableFixture struct {
 	identity string
 	calls    [][]string
 	change   func()
+}
+
+type blockedTableIndexFixture struct {
+	started    chan struct{}
+	release    chan struct{}
+	queryCalls atomic.Int32
+	tableCalls atomic.Int32
+}
+
+func (*blockedTableIndexFixture) persistentEmbeddingIdentity() string { return "fixed-concurrent-v1" }
+
+func (model *blockedTableIndexFixture) Encode(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 1 {
+		model.queryCalls.Add(1)
+	} else if model.tableCalls.Add(1) == 1 {
+		close(model.started)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-model.release:
+		}
+	}
+	return tableFixtureEmbedding{}.Encode(ctx, texts)
+}
+
+func TestConcurrentAuthorizedTableIndexBuildIsSharedAndCancellable(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	selectTables := func(ctx context.Context) error {
+		selected, _, err := selectModelTablesIndexed(ctx, store, p, "10", model,
+			"weather forecast", columns, nil, 1, 1, false)
+		if err == nil && (len(selected) != 1 || selected[0].Table != "weather") {
+			return ErrUnavailable
+		}
+		return err
+	}
+	first := make(chan error, 1)
+	go func() { first <- selectTables(ctx) }()
+	select {
+	case <-model.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first authorized table build did not start")
+	}
+	secondCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	if err := selectTables(secondCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiting request did not cancel promptly: %v", err)
+	}
+	third := make(chan error, 1)
+	go func() { third <- selectTables(ctx) }()
+	deadline := time.After(5 * time.Second)
+	for model.queryCalls.Load() < 3 {
+		select {
+		case <-deadline:
+			t.Fatal("concurrent authorized requests did not reach vector query")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	select {
+	case err := <-third:
+		t.Fatalf("concurrent build completed before the first index was ready: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(model.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-third; err != nil {
+		t.Fatal(err)
+	}
+	if calls := model.tableCalls.Load(); calls != 1 {
+		t.Fatalf("concurrent requests rebuilt the same authorized index %d times", calls)
+	}
+}
+
+func TestInFlightTableIndexDoesNotShareChangedAuthorizedColumns(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	first := make(chan error, 1)
+	go func() {
+		_, _, err := selectModelTablesIndexed(ctx, store, p, "10", model,
+			"weather forecast", columns, nil, 1, 1, false)
+		first <- err
+	}()
+	select {
+	case <-model.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first index build did not start")
+	}
+	changed := append([]Column(nil), columns...)
+	changed[1].Name = "temperature"
+	second := make(chan error, 1)
+	go func() {
+		_, _, err := selectModelTablesIndexed(ctx, store, p, "10", model,
+			"weather forecast", changed, nil, 1, 1, false)
+		second <- err
+	}()
+	select {
+	case err := <-second:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("changed authorized schema waited for the prior in-flight index")
+	}
+	close(model.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if calls := model.tableCalls.Load(); calls != 2 {
+		t.Fatalf("changed authorized schema shared old table inference: %d calls", calls)
+	}
 }
 
 func (model *indexedTableFixture) persistentEmbeddingIdentity() string { return model.identity }

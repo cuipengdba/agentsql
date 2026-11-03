@@ -15,12 +15,16 @@ import (
 
 type recordingPinnedEmbedding struct {
 	*LocalEmbeddingModel
-	calls []int
+	calls     []int
+	durations []time.Duration
 }
 
 func (model *recordingPinnedEmbedding) Encode(ctx context.Context, texts []string) ([][]float32, error) {
 	model.calls = append(model.calls, len(texts))
-	return model.LocalEmbeddingModel.Encode(ctx, texts)
+	start := time.Now()
+	vectors, err := model.LocalEmbeddingModel.Encode(ctx, texts)
+	model.durations = append(model.durations, time.Since(start))
+	return vectors, err
 }
 
 func (model *recordingPinnedEmbedding) persistentEmbeddingIdentity() string {
@@ -136,7 +140,8 @@ func TestLocalEmbeddingModelPersistentTableIndexAfterModelRestart(t *testing.T) 
 		len(warm.calls) != 1 || warm.calls[0] != 1 {
 		t.Fatalf("model restart recomputed table vectors: selected=%v calls=%v err=%v", warmSelected, warm.calls, err)
 	}
-	t.Logf("%d authorized tables: cold=%s warm-after-model-restart=%s", count, coldElapsed, warmElapsed)
+	t.Logf("%d authorized tables: cold=%s warm-after-model-restart=%s; cold-inference=%v warm-inference=%v",
+		count, coldElapsed, warmElapsed, cold.durations, warm.durations)
 }
 
 // Run locally with the pinned model asset; CI has no model weights.
