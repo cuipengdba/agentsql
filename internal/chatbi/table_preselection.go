@@ -152,36 +152,10 @@ func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, que
 		table := &tables[index]
 		table.explicit = explicit[table.key]
 		if keywordEnabled {
-			if table.explicit {
-				table.keyword = 1
-				if !mentionedIdentifier(question, table.name) && table.comment != "" &&
-					strings.Contains(strings.ToLower(question), strings.ToLower(table.comment)) {
-					table.keyword = 0.9
-				}
-			} else {
-				for _, remark := range remarks {
-					if remark.Schema+"\x00"+remark.Table == table.key && remark.Remark != "" &&
-						strings.Contains(strings.ToLower(question), strings.ToLower(remark.Remark)) {
-						table.keyword = max(table.keyword, 0.7)
-					}
-				}
-			}
+			table.keyword = scoreTableKeywords(question, *table, fieldComments[table.key])
 		}
 	}
-	sort.SliceStable(tables, func(i, j int) bool {
-		if tables[i].explicit != tables[j].explicit {
-			return tables[i].explicit
-		}
-		left, right := tables[i].vector, tables[j].vector
-		if keywordEnabled {
-			left = alpha*left + (1-alpha)*tables[i].keyword
-			right = alpha*right + (1-alpha)*tables[j].keyword
-		}
-		if left == right {
-			return tables[i].index < tables[j].index
-		}
-		return left > right
-	})
+	rankModelTables(tables, alpha, keywordEnabled)
 	selected := make(map[string]bool)
 	for _, table := range tables {
 		if len(selected) < limit || table.explicit {
@@ -201,6 +175,26 @@ func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, que
 		}
 	}
 	return filteredColumns, filteredRemarks, nil
+}
+
+func rankModelTables(tables []modelTableCandidate, alpha float64, keywordEnabled bool) {
+	sort.SliceStable(tables, func(i, j int) bool {
+		if keywordEnabled && (tables[i].keyword == 1) != (tables[j].keyword == 1) {
+			return tables[i].keyword == 1
+		}
+		if tables[i].explicit != tables[j].explicit {
+			return tables[i].explicit
+		}
+		left, right := tables[i].vector, tables[j].vector
+		if keywordEnabled {
+			left = alpha*left + (1-alpha)*tables[i].keyword
+			right = alpha*right + (1-alpha)*tables[j].keyword
+		}
+		if left == right {
+			return tables[i].index < tables[j].index
+		}
+		return left > right
+	})
 }
 
 func scoreTableVector(table *modelTableCandidate, vector, query []float32) bool {
