@@ -2,11 +2,64 @@ package chatbi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type scopedHistoryGateway struct {
+	*fakeGateway
+	denied ID
+	outage ID
+}
+
+func (gateway *scopedHistoryGateway) Schema(ctx context.Context, principal Principal, binding Binding) ([]Column, error) {
+	if binding.Datasource == gateway.denied {
+		return nil, ErrGatewaySourceDenied
+	}
+	if binding.Datasource == gateway.outage {
+		return nil, ErrGateway
+	}
+	return gateway.fakeGateway.Schema(ctx, principal, binding)
+}
+
+func TestChatListHidesOnlyRevokedGatewaySource(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	other := binding
+	other.Datasource, other.Name = "11", "still authorized"
+	require.NoError(t, service.Store.put(ctx, bindingKey(principal, other.Datasource), other, 0))
+	deniedChat, err := service.Start(ctx, principal, "10", "revoked source", 0)
+	require.NoError(t, err)
+	_, err = service.Start(ctx, principal, "11", "live source", 0)
+	require.NoError(t, err)
+	scoped := &scopedHistoryGateway{fakeGateway: gateway, denied: "10"}
+	service.Gateway = scoped
+	chats, err := service.Chats(ctx, principal)
+	require.NoError(t, err)
+	require.Len(t, chats, 1)
+	require.Equal(t, "live source", chats[0].Brief)
+	require.Empty(t, chats[0].Records)
+	_, err = service.ReadChat(ctx, principal, deniedChat.ID, false)
+	require.Error(t, err, "revoked source must not be readable directly")
+	require.Zero(t, gateway.queries)
+
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	response := accountRequest(t, handler, http.MethodGet, "/api/v1/chat/list", "", token)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.NotContains(t, response.Body.String(), "revoked source")
+	require.Contains(t, response.Body.String(), "live source")
+
+	scoped.outage = "11"
+	_, err = service.Chats(ctx, principal)
+	require.True(t, errors.Is(err, ErrGateway), "gateway outage for a live source must fail closed: %v", err)
+	require.NotEqual(t, http.StatusOK, accountRequest(t, handler, http.MethodGet, "/api/v1/chat/list", "", token).Code)
+}
 
 func TestDatabaseDatasourceDeleteRemovesOnlyOwnerAliasAfterAudit(t *testing.T) {
 	ctx := context.Background()

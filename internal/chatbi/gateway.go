@@ -16,6 +16,7 @@ import (
 )
 
 var ErrGateway = errors.New("controlled gateway rejected or could not complete this operation")
+var ErrGatewaySourceDenied = errors.Join(ErrGateway, errors.New("datasource mapping is not authorized"))
 
 // Binding is server-owned and encrypted at rest. External datasource IDs are
 // never accepted as gateway datasource IDs, and browser requests never set keys.
@@ -105,6 +106,9 @@ func (gateway *ControlledGateway) resolve(ctx context.Context, p Principal, b Bi
 		return resolvedBinding{}, ErrGateway
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return resolvedBinding{}, ErrGatewaySourceDenied
+	}
 	if response.StatusCode != http.StatusOK {
 		return resolvedBinding{}, ErrGateway
 	}
