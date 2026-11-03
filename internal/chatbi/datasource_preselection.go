@@ -26,6 +26,7 @@ func selectAssistantCatalogSources(ctx context.Context, model EmbeddingModel, qu
 		return entries, nil
 	}
 	names := make([]string, len(entries))
+	totalBytes := 0
 	for index, entry := range entries {
 		if entry.selectionIncomplete {
 			return entries, nil
@@ -33,6 +34,10 @@ func selectAssistantCatalogSources(ctx context.Context, model EmbeddingModel, qu
 		names[index] = entry.Name
 		if entry.selectionText != "" {
 			names[index] = entry.selectionText
+		}
+		totalBytes += len(names[index])
+		if totalBytes > 64<<10 {
+			return entries, nil
 		}
 	}
 	vectors, err := model.Encode(ctx, names)

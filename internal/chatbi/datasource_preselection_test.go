@@ -70,4 +70,10 @@ func TestEmbeddedDatasourcePreselectionUsesVisibleContentAndFallsBackWhenIncompl
 	if err != nil || len(chosen) != len(entries) {
 		t.Fatalf("incomplete source content narrowed choices: %#v %v", chosen, err)
 	}
+	entries[1].selectionIncomplete = false
+	entries[1].selectionText = strings.Repeat("weather ", 9000)
+	chosen, err = selectAssistantCatalogSources(context.Background(), catalogFixtureEmbedding{}, "weather forecast", entries, 1)
+	if err != nil || len(chosen) != len(entries) {
+		t.Fatalf("oversized source content narrowed choices: %#v %v", chosen, err)
+	}
 }
