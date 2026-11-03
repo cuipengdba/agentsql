@@ -12,8 +12,8 @@ import (
 
 var ErrInvalidDashboard = errors.New("invalid dashboard configuration")
 
-// Dashboard cards retain only text and references to owned query records.
-// Query rows are never persisted with the canvas.
+// Dashboard cards retain text, empty tab layout, and references to owned
+// query records. Query rows are never persisted with the canvas.
 type DashboardCard struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind"`
@@ -26,6 +26,16 @@ type DashboardCard struct {
 	Y        int    `json:"y,omitempty"`
 	SizeX    int    `json:"size_x,omitempty"`
 	SizeY    int    `json:"size_y,omitempty"`
+	// Legacy SQLBot SQTab metadata contains no query rows or executable
+	// content. Nested canvas components are rejected until they can be
+	// enrolled and reauthorized like top-level chart cards.
+	TabPages    []DashboardTabPage `json:"tab_pages,omitempty"`
+	ActiveTabID string             `json:"active_tab_id,omitempty"`
+}
+
+type DashboardTabPage struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 type DashboardTab struct {
@@ -61,6 +71,18 @@ func validDashboardID(id string) bool {
 	return err == nil && id == strings.ToLower(id)
 }
 
+func validLegacyDashboardTabName(id string) bool {
+	if !strings.HasPrefix(id, "tab_") || len(id) < 5 || len(id) > 36 {
+		return false
+	}
+	for _, character := range id[4:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func newDashboardID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -88,6 +110,9 @@ func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, ta
 		if !(validDashboardID(card.ID) || ID(card.ID).Valid()) || seen[card.ID] || len([]rune(card.Title)) > 120 || len([]rune(card.Text)) > 4000 || card.Span < 0 || card.Span > 2 || card.X < 0 || card.X > 10000 || card.Y < 0 || card.Y > 10000 || card.SizeX < 0 || card.SizeX > 10000 || card.SizeY < 0 || card.SizeY > 10000 || (card.TabID != "" && !tabIDs[card.TabID]) {
 			return ErrInvalidDashboard
 		}
+		if card.Kind != "tab" && (len(card.TabPages) != 0 || card.ActiveTabID != "") {
+			return ErrInvalidDashboard
+		}
 		seen[card.ID] = true
 		switch card.Kind {
 		case "text":
@@ -106,6 +131,20 @@ func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, ta
 			}
 			if _, err := service.binding(ctx, p, record.Datasource); err != nil {
 				return err
+			}
+		case "tab":
+			if card.RecordID != "" || card.Text != "" || len(card.TabPages) < 1 || len(card.TabPages) > 8 {
+				return ErrInvalidDashboard
+			}
+			pageIDs := make(map[string]bool, len(card.TabPages))
+			for _, page := range card.TabPages {
+				if !validLegacyDashboardTabName(page.ID) || pageIDs[page.ID] || strings.TrimSpace(page.Title) == "" || len([]rune(page.Title)) > 80 {
+					return ErrInvalidDashboard
+				}
+				pageIDs[page.ID] = true
+			}
+			if !pageIDs[card.ActiveTabID] {
+				return ErrInvalidDashboard
 			}
 		default:
 			return ErrInvalidDashboard

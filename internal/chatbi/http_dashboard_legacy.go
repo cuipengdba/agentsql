@@ -58,6 +58,17 @@ func legacyDashboardView(item Dashboard, p Principal) map[string]any {
 		}
 		if card.Kind == "text" {
 			component["component"], component["name"], component["propValue"] = "SQText", "text", card.Text
+		} else if card.Kind == "tab" {
+			pages := make([]map[string]any, 0, len(card.TabPages))
+			for _, page := range card.TabPages {
+				pages = append(pages, map[string]any{
+					"name": page.ID, "title": page.Title, "componentData": []any{}, "closable": true,
+				})
+			}
+			component["component"], component["name"], component["propValue"] = "SQTab", "new-tabs", pages
+			component["activeTabName"] = card.ActiveTabID
+			component["collisionActive"], component["moveInActive"], component["moveOutActive"] = false, false, false
+			component["canvasActive"] = false
 		} else {
 			component["component"], component["name"], component["propValue"] = "SQView", "view", "&nbsp;"
 			component["innerType"] = legacyChartType(card.Kind)
@@ -271,6 +282,23 @@ type legacyTextComponent struct {
 	Style     map[string]any `json:"style"`
 }
 
+type legacyTabComponent struct {
+	ID            string `json:"id"`
+	Component     string `json:"component"`
+	ActiveTabName string `json:"activeTabName"`
+	Pages         []struct {
+		Name          string          `json:"name"`
+		Title         string          `json:"title"`
+		ComponentData json.RawMessage `json:"componentData"`
+		Closable      bool            `json:"closable"`
+	} `json:"propValue"`
+	X     int            `json:"x"`
+	Y     int            `json:"y"`
+	SizeX int            `json:"sizeX"`
+	SizeY int            `json:"sizeY"`
+	Style map[string]any `json:"style"`
+}
+
 type legacyChartInput struct {
 	SourceID   string `json:"sourceId"`
 	Datasource *ID    `json:"datasource"`
@@ -411,12 +439,43 @@ func (h *Handler) legacyCanvasCards(ctx context.Context, p Principal, input lega
 	if input.ComponentData == "" {
 		input.ComponentData = "[]"
 	}
-	var components []legacyTextComponent
+	var components []json.RawMessage
 	if json.Unmarshal([]byte(input.ComponentData), &components) != nil || len(components) > 32 {
 		return nil, ErrInvalidDashboard
 	}
 	cards := make([]DashboardCard, 0, len(components))
-	for _, component := range components {
+	for _, raw := range components {
+		var header struct {
+			Component string `json:"component"`
+		}
+		if json.Unmarshal(raw, &header) != nil {
+			return nil, ErrInvalidDashboard
+		}
+		if header.Component == "SQTab" {
+			var tab legacyTabComponent
+			if json.Unmarshal(raw, &tab) != nil || !(validDashboardID(tab.ID) || ID(tab.ID).Valid()) ||
+				len(tab.Style) != 0 || len(tab.Pages) < 1 || len(tab.Pages) > 8 {
+				return nil, ErrInvalidDashboard
+			}
+			if _, exists := viewInfo[tab.ID]; exists {
+				return nil, ErrInvalidDashboard
+			}
+			card := DashboardCard{ID: tab.ID, Kind: "tab", Title: "Tabs", ActiveTabID: tab.ActiveTabName,
+				X: tab.X, Y: tab.Y, SizeX: tab.SizeX, SizeY: tab.SizeY}
+			for _, page := range tab.Pages {
+				var nested []json.RawMessage
+				if json.Unmarshal(page.ComponentData, &nested) != nil || nested == nil || len(nested) != 0 || !page.Closable {
+					return nil, ErrInvalidDashboard
+				}
+				card.TabPages = append(card.TabPages, DashboardTabPage{ID: page.Name, Title: page.Title})
+			}
+			cards = append(cards, card)
+			continue
+		}
+		var component legacyTextComponent
+		if json.Unmarshal(raw, &component) != nil {
+			return nil, ErrInvalidDashboard
+		}
 		if !(validDashboardID(component.ID) || ID(component.ID).Valid()) || len(component.Style) != 0 {
 			return nil, ErrInvalidDashboard
 		}

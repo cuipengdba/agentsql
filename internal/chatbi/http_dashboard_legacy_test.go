@@ -101,6 +101,84 @@ func TestLegacyDashboardResourceTreeAndEmptyCanvas(t *testing.T) {
 	}
 }
 
+func TestLegacyDashboardEmptyTabRoundTripAndRejectsNestedContent(t *testing.T) {
+	service, principal, _, _, token := serviceFixture(t)
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(path string, body []byte) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+	component := map[string]any{
+		"id": "2232545529898901504", "component": "SQTab", "name": "new-tabs",
+		"activeTabName": "tab_2232545529903095808", "x": 1, "y": 1,
+		"sizeX": 36, "sizeY": 14, "style": map[string]any{},
+		"propValue": []any{map[string]any{
+			"name": "tab_2232545529903095808", "title": "New Tab",
+			"componentData": []any{}, "closable": true,
+		}},
+	}
+	encode := func(item map[string]any) []byte {
+		canvas, err := json.Marshal([]any{item})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(map[string]any{
+			"name": "Tabs", "pid": "root", "node_type": "leaf", "type": "dashboard",
+			"component_data": string(canvas), "canvas_style_data": "{}", "canvas_view_info": "{}",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	created := call("/api/v1/dashboard/create_canvas", encode(component))
+	var envelope struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if created.Code != 200 || json.Unmarshal(created.Body.Bytes(), &envelope) != nil || !validDashboardID(envelope.Data.ID) {
+		t.Fatalf("create empty original SQTab: %d %s", created.Code, created.Body.String())
+	}
+	stored, err := service.Dashboard(t.Context(), principal, envelope.Data.ID, false)
+	if err != nil || len(stored.Dashboard.Cards) != 1 || stored.Dashboard.Cards[0].Kind != "tab" {
+		t.Fatalf("stored tab: %#v %v", stored, err)
+	}
+	loadBody, _ := json.Marshal(map[string]any{"id": envelope.Data.ID})
+	loaded := call("/api/v1/dashboard/load_resource", loadBody)
+	if loaded.Code != 200 || !bytes.Contains(loaded.Body.Bytes(), []byte("SQTab")) || !bytes.Contains(loaded.Body.Bytes(), []byte("tab_2232545529903095808")) {
+		t.Fatalf("load tab: %d %s", loaded.Code, loaded.Body.String())
+	}
+
+	// Nested components are deliberately blocked until their records and
+	// permissions are enrolled and refreshed like top-level charts.
+	component["propValue"] = []any{map[string]any{
+		"name": "tab_2232545529903095808", "title": "New Tab",
+		"componentData": []any{map[string]any{
+			"id": "99", "component": "SQView", "sql": "select secret", "data": []any{"forged"},
+		}}, "closable": true,
+	}}
+	rejected := call("/api/v1/dashboard/create_canvas", encode(component))
+	if rejected.Code != 422 || bytes.Contains(rejected.Body.Bytes(), []byte("select secret")) {
+		t.Fatalf("nested chart accepted or echoed: %d %s", rejected.Code, rejected.Body.String())
+	}
+	component["propValue"] = []any{map[string]any{
+		"name": "tab_2232545529903095808", "title": "New Tab",
+		"componentData": []any{}, "closable": true,
+	}}
+	component["activeTabName"] = "tab_999"
+	rejected = call("/api/v1/dashboard/create_canvas", encode(component))
+	if rejected.Code != 422 {
+		t.Fatalf("unknown active tab accepted: %d %s", rejected.Code, rejected.Body.String())
+	}
+}
+
 func TestLegacyDashboardChartUsesOwnedRecordAndFreshGatewayData(t *testing.T) {
 	ctx := context.Background()
 	service, principal, gateway, _, token := serviceFixture(t)
