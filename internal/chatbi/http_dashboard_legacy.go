@@ -39,9 +39,9 @@ func legacyDashboardParent(id string) string {
 	return id
 }
 
-func legacyDashboardView(item Dashboard, p Principal) map[string]any {
-	components := make([]map[string]any, 0, len(item.Cards))
-	for index, card := range item.Cards {
+func legacyDashboardComponents(cards []DashboardCard) []map[string]any {
+	components := make([]map[string]any, 0, len(cards))
+	for index, card := range cards {
 		x, y, sizeX, sizeY := card.X, card.Y, card.SizeX, card.SizeY
 		if x == 0 && y == 0 {
 			x, y = 1, index*16+1
@@ -62,7 +62,7 @@ func legacyDashboardView(item Dashboard, p Principal) map[string]any {
 			pages := make([]map[string]any, 0, len(card.TabPages))
 			for _, page := range card.TabPages {
 				pages = append(pages, map[string]any{
-					"name": page.ID, "title": page.Title, "componentData": []any{}, "closable": true,
+					"name": page.ID, "title": page.Title, "componentData": legacyDashboardComponents(page.Cards), "closable": true,
 				})
 			}
 			component["component"], component["name"], component["propValue"] = "SQTab", "new-tabs", pages
@@ -75,6 +75,11 @@ func legacyDashboardView(item Dashboard, p Principal) map[string]any {
 		}
 		components = append(components, component)
 	}
+	return components
+}
+
+func legacyDashboardView(item Dashboard, p Principal) map[string]any {
+	components := legacyDashboardComponents(item.Cards)
 	componentData, _ := json.Marshal(components)
 	return map[string]any{
 		"id": item.ID, "name": item.Name, "pid": legacyDashboardParent(item.ParentID),
@@ -376,7 +381,11 @@ func legacyChartType(kind string) string {
 
 func (h *Handler) legacyChartViews(ctx context.Context, p Principal, view DashboardView) (string, error) {
 	views := make(map[string]any)
-	for _, card := range view.Cards {
+	allCards, err := dashboardAllCards(view.Cards)
+	if err != nil {
+		return "", err
+	}
+	for _, card := range allCards {
 		if card.RecordID == "" {
 			continue
 		}
@@ -443,62 +452,72 @@ func (h *Handler) legacyCanvasCards(ctx context.Context, p Principal, input lega
 	if json.Unmarshal([]byte(input.ComponentData), &components) != nil || len(components) > 32 {
 		return nil, ErrInvalidDashboard
 	}
-	cards := make([]DashboardCard, 0, len(components))
-	for _, raw := range components {
+	var parseComponent func(json.RawMessage, bool) (DashboardCard, error)
+	parseComponent = func(raw json.RawMessage, nested bool) (DashboardCard, error) {
 		var header struct {
 			Component string `json:"component"`
 		}
 		if json.Unmarshal(raw, &header) != nil {
-			return nil, ErrInvalidDashboard
+			return DashboardCard{}, ErrInvalidDashboard
 		}
 		if header.Component == "SQTab" {
+			if nested {
+				return DashboardCard{}, ErrInvalidDashboard
+			}
 			var tab legacyTabComponent
 			if json.Unmarshal(raw, &tab) != nil || !(validDashboardID(tab.ID) || ID(tab.ID).Valid()) ||
 				len(tab.Style) != 0 || len(tab.Pages) < 1 || len(tab.Pages) > 8 {
-				return nil, ErrInvalidDashboard
+				return DashboardCard{}, ErrInvalidDashboard
 			}
 			if _, exists := viewInfo[tab.ID]; exists {
-				return nil, ErrInvalidDashboard
+				return DashboardCard{}, ErrInvalidDashboard
 			}
 			card := DashboardCard{ID: tab.ID, Kind: "tab", Title: "Tabs", ActiveTabID: tab.ActiveTabName,
 				X: tab.X, Y: tab.Y, SizeX: tab.SizeX, SizeY: tab.SizeY}
 			for _, page := range tab.Pages {
-				var nested []json.RawMessage
-				if json.Unmarshal(page.ComponentData, &nested) != nil || nested == nil || len(nested) != 0 || !page.Closable {
-					return nil, ErrInvalidDashboard
+				var children []json.RawMessage
+				if json.Unmarshal(page.ComponentData, &children) != nil || children == nil || len(children) > 32 || !page.Closable {
+					return DashboardCard{}, ErrInvalidDashboard
 				}
-				card.TabPages = append(card.TabPages, DashboardTabPage{ID: page.Name, Title: page.Title})
+				tabPage := DashboardTabPage{ID: page.Name, Title: page.Title}
+				for _, child := range children {
+					parsed, err := parseComponent(child, true)
+					if err != nil {
+						return DashboardCard{}, err
+					}
+					tabPage.Cards = append(tabPage.Cards, parsed)
+				}
+				card.TabPages = append(card.TabPages, tabPage)
 			}
-			cards = append(cards, card)
-			continue
+			return card, nil
 		}
 		var component legacyTextComponent
 		if json.Unmarshal(raw, &component) != nil {
-			return nil, ErrInvalidDashboard
+			return DashboardCard{}, ErrInvalidDashboard
 		}
 		if !(validDashboardID(component.ID) || ID(component.ID).Valid()) || len(component.Style) != 0 {
-			return nil, ErrInvalidDashboard
+			return DashboardCard{}, ErrInvalidDashboard
 		}
 		card := DashboardCard{ID: component.ID, Title: "Text", X: component.X, Y: component.Y, SizeX: component.SizeX, SizeY: component.SizeY}
 		switch component.Component {
 		case "SQText":
 			if _, exists := viewInfo[component.ID]; exists {
-				return nil, ErrInvalidDashboard
+				return DashboardCard{}, ErrInvalidDashboard
 			}
 			clean, err := sanitizeDashboardText(component.Text)
 			if err != nil {
-				return nil, err
+				return DashboardCard{}, err
 			}
 			card.Kind, card.Text = "text", clean
 		case "SQView":
 			view, exists := viewInfo[component.ID]
 			if !exists {
-				return nil, ErrInvalidDashboard
+				return DashboardCard{}, ErrInvalidDashboard
 			}
 			delete(viewInfo, component.ID)
 			record, err := h.legacyChartRecord(ctx, p, view)
 			if err != nil {
-				return nil, err
+				return DashboardCard{}, err
 			}
 			card.RecordID = record.ID
 			switch view.Chart.Type {
@@ -507,17 +526,25 @@ func (h *Handler) legacyCanvasCards(ctx context.Context, p Principal, input lega
 			case "column":
 				card.Kind = "bar"
 			default:
-				return nil, ErrInvalidDashboard
+				return DashboardCard{}, ErrInvalidDashboard
 			}
 			card.Title = strings.TrimSpace(view.Chart.Title)
 			if card.Title == "" {
 				card.Title = "Chart"
 			}
 			if len([]rune(card.Title)) > 120 {
-				return nil, ErrInvalidDashboard
+				return DashboardCard{}, ErrInvalidDashboard
 			}
 		default:
-			return nil, ErrInvalidDashboard
+			return DashboardCard{}, ErrInvalidDashboard
+		}
+		return card, nil
+	}
+	cards := make([]DashboardCard, 0, len(components))
+	for _, raw := range components {
+		card, err := parseComponent(raw, false)
+		if err != nil {
+			return nil, err
 		}
 		cards = append(cards, card)
 	}

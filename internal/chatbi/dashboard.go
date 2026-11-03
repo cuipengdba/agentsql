@@ -12,7 +12,7 @@ import (
 
 var ErrInvalidDashboard = errors.New("invalid dashboard configuration")
 
-// Dashboard cards retain text, empty tab layout, and references to owned
+// Dashboard cards retain text, tab layout, and references to owned
 // query records. Query rows are never persisted with the canvas.
 type DashboardCard struct {
 	ID       string `json:"id"`
@@ -26,16 +26,16 @@ type DashboardCard struct {
 	Y        int    `json:"y,omitempty"`
 	SizeX    int    `json:"size_x,omitempty"`
 	SizeY    int    `json:"size_y,omitempty"`
-	// Legacy SQLBot SQTab metadata contains no query rows or executable
-	// content. Nested canvas components are rejected until they can be
-	// enrolled and reauthorized like top-level chart cards.
+	// Legacy SQLBot SQTab pages contain only validated child cards. Query
+	// rows and client-supplied SQL are never retained in this structure.
 	TabPages    []DashboardTabPage `json:"tab_pages,omitempty"`
 	ActiveTabID string             `json:"active_tab_id,omitempty"`
 }
 
 type DashboardTabPage struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID    string          `json:"id"`
+	Title string          `json:"title"`
+	Cards []DashboardCard `json:"cards,omitempty"`
 }
 
 type DashboardTab struct {
@@ -83,6 +83,36 @@ func validLegacyDashboardTabName(id string) bool {
 	return true
 }
 
+// dashboardAllCards has a fixed depth: one SQTab level with text and chart
+// children. It is shared by write validation and fresh read authorization.
+func dashboardAllCards(cards []DashboardCard) ([]DashboardCard, error) {
+	if len(cards) > 32 {
+		return nil, ErrInvalidDashboard
+	}
+	all := make([]DashboardCard, 0, len(cards))
+	for _, card := range cards {
+		all = append(all, card)
+		if card.Kind != "tab" {
+			if len(card.TabPages) != 0 {
+				return nil, ErrInvalidDashboard
+			}
+			continue
+		}
+		for _, page := range card.TabPages {
+			for _, child := range page.Cards {
+				if child.Kind == "tab" || len(child.TabPages) != 0 || child.ActiveTabID != "" || child.TabID != "" {
+					return nil, ErrInvalidDashboard
+				}
+				all = append(all, child)
+				if len(all) > 32 {
+					return nil, ErrInvalidDashboard
+				}
+			}
+		}
+	}
+	return all, nil
+}
+
 func newDashboardID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -92,8 +122,9 @@ func newDashboardID() (string, error) {
 }
 
 func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, tabs []DashboardTab, cards []DashboardCard) error {
-	if len(cards) > 32 {
-		return ErrInvalidDashboard
+	allCards, err := dashboardAllCards(cards)
+	if err != nil {
+		return err
 	}
 	if len(tabs) > 8 {
 		return ErrInvalidDashboard
@@ -105,8 +136,8 @@ func (service *Service) dashboardCardsValid(ctx context.Context, p Principal, ta
 		}
 		tabIDs[tab.ID] = true
 	}
-	seen := make(map[string]bool, len(cards))
-	for _, card := range cards {
+	seen := make(map[string]bool, len(allCards))
+	for _, card := range allCards {
 		if !(validDashboardID(card.ID) || ID(card.ID).Valid()) || seen[card.ID] || len([]rune(card.Title)) > 120 || len([]rune(card.Text)) > 4000 || card.Span < 0 || card.Span > 2 || card.X < 0 || card.X > 10000 || card.Y < 0 || card.Y > 10000 || card.SizeX < 0 || card.SizeX > 10000 || card.SizeY < 0 || card.SizeY > 10000 || (card.TabID != "" && !tabIDs[card.TabID]) {
 			return ErrInvalidDashboard
 		}
@@ -190,7 +221,11 @@ func (service *Service) Dashboard(ctx context.Context, p Principal, id string, w
 	}
 	item.Revision = revision
 	view := DashboardView{Dashboard: item, Results: map[string]QueryData{}}
-	for _, card := range item.Cards {
+	allCards, err := dashboardAllCards(item.Cards)
+	if err != nil {
+		return DashboardView{}, err
+	}
+	for _, card := range allCards {
 		if card.RecordID == "" {
 			continue
 		}

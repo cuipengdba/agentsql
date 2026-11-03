@@ -101,7 +101,7 @@ func TestLegacyDashboardResourceTreeAndEmptyCanvas(t *testing.T) {
 	}
 }
 
-func TestLegacyDashboardEmptyTabRoundTripAndRejectsNestedContent(t *testing.T) {
+func TestLegacyDashboardEmptyTabRoundTripAndRejectsUnownedNestedContent(t *testing.T) {
 	service, principal, _, _, token := serviceFixture(t)
 	router, err := NewHandler(service, "test")
 	if err != nil {
@@ -156,8 +156,7 @@ func TestLegacyDashboardEmptyTabRoundTripAndRejectsNestedContent(t *testing.T) {
 		t.Fatalf("load tab: %d %s", loaded.Code, loaded.Body.String())
 	}
 
-	// Nested components are deliberately blocked until their records and
-	// permissions are enrolled and refreshed like top-level charts.
+	// Client-forged nested charts without an owned record stay blocked.
 	component["propValue"] = []any{map[string]any{
 		"name": "tab_2232545529903095808", "title": "New Tab",
 		"componentData": []any{map[string]any{
@@ -176,6 +175,72 @@ func TestLegacyDashboardEmptyTabRoundTripAndRejectsNestedContent(t *testing.T) {
 	rejected = call("/api/v1/dashboard/create_canvas", encode(component))
 	if rejected.Code != 422 {
 		t.Fatalf("unknown active tab accepted: %d %s", rejected.Code, rejected.Body.String())
+	}
+}
+
+func TestLegacyDashboardNestedTextAndOwnedChartReauthorizeOnRead(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	record := finishedFixtureRecord(t, service, principal, token)
+	router, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(path string, body []byte) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		return response
+	}
+	components, _ := json.Marshal([]map[string]any{{
+		"id": "300", "component": "SQTab", "activeTabName": "tab_123", "style": map[string]any{},
+		"propValue": []any{map[string]any{
+			"name": "tab_123", "title": "Details", "closable": true,
+			"componentData": []any{
+				map[string]any{"id": "301", "component": "SQText", "propValue": `<p>safe<img src=x onerror=alert(1)></p>`, "style": map[string]any{}},
+				map[string]any{"id": "302", "component": "SQView", "style": map[string]any{}},
+			},
+		}},
+	}})
+	views, _ := json.Marshal(map[string]any{"302": map[string]any{
+		"sourceId":   string(record.Chat) + "_" + string(record.ID),
+		"datasource": record.Datasource, "chart": map[string]any{"type": "column", "title": "Revenue"},
+		"sql": "SELECT forged_secret FROM unknown_table", "data": map[string]any{"data": []any{map[string]any{"secret": "client-forged"}}},
+	}})
+	input, _ := json.Marshal(map[string]any{
+		"name": "Nested", "pid": "root", "node_type": "leaf", "type": "dashboard",
+		"component_data": string(components), "canvas_style_data": "{}", "canvas_view_info": string(views),
+	})
+	created := call("/api/v1/dashboard/create_canvas", input)
+	var response struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if created.Code != 200 || json.Unmarshal(created.Body.Bytes(), &response) != nil || !validDashboardID(response.Data.ID) {
+		t.Fatalf("nested tab create: %d %s", created.Code, created.Body.String())
+	}
+	stored, err := service.Dashboard(t.Context(), principal, response.Data.ID, false)
+	storedJSON, _ := json.Marshal(stored.Dashboard)
+	if err != nil || len(stored.Cards) != 1 || len(stored.Cards[0].TabPages) != 1 ||
+		len(stored.Cards[0].TabPages[0].Cards) != 2 || bytes.Contains(storedJSON, []byte("client-forged")) ||
+		bytes.Contains(storedJSON, []byte("forged_secret")) || bytes.Contains(storedJSON, []byte("onerror")) {
+		t.Fatalf("unsafe nested content persisted: %v %s", err, storedJSON)
+	}
+	before := gateway.queries
+	loaded := call("/api/v1/dashboard/load_resource", []byte(`{"id":"`+response.Data.ID+`"}`))
+	if loaded.Code != 200 || gateway.queries != before+1 || !bytes.Contains(loaded.Body.Bytes(), []byte("SQText")) ||
+		!bytes.Contains(loaded.Body.Bytes(), []byte("SQView")) || bytes.Contains(loaded.Body.Bytes(), []byte("client-forged")) ||
+		bytes.Contains(loaded.Body.Bytes(), []byte("forged_secret")) || bytes.Contains(loaded.Body.Bytes(), []byte("onerror")) {
+		t.Fatalf("nested fresh read: status=%d queries=%d body=%s", loaded.Code, gateway.queries-before, loaded.Body.String())
+	}
+	revision, err := service.Store.get(t.Context(), bindingKey(principal, "10"), new(Binding))
+	if err != nil || service.Store.delete(t.Context(), bindingKey(principal, "10"), revision) != nil {
+		t.Fatal("could not revoke datasource")
+	}
+	denied := call("/api/v1/dashboard/load_resource", []byte(`{"id":"`+response.Data.ID+`"}`))
+	if denied.Code == 200 || bytes.Contains(denied.Body.Bytes(), []byte("safe")) || bytes.Contains(denied.Body.Bytes(), []byte("Revenue")) {
+		t.Fatalf("revoked nested chart leaked: %d %s", denied.Code, denied.Body.String())
 	}
 }
 
