@@ -94,6 +94,23 @@ func TestAuthorizedTableVectorsPersistAndInvalidate(t *testing.T) {
 	}
 }
 
+func TestTableVectorInputUsesOriginalVisibleMetadataShape(t *testing.T) {
+	model := &indexedTableFixture{identity: "fixed-v1"}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "weather", Name: "temperature", DataType: "numeric"}}
+	remarks := []RemarkHint{{Schema: "public", Table: "sales", Remark: "销售"},
+		{Schema: "public", Table: "sales", Column: "amount", Remark: "营收"}}
+	if _, _, err := selectModelTables(context.Background(), model, "weather", columns, remarks, 1, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.calls) != 2 || len(model.calls[1]) != 2 ||
+		model.calls[1][0] != "# Table: sales, 销售\n[\n(amount:numeric, 营收),\n(region:text)\n]\n" ||
+		model.calls[1][1] != "# Table: weather\n[\n(temperature:numeric)\n]\n" {
+		t.Fatalf("table vectors did not use the original metadata shape: %q", model.calls)
+	}
+}
+
 func TestCorruptTableIndexKeepsCurrentAuthorizedSchema(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)

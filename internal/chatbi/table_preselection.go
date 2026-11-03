@@ -12,6 +12,7 @@ type modelTableCandidate struct {
 	name     string
 	comment  string
 	text     string
+	fields   []Column
 	index    int
 	vector   float64
 	keyword  float64
@@ -54,23 +55,53 @@ func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, que
 		if !found {
 			index = len(tables)
 			positions[key] = index
-			tables = append(tables, modelTableCandidate{key: key, name: column.Table, index: index,
-				text: column.Schema + "." + column.Table})
+			tables = append(tables, modelTableCandidate{key: key, name: column.Table, index: index})
 		}
-		tables[index].text += " (" + column.Name + ":" + column.DataType + ")"
+		tables[index].fields = append(tables[index].fields, column)
 	}
 	if len(tables) <= limit || len(tables) > 500 {
 		return columns, remarks, nil
 	}
+	fieldComments := make(map[string]map[string]string)
 	for _, remark := range remarks {
 		if index, found := positions[remark.Schema+"\x00"+remark.Table]; found {
-			tables[index].text += " " + remark.Remark
 			if remark.Column == "" {
 				tables[index].comment = remark.Remark
+			} else {
+				key := tables[index].key
+				if fieldComments[key] == nil {
+					fieldComments[key] = make(map[string]string)
+				}
+				fieldComments[key][remark.Column] = remark.Remark
 			}
 		}
 	}
-	for _, table := range tables {
+	for index := range tables {
+		table := &tables[index]
+		var text strings.Builder
+		text.WriteString("# Table: ")
+		text.WriteString(table.name)
+		if table.comment != "" {
+			text.WriteString(", ")
+			text.WriteString(table.comment)
+		}
+		text.WriteString("\n[\n")
+		for offset, field := range table.fields {
+			if offset > 0 {
+				text.WriteString(",\n")
+			}
+			text.WriteString("(")
+			text.WriteString(field.Name)
+			text.WriteString(":")
+			text.WriteString(field.DataType)
+			if comment := fieldComments[table.key][field.Name]; comment != "" {
+				text.WriteString(", ")
+				text.WriteString(comment)
+			}
+			text.WriteString(")")
+		}
+		text.WriteString("\n]\n")
+		table.text = text.String()
 		if len(table.text) == 0 || len(table.text) > 4096 {
 			return columns, remarks, nil
 		}
