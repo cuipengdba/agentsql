@@ -14,6 +14,7 @@ import (
 
 type chatSettings struct {
 	Name                    string             `json:"name"`
+	NameConfigured          bool               `json:"name_configured,omitempty"`
 	InitialPasswordDisabled bool               `json:"initial_password_disabled"`
 	InitialPasswordHidden   bool               `json:"initial_password_hidden"`
 	HideThinking            bool               `json:"hide_thinking"`
@@ -53,6 +54,11 @@ func (s *Store) ChatSettings(ctx context.Context) (chatSettings, error) {
 	if value.Embedding != nil {
 		upgradeEmbeddingSettings(value.Embedding)
 	}
+	if value.Name != defaultChatSettings().Name {
+		// Preserve the original parameter-list state for settings written before
+		// this flag existed, when an operator had already changed the name.
+		value.NameConfigured = true
+	}
 	if !validChatSettings(value) {
 		return chatSettings{}, ErrUnavailable
 	}
@@ -89,6 +95,9 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 			return ErrUnavailable
 		}
 		upgradeEmbeddingSettings(value.Embedding)
+		if value.Name != defaultChatSettings().Name {
+			value.NameConfigured = true
+		}
 		if !validChatSettings(value) {
 			return ErrUnavailable
 		}
@@ -113,6 +122,7 @@ func (s *Store) UpdateChatSettings(ctx context.Context, p Principal, updates map
 			value.InitialPasswordHidden = parsed
 		case "chat.sqlbot_name":
 			value.Name = raw
+			value.NameConfigured = true
 		case "chat.hide_thinking_block":
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
@@ -253,7 +263,7 @@ func (h *Handler) sqlbotAllParameters(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	okay(w, append(append(chatParameterList(value, true), loginParameterList(value)...), embeddingParameterList(*value.Embedding)...))
+	okay(w, append(append(chatParameterList(value, value.NameConfigured), loginParameterList(value)...), embeddingParameterList(*value.Embedding)...))
 }
 
 func (h *Handler) nativeChatParameters(w http.ResponseWriter, r *http.Request, p Principal, token string) {

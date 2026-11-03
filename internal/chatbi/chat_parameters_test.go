@@ -30,6 +30,51 @@ func chatParameterForm(t *testing.T, handler http.Handler, token string, values 
 	return w
 }
 
+func TestOriginalChatNameParameterAppearsOnlyAfterExplicitSave(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	read := func() string {
+		t.Helper()
+		response := accountRequest(t, handler, http.MethodGet, "/api/v1/system/parameter", "", adminToken)
+		if response.Code != http.StatusOK {
+			t.Fatalf("read system parameters: %d %s", response.Code, response.Body.String())
+		}
+		return response.Body.String()
+	}
+	if strings.Contains(read(), `"pkey":"chat.sqlbot_name"`) {
+		t.Fatal("unsaved name was included in the original parameter list")
+	}
+	if saved := chatParameterForm(t, handler, adminToken, `[{"pkey":"chat.context_record_count","pval":2}]`); saved.Code != http.StatusOK {
+		t.Fatalf("save unrelated parameter: %d %s", saved.Code, saved.Body.String())
+	}
+	if strings.Contains(read(), `"pkey":"chat.sqlbot_name"`) {
+		t.Fatal("saving another parameter created the name key")
+	}
+	if saved := chatParameterForm(t, handler, adminToken, `[{"pkey":"chat.sqlbot_name","pval":"AgentSQL"}]`); saved.Code != http.StatusOK {
+		t.Fatalf("save explicit default name: %d %s", saved.Code, saved.Body.String())
+	}
+	if !strings.Contains(read(), `"pkey":"chat.sqlbot_name"`) {
+		t.Fatal("explicitly saved name was missing")
+	}
+	settings, err := service.Store.ChatSettings(context.Background())
+	if err != nil || !settings.NameConfigured {
+		t.Fatalf("name state did not persist: %+v %v", settings, err)
+	}
+}
+
+func TestLegacyCustomizedChatNameRemainsInOriginalParameterList(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	legacy := defaultChatSettings()
+	legacy.Name = "Existing custom name"
+	if err := service.Store.put(context.Background(), chatSettingsKey(), legacy, 0); err != nil {
+		t.Fatal(err)
+	}
+	response := accountRequest(t, handler, http.MethodGet, "/api/v1/system/parameter", "", adminToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"pkey":"chat.sqlbot_name"`) ||
+		!strings.Contains(response.Body.String(), `"pval":"Existing custom name"`) {
+		t.Fatalf("legacy custom name was hidden: %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestChatParametersPersistAndBoundModelHistory(t *testing.T) {
 	service, handler, adminToken, memberToken := adminUsersFixture(t)
 	ctx := context.Background()
