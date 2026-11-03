@@ -137,6 +137,64 @@ func TestInFlightTableIndexDoesNotShareChangedAuthorizedColumns(t *testing.T) {
 	}
 }
 
+func TestAuthorizedTableIndexWaiterRetriesAfterBuilderCancellation(t *testing.T) {
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	first := make(chan error, 1)
+	go func() {
+		_, _, err := selectModelTablesIndexed(firstCtx, store, p, "10", model,
+			"weather forecast", columns, nil, 1, 1, false)
+		first <- err
+	}()
+	select {
+	case <-model.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first table build did not start")
+	}
+	second := make(chan error, 1)
+	go func() {
+		selected, _, err := selectModelTablesIndexed(context.Background(), store, p, "10", model,
+			"weather forecast", columns, nil, 1, 1, false)
+		if err == nil && (len(selected) != 1 || selected[0].Table != "weather") {
+			err = ErrUnavailable
+		}
+		second <- err
+	}()
+	deadline := time.After(5 * time.Second)
+	for model.queryCalls.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatal("waiting request did not encode its own question")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	select {
+	case err := <-second:
+		t.Fatalf("waiting request completed before builder cancellation: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancelFirst()
+	if err := <-first; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled builder: %v", err)
+	}
+	select {
+	case err := <-second:
+		if err != nil {
+			t.Fatalf("live waiter did not rebuild under its own context: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("live waiter did not finish after builder cancellation")
+	}
+	if calls := model.tableCalls.Load(); calls != 2 {
+		t.Fatalf("live waiter did not retry the cancelled table batch: %d calls", calls)
+	}
+}
+
 func (model *indexedTableFixture) persistentEmbeddingIdentity() string { return model.identity }
 
 func (model *indexedTableFixture) Encode(ctx context.Context, texts []string) ([][]float32, error) {

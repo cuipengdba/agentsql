@@ -70,22 +70,31 @@ func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource
 	if err != nil {
 		return nil, err
 	}
-	flight := s.tableVectorFlights.DoChan(key, func() (any, error) {
-		return s.indexedTableVectorsUnshared(ctx, p, datasource, model, tables, identity.persistentEmbeddingIdentity())
-	})
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case result := <-flight:
-		if result.Err != nil {
-			return nil, result.Err
+	for attempt := 0; attempt < 2; attempt++ {
+		flight := s.tableVectorFlights.DoChan(key, func() (any, error) {
+			return s.indexedTableVectorsUnshared(ctx, p, datasource, model, tables, identity.persistentEmbeddingIdentity())
+		})
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case result := <-flight:
+			if result.Err != nil {
+				if attempt == 0 && ctx.Err() == nil &&
+					(errors.Is(result.Err, context.Canceled) || errors.Is(result.Err, context.DeadlineExceeded)) {
+					// The caller that owned the shared build left; this still-live
+					// request may start a new flight under its own context.
+					continue
+				}
+				return nil, result.Err
+			}
+			vectors, ok := result.Val.([][]float32)
+			if !ok || len(vectors) != len(tables) {
+				return nil, ErrUnavailable
+			}
+			return vectors, nil
 		}
-		vectors, ok := result.Val.([][]float32)
-		if !ok || len(vectors) != len(tables) {
-			return nil, ErrUnavailable
-		}
-		return vectors, nil
 	}
+	return nil, ErrUnavailable
 }
 
 // The flight key binds the current caller and the ordered authorized schema.
