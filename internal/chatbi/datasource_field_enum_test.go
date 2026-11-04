@@ -119,12 +119,9 @@ func TestFieldEnumCannotBypassActiveRowOrColumnPermission(t *testing.T) {
 	}
 	before := gateway.queries
 	response := request()
-	if gateway.queries > before && !strings.Contains(gateway.lastQuery, "region = 'east'") {
-		t.Fatalf("field enum bypassed the active row rule: %s", gateway.lastQuery)
-	}
-	if response.Code == http.StatusOK && gateway.queries == before ||
-		response.Code != http.StatusOK && strings.Contains(response.Body.String(), "123") {
-		t.Fatalf("field enum returned data without a safe row-filtered query: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK || gateway.queries != before+1 ||
+		!strings.Contains(gateway.lastQuery, "region = 'east'") {
+		t.Fatalf("field enum must use an audited row-filtered query: %d %s sql=%s", response.Code, response.Body.String(), gateway.lastQuery)
 	}
 
 	column := row
