@@ -162,6 +162,22 @@ func TestRestoredActiveRoleTargetClosesForWorkspaceBeforeGateway(t *testing.T) {
 	require.Zero(t, gateway.queries)
 }
 
+func TestRestoredActiveWhitelistClosesBeforeGateway(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	rule := testActiveRowPermission(t, "east")
+	rule.WhiteList = "[2]"
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.schema(ctx, principal, binding)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.schemaCalls)
+	_, err = service.query(ctx, principal, binding, "SELECT amount FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.queries)
+}
+
 func TestActiveOriginalRowPermissionChangeSuppressesInFlightResult(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()

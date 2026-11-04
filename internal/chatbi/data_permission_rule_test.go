@@ -103,6 +103,38 @@ func TestDataPermissionDraftCannotBecomeActiveBeforeEnforcement(t *testing.T) {
 	require.False(t, current.Enable)
 }
 
+func TestDisabledOriginalWhitelistDraftRoundTripsButCannotActivate(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	path := "/api/v1/ds_permission/"
+	draft := accountRequest(t, handler, http.MethodPost, path+"save",
+		`{"name":"whitelist draft","enable":false,"users":[2],"white_list_user":"[2]","permissions":[{"type":"row","ds_id":10,"table_id":20,"expression_tree":"{}"}]}`, adminToken)
+	require.Equal(t, http.StatusOK, draft.Code, draft.Body.String())
+	var response struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(draft.Body.Bytes(), &response))
+	id := strconv.FormatInt(response.Data.ID, 10)
+	read := accountRequest(t, handler, http.MethodPost, path+"get/"+id, "", adminToken)
+	require.Equal(t, http.StatusOK, read.Code)
+	require.Contains(t, read.Body.String(), `"white_list_user":"[2]"`)
+	active := accountRequest(t, handler, http.MethodPost, path+"save",
+		`{"id":"`+id+`","name":"whitelist draft","enable":true,"users":[2],"white_list_user":"[2]","permissions":[{"type":"row","ds_id":10,"table_id":20,"expression_tree":"{}"}]}`, adminToken)
+	require.Equal(t, http.StatusUnprocessableEntity, active.Code)
+	stored, err := service.Store.DataPermissionRule(context.Background(), "1", response.Data.ID)
+	require.NoError(t, err)
+	require.False(t, stored.Enable)
+	require.Equal(t, "[2]", stored.WhiteList)
+	for _, invalid := range []string{`[2,2]`, `["02"]`, `[null]`, `{}`, `invalid`} {
+		result := accountRequest(t, handler, http.MethodPost, path+"save",
+			`{"name":"invalid whitelist","enable":false,"users":[2],"white_list_user":`+strconv.Quote(invalid)+`,"permissions":[]}`, adminToken)
+		require.Equal(t, http.StatusUnprocessableEntity, result.Code, invalid)
+	}
+	require.Equal(t, http.StatusOK,
+		accountRequest(t, handler, http.MethodPost, path+"delete/"+id, "", adminToken).Code)
+}
+
 func TestDisabledPermissionDraftUsesOriginalRuleGroupResponseShape(t *testing.T) {
 	_, handler, adminToken, _ := adminUsersFixture(t)
 	path := "/api/v1/ds_permission/"

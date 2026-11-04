@@ -38,7 +38,7 @@ func validPermissionRule(rule DataPermissionRule) bool {
 		rule.Name == "" || len(rule.Name) > 128 || !utf8.ValidString(rule.Name) ||
 		strings.TrimSpace(rule.Name) != rule.Name || strings.ContainsAny(rule.Name, "\r\n\x00") ||
 		len(rule.Description) > 512 || !utf8.ValidString(rule.Description) || strings.ContainsRune(rule.Description, 0) ||
-		rule.WhiteList != "[]" || len(rule.Permissions) > 32 || len(rule.Users) > 100 || rule.Created.IsZero() {
+		!validDataPermissionWhiteList(rule.WhiteList, rule.Enable) || len(rule.Permissions) > 32 || len(rule.Users) > 100 || rule.Created.IsZero() {
 		return false
 	}
 	seen := make(map[int64]bool, len(rule.Users))
@@ -52,6 +52,30 @@ func validPermissionRule(rule DataPermissionRule) bool {
 		if len(item) == 0 || len(item) > 8192 || item[0] != '{' || !json.Valid(item) {
 			return false
 		}
+	}
+	return true
+}
+
+// Keep disabled SQLBot drafts round-trippable while ensuring that an active
+// whitelist cannot bypass the current runtime permission contract.
+func validDataPermissionWhiteList(raw string, enabled bool) bool {
+	if raw == "[]" {
+		return true
+	}
+	if enabled || len(raw) > 2048 {
+		return false
+	}
+	var entries []json.RawMessage
+	if json.Unmarshal([]byte(raw), &entries) != nil || len(entries) == 0 || len(entries) > 100 {
+		return false
+	}
+	seen := make(map[int64]bool, len(entries))
+	for _, entry := range entries {
+		id, valid := parseSystemVariableID(entry)
+		if !valid || id < 1 || id > maxSQLBotBrowserID || seen[id] {
+			return false
+		}
+		seen[id] = true
 	}
 	return true
 }
