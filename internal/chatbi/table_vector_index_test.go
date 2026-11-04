@@ -87,6 +87,54 @@ func TestForegroundColdIndexBudgetKeepsOnlyCurrentlyAuthorizedFullSchema(t *test
 	}
 }
 
+func TestForegroundColdIndexBudgetUsesExplicitAuthorizedTable(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{
+		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "customers", Name: "name", DataType: "text"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"},
+	}
+	remarks := []RemarkHint{
+		{Schema: "public", Table: "orders", Remark: "Purchase orders"},
+		{Schema: "public", Table: "customers", Remark: "Customers"},
+	}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	selected, selectedRemarks, err := selectModelTablesForAsk(ctx, store, p, "10", model,
+		"Count rows in orders", "orders", columns, remarks, 1, 1, true,
+		50*time.Millisecond, func(context.Context) error { return nil })
+	if err != nil || len(selected) != 1 || selected[0].Table != "orders" ||
+		len(selectedRemarks) != 1 || selectedRemarks[0].Table != "orders" {
+		t.Fatalf("explicit cold fallback did not keep only current authorized order table: %v %v %v", selected, selectedRemarks, err)
+	}
+	var persisted int
+	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM chatbi_objects WHERE kind='table-vector-v1'`).Scan(&persisted); err != nil || persisted != 0 {
+		t.Fatalf("cancelled foreground build wrote vectors: count=%d err=%v", persisted, err)
+	}
+}
+
+func TestExplicitColdFallbackKeepsFullSchemaWhenQuestionIsAmbiguous(t *testing.T) {
+	columns := []Column{
+		{Schema: "public", Table: "orders", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "customers", Name: "name", DataType: "text"},
+	}
+	for _, question := range []string{"How many records are there?", `Count rows in "missing_orders"`} {
+		selected, _, err := selectExplicitTableFallback(question, "orders", columns, nil, 1, true)
+		if err != nil || len(selected) != len(columns) {
+			t.Fatalf("ambiguous or unknown quoted table narrowed schema: %q %v %v", question, selected, err)
+		}
+	}
+	selected, _, err := selectExplicitTableFallback("Count rows in orders", "orders", columns, nil, 1, false)
+	if err != nil || len(selected) != len(columns) {
+		t.Fatalf("disabled keyword selection narrowed schema: %v %v", selected, err)
+	}
+	selected, _, err = selectExplicitTableFallback("Compare orders and customers", "orders customers", columns, nil, 1, true)
+	if err != nil || len(selected) != 2 || selected[0].Table != "orders" || selected[1].Table != "customers" {
+		t.Fatalf("explicitly named join tables exceeded the candidate limit incorrectly: %v %v", selected, err)
+	}
+}
+
 func TestForegroundColdIndexBudgetDoesNotHideRevocation(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)

@@ -70,9 +70,52 @@ func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, dat
 				return nil, nil, err
 			}
 		}
-		return columns, remarks, nil
+		return selectExplicitTableFallback(question, keywords, columns, remarks, limit, keywordEnabled)
 	}
 	return selectedColumns, selectedRemarks, err
+}
+
+// A cold vector index can exceed the foreground budget. If the user's own
+// question explicitly names an authorized table, keep that table and the
+// keyword-ranked companions within the configured limit. Ambiguous questions
+// and disabled keyword selection retain the complete authorized schema.
+func selectExplicitTableFallback(question, keywords string, columns []Column,
+	remarks []RemarkHint, limit int, keywordEnabled bool) ([]Column, []RemarkHint, error) {
+	if !keywordEnabled || limit < 1 || len(question) > 4096 {
+		return columns, remarks, nil
+	}
+	tables, fieldComments, ok := authorizedTableCandidates(columns, remarks, limit)
+	if !ok {
+		return columns, remarks, nil
+	}
+	explicit := explicitTableMentions(question, tables)
+	if len(explicit) == 0 {
+		return columns, remarks, nil
+	}
+	for index := range tables {
+		tables[index].explicit = explicit[tables[index].key]
+		tables[index].keyword = scoreTableKeywords(keywords, tables[index], fieldComments[tables[index].key])
+	}
+	rankModelTables(tables, 0, true)
+	selected := make(map[string]bool)
+	for _, table := range tables {
+		if len(selected) < limit || table.explicit {
+			selected[table.key] = true
+		}
+	}
+	filteredColumns := make([]Column, 0, len(columns))
+	for _, column := range columns {
+		if selected[column.Schema+"\x00"+column.Table] {
+			filteredColumns = append(filteredColumns, column)
+		}
+	}
+	filteredRemarks := make([]RemarkHint, 0, len(remarks))
+	for _, remark := range remarks {
+		if selected[remark.Schema+"\x00"+remark.Table] {
+			filteredRemarks = append(filteredRemarks, remark)
+		}
+	}
+	return filteredColumns, filteredRemarks, nil
 }
 
 func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, question string, columns []Column,
