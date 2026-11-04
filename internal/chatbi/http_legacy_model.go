@@ -410,6 +410,11 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
+	config, err := json.Marshal(input.ConfigList)
+	if err != nil {
+		failure(w, ErrInvalidAccountChange)
+		return
+	}
 	endpoint, err := h.service.Identity.DecryptLogin(input.APIDomain)
 	if err != nil {
 		failure(w, ErrInvalidAccountChange)
@@ -435,11 +440,18 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		return
 	}
 	if active {
-		if _, err := h.service.Store.CreateGlobalModel(r.Context(), p, update); err != nil {
+		id, err := h.service.Store.CreateGlobalModel(r.Context(), p, update)
+		if err != nil {
 			failure(w, err)
 			return
 		}
-		okay(w, nil)
+		view, err := h.service.Store.catalogAdminModel(r.Context(), p, id)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, legacyCreatedModel(id, input.Name, input.BaseModel, *input.Supplier,
+			input.APIDomain, input.APIKey, string(config), view.Default))
 		return
 	}
 	var current ModelConfig
@@ -452,16 +464,30 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, existingErr)
 		return
 	}
+	var id ID
 	if existingErr == nil {
-		err = h.service.Store.CreateAdditionalWorkspaceModel(r.Context(), p, update)
+		id, err = h.service.Store.CreateAdditionalWorkspaceModelWithID(r.Context(), p, update)
 	} else {
-		err = h.service.Store.CreateWorkspaceModel(r.Context(), p, update)
+		id, err = h.service.Store.CreateWorkspaceModelWithID(r.Context(), p, update)
 	}
 	if err != nil {
 		failure(w, err)
 		return
 	}
-	okay(w, nil)
+	okay(w, legacyCreatedModel(id, input.Name, input.BaseModel, *input.Supplier,
+		input.APIDomain, input.APIKey, string(config), existingErr != nil))
+}
+
+// SQLBot's create response carries the new ID. Keep encrypted request values
+// encrypted in the response so existing clients can read the record without
+// exposing the endpoint or API key stored in the server-side model.
+func legacyCreatedModel(id ID, name, baseModel string, supplier int, domain, key, config string, isDefault bool) map[string]any {
+	return map[string]any{
+		"id": id, "name": name, "base_model": baseModel,
+		"supplier": supplier, "model_type": 0, "protocol": 1,
+		"api_domain": domain, "api_key": key, "config": config,
+		"default_model": isDefault, "status": 1, "create_time": time.Now().UnixMilli(),
+	}
 }
 
 // The pinned original browser encrypts both endpoint and nonempty API key

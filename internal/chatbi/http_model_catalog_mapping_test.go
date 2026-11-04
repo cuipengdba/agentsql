@@ -194,7 +194,7 @@ func TestActiveCatalogOriginalCreateStartsWithEmptyListAndFirstDefault(t *testin
 		}
 		return base64.StdEncoding.EncodeToString(ciphertext)
 	}
-	create := func(name string, token string) int {
+	create := func(name string, token string) (int, string) {
 		t.Helper()
 		body, err := json.Marshal(map[string]any{"id": "", "name": name, "model_type": 0,
 			"base_model": "fixture", "supplier": 15, "protocol": 1,
@@ -202,16 +202,32 @@ func TestActiveCatalogOriginalCreateStartsWithEmptyListAndFirstDefault(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		return accountRequest(t, handler, http.MethodPost, path, string(body), token).Code
+		response := accountRequest(t, handler, http.MethodPost, path, string(body), token)
+		return response.Code, response.Body.String()
 	}
-	if code := create("First", memberToken); code != http.StatusUnauthorized {
+	if code, _ := create("First", memberToken); code != http.StatusUnauthorized {
 		t.Fatalf("member created global model: %d", code)
 	}
-	if code := create("First", adminToken); code != http.StatusOK {
-		t.Fatalf("first global model create: %d", code)
+	firstCode, firstBody := create("First", adminToken)
+	if firstCode != http.StatusOK {
+		t.Fatalf("first global model create: %d", firstCode)
 	}
-	if code := create("Second", adminToken); code != http.StatusOK {
-		t.Fatalf("second global model create: %d", code)
+	secondCode, secondBody := create("Second", adminToken)
+	if secondCode != http.StatusOK {
+		t.Fatalf("second global model create: %d", secondCode)
+	}
+	var firstResult, secondResult struct {
+		Data struct {
+			ID           string `json:"id"`
+			DefaultModel bool   `json:"default_model"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(firstBody), &firstResult) != nil ||
+		json.Unmarshal([]byte(secondBody), &secondResult) != nil ||
+		firstResult.Data.ID == "" || secondResult.Data.ID == "" ||
+		firstResult.Data.ID == secondResult.Data.ID || !firstResult.Data.DefaultModel ||
+		secondResult.Data.DefaultModel || strings.Contains(firstBody+secondBody, "private-secret") {
+		t.Fatalf("global create responses lost distinct IDs or leaked a key")
 	}
 	list := accountRequest(t, handler, http.MethodGet, path, "", adminToken)
 	if list.Code != http.StatusOK || strings.Count(list.Body.String(), `"ws_mapping_count":0`) != 2 ||

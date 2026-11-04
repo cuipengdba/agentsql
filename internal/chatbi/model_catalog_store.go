@@ -35,79 +35,85 @@ func (s *Store) AdditionalWorkspaceModels(ctx context.Context, workspace ID) ([]
 }
 
 func (s *Store) CreateAdditionalWorkspaceModel(ctx context.Context, p Principal, update WorkspaceModelUpdate) error {
+	_, err := s.CreateAdditionalWorkspaceModelWithID(ctx, p, update)
+	return err
+}
+
+// CreateAdditionalWorkspaceModelWithID returns the ID committed with a secondary model.
+func (s *Store) CreateAdditionalWorkspaceModelWithID(ctx context.Context, p Principal, update WorkspaceModelUpdate) (ID, error) {
 	if !p.Workspace.Valid() || !p.User.ID.Valid() || p.EmbeddedApp != "" || update.Revision != 0 {
-		return ErrInvalidAccountChange
+		return "", ErrInvalidAccountChange
 	}
 	id, err := newID()
 	if err != nil {
-		return err
+		return "", err
 	}
 	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier, EnableThinking: update.EnableThinking}
 	if update.APIKey != nil {
 		model.APIKey = *update.APIKey
 	}
 	if validateModelConfig(model) != nil {
-		return ErrInvalidAccountChange
+		return "", ErrInvalidAccountChange
 	}
 	key := additionalModelKey(p.Workspace, model.ID)
 	auditID, err := newID()
 	if err != nil {
-		return err
+		return "", err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
 	sealed, err := s.seal(key, model)
 	if err != nil {
-		return err
+		return "", err
 	}
 	audit, err := s.seal(auditKey, map[string]any{"action": "workspace-model.create-secondary", "actor": p.User.ID,
 		"workspace": p.Workspace, "model": model.ID, "time": time.Now().UTC()})
 	if err != nil {
-		return err
+		return "", err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	defer tx.Rollback()
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
-		return err
+		return "", err
 	}
 	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
-		return err
+		return "", err
 	}
 	var defaultBody []byte
 	err = tx.QueryRowContext(ctx, `SELECT body FROM chatbi_objects WHERE kind='model' AND scope=? AND owner='workspace' AND id='default'`, string(p.Workspace)).Scan(&defaultBody)
 	if controlNoRows(err) {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 	var current ModelConfig
 	if err != nil || s.decode(objectKey{"model", string(p.Workspace), "workspace", "default"}, defaultBody, &current) != nil || validateModelConfig(current) != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM chatbi_objects WHERE kind='model-secondary' AND scope=? AND owner='workspace'`, string(p.Workspace)).Scan(&count); err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	if count >= 100 {
-		return ErrConflict
+		return "", ErrConflict
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
 		key.Kind, key.Scope, key.Owner, key.ID, sealed)
 	if err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	changed, err := result.RowsAffected()
 	if err != nil || changed != 1 {
-		return ErrConflict
+		return "", ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`,
 		auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	if tx.Commit() != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
-	return nil
+	return id, nil
 }
 
 func (s *Store) UpdateAdditionalWorkspaceModel(ctx context.Context, p Principal, id ID, update WorkspaceModelUpdate) error {

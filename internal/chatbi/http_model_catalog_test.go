@@ -372,6 +372,25 @@ func TestOriginalAlibabaAndSparkBrowserModelPersistence(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("original supplier %d create: %d %s", tc.supplier, response.Code, response.Body.String())
 		}
+		var created struct {
+			Data struct {
+				ID           string `json:"id"`
+				Supplier     int    `json:"supplier"`
+				DefaultModel bool   `json:"default_model"`
+				APIDomain    string `json:"api_domain"`
+				Config       string `json:"config"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(response.Body.Bytes(), &created) != nil || created.Data.ID == "" ||
+			created.Data.Supplier != tc.supplier || created.Data.DefaultModel ||
+			created.Data.APIDomain != endpoint || created.Data.Config == "" ||
+			strings.Contains(response.Body.String(), "https://example.invalid/v1") {
+			t.Fatalf("original supplier %d create response lost ID or exposed endpoint: %s", tc.supplier, response.Body.String())
+		}
+		if detail := accountRequest(t, handler, http.MethodGet,
+			"/api/v1/system/aimodel/"+created.Data.ID, "", adminToken); detail.Code != http.StatusOK {
+			t.Fatalf("original supplier %d cannot read create ID: %d", tc.supplier, detail.Code)
+		}
 	}
 	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
 	if err != nil || len(models) != 2 {
