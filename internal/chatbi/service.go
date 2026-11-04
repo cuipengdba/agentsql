@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -846,6 +847,9 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		if err != nil {
 			return err
 		}
+		// Keep an immutable copy for post-inference comparison. A gateway
+		// implementation may reuse the backing array of its schema result.
+		columns = append([]Column(nil), columns...)
 		fingerprint, err := service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
 		if err != nil {
 			return err
@@ -894,9 +898,48 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 					}
 				}
 			}
+			// Local inference may take minutes on a large authorized schema. A
+			// revocation during a batch must discard its vectors before they are
+			// written to the user-scoped index, not merely before SQL execution.
+			authorizedColumns := columns
+			authorizedRemarks := remarks
+			validateTableIndexSnapshot := func(checkCtx context.Context) error {
+				if err := check(checkCtx); err != nil {
+					return err
+				}
+				if err := service.bindingUnchanged(checkCtx, p, binding, bindingRevision, bindingDigest); err != nil {
+					return err
+				}
+				if err := service.dataPermissionUnchanged(checkCtx, p.Workspace, permissionSnapshot); err != nil {
+					return err
+				}
+				if err := service.modelUnchanged(checkCtx, p.Workspace, model, modelLease); err != nil {
+					return err
+				}
+				if err := service.modelContextUnchanged(checkCtx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+					return err
+				}
+				currentColumns, currentRules, err := service.semanticSchemaWithPermissionSnapshot(checkCtx, p, binding)
+				if err != nil || !slices.Equal(currentColumns, authorizedColumns) || !sameDataPermissionSnapshot(currentRules, permissionSnapshot) {
+					return ErrGateway
+				}
+				currentRemarks, err := managedFileRemarkHints(binding, currentColumns)
+				if databaseBinding(binding) {
+					currentRemarks, err = databaseRemarkHints(binding, currentColumns)
+				}
+				if err != nil || !slices.Equal(currentRemarks, authorizedRemarks) {
+					return ErrGateway
+				}
+				return check(checkCtx)
+			}
 			columns, remarks, err = selectModelTablesIndexedWithKeywords(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
-				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled)
+				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled, validateTableIndexSnapshot)
 			if err != nil {
+				return err
+			}
+			// This also closes the path where inference falls back to the full
+			// schema before it reaches the indexed-vector callback.
+			if err := validateTableIndexSnapshot(ctx); err != nil {
 				return err
 			}
 		}

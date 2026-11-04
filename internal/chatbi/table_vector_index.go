@@ -31,8 +31,18 @@ func (s *Store) tableVectorFingerprint(modelIdentity, text string) string {
 }
 
 func encodeTableVectors(ctx context.Context, model EmbeddingModel, tables []modelTableCandidate) ([][]float32, error) {
+	return encodeTableVectorsChecked(ctx, model, tables, nil)
+}
+
+// The callback is checked around each bounded inference batch. In particular,
+// a revoked schema cannot be committed after a slow local model call.
+func encodeTableVectorsChecked(ctx context.Context, model EmbeddingModel, tables []modelTableCandidate,
+	validate func(context.Context) error) ([][]float32, error) {
 	result := make([][]float32, len(tables))
 	for start := 0; start < len(tables); start += 32 {
+		if err := validateTableIndex(ctx, validate); err != nil {
+			return nil, err
+		}
 		end := min(start+32, len(tables))
 		texts := make([]string, end-start)
 		for index := start; index < end; index++ {
@@ -51,8 +61,25 @@ func encodeTableVectors(ctx context.Context, model EmbeddingModel, tables []mode
 			}
 			result[start+offset] = vector
 		}
+		if err := validateTableIndex(ctx, validate); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
+}
+
+type tableIndexAuthorizationError struct{ error }
+
+func validateTableIndex(ctx context.Context, validate func(context.Context) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if validate != nil {
+		if err := validate(ctx); err != nil {
+			return tableIndexAuthorizationError{err}
+		}
+	}
+	return ctx.Err()
 }
 
 // indexedTableVectors is called only with the current gateway-authorized
@@ -60,11 +87,14 @@ func encodeTableVectors(ctx context.Context, model EmbeddingModel, tables []mode
 // match an old index entry. Storage failure makes preselection keep the entire
 // authorized schema, and the caller rechecks the permission snapshot afterward.
 func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource ID,
-	model EmbeddingModel, tables []modelTableCandidate) ([][]float32, error) {
+	model EmbeddingModel, tables []modelTableCandidate, validate func(context.Context) error) ([][]float32, error) {
+	if err := validateTableIndex(ctx, validate); err != nil {
+		return nil, err
+	}
 	identity, cacheable := model.(interface{ persistentEmbeddingIdentity() string })
 	if s == nil || !cacheable || identity.persistentEmbeddingIdentity() == "" ||
 		!p.Workspace.Valid() || !p.User.ID.Valid() || !datasource.Valid() {
-		return encodeTableVectors(ctx, model, tables)
+		return encodeTableVectorsChecked(ctx, model, tables, validate)
 	}
 	key, err := s.tableVectorFlightKey(p, datasource, identity.persistentEmbeddingIdentity(), tables)
 	if err != nil {
@@ -72,7 +102,7 @@ func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		flight := s.tableVectorFlights.DoChan(key, func() (any, error) {
-			return s.indexedTableVectorsUnshared(ctx, p, datasource, model, tables, identity.persistentEmbeddingIdentity())
+			return s.indexedTableVectorsUnshared(ctx, p, datasource, model, tables, identity.persistentEmbeddingIdentity(), validate)
 		})
 		select {
 		case <-ctx.Done():
@@ -90,6 +120,9 @@ func (s *Store) indexedTableVectors(ctx context.Context, p Principal, datasource
 			vectors, ok := result.Val.([][]float32)
 			if !ok || len(vectors) != len(tables) {
 				return nil, ErrUnavailable
+			}
+			if err := validateTableIndex(ctx, validate); err != nil {
+				return nil, err
 			}
 			return vectors, nil
 		}
@@ -119,7 +152,8 @@ func (s *Store) tableVectorFlightKey(p Principal, datasource ID, modelIdentity s
 }
 
 func (s *Store) indexedTableVectorsUnshared(ctx context.Context, p Principal, datasource ID,
-	model EmbeddingModel, tables []modelTableCandidate, modelIdentity string) ([][]float32, error) {
+	model EmbeddingModel, tables []modelTableCandidate, modelIdentity string,
+	validate func(context.Context) error) ([][]float32, error) {
 	result := make([][]float32, len(tables))
 	keys := make([]objectKey, len(tables))
 	fingerprints := make([]string, len(tables))
@@ -153,7 +187,7 @@ func (s *Store) indexedTableVectorsUnshared(ctx context.Context, p Principal, da
 	for offset, index := range missing {
 		toEncode[offset] = tables[index]
 	}
-	vectors, err := encodeTableVectors(ctx, model, toEncode)
+	vectors, err := encodeTableVectorsChecked(ctx, model, toEncode, validate)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +195,9 @@ func (s *Store) indexedTableVectorsUnshared(ctx context.Context, p Principal, da
 	for offset, index := range missing {
 		result[index] = vectors[offset]
 		writes = append(writes, vectorIndexWrite{keys[index], revisions[index], fingerprints[index], vectors[offset]})
+	}
+	if err := validateTableIndex(ctx, validate); err != nil {
+		return nil, err
 	}
 	if err := s.putVectorBatch(ctx, writes); err != nil {
 		return nil, err

@@ -17,6 +17,33 @@ type indexedTableFixture struct {
 	change   func()
 }
 
+type revokingTableIndexFixture struct {
+	revoke func()
+	calls  [][]string
+}
+
+type failingQueryAfterRevocation struct{ revoke func() }
+
+func (model *failingQueryAfterRevocation) Encode(_ context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 1 {
+		model.revoke()
+		return nil, ErrUnavailable
+	}
+	return (tableFixtureEmbedding{}).Encode(context.Background(), texts)
+}
+
+func (*revokingTableIndexFixture) persistentEmbeddingIdentity() string { return "revocation-test-v1" }
+
+func (model *revokingTableIndexFixture) Encode(ctx context.Context, texts []string) ([][]float32, error) {
+	model.calls = append(model.calls, append([]string(nil), texts...))
+	vectors, err := (tableFixtureEmbedding{}).Encode(ctx, texts)
+	if len(texts) > 1 && model.revoke != nil {
+		model.revoke()
+		model.revoke = nil
+	}
+	return vectors, err
+}
+
 type blockedTableIndexFixture struct {
 	started    chan struct{}
 	release    chan struct{}
@@ -348,5 +375,86 @@ func TestWarmTableIndexDoesNotBypassPermissionRevocation(t *testing.T) {
 	if _, err := service.Ask(ctx, principal, chat.ID, "sales", check, nil); !errors.Is(err, ErrGateway) ||
 		len(model.columns) != 0 || gateway.queries != 0 {
 		t.Fatalf("warm index let revoked schema reach model/query: columns=%v queries=%d err=%v", model.columns, gateway.queries, err)
+	}
+}
+
+func TestRevokedSchemaDuringTableInferenceCannotPersistIndex(t *testing.T) {
+	for _, changed := range []string{"row_rule", "visible_column"} {
+		t.Run(changed, func(t *testing.T) {
+			ctx := context.Background()
+			service, principal, gateway, _, token := serviceFixture(t)
+			gateway.columns = []Column{
+				{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+				{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+				{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"},
+			}
+			settings := defaultChatSettings()
+			settings.Embedding.TableCount = 1
+			if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+				t.Fatal(err)
+			}
+			var rule DataPermissionRule
+			if changed == "row_rule" {
+				rule = testActiveRowPermission(t, "east")
+				if err := service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			embedding := &revokingTableIndexFixture{revoke: func() {
+				if changed == "row_rule" {
+					rule.Enable = false
+					if err := service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 1); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					gateway.columns[0].Name = "renamed_amount"
+				}
+			}}
+			service.Embedding = embedding
+			chat, err := service.Start(ctx, principal, "10", "weather", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+			if _, err := service.Ask(ctx, principal, chat.ID, "weather forecast", check, nil); !errors.Is(err, ErrGateway) {
+				t.Fatalf("changed authorization was not rejected: %v; calls=%q", err, embedding.calls)
+			}
+			var persisted int
+			if err := service.Store.db.QueryRowContext(ctx,
+				`SELECT count(*) FROM chatbi_objects WHERE kind='table-vector-v1'`).Scan(&persisted); err != nil || persisted != 0 {
+				t.Fatalf("revoked snapshot persisted index: count=%d err=%v", persisted, err)
+			}
+			if gateway.queries != 0 {
+				t.Fatalf("revoked snapshot reached database: %d queries", gateway.queries)
+			}
+		})
+	}
+}
+
+func TestInferenceFallbackCannotUseRevokedSchema(t *testing.T) {
+	ctx := context.Background()
+	service, principal, gateway, model, token := serviceFixture(t)
+	gateway.columns = []Column{
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"},
+	}
+	settings := defaultChatSettings()
+	settings.Embedding.TableCount = 1
+	if err := service.Store.put(ctx, chatSettingsKey(), settings, 0); err != nil {
+		t.Fatal(err)
+	}
+	service.Embedding = &failingQueryAfterRevocation{revoke: func() {
+		gateway.columns[0].Name = "renamed_amount"
+	}}
+	chat, err := service.Start(ctx, principal, "10", "weather", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	if _, err := service.Ask(ctx, principal, chat.ID, "weather forecast", check, nil); !errors.Is(err, ErrGateway) {
+		t.Fatalf("fallback used a changed schema: %v", err)
+	}
+	if model.calls != 0 || gateway.queries != 0 {
+		t.Fatalf("fallback reached model or database: model=%d queries=%d", model.calls, gateway.queries)
 	}
 }

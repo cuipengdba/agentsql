@@ -2,6 +2,7 @@ package chatbi
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sort"
 	"strings"
@@ -37,10 +38,14 @@ func selectModelTablesIndexed(ctx context.Context, store *Store, p Principal, da
 
 func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
 	question, keywords string, columns []Column, remarks []RemarkHint, limit int, alpha float64,
-	keywordEnabled bool) ([]Column, []RemarkHint, error) {
+	keywordEnabled bool, validator ...func(context.Context) error) ([]Column, []RemarkHint, error) {
+	var validate func(context.Context) error
+	if len(validator) != 0 {
+		validate = validator[0]
+	}
 	return selectModelTablesWithKeywords(ctx, model, question, keywords, columns, remarks, limit, alpha, keywordEnabled,
 		func(ctx context.Context, tables []modelTableCandidate) ([][]float32, error) {
-			return store.indexedTableVectors(ctx, p, datasource, model, tables)
+			return store.indexedTableVectors(ctx, p, datasource, model, tables, validate)
 		})
 }
 
@@ -59,64 +64,9 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 	if !validSimilarity(alpha) {
 		return nil, nil, ErrUnavailable
 	}
-	tables := make([]modelTableCandidate, 0)
-	positions := make(map[string]int)
-	for _, column := range columns {
-		key := column.Schema + "\x00" + column.Table
-		index, found := positions[key]
-		if !found {
-			index = len(tables)
-			positions[key] = index
-			tables = append(tables, modelTableCandidate{key: key, name: column.Table, index: index})
-		}
-		tables[index].fields = append(tables[index].fields, column)
-	}
-	if len(tables) <= limit || len(tables) > 500 {
+	tables, fieldComments, ok := authorizedTableCandidates(columns, remarks, limit)
+	if !ok {
 		return columns, remarks, nil
-	}
-	fieldComments := make(map[string]map[string]string)
-	for _, remark := range remarks {
-		if index, found := positions[remark.Schema+"\x00"+remark.Table]; found {
-			if remark.Column == "" {
-				tables[index].comment = remark.Remark
-			} else {
-				key := tables[index].key
-				if fieldComments[key] == nil {
-					fieldComments[key] = make(map[string]string)
-				}
-				fieldComments[key][remark.Column] = remark.Remark
-			}
-		}
-	}
-	for index := range tables {
-		table := &tables[index]
-		var text strings.Builder
-		text.WriteString("# Table: ")
-		text.WriteString(table.name)
-		if table.comment != "" {
-			text.WriteString(", ")
-			text.WriteString(table.comment)
-		}
-		text.WriteString("\n[\n")
-		for offset, field := range table.fields {
-			if offset > 0 {
-				text.WriteString(",\n")
-			}
-			text.WriteString("(")
-			text.WriteString(field.Name)
-			text.WriteString(":")
-			text.WriteString(field.DataType)
-			if comment := fieldComments[table.key][field.Name]; comment != "" {
-				text.WriteString(", ")
-				text.WriteString(comment)
-			}
-			text.WriteString(")")
-		}
-		text.WriteString("\n]\n")
-		table.text = text.String()
-		if len(table.text) == 0 || len(table.text) > 4096 {
-			return columns, remarks, nil
-		}
 	}
 	vectorQuery := question
 	if keywordEnabled && keywords != "" {
@@ -132,6 +82,10 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 	if indexed != nil {
 		vectors, err := indexed(ctx, tables)
 		if err != nil || len(vectors) != len(tables) {
+			var authorization tableIndexAuthorizationError
+			if errors.As(err, &authorization) {
+				return nil, nil, authorization.error
+			}
 			if ctx.Err() != nil {
 				return nil, nil, ctx.Err()
 			}
@@ -191,6 +145,72 @@ func selectModelTablesWithKeywords(ctx context.Context, model EmbeddingModel, qu
 		}
 	}
 	return filteredColumns, filteredRemarks, nil
+}
+
+// authorizedTableCandidates is shared by live preselection and background
+// prewarming. Both paths must derive exactly the same texts from the currently
+// authorized columns and remarks, so an old or broader index cannot match.
+func authorizedTableCandidates(columns []Column, remarks []RemarkHint, minTables int) ([]modelTableCandidate, map[string]map[string]string, bool) {
+	tables := make([]modelTableCandidate, 0)
+	positions := make(map[string]int)
+	for _, column := range columns {
+		key := column.Schema + "\x00" + column.Table
+		index, found := positions[key]
+		if !found {
+			index = len(tables)
+			positions[key] = index
+			tables = append(tables, modelTableCandidate{key: key, name: column.Table, index: index})
+		}
+		tables[index].fields = append(tables[index].fields, column)
+	}
+	if len(tables) <= minTables || len(tables) > 500 {
+		return nil, nil, false
+	}
+	fieldComments := make(map[string]map[string]string)
+	for _, remark := range remarks {
+		if index, found := positions[remark.Schema+"\x00"+remark.Table]; found {
+			if remark.Column == "" {
+				tables[index].comment = remark.Remark
+			} else {
+				key := tables[index].key
+				if fieldComments[key] == nil {
+					fieldComments[key] = make(map[string]string)
+				}
+				fieldComments[key][remark.Column] = remark.Remark
+			}
+		}
+	}
+	for index := range tables {
+		table := &tables[index]
+		var text strings.Builder
+		text.WriteString("# Table: ")
+		text.WriteString(table.name)
+		if table.comment != "" {
+			text.WriteString(", ")
+			text.WriteString(table.comment)
+		}
+		text.WriteString("\n[\n")
+		for offset, field := range table.fields {
+			if offset > 0 {
+				text.WriteString(",\n")
+			}
+			text.WriteString("(")
+			text.WriteString(field.Name)
+			text.WriteString(":")
+			text.WriteString(field.DataType)
+			if comment := fieldComments[table.key][field.Name]; comment != "" {
+				text.WriteString(", ")
+				text.WriteString(comment)
+			}
+			text.WriteString(")")
+		}
+		text.WriteString("\n]\n")
+		table.text = text.String()
+		if len(table.text) == 0 || len(table.text) > 4096 {
+			return nil, nil, false
+		}
+	}
+	return tables, fieldComments, true
 }
 
 func rankModelTables(tables []modelTableCandidate, alpha float64, keywordEnabled bool) {
