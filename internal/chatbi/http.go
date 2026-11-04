@@ -143,6 +143,7 @@ func NewHandlerWithLimit(service *Service, version string, limit int) (http.Hand
 	h.mux.HandleFunc("POST /api/v1/sys_variable/save", h.auth(h.systemVariableSave))
 	h.mux.HandleFunc("POST /api/v1/sys_variable/delete", h.auth(h.systemVariableDelete))
 	h.mux.HandleFunc("GET /api/v1/datasource/list", h.auth(h.datasources))
+	h.mux.HandleFunc("GET /api/v1/agentsql/table-index/{id}", h.auth(h.tableIndexPrewarmStatus))
 	h.mux.HandleFunc("POST /api/v1/datasource/fieldEnum/{datasourceID}/{fieldID}", h.bounded(h.auth(h.datasourceFieldEnum)))
 	h.mux.HandleFunc("GET /api/v1/datasource/ws/{oid}", h.auth(h.assistantWorkspaceSources))
 	h.mux.HandleFunc("GET /api/v1/system/aimodel/list/by_ws", h.auth(h.assistantWorkspaceModels))
@@ -699,7 +700,7 @@ func (h *Handler) userWorkspaces(w http.ResponseWriter, _ *http.Request, p Princ
 	}
 	okay(w, result)
 }
-func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.live(r.Context(), p); err != nil {
 		failure(w, err)
 		return
@@ -710,6 +711,7 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 		return
 	}
 	result := make([]map[string]any, 0, len(items))
+	visibleSources := make([]ID, 0, len(items))
 	for _, raw := range items {
 		var b Binding
 		if json.Unmarshal(raw, &b) != nil || b.Workspace != p.Workspace || b.User != p.User.ID {
@@ -723,6 +725,7 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			failure(w, err)
 			return
 		}
+		visibleSources = append(visibleSources, b.Datasource)
 		recommendationMode, err := h.service.recommendationDisplayMode(r.Context(), p, b.Datasource)
 		if err != nil {
 			failure(w, err)
@@ -761,9 +764,14 @@ func (h *Handler) datasources(w http.ResponseWriter, r *http.Request, p Principa
 			"description": b.Description, "configuration": configuration, "recommended_config": recommendationMode, "status": "Success"})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i]["name"].(string) < result[j]["name"].(string) })
-	if err := h.service.live(r.Context(), p); err != nil {
+	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
+	}
+	for _, datasource := range visibleSources {
+		h.service.QueueTableIndexPrewarm(p, datasource, func(ctx context.Context) error {
+			return h.currentIdentity(ctx, p, token)
+		})
 	}
 	okay(w, result)
 }

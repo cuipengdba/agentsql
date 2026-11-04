@@ -108,7 +108,7 @@ func TestQuestionHistoryExcludesFailuresAndOtherChats(t *testing.T) {
 		t.Fatal("failed or out-of-order turn included in context")
 	}
 	if gateway.schemaCalls != 7 { // Two chat starts and all five questions.
-		t.Fatal("current authorized schema was not fetched for every turn")
+		t.Fatalf("current authorized schema was not fetched for every turn: %d calls", gateway.schemaCalls)
 	}
 	revision, err := s.Store.get(ctx, bindingKey(p, "10"), new(Binding))
 	if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {

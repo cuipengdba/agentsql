@@ -233,6 +233,67 @@ func TestLocalEmbeddingModelPersistentTableIndexAfterModelRestart(t *testing.T) 
 		count, coldElapsed, warmElapsed, cold.durations, warm.durations)
 }
 
+func TestLocalEmbeddingModelAuthorizedPrewarmThenSelect(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	count := 32
+	if raw := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_TABLE_COUNT"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 32 || parsed > 500 {
+			t.Fatalf("invalid local table count %q", raw)
+		}
+		count = parsed
+	}
+	ctx := context.Background()
+	service, principal, gateway, _, token := serviceFixture(t)
+	columns := make([]Column, count)
+	for index := range columns {
+		columns[index] = Column{Schema: "public", Table: fmt.Sprintf("orders_%02d", index),
+			Name: "revenue_amount", DataType: "numeric"}
+	}
+	columns[17] = Column{Schema: "public", Table: "weather", Name: "forecast_temperature", DataType: "text"}
+	gateway.columns = columns
+	local, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	service.Embedding = local
+	stop := service.EnableTableIndexPrewarm(ctx)
+	defer stop()
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	start := time.Now()
+	if !service.QueueTableIndexPrewarm(principal, "10", check) {
+		t.Fatal("prewarm was not queued")
+	}
+	deadline := time.After(5 * time.Minute)
+	for {
+		status := service.TableIndexPrewarmStatus(principal, "10")
+		if status.State == "ready" {
+			break
+		}
+		if status.State == "failed" || status.State == "cancelled" {
+			t.Fatalf("real model prewarm failed: %+v", status)
+		}
+		select {
+		case <-deadline:
+			t.Fatal("real model prewarm timed out")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	prewarmElapsed := time.Since(start)
+	start = time.Now()
+	selected, _, err := selectModelTablesIndexed(ctx, service.Store, principal, "10", local,
+		"weather forecast", columns, nil, 1, 1, false)
+	firstAfterReady := time.Since(start)
+	if err != nil || len(selected) != 1 || selected[0].Table != "weather" {
+		t.Fatalf("prewarmed schema selected wrong table: %v %v", selected, err)
+	}
+	t.Logf("%d authorized tables: prewarm=%s, first selection after ready=%s", count, prewarmElapsed, firstAfterReady)
+}
+
 // Run locally with the pinned model asset; CI has no model weights.
 func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")

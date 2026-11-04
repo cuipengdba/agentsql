@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +68,7 @@ type Service struct {
 	Model                 Generator
 	Embedding             EmbeddingModel
 	ManagedFileDatasource ID
+	indexPrewarmer        *tableIndexPrewarmer
 }
 
 func newID() (ID, error) {
@@ -866,7 +866,7 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			return err
 		}
 		semanticQuery := question
-		if settings.Embedding.TableEnabled {
+		if settings.Embedding.TableEnabled && service.Embedding != nil {
 			keywords := question
 			if settings.Embedding.KeywordEnabled && service.Embedding != nil {
 				if extractor, ok := service.Model.(TableKeywordExtractor); ok {
@@ -903,35 +903,8 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			// written to the user-scoped index, not merely before SQL execution.
 			authorizedColumns := columns
 			authorizedRemarks := remarks
-			validateTableIndexSnapshot := func(checkCtx context.Context) error {
-				if err := check(checkCtx); err != nil {
-					return err
-				}
-				if err := service.bindingUnchanged(checkCtx, p, binding, bindingRevision, bindingDigest); err != nil {
-					return err
-				}
-				if err := service.dataPermissionUnchanged(checkCtx, p.Workspace, permissionSnapshot); err != nil {
-					return err
-				}
-				if err := service.modelUnchanged(checkCtx, p.Workspace, model, modelLease); err != nil {
-					return err
-				}
-				if err := service.modelContextUnchanged(checkCtx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
-					return err
-				}
-				currentColumns, currentRules, err := service.semanticSchemaWithPermissionSnapshot(checkCtx, p, binding)
-				if err != nil || !slices.Equal(currentColumns, authorizedColumns) || !sameDataPermissionSnapshot(currentRules, permissionSnapshot) {
-					return ErrGateway
-				}
-				currentRemarks, err := managedFileRemarkHints(binding, currentColumns)
-				if databaseBinding(binding) {
-					currentRemarks, err = databaseRemarkHints(binding, currentColumns)
-				}
-				if err != nil || !slices.Equal(currentRemarks, authorizedRemarks) {
-					return ErrGateway
-				}
-				return check(checkCtx)
-			}
+			validateTableIndexSnapshot := service.tableIndexValidator(p, binding, bindingRevision, bindingDigest,
+				permissionSnapshot, authorizedColumns, authorizedRemarks, model, modelLease, fingerprint, check)
 			columns, remarks, err = selectModelTablesIndexedWithKeywords(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
 				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled, validateTableIndexSnapshot)
 			if err != nil {

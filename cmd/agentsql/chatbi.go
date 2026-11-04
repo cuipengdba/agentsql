@@ -78,6 +78,8 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 			service.Embedding = embedding
 			defer embedding.Close()
 		}
+		stopIndexPrewarm := service.EnableTableIndexPrewarm(ctx)
+		defer stopIndexPrewarm()
 		handler, err := chatbi.NewHandlerWithLimit(service, version.Version, config.MaxDataRequests)
 		if err != nil {
 			return err
