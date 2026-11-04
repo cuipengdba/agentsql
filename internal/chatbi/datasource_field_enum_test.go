@@ -137,3 +137,34 @@ func TestFieldEnumCannotBypassActiveRowOrColumnPermission(t *testing.T) {
 		t.Fatalf("hidden column enum reached gateway: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestFieldEnumDropsValuesWhenRowPermissionChangesDuringQuery(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	rule := testActiveRowPermission(t, "east")
+	key := permissionRuleKey(principal.Workspace, rule.ID)
+	if err := service.Store.put(context.Background(), key, rule, 0); err != nil {
+		t.Fatal(err)
+	}
+	gateway.afterQuery = func() {
+		gateway.afterQuery = nil
+		changed := testActiveRowPermission(t, "west")
+		if err := service.Store.put(context.Background(), key, changed, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldID := strconv.FormatInt(browserFieldID(browserTableID("10", "public", "sales"), "amount"), 10)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/fieldEnum/10/"+fieldID, nil)
+	r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code == http.StatusOK || strings.Contains(w.Body.String(), "123") || gateway.queries != 1 ||
+		!strings.Contains(gateway.lastQuery, "region = 'east'") {
+		t.Fatalf("field enum released a result from a stale rule: %d %s sql=%s", w.Code, w.Body.String(), gateway.lastQuery)
+	}
+}
