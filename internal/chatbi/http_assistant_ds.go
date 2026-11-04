@@ -1,6 +1,7 @@
 package chatbi
 
 import (
+	"context"
 	"net/http"
 )
 
@@ -59,6 +60,11 @@ func (h *Handler) publicAssistantDatasources(w http.ResponseWriter, r *http.Requ
 	if err := h.currentIdentity(r.Context(), p, token); err != nil {
 		failure(w, err)
 		return
+	}
+	for _, datasource := range app.DatasourceIDs {
+		h.service.QueueTableIndexPrewarm(p, datasource, func(ctx context.Context) error {
+			return h.currentIdentity(ctx, p, token)
+		})
 	}
 	okay(w, result)
 }
