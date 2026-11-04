@@ -1269,7 +1269,7 @@
     {
       "source": "docs/v4.5.0-design.md",
       "english": "docs/en/v4.5.0-design.md",
-      "source_sha256": "9308be1a5b1839ab2885e6659323d3bac8002d7caab4d4a9eb63a39a2e8457cc"
+        "source_sha256": "9e2868850bcc88b4f610d91d22afb1655a6e410a70ad24bfd4872d0f2e64b404"
     },
     {
       "source": "docs/v4.5.0-offline-delivery.md",
