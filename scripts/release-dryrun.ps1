@@ -31,6 +31,9 @@ param(
 
     [string]$BuildDnsServer,
 
+    [ValidateSet('official', 'aliyun')]
+    [string]$RockyMirror = 'official',
+
     [switch]$ValidateOnly
 )
 
@@ -648,9 +651,10 @@ if ($BuildDnsServer) {
         throw '-BuildDnsServer must be a valid IPv4 address.'
     }
 }
-# The upstream mirrorlist can select a very slow mirror for this build host.
 # Keep Rocky's gpgcheck=1 and only replace the repository download URLs.
-$rockyMirrorSetup = 'sed -i -e ''s|^mirrorlist=|#mirrorlist=|'' -e ''s|^#baseurl=http://dl.rockylinux.org/\$contentdir/|baseurl=https://dl.rockylinux.org/pub/rocky/|'' /etc/yum.repos.d/Rocky-*.repo'
+# The alternative mirror is opt-in when the official CDN stalls on this host.
+$rockyMirrorBase = if ($RockyMirror -eq 'aliyun') { 'https://mirrors.aliyun.com/rockylinux/' } else { 'https://dl.rockylinux.org/pub/rocky/' }
+$rockyMirrorSetup = 'sed -i -e ''s|^mirrorlist=|#mirrorlist=|'' -e ''s|^#baseurl=http://dl.rockylinux.org/\$contentdir/|baseurl=' + $rockyMirrorBase + '|'' /etc/yum.repos.d/Rocky-*.repo'
 foreach ($architecture in @('amd64', 'arm64')) {
     Write-Host "==> Building and packaging linux/$architecture with $RockyImage"
     $containerCommand = "$rockyMirrorSetup && $releaseDnf && tr -d '\r' < /buildscripts/build-release-linux.sh | sh && tr -d '\r' < /buildscripts/package-release.sh | sh && /usr/local/go/bin/go version -m /src/bin/agentsql-linux-$architecture /src/bin/agentsqlctl-linux-$architecture > /src/dist/go-version-metadata-$architecture.txt"
