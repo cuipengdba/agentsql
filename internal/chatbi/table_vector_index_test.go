@@ -67,6 +67,118 @@ func (model *blockedTableIndexFixture) Encode(ctx context.Context, texts []strin
 	return tableFixtureEmbedding{}.Encode(ctx, texts)
 }
 
+func TestForegroundColdIndexBudgetKeepsOnlyCurrentlyAuthorizedFullSchema(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	start := time.Now()
+	selected, _, err := selectModelTablesForAsk(ctx, store, p, "10", model,
+		"weather forecast", "weather forecast", columns, nil, 1, 1, false,
+		50*time.Millisecond, func(context.Context) error { return nil })
+	if err != nil || len(selected) != len(columns) || time.Since(start) > 2*time.Second {
+		t.Fatalf("cold foreground selection did not keep the authorized full schema promptly: %v %v", selected, err)
+	}
+	var persisted int
+	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM chatbi_objects WHERE kind='table-vector-v1'`).Scan(&persisted); err != nil || persisted != 0 {
+		t.Fatalf("cancelled foreground build wrote vectors: count=%d err=%v", persisted, err)
+	}
+}
+
+func TestForegroundColdIndexBudgetDoesNotHideRevocation(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	var revoked atomic.Bool
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := selectModelTablesForAsk(ctx, store, p, "10", model,
+			"weather forecast", "weather forecast", columns, nil, 1, 1, false,
+			100*time.Millisecond, func(context.Context) error {
+				if revoked.Load() {
+					return ErrGateway
+				}
+				return nil
+			})
+		result <- err
+	}()
+	select {
+	case <-model.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cold index build did not start")
+	}
+	revoked.Store(true)
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrGateway) {
+			t.Fatalf("revocation was hidden by cold-index timeout: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("revoked selection did not return")
+	}
+	var persisted int
+	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM chatbi_objects WHERE kind='table-vector-v1'`).Scan(&persisted); err != nil || persisted != 0 {
+		t.Fatalf("revoked cold index wrote vectors: count=%d err=%v", persisted, err)
+	}
+}
+
+func TestBackgroundIndexRetriesAfterForegroundBudgetExpires(t *testing.T) {
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"},
+		{Schema: "public", Table: "weather", Name: "forecast", DataType: "text"}}
+	model := &blockedTableIndexFixture{started: make(chan struct{}), release: make(chan struct{})}
+	foreground := make(chan error, 1)
+	go func() {
+		selected, _, err := selectModelTablesForAsk(ctx, store, p, "10", model,
+			"weather forecast", "weather forecast", columns, nil, 1, 1, false,
+			500*time.Millisecond, func(context.Context) error { return nil })
+		if err == nil && len(selected) != len(columns) {
+			err = ErrUnavailable
+		}
+		foreground <- err
+	}()
+	select {
+	case <-model.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("foreground cold build did not start")
+	}
+	background := make(chan error, 1)
+	go func() {
+		selected, _, err := selectModelTablesIndexed(ctx, store, p, "10", model,
+			"weather forecast", columns, nil, 1, 1, false)
+		if err == nil && (len(selected) != 1 || selected[0].Table != "weather") {
+			err = ErrUnavailable
+		}
+		background <- err
+	}()
+	select {
+	case err := <-foreground:
+		if err != nil {
+			t.Fatalf("foreground fallback failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("foreground budget did not expire")
+	}
+	select {
+	case err := <-background:
+		if err != nil {
+			t.Fatalf("background retry failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("background did not retry cancelled foreground index flight")
+	}
+	if calls := model.tableCalls.Load(); calls != 2 {
+		t.Fatalf("expected cancelled foreground and successful background batches, got %d", calls)
+	}
+}
+
 func TestConcurrentAuthorizedTableIndexBuildIsSharedAndCancellable(t *testing.T) {
 	ctx := context.Background()
 	store := testStore(t)

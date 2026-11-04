@@ -905,8 +905,9 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 			authorizedRemarks := remarks
 			validateTableIndexSnapshot := service.tableIndexValidator(p, binding, bindingRevision, bindingDigest,
 				permissionSnapshot, authorizedColumns, authorizedRemarks, model, modelLease, fingerprint, check)
-			columns, remarks, err = selectModelTablesIndexedWithKeywords(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
-				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled, validateTableIndexSnapshot)
+			columns, remarks, err = selectModelTablesForAsk(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
+				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled,
+				foregroundTableIndexBudget, validateTableIndexSnapshot)
 			if err != nil {
 				return err
 			}

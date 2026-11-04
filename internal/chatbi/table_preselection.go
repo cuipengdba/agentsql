@@ -6,7 +6,10 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 )
+
+const foregroundTableIndexBudget = 10 * time.Second
 
 type modelTableCandidate struct {
 	key      string
@@ -47,6 +50,29 @@ func selectModelTablesIndexedWithKeywords(ctx context.Context, store *Store, p P
 		func(ctx context.Context, tables []modelTableCandidate) ([][]float32, error) {
 			return store.indexedTableVectors(ctx, p, datasource, model, tables, validate)
 		})
+}
+
+// A first question must not wait for a cold, large local index. On the local
+// budget expiry, keep the entire schema that the gateway just authorized.
+// The caller still validates its permission and model snapshot before the
+// prompt, query and response. The background prewarm may continue separately.
+func selectModelTablesForAsk(ctx context.Context, store *Store, p Principal, datasource ID, model EmbeddingModel,
+	question, keywords string, columns []Column, remarks []RemarkHint, limit int, alpha float64,
+	keywordEnabled bool, budget time.Duration, validate func(context.Context) error) ([]Column, []RemarkHint, error) {
+	selectionCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	selectedColumns, selectedRemarks, err := selectModelTablesIndexedWithKeywords(selectionCtx, store, p, datasource, model,
+		question, keywords, columns, remarks, limit, alpha, keywordEnabled, validate)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil &&
+		errors.Is(selectionCtx.Err(), context.DeadlineExceeded) {
+		if validate != nil {
+			if err := validate(ctx); err != nil {
+				return nil, nil, err
+			}
+		}
+		return columns, remarks, nil
+	}
+	return selectedColumns, selectedRemarks, err
 }
 
 func selectModelTablesWithVectors(ctx context.Context, model EmbeddingModel, question string, columns []Column,

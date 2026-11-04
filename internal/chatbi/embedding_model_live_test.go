@@ -294,6 +294,42 @@ func TestLocalEmbeddingModelAuthorizedPrewarmThenSelect(t *testing.T) {
 	t.Logf("%d authorized tables: prewarm=%s, first selection after ready=%s", count, prewarmElapsed, firstAfterReady)
 }
 
+func TestLocalEmbeddingModelColdForegroundBudget(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	ctx := context.Background()
+	store := testStore(t)
+	p := Principal{Workspace: "1", User: User{ID: "1"}}
+	columns := make([]Column, 128)
+	for index := range columns {
+		columns[index] = Column{Schema: "public", Table: fmt.Sprintf("orders_%03d", index),
+			Name: "amount", DataType: "numeric"}
+	}
+	local, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	start := time.Now()
+	selected, _, err := selectModelTablesForAsk(ctx, store, p, "10", local,
+		"Count rows in orders_017", "Count rows in orders_017", columns, nil,
+		1, 1, false, foregroundTableIndexBudget, func(context.Context) error { return nil })
+	elapsed := time.Since(start)
+	if err != nil || len(selected) != len(columns) {
+		t.Fatalf("cold foreground selection did not preserve all authorized tables: count=%d err=%v", len(selected), err)
+	}
+	if elapsed > 45*time.Second {
+		t.Fatalf("foreground index budget exceeded model batch bound: %s", elapsed)
+	}
+	var persisted int
+	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM chatbi_objects WHERE kind='table-vector-v1'`).Scan(&persisted); err != nil || persisted != 0 {
+		t.Fatalf("timed out cold selection persisted an incomplete index: count=%d err=%v", persisted, err)
+	}
+	t.Logf("128 authorized tables: cold foreground full-schema fallback=%s", elapsed)
+}
+
 // Run locally with the pinned model asset; CI has no model weights.
 func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
