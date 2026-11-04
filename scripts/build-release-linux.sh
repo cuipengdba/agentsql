@@ -37,10 +37,21 @@ ldd --version
 
 dnf -y install --nodocs --setopt=install_weak_deps=False gcc glibc-devel glibc-common curl binutils file findutils gawk tar gzip grep sed
 
-curl -fsSL -o /tmp/go-releases.json "https://go.dev/dl/?mode=json&include=all"
 go_filename="go${GO_VERSION}.linux-${ARCH}.tar.gz"
-curl -fsSL -o /tmp/go.tgz "https://mirrors.aliyun.com/golang/${go_filename}"
-expected_go_sha=$(awk -v wanted="$go_filename" '
+if [ -n "${GO_RELEASE_CACHE:-}" ]; then
+  # Digests from https://go.dev/dl/?mode=json&include=all for go1.26.10.
+  # A caller-provided archive must not become a new trust root.
+  case "${GO_VERSION}/${ARCH}" in
+    1.26.10/amd64) expected_go_sha=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 ;;
+    1.26.10/arm64) expected_go_sha=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797 ;;
+    *) die "No pinned digest for cached Go toolchain ${GO_VERSION}/${ARCH}." ;;
+  esac
+  [ -f "${GO_RELEASE_CACHE}/${go_filename}" ] || die "Cached Go toolchain is missing: ${go_filename}."
+  cp "${GO_RELEASE_CACHE}/${go_filename}" /tmp/go.tgz
+else
+  curl -fsSL -o /tmp/go-releases.json "https://go.dev/dl/?mode=json&include=all"
+  curl -fsSL -o /tmp/go.tgz "https://mirrors.aliyun.com/golang/${go_filename}"
+  expected_go_sha=$(awk -v wanted="$go_filename" '
   index($0, "\"filename\": \"" wanted "\"") { found = 1; next }
   found && /"sha256":/ {
     value = $0
@@ -50,16 +61,15 @@ expected_go_sha=$(awk -v wanted="$go_filename" '
     exit
   }
 ' /tmp/go-releases.json)
-if ! printf '%s\n' "$expected_go_sha" | grep -E '^[0-9A-Fa-f]{64}$' >/dev/null 2>&1; then
-  echo "ERROR: the official go.dev release manifest has no valid SHA-256 for $go_filename" >&2
-  exit 1
 fi
+printf '%s\n' "$expected_go_sha" | grep -E '^[0-9A-Fa-f]{64}$' >/dev/null 2>&1 \
+  || die "No valid official SHA-256 is available for $go_filename."
 actual_go_sha=$(sha256sum /tmp/go.tgz | awk '{print $1}')
 printf 'Go tarball: %s\nExpected SHA-256: %s\nActual SHA-256:   %s\n' "$go_filename" "$expected_go_sha" "$actual_go_sha"
 if [ "$actual_go_sha" != "$expected_go_sha" ]; then
   die "Go tarball SHA-256 does not match the official go.dev digest for $go_filename."
 fi
-echo "Go tarball SHA-256 verified against go.dev: $go_filename"
+echo "Go tarball SHA-256 verified against the official digest: $go_filename"
 tar -C /usr/local -xzf /tmp/go.tgz
 export PATH="/usr/local/go/bin:$PATH"
 export GOROOT=/usr/local/go

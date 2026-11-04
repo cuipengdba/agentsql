@@ -31,6 +31,8 @@ param(
 
     [string]$BuildDnsServer,
 
+    [string]$GoReleaseCachePath,
+
     [ValidateSet('official', 'aliyun')]
     [string]$RockyMirror = 'official',
 
@@ -678,6 +680,17 @@ foreach ($architecture in @('amd64', 'arm64')) {
     }
     if ($BuildDnsServer) {
         $dockerArguments += @('--dns', $BuildDnsServer)
+    }
+    if ($GoReleaseCachePath) {
+        $goReleaseCache = [System.IO.Path]::GetFullPath($GoReleaseCachePath)
+        if (-not (Test-Path -LiteralPath $goReleaseCache -PathType Container)) {
+            throw "Go release cache directory is missing: $goReleaseCache"
+        }
+        $goArchive = Join-Path $goReleaseCache "go1.26.10.linux-$architecture.tar.gz"
+        if (-not (Test-Path -LiteralPath $goArchive -PathType Leaf)) {
+            throw "Go release cache archive is missing: $goArchive"
+        }
+        $dockerArguments += @('-v', "${goReleaseCache}:/go-release-cache:ro", '-e', 'GO_RELEASE_CACHE=/go-release-cache')
     }
     $dockerArguments += @($RockyImage, 'sh', '-c', $containerCommand)
     & docker @dockerArguments
