@@ -330,6 +330,43 @@ func TestLocalEmbeddingModelColdForegroundBudget(t *testing.T) {
 	t.Logf("128 authorized tables: cold foreground full-schema fallback=%s", elapsed)
 }
 
+func TestLocalEmbeddingModelColdAskUsesAuthorizedFallback(t *testing.T) {
+	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
+	if path == "" {
+		t.Skip("local embedding model is not configured")
+	}
+	ctx := context.Background()
+	service, principal, gateway, sqlModel, token := serviceFixture(t)
+	columns := make([]Column, 128)
+	columns[0] = Column{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}
+	for index := 1; index < len(columns); index++ {
+		columns[index] = Column{Schema: "public", Table: fmt.Sprintf("orders_%03d", index),
+			Name: "amount", DataType: "numeric"}
+	}
+	gateway.columns = columns
+	local, err := NewLocalEmbeddingModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	service.Embedding = local
+	chat, err := service.Start(ctx, principal, "10", "Count rows in sales", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+	start := time.Now()
+	result, err := service.Ask(ctx, principal, chat.ID, "Count rows in sales", check, nil)
+	elapsed := time.Since(start)
+	if err != nil || result.Data == nil || gateway.queries != 1 || sqlModel.calls != 1 {
+		t.Fatalf("cold Ask did not continue through model and controlled query: elapsed=%s queries=%d model=%d err=%v", elapsed, gateway.queries, sqlModel.calls, err)
+	}
+	if elapsed > 30*time.Second {
+		t.Fatalf("cold Ask exceeded foreground budget and fixture overhead: %s", elapsed)
+	}
+	t.Logf("128 authorized tables: cold Ask with real ONNX embedding and synthetic SQL model/gateway=%s", elapsed)
+}
+
 // Run locally with the pinned model asset; CI has no model weights.
 func TestLocalEmbeddingModelMatchesPinnedSQLBotScores(t *testing.T) {
 	path := os.Getenv("AGENTSQL_LOCAL_EMBEDDING_MODEL")
