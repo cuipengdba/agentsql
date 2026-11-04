@@ -29,6 +29,8 @@ param(
 
     [string]$PythonExecutable,
 
+    [string]$BuildDnsServer,
+
     [switch]$ValidateOnly
 )
 
@@ -639,6 +641,13 @@ New-Item -ItemType Directory -Path $assetsPath -Force | Out-Null
 New-Item -ItemType Directory -Path $evidencePath -Force | Out-Null
 
 $releaseDnf = 'dnf -y install --nodocs --setopt=install_weak_deps=False gcc glibc-devel glibc-common curl binutils file findutils gawk tar gzip grep sed'
+if ($BuildDnsServer) {
+    $parsedBuildDns = $null
+    if (-not [System.Net.IPAddress]::TryParse($BuildDnsServer, [ref]$parsedBuildDns) -or
+        $parsedBuildDns.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        throw '-BuildDnsServer must be a valid IPv4 address.'
+    }
+}
 # The upstream mirrorlist can select a very slow mirror for this build host.
 # Keep Rocky's gpgcheck=1 and only replace the repository download URLs.
 $rockyMirrorSetup = 'sed -i -e ''s|^mirrorlist=|#mirrorlist=|'' -e ''s|^#baseurl=http://dl.rockylinux.org/\$contentdir/|baseurl=https://dl.rockylinux.org/pub/rocky/|'' /etc/yum.repos.d/Rocky-*.repo'
@@ -662,6 +671,9 @@ foreach ($architecture in @('amd64', 'arm64')) {
         $buildCacheDirectory = [System.IO.Path]::GetFullPath((Join-Path $env:AGENTSQL_RELEASE_GO_CACHE_DIR "$architecture/gocache"))
         New-Item -ItemType Directory -Path $buildCacheDirectory -Force | Out-Null
         $dockerArguments += @('-v', "${buildCacheDirectory}:/tmp/gocache")
+    }
+    if ($BuildDnsServer) {
+        $dockerArguments += @('--dns', $BuildDnsServer)
     }
     $dockerArguments += @($RockyImage, 'sh', '-c', $containerCommand)
     & docker @dockerArguments
@@ -938,9 +950,27 @@ else {
         & docker buildx create --name $localBuilder --driver docker-container --use
         if ($LASTEXITCODE -ne 0) { throw "Could not create local Buildx builder '$localBuilder'." }
     }
-    & (Join-Path $PSScriptRoot 'build-ghcr-multiarch.ps1') -Version $Version -Builder $localBuilder -Output $mainArchive -DigestOutput $digestOutput -IncludeAuxiliaryTags
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Local multi-architecture image dry-run failed.'
+    $imageBuildPassed = $false
+    $imageBuildError = 'nonzero exit code'
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            & (Join-Path $PSScriptRoot 'build-ghcr-multiarch.ps1') -Version $Version -Builder $localBuilder -Output $mainArchive -DigestOutput $digestOutput -IncludeAuxiliaryTags
+            if ($LASTEXITCODE -eq 0) {
+                $imageBuildPassed = $true
+                break
+            }
+            $imageBuildError = "exit code $LASTEXITCODE"
+        }
+        catch {
+            $imageBuildError = $_.Exception.Message
+        }
+        if ($attempt -lt 3) {
+            Write-Host "Image-build attempt $attempt failed ($imageBuildError); retrying attempt $($attempt + 1) of 3."
+            Start-Sleep -Seconds 15
+        }
+    }
+    if (-not $imageBuildPassed) {
+        throw "Local multi-architecture image dry-run failed after three attempts: $imageBuildError"
     }
     Write-Host "$(if ($ProductionPrepare) { 'RELEASE_PREPARE_IMAGES' } else { 'RELEASE_DRYRUN_IMAGES' })=PASS"
 }
