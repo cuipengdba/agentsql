@@ -94,3 +94,49 @@ func TestOriginalFieldEnumQualifiesMySQLSchema(t *testing.T) {
 		t.Fatalf("MySQL enum did not use current qualified schema: %d %s sql=%s", w.Code, w.Body.String(), gateway.lastQuery)
 	}
 }
+
+func TestFieldEnumCannotBypassActiveRowOrColumnPermission(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tableID := browserTableID("10", "public", "sales")
+	fieldID := strconv.FormatInt(browserFieldID(tableID, "amount"), 10)
+	request := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/datasource/fieldEnum/10/"+fieldID, nil)
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+
+	row := testActiveRowPermission(t, "east")
+	if err := service.Store.put(context.Background(), permissionRuleKey(principal.Workspace, row.ID), row, 0); err != nil {
+		t.Fatal(err)
+	}
+	before := gateway.queries
+	response := request()
+	if gateway.queries > before && !strings.Contains(gateway.lastQuery, "region = 'east'") {
+		t.Fatalf("field enum bypassed the active row rule: %s", gateway.lastQuery)
+	}
+	if response.Code == http.StatusOK && gateway.queries == before ||
+		response.Code != http.StatusOK && strings.Contains(response.Body.String(), "123") {
+		t.Fatalf("field enum returned data without a safe row-filtered query: %d %s", response.Code, response.Body.String())
+	}
+
+	column := row
+	column.Permissions = []json.RawMessage{json.RawMessage(`{"type":"column","ds_id":10,"table_id":` + strconv.FormatInt(tableID, 10) +
+		`,"permissions":[{"field_id":` + strconv.FormatInt(browserFieldID(tableID, "region"), 10) +
+		`,"enable":true},{"field_id":` + fieldID + `,"enable":false}]}`)}
+	if err := service.Store.put(context.Background(), permissionRuleKey(principal.Workspace, row.ID), column, 1); err != nil {
+		t.Fatal(err)
+	}
+	before = gateway.queries
+	response = request()
+	if response.Code == http.StatusOK || gateway.queries != before || strings.Contains(response.Body.String(), "123") {
+		t.Fatalf("hidden column enum reached gateway: %d %s", response.Code, response.Body.String())
+	}
+}
