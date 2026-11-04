@@ -239,12 +239,12 @@ func TestOriginalOpenAICompatibleSupplierIdentity(t *testing.T) {
 		}
 		return accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel", string(payload), adminToken)
 	}
-	for _, supplier := range []int{1, 5, 11, 12, 14} {
+	for _, supplier := range []int{11, 12, 14} {
 		if result := create(supplier, nil); result.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("unsupported supplier %d accepted: %d", supplier, result.Code)
 		}
 	}
-	for _, supplier := range []int{2, 3, 4, 6, 7, 8, 9, 10, 13} {
+	for _, supplier := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13} {
 		config := []any{}
 		if supplier == 4 || supplier == 7 {
 			config = []any{map[string]any{"key": "temperature", "name": "temperature", "val": 1.5}}
@@ -259,7 +259,7 @@ func TestOriginalOpenAICompatibleSupplierIdentity(t *testing.T) {
 		t.Fatalf("out-of-range supplier temperature accepted: %d", rejected.Code)
 	}
 	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
-	if err != nil || len(models) != 9 {
+	if err != nil || len(models) != 11 {
 		t.Fatalf("supplier models missing: %d %v", len(models), err)
 	}
 	for _, model := range models {
@@ -279,6 +279,125 @@ func TestOriginalOpenAICompatibleSupplierIdentity(t *testing.T) {
 			if _, err := (OpenAIModel{}).Generate(context.Background(), model, "pg", "show amount", []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}); err != nil || receivedTemperature != 1.5 {
 				t.Fatalf("supplier 7 temperature not sent: received=%v err=%v", receivedTemperature, err)
 			}
+		}
+	}
+}
+
+func TestOriginalAlibabaAndSparkArgumentsReachModelRequest(t *testing.T) {
+	var received map[string]any
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = make(map[string]any)
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales"}`},
+		}}})
+	}))
+	defer provider.Close()
+	columns := []Column{{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	for _, tc := range []struct {
+		name         string
+		supplier     int
+		items        []json.RawMessage
+		wantMax      float64
+		wantThinking bool
+	}{
+		{"Alibaba", 1, []json.RawMessage{json.RawMessage(`{"key":"temperature","name":"temperature","val":1.5}`), json.RawMessage(`{"key":"extra_body","name":"extra_body","val":"{\"enable_thinking\":false}"}`)}, 2048, false},
+		{"Spark", 5, []json.RawMessage{json.RawMessage(`{"key":"temperature","name":"temperature","val":1.2}`), json.RawMessage(`{"key":"max_tokens","name":"max_tokens","val":32768}`)}, 32768, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args, err := parseLegacyModelArguments(tc.items, tc.supplier)
+			if err != nil || args.Temperature == nil || *args.Temperature <= 1 {
+				t.Fatalf("original browser arguments rejected: %+v %v", args, err)
+			}
+			config := ModelConfig{ID: "30", Model: "fixture", Endpoint: provider.URL + "/v1", Supplier: tc.supplier,
+				Temperature: args.Temperature, MaxTokens: args.MaxTokens, EnableThinking: args.EnableThinking}
+			if validateModelConfig(config) != nil {
+				t.Fatal("valid original browser model was rejected")
+			}
+			if _, err := (OpenAIModel{}).Generate(context.Background(), config, "pg", "show amount", columns); err != nil {
+				t.Fatal(err)
+			}
+			if received["max_tokens"] != tc.wantMax || received["temperature"] != *args.Temperature {
+				t.Fatalf("supplier arguments did not reach provider: %+v", received)
+			}
+			thinking, present := received["enable_thinking"]
+			if tc.supplier == 1 && (!present || thinking != tc.wantThinking) || tc.supplier == 5 && present {
+				t.Fatalf("unexpected thinking extension: %+v", received)
+			}
+		})
+	}
+	for _, item := range []struct {
+		supplier int
+		body     string
+	}{
+		{1, `{"key":"extra_body","name":"extra_body","val":"{\"api_key\":\"exfiltrate\"}"}`},
+		{5, `{"key":"extra_body","name":"extra_body","val":"{\"enable_thinking\":true}"}`},
+		{5, `{"key":"max_tokens","name":"max_tokens","val":32769}`},
+		{1, `{"key":"temperature","name":"temperature","val":2.1}`},
+	} {
+		if _, err := parseLegacyModelArguments([]json.RawMessage{json.RawMessage(item.body)}, item.supplier); err == nil {
+			t.Fatalf("unsafe or out-of-range argument accepted: %s", item.body)
+		}
+	}
+}
+
+func TestOriginalAlibabaAndSparkBrowserModelPersistence(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.Identity.privateKey = privateKey
+	ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte("https://example.invalid/v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := base64.StdEncoding.EncodeToString(ciphertext)
+	for _, tc := range []struct {
+		supplier  int
+		arguments []any
+	}{
+		{1, []any{map[string]any{"key": "temperature", "name": "temperature", "val": 1.5}, map[string]any{"key": "extra_body", "name": "extra_body", "val": `{"enable_thinking":false}`}}},
+		{5, []any{map[string]any{"key": "temperature", "name": "temperature", "val": 1.2}, map[string]any{"key": "max_tokens", "name": "max_tokens", "val": 32768}}},
+	} {
+		payload, err := json.Marshal(map[string]any{"id": "", "name": "Original browser model", "model_type": 0,
+			"base_model": "fixture-model", "supplier": tc.supplier, "protocol": 1,
+			"api_domain": endpoint, "api_key": "", "config_list": tc.arguments})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/system/aimodel", string(payload), adminToken)
+		if response.Code != http.StatusOK {
+			t.Fatalf("original supplier %d create: %d %s", tc.supplier, response.Code, response.Body.String())
+		}
+	}
+	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
+	if err != nil || len(models) != 2 {
+		t.Fatalf("supplier models not persisted: %d %v", len(models), err)
+	}
+	for _, model := range models {
+		detail := accountRequest(t, handler, http.MethodGet, "/api/v1/system/aimodel/"+string(model.ID), "", adminToken)
+		if detail.Code != http.StatusOK {
+			t.Fatalf("supplier %d detail: %d", model.Supplier, detail.Code)
+		}
+		var body struct {
+			Data struct {
+				ConfigList []struct {
+					Key string `json:"key"`
+					Val any    `json:"val"`
+				} `json:"config_list"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(detail.Body.Bytes(), &body) != nil {
+			t.Fatal("invalid original detail response")
+		}
+		if model.Supplier == 1 && (model.EnableThinking == nil || *model.EnableThinking || len(body.Data.ConfigList) != 2) {
+			t.Fatalf("Alibaba configuration lost: %+v %+v", model, body)
+		}
+		if model.Supplier == 5 && (model.MaxTokens != 32768 || len(body.Data.ConfigList) != 2) {
+			t.Fatalf("Spark configuration lost: %+v %+v", model, body)
 		}
 	}
 }

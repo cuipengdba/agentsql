@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -130,6 +131,13 @@ func (h *Handler) legacyModelRead(w http.ResponseWriter, r *http.Request, p Prin
 	configList := []any{}
 	if model.Temperature != nil {
 		configList = append(configList, map[string]any{"key": "temperature", "name": "temperature", "val": *model.Temperature})
+	}
+	if modelSupplier(model) == 5 && model.MaxTokens != 0 {
+		configList = append(configList, map[string]any{"key": "max_tokens", "name": "max_tokens", "val": model.MaxTokens})
+	}
+	if model.EnableThinking != nil {
+		value, _ := json.Marshal(map[string]bool{"enable_thinking": *model.EnableThinking})
+		configList = append(configList, map[string]any{"key": "extra_body", "name": "extra_body", "val": string(value)})
 	}
 	okay(w, map[string]any{"id": model.ID, "name": name,
 		"model_type": 0, "base_model": model.Model, "supplier": modelSupplier(model),
@@ -397,7 +405,7 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
-	temperature, err := parseLegacyModelTemperature(input.ConfigList, *input.Supplier)
+	arguments, err := parseLegacyModelArguments(input.ConfigList, *input.Supplier)
 	if err != nil {
 		failure(w, err)
 		return
@@ -420,7 +428,7 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
-	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey, Temperature: temperature, Supplier: *input.Supplier}
+	update := WorkspaceModelUpdate{Name: input.Name, Model: input.BaseModel, Endpoint: endpoint, APIKey: apiKey, Temperature: arguments.Temperature, MaxTokens: arguments.MaxTokens, Supplier: *input.Supplier, EnableThinking: arguments.EnableThinking}
 	active, err := h.service.Store.modelCatalogIsActive(r.Context())
 	if err != nil {
 		failure(w, err)
@@ -458,8 +466,8 @@ func (h *Handler) legacyModelCreate(w http.ResponseWriter, r *http.Request, p Pr
 
 // The pinned original browser encrypts both endpoint and nonempty API key
 // with the same installation RSA public key as its login form. This adapter
-// edits only a model owned by the current workspace. Only a bounded Generic
-// OpenAI temperature argument is accepted; other arguments fail closed.
+// edits only a model owned by the current workspace. Supplier arguments are
+// limited to the pinned Community browser controls; other values fail closed.
 func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -486,7 +494,7 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, ErrInvalidAccountChange)
 		return
 	}
-	temperature, err := parseLegacyModelTemperature(input.ConfigList, *input.Supplier)
+	arguments, err := parseLegacyModelArguments(input.ConfigList, *input.Supplier)
 	if err != nil {
 		failure(w, err)
 		return
@@ -543,8 +551,13 @@ func (h *Handler) legacyModelUpdate(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
+	maxTokens := current.MaxTokens
+	if *input.Supplier == 5 {
+		maxTokens = arguments.MaxTokens
+	}
 	update := WorkspaceModelUpdate{Revision: revision, Name: input.Name, Model: input.BaseModel,
-		Endpoint: endpoint, APIKey: apiKey, MaxTokens: current.MaxTokens, Temperature: temperature, ReplaceTemperature: true, Supplier: *input.Supplier}
+		Endpoint: endpoint, APIKey: apiKey, MaxTokens: maxTokens, Temperature: arguments.Temperature, ReplaceTemperature: true, Supplier: *input.Supplier,
+		EnableThinking: arguments.EnableThinking, ReplaceThinking: true}
 	if active {
 		err = h.service.Store.UpdateGlobalModel(r.Context(), p, current.ID, update)
 	} else if isDefault {
@@ -664,25 +677,54 @@ func (h *Handler) legacyModelByID(r *http.Request, p Principal, token, id string
 	return model, revision, false, nil
 }
 
-func parseLegacyModelTemperature(items []json.RawMessage, supplier int) (*float64, error) {
-	if len(items) == 0 {
-		return nil, nil
+type legacyModelArguments struct {
+	Temperature    *float64
+	MaxTokens      int
+	EnableThinking *bool
+}
+
+func parseLegacyModelArguments(items []json.RawMessage, supplier int) (legacyModelArguments, error) {
+	var result legacyModelArguments
+	if len(items) > 3 {
+		return result, ErrInvalidAccountChange
 	}
-	if len(items) != 1 {
-		return nil, ErrInvalidAccountChange
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(item, &fields) != nil || len(fields) != 3 {
+			return result, ErrInvalidAccountChange
+		}
+		var key, name string
+		if json.Unmarshal(fields["key"], &key) != nil || json.Unmarshal(fields["name"], &name) != nil || key != name || seen[key] || strings.TrimSpace(string(fields["val"])) == "null" {
+			return result, ErrInvalidAccountChange
+		}
+		seen[key] = true
+		switch key {
+		case "temperature":
+			var value float64
+			if json.Unmarshal(fields["val"], &value) != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 2 || value > 1 && supplier != 1 && supplier != 4 && supplier != 5 && supplier != 7 {
+				return result, ErrInvalidAccountChange
+			}
+			result.Temperature = &value
+		case "max_tokens":
+			if supplier != 5 || json.Unmarshal(fields["val"], &result.MaxTokens) != nil || result.MaxTokens < 1 || result.MaxTokens > 32768 {
+				return result, ErrInvalidAccountChange
+			}
+		case "extra_body":
+			if supplier != 1 {
+				return result, ErrInvalidAccountChange
+			}
+			var encoded string
+			if json.Unmarshal(fields["val"], &encoded) != nil || len(encoded) > 128 {
+				return result, ErrInvalidAccountChange
+			}
+			var body map[string]json.RawMessage
+			if json.Unmarshal([]byte(encoded), &body) != nil || len(body) != 1 || json.Unmarshal(body["enable_thinking"], &result.EnableThinking) != nil || result.EnableThinking == nil {
+				return result, ErrInvalidAccountChange
+			}
+		default:
+			return result, ErrInvalidAccountChange
+		}
 	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(items[0], &fields) != nil || len(fields) != 3 {
-		return nil, ErrInvalidAccountChange
-	}
-	var key, name string
-	var value float64
-	if json.Unmarshal(fields["key"], &key) != nil || key != "temperature" ||
-		json.Unmarshal(fields["name"], &name) != nil || name != "temperature" ||
-		strings.TrimSpace(string(fields["val"])) == "null" ||
-		json.Unmarshal(fields["val"], &value) != nil || value < 0 || value > 2 ||
-		value > 1 && supplier != 4 && supplier != 7 {
-		return nil, ErrInvalidAccountChange
-	}
-	return &value, nil
+	return result, nil
 }

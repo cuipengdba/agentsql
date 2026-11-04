@@ -17,6 +17,8 @@ type WorkspaceModelUpdate struct {
 	Temperature        *float64 `json:"temperature,omitempty"`
 	ReplaceTemperature bool     `json:"-"`
 	Supplier           int      `json:"supplier,omitempty"`
+	EnableThinking     *bool    `json:"enable_thinking,omitempty"`
+	ReplaceThinking    bool     `json:"-"`
 }
 
 // CreateWorkspaceModel installs the first default model for a workspace.
@@ -29,7 +31,7 @@ func (s *Store) CreateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	if err != nil {
 		return err
 	}
-	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier}
+	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier, EnableThinking: update.EnableThinking}
 	if update.APIKey != nil {
 		model.APIKey = *update.APIKey
 	}
@@ -123,6 +125,9 @@ func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	next.Name, next.Model, next.Endpoint, next.MaxTokens = update.Name, update.Model, update.Endpoint, update.MaxTokens
 	if update.ReplaceTemperature || update.Temperature != nil {
 		next.Temperature = update.Temperature
+	}
+	if update.ReplaceThinking || update.EnableThinking != nil {
+		next.EnableThinking = update.EnableThinking
 	}
 	if update.Supplier != 0 {
 		next.Supplier = update.Supplier

@@ -17,7 +17,7 @@ func (s *Store) CreateGlobalModel(ctx context.Context, p Principal, update Works
 		return "", err
 	}
 	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint,
-		MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier}
+		MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier, EnableThinking: update.EnableThinking}
 	if update.APIKey != nil {
 		model.APIKey = *update.APIKey
 	}
@@ -174,6 +174,9 @@ func (s *Store) UpdateGlobalModel(ctx context.Context, p Principal, id ID, updat
 	next.Name, next.Model, next.Endpoint, next.MaxTokens = update.Name, update.Model, update.Endpoint, update.MaxTokens
 	if update.ReplaceTemperature || update.Temperature != nil {
 		next.Temperature = update.Temperature
+	}
+	if update.ReplaceThinking || update.EnableThinking != nil {
+		next.EnableThinking = update.EnableThinking
 	}
 	if update.Supplier != 0 {
 		next.Supplier = update.Supplier
