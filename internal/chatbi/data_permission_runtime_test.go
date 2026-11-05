@@ -268,6 +268,51 @@ func TestAskClosesWhenPermissionChangesDuringGenerationBeforeQuery(t *testing.T)
 	require.Nil(t, record.Data)
 }
 
+func TestAskClosesWhenRowPermissionChangesAfterTerminalSaveBeforeDelivery(t *testing.T) {
+	service, principal, gateway, _, token := serviceFixture(t)
+	ctx := context.Background()
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	rule := testActiveRowPermission(t, "east")
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	chat, err := service.Start(ctx, principal, "10", "first", 0)
+	require.NoError(t, err)
+	changed := false
+	check := func(ctx context.Context) error {
+		if _, err := service.Identity.Verify(ctx, token); err != nil {
+			return err
+		}
+		if changed {
+			return nil
+		}
+		stored, _, err := service.chat(ctx, principal, chat.ID)
+		if err != nil {
+			return err
+		}
+		if len(stored.Records) == 1 && stored.Records[0].Finish && stored.Records[0].Data != nil {
+			revoked := rule
+			revoked.Enable = false
+			if err := service.Store.put(ctx, permissionRuleKey("1", rule.ID), revoked, 1); err != nil {
+				return err
+			}
+			changed = true
+		}
+		return nil
+	}
+	result, err := service.Ask(ctx, principal, chat.ID, "sales amount", check, nil)
+	require.True(t, changed, "the row rule did not change after terminal persistence")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Nil(t, result.Data)
+	require.Empty(t, result.SQL)
+	require.Equal(t, 1, gateway.queries)
+	history, err := service.ReadChat(ctx, principal, chat.ID, true)
+	require.NoError(t, err)
+	require.Len(t, history.Records, 1)
+	require.Nil(t, history.Records[0].Data)
+	require.Empty(t, history.Records[0].SQL)
+	require.Equal(t, 1, gateway.queries, "old SQL was re-executed after the rule changed")
+}
+
 func TestRevokedColumnDoesNotReturnThroughModelHistory(t *testing.T) {
 	service, principal, gateway, _, token := serviceFixture(t)
 	ctx := context.Background()

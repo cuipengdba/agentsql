@@ -837,20 +837,23 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 	}
 	revision++
 	stage := "metadata"
+	var permissionSnapshot []DataPermissionRule
+	var fingerprint string
 	run := func() error {
 		if onStart != nil {
 			if err := onStart(recordID); err != nil {
 				return err
 			}
 		}
-		columns, permissionSnapshot, err := service.semanticSchemaWithPermissionSnapshot(ctx, p, binding)
+		columns, currentPermissions, err := service.semanticSchemaWithPermissionSnapshot(ctx, p, binding)
 		if err != nil {
 			return err
 		}
+		permissionSnapshot = currentPermissions
 		// Keep an immutable copy for post-inference comparison. A gateway
 		// implementation may reuse the backing array of its schema result.
 		columns = append([]Column(nil), columns...)
-		fingerprint, err := service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
+		fingerprint, err = service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
 		if err != nil {
 			return err
 		}
@@ -1056,6 +1059,14 @@ func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, qu
 		return Record{}, err
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return Record{}, err
+	}
+	// A rule may change while the completed turn is being persisted. The
+	// earlier pre-query checks cannot authorize direct delivery after that.
+	if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+		return Record{}, err
+	}
+	if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
 		return Record{}, err
 	}
 	return record, nil
