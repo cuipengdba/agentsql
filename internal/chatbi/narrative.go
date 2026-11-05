@@ -226,6 +226,14 @@ func (service *Service) SaveNarrative(ctx context.Context, p Principal, result N
 	if _, err := service.Store.get(ctx, recordPolicyKey(p, base.ID), &policyFingerprint); err != nil || policyFingerprint == "" {
 		return "", ErrGateway
 	}
+	permissionSnapshot, err := service.dataPermissionSnapshot(ctx, p.Workspace)
+	if err != nil {
+		return "", err
+	}
+	currentFingerprint, err := service.modelContextFingerprint(ctx, p, digest, permissionSnapshot)
+	if err != nil || currentFingerprint != policyFingerprint {
+		return "", ErrGateway
+	}
 	if err := service.Store.put(ctx, recordKey(p, id), base.Chat, 0); err != nil {
 		return "", err
 	}
@@ -236,6 +244,21 @@ func (service *Service) SaveNarrative(ctx context.Context, p Principal, result N
 	if err := service.Store.put(ctx, chatKey(p, base.Chat), chat, chatRevision); err != nil {
 		_ = service.Store.delete(context.WithoutCancel(ctx), recordPolicyKey(p, id), 1)
 		_ = service.Store.delete(context.WithoutCancel(ctx), recordKey(p, id), 1)
+		return "", err
+	}
+	// A rule or binding may change while the child record is persisted. Keep
+	// its model text out of the direct response when that happens; historical
+	// reads also compare the stored fingerprint before revealing the text.
+	if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
+		return "", err
+	}
+	if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+		return "", err
+	}
+	if err := service.modelContextUnchanged(ctx, p, digest, permissionSnapshot, policyFingerprint); err != nil {
+		return "", err
+	}
+	if err := service.live(ctx, p); err != nil {
 		return "", err
 	}
 	return id, nil
