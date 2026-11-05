@@ -213,6 +213,29 @@ func (h *Handler) mcpVerifiedPrincipal(w http.ResponseWriter, r *http.Request, t
 	return p, true
 }
 
+// SQLBot's MCP question endpoint uses a forbidden response for an invalid
+// body token. Keep that wire contract on this route without changing the
+// other MCP routes' authentication policy or accepting competing credentials.
+func (h *Handler) mcpQuestionPrincipal(w http.ResponseWriter, r *http.Request, token string) (Principal, bool) {
+	forbidden := func() (Principal, bool) {
+		writeJSON(w, http.StatusForbidden, "Could not validate credentials")
+		return Principal{}, false
+	}
+	if token == "" || len(r.Header.Values("Authorization")) != 0 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 ||
+		len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASK-TOKEN")) != 0 {
+		return forbidden()
+	}
+	p, err := h.service.Identity.Verify(r.Context(), token)
+	if err != nil || p.EmbeddedApp != "" {
+		return forbidden()
+	}
+	if err := h.service.live(r.Context(), p); err != nil {
+		failure(w, err)
+		return Principal{}, false
+	}
+	return p, true
+}
+
 func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
 	var token string
 	query, err := url.ParseQuery(r.URL.RawQuery)
@@ -548,7 +571,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid model ID")
 		return
 	}
-	p, ok := h.mcpBodyPrincipal(w, r, input.Token, nil)
+	p, ok := h.mcpQuestionPrincipal(w, r, input.Token)
 	if !ok {
 		return
 	}

@@ -612,6 +612,34 @@ func TestMCPQuestionOriginalInvalidReferenceStatuses(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionInvalidBodyTokenUsesOriginalForbiddenResponse(t *testing.T) {
+	service, _, gateway, _, token := serviceFixture(t)
+	handler, err := NewHandler(service, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_start", `{"token":"`+token+`"}`, "")
+	var started struct {
+		Chat ID `json:"chat_id"`
+	}
+	if start.Code != http.StatusOK || decodeMCPData(start.Body.Bytes(), &started) != nil {
+		t.Fatalf("MCP start failed: %d", start.Code)
+	}
+	for _, tc := range []struct {
+		name, body, headerToken string
+	}{
+		{"invalid body token", `{"token":"invalid","chat_id":` + string(started.Chat) + `,"question":"synthetic invalid token","stream":false}`, ""},
+		{"competing header token", `{"token":"` + token + `","chat_id":` + string(started.Chat) + `,"question":"synthetic competing token","stream":false}`, token},
+	} {
+		response := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", tc.body, tc.headerToken)
+		var message string
+		if response.Code != http.StatusForbidden || json.Unmarshal(response.Body.Bytes(), &message) != nil ||
+			message != "Could not validate credentials" || gateway.queries != 0 {
+			t.Fatalf("%s: status=%d body=%s queries=%d", tc.name, response.Code, response.Body.String(), gateway.queries)
+		}
+	}
+}
+
 func TestMCPQuestionOriginalMalformedFieldValidation(t *testing.T) {
 	service, _, gateway, _, token := serviceFixture(t)
 	handler, err := NewHandler(service, "test")
