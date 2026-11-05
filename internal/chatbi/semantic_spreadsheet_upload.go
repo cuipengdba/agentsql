@@ -78,7 +78,7 @@ type semanticUploadReport struct {
 	DuplicateCount int              `json:"duplicate_count"`
 	OriginalCount  int              `json:"original_count"`
 	ErrorExcelFile *string          `json:"error_excel_filename"`
-	FailedRecords  []map[string]any `json:"failed_records,omitempty"`
+	FailedRecords  []map[string]any `json:"-"`
 }
 
 func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Principal, token, kind string) {
@@ -126,6 +126,7 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		}
 	}
 	report := semanticUploadReport{FailedRecords: []map[string]any{}}
+	seenInFile := map[string]bool{}
 	failedRows := make([][]string, 0)
 	for rowIndex, row := range rows {
 		blank := true
@@ -140,8 +141,17 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		}
 		report.OriginalCount++
 		key := strings.ToLower(strings.TrimSpace(row[0]))
-		if key != "" && known[key] {
+		if key != "" && seenInFile[key] {
 			report.DuplicateCount++
+			continue
+		}
+		if key != "" {
+			seenInFile[key] = true
+		}
+		if key != "" && known[key] {
+			report.FailedCount++
+			report.FailedRecords = append(report.FailedRecords, map[string]any{"row": rowIndex + 2, "reason": "already exists"})
+			failedRows = append(failedRows, append(append([]string(nil), row...), "already exists"))
 			continue
 		}
 		if err := h.currentIdentity(r.Context(), p, token); err != nil {

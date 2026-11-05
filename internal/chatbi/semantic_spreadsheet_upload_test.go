@@ -167,3 +167,63 @@ func TestSemanticXLSXUploadReportsRowsAndAuditsWrites(t *testing.T) {
 		t.Fatal("term persisted despite failed audit")
 	}
 }
+
+func TestSemanticXLSXUploadDistinguishesExistingAndInFileDuplicates(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	p, err := service.Identity.Verify(context.Background(), adminToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveTerminology(context.Background(), p, Terminology{
+		Word: "Existing term", Description: "synthetic", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	upload := func(rows [][]string) semanticUploadReport {
+		t.Helper()
+		book, err := semanticWorkbook(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, err := form.CreateFormFile("file", "synthetic.xlsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(book); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/system/terminology/uploadExcel", &body)
+		r.Header.Set("Content-Type", form.FormDataContentType())
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+adminToken)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("upload failed: %d %s", w.Code, w.Body.String())
+		}
+		var response struct {
+			Data semanticUploadReport `json:"data"`
+		}
+		if json.Unmarshal(w.Body.Bytes(), &response) != nil || bytes.Contains(w.Body.Bytes(), []byte(`"failed_records"`)) {
+			t.Fatalf("upload response differs from original public shape: %s", w.Body.String())
+		}
+		return response.Data
+	}
+	headers := semanticHeaders("terminology", "en", true)
+	existing := upload([][]string{headers, {"Existing term", "", "synthetic", "", "Y", ""}})
+	if existing.SuccessCount != 0 || existing.FailedCount != 1 || existing.DuplicateCount != 0 ||
+		existing.OriginalCount != 1 || existing.ErrorExcelFile == nil {
+		t.Fatalf("existing stored term was not reported as a failed row: %+v", existing)
+	}
+	newRows := upload([][]string{headers,
+		{"Within file", "", "synthetic", "", "Y", ""},
+		{"Within file", "", "different description", "", "Y", ""}})
+	if newRows.SuccessCount != 1 || newRows.FailedCount != 0 || newRows.DuplicateCount != 1 ||
+		newRows.OriginalCount != 2 || newRows.ErrorExcelFile != nil {
+		t.Fatalf("in-file duplicate was not reported separately: %+v", newRows)
+	}
+}
