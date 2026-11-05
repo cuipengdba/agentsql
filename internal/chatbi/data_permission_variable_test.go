@@ -45,6 +45,70 @@ func variableRowFixture(t *testing.T, definition SystemVariable, selected json.R
 	return service, principal, gateway, binding
 }
 
+func TestBuiltInIdentityVariablesUseCurrentUserWithoutBindings(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	user, revision, err := service.Store.User(ctx, principal.User.ID)
+	require.NoError(t, err)
+	user.Name, user.Account, user.Email = "east", "east-account", "east@example.invalid"
+	require.NoError(t, service.Store.put(ctx, userKey(user.ID), user, revision))
+	principal.User = user
+	for id, want := range map[int64]string{1: user.Name, 2: user.Account, 3: user.Email} {
+		sample, valid := service.rowVariableDefinitionSample(ctx, principal.Workspace, id)
+		require.True(t, valid)
+		require.NotEmpty(t, sample)
+		values, valid := service.newRowVariableSnapshot(ctx, principal).resolve(id)
+		require.True(t, valid)
+		require.Equal(t, []string{want}, values)
+	}
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"}}
+	tableID := browserTableID("10", "public", "sales")
+	tree, err := json.Marshal(map[string]any{"logic": "and", "items": []any{map[string]any{
+		"type": "item", "field_id": browserFieldID(tableID, "region"), "filter_type": "logic",
+		"term": "eq", "value_type": "variable", "variable_id": 1,
+	}}})
+	require.NoError(t, err)
+	item, err := json.Marshal(map[string]any{"type": "row", "ds_id": 10, "table_id": tableID,
+		"expression_tree": string(tree)})
+	require.NoError(t, err)
+	rule := DataPermissionRule{ID: 101, OID: 1, Enable: true, Name: "built-in name",
+		Permissions: []json.RawMessage{item}, Users: []int64{1}, WhiteList: "[]", Created: time.Now().UTC()}
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.query(ctx, principal, binding, "SELECT region FROM public.sales")
+	require.NoError(t, err)
+	require.Contains(t, gateway.lastQuery, "region = 'east'")
+
+	gateway.afterQuery = func() {
+		changed, revision, err := service.Store.User(ctx, principal.User.ID)
+		require.NoError(t, err)
+		changed.Name = "west"
+		require.NoError(t, service.Store.put(ctx, userKey(changed.ID), changed, revision))
+		gateway.afterQuery = nil
+	}
+	result, err := service.query(ctx, principal, binding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Empty(t, result.Data, "renamed identity cannot release the old row result")
+}
+
+func TestOriginalRuleActivationAcceptsBuiltInIdentityWithoutBinding(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	service.Gateway.(*fakeGateway).columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"}}
+	tableID := browserTableID("10", "public", "sales")
+	tree, err := json.Marshal(map[string]any{"logic": "and", "items": []any{map[string]any{
+		"type": "item", "field_id": browserFieldID(tableID, "region"), "filter_type": "logic",
+		"term": "eq", "value_type": "variable", "variable_id": 1,
+	}}})
+	require.NoError(t, err)
+	request, err := json.Marshal(map[string]any{"name": "current name", "users": []int64{1},
+		"permissions": []any{map[string]any{"type": "row", "ds_id": 10, "table_id": tableID,
+			"expression_tree": string(tree)}}})
+	require.NoError(t, err)
+	response := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+}
+
 func TestCustomTextVariableRowPermissionUsesCurrentBoundValue(t *testing.T) {
 	definition := SystemVariable{ID: 1000000000001, Name: "region", VarType: "text", Type: "custom",
 		Value: json.RawMessage(`["east","west"]`)}

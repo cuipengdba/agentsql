@@ -41,6 +41,24 @@ func (snapshot *rowVariableSnapshot) resolve(id int64) ([]string, bool) {
 		(snapshot.userRevision != 0 && (snapshot.userRevision != userRevision || snapshot.userDigest != userDigest)) {
 		return nil, false
 	}
+	if builtInSystemVariableID(id) {
+		var value string
+		switch id {
+		case 1:
+			value = current.Name
+		case 2:
+			value = current.Account
+		case 3:
+			value = current.Email
+		}
+		if value == "" {
+			return nil, false
+		}
+		values := []string{value}
+		snapshot.values[id] = values
+		snapshot.userRevision, snapshot.userDigest = userRevision, userDigest
+		return values, true
+	}
 	var definition SystemVariable
 	revision, digest, err := snapshot.service.Store.getWithDigest(snapshot.ctx, systemVariableKey(snapshot.principal.Workspace, id), &definition)
 	if err != nil || revision < 1 || definition.ID != id || definition.Type != "custom" || !validSystemVariable(definition) {
@@ -109,6 +127,12 @@ func (snapshot *rowVariableSnapshot) unchanged(ctx context.Context) error {
 // per-user bindings are evaluated on each actual read. Missing or invalid
 // bindings then fail closed rather than silently omitting the SQL predicate.
 func (service *Service) rowVariableDefinitionSample(ctx context.Context, workspace ID, id int64) ([]string, bool) {
+	if !workspace.Valid() {
+		return nil, false
+	}
+	if builtInSystemVariableID(id) {
+		return []string{"agentsql-system-variable"}, true
+	}
 	var definition SystemVariable
 	_, err := service.Store.get(ctx, systemVariableKey(workspace, id), &definition)
 	if err != nil || definition.ID != id || definition.Type != "custom" || !validSystemVariable(definition) {
