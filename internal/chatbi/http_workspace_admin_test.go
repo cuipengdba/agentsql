@@ -156,6 +156,51 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 	}
 }
 
+func TestWorkspaceMemberCanRemoveLastWorkspaceAndRejoin(t *testing.T) {
+	service, handler, adminToken, bobToken := workspaceAdminFixture(t)
+	ctx := context.Background()
+	bob, revision, err := service.Store.User(ctx, "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob.SystemVariables = []UserVariableBinding{{Workspace: "1", VariableID: 1, VariableValues: []json.RawMessage{json.RawMessage(`"synthetic"`)}}}
+	if err := service.Store.put(ctx, userKey(bob.ID), bob, revision); err != nil {
+		t.Fatal(err)
+	}
+	revoked := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/uws", `{"uid_list":["2"]}`, adminToken)
+	if revoked.Code != http.StatusOK {
+		t.Fatalf("original member page could not remove last membership: %d %s", revoked.Code, revoked.Body.String())
+	}
+	bob, _, err = service.Store.User(ctx, "2")
+	if err != nil || len(bob.Memberships) != 0 || len(bob.SystemVariables) != 0 || bob.canUse("1") {
+		t.Fatalf("removed account retained workspace data: %+v %v", bob, err)
+	}
+	if _, err := service.Identity.Verify(ctx, bobToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("old member token survived removal: %v", err)
+	}
+	if _, _, err := service.Identity.Login(ctx, "bob", "Synthetic-password-1"); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("removed member logged in: %v", err)
+	}
+	page := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/10", "", adminToken)
+	if page.Code != http.StatusOK || strings.Contains(page.Body.String(), `"account":"bob"`) {
+		t.Fatalf("removed member remained in page: %d %s", page.Code, page.Body.String())
+	}
+	candidate := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option?keyword=bob", "", adminToken)
+	if candidate.Code != http.StatusOK || !strings.Contains(candidate.Body.String(), `"account":"bob"`) {
+		t.Fatalf("removed member cannot be selected again: %d %s", candidate.Code, candidate.Body.String())
+	}
+	granted := accountRequest(t, handler, http.MethodPost, "/api/v1/system/workspace/uws", `{"uid_list":["2"]}`, adminToken)
+	if granted.Code != http.StatusOK {
+		t.Fatalf("removed member could not rejoin: %d %s", granted.Code, granted.Body.String())
+	}
+	if _, _, err := service.Identity.Login(ctx, "bob", "Synthetic-password-1"); err != nil {
+		t.Fatalf("rejoined member cannot log in: %v", err)
+	}
+	if _, err := service.Identity.Verify(ctx, bobToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("old token became valid after rejoin: %v", err)
+	}
+}
+
 func TestWorkspaceMemberBatchRollsBackOnAuditFailure(t *testing.T) {
 	service, handler, adminToken, bobToken := workspaceAdminFixture(t)
 	if _, err := service.Store.db.ExecContext(context.Background(), `CREATE TRIGGER reject_member_audit BEFORE INSERT ON chatbi_objects WHEN NEW.kind='management-audit' BEGIN SELECT RAISE(ABORT,'synthetic audit fault'); END`); err != nil {
