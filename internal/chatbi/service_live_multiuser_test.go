@@ -128,3 +128,78 @@ func TestLiveAskConcurrentUsersKeepResultsSeparate(t *testing.T) {
 	}
 	t.Logf("two concurrent local-model Ask calls completed with separate audited results")
 }
+
+func TestLiveAskCancellationPersistsFailureAndAllowsRetry(t *testing.T) {
+	endpoint := os.Getenv("AGENTSQL_LOCAL_MODEL_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("local model endpoint is not configured")
+	}
+	modelName := os.Getenv("AGENTSQL_LOCAL_MODEL_NAME")
+	if modelName == "" {
+		modelName = "agentsql-local-qwen"
+	}
+	service, user, gateway, _, token := serviceFixture(t)
+	var config ModelConfig
+	revision, err := service.Store.get(context.Background(), objectKey{"model", "1", "workspace", "default"}, &config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Model, config.Endpoint, config.AllowHTTP = modelName, endpoint, true
+	if err := service.Store.put(context.Background(), objectKey{"model", "1", "workspace", "default"}, config, revision); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := service.Start(context.Background(), user, "10", "cancellation", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(ctx context.Context) error {
+		_, err := service.Identity.Verify(ctx, token)
+		return err
+	}
+	started := make(chan struct{}, 1)
+	service.Model = OpenAIModel{Transport: liveRequestSignalTransport{started: started}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type outcome struct {
+		record Record
+		err    error
+	}
+	finished := make(chan outcome, 1)
+	go func() {
+		record, err := service.Ask(ctx, user, chat.ID, "Select amount from public.sales, one row.", check, nil)
+		finished <- outcome{record, err}
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("question did not reach the local model")
+	}
+	time.Sleep(250 * time.Millisecond)
+	cancel()
+	select {
+	case result := <-finished:
+		if result.err == nil || result.record.Data != nil || result.record.SQL != "" {
+			t.Fatalf("cancelled question released a result: %+v, %v", result.record, result.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancelled question did not stop promptly")
+	}
+	stored, _, err := service.chat(context.Background(), user, chat.ID)
+	if err != nil || len(stored.Records) != 1 || !stored.Records[0].Finish || stored.Records[0].Error == "" ||
+		stored.Records[0].Data != nil || stored.Records[0].SQL != "" || !stored.LeaseUntil.IsZero() || gateway.queries != 0 {
+		t.Fatalf("cancelled question left an unsafe or locked state: %+v, %v", stored, err)
+	}
+	service.Model = OpenAIModel{}
+	retryCtx, stopRetry := context.WithTimeout(context.Background(), time.Minute)
+	defer stopRetry()
+	retry, err := service.Ask(retryCtx, user, chat.ID, "Select amount from public.sales, one row.", check, nil)
+	if err != nil || retry.Data == nil || !retry.Finish || retry.Error != "" || gateway.queries != 1 {
+		t.Fatalf("local model did not recover for a second question: %+v, %v", retry, err)
+	}
+	history, err := service.ReadChat(context.Background(), user, chat.ID, false)
+	if err != nil || len(history.Records) != 2 || history.Records[0].Data != nil || history.Records[0].SQL != "" ||
+		history.Records[0].Error == "" || history.Records[1].Error != "" {
+		t.Fatalf("interrupted turn leaked into recovered history: %+v, %v", history, err)
+	}
+	t.Logf("cancelled local-model Ask persisted a safe failure and a later Ask completed")
+}
