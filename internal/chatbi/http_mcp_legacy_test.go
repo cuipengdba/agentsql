@@ -513,7 +513,7 @@ func TestMCPQuestionUsesControlledAuditedResultForJSONAndStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(chat)+`,"question":"again","stream":false}`, "")
-	if denied.Code != http.StatusUnauthorized || gateway.queries != 2 {
+	if denied.Code != http.StatusForbidden || gateway.queries != 2 {
 		t.Fatalf("revoked token reached controlled query: %d", denied.Code)
 	}
 }
@@ -741,7 +741,7 @@ func TestMCPSelectedWorkspaceKeepsParentTokenRevocable(t *testing.T) {
 		t.Fatal(err)
 	}
 	denied := accountRequest(t, handler, http.MethodPost, "/api/v1/mcp/mcp_question", `{"token":"`+token+`","chat_id":`+string(output.Chat)+`,"question":"again","stream":false}`, "")
-	if denied.Code != http.StatusUnauthorized || gateway.queries != 1 {
+	if denied.Code != http.StatusForbidden || gateway.queries != 1 {
 		t.Fatalf("parent token revoke left switched workspace accessible: %d", denied.Code)
 	}
 }
