@@ -227,3 +227,62 @@ func TestSemanticXLSXUploadDistinguishesExistingAndInFileDuplicates(t *testing.T
 		t.Fatalf("in-file duplicate was not reported separately: %+v", newRows)
 	}
 }
+
+func TestSQLExampleUploadScopesDuplicatesByDatasource(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	p, err := service.Identity.Verify(ctx, adminToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := Binding{Datasource: "11", Workspace: p.Workspace, User: p.User.ID, Name: "second", Dialect: "pg", BindingID: "second-binding", ConnectorToken: "second-connector", AgentKey: "second-agent"}
+	if err := service.Store.put(ctx, bindingKey(p, second.Datasource), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	question := "How many synthetic rows?"
+	if _, err := service.SaveExample(ctx, p, SQLExample{Workspace: 1, Datasource: 10, Question: question, Description: "SELECT count(*) FROM first", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rows := [][]string{semanticHeaders("sql-example", "en", true),
+		{question, "SELECT count(*) FROM second", "second", ""},
+		{question, "SELECT count(*) FROM duplicate", "second", ""},
+		{question, "SELECT count(*) FROM first", "fixture", ""},
+	}
+	book, err := semanticWorkbook(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("file", "synthetic.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(book); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/system/data-training/uploadExcel", &body)
+	r.Header.Set("Content-Type", form.FormDataContentType())
+	r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("training upload failed: %d %s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Data semanticUploadReport `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.SuccessCount != 1 || response.Data.DuplicateCount != 1 || response.Data.FailedCount != 1 || response.Data.ErrorExcelFile == nil {
+		t.Fatalf("same question in two datasources must be distinct: %s", w.Body.String())
+	}
+	stored, err := service.Examples(ctx, p)
+	if err != nil || len(stored) != 2 || stored[0].Datasource == stored[1].Datasource {
+		t.Fatalf("wrong datasource-scoped SQL examples: %+v, %v", stored, err)
+	}
+}

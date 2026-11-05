@@ -81,6 +81,16 @@ type semanticUploadReport struct {
 	FailedRecords  []map[string]any `json:"-"`
 }
 
+func semanticUploadKey(kind, value, datasource, assistant string) string {
+	key := strings.ToLower(strings.TrimSpace(value))
+	if kind == "terminology" {
+		return key
+	}
+	// Original training import deduplicates within a workbook by question,
+	// datasource and assistant, then checks stored examples per datasource.
+	return key + "\x00" + strings.ToLower(strings.TrimSpace(datasource)) + "\x00" + strings.ToLower(strings.TrimSpace(assistant))
+}
+
 func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Principal, token, kind string) {
 	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
 		failure(w, err)
@@ -113,7 +123,7 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 			return
 		}
 		for _, item := range items {
-			known[strings.ToLower(strings.TrimSpace(item.Word))] = true
+			known[semanticUploadKey(kind, item.Word, "", "")] = true
 		}
 	} else {
 		items, err := h.service.Examples(r.Context(), p)
@@ -122,7 +132,11 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 			return
 		}
 		for _, item := range items {
-			known[strings.ToLower(strings.TrimSpace(item.Question))] = true
+			assistant := ""
+			if item.AdvancedApplicationName != nil {
+				assistant = *item.AdvancedApplicationName
+			}
+			known[semanticUploadKey(kind, item.Question, item.DatasourceName, assistant)] = true
 		}
 	}
 	report := semanticUploadReport{FailedRecords: []map[string]any{}}
@@ -140,15 +154,19 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 			continue
 		}
 		report.OriginalCount++
-		key := strings.ToLower(strings.TrimSpace(row[0]))
-		if key != "" && seenInFile[key] {
+		value := strings.TrimSpace(row[0])
+		key := semanticUploadKey(kind, value, row[2], "")
+		if kind == "sql-example" {
+			key = semanticUploadKey(kind, value, row[2], row[3])
+		}
+		if value != "" && seenInFile[key] {
 			report.DuplicateCount++
 			continue
 		}
-		if key != "" {
+		if value != "" {
 			seenInFile[key] = true
 		}
-		if key != "" && known[key] {
+		if value != "" && known[key] {
 			report.FailedCount++
 			report.FailedRecords = append(report.FailedRecords, map[string]any{"row": rowIndex + 2, "reason": "already exists"})
 			failedRows = append(failedRows, append(append([]string(nil), row...), "already exists"))
