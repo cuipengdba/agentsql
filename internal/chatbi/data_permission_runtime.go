@@ -47,7 +47,7 @@ func applicableDataPermissions(rules []DataPermissionRule, principal Principal, 
 			continue
 		}
 		for _, raw := range rule.Permissions {
-			if !supportedDataPermissionTarget(raw) {
+			if !supportedDataPermissionTarget(raw, rule.Users) {
 				return nil, nil, ErrGateway
 			}
 		}

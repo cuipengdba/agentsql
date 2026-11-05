@@ -7,19 +7,24 @@ import (
 	"strconv"
 )
 
-// The original rule schema permits role and explicit-target forms that this
-// compatibility layer cannot currently enforce. An active unsupported target
-// must never turn into a no-op for the affected workspace.
-func supportedDataPermissionTarget(raw json.RawMessage) bool {
+// An explicit user target is supported only when it names the sole user in
+// the group. Other target forms remain closed until their runtime membership
+// semantics can be enforced on every data path.
+func supportedDataPermissionTarget(raw json.RawMessage, users []int64) bool {
 	var target struct {
 		Type      *string         `json:"auth_target_type"`
 		ID        json.RawMessage `json:"auth_target_id"`
 		WhiteList *string         `json:"white_list_user"`
 	}
 	if json.Unmarshal(raw, &target) != nil || target.Type != nil && *target.Type != "user" ||
-		len(target.ID) != 0 && string(target.ID) != "null" ||
 		target.WhiteList != nil && *target.WhiteList != "[]" {
 		return false
+	}
+	if len(target.ID) != 0 && string(target.ID) != "null" {
+		id, valid := parseSystemVariableID(target.ID)
+		if !valid || target.Type == nil || len(users) != 1 || users[0] != id {
+			return false
+		}
 	}
 	return true
 }
@@ -66,7 +71,7 @@ func (h *Handler) validateDataPermissionActivation(ctx context.Context, principa
 	type relation struct{ schema, table string }
 	tables := make(map[ID]relation)
 	for _, raw := range rule.Permissions {
-		if !supportedDataPermissionTarget(raw) {
+		if !supportedDataPermissionTarget(raw, rule.Users) {
 			return nil, ErrInvalidDataPermission
 		}
 		var item struct {

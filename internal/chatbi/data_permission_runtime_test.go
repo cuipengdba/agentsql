@@ -145,6 +145,65 @@ func TestOriginalRuleGroupSaveActivatesOnlyLivePostgresRowPermission(t *testing.
 	require.Len(t, rules, 1)
 }
 
+func TestSingleUserExplicitTargetAppliesRowRuleAndRejectsMismatch(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	gateway := service.Gateway.(*fakeGateway)
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	tableID := browserTableID("10", "public", "sales")
+	tree, err := json.Marshal(map[string]any{"logic": "and", "items": []any{map[string]any{
+		"type": "item", "field_id": browserFieldID(tableID, "region"), "filter_type": "logic",
+		"term": "eq", "value_type": "normal", "value": "east",
+	}}})
+	require.NoError(t, err)
+	item := map[string]any{"type": "row", "ds_id": 10, "table_id": tableID,
+		"expression_tree": string(tree), "auth_target_type": "user", "auth_target_id": 1}
+	request, err := json.Marshal(map[string]any{"name": "one explicit member", "users": []int64{1},
+		"permissions": []any{item}})
+	require.NoError(t, err)
+	created := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	principal, err := service.Identity.Verify(ctx, adminToken)
+	require.NoError(t, err)
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.query(ctx, principal, binding, "SELECT region, amount FROM public.sales")
+	require.NoError(t, err)
+	require.Equal(t, 1, gateway.queries)
+	require.Contains(t, gateway.lastQuery, "region = 'east'")
+
+	item["auth_target_id"] = 2
+	request, err = json.Marshal(map[string]any{"name": "mismatched member", "users": []int64{1},
+		"permissions": []any{item}})
+	require.NoError(t, err)
+	rejected := accountRequest(t, handler, http.MethodPost, "/api/v1/ds_permission/save", string(request), adminToken)
+	require.Equal(t, http.StatusUnprocessableEntity, rejected.Code)
+	require.Equal(t, 1, gateway.queries)
+	require.False(t, supportedDataPermissionTarget(json.RawMessage(`{"auth_target_type":"user","auth_target_id":1}`), []int64{1, 2}))
+	require.False(t, supportedDataPermissionTarget(json.RawMessage(`{"auth_target_id":1}`), []int64{1}))
+}
+
+func TestRestoredMismatchedExplicitTargetClosesBeforeGateway(t *testing.T) {
+	service, principal, gateway, _, _ := serviceFixture(t)
+	ctx := context.Background()
+	rule := testActiveRowPermission(t, "east")
+	var item map[string]any
+	require.NoError(t, json.Unmarshal(rule.Permissions[0], &item))
+	item["auth_target_type"] = "user"
+	item["auth_target_id"] = 2
+	rule.Permissions[0], _ = json.Marshal(item)
+	require.NoError(t, service.Store.put(ctx, permissionRuleKey("1", rule.ID), rule, 0))
+	binding, err := service.binding(ctx, principal, "10")
+	require.NoError(t, err)
+	_, err = service.schema(ctx, principal, binding)
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.schemaCalls)
+	_, err = service.query(ctx, principal, binding, "SELECT region FROM public.sales")
+	require.ErrorIs(t, err, ErrGateway)
+	require.Zero(t, gateway.queries)
+}
+
 func TestRestoredActiveRoleTargetClosesForWorkspaceBeforeGateway(t *testing.T) {
 	service, principal, gateway, _, _ := serviceFixture(t)
 	ctx := context.Background()
