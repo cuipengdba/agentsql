@@ -99,6 +99,43 @@ func TestEmbeddedUnboundHTTPQuestionSelectsCurrentSource(t *testing.T) {
 	require.Contains(t, answered.Body.String(), `"type":"finish"`)
 }
 
+func TestEmbeddedPageHistoryReplaysCurrentAuthorizedData(t *testing.T) {
+	service, _, embedded, app := embeddedSelectionFixture(t)
+	handler, err := NewHandler(service, "test")
+	require.NoError(t, err)
+	token := signedEmbeddedFixture(t, app.AppSecret, map[string]any{
+		"account": embedded.User.Account, "embeddedId": app.ID,
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-SQLBOT-ASSISTANT-TOKEN", "Embedded "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	started := request(http.MethodPost, "/api/v1/chat/assistant/start", `{"question":"show sales","origin":2}`)
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var response struct {
+		Data struct {
+			ID ID `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &response))
+	answered := request(http.MethodPost, "/api/v1/chat/question", `{"chat_id":"`+string(response.Data.ID)+`","question":"show sales"}`)
+	require.Equal(t, http.StatusOK, answered.Code, answered.Body.String())
+	history := request(http.MethodGet, "/api/v1/chat/"+string(response.Data.ID), "")
+	require.Equal(t, http.StatusOK, history.Code, history.Body.String())
+	require.Contains(t, history.Body.String(), `"amount":"123"`)
+	revision, err := service.Store.get(context.Background(), bindingKey(embedded, "10"), new(Binding))
+	require.NoError(t, err)
+	require.NoError(t, service.Store.delete(context.Background(), bindingKey(embedded, "10"), revision))
+	revoked := request(http.MethodGet, "/api/v1/chat/"+string(response.Data.ID), "")
+	require.NotEqual(t, http.StatusOK, revoked.Code)
+	require.NotContains(t, revoked.Body.String(), `"amount":"123"`)
+}
+
 func TestEmbeddedUnboundChatBindsOnlyCurrentAllowedSource(t *testing.T) {
 	ctx := context.Background()
 	service, _, embedded, _ := embeddedSelectionFixture(t)

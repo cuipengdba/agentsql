@@ -913,7 +913,11 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, toke
 		writeJSON(w, 422, "Invalid ID")
 		return
 	}
-	chat, err := h.service.ReadChat(r.Context(), p, id, strings.HasSuffix(r.URL.Path, "/with_data"))
+	// The unchanged SQLBot page embed opens history through /chat/{id}, then
+	// renders the saved result from that response. Reexecute it through the
+	// current permission and gateway boundary for type 4 embeds.
+	withData := strings.HasSuffix(r.URL.Path, "/with_data") || p.EmbeddedType == 4
+	chat, err := h.service.ReadChat(r.Context(), p, id, withData)
 	if err != nil {
 		failure(w, err)
 		return
@@ -923,7 +927,7 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request, p Principal, toke
 	// Metadata reads intentionally strip that text, so reauthorize and audit
 	// only narrative children before including their saved content. A changed
 	// result digest leaves the historical text empty.
-	if !strings.HasSuffix(r.URL.Path, "/with_data") {
+	if !withData {
 		for i := range chat.Records {
 			if chat.Records[i].Action != "analysis" && chat.Records[i].Action != "predict" {
 				continue
