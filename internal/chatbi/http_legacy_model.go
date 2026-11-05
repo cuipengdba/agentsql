@@ -727,13 +727,21 @@ func parseLegacyModelArguments(items []json.RawMessage, supplier int) (legacyMod
 		seen[key] = true
 		switch key {
 		case "temperature":
+			numeric, err := legacyModelNumericValue(fields["val"])
+			if err != nil {
+				return result, err
+			}
 			var value float64
-			if json.Unmarshal(fields["val"], &value) != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 2 || value > 1 && supplier != 1 && supplier != 4 && supplier != 5 && supplier != 7 {
+			if json.Unmarshal(numeric, &value) != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 2 || value > 1 && supplier != 1 && supplier != 4 && supplier != 5 && supplier != 7 {
 				return result, ErrInvalidAccountChange
 			}
 			result.Temperature = &value
 		case "max_tokens":
-			if supplier != 5 || json.Unmarshal(fields["val"], &result.MaxTokens) != nil || result.MaxTokens < 1 || result.MaxTokens > 32768 {
+			numeric, err := legacyModelNumericValue(fields["val"])
+			if err != nil {
+				return result, err
+			}
+			if supplier != 5 || json.Unmarshal(numeric, &result.MaxTokens) != nil || result.MaxTokens < 1 || result.MaxTokens > 32768 {
 				return result, ErrInvalidAccountChange
 			}
 		case "extra_body":
@@ -753,4 +761,18 @@ func parseLegacyModelArguments(items []json.RawMessage, supplier int) (legacyMod
 		}
 	}
 	return result, nil
+}
+
+// The pinned Community editor submits numeric parameter values as strings.
+// Parse those with the same JSON-number grammar as native numeric values.
+func legacyModelNumericValue(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 || raw[0] != '"' {
+		return raw, nil
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil || len(text) == 0 || len(text) > 32 ||
+		strings.TrimSpace(text) != text || text[0] != '-' && (text[0] < '0' || text[0] > '9') {
+		return nil, ErrInvalidAccountChange
+	}
+	return json.RawMessage(text), nil
 }

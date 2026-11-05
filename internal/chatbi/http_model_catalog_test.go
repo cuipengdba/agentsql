@@ -336,6 +336,12 @@ func TestOriginalAlibabaAndSparkArgumentsReachModelRequest(t *testing.T) {
 		{5, `{"key":"extra_body","name":"extra_body","val":"{\"enable_thinking\":true}"}`},
 		{5, `{"key":"max_tokens","name":"max_tokens","val":32769}`},
 		{1, `{"key":"temperature","name":"temperature","val":2.1}`},
+		{1, `{"key":"temperature","name":"temperature","val":"2.1"}`},
+		{1, `{"key":"temperature","name":"temperature","val":"1.5;DROP TABLE models"}`},
+		{1, `{"key":"temperature","name":"temperature","val":" 1.5"}`},
+		{1, `{"key":"temperature","name":"temperature","val":"null"}`},
+		{5, `{"key":"max_tokens","name":"max_tokens","val":"32769"}`},
+		{5, `{"key":"max_tokens","name":"max_tokens","val":"1.5"}`},
 	} {
 		if _, err := parseLegacyModelArguments([]json.RawMessage{json.RawMessage(item.body)}, item.supplier); err == nil {
 			t.Fatalf("unsafe or out-of-range argument accepted: %s", item.body)
@@ -391,6 +397,25 @@ func TestOriginalAlibabaAndSparkBrowserModelPersistence(t *testing.T) {
 			"/api/v1/system/aimodel/"+created.Data.ID, "", adminToken); detail.Code != http.StatusOK {
 			t.Fatalf("original supplier %d cannot read create ID: %d", tc.supplier, detail.Code)
 		}
+		// The pinned Community browser serializes edited numeric parameter
+		// values as strings, even when its create request used JSON numbers.
+		stringArguments := []any{map[string]any{"key": "temperature", "name": "temperature", "val": "1.5"}}
+		if tc.supplier == 1 {
+			stringArguments = append(stringArguments, map[string]any{"key": "extra_body", "name": "extra_body", "val": `{"enable_thinking":false}`})
+		} else {
+			stringArguments[0] = map[string]any{"key": "temperature", "name": "temperature", "val": "1.2"}
+			stringArguments = append(stringArguments, map[string]any{"key": "max_tokens", "name": "max_tokens", "val": "32768"})
+		}
+		updateBody, err := json.Marshal(map[string]any{"id": created.Data.ID, "name": "Edited through pinned browser",
+			"model_type": 0, "base_model": "fixture-model", "supplier": tc.supplier, "protocol": 1,
+			"default_model": false, "api_domain": endpoint, "api_key": "", "config_list": stringArguments})
+		if err != nil {
+			t.Fatal(err)
+		}
+		updated := accountRequest(t, handler, http.MethodPut, "/api/v1/system/aimodel", string(updateBody), adminToken)
+		if updated.Code != http.StatusOK {
+			t.Fatalf("original browser supplier %d numeric string edit: %d %s", tc.supplier, updated.Code, updated.Body.String())
+		}
 	}
 	models, err := service.Store.AdditionalWorkspaceModels(context.Background(), "1")
 	if err != nil || len(models) != 2 {
@@ -417,6 +442,9 @@ func TestOriginalAlibabaAndSparkBrowserModelPersistence(t *testing.T) {
 		}
 		if model.Supplier == 5 && (model.MaxTokens != 32768 || len(body.Data.ConfigList) != 2) {
 			t.Fatalf("Spark configuration lost: %+v %+v", model, body)
+		}
+		if model.Name != "Edited through pinned browser" {
+			t.Fatalf("browser edit was not persisted: %+v", model)
 		}
 	}
 }
