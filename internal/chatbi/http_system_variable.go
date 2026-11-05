@@ -27,6 +27,59 @@ type SystemVariable struct {
 
 const systemVariableIDBase int64 = 1_000_000_000_000
 
+// SQLBot's three built-in identity variables are visible in the unchanged
+// management page. Keep them out of the stored custom-variable collection:
+// row-rule activation must continue to reject them until their dynamic values
+// and revision checks are implemented end to end.
+var builtInSystemVariables = []struct {
+	id    int64
+	name  string
+	value string
+}{
+	{2, "Account", "account"},
+	{3, "Email", "email"},
+	{1, "Name", "name"},
+}
+
+type systemVariableAPIItem struct {
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	VarType   string          `json:"var_type"`
+	Type      string          `json:"type"`
+	Value     json.RawMessage `json:"value"`
+	Created   any             `json:"create_time"`
+	CreatedBy any             `json:"create_by"`
+}
+
+func systemVariableAPIItems(custom []SystemVariable, name string) []systemVariableAPIItem {
+	items := make([]systemVariableAPIItem, 0, len(custom)+len(builtInSystemVariables))
+	for _, builtin := range builtInSystemVariables {
+		if strings.Contains(strings.ToLower(builtin.name), strings.ToLower(name)) {
+			value, _ := json.Marshal([]string{builtin.value})
+			items = append(items, systemVariableAPIItem{ID: builtin.id, Name: builtin.name,
+				VarType: "text", Type: "system", Value: value})
+		}
+	}
+	for _, variable := range custom {
+		items = append(items, systemVariableAPIItem{ID: variable.ID, Name: variable.Name,
+			VarType: variable.VarType, Type: variable.Type, Value: variable.Value,
+			Created: variable.Created, CreatedBy: variable.CreatedBy})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return items
+}
+
+func builtInSystemVariableID(id int64) bool { return id >= 1 && id <= 3 }
+
+func builtInSystemVariableName(name string) bool {
+	for _, builtin := range builtInSystemVariables {
+		if strings.EqualFold(name, builtin.name) {
+			return true
+		}
+	}
+	return false
+}
+
 // The pinned SQLBot select renders generated 16-digit numeric option IDs
 // incorrectly. Keep new system-variable IDs in a 13-digit range for its
 // unchanged user-management page; imported IDs remain untouched.
@@ -152,7 +205,7 @@ func (h *Handler) systemVariableList(w http.ResponseWriter, r *http.Request, p P
 		failure(w, err)
 		return
 	}
-	okay(w, items)
+	okay(w, systemVariableAPIItems(items, filter.Name))
 }
 
 func (h *Handler) systemVariablePage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -185,7 +238,8 @@ func (h *Handler) systemVariablePage(w http.ResponseWriter, r *http.Request, p P
 		failure(w, err)
 		return
 	}
-	total := len(items)
+	visible := systemVariableAPIItems(items, filter.Name)
+	total := len(visible)
 	start := (page - 1) * size
 	if start > total {
 		start = total
@@ -194,7 +248,7 @@ func (h *Handler) systemVariablePage(w http.ResponseWriter, r *http.Request, p P
 	if end > total {
 		end = total
 	}
-	okay(w, map[string]any{"items": items[start:end], "page": page, "size": size, "total": total, "total_pages": (total + size - 1) / size})
+	okay(w, map[string]any{"items": visible[start:end], "page": page, "size": size, "total": total, "total_pages": (total + size - 1) / size})
 }
 
 func (h *Handler) systemVariableSave(w http.ResponseWriter, r *http.Request, p Principal, token string) {
@@ -223,8 +277,12 @@ func (h *Handler) systemVariableSave(w http.ResponseWriter, r *http.Request, p P
 		id = parsed
 	}
 	variable := SystemVariable{ID: id, Name: input.Name, VarType: input.VarType, Value: input.Value}
-	if !validSystemVariable(variable) {
+	if !validSystemVariable(variable) || builtInSystemVariableID(variable.ID) {
 		failure(w, ErrInvalidAccountChange)
+		return
+	}
+	if builtInSystemVariableName(variable.Name) {
+		failure(w, ErrConflict)
 		return
 	}
 	if variable.ID == 0 {
@@ -276,7 +334,7 @@ func (h *Handler) systemVariableDelete(w http.ResponseWriter, r *http.Request, p
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	for i, id := range ids {
-		if id < 1 || id > maxSQLBotBrowserID || i > 0 && id == ids[i-1] {
+		if id < 1 || id > maxSQLBotBrowserID || builtInSystemVariableID(id) || i > 0 && id == ids[i-1] {
 			failure(w, ErrInvalidAccountChange)
 			return
 		}

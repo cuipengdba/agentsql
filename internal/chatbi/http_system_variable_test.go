@@ -9,6 +9,83 @@ import (
 	"testing"
 )
 
+func TestOriginalBuiltInSystemVariablesAreListedButCannotBeMutated(t *testing.T) {
+	service, handler, adminToken, memberToken := adminUsersFixture(t)
+	type pageData struct {
+		Items []struct {
+			ID        int64           `json:"id"`
+			Name      string          `json:"name"`
+			Type      string          `json:"type"`
+			VarType   string          `json:"var_type"`
+			Value     json.RawMessage `json:"value"`
+			Created   *string         `json:"create_time"`
+			CreatedBy *string         `json:"create_by"`
+		} `json:"items"`
+		Total int `json:"total"`
+	}
+	readPage := func(path, body string) pageData {
+		t.Helper()
+		response := accountRequest(t, handler, http.MethodPost, path, body, adminToken)
+		if response.Code != http.StatusOK {
+			t.Fatalf("read built-in variables: %d %s", response.Code, response.Body.String())
+		}
+		var decoded struct {
+			Data pageData `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		return decoded.Data
+	}
+	page := readPage("/api/v1/sys_variable/listPage/1/10", `{}`)
+	if page.Total != 3 || len(page.Items) != 3 {
+		t.Fatalf("original built-ins absent: %+v", page)
+	}
+	for index, want := range []struct {
+		id          int64
+		name, value string
+	}{{2, "Account", `["account"]`}, {3, "Email", `["email"]`}, {1, "Name", `["name"]`}} {
+		got := page.Items[index]
+		if got.ID != want.id || got.Name != want.name || got.Type != "system" || got.VarType != "text" ||
+			string(got.Value) != want.value || got.Created != nil || got.CreatedBy != nil {
+			t.Fatalf("built-in shape differs from pinned original: %+v", got)
+		}
+	}
+	if filtered := readPage("/api/v1/sys_variable/listPage/1/1", `{"name":"EM"}`); filtered.Total != 1 ||
+		len(filtered.Items) != 1 || filtered.Items[0].Name != "Email" {
+		t.Fatalf("filtered built-in page: %+v", filtered)
+	}
+	if next := readPage("/api/v1/sys_variable/listPage/2/1", `{}`); next.Total != 3 ||
+		len(next.Items) != 1 || next.Items[0].Name != "Email" {
+		t.Fatalf("built-in pagination: %+v", next)
+	}
+	all := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listAll", `{}`, adminToken)
+	var allData struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if all.Code != http.StatusOK || json.Unmarshal(all.Body.Bytes(), &allData) != nil || len(allData.Data) != 3 {
+		t.Fatalf("listAll missed built-ins: %d %s", all.Code, all.Body.String())
+	}
+	if denied := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/listPage/1/10", `{}`, memberToken); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("member read built-ins: %d", denied.Code)
+	}
+	for _, body := range []string{
+		`{"id":1,"name":"Name","var_type":"text","value":["other"]}`,
+		`{"name":"NAME","var_type":"text","value":["other"]}`,
+	} {
+		if changed := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/save", body, adminToken); changed.Code < 400 {
+			t.Fatalf("built-in variable overwritten: %d %s", changed.Code, changed.Body.String())
+		}
+	}
+	if deleted := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/delete", `[1]`, adminToken); deleted.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("built-in variable removed: %d", deleted.Code)
+	}
+	stored, err := service.Store.SystemVariables(context.Background(), "1", "")
+	if err != nil || len(stored) != 0 {
+		t.Fatalf("built-ins entered custom-variable store: %+v %v", stored, err)
+	}
+}
+
 func TestKeyValueSystemVariableRoundTripAndValidation(t *testing.T) {
 	service, handler, adminToken, memberToken := adminUsersFixture(t)
 	path := "/api/v1/sys_variable/save"
