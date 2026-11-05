@@ -163,7 +163,7 @@ func TestSystemVariablesAreScopedAuditedAndDoNotLeakToMembers(t *testing.T) {
 	}
 	deleteIDs, _ := json.Marshal([]int64{items[0].ID})
 	deleted := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/delete", string(deleteIDs), adminToken)
-	if deleted.Code != http.StatusOK {
+	if deleted.Code != http.StatusOK || !strings.Contains(deleted.Body.String(), `"data":null`) {
 		t.Fatalf("delete: %d %s", deleted.Code, deleted.Body.String())
 	}
 	remaining, _ := service.Store.SystemVariables(context.Background(), "1", "")

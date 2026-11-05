@@ -289,5 +289,5 @@ func (h *Handler) systemVariableDelete(w http.ResponseWriter, r *http.Request, p
 		failure(w, err)
 		return
 	}
-	okay(w, true)
+	okay(w, nil)
 }
