@@ -9,33 +9,35 @@ import (
 	"strings"
 )
 
-func readSemanticUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func readSemanticUpload(w http.ResponseWriter, r *http.Request) (string, []byte, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSemanticUpload+65536)
 	reader, err := r.MultipartReader()
 	if err != nil {
-		return nil, errSemanticWorkbook
+		return "", nil, errSemanticWorkbook
 	}
 	var data []byte
+	var filename string
 	seen := false
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
 			break
 		}
-		if err != nil || seen || part.FormName() != "file" || !strings.HasSuffix(strings.ToLower(part.FileName()), ".xlsx") {
-			return nil, errSemanticWorkbook
+		if err != nil || seen || part.FormName() != "file" || semanticUploadExtension(part.FileName()) == "" {
+			return "", nil, errSemanticWorkbook
 		}
 		seen = true
+		filename = part.FileName()
 		data, err = io.ReadAll(io.LimitReader(part, maxSemanticUpload+1))
 		_ = part.Close()
 		if err != nil || len(data) > maxSemanticUpload {
-			return nil, errSemanticWorkbook
+			return "", nil, errSemanticWorkbook
 		}
 	}
 	if !seen {
-		return nil, errSemanticWorkbook
+		return "", nil, errSemanticWorkbook
 	}
-	return data, nil
+	return filename, data, nil
 }
 
 func (service *Service) semanticBindingNames(ctx context.Context, p Principal) (map[string]ID, error) {
@@ -96,18 +98,23 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		failure(w, err)
 		return
 	}
-	data, err := readSemanticUpload(w, r)
+	filename, data, err := readSemanticUpload(w, r)
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized XLSX upload")
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized XLS/XLSX upload")
 		return
 	}
 	columns := 6
 	if kind == "sql-example" {
 		columns = 4
 	}
-	rows, err := readSemanticWorkbook(data, columns)
+	var rows [][]string
+	if semanticUploadExtension(filename) == ".xls" {
+		rows, err = readLegacySemanticWorkbook(data, columns)
+	} else {
+		rows, err = readSemanticWorkbook(data, columns)
+	}
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported XLSX workbook")
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported XLS/XLSX workbook")
 		return
 	}
 	bindings, err := h.service.semanticBindingNames(r.Context(), p)

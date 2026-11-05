@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -284,5 +285,82 @@ func TestSQLExampleUploadScopesDuplicatesByDatasource(t *testing.T) {
 	stored, err := service.Examples(ctx, p)
 	if err != nil || len(stored) != 2 || stored[0].Datasource == stored[1].Datasource {
 		t.Fatalf("wrong datasource-scoped SQL examples: %+v, %v", stored, err)
+	}
+}
+
+func TestSemanticLegacyXLSUploadMatchesOriginalWorkbookFlows(t *testing.T) {
+	service, handler, token, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	p, err := service.Identity.Verify(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range []Binding{
+		{Datasource: "11", Workspace: p.Workspace, User: p.User.ID, Name: "Synthetic training source one", Dialect: "pg", BindingID: "one", ConnectorToken: "connector-one", AgentKey: "agent-one"},
+		{Datasource: "12", Workspace: p.Workspace, User: p.User.ID, Name: "Synthetic training source two", Dialect: "pg", BindingID: "two", ConnectorToken: "connector-two", AgentKey: "agent-two"},
+	} {
+		if err := service.Store.put(ctx, bindingKey(p, binding.Datasource), binding, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	upload := func(route, filename string, data []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, err := form.CreateFormFile("file", filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost, route, &body)
+		r.Header.Set("Content-Type", form.FormDataContentType())
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	check := func(w *httptest.ResponseRecorder, success, duplicate, failed int) {
+		t.Helper()
+		var response struct {
+			Data semanticUploadReport `json:"data"`
+		}
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &response) != nil ||
+			response.Data.SuccessCount != success || response.Data.DuplicateCount != duplicate ||
+			response.Data.FailedCount != failed {
+			t.Fatalf("legacy workbook report mismatch: %d %s", w.Code, w.Body.String())
+		}
+	}
+	term, err := os.ReadFile("testdata/semantic-term.xls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	training, err := os.ReadFile("testdata/semantic-training.xls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := readLegacySemanticWorkbook(term, 6); err != nil || len(rows) != 1 || rows[0][0] != "Synthetic legacy workbook term" {
+		t.Fatalf("long original terminology header was rejected: %v, %v", rows, err)
+	}
+	check(upload("/api/v1/system/terminology/uploadExcel", "terms.xls", term), 1, 0, 0)
+	check(upload("/api/v1/system/data-training/uploadExcel", "training.xls", training), 2, 1, 0)
+	check(upload("/api/v1/system/data-training/uploadExcel", "training.xls", training), 0, 1, 2)
+	if terms, err := service.Terminologies(ctx, p); err != nil || len(terms) != 1 {
+		t.Fatalf("legacy term did not persist: %v, %v", terms, err)
+	}
+	if examples, err := service.Examples(ctx, p); err != nil || len(examples) != 2 || examples[0].Datasource == examples[1].Datasource {
+		t.Fatalf("legacy training rows were not datasource-scoped: %v, %v", examples, err)
+	}
+	for _, bad := range [][]byte{training[:8], term[:len(term)/2]} {
+		if w := upload("/api/v1/system/terminology/uploadExcel", "bad.xls", bad); w.Code == http.StatusOK {
+			t.Fatalf("malformed legacy workbook accepted: %s", w.Body.String())
+		}
+	}
+	if w := upload("/api/v1/system/terminology/uploadExcel", "bad.xlsx", term); w.Code == http.StatusOK {
+		t.Fatal("legacy OLE workbook accepted under XLSX extension")
 	}
 }
