@@ -1,6 +1,6 @@
 # AgentSQL documentation
 
-The current release is **v4.5.0**. Use the [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0) and [three usage modes](PRODUCT_MODES.md) as current product-scope entry points. Some detailed guides retain versioned sections and cannot expand the verified v4.5.0 scope. Historical reports keep their original time and conclusions.
+The current release is **v4.6.0**. Use the [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0) and [three usage modes](PRODUCT_MODES.md) as current product-scope entry points. Some detailed guides retain versioned sections and cannot expand the verified v4.6.0 scope. Historical reports keep their original time and conclusions.
 
 **Language:** [English](README.md) | [Simplified Chinese](../README.md)
 
@@ -11,7 +11,7 @@ The current release is **v4.5.0**. Use the [official release notes](https://gith
 | Console, permissions, approval, masking and auditing | [ User Manual](USER_GUIDE.md) |
 | MCP protocol and client | [ Access Guide](INTEGRATIONS.md) |
 | Logo and brand usage | [Brand logo](BRAND.md) |
-| SQLBot access AgentSQL | [SQLBot adapts to ](SQLBOT.md) |
+| SQLBot access AgentSQL | [SQLBot integration](SQLBOT.md), [Type 1 advanced assistant deployment](v4.6.0-design.md#production-deployment-boundary) |
 | Native data Q&A and identity migration | [Go Q&A service](CHATBI.md) |
 | Deployment, upgrades, backup and recovery | [ Deployment Guide ](DEPLOY.md), [ Current Operation and Maintenance Manual ](OPERATIONS.md) |
 | Identity authentication and personnel delegation | [Identity authentication](AUTHENTICATION.md) |
@@ -21,7 +21,7 @@ The current release is **v4.5.0**. Use the [official release notes](https://gith
 | Task-level temporary authorization | [Temporary read-only authorization](task-read-grants.md) |
 | Architecture and Security Contracts | [Engineering Specifications](SPEC.md), [Safety Policy](../../SECURITY.en.md) |
 | Issuance and signature verification | [ delivery process ](RELEASE_ROUTINE.md), [ issuance process ](RELEASE_PROCESS.md), [ asset list ](RELEASE_ASSETS.md) |
-| Current release scope | [v4.5.0 official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0), [Design and limits](v4.5.0-design.md) |
+| Current release scope | [v4.6.0 official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0), [Design and limits](v4.6.0-design.md) |
 
 The English version is compared section by section with the same Chinese source document, retaining executable examples and historical evidence, without replacing the full text with an abstract. The operation and maintenance entrance of the current version is `OPERATIONS.md`.
 

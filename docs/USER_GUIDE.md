@@ -890,3 +890,5 @@ agentsqlctl upgrade apply --manifest-url https://example.org/releases/manifest.j
 数据源页面可在已授权、当前可见的 PostgreSQL/MySQL 服务端绑定中管理选表、表和字段备注及表关系。先勾选允许显示的表，再读取字段并保存关系；取消选表或撤权后重新读取，旧关系不能继续授权查询。关系只给本机模型提供 JOIN 提示，每条生成的 SQL 仍经过当前网关权限、执行、脱敏和持久审计。页面最多编辑 64 张可见表。文件数据源和其他数据库不因此获得相同能力。
 
 v4.5.0 只对 SQLBot 社区版 v1.10.3 的普通问数页、原版 Python MCP SDK、单数据源基本游客助手与 Type 4 页面嵌入，在指定合成场景完成验收。其余社区页面、API、嵌入方式和真实业务系统切换尚未验收；不得据此宣称完整兼容或零改动切换。准确范围见 [v4.5.0 GitHub 发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0)。
+
+v4.6.0 新增固定原版 Type 1 高级助手的限定路径：运营方登记私有第三方目录，把目录 ID 映射为已有受权网关别名，并在完成宿主证书、来源和非管理员用户配置后启用独立助手监听器。目录不能创建设备连接或代替当前授权；部署步骤见 [Type 1 设计与配置](v4.6.0-design.md#生产部署边界)，实测范围见 [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0)。角色、多用户与非空白名单活动规则及其他社区页面/API 仍不在本版承诺范围。

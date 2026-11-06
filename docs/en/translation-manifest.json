@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "810631cc82a236950669f453ac94eb50ee60b05fdff0ff61c992b9d01be3db8e"
+      "source_sha256": "f93f0709c4463ae54def79b323add908e5b8d7518ea7adee5549a7e4b27bae59"
     },
     {
       "source": "CHANGELOG.md",
@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "48947e1a8e431c39ca1665019d551c9493ae5af23b01aef462d829d53b3dc1f9"
+      "source_sha256": "7f8314a347835a62806d839ca0d23f01e14a26c928e2b8b9925fac239766ab0e"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -124,7 +124,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "691c80b1521349e2d2a8f0eb7530135317eaeabcbe33d9f993eb65aa61f05576"
+      "source_sha256": "09892baa1dcabf2f8572ffe9f7bc474053c3e0762eac57cbf4801676d9fd4770"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -224,7 +224,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "eb186c7e3a3a2e7235ec6619fc5e5fbb92ecbcd4a7495a64a8a9a9ec42db1ea2"
+      "source_sha256": "cd19e989e2d250a6f6a3dcfe842a543c7a93b6086d1ae8c0ffe855335053f497"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -509,7 +509,7 @@
     {
       "source": "docs/USER_GUIDE.md",
       "english": "docs/en/USER_GUIDE.md",
-      "source_sha256": "877a4d966676a19cf7133d336234eb359e1ccef3e0383a3cabdf98de37006557"
+      "source_sha256": "677d3e732079f3b864b5a1ccb233431f12e85cbcd90855eb9c49cfdd0c9e9830"
     },
     {
       "source": "docs/v0.5-known-issues-task7.md",
@@ -1279,7 +1279,7 @@
     {
       "source": "docs/PRODUCT_MODES.md",
       "english": "docs/en/PRODUCT_MODES.md",
-      "source_sha256": "8db81ff714e550a86e051d2036584ca4d8416b7cd45294e7fd14b42f8c54749e"
+      "source_sha256": "4e98b112b592e5a03362f823bbd6ed55ffa0d87c1b52b8bdd5019c65a163d6a0"
     },
     {
       "source": "docs/v4.6.0-design.md",
