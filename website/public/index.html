@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL（智盾）｜数据库安全网关与独立问数</title>
-  <meta name="description" content="AgentSQL 提供数据库安全网关与自有问数页面：可保护现有 SQLBot 的数据库访问，也可独立提供自然语言问数。已验证的功能和接入范围见当前发布说明。">
+  <title>AgentSQL（智盾）｜独立 AI 问数 Agent + MCP Server 安全网关</title>
+  <meta name="description" content="AgentSQL 是独立 AI 问数 Agent 与 MCP Server 数据库安全网关二合一产品：自有问数无需 SQLBot，也可经适配器保护 SQLBot 的数据库执行。支持范围见 v4.5.0 发布说明。">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -13,20 +13,20 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="zh_CN">
-  <meta property="og:title" content="AgentSQL · 数据库安全网关与独立问数">
-  <meta property="og:description" content="AgentSQL 可保护现有 SQLBot 的数据库访问，也提供自有自然语言问数页面；功能和接入范围以当前发布说明为准。">
+  <meta property="og:title" content="AgentSQL · AI 问数 Agent + MCP Server 安全网关">
+  <meta property="og:description" content="AgentSQL 自有 AI 问数 Agent 与 MCP Server 安全网关共用授权、脱敏和审计；SQLBot 可选经适配器接入。范围以 v4.5.0 发布说明为准。">
   <meta property="og:url" content="https://agentsql.cn/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
-  <meta property="og:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
+  <meta property="og:image:alt" content="AgentSQL（智盾）：AI 问数 Agent 与 MCP Server 安全网关">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AgentSQL · 数据库安全网关与独立问数">
-  <meta name="twitter:description" content="AgentSQL 可保护现有 SQLBot 的数据库访问，也提供自有自然语言问数页面；功能和接入范围以当前发布说明为准。">
+  <meta name="twitter:title" content="AgentSQL · AI 问数 Agent + MCP Server 安全网关">
+  <meta name="twitter:description" content="AgentSQL 自有 AI 问数 Agent 与 MCP Server 安全网关共用授权、脱敏和审计；SQLBot 可选经适配器接入。范围以 v4.5.0 发布说明为准。">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
-  <meta name="twitter:image:alt" content="AgentSQL（智盾）：面向 AI Agent 的 MCP 数据库安全网关">
+  <meta name="twitter:image:alt" content="AgentSQL（智盾）：AI 问数 Agent 与 MCP Server 安全网关">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/app.css?v=3.6.0">
+  <link rel="stylesheet" href="/assets/app.css?v=4.5.0-positioning">
   <script src="/assets/app.js?v=3.6.0" defer></script>
 </head>
 <body>
@@ -45,7 +45,7 @@
       <nav id="primary-nav" class="primary-nav" aria-label="主导航">
         <a href="#product">产品</a>
         <a href="/demo/">演示</a>
-        <a href="#features">特性</a>
+        <a href="#capabilities">能力矩阵</a>
         <a href="#docs">文档 / 下载</a>
         <a href="#compatibility">兼容性</a>
         <a href="#ecosystem">生态</a>
@@ -68,31 +68,31 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.5.0</div>
-          <h1>数据库安全网关与独立问数</h1>
-          <p class="hero-lead">AgentSQL（中文名：智盾）是面向 AI Agent 的数据库安全网关与 MCP Server。模型发出的 PostgreSQL / MySQL 请求在到达数据库前，经过身份认证、SQL 解析、静态与动态风险检查、四态决策与受控执行；结果按配置脱敏，并在应用层留下持久审计。</p>
-          <p class="positioning">AgentSQL 自有问数、图表、仪表板和嵌入应用页面，模型生成的 SQL 继续经过数据库安全网关。已有 SQLBot 部署也可接入 AgentSQL 做数据库访问控制。完整社区版功能和页面仍须逐项验收；v4.5.0 只承诺已验证的有限问数与嵌入路径；未在用户真实业务系统验证。</p>
+          <h1>独立 AI 问数 Agent<br>MCP Server 安全网关</h1>
+          <p class="hero-lead">AgentSQL（智盾）把自有 AI 问数 Agent 和独立 MCP Server 数据库安全网关合在同一产品中。直接用 AgentSQL 提问，或让外部 MCP Client 接入；两条入口的数据库请求都经过当前身份与授权、SQL 检查、受控执行、结果脱敏和持久审计。</p>
+          <p class="positioning">自有 Go 问数服务和 Web 页面不需要 SQLBot 运行。SQLBot 的数据库调用可选经固定版本适配器接入 AgentSQL 安全网关；这不表示任意 SQLBot 部署即插即用。v4.5.0 只承诺发布说明列明的有限路径，尚未在用户真实业务系统验证。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
             <a class="button button-secondary" href="#quickstart">快速开始</a>
             <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0" target="_blank" rel="noopener noreferrer">v4.5.0 发布说明</a>
           </div>
           <p class="badge-line">v0.5.0 起 Apache-2.0 开源 · Go 单二进制交付（glibc / cgo 构建）· 自托管 · 无第三方遥测依赖</p>
-          <p class="positioning">原生问数连接现有安全网关，模型生成的 SQL 继续经过授权、脱敏与持久审计。</p>
+          <p class="positioning">问数由 AgentSQL 自己理解问题、选择当前受权结构并生成 SQL；安全内核决定能否执行和交付结果。</p>
         </div>
         <div class="gateway-visual" aria-label="请求经过 AgentSQL 网关的处理链路">
           <svg viewBox="0 0 720 430" role="img" aria-labelledby="flow-title flow-desc">
-            <title id="flow-title">AgentSQL 请求链路</title>
-            <desc id="flow-desc">AI Agent 通过 LLM 或 MCP Client 连接 AgentSQL 网关，再访问 PostgreSQL 或 MySQL；网关包含鉴权、解析、安检、决策、执行脱敏和留痕六段。</desc>
-            <g class="flow-line"><path d="M133 96h72M330 96h65M520 96h67M458 144v56"/><path class="arrow-head" d="m197 91 8 5-8 5Zm190 0 8 5-8 5Zm192 0 8 5-8 5Zm-5 101 5 8 5-8Z"/></g>
-            <g class="flow-node"><rect x="24" y="61" width="110" height="70" rx="12"/><text x="79" y="90">AI Agent</text><text class="flow-sub" x="79" y="112">发出请求</text></g>
-            <g class="flow-node"><rect x="206" y="61" width="125" height="70" rx="12"/><text x="268" y="88">LLM / MCP</text><text class="flow-sub" x="268" y="112">Client</text></g>
-            <g class="flow-node flow-node-accent"><rect x="396" y="48" width="126" height="96" rx="14"/><text x="459" y="86">AgentSQL</text><text class="flow-sub" x="459" y="112">默认拒绝网关</text></g>
-            <g class="flow-node"><rect x="588" y="61" width="108" height="70" rx="12"/><text x="642" y="88">PostgreSQL</text><text class="flow-sub" x="642" y="112">/ MySQL</text></g>
+            <title id="flow-title">AgentSQL 双入口请求链路</title>
+            <desc id="flow-desc">AgentSQL 自有 AI 问数和外部 MCP Client 分别进入 AgentSQL 安全内核，再访问当前授权的数据库；鉴权、解析、安检、决策、执行脱敏和留痕共用。</desc>
+            <g class="flow-line"><path d="M165 83H300M165 183H240V139H300M490 118H570M395 160V225"/><path class="arrow-head" d="m292 78 8 5-8 5Zm0 56 8 5-8 5Zm270-21 8 5-8 5Zm-5 104 5 8 5-8Z"/></g>
+            <g class="flow-node"><rect x="20" y="50" width="145" height="66" rx="12"/><text x="92" y="89">自有 AI 问数</text></g>
+            <g class="flow-node"><rect x="20" y="150" width="145" height="66" rx="12"/><text x="92" y="190">外部 MCP Client</text></g>
+            <g class="flow-node flow-node-accent"><rect x="300" y="75" width="190" height="85" rx="14"/><text x="395" y="108">AgentSQL</text><text class="flow-sub" x="395" y="135">问数 / MCP 安全内核</text></g>
+            <g class="flow-node"><rect x="570" y="83" width="130" height="70" rx="12"/><text x="635" y="125">受权数据库</text></g>
             <g class="stage-box">
-              <rect x="83" y="205" width="554" height="172" rx="18"/>
-              <text class="stage-label" x="115" y="250">01 鉴权</text><text class="stage-label" x="278" y="250">02 解析</text><text class="stage-label" x="441" y="250">03 安检</text>
-              <text class="stage-label" x="115" y="318">04 决策</text><text class="stage-label" x="278" y="318">05 执行与脱敏</text><text class="stage-label" x="491" y="318">06 留痕</text>
-              <path d="M115 270h490"/>
+              <rect x="83" y="225" width="554" height="172" rx="18"/>
+              <text class="stage-label" x="115" y="270">01 鉴权</text><text class="stage-label" x="278" y="270">02 解析</text><text class="stage-label" x="441" y="270">03 安检</text>
+              <text class="stage-label" x="115" y="338">04 决策</text><text class="stage-label" x="278" y="338">05 执行与脱敏</text><text class="stage-label" x="491" y="338">06 留痕</text>
+              <path d="M115 290h490"/>
             </g>
           </svg>
           <div class="visual-note"><span class="pulse" aria-hidden="true"></span> 请求只在策略允许时进入执行阶段</div>
@@ -102,11 +102,40 @@
 
     <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">两种使用形态</p><h2 id="usage-modes-title">在现有问数系统前把关，也能使用 AgentSQL 自有问数页面</h2><p>AgentSQL 的 Go 服务、Web 页面和品牌均独立实现。接入 SQLBot 是可选部署方式之一；各项能力以实际通过的版本和场景验收为准。</p></div>
-        <div class="risk-grid">
-          <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot 数据库安全网关</h3><p>保留现有 SQLBot 页面与问数流程，让业务数据库请求经过 AgentSQL 的身份、权限、受控执行、脱敏与持久审计。接入前须核对身份映射、数据库范围和故障关闭。</p></article>
-          <article class="risk-card"><span class="risk-index">02</span><h3>AgentSQL 独立问数</h3><p>使用 AgentSQL 自有的问数、数据源、图表与管理页面。v4.5.0 仅承诺发布说明列出的有限问数与嵌入路径；其他社区版页面和 API 按路线图继续验收。未在用户真实业务系统验证。</p></article>
+        <div class="section-heading"><p class="kicker">二合一产品</p><h2 id="usage-modes-title">自有问数 Agent 与独立 MCP Server</h2><p>两个入口共用 AgentSQL 的安全执行内核。SQLBot 是可选接入方，不是自有问数的运行依赖。</p></div>
+        <div class="risk-grid usage-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>独立 AI 问数 Agent</h3><p>用户在 AgentSQL 自有页面提出业务问题；Go 服务使用当前受权表列结构和配置的本地模型生成 SQL，再由安全网关执行。回答、历史与导出均受当前权限约束。</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>MCP Server 安全网关</h3><p>外部 AI Agent 可直接调用 AgentSQL MCP 工具。SQLBot 的数据库调用可通过固定版本适配器交给 AgentSQL 执行，由 AgentSQL 逐次核验身份、策略、脱敏和审计；接入前须核对固定版本与绑定。</p></article>
         </div>
+      </div>
+    </section>
+
+    <section id="native-qa" class="section section-muted" aria-labelledby="native-qa-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">AgentSQL 自有问数</p><h2 id="native-qa-title">从自然语言到受控结果，问数链路由 AgentSQL 自己完成</h2><p>问数 Agent 负责理解问题和生成候选 SQL；安全网关负责最终执行许可。v4.5.0 的真模型、真 PostgreSQL 验收仅覆盖发布说明列明的路径。</p></div>
+        <div class="feature-grid qa-steps">
+          <article class="feature-card"><span class="risk-index">01</span><h3>识别当前身份</h3><p>根据用户、工作空间与数据源绑定，选取当前允许的表、列和业务术语；旧会话不自动继承旧权限。</p></article>
+          <article class="feature-card"><span class="risk-index">02</span><h3>模型生成候选 SQL</h3><p>由配置的模型在受权结构内理解问题、生成 SQL；本地固定 ONNX 模型帮助筛选表结构。模型回答仍需核对业务含义。</p></article>
+          <article class="feature-card"><span class="risk-index">03</span><h3>网关受控执行</h3><p>SQL 经解析、表列与受限行规则、只读边界及资源预算检查；结果按规则脱敏并写入持久审计，不能证明安全时拒绝。</p></article>
+          <article class="feature-card"><span class="risk-index">04</span><h3>按当前权限交付</h3><p>回答、历史重开与导出再次核对当前授权；撤权或模型、数据库、存储、审计故障不交付旧 SQL 或数据。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="capabilities" class="section" aria-labelledby="capabilities-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">当前能力</p><h2 id="capabilities-title">能力矩阵，而非逐版功能清单</h2><p>状态描述 v4.5.0 的已验路径与边界；具体部署以发布说明和接入指南为准。</p></div>
+        <div class="table-wrap"><table class="compat-table">
+          <caption>AgentSQL v4.5.0 的二合一产品能力及已验范围</caption>
+          <thead><tr><th scope="col">能力</th><th scope="col">状态</th><th scope="col">使用边界</th></tr></thead>
+          <tbody>
+            <tr><td>独立 AI 问数 Agent</td><td>已验限定路径</td><td>自有 Go/Web 问数；本地模型和运营方登记的 PostgreSQL 网关别名，无 SQLBot 运行依赖</td></tr>
+            <tr><td>MCP Server 安全网关</td><td>可独立部署</td><td>stdio 与 HTTP MCP；当前身份、授权、受控执行、脱敏和持久审计逐次生效</td></tr>
+            <tr><td>SQLBot 接入</td><td>可选固定基线</td><td>经已验适配器调用 AgentSQL MCP；不等于任意 SQLBot 环境自动兼容</td></tr>
+            <tr><td>基本助手与页面嵌入</td><td>已验限定路径</td><td>单数据源基本游客助手及 Type 4 页面嵌入；来源与撤权仍受限</td></tr>
+            <tr><td>高级助手与广覆盖兼容</td><td>后续规划</td><td>Type 1、复杂活动权限目标及余下社区版页面/API 不列为本版已支持项</td></tr>
+          </tbody>
+        </table></div>
       </div>
     </section>
 
@@ -215,11 +244,11 @@
 
     <section id="compatibility" class="section section-muted">
       <div class="container">
-        <div class="section-heading"><p class="kicker">兼容性</p><h2>数据库兼容矩阵</h2><p>下表沿用 v4.3.0 已验证的数据库范围；v4.5.0 未扩大生产支持声明。具体支持继续绑定各自验收证据中的产品、版本和拓扑。</p></div>
+        <div class="section-heading"><p class="kicker">兼容性</p><h2>数据库兼容矩阵</h2><p>此矩阵汇总截至 v4.5.0 的已核验范围。注册、协议连接、受控只读与完整防护是不同等级；实际支持受指定版本、拓扑和验收证据限制。</p></div>
         <div class="compat-summary"><strong>8 大类 / 30 款已注册</strong><span>openGauss 与瀚高 HighGo 已计入；另列金仓 KingbaseES V9 的指定实例 PG 协议验证</span></div>
         <div class="table-wrap">
           <table class="compat-table">
-            <caption>AgentSQL v4.3.0 数据库兼容矩阵：8 大类、30 款已注册数据库，金仓 KingbaseES V9 另列，共 31 行。</caption>
+            <caption>AgentSQL 数据库兼容矩阵：8 大类、30 款已注册数据库，金仓 KingbaseES V9 另列，共 31 行。</caption>
             <thead><tr><th scope="col">类别</th><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">边界说明</th></tr></thead>
             <tbody>
               <tr><th scope="rowgroup" rowspan="10" class="compat-category">关系型</th><td>PostgreSQL 14–18</td><td><span class="compat-status tier-full">🟢 已适配 · 完整防护</span></td><td>全链路实测通过</td></tr>
@@ -261,40 +290,14 @@
           <span><strong class="tier-read">受控只读</strong>：连接 / 元数据 / 只读查询子集</span>
           <span><strong class="tier-conn">连接级</strong>：ping / 版本 / Schema / 只读预览</span>
         </div>
-        <p class="ecosystem-note">v1.5.0 对 DM8、金仓与 Vastbase 的指定模式完成客户端、权限撤销和断库恢复；v1.6.0 补齐三款数据库的独立审计库故障、锁等待超时与取消。v1.7.0 增加瀚高限定只读路径并验证金仓证书校验与轮换；v1.8.0 在 Vastbase 指定 Build 的隔离实例验证可校验 TLS、轮换、双客户端、脱敏与持久审计。v3.3.0 已在指定 DM8 Pack3 单实例验证 TLS 证书和轮换；正式主备切换仍未验证。v3.4.0 深化固定金仓与 Vastbase 单实例只读链路；金仓写入、Vastbase 列授权仍关闭。结论不外推到其他版本、生产负载或厂商认证。MongoDB、Redis、Valkey、ClickHouse 与 Milvus 仅在各自指定版本和拓扑开放受控只读；其他 NoSQL / 向量仍为连接级低阶支持；所有库须经网关并使用专用最小权限账号。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.8.0-acceptance.md">v1.8.0 Vastbase 验收记录</a>、<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-dm-kingbase-depth-acceptance.md">金仓验收记录</a>与<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>。</p>
+        <p class="ecosystem-note">各数据库的指定实例、协议路径与安全边界以矩阵和对应验收记录为准；协议兼容或连接成功不等于厂商认证或完整生产支持。所有业务访问仍须经过 AgentSQL，并使用最小权限账号。详见 <a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md">安全边界</a>和 <a href="https://github.com/cuipengdba/agentsql/releases">历史验收记录</a>。</p>
       </div>
     </section>
 
     <section id="ecosystem" class="section">
       <div class="container">
-        <div class="section-heading"><p class="kicker">生态与兼容</p><h2>国产数据库生态适配进展</h2><p>v1.8.0 在 Vastbase G100 Build 9 PG 模式的指定实例补充 TLS 服务端身份校验、证书与凭据轮换。其他版本、模式、正式主备切换和完整生产支持仍须单独验证。欢迎数据库厂商联合验证。</p></div>
-        <div class="ecosystem-panel">
-          <p class="ecosystem-label">国产数据库生态适配矩阵（v4.3.0）</p>
-          <p class="table-scroll-hint">表格可左右滑动，查看完整验证说明。</p>
-          <div class="table-wrap">
-            <table class="eco-table">
-              <caption>AgentSQL v4.3.0 国产数据库生态适配进展；状态以指定版本、镜像、拓扑及仓库证据为准。</caption>
-              <thead><tr><th scope="col">数据库</th><th scope="col">适配状态</th><th scope="col">说明</th></tr></thead>
-              <tbody>
-                <tr><td class="eco-db">中电科金仓 KingbaseES</td><td><span class="eco-status ok">🟢 PG 协议指定子集实测通过</span></td><td class="eco-desc">仅 V9R1C10、PG 模式、单实例合成表：只读角色拒写，受控 SELECT、手机号脱敏、R006 拒绝和持久审计通过；v1.6.0 补齐故障关闭，v1.7.0 验证 CA 与主机名校验、错误证书拒绝、证书及账号密码轮换。v3.4.0 仅新增受限单表 SELECT 列授权；写入仍关闭。其他模式、复杂查询、正式主备切换与生产负载未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v3.4.0-acceptance.md">验收记录</a>。</td></tr>
-                <tr><td class="eco-db">瀚高 HighGo</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">9.0.10 企业版 PG 模式、单实例合成表：独立 highgo 类型仅接受有界单表 SELECT；厂商身份与模式逐连接复核，表级授权、手机号脱敏、Inspector/Dify、持久审计、授权撤销、停库及锁等待故障链路通过。TLS、HA、其他版本和生产负载未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v1.7.0-acceptance.md">验收记录</a>。</td></tr>
-                <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">社区版协议路径已实测通过。</td></tr>
-                <tr><td class="eco-db">openGauss 社区版</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">官方 openGauss 7.0.0 LTS openEuler 24.03 x86_64、build 2397a86f：独立类型、严格 TLS、最小权限账号的物理单表窄 SELECT、真实 MCP、R010、脱敏、审批、持久审计和两类故障关闭在合成单实例通过；其他构建、GaussDB 商业版、主备和完整生产支持未验证。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v2.4.0-acceptance.md">验收边界</a>。</td></tr>
-                <tr><td class="eco-db">TiDB</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
-                <tr><td class="eco-db">OceanBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划（EXPLAIN）适配实现中。</td></tr>
-                <tr><td class="eco-db">TDSQL for PostgreSQL</td><td><span class="eco-status wip">待目标环境验证</span></td><td class="eco-desc">PG 协议候选；商业版未实测，不能用 OpenTenBase 结果替代。</td></tr>
-                <tr><td class="eco-db">TDSQL for MySQL</td><td><span class="eco-status wip">待目标环境验证</span></td><td class="eco-desc">MySQL 协议候选；商业版未实测，不与 TDSQL for PostgreSQL 混同。</td></tr>
-                <tr><td class="eco-db">OpenTenBase</td><td><span class="eco-status wip">适配中</span></td><td class="eco-desc">执行计划兼容修复实现中。</td></tr>
-                <tr><td class="eco-db">崖山数据库 YashanDB</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">Enterprise Edition 23.4.1.109、<code>COMPAT_VECTOR=yashan</code>、独立客户端 23.4.7.100：最小权限账号经 HTTP MCP 通过窄 SELECT、R010、手机号脱敏和持久审计；Inspector/Dify 各完成允许与拒绝。SELECT 撤权、业务库断线及独立审计库停机均验证无原始结果交付。C 客户端再分发仅有厂家口头授权、仓库无书面文件；TLS、客户端取消/超时、主备、写入、事务、EXPLAIN 和完整生产支持未验证或关闭。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v2.1.0-acceptance.md">验收边界</a>。</td></tr>
-                <tr><td class="eco-db">达梦数据库 DM</td><td><span class="eco-status ok">🟢 指定实例防护链路通过</span></td><td class="eco-desc">DM8 Pack3、COMPATIBLE_MODE 0：有界 HTTP MCP 真库复验覆盖查询、R010 表策略、手机号脱敏及持久审计；v1.5.0 完成客户端、权限撤销与停库恢复，v1.6.0 补齐独立审计库故障、锁等待超时、客户端取消和恢复复验。v3.3.0 补充验证 TLS、证书轮换、有界分页、扫描成本及两路 MCP 负载；JOIN、函数、主备及生产负载未验证；写入未放开。</td></tr>
-                <tr><td class="eco-db">Vastbase G100</td><td><span class="eco-status wip">🔵 指定版本受控只读</span></td><td class="eco-desc">V3.0 Build 9、PG 模式、单实例合成表：独立 vastbase 类型强制只读，有界 SELECT、表授权、手机号脱敏、MCP 审批单次执行及持久审计实测；v1.6.0 补齐故障关闭，v1.8.0 验证正确和错误证书、主机名、明文拒绝、证书和密码轮换，以及 Inspector/Dify 真实调用。v3.4.0 补充类型、物理扫描、权限撤销与有界负载；B2 列授权继续关闭。使用临时许可；正式主备、其他 Build 与生产负载未测。<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/v3.4.0-acceptance.md">验收记录</a>。</td></tr>
-                <tr><td class="eco-db">PolarDB</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">PolarDB for PostgreSQL 15，指定社区镜像经 <code>postgres</code> 路径完成最小闭环；商业服务、HA、TLS、B2/B5 未覆盖。</td></tr>
-                <tr><td class="eco-db">PolarDB-X</td><td><span class="eco-status ok">已实测</span></td><td class="eco-desc">旧官方 <code>polardbx/polardb-x:2.0.1</code> 单容器经 <code>mysql</code> 路径有界实测；通过 <code>db_type=mysql</code> 接入，不新增 polardbx 数据源类型。两阶段 EXPLAIN：普通 EXPLAIN 返回单列逻辑计划，<code>EXPLAIN EXECUTE</code> 返回标准 MySQL 列；路由 Hint、DRDS/TDDL 管理语句、分布式 DDL、存储过程 fail-closed。完整 CN/DN/CDC、商业服务、分布式语义、B2/B5 未证明。</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="ecosystem-note">*“已实测”仅指所述数据库版本、镜像/拓扑与用例，不代表厂商认证或生产支持承诺；“适配中”不代表当前版本已支持。金仓与瀚高的证据及未测边界见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/kingbase-v9-verification.md" target="_blank" rel="noopener noreferrer">金仓 V9 真库验证记录</a>和<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/highgo-verification.md" target="_blank" rel="noopener noreferrer">瀚高验证记录</a>；其余协议路径和有界实测见<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/ecosystem-db-compat-research.md" target="_blank" rel="noopener noreferrer">数据库兼容调研</a>及<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">安全边界</a>。欢迎联系开展目标环境验证与合作：<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
-        </div>
+        <div class="section-heading"><p class="kicker">数据库生态</p><h2>按已验能力接入，而不是按数据库数量承诺</h2><p>上方矩阵区分完整防护、指定版本受控只读和连接级能力。国产数据库、NoSQL 与向量库都以具体版本、模式和验收场景为边界；接入新环境前应重新核验权限、故障关闭和审计。</p></div>
+        <p class="ecosystem-note"><a href="#compatibility">查看数据库兼容矩阵</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">安全边界</a> · <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">历史版本验收</a></p>
       </div>
     </section>
 
@@ -340,37 +343,13 @@ bash ./demo/reset.sh
       </div>
     </section>
 
-    <section class="section" aria-labelledby="roadmap-title">
+    <section id="roadmap" class="section" aria-labelledby="roadmap-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">技术路线</p><h2 id="roadmap-title">路线图</h2><p>以下列示已发布阶段与后续方向；实际能力与支持范围以对应版本验收为准。</p></div>
+        <div class="section-heading"><p class="kicker">后续范围</p><h2 id="roadmap-title">按能力推进，不在首页重复历史版本</h2><p>已发布的详细变更与验收保留在 <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>；当前支持边界以上方能力矩阵和 v4.5.0 发布说明为准。</p></div>
         <ol class="roadmap">
-          <li class="complete"><span>v0.1</span><strong>核心网关</strong></li>
-          <li class="complete"><span>v0.2</span><strong>实时大屏 / PostgreSQL 控制面 / 一键 Live Demo</strong><small>已完成阶段</small></li>
-          <li class="complete"><span>v0.3</span><strong>安全事件通知 / 敏感列发现 / 表.列感知脱敏</strong><small>已完成阶段</small></li>
-          <li class="complete"><span>v0.6.0</span><strong>治理控制台、审批单次执行与 G100 有界适配</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v0.7.0</span><strong>无状态 MCP 入口、任务级临时只读授权与迁移预检</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v0.8.0</span><strong>任务授权双人审批、MCP 兼容性与审计关联</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v0.9.0</span><strong>任务 Key 结果预算、管理审计投递状态与策略离线预检</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.0.0</span><strong>列策略失败关闭与可选人员委托</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.1–v1.4</span><strong>双身份、OAuth、MySQL 列授权与共享登录预算</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.5.0</span><strong>三款国产数据库指定子集深度复验</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.6.0</span><strong>查询超时、取消与审计故障关闭</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.7.0</span><strong>瀚高限定只读与金仓指定实例证书校验</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.8.0</span><strong>Vastbase 指定实例可校验 TLS 与轮换</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v1.9.0</span><strong>Dify / Inspector 接入向导与审计定位</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.0.0</span><strong>固定双网关部署与 PostgreSQL 列策略登记</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.1.0</span><strong>崖山指定实例受控只读与预检拒绝审计</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.2.0</span><strong>Oracle Free 指定实例受控只读与故障关闭</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.3.0</span><strong>SQL Server 2025 指定实例严格 TLS 与受控只读</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.4.0</span><strong>openGauss 7.0.0 LTS 指定实例受控只读</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.5.0</span><strong>MongoDB 7.0.43 指定实例受控只读</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.6.0</span><strong>Redis / Valkey 指定实例受控键读取</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.7.0</span><strong>ClickHouse 指定实例受控分析查询</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.8.0</span><strong>Milvus 指定实例受控向量检索</strong><small>已发布阶段</small></li>
-          <li class="complete"><span>v2.9.0</span><strong>租户策略评审与外部审计见证</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.0</span><strong>统一能力声明与交付前只读诊断</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.1</span><strong>中英文切换与控制台菜单滚动修复</strong><small>已发布阶段</small></li><li class="complete"><span>v3.0.2</span><strong>完整双语文档、SQLBot 接入与浅色导航修复</strong><small>已发布阶段</small></li><li class="complete"><span>v3.3.0</span><strong>达梦验证连接、成本与恢复</strong><small>已发布阶段</small></li><li class="complete"><span>v3.5.0</span><strong>三网关部署与跨网关审计续接</strong><small>已发布阶段</small></li><li class="complete"><span>v3.6.0</span><strong>策略交付、可靠通知与审计归档链</strong><small>已发布阶段</small></li><li class="complete"><span>v3.7.0</span><strong>MongoDB 有界读取与 Sentinel 精确 Hash 字段</strong><small>已发布阶段</small></li><li class="complete"><span>v3.8.0</span><strong>ClickHouse 预算与 Milvus 租户过滤</strong><small>已发布阶段</small></li><li class="complete"><span>v3.9.0</span><strong>Oracle TCPS 与关系库计划验证</strong><small>已发布阶段</small></li><li class="complete"><span>v4.0.0</span><strong>离线交付、跨版本升级与最小诊断</strong><small>已发布</small></li><li class="complete"><span>v4.1.0</span><strong>Go 原生问数与 SQLBot 身份兼容基础</strong><small>已发布</small></li><li class="complete"><span>v4.2.0</span><strong>多轮问数与受控文件数据</strong><small>已发布</small></li><li class="complete"><span>v4.3.0</span><strong>自有图表、仪表板与应用嵌入</strong><small>已发布</small></li><li class="complete"><span>v4.4.0</span><strong>管理流程与数据源关系</strong><small>已发布</small></li><li class="current"><span>v4.5.0</span><strong>有限范围问数、MCP 与基本嵌入验收</strong><small>当前版本</small></li>
-
-          <li><span>后续方向</span><strong>企业身份与审计增强</strong><small>SSO/RBAC、WORM 选项</small></li>
-          <li><span>后续方向</span><strong>高可用与集中管控</strong></li>
+          <li><span>v4.6.0 规划</span><strong>Type 1 高级助手与第三方目录接入</strong></li>
+          <li><span>v4.7.0 规划</span><strong>角色、多用户及非空白名单活动权限规则</strong></li>
+          <li><span>v4.8.0 规划</span><strong>余下社区版页面/API 与更广连接兼容</strong></li>
         </ol>
       </div>
     </section>
@@ -388,7 +367,7 @@ bash ./demo/reset.sh
         <div class="faq-list">
           <details><summary>它和 MCP 是什么关系？</summary><p>它本身是一个 MCP Server；MCP 是模型与外部工具 / 数据通信的标准协议。</p></details>
           <details><summary>不用 MCP，模型就不能连数据库吗？</summary><p>可以，应用也可用自研 API、数据库代理或服务端托管凭据连接；AgentSQL 提供的是面向 MCP 的统一身份、策略、受控执行与审计入口，而非唯一连接方式。</p></details>
-          <details><summary>它是 BI / ORM / Text2SQL 吗？</summary><p>v4.1.0 开始提供原生自然语言问数，同时保留数据库安全网关。v4.2.0 增加多轮语境、业务语义和有界 CSV/XLSX；v4.3.0 增加自有图表与仪表板，v4.4.0 深化管理与数据源关系；v4.5.0 验证有限范围问数、MCP 和基本嵌入。全部 SQLBot 功能与接入方式仍待逐项验证；本产品不替代应用 ORM。</p></details>
+          <details><summary>AgentSQL 问数与 SQLBot 是什么关系？</summary><p>AgentSQL 自有 Go 问数 Agent、Web 页面与模型编排，不需要 SQLBot 运行。SQLBot 是可选接入方，可经已验适配器把数据库执行交给 AgentSQL MCP 安全网关；这不意味着所有 SQLBot 功能自动兼容。详细边界见 v4.5.0 发布说明。</p></details>
           <details><summary>性能如何？</summary><p>静态判定在毫秒级；在内存 fake executor、20 worker / 20 万样本、剥离真实库网络与执行时间的基准中，网关 CPU 路径 P99 约 1.81 ms，该数字不是端到端查询延迟，真实延迟取决于连接、EXPLAIN、数据库执行与审计存储。</p></details>
           <details><summary>个人 / 公司能使用吗？</summary><p>当前版本按 Apache-2.0 发布。请阅读仓库中的 LICENSE 和 NOTICE，确认使用、修改与分发条件。</p></details>
           <details><summary>支持哪些数据库 / 客户端？</summary><p>请查看上方<a href="#compatibility">兼容矩阵</a>，其中列出业务库、控制面、MCP 传输、宿主与部署范围。</p></details>
@@ -420,7 +399,7 @@ bash ./demo/reset.sh
   <footer class="site-footer">
     <div class="container footer-grid">
       <div><a class="brand" href="#top"><img src="/assets/brand/agentsql-mark.svg" width="34" height="34" loading="lazy" decoding="async" alt="" aria-hidden="true"><span>AgentSQL</span></a><p>模型与数据库之间默认拒绝的安全闸门。</p></div>
-      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="/demo/">演示</a><a href="#features">特性</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#ecosystem">生态</a><a href="#security">安全边界</a><a href="#community">社区</a><a href="#faq">FAQ</a></nav>
+      <nav aria-label="页脚导航"><a href="#product">产品</a><a href="/demo/">演示</a><a href="#capabilities">能力矩阵</a><a href="#docs">文档 / 下载</a><a href="#compatibility">兼容性</a><a href="#ecosystem">生态</a><a href="#security">安全边界</a><a href="#community">社区</a><a href="#faq">FAQ</a></nav>
       <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
     </div>
     <div id="privacy" class="container privacy"><p>本站不使用 Cookie 与第三方统计；服务器仅为安全与排障记录访问 IP、时间、路径、状态码与 User-Agent，日志最长保留 30 天，并受单文件 10 MiB、最多 10 个轮转文件上限约束（高流量时可能提前淘汰），联系 <a href="mailto:87326549@qq.com">87326549@qq.com</a>。</p></div>
