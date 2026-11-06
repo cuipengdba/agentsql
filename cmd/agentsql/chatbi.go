@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -58,10 +60,22 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	importCommand.Flags().StringVar(&snapshot, "from", "", "private migration snapshot")
 	_ = importCommand.MarkFlagRequired("from")
 	var assistantOnly bool
+	var assistantListen string
 	serve := &cobra.Command{Use: "serve", Short: "Serve the Go Q&A API on its dedicated listener", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		config, err := chatbi.LoadConfig(configuration)
 		if err != nil {
 			return err
+		}
+		if assistantListen != "" {
+			if !assistantOnly {
+				return errors.New("--listen requires --assistant-only")
+			}
+			host, port, splitErr := net.SplitHostPort(assistantListen)
+			portNumber, portErr := strconv.Atoi(port)
+			if splitErr != nil || portErr != nil || portNumber < 1 || portNumber > 65535 || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || assistantListen == config.Listen || assistantListen == config.LegacyMCPListen {
+				return errors.New("assistant-only listen must be a distinct loopback host:port")
+			}
+			config.Listen = assistantListen
 		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -163,6 +177,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 		}
 	}}
 	serve.Flags().BoolVar(&assistantOnly, "assistant-only", false, "serve only the public assistant iframe and scoped API on an isolated origin")
+	serve.Flags().StringVar(&assistantListen, "listen", "", "loopback listener override for the isolated assistant service")
 
 	var adminUser, passwordEnv, connections string
 	var standardUser bool

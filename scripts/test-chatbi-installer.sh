@@ -18,18 +18,18 @@ install -d /etc/systemd/system /package/deploy/systemd
 install -d /package-current/deploy/systemd
 cp "$CURRENT_BINARY" /package-current/agentsql
 "$CURRENT_BINARY" --version > /package-current/VERSION
-cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" /package-current/deploy/systemd/
+cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" "$SOURCE/deploy/systemd/agentsql-chatbi-assistant.service" /package-current/deploy/systemd/
 if sh "$SOURCE/scripts/install-chatbi.sh" /package-current no-start > /tmp/missing-model.log 2>&1; then
   echo 'v4.5 installation without a verified model unexpectedly succeeded.' >&2; exit 1
 fi
 grep -q 'requires a verified local model directory' /tmp/missing-model.log
 for path in /etc/agentsql/chatbi.yaml /etc/agentsql/chatbi.env /etc/agentsql/chatbi-install-state \
-  /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
+  /etc/systemd/system/agentsql-chatbi.service /etc/systemd/system/agentsql-chatbi-assistant.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
   test ! -e "$path" || { echo "Missing-model rejection left a partial file: $path" >&2; exit 1; }
 done
 cp "$BINARY" /package/agentsql
 "$BINARY" --version > /package/VERSION
-cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" /package/deploy/systemd/
+cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" "$SOURCE/deploy/systemd/agentsql-chatbi-assistant.service" /package/deploy/systemd/
 # Fail a fresh service start after the installer has created configuration and
 # credentials. No partial first install may leave those files behind.
 mkdir -p /run/systemd/system /tmp/fresh-fault-bin
@@ -42,7 +42,7 @@ if PATH="/tmp/fresh-fault-bin:$PATH" sh "$SOURCE/scripts/install-chatbi.sh" /pac
   echo 'Injected fresh startup failure incorrectly succeeded.' >&2; exit 1
 fi
 for path in /etc/agentsql/chatbi.yaml /etc/agentsql/chatbi.env /etc/agentsql/chatbi-install-state \
-  /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
+  /etc/systemd/system/agentsql-chatbi.service /etc/systemd/system/agentsql-chatbi-assistant.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
   test ! -e "$path" || { echo "Fresh rollback left a partial file: $path" >&2; exit 1; }
 done
 grep -q 'previous files and service state restored' /tmp/fresh-rollback.log
@@ -50,6 +50,8 @@ sh "$SOURCE/scripts/install-chatbi.sh" /package no-start
 test "$(stat -c %a /etc/agentsql/chatbi.env)" = 600
 test "$(stat -c %U /var/lib/agentsql/chatbi.db)" = agentsql
 test "$(stat -c %a /var/lib/agentsql/chatbi.db)" = 600
+test -f /etc/systemd/system/agentsql-chatbi-assistant.service
+grep -q -- '--assistant-only --listen 127.0.0.1:8002' /etc/systemd/system/agentsql-chatbi-assistant.service
 cp /etc/agentsql/chatbi.env /tmp/original.env
 sha256sum /var/lib/agentsql/chatbi.db > /tmp/store-before
 sh "$SOURCE/scripts/install-chatbi.sh" /package no-start
@@ -73,11 +75,21 @@ curl -fsS -H 'Content-Type: application/json' --data-binary @/tmp/login.private.
 grep -q '"access_token"' /tmp/session.private.json
 kill "$pid"; wait "$pid" || true
 trap - EXIT
+runuser -u agentsql --preserve-environment -- /usr/local/lib/agentsql/chatbi/agentsql chatbi serve --config /etc/agentsql/chatbi.yaml --assistant-only --listen 127.0.0.1:8002 > /tmp/assistant.log 2>&1 &
+assistant_pid=$!
+trap 'kill "$assistant_pid" 2>/dev/null || true; wait "$assistant_pid" 2>/dev/null || true' EXIT
+attempt=0
+until curl -fsS http://127.0.0.1:8002/healthz > /tmp/assistant-health.json; do
+  attempt=$((attempt + 1)); [ "$attempt" -lt 20 ] || exit 1; sleep 1
+done
+test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8002/api/v1/agentsql/login)" = 404
+kill "$assistant_pid"; wait "$assistant_pid" || true
+trap - EXIT
 unset AGENTSQL_CHATBI_SECRET password
 
 # Inject a service-start failure to prove rollback preserves both data and the
 # prior unit. This is fault injection, distinct from a real systemd boot test.
-sha256sum /var/lib/agentsql/chatbi.db /etc/systemd/system/agentsql-chatbi.service > /tmp/rollback-before
+sha256sum /var/lib/agentsql/chatbi.db /etc/systemd/system/agentsql-chatbi.service /etc/systemd/system/agentsql-chatbi-assistant.service > /tmp/rollback-before
 printf '\n# synthetic candidate unit\n' >> /package/deploy/systemd/agentsql-chatbi.service
 mkdir -p /run/systemd/system /tmp/fault-bin
 cat > /tmp/fault-bin/systemctl <<'EOF'
