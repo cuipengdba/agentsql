@@ -14,6 +14,7 @@ CONFIG=/etc/agentsql/chatbi.yaml
 ENVFILE=/etc/agentsql/chatbi.env
 DB=/var/lib/agentsql/chatbi.db
 UNIT=/etc/systemd/system/agentsql-chatbi.service
+ASSISTANT_UNIT=/etc/systemd/system/agentsql-chatbi-assistant.service
 BIN=/usr/local/lib/agentsql/chatbi/agentsql
 MODEL=/usr/local/lib/agentsql/chatbi/model
 STATE=/etc/agentsql/chatbi-install-state
@@ -22,15 +23,17 @@ MODEL_STAGE=
 MODEL_CHANGED=0
 ACTIVE=0
 ENABLED=0
+ASSISTANT_ACTIVE=0
+ASSISTANT_ENABLED=0
 TRANSACTION=0
 SYSTEMD=0
 command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && SYSTEMD=1
 [ "$MODE" = no-start ] || [ "$SYSTEMD" -eq 1 ] || { echo 'systemd is required.' >&2; exit 1; }
 for path in /etc/agentsql /var/lib/agentsql /var/backups/agentsql /usr/local/lib/agentsql /usr/local/lib/agentsql/chatbi \
-            "$CONFIG" "$ENVFILE" "$DB" "$DB-wal" "$DB-shm" "$UNIT" "$BIN" "$MODEL" "$STATE"; do
+            "$CONFIG" "$ENVFILE" "$DB" "$DB-wal" "$DB-shm" "$UNIT" "$ASSISTANT_UNIT" "$BIN" "$MODEL" "$STATE"; do
   [ ! -L "$path" ] || { echo 'Refusing a symbolic link in managed ChatBI paths.' >&2; exit 1; }
 done
-if [ -e "$UNIT" ] || [ -e "$BIN" ]; then
+if [ -e "$UNIT" ] || [ -e "$ASSISTANT_UNIT" ] || [ -e "$BIN" ]; then
   [ -f "$STATE" ] || { echo 'An unmanaged ChatBI installation already exists.' >&2; exit 1; }
 fi
 # Imported/custom deployments use their own explicit backup procedure; never
@@ -72,6 +75,9 @@ if [ -f "$STATE" ]; then
   [ "$first" = "${old#v}" ] || { echo 'ChatBI downgrade refused.' >&2; exit 1; }
 fi
 restore() {
+  if [ "$SYSTEMD" -eq 1 ] && [ -f "$ASSISTANT_UNIT" ]; then
+    systemctl stop agentsql-chatbi-assistant >/dev/null 2>&1 || return 1
+  fi
   if [ "$SYSTEMD" -eq 1 ] && [ -f "$UNIT" ]; then
     systemctl stop agentsql-chatbi >/dev/null 2>&1 || return 1
   fi
@@ -79,10 +85,11 @@ restore() {
     if [ -d "$MODEL" ]; then rm -r -- "$MODEL" || return 1; fi
     if [ -d "$BACKUP/model" ]; then cp -pR "$BACKUP/model" "$MODEL" || return 1; fi
   fi
-  for name in binary unit state chatbi.yaml chatbi.env chatbi.db chatbi.db-wal chatbi.db-shm; do
+  for name in binary unit assistant-unit state chatbi.yaml chatbi.env chatbi.db chatbi.db-wal chatbi.db-shm; do
     case "$name" in
       binary) target=$BIN ;;
       unit) target=$UNIT ;;
+      assistant-unit) target=$ASSISTANT_UNIT ;;
       state) target=$STATE ;;
       chatbi.yaml) target=$CONFIG ;;
       chatbi.env) target=$ENVFILE ;;
@@ -96,6 +103,9 @@ restore() {
     if [ "$ENABLED" -eq 1 ]; then systemctl enable agentsql-chatbi >/dev/null 2>&1 || return 1
     else systemctl disable agentsql-chatbi >/dev/null 2>&1 || true; fi
     [ "$ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi || return 1
+    if [ "$ASSISTANT_ENABLED" -eq 1 ]; then systemctl enable agentsql-chatbi-assistant >/dev/null 2>&1 || return 1
+    else systemctl disable agentsql-chatbi-assistant >/dev/null 2>&1 || true; fi
+    [ "$ASSISTANT_ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi-assistant || return 1
   fi
 }
 cleanup() {
@@ -115,6 +125,8 @@ trap 'exit 129' HUP
 if [ "$SYSTEMD" -eq 1 ]; then
   systemctl is-active --quiet agentsql-chatbi 2>/dev/null && ACTIVE=1 || true
   systemctl is-enabled --quiet agentsql-chatbi 2>/dev/null && ENABLED=1 || true
+  systemctl is-active --quiet agentsql-chatbi-assistant 2>/dev/null && ASSISTANT_ACTIVE=1 || true
+  systemctl is-enabled --quiet agentsql-chatbi-assistant 2>/dev/null && ASSISTANT_ENABLED=1 || true
 fi
 if [ "$MODE" = upgrade ]; then
   MODE=start
@@ -123,24 +135,34 @@ fi
 install -d -o root -g root -m 0755 /usr/local/lib/agentsql/chatbi
 install -d -o root -g root -m 0700 /var/backups/agentsql
 BACKUP=$(mktemp -d /var/backups/agentsql/chatbi-upgrade.XXXXXXXX)
+if [ "$SYSTEMD" -eq 1 ] && [ -f "$ASSISTANT_UNIT" ]; then
+  systemctl stop agentsql-chatbi-assistant || {
+    [ "$ASSISTANT_ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi-assistant || true
+    echo 'Cannot stop isolated assistant; nothing replaced.' >&2; exit 1;
+  }
+  if systemctl is-active --quiet agentsql-chatbi-assistant; then echo 'Isolated assistant is still active.' >&2; exit 1; fi
+fi
 if [ "$SYSTEMD" -eq 1 ] && [ -f "$UNIT" ]; then
   systemctl stop agentsql-chatbi || {
     [ "$ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi || true
+    [ "$ASSISTANT_ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi-assistant || true
     echo 'Cannot stop ChatBI; nothing replaced.' >&2; exit 1;
   }
   if systemctl is-active --quiet agentsql-chatbi; then echo 'ChatBI is still active.' >&2; exit 1; fi
 fi
 # Even a failure during backup must restore the prior service state, without
 # restoring an incomplete database snapshot.
-for pair in "$BIN:binary" "$UNIT:unit" "$STATE:state" "$CONFIG:chatbi.yaml" "$ENVFILE:chatbi.env" "$DB:chatbi.db" "$DB-wal:chatbi.db-wal" "$DB-shm:chatbi.db-shm"; do
+for pair in "$BIN:binary" "$UNIT:unit" "$ASSISTANT_UNIT:assistant-unit" "$STATE:state" "$CONFIG:chatbi.yaml" "$ENVFILE:chatbi.env" "$DB:chatbi.db" "$DB-wal:chatbi.db-wal" "$DB-shm:chatbi.db-shm"; do
   path=${pair%:*}; name=${pair##*:}
   if [ -f "$path" ] && ! cp -p "$path" "$BACKUP/$name"; then
     [ "$ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi || true
+    [ "$ASSISTANT_ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi-assistant || true
     echo 'ChatBI backup failed; nothing replaced.' >&2; exit 1
   fi
 done
 if [ -d "$MODEL" ] && ! cp -pR "$MODEL" "$BACKUP/model"; then
   [ "$ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi || true
+  [ "$ASSISTANT_ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi-assistant || true
   echo 'ChatBI model backup failed; nothing replaced.' >&2; exit 1
 fi
 TRANSACTION=1
@@ -174,6 +196,7 @@ fi
 install -o root -g root -m 0755 "$ROOT/agentsql" "$BIN.new"
 mv "$BIN.new" "$BIN"
 install -o root -g root -m 0644 "$ROOT/deploy/systemd/agentsql-chatbi.service" "$UNIT"
+install -o root -g root -m 0644 "$ROOT/deploy/systemd/agentsql-chatbi-assistant.service" "$ASSISTANT_UNIT"
 if [ ! -e "$DB" ]; then
   # Read only known scalar values, never source/execute an environment file.
   AGENTSQL_CHATBI_SECRET=$(sed -n 's/^AGENTSQL_CHATBI_SECRET=//p' "$ENVFILE")
@@ -198,6 +221,19 @@ if [ "$SYSTEMD" -eq 1 ]; then
       attempt=$((attempt + 1)); sleep 2
     done
     [ "$healthy" -eq 1 ] || { echo 'ChatBI health/version verification failed.' >&2; exit 1; }
+    if [ "$ASSISTANT_ENABLED" -eq 1 ]; then
+      systemctl enable agentsql-chatbi-assistant >/dev/null 2>&1
+      if [ "$ASSISTANT_ACTIVE" -eq 1 ]; then
+        systemctl start agentsql-chatbi-assistant
+        attempt=0; healthy=0
+        while [ "$attempt" -lt 30 ]; do
+          if /usr/local/bin/agentsqlctl health --url http://127.0.0.1:8002/healthz > "$BACKUP/assistant-health.json" 2>/dev/null &&
+            tr -d ' \t\r\n' < "$BACKUP/assistant-health.json" | grep -F '"version":"'"$VERSION"'"' >/dev/null; then healthy=1; break; fi
+          attempt=$((attempt + 1)); sleep 2
+        done
+        [ "$healthy" -eq 1 ] || { echo 'Isolated assistant health/version verification failed.' >&2; exit 1; }
+      fi
+    fi
   fi
 fi
 printf '%s\n' "$VERSION" > "$STATE"

@@ -72,8 +72,21 @@ func assistantOnlyRoute(r *http.Request) bool {
 	path := r.URL.Path
 	if r.Method == http.MethodGet && (path == "/healthz" || path == "/api/v1/system/config/key" ||
 		path == "/api/v1/system/assistant/ds" || path == "/api/v1/agentsql/assistant/context" ||
-		path == "/api/v1/chat/list") {
+		path == "/api/v1/chat/list" || path == "/api/v1/system/aimodel/default" ||
+		path == "/api/v1/system/parameter/chat" || path == "/api/v1/user/info" ||
+		path == "/api/v1/user/ws" || path == "/api/v1/datasource/list") {
 		return true
+	}
+	if r.Method == http.MethodGet {
+		for _, prefix := range []string{
+			"/api/v1/recommended_problem/get_datasource_recommended/",
+			"/api/v1/recommended_problem/get_datasource_recommended_base/",
+			"/api/v1/chat/recent_questions/",
+		} {
+			if strings.HasPrefix(path, prefix) && ID(strings.TrimPrefix(path, prefix)).Valid() {
+				return true
+			}
+		}
 	}
 	if r.Method == http.MethodGet || r.Method == http.MethodOptions {
 		for _, prefix := range []string{"/api/v1/system/assistant/info/", "/api/v1/system/assistant/validate/"} {

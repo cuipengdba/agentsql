@@ -479,7 +479,7 @@ func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string
 		current, err = h.service.Identity.VerifyAsk(ctx, strings.TrimPrefix(token, "Ask "))
 	} else if p.EmbeddedApp != "" {
 		prefix := "Embedded "
-		if p.EmbeddedType == 0 {
+		if p.EmbeddedType == 0 || p.EmbeddedType == 1 {
 			prefix = "Assistant "
 		}
 		if !strings.HasPrefix(token, prefix) {
@@ -491,6 +491,9 @@ func (h *Handler) currentIdentity(ctx context.Context, p Principal, token string
 	}
 	if err != nil || current.User.ID != p.User.ID || current.Workspace != p.Workspace || current.EmbeddedApp != p.EmbeddedApp || current.EmbeddedRevision != p.EmbeddedRevision || current.EmbeddedType != p.EmbeddedType || current.VisitorScope != p.VisitorScope {
 		return ErrUnauthenticated
+	}
+	if p.EmbeddedType == 1 {
+		return h.service.live(ctx, p)
 	}
 	return nil
 }
@@ -553,9 +556,21 @@ func (h *Handler) auth(next authorizedHandler) http.HandlerFunc {
 			}
 			p, err := h.service.Identity.VerifyEmbedded(r.Context(), parts[1])
 			if err != nil || (p.EmbeddedType == 4 && parts[0] != "Embedded") ||
-				(p.EmbeddedType == 0 && parts[0] != "Assistant") {
+				((p.EmbeddedType == 0 || p.EmbeddedType == 1) && parts[0] != "Assistant") {
 				failure(w, ErrUnauthenticated)
 				return
+			}
+			if p.EmbeddedType == 1 {
+				if r.Method == http.MethodGet && r.URL.Path == "/api/v1/chat/list" &&
+					len(r.Header.Values("X-SQLBOT-ASSISTANT-CERTIFICATE")) == 0 {
+					okay(w, []any{})
+					return
+				}
+				p, err = h.bindType1Request(r, p)
+				if err != nil {
+					failure(w, err)
+					return
+				}
 			}
 			if origins := r.Header.Values("X-SQLBOT-HOST-ORIGIN"); len(origins) != 0 {
 				if len(origins) != 1 {

@@ -97,6 +97,8 @@ type Principal struct {
 	EmbeddedRevision int64
 	EmbeddedType     int
 	VisitorScope     string
+	CatalogBridgeKey string
+	CatalogRevision  int64
 }
 
 func userKey(id ID) objectKey { return objectKey{"user", "system", "system", string(id)} }

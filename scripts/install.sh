@@ -1004,6 +1004,7 @@ chatbi_package_preflight() {
   if [ "$WITH_CHATBI" -eq 1 ]; then
     [ -f "$PKG_ROOT/install-chatbi.sh" ] &&
     [ -f "$PKG_ROOT/deploy/systemd/chatbi.yaml" ] &&
+    [ -f "$PKG_ROOT/deploy/systemd/agentsql-chatbi-assistant.service" ] &&
     [ -f "$PKG_ROOT/deploy/systemd/agentsql-chatbi.service" ] || die "This package does not include the requested ChatBI component."
     if [ -n "$CHATBI_MODEL_DIR" ]; then
       [ ! -L "$CHATBI_MODEL_DIR" ] && [ -d "$CHATBI_MODEL_DIR" ] || die "The ChatBI model directory is missing or a symbolic link."
@@ -1213,6 +1214,10 @@ uninstall_action() {
   ua_created_group=$(state_value CREATED_GROUP 2>/dev/null || printf '0')
   if systemd_available; then
     if [ -f "$CONFIG_DIR/chatbi-install-state" ] && [ -f /etc/systemd/system/agentsql-chatbi.service ]; then
+      if [ -f /etc/systemd/system/agentsql-chatbi-assistant.service ]; then
+        systemctl stop agentsql-chatbi-assistant || die "Could not stop isolated assistant before uninstall."
+        systemctl disable agentsql-chatbi-assistant >/dev/null 2>&1 || true
+      fi
       systemctl stop agentsql-chatbi || die "Could not stop ChatBI before uninstall."
       systemctl disable agentsql-chatbi >/dev/null 2>&1 || true
     fi
@@ -1235,7 +1240,7 @@ uninstall_action() {
         warn "The ChatBI model directory differs from the pinned model and was preserved: $ua_chatbi_model"
       fi
     fi
-    for ua_path in /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql; do
+    for ua_path in /etc/systemd/system/agentsql-chatbi.service /etc/systemd/system/agentsql-chatbi-assistant.service /usr/local/lib/agentsql/chatbi/agentsql; do
       [ ! -L "$ua_path" ] || die "Refusing to remove symbolic link at managed path: $ua_path"
       rm -f "$ua_path"
     done

@@ -9,7 +9,18 @@ import (
 
 func (h *Handler) publicAssistantContext(w http.ResponseWriter, r *http.Request, p Principal, token string) {
 	w.Header().Set("Cache-Control", "no-store")
-	app, err := h.service.liveGuestAssistant(r.Context(), p)
+	var app AssistantApplication
+	var err error
+	if p.EmbeddedType == 1 {
+		if err = h.service.live(r.Context(), p); err == nil {
+			_, err = h.service.Store.get(r.Context(), assistantKey(p.Workspace, p.EmbeddedApp), &app)
+		}
+		if err == nil && (app.ID != p.EmbeddedApp || app.Type != 1 || !app.Enabled) {
+			err = ErrUnauthenticated
+		}
+	} else {
+		app, err = h.service.liveGuestAssistant(r.Context(), p)
+	}
 	if err != nil {
 		failure(w, err)
 		return

@@ -78,9 +78,10 @@ func requestAssistantOrigin(r *http.Request) string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
-// The original SDK's RSA header proves only payload format. This endpoint
-// issues a usable token solely when an administrator has separately designated
-// a non-admin guest with its own datasource bindings. Such data is public.
+// The original SDK's RSA header proves only payload format. A Type 0 public
+// assistant needs an explicitly designated guest with owned bindings. A Type 1
+// assistant receives only a bootstrap token; its host certificate must still
+// match an operator registration on each data request.
 func (h *Handler) publicAssistantInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -97,7 +98,7 @@ func (h *Handler) publicAssistantInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if app.Type != 0 || !app.PublicGuestUser.Valid() || len(app.DatasourceIDs) == 0 {
+	if app.Type != 1 && (app.Type != 0 || !app.PublicGuestUser.Valid() || len(app.DatasourceIDs) == 0) {
 		failure(w, ErrUnauthenticated)
 		return
 	}
@@ -129,7 +130,12 @@ func (h *Handler) publicAssistantInfo(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	token, err := h.service.issuePublicGuestToken(r.Context(), app)
+	var token string
+	if app.Type == 1 {
+		token, err = h.service.issueType1BootstrapToken(r.Context(), app)
+	} else {
+		token, err = h.service.issuePublicGuestToken(r.Context(), app)
+	}
 	if err != nil {
 		failure(w, err)
 		return

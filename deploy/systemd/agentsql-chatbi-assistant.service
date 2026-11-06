@@ -1,0 +1,23 @@
+[Unit]
+Description=AgentSQL isolated assistant origin
+Wants=network-online.target
+After=network-online.target agentsql-chatbi.service
+Requires=agentsql-chatbi.service
+
+[Service]
+Type=simple
+User=agentsql
+Group=agentsql
+EnvironmentFile=/etc/agentsql/chatbi.env
+Environment="LD_LIBRARY_PATH=/usr/local/lib/agentsql/yashandb"
+ExecStart=/usr/local/lib/agentsql/chatbi/agentsql chatbi serve --config /etc/agentsql/chatbi.yaml --assistant-only --listen 127.0.0.1:8002
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/agentsql
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
