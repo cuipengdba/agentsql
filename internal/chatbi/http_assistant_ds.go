@@ -9,6 +9,10 @@ import (
 // the scoped token. Metadata comes only from the current guest bindings and
 // authorized gateway schema; browser-supplied IDs never expand this list.
 func (h *Handler) publicAssistantDatasources(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if p.EmbeddedType == 1 {
+		h.type1AssistantDatasources(w, r, p, token)
+		return
+	}
 	if p.EmbeddedApp == "" || p.EmbeddedType != 0 || !validVisitorScope(p.VisitorScope) {
 		failure(w, ErrUnauthenticated)
 		return

@@ -273,8 +273,13 @@ func (service *Service) live(ctx context.Context, p Principal) error {
 		revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
 		if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != p.EmbeddedType || !app.Enabled ||
 			(app.Type == 0 && (app.PublicGuestUser != user.ID || user.Origin != 0 || p.VisitorScope == "" || len(app.DatasourceIDs) == 0)) ||
-			(app.Type != 0 && app.Type != 4) {
+			(app.Type != 0 && app.Type != 1 && app.Type != 4) {
 			return ErrUnauthenticated
+		}
+		if app.Type == 1 {
+			if err := service.type1BridgeUnchanged(ctx, p, app); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

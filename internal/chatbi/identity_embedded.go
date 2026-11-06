@@ -14,16 +14,17 @@ import (
 )
 
 type embeddedClaims struct {
-	Account      string `json:"account"`
-	EmbeddedID   *ID    `json:"embeddedId"`
-	AppID        string `json:"appId"`
-	Visitor      string `json:"visitor,omitempty"`
-	PublicGuest  bool   `json:"publicGuest,omitempty"`
-	AppRevision  int64  `json:"appRevision,omitempty"`
-	AuthRevision int64  `json:"authRevision,omitempty"`
-	Expires      int64  `json:"exp"`
-	Issued       int64  `json:"iat"`
-	NotBefore    int64  `json:"nbf"`
+	Account          string `json:"account"`
+	EmbeddedID       *ID    `json:"embeddedId"`
+	AppID            string `json:"appId"`
+	Visitor          string `json:"visitor,omitempty"`
+	PublicGuest      bool   `json:"publicGuest,omitempty"`
+	CatalogBootstrap bool   `json:"catalogBootstrap,omitempty"`
+	AppRevision      int64  `json:"appRevision,omitempty"`
+	AuthRevision     int64  `json:"authRevision,omitempty"`
+	Expires          int64  `json:"exp"`
+	Issued           int64  `json:"iat"`
+	NotBefore        int64  `json:"nbf"`
 }
 
 func validVisitorScope(value string) bool {
@@ -82,7 +83,7 @@ func (identity *Identity) embeddedApplication(ctx context.Context, workspace ID,
 	}
 	var app AssistantApplication
 	revision, err := identity.store.get(ctx, assistantKey(workspace, id), &app)
-	if err != nil || app.ID != id || app.Workspace != workspace || (app.Type != 4 && app.Type != 0) || !app.Enabled || app.AppSecret == "" {
+	if err != nil || app.ID != id || app.Workspace != workspace || (app.Type != 4 && app.Type != 0 && app.Type != 1) || !app.Enabled || app.AppSecret == "" {
 		return AssistantApplication{}, 0, ErrUnauthenticated
 	}
 	return app, revision, nil
@@ -142,14 +143,20 @@ func (identity *Identity) VerifyEmbedded(ctx context.Context, token string) (Pri
 		return deny()
 	}
 	if app.Type == 0 {
-		if !claims.PublicGuest || claims.EmbeddedID == nil || claims.AppID != "" ||
+		if !claims.PublicGuest || claims.CatalogBootstrap || claims.EmbeddedID == nil || claims.AppID != "" ||
 			!validVisitorScope(claims.Visitor) || app.PublicGuestUser != user.ID ||
 			len(app.DatasourceIDs) == 0 || claims.AppRevision != revision ||
 			claims.AuthRevision != user.AuthRevision || claims.Issued < now-3600 ||
 			claims.Expires <= now || claims.Expires > now+3600 {
 			return deny()
 		}
-	} else if claims.PublicGuest {
+	} else if app.Type == 1 {
+		if !claims.CatalogBootstrap || claims.PublicGuest || claims.EmbeddedID == nil || claims.AppID != "" ||
+			claims.Visitor != "" || claims.AppRevision != revision || claims.AuthRevision != user.AuthRevision ||
+			claims.Issued < now-3600 || claims.Expires <= now || claims.Expires > now+3600 {
+			return deny()
+		}
+	} else if claims.PublicGuest || claims.CatalogBootstrap {
 		return deny()
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])

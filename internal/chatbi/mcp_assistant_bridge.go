@@ -17,6 +17,7 @@ import (
 type AssistantCatalogBridge struct {
 	Endpoint      string                   `json:"endpoint"`
 	Authorization string                   `json:"authorization"`
+	Assistant     ID                       `json:"assistant,omitempty"`
 	Workspace     ID                       `json:"workspace"`
 	User          ID                       `json:"user"`
 	Sources       []AssistantCatalogSource `json:"sources"`
@@ -33,6 +34,7 @@ type AssistantCatalogSource struct {
 
 type assistantCatalogBridgeRecord struct {
 	Endpoint      string                   `json:"endpoint"`
+	Assistant     ID                       `json:"assistant,omitempty"`
 	Workspace     ID                       `json:"workspace"`
 	User          ID                       `json:"user"`
 	Sources       []AssistantCatalogSource `json:"sources"`

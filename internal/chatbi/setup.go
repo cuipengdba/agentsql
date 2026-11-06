@@ -111,15 +111,25 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 	for _, bridge := range config.AssistantCatalogs {
 		credentials, err := parseMCPAssistantCatalogIdentity(bridge.Endpoint, bridge.Authorization)
 		if err != nil || !bridge.Workspace.Valid() || !bridge.User.Valid() || len(bridge.Sources) == 0 || len(bridge.Sources) > 32 ||
+			(bridge.Assistant != "" && !bridge.Assistant.Valid()) ||
 			!validAssistantCatalogNetworks(bridge.AllowedCIDRs) ||
 			!validAssistantCatalogTLSPin(bridge.Endpoint, bridge.TLSCertSHA256) ||
 			strings.HasPrefix(bridge.Endpoint, "http://") && !bridge.AllowHTTP {
 			return errors.New("invalid assistant catalog registration")
 		}
+		if bridge.Assistant != "" {
+			var app AssistantApplication
+			if _, err := s.get(ctx, assistantKey(bridge.Workspace, bridge.Assistant), &app); err != nil ||
+				app.ID != bridge.Assistant || app.Type != 1 || app.Workspace != bridge.Workspace ||
+				assistantCatalogEndpoint(app.Configuration) != bridge.Endpoint {
+				return errors.New("assistant catalog application mismatch")
+			}
+		}
 		enabled := bridge.Enabled == nil || *bridge.Enabled
 		if enabled {
 			user, _, err := s.User(ctx, bridge.User)
-			if err != nil || user.Admin || !user.canUse(bridge.Workspace) {
+			if err != nil || user.Admin || !user.canUse(bridge.Workspace) ||
+				bridge.Assistant != "" && (user.Origin != 0 || user.Workspace != bridge.Workspace) {
 				return errors.New("invalid assistant catalog caller")
 			}
 		}
@@ -142,7 +152,7 @@ func (s *Store) ConfigureConnections(ctx context.Context, config ConnectionConfi
 				}
 			}
 		}
-		record := assistantCatalogBridgeRecord{Endpoint: bridge.Endpoint, Workspace: bridge.Workspace,
+		record := assistantCatalogBridgeRecord{Endpoint: bridge.Endpoint, Assistant: bridge.Assistant, Workspace: bridge.Workspace,
 			User: bridge.User, Sources: bridge.Sources, AllowedCIDRs: bridge.AllowedCIDRs,
 			TLSCertSHA256: strings.ToLower(bridge.TLSCertSHA256),
 			AllowHTTP:     bridge.AllowHTTP, Enabled: enabled}

@@ -100,8 +100,11 @@ func (service *Service) embeddedSourceAllowed(ctx context.Context, p Principal, 
 	revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
 	if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != p.EmbeddedType || !app.Enabled ||
 		(app.Type == 0 && (app.PublicGuestUser != p.User.ID || p.VisitorScope == "" || len(app.DatasourceIDs) == 0)) ||
-		(app.Type != 0 && app.Type != 4) {
+		(app.Type != 0 && app.Type != 1 && app.Type != 4) {
 		return ErrUnauthenticated
+	}
+	if app.Type == 1 {
+		return service.type1SourceAllowed(ctx, p, datasource)
 	}
 	if len(app.DatasourceIDs) == 0 && app.Type == 4 {
 		return nil
@@ -226,7 +229,7 @@ func (service *Service) SaveAssistant(ctx context.Context, p Principal, app Assi
 				return AssistantApplication{}, err
 			}
 		}
-		if app.Type == 4 || app.PublicGuestUser != "" {
+		if app.Type == 4 || app.Type == 1 || app.PublicGuestUser != "" {
 			app.AppSecret, err = newAssistantCredential(32)
 			if err != nil {
 				return AssistantApplication{}, err

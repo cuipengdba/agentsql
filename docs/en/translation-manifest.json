@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "8a984b2a8a9a4643f85782bdd95cc875c3881e8a98e61d65f21a18ad66d5e8cd"
+      "source_sha256": "48947e1a8e431c39ca1665019d551c9493ae5af23b01aef462d829d53b3dc1f9"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -1280,6 +1280,11 @@
       "source": "docs/PRODUCT_MODES.md",
       "english": "docs/en/PRODUCT_MODES.md",
       "source_sha256": "8db81ff714e550a86e051d2036584ca4d8416b7cd45294e7fd14b42f8c54749e"
+    },
+    {
+      "source": "docs/v4.6.0-design.md",
+      "english": "docs/en/v4.6.0-design.md",
+      "source_sha256": "128e28785eaf0711642e48a5c8adc56c521aba67f43151d671fd2232df0710c7"
     }
   ]
 }
