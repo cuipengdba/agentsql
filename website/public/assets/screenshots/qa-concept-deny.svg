@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">AgentSQL 问数安全拒绝功能示意，模拟数据</title>
+  <desc id="desc">概念界面展示未授权字段请求在网关执行前被拒绝，并给出可核对的审计。不是正式产品截图。</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0c1729"/><stop offset="1" stop-color="#132845"/></linearGradient></defs>
+  <rect width="1200" height="680" fill="url(#bg)"/>
+  <rect width="1200" height="52" fill="#f4b85d"/>
+  <text x="30" y="34" font-family="Arial, sans-serif" font-weight="700" font-size="19" fill="#263544">功能示意 · 模拟数据 · 非真实产品截图</text>
+  <text x="1170" y="34" text-anchor="end" font-family="Arial, sans-serif" font-size="15" fill="#263544">仅用于说明功能关系</text>
+  <rect x="28" y="77" width="1144" height="576" rx="19" fill="#f8fbfd"/>
+  <rect x="28" y="77" width="1144" height="72" rx="19" fill="#123249"/>
+  <text x="63" y="124" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#e6f5f7">AgentSQL · 受控问数</text>
+  <text x="1133" y="122" text-anchor="end" font-family="Arial, sans-serif" font-size="16" fill="#a5c8d4">当前工作空间：销售分析</text>
+  <rect x="64" y="181" width="1069" height="76" rx="13" fill="#e8f1f4"/>
+  <text x="88" y="211" font-family="Arial, sans-serif" font-size="15" fill="#627c89">用户问题 · 已绑定 PostgreSQL 数据源</text>
+  <text x="88" y="243" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#203d52">“列出客户的姓名和未授权的身份证号”</text>
+  <rect x="64" y="285" width="1069" height="195" rx="13" fill="#fff7f4" stroke="#e3a596" stroke-width="2"/>
+  <circle cx="108" cy="333" r="22" fill="#d46152"/>
+  <text x="108" y="342" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#fff">!</text>
+  <text x="150" y="339" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#8e372e">已拒绝：当前身份无权访问该字段</text>
+  <text x="150" y="381" font-family="Arial, sans-serif" font-size="18" fill="#705a57">网关在执行前检查表列授权；此请求不返回原始值，也不把拒绝当作空结果。</text>
+  <rect x="150" y="411" width="274" height="37" rx="18" fill="#f3d7d0"/>
+  <text x="287" y="436" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#7c3f37">未执行数据库查询 · 示例</text>
+  <rect x="64" y="511" width="1069" height="105" rx="13" fill="#e9f3f5"/>
+  <text x="88" y="548" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#244f5b">可复核的决策</text>
+  <text x="88" y="583" font-family="Arial, sans-serif" font-size="17" fill="#416c78">Agent / 用户绑定 · 数据源 · 规则命中 · 拒绝原因 · 审计 #示例-1043</text>
+</svg>

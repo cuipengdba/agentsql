@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "a7dbb9ee9d65b0b3835d1442096bb0818da4fe33992faa266c2524f30c9eda75"
+      "source_sha256": "810631cc82a236950669f453ac94eb50ee60b05fdff0ff61c992b9d01be3db8e"
     },
     {
       "source": "CHANGELOG.md",
@@ -124,7 +124,7 @@
     {
       "source": "docs/INTEGRATIONS.md",
       "english": "docs/en/INTEGRATIONS.md",
-      "source_sha256": "537f623fe0ff93f69ccdb83d1820ba9809df3ebae430033b462f842557970de2"
+      "source_sha256": "691c80b1521349e2d2a8f0eb7530135317eaeabcbe33d9f993eb65aa61f05576"
     },
     {
       "source": "docs/joint-case-kingbase-highgo.md",
@@ -224,7 +224,7 @@
     {
       "source": "docs/README.md",
       "english": "docs/en/README.md",
-      "source_sha256": "ed54a6132a851e1546dd0ec6f5d34c8d0fef3a388d9ca5386d4fe1bb4730d9cf"
+      "source_sha256": "eb186c7e3a3a2e7235ec6619fc5e5fbb92ecbcd4a7495a64a8a9a9ec42db1ea2"
     },
     {
       "source": "docs/release-assets-history.md",
@@ -1209,7 +1209,7 @@
     {
       "source": "docs/CHATBI.md",
       "english": "docs/en/CHATBI.md",
-      "source_sha256": "0e68c2edb887d33c088a5e19695292ff30ab3ded486cf06473c4177d9bd221a7"
+      "source_sha256": "4e33ad4767a6f9dbe7ad960e790279a335187b6dbf812a5f3ac40200414e2f0a"
     },
     {
       "source": "docs/release-notes-v4.1.0.md",
@@ -1275,6 +1275,11 @@
       "source": "docs/v4.5.0-offline-delivery.md",
       "english": "docs/en/v4.5.0-offline-delivery.md",
       "source_sha256": "eaa652f33075d307d12cc459f59d6451ebf30aa778ad6761fa494526e0d48bf0"
+    },
+    {
+      "source": "docs/PRODUCT_MODES.md",
+      "english": "docs/en/PRODUCT_MODES.md",
+      "source_sha256": "8db81ff714e550a86e051d2036584ca4d8416b7cd45294e7fd14b42f8c54749e"
     }
   ]
 }

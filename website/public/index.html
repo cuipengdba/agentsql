@@ -26,7 +26,7 @@
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL（智盾）：AI 问数 Agent 与 MCP Server 安全网关">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/app.css?v=4.5.0-positioning">
+  <link rel="stylesheet" href="/assets/app.css?v=4.5.0-usage-gallery">
   <script src="/assets/app.js?v=3.6.0" defer></script>
 </head>
 <body>
@@ -104,8 +104,9 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">二合一产品</p><h2 id="usage-modes-title">自有问数 Agent 与独立 MCP Server</h2><p>两个入口共用 AgentSQL 的安全执行内核。SQLBot 是可选接入方，不是自有问数的运行依赖。</p></div>
         <div class="risk-grid usage-grid">
-          <article class="risk-card"><span class="risk-index">01</span><h3>独立 AI 问数 Agent</h3><p>用户在 AgentSQL 自有页面提出业务问题；Go 服务使用当前受权表列结构和配置的本地模型生成 SQL，再由安全网关执行。回答、历史与导出均受当前权限约束。</p></article>
-          <article class="risk-card"><span class="risk-index">02</span><h3>MCP Server 安全网关</h3><p>外部 AI Agent 可直接调用 AgentSQL MCP 工具。SQLBot 的数据库调用可通过固定版本适配器交给 AgentSQL 执行，由 AgentSQL 逐次核验身份、策略、脱敏和审计；接入前须核对固定版本与绑定。</p></article>
+          <article class="risk-card"><span class="risk-index">01</span><h3>独立 AI 问数 Agent</h3><p>登录 AgentSQL 自有页面，选择已绑定数据源，用自然语言提问并核对 SQL、结果与审计。运行时无需 SQLBot。</p><a class="usage-link" href="https://github.com/cuipengdba/agentsql/blob/main/docs/PRODUCT_MODES.md#方式一只用-agentsql-独立问数">查看问数步骤 →</a></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>独立 MCP Server 安全网关</h3><p>外部 AI Agent 用专用 Agent Key 调用 MCP 工具；AgentSQL 逐次核验身份、授权、SQL、脱敏和审计。SQLBot 是固定版本适配的可选客户端。</p><a class="usage-link" href="https://github.com/cuipengdba/agentsql/blob/main/docs/PRODUCT_MODES.md#方式二只用-agentsql-mcp-server-安全网关">查看 MCP 步骤 →</a></article>
+          <article class="risk-card"><span class="risk-index">03</span><h3>两种入口一起使用</h3><p>员工在自有页面问数，外部 Agent 通过 MCP 查询。两边分别授权、分别管理凭据，共用安全执行与查询审计。</p><a class="usage-link" href="https://github.com/cuipengdba/agentsql/blob/main/docs/PRODUCT_MODES.md#方式三独立问数与-mcp-server-一起使用">查看联合使用 →</a></article>
         </div>
       </div>
     </section>
@@ -118,6 +119,19 @@
           <article class="feature-card"><span class="risk-index">02</span><h3>模型生成候选 SQL</h3><p>由配置的模型在受权结构内理解问题、生成 SQL；本地固定 ONNX 模型帮助筛选表结构。模型回答仍需核对业务含义。</p></article>
           <article class="feature-card"><span class="risk-index">03</span><h3>网关受控执行</h3><p>SQL 经解析、表列与受限行规则、只读边界及资源预算检查；结果按规则脱敏并写入持久审计，不能证明安全时拒绝。</p></article>
           <article class="feature-card"><span class="risk-index">04</span><h3>按当前权限交付</h3><p>回答、历史重开与导出再次核对当前授权；撤权或模型、数据库、存储、审计故障不交付旧 SQL 或数据。</p></article>
+        </div>
+        <p class="qa-gallery-jump"><a class="button button-secondary" href="#qa-gallery">查看独立问数界面与功能图示</a></p>
+      </div>
+    </section>
+
+    <section id="qa-gallery" class="section" aria-labelledby="qa-gallery-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">独立问数界面</p><h2 id="qa-gallery-title">中文实拍与功能示意</h2><p>前两张来自隔离运行的正式 v4.5.0 安装包，分别展示未绑定数据源的问数入口和空模型配置；后两张标注“功能示意、模拟数据”，不是产品实拍或额外验收。真模型问数支持范围以正式发布说明为准。</p></div>
+        <div class="qa-gallery">
+          <figure class="qa-shot"><a class="media-frame" href="/assets/screenshots/native-qa-real-v450-zh.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/native-qa-real-v450-zh.png" width="1440" height="900" loading="lazy" decoding="async" alt="AgentSQL 正式 v4.5.0 中文自有问数入口，隔离新装时尚未绑定数据源"></a><figcaption><strong>真实界面 · 中文自有问数入口</strong><span>正式 v4.5.0 包隔离新装实拍；此时尚未绑定数据源，因此不是一次成功问数的截图。</span></figcaption></figure>
+          <figure class="qa-shot"><a class="media-frame" href="/assets/screenshots/native-model-settings-real-v450-zh.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/native-model-settings-real-v450-zh.png" width="1440" height="900" loading="lazy" decoding="async" alt="AgentSQL 正式 v4.5.0 中文模型配置页，隔离新装时尚未配置模型"></a><figcaption><strong>真实界面 · 中文模型配置</strong><span>同一隔离实例实拍；展示自有模型设置入口和参数表单，当前没有保存模型或真实密钥。</span></figcaption></figure>
+          <figure class="qa-shot qa-shot-concept"><a class="media-frame" href="/assets/screenshots/qa-concept-answer.svg" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/qa-concept-answer.svg" width="1200" height="680" loading="lazy" decoding="async" alt="功能示意图，模拟数据：自然语言问题、图表、候选 SQL 与审计，不是真实产品截图"></a><figcaption><strong>功能示意 · 从问题到受控结果</strong><span>模拟数据、概念排版；说明问题理解、结果展示、SQL 核对与审计之间的关系。</span></figcaption></figure>
+          <figure class="qa-shot qa-shot-concept"><a class="media-frame" href="/assets/screenshots/qa-concept-deny.svg" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/qa-concept-deny.svg" width="1200" height="680" loading="lazy" decoding="async" alt="功能示意图，模拟数据：未授权字段请求被拒绝，不是真实产品截图"></a><figcaption><strong>功能示意 · 未授权请求拒绝</strong><span>模拟数据、概念排版；说明网关在执行前核验授权并保留可复核的决策。</span></figcaption></figure>
         </div>
       </div>
     </section>
@@ -229,7 +243,7 @@
 
     <section id="docs" class="section section-muted" aria-labelledby="docs-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">文档 / 下载</p><h2 id="docs-title">从本地演示到 MCP 接入</h2><p>按真实部署状态选择入口。文档对应源码仓库 <code>github.com/cuipengdba/agentsql</code>。</p></div>
+        <div class="section-heading"><p class="kicker">文档 / 下载</p><h2 id="docs-title">按使用方式选择操作指南</h2><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/PRODUCT_MODES.md" target="_blank" rel="noopener noreferrer">独立问数、独立 MCP 网关、两者一起使用</a>分别给出步骤与验收点；以下文档继续说明配置细节。</p></div>
         <div class="feature-grid">
           <article class="feature-card"><span class="risk-index">01</span><h3>快速上手</h3><p>用本地 Live Demo 看效果，再按默认拒绝的顺序接入自己的数据库。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-v4.5.0.pdf" download="AgentSQL-快速上手-v4.5.0.pdf" aria-label="下载《快速上手》PDF">PDF 下载</a></div></article>
           <article class="feature-card"><span class="risk-index">02</span><h3>使用手册</h3><p>按控制台菜单了解审计、Agent、数据源、权限、规则、审批与脱敏边界。</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">在线阅读</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-v4.5.0.pdf" download="AgentSQL-使用手册-v4.5.0.pdf" aria-label="下载《使用手册》PDF">PDF 下载</a></div></article>

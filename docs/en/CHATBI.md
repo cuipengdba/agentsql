@@ -2,7 +2,7 @@
 
 [Simplified Chinese](../CHATBI.md) | [English](CHATBI.md)
 
-v4.1.0 introduced a separate Go Q&A service; v4.2.0 added multi-turn context, business terms, recommended questions and controlled CSV/XLSX file datasources; v4.3.0 added charts, dashboards and embedded applications; v4.4.0 adds account and workspace administration, table selection, remarks and relationships. The service reuses AgentSQL gateway identity bindings, authorization, masking and audit; SQLBot and Python are not runtime dependencies. Current functionality includes ordinary-account login, controlled PostgreSQL/MySQL questions, conversation history, SQL and results, and Chinese/English and light/dark interfaces. Complete Community features and integrations still require individual acceptance; see the [v4.4.0 release notes](release-notes-v4.4.0.md) for this release's scope.
+AgentSQL's Go Q&A service and native Web UI reuse gateway identity bindings, grants, masking, and audit; SQLBot and Python are not runtime dependencies. This guide preserves v4.1.0–v4.4.0 configuration and migration details. For v4.5.0 product use, start with [three usage modes](PRODUCT_MODES.md); the exact verified paths and limits are in the [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0). A feature described here does not establish broad acceptance for arbitrary connections, complex grants, or SQLBot pages in this release.
 
 ## Installation and startup
 

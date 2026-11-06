@@ -26,7 +26,7 @@
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
   <meta name="twitter:image:alt" content="AgentSQL: AI data Q&amp;A agent and MCP Server security gateway">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/app.css?v=4.5.0-positioning">
+  <link rel="stylesheet" href="/assets/app.css?v=4.5.0-usage-gallery">
   <script src="/assets/app.js?v=3.6.0" defer></script>
 </head>
 <body>
@@ -104,8 +104,9 @@
       <div class="container">
         <div class="section-heading"><p class="kicker">Two-in-one product</p><h2 id="usage-modes-title">Native Q&amp;A agent and independent MCP Server</h2><p>Both entry points share AgentSQL's security execution core. SQLBot is an optional integration, not a runtime dependency of native Q&amp;A.</p></div>
         <div class="risk-grid usage-grid">
-          <article class="risk-card"><span class="risk-index">01</span><h3>Independent AI data Q&amp;A agent</h3><p>Users ask business questions in AgentSQL's own UI. Its Go service uses currently authorized tables and columns plus the configured local model to generate SQL; the security gateway executes it. Answers, history, and exports remain subject to current grants.</p></article>
-          <article class="risk-card"><span class="risk-index">02</span><h3>MCP Server security gateway</h3><p>External AI agents can call AgentSQL MCP tools directly. A fixed-version SQLBot Q&amp;A path can route database calls through the verified adapter. AgentSQL rechecks identity, policy, masking, and audit on each request; validate fixed versions and bindings before integration.</p></article>
+          <article class="risk-card"><span class="risk-index">01</span><h3>Independent AI data Q&amp;A agent</h3><p>Sign in to AgentSQL's own UI, select a bound datasource, and ask a natural-language question. Review the SQL, result, and audit. SQLBot is not needed at runtime.</p><a class="usage-link" href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/PRODUCT_MODES.md#mode-one-agentsql-native-qa-only">Native Q&amp;A steps →</a></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>Independent MCP Server security gateway</h3><p>External AI agents call MCP tools with a dedicated Agent Key. AgentSQL rechecks identity, grants, SQL, masking, and audit. SQLBot is an optional fixed-version adapter client.</p><a class="usage-link" href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/PRODUCT_MODES.md#mode-two-agentsql-mcp-server-security-gateway-only">MCP steps →</a></article>
+          <article class="risk-card"><span class="risk-index">03</span><h3>Use both entry points together</h3><p>Employees ask in the native UI while external agents query through MCP. Configure credentials and grants separately; share controlled execution and query audit.</p><a class="usage-link" href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/PRODUCT_MODES.md#mode-three-native-qa-and-mcp-server-together">Combined-use steps →</a></article>
         </div>
       </div>
     </section>
@@ -118,6 +119,19 @@
           <article class="feature-card"><span class="risk-index">02</span><h3>Generate candidate SQL</h3><p>The configured model interprets the question against authorized schema and generates SQL; a fixed local ONNX model helps select relevant tables. Users must still check business meaning.</p></article>
           <article class="feature-card"><span class="risk-index">03</span><h3>Execute under policy</h3><p>SQL is checked against parsing, table/column and bounded row rules, read-only limits, and resource budgets. Results are masked and durably audited; unsafe requests are rejected.</p></article>
           <article class="feature-card"><span class="risk-index">04</span><h3>Deliver with current grants</h3><p>Answers, reopened history, and exports recheck authorization. Revocation or model, database, storage, and audit failures do not release stale SQL or data.</p></article>
+        </div>
+        <p class="qa-gallery-jump"><a class="button button-secondary" href="#qa-gallery">See native Q&amp;A UI and concept images</a></p>
+      </div>
+    </section>
+
+    <section id="qa-gallery" class="section" aria-labelledby="qa-gallery-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Native Q&amp;A UI</p><h2 id="qa-gallery-title">Chinese release screenshots and concept images, clearly separated</h2><p>The first two images come from an isolated run of the official v4.5.0 package: the Q&amp;A entry before datasource binding and empty model settings. The last two are labeled concept images with synthetic data, not product captures or additional acceptance evidence. The official release notes define real-model support.</p></div>
+        <div class="qa-gallery">
+          <figure class="qa-shot"><a class="media-frame" href="/assets/screenshots/native-qa-real-v450-zh.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/native-qa-real-v450-zh.png" width="1440" height="900" loading="lazy" decoding="async" alt="Official AgentSQL v4.5.0 Chinese native Q&amp;A entry before datasource binding in an isolated installation"></a><figcaption><strong>Real UI · Chinese native Q&amp;A entry</strong><span>Official v4.5.0 package in an isolated fresh install. No datasource is bound yet, so this is not a successful query screenshot.</span></figcaption></figure>
+          <figure class="qa-shot"><a class="media-frame" href="/assets/screenshots/native-model-settings-real-v450-zh.png" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/native-model-settings-real-v450-zh.png" width="1440" height="900" loading="lazy" decoding="async" alt="Official AgentSQL v4.5.0 Chinese model settings page before a model is configured"></a><figcaption><strong>Real UI · Chinese model settings</strong><span>The same isolated installation shows native model settings and parameter fields, without a saved model or real API key.</span></figcaption></figure>
+          <figure class="qa-shot qa-shot-concept"><a class="media-frame" href="/assets/screenshots/qa-concept-answer.svg" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/qa-concept-answer.svg" width="1200" height="680" loading="lazy" decoding="async" alt="Concept image with synthetic data: natural-language question, chart, candidate SQL, and audit; not a product screenshot"></a><figcaption><strong>Concept image · question to controlled result</strong><span>Synthetic data and illustrative layout explain the relation between question interpretation, result display, SQL review, and audit.</span></figcaption></figure>
+          <figure class="qa-shot qa-shot-concept"><a class="media-frame" href="/assets/screenshots/qa-concept-deny.svg" target="_blank" rel="noopener noreferrer"><img src="/assets/screenshots/qa-concept-deny.svg" width="1200" height="680" loading="lazy" decoding="async" alt="Concept image with synthetic data: unauthorized column request denied; not a product screenshot"></a><figcaption><strong>Concept image · unauthorized request denied</strong><span>Synthetic data and illustrative layout explain the gateway's pre-execution grant check and reviewable decision.</span></figcaption></figure>
         </div>
       </div>
     </section>
@@ -229,7 +243,7 @@
 
     <section id="docs" class="section section-muted" aria-labelledby="docs-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Docs / Downloads</p><h2 id="docs-title">From local demo to MCP access</h2><p>Select the entrance according to the actual deployment status. Document corresponding source code repository <code>github.com/cuipengdba/agentsql</code>.</p></div>
+        <div class="section-heading"><p class="kicker">Docs / Downloads</p><h2 id="docs-title">Choose a guide by usage mode</h2><p><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/PRODUCT_MODES.md" target="_blank" rel="noopener noreferrer">Native Q&amp;A, the independent MCP gateway, and combined use</a> each have setup steps and acceptance checks. The following guides provide configuration details.</p></div>
         <div class="feature-grid">
           <article class="feature-card"><span class="risk-index">01</span><h3>Get started quickly</h3><p>Use the local Live Demo to see the effect, and then access your database in the order of default rejection.</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/GETTING_STARTED.md" target="_blank" rel="noopener noreferrer">Read online</a><a class="pdf-download" href="/assets/docs/agentsql-getting-started-en-v4.5.0.pdf" download="agentsql-getting-started-en-v4.5.0.pdf" aria-label="Download &quot;Getting Started Quickly&quot; PDF">PDF download</a></div></article>
           <article class="feature-card"><span class="risk-index">02</span><h3>User manual</h3><p>Press the console menu to learn about auditing, agents, data sources, permissions, rules, approval and masking boundaries.</p><div class="doc-actions"><a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/USER_GUIDE.md" target="_blank" rel="noopener noreferrer">Read online</a><a class="pdf-download" href="/assets/docs/agentsql-user-guide-en-v4.5.0.pdf" download="agentsql-user-guide-en-v4.5.0.pdf" aria-label="Download the User Manual PDF">PDF download</a></div></article>
