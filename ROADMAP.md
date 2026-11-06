@@ -55,6 +55,11 @@ AgentSQL 是面向 AI Agent 的数据库安全网关与 MCP Server。核心价�
 | v3.8.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.8.0)） | 指定 ClickHouse 分析查询资源约束及 Milvus 标量过滤和行级租户范围；见[设计](docs/v3.8.0-design.md)、[验收](docs/v3.8.0-acceptance.md)与[发布证据](docs/v3.8.0-release-evidence.md)。 |
 | v3.9.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v3.9.0)） | Oracle 和 SQL Server 指定单实例的证书、计划预算、查询与故障恢复；见[验收](docs/v3.9.0-acceptance.md)与[发布证据](docs/v3.9.0-release-evidence.md)。 |
 | v4.0.0 | 已发布（[正式 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.0.0)） | 原十版计划完成：15 项资产本地验签、离线运输包、最小诊断、六条跨版本升级/恢复与双语维护指引；见[验收](docs/v4.0.0-acceptance.md)及[发布证据](docs/v4.0.0-release-evidence.md)。不扩大数据库支持等级或承诺固定 LTS/SLA。 |
+| v4.4.0 | 已发布 | 独立 ChatBI 的工作空间、账号、数据源选表与备注等已验能力；范围见[发布说明](docs/release-notes-v4.4.0.md)。 |
+| v4.5.0 | 开发中，有限支持范围 | 受控网关 PostgreSQL 只读问数、已验原版 MCP/基本助手/页面嵌入接入、固定本地向量模型与正式离线交付；最终支持项须以精确提交验收及[设计合同](docs/v4.5.0-design.md)为准，不宣称完整 SQLBot 社区版兼容。 |
+| v4.6.0 | 计划 | 高级助手 Type 1 和第三方前后端分离接入；外部目录仅经运营方登记、证书/IP 固定和当前受权数据源到网关映射。未修改原版客户端、真模型/真库、撤权与审计均须验收。 |
+| v4.7.0 | 计划 | 活动数据权限的角色、多用户及非空白名单规则，连同原版禁用规则差异；逐入口验证行列限制、历史、导出与并发撤权，不能证明的形态继续故障关闭。 |
+| v4.8.0 | 计划 | 原版社区版其余可用页面、API、数据库连接创建/编辑、云模型及广覆盖行为与生产规模性能；以逐项矩阵确认实际支持范围，不预先承诺 100% 兼容。 |
 
 ## v3.1.0 设计与验收范围
 
