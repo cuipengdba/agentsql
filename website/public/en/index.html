@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentSQL (Zhidun) | Database security gateway and native Q&amp;A</title>
-  <meta name="description" content="AgentSQL provides a database security gateway and its own Q&amp;A interface. It can protect an existing SQLBot deployment or serve as a native data Q&amp;A product. See the current release notes for verified scope.">
+  <title>AgentSQL | AI data Q&amp;A agent + MCP Server security gateway</title>
+  <meta name="description" content="AgentSQL combines an independent AI data Q&amp;A agent with an MCP Server database security gateway. Native Q&amp;A runs without SQLBot; a verified adapter can secure selected SQLBot paths. See v4.5.0 release limits.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentsql.cn/en/">
   <link rel="alternate" hreflang="zh-CN" href="https://agentsql.cn/">
@@ -13,20 +13,20 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AgentSQL">
   <meta property="og:locale" content="en_US">
-  <meta property="og:title" content="AgentSQL · Database security gateway and native Q&amp;A">
-  <meta property="og:description" content="AgentSQL can protect database access for an existing SQLBot deployment and provides its own data Q&amp;A interface. See the current release notes for verified scope.">
+  <meta property="og:title" content="AgentSQL · AI data Q&amp;A agent + MCP Server security gateway">
+  <meta property="og:description" content="AgentSQL combines native AI data Q&amp;A with an independent MCP Server security gateway. SQLBot integration is optional and bounded by the v4.5.0 release notes.">
   <meta property="og:url" content="https://agentsql.cn/en/">
   <meta property="og:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
-  <meta property="og:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
+  <meta property="og:image:alt" content="AgentSQL: AI data Q&amp;A agent and MCP Server security gateway">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="AgentSQL · Database security gateway and native Q&amp;A">
-  <meta name="twitter:description" content="AgentSQL can protect database access for an existing SQLBot deployment and provides its own data Q&amp;A interface. See the current release notes for verified scope.">
+  <meta name="twitter:title" content="AgentSQL · AI data Q&amp;A agent + MCP Server security gateway">
+  <meta name="twitter:description" content="AgentSQL combines native AI data Q&amp;A with an independent MCP Server security gateway. SQLBot integration is optional and bounded by the v4.5.0 release notes.">
   <meta name="twitter:image" content="https://agentsql.cn/assets/og-cover-en.png?v=3.6.0">
-  <meta name="twitter:image:alt" content="AgentSQL (Zhidun): an MCP database security gateway for AI agents">
+  <meta name="twitter:image:alt" content="AgentSQL: AI data Q&amp;A agent and MCP Server security gateway">
   <link rel="icon" href="/favicon.svg?v=3.6.0" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/app.css?v=3.6.0">
+  <link rel="stylesheet" href="/assets/app.css?v=4.5.0-positioning">
   <script src="/assets/app.js?v=3.6.0" defer></script>
 </head>
 <body>
@@ -45,7 +45,7 @@
       <nav id="primary-nav" class="primary-nav" aria-label="Main navigation">
         <a href="#product">Product</a>
         <a href="/en/demo/">Demo</a>
-        <a href="#features">Features</a>
+        <a href="#capabilities">Capabilities</a>
         <a href="#docs">Docs / Downloads</a>
         <a href="#compatibility">Compatibility</a>
         <a href="#ecosystem">Ecosystem</a>
@@ -68,31 +68,31 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v4.5.0</div>
-          <h1>Database security gateway and native Q&amp;A</h1>
-          <p class="hero-lead">AgentSQL (Chinese name: Zhidun) is a database security gateway and MCP Server for AI Agents. PostgreSQL/MySQL requests issued by the model go through identity authentication, SQL parsing, static and dynamic risk checks, four-state decision-making and controlled execution before reaching the database; the results are masked according to the configuration, and a persistent audit is left at the application layer.</p>
-          <p class="positioning">AgentSQL has its own Q&amp;A, chart, dashboard and embedded application pages. Model-generated SQL still passes through its database security gateway. An existing SQLBot deployment can also use AgentSQL to control database access. Full Community features and pages require individual acceptance. v4.5.0 covers only the explicitly verified Q&A and embed paths; the user's actual business system has not been validated.</p>
+          <h1>AI Q&amp;A Agent<br>MCP Server security gateway</h1>
+          <p class="hero-lead">AgentSQL combines its own AI data Q&amp;A agent with an independent MCP Server database security gateway. Ask in AgentSQL or connect an external MCP client: both paths enforce current identity and grants, SQL checks, controlled execution, result masking, and durable audit.</p>
+          <p class="positioning">The native Go Q&amp;A service and Web UI run without SQLBot. A fixed-version SQLBot execution path may optionally connect through the verified adapter; arbitrary SQLBot deployments are not drop-in compatible. v4.5.0 covers only the bounded paths in its release notes and has not been validated on the user's actual business system.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">Check it out on GitHub</a>
             <a class="button button-secondary" href="#quickstart">Quick Start</a>
             <a class="button button-ghost" href="https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0" target="_blank" rel="noopener noreferrer">v4.5.0 Release Notes</a>
           </div>
           <p class="badge-line">Starting from v0.5.0 Apache-2.0 Open Source · Go single binary delivery (glibc/cgo build) · Self-hosted · No third-party telemetry dependencies</p>
-          <p class="positioning">Native Q&amp;A uses the existing security gateway: generated SQL still passes authorization, masking and durable audit.</p>
+          <p class="positioning">AgentSQL itself interprets the question, selects currently authorized schema and generates SQL; its security core decides whether execution and result delivery are allowed.</p>
         </div>
         <div class="gateway-visual" aria-label="Request processing link through AgentSQL gateway">
-          <svg viewbox="0 0 720 430" role="img" aria-labelledby="flow-title flow-desc">
-            <title id="flow-title">AgentSQL request link</title>
-            <desc id="flow-desc">AI Agent connects to the AgentSQL gateway through LLM or MCP Client, and then accesses PostgreSQL or MySQL; the gateway includes six stages: authentication, parsing, security inspection, decision-making, execution masking, and leaving traces.</desc>
-            <g class="flow-line"><path d="M133 96h72M330 96h65M520 96h67M458 144v56" /><path class="arrow-head" d="m197 91 8 5-8 5Zm190 0 8 5-8 5Zm192 0 8 5-8 5Zm-5 101 5 8 5-8Z" /></g>
-            <g class="flow-node"><rect x="24" y="61" width="110" height="70" rx="12" /><text x="79" y="90">AI Agent</text><text class="flow-sub" x="79" y="112">Make a request</text></g>
-            <g class="flow-node"><rect x="206" y="61" width="125" height="70" rx="12" /><text x="268" y="88">LLM / MCP</text><text class="flow-sub" x="268" y="112">Client</text></g>
-            <g class="flow-node flow-node-accent"><rect x="396" y="48" width="126" height="96" rx="14" /><text x="459" y="86">AgentSQL</text><text class="flow-sub" x="459" y="112">Deny gateway by default</text></g>
-            <g class="flow-node"><rect x="588" y="61" width="108" height="70" rx="12" /><text x="642" y="88">PostgreSQL</text><text class="flow-sub" x="642" y="112">/ MySQL</text></g>
+          <svg viewBox="0 0 720 430" role="img" aria-labelledby="flow-title flow-desc">
+            <title id="flow-title">AgentSQL two-entry request flow</title>
+            <desc id="flow-desc">Native AgentSQL AI data Q&amp;A and an external MCP client enter the AgentSQL security core independently. Both reach authorized databases only after identity, parsing, security checks, decision, masking, and audit.</desc>
+            <g class="flow-line"><path d="M165 83H300M165 183H240V139H300M490 118H570M395 160V225"/><path class="arrow-head" d="m292 78 8 5-8 5Zm0 56 8 5-8 5Zm270-21 8 5-8 5Zm-5 104 5 8 5-8Z"/></g>
+            <g class="flow-node"><rect x="20" y="50" width="145" height="66" rx="12"/><text x="92" y="89">Native AI Q&amp;A</text></g>
+            <g class="flow-node"><rect x="20" y="150" width="145" height="66" rx="12"/><text x="92" y="190">External MCP</text></g>
+            <g class="flow-node flow-node-accent"><rect x="300" y="75" width="190" height="85" rx="14"/><text x="395" y="108">AgentSQL</text><text class="flow-sub" x="395" y="135">Q&amp;A / MCP security</text></g>
+            <g class="flow-node"><rect x="570" y="83" width="130" height="70" rx="12"/><text x="635" y="125">Authorized DB</text></g>
             <g class="stage-box">
-              <rect x="83" y="205" width="554" height="172" rx="18" />
-              <text class="stage-label" x="115" y="250">01 Authentication</text><text class="stage-label" x="278" y="250">02 Analysis</text><text class="stage-label" x="441" y="250">03 Security check</text>
-              <text class="stage-label" x="115" y="318">04 Decision</text><text class="stage-label" x="278" y="318">05 Execution and masking</text><text class="stage-label" x="491" y="318">06 Leave a trace</text>
-              <path d="M115 270h490" />
+              <rect x="83" y="225" width="554" height="172" rx="18"/>
+              <text class="stage-label" x="115" y="270">01 Identity</text><text class="stage-label" x="278" y="270">02 Parse</text><text class="stage-label" x="441" y="270">03 Security checks</text>
+              <text class="stage-label" x="115" y="338">04 Decision</text><text class="stage-label" x="278" y="338">05 Execute + mask</text><text class="stage-label" x="491" y="338">06 Audit</text>
+              <path d="M115 290h490"/>
             </g>
           </svg>
           <div class="visual-note"><span class="pulse" aria-hidden="true"></span> Requests only enter the execution phase if allowed by the policy</div>
@@ -102,11 +102,40 @@
 
     <section id="usage-modes" class="section" aria-labelledby="usage-modes-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Two ways to use AgentSQL</p><h2 id="usage-modes-title">Secure an existing Q&amp;A system or use AgentSQL's own interface</h2><p>AgentSQL's Go service, Web interface and brand are independently implemented. SQLBot integration is one optional deployment mode; each capability is bounded by its verified version and scenario.</p></div>
-        <div class="risk-grid">
-          <article class="risk-card"><span class="risk-index">01</span><h3>SQLBot database security gateway</h3><p>Keep an existing SQLBot interface and Q&amp;A flow while routing business database access through AgentSQL for identity, permissions, controlled execution, masking and persistent audit. Verify identity mapping, datasource scope and failure behavior before rollout.</p></article>
-          <article class="risk-card"><span class="risk-index">02</span><h3>Native AgentSQL Q&amp;A</h3><p>Use AgentSQL's own Q&amp;A, datasource, chart and administration pages. v4.5.0 covers only the bounded Q&amp;A and embed paths listed in the release notes; other Community pages and APIs remain on the roadmap. The user's actual business system has not been validated.</p></article>
+        <div class="section-heading"><p class="kicker">Two-in-one product</p><h2 id="usage-modes-title">Native Q&amp;A agent and independent MCP Server</h2><p>Both entry points share AgentSQL's security execution core. SQLBot is an optional integration, not a runtime dependency of native Q&amp;A.</p></div>
+        <div class="risk-grid usage-grid">
+          <article class="risk-card"><span class="risk-index">01</span><h3>Independent AI data Q&amp;A agent</h3><p>Users ask business questions in AgentSQL's own UI. Its Go service uses currently authorized tables and columns plus the configured local model to generate SQL; the security gateway executes it. Answers, history, and exports remain subject to current grants.</p></article>
+          <article class="risk-card"><span class="risk-index">02</span><h3>MCP Server security gateway</h3><p>External AI agents can call AgentSQL MCP tools directly. A fixed-version SQLBot Q&amp;A path can route database calls through the verified adapter. AgentSQL rechecks identity, policy, masking, and audit on each request; validate fixed versions and bindings before integration.</p></article>
         </div>
+      </div>
+    </section>
+
+    <section id="native-qa" class="section section-muted" aria-labelledby="native-qa-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">AgentSQL native Q&amp;A</p><h2 id="native-qa-title">AgentSQL owns the path from question to controlled result</h2><p>The Q&amp;A agent interprets questions and proposes SQL; the security gateway makes the final execution decision. v4.5.0 real-model and real-PostgreSQL acceptance covers only paths listed in the release notes.</p></div>
+        <div class="feature-grid qa-steps">
+          <article class="feature-card"><span class="risk-index">01</span><h3>Resolve current identity</h3><p>Use current user, workspace, and datasource bindings to select permitted tables, columns, and business terms. Old sessions never inherit revoked grants.</p></article>
+          <article class="feature-card"><span class="risk-index">02</span><h3>Generate candidate SQL</h3><p>The configured model interprets the question against authorized schema and generates SQL; a fixed local ONNX model helps select relevant tables. Users must still check business meaning.</p></article>
+          <article class="feature-card"><span class="risk-index">03</span><h3>Execute under policy</h3><p>SQL is checked against parsing, table/column and bounded row rules, read-only limits, and resource budgets. Results are masked and durably audited; unsafe requests are rejected.</p></article>
+          <article class="feature-card"><span class="risk-index">04</span><h3>Deliver with current grants</h3><p>Answers, reopened history, and exports recheck authorization. Revocation or model, database, storage, and audit failures do not release stale SQL or data.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="capabilities" class="section" aria-labelledby="capabilities-title">
+      <div class="container">
+        <div class="section-heading"><p class="kicker">Current capabilities</p><h2 id="capabilities-title">A capability matrix instead of a release-by-release list</h2><p>Statuses describe verified v4.5.0 paths and limits. See the release notes and integration guides for deployment details.</p></div>
+        <div class="table-wrap"><table class="compat-table">
+          <caption>AgentSQL v4.5.0 two-in-one product capabilities and verified scope</caption>
+          <thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Boundary</th></tr></thead>
+          <tbody>
+            <tr><td>Independent AI data Q&amp;A agent</td><td>Verified bounded path</td><td>Native Go/Web Q&amp;A with local models and operator-registered PostgreSQL gateway aliases; no SQLBot runtime</td></tr>
+            <tr><td>MCP Server security gateway</td><td>Independently deployable</td><td>stdio and HTTP MCP; current identity, grants, controlled execution, masking, and durable audit on each request</td></tr>
+            <tr><td>SQLBot integration</td><td>Optional fixed baseline</td><td>Verified adapter calls AgentSQL MCP; arbitrary SQLBot environments are not automatically compatible</td></tr>
+            <tr><td>Basic assistant and page embed</td><td>Verified bounded path</td><td>One-source basic guest assistant and Type 4 page embed with origin and revocation limits</td></tr>
+            <tr><td>Advanced assistant and broad parity</td><td>Planned</td><td>Type 1, complex active permission targets, and remaining Community pages/APIs are outside this release's support claim</td></tr>
+          </tbody>
+        </table></div>
       </div>
     </section>
 
@@ -261,40 +290,14 @@
           <span><strong class="tier-read">Controlled read-only</strong>: Connection/Metadata/Read-only query subset</span>
           <span><strong class="tier-conn">connection level</strong>:ping /version/schema/read-only preview</span>
         </div>
-        <p class="ecosystem-note">v1.5.0 completes the client, permission revocation and database break recovery for the specified modes of DM8, KingbaseES and Vastbase; v1.6.0 completes the independent audit library failure, lock wait timeout and cancellation of the three databases. v1.7.0 adds HighGo to limit read-only paths and verifies KingbaseES certificate verification and rotation; v1.8.0 specifies Build in Vastbase to verify that the isolated instance can verify TLS, rotation, dual clients, masking and persistent auditing. v3.3.0 verifies TLS certificates and rotation on the pinned, single-instance DM8 Pack3 build; formal active/standby switchover remains unproven. v3.4.0 deepens read-only verification on pinned Kingbase and Vastbase single instances; Kingbase writes and Vastbase column authorization remain closed. Conclusions do not extrapolate to other versions, production loads, or vendor certifications. MongoDB, Redis, Valkey, ClickHouse and Milvus are only open for controlled read-only in their respective specified versions and topologies; other NoSQL/vectors are still connected-level low-level support; all libraries must go through the gateway and use a dedicated minimum-privileged account. See details <a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.8.0-acceptance.md">v1.8.0 Vastbase acceptance record</a>、<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.7.0-dm-kingbase-depth-acceptance.md">KingbaseES acceptance record</a>and<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.en.md">Security</a>.</p>
+        <p class="ecosystem-note">Each database claim is limited to its specified instance, protocol path, and acceptance record. Protocol compatibility or a successful connection is not vendor certification or blanket production support. Route business access through AgentSQL with least-privilege accounts. See the <a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.en.md">security boundaries</a> and <a href="https://github.com/cuipengdba/agentsql/releases">historical acceptance records</a>.</p>
       </div>
     </section>
 
     <section id="ecosystem" class="section">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Ecological and compatible</p><h2>Progress in ecological adaptation of domestic databases</h2><p>v1.8.0 adds TLS server-side authentication, certificate and credential rotation on designated instances of Vastbase G100 Build 9 PG mode. Other versions, modes, formal active/standby switchover and full production support must still be verified separately. Database vendors are welcome to jointly verify.</p></div>
-        <div class="ecosystem-panel">
-          <p class="ecosystem-label">Domestic database ecological adaptation matrix (v4.3.0)</p>
-          <p class="table-scroll-hint">The form can be swiped left or right to view complete verification instructions.</p>
-          <div class="table-wrap">
-            <table class="eco-table">
-              <caption>AgentSQL v4.3.0 Ecological adaptation progress of domestic databases; status is subject to specified version, mirror, topology and repository evidence.</caption>
-              <thead><tr><th scope="col">database</th><th scope="col">Adaptation status</th><th scope="col">Description</th></tr></thead>
-              <tbody>
-                <tr><td class="eco-db">CETC KingbaseES KingbaseES</td><td><span class="eco-status ok">🟢 The specified subset of PG protocol passed the actual test</span></td><td class="eco-desc">Only V9R1C10, PG mode, single instance synthesis table: read-only role write rejection, controlled SELECT, mobile phone number masking, R006 rejection and persistent audit pass; v1.6.0 complements fault shutdown, v1.7.0 verifies CA and host name verification, incorrect certificate rejection, certificate and account password rotation. v3.4.0 adds column authorization only for restricted single-table SELECT; writes remain closed. Other modes, complex queries, formal active/standby switchover and production load have not been verified.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v3.4.0-acceptance.md">Acceptance record</a>.</td></tr>
-                <tr><td class="eco-db">HighGo HighGo</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">9.0.10 Enterprise version PG mode, single instance synthetic table: the independent highgo type only accepts bounded single table SELECT; vendor identity and mode are reviewed on a connection-by-connection basis, table-level authorization, mobile phone number masking, Inspector/Dify, persistent audit, authorization revocation, database parking and lock waiting for failed links to pass. TLS, HA, other versions and production loads are not verified.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v1.7.0-acceptance.md">Acceptance record</a>.</td></tr>
-                <tr><td class="eco-db">IvorySQL</td><td><span class="eco-status ok">Measured</span></td><td class="eco-desc">The community version protocol path has been tested and passed.</td></tr>
-                <tr><td class="eco-db">openGauss Community Edition</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">Official openGauss 7.0.0 LTS openEuler 24.03 x86_64, build 2397a86f: independent type, strict TLS, physical single table narrow SELECT with least privilege account, real MCP, R010, masking, approval, persistent auditing and two types of fault shutdown pass in synthetic single instance; other builds, GaussDB commercial version, active standby and full production support are not verified.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v2.4.0-acceptance.md">Acceptance Boundary</a>.</td></tr>
-                <tr><td class="eco-db">TiDB</td><td><span class="eco-status wip">Adapting</span></td><td class="eco-desc">Execution plan (EXPLAIN) adaptation is being implemented.</td></tr>
-                <tr><td class="eco-db">OceanBase</td><td><span class="eco-status wip">Adapting</span></td><td class="eco-desc">Execution plan (EXPLAIN) adaptation is being implemented.</td></tr>
-                <tr><td class="eco-db">TDSQL for PostgreSQL</td><td><span class="eco-status wip">To be verified by the target environment</span></td><td class="eco-desc">PG protocol candidate; the commercial version has not been tested and cannot be replaced by OpenTenBase results.</td></tr>
-                <tr><td class="eco-db">TDSQL for MySQL</td><td><span class="eco-status wip">To be verified by the target environment</span></td><td class="eco-desc">MySQL protocol candidate; the commercial version has not been tested and is not to be confused with TDSQL for PostgreSQL.</td></tr>
-                <tr><td class="eco-db">OpenTenBase</td><td><span class="eco-status wip">Adapting</span></td><td class="eco-desc">Execution plan compatibility fix is being implemented.</td></tr>
-                <tr><td class="eco-db">YashanDB database YashanDB</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">Enterprise Edition 23.4.1.109、<code>COMPAT_VECTOR=yashan</code>, Independent client 23.4.7.100: The minimum privilege account passes narrow SELECT, R010, mobile phone number masking and persistent audit via HTTP MCP; Inspector/Dify completes permission and denial. SELECT revocation, business database disconnection, and independent audit database shutdown all verify that no original results are delivered. C Client redistribution has only verbal authorization from the manufacturer and no written documentation from the repository; TLS, client cancellation/timeout, primary/backup, write, transaction, EXPLAIN and full production support are not verified or closed.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v2.1.0-acceptance.md">Acceptance Boundary</a>.</td></tr>
-                <tr><td class="eco-db">Dameng Database DM</td><td><span class="eco-status ok">🟢 Specified instance protection link passes</span></td><td class="eco-desc">DM8 Pack3, COMPATIBLE_MODE 0: Bounded HTTP MCP real database revalidation coverage query, R010 table policy, mobile phone number masking and persistent audit; v1.5.0 completes client, permission revocation and database suspension recovery, v1.6.0 completes independent audit database failure, lock waiting timeout, client cancellation and recovery revalidation. v3.3.0 additionally verifies TLS, certificate rotation, bounded pagination, scan cost and two-way MCP load. JOIN, functions, HA and production loads are unverified; writes remain blocked.</td></tr>
-                <tr><td class="eco-db">Vastbase G100</td><td><span class="eco-status wip">🔵 Specify version controlled read-only</span></td><td class="eco-desc">V3.0 Build 9, PG mode, single-instance synthetic table: independent vastbase type forced read-only, bounded SELECT, table authorization, mobile phone number masking, MCP approval single execution and persistent audit actual measurement; v1.6.0 complements fault shutdown, v1.8.0 verifies correct and incorrect certificates, host names, plain text rejections, certificate and password rotation, and Inspector/Dify real calls. v3.4.0 adds types, physical scans, permission revocation and bounded load; B2 column authorization remains closed. The temporary license does not cover production use; formal primary/standby, other builds and production loads remain untested.<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/v3.4.0-acceptance.md">Acceptance record</a>.</td></tr>
-                <tr><td class="eco-db">PolarDB</td><td><span class="eco-status ok">Measured</span></td><td class="eco-desc">PolarDB for PostgreSQL 15, designated community mirror <code>postgres</code> The path completes the minimum closed loop; commercial services, HA, TLS, and B2/B5 are not covered.</td></tr>
-                <tr><td class="eco-db">PolarDB-X</td><td><span class="eco-status ok">Measured</span></td><td class="eco-desc">old official <code>polardbx/polardb-x:2.0.1</code> single container <code>mysql</code> The path is bounded and measured; passed <code>db_type=mysql</code> Access, no new polardbx data source type is added. Two-phase EXPLAIN: Normal EXPLAIN returns a single-column logical plan,<code>EXPLAIN EXECUTE</code> Returns standard MySQL columns; routing Hints, DRDS/TDDL management statements, distributed DDL, stored procedures fail-closed. Full CN/DN/CDC, commercial services, distributed semantics, B2/B5 not certified.</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="ecosystem-note">*"Tested" only refers to the database version, image/topology and use cases described, and does not represent manufacturer certification or production support commitment; "Adapting" does not mean that the current version is supported. See the evidence and untested boundaries of KingbaseES and HighGo<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/kingbase-v9-verification.md" target="_blank" rel="noopener noreferrer">KingbaseES V9 real database verification record</a>and<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/highgo-verification.md" target="_blank" rel="noopener noreferrer">HighGo verification records</a>;Other protocol paths and bounded actual measurements can be seen<a href="https://github.com/cuipengdba/agentsql/blob/main/docs/en/ecosystem-db-compat-research.md" target="_blank" rel="noopener noreferrer">Database compatibility survey</a>and<a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.en.md" target="_blank" rel="noopener noreferrer">Security</a>. Welcome to contact us for target environment verification and cooperation:<a href="mailto:87326549@qq.com">87326549@qq.com</a></p>
-        </div>
+        <div class="section-heading"><p class="kicker">Database ecosystem</p><h2>Integrate by verified capability, not database count</h2><p>The matrix above separates full-path protection, specified-version controlled reads, and connection-level support. Domestic databases, NoSQL, and vector stores remain bounded by exact versions, modes, and test scenarios. Recheck grants, failure behavior, and audit before a new deployment.</p></div>
+        <p class="ecosystem-note"><a href="#compatibility">Database compatibility matrix</a> · <a href="https://github.com/cuipengdba/agentsql/blob/main/SECURITY.en.md" target="_blank" rel="noopener noreferrer">Security boundaries</a> · <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">Historical acceptance</a></p>
       </div>
     </section>
 
@@ -340,37 +343,13 @@ bash ./demo/reset.sh
       </div>
     </section>
 
-    <section class="section" aria-labelledby="roadmap-title">
+    <section id="roadmap" class="section" aria-labelledby="roadmap-title">
       <div class="container">
-        <div class="section-heading"><p class="kicker">Technical route</p><h2 id="roadmap-title">roadmap</h2><p>Released stages and future directions are listed below. Actual capabilities and support boundaries follow the acceptance evidence for each version.</p></div>
+        <div class="section-heading"><p class="kicker">Future scope</p><h2 id="roadmap-title">Advance capabilities without repeating every release on the homepage</h2><p>Detailed changes and acceptance records remain in <a href="https://github.com/cuipengdba/agentsql/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>. Current support follows the capability matrix above and the v4.5.0 release notes.</p></div>
         <ol class="roadmap">
-          <li class="complete"><span>v0.1</span><strong>core gateway</strong></li>
-          <li class="complete"><span>v0.2</span><strong>Real-time large screen / PostgreSQL control surface / One-click Live Demo</strong><small>Completed stage</small></li>
-          <li class="complete"><span>v0.3</span><strong>Security incident notification/Sensitive column discovery/Table.column aware masking</strong><small>Completed stage</small></li>
-          <li class="complete"><span>v0.6.0</span><strong>Governance console, approval single execution and G100 bounded adaptation</strong><small>Published stage</small></li>
-          <li class="complete"><span>v0.7.0</span><strong>Stateless MCP entry, task-level temporary read-only authorization and migration pre-checking</strong><small>Published stage</small></li>
-          <li class="complete"><span>v0.8.0</span><strong>Dual approval of task authorization, MCP compatibility and audit correlation</strong><small>Published stage</small></li>
-          <li class="complete"><span>v0.9.0</span><strong>Task Key Result Budget, Management Audit Delivery Status and Strategy Offline Pre-Check</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.0.0</span><strong>Column policy fails to close with optional human delegation</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.1–v1.4</span><strong>Dual identity, OAuth, MySQL column authorization and shared login budget</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.5.0</span><strong>In-depth re-examination of specified subsets of three domestic databases</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.6.0</span><strong>Query timeout, cancellation and audit failure closure</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.7.0</span><strong>HighGo restricted read-only and KingbaseES specified instance certificate verification</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.8.0</span><strong>Vastbase specified instance can verify TLS and rotation</strong><small>Published stage</small></li>
-          <li class="complete"><span>v1.9.0</span><strong>Dify/Inspector access wizard and audit positioning</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.0.0</span><strong>Fixed dual gateway deployment with PostgreSQL column policy registration</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.1.0</span><strong>YashanDB specified instance controlled read-only and preflight rejection audit</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.2.0</span><strong>Oracle Free designated instance controlled read-only and failed shutdown</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.3.0</span><strong>SQL Server 2025 designated instance strict TLS and controlled read-only</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.4.0</span><strong>openGauss 7.0.0 LTS designated instance controlled read-only</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.5.0</span><strong>MongoDB 7.0.43 specifies instance controlled read-only</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.6.0</span><strong>Redis/Valkey specified instance controlled key reading</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.7.0</span><strong>ClickHouse specified instance controlled analysis query</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.8.0</span><strong>Milvus specified instance controlled vector retrieval</strong><small>Published stage</small></li>
-          <li class="complete"><span>v2.9.0</span><strong>Tenant strategy review and external audit witness</strong><small>Published stage</small></li><li class="complete"><span>v3.0.0</span><strong>Unified capability statement and pre-delivery read-only diagnostics</strong><small>Published stage</small></li><li class="complete"><span>v3.0.1</span><strong>Chinese and English switching and console menu scrolling repair</strong><small>Published stage</small></li><li class="complete"><span>v3.0.2</span><strong>Complete bilingual documentation, SQLBot access and light navigation repairs</strong><small>Published stage</small></li><li class="complete"><span>v3.3.0</span><strong>Verified Dameng transport, cost, and recovery</strong><small>Published stage</small></li><li class="complete"><span>v3.5.0</span><strong>Three gateways and cross-gateway audit replay</strong><small>Published stage</small></li><li class="complete"><span>v3.6.0</span><strong>Policy delivery, reliable webhooks, and audit archive chains</strong><small>Published stage</small></li><li class="complete"><span>v3.7.0</span><strong>Bounded MongoDB and exact Sentinel Hash reads</strong><small>Published stage</small></li><li class="complete"><span>v3.8.0</span><strong>ClickHouse budgets and Milvus tenant filters</strong><small>Released</small></li><li class="complete"><span>v3.9.0</span><strong>Oracle TCPS and relational plan verification</strong><small>Released</small></li><li class="complete"><span>v4.0.0</span><strong>Offline delivery, cross-version upgrades and minimal diagnostics</strong><small>Released</small></li><li class="complete"><span>v4.1.0</span><strong>Native Go data Q&amp;A and SQLBot identity foundations</strong><small>Released</small></li><li class="complete"><span>v4.2.0</span><strong>Multi-turn Q&amp;A and controlled file data</strong><small>Released</small></li><li class="complete"><span>v4.3.0</span><strong>Native charts, dashboards and application embeds</strong><small>Released</small></li><li class="complete"><span>v4.4.0</span><strong>Administration and datasource relationships</strong><small>Released</small></li><li class="current"><span>v4.5.0</span><strong>Bounded Q&amp;A, MCP and basic embed acceptance</strong><small>Current release</small></li>
-
-          <li><span>Follow-up direction</span><strong>Corporate Identity and Audit Enhancement</strong><small>SSO/RBAC, WORM options</small></li>
-          <li><span>Follow-up direction</span><strong>High availability and centralized management and control</strong></li>
+          <li><span>v4.6.0 planned</span><strong>Type 1 advanced assistant and third-party directory integration</strong></li>
+          <li><span>v4.7.0 planned</span><strong>Active role, multi-user, and non-empty whitelist rules</strong></li>
+          <li><span>v4.8.0 planned</span><strong>Remaining Community pages/APIs and wider connector parity</strong></li>
         </ol>
       </div>
     </section>
@@ -388,7 +367,7 @@ bash ./demo/reset.sh
         <div class="faq-list">
           <details><summary>How does it relate to MCP?</summary><p>It is itself an MCP Server; MCP is the standard protocol for model communication with external tools/data.</p></details>
           <details><summary>Can't the model be connected to the database without MCP?</summary><p>Yes, applications can also use self-developed APIs, database agents or server-side managed credentials to connect; AgentSQL provides a unified identity, policy, controlled execution and audit entrance for MCP, not the only connection method.</p></details>
-          <details><summary>Is it BI/ORM/Text2SQL?</summary><p>Starting with v4.1.0, AgentSQL provides native natural-language Q&amp;A alongside its database security gateway. v4.2.0 added multi-turn context, business semantics and bounded CSV/XLSX files; v4.3.0 added native charts and dashboards; v4.4.0 deepened administration and datasource relationships; v4.5.0 verifies bounded Q&amp;A, MCP and basic embeds. Complete SQLBot feature and integration parity still requires individual verification. AgentSQL does not replace application ORMs.</p></details>
+          <details><summary>How does AgentSQL Q&amp;A relate to SQLBot?</summary><p>AgentSQL has its own Go Q&amp;A agent, Web UI, and model orchestration; it does not require SQLBot. SQLBot is an optional integration that can route database execution through the verified AgentSQL MCP security gateway adapter. This does not imply full SQLBot feature parity; see the v4.5.0 release notes.</p></details>
           <details><summary>How is the performance?</summary><p>Static determination is at the millisecond level; in the benchmark of in-memory fake executor, 20 workers / 200,000 samples, stripping the real database network and execution time, the gateway CPU path P99 is about 1.81 ms. This number is not the end-to-end query delay. The real delay depends on the connection, EXPLAIN, database execution and audit storage.</p></details>
           <details><summary>Can individuals and companies use it?</summary><p>The current release is licensed under Apache-2.0. Read the repository's LICENSE and NOTICE for the conditions of use, modification and distribution.</p></details>
           <details><summary>What databases/clients are supported?</summary><p>Please see above<a href="#compatibility">Compatibility matrix</a>, which lists the business database, control plane, MCP transport, host and deployment scope.</p></details>
@@ -420,7 +399,7 @@ bash ./demo/reset.sh
   <footer class="site-footer">
     <div class="container footer-grid">
       <div><a class="brand" href="#top"><img src="/assets/brand/agentsql-mark.svg" width="34" height="34" loading="lazy" decoding="async" alt="" aria-hidden="true"><span>AgentSQL</span></a><p>Default-deny security gate between model and database.</p></div>
-      <nav aria-label="Footer navigation"><a href="#product">Product</a><a href="/en/demo/">Demo</a><a href="#features">Features</a><a href="#docs">Docs / Downloads</a><a href="#compatibility">Compatibility</a><a href="#ecosystem">Ecosystem</a><a href="#security">Security</a><a href="#community">Community</a><a href="#faq">FAQ</a></nav>
+      <nav aria-label="Footer navigation"><a href="#product">Product</a><a href="/en/demo/">Demo</a><a href="#capabilities">Capabilities</a><a href="#docs">Docs / Downloads</a><a href="#compatibility">Compatibility</a><a href="#ecosystem">Ecosystem</a><a href="#security">Security</a><a href="#community">Community</a><a href="#faq">FAQ</a></nav>
       <div class="footer-contact"><a href="https://github.com/cuipengdba/agentsql" target="_blank" rel="noopener noreferrer">GitHub</a><a href="mailto:87326549@qq.com">87326549@qq.com</a></div>
     </div>
     <div id="privacy" class="container privacy"><p>This site does not use cookies and third-party statistics; the server only records access IP, time, path, status code and User-Agent for security and troubleshooting. The logs are retained for up to 30 days and are subject to the upper limit of 10 MiB for a single file and a maximum of 10 rotating files (may be eliminated early during high traffic). Contact us <a href="mailto:87326549@qq.com">87326549@qq.com</a>.</p></div>
