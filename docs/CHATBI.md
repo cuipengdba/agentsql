@@ -2,7 +2,7 @@
 
 [中文](CHATBI.md) | [English](en/CHATBI.md)
 
-v4.1.0 新增独立 Go 问数服务，v4.2.0 加入多轮语境、业务术语、推荐问题和受控 CSV/XLSX 文件数据源；v4.3.0 加入图表、仪表板与嵌入应用，v4.4.0 加入账号与工作空间管理、数据源选表、备注和表关系。服务复用 AgentSQL 网关的身份绑定、授权、脱敏和审计；运行时不需要 SQLBot 或 Python。当前提供普通账号登录、PostgreSQL/MySQL 受控问数、会话历史、SQL 与结果，以及中文/英文和浅色/深色界面。完整社区版功能与接入方式仍待逐项验收；本版范围见 [v4.4.0 发布说明](release-notes-v4.4.0.md)。
+AgentSQL 的 Go 问数服务和自有 Web 页面复用网关的身份绑定、授权、脱敏与审计；运行时不需要 SQLBot 或 Python。本文保留 v4.1.0–v4.4.0 各阶段配置与迁移细节；v4.5.0 的三种产品用法先看[三种使用方式](PRODUCT_MODES.md)，准确的已验路径与限制以[正式发布说明](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0)为准。文中功能存在不代表任意连接、复杂权限或 SQLBot 页面都在本版得到广覆盖验收。
 
 ## 安装与启动
 

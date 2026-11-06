@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">AgentSQL 问数功能示意，模拟数据</title>
+  <desc id="desc">概念界面展示自然语言问题、受控 SQL、图表和审计编号。不是正式产品截图。</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0c1729"/><stop offset="1" stop-color="#132845"/></linearGradient>
+    <linearGradient id="bar" x2="0" y2="1"><stop stop-color="#47d4c4"/><stop offset="1" stop-color="#157e8a"/></linearGradient>
+  </defs>
+  <rect width="1200" height="680" fill="url(#bg)"/>
+  <rect width="1200" height="52" fill="#f4b85d"/>
+  <text x="30" y="34" font-family="Arial, sans-serif" font-weight="700" font-size="19" fill="#263544">功能示意 · 模拟数据 · 非真实产品截图</text>
+  <text x="1170" y="34" text-anchor="end" font-family="Arial, sans-serif" font-size="15" fill="#263544">仅用于说明功能关系</text>
+  <rect x="26" y="75" width="238" height="578" rx="16" fill="#10243d" stroke="#2b4964"/>
+  <circle cx="63" cy="112" r="16" fill="#2ab8b5"/>
+  <text x="90" y="119" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#ecf8fb">AgentSQL</text>
+  <rect x="45" y="157" width="199" height="48" rx="9" fill="#16877f"/>
+  <text x="144" y="187" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#fff">+ 新建问数</text>
+  <text x="48" y="250" font-family="Arial, sans-serif" font-size="15" fill="#8bb1c8">当前工作空间</text>
+  <text x="48" y="284" font-family="Arial, sans-serif" font-size="18" fill="#e3f4f8">销售分析</text>
+  <text x="48" y="342" font-family="Arial, sans-serif" font-size="15" fill="#8bb1c8">最近会话</text>
+  <rect x="42" y="360" width="207" height="46" rx="8" fill="#1d3b55"/>
+  <text x="53" y="389" font-family="Arial, sans-serif" font-size="16" fill="#e4f5f7">季度订单趋势</text>
+  <text x="52" y="439" font-family="Arial, sans-serif" font-size="16" fill="#9dbbd0">地区销售汇总</text>
+  <rect x="287" y="75" width="887" height="578" rx="16" fill="#f6fafc"/>
+  <text x="322" y="119" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2" fill="#147d84">AGENTSQL 自有问数</text>
+  <text x="322" y="158" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#173147">按季度统计已授权订单数量</text>
+  <rect x="322" y="182" width="816" height="54" rx="11" fill="#e8f1f4"/>
+  <text x="343" y="215" font-family="Arial, sans-serif" font-size="18" fill="#253d52">“过去四个季度的订单数趋势是什么？”</text>
+  <rect x="322" y="262" width="535" height="266" rx="12" fill="#fff" stroke="#d0dfe5"/>
+  <text x="346" y="299" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#243e50">受控查询结果</text>
+  <line x1="367" y1="487" x2="820" y2="487" stroke="#c9d8df"/>
+  <line x1="367" y1="334" x2="367" y2="487" stroke="#c9d8df"/>
+  <rect x="415" y="407" width="54" height="80" rx="6" fill="url(#bar)"/>
+  <rect x="518" y="375" width="54" height="112" rx="6" fill="url(#bar)"/>
+  <rect x="621" y="345" width="54" height="142" rx="6" fill="url(#bar)"/>
+  <rect x="724" y="318" width="54" height="169" rx="6" fill="url(#bar)"/>
+  <g font-family="Arial, sans-serif" font-size="15" fill="#617787" text-anchor="middle"><text x="442" y="510">一季度</text><text x="545" y="510">二季度</text><text x="648" y="510">三季度</text><text x="751" y="510">四季度</text></g>
+  <rect x="876" y="262" width="262" height="266" rx="12" fill="#fff" stroke="#d0dfe5"/>
+  <text x="899" y="300" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#243e50">安全执行</text>
+  <text x="899" y="345" font-family="Arial, sans-serif" font-size="16" fill="#327c79">✓ 当前身份已验证</text>
+  <text x="899" y="385" font-family="Arial, sans-serif" font-size="16" fill="#327c79">✓ 表列授权已核对</text>
+  <text x="899" y="425" font-family="Arial, sans-serif" font-size="16" fill="#327c79">✓ 只读 SQL 已执行</text>
+  <text x="899" y="465" font-family="Arial, sans-serif" font-size="16" fill="#327c79">✓ 查询审计已记录</text>
+  <rect x="322" y="549" width="816" height="72" rx="11" fill="#e8f1f4"/>
+  <text x="343" y="574" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#536e7c">候选 SQL（示意） · 审计 #示例-1042</text>
+  <text x="343" y="603" font-family="Consolas, monospace" font-size="15" fill="#1b4859">SELECT quarter, COUNT(*) FROM allowed_orders GROUP BY quarter;</text>
+</svg>

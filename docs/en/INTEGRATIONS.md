@@ -2,7 +2,7 @@
 
 **Language:** [English](INTEGRATIONS.md) | [Simplified Chinese](../INTEGRATIONS.md)
 
-> This article explains the MCP access of AgentSQL v4.4.0. Before installing or pulling v4.4.0, first check the official assets and signatures in [GitHub Releases](https://github.com/cuipengdba/agentsql/releases), and confirm that the corresponding GHCR image can be pulled anonymously; the source code repository is `github.com/cuipengdba/agentsql`.
+> The current official release is v4.5.0. Start with [three usage modes](PRODUCT_MODES.md) to choose an independent MCP gateway or combined use with native Q&A, then verify the official assets, signatures, and acceptance limits in the [v4.5.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0). The remaining versioned sections retain the specific conditions of their historical capabilities.
 
 This article explains how to connect the MCP client to AgentSQL. For identity, authorization, rules, approval and capability boundaries, see the [ user manual ](USER_GUIDE.md). For first-time deployment, see [ for quick start ](GETTING_STARTED.md). For outsourcing decision-making events to Webhook, alarm groups or Syslog, see [ notification outgoing guide ](NOTIFICATIONS.md).
 

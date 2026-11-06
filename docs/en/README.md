@@ -1,11 +1,12 @@
 # AgentSQL documentation
 
-The current release: **v4.4.0**. The current guidelines in this catalog are updated with the 4.4.x release; versioned release notes, test reports, and performance records retain their original version and time, and historical conclusions are not rewritten.
+The current release is **v4.5.0**. Use the [official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0) and [three usage modes](PRODUCT_MODES.md) as current product-scope entry points. Some detailed guides retain versioned sections and cannot expand the verified v4.5.0 scope. Historical reports keep their original time and conclusions.
 
 **Language:** [English](README.md) | [Simplified Chinese](../README.md)
 
 | scene | current document |
 | --- | --- |
+| Native Q&A, independent MCP gateway, and combined use | [Three usage modes](PRODUCT_MODES.md) |
 | Install and complete the first controlled query | [Get started quickly](GETTING_STARTED.md) |
 | Console, permissions, approval, masking and auditing | [ User Manual](USER_GUIDE.md) |
 | MCP protocol and client | [ Access Guide](INTEGRATIONS.md) |
@@ -20,7 +21,7 @@ The current release: **v4.4.0**. The current guidelines in this catalog are upda
 | Task-level temporary authorization | [Temporary read-only authorization](task-read-grants.md) |
 | Architecture and Security Contracts | [Engineering Specifications](SPEC.md), [Safety Policy](../../SECURITY.en.md) |
 | Issuance and signature verification | [ delivery process ](RELEASE_ROUTINE.md), [ issuance process ](RELEASE_PROCESS.md), [ asset list ](RELEASE_ASSETS.md) |
-| Current release scope | [v4.4.0 Release Notes](release-notes-v4.4.0.md), [Design and limits](v4.4.0-design.md) |
+| Current release scope | [v4.5.0 official release notes](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0), [Design and limits](v4.5.0-design.md) |
 
 The English version is compared section by section with the same Chinese source document, retaining executable examples and historical evidence, without replacing the full text with an abstract. The operation and maintenance entrance of the current version is `OPERATIONS.md`.
 
