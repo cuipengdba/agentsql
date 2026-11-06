@@ -3,6 +3,7 @@ package chatbi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -117,6 +118,10 @@ func TestManagedWorkspaceDeleteEmptyCatalog(t *testing.T) {
 	if protected := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/1", "", adminToken); protected.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("default workspace deleted: %d", protected.Code)
 	}
+	report := objectKey{"user-import-error", string(envelope.Data.ID), "1", "latest"}
+	if err := service.Store.put(context.Background(), report, semanticErrorReport{Kind: "user-import", Filename: "123.xlsx"}, 0); err != nil {
+		t.Fatal(err)
+	}
 	deleted := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/"+string(envelope.Data.ID), "", adminToken)
 	if deleted.Code != http.StatusOK {
 		t.Fatalf("workspace delete: %d %s", deleted.Code, deleted.Body.String())
@@ -124,6 +129,9 @@ func TestManagedWorkspaceDeleteEmptyCatalog(t *testing.T) {
 	admin, _, err := service.Store.User(context.Background(), "1")
 	if err != nil || admin.canUse(envelope.Data.ID) {
 		t.Fatalf("deleted workspace remained in creator membership: %+v %v", admin, err)
+	}
+	if _, err := service.Store.get(context.Background(), report, new(semanticErrorReport)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("workspace deletion retained import report: %v", err)
 	}
 	listed := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace", "", adminToken)
 	if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), `"name":"Temporary"`) {

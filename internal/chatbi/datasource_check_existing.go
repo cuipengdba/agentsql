@@ -93,14 +93,14 @@ func (h *Handler) schemasByBoundDatasource(w http.ResponseWriter, r *http.Reques
 	}
 	// Use the gateway's authorized schema before the local table-selection
 	// filter, because a user may need to rediscover a deselected table.
-	columns, err := h.service.Gateway.Schema(r.Context(), p, binding)
+	columns, policy, _, err := h.service.gatewaySchemaWithPermissionSnapshot(r.Context(), p, binding)
 	if err != nil {
 		failure(w, err)
 		return
 	}
 	seen := make(map[string]bool)
 	for _, column := range columns {
-		if !validDatabaseRemarkName(column.Schema) {
+		if !databaseRemarkName(column.Schema) {
 			failure(w, ErrGateway)
 			return
 		}
@@ -115,6 +115,10 @@ func (h *Handler) schemasByBoundDatasource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.service.bindingUnchanged(r.Context(), p, binding, revision, digest); err != nil {
+		failure(w, err)
+		return
+	}
+	if err := h.service.dataPermissionUnchanged(r.Context(), p.Workspace, policy); err != nil {
 		failure(w, err)
 		return
 	}

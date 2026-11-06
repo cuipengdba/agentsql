@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 type Config struct {
 	Listen                string `yaml:"listen"`
+	LegacyMCPListen       string `yaml:"legacy_mcp_listen"`
 	StorePath             string `yaml:"store_path"`
 	SecretEnv             string `yaml:"secret_env"`
 	Gateway               string `yaml:"gateway"`
@@ -25,6 +27,7 @@ type Config struct {
 	GatewayCA             string `yaml:"gateway_ca_file"`
 	MaxDataRequests       int    `yaml:"max_concurrent_data_requests"`
 	ManagedFileDatasource ID     `yaml:"managed_file_datasource_id"`
+	EmbeddingModelPath    string `yaml:"embedding_model_path"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -48,6 +51,11 @@ func LoadConfig(path string) (Config, error) {
 	if _, _, err := net.SplitHostPort(config.Listen); err != nil {
 		return config, errors.New("ChatBI listen must be host:port")
 	}
+	if config.LegacyMCPListen != "" {
+		if _, _, err := net.SplitHostPort(config.LegacyMCPListen); err != nil || config.LegacyMCPListen == config.Listen {
+			return config, errors.New("ChatBI legacy_mcp_listen must be a distinct host:port")
+		}
+	}
 	if config.StorePath == "" {
 		return config, errors.New("ChatBI store_path is required")
 	}
@@ -65,6 +73,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if config.ManagedFileDatasource != "" && !config.ManagedFileDatasource.Valid() {
 		return config, errors.New("ChatBI managed_file_datasource_id must be a valid datasource ID")
+	}
+	if config.EmbeddingModelPath != "" && !filepath.IsAbs(config.EmbeddingModelPath) {
+		return config, errors.New("ChatBI embedding_model_path must be absolute")
 	}
 	return config, nil
 }
@@ -110,7 +121,7 @@ func ReadSnapshot(path string) (Snapshot, Preflight, error) {
 	if decoder.Decode(&snapshot) != nil || decoder.Decode(new(any)) != io.EOF {
 		return Snapshot{}, result, errors.New("invalid private migration snapshot")
 	}
-	if snapshot.Version != 1 || snapshot.SourceVersion != "v1.10.2" || snapshot.SourceCommit != "aa41fc1033bb974a703df9200a98ec8b9eec5f25" || len(snapshot.Keys.SigningKey) < 32 || len(snapshot.Users) == 0 {
+	if snapshot.Version != 1 || !pinnedSQLBotSnapshot(snapshot.SourceVersion, snapshot.SourceCommit) || len(snapshot.Keys.SigningKey) < 32 || len(snapshot.Users) == 0 {
 		return Snapshot{}, result, errors.New("unsupported migration baseline or missing identities")
 	}
 	users := map[ID]User{}

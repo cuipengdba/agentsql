@@ -15,10 +15,12 @@ import (
 // acceptance evidence. Release acceptance separately uses real services.
 type fakeGateway struct {
 	schemaErr, queryErr error
+	columns             []Column
 	schemaCalls         int
 	queries             int
 	audit               int64
 	lastQuery           string
+	queryData           *QueryData
 	afterQuery          func()
 	afterSchema         func()
 }
@@ -31,6 +33,9 @@ func (g *fakeGateway) Schema(context.Context, Principal, Binding) ([]Column, err
 	if g.schemaErr != nil {
 		return nil, g.schemaErr
 	}
+	if g.columns != nil {
+		return g.columns, nil
+	}
 	return []Column{{"public", "sales", "amount", "numeric"}}, nil
 }
 func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query string) (QueryData, error) {
@@ -39,6 +44,9 @@ func (g *fakeGateway) Query(_ context.Context, _ Principal, _ Binding, query str
 	if g.afterQuery != nil {
 		g.afterQuery()
 	}
+	if g.queryData != nil {
+		return *g.queryData, g.queryErr
+	}
 	return QueryData{Fields: []string{"amount"}, Data: []map[string]any{{"amount": "123"}}, AuditID: g.audit}, g.queryErr
 }
 
@@ -46,6 +54,7 @@ type fakeModel struct {
 	calls int
 	err   error
 	after func()
+	last  ModelConfig
 }
 
 type historyModel struct {
@@ -99,7 +108,7 @@ func TestQuestionHistoryExcludesFailuresAndOtherChats(t *testing.T) {
 		t.Fatal("failed or out-of-order turn included in context")
 	}
 	if gateway.schemaCalls != 7 { // Two chat starts and all five questions.
-		t.Fatal("current authorized schema was not fetched for every turn")
+		t.Fatalf("current authorized schema was not fetched for every turn: %d calls", gateway.schemaCalls)
 	}
 	revision, err := s.Store.get(ctx, bindingKey(p, "10"), new(Binding))
 	if err != nil || s.Store.delete(ctx, bindingKey(p, "10"), revision) != nil {
@@ -150,6 +159,18 @@ func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "123") || !strings.Contains(response.Body.String(), "failed") {
 		t.Fatal("recent question route leaked result rows or lost the user's question")
 	}
+	gateway.schemaErr = ErrGateway
+	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrGateway) {
+		t.Fatal("gateway schema failure returned historical questions")
+	}
+	failureRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	failureRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	failureResponse := httptest.NewRecorder()
+	router.ServeHTTP(failureResponse, failureRequest)
+	if failureResponse.Code == http.StatusOK || strings.Contains(failureResponse.Body.String(), "first") {
+		t.Fatal("gateway schema failure exposed historical questions")
+	}
+	gateway.schemaErr = nil
 	revision, err := service.Store.get(ctx, bindingKey(principal, "10"), new(Binding))
 	if err != nil || service.Store.delete(ctx, bindingKey(principal, "10"), revision) != nil {
 		t.Fatal("could not revoke binding")
@@ -157,10 +178,18 @@ func TestRecentQuestionsAreScopedDeduplicatedAndRevocable(t *testing.T) {
 	if _, err := service.RecentQuestions(ctx, principal, "10"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("revoked datasource returned history")
 	}
+	revokedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/recent_questions/10", nil)
+	revokedRequest.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+	revokedResponse := httptest.NewRecorder()
+	router.ServeHTTP(revokedResponse, revokedRequest)
+	if revokedResponse.Code == http.StatusOK || strings.Contains(revokedResponse.Body.String(), "first") {
+		t.Fatal("revoked datasource exposed historical questions")
+	}
 }
 
-func (m *fakeModel) Generate(context.Context, ModelConfig, string, string, []Column) (SQLGeneration, error) {
+func (m *fakeModel) Generate(_ context.Context, config ModelConfig, _ string, _ string, _ []Column) (SQLGeneration, error) {
 	m.calls++
+	m.last = config
 	if m.after != nil {
 		m.after()
 	}
@@ -222,6 +251,64 @@ func TestHistoricalReadsShareQueryAdmissionLimit(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if response.Code != http.StatusOK {
 		t.Fatal("data load blocked health probe")
+	}
+}
+
+func TestHistoricalReadsReserveOneSlotForNewQuestion(t *testing.T) {
+	s, _, _, _, token := serviceFixture(t)
+	router, err := NewHandlerWithLimit(s, "test", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := router.(*Handler)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	history := h.boundedHistory(func(w http.ResponseWriter, _ *http.Request, _ Principal, _ string) {
+		started <- struct{}{}
+		<-release
+		writeJSON(w, http.StatusOK, "history")
+	})
+	done := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		request := httptest.NewRequest(http.MethodGet, "/history", nil)
+		request.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		response := httptest.NewRecorder()
+		go func() { history(response, request); done <- response.Code }()
+		if i == 0 {
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("first historical read did not start")
+			}
+		}
+	}
+	deadline := time.After(time.Second)
+	for len(h.readQueue) != 2 {
+		select {
+		case <-deadline:
+			t.Fatal("second historical read did not queue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if len(h.historySeats) != 1 || len(h.slots) != 1 {
+		t.Fatal("queued historical read consumed the reserved question slot")
+	}
+	question := httptest.NewRecorder()
+	h.bounded(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "question") })(question, httptest.NewRequest(http.MethodPost, "/question", nil))
+	if question.Code != http.StatusOK {
+		t.Fatalf("new question rejected behind historical reads: %d", question.Code)
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		select {
+		case status := <-done:
+			if status != http.StatusOK {
+				t.Fatalf("historical read status %d", status)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("historical read did not drain")
+		}
 	}
 }
 
@@ -367,6 +454,49 @@ func TestBindingChangeDuringQueryNeverReleasesRows(t *testing.T) {
 	}
 }
 
+func TestModelCredentialRotationDuringQuestionFailsClosed(t *testing.T) {
+	for _, phase := range []string{"generation", "gateway_query"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx := context.Background()
+			service, principal, gateway, model, token := serviceFixture(t)
+			chat, err := service.Start(ctx, principal, "10", "fixture", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rotate := func() {
+				key := objectKey{"model", string(principal.Workspace), "workspace", "default"}
+				var config ModelConfig
+				revision, err := service.Store.get(ctx, key, &config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				config.APIKey = "rotated-secret"
+				if err := service.Store.put(ctx, key, config, revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == "generation" {
+				model.after = rotate
+			} else {
+				gateway.afterQuery = rotate
+			}
+			check := func(ctx context.Context) error { _, err := service.Identity.Verify(ctx, token); return err }
+			result, err := service.Ask(ctx, principal, chat.ID, "show amount", check, nil)
+			if !errors.Is(err, ErrModel) || result.Data != nil || result.SQL != "" {
+				t.Fatalf("rotated model released data or SQL: err=%v record=%+v", err, result)
+			}
+			if phase == "generation" && gateway.queries != 0 {
+				t.Fatal("rotated model reached the gateway")
+			}
+			stored, _, err := service.chat(ctx, principal, chat.ID)
+			if err != nil || len(stored.Records) != 1 || stored.Records[0].Error == "" ||
+				stored.Records[0].Data != nil || stored.Records[0].SQL != "" {
+				t.Fatalf("rotated model did not leave a safe terminal record: err=%v chat=%+v", err, stored)
+			}
+		})
+	}
+}
+
 func TestBindingRevokedDuringSchemaStopsBeforeModel(t *testing.T) {
 	ctx := context.Background()
 	s, p, gateway, model, token := serviceFixture(t)
@@ -420,7 +550,7 @@ func TestConfiguredAdmissionLimitAndStaticAssetBoundary(t *testing.T) {
 	if err != nil || cap(router.(*Handler).slots) != 1 {
 		t.Fatal("configured admission budget not applied")
 	}
-	for path, expected := range map[string]int{"/": 200, "/ui/app.js": 200, "/ui/chart.js": 200, "/ui/dashboard.js": 200, "/ui/user-variables.js": 200, "/ui/source-relations.js": 200, "/ui/app.css": 200, "/ui/mark.svg": 200, "/ui/index.html": 404, "/ui/": 404} {
+	for path, expected := range map[string]int{"/": 200, "/ui/app.js": 200, "/ui/chart.js": 200, "/ui/dashboard.js": 200, "/ui/user-variables.js": 200, "/ui/source-relations.js": 200, "/ui/data-permissions.js": 200, "/ui/app.css": 200, "/ui/mark.svg": 200, "/ui/index.html": 404, "/ui/": 404} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != expected {

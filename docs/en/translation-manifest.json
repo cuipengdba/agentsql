@@ -4,7 +4,7 @@
     {
       "source": "README.md",
       "english": "README.en.md",
-      "source_sha256": "300213e93658e19a745e263614e4eb7faed118a8f87e6dc049c6ff95d05b5e53"
+      "source_sha256": "84fa109f33cc716ec636dfb5ddbe55cec04d49ea419929e3e6237e97ac676f24"
     },
     {
       "source": "CHANGELOG.md",
@@ -14,7 +14,7 @@
     {
       "source": "ROADMAP.md",
       "english": "ROADMAP.en.md",
-      "source_sha256": "8c7087eb6beaa87725d576035d6e3eebef6cbd7f16716ad691314a23e3f891ec"
+      "source_sha256": "8a984b2a8a9a4643f85782bdd95cc875c3881e8a98e61d65f21a18ad66d5e8cd"
     },
     {
       "source": "CODE_OF_CONDUCT.md",
@@ -79,7 +79,7 @@
     {
       "source": "docs/DEPLOY.md",
       "english": "docs/en/DEPLOY.md",
-      "source_sha256": "4e433e202f7619167275dd3e062dec253c1af7cee79bfc6b6ea11d50e19d64dc"
+      "source_sha256": "c50a83a44395ece1d1f2a91560184b26d1303dd0ee4e42e8c2244aecc4e11699"
     },
     {
       "source": "docs/DISCOVERY.md",
@@ -294,7 +294,7 @@
     {
       "source": "docs/release-notes-v0.5.md",
       "english": "docs/en/release-notes-v0.5.md",
-      "source_sha256": "af32e0e85b45fb2c96a9630bf43ea7509064cd0456000ee48d19f25cc6f095f1"
+      "source_sha256": "3076eb962196939ac029ed213475687f184d24dea5df59bee1093b94e06a4fb5"
     },
     {
       "source": "docs/release-notes-v0.6.0.md",
@@ -474,7 +474,7 @@
     {
       "source": "docs/RELEASE_ROUTINE.md",
       "english": "docs/en/RELEASE_ROUTINE.md",
-      "source_sha256": "60896c31bd668401825323267192281d29f660212c348983433a9d0238d2e86f"
+      "source_sha256": "707daa4e639e7157c52f52e4667544c8bce5ba7c6ba5c11c75d8bb78ca4a7469"
     },
     {
       "source": "docs/runner-b80r-report.md",
@@ -914,7 +914,7 @@
     {
       "source": "deploy/ecs-demo/README.md",
       "english": "deploy/ecs-demo/README.en.md",
-      "source_sha256": "f09b2a6678bb49a53671b7c6cb8983b0f9cfdb4c27196860cb5cf174dfe22a82"
+      "source_sha256": "4b75892f07fd2bcd634ab748b68e210eedf599618b0e06b8c9764f76e76003ed"
     },
     {
       "source": "dbext/packaging/README.md",
@@ -1239,7 +1239,7 @@
     {
       "source": "docs/v4.5.0-page-parity.md",
       "english": "docs/en/v4.5.0-page-parity.md",
-      "source_sha256": "3d29e49f093a5dff4d661c5f49825b52d8e7d495b4105345f28495beff05fc4e"
+      "source_sha256": "274e00fb63463eb6df091dd731c38d1318c63230c26666904730fd40531be463"
     },
     {
       "source": "docs/v4.3.0-design.md",
@@ -1265,6 +1265,16 @@
       "source": "docs/release-notes-v4.4.0.md",
       "english": "docs/en/release-notes-v4.4.0.md",
       "source_sha256": "88bb4bf053caa9828afdf50c966200d2977c764984eaf6e3855010f90371dd28"
+    },
+    {
+      "source": "docs/v4.5.0-design.md",
+      "english": "docs/en/v4.5.0-design.md",
+      "source_sha256": "a909b52d160ba961380da9e1bbdd7b4c7e5c27cad7604b53f3c2c13a50b71b3c"
+    },
+    {
+      "source": "docs/v4.5.0-offline-delivery.md",
+      "english": "docs/en/v4.5.0-offline-delivery.md",
+      "source_sha256": "eaa652f33075d307d12cc459f59d6451ebf30aa778ad6761fa494526e0d48bf0"
     }
   ]
 }

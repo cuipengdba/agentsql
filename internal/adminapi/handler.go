@@ -1499,6 +1499,10 @@ func (handler *Handler) policiesUpdate(writer http.ResponseWriter, request *http
 			handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
 			return
 		}
+		if errors.Is(err, store.ErrPolicyUpdateWouldWiden) {
+			handler.fail(writer, http.StatusConflict, "remove the table allow policy before changing this MySQL column policy scope")
+			return
+		}
 		handler.notFound(writer)
 		return
 	}
@@ -1518,6 +1522,10 @@ func (handler *Handler) policiesDelete(writer http.ResponseWriter, request *http
 	if err := handler.deps.Runtime.Store.Policies().DeleteIfRevision(request.Context(), id, expected); err != nil {
 		if errors.Is(err, store.ErrRevisionMismatch) {
 			handler.fail(writer, http.StatusPreconditionFailed, "policy revision changed")
+			return
+		}
+		if errors.Is(err, store.ErrPolicyDeleteWouldWiden) {
+			handler.fail(writer, http.StatusConflict, "remove the table allow policy before deleting this MySQL column policy")
 			return
 		}
 		handler.notFound(writer)

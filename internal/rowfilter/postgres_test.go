@@ -76,8 +76,8 @@ func TestProbeColumnUsesValidatedRowPredicate(t *testing.T) {
 			t.Fatalf("filter=%q got=%q err=%v", item.filter, got, err)
 		}
 	}
-	if _, err := ProbeColumn("region = 'east' OR region = 'west'"); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("unsupported predicate entered metadata probe: %v", err)
+	if column, err := ProbeColumn("region = 'east' OR region = 'west'"); err != nil || column != "region" {
+		t.Fatalf("bounded OR predicate failed metadata probe: column=%q err=%v", column, err)
 	}
 }
 
@@ -89,6 +89,47 @@ func TestMetadataProbeAfterRowRewriteUsesClosedBinderGrammar(t *testing.T) {
 	}
 	if _, err := parser.ParsePostgresClosedSelect(rewritten); err != nil {
 		t.Fatalf("closed binder cannot parse metadata probe %q: %v", rewritten, err)
+	}
+}
+
+func TestPostgresVariableMembershipRewriteStaysInClosedGrammar(t *testing.T) {
+	for _, filter := range []string{
+		`("status" = 'paid' OR "status" = 'shipped')`,
+		`("status" <> 'paid' AND "status" <> 'shipped')`,
+	} {
+		rewritten, _, err := RewriteSingleTable(`SELECT "status" FROM "public"."orders" LIMIT 10`,
+			"public", "orders", []string{filter})
+		if err != nil {
+			t.Fatalf("membership rewrite rejected %q: %v", filter, err)
+		}
+		if _, err := parser.ParsePostgresClosedSelect(rewritten); err != nil {
+			t.Fatalf("closed binder rejected membership %q: %v", rewritten, err)
+		}
+	}
+	for _, filter := range []string{
+		`"status" = 'paid' OR EXISTS (SELECT 1)`,
+		`"status" = 'paid' OR "status" IN (SELECT secret FROM public.other)`,
+	} {
+		if _, _, err := RewriteSingleTable(`SELECT "status" FROM "public"."orders"`,
+			"public", "orders", []string{filter}); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("unsafe membership accepted: %q err=%v", filter, err)
+		}
+	}
+	rewritten, _, err := RewriteSingleTable(
+		`SELECT "status" FROM "public"."orders" WHERE "status" = 'cancelled' OR "status" = 'pending'`,
+		"public", "orders", []string{`("status" = 'paid' OR "status" = 'shipped')`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := pg_query.Parse(rewritten)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer := parsed.Stmts[0].Stmt.GetSelectStmt().WhereClause.GetBoolExpr()
+	if outer == nil || outer.Boolop != pg_query.BoolExprType_AND_EXPR || len(outer.Args) != 2 ||
+		outer.Args[0].GetBoolExpr() == nil || outer.Args[0].GetBoolExpr().Boolop != pg_query.BoolExprType_OR_EXPR ||
+		outer.Args[1].GetBoolExpr() == nil || outer.Args[1].GetBoolExpr().Boolop != pg_query.BoolExprType_OR_EXPR {
+		t.Fatalf("caller OR escaped variable membership: %s", rewritten)
 	}
 }
 
@@ -117,7 +158,7 @@ func TestCompilePredicateRejectsSQLExecutionAndUnboundReferences(t *testing.T) {
 	bad := []string{
 		"region = 'west'; DROP TABLE public.sales", "region = current_user", "region = $1",
 		"region = (SELECT secret FROM public.secrets)", "lower(region) = 'west'",
-		"other.region = 'west'", "region = 'west' OR amount > 0",
+		"other.region = 'west'", "region = 'west' OR 1 = 1", "region = 'west' OR EXISTS (SELECT 1)",
 		"NOT (region = 'west')", "region IN ('west', 'east')", "region LIKE 'w%'",
 		"region = NULL", "region = 'west'::text", "region = 'west' --comment\n OR true",
 	}
@@ -128,7 +169,7 @@ func TestCompilePredicateRejectsSQLExecutionAndUnboundReferences(t *testing.T) {
 			}
 		})
 	}
-	for _, filter := range []string{"region = 'west'", "amount >= 10", "region IS NOT NULL", "region = 'west' AND amount > 0"} {
+	for _, filter := range []string{"region = 'west'", "amount >= 10", "region IS NOT NULL", "region = 'west' AND amount > 0", "region = 'west' OR region = 'east'"} {
 		if _, err := CompilePredicate(filter); err != nil {
 			t.Fatalf("rejected a bounded predicate %q: %v", filter, err)
 		}

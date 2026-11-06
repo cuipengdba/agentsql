@@ -91,7 +91,22 @@ func TestOriginalManagedFileRemarkExportIsScopedAuditedWorkbook(t *testing.T) {
 		{Schema: "agentsql_files", Table: table, Name: "month", DataType: "text"},
 		{Schema: "agentsql_files", Table: "agentsql_file_99999999999999999999999999999999", Name: "secret", DataType: "text"},
 	}}
-	require.NotEqual(t, http.StatusOK, request("11", token).Code, "another imported relation must not be exported")
+	scoped := request("11", token)
+	require.Equal(t, http.StatusOK, scoped.Code, "another imported relation must not be exported")
+	scopedBook, err := zip.NewReader(strings.NewReader(scoped.Body.String()), int64(scoped.Body.Len()))
+	require.NoError(t, err)
+	for _, entry := range scopedBook.File {
+		if !strings.HasPrefix(entry.Name, "xl/worksheets/sheet") {
+			continue
+		}
+		reader, err := entry.Open()
+		require.NoError(t, err)
+		body, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		require.NoError(t, reader.Close())
+		require.NotContains(t, string(body), "agentsql_file_99999999999999999999999999999999")
+		require.NotContains(t, string(body), "secret")
+	}
 	service.Gateway = &fakeManagedFileGateway{fakeGateway: fake, columns: []Column{
 		{Schema: "agentsql_files", Table: table, Name: "month", DataType: "text"},
 		{Schema: "agentsql_files", Table: table, Name: "amount", DataType: "numeric"},

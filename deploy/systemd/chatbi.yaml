@@ -1,4 +1,6 @@
 listen: "127.0.0.1:8000"
+# Enable only when replacing a SQLBot MCP endpoint; reserve this port first.
+# legacy_mcp_listen: "127.0.0.1:8001"
 store_path: "/var/lib/agentsql/chatbi.db"
 secret_env: "AGENTSQL_CHATBI_SECRET"
 gateway: "http://127.0.0.1:7780/mcp"

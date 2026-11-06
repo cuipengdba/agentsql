@@ -11,8 +11,11 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
+
+	xls "github.com/b0r1ssh/go-xls"
 )
 
 const (
@@ -56,9 +59,116 @@ func parseFileImport(filename string, data []byte) ([]FileSheet, error) {
 		return []FileSheet{sheet}, nil
 	case strings.HasSuffix(strings.ToLower(filename), ".xlsx"):
 		return parseXLSXSheets(data)
+	case strings.HasSuffix(strings.ToLower(filename), ".xls"):
+		return parseXLSSheets(data)
 	default:
 		return nil, errFileImport
 	}
+}
+
+// A bounded ReaderAt also stops malformed OLE metadata from making the
+// decoder repeatedly read the same sector for an unbounded amount of time.
+type boundedXLSReader struct {
+	data  []byte
+	reads int
+	bytes int
+}
+
+func (reader *boundedXLSReader) ReadAt(p []byte, offset int64) (int, error) {
+	reader.reads++
+	if offset < 0 || len(p) > 8<<20 || reader.reads > 100000 || reader.bytes+len(p) > 128<<20 {
+		return 0, errFileImport
+	}
+	reader.bytes += len(p)
+	return bytes.NewReader(reader.data).ReadAt(p, offset)
+}
+
+// parseXLSSheets reads legacy BIFF workbooks through the same row and field
+// validation used by CSV/XLSX. Malformed OLE records must fail closed.
+func parseXLSSheets(data []byte) (result []FileSheet, err error) {
+	defer func() {
+		if recover() != nil {
+			result, err = nil, errFileImport
+		}
+	}()
+	if len(data) < 8 || !bytes.Equal(data[:8], []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}) {
+		return nil, errFileImport
+	}
+	workbook, err := xls.OpenReader(&boundedXLSReader{data: data})
+	if err != nil || workbook == nil {
+		return nil, errFileImport
+	}
+	names := workbook.SheetNames()
+	if len(names) < 1 || len(names) > 8 {
+		return nil, errFileImport
+	}
+	result = make([]FileSheet, 0, len(names))
+	decodedBytes := 0
+	seenNames := make(map[string]bool, len(names))
+	for _, name := range names {
+		if seenNames[name] {
+			return nil, errFileImport
+		}
+		seenNames[name] = true
+		var rows [][]string
+		width := 0
+		lastRow := -1
+		for row := range workbook.ReadRows(name) {
+			if row.Error != nil || row.Index <= lastRow || row.Index > maxFileRows || row.Index < 0 {
+				return nil, errFileImport
+			}
+			if lastRow == -1 {
+				if row.Index != 0 || row.FirstCol != 0 || row.LastCol >= maxFileFields {
+					return nil, errFileImport
+				}
+				width = int(row.LastCol) + 1
+			}
+			if row.LastCol >= uint16(width) {
+				return nil, errFileImport
+			}
+			for len(rows) < row.Index {
+				rows = append(rows, make([]string, width))
+			}
+			values := make([]string, width)
+			used := make([]bool, width)
+			for _, cell := range row.Cells {
+				if cell.Index < 0 || cell.Index >= width || used[cell.Index] {
+					return nil, errFileImport
+				}
+				used[cell.Index] = true
+				var value string
+				switch typed := cell.Value.(type) {
+				case nil:
+				case string:
+					value = typed
+				case float64:
+					if math.IsInf(typed, 0) || math.IsNaN(typed) {
+						return nil, errFileImport
+					}
+					value = strconv.FormatFloat(typed, 'f', -1, 64)
+				case bool:
+					value = strconv.FormatBool(typed)
+				case time.Time:
+					value = typed.Format("2006-01-02 15:04:05")
+				default:
+					return nil, errFileImport
+				}
+				decodedBytes += len(value)
+				if len(value) > 65536 || decodedBytes > 16<<20 {
+					return nil, errFileImport
+				}
+				values[cell.Index] = value
+			}
+			rows = append(rows, values)
+			lastRow = row.Index
+		}
+		sheet, err := fileSheetFromRows(name, rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, sheet)
+	}
+	return result, nil
 }
 
 func parseCSVRows(data []byte) ([][]string, error) {
@@ -198,9 +308,12 @@ func parseXLSXSheets(data []byte) ([]FileSheet, error) {
 
 func parseXLSXSheetsLimited(data []byte, maxSheets int) ([]FileSheet, error) {
 	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if maxSheets < 1 || maxSheets > 257 {
+		return nil, errFileImport
+	}
 	maxParts := 128
-	if maxSheets > 124 && maxSheets <= 257 {
-		maxParts = maxSheets + 4
+	if maxSheets > 8 {
+		maxParts = maxSheets + 32 // bounded room for styles, shared strings and relationships
 	}
 	if err != nil || len(archive.File) > maxParts {
 		return nil, errFileImport

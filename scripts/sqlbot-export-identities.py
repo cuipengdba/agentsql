@@ -1,4 +1,4 @@
-"""Export SQLBot v1.10.2 identities for an isolated AgentSQL migration rehearsal.
+"""Export pinned SQLBot Community identities for an isolated AgentSQL migration rehearsal.
 
 Run inside the operator's existing SQLBot environment. The output contains
 password digests, the JWT signing secret and the existing RSA login key. Keep
@@ -18,6 +18,21 @@ import tomllib
 from pathlib import Path
 
 
+BASELINES = {
+    "1.10.2": {
+        "commit": "aa41fc1033bb974a703df9200a98ec8b9eec5f25",
+        "xpack": "0.0.5.37",
+        "login": "2e0876f00ec394c0ff8244e67f663e182d17e06e64526bdc8c40780081011eee",
+    },
+    "1.10.3": {
+        "commit": "96f06c7eade60ecf3e6af0313821373761d1fb85",
+        "xpack": "0.0.5.41",
+        "login": "539fd7c374035c007bf4aaa8dd76a65d224c5c2715621f2a3ea8bdd0a8d2cd18",
+        "password_policy": "a1c1b69b9ee18218f1febd7f58c0283b16c41b4c875510dde127b6c7a44eb3d1",
+    },
+}
+
+
 def verify_baseline():
     """Reject a modified identity implementation before claiming this baseline.
 
@@ -26,18 +41,23 @@ def verify_baseline():
     """
     import common.core.security
     root = Path(common.core.security.__file__).resolve().parents[2]
-    if tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] != "1.10.2":
-        raise RuntimeError("Only SQLBot Community v1.10.2 is supported by this identity exporter")
+    version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    baseline = BASELINES.get(version)
+    if baseline is None:
+        raise RuntimeError("This SQLBot Community version is not a pinned identity baseline")
     expected = {
-        "apps/system/api/login.py": "2e0876f00ec394c0ff8244e67f663e182d17e06e64526bdc8c40780081011eee",
+        "apps/system/api/login.py": baseline["login"],
         "common/core/security.py": "af57d24a781981531650ad480e85862447d0646059cc956cba8d4e841a3495ef",
         "apps/system/models/user.py": "561c7364984748586b9ec4f229357c633132f23da935e5e41cee36256b1e46d7",
     }
+    if version == "1.10.3":
+        expected["apps/system/crud/password_policy.py"] = baseline["password_policy"]
     for name, digest in expected.items():
         if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
             raise RuntimeError("The installed SQLBot identity source differs from the supported baseline")
-    if importlib.metadata.version("sqlbot-xpack") != "0.0.5.37":
+    if importlib.metadata.version("sqlbot-xpack") != baseline["xpack"]:
         raise RuntimeError("This SQLBot xpack dependency needs separate compatibility verification")
+    return "v" + version, baseline["commit"]
 
 
 async def export():
@@ -48,7 +68,7 @@ async def export():
     from common.core.db import engine
     from sqlalchemy import text
 
-    verify_baseline()
+    source_version, source_commit = verify_baseline()
 
     with engine.connect() as connection:
         connection.execute(text("SET TRANSACTION READ ONLY"))
@@ -85,8 +105,8 @@ async def export():
         raise RuntimeError("Unsupported login key export contract")
     return {
         "format_version": 1,
-        "source_version": "v1.10.2",
-        "source_commit": "aa41fc1033bb974a703df9200a98ec8b9eec5f25",
+        "source_version": source_version,
+        "source_commit": source_commit,
         "identity_keys": {"signing_key": settings.SECRET_KEY, "login_private_key_pem": keypair[0]},
         "users": exported, "bindings": [], "models": [],
     }

@@ -7,7 +7,7 @@
   <img src="brand/agentsql-wordmark-light.svg" width="360" height="80" alt="AgentSQL">
 </picture>
 
-![Version v4.4.0](https://img.shields.io/badge/Version-v4.4.0-blue)
+![Version v4.3.0](https://img.shields.io/badge/Version-v4.3.0-blue)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
@@ -17,7 +17,7 @@ It has been included in the MCP official Registry and can be directly searched f
 
 AgentSQL (Chinese brand name: Zhidun, the console is displayed as "AgentSQL Zhidun Console") is a database security gateway and production-level MCP Server for AI Agents: each PostgreSQL/MySQL request issued by the model undergoes identity authentication, SQL parsing, authorization and rule evaluation, controlled execution, result masking and auditing before reaching the database.
 
-AgentSQL also provides its own Q&A, chart, dashboard and embedded-application pages for independent use. An existing SQLBot deployment can optionally use AgentSQL as its database security gateway. This release's scope is in the [v4.4.0 release notes](docs/en/release-notes-v4.4.0.md). Complete SQLBot Community features and pages still require item-by-item acceptance; cutover of the user's actual business system follows v4.5.0.
+AgentSQL has two deployment modes: it can secure database access for an existing SQLBot interface with identity, permissions, controlled execution, masking and persistent audit; or it can run independently with AgentSQL's own Q&A, datasource, chart and administration pages. v4.5.0 is planned as a limited-support release for controlled Q&A and verified integration paths in the independent mode, while retaining the existing integration mode. Remaining advanced-assistant, permission-rule, and broad page/API parity work is divided among v4.6.0–v4.8.0. Its Go service and Web interface are independently implemented. The supported and unverified scope is defined in the [version design](docs/en/v4.5.0-design.md) and [page and integration record](docs/en/v4.5.0-page-parity.md); route counts and demo pages do not establish full compatibility. Cutover of the user's actual business system follows the release, so this release does not claim that system has been replaced without changes.
 
 v0.6.0 adds governance console, approval single execution and restricted read-only adaptation of Vastbase G100; v0.7.0 adds independent MCP `2026-07-28` entrance and task-level temporary read-only authorization; v0.8.0 adds alien approval; v0.9.0 adds 1–10 for new applications Results budget, management audit delivery status and policy offline pre-checking. v1.0.0 Tighten the failure shutdown of the column policy, and add optional agent and personnel dual-identity HTTP MCP authentication. v1.1.0 extends dual identity to approval and B5 sessions, and adds separate revocation of delegation tokens. v1.2.0 Add optional MCP OAuth protected resource entry. v1.3.0 Adds the MySQL 8.0/8.4 single-table InnoDB SELECT column authorization subset that is turned off by default. v1.4.0 Share console passwords and LDAP login attempt budgets in PostgreSQL metadata deployments and verify dual gateway audit failure recovery. The code uses Apache-2.0 as of v0.5.0, and historical v0.4.0 releases are still used under their original license.
 
@@ -55,11 +55,9 @@ v4.0.0 adds local verification of all signed release assets, offline transport a
 
 v4.1.0 adds native Go data Q&A with ordinary-account login compatibility, PostgreSQL/MySQL single-turn queries, encrypted conversations, a bilingual interface and offline native-service installation. It is the first of five SQLBot Community replacement milestones; full feature and integration compatibility remains pending. See the [Q&A guide](docs/en/CHATBI.md) and [release notes](docs/en/release-notes-v4.1.0.md).
 
-v4.2.0 added up to three authorized Q&A turns, terms and recommended questions, controlled CSV/XLSX file datasources, and narrow PostgreSQL row rules; see its [release notes](docs/en/release-notes-v4.2.0.md). v4.3.0 added AgentSQL's own charts, dashboards and embedded application management, with selected original SQLBot v1.10.2 page and embedded Q&A flows compared in a synthetic local environment; see the [v4.3.0 release notes](docs/en/release-notes-v4.3.0.md) and [acceptance record](docs/en/v4.3.0-acceptance.md).
+v4.2.0 added up to three authorized Q&A turns, terms and recommended questions, controlled CSV/XLSX file datasources, and narrow PostgreSQL row rules; see its [release notes](docs/en/release-notes-v4.2.0.md). v4.3.0 adds AgentSQL's own charts, dashboards and embedded application management, with selected original SQLBot v1.10.2 page and embedded Q&A flows compared in a synthetic local environment. Full feature and page parity and zero-change replacement of the user's application remain unverified; see the [current release notes](docs/en/release-notes-v4.3.0.md) and [acceptance record](docs/en/v4.3.0-acceptance.md).
 
-v4.4.0 adds AgentSQL account, user and workspace administration and deeper remark, table selection and relationship flows for server-bound datasources. Selected unchanged SQLBot v1.10.3 pages were compared locally. Complete Community features and integration methods still need individual acceptance; cutover of the user's actual business system follows v4.5.0. See the [v4.4.0 release notes](docs/en/release-notes-v4.4.0.md).
-
-**verification scope:**v1.0.0–v2.8.0. For the database and security capabilities, see the acceptance records of each version respectively; for v2.9.0 strategy review and audit, see [ acceptance records ](docs/en/v2.9.0-acceptance.md); v3.0.0 For the capability catalog, diagnostics and client see [ acceptance record ](docs/en/v3.0.0-acceptance.md). Vendor conclusions only cover specified instances, patterns, and synthetic data. The following commands are subject to [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.4.0), signature and image anonymous pull acceptance.
+**verification scope:**v1.0.0–v2.8.0. For the database and security capabilities, see the acceptance records of each version respectively; for v2.9.0 strategy review and audit, see [ acceptance records ](docs/en/v2.9.0-acceptance.md); v3.0.0 For the capability catalog, diagnostics and client see [ acceptance record ](docs/en/v3.0.0-acceptance.md). Vendor conclusions only cover specified instances, patterns, and synthetic data. The following commands are subject to [GitHub Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.3.0), signature and image anonymous pull acceptance.
 
 ```text
 AI Agent → LLM / MCP Client → AgentSQL Gateway → PostgreSQL / MySQL
@@ -134,17 +132,17 @@ The following three paths all listen only on the host's loopback address by defa
 v0.4.0 provides two native glibc packages: `linux/amd64` and `linux/arm64`: `uname -m` uses the amd64 package when it is `x86_64` / `amd64`, and uses the arm64 package when it is `aarch64` / `arm64`. Both require glibc 2.28+ and systemd as PID 1; the installer will automatically select the native architecture, verify the outer and inner package hashes of the release package, and install it as a systemd service. musl/Alpine and CentOS 7 are still not supported:
 
 ```bash
-curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.4.0/install.sh | sudo sh -s -- install --version v4.4.0
+curl -fsSL https://github.com/cuipengdba/agentsql/releases/download/v4.3.0/install.sh | sudo sh -s -- install --version v4.3.0
 ```
 
 Non-TTY output from pipelines and CIs does not show the automatically generated administrator password; root can view it at `/etc/agentsql/agentsql.env`. The interactive terminal is displayed once when credentials are first created, or `--show-password` can be added explicitly. After obtaining the tarball and the `.sha256` with the same name at the same time in the offline environment, verify, decompress and install from the package root:
 
-The following is an example of the amd64 asset name of v4.4.0; arm64 hosts starting from v0.4.0 use the `-linux-arm64` asset name of the same version.
+The following is an example of the amd64 asset name of v4.3.0; arm64 hosts starting from v0.4.0 use the `-linux-arm64` asset name of the same version.
 
 ```bash
-sha256sum -c agentsql-v4.4.0-linux-amd64.tar.gz.sha256
-tar -xzf agentsql-v4.4.0-linux-amd64.tar.gz
-cd agentsql-v4.4.0-linux-amd64
+sha256sum -c agentsql-v4.3.0-linux-amd64.tar.gz.sha256
+tar -xzf agentsql-v4.3.0-linux-amd64.tar.gz
+cd agentsql-v4.3.0-linux-amd64
 sudo ./install.sh install
 ```
 
@@ -153,20 +151,20 @@ sudo ./install.sh install
 By default, the script pulls the exact GHCR tag corresponding to the latest stable Release from GitHub; the tag is `linux/amd64` + `linux/arm64` multi-architecture image, and Docker will automatically match the running architecture. The script generates `.env` with permission `0600`, uses `agentsql-data` to name the volume, and fixes the bound loopback address:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.4.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.4.0
+curl -fsSL https://raw.githubusercontent.com/cuipengdba/agentsql/v4.3.0/scripts/quickstart.sh -o quickstart.sh && sh quickstart.sh --version v4.3.0
 ```
 
-The GHCR package must be set to public by the publisher so that the above command can be pulled anonymously in a non-logged-in environment. First check the public status of the precise tag `v4.4.0` and the dual-architecture manifest; Docker will automatically select `linux/amd64` or `linux/arm64` from the manifest list:
+The GHCR package must be set to public by the publisher so that the above command can be pulled anonymously in a non-logged-in environment. First check the public status of the precise tag `v4.3.0` and the dual-architecture manifest; Docker will automatically select `linux/amd64` or `linux/arm64` from the manifest list:
 
 ```bash
-docker pull ghcr.io/cuipengdba/agentsql:v4.4.0
+docker pull ghcr.io/cuipengdba/agentsql:v4.3.0
 ```
 
 The equivalent single `docker run` is as follows; the random value is only passed in through the current shell environment and is not written into the command line parameters:
 
 ```bash
 export AGENTSQL_SECRET="$(openssl rand -base64 24)" AGENTSQL_ADMIN_USER=admin AGENTSQL_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v4.4.0
+docker run -d --name agentsql --restart unless-stopped --security-opt no-new-privileges:true -p 127.0.0.1:7780:7780 -e AGENTSQL_SECRET -e AGENTSQL_ADMIN_USER -e AGENTSQL_ADMIN_PASSWORD -v agentsql-data:/var/lib/agentsql ghcr.io/cuipengdba/agentsql:v4.3.0
 ```
 
 ### 3. Local Live Demo (one command, no source code required)
@@ -175,7 +173,7 @@ This self-contained environment only connects to synthetic PostgreSQL/MySQL demo
 
 ```bash
 mkdir agentsql-demo && cd agentsql-demo
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.4.0/deploy/quickstart/docker-compose.yml
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/cuipengdba/agentsql/v4.3.0/deploy/quickstart/docker-compose.yml
 docker compose up -d
 ```
 
@@ -218,7 +216,7 @@ The source binary build according to `go.mod` requires Go 1.26, cgo, C compiler 
 The following source build example only produces native executables. Self-built files have not been signed and distributed for formal release of assets:
 
 ```bash
-make build VERSION=v4.4.0
+make build VERSION=v4.3.0
 ./bin/agentsqlctl init-config -o config.yaml
 export AGENTSQL_SECRET="$(openssl rand -base64 24)"
 export AGENTSQL_ADMIN_USER='admin'
@@ -409,7 +407,7 @@ Please do not submit real keys, passwords, connection strings or details of unfi
 ```bash
 go vet ./...
 go test -race -count=1 ./...
-make build VERSION=v4.4.0
+make build VERSION=v4.3.0
 ```
 
 `pg_query_go` requires cgo; do not build with `CGO_ENABLED=0` or Alpine/musl. Please read [SPEC](docs/en/SPEC.md) before submitting changes to test for behavioral changes and keep the `tests/corpus` decision-making corpus from being unintentionally rewritten.

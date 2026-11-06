@@ -22,6 +22,16 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	root := &cobra.Command{Use: "chatbi", Short: "Run native data Q&A and SQLBot compatibility services"}
 	var configuration, snapshot, historyPath string
 	root.PersistentFlags().StringVar(&configuration, "config", "chatbi.yaml", "ChatBI YAML configuration")
+	var modelPath string
+	verifyModel := &cobra.Command{Use: "verify-embedding-model", Short: "Verify the pinned local ONNX model without loading it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := chatbi.VerifyPinnedEmbeddingModel(modelPath); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "CHATBI_MODEL=VERIFIED")
+		return err
+	}}
+	verifyModel.Flags().StringVar(&modelPath, "path", "", "absolute directory containing the pinned ONNX model")
+	_ = verifyModel.MarkFlagRequired("path")
 	preflight := &cobra.Command{Use: "preflight", Short: "Validate a private SQLBot identity snapshot without changing either system", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		_, report, err := chatbi.ReadSnapshot(snapshot)
 		if err != nil {
@@ -47,6 +57,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	importCommand.Flags().StringVar(&snapshot, "from", "", "private migration snapshot")
 	_ = importCommand.MarkFlagRequired("from")
+	var assistantOnly bool
 	serve := &cobra.Command{Use: "serve", Short: "Serve the Go Q&A API on its dedicated listener", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		config, err := chatbi.LoadConfig(configuration)
 		if err != nil {
@@ -59,16 +70,81 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 			return err
 		}
 		defer service.Store.Close()
+		if config.EmbeddingModelPath != "" {
+			embedding, err := chatbi.NewLocalEmbeddingModel(config.EmbeddingModelPath)
+			if err != nil {
+				return err
+			}
+			service.Embedding = embedding
+			defer embedding.Close()
+		}
+		stopIndexPrewarm := service.EnableTableIndexPrewarm(ctx)
+		defer stopIndexPrewarm()
 		handler, err := chatbi.NewHandlerWithLimit(service, version.Version, config.MaxDataRequests)
 		if err != nil {
 			return err
 		}
+		if assistantOnly {
+			handler = chatbi.AssistantOnlyHandler(handler)
+		}
+		if !assistantOnly && service.ManagedFileDatasource != "" {
+			reaperCtx, stopReaper := context.WithCancel(ctx)
+			reaperDone := make(chan struct{})
+			defer func() {
+				stopReaper()
+				<-reaperDone
+			}()
+			go func() {
+				defer close(reaperDone)
+				ticker := time.NewTicker(10 * time.Minute)
+				defer ticker.Stop()
+				for {
+					cleanupCtx, cancel := context.WithTimeout(reaperCtx, 5*time.Minute)
+					count, reapErr := service.ReapAbandonedManagedFiles(cleanupCtx, time.Now().UTC())
+					cancel()
+					if reapErr != nil {
+						logger.Error().Err(reapErr).Msg("ChatBI abandoned file import cleanup failed")
+					}
+					if count > 0 {
+						logger.Info().Int("count", count).Msg("ChatBI abandoned file imports cleaned")
+					}
+					select {
+					case <-reaperCtx.Done():
+						return
+					case <-ticker.C:
+					}
+				}
+			}()
+		}
 		server := &http.Server{Addr: config.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
-		result := make(chan error, 1)
-		go func() { result <- server.ListenAndServe() }()
+		servers := []*http.Server{server}
+		if !assistantOnly && config.LegacyMCPListen != "" {
+			// The original SQLBot client connects to /mcp on a separate port.
+			// Do not expose the API, login or administration routes there.
+			mcpOnly := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/mcp" {
+					http.NotFound(w, r)
+					return
+				}
+				handler.ServeHTTP(w, r)
+			})
+			servers = append(servers, &http.Server{Addr: config.LegacyMCPListen, Handler: mcpOnly,
+				ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second,
+				IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10})
+		}
+		result := make(chan error, len(servers))
+		for _, active := range servers {
+			go func() { result <- active.ListenAndServe() }()
+		}
 		logger.Info().Str("listen", config.Listen).Str("version", version.Version).Msg("ChatBI server starting")
+		if len(servers) > 1 {
+			logger.Info().Str("listen", config.LegacyMCPListen).Msg("Legacy SQLBot MCP listener starting")
+		}
 		select {
 		case err := <-result:
+			for _, active := range servers {
+				_ = active.Close()
+			}
 			if errors.Is(err, http.ErrServerClosed) {
 				return nil
 			}
@@ -76,13 +152,17 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 		case <-ctx.Done():
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			err := server.Shutdown(shutdownCtx)
-			if err != nil {
-				_ = server.Close()
+			var shutdownErr error
+			for _, active := range servers {
+				if err := active.Shutdown(shutdownCtx); err != nil {
+					_ = active.Close()
+					shutdownErr = errors.Join(shutdownErr, err)
+				}
 			}
-			return err
+			return shutdownErr
 		}
 	}}
+	serve.Flags().BoolVar(&assistantOnly, "assistant-only", false, "serve only the public assistant iframe and scoped API on an isolated origin")
 
 	var adminUser, passwordEnv, connections string
 	var standardUser bool
@@ -190,7 +270,7 @@ func newChatBICommand(logger zerolog.Logger) *cobra.Command {
 	}}
 	historyImport.Flags().StringVar(&importHistoryPath, "from", "", "private metadata-only SQLBot history export")
 	_ = historyImport.MarkFlagRequired("from")
-	root.AddCommand(preflight, importCommand, initCommand, configure, revokeBinding, historyPreflight, historyImport, serve)
+	root.AddCommand(preflight, importCommand, initCommand, configure, revokeBinding, historyPreflight, historyImport, verifyModel, serve)
 	return root
 }
 

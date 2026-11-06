@@ -13,6 +13,7 @@ import (
 )
 
 var ErrInvalidAccountChange = errors.New("invalid account change")
+var ErrInitialPasswordDisabled = errors.New("initial password is disabled")
 
 func passwordMatches(user User, password string) bool {
 	if password == "" || len(password) > 512 {
@@ -30,13 +31,23 @@ func passwordMatches(user User, password string) bool {
 	}
 }
 
-func (identity *Identity) changePassword(ctx context.Context, id ID, account, current, replacement string) error {
-	if !id.Valid() || account == "" || current == "" || replacement == current || len(replacement) < 12 || len(replacement) > 72 {
+func (identity *Identity) changePassword(ctx context.Context, id ID, account, current, replacement, initialPassword string) error {
+	if !id.Valid() || account == "" || current == "" || len(replacement) < 12 || len(replacement) > 72 {
 		return ErrInvalidAccountChange
 	}
 	user, revision, err := identity.store.User(ctx, id)
 	if err != nil || user.Account != account || user.Origin != 0 || !user.canUse(user.Workspace) || !passwordMatches(user, current) {
 		return ErrUnauthenticated
+	}
+	settings, err := identity.store.ChatSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if settings.InitialPasswordDisabled && initialPassword != "" && replacement == initialPassword {
+		return ErrInitialPasswordDisabled
+	}
+	if replacement == current {
+		return ErrInvalidAccountChange
 	}
 	hash, err := HashPassword(replacement)
 	if err != nil {
@@ -53,16 +64,16 @@ func (identity *Identity) changePassword(ctx context.Context, id ID, account, cu
 
 // ChangePassword invalidates every previous ordinary token after an audited
 // compare-and-swap write. Embedded application tokens are not account tokens.
-func (identity *Identity) ChangePassword(ctx context.Context, p Principal, current, replacement string) error {
+func (identity *Identity) ChangePassword(ctx context.Context, p Principal, current, replacement, initialPassword string) error {
 	if p.EmbeddedApp != "" || !p.User.canUse(p.Workspace) {
 		return ErrUnauthenticated
 	}
-	return identity.changePassword(ctx, p.User.ID, p.User.Account, current, replacement)
+	return identity.changePassword(ctx, p.User.ID, p.User.Account, current, replacement, initialPassword)
 }
 
 // ChangePasswordByAccount supports the original first-login password-change
 // endpoint without issuing a session before the old password is verified.
-func (identity *Identity) ChangePasswordByAccount(ctx context.Context, account, current, replacement string) error {
+func (identity *Identity) ChangePasswordByAccount(ctx context.Context, account, current, replacement, initialPassword string) error {
 	if account == "" || len(account) > 100 {
 		return ErrUnauthenticated
 	}
@@ -70,7 +81,7 @@ func (identity *Identity) ChangePasswordByAccount(ctx context.Context, account, 
 	if _, err := identity.store.get(ctx, identity.store.accountKey(account), &id); err != nil {
 		return ErrUnauthenticated
 	}
-	err := identity.changePassword(ctx, id, account, current, replacement)
+	err := identity.changePassword(ctx, id, account, current, replacement, initialPassword)
 	if errors.Is(err, ErrInvalidAccountChange) {
 		return ErrUnauthenticated // Avoid revealing account existence to an unauthenticated caller.
 	}

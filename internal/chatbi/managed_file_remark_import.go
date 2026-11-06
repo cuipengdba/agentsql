@@ -45,21 +45,21 @@ func (h *Handler) importManagedFileRemarks(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid XLSX upload")
 		return
 	}
-	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, datasource)
-	if err == nil && databaseBinding(binding) {
-		h.importDatabaseRemarks(w, r, p, token, binding, revision, digest, data)
-		return
-	}
-	if err != nil || binding.Type != "excel" || binding.Dialect != "pg" ||
-		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
-		failure(w, ErrNotFound)
-		return
-	}
-	sheets, err := parseXLSXSheetsLimited(data, 9)
+	sheets, err := parseXLSXSheetsLimited(data, 257)
 	if err != nil || len(sheets) == 0 || sheets[0].Name != "数据表列表" || len(sheets[0].Fields) != 3 ||
 		sheets[0].Fields[0].Name != "Sheet名称" || sheets[0].Fields[1].Name != "表名" ||
 		sheets[0].Fields[2].Name != "表备注" {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid remark workbook")
+		return
+	}
+	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, datasource)
+	if err == nil && databaseBinding(binding) {
+		h.importDatabaseRemarks(w, r, p, token, binding, revision, digest, sheets)
+		return
+	}
+	if err != nil || len(sheets) > 9 || binding.Type != "excel" || binding.Dialect != "pg" ||
+		!managedFileOperationPattern.MatchString(binding.ManagedFileID) {
+		failure(w, ErrNotFound)
 		return
 	}
 	columns, err := h.service.schema(r.Context(), p, binding)

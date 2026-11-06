@@ -56,6 +56,38 @@ func TestModelRequestAndFailureIsolation(t *testing.T) {
 	}
 }
 
+func TestMCPQuestionLanguageReachesOnlyItsModelPrompt(t *testing.T) {
+	var prompts []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || len(payload.Messages) != 2 {
+			t.Fatal("invalid model payload")
+		}
+		prompts = append(prompts, payload.Messages[0].Content)
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": `{"sql":"SELECT amount FROM public.sales"}`}}}})
+	}))
+	defer server.Close()
+	model := OpenAIModel{}
+	config := ModelConfig{Model: "fixture", Endpoint: server.URL + "/v1"}
+	columns := []Column{{"public", "sales", "amount", "numeric"}}
+	for _, language := range []string{"en", "zh-TW", "ko-KR", "th-TH", ""} {
+		ctx := context.Background()
+		if language != "" {
+			ctx = withQuestionLanguage(ctx, language)
+		}
+		if _, err := model.Generate(ctx, config, "pg", "amount", columns); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(prompts) != 5 || !strings.Contains(prompts[0], "English") || !strings.Contains(prompts[1], "Traditional Chinese") || !strings.Contains(prompts[2], "Korean") || !strings.Contains(prompts[3], "Thai") || strings.Contains(prompts[4], "Interpret the current question in") {
+		t.Fatalf("request language was not isolated in model prompts: %v", prompts)
+	}
+}
+
 func TestModelCancellationAndEndpointPolicy(t *testing.T) {
 	for _, endpoint := range []string{"http://external.example/v1", "https://user:secret@example.com/v1", "file:///tmp/model", "https://example.com/v1?key=secret"} {
 		if _, err := validateEndpoint(endpoint, false); err == nil {

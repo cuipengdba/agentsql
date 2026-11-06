@@ -1,0 +1,1332 @@
+{
+  "schema": 1,
+  "upstream": {
+    "repository": "https://github.com/dataease/SQLBot",
+    "version": "v1.10.3",
+    "commit": "96f06c7eade60ecf3e6af0313821373761d1fb85"
+  },
+  "scope": "public-source statically registered API routes; not a complete runtime inventory",
+  "additional_required_surfaces": [
+    "sqlbot_xpack community routes and login encryption contract",
+    "MCP Streamable HTTP and legacy SSE tools, parameters and error behavior",
+    "browser routes, static assets, iframe and assistant SDK callbacks",
+    "database migrations, preserved IDs, tokens, keys and encrypted configuration"
+  ],
+  "source_sha256": {
+    "backend/apps/system/api/aimodel.py": "5acb17112593bd67bc3d8d5abdbf974efcd6f775ef6852618f4ba0c7114c44fc",
+    "backend/apps/system/api/apikey.py": "3c9350cf86c9ca0d8786ebadee07c0ac90a881e7a1a3d14eacf03b83132bbb55",
+    "backend/apps/system/api/assistant.py": "d6c1594f743b6f6b8f98a346d223f7093ebe33665e415fe8f5d45d32b2ce6ba7",
+    "backend/apps/settings/api/base.py": "a0ce3e14ad4aa30bb15434db83429490b23d94aeae8a4f46a48f25ba874cc59f",
+    "backend/apps/chat/api/chat.py": "69fd20fb9c4bf7a93a36c69e3b6bc89be48645140e88468cd53008dd29f827c6",
+    "backend/apps/dashboard/api/dashboard_api.py": "0d264aa3f16011e8254f35e4302ffcb710d4a599c0e43f2bd6b4d113e7e39332",
+    "backend/apps/data_training/api/data_training.py": "b3d47ba515e3ba72fd6a613625553bcf7d856221b2386aa60e57bd09c130672d",
+    "backend/apps/datasource/api/datasource.py": "a3b34cfc0cca19ff97e3640bc669293a9dcb8453b192c7a3c3424ead6152786f",
+    "backend/apps/system/api/login.py": "539fd7c374035c007bf4aaa8dd76a65d224c5c2715621f2a3ea8bdd0a8d2cd18",
+    "backend/apps/mcp/mcp.py": "8c1a58e55273c9b32ce176de256c3b61bba10f8b26ea0205a7ed2c1421e971b1",
+    "backend/apps/system/api/parameter.py": "732e9ab24db14c1c45e979010ec947d1210d15b17cf2c316a27f2c337cfbbe4d",
+    "backend/apps/datasource/api/recommended_problem.py": "1f882d6cb01c26077b2287e4388b80a3e146613a5b7756ac296fdf2149def546",
+    "backend/apps/datasource/api/table_relation.py": "ff91f0d882524c90885ce4170a36e35ae8438f5faf5fc87628526c62e33d750d",
+    "backend/apps/terminology/api/terminology.py": "c70b909c7a48752547d168344fad8a3adfb193a9650884b3930c972b1074e49b",
+    "backend/apps/system/api/user.py": "d852c6eae5effc3265b28eed5a2105edb2e1e7f27d2e0049f87264d9203fca9d",
+    "backend/apps/system/api/variable_api.py": "518742b3b5c948daa1e9065193414e772e0c061da3842afdb64807416a9c308a",
+    "backend/apps/system/api/workspace.py": "a84c4134ec846d2f9624f203f967380aae325eada76121bc334338b5964582d4"
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/assistant/start",
+      "operation": "start_chat",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 169,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/list",
+      "operation": "chats",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 32,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/question",
+      "operation": "question_answer",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 250,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/recent_questions/{datasource_id}",
+      "operation": "recommend_questions",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 229,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/recommend_questions/{chat_record_id}",
+      "operation": "ask_recommend_questions",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 192,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/record/{chat_record_id}/data",
+      "operation": "chat_record_data",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 75,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/record/{chat_record_id}/data_live",
+      "operation": "chat_record_data_live",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 84,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/record/{chat_record_id}/excel/export/{chat_id}",
+      "operation": "export_excel",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 470,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/record/{chat_record_id}/log",
+      "operation": "chat_record_log",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 103,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/record/{chat_record_id}/predict_data",
+      "operation": "chat_predict_data",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 93,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/record/{chat_record_id}/usage",
+      "operation": "chat_record_usage",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 111,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/record/{chat_record_id}/{action_type}",
+      "operation": "analysis_or_predict_question",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 391,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/rename",
+      "operation": "rename",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 119,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/start",
+      "operation": "start_chat",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 152,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/chat/{chart_id}",
+      "operation": "delete",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 135,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/{chart_id}",
+      "operation": "get_chat",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 37,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/{chart_id}/with_data",
+      "operation": "get_chat_with_data",
+      "source": "backend/apps/chat/api/chat.py",
+      "line": 47,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/check_name",
+      "operation": "check_name_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 77,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/create_canvas",
+      "operation": "create_canvas_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 56,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/create_resource",
+      "operation": "create_resource_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 28,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/dashboard/delete_resource/{resource_id}/{name}",
+      "operation": "delete_resource_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 44,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/list_resource",
+      "operation": "list_resource_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 17,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/load_resource",
+      "operation": "load_resource_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 22,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/update_canvas",
+      "operation": "update_canvas_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 66,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/update_resource",
+      "operation": "update_resource_api",
+      "source": "backend/apps/dashboard/api/dashboard_api.py",
+      "line": 33,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/add",
+      "operation": "add",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 79,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/check",
+      "operation": "check",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 60,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/datasource/check/{ds_id}",
+      "operation": "check_by_id",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 69,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/chooseTables/{id}",
+      "operation": "choose_tables",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 86,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/delete/{id}/{name}",
+      "operation": "delete",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 107,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/editField",
+      "operation": "edit_field",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 226,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/editTable",
+      "operation": "edit_table",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 220,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/datasource/exportDsSchema/{id}",
+      "operation": "export_ds_schema",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 405,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/fieldEnum/{ds_id}/{id}",
+      "operation": "field_enum",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 251,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/fieldList/{ds_id}/{id}",
+      "operation": "field_list",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 206,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/get/{id}",
+      "operation": "get_datasource",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 54,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/getFields/{id}/{table_name}",
+      "operation": "get_fields",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 159,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/getSchemaByConf",
+      "operation": "get_schema_by_conf",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 140,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/getTables/{id}",
+      "operation": "get_tables",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 115,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/getTablesByConf",
+      "operation": "get_tables_by_conf",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 121,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/importToDb",
+      "operation": "import_to_db",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 580,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/datasource/list",
+      "operation": "datasource_list",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 48,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/parseExcel",
+      "operation": "parse_excel",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 557,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/previewData/{id}",
+      "operation": "preview_data",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 232,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/syncFields/{ds_id}/{id}",
+      "operation": "sync_fields",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 168,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/tableList/{id}",
+      "operation": "table_list",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 200,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/update",
+      "operation": "update",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 96,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/uploadDsSchema/{id}",
+      "operation": "upload_ds_schema",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 480,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/datasource/uploadExcel",
+      "operation": "upload_excel",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 325,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/datasource/ws/{oid}",
+      "operation": "query_by_oid",
+      "source": "backend/apps/datasource/api/datasource.py",
+      "line": 42,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/login/access-token",
+      "operation": "local_login",
+      "source": "backend/apps/system/api/login.py",
+      "line": 22,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/login/change-pwd",
+      "operation": "login_change_pwd",
+      "source": "backend/apps/system/api/login.py",
+      "line": 58,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/login/logout",
+      "operation": "logout",
+      "source": "backend/apps/system/api/login.py",
+      "line": 83,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/access_token",
+      "operation": "access_token",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 41,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/mcp_assistant",
+      "operation": "mcp_assistant",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 207,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/mcp_ds_list",
+      "operation": "datasource_list",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 138,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/mcp_model_list",
+      "operation": "get_model_by_ws",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 160,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/mcp_question",
+      "operation": "mcp_question",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 165,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/mcp_start",
+      "operation": "mcp_start",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 90,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/mcp_ws_list",
+      "operation": "ws_list",
+      "source": "backend/apps/mcp/mcp.py",
+      "line": 132,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recommended_problem/get_datasource_recommended/{ds_id}",
+      "operation": "datasource_recommended",
+      "source": "backend/apps/datasource/api/recommended_problem.py",
+      "line": 16,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/recommended_problem/get_datasource_recommended_base/{ds_id}",
+      "operation": "datasource_recommended_base",
+      "source": "backend/apps/datasource/api/recommended_problem.py",
+      "line": 22,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/recommended_problem/save_recommended_problem",
+      "operation": "datasource_recommended_save",
+      "source": "backend/apps/datasource/api/recommended_problem.py",
+      "line": 28,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sys_variable/delete",
+      "operation": "delete_variable",
+      "source": "backend/apps/system/api/variable_api.py",
+      "line": 23,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sys_variable/listAll",
+      "operation": "list_all_data",
+      "source": "backend/apps/system/api/variable_api.py",
+      "line": 29,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sys_variable/listPage/{pageNum}/{pageSize}",
+      "operation": "pager",
+      "source": "backend/apps/system/api/variable_api.py",
+      "line": 35,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sys_variable/save",
+      "operation": "save_variable",
+      "source": "backend/apps/system/api/variable_api.py",
+      "line": 17,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/aimodel",
+      "operation": "query",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 86,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/aimodel",
+      "operation": "add_model",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 153,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/aimodel",
+      "operation": "update_model",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 174,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/aimodel/default",
+      "operation": "check_default",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 54,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/aimodel/default/{id}",
+      "operation": "set_default",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 63,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/aimodel/list/by_ws",
+      "operation": "get_model_by_ws",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 355,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/aimodel/status",
+      "operation": "check_llm",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 24,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/aimodel/{id}",
+      "operation": "delete_model",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 194,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/aimodel/{id}",
+      "operation": "get_model_by_id",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 122,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/aimodel/{id}/ws_mapping",
+      "operation": "delete_model_ws_mapping_by_id",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 315,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/aimodel/{id}/ws_mapping",
+      "operation": "get_model_ws_mapping_by_id",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 210,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/aimodel/{id}/ws_mapping",
+      "operation": "add_model_ws_mapping_by_id",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 268,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/aimodel/{id}/ws_mapping",
+      "operation": "update_model_ws_mapping_by_id",
+      "source": "backend/apps/system/api/aimodel.py",
+      "line": 232,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/apikey",
+      "operation": "grid",
+      "source": "backend/apps/system/api/apikey.py",
+      "line": 15,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/apikey",
+      "operation": "create",
+      "source": "backend/apps/system/api/apikey.py",
+      "line": 20,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/apikey/status",
+      "operation": "status",
+      "source": "backend/apps/system/api/apikey.py",
+      "line": 39,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/apikey/{id}",
+      "operation": "delete",
+      "source": "backend/apps/system/api/apikey.py",
+      "line": 54,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant",
+      "operation": "query",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 318,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/assistant",
+      "operation": "add",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 336,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/assistant",
+      "operation": "update",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 344,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant/advanced_application",
+      "operation": "query_advanced_application",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 328,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant/app/{appId}",
+      "operation": "getApp",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 125,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant/ds",
+      "operation": "ds",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 262,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant/info/{id}",
+      "operation": "info",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 32,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant/picture/{file_id}",
+      "operation": "picture",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 169,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/system/assistant/ui",
+      "operation": "ui",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 187,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/assistant/validate/{id}",
+      "operation": "validate",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 242,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/assistant/{id}",
+      "operation": "delete",
+      "source": "backend/apps/system/api/assistant.py",
+      "line": 372,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/data-training",
+      "operation": "delete",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 59,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/data-training",
+      "operation": "create_or_update",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 47,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/data-training/export",
+      "operation": "export_excel",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 77,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/data-training/page/{current_page}/{page_size}",
+      "operation": "pager",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 28,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/data-training/template",
+      "operation": "excel_template",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 119,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/data-training/uploadExcel",
+      "operation": "upload_excel",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 166,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/data-training/{id}/enable/{enabled}",
+      "operation": "enable",
+      "source": "backend/apps/data_training/api/data_training.py",
+      "line": 68,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/download-fail-info",
+      "operation": "download_excel",
+      "source": "backend/apps/settings/api/base.py",
+      "line": 15,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/parameter",
+      "operation": "get_args",
+      "source": "backend/apps/system/api/parameter.py",
+      "line": 17,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/parameter",
+      "operation": "save_args",
+      "source": "backend/apps/system/api/parameter.py",
+      "line": 23,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/parameter/chat",
+      "operation": "get_chat_args",
+      "source": "backend/apps/system/api/parameter.py",
+      "line": 30,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/parameter/login",
+      "operation": "get_login_args",
+      "source": "backend/apps/system/api/parameter.py",
+      "line": 12,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/terminology",
+      "operation": "delete",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 56,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/terminology",
+      "operation": "create_or_update",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 45,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/terminology/export",
+      "operation": "export_excel",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 72,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/terminology/page/{current_page}/{page_size}",
+      "operation": "pager",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 27,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/terminology/template",
+      "operation": "excel_template",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 118,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/terminology/uploadExcel",
+      "operation": "upload_excel",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 175,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/terminology/{id}/enable/{enabled}",
+      "operation": "enable",
+      "source": "backend/apps/terminology/api/terminology.py",
+      "line": 64,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/workspace",
+      "operation": "query",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 188,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/workspace",
+      "operation": "add",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 198,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/workspace",
+      "operation": "update",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 208,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/workspace/uws",
+      "operation": "delete",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 170,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/workspace/uws",
+      "operation": "create",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 125,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/system/workspace/uws",
+      "operation": "uws_edit",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 149,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/workspace/uws/option",
+      "operation": "option_user",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 55,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/workspace/uws/option/pager/{pageNum}/{pageSize}",
+      "operation": "option_pager",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 20,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/workspace/uws/pager/{pageNum}/{pageSize}",
+      "operation": "pager",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 84,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/workspace/{id}",
+      "operation": "single_delete",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 230,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/workspace/{id}",
+      "operation": "get_one",
+      "source": "backend/apps/system/api/workspace.py",
+      "line": 220,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/table_relation/get/{ds_id}",
+      "operation": "get_relation",
+      "source": "backend/apps/datasource/api/table_relation.py",
+      "line": 30,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/table_relation/save/{ds_id}",
+      "operation": "save_relation",
+      "source": "backend/apps/datasource/api/table_relation.py",
+      "line": 16,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user",
+      "operation": "batch_del",
+      "source": "backend/apps/system/api/user.py",
+      "line": 363,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/user",
+      "operation": "user_create",
+      "source": "backend/apps/system/api/user.py",
+      "line": 264,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/user",
+      "operation": "update",
+      "source": "backend/apps/system/api/user.py",
+      "line": 303,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/user/batchImport",
+      "operation": "upload_excel",
+      "source": "backend/apps/system/api/user.py",
+      "line": 32,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/defaultPwd",
+      "operation": "default_pwd",
+      "source": "backend/apps/system/api/user.py",
+      "line": 48,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/errorRecord/{file_id}",
+      "operation": "download_error",
+      "source": "backend/apps/system/api/user.py",
+      "line": 38,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/info",
+      "operation": "user_info",
+      "source": "backend/apps/system/api/user.py",
+      "line": 43,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/user/language",
+      "operation": "langChange",
+      "source": "backend/apps/system/api/user.py",
+      "line": 370,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/pager/{pageNum}/{pageSize}",
+      "operation": "pager",
+      "source": "backend/apps/system/api/user.py",
+      "line": 57,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/user/pwd",
+      "operation": "pwdUpdate",
+      "source": "backend/apps/system/api/user.py",
+      "line": 392,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/user/pwd/{id}",
+      "operation": "pwdReset",
+      "source": "backend/apps/system/api/user.py",
+      "line": 381,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/user/status",
+      "operation": "statusChange",
+      "source": "backend/apps/system/api/user.py",
+      "line": 409,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/template",
+      "operation": "templateExcel",
+      "source": "backend/apps/system/api/user.py",
+      "line": 27,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/ws",
+      "operation": "ws_options",
+      "source": "backend/apps/system/api/user.py",
+      "line": 231,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/user/ws/{oid}",
+      "operation": "ws_change",
+      "source": "backend/apps/system/api/user.py",
+      "line": 235,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/user/{id}",
+      "operation": "delete",
+      "source": "backend/apps/system/api/user.py",
+      "line": 353,
+      "implementation": "pending",
+      "differential_test": "pending"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/user/{id}",
+      "operation": "query",
+      "source": "backend/apps/system/api/user.py",
+      "line": 253,
+      "implementation": "pending",
+      "differential_test": "pending"
+    }
+  ]
+}

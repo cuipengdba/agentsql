@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +31,7 @@ type Chat struct {
 	DatasourceExists bool      `json:"datasource_exists"`
 	Origin           int       `json:"origin"`
 	EmbeddedApp      ID        `json:"embedded_app,omitempty"`
+	VisitorScope     string    `json:"visitor_scope,omitempty"`
 	Records          []Record  `json:"records"`
 	LeaseUntil       time.Time `json:"lease_until,omitempty"`
 }
@@ -63,7 +66,9 @@ type Service struct {
 	Identity              *Identity
 	Gateway               Gateway
 	Model                 Generator
+	Embedding             EmbeddingModel
 	ManagedFileDatasource ID
+	indexPrewarmer        *tableIndexPrewarmer
 }
 
 func newID() (ID, error) {
@@ -111,6 +116,77 @@ func tableChartConfig(fields []string) string {
 	return string(raw)
 }
 
+// chartConfigForQuestion selects a visualization only when the request names a
+// chart type and the controlled result has one category and one numeric field.
+// The saved configuration contains field names, never query rows.
+func chartConfigForQuestion(question string, data *QueryData) string {
+	q := strings.ToLower(question)
+	q = strings.NewReplacer("横向柱状图", "条形图", "水平柱状图", "条形图").Replace(q)
+	types := []struct {
+		name  string
+		terms []string
+	}{
+		{"bar", []string{"bar chart", "horizontal bar", "条形图"}},
+		{"column", []string{"column chart", "柱状图"}},
+		{"line", []string{"line chart", "折线图"}},
+		{"pie", []string{"pie chart", "饼图"}},
+	}
+	kind := ""
+	for _, candidate := range types {
+		for _, term := range candidate.terms {
+			if strings.Contains(q, term) {
+				if kind != "" && kind != candidate.name {
+					return tableChartConfig(data.Fields)
+				}
+				kind = candidate.name
+				break
+			}
+		}
+	}
+	if kind == "" || len(data.Fields) != 2 || len(data.FieldsInfo) != 2 {
+		return tableChartConfig(data.Fields)
+	}
+	var category, measure string
+	for i, field := range data.Fields {
+		if data.FieldsInfo[i].Name != field {
+			return tableChartConfig(data.Fields)
+		}
+		if !data.FieldsInfo[i].Numeric && len(data.Data) > 0 {
+			numeric := true
+			for _, row := range data.Data {
+				value := strings.TrimSpace(fmt.Sprint(row[field]))
+				n, err := strconv.ParseFloat(value, 64)
+				if value == "" || err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+					numeric = false
+					break
+				}
+			}
+			data.FieldsInfo[i].Numeric = numeric
+		}
+		if data.FieldsInfo[i].Numeric {
+			measure = field
+		} else {
+			category = field
+		}
+	}
+	if category == "" || measure == "" {
+		return tableChartConfig(data.Fields)
+	}
+	axis := map[string]any{}
+	if kind == "pie" {
+		axis["y"] = map[string]string{"name": measure, "value": measure}
+		axis["series"] = map[string]string{"name": category, "value": category}
+	} else {
+		axis["x"] = map[string]string{"name": category, "value": category}
+		axis["y"] = []map[string]string{{"name": measure, "value": measure}}
+	}
+	raw, err := json.Marshal(map[string]any{"type": kind, "title": "", "axis": axis})
+	if err != nil {
+		return tableChartConfig(data.Fields)
+	}
+	return string(raw)
+}
+
 func (service *Service) Record(ctx context.Context, p Principal, id ID, withData bool) (Record, error) {
 	if err := service.live(ctx, p); err != nil {
 		return Record{}, err
@@ -125,15 +201,30 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 	}
 	for _, record := range chat.Records {
 		if record.ID == id {
+			binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
+			if err != nil {
+				return Record{}, err
+			}
+			_, permissionSnapshot, err := service.schemaWithPermissionSnapshot(ctx, p, binding)
+			if err != nil {
+				return Record{}, err
+			}
+			fingerprint, err := service.modelContextFingerprint(ctx, p, digest, permissionSnapshot)
+			if err != nil {
+				return Record{}, err
+			}
+			current, err := service.recordMatchesCurrentPolicy(ctx, p, record.ID, fingerprint)
+			if err != nil {
+				return Record{}, err
+			}
 			record.Data = nil
+			if !current {
+				redactStaleRecord(&record)
+			}
 			if !withData {
 				record.Analysis, record.PredictText = "", ""
 			}
-			if withData && record.Finish && record.Error == "" {
-				binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
-				if err != nil {
-					return Record{}, err
-				}
+			if current && withData && record.Finish && record.Error == "" {
 				data, err := service.query(ctx, p, binding, record.SQL)
 				if err != nil {
 					return Record{}, err
@@ -141,14 +232,20 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 				if data.AuditID <= 0 {
 					return Record{}, ErrGateway
 				}
-				if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
-					return Record{}, err
-				}
 				record.Data = &data
 				if record.Action != "" && record.DataDigest != resultDigest(data) {
 					record.Data = nil
 					record.Analysis, record.PredictText = "", ""
 				}
+			}
+			if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
+				return Record{}, err
+			}
+			if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+				return Record{}, err
+			}
+			if err := service.modelContextUnchanged(ctx, p, digest, permissionSnapshot, fingerprint); err != nil {
+				return Record{}, err
 			}
 			record.DataDigest = ""
 			if err := service.live(ctx, p); err != nil {
@@ -161,6 +258,9 @@ func (service *Service) Record(ctx context.Context, p Principal, id ID, withData
 }
 
 func (service *Service) live(ctx context.Context, p Principal) error {
+	if p.VisitorScope != "" && (p.EmbeddedApp == "" || !validVisitorScope(p.VisitorScope)) {
+		return ErrUnauthenticated
+	}
 	user, _, err := service.Store.User(ctx, p.User.ID)
 	if err != nil || user.AuthRevision != p.User.AuthRevision || !user.canUse(p.Workspace) {
 		return ErrUnauthenticated
@@ -171,7 +271,9 @@ func (service *Service) live(ctx context.Context, p Principal) error {
 		}
 		var app AssistantApplication
 		revision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
-		if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != 4 || !app.Enabled {
+		if err != nil || revision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || app.Workspace != p.Workspace || app.Type != p.EmbeddedType || !app.Enabled ||
+			(app.Type == 0 && (app.PublicGuestUser != user.ID || user.Origin != 0 || p.VisitorScope == "" || len(app.DatasourceIDs) == 0)) ||
+			(app.Type != 0 && app.Type != 4) {
 			return ErrUnauthenticated
 		}
 	}
@@ -215,6 +317,13 @@ func (service *Service) bindingUnchanged(ctx context.Context, p Principal, bindi
 	return nil
 }
 
+// Model credentials and workspace defaults can change while generation or a
+// gateway query is in flight. A result from the old configuration must not be
+// executed or released after that change.
+func (service *Service) modelUnchanged(ctx context.Context, workspace ID, model ModelConfig, lease modelLease) error {
+	return service.Store.modelLeaseUnchanged(ctx, workspace, model, lease)
+}
+
 func (service *Service) Start(ctx context.Context, p Principal, datasource ID, question string, origin int) (Chat, error) {
 	if len(question) > 16000 || (origin != 0 && origin != 2) || (origin == 2) != (p.EmbeddedApp != "") {
 		return Chat{}, errors.New("unsupported chat request")
@@ -244,7 +353,7 @@ func (service *Service) Start(ctx context.Context, p Principal, datasource ID, q
 		brief = []rune(binding.Name)
 	}
 	now := time.Now().UTC()
-	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, EmbeddedApp: p.EmbeddedApp, Records: []Record{}}
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now, Brief: string(brief), Type: "chat", Datasource: datasource, Engine: binding.Dialect, DSType: binding.Dialect, DatasourceName: binding.Name, DatasourceExists: true, Origin: origin, EmbeddedApp: p.EmbeddedApp, VisitorScope: p.VisitorScope, Records: []Record{}}
 	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
 		return Chat{}, err
 	}
@@ -271,6 +380,63 @@ func (service *Service) StartMCP(ctx context.Context, p Principal) (Chat, error)
 		return Chat{}, err
 	}
 	return chat, nil
+}
+
+// StartEmbeddedUnbound accepts the original assistant's source-less start.
+// No schema or model is accessed until the first question selects and binds
+// one of this caller's currently allowed datasources.
+func (service *Service) StartEmbeddedUnbound(ctx context.Context, p Principal, question string) (Chat, error) {
+	if p.EmbeddedApp == "" || len(question) > 16000 {
+		return Chat{}, ErrUnauthenticated
+	}
+	if err := service.live(ctx, p); err != nil {
+		return Chat{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return Chat{}, err
+	}
+	brief := []rune(strings.TrimSpace(question))
+	if len(brief) > 64 {
+		brief = brief[:64]
+	}
+	if len(brief) == 0 {
+		brief = []rune("New conversation")
+	}
+	now := time.Now().UTC()
+	chat := Chat{ID: id, Workspace: p.Workspace, Creator: p.User.ID, Created: now, Latest: now,
+		Brief: string(brief), Type: "chat", Origin: 2, EmbeddedApp: p.EmbeddedApp,
+		VisitorScope: p.VisitorScope, Records: []Record{}}
+	if err := service.Store.put(ctx, chatKey(p, id), chat, 0); err != nil {
+		return Chat{}, err
+	}
+	return chat, nil
+}
+
+// BindEmbeddedSource closes the gap between source-less assistant creation and
+// the first question. A concurrent or revoked choice cannot overwrite a chat.
+func (service *Service) BindEmbeddedSource(ctx context.Context, p Principal, chatID, datasource ID) error {
+	chat, revision, err := service.chat(ctx, p, chatID)
+	if err != nil {
+		return err
+	}
+	if p.EmbeddedApp == "" || chat.Origin != 2 || chat.EmbeddedApp != p.EmbeddedApp ||
+		chat.Datasource != "" || len(chat.Records) != 0 || chat.LeaseUntil.After(time.Now()) {
+		return ErrConflict
+	}
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
+		return err
+	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
+		return err
+	}
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return err
+	}
+	chat.Datasource, chat.DatasourceName, chat.DatasourceExists = datasource, binding.Name, true
+	chat.Engine, chat.DSType = binding.Dialect, binding.Dialect
+	return service.Store.put(ctx, chatKey(p, chatID), chat, revision)
 }
 
 // BindMCPSource uses the same authorization and schema gate as ordinary
@@ -313,7 +479,7 @@ func (service *Service) chat(ctx context.Context, p Principal, id ID) (Chat, int
 	if err != nil {
 		return Chat{}, 0, err
 	}
-	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID || chat.EmbeddedApp != p.EmbeddedApp {
+	if chat.ID != id || chat.Workspace != p.Workspace || chat.Creator != p.User.ID || chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 		return Chat{}, 0, ErrUnavailable
 	}
 	return chat, rev, nil
@@ -323,22 +489,85 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 	if err := service.live(ctx, p); err != nil {
 		return nil, err
 	}
+	checkGuestSources := func() error {
+		if p.EmbeddedApp == "" || p.EmbeddedType != 0 {
+			return nil
+		}
+		app, err := service.liveGuestAssistant(ctx, p)
+		if err != nil {
+			return err
+		}
+		for _, id := range app.DatasourceIDs {
+			binding, revision, digest, err := service.bindingSnapshot(ctx, p, id)
+			if err != nil {
+				return err
+			}
+			if _, err := service.schema(ctx, p, binding); err != nil {
+				return err
+			}
+			if err := service.bindingUnchanged(ctx, p, binding, revision, digest); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := checkGuestSources(); err != nil {
+		return nil, err
+	}
 	raw, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
 	if err != nil {
 		return nil, err
 	}
 	chats := make([]Chat, 0, len(raw))
+	type listedSource struct {
+		binding  Binding
+		revision int64
+		digest   [32]byte
+	}
+	checked := make(map[ID]listedSource)
+	removed := make(map[ID]bool)
 	for _, entry := range raw {
 		var chat Chat
 		if json.Unmarshal(entry, &chat) != nil || chat.Creator != p.User.ID || chat.Workspace != p.Workspace {
 			return nil, ErrUnavailable
 		}
-		if chat.EmbeddedApp != p.EmbeddedApp {
+		if chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 			continue
+		}
+		if chat.Datasource == "" {
+			if (chat.Origin != 1 && chat.Origin != 2) || len(chat.Records) != 0 {
+				return nil, ErrUnavailable
+			}
+		} else if removed[chat.Datasource] {
+			continue
+		} else if _, exists := checked[chat.Datasource]; !exists {
+			binding, revision, digest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
+			if errors.Is(err, ErrNotFound) {
+				removed[chat.Datasource] = true
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if _, err := service.schema(ctx, p, binding); errors.Is(err, ErrGatewaySourceDenied) {
+				removed[chat.Datasource] = true
+				continue
+			} else if err != nil {
+				return nil, err
+			}
+			checked[chat.Datasource] = listedSource{binding, revision, digest}
 		}
 		chat.Records = []Record{}
 		chat.LeaseUntil = time.Time{}
 		chats = append(chats, chat)
+	}
+	for _, source := range checked {
+		if err := service.bindingUnchanged(ctx, p, source.binding, source.revision, source.digest); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkGuestSources(); err != nil {
+		return nil, err
 	}
 	return chats, nil
 }
@@ -348,6 +577,9 @@ func (service *Service) Chats(ctx context.Context, p Principal) ([]Chat, error) 
 func (service *Service) RecentQuestions(ctx context.Context, p Principal, datasource ID) ([]string, error) {
 	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
 		return nil, err
 	}
 	items, err := service.Store.list(ctx, "chat", string(p.Workspace), string(p.User.ID))
@@ -364,7 +596,7 @@ func (service *Service) RecentQuestions(ctx context.Context, p Principal, dataso
 		if json.Unmarshal(raw, &chat) != nil || chat.Workspace != p.Workspace || chat.Creator != p.User.ID {
 			return nil, ErrUnavailable
 		}
-		if chat.EmbeddedApp != p.EmbeddedApp {
+		if chat.EmbeddedApp != p.EmbeddedApp || chat.VisitorScope != p.VisitorScope {
 			continue
 		}
 		if chat.Datasource != datasource {
@@ -410,7 +642,7 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	if chat.Origin == 1 && chat.Datasource == "" && len(chat.Records) == 0 {
+	if (chat.Origin == 1 || chat.Origin == 2) && chat.Datasource == "" && len(chat.Records) == 0 {
 		if err := service.live(ctx, p); err != nil {
 			return Chat{}, err
 		}
@@ -421,16 +653,28 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 	if err != nil {
 		return Chat{}, err
 	}
-	if _, err := service.schema(ctx, p, binding); err != nil {
+	_, permissionSnapshot, err := service.schemaWithPermissionSnapshot(ctx, p, binding)
+	if err != nil {
+		return Chat{}, err
+	}
+	fingerprint, err := service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
+	if err != nil {
 		return Chat{}, err
 	}
 	for i := range chat.Records {
 		record := &chat.Records[i]
 		record.Data = nil
+		current, err := service.recordMatchesCurrentPolicy(ctx, p, record.ID, fingerprint)
+		if err != nil {
+			return Chat{}, err
+		}
+		if !current {
+			redactStaleRecord(record)
+		}
 		if !withData {
 			record.Analysis, record.PredictText = "", ""
 		}
-		if withData && record.Finish && record.Error == "" && record.SQL != "" {
+		if current && withData && record.Finish && record.Error == "" && record.SQL != "" {
 			data, err := service.query(ctx, p, binding, record.SQL)
 			if err != nil {
 				return Chat{}, err
@@ -447,6 +691,12 @@ func (service *Service) ReadChat(ctx context.Context, p Principal, id ID, withDa
 		record.DataDigest = ""
 	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return Chat{}, err
+	}
+	if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+		return Chat{}, err
+	}
+	if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
 		return Chat{}, err
 	}
 	if err := service.live(ctx, p); err != nil {
@@ -485,6 +735,10 @@ func (service *Service) Delete(ctx context.Context, p Principal, id ID) error {
 // Ask commits both start and terminal state. Results are delivered only after
 // successful gateway audit, local persistence and a final identity check.
 func (service *Service) Ask(ctx context.Context, p Principal, id ID, question string, check func(context.Context) error, onStart func(ID) error) (Record, error) {
+	return service.AskWithModel(ctx, p, id, question, nil, check, onStart)
+}
+
+func (service *Service) AskWithModel(ctx context.Context, p Principal, id ID, question string, selected *ID, check func(context.Context) error, onStart func(ID) error) (Record, error) {
 	ctx, cancelRequest := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancelRequest()
 	if check == nil {
@@ -506,6 +760,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if len(chat.Records) >= 200 {
 		return Record{}, errors.New("conversation record limit reached")
 	}
+	firstMCPQuestion := chat.Origin == 1 && len(chat.Records) == 0
 	// The chat is scoped to the authenticated principal. Send only successful
 	// questions and SQL from this same datasource; never send result rows or
 	// failed/interrupted attempts back to the model.
@@ -514,6 +769,7 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		return Record{}, err
 	}
 	history := make([]TurnContext, 0, settings.ContextRecords)
+	historyIDs := make([]ID, 0, settings.ContextRecords)
 	historyBytes := 0
 	for i := len(chat.Records) - 1; i >= 0 && len(history) < settings.ContextRecords; i-- {
 		prior := chat.Records[i]
@@ -525,17 +781,34 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 			continue
 		}
 		history = append(history, TurnContext{Question: prior.Question, SQL: prior.SQL})
+		historyIDs = append(historyIDs, prior.ID)
 		historyBytes += length
 	}
 	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
+		historyIDs[i], historyIDs[j] = historyIDs[j], historyIDs[i]
 	}
 	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, chat.Datasource)
 	if err != nil {
 		return Record{}, err
 	}
-	var model ModelConfig
-	if _, err := service.Store.get(ctx, objectKey{"model", string(p.Workspace), "workspace", "default"}, &model); err != nil {
+	if p.EmbeddedApp != "" {
+		var app AssistantApplication
+		appRevision, err := service.Store.get(ctx, assistantKey(p.Workspace, p.EmbeddedApp), &app)
+		if err != nil || appRevision != p.EmbeddedRevision || app.ID != p.EmbeddedApp || !app.Enabled {
+			return Record{}, ErrUnauthenticated
+		}
+		if app.UseCustomModel {
+			if app.CustomModel == nil || !app.CustomModel.Valid() || selected != nil && *selected != *app.CustomModel {
+				return Record{}, ErrModel
+			}
+			selected = app.CustomModel
+		} else if selected != nil {
+			return Record{}, ErrModel
+		}
+	}
+	model, modelLease, err := service.Store.modelForWorkspaceSelection(ctx, p.Workspace, selected)
+	if err != nil {
 		return Record{}, err
 	}
 	recordID, err := newID()
@@ -564,23 +837,101 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	}
 	revision++
 	stage := "metadata"
+	var permissionSnapshot []DataPermissionRule
+	var fingerprint string
 	run := func() error {
 		if onStart != nil {
 			if err := onStart(recordID); err != nil {
 				return err
 			}
 		}
-		columns, err := service.schema(ctx, p, binding)
+		columns, currentPermissions, err := service.semanticSchemaWithPermissionSnapshot(ctx, p, binding)
 		if err != nil {
 			return err
 		}
+		permissionSnapshot = currentPermissions
+		// Keep an immutable copy for post-inference comparison. A gateway
+		// implementation may reuse the backing array of its schema result.
+		columns = append([]Column(nil), columns...)
+		fingerprint, err = service.modelContextFingerprint(ctx, p, bindingDigest, permissionSnapshot)
+		if err != nil {
+			return err
+		}
+		history, err = service.historyWithCurrentPolicy(ctx, p, historyIDs, history, fingerprint)
+		if err != nil {
+			return err
+		}
+		remarks, err := managedFileRemarkHints(binding, columns)
+		if databaseBinding(binding) {
+			remarks, err = databaseRemarkHints(binding, columns)
+		}
+		if err != nil {
+			return err
+		}
+		semanticQuery := question
+		if settings.Embedding.TableEnabled && service.Embedding != nil {
+			keywords := question
+			if settings.Embedding.KeywordEnabled && service.Embedding != nil {
+				if extractor, ok := service.Model.(TableKeywordExtractor); ok {
+					extracted, extractErr := extractor.ExtractTableKeywords(ctx, model, question, history)
+					if extractErr != nil {
+						return extractErr
+					}
+					if err := check(ctx); err != nil {
+						return err
+					}
+					if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+						return err
+					}
+					if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+						return err
+					}
+					if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
+						return err
+					}
+					if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+						return err
+					}
+					if extracted != "" {
+						semanticQuery = extracted
+						keywords, err = service.expandTableKeywords(ctx, p, chat.Datasource, extracted)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+			// Local inference may take minutes on a large authorized schema. A
+			// revocation during a batch must discard its vectors before they are
+			// written to the user-scoped index, not merely before SQL execution.
+			authorizedColumns := columns
+			authorizedRemarks := remarks
+			validateTableIndexSnapshot := service.tableIndexValidator(p, binding, bindingRevision, bindingDigest,
+				permissionSnapshot, authorizedColumns, authorizedRemarks, model, modelLease, fingerprint, check)
+			columns, remarks, err = selectModelTablesForAsk(ctx, service.Store, p, chat.Datasource, service.Embedding, question, keywords, columns, remarks,
+				settings.Embedding.TableCount, settings.Embedding.TableAlpha, settings.Embedding.KeywordEnabled,
+				foregroundTableIndexBudget, validateTableIndexSnapshot)
+			if err != nil {
+				return err
+			}
+			// This also closes the path where inference falls back to the full
+			// schema before it reaches the indexed-vector callback.
+			if err := validateTableIndexSnapshot(ctx); err != nil {
+				return err
+			}
+		}
+		history = visibleHistoryForModel(binding.Dialect, columns, history)
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
 		}
 		if err := check(ctx); err != nil {
 			return err
 		}
-		hints, err := service.Vocabulary(ctx, p, chat.Datasource, question)
+		hints, err := service.Vocabulary(ctx, p, chat.Datasource, semanticQuery)
+		if err != nil {
+			return err
+		}
+		hints, err = relationHintsForModel(binding, columns, hints)
 		if err != nil {
 			return err
 		}
@@ -591,19 +942,20 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 				return err
 			}
 		}
-		remarks, err := datasourceRemarkHints(binding, columns)
-		if err != nil {
-			return err
-		}
-		relations, err := relationHints(binding, columns)
-		if err != nil {
-			return err
-		}
 		stage = "model"
+		// Knowledge retrieval can run local inference after schema discovery.
+		// A changed rule must close before the old schema reaches the generator.
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+			return err
+		}
+		if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+			return err
+		}
+		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
+			return err
+		}
 		var generated SQLGeneration
-		if relational, ok := service.Model.(RelationalGenerator); ok {
-			generated, err = relational.GenerateWithRelations(ctx, model, binding.Dialect, question, columns, history, hints, examples, remarks, relations)
-		} else if described, ok := service.Model.(DescribedGenerator); ok {
+		if described, ok := service.Model.(DescribedGenerator); ok {
 			generated, err = described.GenerateWithDescriptions(ctx, model, binding.Dialect, question, columns, history, hints, examples, remarks)
 		} else if grounded, ok := service.Model.(GroundedGenerator); ok {
 			generated, err = grounded.GenerateWithGrounding(ctx, model, binding.Dialect, question, columns, history, hints, examples)
@@ -626,7 +978,16 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
+		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
+			return err
+		}
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+			return err
+		}
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+			return err
+		}
+		if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
 			return err
 		}
 		stage = "controlled_query"
@@ -640,11 +1001,23 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		if err := check(ctx); err != nil {
 			return err
 		}
+		if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
+			return err
+		}
 		if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
 			return err
 		}
+		if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+			return err
+		}
+		if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
+			return err
+		}
+		if err := service.Store.put(ctx, recordPolicyKey(p, recordID), fingerprint, 0); err != nil {
+			return err
+		}
 		record.Data = &data
-		record.Chart = tableChartConfig(data.Fields)
+		record.Chart = chartConfigForQuestion(question, &data)
 		return nil
 	}
 	runErr := run()
@@ -661,6 +1034,13 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 		record.Chart = ""
 	}
 	chat.Records[len(chat.Records)-1] = record
+	if runErr == nil && firstMCPQuestion {
+		brief := []rune(strings.TrimSpace(question))
+		if len(brief) > 20 {
+			brief = brief[:20]
+		}
+		chat.Brief = string(brief)
+	}
 	chat.LeaseUntil = time.Time{}
 	chat.Latest = finished
 	// A cancelled client still gets a durable interrupted state, bounded to 5s.
@@ -675,7 +1055,18 @@ func (service *Service) Ask(ctx context.Context, p Principal, id ID, question st
 	if err := check(ctx); err != nil {
 		return Record{}, err
 	}
+	if err := service.modelUnchanged(ctx, p.Workspace, model, modelLease); err != nil {
+		return Record{}, err
+	}
 	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return Record{}, err
+	}
+	// A rule may change while the completed turn is being persisted. The
+	// earlier pre-query checks cannot authorize direct delivery after that.
+	if err := service.dataPermissionUnchanged(ctx, p.Workspace, permissionSnapshot); err != nil {
+		return Record{}, err
+	}
+	if err := service.modelContextUnchanged(ctx, p, bindingDigest, permissionSnapshot, fingerprint); err != nil {
 		return Record{}, err
 	}
 	return record, nil

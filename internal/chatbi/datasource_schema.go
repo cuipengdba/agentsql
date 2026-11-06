@@ -90,7 +90,15 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	comments, err := datasourceTableComments(binding)
+	comments, err := managedFileTableComments(binding)
+	if databaseBinding(binding) {
+		comments, err = databaseRemarks(binding, false)
+	}
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	disabled, err := disabledTables(binding)
 	if err != nil {
 		failure(w, err)
 		return
@@ -111,9 +119,13 @@ func (h *Handler) datasourceTableList(w http.ResponseWriter, r *http.Request, p 
 	}
 	result := make([]map[string]any, 0, len(tables))
 	for _, table := range tables {
+		commentKey := table.name
+		if databaseBinding(binding) {
+			commentKey = databaseTableCommentKey(table.schema, table.name)
+		}
 		result = append(result, map[string]any{"id": table.id, "table_name": table.name,
-			"table_comment": "", "custom_comment": comments[datasourceTableRemarkKey(binding, table.schema, table.name)], "embedding": nil,
-			"ds_id": numeric, "checked": true})
+			"table_comment": "", "custom_comment": comments[commentKey], "embedding": nil,
+			"ds_id": numeric, "checked": !disabled[disabledTableKey(table.schema, table.name)]})
 	}
 	okay(w, result)
 }
@@ -149,7 +161,15 @@ func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p 
 		failure(w, err)
 		return
 	}
-	comments, err := datasourceFieldComments(binding)
+	comments, err := managedFileFieldComments(binding)
+	if databaseBinding(binding) {
+		comments, err = databaseRemarks(binding, true)
+	}
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	disabled, err := disabledFields(binding)
 	if err != nil {
 		failure(w, err)
 		return
@@ -184,10 +204,15 @@ func (h *Handler) datasourceFieldList(w http.ResponseWriter, r *http.Request, p 
 			if !strings.Contains(strings.ToLower(column.Name), strings.ToLower(input.FieldName)) {
 				continue
 			}
+			commentKey := managedFileFieldCommentKey(table.name, column.Name)
+			if databaseBinding(binding) {
+				commentKey = databaseFieldCommentKey(table.schema, table.name, column.Name)
+			}
 			result = append(result, map[string]any{"id": id, "field_name": column.Name,
 				"field_type": column.DataType, "field_index": index,
-				"field_comment": nil, "custom_comment": comments[datasourceFieldRemarkKey(binding, table.schema, table.name, column.Name)],
-				"ds_id": numeric, "table_id": tableID, "checked": true})
+				"field_comment": nil, "custom_comment": comments[commentKey],
+				"ds_id": numeric, "table_id": tableID,
+				"checked": !disabled[disabledFieldKey(table.schema, table.name, column.Name)]})
 		}
 		okay(w, result)
 		return
@@ -316,6 +341,16 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 		failure(w, err)
 		return
 	}
+	columns, err = filterDisabledTables(binding, columns)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	columns, err = filterDisabledFields(binding, columns)
+	if err != nil {
+		failure(w, err)
+		return
+	}
 	var schema string
 	names := make([]string, 0, len(columns))
 	seen := map[string]bool{}
@@ -339,7 +374,7 @@ func (h *Handler) datasourcePreview(w http.ResponseWriter, r *http.Request, p Pr
 	from := quote(schema) + "." + quote(input.Table.TableName)
 	if binding.Dialect == "mysql" {
 		quote = func(name string) string { return "`" + strings.ReplaceAll(name, "`", "``") + "`" }
-		from = quote(input.Table.TableName)
+		from = quote(schema) + "." + quote(input.Table.TableName)
 	} else if binding.Dialect != "pg" {
 		failure(w, ErrGateway)
 		return

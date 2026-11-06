@@ -9,33 +9,35 @@ import (
 	"strings"
 )
 
-func readSemanticUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func readSemanticUpload(w http.ResponseWriter, r *http.Request) (string, []byte, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSemanticUpload+65536)
 	reader, err := r.MultipartReader()
 	if err != nil {
-		return nil, errSemanticWorkbook
+		return "", nil, errSemanticWorkbook
 	}
 	var data []byte
+	var filename string
 	seen := false
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
 			break
 		}
-		if err != nil || seen || part.FormName() != "file" || !strings.HasSuffix(strings.ToLower(part.FileName()), ".xlsx") {
-			return nil, errSemanticWorkbook
+		if err != nil || seen || part.FormName() != "file" || semanticUploadExtension(part.FileName()) == "" {
+			return "", nil, errSemanticWorkbook
 		}
 		seen = true
+		filename = part.FileName()
 		data, err = io.ReadAll(io.LimitReader(part, maxSemanticUpload+1))
 		_ = part.Close()
 		if err != nil || len(data) > maxSemanticUpload {
-			return nil, errSemanticWorkbook
+			return "", nil, errSemanticWorkbook
 		}
 	}
 	if !seen {
-		return nil, errSemanticWorkbook
+		return "", nil, errSemanticWorkbook
 	}
-	return data, nil
+	return filename, data, nil
 }
 
 func (service *Service) semanticBindingNames(ctx context.Context, p Principal) (map[string]ID, error) {
@@ -78,7 +80,17 @@ type semanticUploadReport struct {
 	DuplicateCount int              `json:"duplicate_count"`
 	OriginalCount  int              `json:"original_count"`
 	ErrorExcelFile *string          `json:"error_excel_filename"`
-	FailedRecords  []map[string]any `json:"failed_records,omitempty"`
+	FailedRecords  []map[string]any `json:"-"`
+}
+
+func semanticUploadKey(kind, value, datasource, assistant string) string {
+	key := strings.ToLower(strings.TrimSpace(value))
+	if kind == "terminology" {
+		return key
+	}
+	// Original training import deduplicates within a workbook by question,
+	// datasource and assistant, then checks stored examples per datasource.
+	return key + "\x00" + strings.ToLower(strings.TrimSpace(datasource)) + "\x00" + strings.ToLower(strings.TrimSpace(assistant))
 }
 
 func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Principal, token, kind string) {
@@ -86,18 +98,23 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 		failure(w, err)
 		return
 	}
-	data, err := readSemanticUpload(w, r)
+	filename, data, err := readSemanticUpload(w, r)
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized XLSX upload")
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or oversized XLS/XLSX upload")
 		return
 	}
 	columns := 6
 	if kind == "sql-example" {
 		columns = 4
 	}
-	rows, err := readSemanticWorkbook(data, columns)
+	var rows [][]string
+	if semanticUploadExtension(filename) == ".xls" {
+		rows, err = readLegacySemanticWorkbook(data, columns)
+	} else {
+		rows, err = readSemanticWorkbook(data, columns)
+	}
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported XLSX workbook")
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid or unsupported XLS/XLSX workbook")
 		return
 	}
 	bindings, err := h.service.semanticBindingNames(r.Context(), p)
@@ -113,7 +130,7 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 			return
 		}
 		for _, item := range items {
-			known[strings.ToLower(strings.TrimSpace(item.Word))] = true
+			known[semanticUploadKey(kind, item.Word, "", "")] = true
 		}
 	} else {
 		items, err := h.service.Examples(r.Context(), p)
@@ -122,10 +139,15 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 			return
 		}
 		for _, item := range items {
-			known[strings.ToLower(strings.TrimSpace(item.Question))] = true
+			assistant := ""
+			if item.AdvancedApplicationName != nil {
+				assistant = *item.AdvancedApplicationName
+			}
+			known[semanticUploadKey(kind, item.Question, item.DatasourceName, assistant)] = true
 		}
 	}
 	report := semanticUploadReport{FailedRecords: []map[string]any{}}
+	seenInFile := map[string]bool{}
 	failedRows := make([][]string, 0)
 	for rowIndex, row := range rows {
 		blank := true
@@ -139,9 +161,22 @@ func (h *Handler) uploadSemantics(w http.ResponseWriter, r *http.Request, p Prin
 			continue
 		}
 		report.OriginalCount++
-		key := strings.ToLower(strings.TrimSpace(row[0]))
-		if key != "" && known[key] {
+		value := strings.TrimSpace(row[0])
+		key := semanticUploadKey(kind, value, row[2], "")
+		if kind == "sql-example" {
+			key = semanticUploadKey(kind, value, row[2], row[3])
+		}
+		if value != "" && seenInFile[key] {
 			report.DuplicateCount++
+			continue
+		}
+		if value != "" {
+			seenInFile[key] = true
+		}
+		if value != "" && known[key] {
+			report.FailedCount++
+			report.FailedRecords = append(report.FailedRecords, map[string]any{"row": rowIndex + 2, "reason": "already exists"})
+			failedRows = append(failedRows, append(append([]string(nil), row...), "already exists"))
 			continue
 		}
 		if err := h.currentIdentity(r.Context(), p, token); err != nil {

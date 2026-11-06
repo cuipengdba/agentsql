@@ -35,6 +35,7 @@ type managedFileReceipt struct {
 	Sheets            []importedFileSheet `json:"sheets"`
 	Created           time.Time           `json:"created"`
 	ClaimedDatasource ID                  `json:"claimed_datasource,omitempty"`
+	CleanupStarted    time.Time           `json:"cleanup_started,omitempty"`
 }
 
 func managedFileReceiptKey(p Principal, filePath string) objectKey {
@@ -123,6 +124,8 @@ func (h *Handler) stageUploadedFile(ctx context.Context, p Principal, filename s
 	extension := ".csv"
 	if strings.HasSuffix(strings.ToLower(filename), ".xlsx") {
 		extension = ".xlsx"
+	} else if strings.HasSuffix(strings.ToLower(filename), ".xls") {
+		extension = ".xls"
 	}
 	stage := fileStage{FilePath: "agentsql-file-" + string(id) + extension, Original: filename,
 		Data: data, Expires: time.Now().UTC().Add(time.Hour)}
@@ -210,7 +213,7 @@ func (h *Handler) publishManagedFile(w http.ResponseWriter, r *http.Request, p P
 	var prior managedFileReceipt
 	_, err = h.service.Store.get(r.Context(), managedFileReceiptKey(p, stage.FilePath), &prior)
 	if err == nil {
-		if prior.ClaimedDatasource != "" || prior.Filename != stage.FilePath ||
+		if prior.ClaimedDatasource != "" || !prior.CleanupStarted.IsZero() || prior.Filename != stage.FilePath ||
 			prior.FileSHA256 != hex.EncodeToString(fileHash[:]) || prior.SelectionSHA256 != selectionHash ||
 			!managedFileOperationPattern.MatchString(prior.OperationID) ||
 			!managedFileChildNamePattern.MatchString(prior.DatasourceName) || prior.BindingID == "" ||
@@ -289,6 +292,7 @@ func (h *Handler) publishManagedFile(w http.ResponseWriter, r *http.Request, p P
 		child := binding
 		child.BindingID = result.ChildBindingID
 		child.Name = result.ChildName
+		child.ResolveName = result.ChildName
 		child.ConnectorToken = result.ConnectorToken
 		recovery, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 45*time.Second)
 		defer cancel()

@@ -299,11 +299,14 @@ func (s *Store) DeleteWorkspaceManaged(ctx context.Context, id ID, p Principal) 
 		return err
 	}
 	var scopedObjects int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM chatbi_objects WHERE scope=?`, string(id)).Scan(&scopedObjects); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM chatbi_objects WHERE scope=? AND kind!='user-import-error'`, string(id)).Scan(&scopedObjects); err != nil {
 		return ErrUnavailable
 	}
 	if scopedObjects != 0 {
 		return ErrWorkspaceNotEmpty
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chatbi_objects WHERE scope=? AND kind='user-import-error'`, string(id)); err != nil {
+		return ErrUnavailable
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,revision,body FROM chatbi_objects WHERE kind='user' AND scope='system' AND owner='system'`)
 	if err != nil {

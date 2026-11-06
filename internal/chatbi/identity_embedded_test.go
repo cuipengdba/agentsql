@@ -296,4 +296,62 @@ func TestPageEmbedSeparatesApplicationsAndExplicitDatasourceScope(t *testing.T) 
 	if w.Code != 200 || bytes.Contains(w.Body.Bytes(), []byte(`"id":"11"`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"id":"10"`)) {
 		t.Fatalf("embedded datasource list escaped app scope: %d %s", w.Code, w.Body.String())
 	}
+	visitorA := strings.Repeat("a", 32)
+	visitorB := strings.Repeat("b", 32)
+	visitorToken := func(visitor string) string {
+		return signedEmbeddedFixture(t, first.AppSecret, map[string]any{
+			"account": user.Account, "appId": first.AppID, "visitor": visitor,
+			"exp": time.Now().Add(time.Hour).Unix(),
+		})
+	}
+	firstVisitor, err := service.Identity.VerifyEmbedded(ctx, visitorToken(visitorA))
+	if err != nil || firstVisitor.VisitorScope != visitorA {
+		t.Fatalf("first visitor identity: %v", err)
+	}
+	secondVisitor, err := service.Identity.VerifyEmbedded(ctx, visitorToken(visitorB))
+	if err != nil || secondVisitor.VisitorScope != visitorB {
+		t.Fatalf("second visitor identity: %v", err)
+	}
+	if _, _, err := service.chat(ctx, firstVisitor, chat.ID); err != ErrUnavailable {
+		t.Fatalf("visitor could read unscoped chat: %v", err)
+	}
+	visitorChat, err := service.Start(ctx, firstVisitor, "10", "", 2)
+	if err != nil {
+		t.Fatalf("first visitor start: %v", err)
+	}
+	if _, _, err := service.chat(ctx, secondVisitor, visitorChat.ID); err != ErrUnavailable {
+		t.Fatalf("second visitor read first visitor chat: %v", err)
+	}
+	if _, _, err := service.chat(ctx, firstPrincipal, visitorChat.ID); err != ErrUnavailable {
+		t.Fatalf("unscoped app token read visitor chat: %v", err)
+	}
+	firstChats, err := service.Chats(ctx, firstVisitor)
+	if err != nil || len(firstChats) != 1 || firstChats[0].ID != visitorChat.ID {
+		t.Fatalf("first visitor chat list: %v, %v", firstChats, err)
+	}
+	secondChats, err := service.Chats(ctx, secondVisitor)
+	if err != nil || len(secondChats) != 0 {
+		t.Fatalf("second visitor chat list: %v, %v", secondChats, err)
+	}
+	visitorChat, chatRevision, err := service.chat(ctx, firstVisitor, visitorChat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visitorChat.Records = append(visitorChat.Records, Record{
+		ID: "123", Chat: visitorChat.ID, Datasource: "10", Question: "private visitor question", Created: time.Now(),
+	})
+	if err := service.Store.put(ctx, chatKey(firstVisitor, visitorChat.ID), visitorChat, chatRevision); err != nil {
+		t.Fatal(err)
+	}
+	firstQuestions, err := service.RecentQuestions(ctx, firstVisitor, "10")
+	if err != nil || len(firstQuestions) != 1 || firstQuestions[0] != "private visitor question" {
+		t.Fatalf("first visitor suggestions: %v, %v", firstQuestions, err)
+	}
+	secondQuestions, err := service.RecentQuestions(ctx, secondVisitor, "10")
+	if err != nil || len(secondQuestions) != 0 {
+		t.Fatalf("second visitor suggestions: %v, %v", secondQuestions, err)
+	}
+	if _, err := service.Identity.VerifyEmbedded(ctx, visitorToken("public-visitor")); err == nil {
+		t.Fatal("invalid visitor scope accepted")
+	}
 }

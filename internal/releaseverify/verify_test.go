@@ -16,32 +16,46 @@ import (
 
 type fixture struct {
 	dir, key string
+	version  string
 	private  ed25519.PrivateKey
 	public   PublicKey
 	files    map[string][]byte
 }
 
 func newFixture(t *testing.T) *fixture {
+	return newFixtureVersion(t, "v4.0.0")
+}
+
+func newFixtureVersion(t *testing.T, version string) *fixture {
 	t.Helper()
 	pub, private, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	f := &fixture{dir: t.TempDir(), key: filepath.Join(t.TempDir(), "trusted.json"), private: private, public: PublicKey{1, "Ed25519", "release", "sha256:" + digest(pub), base64.RawStdEncoding.EncodeToString(pub)}, files: map[string][]byte{}}
+	f := &fixture{dir: t.TempDir(), key: filepath.Join(t.TempDir(), "trusted.json"), version: version, private: private, public: PublicKey{1, "Ed25519", "release", "sha256:" + digest(pub), base64.RawStdEncoding.EncodeToString(pub)}, files: map[string][]byte{}}
 	key, _ := json.Marshal(f.public)
 	require.NoError(t, os.WriteFile(f.key, key, 0600))
-	for _, name := range Names("v4.0.0") {
+	for _, name := range Names(version) {
 		f.files[name] = []byte("fixture " + name + "\n")
 	}
 	f.files["ed25519-release-public-key.json"] = key
-	f.files["agentsql-v4.0.0.spdx.json"] = []byte(`{"spdxVersion":"SPDX-2.3","SPDXID":"SPDXRef-DOCUMENT","name":"agentsql","documentNamespace":"https://github.com/cuipengdba/agentsql/releases/download/v4.0.0/agentsql-v4.0.0.spdx.json","packages":[{"name":"fixture"}]}`)
+	f.files["agentsql-"+version+".spdx.json"] = []byte(`{"spdxVersion":"SPDX-2.3","SPDXID":"SPDXRef-DOCUMENT","name":"agentsql","documentNamespace":"https://github.com/cuipengdba/agentsql/releases/download/` + version + `/agentsql-` + version + `.spdx.json","packages":[{"name":"fixture"}]}`)
 	for _, arch := range []string{"amd64", "arm64"} {
-		name := "agentsql-v4.0.0-linux-" + arch + ".tar.gz"
+		name := "agentsql-" + version + "-linux-" + arch + ".tar.gz"
+		f.files[name+".sha256"] = []byte(digest(f.files[name]) + "  " + name + "\n")
+	}
+	if hasChatBIModel(version) {
+		name := "agentsql-" + version + "-chatbi-model.tar.gz"
 		f.files[name+".sha256"] = []byte(digest(f.files[name]) + "  " + name + "\n")
 	}
 	subjects := []map[string]any{}
-	for _, name := range []string{"agentsql-v4.0.0-linux-amd64.tar.gz", "agentsql-v4.0.0-linux-amd64.tar.gz.sha256", "agentsql-v4.0.0-linux-arm64.tar.gz", "agentsql-v4.0.0-linux-arm64.tar.gz.sha256", "agentsql-v4.0.0.spdx.json", "install.sh", "go-version-metadata.txt", "SBOM-GENERATION.txt"} {
+	subjectNames := []string{"agentsql-" + version + "-linux-amd64.tar.gz", "agentsql-" + version + "-linux-amd64.tar.gz.sha256", "agentsql-" + version + "-linux-arm64.tar.gz", "agentsql-" + version + "-linux-arm64.tar.gz.sha256", "agentsql-" + version + ".spdx.json", "install.sh", "go-version-metadata.txt", "SBOM-GENERATION.txt"}
+	if hasChatBIModel(version) {
+		name := "agentsql-" + version + "-chatbi-model.tar.gz"
+		subjectNames = append(subjectNames, name, name+".sha256")
+	}
+	for _, name := range subjectNames {
 		subjects = append(subjects, map[string]any{"name": name, "size": len(f.files[name]), "digest": map[string]string{"sha256": digest(f.files[name])}})
 	}
-	f.files["provenance.json"], err = json.Marshal(map[string]any{"schemaVersion": 1, "documentType": "AgentSQL official release provenance", "version": "v4.0.0", "source": map[string]any{"repository": "https://github.com/cuipengdba/agentsql", "commit": strings.Repeat("a", 40), "dirtyAtBuild": false}, "subjects": subjects})
+	f.files["provenance.json"], err = json.Marshal(map[string]any{"schemaVersion": 1, "documentType": "AgentSQL official release provenance", "version": version, "source": map[string]any{"repository": "https://github.com/cuipengdba/agentsql", "commit": strings.Repeat("a", 40), "dirtyAtBuild": false}, "subjects": subjects})
 	require.NoError(t, err)
 	f.seal(t)
 	return f
@@ -56,10 +70,10 @@ func (f *fixture) sign(t *testing.T, name string) {
 
 func (f *fixture) seal(t *testing.T) {
 	t.Helper()
-	f.sign(t, "agentsql-v4.0.0.spdx.json")
+	f.sign(t, "agentsql-"+f.version+".spdx.json")
 	f.sign(t, "provenance.json")
 	var lines strings.Builder
-	for _, name := range Names("v4.0.0") {
+	for _, name := range Names(f.version) {
 		if name != "SHA256SUMS" && name != "SHA256SUMS.sig.json" {
 			lines.WriteString(digest(f.files[name]) + "  " + name + "\n")
 		}
@@ -87,6 +101,24 @@ func TestVerifyAuthenticReleaseAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = Verify(ctx, f.dir, f.key, "v4.0.0")
+	require.Error(t, err)
+}
+
+func TestVerifyModelReleaseAndHistoricalInventory(t *testing.T) {
+	require.Len(t, Names("v4.4.0"), 15)
+	require.Len(t, Names("v4.5.0"), 17)
+	f := newFixtureVersion(t, "v4.5.0")
+	report, err := Verify(context.Background(), f.dir, f.key, f.version)
+	require.NoError(t, err)
+	require.Equal(t, 17, report.Assets)
+	name := "agentsql-v4.5.0-chatbi-model.tar.gz"
+	require.NoError(t, os.WriteFile(filepath.Join(f.dir, name), []byte("tampered"), 0600))
+	_, err = Verify(context.Background(), f.dir, f.key, f.version)
+	require.Error(t, err)
+	f.write(t)
+	f.files[name+".sha256"] = []byte(strings.Repeat("0", 64) + "  " + name + "\n")
+	f.seal(t)
+	_, err = Verify(context.Background(), f.dir, f.key, f.version)
 	require.Error(t, err)
 }
 

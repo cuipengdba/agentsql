@@ -17,9 +17,12 @@ func TestAdminRowFilterPolicyRequiresSafePostgresShape(t *testing.T) {
 	stored, err := fixture.store.Policies().Get(context.Background(), "row-safe")
 	require.NoError(t, err)
 	require.Equal(t, "id = 1", *stored.RowFilter)
+	status, body = fixture.request(http.MethodPost, "/api/v1/policies", fixture.adminToken,
+		`{"id":"row-or","agent_id":"agent-1","datasource_id":"ds-1","object_type":"table","object_name":"public.customers","row_filter":"id = 1 OR id = 2","action":"allow"}`)
+	require.Equal(t, http.StatusOK, status, body)
 
 	for _, input := range []string{
-		`{"id":"row-or","agent_id":"agent-1","datasource_id":"ds-1","object_type":"table","object_name":"public.customers","row_filter":"id = 1 OR id = 2","action":"allow"}`,
+		`{"id":"row-unsafe-or","agent_id":"agent-1","datasource_id":"ds-1","object_type":"table","object_name":"public.customers","row_filter":"id = 1 OR 1 = 1","action":"allow"}`,
 		`{"id":"row-wide","agent_id":"agent-1","datasource_id":"ds-1","object_type":"table","object_name":"public.*","row_filter":"id = 1","action":"allow"}`,
 		`{"id":"row-deny","agent_id":"agent-1","datasource_id":"ds-1","object_type":"table","object_name":"public.customers","row_filter":"id = 1","action":"deny"}`,
 	} {

@@ -3,6 +3,7 @@ package chatbi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,29 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestGatewayResolveDistinguishesRevokedMappingFromAuditFailure(t *testing.T) {
+	status := http.StatusUnauthorized
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+	defer server.Close()
+	gateway := &ControlledGateway{Endpoint: server.URL + "/mcp", AllowHTTP: true}
+	principal := Principal{User: User{ID: "7"}, Workspace: "1"}
+	binding := Binding{Datasource: "10", Workspace: "1", User: "7", Name: "sales", Dialect: "pg", BindingID: "binding-1", ConnectorToken: "connector-secret", AgentKey: "agent-secret"}
+	_, err := gateway.resolve(context.Background(), principal, binding)
+	if !errors.Is(err, ErrGatewaySourceDenied) || !errors.Is(err, ErrGateway) {
+		t.Fatalf("401 must identify the revoked connector and remain a gateway refusal: %v", err)
+	}
+	status = http.StatusForbidden
+	_, err = gateway.resolve(context.Background(), principal, binding)
+	if !errors.Is(err, ErrGatewaySourceDenied) || !errors.Is(err, ErrGateway) {
+		t.Fatalf("403 must identify the revoked mapping and remain a gateway refusal: %v", err)
+	}
+	status = http.StatusServiceUnavailable
+	_, err = gateway.resolve(context.Background(), principal, binding)
+	if !errors.Is(err, ErrGateway) || errors.Is(err, ErrGatewaySourceDenied) {
+		t.Fatalf("audit outage must remain a hard gateway failure: %v", err)
+	}
+}
 
 func TestControlledGatewayUsesAuthenticatedIdentityAndDurableAudit(t *testing.T) {
 	for _, mode := range []string{"allow", "warn", "missing-audit", "deny"} {

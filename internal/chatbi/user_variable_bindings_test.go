@@ -104,6 +104,54 @@ func TestManagedUserVariableBindingsAreScopedValidatedAndAudited(t *testing.T) {
 	}
 }
 
+func TestCurrentUserInfoIncludesCurrentWorkspaceVariableAssignments(t *testing.T) {
+	service, handler, adminToken, bobToken := adminUsersFixture(t)
+	created := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/save",
+		`{"name":"region","var_type":"text","value":["east","west"]}`, adminToken)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create variable: %d %s", created.Code, created.Body.String())
+	}
+	definitions, err := service.Store.SystemVariables(context.Background(), "1", "region")
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("variable definition: %+v %v", definitions, err)
+	}
+	input := fmt.Sprintf(`{"id":2,"account":"bob","name":"Bob","oid_list":[1],"system_variables":[{"variableId":%d,"variableValues":["east"]}]}`, definitions[0].ID)
+	updated := accountRequest(t, handler, http.MethodPut, "/api/v1/user", input, adminToken)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("assign variable: %d %s", updated.Code, updated.Body.String())
+	}
+	stale := accountRequest(t, handler, http.MethodGet, "/api/v1/user/info", "", bobToken)
+	if stale.Code != http.StatusUnauthorized {
+		t.Fatalf("old token survived variable assignment update: %d", stale.Code)
+	}
+	_, freshToken, err := service.Identity.Login(context.Background(), "bob", "Synthetic-password-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := accountRequest(t, handler, http.MethodGet, "/api/v1/user/info", "", freshToken)
+	if info.Code != http.StatusOK {
+		t.Fatalf("current user info: %d %s", info.Code, info.Body.String())
+	}
+	var response struct {
+		Data struct {
+			SystemVariables []struct {
+				VariableID     int64             `json:"variableId"`
+				VariableValues []json.RawMessage `json:"variableValues"`
+			} `json:"system_variables"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(info.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data.SystemVariables) != 1 || response.Data.SystemVariables[0].VariableID != definitions[0].ID ||
+		len(response.Data.SystemVariables[0].VariableValues) != 1 || string(response.Data.SystemVariables[0].VariableValues[0]) != `"east"` {
+		t.Fatalf("current workspace assignment absent: %s", info.Body.String())
+	}
+	if strings.Contains(info.Body.String(), "password_hash") || strings.Contains(info.Body.String(), "password_format") {
+		t.Fatal("current user info exposed credential fields")
+	}
+}
+
 func TestManagedUserCreateWithSystemVariableBinding(t *testing.T) {
 	service, handler, adminToken, _ := adminUsersFixture(t)
 	created := accountRequest(t, handler, http.MethodPost, "/api/v1/sys_variable/save",

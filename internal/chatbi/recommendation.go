@@ -28,6 +28,26 @@ func recommendationKey(workspace, datasource ID) objectKey {
 	return objectKey{"recommendations", string(workspace), "datasource", string(datasource)}
 }
 
+// The original datasource card uses this display-only field to choose the
+// configuration dialog's radio button. Never include saved question text in
+// the datasource list; the dedicated read still requires a live gateway.
+func (service *Service) recommendationDisplayMode(ctx context.Context, p Principal, datasource ID) (int, error) {
+	var config RecommendationConfig
+	if _, err := service.Store.get(ctx, recommendationKey(p.Workspace, datasource), &config); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 1, nil
+		}
+		return 0, err
+	}
+	if config.Workspace != p.Workspace || config.Datasource != datasource || validateRecommendations(config) != nil {
+		return 0, ErrUnavailable
+	}
+	if config.Mode == 2 {
+		return 2, nil
+	}
+	return 1, nil
+}
+
 func validateRecommendations(config RecommendationConfig) error {
 	if !config.Workspace.Valid() || !config.Datasource.Valid() || (config.Mode != 0 && config.Mode != 2) || len(config.Questions) > 20 || config.Mode == 0 && len(config.Questions) != 0 {
 		return errors.New("invalid recommendation configuration")
@@ -48,16 +68,22 @@ func (service *Service) Recommendations(ctx context.Context, p Principal, dataso
 }
 
 func (service *Service) recommendationSnapshot(ctx context.Context, p Principal, datasource ID) (RecommendationConfig, int64, error) {
-	if _, err := service.binding(ctx, p, datasource); err != nil {
+	binding, bindingRevision, bindingDigest, err := service.bindingSnapshot(ctx, p, datasource)
+	if err != nil {
+		return RecommendationConfig{}, 0, err
+	}
+	if _, err := service.schema(ctx, p, binding); err != nil {
 		return RecommendationConfig{}, 0, err
 	}
 	var config RecommendationConfig
 	revision, err := service.Store.get(ctx, recommendationKey(p.Workspace, datasource), &config)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return RecommendationConfig{Workspace: p.Workspace, Datasource: datasource, Mode: 0, Questions: []RecommendedProblem{}}, 0, nil
+			config = RecommendationConfig{Workspace: p.Workspace, Datasource: datasource, Mode: 0, Questions: []RecommendedProblem{}}
+			revision = 0
+		} else {
+			return RecommendationConfig{}, 0, err
 		}
-		return RecommendationConfig{}, 0, err
 	}
 	if config.Workspace != p.Workspace || config.Datasource != datasource || validateRecommendations(config) != nil {
 		return RecommendationConfig{}, 0, ErrUnavailable
@@ -68,6 +94,9 @@ func (service *Service) recommendationSnapshot(ctx context.Context, p Principal,
 		}
 		return config.Questions[i].Sort < config.Questions[j].Sort
 	})
+	if err := service.bindingUnchanged(ctx, p, binding, bindingRevision, bindingDigest); err != nil {
+		return RecommendationConfig{}, 0, err
+	}
 	return config, revision, nil
 }
 

@@ -26,12 +26,18 @@ jobs:
           python-version: '3.11'
       - name: Check full English documentation parity
         run: python scripts/check-docs-i18n.py
+      - name: Check current public license copy
+        run: python scripts/check-public-license-copy.py
       - name: Check shared brand assets
         run: python scripts/sync-brand.py --check
       - name: Test SQLBot adapter failure boundaries
         run: python -m unittest discover -s integrations/sqlbot -p 'test_*.py' -v
       - name: Reject binder bundles without an independent trust anchor
         run: sh dbext/packaging/signing/test-trust-boundary.sh
+      - name: Verify offline transport archive signatures
+        run: python -m unittest scripts/test_verify_offline_archive.py -v
+      - name: Reject unsafe or incomplete ChatBI model archives
+        run: python -m unittest scripts/test_package_chatbi_model.py -v
       - name: Sign only explicitly selected fresh binder artifacts
         run: sh dbext/packaging/signing/test-sign-selection.sh
 
@@ -106,14 +112,21 @@ jobs:
         env:
           GOMAXPROCS: '2'
         run: go test -short -p 1 -timeout 20m ./... -count=1
-      - name: Verify native Q&A offline installation and rollback
+      - name: Verify native Q&A legacy installation and rollback
         run: |
-          go build -o "$RUNNER_TEMP/agentsql-chatbi-installer" ./cmd/agentsql
+          # The full v4.5 installer requires the pinned 407 MB model asset.
+          # Keep the native installer regression gate offline and exercise its
+          # supported v4.4 upgrade path here; the signed-model release gate
+          # validates the v4.5 path with the actual model separately.
+          go build -o "$RUNNER_TEMP/agentsql-chatbi-current" ./cmd/agentsql
+          go build -ldflags '-X github.com/cuipengdba/agentsql/internal/version.Version=v4.4.0' \
+            -o "$RUNNER_TEMP/agentsql-chatbi-installer" ./cmd/agentsql
           docker run --rm --network none \
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/src,readonly" \
             --mount "type=bind,src=$RUNNER_TEMP/agentsql-chatbi-installer,dst=/candidate,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/agentsql-chatbi-current,dst=/current,readonly" \
             --entrypoint sh golang:1.26.10-bookworm \
-            /src/scripts/test-chatbi-installer.sh /candidate /src
+            /src/scripts/test-chatbi-installer.sh /candidate /src /current
 
   web:
     runs-on: ubuntu-latest

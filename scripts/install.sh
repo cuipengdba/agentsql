@@ -20,6 +20,7 @@ YASHAN_LIB_DIR="${YASHAN_LIB_PARENT}/yashandb"
 ACTION=
 VERSION=
 FROM_PATH=
+CHATBI_MODEL_DIR=
 NO_START=0
 WITH_CHATBI=0
 SHOW_PASSWORD=0
@@ -31,12 +32,19 @@ TMP_DIR=
 LOCK_DIR=
 PKG_ROOT=
 ENV_CREATED=0
+CONFIG_CREATED=0
+INSTALL_COMMITTED=0
+OLD_DEFAULT_DB_PRESENT=0
+OLD_DEFAULT_WAL_PRESENT=0
+OLD_DEFAULT_SHM_PRESENT=0
 GENERATED_PASSWORD=
 CREATED_USER=0
 CREATED_GROUP=0
 NOLOGIN_SHELL=
 TX_ACTIVE=0
 TX_KIND=
+STATE_REPLACED=0
+OLD_STATE_PRESENT=0
 OLD_AGENTSQL_PRESENT=0
 OLD_CTL_PRESENT=0
 OLD_UNIT_PRESENT=0
@@ -69,8 +77,8 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  install.sh install   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--no-start] [--show-password] [--yes] [--external-backup-done]
-  install.sh upgrade   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--no-start] [--external-backup-done]
+  install.sh install   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--chatbi-model-dir DIR] [--no-start] [--show-password] [--yes] [--external-backup-done]
+  install.sh upgrade   [--version vX.Y.Z | --from PATH] [--with-chatbi] [--chatbi-model-dir DIR] [--no-start] [--external-backup-done]
   install.sh uninstall [--purge] [--yes] [--remove-user]
 EOF
   exit 2
@@ -113,6 +121,15 @@ cleanup_paths() {
   elif [ "$SERVICE_GUARD" -eq 1 ]; then
     warn "The upgrade stopped before replacement; restoring the previous service state."
     restore_service_state || warn "The previous service state could not be restored automatically."
+  fi
+  if [ "$cleanup_status" -ne 0 ] && [ "$ACTION" = install ] && [ "$INSTALL_COMMITTED" -eq 0 ]; then
+    [ "$CONFIG_CREATED" -eq 0 ] || rm -f "$CONFIG_PATH" || true
+    [ "$ENV_CREATED" -eq 0 ] || rm -f "$ENV_PATH" || true
+    if [ "$TX_KIND" = install ]; then
+      [ "$OLD_DEFAULT_DB_PRESENT" -eq 1 ] || rm -f "$DATA_DIR/agentsql.db" || true
+      [ "$OLD_DEFAULT_WAL_PRESENT" -eq 1 ] || rm -f "$DATA_DIR/agentsql.db-wal" || true
+      [ "$OLD_DEFAULT_SHM_PRESENT" -eq 1 ] || rm -f "$DATA_DIR/agentsql.db-shm" || true
+    fi
   fi
   rm -f "$BIN_DIR/.agentsql.new.$$" "$BIN_DIR/.agentsqlctl.new.$$" "/etc/systemd/system/.agentsql.service.new.$$" 2>/dev/null || true
   rm -rf "$YASHAN_LIB_PARENT/.yashandb.new.$$" 2>/dev/null || true
@@ -168,6 +185,11 @@ parse_arguments() {
         WITH_CHATBI=1
         shift
         ;;
+      --chatbi-model-dir)
+        [ "$ACTION" != uninstall ] && [ "$#" -ge 2 ] && [ -z "$CHATBI_MODEL_DIR" ] || usage
+        CHATBI_MODEL_DIR=$2
+        shift 2
+        ;;
       --show-password)
         [ "$ACTION" = install ] || usage
         SHOW_PASSWORD=1
@@ -199,6 +221,9 @@ parse_arguments() {
 
   if [ -n "$VERSION" ] && [ -n "$FROM_PATH" ]; then
     die "--version and --from are mutually exclusive."
+  fi
+  if [ -n "$CHATBI_MODEL_DIR" ] && [ -z "$FROM_PATH" ]; then
+    die "--chatbi-model-dir requires a local verified package via --from."
   fi
   if [ -n "$VERSION" ]; then
     validate_version "$VERSION"
@@ -602,6 +627,7 @@ generate_random_value() {
 ensure_configuration() {
   if [ ! -e "$CONFIG_PATH" ]; then
     install -o root -g agentsql -m 0640 "$PKG_ROOT/deploy/systemd/config.yaml" "$CONFIG_PATH"
+    CONFIG_CREATED=1
   fi
   if [ ! -e "$ENV_PATH" ]; then
     ec_secret=$(generate_random_value 24)
@@ -824,6 +850,7 @@ rollback_transaction() {
   else
     restore_replacement_files || rbt_ok=1
   fi
+  restore_install_state || rbt_ok=1
   if [ "$TX_KIND" = upgrade ] && [ "$EXTERNAL_DB_MODE" -eq 1 ]; then
     if systemd_available; then
       systemctl daemon-reload || rbt_ok=1
@@ -864,6 +891,11 @@ apply_selinux_contexts() {
 
 write_install_state() {
   wis_tmp="${CONFIG_DIR}/.install-state.new.$$"
+  OLD_STATE_PRESENT=0
+  if [ -f "$STATE_PATH" ]; then
+    cp -p "$STATE_PATH" "$TMP_DIR/install-state.before" || return 1
+    OLD_STATE_PRESENT=1
+  fi
   {
     printf 'INSTALLER_VERSION=%s\n' "$INSTALLER_VERSION"
     printf 'SOFTWARE_VERSION=%s\n' "$VERSION"
@@ -881,6 +913,17 @@ write_install_state() {
   chown root:root "$wis_tmp"
   chmod 0644 "$wis_tmp"
   mv "$wis_tmp" "$STATE_PATH"
+  STATE_REPLACED=1
+}
+
+restore_install_state() {
+  [ "$STATE_REPLACED" -eq 1 ] || return 0
+  if [ "$OLD_STATE_PRESENT" -eq 1 ]; then
+    cp -p "$TMP_DIR/install-state.before" "$STATE_PATH" || return 1
+  else
+    rm -f "$STATE_PATH" || return 1
+  fi
+  STATE_REPLACED=0
 }
 
 show_install_result() {
@@ -955,10 +998,17 @@ version_compare() {
 
 chatbi_package_preflight() {
   if [ -f "$CONFIG_DIR/chatbi-install-state" ]; then WITH_CHATBI=1; fi
+  if [ -n "$CHATBI_MODEL_DIR" ] && [ "$WITH_CHATBI" -ne 1 ]; then
+    die "--chatbi-model-dir requires --with-chatbi or an existing managed ChatBI installation."
+  fi
   if [ "$WITH_CHATBI" -eq 1 ]; then
     [ -f "$PKG_ROOT/install-chatbi.sh" ] &&
     [ -f "$PKG_ROOT/deploy/systemd/chatbi.yaml" ] &&
     [ -f "$PKG_ROOT/deploy/systemd/agentsql-chatbi.service" ] || die "This package does not include the requested ChatBI component."
+    if [ -n "$CHATBI_MODEL_DIR" ]; then
+      [ ! -L "$CHATBI_MODEL_DIR" ] && [ -d "$CHATBI_MODEL_DIR" ] || die "The ChatBI model directory is missing or a symbolic link."
+      LD_LIBRARY_PATH="$PKG_ROOT/lib/yashandb${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$PKG_ROOT/agentsql" chatbi verify-embedding-model --path "$CHATBI_MODEL_DIR" >/dev/null || die "The pinned ChatBI model failed verification."
+    fi
   fi
 }
 
@@ -967,7 +1017,7 @@ install_chatbi_component() {
   icc_mode=start
   [ "$ACTION" != upgrade ] || icc_mode=upgrade
   [ "$NO_START" -eq 0 ] || icc_mode=no-start
-  LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" sh "$PKG_ROOT/install-chatbi.sh" "$PKG_ROOT" "$icc_mode" || {
+  LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" sh "$PKG_ROOT/install-chatbi.sh" "$PKG_ROOT" "$icc_mode" "$CHATBI_MODEL_DIR" || {
     warn "ChatBI installation failed; restoring the gateway transaction."
     rollback_transaction || true
     die "The complete AgentSQL installation did not pass."
@@ -989,6 +1039,9 @@ install_action() {
   fi
   prepare_service_account
   ensure_directories
+  [ ! -f "$DATA_DIR/agentsql.db" ] || OLD_DEFAULT_DB_PRESENT=1
+  [ ! -f "$DATA_DIR/agentsql.db-wal" ] || OLD_DEFAULT_WAL_PRESENT=1
+  [ ! -f "$DATA_DIR/agentsql.db-shm" ] || OLD_DEFAULT_SHM_PRESENT=1
   if [ "$ia_reinstall" -eq 0 ]; then
     ensure_configuration
   fi
@@ -1015,9 +1068,10 @@ install_action() {
       die "AgentSQL failed to become healthy. Inspect: systemctl status agentsql and journalctl -u agentsql"
     fi
   fi
-  install_chatbi_component
   write_install_state
+  install_chatbi_component
   TX_ACTIVE=0
+  INSTALL_COMMITTED=1
   remove_transaction_backups
   show_install_result
 }
@@ -1095,8 +1149,8 @@ upgrade_action() {
       fi
     fi
   fi
-  install_chatbi_component
   write_install_state
+  install_chatbi_component
   TX_ACTIVE=0
   SERVICE_GUARD=0
   remove_transaction_backups
@@ -1170,6 +1224,17 @@ uninstall_action() {
     rm -f "$ua_path"
   done
   if [ -f "$CONFIG_DIR/chatbi-install-state" ]; then
+    ua_chatbi_bin=/usr/local/lib/agentsql/chatbi/agentsql
+    ua_chatbi_model=/usr/local/lib/agentsql/chatbi/model
+    [ ! -L "$ua_chatbi_model" ] || die "Refusing a symbolic link at the managed ChatBI model path."
+    if [ -d "$ua_chatbi_model" ]; then
+      if [ -f "$ua_chatbi_bin" ] &&
+         LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$ua_chatbi_bin" chatbi verify-embedding-model --path "$ua_chatbi_model" >/dev/null 2>&1; then
+        rm -r -- "$ua_chatbi_model"
+      else
+        warn "The ChatBI model directory differs from the pinned model and was preserved: $ua_chatbi_model"
+      fi
+    fi
     for ua_path in /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql; do
       [ ! -L "$ua_path" ] || die "Refusing to remove symbolic link at managed path: $ua_path"
       rm -f "$ua_path"

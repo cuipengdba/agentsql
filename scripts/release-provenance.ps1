@@ -1,12 +1,13 @@
 # Shared release provenance checks. This file is dot-sourced by the assembler,
-# the 15-asset validator, and the production signer before it reads a secret key.
+# the versioned asset validator, and the production signer before it reads a secret key.
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'Release provenance checks require PowerShell 7 or newer; run the release scripts with pwsh.'
 }
 
 function Get-ReleaseInputNames {
-    @(
+    param([Parameter(Mandatory = $true)][string]$ReleaseVersion)
+    $names = @(
         'go.mod', 'go.sum', 'web/package.json', 'web/package-lock.json',
         'Dockerfile', 'scripts/build-release-linux.sh', 'scripts/package-release.sh',
         'scripts/install.sh', 'scripts/install-chatbi.sh',
@@ -14,11 +15,18 @@ function Get-ReleaseInputNames {
         'scripts/release-dryrun.ps1',
         'scripts/build-ghcr-multiarch.ps1', 'Makefile'
     )
+    if ([version]$ReleaseVersion.Substring(1) -ge [version]'4.5.0') {
+        $names += 'scripts/package-chatbi-model.py'
+        $names += 'internal/chatbi/pinned_embedding_model.json'
+        $names += 'scripts/install-offline-release.py'
+        $names += 'scripts/assemble-offline-release.py'
+    }
+    return $names
 }
 
 function Get-ReleaseSubjectNames {
     param([Parameter(Mandatory = $true)][string]$ReleaseVersion)
-    @(
+    $names = @(
         "agentsql-$ReleaseVersion-linux-amd64.tar.gz",
         "agentsql-$ReleaseVersion-linux-amd64.tar.gz.sha256",
         "agentsql-$ReleaseVersion-linux-arm64.tar.gz",
@@ -26,6 +34,11 @@ function Get-ReleaseSubjectNames {
         'install.sh', "agentsql-$ReleaseVersion.spdx.json",
         'go-version-metadata.txt', 'SBOM-GENERATION.txt'
     )
+    if ([version]$ReleaseVersion.Substring(1) -ge [version]'4.5.0') {
+        $names += "agentsql-$ReleaseVersion-chatbi-model.tar.gz"
+        $names += "agentsql-$ReleaseVersion-chatbi-model.tar.gz.sha256"
+    }
+    return $names
 }
 
 function Assert-ReleaseNameSet {
@@ -177,6 +190,9 @@ function Assert-ReleaseProvenance {
             $verifyPrefix + ' -input "$AssetDirectory/' + $artifact + '" -signature "$AssetDirectory/' + $artifact + '.sig.json"'
         }
         $validateLine = 'pwsh ./scripts/release-dryrun.ps1 -Version ' + $ReleaseVersion + ' -ValidateOnly -AssetsDirectory $AssetDirectory'
+        if ([version]$ReleaseVersion.Substring(1) -ge [version]'4.5.0') {
+            $validateLine += ' -PythonExecutable $PythonExecutable'
+        }
         if (-not $instructions.StartsWith("# Release signature verification ($ReleaseVersion)`n", [System.StringComparison]::Ordinal) -or
             $instructions -notlike '*before uploading any asset*' -or
             -not $instructions.Contains('$env:GOTOOLCHAIN = ''local''') -or
@@ -232,7 +248,7 @@ function Assert-ReleaseProvenance {
         }
     }
 
-    $expectedInputs = @(Get-ReleaseInputNames)
+    $expectedInputs = @(Get-ReleaseInputNames -ReleaseVersion $ReleaseVersion)
     $inputs = @($document.inputs)
     Assert-ReleaseNameSet -Actual @($inputs | ForEach-Object { [string]$_.name }) -Expected $expectedInputs -Label 'Release provenance inputs'
     foreach ($input in $inputs) {

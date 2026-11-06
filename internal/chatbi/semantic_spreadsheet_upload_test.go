@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -165,5 +166,201 @@ func TestSemanticXLSXUploadReportsRowsAndAuditsWrites(t *testing.T) {
 	stored, err = service.Terminologies(context.Background(), p)
 	if err != nil || len(stored) != 1 {
 		t.Fatal("term persisted despite failed audit")
+	}
+}
+
+func TestSemanticXLSXUploadDistinguishesExistingAndInFileDuplicates(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	p, err := service.Identity.Verify(context.Background(), adminToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveTerminology(context.Background(), p, Terminology{
+		Word: "Existing term", Description: "synthetic", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	upload := func(rows [][]string) semanticUploadReport {
+		t.Helper()
+		book, err := semanticWorkbook(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, err := form.CreateFormFile("file", "synthetic.xlsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(book); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/system/terminology/uploadExcel", &body)
+		r.Header.Set("Content-Type", form.FormDataContentType())
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+adminToken)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("upload failed: %d %s", w.Code, w.Body.String())
+		}
+		var response struct {
+			Data semanticUploadReport `json:"data"`
+		}
+		if json.Unmarshal(w.Body.Bytes(), &response) != nil || bytes.Contains(w.Body.Bytes(), []byte(`"failed_records"`)) {
+			t.Fatalf("upload response differs from original public shape: %s", w.Body.String())
+		}
+		return response.Data
+	}
+	headers := semanticHeaders("terminology", "en", true)
+	existing := upload([][]string{headers, {"Existing term", "", "synthetic", "", "Y", ""}})
+	if existing.SuccessCount != 0 || existing.FailedCount != 1 || existing.DuplicateCount != 0 ||
+		existing.OriginalCount != 1 || existing.ErrorExcelFile == nil {
+		t.Fatalf("existing stored term was not reported as a failed row: %+v", existing)
+	}
+	newRows := upload([][]string{headers,
+		{"Within file", "", "synthetic", "", "Y", ""},
+		{"Within file", "", "different description", "", "Y", ""}})
+	if newRows.SuccessCount != 1 || newRows.FailedCount != 0 || newRows.DuplicateCount != 1 ||
+		newRows.OriginalCount != 2 || newRows.ErrorExcelFile != nil {
+		t.Fatalf("in-file duplicate was not reported separately: %+v", newRows)
+	}
+}
+
+func TestSQLExampleUploadScopesDuplicatesByDatasource(t *testing.T) {
+	service, handler, adminToken, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	p, err := service.Identity.Verify(ctx, adminToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := Binding{Datasource: "11", Workspace: p.Workspace, User: p.User.ID, Name: "second", Dialect: "pg", BindingID: "second-binding", ConnectorToken: "second-connector", AgentKey: "second-agent"}
+	if err := service.Store.put(ctx, bindingKey(p, second.Datasource), second, 0); err != nil {
+		t.Fatal(err)
+	}
+	question := "How many synthetic rows?"
+	if _, err := service.SaveExample(ctx, p, SQLExample{Workspace: 1, Datasource: 10, Question: question, Description: "SELECT count(*) FROM first", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rows := [][]string{semanticHeaders("sql-example", "en", true),
+		{question, "SELECT count(*) FROM second", "second", ""},
+		{question, "SELECT count(*) FROM duplicate", "second", ""},
+		{question, "SELECT count(*) FROM first", "fixture", ""},
+	}
+	book, err := semanticWorkbook(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("file", "synthetic.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(book); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/system/data-training/uploadExcel", &body)
+	r.Header.Set("Content-Type", form.FormDataContentType())
+	r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("training upload failed: %d %s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Data semanticUploadReport `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.SuccessCount != 1 || response.Data.DuplicateCount != 1 || response.Data.FailedCount != 1 || response.Data.ErrorExcelFile == nil {
+		t.Fatalf("same question in two datasources must be distinct: %s", w.Body.String())
+	}
+	stored, err := service.Examples(ctx, p)
+	if err != nil || len(stored) != 2 || stored[0].Datasource == stored[1].Datasource {
+		t.Fatalf("wrong datasource-scoped SQL examples: %+v, %v", stored, err)
+	}
+}
+
+func TestSemanticLegacyXLSUploadMatchesOriginalWorkbookFlows(t *testing.T) {
+	service, handler, token, _ := adminUsersFixture(t)
+	ctx := context.Background()
+	p, err := service.Identity.Verify(ctx, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range []Binding{
+		{Datasource: "11", Workspace: p.Workspace, User: p.User.ID, Name: "Synthetic training source one", Dialect: "pg", BindingID: "one", ConnectorToken: "connector-one", AgentKey: "agent-one"},
+		{Datasource: "12", Workspace: p.Workspace, User: p.User.ID, Name: "Synthetic training source two", Dialect: "pg", BindingID: "two", ConnectorToken: "connector-two", AgentKey: "agent-two"},
+	} {
+		if err := service.Store.put(ctx, bindingKey(p, binding.Datasource), binding, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	upload := func(route, filename string, data []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		part, err := form.CreateFormFile("file", filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost, route, &body)
+		r.Header.Set("Content-Type", form.FormDataContentType())
+		r.Header.Set("X-SQLBOT-TOKEN", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	check := func(w *httptest.ResponseRecorder, success, duplicate, failed int) {
+		t.Helper()
+		var response struct {
+			Data semanticUploadReport `json:"data"`
+		}
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &response) != nil ||
+			response.Data.SuccessCount != success || response.Data.DuplicateCount != duplicate ||
+			response.Data.FailedCount != failed {
+			t.Fatalf("legacy workbook report mismatch: %d %s", w.Code, w.Body.String())
+		}
+	}
+	term, err := os.ReadFile("testdata/semantic-term.xls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	training, err := os.ReadFile("testdata/semantic-training.xls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := readLegacySemanticWorkbook(term, 6); err != nil || len(rows) != 1 || rows[0][0] != "Synthetic legacy workbook term" {
+		t.Fatalf("long original terminology header was rejected: %v, %v", rows, err)
+	}
+	check(upload("/api/v1/system/terminology/uploadExcel", "terms.xls", term), 1, 0, 0)
+	check(upload("/api/v1/system/data-training/uploadExcel", "training.xls", training), 2, 1, 0)
+	check(upload("/api/v1/system/data-training/uploadExcel", "training.xls", training), 0, 1, 2)
+	if terms, err := service.Terminologies(ctx, p); err != nil || len(terms) != 1 {
+		t.Fatalf("legacy term did not persist: %v, %v", terms, err)
+	}
+	if examples, err := service.Examples(ctx, p); err != nil || len(examples) != 2 || examples[0].Datasource == examples[1].Datasource {
+		t.Fatalf("legacy training rows were not datasource-scoped: %v, %v", examples, err)
+	}
+	for _, bad := range [][]byte{training[:8], term[:len(term)/2]} {
+		if w := upload("/api/v1/system/terminology/uploadExcel", "bad.xls", bad); w.Code == http.StatusOK {
+			t.Fatalf("malformed legacy workbook accepted: %s", w.Body.String())
+		}
+	}
+	if w := upload("/api/v1/system/terminology/uploadExcel", "bad.xlsx", term); w.Code == http.StatusOK {
+		t.Fatal("legacy OLE workbook accepted under XLSX extension")
 	}
 }

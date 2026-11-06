@@ -5,15 +5,47 @@ set -eu
 umask 077
 BINARY=${1:?native test binary required}
 SOURCE=${2:?repository required}
+CURRENT_BINARY=${3:?current-version binary required}
 [ -f /.dockerenv ] || { echo 'This installation test must run in an isolated Docker container.' >&2; exit 1; }
 groupadd agentsql
 useradd -g agentsql -M -s /usr/sbin/nologin agentsql
 install -d -m 0750 -o root -g agentsql /etc/agentsql
 install -d -m 0750 -o agentsql -g agentsql /var/lib/agentsql
 install -d /etc/systemd/system /package/deploy/systemd
+# A v4.5 install must fail before modifying managed files when the verified
+# model asset is absent. The remaining regression uses a v4.4-versioned build
+# of the current source to exercise the supported legacy installer path.
+install -d /package-current/deploy/systemd
+cp "$CURRENT_BINARY" /package-current/agentsql
+"$CURRENT_BINARY" --version > /package-current/VERSION
+cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" /package-current/deploy/systemd/
+if sh "$SOURCE/scripts/install-chatbi.sh" /package-current no-start > /tmp/missing-model.log 2>&1; then
+  echo 'v4.5 installation without a verified model unexpectedly succeeded.' >&2; exit 1
+fi
+grep -q 'requires a verified local model directory' /tmp/missing-model.log
+for path in /etc/agentsql/chatbi.yaml /etc/agentsql/chatbi.env /etc/agentsql/chatbi-install-state \
+  /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
+  test ! -e "$path" || { echo "Missing-model rejection left a partial file: $path" >&2; exit 1; }
+done
 cp "$BINARY" /package/agentsql
 "$BINARY" --version > /package/VERSION
 cp "$SOURCE/deploy/systemd/chatbi.yaml" "$SOURCE/deploy/systemd/agentsql-chatbi.service" /package/deploy/systemd/
+# Fail a fresh service start after the installer has created configuration and
+# credentials. No partial first install may leave those files behind.
+mkdir -p /run/systemd/system /tmp/fresh-fault-bin
+cat > /tmp/fresh-fault-bin/systemctl <<'EOF'
+#!/bin/sh
+case "$1" in is-active|is-enabled|start) exit 1 ;; *) exit 0 ;; esac
+EOF
+chmod 0755 /tmp/fresh-fault-bin/systemctl
+if PATH="/tmp/fresh-fault-bin:$PATH" sh "$SOURCE/scripts/install-chatbi.sh" /package start > /tmp/fresh-rollback.log 2>&1; then
+  echo 'Injected fresh startup failure incorrectly succeeded.' >&2; exit 1
+fi
+for path in /etc/agentsql/chatbi.yaml /etc/agentsql/chatbi.env /etc/agentsql/chatbi-install-state \
+  /etc/systemd/system/agentsql-chatbi.service /usr/local/lib/agentsql/chatbi/agentsql /var/lib/agentsql/chatbi.db; do
+  test ! -e "$path" || { echo "Fresh rollback left a partial file: $path" >&2; exit 1; }
+done
+grep -q 'previous files and service state restored' /tmp/fresh-rollback.log
 sh "$SOURCE/scripts/install-chatbi.sh" /package no-start
 test "$(stat -c %a /etc/agentsql/chatbi.env)" = 600
 test "$(stat -c %U /var/lib/agentsql/chatbi.db)" = agentsql
@@ -59,4 +91,4 @@ fi
 sha256sum -c /tmp/rollback-before
 cmp /tmp/original.env /etc/agentsql/chatbi.env
 grep -q 'previous files and service state restored' /tmp/rollback.log
-echo 'PASS: offline fresh install, private credentials, idempotent repair, real unprivileged login, injected startup rollback.'
+echo 'PASS: offline fresh install, private credentials, idempotent repair, real unprivileged login, fresh and upgrade startup rollback.'

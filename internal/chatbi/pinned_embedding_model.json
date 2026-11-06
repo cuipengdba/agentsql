@@ -1,0 +1,15 @@
+{
+  "source": "SQLBot Community v1.10.3 (dataease/sqlbot:v1.10.3) / shibing624/text2vec-base-chinese",
+  "license": "Apache-2.0",
+  "files": [
+    {"path": "README.md", "size": 10046, "sha256": "1bb57998c4abbc05b3c9af97539d0845d118e9cfe4e3d80cad94a7000a594e98"},
+    {"path": "config.json", "size": 836, "sha256": "31fedc61f7a714978f9d9849f4818ef905f216dc7791e469b9eceb9b32350b63"},
+    {"path": "modules.json", "size": 230, "sha256": "0580fad756940809b1bc064ce1e7c1275c8b0dd80869562fe0abeb6f7059cb97"},
+    {"path": "special_tokens_map.json", "size": 125, "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3"},
+    {"path": "tokenizer_config.json", "size": 394, "sha256": "e1790949631401af1bfb6c9c7aeec7fcf612e274d73579d99f704faea40c8ba7"},
+    {"path": "tokenizer.json", "size": 439124, "sha256": "7dfbf1966ebf99d471c3796e9b457329d2b2182b817e144f1e904b957745c839"},
+    {"path": "vocab.txt", "size": 109540, "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c"},
+    {"path": "1_Pooling/config.json", "size": 74, "sha256": "3307e674cc85cf6d18376a57f1958961be178e9e51e18e39e214285082e4892a"},
+    {"path": "model.onnx", "size": 406953148, "sha256": "716d380a65efde09842642540749bc0535b05f2c66737fea1106731b8b0d7ffb"}
+  ]
+}

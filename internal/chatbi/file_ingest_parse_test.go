@@ -3,12 +3,51 @@ package chatbi
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFileImportParserXLS(t *testing.T) {
+	data, err := os.ReadFile("testdata/file-import-sales.xls")
+	require.NoError(t, err)
+	sheets, err := parseFileImport("sales.xls", data)
+	require.NoError(t, err)
+	require.Len(t, sheets, 1)
+	require.Equal(t, "Sales", sheets[0].Name)
+	require.Equal(t, 2, sheets[0].Count)
+	require.Equal(t, []FileField{{Name: "region", Type: "string"}, {Name: "amount", Type: "int"}}, sheets[0].Fields)
+	require.Equal(t, int64(10), sheets[0].Preview[0]["amount"])
+	require.Equal(t, "west", sheets[0].Preview[1]["region"])
+	unicodeData, err := os.ReadFile("testdata/file-import-unicode.xls")
+	require.NoError(t, err)
+	unicodeSheets, err := parseFileImport("销售.xls", unicodeData)
+	require.NoError(t, err)
+	require.Equal(t, "销售", unicodeSheets[0].Name)
+	require.Equal(t, "华东", unicodeSheets[0].Preview[0]["区域"])
+	require.Equal(t, int64(20), unicodeSheets[0].Preview[1]["金额"])
+
+	for _, invalid := range [][]byte{data[:8], data[:len(data)/2], []byte("region,amount\neast,10\n")} {
+		_, err := parseFileImport("sales.xls", invalid)
+		require.ErrorIs(t, err, errFileImport)
+	}
+	// A cyclic OLE directory sector must terminate with an error, not pin a
+	// request worker while replaying the same four directory entries forever.
+	cyclic := bytes.Clone(data)
+	directorySector := binary.LittleEndian.Uint32(cyclic[48:52])
+	fatSector := binary.LittleEndian.Uint32(cyclic[76:80])
+	fatEntry := 512 + int(fatSector)*512 + int(directorySector)*4
+	require.LessOrEqual(t, fatEntry+4, len(cyclic))
+	binary.LittleEndian.PutUint32(cyclic[fatEntry:fatEntry+4], directorySector)
+	_, err = parseFileImport("cycle.xls", cyclic)
+	require.ErrorIs(t, err, errFileImport)
+	_, err = parseFileImport("sales.csv", data)
+	require.ErrorIs(t, err, errFileImport)
+}
 
 func TestFileImportParserCSVAndXLSX(t *testing.T) {
 	csvData := []byte("region,amount\neast,10\nwest,20\n")

@@ -3,6 +3,7 @@ package chatbi
 import (
 	"errors"
 	"net/http"
+	"strconv"
 )
 
 // These read-only responses match the SQLBot Community v1.10.2 browser
@@ -24,8 +25,21 @@ func (h *Handler) sqlbotProtocolVersion(w http.ResponseWriter, _ *http.Request, 
 // original endpoint has no response payload; model details and API keys must
 // not be exposed by this compatibility probe.
 func (h *Handler) sqlbotDefaultModel(w http.ResponseWriter, r *http.Request, p Principal, _ string) {
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		if _, _, err := h.service.Store.modelForWorkspace(r.Context(), p.Workspace); err != nil {
+			failure(w, err)
+			return
+		}
+		okay(w, nil)
+		return
+	}
 	var model ModelConfig
-	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	_, err = h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			failure(w, ErrNotFound)
@@ -46,6 +60,10 @@ func (h *Handler) sqlbotDefaultModel(w http.ResponseWriter, r *http.Request, p P
 // placeholder in the compatibility response, never in the query history or
 // persisted AgentSQL record index. It has no SQL, data or execution authority.
 func sqlbotChatView(chat Chat) Chat {
+	if chat.Origin == 2 && chat.Datasource == "" && len(chat.Records) == 0 {
+		// The original assistant's source-less start has no placeholder turn.
+		return chat
+	}
 	if len(chat.Records) != 0 && chat.Records[0].FirstChat {
 		return chat
 	}
@@ -81,12 +99,20 @@ func (h *Handler) sqlbotChatParameters(w http.ResponseWriter, r *http.Request, p
 // The original login and user-management pages read these settings before
 // authentication. AgentSQL provisions user passwords explicitly and never
 // publishes a shared default password to the browser.
-func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, _ *http.Request) {
-	okay(w, []sqlbotChatParameter{
-		{Key: "login.default_login", Value: "0", ID: "agentsql-login-default", Type: "str"},
-		{Key: "login.initial_pwd_disabled", Value: "false", ID: "agentsql-login-initial-disabled", Type: "str"},
-		{Key: "login.initial_pwd_hidden", Value: "true", ID: "agentsql-login-initial-hidden", Type: "str"},
-	})
+func (h *Handler) sqlbotLoginParameters(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.service.Store.ChatSettings(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	okay(w, loginParameterList(settings))
+}
+
+func loginParameterList(settings chatSettings) []sqlbotChatParameter {
+	return []sqlbotChatParameter{
+		{Key: "login.initial_pwd_disabled", Value: strconv.FormatBool(settings.InitialPasswordDisabled), ID: "7521910576851", Type: "str"},
+		{Key: "login.initial_pwd_hidden", Value: strconv.FormatBool(settings.InitialPasswordHidden), ID: "7521910576852", Type: "str"},
+	}
 }
 
 func (h *Handler) sqlbotDefaultPassword(w http.ResponseWriter, r *http.Request, p Principal, token string) {

@@ -22,7 +22,7 @@ func (h *Handler) changePasswordAtLogin(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusUnauthorized, "Invalid account change")
 		return
 	}
-	if err := h.service.Identity.ChangePasswordByAccount(r.Context(), account, current, replacement); err != nil {
+	if err := h.service.Identity.ChangePasswordByAccount(r.Context(), account, current, replacement, h.initialUserPassword); err != nil {
 		failure(w, err)
 		return
 	}
@@ -37,7 +37,7 @@ func (h *Handler) changeOwnPassword(w http.ResponseWriter, r *http.Request, p Pr
 	if !readBody(w, r, &input) {
 		return
 	}
-	if err := h.service.Identity.ChangePassword(r.Context(), p, input.Current, input.New); err != nil {
+	if err := h.service.Identity.ChangePassword(r.Context(), p, input.Current, input.New, h.initialUserPassword); err != nil {
 		failure(w, err)
 		return
 	}

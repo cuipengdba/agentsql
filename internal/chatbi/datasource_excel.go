@@ -70,7 +70,7 @@ func (h *Handler) claimNativeFileDatasource(w http.ResponseWriter, r *http.Reque
 	}
 	var receipt managedFileReceipt
 	_, err := h.service.Store.get(r.Context(), managedFileReceiptKey(p, request.FilePath), &receipt)
-	if err != nil || receipt.ClaimedDatasource != "" || receipt.Filename != request.FilePath {
+	if err != nil || receipt.ClaimedDatasource != "" || !receipt.CleanupStarted.IsZero() || receipt.Filename != request.FilePath {
 		failure(w, ErrNotFound)
 		return
 	}
@@ -123,7 +123,7 @@ func (h *Handler) createExcelDatasource(w http.ResponseWriter, r *http.Request, 
 	}
 	var receipt managedFileReceipt
 	revision, err := h.service.Store.get(r.Context(), managedFileReceiptKey(p, filename), &receipt)
-	if err != nil || receipt.ClaimedDatasource != "" || receipt.Filename != filename ||
+	if err != nil || receipt.ClaimedDatasource != "" || !receipt.CleanupStarted.IsZero() || receipt.Filename != filename ||
 		!managedFileOperationPattern.MatchString(receipt.OperationID) ||
 		!managedFileChildNamePattern.MatchString(receipt.DatasourceName) || receipt.BindingID == "" ||
 		!reflect.DeepEqual(configuredSheets, receipt.Sheets) || len(input.Tables) == 0 || len(input.Tables) > len(receipt.Sheets) {
@@ -249,70 +249,6 @@ func legacyExcelDatasource(binding Binding) (map[string]any, error) {
 		"oid": workspaceID, "create_by": userID, "create_time": binding.Created,
 		"status": "Success", "num": strconv.Itoa(selectedCount) + "/" + strconv.Itoa(len(sheets)),
 		"recommended_config": 1, "embedding": nil, "table_relation": nil}, nil
-}
-
-func (h *Handler) getExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, token string) {
-	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
-		failure(w, err)
-		return
-	}
-	id := ID(r.PathValue("id"))
-	if !id.Valid() {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
-		return
-	}
-	binding, revision, digest, err := h.service.bindingSnapshot(r.Context(), p, id)
-	if err != nil {
-		failure(w, err)
-		return
-	}
-	var payload map[string]any
-	if binding.Type == "excel" {
-		payload, err = legacyExcelDatasource(binding)
-	} else if databaseBinding(binding) {
-		var numeric, workspace, creator int64
-		numeric, err = strconv.ParseInt(string(binding.Datasource), 10, 64)
-		if err == nil {
-			workspace, err = strconv.ParseInt(string(binding.Workspace), 10, 64)
-		}
-		if err == nil {
-			creator, err = strconv.ParseInt(string(binding.User), 10, 64)
-		}
-		if err == nil && numeric > 0 && numeric <= maxSQLBotBrowserID && workspace > 0 && creator > 0 {
-			var configuration string
-			configuration, err = databaseDisplayConfiguration()
-			if err == nil {
-				kind, typeName := binding.Dialect, "PostgreSQL"
-				if kind == "mysql" {
-					typeName = "MySQL"
-				}
-				payload = map[string]any{"id": numeric, "oid": workspace, "create_by": creator,
-					"name": binding.Name, "description": binding.Description, "type": kind,
-					"type_name": typeName, "configuration": configuration, "create_time": binding.Created,
-					"status": "Success", "recommended_config": 1, "embedding": nil, "table_relation": nil}
-			}
-		}
-	} else {
-		failure(w, ErrNotFound)
-		return
-	}
-	if err != nil || payload == nil {
-		failure(w, ErrUnavailable)
-		return
-	}
-	if err := h.currentIdentity(r.Context(), p, token); err != nil {
-		failure(w, err)
-		return
-	}
-	if err := h.service.semanticAdmin(r.Context(), p); err != nil {
-		failure(w, err)
-		return
-	}
-	if err := h.service.bindingUnchanged(r.Context(), p, binding, revision, digest); err != nil {
-		failure(w, err)
-		return
-	}
-	okay(w, payload)
 }
 
 func (h *Handler) deleteExcelDatasource(w http.ResponseWriter, r *http.Request, p Principal, _ string) {

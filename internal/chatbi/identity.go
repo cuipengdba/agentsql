@@ -95,6 +95,8 @@ type Principal struct {
 	Workspace        ID
 	EmbeddedApp      ID
 	EmbeddedRevision int64
+	EmbeddedType     int
+	VisitorScope     string
 }
 
 func userKey(id ID) objectKey { return objectKey{"user", "system", "system", string(id)} }
@@ -109,7 +111,7 @@ func (s *Store) accountKey(account string) objectKey {
 // collision must fail instead of silently remapping an existing identity.
 func validateUser(user User) error {
 	if !user.ID.Valid() || user.Account == "" || len(user.Account) > 100 || user.AuthRevision < 1 || !user.Workspace.Valid() ||
-		(user.Status != 0 && user.Status != 1) || len(user.Memberships) == 0 {
+		(user.Status != 0 && user.Status != 1) {
 		return ErrUnauthenticated
 	}
 	seen := map[ID]bool{}
@@ -119,7 +121,11 @@ func validateUser(user User) error {
 		}
 		seen[member.Workspace] = true
 	}
-	if !seen[user.Workspace] {
+	// The original workspace member page can remove a user's final membership.
+	// Keep that account available for a later grant, but it cannot authenticate
+	// or authorize any workspace operation until a membership is restored.
+	if len(user.Memberships) == 0 && (user.Admin || len(user.SystemVariables) != 0) ||
+		len(user.Memberships) != 0 && !seen[user.Workspace] {
 		return ErrUnauthenticated
 	}
 	if len(user.SystemVariables) > 32 {

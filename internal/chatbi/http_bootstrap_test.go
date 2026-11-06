@@ -38,14 +38,14 @@ func TestSQLBotBrowserBootstrapContract(t *testing.T) {
 	}
 	status, body = request("/api/v1/system/parameter/login", "")
 	var loginParameters []sqlbotChatParameter
-	if status != http.StatusOK || json.Unmarshal(body["data"], &loginParameters) != nil || len(loginParameters) != 3 {
+	if status != http.StatusOK || json.Unmarshal(body["data"], &loginParameters) != nil || len(loginParameters) != 2 {
 		t.Fatalf("public SQLBot login settings: %d %s", status, body["data"])
 	}
 	loginSettings := map[string]string{}
 	for _, parameter := range loginParameters {
 		loginSettings[parameter.Key] = parameter.Value
 	}
-	if loginSettings["login.default_login"] != "0" || loginSettings["login.initial_pwd_hidden"] != "true" || loginSettings["login.initial_pwd_disabled"] != "false" {
+	if loginSettings["login.initial_pwd_hidden"] != "false" || loginSettings["login.initial_pwd_disabled"] != "false" {
 		t.Fatalf("unsafe SQLBot login settings: %v", loginSettings)
 	}
 	for _, path := range []string{"/api/v1/system/license/version", "/api/v1/system/parameter/chat", "/api/v1/system/aimodel/default"} {

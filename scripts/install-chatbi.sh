@@ -6,6 +6,7 @@ set -eu
 umask 077
 ROOT=${1:?verified package root required}
 MODE=${2:-start}
+MODEL_SOURCE=${3:-}
 case "$MODE" in start|no-start|upgrade) ;; *) exit 2 ;; esac
 REQUESTED_MODE=$MODE
 [ "$(id -u)" -eq 0 ] || { echo 'ChatBI installation requires root.' >&2; exit 1; }
@@ -14,15 +15,19 @@ ENVFILE=/etc/agentsql/chatbi.env
 DB=/var/lib/agentsql/chatbi.db
 UNIT=/etc/systemd/system/agentsql-chatbi.service
 BIN=/usr/local/lib/agentsql/chatbi/agentsql
+MODEL=/usr/local/lib/agentsql/chatbi/model
 STATE=/etc/agentsql/chatbi-install-state
 BACKUP=
+MODEL_STAGE=
+MODEL_CHANGED=0
 ACTIVE=0
 ENABLED=0
 TRANSACTION=0
 SYSTEMD=0
 command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && SYSTEMD=1
 [ "$MODE" = no-start ] || [ "$SYSTEMD" -eq 1 ] || { echo 'systemd is required.' >&2; exit 1; }
-for path in "$CONFIG" "$ENVFILE" "$DB" "$DB-wal" "$DB-shm" "$UNIT" "$BIN" "$STATE" /usr/local/lib/agentsql/chatbi; do
+for path in /etc/agentsql /var/lib/agentsql /var/backups/agentsql /usr/local/lib/agentsql /usr/local/lib/agentsql/chatbi \
+            "$CONFIG" "$ENVFILE" "$DB" "$DB-wal" "$DB-shm" "$UNIT" "$BIN" "$MODEL" "$STATE"; do
   [ ! -L "$path" ] || { echo 'Refusing a symbolic link in managed ChatBI paths.' >&2; exit 1; }
 done
 if [ -e "$UNIT" ] || [ -e "$BIN" ]; then
@@ -39,6 +44,27 @@ if [ -f "$CONFIG" ]; then
 fi
 VERSION=$(cat "$ROOT/VERSION")
 [ "$("$ROOT/agentsql" --version)" = "$VERSION" ] || exit 1
+if [ "$(printf '%s\n%s\n' v4.5.0 "$VERSION" | sort -V | head -n 1)" = v4.5.0 ]; then
+  [ -n "$MODEL_SOURCE" ] || { echo 'ChatBI v4.5.0+ requires a verified local model directory.' >&2; exit 1; }
+fi
+if [ -n "$MODEL_SOURCE" ]; then
+  [ ! -L "$MODEL_SOURCE" ] && [ -d "$MODEL_SOURCE" ] || { echo 'Model source must be a regular directory.' >&2; exit 1; }
+  "$ROOT/agentsql" chatbi verify-embedding-model --path "$MODEL_SOURCE" >/dev/null || {
+    echo 'Pinned ChatBI model source failed verification.' >&2; exit 1;
+  }
+  if [ -e "$MODEL" ] && [ ! -d "$MODEL" ]; then
+    echo 'Managed ChatBI model path is not a directory.' >&2; exit 1
+  fi
+  if [ -d "$MODEL" ]; then
+    "$ROOT/agentsql" chatbi verify-embedding-model --path "$MODEL" >/dev/null || {
+      echo 'Existing model directory is not the managed pinned model.' >&2; exit 1;
+    }
+  fi
+  if [ -f "$CONFIG" ] && grep -Eq '^embedding_model_path:' "$CONFIG" &&
+     ! grep -Fxq "embedding_model_path: \"$MODEL\"" "$CONFIG"; then
+    echo 'Existing ChatBI configuration uses a different model path.' >&2; exit 1
+  fi
+fi
 if [ -f "$STATE" ]; then
   # Never use this optional component to bypass the main installer's downgrade gate.
   old=$(cat "$STATE")
@@ -49,8 +75,19 @@ restore() {
   if [ "$SYSTEMD" -eq 1 ] && [ -f "$UNIT" ]; then
     systemctl stop agentsql-chatbi >/dev/null 2>&1 || return 1
   fi
-  for name in binary unit state chatbi.db chatbi.db-wal chatbi.db-shm; do
-    case "$name" in binary) target=$BIN ;; unit) target=$UNIT ;; state) target=$STATE ;; *) target=/var/lib/agentsql/$name ;; esac
+  if [ "$MODEL_CHANGED" -eq 1 ]; then
+    if [ -d "$MODEL" ]; then rm -r -- "$MODEL" || return 1; fi
+    if [ -d "$BACKUP/model" ]; then cp -pR "$BACKUP/model" "$MODEL" || return 1; fi
+  fi
+  for name in binary unit state chatbi.yaml chatbi.env chatbi.db chatbi.db-wal chatbi.db-shm; do
+    case "$name" in
+      binary) target=$BIN ;;
+      unit) target=$UNIT ;;
+      state) target=$STATE ;;
+      chatbi.yaml) target=$CONFIG ;;
+      chatbi.env) target=$ENVFILE ;;
+      *) target=/var/lib/agentsql/$name ;;
+    esac
     if [ -f "$BACKUP/$name" ]; then cp -p "$BACKUP/$name" "$target" || return 1
     else rm -f "$target" || return 1; fi
   done
@@ -68,6 +105,7 @@ cleanup() {
     if restore; then echo "ChatBI previous files and service state restored; backup: $BACKUP" >&2
     else echo "ChatBI automatic restoration failed; preserve backup: $BACKUP" >&2; fi
   fi
+  if [ -n "$MODEL_STAGE" ] && [ -d "$MODEL_STAGE" ]; then rm -r -- "$MODEL_STAGE" || true; fi
   exit "$code"
 }
 trap cleanup EXIT
@@ -101,6 +139,10 @@ for pair in "$BIN:binary" "$UNIT:unit" "$STATE:state" "$CONFIG:chatbi.yaml" "$EN
     echo 'ChatBI backup failed; nothing replaced.' >&2; exit 1
   fi
 done
+if [ -d "$MODEL" ] && ! cp -pR "$MODEL" "$BACKUP/model"; then
+  [ "$ACTIVE" -eq 0 ] || systemctl start agentsql-chatbi || true
+  echo 'ChatBI model backup failed; nothing replaced.' >&2; exit 1
+fi
 TRANSACTION=1
 if [ ! -e "$ENVFILE" ]; then
   [ ! -e "$DB" ] || { echo 'Restore the existing ChatBI encryption key before installation.' >&2; exit 1; }
@@ -111,6 +153,24 @@ if [ ! -e "$ENVFILE" ]; then
   chmod 0600 "$ENVFILE"
 fi
 [ -e "$CONFIG" ] || install -o root -g agentsql -m 0640 "$ROOT/deploy/systemd/chatbi.yaml" "$CONFIG"
+if [ -n "$MODEL_SOURCE" ]; then
+  MODEL_STAGE="/usr/local/lib/agentsql/chatbi/.model.new.$$"
+  [ ! -e "$MODEL_STAGE" ] && [ ! -L "$MODEL_STAGE" ] || exit 1
+  install -d -o root -g root -m 0700 "$MODEL_STAGE"
+  cp -pR "$MODEL_SOURCE/." "$MODEL_STAGE/"
+  chown -R root:root "$MODEL_STAGE"
+  chmod -R a+rX "$MODEL_STAGE"
+  "$ROOT/agentsql" chatbi verify-embedding-model --path "$MODEL_STAGE" >/dev/null || {
+    echo 'Copied ChatBI model failed verification.' >&2; exit 1
+  }
+  MODEL_CHANGED=1
+  if [ -d "$MODEL" ]; then rm -r -- "$MODEL"; fi
+  mv "$MODEL_STAGE" "$MODEL"
+  MODEL_STAGE=
+  if ! grep -Fxq "embedding_model_path: \"$MODEL\"" "$CONFIG"; then
+    printf 'embedding_model_path: "%s"\n' "$MODEL" >> "$CONFIG"
+  fi
+fi
 install -o root -g root -m 0755 "$ROOT/agentsql" "$BIN.new"
 mv "$BIN.new" "$BIN"
 install -o root -g root -m 0644 "$ROOT/deploy/systemd/agentsql-chatbi.service" "$UNIT"

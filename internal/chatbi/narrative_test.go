@@ -2,9 +2,53 @@ package chatbi
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 )
+
+func TestSaveNarrativeClosesWhenRowPermissionChangesDuringChildPersistence(t *testing.T) {
+	ctx := context.Background()
+	service, p, gateway, _, token := serviceFixture(t)
+	gateway.columns = []Column{{Schema: "public", Table: "sales", Name: "region", DataType: "text"},
+		{Schema: "public", Table: "sales", Name: "amount", DataType: "numeric"}}
+	rule := testActiveRowPermission(t, "east")
+	if err := service.Store.put(ctx, permissionRuleKey(p.Workspace, rule.ID), rule, 0); err != nil {
+		t.Fatal(err)
+	}
+	record := finishedFixtureRecord(t, service, p, token)
+	service.Model = &narrativeFixtureModel{}
+	result, err := service.NarrateRecord(ctx, p, record.ID, "analysis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked := rule
+	revoked.Enable = false
+	key := permissionRuleKey(p.Workspace, rule.ID)
+	body, err := service.Store.seal(key, revoked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The trigger changes the policy in the same committed write as the child
+	// chat record. Checks before persistence cannot detect this interleaving.
+	trigger := fmt.Sprintf(`CREATE TRIGGER revoke_after_narrative_save AFTER UPDATE ON chatbi_objects
+		WHEN NEW.kind='chat' AND NEW.scope='%s' AND NEW.owner='%s' AND NEW.id='%s'
+		BEGIN UPDATE chatbi_objects SET revision=revision+1,body=X'%s'
+		WHERE kind='%s' AND scope='%s' AND owner='%s' AND id='%s'; END`,
+		p.Workspace, p.User.ID, record.Chat, hex.EncodeToString(body), key.Kind, key.Scope, key.Owner, key.ID)
+	if _, err := service.Store.db.ExecContext(ctx, trigger); err != nil {
+		t.Fatal(err)
+	}
+	childID, err := service.SaveNarrative(ctx, p, result)
+	if !errors.Is(err, ErrGateway) || childID != "" {
+		t.Fatalf("revoked narrative was returned: id=%s err=%v", childID, err)
+	}
+	history, err := service.ReadChat(ctx, p, record.Chat, true)
+	if err != nil || len(history.Records) != 2 || history.Records[1].Analysis != "" {
+		t.Fatalf("revoked analysis remained visible: history=%#v err=%v", history, err)
+	}
+}
 
 type narrativeFixtureModel struct {
 	fakeModel

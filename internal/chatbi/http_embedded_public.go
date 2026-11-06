@@ -4,7 +4,89 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 )
+
+func (service *Service) publicAssistantByID(ctx context.Context, id ID) (AssistantApplication, error) {
+	if !id.Valid() {
+		return AssistantApplication{}, ErrNotFound
+	}
+	rows, err := service.Store.db.QueryContext(ctx, `SELECT scope,body FROM chatbi_objects
+		WHERE kind='assistant' AND owner='workspace' AND id=? LIMIT 2`, string(id))
+	if err != nil {
+		return AssistantApplication{}, ErrUnavailable
+	}
+	defer rows.Close()
+	var result AssistantApplication
+	count := 0
+	for rows.Next() {
+		count++
+		var scope string
+		var body []byte
+		if rows.Scan(&scope, &body) != nil {
+			return AssistantApplication{}, ErrUnavailable
+		}
+		var app AssistantApplication
+		if service.Store.decode(assistantKey(ID(scope), id), body, &app) != nil ||
+			app.ID != id || app.Workspace != ID(scope) {
+			return AssistantApplication{}, ErrUnavailable
+		}
+		result = app
+	}
+	if rows.Err() != nil {
+		return AssistantApplication{}, ErrUnavailable
+	}
+	if count == 0 || !result.Enabled {
+		return AssistantApplication{}, ErrNotFound
+	}
+	if count != 1 {
+		return AssistantApplication{}, ErrUnavailable
+	}
+	return result, nil
+}
+
+// The original SDK checks an assistant's allowed browser origin before its
+// signed bootstrap. This public endpoint exposes only the yes/no decision.
+func (h *Handler) publicAssistantValidate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !h.appLookupLimit.Allow() {
+		writeJSON(w, http.StatusTooManyRequests, "Too many embedding lookups")
+		return
+	}
+	app, err := h.service.publicAssistantByID(r.Context(), ID(r.PathValue("id")))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, "Application not found")
+		} else {
+			failure(w, err)
+		}
+		return
+	}
+	origins := r.Header.Values("Origin")
+	origin := ""
+	if len(origins) == 1 {
+		origin = origins[0]
+	} else if len(origins) == 0 {
+		if referer := r.Header.Get("Referer"); referer != "" {
+			if parsed, parseErr := url.Parse(referer); parseErr == nil && parsed.User == nil {
+				origin = parsed.Scheme + "://" + parsed.Host
+			}
+		}
+	}
+	if !assistantOriginAllowed(app.Domain, origin) {
+		writeJSON(w, http.StatusForbidden, "Application origin is not allowed")
+		return
+	}
+	w.Header().Set("Vary", "Origin")
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true, "origin": origin})
+}
 
 func (service *Service) pageEmbedByAppID(ctx context.Context, appID string) (AssistantApplication, error) {
 	if len(appID) < 12 || len(appID) > 255 {

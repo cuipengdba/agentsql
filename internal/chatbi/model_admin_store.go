@@ -8,71 +8,85 @@ import (
 // WorkspaceModelUpdate changes the model used by this workspace. An omitted
 // API key preserves the encrypted key; an explicit empty string clears it.
 type WorkspaceModelUpdate struct {
-	Revision  int64   `json:"revision"`
-	Name      string  `json:"name"`
-	Model     string  `json:"base_model"`
-	Endpoint  string  `json:"api_domain"`
-	APIKey    *string `json:"api_key"`
-	MaxTokens int     `json:"max_tokens"`
+	Revision           int64    `json:"revision"`
+	Name               string   `json:"name"`
+	Model              string   `json:"base_model"`
+	Endpoint           string   `json:"api_domain"`
+	APIKey             *string  `json:"api_key"`
+	MaxTokens          int      `json:"max_tokens"`
+	Temperature        *float64 `json:"temperature,omitempty"`
+	ReplaceTemperature bool     `json:"-"`
+	Supplier           int      `json:"supplier,omitempty"`
+	EnableThinking     *bool    `json:"enable_thinking,omitempty"`
+	ReplaceThinking    bool     `json:"-"`
 }
 
 // CreateWorkspaceModel installs the first default model for a workspace.
 // A second create must fail without replacing an existing encrypted key.
 func (s *Store) CreateWorkspaceModel(ctx context.Context, p Principal, update WorkspaceModelUpdate) error {
+	_, err := s.CreateWorkspaceModelWithID(ctx, p, update)
+	return err
+}
+
+// CreateWorkspaceModelWithID returns the ID committed with the first model.
+func (s *Store) CreateWorkspaceModelWithID(ctx context.Context, p Principal, update WorkspaceModelUpdate) (ID, error) {
 	if !p.Workspace.Valid() || !p.User.ID.Valid() || p.EmbeddedApp != "" || update.Revision != 0 {
-		return ErrInvalidAccountChange
+		return "", ErrInvalidAccountChange
 	}
 	id, err := newID()
 	if err != nil {
-		return err
+		return "", err
 	}
-	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens}
+	model := ModelConfig{ID: id, Name: update.Name, Model: update.Model, Endpoint: update.Endpoint, MaxTokens: update.MaxTokens, Temperature: update.Temperature, Supplier: update.Supplier, EnableThinking: update.EnableThinking}
 	if update.APIKey != nil {
 		model.APIKey = *update.APIKey
 	}
 	if validateModelConfig(model) != nil {
-		return ErrInvalidAccountChange
+		return "", ErrInvalidAccountChange
 	}
 	key := objectKey{"model", string(p.Workspace), "workspace", "default"}
 	auditID, err := newID()
 	if err != nil {
-		return err
+		return "", err
 	}
 	auditKey := objectKey{"management-audit", "system", "system", string(auditID)}
 	sealed, err := s.seal(key, model)
 	if err != nil {
-		return err
+		return "", err
 	}
 	audit, err := s.seal(auditKey, map[string]any{"action": "workspace-model.create", "actor": p.User.ID,
 		"workspace": p.Workspace, "model": model.ID, "time": time.Now().UTC()})
 	if err != nil {
-		return err
+		return "", err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	defer tx.Rollback()
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
-		return err
+		return "", err
+	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
+		return "", err
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?) ON CONFLICT DO NOTHING`,
 		key.Kind, key.Scope, key.Owner, key.ID, sealed)
 	if err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	count, err := result.RowsAffected()
 	if err != nil || count != 1 {
-		return ErrConflict
+		return "", ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO chatbi_objects(kind,scope,owner,id,revision,body) VALUES(?,?,?,?,1,?)`,
 		auditKey.Kind, auditKey.Scope, auditKey.Owner, auditKey.ID, audit); err != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
 	if tx.Commit() != nil {
-		return ErrUnavailable
+		return "", ErrUnavailable
 	}
-	return nil
+	return id, nil
 }
 
 func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update WorkspaceModelUpdate) error {
@@ -91,6 +105,9 @@ func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	}
 	defer tx.Rollback()
 	if err := s.verifyManagedWorkspaceActor(ctx, tx, p); err != nil {
+		return err
+	}
+	if err := requireInactiveModelCatalogTx(ctx, tx); err != nil {
 		return err
 	}
 	var oldBody []byte
@@ -112,6 +129,15 @@ func (s *Store) UpdateWorkspaceModel(ctx context.Context, p Principal, update Wo
 	}
 	next := old
 	next.Name, next.Model, next.Endpoint, next.MaxTokens = update.Name, update.Model, update.Endpoint, update.MaxTokens
+	if update.ReplaceTemperature || update.Temperature != nil {
+		next.Temperature = update.Temperature
+	}
+	if update.ReplaceThinking || update.EnableThinking != nil {
+		next.EnableThinking = update.EnableThinking
+	}
+	if update.Supplier != 0 {
+		next.Supplier = update.Supplier
+	}
 	if update.APIKey != nil {
 		next.APIKey = *update.APIKey
 	}

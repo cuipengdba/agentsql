@@ -2,11 +2,38 @@ package chatbi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestMemberCandidateReadsRequireOriginalQueryFields(t *testing.T) {
+	_, handler, adminToken, _ := workspaceAdminFixture(t)
+	for _, check := range []struct{ path, field string }{
+		{"/api/v1/system/workspace/uws/option/pager/1/10", "oid"},
+		{"/api/v1/system/workspace/uws/option", "keyword"},
+	} {
+		response := accountRequest(t, handler, http.MethodGet, check.path, "", adminToken)
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("missing %s accepted: %d %s", check.field, response.Code, response.Body.String())
+		}
+		var envelope struct {
+			Detail []struct {
+				Type string   `json:"type"`
+				Loc  []string `json:"loc"`
+				Msg  string   `json:"msg"`
+			} `json:"detail"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || len(envelope.Detail) != 1 ||
+			envelope.Detail[0].Type != "missing" || len(envelope.Detail[0].Loc) != 2 ||
+			envelope.Detail[0].Loc[0] != "query" || envelope.Detail[0].Loc[1] != check.field ||
+			envelope.Detail[0].Msg != "Field required" {
+			t.Fatalf("missing %s shape differs: %s (%v)", check.field, response.Body.String(), err)
+		}
+	}
+}
 
 func workspaceAdminFixture(t *testing.T) (*Service, http.Handler, string, string) {
 	t.Helper()
@@ -86,6 +113,15 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 		strings.Contains(members.Body.String(), "password_hash") {
 		t.Fatalf("unsafe member page: %d %s", members.Code, members.Body.String())
 	}
+	ruleDialogMembers := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/1000?oid=2", "", adminToken)
+	if ruleDialogMembers.Code != http.StatusOK || !strings.Contains(ruleDialogMembers.Body.String(), `"total":2`) ||
+		strings.Contains(ruleDialogMembers.Body.String(), "password_hash") {
+		t.Fatalf("unsafe original rule-dialog member page: %d %s", ruleDialogMembers.Code, ruleDialogMembers.Body.String())
+	}
+	oversizedRuleDialog := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/1001?oid=2", "", adminToken)
+	if oversizedRuleDialog.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("oversized rule-dialog member page accepted: %d", oversizedRuleDialog.Code)
+	}
 	if _, err := service.Identity.Verify(context.Background(), bobToken); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatal("grant did not invalidate prior member token")
 	}
@@ -117,6 +153,51 @@ func TestWorkspaceMemberBatchIsAuthorizedAuditedAndRevocable(t *testing.T) {
 	audits, err := service.Store.list(context.Background(), "management-audit", "system", "system")
 	if err != nil || len(audits) != 3 || !strings.Contains(string(audits[0]), "workspace.member.") {
 		t.Fatalf("membership audit chain: %v %#v", err, audits)
+	}
+}
+
+func TestWorkspaceMemberCanRemoveLastWorkspaceAndRejoin(t *testing.T) {
+	service, handler, adminToken, bobToken := workspaceAdminFixture(t)
+	ctx := context.Background()
+	bob, revision, err := service.Store.User(ctx, "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob.SystemVariables = []UserVariableBinding{{Workspace: "1", VariableID: 1, VariableValues: []json.RawMessage{json.RawMessage(`"synthetic"`)}}}
+	if err := service.Store.put(ctx, userKey(bob.ID), bob, revision); err != nil {
+		t.Fatal(err)
+	}
+	revoked := accountRequest(t, handler, http.MethodDelete, "/api/v1/system/workspace/uws", `{"uid_list":["2"]}`, adminToken)
+	if revoked.Code != http.StatusOK {
+		t.Fatalf("original member page could not remove last membership: %d %s", revoked.Code, revoked.Body.String())
+	}
+	bob, _, err = service.Store.User(ctx, "2")
+	if err != nil || len(bob.Memberships) != 0 || len(bob.SystemVariables) != 0 || bob.canUse("1") {
+		t.Fatalf("removed account retained workspace data: %+v %v", bob, err)
+	}
+	if _, err := service.Identity.Verify(ctx, bobToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("old member token survived removal: %v", err)
+	}
+	if _, _, err := service.Identity.Login(ctx, "bob", "Synthetic-password-1"); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("removed member logged in: %v", err)
+	}
+	page := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/pager/1/10", "", adminToken)
+	if page.Code != http.StatusOK || strings.Contains(page.Body.String(), `"account":"bob"`) {
+		t.Fatalf("removed member remained in page: %d %s", page.Code, page.Body.String())
+	}
+	candidate := accountRequest(t, handler, http.MethodGet, "/api/v1/system/workspace/uws/option?keyword=bob", "", adminToken)
+	if candidate.Code != http.StatusOK || !strings.Contains(candidate.Body.String(), `"account":"bob"`) {
+		t.Fatalf("removed member cannot be selected again: %d %s", candidate.Code, candidate.Body.String())
+	}
+	granted := accountRequest(t, handler, http.MethodPost, "/api/v1/system/workspace/uws", `{"uid_list":["2"]}`, adminToken)
+	if granted.Code != http.StatusOK {
+		t.Fatalf("removed member could not rejoin: %d %s", granted.Code, granted.Body.String())
+	}
+	if _, _, err := service.Identity.Login(ctx, "bob", "Synthetic-password-1"); err != nil {
+		t.Fatalf("rejoined member cannot log in: %v", err)
+	}
+	if _, err := service.Identity.Verify(ctx, bobToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("old token became valid after rejoin: %v", err)
 	}
 }
 

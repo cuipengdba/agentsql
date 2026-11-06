@@ -268,18 +268,25 @@ func (service *Service) modifyMemberships(ctx context.Context, p Principal, ids 
 			if index >= 0 {
 				return ErrConflict
 			}
+			if len(user.Memberships) == 0 {
+				user.Workspace = workspace
+			}
 			user.Memberships = append(user.Memberships, Membership{Workspace: workspace, Name: name, Weight: weight})
 		case "revoke":
 			if index < 0 {
 				return ErrNotFound
 			}
-			if len(user.Memberships) == 1 {
-				return ErrConflict // Every enabled account needs a current workspace.
-			}
 			user.Memberships = append(user.Memberships[:index], user.Memberships[index+1:]...)
-			if user.Workspace == workspace {
+			if user.Workspace == workspace && len(user.Memberships) != 0 {
 				user.Workspace = user.Memberships[0].Workspace
 			}
+			remaining := user.SystemVariables[:0]
+			for _, variable := range user.SystemVariables {
+				if variable.Workspace != workspace {
+					remaining = append(remaining, variable)
+				}
+			}
+			user.SystemVariables = remaining
 		case "weight":
 			if index < 0 {
 				return ErrNotFound

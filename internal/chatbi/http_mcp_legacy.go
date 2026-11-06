@@ -2,10 +2,14 @@ package chatbi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,29 +22,76 @@ func (h *Handler) mcpAccessToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, "Too many login requests")
 		return
 	}
-	var input struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if !readBody(w, r, &input) {
+	var input mcpAccessTokenInput
+	if !readMCPAccessTokenInput(w, r, &input) {
 		return
 	}
-	_, token, err := h.service.Identity.Login(r.Context(), input.Username, input.Password)
-	if err != nil {
+	_, token, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
+	if err != nil && !errors.Is(err, ErrUnauthenticated) {
+		failure(w, err)
+		return
+	}
+	if err != nil || needChange {
 		writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"access_token": token})
+	okay(w, map[string]string{"access_token": token})
+}
+
+type mcpAccessTokenInput struct {
+	Username string
+	Password string
+}
+
+// Preserve SQLBot's field-level validation response without reflecting a
+// supplied password in the response body.
+func readMCPAccessTokenInput(w http.ResponseWriter, r *http.Request, input *mcpAccessTokenInput) bool {
+	var fields map[string]json.RawMessage
+	if !readBody(w, r, &fields) {
+		return false
+	}
+	if fields == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return false
+	}
+	var details []map[string]any
+	for _, entry := range []struct {
+		name   string
+		target *string
+	}{
+		{"username", &input.Username},
+		{"password", &input.Password},
+	} {
+		raw, present := fields[entry.name]
+		if !present {
+			details = append(details, map[string]any{
+				"type": "missing", "loc": []string{"body", entry.name}, "msg": "Field required",
+			})
+			continue
+		}
+		if string(raw) != "null" && json.Unmarshal(raw, entry.target) == nil {
+			continue
+		}
+		detail := map[string]any{
+			"type": "string_type", "loc": []string{"body", entry.name}, "msg": "Input should be a valid string",
+		}
+		if entry.name == "username" {
+			var supplied any
+			_ = json.Unmarshal(raw, &supplied)
+			detail["input"] = supplied
+		}
+		details = append(details, detail)
+	}
+	if len(details) > 0 {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": details})
+		return false
+	}
+	return true
 }
 
 func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Token    string `json:"token"`
-		OID      *ID    `json:"oid"`
-	}
-	if !readBody(w, r, &input) {
+	var input mcpStartInput
+	if !readMCPStartInput(w, r, &input) {
 		return
 	}
 	token := input.Token
@@ -49,8 +100,12 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusTooManyRequests, "Too many login requests")
 			return
 		}
-		_, issued, err := h.service.Identity.Login(r.Context(), input.Username, input.Password)
-		if err != nil {
+		_, issued, needChange, err := h.loginIdentity(r.Context(), input.Username, input.Password)
+		if err != nil && !errors.Is(err, ErrUnauthenticated) {
+			failure(w, err)
+			return
+		}
+		if err != nil || needChange {
 			writeJSON(w, http.StatusBadRequest, "Incorrect account or password")
 			return
 		}
@@ -72,7 +127,61 @@ func (h *Handler) mcpStart(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
+	okay(w, map[string]any{"access_token": token, "chat_id": json.Number(chat.ID)})
+}
+
+type mcpStartInput struct {
+	Username string
+	Password string
+	Token    string
+	OID      *ID
+}
+
+// The original MCP start endpoint validates optional JSON fields before
+// attempting authentication. Preserve field-level errors for malformed types
+// without echoing the complete body, which may contain a bearer token.
+func readMCPStartInput(w http.ResponseWriter, r *http.Request, input *mcpStartInput) bool {
+	var fields map[string]json.RawMessage
+	if !readBody(w, r, &fields) {
+		return false
+	}
+	if fields == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return false
+	}
+	fieldTypeError := func(field string, raw json.RawMessage) {
+		var supplied any
+		_ = json.Unmarshal(raw, &supplied)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": "string_type", "loc": []string{"body", field},
+			"msg": "Input should be a valid string", "input": supplied,
+		}}})
+	}
+	for _, entry := range []struct {
+		name   string
+		target *string
+	}{
+		{"username", &input.Username},
+		{"password", &input.Password},
+		{"token", &input.Token},
+	} {
+		if raw, present := fields[entry.name]; present {
+			if string(raw) == "null" || json.Unmarshal(raw, entry.target) != nil {
+				fieldTypeError(entry.name, raw)
+				return false
+			}
+		}
+	}
+	if raw, present := fields["oid"]; present && string(raw) != "null" {
+		var supplied string
+		if json.Unmarshal(raw, &supplied) != nil {
+			fieldTypeError("oid", raw)
+			return false
+		}
+		selected := ID(supplied)
+		input.OID = &selected
+	}
+	return true
 }
 
 func (h *Handler) mcpBodyPrincipal(w http.ResponseWriter, r *http.Request, token string, selected *ID) (Principal, bool) {
@@ -104,10 +213,56 @@ func (h *Handler) mcpVerifiedPrincipal(w http.ResponseWriter, r *http.Request, t
 	return p, true
 }
 
+// SQLBot's MCP question endpoint uses a forbidden response for an invalid
+// body token. Keep that wire contract on this route without changing the
+// other MCP routes' authentication policy or accepting competing credentials.
+func (h *Handler) mcpQuestionPrincipal(w http.ResponseWriter, r *http.Request, token string) (Principal, bool) {
+	forbidden := func() (Principal, bool) {
+		writeJSON(w, http.StatusForbidden, "Could not validate credentials")
+		return Principal{}, false
+	}
+	if token == "" || len(r.Header.Values("Authorization")) != 0 || len(r.Header.Values("X-SQLBOT-TOKEN")) != 0 ||
+		len(r.Header.Values("X-SQLBOT-ASSISTANT-TOKEN")) != 0 || len(r.Header.Values("X-SQLBOT-ASK-TOKEN")) != 0 {
+		return forbidden()
+	}
+	p, err := h.service.Identity.Verify(r.Context(), token)
+	if err != nil || p.EmbeddedApp != "" {
+		return forbidden()
+	}
+	if err := h.service.live(r.Context(), p); err != nil {
+		failure(w, err)
+		return Principal{}, false
+	}
+	return p, true
+}
+
 func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
-	var token string // SQLBot posts a JSON string, not an object.
-	if !readBody(w, r, &token) {
+	var token string
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP token query")
 		return
+	}
+	if values, present := query["token"]; present {
+		// SQLBot v1.10.3 declares this token as a FastAPI query parameter.
+		// Reject any body or competing credential rather than choosing one.
+		if len(query) != 1 || len(values) != 1 || values[0] == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP token query")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 65536)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || strings.TrimSpace(string(body)) != "" && strings.TrimSpace(string(body)) != "null" {
+			writeJSON(w, http.StatusUnprocessableEntity, "Conflicting MCP token body")
+			return
+		}
+		token = values[0]
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+	} else {
+		if len(query) != 0 || !readBody(w, r, &token) {
+			return
+		}
 	}
 	p, ok := h.mcpBodyPrincipal(w, r, token, nil)
 	if !ok {
@@ -130,7 +285,7 @@ func (h *Handler) mcpWorkspaceList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	okay(w, result)
 }
 
 func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +337,7 @@ func (h *Handler) mcpDatasourceList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	okay(w, result)
 }
 
 // SQLBot's model-list body may contain only an oid. AgentSQL accepts that
@@ -217,14 +372,41 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	active, err := h.service.Store.modelCatalogIsActive(r.Context())
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	if active {
+		views, err := h.service.Store.catalogWorkspaceModels(r.Context(), p)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
+			failure(w, err)
+			return
+		}
+		models := make([]map[string]any, 0, len(views))
+		for _, view := range views {
+			name := view.Model.Name
+			if name == "" {
+				name = view.Model.Model
+			}
+			models = append(models, map[string]any{"id": legacyBrowserID(view.Model.ID),
+				"name": name, "default_model": view.Default, "supplier": modelSupplier(view.Model)})
+		}
+		okay(w, models)
+		return
+	}
 	var model ModelConfig
-	_, err := h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
+	_, err = h.service.Store.get(r.Context(), objectKey{"model", string(p.Workspace), "workspace", "default"}, &model)
 	if errors.Is(err, ErrNotFound) {
 		if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
 			failure(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, []any{})
+		okay(w, []any{})
 		return
 	}
 	if err != nil || validateModelConfig(model) != nil {
@@ -235,12 +417,21 @@ func (h *Handler) mcpModelList(w http.ResponseWriter, r *http.Request) {
 		failure(w, err)
 		return
 	}
-	name := model.Name
-	if name == "" {
-		name = model.Model
+	additional, err := h.service.Store.AdditionalWorkspaceModels(r.Context(), p.Workspace)
+	if err != nil {
+		failure(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, []map[string]any{{"id": legacyBrowserID(model.ID),
-		"name": name, "default_model": true, "supplier": 0}})
+	models := make([]map[string]any, 0, len(additional)+1)
+	for index, item := range append([]ModelConfig{model}, additional...) {
+		name := item.Name
+		if name == "" {
+			name = item.Model
+		}
+		models = append(models, map[string]any{"id": legacyBrowserID(item.ID),
+			"name": name, "default_model": index == 0, "supplier": modelSupplier(item)})
+	}
+	okay(w, models)
 }
 
 func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token string) error {
@@ -252,26 +443,141 @@ func (h *Handler) mcpCurrentIdentity(ctx context.Context, p Principal, token str
 	return nil
 }
 
+// SQLBot's MCP get_user resets the transient session language to zh-CN before
+// mcp_question applies a recognized override. Never persist this setting.
+func mcpQuestionLanguage(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "zh-CN", nil
+	}
+	var requested *string
+	if err := json.Unmarshal(raw, &requested); err != nil {
+		return "", err
+	}
+	if requested != nil {
+		switch *requested {
+		case "zh-CN", "zh-TW", "en", "ko-KR", "th-TH":
+			return *requested, nil
+		}
+	}
+	return "zh-CN", nil
+}
+
+type mcpQuestionInput struct {
+	Token      string
+	Chat       json.RawMessage
+	Question   string
+	Datasource json.RawMessage
+	Custom     json.RawMessage
+	Stream     *bool
+	ReturnImg  *bool
+	Lang       json.RawMessage
+}
+
+// SQLBot's MCP client receives FastAPI validation details for malformed field
+// types. Decode the envelope first so Go's struct decoder cannot replace those
+// details with a generic error. Never echo the complete body: it may contain a
+// bearer token.
+func readMCPQuestionInput(w http.ResponseWriter, r *http.Request, input *mcpQuestionInput) bool {
+	var fields map[string]json.RawMessage
+	if !readBody(w, r, &fields) {
+		return false
+	}
+	if fields == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return false
+	}
+	fieldTypeError := func(field, kind, message string, raw json.RawMessage) {
+		var supplied any
+		_ = json.Unmarshal(raw, &supplied)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": kind, "loc": []string{"body", field}, "msg": message, "input": supplied,
+		}}})
+	}
+	if raw, present := fields["token"]; present {
+		if string(raw) == "null" || json.Unmarshal(raw, &input.Token) != nil {
+			fieldTypeError("token", "string_type", "Input should be a valid string", raw)
+			return false
+		}
+	}
+	input.Chat = fields["chat_id"]
+	raw, present := fields["question"]
+	if !present {
+		// FastAPI includes the entire request body here; that would disclose the
+		// bearer token, so preserve its error location without its input value.
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"type": "missing", "loc": []string{"body", "question"}, "msg": "Field required",
+		}}})
+		return false
+	}
+	if string(raw) == "null" || json.Unmarshal(raw, &input.Question) != nil {
+		fieldTypeError("question", "string_type", "Input should be a valid string", raw)
+		return false
+	}
+	input.Datasource = fields["datasource_id"]
+	input.Custom = fields["custom_model"]
+	input.Lang = fields["lang"]
+	if raw, present := fields["stream"]; present {
+		if json.Unmarshal(raw, &input.Stream) != nil {
+			fieldTypeError("stream", "bool_type", "Input should be a valid boolean", raw)
+			return false
+		}
+	}
+	if raw, present := fields["return_img"]; present {
+		if json.Unmarshal(raw, &input.ReturnImg) != nil {
+			fieldTypeError("return_img", "bool_type", "Input should be a valid boolean", raw)
+			return false
+		}
+	}
+	return true
+}
+
 func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Token      string          `json:"token"`
-		Chat       ID              `json:"chat_id"`
-		Question   string          `json:"question"`
-		Datasource json.RawMessage `json:"datasource_id"`
-		Custom     json.RawMessage `json:"custom_model"`
-		Stream     *bool           `json:"stream"`
-		ReturnImg  *bool           `json:"return_img"`
-	}
-	if !readBody(w, r, &input) {
+	var input mcpQuestionInput
+	if !readMCPQuestionInput(w, r, &input) {
 		return
 	}
-	if !input.Chat.Valid() || strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 ||
-		len(input.Custom) != 0 && string(input.Custom) != "null" {
-		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question or unsupported custom model")
+	var chatID ID
+	if err := json.Unmarshal(input.Chat, &chatID); err != nil {
+		var supplied string
+		if len(input.Chat) > 0 && input.Chat[0] == '"' && json.Unmarshal(input.Chat, &supplied) == nil {
+			if _, numericErr := strconv.ParseInt(supplied, 10, 64); numericErr == nil {
+				writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
+				return
+			}
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+				"type": "int_parsing", "loc": []string{"body", "chat_id"},
+				"msg": "Input should be a valid integer, unable to parse string as an integer", "input": supplied,
+			}}})
+			return
+		}
+		if string(input.Chat) == "null" || (len(input.Chat) > 0 && (input.Chat[0] == '[' || input.Chat[0] == '{')) {
+			var supplied any
+			_ = json.Unmarshal(input.Chat, &supplied)
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+				"type": "int_type", "loc": []string{"body", "chat_id"},
+				"msg": "Input should be a valid integer", "input": supplied,
+			}}})
+			return
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
 		return
 	}
-	p, ok := h.mcpBodyPrincipal(w, r, input.Token, nil)
+	if !chatID.Valid() || strings.TrimSpace(input.Question) == "" || len(input.Question) > 16000 {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid MCP question")
+		return
+	}
+	selectedModel, err := optionalQuestionModelID(input.Custom)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid model ID")
+		return
+	}
+	p, ok := h.mcpQuestionPrincipal(w, r, input.Token)
 	if !ok {
+		return
+	}
+	language, err := mcpQuestionLanguage(input.Lang)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, "Invalid language")
 		return
 	}
 	// A started MCP session may have chosen a different member workspace. Find
@@ -282,7 +588,7 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	for _, member := range p.User.Memberships {
 		candidate := p
 		candidate.Workspace = member.Workspace
-		current, _, err := h.service.chat(r.Context(), candidate, input.Chat)
+		current, _, err := h.service.chat(r.Context(), candidate, chatID)
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
@@ -294,7 +600,9 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	if !found {
-		failure(w, ErrNotFound)
+		// Match the original MCP reference for any inaccessible chat without
+		// revealing whether another user owns the supplied ID.
+		writeJSON(w, http.StatusBadRequest, "Chat ID is not exist")
 		return
 	}
 	if err := h.mcpCurrentIdentity(r.Context(), p, input.Token); err != nil {
@@ -309,7 +617,21 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	if len(input.Datasource) != 0 && string(input.Datasource) != "null" && string(input.Datasource) != `""` {
 		var requested ID
 		if json.Unmarshal(input.Datasource, &requested) != nil {
-			writeJSON(w, http.StatusUnprocessableEntity, "Invalid datasource ID")
+			status := http.StatusUnprocessableEntity
+			if input.Datasource[0] == '"' {
+				status = http.StatusBadRequest
+			}
+			if input.Datasource[0] == '[' || input.Datasource[0] == '{' {
+				var supplied any
+				if json.Unmarshal(input.Datasource, &supplied) == nil {
+					writeJSON(w, status, map[string]any{"detail": []map[string]any{
+						{"type": "string_type", "loc": []string{"body", "datasource_id", "str"}, "msg": "Input should be a valid string", "input": supplied},
+						{"type": "int_type", "loc": []string{"body", "datasource_id", "int"}, "msg": "Input should be a valid integer", "input": supplied},
+					}})
+					return
+				}
+			}
+			writeJSON(w, status, "Invalid datasource ID")
 			return
 		}
 		if selected != "" && selected != requested {
@@ -336,13 +658,13 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		selected = only.Datasource
 	}
 	if chat.Datasource == "" {
-		if err := h.service.BindMCPSource(r.Context(), p, input.Chat, selected); err != nil {
+		if err := h.service.BindMCPSource(r.Context(), p, chatID, selected); err != nil {
 			failure(w, err)
 			return
 		}
 	}
 	check := func(ctx context.Context) error { return h.mcpCurrentIdentity(ctx, p, input.Token) }
-	record, err := h.service.Ask(r.Context(), p, input.Chat, input.Question, check, nil)
+	record, err := h.service.AskWithModel(withQuestionLanguage(r.Context(), language), p, chatID, input.Question, selectedModel, check, nil)
 	if err != nil {
 		failure(w, err)
 		return
@@ -352,10 +674,22 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := map[string]any{"success": true, "record_id": json.Number(record.ID), "sql": record.SQL}
-	if record.Data != nil {
-		result["data"] = map[string]any{"fields": record.Data.Fields, "data": record.Data.Data, "fields_info": record.Data.FieldsInfo}
+	if len(chat.Records) == 0 {
+		brief := []rune(strings.TrimSpace(input.Question))
+		if len(brief) > 20 {
+			brief = brief[:20]
+		}
+		result["title"] = string(brief)
 	}
-	if record.Chart != "" && (input.ReturnImg == nil || *input.ReturnImg) {
+	if record.Data != nil {
+		result["data"] = map[string]any{
+			"fields": record.Data.Fields, "data": record.Data.Data, "fields_info": record.Data.FieldsInfo,
+			"sql":        base64.StdEncoding.EncodeToString([]byte(record.SQL)),
+			"datasource": legacyBrowserID(record.Datasource),
+		}
+	}
+	// SQLBot's return_img controls the optional rendered image, not chart JSON.
+	if record.Chart != "" {
 		var chart any
 		if json.Unmarshal([]byte(record.Chart), &chart) == nil {
 			result["chart"] = chart
@@ -369,10 +703,69 @@ func (h *Handler) mcpQuestion(w http.ResponseWriter, r *http.Request) {
 	// the controlled query, audit, local commit and final identity check pass.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, "> Record ID: %s\n> %s\n\n```sql\n%s\n```\n\n", record.ID, input.Question, record.SQL)
-	if record.Data != nil {
-		publicData, _ := json.Marshal(result["data"])
-		_, _ = w.Write(publicData)
-		_, _ = w.Write([]byte("\n"))
+	fence := "```"
+	for strings.Contains(record.SQL, fence) {
+		fence += "`"
 	}
+	_, _ = fmt.Fprintf(w, "> %s%s\n> %s\n\n%ssql\n%s\n%s\n\n", mcpRecordHeading(language), record.ID, mcpMarkdownCell(input.Question), fence, record.SQL, fence)
+	if record.Data != nil {
+		_, _ = io.WriteString(w, mcpMarkdownTable(*record.Data))
+	}
+}
+
+// Labels are pinned to SQLBot Community v1.10.3 backend/locales. Keeping the
+// lookup fixed also prevents a client-supplied locale from injecting Markdown.
+func mcpRecordHeading(language string) string {
+	switch language {
+	case "zh-TW":
+		return "響應ID: "
+	case "en", "en-US":
+		return "Answer ID: "
+	case "ko-KR":
+		return "응답 ID: "
+	case "th-TH":
+		return "รหัสการตอบกลับ: "
+	default:
+		return "响应ID: "
+	}
+}
+
+// SQLBot's MCP helper emits a Markdown table after the audited SQL. Escape
+// gateway values so stored data cannot add links, images or markup to an
+// assistant's response while preserving the original column order.
+func mcpMarkdownTable(data QueryData) string {
+	if len(data.Fields) == 0 || len(data.Data) == 0 {
+		return "The SQL execution result is empty.\n\n"
+	}
+	var out strings.Builder
+	writeRow := func(values []string) {
+		out.WriteString("| ")
+		out.WriteString(strings.Join(values, " | "))
+		out.WriteString(" |\n")
+	}
+	headings := make([]string, len(data.Fields))
+	separator := make([]string, len(data.Fields))
+	for i, field := range data.Fields {
+		headings[i] = mcpMarkdownCell(field)
+		separator[i] = "---"
+	}
+	writeRow(headings)
+	writeRow(separator)
+	for _, row := range data.Data {
+		values := make([]string, len(data.Fields))
+		for i, field := range data.Fields {
+			if value := row[field]; value != nil {
+				values[i] = mcpMarkdownCell(fmt.Sprint(value))
+			}
+		}
+		writeRow(values)
+	}
+	out.WriteByte('\n')
+	return out.String()
+}
+
+func mcpMarkdownCell(value string) string {
+	value = html.EscapeString(value)
+	return strings.NewReplacer("\\", "\\\\", "|", "\\|", "\r", " ", "\n", " ", "\t", " ",
+		"[", "\\[", "]", "\\]", "!", "\\!").Replace(value)
 }

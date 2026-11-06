@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,15 +19,20 @@ import (
 
 type fakeManagedFileGateway struct {
 	*fakeGateway
-	calls   int
-	deletes int
-	columns []Column
+	calls     int
+	deletes   int
+	deleteErr error
+	columns   []Column
 }
 
 func (gateway *fakeManagedFileGateway) DeleteFile(_ context.Context, _ Principal, binding Binding, operationID string) error {
 	if binding.BindingID != "22222222-2222-4222-8222-222222222222" ||
+		binding.ResolveName != "agentsql-import-33333333333333333333333333333333" ||
 		operationID != "22222222222222222222222222222222" {
 		return ErrGateway
+	}
+	if gateway.deleteErr != nil {
+		return gateway.deleteErr
 	}
 	gateway.deletes++
 	return nil
@@ -359,6 +365,19 @@ func TestParseExcelStagesEncryptedOwnerScopedFileOnlyWithAudit(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, upload("invalid.xls", []byte("legacy")).Code)
 	_, err = service.Store.get(ctx, fileStageKey(p), &retained)
 	require.False(t, errors.Is(err, ErrNotFound))
+	legacy, err := os.ReadFile("testdata/file-import-sales.xls")
+	require.NoError(t, err)
+	response = upload("sales.xls", legacy)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+	require.True(t, strings.HasSuffix(payload.Data.FilePath, ".xls"))
+	require.Equal(t, "Sales", payload.Data.Sheets[0].Name)
+	require.Equal(t, 2, payload.Data.Sheets[0].Count)
+	require.NoError(t, json.Unmarshal([]byte(`{"filePath":"placeholder","sheets":[{"sheetName":"Sales","fields":[{"fieldName":"region","fieldType":"string"},{"fieldName":"amount","fieldType":"int"}]}]}`), &importRequest))
+	importRequest.FilePath = payload.Data.FilePath
+	plan, err = service.prepareFileImport(ctx, p, importRequest)
+	require.NoError(t, err)
+	require.Equal(t, []any{"west", int64(20)}, plan.Sheets[0].Rows[1])
 	user, revision, err = service.Store.User(ctx, p.User.ID)
 	require.NoError(t, err)
 	user.Admin = false

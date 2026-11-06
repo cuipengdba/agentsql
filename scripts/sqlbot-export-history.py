@@ -1,4 +1,4 @@
-"""Export SQLBot Community v1.10.2 chat/question metadata for AgentSQL.
+"""Export pinned SQLBot Community chat/question metadata for AgentSQL.
 
 Run inside the operator's existing SQLBot environment. The export contains
 potentially sensitive user questions. It deliberately omits SQL, result rows,
@@ -16,18 +16,22 @@ from pathlib import Path
 import tomllib
 
 
-SOURCE_COMMIT = "aa41fc1033bb974a703df9200a98ec8b9eec5f25"
+SOURCE_COMMITS = {
+    "1.10.2": "aa41fc1033bb974a703df9200a98ec8b9eec5f25",
+    "1.10.3": "96f06c7eade60ecf3e6af0313821373761d1fb85",
+}
 CHAT_MODEL_SHA256 = "a50b6605136c2839669ec04b28195c8bfe8c4e05d7b824c51e3e7e737860317a"
 
 
-def verify_baseline() -> None:
+def verify_baseline() -> tuple[str, str]:
     import apps.chat.models.chat_model as chat_model
 
     root = Path(chat_model.__file__).resolve().parents[3]
     version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     normalized = Path(chat_model.__file__).read_bytes().replace(b"\r\n", b"\n")
-    if version != "1.10.2" or hashlib.sha256(normalized).hexdigest() != CHAT_MODEL_SHA256:
-        raise RuntimeError("Only the pinned SQLBot Community v1.10.2 chat schema is supported")
+    if version not in SOURCE_COMMITS or hashlib.sha256(normalized).hexdigest() != CHAT_MODEL_SHA256:
+        raise RuntimeError("This SQLBot Community chat schema is not a pinned baseline")
+    return "v" + version, SOURCE_COMMITS[version]
 
 
 def timestamp(value: datetime) -> str:
@@ -41,7 +45,7 @@ def export(after_id: int, limit: int) -> tuple[dict, dict]:
     from common.core.db import engine
     from sqlalchemy import text
 
-    verify_baseline()
+    source_version, source_commit = verify_baseline()
     with engine.connect() as connection:
         connection.execute(text("SET TRANSACTION READ ONLY"))
         chats = connection.execute(text(
@@ -74,7 +78,7 @@ def export(after_id: int, limit: int) -> tuple[dict, dict]:
                            "brief": chat["brief"] or "", "datasource": str(chat["datasource"]),
                            "origin": chat["origin"] or 0, "records": questions})
         connection.rollback()
-    document = {"format_version": 1, "source_version": "v1.10.2", "source_commit": SOURCE_COMMIT,
+    document = {"format_version": 1, "source_version": source_version, "source_commit": source_commit,
                 "chats": output}
     report = {"exported_chats": len(output), "exported_questions": sum(len(c["records"]) for c in output),
               "skipped_chats": skipped_chats, "skipped_records": skipped_records,

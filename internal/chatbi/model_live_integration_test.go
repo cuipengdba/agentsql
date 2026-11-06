@@ -2,10 +2,22 @@ package chatbi
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
+
+type liveRequestSignalTransport struct{ started chan<- struct{} }
+
+func (transport liveRequestSignalTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	select {
+	case transport.started <- struct{}{}:
+	default:
+	}
+	return http.DefaultTransport.RoundTrip(request)
+}
 
 // Run explicitly with a locally provisioned OpenAI-compatible model. CI has
 // no model or weights and therefore skips this semantic integration check.
@@ -100,4 +112,54 @@ func TestLiveNarrativeModel(t *testing.T) {
 		t.Fatalf("local narrative model failed: %v", err)
 	}
 	t.Logf("local narrative returned %d runes", len([]rune(answer)))
+}
+
+func TestLiveNarrativeCancellationLeavesModelUsable(t *testing.T) {
+	endpoint := os.Getenv("AGENTSQL_LOCAL_MODEL_ENDPOINT")
+	if endpoint == "" {
+		t.Skip("local model endpoint is not configured")
+	}
+	modelName := os.Getenv("AGENTSQL_LOCAL_MODEL_NAME")
+	if modelName == "" {
+		modelName = "agentsql-local-qwen"
+	}
+	config := ModelConfig{Model: modelName, Endpoint: endpoint, AllowHTTP: true}
+	data := QueryData{Fields: []string{"region", "amount"}, Data: []map[string]any{
+		{"region": "east", "amount": 10}, {"region": "west", "amount": 20},
+	}, AuditID: 1}
+	started := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		answer string
+		err    error
+	}
+	interrupted := make(chan result, 1)
+	go func() {
+		answer, err := (OpenAIModel{Transport: liveRequestSignalTransport{started: started}}).Narrate(
+			ctx, config, "analysis", "请详细比较两个地区的金额，并说明数据范围和不确定性。", data)
+		interrupted <- result{answer, err}
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("local model request did not start")
+	}
+	time.Sleep(250 * time.Millisecond)
+	cancel()
+	select {
+	case stopped := <-interrupted:
+		if stopped.err != ErrModel || stopped.answer != "" {
+			t.Fatalf("interrupted model request returned data: %q, %v", stopped.answer, stopped.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("interrupted model request did not stop promptly")
+	}
+	healthyCtx, stopHealthy := context.WithTimeout(context.Background(), 90*time.Second)
+	defer stopHealthy()
+	answer, err := (OpenAIModel{}).Narrate(healthyCtx, config, "analysis", "简要比较 east 和 west 的金额。", data)
+	if err != nil || strings.TrimSpace(answer) == "" {
+		t.Fatalf("local model did not recover after cancellation: %v", err)
+	}
+	t.Logf("model recovered after cancellation with %d answer runes", len([]rune(answer)))
 }

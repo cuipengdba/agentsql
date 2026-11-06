@@ -16,6 +16,7 @@ import (
 )
 
 var ErrGateway = errors.New("controlled gateway rejected or could not complete this operation")
+var ErrGatewaySourceDenied = errors.Join(ErrGateway, errors.New("datasource mapping is not authorized"))
 
 // Binding is server-owned and encrypted at rest. External datasource IDs are
 // never accepted as gateway datasource IDs, and browser requests never set keys.
@@ -32,6 +33,8 @@ type Binding struct {
 	SelectedTables string    `json:"selected_tables,omitempty"`
 	TableComments  string    `json:"table_comments,omitempty"`
 	FieldComments  string    `json:"field_comments,omitempty"`
+	DisabledFields string    `json:"disabled_fields,omitempty"`
+	DisabledTables string    `json:"disabled_tables,omitempty"`
 	TableRelations string    `json:"table_relations,omitempty"`
 	Created        time.Time `json:"created,omitempty"`
 	Dialect        string    `json:"dialect"`
@@ -103,6 +106,9 @@ func (gateway *ControlledGateway) resolve(ctx context.Context, p Principal, b Bi
 		return resolvedBinding{}, ErrGateway
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return resolvedBinding{}, ErrGatewaySourceDenied
+	}
 	if response.StatusCode != http.StatusOK {
 		return resolvedBinding{}, ErrGateway
 	}

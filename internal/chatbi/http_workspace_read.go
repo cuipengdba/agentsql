@@ -29,6 +29,12 @@ type memberPage struct {
 	Space   ID
 }
 
+func legacyMissingQueryField(w http.ResponseWriter, name string) {
+	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+		"type": "missing", "loc": []string{"query", name}, "msg": "Field required", "input": nil,
+	}}})
+}
+
 func parseMemberPage(r *http.Request, fallback ID, candidate bool) (memberPage, bool) {
 	page, e1 := strconv.Atoi(r.PathValue("page"))
 	size, e2 := strconv.Atoi(r.PathValue("size"))
@@ -38,7 +44,11 @@ func parseMemberPage(r *http.Request, fallback ID, candidate bool) (memberPage, 
 		space = ID(value)
 	}
 	legacyAllCandidates := candidate && page == 1 && size == 1000000
-	if e1 != nil || e2 != nil || page < 1 || page > 100000 || size < 1 || size > 100 && !legacyAllCandidates || len(keyword) > 100 || !space.Valid() {
+	// The unchanged SQLBot rule-group dialog requests 1,000 current
+	// members in a single page. Keep that exact request bounded and leave
+	// ordinary pagination at 100.
+	legacyRuleMembers := !candidate && page == 1 && size == 1000
+	if e1 != nil || e2 != nil || page < 1 || page > 100000 || size < 1 || size > 100 && !legacyAllCandidates && !legacyRuleMembers || len(keyword) > 100 || !space.Valid() {
 		return memberPage{}, false
 	}
 	return memberPage{Page: page, Size: size, Keyword: keyword, Space: space}, true
@@ -136,6 +146,10 @@ func (h *Handler) legacyMemberPage(w http.ResponseWriter, r *http.Request, p Pri
 }
 
 func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if _, present := r.URL.Query()["oid"]; !present {
+		legacyMissingQueryField(w, "oid")
+		return
+	}
 	query, valid := parseMemberPage(r, p.Workspace, true)
 	if !valid {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid member candidate page")
@@ -169,6 +183,10 @@ func (h *Handler) legacyMemberCandidatePage(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) legacyMemberCandidate(w http.ResponseWriter, r *http.Request, p Principal, token string) {
+	if _, present := r.URL.Query()["keyword"]; !present {
+		legacyMissingQueryField(w, "keyword")
+		return
+	}
 	keyword := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("keyword")))
 	if keyword == "" || len(keyword) > 100 {
 		writeJSON(w, http.StatusUnprocessableEntity, "Invalid candidate keyword")
