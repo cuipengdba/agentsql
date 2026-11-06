@@ -2,13 +2,13 @@
 
 [中文](PRODUCT_MODES.md) | [English](en/PRODUCT_MODES.md)
 
-AgentSQL v4.5.0 是**独立 AI 问数 Agent + 独立 MCP Server 数据库安全网关**。问数页面和 Go 服务由 AgentSQL 自己提供，运行时不需要 SQLBot。MCP Server 可以单独为其他 AI 客户端提供受控数据库工具。两种入口也可以同时使用同一个网关。以下步骤以自托管、运营方预先登记的 PostgreSQL 网关数据源和本地模型为例；其他数据库或客户端要按各自的验收范围配置。
+AgentSQL v4.6.0 是**独立 AI 问数 Agent + 独立 MCP Server 数据库安全网关**。问数页面和 Go 服务由 AgentSQL 自己提供，运行时不需要 SQLBot。MCP Server 可以单独为其他 AI 客户端提供受控数据库工具。两种入口也可以同时使用同一个网关。以下步骤以自托管、运营方预先登记的 PostgreSQL 网关数据源和本地模型为例；其他数据库或客户端要按各自的验收范围配置。
 
 ## 开始前：安装与授权
 
-1. 从 [v4.5.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0) 获取对应架构的正式包，按发布页校验签名和哈希。在包根目录安装网关；需要自有问数时加 `--with-chatbi`。安装器的其他选项见[部署指南](DEPLOY.md)。
+1. 从 [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0) 获取对应架构的正式包，按发布页校验签名和哈希。在包根目录安装网关；需要自有问数时加 `--with-chatbi`。安装器的其他选项见[部署指南](DEPLOY.md)。
 2. 在网关控制台 `http://127.0.0.1:7780` 创建仅有需要权限的数据库账号、数据源、Agent 和对象/列授权。为用户问数建立个人绑定；为外部 MCP 客户端单独创建 Agent API Key。不要把管理员登录令牌当成 MCP Key。
-3. 在私有环境提供 OpenAI 兼容的本地文本模型服务。v4.5.0 包含固定的本地表结构向量模型，但**不内置文本大模型权重**。问数的模型和个人绑定配置见[原生问数配置](CHATBI.md)。两个本地监听端口默认只供回环访问；远程访问使用 SSH 隧道或受控 HTTPS 反向代理。
+3. 在私有环境提供 OpenAI 兼容的本地文本模型服务。v4.6.0 包含固定的本地表结构向量模型，但**不内置文本大模型权重**。问数的模型和个人绑定配置见[原生问数配置](CHATBI.md)。两个本地监听端口默认只供回环访问；远程访问使用 SSH 隧道或受控 HTTPS 反向代理。
 
 ```sh
 sudo sh install.sh install --with-chatbi
@@ -22,7 +22,7 @@ systemctl is-active agentsql.service agentsql-chatbi.service
 3. AgentSQL 从当前受权结构选择表列，调用配置的模型生成候选 SQL；网关检查并执行，页面展示回答、SQL、结果行数与审计编号。核对 SQL 和业务含义后再使用答案。
 4. 重新打开历史或导出时复核当前权限。撤销绑定或表列授权后，旧结果不可继续作为授权依据；用同一问题做一次允许、一次拒绝，并在网关查询审计中确认决策。
 
-**适合：** 员工直接用 AgentSQL 自有页面问数。SQLBot 无需部署。v4.5.0 的实测支持范围是发布说明列明的本地模型、登记的 PostgreSQL 网关别名和有限权限形态；复杂活动角色/多用户/非空白名单规则不列为本版可执行能力。
+**适合：** 员工直接用 AgentSQL 自有页面问数。SQLBot 无需部署。v4.6.0 的实测支持范围是发布说明列明的本地模型、登记的 PostgreSQL 网关别名和有限权限形态；复杂活动角色/多用户/非空白名单规则不列为本版可执行能力。
 
 ## 方式二：只用 AgentSQL MCP Server 安全网关
 
@@ -57,9 +57,10 @@ AgentSQL 自有页面 → Go 问数 Agent ─────┐
 
 **适合：** 同时服务员工问数与企业 AI Agent。两种入口共用安全内核，但各自的身份、凭据与权限需要单独配置和验收。公网 [Demo](https://agentsql.cn/demo/) 的问数模型仅为模拟展示，不能代替以上真模型和真库验收。
 
-## v4.5.0 边界与更多资料
+## v4.6.0 边界与更多资料
 
-- 已验路径和性能数字以 [v4.5.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0) 为准，不承诺所有自然语言问题都正确，也不把固定示例外推到所有数据库。
-- Type 1 高级助手与第三方目录接入、复杂活动权限目标、广覆盖社区版页面/API 分别规划至 v4.6.0、v4.7.0、v4.8.0；未完成的入口保持拒绝或仅配置状态。
+- 已验路径和性能数字以 [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0) 为准，不承诺所有自然语言问题都正确，也不把固定示例外推到所有数据库。
+- v4.6.0 增加固定 SQLBot Community v1.10.3 的 Type 1 高级助手与第三方目录限定接入。先按[Type 1 配置步骤](v4.6.0-design.md)登记真实非管理员用户、既有受权网关别名、私有目录与宿主证书，再启用独立助手服务；目录不能提供数据库连接凭据或绕过当前授权。
+- 角色、多用户及非空白名单活动权限规则留至 v4.7.0，余下社区版页面/API 和广覆盖连接兼容留至 v4.8.0；延期入口保持拒绝或仅配置。
 - 用户真实业务系统尚未验证；不宣称 100% 兼容或零改动切换。生产环境还需数据库最小权限、网络隔离、备份和本地验收。
 - 详细操作：[原生问数配置](CHATBI.md) · [MCP 接入指南](INTEGRATIONS.md) · [网关使用手册](USER_GUIDE.md) · [安全边界](../SECURITY.md)。

@@ -2,13 +2,13 @@
 
 [Simplified Chinese](../PRODUCT_MODES.md) | [English](PRODUCT_MODES.md)
 
-AgentSQL v4.5.0 combines an **independent AI data Q&A agent and an independent MCP Server database security gateway**. AgentSQL provides its own Q&A UI and Go service; SQLBot is not required at runtime. The MCP Server can independently provide controlled database tools to other AI clients. Both entry points can also share one gateway. The steps below use a self-hosted deployment, an operator-registered PostgreSQL gateway datasource, and a local model; other databases or clients require their own verified scope.
+AgentSQL v4.6.0 combines an **independent AI data Q&A agent and an independent MCP Server database security gateway**. AgentSQL provides its own Q&A UI and Go service; SQLBot is not required at runtime. The MCP Server can independently provide controlled database tools to other AI clients. Both entry points can also share one gateway. The steps below use a self-hosted deployment, an operator-registered PostgreSQL gateway datasource, and a local model; other databases or clients require their own verified scope.
 
 ## Before you start: install and grant access
 
-1. Download the official package for your architecture from the [v4.5.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0), and verify its signature and hashes. Install the gateway from the package root; add `--with-chatbi` when native Q&A is needed. See the [deployment guide](DEPLOY.md) for other installer options.
+1. Download the official package for your architecture from the [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0), and verify its signature and hashes. Install the gateway from the package root; add `--with-chatbi` when native Q&A is needed. See the [deployment guide](DEPLOY.md) for other installer options.
 2. In the gateway console at `http://127.0.0.1:7780`, create a least-privilege database account, datasource, Agent, and object/column grants. Create a personal binding for Q&A users; create a separate Agent API Key for an external MCP client. Do not use an administrator login token as an MCP Key.
-3. Provide an OpenAI-compatible local text model service in a private environment. v4.5.0 includes a fixed local schema embedding model, but **does not bundle text LLM weights**. See [native Q&A configuration](CHATBI.md) for the model and personal binding setup. The two local ports listen on loopback by default; use an SSH tunnel or controlled HTTPS reverse proxy for remote access.
+3. Provide an OpenAI-compatible local text model service in a private environment. v4.6.0 includes a fixed local schema embedding model, but **does not bundle text LLM weights**. See [native Q&A configuration](CHATBI.md) for the model and personal binding setup. The two local ports listen on loopback by default; use an SSH tunnel or controlled HTTPS reverse proxy for remote access.
 
 ```sh
 sudo sh install.sh install --with-chatbi
@@ -22,7 +22,7 @@ systemctl is-active agentsql.service agentsql-chatbi.service
 3. AgentSQL selects schema from current grants and asks the configured model for candidate SQL; the gateway checks and executes it. The UI shows the answer, SQL, row count, and audit ID. Review the SQL and business meaning before relying on the answer.
 4. Reopening history or exporting rechecks current grants. After a binding or table/column grant is revoked, old results are no longer an authorization source. Try one allowed and one denied request and confirm both decisions in the gateway query audit.
 
-**Use when:** employees ask questions directly in AgentSQL's own UI. SQLBot does not need to run. The v4.5.0 verified scope covers the local models, registered PostgreSQL gateway aliases, and bounded permission shapes stated in the release notes; complex active role/multi-user/non-empty allow-list rules are outside this release's executable scope.
+**Use when:** employees ask questions directly in AgentSQL's own UI. SQLBot does not need to run. The v4.6.0 verified scope covers the local models, registered PostgreSQL gateway aliases, and bounded permission shapes stated in the release notes; complex active role/multi-user/non-empty allow-list rules are outside this release's executable scope.
 
 ## Mode two: AgentSQL MCP Server security gateway only
 
@@ -57,9 +57,10 @@ External AI agent → AgentSQL MCP Server ┘
 
 **Use when:** employees and enterprise AI agents both need data access. The two entry points share a security core, while identities, credentials, and grants must be configured and verified separately. The public [Demo](https://agentsql.cn/en/demo/) uses a simulated Q&A model and cannot substitute for real-model and real-database acceptance.
 
-## v4.5.0 limits and further reading
+## v4.6.0 limits and further reading
 
-- Verified paths and performance measurements are in the [v4.5.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.5.0). There is no guarantee that every natural-language answer is correct, and a fixed test case does not establish support for every database.
-- Type 1 advanced assistants and third-party directories, complex active permission targets, and broad Community UI/API parity are planned for v4.6.0, v4.7.0, and v4.8.0 respectively. Unfinished entry points remain denied or configuration-only.
+- Verified paths and performance measurements are in the [v4.6.0 Release](https://github.com/cuipengdba/agentsql/releases/tag/v4.6.0). There is no guarantee that every natural-language answer is correct, and a fixed test case does not establish support for every database.
+- v4.6.0 adds bounded Type 1 advanced-assistant and third-party directory integration for fixed SQLBot Community v1.10.3. Follow the [Type 1 setup](v4.6.0-design.md) to register a real non-admin user, existing authorized gateway alias, private directory, and host certificate before enabling the separate assistant service. The catalog cannot supply database credentials or bypass current grants.
+- Active role, multi-user, and non-empty allow-list rules remain planned for v4.7.0; remaining Community pages/APIs and wider connector parity remain planned for v4.8.0. Deferred paths stay denied or configuration-only.
 - The user's real business system has not been validated; this is not a claim of 100% compatibility or zero-change cutover. Production still requires database least privilege, network isolation, backups, and local acceptance.
 - Detailed guides: [native Q&A configuration](CHATBI.md) · [MCP integration](INTEGRATIONS.md) · [gateway user guide](USER_GUIDE.md) · [security boundaries](../../SECURITY.en.md).
